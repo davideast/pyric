@@ -18,6 +18,7 @@
  */
 import { emitSandboxEvent, getClock, makeServiceMutationEvent } from 'pyric/sandbox/internal';
 import type { EventProvenance } from 'pyric/sandbox';
+import { operationStorageOf } from './sandbox/cross-bucket-target.js';
 import { getStorageService, storageAuth, storageOperationProvenance, targetOf } from './service.js';
 import { enforceRules } from './enforce.js';
 import { resourceFromStored, requestResourceFor } from './sandbox/rules-resources.js';
@@ -216,9 +217,10 @@ export function getMetadata(ref: StorageReference): Promise<FullMetadata> {
 }
 
 async function readObjectMetadata(ref: StorageReference): Promise<FullMetadata> {
-  const target = targetOf(ref.storage);
+  const operationStorage = operationStorageOf(ref);
+  const target = targetOf(operationStorage);
   const operationProvenance = storageOperationProvenance(target);
-  const service = await getStorageService(ref.storage);
+  const service = await getStorageService(operationStorage);
   const stored = await service.backend.getMetadata(ref.fullPath);
   enforceRules(service, {
     request: {
@@ -344,9 +346,10 @@ async function rewriteMetadata(
   provenance?: EventProvenance,
 ): Promise<FullMetadata> {
   guardNonRoot(ref, operation);
-  const target = targetOf(ref.storage);
+  const operationStorage = operationStorageOf(ref);
+  const target = targetOf(operationStorage);
   const operationProvenance = storageOperationProvenance(target, provenance);
-  const service = await getStorageService(ref.storage);
+  const service = await getStorageService(operationStorage);
   const existing = await service.backend.getMetadata(ref.fullPath);
   const next = existing ? change(existing, getClock(target.sandbox).date()) : undefined;
   enforceRules(service, {

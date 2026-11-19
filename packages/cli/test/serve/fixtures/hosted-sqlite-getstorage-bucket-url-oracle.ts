@@ -336,6 +336,55 @@ try {
     (error: Error & { code?: string }) => error.code === 'storage/unauthorized',
   );
 
+  // Cross-bucket ref(defaultHandle, url) over the Node host's SQLite store + HTTP byte route (storage#114).
+  const crossMediaGsRef = clientStorage.ref(defaultHandle, 'gs://media-bucket/items/cross-url.bin');
+  const crossMediaDownloadRef = clientStorage.ref(
+    defaultHandle,
+    'https://firebasestorage.googleapis.com/v0/b/media-bucket/o/items%2Fcross-url.bin?alt=media&token=t',
+  );
+  assert.equal(crossMediaGsRef.storage, defaultHandle);
+  assert.equal(crossMediaGsRef.bucket, 'media-bucket');
+  assert.equal(crossMediaDownloadRef.bucket, 'media-bucket');
+
+  const crossUploaded = await clientStorage.uploadBytes(
+    crossMediaGsRef,
+    new Uint8Array([77, 88, 99]),
+  );
+  assert.equal(crossUploaded.metadata.bucket, 'media-bucket');
+
+  await assert.rejects(
+    clientStorage.getMetadata(clientStorage.ref(defaultHandle, 'items/cross-url.bin')),
+    (error: Error & { code?: string }) => error.code === 'storage/object-not-found',
+  );
+
+  const crossBytes = new Uint8Array(await clientStorage.getBytes(crossMediaDownloadRef));
+  assert.deepEqual([...crossBytes], [77, 88, 99]);
+
+  const hostedCrossUrl = await clientStorage.getDownloadURL(crossMediaGsRef);
+  assert.ok(hostedCrossUrl.includes('/__pyric/storage/v0/b/media-bucket/o/items%2Fcross-url.bin'));
+  const refFromHostedUrl = clientStorage.ref(defaultHandle, hostedCrossUrl);
+  assert.equal(refFromHostedUrl.bucket, 'media-bucket');
+  await clientStorage.deleteObject(refFromHostedUrl);
+  await assert.rejects(
+    clientStorage.getMetadata(clientStorage.ref(otherGsHandle, 'items/cross-url.bin')),
+    (error: Error & { code?: string }) => error.code === 'storage/object-not-found',
+  );
+
+  const backToDefaultBytes = new Uint8Array(
+    await clientStorage.getBytes(
+      clientStorage.ref(otherGsHandle, 'gs://buckets-default/items/hosted-shared.bin'),
+    ),
+  );
+  assert.deepEqual([...backToDefaultBytes], [10, 20, 30]);
+
+  await assert.rejects(
+    clientStorage.uploadBytes(
+      clientStorage.ref(defaultHandle, 'gs://undeployed-bucket/items/cross-denied.bin'),
+      new Uint8Array([1]),
+    ),
+    (error: Error & { code?: string }) => error.code === 'storage/unauthorized',
+  );
+
   console.log('GetStorage bucketUrl oracle replay passed');
 } finally {
   await Promise.all([

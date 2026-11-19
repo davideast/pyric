@@ -1,5 +1,6 @@
 import { observeStorageOperation } from '../sandbox/internal/storage-activity.js';
 import { rulesBucketName } from '@pyric/rules/internal/storage';
+import { operationStorageOf } from './sandbox/cross-bucket-target.js';
 import { TARGET_SYMBOL, type Target } from './service.js';
 import { uploadBytes as rawuploadBytes, uploadString as rawuploadString } from './upload.js';
 import { uploadBytesResumable as rawuploadBytesResumable } from './resumable.js';
@@ -13,8 +14,10 @@ import { listAll as rawlistAll } from './list.js';
  * throwing, so a reference the call itself rejects still records.
  */
 function bucketName(ref: { readonly storage?: object; readonly bucket: string }): string {
-  const target = (ref.storage as { [TARGET_SYMBOL]?: Target } | undefined)?.[TARGET_SYMBOL];
-  return target === undefined ? ref.bucket : rulesBucketName(target.bucket, target.bucketName);
+  const operationStorage = operationStorageOf(ref);
+  const target = (operationStorage as { [TARGET_SYMBOL]?: Target } | undefined)?.[TARGET_SYMBOL];
+  if (target === undefined) return ref.bucket;
+  return rulesBucketName(target.bucket, target.bucketName);
 }
 
 export const uploadBytes: typeof rawuploadBytes = observeStorageOperation('uploadBytes', rawuploadBytes, bucketName);

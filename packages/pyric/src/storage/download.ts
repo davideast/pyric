@@ -17,6 +17,7 @@
  */
 import { emitSandboxEvent, getClock, makeServiceMutationEvent } from 'pyric/sandbox/internal';
 import type { EventProvenance } from 'pyric/sandbox';
+import { operationStorageOf } from './sandbox/cross-bucket-target.js';
 import { getStorageService, storageAuth, storageOperationProvenance, targetOf } from './service.js';
 import { enforceRules } from './enforce.js';
 import { resourceFromStored } from './sandbox/rules-resources.js';
@@ -99,9 +100,10 @@ async function performDeleteObject(
   ref: StorageReference,
   provenance?: EventProvenance,
 ): Promise<void> {
-  const target = targetOf(ref.storage);
+  const operationStorage = operationStorageOf(ref);
+  const target = targetOf(operationStorage);
   const operationProvenance = storageOperationProvenance(target, provenance);
-  const service = await getStorageService(ref.storage);
+  const service = await getStorageService(operationStorage);
   for (let attempt = 0; attempt < 4; attempt += 1) {
     const existing = await service.backend.getMetadata(ref.fullPath);
     let options: { record: 'denials' } | undefined;
@@ -144,8 +146,9 @@ export async function deleteObjectGeneration(
   provenance?: EventProvenance,
 ): Promise<boolean> {
   guardNonRoot(ref, 'deleteObject');
-  const target = targetOf(ref.storage);
-  const service = await getStorageService(ref.storage);
+  const operationStorage = operationStorageOf(ref);
+  const target = targetOf(operationStorage);
+  const service = await getStorageService(operationStorage);
   // Read for the event only; the delete below checks the generation itself,
   // in one transaction, so a later write is never removed.
   const existing = await service.backend.getMetadata(ref.fullPath);
@@ -159,7 +162,7 @@ function emitObjectDelete(
   existing: StoredMetadata | undefined,
   operationProvenance: ReturnType<typeof storageOperationProvenance>,
 ): void {
-  const target = targetOf(ref.storage);
+  const target = targetOf(operationStorageOf(ref));
   try {
     emitSandboxEvent(
       target.sandbox,
@@ -185,9 +188,10 @@ async function fetchBlob(
   ref: StorageReference,
   maxDownloadSizeBytes: number | undefined,
 ): Promise<Blob> {
-  const target = targetOf(ref.storage);
+  const operationStorage = operationStorageOf(ref);
+  const target = targetOf(operationStorage);
   const operationProvenance = storageOperationProvenance(target);
-  const service = await getStorageService(ref.storage);
+  const service = await getStorageService(operationStorage);
   // Rule check uses the existing object's metadata (when present)
   // as `resource`. `unauthorized` supersedes `not-found`: the rule
   // check runs FIRST, so an unauthorized read of a missing path

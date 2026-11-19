@@ -46,6 +46,21 @@ const defaultMetadata = await getMetadata(ownGsRef);
 const mediaUploaded = await uploadString(ref(mediaGsStorage, contractPath), "server media payload");
 const mediaMetadata = await getMetadata(ref(mediaBareStorage, contractPath));
 
+const crossObjectPath = `uploads/${contractPath}`;
+const crossGsRef = ref(defaultStorage, `gs://media-bucket/${crossObjectPath}`);
+const crossDlRef = ref(
+  defaultStorage,
+  `https://firebasestorage.googleapis.com/v0/b/media-bucket/o/${encodeURIComponent(crossObjectPath)}?alt=media&token=t`,
+);
+const crossUploaded = await uploadString(crossGsRef, "server cross-bucket media payload");
+const crossMetadata = await getMetadata(crossDlRef);
+let crossUndeployedCode = "did-not-throw";
+try {
+  await uploadString(ref(defaultStorage, `gs://other-bucket/${crossObjectPath}`), "denied");
+} catch (error) {
+  crossUndeployedCode = String(error.code);
+}
+
 console.log(`contract ${JSON.stringify({
   defaultRefBucket: defaultRef.bucket,
   defaultRefString: defaultRef.toString(),
@@ -54,6 +69,11 @@ console.log(`contract ${JSON.stringify({
   defaultMetadataBucket: defaultMetadata.bucket,
   mediaUploadBucket: mediaUploaded.metadata.bucket,
   mediaMetadataBucket: mediaMetadata.bucket,
+  crossUrlRefBucket: crossGsRef.bucket,
+  crossUrlSameStorage: crossGsRef.storage === defaultStorage,
+  crossUrlUploadBucket: crossUploaded.metadata.bucket,
+  crossUrlDownloadMetaBucket: crossMetadata.bucket,
+  crossUrlUndeployedCode: crossUndeployedCode,
   defaultDistinctFromOwnGs: defaultStorage !== ownGsStorage,
   mediaGsDistinctFromBare: mediaGsStorage !== mediaBareStorage,
   invalidGsPathCode: invalidBucketCode("gs://media-bucket/sub/path"),

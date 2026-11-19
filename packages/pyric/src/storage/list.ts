@@ -24,10 +24,10 @@
  */
 import {
   isAdminLiteralSchemePath,
-  literalStorageReference,
-  ref,
+  referenceAtPath,
   type StorageReference,
 } from './reference.js';
+import { operationStorageOf } from './sandbox/cross-bucket-target.js';
 import { getStorageService, storageAuth, storageOperationProvenance, targetOf } from './service.js';
 import { enforceRules } from './enforce.js';
 
@@ -48,7 +48,7 @@ export interface ListResult {
  * whole bucket.
  */
 export async function listAll(refIn: StorageReference): Promise<ListResult> {
-  const storage = refIn.storage;
+  const storage = operationStorageOf(refIn);
   const target = targetOf(storage);
   const operationProvenance = storageOperationProvenance(target);
   const service = await getStorageService(storage);
@@ -75,8 +75,7 @@ export async function listAll(refIn: StorageReference): Promise<ListResult> {
 
   const isAdminPlane = target.admin === true;
   const makeRef = (fullPath: string): StorageReference => {
-    if (isAdminPlane) return literalStorageReference(storage, fullPath);
-    return ref(storage, fullPath);
+    return referenceAtPath(refIn, fullPath, isAdminPlane);
   };
 
   for (const md of records) {

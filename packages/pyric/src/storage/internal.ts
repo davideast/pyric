@@ -90,7 +90,14 @@ export {
 } from './upload.js';
 export { arrayBufferToBase64, base64ToBytes } from './base64.js';
 export { generationIssuer, higherGeneration, raisedMark, type GenerationIssuer } from './generation.js';
-export { isStorageUrl, parseStorageUrl, refPathOf, type StorageLocation } from './url.js';
+export {
+  isStorageUrl,
+  parseStorageUrl,
+  refLocationOf,
+  refPathOf,
+  type ParsedRefInput,
+  type StorageLocation,
+} from './url.js';
 export { joinStorageRefPaths, storageLastComponent } from './reference.js';
 export {
   compileStorageRules,

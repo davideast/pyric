@@ -13,7 +13,9 @@ import {
   decodeString,
   defaultRawContentType,
   joinStorageRefPaths,
+  refLocationOf,
   refPathOf,
+  rulesBucketName,
   storageLastComponent,
 } from 'pyric/storage/internal';
 import { dataRpc, nextId, wirePort } from './core.js';
@@ -59,6 +61,8 @@ export interface ClientFirebaseStorage {
   readonly bucket: string;
   /** True for a handle `getStorage` opened on a bucket by name, rather than the app's default bucket. */
   readonly namedBucket?: boolean;
+  /** The app's configured default bucket name when known, so cross-bucket `ref(storage, url)` recognizes it. */
+  readonly defaultBucket?: string;
   maxOperationRetryTime: number;
   maxUploadRetryTime: number;
 }
@@ -69,6 +73,7 @@ export interface ClientStorageReference {
   readonly port: ClientPort;
   readonly storage?: ClientFirebaseStorage;
   readonly bucket: string;
+  readonly namedBucket?: boolean;
   readonly fullPath: string;
   readonly name: string;
   readonly parent: ClientStorageReference | null;
@@ -81,12 +86,20 @@ class ClientStorageReferenceImpl implements ClientStorageReference {
   readonly port: ClientPort;
   readonly storage?: ClientFirebaseStorage;
   readonly bucket: string;
+  readonly namedBucket: boolean;
   readonly fullPath: string;
   readonly name: string;
 
-  constructor(port: ClientPort, bucket: string, fullPath: string, storage?: ClientFirebaseStorage) {
+  constructor(
+    port: ClientPort,
+    bucket: string,
+    fullPath: string,
+    storage?: ClientFirebaseStorage,
+    namedBucket = false,
+  ) {
     this.port = port;
     this.bucket = bucket;
+    this.namedBucket = namedBucket;
     this.fullPath = fullPath;
     this.name = storageLastComponent(fullPath);
     if (storage) {
@@ -97,12 +110,27 @@ class ClientStorageReferenceImpl implements ClientStorageReference {
   get parent(): ClientStorageReference | null {
     if (this.fullPath === '') return null;
     const idx = this.fullPath.lastIndexOf('/');
-    const parentPath = idx === -1 ? '' : this.fullPath.slice(0, idx);
-    return new ClientStorageReferenceImpl(this.port, this.bucket, parentPath, this.storage);
+    let parentPath = '';
+    if (idx !== -1) {
+      parentPath = this.fullPath.slice(0, idx);
+    }
+    return new ClientStorageReferenceImpl(
+      this.port,
+      this.bucket,
+      parentPath,
+      this.storage,
+      this.namedBucket,
+    );
   }
 
   get root(): ClientStorageReference {
-    return new ClientStorageReferenceImpl(this.port, this.bucket, '', this.storage);
+    return new ClientStorageReferenceImpl(
+      this.port,
+      this.bucket,
+      '',
+      this.storage,
+      this.namedBucket,
+    );
   }
 
   toString(): string {
@@ -115,6 +143,16 @@ function normalizeStorageRefPath(path: string): string {
   return path.replace(/^\/+|\/+$/g, '').replace(/\/+/g, '/');
 }
 
+function defaultBucketOfHandle(storage: ClientFirebaseStorage): string {
+  if (storage.defaultBucket !== undefined && storage.defaultBucket !== '') {
+    return storage.defaultBucket;
+  }
+  if (storage.namedBucket === true) {
+    return 'pyric-default';
+  }
+  return storage.bucket;
+}
+
 /**
  * Get the worker-backed Storage handle. Like `getAuth`, accepts an existing
  * `ClientDb` (reusing its port) or a worker URL (standalone).
@@ -124,6 +162,7 @@ export function getStorage(
   name?: string,
   bucketUrl?: string,
   namedBucket = false,
+  defaultBucket?: string,
 ): ClientFirebaseStorage {
   let port: ClientPort;
   if (typeof source === 'object' && '__kind' in source && source.__kind === 'client-db') {
@@ -135,27 +174,66 @@ export function getStorage(
         'Open this page over http:// (not file://) and use a supported browser.',
       );
     }
+    let workerName = 'pyric-shared-worker';
+    if (name !== undefined) {
+      workerName = name;
+    }
     const worker = new SharedWorker(source as string | URL, {
       type: 'classic',
-      name: name ?? 'pyric-shared-worker',
+      name: workerName,
     });
     port = worker.port;
     port.start();
     wirePort(port);
   }
-  const resolvedBucket = bucketUrl ?? 'pyric-default';
-  const base = { __kind: 'client-storage' as const, port, bucket: resolvedBucket, maxOperationRetryTime: 120_000, maxUploadRetryTime: 600_000 };
-  if (namedBucket) return { ...base, namedBucket: true };
-  return base;
+  let resolvedBucket = 'pyric-default';
+  if (bucketUrl !== undefined) {
+    resolvedBucket = bucketUrl;
+  }
+  const handle: {
+    __kind: 'client-storage';
+    port: ClientPort;
+    bucket: string;
+    namedBucket?: boolean;
+    defaultBucket?: string;
+    maxOperationRetryTime: number;
+    maxUploadRetryTime: number;
+  } = {
+    __kind: 'client-storage',
+    port,
+    bucket: resolvedBucket,
+    maxOperationRetryTime: 120_000,
+    maxUploadRetryTime: 600_000,
+  };
+  if (namedBucket) {
+    handle.namedBucket = true;
+  }
+  if (defaultBucket !== undefined && defaultBucket !== '') {
+    handle.defaultBucket = defaultBucket;
+  }
+  return handle;
+}
+
+function usesNamedBucket(reference: ClientStorageReference): boolean {
+  if (reference.namedBucket !== undefined) {
+    return reference.namedBucket;
+  }
+  if (reference.storage !== undefined) {
+    return reference.storage.namedBucket === true;
+  }
+  return false;
 }
 
 /**
- * The bucket an object op names on the wire: a bucket `getStorage` opened by
- * name goes by that name, with its own objects and rules (#1313). The default
- * bucket names none, and the host serves its own default bucket.
+ * The bucket an object op names on the wire: a bucket `getStorage` or
+ * `ref(storage, url)` addressed by name goes by that name, with its own objects
+ * and rules. The default bucket names none, and the host serves its own default bucket.
  */
 export function bucketWire(reference: ClientStorageReference): StorageBucketWire {
-  return reference.storage?.namedBucket === true ? { bucket: reference.bucket } : {};
+  if (usesNamedBucket(reference)) {
+    return { bucket: reference.bucket };
+  }
+  return {};
 }
 
 /** Build a Storage reference. Mirrors `pyric/storage`'s `ref(storage, path?)` /
@@ -165,23 +243,27 @@ export function ref(
   parent: ClientFirebaseStorage | ClientStorageReference,
   path?: string,
 ): ClientStorageReference {
-  let fullPath: string;
-  let port: ClientPort;
-  let bucket = 'pyric-default';
-  let storage: ClientFirebaseStorage | undefined;
-
   if (parent.__kind === 'client-storage') {
-    fullPath = normalizeStorageRefPath(refPathOf(path, true));
-    port = parent.port;
-    bucket = parent.bucket;
-    storage = parent;
-  } else {
-    fullPath = joinStorageRefPaths(parent.fullPath, refPathOf(path, false));
-    port = parent.port;
-    bucket = parent.bucket;
-    storage = parent.storage;
+    const location = refLocationOf(path, true);
+    const fullPath = normalizeStorageRefPath(location.path);
+    let bucket = parent.bucket;
+    let namedBucket = parent.namedBucket === true;
+    if (location.bucket !== undefined) {
+      const resolvedBucket = rulesBucketName(location.bucket, location.bucket);
+      bucket = resolvedBucket;
+      namedBucket = resolvedBucket !== '' && resolvedBucket !== defaultBucketOfHandle(parent);
+    }
+    return new ClientStorageReferenceImpl(parent.port, bucket, fullPath, parent, namedBucket);
   }
-  return new ClientStorageReferenceImpl(port, bucket, fullPath, storage);
+  const fullPath = joinStorageRefPaths(parent.fullPath, refPathOf(path, false));
+  const namedBucket = usesNamedBucket(parent);
+  return new ClientStorageReferenceImpl(
+    parent.port,
+    parent.bucket,
+    fullPath,
+    parent.storage,
+    namedBucket,
+  );
 }
 
 /** Enumerate immediate child items + sub-prefixes under a ref (Pyric Studio
@@ -192,8 +274,15 @@ export async function listAll(
   const r = (await dataRpc(reference.port, {
     t: 'op', id: nextId(), method: 'storage.listAll', path: reference.fullPath, ...bucketWire(reference),
   })) as { items: Array<{ fullPath: string; name: string }>; prefixes: Array<{ fullPath: string; name: string }> };
+  const namedBucket = usesNamedBucket(reference);
   const mk = (e: { fullPath: string; name: string }): ClientStorageReference =>
-    new ClientStorageReferenceImpl(reference.port, reference.bucket, e.fullPath, reference.storage);
+    new ClientStorageReferenceImpl(
+      reference.port,
+      reference.bucket,
+      e.fullPath,
+      reference.storage,
+      namedBucket,
+    );
   return { items: r.items.map(mk), prefixes: r.prefixes.map(mk) };
 }
 
