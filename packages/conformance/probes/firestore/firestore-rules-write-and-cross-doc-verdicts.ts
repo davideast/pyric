@@ -18,7 +18,7 @@ export function buildWriteAndCrossDocRulesBlock(runId: string): string {
   return `      // @pyric/oracle-write-crossdoc-${runId}
       match /__pyric_fs_probe/${runId} {
         match /__ready/{id} {
-          allow get: if request.auth != null;
+          allow read, write: if true;
         }
         match /anon_only/{id} {
           allow get: if request.auth == null;
@@ -215,6 +215,9 @@ export const probe: Probe = {
         await signInOracleClientAuth(plainAuth, sa, `sdk-wc-plain-${runId}`);
         const customTok = await adminAuth.createCustomToken(claimedUid, { role: 'editor', tier: 2 });
         await signInWithCustomToken(claimedAuth, customTok);
+        if (claimedAuth.currentUser) {
+          await claimedAuth.currentUser.getIdToken(true);
+        }
         const plainUid = plainAuth.currentUser?.uid ?? '';
         if (!plainUid) throw new Error('Expected plain signed-in uid');
 
@@ -223,21 +226,28 @@ export const probe: Probe = {
             await adminDb.doc(`${basePath}/${rel}`).set(docData);
           }
 
-          let ready = false;
-          for (let i = 0; i < 30; i += 1) {
-            try {
-              const snap = await fsSdk.getDoc(fsSdk.doc(plainDb, `${basePath}/__ready/check`));
-              if (snap.exists()) {
-                ready = true;
-                break;
-              }
-            } catch {
-              // Ruleset still propagating.
+          const deadline = Date.now() + 90_000;
+          let consecutive = 0;
+          let round = 0;
+          while (consecutive < 5) {
+            if (Date.now() > deadline) {
+              throw new Error('Timed out waiting for write/cross-doc rules propagation');
             }
-            await new Promise((resolve) => setTimeout(resolve, 1000));
+            round += 1;
+            try {
+              await fsSdk.setDoc(fsSdk.doc(plainDb, `${basePath}/__ready/plain`), { round });
+              await fsSdk.getDocFromServer(fsSdk.doc(plainDb, `${basePath}/__ready/plain`));
+              await fsSdk.setDoc(fsSdk.doc(claimedDb, `${basePath}/__ready/claimed`), { round });
+              await fsSdk.getDocFromServer(fsSdk.doc(claimedDb, `${basePath}/__ready/claimed`));
+              await fsSdk.setDoc(fsSdk.doc(unauthedDb, `${basePath}/__ready/unauthed`), { round });
+              await fsSdk.getDocFromServer(fsSdk.doc(unauthedDb, `${basePath}/__ready/unauthed`));
+              consecutive += 1;
+            } catch {
+              consecutive = 0;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 1_000));
           }
-          if (!ready) throw new Error('Timed out waiting for write/cross-doc rules propagation');
-          await new Promise((resolve) => setTimeout(resolve, 2000));
+          await new Promise((resolve) => setTimeout(resolve, 15_000));
 
           const dbFor = (kind: ProbeClientKind) => {
             if (kind === 'claimed') return claimedDb;

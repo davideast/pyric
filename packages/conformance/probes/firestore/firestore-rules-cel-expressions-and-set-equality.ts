@@ -39,7 +39,7 @@ export function buildCelAndSetEqualityRulesBlock(runId: string): string {
   return `      // @pyric/oracle-cel-set-${runId}
       match /__pyric_fs_probe/${runId} {
         match /__ready/{id} {
-          allow get: if request.auth != null;
+          allow read, write: if true;
         }
         match /cases/dot_missing {
           allow get: if resource.data.missingKey == 'x';
@@ -279,21 +279,24 @@ export const probe: Probe = {
             await adminDb.doc(`${basePath}/${rel}`).set(docData);
           }
 
-          let ready = false;
-          for (let i = 0; i < 30; i += 1) {
-            try {
-              const snap = await fsSdk.getDoc(fsSdk.doc(db, `${basePath}/__ready/check`));
-              if (snap.exists()) {
-                ready = true;
-                break;
-              }
-            } catch {
-              // Ruleset still propagating.
+          const deadline = Date.now() + 90_000;
+          let consecutive = 0;
+          let round = 0;
+          while (consecutive < 5) {
+            if (Date.now() > deadline) {
+              throw new Error('Timed out waiting for CEL rules propagation');
             }
-            await new Promise((resolve) => setTimeout(resolve, 1000));
+            round += 1;
+            try {
+              await fsSdk.setDoc(fsSdk.doc(db, `${basePath}/__ready/client`), { round });
+              await fsSdk.getDocFromServer(fsSdk.doc(db, `${basePath}/__ready/client`));
+              consecutive += 1;
+            } catch {
+              consecutive = 0;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 1_000));
           }
-          if (!ready) throw new Error('Timed out waiting for CEL rules propagation');
-          await new Promise((resolve) => setTimeout(resolve, 2000));
+          await new Promise((resolve) => setTimeout(resolve, 15_000));
 
           const subject: RulesCelAndSetEqualitySubject = {
             async readOutcome(relPath) {
