@@ -183,7 +183,11 @@ function toModelSubstitutionPayload(
   const effectiveModel = detailText(detail, 'effectiveModel') ?? '';
   if (requestedModel === '' || effectiveModel === '') return null;
   let requestedBare = requestedModel;
-  if (requestedModel.startsWith('models/')) requestedBare = requestedModel.slice('models/'.length);
+  if (requestedModel.startsWith('publishers/google/models/')) {
+    requestedBare = requestedModel.slice('publishers/google/models/'.length);
+  } else if (requestedModel.startsWith('models/')) {
+    requestedBare = requestedModel.slice('models/'.length);
+  }
   if (effectiveModel === requestedBare || effectiveModel === requestedModel) return null;
   const payload: AiModelSubstitutionRelayPayload = {
     kind: 'ai-model-substituted',

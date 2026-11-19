@@ -19,6 +19,7 @@
  * SDK hands out its live array).
  */
 
+import { BackendType } from './backend.js';
 import { isBlockingFinishReason } from './blocked.js';
 import { AIError, AIErrorCode } from './errors.js';
 import {
@@ -69,22 +70,37 @@ export interface StartChatParams extends BaseParams {
 
 /** Base class for AI model APIs; holds the normalized model resource name. */
 export abstract class AIModel {
-  /** Fully qualified model resource name (`models/<name>` on GoogleAI). */
+  /** Fully qualified model resource name (`models/<name>` on GoogleAI, `publishers/google/models/<name>` on VertexAI). */
   readonly model: string;
 
-  protected constructor(modelName: string) {
-    this.model = AIModel.normalizeModelName(modelName);
+  protected constructor(modelName: string, backendType: BackendType = BackendType.GOOGLE_AI) {
+    this.model = AIModel.normalizeModelName(modelName, backendType);
   }
 
   /**
-   * GoogleAI normalization WITHOUT the installed 2.12.0 double-prefix wart:
-   * `models/x` stays `models/x`, a short name gains the prefix (registry row
-   * ai#model-name-prefixed).
+   * Normalize a model identifier for the active backend:
+   * - VertexAI: short names become `publishers/google/models/<name>`, `models/<name>`
+   *   gains `publishers/google/`, and custom slash paths stay verbatim.
+   * - GoogleAI: normalizes to `models/<bare>` without double-prefixing `models/`
+   *   (registry row `ai#model-name-prefixed`).
    */
-  static normalizeModelName(modelName: string): string {
-    const bare = modelName.startsWith('models/')
-      ? modelName.slice('models/'.length)
-      : modelName;
+  static normalizeModelName(
+    modelName: string,
+    backendType: BackendType = BackendType.GOOGLE_AI,
+  ): string {
+    if (backendType === BackendType.VERTEX_AI) {
+      if (modelName.includes('/')) {
+        if (modelName.startsWith('models/')) {
+          return `publishers/google/${modelName}`;
+        }
+        return modelName;
+      }
+      return `publishers/google/models/${modelName}`;
+    }
+    let bare = modelName;
+    if (modelName.startsWith('models/')) {
+      bare = modelName.slice('models/'.length);
+    }
     return `models/${bare}`;
   }
 }
@@ -114,7 +130,7 @@ export class GenerativeModel extends AIModel {
   private readonly target: AITarget;
 
   constructor(target: AITarget, modelParams: ModelParams, requestOptions?: RequestOptions) {
-    super(modelParams.model);
+    super(modelParams.model, target.backend.backendType);
     this.target = target;
     this.generationConfig = modelParams.generationConfig ?? {};
     validateGenerationConfig(this.generationConfig);

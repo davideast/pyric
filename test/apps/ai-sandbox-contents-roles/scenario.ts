@@ -52,6 +52,30 @@ interface ChatErrorsAbortOutcome {
   };
 }
 
+interface InitBackendsOutcome extends Outcome {
+  carriesApp?: boolean;
+  isGoogleAIBackend?: boolean;
+  backendType?: string;
+  matchesEnumGoogleAi?: boolean;
+  location?: string;
+  sameAppDefaultSameHandle?: boolean;
+  sameAppExplicitGoogleSameHandle?: boolean;
+  sameAppVertexSameHandle?: boolean;
+  googleAndVertexDistinctOnSameApp?: boolean;
+  vertexLocationsDistinctOnSameApp?: boolean;
+  vertexDefaultLocation?: string;
+  vertexEuropeLocation?: string;
+  googleShortNormalized?: string;
+  googlePrefixedNormalized?: string;
+  vertexShortNormalized?: string;
+  emptyModelGuard?: {
+    isAIError: boolean;
+    isFirebaseError: boolean;
+    code: string | null;
+    name: string | null;
+  };
+}
+
 interface Roles {
   assistant: Outcome;
   system: Outcome;
@@ -60,6 +84,7 @@ interface Roles {
   geminiPro: Outcome;
   schemaBuilders: SchemaBuildersOutcome;
   chatErrorsAbort: ChatErrorsAbortOutcome;
+  initBackends: InitBackendsOutcome;
 }
 
 declare function runRoles(): Promise<Roles>;
@@ -142,6 +167,37 @@ function assertRoles(roles: Roles): void {
       status: 400,
       reason: 'API_KEY_INVALID',
     },
+  });
+
+  assert.equal(
+    roles.initBackends.ok,
+    true,
+    `initBackends: ${JSON.stringify(roles.initBackends)}`,
+  );
+  assert.ok(roles.initBackends.text, 'the VertexAIBackend turn got an empty reply');
+  assert.equal(roles.initBackends.carriesApp, true);
+  assert.equal(roles.initBackends.isGoogleAIBackend, true);
+  assert.equal(roles.initBackends.backendType, 'GOOGLE_AI');
+  assert.equal(roles.initBackends.matchesEnumGoogleAi, true);
+  assert.equal(roles.initBackends.location, '');
+  assert.equal(roles.initBackends.sameAppDefaultSameHandle, true);
+  assert.equal(roles.initBackends.sameAppExplicitGoogleSameHandle, true);
+  assert.equal(roles.initBackends.sameAppVertexSameHandle, true);
+  assert.equal(roles.initBackends.googleAndVertexDistinctOnSameApp, true);
+  assert.equal(roles.initBackends.vertexLocationsDistinctOnSameApp, true);
+  assert.equal(roles.initBackends.vertexDefaultLocation, 'us-central1');
+  assert.equal(roles.initBackends.vertexEuropeLocation, 'europe-west1');
+  assert.equal(roles.initBackends.googleShortNormalized, 'models/gemini-flash-lite-latest');
+  assert.equal(roles.initBackends.googlePrefixedNormalized, 'models/gemini-flash-lite-latest');
+  assert.equal(
+    roles.initBackends.vertexShortNormalized,
+    'publishers/google/models/gemini-flash-lite-latest',
+  );
+  assert.deepEqual(roles.initBackends.emptyModelGuard, {
+    isAIError: true,
+    isFirebaseError: true,
+    code: 'no-model',
+    name: 'FirebaseError',
   });
 }
 

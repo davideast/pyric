@@ -44,6 +44,7 @@ import type { AiEventOperation } from '../events.js';
 import { describeResponseBlock } from '../blocked.js';
 import { APP_CHECK_HINT, admitsAppCheckToken, appCheckRequired } from '../app-check-gate.js';
 import { retiredModel } from './retired-model.js';
+import { stripModelResourcePrefix } from './model-resource.js';
 import {
   AiBrokerError,
   Synthesizer,
@@ -275,7 +276,7 @@ export class AiBroker {
       // A misbehaving engine's self-report must never fail the op.
       return;
     }
-    const requestedBare = model.startsWith('models/') ? model.slice('models/'.length) : model;
+    const requestedBare = stripModelResourcePrefix(model);
     if (effective.model === requestedBare) return;
     this.emit('model_substituted', model, {
       requestedModel: model,
@@ -439,10 +440,7 @@ export class AiBroker {
     if (!this.validateModels || this.engineKind !== 'scripted') {
       return;
     }
-    let bare = modelResource;
-    if (modelResource.startsWith('models/')) {
-      bare = modelResource.slice('models/'.length);
-    }
+    const bare = stripModelResourcePrefix(modelResource);
     if (/^gemini-1\.5/.test(bare)) {
       this.reject(modelResource, retiredModel());
     }

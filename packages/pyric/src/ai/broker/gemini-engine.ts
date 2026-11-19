@@ -25,6 +25,7 @@ import {
 import { GeminiUpstream, type GeminiUpstreamOptions } from './gemini-upstream.js';
 import { redactUpstreamError, redactUpstreamText } from './upstream-error-redaction.js';
 import { isJsonErrorEnvelope } from './upstream-stream-redaction.js';
+import { stripModelResourcePrefix } from './model-resource.js';
 import type {
   AnswerEngine,
   AnswerEngineCallOptions,
@@ -195,7 +196,7 @@ export class GeminiEngine implements AnswerEngine {
    * ({@link AnswerEngine.resolveEffectiveModel}).
    */
   resolveEffectiveModel(model: string): ModelResolution {
-    return { model: model.replace(/^models\//, ''), reason: 'passthrough' };
+    return { model: stripModelResourcePrefix(model), reason: 'passthrough' };
   }
 
   private normalizeModel(model: string): string {

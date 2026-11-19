@@ -94,10 +94,17 @@ const STREAM_TASK = 'streamGenerateContent';
  * stays `models/<name>` on either backend; only the URL changes.
  */
 function modelPath(modelResource: string, backend: Backend | undefined): string {
-  const isVertexAI = backend?.backendType === BackendType.VERTEX_AI;
+  let isVertexAI = false;
+  if (backend !== undefined) {
+    isVertexAI = backend.backendType === BackendType.VERTEX_AI;
+  }
   if (!isVertexAI) return modelResource;
+  const vertexLocation = (backend as VertexAIBackend).location;
+  if (modelResource.startsWith('publishers/')) {
+    return `locations/${vertexLocation}/${modelResource}`;
+  }
   const name = modelResource.replace(/^models\//, '');
-  return `locations/${(backend as VertexAIBackend).location}/${VERTEX_MODEL_PREFIX}${name}`;
+  return `locations/${vertexLocation}/${VERTEX_MODEL_PREFIX}${name}`;
 }
 
 /**
