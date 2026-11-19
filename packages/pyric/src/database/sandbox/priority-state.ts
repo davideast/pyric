@@ -197,6 +197,38 @@ export class PriorityState {
       this.putCanonical(joinPath(pathSegments(path)), priority);
     }
   }
+
+  snapshotMap(): Map<string, Exclude<Priority, null>> {
+    return new Map(this.values);
+  }
+
+  restoreMapSilently(saved: ReadonlyMap<string, Exclude<Priority, null>>): void {
+    if (this.values.size === 0 && saved.size === 0) {
+      return;
+    }
+    if (this.shallowValues.size > 0) {
+      this.shallowValues.clear();
+      this._shallowGeneration += 1;
+    }
+    this.bucketValues.clear();
+    this.values.clear();
+    this._generation += 1;
+    for (const [canonical, priority] of saved) {
+      this.values.set(canonical, priority);
+      const bucketId = priorityBucketIdForSegments(pathSegments(canonical));
+      if (bucketId === null) {
+        this.shallowValues.set(canonical, priority);
+        this._shallowGeneration += 1;
+      } else {
+        let inner = this.bucketValues.get(bucketId);
+        if (inner === undefined) {
+          inner = new Map();
+          this.bucketValues.set(bucketId, inner);
+        }
+        inner.set(canonical, priority);
+      }
+    }
+  }
 }
 
 export function validatePriority(priority: Priority): void {

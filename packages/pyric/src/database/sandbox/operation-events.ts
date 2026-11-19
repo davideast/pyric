@@ -1,4 +1,4 @@
-import type { AuthState, RtdbDenialContext, Sandbox, SandboxOperationEvent } from 'pyric/sandbox';
+import type { AuthState, EventProvenance, RtdbDenialContext, Sandbox, SandboxOperationEvent } from 'pyric/sandbox';
 import type { ListenerOwner } from '../../sandbox/types/events.js';
 import { emitSandboxEvent, getClock, makeSandboxCommitEvent, makeSandboxListenerEvent, makeSandboxOperationEvent, makeServiceMutationEvent } from 'pyric/sandbox/internal';
 import { joinPath, pathSegments } from './data-tree.js';
@@ -81,6 +81,16 @@ export class OperationEvents {
   nextGroupId(prefix: string): string {
     this.nextId += 1;
     return `rtdb-${prefix}-${this.nextId.toString(36)}`;
+  }
+
+  captureProvenanceWindow(): <T>(fn: () => T) => T {
+    const sb = this.sandbox as (Sandbox & { ambientProvenance?: EventProvenance }) | undefined;
+    const captured = sb?.ambientProvenance;
+    const runner = sb?.runWithProvenance;
+    if (sb === undefined || captured === undefined || typeof runner !== 'function') {
+      return (fn) => fn();
+    }
+    return <T>(fn: () => T): T => runner.call(sb, captured, fn) as T;
   }
 
   mutation(

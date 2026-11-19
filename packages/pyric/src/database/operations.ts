@@ -77,9 +77,9 @@ export function set(r: DatabaseReference, value: unknown): Promise<void> {
   return runSdkWrite(beginDatabaseActivity(r, 'set', 'operation'), () => {
     if (isAdminFor(target)) {
       target.backend.adminSet(r._path, value as JsonValue);
-    } else {
-      target.backend.set(authFor(target), r._path, value as JsonValue);
+      return;
     }
+    return target.backend.enqueueClientSet(authFor(target), r._path, value as JsonValue);
   });
 }
 
@@ -93,9 +93,9 @@ export function setPriority(
   return runSdkWrite(beginDatabaseActivity(r, 'setPriority', 'operation'), () => {
     if (isAdminFor(target)) {
       target.backend.adminSetPriority(r._path, priority);
-    } else {
-      target.backend.setPriority(authFor(target), r._path, priority);
+      return;
     }
+    return target.backend.enqueueClientSetPriority(authFor(target), r._path, priority);
   });
 }
 
@@ -111,9 +111,14 @@ export function setWithPriority(
   return runSdkWrite(beginDatabaseActivity(r, 'setWithPriority', 'operation'), () => {
     if (isAdminFor(target)) {
       target.backend.adminSetWithPriority(r._path, value as JsonValue, priority);
-    } else {
-      target.backend.setWithPriority(authFor(target), r._path, value as JsonValue, priority);
+      return;
     }
+    return target.backend.enqueueClientSetWithPriority(
+      authFor(target),
+      r._path,
+      value as JsonValue,
+      priority,
+    );
   });
 }
 
@@ -146,9 +151,13 @@ export function update(
   return runSdkWrite(beginDatabaseActivity(r, 'update', 'operation'), () => {
     if (isAdminFor(target)) {
       target.backend.adminUpdate(r._path, values as Record<string, JsonValue>);
-    } else {
-      target.backend.update(authFor(target), r._path, values as Record<string, JsonValue>);
+      return;
     }
+    return target.backend.enqueueClientUpdate(
+      authFor(target),
+      r._path,
+      values as Record<string, JsonValue>,
+    );
   });
 }
 
@@ -165,9 +174,9 @@ export function remove(r: DatabaseReference): Promise<void> {
   return runSdkWrite(beginDatabaseActivity(r, 'remove', 'operation'), () => {
     if (isAdminFor(target)) {
       target.backend.adminRemove(r._path);
-    } else {
-      target.backend.remove(authFor(target), r._path);
+      return;
     }
+    return target.backend.enqueueClientRemove(authFor(target), r._path);
   });
 }
 
@@ -209,9 +218,12 @@ export function push(r: DatabaseReference, value?: unknown): ThenableReference {
   if (value === undefined) {
     promise = Promise.resolve(pushRef);
   } else {
-    promise = runSdkWrite(beginDatabaseActivity(pushRef, 'push', 'operation'), () => {
-      if (isAdminFor(target)) target.backend.adminSet(childPath, value as JsonValue);
-      else target.backend.set(authFor(target), childPath, value as JsonValue);
+    promise = runSdkWrite(beginDatabaseActivity(pushRef, 'push', 'operation'), async () => {
+      if (isAdminFor(target)) {
+        target.backend.adminSet(childPath, value as JsonValue);
+      } else {
+        await target.backend.enqueueClientSet(authFor(target), childPath, value as JsonValue);
+      }
       return pushRef;
     });
   }

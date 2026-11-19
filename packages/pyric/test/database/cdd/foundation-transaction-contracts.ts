@@ -95,8 +95,8 @@ export async function assertTransactionContentionBoundary(): Promise<void> {
     runTransaction(target, current => { calls[0] += 1; return (current as number) + 1; }),
     runTransaction(ref(second, 'counter'), current => { calls[1] += 1; return (current as number) + 1; }),
   ]);
-  expect(calls).toEqual([1, 1]);
-  expect(calls).not.toEqual([2, 3]);
+  expect([...calls].sort((a, b) => a - b)).toEqual([1, 2]);
+  expect(calls.some(count => count > 1)).toBe(true);
   expect(results.map(result => result.committed)).toEqual([true, true]);
   expect(results.map(result => result.snapshot.val()).sort()).toEqual([1, 2]);
   expect((await get(target)).val()).toBe(2);
@@ -116,4 +116,25 @@ export async function assertTransactionContentionBoundary(): Promise<void> {
   expect(seen).toEqual([0, 10]);
   expect(retried.committed).toBe(true);
   expect(retried.snapshot.val()).toBe(11);
+
+  const exhaustedTarget = ref(first, 'exhausted');
+  await set(exhaustedTarget, 0);
+  let attempts = 0;
+  let caught: unknown = null;
+  try {
+    await runTransaction(exhaustedTarget, current => {
+      attempts += 1;
+      void set(ref(second, 'exhausted'), attempts + 100);
+      return (current as number) + 1;
+    });
+  } catch (error) {
+    caught = error;
+  }
+  expect(attempts).toBe(25);
+  expect(caught).toBeInstanceOf(Error);
+  expect(caught).not.toBeInstanceOf(FirebaseError);
+  const maxRetryError = caught as Error & { code?: unknown };
+  expect('code' in maxRetryError).toBe(false);
+  expect(maxRetryError.name).toBe('Error');
+  expect(maxRetryError.message).toBe('maxretry');
 }
