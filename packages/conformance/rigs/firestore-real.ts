@@ -13,7 +13,6 @@ export const rig: RigManifestRecord = {
     'firestore-browser-lifecycle',
     'firestore-collection-group-listener',
     'rules-firestore-get-after-and-exists-after',
-    'rules-firestore-atomic-batch-sibling-merge',
   ],
   automation: 'credentialed',
   network: 'firebase-production',
