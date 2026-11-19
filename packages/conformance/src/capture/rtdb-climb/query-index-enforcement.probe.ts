@@ -58,8 +58,8 @@ function normalizeLog(text: string, base: string): string {
 export function createProbe(ctx: RtdbClimbContext): RtdbClimbProbe {
   return {
     name: 'rtdb-modular-query-index-enforcement',
-    matrixRow: 'rtdb-modular#M51/#144',
-    rowIds: ['rtdb-modular#M51', 'rtdb-modular#144'],
+    matrixRow: 'rtdb-modular#M51/#144, rtdb-modular#VR1',
+    rowIds: ['rtdb-modular#M51', 'rtdb-modular#144', 'rtdb-modular#VR1'],
     description:
       'Index enforcement for orderByChild, orderByValue and orderByKey queries, limited and unlimited, each with and without a matching `.indexOn`, through get(), onValue() and the REST API, recording rejections and client log warnings.',
     observe: () => repeatStable(2, async (attempt) => {

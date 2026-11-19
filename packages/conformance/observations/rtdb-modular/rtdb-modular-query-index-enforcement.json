@@ -1,9 +1,10 @@
 {
   "name": "rtdb-modular-query-index-enforcement",
-  "matrixRow": "rtdb-modular#M51/#144",
+  "matrixRow": "rtdb-modular#M51/#144, rtdb-modular#VR1",
   "rowIds": [
     "rtdb-modular#M51",
-    "rtdb-modular#144"
+    "rtdb-modular#144",
+    "rtdb-modular#VR1"
   ],
   "description": "Index enforcement for orderByChild, orderByValue and orderByKey queries, limited and unlimited, each with and without a matching `.indexOn`, through get(), onValue() and the REST API, recording rejections and client log warnings.",
   "observedAt": "2026-10-30T10:44:25.705Z",

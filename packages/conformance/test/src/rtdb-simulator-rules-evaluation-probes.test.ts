@@ -76,9 +76,9 @@ describe('RTDB Security Rules evaluation probes on surface rtdb (sdk-probes)', (
     }
 
     const expectedRowIds: ReadonlyArray<[typeof cascadeBindingsAuthProbe, string[]]> = [
-      [cascadeBindingsAuthProbe, ['rtdb#61', 'rtdb#62', 'rtdb#63']],
-      [dataNewDataSnapshotProbe, ['rtdb#64', 'rtdb#65']],
-      [defaultDenyAndErrorsProbe, ['rtdb#68', 'rtdb#69', 'rtdb#70']],
+      [cascadeBindingsAuthProbe, ['rtdb#61', 'rtdb#62', 'rtdb#63', 'rtdb-modular#VR1']],
+      [dataNewDataSnapshotProbe, ['rtdb#64', 'rtdb#65', 'rtdb-modular#VR2']],
+      [defaultDenyAndErrorsProbe, ['rtdb#68', 'rtdb#69', 'rtdb#70', 'rtdb-modular#VR2']],
     ];
     for (const [probeRecord, rowIds] of expectedRowIds) {
       expect(probeRecord.rig).toBe('sdk-probes');

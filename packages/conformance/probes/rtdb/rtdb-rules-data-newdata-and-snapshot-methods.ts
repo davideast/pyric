@@ -161,8 +161,8 @@ export const probe: Probe = {
   requires: ['web-config', 'dedicated-rtdb'],
   description:
     'Live RTDB Security Rules evaluation for data vs newData state transitions and RuleDataSnapshot methods (data.exists(), data.val(), data.child(...), and data.parent()).',
-  matrixRow: 'rtdb#64, rtdb#65',
-  rowIds: ['rtdb#64', 'rtdb#65'],
+  matrixRow: 'rtdb#64, rtdb#65, rtdb-modular#VR2',
+  rowIds: ['rtdb#64', 'rtdb#65', 'rtdb-modular#VR2'],
   observe() {
     return withRtdbProbeSession(
       { runRules: { ...DATA_NEWDATA_SNAPSHOT_RULES } },

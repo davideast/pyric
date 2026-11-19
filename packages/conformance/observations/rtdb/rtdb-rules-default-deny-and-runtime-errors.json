@@ -1,10 +1,11 @@
 {
   "name": "rtdb-rules-default-deny-and-runtime-errors",
-  "matrixRow": "rtdb#68, rtdb#69, rtdb#70",
+  "matrixRow": "rtdb#68, rtdb#69, rtdb#70, rtdb-modular#VR2",
   "rowIds": [
     "rtdb#68",
     "rtdb#69",
-    "rtdb#70"
+    "rtdb#70",
+    "rtdb-modular#VR2"
   ],
   "description": "Live RTDB Security Rules evaluation for ancestor false verdicts when descendants carry only .validate or the opposite operation, default deny when no rule exists on the path, and runtime type errors (beginsWith on number/null) failing closed as deny verdicts.",
   "observedAt": "2026-11-18T06:47:22.623Z",
