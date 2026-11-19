@@ -352,7 +352,88 @@ describe('section-rows registry assembler', () => {
     });
 
     expect(() => assembleRegistrySections('/reg/ai', host)).toThrow(
-      "/reg/ai/second/rs1.ts: duplicate or case-colliding rowRef 'rs1' (already defined at /reg/ai/first/RS1.ts)",
+      "/reg/ai/second/rs1.ts: duplicate or case-colliding rowRef 'rs1' for surface 'ai' (already defined at /reg/ai/first/RS1.ts)",
+    );
+  });
+
+  it('allows distinct surfaces in one registry directory to share a rowRef while rejecting same-surface collisions', () => {
+    const clientSection = defineRowSection({
+      surface: 'storage',
+      order: 10,
+      defaults: { section: 'Initializer', status: 'conforms' },
+    });
+    const adminSection = defineRowSection({
+      surface: 'storage-admin',
+      order: 20,
+      defaults: { section: 'Admin File metadata', status: 'conforms' },
+    });
+    const adminSecondSection = defineRowSection({
+      surface: 'storage-admin',
+      order: 30,
+      defaults: { section: 'Admin Bucket listing', status: 'conforms' },
+    });
+    const seed = {
+      featureKeys: ['getStorage'],
+      api: 'getStorage()',
+      behavior: 'Returns handle',
+      automation: 'unit-backed' as const,
+      evidence: '`unit:service.test.ts`',
+      conformanceTests: ['packages/pyric/test/storage/service.test.ts'],
+    };
+
+    const distinctSurfaceHost = createVirtualHost({
+      directories: {
+        '/reg/storage': ['init', 'admin-file'],
+        '/reg/storage/init': ['section.ts', '1.ts'],
+        '/reg/storage/admin-file': ['section.ts', '1.ts'],
+      },
+      kinds: {
+        '/reg/storage/init': 'directory',
+        '/reg/storage/init/section.ts': 'file',
+        '/reg/storage/init/1.ts': 'file',
+        '/reg/storage/admin-file': 'directory',
+        '/reg/storage/admin-file/section.ts': 'file',
+        '/reg/storage/admin-file/1.ts': 'file',
+      },
+      modules: {
+        '/reg/storage/init/section.ts': { section: clientSection },
+        '/reg/storage/init/1.ts': { default: clientSection.row(seed) },
+        '/reg/storage/admin-file/section.ts': { section: adminSection },
+        '/reg/storage/admin-file/1.ts': { default: adminSection.row(seed) },
+      },
+    });
+
+    expect(clientSection.surface).toBe('storage');
+    expect(adminSection.surface).toBe('storage-admin');
+
+    const loaded = assembleRegistrySections('/reg/storage', distinctSurfaceHost);
+    expect(loaded.rowsOf('init').map((r) => r.id)).toEqual(['storage#1']);
+    expect(loaded.rowsOf('admin-file').map((r) => r.id)).toEqual(['storage-admin#1']);
+
+    const sameAdminSurfaceCollisionHost = createVirtualHost({
+      directories: {
+        '/reg/storage': ['admin-file', 'admin-bucket'],
+        '/reg/storage/admin-file': ['section.ts', '1.ts'],
+        '/reg/storage/admin-bucket': ['section.ts', '1.ts'],
+      },
+      kinds: {
+        '/reg/storage/admin-file': 'directory',
+        '/reg/storage/admin-file/section.ts': 'file',
+        '/reg/storage/admin-file/1.ts': 'file',
+        '/reg/storage/admin-bucket': 'directory',
+        '/reg/storage/admin-bucket/section.ts': 'file',
+        '/reg/storage/admin-bucket/1.ts': 'file',
+      },
+      modules: {
+        '/reg/storage/admin-file/section.ts': { section: adminSection },
+        '/reg/storage/admin-file/1.ts': { default: adminSection.row(seed) },
+        '/reg/storage/admin-bucket/section.ts': { section: adminSecondSection },
+        '/reg/storage/admin-bucket/1.ts': { default: adminSecondSection.row(seed) },
+      },
+    });
+
+    expect(() => assembleRegistrySections('/reg/storage', sameAdminSurfaceCollisionHost)).toThrow(
+      "/reg/storage/admin-file/1.ts: duplicate or case-colliding rowRef '1' for surface 'storage-admin' (already defined at /reg/storage/admin-bucket/1.ts)",
     );
   });
 
