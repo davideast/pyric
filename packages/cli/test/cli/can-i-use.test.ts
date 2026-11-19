@@ -60,9 +60,8 @@ describe('can-i-use command', () => {
       supports: [{
         feature: 'getAfter',
         availability: 'available',
-        // Unverified while row firestore-rules#190 awaits a production capture (#1322).
-        fidelity: 'unverified',
-        assurance: 'qualified',
+        fidelity: 'conforms',
+        assurance: 'eligible',
       }],
     });
   });
