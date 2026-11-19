@@ -306,3 +306,7 @@ test('an onDisconnect re-armed on the session an interruption just drained survi
 test('the Node host persists partitioned RTDB records incrementally, rejects legacy inline state, and preserves RTDB across export/import, section clear, repro, and salvage', async () => {
   expect(await runNodeFixture('rtdb-dirty-records', 30_000)).toBe('Hosted RTDB dirty records passed');
 }, 45_000);
+
+test('the storage tool on the Node host selects named and default buckets under per-bucket rules', async () => {
+  expect(await runNodeFixture('storage-tool-buckets', 30_000)).toBe('Hosted storage tool buckets passed');
+}, 45_000);

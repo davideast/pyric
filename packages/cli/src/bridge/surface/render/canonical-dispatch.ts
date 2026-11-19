@@ -147,6 +147,7 @@ const ROUTES: Readonly<Record<string, CanonicalRoute>> = {
       if (args.contentBase64 !== undefined) call.contentBase64 = args.contentBase64;
       if (args.sourcePath !== undefined) call.sourcePath = args.sourcePath;
       if (Object.keys(grouped).length > 0) call.metadata = grouped;
+      if (args.bucket !== undefined) call.bucket = args.bucket;
       return call;
     },
   },

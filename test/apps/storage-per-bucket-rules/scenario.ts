@@ -194,6 +194,26 @@ export default scenario(async (app) => {
     assert.deepEqual(await pageUploads(app, host, 'hosted', 'hosted/b.txt'), AFTER_RULES_SET);
   });
 
+  await app.step('pyric storage --bucket selects named and default buckets on the Node host', async () => {
+    const payload = Buffer.from('cli-media').toString('base64');
+    const uploaded = await app.pyric([
+      'storage', 'uploadBytes', '--json', '--bucket', 'gs://media-bucket', '--path', 'cli/media.txt', '--contentBase64', payload,
+    ]);
+    assert.equal(uploaded.code, 0, uploaded.output);
+
+    const mediaMeta = await app.pyric([
+      'storage', 'getMetadata', '--json', '--bucket', 'media-bucket', '--path', 'cli/media.txt',
+    ]);
+    assert.equal(mediaMeta.code, 0, mediaMeta.output);
+    assert.match(mediaMeta.output, /"bucket": "media-bucket"/, mediaMeta.output);
+
+    const defaultList = await app.pyric([
+      'storage', 'listAll', '--json', '--bucket', 'demo-app.appspot.com', '--prefix', 'cli',
+    ]);
+    assert.equal(defaultList.code, 0, defaultList.output);
+    assert.match(defaultList.output, /"items": \[\]/, defaultList.output);
+  });
+
   const workerHost = await app.step('start a SharedWorker dev server', () =>
     app.devServer({ name: 'shared-worker-dev-server', env: { STORAGE_PER_BUCKET_PLANE: 'shared-worker' } }));
 

@@ -6,6 +6,9 @@
 import { describe, expect, it } from 'bun:test';
 
 import {
+  BUCKET_RENAMES,
+  bucketArgument,
+  checkBucket,
   contentTypeForPath,
   CROSS_SERVICE_IAM_MODES,
   decodesAsBase64,
@@ -14,6 +17,7 @@ import {
   RENAMES,
   settableMetadata,
 } from '../../../../src/bridge/surface/arguments/storage.js';
+import { failFor } from '../../../../src/bridge/surface/method-validation.js';
 
 describe('the renames', () => {
   it('groups metadata fields and maps payload spellings onto contentBase64', () => {
@@ -27,12 +31,41 @@ describe('the renames', () => {
     expect(RENAMES.folder).toBe('prefix');
   });
 
-  it('maps the file spellings onto sourcePath and the posture onto mode', () => {
+  it('maps the file spellings onto sourcePath, posture onto mode, and bucket spellings onto bucket', () => {
     expect(RENAMES.file).toBe('sourcePath');
     expect(RENAMES.filePath).toBe('sourcePath');
     expect(RENAMES.localPath).toBe('sourcePath');
     expect(RENAMES.crossServiceIam).toBe('mode');
+    expect(BUCKET_RENAMES).toEqual({
+      bucketId: 'bucket',
+      bucketUrl: 'bucket',
+      storageBucket: 'bucket',
+    });
     expect(RENAMES.bucketId).toBe('bucket');
+    expect(RENAMES.bucketUrl).toBe('bucket');
+    expect(RENAMES.storageBucket).toBe('bucket');
+  });
+});
+
+describe('bucketArgument and checkBucket', () => {
+  const fail = failFor('storage', 'getBytes');
+
+  it('makes bucket optional and accepts bare names, root gs:// URLs, and default', () => {
+    expect(bucketArgument.safeParse(undefined).success).toBe(true);
+    expect(bucketArgument.safeParse('media-bucket').success).toBe(true);
+    expect(checkBucket({}, fail)).toBeNull();
+    expect(checkBucket({ bucket: 'default' }, fail)).toBeNull();
+    expect(checkBucket({ bucket: 'media-bucket' }, fail)).toBeNull();
+    expect(checkBucket({ bucket: 'gs://media-bucket/' }, fail)).toBeNull();
+  });
+
+  it('rejects Storage URLs carrying object paths and non-bucket strings', () => {
+    const withObjectPath = checkBucket({ bucket: 'gs://media-bucket/path.txt' }, fail);
+    expect(withObjectPath?.data.field).toBe('bucket');
+    expect(withObjectPath?.summary).toContain('storage/invalid-default-bucket');
+
+    const withSlash = checkBucket({ bucket: 'media-bucket/sub' }, fail);
+    expect(withSlash?.data.field).toBe('bucket');
   });
 });
 

@@ -14,6 +14,7 @@
 import { initializeSandbox } from 'pyric/sandbox';
 import {
   IN_PROCESS_STATE_RELATIVE,
+  inProcessDefaultBucketName,
   loadProjectRules,
   loadSandboxSnapshot,
   openPersistedServices,
@@ -55,7 +56,7 @@ const USAGE_ERROR = 1;
  * would answer about a different sandbox than the one the app is using, so the
  * command refuses unless the caller says which one they mean.
  */
-export function runningServeRefusal(url: string): string {
+function runningServeRefusal(url: string): string {
   return (
     `a running \`pyric serve\` at ${url} owns this project's sandbox in the browser, ` +
     `and this command acts only on the in-process sandbox in ${IN_PROCESS_STATE_RELATIVE}. ` +
@@ -141,6 +142,8 @@ export async function runSurfaceMethod(
     await loadStorageSidecar(storage, cwd);
 
     const ctx = createSurfaceContext(sandbox, cwd);
+    const defaultBucketName = inProcessDefaultBucketName(cwd);
+    ctx.storageBucketName = () => defaultBucketName;
     const rejection = validateArguments(method, read.args, allowProduction);
     const rejected = rejection !== null;
     if (rejected) {

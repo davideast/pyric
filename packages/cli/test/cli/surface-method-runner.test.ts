@@ -10,7 +10,7 @@
  */
 import 'fake-indexeddb/auto';
 import { afterAll, describe, expect, it } from 'bun:test';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -19,7 +19,10 @@ import {
   loadSandboxSnapshot,
   openPersistedServices,
 } from '../../src/bridge/server/in-process.js';
+import { STORAGE_SIDECAR_RELATIVE } from '../../src/bridge/server/storage-sidecar.js';
 import { initializeSandbox } from 'pyric/sandbox';
+import { deleteObject, ref as storageRef } from 'pyric/storage';
+import { getAdminStorageSandbox } from 'pyric/storage/internal';
 import { runDatabaseRulesValidate } from '../../src/cli/database-rules.js';
 import { parseArgs } from '../../src/cli/parse-args.js';
 import { runSurfaceMethod } from '../../src/cli/surface-method-runner.js';
@@ -422,6 +425,105 @@ describe('pyric database <method> --instance', () => {
     expect(refused.code).toBe(2);
     expect(refused.stderr).toContain('database instance "shard-09" is not declared in firebase.json');
     expect(refused.stderr).toContain('Known instances: demo-app-default-rtdb (default), shard-00.');
+  });
+});
+
+describe('pyric storage <method> --bucket', () => {
+  const storageProjectDir = join(workDir, 'storage-bucket-project');
+  mkdirSync(storageProjectDir, { recursive: true });
+  writeFileSync(join(storageProjectDir, '.firebaserc'), JSON.stringify({ projects: { default: 'demo-app' } }));
+  writeFileSync(
+    join(storageProjectDir, 'firebase.json'),
+    JSON.stringify({
+      storage: [
+        { bucket: 'cli-media-bucket', rules: 'media.rules' },
+        { bucket: 'demo-app.appspot.com', rules: 'storage.rules' },
+      ],
+    }),
+  );
+  writeFileSync(
+    join(storageProjectDir, 'media.rules'),
+    "rules_version = '2';\nservice firebase.storage {\n  match /b/{bucket}/o {\n    match /{allPaths=**} { allow read, write: if true; }\n  }\n}\n",
+  );
+  writeFileSync(
+    join(storageProjectDir, 'storage.rules'),
+    "rules_version = '2';\nservice firebase.storage {\n  match /b/{bucket}/o {\n    match /{allPaths=**} { allow read, write: if request.auth != null; }\n  }\n}\n",
+  );
+
+  async function inStorageProject(key: string, argv: string[]): Promise<Run> {
+    let stdout = '';
+    let stderr = '';
+    const code = await runSurfaceMethod(key, parseArgs(argv), {
+      cwd: storageProjectDir,
+      stdout: { write: (text) => void (stdout += text) },
+      stderr: { write: (text) => void (stderr += text) },
+      discover: async () => null,
+    });
+    return { code, stdout, stderr };
+  }
+
+  it('persists an upload to a named bucket in the storage sidecar and reads it back without touching the default bucket', async () => {
+    const payload = Buffer.from('media-cli-bytes').toString('base64');
+    const uploaded = await inStorageProject('storage.uploadBytes', [
+      'storage',
+      'uploadBytes',
+      '--bucket',
+      'gs://cli-media-bucket',
+      '--path',
+      'assets/banner.txt',
+      '--contentBase64',
+      payload,
+    ]);
+    expect(uploaded.code).toBe(0);
+    expect(uploaded.stdout).toContain('Uploaded assets/banner.txt (15 bytes) on cli-media-bucket');
+
+    const sidecarRaw = readFileSync(join(storageProjectDir, STORAGE_SIDECAR_RELATIVE), 'utf8');
+    const sidecar = JSON.parse(sidecarRaw) as Array<{ bucket?: string; path: string }>;
+    expect(sidecar).toEqual([
+      expect.objectContaining({ bucket: 'cli-media-bucket', path: 'assets/banner.txt' }),
+    ]);
+
+    // Clear the shared in-memory IndexedDB entry so the next CLI invocation must hydrate from disk.
+    const sharedMedia = getAdminStorageSandbox(initializeSandbox(), { bucket: 'cli-media-bucket' });
+    await deleteObject(storageRef(sharedMedia, 'assets/banner.txt'));
+
+    const mediaRead = await inStorageProject('storage.getBytes', [
+      'storage',
+      'getBytes',
+      '--json',
+      '--bucket',
+      'cli-media-bucket',
+      '--path',
+      'assets/banner.txt',
+    ]);
+    expect(mediaRead.code).toBe(0);
+    const parsedRead = JSON.parse(mediaRead.stdout) as { data: { contentBase64: string } };
+    expect(parsedRead.data.contentBase64).toBe(payload);
+
+    const defaultListing = await inStorageProject('storage.listAll', [
+      'storage',
+      'listAll',
+      '--json',
+      '--bucket',
+      'demo-app.appspot.com',
+    ]);
+    expect(defaultListing.code).toBe(0);
+    const parsedDefault = JSON.parse(defaultListing.stdout) as { summary: string; data: { items: string[] } };
+    expect(parsedDefault.summary).toBe('0 objects under /');
+    expect(parsedDefault.data.items).toEqual([]);
+  });
+
+  it('exits 2 when --bucket carries an object path URL', async () => {
+    const refused = await inStorageProject('storage.getMetadata', [
+      'storage',
+      'getMetadata',
+      '--bucket',
+      'gs://media-bucket/assets/banner.txt',
+      '--path',
+      'assets/banner.txt',
+    ]);
+    expect(refused.code).toBe(2);
+    expect(refused.stderr).toContain('storage/invalid-default-bucket');
   });
 });
 

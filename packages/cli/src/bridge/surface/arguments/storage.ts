@@ -6,6 +6,16 @@
  * shows up when something reads it back.
  */
 import { z } from 'zod';
+import { quoted } from '../closest-name.js';
+import type { Args, Fail, InvalidArguments } from '../method-types.js';
+import { parseStorageBucket } from '../storage-bucket.js';
+
+/** The SDK and Admin SDK spellings of a Cloud Storage bucket, mapped onto `bucket`. */
+export const BUCKET_RENAMES: Readonly<Record<string, string>> = {
+  bucketId: 'bucket',
+  bucketUrl: 'bucket',
+  storageBucket: 'bucket',
+};
 
 export const RENAMES: Readonly<Record<string, string>> = {
   ref: 'path',
@@ -20,12 +30,41 @@ export const RENAMES: Readonly<Record<string, string>> = {
   filePath: 'sourcePath',
   localPath: 'sourcePath',
   crossServiceIam: 'mode',
-  bucketId: 'bucket',
+  ...BUCKET_RENAMES,
 };
 
 export const pathArgument = z
   .string()
   .describe('Object path within the bucket, for example uploads/pic.png.');
+
+export const bucketArgument = z
+  .string()
+  .optional()
+  .describe(
+    'The Cloud Storage bucket: a name such as media-bucket, its gs:// URL, or default. Omitted, the default bucket.',
+  );
+
+/** Reject a bucket selector the SDK cannot parse, with the SDK's message. */
+export function checkBucket(args: Args, fail: Fail): InvalidArguments | null {
+  if (args.bucket === undefined) return null;
+  const rawBucket = String(args.bucket);
+  try {
+    parseStorageBucket(rawBucket);
+    return null;
+  } catch (error) {
+    let reason: string;
+    if (error instanceof Error) {
+      reason = error.message.trim();
+    } else {
+      reason = String(error);
+    }
+    return fail(
+      `bucket ${quoted(args.bucket)} is not a Cloud Storage bucket. ${reason}`,
+      'Pass a bucket name such as media-bucket, its root URL such as gs://media-bucket, or default.',
+      'bucket',
+    );
+  }
+}
 
 /** Object metadata, as the SDK groups it. */
 export const metadata = z

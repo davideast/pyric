@@ -287,6 +287,7 @@ export const STORAGE_ROUTES: DiscriminatorRoute[] = [
       }
       assign(translated, 'contentType', text(args, 'contentType'));
       assign(translated, 'metadata', parseJsonObject(text(args, 'customMetadataJson')));
+      assign(translated, 'bucket', text(args, 'bucket'));
       return translated;
     },
   },
@@ -295,14 +296,22 @@ export const STORAGE_ROUTES: DiscriminatorRoute[] = [
     action: 'download',
     selects: on('action', 'download'),
     operation: 'download_storage_file',
-    translate: (args) => ({ path: args.path }),
+    translate: (args) => {
+      const translated: Args = { path: args.path };
+      assign(translated, 'bucket', text(args, 'bucket'));
+      return translated;
+    },
   },
   {
     tool: 'manage_storage_files',
     action: 'delete',
     selects: on('action', 'delete'),
     operation: 'delete_storage_file',
-    translate: (args) => ({ path: args.path }),
+    translate: (args) => {
+      const translated: Args = { path: args.path };
+      assign(translated, 'bucket', text(args, 'bucket'));
+      return translated;
+    },
   },
   {
     tool: 'manage_storage_files',
@@ -312,6 +321,7 @@ export const STORAGE_ROUTES: DiscriminatorRoute[] = [
     translate: (args) => {
       const translated: Args = {};
       assign(translated, 'prefix', text(args, 'path'));
+      assign(translated, 'bucket', text(args, 'bucket'));
       return translated;
     },
   },
@@ -320,7 +330,11 @@ export const STORAGE_ROUTES: DiscriminatorRoute[] = [
     action: 'download_url',
     selects: on('action', 'download_url'),
     operation: 'get_storage_download_url',
-    translate: (args) => ({ path: args.path }),
+    translate: (args) => {
+      const translated: Args = { path: args.path };
+      assign(translated, 'bucket', text(args, 'bucket'));
+      return translated;
+    },
   },
   {
     tool: 'manage_storage_files',
@@ -332,7 +346,9 @@ export const STORAGE_ROUTES: DiscriminatorRoute[] = [
       assign(metadata, 'contentType', text(args, 'contentType'));
       assign(metadata, 'cacheControl', text(args, 'cacheControl'));
       assign(metadata, 'customMetadata', parseJsonObject(text(args, 'customMetadataJson')));
-      return { path: args.path, metadata };
+      const translated: Args = { path: args.path, metadata };
+      assign(translated, 'bucket', text(args, 'bucket'));
+      return translated;
     },
   },
   {
