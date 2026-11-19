@@ -113,9 +113,8 @@ function observeBucketSpelling(app: FirebaseApp, bucketUrl?: string): ObservedBu
 export const probe: Probe = {
   rig: 'client-storage',
   requires: [],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'storage#11',
+  rowIds: ['storage#11'],
   description:
     'Pure offline firebase/storage getStorage(app, bucketUrl?) handle caching per bucketUrl spelling, ref().bucket and toString() resolution, synchronous storage/invalid-default-bucket validation on URLs with object paths, and unconfigured storageBucket ref() behavior with zero network calls.',
   async observe() {

@@ -109,10 +109,14 @@ export function cloneSettableMetadata<T extends { customMetadata?: { [key: strin
  * `contentEncoding` as `identity`, as the Firebase Storage endpoint reports
  * it; the admin plane reads the stored record as is.
  */
-export function toFullMetadata(stored: StoredMetadata, plane: StoragePlane): FullMetadata {
+export function toFullMetadata(
+  stored: StoredMetadata,
+  plane: StoragePlane,
+  bucket = stored.bucket,
+): FullMetadata {
   const { customMetadata: rawCustomMetadata, ...rest } = stored;
   const custom = cloneCustomMetadata(rawCustomMetadata);
-  const out: FullMetadata = { ...rest };
+  const out: FullMetadata = { ...rest, bucket };
   if (plane !== 'admin') {
     out.contentEncoding = clientContentEncoding(stored.contentEncoding);
   }
@@ -227,7 +231,7 @@ async function readObjectMetadata(ref: StorageReference): Promise<FullMetadata> 
   if (!stored) {
     throw objectNotFound(ref.fullPath);
   }
-  return toFullMetadata(stored, planeOf(target));
+  return toFullMetadata(stored, planeOf(target), ref.bucket);
 }
 
 /**
@@ -376,14 +380,14 @@ async function rewriteMetadata(
         auth: storageAuth(target),
         before: existing,
         after: next,
-        detail: { bucket: ref.bucket },
+        detail: { bucket: target.bucket },
       }),
       operationProvenance,
     );
   } catch {
     // Observational — never let event emission break a metadata update.
   }
-  return toFullMetadata(next, planeOf(target));
+  return toFullMetadata(next, planeOf(target), ref.bucket);
 }
 
 function guardNonRoot(ref: StorageReference, op: string): void {

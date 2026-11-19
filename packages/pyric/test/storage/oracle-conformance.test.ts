@@ -41,6 +41,7 @@ import {
 import { parseStorageUrl } from '../../src/storage/url.js';
 import { registerOracleDeleteListAllRulesSuite } from './oracle-delete-listall-rules-cases.js';
 import { registerOracleGetBytesUploadStringSuite } from './oracle-getbytes-uploadstring-cases.js';
+import { registerOracleGetStorageBucketUrlSuite } from './oracle-getstorage-bucket-url-cases.js';
 import { registerOracleListAllSuite } from './oracle-listall-cases.js';
 import { registerOracleMetadataSuite } from './oracle-metadata-cases.js';
 import { registerOracleRefSuite } from './oracle-ref-cases.js';
@@ -515,6 +516,7 @@ service firebase.storage {
 
   registerOracleDeleteListAllRulesSuite({ load, freshStorage });
   registerOracleGetBytesUploadStringSuite({ load, freshStorage });
+  registerOracleGetStorageBucketUrlSuite({ load });
   registerOracleListAllSuite({ load, freshStorage });
   registerOracleMetadataSuite({ load, freshStorage });
   registerOracleRefSuite({ load, freshStorage });

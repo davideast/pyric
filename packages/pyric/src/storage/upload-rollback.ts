@@ -88,7 +88,7 @@ function emitObjectRestore(
         auth: storageAuth(target),
         before: replaced,
         after: restored,
-        detail: { bucket: ref.bucket, size: restored.size, contentType: restored.contentType, overwrite: true },
+        detail: { bucket: target.bucket, size: restored.size, contentType: restored.contentType, overwrite: true },
       }),
       storageOperationProvenance(target, provenance),
     );

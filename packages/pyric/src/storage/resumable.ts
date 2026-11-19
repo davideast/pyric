@@ -131,7 +131,7 @@ class UploadTaskImpl implements UploadTask {
 
     this._blob = normalizeBlob(data, hint);
     const stored = buildStoredMetadata({ ref, blob: this._blob, settable: clonedMetadata });
-    const fullMetadata = toFullMetadata(stored, planeOf(targetOf(ref.storage)));
+    const fullMetadata = toFullMetadata(stored, planeOf(targetOf(ref.storage)), ref.bucket);
 
     this._promise = new Promise<UploadTaskSnapshot>((resolve, reject) => {
       this._resolve = resolve;

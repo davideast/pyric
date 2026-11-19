@@ -5,38 +5,26 @@ import {
   loadClientStorageProbes,
   selectClientStorageProbes,
 } from '../../src/client-storage-probes.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 
 const PROBE_ID = 'client-storage-getstorage-bucket-url';
 
-describe('client-storage-getstorage-bucket-url staged probe (client-storage)', () => {
-  test('registers on client-storage with pendingRowLink and stays skipped in unfiltered runs until captured', async () => {
+describe('client-storage-getstorage-bucket-url probe (storage#11)', () => {
+  test('registers on client-storage linked to storage#11 and runs in unfiltered probe selection', async () => {
     const loaded = await loadClientStorageProbes();
     const loadedIds = loaded.map((entry) => entry.id);
     expect(loadedIds).toContain(PROBE_ID);
 
     expect(bucketUrlProbe.rig).toBe('client-storage');
     expect(bucketUrlProbe.requires).toEqual([]);
-    expect(bucketUrlProbe.pendingRowLink).toBe(true);
-    expect(bucketUrlProbe.matrixRow).toBe('');
-    expect(bucketUrlProbe.rowIds).toEqual([]);
+    expect(bucketUrlProbe.pendingRowLink).toBeUndefined();
+    expect(bucketUrlProbe.matrixRow).toBe('storage#11');
+    expect(bucketUrlProbe.rowIds).toEqual(['storage#11']);
     expect(bucketUrlProbe.description.length).toBeGreaterThan(20);
 
     const unfilteredIds = new Set(selectClientStorageProbes(loaded, []).map((entry) => entry.id));
+    expect(unfilteredIds.has(PROBE_ID)).toBe(true);
     const explicitSelected = selectClientStorageProbes(loaded, ['--probe', PROBE_ID]);
     expect(explicitSelected.map((entry) => entry.id)).toEqual([PROBE_ID]);
-
-    expectStagedUntilCaptured(PROBE_ID, {
-      rig: 'client-storage',
-      filterFlag: '--probe',
-      filterValueFor: (name) => name,
-      whenUncaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(false);
-      },
-      whenCaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(true);
-      },
-    });
   });
 
   test('executes deterministically with fetchCalls === 0 and records handle identity, bucket spellings, invalid URLs, and unconfigured ref behavior', async () => {
