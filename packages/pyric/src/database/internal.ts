@@ -53,3 +53,11 @@ export {
 } from './sandbox/normalize.js';
 export { resolveSentinels } from './sandbox/sentinels.js';
 export { exportDatabaseVal } from './internal/export-val.js';
+export { emitClientDatabaseLog, enableLogging } from './logging.js';
+export {
+  DELETED_DATABASE_USE_EMULATOR_ERROR,
+  evaluateEmulatorConnect,
+  type AppliedEmulatorConfig,
+  type EmulatorConnectOptions,
+} from './emulator.js';
+export { isCustomDatabaseHost, parseDatabaseLocationUrl } from '../sandbox/internal/instances.js';

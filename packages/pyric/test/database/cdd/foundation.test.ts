@@ -120,7 +120,9 @@ describe('rtdb-modular CDD: foundation rows', () => {
   row('M47', assertOffRemovesEveryListenerVariety);
   row('M48', assertTargetedOffAndUnsubscribe);
   row('M32', () => {
-    const { db } = setup(); expect(api.connectDatabaseEmulator(db, 'localhost', 9000)).toBeUndefined();
+    const { db } = setup();
+    expect(api.connectDatabaseEmulator(db, 'localhost', 9000)).toBeUndefined();
+    expect(api.ref(db, 'items/k1').toString()).toBe('http://localhost:9000/items/k1');
   });
   row('M33', async () => {
     const { db } = setup(); api.databaseSandbox.setRules(db, { rules: { '.write': false } });

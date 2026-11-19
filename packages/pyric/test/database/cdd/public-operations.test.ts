@@ -178,7 +178,11 @@ describe('rtdb-modular CDD: public operation rows', () => {
     expect([(await api.get(target)).val(), values]).toEqual([1, [null, 1]]);
   });
   row('164', async () => { const { db } = setup(); const target = api.ref(db, 'x'); await api.onDisconnect(target).set(1); api.goOffline(db); api.goOnline(db); await api.set(target, 2); api.goOffline(db); expect((await api.get(target)).val()).toBe(2); });
-  row('165', () => { const { db } = setup(); expect(api.connectDatabaseEmulator(db, 'localhost', 9000)).toBeUndefined(); });
+  row('165', () => {
+    const { db } = setup();
+    expect(api.connectDatabaseEmulator(db, 'localhost', 9000, { mockUserToken: { sub: 'alice' } })).toBeUndefined();
+    expect(() => api.connectDatabaseEmulator(setup().db, 'localhost', 9000, { mockUserToken: {} as never })).toThrow(/sub.*user_id/);
+  });
   row('166', async () => {
     const app = initializeApp({ projectId: 'cdd-production-boundary', databaseURL: 'https://cdd-production-boundary.firebaseio.com' }, `cdd-production-${Date.now()}`);
     try { expect(api.TARGET_SYMBOL in getFirebaseDatabase(app)).toBe(false); expect(() => api.getDatabase(app as never)).toThrow(/package resolution/i); }
@@ -186,7 +190,18 @@ describe('rtdb-modular CDD: public operation rows', () => {
   });
   row('171', () => expect(api.forceLongPolling()).toBeUndefined());
   row('172', () => expect(api.forceWebSockets()).toBeUndefined());
-  row('173', () => expect(api.enableLogging(() => {}, true)).toBeUndefined());
+  row('173', async () => {
+    const logs: string[] = [];
+    expect(() => api.enableLogging(() => {}, true)).toThrow(/Can't turn on custom loggers persistently/);
+    try {
+      expect(api.enableLogging((msg: string) => { logs.push(msg); }, false)).toBeUndefined();
+      const { db } = setup();
+      await api.set(api.ref(db, 'log-check'), 1);
+      expect(logs.length).toBeGreaterThan(0);
+    } finally {
+      api.enableLogging(false);
+    }
+  });
   row('174', () => { const { db, sandbox } = setup(); expect(referenceObservation.mismatchedHost.timing).toBe('synchronous-throw'); const hostMatch = /expected ([^)]+)\)/.exec(String(referenceObservation.mismatchedHost.message)); const expectedHost = hostMatch?.[1] ?? 'example-project-rtdb.firebaseio.com'; const hosted = api.getDatabase(sandbox, `https://${expectedHost}`); expect(() => api.refFromURL(hosted, `https://other-${expectedHost}/a`)).toThrow(referenceObservation.mismatchedHost.message); const parsed = api.refFromURL(db, 'ftp://other.example.com/a/b?ignored=1'); expect([parsed.key, parsed.toString()]).toEqual(['b', 'https://demo-pyric-default-rtdb.firebaseio.com/a/b']); expect(() => api.refFromURL(db, 'https://other.example.com/a#fragment')).toThrow(); });
   row('M95', assertM95InfoWrites);
 });

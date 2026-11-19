@@ -2,7 +2,7 @@ import { isCustomDatabaseHost, parseDatabaseLocationUrl } from '../sandbox/inter
 import { joinPath, pathSegments } from './sandbox/data-tree.js';
 import { validateReferencePath } from './writable-path.js';
 import { emptySpec } from './sandbox/query.js';
-import { tag, targetOf, type SandboxLiveTarget, type SandboxTarget } from './routing.js';
+import { markTargetStarted, tag, targetOf, type SandboxLiveTarget, type SandboxTarget } from './routing.js';
 import { QUERY_SYMBOL, type Database, type DatabaseReference, type Query } from './types.js';
 import { queryIdentifier } from './query-shape.js';
 
@@ -16,6 +16,7 @@ import { queryIdentifier } from './query-shape.js';
  */
 export function ref(db: Database, path?: string): DatabaseReference {
   const target = targetOf(db);
+  markTargetStarted(target);
   if (path !== undefined) validateReferencePath(path, false);
   return buildSandboxRef(target, path ?? '/');
 }

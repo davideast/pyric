@@ -21,7 +21,7 @@ export interface ClientEmulatorHandle {
 }
 
 interface ClientEmulatorSdk {
-  openHandle(suffix: string): ClientEmulatorHandle;
+  openHandle(suffix: string): ClientEmulatorHandle | Promise<ClientEmulatorHandle>;
   connectDatabaseEmulator(
     db: Database,
     host: string,
@@ -43,7 +43,7 @@ interface ClientLoggingProbeSubject {
   runTransaction: typeof import('firebase/database').runTransaction;
 }
 
-interface ClientEmulatorAndLoggingObservation {
+export interface ClientEmulatorAndLoggingObservation {
   logging: {
     callbackToggleReturnsUndefined: boolean;
     customLoggerPersistentThrow: {
@@ -251,14 +251,14 @@ export async function observeClientEmulatorContract(
 ): Promise<ClientEmulatorAndLoggingObservation['emulator']> {
   const handles: Array<{ handle: ClientEmulatorHandle; deleted: boolean }> = [];
 
-  const open = (suffix: string): { handle: ClientEmulatorHandle; deleted: boolean } => {
-    const entry = { handle: sdk.openHandle(suffix), deleted: false };
+  const open = async (suffix: string): Promise<{ handle: ClientEmulatorHandle; deleted: boolean }> => {
+    const entry = { handle: await sdk.openHandle(suffix), deleted: false };
     handles.push(entry);
     return entry;
   };
 
   try {
-    const base = open('base').handle;
+    const base = (await open('base')).handle;
     base.goOffline();
     const baselineRefUrl = sdk.ref(base.db, 'items/k1').toString();
     const baselineHttpsOrigin = {
@@ -266,7 +266,7 @@ export async function observeClientEmulatorContract(
       endsWithTargetPath: baselineRefUrl.endsWith('/items/k1'),
     };
 
-    const pre = open('pre').handle;
+    const pre = (await open('pre')).handle;
     const connectReturnsUndefined =
       sdk.connectDatabaseEmulator(pre.db, '127.0.0.1', 9000) === undefined;
     pre.goOffline();
@@ -292,20 +292,20 @@ export async function observeClientEmulatorContract(
       sdk.connectDatabaseEmulator(pre.db, 'localhost', 9000),
     );
 
-    const overwrite = open('overwrite').handle;
+    const overwrite = (await open('overwrite')).handle;
     sdk.connectDatabaseEmulator(overwrite.db, '127.0.0.1', 9000);
     sdk.connectDatabaseEmulator(overwrite.db, '127.0.0.1', 9002);
     overwrite.goOffline();
     const overwrittenBeforeStartRefUrl = sdk.ref(overwrite.db, 'items/k1').toString();
 
-    const ipv6 = open('ipv6').handle;
+    const ipv6 = (await open('ipv6')).handle;
     const ipv6LoopbackHost = captureUrlCall(() => {
       sdk.connectDatabaseEmulator(ipv6.db, '[::1]', 9000);
       ipv6.goOffline();
       return sdk.ref(ipv6.db, 'items/k1').toString();
     });
 
-    const mockObj = open('mock-obj').handle;
+    const mockObj = (await open('mock-obj')).handle;
     const aliceTokenOptions: { mockUserToken: EmulatorMockTokenOptions } = {
       mockUserToken: { sub: 'alice', email: 'alice@example.com' },
     };
@@ -325,7 +325,7 @@ export async function observeClientEmulatorContract(
       }),
     );
 
-    const mockUserId = open('mock-userid').handle;
+    const mockUserId = (await open('mock-userid')).handle;
     const userIdTokenBinding = captureUrlCall(() => {
       sdk.connectDatabaseEmulator(mockUserId.db, '127.0.0.1', 9000, {
         mockUserToken: { user_id: 'bob' },
@@ -334,7 +334,7 @@ export async function observeClientEmulatorContract(
       return sdk.ref(mockUserId.db, 'items/k1').toString();
     });
 
-    const mockEmpty = open('mock-empty').handle;
+    const mockEmpty = (await open('mock-empty')).handle;
     const emptyMockTokenThrow = captureSyncCall(() =>
       sdk.connectDatabaseEmulator(mockEmpty.db, '127.0.0.1', 9000, {
         mockUserToken: {} as unknown as EmulatorMockTokenOptions,
@@ -342,7 +342,7 @@ export async function observeClientEmulatorContract(
     );
     mockEmpty.goOffline();
 
-    const mockStr = open('mock-str').handle;
+    const mockStr = (await open('mock-str')).handle;
     const rawJwt = 'eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiJhbGljZSJ9.';
     const stringTokenBinding = captureUrlCall(() => {
       sdk.connectDatabaseEmulator(mockStr.db, '127.0.0.1', 9000, { mockUserToken: rawJwt });
@@ -350,20 +350,20 @@ export async function observeClientEmulatorContract(
       return sdk.ref(mockStr.db, 'items/k1').toString();
     });
 
-    const startedByRef = open('started-ref').handle;
+    const startedByRef = (await open('started-ref')).handle;
     sdk.ref(startedByRef.db, 'items/k1');
     startedByRef.goOffline();
     const firstCallAfterRef = captureSyncCall(() =>
       sdk.connectDatabaseEmulator(startedByRef.db, '127.0.0.1', 9000),
     );
 
-    const startedByOffline = open('started-offline').handle;
+    const startedByOffline = (await open('started-offline')).handle;
     startedByOffline.goOffline();
     const firstCallAfterGoOffline = captureSyncCall(() =>
       sdk.connectDatabaseEmulator(startedByOffline.db, '127.0.0.1', 9000),
     );
 
-    const deletedEntry = open('deleted');
+    const deletedEntry = await open('deleted');
     deletedEntry.handle.goOffline();
     await deletedEntry.handle.deleteHandle();
     deletedEntry.deleted = true;
@@ -420,9 +420,8 @@ export async function observeClientEmulatorContract(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'dedicated-rtdb'],
-  matrixRow: '',
-  rowIds: [],
-  pendingRowLink: true,
+  matrixRow: 'rtdb-modular#173',
+  rowIds: ['rtdb-modular#173', 'rtdb-modular#M32', 'rtdb-modular#165'],
   description:
     'firebase/database modular enableLogging(logger?, persistent?) and connectDatabaseEmulator(db, host, port, options?): observes live callback log delivery across set/get/onValue/runTransaction and post-disable silence, plus pre-start HTTP emulator URL rebinding/overwrite, mockUserToken object and JWT options, custom-host refFromURL resolution, idempotent post-start repeats, and post-start or deleted-app fatal errors.',
   observe() {

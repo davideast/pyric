@@ -11,9 +11,7 @@ import { getDatabase as pyricGetDatabase } from 'pyric/database';
 import { queryIdentifier } from 'pyric/database/internal';
 import {
   defaultDatabaseInstanceName,
-  isCustomDatabaseHost,
   isDefaultDatabaseInstance,
-  parseDatabaseLocationUrl,
   parseDatabaseUrl,
   type DatabaseInstance,
 } from 'pyric/sandbox/internal';
@@ -22,9 +20,9 @@ import {
   rtdbGetDatabase,
   rtdbInstanceDatabase,
   rtdbRef,
+  rtdbRefFromURL,
   sameRtdbInstance,
 } from '../worker/client/rtdb-references.js';
-import type { ClientRtdb } from '../worker/client/handles.js';
 import { rtdbGet } from '../worker/client/rtdb-reads.js';
 import {
   rtdbPush,
@@ -51,6 +49,7 @@ import {
 } from '../worker/client/rtdb-connection-lifecycle.js';
 import {
   rtdbConnectDatabaseEmulator,
+  rtdbEnableLogging,
   rtdbServerTimestamp,
 } from '../worker/client/rtdb-controls.js';
 import { useWorker } from './worker-runtime.js';
@@ -224,27 +223,17 @@ export const goOffline = (useWorker ? rtdbGoOffline : ip.goOffline) as typeof ip
 export const goOnline = (useWorker ? rtdbGoOnline : ip.goOnline) as typeof ip.goOnline;
 export const forceLongPolling = (() => {}) as typeof ip.forceLongPolling;
 export const forceWebSockets = (() => {}) as typeof ip.forceWebSockets;
-export const enableLogging = ((_logger?: unknown, _persistent?: unknown) => {}) as typeof ip.enableLogging;
-
-/**
- * `refFromURL(db, url)` as production parses it: the URL names a location, and
- * for a `firebaseio.com` database its host must be the database's host.
- */
-function workerRefFromURL(db: ClientRtdb, url: string) {
-  const location = parseDatabaseLocationUrl(url);
-  const instance = db.instance;
-  if (instance !== undefined) {
-    const expectedHost = parseDatabaseLocationUrl(instance.url).host;
-    if (!isCustomDatabaseHost(expectedHost) && location.host !== expectedHost) {
-      throw new Error(
-        `FIREBASE FATAL ERROR: refFromURL: Host name does not match the current database: (found ${location.host} but expected ${expectedHost}) `,
-      );
-    }
-  }
-  return rtdbRef(db, location.path);
+let enableLoggingEntry: typeof ip.enableLogging = ip.enableLogging;
+if (useWorker) {
+  enableLoggingEntry = rtdbEnableLogging;
 }
+export const enableLogging = enableLoggingEntry;
 
-export const refFromURL = (useWorker ? workerRefFromURL : ip.refFromURL) as typeof ip.refFromURL;
+let refFromURLEntry: typeof ip.refFromURL = ip.refFromURL;
+if (useWorker) {
+  refFromURLEntry = rtdbRefFromURL as unknown as typeof ip.refFromURL;
+}
+export const refFromURL = refFromURLEntry;
 
 export const runTransaction = (
   useWorker

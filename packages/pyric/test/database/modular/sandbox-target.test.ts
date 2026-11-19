@@ -581,10 +581,10 @@ describe('snapshot shape', () => {
 });
 
 describe('connectDatabaseEmulator', () => {
-  it('is a no-op on sandbox handles', () => {
-    const { db } = setup();
-    // No throw — sandbox doesn't need an emulator pointer.
-    connectDatabaseEmulator(db, 'localhost', 9000);
+  it('rebinds URL origin before start and rejects post-start alterations', () => {
+    const { db } = setup(); connectDatabaseEmulator(db, 'localhost', 9000);
+    expect(ref(db, 'items/a').toString()).toBe('http://localhost:9000/items/a');
+    expect(() => connectDatabaseEmulator(db, 'localhost', 9001)).toThrow(/after the database instance has started/);
   });
 });
 

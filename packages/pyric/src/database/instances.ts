@@ -132,9 +132,9 @@ export function getDatabase(
           };
         },
         own: (cleanup) => appRuntime.onDelete(cleanup),
-        assertUsable: () => {
+        assertUsable: (apiName = 'ref') => {
           if (deleted) {
-            throw new Error('FIREBASE FATAL ERROR: Cannot call ref on a deleted database. ');
+            throw new Error(`FIREBASE FATAL ERROR: Cannot call ${apiName} on a deleted database. `);
           }
         },
       };

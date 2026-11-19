@@ -56,7 +56,13 @@ export function setup() {
   const sandbox = initializeSandbox();
   const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
   databaseSandbox.setDefaultPolicy(db, 'allow');
-  return { sandbox, db, root: ref(db) };
+  return {
+    sandbox,
+    db,
+    get root() {
+      return ref(db);
+    },
+  };
 }
 
 export async function valueAt(path: string, initial?: unknown) {

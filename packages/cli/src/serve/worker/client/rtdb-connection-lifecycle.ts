@@ -1,8 +1,9 @@
 /** Per-port RTDB disconnect registration and explicit connection lifecycle. */
-import { validateUpdatePaths, validateWritablePath } from 'pyric/database/internal';
-import { nextId } from './core.js';
+import { emitClientDatabaseLog, validateUpdatePaths, validateWritablePath } from 'pyric/database/internal';
+import { isDisconnectedPort, nextId } from './core.js';
 import type { ClientPort, ClientRtdb, ClientRtdbInstance, RtdbRefHandle } from './handles.js';
 import { markWorkerPathsWarm } from './rtdb-client-cache.js';
+import { markWorkerDatabaseStarted } from './rtdb-controls.js';
 import { normalizeRtdbPath, rtdbRpc } from './rtdb-references.js';
 import { validateRtdbPriority, validateRtdbUpdateValues, validateRtdbValue } from './rtdb-value-validation.js';
 
@@ -126,11 +127,21 @@ export function rtdbOnDisconnect(ref: RtdbRefHandle): RtdbOnDisconnect {
 }
 
 export function rtdbGoOffline(db: ClientRtdb): void {
+  if (isDisconnectedPort(db.port)) {
+    throw new Error('FIREBASE FATAL ERROR: Cannot call goOffline on a deleted database. ');
+  }
+  markWorkerDatabaseStarted(db);
+  emitClientDatabaseLog('goOffline');
   setNetworkEnabled(db, false);
   void rtdbRpc(db, { t: 'op', id: nextId(), method: 'rtdb.goOffline' }).catch(() => undefined);
 }
 
 export function rtdbGoOnline(db: ClientRtdb): void {
+  if (isDisconnectedPort(db.port)) {
+    throw new Error('FIREBASE FATAL ERROR: Cannot call goOnline on a deleted database. ');
+  }
+  markWorkerDatabaseStarted(db);
+  emitClientDatabaseLog('goOnline');
   setNetworkEnabled(db, true);
   void rtdbRpc(db, { t: 'op', id: nextId(), method: 'rtdb.goOnline' }).catch(() => undefined);
 }

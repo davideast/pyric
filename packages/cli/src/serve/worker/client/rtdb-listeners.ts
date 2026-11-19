@@ -17,6 +17,7 @@ import {
 } from './core.js';
 import type { ClientPort, ClientRtdbInstance, RtdbDataSnapshot, Unsubscribe } from './handles.js';
 import { dropWorkerClientCacheForPort, registerWorkerWarmListener } from './rtdb-client-cache.js';
+import { workerEmulatorLensFor } from './rtdb-controls.js';
 import { pageListenerOwners } from './listener-owners.js';
 import { deliverWithRegions } from './listener-delivery.js';
 import { observeInfo, servesInfoLocally } from './rtdb-info.js';
@@ -288,11 +289,15 @@ function openValueSubscription(
     close: () => activity.close(),
   };
 
+  let initialLens = _defaultLens;
+  if (initialLens === undefined) {
+    initialLens = workerEmulatorLensFor(ref);
+  }
   const opened = openSnapshotSubscription(
     ref.port,
     currentSubId,
     subHandler,
-    stampIssuer(makeSubMsg(currentSubId, _defaultLens)),
+    stampIssuer(makeSubMsg(currentSubId, initialLens)),
   );
   if (!opened) {
     initialGroup.leaveGroup();
@@ -307,11 +312,15 @@ function openValueSubscription(
     closeSubscription(ref.port, currentSubId);
     currentSubId = nextSubId();
     activity.transport(currentSubId);
+    let activeLens = newLens;
+    if (activeLens === undefined) {
+      activeLens = workerEmulatorLensFor(ref);
+    }
     openSnapshotSubscription(
       ref.port,
       currentSubId,
       subHandler,
-      stampIssuer(makeSubMsg(currentSubId, newLens)),
+      stampIssuer(makeSubMsg(currentSubId, activeLens)),
     );
   });
 

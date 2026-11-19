@@ -1,81 +1,80 @@
-import { targetOf } from './routing.js';
+import { evaluateEmulatorConnect } from './emulator.js';
+import { emitClientDatabaseLog, enableLogging } from './logging.js';
+import { markTargetStarted, targetOf } from './routing.js';
 import type { Database, EmulatorMockTokenOptions } from './types.js';
 
-// ─── Emulator (no-op on sandbox) ─────────────────────────────────────
+export { enableLogging };
 
 /**
- * `connectDatabaseEmulator(db, host, port)` is an accepted no-op because the
- * selected backend already is the local sandbox.
+ * `connectDatabaseEmulator(db, host, port, options?)` configures the database
+ * handle's HTTP emulator URL origin and optional `mockUserToken` rule identity
+ * before the instance starts, while keeping data operations on the local sandbox.
  */
 export function connectDatabaseEmulator(
-  _db: Database,
-  _host: string,
-  _port: number,
-  _options?: { mockUserToken?: string | EmulatorMockTokenOptions },
+  db: Database,
+  host: string,
+  port: number,
+  options?: { mockUserToken?: string | EmulatorMockTokenOptions },
 ): void {
+  const target = targetOf(db as unknown as object, 'useEmulator');
+  let projectId: string | undefined;
+  const appCandidate = (db as { app?: { options?: { projectId?: string } } }).app;
+  if (appCandidate !== undefined) {
+    try {
+      projectId = appCandidate.options?.projectId;
+    } catch {
+      projectId = undefined;
+    }
+  }
+  const next = evaluateEmulatorConnect(
+    target.started === true,
+    target.emulatorConfig,
+    host,
+    port,
+    options,
+    projectId,
+  );
+  target.emulatorConfig = next;
+  target.instanceUrl = next.normalizedOriginUrl;
+  target.defaultRootUrl = next.normalizedOriginUrl;
+  emitClientDatabaseLog('connectDatabaseEmulator', next.hostAndPort);
+}
+
+/**
+ * `goOffline(db)` disconnects the client from the RTDB backend and drains this
+ * client's one-shot onDisconnect queue while leaving the shared backend open to
+ * other Database clients.
+ */
+export function goOffline(db: Database): void {
+  const target = targetOf(db as unknown as object, 'goOffline');
+  markTargetStarted(target);
+  emitClientDatabaseLog('goOffline');
+  target.connection.goOffline();
+}
+
+/**
+ * `goOnline(db)` reconnects the logical client to the RTDB backend without
+ * resurrecting already-drained disconnect operations.
+ */
+export function goOnline(db: Database): void {
+  const target = targetOf(db as unknown as object, 'goOnline');
+  markTargetStarted(target);
+  emitClientDatabaseLog('goOnline');
+  target.connection.goOnline();
+}
+
+/**
+ * `forceLongPolling()` is an accepted no-op on the in-process/worker sandbox,
+ * which never opens a real socket.
+ */
+export function forceLongPolling(): void {
   // Accepted no-op.
 }
 
-// ─── Low-hanging-fruit exports (issue #149) ─────────────────────────
-//
-// Honest aliases / honest no-ops for `firebase/database` free functions
-// that a real app imports at module load.
-
 /**
- * `goOffline(db)` — disconnect the client from the RTDB backend.
- *
- * Drains this client's one-shot onDisconnect queue. The shared data backend
- * remains available to other Database clients and listeners.
- */
-export function goOffline(db: Database): void {
-  targetOf(db as unknown as object).connection.goOffline();
-}
-
-/**
- * `goOnline(db)` — reconnect the client to the RTDB backend.
- *
- * Reconnects the logical client. Executed disconnect operations are not
- * resurrected; reads and writes remain synchronous in the local sandbox.
- */
-export function goOnline(db: Database): void {
-  targetOf(db as unknown as object).connection.goOnline();
-}
-
-/**
- * `forceLongPolling()` — force the long-polling transport for all
- * subsequent `getDatabase` connections.
- *
- * No-op: transport selection is meaningless to the in-process/worker
- * sandbox, which never opens a real socket. Accepted so init code that
- * calls it unconditionally compiles + runs.
- */
-export function forceLongPolling(): void {
-  // Accepted no-op — see docstring.
-}
-
-/**
- * `forceWebSockets()` — force the WebSocket transport for all
- * subsequent `getDatabase` connections.
- *
- * No-op: transport selection is not applicable to the in-process/worker
- * sandbox (see {@link forceLongPolling}).
+ * `forceWebSockets()` is an accepted no-op on the in-process/worker sandbox
+ * (see {@link forceLongPolling}).
  */
 export function forceWebSockets(): void {
-  // Accepted no-op — see docstring.
-}
-
-/**
- * `enableLogging(logger?, persistent?)` — toggle RTDB SDK logging.
- *
- * Accepted no-op: the sandbox has no modular-SDK-style logger to wire a
- * level/sink into (it uses host-level `console` logging directly, gated
- * by `pyric sandbox`'s own flags — matching `pyric/firestore`'s
- * `setLogLevel`). Accepted so init code that calls it compiles + runs.
- */
-export function enableLogging(
-  logger?: boolean | ((message: string) => void),
-  persistent?: boolean,
-): void {
-  void logger;
-  void persistent;
+  // Accepted no-op.
 }
