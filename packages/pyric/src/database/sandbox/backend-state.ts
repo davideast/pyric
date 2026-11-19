@@ -75,6 +75,7 @@ export class BackendState {
   readonly events: OperationEvents;
   readonly writeSubscribers = new Set<() => void>();
   resetGeneration = 0;
+  deferListenerFanOut = false;
   private cachedRulesTreeGen = -1;
   private cachedRulesPriorityGen = -1;
   private hasCachedRulesView = false;

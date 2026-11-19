@@ -50,22 +50,6 @@ export function joinPath(segments: string[]): string {
   return '/' + segments.join('/');
 }
 
-/** Get the parent path (one segment up). `'/'`'s parent is itself
- *  (matches `firebase/database`'s `ref.parent` returning `null` for root —
- *  the modular SDK's surface handles that translation; the tree
- *  doesn't). */
-export function parentPath(path: string): string {
-  const segs = pathSegments(path);
-  if (segs.length === 0) return '/';
-  return joinPath(segs.slice(0, -1));
-}
-
-/** Last segment of a path. `'/'` → ''. Matches `DatabaseReference.key`. */
-export function lastSegment(path: string): string {
-  const segs = pathSegments(path);
-  return segs[segs.length - 1] ?? '';
-}
-
 export function setOwnProperty<V>(target: Record<string, V>, key: string, value: V): void {
   if (key === '__proto__') {
     Object.defineProperty(target, key, {
@@ -232,6 +216,15 @@ export class DataTree {
   restore(root: JsonValue): void {
     this._generation += 1;
     this.root = cloneFrozenJson(root);
+  }
+
+  /** Restore a previously peeked frozen root without re-cloning. */
+  restoreFrozenRoot(frozenRoot: JsonValue): void {
+    if (this.root === frozenRoot) {
+      return;
+    }
+    this._generation += 1;
+    this.root = frozenRoot;
   }
 
   /**

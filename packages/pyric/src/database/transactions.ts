@@ -93,12 +93,12 @@ export function runTransaction<T>(
     throw new TypeError('transactionUpdate must be a function');
   }
   const target = targetOf(r as unknown as object);
-  return runSdkWrite(beginDatabaseActivity(r, 'runTransaction', 'operation'), () => {
+  return runSdkWrite(beginDatabaseActivity(r, 'runTransaction', 'operation'), async () => {
     let txOptions: (TransactionOptions & { readonly admin?: boolean }) | undefined = options;
     if (isAdminFor(target)) {
       txOptions = { ...options, admin: true };
     }
-    const result = target.backend.runTransaction(
+    const result = await target.backend.runClientTransactionAsync(
       authFor(target),
       r._path,
       transactionUpdate as (current: JsonValue) => JsonValue | undefined,

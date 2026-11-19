@@ -144,6 +144,9 @@ export function fanOutAllListeners(
   paths: string[],
   priors: ChildParentSnapshot,
 ): void {
+  if (state.deferListenerFanOut) {
+    return;
+  }
   if (state.childListeners.size === 0 && state.valueListeners.size === 0) {
     return;
   }

@@ -190,6 +190,7 @@ function databaseSdk(): DatabaseSdk {
     'endAt',
     'endBefore',
     'equalTo',
+    'increment',
   ] as const;
   for (const name of constraints) named[name] = ipDatabase[name];
   named.query = (

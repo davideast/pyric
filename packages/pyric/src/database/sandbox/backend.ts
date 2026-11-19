@@ -6,7 +6,9 @@
 import type { AuthState, Sandbox } from 'pyric/sandbox';
 import { BackendState } from './backend-state.js';
 import { ChildListeners } from './child-listeners.js';
+import { runClientTransactionAsync, type ClientTransactionOutcome } from './client-transaction.js';
 import type { ChildListener, ValueListener, ValueListenerSnapshot } from './listener-types.js';
+import { PendingClientWrites } from './pending-client-writes.js';
 import { PersistenceState } from './persistence-state.js';
 import type { PriorityRecord } from './priority-state.js';
 import { generatePushId } from './push-id.js';
@@ -32,6 +34,7 @@ export class RtdbBackend {
   private readonly values: ValueListeners;
   private readonly children: ChildListeners;
   private readonly writes: WritePlane;
+  private readonly pendingWrites: PendingClientWrites;
   private readonly transactions: Transactions;
   private readonly persistence: PersistenceState;
   private dormant = false;
@@ -42,6 +45,7 @@ export class RtdbBackend {
     this.values = new ValueListeners(this.state);
     this.children = new ChildListeners(this.state);
     this.writes = new WritePlane(this.state, this.values, this.children);
+    this.pendingWrites = new PendingClientWrites(this.state, this.values, this.children, this.writes);
     this.transactions = new Transactions(this.state, this.values, this.children, this.writes);
     this.persistence = new PersistenceState(this.state, this.values, this.children);
     this.state.writeSubscribers.add(() => {
@@ -57,38 +61,53 @@ export class RtdbBackend {
   invalidateConnectionQueues(): void { this.state.resetGeneration += 1; }
 
   getPriority(path: string): Priority { return this.state.priorities.get(path); }
-  setData(seed: Record<string, JsonValue>): void { this.writes.setData(seed); }
-  setRules(rules: { rules: Record<string, unknown> } | null): void { this.writes.setRules(rules); }
-  setDefaultPolicy(policy: 'allow' | 'deny'): void { this.writes.setDefaultPolicy(policy); }
+  setData(seed: Record<string, JsonValue>): void {
+    this.pendingWrites.clear();
+    this.writes.setData(seed);
+  }
+  setRules(rules: { rules: Record<string, unknown> } | null): void {
+    this.pendingWrites.runAgainstServer([], () => this.writes.setRules(rules));
+  }
+  setDefaultPolicy(policy: 'allow' | 'deny'): void {
+    this.pendingWrites.runAgainstServer([], () => this.writes.setDefaultPolicy(policy));
+  }
   getActiveRules(): { rules: Record<string, unknown> } | null { return this.writes.getActiveRules(); }
-  snapshotState(options?: { includePriorities?: boolean }): JsonValue { return this.writes.snapshotState(options); }
+  snapshotState(options?: { includePriorities?: boolean }): JsonValue {
+    return this.pendingWrites.readCommitted(() => this.writes.snapshotState(options));
+  }
 
-  adminGet(path: string): JsonValue { return this.writes.adminGet(path); }
-  adminGetQuery(path: string, spec: QuerySpec): QueryReadResult { return this.writes.adminGetQuery(path, spec); }
+  adminGet(path: string): JsonValue {
+    return this.pendingWrites.readCommitted(() => this.writes.adminGet(path));
+  }
+  adminGetQuery(path: string, spec: QuerySpec): QueryReadResult {
+    return this.pendingWrites.readCommitted(() => this.writes.adminGetQuery(path, spec));
+  }
   adminSet(path: string, value: JsonValue): void {
     assertWritable(path);
-    this.writes.adminSet(path, value);
+    this.pendingWrites.runAgainstServer([path], () => this.writes.adminSet(path, value));
   }
   adminSetWithPriority(path: string, value: JsonValue, priority: Priority): void {
     assertWritable(path);
-    this.writes.adminSetWithPriority(path, value, priority);
+    this.pendingWrites.runAgainstServer([path], () => this.writes.adminSetWithPriority(path, value, priority));
   }
   adminUpdate(path: string, patch: Record<string, JsonValue>): void {
     assertWritable(path, patch);
-    this.writes.adminUpdate(path, patch);
+    this.pendingWrites.runAgainstServer([path], () => this.writes.adminUpdate(path, patch));
   }
   adminRemove(path: string): void {
     assertWritable(path);
-    this.writes.adminRemove(path);
+    this.pendingWrites.runAgainstServer([path], () => this.writes.adminRemove(path));
   }
   adminSetPriority(path: string, priority: Priority): void {
     assertWritable(path);
-    this.writes.adminSetPriority(path, priority);
+    this.pendingWrites.runAgainstServer([path], () => this.writes.adminSetPriority(path, priority));
   }
 
-  get(auth: AuthState, path: string): JsonValue { return this.writes.get(auth, path); }
+  get(auth: AuthState, path: string): JsonValue {
+    return this.pendingWrites.readCommitted(() => this.writes.get(auth, path));
+  }
   getQuery(auth: AuthState, path: string, spec: QuerySpec): QueryReadResult {
-    return this.writes.getQuery(auth, path, spec);
+    return this.pendingWrites.readCommitted(() => this.writes.getQuery(auth, path, spec));
   }
   /**
    * The warning a listener on this query logs because the rules declare no
@@ -99,23 +118,43 @@ export class RtdbBackend {
   }
   set(auth: AuthState, path: string, value: JsonValue): void {
     assertWritable(path);
-    this.writes.set(auth, path, value);
+    this.pendingWrites.runAgainstServer([path], () => this.writes.set(auth, path, value));
   }
   setWithPriority(auth: AuthState, path: string, value: JsonValue, priority: Priority): void {
     assertWritable(path);
-    this.writes.setWithPriority(auth, path, value, priority);
+    this.pendingWrites.runAgainstServer([path], () => this.writes.setWithPriority(auth, path, value, priority));
   }
   update(auth: AuthState, path: string, patch: Record<string, JsonValue>): void {
     assertWritable(path, patch);
-    this.writes.update(auth, path, patch);
+    this.pendingWrites.runAgainstServer([path], () => this.writes.update(auth, path, patch));
   }
   remove(auth: AuthState, path: string): void {
     assertWritable(path);
-    this.writes.remove(auth, path);
+    this.pendingWrites.runAgainstServer([path], () => this.writes.remove(auth, path));
   }
   setPriority(auth: AuthState, path: string, priority: Priority): void {
     assertWritable(path);
-    this.writes.setPriority(auth, path, priority);
+    this.pendingWrites.runAgainstServer([path], () => this.writes.setPriority(auth, path, priority));
+  }
+  enqueueClientSet(auth: AuthState, path: string, value: JsonValue): Promise<void> {
+    assertWritable(path);
+    return this.pendingWrites.enqueueSet(auth, path, value);
+  }
+  enqueueClientSetWithPriority(auth: AuthState, path: string, value: JsonValue, priority: Priority): Promise<void> {
+    assertWritable(path);
+    return this.pendingWrites.enqueueSetWithPriority(auth, path, value, priority);
+  }
+  enqueueClientUpdate(auth: AuthState, path: string, patch: Record<string, JsonValue>): Promise<void> {
+    assertWritable(path, patch);
+    return this.pendingWrites.enqueueUpdate(auth, path, patch);
+  }
+  enqueueClientRemove(auth: AuthState, path: string): Promise<void> {
+    assertWritable(path);
+    return this.pendingWrites.enqueueRemove(auth, path);
+  }
+  enqueueClientSetPriority(auth: AuthState, path: string, priority: Priority): Promise<void> {
+    assertWritable(path);
+    return this.pendingWrites.enqueueSetPriority(auth, path, priority);
   }
   validateRead(auth: AuthState, path: string, spec?: QuerySpec): void {
     this.writes.validateRead(auth, path, spec);
@@ -168,7 +207,33 @@ export class RtdbBackend {
     options?: { applyLocally?: boolean; admin?: boolean },
   ): { committed: boolean; val: JsonValue; key: string | null; priorities?: PriorityRecord } {
     assertWritable(path);
-    return this.transactions.runClient(auth, path, updateFn, options);
+    return this.pendingWrites.runAgainstServer([path], () =>
+      this.transactions.runClient(auth, path, updateFn, options));
+  }
+
+  runClientTransactionAsync(
+    auth: AuthState,
+    path: string,
+    updateFn: (current: JsonValue) => JsonValue | undefined,
+    options?: { applyLocally?: boolean; admin?: boolean },
+  ): Promise<ClientTransactionOutcome> {
+    try {
+      assertWritable(path);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+    return runClientTransactionAsync(
+      {
+        state: this.state,
+        children: this.children,
+        writes: this.writes,
+        pendingWrites: this.pendingWrites,
+      },
+      auth,
+      path,
+      updateFn,
+      options,
+    );
   }
 
   onChild(
@@ -201,8 +266,12 @@ export class RtdbBackend {
     if (eventType !== 'value') this.children.off(path, eventType, callback);
   }
 
-  exportTree(): JsonValue { return this.persistence.exportTree(); }
-  exportPersistenceState(): JsonValue { return this.persistence.exportState(); }
+  exportTree(): JsonValue {
+    return this.pendingWrites.readCommitted(() => this.persistence.exportTree());
+  }
+  exportPersistenceState(): JsonValue {
+    return this.pendingWrites.readCommitted(() => this.persistence.exportState());
+  }
   persistenceBackendState(): BackendState { return this.state; }
   hasDurableState(): boolean {
     if (this.state.activeRules !== null || this.state.priorities.size > 0) return true;
@@ -218,9 +287,13 @@ export class RtdbBackend {
   isDormant(): boolean { return this.dormant; }
   restoreTree(root: JsonValue): void {
     this.dormant = false;
+    this.pendingWrites.clear();
     this.persistence.restore(root);
   }
-  resetTree(preserveRules = false): void { this.persistence.reset(preserveRules); }
+  resetTree(preserveRules = false): void {
+    this.pendingWrites.clear();
+    this.persistence.reset(preserveRules);
+  }
   subscribeWrites(onChange: () => void): () => void { return this.persistence.subscribe(onChange); }
   mintKey(): string { return generatePushId(this.state.clock.now()); }
   listenerCount(): number { return this.values.count(); }
@@ -228,6 +301,5 @@ export class RtdbBackend {
 }
 
 export type { ChildListener, ValueListener } from './listener-types.js';
-export { cloneJson, pathSegments, joinPath } from './data-tree.js';
 export type { JsonValue } from './data-tree.js';
-export type { QuerySpec, QueryRow } from './query.js';
+export type { QuerySpec } from './query.js';
