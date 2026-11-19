@@ -2,11 +2,14 @@ import { describe, expect, test } from 'bun:test';
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer as createHttpServer } from 'node:http';
+import { createServer as createNetServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DependencyStore } from './dependency-store.ts';
-import { AppProcess, AppRun, freePort, portIssuer, probePort, type PortIssuer, type ProcessTiming, type SpawnChild } from './driver.ts';
+import { AppProcess, AppRun, DEFAULT_PROCESS_TIMING, type ProcessTiming, type SpawnChild } from './driver.ts';
 import { runTimedCommand } from './install.ts';
+import { freePort, isAddressInUseOutput, portIssuer, probePort, USER_PORT_MAX, USER_PORT_MIN, type PortIssuer } from './ports.ts';
 
 /** A child that never gets a pid, so the driver sends it no signal. */
 function standIn(): ChildProcess {
@@ -234,6 +237,90 @@ describe('app ports', () => {
       expect(await app.freePort()).toBe(33094);
     } finally {
       await app.close();
+    }
+  });
+
+  test('probePort() chooses non-ephemeral loopback ports and skips occupied candidates (#2832)', async () => {
+    const sampled = [await probePort(), await probePort(), await probePort()];
+    for (const port of sampled) {
+      expect(port).toBeGreaterThanOrEqual(USER_PORT_MIN);
+      expect(port).toBeLessThanOrEqual(USER_PORT_MAX);
+    }
+    expect(new Set(sampled).size).toBe(3);
+
+    const occupied = await probePort();
+    const open = await probePort();
+    const holder = createNetServer();
+    await new Promise<void>((resolve, reject) => {
+      holder.once('error', reject);
+      holder.listen(occupied, '127.0.0.1', () => resolve());
+    });
+    try {
+      expect(await probePort([occupied, open])).toBe(open);
+    } finally {
+      await new Promise<void>((resolve) => holder.close(() => resolve()));
+    }
+    expect(isAddressInUseOutput(`Error: Port ${occupied} is already in use\n`, occupied)).toBe(true);
+    expect(isAddressInUseOutput(`listen EADDRINUSE: address already in use 127.0.0.1:${occupied}`, occupied)).toBe(true);
+    expect(isAddressInUseOutput('SyntaxError: unexpected token', occupied)).toBe(false);
+  });
+
+  test('devServer() retries an auto-port address-in-use exit without leaving an early-exit crash (#2832)', async () => {
+    const busyPort = await probePort();
+    const livePort = await probePort();
+    const responder = createHttpServer((request, response) => {
+      const path = request.url ?? '/';
+      if (path === '/__pyric/init.json') {
+        response.writeHead(200, { 'content-type': 'application/json' }).end('{}');
+        return;
+      }
+      response.writeHead(200, { 'content-type': 'text/html' }).end('<!doctype html><title>ok</title>');
+    });
+    await new Promise<void>((resolve, reject) => {
+      responder.once('error', reject);
+      responder.listen(livePort, '127.0.0.1', () => resolve());
+    });
+    try {
+      const spawnedPorts: number[] = [];
+      const spawnServer: SpawnChild = (_command, args) => {
+        const portIndex = args.indexOf('--port');
+        const port = Number(args[portIndex + 1]);
+        spawnedPorts.push(port);
+        const child = standIn();
+        if (port === busyPort) {
+          queueMicrotask(() => {
+            child.stderr?.emit('data', `Error: Port ${port} is already in use\n`);
+            child.emit('close', 1, null);
+          });
+        }
+        return child;
+      };
+      const noBrowser = () => Promise.reject(new Error('no browser in this test'));
+      const { probe } = scriptedProbe([busyPort, livePort]);
+      const app = new AppRun('stand-in', '.', '.', noBrowser, undefined, portIssuer(probe), DEFAULT_PROCESS_TIMING, spawnServer);
+      const server = await app.devServer();
+      expect(server.port).toBe(livePort);
+      expect(spawnedPorts).toEqual([busyPort, livePort]);
+      expect(app.processes.map((proc) => proc.name)).toEqual(['dev server']);
+      expect(app.crashVerdict([]).unexpected).toEqual([]);
+
+      const fixedPorts: number[] = [];
+      const fixedApp = new AppRun('stand-in', '.', '.', noBrowser, undefined, portIssuer(probe), DEFAULT_PROCESS_TIMING, (_command, args) => {
+        const port = Number(args[args.indexOf('--port') + 1]);
+        fixedPorts.push(port);
+        const child = standIn();
+        queueMicrotask(() => {
+          child.stderr?.emit('data', `Error: Port ${port} is already in use\n`);
+          child.emit('close', 1, null);
+        });
+        return child;
+      });
+      await expect(fixedApp.devServer({ port: busyPort })).rejects.toThrow(`dev server exited (code 1) before it served http://127.0.0.1:${busyPort}`);
+      expect(fixedPorts).toEqual([busyPort]);
+      await app.close();
+      await fixedApp.close();
+    } finally {
+      await new Promise<void>((resolve) => responder.close(() => resolve()));
     }
   });
 });

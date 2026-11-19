@@ -9,7 +9,6 @@
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { get as httpsGet } from 'node:https';
-import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { chromium, type Browser, type BrowserContext, type LaunchOptions, type Page } from '@playwright/test';
 import { blackholedPort, type BlackholedPort } from '../../packages/cli/test/blackholed-port.ts';
@@ -17,6 +16,7 @@ import { retainBrowserChildren } from './browser-children.ts';
 import type { DependencyStore } from './dependency-store.ts';
 import { NESTED_INSTALL_ATTEMPT_MS, pinPyricPackages, retryOnceOnTimeout, type Tarballs, type TimedResult } from './install.ts';
 import { NESTED_PROJECTS_FILE, nestedProject } from './nested-projects.ts';
+import { freePort, isAddressInUseOutput, runPorts, type PortIssuer } from './ports.ts';
 import {
   DEFAULT_EXIT_TIMING,
   describeProcState,
@@ -451,56 +451,24 @@ export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Binds port 0 on loopback, reads the port the kernel chose, and closes it. */
-export function probePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const probe = createServer();
-    probe.on('error', reject);
-    probe.listen(0, '127.0.0.1', () => {
-      const address = probe.address();
-      const port = typeof address === 'object' && address ? address.port : 0;
-      probe.close(() => resolve(port));
-    });
-  });
+const AUTO_PORT_BIND_ATTEMPTS = 3;
+
+function numberedServerName(prefix: string, count: number, customName?: string): string {
+  if (customName !== undefined) return customName;
+  if (count === 1) return prefix;
+  return `${prefix} ${count}`;
 }
 
-/** Hands out ports nothing listens on, never the same port twice. */
-export interface PortIssuer {
-  next(): Promise<number>;
-}
-
-const PORT_ATTEMPTS = 32;
-
-/**
- * A probe closes its socket before the caller binds the port, so the kernel
- * can choose that port again for the next probe. The issuer remembers every
- * port it handed out and probes again on a repeat.
- */
-export function portIssuer(probe: () => Promise<number> = probePort): PortIssuer {
-  const issued = new Set<number>();
-  return {
-    async next() {
-      const repeats: number[] = [];
-      for (let attempt = 0; attempt < PORT_ATTEMPTS; attempt += 1) {
-        const port = await probe();
-        const isFresh = port > 0 && !issued.has(port);
-        if (isFresh) {
-          issued.add(port);
-          return port;
-        }
-        repeats.push(port);
-      }
-      throw new Error(`no unissued port after ${PORT_ATTEMPTS} probes; the probe only returned ${[...new Set(repeats)].join(', ')}`);
-    },
-  };
-}
-
-/** The one issuer every app in a run shares, so concurrent apps never get the same port. */
-const runPorts = portIssuer();
-
-/** A port nothing listens on that no earlier call in this run returned. */
-export function freePort(issuer: PortIssuer = runPorts): Promise<number> {
-  return issuer.next();
+function isRetryableAutoPortCollision(
+  fixedPort: number | undefined,
+  attempt: number,
+  child: AppProcess,
+  port: number,
+): boolean {
+  if (fixedPort !== undefined) return false;
+  if (attempt >= AUTO_PORT_BIND_ATTEMPTS) return false;
+  if (child.running) return false;
+  return isAddressInUseOutput(child.output, port);
 }
 
 /** The environment of every app process: no inherited credentials or keys, and a fresh HOME. */
@@ -628,6 +596,8 @@ export class AppRun implements App {
     private readonly ports: PortIssuer = runPorts,
     /** The waits every process the run starts uses. */
     private readonly timing: ProcessTiming = DEFAULT_PROCESS_TIMING,
+    /** Starts the run's server processes; tests pass a stand-in. */
+    private readonly spawnChild: SpawnChild = spawn,
   ) {}
 
   async step<T>(name: string, run: () => Promise<T> | T): Promise<T> {
@@ -652,30 +622,50 @@ export class AppRun implements App {
   }
 
   async devServer(options: DevServerOptions = {}): Promise<DevServer> {
-    const port = options.port ?? await freePort(this.ports);
     this.serverCount += 1;
-    const name = options.name ?? (this.serverCount === 1 ? 'dev server' : `dev server ${this.serverCount}`);
+    const name = numberedServerName('dev server', this.serverCount, options.name);
     const projectDir = join(this.dir, options.cwd ?? '.');
-    const child = new AppProcess(
-      name,
-      'node',
-      [join(projectDir, 'node_modules/vite/bin/vite.js'), '--host', '127.0.0.1', '--port', String(port), '--strictPort'],
-      projectDir,
-      appEnvironment(this.home, options.env),
-      spawn,
-      this.timing,
-    );
-    child.runsUntilStopped = true;
-    this.processes.push(child);
-    return this.servedHost(name, port, child, options.https === true);
+    return this.startHostOnPort(name, options.port, options.https === true, (port) => {
+      const child = new AppProcess(
+        name,
+        'node',
+        [join(projectDir, 'node_modules/vite/bin/vite.js'), '--host', '127.0.0.1', '--port', String(port), '--strictPort'],
+        projectDir,
+        appEnvironment(this.home, options.env),
+        this.spawnChild,
+        this.timing,
+      );
+      child.runsUntilStopped = true;
+      this.processes.push(child);
+      return child;
+    });
   }
 
   async sandboxServer(options: { env?: Record<string, string>; name?: string; port?: number } = {}): Promise<DevServer> {
-    const port = options.port ?? await freePort(this.ports);
     this.serverCount += 1;
-    const name = options.name ?? (this.serverCount === 1 ? 'pyric sandbox' : `pyric sandbox ${this.serverCount}`);
-    const child = this.pyricProcess(['sandbox', '--no-open', '--no-run', '--host', '127.0.0.1', '--port', String(port)], { env: options.env });
-    return this.servedHost(name, port, child);
+    const name = numberedServerName('pyric sandbox', this.serverCount, options.name);
+    return this.startHostOnPort(name, options.port, false, (port) =>
+      this.pyricProcess(['sandbox', '--no-open', '--no-run', '--host', '127.0.0.1', '--port', String(port)], { env: options.env }),
+    );
+  }
+
+  private async startHostOnPort(
+    name: string,
+    fixedPort: number | undefined,
+    https: boolean,
+    start: (port: number) => AppProcess,
+  ): Promise<DevServer> {
+    for (let attempt = 1; ; attempt += 1) {
+      const port = fixedPort ?? await freePort(this.ports);
+      const child = start(port);
+      try {
+        return await this.servedHost(name, port, child, https);
+      } catch (error) {
+        if (!isRetryableAutoPortCollision(fixedPort, attempt, child, port)) throw error;
+        const index = this.processes.indexOf(child);
+        if (index !== -1) this.processes.splice(index, 1);
+      }
+    }
   }
 
   /** Waits until a host process serves `/` and `/__pyric/init.json` on `port`, over https when `https`. */
@@ -723,7 +713,7 @@ export class AppRun implements App {
       [join('node_modules', '@pyric', 'cli', 'dist', 'cli', 'index.js'), ...args],
       this.dir,
       appEnvironment(this.home, options.env),
-      spawn,
+      this.spawnChild,
       this.timing,
     );
     this.processes.push(child);
