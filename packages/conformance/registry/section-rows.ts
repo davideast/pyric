@@ -10,7 +10,13 @@ import type {
 type SeedFields = Omit<CompatibilityRow, 'id'>;
 
 const SECTION_FILE = 'section.ts';
-const ROW_FILE_PATTERN = /^[A-Za-z0-9]+(-[A-Za-z0-9]+)*\.ts$/;
+const ROW_FILE_PATTERN = /^[A-Za-z0-9]+([.-][A-Za-z0-9]+)*\.ts$/;
+const FORBIDDEN_ROW_FILE_SUFFIXES: readonly string[] = [
+  '.test.ts',
+  '.spec.ts',
+  '.d.ts',
+  '.generated.ts',
+];
 const SECTION_SLUG_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const AUTHORED_ROW_BRAND = Symbol.for('pyric.conformance.authoredRowRecord');
 const SECTION_BRAND = Symbol.for('pyric.conformance.rowSection');
@@ -123,7 +129,16 @@ function isValidSectionSlug(name: string): boolean {
 }
 
 function isValidRowFileName(fileName: string): boolean {
-  return ROW_FILE_PATTERN.test(fileName);
+  if (!ROW_FILE_PATTERN.test(fileName)) {
+    return false;
+  }
+  const lower = fileName.toLowerCase();
+  for (const suffix of FORBIDDEN_ROW_FILE_SUFFIXES) {
+    if (lower.endsWith(suffix)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function resolveSectionPrefix<D extends Partial<SeedFields>>(config: RowSectionConfig<D>): string {
@@ -326,7 +341,9 @@ export function assembleRegistrySections(
         throw new Error(`${rowFilePath}: unexpected non-file entry inside section directory`);
       }
       if (!isValidRowFileName(fileName)) {
-        throw new Error(`${rowFilePath}: invalid row filename '${fileName}'; expected <rowRef>.ts matching ^[A-Za-z0-9]+(-[A-Za-z0-9]+)*\\.ts$`);
+        throw new Error(
+          `${rowFilePath}: invalid row filename '${fileName}'; expected <rowRef>.ts matching ^[A-Za-z0-9]+([.-][A-Za-z0-9]+)*\\.ts$ (excluding .test.ts, .spec.ts, .d.ts, and .generated.ts)`,
+        );
       }
 
       const rowRef = fileName.slice(0, -'.ts'.length);

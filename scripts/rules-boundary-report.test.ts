@@ -49,6 +49,10 @@ describe('isInsideBoundary', () => {
       'packages/conformance/rules-language/firestore.json',
       'packages/conformance/observations/storage-rules/capture.json',
       'packages/conformance/registry/rules.ts',
+      'packages/conformance/registry/rules/firestore-rules/section.ts',
+      'packages/conformance/registry/rules/firestore-rules/160.ts',
+      'packages/conformance/registry/rules/storage-rules/storage.stdlib.sets.ts',
+      'packages/conformance/registry/rules/rtdb-rules/1.ts',
       'packages/conformance/assurance-node-counts/rtdb-rules/1600.json',
       'packages/conformance/assurance-node-counts/rules/base.json',
     ]) {
@@ -66,6 +70,8 @@ describe('isInsideBoundary', () => {
       'packages/conformance/baselines/firestore-rules-scorecard.json',
       'packages/conformance/observations/rtdb/capture.json',
       'packages/conformance/registry/rtdb.ts',
+      'packages/conformance/registry/rtdb/read-once/1.ts',
+      'packages/conformance/registry/rules-other.ts',
       'packages/conformance/assurance-node-counts/rtdb/base.json',
       'packages/site-docs/src/content/secure/simulate-and-lint.md',
     ]) {
