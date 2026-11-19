@@ -21,6 +21,7 @@ import {
   remove,
   sandbox as rtdbSandbox,
   set,
+  update,
 } from '../../src/database/index.js';
 
 type ObservationLoader = (name: string) => Record<string, unknown>;
@@ -207,7 +208,7 @@ function createSandboxConstraintHarness(
 export function registerRtdbAtomsAndPoliciesOracleConformanceTests(
   load: ObservationLoader,
 ): void {
-  it('rtdb-rules-atoms-verdicts: simulateRtdbRules and sandbox match all 34 live atoms verdicts (rtdb#84)', async () => {
+  it('rtdb-rules-atoms-verdicts: simulateRtdbRules and sandbox match all 34 live atoms verdicts (rtdb#84, rtdb#66)', async () => {
     const obs = load('rtdb-rules-atoms-verdicts.json');
     const runId = 'atoms_replay';
     const scopedRules = buildAtomsScopedRules(['pyric_oracle', runId]);
@@ -229,7 +230,7 @@ export function registerRtdbAtomsAndPoliciesOracleConformanceTests(
     expect(simActual as unknown).toEqual(obs);
   });
 
-  it('rtdb-rules-policies-verdicts: simulateRtdbRules and sandbox match all 26 live policies verdicts (rtdb#85)', async () => {
+  it('rtdb-rules-policies-verdicts: simulateRtdbRules and sandbox match all 26 live policies verdicts (rtdb#85, rtdb#66)', async () => {
     const obs = load('rtdb-rules-policies-verdicts.json');
     const runId = 'policies_replay';
     const scopedRules = buildPoliciesScopedRules(['pyric_oracle', runId]);
@@ -249,5 +250,110 @@ export function registerRtdbAtomsAndPoliciesOracleConformanceTests(
       simHarness.seedAdminData,
     );
     expect(simActual as unknown).toEqual(obs);
+  });
+
+  it('rtdb#66: cross-path root.child(...).val() returns null when absent and stored or projected values when present across simulateRtdbRules and sandbox', async () => {
+    const atomsObs = load('rtdb-rules-atoms-verdicts.json') as {
+      crossPathRootLookups: {
+        rootExistsPathVarPresentAllowed: { allowed: boolean };
+        rootExistsPathVarMissingDenied: { allowed: boolean };
+        rootEqualsMatchingRoleAllowed: { allowed: boolean };
+        rootEqualsMismatchedRoleDenied: { allowed: boolean };
+      };
+    };
+    const policiesObs = load('rtdb-rules-policies-verdicts.json') as {
+      hasRole: { moderatorWriteAllowed: { allowed: boolean }; guestWriteDenied: { allowed: boolean } };
+      isMember: { memberReadAllowed: { allowed: boolean }; nonMemberReadDenied: { allowed: boolean } };
+    };
+    expect(atomsObs.crossPathRootLookups.rootExistsPathVarPresentAllowed.allowed).toBe(true);
+    expect(atomsObs.crossPathRootLookups.rootExistsPathVarMissingDenied.allowed).toBe(false);
+    expect(atomsObs.crossPathRootLookups.rootEqualsMatchingRoleAllowed.allowed).toBe(true);
+    expect(atomsObs.crossPathRootLookups.rootEqualsMismatchedRoleDenied.allowed).toBe(false);
+    expect(policiesObs.hasRole.moderatorWriteAllowed.allowed).toBe(true);
+    expect(policiesObs.hasRole.guestWriteDenied.allowed).toBe(false);
+    expect(policiesObs.isMember.memberReadAllowed.allowed).toBe(true);
+    expect(policiesObs.isMember.nonMemberReadDenied.allowed).toBe(false);
+
+    const rulesJson = {
+      rules: {
+        gates: {
+          whenUnseeded: {
+            '.read': "root.child('flags/maintenance').val() === null",
+            '.write': "root.child('roles').child(auth.uid).child('role').val() === 'admin'",
+          },
+        },
+        rooms: {
+          $roomId: {
+            meta: { '.write': 'auth != null' },
+            messages: {
+              '.write': 'auth != null',
+              '.validate': "newData.parent().child('meta/count').val() === 1",
+            },
+          },
+        },
+      },
+    };
+    const compiled = compileRtdbRules(rulesJson);
+    const aliceAuth = { uid: 'alice' };
+
+    const absentRead = simulateRtdbRules(compiled, {
+      operation: 'read',
+      path: '/gates/whenUnseeded',
+      auth: aliceAuth,
+      mockData: {},
+    });
+    expect(absentRead.success && absentRead.data.allowed).toBe(true);
+
+    const absentRoleWrite = simulateRtdbRules(compiled, {
+      operation: 'write',
+      path: '/gates/whenUnseeded',
+      auth: aliceAuth,
+      mockData: {},
+      newData: { ok: true },
+    });
+    expect(absentRoleWrite.success && absentRoleWrite.data.allowed).toBe(false);
+
+    const populatedRoleWrite = simulateRtdbRules(compiled, {
+      operation: 'write',
+      path: '/gates/whenUnseeded',
+      auth: aliceAuth,
+      mockData: { flags: { maintenance: true }, roles: { alice: { role: 'admin' } } },
+      newData: { ok: true },
+    });
+    expect(populatedRoleWrite.success && populatedRoleWrite.data.allowed).toBe(true);
+
+    const populatedMaintenanceRead = simulateRtdbRules(compiled, {
+      operation: 'read',
+      path: '/gates/whenUnseeded',
+      auth: aliceAuth,
+      mockData: { flags: { maintenance: true } },
+    });
+    expect(populatedMaintenanceRead.success && populatedMaintenanceRead.data.allowed).toBe(false);
+
+    const sandbox = initializeSandbox({ projectId: 'demo-rtdb66-cross-path' });
+    const aliceDb = getDatabase(sandbox.withAuth(aliceAuth));
+    const adminDb = getAdminDatabase(sandbox);
+    rtdbSandbox.setRules(aliceDb, rulesJson);
+
+    expect((await get(ref(aliceDb, 'gates/whenUnseeded'))).val()).toBeNull();
+    await expect(set(ref(aliceDb, 'gates/whenUnseeded'), { ok: true })).rejects.toMatchObject({
+      code: 'PERMISSION_DENIED',
+    });
+
+    await set(ref(adminDb, 'roles/alice/role'), 'admin');
+    await set(ref(adminDb, 'flags/maintenance'), true);
+    await set(ref(aliceDb, 'gates/whenUnseeded'), { ok: true });
+    await expect(get(ref(aliceDb, 'gates/whenUnseeded'))).rejects.toMatchObject({
+      code: 'PERMISSION_DENIED',
+    });
+
+    await expect(set(ref(aliceDb, 'rooms/r1/messages'), { m1: 'hi' })).rejects.toMatchObject({
+      code: 'PERMISSION_DENIED',
+    });
+    await update(ref(aliceDb), {
+      'rooms/r1/meta/count': 1,
+      'rooms/r1/messages': { m1: 'hi' },
+    });
+    expect((await get(ref(adminDb, 'rooms/r1/messages'))).val()).toEqual({ m1: 'hi' });
   });
 }

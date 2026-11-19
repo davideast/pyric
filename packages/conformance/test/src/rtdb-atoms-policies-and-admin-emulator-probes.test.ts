@@ -91,15 +91,15 @@ describe('RTDB constraint atoms/policies and admin useEmulator linked probes (sd
     expect(atomsProbe.rig).toBe('sdk-probes');
     expect(atomsProbe.requires).toEqual(['web-config', 'dedicated-rtdb']);
     expect(atomsProbe.pendingRowLink).toBeUndefined();
-    expect(atomsProbe.matrixRow).toBe('rtdb#84');
-    expect(atomsProbe.rowIds).toEqual(['rtdb#84']);
+    expect(atomsProbe.matrixRow).toBe('rtdb#84, rtdb#66');
+    expect(atomsProbe.rowIds).toEqual(['rtdb#84', 'rtdb#66']);
     expect(atomsProbe.description.length).toBeGreaterThan(20);
 
     expect(policiesProbe.rig).toBe('sdk-probes');
     expect(policiesProbe.requires).toEqual(['web-config', 'dedicated-rtdb']);
     expect(policiesProbe.pendingRowLink).toBeUndefined();
-    expect(policiesProbe.matrixRow).toBe('rtdb#85');
-    expect(policiesProbe.rowIds).toEqual(['rtdb#85']);
+    expect(policiesProbe.matrixRow).toBe('rtdb#85, rtdb#66');
+    expect(policiesProbe.rowIds).toEqual(['rtdb#85', 'rtdb#66']);
     expect(policiesProbe.description.length).toBeGreaterThan(20);
 
     expect(adminUseEmulatorProbe.rig).toBe('sdk-probes');

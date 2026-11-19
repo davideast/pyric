@@ -292,8 +292,8 @@ export async function observeRulesPoliciesVerdicts(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'dedicated-rtdb'],
-  matrixRow: 'rtdb#85',
-  rowIds: ['rtdb#85'],
+  matrixRow: 'rtdb#85, rtdb#66',
+  rowIds: ['rtdb#85', 'rtdb#66'],
   description:
     'Live RTDB Security Rules verdicts for rulesets compiled from all 7 composite policies helpers (pathOwnerOnly, fieldOwnerOnly, ownerOrNew, hasRole, isMember, required with single keys and nested slash paths, and transition).',
   async observe() {
