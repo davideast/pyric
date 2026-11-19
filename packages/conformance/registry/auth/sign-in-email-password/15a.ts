@@ -2,13 +2,40 @@ import { row } from './section.ts';
 
 export default row({
   order: 40,
-  behavior: "An EMPTY password throws `auth/missing-password` (message \"A non-empty password must be provided\"), fired before the user-DB lookup so it can't be used to enumerate seeded emails. Upstream maps the `MISSING_PASSWORD` server error (`core/errors.ts:92,282,563`). ⚠ best-known semantics — message text not yet captured against a live project (STOP-flagged for an oracle pass; the `.code` is the load-bearing part).",
-  status: "diverged-documented",
-  evidence: "`unit:sandbox-cluster-b9-b12.test.ts` (locks AUTH-B11)",
-  risk: ["specific-value","error-code","listener"],
+  behavior:
+    'An EMPTY password throws `auth/missing-password` (`Firebase: Error (auth/missing-password).`), fired before the user-DB lookup across unknown email addresses and existing email-password accounts without mutating `auth.currentUser` or firing `onAuthStateChanged` / `onIdTokenChanged`.',
+  status: 'conforms',
+  evidence:
+    '`oracle:auth-signin-empty-password-error` (fb-js-sdk 12.19.0: `code: "auth/missing-password"`, `message: "Firebase: Error (auth/missing-password)."` across unknown and existing emails with zero listener fires, replayed unpinned in `unit:auth-signin-empty-password.test.ts` across in-page, SharedWorker, and Node-hosted WebSocket planes); `unit:sandbox-cluster-b9-b12.test.ts` (AUTH-B11); `unit:password-sign-in.test.ts`.',
+  risk: ['specific-value', 'error-code', 'listener'],
   riskScore: 7,
-  riskReasons: ["asserts 1 specific value(s)","asserts Firebase error code(s): `auth/missing-password`","asserts listener semantics"],
-  automation: "unit-backed",
-  conformanceTests: ["packages/pyric/test/auth/sandbox-cluster-b9-b12.test.ts"],
+  riskReasons: [
+    'asserts 1 specific value(s)',
+    'asserts Firebase error code(s): `auth/missing-password`',
+    'asserts listener semantics',
+  ],
+  automation: 'oracle-backed',
+  oracleObservations: ['auth-signin-empty-password-error'],
+  conformanceTests: [
+    'packages/pyric/test/auth/oracle-captures/auth-signin-empty-password.test.ts',
+    'packages/cli/test/serve/worker/oracle-captures/auth-signin-empty-password.test.ts',
+    'packages/pyric/test/auth/sandbox-cluster-b9-b12.test.ts',
+    'packages/pyric/test/auth/sandbox/password-sign-in.test.ts',
+  ],
+  conformanceChecks: [
+    {
+      finding: 'AUTH-15A',
+      observation: 'auth-signin-empty-password-error',
+      expect: {
+        unknownMatchesExisting: {
+          sameCode: true,
+          sameMessage: true,
+        },
+      },
+      probe: 'packages/pyric/test/auth/oracle-captures/auth-signin-empty-password.test.ts',
+      guards:
+        'signInWithEmailAndPassword(auth, email, "") throws auth/missing-password with Firebase: Error (auth/missing-password). across unknown and existing emails without firing listeners.',
+    },
+  ],
   rowNumber: 15,
 });
