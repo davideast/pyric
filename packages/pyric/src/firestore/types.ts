@@ -61,6 +61,7 @@ export interface FirestoreDataConverter<
  */
 export interface Firestore {
   readonly [TARGET_SYMBOL]: Target;
+  readonly type?: 'firestore';
   readonly app?: FirebaseApp;
 }
 

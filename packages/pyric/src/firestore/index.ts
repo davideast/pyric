@@ -41,6 +41,39 @@ export { TARGET_SYMBOL } from './state.js';
 export * from './types.js';
 export * from './instances.js';
 export * from './equality.js';
+export {
+  memoryEagerGarbageCollector,
+  memoryLocalCache,
+  memoryLruGarbageCollector,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  persistentSingleTabManager,
+  type FirestoreLocalCache,
+  type LocalCache,
+  type MemoryCacheSettings,
+  type MemoryEagerGarbageCollector,
+  type MemoryGarbageCollector,
+  type MemoryLocalCache,
+  type MemoryLruGarbageCollector,
+  type PersistentCacheSettings,
+  type PersistentLocalCache,
+  type PersistentMultipleTabManager,
+  type PersistentSingleTabManager,
+  type PersistentSingleTabManagerSettings,
+  type PersistentTabManager,
+} from './cache-tokens.js';
+export {
+  deleteAllPersistentCacheIndexes,
+  disablePersistentCacheIndexAutoCreation,
+  enablePersistentCacheIndexAutoCreation,
+  getPersistentCacheIndexManager,
+  PersistentCacheIndexManager,
+  setIndexConfiguration,
+  type Index,
+  type IndexConfiguration,
+  type IndexField,
+} from './cache-index-manager.js';
+export type { FirestoreSettings } from './init-settings.js';
 export * from './persistence.js';
 export * from './refs.js';
 export { getDoc, getDocs } from './reads.js';

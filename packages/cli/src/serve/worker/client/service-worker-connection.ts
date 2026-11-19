@@ -56,7 +56,7 @@ export function getServiceWorkerFirestore(appName: string, existingPort?: Client
     ) return;
     port.onmessage?.({ data: envelope.message } as MessageEvent);
   };
-  const db = { __kind: 'client-db', port } satisfies ClientDb;
+  const db = { __kind: 'client-db', type: 'firestore', port } satisfies ClientDb;
   if (!existingPort) wirePort(db.port);
   return db;
 }

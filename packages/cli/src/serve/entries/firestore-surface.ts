@@ -16,7 +16,15 @@
  * imports it through `@pyric/cli/register/client/firestore`.
  */
 import * as ip from 'pyric/firestore';
-import { readDocumentAs, readQueryAs } from 'pyric/firestore/internal';
+import {
+  applySettingsCacheMode,
+  assertAndRecordAppFirestoreSettings,
+  clearAppFirestoreSettings,
+  markHandlePersistentCache,
+  readDocumentAs,
+  readQueryAs,
+  recordImplicitAppFirestoreSettings,
+} from 'pyric/firestore/internal';
 import {
   readDocumentAs as workerDocumentRead,
   readQueryAs as workerQueryRead,
@@ -94,15 +102,22 @@ export const and = D.and;
 //    the worker ClientDb on the worker path, the in-page sandbox otherwise. ──
 const workerFirestoreByApp = new WeakMap<FirebaseApp, ReturnType<typeof pyricGetFirestore>>();
 
-export const getFirestore = ((app?: FirebaseApp) => {
+export const getFirestore = ((app?: FirebaseApp, databaseId?: string) => {
   const resolved = app ?? getApp();
   markServiceUsed();
-  if (!useWorker) return pyricGetFirestore(resolved);
+  if (!useWorker) return pyricGetFirestore(resolved, databaseId);
   const existing = workerFirestoreByApp.get(resolved);
-  if (existing) return existing;
+  if (existing) {
+    recordImplicitAppFirestoreSettings(resolved, databaseId, existing);
+    return existing;
+  }
   const client = workerClientForApp(resolved);
-  const handle = Object.assign(client, { app: resolved }) as unknown as ReturnType<typeof pyricGetFirestore>;
+  const handle = Object.assign(client, {
+    app: resolved,
+    type: 'firestore' as const,
+  }) as unknown as ReturnType<typeof pyricGetFirestore>;
   workerFirestoreByApp.set(resolved, handle);
+  recordImplicitAppFirestoreSettings(resolved, databaseId, handle);
   return handle;
 }) as typeof pyricGetFirestore;
 
@@ -128,39 +143,54 @@ export const CACHE_SIZE_UNLIMITED = -1;
 
 export function initializeFirestore(
   app?: Parameters<typeof pyricGetFirestore>[0],
-  settings?: unknown,
+  settings?: ip.FirestoreSettings,
+  databaseId?: string,
 ): ReturnType<typeof getFirestore> {
   if (settings && Object.keys(settings as object).length > 0) acceptedNoOp('initializeFirestore');
-  return getFirestore(app as never);
+  if (!useWorker) {
+    const resolvedInPage = app ?? getApp();
+    markServiceUsed();
+    return ip.initializeFirestore(resolvedInPage, settings, databaseId) as ReturnType<typeof getFirestore>;
+  }
+  const resolved = (app as FirebaseApp | undefined) ?? getApp();
+  assertAndRecordAppFirestoreSettings(resolved, settings, databaseId);
+  const handle = getFirestore(resolved, databaseId);
+  applySettingsCacheMode(handle as object, settings, databaseId, resolved);
+  return handle;
 }
 
-export function persistentLocalCache(_settings?: unknown): { kind: string } {
+export function persistentLocalCache(
+  settings?: ip.PersistentCacheSettings,
+): ip.PersistentLocalCache {
   acceptedNoOp('persistentLocalCache');
-  return { kind: 'persistent' };
+  return ip.persistentLocalCache(settings);
 }
 
-export function memoryLocalCache(_settings?: unknown): { kind: string } {
-  return { kind: 'memory' };
-}
+export const memoryLocalCache = ip.memoryLocalCache;
+export const persistentSingleTabManager = ip.persistentSingleTabManager;
+export const persistentMultipleTabManager = ip.persistentMultipleTabManager;
+export const getPersistentCacheIndexManager = ip.getPersistentCacheIndexManager;
+export const enablePersistentCacheIndexAutoCreation = ip.enablePersistentCacheIndexAutoCreation;
+export const disablePersistentCacheIndexAutoCreation = ip.disablePersistentCacheIndexAutoCreation;
+export const deleteAllPersistentCacheIndexes = ip.deleteAllPersistentCacheIndexes;
+export const setIndexConfiguration = ip.setIndexConfiguration;
 
-export function persistentSingleTabManager(_settings?: unknown): { kind: string } {
-  return { kind: 'persistentSingleTab' };
-}
-
-export function persistentMultipleTabManager(): { kind: string } {
-  return { kind: 'persistentMultipleTab' };
-}
-
-export async function enableIndexedDbPersistence(_db?: unknown): Promise<void> {
+export async function enableIndexedDbPersistence(db?: unknown): Promise<void> {
   acceptedNoOp('enableIndexedDbPersistence');
+  if (db !== null && typeof db === 'object') {
+    markHandlePersistentCache(db);
+  }
 }
 
-/** No-op success, same rationale as `enableIndexedDbPersistence` — the
+/** No-op success, same rationale as `enableIndexedDbPersistence` -- the
  *  SharedWorker path already IS the one store every tab reads/writes, so
  *  there's no separate multi-tab mode to opt into over the worker; the
  *  in-page fallback has no multi-tab story to begin with. */
-export async function enableMultiTabIndexedDbPersistence(_db?: unknown): Promise<void> {
+export async function enableMultiTabIndexedDbPersistence(db?: unknown): Promise<void> {
   acceptedNoOp('enableMultiTabIndexedDbPersistence');
+  if (db !== null && typeof db === 'object') {
+    markHandlePersistentCache(db);
+  }
 }
 
 export async function clearIndexedDbPersistence(_db?: unknown): Promise<void> {
@@ -198,6 +228,12 @@ export async function enableNetwork(_db?: unknown): Promise<void> {
  */
 export async function terminate(db?: unknown): Promise<void> {
   if (useWorker) {
+    if (db !== null && typeof db === 'object' && 'app' in db) {
+      const ownerApp = (db as { app?: unknown }).app;
+      if (ownerApp !== null && typeof ownerApp === 'object') {
+        clearAppFirestoreSettings(ownerApp);
+      }
+    }
     console.info(
       '[pyric sandbox] terminate(): the SharedWorker-hosted sandbox is shared across every tab; ' +
         'it is not torn down by a single tab calling terminate().',

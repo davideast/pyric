@@ -1,16 +1,20 @@
-/** `pyric/firestore` — sandbox reference and snapshot equality helpers. */
-import { converterOf, targetOf, underlyingOf } from './state.js';
+/** `pyric/firestore` -- sandbox reference and snapshot equality helpers. */
+import { converterOf, refToTarget, targetOf, underlyingOf } from './state.js';
 import { taggedSnapshotsEqual } from './snapshots.js';
-import type {
+import {
   CollectionReference,
   DocumentReference,
-  Query,
-  DocumentSnapshot,
-  QuerySnapshot,
+  type Query,
+  type DocumentSnapshot,
+  type QuerySnapshot,
 } from './types.js';
 
 function assertRecognizedPair(a: object, b: object): [ReturnType<typeof targetOf>, ReturnType<typeof targetOf>] {
   return [targetOf(a), targetOf(b)];
+}
+
+function isReferenceHandle(candidate: unknown): candidate is object {
+  return candidate instanceof DocumentReference || candidate instanceof CollectionReference;
 }
 
 function targetsShareOwner(
@@ -27,11 +31,21 @@ export function refEqual<T = unknown>(
   a: DocumentReference<T> | CollectionReference<T>,
   b: DocumentReference<T> | CollectionReference<T>,
 ): boolean {
-  const [targetA, targetB] = assertRecognizedPair(a as object, b as object);
+  if (!isReferenceHandle(a) || !isReferenceHandle(b)) {
+    return false;
+  }
+  const targetA = refToTarget.get(a);
+  const targetB = refToTarget.get(b);
+  if (targetA === undefined || targetB === undefined) {
+    return false;
+  }
   if (!targetsShareOwner(targetA, targetB)) return false;
-  if ((converterOf(a as object) ?? null) !== (converterOf(b as object) ?? null)) return false;
-  const underA = underlyingOf(a) as { path: string; doc?: unknown };
-  const underB = underlyingOf(b) as { path: string; doc?: unknown };
+  if ((converterOf(a) ?? null) !== (converterOf(b) ?? null)) return false;
+  const underA = underlyingOf(a) as { path?: unknown; doc?: unknown };
+  const underB = underlyingOf(b) as { path?: unknown; doc?: unknown };
+  if (typeof underA.path !== 'string' || typeof underB.path !== 'string') {
+    return false;
+  }
   if ((typeof underA.doc === 'function') !== (typeof underB.doc === 'function')) return false;
   return underA.path === underB.path;
 }

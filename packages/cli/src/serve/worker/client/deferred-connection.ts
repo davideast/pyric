@@ -161,5 +161,5 @@ export function getDeferredFirestore(choice: TransportChoice | (() => TransportC
   }
 
   if (!choosesAgain) void startChoice();
-  return { __kind: 'client-db', port };
+  return { __kind: 'client-db', type: 'firestore', port };
 }

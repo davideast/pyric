@@ -60,7 +60,7 @@ export function getFirestore(
   const port = worker.port;
   wirePort(port);
   port.start();
-  return { __kind: 'client-db', port };
+  return { __kind: 'client-db', type: 'firestore', port };
 }
 
 /**

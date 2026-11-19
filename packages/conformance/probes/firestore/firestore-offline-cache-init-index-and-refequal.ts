@@ -186,9 +186,15 @@ async function observeAsyncVoidCall(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: [],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#145',
+  rowIds: [
+    'firestore#112',
+    'firestore#115',
+    'firestore#145',
+    'firestore#146',
+    'firestore#149',
+    'firestore#157',
+  ],
   description:
     'Pure offline firebase/firestore cache and garbage-collector token shapes, initializeFirestore handle caching and failed-precondition guards, PersistentCacheIndexManager and setIndexConfiguration behavior, setLogLevel acceptance, and refEqual foreign-object comparisons with zero network calls.',
   async observe() {

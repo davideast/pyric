@@ -10,6 +10,7 @@
 import { readDocument, readQuery } from './reads.js';
 import { beginFirestoreActivity } from './sdk-activity.js';
 import { finishSdkRead } from '../sandbox/internal/sdk-activity.js';
+import { resolveClientApp } from '../sandbox/internal/client-app.js';
 import type { FirebaseApp } from '../app/types.js';
 import type { Sandbox, SandboxContext } from 'pyric/sandbox';
 import type { DocumentData } from 'pyric/sandbox/admin-firestore';
@@ -27,6 +28,12 @@ import { EVICT_APP_CACHE_SYMBOL } from './internal/app-cache-symbol.js';
 import { getFirestore } from './instances.js';
 import { clientStateFor } from './client-state.js';
 import { forEachDocument } from './sandbox/for-each-document.js';
+import { markHandlePersistentCache } from './cache-index-manager.js';
+import {
+  applySettingsCacheMode,
+  assertAndRecordAppFirestoreSettings,
+  type FirestoreSettings,
+} from './init-settings.js';
 
 // ─── Tier: offline / persistence / network family (issue #144) ────────
 //
@@ -71,6 +78,7 @@ export function enableIndexedDbPersistence(
   void persistenceSettings;
   try {
     clientStateFor(target).enablePersistence('single');
+    markHandlePersistentCache(db);
     return Promise.resolve();
   } catch (error) {
     return Promise.reject(error);
@@ -88,6 +96,7 @@ export function enableMultiTabIndexedDbPersistence(db: Firestore): Promise<void>
   const target = targetOf(db);
   try {
     clientStateFor(target).enablePersistence('multiple');
+    markHandlePersistentCache(db);
     return Promise.resolve();
   } catch (error) {
     return Promise.reject(error);
@@ -183,153 +192,26 @@ export function terminate(db: Firestore): Promise<void> {
 // `onSnapshotsInSync` round out the surface a real app's init sequence
 // commonly touches alongside the persistence family.
 
-/** Hidden brand on {@link LocalCache} tokens returned by
- *  {@link persistentLocalCache} / {@link memoryLocalCache}. Never
- *  inspected by consumer code — `initializeFirestore` accepts the
- *  token but the cache/network settings it carries are no-ops. */
-const LOCAL_CACHE_SYMBOL: unique symbol = Symbol('pyric/firestore/localCache');
-/** Hidden brand on tab-manager tokens returned by
- *  {@link persistentSingleTabManager} / {@link persistentMultipleTabManager}. */
-const TAB_MANAGER_SYMBOL: unique symbol = Symbol('pyric/firestore/tabManager');
-/** Hidden brand on garbage-collector tokens returned by
- *  {@link memoryEagerGarbageCollector} / {@link memoryLruGarbageCollector}. */
-const GC_SYMBOL: unique symbol = Symbol('pyric/firestore/gc');
-
-/** Opaque tab-manager config token. Inert — persistence is always on,
- *  and the SharedWorker/`pyric sandbox` path already is the one shared
- *  store every tab talks to, so there is no separate multi-tab mode
- *  to opt into. Carries the requested kind only for debugging. */
-export interface PersistentTabManager {
-  readonly [TAB_MANAGER_SYMBOL]: 'single' | 'multiple';
-}
-
-/** Opaque garbage-collector config token. Inert for the same reason —
- *  there is no memory cache tier with GC pressure to tune. */
-export interface MemoryGarbageCollector {
-  readonly [GC_SYMBOL]: 'eager' | 'lru';
-}
-
-/** Opaque local-cache config token accepted by {@link initializeFirestore}'s
- *  `settings.localCache`. Inert — see the tier-1 section rationale above. */
-export interface LocalCache {
-  readonly [LOCAL_CACHE_SYMBOL]: 'persistent' | 'memory';
-  readonly tabManager?: PersistentTabManager;
-  readonly garbageCollector?: MemoryGarbageCollector;
-}
-
 /**
- * Inert config token. Real Firebase uses this to select an on-disk,
- * persistent IndexedDB cache tier; the sandbox has no separate cache
- * tier — persistence is already the default — so this just returns a
- * tagged token `initializeFirestore` can accept without crashing.
- */
-export function persistentLocalCache(settings?: {
-  tabManager?: PersistentTabManager;
-  cacheSizeBytes?: number;
-}): LocalCache {
-  return { [LOCAL_CACHE_SYMBOL]: 'persistent', tabManager: settings?.tabManager };
-}
-
-/** Inert config token — the memory-cache counterpart of {@link persistentLocalCache}. */
-export function memoryLocalCache(settings?: {
-  garbageCollector?: MemoryGarbageCollector;
-}): LocalCache {
-  return { [LOCAL_CACHE_SYMBOL]: 'memory', garbageCollector: settings?.garbageCollector };
-}
-
-/** Inert config token accepted by {@link persistentLocalCache}'s `tabManager`. */
-export function persistentSingleTabManager(
-  _settings?: { forceOwnership?: boolean },
-): PersistentTabManager {
-  return { [TAB_MANAGER_SYMBOL]: 'single' };
-}
-
-/** Inert config token accepted by {@link persistentLocalCache}'s `tabManager`. */
-export function persistentMultipleTabManager(): PersistentTabManager {
-  return { [TAB_MANAGER_SYMBOL]: 'multiple' };
-}
-
-/** Inert config token accepted by {@link memoryLocalCache}'s `garbageCollector`. */
-export function memoryEagerGarbageCollector(): MemoryGarbageCollector {
-  return { [GC_SYMBOL]: 'eager' };
-}
-
-/** Inert config token accepted by {@link memoryLocalCache}'s `garbageCollector`. */
-export function memoryLruGarbageCollector(
-  _settings?: { cacheSizeBytes?: number },
-): MemoryGarbageCollector {
-  return { [GC_SYMBOL]: 'lru' };
-}
-
-export type FirestoreLocalCache = LocalCache;
-export type PersistentLocalCache = LocalCache & { readonly [LOCAL_CACHE_SYMBOL]: 'persistent' };
-export type MemoryLocalCache = LocalCache & { readonly [LOCAL_CACHE_SYMBOL]: 'memory' };
-export type PersistentMultipleTabManager = PersistentTabManager & { readonly [TAB_MANAGER_SYMBOL]: 'multiple' };
-export type PersistentSingleTabManager = PersistentTabManager & { readonly [TAB_MANAGER_SYMBOL]: 'single' };
-export interface PersistentSingleTabManagerSettings { forceOwnership?: boolean; }
-export interface PersistentCacheSettings { tabManager?: PersistentTabManager; cacheSizeBytes?: number; }
-export interface MemoryCacheSettings { garbageCollector?: MemoryGarbageCollector; }
-export type MemoryEagerGarbageCollector = MemoryGarbageCollector & { readonly [GC_SYMBOL]: 'eager' };
-export type MemoryLruGarbageCollector = MemoryGarbageCollector & { readonly [GC_SYMBOL]: 'lru' };
-export interface IndexField { fieldPath: string; order?: 'ascending' | 'descending'; arrayConfig?: 'contains'; }
-export interface Index { collectionGroup: string; fields?: IndexField[]; }
-export interface IndexConfiguration { indexes?: Index[]; fieldOverrides?: unknown[]; }
-
-export class PersistentCacheIndexManager {
-  constructor(private readonly _db: Firestore) {}
-  async enableIndexAutoCreation(): Promise<void> {}
-  async disableIndexAutoCreation(): Promise<void> {}
-  async deleteAllIndexes(): Promise<void> {}
-}
-
-export function getPersistentCacheIndexManager(db: Firestore): PersistentCacheIndexManager | null {
-  return new PersistentCacheIndexManager(db);
-}
-
-export async function enablePersistentCacheIndexAutoCreation(indexManager: PersistentCacheIndexManager): Promise<void> {
-  return indexManager.enableIndexAutoCreation();
-}
-
-export async function disablePersistentCacheIndexAutoCreation(indexManager: PersistentCacheIndexManager): Promise<void> {
-  return indexManager.disableIndexAutoCreation();
-}
-
-export async function deleteAllPersistentCacheIndexes(indexManager: PersistentCacheIndexManager): Promise<void> {
-  return indexManager.deleteAllIndexes();
-}
-
-export async function setIndexConfiguration(db: Firestore, configuration: IndexConfiguration | string): Promise<void> {
-  void db; void configuration;
-}
-
-
-/** Client-cache/network settings `initializeFirestore` accepts but no-ops
- *  on sandbox targets — see the tier-1 section rationale above. */
-export interface FirestoreSettings {
-  localCache?: LocalCache;
-  cacheSizeBytes?: number;
-  ignoreUndefinedProperties?: boolean;
-  experimentalForceLongPolling?: boolean;
-  experimentalAutoDetectLongPolling?: boolean;
-  host?: string;
-  ssl?: boolean;
-}
-
-/**
- * Delegates to {@link getFirestore} and returns the same handle. Accepts
- * the `settings` argument (so the explicit-init pattern app code commonly
- * writes — `initializeFirestore(app, { localCache: persistentLocalCache(...) } )`
- * — no longer crashes at import) but no-ops the cache/network settings:
- * persistence is already the sandbox default, so there is nothing left to
- * configure into existence.
- *
+ * Delegates to {@link getFirestore} and returns the initialized handle while
+ * enforcing Firebase's synchronous `failed-precondition` guard when conflicting
+ * settings are supplied after an app database slot has started.
  */
 export function initializeFirestore(
   app: SandboxContext | Sandbox | FirebaseApp,
-  _settings?: FirestoreSettings,
+  settings?: FirestoreSettings,
   databaseId?: string,
 ): Firestore {
-  return getFirestore(app, databaseId);
+  const appRuntime = resolveClientApp(app);
+  if (appRuntime) {
+    assertAndRecordAppFirestoreSettings(app as object, settings, databaseId);
+    const appHandle = getFirestore(app, databaseId);
+    applySettingsCacheMode(appHandle, settings, databaseId, app as object);
+    return appHandle;
+  }
+  const handle = getFirestore(app, databaseId);
+  applySettingsCacheMode(handle, settings, databaseId);
+  return handle;
 }
 
 /**
