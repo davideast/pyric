@@ -104,6 +104,36 @@ function installLiveFetch() {
   };
 }
 
+const FIXED_NOW = 1_760_000_000_000;
+
+function installFixedClock(initialNow = FIXED_NOW) {
+  const previousNow = Date.now;
+  let currentNow = initialNow;
+  Date.now = () => currentNow;
+  return {
+    now: initialNow,
+    advance(ms: number) {
+      currentNow += ms;
+    },
+    restore() {
+      Date.now = previousNow;
+    },
+  };
+}
+
+function nonEmptyBuckets(container: ParentNode): HTMLElement[] {
+  return Array.from(
+    container.querySelectorAll<HTMLElement>('[data-pyric-bucket]:not([data-pyric-bucket-count="0"])'),
+  );
+}
+
+function requireElement<T extends Element>(element: T | null | undefined, selector: string): T {
+  if (!element) {
+    throw new Error(`Expected element matching ${selector}`);
+  }
+  return element;
+}
+
 const flush = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 25)));
 
 beforeEach(() => {
@@ -118,7 +148,8 @@ afterEach(() => {
 
 describe('<TrafficSurface> live retention and brushed subtab scoping', () => {
   it('never evicts client Rules counts under >500 background Admin calls and scopes Rules cap notice to clientCapped', async () => {
-    const now = Date.now();
+    const clock = installFixedClock();
+    const now = clock.now;
     const clientEvents: SandboxEvent[] = [
       {
         kind: 'operation',
@@ -198,10 +229,11 @@ describe('<TrafficSurface> live retention and brushed subtab scoping', () => {
         );
       });
 
-      // Scope `From` to the browser client (only 3 rows) — rolling cap stays disclosed on Timeline and Billable!
-      const fromSelect = view.container.querySelector(
+      // Scope `From` to the browser client (only 3 rows) - rolling cap stays disclosed on Timeline and Billable.
+      const fromSelect = requireElement(
+        view.container.querySelector<HTMLSelectElement>('[data-pyric-traffic-from]'),
         '[data-pyric-traffic-from]',
-      ) as HTMLSelectElement;
+      );
       fireEvent.change(fromSelect, { target: { value: 'client:page:client-web' } });
       expect(view.container.querySelector('.traffic__tl-count')?.textContent).toBe(
         '3 requests (capped at 500/lane)',
@@ -215,8 +247,8 @@ describe('<TrafficSurface> live retention and brushed subtab scoping', () => {
         );
       });
 
-      // Stream additional live Admin SDK ticks while client is idle — client Rules counts never tick down,
-      // and Rules omits the cap notice while clientCapped is false!
+      // Stream additional live Admin SDK ticks while client is idle - client Rules counts never tick down,
+      // and Rules omits the cap notice while clientCapped is false.
       fireEvent.click(view.getByRole('tab', { name: 'Rules' }));
       await waitFor(() => {
         expect(view.getByText('2 advisory local Rules evaluations')).toBeTruthy();
@@ -251,13 +283,14 @@ describe('<TrafficSurface> live retention and brushed subtab scoping', () => {
       expect(summary).toContain('Admin-bypassed: 500');
       expect(summary).toContain('Drift with production: 1');
 
-      // Once client traffic itself exceeds 500, clientCapped turns true and Rules discloses its cap notice.
+      // Once client traffic itself exceeds 500 across a 20s burst (`now - 20_000 .. now - 40`),
+      // clientCapped turns true and `rulesUncoveredBeforeAt` sits at `now - 20_000`.
       await act(async () => {
         for (let index = 0; index < 500; index += 1) {
           worker.deliverLive({
             kind: 'operation',
             id: `c-overflow-${index}`,
-            at: now - 500 + index,
+            at: now - 20_000 + index * 40,
             service: 'firestore',
             method: 'getDoc',
             path: `items/item-${index}`,
@@ -276,27 +309,36 @@ describe('<TrafficSurface> live retention and brushed subtab scoping', () => {
         'Showing latest 500 retained client requests',
       );
 
-      // Brushing an early Timeline bucket before the retention horizon keeps the cap notice on Rules,
-      // while brushing the newest bucket after the retention horizon hides it.
+      // Brushing an early populated bucket (`adminBacklog` around `now - 39_900`, before `now - 20_000`)
+      // keeps the cap notice on Rules; brushing the newest populated client bucket hides it.
       fireEvent.click(view.getByRole('tab', { name: 'Timeline' }));
-      const buckets = view.container.querySelectorAll('[data-pyric-bucket]');
-      fireEvent.click(buckets[0]!);
+      const populatedBuckets = nonEmptyBuckets(view.container);
+      fireEvent.click(requireElement(populatedBuckets[0], 'earliest non-empty bucket'));
+      expect(view.getByText('Selected interval')).toBeTruthy();
       fireEvent.click(view.getByRole('tab', { name: 'Rules' }));
       expect(view.container.querySelector('[data-pyric-traffic-capped]')).not.toBeNull();
 
       fireEvent.click(view.getByRole('tab', { name: 'Timeline' }));
-      const updatedBuckets = view.container.querySelectorAll('[data-pyric-bucket]');
-      fireEvent.click(updatedBuckets[updatedBuckets.length - 1]!);
+      const updatedPopulatedBuckets = nonEmptyBuckets(view.container);
+      fireEvent.click(
+        requireElement(
+          updatedPopulatedBuckets[updatedPopulatedBuckets.length - 1],
+          'newest non-empty bucket',
+        ),
+      );
+      expect(view.getByText('Selected interval')).toBeTruthy();
       fireEvent.click(view.getByRole('tab', { name: 'Rules' }));
       expect(view.container.querySelector('[data-pyric-traffic-capped]')).toBeNull();
     } finally {
       worker.restore();
       restoreFetch();
+      clock.restore();
     }
   });
 
   it('scopes Billable metrics and Rules to a brushed Timeline interval and clears back to the full session', async () => {
-    const now = Date.now();
+    const clock = installFixedClock();
+    const now = clock.now;
     const history: SandboxEvent[] = [
       {
         kind: 'operation',
@@ -385,17 +427,12 @@ describe('<TrafficSurface> live retention and brushed subtab scoping', () => {
       await flush();
 
       await waitFor(() => {
-        expect(
-          view.container.querySelectorAll('[data-pyric-bucket]:not([data-pyric-bucket-count="0"])')
-            .length,
-        ).toBe(2);
+        expect(nonEmptyBuckets(view.container).length).toBe(2);
       });
 
       // Brush the recent burst bucket on Timeline.
-      const activeBuckets = view.container.querySelectorAll(
-        '[data-pyric-bucket]:not([data-pyric-bucket-count="0"])',
-      );
-      fireEvent.click(activeBuckets[activeBuckets.length - 1]!);
+      const activeBuckets = nonEmptyBuckets(view.container);
+      fireEvent.click(requireElement(activeBuckets[activeBuckets.length - 1], 'recent burst bucket'));
       expect(view.getByText('Selected interval')).toBeTruthy();
 
       // Switch to Billable metrics: early 3 document reads are excluded; burst write (1) + RTDB delivery (1) are shown.
@@ -403,7 +440,10 @@ describe('<TrafficSurface> live retention and brushed subtab scoping', () => {
       await waitFor(() => {
         expect(view.getByText('Selected interval')).toBeTruthy();
       });
-      const opPanel = view.container.querySelector('[data-pyric-billable-panel="operation"]')!;
+      const opPanel = requireElement(
+        view.container.querySelector('[data-pyric-billable-panel="operation"]'),
+        '[data-pyric-billable-panel="operation"]',
+      );
       expect(
         opPanel.querySelector('[data-pyric-metric-key="reads"] [data-pyric-metric-value]')
           ?.textContent,
@@ -437,6 +477,7 @@ describe('<TrafficSurface> live retention and brushed subtab scoping', () => {
     } finally {
       worker.restore();
       restoreFetch();
+      clock.restore();
     }
   });
 });
