@@ -19,12 +19,25 @@ interface Outcome {
   error?: string;
 }
 
+interface SchemaBuildersOutcome extends Outcome {
+  objectJson?: Record<string, unknown>;
+  enumJson?: Record<string, unknown>;
+  anyOfJson?: Record<string, unknown>;
+  isAnyOfSchema?: boolean;
+  emptyAnyOfGuard?: {
+    isAIError: boolean;
+    isFirebaseError: boolean;
+    code: string | null;
+  };
+}
+
 interface Roles {
   assistant: Outcome;
   system: Outcome;
   roleless: Outcome;
   chatStringSystem: Outcome;
   geminiPro: Outcome;
+  schemaBuilders: SchemaBuildersOutcome;
 }
 
 declare function runRoles(): Promise<Roles>;
@@ -53,6 +66,40 @@ function assertRoles(roles: Roles): void {
     `geminiPro error: ${roles.geminiPro.error}`,
   );
   assert.equal(roles.geminiPro.status, 404);
+
+  assert.equal(
+    roles.schemaBuilders.ok,
+    true,
+    `schemaBuilders: ${JSON.stringify(roles.schemaBuilders)}`,
+  );
+  assert.deepEqual(roles.schemaBuilders.objectJson, {
+    type: 'object',
+    properties: {
+      city: { type: 'string', nullable: false },
+      days: { type: 'integer', nullable: false },
+    },
+    nullable: false,
+    required: ['city'],
+  });
+  assert.deepEqual(roles.schemaBuilders.enumJson, {
+    type: 'string',
+    format: 'enum',
+    enum: ['red', 'green', 'blue'],
+    nullable: false,
+  });
+  assert.equal(roles.schemaBuilders.isAnyOfSchema, true);
+  assert.deepEqual(roles.schemaBuilders.anyOfJson, {
+    anyOf: [
+      { type: 'string', nullable: false },
+      { type: 'integer', nullable: false },
+    ],
+    nullable: false,
+  });
+  assert.deepEqual(roles.schemaBuilders.emptyAnyOfGuard, {
+    isAIError: true,
+    isFirebaseError: true,
+    code: 'invalid-schema',
+  });
 }
 
 async function checkPlane(app: App, name: string, env: Record<string, string>): Promise<void> {

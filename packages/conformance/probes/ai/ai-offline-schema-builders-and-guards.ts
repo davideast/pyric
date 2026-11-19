@@ -20,9 +20,13 @@ function serializeSchema(schema: unknown): Record<string, unknown> {
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: [],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'ai#schema-object-tojson',
+  rowIds: [
+    'ai#schema-object-tojson',
+    'ai#schema-string-enum',
+    'ai#schema-primitives',
+    'ai#schema-anyof',
+  ],
   description:
     'Pure offline firebase/ai Schema.object, primitive/array/enumString builders, and Schema.anyOf serialization and empty-anyOf AIError guard with zero network calls.',
   async observe() {

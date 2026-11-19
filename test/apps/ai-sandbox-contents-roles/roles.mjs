@@ -1,8 +1,8 @@
 // Shared by the page and the node script: App Check first, then AI, the order
 // the App Check docs require. Sends the contents and request-edge shapes the scenario checks.
-import { initializeApp } from "firebase/app";
+import { FirebaseError, initializeApp } from "firebase/app";
 import { ReCaptchaV3Provider, initializeAppCheck } from "firebase/app-check";
-import { getAI, getGenerativeModel } from "firebase/ai";
+import { AIError, AnyOfSchema, Schema, getAI, getGenerativeModel } from "firebase/ai";
 
 const turn = (role, text) => ({ role, parts: [{ text }] });
 
@@ -56,11 +56,59 @@ export async function runRoles() {
       return formatFailure(e);
     }
   };
+  const sendStructuredSchema = async () => {
+    const objectSchema = Schema.object({
+      properties: {
+        city: Schema.string(),
+        days: Schema.integer(),
+      },
+      optionalProperties: ["days"],
+    });
+    const enumSchema = Schema.enumString({ enum: ["red", "green", "blue"] });
+    const anyOfSchema = Schema.anyOf({ anyOf: [Schema.string(), Schema.integer()] });
+    let emptyAnyOfCode = null;
+    let emptyAnyOfIsAIError = false;
+    let emptyAnyOfIsFirebaseError = false;
+    try {
+      Schema.anyOf({ anyOf: [] });
+    } catch (err) {
+      emptyAnyOfIsAIError = err instanceof AIError;
+      emptyAnyOfIsFirebaseError = err instanceof FirebaseError;
+      if (err && typeof err === "object" && typeof err.code === "string") {
+        emptyAnyOfCode = err.code;
+      }
+    }
+    try {
+      const r = await model.generateContent({
+        contents: [turn("user", "Return a JSON city.")],
+        generationConfig: {
+          responseMimeType: "application/json",
+          responseSchema: objectSchema,
+        },
+      });
+      return {
+        ok: true,
+        text: r.response.text(),
+        objectJson: JSON.parse(JSON.stringify(objectSchema)),
+        enumJson: JSON.parse(JSON.stringify(enumSchema)),
+        anyOfJson: JSON.parse(JSON.stringify(anyOfSchema)),
+        isAnyOfSchema: anyOfSchema instanceof AnyOfSchema,
+        emptyAnyOfGuard: {
+          isAIError: emptyAnyOfIsAIError,
+          isFirebaseError: emptyAnyOfIsFirebaseError,
+          code: emptyAnyOfCode,
+        },
+      };
+    } catch (e) {
+      return formatFailure(e);
+    }
+  };
   return {
     assistant: await send([turn("user", "Say hi."), turn("assistant", "hi"), turn("user", "Say it again.")]),
     system: await send([turn("system", "Only reply with: pyric"), turn("user", "Say anything.")]),
     roleless: await send([{ parts: [{ text: "Say hi." }] }]),
     chatStringSystem: await sendChatStringSystem(),
     geminiPro: await sendGeminiPro(),
+    schemaBuilders: await sendStructuredSchema(),
   };
 }
