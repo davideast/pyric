@@ -57,6 +57,7 @@ export interface ByteRouteAccess {
 /** Opaque client-side Firestore handle. Holds the MessagePort to the worker. */
 export interface ClientDb {
   readonly __kind: 'client-db';
+  readonly type?: 'firestore';
   readonly port: ClientPort;
 }
 

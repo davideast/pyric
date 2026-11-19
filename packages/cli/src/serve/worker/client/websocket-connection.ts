@@ -567,7 +567,7 @@ export function getHostedFirestore(target: {
     });
   }
 
-  const db = { __kind: 'client-db', port } satisfies ClientDb;
+  const db = { __kind: 'client-db', type: 'firestore', port } satisfies ClientDb;
   if (!existingPort) wirePort(port);
   connect();
   return db;

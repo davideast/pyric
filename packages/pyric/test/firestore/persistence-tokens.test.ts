@@ -1,21 +1,37 @@
 import { describe, expect, it } from 'bun:test';
-import * as firestore from '../../src/firestore/index.ts';
+import { initializeSandbox } from 'pyric/sandbox';
+import * as firestore from 'pyric/firestore';
 
 describe('Firestore offline caching, indexing, and tab sync controllers (Pillar 2)', () => {
-  it('exports PersistentCacheIndexManager and controller functions', async () => {
-    expect(typeof (firestore as any).PersistentCacheIndexManager).toBe('function');
-    expect(typeof (firestore as any).getPersistentCacheIndexManager).toBe('function');
-    expect(typeof (firestore as any).enablePersistentCacheIndexAutoCreation).toBe('function');
-    expect(typeof (firestore as any).disablePersistentCacheIndexAutoCreation).toBe('function');
-    expect(typeof (firestore as any).deleteAllPersistentCacheIndexes).toBe('function');
-    expect(typeof (firestore as any).setIndexConfiguration).toBe('function');
+  it('returns null on memory local cache and a singleton PersistentCacheIndexManager on persistent local cache', async () => {
+    expect(typeof firestore.PersistentCacheIndexManager).toBe('function');
+    expect(typeof firestore.getPersistentCacheIndexManager).toBe('function');
+    expect(typeof firestore.enablePersistentCacheIndexAutoCreation).toBe('function');
+    expect(typeof firestore.disablePersistentCacheIndexAutoCreation).toBe('function');
+    expect(typeof firestore.deleteAllPersistentCacheIndexes).toBe('function');
+    expect(typeof firestore.setIndexConfiguration).toBe('function');
 
-    const mockDb = {} as any;
-    const mgr = (firestore as any).getPersistentCacheIndexManager(mockDb);
-    expect(mgr).toBeInstanceOf((firestore as any).PersistentCacheIndexManager);
-    await expect((firestore as any).enablePersistentCacheIndexAutoCreation(mgr)).resolves.toBeUndefined();
-    await expect((firestore as any).disablePersistentCacheIndexAutoCreation(mgr)).resolves.toBeUndefined();
-    await expect((firestore as any).deleteAllPersistentCacheIndexes(mgr)).resolves.toBeUndefined();
-    await expect((firestore as any).setIndexConfiguration(mockDb, { indexes: [] })).resolves.toBeUndefined();
+    const sandbox = initializeSandbox();
+    const memDb = firestore.initializeFirestore(sandbox, {
+      localCache: firestore.memoryLocalCache(),
+    });
+    expect(firestore.getPersistentCacheIndexManager(memDb)).toBeNull();
+
+    const persDb = firestore.initializeFirestore(sandbox, {
+      localCache: firestore.persistentLocalCache({
+        tabManager: firestore.persistentMultipleTabManager(),
+      }),
+    });
+    const mgr = firestore.getPersistentCacheIndexManager(persDb);
+    expect(mgr).toBeInstanceOf(firestore.PersistentCacheIndexManager);
+    expect(firestore.getPersistentCacheIndexManager(persDb)).toBe(mgr);
+    if (mgr === null) {
+      throw new Error('Expected non-null PersistentCacheIndexManager');
+    }
+    expect(mgr.type).toBe('PersistentCacheIndexManager');
+    expect(firestore.enablePersistentCacheIndexAutoCreation(mgr)).toBeUndefined();
+    expect(firestore.disablePersistentCacheIndexAutoCreation(mgr)).toBeUndefined();
+    expect(firestore.deleteAllPersistentCacheIndexes(mgr)).toBeUndefined();
+    await expect(firestore.setIndexConfiguration(persDb, { indexes: [] })).resolves.toBeUndefined();
   });
 });

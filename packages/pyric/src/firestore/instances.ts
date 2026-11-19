@@ -33,6 +33,10 @@ import {
   type SandboxLiveTarget,
 } from './state.js';
 import { EVICT_APP_CACHE_SYMBOL } from './internal/app-cache-symbol.js';
+import {
+  clearAppFirestoreSettings,
+  recordImplicitAppFirestoreSettings,
+} from './init-settings.js';
 import type { AppFirestore, Firestore } from './types.js';
 
 /**
@@ -89,12 +93,18 @@ export function getFirestore(target?: SandboxContext | Sandbox | FirebaseApp, da
   const appRuntime = resolveClientApp(target);
   if (appRuntime) {
     const existing = appFirestoreRegistry.get(appRuntime);
-    if (existing !== undefined) return existing;
+    if (existing !== undefined) {
+      recordImplicitAppFirestoreSettings(target as object, databaseId, existing);
+      return existing;
+    }
     appRuntime.assertAlive();
 
     const { sandbox, session } = appRuntime;
     const lifecycle = createFirestoreTargetLifecycle();
-    const releaseOnDelete = appRuntime.onDelete(() => lifecycle.terminate());
+    const releaseOnDelete = appRuntime.onDelete(() => {
+      clearAppFirestoreSettings(target as object);
+      lifecycle.terminate();
+    });
     const authScope = appRuntime.authScope;
     if (authScope) {
       lifecycle.own(session.onCurrentUserChanged((user) => {
@@ -118,6 +128,7 @@ export function getFirestore(target?: SandboxContext | Sandbox | FirebaseApp, da
     };
     Object.defineProperty(t, EVICT_APP_CACHE_SYMBOL, {
       value: () => {
+        clearAppFirestoreSettings(target as object);
         if (appFirestoreRegistry.get(appRuntime) === instance) {
           appFirestoreRegistry.delete(appRuntime);
         }
@@ -126,8 +137,9 @@ export function getFirestore(target?: SandboxContext | Sandbox | FirebaseApp, da
       enumerable: false,
       configurable: true,
     });
-    instance = { [TARGET_SYMBOL]: t, app: target as FirebaseApp };
+    instance = { [TARGET_SYMBOL]: t, type: 'firestore', app: target as FirebaseApp };
     appFirestoreRegistry.set(appRuntime, instance);
+    recordImplicitAppFirestoreSettings(target as object, databaseId, instance);
     return instance;
   }
   const namedDb = normalizeDatabaseId(databaseId);
@@ -138,10 +150,12 @@ export function getFirestore(target?: SandboxContext | Sandbox | FirebaseApp, da
       activityApp: target,
       db: chainable,
       sandbox: target.sandbox,
-      ...(namedDb !== undefined ? { databaseId: namedDb } : {}),
       ...createFirestoreTargetLifecycle(),
     };
-    return { [TARGET_SYMBOL]: t };
+    if (namedDb !== undefined) {
+      t.databaseId = namedDb;
+    }
+    return { [TARGET_SYMBOL]: t, type: 'firestore' };
   }
   if (isSandbox(target)) {
     const lifecycle = createFirestoreTargetLifecycle();
@@ -164,10 +178,12 @@ export function getFirestore(target?: SandboxContext | Sandbox | FirebaseApp, da
       activityApp: target,
       sandbox: target,
       getDb: makeGetDb(target),
-      ...(namedDb !== undefined ? { databaseId: namedDb } : {}),
       ...lifecycle,
     };
-    return { [TARGET_SYMBOL]: t };
+    if (namedDb !== undefined) {
+      t.databaseId = namedDb;
+    }
+    return { [TARGET_SYMBOL]: t, type: 'firestore' };
   }
   throw new TypeError(
     'pyric/firestore is a sandbox-only mirror. Package resolution must leave firebase/firestore unchanged for production; activate pyric sandbox or @pyric/cli/register before importing to select the sandbox.',
@@ -290,7 +306,7 @@ export function getAdminFirestore(target: Sandbox | SandboxContext | FirebaseApp
   const sandbox = context.sandbox;
   const chainable = getChainableAdminFirestore(context);
   const t: SandboxTarget = { kind: 'sandbox', db: chainable, sandbox };
-  return { [TARGET_SYMBOL]: t };
+  return { [TARGET_SYMBOL]: t, type: 'firestore' };
 }
 
 /**
