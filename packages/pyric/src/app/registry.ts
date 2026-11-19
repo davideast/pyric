@@ -23,14 +23,23 @@ const deletedApps = new WeakSet<FirebaseApp>();
 const appNames = new WeakMap<FirebaseApp, string>();
 let backendOptions: FirebaseOptions | undefined;
 let backendSandbox: ReturnType<typeof initializeSandbox> | undefined;
+let ownsBackendSandbox = false;
 let backendRefusal: (() => Error) | undefined;
+
+function isBoundToOtherBackend(sandbox: ReturnType<typeof initializeSandbox>): boolean {
+  if (backendRefusal !== undefined) return true;
+  if (backendSandbox !== undefined) return backendSandbox !== sandbox;
+  return backendOptions !== undefined;
+}
 
 /** Internal host seam: bind the exact client registry to an existing sandbox. */
 export function bindAppRegistrySandbox(sandbox: ReturnType<typeof initializeSandbox>): void {
-  if (backendOptions !== undefined || (backendSandbox !== undefined && backendSandbox !== sandbox)) {
+  if (isBoundToOtherBackend(sandbox)) {
     throw new Error('pyric/app/internal: the app registry sandbox is already bound');
   }
+  if (backendSandbox === sandbox) return;
   backendSandbox = sandbox;
+  ownsBackendSandbox = false;
 }
 
 /** Internal host seam: apps get no sandbox; every service call raises `refusal()`. */
@@ -166,7 +175,10 @@ export function initializeApp(
   const isRefused = refusal !== undefined;
   if (backendOptions === undefined) {
     backendOptions = cloneValue(optionsSnapshot);
-    if (!isRefused) backendSandbox ??= initializeSandbox();
+    if (!isRefused && backendSandbox === undefined) {
+      backendSandbox = initializeSandbox();
+      ownsBackendSandbox = true;
+    }
   } else if (!firebaseOptionsEqual(backendOptions, optionsSnapshot)) {
     throw multipleConfigsError();
   }
@@ -214,8 +226,11 @@ export async function deleteApp(app: FirebaseApp): Promise<void> {
 export async function resetAppRegistryForTests(): Promise<void> {
   await Promise.all([...appRegistry.values()].map(({ app }) => markSandboxAppDeleted(app)));
   appRegistry.clear();
-  backendSandbox?.dispose();
+  if (ownsBackendSandbox) {
+    backendSandbox?.dispose();
+  }
   backendSandbox = undefined;
+  ownsBackendSandbox = false;
   backendRefusal = undefined;
   backendOptions = undefined;
 }

@@ -1,14 +1,20 @@
 /** Served `firebase/app`: Pyric client registry with shadow container bridge for production AI pass-through. */
 import { bindAppRegistrySandbox } from 'pyric/app/internal';
-import { sandbox } from './app-backend.js';
 import * as pyricApp from 'pyric/app';
 import { shadowedAppRegistry } from '../../register/app-bridge-shadow.js';
-
-bindAppRegistrySandbox(sandbox);
+import { sandbox } from './app-backend.js';
 
 // One shadow implementation for every plane: the register adapters build
 // their exports from the same registry.
-const registry = shadowedAppRegistry(pyricApp);
+const registry = shadowedAppRegistry({
+  initializeApp(options, rawSettings) {
+    bindAppRegistrySandbox(sandbox);
+    return pyricApp.initializeApp(options, rawSettings);
+  },
+  getApp: pyricApp.getApp,
+  getApps: pyricApp.getApps,
+  deleteApp: pyricApp.deleteApp,
+});
 
 export const initializeApp = registry.initializeApp;
 export const getApp = registry.getApp;
