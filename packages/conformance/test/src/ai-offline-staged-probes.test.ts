@@ -15,26 +15,14 @@ const AI_OFFLINE_SLICE12_PROBE_IDS = [
   'ai-offline-schema-builders-and-guards',
 ] as const;
 
-const AI_OFFLINE_STAGED_PROBE_IDS = [
-  'ai-offline-init-backends-and-model-guards',
-] as const;
+const AI_OFFLINE_STAGED_PROBE_IDS: readonly string[] = [];
 
 describe('AI offline zero-network client SDK probes (sdk-probes)', () => {
-  test('registers staged offline AI probes with pendingRowLink and links schema-builders and chat-errors-abort', async () => {
+  test('registers and links all 3 offline AI probes under sdk-probes', async () => {
     const loaded = await loadModularProbes('sdk-probes');
     const loadedIds = loaded.map((entry) => entry.id);
     for (const id of AI_OFFLINE_SLICE12_PROBE_IDS) {
       expect(loadedIds).toContain(id);
-    }
-
-    const stagedProbes = [initBackendsProbe];
-    for (const probeRecord of stagedProbes) {
-      expect(probeRecord.rig).toBe('sdk-probes');
-      expect(probeRecord.requires).toEqual([]);
-      expect(probeRecord.pendingRowLink).toBe(true);
-      expect(probeRecord.matrixRow).toBe('');
-      expect(probeRecord.rowIds).toEqual([]);
-      expect(probeRecord.description.length).toBeGreaterThan(20);
     }
 
     expect(chatErrorsAbortProbe.rig).toBe('sdk-probes');
@@ -49,6 +37,21 @@ describe('AI offline zero-network client SDK probes (sdk-probes)', () => {
       'ai#error-code-vocabulary',
     ]);
     expect(chatErrorsAbortProbe.description.length).toBeGreaterThan(20);
+
+    expect(initBackendsProbe.rig).toBe('sdk-probes');
+    expect(initBackendsProbe.requires).toEqual([]);
+    expect(initBackendsProbe.pendingRowLink).toBeUndefined();
+    expect(initBackendsProbe.matrixRow).toBe('ai#getai-default-backend');
+    expect(initBackendsProbe.rowIds).toEqual([
+      'ai#getai-app-dispatch',
+      'ai#getai-default-backend',
+      'ai#getai-idempotent',
+      'ai#backend-vertex',
+      'ai#model-name-short',
+      'ai#model-name-prefixed',
+      'ai#model-name-required',
+    ]);
+    expect(initBackendsProbe.description.length).toBeGreaterThan(20);
 
     expect(schemaBuildersProbe.rig).toBe('sdk-probes');
     expect(schemaBuildersProbe.requires).toEqual([]);
@@ -68,6 +71,7 @@ describe('AI offline zero-network client SDK probes (sdk-probes)', () => {
       }).map((entry) => entry.id),
     );
     expect(unfilteredIds.has('ai-offline-chat-roles-errors-and-abort')).toBe(true);
+    expect(unfilteredIds.has('ai-offline-init-backends-and-model-guards')).toBe(true);
     expect(unfilteredIds.has('ai-offline-schema-builders-and-guards')).toBe(true);
 
     expectStagedUntilCaptured(AI_OFFLINE_STAGED_PROBE_IDS, {

@@ -26,6 +26,7 @@
  * divergence class (cdd-deltas #99): minted without tokenizers/classifiers.
  */
 
+import { stripModelResourcePrefix } from './model-resource.js';
 import type {
   CountTokensResponse,
   WireCandidate,
@@ -44,7 +45,7 @@ import type {
  * guess. The gemini engine returns its upstream's own value instead.
  */
 export function resolveModelVersion(model: string): string {
-  return model.startsWith('models/') ? model.slice('models/'.length) : model;
+  return stripModelResourcePrefix(model);
 }
 
 // ── Deterministic primitives ────────────────────────────────────────────────

@@ -30,6 +30,7 @@ import {
   type OpenAIStreamChunk,
   type OpenAIToolCall,
 } from './openai-wire-translation.js';
+import { stripModelResourcePrefix } from './model-resource.js';
 import type {
   AnswerEngine,
   AnswerEngineCallOptions,
@@ -101,10 +102,7 @@ export class OpenAiEngine implements AnswerEngine {
   }
 
   resolveEffectiveModel(model: string): ModelResolution {
-    let bare = model;
-    if (model.startsWith('models/')) {
-      bare = model.slice('models/'.length);
-    }
+    const bare = stripModelResourcePrefix(model);
     const mapped = this.modelMap[bare] ?? this.modelMap[model];
     if (mapped !== undefined) return { model: mapped, reason: 'engine modelMap' };
     if (this.defaultModel !== undefined) {

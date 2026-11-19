@@ -52,9 +52,16 @@ function observeSyncAiThrow(fn: () => unknown): SyncAiThrowShape {
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: [],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'ai#getai-default-backend',
+  rowIds: [
+    'ai#getai-app-dispatch',
+    'ai#getai-default-backend',
+    'ai#getai-idempotent',
+    'ai#backend-vertex',
+    'ai#model-name-short',
+    'ai#model-name-prefixed',
+    'ai#model-name-required',
+  ],
   description:
     'Pure offline firebase/ai initialization, GoogleAIBackend default vs VertexAIBackend location defaults, getAI handle idempotency, short model name normalization, and synchronous no-model / missing-config AIError guards with zero network calls.',
   async observe() {
