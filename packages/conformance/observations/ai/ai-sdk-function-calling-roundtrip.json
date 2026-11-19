@@ -1,0 +1,39 @@
+{
+  "name": "ai-sdk-function-calling-roundtrip",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Live firebase/ai function-calling round trip on the GoogleAI backend with Admin-minted App Check token: forces a functionCall on turn 1 via FunctionCallingMode.ANY (verifying id, name, parsed object args, finishReason STOP, and thoughtSignature), then threads the model turn verbatim with a role user functionResponse on turn 2 under default AUTO mode.",
+  "observedAt": "2026-11-19T19:55:54.988Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "model": "gemini-flash-lite-latest",
+    "firstTurnForcedAny": {
+      "finishReason": "STOP",
+      "functionCallPartPresent": true,
+      "functionCallKeySet": [
+        "args",
+        "id",
+        "name"
+      ],
+      "functionCallIdIsNonEmptyString": true,
+      "functionCallName": "get_weather",
+      "argsIsPlainObject": true,
+      "argsKeySet": [
+        "city"
+      ],
+      "functionCallsHelperCount": 1,
+      "modelPartHasThoughtSignature": true
+    },
+    "secondTurnRoundTrip": {
+      "threadedModelTurnPreservedThoughtSignature": true,
+      "functionResponseRoleUsed": "user",
+      "finishReason": "STOP",
+      "candidateRole": "model",
+      "answerHasTextPart": true,
+      "answerTextHelperNonEmpty": true,
+      "answerHasFunctionCallPart": false,
+      "functionCallsHelperUndefined": true
+    }
+  }
+}

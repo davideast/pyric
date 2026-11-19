@@ -1,0 +1,35 @@
+{
+  "name": "ai-sdk-streaming-chunks-and-aggregate",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Live firebase/ai generateContentStream() SDK-level chunk iteration and result.response aggregation on the GoogleAI backend with Admin-minted App Check token: verifies async-iterable chunk helpers, candidates/usageMetadata presence on every chunk, finishReason only on the final chunk, concatenated aggregate text parity, and aggregate metadata fields.",
+  "observedAt": "2026-11-19T19:56:03.807Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "model": "gemini-flash-lite-latest",
+    "stream": {
+      "streamIsAsyncIterable": true,
+      "chunkCountAtLeastOne": true,
+      "everyChunkHasTextHelper": true,
+      "everyChunkHasFunctionCallsHelper": true,
+      "everyChunkHasCandidatesOrUsage": true,
+      "everyChunkHasUsageMetadata": true,
+      "everyChunkCandidateRoleModel": true,
+      "nonFinalChunksOmitFinishReason": true,
+      "finalChunkFinishReason": "STOP",
+      "finishReasonOnlyOnLastChunk": true
+    },
+    "aggregate": {
+      "hasTextHelper": true,
+      "aggregateTextNonEmpty": true,
+      "aggregateTextMatchesConcatenatedChunks": true,
+      "candidateRole": "model",
+      "finishReason": "STOP",
+      "hasUsageMetadata": false,
+      "hasModelVersion": false,
+      "hasResponseId": false,
+      "inferenceSource": "in_cloud"
+    }
+  }
+}

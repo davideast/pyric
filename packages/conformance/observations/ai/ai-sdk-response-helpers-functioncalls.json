@@ -1,0 +1,48 @@
+{
+  "name": "ai-sdk-response-helpers-functioncalls",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Live firebase/ai client SDK toolConfig FunctionCallingMode.ANY forced function-call serialization and EnhancedGenerateContentResponse.functionCalls() / inlineDataParts() helper shapes on GoogleAI with App Check.",
+  "observedAt": "2026-11-19T19:56:00.844Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "httpStatus": 200,
+    "wireCallCount": 1,
+    "outboundToolRequest": {
+      "declarationName": "get_weather",
+      "parametersJson": {
+        "type": "object",
+        "properties": {
+          "city": {
+            "type": "string",
+            "nullable": false
+          }
+        },
+        "nullable": false,
+        "required": [
+          "city"
+        ]
+      },
+      "callingMode": "ANY"
+    },
+    "wireFunctionCall": {
+      "present": true,
+      "functionCallKeySet": [
+        "args",
+        "id",
+        "name"
+      ],
+      "hasThoughtSignature": true,
+      "finishReason": "STOP"
+    },
+    "helperFunctionCalls": {
+      "isArray": true,
+      "count": 1,
+      "firstName": "get_weather",
+      "argsIsPlainObject": true,
+      "argsHasCityString": true,
+      "inlineDataPartsIsUndefined": true
+    }
+  }
+}
