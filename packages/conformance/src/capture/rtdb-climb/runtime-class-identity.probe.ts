@@ -33,8 +33,15 @@ import type { RtdbClimbContext, RtdbClimbProbe } from './probe-types.ts';
 export function createProbe(ctx: RtdbClimbContext): RtdbClimbProbe {
   return {
       name: 'rtdb-modular-runtime-class-identity',
-      matrixRow: 'rtdb-modular#M85, rtdb-modular#M86, rtdb-modular#M87, rtdb-modular#M88',
-      rowIds: ['rtdb-modular#M85', 'rtdb-modular#M86', 'rtdb-modular#M87', 'rtdb-modular#M88'],
+      matrixRow:
+        'rtdb-modular#M85, rtdb-modular#M86, rtdb-modular#M87, rtdb-modular#M88, rtdb-modular#96',
+      rowIds: [
+        'rtdb-modular#M85',
+        'rtdb-modular#M86',
+        'rtdb-modular#M87',
+        'rtdb-modular#M88',
+        'rtdb-modular#96',
+      ],
       description:
         'Runtime constructor exports, actual-instance prototype identity, direct construction, and TransactionResult.toJSON behavior.',
       observe: () => repeatStable(2, async (attempt) => {

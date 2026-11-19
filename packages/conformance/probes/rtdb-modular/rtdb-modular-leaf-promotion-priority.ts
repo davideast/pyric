@@ -42,8 +42,8 @@ async function waitForServerChildValue(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'dedicated-rtdb'],
-  matrixRow: 'rtdb-modular#leaf-promotion-priority',
-  rowIds: ['rtdb-modular#leaf-promotion-priority'],
+  matrixRow: 'rtdb-modular#leaf-promotion-priority, rtdb-modular#M73',
+  rowIds: ['rtdb-modular#leaf-promotion-priority', 'rtdb-modular#M73'],
   description:
     'RTDB leaf-to-parent promotion .priority retention when a scalar leaf carrying a numeric or string priority acquires a child via direct set/update, committed-leaf onDisconnect set/update, or same-session queued onDisconnect folding.',
   async observe() {

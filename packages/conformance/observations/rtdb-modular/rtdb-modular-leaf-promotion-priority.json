@@ -1,8 +1,9 @@
 {
   "name": "rtdb-modular-leaf-promotion-priority",
-  "matrixRow": "rtdb-modular#leaf-promotion-priority",
+  "matrixRow": "rtdb-modular#leaf-promotion-priority, rtdb-modular#M73",
   "rowIds": [
-    "rtdb-modular#leaf-promotion-priority"
+    "rtdb-modular#leaf-promotion-priority",
+    "rtdb-modular#M73"
   ],
   "description": "RTDB leaf-to-parent promotion .priority retention when a scalar leaf carrying a numeric or string priority acquires a child via direct set/update, committed-leaf onDisconnect set/update, or same-session queued onDisconnect folding.",
   "observedAt": "2026-11-17T12:31:11.311Z",

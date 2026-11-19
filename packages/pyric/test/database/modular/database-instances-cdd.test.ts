@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'bun:test';
 import { deleteApp, initializeApp } from 'firebase/app';
-import { getDatabase as getFirebaseDatabase } from 'firebase/database';
+import {
+  Database as FirebaseDatabase,
+  getDatabase as getFirebaseDatabase,
+  goOffline as goFirebaseOffline,
+} from 'firebase/database';
 import { initializeSandbox } from 'pyric/sandbox';
 import {
   get,
@@ -10,6 +14,7 @@ import {
   TARGET_SYMBOL,
   sandbox as rtdbSandbox,
 } from '../../../src/database/index.js';
+import { load } from './oracle-conformance.support.js';
 
 describe('RTDB CDD database instance cases', () => {
   it('rtdb-modular#94 returns a tagged frozen-context database', () => {
@@ -46,16 +51,41 @@ describe('RTDB CDD database instance cases', () => {
     expect((await get(ref(second, 'owned'))).val()).toBe(2);
   });
 
-  it('rtdb-modular#96 leaves inactive canonical Firebase databases untagged', async () => {
-    const app = initializeApp({
-      projectId: 'inactive-canonical',
-      databaseURL: 'https://inactive-canonical.firebaseio.com',
-    }, `inactive-${Date.now()}`);
+  it('rtdb-modular#96 leaves inactive canonical Firebase databases untagged while matching captured Database identity', async () => {
+    const obs = load('rtdb-modular-runtime-class-identity.json');
+    const exportTypes = obs.exportTypes as Record<string, string>;
+    const dbObs = obs.database as {
+      constructorName: string;
+      instanceOf: boolean;
+      prototypeIsExportPrototype: boolean;
+      prototypeKeys: string[];
+    };
+    expect(typeof FirebaseDatabase).toBe(exportTypes.Database);
+
+    const app = initializeApp(
+      {
+        projectId: 'inactive-canonical',
+        databaseURL: 'https://inactive-canonical.firebaseio.com',
+      },
+      `inactive-${Date.now()}`,
+    );
+    let production: ReturnType<typeof getFirebaseDatabase> | undefined;
     try {
-      const production = getFirebaseDatabase(app);
+      production = getFirebaseDatabase(app);
+      expect(production.constructor.name).toBe(dbObs.constructorName);
+      expect(production instanceof FirebaseDatabase).toBe(dbObs.instanceOf);
+      expect(Object.getPrototypeOf(production) === FirebaseDatabase.prototype).toBe(
+        dbObs.prototypeIsExportPrototype,
+      );
+      expect(Object.getOwnPropertyNames(FirebaseDatabase.prototype).sort()).toEqual(
+        dbObs.prototypeKeys,
+      );
       expect(TARGET_SYMBOL in production).toBe(false);
       expect(() => getDatabase(app as never)).toThrow(/package resolution/i);
     } finally {
+      if (production !== undefined) {
+        goFirebaseOffline(production);
+      }
       await deleteApp(app);
     }
   });

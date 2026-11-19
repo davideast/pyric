@@ -21,7 +21,7 @@ import {
   get,
   sandbox as rtdbSandbox,
 } from '../../../src/database/index.js';
-import { setup } from './oracle-conformance.support.js';
+import { load, setup } from './oracle-conformance.support.js';
 
 describe('DB-B13 — root primitive write', () => {
   it('set(ref(db), primitive) stores the primitive at the root', async () => {
@@ -83,6 +83,61 @@ describe('DB-B13 — root primitive write', () => {
       await set(ref(adminDb), 'to-remove');
       await remove(ref(clientDb));
       expect((await get(ref(clientDb))).val()).toBeNull();
+    } finally {
+      sb.dispose();
+    }
+  });
+
+  it('replays rtdb-modular-leaf-promotion-priority and rtdb-modular-set-replaces-not-merges at root ref(db) (M73)', async () => {
+    const promoObs = load('rtdb-modular-leaf-promotion-priority.json');
+    const replaceObs = load('rtdb-modular-set-replaces-not-merges.json');
+    const directSetExpected = promoObs.directSetPromotion as {
+      beforeServerExport: unknown;
+      afterWriterClientPriority: unknown;
+      afterWriterClientExport: unknown;
+      afterFreshClientPriority: unknown;
+      afterFreshClientExport: unknown;
+    };
+    const directUpdateExpected = promoObs.directUpdatePromotion as {
+      beforeServerExport: unknown;
+      afterWriterClientPriority: unknown;
+      afterWriterClientExport: unknown;
+      afterFreshClientPriority: unknown;
+      afterFreshClientExport: unknown;
+    };
+
+    const sb = initializeSandbox();
+    try {
+      const writerDb = getDatabase(sb.withAuth({ uid: 'root-writer' }));
+      const readerDb = getDatabase(sb.withAuth({ uid: 'root-reader' }));
+      rtdbSandbox.setDefaultPolicy(writerDb, 'allow');
+
+      await setWithPriority(ref(writerDb), 'leaf-val', 42);
+      expect((await get(ref(readerDb))).exportVal()).toEqual(directSetExpected.beforeServerExport);
+      await set(ref(writerDb, 'child'), 'v1');
+      const writerAfterSet = await get(ref(writerDb));
+      const readerAfterSet = await get(ref(readerDb));
+      expect(writerAfterSet.priority).toBe(directSetExpected.afterWriterClientPriority as number);
+      expect(writerAfterSet.exportVal()).toEqual(directSetExpected.afterWriterClientExport);
+      expect(readerAfterSet.priority).toBe(directSetExpected.afterFreshClientPriority as number);
+      expect(readerAfterSet.exportVal()).toEqual(directSetExpected.afterFreshClientExport);
+
+      await setWithPriority(ref(writerDb), 99, 'prio-alpha');
+      expect((await get(ref(readerDb))).exportVal()).toEqual(directUpdateExpected.beforeServerExport);
+      await update(ref(writerDb), { child: 'v2' });
+      const writerAfterUpdate = await get(ref(writerDb));
+      const readerAfterUpdate = await get(ref(readerDb));
+      expect(writerAfterUpdate.priority).toBe(directUpdateExpected.afterWriterClientPriority as string);
+      expect(writerAfterUpdate.exportVal()).toEqual(directUpdateExpected.afterWriterClientExport);
+      expect(readerAfterUpdate.priority).toBe(directUpdateExpected.afterFreshClientPriority as string);
+      expect(readerAfterUpdate.exportVal()).toEqual(directUpdateExpected.afterFreshClientExport);
+
+      await set(ref(writerDb), { a: 1, b: 2 });
+      await set(ref(writerDb), { a: 1 });
+      const replacedRoot = (await get(ref(writerDb))).val() as Record<string, unknown>;
+      expect(replacedRoot).toEqual(replaceObs.final as Record<string, unknown>);
+      expect(Object.keys(replacedRoot)).toEqual(replaceObs.finalKeys as string[]);
+      expect('b' in replacedRoot).toBe(!(replaceObs.bIsAbsent as boolean));
     } finally {
       sb.dispose();
     }
