@@ -1,5 +1,7 @@
-/** Public interface types for `pyric-admin/auth`. */
-import type { PyricAdminApp } from '../app/index.js';
+/** Public and internal interfaces for `pyric-admin/auth`. */
+import type { UserInfo } from './user-info.js';
+import type { UserMetadata } from './user-metadata.js';
+import type { UserRecord } from './user-record.js';
 
 export interface CreateRequest {
   uid?: string;
@@ -29,23 +31,22 @@ export interface DecodedIdToken extends Record<string, unknown> {
   uid: string;
 }
 
-export interface UserMetadata {
-  creationTime: string;
-  lastSignInTime: string;
-  toJSON(): Record<string, unknown>;
+export interface UserMetadataInit {
+  readonly creationTime: string;
+  readonly lastSignInTime: string;
+  readonly lastRefreshTime?: string | null;
 }
 
-export interface UserInfo {
-  providerId: string;
-  uid: string;
-  displayName?: string;
-  email?: string;
-  photoURL?: string;
-  phoneNumber?: string;
-  toJSON(): Record<string, unknown>;
+export interface UserInfoInit {
+  readonly providerId: string;
+  readonly uid: string;
+  readonly displayName?: string;
+  readonly email?: string;
+  readonly photoURL?: string;
+  readonly phoneNumber?: string;
 }
 
-export interface UserRecord {
+export interface UserRecordInit {
   readonly uid: string;
   readonly email?: string;
   readonly emailVerified: boolean;
@@ -58,7 +59,6 @@ export interface UserRecord {
   readonly customClaims?: Record<string, unknown>;
   readonly tokensValidAfterTime?: string;
   readonly tenantId: string | null;
-  toJSON(): Record<string, unknown>;
 }
 
 export interface ListUsersResult {
@@ -66,9 +66,7 @@ export interface ListUsersResult {
   pageToken?: string;
 }
 
-/** Sandbox Auth interface intentionally limited to implemented behavior. */
-export interface Auth {
-  readonly app: PyricAdminApp;
+export interface BaseAuthDelegate {
   createCustomToken(uid: string, developerClaims?: object): Promise<string>;
   verifyIdToken(idToken: string, checkRevoked?: boolean): Promise<DecodedIdToken>;
   createUser(properties: CreateRequest): Promise<UserRecord>;
@@ -79,5 +77,24 @@ export interface Auth {
   revokeRefreshTokens(uid: string): Promise<void>;
   updateUser(uid: string, properties: UpdateRequest): Promise<UserRecord>;
   listUsers(maxResults?: number, pageToken?: string): Promise<ListUsersResult>;
-  [key: string]: unknown;
+  getUserByPhoneNumber(phoneNumber?: unknown): Promise<UserRecord>;
+  getUserByProviderUid(providerId?: unknown, uid?: unknown): Promise<UserRecord>;
+  getUsers(identifiers?: unknown): Promise<unknown>;
+  deleteUsers(uids?: unknown): Promise<unknown>;
+  importUsers(users?: unknown, options?: unknown): Promise<unknown>;
+  createSessionCookie(idToken?: unknown, sessionCookieOptions?: unknown): Promise<string>;
+  verifySessionCookie(sessionCookie?: unknown, checkRevoked?: boolean): Promise<DecodedIdToken>;
+  generatePasswordResetLink(email?: unknown, actionCodeSettings?: unknown): Promise<string>;
+  generateEmailVerificationLink(email?: unknown, actionCodeSettings?: unknown): Promise<string>;
+  generateSignInWithEmailLink(email?: unknown, actionCodeSettings?: unknown): Promise<string>;
+  generateVerifyAndChangeEmailLink(
+    email?: unknown,
+    newEmail?: unknown,
+    actionCodeSettings?: unknown,
+  ): Promise<string>;
+  createProviderConfig(config?: unknown): Promise<unknown>;
+  getProviderConfig(providerId?: unknown): Promise<unknown>;
+  listProviderConfigs(options?: unknown): Promise<unknown>;
+  updateProviderConfig(providerId?: unknown, updatedConfig?: unknown): Promise<unknown>;
+  deleteProviderConfig(providerId?: unknown): Promise<void>;
 }

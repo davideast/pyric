@@ -10,7 +10,7 @@ import { getDefaultServiceApp } from '../app/default-service-app.js';
 import { assertAdminAppActive } from '../app/lifecycle.js';
 import { makeSandboxAuth } from './local-auth.js';
 import { makeRemoteAuth } from './remote-auth.js';
-import type { Auth } from './types.js';
+import type { Auth } from './auth.js';
 
 const authHandles = new WeakMap<PyricAdminApp, Auth>();
 

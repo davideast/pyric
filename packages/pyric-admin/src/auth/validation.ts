@@ -14,7 +14,10 @@ import type {
 import type { PyricAdminApp } from '../app/index.js';
 import { explicitProjectId } from '../app/project-id.js';
 import { validateUpdateUserPreflight } from './preflight-validation.js';
-import type { CreateRequest, ListUsersResult, UpdateRequest, UserInfo, UserRecord } from './types.js';
+import type { CreateRequest, ListUsersResult, UpdateRequest } from './types.js';
+import { UserInfo } from './user-info.js';
+import { UserMetadata } from './user-metadata.js';
+import { UserRecord } from './user-record.js';
 import { FirebaseAuthError } from './verify-token.js';
 
 const RESERVED_CUSTOM_TOKEN_CLAIMS = new Set([
@@ -77,7 +80,19 @@ export function normalizeCustomUserClaims(customUserClaims: object | null): Reco
   }
   const serialized = JSON.stringify(customUserClaims);
   const parsed = JSON.parse(serialized) as Record<string, unknown>;
-  assertNoReservedCustomClaims(parsed);
+  try {
+    assertNoReservedCustomClaims(parsed);
+  } catch (err) {
+    const shaped = err as { code?: unknown; message?: unknown } | null;
+    if (shaped !== null && typeof shaped === 'object' && shaped.code === 'auth/reserved-claim') {
+      let msg = 'The specified developer claim is reserved and cannot be specified.';
+      if (typeof shaped.message === 'string') {
+        msg = shaped.message;
+      }
+      throw new FirebaseAuthError('reserved-claim', msg);
+    }
+    throw err;
+  }
   if (serialized.length > MAX_CLAIMS_PAYLOAD_SIZE) {
     throw new FirebaseAuthError(
       'claims-too-large',
@@ -125,6 +140,9 @@ export function translateAdminBackendError(err: unknown): unknown {
   }
   if (code === 'auth/user-not-found') {
     return new FirebaseAuthError('user-not-found', message);
+  }
+  if (code === 'auth/reserved-claim') {
+    return new FirebaseAuthError('reserved-claim', message);
   }
   return err;
 }
@@ -294,15 +312,14 @@ function formatTokensValidAfterTime(r: AuthUserRecord): string | undefined {
 
 /**
  * Convert an `AuthUserRecord` from `pyric/auth` into a firebase-admin
- * `UserRecord`-shaped object.
+ * `UserRecord` instance.
  */
 export function fromAuthUserRecord(r: AuthUserRecord): UserRecord {
   const lastSignInTime = r.lastLoginAt ?? '';
-  const metadata: UserRecord['metadata'] = {
+  const metadata = new UserMetadata({
     creationTime: r.createdAt,
     lastSignInTime,
-    toJSON: () => ({ creationTime: r.createdAt, lastSignInTime }),
-  };
+  });
   const providerData: UserInfo[] = r.providerUserInfo.map((p) => {
     let providerUid = r.uid;
     if (p.providerId === 'password' && r.email !== null) {
@@ -310,15 +327,14 @@ export function fromAuthUserRecord(r: AuthUserRecord): UserRecord {
     } else if (p.providerId === 'phone' && r.phoneNumber !== null) {
       providerUid = r.phoneNumber;
     }
-    return {
+    return new UserInfo({
       providerId: p.providerId,
       uid: providerUid,
       displayName: r.displayName ?? undefined,
       email: r.email ?? undefined,
       photoURL: r.photoUrl ?? undefined,
       phoneNumber: r.phoneNumber ?? undefined,
-      toJSON: () => ({ providerId: p.providerId, uid: providerUid }),
-    };
+    });
   });
   let customClaims: Record<string, unknown> | undefined;
   if (Object.keys(r.customClaims).length > 0) {
@@ -326,7 +342,7 @@ export function fromAuthUserRecord(r: AuthUserRecord): UserRecord {
   }
   const email = r.email ?? undefined;
   const tokensValidAfterTime = formatTokensValidAfterTime(r);
-  return {
+  return new UserRecord({
     uid: r.uid,
     email,
     emailVerified: r.emailVerified,
@@ -339,6 +355,5 @@ export function fromAuthUserRecord(r: AuthUserRecord): UserRecord {
     customClaims,
     tokensValidAfterTime,
     tenantId: null,
-    toJSON: () => ({ uid: r.uid, email, tokensValidAfterTime }),
-  };
+  });
 }

@@ -322,6 +322,11 @@ const authAdminRows: CompatibilityRow[] = [
   adminRow({
     rowRef: '14',
     featureKeys: [
+      'Auth',
+      'BaseAuth',
+      'UserRecord',
+      'UserInfo',
+      'UserMetadata',
       'FirebaseAuthError',
       'AuthClientErrorCode',
       'UserRecord.multiFactor',
@@ -330,14 +335,19 @@ const authAdminRows: CompatibilityRow[] = [
     ],
     api: 'FirebaseAuthError / AuthClientErrorCode / nominal class exports and UserRecord.{multiFactor, passwordHash, passwordSalt}',
     behavior:
-      'Errors thrown by `pyric-admin/auth` carry the upstream `code` and `message` strings on standard `Error` instances rather than exporting `FirebaseAuthError`, `AuthClientErrorCode`, or nominal class constructors (`Auth`, `BaseAuth`, `UserRecord`, `UserInfo`, `UserMetadata`, `Tenant*`), and returned `UserRecord` objects omit `multiFactor`, `passwordHash`, and `passwordSalt`.',
+      'Exports `FirebaseAuthError` (`PrefixedFirebaseError` with `auth/` prefix, `hasCode`, `toJSON`, and `(info, message?)` constructor), `AuthClientErrorCode` (all 95 upstream entries), and the modeled nominal classes (`Auth`, `BaseAuth`, `UserRecord`, `UserMetadata`, `UserInfo`, plus `admin.auth.Auth`) across local and remote arms so thrown/rejected auth errors and returned handles/records satisfy `instanceof`. Constructors for unmodeled MFA and Identity Platform surfaces (`MultiFactorInfo`, `MultiFactorSettings`, `PhoneMultiFactorInfo`, `ProjectConfig`, `ProjectConfigManager`, `Tenant`, `TenantAwareAuth`, `TenantManager`) are not exported at runtime, and returned `UserRecord` instances omit `multiFactor`, `passwordHash`, and `passwordSalt`.',
     status: 'diverged-documented',
     statusNote:
-      'FirebaseAuthError, AuthClientErrorCode, and nominal class constructors are not exported at runtime; UserRecord omits multiFactor, passwordHash, and passwordSalt',
+      'exports FirebaseAuthError, AuthClientErrorCode, Auth, BaseAuth, UserRecord, UserMetadata, and UserInfo; unmodeled MFA/Tenant/ProjectConfig classes are not exported and UserRecord omits multiFactor, passwordHash, and passwordSalt',
     automation: 'unit-backed',
-    conformanceTests: ['packages/pyric-admin/test/surface/admin-surface.test.ts'],
+    conformanceTests: [
+      'packages/pyric-admin/test/auth/runtime-exports-parity.test.ts',
+      'packages/pyric-admin/test/surface/admin-surface.test.ts',
+      'packages/cli/test/register/admin-auth-exports.test.ts',
+      'test/apps/client-sdk-under-register/scenario.ts',
+    ],
     evidence:
-      'Allowlisted and verified against the installed `firebase-admin/auth` surface in `admin-surface.test.ts`.',
+      'Verified against installed `firebase-admin/auth` 13.10.0 across local, remote worker-bridge, `@pyric/cli/register`, and hosted Node app-scenario planes in `runtime-exports-parity.test.ts`, `admin-surface.test.ts`, `admin-auth-exports.test.ts`, and `client-sdk-under-register`; live oracle probe staged in `admin-auth-runtime-exports-and-user-record-shape.ts` (`pendingRowLink: true`).',
     risk: ['specific-field'],
     riskScore: 2,
     riskReasons: ['asserts runtime export and UserRecord property boundary'],
