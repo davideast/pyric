@@ -1,16 +1,15 @@
 import { beginAiActivity } from './activity.js';
 /**
- * The sandbox model plane for `pyric/ai` — everything between the public
+ * The sandbox model plane for `pyric/ai` -- everything between the public
  * `GenerativeModel`/`ChatSession` classes and the {@link AiBroker}:
  *
- *   - production-shaped MODEL validation before any engine runs: a
- *     `gemini-1.5-*` name answers the captured retired-model 404
- *     (`ai-error-retired-model`, ErrorInfo detail verbatim); anything
- *     outside the `gemini-*` family answers the captured unknown-model 404
- *     (`ai-error-unknown-model`);
  *   - request NORMALIZATION: one JSON round-trip drops undefined keys, runs
  *     `Schema.toJSON()` (so `responseSchema` rides the request in wire
  *     form), and decouples the broker's view from caller-held references;
+ *   - App Check claim acquisition before forwarding to the authoritative
+ *     in-process or remote worker {@link AiBroker} (which enforces App Check
+ *     before model and request validation so `request_rejected` events land
+ *     on every execution plane);
  *   - pre-aborted `SingleRequestOptions.signal` rejection (AbortError,
  *     matching upstream's pre-fetch check);
  *   - broker error envelopes translated to SDK `AIError`s at this ONE seam;
@@ -19,15 +18,11 @@ import { beginAiActivity } from './activity.js';
  *     2.12.0-style aggregate.
  */
 
-import {
-  AiBrokerError,
-  errorEnvelope,
-  type AppCheckClaim,
-  unknownModel,
-  type CountTokensResponse,
-  type GenerateContentRequest,
-  type WireErrorEnvelope,
-  type WireResponse,
+import type {
+  AppCheckClaim,
+  CountTokensResponse,
+  GenerateContentRequest,
+  WireResponse,
 } from './broker/index.js';
 import { toAIError } from './errors.js';
 import { isAppCheckRefusal } from './app-check-gate.js';
@@ -52,40 +47,6 @@ export interface GenerateContentResult {
 export interface GenerateContentStreamResult {
   stream: AsyncGenerator<EnhancedResponse>;
   response: Promise<EnhancedResponse>;
-}
-
-/** `ai-error-retired-model`: captured message + ErrorInfo detail, verbatim. */
-export function retiredModel(): WireErrorEnvelope {
-  const envelope = errorEnvelope(
-    404,
-    'Gemini 1.5 models are retired as of September 24, 2025. Update to a newer model version. [Learn more.](https://firebase.google.com/docs/ai-logic/faq-and-troubleshooting#discontinued-models)',
-    'NOT_FOUND',
-  );
-  envelope.error.details = [
-    {
-      '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
-      reason: 'RETIRED_MODEL',
-      domain: 'firebasevertexai.googleapis.com',
-    },
-  ];
-  return envelope;
-}
-
-/**
- * Production-shaped model routing. The sandbox serves the `gemini-*` family
- * (aliases resolve in the synthesizer); retired 1.5 models and unknown
- * names answer the captured 404 envelopes.
- */
-function validateModel(modelResource: string): void {
-  const bare = modelResource.startsWith('models/')
-    ? modelResource.slice('models/'.length)
-    : modelResource;
-  if (/^gemini-1\.5/.test(bare)) {
-    throw new AiBrokerError(retiredModel());
-  }
-  if (!/^gemini-/.test(bare) || bare === 'gemini-pro' || bare === 'gemini-pro-vision' || /^gemini-1\.0/.test(bare)) {
-    throw new AiBrokerError(unknownModel(bare));
-  }
 }
 
 const DEFAULT_FETCH_TIMEOUT_MS = 180 * 1000;
@@ -232,7 +193,6 @@ export async function planeGenerateContent(
   try {
     target.assertAlive?.();
     scope = createRequestAbortScope(singleRequestOptions);
-    validateModel(modelResource);
     const normalized = normalizeRequest(request) as unknown as GenerateContentRequest;
     // A handle with no app has no claim, and its dispatch takes no extra turn.
     let appCheck: AppCheckClaim | undefined;
@@ -264,7 +224,6 @@ export async function planeGenerateContentStream(
   try {
     target.assertAlive?.();
     activeScope = createRequestAbortScope(singleRequestOptions);
-    validateModel(modelResource);
     const normalized = normalizeRequest(request) as unknown as GenerateContentRequest;
     // A handle with no app has no claim, and its dispatch takes no extra turn.
     let appCheck: AppCheckClaim | undefined;
@@ -373,7 +332,6 @@ export async function planeCountTokens(
   try {
     target.assertAlive?.();
     scope = createRequestAbortScope(singleRequestOptions);
-    validateModel(modelResource);
     const dispatch = target.kind === 'transport' ? target.transport : target.broker;
     const normalized = normalizeRequest(request) as unknown as Parameters<
       typeof dispatch.countTokens

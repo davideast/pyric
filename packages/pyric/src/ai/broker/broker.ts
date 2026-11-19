@@ -43,6 +43,7 @@ import type { AiEventOperation } from '../events.js';
 
 import { describeResponseBlock } from '../blocked.js';
 import { APP_CHECK_HINT, admitsAppCheckToken, appCheckRequired } from '../app-check-gate.js';
+import { retiredModel } from './retired-model.js';
 import {
   AiBrokerError,
   Synthesizer,
@@ -51,6 +52,7 @@ import {
   functionRoleRefused,
   invalidSystemInstruction,
   missingThoughtSignature,
+  unknownModel,
 } from './synthesizer.js';
 import { redactUpstreamUrl } from './upstream-error-redaction.js';
 import { ScriptedEngine } from './scripted-engine.js';
@@ -93,6 +95,8 @@ export interface AiBrokerOptions {
   engine?: EngineConfig | AnswerEngine;
   /** When present, ops land on the sandbox's unified event stream. */
   sandbox?: Sandbox;
+  /** Enforce production Gemini model routing (retired 1.5 and unknown model 404s) on non-gemini engines. */
+  validateModels?: boolean;
 }
 
 function isAnswerEngine(value: EngineConfig | AnswerEngine): value is AnswerEngine {
@@ -126,9 +130,11 @@ export class AiBroker {
   private readonly engineModel: string | undefined;
   /** The configured base URL as it is shown: in the info line, events and status reads. Never its userinfo (#1766). */
   private readonly engineBaseUrl: string | undefined;
+  private readonly validateModels: boolean;
 
   constructor(options: AiBrokerOptions = {}) {
     this.sandbox = options.sandbox;
+    this.validateModels = options.validateModels === true;
     const engine = options.engine ?? { kind: 'scripted' as const };
     if (isAnswerEngine(engine)) {
       this.engine = engine;
@@ -411,6 +417,7 @@ export class AiBroker {
     const identity = this.observationIdentity(model);
     // No claim, no gate, and no extra turn: the request reaches the engine synchronously as before.
     if (appCheck !== undefined) await this.admitAppCheck(model, appCheck);
+    this.validateModelIfEnabled(model);
     this.validateContents(req, model);
     try {
       const response =
@@ -428,7 +435,29 @@ export class AiBroker {
 
   // ── Production-shaped validation ──────────────────────────────────────────
 
+  private validateModelIfEnabled(modelResource: string): void {
+    if (!this.validateModels || this.engineKind === 'gemini') {
+      return;
+    }
+    let bare = modelResource;
+    if (modelResource.startsWith('models/')) {
+      bare = modelResource.slice('models/'.length);
+    }
+    if (/^gemini-1\.5/.test(bare)) {
+      this.reject(modelResource, retiredModel());
+    }
+    if (
+      !/^gemini-/.test(bare) ||
+      bare === 'gemini-pro' ||
+      bare === 'gemini-pro-vision' ||
+      /^gemini-1\.0/.test(bare)
+    ) {
+      this.reject(modelResource, unknownModel(bare));
+    }
+  }
+
   private validate(req: GenerateContentRequest, model: string): void {
+    this.validateModelIfEnabled(model);
     const sys = (req as { systemInstruction?: unknown }).systemInstruction;
     if (sys !== undefined && (typeof sys !== 'object' || sys === null || Array.isArray(sys))) {
       this.reject(model, invalidSystemInstruction(sys));
