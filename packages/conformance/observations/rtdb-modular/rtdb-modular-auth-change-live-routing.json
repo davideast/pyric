@@ -1,7 +1,9 @@
 {
   "name": "rtdb-modular-auth-change-live-routing",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "rtdb-modular#M38",
+  "rowIds": [
+    "rtdb-modular#M38"
+  ],
   "description": "Live firebase/auth custom-token sign-in, uninterrupted user switch, and sign-out routing on a single getDatabase(app) handle without re-binding: immediate next-op auth.uid enforcement, zero spurious deliveries on readable onValue/onChildAdded listeners, and permanent PERMISSION_DENIED cancellation without resurrection across user-scoped and auth-gated paths.",
   "observedAt": "2026-11-19T06:26:34.717Z",
   "fbSdkVersion": "12.19.0",
