@@ -16,19 +16,18 @@ const AI_OFFLINE_SLICE12_PROBE_IDS = [
 ] as const;
 
 const AI_OFFLINE_STAGED_PROBE_IDS = [
-  'ai-offline-chat-roles-errors-and-abort',
   'ai-offline-init-backends-and-model-guards',
 ] as const;
 
 describe('AI offline zero-network client SDK probes (sdk-probes)', () => {
-  test('registers staged offline AI probes with pendingRowLink and links ai-offline-schema-builders-and-guards', async () => {
+  test('registers staged offline AI probes with pendingRowLink and links schema-builders and chat-errors-abort', async () => {
     const loaded = await loadModularProbes('sdk-probes');
     const loadedIds = loaded.map((entry) => entry.id);
     for (const id of AI_OFFLINE_SLICE12_PROBE_IDS) {
       expect(loadedIds).toContain(id);
     }
 
-    const stagedProbes = [initBackendsProbe, chatErrorsAbortProbe];
+    const stagedProbes = [initBackendsProbe];
     for (const probeRecord of stagedProbes) {
       expect(probeRecord.rig).toBe('sdk-probes');
       expect(probeRecord.requires).toEqual([]);
@@ -37,6 +36,19 @@ describe('AI offline zero-network client SDK probes (sdk-probes)', () => {
       expect(probeRecord.rowIds).toEqual([]);
       expect(probeRecord.description.length).toBeGreaterThan(20);
     }
+
+    expect(chatErrorsAbortProbe.rig).toBe('sdk-probes');
+    expect(chatErrorsAbortProbe.requires).toEqual([]);
+    expect(chatErrorsAbortProbe.pendingRowLink).toBeUndefined();
+    expect(chatErrorsAbortProbe.matrixRow).toBe('ai#generate-abort-signal');
+    expect(chatErrorsAbortProbe.rowIds).toEqual([
+      'ai#generate-abort-signal',
+      'ai#chat-startchat',
+      'ai#chat-role-vocabulary',
+      'ai#error-aierror-shape',
+      'ai#error-code-vocabulary',
+    ]);
+    expect(chatErrorsAbortProbe.description.length).toBeGreaterThan(20);
 
     expect(schemaBuildersProbe.rig).toBe('sdk-probes');
     expect(schemaBuildersProbe.requires).toEqual([]);
@@ -55,6 +67,7 @@ describe('AI offline zero-network client SDK probes (sdk-probes)', () => {
         includeUncapturedStaged: false,
       }).map((entry) => entry.id),
     );
+    expect(unfilteredIds.has('ai-offline-chat-roles-errors-and-abort')).toBe(true);
     expect(unfilteredIds.has('ai-offline-schema-builders-and-guards')).toBe(true);
 
     expectStagedUntilCaptured(AI_OFFLINE_STAGED_PROBE_IDS, {
