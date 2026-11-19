@@ -26,7 +26,7 @@ export function rtdbInstanceDatabase(db: ClientRtdb, instance: ClientRtdbInstanc
 }
 
 /** The protocol's `instance` field for a reference: the instance name, or `undefined` for the default instance. */
-export function instanceField(ref: { readonly instance?: ClientRtdbInstance }): { instance: string | undefined } {
+function instanceField(ref: { readonly instance?: ClientRtdbInstance }): { instance: string | undefined } {
   return { instance: ref.instance?.name };
 }
 
@@ -95,6 +95,16 @@ export function withRtdbTransactionUpdate<T>(fn: () => T): T {
   }
 }
 
+export function isRtdbTransactionUpdateActive(): boolean {
+  return activeTransactionUpdateDepth > 0;
+}
+
+export function hasOverlappingActiveRtdbTransaction(
+  ref: { readonly port: ClientPort; readonly instance?: ClientRtdbInstance; readonly path: string },
+): boolean {
+  return overlappingTransactionPromises(transactionSetFor(ref), [ref.path]).length > 0;
+}
+
 /**
  * Registers an active client transaction barrier for `ref.path` on `(port, instance)`
  * so subsequent overlapping writes initiated while the transaction's read-modify-commit
@@ -106,7 +116,7 @@ export function withRtdbTransactionBarrier<T>(
 ): Promise<T> {
   const set = transactionSetFor(ref);
   const prior = overlappingTransactionPromises(set, [ref.path]);
-  let release!: () => void;
+  let release: () => void = () => {};
   const done = new Promise<void>((resolve) => {
     release = resolve;
   });

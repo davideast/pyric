@@ -8,7 +8,6 @@ import {
   TRANSACTION_ERROR_PREFIX,
   withPriorities,
   writePriority,
-  type InlinePriority,
 } from './normalize.js';
 import { canonicalPath, denyResultFor, rtdbDenialContext } from './operation-events.js';
 import type { PendingClientWrites } from './pending-client-writes.js';
@@ -100,6 +99,15 @@ function validateProposedCandidate(
   validateNestedPriorities(segments, written.nested);
 }
 
+export interface ClientTransactionHooks {
+  runUpdate<R>(fn: () => R): R;
+  onWarm(): void;
+  onSent(): {
+    readonly isAbortedBySet: () => boolean;
+    readonly release: () => void;
+  };
+}
+
 export interface AsyncClientTransactionDeps {
   readonly state: BackendState;
   readonly children: ChildListeners;
@@ -114,106 +122,77 @@ export interface ClientTransactionOutcome {
   priorities?: PriorityRecord;
 }
 
-export async function runClientTransactionAsync(
+export interface AsyncClientTransactionOptions {
+  readonly applyLocally?: boolean;
+  readonly admin?: boolean;
+  readonly cold?: boolean;
+  readonly hooks?: ClientTransactionHooks;
+}
+
+function runUpdateWithHooks(
+  hooks: ClientTransactionHooks | undefined,
+  updateFn: (current: JsonValue) => JsonValue | undefined,
+  input: JsonValue,
+): JsonValue | undefined {
+  if (hooks !== undefined) {
+    return hooks.runUpdate(() => updateFn(input));
+  }
+  return updateFn(input);
+}
+
+function abortTransactionOutcome(
   deps: AsyncClientTransactionDeps,
+  withProvenance: <T>(fn: () => T) => T,
   auth: AuthState,
   path: string,
-  updateFn: (current: JsonValue) => JsonValue | undefined,
-  options?: { applyLocally?: boolean; admin?: boolean },
-): Promise<ClientTransactionOutcome> {
-  const { state, children, writes, pendingWrites } = deps;
-  const withProvenance = state.events.captureProvenanceWindow();
-  const applyLocally = options?.applyLocally !== false;
-  const isAdmin = options?.admin === true;
-  const segments = pathSegments(path);
-  let key: string | null = null;
-  if (segments.length > 0) {
-    const lastSeg = segments[segments.length - 1];
-    if (lastSeg !== undefined) {
-      key = lastSeg;
-    }
-  }
-
-  for (let attempts = 1; attempts <= 25; attempts += 1) {
-    const version = state.mutations.begin();
-    let visible: JsonValue = null;
-    let proposed: JsonValue | undefined;
-    let syncConflicted = false;
-    try {
-      const snapshot = pendingWrites.readCommitted(() => {
-        const cur = state.tree.read(path);
-        const canRead = isAdmin || canReadAtPath(state, auth, path);
-        return { cur, canRead };
+  key: string | null,
+  visible: JsonValue,
+  isAdmin: boolean,
+): ClientTransactionOutcome {
+  const { state, pendingWrites } = deps;
+  return pendingWrites.runAgainstServer([], () =>
+    withProvenance(() => {
+      const groupId = state.events.nextGroupId('transaction');
+      let origin: 'admin' | 'transaction' = 'transaction';
+      if (isAdmin) {
+        origin = 'admin';
+      }
+      state.events.operation(auth, 'transaction', path, 'not-applicable', undefined, {
+        origin,
+        groupId,
+        groupKind: 'transaction',
+        resourceBefore: { data: visible, exists: visible !== null },
+        detail: { committed: false, aborted: true },
       });
-      if (snapshot.canRead) {
-        visible = snapshot.cur;
-      } else {
-        visible = null;
-      }
-      let input: JsonValue = null;
+      let abortedPrio: PriorityRecord = {};
       if (visible !== null) {
-        input = coerceArrays(cloneJson(visible)) as JsonValue;
+        abortedPrio = state.priorities.atOrBelow(path);
       }
-      proposed = updateFn(input);
-      if (proposed !== undefined) {
-        validateProposedCandidate(state, path, segments, proposed);
-      }
-      syncConflicted = state.mutations.conflictsSince(version, path);
-    } catch (err) {
-      state.mutations.release(version);
-      throw err;
-    }
+      return {
+        committed: false,
+        val: visible,
+        key,
+        priorities: abortedPrio,
+      };
+    }),
+  );
+}
 
-    if (proposed === undefined) {
-      state.mutations.release(version);
-      return pendingWrites.runAgainstServer([], () =>
-        withProvenance(() => {
-          const groupId = state.events.nextGroupId('transaction');
-          let origin: 'admin' | 'transaction' = 'transaction';
-          if (isAdmin) {
-            origin = 'admin';
-          }
-          state.events.operation(auth, 'transaction', path, 'not-applicable', undefined, {
-            origin,
-            groupId,
-            groupKind: 'transaction',
-            resourceBefore: { data: visible, exists: visible !== null },
-            detail: { committed: false, aborted: true },
-          });
-          let abortedPrio: PriorityRecord = {};
-          if (visible !== null) {
-            abortedPrio = state.priorities.atOrBelow(path);
-          }
-          return {
-            committed: false,
-            val: visible,
-            key,
-            priorities: abortedPrio,
-          };
-        }),
-      );
-    }
-
-    if (syncConflicted) {
-      state.mutations.release(version);
-      continue;
-    }
-
-    let conflictedOnWire = false;
-    try {
-      await Promise.resolve();
-      conflictedOnWire = state.mutations.conflictsSince(version, path);
-    } finally {
-      state.mutations.release(version);
-    }
-    if (conflictedOnWire) {
-      continue;
-    }
-
-    const candidate = proposed;
-    return pendingWrites.runAgainstServer([path], () =>
-      withProvenance(() => {
-        const current = state.tree.read(path);
+function commitTransactionCandidate(
+  deps: AsyncClientTransactionDeps,
+  withProvenance: <T>(fn: () => T) => T,
+  auth: AuthState,
+  path: string,
+  segments: readonly string[],
+  key: string | null,
+  candidate: JsonValue,
+  applyLocally: boolean,
+  isAdmin: boolean,
+): ClientTransactionOutcome {
+  const { state, children, writes, pendingWrites } = deps;
+  return pendingWrites.runAgainstServer([path], () =>
+    withProvenance(() => {
+      const current = state.tree.read(path);
       const groupId = state.events.nextGroupId('transaction');
       const now = state.clock.now();
       const currentPriority = state.priorities.get(path);
@@ -345,7 +324,156 @@ export async function runClientTransactionAsync(
         key,
         priorities: redacted.priorities,
       };
-      }),
+    }),
+  );
+}
+
+export async function runClientTransactionAsync(
+  deps: AsyncClientTransactionDeps,
+  auth: AuthState,
+  path: string,
+  updateFn: (current: JsonValue) => JsonValue | undefined,
+  options?: AsyncClientTransactionOptions,
+): Promise<ClientTransactionOutcome> {
+  const { state, pendingWrites } = deps;
+  const withProvenance = state.events.captureProvenanceWindow();
+  const applyLocally = options?.applyLocally !== false;
+  const isAdmin = options?.admin === true;
+  const hooks = options?.hooks;
+  const segments = pathSegments(path);
+  let key: string | null = null;
+  if (segments.length > 0) {
+    const lastSeg = segments[segments.length - 1];
+    if (lastSeg !== undefined) {
+      key = lastSeg;
+    }
+  }
+
+  let startAttempt = 1;
+  if (options?.cold === true && !isAdmin && hooks !== undefined) {
+    startAttempt = 2;
+    const version0 = state.mutations.begin();
+    let proposed0: JsonValue | undefined;
+    let syncConflicted0 = false;
+    try {
+      proposed0 = runUpdateWithHooks(hooks, updateFn, null);
+      if (proposed0 !== undefined) {
+        validateProposedCandidate(state, path, segments, proposed0);
+      }
+      syncConflicted0 = state.mutations.conflictsSince(version0, path);
+    } catch (err) {
+      state.mutations.release(version0);
+      throw err;
+    }
+
+    if (proposed0 === undefined) {
+      state.mutations.release(version0);
+      return abortTransactionOutcome(deps, withProvenance, auth, path, key, null, false);
+    }
+
+    if (syncConflicted0) {
+      state.mutations.release(version0);
+      hooks.onWarm();
+    } else {
+      const sent = hooks.onSent();
+      let conflictedOnWire0 = false;
+      let callerVisibleNonNull = false;
+      try {
+        await Promise.resolve();
+        conflictedOnWire0 = state.mutations.conflictsSince(version0, path);
+        callerVisibleNonNull = pendingWrites.readCommitted(
+          () => state.tree.read(path) !== null && canReadAtPath(state, auth, path),
+        );
+      } finally {
+        sent.release();
+        state.mutations.release(version0);
+      }
+
+      if (!conflictedOnWire0 && !callerVisibleNonNull) {
+        hooks.onWarm();
+        return commitTransactionCandidate(
+          deps,
+          withProvenance,
+          auth,
+          path,
+          segments,
+          key,
+          proposed0,
+          applyLocally,
+          false,
+        );
+      }
+
+      if (sent.isAbortedBySet()) {
+        throw new Error('set');
+      }
+      hooks.onWarm();
+    }
+  }
+
+  for (let attempts = startAttempt; attempts <= 25; attempts += 1) {
+    const version = state.mutations.begin();
+    let visible: JsonValue = null;
+    let proposed: JsonValue | undefined;
+    let syncConflicted = false;
+    try {
+      const snapshot = pendingWrites.readCommitted(() => {
+        const cur = state.tree.read(path);
+        const canRead = isAdmin || canReadAtPath(state, auth, path);
+        return { cur, canRead };
+      });
+      if (snapshot.canRead) {
+        visible = snapshot.cur;
+      } else {
+        visible = null;
+      }
+      let input: JsonValue = null;
+      if (visible !== null) {
+        input = coerceArrays(cloneJson(visible)) as JsonValue;
+      }
+      proposed = runUpdateWithHooks(hooks, updateFn, input);
+      if (proposed !== undefined) {
+        validateProposedCandidate(state, path, segments, proposed);
+      }
+      syncConflicted = state.mutations.conflictsSince(version, path);
+    } catch (err) {
+      state.mutations.release(version);
+      throw err;
+    }
+
+    if (proposed === undefined) {
+      state.mutations.release(version);
+      hooks?.onWarm();
+      return abortTransactionOutcome(deps, withProvenance, auth, path, key, visible, isAdmin);
+    }
+
+    if (syncConflicted) {
+      state.mutations.release(version);
+      continue;
+    }
+
+    let conflictedOnWire = false;
+    try {
+      await Promise.resolve();
+      conflictedOnWire = state.mutations.conflictsSince(version, path);
+    } finally {
+      state.mutations.release(version);
+    }
+    if (conflictedOnWire) {
+      continue;
+    }
+
+    hooks?.onWarm();
+    return commitTransactionCandidate(
+      deps,
+      withProvenance,
+      auth,
+      path,
+      segments,
+      key,
+      proposed,
+      applyLocally,
+      isAdmin,
     );
   }
 

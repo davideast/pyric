@@ -139,9 +139,10 @@ describe('rtdb-modular CDD: foundation rows', () => {
   row('M37', () => assertTransaction('commit'));
   row('M37a', assertTransactionAbortContract);
   row('M37b', async () => {
-    const { db } = setup(); const target = api.ref(db, 'x'); await api.set(target, 1); const seen: unknown[] = [];
-    await api.runTransaction(target, current => { seen.push(current); return current; });
-    expect(currentValueObservation.seededArgs).toHaveLength(2); expect(seen).toEqual([1]);
+    const { db, sandbox } = setup(); const coldDb = api.getDatabase(sandbox.withAuth({ uid: 'bob' }));
+    await api.set(api.ref(db, 'x'), 1); const seen: unknown[] = [];
+    await api.runTransaction(api.ref(coldDb, 'x'), current => { seen.push(current); return ((current as number | null) ?? 0) + 1; });
+    expect(currentValueObservation.seededArgs).toHaveLength(2); expect(seen).toEqual([null, 1]);
   });
   row('M37c', () => assertTransaction('clone'));
   row('M37d', assertApplyLocallyContract);
