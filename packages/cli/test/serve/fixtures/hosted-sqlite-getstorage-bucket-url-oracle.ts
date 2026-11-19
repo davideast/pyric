@@ -80,7 +80,8 @@ const obsFile = new URL(
 );
 const obs = (JSON.parse(readFileSync(obsFile, 'utf8')) as { behavior: Record<string, unknown> }).behavior;
 
-const directory = realpathSync(process.argv[2] ?? '.');
+const rawDir = process.argv[2] ?? '.';
+const directory = realpathSync(rawDir);
 const SESSION = 'session-token-s11-bucket-url-oracle';
 const OPEN_RULES = `rules_version = '2';
 service firebase.storage {
@@ -91,7 +92,8 @@ service firebase.storage {
 
 const mount = createBridgeMount({ hosted: true, projectKey: directory, disableAuditLog: true });
 const server = createServer((request, response) => {
-  const url = new URL(request.url ?? '/', 'http://localhost');
+  const rawUrl = request.url ?? '/';
+  const url = new URL(rawUrl, 'http://localhost');
   if (url.pathname === '/__pyric/init.json') {
     response.writeHead(200, { 'content-type': 'application/json' }).end(
       JSON.stringify({

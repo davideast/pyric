@@ -41,13 +41,15 @@ function matchUpstreamStorageUrl(url: string): ParsedBucketUrl | undefined {
 
     const fbMatch = FIREBASE_STORAGE_URL.exec(url);
     if (fbMatch !== null && fbMatch[1] !== undefined) {
-      const path = decodeURIComponent(fbMatch[2] ?? '');
+      const rawPath = fbMatch[2] ?? '';
+      const path = decodeURIComponent(rawPath);
       return { bucket: fbMatch[1], path };
     }
 
     const cloudMatch = CLOUD_STORAGE_URL.exec(url);
     if (cloudMatch !== null && cloudMatch[1] !== undefined) {
-      const path = decodeURIComponent(cloudMatch[2] ?? '');
+      const rawPath = cloudMatch[2] ?? '';
+      const path = decodeURIComponent(rawPath);
       return { bucket: cloudMatch[1], path };
     }
   } catch {

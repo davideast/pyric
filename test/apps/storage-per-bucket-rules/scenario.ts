@@ -130,8 +130,9 @@ async function verifyStorage(app: App, args: string[] = []): Promise<{ code: num
 function assertServerOutput(output: string): void {
   for (const line of EXPECTED) assert.match(output, new RegExp(`^${line}$`, 'm'), output);
   const contractMatch = /^contract (\{.*\})$/m.exec(output);
-  assert.ok(contractMatch !== null, output);
-  const parsed = JSON.parse(contractMatch[1] ?? '{}') as BucketUrlContract;
+  assert.ok(contractMatch !== null && contractMatch[1] !== undefined, output);
+  const contractJson = contractMatch[1];
+  const parsed = JSON.parse(contractJson) as BucketUrlContract;
   assert.deepEqual(parsed, expectedContract('public/server-contract.txt'));
 }
 
