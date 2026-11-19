@@ -19,7 +19,7 @@ export function createProbe(ctx: RtdbClimbContext): RtdbClimbProbe {
   return {
     name: 'rtdb-rules-deploy-refusals',
     matrixRow: 'rtdb#89',
-    rowIds: ['rtdb#89'],
+    rowIds: ['rtdb#89', 'rtdb#67', 'rtdb#87'],
     description:
       'Deploys one rule expression at a time through the rules REST endpoint and records whether production accepts the ruleset or refuses it, with the refusal text: method argument count and types, regular expression literals and flags, `$wildcard` variables, and snapshot operands of comparison and arithmetic operators. The prior rules are restored and read back after every attempt.',
     observe: () => repeatStable(2, async (attempt) => {
