@@ -66,4 +66,24 @@ describe('a listener batch a write released', () => {
     const listener = transcript.recording().exchanges[0] as ListenExchange;
     expect(listener.batches.map((batch) => batch.after)).toEqual([undefined, undefined]);
   });
+
+  test('a global target change before a target receives its first message does not leave an empty first batch', () => {
+    const transcript = new Transcript('demo-replay', 'transcript test');
+    const listen = transcript.listenStream('reader');
+    const write = transcript.writeStream('reader');
+    listen.fromClient({ addTarget: ADD_TARGET });
+    // Trailing global readTime from an earlier target on the same Listen stream arrives before ADD_TARGET's first message.
+    listen.fromServer(GLOBAL_CHANGE);
+    for (const message of FIRST_BATCH) listen.fromServer(message);
+    listen.fromServer(GLOBAL_CHANGE);
+    write.fromClient({ writes: WRITES });
+    write.fromServer(WRITE_ANSWER);
+    listen.fromServer(GARDEN_CHANGE);
+    listen.fromServer(GLOBAL_CHANGE);
+    const { exchanges } = transcript.recording();
+    const listener = exchanges.find((exchange): exchange is ListenExchange => exchange.kind === 'listen')!;
+    const writeExchange = exchanges.find((exchange): exchange is WriteExchange => exchange.kind === 'write')!;
+    expect(listener.batches.map((batch) => batch.after)).toEqual([undefined, writeExchange.id]);
+    expect(listener.batches[0]!.messages).toHaveLength(FIRST_BATCH.length);
+  });
 });
