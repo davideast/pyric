@@ -1,0 +1,63 @@
+{
+  "name": "ai-sdk-generate-envelope-and-string-request",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Live firebase/ai client SDK generateContent string-prompt request normalization, raw wire envelope key sets (top-level, candidate, content, usageMetadata.serviceTier, modelVersion, responseId), and EnhancedGenerateContentResponse.text() / inlineDataParts() / functionCalls() helpers on GoogleAI with App Check.",
+  "observedAt": "2026-11-19T19:55:58.036Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "httpStatus": 200,
+    "wireCallCount": 1,
+    "outboundStringPrompt": {
+      "contentsLength": 1,
+      "firstRole": "user",
+      "firstPartsLength": 1,
+      "firstPartTextMatchesPrompt": true
+    },
+    "wireEnvelope": {
+      "topLevelKeySet": [
+        "candidates",
+        "modelVersion",
+        "responseId",
+        "usageMetadata"
+      ],
+      "candidateKeySet": [
+        "content",
+        "finishReason",
+        "index"
+      ],
+      "candidateHasIndexOnWire": true,
+      "candidateWireIndex": 0,
+      "contentRole": "model",
+      "contentKeySet": [
+        "parts",
+        "role"
+      ],
+      "finishReason": "STOP",
+      "usageKeySet": [
+        "candidatesTokenCount",
+        "promptTokenCount",
+        "promptTokensDetails",
+        "serviceTier",
+        "totalTokenCount"
+      ],
+      "usageHasPromptTokenCount": true,
+      "usageHasCandidatesTokenCount": true,
+      "usageHasPromptTokensDetails": true,
+      "usageHasTotalTokenCount": true,
+      "usageServiceTierPresent": true,
+      "modelVersionNonEmptyString": true,
+      "responseIdNonEmptyString": true
+    },
+    "enhancedResponse": {
+      "candidateIndex": 0,
+      "finishReason": "STOP",
+      "usageServiceTierPresent": true,
+      "helperTextIsNonEmptyString": true,
+      "helperTextMatchesConcatenatedNonThoughtParts": true,
+      "helperInlineDataPartsIsUndefined": true,
+      "helperFunctionCallsIsUndefined": true
+    }
+  }
+}

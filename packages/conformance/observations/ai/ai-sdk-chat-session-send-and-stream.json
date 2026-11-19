@@ -1,0 +1,46 @@
+{
+  "name": "ai-sdk-chat-session-send-and-stream",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Live firebase/ai ChatSession.sendMessage(), sendMessageStream(), and getHistory() behavior on the GoogleAI backend with Admin-minted App Check token: verifies sendMessage four-key response envelope and model role, history turn threading, sendMessageStream stream/response settlement, and single-user-turn history recording.",
+  "observedAt": "2026-11-19T19:55:51.128Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "model": "gemini-flash-lite-latest",
+    "sendMessage": {
+      "wireFourKeysPresent": false,
+      "nonFunctionOwnKeysSorted": [
+        "candidates",
+        "inferenceSource",
+        "prompt",
+        "usageMetadata"
+      ],
+      "candidateRole": "model",
+      "finishReason": "STOP",
+      "textHelperNonEmpty": true,
+      "historyLengthAfterSend": 2,
+      "historyRolesAfterSend": [
+        "user",
+        "model"
+      ],
+      "getHistoryReturnsSameArrayReference": true
+    },
+    "sendMessageStream": {
+      "hasAsyncIterableStream": true,
+      "hasResponsePromise": true,
+      "chunkCountAtLeastOne": true,
+      "aggregateFinishReason": "STOP",
+      "aggregateCandidateRole": "model",
+      "aggregateTextMatchesConcatenatedChunks": true,
+      "historyLengthAfterStream": 2,
+      "historyRolesAfterStream": [
+        "user",
+        "model"
+      ],
+      "userTurnCountAfterStream": 1,
+      "modelTurnCountAfterStream": 1,
+      "recordedModelTurnTextMatchesAggregate": true
+    }
+  }
+}

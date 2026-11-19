@@ -1,0 +1,48 @@
+{
+  "name": "ai-sdk-app-check-stream-and-counttokens",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Live firebase/ai generateContentStream() and countTokens() App Check enforcement behavior on the GoogleAI backend: verifies that an app without App Check rejects both generateContentStream (before yielding any chunk) and countTokens with the same 401 fetch-error AIError, while an app with an Admin-minted App Check token succeeds on both.",
+  "observedAt": "2026-11-19T19:55:47.350Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "model": "gemini-flash-lite-latest",
+    "withoutAppCheck": {
+      "generateContentStream": {
+        "threw": true,
+        "isAIError": true,
+        "isFirebaseError": true,
+        "code": "fetch-error",
+        "status": 401,
+        "statusText": "Unauthorized",
+        "messageIncludes401Unauthorized": true,
+        "messageIncludesInvalidAppCheckToken": true,
+        "chunksYieldedBeforeRejection": 0
+      },
+      "countTokens": {
+        "threw": true,
+        "isAIError": true,
+        "isFirebaseError": true,
+        "code": "fetch-error",
+        "status": 401,
+        "statusText": "Unauthorized",
+        "messageIncludes401Unauthorized": true,
+        "messageIncludesInvalidAppCheckToken": true
+      },
+      "streamAndCountTokensShareCodeAndStatus": true
+    },
+    "withAppCheck": {
+      "generateContentStream": {
+        "threw": false,
+        "chunkCountAtLeastOne": true,
+        "finishReason": "STOP"
+      },
+      "countTokens": {
+        "threw": false,
+        "hasTotalTokensKey": true,
+        "totalTokensIsPositiveInteger": true
+      }
+    }
+  }
+}

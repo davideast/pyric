@@ -1,0 +1,54 @@
+{
+  "name": "ai-sdk-structured-system-and-thinking",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Live firebase/ai client SDK top-level systemInstruction formatting, Schema.object serialization onto generationConfig.responseSchema with JSON structured output, and thinkingConfig thoughtSignature / thoughtSummary() behavior on GoogleAI with App Check.",
+  "observedAt": "2026-11-19T19:56:08.630Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "wireCallCount": 3,
+    "systemInstruction": {
+      "httpStatus": 200,
+      "outboundRole": "system",
+      "outboundPartsLength": 1,
+      "outboundTextMatchesInput": true,
+      "wireTopLevelKeySet": [
+        "candidates",
+        "modelVersion",
+        "responseId",
+        "usageMetadata"
+      ],
+      "finishReason": "STOP"
+    },
+    "structuredOutput": {
+      "httpStatus": 200,
+      "outboundResponseMimeType": "application/json",
+      "outboundResponseSchema": {
+        "type": "object",
+        "properties": {
+          "word": {
+            "type": "string",
+            "nullable": false
+          }
+        },
+        "nullable": false,
+        "required": [
+          "word"
+        ]
+      },
+      "textParsesAsJson": true,
+      "parsedKeySet": [
+        "word"
+      ],
+      "finishReason": "STOP"
+    },
+    "thinking": {
+      "httpStatus": 200,
+      "anyThoughtPart": false,
+      "anyThoughtSignature": true,
+      "helperThoughtSummaryIsUndefined": true,
+      "finishReason": "STOP"
+    }
+  }
+}
