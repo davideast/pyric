@@ -1,0 +1,326 @@
+{
+  "name": "firestore-offline-cache-init-index-and-refequal",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Pure offline firebase/firestore cache and garbage-collector token shapes, initializeFirestore handle caching and failed-precondition guards, PersistentCacheIndexManager and setIndexConfiguration behavior, setLogLevel acceptance, and refEqual foreign-object comparisons with zero network calls.",
+  "observedAt": "2026-11-19T01:06:22.988Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "fetchCalls": 0,
+    "cacheTokens": {
+      "cacheSizeUnlimitedConstant": -1,
+      "singleTabDefault": {
+        "kind": "persistentSingleTab",
+        "toJson": {
+          "kind": "persistentSingleTab"
+        }
+      },
+      "singleTabForced": {
+        "kind": "persistentSingleTab",
+        "toJson": {
+          "kind": "persistentSingleTab"
+        }
+      },
+      "multiTab": {
+        "kind": "PersistentMultipleTab",
+        "toJson": {
+          "kind": "PersistentMultipleTab"
+        }
+      },
+      "eagerGc": {
+        "kind": "memoryEager",
+        "toJson": {
+          "kind": "memoryEager"
+        }
+      },
+      "lruGcBounded": {
+        "kind": "memoryLru",
+        "toJson": {
+          "kind": "memoryLru"
+        }
+      },
+      "lruGcUnlimited": {
+        "kind": "memoryLru",
+        "toJson": {
+          "kind": "memoryLru"
+        }
+      },
+      "memCacheDefault": {
+        "kind": "memory",
+        "toJson": {
+          "kind": "memory"
+        }
+      },
+      "memCacheEager": {
+        "kind": "memory",
+        "toJson": {
+          "kind": "memory"
+        }
+      },
+      "memCacheLru": {
+        "kind": "memory",
+        "toJson": {
+          "kind": "memory"
+        }
+      },
+      "persCacheDefault": {
+        "kind": "persistent",
+        "toJson": {
+          "kind": "persistent"
+        }
+      },
+      "persCacheMultiTab": {
+        "kind": "persistent",
+        "toJson": {
+          "kind": "persistent"
+        }
+      },
+      "distinctIdentities": {
+        "singleTabEqualsMultiTab": false,
+        "eagerGcEqualsLruGc": false,
+        "memCacheEqualsPersCache": false
+      }
+    },
+    "initializeFirestoreHandles": {
+      "isFirestoreInstance": true,
+      "typeProperty": "firestore",
+      "appMatches": true,
+      "repeatEquivalentSettingsSameHandle": true,
+      "getFirestoreReturnsInitializedHandle": true,
+      "conflictingSettingsAfterInit": {
+        "threw": true,
+        "threwSynchronously": true,
+        "code": "failed-precondition",
+        "errorName": "FirebaseError",
+        "isFirestoreError": false,
+        "isFirebaseError": true,
+        "isTypeError": false
+      },
+      "emptySettingsAfterDefaultGetFirestoreSameHandle": true,
+      "conflictingSettingsAfterDefaultGetFirestore": {
+        "threw": true,
+        "threwSynchronously": true,
+        "code": "failed-precondition",
+        "errorName": "FirebaseError",
+        "isFirestoreError": false,
+        "isFirebaseError": true,
+        "isTypeError": false
+      },
+      "namedDatabaseDistinctFromDefault": true,
+      "namedDatabaseMatchesGetFirestoreNamed": true,
+      "conflictingSettingsOnNamedDatabase": {
+        "threw": true,
+        "threwSynchronously": true,
+        "code": "failed-precondition",
+        "errorName": "FirebaseError",
+        "isFirestoreError": false,
+        "isFirebaseError": true,
+        "isTypeError": false
+      },
+      "otherAppDistinctHandle": true
+    },
+    "persistentCacheIndexManager": {
+      "onMemoryLocalCacheIsNull": true,
+      "onPersistentLocalCacheIsNull": false,
+      "isPersistentCacheIndexManagerInstance": true,
+      "repeatGetReturnsSameInstance": true,
+      "typeTag": "PersistentCacheIndexManager",
+      "enableAutoCreation": {
+        "threw": false,
+        "threwSynchronously": false,
+        "code": null,
+        "errorName": null,
+        "isFirestoreError": false,
+        "isFirebaseError": false,
+        "isTypeError": false,
+        "returnType": "undefined",
+        "isPromise": false
+      },
+      "disableAutoCreation": {
+        "threw": false,
+        "threwSynchronously": false,
+        "code": null,
+        "errorName": null,
+        "isFirestoreError": false,
+        "isFirebaseError": false,
+        "isTypeError": false,
+        "returnType": "undefined",
+        "isPromise": false
+      },
+      "deleteAllIndexes": {
+        "threw": false,
+        "threwSynchronously": false,
+        "code": null,
+        "errorName": null,
+        "isFirestoreError": false,
+        "isFirebaseError": false,
+        "isTypeError": false,
+        "returnType": "undefined",
+        "isPromise": false
+      },
+      "setIndexConfigurationStructured": {
+        "threw": false,
+        "threwSynchronously": false,
+        "code": null,
+        "errorName": null,
+        "isFirestoreError": false,
+        "isFirebaseError": false,
+        "isTypeError": false,
+        "isPromise": true,
+        "resolvedUndefined": true
+      },
+      "setIndexConfigurationJson": {
+        "threw": false,
+        "threwSynchronously": false,
+        "code": null,
+        "errorName": null,
+        "isFirestoreError": false,
+        "isFirebaseError": false,
+        "isTypeError": false,
+        "isPromise": true,
+        "resolvedUndefined": true
+      }
+    },
+    "setLogLevelOutcomes": {
+      "debug": {
+        "threw": false,
+        "threwSynchronously": false,
+        "code": null,
+        "errorName": null,
+        "isFirestoreError": false,
+        "isFirebaseError": false,
+        "isTypeError": false,
+        "returnType": "undefined",
+        "isPromise": false
+      },
+      "verbose": {
+        "threw": false,
+        "threwSynchronously": false,
+        "code": null,
+        "errorName": null,
+        "isFirestoreError": false,
+        "isFirebaseError": false,
+        "isTypeError": false,
+        "returnType": "undefined",
+        "isPromise": false
+      },
+      "info": {
+        "threw": false,
+        "threwSynchronously": false,
+        "code": null,
+        "errorName": null,
+        "isFirestoreError": false,
+        "isFirebaseError": false,
+        "isTypeError": false,
+        "returnType": "undefined",
+        "isPromise": false
+      },
+      "warn": {
+        "threw": false,
+        "threwSynchronously": false,
+        "code": null,
+        "errorName": null,
+        "isFirestoreError": false,
+        "isFirebaseError": false,
+        "isTypeError": false,
+        "returnType": "undefined",
+        "isPromise": false
+      },
+      "error": {
+        "threw": false,
+        "threwSynchronously": false,
+        "code": null,
+        "errorName": null,
+        "isFirestoreError": false,
+        "isFirebaseError": false,
+        "isTypeError": false,
+        "returnType": "undefined",
+        "isPromise": false
+      },
+      "silent": {
+        "threw": false,
+        "threwSynchronously": false,
+        "code": null,
+        "errorName": null,
+        "isFirestoreError": false,
+        "isFirebaseError": false,
+        "isTypeError": false,
+        "returnType": "undefined",
+        "isPromise": false
+      }
+    },
+    "refEqualChecks": {
+      "sameDocPathSameDb": {
+        "threw": false,
+        "threwSynchronously": false,
+        "code": null,
+        "errorName": null,
+        "isFirestoreError": false,
+        "isFirebaseError": false,
+        "isTypeError": false,
+        "result": true
+      },
+      "differentDocPathSameDb": {
+        "threw": false,
+        "threwSynchronously": false,
+        "code": null,
+        "errorName": null,
+        "isFirestoreError": false,
+        "isFirebaseError": false,
+        "isTypeError": false,
+        "result": false
+      },
+      "sameDocPathNamedVsDefaultDb": {
+        "threw": false,
+        "threwSynchronously": false,
+        "code": null,
+        "errorName": null,
+        "isFirestoreError": false,
+        "isFirebaseError": false,
+        "isTypeError": false,
+        "result": false
+      },
+      "sameDocPathDifferentApp": {
+        "threw": false,
+        "threwSynchronously": false,
+        "code": null,
+        "errorName": null,
+        "isFirestoreError": false,
+        "isFirebaseError": false,
+        "isTypeError": false,
+        "result": false
+      },
+      "docRefVsCollectionRef": {
+        "threw": false,
+        "threwSynchronously": false,
+        "code": null,
+        "errorName": null,
+        "isFirestoreError": false,
+        "isFirebaseError": false,
+        "isTypeError": false,
+        "result": false
+      },
+      "docRefVsPlainForeignObject": {
+        "threw": false,
+        "threwSynchronously": false,
+        "code": null,
+        "errorName": null,
+        "isFirestoreError": false,
+        "isFirebaseError": false,
+        "isTypeError": false,
+        "result": false
+      },
+      "collectionRefVsPlainForeignObject": {
+        "threw": false,
+        "threwSynchronously": false,
+        "code": null,
+        "errorName": null,
+        "isFirestoreError": false,
+        "isFirebaseError": false,
+        "isTypeError": false,
+        "result": false
+      }
+    }
+  }
+}
