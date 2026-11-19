@@ -4,9 +4,43 @@
  * command and published trust number from disagreeing about replay semantics.
  */
 import { describe, expect, it } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { lintFirestoreRules } from '@pyric/rules/internal';
+import { LocalEnvironment } from 'pyric/sandbox/internal';
+import { injectFirestoreProbeRules } from '../../../../packages/conformance/src/firestore-real-rules.ts';
+import {
+  siblingMergeProbePlan,
+  type ProbeVerdict,
+  type ProbeWrite,
+} from '../../../../packages/conformance/src/firestore-real-sibling-merge.ts';
 import { replayFirestoreRulesObservations } from '../../../../packages/conformance/src/firestore-rules-oracle-replay.ts';
 
+const HERE = dirname(fileURLToPath(import.meta.url));
+const SIBLING_MERGE_OBSERVATION_PATH = join(
+  HERE,
+  '..',
+  '..',
+  '..',
+  '..',
+  'packages',
+  'conformance',
+  'observations',
+  'firestore-rules',
+  'rules-firestore-atomic-batch-sibling-merge.json',
+);
+const SIBLING_MERGE_CASE =
+  'getAfter reflects merged pre-existing fields alongside batch updates ALLOW';
+
 const replays = await replayFirestoreRulesObservations();
+
+function decisionToVerdict(allowed: boolean): ProbeVerdict {
+  if (allowed) {
+    return 'ALLOW';
+  }
+  return 'DENY';
+}
 
 describe('oracle conformance (rules-firestore)', () => {
   for (const replay of replays) {
@@ -21,12 +55,43 @@ describe('oracle conformance (rules-firestore)', () => {
   });
 });
 
-import { LocalEnvironment } from 'pyric/sandbox/internal';
-import { lintFirestoreRules } from '@pyric/rules/internal';
+describe('oracle conformance (rules-firestore real-database sibling-merge replay)', () => {
+  it('firestore-rules#190: replays rules-firestore-atomic-batch-sibling-merge.json controls and nested field-mask merge', () => {
+    const captured = JSON.parse(readFileSync(SIBLING_MERGE_OBSERVATION_PATH, 'utf8')) as {
+      behavior: Record<string, ProbeVerdict>;
+      diagnostics: {
+        productionDatabase: {
+          siblingMergeBatch: ProbeVerdict;
+          siblingMergeSoloPrimary: ProbeVerdict;
+          siblingMergeFullBatch: ProbeVerdict;
+        };
+      };
+    };
 
-describe('unit-backed rules-firestore rows (standard behavior assertions)', () => {
-  it('firestore-rules#190: getAfter() keeps fields a batch update does not name', () => {
-    const rules = `rules_version = '2';
+    const runId = 'oracle-conformance-replay';
+    const auth = { uid: `pyric-browser-${runId}` };
+    const baseRules = `rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n  }\n}\n`;
+    const plan = siblingMergeProbePlan(runId);
+    const probeEnv = new LocalEnvironment();
+    probeEnv.seed({
+      rules: injectFirestoreProbeRules(baseRules, runId),
+      documents: plan.seed,
+    });
+    const runBatch = (writes: ProbeWrite[]): ProbeVerdict =>
+      decisionToVerdict(probeEnv.batch(writes, auth).allowed);
+
+    const soloVerdict = decisionToVerdict(
+      probeEnv.execute({ ...plan.soloPrimary, auth }).allowed,
+    );
+    const batchVerdict = runBatch(plan.batch);
+    const fullBatchVerdict = runBatch(plan.fullBatch);
+
+    expect(soloVerdict).toBe(captured.diagnostics.productionDatabase.siblingMergeSoloPrimary);
+    expect(batchVerdict).toBe(captured.diagnostics.productionDatabase.siblingMergeBatch);
+    expect(batchVerdict).toBe(captured.behavior[SIBLING_MERGE_CASE]);
+    expect(fullBatchVerdict).toBe(captured.diagnostics.productionDatabase.siblingMergeFullBatch);
+
+    const nestedRules = `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /docs/a {
@@ -38,18 +103,24 @@ service cloud.firestore {
     }
   }
 }`;
-    const env = new LocalEnvironment();
-    env.seed({
-      rules,
+    const nestedEnv = new LocalEnvironment();
+    nestedEnv.seed({
+      rules: nestedRules,
       documents: { 'docs/b': { meta: { role: 'admin', team: 'eng' }, version: 1 } },
     });
-    // Batch update on B sets { updated: true }. Pre-existing { meta: { role: 'admin' } } must be preserved in getAfter() evaluation!
-    const result = env.batch([
-      { method: 'update', path: 'docs/b', data: { updated: true } },
-      { method: 'create', path: 'docs/a', data: { status: 'checked' } },
-    ], null);
-    expect(result.allowed).toBe(true);
-    expect(env.getDocument('docs/b')).toEqual({ meta: { role: 'admin', team: 'eng' }, version: 1, updated: true });
+    const nestedResult = nestedEnv.batch(
+      [
+        { method: 'update', path: 'docs/b', data: { updated: true } },
+        { method: 'create', path: 'docs/a', data: { status: 'checked' } },
+      ],
+      null,
+    );
+    expect(nestedResult.allowed).toBe(true);
+    expect(nestedEnv.getDocument('docs/b')).toEqual({
+      meta: { role: 'admin', team: 'eng' },
+      version: 1,
+      updated: true,
+    });
   });
 
   it('firestore-rules#191: compile-time AST verification rejects non-conforming bool(), math.isInfinite(), and Map hasAll()', () => {
@@ -64,9 +135,8 @@ service cloud.firestore {
   }
 }`;
     const res = lintFirestoreRules(source);
-    const ruleNames = res.warnings.map(w => w.rule);
+    const ruleNames = res.warnings.map((w) => w.rule);
     expect(ruleNames).toContain('HALLUCINATED_GLOBAL');
     expect(ruleNames).toContain('HALLUCINATED_METHOD');
   });
 });
-

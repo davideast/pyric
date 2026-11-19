@@ -14,11 +14,10 @@ describe('packaged conformance query', () => {
   });
 
   it('preserves the three trust axes in the generated Node projection', () => {
-    // Unverified while row firestore-rules#190 awaits a production capture (#1322).
     expect(one('getAfter')).toMatchObject({
       availability: 'available',
-      fidelity: 'unverified',
-      assurance: 'qualified',
+      fidelity: 'conforms',
+      assurance: 'eligible',
     });
     expect(one('onDisconnect')).toMatchObject({
       availability: 'available',
@@ -28,6 +27,11 @@ describe('packaged conformance query', () => {
     expect(one('forceLongPolling')).toMatchObject({
       availability: 'available',
       fidelity: 'diverged',
+      assurance: 'qualified',
+    });
+    expect(one('storage-rules/latlng.latitude')).toMatchObject({
+      availability: 'available',
+      fidelity: 'unverified',
       assurance: 'qualified',
     });
   });

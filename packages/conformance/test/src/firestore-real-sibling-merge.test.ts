@@ -1,12 +1,12 @@
 /**
  * Runs the real-database sibling-merge probe (row firestore-rules#190) through
  * pyric's LocalEnvironment with the same rules, seed and writes, and compares
- * the verdicts with the production-database capture.
+ * the verdicts directly against the committed production-database capture.
  *
- * The corpus case the oracle replay pairs with this observation is a single
- * create with a `get` mock, so it passes whatever pyric's batch merge does.
- * This test is the one that fails when a batch update stops keeping the
- * companion's untouched fields in getAfter().
+ * The corpus case the Rules Test API replay pairs with this observation is a
+ * single create with a `get` mock, so it passes whatever pyric's batch merge
+ * does. This test fails whenever a batch update stops keeping the companion's
+ * untouched fields in getAfter().
  */
 import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
@@ -31,6 +31,8 @@ const OBSERVATION_PATH = join(
   'firestore-rules',
   'rules-firestore-atomic-batch-sibling-merge.json',
 );
+const SIBLING_MERGE_CASE =
+  'getAfter reflects merged pre-existing fields alongside batch updates ALLOW';
 
 const BASE_RULES = `rules_version = '2';
 service cloud.firestore {
@@ -42,40 +44,73 @@ service cloud.firestore {
 const RUN_ID = 'local-replay';
 const AUTH = { uid: `pyric-browser-${RUN_ID}` };
 
-/**
- * What a real database answers, used only until the first production-database
- * capture lands. After that the recorded verdicts replace it.
- */
-const EXPECTED_BEFORE_CAPTURE: SiblingMergeVerdicts = {
-  soloPrimary: 'DENY',
-  batch: 'ALLOW',
-  fullBatch: 'ALLOW',
-};
-
 interface RecordedProductionDatabase {
   siblingMergeBatch: ProbeVerdict;
   siblingMergeSoloPrimary: ProbeVerdict;
-  siblingMergeFullBatch?: ProbeVerdict;
+  siblingMergeFullBatch: ProbeVerdict;
 }
 
-function recordedProductionDatabase(): RecordedProductionDatabase | null {
-  const observation = JSON.parse(readFileSync(OBSERVATION_PATH, 'utf8')) as {
-    diagnostics?: { productionDatabase?: RecordedProductionDatabase };
+interface SiblingMergeObservationEnvelope {
+  behavior?: Record<string, ProbeVerdict>;
+  diagnostics?: {
+    productionDatabase?: Partial<RecordedProductionDatabase>;
+    hostedTestApiLimitation?: Record<string, unknown>;
   };
-  const recorded = observation.diagnostics?.productionDatabase;
-  // A capture from before this plan records other keys, and no verdict for it.
-  return recorded?.siblingMergeBatch ? recorded : null;
+  lifecycle?: {
+    restoredOriginalRelease?: boolean;
+  };
+}
+
+function loadRecordedCapture(): {
+  behaviorVerdict: ProbeVerdict;
+  productionDatabase: RecordedProductionDatabase;
+  restoredOriginalRelease: boolean;
+  hasHostedLimitation: boolean;
+} {
+  const observation = JSON.parse(
+    readFileSync(OBSERVATION_PATH, 'utf8'),
+  ) as SiblingMergeObservationEnvelope;
+  const behaviorVerdict = observation.behavior?.[SIBLING_MERGE_CASE];
+  const prod = observation.diagnostics?.productionDatabase;
+  if (
+    !behaviorVerdict ||
+    !prod?.siblingMergeBatch ||
+    !prod.siblingMergeSoloPrimary ||
+    !prod.siblingMergeFullBatch
+  ) {
+    throw new Error(
+      'rules-firestore-atomic-batch-sibling-merge.json is missing required productionDatabase verdicts',
+    );
+  }
+  const hasHostedLimitation = Boolean(
+    observation.diagnostics?.hostedTestApiLimitation?.[SIBLING_MERGE_CASE],
+  );
+  const restoredOriginalRelease = observation.lifecycle?.restoredOriginalRelease === true;
+  return {
+    behaviorVerdict,
+    productionDatabase: {
+      siblingMergeBatch: prod.siblingMergeBatch,
+      siblingMergeSoloPrimary: prod.siblingMergeSoloPrimary,
+      siblingMergeFullBatch: prod.siblingMergeFullBatch,
+    },
+    restoredOriginalRelease,
+    hasHostedLimitation,
+  };
 }
 
 function toVerdict(allowed: boolean): ProbeVerdict {
-  return allowed ? 'ALLOW' : 'DENY';
+  if (allowed) {
+    return 'ALLOW';
+  }
+  return 'DENY';
 }
 
 function runLocally(): SiblingMergeVerdicts {
   const plan = siblingMergeProbePlan(RUN_ID);
   const env = new LocalEnvironment();
   env.seed({ rules: injectFirestoreProbeRules(BASE_RULES, RUN_ID), documents: plan.seed });
-  const batch = (writes: ProbeWrite[]) => toVerdict(env.batch(writes, AUTH).allowed);
+  const batch = (writes: ProbeWrite[]): ProbeVerdict =>
+    toVerdict(env.batch(writes, AUTH).allowed);
   const soloPrimary = toVerdict(env.execute({ ...plan.soloPrimary, auth: AUTH }).allowed);
   return {
     soloPrimary,
@@ -86,26 +121,37 @@ function runLocally(): SiblingMergeVerdicts {
 
 describe('firestore-rules#190 sibling-merge probe through LocalEnvironment', () => {
   const local = runLocally();
-  const recorded = recordedProductionDatabase();
+  const captured = loadRecordedCapture();
 
-  it('matches the production-database verdicts for the batch and the solo control', () => {
-    const expected = recorded
-      ? { soloPrimary: recorded.siblingMergeSoloPrimary, batch: recorded.siblingMergeBatch }
-      : { soloPrimary: EXPECTED_BEFORE_CAPTURE.soloPrimary, batch: EXPECTED_BEFORE_CAPTURE.batch };
-    expect({ soloPrimary: local.soloPrimary, batch: local.batch }).toEqual(expected);
+  it('matches the recorded production-database verdicts for the batch and the solo DENY control', () => {
+    expect(captured.restoredOriginalRelease).toBe(true);
+    expect(captured.hasHostedLimitation).toBe(true);
+    expect(local.batch).toBe(captured.behaviorVerdict);
+    expect({ soloPrimary: local.soloPrimary, batch: local.batch }).toEqual({
+      soloPrimary: captured.productionDatabase.siblingMergeSoloPrimary,
+      batch: captured.productionDatabase.siblingMergeBatch,
+    });
   });
 
-  it('matches the production-database verdict for the batch that updates both fields', () => {
-    const expected = recorded?.siblingMergeFullBatch ?? EXPECTED_BEFORE_CAPTURE.fullBatch;
-    expect(local.fullBatch).toBe(expected);
+  it('matches the recorded production-database verdict for the two-field ALLOW batch control', () => {
+    expect(local.fullBatch).toBe(captured.productionDatabase.siblingMergeFullBatch);
   });
 
-  it('passes the capture writer control checks', () => {
-    expect(() => assertGetAfterProbeControls({
-      rulesGetAfterSoloPrimary: 'DENY',
-      rulesGetAfterSiblingMergeSoloPrimary: local.soloPrimary,
-      rulesGetAfterSiblingMergeFullBatch: local.fullBatch,
-    })).not.toThrow();
+  it('passes the capture writer control checks on both local and recorded production verdicts', () => {
+    expect(() =>
+      assertGetAfterProbeControls({
+        rulesGetAfterSoloPrimary: 'DENY',
+        rulesGetAfterSiblingMergeSoloPrimary: captured.productionDatabase.siblingMergeSoloPrimary,
+        rulesGetAfterSiblingMergeFullBatch: captured.productionDatabase.siblingMergeFullBatch,
+      }),
+    ).not.toThrow();
+    expect(() =>
+      assertGetAfterProbeControls({
+        rulesGetAfterSoloPrimary: 'DENY',
+        rulesGetAfterSiblingMergeSoloPrimary: local.soloPrimary,
+        rulesGetAfterSiblingMergeFullBatch: local.fullBatch,
+      }),
+    ).not.toThrow();
   });
 });
 
