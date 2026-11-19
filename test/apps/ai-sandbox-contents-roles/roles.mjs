@@ -2,7 +2,16 @@
 // the App Check docs require. Sends the contents and request-edge shapes the scenario checks.
 import { FirebaseError, initializeApp } from "firebase/app";
 import { ReCaptchaV3Provider, initializeAppCheck } from "firebase/app-check";
-import { AIError, AnyOfSchema, Schema, getAI, getGenerativeModel } from "firebase/ai";
+import {
+  AIError,
+  AIErrorCode,
+  AnyOfSchema,
+  ChatSession,
+  POSSIBLE_ROLES,
+  Schema,
+  getAI,
+  getGenerativeModel,
+} from "firebase/ai";
 
 const turn = (role, text) => ({ role, parts: [{ text }] });
 
@@ -103,6 +112,101 @@ export async function runRoles() {
       return formatFailure(e);
     }
   };
+  const checkChatErrorsAbort = async () => {
+    const controller = new AbortController();
+    controller.abort();
+    let abortContentName = null;
+    let abortContentIsAIError = false;
+    try {
+      await model.generateContent(
+        { contents: [turn("user", "never delivered")] },
+        { signal: controller.signal },
+      );
+    } catch (err) {
+      abortContentIsAIError = err instanceof AIError;
+      if (err && typeof err === "object" && typeof err.name === "string") {
+        abortContentName = err.name;
+      }
+    }
+
+    let abortStringName = null;
+    try {
+      await model.generateContent("never delivered", { signal: AbortSignal.abort() });
+    } catch (err) {
+      if (err && typeof err === "object" && typeof err.name === "string") {
+        abortStringName = err.name;
+      }
+    }
+
+    const defaultChat = model.startChat();
+    const defaultHistory = await defaultChat.getHistory();
+    const seededChat = model.startChat({
+      history: [
+        { role: "user", parts: [{ text: "hi" }] },
+        { role: "model", parts: [{ functionCall: { name: "greet", args: { target: "world" } } }] },
+        { role: "function", parts: [{ functionResponse: { name: "greet", response: { ok: true } } }] },
+      ],
+    });
+    const seededHistory = await seededChat.getHistory();
+
+    let emptyPartsCode = null;
+    let emptyPartsIsFirebaseError = false;
+    try {
+      model.startChat({ history: [{ role: "user", parts: [] }] });
+    } catch (err) {
+      emptyPartsIsFirebaseError = err instanceof FirebaseError;
+      if (err && typeof err === "object" && typeof err.code === "string") {
+        emptyPartsCode = err.code;
+      }
+    }
+
+    let modelFirstCode = null;
+    try {
+      model.startChat({ history: [{ role: "model", parts: [{ text: "first" }] }] });
+    } catch (err) {
+      if (err && typeof err === "object" && typeof err.code === "string") {
+        modelFirstCode = err.code;
+      }
+    }
+
+    const constructed = new AIError(AIErrorCode.FETCH_ERROR, "sample failure", {
+      status: 400,
+      statusText: "Bad Request",
+      errorDetails: [{ reason: "API_KEY_INVALID" }],
+    });
+    let constructedStatus = null;
+    let constructedReason = null;
+    if (constructed.customErrorData) {
+      if (typeof constructed.customErrorData.status === "number") {
+        constructedStatus = constructed.customErrorData.status;
+      }
+      const details = constructed.customErrorData.errorDetails;
+      if (Array.isArray(details) && details.length > 0 && typeof details[0].reason === "string") {
+        constructedReason = details[0].reason;
+      }
+    }
+
+    return {
+      abortContentName,
+      abortContentIsAIError,
+      abortStringName,
+      isChatSession: seededChat instanceof ChatSession,
+      defaultHistoryLength: defaultHistory.length,
+      seededRoles: seededHistory.map((entry) => entry.role),
+      emptyPartsCode,
+      emptyPartsIsFirebaseError,
+      modelFirstCode,
+      possibleRoles: [...POSSIBLE_ROLES],
+      errorCodeCount: Object.values(AIErrorCode).length,
+      constructedError: {
+        isAIError: constructed instanceof AIError,
+        isFirebaseError: constructed instanceof FirebaseError,
+        code: constructed.code,
+        status: constructedStatus,
+        reason: constructedReason,
+      },
+    };
+  };
   return {
     assistant: await send([turn("user", "Say hi."), turn("assistant", "hi"), turn("user", "Say it again.")]),
     system: await send([turn("system", "Only reply with: pyric"), turn("user", "Say anything.")]),
@@ -110,5 +214,6 @@ export async function runRoles() {
     chatStringSystem: await sendChatStringSystem(),
     geminiPro: await sendGeminiPro(),
     schemaBuilders: await sendStructuredSchema(),
+    chatErrorsAbort: await checkChatErrorsAbort(),
   };
 }

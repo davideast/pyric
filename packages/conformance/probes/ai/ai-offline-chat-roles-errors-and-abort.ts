@@ -59,9 +59,14 @@ async function observeAsyncCall(fn: () => Promise<unknown>): Promise<ObservedThr
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: [],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'ai#generate-abort-signal',
+  rowIds: [
+    'ai#generate-abort-signal',
+    'ai#chat-startchat',
+    'ai#chat-role-vocabulary',
+    'ai#error-aierror-shape',
+    'ai#error-code-vocabulary',
+  ],
   description:
     'Pure offline firebase/ai pre-aborted SingleRequestOptions.signal rejection before fetch, startChat seeded history and validateChatHistory guards, POSSIBLE_ROLES vocabulary, and AIErrorCode / AIError constructor contract with zero network calls.',
   async observe() {

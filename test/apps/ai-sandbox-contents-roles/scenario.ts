@@ -31,6 +31,27 @@ interface SchemaBuildersOutcome extends Outcome {
   };
 }
 
+interface ChatErrorsAbortOutcome {
+  abortContentName: string | null;
+  abortContentIsAIError: boolean;
+  abortStringName: string | null;
+  isChatSession: boolean;
+  defaultHistoryLength: number;
+  seededRoles: string[];
+  emptyPartsCode: string | null;
+  emptyPartsIsFirebaseError: boolean;
+  modelFirstCode: string | null;
+  possibleRoles: string[];
+  errorCodeCount: number;
+  constructedError: {
+    isAIError: boolean;
+    isFirebaseError: boolean;
+    code: string;
+    status: number | null;
+    reason: string | null;
+  };
+}
+
 interface Roles {
   assistant: Outcome;
   system: Outcome;
@@ -38,6 +59,7 @@ interface Roles {
   chatStringSystem: Outcome;
   geminiPro: Outcome;
   schemaBuilders: SchemaBuildersOutcome;
+  chatErrorsAbort: ChatErrorsAbortOutcome;
 }
 
 declare function runRoles(): Promise<Roles>;
@@ -99,6 +121,27 @@ function assertRoles(roles: Roles): void {
     isAIError: true,
     isFirebaseError: true,
     code: 'invalid-schema',
+  });
+
+  assert.deepEqual(roles.chatErrorsAbort, {
+    abortContentName: 'AbortError',
+    abortContentIsAIError: false,
+    abortStringName: 'AbortError',
+    isChatSession: true,
+    defaultHistoryLength: 0,
+    seededRoles: ['user', 'model', 'function'],
+    emptyPartsCode: 'invalid-content',
+    emptyPartsIsFirebaseError: true,
+    modelFirstCode: 'invalid-content',
+    possibleRoles: ['user', 'model', 'function', 'system'],
+    errorCodeCount: 14,
+    constructedError: {
+      isAIError: true,
+      isFirebaseError: true,
+      code: 'fetch-error',
+      status: 400,
+      reason: 'API_KEY_INVALID',
+    },
   });
 }
 
