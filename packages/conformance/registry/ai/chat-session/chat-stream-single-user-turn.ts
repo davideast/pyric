@@ -1,14 +1,31 @@
 import { row } from './section.ts';
 
+const PROBE = 'packages/pyric/test/ai/wave2-sdk-oracle.test.ts';
+
 export default row({
   order: 60,
-  featureKeys: ["sendMessageStream"],
+  featureKeys: ['sendMessageStream'],
   api: 'ChatSession.sendMessageStream()',
-  behavior: 'Exactly one user turn is recorded per `sendMessageStream` call; the mirror implements the 2.13.0 fixed semantics, not the installed 2.12.0 duplicate-user-turn bug',
-  status: 'diverged-documented',
-  statusNote: '2.13.0 semantics',
-  automation: 'unit-backed',
-  evidence: '`unit:chat-session.test.ts` test `ai#chat-stream-single-user-turn` (no capture; divergence pinned by ruling, see notes)',
-  conformanceTests: ['chat-session.test.ts'],
-  notes: 'Ruling 3 in packages/conformance/docs/ai/cdd-deltas.md: the installed 2.12.0 duplicates the user turn, fixed upstream in 2.13.0. Reproducing a known upstream bug harms the developer the sandbox exists for, so the mirror ships the fix (packages/pyric/src/ai/models.ts).',
+  behavior:
+    'Exactly one user turn is recorded per `sendMessageStream` call (`historyRolesAfterStream: ["user", "model"]`)',
+  automation: 'oracle-backed',
+  evidence:
+    'Capture `ai-sdk-chat-session-send-and-stream` (`userTurnCountAfterStream: 1`, `historyRolesAfterStream: ["user", "model"]`) replayed across in-process (`wave2-sdk-oracle.test.ts`, `chat-session.test.ts`), worker-host (`ai-wave2-sdk-oracle.test.ts`), and served SharedWorker (`test/apps/ai-app-check-stays-local`) planes.',
+  oracleObservations: ['ai-sdk-chat-session-send-and-stream'],
+  conformanceTests: ['wave2-sdk-oracle.test.ts', 'chat-session.test.ts'],
+  hostConformanceTests: [
+    'packages/cli/test/serve/worker/ai-wave2-sdk-oracle.test.ts',
+    'test/apps/ai-app-check-stays-local/scenario.ts',
+  ],
+  conformanceChecks: [
+    {
+      finding: 'AI-CHAT-STREAM-SINGLE-USER-TURN',
+      observation: 'ai-sdk-chat-session-send-and-stream',
+      expect: { model: 'gemini-flash-lite-latest' },
+      probe: PROBE,
+      guards: 'ChatSession.sendMessageStream records exactly one user turn and one model turn per streaming call.',
+    },
+  ],
+  notes:
+    'Installed `firebase` 12.19.0 (`@firebase/ai` 2.16.0) fixed the earlier 2.12.0 duplicate-user-turn bug; both upstream and Pyric record `userTurnCountAfterStream: 1` (`packages/pyric/src/ai/models.ts`).',
 });

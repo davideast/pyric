@@ -1,7 +1,12 @@
 {
   "name": "ai-sdk-chat-session-send-and-stream",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "ai#chat-sendmessage-envelope",
+  "rowIds": [
+    "ai#chat-sendmessage-envelope",
+    "ai#chat-sendmessagestream",
+    "ai#chat-stream-single-user-turn",
+    "ai#chat-history-threads"
+  ],
   "description": "Live firebase/ai ChatSession.sendMessage(), sendMessageStream(), and getHistory() behavior on the GoogleAI backend with Admin-minted App Check token: verifies sendMessage four-key response envelope and model role, history turn threading, sendMessageStream stream/response settlement, and single-user-turn history recording.",
   "observedAt": "2026-11-19T19:55:51.128Z",
   "fbSdkVersion": "12.19.0",

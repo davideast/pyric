@@ -221,9 +221,8 @@ export async function observeAppCheckStreamAndCountTokens(options: {
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'ai#sandbox-app-check-stream-and-count-tokens',
+  rowIds: ['ai#sandbox-app-check-stream-and-count-tokens'],
   description:
     'Live firebase/ai generateContentStream() and countTokens() App Check enforcement behavior on the GoogleAI backend: verifies that an app without App Check rejects both generateContentStream (before yielding any chunk) and countTokens with the same 401 fetch-error AIError, while an app with an Admin-minted App Check token succeeds on both.',
   async observe() {

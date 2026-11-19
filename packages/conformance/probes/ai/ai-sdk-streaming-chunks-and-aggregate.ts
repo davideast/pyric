@@ -141,9 +141,15 @@ export async function observeStreamingChunksAndAggregate(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'ai#stream-async-iterable',
+  rowIds: [
+    'ai#stream-async-iterable',
+    'ai#stream-chunk-envelope',
+    'ai#stream-finish-last-chunk',
+    'ai#stream-usage-every-chunk',
+    'ai#stream-response-aggregate',
+    'ai#stream-aggregate-final-meta',
+  ],
   description:
     'Live firebase/ai generateContentStream() SDK-level chunk iteration and result.response aggregation on the GoogleAI backend with Admin-minted App Check token: verifies async-iterable chunk helpers, candidates/usageMetadata presence on every chunk, finishReason only on the final chunk, concatenated aggregate text parity, and aggregate metadata fields.',
   async observe() {

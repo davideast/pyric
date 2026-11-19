@@ -2,7 +2,7 @@
 // provider in development, then getAI. The imports are the Firebase SDK's.
 import { initializeApp } from "firebase/app";
 import { initializeAppCheck, ReCaptchaV3Provider } from "firebase/app-check";
-import { getAI, getGenerativeModel } from "firebase/ai";
+import { FunctionCallingMode, Schema, getAI, getGenerativeModel } from "firebase/ai";
 
 const options = {
   apiKey: "AIzaSyDemoKeyForReproOnly000000000000",
@@ -60,6 +60,97 @@ window.runWithAppCheck = () => {
 };
 
 window.runWithoutAppCheck = () => run(initializeApp(options, "without-app-check"));
+
+window.runWave2Parity = async () => {
+  const unauthApp = initializeApp(options, "wave2-without-app-check");
+  const unauthModel = getGenerativeModel(getAI(unauthApp), { model: MODEL });
+  const unauthCountTokens = await settle(() => unauthModel.countTokens("Count tokens without App Check."));
+
+  const authApp = initializeApp(options, "wave2-with-app-check");
+  if (import.meta.env.DEV) self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+  initializeAppCheck(authApp, {
+    provider: new ReCaptchaV3Provider("your-recaptcha-v3-site-key"),
+    isTokenAutoRefreshEnabled: true,
+  });
+  const model = getGenerativeModel(getAI(authApp), {
+    model: MODEL,
+    tools: [
+      {
+        functionDeclarations: [
+          {
+            name: "get_weather",
+            description: "Weather lookup.",
+            parameters: Schema.object({ properties: { city: Schema.string() } }),
+          },
+        ],
+      },
+    ],
+  });
+
+  const authTokens = await model.countTokens("Count tokens with App Check.");
+  const streamRes = await model.generateContentStream("Stream a short reply.");
+  const streamChunks = [];
+  for await (const chunk of streamRes.stream) streamChunks.push(chunk);
+  const streamAgg = await streamRes.response;
+
+  const chatSend = model.startChat();
+  const sendRes = await chatSend.sendMessage("Send chat reply.");
+  const sendHistory = await chatSend.getHistory();
+
+  const chatStream = model.startChat();
+  const chatStreamRes = await chatStream.sendMessageStream("Stream chat reply.");
+  const chatChunks = [];
+  for await (const chunk of chatStreamRes.stream) chatChunks.push(chunk.text());
+  const chatAgg = await chatStreamRes.response;
+  const chatStreamHistory = await chatStream.getHistory();
+
+  const userTurn = { role: "user", parts: [{ text: "Call get_weather for Paris." }] };
+  const fnTurn1 = await model.generateContent({
+    contents: [userTurn],
+    toolConfig: { functionCallingConfig: { mode: FunctionCallingMode.ANY } },
+  });
+  const modelTurn1 = fnTurn1.response.candidates[0].content;
+  const firstCall = fnTurn1.response.functionCalls()[0];
+  const fnTurn2 = await model.generateContent({
+    contents: [
+      userTurn,
+      modelTurn1,
+      {
+        role: "user",
+        parts: [{ functionResponse: { name: "get_weather", response: { summary: "Sunny" } } }],
+      },
+    ],
+  });
+
+  return {
+    unauthCountTokens,
+    authCountTokensPositive: Number.isInteger(authTokens.totalTokens) && authTokens.totalTokens > 0,
+    streamFinishOnlyLast:
+      streamChunks.slice(0, -1).every((c) => c.candidates?.[0]?.finishReason === undefined) &&
+      streamChunks[streamChunks.length - 1].candidates?.[0]?.finishReason === "STOP" &&
+      streamChunks.every((c) => c.usageMetadata !== undefined),
+    streamAggMatchesChunks: streamAgg.text() === streamChunks.map((c) => c.text()).join(""),
+    sendRoleAndRoles: {
+      role: sendRes.response.candidates[0].content.role,
+      text: sendRes.response.text(),
+      historyRoles: sendHistory.map((t) => t.role),
+    },
+    chatStreamSingleUserTurn: {
+      text: chatAgg.text(),
+      matchesChunks: chatAgg.text() === chatChunks.join(""),
+      historyRoles: chatStreamHistory.map((t) => t.role),
+      userTurnCount: chatStreamHistory.filter((t) => t.role === "user").length,
+    },
+    fnRoundTrip: {
+      callKeys: Object.keys(firstCall).sort(),
+      callName: firstCall.name,
+      city: firstCall.args.city,
+      turn1Finish: fnTurn1.response.candidates[0].finishReason,
+      turn2Text: fnTurn2.response.text(),
+      turn2CallsUndefined: fnTurn2.response.functionCalls() === undefined,
+    },
+  };
+};
 
 /**
  * A SharedWorker asks for a host outside the machine. The scenario's resolver

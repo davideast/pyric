@@ -161,9 +161,13 @@ export async function observeFunctionCallingRoundtrip(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'ai#fncall-round-trip',
+  rowIds: [
+    'ai#fncall-part-shape',
+    'ai#fncall-mode-any',
+    'ai#fncall-id-present',
+    'ai#fncall-round-trip',
+  ],
   description:
     'Live firebase/ai function-calling round trip on the GoogleAI backend with Admin-minted App Check token: forces a functionCall on turn 1 via FunctionCallingMode.ANY (verifying id, name, parsed object args, finishReason STOP, and thoughtSignature), then threads the model turn verbatim with a role user functionResponse on turn 2 under default AUTO mode.',
   async observe() {

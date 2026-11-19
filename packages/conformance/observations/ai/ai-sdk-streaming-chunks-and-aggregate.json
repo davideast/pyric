@@ -1,7 +1,14 @@
 {
   "name": "ai-sdk-streaming-chunks-and-aggregate",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "ai#stream-async-iterable",
+  "rowIds": [
+    "ai#stream-async-iterable",
+    "ai#stream-chunk-envelope",
+    "ai#stream-finish-last-chunk",
+    "ai#stream-usage-every-chunk",
+    "ai#stream-response-aggregate",
+    "ai#stream-aggregate-final-meta"
+  ],
   "description": "Live firebase/ai generateContentStream() SDK-level chunk iteration and result.response aggregation on the GoogleAI backend with Admin-minted App Check token: verifies async-iterable chunk helpers, candidates/usageMetadata presence on every chunk, finishReason only on the final chunk, concatenated aggregate text parity, and aggregate metadata fields.",
   "observedAt": "2026-11-19T19:56:03.807Z",
   "fbSdkVersion": "12.19.0",
