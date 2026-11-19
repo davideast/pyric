@@ -27,3 +27,21 @@ export {
   clearAppFirestoreSettings,
   recordImplicitAppFirestoreSettings,
 } from '../init-settings.js';
+export {
+  decodeBundleBytes,
+  type BundledFilterSpec,
+  type BundledQuerySourceSpec,
+  type BundledWhereOp,
+} from '../sandbox/bundle-wire.js';
+export {
+  encodeDocumentSnapshotJson,
+  encodeQuerySnapshotJson,
+} from '../sandbox/ssr-bundle-encoder.js';
+export {
+  LoadBundleTask,
+  assertBundleInputSupported,
+  readBundleSourceBytes,
+  type LoadBundleTaskProgress,
+} from '../bundles.js';
+export { documentId } from '../field-values.js';
+export { parseValidatedSnapshotEnvelope, wrapInitialCachedSnapshotArgs } from '../ssr-snapshots.js';

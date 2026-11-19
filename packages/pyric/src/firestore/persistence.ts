@@ -8,6 +8,7 @@
  * below before touching any function.
  */
 import { readDocument, readQuery } from './reads.js';
+import { FirebaseError } from '../sandbox/internal/firebase-error.js';
 import { beginFirestoreActivity } from './sdk-activity.js';
 import { finishSdkRead } from '../sandbox/internal/sdk-activity.js';
 import { resolveClientApp } from '../sandbox/internal/client-app.js';
@@ -16,14 +17,15 @@ import type { Sandbox, SandboxContext } from 'pyric/sandbox';
 import type { DocumentData } from 'pyric/sandbox/admin-firestore';
 
 import { tag, targetForTermination, targetOf } from './state.js';
-import type {
+import {
   Firestore,
-  DocumentReference,
-  DocumentSnapshot,
-  Query,
-  QuerySnapshot,
-  Unsubscribe,
+  type DocumentReference,
+  type DocumentSnapshot,
+  type Query,
+  type QuerySnapshot,
+  type Unsubscribe,
 } from './types.js';
+import { attachQuerySnapshotToJson } from './ssr-snapshots.js';
 import { EVICT_APP_CACHE_SYMBOL } from './internal/app-cache-symbol.js';
 import { getFirestore } from './instances.js';
 import { clientStateFor } from './client-state.js';
@@ -120,8 +122,22 @@ export function enableMultiTabIndexedDbPersistence(db: Firestore): Promise<void>
  * The real SDK requires this before Firestore starts; the sandbox's mapped
  * `clearPersistence()` has no such restriction.
  */
+const terminatedTargets = new WeakSet<object>();
+
 export function clearIndexedDbPersistence(db: Firestore): Promise<void> {
-  const target = targetOf(db);
+  if (!(db instanceof Firestore)) {
+    throw new FirebaseError(
+      'invalid-argument',
+      'Expected first argument to clearIndexedDbPersistence() to be a Firestore instance.',
+    );
+  }
+  const target = targetForTermination(db);
+  if (clientStateFor(target).isStarted() && !terminatedTargets.has(target as object)) {
+    throw new FirebaseError(
+      'failed-precondition',
+      'Persistence can only be cleared before a Firestore instance is initialized or after it is terminated.',
+    );
+  }
   return target.sandbox.clearPersistence();
 }
 
@@ -167,6 +183,7 @@ export function waitForPendingWrites(db: Firestore): Promise<void> {
  */
 export function terminate(db: Firestore): Promise<void> {
   const target = targetForTermination(db);
+  terminatedTargets.add(target as object);
   (target as unknown as Record<symbol, (() => void) | undefined>)[EVICT_APP_CACHE_SYMBOL]?.();
   target.terminate?.();
   return Promise.resolve();
@@ -274,13 +291,16 @@ export function getDocsFromCache<T = DocumentData>(
   const client = clientStateFor(target);
   const activity = beginFirestoreActivity(target, query, 'getDocsFromCache', 'operation');
   if (!client.hasCachedQuery(query as object)) {
-    return Promise.resolve(finishSdkRead(activity, tag({
+    const emptySnap = tag({
       size: 0,
       empty: true,
       docs: [],
       forEach: forEachDocument([]),
       metadata: Object.freeze({ fromCache: true, hasPendingWrites: false }),
-    }, target)));
+      toJSON: () => ({}),
+    }, target) as QuerySnapshot<T>;
+    attachQuerySnapshotToJson(emptySnap, target, query as object);
+    return Promise.resolve(finishSdkRead(activity, emptySnap));
   }
   return readQuery(query, activity).then((snapshot) => {
     Object.defineProperty(snapshot, 'metadata', {

@@ -34,6 +34,10 @@ export class FirestoreClientState {
     this.started = true;
   }
 
+  isStarted(): boolean {
+    return this.started;
+  }
+
   isNetworkEnabled(): boolean {
     return this.networkEnabled;
   }
@@ -175,6 +179,16 @@ export class FirestoreClientState {
     this.cachedPaths.add(path);
     if (this.networkEnabled) {
       this.overlay.markWarmPath(path, this.readAdminDoc);
+    }
+  }
+
+  cacheBundledPath(path: string, exists: boolean): void {
+    this.started = true;
+    this.cachedPaths.add(path);
+    if (exists) {
+      this.overlay.markWarmPath(path, this.readAdminDoc);
+    } else {
+      this.overlay.markDeletedPath(path);
     }
   }
 

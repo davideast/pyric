@@ -28,7 +28,12 @@ import {
 } from './state.js';
 import { doc } from './refs.js';
 import { decorateUntypedSnapshotRef } from './converter-method.js';
-import type { SnapshotOptions } from './ssr-snapshots.js';
+import {
+  attachDocSnapshotToJson,
+  attachQuerySnapshotToJson,
+  buildDocSnapshotToJson,
+  type SnapshotOptions,
+} from './ssr-snapshots.js';
 import type { ReferenceDecoder } from './internal/value-codec.js';
 import { firestoreValuesEqual } from './sandbox/value-equality.js';
 import { registerReferenceQueryValue } from './sandbox/query-value-registry.js';
@@ -242,6 +247,9 @@ export function recordQuerySnapshot(
     docs,
     changes,
   });
+  if (typeof (snapshot as { toJSON?: unknown }).toJSON !== 'function') {
+    attachQuerySnapshotToJson(snapshot, target, query);
+  }
 }
 
 /**
@@ -351,6 +359,10 @@ export function applyConverterToDocSnap<AppModel>(
     return readSnapshotField(rawData, fieldPath, references);
   };
   const mergedMeta = mergedSnapshotMetadata(snap, target, snap.ref.path);
+  const readRawDataObject = (): Record<string, unknown> | undefined => {
+    if (!snapshotExists(snap)) return undefined;
+    return finalizeSandboxData(snap.data() as DocumentData, references) as Record<string, unknown>;
+  };
   const wrapped = {
     id: snap.id,
     ref: reference,
@@ -367,11 +379,13 @@ export function applyConverterToDocSnap<AppModel>(
         metadata: mergedMeta,
         data: () => finalizeSandboxData(snap.data() as DocumentData, references) as DocumentData,
         get: readRawField,
+        toJSON: buildDocSnapshotToJson(target, snap.ref.path, () => true, readRawDataObject),
       };
       const resolvedOptions: SnapshotOptions = options ?? {};
       return conv.fromFirestore(queryDocSnap, resolvedOptions);
     },
     get: readRawField,
+    toJSON: buildDocSnapshotToJson(target, snap.ref.path, () => snapshotExists(snap), readRawDataObject),
   };
   tag(wrapped, target);
   tag(snap.ref as object, target);
@@ -436,6 +450,7 @@ export function applyConverterToDeliveredSnap(
         metadata: mergedMeta,
         data: (innerOptions?: SnapshotOptions) => readRaw(innerOptions) as DocumentData,
         get: readRawField,
+        toJSON: buildDocSnapshotToJson(target, path, () => true, () => readRaw() as Record<string, unknown>),
       };
       const resolvedOptions: SnapshotOptions = options ?? {};
       return conv.fromFirestore(queryDocSnap, resolvedOptions);
@@ -450,62 +465,43 @@ export function applyConverterToDeliveredSnap(
 }
 
 /**
- * Walk a snapshot and tag every ref-shaped field in `refToTarget`,
- * AND normalize `.exists` to method form so consumer code targeting
- * Firebase's modular SDK (`if (snap.exists())`) works uniformly.
- *
- * The chainable adapter exposes `exists` as a property (Admin SDK
- * shape — `if (snap.exists)`). Firebase's modular SDK exposes it as
- * a method (`if (snap.exists())`). Without this normalization, user
- * code written against the documented Firebase API crashes against
- * the sandbox with "snap.exists is not a function" — a parity bug
- * agents and developers all rediscover by hand.
- *
- * Both forms remain readable on the returned object — the function
- * branch in any "did the existing FirestoreTab handle both shapes"
- * code still works.
- *
- * Idempotent — tagging an already-tagged object is a no-op, and the
- * `exists` getter we install is a no-op when one already exists.
+ * Walk a snapshot, tag ref-shaped fields in `refToTarget`, normalize `.exists`
+ * to method form (`if (snap.exists())`), and install `.toJSON()` when absent.
  */
 export function tagSnapshotRefs(snap: unknown, target: Target): unknown {
   if (!snap || typeof snap !== 'object') return snap;
-  // Equality helpers receive the snapshot object itself, not only its refs.
-  // Brand the snapshot with the same owner so `snapshotEqual` can validate
-  // sandbox snapshots without mistaking them for foreign SDK values.
   tag(snap, target);
   const s = snap as {
     ref?: { id?: string; path?: string };
-    docs?: Array<{ ref?: { id?: string; path?: string }; exists?: boolean | (() => boolean) }>;
+    docs?: Array<{ ref?: { id?: string; path?: string }; exists?: boolean | (() => boolean); data?: () => Record<string, unknown> }>;
     docChanges?: () => Array<{
       type?: string;
-      doc?: { ref?: { id?: string; path?: string }; exists?: boolean | (() => boolean) };
+      doc?: { ref?: { id?: string; path?: string }; exists?: boolean | (() => boolean); data?: () => Record<string, unknown> };
     }>;
     exists?: boolean | (() => boolean);
+    data?: () => Record<string, unknown> | undefined;
+    toJSON?: unknown;
   };
   if (s.ref) {
     tag(s.ref as object, target);
     wireSnapshotRefToUnderlying(s.ref, target);
   }
   normalizeExists(s);
-  const tagChildDoc = (doc?: { ref?: { id?: string; path?: string }; exists?: boolean | (() => boolean) }) => {
-    if (!doc) return;
-    tag(doc as object, target);
-    recordDocumentSnapshot(
-      doc as object,
-      doc as unknown as ChainDocSnap,
-      target,
-      null,
-      'query-child',
-    );
-    if (doc.ref) {
-      tag(doc.ref as object, target);
-      wireSnapshotRefToUnderlying(doc.ref, target);
+  const tagChildDoc = (docItem?: { ref?: { id?: string; path?: string }; exists?: boolean | (() => boolean); data?: () => Record<string, unknown>; toJSON?: unknown }) => {
+    if (!docItem) return;
+    tag(docItem as object, target);
+    recordDocumentSnapshot(docItem as object, docItem as unknown as ChainDocSnap, target, null, 'query-child');
+    if (docItem.ref) {
+      tag(docItem.ref as object, target);
+      wireSnapshotRefToUnderlying(docItem.ref, target);
     }
-    normalizeExists(doc);
+    normalizeExists(docItem);
+    if (typeof docItem.toJSON !== 'function' && typeof docItem.ref?.path === 'string') {
+      attachDocSnapshotToJson(docItem as object, target, docItem.ref.path, () => snapshotExists(docItem as unknown as ChainDocSnap), () => docItem.data?.());
+    }
   };
   if (Array.isArray(s.docs)) {
-    for (const doc of s.docs) tagChildDoc(doc);
+    for (const docItem of s.docs) tagChildDoc(docItem);
     if (typeof s.docChanges === 'function') {
       for (const change of s.docChanges()) {
         if (change.type === 'removed') tagChildDoc(change.doc);
@@ -513,6 +509,9 @@ export function tagSnapshotRefs(snap: unknown, target: Target): unknown {
     }
   } else if (s.ref) {
     recordDocumentSnapshot(snap, snap as unknown as ChainDocSnap, target, null, 'document');
+    if (typeof s.toJSON !== 'function' && typeof s.ref.path === 'string') {
+      attachDocSnapshotToJson(snap, target, s.ref.path, () => snapshotExists(s as unknown as ChainDocSnap), () => s.data?.());
+    }
   }
   return snap;
 }

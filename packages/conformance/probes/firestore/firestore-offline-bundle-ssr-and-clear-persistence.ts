@@ -245,9 +245,8 @@ function extractJsonTypeTag(jsonValue: object): string | null {
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: [],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#153',
+  rowIds: ['firestore#142', 'firestore#153', 'firestore#154'],
   description:
     'Pure offline firebase/firestore loadBundle, LoadBundleTask, and namedQuery cache hydration; DocumentSnapshot.toJSON and QuerySnapshot.toJSON serialization into documentSnapshotFromJSON, querySnapshotFromJSON, and onSnapshotResume on fresh clients; and clearIndexedDbPersistence lifecycle preconditions with zero network calls.',
   async observe() {
