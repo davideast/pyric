@@ -8,9 +8,8 @@ import { waitForCondition } from '../../src/oracle-run-stable-shapes.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'admin-auth'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'auth#55a',
+  rowIds: ['auth#55a'],
   description:
     'getIdToken() mints a 3600s JWT, returns the cached token before expirationTime minus 30s, and refreshes non-forced inside the 30s expiry buffer while firing onIdTokenChanged without firing onAuthStateChanged.',
   async observe() {

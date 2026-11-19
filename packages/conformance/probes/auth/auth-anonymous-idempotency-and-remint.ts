@@ -8,9 +8,8 @@ import { retryAuthTooManyRequests } from '../../src/oracle-run-auth-session.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'admin-auth'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'auth#8',
+  rowIds: ['auth#8', 'auth#9'],
   description:
     'signInAnonymously sets currentUser and ID token uid claims, returns the existing anonymous user without minting a new uid when already signed in anonymously, and mints a fresh uid after signOut.',
   async observe() {
