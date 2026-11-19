@@ -34,7 +34,7 @@ export interface MessagingCddRowSeed {
    * conformance suite passes unweakened. Absent = still climbing (born unverified).
    */
   flipped?: 'oracle-backed' | 'unit-backed' | 'type-backed';
-  /** Required for a `type-backed` downgrade: why the row has no runtime witness. */
+  /** Why a `type-backed` or browser-bound `unit-backed` row has no headless runtime capture. */
   exceptionReason?: string;
   rowRef?: never;
   id?: never;
@@ -104,6 +104,7 @@ export function bindMessagingCddRow(
       evidence: seed.evidence,
       notes: seed.notes,
       oracleObservations: observations,
+      exceptionReason: seed.exceptionReason,
     };
 
     if (seed.flipped === undefined) {

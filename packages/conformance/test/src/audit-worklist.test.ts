@@ -27,13 +27,14 @@ function withEntries(entries: RegistryEntry[]): CompatibilityLedger {
 describe('evidence-tier audit worklist', () => {
   it('keeps climb risk on every unit-backed messaging conforms row (nothing stripped by flipping)', () => {
     const unitBacked = messagingRows.filter((row) => row.status === 'conforms' && row.automation === 'unit-backed');
-    // 8 remaining after promoting 26 messaging-admin + 6 messaging client/sw rows to oracle-backed
-    // (4 client/sw messaging rows + 4 messaging-admin legacy payload interface rows).
-    expect(unitBacked.length).toBe(8);
+    // 4 browser-bound client/sw messaging rows remaining after reclassifying
+    // messaging-admin#31..#34 legacy payload interfaces to type-backed.
+    expect(unitBacked.length).toBe(4);
     for (const row of unitBacked) {
       expect(row.riskReasons.length).toBeGreaterThan(0);
       expect(row.risk.some((token) => token === 'unobserved' || token === 'cited-not-replayed')).toBe(true);
       expect(row.riskScore).toBeGreaterThan(0);
+      expect(row.exceptionReason).toBeTruthy();
     }
   });
 
@@ -52,7 +53,7 @@ describe('evidence-tier audit worklist', () => {
     const messagingUnitBacked = messagingRows.filter(
       (row) => row.status === 'conforms' && row.automation === 'unit-backed',
     );
-    expect(messagingUnitBacked.length).toBe(8);
+    expect(messagingUnitBacked.length).toBe(4);
     for (const row of messagingUnitBacked) expect(ids.has(row.id)).toBe(true);
   });
 
