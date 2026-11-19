@@ -38,6 +38,12 @@ import {
 import type { OpMessage, RtdbWireQuerySpec } from '../protocol.js';
 import { type HostCtx, type PortLike, ok, fail, bestEffortFlush } from '../host-context.js';
 import { lensRtdb, rtdbInstanceKey } from './rtdb-instances.js';
+import {
+  armRtdbPortLease,
+  clearRtdbPortLeases,
+  syncRtdbPortLease,
+  touchRtdbPortLease,
+} from './rtdb-port-leases.js';
 import { sameRtdbValue } from '../rtdb-value-equality.js';
 
 /** Host execution is transport work, not another public SDK call. */
@@ -242,6 +248,7 @@ async function queueDisconnectOperation(ctx: HostCtx, port: PortLike, operation:
   const scopeKey = portConnectionScopeKey(ctx, operation.instance, operation.connectionId);
   await validateDisconnectOperation(ctx, port, operation);
   portQueue(ctx, port, scopeKey).set(operation);
+  armRtdbPortLease(ctx, port, drainPortRtdbDisconnects);
 }
 
 /**
@@ -260,7 +267,10 @@ export async function drainPortRtdbDisconnects(ctx: HostCtx, port: PortLike, ins
     queues.delete(key);
     operations.push(...queue.takeAll());
   }
-  if (queues.size === 0) disconnectQueues.get(ctx)?.delete(port);
+  if (queues.size === 0) {
+    disconnectQueues.get(ctx)?.delete(port);
+    syncRtdbPortLease(ctx, port, false);
+  }
   if (operations.length === 0) return;
   const failures: unknown[] = [];
   const pending: Promise<unknown>[] = [];
@@ -309,11 +319,13 @@ export async function drainPortRtdbDisconnects(ctx: HostCtx, port: PortLike, ins
 function clearAllRtdbDisconnects(ctx: HostCtx): void {
   disconnectQueues.get(ctx)?.clear();
   offlineInstances.get(ctx)?.clear();
+  clearRtdbPortLeases(ctx);
 }
 
 export function forgetPortRtdbConnection(ctx: HostCtx, port: PortLike): void {
   disconnectQueues.get(ctx)?.delete(port);
   offlineInstances.get(ctx)?.delete(port);
+  syncRtdbPortLease(ctx, port, false);
 }
 
 export function portRtdbConnectionCounts(
@@ -334,6 +346,7 @@ export async function handleRtdbOp(
   port: PortLike,
   msg: OpMessage,
 ): Promise<void> {
+  touchRtdbPortLease(ctx, port);
   switch (msg.method) {
     case 'rtdb.get': {
       try {
@@ -482,6 +495,7 @@ export async function handleRtdbOp(
             queues!.delete(scopeKey);
             if (queues!.size === 0) {
               disconnectQueues.get(ctx)?.delete(port);
+              syncRtdbPortLease(ctx, port, false);
             }
           }
         }
