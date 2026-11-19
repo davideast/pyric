@@ -5,8 +5,9 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DependencyStore } from './dependency-store.ts';
-import { AppProcess, AppRun, freePort, portIssuer, probePort, type PortIssuer, type ProcessTiming, type SpawnChild } from './driver.ts';
+import { AppProcess, AppRun, type ProcessTiming, type SpawnChild } from './driver.ts';
 import { runTimedCommand } from './install.ts';
+import { freePort, portIssuer, probePort, type PortIssuer } from './ports.ts';
 
 /** A child that never gets a pid, so the driver sends it no signal. */
 function standIn(): ChildProcess {
