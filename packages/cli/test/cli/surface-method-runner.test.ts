@@ -22,7 +22,7 @@ import {
 import { STORAGE_SIDECAR_RELATIVE } from '../../src/bridge/server/storage-sidecar.js';
 import { initializeSandbox } from 'pyric/sandbox';
 import { deleteObject, ref as storageRef } from 'pyric/storage';
-import { getAdminStorageSandbox } from 'pyric/storage/internal';
+import { getAdminStorageSandbox, resetStorageState } from 'pyric/storage/internal';
 import { runDatabaseRulesValidate } from '../../src/cli/database-rules.js';
 import { parseArgs } from '../../src/cli/parse-args.js';
 import { runSurfaceMethod } from '../../src/cli/surface-method-runner.js';
@@ -463,6 +463,8 @@ describe('pyric storage <method> --bucket', () => {
   }
 
   it('persists an upload to a named bucket in the storage sidecar and reads it back without touching the default bucket', async () => {
+    // Clear any objects earlier tests in the same shard wrote into the shared in-memory IndexedDB.
+    await resetStorageState(getAdminStorageSandbox(initializeSandbox()));
     const payload = Buffer.from('media-cli-bytes').toString('base64');
     const uploaded = await inStorageProject('storage.uploadBytes', [
       'storage',
