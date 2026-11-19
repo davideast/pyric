@@ -8,19 +8,34 @@ import type {
   RemoteSandboxChannel,
 } from 'pyric/sandbox';
 import type { DatabaseInstance } from 'pyric/sandbox/internal';
-import { assertGettablePath, emptySpec, hasNonFiniteQueryLimit, type QuerySpec } from 'pyric/database/internal';
+import {
+  assertGettablePath,
+  emptySpec,
+  hasNonFiniteQueryLimit,
+  isDefaultQuerySpec,
+  normalizeNode,
+  type QuerySpec,
+} from 'pyric/database/internal';
 import type { PyricAdminApp } from '../app/index.js';
 import {
   createAdminServiceLifecycle,
   onAdminAppDeleted,
   type AdminServiceLifecycle,
 } from '../app/lifecycle.js';
+import { remoteDatabaseRulesControls } from './admin-rules.js';
+import {
+  AdminPathCache,
+  runRemoteAdminTransaction,
+  type AdminTransactionOnComplete,
+  type AdminTransactionUpdate,
+} from './admin-transaction.js';
 import {
   buildDatabaseShell,
   formatReferenceUrl,
   type DatabaseUrlMetadata,
 } from './database-shell.js';
 import { AdminListenerTable } from './listener-table.js';
+import { emitAdminDatabaseLog } from './logging.js';
 import {
   buildRemoteOnDisconnect,
   createRemoteConnectionState,
@@ -51,7 +66,6 @@ import {
 } from './tree-store.js';
 import {
   ADMIN_REFERENCE_BRAND,
-  notImplemented,
   validateCallbackArg,
   type Database,
   type DataSnapshot,
@@ -65,6 +79,7 @@ const REMOTE_ADMIN_LENS = { mode: 'admin' } as const;
 interface RemoteDbState {
   channel: RemoteSandboxChannel;
   instance: string | undefined;
+  cache: AdminPathCache;
   lifecycle: AdminServiceLifecycle;
   listeners: AdminListenerTable;
   connection: RemoteConnectionState;
@@ -103,6 +118,7 @@ export function getRemoteDatabase(
     state = {
       channel: sandbox.channel,
       instance: instance?.name,
+      cache: new AdminPathCache(),
       lifecycle: createAdminServiceLifecycle(app),
       listeners: new AdminListenerTable(),
       connection: createRemoteConnectionState(sandbox.channel),
@@ -115,6 +131,7 @@ export function getRemoteDatabase(
     (dbHandle, path, meta) => buildRemoteRef(state, dbHandle, path, meta),
     remoteDatabaseConnectionControls(state.channel, state.instance, state.connection),
     state.lifecycle,
+    remoteDatabaseRulesControls(state.channel, state.instance, state.lifecycle),
   );
 }
 
@@ -145,7 +162,13 @@ function buildRemoteRef(
 ): Reference {
   const canonical = joinPath(pathSegments(path));
   const segs = pathSegments(canonical);
-  const key = segs.length === 0 ? null : segs[segs.length - 1]!;
+  let key: string | null = null;
+  if (segs.length > 0) {
+    const lastSeg = segs[segs.length - 1];
+    if (lastSeg !== undefined) {
+      key = lastSeg;
+    }
+  }
   const formattedUrl = formatReferenceUrl(urlMeta.originUrl, segs);
   const refAt = (p: string): Reference => buildRemoteRef(state, db, p, urlMeta);
   const listenTarget: RemoteListenTarget = {
@@ -162,6 +185,15 @@ function buildRemoteRef(
       }
       return null;
     },
+    onWireSnapshot: (snapPath, wire) => {
+      state.cache.recordValue(snapPath, normalizeNode(wire.value ?? null));
+    },
+    readWarmCachedValue: (lookupPath) => {
+      if (!state.cache.isWarm(lookupPath)) {
+        return { found: false, stored: null };
+      }
+      return { found: true, stored: state.cache.read(lookupPath) };
+    },
   };
 
   const querySurface = createQuerySurface(
@@ -173,6 +205,7 @@ function buildRemoteRef(
       async get(spec: QuerySpec): Promise<DataSnapshot> {
         assertGettablePath(canonical);
         state.lifecycle.assertActive();
+        emitAdminDatabaseLog('get', canonical);
         if (hasNonFiniteQueryLimit(spec)) {
           return new Promise<DataSnapshot>(() => {});
         }
@@ -185,12 +218,19 @@ function buildRemoteRef(
           opPayload.query = wireQuery;
         }
         const wire = (await relayRtdbOp(state, opPayload)) as RemoteWireSnapshot;
+        if (isDefaultQuerySpec(spec)) {
+          state.cache.recordValue(canonical, normalizeNode(wire.value ?? null));
+        }
         return hydrateRemoteWireSnapshot(refAt, canonical, wire);
       },
-      once: (spec, eventType, successCb, failureCallbackOrContext, context) =>
-        onceRemoteListener(listenTarget, spec, eventType, successCb, failureCallbackOrContext, context),
-      on: (spec, eventType, callback, cancelCallbackOrContext, context) =>
-        attachRemoteListener(listenTarget, spec, eventType, callback, cancelCallbackOrContext, context),
+      once: (spec, eventType, successCb, failureCallbackOrContext, context) => {
+        emitAdminDatabaseLog('once', canonical);
+        return onceRemoteListener(listenTarget, spec, eventType, successCb, failureCallbackOrContext, context);
+      },
+      on: (spec, eventType, callback, cancelCallbackOrContext, context) => {
+        emitAdminDatabaseLog('on', canonical);
+        return attachRemoteListener(listenTarget, spec, eventType, callback, cancelCallbackOrContext, context);
+      },
       off: (spec, eventType, callback, context) =>
         detachRemoteListener(listenTarget, spec, eventType, callback, context),
     },
@@ -215,6 +255,7 @@ function buildRemoteRef(
     set(value: unknown, onComplete?: (err: Error | null) => void): Promise<void> {
       validateCallbackArg('Reference.set', 'onComplete', onComplete, true);
       const stored = validateValueArg('set', segs, value);
+      emitAdminDatabaseLog('set', canonical);
       const deleted = assertActivePromise(state.lifecycle);
       if (deleted !== null) {
         return withOnComplete(deleted, onComplete);
@@ -224,7 +265,9 @@ function buildRemoteRef(
           method: 'rtdb.set',
           path: canonical,
           value: stored,
-        }).then(() => undefined),
+        }).then(() => {
+          state.cache.recordValue(canonical, normalizeNode(stored));
+        }),
         onComplete,
       );
     },
@@ -232,6 +275,7 @@ function buildRemoteRef(
     update(values: object, onComplete?: (err: Error | null) => void): Promise<void> {
       validateCallbackArg('Reference.update', 'onComplete', onComplete, true);
       const patch = validateValuesArg(segs, values);
+      emitAdminDatabaseLog('update', canonical);
       const deleted = assertActivePromise(state.lifecycle);
       if (deleted !== null) {
         return withOnComplete(deleted, onComplete);
@@ -241,13 +285,18 @@ function buildRemoteRef(
           method: 'rtdb.update',
           path: canonical,
           values: patch,
-        }).then(() => undefined),
+        }).then(() => {
+          if (Object.keys(patch).length > 0) {
+            state.cache.recordPatch(canonical, patch);
+          }
+        }),
         onComplete,
       );
     },
 
     remove(onComplete?: (err: Error | null) => void): Promise<void> {
       validateCallbackArg('Reference.remove', 'onComplete', onComplete, true);
+      emitAdminDatabaseLog('remove', canonical);
       const deleted = assertActivePromise(state.lifecycle);
       if (deleted !== null) {
         return withOnComplete(deleted, onComplete);
@@ -256,7 +305,9 @@ function buildRemoteRef(
         relayRtdbOp(state, {
           method: 'rtdb.remove',
           path: canonical,
-        }).then(() => undefined),
+        }).then(() => {
+          state.cache.recordValue(canonical, null);
+        }),
         onComplete,
       );
     },
@@ -267,6 +318,7 @@ function buildRemoteRef(
       if (value !== undefined) {
         stored = validateValueArg('push', segs, value);
       }
+      emitAdminDatabaseLog('push', canonical);
       const id = generatePushId();
       const childPath = joinPath([...segs, id]);
       const deleted = assertActivePromise(state.lifecycle);
@@ -276,12 +328,15 @@ function buildRemoteRef(
       } else if (stored === undefined) {
         write = Promise.resolve();
       } else {
+        const childStored = stored;
         write = relayRtdbOp(state, {
           method: 'rtdb.push',
           path: canonical,
           key: id,
-          value: stored,
-        }).then(() => undefined);
+          value: childStored,
+        }).then(() => {
+          state.cache.recordValue(childPath, normalizeNode(childStored));
+        });
       }
       const settledWrite = withOnComplete(write, onComplete);
       settledWrite.catch(() => {});
@@ -312,8 +367,22 @@ function buildRemoteRef(
         state.lifecycle,
       );
     },
-    transaction(..._args: unknown[]): never {
-      throw notImplemented('transaction');
+    transaction(
+      transactionUpdate: AdminTransactionUpdate,
+      onComplete?: AdminTransactionOnComplete,
+      applyLocally?: boolean,
+    ): Promise<{ committed: boolean; snapshot: DataSnapshot }> {
+      return runRemoteAdminTransaction({
+        relayOp: (op) => relayRtdbOp(state, op),
+        cache: state.cache,
+        lifecycle: state.lifecycle,
+        canonical,
+        segs,
+        refAt,
+        transactionUpdate,
+        onComplete,
+        applyLocally,
+      });
     },
     setPriority(
       priority: string | number | null,
@@ -321,6 +390,7 @@ function buildRemoteRef(
     ): Promise<void> {
       const validatedPriority = validateAdminPriorityArg('setPriority', priority);
       validateCallbackArg('Reference.setPriority', 'onComplete', onComplete, true);
+      emitAdminDatabaseLog('setPriority', canonical);
       const completionCb = onComplete as ((err: Error | null) => void) | undefined;
       const deleted = assertActivePromise(state.lifecycle);
       if (deleted !== null) {
@@ -352,6 +422,7 @@ function buildRemoteRef(
       const stored = validateValueArg('setWithPriority', segs, newVal);
       const validatedPriority = validateAdminPriorityArg('setWithPriority', newPriority);
       validateCallbackArg('Reference.setWithPriority', 'onComplete', onComplete, true);
+      emitAdminDatabaseLog('setWithPriority', canonical);
       const completionCb = onComplete as ((err: Error | null) => void) | undefined;
       const deleted = assertActivePromise(state.lifecycle);
       if (deleted !== null) {
@@ -363,7 +434,9 @@ function buildRemoteRef(
           path: canonical,
           value: stored,
           priority: validatedPriority,
-        }).then(() => undefined),
+        }).then(() => {
+          state.cache.recordValue(canonical, normalizeNode(stored));
+        }),
         completionCb,
       );
     },

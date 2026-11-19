@@ -66,6 +66,17 @@ const obsGate = createObservationGate({
       'database',
       'capture-admin-use-emulator.test.ts',
     ),
+    join(
+      import.meta.dir,
+      '..',
+      '..',
+      '..',
+      '..',
+      'pyric-admin',
+      'test',
+      'database',
+      'capture-admin-transaction-rules-and-logging.test.ts',
+    ),
     // SDK behavior scenario replays, one CDD file per capture.
     ...readdirSync(join(import.meta.dir, '..', 'cdd'))
       .filter((file) => file.startsWith('capture-') && file.endsWith('.test.ts'))
@@ -76,7 +87,7 @@ const obsGate = createObservationGate({
 describe('oracle conformance (rtdb-modular): completeness', () => {
   it('every rtdb-modular observation is covered (no silent gaps)', () => {
     const report = obsGate.report();
-    expect(report.committed.length).toBe(94);
+    expect(report.committed.length).toBe(95);
     expect(report.loadedButUnused).toEqual([]);
     expect(report.uncovered).toEqual([]);
   });

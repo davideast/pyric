@@ -501,9 +501,8 @@ export async function observeAdminTransactionRulesAndLogging(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'dedicated-rtdb'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'rtdb-admin#8',
+  rowIds: ['rtdb-admin#8'],
   description:
     'firebase-admin/database Reference.transaction, Database.getRules/getRulesJSON/setRules, and enableLogging: observes commit/abort/onComplete/defensive-clone/priority/increment/contention/validation transactions, string/object/Buffer rules round-trips with comment preservation and invalid-source rejections, and custom callback logging toggle.',
   observe() {

@@ -7,26 +7,20 @@ import {
 } from '../../probes/rtdb-modular/rtdb-modular-admin-transaction-rules-and-logging.ts';
 import { auditProbeSessionAuthModes } from '../../src/sdk-probe-runtime.ts';
 import { loadModularProbes } from '../../src/sdk-probes.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 
 const PROBE_NAME = 'rtdb-modular-admin-transaction-rules-and-logging';
 
-describe('rtdb-modular-admin-transaction-rules-and-logging staged probe', () => {
-  it('registers as a staged sdk-probes probe and passes auditProbeSessionAuthModes and expectStagedUntilCaptured', async () => {
+describe('rtdb-modular-admin-transaction-rules-and-logging linked probe', () => {
+  it('registers as a linked sdk-probes probe for rtdb-admin#8 and passes auditProbeSessionAuthModes', async () => {
     expect(adminTxRulesLoggingProbe.rig).toBe('sdk-probes');
-    expect(adminTxRulesLoggingProbe.pendingRowLink).toBe(true);
-    expect(adminTxRulesLoggingProbe.matrixRow).toBe('');
-    expect(adminTxRulesLoggingProbe.rowIds).toEqual([]);
+    expect(adminTxRulesLoggingProbe.pendingRowLink).toBeUndefined();
+    expect(adminTxRulesLoggingProbe.matrixRow).toBe('rtdb-admin#8');
+    expect(adminTxRulesLoggingProbe.rowIds).toEqual(['rtdb-admin#8']);
     expect(adminTxRulesLoggingProbe.requires).toEqual(['web-config', 'dedicated-rtdb']);
     expect(auditProbeSessionAuthModes()).toEqual([]);
 
     const sdkProbes = await loadModularProbes('sdk-probes');
     expect(sdkProbes.map((entry) => entry.id)).toContain(PROBE_NAME);
-
-    expectStagedUntilCaptured(PROBE_NAME, {
-      rig: 'sdk-probes',
-      filterFlag: '--probe',
-    });
   });
 
   it('executes observeAdminTransactionRulesAndLogging offline against firebase-admin validation and pyric sandbox harness without volatile leaks', async () => {

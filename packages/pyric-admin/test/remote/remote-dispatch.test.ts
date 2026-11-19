@@ -368,19 +368,18 @@ describe('pyric-admin remote dispatch — RTDB', () => {
     expect(b).toHaveLength(1);
   });
 
-  it('transactions keep throwing "not implemented"', async () => {
+  it('executes transactions atomically alongside child listeners and onDisconnect', async () => {
     const { app } = makeStack();
     const db = getDatabase(app);
     const ref = db.ref('x');
     const seenChildKeys: Array<string | null> = [];
-    const onAdded = ref.on('child_added', (snap) => {
-      seenChildKeys.push(snap.key);
-    });
+    const onAdded = ref.on('child_added', (snap) => { seenChildKeys.push(snap.key); });
     await ref.child('c1').set(1);
     await tick();
     expect(seenChildKeys).toEqual(['c1']);
     ref.off('child_added', onAdded);
-    expect(() => ref.transaction(() => null)).toThrow(/not implemented/);
+    const tx = await ref.child('c1').transaction((cur) => Number(cur) + 9);
+    expect([tx.committed, tx.snapshot.val()]).toEqual([true, 10]);
     expect(ref.orderByChild('y').ref.isEqual(ref)).toBe(true);
     await ref.onDisconnect().set({ status: 'away' });
     await ref.onDisconnect().cancel();

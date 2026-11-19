@@ -5,6 +5,7 @@
  */
 
 import { queryIdentifier, type QuerySpec } from 'pyric/database/internal';
+import { joinPath, pathSegments } from './tree-store.js';
 import type { EventType, SnapshotCallback } from './types.js';
 
 export interface AdminListenerEntry {
@@ -171,6 +172,28 @@ export class AdminListenerTable {
     for (const entry of removed) {
       entry.detach();
     }
+  }
+
+  hasActiveDefaultCoverage(canonical: string, excludeEntry?: AdminListenerEntry): boolean {
+    const segs = pathSegments(canonical);
+    const candidates: string[] = ['/'];
+    for (let i = 1; i <= segs.length; i += 1) {
+      candidates.push(joinPath(segs.slice(0, i)));
+    }
+    for (const candidatePath of candidates) {
+      const defaultEvents = this.byPath.get(candidatePath)?.get('default');
+      if (defaultEvents === undefined) {
+        continue;
+      }
+      for (const entries of defaultEvents.values()) {
+        for (const entry of entries) {
+          if (entry.active && entry !== excludeEntry) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
   }
 
   detachAll(): void {
