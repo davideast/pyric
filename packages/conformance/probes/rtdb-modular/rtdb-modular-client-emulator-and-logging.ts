@@ -2,14 +2,14 @@ import type { Database, DataSnapshot, EmulatorMockTokenOptions } from 'firebase/
 import type { Probe } from '../../rigs/types.ts';
 import { withRtdbProbeSession } from '../../src/sdk-probe-runtime.ts';
 
-export interface ClientCallThrowSummary {
+interface ClientCallThrowSummary {
   threw: boolean;
   isErrorInstance: boolean;
   code: string | null;
   message: string | null;
 }
 
-export interface ClientUrlCallOutcome {
+interface ClientUrlCallOutcome {
   callOutcome: ClientCallThrowSummary;
   resultingUrl: string | null;
 }
@@ -20,7 +20,7 @@ export interface ClientEmulatorHandle {
   deleteHandle(): Promise<void>;
 }
 
-export interface ClientEmulatorSdk {
+interface ClientEmulatorSdk {
   openHandle(suffix: string): ClientEmulatorHandle;
   connectDatabaseEmulator(
     db: Database,
@@ -32,7 +32,7 @@ export interface ClientEmulatorSdk {
   refFromURL(db: Database, url: string): { key: string | null; toString(): string };
 }
 
-export interface ClientLoggingProbeSubject {
+interface ClientLoggingProbeSubject {
   db: Database;
   basePath: string;
   enableLogging(logger?: boolean | ((message: string) => void), persistent?: boolean): void;
@@ -43,7 +43,7 @@ export interface ClientLoggingProbeSubject {
   runTransaction: typeof import('firebase/database').runTransaction;
 }
 
-export interface ClientEmulatorAndLoggingObservation {
+interface ClientEmulatorAndLoggingObservation {
   logging: {
     callbackToggleReturnsUndefined: boolean;
     customLoggerPersistentThrow: {
