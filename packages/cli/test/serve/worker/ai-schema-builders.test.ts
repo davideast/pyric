@@ -229,12 +229,18 @@ describe('served AI entry and SharedWorker Schema builder parity', () => {
       expect(serializeSchema(responseSchema)).toEqual(facts.objectSchemas.withOptionalJson);
 
       let resId = '';
+      let resOk = false;
+      let resValue: unknown = null;
       const hostPort: PortLike & { messages: OutboundMessage[] } = {
         messages: [],
         postMessage(msg: OutboundMessage) {
           this.messages.push(msg);
           if (msg.t === 'res') {
             resId = msg.id;
+            resOk = msg.ok;
+            if (msg.ok) {
+              resValue = msg.value;
+            }
           }
         },
       };
@@ -257,6 +263,10 @@ describe('served AI entry and SharedWorker Schema builder parity', () => {
         },
       });
       expect(resId).toBe('schema-worker-op');
+      expect(resOk).toBe(true);
+      const candidates = (resValue as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> }).candidates;
+      const firstPartText = candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+      expect(JSON.parse(firstPartText)).toEqual({ city: 'Portland', days: 3 });
     } finally {
       await deleteApp(app);
       ctx.sandbox.dispose();
