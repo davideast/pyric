@@ -1,8 +1,8 @@
 /** Mint the sandbox's download URL for one Cloud Storage object. */
 import { z } from 'zod';
 import { getDownloadURL, ref } from 'pyric/storage';
-import { pathArgument, RENAMES } from '../../arguments/storage.js';
-import { storageFor } from '../../service-handles.js';
+import { bucketArgument, checkBucket, pathArgument, RENAMES } from '../../arguments/storage.js';
+import { onBucket, selectedStorageBucket, storageAtBucket } from '../../storage-bucket.js';
 import type { MethodRecord } from '../../method-types.js';
 
 export default {
@@ -11,19 +11,21 @@ export default {
   runsIn: 'sandbox',
   sdkOrigin: 'firebase-js',
   effect: 'read',
-  signature: 'getDownloadURL(path)',
+  signature: 'getDownloadURL(path, bucket?)',
   description:
-    "The sandbox's download URL for one object, which resolves only against this sandbox: it is a data URI carrying the object's own bytes, where production returns a token-signed HTTPS URL.",
-  args: z.object({ path: pathArgument }),
+    "Mint the sandbox's download URL for one object: a data URI carrying its bytes, where production returns a token-signed HTTPS URL.",
+  args: z.object({ path: pathArgument, bucket: bucketArgument }),
   operation: 'get_storage_download_url',
   renames: RENAMES,
   example: { path: 'uploads/hello.txt' },
+  validate: (args, ctx) => checkBucket(args, ctx.fail),
   async handler(args, ctx) {
     const path = String(args.path);
-    const url = await getDownloadURL(ref(storageFor(ctx), path));
+    const selector = selectedStorageBucket(ctx, args.bucket);
+    const url = await getDownloadURL(ref(storageAtBucket(ctx, selector), path));
     return {
       ok: true,
-      summary: `Minted a download URL for ${path}`,
+      summary: onBucket(`Minted a download URL for ${path}`, selector),
       data: { path, url },
     };
   },

@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 import { z } from 'zod';
 import { ref, uploadBytes } from 'pyric/storage';
 import {
+  bucketArgument,
+  checkBucket,
   contentTypeForPath,
   decodesAsBase64,
   metadata,
@@ -12,7 +14,8 @@ import {
 import { projectPathWithin } from '../../arguments/sandbox.js';
 import { failFor } from '../../method-validation.js';
 import { operationFailure } from '../../context.js';
-import { decodeBase64, storageFor } from '../../service-handles.js';
+import { decodeBase64 } from '../../service-handles.js';
+import { onBucket, selectedStorageBucket, storageAtBucket } from '../../storage-bucket.js';
 import { quoted } from '../../closest-name.js';
 import type { Args, InvalidArguments, MethodRecord, MethodValidationContext } from '../../method-types.js';
 import type { SurfaceContext } from '../../types.js';
@@ -74,9 +77,9 @@ export default {
   runsIn: 'bridge',
   sdkOrigin: 'firebase-js',
   effect: 'write',
-  signature: 'uploadBytes(path, contentBase64? | sourcePath?, metadata?)',
+  signature: 'uploadBytes(path, contentBase64? | sourcePath?, metadata?, bucket?)',
   description:
-    "Store an object from base64-encoded bytes, or from a file inside the project directory named by sourcePath, exactly one of the two. The object path's extension supplies the content type the metadata does not name.",
+    'Store an object from base64-encoded bytes or from sourcePath inside the project directory, not both. The path extension supplies an unnamed contentType.',
   args: z.object({
     path: pathArgument,
     contentBase64: z.string().optional().describe('Base64-encoded object payload.'),
@@ -85,6 +88,7 @@ export default {
       .optional()
       .describe('Path of a file inside the project directory whose bytes are uploaded.'),
     metadata,
+    bucket: bucketArgument,
   }),
   operation: 'upload_storage_file',
   renames: RENAMES,
@@ -96,19 +100,27 @@ export default {
   validate: (args, ctx) => {
     const ambiguous = refuseAmbiguousSource(args, ctx);
     if (ambiguous !== null) return ambiguous;
-    if (args.contentBase64 === undefined) return null;
-    const content = String(args.contentBase64);
-    if (decodesAsBase64(content)) return null;
-    const shown = content.length > 40 ? `${content.slice(0, 40)}...` : content;
-    return ctx.fail(
-      `contentBase64 ${quoted(shown)} is not base64. uploadBytes carries the object bytes base64 encoded, because a tool call is JSON.`,
-      `Pass contentBase64 as the payload, base64 encoded.`,
-      'contentBase64',
-    );
+    if (args.contentBase64 !== undefined) {
+      const content = String(args.contentBase64);
+      if (!decodesAsBase64(content)) {
+        let shown = content;
+        if (content.length > 40) {
+          shown = `${content.slice(0, 40)}...`;
+        }
+        return ctx.fail(
+          `contentBase64 ${quoted(shown)} is not base64. uploadBytes carries the object bytes base64 encoded, because a tool call is JSON.`,
+          `Pass contentBase64 as the payload, base64 encoded.`,
+          'contentBase64',
+        );
+      }
+    }
+    return checkBucket(args, ctx.fail);
   },
   async handler(args, ctx) {
     const path = String(args.path);
-    const settable = metadataFor((args.metadata ?? {}) as Args, path);
+    const rawMetadata = (args.metadata ?? {}) as Args;
+    const settable = metadataFor(rawMetadata, path);
+    const selector = selectedStorageBucket(ctx, args.bucket);
 
     let bytes: Uint8Array;
     try {
@@ -119,10 +131,10 @@ export default {
       return operationFailure(`No file to upload at '${String(args.sourcePath)}'.`);
     }
 
-    const result = await uploadBytes(ref(storageFor(ctx), path), bytes, settable);
+    const result = await uploadBytes(ref(storageAtBucket(ctx, selector), path), bytes, settable);
     return {
       ok: true,
-      summary: `Uploaded ${path} (${bytes.byteLength} bytes)`,
+      summary: onBucket(`Uploaded ${path} (${bytes.byteLength} bytes)`, selector),
       data: {
         path,
         size: result.metadata.size,

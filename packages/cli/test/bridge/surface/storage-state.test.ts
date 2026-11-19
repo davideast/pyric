@@ -132,3 +132,42 @@ describe('toCustomMetadata', () => {
     expect(toCustomMetadata({})).toBeNull();
   });
 });
+
+describe('named buckets on the same sandbox', () => {
+  it('exports default records without bucket and named-bucket records with bucket, then restores each to its own bucket', async () => {
+    nextBucket += 1;
+    const sourceSandbox = initializeSandbox();
+    const sourceDefault = getAdminStorageSandbox(sourceSandbox, {
+      dbName: `pyric-storage-state-test:${nextBucket}`,
+    });
+    const sourceMedia = getAdminStorageSandbox(sourceSandbox, { bucket: 'media-bucket' });
+
+    await uploadBytes(storageRef(sourceDefault, 'default-only.txt'), BYTES, {
+      contentType: 'text/plain',
+    });
+    await uploadBytes(
+      storageRef(sourceMedia, 'media-only.txt'),
+      Uint8Array.from(Buffer.from('media bytes', 'utf8')),
+      { contentType: 'text/plain', customMetadata: { bucketRole: 'media' } },
+    );
+
+    const records = await exportStorage(sourceDefault, FIXTURE_EXPORT_DOCUMENT);
+    expect(records.map((record) => ({ bucket: record.bucket, path: record.path }))).toEqual([
+      { bucket: undefined, path: 'default-only.txt' },
+      { bucket: 'media-bucket', path: 'media-only.txt' },
+    ]);
+
+    nextBucket += 1;
+    const targetSandbox = initializeSandbox();
+    const targetDefault = getAdminStorageSandbox(targetSandbox, {
+      dbName: `pyric-storage-state-test:${nextBucket}`,
+    });
+    expect(await restoreStorage(targetDefault, records)).toBe(2);
+
+    const targetMedia = getAdminStorageSandbox(targetSandbox, { bucket: 'media-bucket' });
+    expect(await listStoredPaths(targetDefault)).toEqual(['default-only.txt']);
+    expect(await listStoredPaths(targetMedia)).toEqual(['media-only.txt']);
+    const mediaMeta = await getMetadata(storageRef(targetMedia, 'media-only.txt'));
+    expect(mediaMeta.customMetadata).toEqual({ bucketRole: 'media' });
+  });
+});
