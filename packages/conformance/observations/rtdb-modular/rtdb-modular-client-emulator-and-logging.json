@@ -1,7 +1,11 @@
 {
   "name": "rtdb-modular-client-emulator-and-logging",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "rtdb-modular#173",
+  "rowIds": [
+    "rtdb-modular#173",
+    "rtdb-modular#M32",
+    "rtdb-modular#165"
+  ],
   "description": "firebase/database modular enableLogging(logger?, persistent?) and connectDatabaseEmulator(db, host, port, options?): observes live callback log delivery across set/get/onValue/runTransaction and post-disable silence, plus pre-start HTTP emulator URL rebinding/overwrite, mockUserToken object and JWT options, custom-host refFromURL resolution, idempotent post-start repeats, and post-start or deleted-app fatal errors.",
   "observedAt": "2026-11-19T11:20:13.343Z",
   "fbSdkVersion": "12.19.0",

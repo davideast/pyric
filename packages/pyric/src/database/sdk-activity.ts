@@ -2,6 +2,7 @@ import { captureDatabaseIndexQuery } from '../indexes/service-query.js';
 import { sdkActivity, type SdkActivityHandle, type SdkActivityRecord } from '../sandbox/internal/sdk-activity.js';
 import { listenerAttachOwners, type ListenerAttribution } from '../sandbox/attribution/listener-owners.js';
 import { queryIdentifier, isQuery } from './query-shape.js';
+import { emitClientDatabaseLog } from './logging.js';
 import { targetOf } from './routing.js';
 import type { DatabaseReference, Query } from './types.js';
 
@@ -13,6 +14,7 @@ export function beginDatabaseActivity(
 ): SdkActivityHandle {
   const base = isQuery(ref) ? (ref as Query).ref : ref as DatabaseReference;
   const target = targetOf(base);
+  emitClientDatabaseLog(method, base._path);
   return sdkActivity.begin({
     app: target.activityApp ?? target,
     source: {

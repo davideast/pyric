@@ -1,9 +1,15 @@
 /** RTDB database handles, references, path validation, and query target routing. */
-import { isDefaultQuerySpec, queryIdentifier } from 'pyric/database/internal';
+import {
+  isCustomDatabaseHost,
+  isDefaultQuerySpec,
+  parseDatabaseLocationUrl,
+  queryIdentifier,
+} from 'pyric/database/internal';
 import type { InboundMessage, RtdbQuerySpec } from '../protocol.js';
 import { dataRpc, isDisconnectedPort } from './core.js';
 import { getFirestore } from './connection.js';
 import type { ClientDb, ClientPort, ClientRtdb, ClientRtdbInstance, RtdbRefHandle } from './handles.js';
+import { markWorkerDatabaseStarted, workerEmulatorLensFor } from './rtdb-controls.js';
 
 export type RtdbQueryLike = {
   readonly ref: RtdbRefHandle;
@@ -39,7 +45,12 @@ export function rtdbRpc(
   ref: { readonly port: ClientPort; readonly instance?: ClientRtdbInstance },
   msg: RtdbOpOnReference,
 ): Promise<unknown> {
-  return dataRpc(ref.port, { ...msg, ...instanceField(ref) } as InboundMessage & { t: 'op' });
+  const base = { ...msg, ...instanceField(ref) } as InboundMessage & { t: 'op' };
+  const emulatorLens = workerEmulatorLensFor(ref);
+  if (emulatorLens !== undefined && base.actAs === undefined) {
+    base.actAs = emulatorLens;
+  }
+  return dataRpc(ref.port, base);
 }
 
 interface ActiveRtdbTransaction {
@@ -221,8 +232,26 @@ export function rtdbRef(db: ClientRtdb, path?: string): RtdbRefHandle {
   if (isDisconnectedPort(db.port)) {
     throw new Error('FIREBASE FATAL ERROR: Cannot call ref on a deleted database. ');
   }
+  markWorkerDatabaseStarted(db);
   if (path !== undefined) validateRtdbPath(path);
   return makeRtdbRef(db.port, path ?? '/', db.instance);
+}
+
+export function rtdbRefFromURL(db: ClientRtdb, url: string): RtdbRefHandle {
+  if (isDisconnectedPort(db.port)) {
+    throw new Error('FIREBASE FATAL ERROR: Cannot call refFromURL on a deleted database. ');
+  }
+  const location = parseDatabaseLocationUrl(url);
+  const instance = db.instance;
+  if (instance !== undefined) {
+    const expectedHost = parseDatabaseLocationUrl(instance.url).host;
+    if (!isCustomDatabaseHost(expectedHost) && location.host !== expectedHost) {
+      throw new Error(
+        `FIREBASE FATAL ERROR: refFromURL: Host name does not match the current database: (found ${location.host} but expected ${expectedHost}) `,
+      );
+    }
+  }
+  return rtdbRef(db, location.path);
 }
 
 export function rtdbChild(parent: RtdbRefHandle, path: string): RtdbRefHandle {

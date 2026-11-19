@@ -1,6 +1,6 @@
 import { captureIndexQuery, captureDatabaseIndexQuery, sdkActivity, type SdkActivityHandle, type SdkActivityRecord } from 'pyric/sandbox/internal';
 import { activityValue, activityStructuralIdentity } from 'pyric/firestore/internal';
-import { queryIdentifier } from 'pyric/database/internal';
+import { emitClientDatabaseLog, queryIdentifier } from 'pyric/database/internal';
 import type { ListenerOwner } from 'pyric/sandbox';
 import type { DocRefHandle, CollRefHandle, QueryHandle } from './handles.js';
 import type { QueryConstraintDescriptor, FilterConstraintDescriptor } from '../protocol.js';
@@ -42,6 +42,7 @@ export function beginWorkerDatabaseActivity(
   owners: readonly ListenerOwner[] | undefined = pageListenerOwners(undefined),
 ): SdkActivityHandle {
   const { ref, query } = targetParts(target);
+  emitClientDatabaseLog(method, ref.path);
   return sdkActivity.begin({
     app: ref.port, method, kind, owners,
     source: { service: 'database', target: ref.path, isQuery: !!query,

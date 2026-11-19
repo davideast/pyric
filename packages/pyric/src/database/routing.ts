@@ -36,6 +36,7 @@ import type { AuthState, Sandbox } from 'pyric/sandbox';
 import { getAuthLens } from '../sandbox/internal/auth-lens.js';
 import type { RtdbBackend } from './sandbox/backend.js';
 import type { RtdbConnectionLifecycle } from './connection-lifecycle.js';
+import type { AppliedEmulatorConfig } from './emulator.js';
 import type { Unsubscribe } from './types.js';
 
 // ─── Brand + routing ─────────────────────────────────────────────────
@@ -55,6 +56,8 @@ export type SandboxTarget = {
   instanceUrl?: string;
   /** Fallback root URL used by `DatabaseReference#toString()` when no explicit `instanceUrl` was configured. */
   defaultRootUrl: string;
+  started?: boolean;
+  emulatorConfig?: AppliedEmulatorConfig;
 };
 export type SandboxLiveTarget = {
   kind: 'sandbox-live';
@@ -65,13 +68,15 @@ export type SandboxLiveTarget = {
   currentUser?: () => AuthState;
   onCurrentUserChanged?: (callback: (user: AuthState) => void) => Unsubscribe;
   own?: (cleanup: () => void | Promise<void>) => () => void;
-  assertUsable?: () => void;
+  assertUsable?: (apiName?: string) => void;
   admin?: boolean;
   connection: RtdbConnectionLifecycle;
   /** The instance's root URL when known, which `refFromURL` checks a URL's host against. */
   instanceUrl?: string;
   /** Fallback root URL used by `DatabaseReference#toString()` when no explicit `instanceUrl` was configured. */
   defaultRootUrl: string;
+  started?: boolean;
+  emulatorConfig?: AppliedEmulatorConfig;
 };
 export type Target = SandboxTarget | SandboxLiveTarget;
 
@@ -87,7 +92,12 @@ export function isAdminFor(t: SandboxTarget | SandboxLiveTarget): boolean {
 /** Resolve the active identity for a sandbox-flavored target. */
 export function authFor(t: SandboxTarget | SandboxLiveTarget): AuthState {
   if (t.admin) return null;
-  if (t.kind === 'sandbox') return t.auth;
+  if (t.kind === 'sandbox') {
+    if (t.emulatorConfig?.mockUserAuth !== undefined) {
+      return t.emulatorConfig.mockUserAuth;
+    }
+    return t.auth;
+  }
   const lens = getAuthLens();
   if (lens?.mode === 'admin' || lens?.mode === 'anon') return null;
   if (lens?.mode === 'as') {
@@ -96,7 +106,14 @@ export function authFor(t: SandboxTarget | SandboxLiveTarget): AuthState {
     if (lens.token !== undefined) impersonated.token = lens.token;
     return impersonated;
   }
+  if (t.emulatorConfig?.mockUserAuth !== undefined) {
+    return t.emulatorConfig.mockUserAuth;
+  }
   return t.currentUser?.() ?? t.sandbox.currentUser;
+}
+
+export function markTargetStarted(target: Target): void {
+  target.started = true;
 }
 
 const refToTarget = new WeakMap<object, Target>();
@@ -106,7 +123,7 @@ export function tag<T extends object>(obj: T, target: Target): T {
   return obj;
 }
 
-export function targetOf(refOrDb: object): Target {
+export function targetOf(refOrDb: object, apiName = 'ref'): Target {
   let target: Target | undefined;
   if (TARGET_SYMBOL in refOrDb) {
     target = (refOrDb as { [TARGET_SYMBOL]: Target })[TARGET_SYMBOL];
@@ -118,6 +135,6 @@ export function targetOf(refOrDb: object): Target {
       'pyric/database: unrecognized reference — was it produced by a factory in this package?',
     );
   }
-  if (target.kind === 'sandbox-live') target.assertUsable?.();
+  if (target.kind === 'sandbox-live') target.assertUsable?.(apiName);
   return target;
 }

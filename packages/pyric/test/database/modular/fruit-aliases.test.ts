@@ -44,12 +44,23 @@ describe('RTDB low-hanging-fruit exports (issue #149)', () => {
     expect((await get(r)).val()).toBe('while-offline');
   });
 
-  it('forceLongPolling / forceWebSockets / enableLogging are accepted no-ops', () => {
+  it('forceLongPolling / forceWebSockets are accepted no-ops and enableLogging wires logger callbacks', async () => {
     expect(() => forceLongPolling()).not.toThrow();
     expect(() => forceWebSockets()).not.toThrow();
-    expect(() => enableLogging()).not.toThrow();
-    expect(() => enableLogging(true)).not.toThrow();
-    expect(() => enableLogging((msg: string) => void msg, true)).not.toThrow();
+    expect(() => enableLogging((msg: string) => void msg, true)).toThrow(
+      /Can't turn on custom loggers persistently/,
+    );
+    const logs: string[] = [];
+    try {
+      expect(enableLogging(true)).toBeUndefined();
+      expect(enableLogging(false)).toBeUndefined();
+      expect(enableLogging((msg: string) => { logs.push(msg); }, false)).toBeUndefined();
+      const { db } = setup();
+      await set(ref(db, '/logs/ping'), 1);
+      expect(logs.length).toBeGreaterThan(0);
+    } finally {
+      enableLogging(false);
+    }
   });
 
   it('refFromURL parses the path from the URL and resolves it like ref(db, path)', async () => {
