@@ -16,7 +16,7 @@ import { retainBrowserChildren } from './browser-children.ts';
 import type { DependencyStore } from './dependency-store.ts';
 import { NESTED_INSTALL_ATTEMPT_MS, pinPyricPackages, retryOnceOnTimeout, type Tarballs, type TimedResult } from './install.ts';
 import { NESTED_PROJECTS_FILE, nestedProject } from './nested-projects.ts';
-import { freePort, runPorts, type PortIssuer } from './ports.ts';
+import { freePort, isAddressInUseOutput, runPorts, type PortIssuer } from './ports.ts';
 import {
   DEFAULT_EXIT_TIMING,
   describeProcState,
@@ -451,6 +451,26 @@ export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+const AUTO_PORT_BIND_ATTEMPTS = 3;
+
+function numberedServerName(prefix: string, count: number, customName?: string): string {
+  if (customName !== undefined) return customName;
+  if (count === 1) return prefix;
+  return `${prefix} ${count}`;
+}
+
+function isRetryableAutoPortCollision(
+  fixedPort: number | undefined,
+  attempt: number,
+  child: AppProcess,
+  port: number,
+): boolean {
+  if (fixedPort !== undefined) return false;
+  if (attempt >= AUTO_PORT_BIND_ATTEMPTS) return false;
+  if (child.running) return false;
+  return isAddressInUseOutput(child.output, port);
+}
+
 /** The environment of every app process: no inherited credentials or keys, and a fresh HOME. */
 function appEnvironment(home: string, extra: Record<string, string> = {}): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
@@ -576,6 +596,8 @@ export class AppRun implements App {
     private readonly ports: PortIssuer = runPorts,
     /** The waits every process the run starts uses. */
     private readonly timing: ProcessTiming = DEFAULT_PROCESS_TIMING,
+    /** Starts the run's server processes; tests pass a stand-in. */
+    private readonly spawnChild: SpawnChild = spawn,
   ) {}
 
   async step<T>(name: string, run: () => Promise<T> | T): Promise<T> {
@@ -600,30 +622,50 @@ export class AppRun implements App {
   }
 
   async devServer(options: DevServerOptions = {}): Promise<DevServer> {
-    const port = options.port ?? await freePort(this.ports);
     this.serverCount += 1;
-    const name = options.name ?? (this.serverCount === 1 ? 'dev server' : `dev server ${this.serverCount}`);
+    const name = numberedServerName('dev server', this.serverCount, options.name);
     const projectDir = join(this.dir, options.cwd ?? '.');
-    const child = new AppProcess(
-      name,
-      'node',
-      [join(projectDir, 'node_modules/vite/bin/vite.js'), '--host', '127.0.0.1', '--port', String(port), '--strictPort'],
-      projectDir,
-      appEnvironment(this.home, options.env),
-      spawn,
-      this.timing,
-    );
-    child.runsUntilStopped = true;
-    this.processes.push(child);
-    return this.servedHost(name, port, child, options.https === true);
+    return this.startHostOnPort(name, options.port, options.https === true, (port) => {
+      const child = new AppProcess(
+        name,
+        'node',
+        [join(projectDir, 'node_modules/vite/bin/vite.js'), '--host', '127.0.0.1', '--port', String(port), '--strictPort'],
+        projectDir,
+        appEnvironment(this.home, options.env),
+        this.spawnChild,
+        this.timing,
+      );
+      child.runsUntilStopped = true;
+      this.processes.push(child);
+      return child;
+    });
   }
 
   async sandboxServer(options: { env?: Record<string, string>; name?: string; port?: number } = {}): Promise<DevServer> {
-    const port = options.port ?? await freePort(this.ports);
     this.serverCount += 1;
-    const name = options.name ?? (this.serverCount === 1 ? 'pyric sandbox' : `pyric sandbox ${this.serverCount}`);
-    const child = this.pyricProcess(['sandbox', '--no-open', '--no-run', '--host', '127.0.0.1', '--port', String(port)], { env: options.env });
-    return this.servedHost(name, port, child);
+    const name = numberedServerName('pyric sandbox', this.serverCount, options.name);
+    return this.startHostOnPort(name, options.port, false, (port) =>
+      this.pyricProcess(['sandbox', '--no-open', '--no-run', '--host', '127.0.0.1', '--port', String(port)], { env: options.env }),
+    );
+  }
+
+  private async startHostOnPort(
+    name: string,
+    fixedPort: number | undefined,
+    https: boolean,
+    start: (port: number) => AppProcess,
+  ): Promise<DevServer> {
+    for (let attempt = 1; ; attempt += 1) {
+      const port = fixedPort ?? await freePort(this.ports);
+      const child = start(port);
+      try {
+        return await this.servedHost(name, port, child, https);
+      } catch (error) {
+        if (!isRetryableAutoPortCollision(fixedPort, attempt, child, port)) throw error;
+        const index = this.processes.indexOf(child);
+        if (index !== -1) this.processes.splice(index, 1);
+      }
+    }
   }
 
   /** Waits until a host process serves `/` and `/__pyric/init.json` on `port`, over https when `https`. */
@@ -671,7 +713,7 @@ export class AppRun implements App {
       [join('node_modules', '@pyric', 'cli', 'dist', 'cli', 'index.js'), ...args],
       this.dir,
       appEnvironment(this.home, options.env),
-      spawn,
+      this.spawnChild,
       this.timing,
     );
     this.processes.push(child);
