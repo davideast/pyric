@@ -52,6 +52,12 @@ function stateFor(ctx: HostCtx): RtdbPortLeaseState {
 }
 
 function isLeasablePagePort(ctx: HostCtx, port: PortLike): boolean {
+  // Hosted Node runtimes (`storageByteRoute === true`) own WebSocket liveness
+  // via `attachPeer` ping/timeout; SharedWorker MessagePorts have no socket
+  // heartbeat and rely on RTDB port leases.
+  if (ctx.storageByteRoute === true) {
+    return false;
+  }
   if (ctx.disconnectedPorts?.has(port) === true) {
     return false;
   }

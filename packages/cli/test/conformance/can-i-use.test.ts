@@ -22,6 +22,11 @@ describe('packaged conformance query', () => {
     });
     expect(one('onDisconnect')).toMatchObject({
       availability: 'available',
+      fidelity: 'conforms',
+      assurance: 'eligible',
+    });
+    expect(one('forceLongPolling')).toMatchObject({
+      availability: 'available',
       fidelity: 'diverged',
       assurance: 'qualified',
     });
