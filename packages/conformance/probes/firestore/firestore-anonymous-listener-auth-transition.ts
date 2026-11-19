@@ -2,7 +2,7 @@ import type { OracleRulesTarget } from '../../src/oracle-rules-session.ts';
 import type { Probe } from '../../rigs/types.ts';
 
 const FIREBASE_MANAGEMENT_SCOPE = 'https://www.googleapis.com/auth/firebase';
-const FIRESTORE_REAL_LOCK = 'firestore-real';
+const FIRESTORE_REAL_LOCK = '/tmp/pyric-firestore-real.lock';
 
 export interface AnonymousListenerAuthTransitionSubject {
   seedAdminDoc(relPath: string, data: Record<string, unknown>): Promise<void>;
