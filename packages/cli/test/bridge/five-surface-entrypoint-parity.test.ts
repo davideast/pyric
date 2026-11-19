@@ -9,17 +9,21 @@
  *    hosted runtime.
  * 2. Isolated Functions `[DEFAULT]` app initialization parity, `pyric.json`
  *    project resolution, configured default RTDB instance agreement across
- *    `listTriggers` and `fire`, and `Worker` thread sandbox connectivity.
+ *    `listTriggers` and `fire`, and `Worker` thread sandbox connectivity on
+ *    both the in-process MCP plane and the hosted `TargetRouter` plane.
  * 3. Firestore document & collection reads, Realtime Database reads, Cloud
  *    Storage metadata reads, event stream reads, and RFC 3986 percent-decoding
  *    (including malformed percent-sequence rejection) on resource templates.
  */
 import 'fake-indexeddb/auto';
-import { describe, expect, it } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve as resolvePath } from 'node:path';
 
+import {
+  createPrivateJobTmpDir,
+  removePrivateJobTmpDir,
+} from '../../../../scripts/lib/private-job-tmpdir.ts';
 import { TargetRouter } from '../../src/bridge/server/target-router.js';
 import { SURFACE_VARIANT_IDS } from '../../src/bridge/surface/index.js';
 import { createHostedRuntime } from '../../src/serve/hosted/runtime.js';
@@ -44,12 +48,137 @@ import {
   switchAdmin,
   switchAnonymous,
   uploadStorageObject,
+  type McpSurfaceClient,
 } from './five-surface-parity-harness.js';
 
+function writeFunctionsParityProject(dir: string): void {
+  const fnDir = join(dir, 'functions');
+  mkdirSync(fnDir, { recursive: true });
+  symlinkSync(
+    resolvePath(import.meta.dir, '../../../conformance/node_modules'),
+    join(fnDir, 'node_modules'),
+    'dir',
+  );
+  writeFileSync(join(dir, 'pyric.json'), JSON.stringify({ project: 'org-alpha' }));
+  writeFileSync(
+    join(dir, 'database.rules.json'),
+    JSON.stringify({ rules: { '.read': true, '.write': true } }),
+  );
+  writeFileSync(
+    join(dir, 'firebase.json'),
+    JSON.stringify({
+      functions: { source: 'functions' },
+      database: [{ instance: 'custom-rtdb', rules: 'database.rules.json' }],
+    }),
+  );
+  writeFileSync(
+    join(fnDir, 'package.json'),
+    JSON.stringify({ name: 'parity-fn', type: 'module', main: 'index.mjs' }),
+  );
+  writeFileSync(
+    join(fnDir, 'index.mjs'),
+    [
+      "import { Worker } from 'node:worker_threads';",
+      "import { getApp, getApps, initializeApp } from 'firebase-admin/app';",
+      "import { onValueCreated } from 'firebase-functions/v2/database';",
+      'const appsAtModuleLoad = getApps().length;',
+      'const cfg = JSON.parse(process.env.FIREBASE_CONFIG ?? "{}");',
+      'const defaultInstance = cfg.databaseURL ? new URL(cfg.databaseURL).hostname.split(".")[0] : "unset";',
+      'initializeApp({',
+      "  projectId: 'org-alpha',",
+      "  storageBucket: 'org-alpha-custom-bucket',",
+      "  databaseURL: 'https://custom-rtdb.firebaseio.com',",
+      '});',
+      'export const onItemCreated = onValueCreated(',
+      "  { ref: '/items/{itemId}', instance: defaultInstance },",
+      '  async (event) => {',
+      '    const workerCode = [',
+      "      \"import { parentPort, workerData } from 'node:worker_threads';\",",
+      "      \"import { initializeApp } from 'firebase-admin/app';\",",
+      "      \"import { getFirestore } from 'firebase-admin/firestore';\",",
+      "      \"const app = initializeApp({ projectId: 'org-alpha' }, 'worker-app');\",",
+      "      \"await getFirestore(app).doc('workerItems/' + workerData.itemId).set({ ok: true });\",",
+      "      'parentPort.postMessage(true);',",
+      "    ].join('\\n');",
+      '    await new Promise((resolve, reject) => {',
+      '      const worker = new Worker(workerCode, { eval: true, workerData: { itemId: event.params.itemId } });',
+      "      worker.once('message', resolve);",
+      "      worker.once('error', reject);",
+      '    });',
+      "    await event.data.ref.parent.parent.child('processed').child(event.params.itemId).set({ done: true });",
+      '    return {',
+      '      appsAtModuleLoad,',
+      '      gcloudProject: process.env.GCLOUD_PROJECT ?? null,',
+      '      storageBucket: getApp().options.storageBucket ?? null,',
+      '    };',
+      '  },',
+      ');',
+    ].join('\n'),
+  );
+}
+
+async function assertListedFunctionsTrigger(session: McpSurfaceClient): Promise<void> {
+  const listed = await listTriggersOnVariant(session);
+  expect(listed.ok).toBe(true);
+  const triggerList = listed.data as { triggers: Array<{ name: string; instance: string }> };
+  expect(triggerList.triggers).toHaveLength(1);
+  expect(triggerList.triggers[0]?.instance).toBe('custom-rtdb');
+}
+
+async function assertFiredFunctionsTrigger(
+  session: McpSurfaceClient,
+  itemId: string,
+): Promise<void> {
+  const fired = await fireTriggerOnVariant(session, 'onItemCreated', `items/${itemId}`, {
+    title: 'alpha',
+  });
+  expect(fired.ok).toBe(true);
+  const fireData = fired.data as {
+    event: { instance: string };
+    result: {
+      appsAtModuleLoad: number;
+      gcloudProject: string | null;
+      storageBucket: string | null;
+    };
+  };
+  expect(fireData.event.instance).toBe('custom-rtdb');
+  expect(fireData.result.appsAtModuleLoad).toBe(0);
+  expect(fireData.result.gcloudProject).toBe('org-alpha');
+  expect(fireData.result.storageBucket).toBe('org-alpha-custom-bucket');
+
+  const workerDoc = await readFirestoreDoc(session, `workerItems/${itemId}`);
+  expect(workerDoc.ok).toBe(true);
+  expect((workerDoc.data as { exists?: boolean }).exists).toBe(true);
+
+  const rtdbProcessed = await readDatabaseValue(session, `processed/${itemId}`);
+  expect(rtdbProcessed.ok).toBe(true);
+  expect((rtdbProcessed.data as { value?: unknown }).value).toEqual({ done: true });
+}
+
 describe('five-surface MCP entrypoint parity', () => {
+  let sharedHostedFunctionsDir = '';
+  let sharedHostedBridge: Awaited<ReturnType<typeof openHostedLoopbackBridge>> | undefined;
+
+  beforeAll(async () => {
+    sharedHostedFunctionsDir = createPrivateJobTmpDir('5surf-fn-ho');
+    writeFunctionsParityProject(sharedHostedFunctionsDir);
+    sharedHostedBridge = await openHostedLoopbackBridge(sharedHostedFunctionsDir);
+  });
+
+  afterAll(async () => {
+    if (sharedHostedBridge !== undefined) {
+      await sharedHostedBridge.close();
+      sharedHostedBridge = undefined;
+    }
+    if (sharedHostedFunctionsDir !== '') {
+      removePrivateJobTmpDir(sharedHostedFunctionsDir);
+      sharedHostedFunctionsDir = '';
+    }
+  });
+
   for (const variant of SURFACE_VARIANT_IDS) {
     it(`[${variant}] preserves caller identity tenantId, customClaims, fresh default mode, and stored uid lookup over hosted TargetRouter`, async () => {
-      const dir = mkdtempSync(join(tmpdir(), `pyric-5surf-id-${variant}-`));
+      const dir = createPrivateJobTmpDir(`5surf-id-${variant}`);
       writeFileSync(join(dir, '.firebaserc'), JSON.stringify({ projects: { default: 'org-alpha' } }));
       writeFileSync(join(dir, 'firebase.json'), JSON.stringify({}));
 
@@ -169,121 +298,68 @@ describe('five-surface MCP entrypoint parity', () => {
         await sessionA.close();
         await sessionB.close();
         await hostRuntime.close();
-        rmSync(dir, { recursive: true, force: true });
+        removePrivateJobTmpDir(dir);
       }
     });
 
-    it(`[${variant}] preserves Functions [DEFAULT] app init, pyric.json project, custom default RTDB instance, and Worker writes`, async () => {
-      const dir = mkdtempSync(join(tmpdir(), `pyric-5surf-fn-${variant}-`));
-      const fnDir = join(dir, 'functions');
-      mkdirSync(fnDir, { recursive: true });
-      symlinkSync(
-        resolvePath(import.meta.dir, '../../../conformance/node_modules'),
-        join(fnDir, 'node_modules'),
-        'dir',
-      );
-      writeFileSync(join(dir, 'pyric.json'), JSON.stringify({ project: 'org-alpha' }));
-      writeFileSync(join(dir, 'database.rules.json'), JSON.stringify({ rules: { '.read': true, '.write': true } }));
-      writeFileSync(
-        join(dir, 'firebase.json'),
-        JSON.stringify({
-          functions: { source: 'functions' },
-          database: [{ instance: 'custom-rtdb', rules: 'database.rules.json' }],
-        }),
-      );
-      writeFileSync(
-        join(fnDir, 'package.json'),
-        JSON.stringify({ name: 'parity-fn', type: 'module', main: 'index.mjs' }),
-      );
-      writeFileSync(
-        join(fnDir, 'index.mjs'),
-        [
-          "import { Worker } from 'node:worker_threads';",
-          "import { getApp, getApps, initializeApp } from 'firebase-admin/app';",
-          "import { onValueCreated } from 'firebase-functions/v2/database';",
-          'const appsAtModuleLoad = getApps().length;',
-          'const cfg = JSON.parse(process.env.FIREBASE_CONFIG ?? "{}");',
-          'const defaultInstance = cfg.databaseURL ? new URL(cfg.databaseURL).hostname.split(".")[0] : "unset";',
-          'initializeApp({',
-          "  projectId: 'org-alpha',",
-          "  storageBucket: 'org-alpha-custom-bucket',",
-          "  databaseURL: 'https://custom-rtdb.firebaseio.com',",
-          '});',
-          'export const onItemCreated = onValueCreated(',
-          "  { ref: '/items/{itemId}', instance: defaultInstance },",
-          '  async (event) => {',
-          '    const workerCode = [',
-          "      \"import { parentPort, workerData } from 'node:worker_threads';\",",
-          "      \"import { initializeApp } from 'firebase-admin/app';\",",
-          "      \"import { getFirestore } from 'firebase-admin/firestore';\",",
-          "      \"const app = initializeApp({ projectId: 'org-alpha' }, 'worker-app');\",",
-          "      \"await getFirestore(app).doc('workerItems/' + workerData.itemId).set({ ok: true });\",",
-          "      'parentPort.postMessage(true);',",
-          "    ].join('\\n');",
-          '    await new Promise((resolve, reject) => {',
-          '      const worker = new Worker(workerCode, { eval: true, workerData: { itemId: event.params.itemId } });',
-          "      worker.once('message', resolve);",
-          "      worker.once('error', reject);",
-          '    });',
-          "    await event.data.ref.parent.parent.child('processed').child(event.params.itemId).set({ done: true });",
-          '    return {',
-          '      appsAtModuleLoad,',
-          '      gcloudProject: process.env.GCLOUD_PROJECT ?? null,',
-          '      storageBucket: getApp().options.storageBucket ?? null,',
-          '    };',
-          '  },',
-          ');',
-        ].join('\n'),
-      );
-
-      const hostedBridge = await openHostedLoopbackBridge(dir);
+    it(`[${variant}] lists Functions triggers with custom default RTDB instance on the in-process plane`, async () => {
+      const dir = createPrivateJobTmpDir(`5surf-fn-ls-${variant}`);
+      writeFunctionsParityProject(dir);
       const inProcSession = await openMcpVariant(variant, dir);
-      const hostedSession = await openMcpVariant(variant, dir, hostedBridge.makeRouter());
       try {
-        for (const [planeIndex, session] of [inProcSession, hostedSession].entries()) {
-          const itemId = `k${planeIndex + 1}`;
-          const listed = await listTriggersOnVariant(session);
-          expect(listed.ok).toBe(true);
-          const triggers = (listed.data as { triggers: Array<{ name: string; instance: string }> })
-            .triggers;
-          expect(triggers).toHaveLength(1);
-          expect(triggers[0]?.instance).toBe('custom-rtdb');
-
-          const fired = await fireTriggerOnVariant(session, 'onItemCreated', `items/${itemId}`, {
-            title: 'alpha',
-          });
-          expect(fired.ok).toBe(true);
-          const fireData = fired.data as {
-            event: { instance: string };
-            result: {
-              appsAtModuleLoad: number;
-              gcloudProject: string | null;
-              storageBucket: string | null;
-            };
-          };
-          expect(fireData.event.instance).toBe('custom-rtdb');
-          expect(fireData.result.appsAtModuleLoad).toBe(0);
-          expect(fireData.result.gcloudProject).toBe('org-alpha');
-          expect(fireData.result.storageBucket).toBe('org-alpha-custom-bucket');
-
-          const workerDoc = await readFirestoreDoc(session, `workerItems/${itemId}`);
-          expect(workerDoc.ok).toBe(true);
-          expect((workerDoc.data as { exists?: boolean }).exists).toBe(true);
-
-          const rtdbProcessed = await readDatabaseValue(session, `processed/${itemId}`);
-          expect(rtdbProcessed.ok).toBe(true);
-          expect((rtdbProcessed.data as { value?: unknown }).value).toEqual({ done: true });
-        }
+        await assertListedFunctionsTrigger(inProcSession);
       } finally {
         await inProcSession.close();
+        removePrivateJobTmpDir(dir);
+      }
+    });
+
+    it(`[${variant}] lists Functions triggers with custom default RTDB instance on the hosted TargetRouter plane`, async () => {
+      if (sharedHostedBridge === undefined) {
+        throw new Error('sharedHostedBridge was not initialized');
+      }
+      const hostedSession = await openMcpVariant(
+        variant,
+        sharedHostedFunctionsDir,
+        sharedHostedBridge.makeRouter(),
+      );
+      try {
+        await assertListedFunctionsTrigger(hostedSession);
+      } finally {
         await hostedSession.close();
-        await hostedBridge.close();
-        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it(`[${variant}] fires Functions trigger with [DEFAULT] app init, pyric.json project, and Worker writes on the in-process plane`, async () => {
+      const dir = createPrivateJobTmpDir(`5surf-fn-in-${variant}`);
+      writeFunctionsParityProject(dir);
+      const inProcSession = await openMcpVariant(variant, dir);
+      try {
+        await assertFiredFunctionsTrigger(inProcSession, `in-${variant}`);
+      } finally {
+        await inProcSession.close();
+        removePrivateJobTmpDir(dir);
+      }
+    });
+
+    it(`[${variant}] fires Functions trigger with [DEFAULT] app init, pyric.json project, and Worker writes on the hosted TargetRouter plane`, async () => {
+      if (sharedHostedBridge === undefined) {
+        throw new Error('sharedHostedBridge was not initialized');
+      }
+      const hostedSession = await openMcpVariant(
+        variant,
+        sharedHostedFunctionsDir,
+        sharedHostedBridge.makeRouter(),
+      );
+      try {
+        await assertFiredFunctionsTrigger(hostedSession, `ho-${variant}`);
+      } finally {
+        await hostedSession.close();
       }
     });
 
     it(`[${variant}] reads documents, collections, database paths, storage metadata, and RFC 3986 percent-encoded resource URIs`, async () => {
-      const dir = mkdtempSync(join(tmpdir(), `pyric-5surf-res-${variant}-`));
+      const dir = createPrivateJobTmpDir(`5surf-res-${variant}`);
       const session = await openMcpVariant(variant, dir);
       try {
         expect((await setFirestoreDoc(session, 'items/item-1', { n: 1 })).ok).toBe(true);
@@ -323,7 +399,8 @@ describe('five-surface MCP entrypoint parity', () => {
 
         const collectionListing = await listFirestoreCollection(session, 'items');
         expect(collectionListing.ok).toBe(true);
-        expect(((collectionListing.data as { docs?: unknown[] }).docs ?? []).length).toBe(2);
+        const listedDocs = (collectionListing.data as { docs?: unknown[] }).docs ?? [];
+        expect(listedDocs.length).toBe(2);
 
         const subcollectionListing = await listFirestoreCollection(
           session,
@@ -331,7 +408,8 @@ describe('five-surface MCP entrypoint parity', () => {
           'orgs/org%201/members',
         );
         expect(subcollectionListing.ok).toBe(true);
-        expect(((subcollectionListing.data as { docs?: unknown[] }).docs ?? []).length).toBe(1);
+        const subcollectionDocs = (subcollectionListing.data as { docs?: unknown[] }).docs ?? [];
+        expect(subcollectionDocs.length).toBe(1);
 
         const spacedRtdb = await readDatabaseValue(
           session,
@@ -393,7 +471,7 @@ describe('five-surface MCP entrypoint parity', () => {
         }
       } finally {
         await session.close();
-        rmSync(dir, { recursive: true, force: true });
+        removePrivateJobTmpDir(dir);
       }
     });
   }
