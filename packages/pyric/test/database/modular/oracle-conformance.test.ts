@@ -21,6 +21,7 @@ const obsGate = createObservationGate({
     join(import.meta.dir, '..', 'live-auth-listeners.test.ts'),
     join(import.meta.dir, '..', 'on-disconnect.test.ts'),
     join(import.meta.dir, 'admin-query-index.test.ts'),
+    join(import.meta.dir, 'database-instances-cdd.test.ts'),
     join(import.meta.dir, 'info-write-validation.test.ts'),
     join(import.meta.dir, 'listener-lifecycle-cdd.test.ts'),
     join(import.meta.dir, 'oracle-conformance-listeners.test.ts'),
@@ -31,6 +32,7 @@ const obsGate = createObservationGate({
     join(import.meta.dir, 'oracle-conformance-transactions.test.ts'),
     join(import.meta.dir, 'priority-metadata-cdd.test.ts'),
     join(import.meta.dir, 'query-validation.test.ts'),
+    join(import.meta.dir, 'root-primitive.test.ts'),
     join(import.meta.dir, 'transaction-contention-cdd.test.ts'),
     join(import.meta.dir, '..', '..', 'sandbox', 'internal', 'instances.test.ts'),
     join(

@@ -4850,8 +4850,8 @@ const probes: Probe[] = [
   },
   {
     name: 'rtdb-modular-set-replaces-not-merges',
-    matrixRow: 'rtdb-modular #113',
-    rowIds: ['rtdb-modular#113'],
+    matrixRow: 'rtdb-modular #113, rtdb-modular#M73',
+    rowIds: ['rtdb-modular#113', 'rtdb-modular#M73'],
     description: 'set(ref, {a:1}) after set(ref, {a:1, b:2}) — verify the second set REPLACES (final state is {a:1}, NOT a merge of {a:1, b:2}).',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };

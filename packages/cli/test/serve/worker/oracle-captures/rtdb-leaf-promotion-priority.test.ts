@@ -1,9 +1,16 @@
-import { it } from 'bun:test';
+import { describe, expect, it } from 'bun:test';
 import { get, getAdminDatabase, ref } from 'pyric/database';
 import * as client from '../../../../src/serve/worker/index.js';
 import { setDatabaseRules } from '../../../../src/serve/worker/host/rules.js';
 import { connectClientToHost, makeHostCtx, sleep } from '../integration-support.js';
-import { expectReplay, load, restoreSharedWorker } from './support.ts';
+import {
+  expectReplay,
+  hostedRtdbContext,
+  load,
+  restoreSharedWorker,
+  servedRtdbContext,
+  type ServedRtdbAdminContext,
+} from './support.ts';
 
 restoreSharedWorker();
 
@@ -197,3 +204,70 @@ it('rtdb-modular-leaf-promotion-priority, served', async () => {
     },
   });
 });
+
+const ROOT_PLANES: ReadonlyArray<[string, () => Promise<ServedRtdbAdminContext>]> = [
+  ['served SharedWorker', () => servedRtdbContext()],
+  ['served Node host', () => hostedRtdbContext()],
+];
+
+for (const [planeName, createContext] of ROOT_PLANES) {
+  describe(`rtdb-modular root primitive and child promotion (${planeName}, M73)`, () => {
+    it('replays rtdb-modular-leaf-promotion-priority and rtdb-modular-set-replaces-not-merges at root ref(db)', async () => {
+      const promoObs = load('rtdb-modular-leaf-promotion-priority') as {
+        directSetPromotion: {
+          beforeServerExport: unknown;
+          afterWriterClientPriority: unknown;
+          afterWriterClientExport: unknown;
+          afterFreshClientPriority: unknown;
+          afterFreshClientExport: unknown;
+        };
+        directUpdatePromotion: {
+          beforeServerExport: unknown;
+          afterWriterClientPriority: unknown;
+          afterWriterClientExport: unknown;
+          afterFreshClientPriority: unknown;
+          afterFreshClientExport: unknown;
+        };
+      };
+      const replaceObs = load('rtdb-modular-set-replaces-not-merges') as {
+        final: Record<string, unknown>;
+        finalKeys: string[];
+        bIsAbsent: boolean;
+      };
+
+      const ctx = await createContext();
+      const reader = await ctx.newClient('root-reader');
+
+      await ctx.rtdb.setWithPriority(ctx.rtdb.ref(ctx.db), 'leaf-val', 42);
+      expect((await ctx.rtdb.get(ctx.rtdb.ref(reader.db))).exportVal()).toEqual(
+        promoObs.directSetPromotion.beforeServerExport,
+      );
+      await ctx.rtdb.set(ctx.rtdb.ref(ctx.db, 'child'), 'v1');
+      const writerAfterSet = await ctx.rtdb.get(ctx.rtdb.ref(ctx.db));
+      const readerAfterSet = await ctx.rtdb.get(ctx.rtdb.ref(reader.db));
+      expect(writerAfterSet.priority).toBe(promoObs.directSetPromotion.afterWriterClientPriority as number);
+      expect(writerAfterSet.exportVal()).toEqual(promoObs.directSetPromotion.afterWriterClientExport);
+      expect(readerAfterSet.priority).toBe(promoObs.directSetPromotion.afterFreshClientPriority as number);
+      expect(readerAfterSet.exportVal()).toEqual(promoObs.directSetPromotion.afterFreshClientExport);
+
+      await ctx.rtdb.setWithPriority(ctx.rtdb.ref(ctx.db), 99, 'prio-alpha');
+      expect((await ctx.rtdb.get(ctx.rtdb.ref(reader.db))).exportVal()).toEqual(
+        promoObs.directUpdatePromotion.beforeServerExport,
+      );
+      await ctx.rtdb.update(ctx.rtdb.ref(ctx.db), { child: 'v2' });
+      const writerAfterUpdate = await ctx.rtdb.get(ctx.rtdb.ref(ctx.db));
+      const readerAfterUpdate = await ctx.rtdb.get(ctx.rtdb.ref(reader.db));
+      expect(writerAfterUpdate.priority).toBe(promoObs.directUpdatePromotion.afterWriterClientPriority as string);
+      expect(writerAfterUpdate.exportVal()).toEqual(promoObs.directUpdatePromotion.afterWriterClientExport);
+      expect(readerAfterUpdate.priority).toBe(promoObs.directUpdatePromotion.afterFreshClientPriority as string);
+      expect(readerAfterUpdate.exportVal()).toEqual(promoObs.directUpdatePromotion.afterFreshClientExport);
+
+      await ctx.rtdb.set(ctx.rtdb.ref(ctx.db), { a: 1, b: 2 });
+      await ctx.rtdb.set(ctx.rtdb.ref(ctx.db), { a: 1 });
+      const replacedVal = (await ctx.rtdb.get(ctx.rtdb.ref(ctx.db))).val() as Record<string, unknown>;
+      expect(replacedVal).toEqual(replaceObs.final);
+      expect(Object.keys(replacedVal)).toEqual(replaceObs.finalKeys);
+      expect('b' in replacedVal).toBe(!replaceObs.bIsAbsent);
+    });
+  });
+}

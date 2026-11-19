@@ -1,11 +1,12 @@
 {
   "name": "rtdb-modular-runtime-class-identity",
-  "matrixRow": "rtdb-modular#M85, rtdb-modular#M86, rtdb-modular#M87, rtdb-modular#M88",
+  "matrixRow": "rtdb-modular#M85, rtdb-modular#M86, rtdb-modular#M87, rtdb-modular#M88, rtdb-modular#96",
   "rowIds": [
     "rtdb-modular#M85",
     "rtdb-modular#M86",
     "rtdb-modular#M87",
-    "rtdb-modular#M88"
+    "rtdb-modular#M88",
+    "rtdb-modular#96"
   ],
   "description": "Runtime constructor exports, actual-instance prototype identity, direct construction, and TransactionResult.toJSON behavior.",
   "observedAt": "2026-10-30T10:44:40.238Z",

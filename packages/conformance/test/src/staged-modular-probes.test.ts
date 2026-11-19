@@ -128,7 +128,10 @@ describe('staged modular probes (auth-admin and rtdb-modular)', () => {
 
     expect(rtdbLeafPromotionPriorityProbe.rig).toBe('sdk-probes');
     expect(rtdbLeafPromotionPriorityProbe.pendingRowLink).toBeUndefined();
-    expect(rtdbLeafPromotionPriorityProbe.rowIds).toEqual(['rtdb-modular#leaf-promotion-priority']);
+    expect(rtdbLeafPromotionPriorityProbe.rowIds).toEqual([
+      'rtdb-modular#leaf-promotion-priority',
+      'rtdb-modular#M73',
+    ]);
     expect(rtdbLeafPromotionPriorityProbe.requires).toEqual(['web-config', 'dedicated-rtdb']);
   });
 

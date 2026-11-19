@@ -34,23 +34,26 @@ describe('oracle conformance (rtdb-modular): transaction contracts', () => {
   });
 
   it('rtdb-modular-runtransaction-abort-undefined', async () => {
-    // Prod recorded snapVal: null (a speculative-run capture artifact —
-    // the sandbox's single-run snapshot reflects the actual current
-    // value, so snapVal isn't asserted here). The load-bearing facts:
-    // committed=false and the server value is PRESERVED.
     const obs = load('rtdb-modular-runtransaction-abort-undefined.json');
-    const { db } = setup();
+    const { db, sandbox } = setup();
     await set(ref(db, 'counter'), 100);
     const result = await runTransaction<number>(ref(db, 'counter'), () => undefined);
-    expect(result.committed).toBe(obs.committed as boolean); // false
+    expect(result.committed).toBe(obs.committed as boolean);
     const afterVal = (await get(ref(db, 'counter'))).val();
-    expect(afterVal).toBe(obs.afterValOnServer as number); // 100 — preserved
+    expect(afterVal).toBe(obs.afterValOnServer as number);
     expect(result.committed === false && afterVal === 100).toBe(
       obs.abortedAndPreservedValue as boolean,
     );
+
+    await set(ref(db, 'counter-cold'), 100);
+    const coldDb = getDatabase(sandbox.withAuth({ uid: 'cold-abort-reader' }));
+    const coldAbort = await runTransaction<number>(ref(coldDb, 'counter-cold'), () => undefined);
+    expect(coldAbort.committed).toBe(obs.committed as boolean);
+    expect(coldAbort.snapshot.val()).toBe(obs.snapVal as null);
+    expect((await get(ref(db, 'counter-cold'))).val()).toBe(obs.afterValOnServer as number);
   });
 
-  it('rtdb-modular-runtransaction-current-value-arg (KNOWN DIVERGENCE: single vs speculative-double invocation)', async () => {
+  it('rtdb-modular-runtransaction-current-value-arg (cold speculative double invocation vs warm single invocation)', async () => {
     // Prod capture: for a MISSING path the update fn's `current` arrives
     // as null (NOT undefined). For a SEEDED path prod recorded TWO
     // invocations — a speculative `null` run, then the real value — so
