@@ -16,7 +16,7 @@ import { makeAuthError } from '../auth-errors.js';
 import { validateEmailFormat } from '../sandbox-credential-validators.js';
 import type { StoredUser } from '../sandbox-backend-types.js';
 
-const MISSING_PASSWORD_MESSAGE = 'A non-empty password must be provided';
+const MISSING_PASSWORD_MESSAGE = 'Error';
 const DISABLED_ACCOUNT_MESSAGE = 'The user account has been disabled by an administrator.';
 const INVALID_CREDENTIAL_MESSAGE = 'Error';
 

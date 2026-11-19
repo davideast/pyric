@@ -17,21 +17,20 @@ import {
   printModularProbePreview,
   selectModularProbes,
 } from '../../src/sdk-probes.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 
 const PROBE_ID = 'auth-signin-empty-password-error';
 
 describe('Auth signInWithEmailAndPassword empty-password probe (sdk-probes)', () => {
-  test('registers staged pendingRowLink probe metadata and CLI preview until captured', async () => {
+  test('registers linked rowIds for auth#15a and includes probe in default sdk-probes selection', async () => {
     const loaded = await loadModularProbes('sdk-probes');
     const loadedIds = loaded.map((entry) => entry.id);
     expect(loadedIds).toContain(PROBE_ID);
 
     expect(emptyPasswordSignInProbe.rig).toBe('sdk-probes');
     expect(emptyPasswordSignInProbe.requires).toEqual(['web-config', 'admin-auth']);
-    expect(emptyPasswordSignInProbe.pendingRowLink).toBe(true);
-    expect(emptyPasswordSignInProbe.matrixRow).toBe('');
-    expect(emptyPasswordSignInProbe.rowIds).toEqual([]);
+    expect(emptyPasswordSignInProbe.pendingRowLink).toBeUndefined();
+    expect(emptyPasswordSignInProbe.matrixRow).toBe('auth#15a');
+    expect(emptyPasswordSignInProbe.rowIds).toEqual(['auth#15a']);
     expect(emptyPasswordSignInProbe.description.length).toBeGreaterThan(20);
 
     const unfilteredIds = new Set(
@@ -39,18 +38,7 @@ describe('Auth signInWithEmailAndPassword empty-password probe (sdk-probes)', ()
         includeUncapturedStaged: false,
       }).map((entry) => entry.id),
     );
-
-    expectStagedUntilCaptured([PROBE_ID], {
-      rig: 'sdk-probes',
-      filterFlag: '--probe',
-      filterValueFor: (name) => name,
-      whenUncaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(false);
-      },
-      whenCaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(true);
-      },
-    });
+    expect(unfilteredIds.has(PROBE_ID)).toBe(true);
 
     const explicitSelected = selectModularProbes(loaded, ['--probe', PROBE_ID], 'sdk-probes', {
       includeUncapturedStaged: false,
@@ -102,33 +90,44 @@ describe('Auth signInWithEmailAndPassword empty-password probe (sdk-probes)', ()
       const parityArm = observed.unknownMatchesExisting as Record<string, unknown>;
       const signedInArm = observed.whileSignedInEmptyPassword as Record<string, unknown>;
 
-      expect(unknownArm.threw).toBe(true);
-      expect(unknownArm.isFirebaseError).toBe(true);
-      expect(unknownArm.code).toBe('auth/missing-password');
-      expect(unknownArm.currentUserRemainsNull).toBe(true);
-      expect(unknownArm.authStateListenerFires).toBe(0);
-      expect(unknownArm.idTokenListenerFires).toBe(0);
-      expect(String(unknownArm.message)).not.toContain(unknownEmail);
+      expect(unknownArm).toEqual({
+        threw: true,
+        errorName: 'FirebaseError',
+        isFirebaseError: true,
+        code: 'auth/missing-password',
+        message: 'Firebase: Error (auth/missing-password).',
+        currentUserRemainsNull: true,
+        authStateListenerFires: 0,
+        idTokenListenerFires: 0,
+      });
 
-      expect(existingArm.threw).toBe(true);
-      expect(existingArm.isFirebaseError).toBe(true);
-      expect(existingArm.code).toBe('auth/missing-password');
-      expect(existingArm.currentUserRemainsNull).toBe(true);
-      expect(existingArm.authStateListenerFires).toBe(0);
-      expect(existingArm.idTokenListenerFires).toBe(0);
-      expect(String(existingArm.message)).not.toContain(existingEmail);
+      expect(existingArm).toEqual({
+        threw: true,
+        errorName: 'FirebaseError',
+        isFirebaseError: true,
+        code: 'auth/missing-password',
+        message: 'Firebase: Error (auth/missing-password).',
+        currentUserRemainsNull: true,
+        authStateListenerFires: 0,
+        idTokenListenerFires: 0,
+      });
 
       expect(parityArm).toEqual({
         sameCode: true,
         sameMessage: true,
       });
 
-      expect(signedInArm.signedInUidMatches).toBe(true);
-      expect(signedInArm.threw).toBe(true);
-      expect(signedInArm.code).toBe('auth/missing-password');
-      expect(signedInArm.remainsSignedInAsExistingUid).toBe(true);
-      expect(signedInArm.authStateListenerFires).toBe(0);
-      expect(signedInArm.idTokenListenerFires).toBe(0);
+      expect(signedInArm).toEqual({
+        signedInUidMatches: true,
+        threw: true,
+        errorName: 'FirebaseError',
+        isFirebaseError: true,
+        code: 'auth/missing-password',
+        message: 'Firebase: Error (auth/missing-password).',
+        remainsSignedInAsExistingUid: true,
+        authStateListenerFires: 0,
+        idTokenListenerFires: 0,
+      });
     } finally {
       sandbox.dispose();
     }

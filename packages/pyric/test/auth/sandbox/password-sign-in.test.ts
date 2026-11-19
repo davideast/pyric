@@ -60,7 +60,7 @@ describe('verifyPasswordSignIn', () => {
       }),
     );
     expect(err.code).toBe('auth/missing-password');
-    expect(err.message).toContain('A non-empty password must be provided');
+    expect(err.message).toBe('Firebase: Error (auth/missing-password).');
     expect(lookedUp).toBe(false);
   });
 

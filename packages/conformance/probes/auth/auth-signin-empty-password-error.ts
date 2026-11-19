@@ -13,7 +13,7 @@ interface EmptyPasswordSubjectAuth {
   readonly currentUser: EmptyPasswordSubjectUser | null;
 }
 
-interface EmptyPasswordSignInProbeContext {
+export interface EmptyPasswordSignInProbeContext {
   readonly auth: EmptyPasswordSubjectAuth;
   readonly firebaseErrorCtor: abstract new (...args: never[]) => Error;
   readonly unknownEmail: string;
@@ -189,9 +189,8 @@ export async function observeEmptyPasswordSignInSemantics(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'admin-auth'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'auth#15a',
+  rowIds: ['auth#15a'],
   description:
     'signInWithEmailAndPassword(auth, email, "") error code, message text, currentUser preservation, and auth/idToken listener silence across both unknown email addresses and existing email-password accounts.',
   async observe() {
