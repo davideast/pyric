@@ -2,24 +2,9 @@
   "_comment": "Baseline of status-✓ COMPAT rows tolerated by the CI gate (packages/conformance/src/audit-gate.ts), from both audit.ts worklists: high-risk unverified rows (score >= 2, ✓ status, no oracle/test evidence and no explicit exception) and unit-backed evidence-tier gaps (✓ status, automation unit-backed, risk 'unobserved' or 'cited-not-replayed' — the claim outruns the observation record; the messaging#* / messaging-admin#* entries are this class). The gate fails when a PR introduces a row NOT in this list. To pay down debt: add evidence, classify an exception in packages/conformance/registry/*.ts, or downgrade the status, then remove its id here. Regenerate with `bun run packages/conformance/src/audit-gate.ts --update`.",
   "generatedFrom": "bun run packages/conformance/src/audit.ts --json",
   "ids": [
-    "firestore#92",
-    "firestore#97",
-    "firestore#98",
-    "messaging#1",
-    "messaging#11",
-    "messaging#12",
-    "messaging#13",
-    "messaging#15",
     "messaging#16",
-    "messaging#17",
     "messaging#5",
     "messaging#6",
-    "messaging#7",
-    "messaging-admin#31",
-    "messaging-admin#32",
-    "messaging-admin#33",
-    "messaging-admin#34",
-    "storage#61",
-    "storage#67"
+    "messaging#7"
   ]
 }

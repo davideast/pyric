@@ -18,4 +18,6 @@ export default row({
     "packages/cli/test/serve/storage-rules-install.test.ts",
     "test/apps/storage-per-bucket-rules/scenario.ts",
   ],
+  notes:
+    "By-design zero-config sandbox ergonomic (paired with storage#12): when both `options.storageBucket` and `bucketUrl` are omitted, production `firebase/storage` throws `storage/no-default-bucket` synchronously on `ref(storage)` (`client-storage-getstorage-bucket-url.unconfiguredStorageBucket.omitted`), whereas Pyric falls back to `'pyric-default'` so zero-config apps and sandboxes operate without requiring a bucket identifier.",
 });
