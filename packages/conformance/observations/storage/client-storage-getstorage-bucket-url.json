@@ -1,0 +1,527 @@
+{
+  "name": "client-storage-getstorage-bucket-url",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Pure offline firebase/storage getStorage(app, bucketUrl?) handle caching per bucketUrl spelling, ref().bucket and toString() resolution, synchronous storage/invalid-default-bucket validation on URLs with object paths, and unconfigured storageBucket ref() behavior with zero network calls.",
+  "observedAt": "2026-11-19T00:21:22.295Z",
+  "fbSdkVersion": "12.19.0",
+  "behavior": {
+    "fetchCalls": 0,
+    "configuredHandles": {
+      "appMatches": true,
+      "defaultMaxOperationRetryTime": 120000,
+      "defaultMaxUploadRetryTime": 600000,
+      "repeatDefaultSameHandle": true,
+      "repeatEmptyStringSameHandle": true,
+      "repeatOwnGsSameHandle": true,
+      "repeatOtherGsSameHandle": true,
+      "defaultEqualsEmptyString": false,
+      "defaultEqualsOwnGs": false,
+      "defaultEqualsOwnGsSlash": false,
+      "defaultEqualsOwnBare": false,
+      "ownGsEqualsOwnGsSlash": false,
+      "ownGsEqualsOwnBare": false,
+      "otherGsEqualsOtherGsSlash": false,
+      "otherGsEqualsOtherBare": false,
+      "otherAppSameGsDistinctHandle": true,
+      "retryMutationOnOwnGsLeavesDefaultUnchanged": true
+    },
+    "configuredBucketSpellings": {
+      "omitted": {
+        "getStorageOutcome": {
+          "threw": false,
+          "threwSynchronously": false,
+          "code": null,
+          "errorName": null,
+          "isStorageError": false,
+          "isFirebaseError": false
+        },
+        "rootRef": {
+          "threw": false,
+          "threwSynchronously": false,
+          "code": null,
+          "errorName": null,
+          "isStorageError": false,
+          "isFirebaseError": false,
+          "bucket": "buckets-default",
+          "fullPath": "",
+          "name": "",
+          "toStringValue": "gs://buckets-default/"
+        },
+        "childRef": {
+          "threw": false,
+          "threwSynchronously": false,
+          "code": null,
+          "errorName": null,
+          "isStorageError": false,
+          "isFirebaseError": false,
+          "bucket": "buckets-default",
+          "fullPath": "items/a.txt",
+          "name": "a.txt",
+          "toStringValue": "gs://buckets-default/items/a.txt"
+        }
+      },
+      "emptyString": {
+        "getStorageOutcome": {
+          "threw": false,
+          "threwSynchronously": false,
+          "code": null,
+          "errorName": null,
+          "isStorageError": false,
+          "isFirebaseError": false
+        },
+        "rootRef": {
+          "threw": false,
+          "threwSynchronously": false,
+          "code": null,
+          "errorName": null,
+          "isStorageError": false,
+          "isFirebaseError": false,
+          "bucket": "",
+          "fullPath": "",
+          "name": "",
+          "toStringValue": "gs:///"
+        },
+        "childRef": {
+          "threw": false,
+          "threwSynchronously": false,
+          "code": null,
+          "errorName": null,
+          "isStorageError": false,
+          "isFirebaseError": false,
+          "bucket": "",
+          "fullPath": "items/a.txt",
+          "name": "a.txt",
+          "toStringValue": "gs:///items/a.txt"
+        }
+      },
+      "ownGs": {
+        "getStorageOutcome": {
+          "threw": false,
+          "threwSynchronously": false,
+          "code": null,
+          "errorName": null,
+          "isStorageError": false,
+          "isFirebaseError": false
+        },
+        "rootRef": {
+          "threw": false,
+          "threwSynchronously": false,
+          "code": null,
+          "errorName": null,
+          "isStorageError": false,
+          "isFirebaseError": false,
+          "bucket": "buckets-default",
+          "fullPath": "",
+          "name": "",
+          "toStringValue": "gs://buckets-default/"
+        },
+        "childRef": {
+          "threw": false,
+          "threwSynchronously": false,
+          "code": null,
+          "errorName": null,
+          "isStorageError": false,
+          "isFirebaseError": false,
+          "bucket": "buckets-default",
+          "fullPath": "items/a.txt",
+          "name": "a.txt",
+          "toStringValue": "gs://buckets-default/items/a.txt"
+        }
+      },
+      "ownGsTrailingSlash": {
+        "getStorageOutcome": {
+          "threw": false,
+          "threwSynchronously": false,
+          "code": null,
+          "errorName": null,
+          "isStorageError": false,
+          "isFirebaseError": false
+        },
+        "rootRef": {
+          "threw": false,
+          "threwSynchronously": false,
+          "code": null,
+          "errorName": null,
+          "isStorageError": false,
+          "isFirebaseError": false,
+          "bucket": "buckets-default",
+          "fullPath": "",
+          "name": "",
+          "toStringValue": "gs://buckets-default/"
+        },
+        "childRef": {
+          "threw": false,
+          "threwSynchronously": false,
+          "code": null,
+          "errorName": null,
+          "isStorageError": false,
+          "isFirebaseError": false,
+          "bucket": "buckets-default",
+          "fullPath": "items/a.txt",
+          "name": "a.txt",
+          "toStringValue": "gs://buckets-default/items/a.txt"
+        }
+      },
+      "ownBare": {
+        "getStorageOutcome": {
+          "threw": false,
+          "threwSynchronously": false,
+          "code": null,
+          "errorName": null,
+          "isStorageError": false,
+          "isFirebaseError": false
+        },
+        "rootRef": {
+          "threw": false,
+          "threwSynchronously": false,
+          "code": null,
+          "errorName": null,
+          "isStorageError": false,
+          "isFirebaseError": false,
+          "bucket": "buckets-default",
+          "fullPath": "",
+          "name": "",
+          "toStringValue": "gs://buckets-default/"
+        },
+        "childRef": {
+          "threw": false,
+          "threwSynchronously": false,
+          "code": null,
+          "errorName": null,
+          "isStorageError": false,
+          "isFirebaseError": false,
+          "bucket": "buckets-default",
+          "fullPath": "items/a.txt",
+          "name": "a.txt",
+          "toStringValue": "gs://buckets-default/items/a.txt"
+        }
+      },
+      "otherGs": {
+        "getStorageOutcome": {
+          "threw": false,
+          "threwSynchronously": false,
+          "code": null,
+          "errorName": null,
+          "isStorageError": false,
+          "isFirebaseError": false
+        },
+        "rootRef": {
+          "threw": false,
+          "threwSynchronously": false,
+          "code": null,
+          "errorName": null,
+          "isStorageError": false,
+          "isFirebaseError": false,
+          "bucket": "media-bucket",
+          "fullPath": "",
+          "name": "",
+          "toStringValue": "gs://media-bucket/"
+        },
+        "childRef": {
+          "threw": false,
+          "threwSynchronously": false,
+          "code": null,
+          "errorName": null,
+          "isStorageError": false,
+          "isFirebaseError": false,
+          "bucket": "media-bucket",
+          "fullPath": "items/a.txt",
+          "name": "a.txt",
+          "toStringValue": "gs://media-bucket/items/a.txt"
+        }
+      },
+      "otherGsTrailingSlash": {
+        "getStorageOutcome": {
+          "threw": false,
+          "threwSynchronously": false,
+          "code": null,
+          "errorName": null,
+          "isStorageError": false,
+          "isFirebaseError": false
+        },
+        "rootRef": {
+          "threw": false,
+          "threwSynchronously": false,
+          "code": null,
+          "errorName": null,
+          "isStorageError": false,
+          "isFirebaseError": false,
+          "bucket": "media-bucket",
+          "fullPath": "",
+          "name": "",
+          "toStringValue": "gs://media-bucket/"
+        },
+        "childRef": {
+          "threw": false,
+          "threwSynchronously": false,
+          "code": null,
+          "errorName": null,
+          "isStorageError": false,
+          "isFirebaseError": false,
+          "bucket": "media-bucket",
+          "fullPath": "items/a.txt",
+          "name": "a.txt",
+          "toStringValue": "gs://media-bucket/items/a.txt"
+        }
+      },
+      "otherBare": {
+        "getStorageOutcome": {
+          "threw": false,
+          "threwSynchronously": false,
+          "code": null,
+          "errorName": null,
+          "isStorageError": false,
+          "isFirebaseError": false
+        },
+        "rootRef": {
+          "threw": false,
+          "threwSynchronously": false,
+          "code": null,
+          "errorName": null,
+          "isStorageError": false,
+          "isFirebaseError": false,
+          "bucket": "media-bucket",
+          "fullPath": "",
+          "name": "",
+          "toStringValue": "gs://media-bucket/"
+        },
+        "childRef": {
+          "threw": false,
+          "threwSynchronously": false,
+          "code": null,
+          "errorName": null,
+          "isStorageError": false,
+          "isFirebaseError": false,
+          "bucket": "media-bucket",
+          "fullPath": "items/a.txt",
+          "name": "a.txt",
+          "toStringValue": "gs://media-bucket/items/a.txt"
+        }
+      },
+      "firebaseRootDownloadUrl": {
+        "getStorageOutcome": {
+          "threw": false,
+          "threwSynchronously": false,
+          "code": null,
+          "errorName": null,
+          "isStorageError": false,
+          "isFirebaseError": false
+        },
+        "rootRef": {
+          "threw": false,
+          "threwSynchronously": false,
+          "code": null,
+          "errorName": null,
+          "isStorageError": false,
+          "isFirebaseError": false,
+          "bucket": "media-bucket",
+          "fullPath": "",
+          "name": "",
+          "toStringValue": "gs://media-bucket/"
+        },
+        "childRef": {
+          "threw": false,
+          "threwSynchronously": false,
+          "code": null,
+          "errorName": null,
+          "isStorageError": false,
+          "isFirebaseError": false,
+          "bucket": "media-bucket",
+          "fullPath": "items/a.txt",
+          "name": "a.txt",
+          "toStringValue": "gs://media-bucket/items/a.txt"
+        }
+      },
+      "cloudStorageRootUrl": {
+        "getStorageOutcome": {
+          "threw": false,
+          "threwSynchronously": false,
+          "code": null,
+          "errorName": null,
+          "isStorageError": false,
+          "isFirebaseError": false
+        },
+        "rootRef": {
+          "threw": false,
+          "threwSynchronously": false,
+          "code": null,
+          "errorName": null,
+          "isStorageError": false,
+          "isFirebaseError": false,
+          "bucket": "https://storage.googleapis.com/media-bucket",
+          "fullPath": "",
+          "name": "",
+          "toStringValue": "gs://https://storage.googleapis.com/media-bucket/"
+        },
+        "childRef": {
+          "threw": false,
+          "threwSynchronously": false,
+          "code": null,
+          "errorName": null,
+          "isStorageError": false,
+          "isFirebaseError": false,
+          "bucket": "https://storage.googleapis.com/media-bucket",
+          "fullPath": "items/a.txt",
+          "name": "a.txt",
+          "toStringValue": "gs://https://storage.googleapis.com/media-bucket/items/a.txt"
+        }
+      }
+    },
+    "invalidBucketUrls": {
+      "gsWithObjectPath": {
+        "getStorageOutcome": {
+          "threw": true,
+          "threwSynchronously": true,
+          "code": "storage/invalid-default-bucket",
+          "errorName": "FirebaseError",
+          "isStorageError": true,
+          "isFirebaseError": true
+        },
+        "rootRef": null,
+        "childRef": null
+      },
+      "firebaseObjectDownloadUrl": {
+        "getStorageOutcome": {
+          "threw": true,
+          "threwSynchronously": true,
+          "code": "storage/invalid-default-bucket",
+          "errorName": "FirebaseError",
+          "isStorageError": true,
+          "isFirebaseError": true
+        },
+        "rootRef": null,
+        "childRef": null
+      },
+      "cloudStorageObjectUrl": {
+        "getStorageOutcome": {
+          "threw": true,
+          "threwSynchronously": true,
+          "code": "storage/invalid-default-bucket",
+          "errorName": "FirebaseError",
+          "isStorageError": true,
+          "isFirebaseError": true
+        },
+        "rootRef": null,
+        "childRef": null
+      }
+    },
+    "unconfiguredStorageBucket": {
+      "repeatOmittedSameHandle": true,
+      "omitted": {
+        "getStorageOutcome": {
+          "threw": false,
+          "threwSynchronously": false,
+          "code": null,
+          "errorName": null,
+          "isStorageError": false,
+          "isFirebaseError": false
+        },
+        "rootRef": {
+          "threw": true,
+          "threwSynchronously": true,
+          "code": "storage/no-default-bucket",
+          "errorName": "FirebaseError",
+          "isStorageError": true,
+          "isFirebaseError": true,
+          "bucket": null,
+          "fullPath": null,
+          "name": null,
+          "toStringValue": null
+        },
+        "childRef": {
+          "threw": true,
+          "threwSynchronously": true,
+          "code": "storage/no-default-bucket",
+          "errorName": "FirebaseError",
+          "isStorageError": true,
+          "isFirebaseError": true,
+          "bucket": null,
+          "fullPath": null,
+          "name": null,
+          "toStringValue": null
+        }
+      },
+      "explicitGs": {
+        "getStorageOutcome": {
+          "threw": false,
+          "threwSynchronously": false,
+          "code": null,
+          "errorName": null,
+          "isStorageError": false,
+          "isFirebaseError": false
+        },
+        "rootRef": {
+          "threw": false,
+          "threwSynchronously": false,
+          "code": null,
+          "errorName": null,
+          "isStorageError": false,
+          "isFirebaseError": false,
+          "bucket": "media-bucket",
+          "fullPath": "",
+          "name": "",
+          "toStringValue": "gs://media-bucket/"
+        },
+        "childRef": {
+          "threw": false,
+          "threwSynchronously": false,
+          "code": null,
+          "errorName": null,
+          "isStorageError": false,
+          "isFirebaseError": false,
+          "bucket": "media-bucket",
+          "fullPath": "items/a.txt",
+          "name": "a.txt",
+          "toStringValue": "gs://media-bucket/items/a.txt"
+        }
+      },
+      "explicitBare": {
+        "getStorageOutcome": {
+          "threw": false,
+          "threwSynchronously": false,
+          "code": null,
+          "errorName": null,
+          "isStorageError": false,
+          "isFirebaseError": false
+        },
+        "rootRef": {
+          "threw": false,
+          "threwSynchronously": false,
+          "code": null,
+          "errorName": null,
+          "isStorageError": false,
+          "isFirebaseError": false,
+          "bucket": "media-bucket",
+          "fullPath": "",
+          "name": "",
+          "toStringValue": "gs://media-bucket/"
+        },
+        "childRef": {
+          "threw": false,
+          "threwSynchronously": false,
+          "code": null,
+          "errorName": null,
+          "isStorageError": false,
+          "isFirebaseError": false,
+          "bucket": "media-bucket",
+          "fullPath": "items/a.txt",
+          "name": "a.txt",
+          "toStringValue": "gs://media-bucket/items/a.txt"
+        }
+      },
+      "invalidGsWithObjectPath": {
+        "getStorageOutcome": {
+          "threw": true,
+          "threwSynchronously": true,
+          "code": "storage/invalid-default-bucket",
+          "errorName": "FirebaseError",
+          "isStorageError": true,
+          "isFirebaseError": true
+        },
+        "rootRef": null,
+        "childRef": null
+      }
+    }
+  }
+}
