@@ -1,5 +1,6 @@
 import { sdkActivity, type SdkActivityHandle } from '../sandbox/internal/sdk-activity.js';
 import { scheduleClientWarmListener, withoutWarmListenerRegistration } from './client-cache-state.js';
+import { registerOfflineChildListener, registerOfflineValueListener } from './offline-client-state.js';
 import { beginDatabaseActivity } from './sdk-activity.js';
 import type { AuthState } from 'pyric/sandbox';
 import { ListenerRegistry, type ListenerRegistration } from './listener-registry.js';
@@ -175,6 +176,13 @@ function subscribeTrackedValue(
       const subscribed = target.backend.adminOnValue(path, deliver, spec, listenOptions?.event);
       return () => { unregister(); subscribed(); };
     }
+    const offlineSub = registerOfflineValueListener(
+      target,
+      path,
+      spec,
+      listenOptions?.onlyOnce === true,
+      deliver,
+    );
     let cancelHandler: ((error: Error) => void) | undefined;
     if (cancelCallback !== undefined) {
       cancelHandler = (error) => { activity.fail(); cancelCallback(error); };
@@ -182,7 +190,9 @@ function subscribeTrackedValue(
     return subscribeWithLiveAuth(
       target,
       (auth, onCanceled, replaying) => {
-        const forward = (raw: ValueListenerSnapshot): void => { if (!replaying()) deliver(raw); };
+        const forward = (raw: ValueListenerSnapshot): void => {
+          if (!replaying()) offlineSub.forwardBackend(raw);
+        };
         if (isAdminFor(target)) {
           return target.backend.adminOnValue(path, forward, spec, listenOptions?.event);
         }
@@ -192,7 +202,7 @@ function subscribeTrackedValue(
           attributionOf(listenOptions), listenOptions?.event,
         );
       },
-      unregister,
+      () => { offlineSub.close(); unregister(); },
     );
   });
 }
@@ -280,25 +290,7 @@ function onValueInternal(
   return subscribeTrackedValue(target, ref0._path, undefined, undefined, wrapper, cancelCallback, listenOptions, registryCallback, activity);
 }
 
-/**
- * `onChildAdded(ref, cb)` — subscribe to child-added events at the
- * ref's path.
- *
- * Semantics (locked by oracle observations under
- * `packages/conformance/observations/rtdb-modular/rtdb-modular-onchildadded-*.json`):
- *
- *   - On subscribe, replays every existing direct child of `ref`'s path
- *     (one fire per existing key, in default priority/key order).
- *   - After subscribe, fires exactly once per new direct child write.
- *
- * Also accepts a {@link Query} (a `query(ref, ...)` with `orderBy*` /
- * `limitTo*` constraints): child events are then computed against the
- * ordered, windowed result — a child ENTERING the window fires
- * `child_added`; on subscribe the current window is replayed in window
- * order.
- *
- * Returns an unsubscribe; calling it twice is a no-op.
- */
+/** Subscribe to child-added events at the ref or query path. */
 export function onChildAdded(
   r: DatabaseReference | Query,
   cb: (snap: DataSnapshot, previousChildName: string | null) => void,
@@ -308,19 +300,7 @@ export function onChildAdded(
   return subscribeChild(r, 'child_added', cb, cancelCallbackOrOptions, options);
 }
 
-/**
- * `onChildChanged(ref, cb)` — subscribe to child-changed events.
- *
- * Semantics (oracle: `rtdb-modular-onchildchanged-fires-on-update`):
- *
- *   - No initial replay.
- *   - Fires when an existing direct child's value transitions to a
- *     NEW non-null value. Snapshot carries the NEW value.
- *   - Does NOT fire for added or removed children.
- *
- * Also accepts a {@link Query}: fires when a child that is IN the query
- * window changes value (an in-window update).
- */
+/** Subscribe to child-changed events at the ref or query path. */
 export function onChildChanged(
   r: DatabaseReference | Query,
   cb: (snap: DataSnapshot, previousChildName: string | null) => void,
@@ -330,21 +310,7 @@ export function onChildChanged(
   return subscribeChild(r, 'child_changed', cb, cancelCallbackOrOptions, options);
 }
 
-/**
- * `onChildRemoved(ref, cb)` — subscribe to child-removed events.
- *
- * Semantics (oracle: `rtdb-modular-onchildremoved-fires-on-delete`):
- *
- *   - No initial replay.
- *   - Fires when a direct child is deleted (via `remove(child)` or
- *     `set(child, null)`).
- *   - Snapshot carries the PRIOR (now-removed) value — the listener
- *     sees what was there before deletion.
- *
- * Also accepts a {@link Query}: a child LEAVING the query window (e.g.
- * displaced past a `limitTo*` boundary or filtered out) fires
- * `child_removed` carrying its prior value.
- */
+/** Subscribe to child-removed events at the ref or query path. */
 export function onChildRemoved(
   r: DatabaseReference | Query,
   cb: (snap: DataSnapshot, previousChildName: string | null) => void,
@@ -354,18 +320,7 @@ export function onChildRemoved(
   return subscribeChild(r, 'child_removed', cb, cancelCallbackOrOptions, options);
 }
 
-/**
- * `onChildMoved(ref, cb)` — subscribe to child-moved events.
- *
- * Semantics (oracle: `rtdb-modular-onchildmoved-with-orderby`):
- *
- *   - Explicit queries use their active `orderBy*` index.
- *   - Plain refs use Firebase's default priority index, so changing a
- *     child's priority can move it while an ordinary value-only write does not.
- *
- * Accepts a {@link Query} and fires when the active ordered value changes,
- * including the Firebase `previousChildName` second callback argument.
- */
+/** Subscribe to child-moved events at the ref or query path. */
 export function onChildMoved(
   r: DatabaseReference | Query,
   cb: (snap: DataSnapshot, previousChildName: string | null) => void,
@@ -534,10 +489,13 @@ function onChildEvent(
       const subscribed = target.backend.adminOnChild(event, baseRef._path, wrapper, spec);
       return () => { unregister(); subscribed(); };
     }
+    const offlineChild = registerOfflineChildListener(target, event, baseRef._path, spec, false, wrapper);
     return subscribeWithLiveAuth(
       target,
       (auth, onCanceled, replaying) => {
-        const forward = (raw: ChildEventSnapshot): void => { if (!replaying()) wrapper(raw); };
+        const forward = (raw: ChildEventSnapshot): void => {
+          if (!replaying()) offlineChild.forwardBackend(raw);
+        };
         if (isAdminFor(target)) {
           return target.backend.adminOnChild(event, baseRef._path, forward, spec);
         }
@@ -546,7 +504,7 @@ function onChildEvent(
           () => { activity.fail(); onCanceled(); },
         );
       },
-      unregister,
+      () => { offlineChild.close(); unregister(); },
     );
   });
 }

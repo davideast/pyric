@@ -8,6 +8,7 @@ import {
   isWorkerPathWarm,
   markWorkerPathsWarm,
 } from './rtdb-client-cache.js';
+import { isWorkerInstanceOffline, runWorkerOfflineTransaction } from './rtdb-offline-state.js';
 import {
   hasOverlappingActiveRtdbTransaction,
   rtdbRpc,
@@ -99,6 +100,33 @@ export function rtdbRunTransaction<T>(
     throw new TypeError('transactionUpdate must be a function');
   }
   const run = async (): Promise<RtdbTransactionResult> => {
+    if (isWorkerInstanceOffline(ref)) {
+      const applyLocally = options?.applyLocally !== false;
+      return runWorkerOfflineTransaction(
+        ref,
+        transactionUpdate,
+        applyLocally,
+        (snap) => transactionResult(false, snap),
+        async (initialInput, proposed0) =>
+          withRtdbTransactionBarrier(ref, async () => {
+            const wire0 = await rtdbRpc(ref, {
+              t: 'op',
+              id: nextId(),
+              method: 'rtdb.transactionCommit',
+              path: ref.path,
+              expected: initialInput,
+              value: proposed0,
+              applyLocally: options?.applyLocally,
+            }) as RtdbTransactionCommitReply;
+            if (!wire0.retry) {
+              markWorkerPathsWarm(ref, [ref.path]);
+              return transactionResult(wire0.committed, hydrateRtdbSnapshot(ref, wire0.snapshot));
+            }
+            markWorkerPathsWarm(ref, [ref.path]);
+            return runWarmTransactionLoop(ref, transactionUpdate, options, 1);
+          }),
+      );
+    }
     if (isWorkerPathWarm(ref, ref.path) || hasOverlappingActiveRtdbTransaction(ref)) {
       return withRtdbTransactionBarrier(ref, () =>
         runWarmTransactionLoop(ref, transactionUpdate, options, 0),

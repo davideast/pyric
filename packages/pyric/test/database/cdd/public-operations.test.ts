@@ -172,12 +172,17 @@ describe('rtdb-modular CDD: public operation rows', () => {
       committedReflectsNewValue: resultObservation.committedReflectsNewValue });
   });
   row('163', async () => {
-    const { db } = setup(); const target = api.ref(db, 'x'); const disconnect = api.ref(db, 'presence'); const values: unknown[] = [];
+    const { db, sandbox } = setup(); const observer = api.getDatabase(sandbox.withAuth({ uid: 'obs' })); const target = api.ref(db, 'x'); const disconnect = api.ref(db, 'presence'); const values: unknown[] = [];
     await api.set(disconnect, 'online'); await api.onDisconnect(disconnect).set('offline'); api.onValue(target, snap => values.push(snap.val()));
-    api.goOffline(db); expect((await api.get(disconnect)).val()).toBe('offline'); await api.set(target, 1);
-    expect([(await api.get(target)).val(), values]).toEqual([1, [null, 1]]);
+    api.goOffline(db); expect((await api.get(api.ref(observer, 'presence'))).val()).toBe('offline'); const pending = api.set(target, 1);
+    expect([(await api.get(target)).val(), (await api.get(api.ref(observer, 'x'))).val(), values]).toEqual([1, null, [null, 1]]);
+    api.goOnline(db); await pending; expect((await api.get(api.ref(observer, 'x'))).val()).toBe(1);
   });
-  row('164', async () => { const { db } = setup(); const target = api.ref(db, 'x'); await api.onDisconnect(target).set(1); api.goOffline(db); api.goOnline(db); await api.set(target, 2); api.goOffline(db); expect((await api.get(target)).val()).toBe(2); });
+  row('164', async () => {
+    const { db, sandbox } = setup(); const observer = api.getDatabase(sandbox.withAuth({ uid: 'obs' })); const target = api.ref(db, 'x');
+    await api.onDisconnect(target).set(1); api.goOffline(db); api.goOnline(db); const pending = api.set(target, 2); await pending; api.goOffline(db);
+    expect((await api.get(api.ref(observer, 'x'))).val()).toBe(2);
+  });
   row('165', () => {
     const { db } = setup();
     expect(api.connectDatabaseEmulator(db, 'localhost', 9000, { mockUserToken: { sub: 'alice' } })).toBeUndefined();

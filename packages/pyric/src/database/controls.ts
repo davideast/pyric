@@ -1,5 +1,6 @@
 import { evaluateEmulatorConnect } from './emulator.js';
 import { emitClientDatabaseLog, enableLogging } from './logging.js';
+import { setClientOffline } from './offline-client-state.js';
 import { markTargetStarted, targetOf } from './routing.js';
 import type { Database, EmulatorMockTokenOptions } from './types.js';
 
@@ -49,6 +50,7 @@ export function goOffline(db: Database): void {
   const target = targetOf(db as unknown as object, 'goOffline');
   markTargetStarted(target);
   emitClientDatabaseLog('goOffline');
+  setClientOffline(target, true);
   target.connection.goOffline();
 }
 
@@ -61,6 +63,7 @@ export function goOnline(db: Database): void {
   markTargetStarted(target);
   emitClientDatabaseLog('goOnline');
   target.connection.goOnline();
+  setClientOffline(target, false);
 }
 
 /**

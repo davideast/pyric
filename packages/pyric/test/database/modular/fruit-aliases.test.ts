@@ -30,18 +30,20 @@ describe('RTDB low-hanging-fruit exports (issue #149)', () => {
     }
   });
 
-  it('goOffline / goOnline preserve ordinary local reads and writes when no disconnect work is queued', async () => {
-    const { db } = setup();
+  it('goOffline queues outbound writes locally until goOnline flushes them to other clients', async () => {
+    const { db, sandbox } = setup();
+    const observer = getDatabase(sandbox.withAuth({ uid: 'observer' }));
     const r = ref(db, '/room/msg');
+    const obsRef = ref(observer, '/room/msg');
     await set(r, 'hello');
 
     expect(() => goOffline(db)).not.toThrow();
-    // The local data plane remains usable; connection state only owns the
-    // one-shot onDisconnect queue.
-    await set(r, 'while-offline');
+    const pendingSet = set(r, 'while-offline');
     expect((await get(r)).val()).toBe('while-offline');
+    expect((await get(obsRef)).val()).toBe('hello');
     expect(() => goOnline(db)).not.toThrow();
-    expect((await get(r)).val()).toBe('while-offline');
+    await pendingSet;
+    expect((await get(obsRef)).val()).toBe('while-offline');
   });
 
   it('forceLongPolling / forceWebSockets are accepted no-ops and enableLogging wires logger callbacks', async () => {
