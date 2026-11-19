@@ -1,0 +1,302 @@
+{
+  "name": "firestore-offline-bundle-ssr-and-clear-persistence",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Pure offline firebase/firestore loadBundle, LoadBundleTask, and namedQuery cache hydration; DocumentSnapshot.toJSON and QuerySnapshot.toJSON serialization into documentSnapshotFromJSON, querySnapshotFromJSON, and onSnapshotResume on fresh clients; and clearIndexedDbPersistence lifecycle preconditions with zero network calls.",
+  "observedAt": "2026-11-19T02:30:18.371Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "fetchCalls": 0,
+    "bundleLoading": {
+      "isLoadBundleTaskInstance": true,
+      "onProgressCompleted": true,
+      "progressEvents": [
+        {
+          "taskState": "Running",
+          "documentsLoaded": 0,
+          "totalDocuments": 3,
+          "bytesLoaded": 0,
+          "totalBytes": 1717
+        },
+        {
+          "taskState": "Running",
+          "documentsLoaded": 1,
+          "totalDocuments": 3,
+          "bytesLoaded": 1021,
+          "totalBytes": 1717
+        },
+        {
+          "taskState": "Running",
+          "documentsLoaded": 2,
+          "totalDocuments": 3,
+          "bytesLoaded": 1525,
+          "totalBytes": 1717
+        },
+        {
+          "taskState": "Running",
+          "documentsLoaded": 3,
+          "totalDocuments": 3,
+          "bytesLoaded": 1717,
+          "totalBytes": 1717
+        },
+        {
+          "taskState": "Success",
+          "documentsLoaded": 3,
+          "totalDocuments": 3,
+          "bytesLoaded": 1717,
+          "totalBytes": 1717
+        }
+      ],
+      "finalStringProgress": {
+        "taskState": "Success",
+        "documentsLoaded": 3,
+        "totalDocuments": 3,
+        "bytesLoaded": 1717,
+        "totalBytes": 1717
+      },
+      "finalBytesProgress": {
+        "taskState": "Success",
+        "documentsLoaded": 3,
+        "totalDocuments": 3,
+        "bytesLoaded": 1717,
+        "totalBytes": 1717
+      },
+      "uint8AlphaExists": true,
+      "uint8AlphaData": {
+        "title": "First Post",
+        "published": true,
+        "rank": 1
+      },
+      "arrayBufferOnNodePlatform": {
+        "threw": true,
+        "threwSynchronously": true,
+        "code": "invalid-argument",
+        "errorName": "FirebaseError",
+        "isFirestoreError": false,
+        "isFirebaseError": true
+      },
+      "malformedBundle": {
+        "threw": true,
+        "threwSynchronously": false,
+        "code": null,
+        "errorName": "Error",
+        "isFirestoreError": false,
+        "isFirebaseError": false,
+        "progressErrorInvoked": true
+      },
+      "cachedDocuments": {
+        "alpha": {
+          "exists": true,
+          "id": "alpha",
+          "fromCache": true,
+          "data": {
+            "title": "First Post",
+            "published": true,
+            "rank": 1
+          }
+        },
+        "beta": {
+          "exists": true,
+          "id": "beta",
+          "fromCache": true,
+          "data": {
+            "title": "Draft Note",
+            "published": false,
+            "rank": 2
+          }
+        },
+        "ghost": {
+          "exists": false,
+          "id": "ghost",
+          "fromCache": true,
+          "dataIsUndefined": true
+        }
+      },
+      "namedQueries": {
+        "foundIsQueryInstance": true,
+        "missingQueryIsNull": true,
+        "publishedQueryResult": {
+          "size": 1,
+          "empty": false,
+          "fromCache": true,
+          "ids": [
+            "alpha"
+          ],
+          "docsData": [
+            {
+              "title": "First Post",
+              "published": true,
+              "rank": 1
+            }
+          ]
+        }
+      }
+    },
+    "ssrSnapshotHydration": {
+      "serializedEnvelope": {
+        "docJsonType": "firestore/documentSnapshot/1.0",
+        "docJsonKeys": [
+          "bundle",
+          "bundleName",
+          "bundleSource",
+          "type"
+        ],
+        "queryJsonType": "firestore/querySnapshot/1.0",
+        "queryJsonKeys": [
+          "bundle",
+          "bundleName",
+          "bundleSource",
+          "type"
+        ]
+      },
+      "hydratedExistingDoc": {
+        "isDocumentSnapshotInstance": true,
+        "exists": true,
+        "id": "alpha",
+        "path": "articles/alpha",
+        "fromCache": false,
+        "hasPendingWrites": false,
+        "data": {
+          "title": "First Post",
+          "published": true,
+          "rank": 1
+        },
+        "titleViaGet": "First Post"
+      },
+      "hydratedMissingDoc": {
+        "serializedType": "firestore/documentSnapshot/1.0",
+        "serializedBundleIsEmpty": true,
+        "fromJsonOutcome": {
+          "threw": true,
+          "threwSynchronously": true,
+          "code": null,
+          "errorName": "Error",
+          "isFirestoreError": false,
+          "isFirebaseError": false
+        }
+      },
+      "hydratedQuerySnapshot": {
+        "isQuerySnapshotInstance": true,
+        "size": 1,
+        "empty": false,
+        "fromCache": false,
+        "hasPendingWrites": false,
+        "docs": [
+          {
+            "id": "alpha",
+            "path": "articles/alpha",
+            "isQueryDocumentSnapshotInstance": true,
+            "data": {
+              "title": "First Post",
+              "published": true,
+              "rank": 1
+            }
+          }
+        ]
+      },
+      "resumedDocumentListener": {
+        "unsubscribeReturnType": "function",
+        "snapshot": {
+          "isDocumentSnapshotInstance": true,
+          "exists": true,
+          "id": "alpha",
+          "path": "articles/alpha",
+          "fromCache": true,
+          "hasPendingWrites": false,
+          "data": {
+            "title": "First Post",
+            "published": true,
+            "rank": 1
+          }
+        }
+      },
+      "resumedQueryListener": {
+        "unsubscribeReturnType": "function",
+        "snapshot": {
+          "isQuerySnapshotInstance": true,
+          "size": 1,
+          "empty": false,
+          "fromCache": true,
+          "hasPendingWrites": false,
+          "ids": [
+            "alpha"
+          ],
+          "docsData": [
+            {
+              "title": "First Post",
+              "published": true,
+              "rank": 1
+            }
+          ]
+        }
+      },
+      "invalidSsrJsonChecks": {
+        "docFromEmptyObject": {
+          "threw": true,
+          "threwSynchronously": true,
+          "code": "invalid-argument",
+          "errorName": "FirebaseError",
+          "isFirestoreError": false,
+          "isFirebaseError": true
+        },
+        "docFromQueryJson": {
+          "threw": true,
+          "threwSynchronously": true,
+          "code": "invalid-argument",
+          "errorName": "FirebaseError",
+          "isFirestoreError": false,
+          "isFirebaseError": true
+        },
+        "queryFromEmptyObject": {
+          "threw": true,
+          "threwSynchronously": true,
+          "code": "invalid-argument",
+          "errorName": "FirebaseError",
+          "isFirestoreError": false,
+          "isFirebaseError": true
+        },
+        "queryFromDocJson": {
+          "threw": true,
+          "threwSynchronously": true,
+          "code": "invalid-argument",
+          "errorName": "FirebaseError",
+          "isFirestoreError": false,
+          "isFirebaseError": true
+        }
+      }
+    },
+    "clearPersistenceLifecycle": {
+      "beforeStart": {
+        "threw": false,
+        "threwSynchronously": false,
+        "code": null,
+        "errorName": null,
+        "isFirestoreError": false,
+        "isFirebaseError": false,
+        "isPromise": true,
+        "resolvedUndefined": true
+      },
+      "whileRunning": {
+        "threw": true,
+        "threwSynchronously": true,
+        "code": "failed-precondition",
+        "errorName": "FirebaseError",
+        "isFirestoreError": false,
+        "isFirebaseError": true,
+        "isPromise": false,
+        "resolvedUndefined": false
+      },
+      "afterTerminate": {
+        "threw": false,
+        "threwSynchronously": false,
+        "code": null,
+        "errorName": null,
+        "isFirestoreError": false,
+        "isFirebaseError": false,
+        "isPromise": true,
+        "resolvedUndefined": true
+      }
+    }
+  }
+}
