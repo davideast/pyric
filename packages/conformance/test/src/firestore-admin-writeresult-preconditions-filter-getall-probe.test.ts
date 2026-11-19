@@ -5,7 +5,6 @@ import {
   selectModularProbes,
 } from '../../src/sdk-probes.ts';
 import { auditProbeSessionAuthModes } from '../../src/sdk-probe-runtime.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 import {
   type AdminCollectionRefLike,
   type AdminDocRefLike,
@@ -367,7 +366,7 @@ function createSyntheticAdminSubject(): FirestoreAdminWriteResultFilterGetAllSub
 }
 
 describe('staged firestore-admin WriteResult, Precondition, Filter, AggregateQuery, cursor, and getAll probe', () => {
-  test('registers under sdk-probes with pendingRowLink and passes expectStagedUntilCaptured', async () => {
+  test('registers under sdk-probes with linked firestore-admin#4/#7/#8 rows', async () => {
     expect(auditProbeSessionAuthModes()).toEqual([]);
     const loaded = await loadModularProbes('sdk-probes');
     const loadedIds = loaded.map((entry) => entry.id);
@@ -375,27 +374,20 @@ describe('staged firestore-admin WriteResult, Precondition, Filter, AggregateQue
 
     expect(adminParityProbe.rig).toBe('sdk-probes');
     expect(adminParityProbe.requires).toEqual(['admin-firestore']);
-    expect(adminParityProbe.pendingRowLink).toBe(true);
-    expect(adminParityProbe.matrixRow).toBe('');
-    expect(adminParityProbe.rowIds).toEqual([]);
+    expect(adminParityProbe.pendingRowLink).toBeUndefined();
+    expect(adminParityProbe.matrixRow).toBe('firestore-admin#4');
+    expect(adminParityProbe.rowIds).toEqual([
+      'firestore-admin#4',
+      'firestore-admin#7',
+      'firestore-admin#8',
+    ]);
 
     const unfilteredIds = new Set(
       selectModularProbes(loaded, [], 'sdk-probes', {
         includeUncapturedStaged: false,
       }).map((entry) => entry.id),
     );
-
-    expectStagedUntilCaptured([PROBE_ID], {
-      rig: 'sdk-probes',
-      filterFlag: '--probe',
-      filterValueFor: (name) => name,
-      whenUncaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(false);
-      },
-      whenCaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(true);
-      },
-    });
+    expect(unfilteredIds.has(PROBE_ID)).toBe(true);
 
     const previewLines: string[] = [];
     printModularProbePreview({

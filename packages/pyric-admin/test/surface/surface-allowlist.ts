@@ -154,8 +154,6 @@ export const ALLOWLIST: readonly AllowlistGroup[] = [
     owner: 'CollectionReference',
     members: [
       'count',
-      'endAt',
-      'endBefore',
       'explain',
       'explainStream',
       'findNearest',
@@ -166,8 +164,6 @@ export const ALLOWLIST: readonly AllowlistGroup[] = [
       'onSnapshot',
       'parent',
       'select',
-      'startAfter',
-      'startAt',
       'stream',
       'withConverter',
     ],
@@ -186,8 +182,6 @@ export const ALLOWLIST: readonly AllowlistGroup[] = [
     owner: 'Query',
     members: [
       'count',
-      'endAt',
-      'endBefore',
       'explain',
       'explainStream',
       'findNearest',
@@ -196,8 +190,6 @@ export const ALLOWLIST: readonly AllowlistGroup[] = [
       'offset',
       'onSnapshot',
       'select',
-      'startAfter',
-      'startAt',
       'stream',
       'withConverter',
     ],
@@ -215,12 +207,6 @@ export const ALLOWLIST: readonly AllowlistGroup[] = [
     owner: 'QuerySnapshot',
     members: ['isEqual', 'query', 'readTime'],
     reason: 'snapshot timestamps and equality the sandbox snapshot does not carry',
-  },
-  {
-    entry: 'firestore',
-    owner: 'Transaction',
-    members: ['getAll'],
-    reason: 'multi-document reads are not modeled on transactions',
   },
   {
     entry: 'firestore',

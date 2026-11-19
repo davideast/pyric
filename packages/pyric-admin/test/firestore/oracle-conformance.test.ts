@@ -46,12 +46,22 @@ import {
   type BatchTxQueryLike,
   type FirestoreAdminBatchesTxSubject,
 } from '../../../conformance/probes/firestore-admin/firestore-admin-batches-and-transactions.ts';
+import {
+  classifyAdminParityError,
+  observeFirestoreAdminWriteResultFilterGetAll,
+  type AdminCollectionRefLike,
+  type AdminDocRefLike,
+  type FirestoreAdminWriteResultFilterGetAllSubject,
+} from '../../../conformance/probes/firestore-admin/firestore-admin-writeresult-preconditions-filter-getall.ts';
 import { deleteApp, getApps, initializeApp, type PyricAdminApp } from '../../src/app/index.js';
 import {
+  AggregateField,
   FieldPath,
   FieldValue,
+  Filter,
   getFirestore,
   Timestamp,
+  type WhereFilterOp,
 } from '../../src/firestore/index.js';
 
 const SERVE_URL = 'http://localhost:5000';
@@ -391,11 +401,53 @@ describe('pyric-admin/firestore oracle conformance (observations/firestore-admin
       );
       expect(actual).toEqual(expected);
     });
+
+    it('replays firestore-admin-writeresult-preconditions-filter-getall verbatim', async () => {
+      const expected = firestoreAdminObsGate.load<Record<string, unknown>>(
+        'firestore-admin-writeresult-preconditions-filter-getall',
+      );
+      const env = createOracleArm(arm);
+      const app = initializeApp(
+        { sandbox: env.adminSandbox, projectId: 'proj-1' },
+        `fs-admin-wf-${arm}`,
+      );
+      const db = getFirestore(app);
+      const subject: FirestoreAdminWriteResultFilterGetAllSubject = {
+        doc: (path) => db.doc(path) as unknown as AdminDocRefLike,
+        collection: (path) => db.collection(path) as unknown as AdminCollectionRefLike,
+        batch: () => db.batch() as unknown as ReturnType<FirestoreAdminWriteResultFilterGetAllSubject['batch']>,
+        runTransaction: (fn) =>
+          db.runTransaction(
+            fn as unknown as Parameters<typeof db.runTransaction>[0],
+          ) as Promise<never>,
+        filterWhere: (fieldPath, opStr, value) =>
+          Filter.where(fieldPath, opStr as WhereFilterOp, value),
+        filterOr: (...filters) => {
+          const typedFilters = filters as Filter[];
+          return Filter.or(...typedFilters);
+        },
+        filterAnd: (...filters) => {
+          const typedFilters = filters as Filter[];
+          return Filter.and(...typedFilters);
+        },
+        aggregateCount: () => AggregateField.count(),
+        aggregateSum: (field) => AggregateField.sum(field),
+        aggregateAverage: (field) => AggregateField.average(field),
+        epochZeroTimestamp: () => new Timestamp(0, 0),
+        classifyError: classifyAdminParityError,
+      };
+
+      const actual = await observeFirestoreAdminWriteResultFilterGetAll(
+        subject,
+        `pyric_oracle/replay_${arm}_wf`,
+      );
+      expect(actual).toEqual(expected);
+    });
   });
 
   it('completeness: every observations/firestore-admin/ capture is asserted', () => {
     const report = firestoreAdminObsGate.report();
-    expect(report.committed.length).toBe(6);
+    expect(report.committed.length).toBe(7);
     expect(report.loadedButUnused).toEqual([]);
     expect(report.uncovered).toEqual([]);
   });

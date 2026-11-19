@@ -28,6 +28,7 @@ import {
   type Unsubscribe,
 } from 'pyric/sandbox/admin-firestore';
 import {
+  adminDocSnapshotBrand,
   adminToRootDb,
   adminToUnderlying,
   isPlainMap,
@@ -108,6 +109,7 @@ function wrapDocSnapshotLike<
       return value;
     },
   });
+  adminDocSnapshotBrand.add(proxy);
   adminToUnderlying.set(proxy, rawSnap);
   adminToRootDb.set(proxy, rootDb);
   return proxy;
@@ -170,6 +172,7 @@ function wrapQuerySnapshotLike<
       return value;
     },
   });
+  adminDocSnapshotBrand.add(proxy);
   adminToUnderlying.set(proxy, rawSnap);
   adminToRootDb.set(proxy, rootDb);
   return proxy;

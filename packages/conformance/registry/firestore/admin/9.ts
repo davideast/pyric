@@ -3,8 +3,6 @@ import { row } from './section.ts';
 export default row({
   order: 100,
   featureKeys: [
-    'AggregateField',
-    'Filter',
     'GeoPoint',
     'GrpcStatus',
     'initializeFirestore',
@@ -14,7 +12,7 @@ export default row({
     'Firestore.recursiveDelete',
     'Firestore.bulkWriter',
   ],
-  api: 'AggregateField / Filter / GeoPoint / GrpcStatus / initializeFirestore / setLogFunction and Firestore.getAll / listCollections / recursiveDelete / terminate / bulkWriter / bundle / settings',
+  api: 'GeoPoint / GrpcStatus / initializeFirestore / setLogFunction and Firestore.getAll / listCollections / recursiveDelete / terminate / bulkWriter / bundle / settings',
   behavior:
     'Deferred `firebase-admin/firestore` top-level exports and administrative `Firestore` methods throw `PyricDeferredApiError` naming the unmodeled API instead of failing as `undefined` or silently no-oping.',
   status: 'unsupported',

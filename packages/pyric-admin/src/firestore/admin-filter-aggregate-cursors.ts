@@ -1,0 +1,337 @@
+/**
+ * Admin-SDK `Filter`, `AggregateField`, `AggregateQuery`, and cursor bound
+ * (`startAt`, `startAfter`, `endAt`, `endBefore`) adapters across local and
+ * JSON-wire remote sandboxes.
+ */
+
+import { defineDeferredMembers } from 'pyric/app/internal';
+import {
+  FieldPath as CompatFieldPath,
+  type AggregateField as CompatAggregateField,
+  type AggregateSpec,
+  type DocumentSnapshot,
+  type Filter as CompatFilter,
+  type Query,
+  type SnapshotFieldPath,
+  type WhereFilterOp,
+} from 'pyric/sandbox/admin-compat';
+import { SandboxError } from 'pyric/sandbox';
+import type { SandboxFirestore } from 'pyric/sandbox/admin-firestore';
+import { adminDocSnapshotBrand } from './admin-handle-registry.js';
+import {
+  assertQueryExecutable,
+  normalizeLegacyQueryOperand,
+  unwrapCursorSnapshotForAdmin,
+  validateAndNormalizeWhereArgs,
+  type AdminQueryMetadata,
+} from './admin-query-validation.js';
+import { nextAdminTimestamp } from './admin-write-result-preconditions.js';
+import {
+  compareFieldSegments,
+  isFieldPathInstance,
+  isPlainDocumentObject,
+  validateAndNormalizeFirestoreValue,
+  validateStringOrFieldPath,
+} from './admin-write-validation.js';
+
+const ADMIN_FILTER_NODE = Symbol('pyric.admin.firestore.filterNode');
+const ADMIN_AGGREGATE_SPEC = Symbol('pyric.admin.firestore.aggregateSpec');
+
+type InternalFilterNode =
+  | {
+      readonly kind: 'where';
+      readonly fieldPath: unknown;
+      readonly opStr: unknown;
+      readonly value: unknown;
+    }
+  | { readonly kind: 'and'; readonly filters: readonly Filter[] }
+  | { readonly kind: 'or'; readonly filters: readonly Filter[] };
+
+export class Filter {
+  readonly [ADMIN_FILTER_NODE]: InternalFilterNode;
+
+  private constructor(node: InternalFilterNode) {
+    this[ADMIN_FILTER_NODE] = node;
+  }
+
+  static where(fieldPath: SnapshotFieldPath, opStr: WhereFilterOp, value: unknown): Filter {
+    validateStringOrFieldPath('fieldPath', fieldPath);
+    return new Filter({ kind: 'where', fieldPath, opStr, value });
+  }
+
+  static or(...filters: Filter[]): Filter {
+    for (const entry of filters) {
+      if (!(entry instanceof Filter)) {
+        throw new SandboxError(
+          'invalid-argument',
+          'Function "Filter.or()" requires every argument to be a Filter.',
+        );
+      }
+    }
+    return new Filter({ kind: 'or', filters: [...filters] });
+  }
+
+  static and(...filters: Filter[]): Filter {
+    for (const entry of filters) {
+      if (!(entry instanceof Filter)) {
+        throw new SandboxError(
+          'invalid-argument',
+          'Function "Filter.and()" requires every argument to be a Filter.',
+        );
+      }
+    }
+    return new Filter({ kind: 'and', filters: [...filters] });
+  }
+}
+
+export function isAdminFilterInstance(value: unknown): value is Filter {
+  return value instanceof Filter;
+}
+
+export function compileAdminFilter(
+  filter: Filter,
+  meta: AdminQueryMetadata,
+  rootDb: SandboxFirestore,
+): CompatFilter | null {
+  const node = filter[ADMIN_FILTER_NODE];
+  if (node.kind === 'where') {
+    const normalized = validateAndNormalizeWhereArgs(
+      node.fieldPath,
+      node.opStr,
+      node.value,
+      meta,
+      rootDb,
+    );
+    return {
+      kind: 'where',
+      field: normalized.field,
+      op: normalized.op,
+      value: normalized.value,
+    };
+  }
+  const compiledChildren: CompatFilter[] = [];
+  for (const child of node.filters) {
+    const compiled = compileAdminFilter(child, meta, rootDb);
+    if (compiled !== null) {
+      compiledChildren.push(compiled);
+    }
+  }
+  if (compiledChildren.length === 0) {
+    return null;
+  }
+  return {
+    kind: node.kind,
+    filters: compiledChildren,
+  };
+}
+
+export class AggregateField {
+  readonly type = 'AggregateField';
+  readonly aggregateType: 'count' | 'sum' | 'avg';
+  readonly [ADMIN_AGGREGATE_SPEC]: CompatAggregateField;
+  private readonly segments: readonly string[] | undefined;
+
+  private constructor(
+    aggregateType: 'count' | 'sum' | 'avg',
+    spec: CompatAggregateField,
+    segments: readonly string[] | undefined,
+  ) {
+    this.aggregateType = aggregateType;
+    this[ADMIN_AGGREGATE_SPEC] = spec;
+    this.segments = segments;
+  }
+
+  static count(): AggregateField {
+    return new AggregateField('count', { kind: 'count' }, undefined);
+  }
+
+  static sum(field: string | CompatFieldPath): AggregateField {
+    const segments = validateStringOrFieldPath('field', field);
+    let normalizedField: string | CompatFieldPath = new CompatFieldPath(...segments);
+    if (typeof field === 'string') {
+      normalizedField = field;
+    }
+    return new AggregateField(
+      'sum',
+      { kind: 'sum', field: normalizedField, path: segments },
+      segments,
+    );
+  }
+
+  static average(field: string | CompatFieldPath): AggregateField {
+    const segments = validateStringOrFieldPath('field', field);
+    let normalizedField: string | CompatFieldPath = new CompatFieldPath(...segments);
+    if (typeof field === 'string') {
+      normalizedField = field;
+    }
+    return new AggregateField(
+      'avg',
+      { kind: 'average', field: normalizedField, path: segments },
+      segments,
+    );
+  }
+
+  isEqual(other: unknown): boolean {
+    if (!(other instanceof AggregateField)) {
+      return false;
+    }
+    if (this.aggregateType !== other.aggregateType) {
+      return false;
+    }
+    if (this.segments === undefined && other.segments === undefined) {
+      return true;
+    }
+    if (this.segments === undefined || other.segments === undefined) {
+      return false;
+    }
+    return compareFieldSegments(this.segments, other.segments) === 0;
+  }
+}
+
+function normalizeSingleAggregateEntry(alias: string, rawEntry: unknown): CompatAggregateField {
+  if (rawEntry instanceof AggregateField) {
+    return rawEntry[ADMIN_AGGREGATE_SPEC];
+  }
+  if (isPlainDocumentObject(rawEntry)) {
+    const rawKind = rawEntry.kind;
+    if (rawKind === 'count') {
+      return { kind: 'count' };
+    }
+    if (rawKind === 'sum' || rawKind === 'average') {
+      const rawField = rawEntry.field;
+      const segments = validateStringOrFieldPath(`aggregateSpec.${alias}`, rawField);
+      let normalizedField: string | CompatFieldPath = new CompatFieldPath(...segments);
+      if (typeof rawField === 'string' && !isFieldPathInstance(rawField)) {
+        normalizedField = rawField;
+      }
+      return { kind: rawKind, field: normalizedField, path: segments };
+    }
+  }
+  throw new SandboxError(
+    'invalid-argument',
+    `Value for argument "aggregateSpec.${alias}" is not a valid AggregateField.`,
+  );
+}
+
+export function buildAdminAggregateQuery(
+  target: Query,
+  receiverQuery: Query,
+  rawDb: SandboxFirestore,
+  rawSpec: unknown,
+  meta: AdminQueryMetadata,
+): Record<string, unknown> {
+  if (!isPlainDocumentObject(rawSpec)) {
+    throw new SandboxError(
+      'invalid-argument',
+      'Value for argument "aggregateSpec" is not a plain JavaScript object.',
+    );
+  }
+  const normalizedSpec: AggregateSpec = {};
+  for (const alias of Object.keys(rawSpec)) {
+    normalizedSpec[alias] = normalizeSingleAggregateEntry(alias, rawSpec[alias]);
+  }
+  const aggQuery: Record<string, unknown> = {
+    query: receiverQuery,
+    async get() {
+      assertQueryExecutable(meta);
+      const rawSnap = await target.aggregate(normalizedSpec);
+      const computed = rawSnap.data();
+      const readTime = nextAdminTimestamp(rawDb);
+      return {
+        query: receiverQuery,
+        readTime,
+        data: () => ({ ...computed }),
+        isEqual(other: unknown): boolean {
+          if (typeof other !== 'object' || other === null) {
+            return false;
+          }
+          const otherDataFn = (other as { data?: unknown }).data;
+          if (typeof otherDataFn !== 'function') {
+            return false;
+          }
+          const otherData = (otherDataFn as () => Record<string, unknown>).call(other);
+          const keys = Object.keys(computed);
+          if (keys.length !== Object.keys(otherData).length) {
+            return false;
+          }
+          return keys.every((key) => computed[key] === otherData[key]);
+        },
+      };
+    },
+    isEqual(other: unknown): boolean {
+      if (other === aggQuery) {
+        return true;
+      }
+      if (typeof other !== 'object' || other === null) {
+        return false;
+      }
+      return (other as { query?: unknown }).query === receiverQuery;
+    },
+  };
+  defineDeferredMembers(aggQuery, 'pyric-admin/firestore', 'AggregateQuery', {
+    async: ['explain'],
+  });
+  return aggQuery;
+}
+
+function isCursorDocumentSnapshot(value: unknown): value is DocumentSnapshot {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  if (adminDocSnapshotBrand.has(value)) {
+    return true;
+  }
+  if (isPlainDocumentObject(value)) {
+    return false;
+  }
+  const candidate = value as { data?: unknown; get?: unknown; exists?: unknown; id?: unknown };
+  return (
+    typeof candidate.data === 'function' &&
+    typeof candidate.get === 'function' &&
+    typeof candidate.exists === 'boolean' &&
+    typeof candidate.id === 'string'
+  );
+}
+
+export function applyAdminCursorArgs(
+  target: Query,
+  methodName: 'startAt' | 'startAfter' | 'endAt' | 'endBefore',
+  args: readonly unknown[],
+  rootDb: SandboxFirestore,
+): Query {
+  if (args.length === 0) {
+    throw new SandboxError(
+      'invalid-argument',
+      `Function "Query.${methodName}()" requires at least 1 argument.`,
+    );
+  }
+  const inclusive = methodName === 'startAt' || methodName === 'endAt';
+  const isStart = methodName === 'startAt' || methodName === 'startAfter';
+
+  if (args.length === 1 && isCursorDocumentSnapshot(args[0])) {
+    const unwrappedSnap = unwrapCursorSnapshotForAdmin(args[0], rootDb);
+    if (isStart) {
+      return target.startCursorFromSnapshot(unwrappedSnap, inclusive);
+    }
+    return target.endCursorFromSnapshot(unwrappedSnap, inclusive);
+  }
+
+  const normalizedValues = args.map((entry, idx) => {
+    const validated = validateAndNormalizeFirestoreValue(entry, {
+      arg: idx,
+      allowDeletes: 'none',
+      allowTransforms: false,
+      requireSentinelBrand: true,
+      level: 0,
+      pathLength: 0,
+      inArray: false,
+      directArrayElement: false,
+    });
+    return normalizeLegacyQueryOperand(validated, rootDb);
+  });
+
+  if (isStart) {
+    return target.startCursor(normalizedValues, inclusive);
+  }
+  return target.endCursor(normalizedValues, inclusive);
+}

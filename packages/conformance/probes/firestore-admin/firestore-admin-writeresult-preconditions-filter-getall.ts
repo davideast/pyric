@@ -349,9 +349,8 @@ export async function observeFirestoreAdminWriteResultFilterGetAll(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['admin-firestore'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore-admin#4',
+  rowIds: ['firestore-admin#4', 'firestore-admin#7', 'firestore-admin#8'],
   description:
     'firebase-admin/firestore WriteResult shapes and isEqual, update/delete/batch/transaction Precondition (exists and lastUpdateTime) error categories, composite Filter (where/or/and), AggregateField with Query.aggregate(spec).get(), startAt/startAfter/endAt/endBefore value and snapshot cursors, WriteBatch.commit() WriteResult[], and Transaction.getAll(...refs).',
   async observe(): Promise<Record<string, unknown>> {

@@ -40,7 +40,9 @@ describe('deleteDoc on missing doc resolves cleanly (matrix #39)', () => {
     // No doc at the path. Production firebase/firestore no-ops here;
     // sandbox used to throw. The contract is: the promise resolves,
     // no value (delete is void), nothing thrown.
-    await expect(db.doc('tickets/never-existed').delete()).resolves.toBeUndefined();
+    const res = await db.doc('tickets/never-existed').delete();
+    expect(res.writeTime).toBeDefined();
+    expect(res.isEqual(res)).toBe(true);
   });
 
   it('is idempotent — deleting twice in a row is still a no-op', async () => {
@@ -57,7 +59,8 @@ describe('deleteDoc on missing doc resolves cleanly (matrix #39)', () => {
     expect(gone.exists).toBe(false);
 
     // Second delete against the now-missing path — must not throw.
-    await expect(db.doc('tickets/T-1').delete()).resolves.toBeUndefined();
+    const secondRes = await db.doc('tickets/T-1').delete();
+    expect(secondRes.writeTime).toBeDefined();
   });
 
   it('leaves unrelated docs untouched (no side effects on miss)', async () => {
@@ -114,7 +117,9 @@ service cloud.firestore {
     const batch = db.batch();
     batch.delete(db.doc('tickets/T-ghost'));
     batch.set(db.doc('tickets/T-new'), { ownerId: 'alice', title: 'born' });
-    await expect(batch.commit()).resolves.toBeUndefined();
+    const batchResults = await batch.commit();
+    expect(batchResults).toHaveLength(2);
+    expect(batchResults.every((item) => item.writeTime !== undefined)).toBe(true);
 
     const created = await db.doc('tickets/T-new').get();
     expect(created.exists).toBe(true);

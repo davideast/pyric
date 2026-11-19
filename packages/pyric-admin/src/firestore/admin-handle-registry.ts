@@ -10,6 +10,7 @@ export const appBackedFirestoreRoots = new WeakSet<object>();
 export const wrappedDbCache = new WeakMap<SandboxFirestore, SandboxFirestore>();
 export const adminDocumentRefBrand = new WeakSet<object>();
 export const adminQueryBrand = new WeakSet<object>();
+export const adminDocSnapshotBrand = new WeakSet<object>();
 
 export function isAppBackedRoot(target: object): boolean {
   return appBackedFirestoreRoots.has(target);
