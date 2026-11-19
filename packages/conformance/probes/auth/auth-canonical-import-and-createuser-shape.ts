@@ -5,9 +5,8 @@ import { retryAuthTooManyRequests } from '../../src/oracle-run-auth-session.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'admin-auth'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'auth#3',
+  rowIds: ['auth#3', 'auth#20', 'auth#23'],
   description:
     'Unswapped canonical firebase/auth imports resolve to upstream Firebase Auth without sandbox helpers, and createUserWithEmailAndPassword auto-signs in a non-anonymous user with input email and null profile fields.',
   async observe() {
