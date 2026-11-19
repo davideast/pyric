@@ -543,9 +543,8 @@ export async function observeSocketDropInFlightFates(): Promise<SocketDropInFlig
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: [],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'rtdb-modular#HD1, rtdb-modular#HD2',
+  rowIds: ['rtdb-modular#HD1', 'rtdb-modular#HD2'],
   description:
     'Offline firebase/database WebSocket drop-fate contract over loopback RTDB v5 wire protocol: observes restoreState resend ordering (listens, in-flight writes with preserved push key, post-drop writes, queued onDisconnects, in-flight gets), fresh request IDs with stale old-ID replies ignored, unsettled non-resent in-flight onDisconnect calls, and immediate codeless Error("disconnect") transaction rejection.',
   async observe() {
