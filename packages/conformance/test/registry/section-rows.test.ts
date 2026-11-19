@@ -474,4 +474,86 @@ describe('section-rows registry assembler', () => {
       '/reg/ai/init: section contains no row files',
     );
   });
+
+  it('derives rowRef-dependent fields via rowFromRef without repeating rowRef in the row module', () => {
+    const fnSection = defineRowSection({
+      surface: 'functions-rtdb',
+      order: 10,
+      defaults: { section: '`firebase-functions/v2/database.onValueCreated`' },
+    });
+
+    const host = createVirtualHost({
+      directories: {
+        '/reg/functions-rtdb': ['on-value-created'],
+        '/reg/functions-rtdb/on-value-created': ['section.ts', '2.ts', '1.ts', '9.ts'],
+      },
+      kinds: {
+        '/reg/functions-rtdb/on-value-created': 'directory',
+        '/reg/functions-rtdb/on-value-created/section.ts': 'file',
+        '/reg/functions-rtdb/on-value-created/1.ts': 'file',
+        '/reg/functions-rtdb/on-value-created/2.ts': 'file',
+        '/reg/functions-rtdb/on-value-created/9.ts': 'file',
+      },
+      modules: {
+        '/reg/functions-rtdb/on-value-created/section.ts': { section: fnSection },
+        '/reg/functions-rtdb/on-value-created/2.ts': {
+          default: fnSection.rowFromRef(10, (rowRef) => ({
+            featureKeys: ['onValueCreated'],
+            api: 'onValueCreated(ref, handler)',
+            behavior: 'First ordered row',
+            status: 'conforms',
+            automation: 'oracle-backed',
+            evidence: `assertion set \`functions-rtdb#${rowRef}\``,
+            conformanceTests: ['packages/cli/test/functions-rtdb/oracle-conformance.test.ts'],
+          })),
+        },
+        '/reg/functions-rtdb/on-value-created/1.ts': {
+          default: fnSection.rowFromRef(20, (rowRef) => ({
+            featureKeys: ['onValueCreated'],
+            api: 'onValueCreated(ref, handler)',
+            behavior: 'Second ordered row',
+            status: 'conforms',
+            automation: 'oracle-backed',
+            evidence: `assertion set \`functions-rtdb#${rowRef}\``,
+            conformanceTests: ['packages/cli/test/functions-rtdb/oracle-conformance.test.ts'],
+          })),
+        },
+        '/reg/functions-rtdb/on-value-created/9.ts': {
+          default: fnSection.rowFromRef(undefined, (rowRef) => ({
+            featureKeys: ['onValueCreated'],
+            api: 'onValueCreated(ref, handler)',
+            behavior: 'Unordered new row',
+            status: 'conforms',
+            automation: 'oracle-backed',
+            evidence: `assertion set \`functions-rtdb#${rowRef}\``,
+            conformanceTests: ['packages/cli/test/functions-rtdb/oracle-conformance.test.ts'],
+          })),
+        },
+      },
+    });
+
+    const loaded = assembleRegistrySections('/reg/functions-rtdb', host);
+    const rows = loaded.rowsOf('on-value-created');
+    expect(rows.map((r) => r.id)).toEqual([
+      'functions-rtdb#2',
+      'functions-rtdb#1',
+      'functions-rtdb#9',
+    ]);
+    expect(rows.map((r) => r.evidence)).toEqual([
+      'assertion set `functions-rtdb#2`',
+      'assertion set `functions-rtdb#1`',
+      'assertion set `functions-rtdb#9`',
+    ]);
+
+    const illegalRecord = fnSection.rowFromRef(10, () => ({
+      featureKeys: ['onValueCreated'],
+      api: 'onValueCreated(ref, handler)',
+      behavior: 'Bad rowRef return',
+      status: 'conforms',
+      automation: 'oracle-backed',
+      evidence: 'bad',
+      rowRef: 'inline' as never,
+    }));
+    expect(() => illegalRecord.build('1')).toThrow("authored row record must not declare 'rowRef'");
+  });
 });
