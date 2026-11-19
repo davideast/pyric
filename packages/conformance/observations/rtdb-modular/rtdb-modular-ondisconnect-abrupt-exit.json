@@ -1,8 +1,9 @@
 {
   "name": "rtdb-modular-ondisconnect-abrupt-exit",
-  "matrixRow": "rtdb-modular#M84",
+  "matrixRow": "rtdb-modular#M84, rtdb-modular#RS1",
   "rowIds": [
-    "rtdb-modular#M84"
+    "rtdb-modular#M84",
+    "rtdb-modular#RS1"
   ],
   "description": "Acknowledged onDisconnect registration followed by forced writer-process termination, observed independently.",
   "observedAt": "2026-10-30T10:45:39.144Z",

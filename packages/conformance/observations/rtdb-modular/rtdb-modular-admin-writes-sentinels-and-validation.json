@@ -1,8 +1,9 @@
 {
   "name": "rtdb-modular-admin-writes-sentinels-and-validation",
-  "matrixRow": "rtdb-admin#3",
+  "matrixRow": "rtdb-admin#3, rtdb-modular#RS3",
   "rowIds": [
-    "rtdb-admin#3"
+    "rtdb-admin#3",
+    "rtdb-modular#RS3"
   ],
   "description": "firebase-admin/database writes, ServerValue sentinels, and synchronous validation: observes set, multi-path atomic update, array update merging, remove, ordered 20-char push keys, onComplete callbacks, ServerValue.TIMESTAMP and ServerValue.increment(delta), and synchronous payload/key validation throws.",
   "observedAt": "2026-11-18T06:45:46.532Z",
