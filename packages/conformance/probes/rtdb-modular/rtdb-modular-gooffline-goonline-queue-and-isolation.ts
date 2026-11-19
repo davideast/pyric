@@ -84,6 +84,11 @@ export interface GoOfflineGoOnlineContractObservation {
   };
 }
 
+export interface GoOfflineGoOnlineObservation {
+  live: GoOfflineGoOnlineContractObservation;
+  deletedGuards: DeletedDatabaseGuardsObservation;
+}
+
 function captureSyncCall(invoke: () => unknown): SyncThrowSummary {
   try {
     invoke();
@@ -470,9 +475,8 @@ export async function observeGoOfflineGoOnlineContract(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'dedicated-rtdb'],
-  matrixRow: '',
-  rowIds: [],
-  pendingRowLink: true,
+  matrixRow: 'rtdb-modular#163, rtdb-modular#164',
+  rowIds: ['rtdb-modular#163', 'rtdb-modular#164'],
   description:
     'firebase/database modular goOffline(db) and goOnline(db): observes per-client .info/connected transitions and one-shot onDisconnect drain without resurrection, offline set/update/remove local SyncTree listener firing with pending outbound Promises until goOnline flushes in FIFO order, warm-listener immediate SyncTree get() vs cold uncached get() waiting for goOnline, offline runTransaction and onDisconnect queueing, remote write listener deferral while offline, and deleted-database synchronous fatal errors.',
   observe() {

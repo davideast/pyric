@@ -4,6 +4,13 @@ import {
   markClientPathsWarm,
   updateTargetPaths,
 } from './client-cache-state.js';
+import {
+  enqueueOfflineClientSet,
+  enqueueOfflineClientSetPriority,
+  enqueueOfflineClientUpdate,
+  isClientOffline,
+  offlineClientGet,
+} from './offline-client-state.js';
 import { generatePushId } from './sandbox/push-id.js';
 import { joinPath, pathSegments, type JsonValue } from './sandbox/data-tree.js';
 import { authFor, isAdminFor, targetOf } from './routing.js';
@@ -42,27 +49,31 @@ export function get(r: DatabaseReference | Query): Promise<DataSnapshot> {
       if (query !== undefined && hasNonFiniteQueryLimit(query._spec)) {
         return new Promise<DataSnapshot>(() => {});
       }
-      if (query) {
-        let result: ReturnType<typeof target.backend.adminGetQuery>;
-        if (isAdminFor(target)) {
-          result = target.backend.adminGetQuery(query.ref._path, query._spec);
-        } else {
-          result = target.backend.getQuery(authFor(target), query.ref._path, query._spec);
+      const readOnline = (): DataSnapshot => {
+        if (query) {
+          let result: ReturnType<typeof target.backend.adminGetQuery>;
+          if (isAdminFor(target)) {
+            result = target.backend.adminGetQuery(query.ref._path, query._spec);
+          } else {
+            result = target.backend.getQuery(authFor(target), query.ref._path, query._spec);
+          }
+          markClientPathsWarm(target, [query.ref._path]);
+          return buildSandboxQuerySnap(target, query.ref, result.rows, loadsAllData(query._spec), result.val);
         }
-        markClientPathsWarm(target, [query.ref._path]);
-        return finishSdkRead(
-          activity,
-          buildSandboxQuerySnap(target, query.ref, result.rows, loadsAllData(query._spec), result.val),
-        );
+        let val: JsonValue;
+        if (isAdminFor(target)) {
+          val = target.backend.adminGet(ref0._path);
+        } else {
+          val = target.backend.get(authFor(target), ref0._path);
+        }
+        markClientPathsWarm(target, [ref0._path]);
+        return buildSandboxSnap(target, ref0, val);
+      };
+      const offlinePending = offlineClientGet(target, ref0, query, readOnline);
+      if (offlinePending !== undefined) {
+        return offlinePending.then((snap) => finishSdkRead(activity, snap));
       }
-      let val: JsonValue;
-      if (isAdminFor(target)) {
-        val = target.backend.adminGet(ref0._path);
-      } else {
-        val = target.backend.get(authFor(target), ref0._path);
-      }
-      markClientPathsWarm(target, [ref0._path]);
-      return finishSdkRead(activity, buildSandboxSnap(target, ref0, val));
+      return finishSdkRead(activity, readOnline());
     } catch (error) {
       activity.fail();
       throw error;
@@ -88,6 +99,11 @@ export function set(r: DatabaseReference, value: unknown): Promise<void> {
       target.backend.adminSet(r._path, value as JsonValue);
       return;
     }
+    if (isClientOffline(target)) {
+      return enqueueOfflineClientSet(target, r._path, value, null, false, () =>
+        target.backend.enqueueClientSet(authFor(target), r._path, value as JsonValue),
+      );
+    }
     return target.backend.enqueueClientSet(authFor(target), r._path, value as JsonValue);
   });
 }
@@ -105,6 +121,11 @@ export function setPriority(
     if (isAdminFor(target)) {
       target.backend.adminSetPriority(r._path, priority);
       return;
+    }
+    if (isClientOffline(target)) {
+      return enqueueOfflineClientSetPriority(target, r._path, priority, () =>
+        target.backend.enqueueClientSetPriority(authFor(target), r._path, priority),
+      );
     }
     return target.backend.enqueueClientSetPriority(authFor(target), r._path, priority);
   });
@@ -125,6 +146,16 @@ export function setWithPriority(
     if (isAdminFor(target)) {
       target.backend.adminSetWithPriority(r._path, value as JsonValue, priority);
       return;
+    }
+    if (isClientOffline(target)) {
+      return enqueueOfflineClientSet(target, r._path, value, priority, true, () =>
+        target.backend.enqueueClientSetWithPriority(
+          authFor(target),
+          r._path,
+          value as JsonValue,
+          priority,
+        ),
+      );
     }
     return target.backend.enqueueClientSetWithPriority(
       authFor(target),
@@ -169,6 +200,15 @@ export function update(
       target.backend.adminUpdate(r._path, values as Record<string, JsonValue>);
       return;
     }
+    if (isClientOffline(target)) {
+      return enqueueOfflineClientUpdate(target, r._path, values, () =>
+        target.backend.enqueueClientUpdate(
+          authFor(target),
+          r._path,
+          values as Record<string, JsonValue>,
+        ),
+      );
+    }
     return target.backend.enqueueClientUpdate(
       authFor(target),
       r._path,
@@ -193,6 +233,11 @@ export function remove(r: DatabaseReference): Promise<void> {
     if (isAdminFor(target)) {
       target.backend.adminRemove(r._path);
       return;
+    }
+    if (isClientOffline(target)) {
+      return enqueueOfflineClientSet(target, r._path, null, null, false, () =>
+        target.backend.enqueueClientRemove(authFor(target), r._path),
+      );
     }
     return target.backend.enqueueClientRemove(authFor(target), r._path);
   });
@@ -241,6 +286,10 @@ export function push(r: DatabaseReference, value?: unknown): ThenableReference {
     promise = runSdkWrite(beginDatabaseActivity(pushRef, 'push', 'operation'), async () => {
       if (isAdminFor(target)) {
         target.backend.adminSet(childPath, value as JsonValue);
+      } else if (isClientOffline(target)) {
+        await enqueueOfflineClientSet(target, childPath, value, null, false, () =>
+          target.backend.enqueueClientSet(authFor(target), childPath, value as JsonValue),
+        );
       } else {
         await target.backend.enqueueClientSet(authFor(target), childPath, value as JsonValue);
       }

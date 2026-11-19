@@ -12,7 +12,6 @@ import {
 } from '../../probes/rtdb-modular/rtdb-modular-gooffline-goonline-queue-and-isolation.ts';
 import { auditProbeSessionAuthModes } from '../../src/sdk-probe-runtime.ts';
 import { loadModularProbes } from '../../src/sdk-probes.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 
 const PROBE_NAME = 'rtdb-modular-gooffline-goonline-queue-and-isolation';
 
@@ -268,22 +267,17 @@ function buildTwoClientHarness(): GoOfflineGoOnlineProbeSubject {
   };
 }
 
-describe('rtdb-modular-gooffline-goonline-queue-and-isolation staged probe', () => {
-  it('registers on sdk-probes with pendingRowLink and passes auditProbeSessionAuthModes', async () => {
+describe('rtdb-modular-gooffline-goonline-queue-and-isolation probe', () => {
+  it('registers on sdk-probes linked to rtdb-modular#163 and #164 and passes auditProbeSessionAuthModes', async () => {
     expect(probe.rig).toBe('sdk-probes');
     expect(probe.requires).toEqual(['web-config', 'dedicated-rtdb']);
-    expect(probe.pendingRowLink).toBe(true);
-    expect(probe.rowIds).toEqual([]);
-    expect(probe.matrixRow).toBe('');
+    expect(probe.pendingRowLink).toBeUndefined();
+    expect(probe.rowIds).toEqual(['rtdb-modular#163', 'rtdb-modular#164']);
+    expect(probe.matrixRow).toBe('rtdb-modular#163, rtdb-modular#164');
     expect(auditProbeSessionAuthModes()).toEqual([]);
 
     const sdkProbes = await loadModularProbes('sdk-probes');
     expect(sdkProbes.map((entry) => entry.id)).toContain(PROBE_NAME);
-
-    expectStagedUntilCaptured(PROBE_NAME, {
-      rig: 'sdk-probes',
-      filterFlag: '--probe',
-    });
   });
 
   it('executes deleted-database guards against firebase/database and offline queue contract without volatile leaks', async () => {

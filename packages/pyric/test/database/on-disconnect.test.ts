@@ -73,16 +73,18 @@ describe('onDisconnect registration and clean lifecycle', () => {
 
   it('rtdb-modular-ondisconnect-clean-set: drains once in captured listener order', async () => {
     const obs = load('rtdb-modular-ondisconnect-clean-set');
-    const { db } = setup();
+    const { sandbox, db } = setup();
+    const observer = getDatabase(sandbox.withAuth({ uid: 'observer' }));
     const target = ref(db, 'presence/alice');
+    const obsTarget = ref(observer, 'presence/alice');
     const events: unknown[] = [];
-    const unsubscribe = onValue(target, (snapshot) => events.push(snapshot.val()));
+    const unsubscribe = onValue(obsTarget, (snapshot) => events.push(snapshot.val()));
     await set(target, { state: 'online' });
     await onDisconnect(target).set({ state: 'offline' });
-    expect((await get(target)).val()).toEqual(obs.beforeDisconnect);
+    expect((await get(obsTarget)).val()).toEqual(obs.beforeDisconnect);
 
     goOffline(db);
-    expect((await get(target)).val()).toEqual(obs.afterDisconnect);
+    expect((await get(obsTarget)).val()).toEqual(obs.afterDisconnect);
     goOnline(db);
     await set(target, { state: 'reconnected' });
     const secondDisconnectControl = ref(db, 'presence/alice/secondDisconnectControl');
@@ -90,7 +92,7 @@ describe('onDisconnect registration and clean lifecycle', () => {
     goOffline(db);
     goOnline(db);
     await set(secondDisconnectControl, null);
-    expect((await get(target)).val()).toEqual(obs.terminalAfterReconnect);
+    expect((await get(obsTarget)).val()).toEqual(obs.terminalAfterReconnect);
     expect(events).toEqual(obs.events);
     expect(true).toBe(obs.secondDisconnectControlFired);
     unsubscribe();
@@ -99,9 +101,10 @@ describe('onDisconnect registration and clean lifecycle', () => {
   it('rtdb-modular-ondisconnect-operations-cancel: matches captured operations and cancellation scope', async () => {
     const obs = load('rtdb-modular-ondisconnect-operations-cancel');
     const outcomes = obs.outcomes as Record<string, unknown>;
-    const { db } = setup();
+    const { sandbox, db } = setup();
+    const observer = getDatabase(sandbox.withAuth({ uid: 'observer' }));
     const events: unknown[] = [];
-    const unsubscribe = onValue(ref(db, 'root'), (snapshot) => events.push(snapshot.val()));
+    const unsubscribe = onValue(ref(observer, 'root'), (snapshot) => events.push(snapshot.val()));
     await set(ref(db, 'root'), {
       set: 'before', update: { keep: true, value: 1 }, remove: true,
       cancelled: { original: true }, overlap: { original: true, child: 'original-child' },
@@ -133,10 +136,10 @@ describe('onDisconnect registration and clean lifecycle', () => {
     await onDisconnect(ref(db, 'root/timestamp')).set(serverTimestamp());
 
     goOffline(db);
-    const value = (await get(ref(db, 'root'))).val() as Record<string, unknown>;
+    const value = (await get(ref(observer, 'root'))).val() as Record<string, unknown>;
     expect(value.set).toEqual(outcomes.set);
     expect(value.update).toEqual(outcomes.update);
-    expect((await get(ref(db, 'root/remove'))).val()).toEqual(outcomes.remove);
+    expect((await get(ref(observer, 'root/remove'))).val()).toEqual(outcomes.remove);
     expect(value.cancelled).toEqual(outcomes.cancelledTerminal);
     expect(value.overlap).toEqual(outcomes.overlapAfterChildCancel);
     expect(value.cancelScope).toEqual(outcomes.parentCancelDescendantsTerminal);
@@ -149,14 +152,15 @@ describe('onDisconnect registration and clean lifecycle', () => {
   });
 
   it('keeps a queued server value whole when a path below it is cancelled', async () => {
-    const { db } = setup();
+    const { sandbox, db } = setup();
+    const admin = getAdminDatabase(sandbox);
     await set(ref(db, 'counter'), 5);
     await onDisconnect(ref(db, 'stamp')).set(serverTimestamp());
     await onDisconnect(ref(db, 'stamp/c')).cancel();
     await onDisconnect(ref(db, 'counter')).set(increment(2));
     await onDisconnect(ref(db, 'counter/c')).cancel();
     goOffline(db);
-    const value = (await get(ref(db, '/'))).val() as Record<string, unknown>;
+    const value = (await get(ref(admin, '/'))).val() as Record<string, unknown>;
     // A server value is a leaf: there is no child below it to cancel.
     expect(typeof value.stamp).toBe('number');
     expect(value.counter).toBe(7);
@@ -166,27 +170,30 @@ describe('onDisconnect registration and clean lifecycle', () => {
     const sandbox = initializeSandbox();
     const first = getDatabase(sandbox.withAuth({ uid: 'alice' }));
     const second = getDatabase(sandbox.withAuth({ uid: 'bob' }));
+    const admin = getAdminDatabase(sandbox);
     rtdbSandbox.setDefaultPolicy(first, 'allow');
     const target = ref(first, 'presence/alice');
     await set(target, 'online');
     await onDisconnect(target).set('offline');
 
     goOffline(second);
-    expect((await get(target)).val()).toBe('online');
+    expect((await get(ref(admin, 'presence/alice'))).val()).toBe('online');
     goOffline(first);
-    expect((await get(target)).val()).toBe('offline');
+    expect((await get(ref(admin, 'presence/alice'))).val()).toBe('offline');
   });
 
   it('requires an online transition before a later goOffline can drain', async () => {
-    const { db } = setup();
+    const { sandbox, db } = setup();
+    const admin = getAdminDatabase(sandbox);
     const target = ref(db, 'presence/alice');
     goOffline(db);
-    await onDisconnect(target).set('queued-while-offline');
+    const pendingArm = onDisconnect(target).set('queued-while-offline');
     goOffline(db);
-    expect((await get(target)).val()).toBeNull();
+    expect((await get(ref(admin, 'presence/alice'))).val()).toBeNull();
     goOnline(db);
+    await pendingArm;
     goOffline(db);
-    expect((await get(target)).val()).toBe('queued-while-offline');
+    expect((await get(ref(admin, 'presence/alice'))).val()).toBe('queued-while-offline');
   });
 
   it('rtdb-modular-ondisconnect-rules: checks rules at registration and again at execution', async () => {
@@ -195,12 +202,15 @@ describe('onDisconnect registration and clean lifecycle', () => {
     const expectedRegistrationDenied = obs.registrationDenied as { resolved: boolean; error: { code: string } };
     const expectedNormalAllowed = obs.normalAllowedControl as { resolved: boolean; value: unknown };
     const expectedRegistered = obs.registeredWhileAllowed as { resolved: boolean; value: unknown };
-    const { db } = setup();
+    const { sandbox, db } = setup();
+    const observer = getDatabase(sandbox.withAuth({ uid: 'observer' }));
     const target = ref(db, 'guarded/target');
     const drainControl = ref(db, 'guarded/drainControl');
+    const obsTarget = ref(observer, 'guarded/target');
+    const obsDrainControl = ref(observer, 'guarded/drainControl');
     const drainEvents: unknown[] = [];
-    const unsubscribe = onValue(drainControl, (snapshot) => drainEvents.push(snapshot.val()));
     rtdbSandbox.setRules(db, { rules: { guarded: { '.write': true, '.read': true } } });
+    const unsubscribe = onValue(obsDrainControl, (snapshot) => drainEvents.push(snapshot.val()));
     const normalAllowedValue = await set(target, 'seed');
     expect(true).toBe(expectedNormalAllowed.resolved);
     expect(normalAllowedValue ?? null).toBe(expectedNormalAllowed.value);
@@ -222,9 +232,10 @@ describe('onDisconnect registration and clean lifecycle', () => {
     expect(normalDenied !== undefined).toBe(!expectedNormalDenied.resolved);
     expect(normalDenied).toMatchObject({ code: expectedNormalDenied.error.code });
     goOffline(db);
-    expect((await get(drainControl)).exists()).toBe(obs.drainControlExecuted);
+    expect((await get(obsDrainControl)).exists()).toBe(obs.drainControlExecuted);
     expect(drainEvents.length > 1).toBe(obs.observerSawDrainControl);
-    expect((await get(target)).val()).toBe(obs.terminalAfterExecutionDenial);
+    expect((await get(obsTarget)).val()).toBe(obs.terminalAfterExecutionDenial);
+    goOnline(db);
     let registrationDenied: unknown;
     try {
       await onDisconnect(target).set('denied');
@@ -238,6 +249,7 @@ describe('onDisconnect registration and clean lifecycle', () => {
 
   it('sandbox reset clears queued state without executing or persisting it', async () => {
     const { sandbox, db } = setup();
+    const admin = getAdminDatabase(sandbox);
     const target = ref(db, 'presence/alice');
     await set(target, 'online');
     await onDisconnect(target).set('offline');
@@ -246,17 +258,18 @@ describe('onDisconnect registration and clean lifecycle', () => {
 
     sandbox.reset();
     goOffline(db);
-    expect((await get(target)).val()).toBe('online');
+    expect((await get(ref(admin, 'presence/alice'))).val()).toBe('online');
   });
 
   it('rtdb-modular#M83 writes the captured setWithPriority value and priority metadata', async () => {
     const obs = load('rtdb-modular-ondisconnect-operations-cancel');
     const production = (obs.outcomes as Record<string, Record<string, unknown>>).setWithPriority;
-    const { db } = setup();
+    const { sandbox, db } = setup();
+    const observer = getDatabase(sandbox.withAuth({ uid: 'observer' }));
     const target = ref(db, 'priority');
     await onDisconnect(target).setWithPriority({ after: true }, 7);
     goOffline(db);
-    const snapshot = await get(target);
+    const snapshot = await get(ref(observer, 'priority'));
     expect(snapshot.val()).toEqual({ after: production.after });
     expect(snapshot.priority).toBe(production['.priority']);
     expect(snapshot.exportVal()).toEqual(production);
@@ -469,7 +482,7 @@ describe('onDisconnect app ownership', () => {
     expect((await get(target)).val()).toBe('online');
     sandbox.reset();
     goOffline(first);
-    expect((await get(target)).val()).toBe('online');
+    expect((await get(ref(getAdminDatabase(sandbox), 'presence/client'))).val()).toBe('online');
 
     const app = initializeApp({ projectId: 'm82-app' }, 'm82-writer');
     const writerDb = getDatabase(app);

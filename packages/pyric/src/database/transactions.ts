@@ -1,5 +1,6 @@
 import { runSdkWrite } from '../sandbox/internal/sdk-write-activity.js';
 import { createClientTransactionHooks } from './client-cache-state.js';
+import { isClientOffline, runOfflineClientTransaction } from './offline-client-state.js';
 import { beginDatabaseActivity } from './sdk-activity.js';
 import type { JsonValue } from './sandbox/data-tree.js';
 import { authFor, isAdminFor, targetOf } from './routing.js';
@@ -97,6 +98,34 @@ export function runTransaction<T>(
   const { cold, hooks } = createClientTransactionHooks(target, r._path);
   return runSdkWrite(beginDatabaseActivity(r, 'runTransaction', 'operation'), async () => {
     const admin = isAdminFor(target);
+    if (!admin && isClientOffline(target)) {
+      const applyLocally = options?.applyLocally !== false;
+      return runOfflineClientTransaction(
+        target,
+        r,
+        transactionUpdate,
+        applyLocally,
+        hooks,
+        (rawVal, priorities) =>
+          new TransactionResult(false, buildSandboxSnapFromRaw(target, r, rawVal, priorities)) as TransactionResult & {
+            committed: boolean;
+            snapshot: DataSnapshot;
+          },
+        async (wrappedUpdate) => {
+          const outcome = await target.backend.runClientTransactionAsync(
+            authFor(target),
+            r._path,
+            wrappedUpdate,
+            { applyLocally: options?.applyLocally, admin: false, cold: false, hooks },
+          );
+          const snap = buildSandboxSnapFromRaw(target, r, outcome.val, outcome.priorities);
+          return new TransactionResult(outcome.committed, snap) as TransactionResult & {
+            committed: boolean;
+            snapshot: DataSnapshot;
+          };
+        },
+      );
+    }
     const result = await target.backend.runClientTransactionAsync(
       authFor(target),
       r._path,

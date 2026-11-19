@@ -18,6 +18,7 @@ import {
 import type { ClientPort, ClientRtdbInstance, RtdbDataSnapshot, Unsubscribe } from './handles.js';
 import { dropWorkerClientCacheForPort, registerWorkerWarmListener } from './rtdb-client-cache.js';
 import { workerEmulatorLensFor } from './rtdb-controls.js';
+import { attachWorkerOfflineSubscription, dropWorkerOfflineStateForPort } from './rtdb-offline-state.js';
 import { pageListenerOwners } from './listener-owners.js';
 import { deliverWithRegions } from './listener-delivery.js';
 import { observeInfo, servesInfoLocally } from './rtdb-info.js';
@@ -159,6 +160,7 @@ const registrations: ListenerRegistration[] = [];
 /** Drop client-side registration identity when the owning app port closes. */
 export function dropRtdbListenersForPort(port: ClientPort): void {
   dropWorkerClientCacheForPort(port);
+  dropWorkerOfflineStateForPort(port);
   for (const registration of [...registrations]) {
     if (registration.port === port) registration.close();
   }
@@ -169,11 +171,6 @@ function targetScope(target: RtdbTarget): string {
   return queryIdentifier(target._spec);
 }
 
-/**
- * The listen options a value subscription reads. `owner` is pyric's own listen
- * option: the page names who owns the listener, and the owners derived from it
- * travel with the subscribe message.
- */
 type ValueListenOptions = { readonly onlyOnce?: boolean; readonly owner?: unknown };
 
 /** What a value snapshot shows the page: whether it exists, and its data with priorities. */
@@ -221,8 +218,6 @@ function openValueSubscription(
     }
   };
 
-  // Derived here, on the stack the caller is still on and against the page's
-  // own document. The worker's attach can read neither.
   const owners = pageListenerOwners(listenOptions);
 
   const makeSubMsg = (subId: string, lens: typeof _defaultLens): InboundMessage => {
@@ -240,46 +235,49 @@ function openValueSubscription(
   };
 
   let unsubLens: () => void = () => {};
-  // The host re-registers a listener when the port's session or the page's
-  // lens changes, and the new registration sends the current data again. An
-  // identity change does not change data, so a snapshot equal to the last
-  // one delivered is not a new event.
   let delivered: string | undefined;
   let initialSeen = false;
   const groupKey = `${ref.instance?.name ?? ''}\0${ref.path}\0${targetScope(target)}`;
   const initialGroup = joinInitialTargetGroup(ref.port, groupKey, eventType);
 
+  const handleEffectiveWire = (wire: unknown): void => {
+    const deliverWire = (): void => {
+      if (unsubscribed) return;
+      if (listenOptions?.onlyOnce && fired) return;
+      const content = deliveredContent(wire);
+      if (fired && content === delivered) return;
+      const warning = (wire as RtdbWireSnapshot | null)?.warning;
+      if (typeof warning === 'string') logDatabaseWarning(warning);
+      delivered = content;
+      fired = true;
+      if (listenOptions?.onlyOnce) {
+        unsubLens();
+        closeSubscription(ref.port, currentSubId);
+      } else if (trackWarm && releaseWarm === undefined) {
+        releaseWarm = registerWorkerWarmListener(ref, ref.path);
+      }
+      next(hydrateRtdbSnapshot(ref, wire));
+    };
+    if (!initialSeen) {
+      initialSeen = true;
+      initialGroup.onInitialSnapshot(deliverWire);
+      return;
+    }
+    deliverWire();
+  };
+  const offlineSub = attachWorkerOfflineSubscription(
+    ref,
+    query,
+    listenOptions?.onlyOnce === true,
+    handleEffectiveWire,
+  );
+
   const subHandler = {
     port: ref.port,
-    next: (wire: unknown) => {
-      const deliverWire = (): void => {
-        if (unsubscribed) return;
-        if (listenOptions?.onlyOnce && fired) return;
-        const content = deliveredContent(wire);
-        if (fired && content === delivered) return;
-        const warning = (wire as RtdbWireSnapshot | null)?.warning;
-        if (typeof warning === 'string') logDatabaseWarning(warning);
-        delivered = content;
-        fired = true;
-        // Reported on the subscription id the sandbox also records as the
-        // listener id, immediately before the application's callback runs.
-        if (listenOptions?.onlyOnce) {
-          unsubLens();
-          closeSubscription(ref.port, currentSubId);
-        } else if (trackWarm && releaseWarm === undefined) {
-          releaseWarm = registerWorkerWarmListener(ref, ref.path);
-        }
-        next(hydrateRtdbSnapshot(ref, wire));
-      };
-      if (!initialSeen) {
-        initialSeen = true;
-        initialGroup.onInitialSnapshot(deliverWire);
-        return;
-      }
-      deliverWire();
-    },
+    next: (wire: unknown) => offlineSub.receiveServerWire(wire),
     error: (cause: unknown) => {
       unsubscribed = true;
+      offlineSub.close();
       stopWarm();
       initialGroup.leaveGroup();
       unsubLens();
@@ -327,6 +325,7 @@ function openValueSubscription(
   return () => {
     if (unsubscribed) return;
     unsubscribed = true;
+    offlineSub.close();
     stopWarm();
     initialGroup.leaveGroup();
     activity.close();

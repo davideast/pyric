@@ -1,4 +1,5 @@
 import { markClientPathsWarm, updateTargetPaths } from './client-cache-state.js';
+import { enqueueOfflineClientDisconnect, isClientOffline } from './offline-client-state.js';
 import { targetOf, type Target } from './routing.js';
 import type { DatabaseReference } from './types.js';
 import { validateWritablePath } from './writable-path.js';
@@ -12,12 +13,20 @@ export class OnDisconnect {
   ) {}
 
   cancel(): Promise<void> {
+    if (isClientOffline(this._repo)) {
+      return enqueueOfflineClientDisconnect(this._repo, () => this._repo.connection.cancel(this._path));
+    }
     return this._repo.connection.cancel(this._path);
   }
 
   remove(): Promise<void> {
     validateWritablePath('OnDisconnect.remove', this._path);
     markClientPathsWarm(this._repo, [this._path]);
+    if (isClientOffline(this._repo)) {
+      return enqueueOfflineClientDisconnect(this._repo, () =>
+        this._repo.connection.register({ kind: 'remove', path: this._path }),
+      );
+    }
     return this._repo.connection.register({ kind: 'remove', path: this._path });
   }
 
@@ -25,6 +34,11 @@ export class OnDisconnect {
     validateWritablePath('OnDisconnect.set', this._path);
     validateWrite(value, this._path, errorPrefix('OnDisconnect.set', 'value'));
     markClientPathsWarm(this._repo, [this._path]);
+    if (isClientOffline(this._repo)) {
+      return enqueueOfflineClientDisconnect(this._repo, () =>
+        this._repo.connection.register({ kind: 'set', path: this._path, value }),
+      );
+    }
     return this._repo.connection.register({ kind: 'set', path: this._path, value });
   }
 
@@ -33,6 +47,11 @@ export class OnDisconnect {
     validateWrite(value, this._path, errorPrefix('OnDisconnect.setWithPriority', 'value'));
     validatePriorityArg('OnDisconnect.setWithPriority', priority);
     markClientPathsWarm(this._repo, [this._path]);
+    if (isClientOffline(this._repo)) {
+      return enqueueOfflineClientDisconnect(this._repo, () =>
+        this._repo.connection.register({ kind: 'set', path: this._path, value, priority }),
+      );
+    }
     return this._repo.connection.register({ kind: 'set', path: this._path, value, priority });
   }
 
@@ -40,6 +59,11 @@ export class OnDisconnect {
     validateWritablePath('OnDisconnect.update', this._path);
     validateUpdate(values, this._path, 'OnDisconnect.update');
     markClientPathsWarm(this._repo, updateTargetPaths(this._path, values));
+    if (isClientOffline(this._repo)) {
+      return enqueueOfflineClientDisconnect(this._repo, () =>
+        this._repo.connection.register({ kind: 'update', path: this._path, values }),
+      );
+    }
     return this._repo.connection.register({ kind: 'update', path: this._path, values });
   }
 }

@@ -80,7 +80,7 @@ describe('rtdb-modular CDD: lifecycle and runtime identity rows', () => {
     expect((await api.get(target)).val()).toBe('online');
     sandbox.reset();
     api.goOffline(first);
-    expect((await api.get(target)).val()).toBe('online');
+    expect((await api.get(api.ref(getAdminDatabase(sandbox), 'presence/client'))).val()).toBe('online');
 
     const writer = initializeApp({ projectId: 'cdd-m82' }, 'cdd-m82-writer');
     const writerDb = api.getDatabase(writer);
@@ -106,14 +106,15 @@ describe('rtdb-modular CDD: lifecycle and runtime identity rows', () => {
     // registration remains pending until one of its deterministic clean
     // lifecycle hooks runs. Worker pagehide/port-close coverage lives in the
     // served two-port integration named by the M84 registry row.
-    const { db } = setup();
+    const { db, sandbox } = setup();
+    const observer = api.getDatabase(sandbox.withAuth({ uid: 'obs' }));
     const target = api.ref(db, 'abrupt-boundary');
     await api.set(target, { state: 'online' });
     await api.onDisconnect(target).set({ state: 'offline' });
     await Promise.resolve();
-    expect((await api.get(target)).val()).toEqual({ state: 'online' });
+    expect((await api.get(api.ref(observer, 'abrupt-boundary'))).val()).toEqual({ state: 'online' });
     api.goOffline(db);
-    expect((await api.get(target)).val()).toEqual(abruptObservation.terminal);
+    expect((await api.get(api.ref(observer, 'abrupt-boundary'))).val()).toEqual(abruptObservation.terminal);
   });
   row('M85', () => {
     const { db } = setup();
@@ -186,7 +187,7 @@ describe('rtdb-modular CDD: lifecycle and runtime identity rows', () => {
   });
   row('M91', async () => {
     await assertChildEvent('moved');
-    const { db } = setup(); const parent = api.ref(db, 'priority-move');
+    const { db, sandbox } = setup(); const observer = api.getDatabase(sandbox.withAuth({ uid: 'obs' })); const parent = api.ref(db, 'priority-move');
     await api.setWithPriority(api.child(parent, 'a'), { value: 1 }, 10);
     await api.setWithPriority(api.child(parent, 'b'), { value: 2 }, 5);
     await api.setWithPriority(api.child(parent, 'c'), { value: 3 }, 5);
@@ -199,7 +200,8 @@ describe('rtdb-modular CDD: lifecycle and runtime identity rows', () => {
     await api.runTransaction(api.child(parent, 'a'), current => ({ value: (current as { value: number }).value + 1 }));
     expect((await api.get(api.child(parent, 'a'))).priority).toBe(priorityObservation.afterTransaction);
     await api.onDisconnect(api.child(parent, 'a')).update({ value: 9 }); api.goOffline(db);
-    expect([(await api.get(api.child(parent, 'a'))).val(), (await api.get(api.child(parent, 'a'))).priority]).toEqual([{ value: 9 }, 0]);
+    const obsA = api.ref(observer, 'priority-move/a');
+    expect([(await api.get(obsA)).val(), (await api.get(obsA)).priority]).toEqual([{ value: 9 }, 0]);
   });
   row('M92', async () => {
     const { db } = setup(); const parent = api.ref(db, 'rows'); const ordered = api.query(parent, api.orderByChild('rank'), api.limitToFirst(2));

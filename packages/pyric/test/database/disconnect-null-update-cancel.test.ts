@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import {
   get,
+  getAdminDatabase,
   getDatabase,
   goOffline,
   onDisconnect,
@@ -23,7 +24,7 @@ describe('onDisconnect().update() null removal cancellation', () => {
 
     goOffline(db);
 
-    const snapshot = await get(ref(db, 'rooms/r1'));
+    const snapshot = await get(ref(getAdminDatabase(box), 'rooms/r1'));
     expect(snapshot.val()).toEqual({ a: 1, b: 2 });
   });
 
@@ -38,7 +39,7 @@ describe('onDisconnect().update() null removal cancellation', () => {
 
     goOffline(db);
 
-    const snapshot = await get(ref(db, 'rooms/r2'));
+    const snapshot = await get(ref(getAdminDatabase(box), 'rooms/r2'));
     expect(snapshot.val()).toEqual({ b: 2 });
   });
 
@@ -54,7 +55,7 @@ describe('onDisconnect().update() null removal cancellation', () => {
 
     goOffline(db);
 
-    const snapshot = await get(ref(db, 'rooms/r3'));
+    const snapshot = await get(ref(getAdminDatabase(box), 'rooms/r3'));
     expect(snapshot.val()).toEqual({ a: { x: 1, y: 2 }, keep: true });
   });
 
@@ -69,7 +70,7 @@ describe('onDisconnect().update() null removal cancellation', () => {
 
     goOffline(db);
 
-    const snapshot = await get(ref(db, 'rooms/r4'));
+    const snapshot = await get(ref(getAdminDatabase(box), 'rooms/r4'));
     expect(snapshot.val()).toEqual({ a: { x: 1, y: 2 }, keep: true });
   });
 
@@ -84,7 +85,7 @@ describe('onDisconnect().update() null removal cancellation', () => {
 
     goOffline(db);
 
-    const snapshot = await get(ref(db, 'rooms/r5'));
+    const snapshot = await get(ref(getAdminDatabase(box), 'rooms/r5'));
     expect(snapshot.val()).toEqual({ a: 1, b: 2 });
   });
 });

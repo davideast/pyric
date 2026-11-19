@@ -437,7 +437,7 @@ describe('onDisconnect registration merging across same-path and overlapping seq
         await step();
       }
       goOffline(db);
-      const snapshot = await get(ref(db, base));
+      const snapshot = await get(ref(getAdminDatabase(box), base));
       let actual: unknown;
       if (spec.useExportVal) {
         actual = snapshot.exportVal();
@@ -481,7 +481,7 @@ describe('onDisconnect registration merging across same-path and overlapping seq
     await onDisconnect(ref(db, '/')).update({ 'items/i1/state': 'gone' });
     await onDisconnect(ref(db, '/')).update({ 'items/i2/state': 'gone' });
     goOffline(db);
-    expect((await get(ref(db, '/'))).val()).toEqual({
+    expect((await get(ref(getAdminDatabase(box), '/'))).val()).toEqual({
       items: { i1: { state: 'gone' }, i2: { state: 'gone' } },
       keep: true,
     });

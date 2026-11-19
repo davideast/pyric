@@ -312,24 +312,27 @@ export type DisconnectCleanSetObservation = {
 };
 
 export async function assertDisconnectCleanSet(observation: DisconnectCleanSetObservation): Promise<void> {
-  const { db } = setup();
+  const { db, sandbox } = setup();
+  const observer = getDatabase(sandbox.withAuth({ uid: 'observer' }));
   const target = ref(db, 'presence');
+  const obsTarget = ref(observer, 'presence');
   const events: unknown[] = [];
-  const unsubscribe = onValue(target, snapshot => events.push(snapshot.val()));
+  const unsubscribe = onValue(obsTarget, snapshot => events.push(snapshot.val()));
   await set(target, { state: 'online' });
   await onDisconnect(target).set({ state: 'offline' });
-  expect((await get(target)).val()).toEqual(observation.beforeDisconnect);
+  expect((await get(obsTarget)).val()).toEqual(observation.beforeDisconnect);
   goOffline(db);
-  expect((await get(target)).val()).toEqual(observation.afterDisconnect);
+  expect((await get(obsTarget)).val()).toEqual(observation.afterDisconnect);
   goOnline(db);
   await set(target, { state: 'reconnected' });
   const control = child(target, 'secondDisconnectControl');
+  const obsControl = child(obsTarget, 'secondDisconnectControl');
   await onDisconnect(control).set({ drained: true });
   goOffline(db);
-  expect((await get(control)).exists()).toBe(observation.secondDisconnectControlFired);
+  expect((await get(obsControl)).exists()).toBe(observation.secondDisconnectControlFired);
   goOnline(db);
   await set(control, null);
-  expect((await get(target)).val()).toEqual(observation.terminalAfterReconnect);
+  expect((await get(obsTarget)).val()).toEqual(observation.terminalAfterReconnect);
   expect(events).toEqual(observation.events);
   unsubscribe();
 }
@@ -347,10 +350,12 @@ export async function assertDisconnectOperations(
   outcomes: DisconnectOperationOutcomes,
   observerSawDisconnectEvents: boolean,
 ): Promise<void> {
-  const { db } = setup();
+  const { db, sandbox } = setup();
+  const observer = getDatabase(sandbox.withAuth({ uid: 'observer' }));
   const root = ref(db, 'disconnect-operations');
+  const obsRoot = ref(observer, 'disconnect-operations');
   const events: unknown[] = [];
-  const unsubscribe = onValue(root, snapshot => events.push(snapshot.val()));
+  const unsubscribe = onValue(obsRoot, snapshot => events.push(snapshot.val()));
   await set(root, {
     set: 'before',
     update: { keep: true, value: 1 },
@@ -374,7 +379,7 @@ export async function assertDisconnectOperations(
   await onDisconnect(child(root, 'cancelScope')).cancel();
 
   goOffline(db);
-  const terminal = (await get(root)).val() as Record<string, unknown>;
+  const terminal = (await get(obsRoot)).val() as Record<string, unknown>;
   expect(terminal.set).toEqual(outcomes.set);
   expect(terminal.update).toEqual(outcomes.update);
   expect(terminal.remove ?? null).toEqual(outcomes.remove);
@@ -396,12 +401,15 @@ export type DisconnectRulesObservation = {
 };
 
 export async function assertDisconnectRules(observation: DisconnectRulesObservation): Promise<void> {
-  const { db } = setup();
+  const { db, sandbox } = setup();
+  const observer = getDatabase(sandbox.withAuth({ uid: 'observer' }));
   const target = ref(db, 'guarded/target');
   const drainControl = ref(db, 'guarded/drainControl');
+  const obsTarget = ref(observer, 'guarded/target');
+  const obsDrainControl = ref(observer, 'guarded/drainControl');
   const drainEvents: unknown[] = [];
-  const unsubscribe = onValue(drainControl, snapshot => drainEvents.push(snapshot.val()));
   databaseSandbox.setRules(db, { rules: { guarded: { '.write': true, '.read': true } } });
+  const unsubscribe = onValue(obsDrainControl, snapshot => drainEvents.push(snapshot.val()));
 
   const allowed = await set(target, 'seed');
   expect(observation.normalAllowedControl.resolved).toBe(true);
@@ -422,10 +430,11 @@ export async function assertDisconnectRules(observation: DisconnectRulesObservat
   expect(normalDenied).toMatchObject(observation.normalDeniedControl.error);
 
   goOffline(db);
-  expect((await get(drainControl)).exists()).toBe(observation.drainControlExecuted);
+  expect((await get(obsDrainControl)).exists()).toBe(observation.drainControlExecuted);
   expect(drainEvents.length > 1).toBe(observation.observerSawDrainControl);
-  expect((await get(target)).val()).toBe(observation.terminalAfterExecutionDenial);
+  expect((await get(obsTarget)).val()).toBe(observation.terminalAfterExecutionDenial);
 
+  goOnline(db);
   let registrationDenied: unknown;
   try { await onDisconnect(target).set('denied'); } catch (error) { registrationDenied = error; }
   expect(registrationDenied !== undefined).toBe(!observation.registrationDenied.resolved);
@@ -434,11 +443,12 @@ export async function assertDisconnectRules(observation: DisconnectRulesObservat
 }
 
 export async function assertDisconnectPriority(productionExport: Record<string, unknown>): Promise<void> {
-  const { db } = setup();
+  const { db, sandbox } = setup();
+  const observer = getDatabase(sandbox.withAuth({ uid: 'observer' }));
   const target = ref(db, 'priority');
   await onDisconnect(target).setWithPriority({ after: true }, 7);
   goOffline(db);
-  const snapshot = await get(target);
+  const snapshot = await get(ref(observer, 'priority'));
   expect(snapshot.val()).toEqual({ after: productionExport.after });
   expect(snapshot.priority).toBe(productionExport['.priority']);
   expect(snapshot.exportVal()).toEqual(productionExport);

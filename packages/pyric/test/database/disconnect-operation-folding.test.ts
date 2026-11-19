@@ -430,7 +430,7 @@ describe('onDisconnect tree folding, leaf priority, and atomic multi-key parity'
         await step();
       }
       goOffline(db);
-      const snapshot = await get(ref(db, base));
+      const snapshot = await get(ref(getAdminDatabase(box), base));
       let actual: unknown;
       if (spec.useExportVal) {
         actual = snapshot.exportVal();
@@ -450,7 +450,7 @@ describe('onDisconnect tree folding, leaf priority, and atomic multi-key parity'
     await onDisconnect(ref(db, 'cases/target')).update({ 'a/x': 1 });
     await onDisconnect(ref(db, 'cases/target/a')).update({ x: null, y: 2 });
     goOffline(db);
-    expect((await get(ref(db, 'cases/target'))).exportVal()).toEqual({
+    expect((await get(ref(getAdminDatabase(box), 'cases/target'))).exportVal()).toEqual({
       a: { '.priority': 9, y: 2 },
       keep: true,
     });
