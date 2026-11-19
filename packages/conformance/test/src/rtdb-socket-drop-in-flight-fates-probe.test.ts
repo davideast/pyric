@@ -15,18 +15,20 @@ import {
   printModularProbePreview,
   selectModularProbes,
 } from '../../src/sdk-probes.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 
 const PROBE_ID = 'rtdb-modular-socket-drop-in-flight-fates';
 
-describe('rtdb-modular-socket-drop-in-flight-fates staged probe (sdk-probes)', () => {
-  test('registers on sdk-probes with requires: [] and passes staged capture + authMode audits', async () => {
+describe('rtdb-modular-socket-drop-in-flight-fates linked probe (sdk-probes)', () => {
+  test('registers on sdk-probes with requires: [], linked rowIds, and clean authMode audit', async () => {
     const loaded = await loadModularProbes('sdk-probes');
     const byId = new Map(loaded.map((entry) => [entry.id, entry]));
 
     expect(byId.get(PROBE_ID)?.surfaceDir).toBe('rtdb-modular');
     expect(socketDropProbe.rig).toBe('sdk-probes');
     expect(socketDropProbe.requires).toEqual([]);
+    expect(socketDropProbe.pendingRowLink).toBeUndefined();
+    expect(socketDropProbe.matrixRow).toBe('rtdb-modular#HD1, rtdb-modular#HD2');
+    expect(socketDropProbe.rowIds).toEqual(['rtdb-modular#HD1', 'rtdb-modular#HD2']);
     expect(socketDropProbe.description.length).toBeGreaterThan(20);
 
     const unfilteredIds = new Set(
@@ -34,25 +36,7 @@ describe('rtdb-modular-socket-drop-in-flight-fates staged probe (sdk-probes)', (
         includeUncapturedStaged: false,
       }).map((entry) => entry.id),
     );
-
-    if (socketDropProbe.rowIds.length === 0) {
-      expect(socketDropProbe.pendingRowLink).toBe(true);
-      expect(socketDropProbe.matrixRow).toBe('');
-      expectStagedUntilCaptured(PROBE_ID, {
-        rig: 'sdk-probes',
-        filterFlag: '--probe',
-        filterValueFor: (name) => name,
-        whenUncaptured(name) {
-          expect(unfilteredIds.has(name)).toBe(false);
-        },
-        whenCaptured(name) {
-          expect(unfilteredIds.has(name)).toBe(true);
-        },
-      });
-    } else {
-      expect(socketDropProbe.pendingRowLink).toBeUndefined();
-      expect(unfilteredIds.has(PROBE_ID)).toBe(true);
-    }
+    expect(unfilteredIds.has(PROBE_ID)).toBe(true);
 
     const previewLines: string[] = [];
     printModularProbePreview({
