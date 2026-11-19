@@ -170,7 +170,7 @@ function emitObjectDelete(
         path: ref.fullPath,
         auth: storageAuth(target),
         before: existing ?? undefined,
-        detail: { bucket: ref.bucket },
+        detail: { bucket: target.bucket },
       }),
       operationProvenance,
     );

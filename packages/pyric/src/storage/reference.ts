@@ -17,6 +17,7 @@
  * stripped, trailing slashes stripped, repeated internal slashes
  * collapsed. Empty path is legal — it's the root reference.
  */
+import { rulesBucketName } from '@pyric/rules/internal/storage';
 import { TARGET_SYMBOL, targetOf, type FirebaseStorage } from './service.js';
 import { refPathOf } from './url.js';
 
@@ -86,9 +87,16 @@ class SandboxStorageReference implements StorageReference {
 
   constructor(storage: FirebaseStorage, fullPath: string) {
     this.storage = storage;
-    // Sandbox handles always have a sandbox target; pull bucket from it.
+    // Sandbox handles always have a sandbox target; expose the caller-known
+    // bucket name when present while keeping the store's internal key intact.
     const t = targetOf(storage);
-    this.bucket = t.bucket;
+    if (t.bucketName === '') {
+      this.bucket = '';
+    } else if (t.bucketName !== undefined) {
+      this.bucket = rulesBucketName(t.bucket, t.bucketName);
+    } else {
+      this.bucket = t.bucket;
+    }
     this.fullPath = fullPath;
   }
 

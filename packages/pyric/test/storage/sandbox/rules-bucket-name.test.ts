@@ -9,7 +9,7 @@ import { describe, expect, it } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import { createAppForSandbox } from '../../../src/app/internal.js';
 import { getMetadata, getStorage, ref, uploadBytes } from '../../../src/storage/index.js';
-import { getStorageSandbox } from '../../../src/storage/service.js';
+import { getStorageSandbox, targetOf } from '../../../src/storage/service.js';
 import { rulesBucketName } from '@pyric/rules/internal/storage';
 
 const BUCKET = 'demo-app.appspot.com';
@@ -94,8 +94,14 @@ describe('the in-page plane', () => {
     await uploadBytes(ref(appStorage(`gs://${BUCKET}`), 'wildcard/b.txt'), BYTES);
   });
 
-  it('leaves the metadata bucket as it was', async () => {
-    const result = await uploadBytes(ref(appStorage(), 'wildcard/c.txt'), BYTES);
-    expect(result.metadata.bucket).toBe('pyric-default');
+  it('reports the caller bucket name on refs and metadata while keeping pyric-default as the store key (#1519)', async () => {
+    const storage = appStorage();
+    const objectRef = ref(storage, 'wildcard/c.txt');
+    const result = await uploadBytes(objectRef, BYTES);
+    const metadata = await getMetadata(objectRef);
+    expect(targetOf(storage).bucket).toBe('pyric-default');
+    expect(objectRef.bucket).toBe(BUCKET);
+    expect(result.metadata.bucket).toBe(BUCKET);
+    expect(metadata.bucket).toBe(BUCKET);
   });
 });

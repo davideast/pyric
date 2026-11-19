@@ -284,10 +284,12 @@ describe('Cross-plane Auth, App lifecycle, and multi-instance parity', () => {
     const pAuth = ipAuth.getAuth(ipApp);
     const pDb = ipDb.getDatabase(ipApp);
     const pStore = ipStorage.getStorage(ipApp);
+    const pStoreGs = ipStorage.getStorage(ipApp, 'gs://demo-bucket');
 
     const sAuth = servedAuth.getAuth(servedApp);
     const sDb = servedDb.getDatabase(servedApp);
     const sStore = servedStorage.getStorage(servedApp);
+    const sStoreGs = servedStorage.getStorage(servedApp, 'gs://demo-bucket');
 
     await ipAuth.signInAnonymously(pAuth);
     await servedAuth.signInAnonymously(sAuth);
@@ -301,19 +303,19 @@ describe('Cross-plane Auth, App lifecycle, and multi-instance parity', () => {
     expect(ipAuth.getAuth(ipApp)).toBe(pAuth);
     expect(ipDb.getDatabase(ipApp)).toBe(pDb);
     expect(ipStorage.getStorage(ipApp)).toBe(pStore);
-    expect(ipStorage.getStorage(ipApp, 'demo-bucket')).toBe(pStore);
-    expect(ipStorage.getStorage(ipApp, 'gs://demo-bucket')).toBe(pStore);
+    expect(ipStorage.getStorage(ipApp, 'gs://demo-bucket')).toBe(pStoreGs);
 
     expect(servedAuth.getAuth(servedApp)).toBe(sAuth);
     expect(servedDb.getDatabase(servedApp)).toBe(sDb);
     expect(servedStorage.getStorage(servedApp)).toBe(sStore);
-    expect(servedStorage.getStorage(servedApp, 'demo-bucket')).toBe(sStore);
-    expect(servedStorage.getStorage(servedApp, 'gs://demo-bucket')).toBe(sStore);
+    expect(servedStorage.getStorage(servedApp, 'gs://demo-bucket')).toBe(sStoreGs);
 
     // Uncached service instances on a deleted app reject with app/app-deleted.
     expect(() => ipDb.getDatabase(ipApp, 'https://uncached-items.firebaseio.com')).toThrow(/app-deleted/);
+    expect(() => ipStorage.getStorage(ipApp, 'demo-bucket')).toThrow(/app-deleted/);
     expect(() => ipStorage.getStorage(ipApp, 'gs://uncached-bucket')).toThrow(/app-deleted/);
     expect(() => servedDb.getDatabase(servedApp, 'https://uncached-items.firebaseio.com')).toThrow(/app-deleted/);
+    expect(() => servedStorage.getStorage(servedApp, 'demo-bucket')).toThrow(/app-deleted/);
     expect(() => servedStorage.getStorage(servedApp, 'gs://uncached-bucket')).toThrow(/app-deleted/);
 
     // signOut on a retained Auth handle resolves and leaves currentUser null.
@@ -323,7 +325,7 @@ describe('Cross-plane Auth, App lifecycle, and multi-instance parity', () => {
     expect(sAuth.currentUser).toBeNull();
   });
 
-  it('normalizes gs://bucket and bare bucket URLs in getStorage(app, bucketUrl) across planes', async () => {
+  it('normalizes gs://bucket and bare bucket URLs in getStorage(app, bucketUrl) while caching distinct handles per spelling across planes', async () => {
     const bareHost = await setupServedHost({
       projectId: 'demo-project',
       storageBucket: 'demo-bucket',
@@ -333,15 +335,19 @@ describe('Cross-plane Auth, App lifecycle, and multi-instance parity', () => {
       { projectId: 'demo-project', storageBucket: 'demo-bucket' },
       nextAppName('served-bare'),
     );
-    expect(bareHost.servedStorage.getStorage(servedBareApp, 'demo-bucket')).toBe(
+    expect(bareHost.servedStorage.getStorage(servedBareApp, 'demo-bucket')).not.toBe(
       bareHost.servedStorage.getStorage(servedBareApp),
     );
-    expect(bareHost.servedStorage.getStorage(servedBareApp, 'gs://demo-bucket')).toBe(
+    expect(bareHost.servedStorage.getStorage(servedBareApp, 'gs://demo-bucket')).not.toBe(
       bareHost.servedStorage.getStorage(servedBareApp),
     );
-    expect(bareHost.servedStorage.getStorage(servedBareApp, 'gs://other-bucket')).toBe(
+    expect(bareHost.servedStorage.ref(bareHost.servedStorage.getStorage(servedBareApp, 'gs://demo-bucket')).bucket).toBe('demo-bucket');
+    expect(bareHost.servedStorage.ref(bareHost.servedStorage.getStorage(servedBareApp, 'demo-bucket')).bucket).toBe('demo-bucket');
+    expect(bareHost.servedStorage.getStorage(servedBareApp, 'gs://other-bucket')).not.toBe(
       bareHost.servedStorage.getStorage(servedBareApp, 'other-bucket'),
     );
+    expect(bareHost.servedStorage.ref(bareHost.servedStorage.getStorage(servedBareApp, 'gs://other-bucket')).bucket).toBe('other-bucket');
+    expect(bareHost.servedStorage.ref(bareHost.servedStorage.getStorage(servedBareApp, 'other-bucket')).bucket).toBe('other-bucket');
     expect(bareHost.servedStorage.getStorage(servedBareApp, 'gs://other-bucket')).not.toBe(
       bareHost.servedStorage.getStorage(servedBareApp),
     );
@@ -381,20 +387,27 @@ describe('Cross-plane Auth, App lifecycle, and multi-instance parity', () => {
     );
 
     try {
-      expect(gsHost.servedStorage.getStorage(servedGsApp, 'demo-bucket')).toBe(
+      expect(gsHost.servedStorage.getStorage(servedGsApp, 'demo-bucket')).not.toBe(
         gsHost.servedStorage.getStorage(servedGsApp),
       );
-      expect(gsHost.servedStorage.getStorage(servedGsApp, 'gs://demo-bucket')).toBe(
+      expect(gsHost.servedStorage.getStorage(servedGsApp, 'gs://demo-bucket')).not.toBe(
         gsHost.servedStorage.getStorage(servedGsApp),
       );
+      expect(gsHost.servedStorage.ref(gsHost.servedStorage.getStorage(servedGsApp)).bucket).toBe('demo-bucket');
+      expect(gsHost.servedStorage.ref(gsHost.servedStorage.getStorage(servedGsApp, 'gs://demo-bucket')).bucket).toBe('demo-bucket');
 
-      expect(ipStorage.getStorage(ipBareApp, 'demo-bucket')).toBe(ipStorage.getStorage(ipBareApp));
-      expect(ipStorage.getStorage(ipBareApp, 'gs://demo-bucket')).toBe(ipStorage.getStorage(ipBareApp));
-      expect(ipStorage.getStorage(ipGsApp, 'demo-bucket')).toBe(ipStorage.getStorage(ipGsApp));
-      expect(ipStorage.getStorage(ipGsApp, 'gs://demo-bucket')).toBe(ipStorage.getStorage(ipGsApp));
-      expect(ipStorage.getStorage(ipBareApp, 'gs://other-bucket')).toBe(
+      expect(ipStorage.getStorage(ipBareApp, 'demo-bucket')).not.toBe(ipStorage.getStorage(ipBareApp));
+      expect(ipStorage.getStorage(ipBareApp, 'gs://demo-bucket')).not.toBe(ipStorage.getStorage(ipBareApp));
+      expect(ipStorage.getStorage(ipGsApp, 'demo-bucket')).not.toBe(ipStorage.getStorage(ipGsApp));
+      expect(ipStorage.getStorage(ipGsApp, 'gs://demo-bucket')).not.toBe(ipStorage.getStorage(ipGsApp));
+      expect(ipStorage.ref(ipStorage.getStorage(ipBareApp)).bucket).toBe('demo-bucket');
+      expect(ipStorage.ref(ipStorage.getStorage(ipGsApp)).bucket).toBe('demo-bucket');
+      expect(ipStorage.ref(ipStorage.getStorage(ipGsApp, 'gs://demo-bucket')).bucket).toBe('demo-bucket');
+      expect(ipStorage.getStorage(ipBareApp, 'gs://other-bucket')).not.toBe(
         ipStorage.getStorage(ipBareApp, 'other-bucket'),
       );
+      expect(ipStorage.ref(ipStorage.getStorage(ipBareApp, 'gs://other-bucket')).bucket).toBe('other-bucket');
+      expect(ipStorage.ref(ipStorage.getStorage(ipBareApp, 'other-bucket')).bucket).toBe('other-bucket');
       expect(ipStorage.getStorage(ipBareApp, 'gs://other-bucket')).not.toBe(
         ipStorage.getStorage(ipBareApp),
       );

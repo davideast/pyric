@@ -18,13 +18,42 @@ import assert from 'node:assert/strict';
 import type { Page } from '@playwright/test';
 import { scenario, sleep, type App, type DevServer } from '../driver.ts';
 
+interface BucketUrlContract {
+  defaultRefBucket: string;
+  defaultRefString: string;
+  ownGsRefBucket: string;
+  defaultUploadBucket: string;
+  defaultMetadataBucket: string;
+  mediaUploadBucket: string;
+  mediaMetadataBucket: string;
+  defaultDistinctFromOwnGs: boolean;
+  mediaGsDistinctFromBare: boolean;
+  invalidGsPathCode: string;
+}
+
 declare function uploadToEachBucket(path: string): Promise<string[]>;
+declare function observeBucketUrlContract(path: string): Promise<BucketUrlContract>;
 
 const EXPECTED = ['default storage/unauthorized', 'media ok', 'undeployed storage/unauthorized'];
 const AFTER_RULES_SET = ['default ok', 'media ok', 'undeployed storage/unauthorized'];
 // Permissive mode opens only a bucket nothing deploys rules to; the default
 // bucket's storage.rules still deny an anonymous upload.
 const PERMISSIVE = ['default storage/unauthorized', 'media ok', 'undeployed ok'];
+
+function expectedContract(path: string): BucketUrlContract {
+  return {
+    defaultRefBucket: 'demo-app.appspot.com',
+    defaultRefString: `gs://demo-app.appspot.com/${path}`,
+    ownGsRefBucket: 'demo-app.appspot.com',
+    defaultUploadBucket: 'demo-app.appspot.com',
+    defaultMetadataBucket: 'demo-app.appspot.com',
+    mediaUploadBucket: 'media-bucket',
+    mediaMetadataBucket: 'media-bucket',
+    defaultDistinctFromOwnGs: true,
+    mediaGsDistinctFromBare: true,
+    invalidGsPathCode: 'storage/invalid-default-bucket',
+  };
+}
 
 /** True once `url` answers with a 2xx status. */
 async function answers(url: string): Promise<boolean> {
@@ -55,6 +84,14 @@ async function pageUploads(app: App, host: DevServer, plane: Plane, path: string
   await page.waitForFunction(() => 'uploadToEachBucket' in window);
   assert.equal(await runtimeMode(page), plane);
   return page.evaluate((objectPath) => uploadToEachBucket(objectPath), path);
+}
+
+/** Observe `getStorage(app, bucketUrl?)` handle, ref, metadata, and error parity on `plane`. */
+async function pageBucketUrlContract(app: App, host: DevServer, plane: Plane, path: string): Promise<BucketUrlContract> {
+  const page: Page = await app.page(host.url);
+  await page.waitForFunction(() => 'observeBucketUrlContract' in window);
+  assert.equal(await runtimeMode(page), plane);
+  return page.evaluate((objectPath) => observeBucketUrlContract(objectPath), path);
 }
 
 interface CapturedEvent { kind?: string; service?: string; path?: string }
@@ -92,6 +129,11 @@ async function verifyStorage(app: App, args: string[] = []): Promise<{ code: num
 
 function assertServerOutput(output: string): void {
   for (const line of EXPECTED) assert.match(output, new RegExp(`^${line}$`, 'm'), output);
+  const contractMatch = /^contract (\{.*\})$/m.exec(output);
+  assert.ok(contractMatch !== null && contractMatch[1] !== undefined, output);
+  const contractJson = contractMatch[1];
+  const parsed = JSON.parse(contractJson) as BucketUrlContract;
+  assert.deepEqual(parsed, expectedContract('public/server-contract.txt'));
 }
 
 export default scenario(async (app) => {
@@ -139,6 +181,12 @@ export default scenario(async (app) => {
     assertServerOutput(output);
   });
 
+  await app.step('the page on the Node host preserves bucket names, distinct handles, and bucketUrl validation', async () => {
+    assert.deepEqual(await pageBucketUrlContract(app, host, 'hosted', 'public/hosted-contract.txt'), expectedContract('public/hosted-contract.txt'));
+    await waitForCapture(app, 'public/hosted-contract.txt');
+    assert.deepEqual(await verifyStorage(app), { code: 0, divergences: [] });
+  });
+
   await app.step('pyric rules set replaces the default bucket\'s rules on the Node host, and an upload obeys them', async () => {
     // media.rules allows everything; it now governs the default bucket too.
     const result = await app.pyric(['rules', 'set', '--service', 'storage', '--rules-file', 'media.rules'], { env: attached });
@@ -151,6 +199,7 @@ export default scenario(async (app) => {
 
   await app.step('the page on the SharedWorker gets each bucket its own rules', async () => {
     assert.deepEqual(await pageUploads(app, workerHost, 'shared-worker', 'worker/a.txt'), EXPECTED);
+    assert.deepEqual(await pageBucketUrlContract(app, workerHost, 'shared-worker', 'public/worker-contract.txt'), expectedContract('public/worker-contract.txt'));
   });
 
   await app.step('the in-page sandbox gets each bucket its own rules', async () => {
@@ -159,6 +208,7 @@ export default scenario(async (app) => {
       (globalThis as { __PYRIC_FORCE_INPAGE__?: boolean }).__PYRIC_FORCE_INPAGE__ = true;
     });
     assert.deepEqual(await pageUploads(app, workerHost, 'in-page', 'in-page/a.txt'), EXPECTED);
+    assert.deepEqual(await pageBucketUrlContract(app, workerHost, 'in-page', 'public/in-page-contract.txt'), expectedContract('public/in-page-contract.txt'));
   });
 
   await app.step('a PYRIC_SANDBOX=local server script gets each bucket its own rules', async () => {

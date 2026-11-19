@@ -156,7 +156,7 @@ export async function uploadObjectReplacing(
         before: replaced?.metadata,
         after: stored,
         detail: {
-          bucket: ref.bucket,
+          bucket: target.bucket,
           size: stored.size,
           contentType: stored.contentType,
           overwrite: replaced !== undefined,
@@ -167,7 +167,7 @@ export async function uploadObjectReplacing(
   } catch {
     // Observational — never let event emission break a storage write.
   }
-  return { result: { ref, metadata: toFullMetadata(stored, planeOf(target)) }, replaced };
+  return { result: { ref, metadata: toFullMetadata(stored, planeOf(target), ref.bucket) }, replaced };
 }
 
 /**
@@ -224,7 +224,8 @@ export function buildStoredMetadata(args: {
   // Provisional: the backend issues the generation the write stores.
   const generation = String(clockGeneration((args.now ?? new Date()).getTime()));
   const name = ref.name;
-  const client = planeOf(targetOf(ref.storage)) === 'client';
+  const target = targetOf(ref.storage);
+  const client = planeOf(target) === 'client';
   let contentDisposition = settable?.contentDisposition;
   if (client) {
     contentDisposition = uploadContentDisposition(settable?.contentDisposition, ref.fullPath);
@@ -232,7 +233,7 @@ export function buildStoredMetadata(args: {
   const stored: StoredMetadata = {
     fullPath: ref.fullPath,
     name,
-    bucket: ref.bucket,
+    bucket: target.bucket,
     generation,
     metageneration: '1',
     timeCreated: now,

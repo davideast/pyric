@@ -5,70 +5,82 @@ import {
   resolveClientApp,
 } from '../sandbox/internal/client-app.js';
 import { createStorageRetryHandle } from './handle-retry-times.js';
+import { parseBucketSpec } from './sandbox/bucket-spec.js';
 import {
   getStorageSandbox,
   TARGET_SYMBOL,
   type AppFirebaseStorage,
   type FirebaseStorage,
   type SandboxTarget,
+  type StorageOptions,
 } from './service.js';
-import { rulesBucketName } from '@pyric/rules/internal/storage';
-
-/** Whether `getStorage`'s bucket URL names a bucket other than the app's `storageBucket`. */
-function namesOtherBucket(bucketUrl: string | undefined, appBucket: string | undefined): boolean {
-  if (bucketUrl === undefined || bucketUrl === '') return false;
-  return rulesBucketName('', bucketUrl) !== rulesBucketName('', appBucket);
-}
 
 /** Resolve the Firebase-shaped Storage service associated with an app. */
 export function getStorage(app?: FirebaseApp, bucketUrl?: string): AppFirebaseStorage {
-  const resolvedApp = app ?? defaultClientApp() as FirebaseApp;
+  const resolvedApp = app ?? (defaultClientApp() as FirebaseApp);
   const runtime = resolveClientApp(resolvedApp);
   if (!runtime) throw new TypeError('pyric/storage: unrecognized FirebaseApp handle');
-  let appBucket = runtime.options?.storageBucket;
-  let projectId = runtime.options?.projectId;
-  try {
-    appBucket = resolvedApp.options?.storageBucket;
-    projectId = resolvedApp.options?.projectId;
-  } catch {
-    // Deleted app: use options captured at attach time for cache lookup.
+
+  let parsedBucketUrl: string | undefined;
+  let cacheKey = 'storage/[DEFAULT]';
+  if (bucketUrl !== undefined) {
+    parsedBucketUrl = parseBucketSpec(bucketUrl);
+    cacheKey = `storage/url:${bucketUrl}`;
   }
-  const isOther = namesOtherBucket(bucketUrl, appBucket);
-  const cacheKey = isOther ? rulesBucketName('', bucketUrl) : 'default';
-  return runtime.service(`storage/${cacheKey}`, () => {
+
+  return runtime.service(cacheKey, () => {
     const { sandbox, session } = runtime;
-    // Project-scope the storage database by the app's projectId (issue #359)
-    // — first-call-per-Sandbox semantics apply, so a host that already opened
-    // the service (e.g. `pyric dev` with the served project's key) wins.
-    // A bucket URL naming another bucket opens that bucket, with its own
-    // objects and its own rules, as production keeps them apart (#1313). The
-    // app's default bucket keeps the store key `pyric-default`.
-    const otherBucket = isOther ? rulesBucketName('', bucketUrl) : undefined;
-    const handle = getStorageSandbox(bindOperationContext(sandbox.withAuth(session.currentUser), {
-      source: { kind: 'app' },
-      authLens: { mode: 'app-session' },
-    }), {
-      ...(projectId ? { projectId } : {}),
-      ...(otherBucket !== undefined ? { bucket: otherBucket } : {}),
-    });
-    // The store keeps its own bucket key; rules see the bucket under the name
-    // the app knows it by (ST-H2-4).
-    const bucketName = bucketUrl ?? appBucket;
+    let rawAppBucket = runtime.options?.storageBucket;
+    let projectId = runtime.options?.projectId;
+    try {
+      rawAppBucket = resolvedApp.options?.storageBucket;
+      projectId = resolvedApp.options?.projectId;
+    } catch {
+      // Deleted app: use options captured at attach time.
+    }
+
+    let parsedAppBucket: string | undefined;
+    if (typeof rawAppBucket === 'string' && rawAppBucket !== '') {
+      parsedAppBucket = parseBucketSpec(rawAppBucket);
+    }
+
+    const sandboxOptions: StorageOptions = {};
+    if (projectId) {
+      sandboxOptions.projectId = projectId;
+    }
+    if (
+      parsedBucketUrl !== undefined &&
+      parsedBucketUrl !== '' &&
+      parsedBucketUrl !== parsedAppBucket
+    ) {
+      sandboxOptions.bucket = parsedBucketUrl;
+    }
+
+    const handle = getStorageSandbox(
+      bindOperationContext(sandbox.withAuth(session.currentUser), {
+        source: { kind: 'app' },
+        authLens: { mode: 'app-session' },
+      }),
+      sandboxOptions,
+    );
+
+    let callerBucketName = parsedAppBucket;
+    if (parsedBucketUrl !== undefined) {
+      callerBucketName = parsedBucketUrl;
+    }
+
     const baseTarget = handle[TARGET_SYMBOL];
     let target: SandboxTarget = {
       ...baseTarget,
       currentAuth: () => session.currentUser,
     };
-    if (bucketName) {
-      target = { ...target, bucketName };
+    if (callerBucketName !== undefined) {
+      target = { ...target, bucketName: callerBucketName };
     }
-    return createStorageRetryHandle<AppFirebaseStorage>(
-      {
-        [TARGET_SYMBOL]: target,
-        app: resolvedApp,
-      },
-      handle,
-    );
+    return createStorageRetryHandle<AppFirebaseStorage>({
+      [TARGET_SYMBOL]: target,
+      app: resolvedApp,
+    });
   });
 }
 

@@ -2,7 +2,7 @@
 // media-bucket, and to a bucket firebase.json deploys no rules to, and
 // returns one line per upload: the bucket's label and "ok" or the error code.
 import { initializeApp } from "firebase/app";
-import { getStorage, ref, uploadString } from "firebase/storage";
+import { getMetadata, getStorage, ref, uploadString } from "firebase/storage";
 
 const app = initializeApp({
   apiKey: "demo",
@@ -20,8 +20,45 @@ async function outcome(label, storage, path) {
   }
 }
 
+function invalidBucketCode(bucketUrl) {
+  try {
+    getStorage(app, bucketUrl);
+    return "did-not-throw";
+  } catch (error) {
+    return String(error.code);
+  }
+}
+
 window.uploadToEachBucket = async (path) => [
   await outcome("default", getStorage(app), path),
   await outcome("media", getStorage(app, "gs://media-bucket"), path),
   await outcome("undeployed", getStorage(app, "gs://other-bucket"), path),
 ];
+
+window.observeBucketUrlContract = async (path) => {
+  const defaultStorage = getStorage(app);
+  const ownGsStorage = getStorage(app, "gs://demo-app.appspot.com");
+  const mediaGsStorage = getStorage(app, "gs://media-bucket");
+  const mediaBareStorage = getStorage(app, "media-bucket");
+
+  const defaultRef = ref(defaultStorage, path);
+  const ownGsRef = ref(ownGsStorage, path);
+  const defaultUploaded = await uploadString(defaultRef, "default payload");
+  const defaultMetadata = await getMetadata(ownGsRef);
+
+  const mediaUploaded = await uploadString(ref(mediaGsStorage, path), "media payload");
+  const mediaMetadata = await getMetadata(ref(mediaBareStorage, path));
+
+  return {
+    defaultRefBucket: defaultRef.bucket,
+    defaultRefString: defaultRef.toString(),
+    ownGsRefBucket: ownGsRef.bucket,
+    defaultUploadBucket: defaultUploaded.metadata.bucket,
+    defaultMetadataBucket: defaultMetadata.bucket,
+    mediaUploadBucket: mediaUploaded.metadata.bucket,
+    mediaMetadataBucket: mediaMetadata.bucket,
+    defaultDistinctFromOwnGs: defaultStorage !== ownGsStorage,
+    mediaGsDistinctFromBare: mediaGsStorage !== mediaBareStorage,
+    invalidGsPathCode: invalidBucketCode("gs://media-bucket/sub/path"),
+  };
+};

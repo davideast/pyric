@@ -66,6 +66,7 @@ export {
   type StorageEvaluationObservation,
 } from '@pyric/rules/internal/storage';
 export { requestResourceFor, resourceFromStored } from './sandbox/rules-resources.js';
+export { parseBucketSpec } from './sandbox/bucket-spec.js';
 export { bindRulesBucket, rulesBucketName } from '@pyric/rules/internal/storage';
 export { clientContentEncoding, uploadContentDisposition } from './content-defaults.js';
 export {
