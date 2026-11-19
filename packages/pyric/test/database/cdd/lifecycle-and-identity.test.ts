@@ -102,10 +102,9 @@ describe('rtdb-modular CDD: lifecycle and runtime identity rows', () => {
     expect(abruptObservation.exitWasForced).toBe(true);
     expect(abruptObservation.terminal).toEqual({ state: 'offline' });
 
-    // The in-process sandbox has no process-loss signal: an acknowledged
-    // registration remains pending until one of its deterministic clean
-    // lifecycle hooks runs. Worker pagehide/port-close coverage lives in the
-    // served two-port integration named by the M84 registry row.
+    // Single-process in-memory handles run until explicit goOffline/deleteApp;
+    // multi-port SharedWorker RTDB port-lease expiry and Node host SIGKILL
+    // socket teardown live in rtdb-ondisconnect-abrupt-exit.test.ts.
     const { db, sandbox } = setup();
     const observer = api.getDatabase(sandbox.withAuth({ uid: 'obs' }));
     const target = api.ref(db, 'abrupt-boundary');

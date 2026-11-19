@@ -49,12 +49,27 @@ describe('evidence linking and validation', () => {
   });
 
   it('renders target="_blank" rel="noopener noreferrer" anchor elements in consolidated gap disclosures', () => {
-    const row = model.documentation.rows.find((r) => r.id === 'rtdb-modular#M84');
-    expect(row).toBeDefined();
-    if (row === undefined) {
-      throw new Error('Expected rtdb-modular#M84 in conformance model');
-    }
-    const gaps = consolidatedGapSections([row], model.documentation.observationPaths);
+    const gapRow: CompatibilityRow = {
+      id: 'rtdb-modular#gap-fixture',
+      surface: 'rtdb-modular',
+      aliases: [],
+      featureKeys: ['onDisconnect'],
+      rowRef: 'gap-fixture',
+      rowNumber: 84,
+      section: 'Public API',
+      api: 'Public API',
+      behavior: 'Synthetic gap fixture for consolidated gap disclosure link rendering.',
+      status: 'diverged-documented',
+      evidence: 'Oracle `rtdb-modular-ondisconnect-abrupt-exit` exercises external link rendering.',
+      risk: [],
+      riskScore: 0,
+      riskReasons: [],
+      automation: 'oracle-backed',
+      oracleObservations: ['rtdb-modular-ondisconnect-abrupt-exit'],
+      conformanceTests: ['packages/cli/test/serve/worker/rtdb-integration.test.ts'],
+      conformanceDisposition: 'by-design',
+    };
+    const gaps = consolidatedGapSections([gapRow], model.documentation.observationPaths);
     expect(gaps).toContain('<a href="https://github.com/davideast/pyric/blob/main/packages/conformance/observations/rtdb-modular/rtdb-modular-ondisconnect-abrupt-exit.json" target="_blank" rel="noopener noreferrer">');
   });
 

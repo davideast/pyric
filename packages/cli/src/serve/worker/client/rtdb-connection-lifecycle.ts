@@ -9,6 +9,12 @@ import {
   isWorkerInstanceOffline,
   setWorkerInstanceOffline,
 } from './rtdb-offline-state.js';
+import {
+  noteRtdbDisconnectArmed,
+  noteRtdbDisconnectCancelled,
+  noteRtdbInstanceOffline,
+  noteRtdbInstanceOnline,
+} from './rtdb-port-lease.js';
 import { normalizeRtdbPath, rtdbRpc } from './rtdb-references.js';
 import { validateRtdbPriority, validateRtdbUpdateValues, validateRtdbValue } from './rtdb-value-validation.js';
 
@@ -79,10 +85,13 @@ export class RtdbOnDisconnect {
   ) {}
 
   cancel(): Promise<void> {
+    const target = { ...this._repo, path: this._path };
     const send = () =>
       rtdbRpc(this._repo, {
         t: 'op', id: nextId(), method: 'rtdb.onDisconnectCancel', path: this._path,
-      }).then(() => undefined);
+      }).then(() => {
+        noteRtdbDisconnectCancelled(target);
+      });
     if (isWorkerInstanceOffline(this._repo)) {
       return enqueueWorkerOfflineDisconnect(this._repo, send);
     }
@@ -92,10 +101,13 @@ export class RtdbOnDisconnect {
   remove(): Promise<void> {
     validateWritablePath('OnDisconnect.remove', this._path);
     markWorkerPathsWarm(this._repo, [this._path]);
+    const target = { ...this._repo, path: this._path };
     const send = () =>
       rtdbRpc(this._repo, {
         t: 'op', id: nextId(), method: 'rtdb.onDisconnectRemove', path: this._path,
-      }).then(() => undefined);
+      }).then(() => {
+        noteRtdbDisconnectArmed(target);
+      });
     if (isWorkerInstanceOffline(this._repo)) {
       return enqueueWorkerOfflineDisconnect(this._repo, send);
     }
@@ -106,10 +118,13 @@ export class RtdbOnDisconnect {
     validateWritablePath('OnDisconnect.set', this._path);
     validateRtdbValue('OnDisconnect.set', value, this._path);
     markWorkerPathsWarm(this._repo, [this._path]);
+    const target = { ...this._repo, path: this._path };
     const send = () =>
       rtdbRpc(this._repo, {
         t: 'op', id: nextId(), method: 'rtdb.onDisconnectSet', path: this._path, value,
-      }).then(() => undefined);
+      }).then(() => {
+        noteRtdbDisconnectArmed(target);
+      });
     if (isWorkerInstanceOffline(this._repo)) {
       return enqueueWorkerOfflineDisconnect(this._repo, send);
     }
@@ -121,10 +136,13 @@ export class RtdbOnDisconnect {
     validateRtdbValue('OnDisconnect.setWithPriority', value, this._path);
     validateRtdbPriority('OnDisconnect.setWithPriority', priority);
     markWorkerPathsWarm(this._repo, [this._path]);
+    const target = { ...this._repo, path: this._path };
     const send = () =>
       rtdbRpc(this._repo, {
         t: 'op', id: nextId(), method: 'rtdb.onDisconnectSet', path: this._path, value, priority,
-      }).then(() => undefined);
+      }).then(() => {
+        noteRtdbDisconnectArmed(target);
+      });
     if (isWorkerInstanceOffline(this._repo)) {
       return enqueueWorkerOfflineDisconnect(this._repo, send);
     }
@@ -141,10 +159,13 @@ export class RtdbOnDisconnect {
       targetPaths = keys.map((key) => normalizeRtdbPath(`${this._path}/${key}`));
     }
     markWorkerPathsWarm(this._repo, targetPaths);
+    const target = { ...this._repo, path: this._path };
     const send = () =>
       rtdbRpc(this._repo, {
         t: 'op', id: nextId(), method: 'rtdb.onDisconnectUpdate', path: this._path, values,
-      }).then(() => undefined);
+      }).then(() => {
+        noteRtdbDisconnectArmed(target);
+      });
     if (isWorkerInstanceOffline(this._repo)) {
       return enqueueWorkerOfflineDisconnect(this._repo, send);
     }
@@ -164,6 +185,7 @@ export function rtdbGoOffline(db: ClientRtdb): void {
   emitClientDatabaseLog('goOffline');
   setWorkerInstanceOffline(db, true);
   setNetworkEnabled(db, false);
+  noteRtdbInstanceOffline(db);
   void rtdbRpc(db, { t: 'op', id: nextId(), method: 'rtdb.goOffline' }).catch(() => undefined);
 }
 
@@ -174,6 +196,7 @@ export function rtdbGoOnline(db: ClientRtdb): void {
   markWorkerDatabaseStarted(db);
   emitClientDatabaseLog('goOnline');
   setNetworkEnabled(db, true);
+  noteRtdbInstanceOnline(db);
   void rtdbRpc(db, { t: 'op', id: nextId(), method: 'rtdb.goOnline' }).catch(() => undefined);
   setWorkerInstanceOffline(db, false);
 }

@@ -24,7 +24,7 @@ export const OBS_DIR = join(
 /** Observations that cannot be replayed against the sandbox, with the reason. */
 export const NOT_APPLICABLE: Record<string, string> = {
   'rtdb-modular-ondisconnect-abrupt-exit.json':
-    'requires terminating the writer process; the sandbox boundary is pinned as a documented divergence in M84',
+    'requires terminating an independent writer renderer or process; replayed across SharedWorker port leases and Node host in packages/cli/test/serve/worker/oracle-captures/rtdb-ondisconnect-abrupt-exit.test.ts',
 };
 
 export function load(name: string): Record<string, unknown> {

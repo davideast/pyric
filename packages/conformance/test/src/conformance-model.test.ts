@@ -63,7 +63,7 @@ describe('multi-axis conformance model', () => {
     });
     expect(canIUse(model, 'onDisconnect', { importPath: 'pyric/database' })).toMatchObject({
       match: 'exact',
-      supports: [expect.objectContaining({ surface: 'rtdb', availability: 'available', fidelity: 'diverged' })],
+      supports: [expect.objectContaining({ surface: 'rtdb', availability: 'available', fidelity: 'conforms' })],
     });
     expect(canIUse(model, 'getDownloadURL', { importPath: 'pyric/firestore' }).match).toBe('none');
     const appGetAuth = canIUse(model, 'getAuth', { importPath: 'pyric/app' });
@@ -264,11 +264,11 @@ describe('multi-axis conformance model', () => {
     expect(result.claims.map(({ id }) => id)).toContain('auth#84');
   });
 
-  it('reports onDisconnect as available with its priority and abrupt-loss divergences qualified', () => {
+  it('reports onDisconnect as available, conforming, and assurance-eligible across priority and abrupt-loss rows', () => {
     const result = one('onDisconnect');
     expect(result).toMatchObject({
       feature: 'onDisconnect', surface: 'rtdb', availability: 'available',
-      fidelity: 'diverged', assurance: 'qualified',
+      fidelity: 'conforms', assurance: 'eligible',
     });
     expect(result.claims.map(({ id }) => id)).toEqual(expect.arrayContaining([
       'rtdb-modular#M83',
