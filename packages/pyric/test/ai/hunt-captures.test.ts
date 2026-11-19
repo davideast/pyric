@@ -97,9 +97,8 @@ describe('ai-request-edge replays', () => {
       const firstCandidate = unary.response.candidates?.[0];
       expect(firstCandidate?.finishReason).toBe(production.facts.finishReason);
       expect(firstCandidate?.content.role).toBe(production.facts.contentRole);
-      const partKeys = (firstCandidate?.content.parts ?? []).map((part) =>
-        Object.keys(part).sort(),
-      );
+      const parts = firstCandidate?.content.parts ?? [];
+      const partKeys = parts.map((part) => Object.keys(part).sort());
       expect(partKeys).toEqual(production.facts.partKeySets);
 
       const streamed = await targetModel.generateContentStream(request);
@@ -219,7 +218,8 @@ describe('ai-request-edge replays', () => {
       const unary = await pyricOutcome(() => geminiProModel.generateContent(request));
       expect(compare(production, unary.outcome)).toEqual([]);
       expect(unary.error?.message).toContain(String(production.facts.messageText));
-      expect(unary.error?.customErrorData?.errorDetails ?? []).toEqual([]);
+      const errorDetails = unary.error?.customErrorData?.errorDetails ?? [];
+      expect(errorDetails).toEqual([]);
 
       const streamOutcome = await pyricOutcome(() =>
         geminiProModel.generateContentStream(request),
