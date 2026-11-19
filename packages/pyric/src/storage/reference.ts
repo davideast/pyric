@@ -18,8 +18,13 @@
  * collapsed. Empty path is legal — it's the root reference.
  */
 import { rulesBucketName } from '@pyric/rules/internal/storage';
+import {
+  OPERATION_STORAGE_SYMBOL,
+  operationStorageOf,
+  resolveReferenceOperationStorage,
+} from './sandbox/cross-bucket-target.js';
 import { TARGET_SYMBOL, targetOf, type FirebaseStorage } from './service.js';
-import { refPathOf } from './url.js';
+import { refLocationOf, refPathOf } from './url.js';
 
 /**
  * Public reference shape. Methods are inherited from the impl
@@ -59,37 +64,55 @@ export function ref(
   if (isStorageReference(target)) {
     // Relative-to-parent overload.
     targetOf(target.storage);
-    return new SandboxStorageReference(target.storage, joinStorageRefPaths(target.fullPath, refPathOf(path, false)));
+    const parentOperationStorage = operationStorageOf(target);
+    targetOf(parentOperationStorage);
+    const joinedPath = joinStorageRefPaths(target.fullPath, refPathOf(path, false));
+    return new SandboxStorageReference(target.storage, joinedPath, parentOperationStorage);
   }
   // Storage-rooted overload.
   const resolvedTarget = targetOf(target);
   if (resolvedTarget.admin === true && typeof path === 'string' && ADMIN_LITERAL_SCHEME_PATH.test(path)) {
-    return new SandboxStorageReference(target, path);
+    return new SandboxStorageReference(target, path, target);
   }
-  return new SandboxStorageReference(target, normalizePath(refPathOf(path, true)));
+  const location = refLocationOf(path, true);
+  const operationStorage = resolveReferenceOperationStorage(target, location.bucket);
+  return new SandboxStorageReference(target, normalizePath(location.path), operationStorage);
 }
 
-/** Construct a reference with `fullPath` verbatim, without URL parsing or slash collapsing. */
-export function literalStorageReference(
-  storage: FirebaseStorage,
+/** Construct a reference on the same public handle and operational bucket as `source`. */
+export function referenceAtPath(
+  source: StorageReference,
   fullPath: string,
+  literal = false,
 ): StorageReference {
-  targetOf(storage);
-  return new SandboxStorageReference(storage, fullPath);
+  targetOf(source.storage);
+  const operationStorage = operationStorageOf(source);
+  targetOf(operationStorage);
+  let resolvedPath = normalizePath(fullPath);
+  if (literal) {
+    resolvedPath = fullPath;
+  }
+  return new SandboxStorageReference(source.storage, resolvedPath, operationStorage);
 }
 
-// ─── Sandbox impl ──────────────────────────────────────────────────
+// --- Sandbox impl -------------------------------------------------
 
 class SandboxStorageReference implements StorageReference {
   readonly storage: FirebaseStorage;
+  readonly [OPERATION_STORAGE_SYMBOL]: FirebaseStorage;
   readonly bucket: string;
   readonly fullPath: string;
 
-  constructor(storage: FirebaseStorage, fullPath: string) {
+  constructor(
+    storage: FirebaseStorage,
+    fullPath: string,
+    operationStorage: FirebaseStorage = storage,
+  ) {
     this.storage = storage;
+    this[OPERATION_STORAGE_SYMBOL] = operationStorage;
     // Sandbox handles always have a sandbox target; expose the caller-known
     // bucket name when present while keeping the store's internal key intact.
-    const t = targetOf(storage);
+    const t = targetOf(operationStorage);
     if (t.bucketName === '') {
       this.bucket = '';
     } else if (t.bucketName !== undefined) {
@@ -111,11 +134,11 @@ class SandboxStorageReference implements StorageReference {
     if (idx !== -1) {
       parentPath = this.fullPath.slice(0, idx);
     }
-    return new SandboxStorageReference(this.storage, parentPath);
+    return new SandboxStorageReference(this.storage, parentPath, this[OPERATION_STORAGE_SYMBOL]);
   }
 
   get root(): StorageReference {
-    return new SandboxStorageReference(this.storage, '');
+    return new SandboxStorageReference(this.storage, '', this[OPERATION_STORAGE_SYMBOL]);
   }
 
   toString(): string {

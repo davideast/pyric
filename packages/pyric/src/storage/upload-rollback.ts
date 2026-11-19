@@ -16,6 +16,7 @@ import type { EventProvenance } from 'pyric/sandbox';
 import { deleteObjectGeneration } from './download.js';
 import type { StoredMetadata, StoredObject } from './persistence.js';
 import type { StorageReference } from './reference.js';
+import { operationStorageOf } from './sandbox/cross-bucket-target.js';
 import { getStorageService, storageAuth, storageOperationProvenance, targetOf } from './service.js';
 
 /**
@@ -40,7 +41,7 @@ export async function keepReplacedObject(
   maxHeldBytes: number,
 ): Promise<ReplacedAtCommit> {
   if (replaced === undefined) return { kind: 'none' };
-  const backend = (await getStorageService(ref.storage)).backend;
+  const backend = (await getStorageService(operationStorageOf(ref))).backend;
   const onDisk = backend.replacedObjectsOnDisk === true;
   if (onDisk) return { kind: 'kept', object: replaced, heldBytes: 0 };
   const size = replaced.blob.size;
@@ -61,7 +62,7 @@ export async function restoreObjectGeneration(
   prior: StoredObject,
   provenance?: EventProvenance,
 ): Promise<boolean> {
-  const backend = (await getStorageService(ref.storage)).backend;
+  const backend = (await getStorageService(operationStorageOf(ref))).backend;
   // Read for the event only; the write below checks the generation itself.
   const before = await backend.getMetadata(ref.fullPath);
   const restored = await backend.replaceIfGeneration(ref.fullPath, generation, prior);
@@ -76,7 +77,7 @@ function emitObjectRestore(
   restored: StoredMetadata,
   provenance: EventProvenance | undefined,
 ): void {
-  const target = targetOf(ref.storage);
+  const target = targetOf(operationStorageOf(ref));
   try {
     emitSandboxEvent(
       target.sandbox,

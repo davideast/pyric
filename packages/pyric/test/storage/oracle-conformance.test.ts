@@ -38,7 +38,7 @@ import {
   updateMetadata,
   listAll,
 } from '../../src/storage/index.js';
-import { parseStorageUrl } from '../../src/storage/url.js';
+import { nameStorageBucket } from '../../src/storage/internal.js';
 import { registerOracleDeleteListAllRulesSuite } from './oracle-delete-listall-rules-cases.js';
 import { registerOracleGetBytesUploadStringSuite } from './oracle-getbytes-uploadstring-cases.js';
 import { registerOracleGetStorageBucketUrlSuite } from './oracle-getstorage-bucket-url-cases.js';
@@ -107,15 +107,28 @@ interface RefCase {
   code?: string;
 }
 
-/** Replay one recorded `ref()` call and assert its path fields or its error code. */
+/** Replay one recorded `ref()` call and assert its bucket + path fields or its error code. */
 function expectRefCase(storage: ReturnType<typeof freshStorage>, recorded: RefCase): void {
-  const call = () => (recorded.parent === undefined ? ref(storage, recorded.input) : ref(ref(storage, recorded.parent), recorded.input));
+  const call = () => {
+    if (recorded.parent === undefined) {
+      return ref(storage, recorded.input);
+    }
+    return ref(ref(storage, recorded.parent), recorded.input);
+  };
   if (recorded.threw) {
     expect(call).toThrow(expect.objectContaining({ code: recorded.code }));
     return;
   }
   const made = call();
-  expect({ fullPath: made.fullPath, name: made.name }).toEqual({ fullPath: recorded.fullPath!, name: recorded.name! });
+  expect({
+    bucket: made.bucket,
+    fullPath: made.fullPath,
+    name: made.name,
+  }).toEqual({
+    bucket: recorded.bucket,
+    fullPath: recorded.fullPath,
+    name: recorded.name,
+  });
 }
 
 const DENY_ALL = `
@@ -428,20 +441,20 @@ service firebase.storage {
 
   it('storage#110: a gs:// URL gives the reference at its path', () => {
     const obs = load('client-storage-ref-urls.json');
-    const storage = freshStorage('ref-url-gs');
+    const storage = nameStorageBucket(freshStorage('ref-url-gs'), 'b');
     const plain = obs.plainPath as RefCase;
+    expectRefCase(storage, plain);
     expectRefCase(storage, obs.gsDefaultBucket as RefCase);
     expectRefCase(storage, obs.gsPathNotDecoded as RefCase);
     expectRefCase(storage, obs.gsBucketRoot as RefCase);
     expectRefCase(storage, obs.gsNoBucket as RefCase);
-    // A gs:// URL on the default bucket is the same reference as its path.
     expect((obs.gsDefaultBucket as RefCase).bucket).toBe(plain.bucket as string);
     expect(ref(storage, (obs.gsDefaultBucket as RefCase).input).bucket).toBe(ref(storage, plain.input).bucket);
   });
 
   it('storage#111: a download URL gives the reference at its decoded path', () => {
     const obs = load('client-storage-ref-urls.json');
-    const storage = freshStorage('ref-url-download');
+    const storage = nameStorageBucket(freshStorage('ref-url-download'), 'b');
     expectRefCase(storage, obs.firebaseDownloadUrl as RefCase);
     expectRefCase(storage, obs.firebaseDownloadUrlEncoded as RefCase);
     expectRefCase(storage, obs.cloudStorageUrl as RefCase);
@@ -450,7 +463,7 @@ service firebase.storage {
 
   it('storage#112: a URL on another host throws storage/invalid-url', () => {
     const obs = load('client-storage-ref-urls.json');
-    expectRefCase(freshStorage('ref-url-other-host'), obs.otherHostUrl as RefCase);
+    expectRefCase(nameStorageBucket(freshStorage('ref-url-other-host'), 'b'), obs.otherHostUrl as RefCase);
   });
 
   it("storage#113: the Node host's download URL (KNOWN DIVERGENCE)", () => {
@@ -463,26 +476,46 @@ service firebase.storage {
     expect(hosted.threw).toBe(true);
     expect(hosted.code).toBe('storage/invalid-url');
 
-    const made = ref(freshStorage('ref-url-pyric-host'), hosted.input);
+    const made = ref(nameStorageBucket(freshStorage('ref-url-pyric-host'), 'b'), hosted.input);
     const production = obs.firebaseDownloadUrl as RefCase;
-    expect({ fullPath: made.fullPath, name: made.name }).toEqual({ fullPath: production.fullPath!, name: production.name! });
+    expect({ bucket: made.bucket, fullPath: made.fullPath, name: made.name }).toEqual({
+      bucket: production.bucket,
+      fullPath: production.fullPath,
+      name: production.name,
+    });
   });
 
-  it("storage#114: the reference's bucket (KNOWN DIVERGENCE)", () => {
-    // Production gives a reference on the URL's bucket, including another
-    // bucket. The sandbox serves one bucket (storage#11), so the reference is
-    // on it, at the URL's path.
+  it("storage#114: ref(storage, url) places the reference on the URL's bucket and isolates cross-bucket data", async () => {
     const obs = load('client-storage-ref-urls.json');
-    const storage = freshStorage('ref-url-bucket');
-    for (const recorded of [obs.gsOtherBucket as RefCase, obs.firebaseDownloadUrlOtherBucket as RefCase]) {
-      expect(recorded.bucket).toBe('other-bucket');
-      // The parser reads the URL's bucket as production does; ref() places
-      // the reference on the sandbox's bucket.
-      expect(parseStorageUrl(recorded.input).bucket).toBe(recorded.bucket!);
+    const storage = nameStorageBucket(freshStorage('ref-url-bucket'), 'b');
+    const gsOther = obs.gsOtherBucket as RefCase;
+    const dlOther = obs.firebaseDownloadUrlOtherBucket as RefCase;
+    for (const recorded of [gsOther, dlOther]) {
+      expectRefCase(storage, recorded);
       const made = ref(storage, recorded.input);
-      expect(made.bucket).toBe(ref(storage).bucket);
-      expect(made.fullPath).toBe(recorded.fullPath!);
+      expect(made.storage).toBe(storage);
+      expect(made.toString()).toBe('gs://other-bucket/media/take.wav');
+      expect(made.parent?.bucket).toBe('other-bucket');
+      expect(made.parent?.storage).toBe(storage);
+      expect(made.root.bucket).toBe('other-bucket');
+      expect(made.root.storage).toBe(storage);
     }
+
+    const crossGsRef = ref(storage, gsOther.input);
+    const crossDlRef = ref(storage, dlOther.input);
+    const uploaded = await uploadBytes(crossGsRef, new Uint8Array([4, 5, 6]), { contentType: 'audio/wav' });
+    expect(uploaded.metadata.bucket).toBe('other-bucket');
+    let otherPath = 'media/take.wav';
+    if (gsOther.fullPath !== undefined) {
+      otherPath = gsOther.fullPath;
+    }
+    await expect(getMetadata(ref(storage, otherPath))).rejects.toMatchObject({
+      code: 'storage/object-not-found',
+    });
+    expect((await getMetadata(crossDlRef)).bucket).toBe('other-bucket');
+    expect([...new Uint8Array(await getBytes(crossDlRef))]).toEqual([4, 5, 6]);
+    await deleteObject(crossGsRef);
+    await expect(getMetadata(crossDlRef)).rejects.toMatchObject({ code: 'storage/object-not-found' });
   });
 
   it('storage#115: a data: URI (KNOWN DIVERGENCE)', () => {

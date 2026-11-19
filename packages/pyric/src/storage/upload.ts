@@ -27,6 +27,7 @@ import { createMd5Hasher, md5 } from '@pyric/rules/internal/storage';
 import { emitSandboxEvent, getClock, makeServiceMutationEvent } from 'pyric/sandbox/internal';
 import type { EventProvenance } from 'pyric/sandbox';
 import { arrayBufferToBase64 } from './base64.js';
+import { operationStorageOf } from './sandbox/cross-bucket-target.js';
 import { getStorageService, storageAuth, storageOperationProvenance, targetOf } from './service.js';
 import { enforceRules } from './enforce.js';
 import { resourceFromStored, requestResourceFor } from './sandbox/rules-resources.js';
@@ -112,7 +113,8 @@ export async function uploadObjectReplacing(
   { provenance, downloadTokens }: UploadObjectOptions = {},
 ): Promise<ReplacingUploadResult> {
   guardNonRoot(ref, 'uploadBytes');
-  const target = targetOf(ref.storage);
+  const operationStorage = operationStorageOf(ref);
+  const target = targetOf(operationStorage);
   const setsTokens = downloadTokens !== undefined;
   if (setsTokens && planeOf(target) !== 'admin') {
     throw new StorageError('unauthorized', 'Only the admin plane sets download tokens on upload.');
@@ -125,7 +127,7 @@ export async function uploadObjectReplacing(
   const uploadedAt = getClock(target.sandbox).date();
   const stored = buildStoredMetadata({ ref, blob, settable: metadata, now: uploadedAt, md5Hash });
   if (setsTokens) stored.downloadTokens = downloadTokens;
-  const service = await getStorageService(ref.storage);
+  const service = await getStorageService(operationStorage);
   const existing = await service.backend.getMetadata(ref.fullPath);
   enforceRules(service, {
     request: {
@@ -224,7 +226,7 @@ export function buildStoredMetadata(args: {
   // Provisional: the backend issues the generation the write stores.
   const generation = String(clockGeneration((args.now ?? new Date()).getTime()));
   const name = ref.name;
-  const target = targetOf(ref.storage);
+  const target = targetOf(operationStorageOf(ref));
   const client = planeOf(target) === 'client';
   let contentDisposition = settable?.contentDisposition;
   if (client) {

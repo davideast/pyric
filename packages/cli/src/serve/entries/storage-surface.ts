@@ -88,7 +88,7 @@ export function getStorage(app?: FirebaseApp, bucketUrl?: string): FirebaseStora
     }
   }
   const client = workerClientForApp(resolved);
-  const opened = workerGetStorage(client, undefined, resolvedBucket, namesOtherBucket);
+  const opened = workerGetStorage(client, undefined, resolvedBucket, namesOtherBucket, appBucket);
   const handle = Object.assign(opened, { app: resolved }) as unknown as FirebaseStorage;
   handles.set(cacheKey, handle);
   return handle;

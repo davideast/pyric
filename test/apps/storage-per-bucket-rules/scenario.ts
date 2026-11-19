@@ -26,6 +26,11 @@ interface BucketUrlContract {
   defaultMetadataBucket: string;
   mediaUploadBucket: string;
   mediaMetadataBucket: string;
+  crossUrlRefBucket: string;
+  crossUrlSameStorage: boolean;
+  crossUrlUploadBucket: string;
+  crossUrlDownloadMetaBucket: string;
+  crossUrlUndeployedCode: string;
   defaultDistinctFromOwnGs: boolean;
   mediaGsDistinctFromBare: boolean;
   invalidGsPathCode: string;
@@ -49,6 +54,11 @@ function expectedContract(path: string): BucketUrlContract {
     defaultMetadataBucket: 'demo-app.appspot.com',
     mediaUploadBucket: 'media-bucket',
     mediaMetadataBucket: 'media-bucket',
+    crossUrlRefBucket: 'media-bucket',
+    crossUrlSameStorage: true,
+    crossUrlUploadBucket: 'media-bucket',
+    crossUrlDownloadMetaBucket: 'media-bucket',
+    crossUrlUndeployedCode: 'storage/unauthorized',
     defaultDistinctFromOwnGs: true,
     mediaGsDistinctFromBare: true,
     invalidGsPathCode: 'storage/invalid-default-bucket',

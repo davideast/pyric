@@ -3,6 +3,7 @@
  * rewrites an object: within a bucket or into another one.
  */
 import type { EventProvenance } from 'pyric/sandbox';
+import { operationStorageOf } from './sandbox/cross-bucket-target.js';
 import { getStorageService, targetOf } from './service.js';
 import { planeOf } from './content-defaults.js';
 import { StorageError } from './errors.js';
@@ -32,11 +33,13 @@ export async function copyObject(
   patch: AdminMetadataPatch = {},
   provenance?: EventProvenance,
 ): Promise<FullMetadata> {
-  const adminPlane = planeOf(targetOf(source.storage)) === 'admin' && planeOf(targetOf(destination.storage)) === 'admin';
+  const sourceStorage = operationStorageOf(source);
+  const destinationStorage = operationStorageOf(destination);
+  const adminPlane = planeOf(targetOf(sourceStorage)) === 'admin' && planeOf(targetOf(destinationStorage)) === 'admin';
   if (!adminPlane) throw new StorageError('unauthorized', 'Only the admin plane copies objects (firebase-admin File.copy).');
   await getMetadata(source);
-  const sourceTarget = targetOf(source.storage);
-  const service = await getStorageService(source.storage);
+  const sourceTarget = targetOf(sourceStorage);
+  const service = await getStorageService(sourceStorage);
   const object = await service.backend.getObject(source.fullPath, sourceTarget.bucket);
   const missing = object === undefined;
   if (missing) throw new StorageError('object-not-found', `Object '${source.fullPath}' does not exist.`);

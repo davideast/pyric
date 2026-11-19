@@ -53,21 +53,32 @@ export function parseStorageUrl(url: string): StorageLocation {
   throw invalidUrl(url, 'Expected a gs:// URL or a Storage download URL.');
 }
 
+export interface ParsedRefInput {
+  readonly bucket?: string;
+  readonly path: string;
+}
+
 /**
- * The object path a `ref()` string argument names, before normalization.
- * `fromStorage` is whether `ref()` was given a Storage instance rather than a
- * reference: only a Storage instance takes a URL, as in production. The sandbox
- * serves one bucket, so a URL's bucket does not change which store the
- * reference reads.
+ * The bucket (when `value` is a URL) and unnormalized object path a `ref()`
+ * string argument names. `fromStorage` is whether `ref()` was given a Storage
+ * instance rather than a reference: only a Storage instance takes a URL, as in
+ * production.
  */
-export function refPathOf(value: string | undefined, fromStorage: boolean): string {
+export function refLocationOf(value: string | undefined, fromStorage: boolean): ParsedRefInput {
   const given = value ?? '';
   const isUrl = isStorageUrl(given);
-  if (!isUrl) return given;
+  if (!isUrl) return { path: given };
   const isDataUri = DATA_URI.test(given);
   const urlOnReference = !fromStorage && !isDataUri;
   if (urlOnReference) {
     throw new StorageError('invalid-argument', 'To use ref(service, url), the first argument must be a Storage instance.');
   }
-  return parseStorageUrl(given).path;
+  return parseStorageUrl(given);
+}
+
+/**
+ * The object path a `ref()` string argument names, before normalization.
+ */
+export function refPathOf(value: string | undefined, fromStorage: boolean): string {
+  return refLocationOf(value, fromStorage).path;
 }
