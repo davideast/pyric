@@ -1,5 +1,5 @@
 import { defineRows, type DefineRowsConfig, type RowSeed } from './define-rows.ts';
-import type { CompatibilityRow, CompatibilityTableBlock } from './types.ts';
+import type { CompatibilityRow, CompatibilityTableBlock, Surface } from './types.ts';
 
 type SeedFields = Omit<CompatibilityRow, 'id'>;
 
@@ -39,6 +39,7 @@ export interface RowSectionConfig<D extends Partial<SeedFields>> extends DefineR
 
 export interface RowSection<D extends Partial<SeedFields>> {
   readonly [SECTION_BRAND]: true;
+  readonly surface: Surface;
   readonly order: number;
   readonly prefix: string;
   readonly publishInCompatibilityDocs?: false;
@@ -128,12 +129,14 @@ export function defineRowSection<const D extends Partial<SeedFields>>(
 
   const descriptor: {
     [SECTION_BRAND]: true;
+    surface: Surface;
     order: number;
     prefix: string;
     publishInCompatibilityDocs?: false;
     row: (seed: FileRowSeed<D>) => AuthoredRowRecord;
   } = {
     [SECTION_BRAND]: true,
+    surface: config.surface,
     order: config.order,
     prefix,
     row(seed: FileRowSeed<D>): AuthoredRowRecord {
@@ -206,7 +209,7 @@ export function assembleRegistrySections(
   const topEntries = [...host.readDirectory(surfaceDir)].sort(compareCodePoint);
   const loadedSections: Array<{ slug: string; order: number; block: CompatibilityTableBlock }> = [];
   const rowsBySlug = new Map<string, CompatibilityRow[]>();
-  const seenRowRefsByLower = new Map<string, string>();
+  const seenRowRefsBySurfaceAndLower = new Map<string, Map<string, string>>();
 
   for (const entry of topEntries) {
     if (ignoredFiles.has(entry)) continue;
@@ -240,15 +243,24 @@ export function assembleRegistrySections(
       }
 
       const rowRef = fileName.slice(0, -'.ts'.length);
-      const lowerKey = rowRef.toLowerCase();
-      const priorPath = seenRowRefsByLower.get(lowerKey);
-      if (priorPath !== undefined) {
-        throw new Error(`${rowFilePath}: duplicate or case-colliding rowRef '${rowRef}' (already defined at ${priorPath})`);
-      }
-      seenRowRefsByLower.set(lowerKey, rowFilePath);
-
       const record = extractDefaultRowRecord(host.loadModule(rowFilePath), rowFilePath);
-      builtRows.push({ order: record.order, row: record.build(rowRef) });
+      const row = record.build(rowRef);
+      const surfaceKey = row.surface.toLowerCase();
+      let seenForSurface = seenRowRefsBySurfaceAndLower.get(surfaceKey);
+      if (seenForSurface === undefined) {
+        seenForSurface = new Map<string, string>();
+        seenRowRefsBySurfaceAndLower.set(surfaceKey, seenForSurface);
+      }
+      const lowerKey = rowRef.toLowerCase();
+      const priorPath = seenForSurface.get(lowerKey);
+      if (priorPath !== undefined) {
+        throw new Error(
+          `${rowFilePath}: duplicate or case-colliding rowRef '${rowRef}' for surface '${row.surface}' (already defined at ${priorPath})`,
+        );
+      }
+      seenForSurface.set(lowerKey, rowFilePath);
+
+      builtRows.push({ order: record.order, row });
     }
 
     if (builtRows.length === 0) {
