@@ -1,0 +1,192 @@
+{
+  "name": "rtdb-modular-socket-drop-in-flight-fates",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Offline firebase/database WebSocket drop-fate contract over loopback RTDB v5 wire protocol: observes restoreState resend ordering (listens, in-flight writes with preserved push key, post-drop writes, queued onDisconnects, in-flight gets), fresh request IDs with stale old-ID replies ignored, unsettled non-resent in-flight onDisconnect calls, and immediate codeless Error(\"disconnect\") transaction rejection.",
+  "observedAt": "2026-11-19T03:15:07.550Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "combinedRestoreWave": {
+      "sentBeforeDrop": [
+        {
+          "action": "q",
+          "pathPattern": "/watched/node",
+          "conditionalHash": true
+        },
+        {
+          "action": "p",
+          "pathPattern": "/inflight/set",
+          "conditionalHash": false
+        },
+        {
+          "action": "m",
+          "pathPattern": "/inflight/update",
+          "conditionalHash": false
+        },
+        {
+          "action": "p",
+          "pathPattern": "/inflight/remove",
+          "conditionalHash": false
+        },
+        {
+          "action": "p",
+          "pathPattern": "/inflight/prio/.priority",
+          "conditionalHash": false
+        },
+        {
+          "action": "p",
+          "pathPattern": "/inflight/withPrio",
+          "conditionalHash": false
+        },
+        {
+          "action": "p",
+          "pathPattern": "/inflight/push/<pushKey>",
+          "conditionalHash": false
+        },
+        {
+          "action": "g",
+          "pathPattern": "/inflight/get",
+          "conditionalHash": false
+        },
+        {
+          "action": "o",
+          "pathPattern": "/inflight/onDiscSet",
+          "conditionalHash": false
+        },
+        {
+          "action": "o",
+          "pathPattern": "/inflight/onDiscWithPrio",
+          "conditionalHash": false
+        },
+        {
+          "action": "om",
+          "pathPattern": "/inflight/onDiscUpdate",
+          "conditionalHash": false
+        },
+        {
+          "action": "o",
+          "pathPattern": "/inflight/onDiscRemove",
+          "conditionalHash": false
+        },
+        {
+          "action": "oc",
+          "pathPattern": "/inflight/onDiscCancel",
+          "conditionalHash": false
+        },
+        {
+          "action": "q",
+          "pathPattern": "/tx/item",
+          "conditionalHash": true
+        },
+        {
+          "action": "p",
+          "pathPattern": "/tx/item",
+          "conditionalHash": true
+        }
+      ],
+      "restoredOnReconnect": [
+        {
+          "action": "q",
+          "pathPattern": "/watched/node",
+          "conditionalHash": true,
+          "newRequestIdGreaterThanMaxBeforeDrop": true
+        },
+        {
+          "action": "p",
+          "pathPattern": "/inflight/set",
+          "conditionalHash": false,
+          "newRequestIdGreaterThanMaxBeforeDrop": true
+        },
+        {
+          "action": "m",
+          "pathPattern": "/inflight/update",
+          "conditionalHash": false,
+          "newRequestIdGreaterThanMaxBeforeDrop": true
+        },
+        {
+          "action": "p",
+          "pathPattern": "/inflight/remove",
+          "conditionalHash": false,
+          "newRequestIdGreaterThanMaxBeforeDrop": true
+        },
+        {
+          "action": "p",
+          "pathPattern": "/inflight/prio/.priority",
+          "conditionalHash": false,
+          "newRequestIdGreaterThanMaxBeforeDrop": true
+        },
+        {
+          "action": "p",
+          "pathPattern": "/inflight/withPrio",
+          "conditionalHash": false,
+          "newRequestIdGreaterThanMaxBeforeDrop": true
+        },
+        {
+          "action": "p",
+          "pathPattern": "/inflight/push/<pushKey>",
+          "conditionalHash": false,
+          "newRequestIdGreaterThanMaxBeforeDrop": true
+        },
+        {
+          "action": "p",
+          "pathPattern": "/queued/setWhileDown",
+          "conditionalHash": false,
+          "newRequestIdGreaterThanMaxBeforeDrop": true
+        },
+        {
+          "action": "o",
+          "pathPattern": "/queued/onDiscWhileDown",
+          "conditionalHash": false,
+          "newRequestIdGreaterThanMaxBeforeDrop": true
+        },
+        {
+          "action": "g",
+          "pathPattern": "/inflight/get",
+          "conditionalHash": false,
+          "newRequestIdGreaterThanMaxBeforeDrop": true
+        }
+      ],
+      "pushKeyStability": {
+        "keyLength": 20,
+        "matchesPushCharset": true,
+        "resentIdenticalKey": true
+      },
+      "staleWriteReplyToOldRequestIdIgnored": true,
+      "staleGetReplyToOldRequestIdIgnored": true,
+      "settledAfterReconnectReplies": {
+        "setResolved": true,
+        "updateResolved": true,
+        "removeResolved": true,
+        "setPriorityResolved": true,
+        "setWithPriorityResolved": true,
+        "pushResolved": true,
+        "getResolvedValue": {
+          "fetched": 42
+        },
+        "queuedWhileDisconnectedSetResolved": true,
+        "queuedWhileDisconnectedOnDisconnectResolved": true
+      },
+      "inFlightOnDisconnectFates": {
+        "setResent": false,
+        "setSettled": false,
+        "setWithPriorityResent": false,
+        "setWithPrioritySettled": false,
+        "updateResent": false,
+        "updateSettled": false,
+        "removeResent": false,
+        "removeSettled": false,
+        "cancelResent": false,
+        "cancelSettled": false
+      },
+      "inFlightTransactionFate": {
+        "commitResent": false,
+        "settledBeforeReconnectHandshake": true,
+        "outcome": "rejected",
+        "errorName": "Error",
+        "errorMessage": "disconnect",
+        "hasCode": false
+      }
+    }
+  }
+}
