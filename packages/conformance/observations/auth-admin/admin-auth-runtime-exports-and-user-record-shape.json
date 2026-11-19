@@ -1,0 +1,369 @@
+{
+  "name": "admin-auth-runtime-exports-and-user-record-shape",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase-admin/auth runtime value exports, FirebaseAuthError and AuthClientErrorCode constructor/throw instanceof behavior, Auth/BaseAuth/UserRecord/UserMetadata/UserInfo prototype checks, and UserRecord.{passwordHash, passwordSalt, multiFactor} presence across createUser, getUser, and listUsers.",
+  "observedAt": "2026-11-19T00:21:22.170Z",
+  "adminSdkVersion": "13.10.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "moduleExports": {
+      "exportKeys": [
+        "Auth",
+        "AuthClientErrorCode",
+        "BaseAuth",
+        "FirebaseAuthError",
+        "MultiFactorInfo",
+        "MultiFactorSettings",
+        "PhoneMultiFactorInfo",
+        "ProjectConfig",
+        "ProjectConfigManager",
+        "Tenant",
+        "TenantAwareAuth",
+        "TenantManager",
+        "UserInfo",
+        "UserMetadata",
+        "UserRecord",
+        "getAuth"
+      ],
+      "rootAdminAuthHasAuthClass": true,
+      "authExtendsBaseAuth": true,
+      "authClientErrorCodeCount": 95
+    },
+    "errorConstructorContract": {
+      "defaultCode": "auth/user-not-found",
+      "defaultCodePrefix": "auth",
+      "defaultName": "Error",
+      "defaultMessage": "There is no user record corresponding to the provided identifier.",
+      "defaultHasCodeMatch": true,
+      "defaultHasCodeMismatch": false,
+      "defaultToJson": {
+        "code": "auth/user-not-found",
+        "message": "There is no user record corresponding to the provided identifier."
+      },
+      "defaultOwnKeys": [
+        "codePrefix",
+        "errorInfo"
+      ],
+      "overrideCode": "auth/argument-error",
+      "overrideMessage": "Explicit message override.",
+      "overrideToJson": {
+        "code": "auth/argument-error",
+        "message": "Explicit message override."
+      }
+    },
+    "liveErrorInstanceOf": {
+      "syncEmptyCustomToken": {
+        "mode": "sync-throw",
+        "isError": true,
+        "isFirebaseAuthError": true,
+        "name": "Error",
+        "code": "auth/argument-error"
+      },
+      "syncNonStringIdToken": {
+        "mode": "sync-throw",
+        "isError": true,
+        "isFirebaseAuthError": true,
+        "name": "Error",
+        "code": "auth/argument-error"
+      },
+      "rejectedMissingGetUser": {
+        "mode": "rejected",
+        "isError": true,
+        "isFirebaseAuthError": true,
+        "name": "Error",
+        "code": "auth/user-not-found"
+      },
+      "rejectedMalformedIdToken": {
+        "mode": "rejected",
+        "isError": true,
+        "isFirebaseAuthError": true,
+        "name": "Error",
+        "code": "auth/argument-error"
+      },
+      "rejectedReservedCustomClaim": {
+        "mode": "rejected",
+        "isError": true,
+        "isFirebaseAuthError": true,
+        "name": "Error",
+        "code": "auth/reserved-claim"
+      }
+    },
+    "handleAndRecordInstanceOf": {
+      "authIsAuth": true,
+      "authIsBaseAuth": true,
+      "createdIsUserRecord": true,
+      "fetchedIsUserRecord": true,
+      "listedIsUserRecord": true,
+      "metadataIsUserMetadata": true,
+      "providerInfoIsUserInfo": true,
+      "metadataToJsonKeys": [
+        "creationTime",
+        "lastRefreshTime",
+        "lastSignInTime"
+      ],
+      "providerInfoToJsonKeys": [
+        "displayName",
+        "email",
+        "phoneNumber",
+        "photoURL",
+        "providerId",
+        "uid"
+      ]
+    },
+    "userRecordFieldPresence": {
+      "createdPasswordUser": {
+        "isUserRecordInstance": true,
+        "ownKeys": [
+          "disabled",
+          "displayName",
+          "email",
+          "emailVerified",
+          "metadata",
+          "passwordHash",
+          "passwordSalt",
+          "phoneNumber",
+          "photoURL",
+          "providerData",
+          "tenantId",
+          "tokensValidAfterTime",
+          "uid"
+        ],
+        "toJsonKeys": [
+          "customClaims",
+          "disabled",
+          "displayName",
+          "email",
+          "emailVerified",
+          "metadata",
+          "passwordHash",
+          "passwordSalt",
+          "phoneNumber",
+          "photoURL",
+          "providerData",
+          "tenantId",
+          "tokensValidAfterTime",
+          "uid"
+        ],
+        "hasOwnPasswordHash": true,
+        "passwordHashType": "undefined",
+        "passwordHashNonEmptyString": false,
+        "hasOwnPasswordSalt": true,
+        "passwordSaltType": "undefined",
+        "passwordSaltNonEmptyString": false,
+        "hasOwnMultiFactor": false,
+        "multiFactorType": "undefined"
+      },
+      "fetchedPasswordUser": {
+        "isUserRecordInstance": true,
+        "ownKeys": [
+          "disabled",
+          "displayName",
+          "email",
+          "emailVerified",
+          "metadata",
+          "passwordHash",
+          "passwordSalt",
+          "phoneNumber",
+          "photoURL",
+          "providerData",
+          "tenantId",
+          "tokensValidAfterTime",
+          "uid"
+        ],
+        "toJsonKeys": [
+          "customClaims",
+          "disabled",
+          "displayName",
+          "email",
+          "emailVerified",
+          "metadata",
+          "passwordHash",
+          "passwordSalt",
+          "phoneNumber",
+          "photoURL",
+          "providerData",
+          "tenantId",
+          "tokensValidAfterTime",
+          "uid"
+        ],
+        "hasOwnPasswordHash": true,
+        "passwordHashType": "undefined",
+        "passwordHashNonEmptyString": false,
+        "hasOwnPasswordSalt": true,
+        "passwordSaltType": "undefined",
+        "passwordSaltNonEmptyString": false,
+        "hasOwnMultiFactor": false,
+        "multiFactorType": "undefined"
+      },
+      "listedPasswordUser": {
+        "isUserRecordInstance": true,
+        "ownKeys": [
+          "disabled",
+          "displayName",
+          "email",
+          "emailVerified",
+          "metadata",
+          "passwordHash",
+          "passwordSalt",
+          "phoneNumber",
+          "photoURL",
+          "providerData",
+          "tenantId",
+          "tokensValidAfterTime",
+          "uid"
+        ],
+        "toJsonKeys": [
+          "customClaims",
+          "disabled",
+          "displayName",
+          "email",
+          "emailVerified",
+          "metadata",
+          "passwordHash",
+          "passwordSalt",
+          "phoneNumber",
+          "photoURL",
+          "providerData",
+          "tenantId",
+          "tokensValidAfterTime",
+          "uid"
+        ],
+        "hasOwnPasswordHash": true,
+        "passwordHashType": "undefined",
+        "passwordHashNonEmptyString": false,
+        "hasOwnPasswordSalt": true,
+        "passwordSaltType": "undefined",
+        "passwordSaltNonEmptyString": false,
+        "hasOwnMultiFactor": false,
+        "multiFactorType": "undefined"
+      },
+      "createdPasswordlessUser": {
+        "isUserRecordInstance": true,
+        "ownKeys": [
+          "disabled",
+          "displayName",
+          "email",
+          "emailVerified",
+          "metadata",
+          "passwordHash",
+          "passwordSalt",
+          "phoneNumber",
+          "photoURL",
+          "providerData",
+          "tenantId",
+          "tokensValidAfterTime",
+          "uid"
+        ],
+        "toJsonKeys": [
+          "customClaims",
+          "disabled",
+          "displayName",
+          "email",
+          "emailVerified",
+          "metadata",
+          "passwordHash",
+          "passwordSalt",
+          "phoneNumber",
+          "photoURL",
+          "providerData",
+          "tenantId",
+          "tokensValidAfterTime",
+          "uid"
+        ],
+        "hasOwnPasswordHash": true,
+        "passwordHashType": "undefined",
+        "passwordHashNonEmptyString": false,
+        "hasOwnPasswordSalt": true,
+        "passwordSaltType": "undefined",
+        "passwordSaltNonEmptyString": false,
+        "hasOwnMultiFactor": false,
+        "multiFactorType": "undefined"
+      },
+      "fetchedPasswordlessUser": {
+        "isUserRecordInstance": true,
+        "ownKeys": [
+          "disabled",
+          "displayName",
+          "email",
+          "emailVerified",
+          "metadata",
+          "passwordHash",
+          "passwordSalt",
+          "phoneNumber",
+          "photoURL",
+          "providerData",
+          "tenantId",
+          "tokensValidAfterTime",
+          "uid"
+        ],
+        "toJsonKeys": [
+          "customClaims",
+          "disabled",
+          "displayName",
+          "email",
+          "emailVerified",
+          "metadata",
+          "passwordHash",
+          "passwordSalt",
+          "phoneNumber",
+          "photoURL",
+          "providerData",
+          "tenantId",
+          "tokensValidAfterTime",
+          "uid"
+        ],
+        "hasOwnPasswordHash": true,
+        "passwordHashType": "undefined",
+        "passwordHashNonEmptyString": false,
+        "hasOwnPasswordSalt": true,
+        "passwordSaltType": "undefined",
+        "passwordSaltNonEmptyString": false,
+        "hasOwnMultiFactor": false,
+        "multiFactorType": "undefined"
+      },
+      "listedPasswordlessUser": {
+        "isUserRecordInstance": true,
+        "ownKeys": [
+          "disabled",
+          "displayName",
+          "email",
+          "emailVerified",
+          "metadata",
+          "passwordHash",
+          "passwordSalt",
+          "phoneNumber",
+          "photoURL",
+          "providerData",
+          "tenantId",
+          "tokensValidAfterTime",
+          "uid"
+        ],
+        "toJsonKeys": [
+          "customClaims",
+          "disabled",
+          "displayName",
+          "email",
+          "emailVerified",
+          "metadata",
+          "passwordHash",
+          "passwordSalt",
+          "phoneNumber",
+          "photoURL",
+          "providerData",
+          "tenantId",
+          "tokensValidAfterTime",
+          "uid"
+        ],
+        "hasOwnPasswordHash": true,
+        "passwordHashType": "undefined",
+        "passwordHashNonEmptyString": false,
+        "hasOwnPasswordSalt": true,
+        "passwordSaltType": "undefined",
+        "passwordSaltNonEmptyString": false,
+        "hasOwnMultiFactor": false,
+        "multiFactorType": "undefined"
+      }
+    }
+  }
+}
