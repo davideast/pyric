@@ -1,0 +1,45 @@
+{
+  "name": "firestore-rules-cel-expressions-and-set-equality",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Firestore security-rules CEL expressions, tri-state error absorption, RE2 string helpers, prototype isolation, type-strict operators, FirestoreSet value equality, int/float casts, strict boolean control flow, and create-time resource == null observed via the client SDK.",
+  "observedAt": "2026-11-19T22:59:13.584Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "readCases": {
+      "dot_missing": "error:permission-denied",
+      "index_missing_eq_null": "error:permission-denied",
+      "present_null": "allowed",
+      "error_or_true": "allowed",
+      "true_or_error": "allowed",
+      "error_and_false": "allowed",
+      "in_and_map_get": "allowed",
+      "list_oob": "error:permission-denied",
+      "matches_partial": "error:permission-denied",
+      "matches_full_replace_split": "allowed",
+      "proto_in_tostring": "error:permission-denied",
+      "proto_dot_constructor": "error:permission-denied",
+      "proto_own_keys_only": "allowed",
+      "bad_plus_str_int": "error:permission-denied",
+      "bad_plus_lists": "error:permission-denied",
+      "list_concat_and_is_map": "allowed",
+      "cross_type_lt": "error:permission-denied",
+      "int_float_and_div": "allowed",
+      "div_by_zero": "error:permission-denied",
+      "bad_int_parse": "error:permission-denied",
+      "unknown_bool_fn": "error:permission-denied",
+      "non_bool_and": "error:permission-denied"
+    },
+    "setEquality": {
+      "exactOrderInsensitiveMatch": "allowed",
+      "partialSetMismatch": "error:permission-denied"
+    },
+    "createVerdicts": {
+      "requestResourceFloatAllowed": "allowed",
+      "requestResourceIntDenied": "error:permission-denied",
+      "resourceEqNullOnCreateDenied": "allowed",
+      "readingResourceDataOnCreateDenied": "error:permission-denied"
+    }
+  }
+}

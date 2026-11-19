@@ -1,0 +1,155 @@
+{
+  "name": "firestore-admin-writeresult-preconditions-filter-getall",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase-admin/firestore WriteResult shapes and isEqual, update/delete/batch/transaction Precondition (exists and lastUpdateTime) error categories, composite Filter (where/or/and), AggregateField with Query.aggregate(spec).get(), startAt/startAfter/endAt/endBefore value and snapshot cursors, WriteBatch.commit() WriteResult[], and Transaction.getAll(...refs).",
+  "observedAt": "2026-11-19T22:58:09.706Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "writeResultAndPreconditions": {
+      "createHasWriteTime": true,
+      "setHasWriteTime": true,
+      "createEqualsSelf": true,
+      "writeTimeMonotonicCreateToSet": true,
+      "epochZeroNotEqualCreateTime": true,
+      "updateExistsTrueOnExisting": {
+        "ok": true,
+        "hasWriteTime": true
+      },
+      "updateExactLastUpdateTime": {
+        "ok": true,
+        "hasWriteTime": true
+      },
+      "updateStaleLastUpdateTime": {
+        "ok": false,
+        "category": "failed-precondition"
+      },
+      "deleteExistsFalseOnExisting": {
+        "ok": false,
+        "category": "already-exists"
+      },
+      "deleteStaleLastUpdateTime": {
+        "ok": false,
+        "category": "failed-precondition"
+      },
+      "deleteExistsTrueOnExisting": {
+        "ok": true,
+        "hasWriteTime": true
+      },
+      "deleteExistsTrueOnMissing": {
+        "ok": false,
+        "category": "not-found"
+      },
+      "deleteExistsFalseOnMissing": {
+        "ok": true,
+        "hasWriteTime": true
+      },
+      "updateExistsTrueOnMissing": {
+        "ok": false,
+        "category": "not-found"
+      }
+    },
+    "filterAggregateAndCursors": {
+      "orIdsSorted": [
+        "p1",
+        "p3",
+        "p4"
+      ],
+      "andIdsSorted": [
+        "p3"
+      ],
+      "nestedFilterOrderedIds": [
+        "p3",
+        "p4"
+      ],
+      "aggregateHasGetMethod": true,
+      "aggregateData": {
+        "total": 4,
+        "sumScore": 100,
+        "avgScore": 25
+      },
+      "startAt20Ids": [
+        "p2",
+        "p3",
+        "p4"
+      ],
+      "startAfter20Ids": [
+        "p3",
+        "p4"
+      ],
+      "endAt30Ids": [
+        "p1",
+        "p2",
+        "p3"
+      ],
+      "endBefore30Ids": [
+        "p1",
+        "p2"
+      ],
+      "window20To30Ids": [
+        "p2",
+        "p3"
+      ],
+      "startAtSnapP2Ids": [
+        "p2",
+        "p3",
+        "p4"
+      ],
+      "startAfterSnapP2Ids": [
+        "p3",
+        "p4"
+      ],
+      "endAtSnapP3Ids": [
+        "p1",
+        "p2",
+        "p3"
+      ],
+      "endBeforeSnapP3Ids": [
+        "p1",
+        "p2"
+      ]
+    },
+    "batchAndTransaction": {
+      "batchResultsIsArray": true,
+      "batchResultsLength": 4,
+      "batchEveryHasWriteTime": true,
+      "failingBatchOutcome": {
+        "ok": false,
+        "category": "not-found"
+      },
+      "guardIntactAfterFailedBatch": true,
+      "txGetAllOrder": {
+        "ids": [
+          "b",
+          "missing",
+          "a"
+        ],
+        "existsFlags": [
+          true,
+          false,
+          true
+        ],
+        "datas": [
+          {
+            "n": 20
+          },
+          null,
+          {
+            "n": 10
+          }
+        ]
+      },
+      "txRefAUpdatedValue": 15,
+      "txGetAllAfterWrite": {
+        "ok": false,
+        "category": "other"
+      },
+      "txPreconditionMismatch": {
+        "ok": false,
+        "category": "not-found"
+      }
+    }
+  },
+  "adminSdkVersion": "13.10.0"
+}
