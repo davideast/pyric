@@ -51,7 +51,7 @@ export function createProbe(ctx: RtdbClimbContext): RtdbClimbProbe {
   return {
     name: 'rtdb-modular-database-url-instance',
     matrixRow: 'rtdb-modular#M39',
-    rowIds: ['rtdb-modular#M39'],
+    rowIds: ['rtdb-modular#M39', 'rtdb-modular#MI3', 'rtdb-modular#MI5', 'rtdb-modular#MI6', 'rtdb-modular#MI7'],
     description:
       'getDatabase(app, url) for each database URL form: the instance name (namespace) and root URL the SDK derives, or the Error message it throws; plus the default instance for an app with only a project id.',
     async observe() {
