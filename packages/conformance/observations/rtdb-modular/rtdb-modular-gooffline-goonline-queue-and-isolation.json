@@ -1,0 +1,110 @@
+{
+  "name": "rtdb-modular-gooffline-goonline-queue-and-isolation",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase/database modular goOffline(db) and goOnline(db): observes per-client .info/connected transitions and one-shot onDisconnect drain without resurrection, offline set/update/remove local SyncTree listener firing with pending outbound Promises until goOnline flushes in FIFO order, warm-listener immediate SyncTree get() vs cold uncached get() waiting for goOnline, offline runTransaction and onDisconnect queueing, remote write listener deferral while offline, and deleted-database synchronous fatal errors.",
+  "observedAt": "2026-11-19T11:57:46.621Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "live": {
+      "returnValues": {
+        "goOfflineReturnsUndefined": true,
+        "goOnlineReturnsUndefined": true
+      },
+      "connectionAndDisconnect": {
+        "writerConnectedTransitions": [
+          true,
+          false,
+          true,
+          false
+        ],
+        "observerStayedConnected": true,
+        "observerPresenceAfterFirstGoOffline": "dropped-once",
+        "observerPresenceAfterOverwriteWhileWriterOffline": "observer-override",
+        "redundantGoOfflineDidNotRedrain": true,
+        "goOnlineDidNotResurrectDrainedOp": true
+      },
+      "offlineWriteQueueAndSyncTreeGet": {
+        "writerEventsWhileOffline": [
+          {
+            "keep": true,
+            "step": 1
+          },
+          {
+            "added": "offline",
+            "keep": true,
+            "step": 2
+          }
+        ],
+        "observerValWhileWriterOffline": {
+          "keep": true,
+          "step": 0
+        },
+        "warmListenerGetWhileOffline": {
+          "settledWhileOffline": true,
+          "val": {
+            "added": "offline",
+            "keep": true,
+            "step": 2
+          }
+        },
+        "uncachedCoveringSetGetWhileOffline": {
+          "setSettledWhileOffline": false,
+          "getSettledWhileOffline": true,
+          "val": {
+            "localCover": 7
+          }
+        },
+        "coldUncachedGetWhileOffline": {
+          "settledWhileOffline": false,
+          "resolvedValAfterGoOnline": {
+            "serverSeed": 42
+          }
+        },
+        "setSettledWhileOffline": false,
+        "updateSettledWhileOffline": false,
+        "removeSettledWhileOffline": false,
+        "finalObserverQueueStateAfterGoOnline": {
+          "watched": {
+            "added": "offline",
+            "keep": true,
+            "step": 2
+          },
+          "toRemoveVal": null
+        }
+      },
+      "offlineTransactionDisconnectAndRemoteDeferral": {
+        "txInputsWhileOffline": [
+          null
+        ],
+        "txSettledWhileOffline": false,
+        "onDisconnectArmSettledWhileOffline": false,
+        "writerRemoteFeedEventsWhileOffline": 0,
+        "txInputsTotal": [
+          null,
+          10
+        ],
+        "txCommittedAfterGoOnline": true,
+        "txValAfterGoOnline": 15,
+        "writerRemoteFeedLatestAfterGoOnline": {
+          "from": "observer",
+          "seq": 2
+        },
+        "queuedWhileOfflineOnDisconnectExecutedOnNextOffline": "armed-while-offline"
+      }
+    },
+    "deletedGuards": {
+      "goOfflineOnDeleted": {
+        "threw": true,
+        "isErrorInstance": true,
+        "message": "FIREBASE FATAL ERROR: Cannot call goOffline on a deleted database. "
+      },
+      "goOnlineOnDeleted": {
+        "threw": true,
+        "isErrorInstance": true,
+        "message": "FIREBASE FATAL ERROR: Cannot call goOnline on a deleted database. "
+      }
+    }
+  }
+}
