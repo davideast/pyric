@@ -15,6 +15,7 @@ import {
   getAI,
   getGenerativeModel,
 } from "firebase/ai";
+import { checkGenerateAndHelpers } from "./generate-helpers-check.mjs";
 
 const turn = (role, text) => ({ role, parts: [{ text }] });
 
@@ -285,5 +286,6 @@ export async function runRoles() {
     schemaBuilders: await sendStructuredSchema(),
     chatErrorsAbort: await checkChatErrorsAbort(),
     initBackends: await checkInitBackends(),
+    generateHelpers: await checkGenerateAndHelpers(model),
   };
 }

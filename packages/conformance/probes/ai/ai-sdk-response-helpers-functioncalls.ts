@@ -20,9 +20,8 @@ function sortedObjectKeys(value: unknown): string[] {
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'ai#helper-functioncalls',
+  rowIds: ['ai#helper-functioncalls'],
   description:
     'Live firebase/ai client SDK toolConfig FunctionCallingMode.ANY forced function-call serialization and EnhancedGenerateContentResponse.functionCalls() / inlineDataParts() helper shapes on GoogleAI with App Check.',
   async observe() {
