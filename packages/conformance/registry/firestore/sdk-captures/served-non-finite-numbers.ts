@@ -1,11 +1,11 @@
-import { IN_PAGE, SERVED, captureRow } from './section.ts';
+import { IN_PAGE, SERVED, row } from './section.ts';
 
-export default captureRow({
+export default row({
   order: 140,
   featureKeys: ['getDoc', 'setDoc'],
   api: 'NaN, Infinity, -Infinity and -0 on the served planes',
-  behavior: 'Production keeps NaN, Infinity, -Infinity and -0 on a server read, and `== NaN` matches only the NaN doc. The in-page sandbox agrees. On the SharedWorker and Node host planes they read back as null and 0. FP-1.',
-  evidence: '`oracle:firestore-non-finite-number-roundtrip`.',
+  behavior: 'NaN, Infinity, -Infinity and -0 round-trip intact on a server read, and `== NaN` matches only the NaN doc across in-page, SharedWorker, and Node-hosted planes, as in production. FP-1.',
+  evidence: '`oracle:firestore-non-finite-number-roundtrip`, replayed in-page and over the SharedWorker and Node-hosted planes.',
   risk: ['specific-value'],
   riskScore: 3,
   riskReasons: ['asserts stored values survive the worker protocol'],
