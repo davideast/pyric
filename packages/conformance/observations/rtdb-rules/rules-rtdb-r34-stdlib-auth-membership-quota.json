@@ -2,7 +2,10 @@
   "name": "rules-rtdb-r34-stdlib-auth-membership-quota",
   "matrixRow": "rtdb-rules#12",
   "rowIds": [
-    "rtdb-rules#12"
+    "rtdb-rules#12",
+    "rtdb#86",
+    "rtdb#87",
+    "rtdb#88"
   ],
   "description": "RTDB rules production verdicts for corpus scenario \"r34-stdlib-auth-membership-quota\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). rules that read who the writer is (a verified email, an email domain, custom-claim roles, a tenant, a role or membership stored in the database) and windowed quotas must deploy and decide as the standard library documents.",
   "observedAt": "2026-10-30T18:17:18.277Z",

@@ -2,7 +2,9 @@
   "name": "rtdb-rules-deploy-refusals",
   "matrixRow": "rtdb#89",
   "rowIds": [
-    "rtdb#89"
+    "rtdb#89",
+    "rtdb#67",
+    "rtdb#87"
   ],
   "description": "Deploys one rule expression at a time through the rules REST endpoint and records whether production accepts the ruleset or refuses it, with the refusal text: method argument count and types, regular expression literals and flags, `$wildcard` variables, and snapshot operands of comparison and arithmetic operators. The prior rules are restored and read back after every attempt.",
   "observedAt": "2026-10-30T10:44:38.175Z",

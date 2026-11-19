@@ -482,7 +482,7 @@ async function main(): Promise<void> {
   const observation = {
     name: OBSERVATION_NAME,
     matrixRow: 'rtdb#89',
-    rowIds: ['rtdb#89'],
+    rowIds: ['rtdb#89', 'rtdb#67', 'rtdb#87'],
     description:
       'Validates one rule expression at a time with PUT /.settings/rules.json?dryRun=true, the request firebase deploy makes to validate database rules, and records whether production accepts it or refuses it with its text. Each probe places the expression at /p/$id under the rule kind it names. The probes are named constructs plus every typed sample (TYPE_SAMPLES) in every operand position (TYPE_POSITIONS) of packages/conformance/src/capture-rtdb-rules-type-check.ts. A dry run installs nothing; the active rules read back byte-identical after the run.',
     observedAt: new Date().toISOString(),

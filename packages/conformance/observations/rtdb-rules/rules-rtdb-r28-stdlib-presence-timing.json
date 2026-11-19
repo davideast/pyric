@@ -2,7 +2,10 @@
   "name": "rules-rtdb-r28-stdlib-presence-timing",
   "matrixRow": "rtdb-rules#12",
   "rowIds": [
-    "rtdb-rules#12"
+    "rtdb-rules#12",
+    "rtdb#86",
+    "rtdb#87",
+    "rtdb#88"
   ],
   "description": "RTDB rules production verdicts for corpus scenario \"r28-stdlib-presence-timing\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). presence, rate limits and bounded collections from the standard library must deploy and decide as documented, including server timestamps written in the same multi-path update as the data they stamp.",
   "observedAt": "2026-10-30T18:17:18.271Z",
