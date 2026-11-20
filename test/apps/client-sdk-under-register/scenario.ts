@@ -80,7 +80,17 @@ export default scenario(async (app) => {
   await app.step('firebase-admin seeds the host', async () => {
     const { output } = await app.serverScript('admin.mjs', ['seed'], { env });
     expectOk(output, 'admin.seed.database', null);
-    expectOk(output, 'admin.seed.firestore', null);
+    const firestoreSeed = outcome(output, 'admin.seed.firestore');
+    assert.equal(firestoreSeed.ok, true, `admin.seed.firestore:\n${output}`);
+    if (firestoreSeed.ok) {
+      const result = firestoreSeed.value as {
+        writeTime?: { type?: unknown; seconds?: unknown; nanoseconds?: unknown };
+      } | null;
+      assert.notEqual(result, null, output);
+      assert.equal(result?.writeTime?.type, 'firestore/timestamp/1.0', output);
+      assert.equal(typeof result?.writeTime?.seconds, 'number', output);
+      assert.equal(typeof result?.writeTime?.nanoseconds, 'number', output);
+    }
   });
 
   const client = await app.step('the client SDKs run in a registered server process and it exits on its own', async () => {
