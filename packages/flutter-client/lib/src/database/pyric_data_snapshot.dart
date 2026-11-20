@@ -77,18 +77,23 @@ class PyricDataSnapshot {
             final childRef = ref.child(childKey);
             final childVal = entry['value'];
             final childPrio = entry['priority'];
+            final childExport = entry['exportValue'];
             childSnapshots.add(
               PyricDataSnapshot._fromNode(
                 ref: childRef,
                 key: childKey,
                 value: childVal,
                 priority: childPrio,
+                exportValue: childExport,
               ),
             );
           }
         }
       }
     } else if (value is Map) {
+      final exportMap = wire['exportValue'] is Map
+          ? wire['exportValue'] as Map
+          : null;
       for (final entry in value.entries) {
         final childKey = entry.key.toString();
         final childRef = ref.child(childKey);
@@ -97,6 +102,21 @@ class PyricDataSnapshot {
             ref: childRef,
             key: childKey,
             value: entry.value,
+            priority: null,
+            exportValue: exportMap?[childKey],
+          ),
+        );
+      }
+    } else if (value is List) {
+      for (int i = 0; i < value.length; i++) {
+        final item = value[i];
+        if (item == null) continue;
+        final childKey = '$i';
+        childSnapshots.add(
+          PyricDataSnapshot._fromNode(
+            ref: ref.child(childKey),
+            key: childKey,
+            value: item,
             priority: null,
           ),
         );
@@ -118,10 +138,21 @@ class PyricDataSnapshot {
     required String? key,
     required Object? value,
     required Object? priority,
+    Object? exportValue,
   }) {
+    final resolvedPriority = exportValue is Map &&
+            exportValue.containsKey('.priority')
+        ? exportValue['.priority']
+        : priority;
+    final nestedExport = exportValue is Map
+        ? (exportValue.containsKey('.value')
+            ? exportValue['.value']
+            : exportValue)
+        : null;
     final exists = value != null;
     final List<PyricDataSnapshot> childSnapshots = [];
     if (value is Map) {
+      final exportChildren = nestedExport is Map ? nestedExport : null;
       for (final entry in value.entries) {
         final childKey = entry.key.toString();
         childSnapshots.add(
@@ -130,6 +161,23 @@ class PyricDataSnapshot {
             key: childKey,
             value: entry.value,
             priority: null,
+            exportValue: exportChildren?[childKey],
+          ),
+        );
+      }
+    } else if (value is List) {
+      final exportChildren = nestedExport is Map ? nestedExport : null;
+      for (int i = 0; i < value.length; i++) {
+        final item = value[i];
+        if (item == null) continue;
+        final childKey = '$i';
+        childSnapshots.add(
+          PyricDataSnapshot._fromNode(
+            ref: ref.child(childKey),
+            key: childKey,
+            value: item,
+            priority: null,
+            exportValue: exportChildren?[childKey],
           ),
         );
       }
@@ -139,7 +187,7 @@ class PyricDataSnapshot {
       key: key,
       exists: exists,
       value: value,
-      priority: priority,
+      priority: resolvedPriority,
       children: childSnapshots,
     );
   }
@@ -171,8 +219,9 @@ class PyricDataSnapshot {
         current = match;
       } else {
         Object? nestedVal;
-        if (current._value is Map) {
-          nestedVal = (current._value as Map)[segment];
+        final currentValue = current._value;
+        if (currentValue is Map) {
+          nestedVal = currentValue[segment];
         }
         current = PyricDataSnapshot._fromNode(
           ref: current.ref.child(segment),

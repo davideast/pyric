@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:math';
 
 import 'pyric_data_snapshot.dart';
-import 'pyric_database.dart';
 import 'pyric_on_disconnect.dart';
 import 'pyric_query.dart';
 import 'pyric_transaction_result.dart';
@@ -131,6 +130,59 @@ class PyricDatabaseReference extends PyricQuery {
     });
   }
 
+  static Object? _deepCloneValue(Object? value) {
+    if (value is Map) {
+      return <String, dynamic>{
+        for (final entry in value.entries)
+          entry.key.toString(): _deepCloneValue(entry.value),
+      };
+    }
+    if (value is List) {
+      return <dynamic>[
+        for (final item in value) _deepCloneValue(item),
+      ];
+    }
+    return value;
+  }
+
+  static Object? _encodeTransactionValue(
+    Object? value,
+    Object? nextPriority,
+    Object? priorPriority,
+  ) {
+    if (value == null || nextPriority == priorPriority) {
+      return value;
+    }
+    if (value is Map) {
+      return <String, dynamic>{
+        for (final entry in value.entries) entry.key.toString(): entry.value,
+        '.priority': nextPriority,
+      };
+    }
+    return <String, dynamic>{
+      '.value': value,
+      '.priority': nextPriority,
+    };
+  }
+
+  Future<PyricDataSnapshot> _getForTransaction() async {
+    final res = await database.op('rtdb.get', {
+      'path': path,
+      'transaction': true,
+    });
+    if (res is Map) {
+      return PyricDataSnapshot.fromWire(this, Map<String, dynamic>.from(res));
+    }
+    return PyricDataSnapshot(
+      ref: this,
+      key: key,
+      exists: false,
+      value: null,
+      priority: null,
+      children: const [],
+    );
+  }
+
   /// Executes an optimistic concurrency transaction at this reference path.
   Future<PyricTransactionResult> runTransaction(
     PyricTransactionHandler transactionHandler, {
@@ -140,10 +192,10 @@ class PyricDatabaseReference extends PyricQuery {
     int attempts = 0;
     while (true) {
       attempts++;
-      final currentSnap = await get();
+      final currentSnap = await _getForTransaction();
       final mutableData = PyricMutableData(
         key: key,
-        value: currentSnap.value,
+        value: _deepCloneValue(currentSnap.value),
         priority: currentSnap.priority,
       );
 
@@ -155,10 +207,15 @@ class PyricDatabaseReference extends PyricQuery {
         );
       }
 
+      final wireValue = _encodeTransactionValue(
+        mutableData.value,
+        mutableData.priority,
+        currentSnap.priority,
+      );
       final res = await database.op('rtdb.transactionCommit', {
         'path': path,
         'expected': currentSnap.value,
-        'value': mutableData.value,
+        'value': wireValue,
         'applyLocally': applyLocally,
       });
 
