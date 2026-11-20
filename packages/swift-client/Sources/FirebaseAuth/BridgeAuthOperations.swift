@@ -58,6 +58,24 @@ extension PyricBridgeClient {
         return try await op(turn: turn, method: "auth.signInAnonymously", params: params)
     }
 
+    public func authSignInWithCustomToken(customToken: String, tenantId: String? = nil) async throws -> AnySendable {
+        try await authSignInWithCustomToken(turn: takeTurn(), customToken: customToken, tenantId: tenantId)
+    }
+
+    package func authSignInWithCustomToken(
+        turn: OperationTurn,
+        customToken: String,
+        tenantId: String?
+    ) async throws -> AnySendable {
+        var params: [String: AnySendable] = [
+            "customToken": .string(customToken)
+        ]
+        if let tenantId {
+            params["tenantId"] = .string(tenantId)
+        }
+        return try await op(turn: turn, method: "auth.signInWithCustomToken", params: params)
+    }
+
     public func authSignInWithCredential(params: [String: AnySendable], tenantId: String? = nil) async throws -> AnySendable {
         try await authSignInWithCredential(turn: takeTurn(), params: params, tenantId: tenantId)
     }

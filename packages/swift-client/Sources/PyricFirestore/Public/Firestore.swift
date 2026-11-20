@@ -4,32 +4,6 @@ private struct TransactionCallbackResult: @unchecked Sendable {
     let value: Any?
 }
 
-public final class FirebaseApp: @unchecked Sendable, Equatable {
-    public let name: String
-
-    private static let lock = NSLock()
-    nonisolated(unsafe) private static var defaultAppInstance: FirebaseApp?
-
-    public init(name: String = "[DEFAULT]") {
-        self.name = name
-    }
-
-    public static func app() -> FirebaseApp {
-        lock.lock()
-        defer { lock.unlock() }
-        if let existing = defaultAppInstance {
-            return existing
-        }
-        let created = FirebaseApp(name: "[DEFAULT]")
-        defaultAppInstance = created
-        return created
-    }
-
-    public static func == (lhs: FirebaseApp, rhs: FirebaseApp) -> Bool {
-        lhs.name == rhs.name
-    }
-}
-
 public class Firestore: @unchecked Sendable {
 
     // ── Static Instance Registry ─────────────────────────────────────────────
@@ -65,12 +39,19 @@ public class Firestore: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         let key = InstanceKey(appName: app.name, database: database)
-        if let existing = instances[key] {
+        if let existing = instances[key], existing.app === app {
             return existing
         }
         let created = Firestore(app: app, database: database)
         instances[key] = created
         return created
+    }
+
+    public static func reset() {
+        lock.lock()
+        defer { lock.unlock() }
+        instances.removeAll()
+        shared = nil
     }
 
     // ── Instance Properties ──────────────────────────────────────────────────
@@ -82,16 +63,26 @@ public class Firestore: @unchecked Sendable {
         }
     }
 
-    public private(set) var bridgeClient: PyricBridgeClient
+    public var bridgeClient: PyricBridgeClient {
+        instanceLock.lock()
+        defer { instanceLock.unlock() }
+        return _bridgeClient
+    }
 
+    private var _bridgeClient: PyricBridgeClient
+    private let usesSharedAppBridge: Bool
+    private var bridgeObserverId: UUID?
     private let instanceLock = NSLock()
     private var _credentialProvider: (any AuthCredentialProvider)?
 
     public var credentialProvider: (any AuthCredentialProvider)? {
         get {
-            instanceLock.lock()
-            defer { instanceLock.unlock() }
-            if let explicit = _credentialProvider {
+            let explicit: (any AuthCredentialProvider)? = {
+                instanceLock.lock()
+                defer { instanceLock.unlock() }
+                return _credentialProvider
+            }()
+            if let explicit {
                 return explicit
             }
             return AuthCredentialProviderRegistry.resolve(app: app)
@@ -130,7 +121,7 @@ public class Firestore: @unchecked Sendable {
         let id = UUID()
         instanceLock.lock()
         rulesDenialListeners[id] = listener
-        startDenialObservationIfNeeded()
+        startDenialObservationIfNeededLocked()
         instanceLock.unlock()
 
         return SimpleListenerRegistration { [weak self] in
@@ -151,9 +142,10 @@ public class Firestore: @unchecked Sendable {
         return Array(rulesDenialListeners.values)
     }
 
-    private func startDenialObservationIfNeeded() {
+    /// Starts observing `_bridgeClient.denialStream`. Caller must hold `instanceLock`.
+    private func startDenialObservationIfNeededLocked() {
         guard denialObservationTask == nil else { return }
-        let stream = bridgeClient.denialStream
+        let stream = _bridgeClient.denialStream
         denialObservationTask = Task { [weak self] in
             for await error in stream {
                 guard !Task.isCancelled, let self else { break }
@@ -168,6 +160,9 @@ public class Firestore: @unchecked Sendable {
     }
 
     deinit {
+        if let observerId = bridgeObserverId {
+            app.removeBridgeObserver(observerId)
+        }
         denialObservationTask?.cancel()
     }
 
@@ -175,7 +170,8 @@ public class Firestore: @unchecked Sendable {
         self.app = app
         self.database = database
         self.settings = FirestoreSettings()
-        self.bridgeClient = bridgeClient
+        self._bridgeClient = bridgeClient
+        self.usesSharedAppBridge = false
     }
 
     public init(app: FirebaseApp = FirebaseApp.app(), database: String = "(default)") {
@@ -183,27 +179,41 @@ public class Firestore: @unchecked Sendable {
         self.database = database
         let defaultSettings = FirestoreSettings()
         self.settings = defaultSettings
-        let endpoint = URL(string: "ws://\(defaultSettings.host)/__pyric/sandbox")!
-        self.bridgeClient = PyricBridgeClient(
-            endpoint: endpoint,
-            headers: ["Host": defaultSettings.host]
-        )
+        self._bridgeClient = app.sharedBridgeClient()
+        self.usesSharedAppBridge = true
+        self.bridgeObserverId = app.addBridgeObserver { [weak self] nextClient in
+            self?.applyBridgeClient(nextClient)
+        }
     }
 
-    private func reconfigureBridge() {
-        let scheme = settings.sslEnabled ? "wss" : "ws"
-        let endpoint = URL(string: "\(scheme)://\(settings.host)/__pyric/sandbox")!
-        self.bridgeClient = PyricBridgeClient(
-            endpoint: endpoint,
-            headers: ["Host": settings.host]
-        )
+    private func applyBridgeClient(_ nextClient: PyricBridgeClient) {
         instanceLock.lock()
+        _bridgeClient = nextClient
         denialObservationTask?.cancel()
         denialObservationTask = nil
         if !rulesDenialListeners.isEmpty {
-            startDenialObservationIfNeeded()
+            startDenialObservationIfNeededLocked()
         }
         instanceLock.unlock()
+    }
+
+    private func reconfigureBridge() {
+        let resolved = FirebaseBridgeEndpointResolver.endpointFromHostSetting(
+            settings.host,
+            sslEnabled: settings.sslEnabled
+        )
+        if usesSharedAppBridge {
+            _ = app.reconfigureSharedBridge(
+                endpoint: resolved.endpoint,
+                headers: ["Host": resolved.hostHeader]
+            )
+            return
+        }
+        let standalone = PyricBridgeClient(
+            endpoint: resolved.endpoint,
+            headers: ["Host": resolved.hostHeader]
+        )
+        applyBridgeClient(standalone)
     }
 
     private func markUsed() {

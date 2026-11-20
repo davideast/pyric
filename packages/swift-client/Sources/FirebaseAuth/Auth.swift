@@ -18,25 +18,47 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
 
     public static func auth(app: FirebaseApp) -> Auth {
         FirebaseAuthBootstrap.initialize()
-        registryLock.lock()
-        defer { registryLock.unlock() }
-        if let existing = instances[app.name] {
-            return existing
-        }
-        let created = Auth(app: app)
-        instances[app.name] = created
-        return created
+        var evicted: Auth?
+        let resolved: Auth = {
+            registryLock.lock()
+            defer { registryLock.unlock() }
+            if let existing = instances[app.name] {
+                if existing.app === app {
+                    return existing
+                }
+                evicted = existing
+            }
+            let created = Auth(app: app)
+            instances[app.name] = created
+            return created
+        }()
+        evicted?.detachFromApp()
+        return resolved
     }
 
     public static func reset() {
-        registryLock.lock()
-        defer { registryLock.unlock() }
-        instances.removeAll()
+        let evicted: [Auth] = {
+            registryLock.lock()
+            defer { registryLock.unlock() }
+            let current = Array(instances.values)
+            instances.removeAll()
+            return current
+        }()
+        for instance in evicted {
+            instance.detachFromApp()
+        }
     }
 
-    // ── Properties & State ───────────────────────────────────────────────────
+    // -- Properties & State --
     public let app: FirebaseApp
-    public private(set) var bridgeClient: PyricBridgeClient
+    public var bridgeClient: PyricBridgeClient {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return _bridgeClient
+    }
+    private var _bridgeClient: PyricBridgeClient
+    private let usesSharedAppBridge: Bool
+    private var bridgeObserverId: UUID?
     private let stateLock = NSLock()
 
     private var _currentUser: User?
@@ -84,13 +106,60 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
     private var subTask: Task<Void, Never>?
     private var remoteLensTask: Task<Void, Never>?
 
-    // ── Initialization ───────────────────────────────────────────────────────
+    // -- Initialization --
     public init(app: FirebaseApp, bridgeClient: PyricBridgeClient? = nil) {
         self.app = app
-        self.bridgeClient = bridgeClient ?? Firestore.firestore(app: app).bridgeClient
+        if let explicitClient = bridgeClient {
+            self._bridgeClient = explicitClient
+            self.usesSharedAppBridge = false
+        } else {
+            self._bridgeClient = app.sharedBridgeClient()
+            self.usesSharedAppBridge = true
+        }
         self._lastEmittedLens = computeCurrentLensLocked()
+        if usesSharedAppBridge {
+            self.bridgeObserverId = app.addBridgeObserver { [weak self] nextClient in
+                self?.applyBridgeClient(nextClient)
+            }
+        }
         startRemoteLensSync()
         installAuthRestorer()
+    }
+
+    private func applyBridgeClient(_ nextClient: PyricBridgeClient) {
+        let hadRemoteSync: Bool = {
+            stateLock.lock()
+            defer { stateLock.unlock() }
+            _bridgeClient = nextClient
+            let activeSync = subTask != nil
+            subTask?.cancel()
+            subTask = nil
+            remoteLensTask?.cancel()
+            remoteLensTask = nil
+            return activeSync
+        }()
+        startRemoteLensSync()
+        installAuthRestorer()
+        if hadRemoteSync {
+            startRemoteSync()
+        }
+    }
+
+    private func detachFromApp() {
+        let observerId: UUID? = {
+            stateLock.lock()
+            defer { stateLock.unlock() }
+            let id = bridgeObserverId
+            bridgeObserverId = nil
+            subTask?.cancel()
+            subTask = nil
+            remoteLensTask?.cancel()
+            remoteLensTask = nil
+            return id
+        }()
+        if let observerId {
+            app.removeBridgeObserver(observerId)
+        }
     }
 
     /// A replaced bridge host holds no user for this session. Sign the session
@@ -109,6 +178,9 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
     }
 
     deinit {
+        if let observerId = bridgeObserverId {
+            app.removeBridgeObserver(observerId)
+        }
         subTask?.cancel()
         remoteLensTask?.cancel()
     }
@@ -178,12 +250,23 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
         }
     }
 
-    // ── Emulation ────────────────────────────────────────────────────────────
+    // -- Emulation --
 
     public func useEmulator(withHost host: String, port: Int) {
-        // Safe no-op: Pyric is already the active sandbox runtime.
-        _ = host
-        _ = port
+        if usesSharedAppBridge {
+            _ = app.useEmulator(withHost: host, port: port)
+            return
+        }
+        let resolved = FirebaseBridgeEndpointResolver.emulatorEndpoint(
+            host: host,
+            port: port,
+            sslEnabled: false
+        )
+        let standalone = PyricBridgeClient(
+            endpoint: resolved.endpoint,
+            headers: ["Host": resolved.hostHeader]
+        )
+        applyBridgeClient(standalone)
     }
 
     // ── Operations ───────────────────────────────────────────────────────────
@@ -205,7 +288,7 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
     private func signIn(turn: OperationTurn, withEmail email: String, password: String) async throws -> AuthDataResult {
         do {
             let res = try await bridgeClient.authSignInEmail(turn: turn, email: email, password: password, tenantId: self.tenantId)
-            return try handleAuthDataResult(res)
+            return try await handleAuthDataResult(res)
         } catch {
             throw AuthError.from(error: error)
         }
@@ -228,7 +311,7 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
     private func createUser(turn: OperationTurn, withEmail email: String, password: String) async throws -> AuthDataResult {
         do {
             let res = try await bridgeClient.authCreateUser(turn: turn, email: email, password: password, tenantId: self.tenantId)
-            return try handleAuthDataResult(res)
+            return try await handleAuthDataResult(res)
         } catch {
             throw AuthError.from(error: error)
         }
@@ -247,7 +330,33 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
     private func signInAnonymously(turn: OperationTurn) async throws -> AuthDataResult {
         do {
             let res = try await bridgeClient.authSignInAnonymously(turn: turn, tenantId: self.tenantId)
-            return try handleAuthDataResult(res)
+            return try await handleAuthDataResult(res)
+        } catch {
+            throw AuthError.from(error: error)
+        }
+    }
+
+    public func signIn(withCustomToken customToken: String) async throws -> AuthDataResult {
+        try await signIn(turn: takeTurn(), withCustomToken: customToken)
+    }
+
+    public func signIn(
+        withCustomToken customToken: String,
+        completion: (@Sendable (AuthDataResult?, Error?) -> Void)?
+    ) {
+        runInCallOrder(completion: completion) { turn in
+            try await self.signIn(turn: turn, withCustomToken: customToken)
+        }
+    }
+
+    private func signIn(turn: OperationTurn, withCustomToken customToken: String) async throws -> AuthDataResult {
+        do {
+            let res = try await bridgeClient.authSignInWithCustomToken(
+                turn: turn,
+                customToken: customToken,
+                tenantId: self.tenantId
+            )
+            return try await handleAuthDataResult(res)
         } catch {
             throw AuthError.from(error: error)
         }
@@ -273,7 +382,7 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
                 params: credential.toWireParams(),
                 tenantId: self.tenantId
             )
-            return try handleAuthDataResult(res)
+            return try await handleAuthDataResult(res)
         } catch {
             throw AuthError.from(error: error)
         }
@@ -300,6 +409,7 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
                 return nil
             }
             if let user = User.fromWire(auth: self, wire: res) {
+                await enrichUserClaimsIfLive(user)
                 applyUserTransition(user)
                 return user
             }
@@ -335,7 +445,7 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
         }
     }
 
-    private func handleAuthDataResult(_ wire: AnySendable) throws -> AuthDataResult {
+    private func handleAuthDataResult(_ wire: AnySendable) async throws -> AuthDataResult {
         guard let dict = wire.dictionaryValue,
               let userWire = dict["user"] else {
             throw AuthError(code: .internalError, message: "Invalid auth credentials reply shape")
@@ -343,6 +453,11 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
         guard let user = User.fromWire(auth: self, wire: userWire) else {
             throw AuthError(code: .internalError, message: "Failed to deserialize authenticated user")
         }
+        if user.claims.isEmpty,
+           let topClaims = dict["customClaims"]?.dictionaryValue ?? dict["claims"]?.dictionaryValue {
+            user.replaceClaims(topClaims)
+        }
+        await enrichUserClaimsIfLive(user)
         let addInfoDict = dict["additionalUserInfo"]?.dictionaryValue
         let providerId = addInfoDict?["providerId"]?.stringValue ?? dict["providerId"]?.stringValue
         let isNewUser = addInfoDict?["isNewUser"]?.boolValue ?? (dict["operationType"]?.stringValue == "signIn")
@@ -350,6 +465,24 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
         let result = AuthDataResult(user: user, additionalUserInfo: additional)
         applyUserTransition(user)
         return result
+    }
+
+    private func enrichUserClaimsIfLive(_ user: User) async {
+        let client = bridgeClient
+        guard !client.hasInjectedChannel, user.claims["firebase"] == nil else {
+            return
+        }
+        if let tokenWire = try? await client.authGetIdTokenResult(forcingRefresh: false),
+           let tokenDict = tokenWire.dictionaryValue {
+            let parsed = AuthTokenResult.fromWire(tokenDict)
+            if !parsed.claims.isEmpty {
+                var merged = user.claims
+                for (key, value) in parsed.claims {
+                    merged[key] = value
+                }
+                user.replaceClaims(merged)
+            }
+        }
     }
 
     // ── Listeners & Modern Concurrency Streams ────────────────────────────────
@@ -498,6 +631,16 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
         let targetUser = user ?? _currentUser
         stateLock.unlock()
         applyUserTransition(targetUser)
+    }
+
+    internal func refreshAuthLensIfNeeded() {
+        stateLock.lock()
+        let currentLens = computeCurrentLensLocked()
+        if _lastEmittedLens != currentLens {
+            _lastEmittedLens = currentLens
+            yieldLensLocked(currentLens)
+        }
+        stateLock.unlock()
     }
 
     internal func notifyUserUpdated(_ user: User) {

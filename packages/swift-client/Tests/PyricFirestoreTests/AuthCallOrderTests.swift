@@ -51,6 +51,12 @@ let authLaterCalls: [AuthLaterCall] = [
     AuthLaterCall(name: "signInAnonymously(completion:)", method: "auth.signInAnonymously") { auth, _ in
         auth.signInAnonymously { _, _ in }
     },
+    asyncCall("await signIn(withCustomToken:)", "auth.signInWithCustomToken") { auth, _ in
+        _ = try await auth.signIn(withCustomToken: "custom-tok")
+    },
+    AuthLaterCall(name: "signIn(withCustomToken:completion:)", method: "auth.signInWithCustomToken") { auth, _ in
+        auth.signIn(withCustomToken: "custom-tok") { _, _ in }
+    },
     asyncCall("await signIn(with:)", "auth.signInWithCredential") { auth, _ in
         _ = try await auth.signIn(with: credential)
     },
@@ -68,6 +74,12 @@ let authLaterCalls: [AuthLaterCall] = [
     },
     AuthLaterCall(name: "User.getIDToken(completion:)", method: "auth.getIdToken") { _, user in
         user.getIDToken { _, _ in }
+    },
+    asyncCall("await User.getIDTokenForcingRefresh(_:)", "auth.getIdToken") { _, user in
+        _ = try await user.getIDTokenForcingRefresh(true)
+    },
+    AuthLaterCall(name: "User.getIDTokenForcingRefresh(_:completion:)", method: "auth.getIdToken") { _, user in
+        user.getIDTokenForcingRefresh(true) { _, _ in }
     },
     asyncCall("await User.getIDTokenResult()", "auth.getIdTokenResult") { _, user in
         _ = try await user.getIDTokenResult()
