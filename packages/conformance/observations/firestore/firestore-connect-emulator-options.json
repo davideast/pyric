@@ -1,0 +1,67 @@
+{
+  "name": "firestore-connect-emulator-options",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase/firestore connectFirestoreEmulator(db, host, port, options) offline host/port configuration before client start and after doc(), mockUserToken string/{sub}/{user_id} acceptance vs empty-object Error rejection, and failed-precondition rejection after Firestore has started.",
+  "observedAt": "2026-11-20T00:17:28.114Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "basicHostPort": {
+      "threw": false,
+      "code": null,
+      "errorName": null,
+      "isFirebaseError": false,
+      "messageMentionsSubOrUserId": false
+    },
+    "repeatBeforeStart": {
+      "threw": false,
+      "code": null,
+      "errorName": null,
+      "isFirebaseError": false,
+      "messageMentionsSubOrUserId": false
+    },
+    "afterDocReferenceCreation": {
+      "threw": false,
+      "code": null,
+      "errorName": null,
+      "isFirebaseError": false,
+      "messageMentionsSubOrUserId": false
+    },
+    "mockUserTokenString": {
+      "threw": false,
+      "code": null,
+      "errorName": null,
+      "isFirebaseError": false,
+      "messageMentionsSubOrUserId": false
+    },
+    "mockUserTokenSubObject": {
+      "threw": false,
+      "code": null,
+      "errorName": null,
+      "isFirebaseError": false,
+      "messageMentionsSubOrUserId": false
+    },
+    "mockUserTokenUserIdObject": {
+      "threw": false,
+      "code": null,
+      "errorName": null,
+      "isFirebaseError": false,
+      "messageMentionsSubOrUserId": false
+    },
+    "mockUserTokenEmptyObject": {
+      "threw": true,
+      "code": null,
+      "errorName": "Error",
+      "isFirebaseError": false,
+      "messageMentionsSubOrUserId": true
+    },
+    "afterClientStarted": {
+      "threw": true,
+      "code": "failed-precondition",
+      "errorName": "FirebaseError",
+      "isFirebaseError": true,
+      "messageMentionsSubOrUserId": false
+    }
+  }
+}
