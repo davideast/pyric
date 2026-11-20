@@ -211,6 +211,7 @@ export {
   enableMultiTabIndexedDbPersistence,
   terminate,
 } from './client/firestore-lifecycle.js';
+export { connectFirestoreEmulator } from './client/firestore-emulator.js';
 
 // RTDB bridge families are exported directly from their owning modules. This
 // public package index is the sole aggregation point for the worker surface.

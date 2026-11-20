@@ -49,6 +49,7 @@ import {
   registerWorkerDbTeardown,
   terminate as workerTerminate,
 } from '../worker/client/firestore-lifecycle.js';
+import { connectFirestoreEmulator as workerConnectFirestoreEmulator } from '../worker/client/firestore-emulator.js';
 import { getFirestore as pyricGetFirestore } from 'pyric/firestore';
 import { markServiceUsed } from './service-use.js';
 import * as wcRaw from '../worker/client.js';
@@ -440,7 +441,34 @@ export const documentSnapshotFromJSON = chosenDocFromJson;
 export const querySnapshotFromJSON = chosenQueryFromJson;
 export const onSnapshotResume = chosenOnSnapshotResume;
 
-/** The served sandbox already provides the local backend. */
-export function connectFirestoreEmulator(..._args: unknown[]): void {
-  console.info('[pyric sandbox] connectFirestoreEmulator is a no-op; the sandbox is already local.');
+/** The served sandbox already provides the local backend; validates lifecycle and options. */
+export function connectFirestoreEmulator(
+  db: unknown,
+  host: string,
+  port: number,
+  options?: ip.ConnectFirestoreEmulatorOptions,
+): void {
+  if (db !== null && typeof db === 'object' && 'port' in db) {
+    workerConnectFirestoreEmulator(
+      db as Parameters<typeof workerConnectFirestoreEmulator>[0],
+      host,
+      port,
+      options,
+    );
+    return;
+  }
+  if (db !== null && typeof db === 'object' && ip.TARGET_SYMBOL in db) {
+    if (startedSurfaceHandles.has(db) && !terminatedSurfaceHandles.has(db)) {
+      throw new FirebaseError(
+        'failed-precondition',
+        'Firestore has already been started and its settings can no longer be changed. You can only modify settings before calling any other methods on a Firestore object.',
+      );
+    }
+    ip.connectFirestoreEmulator(db as ip.Firestore, host, port, options);
+    return;
+  }
+  throw new FirebaseError(
+    'invalid-argument',
+    'Expected first argument to connectFirestoreEmulator() to be a Firestore instance.',
+  );
 }

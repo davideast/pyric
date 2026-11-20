@@ -8,7 +8,7 @@ interface ObservedEmulatorCallOutcome {
   readonly messageMentionsSubOrUserId: boolean;
 }
 
-interface ConnectFirestoreEmulatorSubject<AppHandle, DbHandle> {
+export interface ConnectFirestoreEmulatorSubject<AppHandle, DbHandle> {
   createApp(name: string): AppHandle;
   deleteApp(app: AppHandle): Promise<void>;
   getFirestore(app: AppHandle): DbHandle;
@@ -64,7 +64,7 @@ function captureOutcome(
   }
 }
 
-async function observeFirestoreConnectEmulatorOptions<AppHandle, DbHandle>(
+export async function observeFirestoreConnectEmulatorOptions<AppHandle, DbHandle>(
   subject: ConnectFirestoreEmulatorSubject<AppHandle, DbHandle>,
 ): Promise<Record<string, unknown>> {
   const createdApps: AppHandle[] = [];
@@ -163,9 +163,8 @@ async function observeFirestoreConnectEmulatorOptions<AppHandle, DbHandle>(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: [],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#120, firestore#121',
+  rowIds: ['firestore#120', 'firestore#121'],
   description:
     'firebase/firestore connectFirestoreEmulator(db, host, port, options) offline host/port configuration before client start and after doc(), mockUserToken string/{sub}/{user_id} acceptance vs empty-object Error rejection, and failed-precondition rejection after Firestore has started.',
   async observe(): Promise<Record<string, unknown>> {

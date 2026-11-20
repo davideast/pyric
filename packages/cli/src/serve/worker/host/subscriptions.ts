@@ -46,6 +46,7 @@ import { lensRtdb } from './rtdb-instances.js';
 type DataSubMessage = FirestoreSubMessage | RtdbValueSubMessage;
 
 const _subscriptionIntents = new WeakMap<HostCtx, Map<PortLike, Map<string, DataSubMessage>>>();
+const _lastFirestoreFingerprints = new WeakMap<HostCtx, Map<PortLike, Map<string, string>>>();
 
 function subscriptionIntentsFor(ctx: HostCtx, port: PortLike): Map<string, DataSubMessage> {
   const byPort = _subscriptionIntents.get(ctx) ?? new Map<PortLike, Map<string, DataSubMessage>>();
@@ -55,10 +56,25 @@ function subscriptionIntentsFor(ctx: HostCtx, port: PortLike): Map<string, DataS
   return bySubId;
 }
 
+function firestoreFingerprintsFor(ctx: HostCtx, port: PortLike): Map<string, string> {
+  let byPort = _lastFirestoreFingerprints.get(ctx);
+  if (byPort === undefined) {
+    byPort = new Map<PortLike, Map<string, string>>();
+    _lastFirestoreFingerprints.set(ctx, byPort);
+  }
+  let bySubId = byPort.get(port);
+  if (bySubId === undefined) {
+    bySubId = new Map<string, string>();
+    byPort.set(port, bySubId);
+  }
+  return bySubId;
+}
+
 /** Drop a port's subscription intents — invoked by the dispatcher's
  *  `cleanupPort` on port disconnect. */
 export function dropPortSubscriptionIntents(ctx: HostCtx, port: PortLike): void {
   _subscriptionIntents.get(ctx)?.delete(port);
+  _lastFirestoreFingerprints.get(ctx)?.delete(port);
 }
 
 /**
@@ -94,7 +110,7 @@ function resubscribeSessionSubs(ctx: HostCtx, port: PortLike): void {
   if (hasNoIntents) return;
   for (const [subId, msg] of [...intents]) {
     const followsAppSession = !msg.actAs || msg.actAs.mode === 'app-session';
-    if (followsAppSession) restartSubscription(ctx, port, subId, msg);
+    if (followsAppSession) restartSubscription(ctx, port, subId, msg, true);
   }
 }
 
@@ -114,7 +130,13 @@ export function restoreFirestoreSubscriptions(ctx: HostCtx): void {
   }
 }
 
-function restartSubscription(ctx: HostCtx, port: PortLike, subId: string, msg: DataSubMessage): void {
+function restartSubscription(
+  ctx: HostCtx,
+  port: PortLike,
+  subId: string,
+  msg: DataSubMessage,
+  dedupeUnchangedInitial = false,
+): void {
   const portSubs = ctx.subs.get(port);
   const intents = _subscriptionIntents.get(ctx)?.get(port);
   const unsub = portSubs?.get(subId);
@@ -126,7 +148,7 @@ function restartSubscription(ctx: HostCtx, port: PortLike, subId: string, msg: D
     if (isRtdb) {
       handleRtdbSub(ctx, port, msg);
     } else {
-      handleSub(ctx, port, msg);
+      handleSub(ctx, port, msg, dedupeUnchangedInitial);
     }
   };
   // Restore the original listener's page attribution, including when another
@@ -147,11 +169,21 @@ function restartSubscription(ctx: HostCtx, port: PortLike, subId: string, msg: D
   }
 }
 
-export function handleSub(ctx: HostCtx, port: PortLike, msg: FirestoreSubMessage): void {
-  sdkActivity.silence(() => handleSubImpl(ctx, port, msg));
+export function handleSub(
+  ctx: HostCtx,
+  port: PortLike,
+  msg: FirestoreSubMessage,
+  dedupeUnchangedInitial = false,
+): void {
+  sdkActivity.silence(() => handleSubImpl(ctx, port, msg, dedupeUnchangedInitial));
 }
 
-function handleSubImpl(ctx: HostCtx, port: PortLike, msg: FirestoreSubMessage): void {
+function handleSubImpl(
+  ctx: HostCtx,
+  port: PortLike,
+  msg: FirestoreSubMessage,
+  dedupeUnchangedInitial = false,
+): void {
   const portSubs = ensurePortSubs(ctx, port);
 
   const alreadyRegistered = portSubs.has(msg.subId);
@@ -168,12 +200,13 @@ function handleSubImpl(ctx: HostCtx, port: PortLike, msg: FirestoreSubMessage): 
     // evaluates rules as whoever this tab signed in as.
     const db = lensDb(ctx, msg.actAs, port);
     target = resolveTarget(db, msg.target);
-    unsub = registerListener(ctx, port, msg, target, errored);
+    unsub = registerListener(ctx, port, msg, target, errored, dedupeUnchangedInitial);
   } catch (e) {
     // resolveTarget / onSnapshot / lensDb can throw synchronously (e.g. an invalid
     // query, malformed actAs lens, or a rules-rejected target). Deliver it to the client's onSnapshot
     // error callback as a snap-error instead of letting it escape handleMessage
     // as an unhandled rejection (which would silently deliver NOTHING).
+    _lastFirestoreFingerprints.get(ctx)?.get(port)?.delete(msg.subId);
     post(port, { t: 'snap', subId: msg.subId, value: { __error: serializeError(e) } });
     return;
   }
@@ -255,19 +288,26 @@ function registerListener(
   msg: FirestoreSubMessage,
   target: DocumentReference | CollectionReference | Query,
   errored?: { current: boolean },
+  dedupeUnchangedInitial = false,
 ): () => void {
   let initial = true;
   let unsub: (() => void) | undefined;
+  const fingerprints = firestoreFingerprintsFor(ctx, port);
+  const listenOptions: {
+    owners?: typeof msg.owners;
+    includeMetadataChanges?: boolean;
+  } = {};
+  if (msg.owners) {
+    listenOptions.owners = msg.owners;
+  }
+  if (msg.includeMetadataChanges === true) {
+    listenOptions.includeMetadataChanges = true;
+  }
   unsub = onSnapshot(
     target as DocumentReference | Query,
-    // The page derived the owners where its stack and its DOM are. Handing
-    // them over makes the sandbox record those instead of capturing a frame
-    // out of this worker's own bundle.
-    {
-      ...(msg.owners ? { owners: msg.owners } : {}),
-      ...(msg.includeMetadataChanges === true ? { includeMetadataChanges: true } : {}),
-    },
+    listenOptions,
     (snap) => {
+      const wasInitial = initial;
       const usage = firestoreReadUsage(snap, true, initial);
       initial = false;
       // Detect doc vs query snapshot by shape.
@@ -296,18 +336,30 @@ function registerListener(
           ...serializeDocSnap(d as Parameters<typeof serializeDocSnap>[0], msg.docValueEncoding),
           hasPendingWrites: d.metadata?.hasPendingWrites === true,
         }));
+        const nextFp = JSON.stringify({ docs, hasPendingWrites });
+        if (wasInitial && dedupeUnchangedInitial && msg.includeMetadataChanges !== true && fingerprints.get(msg.subId) === nextFp) {
+          return;
+        }
+        fingerprints.set(msg.subId, nextFp);
         post(port, { t: 'snap', subId: msg.subId, value: { docs, hasPendingWrites, usage } });
       } else if (snapAny.id !== undefined) {
         // Doc snapshot
+        const serialized = serializeDocSnap(snapAny as Parameters<typeof serializeDocSnap>[0], msg.docValueEncoding);
+        const nextFp = JSON.stringify({ serialized, hasPendingWrites });
+        if (wasInitial && dedupeUnchangedInitial && msg.includeMetadataChanges !== true && fingerprints.get(msg.subId) === nextFp) {
+          return;
+        }
+        fingerprints.set(msg.subId, nextFp);
         post(port, {
           t: 'snap',
           subId: msg.subId,
-          value: { ...serializeDocSnap(snapAny as Parameters<typeof serializeDocSnap>[0], msg.docValueEncoding), hasPendingWrites, usage },
+          value: { ...serialized, hasPendingWrites, usage },
         });
       }
     },
     (err) => {
       if (errored) errored.current = true;
+      fingerprints.delete(msg.subId);
       if (unsub === undefined || ctx.subs.get(port)?.get(msg.subId) === unsub) {
         _subscriptionIntents.get(ctx)?.get(port)?.delete(msg.subId);
         ctx.subs.get(port)?.delete(msg.subId);
@@ -327,6 +379,7 @@ export function handleUnsub(ctx: HostCtx, port: PortLike, msg: UnsubMessage): vo
   // registered (it errored at sub time), the record must not resurrect the
   // sub on a later session change.
   _subscriptionIntents.get(ctx)?.get(port)?.delete(msg.subId);
+  _lastFirestoreFingerprints.get(ctx)?.get(port)?.delete(msg.subId);
   const portSubs = ctx.subs.get(port);
   const hasNoPortSubscriptions = portSubs === undefined;
   if (hasNoPortSubscriptions) return;

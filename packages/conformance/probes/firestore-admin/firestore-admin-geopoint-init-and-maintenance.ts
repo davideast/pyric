@@ -178,10 +178,12 @@ export async function observeFirestoreAdminGeoPointInitAndMaintenance(
   });
   const p1 = bw.create(subject.doc('bw/created'), { step: 1 });
   const p2 = bw.set(subject.doc('bw/upserted'), { step: 2 });
+  await bw.flush();
+  await Promise.all([p1, p2]);
   const p3 = bw.update(subject.doc('bw/created'), { step: 3 });
   const p4 = bw.delete(subject.doc('bw/remove-me'));
   await bw.flush();
-  await Promise.all([p1, p2, p3, p4]);
+  await Promise.all([p3, p4]);
   await bw.close();
   const postCloseWrite = await callThrew(() =>
     bw.set(subject.doc('bw/after-close'), { bad: true }),
