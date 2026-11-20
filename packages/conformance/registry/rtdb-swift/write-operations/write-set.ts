@@ -1,3 +1,4 @@
+import { LIVE_HOST_CONFORMANCE_TEST } from '../defaults.ts';
 import { row } from './section.ts';
 
 export default row({
@@ -5,4 +6,6 @@ export default row({
   api: 'DatabaseReference.setValue(_:)',
   behavior: 'Overwrites data at the reference path with the provided JSON-serializable value.',
   featureKeys: ['setValue'],
+  status: 'conforms',
+  hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

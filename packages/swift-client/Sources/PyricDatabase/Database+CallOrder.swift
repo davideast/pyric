@@ -8,11 +8,13 @@ import PyricFirestore
 extension Database {
     /// Takes the next place in the order operations reach the bridge.
     func takeTurn() -> OperationTurn {
-        bridgeClient.takeTurn()
+        markUsed()
+        return bridgeClient.takeTurn()
     }
 
     /// Sends an operation in the place `turn` holds and awaits its result.
     func send(turn: OperationTurn, method: String, params: [String: AnySendable]) async throws {
+        markUsed()
         _ = try await bridgeClient.op(
             turn: turn,
             method: method,
@@ -30,6 +32,7 @@ extension Database {
         params: [String: AnySendable],
         completion: @escaping @Sendable (Error?) -> Void
     ) {
+        markUsed()
         let client = bridgeClient
         let turn = client.takeTurn()
         let actAs = currentAuthLens()

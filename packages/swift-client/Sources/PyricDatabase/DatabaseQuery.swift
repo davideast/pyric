@@ -200,8 +200,23 @@ public class DatabaseQuery: NSObject, @unchecked Sendable {
         try await getData(turn: database.takeTurn())
     }
 
+    public func getData(
+        completion: @escaping @Sendable (Error?, DataSnapshot?) -> Void
+    ) {
+        let turn = database.takeTurn()
+        Task {
+            do {
+                let snap = try await getData(turn: turn)
+                completion(nil, snap)
+            } catch {
+                completion(error, nil)
+            }
+        }
+    }
+
     /// Reads the location, sent in the place `turn` holds.
     func getData(turn: OperationTurn) async throws -> DataSnapshot {
+        database.markUsed()
         let client = database.bridgeClient
         if ConnectionInfo.isInfoPath(path) {
             // `.info` is answered here, so the turn is passed without sending anything.
@@ -227,6 +242,22 @@ public class DatabaseQuery: NSObject, @unchecked Sendable {
 
     public func observeSingleEvent(of eventType: DataEventType) async throws -> DataSnapshot {
         return try await getData()
+    }
+
+    public func observeSingleEvent(
+        of eventType: DataEventType,
+        with block: @escaping @Sendable (DataSnapshot) -> Void,
+        withCancel cancelBlock: (@Sendable (Error) -> Void)? = nil
+    ) {
+        getData { error, snapshot in
+            if let error {
+                cancelBlock?(error)
+                return
+            }
+            if let snapshot {
+                block(snapshot)
+            }
+        }
     }
 
     // ── Real-Time Listeners & AsyncStreams ────────────────────────────────────
@@ -336,6 +367,7 @@ public class DatabaseQuery: NSObject, @unchecked Sendable {
         onEvent: @escaping @Sendable (DatabaseChildEvent) -> Void,
         onCancel: (@Sendable (Error) -> Void)?
     ) -> Task<Void, Never> {
+        database.markUsed()
         if ConnectionInfo.isInfoPath(path) {
             return startInfoObserverTask(eventTypes: eventTypes, onEvent: onEvent)
         }
