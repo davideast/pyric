@@ -11,9 +11,66 @@ extension Firestore {
         bridgeClient.takeTurn()
     }
 
-    /// Sends a write in the place `turn` holds and awaits its result.
-    func send(turn: OperationTurn, method: String, params: [String: AnySendable]) async throws {
-        _ = try await bridgeClient.op(turn: turn, method: method, params: params, actAs: effectiveAuthLens)
+    /// Sends a write in the place `turn` holds (or stages it locally while offline) and awaits its result.
+    func send(
+        turn: OperationTurn,
+        method: String,
+        params: [String: AnySendable],
+        mutations: [OfflineWriteMutation] = []
+    ) async throws {
+        try await executeWrite(
+            turn: turn,
+            method: method,
+            params: params,
+            actAs: effectiveAuthLens,
+            mutations: mutations
+        )
+    }
+
+    internal func executeWrite(
+        turn: OperationTurn,
+        method: String,
+        params: [String: AnySendable],
+        actAs: AuthLens,
+        mutations: [OfflineWriteMutation]
+    ) async throws {
+        let client = bridgeClient
+        await client.acquireTurn(turn)
+        if await client.isDisposed {
+            await client.finishTurn(turn)
+            throw PyricBridgeError.unavailable("PyricBridgeClient has been disposed.")
+        }
+        do {
+            try lifecycle.ensureActiveAndMarkStarted()
+        } catch {
+            await client.finishTurn(turn)
+            throw error
+        }
+
+        if lifecycle.isNetworkEnabled {
+            let writeId = lifecycle.beginOnlineWrite()
+            do {
+                _ = try await client.op(turn: turn, method: method, params: params, actAs: actAs)
+                lifecycle.finishOnlineWrite(writeId, committedMutations: mutations)
+            } catch {
+                lifecycle.finishOnlineWrite(writeId, committedMutations: nil)
+                throw error
+            }
+            return
+        }
+
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            self.lifecycle.stageOfflineWrite(
+                method: method,
+                params: params,
+                actAs: actAs,
+                mutations: mutations,
+                continuation: continuation
+            )
+            Task {
+                await client.finishTurn(turn)
+            }
+        }
     }
 
     /// Runs a call from a completion-block form in the place of a turn taken
@@ -23,13 +80,13 @@ extension Firestore {
         _ call: @escaping @Sendable (OperationTurn) async throws -> T
     ) {
         let turn = takeTurn()
-        let queue = settings.dispatchQueue
+        let currentSettings = settings
         Task {
             do {
                 let result = try await call(turn)
-                queue.async { completion?(result, nil) }
+                currentSettings.dispatchCallback { completion?(result, nil) }
             } catch {
-                queue.async { completion?(nil, error) }
+                currentSettings.dispatchCallback { completion?(nil, error) }
             }
         }
     }
@@ -41,13 +98,19 @@ extension Firestore {
     func sendInCallOrder(
         method: String,
         params: [String: AnySendable],
+        mutations: [OfflineWriteMutation] = [],
         completion: (@Sendable (Error?) -> Void)?
     ) {
         // The lens is read at the call, like the turn.
         let actAs = effectiveAuthLens
-        let client = bridgeClient
         runInCallOrder(completion: reportingError(completion)) { turn in
-            _ = try await client.op(turn: turn, method: method, params: params, actAs: actAs)
+            try await self.executeWrite(
+                turn: turn,
+                method: method,
+                params: params,
+                actAs: actAs,
+                mutations: mutations
+            )
             return true
         }
     }
@@ -62,6 +125,16 @@ extension Firestore {
         let client = bridgeClient
         runInCallOrder(completion: reportingError(completion)) { turn in
             try await toggle(client, turn)
+            return true
+        }
+    }
+
+    func runVoidInCallOrder(
+        completion: (@Sendable (Error?) -> Void)?,
+        _ call: @escaping @Sendable (OperationTurn) async throws -> Void
+    ) {
+        runInCallOrder(completion: reportingError(completion)) { turn in
+            try await call(turn)
             return true
         }
     }

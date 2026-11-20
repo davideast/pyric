@@ -609,6 +609,62 @@ public actor PyricBridgeClient {
         releaseTurn(turn)
     }
 
+    package func acquireTurn(_ turn: OperationTurn) async {
+        await waitForTurn(turn)
+    }
+
+    package func finishTurn(_ turn: OperationTurn) {
+        releaseTurn(turn)
+    }
+
+    package func flushSocketWrites() async {
+        await lastOpWrite?.value
+    }
+
+    package func startOrderedOp(
+        method: String,
+        params: [String: AnySendable],
+        actAs: AuthLens?
+    ) async -> Task<AnySendable, Error> {
+        final class OnceGate: @unchecked Sendable {
+            private let lock = NSLock()
+            private var resumed = false
+            private let continuation: CheckedContinuation<Void, Never>
+
+            init(_ continuation: CheckedContinuation<Void, Never>) {
+                self.continuation = continuation
+            }
+
+            func fire() {
+                lock.lock()
+                guard !resumed else {
+                    lock.unlock()
+                    return
+                }
+                resumed = true
+                lock.unlock()
+                continuation.resume()
+            }
+        }
+
+        var startedTask: Task<AnySendable, Error>?
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let gate = OnceGate(continuation)
+            startedTask = Task {
+                defer { gate.fire() }
+                return try await self.admit(
+                    method: method,
+                    params: params,
+                    actAs: actAs,
+                    timeout: nil,
+                    turn: nil,
+                    onQueued: { gate.fire() }
+                )
+            }
+        }
+        return startedTask!
+    }
+
     /// Closes the client in the place `turn` holds. Every operation whose turn
     /// was taken before is admitted first, then failed by the close; every
     /// operation whose turn comes after finds the client disposed.
@@ -638,7 +694,8 @@ public actor PyricBridgeClient {
         params: [String: AnySendable],
         actAs: AuthLens?,
         timeout: TimeInterval?,
-        turn: OperationTurn?
+        turn: OperationTurn?,
+        onQueued: (@Sendable () -> Void)? = nil
     ) async throws -> AnySendable {
         if isDisposed {
             throw PyricBridgeError.unavailable("PyricBridgeClient has been disposed.")
@@ -646,7 +703,13 @@ public actor PyricBridgeClient {
         let acceptsNewOps = isConnected && !drainingHeldOps && !socketRefusing
         if acceptsNewOps {
             return try await dispatchOp(
-                method: method, params: params, actAs: actAs, timeout: timeout, turn: turn, holdable: canReopen
+                method: method,
+                params: params,
+                actAs: actAs,
+                timeout: timeout,
+                turn: turn,
+                holdable: canReopen,
+                onQueued: onQueued
             )
         }
         guard canReopen else {
@@ -654,14 +717,27 @@ public actor PyricBridgeClient {
             try await connect()
             try ensureConnected()
             return try await dispatchOp(
-                method: method, params: params, actAs: actAs, timeout: timeout, turn: turn, holdable: false
+                method: method,
+                params: params,
+                actAs: actAs,
+                timeout: timeout,
+                turn: turn,
+                holdable: false,
+                onQueued: onQueued
             )
         }
         let closedAfterAttach = hasEverAttached && connectionState == .closed
         if closedAfterAttach {
             throw PyricBridgeError.unavailable(connectionLostMessage)
         }
-        return try await hold(method: method, params: params, actAs: actAs, timeout: timeout, turn: turn)
+        return try await hold(
+            method: method,
+            params: params,
+            actAs: actAs,
+            timeout: timeout,
+            turn: turn,
+            onQueued: onQueued
+        )
     }
 
     /// The next operation's id and its place in admission order.
@@ -685,7 +761,8 @@ public actor PyricBridgeClient {
         actAs: AuthLens?,
         timeout: TimeInterval?,
         turn: OperationTurn?,
-        holdable: Bool
+        holdable: Bool,
+        onQueued: (@Sendable () -> Void)? = nil
     ) async throws -> AnySendable {
         let (id, sequence) = nextOpId()
         let issuedAt = clock.now()
@@ -705,6 +782,7 @@ public actor PyricBridgeClient {
             )
             self.writeAfterLastOp(id: id)
             self.releaseTurn(turn)
+            onQueued?()
         }
     }
 
@@ -882,7 +960,8 @@ public actor PyricBridgeClient {
         params: [String: AnySendable],
         actAs: AuthLens?,
         timeout: TimeInterval?,
-        turn: OperationTurn?
+        turn: OperationTurn?,
+        onQueued: (@Sendable () -> Void)? = nil
     ) async throws -> AnySendable {
         let (id, sequence) = nextOpId()
         let issuedAt = clock.now()
@@ -901,6 +980,7 @@ public actor PyricBridgeClient {
                 deadlineTask: self.holdDeadlineTask(id: id, after: self.holdDeadline)
             ))
             self.releaseTurn(turn)
+            onQueued?()
             self.startAttemptIfIdle()
         }
     }

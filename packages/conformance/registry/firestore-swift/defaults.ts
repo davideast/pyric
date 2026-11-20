@@ -9,6 +9,11 @@ const CONFORMANCE_QUERY_SUITE =
 const UNOBSERVED_REASON =
   'Behavior stated from FirebaseFirestore Swift specification; test has not passed yet.';
 
+export const LIVE_HOST_CONFORMANCE_TEST =
+  'packages/cli/test/serve/native-swift-conformance.test.ts';
+export const LIVE_HOST_LIFECYCLE_SUITE =
+  'packages/swift-client/Tests/PyricLiveHostTests/FirestoreLifecycleLiveHostConformanceTests.swift';
+
 export interface SwiftFirestoreRowSeed {
   order?: number;
   api: string;
@@ -16,11 +21,20 @@ export interface SwiftFirestoreRowSeed {
   featureKeys: string[];
   evidence?: string;
   tests?: string[];
+  /** Live Pyric host end-to-end suites proving this row against a running host. */
+  hostConformanceTests?: string[];
   flipped?: 'unit-backed';
   status?: CompatStatus;
   statusNote?: string;
   rowRef?: never;
   id?: never;
+}
+
+function formatHostEvidence(hostTests: readonly string[] | undefined): string {
+  if (hostTests === undefined || hostTests.length === 0) {
+    return '';
+  }
+  return ` Live host: \`${hostTests.join('`, `')}\`.`;
 }
 
 function suiteForRef(ref: number): string {
@@ -60,6 +74,7 @@ export function bindSwiftFirestoreRow(
             conformanceTests.push(extraTest);
           }
         }
+        const hostEvidence = formatHostEvidence(seed.hostConformanceTests);
         return {
           api: seed.api,
           behavior: seed.behavior,
@@ -67,8 +82,9 @@ export function bindSwiftFirestoreRow(
           status: resolvedStatus,
           statusNote: resolveMockBridgeNote(seed.status, seed.statusNote),
           automation: 'unit-backed',
-          evidence: `${resolvedEvidence} Swift test: \`${suite}\` assertion set \`firestore-swift#${rowRef}\`.`,
+          evidence: `${resolvedEvidence} Swift test: \`${suite}\` assertion set \`firestore-swift#${rowRef}\`.${hostEvidence}`,
           conformanceTests,
+          hostConformanceTests: seed.hostConformanceTests,
         };
       }
       let unverifiedEvidence = 'FirebaseFirestore Swift specification; unverified locally.';

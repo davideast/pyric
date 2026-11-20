@@ -276,15 +276,44 @@ public class Query: @unchecked Sendable {
         return cursorValues
     }
 
-    // ── Document Retrieval & Streams ─────────────────────────────────────────
+    // -- Document Retrieval & Streams --
 
     public func getDocuments(source: FirestoreSource = .default) async throws -> QuerySnapshot {
         let target = try QueryCompiler.compile(query: self)
-        return try await getDocuments(turn: firestore.takeTurn(), target: target)
+        return try await getDocuments(turn: firestore.takeTurn(), target: target, source: source)
     }
 
-    private func getDocuments(turn: OperationTurn, target: TargetDescriptor) async throws -> QuerySnapshot {
-        let raw = try await firestore.bridgeClient.getDocs(turn: turn, source: target, actAs: firestore.effectiveAuthLens)
+    private func getDocuments(
+        turn: OperationTurn,
+        target: TargetDescriptor,
+        source: FirestoreSource
+    ) async throws -> QuerySnapshot {
+        let client = firestore.bridgeClient
+        await client.acquireTurn(turn)
+        if await client.isDisposed {
+            await client.finishTurn(turn)
+            throw PyricBridgeError.unavailable("PyricBridgeClient has been disposed.")
+        }
+        do {
+            try firestore.lifecycle.ensureActiveAndMarkStarted()
+        } catch {
+            await client.finishTurn(turn)
+            throw error
+        }
+        firestore.markUsed()
+
+        if source == .cache || (source == .default && !firestore.lifecycle.isNetworkEnabled) {
+            let cachedWire = firestore.lifecycle.projectOfflineQueryWire(target: target)
+            await client.finishTurn(turn)
+            return QuerySnapshot.fromWire(firestore: firestore, query: self, wire: cachedWire, isFromCache: true)
+        }
+        if source == .server && !firestore.lifecycle.isNetworkEnabled {
+            await client.finishTurn(turn)
+            throw PyricBridgeError.unavailable("Failed to get documents from server because the client is offline.")
+        }
+
+        let raw = try await client.getDocs(turn: turn, source: target, actAs: firestore.effectiveAuthLens)
+        firestore.lifecycle.recordOnlineQueryWire(raw)
         return QuerySnapshot.fromWire(firestore: firestore, query: self, wire: raw)
     }
 
@@ -300,11 +329,11 @@ public class Query: @unchecked Sendable {
         do {
             target = try QueryCompiler.compile(query: self)
         } catch {
-            firestore.settings.dispatchQueue.async { completion(nil, error) }
+            firestore.settings.dispatchCallback { completion(nil, error) }
             return
         }
         firestore.runInCallOrder(completion: completion) { turn in
-            try await self.getDocuments(turn: turn, target: target)
+            try await self.getDocuments(turn: turn, target: target, source: source)
         }
     }
 
@@ -318,6 +347,7 @@ public class Query: @unchecked Sendable {
         includeMetadataChanges: Bool,
         listener: @escaping @Sendable (QuerySnapshot?, Error?) -> Void
     ) -> ListenerRegistration {
+        firestore.markUsed()
         let target = compileTarget()
         let db = self.firestore
         let box = CallbackBox(listener)
@@ -328,40 +358,76 @@ public class Query: @unchecked Sendable {
             target: target,
             includeMetadataChanges: includeMetadataChanges,
             onEvent: { event in
+                db.lifecycle.recordOnlineQueryWire(event)
+                let (prevDocs, hadDeliveredFromCache) = stateBox.snapshotPrevious()
                 let snapshot = QuerySnapshot.fromWire(
                     firestore: db,
                     query: self,
                     wire: event,
-                    previousDocs: stateBox.previousDocs
+                    previousDocs: prevDocs
                 )
-                stateBox.previousDocs = snapshot.documents
-                stateBox.lastWire = event
-                db.settings.dispatchCallback {
+                stateBox.record(docs: snapshot.documents, wire: event, fromCache: snapshot.metadata.isFromCache)
+                if !includeMetadataChanges
+                    && hadDeliveredFromCache
+                    && !snapshot.metadata.hasPendingWrites
+                    && snapshot.documentChanges.isEmpty
+                    && snapshot.documents.count == (prevDocs?.count ?? -1) {
+                    db.lifecycle.notifyAlreadyInSyncOnReconnect(settings: db.settings)
+                    return
+                }
+                db.lifecycle.dispatchSnapshotCallback(
+                    settings: db.settings,
+                    isCancelled: { stateBox.isCancelled }
+                ) {
+                    box.callback(snapshot, nil)
+                }
+            },
+            onOffline: {
+                let wire = db.lifecycle.projectOfflineQueryWire(target: target)
+                let (prevDocs, _) = stateBox.snapshotPrevious()
+                let snapshot = QuerySnapshot.fromWire(
+                    firestore: db,
+                    query: self,
+                    wire: wire,
+                    previousDocs: prevDocs,
+                    isFromCache: true
+                )
+                stateBox.record(docs: snapshot.documents, wire: wire, fromCache: true)
+                db.lifecycle.dispatchSnapshotCallback(
+                    settings: db.settings,
+                    isCancelled: { stateBox.isCancelled }
+                ) {
                     box.callback(snapshot, nil)
                 }
             },
             onGap: {
-                // The documents last delivered, now served from cache, with no changes.
+                let (prevDocs, _) = stateBox.snapshotPrevious()
                 guard let lastWire = stateBox.lastWire else { return }
                 let snapshot = QuerySnapshot.fromWire(
                     firestore: db,
                     query: self,
                     wire: lastWire,
-                    previousDocs: stateBox.previousDocs ?? [],
+                    previousDocs: prevDocs ?? [],
                     isFromCache: true
                 )
-                db.settings.dispatchCallback {
+                stateBox.record(docs: snapshot.documents, wire: lastWire, fromCache: true)
+                db.lifecycle.dispatchSnapshotCallback(
+                    settings: db.settings,
+                    isCancelled: { stateBox.isCancelled }
+                ) {
                     box.callback(snapshot, nil)
                 }
             },
             onError: { error in
                 db.settings.dispatchCallback {
+                    guard !stateBox.isCancelled else { return }
                     box.callback(nil, error)
                 }
             }
         )
 
         return SimpleListenerRegistration {
+            stateBox.markCancelled()
             coordinator.cancel()
         }
     }
@@ -417,6 +483,41 @@ private final class CallbackBox<T: Sendable>: @unchecked Sendable {
 }
 
 private final class QuerySnapshotStateBox: @unchecked Sendable {
-    var previousDocs: [QueryDocumentSnapshot]?
-    var lastWire: AnySendable?
+    private let lock = NSLock()
+    private var cancelled = false
+    private var previousDocs: [QueryDocumentSnapshot]?
+    private var _lastWire: AnySendable?
+    private var lastFromCache = false
+
+    var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelled
+    }
+
+    var lastWire: AnySendable? {
+        lock.lock()
+        defer { lock.unlock() }
+        return _lastWire
+    }
+
+    func markCancelled() {
+        lock.lock()
+        cancelled = true
+        lock.unlock()
+    }
+
+    func snapshotPrevious() -> ([QueryDocumentSnapshot]?, Bool) {
+        lock.lock()
+        defer { lock.unlock() }
+        return (previousDocs, lastFromCache)
+    }
+
+    func record(docs: [QueryDocumentSnapshot], wire: AnySendable, fromCache: Bool) {
+        lock.lock()
+        previousDocs = docs
+        _lastWire = wire
+        lastFromCache = fromCache
+        lock.unlock()
+    }
 }

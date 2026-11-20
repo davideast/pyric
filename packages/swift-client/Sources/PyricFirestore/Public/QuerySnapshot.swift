@@ -57,23 +57,28 @@ public final class QuerySnapshot: @unchecked Sendable, RandomAccessCollection {
     ) -> QuerySnapshot {
         var docList: [QueryDocumentSnapshot] = []
         // Listener frames carry the sandbox snapshot's pending-write state.
-        let pending = ((wireAny as? [String: Any])?["hasPendingWrites"] as? Bool) ?? false
-        let metadata = SnapshotMetadata(hasPendingWrites: pending, isFromCache: isFromCache)
+        let dictPayload = wireAny as? [String: Any]
+        let pending = (dictPayload?["hasPendingWrites"] as? Bool) ?? false
+        let queryFromCache = isFromCache || ((dictPayload?["isFromCache"] as? Bool) ?? false)
+        let metadata = SnapshotMetadata(hasPendingWrites: pending, isFromCache: queryFromCache)
 
-        if let dict = wireAny as? [String: Any], let docs = dict["docs"] as? [Any] {
+        if let dict = dictPayload, let docs = dict["docs"] as? [Any] {
             for item in docs {
                 let snap = DocumentSnapshot.fromWire(
                     firestore: firestore,
                     path: query.path,
                     wireAny: item,
-                    isFromCache: isFromCache
+                    isFromCache: queryFromCache
                 )
                 if snap.exists {
+                    let itemDict = item as? [String: Any]
+                    let docPending = (itemDict?["hasPendingWrites"] as? Bool) ?? pending
+                    let docMetadata = SnapshotMetadata(hasPendingWrites: docPending, isFromCache: queryFromCache)
                     docList.append(
                         QueryDocumentSnapshot(
                             firestore: firestore,
                             reference: snap.reference,
-                            metadata: metadata,
+                            metadata: docMetadata,
                             rawData: snap.rawData ?? [:]
                         )
                     )
@@ -85,14 +90,17 @@ public final class QuerySnapshot: @unchecked Sendable, RandomAccessCollection {
                     firestore: firestore,
                     path: query.path,
                     wireAny: item,
-                    isFromCache: isFromCache
+                    isFromCache: queryFromCache
                 )
                 if snap.exists {
+                    let itemDict = item as? [String: Any]
+                    let docPending = (itemDict?["hasPendingWrites"] as? Bool) ?? pending
+                    let docMetadata = SnapshotMetadata(hasPendingWrites: docPending, isFromCache: queryFromCache)
                     docList.append(
                         QueryDocumentSnapshot(
                             firestore: firestore,
                             reference: snap.reference,
-                            metadata: metadata,
+                            metadata: docMetadata,
                             rawData: snap.rawData ?? [:]
                         )
                     )
@@ -152,7 +160,7 @@ public final class QuerySnapshot: @unchecked Sendable, RandomAccessCollection {
         // Added and Modified
         for (id, (newIdx, newDoc)) in newMap {
             if let (oldIdx, oldDoc) = oldMap[id] {
-                if !NSDictionary(dictionary: oldDoc.data()).isEqual(to: newDoc.data()) {
+                if !documentValuesEqual(oldDoc.data(), newDoc.data()) {
                     changes.append(
                         DocumentChange(
                             type: .modified,
@@ -175,5 +183,35 @@ public final class QuerySnapshot: @unchecked Sendable, RandomAccessCollection {
         }
 
         return changes
+    }
+
+    private static func documentValuesEqual(_ lhs: Any?, _ rhs: Any?) -> Bool {
+        if lhs == nil || lhs is NSNull {
+            return rhs == nil || rhs is NSNull
+        }
+        if rhs == nil || rhs is NSNull {
+            return false
+        }
+        if let lDict = lhs as? [String: Any], let rDict = rhs as? [String: Any] {
+            guard lDict.count == rDict.count else { return false }
+            for (k, lv) in lDict {
+                guard let rv = rDict[k], documentValuesEqual(lv, rv) else { return false }
+            }
+            return true
+        }
+        if let lArr = lhs as? [Any], let rArr = rhs as? [Any] {
+            guard lArr.count == rArr.count else { return false }
+            for (lv, rv) in zip(lArr, rArr) where !documentValuesEqual(lv, rv) {
+                return false
+            }
+            return true
+        }
+        if let lTs = lhs as? Timestamp, let rTs = rhs as? Timestamp { return lTs == rTs }
+        if let lGeo = lhs as? GeoPoint, let rGeo = rhs as? GeoPoint { return lGeo == rGeo }
+        if let lData = lhs as? Data, let rData = rhs as? Data { return lData == rData }
+        if let lRef = lhs as? DocumentReference, let rRef = rhs as? DocumentReference {
+            return lRef.path == rRef.path && lRef.firestore.database == rRef.firestore.database
+        }
+        return AnySendable.from(lhs) == AnySendable.from(rhs)
     }
 }

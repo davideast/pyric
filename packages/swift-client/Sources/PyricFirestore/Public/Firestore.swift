@@ -6,7 +6,7 @@ private struct TransactionCallbackResult: @unchecked Sendable {
 
 public class Firestore: @unchecked Sendable {
 
-    // ── Static Instance Registry ─────────────────────────────────────────────
+    // -- Static Instance Registry --
     private struct InstanceKey: Hashable {
         let appName: String
         let database: String
@@ -39,7 +39,7 @@ public class Firestore: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         let key = InstanceKey(appName: app.name, database: database)
-        if let existing = instances[key], existing.app === app {
+        if let existing = instances[key], existing.app === app, !existing.lifecycle.isTerminated {
             return existing
         }
         let created = Firestore(app: app, database: database)
@@ -49,12 +49,25 @@ public class Firestore: @unchecked Sendable {
 
     public static func reset() {
         lock.lock()
-        defer { lock.unlock() }
         instances.removeAll()
         shared = nil
+        lock.unlock()
+        FirestorePersistenceStore.shared.resetAll()
     }
 
-    // ── Instance Properties ──────────────────────────────────────────────────
+    private func evictSelfFromRegistry() {
+        Self.lock.lock()
+        let key = InstanceKey(appName: app.name, database: database)
+        if Self.instances[key] === self {
+            Self.instances.removeValue(forKey: key)
+        }
+        if Self.shared === self {
+            Self.shared = nil
+        }
+        Self.lock.unlock()
+    }
+
+    // -- Instance Properties --
     public let app: FirebaseApp
     public let database: String
     public var settings: FirestoreSettings {
@@ -62,6 +75,8 @@ public class Firestore: @unchecked Sendable {
             reconfigureBridge()
         }
     }
+
+    internal let lifecycle: FirestoreClientLifecycle
 
     public var bridgeClient: PyricBridgeClient {
         instanceLock.lock()
@@ -107,7 +122,7 @@ public class Firestore: @unchecked Sendable {
         }
     }
 
-    private var hasUsed: Bool = false
+    internal var hasUsed: Bool = false
     private var rulesDenialListeners: [UUID: @Sendable (PyricBridgeError) -> Void] = [:]
     private var denialObservationTask: Task<Void, Never>?
 
@@ -151,7 +166,7 @@ public class Firestore: @unchecked Sendable {
                 guard !Task.isCancelled, let self else { break }
                 let listeners = self.currentRulesDenialListeners()
                 for listener in listeners {
-                    self.settings.dispatchQueue.async {
+                    self.settings.dispatchCallback {
                         listener(error)
                     }
                 }
@@ -170,6 +185,7 @@ public class Firestore: @unchecked Sendable {
         self.app = app
         self.database = database
         self.settings = FirestoreSettings()
+        self.lifecycle = FirestoreClientLifecycle(appName: app.name, database: database)
         self._bridgeClient = bridgeClient
         self.usesSharedAppBridge = false
     }
@@ -179,6 +195,7 @@ public class Firestore: @unchecked Sendable {
         self.database = database
         let defaultSettings = FirestoreSettings()
         self.settings = defaultSettings
+        self.lifecycle = FirestoreClientLifecycle(appName: app.name, database: database)
         self._bridgeClient = app.sharedBridgeClient()
         self.usesSharedAppBridge = true
         self.bridgeObserverId = app.addBridgeObserver { [weak self] nextClient in
@@ -216,11 +233,12 @@ public class Firestore: @unchecked Sendable {
         applyBridgeClient(standalone)
     }
 
-    private func markUsed() {
+    internal func markUsed() {
         hasUsed = true
+        lifecycle.markStarted()
     }
 
-    // ── Configuration & Emulation ────────────────────────────────────
+    // -- Configuration & Emulation --
 
     public func useEmulator(host: String, port: Int) {
         precondition(!hasUsed, "Cannot call useEmulator after Firestore has been used.")
@@ -229,7 +247,7 @@ public class Firestore: @unchecked Sendable {
         reconfigureBridge()
     }
 
-    // ── Document and Collection Accessors ────────────────────────────
+    // -- Document and Collection Accessors --
 
     public func document(_ path: String) -> DocumentReference {
         markUsed()
@@ -262,7 +280,7 @@ public class Firestore: @unchecked Sendable {
         return Query(firestore: self, rootSource: .group(collectionId: collectionId))
     }
 
-    // ── Batches and Transactions ─────────────────────────────────────
+    // -- Batches and Transactions --
 
     public func batch() -> WriteBatch {
         markUsed()
@@ -283,16 +301,16 @@ public class Firestore: @unchecked Sendable {
         return try await runTransaction(turn: takeTurn(), options: options, updateBlock)
     }
 
-    /// Runs a transaction once every operation issued before it has been sent
-    /// or held. The turn is passed before the update block runs, so a block that
-    /// awaits other calls before its first read never waits on its own turn; an
-    /// operation issued after the transaction may reach the host before its reads.
     private func runTransaction(
         turn: OperationTurn,
         options: TransactionOptions,
         _ updateBlock: @Sendable @escaping (Transaction) async throws -> Any?
     ) async throws -> Any? {
         await bridgeClient.pass(turn: turn)
+        try lifecycle.ensureActiveAndMarkStarted()
+        guard lifecycle.isNetworkEnabled else {
+            throw PyricBridgeError.unavailable("Transactions cannot be executed while the client is offline.")
+        }
         var attempts = 0
         let maxAttempts = max(1, options.maxAttempts)
 
@@ -342,8 +360,6 @@ public class Firestore: @unchecked Sendable {
         Task {
             do {
                 let result = try await self.runTransaction(turn: turn, options: opts) { txn in
-                    // The block may block its thread on a transaction read, so it
-                    // runs off the cooperative pool the read's reply needs.
                     try await UpdateBlockThread.run {
                         var err: NSError?
                         #if canImport(ObjectiveC)
@@ -360,80 +376,188 @@ public class Firestore: @unchecked Sendable {
                     }
                 }
                 let boxedResult = TransactionCallbackResult(value: result)
-                self.settings.dispatchQueue.async {
+                self.settings.dispatchCallback {
                     completion(boxedResult.value, nil)
                 }
             } catch {
-                self.settings.dispatchQueue.async {
+                self.settings.dispatchCallback {
                     completion(nil, error)
                 }
             }
         }
     }
 
-    // ── Network & Cache Lifecycle ────────────────────────────────────
+    // -- Network & Cache Lifecycle --
 
     public func enableNetwork() async throws {
-        try await Self.enableNetwork(bridgeClient, turn: takeTurn())
+        try await enableNetworkInOrder(turn: takeTurn())
     }
 
     public func enableNetwork(completion: (@Sendable (Error?) -> Void)? = nil) {
-        toggleNetworkInCallOrder(completion: completion, Self.enableNetwork)
+        runVoidInCallOrder(completion: completion) { turn in
+            try await self.enableNetworkInOrder(turn: turn)
+        }
     }
 
     public func disableNetwork() async throws {
-        await bridgeClient.disconnect(turn: takeTurn())
+        try await disableNetworkInOrder(turn: takeTurn())
     }
 
     public func disableNetwork(completion: (@Sendable (Error?) -> Void)? = nil) {
-        toggleNetworkInCallOrder(completion: completion) { client, turn in await client.disconnect(turn: turn) }
+        runVoidInCallOrder(completion: completion) { turn in
+            try await self.disableNetworkInOrder(turn: turn)
+        }
     }
 
-    /// Connects once every operation issued before has been sent or held.
-    private static func enableNetwork(_ client: PyricBridgeClient, turn: OperationTurn) async throws {
-        await client.pass(turn: turn)
+    private func disableNetworkInOrder(turn: OperationTurn) async throws {
+        let client = bridgeClient
+        await client.acquireTurn(turn)
+        if await client.isDisposed {
+            await client.finishTurn(turn)
+            throw PyricBridgeError.unavailable("PyricBridgeClient has been disposed.")
+        }
+        do {
+            try lifecycle.ensureActiveAndMarkStarted()
+        } catch {
+            await client.finishTurn(turn)
+            throw error
+        }
+        hasUsed = true
+        await client.flushSocketWrites()
+        lifecycle.transitionToOffline()
+        await client.finishTurn(turn)
+    }
+
+    private func enableNetworkInOrder(turn: OperationTurn) async throws {
+        let client = bridgeClient
+        await client.acquireTurn(turn)
+        if await client.isDisposed {
+            await client.finishTurn(turn)
+            throw PyricBridgeError.unavailable("PyricBridgeClient has been disposed.")
+        }
+        do {
+            try lifecycle.ensureActiveAndMarkStarted()
+        } catch {
+            await client.finishTurn(turn)
+            throw error
+        }
+        hasUsed = true
+        let flushBatch = lifecycle.beginOnlineFlush()
+        if !flushBatch.wasOffline && flushBatch.writes.isEmpty {
+            await client.finishTurn(turn)
+            try await client.connect()
+            return
+        }
+
+        var enqueuedTasks: [(StagedOfflineWriteEntry, Task<AnySendable, Error>)] = []
+        enqueuedTasks.reserveCapacity(flushBatch.writes.count)
+        for writeEntry in flushBatch.writes {
+            let opTask = await client.startOrderedOp(
+                method: writeEntry.method,
+                params: writeEntry.params,
+                actAs: writeEntry.actAs
+            )
+            enqueuedTasks.append((writeEntry, opTask))
+        }
+        await client.finishTurn(turn)
+
         try await client.connect()
+        for (writeEntry, opTask) in enqueuedTasks {
+            do {
+                _ = try await opTask.value
+                lifecycle.finishFlushedWrite(writeEntry, error: nil)
+            } catch {
+                lifecycle.finishFlushedWrite(writeEntry, error: error)
+            }
+        }
+
+        if flushBatch.wasOffline {
+            if lifecycle.hasActiveListeners {
+                lifecycle.resumeManagedListenersAfterOnlineFlush()
+            } else {
+                lifecycle.notifyAlreadyInSyncOnReconnect(settings: settings)
+            }
+        }
     }
 
     public func clearPersistence() async throws {
+        try lifecycle.clearPersistence()
     }
 
     public func clearPersistence(completion: (@Sendable (Error?) -> Void)? = nil) {
+        let currentSettings = settings
         Task {
             do {
-                try await clearPersistence()
-                settings.dispatchQueue.async { completion?(nil) }
+                try await self.clearPersistence()
+                currentSettings.dispatchCallback { completion?(nil) }
             } catch {
-                settings.dispatchQueue.async { completion?(error) }
+                currentSettings.dispatchCallback { completion?(error) }
             }
         }
     }
 
     public func terminate() async throws {
-        await bridgeClient.disconnect(turn: takeTurn())
+        await terminateInOrder(turn: takeTurn())
     }
 
     public func terminate(completion: (@Sendable (Error?) -> Void)? = nil) {
-        toggleNetworkInCallOrder(completion: completion) { client, turn in await client.disconnect(turn: turn) }
+        runVoidInCallOrder(completion: completion) { turn in
+            await self.terminateInOrder(turn: turn)
+        }
+    }
+
+    private func terminateInOrder(turn: OperationTurn) async {
+        let client = bridgeClient
+        if !usesSharedAppBridge {
+            await client.disconnect(turn: turn)
+            lifecycle.terminate()
+            evictSelfFromRegistry()
+            return
+        }
+        await client.acquireTurn(turn)
+        await client.flushSocketWrites()
+        lifecycle.terminate()
+        evictSelfFromRegistry()
+        if let observerId = bridgeObserverId {
+            app.removeBridgeObserver(observerId)
+            bridgeObserverId = nil
+        }
+        await client.finishTurn(turn)
     }
 
     public func waitForPendingWrites() async throws {
+        try await waitForPendingWritesInOrder(turn: takeTurn())
     }
 
     public func waitForPendingWrites(completion: (@Sendable (Error?) -> Void)? = nil) {
-        Task {
-            do {
-                try await waitForPendingWrites()
-                settings.dispatchQueue.async { completion?(nil) }
-            } catch {
-                settings.dispatchQueue.async { completion?(error) }
-            }
+        runVoidInCallOrder(completion: completion) { turn in
+            try await self.waitForPendingWritesInOrder(turn: turn)
+        }
+    }
+
+    private func waitForPendingWritesInOrder(turn: OperationTurn) async throws {
+        let client = bridgeClient
+        await client.acquireTurn(turn)
+        if await client.isDisposed {
+            await client.finishTurn(turn)
+            throw PyricBridgeError.unavailable("PyricBridgeClient has been disposed.")
+        }
+        do {
+            try lifecycle.ensureActiveAndMarkStarted()
+        } catch {
+            await client.finishTurn(turn)
+            throw error
+        }
+        hasUsed = true
+        let settlements = lifecycle.snapshotPendingWriteSettlements()
+        await client.finishTurn(turn)
+        for settlement in settlements {
+            await settlement.wait()
         }
     }
 
     public func addSnapshotsInSyncListener(_ listener: @escaping @Sendable () -> Void) -> ListenerRegistration {
-        let reg = SimpleListenerRegistration { }
-        settings.dispatchQueue.async { listener() }
-        return reg
+        hasUsed = true
+        return lifecycle.addSnapshotsInSyncListener(listener, settings: settings)
     }
 }

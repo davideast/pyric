@@ -225,23 +225,30 @@ struct FirestoreWriteOrderTests {
         await client.disconnect()
     }
 
-    @Test("disableNetwork(completion:) disconnects after the writes issued before it are sent, and they fail as disconnected")
+    @Test("disableNetwork(completion:) takes effect after the writes issued before it are sent")
     func disableNetworkComesAfterEarlierWrites() async throws {
         for _ in 0..<50 {
             let bridge = FakeReconnectBridge()
             let client = makeReconnectingClient(bridge)
             try await client.connect()
             let db = makeFirestore(client)
-            let errors = Collected<String?>()
+            let beforeErrors = Collected<String?>()
+            let afterErrors = Collected<String?>()
             let disabled = Collected<String?>()
 
-            db.document("order/doc").setData(["step": "before"]) { error in errors.append(error.map { "\($0)" }) }
+            db.document("order/before").setData(["step": "before"]) { error in beforeErrors.append(error.map { "\($0)" }) }
             db.disableNetwork { error in disabled.append(error.map { "\($0)" }) }
-            try await until { errors.count == 1 && disabled.count == 1 }
+            db.document("order/after").setData(["step": "after"]) { error in afterErrors.append(error.map { "\($0)" }) }
+            try await until { disabled.count == 1 && hasArrived(bridge, "setDoc", path: "order/before") }
 
             #expect(disabled.all == [nil])
-            let message = errors.all[0] ?? ""
-            #expect(message.contains("disconnected"), "the write was not admitted before the disconnect: \(message)")
+            #expect(!hasArrived(bridge, "setDoc", path: "order/after"))
+            #expect(afterErrors.count == 0)
+
+            for frame in writeFrames(bridge) { bridge.answer(frame) }
+            try await until { beforeErrors.count == 1 }
+            #expect(beforeErrors.all == [nil])
+            await client.disconnect()
         }
     }
 }
