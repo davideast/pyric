@@ -136,6 +136,18 @@ extension PyricBridgeClient {
         try await op(turn: turn, method: "auth.getCurrentUser", params: [:])
     }
 
+    public func authReload(uid: String? = nil) async throws -> AnySendable {
+        try await authReload(turn: takeTurn(), uid: uid)
+    }
+
+    package func authReload(turn: OperationTurn, uid: String?) async throws -> AnySendable {
+        var params: [String: AnySendable] = [:]
+        if let uid {
+            params["uid"] = .string(uid)
+        }
+        return try await op(turn: turn, method: "auth.reload", params: params)
+    }
+
     public func authUpdateProfile(displayName: String?, photoURL: String?) async throws -> AnySendable {
         try await authUpdateProfile(turn: takeTurn(), displayName: displayName, photoURL: photoURL)
     }
@@ -145,14 +157,60 @@ extension PyricBridgeClient {
         displayName: String?,
         photoURL: String?
     ) async throws -> AnySendable {
-        var params: [String: AnySendable] = [:]
-        if let displayName {
-            params["displayName"] = .string(displayName)
-        }
-        if let photoURL {
-            params["photoURL"] = .string(photoURL)
-        }
+        let params: [String: AnySendable] = [
+            "displayName": displayName.map { .string($0) } ?? .null,
+            "photoURL": photoURL.map { .string($0) } ?? .null,
+        ]
         return try await op(turn: turn, method: "auth.updateProfile", params: params)
+    }
+
+    public func authMockSignInResult(
+        providerID: String,
+        uid: String,
+        email: String? = nil,
+        displayName: String? = nil,
+        photoURL: String? = nil,
+        emailVerified: Bool? = nil,
+        customClaims: [String: AnySendable] = [:]
+    ) async throws {
+        try await authMockSignInResult(
+            turn: takeTurn(),
+            providerID: providerID,
+            uid: uid,
+            email: email,
+            displayName: displayName,
+            photoURL: photoURL,
+            emailVerified: emailVerified,
+            customClaims: customClaims
+        )
+    }
+
+    package func authMockSignInResult(
+        turn: OperationTurn,
+        providerID: String,
+        uid: String,
+        email: String?,
+        displayName: String?,
+        photoURL: String?,
+        emailVerified: Bool?,
+        customClaims: [String: AnySendable]
+    ) async throws {
+        var identity: [String: AnySendable] = [
+            "providerId": .string(providerID),
+            "uid": .string(uid),
+            "email": email.map { .string($0) } ?? .null,
+            "displayName": displayName.map { .string($0) } ?? .null,
+            "photoURL": photoURL.map { .string($0) } ?? .null,
+            "customClaims": .dictionary(customClaims),
+        ]
+        if let emailVerified {
+            identity["emailVerified"] = .bool(emailVerified)
+        }
+        _ = try await op(
+            turn: turn,
+            method: "auth.mockSignInResult",
+            params: ["identity": .dictionary(identity)]
+        )
     }
 
     public func authRestorePortSession(uid: String, tenantId: String? = nil) async throws -> AnySendable {

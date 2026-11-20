@@ -501,16 +501,35 @@ struct AuthConformanceTests {
     @Test func `auth-swift#41: User.reload() refreshes user data from server`() async throws {
         let (auth, channel) = try await createHarness()
         let user = User(auth: auth, uid: "u-41", email: "old@example.com")
+        auth.applyUserTransition(user)
         let task = Task { try await user.reload() }
         let frame = try await channel.awaitNextSentMessage()
-        #expect(frame["op"]?["method"]?.stringValue == "auth.getCurrentUser")
+        #expect(frame["op"]?["method"]?.stringValue == "auth.reload")
+        #expect(frame["op"]?["uid"]?.stringValue == "u-41")
         let opId = frame["id"]?.stringValue ?? "op-13"
         try channel.simulateServerMessage([
             "type": "worker-res", "id": opId, "ok": true,
-            "res": ["email": "reloaded@example.com"]
+            "res": ["uid": "u-41", "email": "reloaded@example.com"]
         ])
         try await task.value
         #expect(user.email == "reloaded@example.com")
+
+        let invalidTask = Task { try await user.reload() }
+        let invalidFrame = try await channel.awaitNextSentMessage()
+        let invalidId = invalidFrame["id"]?.stringValue ?? "op-14"
+        try channel.simulateServerMessage([
+            "type": "worker-res",
+            "id": invalidId,
+            "ok": false,
+            "error": ["code": "auth/user-disabled", "message": "User account has been disabled."]
+        ])
+        do {
+            try await invalidTask.value
+            Issue.record("Expected userDisabled error")
+        } catch let err as AuthError {
+            #expect(err.code == .userDisabled)
+        }
+        #expect(auth.currentUser == nil)
     }
 
     // ── 6. Supporting Types & Metadata (Rows 42–47) ───────────────────────────

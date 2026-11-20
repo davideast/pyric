@@ -388,6 +388,34 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
         }
     }
 
+    /// Stages a deterministic federated sign-in result on this Auth instance's
+    /// sandbox connection for the next matching `signIn(with:)` credential call.
+    public func stageSignInResult(
+        providerID: String,
+        uid: String,
+        email: String? = nil,
+        displayName: String? = nil,
+        photoURL: URL? = nil,
+        isEmailVerified: Bool? = nil,
+        customClaims: [String: AnySendable] = [:]
+    ) async throws {
+        let turn = takeTurn()
+        do {
+            try await bridgeClient.authMockSignInResult(
+                turn: turn,
+                providerID: providerID,
+                uid: uid,
+                email: email,
+                displayName: displayName,
+                photoURL: photoURL?.absoluteString,
+                emailVerified: isEmailVerified,
+                customClaims: customClaims
+            )
+        } catch {
+            throw AuthError.from(error: error)
+        }
+    }
+
     public func signOut() throws {
         stateLock.lock()
         _impersonatedLens = nil
@@ -647,6 +675,33 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
         applyUserTransition(user)
     }
 
+    internal func handleSessionInvalidationIfNeeded(for user: User, error: AuthError) {
+        switch error.code {
+        case .userDisabled, .userTokenExpired, .userNotFound:
+            if currentUser?.uid == user.uid {
+                applyUserTransition(nil)
+            }
+        default:
+            break
+        }
+    }
+
+    private func applyRemoteUserWire(_ userWire: AnySendable) async {
+        guard let wireDict = userWire.dictionaryValue,
+              let incomingUid = wireDict["uid"]?.stringValue else {
+            return
+        }
+        if let existing = currentUser, existing.uid == incomingUid {
+            existing.update(from: wireDict)
+            applyUserTransition(existing)
+            return
+        }
+        if let user = User.fromWire(auth: self, wire: userWire) {
+            await enrichUserClaimsIfLive(user)
+            applyUserTransition(user)
+        }
+    }
+
     public func startRemoteSync() {
         stateLock.lock()
         guard subTask == nil else {
@@ -663,10 +718,10 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
                         for try await event in authSubStream {
                             guard !Task.isCancelled else { break }
                             let userWire = event["user"] ?? event
-                            if event.isNull {
+                            if event.isNull || userWire.isNull {
                                 self.applyUserTransition(nil)
-                            } else if let user = User.fromWire(auth: self, wire: userWire) {
-                                self.applyUserTransition(user)
+                            } else {
+                                await self.applyRemoteUserWire(userWire)
                             }
                         }
                     } catch {
@@ -680,10 +735,10 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
                         for try await event in idTokenSubStream {
                             guard !Task.isCancelled else { break }
                             let userWire = event["user"] ?? event
-                            if event.isNull {
+                            if event.isNull || userWire.isNull {
                                 self.applyUserTransition(nil)
-                            } else if let user = User.fromWire(auth: self, wire: userWire) {
-                                self.applyUserTransition(user)
+                            } else if userWire.dictionaryValue?["uid"]?.stringValue != nil {
+                                await self.applyRemoteUserWire(userWire)
                             } else {
                                 self.notifyIdTokenChanged()
                             }

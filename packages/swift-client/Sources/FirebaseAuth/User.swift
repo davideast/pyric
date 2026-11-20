@@ -120,7 +120,9 @@ public final class User: @unchecked Sendable, UserInfo {
             }
             return token
         } catch {
-            throw AuthError.from(error: error)
+            let authError = AuthError.from(error: error)
+            auth.handleSessionInvalidationIfNeeded(for: self, error: authError)
+            throw authError
         }
     }
 
@@ -153,7 +155,9 @@ public final class User: @unchecked Sendable, UserInfo {
             }
             return res
         } catch {
-            throw AuthError.from(error: error)
+            let authError = AuthError.from(error: error)
+            auth.handleSessionInvalidationIfNeeded(for: self, error: authError)
+            throw authError
         }
     }
 
@@ -161,7 +165,25 @@ public final class User: @unchecked Sendable, UserInfo {
 
     public func updateProfile(displayName: String?, photoURL: URL?) async throws {
         let auth = try attachedAuth()
-        let turn = auth.takeTurn()
+        try await updateProfile(auth, turn: auth.takeTurn(), displayName: displayName, photoURL: photoURL)
+    }
+
+    public func updateProfile(
+        displayName: String?,
+        photoURL: URL?,
+        completion: (@Sendable (Error?) -> Void)?
+    ) {
+        inVoidCallOrder(completion: completion) { auth, turn in
+            try await self.updateProfile(auth, turn: turn, displayName: displayName, photoURL: photoURL)
+        }
+    }
+
+    private func updateProfile(
+        _ auth: Auth,
+        turn: OperationTurn,
+        displayName: String?,
+        photoURL: URL?
+    ) async throws {
         do {
             let reply = try await auth.bridgeClient.authUpdateProfile(
                 turn: turn,
@@ -179,15 +201,26 @@ public final class User: @unchecked Sendable, UserInfo {
 
     public func reload() async throws {
         let auth = try attachedAuth()
-        let turn = auth.takeTurn()
+        try await reload(auth, turn: auth.takeTurn())
+    }
+
+    public func reload(completion: (@Sendable (Error?) -> Void)?) {
+        inVoidCallOrder(completion: completion) { auth, turn in
+            try await self.reload(auth, turn: turn)
+        }
+    }
+
+    private func reload(_ auth: Auth, turn: OperationTurn) async throws {
         do {
-            let reply = try await auth.bridgeClient.authGetCurrentUser(turn: turn)
+            let reply = try await auth.bridgeClient.authReload(turn: turn, uid: self.uid)
             if let dict = reply.dictionaryValue {
                 self.update(from: dict)
                 auth.notifyUserUpdated(self)
             }
         } catch {
-            throw AuthError.from(error: error)
+            let authError = AuthError.from(error: error)
+            auth.handleSessionInvalidationIfNeeded(for: self, error: authError)
+            throw authError
         }
     }
 
@@ -215,6 +248,28 @@ public final class User: @unchecked Sendable, UserInfo {
             return
         }
         auth.runInCallOrder(completion: completion) { turn in try await call(auth, turn) }
+    }
+
+    private func inVoidCallOrder(
+        completion: (@Sendable (Error?) -> Void)?,
+        _ call: @escaping @Sendable (Auth, OperationTurn) async throws -> Void
+    ) {
+        let auth: Auth
+        do {
+            auth = try attachedAuth()
+        } catch {
+            Task { completion?(error) }
+            return
+        }
+        let turn = auth.takeTurn()
+        Task {
+            do {
+                try await call(auth, turn)
+                completion?(nil)
+            } catch {
+                completion?(error)
+            }
+        }
     }
 
     internal func update(from wire: [String: AnySendable]) {
