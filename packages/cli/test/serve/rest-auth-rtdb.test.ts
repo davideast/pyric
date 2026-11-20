@@ -539,10 +539,12 @@ describe('pyric serve HTTP REST Auth and sharded RTDB adapters', () => {
 
     authSandbox.updateUser(ensureAuth(direct.ctx), 'staged-uid-1', { disabled: true });
     expect((await fetch(`${direct.server.url}/probe.json?auth=${encodeURIComponent(refreshed.id_token)}`)).status).toBe(401);
+    expect((await fetch(`${direct.server.url}/firebase.json`)).status).toBe(404);
+    expect((await fetch(`${direct.server.url}/node_modules/@pyric/cli/package.json`)).status).toBe(404);
+    expect((await fetch(`${direct.server.url}/.pyric/serve.json`)).status).toBe(404);
 
     const readOnlyHost = await createDirectHostServer({ refuseWrites: true });
-    const refusedWrite = await sendJsonMethod('PUT', `${readOnlyHost.server.url}/items/doc1.json`, { ok: false });
-    expect(refusedWrite.status).toBe(403);
+    expect((await sendJsonMethod('PUT', `${readOnlyHost.server.url}/items/doc1.json`, { ok: false })).status).toBe(403);
 
     const siteDir = makeTempDir();
     mkdirSync(siteDir, { recursive: true });
@@ -564,31 +566,15 @@ describe('pyric serve HTTP REST Auth and sharded RTDB adapters', () => {
     const staticManifestRes = await fetch(`${staticRig.base}/manifest.json`);
     expect(staticManifestRes.status).toBe(200);
     expect(await staticManifestRes.json()).toEqual({ short_name: 'demo-site' });
-
     expect((await fetch(`${staticRig.base}/firebase.json`)).status).toBe(404);
 
     const explicitShardManifestRes = await fetch(`${staticRig.base}/manifest.json?ns=shard-00`);
     expect(explicitShardManifestRes.status).toBe(200);
     expect(await explicitShardManifestRes.json()).toBeNull();
 
-    const crossOriginRes = await postJson(
-      `${staticRig.base}/v1/token`,
-      { grant_type: 'refresh_token', refresh_token: 'any' },
-      { origin: 'https://evil.example' },
-    );
-    expect(crossOriginRes.status).toBe(403);
-
-    const siblingPortRes = await postJson(
-      `${staticRig.base}/v1/token`,
-      { grant_type: 'refresh_token', refresh_token: 'any' },
-      { origin: `http://127.0.0.1:${staticRig.port + 1}` },
-    );
-    expect(siblingPortRes.status).toBe(403);
-
-    const crossSiteFetchRes = await fetch(`${staticRig.base}/manifest.json?ns=shard-00`, {
-      headers: { 'sec-fetch-site': 'cross-site' },
-    });
-    expect(crossSiteFetchRes.status).toBe(403);
+    expect((await postJson(`${staticRig.base}/v1/token`, { grant_type: 'refresh_token', refresh_token: 'any' }, { origin: 'https://evil.example' })).status).toBe(403);
+    expect((await postJson(`${staticRig.base}/v1/token`, { grant_type: 'refresh_token', refresh_token: 'any' }, { origin: `http://127.0.0.1:${staticRig.port + 1}` })).status).toBe(403);
+    expect((await fetch(`${staticRig.base}/manifest.json?ns=shard-00`, { headers: { 'sec-fetch-site': 'cross-site' } })).status).toBe(403);
 
     const rootNavRes = await fetch(`${staticRig.base}/`, {
       redirect: 'manual',

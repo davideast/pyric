@@ -250,11 +250,11 @@ function shouldDeferRestToStaticHosting(
   url: URL,
   publicDir: string | null,
 ): boolean {
-  if (publicDir === null) return false;
   const method = req.method ?? 'GET';
   if (method !== 'GET' && method !== 'HEAD') return false;
   if (hasExplicitRtdbRestSelector(req, url)) return false;
   if (isHostingIgnoredPathname(url.pathname)) return true;
+  if (publicDir === null) return false;
   return resolveHostingFile(publicDir, url.pathname) !== null;
 }
 
