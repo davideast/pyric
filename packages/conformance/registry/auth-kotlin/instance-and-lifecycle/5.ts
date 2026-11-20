@@ -5,5 +5,5 @@ export default row({
   api: 'FirebaseAuth.clearInstancesForTest()',
   behavior: 'Clears cached FirebaseAuth instances to isolate test runs.',
   featureKeys: ['clearInstancesForTest'],
-  flipped: 'unit-backed',
+  flipped: 'live-host',
 });

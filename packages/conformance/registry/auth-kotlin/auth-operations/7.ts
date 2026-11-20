@@ -5,5 +5,5 @@ export default row({
   api: 'FirebaseAuth.createUserWithEmailAndPassword(email, password)',
   behavior: 'Creates a new user account with email and password via bridge auth.createUser, updating currentUser and AuthLens.',
   featureKeys: ['createUserWithEmailAndPassword'],
-  flipped: 'unit-backed',
+  flipped: 'live-host',
 });

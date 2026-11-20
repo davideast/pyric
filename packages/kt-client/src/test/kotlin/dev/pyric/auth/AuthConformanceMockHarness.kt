@@ -89,7 +89,7 @@ class AuthConformanceMockHarness {
                                 """{"type":"worker-res","id":"$id","ok":true,"value":{"uid":"user-alice","displayName":"$displayName","photoURL":"$photoURL","isAnonymous":false}}"""
                             )
                         }
-                        "auth.getCurrentUser" -> {
+                        "auth.getCurrentUser", "auth.reload" -> {
                             transport.sendToClient(
                                 """{"type":"worker-res","id":"$id","ok":true,"value":{"uid":"user-alice","displayName":"Alice Reloaded","isAnonymous":false}}"""
                             )

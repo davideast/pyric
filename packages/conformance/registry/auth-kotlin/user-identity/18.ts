@@ -5,5 +5,5 @@ export default row({
   api: 'FirebaseUser.photoUrl',
   behavior: 'Returns the profile photo URI or null if unset.',
   featureKeys: ['photoUrl'],
-  flipped: 'unit-backed',
+  flipped: 'live-host',
 });

@@ -5,5 +5,5 @@ export default row({
   api: 'FirebaseUser.providerId',
   behavior: 'Returns the primary provider identifier ("firebase").',
   featureKeys: ['providerId'],
-  flipped: 'unit-backed',
+  flipped: 'live-host',
 });

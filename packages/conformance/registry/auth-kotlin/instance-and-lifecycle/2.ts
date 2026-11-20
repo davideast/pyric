@@ -5,5 +5,5 @@ export default row({
   api: 'FirebaseAuth.getInstance(app) / Firebase.auth(app)',
   behavior: 'Provides isolated FirebaseAuth instances distinguished by FirebaseApp.',
   featureKeys: ['getInstance'],
-  flipped: 'unit-backed',
+  flipped: 'live-host',
 });

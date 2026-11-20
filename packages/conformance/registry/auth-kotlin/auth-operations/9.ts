@@ -5,5 +5,5 @@ export default row({
   api: 'FirebaseAuth.signOut()',
   behavior: 'Signs out the current user via bridge auth.signOut, clearing currentUser and resetting AuthLens to Anon.',
   featureKeys: ['signOut'],
-  flipped: 'unit-backed',
+  flipped: 'live-host',
 });

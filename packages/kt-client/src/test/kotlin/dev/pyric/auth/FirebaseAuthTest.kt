@@ -5,8 +5,12 @@ import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthException
+import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
+import com.google.firebase.auth.FirebaseAuthInvalidUserException
 import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.auth.UserProfileChangeRequest
+import com.google.firebase.firestore.FirebaseFirestore
 import dev.pyric.bridge.InMemoryBridgeTransport
 import dev.pyric.bridge.PyricBridgeClient
 import dev.pyric.codecs.JsonCodec
@@ -88,6 +92,30 @@ class FirebaseAuthTest {
                                 """{"type":"worker-res","id":"$id","ok":true,"value":{"user":{"uid":"anon-123","email":null,"displayName":null,"isAnonymous":true,"providerId":"firebase"},"providerId":null,"operationType":"signIn"}}"""
                             )
                         }
+                        "auth.signInWithCustomToken" -> {
+                            val customToken = op["customToken"] as? String ?: ""
+                            when (customToken) {
+                                "mismatch-token" -> transport.sendToClient(
+                                    """{"type":"worker-res","id":"$id","ok":false,"error":{"code":"auth/custom-token-mismatch","message":"The custom token corresponds to a different audience."}}"""
+                                )
+                                "invalid-token", "" -> transport.sendToClient(
+                                    """{"type":"worker-res","id":"$id","ok":false,"error":{"code":"auth/invalid-custom-token","message":"The custom token format is incorrect."}}"""
+                                )
+                                else -> transport.sendToClient(
+                                    """{"type":"worker-res","id":"$id","ok":true,"value":{"user":{"uid":"custom-uid-1","isAnonymous":false,"providerId":"firebase"},"providerId":null,"operationType":"signIn","claims":{"role":"service","sub":"custom-uid-1"}}}"""
+                                )
+                            }
+                        }
+                        "auth.mockSignInResult" -> {
+                            transport.sendToClient("""{"type":"worker-res","id":"$id","ok":true,"value":null}""")
+                        }
+                        "auth.signInWithCredential" -> {
+                            val credMap = (op["credential"] as? Map<*, *>) ?: op
+                            val providerId = credMap["providerId"] as? String ?: "google.com"
+                            transport.sendToClient(
+                                """{"type":"worker-res","id":"$id","ok":true,"value":{"user":{"uid":"staged-google-uid","email":"staged@example.com","displayName":"Staged User","emailVerified":true,"isAnonymous":false,"providerId":"firebase","providerData":[{"uid":"staged-google-uid","email":"staged@example.com","providerId":"$providerId"}]},"providerId":"$providerId","operationType":"signIn","additionalUserInfo":{"isNewUser":true,"providerId":"$providerId"}}}"""
+                            )
+                        }
                         "auth.signOut" -> {
                             transport.sendToClient("""{"type":"worker-res","id":"$id","ok":true,"value":null}""")
                         }
@@ -106,10 +134,16 @@ class FirebaseAuthTest {
                                 """{"type":"worker-res","id":"$id","ok":true,"value":{"uid":"user-alice","email":"alice@example.com","displayName":"$displayName","photoURL":"$photoURL","emailVerified":true,"isAnonymous":false,"providerId":"password"}}"""
                             )
                         }
-                        "auth.getCurrentUser" -> {
-                            transport.sendToClient(
-                                """{"type":"worker-res","id":"$id","ok":true,"value":{"uid":"user-alice","email":"alice@example.com","displayName":"Alice Reloaded","emailVerified":true,"isAnonymous":false,"providerId":"password"}}"""
-                            )
+                        "auth.getCurrentUser", "auth.reload" -> {
+                            if (op["uid"] == "revoked-uid") {
+                                transport.sendToClient(
+                                    """{"type":"worker-res","id":"$id","ok":false,"error":{"code":"auth/user-token-expired","message":"The user credential is no longer valid."}}"""
+                                )
+                            } else {
+                                transport.sendToClient(
+                                    """{"type":"worker-res","id":"$id","ok":true,"value":{"uid":"user-alice","email":"alice@example.com","displayName":"Alice Reloaded","emailVerified":true,"isAnonymous":false,"providerId":"password"}}"""
+                                )
+                            }
                         }
                         else -> {
                             transport.sendToClient("""{"type":"worker-res","id":"$id","ok":true,"value":null}""")
@@ -160,7 +194,12 @@ class FirebaseAuthTest {
         assertFalse(result.user?.isAnonymous == true)
 
         assertEquals("user-alice", auth.currentUser?.uid)
-        assertEquals(AuthLens.AsUser(uid = "user-alice"), auth.getEffectiveLens())
+        val effectiveLens = auth.getEffectiveLens() as AuthLens.AsUser
+        assertEquals("user-alice", effectiveLens.uid)
+        assertEquals("alice@example.com", effectiveLens.token?.get("email"))
+        assertEquals(true, effectiveLens.token?.get("email_verified"))
+        val firebaseClaims = effectiveLens.token?.get("firebase") as? Map<*, *>
+        assertEquals("password", firebaseClaims?.get("sign_in_provider"))
 
         // Verify listener saw initial (null) and updated user
         assertTrue(listenerEvents.size >= 2)
@@ -219,7 +258,10 @@ class FirebaseAuthTest {
     fun testSignOut() {
         Tasks.await(auth.signInAnonymously())
         assertNotNull(auth.currentUser)
-        assertEquals(AuthLens.AsUser(uid = "anon-123"), auth.getEffectiveLens())
+        val anonLens = auth.getEffectiveLens() as AuthLens.AsUser
+        assertEquals("anon-123", anonLens.uid)
+        assertEquals("anonymous", anonLens.token?.get("provider_id"))
+        assertEquals("anonymous", (anonLens.token?.get("firebase") as? Map<*, *>)?.get("sign_in_provider"))
 
         auth.signOut()
         Thread.sleep(50)
@@ -298,8 +340,9 @@ class FirebaseAuthTest {
         assertEquals("Alice Reloaded", user.displayName)
         assertEquals("Alice Reloaded", auth.currentUser?.displayName)
 
-        val lastOp = sentOps.find { it["method"] == "auth.getCurrentUser" }
+        val lastOp = sentOps.find { it["method"] == "auth.reload" }
         assertNotNull(lastOp)
+        assertEquals("user-alice", lastOp?.get("uid"))
     }
 
     @Test
@@ -344,7 +387,10 @@ class FirebaseAuthTest {
         val lens = auth.getEffectiveLens()
         assertTrue(lens is AuthLens.AsUser)
         val asUser = lens as AuthLens.AsUser
-        assertEquals(mapOf("role" to "editor", "plan" to "pro"), asUser.token)
+        assertEquals("editor", asUser.token?.get("role"))
+        assertEquals("pro", asUser.token?.get("plan"))
+        assertEquals("claims@example.com", asUser.token?.get("email"))
+        assertEquals(true, asUser.token?.get("email_verified"))
 
         val wireMap = asUser.toMap()
         @Suppress("UNCHECKED_CAST")
@@ -360,10 +406,13 @@ class FirebaseAuthTest {
         val authResult = Tasks.await(auth.signInWithEmailAndPassword("alice@example.com", "secret123"))
         val user = authResult.user!!
 
-        // Initially no custom claims
+        // Initially no custom claims, while standard JWT claims remain populated
         assertTrue(user.customClaims.isEmpty())
         val initialLens = auth.getEffectiveLens() as AuthLens.AsUser
-        assertNull(initialLens.token)
+        assertNull(initialLens.token?.get("role"))
+        assertEquals("alice@example.com", initialLens.token?.get("email"))
+        assertEquals(true, initialLens.token?.get("email_verified"))
+        assertEquals("password", (initialLens.token?.get("firebase") as? Map<*, *>)?.get("sign_in_provider"))
 
         // Calling getIdToken(forceRefresh = true) receives claims from mock bridge
         val tokenResult = Tasks.await(user.getIdToken(forceRefresh = true))
@@ -470,5 +519,102 @@ class FirebaseAuthTest {
         Thread.sleep(100)
 
         assertEquals(AuthLens.Anon, auth.getEffectiveLens())
+    }
+
+    @Test
+    fun testSignInWithCustomTokenAndExceptionMappings() {
+        auth.tenantId = "tenant-custom"
+        val res = Tasks.await(auth.signInWithCustomToken("signed-sandbox-jwt"))
+        assertEquals("custom-uid-1", res.user?.uid)
+        assertEquals("service", res.user?.customClaims?.get("role"))
+        assertNull(res.additionalUserInfo?.providerId)
+        val lens = auth.getEffectiveLens() as AuthLens.AsUser
+        assertEquals("custom-uid-1", lens.uid)
+        assertEquals("tenant-custom", lens.tenant)
+        assertEquals("service", lens.token?.get("role"))
+        assertEquals("custom", (lens.token?.get("firebase") as? Map<*, *>)?.get("sign_in_provider"))
+
+        val invalidEx = assertThrows<ExecutionException> {
+            Tasks.await(auth.signInWithCustomToken("invalid-token"))
+        }.cause
+        assertTrue(invalidEx is FirebaseAuthInvalidCredentialsException)
+        assertEquals("ERROR_INVALID_CUSTOM_TOKEN", (invalidEx as FirebaseAuthException).errorCode)
+
+        val mismatchEx = assertThrows<ExecutionException> {
+            Tasks.await(auth.signInWithCustomToken("mismatch-token"))
+        }.cause
+        assertTrue(mismatchEx is FirebaseAuthInvalidCredentialsException)
+        assertEquals("ERROR_CUSTOM_TOKEN_MISMATCH", (mismatchEx as FirebaseAuthException).errorCode)
+    }
+
+    @Test
+    fun testUserTokenExpiredMapsToInvalidUserExceptionAndClearsSession() {
+        val revokedUser = FirebaseUser(auth, mapOf("uid" to "revoked-uid", "isAnonymous" to false))
+        val reloadEx = assertThrows<ExecutionException> {
+            Tasks.await(revokedUser.reload())
+        }.cause
+        assertTrue(reloadEx is FirebaseAuthInvalidUserException)
+        assertEquals("ERROR_USER_TOKEN_EXPIRED", (reloadEx as FirebaseAuthException).errorCode)
+    }
+
+    @Test
+    fun testIsoTimestampParsingAndStageSignInResult() {
+        assertEquals(1795147200L, FirebaseUser.parseTimestampSeconds("2026-11-20T04:00:00.000Z", null))
+        assertEquals(1800000000L, FirebaseUser.parseTimestampSeconds(1800000000, null))
+        assertEquals(1795140000L, FirebaseUser.parseTimestampSeconds(null, 1795140000))
+
+        Tasks.await(
+            auth.stageSignInResult(
+                providerId = GoogleAuthProvider.PROVIDER_ID,
+                uid = "staged-google-uid",
+                email = "staged@example.com",
+                displayName = "Staged User",
+                emailVerified = true
+            )
+        )
+        val stageOp = sentOps.find { it["method"] == "auth.mockSignInResult" }
+        assertNotNull(stageOp)
+
+        val cred = GoogleAuthProvider.getCredential("google-id", "google-access")
+        val signedIn = Tasks.await(auth.signInWithCredential(cred))
+        assertEquals("staged-google-uid", signedIn.user?.uid)
+        assertEquals("google.com", signedIn.additionalUserInfo?.providerId)
+    }
+
+    @Test
+    fun testSharedBridgeClientAcrossFirebaseAppServices() {
+        val sharedApp = FirebaseApp.initializeApp(
+            "shared-bridge-app",
+            FirebaseOptions.Builder()
+                .setProjectId("demo-shared")
+                .setApiKey("key")
+                .setApplicationId("app")
+                .build()
+        )
+        val customBridge = PyricBridgeClient(transport)
+        val appAuth = FirebaseAuth.getInstance(sharedApp, customBridge)
+        val appFirestore = FirebaseFirestore.getInstance(sharedApp)
+        assertTrue(appAuth.bridgeClient === customBridge)
+        assertTrue(appFirestore.bridgeClient === customBridge)
+        FirebaseFirestore.clearInstancesForTest()
+    }
+
+    @Test
+    fun testInitialNullIdTokenSnapshotDoesNotDuplicateSignedOutEmission() = runBlocking {
+        val observed = CopyOnWriteArrayList<String?>()
+        val listener = FirebaseAuth.IdTokenListener { a -> observed.add(a.currentUser?.uid) }
+        auth.addIdTokenListener(listener)
+        assertEquals(listOf<String?>(null), observed.toList())
+
+        val initialSnap = mapOf(
+            "type" to "worker-snap",
+            "subId" to "sub-id-token-init",
+            "value" to null
+        )
+        transport.sendToClient(JsonCodec.encodeToString(initialSnap))
+        Thread.sleep(50)
+
+        assertEquals(listOf<String?>(null), observed.toList())
+        auth.removeIdTokenListener(listener)
     }
 }

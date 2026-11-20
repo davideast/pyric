@@ -5,5 +5,5 @@ export default row({
   api: 'FirebaseUser.uid',
   behavior: 'Returns the non-null string uniquely identifying the user across providers.',
   featureKeys: ['uid'],
-  flipped: 'unit-backed',
+  flipped: 'live-host',
 });

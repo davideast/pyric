@@ -5,5 +5,5 @@ export default row({
   api: 'FirebaseUser.providerData',
   behavior: 'Returns a list of UserInfo instances corresponding to linked provider accounts.',
   featureKeys: ['providerData'],
-  flipped: 'unit-backed',
+  flipped: 'live-host',
 });

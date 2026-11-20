@@ -6,6 +6,16 @@ object BridgeProtocol {
     const val DEFAULT_BRIDGE_URL: String = "ws://127.0.0.1:5174/__pyric/sandbox"
     const val DEFAULT_OP_TIMEOUT_MS: Long = 35_000L
 
+    fun resolveDefaultBridgeUrl(): String {
+        val sysProp = System.getProperty("pyric.bridge.url")?.trim()
+        if (!sysProp.isNullOrEmpty()) return sysProp
+        val liveEnv = System.getenv("PYRIC_LIVE_BRIDGE_URL")?.trim()
+        if (!liveEnv.isNullOrEmpty()) return liveEnv
+        val bridgeEnv = System.getenv("PYRIC_BRIDGE_URL")?.trim()
+        if (!bridgeEnv.isNullOrEmpty()) return bridgeEnv
+        return DEFAULT_BRIDGE_URL
+    }
+
     const val TYPE_ATTACH = "attach"
     const val TYPE_ATTACH_ACK = "attach-ack"
     const val TYPE_WORKER_OP = "worker-op"

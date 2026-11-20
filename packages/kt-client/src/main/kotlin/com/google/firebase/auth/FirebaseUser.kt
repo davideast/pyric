@@ -8,16 +8,19 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.net.URI
+import java.time.Instant
 
 class FirebaseUser internal constructor(
     internal val auth: FirebaseAuth,
-    internal var rawData: Map<String, Any?>
+    internal var rawData: Map<String, Any?>,
+    internal var signInProviderOverride: String? = null
 ) : UserInfo {
 
     @Suppress("UNCHECKED_CAST")
-    var customClaims: Map<String, Any?> = (rawData["customClaims"] as? Map<String, Any?>)
-        ?: (rawData["claims"] as? Map<String, Any?>)
-        ?: emptyMap()
+    var customClaims: Map<String, Any?> = extractCustomClaims(
+        (rawData["customClaims"] as? Map<String, Any?>)
+            ?: (rawData["claims"] as? Map<String, Any?>)
+    )
         internal set
 
     override val uid: String get() = rawData["uid"] as? String ?: ""
@@ -56,6 +59,58 @@ class FirebaseUser internal constructor(
             }
         }
 
+    internal fun resolveSignInProvider(): String {
+        signInProviderOverride?.takeIf { it.isNotBlank() }?.let { return it }
+        if (isAnonymous) return "anonymous"
+        for (info in providerData) {
+            val pid = info.providerId
+            if (pid.isNotBlank() && pid != "firebase") {
+                return pid
+            }
+        }
+        val primary = rawData["providerId"] as? String
+        if (!primary.isNullOrBlank() && primary != "firebase") {
+            return primary
+        }
+        if (email != null) return "password"
+        if (phoneNumber != null) return "phone"
+        return "custom"
+    }
+
+    internal fun buildJwtClaims(): Map<String, Any?> {
+        val result = LinkedHashMap<String, Any?>()
+        displayName?.let { result["name"] = it }
+        photoUrlString?.let { result["picture"] = it }
+        result.putAll(customClaims)
+        result["sub"] = uid
+        result["user_id"] = uid
+        if (isAnonymous) {
+            result["provider_id"] = "anonymous"
+        }
+        val identities = LinkedHashMap<String, List<String>>()
+        email?.let { userEmail ->
+            result["email"] = userEmail
+            result["email_verified"] = isEmailVerified
+            identities["email"] = listOf(userEmail)
+        }
+        phoneNumber?.let { phone ->
+            result["phone_number"] = phone
+            identities["phone"] = listOf(phone)
+        }
+        for (info in providerData) {
+            val pid = info.providerId
+            if (pid.isNotBlank() && pid !in NON_FEDERATED_PROVIDER_IDS) {
+                val linkedUid = info.uid.ifBlank { uid }
+                identities[pid] = listOf(linkedUid)
+            }
+        }
+        result["firebase"] = mapOf(
+            "identities" to identities,
+            "sign_in_provider" to resolveSignInProvider()
+        )
+        return result
+    }
+
     fun getIdToken(forceRefresh: Boolean = false): Task<GetTokenResult> {
         val tcs = TaskCompletionSource<GetTokenResult>()
         val scope = CoroutineScope(Dispatchers.IO)
@@ -65,15 +120,23 @@ class FirebaseUser internal constructor(
                 val token = res["token"] as? String ?: ""
                 @Suppress("UNCHECKED_CAST")
                 val claims = res["claims"] as? Map<String, Any?> ?: emptyMap()
-                val exp = (res["expirationTime"] as? Number)?.toLong() ?: 0L
-                val authTime = (res["authTime"] as? Number)?.toLong() ?: 0L
-                val issuedAt = (res["issuedAtTime"] as? Number)?.toLong() ?: 0L
-                val provider = res["signInProvider"] as? String
-                customClaims = claims
+                val exp = parseTimestampSeconds(res["expirationTime"], claims["exp"])
+                val authTime = parseTimestampSeconds(res["authTime"], claims["auth_time"])
+                val issuedAt = parseTimestampSeconds(res["issuedAtTime"], claims["iat"])
+                @Suppress("UNCHECKED_CAST")
+                val firebaseMap = claims["firebase"] as? Map<String, Any?>
+                val provider = (res["signInProvider"] as? String)
+                    ?: (firebaseMap?.get("sign_in_provider") as? String)
+                if (!provider.isNullOrBlank()) {
+                    signInProviderOverride = provider
+                }
+                customClaims = extractCustomClaims(claims)
                 auth.notifyTokenRefreshed(this@FirebaseUser)
                 tcs.setResult(GetTokenResult(token, claims, exp, authTime, issuedAt, provider))
             } catch (e: Exception) {
-                tcs.setException(e)
+                val wrapped = auth.wrapException(e)
+                auth.clearCurrentUserIfInvalidated(wrapped, uid)
+                tcs.setException(wrapped)
             }
         }
         return tcs.task
@@ -95,12 +158,12 @@ class FirebaseUser internal constructor(
                 rawData = updated
                 @Suppress("UNCHECKED_CAST")
                 (updated["customClaims"] as? Map<String, Any?> ?: updated["claims"] as? Map<String, Any?>)?.let {
-                    customClaims = it
+                    customClaims = extractCustomClaims(it)
                 }
                 auth.notifyUserUpdated(this@FirebaseUser)
                 tcs.setResult(null)
             } catch (e: Exception) {
-                tcs.setException(e)
+                tcs.setException(auth.wrapException(e))
             }
         }
         return tcs.task
@@ -111,28 +174,69 @@ class FirebaseUser internal constructor(
         val scope = CoroutineScope(Dispatchers.IO)
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
-                val user = BridgeAuthOperations.getCurrentUser(auth.bridgeClient)
+                val user = BridgeAuthOperations.reload(auth.bridgeClient, uid)
+                    ?: BridgeAuthOperations.getCurrentUser(auth.bridgeClient)
                 if (user != null) {
                     rawData = user
                     @Suppress("UNCHECKED_CAST")
                     (user["customClaims"] as? Map<String, Any?> ?: user["claims"] as? Map<String, Any?>)?.let {
-                        customClaims = it
+                        customClaims = extractCustomClaims(it)
                     }
                 }
-                try {
-                    val res = BridgeAuthOperations.getIdTokenResult(auth.bridgeClient, forceRefresh = true)
-                    @Suppress("UNCHECKED_CAST")
-                    val claims = res["claims"] as? Map<String, Any?>
-                    if (claims != null) {
-                        customClaims = claims
-                    }
-                } catch (_: Exception) {}
                 auth.notifyUserUpdated(this@FirebaseUser)
                 tcs.setResult(null)
             } catch (e: Exception) {
-                tcs.setException(e)
+                val wrapped = auth.wrapException(e)
+                auth.clearCurrentUserIfInvalidated(wrapped, uid)
+                tcs.setException(wrapped)
             }
         }
         return tcs.task
+    }
+
+    companion object {
+        private val NON_FEDERATED_PROVIDER_IDS = setOf("password", "phone", "anonymous", "firebase")
+
+        internal val STANDARD_JWT_CLAIM_KEYS = setOf(
+            "firebase",
+            "uid",
+            "user_id",
+            "sub",
+            "iss",
+            "aud",
+            "iat",
+            "exp",
+            "auth_time",
+            "email",
+            "email_verified",
+            "phone_number",
+            "name",
+            "picture",
+            "nonce",
+            "provider_id"
+        )
+
+        internal fun extractCustomClaims(claims: Map<String, Any?>?): Map<String, Any?> {
+            if (claims == null || claims.isEmpty()) return emptyMap()
+            val filtered = LinkedHashMap<String, Any?>()
+            for ((key, value) in claims) {
+                if (key !in STANDARD_JWT_CLAIM_KEYS) {
+                    filtered[key] = value
+                }
+            }
+            return filtered
+        }
+
+        internal fun parseTimestampSeconds(rawTime: Any?, claimValue: Any?): Long {
+            if (rawTime is Number) return rawTime.toLong()
+            if (rawTime is String && rawTime.isNotBlank()) {
+                val asLong = rawTime.toLongOrNull()
+                if (asLong != null) return asLong
+                val parsed = runCatching { Instant.parse(rawTime).epochSecond }.getOrNull()
+                if (parsed != null) return parsed
+            }
+            if (claimValue is Number) return claimValue.toLong()
+            return 0L
+        }
     }
 }

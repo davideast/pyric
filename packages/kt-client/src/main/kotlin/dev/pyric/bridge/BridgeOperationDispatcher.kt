@@ -199,7 +199,8 @@ class BridgeOperationDispatcher(
             val exception = FirebaseFirestoreException(
                 messageStr,
                 firestoreCode,
-                denialContext = denialContext
+                denialContext = denialContext,
+                wireCode = codeStr
             )
             if (firestoreCode == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
                 onDenial?.invoke(exception)
