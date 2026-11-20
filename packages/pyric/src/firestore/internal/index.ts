@@ -45,3 +45,12 @@ export {
 } from '../bundles.js';
 export { documentId } from '../field-values.js';
 export { parseValidatedSnapshotEnvelope, wrapInitialCachedSnapshotArgs } from '../ssr-snapshots.js';
+export {
+  executeQuery,
+  type QueryCursor,
+  type QueryExecutionSpec,
+  type QueryFilter,
+  type QueryOrderClause,
+  type QueryWhereFilterOp,
+} from '../sandbox/query-execution.js';
+export { firestoreValuesEqual } from '../sandbox/value-equality.js';

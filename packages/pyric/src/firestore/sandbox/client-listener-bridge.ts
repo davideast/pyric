@@ -113,6 +113,22 @@ export function attachClientManagedListener(params: {
 
   let unregister = (): void => {};
 
+  const recordOnlineSnapshotCache = (rawSnap: unknown): void => {
+    if (rawSnap === null || typeof rawSnap !== 'object') return;
+    const meta = (rawSnap as { metadata?: { fromCache?: boolean } }).metadata;
+    if (meta?.fromCache === true) return;
+    if (isDoc) {
+      clientState.cachePath(docPath);
+      return;
+    }
+    const rawDocs = (rawSnap as { docs?: Array<{ ref?: { path?: string } }> }).docs;
+    if (!Array.isArray(rawDocs)) return;
+    for (const d of rawDocs) {
+      const p = d.ref?.path;
+      if (typeof p === 'string') clientState.cachePath(p);
+    }
+  };
+
   const onBackendSnap = (rawSnap: unknown): void => {
     if (stopped || !clientState.isNetworkEnabled()) return;
     backendErrored = false;
@@ -123,6 +139,7 @@ export function attachClientManagedListener(params: {
         deliverSnap(split.cachedSnapshot);
         queueMicrotask(() => {
           if (stopped || backendErrored || !clientState.isNetworkEnabled()) return;
+          recordOnlineSnapshotCache(rawSnap);
           deliveredCount += 1;
           deliverSnap(split.serverSnapshot);
         });
@@ -135,9 +152,13 @@ export function attachClientManagedListener(params: {
       if (!includeMetadataChanges && isDoc) {
         const snapDoc = rawSnap as { data?: () => DocumentData | undefined };
         const incoming = snapDoc.data?.() ?? null;
-        if (docDataEqual(offlineDocData, incoming)) return;
+        if (docDataEqual(offlineDocData, incoming)) {
+          recordOnlineSnapshotCache(rawSnap);
+          return;
+        }
       }
     }
+    recordOnlineSnapshotCache(rawSnap);
     deliveredCount += 1;
     deliverSnap(rawSnap);
   };

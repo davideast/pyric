@@ -104,10 +104,18 @@ export class FirestoreClientState {
       for (const entry of pathOrPaths) paths.add(entry);
     }
 
+    const isLastMutationDelete = (targetPath: string): boolean => {
+      if (offlineMutations === undefined) return false;
+      let lastKind: OfflineMutation['kind'] | undefined;
+      for (const m of offlineMutations) {
+        if (m.path === targetPath) lastKind = m.kind;
+      }
+      return lastKind === 'delete';
+    };
+
     const recordCommittedCache = (): void => {
       for (const p of paths) {
-        const deleted = offlineMutations?.some((m) => m.path === p && m.kind === 'delete') === true;
-        if (deleted) {
+        if (isLastMutationDelete(p)) {
           this.cachedPaths.delete(p);
           this.overlay.markDeletedPath(p);
         } else {
@@ -125,8 +133,7 @@ export class FirestoreClientState {
     }
 
     for (const p of paths) {
-      const deleted = offlineMutations?.some((m) => m.path === p && m.kind === 'delete') === true;
-      if (!deleted) this.cachedPaths.add(p);
+      if (!isLastMutationDelete(p)) this.cachedPaths.add(p);
     }
     const overlayId = this.overlay.stageMutations(offlineMutations ?? []);
     if (paths.size > 0) {
