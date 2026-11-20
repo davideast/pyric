@@ -116,9 +116,11 @@ struct ConformanceCoreTests {
 
     @Test func `firestore-swift#14: Firestore.useEmulator(host:port:) - Configures client networking to route requests to a local emulator or Pyric bridge.`() async throws {
         let harness = try await ConformanceMockHarness.create()
-        harness.firestore.useEmulator(host: "127.0.0.1", port: 5174)
-        #expect(harness.firestore.settings.host == "127.0.0.1:5174")
+        harness.firestore.useEmulator(host: "127.0.0.1", port: 8085)
+        #expect(harness.firestore.settings.host == "127.0.0.1:8085")
         #expect(!harness.firestore.settings.isSSLEnabled)
+        let configuredEndpoint = await harness.firestore.bridgeClient.endpoint
+        #expect(configuredEndpoint.absoluteString == "ws://127.0.0.1:8085/__pyric/sandbox")
     }
 
     @Test func `firestore-swift#15: Firestore.enableNetwork() / disableNetwork() - Toggles client network connectivity to simulate offline and online operation.`() async throws {

@@ -125,7 +125,7 @@ public final class DataSnapshot: NSObject, @unchecked Sendable {
 
     /// Returns an NSEnumerator of immediate child DataSnapshots.
     public var children: NSEnumerator {
-        return (childrenSnapshots as NSArray).objectEnumerator()
+        return NSArray(array: childrenSnapshots).objectEnumerator()
     }
 
     /// Returns a DataSnapshot for the relative descendant path within the snapshot.

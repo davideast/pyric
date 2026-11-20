@@ -1,5 +1,9 @@
 import Foundation
 
+#if !canImport(ObjectiveC)
+public typealias NSErrorPointer = UnsafeMutablePointer<NSError?>?
+#endif
+
 public final class TransactionOptions: @unchecked Sendable, NSCopying {
     public var maxAttempts: Int
 

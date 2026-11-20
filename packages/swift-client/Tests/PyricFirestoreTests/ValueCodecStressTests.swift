@@ -27,8 +27,13 @@ struct ValueCodecStressTests {
         let encNsOne = try ValueCodec.encodeValue(nsOne)
         let encNsZero = try ValueCodec.encodeValue(nsZero)
 
+        #if canImport(Darwin)
         #expect(CFGetTypeID((encNsOne as CFTypeRef)) != CFBooleanGetTypeID(), "NSNumber(1) must NOT encode as CFBoolean")
         #expect(CFGetTypeID((encNsZero as CFTypeRef)) != CFBooleanGetTypeID(), "NSNumber(0) must NOT encode as CFBoolean")
+        #else
+        #expect(!(encNsOne is Bool), "NSNumber(1) must NOT encode as Bool")
+        #expect(!(encNsZero is Bool), "NSNumber(0) must NOT encode as Bool")
+        #endif
 
         // Primitives: Int, Int64, Int32, Double, Float
         let encInt1 = try ValueCodec.encodeValue(Int(1))

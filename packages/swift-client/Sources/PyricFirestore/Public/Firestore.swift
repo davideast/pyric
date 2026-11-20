@@ -1,5 +1,9 @@
 import Foundation
 
+private struct TransactionCallbackResult: @unchecked Sendable {
+    let value: Any?
+}
+
 public final class FirebaseApp: @unchecked Sendable, Equatable {
     public let name: String
 
@@ -212,6 +216,7 @@ public class Firestore: @unchecked Sendable {
         precondition(!hasUsed, "Cannot call useEmulator after Firestore has been used.")
         settings.host = "\(host):\(port)"
         settings.sslEnabled = false
+        reconfigureBridge()
     }
 
     // ── Document and Collection Accessors ────────────────────────────
@@ -331,15 +336,22 @@ public class Firestore: @unchecked Sendable {
                     // runs off the cooperative pool the read's reply needs.
                     try await UpdateBlockThread.run {
                         var err: NSError?
+                        #if canImport(ObjectiveC)
                         let res = updateBlock(txn, &err)
+                        #else
+                        let res = withUnsafeMutablePointer(to: &err) { ptr in
+                            updateBlock(txn, ptr)
+                        }
+                        #endif
                         if let err {
                             throw err
                         }
                         return res
                     }
                 }
+                let boxedResult = TransactionCallbackResult(value: result)
                 self.settings.dispatchQueue.async {
-                    completion(result, nil)
+                    completion(boxedResult.value, nil)
                 }
             } catch {
                 self.settings.dispatchQueue.async {

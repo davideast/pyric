@@ -142,7 +142,7 @@ public final class PyricVectorSentinel: PyricSentinel, Equatable, @unchecked Sen
 
 internal func isBooleanValue(_ value: Any) -> Bool {
     if let num = value as? NSNumber {
-        return CFGetTypeID(num) == CFBooleanGetTypeID()
+        return NSNumberInspector.isBoolean(num)
     }
     if value is Bool {
         return true

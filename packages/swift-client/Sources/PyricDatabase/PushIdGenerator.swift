@@ -62,7 +62,7 @@ public enum RtdbValueCodec {
         if let doubleVal = value as? Double { return .double(doubleVal) }
         if let floatVal = value as? Float { return .double(Double(floatVal)) }
         if let num = value as? NSNumber {
-            if CFGetTypeID(num) == CFBooleanGetTypeID() {
+            if NSNumberInspector.isBoolean(num) {
                 return .bool(num.boolValue)
             }
             let objCType = String(cString: num.objCType)

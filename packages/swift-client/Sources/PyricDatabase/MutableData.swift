@@ -47,13 +47,13 @@ public final class MutableData: NSObject, @unchecked Sendable {
 
     public var children: NSEnumerator {
         guard let dict = value as? [String: Any] else {
-            return ([] as NSArray).objectEnumerator()
+            return NSArray().objectEnumerator()
         }
         let sortedKeys = dict.keys.sorted()
         let items = sortedKeys.map { k in
             MutableData(key: k, value: dict[k], priority: nil)
         }
-        return (items as NSArray).objectEnumerator()
+        return NSArray(array: items).objectEnumerator()
     }
 }
 
