@@ -4,7 +4,6 @@ set -euo pipefail
 # Signal Handling & Cleanup Trap
 GRADLE_LOG=""
 cleanup() {
-  local exit_code=$?
   if [[ -n "${GRADLE_LOG:-}" && -f "$GRADLE_LOG" ]]; then
     rm -f "$GRADLE_LOG"
   fi
@@ -27,38 +26,57 @@ if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
 fi
 
 # 1. Resolve Toolchain & Environment
-DEFAULT_JAVA_HOME="/Users/deast/.jdk/jdk-21.0.12.1+1/Contents/Home"
+JAVA_BIN=""
 if [[ -n "${JAVA_HOME:-}" ]]; then
   if [[ ! -d "$JAVA_HOME" ]]; then
     echo "Error: Specified JAVA_HOME directory does not exist: $JAVA_HOME" >&2
     exit 1
   fi
-  export JAVA_HOME="$JAVA_HOME"
-elif [[ -d "$DEFAULT_JAVA_HOME" ]]; then
-  export JAVA_HOME="$DEFAULT_JAVA_HOME"
+  JAVA_BIN="$JAVA_HOME/bin/java"
+elif command -v java >/dev/null 2>&1; then
+  JAVA_BIN="$(command -v java)"
+  RESOLVED_JAVA="$(readlink -f "$JAVA_BIN" 2>/dev/null || python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$JAVA_BIN")"
+  CANDIDATE_HOME="$(dirname "$(dirname "$RESOLVED_JAVA")")"
+  if [[ -d "$CANDIDATE_HOME" ]]; then
+    export JAVA_HOME="$CANDIDATE_HOME"
+  fi
 else
-  echo "Error: JAVA_HOME is not set and default JDK at $DEFAULT_JAVA_HOME does not exist." >&2
-  exit 1
+  for candidate in \
+    "/usr/lib/jvm/java-21-openjdk-amd64" \
+    "/usr/lib/jvm/java-25-openjdk-amd64" \
+    "${HOME:-}/.jdk"; do
+    if [[ -n "$candidate" && -x "$candidate/bin/java" ]]; then
+      export JAVA_HOME="$candidate"
+      JAVA_BIN="$candidate/bin/java"
+      break
+    fi
+  done
 fi
 
-JAVA_BIN="$JAVA_HOME/bin/java"
-if [[ ! -x "$JAVA_BIN" ]]; then
-  echo "Error: Java executable not found or not executable at $JAVA_BIN" >&2
+if [[ -z "$JAVA_BIN" || ! -x "$JAVA_BIN" ]]; then
+  echo "Error: Java executable not found on PATH or under JAVA_HOME." >&2
   exit 1
 fi
 
 JAVA_VERSION_OUTPUT="$("$JAVA_BIN" -version 2>&1 || true)"
-if ! echo "$JAVA_VERSION_OUTPUT" | grep -q 'version "21\.'; then
-  echo "Error: Kotlin conformance requires JDK 21 LTS, but found incompatible version at $JAVA_HOME:" >&2
+if ! echo "$JAVA_VERSION_OUTPUT" | grep -Eq 'version "(21|25|27)([."]|$)'; then
+  echo "Error: Kotlin conformance requires JDK 21, 25, or 27, but found incompatible version:" >&2
   echo "$JAVA_VERSION_OUTPUT" >&2
   exit 1
 fi
-export PATH="$JAVA_HOME/bin:$PATH"
+if [[ -n "${JAVA_HOME:-}" ]]; then
+  export PATH="$JAVA_HOME/bin:$PATH"
+fi
 
 # Optional Android SDK toolchain integration
-DEFAULT_ANDROID_HOME="/Users/deast/Library/Android/sdk"
-if [[ -d "$DEFAULT_ANDROID_HOME" && -z "${ANDROID_HOME:-}" ]]; then
-  export ANDROID_HOME="$DEFAULT_ANDROID_HOME"
+if [[ -z "${ANDROID_HOME:-}" ]]; then
+  if [[ -n "${ANDROID_SDK_ROOT:-}" && -d "$ANDROID_SDK_ROOT" ]]; then
+    export ANDROID_HOME="$ANDROID_SDK_ROOT"
+  elif [[ -n "${HOME:-}" && -d "$HOME/Library/Android/sdk" ]]; then
+    export ANDROID_HOME="$HOME/Library/Android/sdk"
+  elif [[ -n "${HOME:-}" && -d "$HOME/Android/Sdk" ]]; then
+    export ANDROID_HOME="$HOME/Android/Sdk"
+  fi
 fi
 
 # Default bridge URL if needed by test environment
@@ -68,12 +86,10 @@ export PYRIC_BRIDGE_URL="${PYRIC_BRIDGE_URL:-ws://127.0.0.1:5174/__pyric/sandbox
 SUITE="${1:-packages/kt-client/src/test/kotlin/dev/pyric/auth/ConformanceTest.kt}"
 XML_OUT="${2:-$ROOT/.conformance/results/auth-kotlin.xml}"
 
-# Normalize SUITE to absolute path
 if [[ "$SUITE" != /* ]]; then
   SUITE="$PWD/$SUITE"
 fi
 
-# Normalize XML_OUT to absolute path
 if [[ "$XML_OUT" != /* ]]; then
   XML_OUT="$PWD/$XML_OUT"
 fi
@@ -106,11 +122,9 @@ GRADLE_LOG=$(mktemp)
 
 GRADLE_EXIT=0
 if [[ -z "${PYRIC_CLIMB:-}" && -t 1 ]]; then
-  # Interactive mode: stream to stdout while capturing log
-  "$GRADLEW" -p "$KT_CLIENT_DIR" cleanTest test --tests "$TEST_CLASS" 2>&1 | tee "$GRADLE_LOG" || GRADLE_EXIT=$?
+  "$GRADLEW" -p "$KT_CLIENT_DIR" :cleanTest :test --tests "$TEST_CLASS" --no-daemon 2>&1 | tee "$GRADLE_LOG" || GRADLE_EXIT=$?
 else
-  # Automated / Climb Lane mode: quiet execution, capture full log
-  "$GRADLEW" -p "$KT_CLIENT_DIR" cleanTest test --tests "$TEST_CLASS" > "$GRADLE_LOG" 2>&1 || GRADLE_EXIT=$?
+  "$GRADLEW" -p "$KT_CLIENT_DIR" :cleanTest :test --tests "$TEST_CLASS" --no-daemon > "$GRADLE_LOG" 2>&1 || GRADLE_EXIT=$?
 fi
 
 # 7. Locate and Copy JUnit XML Report
