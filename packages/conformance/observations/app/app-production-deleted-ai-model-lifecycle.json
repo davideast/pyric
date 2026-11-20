@@ -1,0 +1,131 @@
+{
+  "name": "app-production-deleted-ai-model-lifecycle",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Live firebase/app and firebase/ai deletion lifecycle on equal-config apps with Admin-minted App Check tokens: records post-delete getAI and getGenerativeModel outcomes, retained GenerativeModel operations (countTokens, generateContent, generateContentStream) with warm and cold App Check state after deleteApp, and equal-config sibling GenerativeModel survival.",
+  "observedAt": "2026-11-20T17:17:23.846Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "model": "gemini-flash-lite-latest",
+    "hasGlobalIndexedDB": false,
+    "postDeleteFactories": {
+      "getAIOnDeletedApp": {
+        "threw": false,
+        "isAIError": false,
+        "isFirebaseError": false,
+        "errorName": null,
+        "code": null,
+        "status": null,
+        "mentionsAppDeleted": false,
+        "usesTargetApp": true
+      },
+      "getGenerativeModelOnDeletedAppAI": {
+        "threw": true,
+        "isAIError": false,
+        "isFirebaseError": true,
+        "errorName": "FirebaseError",
+        "code": "app/app-deleted",
+        "status": null,
+        "mentionsAppDeleted": true
+      },
+      "getGenerativeModelOnRetainedAI": {
+        "threw": true,
+        "isAIError": false,
+        "isFirebaseError": true,
+        "errorName": "FirebaseError",
+        "code": "app/app-deleted",
+        "status": null,
+        "mentionsAppDeleted": true
+      }
+    },
+    "equalConfigTopology": {
+      "equalConfigAppsDistinct": true,
+      "aiHandlesDistinct": true,
+      "aiHandlesCarryOwnApps": true
+    },
+    "retainedModelWithWarmAppCheck": {
+      "countTokens": {
+        "threw": false,
+        "isAIError": false,
+        "isFirebaseError": false,
+        "errorName": null,
+        "code": null,
+        "status": null,
+        "mentionsAppDeleted": false,
+        "hasTotalTokensKey": true,
+        "totalTokensIsPositiveInteger": true
+      },
+      "generateContent": {
+        "threw": false,
+        "isAIError": false,
+        "isFirebaseError": false,
+        "errorName": null,
+        "code": null,
+        "status": null,
+        "mentionsAppDeleted": false,
+        "finishReason": "STOP",
+        "hasNonEmptyText": true
+      },
+      "generateContentStream": {
+        "threw": false,
+        "isAIError": false,
+        "isFirebaseError": false,
+        "errorName": null,
+        "code": null,
+        "status": null,
+        "mentionsAppDeleted": false,
+        "chunksYielded": 2,
+        "finishReason": "STOP"
+      }
+    },
+    "retainedModelWithColdAppCheck": {
+      "countTokens": {
+        "threw": false,
+        "isAIError": false,
+        "isFirebaseError": false,
+        "errorName": null,
+        "code": null,
+        "status": null,
+        "mentionsAppDeleted": false,
+        "hasTotalTokensKey": true,
+        "totalTokensIsPositiveInteger": true
+      }
+    },
+    "survivingEqualConfigSiblingModel": {
+      "countTokens": {
+        "threw": false,
+        "isAIError": false,
+        "isFirebaseError": false,
+        "errorName": null,
+        "code": null,
+        "status": null,
+        "mentionsAppDeleted": false,
+        "hasTotalTokensKey": true,
+        "totalTokensIsPositiveInteger": true
+      },
+      "generateContent": {
+        "threw": false,
+        "isAIError": false,
+        "isFirebaseError": false,
+        "errorName": null,
+        "code": null,
+        "status": null,
+        "mentionsAppDeleted": false,
+        "finishReason": "STOP",
+        "hasNonEmptyText": true
+      },
+      "generateContentStream": {
+        "threw": false,
+        "isAIError": false,
+        "isFirebaseError": false,
+        "errorName": null,
+        "code": null,
+        "status": null,
+        "mentionsAppDeleted": false,
+        "chunksYielded": 3,
+        "finishReason": "STOP"
+      }
+    }
+  }
+}
