@@ -141,6 +141,10 @@ class PyricQuerySnapshot extends QuerySnapshotPlatform {
     return changes;
   }
 
+  static bool mapsEqual(Map<String, dynamic>? a, Map<String, dynamic>? b) {
+    return _deepEquals(a, b);
+  }
+
   static bool _mapsEqual(Map<String, dynamic>? a, Map<String, dynamic>? b) {
     return _deepEquals(a, b);
   }

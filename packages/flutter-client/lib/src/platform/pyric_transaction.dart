@@ -1,34 +1,52 @@
 import 'dart:convert';
 
 import 'package:cloud_firestore_platform_interface/cloud_firestore_platform_interface.dart';
+
 import '../transport/bridge_client.dart';
 import '../transport/codecs.dart';
 import 'mutation_serialization.dart';
 import 'pyric_document_snapshot.dart';
 import 'pyric_firestore_platform.dart';
+import 'pyric_offline_projection.dart';
 
 /// Concrete [TransactionPlatform] managing reads and writes within an atomic transaction.
 class PyricTransaction extends TransactionPlatform {
   final FirebaseFirestorePlatform firestore;
   final List<Map<String, dynamic>> _reads = [];
   final List<Map<String, dynamic>> _writes = [];
+  final List<OfflineFirestoreMutation> _mutations = [];
 
   PyricTransaction(this.firestore) : super();
 
-  PyricBridgeClient get _client {
+  PyricFirestorePlatform get _firestorePlatform {
     final f = firestore;
     if (f is PyricFirestorePlatform) {
-      return f.bridgeClient;
+      return f;
     }
     throw StateError('Expected PyricFirestorePlatform, got ${f.runtimeType}');
   }
 
+  PyricBridgeClient get _client => _firestorePlatform.bridgeClient;
+
+  List<OfflineFirestoreMutation> get mutations =>
+      List<OfflineFirestoreMutation>.unmodifiable(_mutations);
+
   @override
   Future<DocumentSnapshotPlatform> get(String documentPath) async {
-    final snap = await firestore.doc(documentPath).get();
+    final f = _firestorePlatform;
+    f.lifecycle.ensureActiveAndMarkStarted();
+    if (!f.lifecycle.isNetworkEnabled) {
+      throw const PyricBridgeException(
+        code: 'unavailable',
+        message: 'Transactions cannot be executed while the client is offline.',
+      );
+    }
+    final res = await _client.getDoc(documentPath, actAs: f.effectiveAuthLens);
+    f.lifecycle.recordOnlineDoc(documentPath, res);
+    final snap = PyricDocumentSnapshot.fromWire(firestore, documentPath, res);
     Map<String, dynamic>? serializedData;
     if (snap.exists) {
-      if (snap is PyricDocumentSnapshot && snap.rawWireData != null) {
+      if (snap.rawWireData != null) {
         serializedData = snap.rawWireData;
       } else {
         serializedData = {'json': jsonEncode(encodeValue(snap.data()))};
@@ -57,6 +75,9 @@ class PyricTransaction extends TransactionPlatform {
       'data': encoded,
       if (optMap != null) 'options': optMap,
     });
+    _mutations.add(
+      OfflineFirestoreMutation.set(documentPath, encoded, options: optMap),
+    );
     return this;
   }
 
@@ -73,6 +94,7 @@ class PyricTransaction extends TransactionPlatform {
       'path': documentPath,
       'data': encoded,
     });
+    _mutations.add(OfflineFirestoreMutation.update(documentPath, encoded));
     return this;
   }
 
@@ -82,12 +104,13 @@ class PyricTransaction extends TransactionPlatform {
       'method': 'delete',
       'path': documentPath,
     });
+    _mutations.add(OfflineFirestoreMutation.delete(documentPath));
     return this;
   }
 
   /// Commits all transaction reads and writes via the Pyric bridge.
   Future<void> commit() async {
-    final f = firestore as PyricFirestorePlatform;
+    final f = _firestorePlatform;
     await _client.txnCommit(_reads, _writes, actAs: f.effectiveAuthLens);
   }
 }

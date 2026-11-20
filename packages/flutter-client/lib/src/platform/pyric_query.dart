@@ -49,6 +49,9 @@ class PyricQuery extends QueryPlatform {
   }
 
   static String _fieldToString(dynamic field) {
+    if (field == FieldPathType.documentId || field == '__name__') {
+      return '__name__';
+    }
     if (field is FieldPath) {
       return field.components.join('.');
     }
@@ -362,11 +365,43 @@ class PyricQuery extends QueryPlatform {
   Future<QuerySnapshotPlatform> get([
     GetOptions options = const GetOptions(),
   ]) async {
+    final f = _firestorePlatform;
+    f.lifecycle.ensureActiveAndMarkStarted();
     final target = compileTarget();
+
+    if (options.source == Source.cache) {
+      final projected = f.lifecycle.projectOfflineQuery(target);
+      return PyricQuerySnapshot.fromWire(
+        firestore,
+        path,
+        projected,
+        isFromCache: true,
+        hasPendingWrites: projected['hasPendingWrites'] == true,
+      );
+    }
+
+    if (!f.lifecycle.isNetworkEnabled) {
+      if (options.source == Source.server) {
+        throw const PyricBridgeException(
+          code: 'unavailable',
+          message: 'Failed to get documents because the client is offline.',
+        );
+      }
+      final projected = f.lifecycle.projectOfflineQuery(target);
+      return PyricQuerySnapshot.fromWire(
+        firestore,
+        path,
+        projected,
+        isFromCache: true,
+        hasPendingWrites: projected['hasPendingWrites'] == true,
+      );
+    }
+
     final res = await _client.getDocs(
       target,
-      actAs: _firestorePlatform.effectiveAuthLens,
+      actAs: f.effectiveAuthLens,
     );
+    f.lifecycle.recordOnlineQuery(res);
     return PyricQuerySnapshot.fromWire(firestore, path, res);
   }
 
@@ -377,27 +412,47 @@ class PyricQuery extends QueryPlatform {
   }) {
     final target = compileTarget();
     final f = _firestorePlatform;
+    f.lifecycle.ensureActiveAndMarkStarted();
     List<DocumentSnapshotPlatform>? previousDocs;
 
     return createResubscribingStream<QuerySnapshotPlatform>(
       firestore: f,
+      target: target,
+      includeMetadataChanges: includeMetadataChanges,
       createSubscription: (actAs) => _client.subscribe(
         target,
         actAs: actAs,
         includeMetadataChanges: includeMetadataChanges,
         listenSource: listenSource.name,
       ),
+      recordOnlineEvent: f.lifecycle.recordOnlineQuery,
       mapEvent: (event, _) {
         final snap = PyricQuerySnapshot.fromWire(
           firestore,
           path,
           event,
           previousDocs: previousDocs,
+          isFromCache: listenSource == ListenSource.cache ||
+              (event is Map && event['isFromCache'] == true),
           hasPendingWrites: event is Map && event['hasPendingWrites'] == true,
         );
         previousDocs = snap.docs;
         return snap;
       },
+      buildOfflineProjection: (_) {
+        final projected = f.lifecycle.projectOfflineQuery(target);
+        final snap = PyricQuerySnapshot.fromWire(
+          firestore,
+          path,
+          projected,
+          previousDocs: previousDocs,
+          isFromCache: true,
+          hasPendingWrites: projected['hasPendingWrites'] == true,
+        );
+        previousDocs = snap.docs;
+        return snap;
+      },
+      shouldSuppressMetadataOnly: (_, next) => next.docChanges.isEmpty,
       // The documents last delivered, now served from cache, with no changes.
       mapGap: (lastEvent) => PyricQuerySnapshot.fromWire(
         firestore,

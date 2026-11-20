@@ -1,24 +1,29 @@
 import 'package:cloud_firestore_platform_interface/cloud_firestore_platform_interface.dart';
+
 import '../transport/bridge_client.dart';
 import '../transport/codecs.dart';
 import 'mutation_serialization.dart';
 import 'pyric_firestore_platform.dart';
+import 'pyric_offline_projection.dart';
 
 /// Concrete [WriteBatchPlatform] performing atomic multi-document mutations.
 class PyricWriteBatch extends WriteBatchPlatform {
   final FirebaseFirestorePlatform firestore;
   final List<Map<String, dynamic>> _writes = [];
+  final List<OfflineFirestoreMutation> _mutations = [];
   bool _committed = false;
 
   PyricWriteBatch(this.firestore) : super();
 
-  PyricBridgeClient get _client {
+  PyricFirestorePlatform get _firestorePlatform {
     final f = firestore;
     if (f is PyricFirestorePlatform) {
-      return f.bridgeClient;
+      return f;
     }
     throw StateError('Expected PyricFirestorePlatform, got ${f.runtimeType}');
   }
+
+  PyricBridgeClient get _client => _firestorePlatform.bridgeClient;
 
   void _assertNotCommitted() {
     if (_committed) {
@@ -43,6 +48,9 @@ class PyricWriteBatch extends WriteBatchPlatform {
       'data': encoded,
       if (optMap != null) 'options': optMap,
     });
+    _mutations.add(
+      OfflineFirestoreMutation.set(documentPath, encoded, options: optMap),
+    );
   }
 
   @override
@@ -59,6 +67,7 @@ class PyricWriteBatch extends WriteBatchPlatform {
       'path': documentPath,
       'data': encoded,
     });
+    _mutations.add(OfflineFirestoreMutation.update(documentPath, encoded));
   }
 
   @override
@@ -68,13 +77,21 @@ class PyricWriteBatch extends WriteBatchPlatform {
       'method': 'delete',
       'path': documentPath,
     });
+    _mutations.add(OfflineFirestoreMutation.delete(documentPath));
   }
 
   @override
-  Future<void> commit() async {
+  Future<void> commit() {
     _assertNotCommitted();
     _committed = true;
-    final f = firestore as PyricFirestorePlatform;
-    await _client.batchCommit(_writes, actAs: f.effectiveAuthLens);
+    final f = _firestorePlatform;
+    final lens = f.effectiveAuthLens;
+    final writesSnapshot = List<Map<String, dynamic>>.from(_writes);
+    final mutationsSnapshot = List<OfflineFirestoreMutation>.from(_mutations);
+
+    return f.lifecycle.executeWrite(
+      mutations: mutationsSnapshot,
+      sendOnline: () => _client.batchCommit(writesSnapshot, actAs: lens),
+    );
   }
 }
