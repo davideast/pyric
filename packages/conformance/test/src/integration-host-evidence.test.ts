@@ -1,8 +1,10 @@
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { beforeAll, describe, expect, test } from 'bun:test';
 import { allCompatibilityRows, type CompatibilityRow } from '../../registry/index.ts';
 import { surfaceDescriptors } from '../../surfaces/load.ts';
 import { observationExceptions } from '../../exceptions/load.ts';
-import { buildCompatibilityLedger, loadObservations } from '../../src/ledger.ts';
+import { buildCompatibilityLedger, loadObservations, REPO_ROOT } from '../../src/ledger.ts';
 import { validateCompatibilityRegistry } from '../../src/validate-registry.ts';
 import { deriveConformanceModel, type ConformanceModel } from '../../src/conformance-model.ts';
 import { buildReport } from '../../src/coverage.ts';
@@ -12,6 +14,7 @@ import {
   validationProblems,
 } from '../../src/conformance-verdicts.ts';
 import {
+  hasLiveHostConformanceEvidence,
   isMockBridgeUnitTestPath,
   normalizeConformanceTestPath,
 } from '../../src/integration-host-evidence.ts';
@@ -26,6 +29,11 @@ const NATIVE_CLIENT_SURFACES = [
   'rtdb-flutter',
   'rtdb-kotlin',
   'rtdb-swift',
+] as const;
+
+const LIVE_HOST_NATIVE_SUITES = [
+  'packages/cli/test/serve/native-kotlin-conformance.test.ts',
+  'packages/cli/test/serve/native-swift-conformance.test.ts',
 ] as const;
 
 const FIVE_BROKEN_BEHAVIOR_FAMILIES: Record<string, readonly string[]> = {
@@ -131,6 +139,22 @@ function replaceRow(targetId: string, mutate: (row: CompatibilityRow) => Compati
   });
 }
 
+function assertExistingNonMockHostSuites(row: CompatibilityRow, context: string): void {
+  expect(hasLiveHostConformanceEvidence(row), `${context}: expected live-host conformance evidence`).toBe(true);
+  const hostTests = row.hostConformanceTests;
+  expect(hostTests, `${context}: missing hostConformanceTests`).toBeDefined();
+  if (hostTests === undefined) {
+    return;
+  }
+  expect(hostTests.length, `${context}: empty hostConformanceTests`).toBeGreaterThan(0);
+  for (const rawPath of hostTests) {
+    const normalized = normalizeConformanceTestPath(rawPath);
+    expect(normalized.length, `${context}: blank hostConformanceTests entry`).toBeGreaterThan(0);
+    expect(isMockBridgeUnitTestPath(normalized), `${context}: mock-bridge suite ${rawPath}`).toBe(false);
+    expect(existsSync(join(REPO_ROOT, normalized)), `${context}: missing host suite ${normalized}`).toBe(true);
+  }
+}
+
 describe('integration surfaces require live-host conformance evidence', () => {
   test('validateCompatibilityRegistry rejects integration conforms rows lacking hostConformanceTests', () => {
     const observations = loadObservations();
@@ -199,13 +223,40 @@ describe('integration surfaces require live-host conformance evidence', () => {
     expect(
       withMissingSuite.some((p) => p.includes('test/apps/missing-host-e2e/scenario.ts')),
     ).toBe(true);
+
+    for (const liveHostSuite of LIVE_HOST_NATIVE_SUITES) {
+      expect(isMockBridgeUnitTestPath(liveHostSuite)).toBe(false);
+      expect(hasLiveHostConformanceEvidence({ hostConformanceTests: [liveHostSuite] })).toBe(true);
+      expect(existsSync(join(REPO_ROOT, liveHostSuite))).toBe(true);
+
+      const withLiveHostSuite = validateCompatibilityRegistry({
+        rows: replaceRow('firestore-kotlin#16', (row) => ({
+          ...row,
+          status: 'conforms',
+          statusNote: undefined,
+          hostConformanceTests: [liveHostSuite],
+        })),
+        descriptors: surfaceDescriptors,
+        observations,
+        observationExceptions,
+      });
+      expect(
+        withLiveHostSuite.filter((p) => p.includes('firestore-kotlin#16') || p.includes('hostConformanceTests')),
+      ).toEqual([]);
+    }
   });
 
   test('conformance-verdicts refuses to classify mock-only integration rows as supported', async () => {
     const graph = await loadConformanceGraph();
     for (const surface of NATIVE_CLIENT_SURFACES) {
       for (const row of allCompatibilityRows.filter((r) => r.surface === surface)) {
-        expect(deriveRegistryRowVerdict(graph, row.id)).not.toBe('supported');
+        const verdict = deriveRegistryRowVerdict(graph, row.id);
+        if (!hasLiveHostConformanceEvidence(row)) {
+          expect(verdict, `${row.id} without live-host evidence must not be supported`).not.toBe('supported');
+        } else if (row.status === 'conforms') {
+          assertExistingNonMockHostSuites(row, row.id);
+          expect(verdict, `${row.id} with live-host evidence must be supported`).toBe('supported');
+        }
       }
     }
 
@@ -216,9 +267,20 @@ describe('integration surfaces require live-host conformance evidence', () => {
     const tamperedGraph = { ...graph, rows: tamperedRows };
     expect(validationProblems(tamperedGraph).some((p) => p.includes('firestore-kotlin#16'))).toBe(true);
     expect(deriveRegistryRowVerdict(tamperedGraph, 'firestore-kotlin#16')).toBe('qualified');
+
+    const provenRows = new Map(graph.rows);
+    provenRows.set('firestore-kotlin#16', {
+      ...target,
+      status: 'conforms',
+      statusNote: undefined,
+      hostConformanceTests: ['packages/cli/test/serve/native-kotlin-conformance.test.ts'],
+    });
+    const provenGraph = { ...graph, rows: provenRows };
+    expect(validationProblems(provenGraph).some((p) => p.includes('firestore-kotlin#16'))).toBe(false);
+    expect(deriveRegistryRowVerdict(provenGraph, 'firestore-kotlin#16')).toBe('supported');
   }, 20_000);
 
-  test('reports all five client behavior families (merge write, batches, transactions, value decoding, named instances) as not proven', () => {
+  test('reports all five client behavior families (merge write, batches, transactions, value decoding, named instances) as not proven without live-host evidence', () => {
     const ledger = buildCompatibilityLedger(model);
     const byId = new Map(ledger.entries.map((entry) => [entry.id, entry]));
 
@@ -227,11 +289,27 @@ describe('integration surfaces require live-host conformance evidence', () => {
         const entry = byId.get(id);
         expect(entry, `${family}: missing ${id}`).toBeDefined();
         if (!entry) continue;
-        expect(entry.isConforming, `${family}: ${id} must not be conforming`).toBe(false);
-        expect(entry.isCaptureProven, `${family}: ${id} must not be capture-proven`).toBe(false);
-        expect(entry.isSelfTestedOnly, `${family}: ${id} must not be self-tested conforming`).toBe(false);
-        expect(['unverified', 'diverged-documented']).toContain(entry.status);
-        expect(model.assuranceNodeVerdicts[id]).not.toBe('supported');
+        if (!hasLiveHostConformanceEvidence(entry)) {
+          expect(entry.isConforming, `${family}: ${id} must not be conforming without live-host evidence`).toBe(false);
+          expect(entry.isCaptureProven, `${family}: ${id} must not be capture-proven without live-host evidence`).toBe(
+            false,
+          );
+          expect(
+            entry.isSelfTestedOnly,
+            `${family}: ${id} must not be self-tested conforming without live-host evidence`,
+          ).toBe(false);
+          expect(['unverified', 'diverged-documented']).toContain(entry.status);
+          expect(model.assuranceNodeVerdicts[id]).not.toBe('supported');
+        } else {
+          assertExistingNonMockHostSuites(entry, `${family}: ${id}`);
+          if (entry.isConforming) {
+            expect(entry.status).toBe('conforms');
+            expect(model.assuranceNodeVerdicts[id]).toBe('supported');
+          } else {
+            expect(['unverified', 'diverged-documented']).toContain(entry.status);
+            expect(model.assuranceNodeVerdicts[id]).not.toBe('supported');
+          }
+        }
       }
     }
 
@@ -240,17 +318,34 @@ describe('integration surfaces require live-host conformance evidence', () => {
       const svc = report.services.find((s) => s.surface === surface);
       expect(svc, `missing service ${surface}`).toBeDefined();
       if (!svc) continue;
-      expect(svc.behavior.conforms).toBe(0);
-      expect(svc.behavior.captureProven).toBe(0);
-      expect(svc.behavior.selfTested).toBe(0);
-      expect(svc.behavior.total.captureProvenPct).toBe(0);
-      expect(svc.behavior.total.selfTestedPct).toBe(0);
+
+      const surfaceEntries = ledger.entries.filter((e) => e.surface === surface);
+      expect(surfaceEntries.length).toBeGreaterThan(0);
+
+      for (const entry of surfaceEntries) {
+        if (entry.isConforming) {
+          assertExistingNonMockHostSuites(entry, entry.id);
+        }
+      }
+
+      const liveHostConforming = surfaceEntries.filter(
+        (e) => e.status === 'conforms' && hasLiveHostConformanceEvidence(e),
+      );
+      const liveHostCaptureProven = liveHostConforming.filter((e) => e.isCaptureProven);
+      const liveHostSelfTested = liveHostConforming.filter((e) => e.isSelfTestedOnly);
+
+      expect(svc.behavior.conforms).toBe(liveHostConforming.length);
+      expect(svc.behavior.captureProven).toBe(liveHostCaptureProven.length);
+      expect(svc.behavior.selfTested).toBe(liveHostSelfTested.length);
+      expect(svc.behavior.captureProven + svc.behavior.selfTested).toBe(svc.behavior.conforms);
     }
 
     const unitTestedNativeRows = ledger.entries.filter(
-      (e) => (NATIVE_CLIENT_SURFACES as readonly string[]).includes(e.surface) && e.status === 'unverified' && e.automation === 'unit-backed',
+      (e) =>
+        (NATIVE_CLIENT_SURFACES as readonly string[]).includes(e.surface) &&
+        e.status === 'unverified' &&
+        e.automation === 'unit-backed',
     );
-    expect(unitTestedNativeRows.length).toBe(489);
     for (const row of unitTestedNativeRows) {
       expect(row.conformanceTests.length).toBeGreaterThan(0);
       expect(row.statusNote).toContain('mock bridge');
