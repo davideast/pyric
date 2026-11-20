@@ -4,6 +4,9 @@ import type { CompatStatus } from '../types.ts';
 
 const CONFORMANCE_SUITE = 'packages/flutter-client/test/rtdb_conformance_test.dart';
 
+export const LIVE_HOST_CONFORMANCE_TEST =
+  'packages/cli/test/serve/native-flutter-conformance.test.ts';
+
 export interface FlutterRtdbRowSeed {
   order?: number;
   api: string;
@@ -12,9 +15,19 @@ export interface FlutterRtdbRowSeed {
   evidence?: string;
   status?: CompatStatus;
   statusNote?: string;
+  tests?: string[];
   extraTests?: string[];
+  /** Live Pyric host end-to-end suites proving this row against a running host. */
+  hostConformanceTests?: string[];
   rowRef?: never;
   id?: never;
+}
+
+function formatHostEvidence(hostTests: readonly string[] | undefined): string {
+  if (hostTests === undefined || hostTests.length === 0) {
+    return '';
+  }
+  return ` Live host: \`${hostTests.join('`, `')}\`.`;
 }
 
 export function bindFlutterRtdbRow(
@@ -40,11 +53,17 @@ export function bindFlutterRtdbRow(
         resolvedStatus = seed.status;
       }
       const conformanceTests: string[] = [CONFORMANCE_SUITE];
+      if (seed.tests !== undefined) {
+        for (const extraTest of seed.tests) {
+          conformanceTests.push(extraTest);
+        }
+      }
       if (seed.extraTests !== undefined) {
         for (const extraTest of seed.extraTests) {
           conformanceTests.push(extraTest);
         }
       }
+      const hostEvidence = formatHostEvidence(seed.hostConformanceTests);
       return {
         api: seed.api,
         behavior: seed.behavior,
@@ -53,10 +72,11 @@ export function bindFlutterRtdbRow(
         statusNote: resolveMockBridgeNote(seed.status, seed.statusNote),
         automation: 'unit-backed',
         conformanceTests,
+        hostConformanceTests: seed.hostConformanceTests,
         risk: [],
         riskScore: 0,
         riskReasons: [],
-        evidence: resolvedEvidence,
+        evidence: `${resolvedEvidence}${hostEvidence}`,
       };
     });
   };

@@ -6,6 +6,9 @@ const CONFORMANCE_SUITE = 'packages/flutter-client/test/conformance_test.dart';
 const UNOBSERVED_REASON =
   'Behavior stated from cloud_firestore_platform_interface specification; containerized test has not passed yet.';
 
+export const LIVE_HOST_CONFORMANCE_TEST =
+  'packages/cli/test/serve/native-flutter-conformance.test.ts';
+
 export interface FlutterFirestoreRowSeed {
   order?: number;
   api: string;
@@ -13,11 +16,20 @@ export interface FlutterFirestoreRowSeed {
   featureKeys: string[];
   evidence?: string;
   tests?: string[];
+  /** Live Pyric host end-to-end suites proving this row against a running host. */
+  hostConformanceTests?: string[];
   flipped?: 'unit-backed';
   status?: CompatStatus;
   statusNote?: string;
   rowRef?: never;
   id?: never;
+}
+
+function formatHostEvidence(hostTests: readonly string[] | undefined): string {
+  if (hostTests === undefined || hostTests.length === 0) {
+    return '';
+  }
+  return ` Live host: \`${hostTests.join('`, `')}\`.`;
 }
 
 export function bindFlutterFirestoreRow(
@@ -49,6 +61,7 @@ export function bindFlutterFirestoreRow(
             conformanceTests.push(extraTest);
           }
         }
+        const hostEvidence = formatHostEvidence(seed.hostConformanceTests);
         return {
           api: seed.api,
           behavior: seed.behavior,
@@ -56,8 +69,9 @@ export function bindFlutterFirestoreRow(
           status: resolvedStatus,
           statusNote: resolveMockBridgeNote(seed.status, seed.statusNote),
           automation: 'unit-backed',
-          evidence: `${resolvedEvidence} Container test: \`${CONFORMANCE_SUITE}\` assertion set \`firestore-flutter#${rowRef}\`.`,
+          evidence: `${resolvedEvidence} Container test: \`${CONFORMANCE_SUITE}\` assertion set \`firestore-flutter#${rowRef}\`.${hostEvidence}`,
           conformanceTests,
+          hostConformanceTests: seed.hostConformanceTests,
         };
       }
       let unverifiedEvidence =
