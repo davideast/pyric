@@ -14,6 +14,7 @@ import { makeDocSnapshot } from './snapshots.js';
 import { assertWorkerFirestoreActive, markWorkerHandleStarted } from './firestore-lifecycle.js';
 import type { RawDocResult, ClientDocSnapshot } from './snapshots.js';
 import { createDocumentReference } from './firestore-reference.js';
+import { assertNoUndefinedInWorkerSentinels } from './firestore-sentinels.js';
 import {
   enqueueWorkerOfflineWrite,
   generateWorkerAutoId,
@@ -133,7 +134,10 @@ function encodeUpdate(
   rest: readonly unknown[],
 ): UpdateFieldDescriptor[] {
   return parseUpdateArguments(methodName, ref.descriptor.path, dataOrField, rest)
-    .map((field) => ({ path: [...field.path], value: encodeDocValue(field.value) }));
+    .map((field) => {
+      assertNoUndefinedInWorkerSentinels(methodName, ref.descriptor.path, field.value);
+      return { path: [...field.path], value: encodeDocValue(field.value) };
+    });
 }
 
 export function updateDoc(ref: DocRefHandle, data: Record<string, unknown>): Promise<void>;

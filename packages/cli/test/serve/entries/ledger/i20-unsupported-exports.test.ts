@@ -3,7 +3,7 @@ import { expect, test } from 'bun:test';
 const cases = [
   ['app', 'initializeServerApp'],
   ['auth', 'linkWithPhoneNumber'],
-  ['firestore', 'executeWrite'],
+  ['firestore', 'maximum'],
   ['storage', 'getStream'],
   ['ai', 'getLiveGenerativeModel'],
 ] as const;

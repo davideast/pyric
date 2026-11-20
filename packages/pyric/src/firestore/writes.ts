@@ -224,17 +224,37 @@ export async function addDoc<T = DocumentData>(
   });
 }
 
-import { writeBatch } from './transactions.js';
-import type { Firestore, WriteBatch } from './types.js';
+import { FirebaseError } from '../sandbox/internal/firebase-error.js';
+import type { Firestore } from './types.js';
 
-export function ensureFirestoreConfigured(db: Firestore): void {
-  targetOf(db);
+export function ensureFirestoreConfigured(db: Firestore): object {
+  const target = targetOf(db);
+  const clientState = clientStateFor(target);
+  clientState.markStarted();
+  return clientState;
 }
 
-export async function executeWrite<T>(db: Firestore, action: (batch: WriteBatch) => Promise<T>): Promise<T> {
-  const batch = writeBatch(db);
-  const result = await action(batch);
-  await batch.commit();
-  return result;
+export function executeWrite(
+  db: Firestore,
+  mutations: readonly unknown[],
+): Promise<void> {
+  const target = targetOf(db);
+  const clientState = clientStateFor(target);
+  clientState.markStarted();
+  if (!Array.isArray(mutations)) {
+    throw new FirebaseError(
+      'invalid-argument',
+      'Expected second argument to executeWrite() to be an array of mutations.',
+    );
+  }
+  if (mutations.length === 0) {
+    return clientState.runWrite(async () => undefined);
+  }
+  return Promise.reject(
+    new FirebaseError(
+      'invalid-argument',
+      'Unsupported internal mutation entry passed to executeWrite().',
+    ),
+  );
 }
 

@@ -1,7 +1,9 @@
 {
   "name": "firestore-field-value-class-and-equality",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#105",
+  "rowIds": [
+    "firestore#105"
+  ],
   "description": "firebase/firestore FieldValue runtime base class inheritance across deleteField, serverTimestamp, increment, arrayUnion, and arrayRemove (excluding vector) and per-sentinel isEqual structural comparison.",
   "observedAt": "2026-11-20T03:20:18.383Z",
   "fbSdkVersion": "12.19.0",

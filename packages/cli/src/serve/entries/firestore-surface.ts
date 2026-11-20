@@ -45,6 +45,8 @@ import {
 import {
   enableIndexedDbPersistence as workerEnableIndexedDbPersistence,
   enableMultiTabIndexedDbPersistence as workerEnableMultiTabIndexedDbPersistence,
+  ensureFirestoreConfigured as workerEnsureFirestoreConfigured,
+  executeWrite as workerExecuteWrite,
   markWorkerPortStarted,
   registerWorkerDbTeardown,
   terminate as workerTerminate,
@@ -310,6 +312,39 @@ export async function terminate(db?: unknown): Promise<void> {
     terminatedSurfaceHandles.add(db);
   }
   return ip.terminate(db as Parameters<typeof ip.terminate>[0]);
+}
+
+export function ensureFirestoreConfigured(db?: unknown): object {
+  if (db !== null && typeof db === 'object' && 'port' in db) {
+    return workerEnsureFirestoreConfigured(db);
+  }
+  if (db !== null && typeof db === 'object' && ip.TARGET_SYMBOL in db) {
+    const configured = ip.ensureFirestoreConfigured(db as ip.Firestore);
+    startedSurfaceHandles.add(db);
+    return configured;
+  }
+  throw new FirebaseError(
+    'invalid-argument',
+    'Expected first argument to ensureFirestoreConfigured() to be a Firestore instance.',
+  );
+}
+
+export function executeWrite(
+  db?: unknown,
+  mutations?: readonly unknown[],
+): Promise<void> {
+  if (db !== null && typeof db === 'object' && 'port' in db) {
+    return workerExecuteWrite(db, mutations as readonly unknown[]);
+  }
+  if (db !== null && typeof db === 'object' && ip.TARGET_SYMBOL in db) {
+    const writePromise = ip.executeWrite(db as ip.Firestore, mutations as readonly unknown[]);
+    startedSurfaceHandles.add(db);
+    return writePromise;
+  }
+  throw new FirebaseError(
+    'invalid-argument',
+    'Expected first argument to executeWrite() to be a Firestore instance.',
+  );
 }
 
 // ── tier-1 cache-init + get-from-* + log-level + snapshot-sync (issue #144,

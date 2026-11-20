@@ -6,10 +6,17 @@
  * equivalents so its sandbox implementation never loads the production SDK.
  */
 import {
-  FieldValue as ChainFieldValue,
   Timestamp as ChainTimestamp,
   type FieldValueSentinel,
 } from 'pyric/sandbox/admin-firestore';
+import {
+  FieldValue,
+  createArrayRemoveSentinel,
+  createArrayUnionSentinel,
+  createDeleteFieldSentinel,
+  createIncrementSentinel,
+  createServerTimestampSentinel,
+} from './field-value-sentinels.js';
 import { canonicalFieldPath } from './sandbox/update-fields.js';
 
 export { Bytes } from './bytes.js';
@@ -49,20 +56,20 @@ export function documentId(): FieldPath {
 
 export { VectorValue, vector } from './vector-value.js';
 
-export { ChainFieldValue as FieldValue, ChainTimestamp as Timestamp };
+export { FieldValue, ChainTimestamp as Timestamp };
 
-export function serverTimestamp(): FieldValueSentinel {
-  return ChainFieldValue.serverTimestamp();
+export function serverTimestamp(): FieldValue & FieldValueSentinel {
+  return createServerTimestampSentinel();
 }
-export function increment(n: number): FieldValueSentinel {
-  return ChainFieldValue.increment(n);
+export function increment(n: number): FieldValue & FieldValueSentinel {
+  return createIncrementSentinel(n);
 }
-export function arrayUnion(...values: unknown[]): FieldValueSentinel {
-  return ChainFieldValue.arrayUnion(...values);
+export function arrayUnion(...values: unknown[]): FieldValue & FieldValueSentinel {
+  return createArrayUnionSentinel(values);
 }
-export function arrayRemove(...values: unknown[]): FieldValueSentinel {
-  return ChainFieldValue.arrayRemove(...values);
+export function arrayRemove(...values: unknown[]): FieldValue & FieldValueSentinel {
+  return createArrayRemoveSentinel(values);
 }
-export function deleteField(): FieldValueSentinel {
-  return ChainFieldValue.delete();
+export function deleteField(): FieldValue & FieldValueSentinel {
+  return createDeleteFieldSentinel();
 }
