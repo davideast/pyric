@@ -10,6 +10,7 @@
  */
 import 'fake-indexeddb/auto';
 import { describe, expect, test } from 'bun:test';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo, Socket } from 'node:net';
@@ -437,6 +438,286 @@ async function openAttachedSocket(wsUrl: string): Promise<{
   };
 }
 
+const SWIFT_LIVE_HOST_SCRATCH_SUBPATH = join('.build', 'live-host');
+const SWIFT_BUILD_STARTUP_STALL_TIMEOUT_MS = 60_000;
+const SWIFT_BUILD_TIMEOUT_MS = 240_000;
+const SWIFT_TEST_TIMEOUT_MS = 120_000;
+const SWIFT_LIVE_HOST_TEST_TIMEOUT_MS = 450_000;
+const SWIFT_BUILD_MAX_ATTEMPTS = 2;
+const SUBPROCESS_KILL_GRACE_MS = 2_000;
+
+type SubprocessTimeoutReason = 'none' | 'startup-stall' | 'timeout';
+
+interface ManagedSubprocessOptions {
+  readonly command: string;
+  readonly args: readonly string[];
+  readonly cwd: string;
+  readonly env: Record<string, string>;
+  readonly timeoutMs: number;
+  readonly startupStallTimeoutMs?: number;
+  readonly killGraceMs?: number;
+}
+
+interface ManagedSubprocessResult {
+  readonly exitCode: number | null;
+  readonly signal: NodeJS.Signals | null;
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly elapsedMs: number;
+  readonly timedOut: boolean;
+  readonly timeoutReason: SubprocessTimeoutReason;
+  readonly receivedOutput: boolean;
+}
+
+function collectProcessEnv(): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value !== undefined) {
+      env[key] = value;
+    }
+  }
+  return env;
+}
+
+function terminateProcessTree(child: ChildProcess, signal: NodeJS.Signals): void {
+  const pid = child.pid;
+  if (process.platform !== 'win32' && typeof pid === 'number' && pid > 0) {
+    try {
+      process.kill(-pid, signal);
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'ESRCH') {
+        return;
+      }
+    }
+  }
+  try {
+    child.kill(signal);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== 'ESRCH') {
+      throw error;
+    }
+  }
+}
+
+async function runManagedSubprocess(
+  options: ManagedSubprocessOptions,
+): Promise<ManagedSubprocessResult> {
+  const startedAt = Date.now();
+  const useProcessGroup = process.platform !== 'win32';
+  const killGraceMs = options.killGraceMs ?? SUBPROCESS_KILL_GRACE_MS;
+
+  return await new Promise<ManagedSubprocessResult>((resolveResult, rejectResult) => {
+    const child = spawn(options.command, [...options.args], {
+      cwd: options.cwd,
+      env: options.env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: useProcessGroup,
+    });
+
+    const stdoutChunks: string[] = [];
+    const stderrChunks: string[] = [];
+    let receivedOutput = false;
+    let timeoutReason: SubprocessTimeoutReason = 'none';
+    let settled = false;
+    let startupTimer: ReturnType<typeof setTimeout> | undefined;
+    let overallTimer: ReturnType<typeof setTimeout> | undefined;
+    let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
+    let postExitCloseTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const clearTimers = (): void => {
+      if (startupTimer !== undefined) {
+        clearTimeout(startupTimer);
+        startupTimer = undefined;
+      }
+      if (overallTimer !== undefined) {
+        clearTimeout(overallTimer);
+        overallTimer = undefined;
+      }
+      if (forceKillTimer !== undefined) {
+        clearTimeout(forceKillTimer);
+        forceKillTimer = undefined;
+      }
+      if (postExitCloseTimer !== undefined) {
+        clearTimeout(postExitCloseTimer);
+        postExitCloseTimer = undefined;
+      }
+    };
+
+    const finish = (exitCode: number | null, signal: NodeJS.Signals | null): void => {
+      if (settled) return;
+      settled = true;
+      clearTimers();
+      resolveResult({
+        exitCode,
+        signal,
+        stdout: stdoutChunks.join(''),
+        stderr: stderrChunks.join(''),
+        elapsedMs: Date.now() - startedAt,
+        timedOut: timeoutReason !== 'none',
+        timeoutReason,
+        receivedOutput,
+      });
+    };
+
+    const triggerTimeout = (reason: Exclude<SubprocessTimeoutReason, 'none'>): void => {
+      if (settled || timeoutReason !== 'none') return;
+      timeoutReason = reason;
+      if (startupTimer !== undefined) {
+        clearTimeout(startupTimer);
+        startupTimer = undefined;
+      }
+      if (overallTimer !== undefined) {
+        clearTimeout(overallTimer);
+        overallTimer = undefined;
+      }
+      terminateProcessTree(child, 'SIGTERM');
+      forceKillTimer = setTimeout(() => {
+        terminateProcessTree(child, 'SIGKILL');
+      }, killGraceMs);
+      forceKillTimer.unref();
+    };
+
+    const noteOutput = (chunk: string, target: string[]): void => {
+      if (chunk.length === 0) return;
+      target.push(chunk);
+      if (!receivedOutput) {
+        receivedOutput = true;
+        if (startupTimer !== undefined) {
+          clearTimeout(startupTimer);
+          startupTimer = undefined;
+        }
+      }
+    };
+
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk: string) => noteOutput(chunk, stdoutChunks));
+    child.stderr.on('data', (chunk: string) => noteOutput(chunk, stderrChunks));
+
+    if (
+      options.startupStallTimeoutMs !== undefined &&
+      options.startupStallTimeoutMs > 0 &&
+      options.startupStallTimeoutMs < options.timeoutMs
+    ) {
+      startupTimer = setTimeout(() => {
+        if (!receivedOutput) {
+          triggerTimeout('startup-stall');
+        }
+      }, options.startupStallTimeoutMs);
+      startupTimer.unref();
+    }
+
+    overallTimer = setTimeout(() => {
+      triggerTimeout('timeout');
+    }, options.timeoutMs);
+    overallTimer.unref();
+
+    child.once('error', (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimers();
+      rejectResult(error);
+    });
+
+    child.once('exit', (exitCode, signal) => {
+      if (settled || timeoutReason === 'none') return;
+      postExitCloseTimer = setTimeout(() => {
+        child.stdout.destroy();
+        child.stderr.destroy();
+        finish(exitCode, signal);
+      }, 1_000);
+      postExitCloseTimer.unref();
+    });
+
+    child.once('close', (exitCode, signal) => {
+      finish(exitCode, signal);
+    });
+  });
+}
+
+function formatSubprocessFailure(
+  phase: string,
+  attempt: number,
+  result: ManagedSubprocessResult,
+): string {
+  const combined = `${result.stdout}\n${result.stderr}`.trim();
+  const status = [
+    `phase=${phase}`,
+    `attempt=${attempt}`,
+    `exitCode=${String(result.exitCode)}`,
+    `signal=${String(result.signal)}`,
+    `elapsedMs=${result.elapsedMs}`,
+    `timeoutReason=${result.timeoutReason}`,
+    `receivedOutput=${result.receivedOutput}`,
+  ].join(' ');
+  if (combined.length === 0) {
+    return `${status}\n(no stdout/stderr captured)`;
+  }
+  return `${status}\n${combined}`;
+}
+
+async function buildSwiftLiveHostTests(
+  swiftBinary: string,
+  swiftPackageDir: string,
+  swiftScratchDir: string,
+  env: Record<string, string>,
+): Promise<{ attempt: number; result: ManagedSubprocessResult }> {
+  const buildArgs = [
+    'build',
+    '--build-tests',
+    '--disable-index-store',
+    '-Xswiftc',
+    '-gnone',
+    '--package-path',
+    swiftPackageDir,
+    '--scratch-path',
+    swiftScratchDir,
+  ];
+  let lastAttempt = 1;
+  let lastResult: ManagedSubprocessResult | undefined;
+  for (let attempt = 1; attempt <= SWIFT_BUILD_MAX_ATTEMPTS; attempt += 1) {
+    lastAttempt = attempt;
+    const result = await runManagedSubprocess({
+      command: swiftBinary,
+      args: buildArgs,
+      cwd: REPO_ROOT,
+      env,
+      timeoutMs: SWIFT_BUILD_TIMEOUT_MS,
+      startupStallTimeoutMs: SWIFT_BUILD_STARTUP_STALL_TIMEOUT_MS,
+    });
+    lastResult = result;
+    const isStartupStall = result.timeoutReason === 'startup-stall';
+    if (!isStartupStall || attempt === SWIFT_BUILD_MAX_ATTEMPTS) {
+      return { attempt, result };
+    }
+  }
+  return { attempt: lastAttempt, result: lastResult! };
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    return code === 'EPERM';
+  }
+}
+
+async function waitForProcessExit(pid: number, maxWaitMs = 1_000): Promise<boolean> {
+  const deadline = Date.now() + maxWaitMs;
+  while (Date.now() < deadline) {
+    if (!isProcessAlive(pid)) {
+      return true;
+    }
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 25));
+  }
+  return !isProcessAlive(pid);
+}
+
 describe('Swift native SDK live-host conformance', () => {
   test('loopback bridge host enforces Auth and 11-shard RTDB isolation over WebSocket', async () => {
     const host = await startLoopbackSwiftBridgeHost();
@@ -507,6 +788,58 @@ describe('Swift native SDK live-host conformance', () => {
     }
   });
 
+  test('managed subprocess runner detects pre-output startup stalls and terminates process groups', async () => {
+    const env = collectProcessEnv();
+
+    const stalled = await runManagedSubprocess({
+      command: process.execPath,
+      args: ['-e', 'setTimeout(() => {}, 30_000)'],
+      cwd: REPO_ROOT,
+      env,
+      startupStallTimeoutMs: 300,
+      timeoutMs: 5_000,
+      killGraceMs: 300,
+    });
+    expect(stalled.timedOut).toBe(true);
+    expect(stalled.timeoutReason).toBe('startup-stall');
+    expect(stalled.receivedOutput).toBe(false);
+
+    const outputThenHangScript = [
+      'const { spawn } = require("node:child_process");',
+      'const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 30_000)"], { stdio: "ignore" });',
+      'process.stdout.write(`GRANDCHILD_PID=${child.pid}\\n`);',
+      'setTimeout(() => {}, 30_000);',
+    ].join('\n');
+    const hungAfterOutput = await runManagedSubprocess({
+      command: process.execPath,
+      args: ['-e', outputThenHangScript],
+      cwd: REPO_ROOT,
+      env,
+      startupStallTimeoutMs: 1_000,
+      timeoutMs: 2_200,
+      killGraceMs: 500,
+    });
+    const match = /GRANDCHILD_PID=(\d+)/.exec(hungAfterOutput.stdout);
+    expect(match).not.toBeNull();
+    const grandchildPid = Number(match![1]);
+    try {
+      expect(hungAfterOutput.receivedOutput).toBe(true);
+      expect(hungAfterOutput.timedOut).toBe(true);
+      expect(hungAfterOutput.timeoutReason).toBe('timeout');
+      if (process.platform !== 'win32') {
+        expect(await waitForProcessExit(grandchildPid, 1_500)).toBe(true);
+      }
+    } finally {
+      if (Number.isInteger(grandchildPid) && grandchildPid > 0) {
+        try {
+          process.kill(grandchildPid, 'SIGKILL');
+        } catch {
+          // Already exited.
+        }
+      }
+    }
+  }, 15_000);
+
   test.skipIf(SKIPS_SWIFT_SUBPROCESS)(
     'PyricLiveHostTests pass against the live loopback Pyric bridge host',
     async () => {
@@ -516,14 +849,21 @@ describe('Swift native SDK live-host conformance', () => {
       }
 
       const swiftPackageDir = join(REPO_ROOT, 'packages/swift-client');
+      const swiftScratchDir = join(swiftPackageDir, SWIFT_LIVE_HOST_SCRATCH_SUBPATH);
+      const baseEnv = collectProcessEnv();
+
+      const buildRun = await buildSwiftLiveHostTests(
+        swiftBinary,
+        swiftPackageDir,
+        swiftScratchDir,
+        baseEnv,
+      );
+      const buildDetails = formatSubprocessFailure('build', buildRun.attempt, buildRun.result);
+      expect(buildRun.result.timedOut, buildDetails).toBe(false);
+      expect(buildRun.result.exitCode, buildDetails).toBe(0);
+
       const host = await startLoopbackSwiftBridgeHost();
       try {
-        const childEnv: Record<string, string> = {};
-        for (const [key, value] of Object.entries(process.env)) {
-          if (value !== undefined) {
-            childEnv[key] = value;
-          }
-        }
         const nowMs = Date.now();
         const validCustomToken = mintCustomToken({
           uid: 'swift-custom-uid-01',
@@ -536,45 +876,43 @@ describe('Swift native SDK live-host conformance', () => {
           projectId: 'other-swift-project',
           nowMs,
         });
-        childEnv.PYRIC_LIVE_BRIDGE_URL = host.wsUrl;
-        childEnv.PYRIC_LIVE_CUSTOM_TOKEN_VALID = validCustomToken;
-        childEnv.PYRIC_LIVE_CUSTOM_TOKEN_MISMATCH = mismatchCustomToken;
+        const childEnv: Record<string, string> = {
+          ...baseEnv,
+          PYRIC_LIVE_BRIDGE_URL: host.wsUrl,
+          PYRIC_LIVE_CUSTOM_TOKEN_VALID: validCustomToken,
+          PYRIC_LIVE_CUSTOM_TOKEN_MISMATCH: mismatchCustomToken,
+        };
 
-        const child = Bun.spawn(
-          [
-            swiftBinary,
+        const testResult = await runManagedSubprocess({
+          command: swiftBinary,
+          args: [
             'test',
+            '--skip-build',
+            '--disable-xctest',
+            '--disable-index-store',
+            '-Xswiftc',
+            '-gnone',
             '--no-parallel',
             '--package-path',
             swiftPackageDir,
+            '--scratch-path',
+            swiftScratchDir,
             '--filter',
             'PyricLiveHostTests',
           ],
-          {
-            cwd: REPO_ROOT,
-            env: childEnv,
-            stdout: 'pipe',
-            stderr: 'pipe',
-          },
-        );
-        const killTimer = setTimeout(() => child.kill(), 180_000);
-        try {
-          const [exitCode, stdout, stderr] = await Promise.all([
-            child.exited,
-            new Response(child.stdout).text(),
-            new Response(child.stderr).text(),
-          ]);
-          const combinedOutput = `${stdout}\n${stderr}`;
-          expect(exitCode, combinedOutput).toBe(0);
-          expect(combinedOutput).not.toContain('with 0 tests');
-        } finally {
-          clearTimeout(killTimer);
-          child.kill();
-        }
+          cwd: REPO_ROOT,
+          env: childEnv,
+          timeoutMs: SWIFT_TEST_TIMEOUT_MS,
+        });
+        const combinedOutput = `${testResult.stdout}\n${testResult.stderr}`;
+        const testDetails = formatSubprocessFailure('test', 1, testResult);
+        expect(testResult.timedOut, testDetails).toBe(false);
+        expect(testResult.exitCode, testDetails).toBe(0);
+        expect(combinedOutput, testDetails).not.toContain('with 0 tests');
       } finally {
         await host.close();
       }
     },
-    240_000,
+    SWIFT_LIVE_HOST_TEST_TIMEOUT_MS,
   );
 });
