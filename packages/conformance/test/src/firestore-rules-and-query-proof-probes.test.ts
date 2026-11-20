@@ -92,6 +92,8 @@ describe('Firestore Wave 2 query-proof and security-rules client SDK probes', ()
       'firestore#131',
       'firestore#132',
       'firestore#137',
+      'firestore#RS2',
+      'firestore#RS3',
     ]);
     expect(celSetEqualityProbe.pendingRowLink).toBeUndefined();
     expect(celSetEqualityProbe.matrixRow).toBe('firestore#133');

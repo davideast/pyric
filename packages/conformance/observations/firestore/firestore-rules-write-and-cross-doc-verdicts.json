@@ -7,7 +7,9 @@
     "firestore#130",
     "firestore#131",
     "firestore#132",
-    "firestore#137"
+    "firestore#137",
+    "firestore#RS2",
+    "firestore#RS3"
   ],
   "description": "Firestore security-rules write and cross-document evaluation via the client SDK: request.auth == null when unauthenticated, cross-document exists()/get() and get(path).id/__name__ with missing-doc error denial, request.resource.data create validation and undefined-field denial, resource.data existing-doc checks, custom token claims on request.auth.token, and updateDoc merged request.resource.data.",
   "observedAt": "2026-11-19T23:23:24.093Z",
