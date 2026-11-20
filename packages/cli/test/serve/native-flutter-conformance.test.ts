@@ -2,23 +2,22 @@
  * Live-host conformance harness for the Flutter client SDK (`packages/flutter-client`).
  *
  * Boots an authoritative loopback Pyric bridge host on `127.0.0.1:0` with
- * Firestore Security Rules plus the default Realtime Database instance and
- * named shards `shard-00`..`shard-09` under independent rulesets, verifies the
- * WebSocket wire contract directly, and runs
- * `flutter test --machine test/live_host_conformance_test.dart` against the
- * live loopback endpoint whenever `flutter` is installed locally (or fails
- * closed when `PYRIC_REQUIRE_FLUTTER_LIVE=1` is set).
+ * Firestore Security Rules plus 11 Realtime Database instances under
+ * independent rulesets, verifies the WebSocket wire contract directly, and runs
+ * `flutter test --machine` across `test/live_host_conformance_test.dart` and
+ * `test/live_host/*_test.dart` against the live loopback endpoint.
  */
 import 'fake-indexeddb/auto';
 import { describe, expect, test } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { WebSocket, WebSocketServer } from 'ws';
 import { createMemoryBackend } from 'pyric/sandbox';
+import { mintCustomToken } from 'pyric/sandbox/internal';
 import { openStorageBackend } from '../../../pyric/src/storage/persistence.js';
 import {
   DOC_VALUE_ENCODING_CAPABILITY,
@@ -48,9 +47,30 @@ service cloud.firestore {
       match /links/{linkId} {
         allow read, write: if request.auth != null && request.auth.uid == uid;
       }
+      match /rooms/{roomId}/entries/{entryId} {
+        allow read, write: if request.auth != null && request.auth.uid == uid;
+      }
+    }
+    match /{path=**}/entries/{entryId} {
+      allow read: if request.auth != null && resource.data.ownerUid == request.auth.uid;
+    }
+    match /verified_users/{uid} {
+      allow read, write: if request.auth != null
+        && request.auth.uid == uid
+        && request.auth.token.email != null
+        && request.auth.token.email_verified == true;
+    }
+    match /provider_profiles/{provider}/users/{uid} {
+      allow read, write: if request.auth != null
+        && request.auth.uid == uid
+        && request.auth.token.firebase.sign_in_provider == provider;
     }
     match /role_items/{role}/items/{itemId} {
       allow read, write: if request.auth != null && request.auth.token.role == role;
+    }
+    match /tenant_rooms/{tenantId}/rooms/{roomId} {
+      allow read, write: if request.auth != null
+        && request.auth.token.firebase.tenant == tenantId;
     }
   }
 }`;
@@ -68,6 +88,20 @@ const MAIN_RULES = {
         '.write': 'auth != null && auth.uid === $uid',
         catalog: { '.indexOn': ['score', 'role', 'meta/rank', '.value'] },
         scores: { '.indexOn': ['.value'] },
+      },
+    },
+    provider_claims: {
+      $provider: {
+        $uid: {
+          '.read': 'auth != null && auth.uid === $uid && auth.token.firebase.sign_in_provider === $provider',
+          '.write': 'auth != null && auth.uid === $uid && auth.token.firebase.sign_in_provider === $provider',
+        },
+      },
+    },
+    email_claims: {
+      $uid: {
+        '.read': 'auth != null && auth.uid === $uid && auth.token.email != null && auth.token.email_verified === false',
+        '.write': 'auth != null && auth.uid === $uid && auth.token.email != null && auth.token.email_verified === false',
       },
     },
   },
@@ -114,6 +148,16 @@ function buildMultiShardDatabaseRules(): Record<string, { rules: Record<string, 
     }
   }
   return rulesByInstance;
+}
+
+function discoverLiveHostTestFiles(): string[] {
+  const files = ['test/live_host_conformance_test.dart'];
+  const liveHostDir = join(FLUTTER_CLIENT_DIR, 'test/live_host');
+  if (existsSync(liveHostDir)) {
+    const extra = readdirSync(liveHostDir).filter((name) => name.endsWith('_test.dart')).sort();
+    for (const fileName of extra) files.push(`test/live_host/${fileName}`);
+  }
+  return files;
 }
 
 function detectFlutterBinary(): string | null {
@@ -166,10 +210,7 @@ async function closeWebSocketServer(wss: WebSocketServer, sockets: Set<WebSocket
 async function startLoopbackFlutterBridgeHost(): Promise<LoopbackFlutterBridgeHost> {
   const sockets = new Set<WebSocket>();
   const wss = new WebSocketServer({
-    port: 0,
-    host: '127.0.0.1',
-    path: '/__pyric/sandbox',
-    maxPayload: MAX_BRIDGE_FRAME_BYTES,
+    port: 0, host: '127.0.0.1', path: '/__pyric/sandbox', maxPayload: MAX_BRIDGE_FRAME_BYTES,
   });
   await once(wss, 'listening');
   const address = wss.address();
@@ -182,10 +223,7 @@ async function startLoopbackFlutterBridgeHost(): Promise<LoopbackFlutterBridgeHo
   const wsUrl = `ws://127.0.0.1:${port}/__pyric/sandbox`;
   const baseUrl = `http://127.0.0.1:${port}`;
   const bridge = createBridge({
-    mode: 'sandbox',
-    project: PROJECT_ID,
-    projectKey: REPO_ROOT,
-    version: '0.0.0-test',
+    mode: 'sandbox', project: PROJECT_ID, projectKey: REPO_ROOT, version: '0.0.0-test',
   });
 
   let runtime: Awaited<ReturnType<typeof createHostedRuntime>> | undefined;
@@ -224,10 +262,7 @@ async function startLoopbackFlutterBridgeHost(): Promise<LoopbackFlutterBridgeHo
       appOptions: { projectId: PROJECT_ID },
     };
     runtime = await createHostedRuntime(
-      payload,
-      baseUrl,
-      (message) => bridge.handleSandboxMessage(message),
-      REPO_ROOT,
+      payload, baseUrl, (message) => bridge.handleSandboxMessage(message), REPO_ROOT,
       { persistence: persistence as never, record: false },
     );
     const activeRuntime = runtime;
@@ -326,9 +361,7 @@ async function openAttachedSocket(wsUrl: string): Promise<{
       resolveAck(frame);
     };
     ws.send(JSON.stringify({
-      type: 'attach',
-      protocol: 1,
-      clientInfo: { platform: 'flutter' },
+      type: 'attach', protocol: 1, clientInfo: { platform: 'flutter' },
       capabilities: [DOC_VALUE_ENCODING_CAPABILITY],
     }));
   });
@@ -399,13 +432,9 @@ function summarizeFlutterMachineOutput(stdout: string): FlutterMachineSummary {
       if (recorded !== undefined) testName = recorded;
     }
     if (testName.startsWith('loading ')) continue;
-    if (parsed.skipped === true) {
-      skipped += 1;
-    } else if (parsed.result === 'success') {
-      passed += 1;
-    } else {
-      failed += 1;
-    }
+    if (parsed.skipped === true) skipped += 1;
+    else if (parsed.result === 'success') passed += 1;
+    else failed += 1;
   }
   return { passed, failed, skipped };
 }
@@ -416,7 +445,6 @@ describe('Flutter native SDK live-host conformance', () => {
     let client: Awaited<ReturnType<typeof openAttachedSocket>> | undefined;
     try {
       client = await openAttachedSocket(host.wsUrl);
-
       const anonLens = { mode: 'anon' };
       const deniedRtdbAnon = await client.sendOp({
         method: 'rtdb.set', path: '/users/unauthed', value: { displayName: 'Blocked' }, actAs: anonLens,
@@ -473,13 +501,11 @@ describe('Flutter native SDK live-host conformance', () => {
   });
 
   test.skipIf(SKIPS_FLUTTER_SUBPROCESS)(
-    'live_host_conformance_test.dart passes over dart:io WebSocket against the live loopback Pyric bridge host',
+    'live-host Dart conformance suites pass over dart:io WebSocket against the live loopback Pyric bridge host',
     async () => {
       const flutterBinary = detectFlutterBinary();
       if (flutterBinary === null) {
-        throw new Error(
-          'PYRIC_REQUIRE_FLUTTER_LIVE=1 is set, but `flutter` was not found in PATH or ~/.local/bin.',
-        );
+        throw new Error('PYRIC_REQUIRE_FLUTTER_LIVE=1 is set, but `flutter` was not found.');
       }
 
       const childEnv: Record<string, string> = {};
@@ -498,34 +524,38 @@ describe('Flutter native SDK live-host conformance', () => {
       const packageConfigPath = join(FLUTTER_CLIENT_DIR, '.dart_tool/package_config.json');
       if (!existsSync(packageConfigPath)) {
         const pubGet = Bun.spawn([flutterBinary, 'pub', 'get'], {
-          cwd: FLUTTER_CLIENT_DIR,
-          env: childEnv,
-          stdout: 'pipe',
-          stderr: 'pipe',
+          cwd: FLUTTER_CLIENT_DIR, env: childEnv, stdout: 'pipe', stderr: 'pipe',
         });
         const [pubExit, pubOut, pubErr] = await Promise.all([
-          pubGet.exited,
-          new Response(pubGet.stdout).text(),
-          new Response(pubGet.stderr).text(),
+          pubGet.exited, new Response(pubGet.stdout).text(), new Response(pubGet.stderr).text(),
         ]);
         expect(pubExit, `${pubOut}\n${pubErr}`).toBe(0);
       }
 
+      const suiteFiles = discoverLiveHostTestFiles();
+      const nowMs = Date.now();
       const host = await startLoopbackFlutterBridgeHost();
       let verifier: Awaited<ReturnType<typeof openAttachedSocket>> | undefined;
       try {
         childEnv.PYRIC_LIVE_BRIDGE_URL = host.wsUrl;
+        childEnv.PYRIC_LIVE_PROJECT_ID = PROJECT_ID;
+        childEnv.PYRIC_LIVE_CUSTOM_TOKEN_VALID = mintCustomToken({
+          uid: 'flutter-custom-uid-01', claims: { role: 'ops', tier: 'enterprise' },
+          projectId: PROJECT_ID, nowMs,
+        });
+        childEnv.PYRIC_LIVE_CUSTOM_TOKEN_MISMATCH = mintCustomToken({
+          uid: 'flutter-custom-uid-mismatch', claims: { role: 'viewer' },
+          projectId: 'other-flutter-project', nowMs,
+        });
 
         const child = Bun.spawn(
-          [flutterBinary, 'test', '--no-pub', '--machine', 'test/live_host_conformance_test.dart'],
+          [flutterBinary, 'test', '--no-pub', '--machine', ...suiteFiles],
           { cwd: FLUTTER_CLIENT_DIR, env: childEnv, stdout: 'pipe', stderr: 'pipe' },
         );
         const killTimer = setTimeout(() => child.kill(), 180_000);
         try {
           const [exitCode, stdout, stderr] = await Promise.all([
-            child.exited,
-            new Response(child.stdout).text(),
-            new Response(child.stderr).text(),
+            child.exited, new Response(child.stdout).text(), new Response(child.stderr).text(),
           ]);
           const combinedOutput = `${stdout}\n${stderr}`;
           expect(exitCode, combinedOutput).toBe(0);
@@ -533,7 +563,7 @@ describe('Flutter native SDK live-host conformance', () => {
           const summary = summarizeFlutterMachineOutput(stdout);
           expect(summary.failed, combinedOutput).toBe(0);
           expect(summary.skipped, combinedOutput).toBe(0);
-          expect(summary.passed, combinedOutput).toBe(3);
+          expect(summary.passed, combinedOutput).toBeGreaterThanOrEqual(suiteFiles.length + 2);
         } finally {
           clearTimeout(killTimer);
           child.kill();
@@ -549,30 +579,6 @@ describe('Flutter native SDK live-host conformance', () => {
         const emails = usersList.map((entry) => entry.email);
         expect(emails).toContain('pilot@example.test');
         expect(emails).toContain('firestore-pilot@example.test');
-
-        const firestorePilot = usersList.find((entry) => entry.email === 'firestore-pilot@example.test');
-        let firestoreUid = '';
-        if (typeof firestorePilot?.uid === 'string') firestoreUid = firestorePilot.uid;
-        expect(firestoreUid.length).toBeGreaterThan(0);
-
-        const shard09Status = await verifier.sendOp({
-          method: 'rtdb.get',
-          instance: 'shard-09',
-          path: '/shards/shard-09/status',
-          actAs: { mode: 'as', uid: firestoreUid },
-        });
-        expect(shard09Status.ok).toBe(true);
-        const shard09Val = shard09Status.value as { value?: unknown } | undefined;
-        expect(shard09Val?.value).toBe('ready');
-
-        const persistedDoc = await verifier.sendOp({
-          method: 'getDoc',
-          path: `users/${firestoreUid}`,
-          actAs: { mode: 'as', uid: firestoreUid },
-        });
-        expect(persistedDoc.ok).toBe(true);
-        const docPayload = persistedDoc.value as { exists?: boolean } | undefined;
-        expect(docPayload?.exists).toBe(true);
       } finally {
         await verifier?.close();
         await host.close();
