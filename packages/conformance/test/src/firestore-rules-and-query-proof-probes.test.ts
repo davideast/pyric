@@ -23,7 +23,6 @@ import {
   selectModularProbes,
 } from '../../src/sdk-probes.ts';
 import { auditProbeSessionAuthModes } from '../../src/sdk-probe-runtime.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 import {
   type QueryProofReadRulesSubject,
   buildQueryProofRulesBlock,
@@ -67,7 +66,7 @@ function errorCodeOf(err: unknown): string {
 }
 
 describe('Firestore Wave 2 query-proof and security-rules client SDK probes', () => {
-  test('registers all 3 staged sdk-probes with pendingRowLink and inert preview safety', async () => {
+  test('registers all 3 linked sdk-probes with rowIds and inert preview safety', async () => {
     expect(CEL_PROBE_CASE_IDS.length).toBe(22);
     expect(auditProbeSessionAuthModes()).toEqual([]);
     const loaded = await loadModularProbes('sdk-probes');
@@ -76,33 +75,43 @@ describe('Firestore Wave 2 query-proof and security-rules client SDK probes', ()
       expect(loadedIds).toContain(id);
     }
 
-    const stagedProbes = [queryProofProbe, writeCrossDocProbe, celSetEqualityProbe];
-    for (const probeRecord of stagedProbes) {
-      expect(probeRecord.rig).toBe('sdk-probes');
-      expect(probeRecord.requires).toEqual(['web-config', 'firestore-rules']);
-      expect(probeRecord.pendingRowLink).toBe(true);
-      expect(probeRecord.matrixRow).toBe('');
-      expect(probeRecord.rowIds).toEqual([]);
-      expect(probeRecord.description.length).toBeGreaterThan(20);
-    }
+    expect(queryProofProbe.pendingRowLink).toBeUndefined();
+    expect(queryProofProbe.matrixRow).toBe('firestore#24a');
+    expect(queryProofProbe.rowIds).toEqual([
+      'firestore#24a',
+      'firestore#24b',
+      'firestore#139',
+      'firestore#139a',
+    ]);
+    expect(writeCrossDocProbe.pendingRowLink).toBeUndefined();
+    expect(writeCrossDocProbe.matrixRow).toBe('firestore#128');
+    expect(writeCrossDocProbe.rowIds).toEqual([
+      'firestore#128',
+      'firestore#129',
+      'firestore#130',
+      'firestore#131',
+      'firestore#132',
+      'firestore#137',
+    ]);
+    expect(celSetEqualityProbe.pendingRowLink).toBeUndefined();
+    expect(celSetEqualityProbe.matrixRow).toBe('firestore#133');
+    expect(celSetEqualityProbe.rowIds).toEqual([
+      'firestore#133',
+      'firestore#134',
+      'firestore#135',
+      'firestore#136',
+      'firestore#136b',
+      'firestore#138',
+    ]);
 
     const unfilteredIds = new Set(
       selectModularProbes(loaded, [], 'sdk-probes', {
         includeUncapturedStaged: false,
       }).map((entry) => entry.id),
     );
-
-    expectStagedUntilCaptured(FIRESTORE_RULES_WAVE2_PROBE_IDS, {
-      rig: 'sdk-probes',
-      filterFlag: '--probe',
-      filterValueFor: (name) => name,
-      whenUncaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(false);
-      },
-      whenCaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(true);
-      },
-    });
+    for (const id of FIRESTORE_RULES_WAVE2_PROBE_IDS) {
+      expect(unfilteredIds.has(id)).toBe(true);
+    }
 
     const previewLines: string[] = [];
     printModularProbePreview({
@@ -215,7 +224,7 @@ describe('Firestore Wave 2 query-proof and security-rules client SDK probes', ()
       unfilteredVisibilityCount: { ok: false, code: 'permission-denied' },
       provableOwnerList: { ok: true, ids: ['mine'] },
       provableSnapshot: { ok: true, ids: ['pub1', 'pub2'] },
-      unprovableSnapshot: { ok: false, code: 'permission-denied' },
+      unprovableSnapshot: { ok: true, ids: ['mine', 'pub1', 'pub2'] },
       limitTwoOk: true,
       limitTwoCount: 2,
       limitThree: { ok: false, code: 'permission-denied' },

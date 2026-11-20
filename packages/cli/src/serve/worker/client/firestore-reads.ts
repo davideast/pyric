@@ -1,5 +1,5 @@
 /**
- * Firestore read execution — document/collection reads, keyspace enumeration,
+ * Firestore read execution -- document/collection reads, keyspace enumeration,
  * count/aggregate reads, and the `onSnapshot` listener. Each RPCs the worker and
  * rehydrates the reply into the modular SDK's snapshot shapes.
  */
@@ -36,7 +36,7 @@ import { finishSdkRead, type UsageEvidence } from 'pyric/sandbox/internal';
 import type { RawDocResult, RawQueryResult, ClientDocSnapshot, ClientQuerySnapshot, QueryChangeBaseline } from './snapshots.js';
 import type { DocumentData, FieldPath } from 'pyric/firestore';
 
-// ─── Execution functions (RPC) ────────────────────────────────────────────
+// --- Execution functions (RPC) --------------------------------------------
 
 export function getDoc<T = DocumentData>(ref: DocRefHandle<T>): Promise<ClientDocSnapshot<T>> {
   return readDocumentAs(ref, 'getDoc');
@@ -160,7 +160,7 @@ export async function getCountFromServer(
   } catch (error) { activity.fail(); throw error; }
 }
 
-// ─── Multi-field aggregates (count / sum / average) ───────────────────────
+// --- Multi-field aggregates (count / sum / average) -----------------------
 
 function normalizeAggregateField(field: string | FieldPath): { field: string; path?: readonly string[] } {
   if (typeof field === 'string') return { field };
@@ -226,7 +226,7 @@ export async function getAggregateFromServer<S extends AggregateSpecDescriptor>(
   } catch (error) { activity.fail(); throw error; }
 }
 
-// ─── onSnapshot ──────────────────────────────────────────────────────────
+// --- onSnapshot ----------------------------------------------------------
 
 type SnapshotCallback = (snap: ClientDocSnapshot | ClientQuerySnapshot) => void;
 type SnapshotErrorCallback = (err: unknown) => void;
@@ -338,9 +338,9 @@ export function onSnapshot(
   let deliveredCount = 0;
   let isOpenOnHost = false;
   const descriptor = target.descriptor;
-  const wasWarmAtSubscribe = includeMetadataChanges
-    && !isWorkerFirestoreOffline(port)
+  const hasWarmCacheAtSubscribe = !isWorkerFirestoreOffline(port)
     && isWorkerTargetWarm(port, descriptor);
+  const wasWarmAtSubscribe = includeMetadataChanges && hasWarmCacheAtSubscribe;
 
   const deliverRawFrame = (raw: unknown): void => {
     let decoded: ClientDocSnapshot | ClientQuerySnapshot | null;
@@ -396,6 +396,17 @@ export function onSnapshot(
     },
     error: (error: unknown) => {
       if (unsubscribed || isWorkerFirestoreOffline(port)) return;
+      if (deliveredCount === 0 && hasWarmCacheAtSubscribe) {
+        const cachedWire = buildWorkerOfflineWire(port, descriptor);
+        const cachedRec = cachedWire as { docs?: RawDocResult[]; exists?: boolean };
+        const hasCachedDocs = (Array.isArray(cachedRec.docs) && cachedRec.docs.length > 0)
+          || cachedRec.exists === true;
+        if (hasCachedDocs) {
+          deliveredCount += 1;
+          deliverRawFrame(cachedWire);
+          if (unsubscribed) return;
+        }
+      }
       unsubscribed = true;
       releaseLifecycle();
       unregisterNetwork();

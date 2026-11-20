@@ -61,14 +61,15 @@ export function attachClientManagedListener(params: {
     queryPlan = resolveQueryPlan(ref, underlying);
   }
 
-  let wasWarmAtSubscribe = false;
-  if (includeMetadataChanges && clientState.isNetworkEnabled()) {
+  let hasWarmCacheAtSubscribe = false;
+  if (clientState.isNetworkEnabled()) {
     if (isDoc) {
-      wasWarmAtSubscribe = clientState.overlay.isDocWarm(docPath);
+      hasWarmCacheAtSubscribe = clientState.overlay.isDocWarm(docPath);
     } else if (queryPlan.scope !== undefined) {
-      wasWarmAtSubscribe = clientState.overlay.isScopeWarm(queryPlan.scope);
+      hasWarmCacheAtSubscribe = clientState.overlay.isScopeWarm(queryPlan.scope);
     }
   }
+  const wasWarmAtSubscribe = includeMetadataChanges && hasWarmCacheAtSubscribe;
 
   let stopped = false;
   let backendErrored = false;
@@ -143,6 +144,27 @@ export function attachClientManagedListener(params: {
 
   const onBackendError = (error: unknown): void => {
     if (stopped || !clientState.isNetworkEnabled()) return;
+    if (deliveredCount === 0 && hasWarmCacheAtSubscribe) {
+      if (isDoc) {
+        const projected = clientState.overlay.projectDoc(docPath);
+        if (projected.data !== null) {
+          deliveredCount += 1;
+          deliverSnap(clientState.overlay.buildOfflineDocSnapshot(docPath));
+        }
+      } else if (queryPlan.scope !== undefined) {
+        const built = clientState.overlay.buildOfflineQuerySnapshot(
+          queryPlan.scope,
+          queryPlan.execution,
+          !includeMetadataChanges,
+          undefined,
+        );
+        if (built.docs.length > 0) {
+          deliveredCount += 1;
+          deliverSnap(built.snapshot);
+        }
+      }
+      if (stopped) return;
+    }
     backendErrored = true;
     deliverError(error);
   };
