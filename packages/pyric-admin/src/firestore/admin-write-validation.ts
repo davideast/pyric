@@ -6,8 +6,10 @@
 
 import {
   Bytes as InternalBytes,
+  LatLng as InternalLatLng,
   Reference as InternalReference,
 } from 'pyric/rules/internal';
+import { isAdminGeoPoint } from './admin-geopoint.js';
 import {
   FieldPath,
   FieldValue as CompatFieldValue,
@@ -316,6 +318,10 @@ export function validateAndNormalizeFirestoreValue(
   if (value instanceof Uint8Array) {
     const view = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
     return new InternalBytes(view.slice());
+  }
+
+  if (isAdminGeoPoint(value)) {
+    return new InternalLatLng(value.latitude, value.longitude);
   }
 
   if (isFieldPathInstance(value)) {

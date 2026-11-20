@@ -270,9 +270,8 @@ export async function observeFirestoreAdminGeoPointInitAndMaintenance(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['admin-firestore'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore-admin#9',
+  rowIds: ['firestore-admin#9'],
   description:
     'firebase-admin/firestore GeoPoint, GrpcStatus, initializeFirestore, setLogFunction, and Firestore.{settings, getAll, listCollections, recursiveDelete, bulkWriter, bundle, terminate}.',
   async observe(): Promise<Record<string, unknown>> {

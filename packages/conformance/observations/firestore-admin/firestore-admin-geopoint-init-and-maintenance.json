@@ -1,7 +1,9 @@
 {
   "name": "firestore-admin-geopoint-init-and-maintenance",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore-admin#9",
+  "rowIds": [
+    "firestore-admin#9"
+  ],
   "description": "firebase-admin/firestore GeoPoint, GrpcStatus, initializeFirestore, setLogFunction, and Firestore.{settings, getAll, listCollections, recursiveDelete, bulkWriter, bundle, terminate}.",
   "observedAt": "2026-11-20T01:02:22.977Z",
   "fbSdkVersion": "12.19.0",

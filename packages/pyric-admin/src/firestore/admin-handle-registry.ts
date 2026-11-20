@@ -2,10 +2,13 @@
  * Shared WeakMap handle registry for `pyric-admin/firestore` wrapper proxies.
  */
 
+import type { Sandbox } from 'pyric/sandbox';
 import type { SandboxFirestore } from 'pyric/sandbox/admin-firestore';
 
 export const adminToUnderlying = new WeakMap<object, object>();
 export const adminToRootDb = new WeakMap<object, SandboxFirestore>();
+export const adminRawDbSandbox = new WeakMap<object, Sandbox>();
+export const adminRawDbProjectId = new WeakMap<object, string>();
 export const appBackedFirestoreRoots = new WeakSet<object>();
 export const wrappedDbCache = new WeakMap<SandboxFirestore, SandboxFirestore>();
 export const adminDocumentRefBrand = new WeakSet<object>();

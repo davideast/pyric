@@ -14,11 +14,14 @@ export default row({
   ],
   api: 'GeoPoint / GrpcStatus / initializeFirestore / setLogFunction and Firestore.getAll / listCollections / recursiveDelete / terminate / bulkWriter / bundle / settings',
   behavior:
-    'Deferred `firebase-admin/firestore` top-level exports and administrative `Firestore` methods throw `PyricDeferredApiError` naming the unmodeled API instead of failing as `undefined` or silently no-oping.',
-  status: 'unsupported',
-  automation: 'unsupported',
-  exceptionReason:
-    'Deferred firebase-admin/firestore exports and bulk/admin maintenance methods are not yet implemented and throw PyricDeferredApiError explicitly.',
-  conformanceTests: ['packages/pyric-admin/test/deferred/subpath-exports.test.ts'],
-  evidence: 'Pinned in `packages/pyric-admin/test/deferred/subpath-exports.test.ts`.',
+    'Models `GeoPoint` (coordinate range validation, getters, `isEqual`, document round-trip), `GrpcStatus` bidirectional codes, `initializeFirestore(app, settings?)` & single-call `db.settings({ ignoreUndefinedProperties })`, `setLogFunction`, `db.getAll(...refsOrReadOptions)` (ordered snapshots + `fieldMask` + 0-arg error), `db.listCollections()`, `db.recursiveDelete(ref, bulkWriter?)`, `db.bulkWriter()`, `db.bundle(id)`, and `db.terminate()` across local and remote sandboxes.',
+  status: 'conforms',
+  automation: 'oracle-backed',
+  oracleObservations: ['firestore-admin-geopoint-init-and-maintenance'],
+  conformanceTests: [
+    'packages/pyric-admin/test/firestore/oracle-conformance.test.ts',
+    'packages/pyric-admin/test/surface/admin-surface.test.ts',
+  ],
+  evidence:
+    '`observations/firestore-admin/firestore-admin-geopoint-init-and-maintenance.json` replayed across both local and remote JSON-wire arms in `packages/pyric-admin/test/firestore/oracle-conformance.test.ts`.',
 });

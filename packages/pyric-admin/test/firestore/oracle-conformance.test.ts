@@ -53,6 +53,8 @@ import {
   type AdminDocRefLike,
   type FirestoreAdminWriteResultFilterGetAllSubject,
 } from '../../../conformance/probes/firestore-admin/firestore-admin-writeresult-preconditions-filter-getall.ts';
+import { observeFirestoreAdminGeoPointInitAndMaintenance } from '../../../conformance/probes/firestore-admin/firestore-admin-geopoint-init-and-maintenance.ts';
+import { createAdminMaintenanceReplaySubject } from './admin-maintenance-oracle-subject.ts';
 import { deleteApp, getApps, initializeApp, type PyricAdminApp } from '../../src/app/index.js';
 import {
   AggregateField,
@@ -443,11 +445,28 @@ describe('pyric-admin/firestore oracle conformance (observations/firestore-admin
       );
       expect(actual).toEqual(expected);
     });
+
+    it('replays firestore-admin-geopoint-init-and-maintenance verbatim', async () => {
+      const expected = firestoreAdminObsGate.load<Record<string, unknown>>(
+        'firestore-admin-geopoint-init-and-maintenance',
+      );
+      const env = createOracleArm(arm);
+      const subject = createAdminMaintenanceReplaySubject(
+        env.adminSandbox,
+        `pyric_oracle/replay_${arm}_maint`,
+        arm,
+      );
+      const actual = await observeFirestoreAdminGeoPointInitAndMaintenance(
+        subject,
+        `__pyric_admin_lc_${arm}_`,
+      );
+      expect(actual).toEqual(expected);
+    });
   });
 
   it('completeness: every observations/firestore-admin/ capture is asserted', () => {
     const report = firestoreAdminObsGate.report();
-    expect(report.committed.length).toBe(7);
+    expect(report.committed.length).toBe(8);
     expect(report.loadedButUnused).toEqual([]);
     expect(report.uncovered).toEqual([]);
   });
