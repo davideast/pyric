@@ -1,0 +1,24 @@
+{
+  "name": "auth-kotlin-anonymous-and-custom-token-session",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Upstream Android FirebaseAuth anonymous sign-in, custom-token claims exchange, invalid custom-token error code, and signOut transitions under Robolectric.",
+  "observedAt": "2026-11-20T23:10:17.278Z",
+  "androidBomVersion": "35.2.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "initialCurrentUserNull": true,
+    "anonymousIsAnonymous": true,
+    "anonymousProviderId": "firebase",
+    "anonymousProviderDataIds": [
+      "firebase"
+    ],
+    "anonymousSignInProvider": "anonymous",
+    "customIsAnonymous": false,
+    "customSignInProvider": "custom",
+    "customRoleClaim": "tester",
+    "customTierClaimNumber": 2,
+    "invalidCustomTokenErrorCode": "ERROR_INVALID_CUSTOM_TOKEN",
+    "signedOutCurrentUserNull": true
+  }
+}
