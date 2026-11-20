@@ -443,15 +443,18 @@ describe('pyric-admin remote Firestore: cursors, validation, and aggregate Field
       'metrics.literal': 6,
     });
 
-    const agg = await db.collection('items').aggregate({
-      n: { kind: 'count' },
-      nestedSum: { kind: 'sum', field: new FieldPath('metrics', 'points') },
-      literalSum: { kind: 'sum', field: new FieldPath('metrics.literal') },
-      modularAvg: {
-        kind: 'average',
-        field: new ModularFieldPath('metrics', 'points') as unknown as FieldPath,
-      },
-    });
+    const agg = await db
+      .collection('items')
+      .aggregate({
+        n: { kind: 'count' },
+        nestedSum: { kind: 'sum', field: new FieldPath('metrics', 'points') },
+        literalSum: { kind: 'sum', field: new FieldPath('metrics.literal') },
+        modularAvg: {
+          kind: 'average',
+          field: new ModularFieldPath('metrics', 'points') as unknown as FieldPath,
+        },
+      })
+      .get();
 
     expect(agg.data()).toEqual({
       n: 2,

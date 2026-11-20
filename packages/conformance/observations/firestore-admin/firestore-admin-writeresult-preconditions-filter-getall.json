@@ -1,7 +1,11 @@
 {
   "name": "firestore-admin-writeresult-preconditions-filter-getall",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore-admin#4",
+  "rowIds": [
+    "firestore-admin#4",
+    "firestore-admin#7",
+    "firestore-admin#8"
+  ],
   "description": "firebase-admin/firestore WriteResult shapes and isEqual, update/delete/batch/transaction Precondition (exists and lastUpdateTime) error categories, composite Filter (where/or/and), AggregateField with Query.aggregate(spec).get(), startAt/startAfter/endAt/endBefore value and snapshot cursors, WriteBatch.commit() WriteResult[], and Transaction.getAll(...refs).",
   "observedAt": "2026-11-19T22:58:09.706Z",
   "fbSdkVersion": "12.19.0",

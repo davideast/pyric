@@ -40,7 +40,13 @@ import {
   getAdminFirestore as baseGetAdminFirestore,
   type SandboxFirestore,
 } from 'pyric/sandbox/admin-firestore';
-import { SandboxContextImpl, SandboxError, type Sandbox, type SandboxContext } from 'pyric/sandbox';
+import {
+  isRemoteSandbox,
+  SandboxContextImpl,
+  SandboxError,
+  type Sandbox,
+  type SandboxContext,
+} from 'pyric/sandbox';
 import {
   ADMIN_APP_TARGET,
   isSandboxAdminApp,
@@ -51,8 +57,10 @@ import { assertAdminAppActive } from '../app/lifecycle.js';
 import { defineDeferredMembers, deferredExport, type DeferredMembers } from 'pyric/app/internal';
 import { adminOnSnapshot, wrapAdminFirestoreHandle } from './admin-value-adapter.js';
 import { FieldValue } from './admin-field-value.js';
+import { AggregateField, Filter } from './admin-filter-aggregate-cursors.js';
+import { registerBypassExistenceReader } from './admin-write-result-preconditions.js';
 
-export { FieldValue };
+export { AggregateField, FieldValue, Filter };
 
 // --- Deferred surface --------------------------------------------------------
 //
@@ -62,8 +70,6 @@ export { FieldValue };
 
 const SUBPATH = 'pyric-admin/firestore';
 
-export const AggregateField = deferredExport(SUBPATH, 'AggregateField');
-export const Filter = deferredExport(SUBPATH, 'Filter');
 export const GeoPoint = deferredExport(SUBPATH, 'GeoPoint');
 export const GrpcStatus = deferredExport(SUBPATH, 'GrpcStatus');
 export const initializeFirestore = deferredExport(SUBPATH, 'initializeFirestore');
@@ -153,7 +159,15 @@ export function getFirestore(
     return getAppFirestore(target as PyricAdminApp, databaseId);
   }
   if (target instanceof SandboxContextImpl) {
-    return withDeferredMembers(baseGetFirestore(target));
+    const rawDb = baseGetFirestore(target);
+    if (!isRemoteSandbox(target.sandbox)) {
+      const bypassDb = baseGetAdminFirestore(target.sandbox);
+      registerBypassExistenceReader(
+        rawDb,
+        async (docPath) => (await bypassDb.doc(docPath).get()).exists,
+      );
+    }
+    return withDeferredMembers(rawDb);
   }
   throw new TypeError(
     'pyric-admin/firestore: expected a PyricAdminApp from initializeApp() or a SandboxContext (or omit the argument for the default app).',

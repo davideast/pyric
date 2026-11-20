@@ -37,7 +37,22 @@ import {
   wrapDocSnapshot,
   wrapQuerySnapshot,
 } from './admin-snapshot-adapter.js';
+import {
+  parseTransactionGetAllArgs,
+  projectDocSnapshotFields,
+} from './admin-transaction-getall.js';
 import { validateAndNormalizeUpdateArgs } from './admin-update-validation.js';
+import {
+  assertBatchPreconditions,
+  assertSingleWritePrecondition,
+  extractParsedPrecondition,
+  extractUpdateTrailingPrecondition,
+  recordBatchAdminMutations,
+  recordTransactionAdminMutations,
+  verifyPreconditionState,
+  type ParsedAdminPrecondition,
+  type WriteResult,
+} from './admin-write-result-preconditions.js';
 import {
   assertAdminDocumentReference,
   isObjectRecord,
@@ -47,6 +62,8 @@ import {
 } from './admin-write-validation.js';
 
 const READ_ONLY_WRITE_ERROR = 'Firestore read-only transactions cannot execute writes.';
+const TX_READ_AFTER_WRITE_CLIENT_MESSAGE =
+  'Firestore transactions require all reads to be executed before all writes.';
 
 type BufferedBatchOperation =
   | { readonly kind: 'create'; readonly ref: DocumentReference; readonly data: DocumentData }
@@ -56,8 +73,17 @@ type BufferedBatchOperation =
       readonly data: DocumentData;
       readonly options: SetOptions | undefined;
     }
-  | { readonly kind: 'update'; readonly ref: DocumentReference; readonly args: readonly unknown[] }
-  | { readonly kind: 'delete'; readonly ref: DocumentReference };
+  | {
+      readonly kind: 'update';
+      readonly ref: DocumentReference;
+      readonly args: readonly unknown[];
+      readonly precondition: ParsedAdminPrecondition | undefined;
+    }
+  | {
+      readonly kind: 'delete';
+      readonly ref: DocumentReference;
+      readonly precondition: ParsedAdminPrecondition | undefined;
+    };
 
 function translateAdminTransactionError(err: unknown): never {
   if (
@@ -138,14 +164,17 @@ export function wrapWriteBatch(rawDb: SandboxFirestore, rootDb: SandboxFirestore
             const ref = allArgs[0] as DocumentReference;
             assertAdminDocumentReference('documentRef', ref);
             assertBatchMutable();
+            const rawUpdateArgs = allArgs.slice(1);
             const normalizedArgs = validateAndNormalizeUpdateArgs(
-              allArgs.slice(1),
+              rawUpdateArgs,
               isAppBackedRoot(rootDb),
             );
+            const precondition = extractUpdateTrailingPrecondition(rawUpdateArgs);
             bufferedOps.push({
               kind: 'update',
               ref: unwrapAdminObject(ref),
               args: normalizedArgs,
+              precondition,
             });
             return proxy;
           };
@@ -153,16 +182,33 @@ export function wrapWriteBatch(rawDb: SandboxFirestore, rootDb: SandboxFirestore
           return (ref: DocumentReference, ...rest: [precondition?: unknown]) => {
             assertAdminDocumentReference('documentRef', ref);
             validatePreconditionObject('precondition', rest[0], false);
+            const precondition = extractParsedPrecondition(rest[0]);
             assertBatchMutable();
             bufferedOps.push({
               kind: 'delete',
               ref: unwrapAdminObject(ref),
+              precondition,
             });
             return proxy;
           };
         case 'commit':
-          return (opts?: OperationOptions) => {
+          return async (opts?: OperationOptions): Promise<WriteResult[]> => {
             committed = true;
+            const checks: Array<{
+              readonly ref: DocumentReference;
+              readonly method: 'update' | 'delete';
+              readonly precondition: ParsedAdminPrecondition | undefined;
+            }> = [];
+            for (const op of bufferedOps) {
+              if (op.kind === 'update' || op.kind === 'delete') {
+                checks.push({
+                  ref: op.ref,
+                  method: op.kind,
+                  precondition: op.precondition,
+                });
+              }
+            }
+            await assertBatchPreconditions(rawDb, checks);
             const executionBatch = rawDb.batch();
             for (const op of bufferedOps) {
               if (op.kind === 'create') {
@@ -178,7 +224,16 @@ export function wrapWriteBatch(rawDb: SandboxFirestore, rootDb: SandboxFirestore
                 executionBatch.delete(op.ref);
               }
             }
-            return executionBatch.commit(opts);
+            await executionBatch.commit(opts);
+            const mutationSummary: Array<{ readonly path: string; readonly kind: 'write' | 'delete' }> = [];
+            for (const op of bufferedOps) {
+              if (op.kind === 'delete') {
+                mutationSummary.push({ path: op.ref.path, kind: 'delete' });
+              } else {
+                mutationSummary.push({ path: op.ref.path, kind: 'write' });
+              }
+            }
+            return recordBatchAdminMutations(rawDb, mutationSummary);
           };
         default: {
           const value = Reflect.get(t, prop, t);
@@ -207,12 +262,28 @@ function isAdminQueryTarget(value: unknown): value is Query {
   return value !== null && typeof value === 'object' && adminQueryBrand.has(value);
 }
 
+interface TransactionAttemptContext {
+  readonly tx: Transaction;
+  readonly verifyPreconditions: () => Promise<void>;
+  readonly mutations: Array<{ readonly path: string; readonly kind: 'write' | 'delete' }>;
+}
+
 function wrapTransaction(
   rawTx: Transaction,
+  rawDb: SandboxFirestore,
   rootDb: SandboxFirestore,
   readOnly: boolean,
   docRefOnRoot: (db: SandboxFirestore, path: string) => DocumentReference,
-): Transaction {
+): TransactionAttemptContext {
+  let hasQueuedWrites = false;
+  const txReadExists = new Map<string, boolean>();
+  const pendingPreconditions: Array<{
+    readonly path: string;
+    readonly method: 'update' | 'delete';
+    readonly precondition: ParsedAdminPrecondition;
+  }> = [];
+  const mutations: Array<{ readonly path: string; readonly kind: 'write' | 'delete' }> = [];
+
   function assertWritable(): void {
     if (readOnly) {
       throw new SandboxError('invalid-argument', READ_ONLY_WRITE_ERROR);
@@ -233,12 +304,33 @@ function wrapTransaction(
             if (isAdminDocRefTarget(refOrQuery)) {
               const unwrappedRef = unwrapAdminObject(refOrQuery);
               const snap = await t.get(unwrappedRef);
+              txReadExists.set(unwrappedRef.path, snap.exists);
               return wrapDocSnapshot(snap, rootDb, docRefOnRoot);
             }
             throw new SandboxError(
               'invalid-argument',
               'Value for argument "refOrQuery" must be a DocumentReference, Query, or AggregateQuery.',
             );
+          };
+        case 'getAll':
+          return async (...args: unknown[]): Promise<DocumentSnapshot[]> => {
+            if (hasQueuedWrites) {
+              throw new Error(TX_READ_AFTER_WRITE_CLIENT_MESSAGE);
+            }
+            const parsed = parseTransactionGetAllArgs(args);
+            const results: DocumentSnapshot[] = [];
+            for (const ref of parsed.refs) {
+              const unwrappedRef = unwrapAdminObject(ref);
+              const snap = await t.get(unwrappedRef);
+              txReadExists.set(unwrappedRef.path, snap.exists);
+              const wrapped = wrapDocSnapshot(snap, rootDb, docRefOnRoot);
+              if (parsed.fieldMask !== undefined) {
+                results.push(projectDocSnapshotFields(wrapped, parsed.fieldMask));
+              } else {
+                results.push(wrapped);
+              }
+            }
+            return results;
           };
         case 'create':
           return (ref: DocumentReference, data: DocumentData) => {
@@ -250,7 +342,10 @@ function wrapTransaction(
               'none',
               isAppBackedRoot(rootDb),
             );
-            t.create(unwrapAdminObject(ref), normalized);
+            const unwrappedRef = unwrapAdminObject(ref);
+            t.create(unwrappedRef, normalized);
+            hasQueuedWrites = true;
+            mutations.push({ path: unwrappedRef.path, kind: 'write' });
             return proxy;
           };
         case 'set':
@@ -263,7 +358,10 @@ function wrapTransaction(
               isAppBackedRoot(rootDb),
             );
             assertAdminDocumentReference('documentRef', ref);
-            t.set(unwrapAdminObject(ref), validated.data, validated.options);
+            const unwrappedRef = unwrapAdminObject(ref);
+            t.set(unwrappedRef, validated.data, validated.options);
+            hasQueuedWrites = true;
+            mutations.push({ path: unwrappedRef.path, kind: 'write' });
             return proxy;
           };
         case 'update':
@@ -277,14 +375,26 @@ function wrapTransaction(
             }
             const ref = allArgs[0] as DocumentReference;
             assertAdminDocumentReference('documentRef', ref);
+            const rawUpdateArgs = allArgs.slice(1);
             const normalizedArgs = validateAndNormalizeUpdateArgs(
-              allArgs.slice(1),
+              rawUpdateArgs,
               isAppBackedRoot(rootDb),
             );
+            const precondition = extractUpdateTrailingPrecondition(rawUpdateArgs);
+            const unwrappedRef = unwrapAdminObject(ref);
+            if (precondition !== undefined) {
+              pendingPreconditions.push({
+                path: unwrappedRef.path,
+                method: 'update',
+                precondition,
+              });
+            }
             (t.update as (r: DocumentReference, ...a: unknown[]) => Transaction)(
-              unwrapAdminObject(ref),
+              unwrappedRef,
               ...normalizedArgs,
             );
+            hasQueuedWrites = true;
+            mutations.push({ path: unwrappedRef.path, kind: 'write' });
             return proxy;
           };
         case 'delete':
@@ -292,7 +402,18 @@ function wrapTransaction(
             assertWritable();
             assertAdminDocumentReference('documentRef', ref);
             validatePreconditionObject('precondition', rest[0], false);
-            t.delete(unwrapAdminObject(ref));
+            const precondition = extractParsedPrecondition(rest[0]);
+            const unwrappedRef = unwrapAdminObject(ref);
+            if (precondition !== undefined) {
+              pendingPreconditions.push({
+                path: unwrappedRef.path,
+                method: 'delete',
+                precondition,
+              });
+            }
+            t.delete(unwrappedRef);
+            hasQueuedWrites = true;
+            mutations.push({ path: unwrappedRef.path, kind: 'delete' });
             return proxy;
           };
         default: {
@@ -304,11 +425,40 @@ function wrapTransaction(
         }
       }
     },
+    getOwnPropertyDescriptor(t, prop) {
+      const own = Reflect.getOwnPropertyDescriptor(t, prop);
+      if (own !== undefined) {
+        return own;
+      }
+      if (prop === 'getAll') {
+        return {
+          value: Reflect.get(proxy, 'getAll', proxy),
+          writable: true,
+          enumerable: false,
+          configurable: true,
+        };
+      }
+      return undefined;
+    },
   });
 
   adminToUnderlying.set(proxy, rawTx);
   adminToRootDb.set(proxy, rootDb);
-  return proxy;
+
+  return {
+    tx: proxy,
+    mutations,
+    async verifyPreconditions(): Promise<void> {
+      for (const item of pendingPreconditions) {
+        const cachedExists = txReadExists.get(item.path);
+        if (cachedExists !== undefined) {
+          verifyPreconditionState(rawDb, item.path, item.method, item.precondition, cachedExists);
+        } else {
+          await assertSingleWritePrecondition(rawDb, item.path, item.method, item.precondition);
+        }
+      }
+    },
+  };
 }
 
 function parseTransactionOptions(rawOptions: unknown): {
@@ -370,9 +520,13 @@ function parseTransactionOptions(rawOptions: unknown): {
     hasForwardedField = true;
   }
 
+  let effectiveForwarded: OperationOptions | undefined;
+  if (hasForwardedField) {
+    effectiveForwarded = forwarded;
+  }
   return {
     readOnly: false,
-    forwarded: hasForwardedField ? forwarded : undefined,
+    forwarded: effectiveForwarded,
   };
 }
 
@@ -402,18 +556,32 @@ export function executeAdminRunTransaction<R>(
   }
   const parsedOpts = parseTransactionOptions(rawOptions);
   const callback = updateFunction as (tx: Transaction) => Promise<R>;
+  let committedAttemptMutations: Array<{ readonly path: string; readonly kind: 'write' | 'delete' }> = [];
 
   return rawDb
     .runTransaction(async (rawTx) => {
-      const wrappedTx = wrapTransaction(rawTx, rootDb, parsedOpts.readOnly, docRefOnRoot);
-      const returned = callback(wrappedTx);
+      const attempt = wrapTransaction(
+        rawTx,
+        rawDb,
+        rootDb,
+        parsedOpts.readOnly,
+        docRefOnRoot,
+      );
+      const returned = callback(attempt.tx);
       if (!isThenable(returned)) {
         throw new SandboxError(
           'invalid-argument',
           'You must return a Promise in your transaction()-callback.',
         );
       }
-      return await returned;
+      const value = await returned;
+      await attempt.verifyPreconditions();
+      committedAttemptMutations = attempt.mutations;
+      return value;
     }, parsedOpts.forwarded)
+    .then((result) => {
+      recordTransactionAdminMutations(rawDb, committedAttemptMutations);
+      return result;
+    })
     .catch(translateAdminTransactionError);
 }

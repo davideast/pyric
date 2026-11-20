@@ -42,10 +42,7 @@ import { afterEach, describe, it, expect } from 'bun:test';
 import { initializeSandbox, SandboxError } from 'pyric/sandbox';
 import { getFirestore as getModularFirestore } from 'pyric/firestore';
 import { getDatabase as getModularDatabase, sandbox as databaseSandbox } from 'pyric/database';
-import {
-  getFirestore as getLocalBaseFirestore,
-  getAdminFirestore as getBaseAdminFirestore,
-} from 'pyric/sandbox/admin-firestore';
+import { getFirestore as getLocalBaseFirestore } from 'pyric/sandbox/admin-firestore';
 
 import { createBridge, type Bridge } from '../../../cli/src/bridge/server/bridge.js';
 import { createConsumerSession } from '../../../cli/src/bridge/server/peer.js';
@@ -622,21 +619,13 @@ describe('pyric-admin remote Firestore — queries', () => {
     const db = getAdminFirestore(remote);
     await seedScores(db);
 
-    const agg = await db
-      .collection('scores')
-      .aggregate({ n: { kind: 'count' }, total: { kind: 'sum', field: 'points' }, avg: { kind: 'average', field: 'points' } });
+    const agg = await db.collection('scores').aggregate({ n: { kind: 'count' }, total: { kind: 'sum', field: 'points' }, avg: { kind: 'average', field: 'points' } }).get();
     expect(agg.data()).toEqual({ n: 4, total: 100, avg: 25 });
 
-    const filtered = await db
-      .collection('scores')
-      .where('team', '==', 'red')
-      .aggregate({ n: { kind: 'count' }, avg: { kind: 'average', field: 'points' } });
+    const filtered = await db.collection('scores').where('team', '==', 'red').aggregate({ n: { kind: 'count' }, avg: { kind: 'average', field: 'points' } }).get();
     expect(filtered.data()).toEqual({ n: 2, avg: 15 });
 
-    const empty = await db
-      .collection('scores')
-      .where('team', '==', 'green')
-      .aggregate({ n: { kind: 'count' }, avg: { kind: 'average', field: 'points' } });
+    const empty = await db.collection('scores').where('team', '==', 'green').aggregate({ n: { kind: 'count' }, avg: { kind: 'average', field: 'points' } }).get();
     expect(empty.data()).toEqual({ n: 0, avg: null });
   });
 });
@@ -1228,7 +1217,8 @@ function conformanceSuite(name: string, makeDb: () => Promise<SandboxFirestore> 
       const agg = await db
         .collection('c')
         .where('group', '==', 'x')
-        .aggregate({ n: { kind: 'count' }, sum: { kind: 'sum', field: 'k' } });
+        .aggregate({ n: { kind: 'count' }, sum: { kind: 'sum', field: 'k' } })
+        .get();
       expect(agg.data()).toEqual({ n: 2, sum: 4 });
 
       // Batch.
@@ -1362,7 +1352,7 @@ function conformanceSuite(name: string, makeDb: () => Promise<SandboxFirestore> 
 
 conformanceSuite('local arm (oracle)', () => {
   const sandbox = initializeSandbox();
-  const db = getBaseAdminFirestore(sandbox);
+  const db = getAdminFirestore(sandbox);
   getLocalBaseFirestore(sandbox.withAuth(null)).setRules(OPEN_RULES);
   return db;
 });
