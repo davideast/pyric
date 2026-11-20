@@ -307,12 +307,9 @@ function registerListener(
     target as DocumentReference | Query,
     listenOptions,
     (snap) => {
-      const wasInitial = initial;
-      const usage = firestoreReadUsage(snap, true, initial);
-      initial = false;
       // Detect doc vs query snapshot by shape.
       const snapAny = snap as {
-        metadata?: { hasPendingWrites?: boolean };
+        metadata?: { fromCache?: boolean; hasPendingWrites?: boolean };
         id?: string;
         path?: string;
         exists?: boolean | (() => boolean);
@@ -325,6 +322,10 @@ function registerListener(
           metadata?: { hasPendingWrites?: boolean };
         }>;
       };
+      if (snapAny.metadata?.fromCache === true) return;
+      const wasInitial = initial;
+      const usage = firestoreReadUsage(snap, true, initial);
+      initial = false;
 
       // The page rebuilds SnapshotMetadata from this flag. The sandbox has no
       // offline cache, so `fromCache` is always false and is not sent.

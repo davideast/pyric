@@ -1,7 +1,14 @@
 {
   "name": "firestore-rules-cel-expressions-and-set-equality",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#133",
+  "rowIds": [
+    "firestore#133",
+    "firestore#134",
+    "firestore#135",
+    "firestore#136",
+    "firestore#136b",
+    "firestore#138"
+  ],
   "description": "Firestore security-rules CEL expressions, tri-state error absorption, RE2 string helpers, prototype isolation, type-strict operators, FirestoreSet value equality, int/float casts, strict boolean control flow, and create-time resource == null observed via the client SDK.",
   "observedAt": "2026-11-19T22:59:13.584Z",
   "fbSdkVersion": "12.19.0",

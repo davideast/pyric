@@ -138,9 +138,15 @@ function errorCodeOf(err: unknown): string {
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#128',
+  rowIds: [
+    'firestore#128',
+    'firestore#129',
+    'firestore#130',
+    'firestore#131',
+    'firestore#132',
+    'firestore#137',
+  ],
   description:
     'Firestore security-rules write and cross-document evaluation via the client SDK: request.auth == null when unauthenticated, cross-document exists()/get() and get(path).id/__name__ with missing-doc error denial, request.resource.data create validation and undefined-field denial, resource.data existing-doc checks, custom token claims on request.auth.token, and updateDoc merged request.resource.data.',
   async observe() {

@@ -137,9 +137,8 @@ function errorCodeOf(err: unknown): string {
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#24a',
+  rowIds: ['firestore#24a', 'firestore#24b', 'firestore#139', 'firestore#139a'],
   description:
     'Query-proof and security-rules read enforcement on getDocs, getCountFromServer, and onSnapshot: deny-all and auth-gated queries reject with permission-denied, doc-data-dependent list rules require provable where() equalities rather than filtering results, allow get: false does not block provable list queries, and request.query.limit bounds list authorization.',
   async observe() {

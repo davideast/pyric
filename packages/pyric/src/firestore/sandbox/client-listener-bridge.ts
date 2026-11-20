@@ -61,14 +61,15 @@ export function attachClientManagedListener(params: {
     queryPlan = resolveQueryPlan(ref, underlying);
   }
 
-  let wasWarmAtSubscribe = false;
-  if (includeMetadataChanges && clientState.isNetworkEnabled()) {
+  let hasWarmCacheAtSubscribe = false;
+  if (clientState.isNetworkEnabled()) {
     if (isDoc) {
-      wasWarmAtSubscribe = clientState.overlay.isDocWarm(docPath);
+      hasWarmCacheAtSubscribe = clientState.overlay.isDocWarm(docPath);
     } else if (queryPlan.scope !== undefined) {
-      wasWarmAtSubscribe = clientState.overlay.isScopeWarm(queryPlan.scope);
+      hasWarmCacheAtSubscribe = clientState.overlay.isScopeWarm(queryPlan.scope);
     }
   }
+  const wasWarmAtSubscribe = includeMetadataChanges && hasWarmCacheAtSubscribe;
 
   let stopped = false;
   let backendErrored = false;
@@ -112,6 +113,22 @@ export function attachClientManagedListener(params: {
 
   let unregister = (): void => {};
 
+  const recordOnlineSnapshotCache = (rawSnap: unknown): void => {
+    if (rawSnap === null || typeof rawSnap !== 'object') return;
+    const meta = (rawSnap as { metadata?: { fromCache?: boolean } }).metadata;
+    if (meta?.fromCache === true) return;
+    if (isDoc) {
+      clientState.cachePath(docPath);
+      return;
+    }
+    const rawDocs = (rawSnap as { docs?: Array<{ ref?: { path?: string } }> }).docs;
+    if (!Array.isArray(rawDocs)) return;
+    for (const d of rawDocs) {
+      const p = d.ref?.path;
+      if (typeof p === 'string') clientState.cachePath(p);
+    }
+  };
+
   const onBackendSnap = (rawSnap: unknown): void => {
     if (stopped || !clientState.isNetworkEnabled()) return;
     backendErrored = false;
@@ -122,6 +139,7 @@ export function attachClientManagedListener(params: {
         deliverSnap(split.cachedSnapshot);
         queueMicrotask(() => {
           if (stopped || backendErrored || !clientState.isNetworkEnabled()) return;
+          recordOnlineSnapshotCache(rawSnap);
           deliveredCount += 1;
           deliverSnap(split.serverSnapshot);
         });
@@ -134,15 +152,40 @@ export function attachClientManagedListener(params: {
       if (!includeMetadataChanges && isDoc) {
         const snapDoc = rawSnap as { data?: () => DocumentData | undefined };
         const incoming = snapDoc.data?.() ?? null;
-        if (docDataEqual(offlineDocData, incoming)) return;
+        if (docDataEqual(offlineDocData, incoming)) {
+          recordOnlineSnapshotCache(rawSnap);
+          return;
+        }
       }
     }
+    recordOnlineSnapshotCache(rawSnap);
     deliveredCount += 1;
     deliverSnap(rawSnap);
   };
 
   const onBackendError = (error: unknown): void => {
     if (stopped || !clientState.isNetworkEnabled()) return;
+    if (deliveredCount === 0 && hasWarmCacheAtSubscribe) {
+      if (isDoc) {
+        const projected = clientState.overlay.projectDoc(docPath);
+        if (projected.data !== null) {
+          deliveredCount += 1;
+          deliverSnap(clientState.overlay.buildOfflineDocSnapshot(docPath));
+        }
+      } else if (queryPlan.scope !== undefined) {
+        const built = clientState.overlay.buildOfflineQuerySnapshot(
+          queryPlan.scope,
+          queryPlan.execution,
+          !includeMetadataChanges,
+          undefined,
+        );
+        if (built.docs.length > 0) {
+          deliveredCount += 1;
+          deliverSnap(built.snapshot);
+        }
+      }
+      if (stopped) return;
+    }
     backendErrored = true;
     deliverError(error);
   };

@@ -4,6 +4,7 @@
  * + listener suspension/resumption (FW-17, FS-143) for SharedWorker & Node host.
  */
 import type { SerializedDocData, TargetDescriptor } from '../protocol.js';
+import { getLens, subscribeLens } from './core.js';
 import type { ClientDb, ClientPort } from './handles.js';
 import type { RawDocResult, RawQueryResult } from './snapshots.js';
 import {
@@ -35,37 +36,67 @@ interface PendingPortWrite {
   flush(): Promise<void>;
 }
 
+interface LensWarmCache {
+  readonly baseDocs: Map<string, SerializedDocData | null>;
+  readonly warmExistingPaths: Set<string>;
+}
+
 interface PortFirestoreState {
   networkEnabled: boolean;
   nextStageId: number;
-  readonly baseDocs: Map<string, SerializedDocData | null>;
-  readonly warmExistingPaths: Set<string>;
+  readonly cachesByLens: Map<string, LensWarmCache>;
   readonly staged: Array<{ readonly id: number; readonly mutations: readonly WorkerOfflineMutation[] }>;
   readonly pendingWrites: Set<PendingPortWrite>;
   readonly listeners: Set<WorkerManagedFirestoreListener>;
+  readonly releaseLensWatch: () => void;
 }
 
 const portStates = new WeakMap<ClientPort, PortFirestoreState>();
 
 registerPortTerminationReset((port) => {
+  const existing = portStates.get(port);
+  existing?.releaseLensWatch();
   portStates.delete(port);
 });
 
 function stateForPort(port: ClientPort): PortFirestoreState {
   let state = portStates.get(port);
   if (state === undefined) {
+    const cachesByLens = new Map<string, LensWarmCache>();
+    const releaseLensWatch = subscribeLens(() => {
+      for (const cache of cachesByLens.values()) {
+        for (const p of cache.baseDocs.keys()) {
+          unmarkWorkerPathCached(port, p);
+        }
+      }
+      cachesByLens.clear();
+    });
     state = {
       networkEnabled: true,
       nextStageId: 1,
-      baseDocs: new Map(),
-      warmExistingPaths: new Set(),
+      cachesByLens,
       staged: [],
       pendingWrites: new Set(),
       listeners: new Set(),
+      releaseLensWatch,
     };
     portStates.set(port, state);
   }
   return state;
+}
+
+function lensCacheFor(state: PortFirestoreState): LensWarmCache {
+  const lens = getLens();
+  let key = 'app-session';
+  if (lens !== undefined) {
+    key = JSON.stringify(lens);
+  }
+  let cache = state.cachesByLens.get(key);
+  if (cache === undefined) {
+    cache = { baseDocs: new Map(), warmExistingPaths: new Set() };
+    state.cachesByLens.set(key, cache);
+  }
+  return cache;
 }
 
 export function isWorkerFirestoreOffline(port: ClientPort): boolean {
@@ -78,14 +109,14 @@ export function recordWorkerOnlineDoc(
   exists: boolean,
   data: SerializedDocData | undefined,
 ): void {
-  const state = stateForPort(port);
+  const cache = lensCacheFor(stateForPort(port));
   markWorkerPathCached(port, path);
   if (exists && data !== undefined) {
-    state.baseDocs.set(path, data);
-    state.warmExistingPaths.add(path);
+    cache.baseDocs.set(path, data);
+    cache.warmExistingPaths.add(path);
   } else {
-    state.baseDocs.set(path, null);
-    state.warmExistingPaths.delete(path);
+    cache.baseDocs.set(path, null);
+    cache.warmExistingPaths.delete(path);
   }
 }
 
@@ -93,18 +124,18 @@ export function markWorkerCommittedWrite(
   port: ClientPort,
   mutations: readonly WorkerOfflineMutation[],
 ): void {
-  const state = stateForPort(port);
+  const cache = lensCacheFor(stateForPort(port));
   for (const m of mutations) {
     if (m.kind === 'delete') {
-      state.baseDocs.set(m.path, null);
-      state.warmExistingPaths.delete(m.path);
+      cache.baseDocs.set(m.path, null);
+      cache.warmExistingPaths.delete(m.path);
       unmarkWorkerPathCached(port, m.path);
     } else {
-      const projected = projectWorkerOfflineDoc(m.path, state.baseDocs.get(m.path), [{ mutations: [m] }]);
+      const projected = projectWorkerOfflineDoc(m.path, cache.baseDocs.get(m.path), [{ mutations: [m] }]);
       if (projected.result.exists && projected.result.data !== undefined) {
-        state.baseDocs.set(m.path, projected.result.data);
+        cache.baseDocs.set(m.path, projected.result.data);
       }
-      state.warmExistingPaths.add(m.path);
+      cache.warmExistingPaths.add(m.path);
       markWorkerPathCached(port, m.path);
     }
   }
@@ -115,13 +146,14 @@ export function readWorkerCachedDocProjection(
   path: string,
 ): { readonly known: boolean; readonly result: RawDocResult } {
   const state = stateForPort(port);
-  return projectWorkerOfflineDoc(path, state.baseDocs.get(path), state.staged);
+  const cache = lensCacheFor(state);
+  return projectWorkerOfflineDoc(path, cache.baseDocs.get(path), state.staged);
 }
 
 export function isWorkerTargetWarm(port: ClientPort, target: TargetDescriptor): boolean {
-  const state = stateForPort(port);
-  if (target.__ref === 'doc') return state.warmExistingPaths.has(target.path);
-  for (const path of state.warmExistingPaths) {
+  const cache = lensCacheFor(stateForPort(port));
+  if (target.__ref === 'doc') return cache.warmExistingPaths.has(target.path);
+  for (const path of cache.warmExistingPaths) {
     if (targetMatchesPath(target, path)) return true;
   }
   return false;
@@ -130,7 +162,8 @@ export function isWorkerTargetWarm(port: ClientPort, target: TargetDescriptor): 
 export function readWorkerOfflineDoc(port: ClientPort, path: string): RawDocResult | undefined {
   const state = stateForPort(port);
   if (state.networkEnabled) return undefined;
-  const projected = projectWorkerOfflineDoc(path, state.baseDocs.get(path), state.staged);
+  const cache = lensCacheFor(state);
+  const projected = projectWorkerOfflineDoc(path, cache.baseDocs.get(path), state.staged);
   if (!projected.known) return undefined;
   return projected.result;
 }
@@ -140,10 +173,11 @@ export function buildWorkerOfflineWire(
   target: TargetDescriptor,
 ): RawDocResult | RawQueryResult {
   const state = stateForPort(port);
+  const cache = lensCacheFor(state);
   if (target.__ref === 'doc') {
-    return projectWorkerOfflineDoc(target.path, state.baseDocs.get(target.path), state.staged).result;
+    return projectWorkerOfflineDoc(target.path, cache.baseDocs.get(target.path), state.staged).result;
   }
-  return projectWorkerOfflineQuery(target, state.baseDocs, state.staged);
+  return projectWorkerOfflineQuery(target, cache.baseDocs, state.staged);
 }
 
 export function registerWorkerManagedListener(

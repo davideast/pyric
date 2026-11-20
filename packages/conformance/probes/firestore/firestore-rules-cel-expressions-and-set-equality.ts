@@ -208,9 +208,15 @@ function errorCodeOf(err: unknown): string {
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#133',
+  rowIds: [
+    'firestore#133',
+    'firestore#134',
+    'firestore#135',
+    'firestore#136',
+    'firestore#136b',
+    'firestore#138',
+  ],
   description:
     'Firestore security-rules CEL expressions, tri-state error absorption, RE2 string helpers, prototype isolation, type-strict operators, FirestoreSet value equality, int/float casts, strict boolean control flow, and create-time resource == null observed via the client SDK.',
   async observe() {

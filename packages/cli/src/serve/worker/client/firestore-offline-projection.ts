@@ -2,13 +2,19 @@
  * Pure encoded-JSON document projection for offline Firestore client writes on
  * the worker/hosted client plane (leaf-safe: no sandbox rules engine imports).
  */
+import { firestoreValuesEqual } from 'pyric/firestore/internal';
 import { fieldPathKeySegments } from 'pyric/firestore/internal/update-fields';
+import { decodeDocValue } from 'pyric/firestore/internal/value-codec';
 import {
   DOC_VALUE_ENCODING,
   type SerializedDocData,
   type TargetDescriptor,
   type UpdateFieldDescriptor,
 } from '../protocol.js';
+import {
+  OFFLINE_REF_DECODER,
+  filterWorkerOfflineQueryDocs,
+} from './firestore-offline-query-filter.js';
 import type { RawDocResult, RawQueryResult } from './snapshots.js';
 
 export type WorkerOfflineMutation =
@@ -82,6 +88,12 @@ function setEncodedField(root: Record<string, unknown>, segments: readonly strin
   return out;
 }
 
+function encodedValuesEqual(a: unknown, b: unknown): boolean {
+  const decodedA = decodeDocValue(a, OFFLINE_REF_DECODER, DOC_VALUE_ENCODING);
+  const decodedB = decodeDocValue(b, OFFLINE_REF_DECODER, DOC_VALUE_ENCODING);
+  return firestoreValuesEqual(decodedA, decodedB);
+}
+
 function resolveEncodedSentinels(
   node: unknown,
   priorRoot: Record<string, unknown> | null,
@@ -104,6 +116,33 @@ function resolveEncodedSentinels(
     let base = 0;
     if (typeof prevVal === 'number') base = prevVal;
     return base + addend;
+  }
+  if (isSentinel(node, 'arrayUnion')) {
+    const prevVal = readEncodedAt(priorRoot, prefix).value;
+    const result: unknown[] = [];
+    if (Array.isArray(prevVal)) {
+      for (const item of prevVal) result.push(item);
+    }
+    if (Array.isArray(node.values)) {
+      for (const rawItem of node.values) {
+        const resolvedItem = resolveEncodedSentinels(rawItem, priorRoot, [], nowSeconds, tsPaths);
+        if (!result.some((existing) => encodedValuesEqual(existing, resolvedItem))) {
+          result.push(resolvedItem);
+        }
+      }
+    }
+    return result;
+  }
+  if (isSentinel(node, 'arrayRemove')) {
+    const prevVal = readEncodedAt(priorRoot, prefix).value;
+    if (!Array.isArray(prevVal)) return [];
+    const removals: unknown[] = [];
+    if (Array.isArray(node.values)) {
+      for (const rawItem of node.values) {
+        removals.push(resolveEncodedSentinels(rawItem, priorRoot, [], nowSeconds, tsPaths));
+      }
+    }
+    return prevVal.filter((existing) => !removals.some((rem) => encodedValuesEqual(existing, rem)));
   }
   if (isEscapedMap(node)) {
     const fields = resolveEncodedSentinels(node.fields, priorRoot, prefix, nowSeconds, tsPaths) as Record<string, unknown>;
@@ -214,5 +253,10 @@ export function projectWorkerOfflineQuery(
     const projected = projectWorkerOfflineDoc(path, baseDocs.get(path), stagedEntries);
     if (projected.result.exists) docs.push(projected.result);
   }
-  return { docs, fromCache: true, hasPendingWrites: docs.some((d) => d.hasPendingWrites === true) };
+  const filteredDocs = filterWorkerOfflineQueryDocs(target, docs);
+  return {
+    docs: filteredDocs,
+    fromCache: true,
+    hasPendingWrites: filteredDocs.some((d) => d.hasPendingWrites === true),
+  };
 }
