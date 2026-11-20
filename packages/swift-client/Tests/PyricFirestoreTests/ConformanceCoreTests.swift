@@ -124,11 +124,57 @@ struct ConformanceCoreTests {
     }
 
     @Test func `firestore-swift#15: Firestore.enableNetwork() / disableNetwork() - Toggles client network connectivity to simulate offline and online operation.`() async throws {
-        expectUnverified("Unverified row firestore-swift#15: Network toggling offline cache deferred")
+        let harness = try await ConformanceMockHarness.create()
+        let app = FirebaseApp(name: "core-15-\(UUID().uuidString)")
+        let db = Firestore(bridgeClient: harness.client, app: app)
+
+        try await db.disableNetwork()
+        let writeTask = Task {
+            try await db.document("items/offline-1").setData(["status": "queued"])
+        }
+        try await Task.sleep(nanoseconds: 25_000_000)
+        let localSnap = try await db.document("items/offline-1").getDocument()
+        #expect(localSnap.exists == true)
+        #expect(localSnap.metadata.isFromCache == true)
+        #expect(localSnap.metadata.hasPendingWrites == true)
+        #expect(localSnap.data()?["status"] as? String == "queued")
+        #expect(harness.lastWorkerOp() == nil)
+
+        try await db.enableNetwork()
+        try await writeTask.value
+        let flushedOp = harness.lastWorkerOp()
+        #expect(flushedOp?["method"]?.stringValue == "setDoc")
+        #expect(flushedOp?["path"]?.stringValue == "items/offline-1")
     }
 
     @Test func `firestore-swift#16: Firestore.clearPersistence() - Clears offline client persistence cache when no active listeners exist.`() async throws {
-        expectUnverified("Unverified row firestore-swift#16: Offline persistence clearing deferred")
+        let app = FirebaseApp(name: "core-16-\(UUID().uuidString)")
+        let harness1 = try await ConformanceMockHarness.create()
+        let db1 = Firestore(bridgeClient: harness1.client, app: app)
+
+        try await db1.clearPersistence()
+        _ = try await db1.document("users/alice").getDocument()
+
+        var runningThrewPrecondition = false
+        do {
+            try await db1.clearPersistence()
+        } catch let err as PyricBridgeError {
+            runningThrewPrecondition = (err.code == .failedPrecondition)
+        }
+        #expect(runningThrewPrecondition == true)
+
+        try await db1.terminate()
+        try await db1.clearPersistence()
+
+        let harness2 = try await ConformanceMockHarness.create()
+        let db2 = Firestore(bridgeClient: harness2.client, app: app)
+        var coldCacheThrewUnavailable = false
+        do {
+            _ = try await db2.document("users/alice").getDocument(source: .cache)
+        } catch let err as PyricBridgeError {
+            coldCacheThrewUnavailable = (err.code == .unavailable)
+        }
+        #expect(coldCacheThrewUnavailable == true)
     }
 
     @Test func `firestore-swift#17: Firestore.terminate() - Terminates the client instance and cancels active snapshot listeners.`() async throws {
@@ -139,15 +185,68 @@ struct ConformanceCoreTests {
     }
 
     @Test func `firestore-swift#18: Firestore.waitForPendingWrites() - Awaits backend acknowledgment of all pending local writes.`() async throws {
-        expectUnverified("Unverified row firestore-swift#18: Offline local write queue deferred")
+        let harness = try await ConformanceMockHarness.create()
+        let app = FirebaseApp(name: "core-18-\(UUID().uuidString)")
+        let db = Firestore(bridgeClient: harness.client, app: app)
+
+        try await db.waitForPendingWrites()
+        try await db.disableNetwork()
+        let writeTask = Task {
+            try await db.document("items/pending-1").setData(["v": 1])
+        }
+        try await Task.sleep(nanoseconds: 25_000_000)
+        let waitTask = Task {
+            try await db.waitForPendingWrites()
+            return true
+        }
+        try await db.enableNetwork()
+        try await writeTask.value
+        let resolved = try await waitTask.value
+        #expect(resolved == true)
     }
 
     @Test func `firestore-swift#19: Firestore.addSnapshotsInSyncListener(_:) - Attaches a callback invoked when all active snapshot listeners synchronize.`() async throws {
-        expectUnverified("Unverified row firestore-swift#19: Snapshot sync listener deferred")
+        let harness = try await ConformanceMockHarness.create()
+        let (stream, cont) = AsyncStream<String>.makeStream()
+        let syncReg = harness.firestore.addSnapshotsInSyncListener {
+            cont.yield("sync")
+        }
+        var iter = stream.makeAsyncIterator()
+        let initialSync = await iter.next()
+        #expect(initialSync == "sync")
+
+        let docReg = harness.firestore.document("users/alice").addSnapshotListener { snap, _ in
+            if snap?.exists == true {
+                cont.yield("doc")
+            }
+        }
+        let second = await iter.next()
+        let third = await iter.next()
+        #expect([second, third] == ["doc", "sync"])
+
+        syncReg.remove()
+        docReg.remove()
     }
 
     @Test func `firestore-swift#20: Firestore.loadBundle(_:) - Loads serialized Firestore bundle data into the local cache.`() async throws {
-        expectUnverified("Unverified row firestore-swift#20: Bundle loader deferred")
+        let harness = try await ConformanceMockHarness.create()
+        let app = FirebaseApp(name: "core-20-\(UUID().uuidString)")
+        let db = Firestore(bridgeClient: harness.client, app: app)
+
+        let docMetaJson = "{\"documentMetadata\":{\"exists\":true,\"name\":\"projects/demo/databases/(default)/documents/items/b1\"}}"
+        let docJson = "{\"document\":{\"fields\":{\"title\":{\"stringValue\":\"Bundled Item\"}},\"name\":\"projects/demo/databases/(default)/documents/items/b1\"}}"
+        let body = "\(docMetaJson.utf8.count)\(docMetaJson)\(docJson.utf8.count)\(docJson)"
+        let headerJson = "{\"metadata\":{\"id\":\"b-20\",\"totalBytes\":\(body.utf8.count),\"totalDocuments\":1,\"version\":1}}"
+        let bundle = Data("\(headerJson.utf8.count)\(headerJson)\(body)".utf8)
+
+        let progress = try await db.loadBundle(bundle)
+        #expect(progress.state == .success)
+        #expect(progress.documentsLoaded == 1)
+
+        let cached = try await db.document("items/b1").getDocument(source: .cache)
+        #expect(cached.exists == true)
+        #expect(cached.metadata.isFromCache == true)
+        #expect(cached.data()?["title"] as? String == "Bundled Item")
     }
 
     @Test func `firestore-swift#21: Firestore.getQuery(named:completion:) - Retrieves a named query from a previously loaded Firestore bundle.`() async throws {

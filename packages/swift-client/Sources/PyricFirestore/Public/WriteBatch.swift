@@ -4,6 +4,7 @@ public final class WriteBatch: @unchecked Sendable {
 
     private let firestore: Firestore
     private var stagedWrites: [WriteDescriptor] = []
+    private var stagedMutations: [OfflineWriteMutation] = []
     private var isCommitted: Bool = false
 
     internal init(firestore: Firestore) {
@@ -38,11 +39,20 @@ public final class WriteBatch: @unchecked Sendable {
         do {
             try checkCapacity()
             let encoded = try ValueCodec.encodeWriteData(data)
+            let encodedSendable = AnySendable.from(encoded)
             stagedWrites.append(
                 .set(
                     path: document.path,
-                    data: AnySendable.from(encoded),
+                    data: encodedSendable,
                     options: SetOptionsWire(merge: merge)
+                )
+            )
+            stagedMutations.append(
+                .set(
+                    path: document.path,
+                    encodedData: encodedSendable.dictionaryValue ?? [:],
+                    merge: merge,
+                    mergeFields: nil
                 )
             )
         } catch {
@@ -73,11 +83,20 @@ public final class WriteBatch: @unchecked Sendable {
                 }
             }
             let encoded = try ValueCodec.encodeWriteData(data)
+            let encodedSendable = AnySendable.from(encoded)
             stagedWrites.append(
                 .set(
                     path: document.path,
-                    data: AnySendable.from(encoded),
+                    data: encodedSendable,
                     options: SetOptionsWire(merge: nil, mergeFields: fieldStrings)
+                )
+            )
+            stagedMutations.append(
+                .set(
+                    path: document.path,
+                    encodedData: encodedSendable.dictionaryValue ?? [:],
+                    merge: false,
+                    mergeFields: fieldStrings
                 )
             )
         } catch {
@@ -104,10 +123,17 @@ public final class WriteBatch: @unchecked Sendable {
                 }
             }
             let encoded = try ValueCodec.encodeWriteData(stringDict)
+            let encodedSendable = AnySendable.from(encoded)
             stagedWrites.append(
                 .update(
                     path: document.path,
-                    data: AnySendable.from(encoded)
+                    data: encodedSendable
+                )
+            )
+            stagedMutations.append(
+                .update(
+                    path: document.path,
+                    encodedFields: encodedSendable.dictionaryValue ?? [:]
                 )
             )
         } catch {
@@ -121,6 +147,7 @@ public final class WriteBatch: @unchecked Sendable {
         do {
             try checkCapacity()
             stagedWrites.append(.delete(path: document.path))
+            stagedMutations.append(.delete(path: document.path))
         } catch {
             preconditionFailure("WriteBatch.deleteDocument failed: \(error)")
         }
@@ -130,7 +157,12 @@ public final class WriteBatch: @unchecked Sendable {
     public func commit() async throws {
         try markCommitted()
         let params = PyricBridgeClient.batchCommitParams(writes: stagedWrites)
-        try await firestore.send(turn: firestore.takeTurn(), method: "batchCommit", params: params)
+        try await firestore.send(
+            turn: firestore.takeTurn(),
+            method: "batchCommit",
+            params: params,
+            mutations: stagedMutations
+        )
     }
 
     public func commit(completion: (@Sendable (Error?) -> Void)? = nil) {
@@ -138,11 +170,16 @@ public final class WriteBatch: @unchecked Sendable {
         do {
             try markCommitted()
         } catch {
-            firestore.settings.dispatchQueue.async { completion?(error) }
+            firestore.settings.dispatchCallback { completion?(error) }
             return
         }
         let params = PyricBridgeClient.batchCommitParams(writes: stagedWrites)
-        firestore.sendInCallOrder(method: "batchCommit", params: params, completion: completion)
+        firestore.sendInCallOrder(
+            method: "batchCommit",
+            params: params,
+            mutations: stagedMutations,
+            completion: completion
+        )
     }
 
     private func markCommitted() throws {

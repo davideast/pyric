@@ -107,12 +107,14 @@ public class DocumentSnapshot: @unchecked Sendable {
         let resolvedPath = (wireDict["path"] as? String) ?? path
         let resolvedRef = DocumentReference(firestore: firestore, path: resolvedPath)
         let exists = (wireDict["exists"] as? Bool) ?? true
+        let resolvedPending = (wireDict["hasPendingWrites"] as? Bool) ?? false
+        let resolvedFromCache = isFromCache || ((wireDict["isFromCache"] as? Bool) ?? false)
 
         if !exists && wireDict["exists"] != nil {
             return DocumentSnapshot(
                 firestore: firestore,
                 reference: resolvedRef,
-                metadata: SnapshotMetadata(hasPendingWrites: false, isFromCache: isFromCache),
+                metadata: SnapshotMetadata(hasPendingWrites: resolvedPending, isFromCache: resolvedFromCache),
                 exists: false,
                 rawData: nil
             )
@@ -127,8 +129,8 @@ public class DocumentSnapshot: @unchecked Sendable {
             firestore: firestore,
             reference: resolvedRef,
             metadata: SnapshotMetadata(
-                hasPendingWrites: (wireDict["hasPendingWrites"] as? Bool) ?? false,
-                isFromCache: isFromCache || ((wireDict["isFromCache"] as? Bool) ?? false)
+                hasPendingWrites: resolvedPending,
+                isFromCache: resolvedFromCache
             ),
             exists: true,
             rawData: decoded
