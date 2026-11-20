@@ -1,0 +1,43 @@
+{
+  "name": "firestore-ensure-configured-and-execute-write",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase/firestore ensureFirestoreConfigured(db) idempotent client initialization and post-start/post-terminate failed-precondition guards, plus executeWrite(db, []) synchronous startup transition, Promise return, and synchronous post-terminate failed-precondition throw.",
+  "observedAt": "2026-11-20T03:20:17.747Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "configuredReturn": {
+      "isObject": true,
+      "sameClientOnRepeat": true
+    },
+    "emulatorAfterEnsureConfigured": {
+      "syncThrew": true,
+      "rejected": false,
+      "code": "failed-precondition",
+      "isFirebaseError": true
+    },
+    "executeWriteOnActiveDb": {
+      "syncThrew": false,
+      "returnsPromise": true
+    },
+    "emulatorAfterExecuteWrite": {
+      "syncThrew": true,
+      "rejected": false,
+      "code": "failed-precondition",
+      "isFirebaseError": true
+    },
+    "ensureConfiguredAfterTerminate": {
+      "syncThrew": true,
+      "rejected": false,
+      "code": "failed-precondition",
+      "isFirebaseError": true
+    },
+    "executeWriteAfterTerminate": {
+      "syncThrew": true,
+      "rejected": false,
+      "code": "failed-precondition",
+      "isFirebaseError": true
+    }
+  }
+}
