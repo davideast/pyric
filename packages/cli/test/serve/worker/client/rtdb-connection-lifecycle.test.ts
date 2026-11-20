@@ -272,4 +272,94 @@ describe('RTDB worker connection lifecycle', () => {
     });
     stopControl();
   });
+
+  it('does not emit speculative listener events when a queued onDisconnect write is denied at disconnect time', async () => {
+    const ctx = await makeHostCtx();
+    const { db: writerClient } = connectClientToHost(ctx, 'worker://disconnect-denied-writer');
+    const { db: observerClient } = connectClientToHost(ctx, 'worker://disconnect-denied-observer');
+    const writerDb = client.rtdbGetDatabase(writerClient);
+    const observerDb = client.rtdbGetDatabase(observerClient);
+    await client.setDatabaseRules(writerClient, {
+      rules: {
+        '.read': true,
+        docs: { '.write': true },
+        updates: { '.write': true },
+        removals: { '.write': true },
+        drainControl: { '.write': true },
+      },
+    });
+    await client.rtdbSet(client.rtdbRef(writerDb, 'removals/r1'), 'keep');
+
+    const writerAdded: string[] = [];
+    const observerAdded: string[] = [];
+    const observerDocValues: unknown[] = [];
+    const observerUpdateValues: unknown[] = [];
+    const observerRemovalValues: unknown[] = [];
+    const stopWriterAdded = client.rtdbOnChildAdded(
+      client.rtdbRef(writerDb, 'docs'),
+      (snap) => { if (snap.key !== null) writerAdded.push(snap.key); },
+    );
+    const stopObserverAdded = client.rtdbOnChildAdded(
+      client.rtdbRef(observerDb, 'docs'),
+      (snap) => { if (snap.key !== null) observerAdded.push(snap.key); },
+    );
+    const stopObserverDocValue = client.rtdbOnValue(
+      client.rtdbRef(observerDb, 'docs'),
+      (snap) => { observerDocValues.push(snap.val()); },
+    );
+    const stopObserverUpdateValue = client.rtdbOnValue(
+      client.rtdbRef(observerDb, 'updates'),
+      (snap) => { observerUpdateValues.push(snap.val()); },
+    );
+    const stopObserverRemovalValue = client.rtdbOnValue(
+      client.rtdbRef(observerDb, 'removals'),
+      (snap) => { observerRemovalValues.push(snap.val()); },
+    );
+    await until(
+      () =>
+        observerDocValues.length >= 1
+        && observerUpdateValues.length >= 1
+        && observerRemovalValues.length >= 1,
+      'initial observer snapshots',
+    );
+
+    await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'docs/d1')).set({ a: 'hello', '.priority': 5 });
+    await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'updates')).update({ k1: 'v1' });
+    await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'removals/r1')).remove();
+    await client.rtdbOnDisconnect(client.rtdbRef(writerDb, 'drainControl')).set('drained');
+
+    await client.setDatabaseRules(writerClient, {
+      rules: {
+        '.read': true,
+        docs: { '.write': false },
+        updates: { '.write': false },
+        removals: { '.write': false },
+        drainControl: { '.write': true },
+      },
+    });
+
+    let drained = false;
+    const stopControl = client.rtdbOnValue(client.rtdbRef(observerDb, 'drainControl'), (snap) => {
+      drained = snap.val() === 'drained';
+    });
+    client.rtdbGoOffline(writerDb);
+    await until(() => drained, 'drain control after denied disconnect writes');
+    await client.rtdbGet(client.rtdbRef(observerDb, 'docs'));
+
+    expect(writerAdded).toEqual([]);
+    expect(observerAdded).toEqual([]);
+    expect(observerDocValues).toEqual([null]);
+    expect(observerUpdateValues).toEqual([null]);
+    expect(observerRemovalValues).toEqual([{ r1: 'keep' }]);
+    expect((await client.rtdbGet(client.rtdbRef(observerDb, 'docs'))).val()).toBeNull();
+    expect((await client.rtdbGet(client.rtdbRef(observerDb, 'updates'))).val()).toBeNull();
+    expect((await client.rtdbGet(client.rtdbRef(observerDb, 'removals/r1'))).val()).toBe('keep');
+
+    stopControl();
+    stopWriterAdded();
+    stopObserverAdded();
+    stopObserverDocValue();
+    stopObserverUpdateValue();
+    stopObserverRemovalValue();
+  });
 });

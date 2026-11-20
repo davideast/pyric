@@ -72,4 +72,20 @@ export default scenario(async (app) => {
   await app.step('assert process exit results match server merge semantics', () => {
     assert.deepEqual(onExit.results, EXPECTED);
   });
+
+  const denied = await app.step('register auth-gated onDisconnect, sign out, and goOffline()', async () => {
+    const { output } = await app.serverScript('client.mjs', ['denied-after-signout', 'guarded'], {
+      env: { PYRIC_SANDBOX: `remote:${host.url}` },
+    });
+    const match = output.match(/^RESULT (.*)$/m);
+    const payload = match?.[1];
+    assert.ok(payload !== undefined, `expected RESULT line in:\n${output}`);
+    return JSON.parse(payload) as { sentinel: unknown; added: string[]; stored: unknown };
+  });
+
+  await app.step('assert denied onDisconnect drain emits no speculative child_added events', () => {
+    assert.equal(denied.sentinel, 'drained');
+    assert.deepEqual(denied.added, []);
+    assert.equal(denied.stored, null);
+  });
 });

@@ -32,6 +32,7 @@ import {
 import {
   assertGettablePath,
   DisconnectOperationQueue,
+  executeDisconnectOperation,
   type DisconnectOperation,
 } from 'pyric/database/internal';
 
@@ -273,42 +274,35 @@ export async function drainPortRtdbDisconnects(ctx: HostCtx, port: PortLike, ins
   }
   if (operations.length === 0) return;
   const failures: unknown[] = [];
-  const pending: Promise<unknown>[] = [];
   for (const operation of operations) {
     try {
       const db = lensRtdb(ctx, operation.actAs, port, operation.instance);
-      const target = rtdbRef(db, operation.path);
+      let resolved: DisconnectOperation;
       if (operation.kind === 'update') {
-        pending.push(rtdbUpdate(target, resolveRtdbSentinels(operation.values) as Record<string, unknown>));
+        resolved = {
+          kind: 'update',
+          path: operation.path,
+          values: resolveRtdbSentinels(operation.values) as Record<string, unknown>,
+        };
       } else if (operation.kind === 'remove') {
-        pending.push(rtdbRemove(target));
-      } else if (
-        operation.mergeAfterChildRegistration && operation.value !== null &&
-        typeof operation.value === 'object' && !Array.isArray(operation.value)
-      ) {
-        pending.push(rtdbUpdate(target, resolveRtdbSentinels(operation.value) as Record<string, unknown>));
-        if (operation.priority !== undefined) {
-          pending.push(rtdbSetPriority(target, operation.priority));
-        }
+        resolved = { kind: 'remove', path: operation.path };
       } else if (operation.priority !== undefined) {
-        pending.push(
-          rtdbSetWithPriority(
-            target,
-            resolveRtdbSentinels(operation.value) as never,
-            operation.priority,
-          ),
-        );
+        resolved = {
+          kind: 'set',
+          path: operation.path,
+          value: resolveRtdbSentinels(operation.value),
+          priority: operation.priority,
+        };
       } else {
-        pending.push(rtdbSet(target, resolveRtdbSentinels(operation.value) as never));
+        resolved = {
+          kind: 'set',
+          path: operation.path,
+          value: resolveRtdbSentinels(operation.value),
+        };
       }
+      sdkActivity.silence(() => executeDisconnectOperation(db, resolved));
     } catch (error) {
       failures.push(error);
-    }
-  }
-  const outcomes = await Promise.allSettled(pending);
-  for (const outcome of outcomes) {
-    if (outcome.status === 'rejected') {
-      failures.push(outcome.reason);
     }
   }
   await bestEffortFlush(ctx, 'disconnect');
