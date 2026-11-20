@@ -437,12 +437,16 @@ export function buildQuerySnapshot(
     });
   };
   const docs = docList.map((d) => buildQueryDocumentSnapshot(d.path, d.data, docMetaFor(d.path)));
+  let removedMeta: SnapshotMetadata = SANDBOX_METADATA;
+  if (metadata.fromCache) {
+    removedMeta = Object.freeze({ fromCache: true, hasPendingWrites: false });
+  }
   const changes = computeDocumentChanges(
     prevDocs,
     docList,
     docs,
     (before, after) => firestoreValuesEqual(before.data, after.data),
-    (row) => buildQueryDocumentSnapshot(row.path, row.data, docMetaFor(row.path)),
+    (row) => buildQueryDocumentSnapshot(row.path, row.data, removedMeta),
   );
   let changesWithMetadata: DocumentChange<QueryDocumentSnapshot>[] | undefined;
   if (!options.excludesMetadataChanges) {
@@ -453,7 +457,7 @@ export function buildQuerySnapshot(
       (before, after) =>
         firestoreValuesEqual(before.data, after.data)
         && !(metadataChangedPaths?.has(after.path) ?? false),
-      (row) => buildQueryDocumentSnapshot(row.path, row.data, docMetaFor(row.path)),
+      (row) => buildQueryDocumentSnapshot(row.path, row.data, removedMeta),
     );
   }
   return {

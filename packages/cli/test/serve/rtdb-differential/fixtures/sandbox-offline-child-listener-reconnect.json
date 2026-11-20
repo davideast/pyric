@@ -1,0 +1,22 @@
+{
+  "description": "In-page sandbox child listeners (child_changed, child_removed with nested priority, child_added) must stay synced with online writes before goOffline/goOnline drains onDisconnect writes.",
+  "sequence": {
+    "seed": 9020,
+    "instances": 2,
+    "initialRules": [0, 0],
+    "steps": [
+      { "op": "onDisconnectSet", "db": 1, "path": "rooms/r1", "value": { "a": "offline" } },
+      { "op": "listen", "db": 1, "id": 0, "path": "", "event": "child_changed" },
+      { "op": "set", "db": 1, "path": "rooms/r1", "value": { "a": "online" } },
+      { "op": "reconnect", "db": 1 },
+      { "op": "onDisconnectRemove", "db": 0, "path": "items" },
+      { "op": "set", "db": 0, "path": "items/a", "value": { "n": { "x": 1, ".priority": 5 } } },
+      { "op": "listen", "db": 0, "id": 1, "path": "items", "event": "child_removed" },
+      { "op": "reconnect", "db": 0 },
+      { "op": "onDisconnectUpdate", "db": 0, "path": "users/alice", "values": { "n": 2 } },
+      { "op": "listen", "db": 0, "id": 2, "path": "", "event": "child_added" },
+      { "op": "set", "db": 0, "path": "counters/x", "value": 1 },
+      { "op": "reconnect", "db": 0 }
+    ]
+  }
+}

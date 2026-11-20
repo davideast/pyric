@@ -10,6 +10,9 @@ import {
   get,
   goOffline,
   goOnline,
+  onChildAdded,
+  onChildChanged,
+  onChildRemoved,
   onDisconnect,
   onValue,
   ref,
@@ -510,5 +513,47 @@ describe('onDisconnect app ownership', () => {
     const obsDb = getDatabase(observerApp);
     rtdbSandbox.setDefaultPolicy(obsDb, 'allow');
     expect((await get(ref(obsDb, 'presence/app'))).val()).toBe('offline');
+  });
+
+  it('delivers accurate child_changed, child_removed (with nested priority), and non-duplicate child_added across goOffline and goOnline', async () => {
+    const sandbox = initializeSandbox();
+    const db = getDatabase(sandbox);
+    rtdbSandbox.setDefaultPolicy(db, 'allow');
+
+    // 1. child_changed after online write + onDisconnectSet + reconnect.
+    const changed: Array<{ key: string | null; val: unknown }> = [];
+    await onDisconnect(ref(db, 'rooms/r1')).set({ status: 'offline' });
+    const stopChanged = onChildChanged(ref(db), (snap) => {
+      changed.push({ key: snap.key, val: snap.val() });
+    });
+    await set(ref(db, 'rooms/r1'), { status: 'online' });
+    goOffline(db);
+    goOnline(db);
+    stopChanged();
+    expect(changed).toEqual([{ key: 'rooms', val: { r1: { status: 'offline' } } }]);
+
+    // 2. child_removed preserves nested priorities across onDisconnectRemove + reconnect.
+    const removed: Array<{ key: string | null; exportVal: unknown }> = [];
+    await onDisconnect(ref(db, 'items')).remove();
+    await set(ref(db, 'items/m1'), { child: { n: 1, '.priority': 5 } });
+    const stopRemoved = onChildRemoved(ref(db, 'items'), (snap) => {
+      removed.push({ key: snap.key, exportVal: snap.exportVal() });
+    });
+    goOffline(db);
+    goOnline(db);
+    stopRemoved();
+    expect(removed).toEqual([{ key: 'm1', exportVal: { child: { n: 1, '.priority': 5 } } }]);
+
+    // 3. child_added does not duplicate children written online before reconnect.
+    const addedKeys: Array<string | null> = [];
+    await onDisconnect(ref(db, 'users/alice')).update({ n: 2 });
+    const stopAdded = onChildAdded(ref(db), (snap) => {
+      addedKeys.push(snap.key);
+    });
+    await set(ref(db, 'counters/x'), 1);
+    goOffline(db);
+    goOnline(db);
+    stopAdded();
+    expect(addedKeys).toEqual(['rooms', 'counters', 'users']);
   });
 });

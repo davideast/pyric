@@ -2,6 +2,8 @@ import { describe, expect, it } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import { setRules } from 'pyric/sandbox/firestore';
 import {
+  collection,
+  deleteDoc,
   doc,
   disableNetwork,
   enableNetwork,
@@ -12,6 +14,7 @@ import {
   Timestamp,
   updateDoc,
   type DocumentSnapshot,
+  type QuerySnapshot,
 } from 'pyric/firestore';
 
 const OPEN_RULES = `rules_version = '2';
@@ -113,5 +116,33 @@ describe('pending serverTimestamp options and offline client overlay', () => {
       'snap:true:true:true',
       'err:permission-denied',
     ]);
+  });
+
+  it('preserves settled serverTimestamp values in removed query docChanges', async () => {
+    const sandbox = initializeSandbox();
+    setRules(sandbox, OPEN_RULES);
+    const db = getFirestore(sandbox.withAuth({ uid: 'u1' }));
+    const itemRef = doc(db, 'items/item-2');
+    await setDoc(itemRef, { meta: { stamped: serverTimestamp() }, n: 1 });
+
+    const removedStamps: unknown[] = [];
+    const stop = onSnapshot(collection(db, 'items'), (raw) => {
+      const snap = raw as QuerySnapshot;
+      for (const change of snap.docChanges()) {
+        if (change.type === 'removed') {
+          const data = change.doc.data() as { meta?: { stamped?: unknown } };
+          removedStamps.push(data.meta?.stamped);
+        }
+      }
+    });
+
+    await flushMicrotasks();
+    await deleteDoc(itemRef);
+    await flushMicrotasks();
+    stop();
+    sandbox.dispose();
+
+    expect(removedStamps).toHaveLength(1);
+    expect(removedStamps[0]).toBeInstanceOf(Timestamp);
   });
 });

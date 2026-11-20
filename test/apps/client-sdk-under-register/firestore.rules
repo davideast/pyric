@@ -5,5 +5,9 @@ service cloud.firestore {
       allow read, write: if true;
       match /{subcollection}/{docId} { allow read, write: if true; }
     }
+    match /writeOnly/{docId} {
+      allow write: if true;
+      allow read: if false;
+    }
   }
 }

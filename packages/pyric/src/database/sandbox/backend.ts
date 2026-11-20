@@ -65,6 +65,10 @@ export class RtdbBackend {
   invalidateConnectionQueues(): void { this.state.resetGeneration += 1; }
 
   getPriority(path: string): Priority { return this.state.priorities.get(path); }
+  readPath(path: string): JsonValue { return this.state.tree.read(path); }
+  snapshotPriorities(): Map<string, Exclude<Priority, null>> {
+    return this.pendingWrites.readCommitted(() => this.state.priorities.snapshotMap());
+  }
   setData(seed: Record<string, JsonValue>): void {
     this.pendingWrites.clear();
     this.writes.setData(seed);

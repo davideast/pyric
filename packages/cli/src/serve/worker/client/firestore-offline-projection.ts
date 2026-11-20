@@ -27,6 +27,8 @@ export type WorkerOfflineMutation =
   | { readonly kind: 'update'; readonly path: string; readonly fields: readonly UpdateFieldDescriptor[] }
   | { readonly kind: 'delete'; readonly path: string };
 
+const DELETE_SENTINEL: unique symbol = Symbol('worker-offline-delete');
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -37,6 +39,135 @@ function isSentinel(value: unknown, kind: string): boolean {
 
 function isEscapedMap(value: Record<string, unknown>): value is { type: 'pyric/map/1.0'; fields: Record<string, unknown> } {
   return value.type === 'pyric/map/1.0' && isRecord(value.fields);
+}
+
+function isEncodedTimestamp(value: Record<string, unknown>): boolean {
+  if (
+    value.__type === 'timestamp'
+    && Object.keys(value).length === 3
+    && Object.hasOwn(value, 'seconds')
+    && Object.hasOwn(value, 'nanos')
+  ) {
+    return true;
+  }
+  return (
+    value.type === 'firestore/timestamp/1.0'
+    && Object.keys(value).length === 3
+    && Object.hasOwn(value, 'seconds')
+    && Object.hasOwn(value, 'nanoseconds')
+  );
+}
+
+function truncateEncodedTimestamp(value: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (
+    value.__type === 'timestamp'
+    && Object.keys(value).length === 3
+    && Object.hasOwn(value, 'seconds')
+    && Object.hasOwn(value, 'nanos')
+    && typeof value.nanos === 'number'
+  ) {
+    return {
+      __type: 'timestamp',
+      seconds: value.seconds,
+      nanos: Math.floor(value.nanos / 1_000) * 1_000,
+    };
+  }
+  if (
+    value.type === 'firestore/timestamp/1.0'
+    && Object.keys(value).length === 3
+    && Object.hasOwn(value, 'seconds')
+    && Object.hasOwn(value, 'nanoseconds')
+    && typeof value.nanoseconds === 'number'
+  ) {
+    return {
+      type: 'firestore/timestamp/1.0',
+      seconds: value.seconds,
+      nanoseconds: Math.floor(value.nanoseconds / 1_000) * 1_000,
+    };
+  }
+  return undefined;
+}
+
+function isEncodedScalar(value: Record<string, unknown>): boolean {
+  if (value.__type__ === '__vector__' && Array.isArray(value.value)) return true;
+  if (typeof value.__type === 'string') {
+    if (value.__type === 'timestamp') return isEncodedTimestamp(value);
+    if (
+      value.__type === 'bytes'
+      || value.__type === 'latlng'
+      || value.__type === 'duration'
+      || value.__type === 'reference'
+      || value.__type === 'path'
+      || value.__type === 'number'
+    ) {
+      return true;
+    }
+  }
+  if (typeof value.type === 'string') {
+    if (value.type === 'firestore/timestamp/1.0') return isEncodedTimestamp(value);
+    if (
+      value.type === 'firestore/bytes/1.0'
+      || value.type === 'firestore/geoPoint/1.0'
+      || value.type === 'firestore/vectorValue/1.0'
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function unwrapEncodedMap(value: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(value)) return undefined;
+  if (isEscapedMap(value)) return value.fields;
+  if (isEncodedScalar(value)) return undefined;
+  return value;
+}
+
+function defineOwnField(target: Record<string, unknown>, key: string, value: unknown): void {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  });
+}
+
+function copyOwnFields(fields: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(fields)) {
+    defineOwnField(out, k, v);
+  }
+  return out;
+}
+
+function wrapEncodedMap(fields: Record<string, unknown>): Record<string, unknown> {
+  const hasMarkerField = Object.hasOwn(fields, 'type')
+    || Object.hasOwn(fields, '__type')
+    || Object.hasOwn(fields, '__type__')
+    || Object.hasOwn(fields, '_methodName')
+    || Object.hasOwn(fields, 'typeName')
+    || (Object.hasOwn(fields, 'id') && Object.hasOwn(fields, 'path'));
+  if (hasMarkerField) return { type: 'pyric/map/1.0', fields };
+  return fields;
+}
+
+function decodeEncodedNumber(value: unknown): number | undefined {
+  if (typeof value === 'number') return value;
+  if (isRecord(value) && value.__type === 'number') {
+    if (value.value === 'NaN') return Number.NaN;
+    if (value.value === 'Infinity') return Infinity;
+    if (value.value === '-Infinity') return -Infinity;
+    if (value.value === '-0') return -0;
+  }
+  return undefined;
+}
+
+function encodeNumberResult(value: number): unknown {
+  if (Number.isNaN(value)) return { __type: 'number', value: 'NaN' };
+  if (value === Infinity) return { __type: 'number', value: 'Infinity' };
+  if (value === -Infinity) return { __type: 'number', value: '-Infinity' };
+  if (Object.is(value, -0)) return { __type: 'number', value: '-0' };
+  return value;
 }
 
 function lastSegment(path: string): string {
@@ -62,30 +193,74 @@ function readEncodedAt(root: Record<string, unknown> | null, segments: readonly 
   if (root === null) return { found: false, value: null };
   let cur: unknown = root;
   for (const seg of segments) {
-    if (!isRecord(cur)) return { found: false, value: null };
-    let fields: Record<string, unknown> = cur;
-    if (isEscapedMap(cur)) fields = cur.fields;
-    if (!Object.hasOwn(fields, seg)) return { found: false, value: null };
+    const fields = unwrapEncodedMap(cur);
+    if (fields === undefined || !Object.hasOwn(fields, seg)) return { found: false, value: null };
     cur = fields[seg];
   }
   if (cur === undefined) return { found: false, value: null };
   return { found: true, value: cur };
 }
 
+function stripDeleteSentinels(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripDeleteSentinels);
+  const fields = unwrapEncodedMap(value);
+  if (fields === undefined) return value;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(fields)) {
+    if (v === DELETE_SENTINEL || isSentinel(v, 'deleteField')) continue;
+    defineOwnField(out, k, stripDeleteSentinels(v));
+  }
+  return wrapEncodedMap(out);
+}
+
 function setEncodedField(root: Record<string, unknown>, segments: readonly string[], value: unknown): Record<string, unknown> {
   const head = segments[0];
   if (head === undefined) return root;
-  if (isEscapedMap(root)) return { type: 'pyric/map/1.0', fields: setEncodedField(root.fields, segments, value) };
-  const out: Record<string, unknown> = { ...root };
+  const fields = unwrapEncodedMap(root) ?? {};
+  const out = copyOwnFields(fields);
   if (segments.length === 1) {
-    if (isSentinel(value, 'deleteField') || value === undefined) delete out[head];
-    else out[head] = value;
-    return out;
+    if (value === DELETE_SENTINEL || isSentinel(value, 'deleteField') || value === undefined) {
+      delete out[head];
+    } else {
+      defineOwnField(out, head, stripDeleteSentinels(value));
+    }
+    return wrapEncodedMap(out);
   }
   let nextChild: Record<string, unknown> = {};
-  if (isRecord(out[head])) nextChild = out[head] as Record<string, unknown>;
-  out[head] = setEncodedField(nextChild, segments.slice(1), value);
-  return out;
+  if (Object.hasOwn(out, head)) {
+    const existingFields = unwrapEncodedMap(out[head]);
+    if (existingFields !== undefined) nextChild = out[head] as Record<string, unknown>;
+  }
+  defineOwnField(out, head, setEncodedField(nextChild, segments.slice(1), value));
+  return wrapEncodedMap(out);
+}
+
+function mergeEncodedMaps(base: Record<string, unknown>, incoming: Record<string, unknown>): Record<string, unknown> {
+  const baseFields = unwrapEncodedMap(base) ?? {};
+  const incomingFields = unwrapEncodedMap(incoming) ?? {};
+  const out = copyOwnFields(baseFields);
+  for (const [k, v] of Object.entries(incomingFields)) {
+    if (v === DELETE_SENTINEL || isSentinel(v, 'deleteField')) {
+      delete out[k];
+      continue;
+    }
+    const incomingChildFields = unwrapEncodedMap(v);
+    if (incomingChildFields !== undefined) {
+      if (Object.keys(incomingChildFields).length === 0) {
+        defineOwnField(out, k, {});
+        continue;
+      }
+      const existing = Object.hasOwn(out, k) ? out[k] : undefined;
+      if (existing !== undefined && unwrapEncodedMap(existing) !== undefined) {
+        defineOwnField(out, k, mergeEncodedMaps(existing as Record<string, unknown>, v as Record<string, unknown>));
+      } else {
+        defineOwnField(out, k, stripDeleteSentinels(v));
+      }
+      continue;
+    }
+    defineOwnField(out, k, v);
+  }
+  return wrapEncodedMap(out);
 }
 
 function encodedValuesEqual(a: unknown, b: unknown): boolean {
@@ -100,10 +275,16 @@ function resolveEncodedSentinels(
   prefix: readonly string[],
   nowSeconds: number,
   tsPaths: Array<readonly string[]>,
+  keepDeletes: boolean,
 ): unknown {
   if (!isRecord(node)) {
-    if (Array.isArray(node)) return node.map((el) => resolveEncodedSentinels(el, priorRoot, [], nowSeconds, tsPaths));
+    if (Array.isArray(node)) {
+      return node.map((el) => resolveEncodedSentinels(el, priorRoot, [], nowSeconds, tsPaths, false));
+    }
     return node;
+  }
+  if (isSentinel(node, 'deleteField')) {
+    return DELETE_SENTINEL;
   }
   if (isSentinel(node, 'serverTimestamp')) {
     tsPaths.push(prefix);
@@ -111,11 +292,9 @@ function resolveEncodedSentinels(
   }
   if (isSentinel(node, 'increment')) {
     const prevVal = readEncodedAt(priorRoot, prefix).value;
-    let addend = 0;
-    if (typeof node.n === 'number') addend = node.n;
-    let base = 0;
-    if (typeof prevVal === 'number') base = prevVal;
-    return base + addend;
+    const addend = decodeEncodedNumber(node.n) ?? 0;
+    const base = decodeEncodedNumber(prevVal) ?? 0;
+    return encodeNumberResult(base + addend);
   }
   if (isSentinel(node, 'arrayUnion')) {
     const prevVal = readEncodedAt(priorRoot, prefix).value;
@@ -125,7 +304,7 @@ function resolveEncodedSentinels(
     }
     if (Array.isArray(node.values)) {
       for (const rawItem of node.values) {
-        const resolvedItem = resolveEncodedSentinels(rawItem, priorRoot, [], nowSeconds, tsPaths);
+        const resolvedItem = resolveEncodedSentinels(rawItem, priorRoot, [], nowSeconds, tsPaths, false);
         if (!result.some((existing) => encodedValuesEqual(existing, resolvedItem))) {
           result.push(resolvedItem);
         }
@@ -139,21 +318,29 @@ function resolveEncodedSentinels(
     const removals: unknown[] = [];
     if (Array.isArray(node.values)) {
       for (const rawItem of node.values) {
-        removals.push(resolveEncodedSentinels(rawItem, priorRoot, [], nowSeconds, tsPaths));
+        removals.push(resolveEncodedSentinels(rawItem, priorRoot, [], nowSeconds, tsPaths, false));
       }
     }
     return prevVal.filter((existing) => !removals.some((rem) => encodedValuesEqual(existing, rem)));
   }
-  if (isEscapedMap(node)) {
-    const fields = resolveEncodedSentinels(node.fields, priorRoot, prefix, nowSeconds, tsPaths) as Record<string, unknown>;
-    return { type: 'pyric/map/1.0', fields };
+  const truncatedTs = truncateEncodedTimestamp(node);
+  if (truncatedTs !== undefined) {
+    return truncatedTs;
   }
+  if (isEncodedScalar(node)) {
+    return node;
+  }
+  const fields = unwrapEncodedMap(node);
+  if (fields === undefined) return node;
   const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(node)) {
-    if (isSentinel(v, 'deleteField')) continue;
-    out[k] = resolveEncodedSentinels(v, priorRoot, [...prefix, k], nowSeconds, tsPaths);
+  for (const [k, v] of Object.entries(fields)) {
+    if (isSentinel(v, 'deleteField')) {
+      if (keepDeletes) defineOwnField(out, k, DELETE_SENTINEL);
+      continue;
+    }
+    defineOwnField(out, k, resolveEncodedSentinels(v, priorRoot, [...prefix, k], nowSeconds, tsPaths, keepDeletes));
   }
-  return out;
+  return wrapEncodedMap(out);
 }
 
 function buildVariants(
@@ -195,10 +382,14 @@ export function projectWorkerOfflineDoc(
       if (m.kind === 'update') {
         if (current === null) continue;
         const prior = current;
-        let nextObj: Record<string, unknown> = { ...current };
+        let nextObj: Record<string, unknown> = current;
         const tsPaths: Array<readonly string[]> = [];
         for (const field of m.fields) {
-          nextObj = setEncodedField(nextObj, field.path, resolveEncodedSentinels(field.value, prior, field.path, nowSeconds, tsPaths));
+          nextObj = setEncodedField(
+            nextObj,
+            field.path,
+            resolveEncodedSentinels(field.value, prior, field.path, nowSeconds, tsPaths, false),
+          );
         }
         current = nextObj;
         serverTimestampVariants = buildVariants(nextObj, prior, tsPaths);
@@ -212,18 +403,25 @@ export function projectWorkerOfflineDoc(
       let priorForSet: Record<string, unknown> | null = null;
       if (isMerge) priorForSet = current;
       let tsPaths: Array<readonly string[]> = [];
-      let resolved = resolveEncodedSentinels(incoming, priorForSet, [], nowSeconds, tsPaths) as Record<string, unknown>;
-      if (isMergeAll && current !== null) {
-        resolved = { ...current, ...resolved };
-      } else if (!isMergeAll && mergeFields !== undefined) {
+      let resolved = resolveEncodedSentinels(incoming, priorForSet, [], nowSeconds, tsPaths, isMerge) as Record<string, unknown>;
+      if (isMergeAll) {
+        if (current !== null) {
+          resolved = mergeEncodedMaps(current, resolved);
+        } else {
+          resolved = stripDeleteSentinels(resolved) as Record<string, unknown>;
+        }
+      } else if (mergeFields !== undefined) {
         const masks = mergeFields.map(fieldPathKeySegments);
         tsPaths = tsPaths.filter((cand) => masks.some((mask) => mask.length <= cand.length && mask.every((s, i) => cand[i] === s)));
         let masked: Record<string, unknown> = {};
-        if (current !== null) masked = { ...current };
+        if (current !== null) masked = current;
         for (const mask of masks) {
           const picked = readEncodedAt(resolved, mask);
-          if (picked.found) masked = setEncodedField(masked, mask, picked.value);
-          else masked = setEncodedField(masked, mask, undefined);
+          if (picked.found && picked.value !== DELETE_SENTINEL) {
+            masked = setEncodedField(masked, mask, stripDeleteSentinels(picked.value));
+          } else {
+            masked = setEncodedField(masked, mask, undefined);
+          }
         }
         resolved = masked;
       }

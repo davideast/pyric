@@ -127,6 +127,23 @@ export default scenario(async (app) => {
     });
   });
 
+  await app.step('hosted Firestore warmed-cache merges and removed serverTimestamps match sandbox parity', () => {
+    expectOk(client, 'firestore.warmedCacheMerge', {
+      snap: {
+        type: 'custom',
+        label: 'merged',
+        meta: { a: 1, b: 2 },
+        stampedSeconds: 1_600_000_000,
+        stampedNanos: 999_999_000,
+      },
+      errorCode: 'permission-denied',
+    });
+    expectOk(client, 'firestore.removedServerTimestamp', {
+      id: 'b',
+      isTimestamp: true,
+    });
+  });
+
   await app.step("the host's rules apply as the process's signed-in user", () => {
     assert.equal(outcome(client, 'auth.createUser').ok, true, client);
     expectOk(client, 'database.ownPath', null);

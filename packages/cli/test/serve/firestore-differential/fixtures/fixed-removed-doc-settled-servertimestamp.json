@@ -1,0 +1,43 @@
+{
+  "sequence": {
+    "seed": 9011,
+    "initialRules": 0,
+    "steps": [
+      {
+        "op": "listenQuery",
+        "db": 0,
+        "id": 0,
+        "query": {
+          "source": { "kind": "collection", "path": "items" },
+          "orderBy": [{ "field": "n", "dir": "asc" }],
+          "limit": 1
+        }
+      },
+      {
+        "op": "setDoc",
+        "db": 0,
+        "path": "items/i2",
+        "data": {
+          "$map": [
+            ["n", 5],
+            ["meta", { "$map": [["stamped", { "$serverTs": true }]] }]
+          ]
+        },
+        "mode": { "kind": "replace" }
+      },
+      {
+        "op": "setDoc",
+        "db": 0,
+        "path": "items/i1",
+        "data": {
+          "$map": [
+            ["n", 2],
+            ["meta", { "$map": [["stamped", { "$serverTs": true }]] }]
+          ]
+        },
+        "mode": { "kind": "replace" }
+      },
+      { "op": "deleteDoc", "db": 0, "path": "items/i1" }
+    ]
+  }
+}
