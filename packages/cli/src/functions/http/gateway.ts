@@ -38,9 +38,10 @@ export type FunctionsHttpState =
   | { kind: 'stopped' }
   | { kind: 'ready'; http: FunctionsChildHttpReady | null };
 
-/** One request a function served, as both planes log it (functions-http#21). */
+/** One request a function served, as both planes log it (functions-http#21, functions-callable#23). */
 export interface FunctionsHttpRecord {
   exportName: string;
+  kind?: 'http' | 'callable';
   method: string;
   /** The path and query the function saw. */
   path: string;
@@ -256,14 +257,22 @@ export function createFunctionsHttpGateway(options: FunctionsHttpGatewayOptions)
         timeoutMessage: timeoutMessage(resolved.fn.exportName, timeout),
         ...(headerOverrides ? { headerOverrides } : {}),
       });
-      options.onServed?.({
-        exportName: resolved.fn.exportName,
-        method: req.method ?? 'GET',
-        path: resolved.forwardUrl,
-        status: outcome.status,
-        timedOut: outcome.timedOut,
-        durationMs: Date.now() - startedAt,
-      });
+      const method = req.method ?? 'GET';
+      const isCallablePreflight = resolved.fn.kind === 'callable' && method === 'OPTIONS';
+      if (!isCallablePreflight) {
+        const record: FunctionsHttpRecord = {
+          exportName: resolved.fn.exportName,
+          method,
+          path: resolved.forwardUrl,
+          status: outcome.status,
+          timedOut: outcome.timedOut,
+          durationMs: Date.now() - startedAt,
+        };
+        if (resolved.fn.kind === 'callable') {
+          record.kind = 'callable';
+        }
+        options.onServed?.(record);
+      }
       return true;
     },
   };

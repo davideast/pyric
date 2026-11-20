@@ -14,6 +14,8 @@ export const DEFAULT_REGION = 'us-central1';
 /** What the host needs to route to one function; it crosses IPC, so it is plain data. */
 export interface HttpFunctionInfo {
   exportName: string;
+  /** Trigger kind when served on the HTTP listener; omitted defaults to `'http'`. */
+  kind?: 'http' | 'callable';
   /** Every region the function deploys to; it answers under each. */
   regions: string[];
   platform: 'gcfv1' | 'gcfv2';

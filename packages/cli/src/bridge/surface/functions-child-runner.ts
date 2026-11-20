@@ -9,6 +9,7 @@
  */
 import { REMOTE_SANDBOX_FACTORY, initializeSandbox } from 'pyric/sandbox';
 import { LAZY_DEFAULT_AMBIENT_APP } from 'pyric/sandbox/internal';
+import { callableOnCallFamily } from '../../functions/callable/discovery.js';
 import { httpOnRequestFamily } from '../../functions/http/discovery.js';
 import { loadFunctionsModuleExports } from '../../functions/module-loader.js';
 import { serveInstanceAsDefault } from '../../functions/rtdb/child-runtime.js';
@@ -121,7 +122,11 @@ async function handleRunnerRequest(req: FunctionsRunnerRequest): Promise<void> {
   try {
     const exported = await loadFunctionsModuleExports(req.entry);
     const inspected = inspectOnValueCreated(exported);
-    const unsupported = findUnsupportedTriggers(exported, [rtdbCreatedFamily, httpOnRequestFamily]);
+    const unsupported = findUnsupportedTriggers(exported, [
+      rtdbCreatedFamily,
+      httpOnRequestFamily,
+      callableOnCallFamily,
+    ]);
 
     if (req.type === 'discover') {
       await sendReply({
