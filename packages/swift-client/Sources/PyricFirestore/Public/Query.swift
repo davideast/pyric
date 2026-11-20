@@ -1,11 +1,18 @@
 import Foundation
 
+internal struct SnapshotCursorSpec: @unchecked Sendable {
+    let inclusive: Bool
+    let snapshot: DocumentSnapshot
+}
+
 public class Query: @unchecked Sendable {
 
     public let firestore: Firestore
     public let rootSource: TargetDescriptor
     public let path: String
     public let constraints: [QueryConstraintDescriptor]
+    internal let startSnapshotCursor: SnapshotCursorSpec?
+    internal let endSnapshotCursor: SnapshotCursorSpec?
 
     public var isCollectionGroup: Bool {
         if case .group = rootSource { return true }
@@ -33,9 +40,27 @@ public class Query: @unchecked Sendable {
         self.rootSource = rootSource
         self.path = path
         self.constraints = constraints
+        self.startSnapshotCursor = nil
+        self.endSnapshotCursor = nil
     }
 
-    // ── Internal Functional Derivation ───────────────────────────────────────
+    internal init(
+        firestore: Firestore,
+        rootSource: TargetDescriptor,
+        path: String,
+        constraints: [QueryConstraintDescriptor],
+        startSnapshotCursor: SnapshotCursorSpec?,
+        endSnapshotCursor: SnapshotCursorSpec?
+    ) {
+        self.firestore = firestore
+        self.rootSource = rootSource
+        self.path = path
+        self.constraints = constraints
+        self.startSnapshotCursor = startSnapshotCursor
+        self.endSnapshotCursor = endSnapshotCursor
+    }
+
+    // -- Internal Functional Derivation --
 
     internal func copyWithConstraint(_ constraint: QueryConstraintDescriptor) -> Query {
         var updated = self.constraints
@@ -44,7 +69,9 @@ public class Query: @unchecked Sendable {
             firestore: self.firestore,
             rootSource: self.rootSource,
             path: self.path,
-            constraints: updated
+            constraints: updated,
+            startSnapshotCursor: self.startSnapshotCursor,
+            endSnapshotCursor: self.endSnapshotCursor
         )
     }
 
@@ -67,11 +94,40 @@ public class Query: @unchecked Sendable {
         if let newConstraint {
             updated.append(newConstraint)
         }
+        let nextStartSnapshot = (kind == "start") ? nil : self.startSnapshotCursor
+        let nextEndSnapshot = (kind == "end") ? nil : self.endSnapshotCursor
         return Query(
             firestore: self.firestore,
             rootSource: self.rootSource,
             path: self.path,
-            constraints: updated
+            constraints: updated,
+            startSnapshotCursor: nextStartSnapshot,
+            endSnapshotCursor: nextEndSnapshot
+        )
+    }
+
+    internal func copyReplacingSnapshotCursor(
+        isStart: Bool,
+        spec: SnapshotCursorSpec
+    ) -> Query {
+        let kind = isStart ? "start" : "end"
+        let updated = self.constraints.filter { descriptor in
+            switch (descriptor, kind) {
+            case (.startAt, "start"), (.startAfter, "start"):
+                return false
+            case (.endAt, "end"), (.endBefore, "end"):
+                return false
+            default:
+                return true
+            }
+        }
+        return Query(
+            firestore: self.firestore,
+            rootSource: self.rootSource,
+            path: self.path,
+            constraints: updated,
+            startSnapshotCursor: isStart ? spec : self.startSnapshotCursor,
+            endSnapshotCursor: isStart ? self.endSnapshotCursor : spec
         )
     }
 
@@ -79,110 +135,146 @@ public class Query: @unchecked Sendable {
         (try? QueryCompiler.compile(query: self)) ?? rootSource
     }
 
-    // ── Filter Methods ───────────────────────────────────────────────────────
+    private func makeFieldWhereConstraint(
+        field: String,
+        segments: [String]?,
+        op: String,
+        encoded: AnySendable
+    ) -> Query {
+        precondition(!field.isEmpty, "Field path must not be empty.")
+        let explicitSegments = (segments?.contains { $0.contains(".") } == true) ? segments : nil
+        return copyWithConstraint(.where(field: field, fieldSegments: explicitSegments, op: op, value: encoded))
+    }
+
+    // -- Filter Methods --
 
     public func whereField(_ field: String, isEqualTo value: Any) -> Query {
-        whereField(FieldPath(field: field), isEqualTo: value)
+        let encoded = AnySendable.from(try? ValueCodec.encodeValue(value))
+        return makeFieldWhereConstraint(field: field, segments: nil, op: "==", encoded: encoded)
     }
 
     public func whereField(_ path: FieldPath, isEqualTo value: Any) -> Query {
         let encoded = AnySendable.from(try? ValueCodec.encodeValue(value))
-        return copyWithConstraint(.where(field: path.stringValue, op: "==", value: encoded))
+        return makeFieldWhereConstraint(field: path.stringValue, segments: path.segments, op: "==", encoded: encoded)
     }
 
     public func whereField(_ field: String, isNotEqualTo value: Any) -> Query {
-        whereField(FieldPath(field: field), isNotEqualTo: value)
+        let encoded = AnySendable.from(try? ValueCodec.encodeValue(value))
+        return makeFieldWhereConstraint(field: field, segments: nil, op: "!=", encoded: encoded)
     }
 
     public func whereField(_ path: FieldPath, isNotEqualTo value: Any) -> Query {
         let encoded = AnySendable.from(try? ValueCodec.encodeValue(value))
-        return copyWithConstraint(.where(field: path.stringValue, op: "!=", value: encoded))
+        return makeFieldWhereConstraint(field: path.stringValue, segments: path.segments, op: "!=", encoded: encoded)
     }
 
     public func whereField(_ field: String, isLessThan value: Any) -> Query {
-        whereField(FieldPath(field: field), isLessThan: value)
+        let encoded = AnySendable.from(try? ValueCodec.encodeValue(value))
+        return makeFieldWhereConstraint(field: field, segments: nil, op: "<", encoded: encoded)
     }
 
     public func whereField(_ path: FieldPath, isLessThan value: Any) -> Query {
         let encoded = AnySendable.from(try? ValueCodec.encodeValue(value))
-        return copyWithConstraint(.where(field: path.stringValue, op: "<", value: encoded))
+        return makeFieldWhereConstraint(field: path.stringValue, segments: path.segments, op: "<", encoded: encoded)
     }
 
     public func whereField(_ field: String, isLessThanOrEqualTo value: Any) -> Query {
-        whereField(FieldPath(field: field), isLessThanOrEqualTo: value)
+        let encoded = AnySendable.from(try? ValueCodec.encodeValue(value))
+        return makeFieldWhereConstraint(field: field, segments: nil, op: "<=", encoded: encoded)
     }
 
     public func whereField(_ path: FieldPath, isLessThanOrEqualTo value: Any) -> Query {
         let encoded = AnySendable.from(try? ValueCodec.encodeValue(value))
-        return copyWithConstraint(.where(field: path.stringValue, op: "<=", value: encoded))
+        return makeFieldWhereConstraint(field: path.stringValue, segments: path.segments, op: "<=", encoded: encoded)
     }
 
     public func whereField(_ field: String, isGreaterThan value: Any) -> Query {
-        whereField(FieldPath(field: field), isGreaterThan: value)
+        let encoded = AnySendable.from(try? ValueCodec.encodeValue(value))
+        return makeFieldWhereConstraint(field: field, segments: nil, op: ">", encoded: encoded)
     }
 
     public func whereField(_ path: FieldPath, isGreaterThan value: Any) -> Query {
         let encoded = AnySendable.from(try? ValueCodec.encodeValue(value))
-        return copyWithConstraint(.where(field: path.stringValue, op: ">", value: encoded))
+        return makeFieldWhereConstraint(field: path.stringValue, segments: path.segments, op: ">", encoded: encoded)
     }
 
     public func whereField(_ field: String, isGreaterThanOrEqualTo value: Any) -> Query {
-        whereField(FieldPath(field: field), isGreaterThanOrEqualTo: value)
+        let encoded = AnySendable.from(try? ValueCodec.encodeValue(value))
+        return makeFieldWhereConstraint(field: field, segments: nil, op: ">=", encoded: encoded)
     }
 
     public func whereField(_ path: FieldPath, isGreaterThanOrEqualTo value: Any) -> Query {
         let encoded = AnySendable.from(try? ValueCodec.encodeValue(value))
-        return copyWithConstraint(.where(field: path.stringValue, op: ">=", value: encoded))
+        return makeFieldWhereConstraint(field: path.stringValue, segments: path.segments, op: ">=", encoded: encoded)
     }
 
     public func whereField(_ field: String, arrayContains value: Any) -> Query {
-        whereField(FieldPath(field: field), arrayContains: value)
+        let encoded = AnySendable.from(try? ValueCodec.encodeValue(value))
+        return makeFieldWhereConstraint(field: field, segments: nil, op: "array-contains", encoded: encoded)
     }
 
     public func whereField(_ path: FieldPath, arrayContains value: Any) -> Query {
         let encoded = AnySendable.from(try? ValueCodec.encodeValue(value))
-        return copyWithConstraint(.where(field: path.stringValue, op: "array-contains", value: encoded))
+        return makeFieldWhereConstraint(field: path.stringValue, segments: path.segments, op: "array-contains", encoded: encoded)
     }
 
     public func whereField(_ field: String, arrayContainsAny values: [Any]) -> Query {
-        whereField(FieldPath(field: field), arrayContainsAny: values)
+        let encoded = AnySendable.from(try? ValueCodec.encodeValue(values))
+        return makeFieldWhereConstraint(field: field, segments: nil, op: "array-contains-any", encoded: encoded)
     }
 
     public func whereField(_ path: FieldPath, arrayContainsAny values: [Any]) -> Query {
         let encoded = AnySendable.from(try? ValueCodec.encodeValue(values))
-        return copyWithConstraint(.where(field: path.stringValue, op: "array-contains-any", value: encoded))
+        return makeFieldWhereConstraint(field: path.stringValue, segments: path.segments, op: "array-contains-any", encoded: encoded)
     }
 
     public func whereField(_ field: String, in values: [Any]) -> Query {
-        whereField(FieldPath(field: field), in: values)
+        let encoded = AnySendable.from(try? ValueCodec.encodeValue(values))
+        return makeFieldWhereConstraint(field: field, segments: nil, op: "in", encoded: encoded)
     }
 
     public func whereField(_ path: FieldPath, in values: [Any]) -> Query {
         let encoded = AnySendable.from(try? ValueCodec.encodeValue(values))
-        return copyWithConstraint(.where(field: path.stringValue, op: "in", value: encoded))
+        return makeFieldWhereConstraint(field: path.stringValue, segments: path.segments, op: "in", encoded: encoded)
     }
 
     public func whereField(_ field: String, notIn values: [Any]) -> Query {
-        whereField(FieldPath(field: field), notIn: values)
+        let encoded = AnySendable.from(try? ValueCodec.encodeValue(values))
+        return makeFieldWhereConstraint(field: field, segments: nil, op: "not-in", encoded: encoded)
     }
 
     public func whereField(_ path: FieldPath, notIn values: [Any]) -> Query {
         let encoded = AnySendable.from(try? ValueCodec.encodeValue(values))
-        return copyWithConstraint(.where(field: path.stringValue, op: "not-in", value: encoded))
+        return makeFieldWhereConstraint(field: path.stringValue, segments: path.segments, op: "not-in", encoded: encoded)
     }
 
     public func whereFilter(_ filter: Filter) -> Query {
-        copyWithConstraint(filter.toConstraintDescriptor())
+        let descriptor = filter.toConstraintDescriptor()
+        switch descriptor {
+        case .and(let children) where children.isEmpty,
+             .or(let children) where children.isEmpty:
+            return Query(
+                firestore: self.firestore,
+                rootSource: self.rootSource,
+                path: self.path,
+                constraints: self.constraints,
+                startSnapshotCursor: self.startSnapshotCursor,
+                endSnapshotCursor: self.endSnapshotCursor
+            )
+        default:
+            return copyWithConstraint(descriptor)
+        }
     }
 
-    // ── Ordering & Limits ────────────────────────────────────────────────────
+    // -- Ordering & Limits --
 
     public func order(by field: String) -> Query {
         order(by: field, descending: false)
     }
 
     public func order(by field: String, descending: Bool) -> Query {
-        order(by: FieldPath(field: field), descending: descending)
+        precondition(!field.isEmpty, "Field path must not be empty.")
+        return copyWithConstraint(.orderBy(field: field, fieldSegments: nil, direction: descending ? "desc" : nil))
     }
 
     public func order(by path: FieldPath) -> Query {
@@ -190,7 +282,10 @@ public class Query: @unchecked Sendable {
     }
 
     public func order(by path: FieldPath, descending: Bool) -> Query {
-        copyWithConstraint(.orderBy(field: path.stringValue, direction: descending ? "desc" : nil))
+        let explicitSegments = path.segments.contains { $0.contains(".") } ? path.segments : nil
+        return copyWithConstraint(
+            .orderBy(field: path.stringValue, fieldSegments: explicitSegments, direction: descending ? "desc" : nil)
+        )
     }
 
     public func limit(to limit: Int) -> Query {
@@ -203,7 +298,7 @@ public class Query: @unchecked Sendable {
         return copyReplacingConstraint(kind: "limit", with: .limitToLast(n: limit))
     }
 
-    // ── Cursors ──────────────────────────────────────────────────────────────
+    // -- Cursors --
 
     public func start(at values: [Any]) -> Query {
         let sendables = values.map { AnySendable.from(try? ValueCodec.encodeValue($0)) }
@@ -226,54 +321,19 @@ public class Query: @unchecked Sendable {
     }
 
     public func start(atDocument document: DocumentSnapshot) -> Query {
-        let values = extractCursorValues(from: document)
-        return start(at: values)
+        copyReplacingSnapshotCursor(isStart: true, spec: SnapshotCursorSpec(inclusive: true, snapshot: document))
     }
 
     public func start(afterDocument document: DocumentSnapshot) -> Query {
-        let values = extractCursorValues(from: document)
-        return start(after: values)
+        copyReplacingSnapshotCursor(isStart: true, spec: SnapshotCursorSpec(inclusive: false, snapshot: document))
     }
 
     public func end(beforeDocument document: DocumentSnapshot) -> Query {
-        let values = extractCursorValues(from: document)
-        return end(before: values)
+        copyReplacingSnapshotCursor(isStart: false, spec: SnapshotCursorSpec(inclusive: false, snapshot: document))
     }
 
     public func end(atDocument document: DocumentSnapshot) -> Query {
-        let values = extractCursorValues(from: document)
-        return end(at: values)
-    }
-
-    private func extractCursorValues(from document: DocumentSnapshot) -> [Any] {
-        let orderBys = constraints.compactMap { constraint -> String? in
-            if case .orderBy(let field, _) = constraint { return field }
-            return nil
-        }
-
-        if orderBys.isEmpty {
-            return [document.documentID]
-        }
-
-        var cursorValues: [Any] = []
-        var containsKey = false
-
-        for field in orderBys {
-            if field == "__name__" || field == FieldPath.documentID().stringValue {
-                cursorValues.append(document.documentID)
-                containsKey = true
-            } else if let val = document.get(field) {
-                cursorValues.append(val)
-            } else {
-                cursorValues.append(document.documentID)
-            }
-        }
-
-        if !containsKey && cursorValues.isEmpty {
-            cursorValues.append(document.documentID)
-        }
-
-        return cursorValues
+        copyReplacingSnapshotCursor(isStart: false, spec: SnapshotCursorSpec(inclusive: true, snapshot: document))
     }
 
     // -- Document Retrieval & Streams --
@@ -335,189 +395,5 @@ public class Query: @unchecked Sendable {
         firestore.runInCallOrder(completion: completion) { turn in
             try await self.getDocuments(turn: turn, target: target, source: source)
         }
-    }
-
-    public func addSnapshotListener(
-        _ listener: @escaping @Sendable (QuerySnapshot?, Error?) -> Void
-    ) -> ListenerRegistration {
-        addSnapshotListener(includeMetadataChanges: false, listener: listener)
-    }
-
-    public func addSnapshotListener(
-        includeMetadataChanges: Bool,
-        listener: @escaping @Sendable (QuerySnapshot?, Error?) -> Void
-    ) -> ListenerRegistration {
-        firestore.markUsed()
-        let target = compileTarget()
-        let db = self.firestore
-        let box = CallbackBox(listener)
-
-        let stateBox = QuerySnapshotStateBox()
-        let coordinator = SnapshotSubscriptionCoordinator(
-            firestore: db,
-            target: target,
-            includeMetadataChanges: includeMetadataChanges,
-            onEvent: { event in
-                db.lifecycle.recordOnlineQueryWire(event)
-                let (prevDocs, hadDeliveredFromCache) = stateBox.snapshotPrevious()
-                let snapshot = QuerySnapshot.fromWire(
-                    firestore: db,
-                    query: self,
-                    wire: event,
-                    previousDocs: prevDocs
-                )
-                stateBox.record(docs: snapshot.documents, wire: event, fromCache: snapshot.metadata.isFromCache)
-                if !includeMetadataChanges
-                    && hadDeliveredFromCache
-                    && !snapshot.metadata.hasPendingWrites
-                    && snapshot.documentChanges.isEmpty
-                    && snapshot.documents.count == (prevDocs?.count ?? -1) {
-                    db.lifecycle.notifyAlreadyInSyncOnReconnect(settings: db.settings)
-                    return
-                }
-                db.lifecycle.dispatchSnapshotCallback(
-                    settings: db.settings,
-                    isCancelled: { stateBox.isCancelled }
-                ) {
-                    box.callback(snapshot, nil)
-                }
-            },
-            onOffline: {
-                let wire = db.lifecycle.projectOfflineQueryWire(target: target)
-                let (prevDocs, _) = stateBox.snapshotPrevious()
-                let snapshot = QuerySnapshot.fromWire(
-                    firestore: db,
-                    query: self,
-                    wire: wire,
-                    previousDocs: prevDocs,
-                    isFromCache: true
-                )
-                stateBox.record(docs: snapshot.documents, wire: wire, fromCache: true)
-                db.lifecycle.dispatchSnapshotCallback(
-                    settings: db.settings,
-                    isCancelled: { stateBox.isCancelled }
-                ) {
-                    box.callback(snapshot, nil)
-                }
-            },
-            onGap: {
-                let (prevDocs, _) = stateBox.snapshotPrevious()
-                guard let lastWire = stateBox.lastWire else { return }
-                let snapshot = QuerySnapshot.fromWire(
-                    firestore: db,
-                    query: self,
-                    wire: lastWire,
-                    previousDocs: prevDocs ?? [],
-                    isFromCache: true
-                )
-                stateBox.record(docs: snapshot.documents, wire: lastWire, fromCache: true)
-                db.lifecycle.dispatchSnapshotCallback(
-                    settings: db.settings,
-                    isCancelled: { stateBox.isCancelled }
-                ) {
-                    box.callback(snapshot, nil)
-                }
-            },
-            onError: { error in
-                db.settings.dispatchCallback {
-                    guard !stateBox.isCancelled else { return }
-                    box.callback(nil, error)
-                }
-            }
-        )
-
-        return SimpleListenerRegistration {
-            stateBox.markCancelled()
-            coordinator.cancel()
-        }
-    }
-
-    public func addSnapshotListener(
-        options: SnapshotListenOptions,
-        listener: @escaping @Sendable (QuerySnapshot?, Error?) -> Void
-    ) -> ListenerRegistration {
-        addSnapshotListener(includeMetadataChanges: options.includeMetadataChanges, listener: listener)
-    }
-
-    public var snapshots: AsyncThrowingStream<QuerySnapshot, Error> {
-        snapshots(includeMetadataChanges: false)
-    }
-
-    public func snapshots(includeMetadataChanges: Bool) -> AsyncThrowingStream<QuerySnapshot, Error> {
-        AsyncThrowingStream { continuation in
-            let reg = self.addSnapshotListener(includeMetadataChanges: includeMetadataChanges) { snap, err in
-                if let err {
-                    continuation.finish(throwing: err)
-                } else if let snap {
-                    continuation.yield(snap)
-                }
-            }
-            continuation.onTermination = { @Sendable _ in
-                reg.remove()
-            }
-        }
-    }
-
-    // ── Aggregations ─────────────────────────────────────────────────────────
-
-    public var count: AggregateQuery {
-        AggregateQuery(query: self, aggregateFields: [AggregateField.count()])
-    }
-
-    public func aggregate(_ aggregateFields: [AggregateField]) -> AggregateQuery {
-        AggregateQuery(query: self, aggregateFields: aggregateFields)
-    }
-
-    public func aggregate(_ field1: AggregateField, _ fields: AggregateField...) -> AggregateQuery {
-        var all = [field1]
-        all.append(contentsOf: fields)
-        return aggregate(all)
-    }
-}
-
-private final class CallbackBox<T: Sendable>: @unchecked Sendable {
-    let callback: @Sendable (T?, Error?) -> Void
-    init(_ callback: @escaping @Sendable (T?, Error?) -> Void) {
-        self.callback = callback
-    }
-}
-
-private final class QuerySnapshotStateBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var cancelled = false
-    private var previousDocs: [QueryDocumentSnapshot]?
-    private var _lastWire: AnySendable?
-    private var lastFromCache = false
-
-    var isCancelled: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return cancelled
-    }
-
-    var lastWire: AnySendable? {
-        lock.lock()
-        defer { lock.unlock() }
-        return _lastWire
-    }
-
-    func markCancelled() {
-        lock.lock()
-        cancelled = true
-        lock.unlock()
-    }
-
-    func snapshotPrevious() -> ([QueryDocumentSnapshot]?, Bool) {
-        lock.lock()
-        defer { lock.unlock() }
-        return (previousDocs, lastFromCache)
-    }
-
-    func record(docs: [QueryDocumentSnapshot], wire: AnySendable, fromCache: Bool) {
-        lock.lock()
-        previousDocs = docs
-        _lastWire = wire
-        lastFromCache = fromCache
-        lock.unlock()
     }
 }

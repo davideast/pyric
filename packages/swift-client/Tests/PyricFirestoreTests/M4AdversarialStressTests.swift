@@ -358,12 +358,8 @@ struct M4AdversarialStressTests {
         #expect(limitConstraints.count == 1)
         #expect(limitConstraints[0]["n"]?.intValue == 50)
 
-        // 5. DocumentSnapshot cursor extraction across multiple orderBys
-        let snap = DocumentSnapshot(
-            firestore: harness.firestore,
-            path: "scores/doc99",
-            data: ["level": 3, "points": 999]
-        )
+        // 5. DocumentSnapshot cursor extraction across multiple orderBys + implicit __name__ tiebreaker
+        let snap = DocumentSnapshot(firestore: harness.firestore, path: "scores/doc99", data: ["level": 3, "points": 999])
         let docCursorQuery = harness.firestore.collection("scores")
             .order(by: "level")
             .order(by: "points")
@@ -372,9 +368,12 @@ struct M4AdversarialStressTests {
         let docConstraints = docTarget["constraints"]?.arrayValue ?? []
         let docStart = docConstraints.first { $0["kind"]?.stringValue == "startAt" }
         let cursorValues = docStart?["values"]?.arrayValue ?? []
-        #expect(cursorValues.count == 2)
+        #expect(docStart?["fromSnapshot"]?.boolValue == true)
+        #expect(cursorValues.count == 3)
         #expect(cursorValues[0].intValue == 3)
         #expect(cursorValues[1].intValue == 999)
+        #expect(cursorValues[2]["__type"]?.stringValue == "reference")
+        #expect(cursorValues[2]["path"]?.stringValue == "scores/doc99")
     }
 
     @Test("limit(toLast:) strictly enforces explicit orderBy clause")

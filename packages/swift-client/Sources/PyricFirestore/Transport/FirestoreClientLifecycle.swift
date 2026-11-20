@@ -85,13 +85,29 @@ internal final class FirestoreClientLifecycle: @unchecked Sendable {
     }
 
     func finishOnlineWrite(_ id: UUID, committedMutations: [OfflineWriteMutation]?) {
-        if let committedMutations {
+        if let committedMutations, !committedMutations.isEmpty {
             applyCommittedMutations(committedMutations)
+            notifyCacheOnlyListeners(for: Set(committedMutations.map(\.path)))
         }
         lock.lock()
         let settlement = pendingWriteSettlements.removeValue(forKey: id)
         lock.unlock()
         settlement?.markSettled()
+    }
+
+    private func notifyCacheOnlyListeners(for touchedPaths: Set<String>) {
+        guard !touchedPaths.isEmpty else { return }
+        let listenersToNotify: [ManagedSnapshotListenerHooks]
+        lock.lock()
+        listenersToNotify = managedListeners.values.filter { hooks in
+            hooks.cacheOnly && touchedPaths.contains {
+                FirestoreOfflineProjection.targetMatchesPath(hooks.target, path: $0)
+            }
+        }
+        lock.unlock()
+        for hooks in listenersToNotify {
+            hooks.deliverOfflineProjection()
+        }
     }
 
     func stageOfflineWrite(
@@ -154,7 +170,7 @@ internal final class FirestoreClientLifecycle: @unchecked Sendable {
         listeners = Array(managedListeners.values)
         lock.unlock()
 
-        for hooks in listeners {
+        for hooks in listeners where !hooks.cacheOnly {
             let shouldDeliverGap = !hooks.hasDeliveredAny()
                 || (hooks.includeMetadataChanges && hooks.hasDeliveredOnline())
             hooks.suspendFromHost()
@@ -305,6 +321,7 @@ internal final class FirestoreClientLifecycle: @unchecked Sendable {
             exists: entry.exists,
             encodedFields: entry.encodedFields
         )
+        notifyCacheOnlyListeners(for: [entry.docPath])
     }
 
     func recordBundledNamedQuery(_ spec: BundledNamedQuerySpec) {

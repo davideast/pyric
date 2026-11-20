@@ -1,6 +1,6 @@
 import Foundation
 
-// ─── Descriptors & Target Types ──────────────────────────────────────────────
+// -- Descriptors & Target Types --
 
 public enum TargetDescriptor: Sendable, Equatable {
     case doc(path: String)
@@ -42,26 +42,30 @@ public enum TargetDescriptor: Sendable, Equatable {
 }
 
 public enum QueryConstraintDescriptor: Sendable, Equatable {
-    case `where`(field: String, op: String, value: AnySendable)
+    case `where`(field: String, fieldSegments: [String]? = nil, op: String, value: AnySendable)
     case and([QueryConstraintDescriptor])
     case or([QueryConstraintDescriptor])
-    case orderBy(field: String, direction: String?)
+    case orderBy(field: String, fieldSegments: [String]? = nil, direction: String?)
     case limit(n: Int)
     case limitToLast(n: Int)
-    case startAt(values: [AnySendable])
-    case startAfter(values: [AnySendable])
-    case endAt(values: [AnySendable])
-    case endBefore(values: [AnySendable])
+    case startAt(values: [AnySendable], fromSnapshot: Bool = false)
+    case startAfter(values: [AnySendable], fromSnapshot: Bool = false)
+    case endAt(values: [AnySendable], fromSnapshot: Bool = false)
+    case endBefore(values: [AnySendable], fromSnapshot: Bool = false)
 
     public func toAnySendable() -> AnySendable {
         switch self {
-        case .where(let field, let op, let value):
-            return .dictionary([
+        case .where(let field, let fieldSegments, let op, let value):
+            var dict: [String: AnySendable] = [
                 "kind": .string("where"),
                 "field": .string(field),
                 "op": .string(op),
                 "value": value
-            ])
+            ]
+            if let fieldSegments {
+                dict["fieldSegments"] = .array(fieldSegments.map(AnySendable.string))
+            }
+            return .dictionary(dict)
         case .and(let filters):
             return .dictionary([
                 "kind": .string("and"),
@@ -72,11 +76,14 @@ public enum QueryConstraintDescriptor: Sendable, Equatable {
                 "kind": .string("or"),
                 "filters": .array(filters.map { $0.toAnySendable() })
             ])
-        case .orderBy(let field, let direction):
+        case .orderBy(let field, let fieldSegments, let direction):
             var dict: [String: AnySendable] = [
                 "kind": .string("orderBy"),
                 "field": .string(field)
             ]
+            if let fieldSegments {
+                dict["fieldSegments"] = .array(fieldSegments.map(AnySendable.string))
+            }
             if let direction { dict["direction"] = .string(direction) }
             return .dictionary(dict)
         case .limit(let n):
@@ -89,26 +96,34 @@ public enum QueryConstraintDescriptor: Sendable, Equatable {
                 "kind": .string("limitToLast"),
                 "n": .int(Int64(n))
             ])
-        case .startAt(let values):
-            return .dictionary([
+        case .startAt(let values, let fromSnapshot):
+            var dict: [String: AnySendable] = [
                 "kind": .string("startAt"),
                 "values": .array(values)
-            ])
-        case .startAfter(let values):
-            return .dictionary([
+            ]
+            if fromSnapshot { dict["fromSnapshot"] = .bool(true) }
+            return .dictionary(dict)
+        case .startAfter(let values, let fromSnapshot):
+            var dict: [String: AnySendable] = [
                 "kind": .string("startAfter"),
                 "values": .array(values)
-            ])
-        case .endAt(let values):
-            return .dictionary([
+            ]
+            if fromSnapshot { dict["fromSnapshot"] = .bool(true) }
+            return .dictionary(dict)
+        case .endAt(let values, let fromSnapshot):
+            var dict: [String: AnySendable] = [
                 "kind": .string("endAt"),
                 "values": .array(values)
-            ])
-        case .endBefore(let values):
-            return .dictionary([
+            ]
+            if fromSnapshot { dict["fromSnapshot"] = .bool(true) }
+            return .dictionary(dict)
+        case .endBefore(let values, let fromSnapshot):
+            var dict: [String: AnySendable] = [
                 "kind": .string("endBefore"),
                 "values": .array(values)
-            ])
+            ]
+            if fromSnapshot { dict["fromSnapshot"] = .bool(true) }
+            return .dictionary(dict)
         }
     }
 }

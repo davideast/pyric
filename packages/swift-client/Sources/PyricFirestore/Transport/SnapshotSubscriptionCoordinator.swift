@@ -55,6 +55,7 @@ internal final class SnapshotSubscriptionCoordinator: @unchecked Sendable {
             ManagedSnapshotListenerHooks(
                 target: target,
                 includeMetadataChanges: includeMetadataChanges,
+                cacheOnly: listenSource == "cache",
                 hasDeliveredOnline: { [weak self] in
                     self?.withLock { self?.deliveredOnline ?? false } ?? false
                 },
@@ -90,6 +91,10 @@ internal final class SnapshotSubscriptionCoordinator: @unchecked Sendable {
     }
 
     private func start() {
+        if listenSource == "cache" {
+            deliverOffline()
+            return
+        }
         if !firestore.lifecycle.isNetworkEnabled {
             deliverOffline()
         }
@@ -121,6 +126,9 @@ internal final class SnapshotSubscriptionCoordinator: @unchecked Sendable {
     }
 
     private func resumeForOnline() {
+        if listenSource == "cache" {
+            return
+        }
         let lensAndActive: AuthLens? = withLock {
             guard !isCancelled else { return nil }
             return currentLens
