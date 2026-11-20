@@ -1,3 +1,4 @@
+import { LIVE_HOST_CONFORMANCE_TEST } from '../defaults.ts';
 import { row } from './section.ts';
 
 export default row({
@@ -5,4 +6,6 @@ export default row({
   api: 'DatabaseReference.path',
   behavior: 'Returns the normalized slash-delimited full path of the reference.',
   featureKeys: ['path'],
+  status: 'conforms',
+  hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

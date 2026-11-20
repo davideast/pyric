@@ -1,14 +1,17 @@
 package dev.pyric.e2e
 
 import com.google.android.gms.tasks.Tasks
+import com.google.firebase.Firebase
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.database.DataSnapshot
+import com.google.firebase.database.DatabaseError
+import com.google.firebase.database.DatabaseException
+import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.database.ValueEventListener
+import com.google.firebase.database.database
 import dev.pyric.bridge.PyricBridgeClient
-import dev.pyric.database.DataSnapshot
-import dev.pyric.database.DatabaseError
-import dev.pyric.database.FirebaseDatabase
-import dev.pyric.database.ValueEventListener
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -16,6 +19,7 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assumptions
 import org.junit.jupiter.api.BeforeEach
@@ -72,7 +76,8 @@ class LiveHostConformanceTest {
         val activeApp = requireNotNull(app)
         val bridge = requireNotNull(bridgeClient)
         val auth = FirebaseAuth.getInstance(activeApp, bridge)
-        val mainDb = FirebaseDatabase.getInstance(activeApp, bridge)
+        val mainDb = FirebaseDatabase.getInstance(activeApp)
+        assertSame(bridge, mainDb.bridgeClient)
 
         val observedUids = CopyOnWriteArrayList<String?>()
         val authListener = FirebaseAuth.AuthStateListener { instance ->
@@ -163,7 +168,7 @@ class LiveHostConformanceTest {
     }
 
     @Test
-    fun `isolates multi-instance RTDB reads, writes, listeners, and per-shard rules`() {
+    fun `isolates 11-shard RTDB reads, writes, listeners, shared Auth, and forced token refresh`() {
         val activeApp = requireNotNull(app)
         val bridge = requireNotNull(bridgeClient)
         val auth = FirebaseAuth.getInstance(activeApp, bridge)
@@ -174,24 +179,24 @@ class LiveHostConformanceTest {
             10,
             TimeUnit.SECONDS
         )
-        val uid = requireNotNull(created.user).uid
+        val user = requireNotNull(created.user)
+        val uid = user.uid
 
-        val mainDb = FirebaseDatabase.getInstance(activeApp, bridge)
-        val shard00 = FirebaseDatabase.getInstance(
-            activeApp,
-            bridge,
-            "https://$PROJECT_ID-shard-00.firebaseio.com"
-        )
-        val shard01 = FirebaseDatabase.getInstance(
-            activeApp,
-            bridge,
-            "https://$PROJECT_ID-shard-01.firebaseio.com"
-        )
-        val shard09 = FirebaseDatabase.getInstance(
-            activeApp,
-            bridge,
-            "https://$PROJECT_ID-shard-09.firebaseio.com"
-        )
+        // Resolve default + all 10 named shards via standard public FirebaseDatabase APIs (no bridge arg).
+        val mainDb = Firebase.database(activeApp)
+        val shards = (0..9).map { idx ->
+            val shardTag = "shard-0$idx"
+            val shardUrl = "https://$PROJECT_ID-$shardTag.firebaseio.com"
+            val handle = FirebaseDatabase.getInstance(activeApp, shardUrl)
+            assertSame(bridge, handle.bridgeClient, "Expected $shardTag to share app bridge socket")
+            assertEquals(shardUrl, handle.url)
+            assertSame(handle, Firebase.database(activeApp, shardUrl))
+            handle
+        }
+        assertSame(bridge, mainDb.bridgeClient)
+
+        val shard00 = shards[0]
+        val shard01 = shards[1]
 
         val memberPath = "rooms/r1/members/$uid"
         val liveValue = AtomicReference<Map<*, *>?>(null)
@@ -225,6 +230,11 @@ class LiveHostConformanceTest {
             val shard00Snap = Tasks.await(shard00.getReference(memberPath).get(), 10, TimeUnit.SECONDS)
             assertTrue(shard00Snap.exists())
             assertEquals("host", shard00Snap.child("role").value)
+
+            // Same path on main does not see shard-00 data (data isolation) and is denied by main rules.
+            assertPermissionDenied {
+                Tasks.await(mainDb.getReference(memberPath).get(), 10, TimeUnit.SECONDS)
+            }
 
             // Same path on shard-01 is denied by shard-01's independent ruleset.
             assertPermissionDenied {
@@ -286,25 +296,46 @@ class LiveHostConformanceTest {
                 )
             }
 
-            // shard-09 permits only shards/shard-09/<uid>, isolating all 10 named shards.
-            Tasks.await(
-                shard09.getReference("shards/shard-09/$uid").setValue(mapOf("index" to 9L)),
-                10,
-                TimeUnit.SECONDS
-            )
-            val shard09Snap = Tasks.await(
-                shard09.getReference("shards/shard-09/$uid").get(),
-                10,
-                TimeUnit.SECONDS
-            )
-            assertEquals(9L, (shard09Snap.child("index").value as? Number)?.toLong())
+            // Force ID token refresh on the shared Auth session and verify default + shard-02..shard-09 isolation.
+            val refreshed = Tasks.await(user.getIdToken(true), 10, TimeUnit.SECONDS)
+            assertEquals(3, refreshed.token.split('.').size)
 
-            assertPermissionDenied {
+            Tasks.await(
+                mainDb.getReference("profiles/$uid").setValue(mapOf("shardCount" to 11L)),
+                10,
+                TimeUnit.SECONDS
+            )
+            assertEquals(
+                11L,
+                Tasks.await(mainDb.getReference("profiles/$uid/shardCount").get(), 10, TimeUnit.SECONDS)
+                    .getValue(Long::class.java)
+            )
+
+            for (idx in 2..9) {
+                val shardTag = "shard-0$idx"
+                val shardDb = shards[idx]
+                val allowedPath = "shards/$shardTag/$uid"
                 Tasks.await(
-                    shard09.getReference("shards/shard-02/$uid").setValue(mapOf("index" to 2L)),
+                    shardDb.getReference(allowedPath).setValue(mapOf("index" to idx.toLong())),
                     10,
                     TimeUnit.SECONDS
                 )
+                val snap = Tasks.await(shardDb.getReference(allowedPath).get(), 10, TimeUnit.SECONDS)
+                assertTrue(snap.exists(), "Expected $shardTag to store data at $allowedPath")
+                assertEquals(idx.toLong(), snap.child("index").getValue(Long::class.java))
+
+                val neighborIdx = if (idx == 9) 2 else idx + 1
+                val neighborPath = "shards/shard-0$neighborIdx/$uid"
+                assertPermissionDenied {
+                    Tasks.await(
+                        shardDb.getReference(neighborPath).setValue(mapOf("index" to neighborIdx.toLong())),
+                        10,
+                        TimeUnit.SECONDS
+                    )
+                }
+                assertPermissionDenied {
+                    Tasks.await(shardDb.getReference(neighborPath).get(), 10, TimeUnit.SECONDS)
+                }
             }
         } finally {
             shard00.getReference(memberPath).removeEventListener(listener)
@@ -317,6 +348,10 @@ class LiveHostConformanceTest {
             throw AssertionError("Expected PERMISSION_DENIED failure, but operation succeeded")
         } catch (err: ExecutionException) {
             val cause = err.cause ?: err
+            assertTrue(
+                cause is DatabaseException,
+                "Expected com.google.firebase.database.DatabaseException, got ${cause.javaClass.name}: ${cause.message}"
+            )
             val dbError = DatabaseError.fromException(cause)
             assertEquals(
                 DatabaseError.PERMISSION_DENIED,
