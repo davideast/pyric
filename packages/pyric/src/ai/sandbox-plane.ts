@@ -191,7 +191,6 @@ export async function planeGenerateContent(
   const activity = beginAiActivity(target, modelResource, 'generateContent');
   let scope: RequestAbortScope | undefined;
   try {
-    target.assertAlive?.();
     scope = createRequestAbortScope(singleRequestOptions);
     const normalized = normalizeRequest(request) as unknown as GenerateContentRequest;
     // A handle with no app has no claim, and its dispatch takes no extra turn.
@@ -222,7 +221,6 @@ export async function planeGenerateContentStream(
   let inner: AsyncIterable<WireResponse>;
   let activeScope: RequestAbortScope | undefined;
   try {
-    target.assertAlive?.();
     activeScope = createRequestAbortScope(singleRequestOptions);
     const normalized = normalizeRequest(request) as unknown as GenerateContentRequest;
     // A handle with no app has no claim, and its dispatch takes no extra turn.
@@ -330,7 +328,6 @@ export async function planeCountTokens(
   const activity = beginAiActivity(target, modelResource, 'countTokens');
   let scope: RequestAbortScope | undefined;
   try {
-    target.assertAlive?.();
     scope = createRequestAbortScope(singleRequestOptions);
     const dispatch = target.kind === 'transport' ? target.transport : target.broker;
     const normalized = normalizeRequest(request) as unknown as Parameters<

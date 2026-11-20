@@ -2,14 +2,22 @@ import { row } from './section.ts';
 
 export default row({
   order: 270,
-  featureKeys: ["getAI","deleteApp"],
-  section: "`FirebaseApp` deletion lifecycle",
-  api: "getAI(app, customEngine); deleteApp(app); retainedModel operation",
-  behavior: "Served worker mode rejects page-local custom AnswerEngine objects; a model retained from a deleted app rejects, while an equal-config sibling model remains usable through its own app-scoped worker port",
-  status: "unverified",
-  evidence: "`packages/cli/test/e2e/app-deletion.pw.ts` observes AI code `unsupported` for a custom engine, then exercises retained and sibling models through canonical served imports after deleting one app; `packages/pyric/src/ai/sandbox-plane.ts` guards every model operation. A credentialed production AI lifecycle capture is still needed",
-  risk: ["stateful","structural"],
+  featureKeys: ['getAI', 'deleteApp'],
+  section: '`FirebaseApp` deletion lifecycle',
+  api: 'getAI(app, customEngine); getGenerativeModel(ai); deleteApp(app); retainedModel operation',
+  behavior:
+    'Served worker mode rejects page-local custom AnswerEngine objects; `getGenerativeModel` throws `app/app-deleted` synchronously on deleted or retained `AI` handles after `deleteApp(app)`, while models already constructed before deletion and equal-config sibling models remain usable',
+  status: 'conforms',
+  evidence:
+    'oracle: `app-production-deleted-ai-model-lifecycle` (firebase 12.19.0) + twin replay: `production-deleted-ai-oracle.test.ts`; focused family and served worker tests: `deleted-service-lifecycle.test.ts` and `app-deletion.pw.ts`',
+  risk: ['stateful', 'structural'],
   riskScore: 4,
-  riskReasons: ["asserts deleted-container isolation, worker ownership, and sibling survival"],
-  automation: "unverified",
+  riskReasons: ['asserts deleted-container isolation, worker ownership, and sibling survival'],
+  automation: 'oracle-backed',
+  oracleObservations: ['app-production-deleted-ai-model-lifecycle'],
+  conformanceTests: [
+    'packages/pyric/test/app/production-deleted-ai-oracle.test.ts',
+    'packages/pyric/test/app/deleted-service-lifecycle.test.ts',
+    'packages/cli/test/e2e/app-deletion.pw.ts',
+  ],
 });

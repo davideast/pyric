@@ -16,6 +16,7 @@ import {
   getGenerativeModel,
 } from "firebase/ai";
 import { checkGenerateAndHelpers } from "./generate-helpers-check.mjs";
+import { checkDeletedAppAiLifecycle } from "./deleted-app-ai-check.mjs";
 
 const turn = (role, text) => ({ role, parts: [{ text }] });
 
@@ -32,11 +33,12 @@ function formatFailure(err) {
 }
 
 export async function runRoles() {
-  const app = initializeApp({
+  const baseOptions = {
     apiKey: "AIzaSyDemoKeyForReproOnly000000000000",
     projectId: "my-real-project",
     appId: "1:123456789012:web:abcdef0123456789",
-  });
+  };
+  const app = initializeApp(baseOptions);
   initializeAppCheck(app, {
     provider: new ReCaptchaV3Provider("6Lc-site-key-from-the-console"),
     isTokenAutoRefreshEnabled: false,
@@ -287,5 +289,6 @@ export async function runRoles() {
     chatErrorsAbort: await checkChatErrorsAbort(),
     initBackends: await checkInitBackends(),
     generateHelpers: await checkGenerateAndHelpers(model),
+    deletedAppLifecycle: await checkDeletedAppAiLifecycle(baseOptions),
   };
 }

@@ -72,6 +72,9 @@ test('served firebase imports replay the production app-deletion lifecycle', asy
         },
       },
     }), customEngineApp);
+    appCheckModule.initializeAppCheck(retainedApp, {
+      provider: new appCheckModule.ReCaptchaV3Provider('site-key'),
+    });
     const retainedAi = aiModule.getAI(retainedApp, {
       engine: { kind: 'scripted' },
     });
@@ -95,11 +98,16 @@ test('served firebase imports replay the production app-deletion lifecycle', asy
     await appModule.deleteApp(deletedApp);
 
     const deletedAi = aiModule.getAI(deletedApp);
-    const deletedAiOperation = await captureAsync(() => aiModule
-      .getGenerativeModel(deletedAi, { model: 'gemini-2.5-flash' })
-      .generateContent('this must not run in a page-local sandbox'));
+    const deletedAiModelFactory = capture(
+      () => aiModule.getGenerativeModel(deletedAi, { model: 'gemini-2.5-flash' }),
+      deletedApp,
+    );
+    const retainedAiModelFactory = capture(
+      () => aiModule.getGenerativeModel(retainedAi, { model: 'gemini-2.5-flash' }),
+      retainedApp,
+    );
 
-    const retainedAiOperation = await captureAsync(() => retainedAiModel.countTokens('must stop'));
+    const retainedAiOperation = await captureAsync(() => retainedAiModel.countTokens('still live after delete'));
     const survivingAiOperation = await captureAsync(() => survivingAiModel.countTokens('still live'));
 
     return { observed: {
@@ -119,13 +127,14 @@ test('served firebase imports replay the production app-deletion lifecycle', asy
         () => storageModule.ref(storage, 'notes/note-01').toString(),
         deletedApp,
       ),
-    }, customEngineFactory, deletedAiOperation, retainedAiOperation,
+    }, customEngineFactory, deletedAiModelFactory, retainedAiModelFactory, retainedAiOperation,
       survivingAiOperation };
   });
 
   expect(actual.observed).toEqual(observation);
   expect(actual.customEngineFactory).toMatchObject({ threw: true, code: 'unsupported' });
-  expect(actual.deletedAiOperation).toMatchObject({ threw: true });
-  expect(actual.retainedAiOperation).toMatchObject({ threw: true });
+  expect(actual.deletedAiModelFactory).toMatchObject({ threw: true, code: 'app/app-deleted' });
+  expect(actual.retainedAiModelFactory).toMatchObject({ threw: true, code: 'app/app-deleted' });
+  expect(actual.retainedAiOperation).toMatchObject({ threw: false });
   expect(actual.survivingAiOperation).toMatchObject({ threw: false });
 });

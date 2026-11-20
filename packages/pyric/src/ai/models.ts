@@ -130,6 +130,9 @@ export class GenerativeModel extends AIModel {
   private readonly target: AITarget;
 
   constructor(target: AITarget, modelParams: ModelParams, requestOptions?: RequestOptions) {
+    if (target.assertAlive !== undefined) {
+      target.assertAlive();
+    }
     super(modelParams.model, target.backend.backendType);
     this.target = target;
     this.generationConfig = modelParams.generationConfig ?? {};
