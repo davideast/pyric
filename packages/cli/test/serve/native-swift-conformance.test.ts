@@ -61,6 +61,12 @@ const MAIN_RULES = {
       $uid: {
         '.read': 'auth != null && auth.uid === $uid',
         '.write': 'auth != null && auth.uid === $uid',
+        catalog: {
+          '.indexOn': ['score', 'role', 'meta/rank', '.value'],
+        },
+        scores: {
+          '.indexOn': ['.value'],
+        },
       },
     },
   },

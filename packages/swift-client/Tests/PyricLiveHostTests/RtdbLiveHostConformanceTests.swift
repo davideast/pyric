@@ -456,7 +456,7 @@ extension LiveHostConformanceTests {
 
     // -- Helpers --
 
-    private func liveEndpointFromEnv() throws -> (host: String, port: Int)? {
+    internal func liveEndpointFromEnv() throws -> (host: String, port: Int)? {
         guard let rawBridgeURL = ProcessInfo.processInfo.environment["PYRIC_LIVE_BRIDGE_URL"],
               !rawBridgeURL.isEmpty else {
             return nil
@@ -467,7 +467,7 @@ extension LiveHostConformanceTests {
         return (host, port)
     }
 
-    private func withRtdbSession(
+    internal func withRtdbSession(
         host: String,
         port: Int,
         body: (Auth, Database, [String: Database]) async throws -> Void
@@ -496,7 +496,7 @@ extension LiveHostConformanceTests {
         }
     }
 
-    private func withCompletionRef(
+    internal func withCompletionRef(
         _ invoke: (@escaping @Sendable (Error?, DatabaseReference) -> Void) -> Void
     ) async throws {
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
@@ -510,7 +510,7 @@ extension LiveHostConformanceTests {
         }
     }
 
-    private func expectRtdbPermissionDenied(_ operation: () async throws -> Void) async {
+    internal func expectRtdbPermissionDenied(_ operation: () async throws -> Void) async {
         do {
             try await operation()
             Issue.record("Expected permission-denied error, but operation succeeded")
@@ -523,7 +523,7 @@ extension LiveHostConformanceTests {
         }
     }
 
-    private func int64Of(_ raw: Any?) -> Int64? {
+    internal func int64Of(_ raw: Any?) -> Int64? {
         if let v = raw as? Int64 { return v }
         if let v = raw as? Int { return Int64(v) }
         if let v = raw as? Double { return Int64(v) }
@@ -531,7 +531,7 @@ extension LiveHostConformanceTests {
         return nil
     }
 
-    private func doubleOf(_ raw: Any?) -> Double? {
+    internal func doubleOf(_ raw: Any?) -> Double? {
         if let v = raw as? Double { return v }
         if let v = raw as? Float { return Double(v) }
         if let v = raw as? Int64 { return Double(v) }

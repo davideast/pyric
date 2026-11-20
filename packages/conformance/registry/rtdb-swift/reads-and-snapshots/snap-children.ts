@@ -1,3 +1,4 @@
+import { LIVE_HOST_CONFORMANCE_TEST } from '../defaults.ts';
 import { row } from './section.ts';
 
 export default row({
@@ -5,4 +6,6 @@ export default row({
   api: 'DataSnapshot.children',
   behavior: 'Returns an iterator of child DataSnapshots ordered according to the active query.',
   featureKeys: ['children'],
+  status: 'conforms',
+  hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });
