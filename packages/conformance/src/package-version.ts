@@ -93,6 +93,28 @@ export function resolvedFunctionsVersion(parentUrl?: string): string {
   return resolvePackageVersion('firebase-functions', parentUrl);
 }
 
+/** Resolved `firebaseBomVersion` pinned in `packages/conformance/rigs/native-android-oracle/gradle.properties`. */
+export function resolvedAndroidBomVersion(): string {
+  const propsPath = join(
+    dirname(fileURLToPath(import.meta.url)),
+    '..',
+    'rigs',
+    'native-android-oracle',
+    'gradle.properties',
+  );
+  const raw = readFileSync(propsPath, 'utf8');
+  for (const rawLine of raw.split(/\r?\n/)) {
+    const trimmed = rawLine.trim();
+    if (trimmed.startsWith('firebaseBomVersion=')) {
+      const version = trimmed.slice('firebaseBomVersion='.length).trim();
+      if (version.length > 0) {
+        return version;
+      }
+    }
+  }
+  throw new Error(`Missing firebaseBomVersion in ${propsPath}`);
+}
+
 /** Resolved `firebaseIosSdkVersion` pinned in `packages/conformance/rigs/native-ios-oracle/sdk-version.properties`. */
 export function resolvedIosSdkVersion(): string {
   const propsPath = join(

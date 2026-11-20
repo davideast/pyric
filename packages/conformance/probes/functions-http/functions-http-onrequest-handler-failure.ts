@@ -3,6 +3,8 @@ import { statusShape, type FunctionsHttpProbe } from '../../src/capture/function
 /** functions-http#9: a handler that throws or rejects before responding. */
 export const probe: FunctionsHttpProbe = {
   name: 'functions-http-onrequest-handler-failure',
+  rig: 'functions-http',
+  pendingRowLink: true,
   matrixRow: 'functions-http #9',
   rowIds: ['functions-http#9'],
   description:

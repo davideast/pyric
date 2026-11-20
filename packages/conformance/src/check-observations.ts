@@ -34,6 +34,7 @@ for (const obs of observations) {
     'fbSdkVersion',
     'adminSdkVersion',
     'functionsSdkVersion',
+    'androidBomVersion',
     'iosSdkVersion',
   ];
   if (!versionFields.some((field) => typeof obs.raw[field] === 'string')) {

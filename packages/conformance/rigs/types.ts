@@ -26,6 +26,7 @@ export type ObservationVersionField =
   | 'fbSdkVersion'
   | 'adminSdkVersion'
   | 'functionsSdkVersion'
+  | 'androidBomVersion'
   | 'iosSdkVersion';
 
 interface RigEnvRequirement {

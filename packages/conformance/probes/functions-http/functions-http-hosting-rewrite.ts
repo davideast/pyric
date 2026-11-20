@@ -8,6 +8,8 @@ const COOKIE = '__session=pyric-session; pyric_other=dropped';
  */
 export const probe: FunctionsHttpProbe = {
   name: 'functions-http-hosting-rewrite',
+  rig: 'functions-http',
+  pendingRowLink: true,
   matrixRow: 'functions-http #17',
   rowIds: ['functions-http#17'],
   description:

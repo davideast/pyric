@@ -45,6 +45,7 @@ import {
 import { isTransientAuthCaptureError } from './oracle-run-auth-session.ts';
 import {
   resolvedAdminVersion,
+  resolvedAndroidBomVersion,
   resolvedFirebaseVersion,
   resolvedIosSdkVersion,
 } from './package-version.ts';
@@ -208,7 +209,10 @@ export function printModularProbePreview(options: {
 export interface ModularProbeRigConfig {
   rig: string;
   scriptPath: string;
-  versionField: Extract<ObservationVersionField, 'fbSdkVersion' | 'adminSdkVersion' | 'iosSdkVersion'>;
+  versionField: Extract<
+    ObservationVersionField,
+    'fbSdkVersion' | 'adminSdkVersion' | 'androidBomVersion' | 'iosSdkVersion'
+  >;
 }
 
 export const SDK_PROBES_RIG_CONFIG: ModularProbeRigConfig = {
@@ -358,6 +362,8 @@ export async function runModularProbesCli(options: {
   let sdkVersion: string;
   if (options.config.versionField === 'adminSdkVersion') {
     sdkVersion = resolvedAdminVersion();
+  } else if (options.config.versionField === 'androidBomVersion') {
+    sdkVersion = resolvedAndroidBomVersion();
   } else if (options.config.versionField === 'iosSdkVersion') {
     sdkVersion = resolvedIosSdkVersion();
   } else {

@@ -10,6 +10,8 @@ const instanceOf = (response: ProbeResponse): string | null =>
  */
 export const probe: FunctionsHttpProbe = {
   name: 'functions-http-onrequest-uncaught-async',
+  rig: 'functions-http',
+  pendingRowLink: true,
   matrixRow: 'functions-http #12',
   rowIds: ['functions-http#12'],
   description:

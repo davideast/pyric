@@ -12,6 +12,11 @@ export const UNOBSERVED_REASON =
 export const CITED_NOT_REPLAYED_REASON =
   'Production observed and cited, but Pyric has no local Functions runtime to replay it yet.';
 
+export interface FunctionsRtdbDivergence {
+  automation: 'oracle-backed';
+  statusNote: string;
+}
+
 export interface FunctionsRtdbRowSeed {
   order?: number;
   api: string;
@@ -21,6 +26,8 @@ export interface FunctionsRtdbRowSeed {
   observations?: string[];
   /** Set only when the unchanged local replay passes for this row. */
   flipped?: 'oracle-backed';
+  /** Set when a by-design, held, or pending-fix two-sided pin passes for this row. */
+  diverged?: FunctionsRtdbDivergence;
   rowRef?: never;
   id?: never;
 }
@@ -69,6 +76,20 @@ export function bindFunctionsRtdbRow(
           status: 'conforms',
           automation: seed.flipped,
           evidence: `${seed.evidence} Local replay: \`${CONFORMANCE_SUITE}\` assertion set \`functions-rtdb#${rowRef}\`.`,
+          conformanceTests: [CONFORMANCE_SUITE],
+          hostConformanceTests: [CONFORMANCE_SUITE],
+        };
+      }
+      if (seed.diverged !== undefined) {
+        return {
+          api: seed.api,
+          behavior: seed.behavior,
+          featureKeys: seed.featureKeys,
+          oracleObservations: observations,
+          status: 'diverged-documented',
+          statusNote: seed.diverged.statusNote,
+          automation: seed.diverged.automation,
+          evidence: `${seed.evidence} Local two-sided pin: \`${CONFORMANCE_SUITE}\` assertion set \`functions-rtdb#${rowRef}\`.`,
           conformanceTests: [CONFORMANCE_SUITE],
           hostConformanceTests: [CONFORMANCE_SUITE],
         };

@@ -32,6 +32,8 @@ const requests: ProbeRequest[] = Object.entries(CONFIGURED).flatMap(([form, fn])
 /** functions-http#14: the SDK's cors middleware answers preflights and reflects or refuses origins. */
 export const probe: FunctionsHttpProbe = {
   name: 'functions-http-onrequest-cors-configured',
+  rig: 'functions-http',
+  pendingRowLink: true,
   matrixRow: 'functions-http #14',
   rowIds: ['functions-http#14'],
   description:

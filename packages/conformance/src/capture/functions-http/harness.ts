@@ -26,11 +26,11 @@
  */
 import { randomUUID } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { requireCaptureMode } from '../../capture-mode-guard.ts';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { cert, deleteApp, initializeApp } from 'firebase-admin/app';
+import { applicationDefault, cert, deleteApp, initializeApp, type AppOptions } from 'firebase-admin/app';
 import { resolvePackageVersion } from '../../package-version.ts';
 import { functionsHttpProbes } from './probes.ts';
 import type { FunctionsHttpProbe } from './probe-types.ts';
@@ -40,15 +40,11 @@ import {
   deployOutcome,
   inactiveFunctions,
   readCaptureState,
+  resolveCaptureCredentials,
   resolveFirebaseTools,
   writeCaptureState,
   type CaptureState,
 } from './deploy.ts';
-
-interface ServiceAccount {
-  project_id: string;
-  client_email: string;
-}
 
 interface FixtureFunction {
   name: string;
@@ -111,27 +107,41 @@ const REQUIRED_PERMISSIONS: Record<string, readonly string[]> = {
   ],
 };
 
-function need(name: string): string {
-  const value = process.env[name]?.trim();
-  if (!value) throw new Error(`${name} is required`);
-  return value;
-}
-
 const rawArgs = process.argv.slice(2);
 const checkOnly = rawArgs.includes('--check-permissions');
-const cliArgs = checkOnly
-  ? rawArgs
-  : requireCaptureMode({
-      label: 'functions-http',
-      scriptPath: 'packages/conformance/src/capture/functions-http/harness.ts',
-      argv: rawArgs,
-      summary: 'would deploy fixture functions + Hosting preview channel and capture HTTP probes.',
-      missingCredentials: () => {
-        if (process.env.PYRIC_ORACLE_SA_PATH?.trim()) return null;
-        return 'PYRIC_ORACLE_SA_PATH';
-      },
-    });
+let cliArgs: string[] = rawArgs;
+if (!checkOnly) {
+  cliArgs = requireCaptureMode({
+    label: 'functions-http',
+    scriptPath: 'packages/conformance/src/capture/functions-http/harness.ts',
+    argv: rawArgs,
+    summary: 'would deploy fixture functions + Hosting preview channel and capture HTTP probes.',
+    missingCredentials: () => {
+      const resolved = resolveCaptureCredentials(process.env);
+      if (resolved.ok) return null;
+      return resolved.missing;
+    },
+  });
+}
 
+function ensureWorkspaceFirebaseTools(): void {
+  const manifestPath = join(REPO_ROOT, 'packages', 'playground', 'node_modules', 'firebase-tools', 'package.json');
+  if (existsSync(manifestPath)) return;
+  const install = spawnSync('bun', ['install', '--frozen-lockfile', '--filter', '@pyric/playground'], {
+    cwd: REPO_ROOT,
+    stdio: 'inherit',
+  });
+  if (install.status !== 0) {
+    throw new Error('bun install --frozen-lockfile --filter @pyric/playground failed');
+  }
+}
+
+const credentialResolution = resolveCaptureCredentials(process.env);
+if (!credentialResolution.ok) {
+  throw new Error(`[functions-http] missing required capture configuration: ${credentialResolution.missing}`);
+}
+const captureCredentials = credentialResolution.config;
+ensureWorkspaceFirebaseTools();
 const firebaseTools = resolveFirebaseTools();
 
 interface FirebaseRun {
@@ -299,10 +309,14 @@ async function remainingFunctions(token: string, projectId: string): Promise<str
 }
 
 function writeObservation(probe: FunctionsHttpProbe, projectId: string, behavior: Record<string, unknown>): void {
+  let rowIds = probe.rowIds;
+  if (probe.pendingRowLink === true) {
+    rowIds = [];
+  }
   const observation = {
     name: probe.name,
     matrixRow: probe.matrixRow,
-    rowIds: probe.rowIds,
+    rowIds,
     description: probe.description,
     observedAt: new Date().toISOString(),
     functionsSdkVersion: resolvePackageVersion('firebase-functions'),
@@ -370,25 +384,49 @@ async function cleanUp(state: CaptureState, env: Record<string, string>, deleteC
   }
 }
 
-const saPath = need('PYRIC_ORACLE_SA_PATH');
-if (!existsSync(saPath)) throw new Error('PYRIC_ORACLE_SA_PATH does not name a file');
-const serviceAccountJson = JSON.parse(readFileSync(saPath, 'utf8')) as ServiceAccount & Record<string, string>;
-const projectId = serviceAccountJson.project_id;
+const projectId = captureCredentials.projectId;
+const serviceAccountEmail = captureCredentials.clientEmail;
 const keepDeployed = cliArgs.includes('--keep-deployed');
 
-const app = initializeApp({ credential: cert(saPath) }, 'functions-http-capture');
-const accessToken = async (): Promise<string> => (await app.options.credential!.getAccessToken()).access_token;
+let adminOptions: AppOptions;
+if (captureCredentials.kind === 'service-account-key') {
+  adminOptions = {
+    credential: cert(captureCredentials.credPath),
+    projectId,
+  };
+} else {
+  adminOptions = {
+    credential: applicationDefault(),
+    projectId,
+    serviceAccountId: serviceAccountEmail,
+  };
+}
+const app = initializeApp(adminOptions, 'functions-http-capture');
+const accessToken = async (): Promise<string> => {
+  const credential = app.options.credential;
+  if (!credential) throw new Error('functions-http-capture app has no credential');
+  return (await credential.getAccessToken()).access_token;
+};
+
+const deployEnv: Record<string, string> = {};
+if (captureCredentials.credPath !== undefined) {
+  deployEnv.GOOGLE_APPLICATION_CREDENTIALS = captureCredentials.credPath;
+}
 
 if (checkOnly) {
   try {
     const missing = await checkPermissions(await accessToken(), projectId);
-    console.log(missing.length === 0 ? 'All required permissions are granted.' : `${missing.length} permissions missing.`);
-    process.exitCode = missing.length === 0 ? 0 : 1;
+    if (missing.length === 0) {
+      console.log('All required permissions are granted.');
+      process.exitCode = 0;
+    } else {
+      console.log(`${missing.length} permissions missing.`);
+      process.exitCode = 1;
+    }
   } finally {
     await deleteApp(app).catch(() => undefined);
   }
 } else {
-  const deployEnv = { GOOGLE_APPLICATION_CREDENTIALS: saPath };
   const leftover = readCaptureState(STATE_PATH);
   if (leftover) {
     console.log(`Run ${leftover.runId} (started ${leftover.startedAt}) never finished its cleanup; cleaning it up first.`);
@@ -407,7 +445,7 @@ if (checkOnly) {
   let completed = false;
   try {
     ensureFixtureInstalled();
-    writeFileSync(RUNTIME_PATH, `module.exports = { serviceAccount: ${JSON.stringify(serviceAccountJson.client_email)} };\n`);
+    writeFileSync(RUNTIME_PATH, `module.exports = { serviceAccount: ${JSON.stringify(serviceAccountEmail)} };\n`);
     writeCaptureState(STATE_PATH, state);
     deployAttempted = true;
     await deployFixture(projectId, deployEnv);

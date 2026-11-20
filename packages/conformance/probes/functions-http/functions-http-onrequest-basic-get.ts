@@ -7,6 +7,8 @@ import { echoOf, type FunctionsHttpProbe } from '../../src/capture/functions-htt
  */
 export const probe: FunctionsHttpProbe = {
   name: 'functions-http-onrequest-basic-get',
+  rig: 'functions-http',
+  pendingRowLink: true,
   matrixRow: 'functions-http #1, #3',
   rowIds: ['functions-http#1', 'functions-http#3'],
   description:

@@ -5,6 +5,8 @@ const ORIGIN = 'https://allowed.example';
 /** functions-http#13: with `cors` unset, no CORS headers and OPTIONS reaches the handler. */
 export const probe: FunctionsHttpProbe = {
   name: 'functions-http-onrequest-cors-unset',
+  rig: 'functions-http',
+  pendingRowLink: true,
   matrixRow: 'functions-http #13',
   rowIds: ['functions-http#13'],
   description:

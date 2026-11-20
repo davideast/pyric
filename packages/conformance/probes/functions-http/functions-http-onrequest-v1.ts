@@ -3,6 +3,8 @@ import { echoOf, type FunctionsHttpProbe } from '../../src/capture/functions-htt
 /** functions-http#2: a v1 `functions.https.onRequest` export is served like a v2 one. */
 export const probe: FunctionsHttpProbe = {
   name: 'functions-http-onrequest-v1',
+  rig: 'functions-http',
+  pendingRowLink: true,
   matrixRow: 'functions-http #2',
   rowIds: ['functions-http#2'],
   description:

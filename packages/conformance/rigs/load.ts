@@ -26,6 +26,7 @@ const VERSION_FIELD_VALUES = new Set([
   'fbSdkVersion',
   'adminSdkVersion',
   'functionsSdkVersion',
+  'androidBomVersion',
   'iosSdkVersion',
 ]);
 
