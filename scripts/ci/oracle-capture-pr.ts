@@ -25,6 +25,7 @@ import {
   createOrUpdatePullRequestWithFallback,
   formatPullRequestOutcomesSummary,
   preserveIdenticalProtectedObservations,
+  resolveCaptureBundleDirs,
   resolveCaptureTargetBranch,
   spawnGhWithToken,
   type OpenedPullRequestOutcome,
@@ -533,14 +534,19 @@ async function runOpenPrCli(cwd: string, env: NodeJS.ProcessEnv): Promise<void> 
     primaryGh = spawnGh(cwd);
   }
 
-  const outcomes = await verifyAndOpenCapturePullRequests({
-    cwd,
-    artifactDir: resolve(artifactDir),
-    repository,
-    gh: primaryGh,
-    fallbackGh,
-    hasPatPushAuth,
-  });
+  const bundleDirs = resolveCaptureBundleDirs(resolve(artifactDir));
+  const outcomes: OpenedPullRequestOutcome[] = [];
+  for (const bundleDir of bundleDirs) {
+    const legOutcomes = await verifyAndOpenCapturePullRequests({
+      cwd,
+      artifactDir: bundleDir,
+      repository,
+      gh: primaryGh,
+      fallbackGh,
+      hasPatPushAuth,
+    });
+    outcomes.push(...legOutcomes);
+  }
   const summary = formatPullRequestOutcomesSummary(outcomes);
   appendStepSummary(env, summary);
   console.log(summary);

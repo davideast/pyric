@@ -80,6 +80,17 @@ const RIG_CAPTURE_POLICIES: Readonly<Record<string, RigCapturePolicy>> = {
   'firestore-rules-sibling-merge': {
     iamHint: LIVE_SDK_IAM_HINT,
   },
+  'ios-sdk-probes': {
+    filterFlag: '--probe',
+    autoPushSafe: true,
+    perProbeStaged: true,
+    iamHint: {
+      permission:
+        'firebase.projects.get, firebase.clients.list, firebaseauth.users.create, firebasedatabase.instances.update',
+      role: 'roles/firebase.viewer, roles/firebaseauth.admin, roles/firebasedatabase.admin',
+      api: 'firebase.googleapis.com, identitytoolkit.googleapis.com, firebasedatabase.googleapis.com',
+    },
+  },
   'messaging-send': {
     filterFlag: '--probe',
     autoPushSafe: true,

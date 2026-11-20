@@ -8,6 +8,7 @@ const MODULAR_PROBE_RIGS = [
   'sdk-probes',
   'admin-auth',
   'admin-firestore',
+  'ios-sdk-probes',
   'storage-admin',
   'messaging-send',
   'storage-stdlib-discovery',

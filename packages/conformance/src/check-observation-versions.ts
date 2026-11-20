@@ -22,6 +22,7 @@ import {
   resolvedAdminVersion,
   resolvedFirebaseVersion,
   resolvedFunctionsVersion,
+  resolvedIosSdkVersion,
 } from './package-version.ts';
 
 const resolved = resolvedFirebaseVersion();
@@ -30,6 +31,7 @@ const resolved = resolvedFirebaseVersion();
 // for admin behavior, so they must track the installed firebase-admin version.
 const resolvedAdmin = resolvedAdminVersion();
 const resolvedFunctions = resolvedFunctionsVersion();
+const resolvedIos = resolvedIosSdkVersion();
 const observations = loadObservations();
 
 const missing: string[] = [];
@@ -39,6 +41,7 @@ const VERSION_TARGETS = [
   { field: 'fbSdkVersion', resolved },
   { field: 'adminSdkVersion', resolved: resolvedAdmin },
   { field: 'functionsSdkVersion', resolved: resolvedFunctions },
+  { field: 'iosSdkVersion', resolved: resolvedIos },
 ] as const;
 
 for (const obs of observations) {
@@ -58,6 +61,7 @@ console.log(`# Oracle observation version guard`);
 console.log(`Resolved firebase (node_modules/firebase/package.json): ${resolved}`);
 console.log(`Resolved firebase-admin (node_modules/firebase-admin/package.json): ${resolvedAdmin}`);
 console.log(`Resolved firebase-functions (node_modules/firebase-functions/package.json): ${resolvedFunctions}`);
+console.log(`Resolved firebase-ios-sdk (rigs/native-ios-oracle/sdk-version.properties): ${resolvedIos}`);
 console.log(`Observations checked: ${observations.length}`);
 
 if (missing.length === 0 && mismatched.length === 0) {

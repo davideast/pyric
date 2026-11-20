@@ -4,7 +4,7 @@
  */
 import { appendFileSync } from 'node:fs';
 import { loadRigManifests } from '../../packages/conformance/rigs/load.ts';
-import type { RigManifest } from '../../packages/conformance/rigs/types.ts';
+import type { RigManifest, RigRunnerOs } from '../../packages/conformance/rigs/types.ts';
 import {
   discoverUncapturedStagedTargets,
   type StagedCaptureItem,
@@ -18,12 +18,12 @@ const DEFAULT_PARITY_SA = 'parity-test-sa@digame-mas.iam.gserviceaccount.com';
 
 type WifTier = 'none' | 'parity-readonly' | 'capture-write';
 
-
 export interface PlannedRigInvocation {
   rig: string;
   script: string;
   args: string[];
   wifTier?: WifTier;
+  runnerOs?: RigRunnerOs;
 }
 
 export interface CapturePlan {
@@ -114,11 +114,26 @@ function buildInvocationForRig(manifest: RigManifest, filter?: string): PlannedR
     }
     args.push(flag, trimmedFilter);
   }
-  return {
+  const invocation: PlannedRigInvocation = {
     rig: manifest.id,
     script: manifest.script,
     args,
     wifTier: wifTierForManifest(manifest),
+  };
+  if (manifest.runnerOs !== undefined) {
+    invocation.runnerOs = manifest.runnerOs;
+  }
+  return invocation;
+}
+
+function emptyCapturePlan(skippedRigs: string[] = []): CapturePlan {
+  return {
+    shouldRun: false,
+    needsWif: false,
+    needsParityWif: false,
+    needsCaptureWif: false,
+    invocations: [],
+    skippedRigs,
   };
 }
 
@@ -219,15 +234,29 @@ export async function planCaptureRun(
     );
   }
 
+  let targetRunnerOs = '';
+  if (typeof env.CAPTURE_RUNNER_OS === 'string') {
+    targetRunnerOs = env.CAPTURE_RUNNER_OS.trim();
+  }
+  if (targetRunnerOs !== '') {
+    if (targetRunnerOs !== 'ubuntu-latest' && targetRunnerOs !== 'macos-latest') {
+      throw new Error(`Invalid CAPTURE_RUNNER_OS '${targetRunnerOs}'`);
+    }
+  } else if (env.RUNNER_OS === 'Linux') {
+    targetRunnerOs = 'ubuntu-latest';
+  }
+  if (targetRunnerOs !== '') {
+    candidateInvocations = candidateInvocations.filter((inv) => {
+      let invOs: RigRunnerOs = 'ubuntu-latest';
+      if (inv.runnerOs !== undefined) {
+        invOs = inv.runnerOs;
+      }
+      return invOs === targetRunnerOs;
+    });
+  }
+
   if (candidateInvocations.length === 0) {
-    return {
-      shouldRun: false,
-      needsWif: false,
-      needsParityWif: false,
-      needsCaptureWif: false,
-      invocations: [],
-      skippedRigs: [],
-    };
+    return emptyCapturePlan();
   }
 
   const captureWifConfigured =
@@ -252,14 +281,7 @@ export async function planCaptureRun(
   }
 
   if (activeInvocations.length === 0) {
-    return {
-      shouldRun: false,
-      needsWif: false,
-      needsParityWif: false,
-      needsCaptureWif: false,
-      invocations: [],
-      skippedRigs,
-    };
+    return emptyCapturePlan(skippedRigs);
   }
 
   const parityRigs = [...new Set(

@@ -21,7 +21,13 @@ const TYPES_FILE = 'types.ts';
 
 const AUTOMATION_VALUES = new Set<RigAutomation>(['unattended', 'credentialed', 'human-witnessed']);
 const NETWORK_VALUES = new Set(['none', 'firebase-production']);
-const VERSION_FIELD_VALUES = new Set(['fbSdkVersion', 'adminSdkVersion', 'functionsSdkVersion']);
+const RUNNER_OS_VALUES = new Set(['ubuntu-latest', 'macos-latest']);
+const VERSION_FIELD_VALUES = new Set([
+  'fbSdkVersion',
+  'adminSdkVersion',
+  'functionsSdkVersion',
+  'iosSdkVersion',
+]);
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((entry) => typeof entry === 'string');
@@ -67,6 +73,12 @@ function recordProblems(file: string, value: unknown): string[] {
   }
   if (typeof record.network !== 'string' || !NETWORK_VALUES.has(record.network)) {
     fail(`invalid 'network' (${JSON.stringify(record.network)})`);
+  }
+  if (
+    record.runnerOs !== undefined &&
+    (typeof record.runnerOs !== 'string' || !RUNNER_OS_VALUES.has(record.runnerOs))
+  ) {
+    fail(`invalid 'runnerOs' (${JSON.stringify(record.runnerOs)})`);
   }
 
   const requires = record.requires as Record<string, unknown> | undefined;

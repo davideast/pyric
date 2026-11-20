@@ -30,7 +30,12 @@ const byName = new Map(observations.map((obs) => [obs.name, obs]));
 const structural: string[] = [];
 for (const obs of observations) {
   for (const key of REQUIRED) if (!(key in obs.raw)) structural.push(`${obs.file}: missing '${key}'`);
-  const versionFields = ['fbSdkVersion', 'adminSdkVersion', 'functionsSdkVersion'];
+  const versionFields = [
+    'fbSdkVersion',
+    'adminSdkVersion',
+    'functionsSdkVersion',
+    'iosSdkVersion',
+  ];
   if (!versionFields.some((field) => typeof obs.raw[field] === 'string')) {
     structural.push(`${obs.file}: missing SDK version field`);
   }

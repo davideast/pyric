@@ -17,7 +17,11 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { listProbeFiles } from '../probes/load.ts';
-import type { Probe, ProbeSdkRequirement } from '../rigs/types.ts';
+import type {
+  ObservationVersionField,
+  Probe,
+  ProbeSdkRequirement,
+} from '../rigs/types.ts';
 import {
   formatInertPreviewFooter,
   hasExplicitCaptureFlag,
@@ -39,7 +43,11 @@ import {
   webConfigFromEnv,
 } from './oracle-run-setup.ts';
 import { isTransientAuthCaptureError } from './oracle-run-auth-session.ts';
-import { resolvedAdminVersion, resolvedFirebaseVersion } from './package-version.ts';
+import {
+  resolvedAdminVersion,
+  resolvedFirebaseVersion,
+  resolvedIosSdkVersion,
+} from './package-version.ts';
 import { readProbeSelectors } from './probe-cli-args.ts';
 import { readDeclaredProbeRig } from './staged-captures.ts';
 
@@ -200,7 +208,7 @@ export function printModularProbePreview(options: {
 export interface ModularProbeRigConfig {
   rig: string;
   scriptPath: string;
-  versionField: 'fbSdkVersion' | 'adminSdkVersion';
+  versionField: Extract<ObservationVersionField, 'fbSdkVersion' | 'adminSdkVersion' | 'iosSdkVersion'>;
 }
 
 export const SDK_PROBES_RIG_CONFIG: ModularProbeRigConfig = {
@@ -350,6 +358,8 @@ export async function runModularProbesCli(options: {
   let sdkVersion: string;
   if (options.config.versionField === 'adminSdkVersion') {
     sdkVersion = resolvedAdminVersion();
+  } else if (options.config.versionField === 'iosSdkVersion') {
+    sdkVersion = resolvedIosSdkVersion();
   } else {
     sdkVersion = resolvedFirebaseVersion();
   }

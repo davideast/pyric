@@ -20,6 +20,14 @@
  */
 export type RigAutomation = 'unattended' | 'credentialed' | 'human-witnessed';
 
+export type RigRunnerOs = 'ubuntu-latest' | 'macos-latest';
+
+export type ObservationVersionField =
+  | 'fbSdkVersion'
+  | 'adminSdkVersion'
+  | 'functionsSdkVersion'
+  | 'iosSdkVersion';
+
 interface RigEnvRequirement {
   /** Exact environment variable name. */
   name: string;
@@ -55,6 +63,8 @@ export interface RigManifestRecord {
   pendingPrefixes?: string[];
   automation: RigAutomation;
   network: 'none' | 'firebase-production';
+  /** Target GitHub Actions runner OS for automated main-branch capture (defaults to 'ubuntu-latest'). */
+  runnerOs?: RigRunnerOs;
   requires: {
     env: RigEnvRequirement[];
     /** Firebase-project-side setup (console toggles, rules, provisioned resources) — not locally verifiable. */
@@ -72,7 +82,7 @@ export interface RigManifestRecord {
   };
   freshness: {
     /** Which field in the observation envelope pins the SDK version this rig captured against. */
-    versionField: 'fbSdkVersion' | 'adminSdkVersion' | 'functionsSdkVersion';
+    versionField: ObservationVersionField;
     /** How that field is enforced to stay current. */
     policy: string;
   };
