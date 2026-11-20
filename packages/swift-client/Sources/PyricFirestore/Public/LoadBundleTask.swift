@@ -276,16 +276,77 @@ extension Firestore {
         return try await task.value()
     }
 
+    public func getQuery(
+        named name: String,
+        completion: @escaping @Sendable (Query?) -> Void
+    ) {
+        hasUsed = true
+        let currentSettings = settings
+        let pendingLoads = lifecycle.snapshotActiveBundleLoads()
+        if pendingLoads.isEmpty {
+            let resolved = resolveBundledNamedQuery(named: name)
+            currentSettings.dispatchCallback {
+                completion(resolved)
+            }
+            return
+        }
+        Task { [weak self] in
+            for load in pendingLoads {
+                await load.wait()
+            }
+            let resolved = self?.resolveBundledNamedQuery(named: name)
+            currentSettings.dispatchCallback {
+                completion(resolved)
+            }
+        }
+    }
+
+    public func getQuery(named name: String) async -> Query? {
+        await withCheckedContinuation { continuation in
+            getQuery(named: name) { query in
+                continuation.resume(returning: query)
+            }
+        }
+    }
+
+    private func resolveBundledNamedQuery(named name: String) -> Query? {
+        guard !lifecycle.isTerminated else {
+            return nil
+        }
+        lifecycle.markStarted()
+        guard let spec = lifecycle.bundledNamedQuery(named: name) else {
+            return nil
+        }
+        if spec.isCollectionGroup {
+            return Query(
+                firestore: self,
+                rootSource: .group(collectionId: spec.collectionPath),
+                path: "",
+                constraints: spec.constraints
+            )
+        }
+        return Query(
+            firestore: self,
+            rootSource: .collection(path: spec.collectionPath),
+            path: spec.collectionPath,
+            constraints: spec.constraints
+        )
+    }
+
     private func startBundleLoadTask(
         completion: (@Sendable (LoadBundleTaskProgress?, Error?) -> Void)?,
         readBytes: @escaping @Sendable () throws -> Data
     ) -> LoadBundleTask {
         hasUsed = true
         let currentSettings = settings
+        let bundleLoadId = lifecycle.beginBundleLoad()
         return LoadBundleTask(
             dispatchCallback: { block in currentSettings.dispatchCallback(block) },
             completion: completion
         ) { [weak self] emit in
+            defer {
+                self?.lifecycle.finishBundleLoad(bundleLoadId)
+            }
             guard let self else {
                 throw PyricBridgeError(code: .aborted, message: "Firestore instance was deallocated.")
             }

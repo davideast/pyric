@@ -30,6 +30,30 @@ public enum WriteDescriptor: Sendable, Equatable {
             ])
         }
     }
+
+    internal func toOfflineMutation() -> OfflineWriteMutation {
+        switch self {
+        case .set(let path, let data, let options):
+            if let mergeFields = options?.mergeFields {
+                return .set(
+                    path: path,
+                    encodedData: data.dictionaryValue ?? [:],
+                    merge: false,
+                    mergeFields: mergeFields
+                )
+            }
+            return .set(
+                path: path,
+                encodedData: data.dictionaryValue ?? [:],
+                merge: options?.merge ?? false,
+                mergeFields: nil
+            )
+        case .update(let path, let data):
+            return .update(path: path, encodedFields: data.dictionaryValue ?? [:])
+        case .delete(let path):
+            return .delete(path: path)
+        }
+    }
 }
 
 public struct SetOptionsWire: Sendable, Equatable {

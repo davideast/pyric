@@ -10,3 +10,6 @@ export const section = defineRowSection({
 });
 
 export const row = bindSwiftFirestoreRow(section);
+
+export const LIVE_HOST_INSTANCE_SUITE =
+  'packages/swift-client/Tests/PyricLiveHostTests/FirestoreInstanceLiveHostConformanceTests.swift';

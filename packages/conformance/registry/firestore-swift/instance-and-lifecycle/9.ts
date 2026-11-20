@@ -1,9 +1,12 @@
-import { row } from './section.ts';
+import { LIVE_HOST_CONFORMANCE_TEST } from '../defaults.ts';
+import { LIVE_HOST_INSTANCE_SUITE, row } from './section.ts';
 
 export default row({
   order: 90,
   api: 'Firestore.collectionGroup(_:)',
   behavior: 'Instantiates a Query spanning all collections with the matching collectionID.',
   featureKeys: ['collectionGroup'],
-  flipped: 'unit-backed',
+  status: 'conforms',
+  tests: [LIVE_HOST_INSTANCE_SUITE],
+  hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

@@ -13,7 +13,7 @@ public struct PersistentCacheSettings: LocalCacheSettings, Sendable, Equatable {
     }
 }
 
-public final class FirestoreSettings: @unchecked Sendable {
+public final class FirestoreSettings: @unchecked Sendable, NSCopying, Equatable {
     public var host: String
     public var sslEnabled: Bool
     public var isSSLEnabled: Bool {
@@ -40,6 +40,37 @@ public final class FirestoreSettings: @unchecked Sendable {
         self.sslEnabled = sslEnabled
         self.dispatchQueue = dispatchQueue
         self.cacheSettings = cacheSettings
+    }
+
+    public func copy(with zone: NSZone? = nil) -> Any {
+        FirestoreSettings(
+            host: host,
+            sslEnabled: sslEnabled,
+            dispatchQueue: dispatchQueue,
+            cacheSettings: cacheSettings
+        )
+    }
+
+    #if canImport(ObjectiveC)
+    public func copy() -> Any {
+        copy(with: nil)
+    }
+    #endif
+
+    public static func == (lhs: FirestoreSettings, rhs: FirestoreSettings) -> Bool {
+        guard lhs.host == rhs.host,
+              lhs.sslEnabled == rhs.sslEnabled,
+              lhs.dispatchQueue === rhs.dispatchQueue else {
+            return false
+        }
+        if lhs.cacheSettings is MemoryCacheSettings, rhs.cacheSettings is MemoryCacheSettings {
+            return true
+        }
+        if let lp = lhs.cacheSettings as? PersistentCacheSettings,
+           let rp = rhs.cacheSettings as? PersistentCacheSettings {
+            return lp == rp
+        }
+        return false
     }
 
     private static let fallbackQueue = DispatchQueue(label: "dev.pyric.firestore.callback-fallback")
