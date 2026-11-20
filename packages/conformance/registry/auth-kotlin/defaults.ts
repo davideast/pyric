@@ -6,6 +6,10 @@ import {
 
 const CONFORMANCE_SUITE =
   'packages/kt-client/src/test/kotlin/dev/pyric/auth/ConformanceTest.kt';
+const LIVE_HOST_SUITE =
+  'packages/kt-client/src/test/kotlin/dev/pyric/e2e/AuthLiveHostConformanceTest.kt';
+const LIVE_HOST_RUNNER =
+  'packages/cli/test/serve/native-kotlin-conformance.test.ts';
 const UNOBSERVED_REASON =
   'Behavior stated from com.google.firebase.auth specification; unit test has not passed yet.';
 
@@ -15,7 +19,7 @@ export interface KotlinAuthRowSeed {
   behavior: string;
   featureKeys: string[];
   evidence?: string;
-  flipped?: 'unit-backed';
+  flipped?: 'unit-backed' | 'live-host';
   rowRef?: never;
   id?: never;
 }
@@ -33,8 +37,27 @@ export function bindKotlinAuthRow(
     }
 
     return section.rowFromRef(seed.order, (rowRef) => {
-      if (seed.flipped !== undefined) {
-        const resolvedEvidence = seed.evidence ?? 'com.google.firebase.auth specification.';
+      if (seed.flipped === 'live-host') {
+        let liveEvidence = 'com.google.firebase.auth specification.';
+        if (seed.evidence !== undefined) {
+          liveEvidence = seed.evidence;
+        }
+        return {
+          api: seed.api,
+          behavior: seed.behavior,
+          featureKeys: seed.featureKeys,
+          status: 'conforms',
+          automation: 'unit-backed',
+          evidence: `${liveEvidence} Unit suite: \`${CONFORMANCE_SUITE}\` assertion set \`auth-kotlin#${rowRef}\`; live host: \`${LIVE_HOST_SUITE}\` via \`${LIVE_HOST_RUNNER}\`.`,
+          conformanceTests: [CONFORMANCE_SUITE, LIVE_HOST_SUITE, LIVE_HOST_RUNNER],
+          hostConformanceTests: [LIVE_HOST_RUNNER],
+        };
+      }
+      if (seed.flipped === 'unit-backed') {
+        let unitEvidence = 'com.google.firebase.auth specification.';
+        if (seed.evidence !== undefined) {
+          unitEvidence = seed.evidence;
+        }
         return {
           api: seed.api,
           behavior: seed.behavior,
@@ -42,12 +65,14 @@ export function bindKotlinAuthRow(
           status: 'unverified',
           statusNote: MOCK_BRIDGE_STATUS_NOTE,
           automation: 'unit-backed',
-          evidence: `${resolvedEvidence} Test: \`${CONFORMANCE_SUITE}\` assertion set \`auth-kotlin#${rowRef}\`.`,
+          evidence: `${unitEvidence} Test: \`${CONFORMANCE_SUITE}\` assertion set \`auth-kotlin#${rowRef}\`.`,
           conformanceTests: [CONFORMANCE_SUITE],
         };
       }
-      const resolvedEvidence =
-        seed.evidence ?? 'com.google.firebase.auth specification; unverified locally.';
+      let unverifiedEvidence = 'com.google.firebase.auth specification; unverified locally.';
+      if (seed.evidence !== undefined) {
+        unverifiedEvidence = seed.evidence;
+      }
       return {
         api: seed.api,
         behavior: seed.behavior,
@@ -57,7 +82,7 @@ export function bindKotlinAuthRow(
         risk: ['unobserved'],
         riskScore: 2,
         riskReasons: [UNOBSERVED_REASON],
-        evidence: resolvedEvidence,
+        evidence: unverifiedEvidence,
       };
     });
   };

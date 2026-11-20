@@ -27,6 +27,46 @@ object BridgeAuthOperations {
         return client.op("auth.signInAnonymously", params) as? Map<String, Any?> ?: emptyMap()
     }
 
+    suspend fun signInWithCustomToken(
+        client: PyricBridgeClient,
+        customToken: String,
+        tenantId: String? = null
+    ): Map<String, Any?> {
+        val params = mutableMapOf<String, Any?>("customToken" to customToken)
+        if (tenantId != null) params["tenantId"] = tenantId
+        @Suppress("UNCHECKED_CAST")
+        return client.op("auth.signInWithCustomToken", params) as? Map<String, Any?> ?: emptyMap()
+    }
+
+    suspend fun mockSignInResult(
+        client: PyricBridgeClient,
+        providerId: String,
+        uid: String,
+        email: String? = null,
+        displayName: String? = null,
+        photoURL: String? = null,
+        emailVerified: Boolean? = null,
+        customClaims: Map<String, Any?> = emptyMap()
+    ) {
+        val identity = mutableMapOf<String, Any?>(
+            "uid" to uid,
+            "providerId" to providerId,
+            "email" to email,
+            "displayName" to displayName,
+            "photoURL" to photoURL,
+            "customClaims" to customClaims
+        )
+        if (emailVerified != null) {
+            identity["emailVerified"] = emailVerified
+        }
+        client.op("auth.mockSignInResult", mapOf("identity" to identity))
+    }
+
+    suspend fun reload(client: PyricBridgeClient, uid: String): Map<String, Any?>? {
+        @Suppress("UNCHECKED_CAST")
+        return client.op("auth.reload", mapOf("uid" to uid)) as? Map<String, Any?>
+    }
+
     suspend fun signInWithCredential(client: PyricBridgeClient, credential: Map<String, Any?>, tenantId: String? = null): Map<String, Any?> {
         val params = mutableMapOf<String, Any?>("credential" to credential)
         if (tenantId != null) params["tenantId"] = tenantId

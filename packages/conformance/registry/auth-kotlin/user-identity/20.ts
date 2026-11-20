@@ -5,5 +5,5 @@ export default row({
   api: 'FirebaseUser.isAnonymous',
   behavior: 'Returns true if the user account is authenticated anonymously, false otherwise.',
   featureKeys: ['isAnonymous'],
-  flipped: 'unit-backed',
+  flipped: 'live-host',
 });

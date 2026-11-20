@@ -5,5 +5,5 @@ export default row({
   api: 'FirebaseAuth.signInAnonymously()',
   behavior: 'Authenticates an anonymous user via bridge auth.signInAnonymously, establishing an anonymous FirebaseUser session.',
   featureKeys: ['signInAnonymously'],
-  flipped: 'unit-backed',
+  flipped: 'live-host',
 });

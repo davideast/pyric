@@ -758,6 +758,7 @@ class PyricBridgeClient(
             return mapOf("Host" to host)
         }
 
-        fun createDefault(): PyricBridgeClient = PyricBridgeClient()
+        fun createDefault(): PyricBridgeClient =
+            PyricBridgeClient(url = BridgeProtocol.resolveDefaultBridgeUrl())
     }
 }

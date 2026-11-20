@@ -33,7 +33,7 @@ sealed class AuthLens {
                 "uid" to uid,
                 "token" to tokenMap
             )
-            if (tenant != null) map["tenant"] = tenant
+            if (!tenant.isNullOrEmpty()) map["tenant"] = tenant
             return map
         }
     }

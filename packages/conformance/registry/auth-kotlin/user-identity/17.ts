@@ -5,5 +5,5 @@ export default row({
   api: 'FirebaseUser.displayName',
   behavior: 'Returns the display name associated with the user profile, or null if unset.',
   featureKeys: ['displayName'],
-  flipped: 'unit-backed',
+  flipped: 'live-host',
 });

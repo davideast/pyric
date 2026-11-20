@@ -6,6 +6,7 @@ import type { AddressInfo } from 'node:net';
 import { resolve } from 'node:path';
 import { WebSocket, WebSocketServer } from 'ws';
 import { createMemoryBackend } from 'pyric/sandbox';
+import { mintCustomToken } from 'pyric/sandbox/internal';
 import {
   WORKER_PORT_CAPABILITY,
   WORKER_RELAY_CAPABILITY,
@@ -46,6 +47,33 @@ function makeInMemoryHostedPersistence() {
   };
 }
 
+const FIRESTORE_RULES = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+    match /verified_users/{uid} {
+      allow read, write: if request.auth != null
+        && request.auth.uid == uid
+        && request.auth.token.email != null
+        && request.auth.token.email_verified == true;
+    }
+    match /provider_profiles/{provider}/users/{uid} {
+      allow read, write: if request.auth != null
+        && request.auth.uid == uid
+        && request.auth.token.firebase.sign_in_provider == provider;
+    }
+    match /role_items/{role}/items/{itemId} {
+      allow read, write: if request.auth != null && request.auth.token.role == role;
+    }
+    match /tenant_rooms/{tenantId}/rooms/{roomId} {
+      allow read, write: if request.auth != null
+        && request.auth.token.firebase.tenant == tenantId;
+    }
+  }
+}`;
+
 const MAIN_RTDB_RULES: RtdbRulesJson = {
   rules: {
     profiles: {
@@ -58,6 +86,20 @@ const MAIN_RTDB_RULES: RtdbRulesJson = {
         scores: {
           '.indexOn': ['.value'],
         },
+      },
+    },
+    provider_claims: {
+      $provider: {
+        $uid: {
+          '.read': 'auth != null && auth.uid === $uid && auth.token.firebase.sign_in_provider === $provider',
+          '.write': 'auth != null && auth.uid === $uid && auth.token.firebase.sign_in_provider === $provider',
+        },
+      },
+    },
+    email_claims: {
+      $uid: {
+        '.read': 'auth != null && auth.uid === $uid && auth.token.email != null && auth.token.email_verified === false',
+        '.write': 'auth != null && auth.uid === $uid && auth.token.email != null && auth.token.email_verified === false',
       },
     },
     public: {
@@ -137,10 +179,17 @@ async function startLiveKotlinBridgeHost(): Promise<LiveKotlinBridgeHost> {
   const persistence = makeInMemoryHostedPersistence();
   const runtime = await createHostedRuntime(
     {
-      rules: null,
+      rules: FIRESTORE_RULES,
       rulesHash: null,
       databaseRules: MAIN_RTDB_RULES,
       databaseRulesHash: null,
+      databaseInstances: {
+        defaultInstance: DEFAULT_INSTANCE,
+        projectId: PROJECT_ID,
+        rules: buildShardedRtdbRules(),
+      },
+      storageRules: null,
+      storageRulesHash: null,
       bridgeUrl: '/__pyric/sandbox',
       seed: null,
       capture: false,
@@ -148,7 +197,6 @@ async function startLiveKotlinBridgeHost(): Promise<LiveKotlinBridgeHost> {
       permissive: false,
       projectKey: PROJECT_ID,
       sessionToken: 'tok-kotlin-live-host',
-      appOptions: { projectId: PROJECT_ID },
     },
     'http://127.0.0.1:4400',
     (frame) => {
@@ -165,6 +213,7 @@ async function startLiveKotlinBridgeHost(): Promise<LiveKotlinBridgeHost> {
     [WORKER_PORT_CAPABILITY, WORKER_RELAY_CAPABILITY],
   );
 
+  await runtime.deployRules('firestore', FIRESTORE_RULES);
   await runtime.deployRules('database', JSON.stringify(MAIN_RTDB_RULES));
   connectDatabaseInstanceRules(runtime.databaseRules, {
     defaultInstance: DEFAULT_INSTANCE,
@@ -317,6 +366,18 @@ describe('native Kotlin client live-host conformance', () => {
       }
       const host = await startLiveKotlinBridgeHost();
       try {
+        const nowMs = Date.now();
+        const validCustomToken = mintCustomToken({
+          uid: 'kt-custom-uid-01',
+          claims: { role: 'moderator', tier: 'pro' },
+          projectId: PROJECT_ID,
+          nowMs,
+        });
+        const mismatchCustomToken = mintCustomToken({
+          uid: 'kt-custom-uid-mismatch',
+          projectId: 'other-kotlin-project',
+          nowMs,
+        });
         const gradlew = resolve(KT_CLIENT_DIR, 'gradlew');
         const proc = Bun.spawn(
           [
@@ -335,6 +396,8 @@ describe('native Kotlin client live-host conformance', () => {
             env: {
               ...process.env,
               PYRIC_LIVE_BRIDGE_URL: host.bridgeUrl,
+              PYRIC_LIVE_CUSTOM_TOKEN_VALID: validCustomToken,
+              PYRIC_LIVE_CUSTOM_TOKEN_MISMATCH: mismatchCustomToken,
             },
             stdout: 'pipe',
             stderr: 'pipe',

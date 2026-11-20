@@ -5,5 +5,5 @@ export default row({
   api: 'FirebaseAuth.addAuthStateListener(listener)',
   behavior: 'Registers an AuthStateListener invoked immediately on registration and whenever authentication state changes.',
   featureKeys: ['addAuthStateListener', 'removeAuthStateListener'],
-  flipped: 'unit-backed',
+  flipped: 'live-host',
 });

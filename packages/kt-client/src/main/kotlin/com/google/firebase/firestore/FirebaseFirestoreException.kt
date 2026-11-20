@@ -7,7 +7,8 @@ open class FirebaseFirestoreException(
     message: String,
     val code: Code,
     cause: Throwable? = null,
-    val denialContext: Any? = null
+    val denialContext: Any? = null,
+    val wireCode: String? = null
 ) : Exception(message, cause) {
 
     enum class Code(val value: Int) {

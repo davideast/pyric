@@ -3,6 +3,7 @@ package com.google.firebase.auth
 import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.TaskCompletionSource
 import com.google.firebase.FirebaseApp
+import com.google.firebase.firestore.FirebaseFirestoreException
 import dev.pyric.auth.AuthLens
 import dev.pyric.auth.BridgeAuthOperations
 import dev.pyric.auth.CredentialsProvider
@@ -59,6 +60,7 @@ class FirebaseAuth internal constructor(
 
     private val authStateLock = Any()
     private var initialBridgeSnapshotReceived = false
+    private var initialIdTokenSnapshotReceived = false
 
     init {
         // A replaced bridge host holds no user for this session. Sign the session
@@ -79,20 +81,36 @@ class FirebaseAuth internal constructor(
         scope.launch {
             try {
                 BridgeAuthOperations.subscribeIdToken(bridgeClient).collect { rawSnap ->
+                    val shouldNotify = synchronized(authStateLock) {
+                        if (!initialIdTokenSnapshotReceived) {
+                            initialIdTokenSnapshotReceived = true
+                            if (rawSnap == null) return@synchronized false
+                        }
+                        rawSnap != null || _currentUser.value != null
+                    }
+                    if (!shouldNotify) return@collect
+                    if (rawSnap == null) {
+                        updateUserFromBridge(null)
+                        return@collect
+                    }
                     currentUser?.let { user ->
                         @Suppress("UNCHECKED_CAST")
-                        val snapClaims = (rawSnap?.get("customClaims") as? Map<String, Any?>)
-                            ?: (rawSnap?.get("claims") as? Map<String, Any?>)
+                        val snapClaims = (rawSnap["customClaims"] as? Map<String, Any?>)
+                            ?: (rawSnap["claims"] as? Map<String, Any?>)
                         if (snapClaims != null) {
-                            user.customClaims = snapClaims
+                            user.customClaims = FirebaseUser.extractCustomClaims(snapClaims)
                             updateAuthLens()
                         } else {
                             try {
                                 val res = BridgeAuthOperations.getIdTokenResult(bridgeClient, forceRefresh = false)
+                                val provider = res["signInProvider"] as? String
+                                if (!provider.isNullOrBlank()) {
+                                    user.signInProviderOverride = provider
+                                }
                                 @Suppress("UNCHECKED_CAST")
                                 val claims = res["claims"] as? Map<String, Any?>
                                 if (claims != null) {
-                                    user.customClaims = claims
+                                    user.customClaims = FirebaseUser.extractCustomClaims(claims)
                                     updateAuthLens()
                                 }
                             } catch (_: Exception) {}
@@ -150,7 +168,22 @@ class FirebaseAuth internal constructor(
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 val res = BridgeAuthOperations.signInAnonymously(bridgeClient, tenantId)
-                val authResult = handleAuthSuccess(res)
+                val authResult = handleAuthSuccess(res, defaultSignInProvider = "anonymous")
+                tcs.setResult(authResult)
+            } catch (e: Exception) {
+                tcs.setException(wrapException(e))
+            }
+        }
+        return tcs.task
+    }
+
+    fun signInWithCustomToken(token: String): Task<AuthResult> {
+        val tcs = TaskCompletionSource<AuthResult>()
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            try {
+                val res = BridgeAuthOperations.signInWithCustomToken(bridgeClient, token, tenantId)
+                val enriched = enrichSignInResponseIfNeeded(res)
+                val authResult = handleAuthSuccess(enriched, defaultSignInProvider = "custom")
                 tcs.setResult(authResult)
             } catch (e: Exception) {
                 tcs.setException(wrapException(e))
@@ -164,7 +197,9 @@ class FirebaseAuth internal constructor(
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 val res = BridgeAuthOperations.signInWithCredential(bridgeClient, credential, tenantId)
-                val authResult = handleAuthSuccess(res)
+                val enriched = enrichSignInResponseIfNeeded(res)
+                val fallbackProvider = credential["providerId"] as? String
+                val authResult = handleAuthSuccess(enriched, defaultSignInProvider = fallbackProvider)
                 tcs.setResult(authResult)
             } catch (e: Exception) {
                 tcs.setException(wrapException(e))
@@ -178,8 +213,62 @@ class FirebaseAuth internal constructor(
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 val res = BridgeAuthOperations.signInWithCredential(bridgeClient, credential.toWireMap(), tenantId)
-                val authResult = handleAuthSuccess(res)
+                val enriched = enrichSignInResponseIfNeeded(res)
+                val authResult = handleAuthSuccess(enriched, defaultSignInProvider = credential.provider)
                 tcs.setResult(authResult)
+            } catch (e: Exception) {
+                tcs.setException(wrapException(e))
+            }
+        }
+        return tcs.task
+    }
+
+    private suspend fun enrichSignInResponseIfNeeded(res: Map<String, Any?>): Map<String, Any?> {
+        @Suppress("UNCHECKED_CAST")
+        val userMap = res["user"] as? Map<String, Any?>
+        val hasEmbeddedClaims = res["customClaims"] != null ||
+            res["claims"] != null ||
+            userMap?.get("customClaims") != null ||
+            userMap?.get("claims") != null
+        if (hasEmbeddedClaims) return res
+        val tokenSnapshot = runCatching {
+            BridgeAuthOperations.getIdTokenResult(bridgeClient, forceRefresh = false)
+        }.getOrNull() ?: return res
+        if (tokenSnapshot["claims"] !is Map<*, *>) return res
+        val copy = LinkedHashMap(res)
+        copy["claims"] = tokenSnapshot["claims"]
+        return copy
+    }
+
+    /**
+     * Stages a federated provider identity on this FirebaseAuth instance's active
+     * bridge connection so the next `signInWithCredential` for [providerId] resolves
+     * against the live Pyric host (`auth.mockSignInResult`).
+     */
+    @JvmOverloads
+    fun stageSignInResult(
+        providerId: String,
+        uid: String,
+        email: String? = null,
+        displayName: String? = null,
+        photoUrl: String? = null,
+        emailVerified: Boolean? = null,
+        customClaims: Map<String, Any?> = emptyMap()
+    ): Task<Void?> {
+        val tcs = TaskCompletionSource<Void?>()
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            try {
+                BridgeAuthOperations.mockSignInResult(
+                    client = bridgeClient,
+                    providerId = providerId,
+                    uid = uid,
+                    email = email,
+                    displayName = displayName,
+                    photoURL = photoUrl,
+                    emailVerified = emailVerified,
+                    customClaims = customClaims
+                )
+                tcs.setResult(null)
             } catch (e: Exception) {
                 tcs.setException(wrapException(e))
             }
@@ -191,9 +280,11 @@ class FirebaseAuth internal constructor(
         // Signing out is synchronous in the Firebase Android SDK: when this
         // returns, currentUser is null and the next request is unauthenticated.
         // Clear the local session first; the host is told afterwards.
-        _currentUser.value = null
-        _lensOverride.value = null
-        _authLens.value = AuthLens.Anon
+        synchronized(authStateLock) {
+            _currentUser.value = null
+            _lensOverride.value = null
+            _authLens.value = AuthLens.Anon
+        }
         notifyAuthStateChanged()
         notifyIdTokenChanged()
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
@@ -232,26 +323,61 @@ class FirebaseAuth internal constructor(
     }
 
     internal fun notifyTokenRefreshed(user: FirebaseUser) {
-        _currentUser.value = user
-        updateAuthLens()
+        synchronized(authStateLock) {
+            if (_currentUser.value?.uid == user.uid) {
+                _currentUser.value = user
+                updateAuthLens()
+            }
+        }
         notifyIdTokenChanged()
     }
 
     internal fun notifyUserUpdated(user: FirebaseUser) {
-        _currentUser.value = user
-        updateAuthLens()
+        synchronized(authStateLock) {
+            if (_currentUser.value?.uid == user.uid) {
+                _currentUser.value = user
+                updateAuthLens()
+            }
+        }
         notifyAuthStateChanged()
         notifyIdTokenChanged()
     }
 
-    private fun handleAuthSuccess(res: Map<String, Any?>): AuthResult {
+    internal fun clearCurrentUserIfInvalidated(error: Exception, targetUid: String) {
+        val authEx = error as? FirebaseAuthException ?: return
+        val invalidated = authEx.errorCode == "ERROR_USER_TOKEN_EXPIRED" ||
+            authEx.errorCode == "ERROR_USER_DISABLED" ||
+            authEx.errorCode == "ERROR_USER_NOT_FOUND"
+        if (!invalidated) return
+        val cleared = synchronized(authStateLock) {
+            if (_currentUser.value?.uid == targetUid) {
+                _currentUser.value = null
+                updateAuthLens()
+                true
+            } else {
+                false
+            }
+        }
+        if (cleared) {
+            notifyAuthStateChanged()
+            notifyIdTokenChanged()
+        }
+    }
+
+    private fun handleAuthSuccess(
+        res: Map<String, Any?>,
+        defaultSignInProvider: String? = null
+    ): AuthResult {
         @Suppress("UNCHECKED_CAST")
         val userMap = res["user"] as? Map<String, Any?> ?: emptyMap()
-        val user = FirebaseUser(this, userMap)
+        @Suppress("UNCHECKED_CAST")
+        val addInfo = res["additionalUserInfo"] as? Map<String, Any?>
+        val explicitProviderId = (addInfo?.get("providerId") as? String) ?: (res["providerId"] as? String)
+        val user = FirebaseUser(this, userMap, signInProviderOverride = explicitProviderId ?: defaultSignInProvider)
         @Suppress("UNCHECKED_CAST")
         val resClaims = (res["customClaims"] as? Map<String, Any?>) ?: (res["claims"] as? Map<String, Any?>)
         if (resClaims != null && user.customClaims.isEmpty()) {
-            user.customClaims = resClaims
+            user.customClaims = FirebaseUser.extractCustomClaims(resClaims)
         }
         synchronized(authStateLock) {
             _currentUser.value = user
@@ -259,9 +385,8 @@ class FirebaseAuth internal constructor(
         }
         notifyAuthStateChanged()
         notifyIdTokenChanged()
-        @Suppress("UNCHECKED_CAST")
-        val addInfo = res["additionalUserInfo"] as? Map<String, Any?>
-        val providerId = (addInfo?.get("providerId") as? String) ?: (res["providerId"] as? String)
+        val providerId = explicitProviderId
+            ?: user.providerData.firstOrNull()?.providerId?.takeIf { it.isNotBlank() && it != "firebase" }
         val isNew = (addInfo?.get("isNewUser") as? Boolean)
             ?: (res["operationType"] == "signIn" && userMap["isAnonymous"] != true)
         return AuthResult(user, AdditionalUserInfo(providerId, isNew))
@@ -282,7 +407,12 @@ class FirebaseAuth internal constructor(
                 _authLens.value = AuthLens.Anon
             } else {
                 val existingUser = _currentUser.value
-                val user = FirebaseUser(this, userMap)
+                val inheritedProvider = if (existingUser != null && existingUser.uid == uid) {
+                    existingUser.signInProviderOverride
+                } else {
+                    null
+                }
+                val user = FirebaseUser(this, userMap, signInProviderOverride = inheritedProvider)
                 if (existingUser != null && existingUser.uid == user.uid && user.customClaims.isEmpty() && existingUser.customClaims.isNotEmpty()) {
                     user.customClaims = existingUser.customClaims
                 }
@@ -305,10 +435,9 @@ class FirebaseAuth internal constructor(
         }
         val user = _currentUser.value
         _authLens.value = if (user != null) {
-            val claims = user.customClaims
             AuthLens.AsUser(
                 uid = user.uid,
-                token = if (claims.isNotEmpty()) claims else null,
+                token = user.buildJwtClaims(),
                 tenant = user.tenantId ?: tenantId
             )
         } else {
@@ -324,27 +453,47 @@ class FirebaseAuth internal constructor(
         for (l in idTokenListeners) l.onIdTokenChanged(this)
     }
 
-    private fun wrapException(e: Exception): Exception {
+    internal fun wrapException(e: Exception): Exception {
         if (e is FirebaseAuthException) return e
+        val rawWireCode = (e as? FirebaseFirestoreException)?.wireCode?.lowercase() ?: ""
         val msg = e.message ?: "Authentication error"
+        val combined = if (rawWireCode.isNotEmpty()) "$rawWireCode $msg" else msg
         val code = when {
-            msg.contains("user-not-found", ignoreCase = true) -> "ERROR_USER_NOT_FOUND"
-            msg.contains("wrong-password", ignoreCase = true) -> "ERROR_WRONG_PASSWORD"
-            msg.contains("email-already-in-use", ignoreCase = true) -> "ERROR_EMAIL_ALREADY_IN_USE"
-            msg.contains("invalid-email", ignoreCase = true) -> "ERROR_INVALID_EMAIL"
-            msg.contains("weak-password", ignoreCase = true) -> "ERROR_WEAK_PASSWORD"
-            msg.contains("operation-not-allowed", ignoreCase = true) -> "ERROR_OPERATION_NOT_ALLOWED"
-            msg.contains("user-disabled", ignoreCase = true) -> "ERROR_USER_DISABLED"
-            msg.contains("invalid-credential", ignoreCase = true) -> "ERROR_INVALID_CREDENTIAL"
-            msg.contains("requires-recent-login", ignoreCase = true) -> "ERROR_REQUIRES_RECENT_LOGIN"
-            msg.contains("too-many-requests", ignoreCase = true) -> "ERROR_TOO_MANY_REQUESTS"
+            combined.contains("custom-token-mismatch", ignoreCase = true) -> "ERROR_CUSTOM_TOKEN_MISMATCH"
+            combined.contains("invalid-custom-token", ignoreCase = true) -> "ERROR_INVALID_CUSTOM_TOKEN"
+            combined.contains("user-token-expired", ignoreCase = true) -> "ERROR_USER_TOKEN_EXPIRED"
+            combined.contains("user-not-found", ignoreCase = true) -> "ERROR_USER_NOT_FOUND"
+            combined.contains("wrong-password", ignoreCase = true) -> "ERROR_WRONG_PASSWORD"
+            combined.contains("email-already-in-use", ignoreCase = true) -> "ERROR_EMAIL_ALREADY_IN_USE"
+            combined.contains("account-exists-with-different-credential", ignoreCase = true) ->
+                "ERROR_ACCOUNT_EXISTS_WITH_DIFFERENT_CREDENTIAL"
+            combined.contains("credential-already-in-use", ignoreCase = true) -> "ERROR_CREDENTIAL_ALREADY_IN_USE"
+            combined.contains("invalid-email", ignoreCase = true) -> "ERROR_INVALID_EMAIL"
+            combined.contains("weak-password", ignoreCase = true) -> "ERROR_WEAK_PASSWORD"
+            combined.contains("operation-not-allowed", ignoreCase = true) -> "ERROR_OPERATION_NOT_ALLOWED"
+            combined.contains("user-disabled", ignoreCase = true) -> "ERROR_USER_DISABLED"
+            combined.contains("invalid-credential", ignoreCase = true) -> "ERROR_INVALID_CREDENTIAL"
+            combined.contains("requires-recent-login", ignoreCase = true) -> "ERROR_REQUIRES_RECENT_LOGIN"
+            combined.contains("too-many-requests", ignoreCase = true) -> "ERROR_TOO_MANY_REQUESTS"
+            combined.contains("no-such-provider", ignoreCase = true) -> "ERROR_NO_SUCH_PROVIDER"
+            combined.contains("user-mismatch", ignoreCase = true) -> "ERROR_USER_MISMATCH"
+            combined.contains("no-mock-configured", ignoreCase = true) -> "ERROR_NO_MOCK_CONFIGURED"
             else -> "ERROR_UNKNOWN"
         }
         // The same subclasses the Firebase Android SDK throws for these codes.
         return when (code) {
-            "ERROR_USER_NOT_FOUND", "ERROR_USER_DISABLED" -> FirebaseAuthInvalidUserException(code, msg, e)
-            "ERROR_WRONG_PASSWORD", "ERROR_INVALID_EMAIL", "ERROR_INVALID_CREDENTIAL" ->
+            "ERROR_USER_NOT_FOUND", "ERROR_USER_DISABLED", "ERROR_USER_TOKEN_EXPIRED" ->
+                FirebaseAuthInvalidUserException(code, msg, e)
+            "ERROR_WRONG_PASSWORD", "ERROR_INVALID_EMAIL", "ERROR_INVALID_CREDENTIAL",
+            "ERROR_INVALID_CUSTOM_TOKEN", "ERROR_CUSTOM_TOKEN_MISMATCH" ->
                 FirebaseAuthInvalidCredentialsException(code, msg, e)
+            "ERROR_EMAIL_ALREADY_IN_USE", "ERROR_ACCOUNT_EXISTS_WITH_DIFFERENT_CREDENTIAL",
+            "ERROR_CREDENTIAL_ALREADY_IN_USE" ->
+                FirebaseAuthUserCollisionException(code, msg, e)
+            "ERROR_WEAK_PASSWORD" ->
+                FirebaseAuthWeakPasswordException(code, msg, reason = msg, cause = e)
+            "ERROR_REQUIRES_RECENT_LOGIN" ->
+                FirebaseAuthRecentLoginRequiredException(code, msg, e)
             else -> FirebaseAuthException(code, msg, e)
         }
     }
@@ -366,13 +515,14 @@ class FirebaseAuth internal constructor(
         @JvmStatic
         fun getInstance(app: FirebaseApp): FirebaseAuth {
             return instances.computeIfAbsent(app.name) {
-                FirebaseAuth(app, PyricBridgeClient.createDefault())
+                FirebaseAuth(app, app.getOrCreateBridgeClient())
             }
         }
 
         @JvmStatic
         fun getInstance(app: FirebaseApp, bridgeClient: PyricBridgeClient): FirebaseAuth {
             return instances.computeIfAbsent(app.name) {
+                app.getOrCreateBridgeClient(bridgeClient)
                 FirebaseAuth(app, bridgeClient)
             }
         }
@@ -384,6 +534,7 @@ class FirebaseAuth internal constructor(
             dispatcher: CoroutineDispatcher
         ): FirebaseAuth {
             return instances.computeIfAbsent(app.name) {
+                app.getOrCreateBridgeClient(bridgeClient)
                 FirebaseAuth(app, bridgeClient, dispatcher)
             }
         }

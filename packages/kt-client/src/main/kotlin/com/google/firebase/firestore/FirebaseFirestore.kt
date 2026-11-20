@@ -205,7 +205,7 @@ class FirebaseFirestore(
         @JvmStatic
         fun getInstance(app: FirebaseApp, database: String): FirebaseFirestore {
             return instances.computeIfAbsent(Pair(app.name, database)) {
-                val bridge = PyricBridgeClient.createDefault()
+                val bridge = app.getOrCreateBridgeClient()
                 val auth = runCatching { FirebaseAuth.getInstance(app, bridge) }.getOrNull()
                 FirebaseFirestore(bridge, app, database, credentialsProvider = auth)
             }
@@ -214,6 +214,7 @@ class FirebaseFirestore(
         @JvmStatic
         fun getInstance(app: FirebaseApp, bridgeClient: PyricBridgeClient, database: String = "(default)"): FirebaseFirestore {
             return instances.computeIfAbsent(Pair(app.name, database)) {
+                app.getOrCreateBridgeClient(bridgeClient)
                 val auth = runCatching { FirebaseAuth.getInstance(app, bridgeClient) }.getOrNull()
                 FirebaseFirestore(bridgeClient, app, database, credentialsProvider = auth)
             }
