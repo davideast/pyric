@@ -64,9 +64,22 @@ import {
   applyAdminFirestoreSettings,
   type AdminFirestoreSettings,
 } from './admin-settings-lifecycle.js';
-import { registerBypassExistenceReader } from './admin-write-result-preconditions.js';
+import { FirebaseFirestoreError } from './admin-vector-and-errors.js';
+import {
+  registerBypassExistenceReader,
+  WriteResult,
+} from './admin-write-result-preconditions.js';
 
-export { AggregateField, FieldValue, Filter, GeoPoint, GrpcStatus, setLogFunction };
+export {
+  AggregateField,
+  FieldValue,
+  Filter,
+  FirebaseFirestoreError,
+  GeoPoint,
+  GrpcStatus,
+  setLogFunction,
+  WriteResult,
+};
 export type { AdminFirestoreSettings as Settings };
 
 function wrapRootHandle(

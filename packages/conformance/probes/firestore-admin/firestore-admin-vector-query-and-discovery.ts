@@ -138,9 +138,8 @@ interface ConvertedNoteModel {
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['admin-firestore'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore-admin#10',
+  rowIds: ['firestore-admin#10'],
   description:
     'firebase-admin/firestore FieldValue.vector, Query.{select, offset, count, stream, findNearest, explain, explainStream, withConverter}, CollectionReference.listDocuments, and DocumentReference.listCollections.',
   async observe(): Promise<Record<string, unknown>> {

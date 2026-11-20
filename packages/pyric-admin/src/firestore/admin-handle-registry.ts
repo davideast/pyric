@@ -12,6 +12,7 @@ export const adminRawDbProjectId = new WeakMap<object, string>();
 export const appBackedFirestoreRoots = new WeakSet<object>();
 export const wrappedDbCache = new WeakMap<SandboxFirestore, SandboxFirestore>();
 export const adminDocumentRefBrand = new WeakSet<object>();
+export const adminCollectionRefBrand = new WeakSet<object>();
 export const adminQueryBrand = new WeakSet<object>();
 export const adminDocSnapshotBrand = new WeakSet<object>();
 

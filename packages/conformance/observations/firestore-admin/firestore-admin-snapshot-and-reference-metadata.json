@@ -1,7 +1,9 @@
 {
   "name": "firestore-admin-snapshot-and-reference-metadata",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore-admin#11",
+  "rowIds": [
+    "firestore-admin#11"
+  ],
   "description": "firebase-admin/firestore DocumentSnapshot.{createTime, updateTime, readTime, isEqual}, QuerySnapshot.{readTime, isEqual, query}, reference .{firestore, parent, isEqual}, WriteResult, and FirebaseFirestoreError.",
   "observedAt": "2026-11-20T02:48:29.669Z",
   "fbSdkVersion": "12.19.0",

@@ -54,7 +54,11 @@ import {
   type FirestoreAdminWriteResultFilterGetAllSubject,
 } from '../../../conformance/probes/firestore-admin/firestore-admin-writeresult-preconditions-filter-getall.ts';
 import { observeFirestoreAdminGeoPointInitAndMaintenance } from '../../../conformance/probes/firestore-admin/firestore-admin-geopoint-init-and-maintenance.ts';
+import { observeFirestoreAdminSnapshotAndReferenceMetadata } from '../../../conformance/probes/firestore-admin/firestore-admin-snapshot-and-reference-metadata.ts';
+import { observeFirestoreAdminVectorQueryAndDiscovery } from '../../../conformance/probes/firestore-admin/firestore-admin-vector-query-and-discovery.ts';
 import { createAdminMaintenanceReplaySubject } from './admin-maintenance-oracle-subject.ts';
+import { createAdminSnapshotMetaReplaySubject } from './admin-snapshot-meta-oracle-subject.ts';
+import { createAdminVectorQueryReplaySubject } from './admin-vector-query-oracle-subject.ts';
 import { deleteApp, getApps, initializeApp, type PyricAdminApp } from '../../src/app/index.js';
 import {
   AggregateField,
@@ -462,11 +466,37 @@ describe('pyric-admin/firestore oracle conformance (observations/firestore-admin
       );
       expect(actual).toEqual(expected);
     });
+
+    it('replays firestore-admin-vector-query-and-discovery verbatim', async () => {
+      const expected = firestoreAdminObsGate.load<Record<string, unknown>>(
+        'firestore-admin-vector-query-and-discovery',
+      );
+      const env = createOracleArm(arm);
+      const subject = createAdminVectorQueryReplaySubject(
+        env.adminSandbox,
+        `pyric_oracle/replay_${arm}_vq`,
+        arm,
+      );
+      expect(await observeFirestoreAdminVectorQueryAndDiscovery(subject)).toEqual(expected);
+    });
+
+    it('replays firestore-admin-snapshot-and-reference-metadata verbatim', async () => {
+      const expected = firestoreAdminObsGate.load<Record<string, unknown>>(
+        'firestore-admin-snapshot-and-reference-metadata',
+      );
+      const env = createOracleArm(arm);
+      const subject = createAdminSnapshotMetaReplaySubject(
+        env.adminSandbox,
+        `pyric_oracle/replay_${arm}_meta`,
+        arm,
+      );
+      expect(await observeFirestoreAdminSnapshotAndReferenceMetadata(subject)).toEqual(expected);
+    });
   });
 
   it('completeness: every observations/firestore-admin/ capture is asserted', () => {
     const report = firestoreAdminObsGate.report();
-    expect(report.committed.length).toBe(8);
+    expect(report.committed.length).toBe(10);
     expect(report.loadedButUnused).toEqual([]);
     expect(report.uncovered).toEqual([]);
   });

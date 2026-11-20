@@ -132,11 +132,9 @@ export const ALLOWLIST: readonly AllowlistGroup[] = [
       'QuerySnapshot',
       'Transaction',
       'WriteBatch',
-      'WriteResult',
     ],
     reason: CLASS_EXPORT,
   },
-  { entry: 'firestore', owner: '(exports)', members: ['FirebaseFirestoreError'], reason: ERROR_CLASS },
   {
     entry: 'firestore',
     owner: '(exports)',
@@ -152,67 +150,23 @@ export const ALLOWLIST: readonly AllowlistGroup[] = [
   {
     entry: 'firestore',
     owner: 'CollectionReference',
-    members: [
-      'count',
-      'explain',
-      'explainStream',
-      'findNearest',
-      'firestore',
-      'isEqual',
-      'listDocuments',
-      'offset',
-      'onSnapshot',
-      'parent',
-      'select',
-      'stream',
-      'withConverter',
-    ],
+    members: ['onSnapshot'],
     reason:
       'reference and query members past the modeled read and write path; not yet stubbed on the local and remote reference builders',
   },
   {
     entry: 'firestore',
     owner: 'DocumentReference',
-    members: ['firestore', 'isEqual', 'listCollections', 'onSnapshot', 'withConverter'],
+    members: ['onSnapshot'],
     reason:
       'reference and query members past the modeled read and write path; not yet stubbed on the local and remote reference builders',
   },
   {
     entry: 'firestore',
     owner: 'Query',
-    members: [
-      'count',
-      'explain',
-      'explainStream',
-      'findNearest',
-      'firestore',
-      'isEqual',
-      'offset',
-      'onSnapshot',
-      'select',
-      'stream',
-      'withConverter',
-    ],
+    members: ['onSnapshot'],
     reason:
       'reference and query members past the modeled read and write path; not yet stubbed on the local and remote reference builders',
-  },
-  {
-    entry: 'firestore',
-    owner: 'DocumentSnapshot',
-    members: ['createTime', 'isEqual', 'readTime', 'updateTime'],
-    reason: 'snapshot timestamps and equality the sandbox snapshot does not carry',
-  },
-  {
-    entry: 'firestore',
-    owner: 'QuerySnapshot',
-    members: ['isEqual', 'query', 'readTime'],
-    reason: 'snapshot timestamps and equality the sandbox snapshot does not carry',
-  },
-  {
-    entry: 'firestore',
-    owner: 'FieldValue',
-    members: ['vector'],
-    reason: 'vector values are not modeled by the sandbox Firestore engine',
   },
 
   // ─── firebase-admin/storage ────────────────────────────────────────────

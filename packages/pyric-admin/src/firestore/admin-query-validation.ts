@@ -35,8 +35,12 @@ type AdminQuerySource =
 
 export interface AdminQueryMetadata {
   readonly source: AdminQuerySource;
+  readonly signature: readonly string[];
   readonly hasExplicitOrderBy: boolean;
   readonly pendingLimitType: 'none' | 'first' | 'last';
+  readonly offsetCount?: number;
+  readonly limitCount?: number;
+  readonly selectedFields?: ReadonlyArray<readonly string[]>;
 }
 
 export const adminQueryMetadata = new WeakMap<object, AdminQueryMetadata>();
@@ -57,6 +61,7 @@ const VALID_WHERE_OPERATORS: ReadonlySet<string> = new Set([
 export function initialCollectionQueryMeta(path: string): AdminQueryMetadata {
   return {
     source: { kind: 'collection', path },
+    signature: [`col:${path}`],
     hasExplicitOrderBy: false,
     pendingLimitType: 'none',
   };
@@ -65,6 +70,7 @@ export function initialCollectionQueryMeta(path: string): AdminQueryMetadata {
 export function initialCollectionGroupQueryMeta(collectionId: string): AdminQueryMetadata {
   return {
     source: { kind: 'group', collectionId },
+    signature: [`group:${collectionId}`],
     hasExplicitOrderBy: false,
     pendingLimitType: 'none',
   };
