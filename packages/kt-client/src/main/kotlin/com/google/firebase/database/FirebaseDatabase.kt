@@ -190,6 +190,7 @@ class FirebaseDatabase(
                     }
                 }
                 appBridgeClients[app.name] = bridge
+                app.getOrCreateBridgeClient(bridge)
                 FirebaseDatabase(bridge, app, cleanUrl, credentialsProvider = auth)
             }
         }
@@ -205,6 +206,7 @@ class FirebaseDatabase(
             val cleanUrl = normalizeUrl(url)
             return instances.computeIfAbsent(normalizeInstanceKey(app, cleanUrl)) {
                 appBridgeClients.putIfAbsent(app.name, bridgeClient)
+                app.getOrCreateBridgeClient(bridgeClient)
                 val auth = credentialsProvider ?: runCatching {
                     FirebaseAuth.getInstance(app, bridgeClient)
                 }.getOrNull()

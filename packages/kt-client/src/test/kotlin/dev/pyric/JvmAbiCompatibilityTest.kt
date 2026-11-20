@@ -49,6 +49,10 @@ class JvmAbiCompatibilityTest {
         Triple("com.google.firebase.database.ServerValue", "increment", listOf(Long::class.javaPrimitiveType!!)),
         Triple("com.google.firebase.database.ServerValue", "increment", listOf(Double::class.javaPrimitiveType!!)),
         Triple("com.google.firebase.database.DatabaseError", "fromException", listOf(Throwable::class.java)),
+        Triple("com.google.firebase.appcheck.FirebaseAppCheck", "getInstance", emptyList()),
+        Triple("com.google.firebase.appcheck.FirebaseAppCheck", "getInstance", listOf(Class.forName("com.google.firebase.FirebaseApp"))),
+        Triple("com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory", "getInstance", emptyList()),
+        Triple("com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory", "getInstance", emptyList()),
     )
 
     @Test
@@ -127,6 +131,61 @@ class JvmAbiCompatibilityTest {
         assertNotNullCompat(snapClass.getMethod("getValue"))
         assertNotNullCompat(snapClass.getMethod("getValue", Boolean::class.javaPrimitiveType))
         assertNotNullCompat(snapClass.getMethod("getValue", Class::class.java))
+    }
+
+    @Test
+    fun firebaseAppCheckDropInNamespaceAndKtxExistInBytecode() {
+        val requiredTypes = listOf(
+            "com.google.firebase.FirebaseException",
+            "com.google.firebase.appcheck.FirebaseAppCheck",
+            "com.google.firebase.appcheck.FirebaseAppCheck\$AppCheckListener",
+            "com.google.firebase.appcheck.AppCheckToken",
+            "com.google.firebase.appcheck.AppCheckProvider",
+            "com.google.firebase.appcheck.AppCheckProviderFactory",
+            "com.google.firebase.appcheck.FirebaseAppCheckKt",
+            "com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory",
+            "com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory",
+        )
+        val missing = requiredTypes.filter { fqcn ->
+            runCatching { Class.forName(fqcn) }.isFailure
+        }
+        assertEquals(emptyList<String>(), missing)
+
+        val appCheckClass = Class.forName("com.google.firebase.appcheck.FirebaseAppCheck")
+        val factoryClass = Class.forName("com.google.firebase.appcheck.AppCheckProviderFactory")
+        val listenerClass = Class.forName("com.google.firebase.appcheck.FirebaseAppCheck\$AppCheckListener")
+        assertNotNullCompat(appCheckClass.getMethod("installAppCheckProviderFactory", factoryClass))
+        assertNotNullCompat(
+            appCheckClass.getMethod(
+                "installAppCheckProviderFactory",
+                factoryClass,
+                Boolean::class.javaPrimitiveType
+            )
+        )
+        assertNotNullCompat(appCheckClass.getMethod("getAppCheckToken", Boolean::class.javaPrimitiveType))
+        assertNotNullCompat(appCheckClass.getMethod("getLimitedUseAppCheckToken"))
+        assertNotNullCompat(appCheckClass.getMethod("addAppCheckListener", listenerClass))
+        assertNotNullCompat(appCheckClass.getMethod("removeAppCheckListener", listenerClass))
+        assertNotNullCompat(
+            appCheckClass.getMethod("setTokenAutoRefreshEnabled", Boolean::class.javaPrimitiveType)
+        )
+
+        val tokenClass = Class.forName("com.google.firebase.appcheck.AppCheckToken")
+        assertNotNullCompat(tokenClass.getMethod("getToken"))
+        assertNotNullCompat(tokenClass.getMethod("getExpireTimeMillis"))
+
+        val ktxClass = Class.forName("com.google.firebase.appcheck.FirebaseAppCheckKt")
+        val getAppCheck = ktxClass.getMethod("getAppCheck", Class.forName("com.google.firebase.Firebase"))
+        assertTrue(Modifier.isStatic(getAppCheck.modifiers))
+        assertNotNullCompat(
+            ktxClass.getMethod(
+                "appCheck",
+                Class.forName("com.google.firebase.Firebase"),
+                Class.forName("com.google.firebase.FirebaseApp")
+            )
+        )
+        assertNotNullCompat(ktxClass.getMethod("component1", tokenClass))
+        assertNotNullCompat(ktxClass.getMethod("component2", tokenClass))
     }
 
     private fun assertNotNullCompat(value: Any?) {

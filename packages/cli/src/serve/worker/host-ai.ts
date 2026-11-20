@@ -34,8 +34,7 @@ import { getAI, TARGET_SYMBOL, type AIOptions } from 'pyric/ai';
 import { serializeError, type OpMessage, type AiStreamSubMessage, type AiEngineConfigWire } from './protocol.js';
 import { type HostCtx, type PortLike, type AiBrokerLike, post, ok, fail } from './host-context.js';
 import { AI_PROXY_PATH, browserGeminiEngine } from './ai-proxy-paths.js';
-
-export { AI_PROXY_PATH } from './ai-proxy-paths.js';
+import { resolveEffectiveAiAppCheck } from './host/app-check.js';
 
 /** Is this op an AI op (routed here instead of handleOp)? */
 export function isAiOp(method: OpMessage['method']): boolean {
@@ -114,7 +113,7 @@ function resolveEngineConfig(
  * is recovered from the branded handle via the exported `TARGET_SYMBOL`
  * (the mirror's own dispatch seam).
  */
-export function ensureAiBroker(ctx: HostCtx, opEngine?: AiEngineConfigWire): AiBrokerLike {
+function ensureAiBroker(ctx: HostCtx, opEngine?: AiEngineConfigWire): AiBrokerLike {
   if (ctx.aiBroker) return ctx.aiBroker;
   const wire = ctx.aiEngine ?? opEngine;
   const ai = getAI(
@@ -137,6 +136,8 @@ export function ensureAiBroker(ctx: HostCtx, opEngine?: AiEngineConfigWire): AiB
 /** Handle the unary AI ops. Requests/replies are plain Gemini-wire JSON. */
 export async function handleAiOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<void> {
   const aiMsg = msg as AiOpMessage;
+  const attachedAppCheck = (msg as { appCheckToken?: string }).appCheckToken;
+  const effectiveAppCheck = resolveEffectiveAiAppCheck(aiMsg.appCheck, attachedAppCheck);
   const observation = observeAiRequest(ctx, port, msg, aiMsg.method.slice(3), aiMsg.model);
   let identity: AiEvidence | undefined;
   try {
@@ -145,14 +146,14 @@ export async function handleAiOp(ctx: HostCtx, port: PortLike, msg: OpMessage): 
     observation.identity(identity);
     switch (aiMsg.method) {
       case 'ai.generateContent': {
-        const response = await broker.generateContent(aiMsg.request, aiMsg.model, aiMsg.appCheck);
+        const response = await broker.generateContent(aiMsg.request, aiMsg.model, effectiveAppCheck);
         observation.response(response);
         observation.finish('completed');
         ok(port, aiMsg.id, packAiEvidence(response));
         break;
       }
       case 'ai.countTokens': {
-        const response = await broker.countTokens(aiMsg.request, aiMsg.model, aiMsg.appCheck);
+        const response = await broker.countTokens(aiMsg.request, aiMsg.model, effectiveAppCheck);
         observation.response(response);
         observation.finish('completed');
         ok(port, aiMsg.id, packAiEvidence(response));
@@ -204,9 +205,11 @@ export function handleAiSub(ctx: HostCtx, port: PortLike, msg: AiStreamSubMessag
       const broker = ensureAiBroker(ctx, msg.engine);
       identity = broker.observationIdentity?.(msg.model);
       observation.identity(identity);
+      const attachedAppCheck = (msg as { appCheckToken?: string }).appCheckToken;
+      const effectiveAppCheck = resolveEffectiveAiAppCheck(msg.appCheck, attachedAppCheck);
       // The App Check gate answers before any chunk, as AI Logic answers 403 before a stream.
-      await broker.admitAppCheck(msg.model, msg.appCheck);
-      for await (const chunk of broker.streamGenerateContent(msg.request, msg.model, msg.appCheck)) {
+      await broker.admitAppCheck(msg.model, effectiveAppCheck);
+      for await (const chunk of broker.streamGenerateContent(msg.request, msg.model, effectiveAppCheck)) {
         if (cancelled) return;
         observation.response(chunk, true);
         post(port, { t: 'snap', subId: msg.subId, value: { chunk: packAiEvidence(chunk) } });

@@ -1,5 +1,6 @@
 package com.google.firebase
 
+import com.google.firebase.appcheck.FirebaseAppCheck
 import dev.pyric.bridge.PyricBridgeClient
 import java.util.concurrent.ConcurrentHashMap
 
@@ -12,6 +13,17 @@ class FirebaseApp private constructor(
     @Volatile
     private var sharedBridgeClient: PyricBridgeClient? = null
 
+    @Volatile
+    var isDataCollectionDefaultEnabled: Boolean = true
+
+    @Volatile
+    internal var appCheckTokenProvider: (suspend () -> String?)? = null
+
+    internal fun bindBridgeClient(client: PyricBridgeClient): PyricBridgeClient {
+        client.appCheckTokenProvider = { appCheckTokenProvider?.invoke() }
+        return client
+    }
+
     internal fun getOrCreateBridgeClient(explicit: PyricBridgeClient? = null): PyricBridgeClient {
         synchronized(bridgeLock) {
             if (explicit != null) {
@@ -19,19 +31,20 @@ class FirebaseApp private constructor(
                 if (current == null || current.isDisposed) {
                     sharedBridgeClient = explicit
                 }
-                return explicit
+                return bindBridgeClient(explicit)
             }
             val existing = sharedBridgeClient
             if (existing != null && !existing.isDisposed) {
-                return existing
+                return bindBridgeClient(existing)
             }
             val created = PyricBridgeClient.createDefault()
             sharedBridgeClient = created
-            return created
+            return bindBridgeClient(created)
         }
     }
 
     internal fun terminateSharedBridgeClient() {
+        appCheckTokenProvider = null
         val existing = synchronized(bridgeLock) {
             val client = sharedBridgeClient
             sharedBridgeClient = null
@@ -70,6 +83,7 @@ class FirebaseApp private constructor(
 
         @JvmStatic
         fun initializeApp(name: String, options: FirebaseOptions): FirebaseApp {
+            FirebaseAppCheck.onAppCleared(name)
             val previous = apps.remove(name)
             previous?.terminateSharedBridgeClient()
             val app = FirebaseApp(name, options)
@@ -82,6 +96,7 @@ class FirebaseApp private constructor(
 
         @JvmStatic
         fun clearInstancesForTest() {
+            FirebaseAppCheck.clearInstancesForTest()
             for (app in apps.values) {
                 app.terminateSharedBridgeClient()
             }
