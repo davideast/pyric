@@ -381,27 +381,7 @@ function makeGetDb(
 
 // ─── Emulator-connect compatibility ──────────────────────────────────────
 
-/**
- * No-op in the sandbox mirror because the sandbox already runs locally.
- *
- * The option shape remains source-compatible with Firebase so canonical
- * initialization code can call it unconditionally.
- */
-export function connectFirestoreEmulator(
-  db: Firestore,
-  host: string,
-  port: number,
-  options?: {
-    mockUserToken?: string | {
-      sub?: string;
-      user_id?: string;
-      firebase?: { sign_in_provider?: string; identities?: Record<string, string[]> };
-      [claim: string]: unknown;
-    };
-  },
-): void {
-  targetOf(db);
-  void host;
-  void port;
-  void options;
-}
+export {
+  connectFirestoreEmulator,
+  type ConnectFirestoreEmulatorOptions,
+} from './emulator.js';

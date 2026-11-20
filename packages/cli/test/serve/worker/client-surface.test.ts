@@ -23,7 +23,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'aiCountTokens', 'aiGenerateContent', 'aiStreamGenerateContent',
   'and', 'arrayRemove', 'arrayUnion', 'average',
   'browserLocalPersistence', 'browserSessionPersistence', 'callTool', 'collection',
-  'collectionGroup', 'connectAuthEmulator', 'count', 'createUserWithEmailAndPassword',
+  'collectionGroup', 'connectAuthEmulator', 'connectFirestoreEmulator', 'count', 'createUserWithEmailAndPassword',
   'createWorkerReplacement', 'deleteDoc', 'deleteField', 'deleteObject',
   'deleteWorkerCheckpoint', 'disableNetwork', 'disconnectClient', 'disconnectPort', 'doc',
   'enableIndexedDbPersistence', 'enableMultiTabIndexedDbPersistence', 'enableNetwork', 'endAt',

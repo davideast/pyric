@@ -162,9 +162,8 @@ export async function observeFirestoreAnonymousListenerAuthTransition(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules', 'admin-auth', 'admin-firestore'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#88',
+  rowIds: ['firestore#88'],
   description:
     'firebase/firestore onSnapshot listener registered while signed out keeps receiving updates across Auth sign-in and subsequent session user transitions, while an owner-gated listener loses access with permission-denied on user switch.',
   async observe(): Promise<Record<string, unknown>> {

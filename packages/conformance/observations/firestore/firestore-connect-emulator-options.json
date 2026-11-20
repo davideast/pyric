@@ -1,7 +1,10 @@
 {
   "name": "firestore-connect-emulator-options",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#120, firestore#121",
+  "rowIds": [
+    "firestore#120",
+    "firestore#121"
+  ],
   "description": "firebase/firestore connectFirestoreEmulator(db, host, port, options) offline host/port configuration before client start and after doc(), mockUserToken string/{sub}/{user_id} acceptance vs empty-object Error rejection, and failed-precondition rejection after Firestore has started.",
   "observedAt": "2026-11-20T00:17:28.114Z",
   "fbSdkVersion": "12.19.0",

@@ -58,7 +58,7 @@ function encodeLengthPrefixedJson(payload: Record<string, unknown>): Uint8Array 
 }
 
 describe('Firestore Wave 2 connectFirestoreEmulator, anonymous listener, and admin maintenance probes', () => {
-  test('registers all 3 staged sdk-probes with pendingRowLink and inert preview safety', async () => {
+  test('links client emulator and anonymous-listener probes while keeping admin maintenance staged', async () => {
     expect(auditProbeSessionAuthModes()).toEqual([]);
     const loaded = await loadModularProbes('sdk-probes');
     const loadedIds = loaded.map((entry) => entry.id);
@@ -66,22 +66,29 @@ describe('Firestore Wave 2 connectFirestoreEmulator, anonymous listener, and adm
       expect(loadedIds).toContain(id);
     }
 
-    const stagedProbes = [connectEmulatorProbe, anonymousListenerProbe, adminMaintProbe];
-    for (const probeRecord of stagedProbes) {
-      expect(probeRecord.rig).toBe('sdk-probes');
-      expect(probeRecord.pendingRowLink).toBe(true);
-      expect(probeRecord.matrixRow).toBe('');
-      expect(probeRecord.rowIds).toEqual([]);
-      expect(probeRecord.description.length).toBeGreaterThan(20);
-    }
+    expect(connectEmulatorProbe.rig).toBe('sdk-probes');
+    expect(connectEmulatorProbe.pendingRowLink).toBeUndefined();
+    expect(connectEmulatorProbe.rowIds).toEqual(['firestore#120', 'firestore#121']);
+
+    expect(anonymousListenerProbe.rig).toBe('sdk-probes');
+    expect(anonymousListenerProbe.pendingRowLink).toBeUndefined();
+    expect(anonymousListenerProbe.rowIds).toEqual(['firestore#88']);
+
+    expect(adminMaintProbe.rig).toBe('sdk-probes');
+    expect(adminMaintProbe.pendingRowLink).toBe(true);
+    expect(adminMaintProbe.matrixRow).toBe('');
+    expect(adminMaintProbe.rowIds).toEqual([]);
+    expect(adminMaintProbe.description.length).toBeGreaterThan(20);
 
     const unfilteredIds = new Set(
       selectModularProbes(loaded, [], 'sdk-probes', {
         includeUncapturedStaged: false,
       }).map((entry) => entry.id),
     );
+    expect(unfilteredIds.has('firestore-connect-emulator-options')).toBe(true);
+    expect(unfilteredIds.has('firestore-anonymous-listener-auth-transition')).toBe(true);
 
-    expectStagedUntilCaptured(WAVE2_SLICE2_PROBE_IDS, {
+    expectStagedUntilCaptured(['firestore-admin-geopoint-init-and-maintenance'], {
       rig: 'sdk-probes',
       filterFlag: '--probe',
       filterValueFor: (name) => name,
