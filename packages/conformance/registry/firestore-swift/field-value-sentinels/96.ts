@@ -1,9 +1,12 @@
-import { row } from './section.ts';
+import { LIVE_HOST_CONFORMANCE_TEST } from '../defaults.ts';
+import { LIVE_HOST_TYPES_SUITE, row } from './section.ts';
 
 export default row({
   order: 50,
   api: 'FieldValue.arrayRemove(_:)',
   behavior: 'Transformation removing matching elements from array field.',
   featureKeys: ['arrayRemove'],
-  flipped: 'unit-backed',
+  status: 'conforms',
+  tests: [LIVE_HOST_TYPES_SUITE],
+  hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

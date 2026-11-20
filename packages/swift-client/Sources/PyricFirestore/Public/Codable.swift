@@ -103,6 +103,13 @@ public struct ServerTimestamp<Value: Codable & Sendable & Equatable>: Codable, E
 
 extension KeyedDecodingContainer {
     public func decode<Value>(_ type: DocumentID<Value>.Type, forKey key: Key) throws -> DocumentID<Value> {
+        if contains(key) {
+            throw DecodingError.dataCorruptedError(
+                forKey: key,
+                in: self,
+                debugDescription: "Field '\(key.stringValue)' conflicts with @DocumentID."
+            )
+        }
         let ref = try superDecoder().userInfo[.pyricDocumentReference] as? DocumentReference
         if let ref {
             if let idStr = ref.documentID as? Value {
@@ -115,12 +122,10 @@ extension KeyedDecodingContainer {
         if let nilVal = Optional<Any>.none as? Value {
             return DocumentID(wrappedValue: nilVal)
         }
-        return try decodeIfPresent(type, forKey: key) ?? {
-            throw DecodingError.keyNotFound(
-                key,
-                DecodingError.Context(codingPath: codingPath, debugDescription: "Missing @DocumentID value")
-            )
-        }()
+        throw DecodingError.keyNotFound(
+            key,
+            DecodingError.Context(codingPath: codingPath, debugDescription: "Missing @DocumentID context")
+        )
     }
 
     public func decode<Value>(_ type: ServerTimestamp<Value>.Type, forKey key: Key) throws -> ServerTimestamp<Value> {
@@ -158,6 +163,10 @@ extension Firestore {
                 let ts = Timestamp(date: date)
                 try ts.encode(to: encoder)
             }
+            jsonEncoder.dataEncodingStrategy = .custom { blob, encoder in
+                var container = encoder.singleValueContainer()
+                try container.encode(["__pyricBytesBase64": blob.base64EncodedString()])
+            }
             let data = try jsonEncoder.encode(value)
             guard let rawDict = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 throw PyricFirestoreError.invalidArgument("Encoded top-level object must be a dictionary.")
@@ -181,6 +190,22 @@ extension Firestore {
             if let subDict = value as? [String: Any] {
                 if subDict["__pyricServerTimestamp"] as? Bool == true {
                     return FieldValue.serverTimestamp()
+                }
+                if subDict.count == 1,
+                   let b64 = subDict["__pyricBytesBase64"] as? String,
+                   let blob = Data(base64Encoded: b64) {
+                    return blob
+                }
+                if subDict.count == 1,
+                   let refPath = subDict["__pyricDocRefPath"] as? String {
+                    return DocumentReferenceHolder(path: refPath)
+                }
+                if subDict.count == 1,
+                   let rawVec = subDict["__pyricVectorValues"] as? [Any] {
+                    let doubles = rawVec.compactMap { ($0 as? NSNumber)?.doubleValue ?? ($0 as? Double) }
+                    if doubles.count == rawVec.count {
+                        return VectorValue(doubles)
+                    }
                 }
                 if subDict.count == 2,
                    let sec = subDict["seconds"] as? Int64 ?? (subDict["seconds"] as? Int).map(Int64.init),
@@ -237,6 +262,20 @@ extension Firestore {
                     )
                 )
             }
+            jsonDecoder.dataDecodingStrategy = .custom { decoder in
+                if let keyed = try? decoder.container(keyedBy: PyricCodableMarkerKey.self),
+                   let b64 = try? keyed.decode(String.self, forKey: .bytesBase64),
+                   let decoded = Data(base64Encoded: b64) {
+                    return decoded
+                }
+                let container = try decoder.singleValueContainer()
+                if let b64 = try? container.decode(String.self),
+                   let decoded = Data(base64Encoded: b64) {
+                    return decoded
+                }
+                let rawBytes = try container.decode([UInt8].self)
+                return Data(rawBytes)
+            }
             return try jsonDecoder.decode(T.self, from: jsonData)
         }
 
@@ -256,6 +295,12 @@ extension Firestore {
             } else if let date = value as? Date {
                 let ts = Timestamp(date: date)
                 return ["seconds": ts.seconds, "nanoseconds": ts.nanoseconds]
+            } else if let blob = value as? Data {
+                return ["__pyricBytesBase64": blob.base64EncodedString()]
+            } else if let vec = value as? VectorValue {
+                return ["__pyricVectorValues": vec.values]
+            } else if let ref = value as? PathReferenceable {
+                return ["__pyricDocRefPath": ref.path]
             } else if let subDict = value as? [String: Any] {
                 return preProcessDictionaryForDecoding(subDict)
             } else if let arr = value as? [Any] {
@@ -263,6 +308,32 @@ extension Firestore {
             }
             return value
         }
+    }
+}
+
+private enum PyricCodableMarkerKey: String, CodingKey {
+    case bytesBase64 = "__pyricBytesBase64"
+    case docRefPath = "__pyricDocRefPath"
+}
+
+extension DocumentReference: Codable {
+    public convenience init(from decoder: Decoder) throws {
+        guard let contextRef = decoder.userInfo[.pyricDocumentReference] as? DocumentReference else {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "Cannot decode DocumentReference without Firestore document context."
+                )
+            )
+        }
+        let container = try decoder.container(keyedBy: PyricCodableMarkerKey.self)
+        let refPath = try container.decode(String.self, forKey: .docRefPath)
+        self.init(firestore: contextRef.firestore, path: refPath)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: PyricCodableMarkerKey.self)
+        try container.encode(path, forKey: .docRefPath)
     }
 }
 
@@ -291,5 +362,58 @@ extension DocumentReference {
     ) async throws {
         let encodedDict = try encoder.encode(value)
         try await setData(encodedDict, merge: merge)
+    }
+
+    public func setData<T: Encodable>(
+        from value: T,
+        merge: Bool = false,
+        encoder: Firestore.Encoder = Firestore.Encoder(),
+        completion: (@Sendable (Error?) -> Void)?
+    ) throws {
+        let encodedDict = try encoder.encode(value)
+        setData(encodedDict, merge: merge, completion: completion)
+    }
+
+    public func setData<T: Encodable>(
+        from value: T,
+        mergeFields: [Any],
+        encoder: Firestore.Encoder = Firestore.Encoder()
+    ) async throws {
+        let encodedDict = try encoder.encode(value)
+        try await setData(encodedDict, mergeFields: mergeFields)
+    }
+
+    public func setData<T: Encodable>(
+        from value: T,
+        mergeFields: [Any],
+        encoder: Firestore.Encoder = Firestore.Encoder(),
+        completion: (@Sendable (Error?) -> Void)?
+    ) throws {
+        let encodedDict = try encoder.encode(value)
+        setData(encodedDict, mergeFields: mergeFields, completion: completion)
+    }
+}
+
+extension CollectionReference {
+    @discardableResult
+    public func addDocument<T: Encodable>(
+        from value: T,
+        encoder: Firestore.Encoder = Firestore.Encoder()
+    ) async throws -> DocumentReference {
+        let docRef = document()
+        try await docRef.setData(from: value, encoder: encoder)
+        return docRef
+    }
+
+    @_disfavoredOverload
+    @discardableResult
+    public func addDocument<T: Encodable>(
+        from value: T,
+        encoder: Firestore.Encoder = Firestore.Encoder(),
+        completion: (@Sendable (Error?) -> Void)? = nil
+    ) throws -> DocumentReference {
+        let docRef = document()
+        try docRef.setData(from: value, encoder: encoder, completion: completion)
+        return docRef
     }
 }

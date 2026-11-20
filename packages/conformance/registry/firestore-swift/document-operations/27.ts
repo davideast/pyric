@@ -1,9 +1,12 @@
-import { row } from './section.ts';
+import { LIVE_HOST_CONFORMANCE_TEST } from '../defaults.ts';
+import { LIVE_HOST_CRUD_SUITE, row } from './section.ts';
 
 export default row({
   order: 60,
   api: 'DocumentReference.setData(_:)',
   behavior: 'Overwrites the target document completely with provided dictionary payload.',
   featureKeys: ['setData'],
-  flipped: 'unit-backed',
+  status: 'conforms',
+  tests: [LIVE_HOST_CRUD_SUITE],
+  hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

@@ -329,10 +329,15 @@ public enum ValueCodec {
                 }
             }
 
-            // (b) Vector sentinel marker
+            // (b) Vector sentinel / internal wrapper markers
             if let sentinelMarker = dict["__sentinel"] as? String, sentinelMarker == "vector" {
                 let numbers = (dict["values"] as? [NSNumber]) ?? (dict["value"] as? [NSNumber]) ?? []
                 return VectorValue(numbers.map { $0.doubleValue })
+            }
+            if let dunderType = dict["__type__"] as? String, dunderType == "__vector__",
+               let rawValues = dict["value"] as? [Any],
+               let doubles = try? extractVectorDoubles(rawValues) {
+                return VectorValue(doubles)
             }
 
             // (c) Compatibility `type` markers

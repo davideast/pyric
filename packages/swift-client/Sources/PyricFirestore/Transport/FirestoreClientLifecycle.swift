@@ -361,7 +361,7 @@ internal final class FirestoreClientLifecycle: @unchecked Sendable {
             switch mutation {
             case .delete(let path):
                 FirestorePersistenceStore.shared.removeDoc(appName: appName, database: database, path: path)
-            case .set(let path, _, _, _), .update(let path, _):
+            case .set(let path, _, _, _), .update(let path, _), .updateSegments(let path, _):
                 let projected = FirestoreOfflineProjection.projectDocument(
                     path: path,
                     baseRecord: currentBase[path],

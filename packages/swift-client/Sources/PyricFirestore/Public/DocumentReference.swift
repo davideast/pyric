@@ -161,22 +161,24 @@ public final class DocumentReference: PathReferenceable, Equatable, Hashable, @u
     }
 
     public func updateData(_ fields: [AnyHashable: Any]) async throws {
-        let stringDict = try normalizeUpdateFields(fields)
-        let encoded = try ValueCodec.encodeWriteData(stringDict)
-        let encodedSendable = AnySendable.from(encoded)
-        let params = PyricBridgeClient.updateDocParams(path: path, data: encodedSendable)
-        let mutation = OfflineWriteMutation.update(path: path, encodedFields: encodedSendable.dictionaryValue ?? [:])
-        try await firestore.send(turn: firestore.takeTurn(), method: "updateDoc", params: params, mutations: [mutation])
+        let prepared = try prepareUpdatePayload(fields)
+        try await firestore.send(
+            turn: firestore.takeTurn(),
+            method: "updateDoc",
+            params: prepared.params,
+            mutations: [prepared.mutation]
+        )
     }
 
     public func updateData(_ fields: [AnyHashable: Any], completion: (@Sendable (Error?) -> Void)? = nil) {
         do {
-            let stringDict = try normalizeUpdateFields(fields)
-            let encoded = try ValueCodec.encodeWriteData(stringDict)
-            let encodedSendable = AnySendable.from(encoded)
-            let params = PyricBridgeClient.updateDocParams(path: path, data: encodedSendable)
-            let mutation = OfflineWriteMutation.update(path: path, encodedFields: encodedSendable.dictionaryValue ?? [:])
-            firestore.sendInCallOrder(method: "updateDoc", params: params, mutations: [mutation], completion: completion)
+            let prepared = try prepareUpdatePayload(fields)
+            firestore.sendInCallOrder(
+                method: "updateDoc",
+                params: prepared.params,
+                mutations: [prepared.mutation],
+                completion: completion
+            )
         } catch {
             firestore.settings.dispatchCallback { completion?(error) }
         }
@@ -203,23 +205,70 @@ public final class DocumentReference: PathReferenceable, Equatable, Hashable, @u
     }
 
     private func validateMergeFields(data: [String: Any], mergeFields: [Any]) throws -> [String] {
-        let fieldStrings = try mergeFields.map { item -> String in
-            if let str = item as? String { return str }
-            if let fp = item as? FieldPath { return fp.stringRepresentation }
-            throw PyricFirestoreError.invalidArgument("mergeFields elements must be String or FieldPath")
-        }
-        for field in fieldStrings {
-            let rootKey = field.components(separatedBy: ".").first ?? field
-            guard data.keys.contains(rootKey) else {
-                throw PyricFirestoreError.invalidArgument(
-                    "Field '\(field)' specified in mergeFields was not provided in data."
-                )
+        var wireKeys: [String] = []
+        wireKeys.reserveCapacity(mergeFields.count)
+        for item in mergeFields {
+            let segments: [String]
+            if let str = item as? String {
+                segments = FirestoreOfflineProjection.splitFieldPath(str)
+                if str.isEmpty || segments.contains(where: \.isEmpty) {
+                    throw PyricFirestoreError.invalidArgument("Invalid field path '\(str)' in mergeFields.")
+                }
+            } else if let fp = item as? FieldPath {
+                segments = fp.segments
+            } else {
+                throw PyricFirestoreError.invalidArgument("mergeFields elements must be String or FieldPath")
             }
+
+            var current: Any? = data
+            for seg in segments {
+                guard let dict = current as? [String: Any], let nextVal = dict[seg] else {
+                    throw PyricFirestoreError.invalidArgument(
+                        "Field '\(segments.joined(separator: "."))' specified in mergeFields was not provided in data."
+                    )
+                }
+                current = nextVal
+            }
+            wireKeys.append(FirestoreOfflineProjection.encodeFieldPathKey(segments))
         }
-        return fieldStrings
+        return wireKeys
     }
 
-    private func normalizeUpdateFields(_ fields: [AnyHashable: Any]) throws -> [String: Any] {
+    private func prepareUpdatePayload(
+        _ fields: [AnyHashable: Any]
+    ) throws -> (params: [String: AnySendable], mutation: OfflineWriteMutation) {
+        let hasLiteralDotSegment = fields.keys.contains { key in
+            guard let fp = key as? FieldPath else { return false }
+            return fp.segments.contains { $0.contains(".") }
+        }
+        if hasLiteralDotSegment {
+            var wireEntries: [AnySendable] = []
+            var offlineEntries: [UpdateSegmentEntry] = []
+            for (key, val) in fields {
+                let segments: [String]
+                if let str = key as? String {
+                    segments = str.components(separatedBy: ".")
+                } else if let fp = key as? FieldPath {
+                    segments = fp.segments
+                } else {
+                    throw PyricFirestoreError.invalidArgument("updateData keys must be String or FieldPath")
+                }
+                let encodedVal = AnySendable.from(try ValueCodec.encodeValue(val))
+                wireEntries.append(
+                    .dictionary([
+                        "path": .array(segments.map(AnySendable.string)),
+                        "value": encodedVal
+                    ])
+                )
+                offlineEntries.append(UpdateSegmentEntry(segments: segments, value: encodedVal))
+            }
+            let params: [String: AnySendable] = [
+                "path": .string(path),
+                "fields": .array(wireEntries)
+            ]
+            return (params: params, mutation: .updateSegments(path: path, entries: offlineEntries))
+        }
+
         var stringDict: [String: Any] = [:]
         for (key, val) in fields {
             if let str = key as? String {
@@ -230,7 +279,11 @@ public final class DocumentReference: PathReferenceable, Equatable, Hashable, @u
                 throw PyricFirestoreError.invalidArgument("updateData keys must be String or FieldPath")
             }
         }
-        return stringDict
+        let encoded = try ValueCodec.encodeWriteData(stringDict)
+        let encodedSendable = AnySendable.from(encoded)
+        let params = PyricBridgeClient.updateDocParams(path: path, data: encodedSendable)
+        let mutation = OfflineWriteMutation.update(path: path, encodedFields: encodedSendable.dictionaryValue ?? [:])
+        return (params: params, mutation: mutation)
     }
 
     // -- Real-Time Snapshot Listeners --
@@ -238,14 +291,26 @@ public final class DocumentReference: PathReferenceable, Equatable, Hashable, @u
     public func addSnapshotListener(
         _ listener: @escaping @Sendable (DocumentSnapshot?, Error?) -> Void
     ) -> ListenerRegistration {
-        addSnapshotListener(includeMetadataChanges: false, listener: listener)
+        addSnapshotListener(options: SnapshotListenOptions(includeMetadataChanges: false), listener: listener)
     }
 
     public func addSnapshotListener(
         includeMetadataChanges: Bool,
         listener: @escaping @Sendable (DocumentSnapshot?, Error?) -> Void
     ) -> ListenerRegistration {
+        addSnapshotListener(
+            options: SnapshotListenOptions(includeMetadataChanges: includeMetadataChanges),
+            listener: listener
+        )
+    }
+
+    public func addSnapshotListener(
+        options: SnapshotListenOptions,
+        listener: @escaping @Sendable (DocumentSnapshot?, Error?) -> Void
+    ) -> ListenerRegistration {
         firestore.markUsed()
+        let includeMetadataChanges = options.includeMetadataChanges
+        let listenSource = (options.source == .cache) ? "cache" : nil
         let box = CallbackBox(listener)
         let docPath = self.path
         let db = self.firestore
@@ -255,6 +320,7 @@ public final class DocumentReference: PathReferenceable, Equatable, Hashable, @u
             firestore: db,
             target: .doc(path: docPath),
             includeMetadataChanges: includeMetadataChanges,
+            listenSource: listenSource,
             onEvent: { event in
                 db.lifecycle.recordOnlineDocWire(path: docPath, wire: event)
                 let snapshot = DocumentSnapshot.fromWire(firestore: db, path: docPath, wire: event)
@@ -277,7 +343,14 @@ public final class DocumentReference: PathReferenceable, Equatable, Hashable, @u
             onOffline: {
                 let wire = db.lifecycle.projectOfflineDocumentWire(path: docPath)
                 let snapshot = DocumentSnapshot.fromWire(firestore: db, path: docPath, wire: wire, isFromCache: true)
-                stateBox.recordOffline(snapshot: snapshot, rawWire: wire)
+                let suppressOffline = stateBox.recordOfflineAndShouldSuppress(
+                    snapshot: snapshot,
+                    rawWire: wire,
+                    includeMetadataChanges: includeMetadataChanges
+                )
+                if suppressOffline {
+                    return
+                }
                 db.lifecycle.dispatchSnapshotCallback(
                     settings: db.settings,
                     isCancelled: { stateBox.isCancelled }
@@ -288,7 +361,11 @@ public final class DocumentReference: PathReferenceable, Equatable, Hashable, @u
             onGap: {
                 guard let wire = stateBox.lastWire else { return }
                 let snapshot = DocumentSnapshot.fromWire(firestore: db, path: docPath, wire: wire, isFromCache: true)
-                stateBox.recordOffline(snapshot: snapshot, rawWire: wire)
+                _ = stateBox.recordOfflineAndShouldSuppress(
+                    snapshot: snapshot,
+                    rawWire: wire,
+                    includeMetadataChanges: true
+                )
                 db.lifecycle.dispatchSnapshotCallback(
                     settings: db.settings,
                     isCancelled: { stateBox.isCancelled }
@@ -308,13 +385,6 @@ public final class DocumentReference: PathReferenceable, Equatable, Hashable, @u
             stateBox.markCancelled()
             coordinator.cancel()
         }
-    }
-
-    public func addSnapshotListener(
-        options: SnapshotListenOptions,
-        listener: @escaping @Sendable (DocumentSnapshot?, Error?) -> Void
-    ) -> ListenerRegistration {
-        addSnapshotListener(includeMetadataChanges: options.includeMetadataChanges, listener: listener)
     }
 
     public var snapshots: AsyncThrowingStream<DocumentSnapshot, Error> {
@@ -360,6 +430,7 @@ private final class DocListenerStateBox: @unchecked Sendable {
     private var cancelled = false
     private var hasDelivered = false
     private var lastFromCache = false
+    private var lastPendingWrites = false
     private var lastExists = false
     private var lastData: [String: Any]?
     private var _lastWire: AnySendable?
@@ -382,14 +453,26 @@ private final class DocListenerStateBox: @unchecked Sendable {
         lock.unlock()
     }
 
-    func recordOffline(snapshot: DocumentSnapshot, rawWire: AnySendable) {
+    func recordOfflineAndShouldSuppress(
+        snapshot: DocumentSnapshot,
+        rawWire: AnySendable,
+        includeMetadataChanges: Bool
+    ) -> Bool {
         lock.lock()
+        defer { lock.unlock() }
+        let sameContent = hasDelivered
+            && snapshot.exists == lastExists
+            && NSDictionary(dictionary: snapshot.data() ?? [:]).isEqual(to: lastData ?? [:])
+        let sameMetadata = snapshot.metadata.isFromCache == lastFromCache
+            && snapshot.metadata.hasPendingWrites == lastPendingWrites
+        let suppress = includeMetadataChanges ? (sameContent && sameMetadata) : sameContent
         hasDelivered = true
-        lastFromCache = true
+        lastFromCache = snapshot.metadata.isFromCache
+        lastPendingWrites = snapshot.metadata.hasPendingWrites
         lastExists = snapshot.exists
         lastData = snapshot.data()
         _lastWire = rawWire
-        lock.unlock()
+        return suppress
     }
 
     func recordOnlineAndShouldSuppress(
@@ -407,6 +490,7 @@ private final class DocListenerStateBox: @unchecked Sendable {
             && NSDictionary(dictionary: snapshot.data() ?? [:]).isEqual(to: lastData ?? [:])
         hasDelivered = true
         lastFromCache = snapshot.metadata.isFromCache
+        lastPendingWrites = snapshot.metadata.hasPendingWrites
         lastExists = snapshot.exists
         lastData = snapshot.data()
         _lastWire = rawWire

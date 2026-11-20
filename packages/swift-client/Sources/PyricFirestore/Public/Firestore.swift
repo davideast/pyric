@@ -70,8 +70,11 @@ public class Firestore: @unchecked Sendable {
     // -- Instance Properties --
     public let app: FirebaseApp
     public let database: String
+    private var _settings: FirestoreSettings
     public var settings: FirestoreSettings {
-        didSet {
+        get { _settings }
+        set {
+            _settings = (newValue.copy(with: nil) as? FirestoreSettings) ?? newValue
             reconfigureBridge()
         }
     }
@@ -184,7 +187,7 @@ public class Firestore: @unchecked Sendable {
     public init(bridgeClient: PyricBridgeClient, app: FirebaseApp = FirebaseApp.app(), database: String = "(default)") {
         self.app = app
         self.database = database
-        self.settings = FirestoreSettings()
+        self._settings = FirestoreSettings()
         self.lifecycle = FirestoreClientLifecycle(appName: app.name, database: database)
         self._bridgeClient = bridgeClient
         self.usesSharedAppBridge = false
@@ -198,7 +201,7 @@ public class Firestore: @unchecked Sendable {
             defaultSettings.host = configured.host
             defaultSettings.sslEnabled = configured.sslEnabled
         }
-        self.settings = defaultSettings
+        self._settings = defaultSettings
         self.lifecycle = FirestoreClientLifecycle(appName: app.name, database: database)
         self._bridgeClient = app.sharedBridgeClient()
         self.usesSharedAppBridge = true

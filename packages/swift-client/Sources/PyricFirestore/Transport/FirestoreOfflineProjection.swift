@@ -1,13 +1,22 @@
 import Foundation
 
+internal struct UpdateSegmentEntry: Sendable, Equatable {
+    let segments: [String]
+    let value: AnySendable
+}
+
 internal enum OfflineWriteMutation: Sendable, Equatable {
     case set(path: String, encodedData: [String: AnySendable], merge: Bool, mergeFields: [String]?)
     case update(path: String, encodedFields: [String: AnySendable])
+    case updateSegments(path: String, entries: [UpdateSegmentEntry])
     case delete(path: String)
 
     var path: String {
         switch self {
-        case .set(let path, _, _, _), .update(let path, _), .delete(let path):
+        case .set(let path, _, _, _),
+             .update(let path, _),
+             .updateSegments(let path, _),
+             .delete(let path):
             return path
         }
     }
@@ -70,6 +79,14 @@ internal enum FirestoreOfflineProjection {
                         let segments = splitFieldPath(fieldKey)
                         let resolved = resolveSentinels(rawVal, priorRoot: prior, prefix: segments, nowSeconds: nowSeconds, keepDeletes: true)
                         existing = setField(in: existing, segments: segments, value: resolved)
+                    }
+                    current = existing
+                case .updateSegments(_, let entries):
+                    guard var existing = current else { continue }
+                    let prior = existing
+                    for entry in entries {
+                        let resolved = resolveSentinels(entry.value, priorRoot: prior, prefix: entry.segments, nowSeconds: nowSeconds, keepDeletes: true)
+                        existing = setField(in: existing, segments: entry.segments, value: resolved)
                     }
                     current = existing
                 case .set(_, let encodedData, let merge, let mergeFields):
@@ -150,8 +167,50 @@ internal enum FirestoreOfflineProjection {
 
     // MARK: - Field & Sentinel Helpers
 
+    static func encodeFieldPathKey(_ segments: [String]) -> String {
+        segments.map { segment in
+            if segment.isEmpty || segment.contains(".") || segment.contains("`") || segment.contains("\\") {
+                let escaped = segment
+                    .replacingOccurrences(of: "\\", with: "\\\\")
+                    .replacingOccurrences(of: "`", with: "\\`")
+                return "`\(escaped)`"
+            }
+            return segment
+        }.joined(separator: ".")
+    }
+
     static func splitFieldPath(_ raw: String) -> [String] {
-        raw.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
+        guard raw.contains("`") else {
+            return raw.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
+        }
+        var segments: [String] = []
+        var current = ""
+        var quoted = false
+        let chars = Array(raw)
+        var index = 0
+        while index < chars.count {
+            let ch = chars[index]
+            if quoted {
+                if ch == "\\" && index + 1 < chars.count {
+                    index += 1
+                    current.append(chars[index])
+                } else if ch == "`" {
+                    quoted = false
+                } else {
+                    current.append(ch)
+                }
+            } else if ch == "`" {
+                quoted = true
+            } else if ch == "." {
+                segments.append(current)
+                current = ""
+            } else {
+                current.append(ch)
+            }
+            index += 1
+        }
+        segments.append(current)
+        return segments
     }
 
     private static func isSentinel(_ val: AnySendable, named kind: String) -> Bool {
