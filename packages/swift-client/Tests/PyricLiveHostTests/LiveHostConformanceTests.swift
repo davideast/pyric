@@ -56,7 +56,7 @@ struct LiveHostConformanceTests {
 
             // 1. Unauthenticated access respects each instance's independent ruleset.
             await expectPermissionDenied {
-                try await mainDb.reference(withPath: "users/unauthed").setValue(["displayName": "Blocked"])
+                try await mainDb.reference(withPath: "users/unauthed").setValue(["displayName": "Blocked"] as [String: Any])
             }
             await expectPermissionDenied {
                 _ = try await shard00.reference(withPath: "rooms/r1").getData()
@@ -64,7 +64,7 @@ struct LiveHostConformanceTests {
             let publicCatalogSnap = try await shard01.reference(withPath: "catalog/featured").getData()
             #expect(publicCatalogSnap.exists() == false)
             await expectPermissionDenied {
-                try await shard01.reference(withPath: "catalog/featured").setValue(["title": "ReadOnly"])
+                try await shard01.reference(withPath: "catalog/featured").setValue(["title": "ReadOnly"] as [String: Any])
             }
 
             // 2. Create user with email/password and verify JWT ID token issuance + forced refresh.
@@ -87,7 +87,7 @@ struct LiveHostConformanceTests {
             try await mainDb.reference(withPath: "users/\(emailUid)").setValue([
                 "displayName": "Pilot One",
                 "rank": "captain",
-            ])
+            ] as [String: Any])
             let ownProfileSnap = try await mainDb.reference(withPath: "users/\(emailUid)").getData()
             #expect(ownProfileSnap.exists() == true)
             let ownProfile = ownProfileSnap.value as? [String: Any]
@@ -95,7 +95,7 @@ struct LiveHostConformanceTests {
             #expect(ownProfile?["rank"] as? String == "captain")
 
             await expectPermissionDenied {
-                try await mainDb.reference(withPath: "users/other-uid").setValue(["displayName": "Spoof"])
+                try await mainDb.reference(withPath: "users/other-uid").setValue(["displayName": "Spoof"] as [String: Any])
             }
 
             // 4. Named shard-00 streams real-time value updates and enforces owner == auth.uid.
@@ -108,7 +108,7 @@ struct LiveHostConformanceTests {
                         try await roomRef.setValue([
                             "owner": emailUid,
                             "topic": "navigation",
-                        ])
+                        ] as [String: Any])
                     } else if let dict = snap.value as? [String: Any],
                               let topic = dict["topic"] as? String {
                         observed.append(topic)
@@ -124,7 +124,7 @@ struct LiveHostConformanceTests {
                 try await roomRef.setValue([
                     "owner": "spoof-uid",
                     "topic": "hijack",
-                ])
+                ] as [String: Any])
             }
 
             // 5. Cross-shard isolation: shard-01 and shard-09 hold separate data and separate rules.
@@ -132,7 +132,7 @@ struct LiveHostConformanceTests {
                 _ = try await shard01.reference(withPath: "rooms/r1").getData()
             }
             await expectPermissionDenied {
-                try await shard01.reference(withPath: "ops/deploy").setValue(["state": "active"])
+                try await shard01.reference(withPath: "ops/deploy").setValue(["state": "active"] as [String: Any])
             }
 
             try await shard09.reference(withPath: "shards/shard-09/status").setValue("ready")

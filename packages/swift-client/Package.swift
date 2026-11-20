@@ -31,21 +31,6 @@ var targets: [Target] = [
         path: "Sources/PyricDatabase"
     ),
     .testTarget(
-        name: "PyricFirestoreTests",
-        // PyricDatabase lets the reconnect tests drive `.info/connected`
-        // on the fake reconnecting bridge kept in this target.
-        dependencies: ["PyricFirestore", "FirebaseAuth", "PyricDatabase"]
-    ),
-    .testTarget(
-        name: "PyricAuthTests",
-        dependencies: ["FirebaseAuth", "PyricFirestore"]
-    ),
-    .testTarget(
-        name: "PyricDatabaseTests",
-        dependencies: ["PyricDatabase", "PyricFirestore", "FirebaseAuth"],
-        path: "Tests/PyricDatabaseTests"
-    ),
-    .testTarget(
         name: "PyricLiveHostTests",
         dependencies: ["PyricFirestore", "FirebaseAuth", "PyricDatabase"],
         path: "Tests/PyricLiveHostTests"
@@ -64,6 +49,21 @@ targets.append(contentsOf: [
         name: "PyricDebugUI",
         dependencies: ["PyricFirestore", "FirebaseAuth"],
         path: "Sources/PyricDebugUI"
+    ),
+    .testTarget(
+        name: "PyricFirestoreTests",
+        // PyricDatabase lets the reconnect tests drive `.info/connected`
+        // on the fake reconnecting bridge kept in this target.
+        dependencies: ["PyricFirestore", "FirebaseAuth", "PyricDatabase"]
+    ),
+    .testTarget(
+        name: "PyricAuthTests",
+        dependencies: ["FirebaseAuth", "PyricFirestore"]
+    ),
+    .testTarget(
+        name: "PyricDatabaseTests",
+        dependencies: ["PyricDatabase", "PyricFirestore", "FirebaseAuth"],
+        path: "Tests/PyricDatabaseTests"
     ),
     .testTarget(
         name: "PyricDebugUITests",
@@ -85,4 +85,3 @@ let package = Package(
     dependencies: [],
     targets: targets
 )
-
