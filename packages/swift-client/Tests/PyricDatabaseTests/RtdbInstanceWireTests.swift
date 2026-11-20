@@ -166,6 +166,47 @@ struct RtdbInstanceWireTests {
         #expect(DatabaseInstanceResolver.resolveInstanceName(from: "http://127.0.0.1:9000/?ns=bad/name") == nil)
         #expect(DatabaseInstanceResolver.resolveInstanceName(from: "http://127.0.0.1:9000/?ns=bad_name") == nil)
         #expect(DatabaseInstanceResolver.resolveInstanceName(from: "http://127.0.0.1:9000/?ns=-bad") == nil)
+        #expect(
+            DatabaseInstanceResolver.resolveInstanceName(
+                from: "https://my-proj-default-rtdb.firebaseio.com",
+                projectID: "my-proj"
+            ) == nil
+        )
+        #expect(
+            DatabaseInstanceResolver.resolveInstanceName(
+                from: "https://my-proj.firebaseio.com",
+                projectID: "my-proj"
+            ) == nil
+        )
+    }
+
+    @Test("Database.database(app:url:) canonicalizes InstanceKey and validates reference(fromURL:)")
+    func testCanonicalInstanceKeyAndReferenceFromURL() throws {
+        let app = FirebaseApp(name: "rtdb-canon-\(UUID().uuidString)")
+        defer { Database.reset() }
+
+        let primary = Database.database(app: app, url: "https://shard-03.firebaseio.com")
+        let trailingSlash = Database.database(app: app, url: "https://SHARD-03.firebaseio.com/")
+        let regional = Database.database(app: app, url: "https://shard-03.europe-west1.firebasedatabase.app")
+        #expect(primary === trailingSlash)
+        #expect(primary === regional)
+
+        let ref = primary.reference(fromURL: "https://shard-03.firebaseio.com/shards/shard-03/item%20a")
+        #expect(ref.path == "/shards/shard-03/item a")
+        #expect(ref.url == "https://shard-03.firebaseio.com/shards/shard-03/item%20a")
+
+        #expect(
+            throws: DatabaseURLValidationError.hostMismatch(
+                found: "shard-04.firebaseio.com",
+                expected: "shard-03.firebaseio.com"
+            )
+        ) {
+            _ = try DatabaseInstanceResolver.validateReferenceURL(
+                "https://shard-04.firebaseio.com/shards/shard-04/item",
+                databaseURL: primary.url,
+                emulatorHost: nil
+            )
+        }
     }
 
     @Test("Non-default Database serializes wire instance on all rtdb ops and subscriptions")

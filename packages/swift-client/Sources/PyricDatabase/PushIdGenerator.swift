@@ -55,22 +55,22 @@ public enum RtdbValueCodec {
         if value is NSNull { return .null }
         if let sendable = value as? AnySendable { return sendable }
         if let str = value as? String { return .string(str) }
+        // Check NSNumber before Bool so bridged Darwin NSNumber(1)/NSNumber(0) never coerce to Bool.
+        if let num = value as? NSNumber {
+            if NSNumberInspector.isBoolean(num) {
+                return .bool(num.boolValue)
+            }
+            if NSNumberInspector.isFloatingPoint(num) {
+                return .double(num.doubleValue)
+            }
+            return .int(num.int64Value)
+        }
         if let boolVal = value as? Bool { return .bool(boolVal) }
         if let intVal = value as? Int { return .int(Int64(intVal)) }
         if let int64Val = value as? Int64 { return .int(int64Val) }
         if let uintVal = value as? UInt { return .int(Int64(uintVal)) }
         if let doubleVal = value as? Double { return .double(doubleVal) }
         if let floatVal = value as? Float { return .double(Double(floatVal)) }
-        if let num = value as? NSNumber {
-            if NSNumberInspector.isBoolean(num) {
-                return .bool(num.boolValue)
-            }
-            let objCType = String(cString: num.objCType)
-            if objCType == "d" || objCType == "f" {
-                return .double(num.doubleValue)
-            }
-            return .int(num.int64Value)
-        }
         if let dict = value as? [String: Any] {
             var mapped: [String: AnySendable] = [:]
             for (k, v) in dict {

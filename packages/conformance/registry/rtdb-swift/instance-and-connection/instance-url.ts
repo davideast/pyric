@@ -1,3 +1,4 @@
+import { LIVE_HOST_CONFORMANCE_TEST } from '../defaults.ts';
 import { row } from './section.ts';
 
 export default row({
@@ -5,7 +6,7 @@ export default row({
   api: 'Database.database(url:)',
   behavior: 'Returns a distinct Database handle for each database URL; production isolates the data and rules of each URL\'s database.',
   featureKeys: ['databaseUrl'],
-  status: 'diverged-documented',
-  statusNote: 'each URL yields a distinct handle, but data and rules are not isolated: the bridge does not carry the instance, so every handle reaches the default database',
-  evidence: 'FirebaseDatabase Swift specification. The test asserts the handle carries its URL; bridge operations carry no instance field.',
+  status: 'conforms',
+  evidence: 'FirebaseDatabase Swift specification. Live-host 11-shard suite (`RtdbLiveHostConformanceTests.swift`) isolates data and rules across default + `shard-00..shard-09` over a single shared bridge connection.',
+  hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

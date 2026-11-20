@@ -49,7 +49,12 @@ public final class DatabaseReference: DatabaseQuery, @unchecked Sendable {
         if path == "/" {
             return base
         }
-        return base + path
+        let encodedSegments = path
+            .split(separator: "/", omittingEmptySubsequences: true)
+            .map { seg in
+                String(seg).addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? String(seg)
+            }
+        return base + "/" + encodedSegments.joined(separator: "/")
     }
 
     /// Returns a child DatabaseReference relative to the current path.
@@ -64,7 +69,7 @@ public final class DatabaseReference: DatabaseQuery, @unchecked Sendable {
         return child(autoId)
     }
 
-    // ── Write Operations ──────────────────────────────────────────────────────
+    // -- Write Operations --
 
     public func setValue(_ value: Any?) async throws {
         if value == nil || value is NSNull {
@@ -82,6 +87,10 @@ public final class DatabaseReference: DatabaseQuery, @unchecked Sendable {
         _ value: Any?,
         withCompletionBlock block: @escaping @Sendable (Error?, DatabaseReference) -> Void
     ) {
+        if value == nil || value is NSNull {
+            removeValue(completionBlock: block)
+            return
+        }
         let params: [String: AnySendable] = [
             "path": .string(path),
             "value": RtdbValueCodec.toAnySendable(value)
@@ -109,6 +118,10 @@ public final class DatabaseReference: DatabaseQuery, @unchecked Sendable {
     }
 
     public func setValue(_ value: Any?, andPriority priority: Any?) async throws {
+        if value == nil || value is NSNull {
+            try await removeValue()
+            return
+        }
         let params: [String: AnySendable] = [
             "path": .string(path),
             "value": RtdbValueCodec.toAnySendable(value),
@@ -122,6 +135,10 @@ public final class DatabaseReference: DatabaseQuery, @unchecked Sendable {
         andPriority priority: Any?,
         withCompletionBlock block: @escaping @Sendable (Error?, DatabaseReference) -> Void
     ) {
+        if value == nil || value is NSNull {
+            removeValue(completionBlock: block)
+            return
+        }
         let params: [String: AnySendable] = [
             "path": .string(path),
             "value": RtdbValueCodec.toAnySendable(value),

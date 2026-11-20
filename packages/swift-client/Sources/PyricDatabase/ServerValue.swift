@@ -1,4 +1,5 @@
 import Foundation
+import PyricFirestore
 
 /// Server-side placeholder sentinels resolved by the Realtime Database server upon write.
 public enum ServerValue {
@@ -9,7 +10,10 @@ public enum ServerValue {
 
     /// Returns a server increment sentinel that atomically increments a numeric value by `delta`.
     public static func increment(_ delta: NSNumber) -> [String: Any] {
-        return [".sv": ["increment": delta.doubleValue]]
+        if NSNumberInspector.isFloatingPoint(delta) {
+            return [".sv": ["increment": delta.doubleValue]]
+        }
+        return [".sv": ["increment": delta.int64Value]]
     }
 
     /// Returns a server increment sentinel that atomically increments an integer value by `delta`.

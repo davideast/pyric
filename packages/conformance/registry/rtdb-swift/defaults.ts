@@ -4,6 +4,8 @@ import type { CompatStatus } from '../types.ts';
 
 const CONFORMANCE_SUITE = 'packages/swift-client/Tests/PyricDatabaseTests/RtdbConformanceTests.swift';
 
+export const LIVE_HOST_CONFORMANCE_TEST = 'packages/cli/test/serve/native-swift-conformance.test.ts';
+
 export interface SwiftRtdbRowSeed {
   order?: number;
   api: string;
@@ -15,6 +17,8 @@ export interface SwiftRtdbRowSeed {
   statusNote?: string;
   /** Test files cited beyond the conformance suite. */
   tests?: string[];
+  /** Live Pyric host end-to-end suites proving this row against a running host. */
+  hostConformanceTests?: string[];
   rowRef?: never;
   id?: never;
 }
@@ -40,6 +44,13 @@ function resolveRtdbTests(tests: readonly string[] | undefined): string[] {
   return [CONFORMANCE_SUITE, ...tests];
 }
 
+function formatHostEvidence(hostTests: readonly string[] | undefined): string {
+  if (hostTests === undefined || hostTests.length === 0) {
+    return '';
+  }
+  return ` Live host: \`${hostTests.join('`, `')}\`.`;
+}
+
 export function bindSwiftRtdbRow(
   section: RowSection<{ readonly section: string }>,
 ): (seed: SwiftRtdbRowSeed) => AuthoredRowRecord {
@@ -55,6 +66,7 @@ export function bindSwiftRtdbRow(
     const resolvedStatus = resolveRtdbStatus(seed.status);
     const resolvedStatusNote = resolveMockBridgeNote(seed.status, seed.statusNote);
     const resolvedTests = resolveRtdbTests(seed.tests);
+    const hostEvidence = formatHostEvidence(seed.hostConformanceTests);
     return section.rowFromRef(seed.order, (rowRef) => ({
       api: seed.api,
       behavior: seed.behavior,
@@ -62,8 +74,9 @@ export function bindSwiftRtdbRow(
       status: resolvedStatus,
       statusNote: resolvedStatusNote,
       automation: 'unit-backed',
-      evidence: `${resolvedEvidence} Swift test: \`${CONFORMANCE_SUITE}\` assertion set \`rtdb-swift#${rowRef}\`.`,
+      evidence: `${resolvedEvidence} Swift test: \`${CONFORMANCE_SUITE}\` assertion set \`rtdb-swift#${rowRef}\`.${hostEvidence}`,
       conformanceTests: resolvedTests,
+      hostConformanceTests: seed.hostConformanceTests,
     }));
   };
 }
