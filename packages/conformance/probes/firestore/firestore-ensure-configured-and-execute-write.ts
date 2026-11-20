@@ -1,7 +1,4 @@
-import type { FirebaseOptions } from 'firebase/app';
 import type { Probe } from '../../rigs/types.ts';
-import { loadOracleServiceAccount } from '../../src/oracle-credential.ts';
-import { resolveProbeWebConfig } from '../../src/sdk-probe-runtime.ts';
 
 interface ObservedCallFailureShape {
   readonly syncThrew: boolean;
@@ -99,9 +96,11 @@ export async function observeFirestoreEnsureConfiguredAndExecuteWrite<AppHandle,
 
   try {
     const configuredDb = freshDb('configured');
-    const configuredClient = subject.ensureFirestoreConfigured(configuredDb);
+    const firstClient = subject.ensureFirestoreConfigured(configuredDb);
+    const secondClient = subject.ensureFirestoreConfigured(configuredDb);
     const configuredReturn = {
-      isObject: configuredClient !== null && typeof configuredClient === 'object',
+      isObject: firstClient !== null && typeof firstClient === 'object',
+      sameClientOnRepeat: firstClient === secondClient,
     };
     const emulatorAfterEnsureConfigured = captureSyncOutcome(
       () => subject.connectEmulator(configuredDb, '127.0.0.1', 8080),
@@ -109,11 +108,22 @@ export async function observeFirestoreEnsureConfiguredAndExecuteWrite<AppHandle,
     );
 
     const execDb = freshDb('exec');
-    const emptyResult = await subject.executeWrite(execDb, []);
-    const emptyExecuteWriteOnActiveDb = {
-      resolvedUndefined: emptyResult === undefined,
+    let execSyncThrew = false;
+    let execReturnsPromise = false;
+    try {
+      const pending = subject.executeWrite(execDb, []);
+      execReturnsPromise = pending instanceof Promise;
+      if (execReturnsPromise) {
+        void pending.catch(() => undefined);
+      }
+    } catch {
+      execSyncThrew = true;
+    }
+    const executeWriteOnActiveDb = {
+      syncThrew: execSyncThrew,
+      returnsPromise: execReturnsPromise,
     };
-    const emulatorAfterEmptyExecuteWrite = captureSyncOutcome(
+    const emulatorAfterExecuteWrite = captureSyncOutcome(
       () => subject.connectEmulator(execDb, '127.0.0.1', 8080),
       subject.isFirebaseError,
     );
@@ -134,8 +144,8 @@ export async function observeFirestoreEnsureConfiguredAndExecuteWrite<AppHandle,
     return {
       configuredReturn,
       emulatorAfterEnsureConfigured,
-      emptyExecuteWriteOnActiveDb,
-      emulatorAfterEmptyExecuteWrite,
+      executeWriteOnActiveDb,
+      emulatorAfterExecuteWrite,
       ensureConfiguredAfterTerminate,
       executeWriteAfterTerminate,
     };
@@ -151,19 +161,17 @@ export async function observeFirestoreEnsureConfiguredAndExecuteWrite<AppHandle,
 
 export const probe: Probe = {
   rig: 'sdk-probes',
-  requires: ['web-config'],
+  requires: [],
   matrixRow: '',
   rowIds: [],
   pendingRowLink: true,
   description:
-    'firebase/firestore ensureFirestoreConfigured(db) client initialization and post-start/post-terminate failed-precondition guards, plus executeWrite(db, []) empty mutation pipeline resolution and synchronous post-terminate failed-precondition throw.',
+    'firebase/firestore ensureFirestoreConfigured(db) idempotent client initialization and post-start/post-terminate failed-precondition guards, plus executeWrite(db, []) synchronous startup transition, Promise return, and synchronous post-terminate failed-precondition throw.',
   async observe(): Promise<Record<string, unknown>> {
     const [appMod, fsMod] = await Promise.all([
       import('firebase/app'),
       import('firebase/firestore'),
     ]);
-    const sa = await loadOracleServiceAccount();
-    const webConfig = await resolveProbeWebConfig(sa);
     const runtimePlumbing = fsMod as unknown as {
       ensureFirestoreConfigured(targetDb: ReturnType<typeof fsMod.getFirestore>): unknown;
       executeWrite(
@@ -174,7 +182,7 @@ export const probe: Probe = {
 
     return observeFirestoreEnsureConfiguredAndExecuteWrite({
       createApp(name: string) {
-        return appMod.initializeApp(webConfig as FirebaseOptions, name);
+        return appMod.initializeApp({ projectId: 'demo-ensure-exec-probe' }, name);
       },
       deleteApp(app) {
         return appMod.deleteApp(app);

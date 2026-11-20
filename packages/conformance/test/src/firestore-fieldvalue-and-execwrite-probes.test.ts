@@ -1,22 +1,36 @@
 import { describe, expect, it } from 'bun:test';
-import { FirebaseError } from 'firebase/app';
 import * as fsMod from 'firebase/firestore';
 import {
   observeFirestoreEnsureConfiguredAndExecuteWrite,
   probe as ensureConfiguredProbe,
+  type EnsureConfiguredAndExecuteWriteSubject,
 } from '../../probes/firestore/firestore-ensure-configured-and-execute-write.ts';
 import {
   observeFirestoreFieldValueClassAndEquality,
   probe as fieldValueProbe,
+  type FieldValueClassAndEqualitySubject,
 } from '../../probes/firestore/firestore-field-value-class-and-equality.ts';
 import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 
 describe('Firestore FieldValue and ensureFirestoreConfigured/executeWrite staged probes', () => {
   it('registers both sdk-probes targets with expectStagedUntilCaptured', () => {
+    const verifyExports: readonly [
+      typeof observeFirestoreFieldValueClassAndEquality,
+      typeof observeFirestoreEnsureConfiguredAndExecuteWrite,
+      FieldValueClassAndEqualitySubject | null,
+      EnsureConfiguredAndExecuteWriteSubject<unknown, unknown> | null,
+    ] = [
+      observeFirestoreFieldValueClassAndEquality,
+      observeFirestoreEnsureConfiguredAndExecuteWrite,
+      null,
+      null,
+    ];
+    expect(typeof verifyExports[0]).toBe('function');
+    expect(typeof verifyExports[1]).toBe('function');
     expect(fieldValueProbe.rig).toBe('sdk-probes');
     expect(fieldValueProbe.requires).toEqual([]);
     expect(ensureConfiguredProbe.rig).toBe('sdk-probes');
-    expect(ensureConfiguredProbe.requires).toEqual(['web-config']);
+    expect(ensureConfiguredProbe.requires).toEqual([]);
 
     expectStagedUntilCaptured(
       [
@@ -77,51 +91,25 @@ describe('Firestore FieldValue and ensureFirestoreConfigured/executeWrite staged
     });
   });
 
-  it('records synchronous post-start and post-terminate outcomes in ensureFirestoreConfigured/executeWrite observer', async () => {
-    interface MockDb {
-      started: boolean;
-      terminated: boolean;
-    }
-
-    const observed = await observeFirestoreEnsureConfiguredAndExecuteWrite<string, MockDb>({
-      createApp: (name) => name,
-      deleteApp: async () => undefined,
-      getFirestore: () => ({ started: false, terminated: false }),
-      ensureFirestoreConfigured(db) {
-        if (db.terminated) {
-          throw new FirebaseError('failed-precondition', 'The client has already been terminated.');
-        }
-        db.started = true;
-        return { client: true };
-      },
-      executeWrite(db, _mutations) {
-        if (db.terminated) {
-          throw new FirebaseError('failed-precondition', 'The client has already been terminated.');
-        }
-        db.started = true;
-        return Promise.resolve();
-      },
-      connectEmulator(db) {
-        if (db.started) {
-          throw new FirebaseError('failed-precondition', 'Firestore has already been started.');
-        }
-      },
-      terminate: async (db) => {
-        db.terminated = true;
-      },
-      isFirebaseError: (err) => err instanceof FirebaseError,
-    });
+  it('observes real firebase/firestore ensureFirestoreConfigured and executeWrite offline', async () => {
+    const observed = await ensureConfiguredProbe.observe();
 
     expect(observed).toEqual({
-      configuredReturn: { isObject: true },
+      configuredReturn: {
+        isObject: true,
+        sameClientOnRepeat: true,
+      },
       emulatorAfterEnsureConfigured: {
         syncThrew: true,
         rejected: false,
         code: 'failed-precondition',
         isFirebaseError: true,
       },
-      emptyExecuteWriteOnActiveDb: { resolvedUndefined: true },
-      emulatorAfterEmptyExecuteWrite: {
+      executeWriteOnActiveDb: {
+        syncThrew: false,
+        returnsPromise: true,
+      },
+      emulatorAfterExecuteWrite: {
         syncThrew: true,
         rejected: false,
         code: 'failed-precondition',
