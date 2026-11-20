@@ -23,6 +23,7 @@ import {
   resolvedAndroidBomVersion,
   resolvedFirebaseVersion,
   resolvedFunctionsVersion,
+  resolvedIosSdkVersion,
 } from './package-version.ts';
 
 const resolved = resolvedFirebaseVersion();
@@ -32,6 +33,7 @@ const resolved = resolvedFirebaseVersion();
 const resolvedAdmin = resolvedAdminVersion();
 const resolvedFunctions = resolvedFunctionsVersion();
 const resolvedAndroidBom = resolvedAndroidBomVersion();
+const resolvedIos = resolvedIosSdkVersion();
 const observations = loadObservations();
 
 const missing: string[] = [];
@@ -42,6 +44,7 @@ const VERSION_TARGETS = [
   { field: 'adminSdkVersion', resolved: resolvedAdmin },
   { field: 'functionsSdkVersion', resolved: resolvedFunctions },
   { field: 'androidBomVersion', resolved: resolvedAndroidBom },
+  { field: 'iosSdkVersion', resolved: resolvedIos },
 ] as const;
 
 for (const obs of observations) {
@@ -61,6 +64,8 @@ console.log(`# Oracle observation version guard`);
 console.log(`Resolved firebase (node_modules/firebase/package.json): ${resolved}`);
 console.log(`Resolved firebase-admin (node_modules/firebase-admin/package.json): ${resolvedAdmin}`);
 console.log(`Resolved firebase-functions (node_modules/firebase-functions/package.json): ${resolvedFunctions}`);
+console.log(`Resolved firebase-bom (rigs/native-android-oracle/gradle.properties): ${resolvedAndroidBom}`);
+console.log(`Resolved firebase-ios-sdk (rigs/native-ios-oracle/sdk-version.properties): ${resolvedIos}`);
 console.log(`Observations checked: ${observations.length}`);
 
 if (missing.length === 0 && mismatched.length === 0) {

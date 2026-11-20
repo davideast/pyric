@@ -17,7 +17,11 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { listProbeFiles } from '../probes/load.ts';
-import type { Probe, ProbeSdkRequirement } from '../rigs/types.ts';
+import type {
+  ObservationVersionField,
+  Probe,
+  ProbeSdkRequirement,
+} from '../rigs/types.ts';
 import {
   formatInertPreviewFooter,
   hasExplicitCaptureFlag,
@@ -43,6 +47,7 @@ import {
   resolvedAdminVersion,
   resolvedAndroidBomVersion,
   resolvedFirebaseVersion,
+  resolvedIosSdkVersion,
 } from './package-version.ts';
 import { readProbeSelectors } from './probe-cli-args.ts';
 import { readDeclaredProbeRig } from './staged-captures.ts';
@@ -204,7 +209,10 @@ export function printModularProbePreview(options: {
 export interface ModularProbeRigConfig {
   rig: string;
   scriptPath: string;
-  versionField: 'fbSdkVersion' | 'adminSdkVersion' | 'androidBomVersion';
+  versionField: Extract<
+    ObservationVersionField,
+    'fbSdkVersion' | 'adminSdkVersion' | 'androidBomVersion' | 'iosSdkVersion'
+  >;
 }
 
 export const SDK_PROBES_RIG_CONFIG: ModularProbeRigConfig = {
@@ -356,6 +364,8 @@ export async function runModularProbesCli(options: {
     sdkVersion = resolvedAdminVersion();
   } else if (options.config.versionField === 'androidBomVersion') {
     sdkVersion = resolvedAndroidBomVersion();
+  } else if (options.config.versionField === 'iosSdkVersion') {
+    sdkVersion = resolvedIosSdkVersion();
   } else {
     sdkVersion = resolvedFirebaseVersion();
   }

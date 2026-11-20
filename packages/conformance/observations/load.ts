@@ -14,6 +14,7 @@ export interface Observation {
   adminSdkVersion?: string;
   functionsSdkVersion?: string;
   androidBomVersion?: string;
+  iosSdkVersion?: string;
   behavior: Record<string, unknown>;
   raw: Record<string, unknown>;
 }
@@ -40,6 +41,10 @@ export function loadObservations(): Observation[] {
     if (typeof raw.androidBomVersion === 'string') {
       androidBomVersion = raw.androidBomVersion;
     }
+    let iosSdkVersion: string | undefined;
+    if (typeof raw.iosSdkVersion === 'string') {
+      iosSdkVersion = raw.iosSdkVersion;
+    }
     return {
       file,
       surfaceDir,
@@ -51,6 +56,7 @@ export function loadObservations(): Observation[] {
       adminSdkVersion: typeof raw.adminSdkVersion === 'string' ? raw.adminSdkVersion : undefined,
       functionsSdkVersion: typeof raw.functionsSdkVersion === 'string' ? raw.functionsSdkVersion : undefined,
       androidBomVersion,
+      iosSdkVersion,
       behavior: (raw.behavior && typeof raw.behavior === 'object' ? raw.behavior : {}) as Record<string, unknown>,
       raw,
     } satisfies Observation;

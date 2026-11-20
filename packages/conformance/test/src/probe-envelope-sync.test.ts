@@ -9,6 +9,7 @@ const MODULAR_PROBE_RIGS = [
   'android-sdk-probes',
   'admin-auth',
   'admin-firestore',
+  'ios-sdk-probes',
   'storage-admin',
   'messaging-send',
   'storage-stdlib-discovery',

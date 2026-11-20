@@ -27,6 +27,7 @@ const VERSION_FIELD_VALUES = new Set([
   'adminSdkVersion',
   'functionsSdkVersion',
   'androidBomVersion',
+  'iosSdkVersion',
 ]);
 
 function isStringArray(value: unknown): value is string[] {

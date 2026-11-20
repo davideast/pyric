@@ -12,7 +12,7 @@
  * PAT-authenticated `origin` remote to fire `pull_request: synchronize`.
  */
 import { execFileSync, spawnSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Gh } from './github-issues.ts';
 import {
@@ -340,4 +340,30 @@ export function formatPullRequestOutcomesSummary(
     return `- **${item.rig}** (\`${item.branch}\`): ${item.action}${authNote}${urlPart}`;
   });
   return ['## Oracle capture pull requests', '', ...bullets].join('\n');
+}
+
+export function resolveCaptureBundleDirs(artifactRoot: string): string[] {
+  const rootStat = lstatSync(artifactRoot);
+  if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) {
+    throw new Error(`Artifact directory '${artifactRoot}' is missing or a symlink`);
+  }
+  if (existsSync(join(artifactRoot, 'manifest.json'))) {
+    return [artifactRoot];
+  }
+  const subdirs: string[] = [];
+  for (const entry of readdirSync(artifactRoot).sort()) {
+    const full = join(artifactRoot, entry);
+    const stat = lstatSync(full);
+    if (stat.isSymbolicLink()) {
+      throw new Error(`Refusing symlink in downloaded artifact root: ${entry}`);
+    }
+    if (!stat.isDirectory()) {
+      throw new Error(`Unexpected top-level file without root manifest.json: ${entry}`);
+    }
+    subdirs.push(full);
+  }
+  if (subdirs.length === 0) {
+    return [artifactRoot];
+  }
+  return subdirs;
 }

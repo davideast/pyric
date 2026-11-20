@@ -22,11 +22,12 @@ export type RigAutomation = 'unattended' | 'credentialed' | 'human-witnessed';
 
 export type RigRunnerOs = 'ubuntu-latest' | 'macos-latest';
 
-type ObservationVersionField =
+export type ObservationVersionField =
   | 'fbSdkVersion'
   | 'adminSdkVersion'
   | 'functionsSdkVersion'
-  | 'androidBomVersion';
+  | 'androidBomVersion'
+  | 'iosSdkVersion';
 
 interface RigEnvRequirement {
   /** Exact environment variable name. */
