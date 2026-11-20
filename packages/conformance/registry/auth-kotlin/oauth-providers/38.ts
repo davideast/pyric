@@ -5,5 +5,5 @@ export default row({
   api: 'OAuthProvider.getCredential(providerId, idToken, accessToken)',
   behavior: 'Creates an OAuthCredential for a generic OAuth provider (e.g. "apple.com", "github.com") encapsulating providerId, idToken, accessToken, and rawNonce.',
   featureKeys: ['OAuthProvider', 'getCredential'],
-  flipped: 'unit-backed',
+  flipped: 'live-host',
 });

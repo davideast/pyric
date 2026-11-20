@@ -130,6 +130,7 @@ class CallOrderTest {
             "auth.getIdTokenResult" to { user().getIdTokenResult(true) },
             "auth.updateProfile" to { user().updateProfile(UserProfileChangeRequest.Builder().setDisplayName("n").build()) },
             "auth.reload" to { user().reload() },
+            "auth.deleteUser" to { user().delete() },
             "getDoc" to { doc.get() },
             "getDocs" to { rooms.get() },
             "getDocs" to { rooms.whereEqualTo("open", true).limit(2).get() },

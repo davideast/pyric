@@ -204,7 +204,7 @@ class E2ETestHarness {
             }
             "getDocs" -> {
                 @Suppress("UNCHECKED_CAST")
-                val target = op["target"] as Map<String, Any?>
+                val target = (op["source"] ?: op["target"]) as Map<String, Any?>
                 val docPayloads = synchronized(storeLock) {
                     val docs = queryDocs(target)
                     docs.map { doc ->

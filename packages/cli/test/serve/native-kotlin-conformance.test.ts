@@ -71,6 +71,10 @@ service cloud.firestore {
       allow read, write: if request.auth != null
         && request.auth.token.firebase.tenant == tenantId;
     }
+    match /rooms/{roomId} {
+      allow read: if request.auth == null || request.auth.token.role == 'member';
+      allow write: if request.auth != null && request.auth.token.role == 'member';
+    }
   }
 }`;
 

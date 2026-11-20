@@ -5,5 +5,5 @@ export default row({
   api: 'AuthResult / AdditionalUserInfo',
   behavior: 'AuthResult packages authenticated FirebaseUser and AdditionalUserInfo (providerId, isNewUser).',
   featureKeys: ['authResult', 'additionalUserInfo'],
-  flipped: 'unit-backed',
+  flipped: 'live-host',
 });

@@ -5,5 +5,5 @@ export default row({
   api: 'GetTokenResult',
   behavior: 'Encapsulates token string, custom claims, expirationTimestamp, authTimestamp, and issuedAtTimestamp.',
   featureKeys: ['getTokenResult'],
-  flipped: 'unit-backed',
+  flipped: 'live-host',
 });
