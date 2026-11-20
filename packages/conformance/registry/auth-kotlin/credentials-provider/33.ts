@@ -5,5 +5,5 @@ export default row({
   api: 'CredentialsProvider.getEffectiveLens()',
   behavior: 'Provides AuthLens.Anon when signed out, and AuthLens.AsUser with uid, claims, and tenant when signed in.',
   featureKeys: ['credentialsProvider', 'getEffectiveLens'],
-  flipped: 'unit-backed',
+  flipped: 'live-host',
 });

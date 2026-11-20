@@ -67,6 +67,10 @@ object BridgeAuthOperations {
         return client.op("auth.reload", mapOf("uid" to uid)) as? Map<String, Any?>
     }
 
+    suspend fun deleteUser(client: PyricBridgeClient) {
+        client.op("auth.deleteUser", emptyMap())
+    }
+
     suspend fun signInWithCredential(client: PyricBridgeClient, credential: Map<String, Any?>, tenantId: String? = null): Map<String, Any?> {
         val params = mutableMapOf<String, Any?>("credential" to credential)
         if (tenantId != null) params["tenantId"] = tenantId
@@ -103,10 +107,16 @@ object BridgeAuthOperations {
         return list ?: emptyList()
     }
 
-    suspend fun updateProfile(client: PyricBridgeClient, displayName: String?, photoURL: String?): Map<String, Any?> {
+    suspend fun updateProfile(
+        client: PyricBridgeClient,
+        displayName: String?,
+        photoURL: String?,
+        includeDisplayName: Boolean = displayName != null,
+        includePhotoURL: Boolean = photoURL != null
+    ): Map<String, Any?> {
         val params = mutableMapOf<String, Any?>()
-        if (displayName != null) params["displayName"] = displayName
-        if (photoURL != null) params["photoURL"] = photoURL
+        if (includeDisplayName) params["displayName"] = displayName
+        if (includePhotoURL) params["photoURL"] = photoURL
         @Suppress("UNCHECKED_CAST")
         return client.op("auth.updateProfile", params) as? Map<String, Any?> ?: emptyMap()
     }

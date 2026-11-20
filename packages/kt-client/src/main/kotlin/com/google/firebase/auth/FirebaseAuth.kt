@@ -140,7 +140,8 @@ class FirebaseAuth internal constructor(
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 val res = BridgeAuthOperations.signInEmail(bridgeClient, email, password, tenantId)
-                val authResult = handleAuthSuccess(res)
+                val enriched = enrichSignInResponseIfNeeded(res)
+                val authResult = handleAuthSuccess(enriched)
                 tcs.setResult(authResult)
             } catch (e: Exception) {
                 tcs.setException(wrapException(e))
@@ -339,7 +340,6 @@ class FirebaseAuth internal constructor(
                 updateAuthLens()
             }
         }
-        notifyAuthStateChanged()
         notifyIdTokenChanged()
     }
 
@@ -349,6 +349,22 @@ class FirebaseAuth internal constructor(
             authEx.errorCode == "ERROR_USER_DISABLED" ||
             authEx.errorCode == "ERROR_USER_NOT_FOUND"
         if (!invalidated) return
+        val cleared = synchronized(authStateLock) {
+            if (_currentUser.value?.uid == targetUid) {
+                _currentUser.value = null
+                updateAuthLens()
+                true
+            } else {
+                false
+            }
+        }
+        if (cleared) {
+            notifyAuthStateChanged()
+            notifyIdTokenChanged()
+        }
+    }
+
+    internal fun clearCurrentUserAfterDelete(targetUid: String) {
         val cleared = synchronized(authStateLock) {
             if (_currentUser.value?.uid == targetUid) {
                 _currentUser.value = null

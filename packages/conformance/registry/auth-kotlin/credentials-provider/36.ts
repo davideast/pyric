@@ -5,5 +5,5 @@ export default row({
   api: 'FirebaseFirestore snapshot re-subscription',
   behavior: 'Active Firestore snapshots() flows automatically re-subscribe when CredentialsProvider emits a new AuthLens.',
   featureKeys: ['snapshots', 're-subscribe'],
-  flipped: 'unit-backed',
+  flipped: 'live-host',
 });

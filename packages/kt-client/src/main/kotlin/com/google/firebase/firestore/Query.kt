@@ -189,7 +189,7 @@ open class Query internal constructor(
                 val targetDesc = toTargetDescriptor()
                 val res = firestore.bridgeClient.op(
                     method = "getDocs",
-                    params = mapOf("target" to targetDesc),
+                    params = mapOf("source" to targetDesc),
                     actAs = firestore.getEffectiveAuthLens().toMap()
                 )
                 @Suppress("UNCHECKED_CAST")

@@ -5,5 +5,5 @@ export default row({
   api: 'FirebaseUser.reload()',
   behavior: 'Reloads user profile and custom claims from bridge auth.getCurrentUser and auth.getIdTokenResult.',
   featureKeys: ['reload'],
-  flipped: 'unit-backed',
+  flipped: 'live-host',
 });

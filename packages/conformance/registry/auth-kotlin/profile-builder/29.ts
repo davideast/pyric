@@ -5,5 +5,5 @@ export default row({
   api: 'UserProfileChangeRequest.Builder',
   behavior: 'Builds immutable UserProfileChangeRequest configuring displayName and photoUri.',
   featureKeys: ['userProfileChangeRequest'],
-  flipped: 'unit-backed',
+  flipped: 'live-host',
 });

@@ -153,7 +153,9 @@ class FirebaseUser internal constructor(
                 val updated = BridgeAuthOperations.updateProfile(
                     auth.bridgeClient,
                     request.displayName,
-                    request.photoUri?.toString()
+                    request.photoUri?.toString(),
+                    includeDisplayName = request.displayNameSet,
+                    includePhotoURL = request.photoUriSet
                 )
                 rawData = updated
                 @Suppress("UNCHECKED_CAST")
@@ -184,6 +186,23 @@ class FirebaseUser internal constructor(
                     }
                 }
                 auth.notifyUserUpdated(this@FirebaseUser)
+                tcs.setResult(null)
+            } catch (e: Exception) {
+                val wrapped = auth.wrapException(e)
+                auth.clearCurrentUserIfInvalidated(wrapped, uid)
+                tcs.setException(wrapped)
+            }
+        }
+        return tcs.task
+    }
+
+    fun delete(): Task<Void?> {
+        val tcs = TaskCompletionSource<Void?>()
+        val scope = CoroutineScope(Dispatchers.IO)
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            try {
+                BridgeAuthOperations.deleteUser(auth.bridgeClient)
+                auth.clearCurrentUserAfterDelete(uid)
                 tcs.setResult(null)
             } catch (e: Exception) {
                 val wrapped = auth.wrapException(e)

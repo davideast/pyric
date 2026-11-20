@@ -123,8 +123,14 @@ class FirebaseAuthTest {
                             transport.sendToClient("""{"type":"worker-res","id":"$id","ok":true,"value":"mock.jwt.token"}""")
                         }
                         "auth.getIdTokenResult" -> {
+                            val forced = op["forceRefresh"] == true
+                            val claimsJson = if (forced) {
+                                """{"role":"admin","sub":"user-alice"}"""
+                            } else {
+                                """{"sub":"user-alice"}"""
+                            }
                             transport.sendToClient(
-                                """{"type":"worker-res","id":"$id","ok":true,"value":{"token":"mock.jwt.token","claims":{"role":"admin","sub":"user-alice"},"expirationTime":1800000000,"authTime":1700000000,"issuedAtTime":1700000000,"signInProvider":"password"}}"""
+                                """{"type":"worker-res","id":"$id","ok":true,"value":{"token":"mock.jwt.token","claims":$claimsJson,"expirationTime":1800000000,"authTime":1700000000,"issuedAtTime":1700000000,"signInProvider":"password"}}"""
                             )
                         }
                         "auth.updateProfile" -> {
@@ -326,7 +332,7 @@ class FirebaseAuthTest {
         assertEquals(1800000000L, tokenResult.expirationTimestamp)
         assertEquals("password", tokenResult.signInProvider)
 
-        val lastOp = sentOps.find { it["method"] == "auth.getIdTokenResult" }
+        val lastOp = sentOps.findLast { it["method"] == "auth.getIdTokenResult" }
         assertNotNull(lastOp)
         assertEquals(true, lastOp?.get("forceRefresh"))
     }
@@ -616,5 +622,49 @@ class FirebaseAuthTest {
 
         assertEquals(listOf<String?>(null), observed.toList())
         auth.removeIdTokenListener(listener)
+    }
+
+    @Test
+    fun testDeleteUserAndOAuthCredentialBuilderAndNullProfileClearing() {
+        val signedIn = Tasks.await(auth.signInWithEmailAndPassword("alice@example.com", "secret123"))
+        val user = signedIn.user!!
+
+        val authStates = CopyOnWriteArrayList<String?>()
+        val idTokens = CopyOnWriteArrayList<String?>()
+        val authListener = FirebaseAuth.AuthStateListener { a -> authStates.add(a.currentUser?.uid) }
+        val tokenListener = FirebaseAuth.IdTokenListener { a -> idTokens.add(a.currentUser?.displayName) }
+        auth.addAuthStateListener(authListener)
+        auth.addIdTokenListener(tokenListener)
+        val authCountAfterReg = authStates.size
+
+        // Partial update only sends displayName; explicit null sends null photoURL
+        Tasks.await(user.updateProfile(UserProfileChangeRequest.Builder().setDisplayName("Alice Partial").build()))
+        val partialOp = sentOps.findLast { it["method"] == "auth.updateProfile" }!!
+        assertEquals("Alice Partial", partialOp["displayName"])
+        assertFalse(partialOp.containsKey("photoURL"))
+        assertEquals(authCountAfterReg, authStates.size)
+        assertTrue(idTokens.contains("Alice Partial"))
+
+        Tasks.await(user.updateProfile(UserProfileChangeRequest.Builder().setPhotoUri(null as URI?).build()))
+        val clearPhotoOp = sentOps.findLast { it["method"] == "auth.updateProfile" }!!
+        assertFalse(clearPhotoOp.containsKey("displayName"))
+        assertTrue(clearPhotoOp.containsKey("photoURL"))
+        assertNull(clearPhotoOp["photoURL"])
+
+        Tasks.await(user.delete())
+        assertNull(auth.currentUser)
+        assertNotNull(sentOps.findLast { it["method"] == "auth.deleteUser" })
+
+        val built = com.google.firebase.auth.OAuthProvider.newCredentialBuilder("apple.com")
+            .setIdTokenWithRawNonce("apple-jwt", "nonce-1")
+            .setAccessToken("apple-acc")
+            .build() as com.google.firebase.auth.OAuthCredential
+        assertEquals("apple.com", built.provider)
+        assertEquals("apple-jwt", built.idToken)
+        assertEquals("apple-acc", built.accessToken)
+        assertEquals("nonce-1", built.rawNonce)
+
+        auth.removeAuthStateListener(authListener)
+        auth.removeIdTokenListener(tokenListener)
     }
 }

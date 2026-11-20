@@ -5,5 +5,5 @@ export default row({
   api: 'CredentialsProvider.authLensFlow',
   behavior: 'Emits updated AuthLens on authentication state transitions (sign-in, sign-out, token refresh, tenant change).',
   featureKeys: ['authLensFlow'],
-  flipped: 'unit-backed',
+  flipped: 'live-host',
 });
