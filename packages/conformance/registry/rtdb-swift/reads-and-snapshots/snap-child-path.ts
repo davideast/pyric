@@ -1,3 +1,4 @@
+import { LIVE_HOST_CONFORMANCE_TEST } from '../defaults.ts';
 import { row } from './section.ts';
 
 export default row({
@@ -5,4 +6,6 @@ export default row({
   api: 'DataSnapshot.childSnapshot(forPath:)',
   behavior: 'Returns a DataSnapshot for the relative descendant path within the snapshot.',
   featureKeys: ['childSnapshot'],
+  status: 'conforms',
+  hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

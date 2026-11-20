@@ -66,7 +66,7 @@ public struct PyricBridgeError: Error, CustomStringConvertible, LocalizedError, 
         return "PyricBridgeError(\(rawCode)): \(message)"
     }
 
-    // ─── Factory Helpers ─────────────────────────────────────────────────────
+    // -- Factory Helpers --
 
     public static func fromCode(
         code: String,
@@ -74,7 +74,7 @@ public struct PyricBridgeError: Error, CustomStringConvertible, LocalizedError, 
         denialContext: AnySendable? = nil,
         envelope: AnySendable? = nil
     ) -> PyricBridgeError {
-        let errorCode = FirestoreErrorCode(rawValue: code) ?? .unknown
+        let errorCode = normalizeErrorCode(code: code, message: message)
         return PyricBridgeError(
             code: errorCode,
             rawCode: code,
@@ -82,6 +82,27 @@ public struct PyricBridgeError: Error, CustomStringConvertible, LocalizedError, 
             denialContext: denialContext,
             envelope: envelope
         )
+    }
+
+    private static func normalizeErrorCode(code: String, message: String) -> FirestoreErrorCode {
+        if let exact = FirestoreErrorCode(rawValue: code), exact != .unknown {
+            return exact
+        }
+        let kebabCode = code
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "_", with: "-")
+        if let mapped = FirestoreErrorCode(rawValue: kebabCode), mapped != .unknown {
+            return mapped
+        }
+        let kebabMsg = message
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "_", with: "-")
+        if kebabMsg == "permission-denied" || kebabMsg.hasPrefix("permission-denied:") {
+            return .permissionDenied
+        }
+        return FirestoreErrorCode(rawValue: code) ?? .unknown
     }
 
     public static func unavailable(_ message: String = "Service unavailable") -> PyricBridgeError {

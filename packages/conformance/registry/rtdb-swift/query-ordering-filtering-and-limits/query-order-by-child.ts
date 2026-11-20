@@ -1,3 +1,4 @@
+import { LIVE_HOST_CONFORMANCE_TEST } from '../defaults.ts';
 import { row } from './section.ts';
 
 export default row({
@@ -5,4 +6,6 @@ export default row({
   api: 'DatabaseQuery.queryOrdered(byChild:)',
   behavior: 'Orders query results by the value of the specified nested child key.',
   featureKeys: ['queryOrderedByChild'],
+  status: 'conforms',
+  hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

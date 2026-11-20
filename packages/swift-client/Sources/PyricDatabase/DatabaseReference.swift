@@ -182,19 +182,25 @@ public final class DatabaseReference: DatabaseQuery, @unchecked Sendable {
         database.sendInCallOrder(method: "rtdb.remove", params: params) { error in block(error, self) }
     }
 
-    // ── Transactions ──────────────────────────────────────────────────────────
+    // -- Transactions --
 
     public func runTransactionBlock(
-        _ block: @escaping @Sendable (MutableData) -> TransactionResult
+        _ block: @escaping @Sendable (MutableData) -> TransactionResult,
+        withLocalEvents localEvents: Bool = true
     ) async throws -> (committed: Bool, snapshot: DataSnapshot) {
-        try await runTransaction(block, firstReadTurn: database.takeTurn())
+        try await runTransaction(
+            block,
+            firstReadTurn: database.takeTurn(),
+            localEvents: localEvents
+        )
     }
 
     /// Runs a transaction whose first read is sent in the place `firstReadTurn`
     /// holds. Later reads and the commit take their turns when they are sent.
     private func runTransaction(
         _ block: @escaping @Sendable (MutableData) -> TransactionResult,
-        firstReadTurn: OperationTurn
+        firstReadTurn: OperationTurn,
+        localEvents: Bool
     ) async throws -> (committed: Bool, snapshot: DataSnapshot) {
         var attempts = 0
         let maxRetries = 25
@@ -202,7 +208,10 @@ public final class DatabaseReference: DatabaseQuery, @unchecked Sendable {
         while attempts < maxRetries {
             attempts += 1
             let isFirstAttempt = attempts == 1
-            let currentSnap = try await getData(turn: isFirstAttempt ? firstReadTurn : database.takeTurn())
+            let currentSnap = try await getData(
+                turn: isFirstAttempt ? firstReadTurn : database.takeTurn(),
+                forTransaction: true
+            )
             let mutable = MutableData(
                 key: currentSnap.key,
                 value: currentSnap.value,
@@ -214,12 +223,15 @@ public final class DatabaseReference: DatabaseQuery, @unchecked Sendable {
                 return (committed: false, snapshot: currentSnap)
             }
 
-            let newValue = txResult.mutableData?.value
+            let newValue = Self.encodeTransactionPayload(
+                value: txResult.mutableData?.value,
+                priority: txResult.mutableData?.priority
+            )
             let params: [String: AnySendable] = [
                 "path": .string(path),
                 "expected": RtdbValueCodec.toAnySendable(currentSnap.value),
-                "value": RtdbValueCodec.toAnySendable(newValue),
-                "applyLocally": .bool(true)
+                "value": newValue,
+                "applyLocally": .bool(localEvents)
             ]
 
             let res = try await database.bridgeClient.op(
@@ -246,14 +258,42 @@ public final class DatabaseReference: DatabaseQuery, @unchecked Sendable {
         throw PyricBridgeError.unavailable("Transaction failed after maximum retries (\(maxRetries)).")
     }
 
+    private static func encodeTransactionPayload(value: Any?, priority: Any?) -> AnySendable {
+        let base = RtdbValueCodec.toAnySendable(value)
+        guard case .null = base else {
+            guard let priority, !(priority is NSNull) else {
+                return base
+            }
+            let encodedPrio = RtdbValueCodec.toAnySendable(priority)
+            if case .null = encodedPrio {
+                return base
+            }
+            if case .dictionary(var dict) = base,
+               dict[".value"] == nil {
+                dict[".priority"] = encodedPrio
+                return .dictionary(dict)
+            }
+            return .dictionary([
+                ".value": base,
+                ".priority": encodedPrio
+            ])
+        }
+        return .null
+    }
+
     public func runTransactionBlock(
         _ block: @escaping @Sendable (MutableData) -> TransactionResult,
-        andCompletionBlock completionBlock: @escaping @Sendable (Error?, Bool, DataSnapshot?) -> Void
+        andCompletionBlock completionBlock: @escaping @Sendable (Error?, Bool, DataSnapshot?) -> Void,
+        withLocalEvents localEvents: Bool = true
     ) {
         let firstReadTurn = database.takeTurn()
         Task {
             do {
-                let result = try await runTransaction(block, firstReadTurn: firstReadTurn)
+                let result = try await runTransaction(
+                    block,
+                    firstReadTurn: firstReadTurn,
+                    localEvents: localEvents
+                )
                 completionBlock(nil, result.committed, result.snapshot)
             } catch {
                 completionBlock(error, false, nil)
@@ -261,7 +301,7 @@ public final class DatabaseReference: DatabaseQuery, @unchecked Sendable {
         }
     }
 
-    // ── OnDisconnect ──────────────────────────────────────────────────────────
+    // -- OnDisconnect --
 
     public func onDisconnect() -> OnDisconnect {
         return OnDisconnect(ref: self)
@@ -271,19 +311,53 @@ public final class DatabaseReference: DatabaseQuery, @unchecked Sendable {
         try await onDisconnect().setValue(value)
     }
 
+    public func onDisconnectSetValue(
+        _ value: Any?,
+        withCompletionBlock block: @escaping @Sendable (Error?, DatabaseReference) -> Void
+    ) {
+        onDisconnect().setValue(value, withCompletionBlock: block)
+    }
+
     public func onDisconnectSetValue(_ value: Any?, andPriority priority: Any?) async throws {
         try await onDisconnect().setValue(value, andPriority: priority)
+    }
+
+    public func onDisconnectSetValue(
+        _ value: Any?,
+        andPriority priority: Any?,
+        withCompletionBlock block: @escaping @Sendable (Error?, DatabaseReference) -> Void
+    ) {
+        onDisconnect().setValue(value, andPriority: priority, withCompletionBlock: block)
     }
 
     public func onDisconnectUpdateChildValues(_ values: [AnyHashable: Any]) async throws {
         try await onDisconnect().updateChildValues(values)
     }
 
+    public func onDisconnectUpdateChildValues(
+        _ values: [AnyHashable: Any],
+        withCompletionBlock block: @escaping @Sendable (Error?, DatabaseReference) -> Void
+    ) {
+        onDisconnect().updateChildValues(values, withCompletionBlock: block)
+    }
+
     public func onDisconnectRemoveValue() async throws {
         try await onDisconnect().removeValue()
     }
 
+    public func onDisconnectRemoveValue(
+        completionBlock block: @escaping @Sendable (Error?, DatabaseReference) -> Void
+    ) {
+        onDisconnect().removeValue(completionBlock: block)
+    }
+
     public func cancelDisconnectOperations() async throws {
         try await onDisconnect().cancel()
+    }
+
+    public func cancelDisconnectOperations(
+        completionBlock block: @escaping @Sendable (Error?, DatabaseReference) -> Void
+    ) {
+        onDisconnect().cancel(completionBlock: block)
     }
 }

@@ -53,19 +53,35 @@ public class DatabaseQuery: NSObject, @unchecked Sendable {
         return .dictionary(spec)
     }
 
-    // ── Query Ordering ────────────────────────────────────────────────────────
+    // -- Query Ordering --
 
     public func queryOrdered(byChild key: String) -> DatabaseQuery {
+        return requireValidQuery { try validatedQueryOrdered(byChild: key) }
+    }
+
+    package func validatedQueryOrdered(byChild key: String) throws -> DatabaseQuery {
+        let cleanPath = try DatabaseQueryValidator.validateOrderByChild(
+            key,
+            existingOrderBy: orderBySpec
+        )
         return DatabaseQuery(
             database: database,
             path: path,
-            orderBySpec: ["kind": .string("child"), "path": .string(key)],
+            orderBySpec: ["kind": .string("child"), "path": .string(cleanPath)],
             boundsSpec: boundsSpec,
             limitSpec: limitSpec
         )
     }
 
     public func queryOrderedByKey() -> DatabaseQuery {
+        return requireValidQuery { try validatedQueryOrderedByKey() }
+    }
+
+    package func validatedQueryOrderedByKey() throws -> DatabaseQuery {
+        try DatabaseQueryValidator.validateOrderByKey(
+            existingOrderBy: orderBySpec,
+            existingBounds: boundsSpec
+        )
         return DatabaseQuery(
             database: database,
             path: path,
@@ -76,6 +92,11 @@ public class DatabaseQuery: NSObject, @unchecked Sendable {
     }
 
     public func queryOrderedByValue() -> DatabaseQuery {
+        return requireValidQuery { try validatedQueryOrderedByValue() }
+    }
+
+    package func validatedQueryOrderedByValue() throws -> DatabaseQuery {
+        try DatabaseQueryValidator.validateOrderByOther(existingOrderBy: orderBySpec)
         return DatabaseQuery(
             database: database,
             path: path,
@@ -86,6 +107,11 @@ public class DatabaseQuery: NSObject, @unchecked Sendable {
     }
 
     public func queryOrderedByPriority() -> DatabaseQuery {
+        return requireValidQuery { try validatedQueryOrderedByPriority() }
+    }
+
+    package func validatedQueryOrderedByPriority() throws -> DatabaseQuery {
+        try DatabaseQueryValidator.validateOrderByOther(existingOrderBy: orderBySpec)
         return DatabaseQuery(
             database: database,
             path: path,
@@ -95,106 +121,118 @@ public class DatabaseQuery: NSObject, @unchecked Sendable {
         )
     }
 
-    // ── Query Filtering / Range Bounds ────────────────────────────────────────
+    // -- Query Filtering / Range Bounds --
 
     public func queryStarting(atValue value: Any?, childKey: String? = nil) -> DatabaseQuery {
-        var bound: [String: AnySendable] = [
-            "kind": .string("startAt"),
-            "value": RtdbValueCodec.toAnySendable(value)
-        ]
-        if let childKey { bound["key"] = .string(childKey) }
-        return DatabaseQuery(
-            database: database,
-            path: path,
-            orderBySpec: orderBySpec,
-            boundsSpec: boundsSpec + [bound],
-            limitSpec: limitSpec
-        )
+        return requireValidQuery { try validatedQueryStarting(atValue: value, childKey: childKey) }
+    }
+
+    package func validatedQueryStarting(atValue value: Any?, childKey: String? = nil) throws -> DatabaseQuery {
+        return try appendingValidatedBound(kind: "startAt", value: value, childKey: childKey)
     }
 
     public func queryStarting(afterValue value: Any?, childKey: String? = nil) -> DatabaseQuery {
-        var bound: [String: AnySendable] = [
-            "kind": .string("startAfter"),
-            "value": RtdbValueCodec.toAnySendable(value)
-        ]
-        if let childKey { bound["key"] = .string(childKey) }
-        return DatabaseQuery(
-            database: database,
-            path: path,
-            orderBySpec: orderBySpec,
-            boundsSpec: boundsSpec + [bound],
-            limitSpec: limitSpec
-        )
+        return requireValidQuery { try validatedQueryStarting(afterValue: value, childKey: childKey) }
+    }
+
+    package func validatedQueryStarting(afterValue value: Any?, childKey: String? = nil) throws -> DatabaseQuery {
+        return try appendingValidatedBound(kind: "startAfter", value: value, childKey: childKey)
     }
 
     public func queryEnding(atValue value: Any?, childKey: String? = nil) -> DatabaseQuery {
-        var bound: [String: AnySendable] = [
-            "kind": .string("endAt"),
-            "value": RtdbValueCodec.toAnySendable(value)
-        ]
-        if let childKey { bound["key"] = .string(childKey) }
-        return DatabaseQuery(
-            database: database,
-            path: path,
-            orderBySpec: orderBySpec,
-            boundsSpec: boundsSpec + [bound],
-            limitSpec: limitSpec
-        )
+        return requireValidQuery { try validatedQueryEnding(atValue: value, childKey: childKey) }
+    }
+
+    package func validatedQueryEnding(atValue value: Any?, childKey: String? = nil) throws -> DatabaseQuery {
+        return try appendingValidatedBound(kind: "endAt", value: value, childKey: childKey)
     }
 
     public func queryEnding(beforeValue value: Any?, childKey: String? = nil) -> DatabaseQuery {
-        var bound: [String: AnySendable] = [
-            "kind": .string("endBefore"),
-            "value": RtdbValueCodec.toAnySendable(value)
-        ]
-        if let childKey { bound["key"] = .string(childKey) }
-        return DatabaseQuery(
-            database: database,
-            path: path,
-            orderBySpec: orderBySpec,
-            boundsSpec: boundsSpec + [bound],
-            limitSpec: limitSpec
-        )
+        return requireValidQuery { try validatedQueryEnding(beforeValue: value, childKey: childKey) }
+    }
+
+    package func validatedQueryEnding(beforeValue value: Any?, childKey: String? = nil) throws -> DatabaseQuery {
+        return try appendingValidatedBound(kind: "endBefore", value: value, childKey: childKey)
     }
 
     public func queryEqual(toValue value: Any?, childKey: String? = nil) -> DatabaseQuery {
-        var bound: [String: AnySendable] = [
-            "kind": .string("equalTo"),
-            "value": RtdbValueCodec.toAnySendable(value)
-        ]
-        if let childKey { bound["key"] = .string(childKey) }
-        return DatabaseQuery(
-            database: database,
-            path: path,
-            orderBySpec: orderBySpec,
-            boundsSpec: boundsSpec + [bound],
-            limitSpec: limitSpec
-        )
+        return requireValidQuery { try validatedQueryEqual(toValue: value, childKey: childKey) }
     }
 
-    // ── Query Limits ──────────────────────────────────────────────────────────
+    package func validatedQueryEqual(toValue value: Any?, childKey: String? = nil) throws -> DatabaseQuery {
+        return try appendingValidatedBound(kind: "equalTo", value: value, childKey: childKey)
+    }
+
+    // -- Query Limits --
 
     public func queryLimited(toFirst limit: UInt) -> DatabaseQuery {
+        return requireValidQuery { try validatedQueryLimited(toFirst: limit) }
+    }
+
+    package func validatedQueryLimited(toFirst limit: UInt) throws -> DatabaseQuery {
+        let validated = try DatabaseQueryValidator.validateLimit(
+            kind: "limitToFirst",
+            limit: limit,
+            existingLimit: limitSpec
+        )
         return DatabaseQuery(
             database: database,
             path: path,
             orderBySpec: orderBySpec,
             boundsSpec: boundsSpec,
-            limitSpec: ["kind": .string("limitToFirst"), "n": .int(Int64(limit))]
+            limitSpec: validated
         )
     }
 
     public func queryLimited(toLast limit: UInt) -> DatabaseQuery {
+        return requireValidQuery { try validatedQueryLimited(toLast: limit) }
+    }
+
+    package func validatedQueryLimited(toLast limit: UInt) throws -> DatabaseQuery {
+        let validated = try DatabaseQueryValidator.validateLimit(
+            kind: "limitToLast",
+            limit: limit,
+            existingLimit: limitSpec
+        )
         return DatabaseQuery(
             database: database,
             path: path,
             orderBySpec: orderBySpec,
             boundsSpec: boundsSpec,
-            limitSpec: ["kind": .string("limitToLast"), "n": .int(Int64(limit))]
+            limitSpec: validated
         )
     }
 
-    // ── One-Shot Reads ────────────────────────────────────────────────────────
+    private func appendingValidatedBound(
+        kind: String,
+        value: Any?,
+        childKey: String?
+    ) throws -> DatabaseQuery {
+        let bound = try DatabaseQueryValidator.validateBound(
+            kind: kind,
+            value: value,
+            childKey: childKey,
+            existingOrderBy: orderBySpec,
+            existingBounds: boundsSpec
+        )
+        return DatabaseQuery(
+            database: database,
+            path: path,
+            orderBySpec: orderBySpec,
+            boundsSpec: boundsSpec + [bound],
+            limitSpec: limitSpec
+        )
+    }
+
+    private func requireValidQuery(_ build: () throws -> DatabaseQuery) -> DatabaseQuery {
+        do {
+            return try build()
+        } catch {
+            preconditionFailure("InvalidDatabaseQuery: \(error.localizedDescription)")
+        }
+    }
+
+    // -- One-Shot Reads --
 
     public func getData() async throws -> DataSnapshot {
         try await getData(turn: database.takeTurn())
@@ -215,7 +253,7 @@ public class DatabaseQuery: NSObject, @unchecked Sendable {
     }
 
     /// Reads the location, sent in the place `turn` holds.
-    func getData(turn: OperationTurn) async throws -> DataSnapshot {
+    func getData(turn: OperationTurn, forTransaction: Bool = false) async throws -> DataSnapshot {
         database.markUsed()
         let client = database.bridgeClient
         if ConnectionInfo.isInfoPath(path) {
@@ -227,7 +265,9 @@ public class DatabaseQuery: NSObject, @unchecked Sendable {
         var params: [String: AnySendable] = [
             "path": .string(path)
         ]
-        if let qSpec = toQuerySpecAnySendable() {
+        if forTransaction {
+            params["transaction"] = .bool(true)
+        } else if let qSpec = toQuerySpecAnySendable() {
             params["query"] = qSpec
         }
         let actAs = database.currentAuthLens()
@@ -241,7 +281,8 @@ public class DatabaseQuery: NSObject, @unchecked Sendable {
     }
 
     public func observeSingleEvent(of eventType: DataEventType) async throws -> DataSnapshot {
-        return try await getData()
+        let snap = try await getData()
+        return Self.extractSingleEventSnapshot(from: snap, eventType: eventType)
     }
 
     public func observeSingleEvent(
@@ -255,12 +296,22 @@ public class DatabaseQuery: NSObject, @unchecked Sendable {
                 return
             }
             if let snapshot {
-                block(snapshot)
+                block(Self.extractSingleEventSnapshot(from: snapshot, eventType: eventType))
             }
         }
     }
 
-    // ── Real-Time Listeners & AsyncStreams ────────────────────────────────────
+    private static func extractSingleEventSnapshot(
+        from snap: DataSnapshot,
+        eventType: DataEventType
+    ) -> DataSnapshot {
+        if eventType == .childAdded, let first = snap.childrenSnapshots.first {
+            return first
+        }
+        return snap
+    }
+
+    // -- Real-Time Listeners & AsyncStreams --
 
     public var valueStream: AsyncThrowingStream<DataSnapshot, Error> {
         AsyncThrowingStream { continuation in
@@ -334,7 +385,7 @@ public class DatabaseQuery: NSObject, @unchecked Sendable {
         observerLock.unlock()
 
         let task = startObserverTask(
-            eventTypes: [.childAdded, .childChanged, .childRemoved],
+            eventTypes: [.childAdded, .childChanged, .childRemoved, .childMoved],
             onEvent: block,
             onCancel: cancelBlock
         )
@@ -463,76 +514,6 @@ extension DatabaseQuery {
                 lastWire = wire
                 events.deliver(DataSnapshot(wire: wire, ref: queryRef))
             }
-        }
-    }
-}
-
-/// Turns each snapshot a listener receives into its value and child events,
-/// diffing the children against the previous snapshot.
-private final class SnapshotEvents {
-    private let eventTypes: Set<DataEventType>
-    private let onEvent: @Sendable (DatabaseChildEvent) -> Void
-    private var previousChildren: [DataSnapshot] = []
-    private var isFirstSnapshot = true
-
-    init(eventTypes: Set<DataEventType>, onEvent: @escaping @Sendable (DatabaseChildEvent) -> Void) {
-        self.eventTypes = eventTypes
-        self.onEvent = onEvent
-    }
-
-    func deliver(_ snap: DataSnapshot) {
-        if eventTypes.contains(.value) {
-            onEvent(DatabaseChildEvent(type: .value, snapshot: snap, previousSiblingKey: nil))
-        }
-        let newChildren = snap.childrenSnapshots
-        if isFirstSnapshot {
-            isFirstSnapshot = false
-            deliverInitialChildren(newChildren)
-        } else {
-            deliverChildChanges(from: previousChildren, to: newChildren)
-        }
-        previousChildren = newChildren
-    }
-
-    private func deliverInitialChildren(_ children: [DataSnapshot]) {
-        guard eventTypes.contains(.childAdded) else { return }
-        var prevKey: String? = nil
-        for child in children {
-            onEvent(DatabaseChildEvent(type: .childAdded, snapshot: child, previousSiblingKey: prevKey))
-            prevKey = child.key
-        }
-    }
-
-    private func deliverChildChanges(from oldChildren: [DataSnapshot], to newChildren: [DataSnapshot]) {
-        let oldByKey = Dictionary(uniqueKeysWithValues: oldChildren.compactMap { c in c.key.map { ($0, c) } })
-        let newByKey = Dictionary(uniqueKeysWithValues: newChildren.compactMap { c in c.key.map { ($0, c) } })
-
-        if eventTypes.contains(.childRemoved) {
-            for oldChild in oldChildren {
-                if let key = oldChild.key, newByKey[key] == nil {
-                    onEvent(DatabaseChildEvent(type: .childRemoved, snapshot: oldChild, previousSiblingKey: nil))
-                }
-            }
-        }
-
-        var prevKey: String? = nil
-        for newChild in newChildren {
-            guard let key = newChild.key else { continue }
-            if let oldChild = oldByKey[key] {
-                deliverChangeIfDifferent(old: oldChild, new: newChild, previousSiblingKey: prevKey)
-            } else if eventTypes.contains(.childAdded) {
-                onEvent(DatabaseChildEvent(type: .childAdded, snapshot: newChild, previousSiblingKey: prevKey))
-            }
-            prevKey = key
-        }
-    }
-
-    private func deliverChangeIfDifferent(old: DataSnapshot, new: DataSnapshot, previousSiblingKey: String?) {
-        guard eventTypes.contains(.childChanged) else { return }
-        let oldVal = RtdbValueCodec.toAnySendable(old.value)
-        let newVal = RtdbValueCodec.toAnySendable(new.value)
-        if oldVal != newVal {
-            onEvent(DatabaseChildEvent(type: .childChanged, snapshot: new, previousSiblingKey: previousSiblingKey))
         }
     }
 }

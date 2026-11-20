@@ -1,6 +1,8 @@
 import Foundation
 import PyricFirestore
 import FirebaseAuth
+@_exported import class PyricFirestore.FirebaseApp
+@_exported import class PyricFirestore.FirebaseOptions
 
 /// Entry point for the Firebase Realtime Database Swift SDK.
 public final class Database: NSObject, @unchecked Sendable {
@@ -14,7 +16,7 @@ public final class Database: NSObject, @unchecked Sendable {
     nonisolated(unsafe) private static var instances: [InstanceKey: Database] = [:]
 
     public static func database() -> Database {
-        return database(app: FirebaseApp.app(), url: DatabaseInstanceResolver.defaultDatabaseURL)
+        return database(app: FirebaseApp.app())
     }
 
     public static func database(url: String) -> Database {
@@ -22,27 +24,54 @@ public final class Database: NSObject, @unchecked Sendable {
     }
 
     public static func database(app: FirebaseApp) -> Database {
-        return database(app: app, url: DatabaseInstanceResolver.defaultDatabaseURL)
+        let configuredURL = app.options.databaseURL?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let effectiveURL: String
+        if !configuredURL.isEmpty {
+            effectiveURL = configuredURL
+        } else if let rawProj = app.options.projectID?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !rawProj.isEmpty {
+            effectiveURL = "https://\(rawProj)-default-rtdb.firebaseio.com"
+        } else {
+            effectiveURL = DatabaseInstanceResolver.defaultDatabaseURL
+        }
+        return database(app: app, url: effectiveURL)
     }
 
     public static func database(app: FirebaseApp, url: String) -> Database {
         let normalizedURL = DatabaseInstanceResolver.normalizeDatabaseURL(url)
-        let canonical = DatabaseInstanceResolver.canonicalInstanceKey(from: normalizedURL)
-        registryLock.lock()
-        defer { registryLock.unlock() }
+        let canonical = DatabaseInstanceResolver.canonicalInstanceKey(
+            from: normalizedURL,
+            projectID: app.options.projectID
+        )
         let key = InstanceKey(appName: app.name, canonicalInstance: canonical)
+        var evictedStale: Database?
+        registryLock.lock()
         if let existing = instances[key] {
-            return existing
+            if existing.app === app {
+                registryLock.unlock()
+                return existing
+            }
+            evictedStale = existing
         }
         let created = Database(app: app, url: normalizedURL)
         instances[key] = created
+        registryLock.unlock()
+        evictedStale?.detachBridgeObserver()
         return created
     }
 
     public static func reset() {
-        registryLock.lock()
-        defer { registryLock.unlock() }
-        instances.removeAll()
+        let evicted: [Database] = {
+            registryLock.lock()
+            defer { registryLock.unlock() }
+            let all = Array(instances.values)
+            instances.removeAll()
+            return all
+        }()
+        for db in evicted {
+            db.detachBridgeObserver()
+        }
     }
 
     // -- Properties --
@@ -54,6 +83,7 @@ public final class Database: NSObject, @unchecked Sendable {
 
     private let stateLock = NSLock()
     private var _bridgeClient: PyricBridgeClient
+    private var bridgeObserverID: UUID?
     private var _emulatorHostAndPort: String?
     private var _hasUsed = false
     private var _impersonatedLens: AuthLens?
@@ -83,9 +113,12 @@ public final class Database: NSObject, @unchecked Sendable {
 
     public var credentialProvider: (any AuthCredentialProvider)? {
         get {
-            stateLock.lock()
-            defer { stateLock.unlock() }
-            if let explicit = _credentialProvider {
+            let explicit: (any AuthCredentialProvider)? = {
+                stateLock.lock()
+                defer { stateLock.unlock() }
+                return _credentialProvider
+            }()
+            if let explicit {
                 return explicit
             }
             return AuthCredentialProviderRegistry.resolve(app: app)
@@ -103,10 +136,17 @@ public final class Database: NSObject, @unchecked Sendable {
         self.app = app
         self.url = normalizedURL
         self.usesAppBridge = (bridgeClient == nil)
-        self._bridgeClient = bridgeClient ?? Firestore.firestore(app: app).bridgeClient
-        self.wireInstance = DatabaseInstanceResolver.resolveInstanceName(from: normalizedURL)
+        self._bridgeClient = bridgeClient ?? app.sharedBridgeClient()
+        self.wireInstance = DatabaseInstanceResolver.resolveInstanceName(
+            from: normalizedURL,
+            projectID: app.options.projectID
+        )
         super.init()
-        if bridgeClient != nil {
+        if usesAppBridge {
+            self.bridgeObserverID = app.addBridgeObserver { [weak self] nextClient in
+                self?.adoptObservedAppBridge(nextClient)
+            }
+        } else {
             startAuthLensSync()
         }
     }
@@ -125,8 +165,8 @@ public final class Database: NSObject, @unchecked Sendable {
 
         if currentEmulator == targetHostPort {
             if usesAppBridge {
-                let fsClient = Firestore.firestore(app: app).bridgeClient
-                adoptBridgeClient(fsClient, emulatorHostPort: targetHostPort)
+                let sharedClient = app.sharedBridgeClient()
+                adoptBridgeClient(sharedClient, emulatorHostPort: targetHostPort)
             }
             return
         }
@@ -134,13 +174,14 @@ public final class Database: NSObject, @unchecked Sendable {
         precondition(!alreadyUsed, "Cannot call useEmulator(withHost:port:) after Database has been used.")
 
         if usesAppBridge {
-            let fs = Firestore.firestore(app: app)
-            if fs.settings.host != targetHostPort || fs.settings.sslEnabled {
-                fs.useEmulator(host: cleanHost, port: port)
-            }
-            let sharedClient = fs.bridgeClient
+            let sharedClient = app.useEmulator(withHost: cleanHost, port: port, sslEnabled: false)
             adoptBridgeClient(sharedClient, emulatorHostPort: targetHostPort)
-            Self.propagateAppBridge(appName: app.name, client: sharedClient, excluding: self)
+            Self.propagateAppBridge(
+                appName: app.name,
+                client: sharedClient,
+                emulatorHostPort: targetHostPort,
+                excluding: self
+            )
         } else {
             guard let endpoint = URL(string: "ws://\(targetHostPort)/__pyric/sandbox") else {
                 preconditionFailure("Invalid emulator endpoint for \(targetHostPort).")
@@ -151,6 +192,14 @@ public final class Database: NSObject, @unchecked Sendable {
             )
             adoptBridgeClient(standalone, emulatorHostPort: targetHostPort)
         }
+    }
+
+    private func adoptObservedAppBridge(_ client: PyricBridgeClient) {
+        stateLock.lock()
+        if !_hasUsed {
+            _bridgeClient = client
+        }
+        stateLock.unlock()
     }
 
     private func adoptBridgeClient(_ client: PyricBridgeClient, emulatorHostPort: String?) {
@@ -165,6 +214,7 @@ public final class Database: NSObject, @unchecked Sendable {
     private static func propagateAppBridge(
         appName: String,
         client: PyricBridgeClient,
+        emulatorHostPort: String,
         excluding caller: Database
     ) {
         let siblings: [Database] = {
@@ -181,6 +231,7 @@ public final class Database: NSObject, @unchecked Sendable {
             sibling.stateLock.lock()
             if !sibling._hasUsed {
                 sibling._bridgeClient = client
+                sibling._emulatorHostAndPort = emulatorHostPort
             }
             sibling.stateLock.unlock()
         }
@@ -195,8 +246,22 @@ public final class Database: NSObject, @unchecked Sendable {
         return out
     }
 
+    internal func detachBridgeObserver() {
+        let idToRemove: UUID? = {
+            stateLock.lock()
+            defer { stateLock.unlock() }
+            let id = bridgeObserverID
+            bridgeObserverID = nil
+            return id
+        }()
+        if let idToRemove {
+            app.removeBridgeObserver(idToRemove)
+        }
+    }
+
     deinit {
         authSyncTask?.cancel()
+        detachBridgeObserver()
     }
 
     private func startAuthLensSync() {
@@ -283,7 +348,8 @@ public final class Database: NSObject, @unchecked Sendable {
         let validatedPath = try DatabaseInstanceResolver.validateReferenceURL(
             databaseUrl,
             databaseURL: url,
-            emulatorHost: emulatorHostAndPort
+            emulatorHost: emulatorHostAndPort,
+            projectID: app.options.projectID
         )
         return DatabaseReference(database: self, path: validatedPath)
     }
