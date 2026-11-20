@@ -37,6 +37,7 @@ export interface OfflineValueListenerEntry {
   readonly onlyOnce: boolean;
   readonly deliver: (raw: ValueListenerSnapshot) => void;
   lastVal: JsonValue | undefined;
+  lastPriorityState: string | undefined;
   hasDelivered: boolean;
   deliveredOptimisticWhileOffline: boolean;
   deferredRaw: ValueListenerSnapshot | undefined;
@@ -49,6 +50,7 @@ export interface OfflineChildListenerEntry {
   readonly onlyOnce: boolean;
   readonly deliver: (raw: ChildEventSnapshot) => void;
   rows: QueryRow[];
+  priorities: PriorityRecord;
   initialized: boolean;
   deferredFromServer: boolean;
 }
@@ -57,6 +59,7 @@ export interface TargetOfflineState {
   resetGeneration: number;
   offline: boolean;
   readonly frozenTree: DataTree;
+  readonly frozenPriorities: Map<string, Exclude<Priority, null>>;
   readonly overlayTree: DataTree;
   readonly overlayPriorities: Map<string, Priority>;
   readonly coveringWritePaths: Set<string>;
@@ -112,6 +115,7 @@ export function stateFor(target: Target): TargetOfflineState {
       existing.coveringWritePaths.clear();
       existing.pendingOverlays.length = 0;
       existing.queuedActions.length = 0;
+      existing.frozenPriorities.clear();
       existing.overlayPriorities.clear();
       for (const listener of existing.valueListeners) {
         listener.deferredRaw = undefined;
@@ -126,6 +130,7 @@ export function stateFor(target: Target): TargetOfflineState {
     resetGeneration: gen,
     offline: false,
     frozenTree: new DataTree(),
+    frozenPriorities: new Map(),
     overlayTree: new DataTree(),
     overlayPriorities: new Map(),
     coveringWritePaths: new Set(),
@@ -146,6 +151,9 @@ export function priorityAt(state: TargetOfflineState, target: Target, path: stri
       return null;
     }
     return stored;
+  }
+  if (state.offline) {
+    return state.frozenPriorities.get(canonical) ?? null;
   }
   return target.backend.getPriority(canonical);
 }
@@ -175,13 +183,54 @@ export function priorityRecordBelow(
   return out;
 }
 
+export function priorityStateForValue(
+  state: TargetOfflineState,
+  target: Target,
+  basePath: string,
+  val: JsonValue,
+): string {
+  const record = priorityRecordBelow(state, target, basePath, val);
+  const entries = Object.entries(record).sort(([a], [b]) => a.localeCompare(b));
+  return JSON.stringify(entries);
+}
+
+export function prioritiesSubtree(record: PriorityRecord, path: string): PriorityRecord {
+  const canonical = canonicalOfflinePath(path);
+  const prefix = canonical === '/' ? '/' : `${canonical}/`;
+  const out: PriorityRecord = {};
+  for (const [key, priority] of Object.entries(record)) {
+    if (key === canonical || key.startsWith(prefix)) {
+      out[key] = priority;
+    }
+  }
+  return out;
+}
+
+export function captureChildPriorities(
+  target: Target,
+  state: TargetOfflineState,
+  parentPath: string,
+  rows: readonly QueryRow[],
+): PriorityRecord {
+  const baseSegments = pathSegments(parentPath);
+  const out: PriorityRecord = {};
+  for (const row of rows) {
+    const childPath = joinPath([...baseSegments, row.key]);
+    Object.assign(out, priorityRecordBelow(state, target, childPath, row.value));
+  }
+  return out;
+}
+
 export function rebuildOverlay(target: Target, state: TargetOfflineState): void {
+  state.overlayPriorities.clear();
   if (state.offline) {
     state.overlayTree.restore(state.frozenTree.snapshot());
+    for (const [k, v] of state.frozenPriorities) {
+      state.overlayPriorities.set(k, v);
+    }
   } else {
     state.overlayTree.restore(target.backend.snapshotState());
   }
-  state.overlayPriorities.clear();
   for (const overlay of state.pendingOverlays) {
     overlay.apply(state.overlayTree, state.overlayPriorities);
   }
@@ -211,7 +260,7 @@ export function computeOverlayChildRows(
   spec: QuerySpec | undefined,
 ): QueryRow[] {
   const raw = state.overlayTree.read(path);
-  let effectiveSpec: QuerySpec = { orderBy: null, bounds: [], limit: null };
+  let effectiveSpec: QuerySpec = { orderBy: { kind: 'priority' }, bounds: [], limit: null };
   if (spec !== undefined) {
     effectiveSpec = spec;
   }
@@ -220,18 +269,46 @@ export function computeOverlayChildRows(
   );
 }
 
+export function computeActiveChildState(
+  target: Target,
+  state: TargetOfflineState,
+  path: string,
+  spec: QuerySpec | undefined,
+): { readonly rows: QueryRow[]; readonly priorities: PriorityRecord } {
+  if (!state.offline && state.pendingOverlays.length === 0) {
+    const raw = target.backend.readPath(path);
+    let effectiveSpec: QuerySpec = { orderBy: { kind: 'priority' }, bounds: [], limit: null };
+    if (spec !== undefined) {
+      effectiveSpec = spec;
+    }
+    const rows = executeQuery(raw, effectiveSpec, (childKey) =>
+      target.backend.getPriority(joinPath([...pathSegments(path), childKey])),
+    );
+    return { rows, priorities: captureChildPriorities(target, state, path, rows) };
+  }
+  const rows = computeOverlayChildRows(target, state, path, spec);
+  return { rows, priorities: captureChildPriorities(target, state, path, rows) };
+}
+
 export function emitChildDiff(
   target: Target,
   state: TargetOfflineState,
   entry: OfflineChildListenerEntry,
   nextRows: QueryRow[],
+  nextPriorities: PriorityRecord = captureChildPriorities(target, state, entry.path, nextRows),
 ): void {
   const prevByKey = new Map(entry.rows.map((r) => [r.key, r]));
   const nextByKey = new Map(nextRows.map((r) => [r.key, r]));
   if (entry.event === 'child_removed') {
     for (const prev of entry.rows) {
       if (!nextByKey.has(prev.key)) {
-        entry.deliver({ key: prev.key, val: prev.value, previousChildName: null });
+        const childPath = joinPath([...pathSegments(entry.path), prev.key]);
+        entry.deliver({
+          key: prev.key,
+          val: prev.value,
+          previousChildName: null,
+          priorities: prioritiesSubtree(entry.priorities, childPath),
+        });
       }
     }
   } else {
@@ -284,6 +361,7 @@ export function emitChildDiff(
     }
   }
   entry.rows = nextRows;
+  entry.priorities = nextPriorities;
 }
 
 export function notifyLocalOverlayListeners(
@@ -296,12 +374,19 @@ export function notifyLocalOverlayListeners(
       continue;
     }
     const snap = computeOverlayValueSnapshot(target, state, listener.path, listener.spec);
-    if (listener.hasDelivered && listener.lastVal !== undefined && jsonValuesEqual(listener.lastVal, snap.val)) {
+    const prioState = priorityStateForValue(state, target, listener.path, snap.val);
+    if (
+      listener.hasDelivered
+      && listener.lastVal !== undefined
+      && jsonValuesEqual(listener.lastVal, snap.val)
+      && listener.lastPriorityState === prioState
+    ) {
       continue;
     }
     listener.hasDelivered = true;
     listener.deliveredOptimisticWhileOffline = true;
     listener.lastVal = cloneJson(snap.val);
+    listener.lastPriorityState = prioState;
     listener.deliver(snap);
   }
   for (const childListener of [...state.childListeners]) {
@@ -309,12 +394,14 @@ export function notifyLocalOverlayListeners(
       continue;
     }
     const nextRows = computeOverlayChildRows(target, state, childListener.path, childListener.spec);
+    const nextPriorities = captureChildPriorities(target, state, childListener.path, nextRows);
     if (!childListener.initialized) {
       childListener.initialized = true;
       childListener.rows = nextRows;
+      childListener.priorities = nextPriorities;
       continue;
     }
-    emitChildDiff(target, state, childListener, nextRows);
+    emitChildDiff(target, state, childListener, nextRows, nextPriorities);
   }
 }
 

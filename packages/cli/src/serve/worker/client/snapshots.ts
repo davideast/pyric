@@ -388,6 +388,18 @@ export function makeQuerySnapshot(
       hasPendingWrites: doc.hasPendingWrites === true,
     }),
   );
+  // Online removed docs reflect the previously committed state before the
+  // removing write; when `includeMetadataChanges` is false, `baseline.previous`
+  // may still hold `hasPendingWrites: true` from an earlier write echo.
+  const removedSnapshotOf = (doc: RawDocResult) => makeDocSnapshot(
+    doc,
+    port,
+    createDocumentReference(port, doc.path ?? doc.id, converter),
+    Object.freeze({
+      fromCache: doc.fromCache === true || metadata.fromCache,
+      hasPendingWrites: metadata.fromCache ? doc.hasPendingWrites === true : false,
+    }),
+  );
   const docs = raw.docs.map(snapshotOf);
   const rows = raw.docs.map((doc) => ({ path: doc.path ?? doc.id, doc }));
   const previous = baseline.previous?.map((doc) => ({ path: doc.path ?? doc.id, doc }));
@@ -396,7 +408,7 @@ export function makeQuerySnapshot(
     rows,
     docs,
     (before, after) => serializedDocDataEqual(before.doc.data, after.doc.data),
-    (row) => snapshotOf(row.doc),
+    (row) => removedSnapshotOf(row.doc),
   );
   let changesWithMetadata: typeof changes | undefined;
   if (!baseline.excludesMetadataChanges) {
@@ -408,7 +420,7 @@ export function makeQuerySnapshot(
         serializedDocDataEqual(before.doc.data, after.doc.data)
         && Boolean(before.doc.hasPendingWrites) === Boolean(after.doc.hasPendingWrites)
         && Boolean(before.doc.fromCache) === Boolean(after.doc.fromCache),
-      (row) => snapshotOf(row.doc),
+      (row) => removedSnapshotOf(row.doc),
     );
   }
   return {

@@ -4,7 +4,7 @@
 // app at the end and then exits on its own, with no process.exit.
 import { initializeApp, deleteApp } from "firebase/app";
 import { getDatabase, ref, set, get, onValue, onDisconnect } from "firebase/database";
-import { getFirestore, doc, setDoc, getDoc, collection, getAggregateFromServer, count, sum, average } from "firebase/firestore";
+import { getFirestore, doc, setDoc, getDoc, collection, query, limit, onSnapshot, serverTimestamp, deleteField, Timestamp, getAggregateFromServer, count, sum, average } from "firebase/firestore";
 import { getAuth, createUserWithEmailAndPassword } from "firebase/auth";
 import { getStorage, ref as storageRef, uploadString, uploadBytesResumable, getBytes, getMetadata, getDownloadURL, deleteObject } from "firebase/storage";
 import { getFunctions, httpsCallable } from "firebase/functions";
@@ -93,6 +93,69 @@ await outcome("firestore.aggregateSemantics", async () => ({
     (await getAggregateFromServer(collection(fsDb, "server/agg/inf"), { s: sum("v"), a: average("v"), n: count() })).data(),
   ),
 }));
+
+await outcome("firestore.warmedCacheMerge", async () => {
+  const target = doc(fsDb, "writeOnly/d1");
+  await setDoc(target, {
+    type: "custom",
+    meta: { a: 1, drop: "x" },
+    stamped: new Timestamp(1_600_000_000, 999_999_999),
+  });
+  await setDoc(
+    target,
+    { label: "merged", meta: { b: 2, drop: deleteField() } },
+    { merge: true },
+  );
+  return await new Promise((resolve) => {
+    let firstSnap = null;
+    const unsub = onSnapshot(
+      target,
+      (snap) => {
+        const data = snap.data() ?? {};
+        firstSnap = {
+          type: data.type ?? null,
+          label: data.label ?? null,
+          meta: data.meta ?? null,
+          stampedSeconds: data.stamped instanceof Timestamp ? data.stamped.seconds : null,
+          stampedNanos: data.stamped instanceof Timestamp ? data.stamped.nanoseconds : null,
+        };
+      },
+      (error) => {
+        unsub();
+        resolve({ snap: firstSnap, errorCode: error?.code ?? null });
+      },
+    );
+  });
+});
+
+await outcome("firestore.removedServerTimestamp", async () => {
+  const col = collection(fsDb, "server/tsEvict/items");
+  let initialReady;
+  const initialDone = new Promise((resolve) => { initialReady = resolve; });
+  let addedReady;
+  const addedDone = new Promise((resolve) => { addedReady = resolve; });
+  let removedReady;
+  const removedDone = new Promise((resolve) => { removedReady = resolve; });
+  const unsub = onSnapshot(query(col, limit(1)), (snap) => {
+    initialReady();
+    for (const change of snap.docChanges()) {
+      if (change.type === "added" && change.doc.id === "b") addedReady();
+      if (change.type === "removed" && change.doc.id === "b") {
+        removedReady({
+          id: change.doc.id,
+          isTimestamp: change.doc.data()?.stamped instanceof Timestamp,
+        });
+      }
+    }
+  });
+  await initialDone;
+  await setDoc(doc(col, "b"), { stamped: serverTimestamp() });
+  await addedDone;
+  await setDoc(doc(col, "a"), { stamped: serverTimestamp() });
+  const result = await removedDone;
+  unsub();
+  return result;
+});
 
 await outcome("auth.createUser", async () =>
   (await createUserWithEmailAndPassword(getAuth(app), "node@example.com", "secret123")).user.uid);

@@ -1,0 +1,55 @@
+{
+  "sequence": {
+    "seed": 9010,
+    "initialRules": 0,
+    "steps": [
+      {
+        "op": "setDoc",
+        "db": 0,
+        "path": "orgs/o1/docs/d1",
+        "data": {
+          "$map": [
+            ["flag", true],
+            ["label", "active"],
+            ["type", { "$array": [] }],
+            ["ts", { "$ts": [1600000000, 999999999] }],
+            ["n", 4],
+            ["meta", { "$map": [["count", 4], ["note", "beta"]] }]
+          ]
+        },
+        "mode": { "kind": "replace" }
+      },
+      {
+        "op": "setDoc",
+        "db": 0,
+        "path": "orgs/o1/docs/d1",
+        "data": {
+          "$map": [
+            ["n", { "$delete": true }],
+            ["label", "draft"],
+            ["meta", { "$map": [["a", 1], ["b", 2]] }]
+          ]
+        },
+        "mode": { "kind": "merge" }
+      },
+      { "op": "rules", "rules": 5 },
+      { "op": "listenDoc", "db": 0, "id": 0, "path": "orgs/o1/docs/d1" },
+      {
+        "op": "listenQuery",
+        "db": 0,
+        "id": 1,
+        "query": {
+          "source": { "kind": "collectionGroup", "collectionId": "docs" },
+          "filter": {
+            "kind": "where",
+            "field": { "documentId": true },
+            "op": "in",
+            "value": { "$array": ["orgs/o1/docs/d1"] }
+          },
+          "orderBy": [{ "field": { "documentId": true }, "dir": "asc" }],
+          "limit": 4
+        }
+      }
+    ]
+  }
+}

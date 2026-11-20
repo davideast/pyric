@@ -5,12 +5,15 @@ import {
   bypassesClientOffline,
   canonicalOfflinePath,
   canServeOfflineGet,
+  captureChildPriorities,
+  computeActiveChildState,
   computeOverlayChildRows,
   computeOverlayValueSnapshot,
   emitChildDiff,
   notifyLocalOverlayListeners,
   pathsOverlap,
   priorityRecordBelow,
+  priorityStateForValue,
   rebuildOverlay,
   stateFor,
   type OfflineChildListenerEntry,
@@ -51,8 +54,18 @@ export function setClientOffline(target: Target, offline: boolean): void {
       return;
     }
     state.frozenTree.restore(target.backend.snapshotState());
+    state.frozenPriorities.clear();
+    for (const [k, v] of target.backend.snapshotPriorities()) {
+      state.frozenPriorities.set(k, v);
+    }
     state.offline = true;
     rebuildOverlay(target, state);
+    for (const childListener of state.childListeners) {
+      const preDisconnectRows = computeOverlayChildRows(target, state, childListener.path, childListener.spec);
+      childListener.rows = preDisconnectRows;
+      childListener.priorities = captureChildPriorities(target, state, childListener.path, preDisconnectRows);
+      childListener.initialized = true;
+    }
     return;
   }
   if (!state.offline) {
@@ -75,9 +88,16 @@ export function setClientOffline(target: Target, offline: boolean): void {
     if (coveredByPending) {
       candidate = computeOverlayValueSnapshot(target, state, listener.path, listener.spec);
     }
-    if (!listener.hasDelivered || listener.lastVal === undefined || !jsonValuesEqual(listener.lastVal, candidate.val)) {
+    const prioState = priorityStateForValue(state, target, listener.path, candidate.val);
+    if (
+      !listener.hasDelivered
+      || listener.lastVal === undefined
+      || !jsonValuesEqual(listener.lastVal, candidate.val)
+      || listener.lastPriorityState !== prioState
+    ) {
       listener.hasDelivered = true;
       listener.lastVal = cloneJson(candidate.val);
+      listener.lastPriorityState = prioState;
       listener.deliver(candidate);
     }
   }
@@ -88,8 +108,9 @@ export function setClientOffline(target: Target, offline: boolean): void {
     }
     childListener.deferredFromServer = false;
     const nextRows = computeOverlayChildRows(target, state, childListener.path, childListener.spec);
+    const nextPriorities = captureChildPriorities(target, state, childListener.path, nextRows);
     if (childListener.initialized) {
-      emitChildDiff(target, state, childListener, nextRows);
+      emitChildDiff(target, state, childListener, nextRows, nextPriorities);
     }
   }
 
@@ -132,6 +153,7 @@ export function registerOfflineValueListener(
     onlyOnce,
     deliver,
     lastVal: undefined,
+    lastPriorityState: undefined,
     hasDelivered: false,
     deliveredOptimisticWhileOffline: false,
     deferredRaw: undefined,
@@ -146,6 +168,7 @@ export function registerOfflineValueListener(
           entry.hasDelivered = true;
           entry.deliveredOptimisticWhileOffline = true;
           entry.lastVal = cloneJson(localSnap.val);
+          entry.lastPriorityState = priorityStateForValue(activeState, target, canonical, localSnap.val);
           deliver(localSnap);
           return;
         }
@@ -157,22 +180,36 @@ export function registerOfflineValueListener(
       );
       if (coveredByPending) {
         const overlaid = computeOverlayValueSnapshot(target, activeState, canonical, spec);
-        if (entry.hasDelivered && entry.lastVal !== undefined && jsonValuesEqual(entry.lastVal, overlaid.val)) {
+        const prioState = priorityStateForValue(activeState, target, canonical, overlaid.val);
+        if (
+          entry.hasDelivered
+          && entry.lastVal !== undefined
+          && jsonValuesEqual(entry.lastVal, overlaid.val)
+          && entry.lastPriorityState === prioState
+        ) {
           return;
         }
         entry.hasDelivered = true;
         entry.lastVal = cloneJson(overlaid.val);
+        entry.lastPriorityState = prioState;
         deliver(overlaid);
         return;
       }
+      const prioState = priorityStateForValue(activeState, target, canonical, raw.val);
       if (entry.deliveredOptimisticWhileOffline) {
         entry.deliveredOptimisticWhileOffline = false;
-        if (entry.hasDelivered && entry.lastVal !== undefined && jsonValuesEqual(entry.lastVal, raw.val)) {
+        if (
+          entry.hasDelivered
+          && entry.lastVal !== undefined
+          && jsonValuesEqual(entry.lastVal, raw.val)
+          && entry.lastPriorityState === prioState
+        ) {
           return;
         }
       }
       entry.hasDelivered = true;
       entry.lastVal = cloneJson(raw.val);
+      entry.lastPriorityState = prioState;
       deliver(raw);
     },
     close(): void {
@@ -197,13 +234,15 @@ export function registerOfflineChildListener(
   }
   const state = stateFor(target);
   const canonical = canonicalOfflinePath(path);
+  const initialState = computeActiveChildState(target, state, canonical, spec);
   const entry: OfflineChildListenerEntry = {
     event,
     path: canonical,
     spec,
     onlyOnce,
     deliver,
-    rows: computeOverlayChildRows(target, state, canonical, spec),
+    rows: initialState.rows,
+    priorities: initialState.priorities,
     initialized: true,
     deferredFromServer: false,
   };
@@ -218,7 +257,9 @@ export function registerOfflineChildListener(
       if (activeState.pendingOverlays.some((ov) => ov.paths.some((p) => pathsOverlap(p, canonical)))) {
         return;
       }
-      entry.rows = computeOverlayChildRows(target, activeState, canonical, spec);
+      const nextState = computeActiveChildState(target, activeState, canonical, spec);
+      entry.rows = nextState.rows;
+      entry.priorities = nextState.priorities;
       deliver(raw);
     },
     close(): void {
