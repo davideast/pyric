@@ -1,3 +1,4 @@
+import { getAuthLens } from '../sandbox/internal/auth-lens.js';
 import { FirebaseError } from '../sandbox/internal/firebase-error.js';
 import type { Target } from './state.js';
 import { ClientOfflineOverlay, type OfflineMutation } from './sandbox/client-offline-overlay.js';
@@ -26,7 +27,21 @@ export class FirestoreClientState {
   private readonly syncObservers = new Set<() => void>();
   private readonly managedListeners = new Set<ClientManagedListener>();
   private syncScheduled = false;
-  readonly overlay = new ClientOfflineOverlay();
+  private readonly overlaysByLens = new Map<string, ClientOfflineOverlay>();
+
+  get overlay(): ClientOfflineOverlay {
+    const lens = getAuthLens();
+    let key = 'app-session';
+    if (lens !== undefined) {
+      key = JSON.stringify(lens);
+    }
+    let entry = this.overlaysByLens.get(key);
+    if (entry === undefined) {
+      entry = new ClientOfflineOverlay();
+      this.overlaysByLens.set(key, entry);
+    }
+    return entry;
+  }
 
   constructor(private readonly readAdminDoc?: (path: string) => Record<string, unknown> | null) {}
 

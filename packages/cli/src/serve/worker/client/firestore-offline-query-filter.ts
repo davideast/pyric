@@ -33,7 +33,7 @@ import type { RawDocResult } from './snapshots.js';
 const KEY_FIELD = '__name__';
 const INEQUALITY_OPS = new Set(['<', '<=', '>', '>=', '!=', 'not-in']);
 
-export class OfflineQueryReference {
+class OfflineQueryReference {
   readonly path: string;
   constructor(path: string) {
     this.path = path;

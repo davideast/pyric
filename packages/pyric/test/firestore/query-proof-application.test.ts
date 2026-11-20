@@ -197,6 +197,7 @@ test("public query listeners deliver supported membership results and reject bro
       ["scheduled", "draft"],
     ]) {
       let seen: string[] | undefined;
+      let seenFromCache: boolean | undefined;
       const errors: unknown[] = [];
       const stop = onSnapshot(
         query(
@@ -207,20 +208,48 @@ test("public query listeners deliver supported membership results and reject bro
           limit(100),
         ),
         (snapshot) => {
-          seen = snapshot.docs.map((doc) => doc.id).sort();
+          const querySnap = snapshot as {
+            docs: Array<{ id: string }>;
+            metadata: { fromCache: boolean };
+          };
+          seen = querySnap.docs.map((doc) => doc.id).sort();
+          seenFromCache = querySnap.metadata.fromCache;
         },
         (error) => errors.push(error),
       );
       env.flushListeners();
       if (statuses[1] === "changed") {
         expect(seen).toEqual(["a", "b"]);
+        expect(seenFromCache).toBe(false);
         expect(errors).toHaveLength(0);
       } else {
-        expect(seen).toBeUndefined();
+        expect(seen).toEqual(["a"]);
+        expect(seenFromCache).toBe(true);
         expect(errors).toHaveLength(1);
       }
       stop();
     }
+
+    const coldDb = getFirestore(sandbox);
+    let coldSeen: string[] | undefined;
+    const coldErrors: unknown[] = [];
+    const stopCold = onSnapshot(
+      query(
+        collection(coldDb, "meets"),
+        filter("visibility", "==", "public"),
+        filter("status", "in", ["scheduled", "draft"]),
+        orderBy("time.startsAt"),
+        limit(100),
+      ),
+      (snapshot) => {
+        coldSeen = (snapshot as { docs: Array<{ id: string }> }).docs.map((doc) => doc.id);
+      },
+      (error) => coldErrors.push(error),
+    );
+    env.flushListeners();
+    expect(coldSeen).toBeUndefined();
+    expect(coldErrors).toHaveLength(1);
+    stopCold();
   } finally {
     sandbox.dispose();
   }
