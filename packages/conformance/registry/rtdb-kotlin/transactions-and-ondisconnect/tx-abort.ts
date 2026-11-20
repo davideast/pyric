@@ -1,0 +1,8 @@
+import { row } from './section.ts';
+
+export default row({
+  order: 20,
+  api: 'Transaction.abort()',
+  behavior: 'Aborts an in-progress transaction without writing changes to the database.',
+  featureKeys: ['transactionAbort'],
+});
