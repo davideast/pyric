@@ -13,6 +13,8 @@ function refusal(response: ProbeResponse): Record<string, unknown> {
 /** functions-http#15: production refuses an unauthenticated call to an `invoker: 'private'` function. */
 export const probe: FunctionsHttpProbe = {
   name: 'functions-http-onrequest-invoker-private',
+  rig: 'functions-http',
+  pendingRowLink: true,
   matrixRow: 'functions-http #15',
   rowIds: ['functions-http#15'],
   description:

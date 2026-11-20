@@ -5,6 +5,8 @@ const TIMEOUT_SECONDS = 5;
 /** functions-http#11: a handler that never responds, cut at `timeoutSeconds`. */
 export const probe: FunctionsHttpProbe = {
   name: 'functions-http-onrequest-no-response-timeout',
+  rig: 'functions-http',
+  pendingRowLink: true,
   matrixRow: 'functions-http #11',
   rowIds: ['functions-http#11'],
   description:

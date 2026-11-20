@@ -3,6 +3,8 @@ import { statusShape, type FunctionsHttpProbe } from '../../src/capture/function
 /** functions-http#16: a request for a function name the project does not deploy. */
 export const probe: FunctionsHttpProbe = {
   name: 'functions-http-onrequest-not-found',
+  rig: 'functions-http',
+  pendingRowLink: true,
   matrixRow: 'functions-http #16',
   rowIds: ['functions-http#16'],
   description:

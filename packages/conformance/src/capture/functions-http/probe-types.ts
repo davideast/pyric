@@ -74,6 +74,8 @@ export const RECORDED_RESPONSE_HEADERS: readonly string[] = [
 
 export interface FunctionsHttpProbe {
   name: string;
+  rig?: string;
+  pendingRowLink?: boolean;
   matrixRow: string;
   rowIds: string[];
   description: string;

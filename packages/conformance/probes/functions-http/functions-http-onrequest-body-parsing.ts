@@ -25,6 +25,8 @@ const requests: ProbeRequest[] = [
 /** functions-http#5 and #6: how each request body reaches `req.body` and `req.rawBody`. */
 export const probe: FunctionsHttpProbe = {
   name: 'functions-http-onrequest-body-parsing',
+  rig: 'functions-http',
+  pendingRowLink: true,
   matrixRow: 'functions-http #5, #6',
   rowIds: ['functions-http#5', 'functions-http#6'],
   description:

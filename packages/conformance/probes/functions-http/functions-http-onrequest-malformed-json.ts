@@ -3,6 +3,8 @@ import { statusShape, type FunctionsHttpProbe } from '../../src/capture/function
 /** functions-http#7: a JSON body that does not parse is refused before the handler runs. */
 export const probe: FunctionsHttpProbe = {
   name: 'functions-http-onrequest-malformed-json',
+  rig: 'functions-http',
+  pendingRowLink: true,
   matrixRow: 'functions-http #7',
   rowIds: ['functions-http#7'],
   description:

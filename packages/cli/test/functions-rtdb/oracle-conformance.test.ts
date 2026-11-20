@@ -415,7 +415,11 @@ const assertions: Record<string, AssertionSpec> = {
       expect(local.runtimeErrorReported).toBe(production.runtimeErrorReported);
       expect(local.matchingRuntimeErrorCount).toBe(production.matchingRuntimeErrorCount);
       expect(local.errorMarker).toBe(production.errorMarker);
-      expect(local.requestStatuses).toEqual(production.requestStatuses);
+      // By-design divergence (functions-rtdb#12): production logs HTTP 200 on
+      // the Eventarc Cloud Run push request when retry is disabled; Pyric
+      // delivers RTDB events over IPC with no Eventarc HTTP request seam.
+      expect(production.requestStatuses).toEqual([200]);
+      expect(local.requestStatuses).toEqual([]);
     },
   },
   'functions-rtdb#13': {
