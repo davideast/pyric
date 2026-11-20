@@ -176,37 +176,39 @@ class AndroidAbiParityTest {
     }
 
     @Test
-    fun suspendCancellableCoroutineAwaitPatternHandlesSuccessFailureAndCancellation() = runBlocking {
-        suspend fun <T> awaitViaListeners(task: Task<T>): T = suspendCancellableCoroutine { cont ->
-            task.addOnSuccessListener { result -> cont.resume(result) }
-            task.addOnFailureListener { error -> cont.resumeWithException(error) }
-            task.addOnCanceledListener { cont.cancel() }
-        }
+    fun suspendCancellableCoroutineAwaitPatternHandlesSuccessFailureAndCancellation() {
+        runBlocking {
+            suspend fun <T> awaitViaListeners(task: Task<T>): T = suspendCancellableCoroutine { cont ->
+                task.addOnSuccessListener { result -> cont.resume(result) }
+                task.addOnFailureListener { error -> cont.resumeWithException(error) }
+                task.addOnCanceledListener { cont.cancel() }
+            }
 
-        assertEquals("ok-value", awaitViaListeners(Tasks.forResult("ok-value")))
+            assertEquals("ok-value", awaitViaListeners(Tasks.forResult("ok-value")))
 
-        val boom = IllegalArgumentException("synthetic failure")
-        val caught = assertThrows<IllegalArgumentException> {
-            runBlocking { awaitViaListeners(Tasks.forException<String>(boom)) }
-        }
-        assertEquals("synthetic failure", caught.message)
+            val boom = IllegalArgumentException("synthetic failure")
+            val caught = assertThrows<IllegalArgumentException> {
+                runBlocking { awaitViaListeners(Tasks.forException<String>(boom)) }
+            }
+            assertEquals("synthetic failure", caught.message)
 
-        assertThrows<CancellationException> {
-            runBlocking { awaitViaListeners(Tasks.forCanceled<String>()) }
-        }
-        assertThrows<CancellationException> {
-            runBlocking { Tasks.forCanceled<String>().await() }
-        }
+            assertThrows<CancellationException> {
+                runBlocking { awaitViaListeners(Tasks.forCanceled<String>()) }
+            }
+            assertThrows<CancellationException> {
+                runBlocking { Tasks.forCanceled<String>().await() }
+            }
 
-        val cts = CancellationTokenSource()
-        val pending = TaskCompletionSource<String>(cts.token)
-        Thread {
-            Thread.sleep(25)
-            cts.cancel()
-        }.apply { isDaemon = true }.start()
+            val cts = CancellationTokenSource()
+            val pending = TaskCompletionSource<String>(cts.token)
+            Thread {
+                Thread.sleep(25)
+                cts.cancel()
+            }.apply { isDaemon = true }.start()
 
-        assertThrows<CancellationException> {
-            runBlocking { awaitViaListeners(pending.task) }
+            assertThrows<CancellationException> {
+                runBlocking { awaitViaListeners(pending.task) }
+            }
         }
     }
 }
