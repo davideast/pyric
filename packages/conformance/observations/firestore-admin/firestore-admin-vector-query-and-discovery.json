@@ -1,0 +1,123 @@
+{
+  "name": "firestore-admin-vector-query-and-discovery",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase-admin/firestore FieldValue.vector, Query.{select, offset, count, stream, findNearest, explain, explainStream, withConverter}, CollectionReference.listDocuments, and DocumentReference.listCollections.",
+  "observedAt": "2026-11-20T02:48:33.920Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "vector": {
+      "toArray": [
+        0.25,
+        -0.5,
+        1.5
+      ],
+      "emptyToArray": [],
+      "isEqualSame": true,
+      "isEqualDifferent": false,
+      "storedIsVector": true,
+      "storedArray": [
+        0.25,
+        -0.5,
+        1.5
+      ],
+      "storedIsEqual": true
+    },
+    "selectAndOffset": {
+      "selectedIds": [
+        "b",
+        "c"
+      ],
+      "projectedRows": [
+        {
+          "meta": {
+            "tag": "y"
+          },
+          "title": "Beta"
+        },
+        {
+          "meta": {
+            "tag": "z"
+          },
+          "title": "Gamma"
+        }
+      ],
+      "emptySelectKeys": [],
+      "invalidSelectFieldThrew": true,
+      "nanOffsetThrew": true,
+      "nonIntegerOffsetThrew": true
+    },
+    "countAndStream": {
+      "totalCount": 3,
+      "filteredCount": 2,
+      "streamedIds": [
+        "a",
+        "b",
+        "c"
+      ],
+      "limitToLastStreamThrew": true
+    },
+    "findNearest": {
+      "zeroLimitThrew": true,
+      "emptyVectorThrew": true,
+      "invalidFieldThrew": true,
+      "hasGetMethod": true,
+      "queryMatchesBase": true
+    },
+    "explain": {
+      "planOnlyIndexesIsArray": true,
+      "planOnlyExecutionStatsIsNull": true,
+      "planOnlySnapshotIsNull": true,
+      "analyzedIndexesIsArray": true,
+      "analyzedResultsReturned": 3,
+      "analyzedHasReadOpsNumber": true,
+      "analyzedHasDurationSeconds": true,
+      "analyzedSnapshotDocIds": [
+        "a",
+        "b",
+        "c"
+      ],
+      "streamDocIds": [
+        "a",
+        "b",
+        "c"
+      ],
+      "streamSawMetrics": true,
+      "limitToLastExplainStreamThrew": true
+    },
+    "withConverter": {
+      "rawStoredDoc": {
+        "label": "HELLO",
+        "score": 4
+      },
+      "convertedDoc": {
+        "id": "c1",
+        "label": "hello",
+        "score": 40
+      },
+      "convertedQueryDocs": [
+        {
+          "id": "c2",
+          "label": "world",
+          "score": 70
+        }
+      ]
+    },
+    "discovery": {
+      "docSubcollectionIds": [
+        "sub-a",
+        "sub-b"
+      ],
+      "listedDocIds": [
+        "phantom-doc",
+        "real-doc"
+      ],
+      "listedDocExistsById": {
+        "phantom-doc": false,
+        "real-doc": true
+      }
+    }
+  },
+  "adminSdkVersion": "13.10.0"
+}
