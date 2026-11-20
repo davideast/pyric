@@ -331,7 +331,9 @@ export const probe: Probe = {
             const afterTermHandle = fsMod.getFirestore(settingsApp);
             let terminateThenReadThrew = false;
             try {
-              await settingsDb.doc(`${basePath}/init-settings/doc-1`).get();
+              await settingsDb.doc(`${basePath}/init-settings/doc-1`).set({
+                afterTerminate: true,
+              });
             } catch {
               terminateThenReadThrew = true;
             }
