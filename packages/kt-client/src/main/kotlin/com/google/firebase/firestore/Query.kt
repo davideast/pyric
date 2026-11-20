@@ -14,7 +14,9 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.takeWhile
@@ -215,8 +217,9 @@ open class Query internal constructor(
                 val snapshot = QuerySnapshot(
                     query = this@Query,
                     documents = docs,
-                    documentChanges = emptyList(),
-                    metadata = SnapshotMetadata(hasPendingWrites = false, isFromCache = false)
+                    documentChanges = DocumentChangeCalculator.initialChanges(docs),
+                    metadata = SnapshotMetadata(hasPendingWrites = false, isFromCache = false),
+                    excludesMetadataChanges = false
                 )
                 tcs.setResult(snapshot)
             } catch (e: Exception) {
@@ -236,57 +239,110 @@ open class Query internal constructor(
         firestore.ensureClientActive()
         val target = toTargetDescriptor()
         val includeMetadata = (metadataChanges == MetadataChanges.INCLUDE)
-        return combine(firestore.authLensFlow, firestore.terminatedStateFlow) { lens, terminated ->
-            lens to terminated
-        }.flatMapLatest { (lens, terminated) ->
-            if (terminated) {
-                flowOf<QuerySnapshot?>(null)
-            } else {
-                var lastRaw: Any? = null
-                var hasRaw = false
-                firestore.bridgeClient.subscribe(
-                    target = target,
-                    actAs = lens.toMap(),
-                    includeMetadataChanges = includeMetadata
-                ).mapNotNull { rawMsg ->
-                    if (rawMsg === BridgeSubscriptionGap) {
-                        // The documents last delivered, now served from cache.
-                        if (hasRaw) snapshotFromWire(lastRaw, isFromCache = true) else null
-                    } else {
-                        lastRaw = rawMsg
-                        hasRaw = true
-                        snapshotFromWire(rawMsg, isFromCache = false)
+        return flow {
+            var previousDocs: List<QueryDocumentSnapshot>? = null
+            val upstream = combine(firestore.authLensFlow, firestore.terminatedStateFlow) { lens, terminated ->
+                lens to terminated
+            }.flatMapLatest { (lens, terminated) ->
+                if (terminated) {
+                    flowOf<QuerySnapshot?>(null)
+                } else {
+                    var lastRaw: Any? = null
+                    var hasRaw = false
+                    firestore.bridgeClient.subscribe(
+                        target = target,
+                        actAs = lens.toMap(),
+                        includeMetadataChanges = includeMetadata
+                    ).mapNotNull { rawMsg ->
+                        val snapshot = if (rawMsg === BridgeSubscriptionGap) {
+                            // The documents last delivered, now served from cache.
+                            if (hasRaw) {
+                                snapshotFromWire(
+                                    rawMsg = lastRaw,
+                                    isFromCache = true,
+                                    previousDocs = previousDocs,
+                                    includeMetadata = includeMetadata
+                                )
+                            } else {
+                                null
+                            }
+                        } else {
+                            lastRaw = rawMsg
+                            hasRaw = true
+                            snapshotFromWire(
+                                rawMsg = rawMsg,
+                                isFromCache = false,
+                                previousDocs = previousDocs,
+                                includeMetadata = includeMetadata
+                            )
+                        }
+                        if (snapshot != null) {
+                            previousDocs = snapshot.documents.filterIsInstance<QueryDocumentSnapshot>()
+                        }
+                        snapshot
                     }
                 }
-            }
-        }.takeWhile { it != null }.mapNotNull { it }
+            }.takeWhile { it != null }.mapNotNull { it }
+            emitAll(upstream)
+        }
     }
 
-    private fun snapshotFromWire(rawMsg: Any?, isFromCache: Boolean): QuerySnapshot {
+    private fun snapshotFromWire(
+        rawMsg: Any?,
+        isFromCache: Boolean,
+        previousDocs: List<QueryDocumentSnapshot>?,
+        includeMetadata: Boolean
+    ): QuerySnapshot {
         @Suppress("UNCHECKED_CAST")
         val resMap = rawMsg as? Map<String, Any?> ?: emptyMap()
         @Suppress("UNCHECKED_CAST")
         val rawDocs = (resMap["docs"] as? List<Map<String, Any?>>) ?: emptyList()
         // Listener frames carry the sandbox snapshot's pending-write state.
-        val metadata = SnapshotMetadata(hasPendingWrites = resMap["hasPendingWrites"] == true, isFromCache = isFromCache)
+        val snapshotHasPendingWrites = resMap["hasPendingWrites"] == true
+        val metadata = SnapshotMetadata(
+            hasPendingWrites = snapshotHasPendingWrites,
+            isFromCache = isFromCache
+        )
 
         val docs = rawDocs.map { docMap ->
             val docId = docMap["id"] as String
             val docPath = docMap["path"] as String
             val unpackedData = DocumentDataEnvelope.unpack(docMap["data"]) { p -> firestore.document(p) }
+            val docPending = if (docMap.containsKey("hasPendingWrites")) {
+                docMap["hasPendingWrites"] == true
+            } else {
+                snapshotHasPendingWrites
+            }
             QueryDocumentSnapshot(
                 id = docId,
                 reference = firestore.document(docPath),
                 dataMap = unpackedData,
-                metadata = metadata
+                metadata = SnapshotMetadata(hasPendingWrites = docPending, isFromCache = isFromCache)
             )
+        }
+
+        val changesWithoutMetadata = DocumentChangeCalculator.computeChanges(
+            previousDocs = previousDocs,
+            currentDocs = docs,
+            includeMetadataChanges = false
+        )
+        val changesWithMetadata = if (includeMetadata) {
+            DocumentChangeCalculator.computeChanges(
+                previousDocs = previousDocs,
+                currentDocs = docs,
+                includeMetadataChanges = true
+            )
+        } else {
+            null
         }
 
         return QuerySnapshot(
             query = this@Query,
             documents = docs,
-            documentChanges = emptyList(),
-            metadata = metadata
+            documentChanges = changesWithoutMetadata,
+            metadata = metadata,
+            documentChangesWithMetadata = changesWithMetadata,
+            excludesMetadataChanges = !includeMetadata
         )
     }
 

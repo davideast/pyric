@@ -13,21 +13,58 @@ open class DocumentSnapshot internal constructor(
 ) {
     open fun exists(): Boolean = exists
 
-    open fun getData(): Map<String, Any?>? = rawData
+    open fun getData(): Map<String, Any?>? = rawData?.let { copyMap(it) }
 
-    fun get(field: String): Any? = FieldPath.extract(rawData, field)
-    fun get(fieldPath: FieldPath): Any? = FieldPath.extract(rawData, fieldPath)
+    internal fun rawMapSnapshot(): Map<String, Any?> = rawData ?: emptyMap()
+
+    fun contains(field: String): Boolean = exists && FieldPath.contains(rawData, field)
+    fun contains(fieldPath: FieldPath): Boolean = exists && FieldPath.contains(rawData, fieldPath)
+
+    fun get(field: String): Any? = if (!exists) null else copyValue(FieldPath.extract(rawData, field))
+    fun get(fieldPath: FieldPath): Any? = if (!exists) null else copyValue(FieldPath.extract(rawData, fieldPath))
     fun getString(field: String): String? = get(field) as? String
+    fun getString(fieldPath: FieldPath): String? = get(fieldPath) as? String
     fun getLong(field: String): Long? = (get(field) as? Number)?.toLong()
+    fun getLong(fieldPath: FieldPath): Long? = (get(fieldPath) as? Number)?.toLong()
     fun getDouble(field: String): Double? = (get(field) as? Number)?.toDouble()
+    fun getDouble(fieldPath: FieldPath): Double? = (get(fieldPath) as? Number)?.toDouble()
     fun getBoolean(field: String): Boolean? = get(field) as? Boolean
+    fun getBoolean(fieldPath: FieldPath): Boolean? = get(fieldPath) as? Boolean
     fun getTimestamp(field: String): Timestamp? = get(field) as? Timestamp
+    fun getTimestamp(fieldPath: FieldPath): Timestamp? = get(fieldPath) as? Timestamp
     fun getGeoPoint(field: String): GeoPoint? = get(field) as? GeoPoint
+    fun getGeoPoint(fieldPath: FieldPath): GeoPoint? = get(fieldPath) as? GeoPoint
     fun getBlob(field: String): Blob? = get(field) as? Blob
+    fun getBlob(fieldPath: FieldPath): Blob? = get(fieldPath) as? Blob
     fun getDocumentReference(field: String): DocumentReference? = get(field) as? DocumentReference
+    fun getDocumentReference(fieldPath: FieldPath): DocumentReference? = get(fieldPath) as? DocumentReference
 
     open fun <T> toObject(valueType: Class<T>): T? =
         if (!exists || rawData == null) null else PojoCodec.deserialize(rawData, valueType, id, reference)
+
+    companion object {
+        internal fun copyMap(source: Map<String, Any?>): Map<String, Any?> {
+            val out = LinkedHashMap<String, Any?>(source.size)
+            for ((k, v) in source) {
+                out[k] = copyValue(v)
+            }
+            return out
+        }
+
+        private fun copyValue(value: Any?): Any? {
+            if (value is Map<*, *>) {
+                val out = LinkedHashMap<String, Any?>(value.size)
+                for ((k, v) in value) {
+                    out[k.toString()] = copyValue(v)
+                }
+                return out
+            }
+            if (value is List<*>) {
+                return value.map { copyValue(it) }
+            }
+            return value
+        }
+    }
 
     override fun equals(other: Any?): Boolean {
         if (this === other) return true

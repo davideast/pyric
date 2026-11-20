@@ -1,3 +1,4 @@
+import { LIVE_HOST_CONFORMANCE_TEST, LIVE_HOST_TRANSACTIONS_SUITE } from '../defaults.ts';
 import { row } from './section.ts';
 
 export default row({
@@ -5,5 +6,7 @@ export default row({
   api: 'WriteBatch.set(documentReference, data, options)',
   behavior: 'Enqueues set or merge operation into atomic mutation batch.',
   featureKeys: ['set', 'batch'],
-  flipped: 'unit-backed',
+  status: 'conforms',
+  tests: [LIVE_HOST_TRANSACTIONS_SUITE],
+  hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

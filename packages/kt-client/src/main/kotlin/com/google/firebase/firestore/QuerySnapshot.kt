@@ -4,7 +4,9 @@ class QuerySnapshot internal constructor(
     val query: Query,
     val documents: List<DocumentSnapshot>,
     val documentChanges: List<DocumentChange> = emptyList(),
-    val metadata: SnapshotMetadata = SnapshotMetadata()
+    val metadata: SnapshotMetadata = SnapshotMetadata(),
+    private val documentChangesWithMetadata: List<DocumentChange>? = null,
+    private val excludesMetadataChanges: Boolean = false
 ) : Iterable<QueryDocumentSnapshot> {
 
     fun size(): Int = documents.size
@@ -18,7 +20,15 @@ class QuerySnapshot internal constructor(
     fun getDocuments(): List<DocumentSnapshot> = documents
 
     @JvmName("getDocumentChangesMethod")
-    fun getDocumentChanges(metadataChanges: MetadataChanges = MetadataChanges.EXCLUDE): List<DocumentChange> = documentChanges
+    fun getDocumentChanges(metadataChanges: MetadataChanges = MetadataChanges.EXCLUDE): List<DocumentChange> {
+        if (metadataChanges == MetadataChanges.INCLUDE) {
+            require(!excludesMetadataChanges) {
+                "To include metadata changes with your document changes, you must also pass MetadataChanges.INCLUDE to addSnapshotListener()."
+            }
+            return documentChangesWithMetadata ?: documentChanges
+        }
+        return documentChanges
+    }
 
     override fun iterator(): Iterator<QueryDocumentSnapshot> =
         documents.filterIsInstance<QueryDocumentSnapshot>().iterator()

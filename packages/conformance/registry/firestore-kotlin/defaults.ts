@@ -11,6 +11,10 @@ export const LIVE_HOST_CONFORMANCE_TEST =
   'packages/cli/test/serve/native-kotlin-firestore-conformance.test.ts';
 export const LIVE_HOST_CORE_SUITE =
   'packages/kt-client/src/test/kotlin/dev/pyric/e2e/FirestoreCoreLiveHostConformanceTest.kt';
+export const LIVE_HOST_SNAPSHOTS_SUITE =
+  'packages/kt-client/src/test/kotlin/dev/pyric/e2e/FirestoreSnapshotsLiveHostConformanceTest.kt';
+export const LIVE_HOST_TRANSACTIONS_SUITE =
+  'packages/kt-client/src/test/kotlin/dev/pyric/e2e/FirestoreTransactionsLiveHostConformanceTest.kt';
 
 export interface KotlinFirestoreRowSeed {
   order?: number;

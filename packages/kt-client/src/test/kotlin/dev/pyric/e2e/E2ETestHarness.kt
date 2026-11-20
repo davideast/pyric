@@ -315,7 +315,7 @@ class E2ETestHarness {
             }
             "count" -> {
                 @Suppress("UNCHECKED_CAST")
-                val target = op["target"] as Map<String, Any?>
+                val target = (op["source"] ?: op["target"]) as Map<String, Any?>
                 val count = synchronized(storeLock) {
                     queryDocs(target).size
                 }

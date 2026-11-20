@@ -174,6 +174,7 @@ class FirebaseFirestore(
                     bridgeClient.op(
                         method = "txnCommit",
                         params = mapOf(
+                            "txnId" to txn.txnId,
                             "reads" to txn.reads,
                             "writes" to txn.writes
                         ),

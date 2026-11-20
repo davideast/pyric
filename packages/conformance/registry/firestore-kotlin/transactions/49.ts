@@ -1,3 +1,4 @@
+import { LIVE_HOST_CONFORMANCE_TEST, LIVE_HOST_TRANSACTIONS_SUITE } from '../defaults.ts';
 import { row } from './section.ts';
 
 export default row({
@@ -5,5 +6,7 @@ export default row({
   api: 'Transaction.get(documentReference)',
   behavior: 'Reads document snapshot within transaction context and acquires read lock.',
   featureKeys: ['get', 'transaction'],
-  flipped: 'unit-backed',
+  status: 'conforms',
+  tests: [LIVE_HOST_TRANSACTIONS_SUITE],
+  hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });
