@@ -7,6 +7,7 @@ import {
   FieldValue as CompatFieldValue,
   type FieldValueSentinel,
 } from 'pyric/sandbox/admin-compat';
+import { createAdminVector, type AdminVectorValue } from './admin-vector-and-errors.js';
 
 export class FieldValue {
   static serverTimestamp(): FieldValueSentinel {
@@ -36,5 +37,9 @@ export class FieldValue {
 
   static delete(): FieldValueSentinel {
     return CompatFieldValue.delete();
+  }
+
+  static vector(values?: readonly number[]): AdminVectorValue {
+    return createAdminVector(values);
   }
 }

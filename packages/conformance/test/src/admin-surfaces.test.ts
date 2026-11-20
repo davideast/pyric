@@ -77,8 +77,8 @@ describe('admin SDK surfaces: auth-admin, firestore-admin, rtdb-admin', () => {
     expect(byId.get('firestore-admin#4')?.status).toBe('conforms');
     expect(byId.get('firestore-admin#7')?.status).toBe('conforms');
     expect(byId.get('firestore-admin#8')?.status).toBe('conforms');
-    expect(byId.get('firestore-admin#10')?.status).toBe('unsupported');
-    expect(byId.get('firestore-admin#11')?.status).toBe('unsupported');
+    expect(byId.get('firestore-admin#10')?.status).toBe('conforms');
+    expect(byId.get('firestore-admin#11')?.status).toBe('conforms');
     expect(byId.get('rtdb-admin#5')?.status).toBe('conforms');
     expect(byId.get('rtdb-admin#7')?.status).toBe('conforms');
     expect(byId.get('rtdb-admin#8')?.status).toBe('conforms');

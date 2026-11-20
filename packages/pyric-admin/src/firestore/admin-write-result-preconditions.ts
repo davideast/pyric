@@ -12,11 +12,6 @@ import { SandboxError } from 'pyric/sandbox';
 import type { SandboxFirestore } from 'pyric/sandbox/admin-firestore';
 import { isObjectRecord } from './admin-write-validation.js';
 
-export interface WriteResult {
-  readonly writeTime: CompatTimestamp;
-  isEqual(other: WriteResult): boolean;
-}
-
 export interface ParsedAdminPrecondition {
   readonly exists?: boolean;
   readonly lastUpdateTime?: CompatTimestamp;
@@ -26,6 +21,7 @@ export type RawExistenceReader = (docPath: string) => Promise<boolean>;
 
 interface AdminWriteLedger {
   lastNanos: bigint;
+  readonly docCreateTimes: Map<string, CompatTimestamp>;
   readonly docWriteTimes: Map<string, CompatTimestamp>;
   existenceReader?: RawExistenceReader;
 }
@@ -34,7 +30,7 @@ const NANOS_PER_MS = 1_000_000n;
 const NANOS_PER_SEC = 1_000_000_000n;
 const ledgerByRawDb = new WeakMap<object, AdminWriteLedger>();
 
-class WriteResultImpl implements WriteResult {
+export class WriteResult {
   readonly writeTime: CompatTimestamp;
 
   constructor(writeTime: CompatTimestamp) {
@@ -61,6 +57,7 @@ function getLedger(rawDb: SandboxFirestore): AdminWriteLedger {
   if (ledger === undefined) {
     ledger = {
       lastNanos: BigInt(Date.now()) * NANOS_PER_MS,
+      docCreateTimes: new Map(),
       docWriteTimes: new Map(),
     };
     ledgerByRawDb.set(rawDb, ledger);
@@ -198,23 +195,51 @@ export function recordSeededAdminDocuments(
   docPaths: readonly string[],
 ): void {
   const ledger = getLedger(rawDb);
+  ledger.docCreateTimes.clear();
   ledger.docWriteTimes.clear();
   const seedTime = nextAdminTimestamp(rawDb);
   for (const path of docPaths) {
+    ledger.docCreateTimes.set(path, seedTime);
     ledger.docWriteTimes.set(path, seedTime);
   }
 }
 
+export function resolveExistingDocTimestamps(
+  rawDb: SandboxFirestore,
+  docPath: string,
+): { readonly createTime: CompatTimestamp; readonly updateTime: CompatTimestamp } {
+  const ledger = getLedger(rawDb);
+  let updateTime = ledger.docWriteTimes.get(docPath);
+  if (updateTime === undefined) {
+    updateTime = nextAdminTimestamp(rawDb);
+    ledger.docCreateTimes.set(docPath, updateTime);
+    ledger.docWriteTimes.set(docPath, updateTime);
+    return { createTime: updateTime, updateTime };
+  }
+  let createTime = ledger.docCreateTimes.get(docPath);
+  if (createTime === undefined) {
+    createTime = updateTime;
+    ledger.docCreateTimes.set(docPath, createTime);
+  }
+  return { createTime, updateTime };
+}
+
 export function recordSingleAdminWrite(rawDb: SandboxFirestore, docPath: string): WriteResult {
   const writeTime = nextAdminTimestamp(rawDb);
-  getLedger(rawDb).docWriteTimes.set(docPath, writeTime);
-  return new WriteResultImpl(writeTime);
+  const ledger = getLedger(rawDb);
+  if (!ledger.docCreateTimes.has(docPath)) {
+    ledger.docCreateTimes.set(docPath, writeTime);
+  }
+  ledger.docWriteTimes.set(docPath, writeTime);
+  return new WriteResult(writeTime);
 }
 
 export function recordSingleAdminDelete(rawDb: SandboxFirestore, docPath: string): WriteResult {
   const writeTime = nextAdminTimestamp(rawDb);
-  getLedger(rawDb).docWriteTimes.delete(docPath);
-  return new WriteResultImpl(writeTime);
+  const ledger = getLedger(rawDb);
+  ledger.docCreateTimes.delete(docPath);
+  ledger.docWriteTimes.delete(docPath);
+  return new WriteResult(writeTime);
 }
 
 export function recordBatchAdminMutations(
@@ -225,15 +250,19 @@ export function recordBatchAdminMutations(
     return [];
   }
   const commitTime = nextAdminTimestamp(rawDb);
-  const store = getLedger(rawDb).docWriteTimes;
+  const ledger = getLedger(rawDb);
   const results: WriteResult[] = [];
   for (const op of ops) {
     if (op.kind === 'delete') {
-      store.delete(op.path);
+      ledger.docCreateTimes.delete(op.path);
+      ledger.docWriteTimes.delete(op.path);
     } else {
-      store.set(op.path, commitTime);
+      if (!ledger.docCreateTimes.has(op.path)) {
+        ledger.docCreateTimes.set(op.path, commitTime);
+      }
+      ledger.docWriteTimes.set(op.path, commitTime);
     }
-    results.push(new WriteResultImpl(commitTime));
+    results.push(new WriteResult(commitTime));
   }
   return results;
 }

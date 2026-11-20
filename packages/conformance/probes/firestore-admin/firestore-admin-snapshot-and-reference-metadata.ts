@@ -152,9 +152,8 @@ export async function observeFirestoreAdminSnapshotAndReferenceMetadata(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['admin-firestore'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore-admin#11',
+  rowIds: ['firestore-admin#11'],
   description:
     'firebase-admin/firestore DocumentSnapshot.{createTime, updateTime, readTime, isEqual}, QuerySnapshot.{readTime, isEqual, query}, reference .{firestore, parent, isEqual}, WriteResult, and FirebaseFirestoreError.',
   async observe(): Promise<Record<string, unknown>> {

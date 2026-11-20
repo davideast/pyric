@@ -10,6 +10,7 @@ import {
   Reference as InternalReference,
 } from 'pyric/rules/internal';
 import { isAdminGeoPoint } from './admin-geopoint.js';
+import { encodeAdminVectorForWire, isAdminVectorValue } from './admin-vector-and-errors.js';
 import {
   FieldPath,
   FieldValue as CompatFieldValue,
@@ -320,9 +321,8 @@ export function validateAndNormalizeFirestoreValue(
     return new InternalBytes(view.slice());
   }
 
-  if (isAdminGeoPoint(value)) {
-    return new InternalLatLng(value.latitude, value.longitude);
-  }
+  if (isAdminGeoPoint(value)) return new InternalLatLng(value.latitude, value.longitude);
+  if (isAdminVectorValue(value)) return encodeAdminVectorForWire(value);
 
   if (isFieldPathInstance(value)) {
     throw new SandboxError(

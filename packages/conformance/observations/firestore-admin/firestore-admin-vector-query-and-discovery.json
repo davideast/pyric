@@ -1,7 +1,9 @@
 {
   "name": "firestore-admin-vector-query-and-discovery",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore-admin#10",
+  "rowIds": [
+    "firestore-admin#10"
+  ],
   "description": "firebase-admin/firestore FieldValue.vector, Query.{select, offset, count, stream, findNearest, explain, explainStream, withConverter}, CollectionReference.listDocuments, and DocumentReference.listCollections.",
   "observedAt": "2026-11-20T02:48:33.920Z",
   "fbSdkVersion": "12.19.0",

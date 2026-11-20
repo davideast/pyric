@@ -15,14 +15,23 @@ export default row({
     'CollectionReference.listDocuments',
     'DocumentReference.listCollections',
   ],
-  api: 'FieldValue.vector and unstubbed Query / CollectionReference / DocumentReference methods (select, offset, count, stream, findNearest, explain, explainStream, withConverter, listDocuments, listCollections)',
+  api: 'FieldValue.vector, Query.{select, offset, count, stream, findNearest, explain, explainStream, withConverter}, CollectionReference.listDocuments, and DocumentReference.listCollections',
   behavior:
-    'Vector sentinels (`FieldValue.vector`), query projections/offsets/streams/vector-search/explain/converters (`Query.{select, offset, count, stream, findNearest, explain, explainStream, withConverter}`), and reference discovery (`CollectionReference.listDocuments`, `DocumentReference.listCollections`) are not implemented or stubbed on sandbox handles and read as `undefined` at runtime.',
-  status: 'unsupported',
-  automation: 'unsupported',
-  exceptionReason:
-    'Vector embeddings, query projections/offsets/streams/explain/converters, and reference listing are not modeled in pyric-admin/firestore and are allowlisted as absent.',
-  conformanceTests: ['packages/pyric-admin/test/surface/admin-surface.test.ts'],
+    'Supports `FieldValue.vector` (`VectorValue` `.toArray()`, `.isEqual()`, and lossless write/read roundtrip), `Query.{select, offset, count, stream, findNearest, explain, explainStream, withConverter}`, `CollectionReference.{withConverter, listDocuments}` (including phantom parent document references holding subcollections), and `DocumentReference.{withConverter, listCollections}` across local and remote sandboxes.',
+  status: 'conforms',
+  automation: 'oracle-backed',
+  oracleObservations: ['firestore-admin-vector-query-and-discovery'],
+  conformanceTests: [
+    'packages/pyric-admin/test/firestore/oracle-conformance.test.ts',
+    'packages/pyric-admin/test/firestore/admin-vector-and-errors.test.ts',
+    'packages/pyric-admin/test/firestore/admin-query-extensions.test.ts',
+    'packages/pyric-admin/test/firestore/admin-vector-query.test.ts',
+    'packages/pyric-admin/test/firestore/admin-converter-and-discovery.test.ts',
+    'packages/pyric-admin/test/surface/admin-surface.test.ts',
+  ],
   evidence:
-    'Allowlisted and audited against `firebase-admin/firestore` in `packages/pyric-admin/test/surface/admin-surface.test.ts`.',
+    'Production capture `firestore-admin-vector-query-and-discovery` (firebase-admin 13.10.0) replayed across local and remote arms in `oracle-conformance.test.ts`, plus two-arm k-NN (`EUCLIDEAN`, `COSINE`, `DOT_PRODUCT`) and converter/discovery unit tests.',
+  risk: ['stateful'],
+  riskScore: 3,
+  riskReasons: ['asserts vector roundtrip, projections/offsets/streams/explain, converter transforms, and phantom document discovery across local and remote arms'],
 });
