@@ -36,10 +36,16 @@ import { createTransportAI } from 'pyric/ai/internal';
 import { FirebaseError, getApp, type FirebaseApp } from 'pyric/app';
 import { isSandboxAppDeleted } from 'pyric/app/internal';
 import type { AiEngineConfigWire } from '../worker/protocol.js';
-import { aiGenerateContent, aiCountTokens, aiStreamGenerateContent } from '../worker/client.js';
+import {
+  aiGenerateContent,
+  aiCountTokens,
+  aiStreamGenerateContent,
+  type ClientDb,
+} from '../worker/client.js';
+import { disconnectClient } from '../worker/client/disconnect.js';
 import { AI_PROXY_PATH, browserGeminiEngine } from '../worker/ai-proxy-paths.js';
 import { stampedSessionToken } from '../runtime/hosted-target.js';
-import { useWorker } from './worker-runtime.js';
+import { openWorkerDb, useWorker, workerDb } from './worker-runtime.js';
 import { workerClientForApp } from './app-client.js';
 import { sandbox } from './app-backend.js';
 import { setupAiDiagnosticsRelay } from '../ai-diagnostics-relay.js';
@@ -238,44 +244,107 @@ function aiErrorFromWire(err: unknown, modelResource: string, op: string, backen
 
 // ── The port-forwarding AnswerEngine (worker path) ─────────────────────────
 
+interface ResolvedAiWorkerDb {
+  readonly db: ClientDb;
+  readonly ephemeral: boolean;
+}
+
+function resolveAiWorkerDb(app: FirebaseApp): ResolvedAiWorkerDb {
+  if (!isSandboxAppDeleted(app)) {
+    return { db: workerClientForApp(app), ephemeral: false };
+  }
+  if (workerDb !== null) {
+    return { db: workerDb, ephemeral: false };
+  }
+  return { db: openWorkerDb('__pyric_retained_ai__'), ephemeral: true };
+}
+
+function buildAiOpParams(
+  model: string,
+  request: Record<string, unknown>,
+  engineWire: AiEngineConfigWire | undefined,
+  appCheck: AppCheckClaim | undefined,
+): {
+  model: string;
+  request: Record<string, unknown>;
+  engine?: AiEngineConfigWire;
+  appCheck?: AppCheckClaim;
+} {
+  const result: {
+    model: string;
+    request: Record<string, unknown>;
+    engine?: AiEngineConfigWire;
+    appCheck?: AppCheckClaim;
+  } = { model, request };
+  if (engineWire !== undefined) {
+    result.engine = engineWire;
+  }
+  if (appCheck !== undefined) {
+    result.appCheck = appCheck;
+  }
+  return result;
+}
+
 /**
  * The handle's App Check claim rides every request to the worker broker,
- * which plays AI Logic's gate (`pyric/ai`'s `app-check-gate.ts`).
+ * which plays AI Logic's gate (`pyric/ai`'s `app-check-gate.ts`). While `app`
+ * is alive, requests ride its app-scoped port; after `deleteApp(app)` closes
+ * that port, models already constructed before deletion fall back to the page
+ * control port (or a short-lived hosted connection in Node) so retained models
+ * stay usable without leaking deleted-app ports.
  */
 function portEngine(
-  db: ReturnType<typeof workerClientForApp>,
+  app: FirebaseApp,
   engineWire: AiEngineConfigWire | undefined,
   backend: ipAi.Backend | undefined,
 ): AnswerTransport {
-  const params = (model: string, request: Record<string, unknown>, appCheck: AppCheckClaim | undefined) => ({
-    model,
-    request,
-    ...(engineWire !== undefined ? { engine: engineWire } : {}),
-    ...(appCheck !== undefined ? { appCheck } : {}),
-  });
   const engine = {
     async generateContent(req: Record<string, unknown>, model: string, appCheck?: AppCheckClaim): Promise<Record<string, unknown>> {
+      const resolved = resolveAiWorkerDb(app);
       try {
-        return unpackAiEvidence(await aiGenerateContent(db, params(model, req, appCheck)));
+        return unpackAiEvidence(
+          await aiGenerateContent(resolved.db, buildAiOpParams(model, req, engineWire, appCheck)),
+        );
       } catch (err) {
         throw aiErrorFromWire(err, model, 'generateContent', backend);
+      } finally {
+        if (resolved.ephemeral) {
+          await disconnectClient(resolved.db);
+        }
       }
     },
     streamGenerateContent(req: Record<string, unknown>, model: string, appCheck?: AppCheckClaim): AsyncIterable<Record<string, unknown>> {
-      const inner = aiStreamGenerateContent(db, params(model, req, appCheck));
       return (async function* mapped(): AsyncGenerator<Record<string, unknown>> {
+        const resolved = resolveAiWorkerDb(app);
+        const inner = aiStreamGenerateContent(
+          resolved.db,
+          buildAiOpParams(model, req, engineWire, appCheck),
+        );
         try {
-          for await (const chunk of inner) yield unpackAiEvidence(chunk);
+          for await (const chunk of inner) {
+            yield unpackAiEvidence(chunk);
+          }
         } catch (err) {
           throw aiErrorFromWire(err, model, 'streamGenerateContent', backend);
+        } finally {
+          if (resolved.ephemeral) {
+            await disconnectClient(resolved.db);
+          }
         }
       })();
     },
     async countTokens(req: Record<string, unknown>, model: string, appCheck?: AppCheckClaim): Promise<Record<string, unknown>> {
+      const resolved = resolveAiWorkerDb(app);
       try {
-        return unpackAiEvidence(await aiCountTokens(db, params(model, req, appCheck)));
+        return unpackAiEvidence(
+          await aiCountTokens(resolved.db, buildAiOpParams(model, req, engineWire, appCheck)),
+        );
       } catch (err) {
         throw aiErrorFromWire(err, model, 'countTokens', backend);
+      } finally {
+        if (resolved.ephemeral) {
+          await disconnectClient(resolved.db);
+        }
       }
     },
   };
@@ -356,10 +425,12 @@ export const getAI = (
           );
         }
         const wire = toEngineWire(engine) ?? pluginEngineWire();
+        // Ensure the app's worker port is registered on creation while live.
+        workerClientForApp(resolved);
         return createTransportAI(
           resolved,
           options,
-          portEngine(workerClientForApp(resolved), wire, options?.backend),
+          portEngine(resolved, wire, options?.backend),
           assertAlive,
         );
       }

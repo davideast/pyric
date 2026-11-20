@@ -376,9 +376,8 @@ export async function observeDeletedAppAiModelLifecycle<AppHandle, AiHandle>(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'app #27',
+  rowIds: ['app#27'],
   description:
     'Live firebase/app and firebase/ai deletion lifecycle on equal-config apps with Admin-minted App Check tokens: records post-delete getAI and getGenerativeModel outcomes, retained GenerativeModel operations (countTokens, generateContent, generateContentStream) with warm and cold App Check state after deleteApp, and equal-config sibling GenerativeModel survival.',
   async observe() {

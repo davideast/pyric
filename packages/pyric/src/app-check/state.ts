@@ -45,6 +45,8 @@ export interface AppCheckState {
   readonly attestedBy: CustomProvider | null;
   /** Whether the debug token was set when this app's App Check was initialized. */
   readonly debugMode: boolean;
+  /** App identity snapshotted at activation so cold post-delete token mints do not read `deletedApp.options`. */
+  readonly identity: { readonly appId: string; readonly projectId: string };
 }
 
 /** The activation lookup is shared with `pyric/ai`, which reads it when `getAI(app)` builds a handle. */
@@ -98,14 +100,23 @@ export function activate(app: FirebaseApp, provider: AppCheckProvider, isTokenAu
     observers: new Set(),
     attestedBy: attestationProvider(provider, debugMode),
     debugMode,
+    identity: identityOf(app),
   };
   record(app, state);
   return state;
 }
 
-function identityOf(app: FirebaseApp) {
+function identityOf(app: FirebaseApp): { readonly appId: string; readonly projectId: string } {
   const options = app.options as { appId?: string; projectId?: string };
-  return { appId: options.appId ?? '', projectId: options.projectId ?? '' };
+  let appId = '';
+  if (typeof options.appId === 'string') {
+    appId = options.appId;
+  }
+  let projectId = '';
+  if (typeof options.projectId === 'string') {
+    projectId = options.projectId;
+  }
+  return { appId, projectId };
 }
 
 /** Delivers a token to observers off the caller's stack, as the SDK does. */
@@ -123,10 +134,10 @@ function notifyError(observers: Iterable<TokenObserver>, error: unknown): void {
 }
 
 /** The app's provider token, or a sandbox-minted one when it has no provider to call. */
-function freshToken(app: FirebaseApp, state: AppCheckState, now: number, ttlSeconds: number = TTL_SECONDS): Promise<MintedToken> {
+function freshToken(_app: FirebaseApp, state: AppCheckState, now: number, ttlSeconds: number = TTL_SECONDS): Promise<MintedToken> {
   if (state.attestedBy !== null) return state.attestedBy.getToken();
   warnIfProductionNeverSettles(state.provider, state.debugMode);
-  return mintAppCheckToken(identityOf(app), ttlSeconds, now);
+  return mintAppCheckToken(state.identity, ttlSeconds, now);
 }
 
 function isValid(token: MintedToken | null, nowMillis: number): token is MintedToken {

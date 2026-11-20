@@ -11,7 +11,7 @@ import {
   ALL_RULES_RTDB_SCENARIOS,
 } from '../../rules-corpus/rtdb/index.ts';
 import { ALL_RULES_STORAGE_SCENARIOS } from '../../rules-corpus/storage/index.ts';
-import { loadObservations, type Observation } from '../../src/ledger.ts';
+import { loadObservations } from '../../src/ledger.ts';
 import {
   loadModularProbes,
   printModularProbePreview,
@@ -28,9 +28,8 @@ import {
   type DeletedAiProbeModelSubject,
   type DeletedAppAiLifecycleDriver,
 } from '../../probes/app/app-production-deleted-ai-model-lifecycle.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 
-const STAGED_PROBE_ID = 'app-production-deleted-ai-model-lifecycle';
+const PROBE_ID = 'app-production-deleted-ai-model-lifecycle';
 
 const classifier: DeletedAiLifecycleErrorClassifier = {
   isAIError: (err) => err instanceof AIError,
@@ -87,17 +86,17 @@ function createRejectingModel(makeError: () => Error): DeletedAiProbeModelSubjec
   };
 }
 
-describe('app#27 staged sdk-probes capture (app-production-deleted-ai-model-lifecycle)', () => {
-  test('registers under sdk-probes with expectStagedUntilCaptured and validates PR #1 and PR #2 states', async () => {
+describe('app#27 linked sdk-probes capture (app-production-deleted-ai-model-lifecycle)', () => {
+  test('registers under sdk-probes linked to app#27 and validates registry linkage', async () => {
     const loaded = await loadModularProbes('sdk-probes');
     const loadedIds = loaded.map((entry) => entry.id);
-    expect(loadedIds).toContain(STAGED_PROBE_ID);
+    expect(loadedIds).toContain(PROBE_ID);
 
     expect(deletedAppAiLifecycleProbe.rig).toBe('sdk-probes');
     expect(deletedAppAiLifecycleProbe.requires).toEqual(['web-config']);
-    expect(deletedAppAiLifecycleProbe.pendingRowLink).toBe(true);
-    expect(deletedAppAiLifecycleProbe.matrixRow).toBe('');
-    expect(deletedAppAiLifecycleProbe.rowIds).toEqual([]);
+    expect(deletedAppAiLifecycleProbe.pendingRowLink).toBeUndefined();
+    expect(deletedAppAiLifecycleProbe.matrixRow).toBe('app #27');
+    expect(deletedAppAiLifecycleProbe.rowIds).toEqual(['app#27']);
     expect(deletedAppAiLifecycleProbe.description.length).toBeGreaterThan(20);
 
     const unfilteredIds = new Set(
@@ -105,26 +104,15 @@ describe('app#27 staged sdk-probes capture (app-production-deleted-ai-model-life
         includeUncapturedStaged: false,
       }).map((entry) => entry.id),
     );
-
-    expectStagedUntilCaptured(STAGED_PROBE_ID, {
-      rig: 'sdk-probes',
-      filterFlag: '--probe',
-      filterValueFor: (name) => name,
-      whenUncaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(false);
-      },
-      whenCaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(true);
-      },
-    });
+    expect(unfilteredIds.has(PROBE_ID)).toBe(true);
 
     const explicitSelected = selectModularProbes(
       loaded,
-      ['--write', '--probe', STAGED_PROBE_ID],
+      ['--write', '--probe', PROBE_ID],
       'sdk-probes',
       { includeUncapturedStaged: false },
     );
-    expect(explicitSelected.map((entry) => entry.id)).toEqual([STAGED_PROBE_ID]);
+    expect(explicitSelected.map((entry) => entry.id)).toEqual([PROBE_ID]);
 
     const previewLines: string[] = [];
     printModularProbePreview({
@@ -136,33 +124,18 @@ describe('app#27 staged sdk-probes capture (app-production-deleted-ai-model-life
     expect(
       previewLines.some(
         (line) =>
-          line.includes(STAGED_PROBE_ID) &&
+          line.includes(PROBE_ID) &&
           line.includes('observations/app/app-production-deleted-ai-model-lifecycle.json') &&
-          line.includes('[pendingRowLink]'),
+          !line.includes('[pendingRowLink]'),
       ),
     ).toBe(true);
 
     const rigManifests = await loadRigManifests();
     const existingObservations = loadObservations();
-    const syntheticPr2Observation: Observation = {
-      file: `${STAGED_PROBE_ID}.json`,
-      surfaceDir: 'app',
-      name: STAGED_PROBE_ID,
-      matrixRow: '',
-      rowIds: [],
-      observedAt: '2026-11-20T00:00:00.000Z',
-      fbSdkVersion: '12.19.0',
-      behavior: { sample: true },
-      raw: { fbSdkVersion: '12.19.0', rowIds: [] },
-    };
-    const pr2Observations = [
-      ...existingObservations.filter((obs) => obs.name !== STAGED_PROBE_ID),
-      syntheticPr2Observation,
-    ];
-    const pr2Problems = validateCompatibilityRegistry({
+    const problems = validateCompatibilityRegistry({
       rows: allCompatibilityRows,
       descriptors: surfaceDescriptors,
-      observations: pr2Observations,
+      observations: existingObservations,
       observationExceptions,
       rigManifests,
       probeFiles: listProbeFiles(),
@@ -173,7 +146,7 @@ describe('app#27 staged sdk-probes capture (app-production-deleted-ai-model-life
         ...ALL_RULES_RTDB_DEPLOY_SCENARIOS.map((s) => s.id),
       ],
     });
-    expect(pr2Problems).toEqual([]);
+    expect(problems).toEqual([]);
   }, 30_000);
 
   test('records post-delete getGenerativeModel app/app-deleted throws alongside live retained and sibling model outcomes', async () => {

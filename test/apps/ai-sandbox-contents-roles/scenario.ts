@@ -106,6 +106,27 @@ interface GenerateHelpersOutcome {
   helperFirstCallArgsHasCity: boolean;
 }
 
+interface DeletedAppLifecycleOutcome {
+  usesDeletedApp: boolean;
+  modelOnDeletedAppAi: {
+    threw: boolean;
+    isAIError: boolean;
+    isFirebaseError: boolean;
+    code: string | null;
+  };
+  modelOnRetainedAi: {
+    threw: boolean;
+    isAIError: boolean;
+    isFirebaseError: boolean;
+    code: string | null;
+  };
+  warmCountPositive: boolean;
+  warmTextNonEmpty: boolean;
+  warmStreamChunksPositive: boolean;
+  coldCountPositive: boolean;
+  siblingCountPositive: boolean;
+}
+
 interface Roles {
   assistant: Outcome;
   system: Outcome;
@@ -116,6 +137,7 @@ interface Roles {
   chatErrorsAbort: ChatErrorsAbortOutcome;
   initBackends: InitBackendsOutcome;
   generateHelpers: GenerateHelpersOutcome;
+  deletedAppLifecycle: DeletedAppLifecycleOutcome;
 }
 
 declare function runRoles(): Promise<Roles>;
@@ -265,6 +287,27 @@ function assertRoles(roles: Roles): void {
     helperCallCount: 1,
     helperFirstCallName: 'get_weather',
     helperFirstCallArgsHasCity: true,
+  });
+
+  assert.deepEqual(roles.deletedAppLifecycle, {
+    usesDeletedApp: true,
+    modelOnDeletedAppAi: {
+      threw: true,
+      isAIError: false,
+      isFirebaseError: true,
+      code: 'app/app-deleted',
+    },
+    modelOnRetainedAi: {
+      threw: true,
+      isAIError: false,
+      isFirebaseError: true,
+      code: 'app/app-deleted',
+    },
+    warmCountPositive: true,
+    warmTextNonEmpty: true,
+    warmStreamChunksPositive: true,
+    coldCountPositive: true,
+    siblingCountPositive: true,
   });
 }
 
