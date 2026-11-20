@@ -16,6 +16,7 @@ import type { AddressInfo, Socket } from 'node:net';
 import { join, resolve } from 'node:path';
 import { WebSocket, WebSocketServer } from 'ws';
 import { createMemoryBackend } from 'pyric/sandbox';
+import { mintCustomToken } from 'pyric/sandbox/internal';
 import { openStorageBackend } from '../../../pyric/src/storage/persistence.js';
 import {
   MAX_BRIDGE_FRAME_BYTES,
@@ -30,6 +31,17 @@ import type { InitPayload } from '../../src/serve/init-payload.js';
 
 const REPO_ROOT = resolve(import.meta.dir, '../../../..');
 const DEFAULT_RTDB_INSTANCE = 'demo-swift-live-default-rtdb';
+const FIRESTORE_RULES = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+    match /role_items/{role}/items/{itemId} {
+      allow read, write: if request.auth != null && request.auth.token.role == role;
+    }
+  }
+}`;
 const NAMED_SHARDS: readonly string[] = [
   'shard-00',
   'shard-01',
@@ -254,7 +266,7 @@ async function startLoopbackSwiftBridgeHost(): Promise<LoopbackSwiftBridgeHost> 
     };
     const rulesByInstance = buildMultiShardDatabaseRules();
     const payload: InitPayload = {
-      rules: null,
+      rules: FIRESTORE_RULES,
       rulesHash: null,
       databaseRules: MAIN_RULES,
       databaseRulesHash: null,
@@ -290,6 +302,7 @@ async function startLoopbackSwiftBridgeHost(): Promise<LoopbackSwiftBridgeHost> 
       activeRuntime.instanceId,
       [WORKER_PORT_CAPABILITY, WORKER_RELAY_CAPABILITY, STORAGE_BYTE_ROUTE_CAPABILITY],
     );
+    await activeRuntime.deployRules('firestore', FIRESTORE_RULES);
     wss.on('connection', (ws) => {
       attachPeer(bridge, ws, false);
     });
@@ -496,10 +509,32 @@ describe('Swift native SDK live-host conformance', () => {
             childEnv[key] = value;
           }
         }
+        const nowMs = Date.now();
+        const validCustomToken = mintCustomToken({
+          uid: 'swift-custom-uid-01',
+          claims: { role: 'ops', tier: 'enterprise' },
+          projectId: 'demo-swift-live',
+          nowMs,
+        });
+        const mismatchCustomToken = mintCustomToken({
+          uid: 'swift-custom-uid-mismatch',
+          projectId: 'other-swift-project',
+          nowMs,
+        });
         childEnv.PYRIC_LIVE_BRIDGE_URL = host.wsUrl;
+        childEnv.PYRIC_LIVE_CUSTOM_TOKEN_VALID = validCustomToken;
+        childEnv.PYRIC_LIVE_CUSTOM_TOKEN_MISMATCH = mismatchCustomToken;
 
         const child = Bun.spawn(
-          [swiftBinary, 'test', '--package-path', swiftPackageDir, '--filter', 'PyricLiveHostTests'],
+          [
+            swiftBinary,
+            'test',
+            '--no-parallel',
+            '--package-path',
+            swiftPackageDir,
+            '--filter',
+            'PyricLiveHostTests',
+          ],
           {
             cwd: REPO_ROOT,
             env: childEnv,

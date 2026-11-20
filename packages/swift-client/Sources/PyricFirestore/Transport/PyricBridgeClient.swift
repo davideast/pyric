@@ -40,6 +40,7 @@ public actor PyricBridgeClient {
     public let defaultOpTimeout: TimeInterval
     /// Retry the first connection on the reconnect schedule instead of failing.
     public let retryInitialConnection: Bool
+    package nonisolated let hasInjectedChannel: Bool
 
     private var transport: (any WebSocketTransport)?
     private let fixedTransport: (any WebSocketTransport)?
@@ -147,6 +148,7 @@ public actor PyricBridgeClient {
         self.attachTimeout = attachTimeout
         self.transportFactory = transportFactory
         self.fixedTransport = nil
+        self.hasInjectedChannel = false
         let initialClock = ContinuousBridgeClock()
         self.clock = initialClock
         self.lastFrameAt = initialClock.now()
@@ -166,6 +168,7 @@ public actor PyricBridgeClient {
         self.attachTimeout = 5.0
         self.transport = channel
         self.fixedTransport = channel
+        self.hasInjectedChannel = true
         self.transportFactory = nil
         let initialClock = ContinuousBridgeClock()
         self.clock = initialClock

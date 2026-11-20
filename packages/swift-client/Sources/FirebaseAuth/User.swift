@@ -99,6 +99,19 @@ public final class User: @unchecked Sendable, UserInfo {
         }
     }
 
+    public func getIDTokenForcingRefresh(_ forceRefresh: Bool) async throws -> String {
+        try await getIDToken(forcingRefresh: forceRefresh)
+    }
+
+    public func getIDTokenForcingRefresh(
+        _ forceRefresh: Bool,
+        completion: (@Sendable (String?, Error?) -> Void)?
+    ) {
+        inCallOrder(completion: completion) { auth, turn in
+            try await self.getIDToken(auth, turn: turn, forcingRefresh: forceRefresh)
+        }
+    }
+
     private func getIDToken(_ auth: Auth, turn: OperationTurn, forcingRefresh: Bool) async throws -> String {
         do {
             let token = try await auth.bridgeClient.authGetIdToken(turn: turn, forcingRefresh: forcingRefresh)
@@ -135,6 +148,8 @@ public final class User: @unchecked Sendable, UserInfo {
             self.setClaims(res.claims)
             if forcingRefresh {
                 auth.notifyIdTokenChanged(user: self)
+            } else {
+                auth.refreshAuthLensIfNeeded()
             }
             return res
         } catch {
@@ -189,14 +204,14 @@ public final class User: @unchecked Sendable, UserInfo {
     /// Runs a call from a completion-block form in the place of a turn taken
     /// here, before the task starts. A user with no Auth instance takes no turn.
     private func inCallOrder<T: Sendable>(
-        completion: @escaping @Sendable (T?, Error?) -> Void,
+        completion: (@Sendable (T?, Error?) -> Void)?,
         _ call: @escaping @Sendable (Auth, OperationTurn) async throws -> T
     ) {
         let auth: Auth
         do {
             auth = try attachedAuth()
         } catch {
-            Task { completion(nil, error) }
+            Task { completion?(nil, error) }
             return
         }
         auth.runInCallOrder(completion: completion) { turn in try await call(auth, turn) }
@@ -239,10 +254,14 @@ public final class User: @unchecked Sendable, UserInfo {
         }
     }
 
-    private func setClaims(_ claims: [String: AnySendable]) {
+    internal func replaceClaims(_ claims: [String: AnySendable]) {
         lock.lock()
         defer { lock.unlock() }
         self._claims = claims
+    }
+
+    private func setClaims(_ claims: [String: AnySendable]) {
+        replaceClaims(claims)
     }
 
     public static func fromWire(auth: Auth?, wire: AnySendable) -> User? {
