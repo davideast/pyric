@@ -11,6 +11,7 @@
 import { describe, expect, it } from 'bun:test';
 import { EmailAuthProvider, GoogleAuthProvider, getAuth, sandbox as authSandbox } from 'pyric/auth';
 import { initializeSandbox } from 'pyric/sandbox';
+import { encodeJson } from 'pyric/sandbox/internal';
 import { getFirestore } from 'pyric/firestore';
 import { handleMessage, type HostCtx, type PortLike } from '../host.js';
 import { portSession } from '../host-auth.js';
@@ -339,5 +340,132 @@ describe('served signInWithCredential with a federated credential needs a staged
     const h = harness();
     expect(() => stageSignInResult(h.clientAuth, { user: { uid: '' }, providerId: 'google.com' })).toThrow('non-empty');
     expect(() => stageSignInResult(h.clientAuth, { user: { uid: 'u' }, providerId: null })).toThrow('non-empty');
+  });
+});
+
+describe('served auth.signInWithCredential OIDC JWT decode fallback', () => {
+  function makeOidcJwt(claims: Record<string, unknown>, twoSegment = false): string {
+    const header = encodeJson({ alg: 'none', typ: 'JWT' });
+    const body = encodeJson(claims);
+    if (twoSegment) {
+      return `${header}.${body}`;
+    }
+    return `${header}.${body}.`;
+  }
+
+  it('decodes unsigned Google OIDC JWT idToken on flat and nested wire payloads when no mock is staged', async () => {
+    const h = harness();
+    const jwt = makeOidcJwt({
+      sub: 'google-mobile-sub-7',
+      email: 'mobile@example.com',
+      email_verified: true,
+      name: 'Mobile Rider',
+      picture: 'https://example.com/mobile.png',
+    });
+
+    const firstRes = await h.sendRaw({
+      providerId: 'google.com',
+      idToken: jwt,
+    });
+    expect(firstRes).toMatchObject({
+      ok: true,
+      value: {
+        providerId: 'google.com',
+        operationType: 'signIn',
+        additionalUserInfo: {
+          isNewUser: true,
+          providerId: 'google.com',
+        },
+        user: {
+          uid: 'google-mobile-sub-7',
+          email: 'mobile@example.com',
+          emailVerified: true,
+          displayName: 'Mobile Rider',
+          photoURL: 'https://example.com/mobile.png',
+        },
+      },
+    });
+    const bound = portSession(h.ctx, h.rawPort);
+    expect(bound?.user.uid).toBe('google-mobile-sub-7');
+    const tokenResult = await bound?.user.getIdTokenResult();
+    expect(tokenResult?.signInProvider).toBe('google.com');
+
+    const secondJwt = makeOidcJwt(
+      {
+        sub: 'google-mobile-sub-7',
+        email: 'mobile@example.com',
+        email_verified: true,
+        name: 'Mobile Rider Updated',
+        picture: 'https://example.com/mobile-2.png',
+      },
+      true,
+    );
+    const secondRes = await h.sendRaw({
+      credential: {
+        providerId: 'google.com',
+        signInMethod: 'google.com',
+        idToken: secondJwt,
+      },
+    });
+    expect(secondRes).toMatchObject({
+      ok: true,
+      value: {
+        additionalUserInfo: { isNewUser: false },
+        user: {
+          uid: 'google-mobile-sub-7',
+          displayName: 'Mobile Rider Updated',
+          photoURL: 'https://example.com/mobile-2.png',
+        },
+      },
+    });
+  });
+
+  it('gives an explicit staged sign-in result precedence over an OIDC JWT idToken', () => {
+    const h = harness();
+    const auth = getAuth(h.sandbox);
+    const jwt = makeOidcJwt({
+      sub: 'jwt-sub-fallback',
+      email: 'jwt@example.com',
+      email_verified: true,
+      name: 'JWT User',
+    });
+    const staged: ResolvedIdentity = {
+      uid: 'staged-override-uid',
+      providerId: 'google.com',
+      email: 'override@example.com',
+      displayName: 'Override Name',
+      photoURL: null,
+      customClaims: {},
+    };
+
+    const withStaged = signInWithCredentialPayload(
+      auth,
+      { providerId: 'google.com', idToken: jwt },
+      { tenantId: null },
+      () => staged,
+    );
+    expect(withStaged.session.user.uid).toBe('staged-override-uid');
+    expect(withStaged.session.user.email).toBe('override@example.com');
+
+    const withoutStaged = signInWithCredentialPayload(
+      auth,
+      { providerId: 'google.com', idToken: jwt },
+      { tenantId: 'tenant-1' },
+      nothingStaged,
+    );
+    expect(withoutStaged.session.user.uid).toBe('jwt-sub-fallback');
+    expect(withoutStaged.session.user.tenantId).toBe('tenant-1');
+    expect(withoutStaged.isNewUser).toBe(true);
+  });
+
+  it('still refuses malformed JWTs or JWTs missing sub with auth/no-mock-configured', async () => {
+    const h = harness();
+    const missingSub = `${encodeJson({ alg: 'none' })}.${encodeJson({ email: 'nosub@example.com' })}.`;
+
+    for (const badToken of ['not.a.jwt', missingSub, '']) {
+      const res = await h.sendRaw({ providerId: 'google.com', idToken: badToken });
+      expect(res).toMatchObject({ ok: false, error: { code: 'auth/no-mock-configured' } });
+    }
+    expect(portSession(h.ctx, h.rawPort)).toBeNull();
   });
 });

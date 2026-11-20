@@ -1,6 +1,11 @@
 import { FirebaseError } from 'pyric/app';
 import { AuthCredential, EmailAuthCredential, sandbox, type Auth, type MintedSession } from 'pyric/auth';
-import { isFederatedProviderId, noMockConfiguredError, resolveEmailLinkIdentity } from 'pyric/auth/internal';
+import {
+  isFederatedProviderId,
+  noMockConfiguredError,
+  resolveEmailLinkIdentity,
+  resolveOidcJwtIdentity,
+} from 'pyric/auth/internal';
 import { resolveOAuthCredentialUser, type OAuthCredentialPayload } from './auth-session-seeder.js';
 import type { ResolvedIdentity } from '../protocol.js';
 
@@ -74,10 +79,11 @@ export function credentialFromWirePayload(
  * `phone`, or an id pyric doesn't know), or a payload whose `signInMethod`
  * differs from its provider, is refused with in-page's
  * `auth/no-mock-configured` before the resolver can find or touch an account
- * (#1466). A federated credential signs in only as a result the port staged
- * for its provider, as in-page: the sandbox has no identity provider to
- * redeem a token against, so nothing the payload asserts (`uid`, `email`)
- * picks the account. With nothing staged it is refused the same way.
+ * (#1466). A federated credential consumes a result the port staged for its
+ * provider first; when none is staged, a well-formed OIDC JWT `idToken` with a
+ * non-empty `sub` claim decodes as the Firebase Auth Emulator does, while raw
+ * payload assertions (`uid`, `email`) without a staged result or valid OIDC
+ * JWT are refused with `auth/no-mock-configured`.
  */
 export function signInWithCredentialPayload(
   auth: Auth,
@@ -94,9 +100,49 @@ export function signInWithCredentialPayload(
   const hasOtherSignInMethod = signInMethod !== undefined && signInMethod !== payload.providerId;
   if (!isFederated || hasOtherSignInMethod) throw noMockConfiguredError(payload.providerId);
   const staged = takeStaged(payload.providerId);
-  const hasStagedUser = staged !== null && staged.uid !== '';
-  if (!hasStagedUser) throw noMockConfiguredError(payload.providerId);
-  return signInAsStaged(auth, staged, scope);
+  if (staged !== null) {
+    if (staged.uid === '') throw noMockConfiguredError(payload.providerId);
+    return signInAsStaged(auth, staged, scope);
+  }
+  const oidcSignIn = signInWithOidcJwtPayload(auth, payload, scope);
+  if (oidcSignIn !== null) {
+    return oidcSignIn;
+  }
+  throw noMockConfiguredError(payload.providerId);
+}
+
+function signInWithOidcJwtPayload(
+  auth: Auth,
+  payload: CredentialPayload,
+  scope: CredentialSignInScope,
+): CredentialSignIn | null {
+  const rawIdToken = payload['idToken'];
+  if (typeof rawIdToken !== 'string' || rawIdToken.length === 0) {
+    return null;
+  }
+  const resolved = resolveOidcJwtIdentity(auth, {
+    providerId: payload.providerId,
+    idToken: rawIdToken,
+    tenantId: scope.tenantId,
+  });
+  if (resolved === null) {
+    return null;
+  }
+  const sessionArgs: Parameters<typeof sandbox.mintSession>[1] = {
+    kind: 'provider',
+    uid: resolved.uid,
+    providerId: payload.providerId,
+    tenantId: scope.tenantId,
+  };
+  if (scope.origin !== undefined) {
+    sessionArgs.origin = scope.origin;
+  }
+  const session = sandbox.mintSession(auth, sessionArgs);
+  return {
+    session,
+    providerId: payload.providerId,
+    isNewUser: resolved.isNewUser,
+  };
 }
 
 /** Sign in as the staged identity: find or create its uid and link the provider, as `auth.acceptIdentity` does. */
