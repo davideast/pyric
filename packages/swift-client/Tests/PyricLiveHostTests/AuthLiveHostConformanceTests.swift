@@ -7,7 +7,7 @@ import PyricDatabase
 import Combine
 #endif
 
-@Suite("auth-swift Live-Host Conformance Suite (Rows 1-35)", .serialized)
+@Suite("auth-swift Live-Host Conformance Suite (Rows 1-58)", .serialized)
 struct AuthLiveHostConformanceTests {
 
     @Test("FirebaseOptions, FirebaseApp configuration, and bridge URL precedence")
@@ -512,7 +512,7 @@ struct AuthLiveHostConformanceTests {
 
     // -- Helpers --
 
-    private func liveHostEndpoint() throws -> (host: String, port: Int)? {
+    func liveHostEndpoint() throws -> (host: String, port: Int)? {
         guard let rawBridgeURL = ProcessInfo.processInfo.environment["PYRIC_LIVE_BRIDGE_URL"],
               !rawBridgeURL.isEmpty else {
             return nil
@@ -523,7 +523,7 @@ struct AuthLiveHostConformanceTests {
         return (host, port)
     }
 
-    private func makeLiveApp(prefix: String, host: String, port: Int) -> FirebaseApp {
+    func makeLiveApp(prefix: String, host: String, port: Int) -> FirebaseApp {
         let app = FirebaseApp(
             name: "swift-\(prefix)-\(UUID().uuidString)",
             options: FirebaseOptions(
@@ -537,7 +537,7 @@ struct AuthLiveHostConformanceTests {
         return app
     }
 
-    private func awaitCompletion(
+    func awaitCompletion(
         _ register: (@escaping @Sendable (AuthDataResult?, Error?) -> Void) -> Void
     ) async throws -> AuthDataResult {
         try await withCheckedThrowingContinuation { continuation in
@@ -553,7 +553,7 @@ struct AuthLiveHostConformanceTests {
         }
     }
 
-    private func awaitTokenCompletion(
+    func awaitTokenCompletion(
         _ register: (@escaping @Sendable (String?, Error?) -> Void) -> Void
     ) async throws -> String {
         try await withCheckedThrowingContinuation { continuation in
@@ -569,7 +569,37 @@ struct AuthLiveHostConformanceTests {
         }
     }
 
-    private func expectAuthError(_ operation: () async throws -> Void) async -> AuthError? {
+    func awaitTokenResultCompletion(
+        _ register: (@escaping @Sendable (AuthTokenResult?, Error?) -> Void) -> Void
+    ) async throws -> AuthTokenResult {
+        try await withCheckedThrowingContinuation { continuation in
+            register { result, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else if let result {
+                    continuation.resume(returning: result)
+                } else {
+                    continuation.resume(throwing: AuthError(code: .internalError, message: "Missing AuthTokenResult"))
+                }
+            }
+        }
+    }
+
+    func awaitVoidCompletion(
+        _ register: (@escaping @Sendable (Error?) -> Void) -> Void
+    ) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            register { error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: ())
+                }
+            }
+        }
+    }
+
+    func expectAuthError(_ operation: () async throws -> Void) async -> AuthError? {
         do {
             try await operation()
             Issue.record("Expected AuthError, but operation succeeded")
@@ -582,11 +612,11 @@ struct AuthLiveHostConformanceTests {
         }
     }
 
-    private func expectSignedOutSnapshot(_ snapshot: User??) {
+    func expectSignedOutSnapshot(_ snapshot: User??) {
         #expect(snapshot != nil && snapshot! == nil)
     }
 
-    private func expectBridgeDenied(_ operation: () async throws -> Void) async {
+    func expectBridgeDenied(_ operation: () async throws -> Void) async {
         do {
             try await operation()
             Issue.record("Expected permission-denied error, but operation succeeded")
@@ -601,7 +631,7 @@ struct AuthLiveHostConformanceTests {
     }
 }
 
-private final class LockedRecorder<Element: Sendable>: @unchecked Sendable {
+final class LockedRecorder<Element: Sendable>: @unchecked Sendable {
     private let lock = NSLock()
     private var items: [Element] = []
 

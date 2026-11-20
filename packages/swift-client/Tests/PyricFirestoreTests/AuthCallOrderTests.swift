@@ -87,11 +87,20 @@ let authLaterCalls: [AuthLaterCall] = [
     AuthLaterCall(name: "User.getIDTokenResult(completion:)", method: "auth.getIdTokenResult") { _, user in
         user.getIDTokenResult { _, _ in }
     },
+    asyncCall("await stageSignInResult(...)", "auth.mockSignInResult") { auth, _ in
+        try await auth.stageSignInResult(providerID: "google.com", uid: "u-staged")
+    },
     asyncCall("await User.updateProfile(displayName:photoURL:)", "auth.updateProfile") { _, user in
         try await user.updateProfile(displayName: "Ada", photoURL: nil)
     },
-    asyncCall("await User.reload()", "auth.getCurrentUser") { _, user in
+    AuthLaterCall(name: "User.updateProfile(displayName:photoURL:completion:)", method: "auth.updateProfile") { _, user in
+        user.updateProfile(displayName: "Ada", photoURL: nil) { _ in }
+    },
+    asyncCall("await User.reload()", "auth.reload") { _, user in
         try await user.reload()
+    },
+    AuthLaterCall(name: "User.reload(completion:)", method: "auth.reload") { _, user in
+        user.reload { _ in }
     },
 ]
 
