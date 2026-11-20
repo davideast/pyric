@@ -82,6 +82,10 @@ class PyricBridgeClient(
     @Volatile
     var restoreAuth: BridgeAuthRestorer = {}
 
+    /** Resolves the active App Check token for requests on the owning FirebaseApp. */
+    @Volatile
+    internal var appCheckTokenProvider: (suspend () -> String?)? = null
+
     /** The client session ID acknowledged by the bridge. */
     @Volatile
     var clientSessionId: String? = null
@@ -408,10 +412,11 @@ class PyricBridgeClient(
         timeoutMs: Long? = null
     ): Any? {
         if (isDisposed) throw disposedError()
+        val resolvedParams = BridgeAppCheckAttachment.attachToOpParams(method, params, appCheckTokenProvider)
         val start = {
             operationDispatcher.dispatch(
                 method = method,
-                params = params,
+                params = resolvedParams,
                 actAs = actAs,
                 timeoutMs = timeoutMs,
                 // A client that cannot reopen its transport has no reconnect to hold for.
@@ -459,6 +464,7 @@ class PyricBridgeClient(
             actAs = actAs,
             includeMetadataChanges = includeMetadataChanges,
             listenSource = listenSource,
+            appCheckTokenProvider = appCheckTokenProvider,
             isAttached = { isConnected },
             ensureConnected = ::ensureConnectedForSubscription,
             keepsSubscriptionOnConnectFailure = { !isDisposed && canReopen && (hasEverAttached || retryInitialConnection) },
@@ -508,6 +514,7 @@ class PyricBridgeClient(
             setState(BridgeConnectionState.CLOSED)
         }
         restoreAuth = {}
+        appCheckTokenProvider = null
 
         heldOperations.dispose(FirebaseFirestoreException(BRIDGE_DISCONNECTED_MESSAGE, FirebaseFirestoreException.Code.UNAVAILABLE))
         operationDispatcher.failAll(FirebaseFirestoreException.Code.UNAVAILABLE, BRIDGE_DISCONNECTED_MESSAGE)

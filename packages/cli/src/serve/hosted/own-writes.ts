@@ -109,6 +109,8 @@ const NON_PERSISTED_LIVE_WRITE: Readonly<Record<NonPersistedOperationMethod, boo
   'messaging.deliver': true,
   'messaging.acknowledge': true,
   'messaging.setVisibility': true,
+  'appCheck.getToken': true,
+  'appCheck.getLimitedUseToken': true,
   'ai.generateContent': true,
   'ai.countTokens': true,
   retireRuntime: true,

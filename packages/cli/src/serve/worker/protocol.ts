@@ -7,12 +7,14 @@ import type { ActionCodeSettings } from 'pyric/auth';
  *   - `./protocol/firestore.js` (Firestore refs, sentinels, aggregates, doc data codec)
  *   - `./protocol/auth.js` (SerializedUser, ResolvedIdentity, AuthSubMessage, serializeUser)
  *   - `./protocol/storage.js` (Base64 codec + storage byte payload limits)
+ *   - `./protocol/app-check.js` (App Check token minting ops)
  *   - `./protocol/error-serialization.js` (SerializedError + wire error shaping)
  */
 
 export * from './protocol/firestore.js';
 export * from './protocol/auth.js';
 export * from './protocol/storage.js';
+export * from './protocol/app-check.js';
 export * from './protocol/ai.js';
 export * from './protocol/subscriptions.js';
 export * from './protocol/error-serialization.js';
@@ -32,6 +34,7 @@ import type {
   SerializedAuthCredential,
   ResolvedIdentity,
 } from './protocol/auth.js';
+import type { AppCheckOpMessage } from './protocol/app-check.js';
 import type { AiAppCheckWire, AiEngineConfigWire } from './protocol/ai.js';
 import type {
   PresenceClientKind,
@@ -302,6 +305,7 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'messaging.deliver'; recipientId?: string; spec: MessagingDeliverSpec }
   | { t: 'op'; id: string; method: 'messaging.acknowledge'; subId: string; messageId: string; stage: DeliveryStage }
   | { t: 'op'; id: string; method: 'messaging.setVisibility'; recipientId?: string; state: ClientVisibilityState }
+  | AppCheckOpMessage
   // Connected-page presence (#227)
   | {
       t: 'op';
@@ -464,6 +468,7 @@ export type InboundMessage = (
 ) & {
   clientSessionId?: string;
   resumeSession?: boolean;
+  appCheckToken?: string;
   /** Adapter-supplied provenance; it does not grant execution authority. */
   issuer?: 'studio';
   relaySource?: 'remote';

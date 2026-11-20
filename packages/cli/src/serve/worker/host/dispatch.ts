@@ -56,6 +56,12 @@ import {
   cleanupPortMessaging,
 } from '../host-messaging.js';
 import {
+  cleanupPortAppCheck,
+  handleAppCheckOp,
+  isAppCheckOp,
+  recordPortAppCheckToken,
+} from './app-check.js';
+import {
   lensDb,
   lensProvenance,
   opProvenance,
@@ -303,6 +309,7 @@ async function dispatchMessage(
   port: PortLike,
   msg: InboundMessage,
 ): Promise<void> {
+  recordPortAppCheckToken(ctx, port, msg);
   const isOperation = msg.t === 'op';
   const isSubscription = msg.t === 'sub';
   const isUnsubscribe = msg.t === 'unsub';
@@ -317,6 +324,7 @@ async function dispatchMessage(
     const isAuth = isAuthOp(msg.method);
     const isAi = isAiOp(msg.method);
     const isMessaging = isMessagingOp(msg.method);
+    const isAppCheck = isAppCheckOp(msg.method);
     if (isActionCode) {
       await handleAuthActionCodeOp(ctx, port, msg);
     } else if (isCustomToken) {
@@ -327,6 +335,8 @@ async function dispatchMessage(
       await handleAiOp(ctx, port, msg);
     } else if (isMessaging) {
       await handleMessagingOp(ctx, port, msg);
+    } else if (isAppCheck) {
+      await handleAppCheckOp(ctx, port, msg);
     } else {
       await handleOp(ctx, port, msg);
     }
@@ -438,6 +448,7 @@ export function cleanupPort(ctx: HostCtx, port: PortLike): void {
   // visibility stops feeding the routing rule. Its delivery-handler unsubs
   // live in `ctx.subs` and are torn down with the loop below.
   attempt(() => { cleanupPortMessaging(ctx, port); });
+  attempt(() => { cleanupPortAppCheck(ctx, port); });
 
   // Presence: best-effort remove this port's logical client when it was the
   // last association (lease expiry remains the correctness path).

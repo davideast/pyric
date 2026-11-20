@@ -26,6 +26,7 @@ function dropUnreadableSessionData(message: Record<string, unknown>): void {
 function assertInboundFields(message: Record<string, unknown>): void {
   requireOptionalString(message.clientSessionId, 'clientSessionId');
   requireOptionalBoolean(message.resumeSession, 'resumeSession');
+  requireOptionalString(message.appCheckToken, 'appCheckToken');
   const encoding = message.docValueEncoding;
   if (encoding !== undefined) {
     requireShape(encoding === DOC_VALUE_ENCODING || encoding === 'legacy', 'docValueEncoding');

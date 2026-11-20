@@ -62,6 +62,7 @@ class BridgeSubscriptionManager(
         actAs: Map<String, Any?>? = null,
         includeMetadataChanges: Boolean = false,
         listenSource: String? = null,
+        appCheckTokenProvider: (suspend () -> String?)? = null,
         isAttached: () -> Boolean,
         ensureConnected: suspend () -> Unit,
         keepsSubscriptionOnConnectFailure: () -> Boolean,
@@ -80,6 +81,14 @@ class BridgeSubscriptionManager(
         if (includeMetadataChanges) subPayload["includeMetadataChanges"] = true
         if (listenSource != null && listenSource != "defaultSource") {
             subPayload["listenSource"] = listenSource
+        }
+        val appCheckToken = if (actualTarget != null) {
+            BridgeAppCheckAttachment.resolveForSubscription(actualTarget, appCheckTokenProvider)
+        } else {
+            null
+        }
+        if (appCheckToken != null) {
+            subPayload["appCheckToken"] = appCheckToken
         }
 
         val record = ActiveSubscription(subId, this, subPayload, includeMetadataChanges)

@@ -319,6 +319,10 @@ export interface HostCtx {
    */
   messagingClients?: Map<PortLike, string>;
   messagingAcknowledgments?: Map<PortLike, Map<string, (messageId: string, stage: DeliveryStage) => boolean>>;
+  /** Per-port App Check token cache keyed by `<projectId>::<appId>`. */
+  appCheckTokens?: WeakMap<PortLike, Map<string, { token: string; expireTimeMillis: number }>>;
+  /** Most recent App Check token attached to an inbound request on each port. */
+  portAppCheckTokens?: WeakMap<PortLike, string>;
 }
 
 /** One RTDB instance the host serves: its store's handles and its rules. */

@@ -1,10 +1,12 @@
 package com.google.firebase.auth
 
+import com.google.firebase.FirebaseException
+
 open class FirebaseAuthException(
     val errorCode: String,
     message: String,
     cause: Throwable? = null
-) : Exception("[$errorCode] $message", cause)
+) : FirebaseException("[$errorCode] $message", cause)
 
 /** The user does not exist, is disabled, or has an expired/revoked token (`ERROR_USER_NOT_FOUND`, `ERROR_USER_DISABLED`, `ERROR_USER_TOKEN_EXPIRED`). */
 open class FirebaseAuthInvalidUserException(

@@ -513,6 +513,17 @@ export function assertOperationArguments(message: Record<string, unknown>): void
     case 'getSnapshot':
     case 'resetAll':
       return;
+    case 'appCheck.getToken':
+      requireOptionalString(message.appId, 'appId');
+      requireOptionalString(message.projectId, 'projectId');
+      requireOptionalString(message.provider, 'provider');
+      requireOptionalBoolean(message.forceRefresh, 'forceRefresh');
+      return;
+    case 'appCheck.getLimitedUseToken':
+      requireOptionalString(message.appId, 'appId');
+      requireOptionalString(message.projectId, 'projectId');
+      requireOptionalString(message.provider, 'provider');
+      return;
     default: {
       const unsupportedMethod: never = method;
       throw new FirebaseError('invalid-argument', `Unknown method: ${unsupportedMethod}`);

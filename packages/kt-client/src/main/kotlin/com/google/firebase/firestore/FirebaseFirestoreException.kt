@@ -1,5 +1,7 @@
 package com.google.firebase.firestore
 
+import com.google.firebase.FirebaseException
+
 /**
  * Structured exception mirroring Firebase Android SDK's [FirebaseFirestoreException].
  */
@@ -9,7 +11,7 @@ open class FirebaseFirestoreException(
     cause: Throwable? = null,
     val denialContext: Any? = null,
     val wireCode: String? = null
-) : Exception(message, cause) {
+) : FirebaseException(message, cause) {
 
     enum class Code(val value: Int) {
         OK(0),

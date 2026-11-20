@@ -121,6 +121,8 @@ export const operationPersistence = {
   'messaging.deliver': false,
   'messaging.acknowledge': false,
   'messaging.setVisibility': false,
+  'appCheck.getToken': false,
+  'appCheck.getLimitedUseToken': false,
   'presence.register': false,
   'presence.heartbeat': false,
   'presence.update': false,
