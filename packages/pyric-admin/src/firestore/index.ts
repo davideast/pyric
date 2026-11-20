@@ -54,38 +54,33 @@ import {
 } from '../app/index.js';
 import { getDefaultServiceApp } from '../app/default-service-app.js';
 import { assertAdminAppActive } from '../app/lifecycle.js';
-import { defineDeferredMembers, deferredExport, type DeferredMembers } from 'pyric/app/internal';
 import { adminOnSnapshot, wrapAdminFirestoreHandle } from './admin-value-adapter.js';
 import { FieldValue } from './admin-field-value.js';
 import { AggregateField, Filter } from './admin-filter-aggregate-cursors.js';
+import { GeoPoint } from './admin-geopoint.js';
+import { GrpcStatus, setLogFunction } from './admin-grpc-log.js';
+import { adminRawDbProjectId, adminRawDbSandbox } from './admin-handle-registry.js';
+import {
+  applyAdminFirestoreSettings,
+  type AdminFirestoreSettings,
+} from './admin-settings-lifecycle.js';
 import { registerBypassExistenceReader } from './admin-write-result-preconditions.js';
 
-export { AggregateField, FieldValue, Filter };
+export { AggregateField, FieldValue, Filter, GeoPoint, GrpcStatus, setLogFunction };
+export type { AdminFirestoreSettings as Settings };
 
-// --- Deferred surface --------------------------------------------------------
-//
-// `firebase-admin/firestore` values and `Firestore` methods the sandbox does
-// not model. Each fails with a `PyricDeferredApiError` naming it instead of
-// reading as `undefined` at the call site.
-
-const SUBPATH = 'pyric-admin/firestore';
-
-export const GeoPoint = deferredExport(SUBPATH, 'GeoPoint');
-export const GrpcStatus = deferredExport(SUBPATH, 'GrpcStatus');
-export const initializeFirestore = deferredExport(SUBPATH, 'initializeFirestore');
-export const setLogFunction = deferredExport(SUBPATH, 'setLogFunction');
-
-const FIRESTORE_DEFERRED_MEMBERS: DeferredMembers = {
-  async: ['getAll', 'listCollections', 'recursiveDelete', 'terminate'],
-  sync: ['bulkWriter', 'bundle', 'settings'],
-};
-
-/** Define the deferred `Firestore` methods on a handle either arm built. */
-function withDeferredMembers(
+function wrapRootHandle(
   db: SandboxFirestore,
+  sandbox: Sandbox | undefined,
   appBacked = false,
+  projectId?: string,
 ): SandboxFirestore {
-  defineDeferredMembers(db, SUBPATH, 'Firestore', FIRESTORE_DEFERRED_MEMBERS);
+  if (sandbox !== undefined) {
+    adminRawDbSandbox.set(db, sandbox);
+  }
+  if (projectId !== undefined && projectId.length > 0) {
+    adminRawDbProjectId.set(db, projectId);
+  }
   return wrapAdminFirestoreHandle(db, appBacked);
 }
 
@@ -109,10 +104,27 @@ function getAppFirestore(app: PyricAdminApp, databaseId?: unknown): SandboxFires
   assertValidOptionalDatabaseId(databaseId);
   const existing = appFirestoreCache.get(app);
   if (existing !== undefined) return existing;
-  const rawDb = baseGetAdminFirestore(adminAppToContext(app));
-  const wrapped = withDeferredMembers(rawDb, true);
+  const ctx = adminAppToContext(app);
+  const rawDb = baseGetAdminFirestore(ctx);
+  let projectId = 'pyric-sandbox';
+  if (typeof app.options?.projectId === 'string' && app.options.projectId.length > 0) {
+    projectId = app.options.projectId;
+  }
+  const wrapped = wrapRootHandle(rawDb, ctx.sandbox, true, projectId);
   appFirestoreCache.set(app, wrapped);
   return wrapped;
+}
+
+export function initializeFirestore(
+  app: PyricAdminApp,
+  settings?: AdminFirestoreSettings,
+  databaseId?: string,
+): SandboxFirestore {
+  const handle = getAppFirestore(app, databaseId);
+  if (settings !== undefined) {
+    applyAdminFirestoreSettings(handle, settings, true);
+  }
+  return handle;
 }
 
 /**
@@ -167,7 +179,7 @@ export function getFirestore(
         async (docPath) => (await bypassDb.doc(docPath).get()).exists,
       );
     }
-    return withDeferredMembers(rawDb);
+    return wrapRootHandle(rawDb, target.sandbox);
   }
   throw new TypeError(
     'pyric-admin/firestore: expected a PyricAdminApp from initializeApp() or a SandboxContext (or omit the argument for the default app).',
@@ -177,7 +189,13 @@ export function getFirestore(
 export function getAdminFirestore(ctx: SandboxContext): SandboxFirestore;
 export function getAdminFirestore(sandbox: Sandbox): SandboxFirestore;
 export function getAdminFirestore(target: SandboxContext | Sandbox): SandboxFirestore {
-  return withDeferredMembers(baseGetAdminFirestore(target as SandboxContext));
+  let sb: Sandbox | undefined;
+  if (target instanceof SandboxContextImpl) {
+    sb = target.sandbox;
+  } else {
+    sb = target as Sandbox;
+  }
+  return wrapRootHandle(baseGetAdminFirestore(target as SandboxContext), sb);
 }
 
 export { adminOnSnapshot as onSnapshot };

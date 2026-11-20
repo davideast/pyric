@@ -5,8 +5,10 @@
 
 import {
   Bytes as InternalBytes,
+  LatLng as InternalLatLng,
   Reference as InternalReference,
 } from 'pyric/rules/internal';
+import { GeoPoint } from './admin-geopoint.js';
 import type {
   CollectionReference,
   DocumentData,
@@ -45,6 +47,9 @@ function finalizeReadValue(
   if (value === null || typeof value !== 'object') return value;
   if (value instanceof InternalReference) {
     return buildDocRef(rootDb, value.path);
+  }
+  if (value instanceof InternalLatLng) {
+    return new GeoPoint(value.lat, value.lng);
   }
   if (value instanceof InternalBytes) {
     return Buffer.from(Uint8Array.prototype.slice.call(value.data));

@@ -9,7 +9,6 @@ import {
   selectModularProbes,
 } from '../../src/sdk-probes.ts';
 import { auditProbeSessionAuthModes } from '../../src/sdk-probe-runtime.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 import { probe as connectEmulatorProbe } from '../../probes/firestore/firestore-connect-emulator-options.ts';
 import {
   type AnonymousListenerAuthTransitionSubject,
@@ -58,7 +57,7 @@ function encodeLengthPrefixedJson(payload: Record<string, unknown>): Uint8Array 
 }
 
 describe('Firestore Wave 2 connectFirestoreEmulator, anonymous listener, and admin maintenance probes', () => {
-  test('links client emulator and anonymous-listener probes while keeping admin maintenance staged', async () => {
+  test('links all 3 Wave 2 client and admin sdk-probes with inert preview safety', async () => {
     expect(auditProbeSessionAuthModes()).toEqual([]);
     const loaded = await loadModularProbes('sdk-probes');
     const loadedIds = loaded.map((entry) => entry.id);
@@ -75,9 +74,8 @@ describe('Firestore Wave 2 connectFirestoreEmulator, anonymous listener, and adm
     expect(anonymousListenerProbe.rowIds).toEqual(['firestore#88']);
 
     expect(adminMaintProbe.rig).toBe('sdk-probes');
-    expect(adminMaintProbe.pendingRowLink).toBe(true);
-    expect(adminMaintProbe.matrixRow).toBe('');
-    expect(adminMaintProbe.rowIds).toEqual([]);
+    expect(adminMaintProbe.pendingRowLink).toBeUndefined();
+    expect(adminMaintProbe.rowIds).toEqual(['firestore-admin#9']);
     expect(adminMaintProbe.description.length).toBeGreaterThan(20);
 
     const unfilteredIds = new Set(
@@ -85,20 +83,9 @@ describe('Firestore Wave 2 connectFirestoreEmulator, anonymous listener, and adm
         includeUncapturedStaged: false,
       }).map((entry) => entry.id),
     );
-    expect(unfilteredIds.has('firestore-connect-emulator-options')).toBe(true);
-    expect(unfilteredIds.has('firestore-anonymous-listener-auth-transition')).toBe(true);
-
-    expectStagedUntilCaptured(['firestore-admin-geopoint-init-and-maintenance'], {
-      rig: 'sdk-probes',
-      filterFlag: '--probe',
-      filterValueFor: (name) => name,
-      whenUncaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(false);
-      },
-      whenCaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(true);
-      },
-    });
+    for (const id of WAVE2_SLICE2_PROBE_IDS) {
+      expect(unfilteredIds.has(id)).toBe(true);
+    }
 
     const previewLines: string[] = [];
     printModularProbePreview({
