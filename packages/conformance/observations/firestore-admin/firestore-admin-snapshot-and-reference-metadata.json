@@ -1,0 +1,61 @@
+{
+  "name": "firestore-admin-snapshot-and-reference-metadata",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase-admin/firestore DocumentSnapshot.{createTime, updateTime, readTime, isEqual}, QuerySnapshot.{readTime, isEqual, query}, reference .{firestore, parent, isEqual}, WriteResult, and FirebaseFirestoreError.",
+  "observedAt": "2026-11-20T02:48:29.669Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "references": {
+      "rootColParentIsNull": true,
+      "subColParentPathMatchesBase": true,
+      "colFirestoreSameAsDb": true,
+      "docFirestoreSameAsDb": true,
+      "queryFirestoreSameAsDb": true,
+      "colIsEqualSame": true,
+      "colIsEqualDifferent": false,
+      "docIsEqualSame": true,
+      "docIsEqualDifferent": false,
+      "queryIsEqualSame": true,
+      "queryIsEqualDifferent": false
+    },
+    "writeResultClass": {
+      "isInstance": true,
+      "hasTimestampWriteTime": true,
+      "isEqualSelf": true,
+      "isEqualDifferentWrite": false
+    },
+    "documentSnapshots": {
+      "missingExists": false,
+      "missingCreateTimeUndefined": true,
+      "missingUpdateTimeUndefined": true,
+      "missingReadTimeIsTimestamp": true,
+      "existingCreateTimeIsTimestamp": true,
+      "existingUpdateTimeIsTimestamp": true,
+      "existingReadTimeIsTimestamp": true,
+      "createEqualsInitialUpdate": true,
+      "createMatchesWriteResult": true,
+      "isEqualSameUnchangedDoc": true,
+      "isEqualMissingVsExisting": false,
+      "createTimeUnchangedAcrossUpdate": true,
+      "updateTimeAdvancedOrEqual": true,
+      "updateMatchesSecondWriteResult": true,
+      "isEqualAfterMutation": false
+    },
+    "querySnapshots": {
+      "readTimeIsTimestamp": true,
+      "queryMatchesOrigin": true,
+      "isEqualRepeatedSameQuery": true,
+      "isEqualDifferentQuery": false
+    },
+    "firestoreErrorClass": {
+      "hasExport": true,
+      "isErrorInstance": true,
+      "code": "firestore/not-found",
+      "message": "Sample missing document",
+      "jsonCode": "firestore/not-found"
+    }
+  },
+  "adminSdkVersion": "13.10.0"
+}
