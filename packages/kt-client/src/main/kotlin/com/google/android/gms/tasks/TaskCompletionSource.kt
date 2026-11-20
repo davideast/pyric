@@ -1,11 +1,16 @@
 package com.google.android.gms.tasks
 
+import java.util.concurrent.CancellationException
 import java.util.concurrent.Executor
 
-class TaskCompletionSource<TResult> {
+class TaskCompletionSource<TResult>() {
 
     private val impl = TaskImpl<TResult>()
     val task: Task<TResult> get() = impl
+
+    constructor(cancellationToken: CancellationToken) : this() {
+        cancellationToken.onCanceledRequested { impl.trySetCanceled() }
+    }
 
     fun setResult(result: TResult) {
         impl.trySetResult(result)
@@ -19,6 +24,8 @@ class TaskCompletionSource<TResult> {
 
     fun trySetException(e: Exception): Boolean = impl.trySetException(e)
 
+    internal fun trySetCanceled(): Boolean = impl.trySetCanceled()
+
     private class TaskImpl<T> : Task<T>() {
         private val lock = Any()
         private var completeState: Boolean = false
@@ -30,11 +37,14 @@ class TaskCompletionSource<TResult> {
         override fun isComplete(): Boolean = synchronized(lock) { completeState }
         override fun isSuccessful(): Boolean = synchronized(lock) { successfulState }
         override fun isCanceled(): Boolean = synchronized(lock) { canceledState }
+
         @Suppress("UNCHECKED_CAST")
         override fun getResult(): T = synchronized(lock) {
+            if (canceledState) throw CancellationException("Task is already canceled")
             if (successfulState) return resultValue as T
             throw exceptionValue ?: IllegalStateException("Task is not yet complete")
         }
+
         override fun getException(): Exception? = synchronized(lock) { exceptionValue }
 
         private val listeners = mutableListOf<(Task<T>) -> Unit>()
@@ -45,7 +55,9 @@ class TaskCompletionSource<TResult> {
                 completeState = true
                 successfulState = true
                 resultValue = res
-                ArrayList(listeners)
+                val copy = ArrayList(listeners)
+                listeners.clear()
+                copy
             }
             callbacks.forEach { it(this) }
             return true
@@ -57,14 +69,32 @@ class TaskCompletionSource<TResult> {
                 completeState = true
                 successfulState = false
                 exceptionValue = e
-                ArrayList(listeners)
+                val copy = ArrayList(listeners)
+                listeners.clear()
+                copy
             }
             callbacks.forEach { it(this) }
             return true
         }
 
+        fun trySetCanceled(): Boolean {
+            val callbacks = synchronized(lock) {
+                if (completeState) return false
+                completeState = true
+                successfulState = false
+                canceledState = true
+                val copy = ArrayList(listeners)
+                listeners.clear()
+                copy
+            }
+            callbacks.forEach { it(this) }
+            return true
+        }
+
+        @Suppress("UNCHECKED_CAST")
         override fun <X : Throwable> getResult(exceptionType: Class<X>): T {
             synchronized(lock) {
+                if (canceledState) throw CancellationException("Task is already canceled")
                 if (successfulState) return resultValue as T
                 if (exceptionType.isInstance(exceptionValue)) throw exceptionType.cast(exceptionValue)
                 throw exceptionValue ?: IllegalStateException("Task failed without exception")
@@ -101,11 +131,14 @@ class TaskCompletionSource<TResult> {
             synchronized(lock) {
                 if (!completeState) {
                     listeners.add { task ->
-                        if (!task.isSuccessful() && task.getException() != null) listener.onFailure(task.getException()!!)
+                        val taskEx = task.getException()
+                        if (!task.isSuccessful() && !task.isCanceled() && taskEx != null) {
+                            listener.onFailure(taskEx)
+                        }
                     }
                     return this
                 }
-                shouldInvoke = !successfulState
+                shouldInvoke = !successfulState && !canceledState
                 ex = exceptionValue
             }
             if (shouldInvoke && ex != null) {
@@ -135,6 +168,27 @@ class TaskCompletionSource<TResult> {
 
         override fun addOnCompleteListener(executor: Executor, listener: OnCompleteListener<T>): Task<T> {
             return addOnCompleteListener { task -> executor.execute { listener.onComplete(task) } }
+        }
+
+        override fun addOnCanceledListener(listener: OnCanceledListener): Task<T> {
+            val shouldInvoke: Boolean
+            synchronized(lock) {
+                if (!completeState) {
+                    listeners.add { task ->
+                        if (task.isCanceled()) listener.onCanceled()
+                    }
+                    return this
+                }
+                shouldInvoke = canceledState
+            }
+            if (shouldInvoke) {
+                listener.onCanceled()
+            }
+            return this
+        }
+
+        override fun addOnCanceledListener(executor: Executor, listener: OnCanceledListener): Task<T> {
+            return addOnCanceledListener { executor.execute { listener.onCanceled() } }
         }
     }
 }

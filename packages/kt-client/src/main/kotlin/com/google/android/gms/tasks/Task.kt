@@ -14,6 +14,10 @@ fun interface OnCompleteListener<TResult> {
     fun onComplete(task: Task<TResult>)
 }
 
+fun interface OnCanceledListener {
+    fun onCanceled()
+}
+
 abstract class Task<TResult> {
     abstract fun isComplete(): Boolean
     abstract fun isSuccessful(): Boolean
@@ -43,10 +47,16 @@ abstract class Task<TResult> {
     abstract fun addOnFailureListener(executor: Executor, listener: OnFailureListener): Task<TResult>
     abstract fun addOnCompleteListener(listener: OnCompleteListener<TResult>): Task<TResult>
     abstract fun addOnCompleteListener(executor: Executor, listener: OnCompleteListener<TResult>): Task<TResult>
+    abstract fun addOnCanceledListener(listener: OnCanceledListener): Task<TResult>
+    abstract fun addOnCanceledListener(executor: Executor, listener: OnCanceledListener): Task<TResult>
 
     open fun <TContinuationResult> continueWith(continuation: (Task<TResult>) -> TContinuationResult): Task<TContinuationResult> {
         val tcs = TaskCompletionSource<TContinuationResult>()
         addOnCompleteListener { task ->
+            if (task.isCanceled) {
+                tcs.trySetCanceled()
+                return@addOnCompleteListener
+            }
             try {
                 val res = continuation(task)
                 tcs.setResult(res)

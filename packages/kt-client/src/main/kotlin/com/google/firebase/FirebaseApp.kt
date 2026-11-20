@@ -57,14 +57,16 @@ class FirebaseApp private constructor(
         const val DEFAULT_APP_NAME = "[DEFAULT]"
         private val apps = ConcurrentHashMap<String, FirebaseApp>()
 
-        init {
-            // Provide an out-of-the-box default app if not explicitly initialized
-            val defaultOptions = FirebaseOptions.Builder()
+        private fun defaultSandboxOptions(): FirebaseOptions =
+            FirebaseOptions.Builder()
                 .setProjectId("pyric-sandbox")
                 .setApiKey("sandbox-api-key")
                 .setApplicationId("dev.pyric.app")
                 .build()
-            apps[DEFAULT_APP_NAME] = FirebaseApp(DEFAULT_APP_NAME, defaultOptions)
+
+        init {
+            // Provide an out-of-the-box default app if not explicitly initialized
+            apps[DEFAULT_APP_NAME] = FirebaseApp(DEFAULT_APP_NAME, defaultSandboxOptions())
         }
 
         @JvmStatic
@@ -78,8 +80,28 @@ class FirebaseApp private constructor(
         }
 
         @JvmStatic
+        @Suppress("UNUSED_PARAMETER")
+        fun initializeApp(context: Any): FirebaseApp {
+            val existing = apps[DEFAULT_APP_NAME]
+            if (existing != null) {
+                return existing
+            }
+            return initializeApp(DEFAULT_APP_NAME, defaultSandboxOptions())
+        }
+
+        @JvmStatic
         fun initializeApp(options: FirebaseOptions): FirebaseApp =
             initializeApp(DEFAULT_APP_NAME, options)
+
+        @JvmStatic
+        @Suppress("UNUSED_PARAMETER")
+        fun initializeApp(context: Any, options: FirebaseOptions): FirebaseApp =
+            initializeApp(DEFAULT_APP_NAME, options)
+
+        @JvmStatic
+        @Suppress("UNUSED_PARAMETER")
+        fun initializeApp(context: Any, options: FirebaseOptions, name: String): FirebaseApp =
+            initializeApp(name, options)
 
         @JvmStatic
         fun initializeApp(name: String, options: FirebaseOptions): FirebaseApp {
@@ -95,20 +117,32 @@ class FirebaseApp private constructor(
         fun getApps(): List<FirebaseApp> = apps.values.toList()
 
         @JvmStatic
+        @Suppress("UNUSED_PARAMETER")
+        fun getApps(context: Any): List<FirebaseApp> = getApps()
+
+        @JvmStatic
         fun clearInstancesForTest() {
             FirebaseAppCheck.clearInstancesForTest()
             for (app in apps.values) {
                 app.terminateSharedBridgeClient()
             }
             apps.clear()
-            val defaultOptions = FirebaseOptions.Builder()
-                .setProjectId("pyric-sandbox")
-                .setApiKey("sandbox-api-key")
-                .setApplicationId("dev.pyric.app")
-                .build()
-            apps[DEFAULT_APP_NAME] = FirebaseApp(DEFAULT_APP_NAME, defaultOptions)
+            apps[DEFAULT_APP_NAME] = FirebaseApp(DEFAULT_APP_NAME, defaultSandboxOptions())
         }
     }
 }
 
 object Firebase
+
+val Firebase.app: FirebaseApp
+    get() = FirebaseApp.getInstance()
+
+fun Firebase.app(name: String): FirebaseApp = FirebaseApp.getInstance(name)
+
+fun Firebase.initialize(context: Any): FirebaseApp? = FirebaseApp.initializeApp(context)
+
+fun Firebase.initialize(context: Any, options: FirebaseOptions): FirebaseApp =
+    FirebaseApp.initializeApp(context, options)
+
+fun Firebase.initialize(context: Any, options: FirebaseOptions, name: String): FirebaseApp =
+    FirebaseApp.initializeApp(context, options, name)
