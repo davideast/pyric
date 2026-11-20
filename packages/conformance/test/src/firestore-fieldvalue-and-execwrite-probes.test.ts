@@ -10,10 +10,9 @@ import {
   probe as fieldValueProbe,
   type FieldValueClassAndEqualitySubject,
 } from '../../probes/firestore/firestore-field-value-class-and-equality.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 
-describe('Firestore FieldValue and ensureFirestoreConfigured/executeWrite staged probes', () => {
-  it('registers both sdk-probes targets with expectStagedUntilCaptured', () => {
+describe('Firestore FieldValue and ensureFirestoreConfigured/executeWrite linked probes', () => {
+  it('links both sdk-probes targets to firestore#105 and firestore#156', () => {
     const verifyExports: readonly [
       typeof observeFirestoreFieldValueClassAndEquality,
       typeof observeFirestoreEnsureConfiguredAndExecuteWrite,
@@ -29,19 +28,14 @@ describe('Firestore FieldValue and ensureFirestoreConfigured/executeWrite staged
     expect(typeof verifyExports[1]).toBe('function');
     expect(fieldValueProbe.rig).toBe('sdk-probes');
     expect(fieldValueProbe.requires).toEqual([]);
+    expect(fieldValueProbe.matrixRow).toBe('firestore#105');
+    expect(fieldValueProbe.rowIds).toEqual(['firestore#105']);
+    expect(fieldValueProbe.pendingRowLink).toBeUndefined();
     expect(ensureConfiguredProbe.rig).toBe('sdk-probes');
     expect(ensureConfiguredProbe.requires).toEqual([]);
-
-    expectStagedUntilCaptured(
-      [
-        'firestore-field-value-class-and-equality',
-        'firestore-ensure-configured-and-execute-write',
-      ],
-      {
-        rig: 'sdk-probes',
-        filterFlag: '--probe',
-      },
-    );
+    expect(ensureConfiguredProbe.matrixRow).toBe('firestore#156');
+    expect(ensureConfiguredProbe.rowIds).toEqual(['firestore#156']);
+    expect(ensureConfiguredProbe.pendingRowLink).toBeUndefined();
   });
 
   it('observes real firebase/firestore FieldValue inheritance and sentinel isEqual offline', () => {

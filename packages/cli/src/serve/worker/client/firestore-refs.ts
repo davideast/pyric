@@ -12,7 +12,6 @@ import type {
   QueryConstraintDescriptor,
   FilterConstraintDescriptor,
   TargetDescriptor,
-  SentinelMarker,
 } from '../protocol.js';
 import type { ClientDb, DocRefHandle, CollRefHandle, QueryHandle } from './handles.js';
 import { createCollectionReference, createDocumentReference } from './firestore-reference.js';
@@ -563,22 +562,10 @@ export function query(
 
 // ─── Sentinel factories (client-side markers) ────────────────────────────
 
-export function serverTimestamp(): SentinelMarker {
-  return { __sentinel: 'serverTimestamp' };
-}
-
-export function increment(n: number): SentinelMarker {
-  return { __sentinel: 'increment', n };
-}
-
-export function arrayUnion(...values: unknown[]): SentinelMarker {
-  return { __sentinel: 'arrayUnion', values };
-}
-
-export function arrayRemove(...values: unknown[]): SentinelMarker {
-  return { __sentinel: 'arrayRemove', values };
-}
-
-export function deleteField(): SentinelMarker {
-  return { __sentinel: 'deleteField' };
-}
+export {
+  arrayRemove,
+  arrayUnion,
+  deleteField,
+  increment,
+  serverTimestamp,
+} from './firestore-sentinels.js';

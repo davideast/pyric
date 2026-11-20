@@ -97,9 +97,8 @@ export function observeFirestoreFieldValueClassAndEquality(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: [],
-  matrixRow: '',
-  rowIds: [],
-  pendingRowLink: true,
+  matrixRow: 'firestore#105',
+  rowIds: ['firestore#105'],
   description:
     'firebase/firestore FieldValue runtime base class inheritance across deleteField, serverTimestamp, increment, arrayUnion, and arrayRemove (excluding vector) and per-sentinel isEqual structural comparison.',
   async observe(): Promise<Record<string, unknown>> {

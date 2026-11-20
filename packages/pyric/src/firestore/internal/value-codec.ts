@@ -39,6 +39,14 @@ export {
 } from '../sandbox/query-value-registry.js';
 export { requireDocumentData } from './document-data.js';
 export { assertEncodedDocValueDepth } from './value-depth.js';
+export {
+  FieldValue,
+  createArrayRemoveSentinel,
+  createArrayUnionSentinel,
+  createDeleteFieldSentinel,
+  createIncrementSentinel,
+  createServerTimestampSentinel,
+} from '../field-value-sentinels.js';
 
 export const DOC_VALUE_ENCODING = 'pyric/firestore-values/1';
 export type DocValueEncoding = typeof DOC_VALUE_ENCODING;
@@ -149,6 +157,27 @@ export function encodeDocValue(value: unknown): unknown {
   if (isReference) return { __type: 'reference', path: referencePath };
   const isArray = Array.isArray(value);
   if (isArray) return value.map(encodeDocValue);
+  if ('__sentinel' in value) {
+    const sentinel = value as { __sentinel?: unknown; n?: unknown; values?: unknown };
+    if (sentinel.__sentinel === 'serverTimestamp') {
+      return { __sentinel: 'serverTimestamp' };
+    }
+    if (sentinel.__sentinel === 'deleteField') {
+      return { __sentinel: 'deleteField' };
+    }
+    if (sentinel.__sentinel === 'increment') {
+      return { __sentinel: 'increment', n: encodeDocValue(sentinel.n) };
+    }
+    if (
+      (sentinel.__sentinel === 'arrayUnion' || sentinel.__sentinel === 'arrayRemove') &&
+      Array.isArray(sentinel.values)
+    ) {
+      return {
+        __sentinel: sentinel.__sentinel,
+        values: sentinel.values.map(encodeDocValue),
+      };
+    }
+  }
   const prototype = Object.getPrototypeOf(value);
   const isPlainMap = prototype === Object.prototype || prototype === null;
   if (isPlainMap) {

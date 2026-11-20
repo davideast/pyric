@@ -162,9 +162,8 @@ export async function observeFirestoreEnsureConfiguredAndExecuteWrite<AppHandle,
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: [],
-  matrixRow: '',
-  rowIds: [],
-  pendingRowLink: true,
+  matrixRow: 'firestore#156',
+  rowIds: ['firestore#156'],
   description:
     'firebase/firestore ensureFirestoreConfigured(db) idempotent client initialization and post-start/post-terminate failed-precondition guards, plus executeWrite(db, []) synchronous startup transition, Promise return, and synchronous post-terminate failed-precondition throw.',
   async observe(): Promise<Record<string, unknown>> {

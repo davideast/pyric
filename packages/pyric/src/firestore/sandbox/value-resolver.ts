@@ -197,20 +197,21 @@ export function assertServerWriteLimits(
       for (const el of v) checkValue(el, mapDepth);
       return;
     }
-    if (!isPlainObject(v)) return;
+    const rec = v as Record<string, unknown>;
     if (!isUnescapedUserMap(v)) {
-      if (isFieldTransformSentinel(v)) {
+      if (isFieldTransformSentinel(rec)) {
         transformCount += 1;
         if (transformCount > MAX_FIELD_TRANSFORMS) {
           throw new Error('cannot have more than 500 field transforms on a single document');
         }
-        if ((v.__type === 'arrayUnion' || v.__type === 'arrayRemove') && Array.isArray(v.values)) {
-          for (const el of v.values) checkValue(el, mapDepth);
+        if ((rec.__type === 'arrayUnion' || rec.__type === 'arrayRemove') && Array.isArray(rec.values)) {
+          for (const el of rec.values) checkValue(el, mapDepth);
         }
         return;
       }
-      if (v.__type === 'deleteField') return;
+      if (rec.__type === 'deleteField') return;
     }
+    if (!isPlainObject(v)) return;
     const nextDepth = mapDepth + 1;
     if (nextDepth > MAX_SERVER_MAP_DEPTH) {
       throw new Error('Property contains an invalid nested entity.');

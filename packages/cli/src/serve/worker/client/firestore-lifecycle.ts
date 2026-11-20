@@ -189,3 +189,33 @@ export function terminate(db: ClientDb): Promise<void> {
   }
   return Promise.resolve();
 }
+
+export function ensureFirestoreConfigured(db: unknown): object {
+  assertWorkerClientDb(db, 'ensureFirestoreConfigured');
+  assertWorkerFirestoreActive(db);
+  markWorkerHandleStarted(db);
+  markWorkerPortStarted(db.port);
+  return getOrCreateLifecycle(db);
+}
+
+export function executeWrite(
+  db: unknown,
+  mutations: readonly unknown[],
+): Promise<void> {
+  ensureFirestoreConfigured(db);
+  if (!Array.isArray(mutations)) {
+    throw new FirebaseError(
+      'invalid-argument',
+      'Expected second argument to executeWrite() to be an array of mutations.',
+    );
+  }
+  if (mutations.length === 0) {
+    return Promise.resolve();
+  }
+  return Promise.reject(
+    new FirebaseError(
+      'invalid-argument',
+      'Unsupported internal mutation entry passed to executeWrite().',
+    ),
+  );
+}
