@@ -1,5 +1,6 @@
 package dev.pyric.e2e
 
+import dev.pyric.codecs.PyricDocumentReferenceHolder
 import dev.pyric.codecs.ValueCodec
 
 /**
@@ -82,10 +83,13 @@ object E2EQueryEvaluator {
 
     private fun matchesUnary(doc: DocEntry, filter: Map<String, Any?>): Boolean {
         val field = filter["field"] as String
+        @Suppress("UNCHECKED_CAST")
+        val fieldSegments = filter["fieldSegments"] as? List<String>
         val op = filter["op"] as String
         val rawWireValue = filter["value"]
-        val expected = ValueCodec.decodeValue(rawWireValue)
-        val actual = extractField(doc, field)
+        val allowEscapedMaps = filter["valueEncoding"] == ValueCodec.DOC_VALUE_ENCODING_V1
+        val expected = ValueCodec.decodeValue(rawWireValue, null, allowEscapedMaps)
+        val actual = extractField(doc, field, fieldSegments)
 
         return when (op) {
             "==" -> valuesEqual(actual, expected)
@@ -115,9 +119,9 @@ object E2EQueryEvaluator {
         }
     }
 
-    private fun extractField(doc: DocEntry, field: String): Any? {
+    private fun extractField(doc: DocEntry, field: String, fieldSegments: List<String>? = null): Any? {
         if (field == "__name__") return doc.path
-        val segments = field.split('.')
+        val segments = fieldSegments ?: field.split('.')
         var current: Any? = doc.data
         for (seg in segments) {
             if (current !is Map<*, *>) return null
@@ -165,9 +169,11 @@ object E2EQueryEvaluator {
     private fun compareDocs(a: DocEntry, b: DocEntry, orderBys: List<Map<String, Any?>>): Int {
         for (ob in orderBys) {
             val field = ob["field"] as String
+            @Suppress("UNCHECKED_CAST")
+            val fieldSegments = ob["fieldSegments"] as? List<String>
             val dir = ob["direction"] as? String ?: "asc"
-            val valA = extractField(a, field)
-            val valB = extractField(b, field)
+            val valA = extractField(a, field, fieldSegments)
+            val valB = extractField(b, field, fieldSegments)
             var cmp = compareValues(valA, valB)
             if (dir == "desc") cmp = -cmp
             if (cmp != 0) return cmp
@@ -181,12 +187,24 @@ object E2EQueryEvaluator {
         orderBys: List<Map<String, Any?>>
     ): List<DocEntry> {
         val kind = cursor["kind"] as String
+        val fromSnapshot = cursor["fromSnapshot"] == true
         @Suppress("UNCHECKED_CAST")
         val rawValues = cursor["values"] as? List<Any?> ?: emptyList()
-        val cursorValues = rawValues.map { ValueCodec.decodeValue(it) }
+        val cursorValues = rawValues.map {
+            when (val decoded = ValueCodec.decodeValue(it)) {
+                is PyricDocumentReferenceHolder -> decoded.path
+                else -> decoded
+            }
+        }
+        val effectiveOrders = if (fromSnapshot && orderBys.none { it["field"] == "__name__" }) {
+            val lastDir = orderBys.lastOrNull()?.get("direction") as? String ?: "asc"
+            orderBys + mapOf("kind" to "orderBy", "field" to "__name__", "direction" to lastDir)
+        } else {
+            orderBys
+        }
 
         return docs.filter { doc ->
-            val cmp = compareDocToCursor(doc, cursorValues, orderBys)
+            val cmp = compareDocToCursor(doc, cursorValues, effectiveOrders)
             when (kind) {
                 "startAt" -> cmp >= 0
                 "startAfter" -> cmp > 0
@@ -206,13 +224,22 @@ object E2EQueryEvaluator {
             if (i >= orderBys.size) break
             val ob = orderBys[i]
             val field = ob["field"] as String
+            @Suppress("UNCHECKED_CAST")
+            val fieldSegments = ob["fieldSegments"] as? List<String>
             val dir = ob["direction"] as? String ?: "asc"
-            val docVal = extractField(doc, field)
-            val cursorVal = cursorValues[i]
+            val docVal = extractField(doc, field, fieldSegments)
+            val cursorVal = if (field == "__name__" && cursorValIsRelativeId(cursorValues[i], doc.path)) {
+                doc.path.substringBeforeLast('/') + "/" + cursorValues[i]
+            } else {
+                cursorValues[i]
+            }
             var cmp = compareValues(docVal, cursorVal)
             if (dir == "desc") cmp = -cmp
             if (cmp != 0) return cmp
         }
         return 0
     }
+
+    private fun cursorValIsRelativeId(v: Any?, docPath: String): Boolean =
+        v is String && !v.contains('/') && docPath.contains('/')
 }

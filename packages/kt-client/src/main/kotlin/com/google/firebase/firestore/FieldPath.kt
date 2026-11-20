@@ -4,7 +4,7 @@ package com.google.firebase.firestore
  * A FieldPath refers to a field in a document. The path may consist of a single field name
  * (referring to a top-level field) or a list of field names (referring to a nested field).
  */
-class FieldPath private constructor(val segments: List<String>) {
+class FieldPath private constructor(val segments: List<String>) : Comparable<FieldPath> {
 
     init {
         require(segments.isNotEmpty()) { "Invalid field path. Path must not be empty." }
@@ -24,6 +24,15 @@ class FieldPath private constructor(val segments: List<String>) {
     override fun hashCode(): Int = segments.hashCode()
 
     override fun toString(): String = canonicalString
+
+    override fun compareTo(other: FieldPath): Int {
+        val minLen = minOf(segments.size, other.segments.size)
+        for (i in 0 until minLen) {
+            val cmp = segments[i].compareTo(other.segments[i])
+            if (cmp != 0) return cmp
+        }
+        return segments.size.compareTo(other.segments.size)
+    }
 
     companion object {
         private val DOCUMENT_ID_INSTANCE = FieldPath(listOf("__name__"))

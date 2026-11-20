@@ -112,6 +112,37 @@ object ValueCodec {
         return (encodeValue(data) as? Map<String, Any?>) ?: emptyMap()
     }
 
+    /**
+     * Encodes a query filter or cursor operand under [DOC_VALUE_ENCODING_V1],
+     * wrapping plain user maps that contain reserved marker keys (`type`,
+     * `__type`, `__type__`, `_methodName`, `typeName`, or both `id` and `path`)
+     * in `{"type": "pyric/map/1.0", "fields": ...}` matching `encodeDocValue`.
+     */
+    fun encodeQueryOperand(value: Any?): Any? {
+        return when (value) {
+            is List<*> -> value.map { encodeQueryOperand(it) }
+            is Array<*> -> value.map { encodeQueryOperand(it) }
+            is Map<*, *> -> {
+                val fields = LinkedHashMap<String, Any?>()
+                for ((k, v) in value) {
+                    fields[k.toString()] = encodeQueryOperand(v)
+                }
+                val hasMarkerField = fields.containsKey("type") ||
+                    fields.containsKey("__type") ||
+                    fields.containsKey("__type__") ||
+                    fields.containsKey("_methodName") ||
+                    fields.containsKey("typeName") ||
+                    (fields.containsKey("id") && fields.containsKey("path"))
+                if (hasMarkerField) {
+                    mapOf("type" to "pyric/map/1.0", "fields" to fields)
+                } else {
+                    fields
+                }
+            }
+            else -> encodeValue(value)
+        }
+    }
+
     fun decodeValue(
         value: Any?,
         resolver: DocumentReferenceResolver? = null

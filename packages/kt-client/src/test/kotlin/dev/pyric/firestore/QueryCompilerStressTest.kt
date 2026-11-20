@@ -248,7 +248,7 @@ class QueryCompilerStressTest {
         }
 
         @Test
-        fun `Query startAt with DocumentSnapshot extracts orderBy fields`() {
+        fun `Query startAt with DocumentSnapshot extracts normalized orderBy and document key reference`() {
             val docRef = harness.firestore.document("users/alice")
             val snapshot = DocumentSnapshot(
                 id = "alice",
@@ -265,7 +265,33 @@ class QueryCompilerStressTest {
             val c = constraints(q)
             val startAtCursor = c.find { it["kind"] == "startAt" }
             assertNotNull(startAtCursor)
-            assertEquals(listOf(30, "NY"), startAtCursor!!["values"])
+            assertEquals(true, startAtCursor!!["fromSnapshot"])
+            assertEquals("pyric/firestore-values/1", startAtCursor["valueEncoding"])
+            assertEquals(
+                listOf(30, "NY", mapOf("__type" to "reference", "path" to "users/alice")),
+                startAtCursor["values"]
+            )
+        }
+
+        @Test
+        fun `Query startAt with DocumentSnapshot without explicit orderBy orders by implicit documentId`() {
+            val docRef = harness.firestore.document("users/alice")
+            val snapshot = DocumentSnapshot(
+                id = "alice",
+                reference = docRef,
+                exists = true,
+                rawData = mapOf("age" to 30),
+                metadata = SnapshotMetadata(false, false)
+            )
+            val q = harness.firestore.collection("users").startAt(snapshot)
+            val c = constraints(q)
+            val startAtCursor = c.find { it["kind"] == "startAt" }
+            assertNotNull(startAtCursor)
+            assertEquals(true, startAtCursor!!["fromSnapshot"])
+            assertEquals(
+                listOf(mapOf("__type" to "reference", "path" to "users/alice")),
+                startAtCursor["values"]
+            )
         }
     }
 

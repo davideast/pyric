@@ -15,6 +15,8 @@ export const LIVE_HOST_SNAPSHOTS_SUITE =
   'packages/kt-client/src/test/kotlin/dev/pyric/e2e/FirestoreSnapshotsLiveHostConformanceTest.kt';
 export const LIVE_HOST_TRANSACTIONS_SUITE =
   'packages/kt-client/src/test/kotlin/dev/pyric/e2e/FirestoreTransactionsLiveHostConformanceTest.kt';
+export const LIVE_HOST_QUERIES_SUITE =
+  'packages/kt-client/src/test/kotlin/dev/pyric/e2e/FirestoreQueriesLiveHostConformanceTest.kt';
 
 export interface KotlinFirestoreRowSeed {
   order?: number;

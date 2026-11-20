@@ -1,3 +1,4 @@
+import { LIVE_HOST_CONFORMANCE_TEST, LIVE_HOST_QUERIES_SUITE } from '../defaults.ts';
 import { row } from './section.ts';
 
 export default row({
@@ -5,5 +6,7 @@ export default row({
   api: 'Query.whereArrayContainsAny(field, values)',
   behavior: 'Filters documents where array field contains any element from the values list.',
   featureKeys: ['whereArrayContainsAny'],
-  flipped: 'unit-backed',
+  status: 'conforms',
+  tests: [LIVE_HOST_QUERIES_SUITE],
+  hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });
