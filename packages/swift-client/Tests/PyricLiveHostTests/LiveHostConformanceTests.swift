@@ -181,7 +181,8 @@ struct LiveHostConformanceTests {
         let app = FirebaseApp(name: "swift-live-\(UUID().uuidString)")
         let firestore = Firestore.firestore(app: app)
         firestore.useEmulator(host: host, port: port)
-        #expect(firestore.bridgeClient.endpoint.port == port)
+        let configuredEndpoint = await firestore.bridgeClient.endpoint
+        #expect(configuredEndpoint.port == port)
         let auth = Auth.auth(app: app)
         let mainDb = Database.database(app: app)
         let shard00 = Database.database(app: app, url: "https://shard-00.firebaseio.com")

@@ -119,7 +119,8 @@ struct ConformanceCoreTests {
         harness.firestore.useEmulator(host: "127.0.0.1", port: 8085)
         #expect(harness.firestore.settings.host == "127.0.0.1:8085")
         #expect(!harness.firestore.settings.isSSLEnabled)
-        #expect(harness.firestore.bridgeClient.endpoint.absoluteString == "ws://127.0.0.1:8085/__pyric/sandbox")
+        let configuredEndpoint = await harness.firestore.bridgeClient.endpoint
+        #expect(configuredEndpoint.absoluteString == "ws://127.0.0.1:8085/__pyric/sandbox")
     }
 
     @Test func `firestore-swift#15: Firestore.enableNetwork() / disableNetwork() - Toggles client network connectivity to simulate offline and online operation.`() async throws {
