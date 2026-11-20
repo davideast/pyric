@@ -62,8 +62,14 @@ public class DocumentSnapshot: @unchecked Sendable {
         guard exists, let raw = rawData else { return nil }
         let segments: [String]
         if let str = field as? String {
+            if str == "__name__" {
+                return documentID
+            }
             segments = str.components(separatedBy: ".")
         } else if let fp = field as? FieldPath {
+            if fp == FieldPath.documentID() {
+                return documentID
+            }
             segments = fp.segments
         } else {
             return nil

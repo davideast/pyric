@@ -105,10 +105,7 @@ public enum AnySendable: Sendable, Equatable {
             return sendable
         }
 
-        if let b = any as? Bool {
-            return .bool(b)
-        }
-
+        // Check NSNumber before Bool so bridged NSNumber(0)/NSNumber(1) never coerce to Bool.
         if let num = any as? NSNumber {
             if NSNumberInspector.isBoolean(num) {
                 return .bool(num.boolValue)
@@ -117,6 +114,10 @@ public enum AnySendable: Sendable, Equatable {
                 return .double(num.doubleValue)
             }
             return .int(num.int64Value)
+        }
+
+        if let b = any as? Bool {
+            return .bool(b)
         }
 
         if let i = any as? Int { return .int(Int64(i)) }

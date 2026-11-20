@@ -1,13 +1,22 @@
 import Foundation
 
+internal struct UpdateSegmentEntry: Sendable, Equatable {
+    let segments: [String]
+    let value: AnySendable
+}
+
 internal enum OfflineWriteMutation: Sendable, Equatable {
     case set(path: String, encodedData: [String: AnySendable], merge: Bool, mergeFields: [String]?)
     case update(path: String, encodedFields: [String: AnySendable])
+    case updateSegments(path: String, entries: [UpdateSegmentEntry])
     case delete(path: String)
 
     var path: String {
         switch self {
-        case .set(let path, _, _, _), .update(let path, _), .delete(let path):
+        case .set(let path, _, _, _),
+             .update(let path, _),
+             .updateSegments(let path, _),
+             .delete(let path):
             return path
         }
     }
@@ -70,6 +79,14 @@ internal enum FirestoreOfflineProjection {
                         let segments = splitFieldPath(fieldKey)
                         let resolved = resolveSentinels(rawVal, priorRoot: prior, prefix: segments, nowSeconds: nowSeconds, keepDeletes: true)
                         existing = setField(in: existing, segments: segments, value: resolved)
+                    }
+                    current = existing
+                case .updateSegments(_, let entries):
+                    guard var existing = current else { continue }
+                    let prior = existing
+                    for entry in entries {
+                        let resolved = resolveSentinels(entry.value, priorRoot: prior, prefix: entry.segments, nowSeconds: nowSeconds, keepDeletes: true)
+                        existing = setField(in: existing, segments: entry.segments, value: resolved)
                     }
                     current = existing
                 case .set(_, let encodedData, let merge, let mergeFields):

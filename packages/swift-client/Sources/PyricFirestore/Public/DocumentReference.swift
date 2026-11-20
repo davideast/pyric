@@ -161,22 +161,24 @@ public final class DocumentReference: PathReferenceable, Equatable, Hashable, @u
     }
 
     public func updateData(_ fields: [AnyHashable: Any]) async throws {
-        let stringDict = try normalizeUpdateFields(fields)
-        let encoded = try ValueCodec.encodeWriteData(stringDict)
-        let encodedSendable = AnySendable.from(encoded)
-        let params = PyricBridgeClient.updateDocParams(path: path, data: encodedSendable)
-        let mutation = OfflineWriteMutation.update(path: path, encodedFields: encodedSendable.dictionaryValue ?? [:])
-        try await firestore.send(turn: firestore.takeTurn(), method: "updateDoc", params: params, mutations: [mutation])
+        let prepared = try prepareUpdatePayload(fields)
+        try await firestore.send(
+            turn: firestore.takeTurn(),
+            method: "updateDoc",
+            params: prepared.params,
+            mutations: [prepared.mutation]
+        )
     }
 
     public func updateData(_ fields: [AnyHashable: Any], completion: (@Sendable (Error?) -> Void)? = nil) {
         do {
-            let stringDict = try normalizeUpdateFields(fields)
-            let encoded = try ValueCodec.encodeWriteData(stringDict)
-            let encodedSendable = AnySendable.from(encoded)
-            let params = PyricBridgeClient.updateDocParams(path: path, data: encodedSendable)
-            let mutation = OfflineWriteMutation.update(path: path, encodedFields: encodedSendable.dictionaryValue ?? [:])
-            firestore.sendInCallOrder(method: "updateDoc", params: params, mutations: [mutation], completion: completion)
+            let prepared = try prepareUpdatePayload(fields)
+            firestore.sendInCallOrder(
+                method: "updateDoc",
+                params: prepared.params,
+                mutations: [prepared.mutation],
+                completion: completion
+            )
         } catch {
             firestore.settings.dispatchCallback { completion?(error) }
         }
@@ -219,7 +221,41 @@ public final class DocumentReference: PathReferenceable, Equatable, Hashable, @u
         return fieldStrings
     }
 
-    private func normalizeUpdateFields(_ fields: [AnyHashable: Any]) throws -> [String: Any] {
+    private func prepareUpdatePayload(
+        _ fields: [AnyHashable: Any]
+    ) throws -> (params: [String: AnySendable], mutation: OfflineWriteMutation) {
+        let hasLiteralDotSegment = fields.keys.contains { key in
+            guard let fp = key as? FieldPath else { return false }
+            return fp.segments.contains { $0.contains(".") }
+        }
+        if hasLiteralDotSegment {
+            var wireEntries: [AnySendable] = []
+            var offlineEntries: [UpdateSegmentEntry] = []
+            for (key, val) in fields {
+                let segments: [String]
+                if let str = key as? String {
+                    segments = str.components(separatedBy: ".")
+                } else if let fp = key as? FieldPath {
+                    segments = fp.segments
+                } else {
+                    throw PyricFirestoreError.invalidArgument("updateData keys must be String or FieldPath")
+                }
+                let encodedVal = AnySendable.from(try ValueCodec.encodeValue(val))
+                wireEntries.append(
+                    .dictionary([
+                        "path": .array(segments.map(AnySendable.string)),
+                        "value": encodedVal
+                    ])
+                )
+                offlineEntries.append(UpdateSegmentEntry(segments: segments, value: encodedVal))
+            }
+            let params: [String: AnySendable] = [
+                "path": .string(path),
+                "fields": .array(wireEntries)
+            ]
+            return (params: params, mutation: .updateSegments(path: path, entries: offlineEntries))
+        }
+
         var stringDict: [String: Any] = [:]
         for (key, val) in fields {
             if let str = key as? String {
@@ -230,7 +266,11 @@ public final class DocumentReference: PathReferenceable, Equatable, Hashable, @u
                 throw PyricFirestoreError.invalidArgument("updateData keys must be String or FieldPath")
             }
         }
-        return stringDict
+        let encoded = try ValueCodec.encodeWriteData(stringDict)
+        let encodedSendable = AnySendable.from(encoded)
+        let params = PyricBridgeClient.updateDocParams(path: path, data: encodedSendable)
+        let mutation = OfflineWriteMutation.update(path: path, encodedFields: encodedSendable.dictionaryValue ?? [:])
+        return (params: params, mutation: mutation)
     }
 
     // -- Real-Time Snapshot Listeners --
