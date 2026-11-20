@@ -52,11 +52,20 @@ const MAIN_RTDB_RULES: RtdbRulesJson = {
       $uid: {
         '.read': 'auth != null && auth.uid === $uid',
         '.write': 'auth != null && auth.uid === $uid',
+        catalog: {
+          '.indexOn': ['score', 'role', 'meta/rank', '.value'],
+        },
+        scores: {
+          '.indexOn': ['.value'],
+        },
       },
     },
     public: {
       '.read': true,
       '.write': 'auth != null',
+      items: {
+        '.indexOn': ['score', 'category', 'meta/rank', '.value'],
+      },
     },
   },
 };

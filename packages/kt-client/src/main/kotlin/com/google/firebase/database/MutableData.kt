@@ -44,12 +44,14 @@ class MutableData(
 
     val children: Iterable<MutableData>
         get() = when (val v = value) {
-            is Map<*, *> -> v.entries.map { (k, childVal) ->
-                val childKey = k.toString()
-                MutableData(childVal, null, childKey) { updated ->
-                    updateNestedChild(listOf(childKey), updated)
+            is Map<*, *> -> v.entries
+                .sortedWith { left, right -> DataSnapshot.compareRtdbKeys(left.key.toString(), right.key.toString()) }
+                .map { (k, childVal) ->
+                    val childKey = k.toString()
+                    MutableData(childVal, null, childKey) { updated ->
+                        updateNestedChild(listOf(childKey), updated)
+                    }
                 }
-            }
             is List<*> -> v.mapIndexedNotNull { idx, item ->
                 if (item == null) {
                     null

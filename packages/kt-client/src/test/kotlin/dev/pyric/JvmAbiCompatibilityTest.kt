@@ -110,6 +110,23 @@ class JvmAbiCompatibilityTest {
         assertNotNullCompat(addedClass.getMethod("component2"))
         val removedClass = Class.forName("com.google.firebase.database.ChildEvent\$Removed")
         assertNotNullCompat(removedClass.getMethod("component1"))
+
+        val queryClass = Class.forName("com.google.firebase.database.Query")
+        assertNotNullCompat(queryClass.getMethod("equalTo", Any::class.java))
+        assertNotNullCompat(queryClass.getMethod("equalTo", Any::class.java, String::class.java))
+        assertNotNullCompat(queryClass.getMethod("startAt", Any::class.java))
+        assertNotNullCompat(queryClass.getMethod("startAt", Any::class.java, String::class.java))
+        assertNotNullCompat(queryClass.getMethod("startAfter", Any::class.java))
+        assertNotNullCompat(queryClass.getMethod("startAfter", Any::class.java, String::class.java))
+        assertNotNullCompat(queryClass.getMethod("endAt", Any::class.java))
+        assertNotNullCompat(queryClass.getMethod("endAt", Any::class.java, String::class.java))
+        assertNotNullCompat(queryClass.getMethod("endBefore", Any::class.java))
+        assertNotNullCompat(queryClass.getMethod("endBefore", Any::class.java, String::class.java))
+
+        val snapClass = Class.forName("com.google.firebase.database.DataSnapshot")
+        assertNotNullCompat(snapClass.getMethod("getValue"))
+        assertNotNullCompat(snapClass.getMethod("getValue", Boolean::class.javaPrimitiveType))
+        assertNotNullCompat(snapClass.getMethod("getValue", Class::class.java))
     }
 
     private fun assertNotNullCompat(value: Any?) {
