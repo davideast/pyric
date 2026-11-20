@@ -4,7 +4,7 @@
  */
 import { appendFileSync } from 'node:fs';
 import { loadRigManifests } from '../../packages/conformance/rigs/load.ts';
-import type { RigManifest } from '../../packages/conformance/rigs/types.ts';
+import type { RigManifest, RigRunnerOs } from '../../packages/conformance/rigs/types.ts';
 import {
   discoverUncapturedStagedTargets,
   type StagedCaptureItem,
@@ -52,11 +52,7 @@ const LIVE_SDK_IAM_HINT: RigIamHint = {
  * `autoPushSafe` so they stay manual-dispatch only.
  */
 const RIG_CAPTURE_POLICIES: Readonly<Record<string, RigCapturePolicy>> = {
-  'admin-app': {
-    filterFlag: '--probe',
-    autoPushSafe: true,
-    perProbeStaged: true,
-  },
+  'admin-app': { filterFlag: '--probe', autoPushSafe: true, perProbeStaged: true },
   'admin-auth': {
     filterFlag: '--probe',
     autoPushSafe: true,
@@ -76,19 +72,20 @@ const RIG_CAPTURE_POLICIES: Readonly<Record<string, RigCapturePolicy>> = {
       api: 'firestore.googleapis.com',
     },
   },
-  'app-registry': {
+  'android-sdk-probes': {
     filterFlag: '--probe',
     autoPushSafe: true,
     perProbeStaged: true,
+    iamHint: {
+      permission:
+        'firebase.projects.get, firebase.clients.list, firebaseauth.users.create, firebasedatabase.instances.update',
+      role: 'roles/firebase.viewer, roles/firebaseauth.admin, roles/firebasedatabase.admin',
+      api: 'firebase.googleapis.com, identitytoolkit.googleapis.com, firebasedatabase.googleapis.com',
+    },
   },
-  'client-storage': {
-    filterFlag: '--probe',
-    autoPushSafe: true,
-    perProbeStaged: true,
-  },
-  'firestore-rules-sibling-merge': {
-    iamHint: LIVE_SDK_IAM_HINT,
-  },
+  'app-registry': { filterFlag: '--probe', autoPushSafe: true, perProbeStaged: true },
+  'client-storage': { filterFlag: '--probe', autoPushSafe: true, perProbeStaged: true },
+  'firestore-rules-sibling-merge': { iamHint: LIVE_SDK_IAM_HINT },
   'messaging-send': {
     filterFlag: '--probe',
     autoPushSafe: true,
@@ -99,9 +96,7 @@ const RIG_CAPTURE_POLICIES: Readonly<Record<string, RigCapturePolicy>> = {
       api: 'fcm.googleapis.com',
     },
   },
-  'oracle-run': {
-    iamHint: LIVE_SDK_IAM_HINT,
-  },
+  'oracle-run': { iamHint: LIVE_SDK_IAM_HINT },
   'rules-firestore': {
     readonlyParityWif: true,
     filterFlag: '--scenario',
@@ -188,6 +183,7 @@ export interface PlannedRigInvocation {
   script: string;
   args: string[];
   wifTier?: WifTier;
+  runnerOs?: RigRunnerOs;
 }
 
 export interface CapturePlan {
@@ -278,11 +274,26 @@ function buildInvocationForRig(manifest: RigManifest, filter?: string): PlannedR
     }
     args.push(flag, trimmedFilter);
   }
-  return {
+  const invocation: PlannedRigInvocation = {
     rig: manifest.id,
     script: manifest.script,
     args,
     wifTier: wifTierForManifest(manifest),
+  };
+  if (manifest.runnerOs !== undefined) {
+    invocation.runnerOs = manifest.runnerOs;
+  }
+  return invocation;
+}
+
+function emptyCapturePlan(skippedRigs: string[] = []): CapturePlan {
+  return {
+    shouldRun: false,
+    needsWif: false,
+    needsParityWif: false,
+    needsCaptureWif: false,
+    invocations: [],
+    skippedRigs,
   };
 }
 
@@ -383,15 +394,25 @@ export async function planCaptureRun(
     );
   }
 
+  let targetRunnerOs = '';
+  if (typeof env.CAPTURE_RUNNER_OS === 'string') {
+    targetRunnerOs = env.CAPTURE_RUNNER_OS.trim();
+  }
+  if (targetRunnerOs !== '') {
+    if (targetRunnerOs !== 'ubuntu-latest' && targetRunnerOs !== 'macos-latest') {
+      throw new Error(`Invalid CAPTURE_RUNNER_OS '${targetRunnerOs}'`);
+    }
+    candidateInvocations = candidateInvocations.filter((inv) => {
+      let invOs: RigRunnerOs = 'ubuntu-latest';
+      if (inv.runnerOs !== undefined) {
+        invOs = inv.runnerOs;
+      }
+      return invOs === targetRunnerOs;
+    });
+  }
+
   if (candidateInvocations.length === 0) {
-    return {
-      shouldRun: false,
-      needsWif: false,
-      needsParityWif: false,
-      needsCaptureWif: false,
-      invocations: [],
-      skippedRigs: [],
-    };
+    return emptyCapturePlan();
   }
 
   const captureWifConfigured =
@@ -416,14 +437,7 @@ export async function planCaptureRun(
   }
 
   if (activeInvocations.length === 0) {
-    return {
-      shouldRun: false,
-      needsWif: false,
-      needsParityWif: false,
-      needsCaptureWif: false,
-      invocations: [],
-      skippedRigs,
-    };
+    return emptyCapturePlan(skippedRigs);
   }
 
   const parityRigs = [...new Set(

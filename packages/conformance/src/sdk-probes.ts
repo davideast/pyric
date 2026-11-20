@@ -39,7 +39,11 @@ import {
   webConfigFromEnv,
 } from './oracle-run-setup.ts';
 import { isTransientAuthCaptureError } from './oracle-run-auth-session.ts';
-import { resolvedAdminVersion, resolvedFirebaseVersion } from './package-version.ts';
+import {
+  resolvedAdminVersion,
+  resolvedAndroidBomVersion,
+  resolvedFirebaseVersion,
+} from './package-version.ts';
 import { readProbeSelectors } from './probe-cli-args.ts';
 import { readDeclaredProbeRig } from './staged-captures.ts';
 
@@ -200,7 +204,7 @@ export function printModularProbePreview(options: {
 export interface ModularProbeRigConfig {
   rig: string;
   scriptPath: string;
-  versionField: 'fbSdkVersion' | 'adminSdkVersion';
+  versionField: 'fbSdkVersion' | 'adminSdkVersion' | 'androidBomVersion';
 }
 
 export const SDK_PROBES_RIG_CONFIG: ModularProbeRigConfig = {
@@ -350,6 +354,8 @@ export async function runModularProbesCli(options: {
   let sdkVersion: string;
   if (options.config.versionField === 'adminSdkVersion') {
     sdkVersion = resolvedAdminVersion();
+  } else if (options.config.versionField === 'androidBomVersion') {
+    sdkVersion = resolvedAndroidBomVersion();
   } else {
     sdkVersion = resolvedFirebaseVersion();
   }

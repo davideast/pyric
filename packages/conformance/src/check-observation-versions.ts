@@ -20,6 +20,7 @@
 import { loadObservations } from './ledger.ts';
 import {
   resolvedAdminVersion,
+  resolvedAndroidBomVersion,
   resolvedFirebaseVersion,
   resolvedFunctionsVersion,
 } from './package-version.ts';
@@ -30,6 +31,7 @@ const resolved = resolvedFirebaseVersion();
 // for admin behavior, so they must track the installed firebase-admin version.
 const resolvedAdmin = resolvedAdminVersion();
 const resolvedFunctions = resolvedFunctionsVersion();
+const resolvedAndroidBom = resolvedAndroidBomVersion();
 const observations = loadObservations();
 
 const missing: string[] = [];
@@ -39,6 +41,7 @@ const VERSION_TARGETS = [
   { field: 'fbSdkVersion', resolved },
   { field: 'adminSdkVersion', resolved: resolvedAdmin },
   { field: 'functionsSdkVersion', resolved: resolvedFunctions },
+  { field: 'androidBomVersion', resolved: resolvedAndroidBom },
 ] as const;
 
 for (const obs of observations) {
