@@ -5,7 +5,7 @@
  */
 import { createRequire } from 'node:module';
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /** The firebase-tools release the functions-http rows cite. */
@@ -133,4 +133,142 @@ export function writeCaptureState(path: string, state: CaptureState): void {
 
 export function clearCaptureState(path: string): void {
   if (existsSync(path)) unlinkSync(path);
+}
+
+export type CaptureCredentialConfig =
+  | {
+      kind: 'service-account-key';
+      credPath: string;
+      projectId: string;
+      clientEmail: string;
+    }
+  | {
+      kind: 'application-default';
+      credPath?: string;
+      projectId: string;
+      clientEmail: string;
+    };
+
+export type CaptureCredentialResolution =
+  | { ok: true; config: CaptureCredentialConfig }
+  | { ok: false; missing: string };
+
+const IMPERSONATION_SA_PATTERN = /\/serviceAccounts\/([^/:]+)/;
+
+function trimEnv(value: string | undefined): string {
+  if (value === undefined) return '';
+  return value.trim();
+}
+
+function decodeEmailSegment(raw: string | undefined): string {
+  if (!raw) return '';
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
+/**
+ * Resolves capture credentials from either a service-account key file
+ * (`PYRIC_ORACLE_SA_PATH`, or `GOOGLE_APPLICATION_CREDENTIALS` with
+ * `"type": "service_account"`) or Workload Identity Federation / ADC
+ * (`GOOGLE_APPLICATION_CREDENTIALS` with `"type": "external_account"`, or ADC
+ * paired with `PYRIC_ORACLE_PROJECT_ID` and `CAPTURE_SA_EMAIL`).
+ */
+export function resolveCaptureCredentials(
+  env: Readonly<Record<string, string | undefined>>,
+  cwd = process.cwd(),
+): CaptureCredentialResolution {
+  const saPathEnv = trimEnv(env.PYRIC_ORACLE_SA_PATH);
+  const adcPathEnv = trimEnv(env.GOOGLE_APPLICATION_CREDENTIALS);
+  let explicitPath = '';
+  if (saPathEnv !== '') {
+    explicitPath = resolve(cwd, saPathEnv);
+  } else if (adcPathEnv !== '') {
+    explicitPath = resolve(cwd, adcPathEnv);
+  }
+
+  let parsedType = '';
+  let parsedProjectId = '';
+  let parsedClientEmail = '';
+  let parsedImpersonationEmail = '';
+
+  if (explicitPath !== '') {
+    if (!existsSync(explicitPath)) {
+      return { ok: false, missing: `credential file does not exist: ${explicitPath}` };
+    }
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(readFileSync(explicitPath, 'utf8')) as Record<string, unknown>;
+    } catch {
+      return { ok: false, missing: `credential file is not valid JSON: ${explicitPath}` };
+    }
+    if (typeof parsed.type === 'string') parsedType = parsed.type;
+    if (typeof parsed.project_id === 'string') parsedProjectId = parsed.project_id.trim();
+    if (typeof parsed.client_email === 'string') parsedClientEmail = parsed.client_email.trim();
+    if (typeof parsed.service_account_impersonation_url === 'string') {
+      const match = IMPERSONATION_SA_PATTERN.exec(parsed.service_account_impersonation_url);
+      parsedImpersonationEmail = decodeEmailSegment(match?.[1]);
+    }
+  }
+
+  let projectId = parsedProjectId;
+  if (projectId === '') {
+    projectId = trimEnv(env.PYRIC_ORACLE_PROJECT_ID);
+  }
+  if (projectId === '') {
+    projectId = trimEnv(env.PARITY_PROJECT_ID);
+  }
+
+  let clientEmail = parsedClientEmail;
+  if (clientEmail === '') {
+    clientEmail = trimEnv(env.CAPTURE_SA_EMAIL);
+  }
+  if (clientEmail === '') {
+    clientEmail = parsedImpersonationEmail;
+  }
+
+  const isServiceAccountKey =
+    parsedType === 'service_account' || (saPathEnv !== '' && parsedType === '');
+
+  if (isServiceAccountKey) {
+    if (explicitPath === '') {
+      return { ok: false, missing: 'PYRIC_ORACLE_SA_PATH or GOOGLE_APPLICATION_CREDENTIALS' };
+    }
+    if (projectId === '' || clientEmail === '') {
+      return { ok: false, missing: 'project_id and client_email in service-account key file' };
+    }
+    return {
+      ok: true,
+      config: {
+        kind: 'service-account-key',
+        credPath: explicitPath,
+        projectId,
+        clientEmail,
+      },
+    };
+  }
+
+  if (explicitPath === '' && trimEnv(env.PYRIC_ORACLE_PROJECT_ID) === '') {
+    return {
+      ok: false,
+      missing: 'PYRIC_ORACLE_SA_PATH or GOOGLE_APPLICATION_CREDENTIALS + PYRIC_ORACLE_PROJECT_ID',
+    };
+  }
+  if (projectId === '') {
+    return { ok: false, missing: 'PYRIC_ORACLE_PROJECT_ID' };
+  }
+  if (clientEmail === '') {
+    return { ok: false, missing: 'CAPTURE_SA_EMAIL (service account email for runtime.cjs)' };
+  }
+  const config: CaptureCredentialConfig = {
+    kind: 'application-default',
+    projectId,
+    clientEmail,
+  };
+  if (explicitPath !== '') {
+    config.credPath = explicitPath;
+  }
+  return { ok: true, config };
 }

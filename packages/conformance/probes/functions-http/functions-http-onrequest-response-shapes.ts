@@ -28,6 +28,8 @@ function shape(response: ProbeResponse): Record<string, unknown> {
 /** functions-http#8: status, headers, JSON, redirects, cookies, and streamed chunks arrive as sent. */
 export const probe: FunctionsHttpProbe = {
   name: 'functions-http-onrequest-response-shapes',
+  rig: 'functions-http',
+  pendingRowLink: true,
   matrixRow: 'functions-http #8',
   rowIds: ['functions-http#8'],
   description:

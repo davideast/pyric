@@ -32,6 +32,8 @@ const requests: ProbeRequest[] = [
 /** functions-http#4: the path a handler sees under each production URL. */
 export const probe: FunctionsHttpProbe = {
   name: 'functions-http-onrequest-subpath',
+  rig: 'functions-http',
+  pendingRowLink: true,
   matrixRow: 'functions-http #4',
   rowIds: ['functions-http#4'],
   description:

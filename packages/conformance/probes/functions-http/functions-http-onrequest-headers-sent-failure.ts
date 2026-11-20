@@ -3,6 +3,8 @@ import { statusShape, type FunctionsHttpProbe } from '../../src/capture/function
 /** functions-http#10: a handler that fails after it has sent headers and part of the body. */
 export const probe: FunctionsHttpProbe = {
   name: 'functions-http-onrequest-headers-sent-failure',
+  rig: 'functions-http',
+  pendingRowLink: true,
   matrixRow: 'functions-http #10',
   rowIds: ['functions-http#10'],
   description:

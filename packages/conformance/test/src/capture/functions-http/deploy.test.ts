@@ -8,6 +8,7 @@ import {
   deployOutcome,
   inactiveFunctions,
   readCaptureState,
+  resolveCaptureCredentials,
   resolveFirebaseTools,
   writeCaptureState,
 } from '../../../../src/capture/functions-http/deploy.ts';
@@ -125,5 +126,61 @@ describe('capture state', () => {
     const path = join(mkdtempSync(join(tmpdir(), 'functions-http-state-')), 'capture-state.json');
     writeFileSync(path, JSON.stringify({ runId: 'abc123' }));
     expect(() => readCaptureState(path)).toThrow(/capture-state\.json is not a capture state/);
+  });
+});
+
+describe('resolveCaptureCredentials', () => {
+  it('resolves a service-account key JSON from PYRIC_ORACLE_SA_PATH', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'functions-http-cred-'));
+    const keyPath = join(dir, 'sa.json');
+    writeFileSync(
+      keyPath,
+      JSON.stringify({
+        type: 'service_account',
+        project_id: 'demo-oracle',
+        client_email: 'deployer@demo-oracle.iam.gserviceaccount.com',
+      }),
+    );
+    const resolved = resolveCaptureCredentials({ PYRIC_ORACLE_SA_PATH: keyPath });
+    expect(resolved).toEqual({
+      ok: true,
+      config: {
+        kind: 'service-account-key',
+        credPath: keyPath,
+        projectId: 'demo-oracle',
+        clientEmail: 'deployer@demo-oracle.iam.gserviceaccount.com',
+      },
+    });
+  });
+
+  it('resolves Workload Identity Federation external_account credentials without cert()', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'functions-http-wif-'));
+    const wifPath = join(dir, 'wif.json');
+    writeFileSync(
+      wifPath,
+      JSON.stringify({
+        type: 'external_account',
+        service_account_impersonation_url:
+          'https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/capture-sa@demo-oracle.iam.gserviceaccount.com:generateAccessToken',
+      }),
+    );
+    const resolved = resolveCaptureCredentials({
+      GOOGLE_APPLICATION_CREDENTIALS: wifPath,
+      PYRIC_ORACLE_PROJECT_ID: 'demo-oracle',
+    });
+    expect(resolved).toEqual({
+      ok: true,
+      config: {
+        kind: 'application-default',
+        credPath: wifPath,
+        projectId: 'demo-oracle',
+        clientEmail: 'capture-sa@demo-oracle.iam.gserviceaccount.com',
+      },
+    });
+  });
+
+  it('reports missing credentials when neither key file nor ADC project is configured', () => {
+    const resolved = resolveCaptureCredentials({});
+    expect(resolved.ok).toBe(false);
   });
 });

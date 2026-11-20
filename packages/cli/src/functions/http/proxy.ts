@@ -70,6 +70,10 @@ export function proxyToChild(req: IncomingMessage, res: ServerResponse, target: 
       method: req.method,
       path: target.forwardUrl,
       headers: forwardedHeaders(req, target),
+      // Never pool loopback sockets across requests: an upstream handler that
+      // ends early without draining its request body would leave unread bytes
+      // ahead of the next request on a reused keep-alive connection.
+      agent: false,
     });
     let answer: IncomingMessage | null = null;
     let cutMidResponse = false;
