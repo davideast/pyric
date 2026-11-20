@@ -2,6 +2,7 @@ export {
   DisconnectOperationQueue,
   type DisconnectOperation,
 } from './disconnect-operation-queue.js';
+export { executeDisconnectOperation } from './connection-lifecycle.js';
 export { hasNonFiniteQueryLimit, isDefaultQuerySpec, queryIdentifier } from './query-shape.js';
 export {
   applyConstraint,

@@ -1,7 +1,73 @@
 import type { AuthState } from 'pyric/sandbox';
+import { ref } from './references.js';
+import { authFor, isAdminFor, targetOf } from './routing.js';
 import type { RtdbBackend } from './sandbox/backend.js';
 import type { JsonValue } from './sandbox/data-tree.js';
 import { DisconnectOperationQueue, type DisconnectOperation } from './disconnect-operation-queue.js';
+import type { Database } from './types.js';
+
+/**
+ * Apply one queued `onDisconnect` operation directly against the server-side
+ * backend (never through the optimistic client write queue), so a disconnect
+ * write denied by rules mutates nothing and emits no speculative listener
+ * events.
+ */
+function executeDisconnectOperationOnBackend(
+  backend: RtdbBackend,
+  auth: AuthState,
+  admin: boolean,
+  operation: DisconnectOperation,
+): void {
+  if (operation.kind === 'update') {
+    if (admin) {
+      backend.adminUpdate(operation.path, operation.values as Record<string, JsonValue>);
+    } else {
+      backend.update(auth, operation.path, operation.values as Record<string, JsonValue>);
+    }
+    return;
+  }
+  if (operation.kind === 'remove') {
+    if (admin) {
+      backend.adminRemove(operation.path);
+    } else {
+      backend.remove(auth, operation.path);
+    }
+    return;
+  }
+  const priority = operation.priority;
+  if (admin) {
+    if (priority !== undefined) {
+      backend.adminSetWithPriority(operation.path, operation.value as JsonValue, priority);
+    } else {
+      backend.adminSet(operation.path, operation.value as JsonValue);
+    }
+    return;
+  }
+  if (priority !== undefined) {
+    backend.setWithPriority(auth, operation.path, operation.value as JsonValue, priority);
+  } else {
+    backend.set(auth, operation.path, operation.value as JsonValue);
+  }
+}
+
+/**
+ * Execute one queued `onDisconnect` operation against `db`'s server-side
+ * backend using `db`'s resolved auth and admin state, matching in-page
+ * {@link RtdbConnectionLifecycle.drain}.
+ */
+export function executeDisconnectOperation(
+  db: Database,
+  operation: DisconnectOperation,
+): void {
+  const target = targetOf(db as unknown as object);
+  const path = ref(db, operation.path)._path;
+  executeDisconnectOperationOnBackend(
+    target.backend,
+    authFor(target),
+    isAdminFor(target),
+    { ...operation, path },
+  );
+}
 
 export class RtdbConnectionLifecycle {
   private readonly operations = new DisconnectOperationQueue();
@@ -105,33 +171,12 @@ export class RtdbConnectionLifecycle {
       const failures: unknown[] = [];
       for (const operation of queued) {
         try {
-          const isUpdate = operation.kind === 'update';
-          const isAdmin = this.isAdmin();
-          if (isUpdate) {
-            if (isAdmin) {
-              this.backend.adminUpdate(operation.path, operation.values as Record<string, JsonValue>);
-            } else {
-              this.backend.update(this.auth(), operation.path, operation.values as Record<string, JsonValue>);
-            }
-          } else {
-            const isRemove = operation.kind === 'remove';
-            const value = isRemove ? null : operation.value;
-            const priority = operation.kind === 'set' ? operation.priority : undefined;
-            const hasPriority = priority !== undefined;
-            if (isAdmin) {
-              if (hasPriority) {
-                this.backend.adminSetWithPriority(operation.path, value as JsonValue, priority);
-              } else {
-                this.backend.adminSet(operation.path, value as JsonValue);
-              }
-            } else {
-              if (hasPriority) {
-                this.backend.setWithPriority(this.auth(), operation.path, value as JsonValue, priority);
-              } else {
-                this.backend.set(this.auth(), operation.path, value as JsonValue);
-              }
-            }
-          }
+          executeDisconnectOperationOnBackend(
+            this.backend,
+            this.auth(),
+            this.isAdmin(),
+            operation,
+          );
         } catch (error) {
           failures.push(error);
         }

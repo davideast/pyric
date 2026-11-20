@@ -1,5 +1,6 @@
 import { deleteApp, initializeApp } from 'firebase/app';
-import { get, getDatabase, goOffline, goOnline, onDisconnect, ref, set } from 'firebase/database';
+import { getAuth, signInAnonymously, signOut } from 'firebase/auth';
+import { get, getDatabase, goOffline, goOnline, onChildAdded, onDisconnect, ref, set } from 'firebase/database';
 
 const CASES = {
   'update-then-update-other-child': {
@@ -149,6 +150,32 @@ if (mode === 'register-and-exit') {
 
 if (mode === 'read') {
   console.log(`RESULT ${JSON.stringify(await readAll(db, root))}`);
+  await deleteApp(app);
+  process.exit(0);
+}
+
+if (mode === 'denied-after-signout') {
+  const auth = getAuth(app);
+  await signInAnonymously(auth);
+  const added = [];
+  const stop = onChildAdded(ref(db, 'guarded'), (snap) => {
+    if (snap.key !== null) added.push(snap.key);
+  });
+  await onDisconnect(ref(db, 'guarded/items/m1')).set({ state: 'offline', '.priority': 5 });
+  await onDisconnect(ref(db, 'guarded-sentinel')).set('drained');
+  await signOut(auth);
+  goOffline(db);
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  goOnline(db);
+  const deadline = Date.now() + 5_000;
+  let sentinel = (await get(ref(db, 'guarded-sentinel'))).val();
+  while (sentinel !== 'drained' && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    sentinel = (await get(ref(db, 'guarded-sentinel'))).val();
+  }
+  const stored = (await get(ref(db, 'guarded/items/m1'))).val();
+  stop();
+  console.log(`RESULT ${JSON.stringify({ sentinel, added, stored })}`);
   await deleteApp(app);
   process.exit(0);
 }

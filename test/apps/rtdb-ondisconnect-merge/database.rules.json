@@ -1,3 +1,9 @@
 {
-  "rules": { ".read": true, ".write": true }
+  "rules": {
+    ".read": true,
+    "offline": { ".write": true },
+    "exit": { ".write": true },
+    "guarded": { ".write": "auth != null" },
+    "guarded-sentinel": { ".write": true }
+  }
 }

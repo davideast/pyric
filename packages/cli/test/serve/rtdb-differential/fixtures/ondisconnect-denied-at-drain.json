@@ -1,0 +1,16 @@
+{
+  "description": "Queued onDisconnect writes denied at disconnect time (after signOut or tightened rules) must execute as server-side writes without emitting speculative optimistic listener events on any plane.",
+  "sequence": {
+    "seed": 646820,
+    "instances": 2,
+    "initialRules": [7, 0],
+    "steps": [
+      { "op": "signIn", "uid": "alice", "claims": { "role": "admin", "tier": 3 } },
+      { "op": "listen", "db": 0, "id": 0, "path": "", "event": "child_added" },
+      { "op": "listen", "db": 0, "id": 1, "path": "docs", "event": "value" },
+      { "op": "onDisconnectSet", "db": 0, "path": "docs/d1/entries/e1", "value": { "a": "hello", ".priority": 5 } },
+      { "op": "signOut" },
+      { "op": "reconnect", "db": 0 }
+    ]
+  }
+}
