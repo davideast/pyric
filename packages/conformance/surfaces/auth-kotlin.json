@@ -8,7 +8,9 @@
   ],
   "coverage": true,
   "scopeNote": "integration contract: Pure-Kotlin client conforming to com.google.firebase.auth (Firebase Android SDK) via Pyric WebSocket bridge transport. Covers FirebaseAuth instance/lifecycle, email/password and anonymous authentication, user session management, reactive Coroutine Flow auth state streams (authStateFlow, idTokenFlow), token retrieval and custom claims, user profile mutations and reload, and CredentialsProvider integration for Firestore auth-lens evaluation.",
-  "captureRigs": [],
+  "captureRigs": [
+    "android-sdk-probes"
+  ],
   "conformanceSuite": "packages/kt-client/src/test/kotlin/dev/pyric/auth/ConformanceTest.kt",
   "climb": true,
   "registry": "auth-kotlin"

@@ -6,6 +6,7 @@ import { loadModularProbes } from '../../src/sdk-probes.ts';
 
 const MODULAR_PROBE_RIGS = [
   'sdk-probes',
+  'android-sdk-probes',
   'admin-auth',
   'admin-firestore',
   'storage-admin',

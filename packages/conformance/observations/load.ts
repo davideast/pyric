@@ -13,6 +13,7 @@ export interface Observation {
   fbSdkVersion?: string;
   adminSdkVersion?: string;
   functionsSdkVersion?: string;
+  androidBomVersion?: string;
   behavior: Record<string, unknown>;
   raw: Record<string, unknown>;
 }
@@ -35,6 +36,10 @@ export function loadObservations(): Observation[] {
   return listObservationFiles().map(({ surfaceDir, file }) => {
     const raw = JSON.parse(readFileSync(join(OBS_DIR, surfaceDir, file), 'utf8')) as Record<string, unknown>;
     const name = String(raw.name ?? file.replace(/\.json$/, ''));
+    let androidBomVersion: string | undefined;
+    if (typeof raw.androidBomVersion === 'string') {
+      androidBomVersion = raw.androidBomVersion;
+    }
     return {
       file,
       surfaceDir,
@@ -45,6 +50,7 @@ export function loadObservations(): Observation[] {
       fbSdkVersion: typeof raw.fbSdkVersion === 'string' ? raw.fbSdkVersion : undefined,
       adminSdkVersion: typeof raw.adminSdkVersion === 'string' ? raw.adminSdkVersion : undefined,
       functionsSdkVersion: typeof raw.functionsSdkVersion === 'string' ? raw.functionsSdkVersion : undefined,
+      androidBomVersion,
       behavior: (raw.behavior && typeof raw.behavior === 'object' ? raw.behavior : {}) as Record<string, unknown>,
       raw,
     } satisfies Observation;
