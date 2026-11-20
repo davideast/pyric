@@ -57,6 +57,19 @@ class FieldPath private constructor(val segments: List<String>) {
             return extractBySegments(data, fieldPath.segments)
         }
 
+        @JvmStatic
+        fun contains(data: Map<String, Any?>?, path: String): Boolean {
+            if (data == null) return false
+            if (data.containsKey(path)) return true
+            return containsBySegments(data, path.split("."))
+        }
+
+        @JvmStatic
+        fun contains(data: Map<String, Any?>?, fieldPath: FieldPath): Boolean {
+            if (data == null) return false
+            return containsBySegments(data, fieldPath.segments)
+        }
+
         private fun extractBySegments(data: Map<String, Any?>?, segments: List<String>): Any? {
             var current: Any? = data
             for (segment in segments) {
@@ -64,6 +77,17 @@ class FieldPath private constructor(val segments: List<String>) {
                 current = current[segment]
             }
             return current
+        }
+
+        private fun containsBySegments(data: Map<String, Any?>?, segments: List<String>): Boolean {
+            if (segments.isEmpty()) return false
+            var current: Any? = data
+            for (i in 0 until segments.size - 1) {
+                if (current !is Map<*, *>) return false
+                current = current[segments[i]]
+            }
+            if (current !is Map<*, *>) return false
+            return current.containsKey(segments.last())
         }
     }
 }

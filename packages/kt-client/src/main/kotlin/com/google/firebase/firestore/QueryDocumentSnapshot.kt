@@ -9,7 +9,7 @@ class QueryDocumentSnapshot internal constructor(
 
     override fun exists(): Boolean = true
 
-    override fun getData(): Map<String, Any?> = dataMap
+    override fun getData(): Map<String, Any?> = copyMap(dataMap)
 
     override fun <T> toObject(valueType: Class<T>): T = super.toObject(valueType)!!
 }

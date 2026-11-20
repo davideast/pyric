@@ -2,6 +2,7 @@ package com.google.firebase.firestore
 
 import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.TaskCompletionSource
+import dev.pyric.codecs.ValueCodec
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -12,6 +13,7 @@ class AggregateQuery internal constructor(
     val fields: List<AggregateField>
 ) {
     fun get(source: AggregateSource = AggregateSource.SERVER): Task<AggregateQuerySnapshot> {
+        query.firestore.ensureClientActive()
         val tcs = TaskCompletionSource<AggregateQuerySnapshot>()
         val scope = CoroutineScope(Dispatchers.IO)
 
@@ -23,32 +25,64 @@ class AggregateQuery internal constructor(
                 if (isOnlyCount) {
                     val res = query.firestore.bridgeClient.op(
                         method = "count",
-                        params = mapOf("target" to targetDesc),
+                        params = mapOf("source" to targetDesc),
                         actAs = query.firestore.getEffectiveAuthLens().toMap()
                     )
                     @Suppress("UNCHECKED_CAST")
                     val resMap = res as? Map<String, Any?> ?: emptyMap()
                     val countVal = (resMap["count"] as? Number)?.toLong() ?: 0L
-                    tcs.setResult(AggregateQuerySnapshot(this@AggregateQuery, countVal))
+                    tcs.setResult(
+                        AggregateQuerySnapshot(
+                            query = this@AggregateQuery,
+                            countValue = countVal,
+                            data = mapOf(AggregateField.count().alias to countVal)
+                        )
+                    )
                 } else {
-                    val aggsPayload = fields.map { f ->
-                        when (f) {
-                            is AggregateField.CountAggregateField -> mapOf("kind" to "count")
-                            is AggregateField.SumAggregateField -> mapOf("kind" to "sum", "field" to f.field)
-                            is AggregateField.AverageAggregateField -> mapOf("kind" to "average", "field" to f.field)
-                        }
+                    val spec = LinkedHashMap<String, Map<String, Any?>>()
+                    for (field in fields) {
+                        spec[field.alias] = toWireDescriptor(field)
                     }
                     val res = query.firestore.bridgeClient.op(
                         method = "aggregate",
-                        params = mapOf("target" to targetDesc, "aggregates" to aggsPayload),
+                        params = mapOf("source" to targetDesc, "spec" to spec),
                         actAs = query.firestore.getEffectiveAuthLens().toMap()
                     )
                     @Suppress("UNCHECKED_CAST")
                     val resMap = res as? Map<String, Any?> ?: emptyMap()
-                    val countVal = (resMap["count"] as? Number)?.toLong() ?: 0L
                     @Suppress("UNCHECKED_CAST")
-                    val dataVal = (resMap["data"] as? Map<String, Any?>) ?: emptyMap()
-                    tcs.setResult(AggregateQuerySnapshot(this@AggregateQuery, countVal, dataVal))
+                    val rawData = (resMap["data"] as? Map<String, Any?>) ?: emptyMap()
+                    @Suppress("UNCHECKED_CAST")
+                    val encodedData = resMap["encodedData"] as? Map<String, Any?>
+
+                    val resolvedData = LinkedHashMap<String, Any?>()
+                    for (alias in spec.keys) {
+                        val rawEntry = if (encodedData != null && encodedData.containsKey(alias)) {
+                            ValueCodec.decodeValue(encodedData[alias])
+                        } else {
+                            ValueCodec.decodeValue(rawData[alias])
+                        }
+                        resolvedData[alias] = rawEntry
+                    }
+
+                    val hasCountField = fields.any { it is AggregateField.CountAggregateField }
+                    val countVal: Long? = if (hasCountField) {
+                        val rawCount = resolvedData[AggregateField.count().alias] ?: resMap["count"]
+                        (rawCount as? Number)?.toLong() ?: 0L
+                    } else {
+                        (resMap["count"] as? Number)?.toLong()
+                    }
+                    if (hasCountField && countVal != null) {
+                        resolvedData[AggregateField.count().alias] = countVal
+                    }
+
+                    tcs.setResult(
+                        AggregateQuerySnapshot(
+                            query = this@AggregateQuery,
+                            countValue = countVal,
+                            data = resolvedData
+                        )
+                    )
                 }
             } catch (e: Exception) {
                 tcs.setException(e)
@@ -56,6 +90,34 @@ class AggregateQuery internal constructor(
         }
 
         return tcs.task
+    }
+
+    private fun toWireDescriptor(field: AggregateField): Map<String, Any?> {
+        return when (field) {
+            is AggregateField.CountAggregateField -> mapOf("kind" to "count")
+            is AggregateField.SumAggregateField -> {
+                if (field.fieldPath.segments.any { it.contains('.') }) {
+                    mapOf(
+                        "kind" to "sum",
+                        "field" to field.field,
+                        "path" to field.fieldPath.segments
+                    )
+                } else {
+                    mapOf("kind" to "sum", "field" to field.field)
+                }
+            }
+            is AggregateField.AverageAggregateField -> {
+                if (field.fieldPath.segments.any { it.contains('.') }) {
+                    mapOf(
+                        "kind" to "average",
+                        "field" to field.field,
+                        "path" to field.fieldPath.segments
+                    )
+                } else {
+                    mapOf("kind" to "average", "field" to field.field)
+                }
+            }
+        }
     }
 
     override fun equals(other: Any?): Boolean {

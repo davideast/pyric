@@ -16,6 +16,7 @@ class WriteBatch internal constructor(private val firestore: FirebaseFirestore) 
     private sealed class Mutation {
         data class Set(val ref: DocumentReference, val data: Map<String, Any?>, val options: SetOptions) : Mutation()
         data class Update(val ref: DocumentReference, val data: Map<String, Any?>) : Mutation()
+        data class UpdateFields(val ref: DocumentReference, val fields: List<Pair<FieldPath, Any?>>) : Mutation()
         data class Delete(val ref: DocumentReference) : Mutation()
     }
 
@@ -50,11 +51,41 @@ class WriteBatch internal constructor(private val firestore: FirebaseFirestore) 
         require(moreFieldsAndValues.size % 2 == 0) {
             "Missing value in call to update(). There must be an even number of arguments that alternate between field names and values"
         }
+        val hasFieldPathArg = (moreFieldsAndValues.indices step 2).any { moreFieldsAndValues[it] is FieldPath }
+        if (hasFieldPathArg) {
+            return update(documentRef, FieldPath.fromDotSeparated(field), value, *moreFieldsAndValues)
+        }
         val map = mutableMapOf<String, Any?>(field to value)
         for (i in moreFieldsAndValues.indices step 2) {
-            map[moreFieldsAndValues[i] as String] = moreFieldsAndValues[i + 1]
+            val key = moreFieldsAndValues[i] as? String
+                ?: throw IllegalArgumentException("Expected String or FieldPath key at argument index ${i + 2} in update().")
+            map[key] = moreFieldsAndValues[i + 1]
         }
         return update(documentRef, map)
+    }
+
+    fun update(
+        documentRef: DocumentReference,
+        fieldPath: FieldPath,
+        value: Any?,
+        vararg moreFieldsAndValues: Any?
+    ): WriteBatch {
+        checkNotCommitted()
+        require(moreFieldsAndValues.size % 2 == 0) {
+            "Missing value in call to update(). There must be an even number of arguments that alternate between field names and values"
+        }
+        val entries = mutableListOf<Pair<FieldPath, Any?>>(fieldPath to value)
+        for (i in moreFieldsAndValues.indices step 2) {
+            val fp = when (val key = moreFieldsAndValues[i]) {
+                is FieldPath -> key
+                is String -> FieldPath.fromDotSeparated(key)
+                else -> throw IllegalArgumentException("Expected String or FieldPath key at argument index ${i + 2} in update().")
+            }
+            entries.add(fp to moreFieldsAndValues[i + 1])
+        }
+        entries.forEach { (_, fieldVal) -> SentinelValidator.validateNoNestedArraySentinels(fieldVal) }
+        operations.add(Mutation.UpdateFields(documentRef, entries))
+        return this
     }
 
     fun delete(documentRef: DocumentReference): WriteBatch {
@@ -90,6 +121,16 @@ class WriteBatch internal constructor(private val firestore: FirebaseFirestore) 
                     "method" to "update",
                     "path" to op.ref.path,
                     "data" to ValueCodec.encodeWriteData(op.data)
+                )
+                is Mutation.UpdateFields -> mapOf(
+                    "method" to "update",
+                    "path" to op.ref.path,
+                    "fields" to op.fields.map { (fp, fieldVal) ->
+                        mapOf(
+                            "path" to fp.segments,
+                            "value" to ValueCodec.encodeValue(fieldVal)
+                        )
+                    }
                 )
                 is Mutation.Delete -> mapOf(
                     "method" to "delete",
