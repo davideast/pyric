@@ -3,6 +3,7 @@ package com.google.firebase.database
 import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.TaskCompletionSource
 import dev.pyric.auth.AuthLens
+import dev.pyric.bridge.BridgeSubscriptionGap
 import dev.pyric.database.internal.infoValue
 import dev.pyric.database.internal.infoValues
 import dev.pyric.database.internal.isConnected
@@ -27,6 +28,16 @@ data class RtdbQuerySpec(
 ) {
     fun isEmpty(): Boolean = orderBy == null && bounds.isEmpty() && limit == null
 
+    internal fun hasStartBound(): Boolean = bounds.any {
+        val kind = it["kind"]
+        kind == "startAt" || kind == "startAfter" || kind == "equalTo"
+    }
+
+    internal fun hasEndBound(): Boolean = bounds.any {
+        val kind = it["kind"]
+        kind == "endAt" || kind == "endBefore" || kind == "equalTo"
+    }
+
     fun toMap(): Map<String, Any?> {
         return mapOf(
             "orderBy" to orderBy,
@@ -49,7 +60,9 @@ open class Query(
         get() = DatabaseReference(database, path)
 
     fun orderByChild(childPath: String): Query {
-        val clean = childPath.trim('/')
+        val clean = childPath.trim('/').split('/').filter { it.isNotEmpty() }.joinToString("/")
+        require(clean.isNotEmpty()) { "orderByChild path cannot be empty!" }
+        require(querySpec.orderBy == null) { "You can't combine multiple orderBy calls!" }
         return Query(
             database = database,
             path = path,
@@ -58,6 +71,7 @@ open class Query(
     }
 
     fun orderByKey(): Query {
+        require(querySpec.orderBy == null) { "You can't combine multiple orderBy calls!" }
         return Query(
             database = database,
             path = path,
@@ -66,6 +80,7 @@ open class Query(
     }
 
     fun orderByValue(): Query {
+        require(querySpec.orderBy == null) { "You can't combine multiple orderBy calls!" }
         return Query(
             database = database,
             path = path,
@@ -74,6 +89,7 @@ open class Query(
     }
 
     fun orderByPriority(): Query {
+        require(querySpec.orderBy == null) { "You can't combine multiple orderBy calls!" }
         return Query(
             database = database,
             path = path,
@@ -81,7 +97,14 @@ open class Query(
         )
     }
 
+    @JvmOverloads
     fun equalTo(value: Any?, key: String? = null): Query {
+        require(!querySpec.hasStartBound() && !querySpec.hasEndBound()) {
+            "Can't call equalTo() after startAt(), startAfter(), endAt(), endBefore(), or equalTo()!"
+        }
+        if (querySpec.orderBy?.get("kind") == "key") {
+            require(key == null) { "Can't pass a key cursor to equalTo() on an orderByKey() query!" }
+        }
         val bound = mutableMapOf<String, Any?>("kind" to "equalTo", "value" to value)
         if (key != null) bound["key"] = key
         return Query(
@@ -91,7 +114,14 @@ open class Query(
         )
     }
 
+    @JvmOverloads
     fun startAt(value: Any?, key: String? = null): Query {
+        require(!querySpec.hasStartBound()) {
+            "Can't call startAt() after startAt(), startAfter(), or equalTo()!"
+        }
+        if (querySpec.orderBy?.get("kind") == "key") {
+            require(key == null) { "Can't pass a key cursor to startAt() on an orderByKey() query!" }
+        }
         val bound = mutableMapOf<String, Any?>("kind" to "startAt", "value" to value)
         if (key != null) bound["key"] = key
         return Query(
@@ -101,7 +131,14 @@ open class Query(
         )
     }
 
+    @JvmOverloads
     fun startAfter(value: Any?, key: String? = null): Query {
+        require(!querySpec.hasStartBound()) {
+            "Can't call startAfter() after startAt(), startAfter(), or equalTo()!"
+        }
+        if (querySpec.orderBy?.get("kind") == "key") {
+            require(key == null) { "Can't pass a key cursor to startAfter() on an orderByKey() query!" }
+        }
         val bound = mutableMapOf<String, Any?>("kind" to "startAfter", "value" to value)
         if (key != null) bound["key"] = key
         return Query(
@@ -111,7 +148,14 @@ open class Query(
         )
     }
 
+    @JvmOverloads
     fun endAt(value: Any?, key: String? = null): Query {
+        require(!querySpec.hasEndBound()) {
+            "Can't call endAt() after endAt(), endBefore(), or equalTo()!"
+        }
+        if (querySpec.orderBy?.get("kind") == "key") {
+            require(key == null) { "Can't pass a key cursor to endAt() on an orderByKey() query!" }
+        }
         val bound = mutableMapOf<String, Any?>("kind" to "endAt", "value" to value)
         if (key != null) bound["key"] = key
         return Query(
@@ -121,7 +165,14 @@ open class Query(
         )
     }
 
+    @JvmOverloads
     fun endBefore(value: Any?, key: String? = null): Query {
+        require(!querySpec.hasEndBound()) {
+            "Can't call endBefore() after endAt(), endBefore(), or equalTo()!"
+        }
+        if (querySpec.orderBy?.get("kind") == "key") {
+            require(key == null) { "Can't pass a key cursor to endBefore() on an orderByKey() query!" }
+        }
         val bound = mutableMapOf<String, Any?>("kind" to "endBefore", "value" to value)
         if (key != null) bound["key"] = key
         return Query(
@@ -132,6 +183,10 @@ open class Query(
     }
 
     fun limitToFirst(limit: Int): Query {
+        require(limit > 0) { "Limit must be a positive integer!" }
+        require(querySpec.limit == null) {
+            "Can't call limitToFirst on query with previously set limit!"
+        }
         return Query(
             database = database,
             path = path,
@@ -140,6 +195,10 @@ open class Query(
     }
 
     fun limitToLast(limit: Int): Query {
+        require(limit > 0) { "Limit must be a positive integer!" }
+        require(querySpec.limit == null) {
+            "Can't call limitToLast on query with previously set limit!"
+        }
         return Query(
             database = database,
             path = path,
@@ -266,6 +325,7 @@ open class Query(
                         target = target,
                         actAs = lens.toMap()
                     ).collect { raw ->
+                        if (raw === BridgeSubscriptionGap) return@collect
                         @Suppress("UNCHECKED_CAST")
                         val wire = raw as? Map<String, Any?>
                         val snapshot = DataSnapshot.fromWire(ref, wire)

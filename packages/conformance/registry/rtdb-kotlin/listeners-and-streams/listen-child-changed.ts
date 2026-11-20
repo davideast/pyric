@@ -1,3 +1,4 @@
+import { LIVE_HOST_CONFORMANCE_TEST } from '../defaults.ts';
 import { row } from './section.ts';
 
 export default row({
@@ -5,4 +6,6 @@ export default row({
   api: 'Query.childEvents / onChildChanged',
   behavior: 'Emits ChildEvent.Changed whenever an existing child node is modified.',
   featureKeys: ['onChildChanged'],
+  status: 'conforms',
+  hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

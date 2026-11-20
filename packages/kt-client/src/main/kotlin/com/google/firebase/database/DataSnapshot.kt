@@ -19,6 +19,9 @@ class DataSnapshot(
 
     fun exists(): Boolean = value != null
 
+    fun getValue(useExportFormat: Boolean): Any? =
+        if (useExportFormat) (exportValue ?: value) else value
+
     @Suppress("UNCHECKED_CAST")
     fun <T> getValue(valueType: Class<T>): T? {
         val raw = value ?: return null
@@ -61,7 +64,7 @@ class DataSnapshot(
             }
             return when (val v = value) {
                 is Map<*, *> -> v.entries
-                    .sortedBy { it.key.toString() }
+                    .sortedWith { left, right -> compareRtdbKeys(left.key.toString(), right.key.toString()) }
                     .map { (k, childVal) ->
                         val childKey = k.toString()
                         val childExport = exportValueAt(exportValue, listOf(childKey))
@@ -100,19 +103,46 @@ class DataSnapshot(
         val segments = path.trim('/').split('/').filter { it.isNotEmpty() }
         if (segments.isEmpty()) return this
 
-        if (segments.size == 1 && orderedEntries != null) {
+        if (orderedEntries != null) {
             val matched = orderedEntries.find { it.key == segments[0] }
-            if (matched != null) {
-                val childExport = matched.exportValue ?: exportValueAt(exportValue, segments)
-                val childPriority = matched.priority ?: priorityFromExport(childExport)
+                ?: return DataSnapshot(
+                    ref = ref.child(path),
+                    value = null,
+                    priority = null,
+                    orderedEntries = null,
+                    exportValue = null
+                )
+            val firstExport = matched.exportValue ?: exportValueAt(exportValue, listOf(segments[0]))
+            if (segments.size == 1) {
+                val childPriority = matched.priority ?: priorityFromExport(firstExport)
                 return DataSnapshot(
                     ref = ref.child(path),
                     value = matched.value,
                     priority = childPriority,
                     orderedEntries = null,
-                    exportValue = childExport
+                    exportValue = firstExport
                 )
             }
+            var subVal: Any? = matched.value
+            for (segment in segments.drop(1)) {
+                subVal = when (val v = subVal) {
+                    is Map<*, *> -> v[segment]
+                    is List<*> -> {
+                        val idx = segment.toIntOrNull()
+                        if (idx != null && idx in v.indices) v[idx] else null
+                    }
+                    else -> null
+                }
+            }
+            val subExport = exportValueAt(firstExport, segments.drop(1))
+            val subPriority = if (subVal != null) priorityFromExport(subExport) else null
+            return DataSnapshot(
+                ref = ref.child(path),
+                value = subVal,
+                priority = subPriority,
+                orderedEntries = null,
+                exportValue = subExport
+            )
         }
 
         var currentVal: Any? = value
@@ -153,6 +183,30 @@ class DataSnapshot(
     override fun toString(): String = "DataSnapshot { key = $key, value = $value }"
 
     companion object {
+        private val RTDB_INT_KEY_REGEX = Regex("^-?0*\\d{1,10}$")
+
+        private fun tryParseRtdbIntKey(key: String): Int? {
+            if (!RTDB_INT_KEY_REGEX.matches(key)) return null
+            val parsed = key.toLongOrNull() ?: return null
+            if (parsed < Int.MIN_VALUE.toLong() || parsed > Int.MAX_VALUE.toLong()) return null
+            return parsed.toInt()
+        }
+
+        internal fun compareRtdbKeys(a: String, b: String): Int {
+            if (a == b) return 0
+            val aInt = tryParseRtdbIntKey(a)
+            val bInt = tryParseRtdbIntKey(b)
+            if (aInt != null) {
+                if (bInt != null) {
+                    val diff = aInt.compareTo(bInt)
+                    return if (diff == 0) a.length.compareTo(b.length) else diff
+                }
+                return -1
+            }
+            if (bInt != null) return 1
+            return a.compareTo(b)
+        }
+
         private fun priorityFromExport(exported: Any?): Any? {
             val map = exported as? Map<*, *> ?: return null
             return map[".priority"]

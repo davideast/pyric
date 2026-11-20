@@ -1,3 +1,4 @@
+import { LIVE_HOST_CONFORMANCE_TEST } from '../defaults.ts';
 import { row } from './section.ts';
 
 export default row({
@@ -5,4 +6,6 @@ export default row({
   api: 'Query.limitToFirst(limit) / limitToLast(limit)',
   behavior: 'Caps query results to the first N or last N ordered child nodes.',
   featureKeys: ['limitToFirst', 'limitToLast'],
+  status: 'conforms',
+  hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

@@ -1,3 +1,4 @@
+import { LIVE_HOST_CONFORMANCE_TEST } from '../defaults.ts';
 import { row } from './section.ts';
 
 export default row({
@@ -5,4 +6,6 @@ export default row({
   api: 'DatabaseReference.runTransaction(handler)',
   behavior: 'Executes optimistic concurrency transaction handler on MutableData and commits upon success.',
   featureKeys: ['runTransaction'],
+  status: 'conforms',
+  hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });
