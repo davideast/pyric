@@ -1,0 +1,118 @@
+import type { Query as RtdbQuery } from 'pyric/database';
+import type { AuthLens, ListenerOwner } from 'pyric/sandbox';
+import type { AiAppCheckWire, AiEngineConfigWire } from './ai.js';
+import type { AuthSubMessage } from './auth.js';
+import type { FirestoreSubMessage } from './firestore.js';
+
+export interface EventSubMessage {
+  t: 'sub';
+  subId: string;
+  target: 'events';
+  /** The subscribing page's tab id (`AppConfigMessage.tabId`); the history batch answers with `pageId`. */
+  tabId?: string;
+  /** The subscribing page's browser profile id (`AppConfigMessage.clientId`), for a port that sends no `appConfig`. */
+  clientId?: string;
+}
+
+/** Structured-clone-safe query plan carried by `pyric/database` Query values. */
+export type RtdbQuerySpec = RtdbQuery['_spec'];
+
+/** JSON-safe wire form of {@link RtdbQuerySpec} (`limit.n === null` encodes `+Infinity` across JSON transports). */
+export type RtdbWireQuerySpec = Omit<RtdbQuerySpec, 'limit'> & {
+  limit: { kind: 'limitToFirst' | 'limitToLast'; n: number | null } | null;
+};
+
+export interface RtdbValueSubMessage {
+  t: 'sub';
+  subId: string;
+  target: {
+    service: 'rtdb';
+    instance: string | undefined;
+    path: string;
+    query?: RtdbWireQuerySpec;
+    event?: 'value' | 'child_added' | 'child_changed' | 'child_removed' | 'child_moved';
+  };
+  actAs?: AuthLens;
+  /** The listener's owners, derived on the page. */
+  owners?: ListenerOwner[];
+  issuer?: 'studio';
+  relaySource?: 'remote';
+}
+
+export interface AiStreamSubMessage {
+  t: 'sub';
+  subId: string;
+  target: { service: 'ai'; op: 'streamGenerateContent' };
+  model: string;
+  request: Record<string, unknown>;
+  engine?: AiEngineConfigWire;
+  appCheck?: AiAppCheckWire;
+}
+
+export interface MessagingSubMessage {
+  t: 'sub';
+  subId: string;
+  target: 'messaging.foreground' | 'messaging.background';
+  recipientId?: string;
+}
+
+export interface PresenceSubMessage {
+  t: 'sub';
+  subId: string;
+  target: 'presence';
+}
+
+export type PresenceClientKind = 'app' | 'studio';
+export type PresenceVisibility = 'visible' | 'hidden';
+
+export interface PresenceClientRecord {
+  clientId: string;
+  kind: PresenceClientKind;
+  route: string;
+  visibility: PresenceVisibility;
+  connectedAt: number;
+  lastSeen: number;
+}
+
+export interface PresenceSnapshot {
+  clients: PresenceClientRecord[];
+}
+
+export type SubMessage =
+  | FirestoreSubMessage
+  | AuthSubMessage
+  | EventSubMessage
+  | RtdbValueSubMessage
+  | AiStreamSubMessage
+  | MessagingSubMessage
+  | PresenceSubMessage;
+
+export function isEventSub(msg: SubMessage): msg is EventSubMessage {
+  return msg.target === 'events';
+}
+
+export function isMessagingSub(msg: SubMessage): msg is MessagingSubMessage {
+  return msg.target === 'messaging.foreground' || msg.target === 'messaging.background';
+}
+
+export function isPresenceSub(msg: SubMessage): msg is PresenceSubMessage {
+  return msg.target === 'presence';
+}
+
+export function isRtdbSub(msg: SubMessage): msg is RtdbValueSubMessage {
+  return (
+    typeof msg.target === 'object' &&
+    msg.target !== null &&
+    'service' in msg.target &&
+    msg.target.service === 'rtdb'
+  );
+}
+
+export function isAiSub(msg: SubMessage): msg is AiStreamSubMessage {
+  return (
+    typeof msg.target === 'object' &&
+    msg.target !== null &&
+    'service' in msg.target &&
+    msg.target.service === 'ai'
+  );
+}

@@ -1,18 +1,21 @@
 import type { DeliveryStage } from 'pyric/messaging/internal';
 import type { ActionCodeSettings } from 'pyric/auth';
-import { getAiEvidence, type AiEvidence } from 'pyric/ai/internal';
 /**
- * SharedWorker protocol — message types + wire serialization.
+ * SharedWorker protocol -- message types + wire serialization.
  *
  * Barrel module re-exporting modular domain protocol definitions:
  *   - `./protocol/firestore.js` (Firestore refs, sentinels, aggregates, doc data codec)
  *   - `./protocol/auth.js` (SerializedUser, ResolvedIdentity, AuthSubMessage, serializeUser)
  *   - `./protocol/storage.js` (Base64 codec + storage byte payload limits)
+ *   - `./protocol/error-serialization.js` (SerializedError + wire error shaping)
  */
 
 export * from './protocol/firestore.js';
 export * from './protocol/auth.js';
 export * from './protocol/storage.js';
+export * from './protocol/ai.js';
+export * from './protocol/subscriptions.js';
+export * from './protocol/error-serialization.js';
 
 import type {
   TargetDescriptor,
@@ -23,70 +26,32 @@ import type {
   UpdatePayload,
   TxnReadEntry,
   TxnQueryReadEntry,
-  FirestoreSubMessage,
 } from './protocol/firestore.js';
 import type {
   AuthPersistenceMode,
   SerializedAuthCredential,
   ResolvedIdentity,
-  AuthSubMessage,
 } from './protocol/auth.js';
+import type { AiAppCheckWire, AiEngineConfigWire } from './protocol/ai.js';
+import type {
+  PresenceClientKind,
+  PresenceVisibility,
+  RtdbWireQuerySpec,
+  SubMessage,
+} from './protocol/subscriptions.js';
+import type { SerializedError } from './protocol/error-serialization.js';
 import type {
   AuthLens,
-  ListenerOwner,
   SandboxClockState,
   SandboxEvent,
-  AnyDenialContext,
   ObservedCall,
 } from 'pyric/sandbox';
-import type { Query as RtdbQuery } from 'pyric/database';
 import type { NodeUnobservedLists } from 'pyric/sandbox/internal';
-import { isPlainRecord, stripWireTokenClaims } from '../repro/token-claims.js';
 import type { ObservedSessionDelta } from '../observed-session/wire.js';
 import type {
   BrokerMessage,
   ClientVisibilityState,
-  FcmErrorEnvelope,
 } from 'pyric/messaging/internal';
-
-// ─── AI wire shapes (cdd-deltas #98 — pyric/ai under pyric dev) ────────────
-
-/**
- * JSON-safe engine config for the worker host's AiBroker — the wire form of
- * `pyric/ai`'s `EngineConfig`.
- */
-export type AiEngineConfigWire =
-  | { kind: 'scripted'; script?: Array<Record<string, unknown>> }
-  | {
-      kind: 'openai';
-      baseUrl?: string;
-      model?: string;
-      modelMap?: Record<string, string>;
-    }
-  | { kind: 'gemini'; baseUrl?: string; apiKey?: string };
-
-/**
- * The App Check claim an AI request from an app-backed handle carries, as
- * production reads `X-Firebase-AppCheck`: a token, or `null` when the handle
- * has none. The worker broker refuses a request whose claim has no valid
- * sandbox token. Requests from handles with no app send no claim and are not
- * gated.
- */
-export interface AiAppCheckWire {
-  token: string | null;
-}
-
-/**
- * Wire form of the Gemini error envelope an `AiBrokerError` carries.
- */
-interface AiErrorEnvelopeWire {
-  error: {
-    code: number;
-    message: string;
-    status: string;
-    details?: Array<Record<string, unknown>>;
-  };
-}
 
 // ─── One-shot op messages (client → worker) ───────────────────────────────
 
@@ -377,124 +342,7 @@ interface MessagingDeliverSpec {
   messageId?: string;
 }
 
-// ─── Subscription messages (client → worker) ─────────────────────────────
-
-export interface EventSubMessage {
-  t: 'sub';
-  subId: string;
-  target: 'events';
-  /** The subscribing page's tab id (`AppConfigMessage.tabId`); the history batch answers with `pageId`. */
-  tabId?: string;
-  /** The subscribing page's browser profile id (`AppConfigMessage.clientId`), for a port that sends no `appConfig`. */
-  clientId?: string;
-}
-
-export interface RtdbValueSubMessage {
-  t: 'sub';
-  subId: string;
-  target: {
-    service: 'rtdb';
-    instance: string | undefined;
-    path: string;
-    query?: RtdbWireQuerySpec;
-    event?: 'value' | 'child_added' | 'child_changed' | 'child_removed' | 'child_moved';
-  };
-  actAs?: AuthLens;
-  /** The listener's owners, derived on the page. See {@link FirestoreSubMessage}. */
-  owners?: ListenerOwner[];
-  issuer?: 'studio';
-  relaySource?: 'remote';
-}
-
-/** Structured-clone-safe query plan carried by `pyric/database` Query values. */
-export type RtdbQuerySpec = RtdbQuery['_spec'];
-
-/** JSON-safe wire form of {@link RtdbQuerySpec} (`limit.n === null` encodes `+Infinity` across JSON transports). */
-export type RtdbWireQuerySpec = Omit<RtdbQuerySpec, 'limit'> & {
-  limit: { kind: 'limitToFirst' | 'limitToLast'; n: number | null } | null;
-};
-
-export interface AiStreamSubMessage {
-  t: 'sub';
-  subId: string;
-  target: { service: 'ai'; op: 'streamGenerateContent' };
-  model: string;
-  request: Record<string, unknown>;
-  engine?: AiEngineConfigWire;
-  appCheck?: AiAppCheckWire;
-}
-
-export interface MessagingSubMessage {
-  t: 'sub';
-  subId: string;
-  target: 'messaging.foreground' | 'messaging.background';
-  recipientId?: string;
-}
-
-export interface PresenceSubMessage {
-  t: 'sub';
-  subId: string;
-  target: 'presence';
-}
-
-export type PresenceClientKind = 'app' | 'studio';
-export type PresenceVisibility = 'visible' | 'hidden';
-
-export interface PresenceClientRecord {
-  clientId: string;
-  kind: PresenceClientKind;
-  route: string;
-  visibility: PresenceVisibility;
-  connectedAt: number;
-  lastSeen: number;
-}
-
-export interface PresenceSnapshot {
-  clients: PresenceClientRecord[];
-}
-
-export type SubMessage =
-  | FirestoreSubMessage
-  | AuthSubMessage
-  | EventSubMessage
-  | RtdbValueSubMessage
-  | AiStreamSubMessage
-  | MessagingSubMessage
-  | PresenceSubMessage;
-
-/** Type guard: is this an event-stream subscription? */
-export function isEventSub(msg: SubMessage): msg is EventSubMessage {
-  return msg.target === 'events';
-}
-
-/** Type guard: is this a messaging delivery subscription? */
-export function isMessagingSub(msg: SubMessage): msg is MessagingSubMessage {
-  return msg.target === 'messaging.foreground' || msg.target === 'messaging.background';
-}
-
-/** Type guard: is this a connected-page presence subscription? */
-export function isPresenceSub(msg: SubMessage): msg is PresenceSubMessage {
-  return msg.target === 'presence';
-}
-
-export function isRtdbSub(msg: SubMessage): msg is RtdbValueSubMessage {
-  return (
-    typeof msg.target === 'object' &&
-    msg.target !== null &&
-    'service' in msg.target &&
-    msg.target.service === 'rtdb'
-  );
-}
-
-/** Type guard: is this an AI stream subscription? */
-export function isAiSub(msg: SubMessage): msg is AiStreamSubMessage {
-  return (
-    typeof msg.target === 'object' &&
-    msg.target !== null &&
-    'service' in msg.target &&
-    msg.target.service === 'ai'
-  );
-}
+// --- Subscription teardown & control messages (client -> worker) ---
 
 /** Tear down a previously registered snapshot listener. */
 export interface UnsubMessage {
@@ -665,165 +513,3 @@ export type OutboundMessage = (
 ) & {
   clientSessionId?: string;
 };
-
-// ─── Error serialization ──────────────────────────────────────────────────
-
-export interface SerializedError {
-  aiEvidence?: Partial<AiEvidence>;
-  code: string;
-  /** The source error had no `code`, so the page's error has none either; `code` is then `unknown`. */
-  codeless?: true;
-  message: string;
-  /** Structured rules denial frame; `engine` tells an RTDB frame from a Firestore one. */
-  denialContext?: AnyDenialContext;
-  remediation?: string;
-  queryProof?: unknown;
-  rule?: unknown;
-  request?: unknown;
-  resource?: unknown;
-  query?: unknown;
-  aiEnvelope?: AiErrorEnvelopeWire;
-  envelope?: FcmErrorEnvelope;
-}
-
-export function serializeError(err: unknown): SerializedError {
-  const base = serializeErrorValue(err);
-  const evidence = err && typeof err === 'object' ? getAiEvidence(err) : undefined;
-  return evidence ? { ...base, aiEvidence: evidence } : base;
-}
-const FIXTURE_CASE_PREFIX = '  Fixture case: ';
-
-function wireAuthOf(
-  auth: unknown,
-  options?: { promoteTenant?: boolean },
-): unknown {
-  if (!isPlainRecord(auth)) return auth;
-  const rawToken = isPlainRecord(auth.token) ? auth.token : undefined;
-  const rawFirebase = rawToken && isPlainRecord(rawToken.firebase) ? rawToken.firebase : undefined;
-  const canPromoteTenant =
-    options?.promoteTenant !== false &&
-    auth.tenant === undefined &&
-    typeof rawFirebase?.tenant === 'string';
-  const promotedTenant = canPromoteTenant ? rawFirebase.tenant : undefined;
-
-  const out: Record<string, unknown> = {};
-  for (const [key, entry] of Object.entries(auth)) {
-    if (key === 'tenant' && entry === undefined) continue;
-    if (key === 'token') {
-      if (promotedTenant !== undefined) {
-        out.tenant = promotedTenant;
-      }
-      if (rawToken !== undefined) {
-        const wireToken = stripWireTokenClaims(rawToken);
-        if (wireToken !== undefined) {
-          out.token = wireToken;
-        }
-      }
-      continue;
-    }
-    out[key] = entry;
-  }
-  return out;
-}
-
-function wireRequestOf(request: unknown): unknown {
-  if (!isPlainRecord(request)) return request;
-  const { auth: _auth, ...rest } = request;
-  return rest;
-}
-
-function wireReproOf(repro: unknown): unknown {
-  if (!isPlainRecord(repro) || !isPlainRecord(repro.testCase)) return repro;
-  const testCase: Record<string, unknown> = { ...repro.testCase };
-  if ('auth' in repro.testCase) {
-    testCase.auth = wireAuthOf(repro.testCase.auth, { promoteTenant: false });
-  }
-  return { ...repro, testCase };
-}
-
-function wireDenialContextOf(denialContext: Record<string, unknown>): AnyDenialContext {
-  const out: Record<string, unknown> = { ...denialContext };
-  if ('auth' in denialContext) out.auth = wireAuthOf(denialContext.auth);
-  if ('request' in denialContext) out.request = wireRequestOf(denialContext.request);
-  if ('repro' in denialContext) out.repro = wireReproOf(denialContext.repro);
-  return out as unknown as AnyDenialContext;
-}
-
-function wireRemediationOf(remediation: string): string {
-  const lines = remediation.split('\n').map((line) => {
-    if (!line.startsWith(FIXTURE_CASE_PREFIX)) return line;
-    try {
-      const parsed = JSON.parse(line.slice(FIXTURE_CASE_PREFIX.length)) as unknown;
-      if (!isPlainRecord(parsed)) return line;
-      const wireCase: Record<string, unknown> = { ...parsed };
-      if ('auth' in parsed) {
-        wireCase.auth = wireAuthOf(parsed.auth, { promoteTenant: false });
-      }
-      return `${FIXTURE_CASE_PREFIX}${JSON.stringify(wireCase)}`;
-    } catch {
-      return line;
-    }
-  });
-  return lines.join('\n');
-}
-
-function serializeErrorValue(err: unknown): SerializedError {
-  if (err !== null && typeof err === 'object') {
-    const envelope = (err as { envelope?: AiErrorEnvelopeWire }).envelope;
-    if (
-      envelope !== null &&
-      typeof envelope === 'object' &&
-      typeof envelope.error?.code === 'number' &&
-      typeof envelope.error?.message === 'string' &&
-      typeof envelope.error?.status === 'string'
-    ) {
-      return {
-        code: `ai/${envelope.error.status}`,
-        message: envelope.error.message,
-        aiEnvelope: envelope,
-      };
-    }
-    const e = err as {
-      code?: unknown;
-      message?: unknown;
-      denialContext?: unknown;
-      remediation?: unknown;
-      queryProof?: unknown;
-      rule?: unknown;
-      request?: unknown;
-      resource?: unknown;
-      query?: unknown;
-    };
-    // A denied RTDB transaction and an unindexed RTDB query reject with a
-    // codeless Error, as production does; the page rebuilds it without a
-    // `code`. A denial still carries the sandbox's denial context.
-    const hasDenialDiagnostics =
-      isPlainRecord(e.denialContext) ||
-      typeof e.remediation === 'string' ||
-      e.queryProof !== undefined ||
-      e.rule !== undefined ||
-      e.request !== undefined;
-    const wireMessage = (msg: string): string => {
-      if (!hasDenialDiagnostics) return msg;
-      return wireRemediationOf(msg);
-    };
-    const extras: Partial<SerializedError> = {};
-    if (isPlainRecord(e.denialContext)) extras.denialContext = wireDenialContextOf(e.denialContext);
-    if (typeof e.remediation === 'string') extras.remediation = wireRemediationOf(e.remediation);
-    if (e.queryProof !== undefined) extras.queryProof = e.queryProof;
-    if (e.rule !== undefined) extras.rule = e.rule;
-    if (e.request !== undefined) extras.request = wireRequestOf(e.request);
-    if (e.resource !== undefined) extras.resource = e.resource;
-    if (e.query !== undefined) extras.query = e.query;
-    if (typeof e.code === 'string' && typeof e.message === 'string') {
-      return { code: e.code, message: wireMessage(e.message), ...extras };
-    }
-    if (err instanceof Error) {
-      if (e.code === undefined) {
-        return { code: 'unknown', codeless: true, message: wireMessage(err.message), ...extras };
-      }
-      return { code: 'unknown', message: wireMessage(err.message), ...extras };
-    }
-  }
-  return { code: 'unknown', message: String(err) };
-}
