@@ -1,0 +1,31 @@
+{
+  "name": "firestore-anonymous-listener-auth-transition",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase/firestore onSnapshot listener registered while signed out keeps receiving updates across Auth sign-in and subsequent session user transitions, while an owner-gated listener loses access with permission-denied on user switch.",
+  "observedAt": "2026-11-20T00:17:27.618Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "publicAnonymousListenerAcrossSignIn": {
+      "signedInBeforeAttach": false,
+      "signedInAfterSignIn": true,
+      "sawInitialPublic": true,
+      "sawPostSignInPublic": true,
+      "sawPostUserSwapPublic": true,
+      "stepsObserved": [
+        0,
+        1,
+        2
+      ],
+      "errorCode": null
+    },
+    "ownerGatedListenerAcrossUserSwitch": {
+      "sawInitialOwned": true,
+      "countsObserved": [
+        0
+      ],
+      "errorCodeAfterSwitch": "permission-denied"
+    }
+  }
+}
