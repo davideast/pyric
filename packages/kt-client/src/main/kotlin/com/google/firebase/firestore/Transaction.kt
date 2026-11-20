@@ -40,6 +40,7 @@ class Transaction internal constructor(
             else -> PojoCodec.serialize(data)
         }
         SentinelValidator.validateNoDelete(map, options.isMerge)
+        SentinelValidator.validateNoNestedArraySentinels(map)
         val entry = mutableMapOf<String, Any?>(
             "method" to "set",
             "path" to documentRef.path,
@@ -54,6 +55,7 @@ class Transaction internal constructor(
     }
 
     fun update(documentRef: DocumentReference, data: Map<String, Any?>): Transaction {
+        SentinelValidator.validateNoNestedArraySentinels(data)
         writes.add(
             mapOf(
                 "method" to "update",

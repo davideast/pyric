@@ -21,6 +21,40 @@ object SentinelValidator {
     }
 
     /**
+     * Validates that no [FieldValue] sentinel appears directly or indirectly inside
+     * a plain array or list literal in document mutation payloads.
+     */
+    fun validateNoNestedArraySentinels(data: Any?) {
+        when (data) {
+            is Map<*, *> -> {
+                for ((_, v) in data) {
+                    validateNoNestedArraySentinels(v)
+                }
+            }
+            is Iterable<*> -> {
+                for (element in data) {
+                    if (containsAnySentinel(element)) {
+                        throw IllegalArgumentException(
+                            "Invalid data. FieldValue sentinels are not supported inside arrays"
+                        )
+                    }
+                }
+            }
+            is Array<*> -> {
+                for (element in data) {
+                    if (containsAnySentinel(element)) {
+                        throw IllegalArgumentException(
+                            "Invalid data. FieldValue sentinels are not supported inside arrays"
+                        )
+                    }
+                }
+            }
+            is FieldValue.ArrayUnionSentinel -> validateNoArraySentinels(data.elements, "arrayUnion")
+            is FieldValue.ArrayRemoveSentinel -> validateNoArraySentinels(data.elements, "arrayRemove")
+        }
+    }
+
+    /**
      * Recursively traverses [value] to detect any occurrence of [FieldValue.DeleteSentinel].
      * Inspects Maps (both keys and values), Iterables (Lists, Sets), Arrays, and nested transform sentinels.
      */

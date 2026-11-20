@@ -1,3 +1,4 @@
+import { LIVE_HOST_CONFORMANCE_TEST, LIVE_HOST_CORE_SUITE } from '../defaults.ts';
 import { row } from './section.ts';
 
 export default row({
@@ -5,5 +6,7 @@ export default row({
   api: 'Nested Map and List collections',
   behavior: 'Deeply encodes and revives recursive nested Maps and Lists containing mixed primitives and sentinels.',
   featureKeys: ['data'],
-  flipped: 'unit-backed',
+  status: 'conforms',
+  tests: [LIVE_HOST_CORE_SUITE],
+  hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });
