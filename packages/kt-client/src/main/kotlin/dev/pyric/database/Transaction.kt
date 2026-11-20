@@ -2,9 +2,9 @@ package dev.pyric.database
 
 object Transaction {
     class Result internal constructor(
-        val isSuccess: Boolean,
-        val mutableData: MutableData?
-    )
+        isSuccess: Boolean,
+        mutableData: MutableData?
+    ) : com.google.firebase.database.Transaction.Result(isSuccess, mutableData)
 
     @JvmStatic
     fun success(mutableData: MutableData): Result = Result(true, mutableData)
@@ -12,8 +12,5 @@ object Transaction {
     @JvmStatic
     fun abort(): Result = Result(false, null)
 
-    interface Handler {
-        fun doTransaction(currentData: MutableData): Result
-        fun onComplete(error: DatabaseError?, committed: Boolean, currentData: DataSnapshot?)
-    }
+    interface Handler : com.google.firebase.database.Transaction.Handler
 }

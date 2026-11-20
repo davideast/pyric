@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { once } from 'node:events';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { resolve } from 'node:path';
 import { WebSocket, WebSocketServer } from 'ws';
@@ -317,7 +317,7 @@ describe('native Kotlin client live-host conformance', () => {
             ':cleanTest',
             ':test',
             '--tests',
-            'dev.pyric.e2e.LiveHostConformanceTest',
+            'dev.pyric.e2e.*LiveHostConformanceTest',
             '--stacktrace',
             '--no-daemon',
           ],
@@ -342,16 +342,30 @@ describe('native Kotlin client live-host conformance', () => {
           );
         }
 
-        const xmlReport = resolve(
-          KT_CLIENT_DIR,
-          'build/test-results/test/TEST-dev.pyric.e2e.LiveHostConformanceTest.xml',
-        );
-        expect(existsSync(xmlReport)).toBe(true);
-        const xml = readFileSync(xmlReport, 'utf8');
-        expect(xml).toContain('tests="2"');
-        expect(xml).toContain('skipped="0"');
-        expect(xml).toContain('failures="0"');
-        expect(xml).toContain('errors="0"');
+        const resultsDir = resolve(KT_CLIENT_DIR, 'build/test-results/test');
+        expect(existsSync(resultsDir)).toBe(true);
+        const reportPattern = /^TEST-dev\.pyric\.e2e\..*LiveHostConformanceTest\.xml$/;
+        const reportFiles = readdirSync(resultsDir).filter((name) => reportPattern.test(name));
+        expect(reportFiles.length).toBeGreaterThanOrEqual(1);
+
+        let totalTests = 0;
+        for (const fileName of reportFiles) {
+          const xml = readFileSync(resolve(resultsDir, fileName), 'utf8');
+          const countMatch = /\btests="(\d+)"/.exec(xml);
+          expect(countMatch).not.toBeNull();
+          if (countMatch !== null) {
+            const countRaw = countMatch[1];
+            if (countRaw !== undefined) {
+              const parsedCount = Number.parseInt(countRaw, 10);
+              expect(parsedCount).toBeGreaterThan(0);
+              totalTests += parsedCount;
+            }
+          }
+          expect(xml).toContain('skipped="0"');
+          expect(xml).toContain('failures="0"');
+          expect(xml).toContain('errors="0"');
+        }
+        expect(totalTests).toBeGreaterThanOrEqual(2);
       } finally {
         await host.close();
       }

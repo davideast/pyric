@@ -40,6 +40,15 @@ class JvmAbiCompatibilityTest {
         Triple("com.google.firebase.firestore.Blob", "fromBytes", listOf(ByteArray::class.java)),
         Triple("com.google.firebase.firestore.AggregateField", "count", emptyList()),
         Triple("com.google.firebase.firestore.TransactionOptions", "defaultOptions", emptyList()),
+        Triple("com.google.firebase.database.FirebaseDatabase", "getInstance", emptyList()),
+        Triple("com.google.firebase.database.FirebaseDatabase", "getInstance", listOf(String::class.java)),
+        Triple("com.google.firebase.database.FirebaseDatabase", "getInstance", listOf(Class.forName("com.google.firebase.FirebaseApp"))),
+        Triple("com.google.firebase.database.FirebaseDatabase", "getInstance", listOf(Class.forName("com.google.firebase.FirebaseApp"), String::class.java)),
+        Triple("com.google.firebase.database.Transaction", "abort", emptyList()),
+        Triple("com.google.firebase.database.Transaction", "success", listOf(Class.forName("com.google.firebase.database.MutableData"))),
+        Triple("com.google.firebase.database.ServerValue", "increment", listOf(Long::class.javaPrimitiveType!!)),
+        Triple("com.google.firebase.database.ServerValue", "increment", listOf(Double::class.javaPrimitiveType!!)),
+        Triple("com.google.firebase.database.DatabaseError", "fromException", listOf(Throwable::class.java)),
     )
 
     @Test
@@ -61,6 +70,91 @@ class JvmAbiCompatibilityTest {
     fun firebaseAuthKtxCompilesToAuthKt() {
         val getAuth = Class.forName("com.google.firebase.auth.AuthKt").getMethod("getAuth", Class.forName("com.google.firebase.Firebase"))
         assertTrue(Modifier.isStatic(getAuth.modifiers))
+    }
+
+    @Test
+    fun firebaseDatabaseDropInNamespaceAndKtxExistInBytecode() {
+        val requiredTypes = listOf(
+            "com.google.firebase.database.FirebaseDatabase",
+            "com.google.firebase.database.DatabaseReference",
+            "com.google.firebase.database.Query",
+            "com.google.firebase.database.DataSnapshot",
+            "com.google.firebase.database.MutableData",
+            "com.google.firebase.database.Transaction",
+            "com.google.firebase.database.Transaction\$Handler",
+            "com.google.firebase.database.Transaction\$Result",
+            "com.google.firebase.database.OnDisconnect",
+            "com.google.firebase.database.ServerValue",
+            "com.google.firebase.database.ValueEventListener",
+            "com.google.firebase.database.ChildEventListener",
+            "com.google.firebase.database.DatabaseError",
+            "com.google.firebase.database.DatabaseException",
+            "com.google.firebase.database.DatabaseKt",
+        )
+        val missing = requiredTypes.filter { fqcn ->
+            runCatching { Class.forName(fqcn) }.isFailure
+        }
+        assertEquals(emptyList<String>(), missing)
+
+        val getDatabase = Class.forName("com.google.firebase.database.DatabaseKt")
+            .getMethod("getDatabase", Class.forName("com.google.firebase.Firebase"))
+        assertTrue(Modifier.isStatic(getDatabase.modifiers))
+
+        val timestampField = Class.forName("com.google.firebase.database.ServerValue")
+            .getField("TIMESTAMP")
+        assertTrue(Modifier.isStatic(timestampField.modifiers))
+        assertEquals(mapOf(".sv" to "timestamp"), timestampField.get(null))
+
+        val addedClass = Class.forName("com.google.firebase.database.ChildEvent\$Added")
+        assertNotNullCompat(addedClass.getMethod("component1"))
+        assertNotNullCompat(addedClass.getMethod("component2"))
+        val removedClass = Class.forName("com.google.firebase.database.ChildEvent\$Removed")
+        assertNotNullCompat(removedClass.getMethod("component1"))
+    }
+
+    private fun assertNotNullCompat(value: Any?) {
+        assertTrue(value != null)
+    }
+
+    @Test
+    fun rtdbPermissionDeniedTasksThrowDatabaseException() {
+        com.google.firebase.database.FirebaseDatabase.clearInstancesForTest()
+        val transport = InMemoryBridgeTransport()
+        transport.onServerReceive { json ->
+            val msg = JsonCodec.decodeMap(json)
+            when (msg["type"]) {
+                "attach" -> transport.sendToClient("""{"type":"attach-ack","protocol":1,"peerConnected":true}""")
+                "worker-op" -> transport.sendToClient(
+                    """{"type":"worker-res","id":"${msg["id"]}","ok":false,"error":{"code":"PERMISSION_DENIED","message":"PERMISSION_DENIED: Permission denied"}}"""
+                )
+            }
+        }
+        val app = FirebaseApp.initializeApp(
+            "abi-rtdb-${System.nanoTime()}",
+            FirebaseOptions.Builder().setProjectId("demo").setApiKey("k").setApplicationId("a").build(),
+        )
+        val db = com.google.firebase.database.FirebaseDatabase.getInstance(app, PyricBridgeClient(transport))
+        val ref = db.getReference("rooms/r1")
+
+        val getCause = assertThrows<ExecutionException> { Tasks.await(ref.get()) }.cause!!
+        assertEquals("com.google.firebase.database.DatabaseException", getCause.javaClass.name)
+        assertEquals(
+            com.google.firebase.database.DatabaseError.PERMISSION_DENIED,
+            com.google.firebase.database.DatabaseError.fromException(getCause).code,
+        )
+
+        val setCause = assertThrows<ExecutionException> { Tasks.await(ref.setValue("denied")) }.cause!!
+        assertEquals("com.google.firebase.database.DatabaseException", setCause.javaClass.name)
+        assertEquals(
+            com.google.firebase.database.DatabaseError.PERMISSION_DENIED,
+            com.google.firebase.database.DatabaseError.fromException(setCause).code,
+        )
+
+        val onDisconnectCause = assertThrows<ExecutionException> {
+            Tasks.await(ref.onDisconnect().setValue("denied"))
+        }.cause!!
+        assertEquals("com.google.firebase.database.DatabaseException", onDisconnectCause.javaClass.name)
+        com.google.firebase.database.FirebaseDatabase.clearInstancesForTest()
     }
 
     @Test

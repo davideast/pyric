@@ -11,6 +11,9 @@ const CONFORMANCE_SUITE =
 export const INFO_RECONNECT_TEST =
   'packages/kt-client/src/test/kotlin/dev/pyric/database/InfoConnectedReconnectTest.kt';
 
+export const LIVE_HOST_CONFORMANCE_TEST =
+  'packages/cli/test/serve/native-kotlin-conformance.test.ts';
+
 export interface KotlinRtdbRowSeed {
   order?: number;
   api: string;
@@ -19,6 +22,8 @@ export interface KotlinRtdbRowSeed {
   evidence?: string;
   /** Tests beyond the conformance suite that also exercise this row. */
   tests?: string[];
+  /** Live Pyric host end-to-end suites proving this row against a running host. */
+  hostConformanceTests?: string[];
   /** Overrides the default mock-bridge `unverified` status. */
   status?: CompatStatus;
   statusNote?: string;
@@ -43,6 +48,11 @@ export function bindKotlinRtdbRow(
         seed.evidence ?? 'com.google.firebase:firebase-database specification.';
       const extraTests = seed.tests ?? [];
       const resolvedStatus = seed.status ?? 'unverified';
+      const hostTests = seed.hostConformanceTests;
+      let hostEvidence = '';
+      if (hostTests !== undefined && hostTests.length > 0) {
+        hostEvidence = ` Live host: \`${hostTests.join('`, `')}\`.`;
+      }
       return {
         api: seed.api,
         behavior: seed.behavior,
@@ -50,8 +60,9 @@ export function bindKotlinRtdbRow(
         status: resolvedStatus,
         statusNote: resolveMockBridgeNote(seed.status, seed.statusNote),
         automation: 'unit-backed',
-        evidence: `${resolvedEvidence} Test: \`${CONFORMANCE_SUITE}\` assertion set \`rtdb-kotlin#${rowRef}\`.`,
+        evidence: `${resolvedEvidence} Test: \`${CONFORMANCE_SUITE}\` assertion set \`rtdb-kotlin#${rowRef}\`.${hostEvidence}`,
         conformanceTests: [CONFORMANCE_SUITE, ...extraTests],
+        hostConformanceTests: hostTests,
       };
     });
   };
