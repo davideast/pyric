@@ -1,5 +1,9 @@
 import Foundation
 
+private struct TransactionCallbackResult: @unchecked Sendable {
+    let value: Any?
+}
+
 public final class FirebaseApp: @unchecked Sendable, Equatable {
     public let name: String
 
@@ -344,8 +348,9 @@ public class Firestore: @unchecked Sendable {
                         return res
                     }
                 }
+                let boxedResult = TransactionCallbackResult(value: result)
                 self.settings.dispatchQueue.async {
-                    completion(result, nil)
+                    completion(boxedResult.value, nil)
                 }
             } catch {
                 self.settings.dispatchQueue.async {

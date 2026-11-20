@@ -98,15 +98,7 @@ public final class Transaction: @unchecked Sendable {
         semaphore.wait()
 
         if let caughtError = box.error {
-            #if canImport(ObjectiveC)
             error?.pointee = caughtError as NSError
-            #else
-            error?.pointee = (caughtError as? NSError) ?? NSError(
-                domain: "PyricFirestoreErrorDomain",
-                code: -1,
-                userInfo: [NSLocalizedDescriptionKey: caughtError.localizedDescription]
-            )
-            #endif
             return nil
         }
         return box.result
