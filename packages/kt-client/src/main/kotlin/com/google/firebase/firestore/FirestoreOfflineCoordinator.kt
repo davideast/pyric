@@ -14,6 +14,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executor
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
 internal class FirestoreOfflineCoordinator(
@@ -60,14 +61,15 @@ internal class FirestoreOfflineCoordinator(
     private val activeListenersSynced = ConcurrentHashMap<Long, Boolean>()
     private val inSyncListeners = CopyOnWriteArrayList<InSyncRegistration>()
 
-    private val _networkEnabledFlow = MutableStateFlow(true)
-    val networkEnabledFlow: StateFlow<Boolean> = _networkEnabledFlow.asStateFlow()
+    @Volatile
+    var isNetworkEnabled: Boolean = true
+        private set
+
+    private val _listenerNetworkEnabledFlow = MutableStateFlow(true)
+    val listenerNetworkEnabledFlow: StateFlow<Boolean> = _listenerNetworkEnabledFlow.asStateFlow()
 
     private val _cacheVersionFlow = MutableStateFlow(0L)
     val cacheVersionFlow: StateFlow<Long> = _cacheVersionFlow.asStateFlow()
-
-    val isNetworkEnabled: Boolean
-        get() = _networkEnabledFlow.value
 
     private fun backingStore(): ConcurrentHashMap<String, CachedDocState> {
         if (firestore.firestoreSettings.isPersistenceEnabled) {
@@ -119,7 +121,7 @@ internal class FirestoreOfflineCoordinator(
             stagedWrites[entry.id] = entry
             pendingWrites[entry.id] = entry
             _cacheVersionFlow.value += 1L
-            _networkEnabledFlow.value
+            isNetworkEnabled
         }
 
         if (sendNow) {
@@ -148,6 +150,9 @@ internal class FirestoreOfflineCoordinator(
                     )
                     store[entry.mutation.path] = updated
                     _cacheVersionFlow.value += 1L
+                    if (isNetworkEnabled && stagedWrites.isEmpty() && !firestore.isTerminated) {
+                        _listenerNetworkEnabledFlow.value = true
+                    }
                 }
                 entry.tcs.trySetResult(null)
                 entry.barrier.complete(Unit)
@@ -157,6 +162,9 @@ internal class FirestoreOfflineCoordinator(
                     stagedWrites.remove(entry.id)
                     pendingWrites.remove(entry.id)
                     _cacheVersionFlow.value += 1L
+                    if (isNetworkEnabled && stagedWrites.isEmpty() && !firestore.isTerminated) {
+                        _listenerNetworkEnabledFlow.value = true
+                    }
                 }
                 entry.tcs.trySetException(e)
                 entry.barrier.complete(Unit)
@@ -168,7 +176,8 @@ internal class FirestoreOfflineCoordinator(
     fun disableNetwork(): Task<Void?> {
         firestore.ensureClientActive()
         synchronized(lock) {
-            _networkEnabledFlow.value = false
+            isNetworkEnabled = false
+            _listenerNetworkEnabledFlow.value = false
         }
         return Tasks.forResult(null)
     }
@@ -176,7 +185,10 @@ internal class FirestoreOfflineCoordinator(
     fun enableNetwork(): Task<Void?> {
         firestore.ensureClientActive()
         val toFlush = synchronized(lock) {
-            _networkEnabledFlow.value = true
+            isNetworkEnabled = true
+            if (stagedWrites.isEmpty()) {
+                _listenerNetworkEnabledFlow.value = true
+            }
             stagedWrites.values.toList()
         }
         if (toFlush.isEmpty()) {
@@ -189,11 +201,19 @@ internal class FirestoreOfflineCoordinator(
             launchFlushUndispatched(entry)
         }
         val tcs = TaskCompletionSource<Void?>()
-        scope.launch {
-            for (entry in toFlush) {
-                entry.barrier.await()
+        val remaining = AtomicInteger(toFlush.size)
+        for (entry in toFlush) {
+            entry.barrier.invokeOnCompletion {
+                if (remaining.decrementAndGet() == 0) {
+                    synchronized(lock) {
+                        if (isNetworkEnabled && stagedWrites.isEmpty() && !firestore.isTerminated) {
+                            _listenerNetworkEnabledFlow.value = true
+                        }
+                    }
+                    tcs.trySetResult(null)
+                    notifyInSyncIfAllListenersSynced()
+                }
             }
-            tcs.trySetResult(null)
         }
         return tcs.task
     }
@@ -207,11 +227,13 @@ internal class FirestoreOfflineCoordinator(
             return Tasks.forResult(null)
         }
         val tcs = TaskCompletionSource<Void?>()
-        scope.launch {
-            for (b in barriers) {
-                b.await()
+        val remaining = AtomicInteger(barriers.size)
+        for (b in barriers) {
+            b.invokeOnCompletion {
+                if (remaining.decrementAndGet() == 0) {
+                    tcs.trySetResult(null)
+                }
             }
-            tcs.trySetResult(null)
         }
         return tcs.task
     }

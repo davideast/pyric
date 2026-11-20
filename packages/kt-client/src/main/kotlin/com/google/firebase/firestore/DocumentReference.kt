@@ -278,7 +278,7 @@ class DocumentReference internal constructor(
                 combine(
                     firestore.authLensFlow,
                     firestore.terminatedStateFlow,
-                    firestore.offlineCoordinator.networkEnabledFlow
+                    firestore.offlineCoordinator.listenerNetworkEnabledFlow
                 ) { lens, terminated, networkEnabled ->
                     Triple(lens, terminated, networkEnabled)
                 }.flatMapLatest { (lens, terminated, networkEnabled) ->

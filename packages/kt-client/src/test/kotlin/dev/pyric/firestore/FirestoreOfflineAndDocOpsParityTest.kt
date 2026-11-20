@@ -70,18 +70,23 @@ class FirestoreOfflineAndDocOpsParityTest {
 
     @Test
     fun `terminate aborts pending offline writes with ABORTED and completes waitForPendingWrites`() {
-        val docRef = harness.firestore.document("users/bob")
-        Tasks.await(harness.firestore.disableNetwork(), 5, TimeUnit.SECONDS)
+        repeat(25) { iter ->
+            FirebaseFirestore.clearInstancesForTest()
+            FirebaseApp.clearInstancesForTest()
+            val iterHarness = ConformanceMockHarness()
+            val docRef = iterHarness.firestore.document("users/bob-$iter")
+            Tasks.await(iterHarness.firestore.disableNetwork(), 5, TimeUnit.SECONDS)
 
-        val pendingWrite = docRef.set(mapOf("status" to "offline"))
-        val waitBarrier = harness.firestore.waitForPendingWrites()
-        assertFalse(pendingWrite.isComplete)
-        assertFalse(waitBarrier.isComplete)
+            val pendingWrite = docRef.set(mapOf("status" to "offline"))
+            val waitBarrier = iterHarness.firestore.waitForPendingWrites()
+            assertFalse(pendingWrite.isComplete)
+            assertFalse(waitBarrier.isComplete)
 
-        Tasks.await(harness.firestore.terminate(), 5, TimeUnit.SECONDS)
-        Tasks.await(waitBarrier, 5, TimeUnit.SECONDS)
-        assertFirestoreCode(FirebaseFirestoreException.Code.ABORTED) {
-            Tasks.await(pendingWrite, 5, TimeUnit.SECONDS)
+            Tasks.await(iterHarness.firestore.terminate(), 5, TimeUnit.SECONDS)
+            Tasks.await(waitBarrier, 5, TimeUnit.SECONDS)
+            assertFirestoreCode(FirebaseFirestoreException.Code.ABORTED) {
+                Tasks.await(pendingWrite, 5, TimeUnit.SECONDS)
+            }
         }
     }
 
