@@ -1,7 +1,8 @@
 /** Firebase-shaped Auth sign-in, redirect, persistence, and sign-out operations. */
 import { AuthCredential, EmailAuthCredential } from './credentials.js';
 import { signInWithEmailLink } from './email-link.js';
-import type { AuthProvider } from './providers.js';
+import { resolveOidcJwtIdentity } from './sandbox/oidc-jwt-credential.js';
+import { isFederatedProviderId, type AuthProvider } from './providers.js';
 import type { FirebaseError } from '../sandbox/internal/firebase-error.js';
 import { makeAuthError } from './sandbox-backend.js';
 import { assertMatchingTenant } from './sandbox/tenant-isolation.js';
@@ -216,6 +217,24 @@ export function noMockConfiguredError(providerId: string): FirebaseError {
   );
 }
 
+function readCredentialIdToken(credential: AuthCredential): string | null {
+  const candidate = (credential as { idToken?: unknown }).idToken;
+  if (typeof candidate === 'string' && candidate.length > 0) {
+    return candidate;
+  }
+  return null;
+}
+
+function canRedeemFederatedJwt(credential: AuthCredential): boolean {
+  if (!isFederatedProviderId(credential.providerId)) {
+    return false;
+  }
+  if (credential.signInMethod === undefined) {
+    return true;
+  }
+  return credential.signInMethod === credential.providerId;
+}
+
 export async function signInWithCredential(
   auth: Auth,
   credential: AuthCredential,
@@ -243,7 +262,26 @@ export async function signInWithCredential(
   }
 
   const mock = backend.consumeMockResult(providerId);
-  if (!mock) throw noMockConfiguredError(providerId);
+  if (!mock) {
+    const idToken = readCredentialIdToken(credential);
+    if (idToken !== null && canRedeemFederatedJwt(credential)) {
+      const resolved = resolveOidcJwtIdentity(auth, { providerId, idToken });
+      if (resolved !== null) {
+        await backend.transitionCurrentUser(resolved.user, providerId);
+        return {
+          user: resolved.user,
+          providerId,
+          operationType: 'signIn',
+          _additionalUserInfo: {
+            isNewUser: resolved.isNewUser,
+            profile: resolved.claims,
+            providerId,
+          },
+        };
+      }
+    }
+    throw noMockConfiguredError(providerId);
+  }
   const credentialProviderId = mock.providerId ?? providerId;
   const existing = backend.findByUid(mock.user.uid);
   if (existing !== undefined) {
