@@ -1,6 +1,6 @@
 import Foundation
 
-// ─── Base64 Codec ────────────────────────────────────────────────────────────
+// --- Base64 Codec ---
 
 public enum Base64Codec {
     public static func base64UrlEncodeUnpadded(_ data: Data) -> String {
@@ -31,7 +31,7 @@ public enum Base64Codec {
     }
 }
 
-// ─── Reference Holder & Resolver ────────────────────────────────────────────
+// --- Reference Holder & Resolver ---
 
 public protocol PathReferenceable: Sendable {
     var path: String { get }
@@ -52,7 +52,7 @@ public struct DocumentReferenceHolder: PathReferenceable, Equatable, Hashable, S
 public typealias PyricDocumentReferenceHolder = DocumentReferenceHolder
 public typealias DocumentReferenceResolver = @Sendable (String) -> Any
 
-// ─── Value Codec ─────────────────────────────────────────────────────────────
+// --- Value Codec ---
 
 public enum ValueCodec {
     public static let docValueEncodingV1 = "pyric/firestore-values/1"
@@ -79,6 +79,10 @@ public enum ValueCodec {
             if NSNumberInspector.isBoolean(num) {
                 return num.boolValue
             }
+            let d = num.doubleValue
+            if !d.isFinite {
+                return encodeSpecialDouble(d)
+            }
             return num
         }
 
@@ -89,8 +93,13 @@ public enum ValueCodec {
         if let intVal = value as? Int { return intVal }
         if let int64Val = value as? Int64 { return int64Val }
         if let int32Val = value as? Int32 { return int32Val }
-        if let doubleVal = value as? Double { return doubleVal }
-        if let floatVal = value as? Float { return Double(floatVal) }
+        if let doubleVal = value as? Double {
+            return doubleVal.isFinite ? doubleVal : encodeSpecialDouble(doubleVal)
+        }
+        if let floatVal = value as? Float {
+            let d = Double(floatVal)
+            return d.isFinite ? d : encodeSpecialDouble(d)
+        }
 
         // 3. Strings
         if let stringVal = value as? String {
@@ -408,6 +417,13 @@ public enum ValueCodec {
             out[key] = decoded ?? NSNull()
         }
         return out
+    }
+
+    private static func encodeSpecialDouble(_ value: Double) -> [String: Any] {
+        if value.isNaN {
+            return ["__type": "number", "value": "NaN"]
+        }
+        return ["__type": "number", "value": value > 0 ? "Infinity" : "-Infinity"]
     }
 
     private static func decodeSpecialNumber(_ raw: String) -> Double? {

@@ -8,6 +8,8 @@ public final class QuerySnapshot: @unchecked Sendable, RandomAccessCollection {
     public let metadata: SnapshotMetadata
     public let documents: [QueryDocumentSnapshot]
     public private(set) var documentChanges: [DocumentChange]
+    private let metadataIncludedChanges: [DocumentChange]?
+    private let excludesMetadataChanges: Bool
 
     public var startIndex: Int { documents.startIndex }
     public var endIndex: Int { documents.endIndex }
@@ -20,16 +22,27 @@ public final class QuerySnapshot: @unchecked Sendable, RandomAccessCollection {
         documents: [QueryDocumentSnapshot],
         documentChanges: [DocumentChange] = [],
         metadata: SnapshotMetadata = SnapshotMetadata(),
-        query: Query? = nil
+        query: Query? = nil,
+        metadataIncludedChanges: [DocumentChange]? = nil,
+        excludesMetadataChanges: Bool = false
     ) {
         self.documents = documents
         self.documentChanges = documentChanges
         self.metadata = metadata
         self.query = query
+        self.metadataIncludedChanges = metadataIncludedChanges
+        self.excludesMetadataChanges = excludesMetadataChanges
     }
 
     public func documentChanges(includeMetadataChanges: Bool = false) -> [DocumentChange] {
-        documentChanges
+        if !includeMetadataChanges {
+            return documentChanges
+        }
+        precondition(
+            !excludesMetadataChanges,
+            "To include metadata changes with your document changes, you must pass includeMetadataChanges: true to addSnapshotListener()."
+        )
+        return metadataIncludedChanges ?? documentChanges
     }
 
     internal static func fromWire(
@@ -37,14 +50,16 @@ public final class QuerySnapshot: @unchecked Sendable, RandomAccessCollection {
         query: Query,
         wire: AnySendable,
         previousDocs: [QueryDocumentSnapshot]? = nil,
-        isFromCache: Bool = false
+        isFromCache: Bool = false,
+        excludesMetadataChanges: Bool = false
     ) -> QuerySnapshot {
         fromWire(
             firestore: firestore,
             query: query,
             wireAny: wire.toAny(),
             previousDocs: previousDocs,
-            isFromCache: isFromCache
+            isFromCache: isFromCache,
+            excludesMetadataChanges: excludesMetadataChanges
         )
     }
 
@@ -53,130 +68,152 @@ public final class QuerySnapshot: @unchecked Sendable, RandomAccessCollection {
         query: Query,
         wireAny: Any?,
         previousDocs: [QueryDocumentSnapshot]? = nil,
-        isFromCache: Bool = false
+        isFromCache: Bool = false,
+        excludesMetadataChanges: Bool = false
     ) -> QuerySnapshot {
         var docList: [QueryDocumentSnapshot] = []
-        // Listener frames carry the sandbox snapshot's pending-write state.
         let dictPayload = wireAny as? [String: Any]
         let pending = (dictPayload?["hasPendingWrites"] as? Bool) ?? false
         let queryFromCache = isFromCache || ((dictPayload?["isFromCache"] as? Bool) ?? false)
         let metadata = SnapshotMetadata(hasPendingWrites: pending, isFromCache: queryFromCache)
 
+        let rawItems: [Any]
         if let dict = dictPayload, let docs = dict["docs"] as? [Any] {
-            for item in docs {
-                let snap = DocumentSnapshot.fromWire(
-                    firestore: firestore,
-                    path: query.path,
-                    wireAny: item,
-                    isFromCache: queryFromCache
-                )
-                if snap.exists {
-                    let itemDict = item as? [String: Any]
-                    let docPending = (itemDict?["hasPendingWrites"] as? Bool) ?? pending
-                    let docMetadata = SnapshotMetadata(hasPendingWrites: docPending, isFromCache: queryFromCache)
-                    docList.append(
-                        QueryDocumentSnapshot(
-                            firestore: firestore,
-                            reference: snap.reference,
-                            metadata: docMetadata,
-                            rawData: snap.rawData ?? [:]
-                        )
-                    )
-                }
-            }
+            rawItems = docs
         } else if let arr = wireAny as? [Any] {
-            for item in arr {
-                let snap = DocumentSnapshot.fromWire(
-                    firestore: firestore,
-                    path: query.path,
-                    wireAny: item,
-                    isFromCache: queryFromCache
-                )
-                if snap.exists {
-                    let itemDict = item as? [String: Any]
-                    let docPending = (itemDict?["hasPendingWrites"] as? Bool) ?? pending
-                    let docMetadata = SnapshotMetadata(hasPendingWrites: docPending, isFromCache: queryFromCache)
-                    docList.append(
-                        QueryDocumentSnapshot(
-                            firestore: firestore,
-                            reference: snap.reference,
-                            metadata: docMetadata,
-                            rawData: snap.rawData ?? [:]
-                        )
+            rawItems = arr
+        } else {
+            rawItems = []
+        }
+
+        for item in rawItems {
+            let snap = DocumentSnapshot.fromWire(
+                firestore: firestore,
+                path: query.path,
+                wireAny: item,
+                isFromCache: queryFromCache
+            )
+            if snap.exists {
+                let itemDict = item as? [String: Any]
+                let docPending = (itemDict?["hasPendingWrites"] as? Bool) ?? pending
+                let docFromCache = queryFromCache || ((itemDict?["fromCache"] as? Bool) ?? false)
+                let docMetadata = SnapshotMetadata(hasPendingWrites: docPending, isFromCache: docFromCache)
+                docList.append(
+                    QueryDocumentSnapshot(
+                        firestore: firestore,
+                        reference: snap.reference,
+                        metadata: docMetadata,
+                        rawData: snap.rawData ?? [:],
+                        noneVariantData: snap.noneVariantData,
+                        previousVariantData: snap.previousVariantData
                     )
-                }
+                )
             }
         }
 
-        let changes = computeChanges(oldDocs: previousDocs, newDocs: docList)
+        let changes = computeChanges(oldDocs: previousDocs, newDocs: docList, includeMetadataChanges: false)
+        let metaChanges: [DocumentChange]?
+        if excludesMetadataChanges {
+            metaChanges = nil
+        } else {
+            metaChanges = computeChanges(oldDocs: previousDocs, newDocs: docList, includeMetadataChanges: true)
+        }
         return QuerySnapshot(
             documents: docList,
             documentChanges: changes,
             metadata: metadata,
-            query: query
+            query: query,
+            metadataIncludedChanges: metaChanges,
+            excludesMetadataChanges: excludesMetadataChanges
         )
     }
 
     private static func computeChanges(
         oldDocs: [QueryDocumentSnapshot]?,
-        newDocs: [QueryDocumentSnapshot]
+        newDocs: [QueryDocumentSnapshot],
+        includeMetadataChanges: Bool
     ) -> [DocumentChange] {
-        guard let oldDocs, !oldDocs.isEmpty else {
-            return newDocs.enumerated().map { i, doc in
+        guard let oldDocs else {
+            return newDocs.enumerated().map { idx, doc in
                 DocumentChange(
                     type: .added,
                     document: doc,
                     oldIndex: DocumentChange.indexNotFound,
-                    newIndex: i
+                    newIndex: idx
                 )
             }
         }
 
+        var oldByPath: [String: QueryDocumentSnapshot] = [:]
+        for doc in oldDocs {
+            oldByPath[doc.reference.path] = doc
+        }
+        var finalRank: [String: Int] = [:]
+        for (idx, doc) in newDocs.enumerated() {
+            finalRank[doc.reference.path] = idx
+        }
+
+        var working = oldDocs.map { $0.reference.path }
         var changes: [DocumentChange] = []
-        var oldMap: [String: (Int, QueryDocumentSnapshot)] = [:]
-        for (i, doc) in oldDocs.enumerated() {
-            oldMap[doc.documentID] = (i, doc)
+
+        // 1. Removed entries in previous order, updating working set sequentially.
+        for oldDoc in oldDocs where finalRank[oldDoc.reference.path] == nil {
+            let path = oldDoc.reference.path
+            guard let oldIdx = working.firstIndex(of: path) else { continue }
+            working.remove(at: oldIdx)
+            changes.append(
+                DocumentChange(
+                    type: .removed,
+                    document: oldDoc,
+                    oldIndex: oldIdx,
+                    newIndex: DocumentChange.indexNotFound
+                )
+            )
         }
 
-        var newMap: [String: (Int, QueryDocumentSnapshot)] = [:]
-        for (i, doc) in newDocs.enumerated() {
-            newMap[doc.documentID] = (i, doc)
+        // Unchanged documents already sit in strictly increasing finalRank order inside working.
+        var placed = Set<String>()
+        for newDoc in newDocs {
+            let path = newDoc.reference.path
+            if let prior = oldByPath[path] {
+                let dataSame = documentValuesEqual(prior.rawData, newDoc.rawData)
+                let metadataSame = (prior.metadata == newDoc.metadata)
+                let changed = includeMetadataChanges ? (!dataSame || !metadataSame) : !dataSame
+                if !changed {
+                    placed.insert(path)
+                }
+            }
         }
 
-        // Removed
-        for (id, (oldIdx, oldDoc)) in oldMap {
-            if newMap[id] == nil {
+        // 2. Added and modified entries in newDocs order, updating working set sequentially.
+        for (targetRank, newDoc) in newDocs.enumerated() where !placed.contains(newDoc.reference.path) {
+            let path = newDoc.reference.path
+            if oldByPath[path] != nil {
+                guard let oldIdx = working.firstIndex(of: path) else { continue }
+                working.remove(at: oldIdx)
+                let afterIdx = working.lastIndex { placed.contains($0) && (finalRank[$0] ?? -1) < targetRank }
+                let insertIdx = afterIdx.map { $0 + 1 } ?? 0
+                working.insert(path, at: insertIdx)
+                placed.insert(path)
                 changes.append(
                     DocumentChange(
-                        type: .removed,
-                        document: oldDoc,
+                        type: .modified,
+                        document: newDoc,
                         oldIndex: oldIdx,
-                        newIndex: DocumentChange.indexNotFound
+                        newIndex: insertIdx
                     )
                 )
-            }
-        }
-
-        // Added and Modified
-        for (id, (newIdx, newDoc)) in newMap {
-            if let (oldIdx, oldDoc) = oldMap[id] {
-                if !documentValuesEqual(oldDoc.data(), newDoc.data()) {
-                    changes.append(
-                        DocumentChange(
-                            type: .modified,
-                            document: newDoc,
-                            oldIndex: oldIdx,
-                            newIndex: newIdx
-                        )
-                    )
-                }
             } else {
+                let afterIdx = working.lastIndex { placed.contains($0) && (finalRank[$0] ?? -1) < targetRank }
+                let insertIdx = afterIdx.map { $0 + 1 } ?? 0
+                working.insert(path, at: insertIdx)
+                placed.insert(path)
                 changes.append(
                     DocumentChange(
                         type: .added,
                         document: newDoc,
                         oldIndex: DocumentChange.indexNotFound,
-                        newIndex: newIdx
+                        newIndex: insertIdx
                     )
                 )
             }
@@ -208,10 +245,16 @@ public final class QuerySnapshot: @unchecked Sendable, RandomAccessCollection {
         }
         if let lTs = lhs as? Timestamp, let rTs = rhs as? Timestamp { return lTs == rTs }
         if let lGeo = lhs as? GeoPoint, let rGeo = rhs as? GeoPoint { return lGeo == rGeo }
+        if let lVec = lhs as? VectorValue, let rVec = rhs as? VectorValue { return lVec == rVec }
         if let lData = lhs as? Data, let rData = rhs as? Data { return lData == rData }
         if let lRef = lhs as? DocumentReference, let rRef = rhs as? DocumentReference {
             return lRef.path == rRef.path && lRef.firestore.database == rRef.firestore.database
         }
-        return AnySendable.from(lhs) == AnySendable.from(rhs)
+        let la = AnySendable.from(lhs)
+        let ra = AnySendable.from(rhs)
+        if case .double(let ld) = la, case .double(let rd) = ra, ld.isNaN && rd.isNaN {
+            return true
+        }
+        return la == ra
     }
 }
