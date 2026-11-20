@@ -167,8 +167,50 @@ internal enum FirestoreOfflineProjection {
 
     // MARK: - Field & Sentinel Helpers
 
+    static func encodeFieldPathKey(_ segments: [String]) -> String {
+        segments.map { segment in
+            if segment.isEmpty || segment.contains(".") || segment.contains("`") || segment.contains("\\") {
+                let escaped = segment
+                    .replacingOccurrences(of: "\\", with: "\\\\")
+                    .replacingOccurrences(of: "`", with: "\\`")
+                return "`\(escaped)`"
+            }
+            return segment
+        }.joined(separator: ".")
+    }
+
     static func splitFieldPath(_ raw: String) -> [String] {
-        raw.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
+        guard raw.contains("`") else {
+            return raw.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
+        }
+        var segments: [String] = []
+        var current = ""
+        var quoted = false
+        let chars = Array(raw)
+        var index = 0
+        while index < chars.count {
+            let ch = chars[index]
+            if quoted {
+                if ch == "\\" && index + 1 < chars.count {
+                    index += 1
+                    current.append(chars[index])
+                } else if ch == "`" {
+                    quoted = false
+                } else {
+                    current.append(ch)
+                }
+            } else if ch == "`" {
+                quoted = true
+            } else if ch == "." {
+                segments.append(current)
+                current = ""
+            } else {
+                current.append(ch)
+            }
+            index += 1
+        }
+        segments.append(current)
+        return segments
     }
 
     private static func isSentinel(_ val: AnySendable, named kind: String) -> Bool {

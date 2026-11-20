@@ -160,19 +160,26 @@ struct FirestoreCrudLiveHostConformanceTests {
             #expect(afterMergeCallback.data()?["extra"] as? Bool == true)
 
             // setData(_:merge: false) acts as full overwrite.
-            try await docRef.setData(["title": "Reset", "stats": ["a": 1, "b": 2]], merge: false)
+            try await docRef.setData([
+                "title": "Reset",
+                "stats": ["a": 1, "b": 2],
+                "meta": ["v1": "nested-keep"],
+                "meta.v1": "old-literal-dot"
+            ], merge: false)
             let resetSnap = try await docRef.getDocument(source: .server)
             #expect(resetSnap.data()?["badge"] == nil)
             #expect(resetSnap.data()?["extra"] == nil)
 
-            // #29: setData(_:mergeFields:) writes ONLY masked String and FieldPath entries.
+            // #29: setData(_:mergeFields:) writes ONLY masked String, nested, and literal-dot FieldPath entries.
             try await docRef.setData(
                 [
                     "title": "MaskedTitle",
                     "unmaskedTop": "must-not-write",
-                    "stats": ["a": 99, "unmaskedNested": 777]
+                    "stats": ["a": 99, "unmaskedNested": 777],
+                    "meta.v1": "new-literal-dot",
+                    "meta": ["v1": "must-not-clobber"]
                 ],
-                mergeFields: ["title", FieldPath(["stats", "a"])]
+                mergeFields: ["title", FieldPath(["stats", "a"]), FieldPath(["meta.v1"])]
             )
             let maskedSnap = try await docRef.getDocument(source: .server)
             #expect(maskedSnap.data()?["title"] as? String == "MaskedTitle")
@@ -181,6 +188,13 @@ struct FirestoreCrudLiveHostConformanceTests {
             #expect(maskedStats?["a"] as? Int64 == 99)
             #expect(maskedStats?["b"] as? Int64 == 2)
             #expect(maskedStats?["unmaskedNested"] == nil)
+            #expect(maskedSnap.get(FieldPath(["meta.v1"])) as? String == "new-literal-dot")
+            #expect(maskedSnap.get(FieldPath(["meta", "v1"])) as? String == "nested-keep")
+
+            // Local cache projection also preserves literal-dot mergeFields without touching sibling nested "meta.v1".
+            let maskedCache = try await docRef.getDocument(source: .cache)
+            #expect(maskedCache.get(FieldPath(["meta.v1"])) as? String == "new-literal-dot")
+            #expect(maskedCache.get(FieldPath(["meta", "v1"])) as? String == "nested-keep")
 
             try await awaitVoidCompletion { cb in
                 docRef.setData(
@@ -195,12 +209,12 @@ struct FirestoreCrudLiveHostConformanceTests {
             #expect(maskedCbStats?["b"] as? Int64 == 222)
             #expect(maskedCbStats?["ignored"] == nil)
 
-            // Specifying a mergeField absent from data fails closed with PyricFirestoreError.
-            do {
+            // Specifying a top-level OR nested mergeField absent from data fails closed with PyricFirestoreError.
+            await #expect(throws: PyricFirestoreError.self) {
                 try await docRef.setData(["title": "Valid"], mergeFields: ["missingField"])
-                Issue.record("Expected mergeFields validation error when field is absent from data")
-            } catch is PyricFirestoreError {
-                // Expected invalidArgument validation failure.
+            }
+            await #expect(throws: PyricFirestoreError.self) {
+                try await docRef.setData(["stats": ["a": 1]], mergeFields: ["stats.missingNested"])
             }
 
             await expectBridgeCode(.permissionDenied) {
@@ -315,7 +329,7 @@ struct FirestoreCrudLiveHostConformanceTests {
             try await Task.sleep(nanoseconds: 80_000_000)
             #expect(basicCollector.snapshotCount == 4)
 
-            // Unauthorized listener receives permission-denied error asynchronously.
+            // Unauthorized online listener receives permission-denied error asynchronously.
             let deniedCollector = DocEventCollector()
             let deniedReg = db.document("users/other-\(uid)/items/forbidden").addSnapshotListener { snap, err in
                 deniedCollector.record(snap: snap, err: err)
@@ -324,6 +338,57 @@ struct FirestoreCrudLiveHostConformanceTests {
             let bridgeDenied = try #require(deniedErr as? PyricBridgeError)
             #expect(bridgeDenied.code == .permissionDenied)
             deniedReg.remove()
+
+            // #34 (ListenSource.cache): SnapshotListenOptions(source: .cache) reads local cache only (never subscribes to server)
+            // and reacts to local cache mutations while online without firing on unchanged-content redeliveries.
+            let unauthedCacheCollector = DocEventCollector()
+            let unauthedCacheReg = db.document("users/other-\(uid)/items/forbidden").addSnapshotListener(
+                options: SnapshotListenOptions().withSource(.cache)
+            ) { snap, err in
+                unauthedCacheCollector.record(snap: snap, err: err)
+            }
+            let unauthedCacheEvents = try await unauthedCacheCollector.waitForCount(1)
+            #expect(unauthedCacheEvents.last?.exists == false)
+            #expect(unauthedCacheEvents.last?.isFromCache == true)
+            unauthedCacheReg.remove()
+
+            let cacheTargetRef = db.document("users/\(uid)/items/cache-source-doc")
+            try await cacheTargetRef.setData(["step": "warm-cache"])
+            _ = try await cacheTargetRef.getDocument(source: .server)
+
+            let cacheOnlyCollector = DocEventCollector()
+            let cacheOnlyReg = cacheTargetRef.addSnapshotListener(
+                options: SnapshotListenOptions(includeMetadataChanges: false, source: .cache)
+            ) { snap, err in
+                cacheOnlyCollector.record(snap: snap, err: err)
+            }
+            let cacheInit = try await cacheOnlyCollector.waitForCount(1)
+            #expect(cacheInit.last?.step == "warm-cache")
+            #expect(cacheInit.last?.isFromCache == true)
+
+            // Remote write on another FirebaseApp does NOT trigger ListenSource.cache listener while online.
+            let ownerEmail = try #require(Auth.auth(app: db.app).currentUser?.email)
+            let (peerApp, peerDb) = try await makePeerApp(prefix: "crud-peer", email: ownerEmail, password: "CorrectHorse!99")
+            do {
+                try await peerDb.document(cacheTargetRef.path).setData(["step": "remote-only"])
+                try await Task.sleep(nanoseconds: 60_000_000)
+                #expect(cacheOnlyCollector.snapshotCount == 1)
+                await peerApp.disconnectSharedBridge()
+            } catch {
+                await peerApp.disconnectSharedBridge()
+                throw error
+            }
+
+            // Local online write updates local cache and triggers ListenSource.cache listener; identical rewrite suppresses duplicate.
+            try await cacheTargetRef.setData(["step": "local-cache-hit"])
+            let cacheHit = try await cacheOnlyCollector.waitForCount(2)
+            #expect(cacheHit.last?.step == "local-cache-hit")
+            #expect(cacheHit.last?.isFromCache == true)
+
+            try await cacheTargetRef.setData(["step": "local-cache-hit"])
+            try await Task.sleep(nanoseconds: 60_000_000)
+            #expect(cacheOnlyCollector.snapshotCount == 2)
+            cacheOnlyReg.remove()
 
             // #33 & #34: includeMetadataChanges: true and SnapshotListenOptions(includeMetadataChanges:).
             let metaDocRef = db.document("users/\(uid)/items/meta-doc")
@@ -399,181 +464,5 @@ struct FirestoreCrudLiveHostConformanceTests {
             optsTrueReg.remove()
             optsFalseReg.remove()
         }
-    }
-
-    // MARK: - Live-Host Session & Listener Helpers
-
-    private func withLiveCrudSession(
-        prefix: String,
-        body: (Firestore, String) async throws -> Void
-    ) async throws {
-        guard let rawBridgeURL = ProcessInfo.processInfo.environment["PYRIC_LIVE_BRIDGE_URL"],
-              !rawBridgeURL.isEmpty else {
-            return
-        }
-        let bridgeURL = try #require(URL(string: rawBridgeURL))
-        let host = bridgeURL.host ?? "127.0.0.1"
-        let port = try #require(bridgeURL.port)
-
-        let app = FirebaseApp(
-            name: "swift-\(prefix)-\(UUID().uuidString)",
-            options: FirebaseOptions(
-                projectID: "demo-swift-live",
-                databaseURL: "https://demo-swift-live-default-rtdb.firebaseio.com",
-                apiKey: "swift-live-key",
-                googleAppID: "1:500:ios:live"
-            )
-        )
-        app.useEmulator(withHost: host, port: port)
-        let db = Firestore.firestore(app: app)
-        let auth = Auth.auth(app: app)
-        let tag = UUID().uuidString.lowercased()
-
-        do {
-            let session = try await auth.createUser(withEmail: "crud-\(tag)@example.test", password: "CorrectHorse!99")
-            try await body(db, session.user.uid)
-            await app.disconnectSharedBridge()
-        } catch {
-            await app.disconnectSharedBridge()
-            throw error
-        }
-    }
-
-    private func awaitVoidCompletion(
-        _ register: (@escaping @Sendable (Error?) -> Void) -> Void
-    ) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            register { error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume(returning: ())
-                }
-            }
-        }
-    }
-
-    private func awaitSnapshotCompletion(
-        _ register: (@escaping @Sendable (DocumentSnapshot?, Error?) -> Void) -> Void
-    ) async throws -> DocumentSnapshot {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<DocumentSnapshot, Error>) in
-            register { snap, error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else if let snap {
-                    continuation.resume(returning: snap)
-                } else {
-                    continuation.resume(throwing: PyricFirestoreError.internalError("Missing snapshot and error"))
-                }
-            }
-        }
-    }
-
-    private func expectBridgeCode(
-        _ expected: FirestoreErrorCode,
-        _ operation: () async throws -> Void
-    ) async {
-        do {
-            try await operation()
-            Issue.record("Expected PyricBridgeError(\(expected.rawValue)), but operation succeeded")
-        } catch let err as PyricBridgeError {
-            #expect(err.code == expected, "Expected \(expected.rawValue), got \(err.rawCode): \(err.message)")
-        } catch {
-            Issue.record("Expected PyricBridgeError(\(expected.rawValue)), got: \(error)")
-        }
-    }
-}
-
-private struct RecordedDocEvent: Sendable {
-    let exists: Bool
-    let step: String?
-    let hasPendingWrites: Bool
-    let isFromCache: Bool
-}
-
-private final class DocEventCollector: @unchecked Sendable {
-    private let lock = NSLock()
-    private var events: [RecordedDocEvent] = []
-    private var capturedError: Error?
-
-    var snapshotCount: Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return events.count
-    }
-
-    func record(snap: DocumentSnapshot?, err: Error?) {
-        lock.lock()
-        if let err {
-            capturedError = err
-        } else if let snap {
-            let stepVal = (snap.data()?["step"] as? String) ?? (snap.data()?["phase"] as? String)
-            events.append(
-                RecordedDocEvent(
-                    exists: snap.exists,
-                    step: stepVal,
-                    hasPendingWrites: snap.metadata.hasPendingWrites,
-                    isFromCache: snap.metadata.isFromCache
-                )
-            )
-        }
-        lock.unlock()
-    }
-
-    func waitForCount(_ target: Int, timeoutNanoseconds: UInt64 = 5_000_000_000) async throws -> [RecordedDocEvent] {
-        let deadline = DispatchTime.now().uptimeNanoseconds + timeoutNanoseconds
-        while DispatchTime.now().uptimeNanoseconds < deadline {
-            let state: ([RecordedDocEvent], Error?) = {
-                lock.lock()
-                defer { lock.unlock() }
-                return (events, capturedError)
-            }()
-            if let err = state.1 {
-                throw err
-            }
-            if state.0.count >= target {
-                return state.0
-            }
-            try await Task.sleep(nanoseconds: 15_000_000)
-        }
-        throw PyricFirestoreError.internalError("Timed out waiting for \(target) document snapshot events")
-    }
-
-    func waitForWhere(
-        timeoutNanoseconds: UInt64 = 5_000_000_000,
-        predicate: (RecordedDocEvent) -> Bool
-    ) async throws -> RecordedDocEvent {
-        let deadline = DispatchTime.now().uptimeNanoseconds + timeoutNanoseconds
-        while DispatchTime.now().uptimeNanoseconds < deadline {
-            let state: ([RecordedDocEvent], Error?) = {
-                lock.lock()
-                defer { lock.unlock() }
-                return (events, capturedError)
-            }()
-            if let err = state.1 {
-                throw err
-            }
-            if let match = state.0.last(where: predicate) {
-                return match
-            }
-            try await Task.sleep(nanoseconds: 15_000_000)
-        }
-        throw PyricFirestoreError.internalError("Timed out waiting for matching document snapshot event")
-    }
-
-    func waitForError(timeoutNanoseconds: UInt64 = 5_000_000_000) async throws -> Error {
-        let deadline = DispatchTime.now().uptimeNanoseconds + timeoutNanoseconds
-        while DispatchTime.now().uptimeNanoseconds < deadline {
-            let err: Error? = {
-                lock.lock()
-                defer { lock.unlock() }
-                return capturedError
-            }()
-            if let err {
-                return err
-            }
-            try await Task.sleep(nanoseconds: 15_000_000)
-        }
-        throw PyricFirestoreError.internalError("Timed out waiting for listener error")
     }
 }
