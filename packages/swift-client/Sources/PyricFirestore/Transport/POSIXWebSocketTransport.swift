@@ -267,7 +267,7 @@ public final class POSIXWebSocketTransport: WebSocketTransport, @unchecked Senda
             let count = chunk.withUnsafeMutableBytes { rawBuf -> Int in
                 guard let base = rawBuf.baseAddress else { return -1 }
                 while true {
-                    let n = Glibc.recv(fd, base, chunk.count, 0)
+                    let n = Glibc.recv(fd, base, rawBuf.count, 0)
                     if n < 0 && self.currentErrno() == Glibc.EINTR { continue }
                     return n
                 }
@@ -299,7 +299,7 @@ public final class POSIXWebSocketTransport: WebSocketTransport, @unchecked Senda
                 let count = chunk.withUnsafeMutableBytes { rawBuf -> Int in
                     guard let base = rawBuf.baseAddress else { return -1 }
                     while true {
-                        let n = Glibc.recv(fd, base, chunk.count, 0)
+                        let n = Glibc.recv(fd, base, rawBuf.count, 0)
                         if n < 0 && self.currentErrno() == Glibc.EINTR { continue }
                         return n
                     }
@@ -376,11 +376,11 @@ public final class POSIXWebSocketTransport: WebSocketTransport, @unchecked Senda
         try bytes.withUnsafeBytes { rawBuf in
             guard let base = rawBuf.baseAddress else { return }
             var offset = 0
-            while offset < bytes.count {
+            while offset < rawBuf.count {
                 let sent = Glibc.send(
                     fd,
                     base.advanced(by: offset),
-                    bytes.count - offset,
+                    rawBuf.count - offset,
                     Int32(Glibc.MSG_NOSIGNAL)
                 )
                 if sent < 0 {
