@@ -1,7 +1,7 @@
-import { randomUUID } from 'node:crypto';
 import { mintAppCheckToken, type MintedAppCheckToken } from 'pyric/sandbox/internal';
 import { fail, hostProjectId, ok, type HostCtx, type PortLike } from '../host-context.js';
 import type { AiAppCheckWire, InboundMessage, OpMessage } from '../protocol.js';
+import { randomUuid } from './connection.js';
 
 /** Standard App Check token lifetime (1 hour), matching `pyric/app-check`. */
 const APP_CHECK_TTL_SECONDS = 3600;
@@ -66,7 +66,7 @@ export async function handleAppCheckOp(
 
     if (appCheckMsg.method === 'appCheck.getLimitedUseToken') {
       const minted = await mintAppCheckToken(
-        { appId, projectId, jti: randomUUID() },
+        { appId, projectId, jti: randomUuid() },
         LIMITED_USE_TTL_SECONDS,
       );
       ok(port, appCheckMsg.id, {
