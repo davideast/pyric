@@ -110,10 +110,10 @@ public enum AnySendable: Sendable, Equatable {
         }
 
         if let num = any as? NSNumber {
-            if CFGetTypeID(num) == CFBooleanGetTypeID() {
+            if NSNumberInspector.isBoolean(num) {
                 return .bool(num.boolValue)
             }
-            if CFNumberIsFloatType(num as CFNumber) {
+            if NSNumberInspector.isFloatingPoint(num) {
                 return .double(num.doubleValue)
             }
             return .int(num.int64Value)
@@ -244,5 +244,25 @@ extension AnySendable: CustomStringConvertible {
             let entries = d.map { "\"\($0.key)\": \($0.value.description)" }.joined(separator: ", ")
             return "{\(entries)}"
         }
+    }
+}
+
+package enum NSNumberInspector {
+    package static func isBoolean(_ number: NSNumber) -> Bool {
+        #if canImport(Darwin)
+        return CFGetTypeID(number) == CFBooleanGetTypeID()
+        #else
+        let typeCode = String(cString: number.objCType)
+        return typeCode == "B" || typeCode == "c"
+        #endif
+    }
+
+    package static func isFloatingPoint(_ number: NSNumber) -> Bool {
+        #if canImport(Darwin)
+        return CFNumberIsFloatType(number as CFNumber)
+        #else
+        let typeCode = String(cString: number.objCType)
+        return typeCode == "f" || typeCode == "d"
+        #endif
     }
 }

@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 private let connectionLostMessage =
     "The bridge connection was lost. Requests already sent may have completed; check state before retrying."

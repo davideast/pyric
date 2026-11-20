@@ -76,7 +76,7 @@ public enum ValueCodec {
 
         // 1. Numbers and NSNumber booleans (must precede Bool check to prevent bridging 1/0 to Bool)
         if let num = value as? NSNumber {
-            if CFGetTypeID(num) == CFBooleanGetTypeID() {
+            if NSNumberInspector.isBoolean(num) {
                 return num.boolValue
             }
             return num
@@ -266,10 +266,10 @@ public enum ValueCodec {
 
         // 1. Primitives
         if let num = value as? NSNumber {
-            if CFGetTypeID(num) == CFBooleanGetTypeID() {
+            if NSNumberInspector.isBoolean(num) {
                 return num.boolValue
             }
-            if CFNumberIsFloatType(num as CFNumber) {
+            if NSNumberInspector.isFloatingPoint(num) {
                 return num.doubleValue
             }
             return num.int64Value
@@ -426,7 +426,7 @@ public enum ValueCodec {
         for item in raw {
             let value: Double
             if let num = item as? NSNumber {
-                if CFGetTypeID(num) == CFBooleanGetTypeID() {
+                if NSNumberInspector.isBoolean(num) {
                     throw PyricFirestoreError.serializationError("Vector elements must be finite numbers.")
                 }
                 value = num.doubleValue

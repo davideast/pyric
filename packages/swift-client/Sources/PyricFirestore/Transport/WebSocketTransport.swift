@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+@_exported import FoundationNetworking
+#endif
 
 /// Abstract transport layer enabling offline unit tests without real sockets.
 public protocol WebSocketTransport: Sendable {
@@ -21,6 +24,7 @@ package struct WebSocketSendRefusedError: Error, Sendable {
     package init() {}
 }
 
+#if canImport(Darwin)
 /// Native implementation backed by URLSessionWebSocketTask.
 public final class URLSessionWebSocketTransport: WebSocketTransport, @unchecked Sendable {
     private let task: URLSessionWebSocketTask
@@ -89,3 +93,6 @@ public final class URLSessionWebSocketTransport: WebSocketTransport, @unchecked 
         closeLock.unlock()
     }
 }
+#else
+public typealias URLSessionWebSocketTransport = POSIXWebSocketTransport
+#endif

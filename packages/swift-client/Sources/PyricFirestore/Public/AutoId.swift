@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(Security)
 import Security
+#endif
 
 public enum AutoId {
     private static let alphabet = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789")
@@ -11,6 +13,7 @@ public enum AutoId {
         var idChars: [Character] = []
         idChars.reserveCapacity(20)
 
+        #if canImport(Security)
         var randomBuffer = [UInt8](repeating: 0, count: 40)
         while idChars.count < 20 {
             let status = SecRandomCopyBytes(kSecRandomDefault, randomBuffer.count, &randomBuffer)
@@ -20,16 +23,23 @@ public enum AutoId {
                     if idChars.count == 20 { break }
                 }
             } else {
-                var rng = SystemRandomNumberGenerator()
-                while idChars.count < 20 {
-                    let val = rng.next()
-                    let b = UInt8(truncatingIfNeeded: val)
-                    if b < unbiasedLimit {
-                        idChars.append(alphabet[Int(b % alphabetSize)])
-                    }
-                }
+                fillFromSystemRandom(&idChars)
             }
         }
+        #else
+        fillFromSystemRandom(&idChars)
+        #endif
         return String(idChars)
+    }
+
+    private static func fillFromSystemRandom(_ idChars: inout [Character]) {
+        var rng = SystemRandomNumberGenerator()
+        while idChars.count < 20 {
+            let val = rng.next()
+            let b = UInt8(truncatingIfNeeded: val)
+            if b < unbiasedLimit {
+                idChars.append(alphabet[Int(b % alphabetSize)])
+            }
+        }
     }
 }
