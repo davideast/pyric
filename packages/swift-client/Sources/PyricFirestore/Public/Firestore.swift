@@ -194,6 +194,10 @@ public class Firestore: @unchecked Sendable {
         self.app = app
         self.database = database
         let defaultSettings = FirestoreSettings()
+        if let configured = app.configuredBridgeHostSetting() {
+            defaultSettings.host = configured.host
+            defaultSettings.sslEnabled = configured.sslEnabled
+        }
         self.settings = defaultSettings
         self.lifecycle = FirestoreClientLifecycle(appName: app.name, database: database)
         self._bridgeClient = app.sharedBridgeClient()
@@ -254,8 +258,8 @@ public class Firestore: @unchecked Sendable {
         let clean = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         let segments = clean.components(separatedBy: "/")
         precondition(
-            !clean.isEmpty && segments.count % 2 == 0,
-            "Invalid document reference. Document references must have an even number of segments, but '\(path)' has \(segments.count)."
+            !clean.isEmpty && segments.count % 2 == 0 && !segments.contains(where: \.isEmpty),
+            "Invalid document reference. Document references must have an even number of non-empty segments, but '\(path)' has \(segments.count)."
         )
         return DocumentReference(firestore: self, path: clean)
     }
@@ -265,8 +269,8 @@ public class Firestore: @unchecked Sendable {
         let clean = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         let segments = clean.components(separatedBy: "/")
         precondition(
-            !clean.isEmpty && segments.count % 2 == 1,
-            "Invalid collection reference. Collection references must have an odd number of segments, but '\(path)' has \(segments.count)."
+            !clean.isEmpty && segments.count % 2 == 1 && !segments.contains(where: \.isEmpty),
+            "Invalid collection reference. Collection references must have an odd number of non-empty segments, but '\(path)' has \(segments.count)."
         )
         return CollectionReference(firestore: self, path: clean)
     }
@@ -274,8 +278,8 @@ public class Firestore: @unchecked Sendable {
     public func collectionGroup(_ collectionId: String) -> Query {
         markUsed()
         precondition(
-            !collectionId.contains("/"),
-            "Invalid collectionId '\(collectionId)'. Collection IDs must not contain '/'."
+            !collectionId.isEmpty && !collectionId.contains("/"),
+            "Invalid collectionId '\(collectionId)'. Collection IDs must be non-empty and must not contain '/'."
         )
         return Query(firestore: self, rootSource: .group(collectionId: collectionId))
     }
@@ -319,11 +323,21 @@ public class Firestore: @unchecked Sendable {
             let txn = Transaction(firestore: self)
             do {
                 let result = try await updateBlock(txn)
-                try await bridgeClient.txnCommit(
-                    reads: txn.stagedReads,
-                    writes: txn.stagedWrites,
-                    actAs: effectiveAuthLens
-                )
+                let writeId = lifecycle.beginOnlineWrite()
+                do {
+                    try await bridgeClient.txnCommit(
+                        reads: txn.stagedReads,
+                        writes: txn.stagedWrites,
+                        actAs: effectiveAuthLens
+                    )
+                    lifecycle.finishOnlineWrite(
+                        writeId,
+                        committedMutations: txn.stagedWrites.map { $0.toOfflineMutation() }
+                    )
+                } catch {
+                    lifecycle.finishOnlineWrite(writeId, committedMutations: nil)
+                    throw error
+                }
                 return result
             } catch let error as PyricBridgeError {
                 if error.code == .aborted || error.code == .failedPrecondition {

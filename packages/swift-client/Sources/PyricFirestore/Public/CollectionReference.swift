@@ -27,7 +27,11 @@ public final class CollectionReference: Query, @unchecked Sendable {
 
     public func document(_ documentPath: String) -> DocumentReference {
         let clean = documentPath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        precondition(!clean.isEmpty, "Document path must not be empty.")
+        let segments = clean.components(separatedBy: "/")
+        precondition(
+            !clean.isEmpty && segments.count % 2 == 1 && !segments.contains(where: \.isEmpty),
+            "Invalid document reference. Relative document paths must have an odd number of non-empty segments, but '\(documentPath)' has \(segments.count)."
+        )
         return DocumentReference(firestore: firestore, path: "\(path)/\(clean)")
     }
 

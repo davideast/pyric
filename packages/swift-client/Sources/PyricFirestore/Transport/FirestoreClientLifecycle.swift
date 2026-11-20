@@ -21,6 +21,7 @@ internal final class FirestoreClientLifecycle: @unchecked Sendable {
     private var stagedEntries: [(stageId: Int, mutations: [OfflineWriteMutation])] = []
     private var queuedOfflineWrites: [StagedOfflineWriteEntry] = []
     private var pendingWriteSettlements: [UUID: PendingWriteSettlement] = [:]
+    private var activeBundleLoads: [UUID: PendingWriteSettlement] = [:]
     private var managedListeners: [UUID: ManagedSnapshotListenerHooks] = [:]
     private var syncObservers: [UUID: SyncObserverEntry] = [:]
     private var pendingCallbackDeliveries = 0
@@ -314,6 +315,29 @@ internal final class FirestoreClientLifecycle: @unchecked Sendable {
         FirestorePersistenceStore.shared.namedQuery(appName: appName, database: database, name: name)
     }
 
+    func beginBundleLoad() -> UUID {
+        let id = UUID()
+        let settlement = PendingWriteSettlement()
+        lock.lock()
+        started = true
+        activeBundleLoads[id] = settlement
+        lock.unlock()
+        return id
+    }
+
+    func finishBundleLoad(_ id: UUID) {
+        lock.lock()
+        let settlement = activeBundleLoads.removeValue(forKey: id)
+        lock.unlock()
+        settlement?.markSettled()
+    }
+
+    func snapshotActiveBundleLoads() -> [PendingWriteSettlement] {
+        lock.lock()
+        defer { lock.unlock() }
+        return Array(activeBundleLoads.values)
+    }
+
     private func applyCommittedMutations(_ mutations: [OfflineWriteMutation]) {
         let currentBase = FirestorePersistenceStore.shared.docsSnapshot(appName: appName, database: database)
         for mutation in mutations {
@@ -390,8 +414,9 @@ internal final class FirestoreClientLifecycle: @unchecked Sendable {
         abortedWrites = queuedOfflineWrites
         queuedOfflineWrites.removeAll()
         stagedEntries.removeAll()
-        settlements = Array(pendingWriteSettlements.values)
+        settlements = Array(pendingWriteSettlements.values) + Array(activeBundleLoads.values)
         pendingWriteSettlements.removeAll()
+        activeBundleLoads.removeAll()
         lock.unlock()
 
         for hooks in listeners {

@@ -166,6 +166,21 @@ public final class FirebaseApp: @unchecked Sendable, Equatable {
         return next
     }
 
+    package func configuredBridgeHostSetting() -> (host: String, sslEnabled: Bool)? {
+        bridgeLock.lock()
+        let spec = _sharedBridgeSpec
+        bridgeLock.unlock()
+        guard let endpoint = spec?.endpoint,
+              let host = endpoint.host else {
+            return nil
+        }
+        let sslEnabled = endpoint.scheme?.lowercased() == "wss"
+        if let port = endpoint.port {
+            return (host: "\(host):\(port)", sslEnabled: sslEnabled)
+        }
+        return (host: host, sslEnabled: sslEnabled)
+    }
+
     package func addBridgeObserver(_ observer: @escaping @Sendable (PyricBridgeClient) -> Void) -> UUID {
         let id = UUID()
         bridgeLock.lock()

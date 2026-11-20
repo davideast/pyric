@@ -250,7 +250,23 @@ struct ConformanceCoreTests {
     }
 
     @Test func `firestore-swift#21: Firestore.getQuery(named:completion:) - Retrieves a named query from a previously loaded Firestore bundle.`() async throws {
-        expectUnverified("Unverified row firestore-swift#21: Named bundle query deferred")
+        let harness = try await ConformanceMockHarness.create()
+        let app = FirebaseApp(name: "core-21-\(UUID().uuidString)")
+        let db = Firestore(bridgeClient: harness.client, app: app)
+
+        #expect(await db.getQuery(named: "featured-items") == nil)
+
+        let nqJson = "{\"namedQuery\":{\"bundledQuery\":{\"limitType\":\"FIRST\",\"parent\":\"projects/demo/databases/(default)/documents\",\"structuredQuery\":{\"from\":[{\"collectionId\":\"items\"}],\"orderBy\":[{\"direction\":\"ASCENDING\",\"field\":{\"fieldPath\":\"rank\"}}],\"where\":{\"fieldFilter\":{\"field\":{\"fieldPath\":\"featured\"},\"op\":\"EQUAL\",\"value\":{\"booleanValue\":true}}}}},\"name\":\"featured-items\",\"readTime\":\"2026-01-15T12:00:00.000000000Z\"}}"
+        let docMetaJson = "{\"documentMetadata\":{\"exists\":true,\"name\":\"projects/demo/databases/(default)/documents/items/f1\",\"queries\":[\"featured-items\"]}}"
+        let docJson = "{\"document\":{\"fields\":{\"featured\":{\"booleanValue\":true},\"rank\":{\"integerValue\":\"1\"},\"title\":{\"stringValue\":\"Featured One\"}},\"name\":\"projects/demo/databases/(default)/documents/items/f1\"}}"
+        let body = "\(nqJson.utf8.count)\(nqJson)\(docMetaJson.utf8.count)\(docMetaJson)\(docJson.utf8.count)\(docJson)"
+        let headerJson = "{\"metadata\":{\"id\":\"b-21\",\"totalBytes\":\(body.utf8.count),\"totalDocuments\":1,\"version\":1}}"
+        let bundle = Data("\(headerJson.utf8.count)\(headerJson)\(body)".utf8)
+
+        _ = try await db.loadBundle(bundle)
+        let query = try #require(await db.getQuery(named: "featured-items"))
+        let snap = try await query.getDocuments(source: .cache)
+        #expect(snap.documents.map(\.documentID) == ["f1"])
     }
 
     // ══════════════════════════════════════════════════════════════════════════

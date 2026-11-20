@@ -361,6 +361,24 @@ internal enum BundleWireDecoder {
                 constraints.append(.limit(n: limitVal))
             }
         }
+        if let startCursor = sq["startAt"] as? [String: Any],
+           let cursorValues = try parseCursorValues(startCursor) {
+            let isBefore = (startCursor["before"] as? Bool) ?? false
+            if isBefore {
+                constraints.append(.startAt(values: cursorValues))
+            } else {
+                constraints.append(.startAfter(values: cursorValues))
+            }
+        }
+        if let endCursor = sq["endAt"] as? [String: Any],
+           let cursorValues = try parseCursorValues(endCursor) {
+            let isBefore = (endCursor["before"] as? Bool) ?? false
+            if isBefore {
+                constraints.append(.endBefore(values: cursorValues))
+            } else {
+                constraints.append(.endAt(values: cursorValues))
+            }
+        }
 
         return BundledNamedQuerySpec(
             name: queryName,
@@ -368,6 +386,21 @@ internal enum BundleWireDecoder {
             isCollectionGroup: isGroup,
             constraints: constraints
         )
+    }
+
+    private static func parseCursorValues(_ cursor: [String: Any]) throws -> [AnySendable]? {
+        guard let rawValues = cursor["values"] as? [Any], !rawValues.isEmpty else {
+            return nil
+        }
+        var out: [AnySendable] = []
+        out.reserveCapacity(rawValues.count)
+        for item in rawValues {
+            guard let itemObj = item as? [String: Any] else {
+                throw PyricBridgeError.invalidArgument("Malformed cursor value in bundled query.")
+            }
+            out.append(try decodeRestValueToWire(itemObj))
+        }
+        return out
     }
 
     private static func parseStructuredFilter(_ node: [String: Any]) throws -> QueryConstraintDescriptor? {
@@ -379,6 +412,31 @@ internal enum BundleWireDecoder {
             let rawVal = (ff["value"] as? [String: Any]) ?? [:]
             let wireVal = try decodeRestValueToWire(rawVal)
             return .where(field: fieldPath, op: mappedOp, value: wireVal)
+        }
+        if let uf = node["unaryFilter"] as? [String: Any] {
+            let fieldObj = uf["field"] as? [String: Any]
+            let fieldPath = (fieldObj?["fieldPath"] as? String) ?? ""
+            let rawOp = (uf["op"] as? String) ?? "IS_NULL"
+            switch rawOp {
+            case "IS_NULL":
+                return .where(field: fieldPath, op: "==", value: .null)
+            case "IS_NOT_NULL":
+                return .where(field: fieldPath, op: "!=", value: .null)
+            case "IS_NAN":
+                return .where(
+                    field: fieldPath,
+                    op: "==",
+                    value: .dictionary(["__type": .string("number"), "value": .string("NaN")])
+                )
+            case "IS_NOT_NAN":
+                return .where(
+                    field: fieldPath,
+                    op: "!=",
+                    value: .dictionary(["__type": .string("number"), "value": .string("NaN")])
+                )
+            default:
+                return nil
+            }
         }
         if let cf = node["compositeFilter"] as? [String: Any] {
             let rawSub = (cf["filters"] as? [[String: Any]]) ?? []

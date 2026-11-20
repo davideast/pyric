@@ -1,9 +1,12 @@
-import { row } from './section.ts';
+import { LIVE_HOST_CONFORMANCE_TEST } from '../defaults.ts';
+import { LIVE_HOST_INSTANCE_SUITE, row } from './section.ts';
 
 export default row({
   order: 60,
   api: 'CollectionReference.addDocument(data:)',
   behavior: 'Auto-generates document ID, writes data payload, and returns document reference.',
   featureKeys: ['addDocument'],
-  flipped: 'unit-backed',
+  status: 'conforms',
+  tests: [LIVE_HOST_INSTANCE_SUITE],
+  hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

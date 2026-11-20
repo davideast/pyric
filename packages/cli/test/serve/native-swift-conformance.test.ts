@@ -39,6 +39,12 @@ service cloud.firestore {
       match /items/{itemId} {
         allow read, write: if request.auth != null && request.auth.uid == uid;
       }
+      match /rooms/{roomId}/entries/{entryId} {
+        allow read, write: if request.auth != null && request.auth.uid == uid;
+      }
+    }
+    match /{path=**}/entries/{entryId} {
+      allow read: if request.auth != null && resource.data.ownerUid == request.auth.uid;
     }
     match /role_items/{role}/items/{itemId} {
       allow read, write: if request.auth != null && request.auth.token.role == role;

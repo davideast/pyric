@@ -1,9 +1,12 @@
-import { row } from './section.ts';
+import { LIVE_HOST_CONFORMANCE_TEST } from '../defaults.ts';
+import { LIVE_HOST_INSTANCE_SUITE, row } from './section.ts';
 
 export default row({
   order: 130,
   api: 'Firestore.runTransaction(_:) async',
   behavior: 'Executes an interactive transaction asynchronously via Swift concurrency.',
   featureKeys: ['runTransactionAsync'],
-  flipped: 'unit-backed',
+  status: 'conforms',
+  tests: [LIVE_HOST_INSTANCE_SUITE],
+  hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });
