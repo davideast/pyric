@@ -1,0 +1,114 @@
+{
+  "name": "firestore-admin-geopoint-init-and-maintenance",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase-admin/firestore GeoPoint, GrpcStatus, initializeFirestore, setLogFunction, and Firestore.{settings, getAll, listCollections, recursiveDelete, bulkWriter, bundle, terminate}.",
+  "observedAt": "2026-11-20T01:02:22.977Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "geoPoint": {
+      "latitude": 37.7749,
+      "longitude": -122.4194,
+      "equalSameCoords": true,
+      "equalDifferentCoords": false,
+      "roundTripIsGeoPoint": true,
+      "roundTripEqual": true,
+      "roundTripLat": 37.7749,
+      "roundTripLng": -122.4194,
+      "nanLatitudeThrows": true,
+      "outOfRangeLatHighThrows": true,
+      "outOfRangeLatLowThrows": true,
+      "outOfRangeLngHighThrows": true,
+      "outOfRangeLngLowThrows": true
+    },
+    "grpcStatus": {
+      "ok": 0,
+      "invalidArgument": 3,
+      "notFound": 5,
+      "alreadyExists": 6,
+      "permissionDenied": 7,
+      "failedPrecondition": 9,
+      "unauthenticated": 16,
+      "reverseNotFoundName": "NOT_FOUND"
+    },
+    "logFunctionAccepted": true,
+    "settingsAndLifecycle": {
+      "initReturnsSameAsGetFirestore": true,
+      "repeatInitReturnsSameHandle": true,
+      "secondSettingsCallThrew": true,
+      "ignoreUndefinedStoredKeys": [
+        "present"
+      ],
+      "terminateThenReadThrew": true,
+      "getFirestoreAfterTerminateSameHandle": true
+    },
+    "getAll": {
+      "orderedIds": [
+        "b",
+        "missing",
+        "a"
+      ],
+      "orderedExists": [
+        true,
+        false,
+        true
+      ],
+      "orderedData": [
+        {
+          "title": "Beta",
+          "rank": 2
+        },
+        null,
+        {
+          "title": "Alpha",
+          "rank": 1
+        }
+      ],
+      "maskedData": [
+        {
+          "title": "Alpha"
+        },
+        {
+          "title": "Beta"
+        }
+      ],
+      "zeroArgsThrew": true
+    },
+    "listCollections": {
+      "listedSuffixesBeforeDelete": [
+        "a",
+        "b"
+      ],
+      "listedSuffixesAfterDelete": [
+        "b"
+      ]
+    },
+    "recursiveDelete": {
+      "rootExistsAfter": false,
+      "childExistsAfter": false,
+      "leafExistsAfter": false,
+      "siblingExistsAfter": true
+    },
+    "bulkWriter": {
+      "writeResultsCount": 4,
+      "postCloseWriteThrew": true,
+      "postCloseWriteThrewSynchronously": true,
+      "createdData": {
+        "step": 3
+      },
+      "upsertedData": {
+        "step": 2
+      },
+      "removedExists": false
+    },
+    "bundle": {
+      "isBuffer": true,
+      "metadataId": "admin-items-bundle",
+      "version": 1,
+      "totalDocuments": 2,
+      "containsNamedQuery": true
+    }
+  },
+  "adminSdkVersion": "13.10.0"
+}
