@@ -2,19 +2,13 @@ import { createDenialThrottle, noteAiDiagnostic } from '../namespace.js';
 import { aiDiagnosticPayloadFor } from '../ai-diagnostics-relay.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createStorageByteRoute } from './storage-byte-route.js';
-import {
-  defaultBucketNames, finishUploadSession, openUploadSession, seedDefaultBucketNames,
-  storeBucketOf, uploadSessionOf, uploadTokenOf,
-} from '../worker/host/storage.js';
+import { defaultBucketNames, finishUploadSession, openUploadSession, seedDefaultBucketNames, storeBucketOf, uploadSessionOf, uploadTokenOf } from '../worker/host/storage.js';
 import type { ServeLogger } from '../server.js';
 import { fetchAiUpstream, resolveAiProxyUpstream } from '../ai-proxy.js';
+import { registerHostedRestHandler } from '../rest-auth-rtdb.js';
 import {
-  databaseInstanceRulesHost,
-  deployFirestoreRulesToHost,
-  normalizeDatabaseRules,
-  setDatabaseRules,
-  setDatabaseTargetRules,
-  syncFirestoreActiveRules,
+  databaseInstanceRulesHost, deployFirestoreRulesToHost, normalizeDatabaseRules,
+  setDatabaseRules, setDatabaseTargetRules, syncFirestoreActiveRules,
 } from '../worker/host/rules.js';
 import { markHostedCaptureManaged } from '../capture-store.js';
 import { runHostedClearMethod } from './capture-preservation.js';
@@ -656,6 +650,7 @@ export async function createHostedRuntime(
       finish: sessionId => finishUploadSession(ctx, sessionId),
     },
   });
+  const restAuthRtdb = registerHostedRestHandler(payload.sessionToken, { ctx, ownWriteRefusal: ai.ownWriteRefusal });
 
   /** In live mode, the result that refuses a direct command's write; null otherwise. */
   function ownWriteRefusalOf(key: string): OperationResult | null {
@@ -991,6 +986,7 @@ export async function createHostedRuntime(
           const healthy = persistenceIsHealthy();
           if (healthy) await flushPersistence();
         } finally {
+          restAuthRtdb.unregister();
           unsubscribeFailure();
           unsubscribeAiDiagnostics();
           initialized.dispose();

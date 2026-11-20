@@ -20,6 +20,12 @@ import { isHostingIgnoredPathname, isHostingIgnoredRealFile } from './hosting-ig
 import { configureLocalHttpKeepAlive } from './http-keepalive.js';
 import { registerLocalSessionToken } from './local-session-token.js';
 import {
+  hasExplicitRtdbRestSelector,
+  hostedRestHandlerForSession,
+  matchesRestAuthRtdbPathname,
+  type RestAuthRtdbHandler,
+} from './rest-auth-rtdb.js';
+import {
   appendSetCookieHeader,
   canBootstrapHtmlSession,
   formatSessionCookie,
@@ -107,6 +113,9 @@ export interface StaticServerOptions {
   /** Handles Functions HTTP routes after the namespace and before static
    *  files and the GET/HEAD-only 405. Return true when the request was handled. */
   functionsHandler?: (req: IncomingMessage, res: ServerResponse) => boolean | Promise<boolean>;
+  /** Handles Firebase Auth Identity Toolkit, Secure Token, and sharded RTDB
+   *  REST routes when backed by a host sandbox. */
+  restHandler?: RestAuthRtdbHandler;
   /** Applied to every served `.html` body (import-map/init injection). */
   transformHtml?: (html: string, context: { localPeer: boolean }) => string;
   /** Session capability token minted for this boot; set as an HttpOnly `/__pyric`
@@ -222,6 +231,48 @@ export function pipeFileToResponse(
   pipeline(stream, res, () => {});
 }
 
+function resolveEffectiveSessionToken(opts: StaticServerOptions): string | undefined {
+  if (opts.sessionToken !== undefined) return opts.sessionToken;
+  const namespaceWithToken = opts.namespaceHandler as { sessionToken?: string } | undefined;
+  return namespaceWithToken?.sessionToken;
+}
+
+function resolveServerRestHandler(
+  opts: StaticServerOptions,
+  sessionToken: string | undefined,
+): RestAuthRtdbHandler | undefined {
+  if (opts.restHandler !== undefined) return opts.restHandler;
+  return hostedRestHandlerForSession(sessionToken);
+}
+
+function shouldDeferRestToStaticHosting(
+  req: IncomingMessage,
+  url: URL,
+  publicDir: string | null,
+): boolean {
+  const method = req.method ?? 'GET';
+  if (method !== 'GET' && method !== 'HEAD') return false;
+  if (hasExplicitRtdbRestSelector(req, url)) return false;
+  if (isHostingIgnoredPathname(url.pathname)) return true;
+  if (publicDir === null) return false;
+  return resolveHostingFile(publicDir, url.pathname) !== null;
+}
+
+function isAllowedRestOriginAndPeer(req: IncomingMessage, opts: StaticServerOptions): boolean {
+  const boundHost = opts.host ?? 'localhost';
+  const boundToLoopback = boundHost === 'localhost' || isLoopbackAddress(stripHostBrackets(boundHost));
+  if (boundToLoopback && isLocalPeer(req) === false) return false;
+  const originAllowed = isAllowedOrigin(
+    getHeader(req, 'origin'),
+    boundHost,
+    opts.allowedHosts,
+    req.socket?.localPort,
+    requestSocketScheme(req),
+  );
+  if (originAllowed === false) return false;
+  return isForeignFetchWithoutOrigin(req) === false;
+}
+
 async function handleRequest(
   req: IncomingMessage,
   res: ServerResponse,
@@ -258,6 +309,22 @@ async function handleRequest(
 
   if (opts.functionsHandler && !url.pathname.startsWith('/__pyric/')) {
     const handled = await opts.functionsHandler(req, res);
+    if (handled) return;
+  }
+
+  const effectiveSessionToken = resolveEffectiveSessionToken(opts);
+  const restHandler = resolveServerRestHandler(opts, effectiveSessionToken);
+  if (
+    restHandler !== undefined
+    && matchesRestAuthRtdbPathname(url.pathname)
+    && shouldDeferRestToStaticHosting(req, url, opts.publicDir) === false
+  ) {
+    if (isAllowedRestOriginAndPeer(req, opts) === false) {
+      res.writeHead(403, { 'content-type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'Forbidden: invalid origin' }));
+      return;
+    }
+    const handled = await restHandler(req, res, url);
     if (handled) return;
   }
 
@@ -302,8 +369,6 @@ async function handleRequest(
 
   if (type.startsWith('text/html')) {
     const canBootstrap = canBootstrapHtmlSession(req, opts.host ?? 'localhost');
-    const effectiveSessionToken =
-      opts.sessionToken ?? (opts.namespaceHandler as { sessionToken?: string } | undefined)?.sessionToken;
     if (effectiveSessionToken && canBootstrap) {
       appendSetCookieHeader(res, formatSessionCookie(effectiveSessionToken));
     }
