@@ -16,7 +16,7 @@ extension FirestoreOfflineProjection {
         }
 
         var filters: [QueryConstraintDescriptor] = []
-        var orders: [(field: String, descending: Bool)] = []
+        var orders: [(segments: [String], descending: Bool)] = []
         var limitCount: Int?
         var limitToLast = false
         var startCursor: (values: [AnySendable], inclusive: Bool)?
@@ -26,38 +26,38 @@ extension FirestoreOfflineProjection {
             switch constraint {
             case .where, .and, .or:
                 filters.append(constraint)
-            case .orderBy(let field, let direction):
-                orders.append((field: field, descending: direction == "desc"))
+            case .orderBy(let field, let fieldSegments, let direction):
+                let segs = fieldSegments ?? splitFieldPath(field)
+                orders.append((segments: segs, descending: direction == "desc"))
             case .limit(let n):
                 limitCount = n
                 limitToLast = false
             case .limitToLast(let n):
                 limitCount = n
                 limitToLast = true
-            case .startAt(let values):
+            case .startAt(let values, _):
                 startCursor = (values: values, inclusive: true)
-            case .startAfter(let values):
+            case .startAfter(let values, _):
                 startCursor = (values: values, inclusive: false)
-            case .endAt(let values):
+            case .endAt(let values, _):
                 endCursor = (values: values, inclusive: true)
-            case .endBefore(let values):
+            case .endBefore(let values, _):
                 endCursor = (values: values, inclusive: false)
             }
         }
 
+        let normalized = QueryCompiler.computeNormalizedOrders(from: constraints)
+        let effectiveOrders: [(segments: [String], descending: Bool)] = normalized.map {
+            (segments: $0.segments, descending: $0.direction == "desc")
+        }
+
         var result = candidates.filter { entry in
-            for clause in orders where clause.field != "__name__" {
-                if fieldValue(for: clause.field, path: entry.path, fields: entry.doc.encodedFields) == nil {
+            for clause in orders where clause.segments != ["__name__"] {
+                if fieldValue(for: clause.segments, path: entry.path, fields: entry.doc.encodedFields) == nil {
                     return false
                 }
             }
             return filters.allSatisfy { matchesFilter($0, path: entry.path, fields: entry.doc.encodedFields) }
-        }
-
-        var effectiveOrders = orders
-        if !effectiveOrders.contains(where: { $0.field == "__name__" }) {
-            let tieDesc = effectiveOrders.last?.descending ?? false
-            effectiveOrders.append((field: "__name__", descending: tieDesc))
         }
 
         result.sort { lhs, rhs in
@@ -94,15 +94,15 @@ extension FirestoreOfflineProjection {
     }
 
     private static func fieldValue(
-        for field: String,
+        for segments: [String],
         path: String,
         fields: [String: AnySendable]?
     ) -> AnySendable? {
-        if field == "__name__" {
+        if segments == ["__name__"] {
             let docId = path.split(separator: "/").last.map(String.init) ?? path
             return .string(docId)
         }
-        return readField(in: fields, segments: splitFieldPath(field))
+        return readField(in: fields, segments: segments)
     }
 
     private static func matchesFilter(
@@ -115,8 +115,12 @@ extension FirestoreOfflineProjection {
             return children.allSatisfy { matchesFilter($0, path: path, fields: fields) }
         case .or(let children):
             return children.contains { matchesFilter($0, path: path, fields: fields) }
-        case .where(let field, let op, let target):
-            guard let actual = fieldValue(for: field, path: path, fields: fields) else {
+        case .where(let field, let fieldSegments, let op, let target):
+            let segments = fieldSegments ?? splitFieldPath(field)
+            if segments == ["__name__"] {
+                return matchesDocumentKey(path: path, op: op, target: target)
+            }
+            guard let actual = fieldValue(for: segments, path: path, fields: fields) else {
                 return false
             }
             switch op {
@@ -152,15 +156,74 @@ extension FirestoreOfflineProjection {
         }
     }
 
+    private static func compareKeyTarget(path: String, target: AnySendable) -> Int? {
+        if let refPath = target.dictionaryValue?["path"]?.stringValue,
+           target.dictionaryValue?["__type"]?.stringValue == "reference" {
+            return comparePathStrings(path, refPath)
+        }
+        if let strTarget = target.stringValue {
+            if strTarget.contains("/") {
+                return comparePathStrings(path, strTarget)
+            }
+            let docId = path.split(separator: "/").last.map(String.init) ?? path
+            return docId == strTarget ? 0 : (docId < strTarget ? -1 : 1)
+        }
+        return nil
+    }
+
+    private static func matchesDocumentKey(path: String, op: String, target: AnySendable) -> Bool {
+        switch op {
+        case "==":
+            return compareKeyTarget(path: path, target: target) == 0
+        case "!=":
+            guard let cmp = compareKeyTarget(path: path, target: target) else { return true }
+            return cmp != 0
+        case "<":
+            guard let cmp = compareKeyTarget(path: path, target: target) else { return false }
+            return cmp < 0
+        case "<=":
+            guard let cmp = compareKeyTarget(path: path, target: target) else { return false }
+            return cmp <= 0
+        case ">":
+            guard let cmp = compareKeyTarget(path: path, target: target) else { return false }
+            return cmp > 0
+        case ">=":
+            guard let cmp = compareKeyTarget(path: path, target: target) else { return false }
+            return cmp >= 0
+        case "in":
+            guard let list = target.arrayValue else { return false }
+            return list.contains { compareKeyTarget(path: path, target: $0) == 0 }
+        case "not-in":
+            guard let list = target.arrayValue else { return false }
+            return !list.contains { compareKeyTarget(path: path, target: $0) == 0 }
+        default:
+            return false
+        }
+    }
+
+    private static func comparePathStrings(_ lhs: String, _ rhs: String) -> Int {
+        let lSegs = lhs.split(separator: "/").map(String.init)
+        let rSegs = rhs.split(separator: "/").map(String.init)
+        for idx in 0..<min(lSegs.count, rSegs.count) where lSegs[idx] != rSegs[idx] {
+            return lSegs[idx] < rSegs[idx] ? -1 : 1
+        }
+        return lSegs.count == rSegs.count ? 0 : (lSegs.count < rSegs.count ? -1 : 1)
+    }
+
     private static func compareEntries(
         _ lhs: (path: String, doc: ProjectedOfflineDoc),
         _ rhs: (path: String, doc: ProjectedOfflineDoc),
-        orders: [(field: String, descending: Bool)]
+        orders: [(segments: [String], descending: Bool)]
     ) -> Int {
         for clause in orders {
-            let lv = fieldValue(for: clause.field, path: lhs.path, fields: lhs.doc.encodedFields) ?? .null
-            let rv = fieldValue(for: clause.field, path: rhs.path, fields: rhs.doc.encodedFields) ?? .null
-            let cmp = compareWireValues(lv, rv)
+            let cmp: Int
+            if clause.segments == ["__name__"] {
+                cmp = comparePathStrings(lhs.path, rhs.path)
+            } else {
+                let lv = fieldValue(for: clause.segments, path: lhs.path, fields: lhs.doc.encodedFields) ?? .null
+                let rv = fieldValue(for: clause.segments, path: rhs.path, fields: rhs.doc.encodedFields) ?? .null
+                cmp = compareWireValues(lv, rv)
+            }
             if cmp != 0 {
                 return clause.descending ? -cmp : cmp
             }
@@ -171,12 +234,29 @@ extension FirestoreOfflineProjection {
     private static func compareEntryToCursor(
         _ entry: (path: String, doc: ProjectedOfflineDoc),
         cursor: [AnySendable],
-        orders: [(field: String, descending: Bool)]
+        orders: [(segments: [String], descending: Bool)]
     ) -> Int {
         for (idx, cursorVal) in cursor.enumerated() where idx < orders.count {
             let clause = orders[idx]
-            let actual = fieldValue(for: clause.field, path: entry.path, fields: entry.doc.encodedFields) ?? .null
-            let cmp = compareWireValues(actual, cursorVal)
+            let cmp: Int
+            if clause.segments == ["__name__"] {
+                if let refPath = cursorVal.dictionaryValue?["path"]?.stringValue,
+                   cursorVal.dictionaryValue?["__type"]?.stringValue == "reference" {
+                    cmp = comparePathStrings(entry.path, refPath)
+                } else if let strCursor = cursorVal.stringValue {
+                    if strCursor.contains("/") {
+                        cmp = comparePathStrings(entry.path, strCursor)
+                    } else {
+                        let docId = entry.path.split(separator: "/").last.map(String.init) ?? entry.path
+                        cmp = docId == strCursor ? 0 : (docId < strCursor ? -1 : 1)
+                    }
+                } else {
+                    cmp = 0
+                }
+            } else {
+                let actual = fieldValue(for: clause.segments, path: entry.path, fields: entry.doc.encodedFields) ?? .null
+                cmp = compareWireValues(actual, cursorVal)
+            }
             if cmp != 0 {
                 return clause.descending ? -cmp : cmp
             }

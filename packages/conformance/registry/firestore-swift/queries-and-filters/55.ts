@@ -1,9 +1,12 @@
-import { row } from './section.ts';
+import { LIVE_HOST_CONFORMANCE_TEST } from '../defaults.ts';
+import { LIVE_HOST_QUERIES_SUITE, row } from './section.ts';
 
 export default row({
   order: 150,
   api: 'Query.limit(toLast:)',
   behavior: 'Limits results to last N documents requiring explicit orderBy constraint.',
   featureKeys: ['limitToLast'],
-  flipped: 'unit-backed',
+  status: 'conforms',
+  tests: [LIVE_HOST_QUERIES_SUITE],
+  hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

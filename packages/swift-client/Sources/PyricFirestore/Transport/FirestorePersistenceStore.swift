@@ -126,6 +126,7 @@ internal final class PendingWriteSettlement: @unchecked Sendable {
 internal struct ManagedSnapshotListenerHooks: Sendable {
     let target: TargetDescriptor
     let includeMetadataChanges: Bool
+    let cacheOnly: Bool
     let hasDeliveredOnline: @Sendable () -> Bool
     let hasDeliveredAny: @Sendable () -> Bool
     let suspendFromHost: @Sendable () -> Void

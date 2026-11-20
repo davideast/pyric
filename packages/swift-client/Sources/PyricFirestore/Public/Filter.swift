@@ -11,7 +11,7 @@ extension FieldPath {
 
 public class Filter: @unchecked Sendable, Equatable {
     internal enum FilterType: Sendable, Equatable {
-        case field(field: String, op: String, value: AnySendable)
+        case field(field: String, fieldSegments: [String]?, op: String, value: AnySendable)
         case composite(kind: String, filters: [Filter])
     }
 
@@ -25,92 +25,105 @@ public class Filter: @unchecked Sendable, Equatable {
         lhs.type == rhs.type
     }
 
-    // ── Static Field Filter Factories ────────────────────────────────────────
+    private static func makeFieldFilter(
+        field: String,
+        segments: [String]?,
+        op: String,
+        encodedValue: AnySendable
+    ) -> Filter {
+        let explicitSegments = (segments?.contains { $0.contains(".") } == true) ? segments : nil
+        return Filter(type: .field(field: field, fieldSegments: explicitSegments, op: op, value: encodedValue))
+    }
+
+    // -- Static Field Filter Factories --
 
     public static func whereField(_ field: String, isEqualTo value: Any) -> Filter {
-        whereField(FieldPath(field: field), isEqualTo: value)
+        makeFieldFilter(field: field, segments: nil, op: "==", encodedValue: AnySendable.from(try? ValueCodec.encodeValue(value)))
     }
 
     public static func whereField(_ path: FieldPath, isEqualTo value: Any) -> Filter {
-        Filter(type: .field(field: path.stringValue, op: "==", value: AnySendable.from(try? ValueCodec.encodeValue(value))))
+        makeFieldFilter(field: path.stringValue, segments: path.segments, op: "==", encodedValue: AnySendable.from(try? ValueCodec.encodeValue(value)))
     }
 
     public static func whereField(_ field: String, isNotEqualTo value: Any) -> Filter {
-        whereField(FieldPath(field: field), isNotEqualTo: value)
+        makeFieldFilter(field: field, segments: nil, op: "!=", encodedValue: AnySendable.from(try? ValueCodec.encodeValue(value)))
     }
 
     public static func whereField(_ path: FieldPath, isNotEqualTo value: Any) -> Filter {
-        Filter(type: .field(field: path.stringValue, op: "!=", value: AnySendable.from(try? ValueCodec.encodeValue(value))))
+        makeFieldFilter(field: path.stringValue, segments: path.segments, op: "!=", encodedValue: AnySendable.from(try? ValueCodec.encodeValue(value)))
     }
 
     public static func whereField(_ field: String, isLessThan value: Any) -> Filter {
-        whereField(FieldPath(field: field), isLessThan: value)
+        makeFieldFilter(field: field, segments: nil, op: "<", encodedValue: AnySendable.from(try? ValueCodec.encodeValue(value)))
     }
 
     public static func whereField(_ path: FieldPath, isLessThan value: Any) -> Filter {
-        Filter(type: .field(field: path.stringValue, op: "<", value: AnySendable.from(try? ValueCodec.encodeValue(value))))
+        makeFieldFilter(field: path.stringValue, segments: path.segments, op: "<", encodedValue: AnySendable.from(try? ValueCodec.encodeValue(value)))
     }
 
     public static func whereField(_ field: String, isLessThanOrEqualTo value: Any) -> Filter {
-        whereField(FieldPath(field: field), isLessThanOrEqualTo: value)
+        makeFieldFilter(field: field, segments: nil, op: "<=", encodedValue: AnySendable.from(try? ValueCodec.encodeValue(value)))
     }
 
     public static func whereField(_ path: FieldPath, isLessThanOrEqualTo value: Any) -> Filter {
-        Filter(type: .field(field: path.stringValue, op: "<=", value: AnySendable.from(try? ValueCodec.encodeValue(value))))
+        makeFieldFilter(field: path.stringValue, segments: path.segments, op: "<=", encodedValue: AnySendable.from(try? ValueCodec.encodeValue(value)))
     }
 
     public static func whereField(_ field: String, isGreaterThan value: Any) -> Filter {
-        whereField(FieldPath(field: field), isGreaterThan: value)
+        makeFieldFilter(field: field, segments: nil, op: ">", encodedValue: AnySendable.from(try? ValueCodec.encodeValue(value)))
     }
 
     public static func whereField(_ path: FieldPath, isGreaterThan value: Any) -> Filter {
-        Filter(type: .field(field: path.stringValue, op: ">", value: AnySendable.from(try? ValueCodec.encodeValue(value))))
+        makeFieldFilter(field: path.stringValue, segments: path.segments, op: ">", encodedValue: AnySendable.from(try? ValueCodec.encodeValue(value)))
     }
 
     public static func whereField(_ field: String, isGreaterThanOrEqualTo value: Any) -> Filter {
-        whereField(FieldPath(field: field), isGreaterThanOrEqualTo: value)
+        makeFieldFilter(field: field, segments: nil, op: ">=", encodedValue: AnySendable.from(try? ValueCodec.encodeValue(value)))
     }
 
     public static func whereField(_ path: FieldPath, isGreaterThanOrEqualTo value: Any) -> Filter {
-        Filter(type: .field(field: path.stringValue, op: ">=", value: AnySendable.from(try? ValueCodec.encodeValue(value))))
+        makeFieldFilter(field: path.stringValue, segments: path.segments, op: ">=", encodedValue: AnySendable.from(try? ValueCodec.encodeValue(value)))
     }
 
     public static func whereField(_ field: String, arrayContains value: Any) -> Filter {
-        whereField(FieldPath(field: field), arrayContains: value)
+        makeFieldFilter(field: field, segments: nil, op: "array-contains", encodedValue: AnySendable.from(try? ValueCodec.encodeValue(value)))
     }
 
     public static func whereField(_ path: FieldPath, arrayContains value: Any) -> Filter {
-        Filter(type: .field(field: path.stringValue, op: "array-contains", value: AnySendable.from(try? ValueCodec.encodeValue(value))))
+        makeFieldFilter(field: path.stringValue, segments: path.segments, op: "array-contains", encodedValue: AnySendable.from(try? ValueCodec.encodeValue(value)))
     }
 
     public static func whereField(_ field: String, arrayContainsAny values: [Any]) -> Filter {
-        whereField(FieldPath(field: field), arrayContainsAny: values)
+        let sendable = AnySendable.from(try? ValueCodec.encodeValue(values))
+        return makeFieldFilter(field: field, segments: nil, op: "array-contains-any", encodedValue: sendable)
     }
 
     public static func whereField(_ path: FieldPath, arrayContainsAny values: [Any]) -> Filter {
         let sendable = AnySendable.from(try? ValueCodec.encodeValue(values))
-        return Filter(type: .field(field: path.stringValue, op: "array-contains-any", value: sendable))
+        return makeFieldFilter(field: path.stringValue, segments: path.segments, op: "array-contains-any", encodedValue: sendable)
     }
 
     public static func whereField(_ field: String, in values: [Any]) -> Filter {
-        whereField(FieldPath(field: field), in: values)
+        let sendable = AnySendable.from(try? ValueCodec.encodeValue(values))
+        return makeFieldFilter(field: field, segments: nil, op: "in", encodedValue: sendable)
     }
 
     public static func whereField(_ path: FieldPath, in values: [Any]) -> Filter {
         let sendable = AnySendable.from(try? ValueCodec.encodeValue(values))
-        return Filter(type: .field(field: path.stringValue, op: "in", value: sendable))
+        return makeFieldFilter(field: path.stringValue, segments: path.segments, op: "in", encodedValue: sendable)
     }
 
     public static func whereField(_ field: String, notIn values: [Any]) -> Filter {
-        whereField(FieldPath(field: field), notIn: values)
+        let sendable = AnySendable.from(try? ValueCodec.encodeValue(values))
+        return makeFieldFilter(field: field, segments: nil, op: "not-in", encodedValue: sendable)
     }
 
     public static func whereField(_ path: FieldPath, notIn values: [Any]) -> Filter {
         let sendable = AnySendable.from(try? ValueCodec.encodeValue(values))
-        return Filter(type: .field(field: path.stringValue, op: "not-in", value: sendable))
+        return makeFieldFilter(field: path.stringValue, segments: path.segments, op: "not-in", encodedValue: sendable)
     }
 
-    // ── Composite Boolean Factories ──────────────────────────────────────────
+    // -- Composite Boolean Factories --
 
     public static func andFilter(_ filters: [Filter]) -> Filter {
         Filter(type: .composite(kind: "and", filters: filters))
@@ -128,14 +141,19 @@ public class Filter: @unchecked Sendable, Equatable {
         orFilter(filters)
     }
 
-    // ── Bridge Constraint Conversion ────────────────────────────────────────
+    // -- Bridge Constraint Conversion --
 
     public func toConstraintDescriptor() -> QueryConstraintDescriptor {
         switch self.type {
-        case .field(let field, let op, let value):
-            return .where(field: field, op: op, value: value)
+        case .field(let field, let fieldSegments, let op, let value):
+            return .where(field: field, fieldSegments: fieldSegments, op: op, value: value)
         case .composite(let kind, let childFilters):
-            let compiledChildren = childFilters.map { $0.toConstraintDescriptor() }
+            let compiledChildren = childFilters.compactMap { child -> QueryConstraintDescriptor? in
+                if case .composite(_, let nested) = child.type, nested.isEmpty {
+                    return nil
+                }
+                return child.toConstraintDescriptor()
+            }
             if kind == "or" {
                 return .or(compiledChildren)
             } else {

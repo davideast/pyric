@@ -97,9 +97,25 @@ public enum FirestoreSource: Int, Sendable {
     case cache = 2
 }
 
-public struct SnapshotListenOptions: Sendable {
+public enum ListenSource: Int, Sendable, Equatable {
+    case `default` = 0
+    case cache = 1
+}
+
+public struct SnapshotListenOptions: Sendable, Equatable {
     public var includeMetadataChanges: Bool
-    public init(includeMetadataChanges: Bool = false) {
+    public var source: ListenSource
+
+    public init(includeMetadataChanges: Bool = false, source: ListenSource = .default) {
         self.includeMetadataChanges = includeMetadataChanges
+        self.source = source
+    }
+
+    public func withIncludeMetadataChanges(_ includeMetadataChanges: Bool) -> SnapshotListenOptions {
+        SnapshotListenOptions(includeMetadataChanges: includeMetadataChanges, source: source)
+    }
+
+    public func withSource(_ source: ListenSource) -> SnapshotListenOptions {
+        SnapshotListenOptions(includeMetadataChanges: includeMetadataChanges, source: source)
     }
 }
