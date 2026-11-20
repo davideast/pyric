@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { once } from 'node:events';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { resolve } from 'node:path';
 import { WebSocket, WebSocketServer } from 'ws';
@@ -50,9 +50,15 @@ service cloud.firestore {
   match /databases/{database}/documents {
     match /users/{uid} {
       allow read, write: if request.auth != null && request.auth.uid == uid;
+      match /items/{itemId} {
+        allow read, write: if request.auth != null && request.auth.uid == uid;
+      }
     }
     match /role_items/{role}/items/{itemId} {
       allow read, write: if request.auth != null && request.auth.token.role == role;
+    }
+    match /{path=**}/items/{itemId} {
+      allow read: if request.auth != null && request.auth.token.role == 'moderator';
     }
     match /rooms/{roomId} {
       allow read: if request.auth == null || request.auth.token.role == 'member';
@@ -318,7 +324,7 @@ describe('native Kotlin Firestore live-host conformance', () => {
             ':cleanTest',
             ':test',
             '--tests',
-            'dev.pyric.e2e.FirestoreLiveHostConformanceTest',
+            'dev.pyric.e2e.Firestore*LiveHostConformanceTest',
             '--stacktrace',
             '--no-daemon',
           ],
@@ -341,28 +347,35 @@ describe('native Kotlin Firestore live-host conformance', () => {
         ]);
         if (exitCode !== 0) {
           throw new Error(
-            `Gradle FirestoreLiveHostConformanceTest exited ${exitCode}:\n${stdout}\n${stderr}`,
+            `Gradle Firestore*LiveHostConformanceTest exited ${exitCode}:\n${stdout}\n${stderr}`,
           );
         }
 
-        const xmlPath = resolve(
-          KT_CLIENT_DIR,
-          'build/test-results/test/TEST-dev.pyric.e2e.FirestoreLiveHostConformanceTest.xml',
-        );
-        expect(existsSync(xmlPath)).toBe(true);
-        const xml = readFileSync(xmlPath, 'utf8');
-        const testsMatch = /\btests="(\d+)"/.exec(xml);
-        let executedTests = 0;
-        if (testsMatch !== null) {
-          const countGroup = testsMatch[1];
-          if (countGroup !== undefined) {
-            executedTests = Number.parseInt(countGroup, 10);
+        const resultsDir = resolve(KT_CLIENT_DIR, 'build/test-results/test');
+        expect(existsSync(resultsDir)).toBe(true);
+        const reportPattern = /^TEST-dev\.pyric\.e2e\.Firestore.*LiveHostConformanceTest\.xml$/;
+        const reportNames = readdirSync(resultsDir).filter((entry) => reportPattern.test(entry));
+        expect(reportNames.length).toBeGreaterThanOrEqual(2);
+
+        let totalExecutedTests = 0;
+        for (const reportName of reportNames) {
+          const xmlPath = resolve(resultsDir, reportName);
+          const xml = readFileSync(xmlPath, 'utf8');
+          const testsMatch = /\btests="(\d+)"/.exec(xml);
+          let executedTests = 0;
+          if (testsMatch !== null) {
+            const countGroup = testsMatch[1];
+            if (countGroup !== undefined) {
+              executedTests = Number.parseInt(countGroup, 10);
+            }
           }
+          expect(executedTests).toBeGreaterThanOrEqual(1);
+          expect(xml).toContain('failures="0"');
+          expect(xml).toContain('errors="0"');
+          expect(xml).toContain('skipped="0"');
+          totalExecutedTests += executedTests;
         }
-        expect(executedTests).toBeGreaterThanOrEqual(5);
-        expect(xml).toContain('failures="0"');
-        expect(xml).toContain('errors="0"');
-        expect(xml).toContain('skipped="0"');
+        expect(totalExecutedTests).toBeGreaterThanOrEqual(10);
       } finally {
         await host.close();
       }

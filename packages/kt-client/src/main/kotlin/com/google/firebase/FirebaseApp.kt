@@ -24,6 +24,9 @@ class FirebaseApp private constructor(
         return client
     }
 
+    internal fun ownsSharedBridgeClient(client: PyricBridgeClient): Boolean =
+        synchronized(bridgeLock) { sharedBridgeClient === client }
+
     internal fun getOrCreateBridgeClient(explicit: PyricBridgeClient? = null): PyricBridgeClient {
         synchronized(bridgeLock) {
             if (explicit != null) {

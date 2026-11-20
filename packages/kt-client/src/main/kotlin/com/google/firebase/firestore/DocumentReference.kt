@@ -11,11 +11,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.mapNotNull
+import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.launch
 
 class DocumentReference internal constructor(
@@ -36,6 +38,7 @@ class DocumentReference internal constructor(
     }
 
     fun get(source: Source = Source.DEFAULT): Task<DocumentSnapshot> {
+        firestore.ensureClientActive()
         val tcs = TaskCompletionSource<DocumentSnapshot>()
         val scope = CoroutineScope(Dispatchers.IO)
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
@@ -75,13 +78,15 @@ class DocumentReference internal constructor(
 
     @Suppress("UNCHECKED_CAST")
     fun set(data: Any, options: SetOptions): Task<Void?> {
+        firestore.ensureClientActive()
         val map = when (data) {
             is Map<*, *> -> data as Map<String, Any?>
             else -> PojoCodec.serialize(data)
         }
 
-        // Validate delete sentinels
+        // Validate sentinels synchronously
         SentinelValidator.validateNoDelete(map, options.isMerge)
+        SentinelValidator.validateNoNestedArraySentinels(map)
 
         val tcs = TaskCompletionSource<Void?>()
         val scope = CoroutineScope(Dispatchers.IO)
@@ -111,6 +116,9 @@ class DocumentReference internal constructor(
     }
 
     fun update(data: Map<String, Any?>): Task<Void?> {
+        firestore.ensureClientActive()
+        SentinelValidator.validateNoNestedArraySentinels(data)
+        val encodedData = ValueCodec.encodeWriteData(data)
         val tcs = TaskCompletionSource<Void?>()
         val scope = CoroutineScope(Dispatchers.IO)
         // Undispatched, so the frame is sent or held on the caller's thread and
@@ -121,7 +129,7 @@ class DocumentReference internal constructor(
                     method = "updateDoc",
                     params = mapOf(
                         "path" to path,
-                        "data" to ValueCodec.encodeWriteData(data)
+                        "data" to encodedData
                     ),
                     actAs = firestore.getEffectiveAuthLens().toMap()
                 )
@@ -145,6 +153,7 @@ class DocumentReference internal constructor(
     }
 
     fun delete(): Task<Void?> {
+        firestore.ensureClientActive()
         val tcs = TaskCompletionSource<Void?>()
         val scope = CoroutineScope(Dispatchers.IO)
         // Undispatched, so the frame is sent or held on the caller's thread and
@@ -166,26 +175,33 @@ class DocumentReference internal constructor(
 
     @OptIn(ExperimentalCoroutinesApi::class)
     fun snapshots(metadataChanges: MetadataChanges = MetadataChanges.EXCLUDE): Flow<DocumentSnapshot> {
+        firestore.ensureClientActive()
         val target = mapOf("__ref" to "doc", "path" to path)
         val includeMetadata = (metadataChanges == MetadataChanges.INCLUDE)
-        return firestore.authLensFlow.flatMapLatest { lens ->
-            var lastRaw: Any? = null
-            var hasRaw = false
-            firestore.bridgeClient.subscribe(
-                target = target,
-                actAs = lens.toMap(),
-                includeMetadataChanges = includeMetadata
-            ).mapNotNull { rawMsg ->
-                if (rawMsg === BridgeSubscriptionGap) {
-                    // The document last delivered, now served from cache.
-                    if (hasRaw) snapshotFromWire(lastRaw, isFromCache = true) else null
-                } else {
-                    lastRaw = rawMsg
-                    hasRaw = true
-                    snapshotFromWire(rawMsg, isFromCache = false)
+        return combine(firestore.authLensFlow, firestore.terminatedStateFlow) { lens, terminated ->
+            lens to terminated
+        }.flatMapLatest { (lens, terminated) ->
+            if (terminated) {
+                flowOf<DocumentSnapshot?>(null)
+            } else {
+                var lastRaw: Any? = null
+                var hasRaw = false
+                firestore.bridgeClient.subscribe(
+                    target = target,
+                    actAs = lens.toMap(),
+                    includeMetadataChanges = includeMetadata
+                ).mapNotNull { rawMsg ->
+                    if (rawMsg === BridgeSubscriptionGap) {
+                        // The document last delivered, now served from cache.
+                        if (hasRaw) snapshotFromWire(lastRaw, isFromCache = true) else null
+                    } else {
+                        lastRaw = rawMsg
+                        hasRaw = true
+                        snapshotFromWire(rawMsg, isFromCache = false)
+                    }
                 }
             }
-        }
+        }.takeWhile { it != null }.mapNotNull { it }
     }
 
     private fun snapshotFromWire(rawMsg: Any?, isFromCache: Boolean): DocumentSnapshot {
@@ -215,8 +231,8 @@ class DocumentReference internal constructor(
         metadataChanges: MetadataChanges,
         listener: EventListener<DocumentSnapshot>
     ): ListenerRegistration {
-        val scope = CoroutineScope(Dispatchers.IO)
-        val job = scope.launch {
+        firestore.ensureClientActive()
+        val job = firestore.listenerScope.launch {
             snapshots(metadataChanges).catch { e ->
                 val fse = (e as? FirebaseFirestoreException)
                     ?: FirebaseFirestoreException(e.message ?: "Snapshot error", FirebaseFirestoreException.Code.UNKNOWN, e)

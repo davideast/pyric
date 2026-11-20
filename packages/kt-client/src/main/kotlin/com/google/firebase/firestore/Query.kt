@@ -11,11 +11,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.mapNotNull
+import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.launch
 
 open class Query internal constructor(
@@ -182,6 +184,7 @@ open class Query internal constructor(
     }
 
     fun get(source: Source = Source.DEFAULT): Task<QuerySnapshot> {
+        firestore.ensureClientActive()
         val tcs = TaskCompletionSource<QuerySnapshot>()
         val scope = CoroutineScope(Dispatchers.IO)
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
@@ -230,26 +233,33 @@ open class Query internal constructor(
 
     @OptIn(ExperimentalCoroutinesApi::class)
     fun snapshots(metadataChanges: MetadataChanges = MetadataChanges.EXCLUDE): Flow<QuerySnapshot> {
+        firestore.ensureClientActive()
         val target = toTargetDescriptor()
         val includeMetadata = (metadataChanges == MetadataChanges.INCLUDE)
-        return firestore.authLensFlow.flatMapLatest { lens ->
-            var lastRaw: Any? = null
-            var hasRaw = false
-            firestore.bridgeClient.subscribe(
-                target = target,
-                actAs = lens.toMap(),
-                includeMetadataChanges = includeMetadata
-            ).mapNotNull { rawMsg ->
-                if (rawMsg === BridgeSubscriptionGap) {
-                    // The documents last delivered, now served from cache.
-                    if (hasRaw) snapshotFromWire(lastRaw, isFromCache = true) else null
-                } else {
-                    lastRaw = rawMsg
-                    hasRaw = true
-                    snapshotFromWire(rawMsg, isFromCache = false)
+        return combine(firestore.authLensFlow, firestore.terminatedStateFlow) { lens, terminated ->
+            lens to terminated
+        }.flatMapLatest { (lens, terminated) ->
+            if (terminated) {
+                flowOf<QuerySnapshot?>(null)
+            } else {
+                var lastRaw: Any? = null
+                var hasRaw = false
+                firestore.bridgeClient.subscribe(
+                    target = target,
+                    actAs = lens.toMap(),
+                    includeMetadataChanges = includeMetadata
+                ).mapNotNull { rawMsg ->
+                    if (rawMsg === BridgeSubscriptionGap) {
+                        // The documents last delivered, now served from cache.
+                        if (hasRaw) snapshotFromWire(lastRaw, isFromCache = true) else null
+                    } else {
+                        lastRaw = rawMsg
+                        hasRaw = true
+                        snapshotFromWire(rawMsg, isFromCache = false)
+                    }
                 }
             }
-        }
+        }.takeWhile { it != null }.mapNotNull { it }
     }
 
     private fun snapshotFromWire(rawMsg: Any?, isFromCache: Boolean): QuerySnapshot {
@@ -287,8 +297,8 @@ open class Query internal constructor(
         metadataChanges: MetadataChanges,
         listener: EventListener<QuerySnapshot>
     ): ListenerRegistration {
-        val scope = CoroutineScope(Dispatchers.IO)
-        val job = scope.launch {
+        firestore.ensureClientActive()
+        val job = firestore.listenerScope.launch {
             snapshots(metadataChanges).catch { e ->
                 val fse = (e as? FirebaseFirestoreException)
                     ?: FirebaseFirestoreException(e.message ?: "Query snapshot error", FirebaseFirestoreException.Code.UNKNOWN, e)

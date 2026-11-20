@@ -1,3 +1,4 @@
+import { LIVE_HOST_CONFORMANCE_TEST, LIVE_HOST_CORE_SUITE } from '../defaults.ts';
 import { row } from './section.ts';
 
 export default row({
@@ -5,5 +6,7 @@ export default row({
   api: 'FieldValue.increment(value)',
   behavior: 'Encodes numeric transformation operand that atomically increments field value.',
   featureKeys: ['increment'],
-  flipped: 'unit-backed',
+  status: 'conforms',
+  tests: [LIVE_HOST_CORE_SUITE],
+  hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

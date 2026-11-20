@@ -33,12 +33,14 @@ class WriteBatch internal constructor(private val firestore: FirebaseFirestore) 
             else -> PojoCodec.serialize(data)
         }
         SentinelValidator.validateNoDelete(map, options.isMerge)
+        SentinelValidator.validateNoNestedArraySentinels(map)
         operations.add(Mutation.Set(documentRef, map, options))
         return this
     }
 
     fun update(documentRef: DocumentReference, data: Map<String, Any?>): WriteBatch {
         checkNotCommitted()
+        SentinelValidator.validateNoNestedArraySentinels(data)
         operations.add(Mutation.Update(documentRef, data))
         return this
     }
@@ -62,6 +64,7 @@ class WriteBatch internal constructor(private val firestore: FirebaseFirestore) 
     }
 
     fun commit(): Task<Void?> {
+        firestore.ensureClientActive()
         checkNotCommitted()
         committed = true
         if (operations.isEmpty()) {

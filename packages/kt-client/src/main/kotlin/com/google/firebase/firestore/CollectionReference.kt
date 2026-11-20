@@ -19,11 +19,17 @@ class CollectionReference internal constructor(
 
     fun document(documentPath: String): DocumentReference {
         val trimmed = documentPath.trim('/')
+        require(trimmed.isNotEmpty()) {
+            "Invalid document reference. Document path must not be empty."
+        }
         return firestore.document("$path/$trimmed")
     }
 
     fun add(data: Any): Task<DocumentReference> {
         val docRef = document()
-        return docRef.set(data).continueWith { docRef }
+        return docRef.set(data).continueWith { task ->
+            task.getResult()
+            docRef
+        }
     }
 }

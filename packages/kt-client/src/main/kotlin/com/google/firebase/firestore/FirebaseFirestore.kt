@@ -11,9 +11,11 @@ import dev.pyric.bridge.PyricBridgeClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
@@ -34,8 +36,20 @@ class FirebaseFirestore(
         fun onDenial(exception: FirebaseFirestoreException, context: Map<String, Any?>)
     }
 
-    private val firestoreScope = CoroutineScope(Dispatchers.IO)
+    private val firestoreJob = SupervisorJob()
+    private val firestoreScope = CoroutineScope(firestoreJob + Dispatchers.IO)
+    internal val listenerScope = CoroutineScope(SupervisorJob(firestoreJob) + Dispatchers.IO)
     private val rulesDenialListeners = CopyOnWriteArrayList<RulesDenialListener>()
+    private val _terminatedStateFlow = MutableStateFlow(false)
+    internal val terminatedStateFlow: StateFlow<Boolean> = _terminatedStateFlow.asStateFlow()
+
+    @Volatile
+    internal var isStarted: Boolean = false
+        private set
+
+    @Volatile
+    var isTerminated: Boolean = false
+        private set
 
     init {
         // UNDISPATCHED runs the collector up to its first suspension on this thread, which
@@ -49,6 +63,25 @@ class FirebaseFirestore(
     }
 
     var firestoreSettings: FirebaseFirestoreSettings = FirebaseFirestoreSettings.Builder().build()
+        set(value) {
+            checkNotTerminated()
+            if (isStarted && field != value) {
+                throw IllegalStateException(
+                    "FirebaseFirestore has already been started and its settings can no longer be changed. " +
+                        "You can only call setFirestoreSettings() before calling any other methods on a FirebaseFirestore object."
+                )
+            }
+            field = value
+        }
+
+    internal fun checkNotTerminated() {
+        check(!isTerminated) { "The client has already been terminated" }
+    }
+
+    internal fun ensureClientActive() {
+        checkNotTerminated()
+        isStarted = true
+    }
 
     fun addRulesDenialListener(listener: RulesDenialListener): ListenerRegistration {
         rulesDenialListeners.add(listener)
@@ -80,6 +113,7 @@ class FirebaseFirestore(
         get() = credentialsProvider?.authLensFlow ?: MutableStateFlow(AuthLens.Anon)
 
     fun collection(collectionPath: String): CollectionReference {
+        checkNotTerminated()
         val segments = collectionPath.trim('/').split('/').filter { it.isNotEmpty() }
         require(segments.size % 2 == 1) {
             "Invalid collection reference. Collection references must have an odd number of segments, but $collectionPath has ${segments.size}"
@@ -88,23 +122,32 @@ class FirebaseFirestore(
     }
 
     fun document(documentPath: String): DocumentReference {
+        checkNotTerminated()
         val segments = documentPath.trim('/').split('/').filter { it.isNotEmpty() }
-        require(segments.size % 2 == 0) {
+        require(segments.isNotEmpty() && segments.size % 2 == 0) {
             "Invalid document reference. Document references must have an even number of segments, but $documentPath has ${segments.size}"
         }
         return DocumentReference(this, documentPath.trim('/'))
     }
 
     fun collectionGroup(collectionId: String): Query {
+        checkNotTerminated()
+        require(collectionId.isNotEmpty()) {
+            "Invalid collectionId. Provided collection ID must not be empty."
+        }
         require(!collectionId.contains('/')) {
             "Invalid collectionId '$collectionId'. Collection IDs must not contain '/'."
         }
         return Query(this, collectionId = collectionId, isCollectionGroup = true)
     }
 
-    fun batch(): WriteBatch = WriteBatch(this)
+    fun batch(): WriteBatch {
+        checkNotTerminated()
+        return WriteBatch(this)
+    }
 
     fun runBatch(batchFunction: WriteBatch.Function): Task<Void?> {
+        ensureClientActive()
         val batch = batch()
         batchFunction.apply(batch)
         return batch.commit()
@@ -118,6 +161,7 @@ class FirebaseFirestore(
         options: TransactionOptions,
         updateFunction: Transaction.Function<TResult>
     ): Task<TResult> {
+        ensureClientActive()
         val tcs = TaskCompletionSource<TResult>()
         val scope = CoroutineScope(Dispatchers.IO)
 
@@ -154,8 +198,18 @@ class FirebaseFirestore(
     }
 
     fun terminate(): Task<Void?> {
+        if (isTerminated) {
+            return Tasks.forResult(null)
+        }
+        isTerminated = true
+        _terminatedStateFlow.value = true
+        instances.remove(Pair(app.name, databaseId), this)
+        rulesDenialListeners.clear()
         firestoreScope.cancel()
-        return bridgeClient.terminate()
+        if (!app.ownsSharedBridgeClient(bridgeClient)) {
+            return bridgeClient.terminate()
+        }
+        return Tasks.forResult(null)
     }
 
     fun clearPersistence(): Task<Void?> = Tasks.forResult(null)

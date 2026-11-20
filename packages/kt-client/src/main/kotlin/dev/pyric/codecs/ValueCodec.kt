@@ -17,10 +17,23 @@ object ValueCodec {
 
     const val DOC_VALUE_ENCODING_V1 = "pyric/firestore-values/1"
 
+    private fun encodeDoubleScalar(value: Double): Any {
+        if (value.isNaN()) return mapOf("__type" to "number", "value" to "NaN")
+        if (value == Double.POSITIVE_INFINITY) return mapOf("__type" to "number", "value" to "Infinity")
+        if (value == Double.NEGATIVE_INFINITY) return mapOf("__type" to "number", "value" to "-Infinity")
+        if (java.lang.Double.doubleToRawLongBits(value) == Long.MIN_VALUE) {
+            return mapOf("__type" to "number", "value" to "-0")
+        }
+        return value
+    }
+
     fun encodeValue(value: Any?): Any? {
         return when (value) {
             null -> null
-            is Boolean, is Number, is String -> value
+            is Boolean, is String -> value
+            is Double -> encodeDoubleScalar(value)
+            is Float -> encodeDoubleScalar(value.toDouble())
+            is Number -> value
             is Timestamp -> mapOf(
                 "__type" to "timestamp",
                 "seconds" to value.seconds,
@@ -63,7 +76,7 @@ object ValueCodec {
             )
             is FieldValue.IncrementSentinel -> mapOf(
                 "__sentinel" to "increment",
-                "n" to value.operand
+                "n" to encodeValue(value.operand)
             )
             is FieldValue.ArrayUnionSentinel -> {
                 SentinelValidator.validateNoArraySentinels(value.elements, "arrayUnion")
