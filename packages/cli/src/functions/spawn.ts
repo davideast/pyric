@@ -115,6 +115,8 @@ export function buildFunctionsChildEnv(options: FunctionsChildEnvOptions): NodeJ
     FIREBASE_CONFIG: syntheticFirebaseConfig,
   };
   delete childEnv.GOOGLE_APPLICATION_CREDENTIALS;
+  delete childEnv.FIREBASE_DEBUG_MODE;
+  delete childEnv.FIREBASE_DEBUG_FEATURES;
 
   return childEnv;
 }

@@ -107,6 +107,27 @@ exports.omittedHttp = onRequest({ omit: true }, (_req, res) => res.send('skip'))
     ]);
   });
 
+  test('recognizes supported onCall exports and reports omitted onCall exports cleanly', async () => {
+    const projectDir = fixtureProject();
+    plantFunctionsSource(
+      projectDir,
+      `const { onValueCreated } = require('firebase-functions/v2/database');
+const { onCall } = require('firebase-functions/v2/https');
+exports.onCreated = onValueCreated('/items/{id}', () => undefined);
+exports.saveItem = onCall(() => ({ ok: true }));
+exports.omittedCall = onCall({ omit: true }, () => ({ ok: false }));
+`,
+    );
+    const discovered = await discoverFunctionsTriggers(projectDir);
+    expect(discovered.triggers.map((t) => t.exportName)).toEqual(['onCreated']);
+    expect(discovered.unsupported).toEqual([
+      {
+        exportName: 'omittedCall',
+        eventType: 'callable (omitted from emulation)',
+      },
+    ]);
+  });
+
   test('resolves pyric.json project without .firebaserc across discovery, listTriggers, fire, and database catalog', async () => {
     const projectDir = fixtureProject();
     const sandbox = initializeSandbox();

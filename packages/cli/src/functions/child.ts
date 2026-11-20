@@ -13,6 +13,7 @@ import {
   serializeError,
   type FunctionsChildMessage,
 } from './child-protocol.js';
+import { callableOnCallFamily, inspectOnCall } from './callable/discovery.js';
 import { startHttpChildServer, type HttpChildServer } from './http/child-server.js';
 import { CHILD_TOKEN_ENV, takeChildToken } from './http/child-token.js';
 import { httpFunctionInfo, httpOnRequestFamily, inspectOnRequest } from './http/discovery.js';
@@ -163,20 +164,31 @@ async function runFunctionsChild(): Promise<void> {
       send,
     });
     await host.ready;
-    const httpFunctions = inspectOnRequest(exported);
+    const httpFunctions = [...inspectOnRequest(exported), ...inspectOnCall(exported)];
     if (httpFunctions.length > 0) {
       if (httpToken === undefined) throw new Error(`Functions child is missing ${CHILD_TOKEN_ENV}`);
       surviveUncaughtErrors();
       httpServer = await startHttpChildServer(entry, httpFunctions, { token: httpToken });
     }
-    send({
-      type: 'ready',
-      triggerCount: host.triggerCount,
-      unsupportedTriggers: findUnsupportedTriggers(exported, [rtdbCreatedFamily, httpOnRequestFamily]),
-      ...(httpServer === undefined
-        ? {}
-        : { http: { port: httpServer.port, functions: httpFunctions.map(httpFunctionInfo) } }),
-    });
+    const unsupportedTriggers = findUnsupportedTriggers(exported, [
+      rtdbCreatedFamily,
+      httpOnRequestFamily,
+      callableOnCallFamily,
+    ]);
+    if (httpServer === undefined) {
+      send({
+        type: 'ready',
+        triggerCount: host.triggerCount,
+        unsupportedTriggers,
+      });
+    } else {
+      send({
+        type: 'ready',
+        triggerCount: host.triggerCount,
+        unsupportedTriggers,
+        http: { port: httpServer.port, functions: httpFunctions.map(httpFunctionInfo) },
+      });
+    }
   } catch (error) {
     await close();
     throw error;

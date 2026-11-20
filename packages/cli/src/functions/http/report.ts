@@ -5,13 +5,36 @@
 import type { FunctionsChildHttpReady, FunctionsChildReady, SerializedFunctionsError } from '../child-protocol.js';
 import type { FunctionsHttpRecord, FunctionsHttpState } from './gateway.js';
 
+function formatFunctionGroup(
+  label: 'onRequest' | 'onCall',
+  functions: readonly FunctionsChildHttpReady['functions'][number][],
+  base: string,
+  projectId: string,
+): string[] {
+  const count = functions.length;
+  let suffix = 's';
+  if (count === 1) suffix = '';
+  const urls = functions.flatMap((fn) =>
+    fn.regions.map((region) => `    ${base}/${projectId}/${region}/${fn.exportName}`),
+  );
+  return [`functions ${count} ${label} function${suffix}:`, ...urls];
+}
+
 /** One URL per served function and region, under the emulator path. */
 export function httpFunctionLines(http: FunctionsChildHttpReady, serveUrl: string, projectId: string): string[] {
   const base = serveUrl.replace(/\/$/, '');
-  const count = http.functions.length;
-  const urls = http.functions.flatMap((fn) =>
-    fn.regions.map((region) => `    ${base}/${projectId}/${region}/${fn.exportName}`));
-  return [`functions ${count} onRequest function${count === 1 ? '' : 's'}:`, ...urls];
+  const onRequestFns = http.functions.filter((fn) => fn.kind !== 'callable');
+  const onCallFns = http.functions.filter((fn) => fn.kind === 'callable');
+  if (onCallFns.length === 0) {
+    return formatFunctionGroup('onRequest', onRequestFns, base, projectId);
+  }
+  if (onRequestFns.length === 0) {
+    return formatFunctionGroup('onCall', onCallFns, base, projectId);
+  }
+  return [
+    ...formatFunctionGroup('onRequest', onRequestFns, base, projectId),
+    ...formatFunctionGroup('onCall', onCallFns, base, projectId),
+  ];
 }
 
 /**
@@ -53,9 +76,17 @@ export const UNRESPONSIVE_LINE =
  * `failed` is true for a 5xx, a timeout, or no complete response.
  */
 export function servedLine(record: FunctionsHttpRecord): { failed: boolean; line: string } {
-  const outcome = record.status === null ? 'no response' : String(record.status);
-  const timedOut = record.timedOut ? ' timed out' : '';
+  let outcome = 'no response';
+  if (record.status !== null) outcome = String(record.status);
+  let timedOut = '';
+  if (record.timedOut) timedOut = ' timed out';
   const failed = record.status === null || record.status >= 500 || record.timedOut;
+  if (record.kind === 'callable') {
+    return {
+      failed,
+      line: `function  ${record.exportName} <- callable ${outcome}${timedOut} (${record.durationMs} ms)`,
+    };
+  }
   // The query string can carry tokens, so the terminal sees the path only.
   const pathOnly = record.path.split(/[?#]/, 1)[0];
   return {
