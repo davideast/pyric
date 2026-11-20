@@ -54,6 +54,8 @@ export interface RemoteWireSnapshot {
 export interface RemoteListenTarget {
   readonly channel: RemoteSandboxChannel;
   readonly instance: string | undefined;
+  /** The identity the subscription carries; admin when absent. */
+  readonly actAs?: { readonly mode: string };
   readonly lifecycle?: AdminServiceLifecycle;
   readonly listeners: AdminListenerTable;
   readonly canonical: string;
@@ -180,7 +182,7 @@ function subscribeRemoteRtdb(
   let delivering = 0;
   let detached = false;
   const rawDetach = target.channel.subscribe(
-    { target: subTarget, actAs: REMOTE_ADMIN_LENS },
+    { target: subTarget, actAs: target.actAs ?? REMOTE_ADMIN_LENS },
     (value) => {
       delivering += 1;
       try {

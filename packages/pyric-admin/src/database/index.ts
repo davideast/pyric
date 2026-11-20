@@ -27,6 +27,7 @@ import {
   originOfDatabaseUrl,
   type DatabaseUrlMetadata,
 } from './database-shell.js';
+import { databaseAuthLensOf } from './auth-override.js';
 import { FirebaseDatabaseError } from './error.js';
 import { getLocalDatabase } from './local-database.js';
 import { getRemoteDatabase } from './remote-database.js';
@@ -177,8 +178,10 @@ function buildSandboxDatabase(
   instance: DatabaseInstance | undefined,
   urlMeta: DatabaseUrlMetadata,
 ): Database {
+  // `databaseAuthVariableOverride` downscopes every operation to the rules (#3000).
+  const lens = databaseAuthLensOf(app.options.databaseAuthVariableOverride);
   if (isRemoteSandbox(sandbox)) {
-    return getRemoteDatabase(app, sandbox, cacheKey, instance, urlMeta);
+    return getRemoteDatabase(app, sandbox, cacheKey, instance, urlMeta, lens);
   }
-  return getLocalDatabase(app, sandbox, cacheKey, instance, urlMeta);
+  return getLocalDatabase(app, sandbox, cacheKey, instance, urlMeta, lens);
 }
