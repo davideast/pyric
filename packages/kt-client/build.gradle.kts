@@ -2,6 +2,9 @@ plugins {
     kotlin("jvm") version "2.1.20"
 }
 
+group = "dev.pyric"
+version = "0.1.0"
+
 repositories {
     google()
     mavenCentral()
