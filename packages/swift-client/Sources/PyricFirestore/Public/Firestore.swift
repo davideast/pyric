@@ -331,7 +331,13 @@ public class Firestore: @unchecked Sendable {
                     // runs off the cooperative pool the read's reply needs.
                     try await UpdateBlockThread.run {
                         var err: NSError?
+                        #if canImport(ObjectiveC)
                         let res = updateBlock(txn, &err)
+                        #else
+                        let res = withUnsafeMutablePointer(to: &err) { ptr in
+                            updateBlock(txn, ptr)
+                        }
+                        #endif
                         if let err {
                             throw err
                         }

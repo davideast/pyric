@@ -190,15 +190,16 @@ public final class POSIXWebSocketTransport: WebSocketTransport, @unchecked Senda
         let sockType = Int32(Glibc.SOCK_STREAM.rawValue)
         let sockFd = Glibc.socket(Glibc.AF_INET, sockType, 0)
         guard sockFd >= 0 else {
-            throw PyricBridgeError.unavailable("Failed to allocate POSIX socket (errno \(errno)).")
+            throw PyricBridgeError.unavailable("Failed to allocate POSIX socket (errno \(currentErrno())).")
         }
 
         do {
             var nodelay: Int32 = 1
+            let tcpNoDelayOption: Int32 = 1
             _ = Glibc.setsockopt(
                 sockFd,
                 Int32(Glibc.IPPROTO_TCP),
-                Int32(Glibc.TCP_NODELAY),
+                tcpNoDelayOption,
                 &nodelay,
                 socklen_t(MemoryLayout<Int32>.size)
             )
@@ -231,7 +232,7 @@ public final class POSIXWebSocketTransport: WebSocketTransport, @unchecked Senda
                 }
             }
             guard rc == 0 else {
-                throw PyricBridgeError.unavailable("Failed to connect to \(resolvedHost):\(port) (errno \(errno)).")
+                throw PyricBridgeError.unavailable("Failed to connect to \(resolvedHost):\(port) (errno \(currentErrno())).")
             }
             return
         }
@@ -254,7 +255,7 @@ public final class POSIXWebSocketTransport: WebSocketTransport, @unchecked Senda
         }
         let rc = Glibc.connect(fd, aiAddr, firstInfo.pointee.ai_addrlen)
         guard rc == 0 else {
-            throw PyricBridgeError.unavailable("Failed to connect to \(resolvedHost):\(port) (errno \(errno)).")
+            throw PyricBridgeError.unavailable("Failed to connect to \(resolvedHost):\(port) (errno \(currentErrno())).")
         }
     }
 
@@ -267,7 +268,7 @@ public final class POSIXWebSocketTransport: WebSocketTransport, @unchecked Senda
                 guard let base = rawBuf.baseAddress else { return -1 }
                 while true {
                     let n = Glibc.recv(fd, base, chunk.count, 0)
-                    if n < 0 && errno == Glibc.EINTR { continue }
+                    if n < 0 && self.currentErrno() == Glibc.EINTR { continue }
                     return n
                 }
             }
@@ -299,7 +300,7 @@ public final class POSIXWebSocketTransport: WebSocketTransport, @unchecked Senda
                     guard let base = rawBuf.baseAddress else { return -1 }
                     while true {
                         let n = Glibc.recv(fd, base, chunk.count, 0)
-                        if n < 0 && errno == Glibc.EINTR { continue }
+                        if n < 0 && self.currentErrno() == Glibc.EINTR { continue }
                         return n
                     }
                 }
@@ -383,8 +384,8 @@ public final class POSIXWebSocketTransport: WebSocketTransport, @unchecked Senda
                     Int32(Glibc.MSG_NOSIGNAL)
                 )
                 if sent < 0 {
-                    if errno == Glibc.EINTR { continue }
-                    throw PyricBridgeError.unavailable("WebSocket socket write failed (errno \(errno)).")
+                    if self.currentErrno() == Glibc.EINTR { continue }
+                    throw PyricBridgeError.unavailable("WebSocket socket write failed (errno \(self.currentErrno())).")
                 }
                 if sent == 0 {
                     throw PyricBridgeError.unavailable("WebSocket socket closed during write.")
@@ -392,6 +393,10 @@ public final class POSIXWebSocketTransport: WebSocketTransport, @unchecked Senda
                 offset += sent
             }
         }
+    }
+
+    private func currentErrno() -> Int32 {
+        Glibc.__errno_location().pointee
     }
 }
 #endif
