@@ -112,7 +112,6 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
         if let explicitClient = bridgeClient {
             self._bridgeClient = explicitClient
             self.usesSharedAppBridge = false
-            app.adoptBridgeClientIfUnset(explicitClient)
         } else {
             self._bridgeClient = app.sharedBridgeClient()
             self.usesSharedAppBridge = true
@@ -470,14 +469,18 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
 
     private func enrichUserClaimsIfLive(_ user: User) async {
         let client = bridgeClient
-        guard !client.hasInjectedChannel, user.claims.isEmpty else {
+        guard !client.hasInjectedChannel, user.claims["firebase"] == nil else {
             return
         }
         if let tokenWire = try? await client.authGetIdTokenResult(forcingRefresh: false),
            let tokenDict = tokenWire.dictionaryValue {
             let parsed = AuthTokenResult.fromWire(tokenDict)
             if !parsed.claims.isEmpty {
-                user.replaceClaims(parsed.claims)
+                var merged = user.claims
+                for (key, value) in parsed.claims {
+                    merged[key] = value
+                }
+                user.replaceClaims(merged)
             }
         }
     }

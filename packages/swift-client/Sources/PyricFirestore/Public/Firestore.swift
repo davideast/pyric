@@ -77,9 +77,12 @@ public class Firestore: @unchecked Sendable {
 
     public var credentialProvider: (any AuthCredentialProvider)? {
         get {
-            instanceLock.lock()
-            defer { instanceLock.unlock() }
-            if let explicit = _credentialProvider {
+            let explicit: (any AuthCredentialProvider)? = {
+                instanceLock.lock()
+                defer { instanceLock.unlock() }
+                return _credentialProvider
+            }()
+            if let explicit {
                 return explicit
             }
             return AuthCredentialProviderRegistry.resolve(app: app)
@@ -118,7 +121,7 @@ public class Firestore: @unchecked Sendable {
         let id = UUID()
         instanceLock.lock()
         rulesDenialListeners[id] = listener
-        startDenialObservationIfNeeded()
+        startDenialObservationIfNeededLocked()
         instanceLock.unlock()
 
         return SimpleListenerRegistration { [weak self] in
@@ -139,9 +142,10 @@ public class Firestore: @unchecked Sendable {
         return Array(rulesDenialListeners.values)
     }
 
-    private func startDenialObservationIfNeeded() {
+    /// Starts observing `_bridgeClient.denialStream`. Caller must hold `instanceLock`.
+    private func startDenialObservationIfNeededLocked() {
         guard denialObservationTask == nil else { return }
-        let stream = bridgeClient.denialStream
+        let stream = _bridgeClient.denialStream
         denialObservationTask = Task { [weak self] in
             for await error in stream {
                 guard !Task.isCancelled, let self else { break }
@@ -168,7 +172,6 @@ public class Firestore: @unchecked Sendable {
         self.settings = FirestoreSettings()
         self._bridgeClient = bridgeClient
         self.usesSharedAppBridge = false
-        app.adoptBridgeClientIfUnset(bridgeClient)
     }
 
     public init(app: FirebaseApp = FirebaseApp.app(), database: String = "(default)") {
@@ -189,7 +192,7 @@ public class Firestore: @unchecked Sendable {
         denialObservationTask?.cancel()
         denialObservationTask = nil
         if !rulesDenialListeners.isEmpty {
-            startDenialObservationIfNeeded()
+            startDenialObservationIfNeededLocked()
         }
         instanceLock.unlock()
     }

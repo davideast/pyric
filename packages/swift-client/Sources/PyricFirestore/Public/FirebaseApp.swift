@@ -127,15 +127,6 @@ public final class FirebaseApp: @unchecked Sendable, Equatable {
         return created
     }
 
-    package func adoptBridgeClientIfUnset(_ client: PyricBridgeClient) {
-        bridgeLock.lock()
-        defer { bridgeLock.unlock() }
-        if _sharedBridgeClient == nil {
-            _sharedBridgeClient = client
-            _sharedBridgeSpec = nil
-        }
-    }
-
     @discardableResult
     public func useEmulator(withHost host: String, port: Int, sslEnabled: Bool = false) -> PyricBridgeClient {
         let resolved = FirebaseBridgeEndpointResolver.emulatorEndpoint(

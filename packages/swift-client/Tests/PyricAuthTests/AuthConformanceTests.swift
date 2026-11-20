@@ -61,6 +61,8 @@ struct AuthConformanceTests {
         let app = FirebaseApp(name: "emulator-test-\(UUID().uuidString)")
         let auth = Auth.auth(app: app)
         let firestore = Firestore.firestore(app: app)
+        let registration = firestore.addRulesDenialListener { _ in }
+        defer { registration.remove() }
         auth.useEmulator(withHost: "127.0.0.1", port: 9099)
         let endpoint = await auth.bridgeClient.endpoint
         let firestoreEndpoint = await firestore.bridgeClient.endpoint
