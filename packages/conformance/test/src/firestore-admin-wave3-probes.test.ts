@@ -47,7 +47,7 @@ describe('Firestore Admin Wave 3 vector/query/discovery and snapshot/reference m
 
     expect(snapshotMetaProbe.rig).toBe('sdk-probes');
     expect(snapshotMetaProbe.pendingRowLink).toBeUndefined();
-    expect(snapshotMetaProbe.rowIds).toEqual(['firestore-admin#11']);
+    expect(snapshotMetaProbe.rowIds).toEqual(['firestore-admin#11', 'firestore#RS3']);
     expect(snapshotMetaProbe.description.length).toBeGreaterThan(20);
 
     const unfilteredIds = new Set(
