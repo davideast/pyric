@@ -3,10 +3,11 @@
  * `pyric/database` `RtdbBackend` per `(Sandbox, DatabaseInstance)`.
  */
 
-import type { Sandbox } from 'pyric/sandbox';
+import type { AuthState, Sandbox } from 'pyric/sandbox';
 import type { DatabaseInstance } from 'pyric/sandbox/internal';
 import {
   getAdminDatabase,
+  getDatabase as getModularDatabase,
   TARGET_SYMBOL,
   type Database as ModularDatabase,
 } from 'pyric/database';
@@ -30,6 +31,7 @@ import {
   localDatabaseRulesControls,
   type LocalRulesBackend,
 } from './admin-rules.js';
+import { authStateOfLens, type DatabaseAuthLens } from './auth-override.js';
 import {
   AdminPathCache,
   runLocalAdminTransaction,
@@ -79,6 +81,29 @@ import {
   type ThenableReference,
 } from './types.js';
 
+interface ClientRtdbBackend {
+  get(auth: AuthState, path: string): JsonValue;
+  getQuery(auth: AuthState, path: string, spec: QuerySpec): QueryReadResult;
+  set(auth: AuthState, path: string, value: JsonValue): void;
+  setWithPriority(auth: AuthState, path: string, value: JsonValue, priority: Priority): void;
+  setPriority(auth: AuthState, path: string, priority: Priority): void;
+  update(auth: AuthState, path: string, patch: Record<string, JsonValue>): void;
+  remove(auth: AuthState, path: string): void;
+  onValue(
+    auth: AuthState,
+    path: string,
+    cb: Parameters<LocalListenBackend['adminOnValue']>[1],
+    query?: QuerySpec,
+  ): () => void;
+  onChild(
+    auth: AuthState,
+    event: Parameters<LocalListenBackend['adminOnChild']>[0],
+    path: string,
+    cb: Parameters<LocalListenBackend['adminOnChild']>[2],
+    spec?: QuerySpec,
+  ): () => void;
+}
+
 interface SharedRtdbBackend extends LocalListenBackend, LocalRulesBackend {
   adminGetQuery(path: string, spec: QuerySpec): QueryReadResult;
   adminSet(path: string, value: JsonValue): void;
@@ -93,6 +118,8 @@ interface SharedRtdbBackend extends LocalListenBackend, LocalRulesBackend {
 interface LocalInstance {
   adminDb?: ModularDatabase;
   backend?: SharedRtdbBackend;
+  /** The unscoped backend, for `getRules`/`setRules`, which stay admin operations. */
+  rulesBackend?: SharedRtdbBackend;
   readonly cache: AdminPathCache;
   readonly lifecycle: AdminServiceLifecycle;
   readonly listeners: AdminListenerTable;
@@ -118,16 +145,51 @@ function registerBackendForReset(sandbox: Sandbox, backend: SharedRtdbBackend): 
   tracked.add(backend);
 }
 
+function backendOf(db: ModularDatabase): SharedRtdbBackend & ClientRtdbBackend {
+  return (db as unknown as {
+    [TARGET_SYMBOL]: { backend: SharedRtdbBackend & ClientRtdbBackend };
+  })[TARGET_SYMBOL].backend;
+}
+
+/**
+ * The shared backend seen through `auth`: the admin methods this arm calls run
+ * the client methods instead, so the rules judge every read and write as they
+ * judge a client signed in as `auth` (`databaseAuthVariableOverride`).
+ */
+function rulesScopedBackend(backend: SharedRtdbBackend & ClientRtdbBackend, auth: AuthState): SharedRtdbBackend {
+  return {
+    adminGet: (path) => backend.get(auth, path),
+    adminGetQuery: (path, spec) => backend.getQuery(auth, path, spec),
+    adminSet: (path, value) => backend.set(auth, path, value),
+    adminSetWithPriority: (path, value, priority) => backend.setWithPriority(auth, path, value, priority),
+    adminSetPriority: (path, priority) => backend.setPriority(auth, path, priority),
+    adminUpdate: (path, patch) => backend.update(auth, path, patch),
+    adminRemove: (path) => backend.remove(auth, path),
+    adminOnValue: (path, cb, query) => backend.onValue(auth, path, cb, query),
+    adminOnChild: (event, path, cb, spec) => backend.onChild(auth, event, path, cb, spec),
+    mintKey: () => backend.mintKey(),
+    resetTree: (preserveRules) => backend.resetTree(preserveRules),
+    getActiveRules: () => backend.getActiveRules(),
+    setRules: (rules) => backend.setRules(rules),
+  };
+}
+
 function resolveSharedHandle(
   sandbox: Sandbox,
   instance: DatabaseInstance | undefined,
-): { adminDb: ModularDatabase; backend: SharedRtdbBackend } {
+  lens: DatabaseAuthLens,
+): { adminDb: ModularDatabase; backend: SharedRtdbBackend; rulesBackend: SharedRtdbBackend } {
   const adminDb = getAdminDatabase(sandbox, instance?.url);
-  const { backend } = (adminDb as unknown as {
-    [TARGET_SYMBOL]: { backend: SharedRtdbBackend };
-  })[TARGET_SYMBOL];
+  const backend = backendOf(adminDb);
   registerBackendForReset(sandbox, backend);
-  return { adminDb, backend };
+  if (lens.mode === 'admin') {
+    return { adminDb, backend, rulesBackend: backend };
+  }
+  // Downscoped: a client database signed in as the override, on the same tree.
+  // Its transactions and onDisconnect writes run through the rules too.
+  const auth = authStateOfLens(lens);
+  const clientDb = getModularDatabase(sandbox.withAuth(auth), instance?.url);
+  return { adminDb: clientDb, backend: rulesScopedBackend(backendOf(clientDb), auth), rulesBackend: backend };
 }
 
 function localInstances(app: PyricAdminApp): Map<string, LocalInstance> {
@@ -159,6 +221,7 @@ export function getLocalDatabase(
   cacheKey: string,
   instance: DatabaseInstance | undefined,
   urlMeta: DatabaseUrlMetadata,
+  lens: DatabaseAuthLens,
 ): Database {
   const instances = localInstances(app);
   let entry = instances.get(cacheKey);
@@ -177,10 +240,11 @@ export function getLocalDatabase(
     };
     instances.set(cacheKey, entry);
   }
-  if (entry.backend === undefined || entry.adminDb === undefined) {
-    const resolved = resolveSharedHandle(sandbox, instance);
+  if (entry.backend === undefined || entry.adminDb === undefined || entry.rulesBackend === undefined) {
+    const resolved = resolveSharedHandle(sandbox, instance, lens);
     entry.adminDb = resolved.adminDb;
     entry.backend = resolved.backend;
+    entry.rulesBackend = resolved.rulesBackend;
   }
   const instanceState = entry as Required<LocalInstance>;
   return buildDatabaseShell(
@@ -189,7 +253,7 @@ export function getLocalDatabase(
     (handle, path, meta) => buildSandboxRef(instanceState, handle, path, meta),
     localDatabaseConnectionControls(instanceState.adminDb),
     instanceState.lifecycle,
-    localDatabaseRulesControls(instanceState.backend, instanceState.lifecycle),
+    localDatabaseRulesControls(instanceState.rulesBackend, instanceState.lifecycle),
   );
 }
 

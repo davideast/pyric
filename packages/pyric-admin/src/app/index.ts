@@ -36,11 +36,13 @@ export interface SandboxAdminApp {
   readonly options: AdminAppOptions;
 }
 
-/** The app options the sandbox reads: `databaseURL` selects the app's RTDB instance, `projectId` names its default instance, and `storageBucket` names its default Storage bucket. */
+/** The app options the sandbox reads: `databaseURL` selects the app's RTDB instance, `projectId` names its default instance, `storageBucket` names its default Storage bucket, and `databaseAuthVariableOverride` downscopes its RTDB access to the rules (`pyric-admin/database`). */
 export interface AdminAppOptions {
   readonly databaseURL?: string;
   readonly storageBucket?: string;
   readonly projectId?: string;
+  /** As firebase-admin keeps it: `null` acts as an unauthenticated client, an object as that `auth`; left out, the app has admin access. */
+  readonly databaseAuthVariableOverride?: object | null;
 }
 
 export type PyricAdminApp = SandboxAdminApp;
@@ -289,14 +291,18 @@ export function isSandboxAdminApp(app: PyricAdminApp): app is SandboxAdminApp {
   return app[ADMIN_APP_TARGET] === 'sandbox';
 }
 
-/** The `databaseURL`, `projectId` and `storageBucket` string options of an initialization config. */
+/** The `databaseURL`, `projectId` and `storageBucket` string options of an initialization config, and its `databaseAuthVariableOverride`. */
 function appOptionsFrom(config: object | undefined): AdminAppOptions {
   if (config === undefined) return {};
-  const { databaseURL, projectId, storageBucket } = config as Record<string, unknown>;
+  const { databaseURL, projectId, storageBucket, databaseAuthVariableOverride } = config as Record<string, unknown>;
   return {
     ...(typeof databaseURL === 'string' ? { databaseURL } : {}),
     ...(typeof storageBucket === 'string' && storageBucket !== '' ? { storageBucket } : {}),
     ...(typeof projectId === 'string' ? { projectId } : {}),
+    // Kept as given, as firebase-admin keeps it; the database validates it on first use.
+    ...(databaseAuthVariableOverride !== undefined
+      ? { databaseAuthVariableOverride: databaseAuthVariableOverride as object | null }
+      : {}),
   };
 }
 

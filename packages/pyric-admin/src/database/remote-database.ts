@@ -1,6 +1,7 @@
 /**
  * Remote worker-relay arm for `pyric-admin/database` (`connectRemoteSandbox()`),
- * pinning `actAs: { mode: 'admin' }` on every operation and subscription.
+ * pinning the app's lens on every operation and subscription: `actAs: { mode:
+ * 'admin' }`, or the identity its `databaseAuthVariableOverride` names.
  */
 
 import type {
@@ -23,6 +24,7 @@ import {
   type AdminServiceLifecycle,
 } from '../app/lifecycle.js';
 import { remoteDatabaseRulesControls } from './admin-rules.js';
+import type { DatabaseAuthLens } from './auth-override.js';
 import {
   AdminPathCache,
   runRemoteAdminTransaction,
@@ -74,10 +76,11 @@ import {
   type ThenableReference,
 } from './types.js';
 
-const REMOTE_ADMIN_LENS = { mode: 'admin' } as const;
 
 interface RemoteDbState {
   channel: RemoteSandboxChannel;
+  /** The identity every operation and subscription carries. */
+  lens: DatabaseAuthLens;
   instance: string | undefined;
   cache: AdminPathCache;
   lifecycle: AdminServiceLifecycle;
@@ -111,12 +114,14 @@ export function getRemoteDatabase(
   cacheKey: string,
   instance: DatabaseInstance | undefined,
   urlMeta: DatabaseUrlMetadata,
+  lens: DatabaseAuthLens,
 ): Database {
   const states = remoteStatesForApp(app);
   let state = states.get(cacheKey);
   if (state === undefined) {
     state = {
       channel: sandbox.channel,
+      lens,
       instance: instance?.name,
       cache: new AdminPathCache(),
       lifecycle: createAdminServiceLifecycle(app),
@@ -147,7 +152,7 @@ function normalizeRelayedError(error: unknown): never {
 
 function relayRtdbOp(state: RemoteDbState, op: RemoteRtdbOp): Promise<unknown> {
   const dispatch = (): Promise<unknown> =>
-    state.channel.op({ ...op, instance: state.instance, actAs: REMOTE_ADMIN_LENS });
+    state.channel.op({ ...op, instance: state.instance, actAs: state.lens });
   if (state.connection.channelBarrier.pending > 0) {
     return state.connection.channelBarrier.barrier.then(dispatch).catch(normalizeRelayedError);
   }
@@ -174,6 +179,7 @@ function buildRemoteRef(
   const listenTarget: RemoteListenTarget = {
     channel: state.channel,
     instance: state.instance,
+    actAs: state.lens,
     lifecycle: state.lifecycle,
     listeners: state.listeners,
     canonical,

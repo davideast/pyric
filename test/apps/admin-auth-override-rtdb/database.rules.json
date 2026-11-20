@@ -1,0 +1,14 @@
+{
+  "rules": {
+    "notes": {
+      "$uid": {
+        ".read": "auth != null && auth.uid == $uid",
+        ".write": "auth != null && auth.uid == $uid && auth.token.writer == true"
+      }
+    },
+    "public": {
+      ".read": true,
+      ".write": "auth == null"
+    }
+  }
+}
