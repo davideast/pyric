@@ -374,44 +374,53 @@ describe('Firestore Query construction linked probes (sdk-probes)', () => {
     expect((skipErr as Error).message).toContain('Skipped Firestore not-in probe');
   });
 
-  it('bounds and terminates the real Node firebase/firestore subprocess cleanly when a stream stalls', async () => {
-    const sockets = new Set<net.Socket>();
-    const blackhole = net.createServer((sock) => {
-      sockets.add(sock);
-    });
-    await new Promise<void>((resolve) => {
-      blackhole.listen(0, '127.0.0.1', () => resolve());
-    });
-    const addr = blackhole.address();
-    let port = 0;
-    if (addr && typeof addr === 'object') {
-      port = addr.port;
-    }
-
-    let caught: unknown = null;
-    try {
-      await runNodeFirestoreNotInSubprocess({
-        webConfig: { projectId: 'demo-blackhole', apiKey: 'demo-key' },
-        collectionPath: 'pyric_oracle/fs_bh_1/items',
-        field: 'val',
-        values: [10],
-        timeoutMs: 80,
-        emulatorHost: { host: '127.0.0.1', port },
+  // runNodeFirestoreNotInSubprocess enforces a timeoutMs + 12s hard-kill bound;
+  // keep the test budget above that bound so cold Node/ESM startup under CI load
+  // cannot trip bun test's 5s default before the subprocess or its hard-kill settles.
+  it(
+    'bounds and terminates the real Node firebase/firestore subprocess cleanly when a stream stalls',
+    async () => {
+      const sockets = new Set<net.Socket>();
+      const blackhole = net.createServer((sock) => {
+        sockets.add(sock);
+        sock.on('error', () => undefined);
+        sock.on('close', () => sockets.delete(sock));
       });
-    } catch (err) {
-      caught = err;
-    } finally {
-      for (const sock of sockets) {
-        sock.destroy();
-      }
       await new Promise<void>((resolve) => {
-        blackhole.close(() => resolve());
+        blackhole.listen(0, '127.0.0.1', () => resolve());
       });
-    }
+      const addr = blackhole.address();
+      let port = 0;
+      if (addr && typeof addr === 'object') {
+        port = addr.port;
+      }
 
-    expect(caught).toBeInstanceOf(FirestoreQueryTimeoutError);
-    expect((caught as Error).message).toMatch(/node (firebase\/firestore|subprocess hard-timeout)/);
-  });
+      let caught: unknown = null;
+      try {
+        await runNodeFirestoreNotInSubprocess({
+          webConfig: { projectId: 'demo-blackhole', apiKey: 'demo-key' },
+          collectionPath: 'pyric_oracle/fs_bh_1/items',
+          field: 'val',
+          values: [10],
+          timeoutMs: 80,
+          emulatorHost: { host: '127.0.0.1', port },
+        });
+      } catch (err) {
+        caught = err;
+      } finally {
+        for (const sock of sockets) {
+          sock.destroy();
+        }
+        await new Promise<void>((resolve) => {
+          blackhole.close(() => resolve());
+        });
+      }
+
+      expect(caught).toBeInstanceOf(FirestoreQueryTimeoutError);
+      expect((caught as Error).message).toMatch(/node (firebase\/firestore|subprocess hard-timeout)/);
+    },
+    30_000,
+  );
 
   it('observes upstream firebase/firestore client behavior for non-filter composites, zero-arg composites, and limit bounds', async () => {
     const nonFilter = await probeClientNonFilterCompositeRejection();

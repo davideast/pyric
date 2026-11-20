@@ -37,6 +37,7 @@ const CONFORMANCE_PACKAGE_ROOT = join(HERE, '..');
 const FIRESTORE_DATASTORE_SCOPE = 'https://www.googleapis.com/auth/datastore';
 const DEFAULT_NODE_QUERY_TIMEOUT_MS = 12_000;
 const DEFAULT_REST_QUERY_TIMEOUT_MS = 15_000;
+const NODE_SUBPROCESS_HARD_TIMEOUT_MARGIN_MS = 12_000;
 
 interface FirestoreNodeFieldQueryParams {
   webConfig: FirebaseOptions;
@@ -51,7 +52,6 @@ interface FirestoreNodeFieldQueryParams {
 
 const NODE_FIELD_QUERY_WORKER_SOURCE = `
 import { deleteApp, initializeApp } from 'firebase/app';
-import { deleteUser, getAuth, signInAnonymously } from 'firebase/auth';
 import {
   collection,
   connectFirestoreEmulator,
@@ -68,12 +68,30 @@ const appName = 'node-fs-q-' + Date.now().toString(36) + '-' + Math.random().toS
 const app = initializeApp(payload.webConfig, appName);
 const db = getFirestore(app);
 let auth = null;
+let authModule = null;
 
-if (payload.emulatorHost) {
-  connectFirestoreEmulator(db, payload.emulatorHost.host, payload.emulatorHost.port);
-} else {
-  auth = getAuth(app);
-}
+const writeLine = (record) =>
+  new Promise((resolve) => {
+    process.stdout.write(JSON.stringify(record) + '\\n', () => resolve());
+  });
+
+const withBudget = (fn, ms) =>
+  new Promise((resolve) => {
+    const cleanupTimer = setTimeout(resolve, ms);
+    cleanupTimer.unref?.();
+    Promise.resolve()
+      .then(fn)
+      .then(
+        () => {
+          clearTimeout(cleanupTimer);
+          resolve();
+        },
+        () => {
+          clearTimeout(cleanupTimer);
+          resolve();
+        },
+      );
+  });
 
 const filterOp = payload.op ?? 'not-in';
 let filterValue = payload.values;
@@ -85,9 +103,17 @@ let timer = undefined;
 const timeoutSentinel = Symbol('timeout');
 
 try {
-  if (auth !== null) {
+  if (payload.emulatorHost) {
+    connectFirestoreEmulator(db, payload.emulatorHost.host, payload.emulatorHost.port);
+  } else {
+    authModule = await import('firebase/auth');
+    auth = authModule.getAuth(app);
+  }
+
+  let authTimedOut = false;
+  if (auth !== null && authModule !== null) {
     await Promise.race([
-      signInAnonymously(auth),
+      authModule.signInAnonymously(auth),
       new Promise((resolve) => {
         timer = setTimeout(() => resolve(timeoutSentinel), payload.timeoutMs);
       }),
@@ -97,36 +123,36 @@ try {
       timer = undefined;
     }
     if (auth.currentUser === null) {
-      process.stdout.write(JSON.stringify({ status: 'timeout', stage: 'auth' }) + '\\n');
-      process.exit(0);
+      authTimedOut = true;
+      await writeLine({ status: 'timeout', stage: 'auth' });
     }
   }
 
-  const target = query(
-    collection(db, payload.collectionPath),
-    where(payload.field, filterOp, filterValue),
-  );
-  const raced = await Promise.race([
-    getDocs(target).then(
-      (snap) => ({
-        kind: 'resolved',
-        ids: snap.docs.map((docSnap) => docSnap.id),
+  if (!authTimedOut) {
+    const target = query(
+      collection(db, payload.collectionPath),
+      where(payload.field, filterOp, filterValue),
+    );
+    const raced = await Promise.race([
+      getDocs(target).then(
+        (snap) => ({
+          kind: 'resolved',
+          ids: snap.docs.map((docSnap) => docSnap.id),
+        }),
+        (err) => ({
+          kind: 'rejected',
+          err,
+        }),
+      ),
+      new Promise((resolve) => {
+        timer = setTimeout(() => resolve({ kind: 'timeout' }), payload.timeoutMs);
       }),
-      (err) => ({
-        kind: 'rejected',
-        err,
-      }),
-    ),
-    new Promise((resolve) => {
-      timer = setTimeout(() => resolve({ kind: 'timeout' }), payload.timeoutMs);
-    }),
-  ]);
+    ]);
 
-  if (raced.kind === 'timeout') {
-    process.stdout.write(JSON.stringify({ status: 'timeout', stage: 'query' }) + '\\n');
-  } else if (raced.kind === 'resolved') {
-    process.stdout.write(
-      JSON.stringify({
+    if (raced.kind === 'timeout') {
+      await writeLine({ status: 'timeout', stage: 'query' });
+    } else if (raced.kind === 'resolved') {
+      await writeLine({
         status: 'settled',
         outcome: {
           threw: false,
@@ -134,24 +160,22 @@ try {
           code: null,
           errorName: null,
         },
-      }) + '\\n',
-    );
-  } else {
-    const errObj = raced.err || {};
-    let errorName = null;
-    if (typeof errObj.name === 'string') {
-      errorName = errObj.name;
-    }
-    let code = null;
-    if (typeof errObj.code === 'string') {
-      code = errObj.code;
-    }
-    let message = String(raced.err);
-    if (raced.err instanceof Error) {
-      message = raced.err.message;
-    }
-    process.stdout.write(
-      JSON.stringify({
+      });
+    } else {
+      const errObj = raced.err || {};
+      let errorName = null;
+      if (typeof errObj.name === 'string') {
+        errorName = errObj.name;
+      }
+      let code = null;
+      if (typeof errObj.code === 'string') {
+        code = errObj.code;
+      }
+      let message = String(raced.err);
+      if (raced.err instanceof Error) {
+        message = raced.err.message;
+      }
+      await writeLine({
         status: 'settled',
         outcome: {
           threw: true,
@@ -160,18 +184,18 @@ try {
           errorName,
           message,
         },
-      }) + '\\n',
-    );
+      });
+    }
   }
 } finally {
   if (timer !== undefined) {
     clearTimeout(timer);
   }
-  if (auth !== null && auth.currentUser !== null) {
-    await deleteUser(auth.currentUser).catch(() => undefined);
+  if (auth !== null && authModule !== null && auth.currentUser !== null) {
+    await withBudget(() => authModule.deleteUser(auth.currentUser), 2000);
   }
-  await terminate(db).catch(() => undefined);
-  await deleteApp(app).catch(() => undefined);
+  await withBudget(() => terminate(db), 1000);
+  await withBudget(() => deleteApp(app), 1000);
 }
 process.exit(0);
 `;
@@ -179,7 +203,7 @@ process.exit(0);
 export async function runNodeFirestoreNotInSubprocess(
   params: FirestoreNodeFieldQueryParams,
 ): Promise<FirestoreIdQueryOutcome> {
-  const hardKillMs = params.timeoutMs + 12_000;
+  const hardKillMs = params.timeoutMs + NODE_SUBPROCESS_HARD_TIMEOUT_MARGIN_MS;
   const stdout = await new Promise<string>((resolve, reject) => {
     execFile(
       'node',
