@@ -30,7 +30,8 @@
   "conformanceSuite": "packages/pyric/test/app/oracle-conformance.test.ts",
   "captureRigs": [
     "app-registry",
-    "app-production"
+    "app-production",
+    "sdk-probes"
   ],
   "registry": "app",
   "dispositions": [
