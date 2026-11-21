@@ -31,6 +31,7 @@ const FLUTTER_CLIENT_DIR = join(REPO_ROOT, 'packages/flutter-client');
 const PROJECT_ID = 'demo-flutter-storage-live';
 const DEFAULT_STORAGE_BUCKET = `${PROJECT_ID}.appspot.com`;
 const CUSTOM_STORAGE_BUCKET = 'flutter-custom-media';
+const SECONDARY_STORAGE_BUCKET = 'demo-flutter-secondary.appspot.com';
 
 const DEFAULT_BUCKET_RULES = `rules_version = '2';
 service firebase.storage {
@@ -279,6 +280,7 @@ async function startLiveFlutterStorageHost() {
     storageBucketRules: {
       [DEFAULT_STORAGE_BUCKET]: { rules: DEFAULT_BUCKET_RULES, rulesHash: 'd' },
       [CUSTOM_STORAGE_BUCKET]: { rules: CUSTOM_BUCKET_RULES, rulesHash: 'c' },
+      [SECONDARY_STORAGE_BUCKET]: { rules: DEFAULT_BUCKET_RULES, rulesHash: 's' },
     },
     bridgeUrl: null,
     seed: null,
