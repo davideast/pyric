@@ -5,5 +5,6 @@ export default row({
   api: 'GetTokenResult',
   behavior: 'Encapsulates token string, custom claims, expirationTimestamp, authTimestamp, and issuedAtTimestamp.',
   featureKeys: ['getTokenResult'],
-  flipped: 'live-host',
+  flipped: 'oracle-backed',
+  oracleObservations: ['auth-kotlin-anonymous-and-custom-token-session'],
 });

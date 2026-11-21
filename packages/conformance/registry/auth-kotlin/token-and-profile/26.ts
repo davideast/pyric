@@ -5,5 +5,6 @@ export default row({
   api: 'FirebaseUser.getIdTokenResult(forceRefresh)',
   behavior: 'Retrieves GetTokenResult with parsed JWT token string, claims map, expiration, and provider info.',
   featureKeys: ['getIdTokenResult'],
-  flipped: 'live-host',
+  flipped: 'oracle-backed',
+  oracleObservations: ['auth-kotlin-anonymous-and-custom-token-session'],
 });

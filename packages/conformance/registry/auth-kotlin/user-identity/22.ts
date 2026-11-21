@@ -5,5 +5,6 @@ export default row({
   api: 'FirebaseUser.providerId',
   behavior: 'Returns the primary provider identifier ("firebase").',
   featureKeys: ['providerId'],
-  flipped: 'live-host',
+  flipped: 'oracle-backed',
+  oracleObservations: ['auth-kotlin-anonymous-and-custom-token-session'],
 });

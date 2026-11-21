@@ -9,7 +9,7 @@
  * so the git working tree remains clean for `oracle-observation-diff.ts`.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -49,7 +49,7 @@ export interface AndroidOracleProbeConfigPayload {
   projectId: string;
   applicationId: string;
   apiKey: string;
-  customToken: string;
+  customToken?: string;
   databaseUrl?: string;
   outputPath: string;
   cleanupUidsPath: string;
@@ -89,6 +89,7 @@ interface AndroidProbeRuntimeDeps {
 interface RunAndroidRobolectricProbeOptions {
   probeId: string;
   needsDedicatedRtdb?: boolean;
+  needsCustomToken?: boolean;
   deps?: AndroidProbeRuntimeDeps;
 }
 
@@ -133,6 +134,52 @@ function findGradleJavaHome(env: NodeJS.ProcessEnv = process.env): string | unde
   return undefined;
 }
 
+function decodeXmlEntities(raw: string): string {
+  return raw
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&');
+}
+
+export function formatAndroidGradleFailureDiagnostics(
+  gradleBuildDir: string,
+  stdoutText: string,
+  stderrText: string,
+): string {
+  const sections: string[] = [];
+  const resultsDir = join(gradleBuildDir, 'test-results', 'testDebugUnitTest');
+  if (existsSync(resultsDir)) {
+    const entries = readdirSync(resultsDir).sort();
+    for (const entry of entries) {
+      if (!entry.startsWith('TEST-') || !entry.endsWith('.xml')) {
+        continue;
+      }
+      const xml = readFileSync(join(resultsDir, entry), 'utf8');
+      const failureRegex = /<(?:failure|error)\b[^>]*>([\s\S]*?)<\/(?:failure|error)>/g;
+      let match = failureRegex.exec(xml);
+      while (match !== null) {
+        const body = match[1];
+        if (typeof body === 'string' && body.trim() !== '') {
+          sections.push(`[JUnit ${entry}]\n${decodeXmlEntities(body.trim())}`);
+        }
+        match = failureRegex.exec(xml);
+      }
+    }
+  }
+
+  const combined = `${stdoutText}\n${stderrText}`.trim();
+  if (combined !== '') {
+    const nonInternalLines = combined
+      .split('\n')
+      .filter((line) => !/^\s+at org\.gradle\./.test(line));
+    const excerpt = nonInternalLines.slice(-120).join('\n');
+    sections.push(`[Gradle output tail]\n${excerpt}`);
+  }
+  return sections.join('\n\n');
+}
+
 export function runAndroidOracleGradleTest(request: AndroidGradleRunRequest): void {
   let baseEnv: NodeJS.ProcessEnv = process.env;
   if (request.env !== undefined) {
@@ -144,20 +191,21 @@ export function runAndroidOracleGradleTest(request: AndroidGradleRunRequest): vo
       'Missing Android SDK Platform 35: set ANDROID_HOME or ANDROID_SDK_ROOT before running android-sdk-probes.',
     );
   }
+  const cacheRoot = join(homedir(), '.cache', 'pyric-android-oracle');
+  const gradleCacheDir = join(cacheRoot, 'gradle-cache');
+  const gradleBuildDir = join(cacheRoot, 'build');
+  const kotlinPersistentDir = join(cacheRoot, 'kotlin-persistent');
   const childEnv: NodeJS.ProcessEnv = {
     ...baseEnv,
     ANDROID_HOME: sdkHome,
     ANDROID_SDK_ROOT: sdkHome,
+    PYRIC_ANDROID_ORACLE_BUILD_DIR: gradleBuildDir,
   };
   const javaHome = findGradleJavaHome(baseEnv);
   if (javaHome) {
     childEnv.JAVA_HOME = javaHome;
   }
 
-  const cacheRoot = join(homedir(), '.cache', 'pyric-android-oracle');
-  const gradleCacheDir = join(cacheRoot, 'gradle-cache');
-  const gradleBuildDir = join(cacheRoot, 'build');
-  const kotlinPersistentDir = join(cacheRoot, 'kotlin-persistent');
   const args: string[] = [
     '-p',
     ANDROID_RIG_DIR,
@@ -190,10 +238,9 @@ export function runAndroidOracleGradleTest(request: AndroidGradleRunRequest): vo
     if (typeof result.stderr === 'string') {
       stderrText = result.stderr;
     }
-    const combined = `${stdoutText}\n${stderrText}`.trim();
-    const excerpt = combined.split('\n').slice(-40).join('\n');
+    const details = formatAndroidGradleFailureDiagnostics(gradleBuildDir, stdoutText, stderrText);
     throw new Error(
-      `Android Robolectric runner exited with status ${String(result.status)}:\n${excerpt}`,
+      `Android Robolectric runner exited with status ${String(result.status)}:\n${details}`,
     );
   }
 }
@@ -336,8 +383,11 @@ export async function runAndroidRobolectricProbe(
   const adminAuth = await openAdmin(sa, runId);
 
   const trackedUids = new Set<string>();
+  const shouldMintCustomToken = options.needsCustomToken !== false;
   const customUid = `pyric-android-${runId}`;
-  trackedUids.add(customUid);
+  if (shouldMintCustomToken) {
+    trackedUids.add(customUid);
+  }
 
   const scratchDir = createPrivateJobTmpDir('android-rig', env);
   const configPath = join(scratchDir, 'probe-config.json');
@@ -354,10 +404,13 @@ export async function runAndroidRobolectricProbe(
   }
 
   try {
-    const customToken = await adminAuth.createCustomToken(customUid, {
-      role: 'tester',
-      tier: 2,
-    });
+    let customToken: string | undefined;
+    if (shouldMintCustomToken) {
+      customToken = await adminAuth.createCustomToken(customUid, {
+        role: 'tester',
+        tier: 2,
+      });
+    }
     let applicationId = FALLBACK_ANDROID_APP_ID;
     if (typeof webConfig.appId === 'string' && webConfig.appId.trim() !== '') {
       applicationId = webConfig.appId.trim();
@@ -369,10 +422,12 @@ export async function runAndroidRobolectricProbe(
       projectId: sa.project_id,
       applicationId,
       apiKey: webConfig.apiKey,
-      customToken,
       outputPath,
       cleanupUidsPath,
     };
+    if (customToken !== undefined) {
+      payload.customToken = customToken;
+    }
     if (databaseUrl !== undefined) {
       payload.databaseUrl = databaseUrl;
     }

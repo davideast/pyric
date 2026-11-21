@@ -5,5 +5,6 @@ export default row({
   api: 'FirebaseAuth.signInAnonymously()',
   behavior: 'Authenticates an anonymous user via bridge auth.signInAnonymously, establishing an anonymous FirebaseUser session.',
   featureKeys: ['signInAnonymously'],
-  flipped: 'live-host',
+  flipped: 'oracle-backed',
+  oracleObservations: ['auth-kotlin-anonymous-and-custom-token-session'],
 });

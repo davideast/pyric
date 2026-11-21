@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { diagnoseCaptureFailure, planCaptureRun } from '../../../../scripts/ci/oracle-capture-plan.ts';
 import {
@@ -9,6 +9,9 @@ import {
 } from '../../../../scripts/lib/private-job-tmpdir.ts';
 import { observationExceptions } from '../../exceptions/load.ts';
 import { probe as authKotlinSessionProbe } from '../../probes/auth-kotlin/auth-kotlin-anonymous-and-custom-token-session.ts';
+import { probe as authKotlinEmailProbe } from '../../probes/auth-kotlin/auth-kotlin-email-password-lifecycle.ts';
+import { probe as authKotlinErrorsProbe } from '../../probes/auth-kotlin/auth-kotlin-error-codes-and-exceptions.ts';
+import { probe as authKotlinProfileProbe } from '../../probes/auth-kotlin/auth-kotlin-profile-reload-and-listeners.ts';
 import { listProbeFiles } from '../../probes/load.ts';
 import { probe as rtdbKotlinCrudProbe } from '../../probes/rtdb-kotlin/rtdb-kotlin-dedicated-crud-and-query-order.ts';
 import { allCompatibilityRows } from '../../registry/index.ts';
@@ -25,6 +28,7 @@ import {
   runAndroidSdkProbesCli,
 } from '../../src/android-sdk-probes.ts';
 import {
+  formatAndroidGradleFailureDiagnostics,
   runAndroidOracleGradleTest,
   runAndroidRobolectricProbe,
   type AndroidAdminAuthAdapter,
@@ -43,6 +47,13 @@ import { validateCompatibilityRegistry } from '../../src/validate-registry.ts';
 import { surfaceDescriptors } from '../../surfaces/load.ts';
 import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 
+const STAGED_ANDROID_PROBES = [
+  'auth-kotlin-email-password-lifecycle',
+  'auth-kotlin-error-codes-and-exceptions',
+  'auth-kotlin-profile-reload-and-listeners',
+  'rtdb-kotlin-dedicated-crud-and-query-order',
+] as const;
+
 function fakeServiceAccount(): OracleServiceAccount {
   return {
     kind: 'application-default',
@@ -57,7 +68,7 @@ function fakeServiceAccount(): OracleServiceAccount {
 }
 
 describe('android-sdk-probes Robolectric oracle rig', () => {
-  test('registers android-sdk-probes manifest, surface contracts, and pinned Android BoM version', async () => {
+  test('registers android-sdk-probes manifest, surface contracts, linked session probe, and pinned Android BoM version', async () => {
     expect(resolvedAndroidBomVersion()).toBe('35.2.0');
 
     const manifests = await loadRigManifests();
@@ -68,6 +79,22 @@ describe('android-sdk-probes Robolectric oracle rig', () => {
     }
     expect(androidRig.script).toBe(androidSdkProbesRig.script);
     expect(authKotlinSessionProbe.rig).toBe('android-sdk-probes');
+    expect(authKotlinSessionProbe.pendingRowLink).toBeUndefined();
+    expect(authKotlinSessionProbe.matrixRow).toBe('auth-kotlin#8');
+    expect(authKotlinSessionProbe.rowIds).toEqual([
+      'auth-kotlin#8',
+      'auth-kotlin#9',
+      'auth-kotlin#10',
+      'auth-kotlin#20',
+      'auth-kotlin#22',
+      'auth-kotlin#24',
+      'auth-kotlin#26',
+      'auth-kotlin#31',
+      'auth-kotlin#32',
+    ]);
+    expect(authKotlinEmailProbe.rig).toBe('android-sdk-probes');
+    expect(authKotlinErrorsProbe.rig).toBe('android-sdk-probes');
+    expect(authKotlinProfileProbe.rig).toBe('android-sdk-probes');
     expect(rtdbKotlinCrudProbe.rig).toBe('android-sdk-probes');
     expect(androidRig.automation).toBe('credentialed');
     expect(androidRig.network).toBe('firebase-production');
@@ -96,9 +123,26 @@ describe('android-sdk-probes Robolectric oracle rig', () => {
         ),
       ),
     ).toBe(true);
+    expect(
+      existsSync(
+        join(
+          rigRoot,
+          'src',
+          'test',
+          'java',
+          'dev',
+          'pyric',
+          'conformance',
+          'androidoracle',
+          'RobolectricTlsSupport.kt',
+        ),
+      ),
+    ).toBe(true);
 
     const gradleBuildSource = readFileSync(join(rigRoot, 'build.gradle.kts'), 'utf8');
     expect(gradleBuildSource).toContain('layout.buildDirectory.set');
+    expect(gradleBuildSource).toContain('TestExceptionFormat.FULL');
+    expect(gradleBuildSource).toContain('showStandardStreams = true');
     expect(gradleBuildSource).toContain('com.google.firebase:firebase-auth');
     expect(gradleBuildSource).toContain('com.google.firebase:firebase-database');
     expect(gradleBuildSource).toContain('org.robolectric:robolectric');
@@ -109,24 +153,21 @@ describe('android-sdk-probes Robolectric oracle rig', () => {
     expect(rtdbKt?.captureRigs).toEqual(['android-sdk-probes']);
   });
 
-  test('discovers staged auth-kotlin and rtdb-kotlin probes and keeps registry validation clean across PR #1 and PR #2 states', async () => {
+  test('discovers linked and staged auth-kotlin and rtdb-kotlin probes and keeps registry validation clean across PR #1 and PR #2 states', async () => {
     const loaded = await loadModularProbes('android-sdk-probes');
     expect(loaded.map((item) => `${item.surfaceDir}/${item.id}`)).toEqual([
       'auth-kotlin/auth-kotlin-anonymous-and-custom-token-session',
+      'auth-kotlin/auth-kotlin-email-password-lifecycle',
+      'auth-kotlin/auth-kotlin-error-codes-and-exceptions',
+      'auth-kotlin/auth-kotlin-profile-reload-and-listeners',
       'rtdb-kotlin/rtdb-kotlin-dedicated-crud-and-query-order',
     ]);
 
-    expectStagedUntilCaptured(
-      [
-        'auth-kotlin-anonymous-and-custom-token-session',
-        'rtdb-kotlin-dedicated-crud-and-query-order',
-      ],
-      {
-        rig: 'android-sdk-probes',
-        filterFlag: '--probe',
-        filterValueFor: (name) => name,
-      },
-    );
+    expectStagedUntilCaptured(STAGED_ANDROID_PROBES, {
+      rig: 'android-sdk-probes',
+      filterFlag: '--probe',
+      filterValueFor: (name) => name,
+    });
 
     const rigManifests = await loadRigManifests();
     const pendingRowLinkObservations = loadPendingRowLinkObservations();
@@ -153,28 +194,34 @@ describe('android-sdk-probes Robolectric oracle rig', () => {
     });
     expect(pr1Problems).toEqual([]);
 
-    const simulatedAuthObs: Observation = {
-      file: 'auth-kotlin-anonymous-and-custom-token-session.json',
-      surfaceDir: 'auth-kotlin',
-      name: 'auth-kotlin-anonymous-and-custom-token-session',
-      matrixRow: '',
-      rowIds: [],
-      observedAt: '2026-11-20T00:00:00.000Z',
-      androidBomVersion: '35.2.0',
-      behavior: { anonymousIsAnonymous: true },
-      raw: {
-        name: 'auth-kotlin-anonymous-and-custom-token-session',
+    const byName = new Map(currentObservations.map((obs) => [obs.name, obs]));
+    for (const stagedName of STAGED_ANDROID_PROBES) {
+      let surfaceDir = 'auth-kotlin';
+      if (stagedName.startsWith('rtdb-kotlin-')) {
+        surfaceDir = 'rtdb-kotlin';
+      }
+      const simulatedObs: Observation = {
+        file: `${stagedName}.json`,
+        surfaceDir,
+        name: stagedName,
         matrixRow: '',
         rowIds: [],
-        description: 'Simulated captured Android Auth observation',
         observedAt: '2026-11-20T00:00:00.000Z',
         androidBomVersion: '35.2.0',
-        projectId: 'demo-oracle',
-        behavior: { anonymousIsAnonymous: true },
-      },
-    };
-    const byName = new Map(currentObservations.map((obs) => [obs.name, obs]));
-    byName.set(simulatedAuthObs.name, simulatedAuthObs);
+        behavior: { simulatedCapture: true },
+        raw: {
+          name: stagedName,
+          matrixRow: '',
+          rowIds: [],
+          description: 'Simulated captured Android observation',
+          observedAt: '2026-11-20T00:00:00.000Z',
+          androidBomVersion: '35.2.0',
+          projectId: 'demo-oracle',
+          behavior: { simulatedCapture: true },
+        },
+      };
+      byName.set(simulatedObs.name, simulatedObs);
+    }
 
     const pr2Problems = validateCompatibilityRegistry({
       rows: allCompatibilityRows,
@@ -191,7 +238,7 @@ describe('android-sdk-probes Robolectric oracle rig', () => {
     expect(pr2Problems).toEqual([]);
   });
 
-  test('prints inert preview without credentials, rejects default RTDB endpoints, and writes androidBomVersion envelopes', async () => {
+  test('prints inert preview without credentials, formats JUnit XML failure stack traces, and writes androidBomVersion envelopes', async () => {
     await runAndroidSdkProbesCli([], {}, false);
 
     const loaded = await loadModularProbes('android-sdk-probes');
@@ -205,6 +252,33 @@ describe('android-sdk-probes Robolectric oracle rig', () => {
 
     const scratchOut = createPrivateJobTmpDir('android-env');
     try {
+      const resultsDir = join(scratchOut, 'build', 'test-results', 'testDebugUnitTest');
+      mkdirSync(resultsDir, { recursive: true });
+      writeFileSync(
+        join(resultsDir, 'TEST-dev.pyric.conformance.androidoracle.AndroidOracleProbeRunnerTest.xml'),
+        [
+          '<?xml version="1.0" encoding="UTF-8"?>',
+          '<testsuite name="AndroidOracleProbeRunnerTest" tests="1" failures="1">',
+          '  <testcase name="captureSelectedOracleProbe">',
+          '    <failure message="Timed out waiting for Firebase Task">',
+          'java.util.concurrent.TimeoutException: Timed out waiting for Firebase Task &apos;rtdb.itemRef.setValue&apos;',
+          '\tat dev.pyric.conformance.androidoracle.AndroidOracleTaskAwaiterKt.awaitFirebaseTask(AndroidOracleTaskAwaiter.kt:40)',
+          '    </failure>',
+          '  </testcase>',
+          '</testsuite>',
+        ].join('\n'),
+        'utf8',
+      );
+      const formattedFailure = formatAndroidGradleFailureDiagnostics(
+        join(scratchOut, 'build'),
+        'Task :testDebugUnitTest FAILED',
+        'FAILURE: Build failed with an exception.',
+      );
+      expect(formattedFailure).toContain('[JUnit TEST-dev.pyric.conformance.androidoracle.AndroidOracleProbeRunnerTest.xml]');
+      expect(formattedFailure).toContain("Timed out waiting for Firebase Task 'rtdb.itemRef.setValue'");
+      expect(formattedFailure).toContain('AndroidOracleTaskAwaiter.kt:40');
+      expect(formattedFailure).toContain('[Gradle output tail]');
+
       await executeModularProbes({
         config: ANDROID_SDK_PROBES_RIG_CONFIG,
         sdkVersion: '35.2.0',
@@ -212,7 +286,7 @@ describe('android-sdk-probes Robolectric oracle rig', () => {
         observationsRoot: scratchOut,
         probes: [
           {
-            id: 'auth-kotlin-anonymous-and-custom-token-session',
+            id: 'auth-kotlin-email-password-lifecycle',
             surfaceDir: 'auth-kotlin',
             probe: {
               description: 'Synthetic Android Auth probe',
@@ -221,7 +295,7 @@ describe('android-sdk-probes Robolectric oracle rig', () => {
               pendingRowLink: true,
               rig: 'android-sdk-probes',
               async observe() {
-                return { anonymousIsAnonymous: true };
+                return { createdUidNonBlank: true };
               },
             },
           },
@@ -231,13 +305,13 @@ describe('android-sdk-probes Robolectric oracle rig', () => {
       const writtenPath = join(
         scratchOut,
         'auth-kotlin',
-        'auth-kotlin-anonymous-and-custom-token-session.json',
+        'auth-kotlin-email-password-lifecycle.json',
       );
       const parsed = JSON.parse(readFileSync(writtenPath, 'utf8')) as Record<string, unknown>;
       expect(parsed.androidBomVersion).toBe('35.2.0');
       expect(parsed.fbSdkVersion).toBeUndefined();
       expect(parsed.rowIds).toEqual([]);
-      expect(parsed.behavior).toEqual({ anonymousIsAnonymous: true });
+      expect(parsed.behavior).toEqual({ createdUidNonBlank: true });
     } finally {
       expect(removePrivateJobTmpDir(scratchOut)).toBe(true);
     }
@@ -336,8 +410,9 @@ describe('android-sdk-probes Robolectric oracle rig', () => {
     let failureScratchDir = '';
     await expect(
       runAndroidRobolectricProbe({
-        probeId: 'auth-kotlin-anonymous-and-custom-token-session',
+        probeId: 'auth-kotlin-email-password-lifecycle',
         needsDedicatedRtdb: false,
+        needsCustomToken: false,
         deps: {
           env: {
             PYRIC_ORACLE_PROJECT_ID: 'demo-oracle',
@@ -355,7 +430,7 @@ describe('android-sdk-probes Robolectric oracle rig', () => {
           async openAdminAuth() {
             return {
               async createCustomToken() {
-                return 'minted-custom-jwt';
+                throw new Error('createCustomToken must not run when needsCustomToken is false');
               },
               async deleteUser(uid) {
                 failureDeletedUids.push(uid);
@@ -370,19 +445,19 @@ describe('android-sdk-probes Robolectric oracle rig', () => {
             const parsed = JSON.parse(
               readFileSync(req.configPath, 'utf8'),
             ) as AndroidOracleProbeConfigPayload;
+            expect(parsed.customToken).toBeUndefined();
             failureScratchDir = resolve(req.configPath, '..');
             writeFileSync(
               parsed.cleanupUidsPath,
-              JSON.stringify(['leaked-anon-uid-mid-failure']),
+              JSON.stringify(['leaked-email-uid-mid-failure']),
               'utf8',
             );
-            throw new Error('simulated transient getIdToken failure after signInAnonymously');
+            throw new Error('simulated transient getIdToken failure after createUserWithEmailAndPassword');
           },
         },
       }),
     ).rejects.toThrow(/simulated transient getIdToken failure/);
-    expect(failureDeletedUids.length).toBe(2);
-    expect(failureDeletedUids).toContain('leaked-anon-uid-mid-failure');
+    expect(failureDeletedUids).toEqual(['leaked-email-uid-mid-failure']);
     expect(existsSync(failureScratchDir)).toBe(false);
 
     await expect(
@@ -416,7 +491,7 @@ describe('android-sdk-probes Robolectric oracle rig', () => {
       GCP_WIF_PROVIDER: 'projects/1/locations/global/workloadIdentityPools/p/providers/gh',
       PARITY_SA_EMAIL: 'parity-sa@example.iam.gserviceaccount.com',
       INPUT_RIG: 'android-sdk-probes',
-      INPUT_FILTER: 'auth-kotlin-anonymous-and-custom-token-session',
+      INPUT_FILTER: 'auth-kotlin-email-password-lifecycle',
     });
     expect(skippedPlan.shouldRun).toBe(false);
     expect(skippedPlan.skippedRigs).toEqual(['android-sdk-probes']);
@@ -427,7 +502,7 @@ describe('android-sdk-probes Robolectric oracle rig', () => {
       CAPTURE_WIF_PROVIDER: 'projects/1/locations/global/workloadIdentityPools/c/providers/gh',
       CAPTURE_SA_EMAIL: 'capture-sa@example.iam.gserviceaccount.com',
       INPUT_RIG: 'android-sdk-probes',
-      INPUT_FILTER: 'auth-kotlin-anonymous-and-custom-token-session',
+      INPUT_FILTER: 'auth-kotlin-email-password-lifecycle',
     };
     const ubuntuPlan = await planCaptureRun({
       ...configuredEnv,
@@ -440,7 +515,7 @@ describe('android-sdk-probes Robolectric oracle rig', () => {
       {
         rig: 'android-sdk-probes',
         script: 'packages/conformance/src/android-sdk-probes.ts',
-        args: ['--write', '--probe', 'auth-kotlin-anonymous-and-custom-token-session'],
+        args: ['--write', '--probe', 'auth-kotlin-email-password-lifecycle'],
         wifTier: 'capture-write',
         runnerOs: 'ubuntu-latest',
       },
@@ -463,7 +538,7 @@ describe('android-sdk-probes Robolectric oracle rig', () => {
   });
 
   test.skipIf(process.env.PYRIC_RUN_ANDROID_ORACLE_SMOKE !== '1')(
-    'executes live Robolectric localRobolectricSdkSmokeTest via Gradle without writing into the repo tree',
+    'executes live Robolectric localRobolectricSdkSmokeTest (including loopback WSS FirebaseDatabase round-trip) via Gradle without writing into the repo tree',
     () => {
       runAndroidOracleGradleTest({
         testFilter:

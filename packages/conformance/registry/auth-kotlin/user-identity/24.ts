@@ -5,5 +5,6 @@ export default row({
   api: 'FirebaseUser.customClaims',
   behavior: 'Returns a map of custom claims associated with the user and carried into AuthLens.',
   featureKeys: ['customClaims'],
-  flipped: 'live-host',
+  flipped: 'oracle-backed',
+  oracleObservations: ['auth-kotlin-anonymous-and-custom-token-session'],
 });
