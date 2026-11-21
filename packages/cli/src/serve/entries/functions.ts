@@ -1,6 +1,8 @@
 /**
- * `firebase/functions` under the sandbox: pyric's deferred Functions entry.
- * Imports resolve and link; a call throws `PyricDeferredApiError` naming the
- * subpath, rather than reaching the real Cloud Functions client SDK.
+ * `firebase/functions` under the served sandbox: connects the page runtime as
+ * the sandbox peer and routes callable requests to Pyric's gateway across
+ * sandbox and production AI modes.
  */
-export * from 'pyric/functions';
+import './init.js';
+import './runtime.js';
+export * from './functions-surface.js';

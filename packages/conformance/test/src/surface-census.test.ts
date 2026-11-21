@@ -17,6 +17,7 @@ describe('Firebase public-surface census', () => {
     'app-check': { runtime: [8, 8, 0], types: [11, 11] },
     auth: { runtime: [85, 71, 0], types: [64, 25] },
     firestore: { runtime: [106, 104, 15], types: [78, 78] },
+    functions: { runtime: [5, 5, 0], types: [9, 9] },
     database: { runtime: [44, 44, 10], types: [15, 15] },
     storage: { runtime: [18, 16, 9], types: [17, 13] },
     messaging: { runtime: [9, 5, 0], types: [9, 8] },

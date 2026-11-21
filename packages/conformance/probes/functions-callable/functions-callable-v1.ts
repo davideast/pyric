@@ -12,6 +12,8 @@ import {
 export const probe: FunctionsCallableWireProbe = {
   kind: 'wire',
   name: 'functions-callable-v1',
+  rig: 'functions-callable',
+  pendingRowLink: true,
   matrixRow: 'functions-callable #15',
   rowIds: ['functions-callable#15'],
   description: 'A v1 https.onCall echo called with {data}, and called with Accept: text/event-stream.',

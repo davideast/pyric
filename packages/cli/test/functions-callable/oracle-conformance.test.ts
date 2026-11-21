@@ -168,7 +168,7 @@ if (globalThis.PYRIC_CALLABLE_CONFIG) {
 
 /** Runs one page scenario in a registered Node process and prints its facts as one line. */
 const REGISTERED_RUNNER = String.raw`
-await import('./callable-browser-source.mjs');
+globalThis.FIREBASE_APPCHECK_DEBUG_TOKEN = true; await import('./callable-browser-source.mjs');
 await import('./callable-local-source.mjs');
 const [namespace, scenario, configJson, inputJson] = process.argv.slice(2);
 try {
@@ -355,7 +355,7 @@ async function servingSession(): Promise<BrowserPlane> {
 }
 
 function hostedSession(): Promise<Plane> {
-  hostedPlane ??= startCommand('hosted', ['--hosted', '--no-run']);
+  hostedPlane ??= startCommand('hosted', ['--hosted', '--no-run']).then(async (p) => { if (!(await waitForServing(p))) throw notServing(p); return p; });
   return hostedPlane;
 }
 

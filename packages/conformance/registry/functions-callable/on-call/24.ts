@@ -1,4 +1,4 @@
-import { CLIENT, row } from './section.ts';
+import { CLIENT, CLIENT_UNIT, SUITE, row } from './section.ts';
 
 export default row({
   order: 240,
@@ -10,4 +10,5 @@ export default row({
     'Owner decision (plan decision 5): honoring port 5001 would send calls to a server that is not running. Upstream sets `emulatorOrigin` and builds `${origin}/${projectId}/${region}/${name}` (' +
     CLIENT +
     ').',
+  flip: { status: 'conforms', tests: [SUITE, CLIENT_UNIT] },
 });

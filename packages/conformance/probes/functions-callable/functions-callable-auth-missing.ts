@@ -8,6 +8,8 @@ import {
 export const probe: FunctionsCallableWireProbe = {
   kind: 'wire',
   name: 'functions-callable-auth-missing',
+  rig: 'functions-callable',
+  pendingRowLink: true,
   matrixRow: 'functions-callable #7',
   rowIds: ['functions-callable#7'],
   description: 'A v2 and a v1 onCall echo called with no Authorization header.',

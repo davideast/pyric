@@ -184,6 +184,10 @@
       "types": "./dist/functions/index.d.ts",
       "import": "./dist/functions/index.js"
     },
+    "./functions/internal": {
+      "types": "./dist/functions/internal.d.ts",
+      "import": "./dist/functions/internal.js"
+    },
     "./analytics": {
       "types": "./dist/analytics/index.d.ts",
       "import": "./dist/analytics/index.js"

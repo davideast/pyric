@@ -14,6 +14,8 @@ const SENT: Record<string, unknown> = {
 export const probe: FunctionsCallableWireProbe = {
   kind: 'wire',
   name: 'functions-callable-data-roundtrip',
+  rig: 'functions-callable',
+  pendingRowLink: true,
   matrixRow: 'functions-callable #1',
   rowIds: ['functions-callable#1'],
   description:

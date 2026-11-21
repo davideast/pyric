@@ -27,6 +27,8 @@ function streamed(response: ProbeResponse): Record<string, unknown> {
 export const probe: FunctionsCallableWireProbe = {
   kind: 'wire',
   name: 'functions-callable-streaming',
+  rig: 'functions-callable',
+  pendingRowLink: true,
   matrixRow: 'functions-callable #14',
   rowIds: ['functions-callable#14'],
   description:

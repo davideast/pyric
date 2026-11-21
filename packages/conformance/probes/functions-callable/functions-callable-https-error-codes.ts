@@ -11,6 +11,8 @@ const CODES = [
 export const probe: FunctionsCallableWireProbe = {
   kind: 'wire',
   name: 'functions-callable-https-error-codes',
+  rig: 'functions-callable',
+  pendingRowLink: true,
   matrixRow: 'functions-callable #3',
   rowIds: ['functions-callable#3'],
   description:

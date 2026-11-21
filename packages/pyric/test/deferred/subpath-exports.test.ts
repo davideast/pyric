@@ -20,7 +20,6 @@ import { describe, expect, test } from 'bun:test';
 /** Subpath → representative exports that must exist on the namespace. */
 const DEFERRED_SUBPATHS: ReadonlyArray<readonly [string, readonly string[]]> = [
   ['firestore/lite', ['getFirestore', 'collection', 'getDocs', 'writeBatch', 'Timestamp']],
-  ['functions', ['getFunctions', 'httpsCallable', 'connectFunctionsEmulator']],
   ['analytics', ['getAnalytics', 'logEvent', 'setUserId']],
   ['performance', ['getPerformance', 'trace']],
   ['remote-config', ['getRemoteConfig', 'fetchAndActivate', 'getValue']],
@@ -43,7 +42,6 @@ function deferredMessage(subpath: string): string {
  */
 const DIFFABLE_SUBPATHS: readonly string[] = [
   'firestore/lite',
-  'functions',
   'analytics',
   'performance',
   'remote-config',

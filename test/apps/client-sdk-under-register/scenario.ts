@@ -160,12 +160,10 @@ export default scenario(async (app) => {
     });
   });
 
-  await app.step('services with no path to the host refuse with failed-precondition', () => {
+  await app.step('services with no path to the host refuse with failed-precondition, and an unconfigured callable answers not-found', () => {
     expectCode(client, 'ai', 'failed-precondition', UNSUPPORTED);
     expectCode(client, 'messaging', 'failed-precondition', UNSUPPORTED);
-    const functions = outcome(client, 'functions');
-    assert.equal(functions.ok, false, client);
-    assert.match(functions.ok ? '' : functions.message, /'firebase\/functions' is not yet mirrored/);
+    expectCode(client, 'functions', 'functions/not-found');
   });
 
   await app.step('firebase-admin on the host reads what the client SDKs wrote, and the onDisconnect ran', async () => {

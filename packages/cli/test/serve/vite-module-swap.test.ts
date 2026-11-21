@@ -255,13 +255,13 @@ describe('server-rendered imports under vite dev (#1123)', () => {
     const fake = fakeContext(runnableSsr);
     const routed = async (specifier: string) => swap.resolvePluginId(fake, aliased(specifier), userImporter);
     expect(await routed('firebase/app')).toBe('\0pyric-ssr-target:@pyric/cli/register/client/app');
-    for (const service of ['auth', 'database', 'firestore', 'storage']) {
+    for (const service of ['auth', 'database', 'firestore', 'functions', 'storage']) {
       expect(await routed(`firebase/${service}`)).toBe(`\0pyric-ssr-target:@pyric/cli/register/client/${service}`);
     }
     expect(await routed('firebase/ai')).toBe('\0pyric-ssr-target:pyric/ai');
     expect(await routed('firebase/messaging/sw')).toBe('\0pyric-ssr-target:pyric/messaging/sw');
     expect(await routed('firebase/app-check')).toBe('\0pyric-ssr-target:pyric/app-check');
-    for (const deferred of ['analytics', 'firestore/lite', 'functions', 'performance', 'remote-config']) {
+    for (const deferred of ['analytics', 'firestore/lite', 'performance', 'remote-config']) {
       expect(await routed(`firebase/${deferred}`)).toBe(`\0pyric-ssr-target:pyric/${deferred}`);
       const shim = await swap.loadPluginModule(`\0pyric-ssr-target:pyric/${deferred}`);
       expect(shim).toContain(`loadServerTarget("pyric/${deferred}")`);

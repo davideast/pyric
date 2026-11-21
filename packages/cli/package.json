@@ -187,6 +187,13 @@
         "import": "./dist/register/client/firestore.js"
       }
     },
+    "./register/client/functions": {
+      "types": "./dist/register/client/functions.d.ts",
+      "node": {
+        "types": "./dist/register/client/functions.d.ts",
+        "import": "./dist/register/client/functions.js"
+      }
+    },
     "./register/client/storage": {
       "types": "./dist/register/client/storage.d.ts",
       "node": {

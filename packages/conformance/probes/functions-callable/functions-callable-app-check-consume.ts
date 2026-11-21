@@ -13,6 +13,8 @@ import {
 export const probe: FunctionsCallableWireProbe = {
   kind: 'wire',
   name: 'functions-callable-app-check-consume',
+  rig: 'functions-callable',
+  pendingRowLink: true,
   matrixRow: 'functions-callable #12',
   rowIds: ['functions-callable#12'],
   description:

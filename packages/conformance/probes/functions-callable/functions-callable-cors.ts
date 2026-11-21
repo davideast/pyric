@@ -39,6 +39,8 @@ function corsAnswer(response: ProbeResponse): Record<string, unknown> {
 export const probe: FunctionsCallableWireProbe = {
   kind: 'wire',
   name: 'functions-callable-cors',
+  rig: 'functions-callable',
+  pendingRowLink: true,
   matrixRow: 'functions-callable #13',
   rowIds: ['functions-callable#13'],
   description:

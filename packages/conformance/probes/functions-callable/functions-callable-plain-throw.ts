@@ -6,6 +6,8 @@ const MODES = ['throw-plain', 'reject-plain', 'throw-string'];
 export const probe: FunctionsCallableWireProbe = {
   kind: 'wire',
   name: 'functions-callable-plain-throw',
+  rig: 'functions-callable',
+  pendingRowLink: true,
   matrixRow: 'functions-callable #4',
   rowIds: ['functions-callable#4'],
   description: 'A v2 and a v1 onCall that throw an Error, return a rejected promise, and throw a string.',
