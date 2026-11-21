@@ -10,6 +10,7 @@ import {
   HEARTBEAT_INTERVAL_MS,
   STOP_DEADLINE_MS,
   isChildMessage,
+  isHostMessage,
   serializeError,
   type FunctionsChildMessage,
 } from './child-protocol.js';
@@ -35,6 +36,11 @@ import {
 } from './storage/child-runtime.js';
 import { storageTriggersFamily } from './storage/discovery.js';
 import type { StorageTriggerExecutionHost } from './storage/execution.js';
+import {
+  startSchedulerChildRuntime,
+  type SchedulerChildRuntimeHost,
+} from './scheduler/child-runtime.js';
+import { schedulerTriggersFamily } from './scheduler/discovery.js';
 import { findUnsupportedTriggers } from './unsupported.js';
 
 interface AdminAppInstance {
@@ -105,15 +111,20 @@ async function runFunctionsChild(): Promise<void> {
   let host: RtdbValueExecutionHost | undefined;
   let storageHost: StorageTriggerExecutionHost | undefined;
   let firestoreHost: FirestoreTriggerExecutionHost | undefined;
+  let schedulerHost: SchedulerChildRuntimeHost | undefined;
   let httpServer: HttpChildServer | undefined;
   let closing: Promise<void> | undefined;
+  let stopRequested = false;
 
   const close = (): Promise<void> => {
     if (closing) return closing;
     closing = (async () => {
+      process.off('message', onParentMessage);
       clearInterval(heartbeat);
       clearInterval(parentWatch);
       await httpServer?.close();
+      schedulerHost?.close();
+      await schedulerHost?.idle();
       storageHost?.close();
       await storageHost?.idle();
       firestoreHost?.close();
@@ -153,16 +164,47 @@ async function runFunctionsChild(): Promise<void> {
   }, PARENT_POLL_MS);
   parentWatch.unref();
 
-  process.once('message', (raw: unknown) => {
+  const onParentMessage = (raw: unknown): void => {
     if (isChildMessage(raw) && raw.type === 'stopped') return;
-    if (typeof raw === 'object' && raw !== null && 'type' in raw && raw.type === 'stop') {
+    if (!isHostMessage(raw)) return;
+    if (raw.type === 'stop') {
+      if (stopRequested) return;
+      stopRequested = true;
       void shutdown().catch((error) => {
         send({ type: 'fatal', error: serializeError(error) });
         process.exitCode = 1;
         disconnectFromHost();
       });
+      return;
     }
-  });
+    if (raw.type === 'trigger-scheduled') {
+      if (schedulerHost === undefined || stopRequested) {
+        send({
+          type: 'trigger-scheduled-result',
+          requestId: raw.requestId,
+          outcome: 'invalid-argument',
+          exportName: raw.exportName,
+          message: 'Functions scheduler runtime is not ready',
+        });
+        return;
+      }
+      void schedulerHost
+        .handleHostTriggerRequest(raw)
+        .then((reply) => {
+          send(reply);
+        })
+        .catch((error: unknown) => {
+          send({
+            type: 'trigger-scheduled-result',
+            requestId: raw.requestId,
+            outcome: 'invalid-argument',
+            exportName: raw.exportName,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        });
+    }
+  };
+  process.on('message', onParentMessage);
   // Ctrl-C reaches this process directly, alongside the host's own stop request.
   // Its deadline is the host's force-kill deadline, so in-flight triggers get the
   // same time either way.
@@ -211,6 +253,17 @@ async function runFunctionsChild(): Promise<void> {
     if (firestoreHost.triggerCount > 0) {
       surviveUncaughtErrors();
     }
+    schedulerHost = startSchedulerChildRuntime({
+      exported,
+      sandbox: runtimeSandbox,
+      location,
+      projectId,
+      send,
+    });
+    await schedulerHost.ready;
+    if (schedulerHost.triggerCount > 0) {
+      surviveUncaughtErrors();
+    }
     const httpFunctions = [...inspectOnRequest(exported), ...inspectOnCall(exported)];
     if (httpFunctions.length > 0) {
       if (httpToken === undefined) throw new Error(`Functions child is missing ${CHILD_TOKEN_ENV}`);
@@ -221,11 +274,15 @@ async function runFunctionsChild(): Promise<void> {
       rtdbValueTriggerFamily,
       storageTriggersFamily,
       firestoreTriggersFamily,
+      schedulerTriggersFamily,
       httpOnRequestFamily,
       callableOnCallFamily,
     ]);
     const totalTriggerCount =
-      host.triggerCount + storageHost.triggerCount + firestoreHost.triggerCount;
+      host.triggerCount +
+      storageHost.triggerCount +
+      firestoreHost.triggerCount +
+      schedulerHost.triggerCount;
     if (httpServer === undefined) {
       send({
         type: 'ready',

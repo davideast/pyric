@@ -57,11 +57,64 @@ export interface FunctionsChildReady {
 }
 
 /** What the child's ready message carries: it never sends the token back. */
-export type FunctionsChildReadyMessage = Omit<FunctionsChildReady, 'http'> & { http?: FunctionsChildHttpListener };
+type FunctionsChildReadyMessage = Omit<FunctionsChildReady, 'http'> & { http?: FunctionsChildHttpListener };
+
+export interface TriggerScheduledHostRequest {
+  type: 'trigger-scheduled';
+  requestId: string;
+  exportName: string;
+  scheduleTime?: string;
+  jobName?: string;
+  hasJobNameOverride?: boolean;
+}
+
+export type FunctionsHostMessage =
+  | { type: 'stop' }
+  | TriggerScheduledHostRequest;
+
+export type TriggerScheduledChildResult =
+  | {
+      type: 'trigger-scheduled-result';
+      requestId: string;
+      outcome: 'fulfilled';
+      exportName: string;
+      jobName?: string;
+      scheduleTime: string;
+      startedAt: number;
+      durationMs: number;
+      retryConfig: Record<string, number>;
+      result?: unknown;
+    }
+  | {
+      type: 'trigger-scheduled-result';
+      requestId: string;
+      outcome: 'rejected';
+      exportName: string;
+      jobName?: string;
+      scheduleTime: string;
+      startedAt: number;
+      durationMs: number;
+      retryConfig: Record<string, number>;
+      error: SerializedFunctionsError;
+    }
+  | {
+      type: 'trigger-scheduled-result';
+      requestId: string;
+      outcome: 'not-found';
+      exportName: string;
+    }
+  | {
+      type: 'trigger-scheduled-result';
+      requestId: string;
+      outcome: 'invalid-argument';
+      exportName: string;
+      message: string;
+    };
 
 export type FunctionsChildMessage =
   | ({ type: 'ready' } & FunctionsChildReadyMessage)
   | FunctionsChildEvent
+  | TriggerScheduledChildResult
   | { type: 'fatal'; error: SerializedFunctionsError }
   /** Sent every HEARTBEAT_INTERVAL_MS while the child's event loop runs. */
   | { type: 'heartbeat' }
@@ -86,4 +139,12 @@ export function serializeError(error: unknown): SerializedFunctionsError {
 
 export function isChildMessage(value: unknown): value is FunctionsChildMessage {
   return typeof value === 'object' && value !== null && 'type' in value;
+}
+
+export function isHostMessage(value: unknown): value is FunctionsHostMessage {
+  if (typeof value !== 'object' || value === null || !('type' in value)) {
+    return false;
+  }
+  const kind = (value as { type?: unknown }).type;
+  return kind === 'stop' || kind === 'trigger-scheduled';
 }
