@@ -1,8 +1,8 @@
 /**
- * Backend configuration classes for `pyric/ai`, mirroring the installed
- * `@firebase/ai@2.12.0`: an abstract {@link Backend} carrying
- * `backendType`, with {@link GoogleAIBackend} (the default) and
- * {@link VertexAIBackend} (location defaults to `us-central1`).
+ * Backend configuration classes for `pyric/ai`, mirroring `@firebase/ai`:
+ * an abstract {@link Backend} carrying `backendType`, with
+ * {@link GoogleAIBackend} (the default) and {@link VertexAIBackend} (location
+ * defaults to `us-central1`).
  *
  * In the sandbox mirror the backend is a pure configuration marker; the
  * broker answers in-process either way. Production imports load Firebase's
@@ -13,6 +13,7 @@ const DEFAULT_LOCATION = 'us-central1';
 
 /** Identifies which backend service the SDK communicates with. */
 export const BackendType = {
+  AGENT_PLATFORM: 'AGENT_PLATFORM',
   VERTEX_AI: 'VERTEX_AI',
   GOOGLE_AI: 'GOOGLE_AI',
 } as const;
@@ -20,7 +21,7 @@ export type BackendType = (typeof BackendType)[keyof typeof BackendType];
 
 /**
  * Abstract base class representing the configuration for an AI service
- * backend. Do not instantiate directly — use {@link GoogleAIBackend} or
+ * backend. Do not instantiate directly -- use {@link GoogleAIBackend} or
  * {@link VertexAIBackend}.
  */
 export abstract class Backend {

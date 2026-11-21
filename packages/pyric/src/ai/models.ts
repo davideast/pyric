@@ -1,7 +1,7 @@
 /**
  * Model classes for `pyric/ai` sandbox targets: {@link AIModel},
  * {@link GenerativeModel}, {@link ChatSessionBase}, {@link ChatSession}.
- * Production never reaches these — unswapped `firebase/ai` imports load the
+ * Production never reaches these -- unswapped `firebase/ai` imports load the
  * installed SDK before this sandbox-only package can enter the graph.
  *
  * Behavior tracks the installed `@firebase/ai@2.12.0` with two pinned
@@ -9,7 +9,7 @@
  *
  *   - `sendMessageStream` implements the 2.13.0 FIXED single-user-turn
  *     semantics, not the installed duplicate-turn bug (ruling #99.3).
- *   - Blocked prompts leave NO trace in history — `getHistory()`'s
+ *   - Blocked prompts leave NO trace in history -- `getHistory()`'s
  *     documented contract ("Blocked prompts are not added to history"),
  *     which the installed implementation violates by concatenating the user
  *     turn unconditionally.
@@ -40,7 +40,16 @@ import {
   type SingleRequestOptions,
 } from './sandbox-plane.js';
 import { targetOf } from './target.js';
-import type { AI, AITarget } from './types.js';
+import type {
+  AI,
+  AITarget,
+  Content,
+  GenerationConfig,
+  Part,
+  SafetySetting,
+  Tool,
+  ToolConfig,
+} from './types.js';
 import type { CountTokensResponse, WireCandidate } from './broker/index.js';
 
 export interface RequestOptions {
@@ -50,22 +59,22 @@ export interface RequestOptions {
 }
 
 export interface BaseParams {
-  safetySettings?: unknown[];
-  generationConfig?: Record<string, unknown>;
+  safetySettings?: SafetySetting[];
+  generationConfig?: GenerationConfig;
 }
 
 export interface ModelParams extends BaseParams {
   model: string;
-  tools?: unknown[];
-  toolConfig?: unknown;
-  systemInstruction?: string | ContentShape | { text?: string };
+  tools?: Tool[];
+  toolConfig?: ToolConfig;
+  systemInstruction?: string | Part | Content;
 }
 
 export interface StartChatParams extends BaseParams {
-  history?: ContentShape[];
-  tools?: unknown[];
-  toolConfig?: unknown;
-  systemInstruction?: string | ContentShape | { text?: string };
+  history?: Content[];
+  tools?: Tool[];
+  toolConfig?: ToolConfig;
+  systemInstruction?: string | Part | Content;
 }
 
 /** Base class for AI model APIs; holds the normalized model resource name. */
@@ -106,7 +115,7 @@ export abstract class AIModel {
 }
 
 /** Client-side GenerationConfig pitfall check (upstream `validateGenerationConfig`). */
-function validateGenerationConfig(generationConfig: Record<string, unknown>): void {
+function validateGenerationConfig(generationConfig: GenerationConfig | Record<string, unknown>): void {
   const thinkingConfig = generationConfig.thinkingConfig as
     | { thinkingBudget?: unknown; thinkingLevel?: unknown }
     | undefined;
@@ -120,11 +129,11 @@ function validateGenerationConfig(generationConfig: Record<string, unknown>): vo
 
 /** Class for generative model APIs on a sandbox target. */
 export class GenerativeModel extends AIModel {
-  readonly generationConfig: Record<string, unknown>;
-  readonly safetySettings: unknown[];
-  readonly tools?: unknown[];
-  readonly toolConfig?: unknown;
-  readonly systemInstruction?: ContentShape;
+  readonly generationConfig: GenerationConfig;
+  readonly safetySettings: SafetySetting[];
+  readonly tools?: Tool[];
+  readonly toolConfig?: ToolConfig;
+  readonly systemInstruction?: Content;
   readonly requestOptions: RequestOptions;
 
   private readonly target: AITarget;
@@ -142,7 +151,7 @@ export class GenerativeModel extends AIModel {
     this.toolConfig = modelParams.toolConfig;
     this.systemInstruction = formatSystemInstruction(
       modelParams.systemInstruction as string | ContentShape | undefined,
-    );
+    ) as Content | undefined;
     this.requestOptions = requestOptions ?? {};
   }
 
@@ -220,7 +229,7 @@ export class GenerativeModel extends AIModel {
 
 /**
  * Base class for chat sessions: history storage and the sequential-send
- * guarantee (`_sendPromise` chain, upstream pattern — later sends and
+ * guarantee (`_sendPromise` chain, upstream pattern -- later sends and
  * `getHistory()` observe earlier turns in order).
  */
 export abstract class ChatSessionBase {
@@ -230,7 +239,7 @@ export abstract class ChatSessionBase {
   /**
    * Chat history so far. Blocked prompts leave no trace: neither blocked
    * candidates nor the prompts that generated them are recorded. Returns a
-   * defensive clone — mutations never corrupt the session.
+   * defensive clone -- mutations never corrupt the session.
    */
   async getHistory(): Promise<ContentShape[]> {
     await this._sendPromise;
@@ -277,13 +286,13 @@ export class ChatSession extends ChatSessionBase {
     this.params = params;
     this.requestOptions = requestOptions;
     if (params?.history) {
-      validateChatHistory(params.history);
-      this._history = structuredClone(params.history);
+      validateChatHistory(params.history as unknown as ContentShape[]);
+      this._history = structuredClone(params.history as unknown as ContentShape[]);
     }
     if (this.params !== undefined && this.params.systemInstruction != null) {
       const formattedSystemInstruction = formatSystemInstruction(
         this.params.systemInstruction as string | ContentShape,
-      );
+      ) as unknown as Content | undefined;
       this.params = {
         ...this.params,
         systemInstruction: formattedSystemInstruction,
@@ -336,7 +345,7 @@ export class ChatSession extends ChatSessionBase {
   }
 
   /**
-   * Streaming chat turn — 2.13.0 FIXED semantics: the incoming content is
+   * Streaming chat turn -- 2.13.0 FIXED semantics: the incoming content is
    * threaded into the request exactly once, and exactly one user turn lands
    * in history per call (registry row ai#chat-stream-single-user-turn).
    */

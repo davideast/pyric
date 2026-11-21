@@ -165,6 +165,23 @@ export type {
   VoiceConfig,
 } from './types-live.js';
 
+export type {
+  AgentPlatformBackend,
+  ChromeAdapter,
+  HybridParams,
+  LanguageModelCreateCoreOptions,
+  LanguageModelCreateOptions,
+  LanguageModelDownloadMonitor,
+  LanguageModelExpected,
+  LanguageModelMessage,
+  LanguageModelMessageContent,
+  LanguageModelMessageContentValue,
+  LanguageModelMessageRole,
+  LanguageModelMessageType,
+  LanguageModelPromptOptions,
+  OnDeviceParams,
+} from './types-hybrid.js';
+
 export {
   InferenceMode,
   InferenceSource,
