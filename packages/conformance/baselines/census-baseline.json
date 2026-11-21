@@ -3,17 +3,7 @@
   "generatedFrom": "deriveConformanceModel().census",
   "runtime": {},
   "types": {
-    "ai": [
-      "RetrievedContextAttribution",
-      "StartTemplateChatParams",
-      "TemplateChatSession",
-      "TemplateFunctionDeclaration",
-      "TemplateFunctionDeclarationsTool",
-      "TemplateGenerativeModel",
-      "TemplateTool",
-      "TemplateToolConfig",
-      "WebAttribution"
-    ],
+    "ai": [],
     "app": [],
     "auth": [],
     "firestore": [
