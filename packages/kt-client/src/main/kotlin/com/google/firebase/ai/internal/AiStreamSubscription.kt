@@ -58,6 +58,7 @@ internal object AiStreamSubscription {
         val firstSnapReceived = AtomicBoolean(false)
         val terminalReached = AtomicBoolean(false)
         val transportRef = AtomicReference<BridgeTransport?>(null)
+        val stateLock = Any()
 
         val appCheckClaim = try {
             appCheckClaimProvider?.invoke()
@@ -96,51 +97,67 @@ internal object AiStreamSubscription {
         }
 
         fun trySendSub() {
-            val activeTransport = transportRef.get() ?: return
-            if (terminalReached.get() || !attachAcked.get()) return
-            if (!subSent.compareAndSet(false, true)) return
+            var failureMessage: String? = null
+            var failureCause: Throwable? = null
+            synchronized(stateLock) {
+                val activeTransport = transportRef.get() ?: return
+                if (terminalReached.get() || !attachAcked.get()) return
+                if (!subSent.compareAndSet(false, true)) return
 
-            val subPayload = LinkedHashMap<String, Any?>()
-            subPayload["target"] = mapOf(
-                "service" to "ai",
-                "op" to "streamGenerateContent"
-            )
-            subPayload["model"] = model
-            subPayload["request"] = request
-            if (engine != null) {
-                subPayload["engine"] = engine
-            }
-            if (appCheckClaim != null) {
-                subPayload["appCheck"] = appCheckClaim
-                val tokenValue = appCheckClaim["token"] as? String
-                if (!tokenValue.isNullOrEmpty()) {
-                    subPayload["appCheckToken"] = tokenValue
+                val subPayload = LinkedHashMap<String, Any?>()
+                subPayload["target"] = mapOf(
+                    "service" to "ai",
+                    "op" to "streamGenerateContent"
+                )
+                subPayload["model"] = model
+                subPayload["request"] = request
+                if (engine != null) {
+                    subPayload["engine"] = engine
+                }
+                if (appCheckClaim != null) {
+                    subPayload["appCheck"] = appCheckClaim
+                    val tokenValue = appCheckClaim["token"] as? String
+                    if (!tokenValue.isNullOrEmpty()) {
+                        subPayload["appCheckToken"] = tokenValue
+                    }
+                }
+
+                try {
+                    val subJson = JsonCodec.encodeToString(BridgeProtocol.createWorkerSubFrame(subId, subPayload))
+                    val enqueued = activeTransport.send(subJson)
+                    if (!enqueued) {
+                        failureMessage = "Failed to enqueue AI stream subscription frame."
+                    }
+                } catch (t: Throwable) {
+                    failureMessage = "Failed to send AI stream subscription: ${t.message}"
+                    failureCause = t
                 }
             }
-
-            try {
-                val subJson = JsonCodec.encodeToString(BridgeProtocol.createWorkerSubFrame(subId, subPayload))
-                val enqueued = activeTransport.send(subJson)
-                if (!enqueued) {
-                    failStream("UNAVAILABLE", "Failed to enqueue AI stream subscription frame.")
-                }
-            } catch (t: Throwable) {
-                failStream("UNAVAILABLE", "Failed to send AI stream subscription: ${t.message}", null, t)
+            if (failureMessage != null) {
+                failStream("UNAVAILABLE", failureMessage!!, null, failureCause)
             }
         }
 
         fun trySendAttach() {
-            val activeTransport = transportRef.get() ?: return
-            if (terminalReached.get()) return
-            if (!attachSent.compareAndSet(false, true)) return
-            try {
-                val attachJson = JsonCodec.encodeToString(BridgeProtocol.createAttachFrame())
-                val enqueued = activeTransport.send(attachJson)
-                if (!enqueued) {
-                    failStream("UNAVAILABLE", "Failed to enqueue attach frame to Pyric bridge.")
+            var failureMessage: String? = null
+            var failureCause: Throwable? = null
+            synchronized(stateLock) {
+                val activeTransport = transportRef.get() ?: return
+                if (terminalReached.get()) return
+                if (!attachSent.compareAndSet(false, true)) return
+                try {
+                    val attachJson = JsonCodec.encodeToString(BridgeProtocol.createAttachFrame())
+                    val enqueued = activeTransport.send(attachJson)
+                    if (!enqueued) {
+                        failureMessage = "Failed to enqueue attach frame to Pyric bridge."
+                    }
+                } catch (t: Throwable) {
+                    failureMessage = "Failed to send attach frame: ${t.message}"
+                    failureCause = t
                 }
-            } catch (t: Throwable) {
-                failStream("UNAVAILABLE", "Failed to send attach frame: ${t.message}", null, t)
+            }
+            if (failureMessage != null) {
+                failStream("UNAVAILABLE", failureMessage!!, null, failureCause)
             }
         }
 
@@ -289,18 +306,20 @@ internal object AiStreamSubscription {
 
         awaitClose {
             firstResponseTimeoutJob.cancel()
-            terminalReached.set(true)
-            val activeTransport = transportRef.get()
-            if (activeTransport != null) {
-                if (subSent.get() && unsubSent.compareAndSet(false, true)) {
+            synchronized(stateLock) {
+                terminalReached.set(true)
+                val activeTransport = transportRef.get()
+                if (activeTransport != null) {
+                    if (subSent.get() && unsubSent.compareAndSet(false, true)) {
+                        try {
+                            val unsubJson = JsonCodec.encodeToString(BridgeProtocol.createWorkerUnsubFrame(subId))
+                            activeTransport.send(unsubJson)
+                        } catch (_: Throwable) {}
+                    }
                     try {
-                        val unsubJson = JsonCodec.encodeToString(BridgeProtocol.createWorkerUnsubFrame(subId))
-                        activeTransport.send(unsubJson)
+                        activeTransport.close(1000, "AI stream closed")
                     } catch (_: Throwable) {}
                 }
-                try {
-                    activeTransport.close(1000, "AI stream closed")
-                } catch (_: Throwable) {}
             }
         }
     }.buffer(Channel.UNLIMITED)
