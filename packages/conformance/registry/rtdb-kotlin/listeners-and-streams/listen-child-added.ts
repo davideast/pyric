@@ -7,5 +7,6 @@ export default row({
   behavior: 'Emits ChildEvent.Added for each existing child and whenever a new child is added.',
   featureKeys: ['onChildAdded'],
   status: 'conforms',
+  oracleObservations: ['rtdb-kotlin-listeners-transactions-connection-and-ondisconnect'],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

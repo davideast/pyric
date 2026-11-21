@@ -8,5 +8,6 @@ export default row({
   featureKeys: ['onDisconnectSetRemove'],
   evidence: 'com.google.firebase:firebase-database specification. The Node host runs the operations when the client socket closes, by a close frame or after the host closes a socket that pinged and went silent, and keeps the session signed in for re-attach (ADR-0019): `packages/cli/test/serve/fixtures/hosted-sqlite-relay-ondisconnect.ts`. The app scenario `test/apps/host-closes-silent-consumer` sends the same `rtdb.onDisconnectSet` from a paused `node --import @pyric/cli/register` process on a real dev server, and the host runs it once the liveness window passes.',
   status: 'conforms',
+  oracleObservations: ['rtdb-kotlin-listeners-transactions-connection-and-ondisconnect'],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

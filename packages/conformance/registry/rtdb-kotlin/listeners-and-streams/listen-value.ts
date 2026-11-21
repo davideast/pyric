@@ -7,5 +7,6 @@ export default row({
   behavior: 'Emits DataSnapshot initially and upon any data change at the path via Kotlin Flow or listener.',
   featureKeys: ['snapshots', 'addValueEventListener'],
   status: 'conforms',
+  oracleObservations: ['rtdb-kotlin-listeners-transactions-connection-and-ondisconnect'],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

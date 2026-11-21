@@ -7,5 +7,6 @@ export default row({
   behavior: 'Returns the last path segment token of the reference, or null for the root reference.',
   featureKeys: ['key'],
   status: 'conforms',
+  oracleObservations: ['rtdb-kotlin-navigation-push-priorities-and-snapshots'],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

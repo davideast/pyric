@@ -7,5 +7,6 @@ export default row({
   behavior: 'Resolves server-side timestamp sentinel into current epoch milliseconds upon write.',
   featureKeys: ['serverTimestamp'],
   status: 'conforms',
+  oracleObservations: ['rtdb-kotlin-navigation-push-priorities-and-snapshots'],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

@@ -7,5 +7,6 @@ export default row({
   behavior: 'Suspends and resumes the Realtime Database connection to the Pyric worker. goOffline() also turns `.info/connected` false until goOnline().',
   featureKeys: ['goOffline', 'goOnline'],
   status: 'conforms',
+  oracleObservations: ['rtdb-kotlin-listeners-transactions-connection-and-ondisconnect'],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

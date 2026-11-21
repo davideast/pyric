@@ -7,5 +7,6 @@ export default row({
   behavior: 'Returns a DatabaseReference pointing to the root of the Realtime Database.',
   featureKeys: ['reference'],
   status: 'conforms',
+  oracleObservations: ['rtdb-kotlin-navigation-push-priorities-and-snapshots'],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

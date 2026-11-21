@@ -7,5 +7,6 @@ export default row({
   behavior: 'Updates the ordering priority metadata of the node without altering its value.',
   featureKeys: ['setPriority'],
   status: 'conforms',
+  oracleObservations: ['rtdb-kotlin-navigation-push-priorities-and-snapshots'],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

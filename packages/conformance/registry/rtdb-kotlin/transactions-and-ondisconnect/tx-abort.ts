@@ -7,5 +7,6 @@ export default row({
   behavior: 'Aborts an in-progress transaction without writing changes to the database.',
   featureKeys: ['transactionAbort'],
   status: 'conforms',
+  oracleObservations: ['rtdb-kotlin-listeners-transactions-connection-and-ondisconnect'],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

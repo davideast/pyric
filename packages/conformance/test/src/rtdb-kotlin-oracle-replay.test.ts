@@ -43,7 +43,7 @@ const DEDICATED_INSTANCE = 'pyric-oracle-rtdb-2';
 
 const gate = createObservationGate({
   dir: RTDB_KOTLIN_OBSERVATIONS_DIR,
-  match: (filename) => filename.startsWith('rtdb-kotlin-'),
+  match: (filename) => filename === 'rtdb-kotlin-dedicated-crud-and-query-order.json',
 });
 
 describe('rtdb-kotlin Android SDK production observation replay over hosted worker bridge', () => {

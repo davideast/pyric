@@ -7,5 +7,6 @@ export default row({
   behavior: 'Orders query results lexicographically by child key name.',
   featureKeys: ['orderByKey'],
   status: 'conforms',
+  oracleObservations: ['rtdb-kotlin-queries-ranges-limits-and-permission-denied'],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

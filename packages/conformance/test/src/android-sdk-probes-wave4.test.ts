@@ -32,6 +32,9 @@ import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 
 const STAGED_ANDROID_WAVE4_PROBES = [
   'auth-kotlin-instance-linking-reauth-and-oauth-credentials',
+] as const;
+
+const LINKED_RTDB_WAVE4_PROBES = [
   'rtdb-kotlin-listeners-transactions-connection-and-ondisconnect',
   'rtdb-kotlin-navigation-push-priorities-and-snapshots',
   'rtdb-kotlin-queries-ranges-limits-and-permission-denied',
@@ -77,15 +80,21 @@ describe('Wave 4 android-sdk-probes auth-kotlin and rtdb-kotlin Robolectric prob
     const rtdbWave4Descriptors = [rtdbWave4NavProbe, rtdbWave4QueriesProbe, rtdbWave4LiveProbe];
     for (const descriptor of rtdbWave4Descriptors) {
       expect(descriptor.rig).toBe('android-sdk-probes');
-      expect(descriptor.pendingRowLink).toBe(true);
-      expect(descriptor.matrixRow).toBe('');
-      expect(descriptor.rowIds).toEqual([]);
+      expect(descriptor.pendingRowLink).toBeUndefined();
+      expect(descriptor.matrixRow.startsWith('rtdb-kotlin#')).toBe(true);
+      expect(descriptor.rowIds.length).toBeGreaterThan(0);
       expect(descriptor.requires).toEqual(['web-config', 'dedicated-rtdb', 'admin-auth']);
     }
+    expect(rtdbWave4NavProbe.matrixRow).toBe('rtdb-kotlin#ref-push');
+    expect(rtdbWave4NavProbe.rowIds.length).toBe(11);
+    expect(rtdbWave4QueriesProbe.matrixRow).toBe('rtdb-kotlin#query-order-by-key');
+    expect(rtdbWave4QueriesProbe.rowIds.length).toBe(5);
+    expect(rtdbWave4LiveProbe.matrixRow).toBe('rtdb-kotlin#tx-run');
+    expect(rtdbWave4LiveProbe.rowIds.length).toBe(10);
 
     const loaded = await loadModularProbes('android-sdk-probes');
     const loadedIds = new Set(loaded.map((entry) => entry.id));
-    for (const expectedId of STAGED_ANDROID_WAVE4_PROBES) {
+    for (const expectedId of [...STAGED_ANDROID_WAVE4_PROBES, ...LINKED_RTDB_WAVE4_PROBES]) {
       expect(loadedIds.has(expectedId)).toBe(true);
       expect(runnerKotlin).toContain(`"${expectedId}" ->`);
     }
@@ -122,6 +131,13 @@ describe('Wave 4 android-sdk-probes auth-kotlin and rtdb-kotlin Robolectric prob
     expect(pr1Problems).toEqual([]);
 
     const byName = new Map(currentObservations.map((obs) => [obs.name, obs]));
+    for (const linkedRtdbName of LINKED_RTDB_WAVE4_PROBES) {
+      const committed = byName.get(linkedRtdbName);
+      expect(committed).toBeDefined();
+      expect(committed?.androidBomVersion).toBe('35.2.0');
+      expect(committed?.matrixRow.startsWith('rtdb-kotlin#')).toBe(true);
+      expect(committed?.rowIds.length).toBeGreaterThan(0);
+    }
     for (const stagedName of STAGED_ANDROID_WAVE4_PROBES) {
       let surfaceDir = 'rtdb-kotlin';
       if (stagedName.startsWith('auth-kotlin-')) {
