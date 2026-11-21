@@ -168,7 +168,10 @@ describe('beforeUserSignedIn lifecycle, sessionClaims isolation, and rejection p
     const sandbox = initializeSandbox();
     const auth = getAuth(sandbox);
     const db = getFirestore(sandbox);
-    const adminApp = initializeAdminApp({ sandbox }, 'admin-signin-test-1');
+    const adminApp = initializeAdminApp(
+      { sandbox, projectId: 'pyric-sandbox' },
+      'admin-signin-test-1',
+    );
     const adminAuth = getAdminAuth(adminApp);
 
     setFirestoreRules(
@@ -304,7 +307,10 @@ describe('beforeUserSignedIn lifecycle, sessionClaims isolation, and rejection p
   test('rejects on HttpsError, reserved claims, and >1000-char combined claims without mutating existing user or issuing session', async () => {
     const sandbox = initializeSandbox();
     const auth = getAuth(sandbox);
-    const adminApp = initializeAdminApp({ sandbox }, 'admin-signin-test-2');
+    const adminApp = initializeAdminApp(
+      { sandbox, projectId: 'pyric-sandbox' },
+      'admin-signin-test-2',
+    );
     const adminAuth = getAdminAuth(adminApp);
     authSandbox.setAuthProviderConfig(auth, 'google.com', true);
     authSandbox.createUser(auth, {
