@@ -1,0 +1,15 @@
+{
+  "schema": "pyric.conformance.surface.v2",
+  "kind": "integration",
+  "developerSurface": "ai-flutter",
+  "contractSource": "firebase_ai",
+  "observationPrefixes": [
+    "ai-flutter-"
+  ],
+  "coverage": true,
+  "scopeNote": "integration contract: Pure-Dart Flutter client (pyric_ai) conforming to firebase_ai via the Pyric WebSocket bridge and AiBroker. Covers FirebaseAI.googleAI and FirebaseAI.vertexAI per-app/location/limited-use caching and useAIEmulator, GenerativeModel unary generateContent and countTokens, multimodal InlineDataPart and multi-candidate decoding, ThoughtPart thoughtSummary separation and UsageMetadata token counts, Schema DSL structured JSON and FunctionCallingConfig tool loops, Stream<GenerateContentResponse> streaming with worker-unsub cancellation, FIFO-serialized multi-turn ChatSession history rollback, RS256 App Check enforcement, and FirebaseAIException / QuotaExceeded / ServerException mapping.",
+  "captureRigs": [],
+  "conformanceSuite": "packages/flutter-client/test/ai/firebase_ai_test.dart",
+  "climb": true,
+  "registry": "ai-flutter"
+}

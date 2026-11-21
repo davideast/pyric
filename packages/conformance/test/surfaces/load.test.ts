@@ -16,10 +16,10 @@ import surfaceContractJsonSchema from '../../schemas/surface-contract.v2.schema.
 
 describe('machine-readable surface contracts', () => {
   it('loads every authored contract through one schema-validated seam', () => {
-    expect(surfaceContracts).toHaveLength(41);
+    expect(surfaceContracts).toHaveLength(44);
     expect(surfaceContracts.map(({ key }) => key)).toEqual(surfaceContracts.map(({ key }) => key).toSorted());
     expect(surfaceContracts.every(({ record }) => !('order' in record))).toBe(true);
-    expect(surfaceDescriptors).toHaveLength(39);
+    expect(surfaceDescriptors).toHaveLength(42);
     expect(loadCensusPairs()).toHaveLength(10);
     expect(loadSurfaceDispositions()).toHaveLength(32);
   });
@@ -61,7 +61,8 @@ describe('machine-readable surface contracts', () => {
 
   it('derives developer surfaces from self-owned records and rejects unknown aliases', () => {
     expect(developerSurfaces).toEqual([
-      'ai', 'app', 'app-check', 'app-check-admin', 'app-check-flutter', 'app-check-kotlin', 'app-check-swift',
+      'ai', 'ai-flutter', 'ai-kotlin', 'ai-swift',
+      'app', 'app-check', 'app-check-admin', 'app-check-flutter', 'app-check-kotlin', 'app-check-swift',
       'auth', 'auth-admin', 'auth-flutter', 'auth-kotlin', 'auth-swift',
       'firestore', 'firestore-admin', 'firestore-flutter', 'firestore-kotlin', 'firestore-rules', 'firestore-swift',
       'functions-callable', 'functions-flutter', 'functions-http', 'functions-kotlin', 'functions-rtdb', 'functions-swift',

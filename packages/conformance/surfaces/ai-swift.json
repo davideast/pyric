@@ -1,0 +1,15 @@
+{
+  "schema": "pyric.conformance.surface.v2",
+  "kind": "integration",
+  "developerSurface": "ai-swift",
+  "contractSource": "FirebaseAILogic",
+  "observationPrefixes": [
+    "ai-swift-"
+  ],
+  "coverage": true,
+  "scopeNote": "integration contract: Pure-Swift client (PyricAI) conforming to FirebaseAILogic via the Pyric WebSocket bridge and AiBroker. Covers FirebaseAI per-app/backend/limited-use singletons, Backend (googleAI, vertexAI, agentPlatform) model resource normalization, GenerativeModel unary generateContent and countTokens, ThinkingConfig thoughtSummary separation and UsageMetadata decoding, Schema DSL structured JSON and FunctionCallingConfig tool loops, AsyncThrowingStream<GenerateContentResponse, any Error> streaming with worker-unsub cancellation, actor-serialized multi-turn Chat history rollback, RS256 App Check enforcement, and GenerateContentError / BackendError mapping.",
+  "captureRigs": [],
+  "conformanceSuite": "packages/swift-client/Tests/PyricAITests/PyricAIUnitTests.swift",
+  "climb": true,
+  "registry": "ai-swift"
+}
