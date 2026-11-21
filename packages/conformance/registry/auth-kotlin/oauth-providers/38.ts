@@ -5,5 +5,8 @@ export default row({
   api: 'OAuthProvider.getCredential(providerId, idToken, accessToken)',
   behavior: 'Creates an OAuthCredential for a generic OAuth provider (e.g. "apple.com", "github.com") encapsulating providerId, idToken, accessToken, and rawNonce.',
   featureKeys: ['OAuthProvider', 'getCredential'],
-  flipped: 'live-host',
+  flipped: 'oracle-backed',
+  oracleObservations: [
+    'auth-kotlin-instance-linking-reauth-and-oauth-credentials',
+  ],
 });

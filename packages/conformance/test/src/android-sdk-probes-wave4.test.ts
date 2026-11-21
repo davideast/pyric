@@ -84,6 +84,9 @@ describe('Wave 4 android-sdk-probes auth-kotlin and rtdb-kotlin Robolectric prob
       'auth-kotlin#19',
       'auth-kotlin#23',
       'auth-kotlin#32',
+      'auth-kotlin#37',
+      'auth-kotlin#38',
+      'auth-kotlin#39',
     ]);
     expect(authWave4LinkingProbe.requires).toEqual(['web-config', 'admin-auth']);
 
@@ -150,7 +153,7 @@ describe('Wave 4 android-sdk-probes auth-kotlin and rtdb-kotlin Robolectric prob
       expect(committed).toBeDefined();
       expect(committed?.androidBomVersion).toBe('35.2.0');
       expect(committed?.matrixRow).toBe('auth-kotlin#1');
-      expect(committed?.rowIds.length).toBe(7);
+      expect(committed?.rowIds.length).toBe(10);
     }
     for (const linkedRtdbName of LINKED_RTDB_WAVE4_PROBES) {
       const committed = byName.get(linkedRtdbName);

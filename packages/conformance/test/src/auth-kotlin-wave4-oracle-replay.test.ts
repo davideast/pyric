@@ -1,195 +1,34 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { mintCustomToken } from 'pyric/sandbox/internal';
-import { REPO_ROOT } from '../../src/ledger.ts';
 import { createObservationGate } from '../../src/observation-gate.ts';
+import {
+  AUTH_KOTLIN_OBSERVATIONS_DIR,
+  buildUnsignedOidcJwt,
+  KT_AUTH_CREDENTIAL_PATH,
+  KT_AUTH_KTX_PATH,
+  KT_EMAIL_AUTH_PROVIDER_PATH,
+  KT_FIREBASE_AUTH_PATH,
+  KT_FIREBASE_USER_PATH,
+  KT_GOOGLE_AUTH_CREDENTIAL_PATH,
+  KT_GOOGLE_AUTH_PROVIDER_PATH,
+  KT_LIVE_HOST_AUTH_TEST_PATH,
+  KT_OAUTH_CREDENTIAL_PATH,
+  KT_OAUTH_PROVIDER_PATH,
+  OBSERVATION_STEM,
+  summarizeKotlinProviderData,
+  type AuthKotlinWave4Observation,
+  type HostedUserWire,
+} from './auth-kotlin-wave4-replay-support.ts';
 import { openHostedKotlinBridge } from './kotlin-hosted-bridge-harness.ts';
-
-interface ProviderEntrySummary {
-  providerId: string;
-  uidNonBlank: boolean;
-  uidEqualsUserUid: boolean;
-  emailMatchesExpected: boolean;
-  emailIsNull: boolean;
-  phoneNumberIsNull: boolean;
-}
-
-interface Wave4AuthFailureOutcome {
-  threw: boolean;
-  exceptionClass: string;
-  isCollisionSubclass: boolean;
-  errorCode?: string;
-  alreadyLinkedProviderMessage?: boolean;
-}
-
-interface AuthKotlinWave4Observation {
-  defaultAuthSameAsFirebaseKtx: boolean;
-  defaultAuthAppIsDefault: boolean;
-  namedAuthSameAsFirebaseKtx: boolean;
-  authAppMatchesInitializedApp: boolean;
-  initialTenantIdNull: boolean;
-  configuredTenantId: string;
-  separateAppTenantIdNull: boolean;
-  explicitLanguageCode: string;
-  afterUseAppLanguageValid: boolean;
-  anonymousPhoneNumberNull: boolean;
-  anonymousProviderEntries: ProviderEntrySummary[];
-  linkPreservedUid: boolean;
-  linkedIsAnonymous: boolean;
-  linkedEmailMatches: boolean;
-  linkedPhoneNumberNull: boolean;
-  linkedProviderEntries: ProviderEntrySummary[];
-  linkCollision: Wave4AuthFailureOutcome;
-  alreadyLinkedProvider: Wave4AuthFailureOutcome;
-  reauthenticatePreservedUid: boolean;
-  updatedPasswordCredentialSameUid: boolean;
-  unlinkedProviderIds: string[];
-  googleCredentialProvider: string;
-  googleCredentialSignInMethod: string;
-  githubOAuthProvider: string;
-  githubOAuthSignInMethod: string;
-  githubOAuthHasIdAndAccessTokens: boolean;
-  appleOAuthProvider: string;
-  appleOAuthHasIdAndAccessTokens: boolean;
-  googleSyntheticSignInOutcome: Wave4AuthFailureOutcome;
-  appleSyntheticSignInOutcome: Wave4AuthFailureOutcome;
-}
-
-interface HostedUserWire {
-  uid: string;
-  email: string | null;
-  phoneNumber: string | null;
-  isAnonymous: boolean;
-  providerId?: string;
-  tenantId?: string | null;
-  providerData?: Array<{
-    uid?: string;
-    email?: string | null;
-    phoneNumber?: string | null;
-    providerId?: string;
-  }>;
-}
-
-const OBSERVATION_STEM = 'auth-kotlin-instance-linking-reauth-and-oauth-credentials';
-
-const AUTH_KOTLIN_OBSERVATIONS_DIR = join(
-  REPO_ROOT,
-  'packages',
-  'conformance',
-  'observations',
-  'auth-kotlin',
-);
-
-const KT_FIREBASE_AUTH_PATH = join(
-  REPO_ROOT,
-  'packages',
-  'kt-client',
-  'src',
-  'main',
-  'kotlin',
-  'com',
-  'google',
-  'firebase',
-  'auth',
-  'FirebaseAuth.kt',
-);
-
-const KT_AUTH_KTX_PATH = join(
-  REPO_ROOT,
-  'packages',
-  'kt-client',
-  'src',
-  'main',
-  'kotlin',
-  'com',
-  'google',
-  'firebase',
-  'auth',
-  'Auth.kt',
-);
-
-const KT_FIREBASE_USER_PATH = join(
-  REPO_ROOT,
-  'packages',
-  'kt-client',
-  'src',
-  'main',
-  'kotlin',
-  'com',
-  'google',
-  'firebase',
-  'auth',
-  'FirebaseUser.kt',
-);
-
-const KT_LIVE_HOST_AUTH_TEST_PATH = join(
-  REPO_ROOT,
-  'packages',
-  'kt-client',
-  'src',
-  'test',
-  'kotlin',
-  'dev',
-  'pyric',
-  'e2e',
-  'AuthLiveHostConformanceTest.kt',
-);
 
 const gate = createObservationGate({
   dir: AUTH_KOTLIN_OBSERVATIONS_DIR,
   match: (filename) => filename === `${OBSERVATION_STEM}.json`,
 });
 
-function summarizeKotlinProviderData(
-  user: HostedUserWire,
-  expectedEmail: string | null,
-): ProviderEntrySummary[] {
-  const masterEntry: ProviderEntrySummary = {
-    providerId: 'firebase',
-    uidNonBlank: user.uid.trim().length > 0,
-    uidEqualsUserUid: true,
-    emailMatchesExpected: expectedEmail !== null && user.email === expectedEmail,
-    emailIsNull: user.email === null,
-    phoneNumberIsNull: user.phoneNumber === null,
-  };
-  const linkedEntries: ProviderEntrySummary[] = [];
-  if (Array.isArray(user.providerData)) {
-    for (const raw of user.providerData) {
-      let providerId = '';
-      if (typeof raw.providerId === 'string') {
-        providerId = raw.providerId;
-      }
-      if (providerId === 'firebase') {
-        continue;
-      }
-      let entryUid = '';
-      if (typeof raw.uid === 'string') {
-        entryUid = raw.uid;
-      }
-      let entryEmail: string | null = null;
-      if (typeof raw.email === 'string') {
-        entryEmail = raw.email;
-      }
-      let entryPhone: string | null = null;
-      if (typeof raw.phoneNumber === 'string') {
-        entryPhone = raw.phoneNumber;
-      }
-      linkedEntries.push({
-        providerId,
-        uidNonBlank: entryUid.trim().length > 0,
-        uidEqualsUserUid: entryUid === user.uid,
-        emailMatchesExpected: expectedEmail !== null && entryEmail === expectedEmail,
-        emailIsNull: entryEmail === null,
-        phoneNumberIsNull: entryPhone === null,
-      });
-    }
-  }
-  return [masterEntry, ...linkedEntries];
-}
-
 describe('Wave 4 auth-kotlin Android SDK production observation replay over hosted worker bridge', () => {
-  test('auth-kotlin#1 auth-kotlin#2 auth-kotlin#3 auth-kotlin#4 replay default/named FirebaseAuth, Firebase.auth KTX, app binding, and multi-tenant isolation', async () => {
+  test('auth-kotlin#1 auth-kotlin#2 auth-kotlin#3 auth-kotlin#4 replay default/named FirebaseAuth, Firebase.auth KTX, app binding, languageCode, and multi-tenant isolation', async () => {
     const obs = gate.load<AuthKotlinWave4Observation>(OBSERVATION_STEM);
     const ktAuthSource = readFileSync(KT_FIREBASE_AUTH_PATH, 'utf8');
     const ktKtxSource = readFileSync(KT_AUTH_KTX_PATH, 'utf8');
@@ -201,6 +40,8 @@ describe('Wave 4 auth-kotlin Android SDK production observation replay over host
     expect(obs.authAppMatchesInitializedApp).toBe(true);
     expect(obs.initialTenantIdNull).toBe(true);
     expect(obs.separateAppTenantIdNull).toBe(true);
+    expect(obs.explicitLanguageCode).toBe('de');
+    expect(obs.afterUseAppLanguageValid).toBe(true);
 
     expect(ktAuthSource).toContain(
       'fun getInstance(): FirebaseAuth = getInstance(FirebaseApp.getInstance())',
@@ -208,6 +49,8 @@ describe('Wave 4 auth-kotlin Android SDK production observation replay over host
     expect(ktAuthSource).toContain('fun getInstance(app: FirebaseApp): FirebaseAuth');
     expect(ktAuthSource).toContain('val app: FirebaseApp,');
     expect(ktAuthSource).toContain('var tenantId: String? = null');
+    expect(ktAuthSource).toContain('fun setLanguageCode(languageCode: String)');
+    expect(ktAuthSource).toContain('fun useAppLanguage()');
     expect(ktKtxSource).toContain('val Firebase.auth: FirebaseAuth');
     expect(ktKtxSource).toContain('get() = FirebaseAuth.getInstance()');
     expect(ktKtxSource).toContain('fun Firebase.auth(app: FirebaseApp): FirebaseAuth =');
@@ -388,7 +231,7 @@ describe('Wave 4 auth-kotlin Android SDK production observation replay over host
     }
   });
 
-  test('auth-kotlin#32 replays linkWithCredential email collision and error-code exception mapping on HostedRuntime and FirebaseAuth.wrapException', async () => {
+  test('auth-kotlin#32 replays linkWithCredential email collision, provider-already-linked, and error-code exception mapping on HostedRuntime and FirebaseAuth.wrapException', async () => {
     const obs = gate.load<AuthKotlinWave4Observation>(OBSERVATION_STEM);
     const ktAuthSource = readFileSync(KT_FIREBASE_AUTH_PATH, 'utf8');
 
@@ -405,6 +248,27 @@ describe('Wave 4 auth-kotlin Android SDK production observation replay over host
         password,
       });
       expect(seedRes.ok).toBe(true);
+      const seedUid = (seedRes.value as { user: HostedUserWire }).user.uid;
+
+      const alreadyLinkedRes = await harness.sendOp({
+        method: 'auth.linkWithCredential',
+        uid: seedUid,
+        tenantId: null,
+        credential: {
+          providerId: 'password',
+          signInMethod: 'password',
+          email: 'second-password@example.com',
+          password,
+        },
+      });
+      expect(alreadyLinkedRes.ok === false).toBe(obs.alreadyLinkedProvider.threw);
+      expect(obs.alreadyLinkedProvider.isCollisionSubclass).toBe(false);
+      expect(obs.alreadyLinkedProvider.alreadyLinkedProviderMessage).toBe(true);
+      expect(ktAuthSource).toContain('combined.contains("provider-already-linked", ignoreCase = true)');
+      expect(ktAuthSource).toContain(
+        `${obs.alreadyLinkedProvider.exceptionClass}("User has already been linked to the given provider.", e)`,
+      );
+
       expect((await harness.sendOp({ method: 'auth.signOut' })).ok).toBe(true);
 
       const anonRes = await harness.sendOp({ method: 'auth.signInAnonymously' });
@@ -434,14 +298,6 @@ describe('Wave 4 auth-kotlin Android SDK production observation replay over host
       );
       expect(ktAuthSource).toContain(`${obs.linkCollision.exceptionClass}(code, msg, e)`);
 
-      expect(obs.googleSyntheticSignInOutcome.threw).toBe(true);
-      expect(ktAuthSource).toContain(
-        `combined.contains("invalid-credential", ignoreCase = true) -> "${obs.googleSyntheticSignInOutcome.errorCode}"`,
-      );
-      expect(ktAuthSource).toContain(
-        `${obs.googleSyntheticSignInOutcome.exceptionClass}(code, msg, e)`,
-      );
-
       expect(obs.appleSyntheticSignInOutcome.threw).toBe(true);
       expect(ktAuthSource).toContain(
         `combined.contains("operation-not-allowed", ignoreCase = true) -> "${obs.appleSyntheticSignInOutcome.errorCode}"`,
@@ -449,6 +305,162 @@ describe('Wave 4 auth-kotlin Android SDK production observation replay over host
       expect(ktAuthSource).toContain(
         `else -> ${obs.appleSyntheticSignInOutcome.exceptionClass}(code, msg, e)`,
       );
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test('auth-kotlin#37 auth-kotlin#38 auth-kotlin#39 replay GoogleAuthProvider, OAuthProvider, and FirebaseAuth.signInWithCredential parity over HostedRuntime', async () => {
+    const obs = gate.load<AuthKotlinWave4Observation>(OBSERVATION_STEM);
+    const ktCredentialBase = readFileSync(KT_AUTH_CREDENTIAL_PATH, 'utf8');
+    const ktGoogleProvider = readFileSync(KT_GOOGLE_AUTH_PROVIDER_PATH, 'utf8');
+    const ktGoogleCredential = readFileSync(KT_GOOGLE_AUTH_CREDENTIAL_PATH, 'utf8');
+    const ktOAuthProvider = readFileSync(KT_OAUTH_PROVIDER_PATH, 'utf8');
+    const ktOAuthCredential = readFileSync(KT_OAUTH_CREDENTIAL_PATH, 'utf8');
+    const ktEmailProvider = readFileSync(KT_EMAIL_AUTH_PROVIDER_PATH, 'utf8');
+    const ktAuthSource = readFileSync(KT_FIREBASE_AUTH_PATH, 'utf8');
+
+    expect(ktCredentialBase).toContain('abstract val signInMethod: String');
+    expect(ktGoogleProvider).toContain(`const val PROVIDER_ID = "${obs.googleCredentialProvider}"`);
+    expect(ktGoogleProvider).toContain(
+      `const val GOOGLE_SIGN_IN_METHOD = "${obs.googleCredentialSignInMethod}"`,
+    );
+    expect(ktGoogleProvider).toContain('return GoogleAuthCredential(');
+    expect(ktGoogleCredential).toContain(': AuthCredential(GoogleAuthProvider.PROVIDER_ID)');
+    expect(ktGoogleCredential).toContain('Must specify an idToken or an accessToken.');
+    expect(ktGoogleCredential).toContain('"signInMethod" to signInMethod');
+
+    expect(obs.githubOAuthProvider).toBe('github.com');
+    expect(obs.githubOAuthSignInMethod).toBe('github.com');
+    expect(obs.githubOAuthHasIdAndAccessTokens).toBe(true);
+    expect(obs.appleOAuthProvider).toBe('apple.com');
+    expect(obs.appleOAuthHasIdAndAccessTokens).toBe(true);
+    expect(ktOAuthCredential).toContain('override val signInMethod: String = provider');
+    expect(ktOAuthCredential).toContain('open val secret: String? = null');
+    expect(ktOAuthProvider).toContain('val idToken: String?');
+    expect(ktOAuthProvider).toContain('val accessToken: String?');
+    expect(ktOAuthProvider).toContain('fun setIdTokenWithRawNonce(idToken: String, rawNonce: String?)');
+    expect(ktEmailProvider).toContain('const val PROVIDER_ID = "password"');
+    expect(ktEmailProvider).toContain('const val EMAIL_PASSWORD_SIGN_IN_METHOD = "password"');
+
+    const harness = await openHostedKotlinBridge({
+      projectId: `demo-kt-wave4-oauth-${Date.now()}`,
+    });
+    try {
+      // 1. Un-staged non-JWT synthetic Google credential rejects and maps to ERROR_INVALID_CREDENTIAL
+      const syntheticGoogleRes = await harness.sendOp({
+        method: 'auth.signInWithCredential',
+        credential: {
+          providerId: obs.googleCredentialProvider,
+          signInMethod: obs.googleCredentialSignInMethod,
+          idToken: 'synthetic-non-jwt-google-id-token',
+          accessToken: 'synthetic-google-access-token',
+        },
+      });
+      expect(syntheticGoogleRes.ok === false).toBe(obs.googleSyntheticSignInOutcome.threw);
+      expect(obs.googleSyntheticSignInOutcome.isCollisionSubclass).toBe(false);
+      expect(ktAuthSource).toContain(
+        `combined.contains("no-mock-configured", ignoreCase = true) -> "${obs.googleSyntheticSignInOutcome.errorCode}"`,
+      );
+      expect(ktAuthSource).toContain(
+        `combined.contains("invalid-credential", ignoreCase = true) -> "${obs.googleSyntheticSignInOutcome.errorCode}"`,
+      );
+      expect(ktAuthSource).toContain(
+        `${obs.googleSyntheticSignInOutcome.exceptionClass}(code, msg, e)`,
+      );
+
+      // 2. 3-segment Google OIDC ID token authenticates directly via host OIDC JWT fallback
+      const googleEmail = 'google-oidc-wave4@example.com';
+      const googleOidcJwt = buildUnsignedOidcJwt({
+        sub: 'google-oidc-sub-wave4',
+        email: googleEmail,
+        email_verified: true,
+        name: 'Ada Google Wave4',
+      });
+      const googleSignInRes = await harness.sendOp({
+        method: 'auth.signInWithCredential',
+        credential: {
+          providerId: obs.googleCredentialProvider,
+          signInMethod: obs.googleCredentialSignInMethod,
+          idToken: googleOidcJwt,
+          accessToken: null,
+        },
+      });
+      expect(googleSignInRes.ok).toBe(true);
+      const googleUser = (googleSignInRes.value as { user: HostedUserWire }).user;
+      expect(googleUser.email).toBe(googleEmail);
+      expect(googleUser.isAnonymous).toBe(false);
+      expect(summarizeKotlinProviderData(googleUser, googleEmail).map((e) => e.providerId)).toEqual(
+        ['firebase', obs.googleCredentialProvider],
+      );
+
+      expect((await harness.sendOp({ method: 'auth.signOut' })).ok).toBe(true);
+
+      // 3. Staged generic OAuth (github.com & apple.com) signInWithCredential round-trip
+      const githubEmail = 'github-oauth-wave4@example.com';
+      const mockGithubRes = await harness.sendOp({
+        method: 'auth.mockSignInResult',
+        identity: {
+          uid: 'github-wave4-uid',
+          providerId: obs.githubOAuthProvider,
+          email: githubEmail,
+          displayName: 'Grace GitHub Wave4',
+          photoURL: null,
+          customClaims: {},
+        },
+      });
+      expect(mockGithubRes.ok).toBe(true);
+
+      const githubSignInRes = await harness.sendOp({
+        method: 'auth.signInWithCredential',
+        credential: {
+          providerId: obs.githubOAuthProvider,
+          signInMethod: obs.githubOAuthSignInMethod,
+          idToken: 'staged-github-id-token',
+          accessToken: 'gho_staged_access_token',
+          rawNonce: null,
+        },
+      });
+      expect(githubSignInRes.ok).toBe(true);
+      const githubUser = (githubSignInRes.value as { user: HostedUserWire }).user;
+      expect(githubUser.uid).toBe('github-wave4-uid');
+      expect(summarizeKotlinProviderData(githubUser, githubEmail).map((e) => e.providerId)).toEqual(
+        ['firebase', obs.githubOAuthProvider],
+      );
+
+      expect((await harness.sendOp({ method: 'auth.signOut' })).ok).toBe(true);
+
+      const appleEmail = 'apple-oauth-wave4@example.com';
+      const mockAppleRes = await harness.sendOp({
+        method: 'auth.mockSignInResult',
+        identity: {
+          uid: 'apple-wave4-uid',
+          providerId: obs.appleOAuthProvider,
+          email: appleEmail,
+          displayName: 'Margaret Apple Wave4',
+          photoURL: null,
+          customClaims: {},
+        },
+      });
+      expect(mockAppleRes.ok).toBe(true);
+
+      const appleSignInRes = await harness.sendOp({
+        method: 'auth.signInWithCredential',
+        credential: {
+          providerId: obs.appleOAuthProvider,
+          signInMethod: obs.appleOAuthProvider,
+          idToken: 'staged-apple-id-token',
+          accessToken: 'apple_staged_access_token',
+          rawNonce: 'wave4-raw-nonce',
+        },
+      });
+      expect(appleSignInRes.ok).toBe(true);
+      const appleUser = (appleSignInRes.value as { user: HostedUserWire }).user;
+      expect(appleUser.uid).toBe('apple-wave4-uid');
+      expect(summarizeKotlinProviderData(appleUser, appleEmail).map((e) => e.providerId)).toEqual([
+        'firebase',
+        obs.appleOAuthProvider,
+      ]);
     } finally {
       await harness.close();
     }
