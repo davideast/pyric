@@ -1,3 +1,5 @@
+import { spawnSync } from 'node:child_process';
+import type { BatchIo } from './auto-revert-batch.ts';
 import {
   QUEUE_LABEL,
   STAGING_BRANCH,
@@ -14,7 +16,7 @@ export const HEAD_C = 'd'.repeat(40);
 export const STAGED = 'c'.repeat(40);
 export const CHAIN = 'e'.repeat(40);
 export const WRAPPED = 'f'.repeat(40);
-export const NOW = Date.parse('2026-11-14T12:00:00Z');
+const NOW = Date.parse('2026-11-14T12:00:00Z');
 export const RUN_URL = 'https://github.com/owner/repo/actions/runs/500';
 export const GREEN_RUN: RunItem = {
   id: 500,
@@ -31,6 +33,7 @@ export interface FakePull {
   title: string;
   headRef: string;
   headSha: string;
+  headRepoFullName?: string | null;
   labels: string[];
   labeledAt?: string;
 }
@@ -46,7 +49,7 @@ export interface RunItem {
   actor?: { login?: string } | null;
 }
 
-export interface PullFileItem {
+interface PullFileItem {
   filename: string;
   previous_filename?: string;
 }
@@ -70,6 +73,8 @@ export interface Remote {
   pushRefusal?: string;
   /** What a push to the staging branch is refused with. */
   stagingPushRefusal?: string;
+  /** What `git push origin --delete <branch>` throws when set. */
+  deleteBranchError?: string;
   /** What `PUT pulls/<n>/merge` is refused with (every PR). */
   mergeRefusal?: string;
   /** Optional custom handler for `PUT pulls/<n>/merge`; returns merge commit sha or throws. */
@@ -167,7 +172,12 @@ export function createHarness(initial: Partial<Remote>): Harness {
   function push(args: string[]): string {
     if (args.includes('--delete')) {
       const branch = args.at(-1);
-      if (branch !== undefined) delete remote.branches[branch];
+      if (branch !== undefined) {
+        if (!(branch in remote.branches) && remote.deleteBranchError !== undefined) {
+          throw new Error(remote.deleteBranchError);
+        }
+        delete remote.branches[branch];
+      }
       return '';
     }
     const spec = args.at(-1) ?? '';
@@ -260,13 +270,16 @@ export function createHarness(initial: Partial<Remote>): Harness {
       const payload = remote.pulls.map((item) => {
         const minute = String(item.number % 60).padStart(2, '0');
         const createdAt = item.labeledAt ?? `2026-11-14T11:${minute}:00Z`;
+        let headRepo: { full_name: string } | null = { full_name: 'owner/repo' };
+        if (item.headRepoFullName === null) headRepo = null;
+        else if (item.headRepoFullName !== undefined) headRepo = { full_name: item.headRepoFullName };
         return {
           number: item.number,
           title: item.title,
           state: 'open',
           draft: false,
           created_at: createdAt,
-          head: { ref: item.headRef, sha: item.headSha, repo: { full_name: 'owner/repo' } },
+          head: { ref: item.headRef, sha: item.headSha, repo: headRepo },
           labels: item.labels.map((name) => ({ name })),
         };
       });
@@ -279,7 +292,10 @@ export function createHarness(initial: Partial<Remote>): Harness {
       const state = found === undefined ? 'closed' : 'open';
       const merged = remote.mergedPulls?.has(targetNumber) ?? false;
       const sha = found?.headSha ?? '';
-      return JSON.stringify({ state, merged, head: { sha } });
+      let headRepo: { full_name: string } | null = { full_name: 'owner/repo' };
+      if (found?.headRepoFullName === null) headRepo = null;
+      else if (found?.headRepoFullName !== undefined) headRepo = { full_name: found.headRepoFullName };
+      return JSON.stringify({ state, merged, head: { sha, repo: headRepo } });
     }
     const mergePr = /^pulls\/(\d+)\/merge$/.exec(path);
     if (method === 'PUT' && mergePr) {
@@ -397,5 +413,69 @@ export function mutations(h: Harness): { git: string[][]; gh: string[][] } {
   return {
     git: h.git.filter((args) => args[0] !== 'ls-remote'),
     gh: h.gh.filter((args) => args[0] !== 'api' || args.includes('-X')),
+  };
+}
+
+export function gitSh(cwd: string, args: string[]): string {
+  const env = {
+    ...process.env,
+    GIT_CONFIG_GLOBAL: '/dev/null',
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_AUTHOR_NAME: 't',
+    GIT_AUTHOR_EMAIL: 't@example.test',
+    GIT_COMMITTER_NAME: 't',
+    GIT_COMMITTER_EMAIL: 't@example.test',
+  };
+  const out = spawnSync('git', args, { cwd, encoding: 'utf8', env });
+  if (out.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${out.stderr}`);
+  return out.stdout.trim();
+}
+
+export function wireRealRemote(
+  origin: string,
+  work: string,
+  pulls: FakePull[],
+): { h: Harness; syncStaging: () => string } {
+  const h = createHarness({ pulls, greenHeads: new Set(pulls.map((item) => item.headSha)) });
+  Object.defineProperty(h.remote, 'main', { get: () => gitSh(origin, ['rev-parse', 'refs/heads/main']), set: () => {} });
+  h.io.git = (args) => gitSh(work, args);
+  const syncStaging = (): string => {
+    const tip = gitSh(origin, ['rev-parse', `refs/heads/${STAGING_BRANCH}`]);
+    h.remote.messages[tip] = gitSh(origin, ['log', '-1', '--format=%B', tip]);
+    h.remote.greenHeads.add(tip);
+    h.remote.stagingRuns = [GREEN_RUN];
+    return tip;
+  };
+  return { h, syncStaging };
+}
+
+export function realBatchIo(origin: string, pulls: FakePull[]): BatchIo {
+  return {
+    repo: 'owner/repo',
+    git: (args) => gitSh(origin, args),
+    log: () => {},
+    gh: (args) => {
+      const rawPath = args.find((arg) => arg.startsWith('repos/owner/repo/'));
+      let path = '';
+      if (rawPath !== undefined) path = rawPath.slice('repos/owner/repo/'.length);
+      const commitMatch = /^commits\/([0-9a-f]+)$/.exec(path);
+      if (commitMatch !== null && commitMatch[1] !== undefined) {
+        const sha = commitMatch[1];
+        const parentsRaw = gitSh(origin, ['log', '-1', '--format=%P', sha]);
+        const parents: { sha: string }[] = [];
+        if (parentsRaw !== '') {
+          for (const parentSha of parentsRaw.split(' ')) parents.push({ sha: parentSha });
+        }
+        const message = gitSh(origin, ['log', '-1', '--format=%B', sha]);
+        return JSON.stringify({ sha, parents, commit: { message } });
+      }
+      const pullMatch = /^pulls\/(\d+)$/.exec(path);
+      if (pullMatch !== null) {
+        const found = pulls.find((item) => item.number === Number(pullMatch[1]));
+        if (found === undefined) throw new Error(`missing pull ${path}`);
+        return JSON.stringify({ number: found.number, title: found.title, head: { ref: found.headRef } });
+      }
+      throw new Error(`unexpected api ${path}`);
+    },
   };
 }

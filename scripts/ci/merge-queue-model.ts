@@ -11,6 +11,7 @@ import {
   decideQueueStep,
   isFastlaneRevert,
   maxSearchRuns,
+  shouldDeleteLandedBranch,
   type ActiveStaging,
   type CheckState,
   type DequeueReason,
@@ -27,6 +28,8 @@ export const MAX_TRANSITIONS = 5;
 interface ModelPull {
   number: number;
   version: number;
+  headRef: string;
+  headRepoFullName: string;
   labeled: boolean;
   labeledAt: number;
   checks: CheckState;
@@ -96,6 +99,7 @@ function treeEntries(pull: ModelPull): string[] {
 
 export class World {
   readonly pulls = new Map<number, ModelPull>();
+  readonly branches = new Set<string>(['main']);
   main: { sha: string; tree: readonly string[] } = { sha: 'main0', tree: [] };
   staging: ModelStaging | undefined;
   now = 1_000_000;
@@ -110,13 +114,31 @@ export class World {
 
   // --- events -------------------------------------------------------------
 
-  addPull(options: Partial<Pick<ModelPull, 'checks' | 'revert' | 'bad' | 'conflicts' | 'draft' | 'fixes'>> = {}): ModelPull {
+  addPull(
+    options: Partial<Pick<ModelPull, 'checks' | 'revert' | 'bad' | 'conflicts' | 'draft' | 'fixes' | 'headRef' | 'headRepoFullName'>> = {},
+  ): ModelPull {
     const number = this.pulls.size + 101;
+    let headRef = `branch-${number}`;
+    if (options.headRef !== undefined) headRef = options.headRef;
+    let headRepoFullName = 'owner/repo';
+    if (options.headRepoFullName !== undefined) headRepoFullName = options.headRepoFullName;
     const pull: ModelPull = {
-      number, version: 1, labeled: true, labeledAt: this.next(), checks: 'success',
-      draft: false, merged: false, revert: false, bad: false, conflicts: false, ...options,
+      number,
+      version: 1,
+      headRef,
+      headRepoFullName,
+      labeled: true,
+      labeledAt: this.next(),
+      checks: 'success',
+      draft: false,
+      merged: false,
+      revert: false,
+      bad: false,
+      conflicts: false,
+      ...options,
     };
     this.pulls.set(number, pull);
+    if (pull.headRepoFullName === 'owner/repo') this.branches.add(pull.headRef);
     return pull;
   }
 
@@ -210,9 +232,9 @@ export class World {
       number: pull.number,
       title,
       isDraft: pull.draft,
-      headRef: `branch-${pull.number}`,
+      headRef: pull.headRef,
       headSha: headSha(pull),
-      headRepoFullName: 'owner/repo',
+      headRepoFullName: pull.headRepoFullName,
       labels: [QUEUE_LABEL],
       labeledAt: String(pull.labeledAt).padStart(8, '0'),
       prRequiredState: pull.checks,
@@ -289,6 +311,10 @@ export class World {
       this.check(!this.mainIsRed(), `#${number} was removed for a staging failure while main was red`);
     }
     if (reason === 'merge-conflict') this.check(pull.conflicts, `#${number} was removed for a conflict it does not have`);
+    if (reason === 'cross-repository-pull-request') {
+      this.check(pull.headRepoFullName !== 'owner/repo', `#${number} was removed as a fork despite matching repo`);
+      this.check(!shouldDeleteLandedBranch(this.queued(pull), 'owner/repo'), `fork pull request #${number} marked deletable`);
+    }
     pull.labeled = false;
     this.stats.dequeued.push({ number, reason });
   }
@@ -355,7 +381,11 @@ export class World {
     for (const pull of landed) {
       this.check(pull.labeled && !pull.merged && headSha(pull) === staging.meta.pulls.find((entry) => entry.number === pull.number)?.headSha, `landing #${pull.number}, which is not queued at the staged head`);
       pull.merged = true;
+      if (shouldDeleteLandedBranch(this.queued(pull), 'owner/repo')) {
+        this.branches.delete(pull.headRef);
+      }
     }
+    this.check(this.branches.has('main'), 'main branch was deleted while landing');
     this.main = { sha: staging.sha, tree: staging.tree };
     this.stats.landings.push({ pulls: landed.map((pull) => pull.number), sha: staging.sha });
     if (action.search === undefined) this.staging = undefined;
