@@ -33,11 +33,17 @@ const firestoreFunctions = requireFromConformance(
 describe('inspectFirestoreTriggers and firestoreTriggersFamily', () => {
   test('claims and inspects all 8 firebase-functions/v2/firestore trigger event types', () => {
     expect(FIRESTORE_EVENT_TYPES.length).toBe(8);
+    expect(ACTIVE_FIRESTORE_EVENT_TYPES.size).toBe(8);
     expect(ACTIVE_FIRESTORE_EVENT_TYPES.has(DOCUMENT_CREATED_EVENT)).toBe(true);
     expect(ACTIVE_FIRESTORE_EVENT_TYPES.has(DOCUMENT_UPDATED_EVENT)).toBe(true);
     expect(ACTIVE_FIRESTORE_EVENT_TYPES.has(DOCUMENT_DELETED_EVENT)).toBe(true);
     expect(ACTIVE_FIRESTORE_EVENT_TYPES.has(DOCUMENT_WRITTEN_EVENT)).toBe(true);
+    expect(ACTIVE_FIRESTORE_EVENT_TYPES.has(DOCUMENT_CREATED_WITH_AUTH_EVENT)).toBe(true);
+    expect(ACTIVE_FIRESTORE_EVENT_TYPES.has(DOCUMENT_UPDATED_WITH_AUTH_EVENT)).toBe(true);
+    expect(ACTIVE_FIRESTORE_EVENT_TYPES.has(DOCUMENT_DELETED_WITH_AUTH_EVENT)).toBe(true);
+    expect(ACTIVE_FIRESTORE_EVENT_TYPES.has(DOCUMENT_WRITTEN_WITH_AUTH_EVENT)).toBe(true);
     expect(isFirestoreTriggerEventType(DOCUMENT_CREATED_EVENT)).toBe(true);
+    expect(isFirestoreTriggerEventType(DOCUMENT_WRITTEN_WITH_AUTH_EVENT)).toBe(true);
     expect(isFirestoreTriggerEventType('google.firebase.database.ref.v1.created')).toBe(false);
     const expectedOps: readonly FirestoreTriggerOperation[] = [
       'created',
@@ -78,6 +84,17 @@ describe('inspectFirestoreTriggers and firestoreTriggersFamily', () => {
 
     const inspected = inspectFirestoreTriggers(exported);
     expect(inspected.unsupported).toEqual([]);
+    expect(findUnsupportedTriggers(exported, [firestoreTriggersFamily])).toEqual([]);
+    expect(discoverFirestoreTriggers(exported).map((t) => t.exportName)).toEqual([
+      'created',
+      'updated',
+      'deleted',
+      'written',
+      'createdAuth',
+      'updatedAuth',
+      'deletedAuth',
+      'writtenAuth',
+    ]);
     expect(
       inspected.triggers.map((t) => ({
         exportName: t.exportName,

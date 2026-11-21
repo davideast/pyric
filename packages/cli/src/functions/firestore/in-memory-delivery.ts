@@ -8,7 +8,10 @@ import type {
   FirestoreMutationRecord,
   FirestoreTriggerDelivery,
 } from './delivery.js';
-import type { FirestoreDocumentVersion } from './event.js';
+import type {
+  FirestoreDocumentVersion,
+  FirestoreTriggerAuthType,
+} from './event.js';
 import type { FirestoreTimestampProto } from './proto-encoder.js';
 import {
   areFirestoreDocumentsEqual,
@@ -22,6 +25,8 @@ export interface InMemoryCreateCommitInput {
   readonly time?: string;
   readonly createTime?: FirestoreTimestampProto;
   readonly updateTime?: FirestoreTimestampProto;
+  readonly authType?: FirestoreTriggerAuthType;
+  readonly authId?: string;
 }
 
 export interface InMemoryUpdateCommitInput {
@@ -30,12 +35,16 @@ export interface InMemoryUpdateCommitInput {
   readonly fields: Record<string, unknown>;
   readonly time?: string;
   readonly updateTime?: FirestoreTimestampProto;
+  readonly authType?: FirestoreTriggerAuthType;
+  readonly authId?: string;
 }
 
 export interface InMemoryDeleteCommitInput {
   readonly database?: string;
   readonly document: string;
   readonly time?: string;
+  readonly authType?: FirestoreTriggerAuthType;
+  readonly authId?: string;
 }
 
 function isoToTimestampProto(iso: string): FirestoreTimestampProto {
@@ -112,7 +121,7 @@ export class InMemoryFirestoreTriggerDelivery implements FirestoreTriggerDeliver
     const defaultTs = isoToTimestampProto(time);
     const createTime = input.createTime ?? prior?.createTime ?? defaultTs;
     const updateTime = input.updateTime ?? defaultTs;
-    this.emitMutation({
+    const record: FirestoreMutationRecord = {
       database,
       document: normalized,
       before: prior,
@@ -122,7 +131,14 @@ export class InMemoryFirestoreTriggerDelivery implements FirestoreTriggerDeliver
         updateTime,
       },
       time,
-    });
+    };
+    if (input.authType !== undefined) {
+      record.authType = input.authType;
+    }
+    if (input.authId !== undefined) {
+      record.authId = input.authId;
+    }
+    this.emitMutation(record);
   }
 
   emitUpdate(input: InMemoryUpdateCommitInput): void {
@@ -134,7 +150,7 @@ export class InMemoryFirestoreTriggerDelivery implements FirestoreTriggerDeliver
     const defaultTs = isoToTimestampProto(time);
     const createTime = prior?.createTime ?? defaultTs;
     const updateTime = input.updateTime ?? defaultTs;
-    this.emitMutation({
+    const record: FirestoreMutationRecord = {
       database,
       document: normalized,
       before: prior,
@@ -144,7 +160,14 @@ export class InMemoryFirestoreTriggerDelivery implements FirestoreTriggerDeliver
         updateTime,
       },
       time,
-    });
+    };
+    if (input.authType !== undefined) {
+      record.authType = input.authType;
+    }
+    if (input.authId !== undefined) {
+      record.authId = input.authId;
+    }
+    this.emitMutation(record);
   }
 
   emitDelete(input: InMemoryDeleteCommitInput): void {
@@ -153,13 +176,20 @@ export class InMemoryFirestoreTriggerDelivery implements FirestoreTriggerDeliver
     const key = `${database}\u0000${normalized}`;
     const prior = this.#documents.get(key) ?? null;
     const time = input.time ?? '2026-07-13T20:00:10.000Z';
-    this.emitMutation({
+    const record: FirestoreMutationRecord = {
       database,
       document: normalized,
       before: prior,
       after: null,
       time,
-    });
+    };
+    if (input.authType !== undefined) {
+      record.authType = input.authType;
+    }
+    if (input.authId !== undefined) {
+      record.authId = input.authId;
+    }
+    this.emitMutation(record);
   }
 
   emitError(database: string, error: unknown): void {

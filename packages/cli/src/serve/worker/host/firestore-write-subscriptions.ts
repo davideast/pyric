@@ -34,6 +34,25 @@ export interface FirestoreWriteStreamVersionWire {
   readonly updateTime: FirestoreSerializedTimestamp;
 }
 
+type FirestoreWriteStreamAuthType =
+  | 'service_account'
+  | 'api_key'
+  | 'system'
+  | 'unauthenticated'
+  | 'unknown';
+
+const VALID_WRITE_STREAM_AUTH_TYPES: ReadonlySet<string> = new Set([
+  'service_account',
+  'api_key',
+  'system',
+  'unauthenticated',
+  'unknown',
+]);
+
+function isWriteStreamAuthType(value: unknown): value is FirestoreWriteStreamAuthType {
+  return typeof value === 'string' && VALID_WRITE_STREAM_AUTH_TYPES.has(value);
+}
+
 export interface FirestoreWriteStreamMutationWire {
   readonly database: string;
   readonly document: string;
@@ -44,6 +63,8 @@ export interface FirestoreWriteStreamMutationWire {
   readonly authUid: string | null;
   readonly admin: boolean;
   readonly authLensMode: AuthLens['mode'] | null;
+  authType?: FirestoreWriteStreamAuthType;
+  authId?: string;
   updateMask?: readonly string[];
   groupId?: string;
   groupKind?: 'batch' | 'transaction';
@@ -59,6 +80,8 @@ interface RawWriteMeta {
   readonly authUid: string | null;
   readonly admin: boolean;
   readonly authLensMode: AuthLens['mode'] | null;
+  authType?: FirestoreWriteStreamAuthType;
+  authId?: string;
   groupId?: string;
   groupKind?: 'batch' | 'transaction';
 }
@@ -158,6 +181,9 @@ function ensureWriteStreamHub(ctx: HostCtx): WriteStreamHub {
     const lensMode = rawEvent.authLens?.mode ?? null;
     const isAdmin = rawEvent.detail?.admin === true || lensMode === 'admin';
     const authUid = rawEvent.auth !== null ? rawEvent.auth.uid : null;
+    const detail = rawEvent.detail as
+      | { readonly authType?: unknown; readonly authId?: unknown }
+      | undefined;
     const meta: RawWriteMeta = {
       timeMs: rawEvent.at,
       requestTime: rawEvent.requestTime,
@@ -165,6 +191,12 @@ function ensureWriteStreamHub(ctx: HostCtx): WriteStreamHub {
       admin: isAdmin,
       authLensMode: lensMode,
     };
+    if (isWriteStreamAuthType(detail?.authType)) {
+      meta.authType = detail.authType;
+    }
+    if (typeof detail?.authId === 'string' && detail.authId.length > 0) {
+      meta.authId = detail.authId;
+    }
     if (rawEvent.groupId !== undefined) {
       meta.groupId = rawEvent.groupId;
     }
@@ -237,6 +269,12 @@ export function registerFirestoreWriteSubscription(
     };
     if (transition.updateMask.length > 0) {
       mutation.updateMask = transition.updateMask;
+    }
+    if (meta.authType !== undefined) {
+      mutation.authType = meta.authType;
+    }
+    if (meta.authId !== undefined) {
+      mutation.authId = meta.authId;
     }
     if (meta.groupId !== undefined) {
       mutation.groupId = meta.groupId;

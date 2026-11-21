@@ -143,12 +143,13 @@ export async function executeFirestoreTrigger(
   trigger: DiscoveredFirestoreTrigger,
   input: FirestoreEventBuildInput,
 ): Promise<FirestoreTriggerExecutionResult> {
-  const event = buildFirestoreCloudEvent(
-    trigger.eventType,
-    trigger.withAuthContext,
-    input,
-  );
+  let event: Record<string, unknown> = {};
   try {
+    event = buildFirestoreCloudEvent(
+      trigger.eventType,
+      trigger.withAuthContext,
+      input,
+    );
     const result = await trigger.callable(event);
     return { status: 'fulfilled', event, result };
   } catch (error) {

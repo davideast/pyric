@@ -13,7 +13,7 @@ export interface FirestoreMutationRecord {
   readonly after: FirestoreDocumentVersion | null;
   readonly time: string;
   updateMask?: readonly string[];
-  readonly authType?: FirestoreTriggerAuthType;
+  authType?: FirestoreTriggerAuthType;
   authId?: string;
 }
 

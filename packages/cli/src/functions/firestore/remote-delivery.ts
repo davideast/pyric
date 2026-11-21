@@ -74,7 +74,19 @@ function resolveMutationAuth(wire: FirestoreWriteStreamMutationWire): {
   authType: FirestoreTriggerAuthType;
   authId?: string;
 } {
+  if (wire.authType !== undefined) {
+    if (wire.authId !== undefined) {
+      return { authType: wire.authType, authId: wire.authId };
+    }
+    if (wire.authUid !== null && wire.authType === 'unknown') {
+      return { authType: wire.authType, authId: wire.authUid };
+    }
+    return { authType: wire.authType };
+  }
   if (wire.admin) {
+    if (wire.authId !== undefined) {
+      return { authType: 'service_account', authId: wire.authId };
+    }
     return { authType: 'service_account' };
   }
   if (wire.authUid !== null) {
