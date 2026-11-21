@@ -14,9 +14,9 @@ class MutableData(
         key: String? = null
     ) : this(value, priority, key, null)
 
-    var priority: Any? = DataSnapshot.normalizeRtdbValue(initialPriority)
+    var priority: Any? = DataSnapshot.normalizeRtdbPriority(initialPriority)
         set(newPriority) {
-            field = DataSnapshot.normalizeRtdbValue(newPriority)
+            field = DataSnapshot.normalizeRtdbPriority(newPriority)
         }
 
     var value: Any? = DataSnapshot.normalizeRtdbValue(initialValue)
