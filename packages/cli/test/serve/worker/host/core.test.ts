@@ -128,4 +128,26 @@ describe('host worker lens resolution and caching isolation', () => {
     });
   });
 
+  it('authStateForLens and lensCacheKey preserve and distinguish top-level override fields (#3001)', () => {
+    const writerLens = {
+      mode: 'as' as const,
+      uid: 'user1',
+      role: 'writer',
+      provider: 'custom-gateway',
+    };
+    const readerLens = {
+      mode: 'as' as const,
+      uid: 'user1',
+      role: 'reader',
+      provider: 'custom-gateway',
+    };
+
+    expect(authStateForLens(writerLens)).toEqual({
+      uid: 'user1',
+      role: 'writer',
+      provider: 'custom-gateway',
+    });
+    expect('mode' in authStateForLens(writerLens)).toBe(false);
+    expect(lensCacheKey(writerLens)).not.toBe(lensCacheKey(readerLens));
+  });
 });

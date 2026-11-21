@@ -93,7 +93,7 @@ The same `matchedPath`, `matchedRule`, and `reason` come back from `rtdbRules(..
 | `No 'read' rule grants access; the deepest, at '<path>', evaluated to false` | No rule on the path from the root granted the request. The named rule is the deepest one of that kind. |
 | `No 'read' rule grants access; the deepest, at '<path>', failed at evaluation: <error>` | As above, and the deepest rule raised a runtime error, such as a `null` operand of `>`. A rule that errors does not grant. |
 | `No 'write' rule on '<path>' or its ancestors grants access; denied by default` | No rule of that kind exists on the path. `matchedPath` and `matchedRule` are empty. |
-| `Validation rule evaluated to false` | A `.write` rule granted, and a `.validate` rule at or below the written path refused. `matchedPath` names the `.validate` location. |
+| `Validation rule at '<path>' evaluated to false` | A `.write` rule granted, and a `.validate` rule at or below the written path refused. |
 | `Validation rule at '<path>' failed at evaluation: <error>` | A `.validate` rule raised a runtime error, such as calling `toUpperCase()` on a number. |
 | `'<operation>' rule at '<path>' contains an expression the simulator cannot evaluate: ...` | The case is `UNSUPPORTED`. The simulator abstained, and production may allow or reject it. |
 

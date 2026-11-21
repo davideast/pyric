@@ -256,7 +256,7 @@ export function toValidateFailureResult(
   failure: ValidateFailure,
   trace: RtdbRuleEvaluation[],
 ): SimulateResult {
-  let reason = 'Validation rule evaluated to false';
+  let reason = `Validation rule at '${failure.node.path}' evaluated to false`;
   if (failure.unsupported) {
     reason = `Validation rule at '${failure.node.path}' contains an expression the simulator cannot evaluate: ${failure.rule.raw}. It was not evaluated; production may reject this write.`;
   } else if (failure.runtimeError !== undefined) {

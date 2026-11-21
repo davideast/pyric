@@ -34,6 +34,7 @@ export interface RtdbRulesCheckResult {
 export type RtdbRulesSimulationAuth =
   | string
   | { uid: string; tenant?: string; token?: Record<string, unknown> }
+  | ({ uid: string; tenant?: string; token?: Record<string, unknown> } & Record<string, unknown>)
   | null;
 
 export type RtdbRulesSimulationInput =
@@ -70,14 +71,28 @@ export interface RtdbRulesDocumentInternal extends RtdbRulesDocument {
   simulate(input: RtdbRulesSimulationInput): SimulateResult;
 }
 
+const FORBIDDEN_AUTH_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
+
 export function normalizeAuth(auth: RtdbRulesSimulationAuth | undefined): SimulationInput['auth'] {
   if (auth === undefined || auth === null) return null;
-  if (typeof auth === 'string') return { uid: auth, token: {} };
+  if (typeof auth === 'string') return { uid: auth };
   const normalized: NonNullable<SimulationInput['auth']> = {
     uid: auth.uid,
-    token: auth.token ?? {},
   };
+  if (auth.token !== undefined) normalized.token = auth.token;
   if (auth.tenant !== undefined) normalized.tenant = auth.tenant;
+  for (const [key, value] of Object.entries(auth)) {
+    if (key === 'uid' || key === 'tenant' || key === 'token' || FORBIDDEN_AUTH_KEYS.has(key)) {
+      continue;
+    }
+    if (value === undefined) continue;
+    Object.defineProperty(normalized, key, {
+      value,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
   return normalized;
 }
 

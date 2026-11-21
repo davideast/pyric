@@ -155,7 +155,7 @@ Each result carries the `decision` (`ALLOW`, `DENY`, or `UNSUPPORTED`), whether 
 ```
 matchedPath: /records/$recordId/title
 matchedRule: newData.isString() && newData.val().length <= 80
-reason:      Validation rule evaluated to false
+reason:      Validation rule at '/records/$recordId/title' evaluated to false
 ```
 `matchedPath` is the rule's location in the ruleset, so it shows the `$recordId` wildcard rather than the concrete path. `UNSUPPORTED` means the simulator did not evaluate the case, and `reason` says why. Either the case reached an expression the simulator cannot evaluate, and it abstains rather than guesses, or no client could send the request. The second covers a path with `.`, `#`, `$`, `[` or `]` in it, update paths that overlap, a write under `/.info`, a query the SDK refuses to build, `updates` that leave out the case's `path` or give it a value other than `newData`, and a ruleset that does not compile. For a request the SDK refuses, `reason` is the SDK's own error text.
 
@@ -279,7 +279,7 @@ Three behaviors decide most surprising verdicts.
 **Equality is strict.** `==` and `!=` compare without converting types, as the production rules engine does. `5 == '5'` and `1 == true` are both false, and `==` and `===` give the same answer. A `.validate` rule such as `newData.val() == '5'` accepts the string `'5'` and rejects the number `5`:
 ```
 write /scores/a  newData '5'  ->  ALLOW
-write /scores/a  newData 5    ->  DENY   Validation rule evaluated to false
+write /scores/a  newData 5    ->  DENY   Validation rule at '/scores/$id' evaluated to false
 ```
 A rule written against a loose-equality habit fails here the way it fails in production.
 

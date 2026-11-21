@@ -42,7 +42,7 @@ import {
 } from 'pyric/firestore';
 import { assertEncodedDocValueDepth, decodeDocValue, type DocValueEncoding } from 'pyric/firestore/internal/value-codec';
 import { FirebaseError } from 'pyric/app';
-import type { AuthLens, EventProvenance } from 'pyric/sandbox';
+import type { AuthLens, AuthState, EventProvenance } from 'pyric/sandbox';
 import type { MintedSession } from 'pyric/auth';
 
 import type {
@@ -311,17 +311,56 @@ export function lensDb(ctx: HostCtx, actAs?: AuthLens, port?: PortLike): Firesto
   return handle;
 }
 
-export function authStateForLens(actAs: Extract<AuthLens, { mode: 'as' }>): { uid: string; token?: Record<string, unknown>; tenant?: string } {
-  const state: { uid: string; token?: Record<string, unknown>; tenant?: string } = { uid: actAs.uid };
+const FORBIDDEN_LENS_KEYS = new Set(['__proto__', 'prototype', 'constructor', 'mode']);
+
+export function authStateForLens(
+  actAs: Extract<AuthLens, { mode: 'as' }>,
+): NonNullable<AuthState> {
+  const state: NonNullable<AuthState> = { uid: actAs.uid };
   if (actAs.token !== undefined) state.token = actAs.token;
   if (actAs.tenant !== undefined) state.tenant = actAs.tenant;
+  for (const [key, value] of Object.entries(actAs)) {
+    if (key === 'uid' || key === 'token' || key === 'tenant' || FORBIDDEN_LENS_KEYS.has(key)) {
+      continue;
+    }
+    if (value === undefined) continue;
+    Object.defineProperty(state, key, {
+      value,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
   return state;
 }
 
 export function lensCacheKey(actAs: Extract<AuthLens, { mode: 'as' }>): string {
+  const record = actAs as Record<string, unknown>;
   const parts = [actAs.uid];
   if (actAs.tenant !== undefined) parts.push(`tenant:${actAs.tenant}`);
   if (actAs.token !== undefined) parts.push(JSON.stringify(actAs.token));
+  const extraKeys = Object.keys(record)
+    .filter(
+      (key) =>
+        key !== 'uid' &&
+        key !== 'tenant' &&
+        key !== 'token' &&
+        !FORBIDDEN_LENS_KEYS.has(key) &&
+        record[key] !== undefined,
+    )
+    .sort();
+  if (extraKeys.length > 0) {
+    const extra: Record<string, unknown> = {};
+    for (const key of extraKeys) {
+      Object.defineProperty(extra, key, {
+        value: record[key],
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    }
+    parts.push(`extra:${JSON.stringify(extra)}`);
+  }
   return parts.join(':');
 }
 

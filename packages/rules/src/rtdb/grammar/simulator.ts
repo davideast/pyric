@@ -29,10 +29,11 @@ export { DataSnapshot, RtdbRuleRuntimeError } from './data-snapshot.js';
 
 export interface SimulatedAuth {
   uid: string;
-  token: Record<string, unknown>;
-  /** The sign-in method, which production reads from the token's
-   *  `firebase.sign_in_provider` claim. Absent when the token names none. */
-  provider?: string;
+  token?: Record<string, unknown>;
+  /** The sign-in method, read from the token's `firebase.sign_in_provider`
+   *  claim on a client session or from an auth override's top level. */
+  provider?: unknown;
+  [key: string]: unknown;
 }
 
 /** Property names that must never be read through rule member/index

@@ -90,11 +90,13 @@ export const SimulationInputSchema = z.object({
   operation: z.enum(['read', 'write', 'validate']),
   path: z.string().min(1).startsWith('/'),
   auth: z.union([
-    z.object({
-      uid: z.string(),
-      tenant: z.string().optional(),
-      token: z.record(z.unknown()).optional(),
-    }),
+    z
+      .object({
+        uid: z.string(),
+        tenant: z.string().optional(),
+        token: z.record(z.unknown()).optional(),
+      })
+      .passthrough(),
     z.null(),
   ]),
   mockData: SimulationMockDataSchema,
