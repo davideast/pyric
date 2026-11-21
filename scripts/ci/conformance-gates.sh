@@ -33,11 +33,12 @@ compute_base_report() {
   git worktree add --detach "$base_worktree" "$base_sha"
   (
     cd "$base_worktree"
+    # An empty census path makes the base build and report its own census
+    # instead of reading the head's job-local cache.
+    export PYRIC_SURFACE_CENSUS_PATH=''
     bun install --frozen-lockfile --filter '!@pyric/playground'
     bash scripts/build.sh --packages-only
-    # An empty census path makes the base build its own census instead of
-    # reading the head's job-local cache.
-    PYRIC_SURFACE_CENSUS_PATH='' bun run packages/conformance/src/coverage.ts --json > "$base_report.partial"
+    bun run packages/conformance/src/coverage.ts --json > "$base_report.partial"
   )
   mv "$base_report.partial" "$base_report"
   echo "Base coverage report computed in ${SECONDS}s."
