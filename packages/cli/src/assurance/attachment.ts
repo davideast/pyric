@@ -64,6 +64,17 @@ function isUnsafeKey(key: string): boolean {
   return key === "__proto__" || key === "constructor" || key === "prototype";
 }
 
+function isWildcardOriginHost(hostname: string): boolean {
+  const clean = hostname.replace(/^\[|\]$/g, "").replace(/\.+$/, "").toLowerCase();
+  return (
+    clean === "0" ||
+    clean === "0.0.0.0" ||
+    clean === "::" ||
+    clean === "::ffff:0:0" ||
+    clean === "::ffff:0.0.0.0"
+  );
+}
+
 export function isLoopbackHost(hostname: string): boolean {
   const normalized = hostname.toLowerCase().replace(/\.$/, "");
   if (
@@ -92,14 +103,24 @@ function parseLocalOrigin(rawUrl: string, runtimeOrigin: string): URL {
       `'${rawUrl}' is not a valid absolute Pyric URL.`,
     );
   }
+  const requestedHttp =
+    requested.protocol === "http:" || requested.protocol === "https:";
+  const currentHttp =
+    current.protocol === "http:" || current.protocol === "https:";
+  const hasCredentials =
+    requested.username !== "" ||
+    requested.password !== "" ||
+    current.username !== "" ||
+    current.password !== "";
   if (
-    (requested.protocol !== "http:" && requested.protocol !== "https:") ||
-    !isLoopbackHost(requested.hostname) ||
-    requested.username ||
-    requested.password
+    !requestedHttp ||
+    !currentHttp ||
+    hasCredentials ||
+    isWildcardOriginHost(requested.hostname) ||
+    isWildcardOriginHost(current.hostname)
   ) {
     throw new AssuranceInputError(
-      "firebase_assurance_attach accepts only credential-free HTTP(S) loopback URLs.",
+      "firebase_assurance_attach accepts only credential-free HTTP(S) same-origin URLs.",
     );
   }
   if (requested.origin !== current.origin) {

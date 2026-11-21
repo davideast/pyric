@@ -15,7 +15,7 @@ import type {
   User,
   UserCredential,
 } from 'pyric/auth';
-import { idTokenAudience, mintIdToken, SANDBOX_PROJECT_ID } from 'pyric/sandbox/internal';
+import { idTokenAudience, mintIdToken, randomUuid, SANDBOX_PROJECT_ID } from 'pyric/sandbox/internal';
 
 export interface NewIdentitySpec {
   email: string;
@@ -241,7 +241,7 @@ export function helperCustomClaims(credential: UserCredential): Record<string, u
 
 /** Provider UIDs are opaque Firebase identifiers, not encoded credentials. */
 function mintProviderUid(): string {
-  return `provider-${globalThis.crypto.randomUUID()}`;
+  return `provider-${randomUuid()}`;
 }
 
 /** Bare helper User — worker path discards this in favor of `acceptIdentity`. */

@@ -84,4 +84,64 @@ describe('proxyToChild', () => {
       { status: 200, timedOut: false },
     ]);
   });
+
+  test('propagates x-forwarded-proto only from trusted proxy peers', async () => {
+    const seenProto: string[] = [];
+    const child = await listen(
+      createServer((req, res) => {
+        seenProto.push(String(req.headers['x-forwarded-proto'] ?? ''));
+        res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
+        res.end('ok');
+      }),
+    );
+
+    const untrustedGateway = await listen(
+      createServer((req, res) => {
+        void proxyToChild(req, res, {
+          port: child.port,
+          token: TOKEN,
+          exportName: 'protoHandler',
+          forwardUrl: req.url ?? '/',
+          timeoutMs: 5_000,
+          timeoutMessage: 'timed out',
+        });
+      }),
+    );
+
+    const trustedGateway = await listen(
+      createServer((req, res) => {
+        void proxyToChild(req, res, {
+          port: child.port,
+          token: TOKEN,
+          exportName: 'protoHandler',
+          forwardUrl: req.url ?? '/',
+          timeoutMs: 5_000,
+          timeoutMessage: 'timed out',
+          trustProxy: 'loopback',
+        });
+      }),
+    );
+
+    const untrustedRes = await fetch(`${untrustedGateway.url}/check`, {
+      headers: { 'x-forwarded-proto': 'https' },
+    });
+    expect(untrustedRes.status).toBe(200);
+
+    const trustedHttpsRes = await fetch(`${trustedGateway.url}/check`, {
+      headers: { 'x-forwarded-proto': 'https' },
+    });
+    expect(trustedHttpsRes.status).toBe(200);
+
+    const spoofedChainRes = await fetch(`${trustedGateway.url}/check`, {
+      headers: { 'x-forwarded-proto': 'https, http' },
+    });
+    expect(spoofedChainRes.status).toBe(200);
+
+    const markedRemoteRes = await fetch(`${trustedGateway.url}/check`, {
+      headers: { 'x-forwarded-proto': 'https', 'x-pyric-remote-peer': '1' },
+    });
+    expect(markedRemoteRes.status).toBe(200);
+
+    expect(seenProto).toEqual(['http', 'https', 'http', 'http']);
+  });
 });

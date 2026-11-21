@@ -1,4 +1,5 @@
 import type { FirebaseApp } from 'pyric/app';
+import { randomUuid } from 'pyric/sandbox/internal';
 
 /** One installation per origin/profile, shared by pages and their Service Workers. */
 let installation: Promise<string> | undefined;
@@ -18,8 +19,12 @@ function installationId(): Promise<string> {
       read.onsuccess = () => {
         const stored: unknown = read.result;
         const hasStoredId = typeof stored === 'string' && stored.length > 0;
-        id = hasStoredId ? stored : crypto.randomUUID();
-        if (!hasStoredId) store.put(id, 'id');
+        if (hasStoredId) {
+          id = stored;
+        } else {
+          id = randomUuid();
+          store.put(id, 'id');
+        }
       };
       transaction.oncomplete = () => { db.close(); resolve(id); };
       transaction.onabort = () => { db.close(); reject(transaction.error ?? new Error('Messaging installation storage failed.')); };

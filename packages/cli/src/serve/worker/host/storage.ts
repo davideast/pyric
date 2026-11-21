@@ -49,7 +49,7 @@ import {
 } from 'pyric/storage/internal';
 import { FirebaseError } from 'pyric/app';
 import type { AuthLens, EventProvenance } from 'pyric/sandbox';
-import { bindOperationContext, getClock } from 'pyric/sandbox/internal';
+import { bindOperationContext, getClock, randomUuid } from 'pyric/sandbox/internal';
 
 import type { OpMessage, StorageBucketWire } from '../protocol.js';
 import {
@@ -558,7 +558,7 @@ export async function handleStorageOp(
         let token = (stored.downloadTokens ?? '').split(',').find(existing => existing !== '');
         const unminted = token === undefined;
         if (unminted) {
-          token = crypto.randomUUID();
+          token = randomUuid();
           await service.backend.putMetadata(r.fullPath, {
             ...stored,
             downloadTokens: token,
@@ -941,7 +941,7 @@ export async function handleStorageOp(
         if (r.fullPath === '') {
           throw new FirebaseError('storage/invalid-root-operation', 'storage.createUploadSession cannot operate on root reference.');
         }
-        const sessionId = crypto.randomUUID();
+        const sessionId = randomUuid();
         const token = mintCapabilityToken();
         const downloadTokens = uploadDownloadTokens(msg);
         const provenance = opProvenance(msg);

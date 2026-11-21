@@ -73,7 +73,7 @@ import { normalizeAuthState, type AuthState, type Sandbox } from 'pyric/sandbox'
 import {
   absolutePhotoUrl, accountTokenClaims, assertNoReservedCustomClaims, emitSandboxEvent, getClock, idTokenAudience, makeServiceMutationEvent,
   realmOrigin, providerVerifiesEmail, SANDBOX_PROJECT_ID, tokenClaimAccount, rulesTokenFromIdToken,
-  ID_TOKEN_LIFETIME_MS, isPastIdTokenRefreshPoint, refreshRefusal,
+  ID_TOKEN_LIFETIME_MS, isPastIdTokenRefreshPoint, randomUuid, refreshRefusal,
 } from 'pyric/sandbox/internal';
 import type { AuthEventOperation } from './events.js';
 
@@ -2060,7 +2060,7 @@ export class SandboxBackend {
    *  the emulator) so `listIdentities` / future user-admin surfaces
    *  see anonymous accounts too. */
   mintAnonymousUser(tenantId: string | null = this.tenantId): User {
-    const uid = `anonymous-${globalThis.crypto.randomUUID()}`;
+    const uid = `anonymous-${randomUuid()}`;
     const normalizedTenant = normalizeTenantScope(tenantId);
     const record = this.makeStored({ uid, isAnonymous: true, tenantId: normalizedTenant });
     this.usersByUid.set(uid, record);
@@ -2936,7 +2936,7 @@ function markProviderVerifiedEmail(stored: StoredUser, providerId: string): bool
 
 /** Provider UIDs are opaque Firebase identifiers, not encoded credentials. */
 function mintProviderUid(): string {
-  return `provider-${globalThis.crypto.randomUUID()}`;
+  return `provider-${randomUuid()}`;
 }
 
 /** Re-exported from {@link ./auth-errors.ts} so consumers importing
