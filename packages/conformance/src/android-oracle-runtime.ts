@@ -26,6 +26,7 @@ import {
 } from './oracle-credential.ts';
 import {
   OracleRulesSession,
+  firestoreOracleTarget,
   rtdbOracleTarget,
   runWithOracleRulesRestored,
 } from './oracle-rules-session.ts';
@@ -83,12 +84,18 @@ interface AndroidProbeRuntimeDeps {
     runId: string,
     fn: () => Promise<T>,
   ) => Promise<T>;
+  deployScopedFirestoreSession?: <T>(
+    sa: OracleServiceAccount,
+    runId: string,
+    fn: () => Promise<T>,
+  ) => Promise<T>;
   executeGradle?: AndroidGradleExecutor;
 }
 
 interface RunAndroidRobolectricProbeOptions {
   probeId: string;
   needsDedicatedRtdb?: boolean;
+  needsFirestore?: boolean;
   needsCustomToken?: boolean;
   deps?: AndroidProbeRuntimeDeps;
 }
@@ -321,6 +328,49 @@ async function defaultDeployScopedRtdbSession<T>(
   }
 }
 
+async function defaultDeployScopedFirestoreSession<T>(
+  sa: OracleServiceAccount,
+  runId: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const [adminAppMod, { getFirestore }] = await Promise.all([
+    import('firebase-admin/app'),
+    import('firebase-admin/firestore'),
+  ]);
+  const session = new OracleRulesSession({
+    projectId: sa.project_id,
+    accessToken: () => oracleAccessToken(sa, FIREBASE_MANAGEMENT_SCOPE),
+  });
+  const detachSignals = installOracleSignalRestoreGuard('[android-sdk-probes]', () =>
+    session.restoreAll(),
+  );
+  const adminApp = adminAppMod.initializeApp(
+    oracleAppOptions(sa),
+    `android-oracle-fs-admin-${runId}`,
+  );
+  const adminDb = getFirestore(adminApp);
+
+  try {
+    return await runWithOracleRulesRestored(session, async () => {
+      const outcome = await session.deploy(firestoreOracleTarget());
+      if (outcome !== 'already-configured') {
+        await new Promise((resolveDone) => setTimeout(resolveDone, 10_000));
+      }
+      try {
+        return await fn();
+      } finally {
+        await adminDb.recursiveDelete(adminDb.doc(`pyric_oracle/${runId}`)).catch(() => undefined);
+      }
+    });
+  } finally {
+    await adminAppMod.deleteApp(adminApp).catch(() => undefined);
+    detachSignals();
+    if (session.restoredFirestoreOrStorage) {
+      console.log('[android-sdk-probes] Firestore rules restored and verified');
+    }
+  }
+}
+
 function collectSidecarCleanupUids(cleanupUidsPath: string, trackedUids: Set<string>): void {
   if (!existsSync(cleanupUidsPath)) {
     return;
@@ -402,6 +452,10 @@ export async function runAndroidRobolectricProbe(
   if (deps.deployScopedRtdbSession !== undefined) {
     runRtdbSession = deps.deployScopedRtdbSession;
   }
+  let runFirestoreSession = defaultDeployScopedFirestoreSession;
+  if (deps.deployScopedFirestoreSession !== undefined) {
+    runFirestoreSession = deps.deployScopedFirestoreSession;
+  }
 
   try {
     let customToken: string | undefined;
@@ -442,8 +496,14 @@ export async function runAndroidRobolectricProbe(
       });
     };
 
-    if (databaseUrl !== undefined) {
+    if (databaseUrl !== undefined && options.needsFirestore === true) {
+      await runRtdbSession(sa, databaseUrl, runId, () =>
+        runFirestoreSession(sa, runId, invokeRunner),
+      );
+    } else if (databaseUrl !== undefined) {
       await runRtdbSession(sa, databaseUrl, runId, invokeRunner);
+    } else if (options.needsFirestore === true) {
+      await runFirestoreSession(sa, runId, invokeRunner);
     } else {
       await invokeRunner();
     }

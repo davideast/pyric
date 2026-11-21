@@ -3,7 +3,7 @@
  * Modular upstream Android Firebase SDK Robolectric oracle runner
  * (`rig: 'android-sdk-probes'`).
  *
- * Executes probes under `packages/conformance/probes/{auth-kotlin,rtdb-kotlin}/*.ts`
+ * Executes probes under `packages/conformance/probes/{auth-kotlin,rtdb-kotlin,firestore-kotlin}/*.ts`
  * declaring `rig: 'android-sdk-probes'`. Prints an inert preview unless
  * `--write` / `--capture` is passed.
  *

@@ -73,9 +73,9 @@ const RIG_CAPTURE_POLICIES: Readonly<Record<string, RigCapturePolicy>> = {
     perProbeStaged: true,
     iamHint: {
       permission:
-        'firebase.projects.get, firebase.clients.list, firebaseauth.users.create, firebasedatabase.instances.update',
-      role: 'roles/firebase.viewer, roles/firebaseauth.admin, roles/firebasedatabase.admin',
-      api: 'firebase.googleapis.com, identitytoolkit.googleapis.com, firebasedatabase.googleapis.com',
+        'firebase.projects.get, firebase.clients.list, firebaseauth.users.create, firebasedatabase.instances.update, firebaserules.releases.update, datastore.entities.create',
+      role: 'roles/firebase.viewer, roles/firebaseauth.admin, roles/firebasedatabase.admin, roles/firebaserules.admin, roles/datastore.user',
+      api: 'firebase.googleapis.com, identitytoolkit.googleapis.com, firebasedatabase.googleapis.com, firebaserules.googleapis.com, firestore.googleapis.com',
     },
   },
   'app-registry': {
