@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto';
 import { describe, expect, test } from 'bun:test';
 import { createMemoryBackend, initializeSandbox } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
-import { getStorageSandbox } from 'pyric/storage';
+import { getStorageSandbox, ref as sandboxStorageRef, updateMetadata } from 'pyric/storage';
 import {
   InMemoryStorageTriggerDelivery,
   RemoteStorageTriggerDelivery,
@@ -278,5 +278,203 @@ describe('Storage trigger delivery adapters and worker subscription', () => {
       (frame) => frame.t === 'snap' && frame.subId === 'sub-admin',
     );
     expect(afterCleanupSnaps).toHaveLength(4);
+  });
+
+  test('marks storage.rollbackUpload mutations with rollback: true for both new-object delete and overwrite restore', async () => {
+    const ctx = await createWorkerCtx();
+    const frames: OutboundMessage[] = [];
+    const port: PortLike = {
+      postMessage(raw) {
+        frames.push(raw as OutboundMessage);
+      },
+    };
+
+    await handleMessage(ctx, port, {
+      t: 'sub',
+      subId: 'sub-rollback',
+      target: { service: 'storage', defaultBucket: 'demo-project.appspot.com' },
+      actAs: { mode: 'admin' },
+    });
+
+    const waitForRes = async (id: string): Promise<Record<string, unknown>> => {
+      const deadline = Date.now() + 2_000;
+      while (Date.now() < deadline) {
+        const match = frames.find(
+          (frame): frame is Extract<OutboundMessage, { t: 'res' }> =>
+            frame.t === 'res' && frame.id === id,
+        );
+        if (match !== undefined) {
+          if (!match.ok) {
+            throw new Error(`unexpected op error ${match.error.code}: ${match.error.message}`);
+          }
+          return match.value as Record<string, unknown>;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      throw new Error(`timed out waiting for response ${id}`);
+    };
+
+    // 1. Canceled new upload -> rollbackUpload deletes generation with rollback: true.
+    await handleMessage(ctx, port, {
+      t: 'op',
+      id: 'rb-new-put',
+      method: 'storage.putBytes',
+      path: 'rollback/new-item.txt',
+      dataB64: Buffer.from('temp-new', 'utf8').toString('base64'),
+      rollback: true,
+      actAs: { mode: 'admin' },
+    });
+    const newCommitted = await waitForRes('rb-new-put');
+    const newToken = String(newCommitted.rollbackToken ?? '');
+    expect(newToken.length).toBeGreaterThan(0);
+
+    await handleMessage(ctx, port, {
+      t: 'op',
+      id: 'rb-new-undo',
+      method: 'storage.rollbackUpload',
+      rollbackToken: newToken,
+      actAs: { mode: 'admin' },
+    });
+    expect(await waitForRes('rb-new-undo')).toEqual({ deleted: true, restored: false });
+
+    // 2. Seed v1, overwrite with v2 (rollback: true), then rollbackUpload restores v1 with rollback: true.
+    await handleMessage(ctx, port, {
+      t: 'op',
+      id: 'rb-v1-seed',
+      method: 'storage.putBytes',
+      path: 'rollback/existing-item.txt',
+      dataB64: Buffer.from('stable-v1', 'utf8').toString('base64'),
+      actAs: { mode: 'admin' },
+    });
+    await waitForRes('rb-v1-seed');
+
+    await handleMessage(ctx, port, {
+      t: 'op',
+      id: 'rb-v2-put',
+      method: 'storage.putBytes',
+      path: 'rollback/existing-item.txt',
+      dataB64: Buffer.from('canceled-v2', 'utf8').toString('base64'),
+      rollback: true,
+      actAs: { mode: 'admin' },
+    });
+    const overwriteCommitted = await waitForRes('rb-v2-put');
+    const overwriteToken = String(overwriteCommitted.rollbackToken ?? '');
+    expect(overwriteToken.length).toBeGreaterThan(0);
+
+    await handleMessage(ctx, port, {
+      t: 'op',
+      id: 'rb-v2-undo',
+      method: 'storage.rollbackUpload',
+      rollbackToken: overwriteToken,
+      actAs: { mode: 'admin' },
+    });
+    expect(await waitForRes('rb-v2-undo')).toEqual({ deleted: false, restored: true });
+
+    const deadline = Date.now() + 3_000;
+    while (
+      frames.filter((frame) => frame.t === 'snap' && frame.subId === 'sub-rollback').length < 6 &&
+      Date.now() < deadline
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    const mutations = frames
+      .filter(
+        (frame): frame is Extract<OutboundMessage, { t: 'snap' }> =>
+          frame.t === 'snap' && frame.subId === 'sub-rollback',
+      )
+      .map((frame) => frame.value as StorageSubscriptionSnapWire)
+      .filter(
+        (snap): snap is Extract<StorageSubscriptionSnapWire, { kind: 'mutation' }> =>
+          snap.kind === 'mutation',
+      );
+
+    expect(
+      mutations.map((item) => ({
+        op: item.op,
+        path: item.path,
+        rollback: item.rollback,
+      })),
+    ).toEqual([
+      { op: 'object_put', path: 'rollback/new-item.txt', rollback: false },
+      { op: 'object_delete', path: 'rollback/new-item.txt', rollback: true },
+      { op: 'object_put', path: 'rollback/existing-item.txt', rollback: false },
+      { op: 'object_put', path: 'rollback/existing-item.txt', rollback: false },
+      { op: 'object_put', path: 'rollback/existing-item.txt', rollback: true },
+    ]);
+
+    cleanupPort(ctx, port);
+  });
+
+  test('relays pyric/storage updateMetadata with bumped metageneration, preserved generation/crc32c, and updated customMetadata', async () => {
+    const ctx = await createWorkerCtx();
+    const frames: OutboundMessage[] = [];
+    const port: PortLike = {
+      postMessage(raw) {
+        frames.push(raw as OutboundMessage);
+      },
+    };
+
+    await handleMessage(ctx, port, {
+      t: 'sub',
+      subId: 'sub-meta',
+      target: { service: 'storage', defaultBucket: 'demo-project.appspot.com' },
+      actAs: { mode: 'admin' },
+    });
+
+    const payloadBytes = Buffer.from('metadata-check-payload', 'utf8');
+    const expectedCrc = computeCrc32cBase64(payloadBytes);
+    await handleMessage(ctx, port, {
+      t: 'op',
+      id: 'meta-seed',
+      method: 'storage.putBytes',
+      path: 'docs/meta-target.txt',
+      dataB64: payloadBytes.toString('base64'),
+      contentType: 'text/plain',
+      metadata: { customMetadata: { owner: 'alice', draft: 'true' } },
+      actAs: { mode: 'admin' },
+    });
+
+    const storage = getStorageSandbox(ctx.sandbox);
+    await updateMetadata(sandboxStorageRef(storage, 'docs/meta-target.txt'), {
+      cacheControl: 'public, max-age=120',
+      customMetadata: { owner: 'bob', draft: null as unknown as string },
+    });
+
+    const deadline = Date.now() + 2_000;
+    while (
+      frames.filter((frame) => frame.t === 'snap' && frame.subId === 'sub-meta').length < 3 &&
+      Date.now() < deadline
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    const mutations = frames
+      .filter(
+        (frame): frame is Extract<OutboundMessage, { t: 'snap' }> =>
+          frame.t === 'snap' && frame.subId === 'sub-meta',
+      )
+      .map((frame) => frame.value as StorageSubscriptionSnapWire)
+      .filter(
+        (snap): snap is Extract<StorageSubscriptionSnapWire, { kind: 'mutation' }> =>
+          snap.kind === 'mutation',
+      );
+
+    expect(mutations).toHaveLength(2);
+    const putSnap = mutations[0];
+    const metaSnap = mutations[1];
+    if (putSnap === undefined || metaSnap === undefined) {
+      throw new Error('expected put and metadata_update snaps');
+    }
+
+    expect(metaSnap.op).toBe('metadata_update');
+    expect(metaSnap.after?.generation).toBe(putSnap.after?.generation);
+    expect(metaSnap.after?.metageneration).toBe('2');
+    expect(metaSnap.after?.size).toBe(payloadBytes.byteLength);
+    expect(metaSnap.after?.crc32c).toBe(expectedCrc);
+    expect(metaSnap.after?.cacheControl).toBe('public, max-age=120');
+    expect(metaSnap.after?.customMetadata).toEqual({ owner: 'bob' });
+
+    cleanupPort(ctx, port);
   });
 });

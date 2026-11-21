@@ -190,4 +190,322 @@ describe('startStorageTriggerExecution', () => {
     await host.idle();
     expect(outcomes).toHaveLength(3);
   });
+
+  test('projects finalized, metadataUpdated, archived + finalized on overwrite, and deleted with timeDeleted', async () => {
+    const {
+      onObjectFinalized,
+      onObjectMetadataUpdated,
+      onObjectArchived,
+      onObjectDeleted,
+    } = storageFunctions;
+
+    const observed: Array<Record<string, unknown>> = [];
+    const capture = (label: string) => (event: {
+      type: string;
+      time: string;
+      data: {
+        name: string;
+        generation: string;
+        metageneration: string;
+        size: string;
+        updated: string;
+        timeDeleted?: string;
+        metadata?: Record<string, string>;
+      };
+    }) => {
+      observed.push({
+        label,
+        type: event.type,
+        time: event.time,
+        name: event.data.name,
+        generation: event.data.generation,
+        metageneration: event.data.metageneration,
+        size: event.data.size,
+        updated: event.data.updated,
+        hasTimeDeleted: 'timeDeleted' in event.data,
+        timeDeleted: event.data.timeDeleted ?? null,
+        metadata: event.data.metadata ?? null,
+      });
+    };
+
+    const delivery = new InMemoryStorageTriggerDelivery({
+      defaultBucket: 'demo-project.appspot.com',
+    });
+
+    // Export finalized BEFORE archived to verify overwrite still orders archived(v1) before finalized(v2).
+    const host = startStorageTriggerExecution({
+      exported: {
+        onFinalized: onObjectFinalized({ bucket: 'demo-project.appspot.com' }, capture('finalized')),
+        onMetadata: onObjectMetadataUpdated({ bucket: 'demo-project.appspot.com' }, capture('metadata')),
+        onArchived: onObjectArchived({ bucket: 'demo-project.appspot.com' }, capture('archived')),
+        onDeleted: onObjectDeleted({ bucket: 'demo-project.appspot.com' }, capture('deleted')),
+      },
+      defaultBucket: 'demo-project.appspot.com',
+      delivery,
+      eventOptions: (projected, sequence) => {
+        let isoTime = '2026-11-21T15:00:00.000Z';
+        if (projected.at > 0) {
+          isoTime = new Date(projected.at).toISOString();
+        }
+        return {
+          id: `lc-${sequence}`,
+          time: isoTime,
+          location: 'us-central1',
+        };
+      },
+    });
+
+    expect(host.triggerCount).toBe(4);
+    await host.ready;
+
+    const v1 = {
+      fullPath: 'docs/plan.md',
+      bucket: 'demo-project.appspot.com',
+      generation: '101',
+      metageneration: '1',
+      timeCreated: '2026-11-21T14:00:00.000Z',
+      updated: '2026-11-21T14:00:00.000Z',
+      size: 10,
+      customMetadata: { stage: 'draft', owner: 'ada' },
+    };
+    const v1Patched = {
+      ...v1,
+      metageneration: '2',
+      updated: '2026-11-21T14:05:00.000Z',
+      customMetadata: { stage: 'final' },
+    };
+    const v2 = {
+      fullPath: 'docs/plan.md',
+      bucket: 'demo-project.appspot.com',
+      generation: '102',
+      metageneration: '1',
+      timeCreated: '2026-11-21T14:10:00.000Z',
+      updated: '2026-11-21T14:10:00.000Z',
+      size: 24,
+    };
+
+    const tCreate = Date.parse('2026-11-21T14:00:00.000Z');
+    const tPatch = Date.parse('2026-11-21T14:05:00.000Z');
+    const tOverwrite = Date.parse('2026-11-21T14:10:00.000Z');
+    const tDelete = Date.parse('2026-11-21T14:15:00.000Z');
+
+    delivery.emit({
+      op: 'object_put',
+      storeBucket: 'pyric-default',
+      bucketName: 'demo-project.appspot.com',
+      path: 'docs/plan.md',
+      at: tCreate,
+      after: v1,
+    });
+    delivery.emit({
+      op: 'metadata_update',
+      storeBucket: 'pyric-default',
+      bucketName: 'demo-project.appspot.com',
+      path: 'docs/plan.md',
+      at: tPatch,
+      before: v1,
+      after: v1Patched,
+    });
+    delivery.emit({
+      op: 'object_put',
+      storeBucket: 'pyric-default',
+      bucketName: 'demo-project.appspot.com',
+      path: 'docs/plan.md',
+      at: tOverwrite,
+      before: { ...v1Patched, timeDeleted: 'should-be-stripped' },
+      after: v2,
+    });
+    delivery.emit({
+      op: 'object_delete',
+      storeBucket: 'pyric-default',
+      bucketName: 'demo-project.appspot.com',
+      path: 'docs/plan.md',
+      at: tDelete,
+      before: v2,
+    });
+
+    await host.idle();
+
+    expect(observed).toEqual([
+      {
+        label: 'finalized',
+        type: 'google.cloud.storage.object.v1.finalized',
+        time: '2026-11-21T14:00:00.000Z',
+        name: 'docs/plan.md',
+        generation: '101',
+        metageneration: '1',
+        size: '10',
+        updated: '2026-11-21T14:00:00.000Z',
+        hasTimeDeleted: false,
+        timeDeleted: null,
+        metadata: { stage: 'draft', owner: 'ada' },
+      },
+      {
+        label: 'metadata',
+        type: 'google.cloud.storage.object.v1.metadataUpdated',
+        time: '2026-11-21T14:05:00.000Z',
+        name: 'docs/plan.md',
+        generation: '101',
+        metageneration: '2',
+        size: '10',
+        updated: '2026-11-21T14:05:00.000Z',
+        hasTimeDeleted: false,
+        timeDeleted: null,
+        metadata: { stage: 'final' },
+      },
+      {
+        label: 'archived',
+        type: 'google.cloud.storage.object.v1.archived',
+        time: '2026-11-21T14:10:00.000Z',
+        name: 'docs/plan.md',
+        generation: '101',
+        metageneration: '2',
+        size: '10',
+        updated: '2026-11-21T14:05:00.000Z',
+        hasTimeDeleted: false,
+        timeDeleted: null,
+        metadata: { stage: 'final' },
+      },
+      {
+        label: 'finalized',
+        type: 'google.cloud.storage.object.v1.finalized',
+        time: '2026-11-21T14:10:00.000Z',
+        name: 'docs/plan.md',
+        generation: '102',
+        metageneration: '1',
+        size: '24',
+        updated: '2026-11-21T14:10:00.000Z',
+        hasTimeDeleted: false,
+        timeDeleted: null,
+        metadata: null,
+      },
+      {
+        label: 'deleted',
+        type: 'google.cloud.storage.object.v1.deleted',
+        time: '2026-11-21T14:15:00.000Z',
+        name: 'docs/plan.md',
+        generation: '102',
+        metageneration: '1',
+        size: '24',
+        updated: '2026-11-21T14:10:00.000Z',
+        hasTimeDeleted: true,
+        timeDeleted: '2026-11-21T14:15:00.000Z',
+        metadata: null,
+      },
+    ]);
+
+    host.close();
+  });
+
+  test('suppresses rollback mutations and cancels queued pre-rollback deliveries in tail', async () => {
+    const {
+      onObjectFinalized,
+      onObjectArchived,
+      onObjectDeleted,
+    } = storageFunctions;
+
+    const seen: string[] = [];
+    const { promise: holdFirst, resolve: releaseFirst } = Promise.withResolvers<void>();
+    const delivery = new InMemoryStorageTriggerDelivery({
+      defaultBucket: 'demo-project.appspot.com',
+    });
+
+    const host = startStorageTriggerExecution({
+      exported: {
+        onFinalized: onObjectFinalized({ bucket: 'demo-project.appspot.com' }, async (event) => {
+          seen.push(`finalized:${event.data.name}#${event.data.generation}`);
+          if (event.data.name === 'items/blocker.txt') {
+            await holdFirst;
+          }
+        }),
+        onArchived: onObjectArchived({ bucket: 'demo-project.appspot.com' }, (event) => {
+          seen.push(`archived:${event.data.name}#${event.data.generation}`);
+        }),
+        onDeleted: onObjectDeleted({ bucket: 'demo-project.appspot.com' }, (event) => {
+          seen.push(`deleted:${event.data.name}#${event.data.generation}:${event.data.timeDeleted}`);
+        }),
+      },
+      defaultBucket: 'demo-project.appspot.com',
+      delivery,
+      eventOptions: (_projected, sequence) => ({
+        id: `rb-${sequence}`,
+        time: '2026-11-21T16:00:00.000Z',
+        location: 'us-central1',
+      }),
+    });
+
+    await host.ready;
+
+    const snap = (fullPath: string, generation: string) => ({
+      fullPath,
+      bucket: 'demo-project.appspot.com',
+      generation,
+      metageneration: '1',
+      timeCreated: '2026-11-21T16:00:00.000Z',
+      updated: '2026-11-21T16:00:00.000Z',
+      size: 5,
+    });
+
+    // Hold tail on blocker#1 while a raced overwrite (v1->v2) and its rollback arrive.
+    delivery.emit({
+      op: 'object_put',
+      storeBucket: 'pyric-default',
+      bucketName: 'demo-project.appspot.com',
+      path: 'items/blocker.txt',
+      at: 1000,
+      after: snap('items/blocker.txt', '1'),
+    });
+
+    // Raced overwrite commit v1(#10) -> v2(#11), immediately rolled back while tail is still held!
+    delivery.emit({
+      op: 'object_put',
+      storeBucket: 'pyric-default',
+      bucketName: 'demo-project.appspot.com',
+      path: 'items/raced.txt',
+      at: 1001,
+      before: snap('items/raced.txt', '10'),
+      after: snap('items/raced.txt', '11'),
+    });
+    delivery.emit({
+      op: 'object_put',
+      storeBucket: 'pyric-default',
+      bucketName: 'demo-project.appspot.com',
+      path: 'items/raced.txt',
+      at: 1002,
+      rollback: true,
+      before: snap('items/raced.txt', '11'),
+      after: snap('items/raced.txt', '10'),
+    });
+
+    // Rollback delete of a canceled new upload (#20) must also emit zero deleted triggers.
+    delivery.emit({
+      op: 'object_delete',
+      storeBucket: 'pyric-default',
+      bucketName: 'demo-project.appspot.com',
+      path: 'items/canceled-new.txt',
+      at: 1003,
+      rollback: true,
+      before: snap('items/canceled-new.txt', '20'),
+    });
+
+    // Real delete at at=0 verifies fallback of timeDeleted to baseOptions.time.
+    delivery.emit({
+      op: 'object_delete',
+      storeBucket: 'pyric-default',
+      bucketName: 'demo-project.appspot.com',
+      path: 'items/real-delete.txt',
+      at: 0,
+      before: snap('items/real-delete.txt', '30'),
+    });
+
+    releaseFirst();
+    await host.idle();
+
+    expect(seen).toEqual([
+      'finalized:items/blocker.txt#1',
+      'deleted:items/real-delete.txt#30:2026-11-21T16:00:00.000Z',
+    ]);
+
+    host.close();
+  });
 });

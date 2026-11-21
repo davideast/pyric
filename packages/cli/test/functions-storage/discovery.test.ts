@@ -110,7 +110,7 @@ describe('firebase-functions/v2/storage trigger discovery', () => {
     ]);
   });
 
-  test('activates finalized in PR 1 and reports unactivated storage lifecycle events via findUnsupportedTriggers', () => {
+  test('activates all four storage lifecycle events and gates custom activeEventTypes subsets', () => {
     const {
       onObjectFinalized,
       onObjectDeleted,
@@ -125,17 +125,37 @@ describe('firebase-functions/v2/storage trigger discovery', () => {
       () => undefined,
     );
 
+    expect(ACTIVE_STORAGE_EVENT_TYPES.has(FINALIZED_EVENT_TYPE)).toBe(true);
+    expect(ACTIVE_STORAGE_EVENT_TYPES.has(DELETED_EVENT_TYPE)).toBe(true);
+    expect(ACTIVE_STORAGE_EVENT_TYPES.has(ARCHIVED_EVENT_TYPE)).toBe(true);
+    expect(ACTIVE_STORAGE_EVENT_TYPES.has(METADATA_UPDATED_EVENT_TYPE)).toBe(true);
+
     const active = discoverStorageTriggers(
       { finalized, deleted, archived, metadataUpdated },
       { defaultBucket: 'demo-project.appspot.com' },
     );
-    expect(active.map((item) => item.exportName)).toEqual(['finalized']);
+    expect(active.map((item) => item.exportName)).toEqual([
+      'finalized',
+      'deleted',
+      'archived',
+      'metadataUpdated',
+    ]);
 
     const unsupported = findUnsupportedTriggers(
       { finalized, deleted, archived, metadataUpdated },
       [rtdbValueTriggerFamily, storageTriggersFamily],
     );
-    expect(unsupported).toEqual([
+    expect(unsupported).toEqual([]);
+
+    const subsetInspected = inspectStorageTriggers(
+      { finalized, deleted, archived, metadataUpdated },
+      {
+        defaultBucket: 'demo-project.appspot.com',
+        activeEventTypes: new Set([FINALIZED_EVENT_TYPE]),
+      },
+    );
+    expect(subsetInspected.triggers.map((item) => item.exportName)).toEqual(['finalized']);
+    expect(subsetInspected.unsupported).toEqual([
       { exportName: 'deleted', eventType: DELETED_EVENT_TYPE },
       { exportName: 'archived', eventType: ARCHIVED_EVENT_TYPE },
       { exportName: 'metadataUpdated', eventType: METADATA_UPDATED_EVENT_TYPE },

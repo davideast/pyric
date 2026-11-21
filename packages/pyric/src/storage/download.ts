@@ -153,7 +153,9 @@ export async function deleteObjectGeneration(
   // in one transaction, so a later write is never removed.
   const existing = await service.backend.getMetadata(ref.fullPath);
   const deleted = await service.backend.deleteIfGeneration(ref.fullPath, generation);
-  if (deleted) emitObjectDelete(ref, existing, storageOperationProvenance(target, provenance));
+  if (deleted) {
+    emitObjectDelete(ref, existing, storageOperationProvenance(target, provenance), true);
+  }
   return deleted;
 }
 
@@ -161,8 +163,13 @@ function emitObjectDelete(
   ref: StorageReference,
   existing: StoredMetadata | undefined,
   operationProvenance: ReturnType<typeof storageOperationProvenance>,
+  rollback = false,
 ): void {
   const target = targetOf(operationStorageOf(ref));
+  const detail: Record<string, unknown> = { bucket: target.bucket };
+  if (rollback) {
+    detail.rollback = true;
+  }
   try {
     emitSandboxEvent(
       target.sandbox,
@@ -173,7 +180,7 @@ function emitObjectDelete(
         path: ref.fullPath,
         auth: storageAuth(target),
         before: existing ?? undefined,
-        detail: { bucket: target.bucket },
+        detail,
       }),
       operationProvenance,
     );

@@ -231,15 +231,11 @@ describe('isolated Functions Storage child against live HostedRuntime', () => {
 
     const ready = await activeChild.ready;
     expect(ready).toEqual({
-      triggerCount: 3,
+      triggerCount: 4,
       unsupportedTriggers: [
         {
           exportName: 'omittedFinalized',
           eventType: 'google.cloud.storage.object.v1.finalized (omitted from emulation)',
-        },
-        {
-          exportName: 'pendingDeleteSupport',
-          eventType: 'google.cloud.storage.object.v1.deleted',
         },
       ],
     });
