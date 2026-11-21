@@ -28,6 +28,14 @@ class StorageByteTransfer {
 
   StorageByteTransfer(this._storage);
 
+  /// Whether this host refuses WebSocket byte frames in favor of the HTTP byte route.
+  bool get prefersHttpByteRoute => _prefersHttpByteRoute;
+
+  /// Records that the connected host requires HTTP byte-route transfers.
+  void markHttpByteRoutePreferred() {
+    _prefersHttpByteRoute = true;
+  }
+
   /// Downloads up to [maxSize] bytes for [wirePath], enforcing `download-size-exceeded` when exceeded.
   Future<Uint8List> downloadBytes({
     required String wirePath,

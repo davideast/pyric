@@ -9,7 +9,9 @@ import '../auth/auth_lens.dart';
 import '../auth/pyric_auth_credentials_provider.dart';
 import '../transport/bridge_client.dart';
 import 'pyric_reference_platform.dart';
+import 'pyric_task_platform.dart';
 import 'storage_byte_transfer.dart';
+import 'storage_transfer_runner.dart';
 import 'storage_wire_codec.dart';
 
 const int _defaultMaxOperationRetryTimeMillis = 2 * 60 * 1000;
@@ -27,12 +29,15 @@ class PyricFirebaseStoragePlatform extends FirebaseStoragePlatform {
   /// Optional explicit [AuthLens] override on this Storage instance.
   AuthLens? authLens;
   final String? _sessionToken;
+  /// Chunk byte size used by resumable upload and file download tasks.
+  final int taskChunkSize;
   bool _isDisposed = false;
 
   int _maxOperationRetryTime = _defaultMaxOperationRetryTimeMillis;
   int _maxUploadRetryTime = _defaultMaxUploadRetryTimeMillis;
   int _maxDownloadRetryTime = _defaultMaxDownloadRetryTimeMillis;
 
+  final Set<PyricTaskPlatform> _activeTasks = <PyricTaskPlatform>{};
   late StorageByteTransfer _byteTransfer = StorageByteTransfer(this);
 
   PyricFirebaseStoragePlatform({
@@ -42,6 +47,7 @@ class PyricFirebaseStoragePlatform extends FirebaseStoragePlatform {
     PyricAuthCredentialsProvider? credentialsProvider,
     this.authLens,
     String? sessionToken,
+    this.taskChunkSize = defaultStorageTaskChunkBytes,
   })  : _bridgeClient = bridgeClient ?? PyricBridgeClient(),
         _ownsBridgeClient = bridgeClient == null,
         _credentialsProvider = credentialsProvider,
@@ -147,6 +153,7 @@ class PyricFirebaseStoragePlatform extends FirebaseStoragePlatform {
     PyricAuthCredentialsProvider? credentialsProvider,
     AuthLens? authLens,
     String? sessionToken,
+    int taskChunkSize = defaultStorageTaskChunkBytes,
   }) {
     _delegatesByKey.clear();
     final root = PyricFirebaseStoragePlatform(
@@ -155,6 +162,7 @@ class PyricFirebaseStoragePlatform extends FirebaseStoragePlatform {
       credentialsProvider: credentialsProvider,
       authLens: authLens,
       sessionToken: sessionToken,
+      taskChunkSize: taskChunkSize,
     );
     FirebaseStoragePlatform.instance = root;
     return root;
@@ -191,6 +199,7 @@ class PyricFirebaseStoragePlatform extends FirebaseStoragePlatform {
         credentialsProvider: _credentialsProvider,
         authLens: authLens,
         sessionToken: _sessionToken,
+        taskChunkSize: taskChunkSize,
       );
     });
   }
@@ -226,6 +235,7 @@ class PyricFirebaseStoragePlatform extends FirebaseStoragePlatform {
         credentialsProvider: _credentialsProvider,
         authLens: authLens,
         sessionToken: _sessionToken,
+        taskChunkSize: taskChunkSize,
       );
       return scoped.ref(parsed.path);
     }
@@ -335,12 +345,29 @@ class PyricFirebaseStoragePlatform extends FirebaseStoragePlatform {
     return headers;
   }
 
-  /// Disposes this Storage platform instance and disconnects any owned bridge client.
+  /// Registers an active [PyricTaskPlatform] so [dispose] can cancel in-flight transfers.
+  void registerActiveTask(PyricTaskPlatform task) {
+    if (!_isDisposed) {
+      _activeTasks.add(task);
+    }
+  }
+
+  /// Unregisters a settled [PyricTaskPlatform].
+  void unregisterActiveTask(PyricTaskPlatform task) {
+    _activeTasks.remove(task);
+  }
+
+  /// Disposes this Storage platform instance, cancels active tasks, and disconnects any owned bridge client.
   Future<void> dispose() async {
     if (_isDisposed) {
       return;
     }
     _isDisposed = true;
+    final tasks = _activeTasks.toList(growable: false);
+    _activeTasks.clear();
+    for (final task in tasks) {
+      await task.disposeTask();
+    }
     final targetApp = _tryResolveApp();
     if (targetApp != null) {
       final key = _delegateKey(targetApp.name, resolvedBucket);
@@ -367,7 +394,9 @@ class PyricFirebaseStoragePlatform extends FirebaseStoragePlatform {
     if (method == 'storage.putBytes' ||
         method == 'storage.beginUpload' ||
         method == 'storage.putPart' ||
-        method == 'storage.finishUpload') {
+        method == 'storage.finishUpload' ||
+        method == 'storage.abortUpload' ||
+        method == 'storage.rollbackUpload') {
       return _maxUploadRetryTime > 0 ? _maxUploadRetryTime : 1;
     }
     if (method == 'storage.getBytes' || method == 'storage.getBlob') {

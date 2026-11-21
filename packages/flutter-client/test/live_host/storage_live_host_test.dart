@@ -10,45 +10,29 @@ import 'package:pyric_firestore/pyric_auth.dart';
 import 'package:pyric_firestore/pyric_storage.dart';
 
 class _LiveStorageFirebasePlatform extends FirebasePlatform {
+  static const FirebaseOptions _defaultOptions = FirebaseOptions(
+    apiKey: 'demo-flutter-live-api-key',
+    appId: '1:424242424242:android:flutterstoragelive',
+    messagingSenderId: '424242424242',
+    projectId: 'demo-flutter-live',
+    storageBucket: 'demo-flutter-live.appspot.com',
+  );
   final Map<String, FirebaseAppPlatform> _apps = <String, FirebaseAppPlatform>{};
 
   @override
   List<FirebaseAppPlatform> get apps => _apps.values.toList();
 
   @override
-  Future<FirebaseAppPlatform> initializeApp({
-    String? name,
-    FirebaseOptions? options,
-  }) async {
+  Future<FirebaseAppPlatform> initializeApp({String? name, FirebaseOptions? options}) async {
     final appName = name ?? defaultFirebaseAppName;
-    final resolvedOptions = options ??
-        const FirebaseOptions(
-          apiKey: 'demo-flutter-live-api-key',
-          appId: '1:424242424242:android:flutterstoragelive',
-          messagingSenderId: '424242424242',
-          projectId: 'demo-flutter-live',
-          storageBucket: 'demo-flutter-live.appspot.com',
-        );
-    final app = FirebaseAppPlatform(appName, resolvedOptions);
+    final app = FirebaseAppPlatform(appName, options ?? _defaultOptions);
     _apps[appName] = app;
     return app;
   }
 
   @override
   FirebaseAppPlatform app([String name = defaultFirebaseAppName]) {
-    return _apps.putIfAbsent(
-      name,
-      () => FirebaseAppPlatform(
-        name,
-        const FirebaseOptions(
-          apiKey: 'demo-flutter-live-api-key',
-          appId: '1:424242424242:android:flutterstoragelive',
-          messagingSenderId: '424242424242',
-          projectId: 'demo-flutter-live',
-          storageBucket: 'demo-flutter-live.appspot.com',
-        ),
-      ),
-    );
+    return _apps.putIfAbsent(name, () => FirebaseAppPlatform(name, _defaultOptions));
   }
 }
 
@@ -134,6 +118,13 @@ void main() {
   PyricFirebaseStoragePlatform? liveCustomStorage;
   String ownerUid = '';
 
+  PyricFirebaseStoragePlatform newAdminStorage() => PyricFirebaseStoragePlatform(
+        appInstance: liveApp,
+        bucket: defaultBucket,
+        bridgeClient: liveClient,
+        authLens: AuthLens.admin,
+      );
+
   setUpAll(() async {
     previousHttpOverrides = HttpOverrides.current;
     HttpOverrides.global = null;
@@ -163,29 +154,15 @@ void main() {
     await liveClient!.connect();
 
     if (_isDedicatedStorageHost()) {
-      liveAuth = PyricFirebaseAuthPlatform(
-        appInstance: liveApp,
-        bridgeClient: liveClient,
-      );
+      liveAuth = PyricFirebaseAuthPlatform(appInstance: liveApp, bridgeClient: liveClient);
       PyricFirebaseAuthPlatform.registerWith(bridgeClient: liveClient);
-      PyricFirebaseStoragePlatform.registerWith(
-        bridgeClient: liveClient,
-        credentialsProvider: liveAuth,
-      );
-      liveStorage = FirebaseStoragePlatform.instanceFor(
-        app: liveApp!,
-        bucket: '',
-      ) as PyricFirebaseStoragePlatform;
-      liveCustomStorage = FirebaseStoragePlatform.instanceFor(
-        app: liveApp!,
-        bucket: 'gs://flutter-custom-media',
-      ) as PyricFirebaseStoragePlatform;
+      PyricFirebaseStoragePlatform.registerWith(bridgeClient: liveClient, credentialsProvider: liveAuth);
+      liveStorage = FirebaseStoragePlatform.instanceFor(app: liveApp!, bucket: '') as PyricFirebaseStoragePlatform;
+      liveCustomStorage = FirebaseStoragePlatform.instanceFor(app: liveApp!, bucket: 'gs://flutter-custom-media')
+          as PyricFirebaseStoragePlatform;
     } else {
       PyricFirebaseStoragePlatform.registerWith(bridgeClient: liveClient);
-      liveStorage = FirebaseStoragePlatform.instanceFor(
-        app: liveApp!,
-        bucket: '',
-      ) as PyricFirebaseStoragePlatform;
+      liveStorage = FirebaseStoragePlatform.instanceFor(app: liveApp!, bucket: '') as PyricFirebaseStoragePlatform;
     }
   });
 
@@ -242,12 +219,7 @@ void main() {
       }
 
       if (!_isDedicatedStorageHost()) {
-        final adminStorage = PyricFirebaseStoragePlatform(
-          appInstance: liveApp,
-          bucket: defaultBucket,
-          bridgeClient: liveClient,
-          authLens: AuthLens.admin,
-        );
+        final adminStorage = newAdminStorage();
         final meta = await adminStorage.uploadBytes(
           'admin-zero/probe.bin',
           Uint8List(0),
@@ -318,12 +290,7 @@ void main() {
       }
 
       if (!_isDedicatedStorageHost()) {
-        final adminStorage = PyricFirebaseStoragePlatform(
-          appInstance: liveApp,
-          bucket: defaultBucket,
-          bridgeClient: liveClient,
-          authLens: AuthLens.admin,
-        );
+        final adminStorage = newAdminStorage();
         await adminStorage.uploadBytes(
           'admin-zero/meta.bin',
           Uint8List(0),
@@ -383,12 +350,7 @@ void main() {
       }
 
       if (!_isDedicatedStorageHost()) {
-        final adminStorage = PyricFirebaseStoragePlatform(
-          appInstance: liveApp,
-          bucket: defaultBucket,
-          bridgeClient: liveClient,
-          authLens: AuthLens.admin,
-        );
+        final adminStorage = newAdminStorage();
         await adminStorage.uploadBytes('admin-zero/url.bin', Uint8List(0));
         final url = await adminStorage.ref('admin-zero/url.bin').getDownloadURL();
         expect(url, contains('/__pyric/storage/v0/b/'));
@@ -428,12 +390,7 @@ void main() {
       }
 
       if (!_isDedicatedStorageHost()) {
-        final adminStorage = PyricFirebaseStoragePlatform(
-          appInstance: liveApp,
-          bucket: defaultBucket,
-          bridgeClient: liveClient,
-          authLens: AuthLens.admin,
-        );
+        final adminStorage = newAdminStorage();
         await adminStorage.uploadBytes('admin-list/a.bin', Uint8List(0));
         await adminStorage.uploadBytes('admin-list/sub/b.bin', Uint8List(0));
         final listed = await adminStorage.ref('admin-list').listAll();
@@ -539,6 +496,92 @@ void main() {
       await _expectStorageCode(() => readmeRef.getMetadata(), 'object-not-found');
       await _expectStorageCode(() => readmeRef.getData(1024), 'object-not-found');
       await _expectStorageCode(() => readmeRef.delete(), 'object-not-found');
+    });
+
+    test('storage-live#7: streams multi-chunk TaskPlatform uploads, pause/resume/cancel, putString, putFile, and writeToFile', () async {
+      if (bridgeUri == null) {
+        final decoded = decodePutStringPayload(
+          'data:application/json;base64,eyJvayI6MX0=',
+          PutStringFormat.dataUrl,
+        );
+        expect(decoded.metadata.contentType, equals('application/json'));
+        expect(utf8.decode(decoded.bytes), equals('{"ok":1}'));
+        return;
+      }
+
+      if (!_isDedicatedStorageHost()) {
+        final adminStorage = newAdminStorage();
+        final emptyRef = adminStorage.ref('admin-zero/task.bin');
+        final snap = await emptyRef.putData(Uint8List(0)).onComplete;
+        expect(snap.state, equals(TaskState.success));
+        expect(snap.bytesTransferred, equals(0));
+        await emptyRef.delete();
+        await adminStorage.dispose();
+        return;
+      }
+
+      final storage = liveStorage!;
+      final multiChunk = Uint8List.fromList(
+        List<int>.generate(300 * 1024, (int i) => (i * 17 + 5) & 0xff),
+      );
+      final chunkRef = storage.ref('users/$ownerUid/tasks/multi.bin');
+      final uploadTask = chunkRef.putData(
+        multiChunk,
+        SettableMetadata(
+          contentType: 'application/octet-stream',
+          customMetadata: const <String, String>{'kind': 'chunked'},
+        ),
+      );
+      final observedStates = <TaskState>[];
+      final sub = uploadTask.snapshotEvents.listen((s) => observedStates.add(s.state));
+      expect(await uploadTask.pause(), isTrue);
+      expect(await uploadTask.resume(), isTrue);
+      final done = await uploadTask.onComplete;
+      await sub.cancel();
+      expect(done.state, equals(TaskState.success));
+      expect(done.bytesTransferred, equals(multiChunk.length));
+      expect(observedStates, contains(TaskState.paused));
+
+      final dataUrlRef = storage.ref('users/$ownerUid/tasks/config.json');
+      final strSnap = await dataUrlRef
+          .putString('data:application/json;base64,eyJsaXZlIjp0cnVlfQ==', PutStringFormat.dataUrl)
+          .onComplete;
+      expect(strSnap.metadata!.contentType, equals('application/json'));
+      expect(utf8.decode((await dataUrlRef.getData(128))!), equals('{"live":true}'));
+
+      final scratchBase = Directory('.dart_tool/pyric_live_storage_scratch');
+      if (!await scratchBase.exists()) {
+        await scratchBase.create(recursive: true);
+      }
+      final scratchDir = await scratchBase.createTemp('live_');
+      final srcFile = File('${scratchDir.path}/src.bin');
+      final dstFile = File('${scratchDir.path}/dst.bin');
+      try {
+        await srcFile.writeAsBytes(multiChunk, flush: true);
+        final fileRef = storage.ref('users/$ownerUid/tasks/file.bin');
+        await fileRef.putFile(srcFile).onComplete;
+        final dlSnap = await fileRef.writeToFile(dstFile).onComplete;
+        expect(dlSnap.bytesTransferred, equals(multiChunk.length));
+        expect(await dstFile.readAsBytes(), equals(multiChunk));
+        await fileRef.delete();
+      } finally {
+        if (await srcFile.exists()) await srcFile.delete();
+        if (await dstFile.exists()) await dstFile.delete();
+        if (await scratchDir.exists()) await scratchDir.delete();
+      }
+
+      final cancelRef = storage.ref('users/$ownerUid/tasks/canceled.bin');
+      final cancelTask = cancelRef.putData(multiChunk);
+      expect(await cancelTask.cancel(), isTrue);
+      await _expectStorageCode(() => cancelTask.onComplete, 'canceled');
+      await _expectStorageCode(() => cancelRef.getMetadata(), 'object-not-found');
+
+      final cleared = await dataUrlRef.updateMetadata(
+        SettableMetadata(customMetadata: const <String, String>{}),
+      );
+      expect(cleared.customMetadata, isNull);
+      await chunkRef.delete();
+      await dataUrlRef.delete();
     });
   });
 }

@@ -373,8 +373,8 @@ int? _parseWireTimestampMillis(Object? millisRaw, Object? isoRaw) {
   return null;
 }
 
-/// Decodes a Pyric Storage metadata JSON object into a FlutterFire [FullMetadata].
-FullMetadata decodeWireFullMetadata(
+/// Decodes a Pyric Storage metadata JSON object into a normalized FlutterFire metadata map.
+Map<String, dynamic> decodeWireFullMetadataMap(
   Object? raw, {
   String? fallbackBucket,
   String? fallbackPath,
@@ -428,7 +428,7 @@ FullMetadata decodeWireFullMetadata(
     raw['updated'],
   );
 
-  return PyricFullMetadata(<String, dynamic>{
+  return <String, dynamic>{
     'bucket': resolvedBucket,
     'fullPath': normalizedPath,
     'name': resolvedName,
@@ -445,7 +445,22 @@ FullMetadata decodeWireFullMetadata(
     'creationTimeMillis': creationTimeMillis,
     'updatedTimeMillis': updatedTimeMillis,
     'customMetadata': customMetadata,
-  });
+  };
+}
+
+/// Decodes a Pyric Storage metadata JSON object into a FlutterFire [FullMetadata].
+FullMetadata decodeWireFullMetadata(
+  Object? raw, {
+  String? fallbackBucket,
+  String? fallbackPath,
+}) {
+  return PyricFullMetadata(
+    decodeWireFullMetadataMap(
+      raw,
+      fallbackBucket: fallbackBucket,
+      fallbackPath: fallbackPath,
+    ),
+  );
 }
 
 /// Serializes [SettableMetadata] into the wire `metadata` map accepted by `storage.putBytes` / `storage.beginUpload`.
