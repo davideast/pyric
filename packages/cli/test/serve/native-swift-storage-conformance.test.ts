@@ -572,13 +572,14 @@ describe('native Swift Cloud Storage live-host conformance', () => {
 
         expect(host.traffic.rpcMethods).toContain('storage.beginUpload');
         expect(host.traffic.rpcMethods).toContain('storage.finishUpload');
+        expect(host.traffic.rpcMethods).toContain('storage.abortUpload');
         expect(host.traffic.rpcMethods).toContain('storage.getMetadata');
         expect(host.traffic.rpcMethods).toContain('storage.getDownloadURL');
         expect(host.traffic.rpcMethods).toContain('storage.setMetadata');
         expect(host.traffic.rpcMethods).toContain('storage.listAll');
         expect(host.traffic.rpcMethods).toContain('storage.deleteObject');
-        expect(host.traffic.httpRequests.some((r) => r.method === 'PUT')).toBe(true);
-        expect(host.traffic.httpRequests.some((r) => r.method === 'GET')).toBe(true);
+        expect(host.traffic.httpRequests.filter((r) => r.method === 'PUT').length).toBeGreaterThanOrEqual(4);
+        expect(host.traffic.httpRequests.filter((r) => r.method === 'GET').length).toBeGreaterThanOrEqual(4);
       } finally {
         await host.close();
       }

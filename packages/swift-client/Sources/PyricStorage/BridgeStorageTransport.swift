@@ -419,25 +419,11 @@ package enum BridgeStorageTransport {
         pageToken: String?,
         timeout: TimeInterval
     ) async throws -> StorageListResult {
-        if let maxResults, (maxResults <= 0 || maxResults > 1000) {
+        do {
+            try StorageListPaginator.validateArguments(maxResults: maxResults, pageToken: pageToken)
+        } catch {
             await client.pass(turn: turn)
-            throw StorageErrorCode(
-                code: .invalidArgument,
-                message: "Argument 'maxResults' must be between 1 and 1000 inclusive."
-            )
-        }
-        let startIndex: Int
-        if let pageToken {
-            guard let parsed = Int(pageToken), parsed >= 0 else {
-                await client.pass(turn: turn)
-                throw StorageErrorCode(
-                    code: .invalidArgument,
-                    message: "Invalid pagination pageToken: '\(pageToken)'."
-                )
-            }
-            startIndex = parsed
-        } else {
-            startIndex = 0
+            throw error
         }
 
         var params = reference.bucketWireParams
@@ -459,27 +445,11 @@ package enum BridgeStorageTransport {
         let allPrefixes = decodeListReferences(dict["prefixes"]?.arrayValue, parent: reference)
         let allItems = decodeListReferences(dict["items"]?.arrayValue, parent: reference)
 
-        guard let maxResults else {
-            return StorageListResult(prefixes: allPrefixes, items: allItems, pageToken: nil)
-        }
-
-        let limit = Int(maxResults)
-        let totalCount = allPrefixes.count + allItems.count
-        guard startIndex < totalCount else {
-            return StorageListResult(prefixes: [], items: [], pageToken: nil)
-        }
-
-        let endIndex = min(startIndex + limit, totalCount)
-        var pagePrefixes: [StorageReference] = []
-        var pageItems: [StorageReference] = []
-        for idx in startIndex..<endIndex {
-            if idx < allPrefixes.count {
-                pagePrefixes.append(allPrefixes[idx])
-            } else {
-                pageItems.append(allItems[idx - allPrefixes.count])
-            }
-        }
-        let nextToken: String? = (endIndex < totalCount) ? "\(endIndex)" : nil
-        return StorageListResult(prefixes: pagePrefixes, items: pageItems, pageToken: nextToken)
+        return try StorageListPaginator.paginate(
+            prefixes: allPrefixes,
+            items: allItems,
+            maxResults: maxResults,
+            pageToken: pageToken
+        )
     }
 }

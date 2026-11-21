@@ -2,25 +2,28 @@ import Foundation
 
 /// Swift `Result` completion overloads mirroring `FirebaseStorage/Sources/Result.swift` (`13.2.0`).
 public extension StorageReference {
+    @discardableResult
     func putData(
         _ uploadData: Data,
         metadata: StorageMetadata? = nil,
         completion: @escaping @Sendable (Result<StorageMetadata, Error>) -> Void
-    ) {
+    ) -> StorageUploadTask {
         putData(uploadData, metadata: metadata, completion: Self.resultAdapter(completion))
     }
 
+    @discardableResult
     func getData(
         maxSize: Int64,
         completion: @escaping @Sendable (Result<Data, Error>) -> Void
-    ) {
+    ) -> StorageDownloadTask {
         data(maxSize: maxSize, completion: Self.resultAdapter(completion))
     }
 
+    @discardableResult
     func data(
         maxSize: Int64,
         completion: @escaping @Sendable (Result<Data, Error>) -> Void
-    ) {
+    ) -> StorageDownloadTask {
         data(maxSize: maxSize, completion: Self.resultAdapter(completion))
     }
 
