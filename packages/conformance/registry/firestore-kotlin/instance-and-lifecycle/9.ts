@@ -1,3 +1,4 @@
+import { LIVE_HOST_CONFORMANCE_TEST } from '../defaults.ts';
 import { row } from './section.ts';
 
 export default row({
@@ -5,4 +6,9 @@ export default row({
   api: 'FirebaseFirestore.clearPersistence()',
   behavior: 'Clears offline client persistence cache when no active listeners exist.',
   featureKeys: ['clearPersistence'],
+  status: 'conforms',
+  tests: [
+    'packages/kt-client/src/test/kotlin/dev/pyric/e2e/FirestoreLifecycleAndDocsLiveHostConformanceTest.kt',
+  ],
+  hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

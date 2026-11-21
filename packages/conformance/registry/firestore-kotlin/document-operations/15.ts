@@ -1,3 +1,4 @@
+import { LIVE_HOST_CONFORMANCE_TEST } from '../defaults.ts';
 import { row } from './section.ts';
 
 export default row({
@@ -5,5 +6,9 @@ export default row({
   api: 'DocumentReference.set(data)',
   behavior: 'Overwrites target document completely with provided map or POJO payload.',
   featureKeys: ['set'],
-  flipped: 'unit-backed',
+  status: 'conforms',
+  tests: [
+    'packages/kt-client/src/test/kotlin/dev/pyric/e2e/FirestoreLifecycleAndDocsLiveHostConformanceTest.kt',
+  ],
+  hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

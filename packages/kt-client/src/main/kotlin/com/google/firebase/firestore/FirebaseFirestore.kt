@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.Executor
 
 class FirebaseFirestore(
     val bridgeClient: PyricBridgeClient,
@@ -39,6 +40,7 @@ class FirebaseFirestore(
     private val firestoreJob = SupervisorJob()
     private val firestoreScope = CoroutineScope(firestoreJob + Dispatchers.IO)
     internal val listenerScope = CoroutineScope(SupervisorJob(firestoreJob) + Dispatchers.IO)
+    internal val offlineCoordinator = FirestoreOfflineCoordinator(this, firestoreScope)
     private val rulesDenialListeners = CopyOnWriteArrayList<RulesDenialListener>()
     private val _terminatedStateFlow = MutableStateFlow(false)
     internal val terminatedStateFlow: StateFlow<Boolean> = _terminatedStateFlow.asStateFlow()
@@ -82,6 +84,9 @@ class FirebaseFirestore(
         checkNotTerminated()
         isStarted = true
     }
+
+    internal fun unvalidatedDocumentRef(cleanPath: String): DocumentReference =
+        DocumentReference(this, cleanPath.trim('/'))
 
     fun addRulesDenialListener(listener: RulesDenialListener): ListenerRegistration {
         rulesDenialListeners.add(listener)
@@ -206,6 +211,7 @@ class FirebaseFirestore(
         _terminatedStateFlow.value = true
         instances.remove(Pair(app.name, databaseId), this)
         rulesDenialListeners.clear()
+        offlineCoordinator.onTerminate()
         firestoreScope.cancel()
         if (!app.ownsSharedBridgeClient(bridgeClient)) {
             return bridgeClient.terminate()
@@ -213,17 +219,19 @@ class FirebaseFirestore(
         return Tasks.forResult(null)
     }
 
-    fun clearPersistence(): Task<Void?> = Tasks.forResult(null)
+    fun clearPersistence(): Task<Void?> = offlineCoordinator.clearPersistence()
 
-    fun enableNetwork(): Task<Void?> = Tasks.forResult(null)
+    fun enableNetwork(): Task<Void?> = offlineCoordinator.enableNetwork()
 
-    fun disableNetwork(): Task<Void?> = Tasks.forResult(null)
+    fun disableNetwork(): Task<Void?> = offlineCoordinator.disableNetwork()
 
-    fun waitForPendingWrites(): Task<Void?> = Tasks.forResult(null)
+    fun waitForPendingWrites(): Task<Void?> = offlineCoordinator.waitForPendingWrites()
 
-    fun addSnapshotsInSyncListener(runnable: Runnable): ListenerRegistration {
-        return ListenerRegistration {}
-    }
+    fun addSnapshotsInSyncListener(runnable: Runnable): ListenerRegistration =
+        offlineCoordinator.addSnapshotsInSyncListener(executor = null, runnable = runnable)
+
+    fun addSnapshotsInSyncListener(executor: Executor, runnable: Runnable): ListenerRegistration =
+        offlineCoordinator.addSnapshotsInSyncListener(executor = executor, runnable = runnable)
 
     /**
      * The contention codes Android's TransactionRunner retries. Its rule also retries
@@ -278,6 +286,7 @@ class FirebaseFirestore(
         @JvmStatic
         fun clearInstancesForTest() {
             instances.clear()
+            FirestoreOfflineCoordinator.clearAllPersistedStoresForTest()
         }
     }
 }
