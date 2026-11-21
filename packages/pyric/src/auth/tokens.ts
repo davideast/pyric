@@ -9,7 +9,7 @@ import { requireSandboxTarget } from './action-codes.js';
 import { getClock, mintCustomToken, readCustomToken, type SandboxCustomToken } from 'pyric/sandbox/internal';
 import type { CreateUserRequest } from './sandbox-backend-types.js';
 import { SandboxBackend } from './sandbox-backend.js';
-import { hasBeforeCreateHook } from './sandbox/blocking-hooks.js';
+import { hasBeforeCreateHook, hasBeforeSignInHook } from './sandbox/blocking-hooks.js';
 import { resolveBlockedCustomTokenIdentity } from './sandbox/blocking-user-creation.js';
 import { assertMatchingTenant, normalizeTenantScope } from './sandbox/tenant-isolation.js';
 import { targetOf, type SandboxTarget } from './target.js';
@@ -56,8 +56,14 @@ export async function signInWithCustomToken(
   customToken: string,
 ): Promise<UserCredential> {
   let resolved: { user: User; isNewUser: boolean };
-  if (hasBeforeCreateHook(auth)) {
-    resolved = await resolveBlockedCustomTokenIdentity(auth, customToken);
+  if (hasBeforeCreateHook(auth) || hasBeforeSignInHook(auth)) {
+    resolved = await resolveBlockedCustomTokenIdentity(
+      auth,
+      customToken,
+      undefined,
+      undefined,
+      true,
+    );
   } else {
     resolved = resolveCustomTokenIdentity(auth, customToken);
   }

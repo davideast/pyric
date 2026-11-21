@@ -326,6 +326,15 @@ export class SandboxBackend {
    *  without writing them into the account's stored `customClaims` or
    *  leaking them to a later non-custom sign-in. */
   private readonly customTokenClaimsByUid = new Map<string, Record<string, unknown>>();
+  private readonly blockingSessionClaimsByUid = new Map<string, Record<string, unknown>>();
+  private readonly blockingSessionClaimsByUser = new WeakMap<
+    User,
+    Record<string, unknown> | null
+  >();
+  private pendingBlockingSessionClaims: {
+    uid: string;
+    claims: Record<string, unknown> | undefined;
+  } | null = null;
 
   /** Per-uid page origin a detached session's client signed in from. The
    *  stored photo URL stays relative; token `picture`, admin records, and
@@ -1537,6 +1546,7 @@ export class SandboxBackend {
       if (hadUser) {
         this.tokenCache.delete(previousUser.uid);
         this.customTokenClaimsByUid.delete(previousUser.uid);
+        this.blockingSessionClaimsByUid.delete(previousUser.uid);
         this.notifyAuthListeners();
         this.notifySessionChanged();
         // Sign-out: the acting identity WAS the user that just left; no
@@ -1557,6 +1567,16 @@ export class SandboxBackend {
       this.signInProviderByUid.set(user.uid, signInProvider);
       if (signInProvider !== 'custom') {
         this.customTokenClaimsByUid.delete(user.uid);
+      }
+      const stagedSession = this.pendingBlockingSessionClaims;
+      this.pendingBlockingSessionClaims = null;
+      if (stagedSession !== null && stagedSession.uid === user.uid && stagedSession.claims !== undefined) {
+        const clonedSession = cloneClaimData(stagedSession.claims);
+        this.blockingSessionClaimsByUid.set(user.uid, clonedSession);
+        this.blockingSessionClaimsByUser.set(user, clonedSession);
+      } else {
+        this.blockingSessionClaimsByUid.delete(user.uid);
+        this.blockingSessionClaimsByUser.set(user, null);
       }
     }
     // A sign-in authenticates; so does the first session the test driver
@@ -1996,6 +2016,7 @@ export class SandboxBackend {
     // getIdToken() with it until its refresh point, and the refresh is refused.
     this.signInProviderByUid.delete(uid);
     this.customTokenClaimsByUid.delete(uid);
+    this.blockingSessionClaimsByUid.delete(uid);
     this.photoOriginByUid.delete(uid);
     this.authenticatedAtByUid.delete(uid);
     this.notifyUsersChanged();
@@ -2014,6 +2035,7 @@ export class SandboxBackend {
     this.usersByUid.clear();
     this.usersByEmail.clear();
     this.customTokenClaimsByUid.clear();
+    this.blockingSessionClaimsByUid.clear();
     this.notifyUsersChanged();
     this.emitAuthEvent('users_clear', { path: '*', auth: null, detail: { count } });
   }
@@ -2106,35 +2128,51 @@ export class SandboxBackend {
   mintDetachedSession(request: MintSessionRequest): MintedSession {
     const tenantId = normalizeTenantScope(request.tenantId);
     switch (request.kind) {
-      case 'anonymous':
+      case 'anonymous': {
         this.assertProviderEnabled('anonymous');
+        const anonUser = this.mintAnonymousUser(tenantId);
+        SandboxBackend.applyDetachedBlockingSessionClaims(this, anonUser, true, request.sessionClaims);
         return this.establishDetachedSession(
-          this.mintAnonymousUser(tenantId),
+          anonUser,
           'anonymous',
           tenantId,
           true,
           request.origin,
         );
-      case 'password':
+      }
+      case 'password': {
         this.assertProviderEnabled('password');
+        const pwUser = this.buildUserFromStored(
+          this.validatePassword(request.email, request.password, tenantId),
+        );
+        SandboxBackend.applyDetachedBlockingSessionClaims(this, pwUser, true, request.sessionClaims);
         return this.establishDetachedSession(
-          this.buildUserFromStored(this.validatePassword(request.email, request.password, tenantId)),
+          pwUser,
           'password',
           tenantId,
           true,
           request.origin,
         );
-      case 'createPassword':
+      }
+      case 'createPassword': {
         this.assertProviderEnabled('password');
+        const createdUser = this.buildUserFromStored(
+          this.createEmailPasswordUser(request.email, request.password, tenantId),
+        );
+        SandboxBackend.applyDetachedBlockingSessionClaims(
+          this,
+          createdUser,
+          true,
+          request.sessionClaims,
+        );
         return this.establishDetachedSession(
-          this.buildUserFromStored(
-            this.createEmailPasswordUser(request.email, request.password, tenantId),
-          ),
+          createdUser,
           'password',
           tenantId,
           true,
           request.origin,
         );
+      }
       case 'provider':
       case 'custom':
       case 'uid': {
@@ -2191,12 +2229,16 @@ export class SandboxBackend {
           restore.customClaims !== undefined;
         if (hasRestoreClaimsOverride) {
           claimsOverride = cloneClaimData(restore.customClaims ?? {});
-        } else if (request.sessionClaims !== undefined) {
-          assertNoReservedCustomClaims(request.sessionClaims);
-          claimsOverride = cloneClaimData({
-            ...SandboxBackend.getEffectiveClaims(this, user.uid),
-            ...request.sessionClaims,
-          });
+        } else {
+          SandboxBackend.applyDetachedBlockingSessionClaims(
+            this,
+            user,
+            authenticates && !continues,
+            request.sessionClaims,
+          );
+          if (request.sessionClaims !== undefined) {
+            claimsOverride = SandboxBackend.getEffectiveClaims(this, user.uid);
+          }
         }
         const minted = this.establishDetachedSession(
           user,
@@ -2472,9 +2514,9 @@ export class SandboxBackend {
       // Falls back to the closed-over claims for users not in the DB
       // (anonymous / popup), matching how they were minted.
       getIdToken: (forceRefresh?: boolean) => logoutIfInvalidated(signOutIfCurrent, () =>
-        this.getIdTokenFor(args.uid, this.liveClaims(args.uid, fallbackClaims), forceRefresh === true, user.tenantId, user)),
+        this.getIdTokenFor(args.uid, this.liveClaims(args.uid, fallbackClaims, user), forceRefresh === true, user.tenantId, user)),
       getIdTokenResult: (forceRefresh?: boolean) => logoutIfInvalidated(signOutIfCurrent, () =>
-        this.getIdTokenResultFor(args.uid, this.liveClaims(args.uid, fallbackClaims), forceRefresh === true, user.tenantId, user)),
+        this.getIdTokenResultFor(args.uid, this.liveClaims(args.uid, fallbackClaims, user), forceRefresh === true, user.tenantId, user)),
     };
     // Stamp the backend-dispatch hook non-enumerably so the top-level
     // `updateProfile(user, …)` free function can update THIS user (and the
@@ -2662,10 +2704,91 @@ export class SandboxBackend {
   static getEffectiveClaims(backend: SandboxBackend, uid: string, fallback: Record<string, unknown> = {}): Record<string, unknown> {
     const base = backend.usersByUid.get(uid)?.customClaims ?? fallback;
     const tokenClaims = backend.customTokenClaimsByUid.get(uid);
-    if (tokenClaims !== undefined) {
-      return cloneClaimData({ ...base, ...tokenClaims });
+    const sessionClaims = backend.blockingSessionClaimsByUid.get(uid);
+    if (tokenClaims !== undefined || sessionClaims !== undefined) {
+      return cloneClaimData({ ...base, ...tokenClaims, ...sessionClaims });
     }
     return cloneClaimData(base);
+  }
+
+  /**
+   * Stage transient `sessionClaims` for the next in-page `transitionCurrentUser`
+   * sign-in without mutating `stored.customClaims` or prototype signatures.
+   * Static, so the frozen prototype surface stays as it is.
+   */
+  static stageBlockingSessionClaims(
+    backend: SandboxBackend,
+    uid: string,
+    claims: Record<string, unknown> | undefined,
+  ): void {
+    if (claims !== undefined) {
+      assertNoReservedCustomClaims(claims);
+      backend.pendingBlockingSessionClaims = { uid, claims: cloneClaimData(claims) };
+    } else {
+      backend.pendingBlockingSessionClaims = null;
+    }
+  }
+
+  /**
+   * Persist permanent user-record mutations returned by `beforeUserSignedIn`
+   * (`displayName`, `photoURL`, `emailVerified`, `disabled`, `customClaims`)
+   * without writing `sessionClaims` into `stored.customClaims`.
+   * Static, so the frozen prototype surface stays as it is.
+   */
+  static applyBlockedSignInUpdate(
+    backend: SandboxBackend,
+    uid: string,
+    update: {
+      displayName?: string;
+      photoURL?: string;
+      emailVerified?: boolean;
+      disabled?: boolean;
+      customClaims?: Record<string, unknown>;
+    },
+  ): StoredUser {
+    const stored = backend.usersByUid.get(uid);
+    if (stored === undefined) {
+      throw makeAuthError('auth/user-not-found', `No user found for uid ${uid}.`);
+    }
+    let mutated = false;
+    const before = backend.toRecord(stored);
+    if (update.displayName !== undefined) {
+      const nextDisplayName = update.displayName.length === 0 ? null : update.displayName;
+      if (stored.displayName !== nextDisplayName) {
+        stored.displayName = nextDisplayName;
+        mutated = true;
+      }
+    }
+    if (update.photoURL !== undefined) {
+      const nextPhotoUrl = update.photoURL.length === 0 ? null : update.photoURL;
+      if (stored.photoUrl !== nextPhotoUrl) {
+        stored.photoUrl = nextPhotoUrl;
+        mutated = true;
+      }
+    }
+    if (update.emailVerified !== undefined && stored.emailVerified !== update.emailVerified) {
+      stored.emailVerified = update.emailVerified;
+      mutated = true;
+    }
+    if (update.disabled !== undefined && stored.disabled !== update.disabled) {
+      stored.disabled = update.disabled;
+      mutated = true;
+    }
+    if (update.customClaims !== undefined) {
+      assertNoReservedCustomClaims(update.customClaims);
+      stored.customClaims = cloneClaimData(update.customClaims);
+      mutated = true;
+    }
+    if (mutated) {
+      backend.notifyUsersChanged();
+      backend.emitAuthEvent('user_update', {
+        path: uid,
+        auth: null,
+        before,
+        after: backend.toRecord(stored),
+      });
+    }
+    return stored;
   }
 
   /**
@@ -2861,6 +2984,25 @@ export class SandboxBackend {
     });
   }
 
+  private static applyDetachedBlockingSessionClaims(
+    backend: SandboxBackend,
+    user: User,
+    authenticates: boolean,
+    sessionClaims: Record<string, unknown> | undefined,
+  ): void {
+    if (sessionClaims !== undefined) {
+      assertNoReservedCustomClaims(sessionClaims);
+      const cloned = cloneClaimData(sessionClaims);
+      backend.blockingSessionClaimsByUid.set(user.uid, cloned);
+      backend.blockingSessionClaimsByUser.set(user, cloned);
+      return;
+    }
+    if (authenticates) {
+      backend.blockingSessionClaimsByUid.delete(user.uid);
+      backend.blockingSessionClaimsByUser.set(user, null);
+    }
+  }
+
   /** Live customClaims for a uid — the current value in the user DB,
    *  falling back to `fallback` for uids the DB doesn't track (anonymous
    *  / popup users). Used so a re-seed / `updateUser` is reflected in
@@ -2868,7 +3010,17 @@ export class SandboxBackend {
   private liveClaims(
     uid: string,
     fallback: Record<string, unknown>,
+    user?: User,
   ): Record<string, unknown> {
+    if (user !== undefined && this.blockingSessionClaimsByUser.has(user)) {
+      const base = this.usersByUid.get(uid)?.customClaims ?? fallback;
+      const tokenClaims = this.customTokenClaimsByUid.get(uid);
+      const perUserSession = this.blockingSessionClaimsByUser.get(user);
+      if (tokenClaims !== undefined || (perUserSession !== undefined && perUserSession !== null)) {
+        return cloneClaimData({ ...base, ...tokenClaims, ...(perUserSession ?? {}) });
+      }
+      return cloneClaimData(base);
+    }
     return SandboxBackend.getEffectiveClaims(this, uid, fallback);
   }
 

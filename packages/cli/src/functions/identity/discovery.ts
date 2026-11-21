@@ -37,6 +37,7 @@ export type IdentityShortEventType =
  */
 export const ACTIVE_IDENTITY_EVENT_TYPES: ReadonlySet<IdentityBlockingEventType> = new Set([
   BEFORE_CREATE_EVENT_TYPE,
+  BEFORE_SIGN_IN_EVENT_TYPE,
 ]);
 
 const SHORT_EVENT_BY_CANONICAL: Readonly<

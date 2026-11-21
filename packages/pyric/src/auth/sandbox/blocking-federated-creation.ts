@@ -12,6 +12,7 @@ import {
   getAuthBlockingHooks,
   type AuthBlockingClientContext,
 } from './blocking-hooks.js';
+import { runBeforeSignInHook } from './blocking-sign-in.js';
 import {
   decodeOidcIdTokenClaims,
   type ResolveOidcJwtInput,
@@ -32,12 +33,21 @@ export interface BlockedFederatedIdentityInput {
   readonly emailVerified?: boolean;
 }
 
-/** Resolve or create a federated OIDC JWT account, running `beforeCreate` on first-time users. */
+export interface BlockedOidcJwtIdentityOutcome extends ResolvedOidcJwtIdentity {
+  readonly sessionClaims?: Record<string, unknown>;
+}
+
+/** Resolve or create a federated OIDC JWT account, running `beforeCreate` (if new) and `beforeSignIn`. */
 export async function resolveBlockedOidcJwtIdentity(
   auth: Auth,
-  input: ResolveOidcJwtInput & { accessToken?: string; refreshToken?: string; secret?: string },
+  input: ResolveOidcJwtInput & {
+    accessToken?: string;
+    refreshToken?: string;
+    secret?: string;
+    stageForCurrentUser?: boolean;
+  },
   client?: AuthBlockingClientContext,
-): Promise<ResolvedOidcJwtIdentity | null> {
+): Promise<BlockedOidcJwtIdentityOutcome | null> {
   if (!isFederatedProviderId(input.providerId)) {
     return null;
   }
@@ -50,6 +60,19 @@ export async function resolveBlockedOidcJwtIdentity(
   const rawTenant = input.tenantId === undefined ? backend.getTenantId() : input.tenantId;
   const effectiveTenant = normalizeTenantScope(rawTenant);
 
+  const mergedClient: AuthBlockingClientContext = {
+    ...client,
+    rawUserInfo: client?.rawUserInfo ?? decoded.claims,
+    credential: {
+      claims: decoded.claims,
+      idToken: input.idToken,
+      accessToken: input.accessToken,
+      refreshToken: input.refreshToken,
+      secret: input.secret,
+      ...client?.credential,
+    },
+  };
+
   let existing = backend.findByUid(decoded.sub);
   if (existing !== undefined) {
     assertMatchingTenant(existing, effectiveTenant);
@@ -58,58 +81,62 @@ export async function resolveBlockedOidcJwtIdentity(
   }
 
   if (existing !== undefined) {
-    backend.assertSignInAllowed(existing.uid);
-    backend.createSignInCredential({
-      providerId: input.providerId,
-      uid: existing.uid,
-      verifyEmail: decoded.emailVerified === undefined,
+    const matchedExisting = existing;
+    backend.assertSignInAllowed(matchedExisting.uid);
+    const outcome = await runBeforeSignInHook(auth, {
+      uid: matchedExisting.uid,
+      signInMethod: input.providerId,
+      tenantId: effectiveTenant,
+      client: mergedClient,
+      onApproved: () => {
+        backend.createSignInCredential({
+          providerId: input.providerId,
+          uid: matchedExisting.uid,
+          verifyEmail: decoded.emailVerified === undefined,
+        });
+        const updateReq: UpdateUserRequest = {};
+        let hasUpdate = false;
+        if (decoded.displayName !== null && decoded.displayName !== matchedExisting.displayName) {
+          updateReq.displayName = decoded.displayName;
+          hasUpdate = true;
+        }
+        if (matchedExisting.email === null && decoded.email !== null) {
+          if (backend.findByEmail(decoded.email, effectiveTenant) === undefined) {
+            updateReq.email = decoded.email;
+            hasUpdate = true;
+          }
+        }
+        if (decoded.emailVerified === true && !matchedExisting.emailVerified) {
+          const hasOtherProvider = matchedExisting.providerUserInfo.some(
+            (entry) => entry.providerId !== input.providerId,
+          );
+          if (matchedExisting.password === null && !hasOtherProvider) {
+            updateReq.emailVerified = true;
+            hasUpdate = true;
+          }
+        }
+        if (hasUpdate) {
+          backend.updateUser(matchedExisting.uid, updateReq);
+        }
+        if (decoded.photoURL !== null) {
+          let nextDisplayName = matchedExisting.displayName;
+          if (decoded.displayName !== null) {
+            nextDisplayName = decoded.displayName;
+          }
+          backend.updateProfileByUid(matchedExisting.uid, {
+            photoURL: decoded.photoURL,
+            displayName: nextDisplayName,
+          });
+        }
+      },
+      stageForCurrentUser: input.stageForCurrentUser,
     });
-    const updateReq: UpdateUserRequest = {};
-    let hasUpdate = false;
-    if (decoded.displayName !== null && decoded.displayName !== existing.displayName) {
-      updateReq.displayName = decoded.displayName;
-      hasUpdate = true;
-    }
-    if (existing.email === null && decoded.email !== null) {
-      if (backend.findByEmail(decoded.email, effectiveTenant) === undefined) {
-        updateReq.email = decoded.email;
-        hasUpdate = true;
-      }
-    }
-    if (decoded.emailVerified === true && !existing.emailVerified) {
-      const hasOtherProvider = existing.providerUserInfo.some(
-        (entry) => entry.providerId !== input.providerId,
-      );
-      if (existing.password === null && !hasOtherProvider) {
-        updateReq.emailVerified = true;
-        hasUpdate = true;
-      }
-    }
-    if (hasUpdate) {
-      backend.updateUser(existing.uid, updateReq);
-    }
-    if (decoded.photoURL !== null) {
-      let nextDisplayName = existing.displayName;
-      if (decoded.displayName !== null) {
-        nextDisplayName = decoded.displayName;
-      }
-      backend.updateProfileByUid(existing.uid, {
-        photoURL: decoded.photoURL,
-        displayName: nextDisplayName,
-      });
-    }
-    const refreshed = backend.findByUid(existing.uid);
-    if (refreshed === undefined) {
-      throw makeAuthError(
-        'auth/internal-error',
-        'signInWithCredential: could not reload resolved OIDC account.',
-      );
-    }
     return {
-      user: backend.buildUserFromStored(refreshed),
-      uid: refreshed.uid,
+      user: outcome.user,
+      uid: outcome.user.uid,
       isNewUser: false,
       claims: decoded.claims,
+      sessionClaims: outcome.sessionClaims,
     };
   }
 
@@ -136,18 +163,6 @@ export async function resolveBlockedOidcJwtIdentity(
   let finalInit = baseInit;
   let clearPhotoUrl = false;
   if (beforeCreate !== undefined) {
-    const mergedClient: AuthBlockingClientContext = {
-      ...client,
-      rawUserInfo: client?.rawUserInfo ?? decoded.claims,
-      credential: {
-        claims: decoded.claims,
-        idToken: input.idToken,
-        accessToken: input.accessToken,
-        refreshToken: input.refreshToken,
-        secret: input.secret,
-        ...client?.credential,
-      },
-    };
     const response = await beforeCreate({
       userRecord: {
         uid: decoded.sub,
@@ -184,20 +199,28 @@ export async function resolveBlockedOidcJwtIdentity(
     clearPhotoUrl,
   });
   backend.assertSignInAllowed(created.uid);
-  return {
-    user: backend.buildUserFromStored(created),
+  const outcome = await runBeforeSignInHook(auth, {
     uid: created.uid,
+    signInMethod: input.providerId,
+    tenantId: effectiveTenant,
+    client: mergedClient,
+    stageForCurrentUser: input.stageForCurrentUser,
+  });
+  return {
+    user: outcome.user,
+    uid: outcome.user.uid,
     isNewUser: true,
     claims: decoded.claims,
+    sessionClaims: outcome.sessionClaims,
   };
 }
 
-/** Resolve or create a staged/dialog federated OAuth identity, running `beforeCreate` on new users. */
+/** Resolve or create a staged/dialog federated OAuth identity, running `beforeCreate` (if new) and `beforeSignIn`. */
 export async function resolveBlockedFederatedIdentity(
   auth: Auth,
-  credential: BlockedFederatedIdentityInput,
+  credential: BlockedFederatedIdentityInput & { stageForCurrentUser?: boolean },
   client?: AuthBlockingClientContext,
-): Promise<{ uid: string; user: User; isNewUser: boolean }> {
+): Promise<{ uid: string; user: User; isNewUser: boolean; sessionClaims?: Record<string, unknown> }> {
   const target = targetOf(auth);
   const { backend } = target;
   backend.assertProviderEnabled(credential.providerId);
@@ -222,31 +245,42 @@ export async function resolveBlockedFederatedIdentity(
     }
   }
 
-  const existing = backend.findByUid(targetUid);
+  const resolvedTargetUid = targetUid;
+  const existing = backend.findByUid(resolvedTargetUid);
   const callerDecidesVerification = credential.emailVerified !== undefined;
   if (existing !== undefined) {
     assertMatchingTenant(existing, effectiveTenant);
     backend.assertSignInAllowed(existing.uid);
-    backend.createSignInCredential({
-      providerId: credential.providerId,
-      uid: targetUid,
-      verifyEmail: !callerDecidesVerification,
+    const outcome = await runBeforeSignInHook(auth, {
+      uid: resolvedTargetUid,
+      signInMethod: credential.providerId,
+      tenantId: effectiveTenant,
+      client,
+      onApproved: () => {
+        backend.createSignInCredential({
+          providerId: credential.providerId,
+          uid: resolvedTargetUid,
+          verifyEmail: !callerDecidesVerification,
+        });
+        backend.updateUser(resolvedTargetUid, {
+          displayName: credential.displayName ?? existing.displayName,
+          email: credential.email ?? existing.email ?? undefined,
+        });
+        if (credential.photoURL !== undefined) {
+          backend.updateProfileByUid(resolvedTargetUid, {
+            photoURL: credential.photoURL,
+            displayName: credential.displayName ?? existing.displayName,
+          });
+        }
+      },
+      stageForCurrentUser: credential.stageForCurrentUser,
     });
-    backend.updateUser(targetUid, {
-      displayName: credential.displayName ?? existing.displayName,
-      email: credential.email ?? existing.email ?? undefined,
-    });
-    if (credential.photoURL !== undefined) {
-      backend.updateProfileByUid(targetUid, {
-        photoURL: credential.photoURL,
-        displayName: credential.displayName ?? existing.displayName,
-      });
-    }
-    const refreshed = backend.findByUid(targetUid);
-    if (refreshed === undefined) {
-      throw makeAuthError('auth/internal-error', 'Could not reload federated identity.');
-    }
-    return { uid: targetUid, user: backend.buildUserFromStored(refreshed), isNewUser: false };
+    return {
+      uid: resolvedTargetUid,
+      user: outcome.user,
+      isNewUser: false,
+      sessionClaims: outcome.sessionClaims,
+    };
   }
 
   let initialEmailVerified = false;
@@ -259,7 +293,7 @@ export async function resolveBlockedFederatedIdentity(
   const beforeCreate = getAuthBlockingHooks(auth)?.beforeCreate;
   const createdAtIso = new Date(getClock(target.sandbox).now()).toISOString();
   const baseInit: Partial<StoredUser> & { uid: string } = {
-    uid: targetUid,
+    uid: resolvedTargetUid,
     email: credential.email ?? null,
     displayName: credential.displayName ?? null,
     photoUrl: credential.photoURL ?? null,
@@ -274,7 +308,7 @@ export async function resolveBlockedFederatedIdentity(
   if (beforeCreate !== undefined) {
     const response = await beforeCreate({
       userRecord: {
-        uid: targetUid,
+        uid: resolvedTargetUid,
         email: credential.email ?? null,
         emailVerified: initialEmailVerified,
         displayName: credential.displayName ?? null,
@@ -285,7 +319,7 @@ export async function resolveBlockedFederatedIdentity(
         lastSignInTime: null,
         providerData: [
           {
-            uid: targetUid,
+            uid: resolvedTargetUid,
             email: credential.email ?? null,
             displayName: credential.displayName ?? null,
             photoURL: credential.photoURL ?? null,
@@ -309,5 +343,17 @@ export async function resolveBlockedFederatedIdentity(
     clearPhotoUrl,
   });
   backend.assertSignInAllowed(created.uid);
-  return { uid: targetUid, user: backend.buildUserFromStored(created), isNewUser: true };
+  const outcome = await runBeforeSignInHook(auth, {
+    uid: created.uid,
+    signInMethod: credential.providerId,
+    tenantId: effectiveTenant,
+    client,
+    stageForCurrentUser: credential.stageForCurrentUser,
+  });
+  return {
+    uid: created.uid,
+    user: outcome.user,
+    isNewUser: true,
+    sessionClaims: outcome.sessionClaims,
+  };
 }

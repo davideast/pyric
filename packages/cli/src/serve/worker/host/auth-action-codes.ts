@@ -2,6 +2,7 @@ import { applyActionCode, checkActionCode, confirmPasswordReset, sendEmailVerifi
   sendSignInLinkToEmail, sandbox, verifyBeforeUpdateEmail, verifyPasswordResetCode, type User } from 'pyric/auth';
 import {
   hasBeforeCreateHook,
+  hasBeforeSignInHook,
   resolveBlockedEmailLinkIdentity,
   resolveEmailLinkIdentity,
   sendTenantPasswordResetEmail,
@@ -36,18 +37,19 @@ export async function handleAuthActionCodeOp(ctx: HostCtx, port: PortLike, messa
         break;
       case 'auth.signInWithEmailLink': {
         const tenantId = resolveSignInTenant(ctx, port, message.tenantId);
-        let resolved: { user: User; isNewUser: boolean };
-        if (hasBeforeCreateHook(auth)) {
+        let resolved: { user: User; isNewUser: boolean; sessionClaims?: Record<string, unknown> };
+        if (hasBeforeCreateHook(auth) || hasBeforeSignInHook(auth)) {
           resolved = await resolveBlockedEmailLinkIdentity(auth, message.email, message.link, tenantId);
         } else {
           resolved = resolveEmailLinkIdentity(auth, message.email, message.link, tenantId);
         }
-        const { user, isNewUser } = resolved;
+        const { user, isNewUser, sessionClaims } = resolved;
         const session = sandbox.mintSession(auth, {
           kind: 'provider',
           uid: user.uid,
           providerId: 'password',
           tenantId,
+          sessionClaims,
           ...portOriginScope(port),
         });
         await bestEffortFlush(ctx, message.method);

@@ -74,3 +74,7 @@ export {
   resolveBlockedOidcJwtIdentity,
   type BlockedFederatedIdentityInput,
 } from './sandbox/blocking-federated-creation.js';
+export {
+  extractBlockingCredentialContext,
+  signInBlockedEmailPasswordUser,
+} from './sandbox/blocking-sign-in.js';
