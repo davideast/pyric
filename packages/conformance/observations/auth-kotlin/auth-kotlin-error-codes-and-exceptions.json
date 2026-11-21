@@ -1,0 +1,36 @@
+{
+  "name": "auth-kotlin-error-codes-and-exceptions",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Upstream Android FirebaseAuthException subclass and errorCode outcomes for invalid email, weak password, duplicate email registration, wrong password, and missing user sign-in under Robolectric.",
+  "observedAt": "2026-11-21T01:39:34.518Z",
+  "androidBomVersion": "35.2.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "invalidEmail": {
+      "threw": true,
+      "exceptionClass": "FirebaseAuthInvalidCredentialsException",
+      "errorCode": "ERROR_INVALID_EMAIL"
+    },
+    "weakPassword": {
+      "threw": true,
+      "exceptionClass": "FirebaseAuthWeakPasswordException",
+      "errorCode": "ERROR_WEAK_PASSWORD"
+    },
+    "duplicateEmail": {
+      "threw": true,
+      "exceptionClass": "FirebaseAuthUserCollisionException",
+      "errorCode": "ERROR_EMAIL_ALREADY_IN_USE"
+    },
+    "wrongPassword": {
+      "threw": true,
+      "exceptionClass": "FirebaseAuthInvalidCredentialsException",
+      "errorCode": "ERROR_INVALID_CREDENTIAL"
+    },
+    "missingUser": {
+      "threw": true,
+      "exceptionClass": "FirebaseAuthInvalidCredentialsException",
+      "errorCode": "ERROR_INVALID_CREDENTIAL"
+    }
+  }
+}

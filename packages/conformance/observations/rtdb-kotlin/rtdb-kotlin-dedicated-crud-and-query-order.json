@@ -1,0 +1,22 @@
+{
+  "name": "rtdb-kotlin-dedicated-crud-and-query-order",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Upstream Android FirebaseDatabase dedicated-instance setValue, updateChildren with ServerValue.increment, orderByChild + limitToFirst ordering, and removeValue under Robolectric.",
+  "observedAt": "2026-11-21T01:40:09.027Z",
+  "androidBomVersion": "35.2.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "existsAfterWrite": true,
+    "keyMatches": true,
+    "childrenCount": 3,
+    "incrementedCount": 15,
+    "integerValueClass": "java.lang.Long",
+    "extraField": "kept",
+    "orderedLimitToFirstKeys": [
+      "a",
+      "b"
+    ],
+    "existsAfterRemove": false
+  }
+}
