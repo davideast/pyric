@@ -8,7 +8,12 @@
 import type { IdentityBlockingEventType, IdentityBlockingOptions } from './discovery.js';
 import { shortIdentityEventType } from './discovery.js';
 
-export type IdentityEmailType = 'EMAIL_SIGN_IN' | 'PASSWORD_RESET';
+export type IdentityEmailType =
+  | 'EMAIL_SIGN_IN'
+  | 'PASSWORD_RESET'
+  | 'VERIFY_EMAIL'
+  | 'VERIFY_AND_CHANGE_EMAIL'
+  | 'REVERT_SECOND_FACTOR_ADDITION';
 export type IdentitySmsType =
   | 'SIGN_IN_OR_SIGN_UP'
   | 'MULTI_FACTOR_SIGN_IN'

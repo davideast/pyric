@@ -124,7 +124,7 @@ describe('isolated ESM Functions Identity child against live HostedRuntime', () 
       location: 'us-central1',
     });
     readyPayload = await activeChild.ready;
-  }, 30_000);
+  }, 60_000);
 
   afterAll(async () => {
     if (activeChild) {

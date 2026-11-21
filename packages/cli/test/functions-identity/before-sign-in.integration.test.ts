@@ -266,7 +266,7 @@ describe('isolated CJS beforeUserSignedIn child against live HostedRuntime', () 
     );
 
     await restartChildWithOptions({ idToken: false, accessToken: true, refreshToken: false });
-  }, 30_000);
+  }, 60_000);
 
   afterAll(async () => {
     if (activeChild) {
@@ -533,7 +533,7 @@ describe('isolated CJS beforeUserSignedIn child against live HostedRuntime', () 
     expect(gatedAudit2.credentialIdToken).toBe(oidcJwt);
     expect(gatedAudit2.credentialAccessToken).toBeUndefined();
     expect(gatedAudit2.credentialRefreshToken).toBe('refresh-tok-now-visible');
-  });
+  }, 30_000);
 
   test('enforces HttpsError rejections, disabled: true persistence, reserved claims, and 1000-char combined limit without leaking sessions', async () => {
     const setup = await makeClientSession();

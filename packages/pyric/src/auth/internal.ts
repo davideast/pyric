@@ -20,7 +20,11 @@ export {
   defaultAvatarSvg,
 } from './sandbox/default-avatar.js';
 export type { AvatarMint, AvatarMintInput } from './sandbox/default-avatar.js';
-export { isEmailSignInLink, resolveEmailLinkIdentity } from './email-link.js';
+export {
+  isEmailSignInLink,
+  resolveEmailLinkIdentity,
+  sendTenantSignInLinkToEmail,
+} from './email-link.js';
 export { sendTenantPasswordResetEmail } from './action-codes.js';
 export { effectiveSessionClaimsFor, mintCustomTokenFor, resolveCustomTokenIdentity } from './tokens.js';
 export { isFederatedProviderId } from './providers.js';
@@ -53,10 +57,12 @@ export {
   type AuthBlockingCreateHookInput,
   type AuthBlockingCredentialContext,
   type AuthBlockingEmailHookInput,
+  type AuthBlockingEmailType,
   type AuthBlockingHooks,
   type AuthBlockingProviderInfo,
   type AuthBlockingSignInHookInput,
   type AuthBlockingSmsHookInput,
+  type AuthBlockingSmsType,
   type AuthBlockingUserCandidate,
   type BeforeCreateHookResult,
   type BeforeEmailHookResult,
@@ -78,3 +84,4 @@ export {
   extractBlockingCredentialContext,
   signInBlockedEmailPasswordUser,
 } from './sandbox/blocking-sign-in.js';
+export type { OutboundAuthSms, SendAuthSmsRequest } from './sandbox/blocking-dispatch.js';

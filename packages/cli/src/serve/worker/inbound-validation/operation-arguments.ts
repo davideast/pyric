@@ -14,7 +14,11 @@ import { assertQueryStructure } from '../host/query-structure.js';
 import { isMessageRecord, requireShape, requireRecord, requireString, requireOptionalString,
   requireOptionalBoolean, requireOptionalRecord, requireNumber, requireOptionalNumber } from './fields.js';
 import { assertAiArguments } from './ai-arguments.js';
-import { assertAuthBlockingRespondArguments } from './auth-blocking.js';
+import {
+  assertAuthBlockingRespondArguments,
+  assertAuthSendSmsArguments,
+  assertAuthTakeSmsArguments,
+} from './auth-blocking.js';
 import { assertCrashlyticsArguments } from './crashlytics.js';
 import { assertRtdbQuery } from './rtdb-query.js';
 import { updateValuesShapeError } from '../client/rtdb-value-validation.js';
@@ -364,6 +368,12 @@ export function assertOperationArguments(message: Record<string, unknown>): void
     case 'auth.sendSignInLinkToEmail':
       requireString(message.email, 'email');
       requireRecord(message.settings, 'settings');
+      return;
+    case 'auth.sendSmsVerification':
+      assertAuthSendSmsArguments(message);
+      return;
+    case 'auth.takeSms':
+      assertAuthTakeSmsArguments(message);
       return;
     case 'auth.signInWithEmailLink':
       requireString(message.email, 'email');

@@ -1,11 +1,12 @@
 import { applyActionCode, checkActionCode, confirmPasswordReset, sendEmailVerification,
-  sendSignInLinkToEmail, sandbox, verifyBeforeUpdateEmail, verifyPasswordResetCode, type User } from 'pyric/auth';
+  sandbox, verifyBeforeUpdateEmail, verifyPasswordResetCode, type User } from 'pyric/auth';
 import {
   hasBeforeCreateHook,
   hasBeforeSignInHook,
   resolveBlockedEmailLinkIdentity,
   resolveEmailLinkIdentity,
   sendTenantPasswordResetEmail,
+  sendTenantSignInLinkToEmail,
 } from 'pyric/auth/internal';
 import type { OpMessage } from '../protocol.js';
 import { ensureAuth, portOriginScope, portSession, portTenant, resolveSignInTenant, setPortSession } from '../host-auth.js';
@@ -16,6 +17,7 @@ const methods = [
   'auth.sendPasswordResetEmail', 'auth.sendEmailVerification', 'auth.verifyBeforeUpdateEmail',
   'auth.applyActionCode', 'auth.checkActionCode', 'auth.verifyPasswordResetCode', 'auth.confirmPasswordReset',
   'auth.takeMail', 'auth.sendSignInLinkToEmail', 'auth.signInWithEmailLink',
+  'auth.sendSmsVerification', 'auth.takeSms',
 ] as const;
 type ActionCodeOperation = Extract<OpMessage, { method: typeof methods[number] }>;
 const actionCodeMethods: ReadonlySet<string> = new Set(methods);
@@ -32,9 +34,43 @@ export async function handleAuthActionCodeOp(ctx: HostCtx, port: PortLike, messa
       case 'auth.takeMail':
         ok(port, message.id, sandbox.takeAuthMail(auth, message.email));
         return;
-      case 'auth.sendSignInLinkToEmail':
-        await sendSignInLinkToEmail(auth, message.email, message.settings);
+      case 'auth.takeSms':
+        ok(port, message.id, sandbox.takeAuthSms(auth, message.phoneNumber));
+        return;
+      case 'auth.sendSmsVerification': {
+        let tenantId: string | null;
+        if (message.tenantId !== undefined) {
+          tenantId = resolveSignInTenant(ctx, port, message.tenantId);
+        } else {
+          tenantId = portTenant(ctx, port) ?? portSession(ctx, port)?.user.tenantId ?? null;
+        }
+        let uid = message.uid;
+        if (
+          uid === undefined &&
+          (message.smsType === 'MULTI_FACTOR_SIGN_IN' ||
+            message.smsType === 'MULTI_FACTOR_ENROLLMENT')
+        ) {
+          uid = portSession(ctx, port)?.user.uid;
+        }
+        const sms = await sandbox.sendAuthSms(auth, {
+          phoneNumber: message.phoneNumber,
+          smsType: message.smsType,
+          uid,
+          tenantId,
+        });
+        ok(port, message.id, sms);
+        return;
+      }
+      case 'auth.sendSignInLinkToEmail': {
+        let tenantId: string | null;
+        if (message.tenantId !== undefined) {
+          tenantId = resolveSignInTenant(ctx, port, message.tenantId);
+        } else {
+          tenantId = portTenant(ctx, port) ?? portSession(ctx, port)?.user.tenantId ?? null;
+        }
+        await sendTenantSignInLinkToEmail(auth, message.email, message.settings, tenantId);
         break;
+      }
       case 'auth.signInWithEmailLink': {
         const tenantId = resolveSignInTenant(ctx, port, message.tenantId);
         let resolved: { user: User; isNewUser: boolean; sessionClaims?: Record<string, unknown> };

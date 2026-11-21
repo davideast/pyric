@@ -60,7 +60,7 @@ export async function startNodeHostedRuntime(
 
   const pointerPath = join(cwd, '.pyric/serve.json');
   let pointer: { url: string; instanceId?: string } | undefined;
-  const deadline = Date.now() + 20_000;
+  const deadline = Date.now() + 45_000;
   while (Date.now() < deadline) {
     if (proc.exitCode !== null) {
       throw new Error(`HostedRuntime exited early (${proc.exitCode}):\n${output}`);

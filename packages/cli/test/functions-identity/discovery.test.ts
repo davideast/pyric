@@ -57,6 +57,8 @@ describe('firebase-functions/v2/identity trigger discovery', () => {
     ]);
     expect(ACTIVE_IDENTITY_EVENT_TYPES.has(BEFORE_CREATE_EVENT_TYPE)).toBe(true);
     expect(ACTIVE_IDENTITY_EVENT_TYPES.has(BEFORE_SIGN_IN_EVENT_TYPE)).toBe(true);
+    expect(ACTIVE_IDENTITY_EVENT_TYPES.has(BEFORE_SEND_EMAIL_EVENT_TYPE)).toBe(true);
+    expect(ACTIVE_IDENTITY_EVENT_TYPES.has(BEFORE_SEND_SMS_EVENT_TYPE)).toBe(true);
     expect(isIdentityBlockingEventType(BEFORE_CREATE_EVENT_TYPE)).toBe(true);
     expect(isIdentityBlockingEventType(BEFORE_SIGN_IN_EVENT_TYPE)).toBe(true);
     expect(isIdentityBlockingEventType(BEFORE_SEND_EMAIL_EVENT_TYPE)).toBe(true);
@@ -129,7 +131,7 @@ describe('firebase-functions/v2/identity trigger discovery', () => {
     ]);
   });
 
-  test('activates beforeCreate and beforeSignIn in PR 2 and reports unactivated identity events via findUnsupportedTriggers', () => {
+  test('activates all 4 identity blocking event types and honors explicit activeEventTypes filtering', () => {
     const { beforeUserCreated, beforeUserSignedIn, beforeEmailSent, beforeSmsSent } =
       identityFunctions;
     const onCreate = beforeUserCreated(() => undefined);
@@ -138,15 +140,26 @@ describe('firebase-functions/v2/identity trigger discovery', () => {
     const onSms = beforeSmsSent(() => undefined);
 
     const active = discoverIdentityTriggers({ auth: { onCreate, onSignIn, onEmail, onSms } });
-    expect(active.map((item) => item.exportName)).toEqual(['auth-onCreate', 'auth-onSignIn']);
+    expect(active.map((item) => item.exportName)).toEqual([
+      'auth-onCreate',
+      'auth-onSignIn',
+      'auth-onEmail',
+      'auth-onSms',
+    ]);
 
     const unsupported = findUnsupportedTriggers(
       { auth: { onCreate, onSignIn, onEmail, onSms } },
       [rtdbValueTriggerFamily, storageTriggersFamily, identityBlockingFamily],
     );
-    expect(unsupported).toEqual([
+    expect(unsupported).toEqual([]);
+
+    const filtered = inspectIdentityTriggers(
+      { auth: { onCreate, onEmail } },
+      { activeEventTypes: new Set([BEFORE_CREATE_EVENT_TYPE]) },
+    );
+    expect(filtered.triggers.map((item) => item.exportName)).toEqual(['auth-onCreate']);
+    expect(filtered.unsupported).toEqual([
       { exportName: 'auth-onEmail', eventType: BEFORE_SEND_EMAIL_EVENT_TYPE },
-      { exportName: 'auth-onSms', eventType: BEFORE_SEND_SMS_EVENT_TYPE },
     ]);
   });
 
