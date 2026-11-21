@@ -432,9 +432,10 @@ class AuthLiveHostConformanceTest {
         assertFalse(emailUser.isAnonymous)
         assertFalse(emailUser.isEmailVerified)
         assertEquals("firebase", emailUser.providerId)
-        assertEquals(1, emailUser.providerData.size)
-        assertEquals("password", emailUser.providerData[0].providerId)
+        assertEquals(listOf("firebase", "password"), emailUser.providerData.map { it.providerId })
+        assertEquals(emailUser.uid, emailUser.providerData[0].uid)
         assertEquals(email, emailUser.providerData[0].email)
+        assertEquals(email, emailUser.providerData[1].email)
         assertTrue(emailUser.customClaims.isEmpty())
 
         // Mutate profile and reload over live host to verify non-null displayName and photoUrl
@@ -447,6 +448,8 @@ class AuthLiveHostConformanceTest {
         Tasks.await(emailUser.reload(), 10, TimeUnit.SECONDS)
         assertEquals("Jordan Rivera", emailUser.displayName)
         assertEquals(avatarUri, emailUser.photoUrl)
+        assertEquals("Jordan Rivera", emailUser.providerData[0].displayName)
+        assertEquals(avatarUri, emailUser.providerData[0].photoUrl)
 
         // Unverified email user is denied on verified_users/{uid}
         assertFirestoreDenied {
@@ -467,7 +470,8 @@ class AuthLiveHostConformanceTest {
         assertNull(anonUser.email)
         assertTrue(anonUser.isAnonymous)
         assertEquals("firebase", anonUser.providerId)
-        assertTrue(anonUser.providerData.isEmpty())
+        assertEquals(listOf("firebase"), anonUser.providerData.map { it.providerId })
+        assertEquals(anonUser.uid, anonUser.providerData[0].uid)
 
         // Staged Google OAuth user with emailVerified = true and customClaims (auth-kotlin#21, #23, #24)
         auth.signOut()
@@ -496,7 +500,7 @@ class AuthLiveHostConformanceTest {
         assertFalse(googleUser.isAnonymous)
         assertTrue(googleUser.isEmailVerified)
         assertEquals("firebase", googleUser.providerId)
-        assertTrue(googleUser.providerData.any { it.providerId == "google.com" })
+        assertEquals(listOf("firebase", "google.com"), googleUser.providerData.map { it.providerId })
 
         // Verify email_verified = true satisfies live Firestore verified_users/{uid} rule
         Tasks.await(

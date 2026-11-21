@@ -387,7 +387,7 @@ internal fun runCredentialsAndOAuthLiveHostAssertions() = runBlocking {
         val ghUser = requireNotNull(ghSignIn.user)
         assertEquals(githubUid, ghUser.uid)
         assertEquals("tenant-beta", ghUser.tenantId)
-        assertTrue(ghUser.providerData.any { it.providerId == "github.com" })
+        assertEquals(listOf("firebase", "github.com"), ghUser.providerData.map { it.providerId })
 
         // auth-kotlin#33 & #34: Effective lens and authLensFlow updated with uid, tenant, and claims
         val signedInLens = auth.getEffectiveLens()

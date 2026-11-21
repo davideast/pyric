@@ -1,12 +1,37 @@
 package com.google.firebase.database
 
-class DataSnapshot(
+import dev.pyric.codecs.PojoCodec
+
+class DataSnapshot internal constructor(
     val ref: DatabaseReference,
     val value: Any?,
-    val priority: Any? = null,
-    private val orderedEntries: List<ChildEntry>? = null,
-    private val exportValue: Any? = null
+    val priority: Any?,
+    private val orderedEntries: List<ChildEntry>?,
+    private val exportValue: Any?,
+    @Suppress("UNUSED_PARAMETER") normalizedMarker: Boolean
 ) {
+    constructor(
+        ref: DatabaseReference,
+        value: Any?,
+        priority: Any? = null,
+        orderedEntries: List<ChildEntry>? = null,
+        exportValue: Any? = null
+    ) : this(
+        ref = ref,
+        value = normalizeRtdbValue(value),
+        priority = normalizeRtdbValue(priority),
+        orderedEntries = orderedEntries?.map { entry ->
+            ChildEntry(
+                key = entry.key,
+                value = normalizeRtdbValue(entry.value),
+                priority = normalizeRtdbValue(entry.priority),
+                exportValue = normalizeRtdbValue(entry.exportValue)
+            )
+        },
+        exportValue = normalizeRtdbValue(exportValue),
+        normalizedMarker = true
+    )
+
     data class ChildEntry(
         val key: String,
         val value: Any?,
@@ -35,7 +60,11 @@ class DataSnapshot(
             java.lang.Float::class.java, Float::class.java -> (raw as? Number)?.toFloat() as? T
             java.lang.Boolean::class.java, Boolean::class.java -> raw as? T
             String::class.java -> raw.toString() as? T
-            else -> raw as? T
+            else -> if (raw is Map<*, *> && !Map::class.java.isAssignableFrom(valueType) && valueType != Any::class.java) {
+                PojoCodec.deserialize(raw as Map<String, Any?>, valueType)
+            } else {
+                raw as? T
+            }
         }
     }
 
@@ -58,7 +87,8 @@ class DataSnapshot(
                         value = entry.value,
                         priority = entry.priority,
                         orderedEntries = null,
-                        exportValue = entry.exportValue
+                        exportValue = entry.exportValue,
+                        normalizedMarker = true
                     )
                 }
             }
@@ -73,7 +103,8 @@ class DataSnapshot(
                             value = childVal,
                             priority = priorityFromExport(childExport),
                             orderedEntries = null,
-                            exportValue = childExport
+                            exportValue = childExport,
+                            normalizedMarker = true
                         )
                     }
                 is List<*> -> v.mapIndexedNotNull { index, item ->
@@ -87,7 +118,8 @@ class DataSnapshot(
                             value = item,
                             priority = priorityFromExport(childExport),
                             orderedEntries = null,
-                            exportValue = childExport
+                            exportValue = childExport,
+                            normalizedMarker = true
                         )
                     }
                 }
@@ -110,7 +142,8 @@ class DataSnapshot(
                     value = null,
                     priority = null,
                     orderedEntries = null,
-                    exportValue = null
+                    exportValue = null,
+                    normalizedMarker = true
                 )
             val firstExport = matched.exportValue ?: exportValueAt(exportValue, listOf(segments[0]))
             if (segments.size == 1) {
@@ -120,7 +153,8 @@ class DataSnapshot(
                     value = matched.value,
                     priority = childPriority,
                     orderedEntries = null,
-                    exportValue = firstExport
+                    exportValue = firstExport,
+                    normalizedMarker = true
                 )
             }
             var subVal: Any? = matched.value
@@ -141,7 +175,8 @@ class DataSnapshot(
                 value = subVal,
                 priority = subPriority,
                 orderedEntries = null,
-                exportValue = subExport
+                exportValue = subExport,
+                normalizedMarker = true
             )
         }
 
@@ -176,7 +211,8 @@ class DataSnapshot(
             value = currentVal,
             priority = childPriority,
             orderedEntries = null,
-            exportValue = childExport
+            exportValue = childExport,
+            normalizedMarker = true
         )
     }
 
@@ -184,6 +220,27 @@ class DataSnapshot(
 
     companion object {
         private val RTDB_INT_KEY_REGEX = Regex("^-?0*\\d{1,10}$")
+
+        internal fun normalizeRtdbValue(raw: Any?): Any? {
+            return when (raw) {
+                null, is Boolean, is String, is Long, is Double -> raw
+                is Int -> raw.toLong()
+                is Short -> raw.toLong()
+                is Byte -> raw.toLong()
+                is Float -> raw.toDouble()
+                is Map<*, *> -> {
+                    val normalized = LinkedHashMap<String, Any?>(raw.size)
+                    for ((k, v) in raw) {
+                        if (k != null) {
+                            normalized[k.toString()] = normalizeRtdbValue(v)
+                        }
+                    }
+                    normalized
+                }
+                is List<*> -> raw.map { normalizeRtdbValue(it) }
+                else -> raw
+            }
+        }
 
         private fun tryParseRtdbIntKey(key: String): Int? {
             if (!RTDB_INT_KEY_REGEX.matches(key)) return null

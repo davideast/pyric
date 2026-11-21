@@ -52,6 +52,12 @@ service cloud.firestore {
   match /databases/{database}/documents {
     match /users/{uid} {
       allow read, write: if request.auth != null && request.auth.uid == uid;
+      match /items/{itemId} {
+        allow read, write: if request.auth != null && request.auth.uid == uid;
+      }
+    }
+    match /{path=**}/items/{itemId} {
+      allow read: if request.auth != null && request.auth.token.role == 'moderator';
     }
     match /verified_users/{uid} {
       allow read, write: if request.auth != null

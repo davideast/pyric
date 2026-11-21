@@ -402,7 +402,7 @@ class FirebaseAuth internal constructor(
         notifyAuthStateChanged()
         notifyIdTokenChanged()
         val providerId = explicitProviderId
-            ?: user.providerData.firstOrNull()?.providerId?.takeIf { it.isNotBlank() && it != "firebase" }
+            ?: user.providerData.firstOrNull { it.providerId.isNotBlank() && it.providerId != "firebase" }?.providerId
         val isNew = (addInfo?.get("isNewUser") as? Boolean)
             ?: (res["operationType"] == "signIn" && userMap["isAnonymous"] != true)
         return AuthResult(user, AdditionalUserInfo(providerId, isNew))
