@@ -9,13 +9,14 @@
  *
  * Identity model: references are value objects. Two refs with the
  * same `(storage, fullPath)` compare equal via `toString()` /
- * `fullPath`, NOT via `===` — Firebase doesn't intern references
+ * `fullPath`, NOT via `===` -- Firebase does not intern references
  * either, and consumer code that relies on identity for caching is
  * outside the contract.
  *
- * Path normalization matches Firebase exactly: leading slashes
- * stripped, trailing slashes stripped, repeated internal slashes
- * collapsed. Empty path is legal — it's the root reference.
+ * Client path normalization matches Firebase: leading slashes stripped,
+ * trailing slashes stripped, repeated internal slashes collapsed. Empty path
+ * is legal -- it is the root reference. On the admin plane (`target.admin`),
+ * object names are kept verbatim as `@google-cloud/storage` stores them.
  */
 import { rulesBucketName } from '@pyric/rules/internal/storage';
 import {
@@ -44,17 +45,11 @@ export interface StorageReference {
 /**
  * Construct a reference. Two overloads matching Firebase:
  *
- *   `ref(storage, path?)`   — `path` is bucket-rooted. Omit for root. A
- *                             `gs://` or download URL names its object, as
- *                             `./url.ts` describes.
- *   `ref(parent, path)`     — `path` is relative to `parent.fullPath`.
+ *   `ref(storage, path?)`   -- `path` is bucket-rooted. Omit for root. A
+ *                              `gs://` or download URL names its object on
+ *                              client handles, as `./url.ts` describes.
+ *   `ref(parent, path)`     -- `path` is relative to `parent.fullPath`.
  */
-const ADMIN_LITERAL_SCHEME_PATH = /^[A-Za-z]+:\//;
-
-export function isAdminLiteralSchemePath(path: string): boolean {
-  return ADMIN_LITERAL_SCHEME_PATH.test(path);
-}
-
 export function ref(storage: FirebaseStorage, path?: string): StorageReference;
 export function ref(parent: StorageReference, path: string): StorageReference;
 export function ref(
@@ -71,8 +66,8 @@ export function ref(
   }
   // Storage-rooted overload.
   const resolvedTarget = targetOf(target);
-  if (resolvedTarget.admin === true && typeof path === 'string' && ADMIN_LITERAL_SCHEME_PATH.test(path)) {
-    return new SandboxStorageReference(target, path, target);
+  if (resolvedTarget.admin === true) {
+    return new SandboxStorageReference(target, path ?? '', target);
   }
   const location = refLocationOf(path, true);
   const operationStorage = resolveReferenceOperationStorage(target, location.bucket);
@@ -146,13 +141,13 @@ class SandboxStorageReference implements StorageReference {
   }
 }
 
-// ─── Path utilities ────────────────────────────────────────────────
+// --- Path utilities -----------------------------------------------
 
 /**
  * Normalize a single path: strip leading/trailing slashes, collapse
  * repeated internal slashes. Empty stays empty (the root).
  *
- * Matches Firebase's behavior — relevant when consumer code passes
+ * Matches Firebase's behavior -- relevant when consumer code passes
  * `/sessions/s1.json` or `sessions//s1.json`; both end up at
  * `sessions/s1.json`.
  */
@@ -188,11 +183,11 @@ export function joinStorageRefPaths(parent: string, child: string): string {
   return `${parent}/${childNorm}`;
 }
 
-/** Structural test — references all expose `fullPath` + `storage`. */
+/** Structural test -- references all expose `fullPath` + `storage`. */
 function isStorageReference(target: unknown): target is StorageReference {
   if (target === null || typeof target !== 'object') return false;
   // Distinguish from a FirebaseStorage handle (which has TARGET_SYMBOL
-  // but no `fullPath`). The handle has the symbol; refs don't.
+  // but no `fullPath`). The handle has the symbol; refs do not.
   if (TARGET_SYMBOL in target) return false;
   const obj = target as { fullPath?: unknown; storage?: unknown };
   return typeof obj.fullPath === 'string' && obj.storage !== undefined;

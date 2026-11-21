@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Writable } from 'node:stream';
 import { savedMetadataOf } from './metadata-codec.js';
+import { resolveUploadContentType } from './mime-type.js';
 import type { Bucket, CopyOptions, CreateWriteStreamOptions, File } from './types.js';
 
 /** Maximum whole-object size supported by the sandbox backend (512 MiB). */
@@ -62,6 +63,18 @@ export async function ignoreObjectNotFound(pending: Promise<unknown>): Promise<v
   }
 }
 
+/** Missing-object rejection (`code: 404`), matching `@google-cloud/storage` `ApiError`. */
+export function noSuchObjectError(
+  bucketName: string,
+  objectName: string,
+): Error & { code: number } {
+  const err = new Error(`No such object: ${bucketName}/${objectName}`) as Error & {
+    code: number;
+  };
+  err.code = 404;
+  return err;
+}
+
 /** Over-cap rejection (code `storage/quota-exceeded`), mirroring the worker host's message shape. */
 export function quotaExceeded(sizeBytes: number, what: string): Error & { code: string } {
   const err = new Error(
@@ -83,7 +96,10 @@ export function copyMetadataOf(options: CopyOptions): Record<string, unknown> {
 }
 
 /** What an upload sends besides its bytes: settable fields and custom metadata, with download tokens apart. */
-export function uploadRequestOf(options: CreateWriteStreamOptions): {
+export function uploadRequestOf(
+  options: CreateWriteStreamOptions,
+  objectName?: string,
+): {
   contentType?: string;
   metadata?: Record<string, unknown>;
   downloadTokens?: string;
@@ -93,12 +109,30 @@ export function uploadRequestOf(options: CreateWriteStreamOptions): {
     metadata?: Record<string, unknown>;
     downloadTokens?: string;
   } = {};
-  if (options.contentType !== undefined) {
-    out.contentType = options.contentType;
-  }
+  let saved: ReturnType<typeof savedMetadataOf> | undefined;
   if (options.metadata !== undefined) {
-    const saved = savedMetadataOf(options.metadata);
+    saved = savedMetadataOf(options.metadata);
+  }
+  let resolvedContentType: string | undefined;
+  if (objectName !== undefined) {
+    resolvedContentType = resolveUploadContentType(
+      objectName,
+      options.contentType,
+      saved?.settable.contentType,
+    );
+  } else if (options.contentType !== undefined) {
+    resolvedContentType = options.contentType;
+  }
+  if (resolvedContentType !== undefined) {
+    out.contentType = resolvedContentType;
+  }
+  if (saved !== undefined) {
     const metaOut: Record<string, unknown> = { ...saved.settable };
+    if (resolvedContentType !== undefined) {
+      metaOut.contentType = resolvedContentType;
+    } else if (objectName !== undefined) {
+      delete metaOut.contentType;
+    }
     if (Object.keys(saved.custom).length > 0) {
       metaOut.metadata = saved.custom;
     }

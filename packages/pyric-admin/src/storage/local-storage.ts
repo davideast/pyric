@@ -63,6 +63,7 @@ import {
   type FileMetadataUpdate,
   type HostMetadata,
 } from './metadata-codec.js';
+import { resolveUploadContentType } from './mime-type.js';
 import type {
   Bucket,
   CopyDestination,
@@ -87,6 +88,7 @@ import {
   isBucketHandle,
   isFileHandle,
   isObjectNotFound,
+  noSuchObjectError,
   quotaExceeded,
   spooledWriteStream,
   type DownloadUrlSource,
@@ -320,10 +322,16 @@ class SandboxFile implements File, DownloadUrlSource {
     }
     await this.bucket.storage.waitForReset();
     const saved = savedMetadataOf(normalizedOptions.metadata ?? {});
-    const contentType = normalizedOptions.contentType ?? saved.settable.contentType;
+    const contentType = resolveUploadContentType(
+      this.name,
+      normalizedOptions.contentType,
+      saved.settable.contentType,
+    );
     const settable: SettableMetadata = { ...saved.settable };
     if (contentType !== undefined) {
       settable.contentType = contentType;
+    } else {
+      delete settable.contentType;
     }
     if (Object.keys(saved.custom).length > 0) {
       settable.customMetadata = saved.custom;
@@ -381,7 +389,7 @@ class SandboxFile implements File, DownloadUrlSource {
       return await pending;
     } catch (err) {
       if (isObjectNotFound(err)) {
-        throw new Error(`No such object: ${this.bucket.name}/${this.name}`);
+        throw noSuchObjectError(this.bucket.name, this.name);
       }
       throw err;
     }
@@ -396,7 +404,7 @@ class SandboxFile implements File, DownloadUrlSource {
     const service = await getStorageService(adminStorage);
     const object = await service.backend.getObject(r.fullPath, this.bucket.storeBucket);
     if (!object) {
-      throw new Error(`No such object: ${this.bucket.name}/${this.name}`);
+      throw noSuchObjectError(this.bucket.name, this.name);
     }
     const bytes = new Uint8Array(await object.blob.arrayBuffer());
     return [Buffer.from(byteRange(bytes, normalizedOptions))];

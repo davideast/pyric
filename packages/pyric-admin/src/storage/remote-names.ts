@@ -113,8 +113,8 @@ function listAhead(
 ): void {
   let seen = 0;
   for (let index = stack.length - 1; index >= 0 && seen < window && hasRoom(); index -= 1) {
-    const node = stack[index]!;
-    if (node.kind !== 'folder') continue;
+    const node = stack[index];
+    if (node === undefined || node.kind !== 'folder') continue;
     seen += 1;
     if (node.listing === undefined) void startListing(node);
   }
@@ -134,8 +134,15 @@ function childrenOf(listing: FolderListing, query: GetFilesOptions): WalkNode[] 
     const passedByToken = after !== undefined && `${fullPath}0` <= after;
     if (!holdsMatch || passedByToken) continue;
     const rolledUp = rollUpOf(key, query);
-    const node: WalkNode = rolledUp === undefined ? { kind: 'folder', path: fullPath } : { kind: 'names', names: [rolledUp] };
-    children.push({ key, node });
+    let node: WalkNode;
+    let sortKey = key;
+    if (rolledUp === undefined) {
+      node = { kind: 'folder', path: fullPath };
+    } else {
+      node = { kind: 'names', names: [rolledUp] };
+      sortKey = rolledUp;
+    }
+    children.push({ key: sortKey, node });
   }
   children.sort((a, b) => compareKeys(a.key, b.key));
   return groupNames(children.map(child => child.node));

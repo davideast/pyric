@@ -75,6 +75,7 @@ import {
   isBucketHandle,
   isFileHandle,
   isObjectNotFound,
+  noSuchObjectError,
   quotaExceeded,
   spooledWriteStream,
   uploadRequestOf,
@@ -330,7 +331,7 @@ class RemoteFile implements File, DownloadUrlSource {
   }
 
   private async upload(data: Blob, options: CreateWriteStreamOptions): Promise<void> {
-    const request = { ...this.bucket.wire, ...uploadRequestOf(options) };
+    const request = { ...this.bucket.wire, ...uploadRequestOf(options, this.name) };
     const route = await this.channel.byteRoute?.();
     if (route !== undefined) {
       await uploadOverByteRoute(this.channel, route, {
@@ -533,7 +534,7 @@ class RemoteFile implements File, DownloadUrlSource {
       return await pending;
     } catch (err) {
       if (isObjectNotFound(err)) {
-        throw new Error(`No such object: ${this.bucket.name}/${this.name}`);
+        throw noSuchObjectError(this.bucket.name, this.name);
       }
       throw err;
     }
