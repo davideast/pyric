@@ -24,7 +24,7 @@ export interface DatabaseInstancesRules {
 
 /** Where a database ruleset deploys: an instance name, absent for the
  *  default instance, or an unresolved deploy target. */
-export type DatabaseRulesDestination = string | { target: string };
+type DatabaseRulesDestination = string | { target: string };
 
 /** Where a ruleset deploys on the Node host: a database destination, or a
  *  Storage bucket by name (absent for the default bucket). A Storage ruleset
@@ -93,11 +93,11 @@ export interface InitPayload {
   /** Storage deploy targets no project resolved at startup. Their buckets stay locked (open when `permissive` is set) until the page's app config names a project `.firebaserc` maps them for. */
   storagePendingTargets?: PendingStorageTargetRules[];
   /**
-   * Local project identity — the served project directory. Scopes the
+   * Local project identity -- the served project directory. Scopes the
    * storage IndexedDB database name (`pyric-storage:<projectKey>`, issue
    * #359): IndexedDB is origin-scoped, so without this every project served
    * on one localhost port shared one storage database. Local-only (a dev
-   * server path never leaves the machine). Absent/null on older servers —
+   * server path never leaves the machine). Absent/null on older servers --
    * consumers fall back to the legacy shared name.
    */
   projectKey?: string | null;
@@ -107,13 +107,15 @@ export interface InitPayload {
   persistenceUnhealthy?: boolean;
   seed: Record<string, Record<string, unknown>> | null;
   persist?: boolean;
+  /** Current saved state version on `/__pyric/state` when persistence is enabled. */
+  stateVersion?: number;
   seedState?: unknown | null;
   authUsers?: ReadonlyArray<Record<string, unknown>> | null;
   capture?: boolean;
   messaging?: boolean;
   /**
    * True exactly when `/__pyric/assets/avatar/<uid>` is mounted (`avatars`
-   * was not explicitly disabled — see `avatars-config.ts`). Only this flag
+   * was not explicitly disabled -- see `avatars-config.ts`). Only this flag
    * travels to the page; the resolved set directory or source never does,
    * mirroring the AI proxy's server-only-config asymmetry. A browser
    * consumer that backfills `photoURL` from this flag is a later task.
@@ -125,13 +127,13 @@ export interface InitPayload {
    * generated image supersedes the placeholder the browser was served while
    * it ran. `avatars` says the route is mounted; this says an upgrade is
    * possible at all. The page decides on this flag whether to open a
-   * listener, so the default and set-only configurations — final on the first
-   * request — open no connection.
+   * listener, so the default and set-only configurations -- final on the first
+   * request -- open no connection.
    */
   avatarUpgrades?: boolean;
   /**
    * Plugin-level AI config (`@pyric/cli/vite`'s `ai.engine`). Only the ENGINE
-   * travels here — the OpenAI proxy upstream is a server-side namespace option
+   * travels here -- the OpenAI proxy upstream is a server-side namespace option
    * that never reaches the page. The worker host reads `ai.engine` into
    * `ctx.aiEngine`, which wins over any op-carried `engine` (see host-ai.ts).
    * Absent under `pyric dev` (no CLI surface) and whenever the plugin sets no

@@ -1,4 +1,4 @@
-/** `--persist` end-to-end over HTTP (pyric-persist plan 1.4) — the state
+/** `--persist` end-to-end over HTTP (pyric-persist plan 1.4) -- the state
  *  channel + precedence, server-side. The in-browser controller loop is the
  *  1.5 browser gate. */
 import { afterAll, describe, expect, it } from 'bun:test';
@@ -88,13 +88,13 @@ describe('pyric dev --persist', () => {
     const onDisk = readFileSync(join(cwd, STATE_RELATIVE_PATH), 'utf8');
     expect(onDisk).toContain('"posts/lived"');
 
-    // NOW the state file exists → the live payload already drops the seed
+    // NOW the state file exists -> the live payload already drops the seed
     expect(r.payload().seed).toBeNull();
     await r.handle.stop();
     stops.pop();
   }, 30_000);
 
-  it('restart: state wins — seed skipped, users delivered in the payload', async () => {
+  it('restart: state wins -- seed skipped, users delivered in the payload', async () => {
     const cwd = project();
     const r1 = await serve(cwd);
     await fetch(`${r1.handle.url}/__pyric/state?section=firestore`, {
@@ -119,7 +119,7 @@ describe('pyric dev --persist', () => {
     const statePath = join(cwd, STATE_RELATIVE_PATH);
     mkdirSync(join(cwd, '.pyric', 'state'), { recursive: true });
     writeFileSync(statePath, '{ nope');
-    // startServe rejects before serve() pushes — nothing to clean up
+    // startServe rejects before serve() pushes -- nothing to clean up
     await expect(serve(cwd)).rejects.toThrow(/not valid JSON/);
 
     writeFileSync(statePath, JSON.stringify({ version: 1, firestore: null, auth: null }));
@@ -146,7 +146,7 @@ describe('pyric dev --persist', () => {
     await r1.handle.stop();
     stops.pop();
 
-    // --fresh: discards the state file → first-run, seed applies, 0 restored
+    // --fresh: discards the state file -> first-run, seed applies, 0 restored
     const r2 = await startServe({
       cwd, port: 0, cacheRoot: join(cwd, '.cache'), seed: 'seed.json',
       persist: true, fresh: true, logger: silentServeLogger(),
@@ -157,7 +157,7 @@ describe('pyric dev --persist', () => {
     expect(r2.payload().seed).toEqual({ 'posts/seeded': { title: 's' } }); // seed back in play
     expect((await fetch(`${r2.handle.url}/__pyric/state?section=firestore`, { headers: authHeaders(r2) })).status).toBe(404); // wiped
 
-    // persist OFF → json line says persist:false
+    // persist OFF -> json line says persist:false
     const off = await serve(project(), false);
     expect(JSON.parse(serveJsonLine(off)).persist).toBe(false);
   }, 30_000);
@@ -174,16 +174,80 @@ describe('pyric dev --persist', () => {
       });
 
     expect((await post('tab-A')).status).toBe(204); // A claims the lock
-    expect((await post('tab-B')).status).toBe(423); // B refused — can't clobber A
+    expect((await post('tab-B')).status).toBe(423); // B refused -- can't clobber A
     expect((await post('tab-A')).status).toBe(204); // A keeps writing
     // reads are always allowed (a read-only tab still restores)
     expect((await fetch(`${base}/__pyric/state?section=firestore`, { headers: authHeaders(r) })).status).toBe(200);
     // PUT heartbeat refreshes A, still refuses B
     expect((await fetch(`${base}/__pyric/state`, { method: 'PUT', headers: authHeaders(r, { 'x-pyric-writer': 'tab-A' }) })).status).toBe(204);
     expect((await fetch(`${base}/__pyric/state`, { method: 'PUT', headers: authHeaders(r, { 'x-pyric-writer': 'tab-B' }) })).status).toBe(423);
-    // A releases (pagehide beacon) → B can take over
+    // A releases (pagehide beacon) -> B can take over
     await fetch(`${base}/__pyric/state`, { method: 'DELETE', headers: authHeaders(r, { 'x-pyric-writer': 'tab-A' }) });
     expect((await post('tab-B')).status).toBe(204);
+  }, 30_000);
+
+  it('optimistic concurrency: exposes stateVersion, advances on POST, and refuses outdated claims or saves with 409 (#2051)', async () => {
+    const cwd = project();
+    const r = await serve(cwd);
+    const base = r.handle.url;
+
+    const init0 = (await (await fetch(`${base}/__pyric/init.json`, { headers: authHeaders(r) })).json()) as { stateVersion?: number };
+    expect(init0.stateVersion).toBe(0);
+
+    const get0 = await fetch(`${base}/__pyric/state?section=firestore`, { headers: authHeaders(r) });
+    expect(get0.status).toBe(404);
+    expect(get0.headers.get('x-pyric-state-version')).toBe('0');
+
+    const badVer = await fetch(`${base}/__pyric/state`, {
+      method: 'PUT',
+      headers: authHeaders(r, { 'x-pyric-writer': 'tab-A', 'x-pyric-state-version': 'abc' }),
+    });
+    expect(badVer.status).toBe(400);
+
+    const claimA = await fetch(`${base}/__pyric/state`, {
+      method: 'PUT',
+      headers: authHeaders(r, { 'x-pyric-writer': 'tab-A', 'x-pyric-state-version': '0' }),
+    });
+    expect(claimA.status).toBe(204);
+    expect(claimA.headers.get('x-pyric-state-version')).toBe('0');
+
+    const save1 = await fetch(`${base}/__pyric/state?section=firestore`, {
+      method: 'POST',
+      headers: authHeaders(r, {
+        'content-type': 'application/json',
+        'x-pyric-writer': 'tab-A',
+        'x-pyric-state-version': '0',
+      }),
+      body: JSON.stringify(BLOB),
+    });
+    expect(save1.status).toBe(204);
+    expect(save1.headers.get('x-pyric-state-version')).toBe('1');
+
+    const init1 = (await (await fetch(`${base}/__pyric/init.json`, { headers: authHeaders(r) })).json()) as { stateVersion?: number };
+    expect(init1.stateVersion).toBe(1);
+
+    // Release lock; a late-claiming tab carrying version 0 is still refused with 409.
+    await fetch(`${base}/__pyric/state`, { method: 'DELETE', headers: authHeaders(r, { 'x-pyric-writer': 'tab-A' }) });
+    const staleClaim = await fetch(`${base}/__pyric/state`, {
+      method: 'PUT',
+      headers: authHeaders(r, { 'x-pyric-writer': 'tab-late', 'x-pyric-state-version': '0' }),
+    });
+    expect(staleClaim.status).toBe(409);
+    expect(staleClaim.headers.get('x-pyric-state-version')).toBe('1');
+
+    const staleSave = await fetch(`${base}/__pyric/state?section=firestore`, {
+      method: 'POST',
+      headers: authHeaders(r, {
+        'content-type': 'application/json',
+        'x-pyric-writer': 'tab-late',
+        'x-pyric-state-version': '0',
+      }),
+      body: JSON.stringify({ version: 1, savedAt: 99, firestore: {} }),
+    });
+    expect(staleSave.status).toBe(409);
+
+    await r.handle.stop();
+    stops.pop();
   }, 30_000);
 });
 

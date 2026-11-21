@@ -24,6 +24,7 @@ import { rulesSourceRejection } from 'pyric/rules/internal';
 import { getDatabase } from 'pyric/database';
 import { installServedStorageRules } from '../storage-rules-install.js';
 import { getAuth, sandbox as authOps, type SeedUser } from 'pyric/auth';
+import type { ConnectedBridge } from '../../bridge/client/bridge.js';
 import {
   callTool as workerCallTool,
   relayWorkerOp,
@@ -34,6 +35,7 @@ import { useWorker, workerDb, useHosted } from './worker-runtime.js';
 import { initPayload, initPayloadRequest, logInitPayloadFailure } from './init-payload.js';
 export { initPayload } from './init-payload.js';
 import { keepaliveSafe } from './keepalive.js';
+import { onServiceUsed } from './service-use.js';
 import { setupInPagePersistence } from './in-page-persistence.js';
 import { setupInPageRulesEvents } from './in-page-rules-events.js';
 import { toPageOriginWsUrl } from './bridge-url.js';
@@ -118,7 +120,67 @@ if (!useWorker) {
 }
 
 let bridgeUrlFromPayload: string | null = null;
+let persistFromPayload = false;
 let activityTokenFromPayload: string | null = null;
+let activeBridge: ConnectedBridge | null = null;
+let bridgeConnecting = false;
+let bridgeDesired = false;
+
+async function connectBridgePeer(rawUrl: string): Promise<ConnectedBridge | null> {
+  if (useHosted) return null;
+  const url = toPageOriginWsUrl(rawUrl, window.location);
+  const { connectBridge } = await import('../../bridge/client/bridge.js');
+  const wdb = workerDb;
+  const hasWorkerBridge = useWorker && wdb !== null;
+  let connected: ConnectedBridge;
+  if (hasWorkerBridge) {
+    connected = connectBridge(sandbox, {
+      url,
+      dispatcher: (_sandbox, name, args, actAs, callerId) => workerCallTool(wdb, name, args, actAs, callerId),
+      workerRelay: {
+        op: (op, clientSessionId) => relayWorkerOp(wdb, op, clientSessionId),
+        subscribe: (sub, onValue, clientSessionId) => relayWorkerSub(wdb, sub, onValue, clientSessionId),
+        disconnect: (clientSessionId) => relayWorkerDisconnect(wdb, clientSessionId),
+      },
+    });
+  } else {
+    connected = connectBridge(sandbox, { url });
+  }
+  console.info('[pyric sandbox] sandbox registered with the MCP bridge at', url);
+  return connected;
+}
+
+function activateInPageBridge(rawUrl: string): void {
+  bridgeDesired = true;
+  if (activeBridge !== null || bridgeConnecting) return;
+  bridgeConnecting = true;
+  void connectBridgePeer(rawUrl)
+    .then((connected) => {
+      bridgeConnecting = false;
+      if (connected === null) return;
+      if (!bridgeDesired) {
+        connected.disconnect();
+        return;
+      }
+      activeBridge = connected;
+      diagnostics.bridgeConnected = true;
+    })
+    .catch((e: unknown) => {
+      bridgeConnecting = false;
+      runtimeStatus.reportError(e, 'runtime');
+      const detail = e instanceof Error ? e.message : String(e);
+      console.error('[pyric sandbox] bridge connect failed:', detail);
+    });
+}
+
+function deactivateInPageBridge(): void {
+  bridgeDesired = false;
+  if (activeBridge !== null) {
+    activeBridge.disconnect();
+    activeBridge = null;
+  }
+  diagnostics.bridgeConnected = false;
+}
 
 // -- init payload: fetch + apply (top-level await -- see header) --
 // WORKER PATH: skipped -- the worker fetches the same init.json and owns
@@ -127,17 +189,12 @@ let activityTokenFromPayload: string | null = null;
 if (!useWorker) try {
   const payload = await initPayloadRequest;
   bridgeUrlFromPayload = payload.bridgeUrl;
+  persistFromPayload = Boolean(payload.persist);
   activityTokenFromPayload = payload.activityToken ?? null;
-  // The avatar mint goes in BEFORE the first user record: the minted
-  // `photoURL` is stored on the record at creation, never recomputed.
   const avatarMint = avatarMintForPayload(payload.avatars);
   if (avatarMint) {
     authOps.setAvatarMint(getAuth(sandbox), avatarMint);
   }
-  // Register RTDB with the persistence registry BEFORE enablePersistence
-  // (below) so the restored tree rides the controller blob and is applied
-  // during restore-on-attach -- same eager-registration reasoning as the
-  // worker path (serve-init.ts).
   getDatabase(sandbox);
   if (payload.rules) {
     const rejection = rulesSourceRejection(payload.rules);
@@ -153,9 +210,6 @@ if (!useWorker) try {
   databaseRules.deploy(databaseInstances, defaultDbPolicy);
   diagnostics.databaseRulesDeployed = Boolean(payload.databaseRules);
   diagnostics.databaseRulesHash = payload.databaseRulesHash ?? null;
-  // Open the ONE per-sandbox storage service eagerly: the FIRST open wins the
-  // rules AND the project-scoped IDB name (`pyric-storage:<projectKey>`,
-  // issue #359).
   for (const notice of installServedStorageRules(sandbox, payload)) {
     console.info(`[pyric sandbox] ${notice}`);
   }
@@ -166,15 +220,10 @@ if (!useWorker) try {
   if (payload.storageRules) {
     diagnostics.storageRulesHash = payload.storageRulesHash;
   }
-  // Auth users land first in either mode (persist restore or state-file
-  // fixture) so restored docs' owner uids resolve in rules and the session
-  // restore below has a DB to restore into.
   if (payload.authUsers && payload.authUsers.length > 0) {
     authOps.seedUsers(getAuth(sandbox), payload.authUsers as unknown as SeedUser[]);
   }
   if (!payload.persist && payload.seedState) {
-    // -- ephemeral fixture (`--seed <state-file>`): restore the blob through
-    // the persistence controller's OWN deserializer via a read-only backend.
     const seedSnap = payload.seedState as {
       firestore?: Record<string, Record<string, unknown>>;
       services?: Record<string, unknown>;
@@ -194,11 +243,17 @@ if (!useWorker) try {
     diagnostics.seededDocs = docs ? Object.keys(docs).length : 0;
   }
   if (payload.persist) {
-    await setupInPagePersistence(sandbox, payload, diagnostics);
+    const rawBridgeUrl = payload.bridgeUrl;
+    await setupInPagePersistence(sandbox, payload, diagnostics, {
+      onWriterClaimed: () => {
+        if (rawBridgeUrl) activateInPageBridge(rawBridgeUrl);
+      },
+      onWriterLost: () => {
+        deactivateInPageBridge();
+      },
+    });
   }
   if (payload.capture) {
-    // Capture mode: push live rules, history, and state to /__pyric/capture
-    // for `pyric verify`, independent of --persist durability.
     const flushCapture = (): void => {
       const auth = getAuth(sandbox);
       const apps = getApps();
@@ -268,9 +323,6 @@ if (!useWorker) try {
   );
 }
 
-// Unsupported/forced-in-page browsers own a real page-local sandbox rather
-// than the SharedWorker backend, so they install the same default-on guard at
-// this feed seam. Top-level await keeps this in place before application code.
 if (!useWorker && activityTokenFromPayload) {
   setupFirebaseActivityGuard(
     {
@@ -282,7 +334,6 @@ if (!useWorker && activityTokenFromPayload) {
   );
 }
 
-// -- provenance (flow doc section 3a): make the shim's presence unmistakable --
 function provenanceModeLabel(): string {
   if (useHosted) {
     return ' on the dev server (one backend for all tabs and server processes; rules/seed/persist owned by the dev server)';
@@ -322,37 +373,17 @@ if (typeof window !== 'undefined') {
   });
 }
 
-// -- bridge peer (only when `pyric dev --bridge` put a URL in the payload) --
-async function connectBridgePeer(rawUrl: string): Promise<void> {
-  if (useHosted) return;
-  const url = toPageOriginWsUrl(rawUrl, window.location);
-  const { connectBridge } = await import('../../bridge/client/bridge.js');
-  const wdb = workerDb;
-  const hasWorkerBridge = useWorker && wdb !== null;
-  if (hasWorkerBridge) {
-    connectBridge(sandbox, {
-      url,
-      dispatcher: (_sandbox, name, args, actAs, callerId) => workerCallTool(wdb, name, args, actAs, callerId),
-      workerRelay: {
-        op: (op, clientSessionId) => relayWorkerOp(wdb, op, clientSessionId),
-        subscribe: (sub, onValue, clientSessionId) => relayWorkerSub(wdb, sub, onValue, clientSessionId),
-        disconnect: (clientSessionId) => relayWorkerDisconnect(wdb, clientSessionId),
-      },
-    });
-  } else {
-    connectBridge(sandbox, { url });
-  }
-  diagnostics.bridgeConnected = true;
-  console.info('[pyric sandbox] sandbox registered with the MCP bridge at', url);
-}
-if (bridgeUrlFromPayload) {
-  try {
-    await connectBridgePeer(bridgeUrlFromPayload);
-  } catch (e) {
-    runtimeStatus.reportError(e, 'runtime');
-    const detail = e instanceof Error ? e.message : String(e);
-    console.error('[pyric sandbox] bridge connect failed:', detail);
-  }
+// -- bridge peer --
+// On the in-page path (`page.ts` loads `runtime.ts` on every served page, even
+// pages with no Firebase imports), only a page that uses a service (and, under
+// `--persist`, holds the writer lock) registers as the MCP bridge peer (#2053).
+if (!useWorker && bridgeUrlFromPayload && !persistFromPayload) {
+  const ephemeralBridgeUrl = bridgeUrlFromPayload;
+  onServiceUsed(() => activateInPageBridge(ephemeralBridgeUrl));
+  const stopBridgeOnEvent = sandbox.onEvent(() => {
+    stopBridgeOnEvent();
+    activateInPageBridge(ephemeralBridgeUrl);
+  });
 } else if (useWorker) {
   void (async () => {
     let payload: Awaited<typeof initPayload>;
@@ -364,7 +395,10 @@ if (bridgeUrlFromPayload) {
     }
     try {
       const url = payload?.bridgeUrl ?? null;
-      if (url) await connectBridgePeer(url);
+      if (url) {
+        const connected = await connectBridgePeer(url);
+        if (connected !== null) diagnostics.bridgeConnected = true;
+      }
     } catch (e) {
       runtimeStatus.reportError(e, 'runtime');
       const detail = e instanceof Error ? e.message : String(e);

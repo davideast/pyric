@@ -73,7 +73,6 @@ import {
   formatDenialBlock,
   handleDenials,
   noteAiDiagnostic,
-  type DenialThrottle,
 } from './denial-route.js';
 import {
   handleCapture,
@@ -83,13 +82,12 @@ import {
 } from './state-capture-route.js';
 
 export type { InitPayload } from './init-payload.js';
-export { createEventHub, type ServeEventHub };
+export { createEventHub };
 export {
   createDenialThrottle,
   DENIAL_BODY_LIMIT_BYTES,
   formatDenialBlock,
   noteAiDiagnostic,
-  type DenialThrottle,
 };
 
 export interface NamespaceOptions {
@@ -380,6 +378,9 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
           thresholds: Boolean(opts.thresholds),
           rateCaptures: Boolean(opts.rateCaptures),
         };
+        if (opts.state !== undefined && !hostOwnsState) {
+          sandboxPayload.stateVersion = stateWriterLock.version();
+        }
         if (activityEndpoint !== undefined) {
           sandboxPayload.activityToken = activityEndpoint.token;
         }
@@ -389,12 +390,15 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
       appendSetCookieHeader(res, formatSessionCookie(sessionToken), {
         effectiveScheme: decision.effectiveScheme,
       });
-      const payload = {
+      const payload: Record<string, unknown> = {
         ...raw,
         sessionToken,
         thresholds: Boolean(opts.thresholds),
         rateCaptures: Boolean(opts.rateCaptures),
       };
+      if (opts.state !== undefined && !hostOwnsState) {
+        payload.stateVersion = stateWriterLock.version();
+      }
       if (activityEndpoint !== undefined) payload.activityToken = activityEndpoint.token;
       res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
       res.end(isHead ? undefined : JSON.stringify(payload));

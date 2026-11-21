@@ -2,16 +2,23 @@ import { createReadStream, statSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { collectBody } from '../bridge/server/peer.js';
 import { StateFileError, type StateSection, type StateStore } from './state-store.js';
-import type { WriterLock } from './writer-lock.js';
+import {
+  parseStateVersionHeader,
+  STATE_VERSION_HEADER,
+  type WriterLock,
+} from './writer-lock.js';
 
 /** The page's persistence backend speaks this route:
  *  GET    /__pyric/state                    -> whole envelope (404 when absent)
  *  GET    /__pyric/state?section=firestore  -> that section (404 when null)
+ *  PUT    /__pyric/state                    -> claim/refresh the writer lock
  *  POST   /__pyric/state?section=...        -> write the section (204; 423 if
- *                                             another tab holds the writer lock)
+ *                                             another tab holds the writer lock;
+ *                                             409 if x-pyric-state-version is stale)
  *  DELETE /__pyric/state                    -> release the writer lock (beacon)
- *  Writes carry `x-pyric-writer: <id>`; the first writer wins, others get 423
- *  and drop to read-only (pre-mortem #3). The firestore body is the sandbox
+ *  Writes carry `x-pyric-writer: <id>` and `x-pyric-state-version: <n>`; the
+ *  first writer wins, and any writer with an outdated state version gets 409
+ *  and drops to read-only (#2051). The firestore body is the sandbox
  *  persistence controller's own blob -- stored verbatim, never interpreted. */
 export const STATE_OBJECTS_PREFIX = '/__pyric/state/objects/';
 
@@ -53,6 +60,14 @@ export function handleStateObject(
   createReadStream(file).pipe(res);
 }
 
+function readExpectedStateVersion(
+  req: IncomingMessage,
+): number | undefined | 'invalid' {
+  const rawHeader = req.headers[STATE_VERSION_HEADER];
+  const headerValue = Array.isArray(rawHeader) ? rawHeader[0] : rawHeader;
+  return parseStateVersionHeader(headerValue);
+}
+
 export async function handleState(
   state: StateStore,
   lock: WriterLock,
@@ -62,6 +77,7 @@ export async function handleState(
 ): Promise<void> {
   const section = url.searchParams.get('section');
   const writerId = (req.headers['x-pyric-writer'] as string | undefined) ?? '';
+  const effectiveWriter = writerId || 'anon';
   try {
     if (req.method === 'GET') {
       let value: unknown;
@@ -70,16 +86,20 @@ export async function handleState(
       } else {
         value = state.load();
       }
+      const currentVersion = String(lock.version());
       if (value === null) {
-        res.writeHead(404, { 'content-type': 'application/json' }).end('null');
+        res.writeHead(404, {
+          'content-type': 'application/json',
+          'cache-control': 'no-store',
+          [STATE_VERSION_HEADER]: currentVersion,
+        }).end('null');
         return;
       }
       res.writeHead(200, {
         'content-type': 'application/json; charset=utf-8',
         'cache-control': 'no-store',
-        // Lets `pyric snapshot` detect it scanned into a NEIGHBOR project's
-        // serve (pre-mortem #4) and warn instead of promoting the wrong DB.
         'x-pyric-project-dir': state.projectDir,
+        [STATE_VERSION_HEADER]: currentVersion,
       });
       res.end(JSON.stringify(value));
       return;
@@ -89,11 +109,35 @@ export async function handleState(
       res.writeHead(204).end();
       return;
     }
+    const expectedVersion = readExpectedStateVersion(req);
+    if (expectedVersion === 'invalid') {
+      res.writeHead(400, { 'content-type': 'text/plain' }).end(
+        `${STATE_VERSION_HEADER} must be a non-negative integer`,
+      );
+      return;
+    }
+    const refuseOutdatedVersion = (): boolean => {
+      const isOutdated =
+        expectedVersion !== undefined && expectedVersion !== lock.version();
+      if (!isOutdated) return false;
+      if (writerId && lock.holder() === writerId) {
+        lock.release(writerId);
+      }
+      res.writeHead(409, {
+        'content-type': 'text/plain',
+        [STATE_VERSION_HEADER]: String(lock.version()),
+      }).end(
+        `saved state is at version ${lock.version()}, expected ${expectedVersion}`,
+      );
+      return true;
+    };
     if (req.method === 'PUT') {
-      // Lock heartbeat -- refresh/claim WITHOUT writing state. 423 if another
-      // live tab holds it.
-      const claimed = lock.claim(writerId || 'anon', Date.now());
-      res.writeHead(claimed ? 204 : 423).end();
+      if (refuseOutdatedVersion()) return;
+      const claimed = lock.claim(effectiveWriter, Date.now(), expectedVersion);
+      const status = claimed ? 204 : 423;
+      res.writeHead(status, {
+        [STATE_VERSION_HEADER]: String(lock.version()),
+      }).end();
       return;
     }
     if (req.method === 'POST') {
@@ -101,22 +145,36 @@ export async function handleState(
         res.writeHead(400).end('section must be firestore|auth');
         return;
       }
-      // Single-writer: the first page to flush claims the lock; a different
-      // live page is refused (423) so it can't erase the writer's world.
-      if (!lock.claim(writerId || 'anon', Date.now())) {
-        res.writeHead(423, { 'content-type': 'text/plain' }).end(
+      if (refuseOutdatedVersion()) return;
+      if (!lock.claim(effectiveWriter, Date.now(), expectedVersion)) {
+        res.writeHead(423, {
+          'content-type': 'text/plain',
+          [STATE_VERSION_HEADER]: String(lock.version()),
+        }).end(
           `another tab holds the persist writer lock (held by ${lock.holder()})`,
         );
         return;
       }
       const body = await collectBody(req);
+      if (refuseOutdatedVersion()) return;
+      if (!lock.claim(effectiveWriter, Date.now(), expectedVersion)) {
+        res.writeHead(423, {
+          'content-type': 'text/plain',
+          [STATE_VERSION_HEADER]: String(lock.version()),
+        }).end(
+          `another tab holds the persist writer lock (held by ${lock.holder()})`,
+        );
+        return;
+      }
       await state.writeSection(section, body);
-      res.writeHead(204).end();
+      const nextVersion = lock.advanceVersion();
+      res.writeHead(204, {
+        [STATE_VERSION_HEADER]: String(nextVersion),
+      }).end();
       return;
     }
-    res.writeHead(405, { allow: 'GET, POST, DELETE' }).end('method not allowed');
+    res.writeHead(405, { allow: 'GET, PUT, POST, DELETE' }).end('method not allowed');
   } catch (e) {
-    // StateFileError (corrupt/version) or bad body -- surface, don't clobber.
     const status = e instanceof StateFileError ? 409 : 400;
     res.writeHead(status, { 'content-type': 'text/plain' });
     const message = e instanceof Error ? e.message : String(e);
