@@ -43,10 +43,26 @@ final class TestBridgeClock: BridgeClock, @unchecked Sendable {
         return Int(delta / 1_000_000)
     }
 
+    private enum WakeTarget: Sendable {
+        case relative(Int64)
+        case absolute(Int64)
+    }
+
     func sleep(seconds: TimeInterval) async throws {
         try Task.checkCancellation()
         let deltaNanos = Self.toNanos(seconds)
         guard deltaNanos > 0 else { return }
+        try await park(target: .relative(deltaNanos))
+    }
+
+    /// Evaluates the absolute deadline under `lock` so a concurrent `advance(by:)`
+    /// cannot push a deadline sleeper past its target virtual time.
+    func sleepUntil(deadline: TimeInterval) async throws {
+        try Task.checkCancellation()
+        try await park(target: .absolute(Self.toNanos(deadline)))
+    }
+
+    private func park(target: WakeTarget) async throws {
         let id = UUID()
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
@@ -56,7 +72,18 @@ final class TestBridgeClock: BridgeClock, @unchecked Sendable {
                     continuation.resume(throwing: CancellationError())
                     return
                 }
-                let wakeAt = self.currentNanos + deltaNanos
+                let wakeAt: Int64
+                switch target {
+                case .relative(let deltaNanos):
+                    wakeAt = self.currentNanos + deltaNanos
+                case .absolute(let deadlineNanos):
+                    wakeAt = deadlineNanos
+                }
+                if wakeAt <= self.currentNanos {
+                    self.lock.unlock()
+                    continuation.resume()
+                    return
+                }
                 self.sleepers.append(Sleeper(id: id, wakeAtNanos: wakeAt, continuation: continuation))
                 self.lock.unlock()
             }
