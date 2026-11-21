@@ -79,6 +79,7 @@ export interface IdentityTriggerInspection {
 
 export interface InspectIdentityTriggersOptions {
   activeEventTypes?: ReadonlySet<IdentityBlockingEventType>;
+  defaultTimeoutSeconds?: number;
 }
 
 export function isIdentityBlockingEventType(
@@ -135,13 +136,12 @@ function parseEndpointLocation(
 
 function parseEndpointTimeout(
   timeoutSeconds: unknown,
-): { ok: true; timeoutSeconds?: number } | { ok: false } {
-  if (
-    timeoutSeconds === undefined ||
-    timeoutSeconds === null ||
-    isResetValueObject(timeoutSeconds)
-  ) {
+): { ok: true; timeoutSeconds?: number; reset?: boolean } | { ok: false } {
+  if (timeoutSeconds === undefined) {
     return { ok: true };
+  }
+  if (timeoutSeconds === null || isResetValueObject(timeoutSeconds)) {
+    return { ok: true, reset: true };
   }
   if (typeof timeoutSeconds === 'number' && Number.isFinite(timeoutSeconds) && timeoutSeconds > 0) {
     return { ok: true, timeoutSeconds };
@@ -263,8 +263,18 @@ export function inspectIdentityTriggers(
     if (parsedRegion.location !== undefined) {
       discovered.location = parsedRegion.location;
     }
-    if (parsedTimeout.timeoutSeconds !== undefined) {
-      discovered.timeoutSeconds = parsedTimeout.timeoutSeconds;
+    let resolvedTimeoutSeconds = parsedTimeout.timeoutSeconds;
+    if (
+      !parsedTimeout.reset &&
+      resolvedTimeoutSeconds === undefined &&
+      typeof options.defaultTimeoutSeconds === 'number' &&
+      Number.isFinite(options.defaultTimeoutSeconds) &&
+      options.defaultTimeoutSeconds > 0
+    ) {
+      resolvedTimeoutSeconds = options.defaultTimeoutSeconds;
+    }
+    if (resolvedTimeoutSeconds !== undefined) {
+      discovered.timeoutSeconds = resolvedTimeoutSeconds;
     }
     candidates.push(discovered);
   }
@@ -296,7 +306,11 @@ export function discoverIdentityTriggers(
   options: InspectIdentityTriggersOptions = {},
 ): DiscoveredIdentityTrigger[] {
   const activeEventTypes = options.activeEventTypes ?? ACTIVE_IDENTITY_EVENT_TYPES;
-  return inspectIdentityTriggers(exported, { activeEventTypes }).triggers;
+  const inspectOpts: InspectIdentityTriggersOptions = { activeEventTypes };
+  if (options.defaultTimeoutSeconds !== undefined) {
+    inspectOpts.defaultTimeoutSeconds = options.defaultTimeoutSeconds;
+  }
+  return inspectIdentityTriggers(exported, inspectOpts).triggers;
 }
 
 /** The v2 Identity Platform blocking trigger family (`providers/cloud.auth/eventTypes/user.*`). */

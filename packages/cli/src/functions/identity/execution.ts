@@ -24,6 +24,7 @@ export interface IdentityTriggerExecutionOptions {
   exported: Record<string, unknown>;
   delivery: IdentityTriggerDelivery;
   activeEventTypes?: ReadonlySet<IdentityBlockingEventType>;
+  defaultTimeoutSeconds?: number;
   ensureInitialized?: () => Promise<void>;
   nextEventId?(
     request: IdentityBlockingInvocationRequest,
@@ -74,9 +75,15 @@ function buildExecutionInput(
 export function startIdentityTriggerExecution(
   options: IdentityTriggerExecutionOptions,
 ): IdentityTriggerExecutionHost {
-  const discoveryOptions: { activeEventTypes?: ReadonlySet<IdentityBlockingEventType> } = {};
+  const discoveryOptions: {
+    activeEventTypes?: ReadonlySet<IdentityBlockingEventType>;
+    defaultTimeoutSeconds?: number;
+  } = {};
   if (options.activeEventTypes !== undefined) {
     discoveryOptions.activeEventTypes = options.activeEventTypes;
+  }
+  if (options.defaultTimeoutSeconds !== undefined) {
+    discoveryOptions.defaultTimeoutSeconds = options.defaultTimeoutSeconds;
   }
   const triggers = discoverIdentityTriggers(options.exported, discoveryOptions);
   const byEventType = new Map<IdentityBlockingEventType, DiscoveredIdentityTrigger>();
@@ -97,6 +104,7 @@ export function startIdentityTriggerExecution(
   let closed = false;
   let sequence = 0;
   let readySettled = false;
+  const closeController = new AbortController();
   const inFlight = new Set<Promise<void>>();
   const {
     promise: ready,
@@ -149,7 +157,9 @@ export function startIdentityTriggerExecution(
         eventId = options.nextEventId(request, runSequence, trigger);
       }
       const input = buildExecutionInput(request, eventId);
-      const execOptions: { ensureInitialized?: () => Promise<void> } = {};
+      const execOptions: { ensureInitialized?: () => Promise<void>; abortSignal: AbortSignal } = {
+        abortSignal: closeController.signal,
+      };
       if (options.ensureInitialized !== undefined) {
         execOptions.ensureInitialized = options.ensureInitialized;
       }
@@ -209,6 +219,7 @@ export function startIdentityTriggerExecution(
       if (closed) return;
       closed = true;
       stopRegistration();
+      closeController.abort();
     },
   };
 }
