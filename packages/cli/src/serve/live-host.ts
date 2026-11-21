@@ -84,6 +84,8 @@ export function liveHostProject(argv: readonly string[], projectRoot: string): s
 export interface LiveHostStart {
   /** The folder of the `@pyric/live` whose `pyric-live` command is running. */
   liveRoot?: string;
+  /** Explicit second opt-in from `pyric-live --allow-remote-live` admitting non-loopback peers. */
+  allowRemotePeers?: boolean;
 }
 
 export interface LiveHostProbeOptions extends LiveHostStart {
@@ -126,7 +128,13 @@ export async function runLiveHost(argv: readonly string[], start: LiveHostStart 
   parsed.flags.set('project', requireLiveProject(project, projectRoot));
   parsed.flags.set('hosted', true);
   const refusal = await loadInstalledLiveExport(from, WRITE_REFUSAL_SUBPATH, 'liveWriteRefusal', 'The live host did not start.');
-  return runServe(parsed, { liveHost: { project, writeRefusal: refusal.fn as unknown as PyricWriteRefusal } });
+  return runServe(parsed, {
+    liveHost: {
+      project,
+      writeRefusal: refusal.fn as unknown as PyricWriteRefusal,
+      allowRemotePeers: start.allowRemotePeers === true,
+    },
+  });
 }
 
 /** A verified running live host on loopback that `pyric-live run` attaches a child process to. */

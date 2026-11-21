@@ -41,11 +41,12 @@ Subcommands:
                     running live host (see \`pyric-live run --help\`).
 
 Options:
-  --port <port>     Port to serve on. Default 3473.
-  --host <host>     Host to bind. Default localhost.
-  --project <id>    Firebase project. Default: the one .firebaserc or firebase use names.
-  --no-open         Do not open a browser.
-  --help            Show this help.
+  --port <port>       Port to serve on. Default 3473.
+  --host <host>       Host to bind. Default localhost.
+  --project <id>      Firebase project. Default: the one .firebaserc or firebase use names.
+  --allow-remote-live Second explicit gate to allow non-loopback peers in live mode.
+  --no-open           Do not open a browser.
+  --help              Show this help.
 `;
 
 async function main(argv: readonly string[]): Promise<number> {
@@ -64,9 +65,11 @@ async function main(argv: readonly string[]): Promise<number> {
     process.stderr.write(`${ENTRY}: ${refusal}\n`);
     return 1;
   }
-  const projectId = liveHostProject(argv, projectRoot);
+  const allowRemotePeers = argv.includes('--allow-remote-live');
+  const hostArgv = argv.filter((arg) => arg !== '--allow-remote-live');
+  const projectId = liveHostProject(hostArgv, projectRoot);
   process.stdout.write(`${liveStartLine(ENTRY, projectId)}\n`);
-  return runLiveHost(argv, { liveRoot: LIVE_ROOT });
+  return runLiveHost(hostArgv, { liveRoot: LIVE_ROOT, allowRemotePeers });
 }
 
 main(process.argv.slice(2)).then(

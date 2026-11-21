@@ -27,12 +27,14 @@ import {
 } from './rest-auth-rtdb.js';
 import {
   createGuardPolicy,
-  effectiveRequestScheme,
   evaluateGuard,
-  parseTrustProxySetting,
   type GuardDecision,
   type RemoteAccessOptions,
 } from './guard-policy.js';
+import {
+  isAuthenticatedRemoteHtmlRequest,
+  resolveHtmlCookieScheme,
+} from './remote-access-config.js';
 import {
   appendSetCookieHeader,
   canBootstrapHtmlSession,
@@ -417,15 +419,24 @@ async function handleRequest(
   logger.note(`  • ${req.method} ${url.pathname}`);
 
   if (type.startsWith('text/html')) {
-    const canBootstrap = canBootstrapHtmlSession(req, opts.host ?? 'localhost');
-    if (effectiveSessionToken && canBootstrap) {
-      const trustProxy = parseTrustProxySetting(opts.remoteAccess?.trustProxy);
-      const effectiveScheme = effectiveRequestScheme(req, trustProxy);
+    const boundHost = opts.host ?? 'localhost';
+    const canBootstrap = canBootstrapHtmlSession(req, boundHost);
+    const authenticatedRemote =
+      !canBootstrap &&
+      isAuthenticatedRemoteHtmlRequest(req, {
+        boundHost,
+        allowedHosts: serverAllowedHosts,
+        remoteAccess: opts.remoteAccess,
+        sessionToken: effectiveSessionToken,
+      });
+    const hasLocalOrAuthedSession = canBootstrap || authenticatedRemote;
+    if (effectiveSessionToken && hasLocalOrAuthedSession) {
+      const effectiveScheme = resolveHtmlCookieScheme(req, opts.remoteAccess);
       appendSetCookieHeader(res, formatSessionCookie(effectiveSessionToken), { effectiveScheme });
     }
     if (opts.transformHtml) {
       const { readFile } = await import('node:fs/promises');
-      const html = opts.transformHtml(await readFile(file, 'utf8'), { localPeer: canBootstrap });
+      const html = opts.transformHtml(await readFile(file, 'utf8'), { localPeer: hasLocalOrAuthedSession });
       res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store' });
       res.end(req.method === 'HEAD' ? undefined : html);
       return;

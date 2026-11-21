@@ -37,13 +37,13 @@ function sanitizeRefusalText(value: string): string {
   return clean.slice(0, MAX_REFUSAL_DETAIL_LENGTH).trimEnd();
 }
 
-async function readRefusalDetail(response: Response): Promise<string> {
-  if (typeof response.text !== 'function') return '';
+async function readRefusalDetail(response: Response): Promise<{ detail: string; unlockPath?: string }> {
+  if (typeof response.text !== 'function') return { detail: '' };
   let raw: string;
   try {
     raw = await response.text();
   } catch {
-    return '';
+    return { detail: '' };
   }
   let contentType = '';
   if (typeof response.headers?.get === 'function') {
@@ -55,18 +55,48 @@ async function readRefusalDetail(response: Response): Promise<string> {
   if (mediaType === 'application/json' || mediaType.endsWith('+json')) {
     try {
       const parsed: unknown = JSON.parse(raw);
-      if (typeof parsed === 'object' && parsed !== null && 'error' in parsed && typeof parsed.error === 'string') {
-        return sanitizeRefusalText(parsed.error);
+      if (typeof parsed === 'object' && parsed !== null) {
+        const record = parsed as Record<string, unknown>;
+        const errCode = typeof record.error === 'string' ? sanitizeRefusalText(record.error) : '';
+        const rawUnlock = typeof record.unlockPath === 'string' ? record.unlockPath : '';
+        if (errCode === 'unlock_required') {
+          const safeUnlock = rawUnlock.startsWith('/__pyric/unlock') ? rawUnlock : '/__pyric/unlock';
+          return { detail: errCode, unlockPath: sanitizeRefusalText(safeUnlock) };
+        }
+        if (errCode.length > 0) return { detail: errCode };
       }
     } catch {
-      return '';
+      return { detail: '' };
     }
-    return '';
+    return { detail: '' };
   }
-  if (mediaType !== '' && mediaType !== 'text/plain') return '';
+  if (mediaType !== '' && mediaType !== 'text/plain') return { detail: '' };
   const trimmed = raw.trim();
-  if (trimmed.length === 0 || trimmed.startsWith('<')) return '';
-  return sanitizeRefusalText(trimmed);
+  if (trimmed.length === 0 || trimmed.startsWith('<')) return { detail: '' };
+  return { detail: sanitizeRefusalText(trimmed) };
+}
+
+function currentRelativeNextPath(): string {
+  if (typeof globalThis.location !== 'object' || globalThis.location === null) return '/';
+  const pathname = typeof globalThis.location.pathname === 'string' ? globalThis.location.pathname : '/';
+  const search = typeof globalThis.location.search === 'string' ? globalThis.location.search : '';
+  if (!pathname.startsWith('/') || pathname.startsWith('//')) return '/';
+  return `${pathname}${search}`;
+}
+
+let loggedInsecureContextWarning = false;
+
+function warnIfInsecureBrowserContext(): void {
+  if (loggedInsecureContextWarning) return;
+  if (isNodeRealm || !hasDocument) return;
+  if (typeof globalThis.isSecureContext === 'boolean' && globalThis.isSecureContext === false) {
+    loggedInsecureContextWarning = true;
+    console.warn(
+      '[pyric sandbox] plain HTTP non-localhost origin is not a browser Secure Context: ' +
+        'navigator.serviceWorker APIs (messaging/sw, storage/sw) are unavailable here. ' +
+        'Use HTTPS (reverse proxy) or an SSH tunnel to http://localhost when testing service workers.',
+    );
+  }
 }
 
 async function requestInitPayload(): Promise<InitPayload> {
@@ -88,8 +118,18 @@ async function requestInitPayload(): Promise<InitPayload> {
     status = response.status;
     const isTerminalRefusal = response.status === 401 || response.status === 403;
     if (isTerminalRefusal) {
-      const detail = await readRefusalDetail(response);
-      const suffix = detail.length > 0 ? `: ${detail}` : '';
+      const refusal = await readRefusalDetail(response);
+      if (response.status === 401 && refusal.unlockPath !== undefined) {
+        const nextQuery = encodeURIComponent(currentRelativeNextPath());
+        let unlockUrl = refusal.unlockPath;
+        if (!unlockUrl.includes('?')) {
+          unlockUrl = `${unlockUrl}?next=${nextQuery}`;
+        }
+        throw new InitIdentityError(
+          `Pyric session unlock required (401). Open ${unlockUrl} and enter the per-boot token printed in the server terminal.`,
+        );
+      }
+      const suffix = refusal.detail.length > 0 ? `: ${refusal.detail}` : '';
       throw new InitIdentityError(`/__pyric/init.json refused the request (${response.status})${suffix}`);
     }
     const hasFailedResponse = !response.ok;
@@ -97,6 +137,7 @@ async function requestInitPayload(): Promise<InitPayload> {
     const payload: InitPayload = await response.json();
     const isRefusedRemotePage = declaresNodeHost && payload.remotePeer === true;
     if (isRefusedRemotePage) throw new InitIdentityError('This Node host serves project data only to clients on its own machine, and this page was opened from another one.');
+    warnIfInsecureBrowserContext();
     // A Node process names the off-host case itself, as a refusal (worker-runtime.ts).
     const isDifferentHost = declaresNodeHost && payload.hosted !== true;
     if (isDifferentHost) throw new InitIdentityError('/__pyric/init.json does not select the requested Node host.');

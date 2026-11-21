@@ -352,6 +352,8 @@ export const SANDBOX_CORE_FLAGS: readonly [flag: string, description: string][] 
   ['--no-watch', 'Disable rules file hot-reload.'],
   ['--no-capture', 'Disable writing .pyric/last-session.json.'],
   ['--no-cache', 'Rebuild served SDK bundles instead of using ~/.pyric/serve-cache.'],
-  ['--allowed-host H', 'Allow extra Host header(s) past the DNS-rebinding guard.'],
+  ['--allowed-host H', 'Allow extra Host header(s) or leading-dot suffix (.tailnet.ts.net). Env: PYRIC_ALLOWED_HOSTS.'],
+  ['--allow-remote-peers[=P]', 'Admit non-loopback TCP peers (CIDR list or any; requires unlock/token). Env: PYRIC_ALLOW_REMOTE_PEERS.'],
+  ['--trust-proxy[=P]', 'Trust X-Forwarded-Proto/Host from loopback or CIDR proxy hop. Env: PYRIC_TRUST_PROXY.'],
   ['--json', 'Print one machine-readable JSON line on stdout; move banner to stderr.'],
 ];

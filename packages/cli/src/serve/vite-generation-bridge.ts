@@ -2,6 +2,7 @@ import type { Server as HttpServer } from 'node:http';
 import type { ViteDevServer } from 'vite';
 import type { FunctionsProject } from '../functions/project.js';
 import type { LiveHostState } from './live-host-state.js';
+import type { RemoteAccessOptions } from './guard-policy.js';
 import type {
   BridgeHostAttachment,
   BridgeHostOptions,
@@ -29,6 +30,9 @@ export function createViteGenerationBridge(input: {
   functionsProjectId: string | null;
   sessionToken?: string;
   requireSessionToken?: boolean;
+  allowedHosts?: readonly string[];
+  remoteAccess?: RemoteAccessOptions;
+  upgradeRejectionLogger?: (line: string) => void;
   createBridge(options: BridgeMountOptions): BridgeMount;
 }): BridgeMount | null {
   const { server, options, functionsProject, functionsProjectId, sessionToken, requireSessionToken, createBridge } = input;
@@ -38,7 +42,15 @@ export function createViteGenerationBridge(input: {
   const project = options?.project ?? functionsProjectId ?? undefined;
   const disableAuditLog = options?.disableAuditLog;
   const boundHost = typeof serverOptions.host === 'string' ? serverOptions.host : 'localhost';
-  const allowedHosts = resolveAllowedHosts(serverOptions.allowedHosts);
+  let allowedHosts = resolveAllowedHosts(serverOptions.allowedHosts);
+  if (input.allowedHosts !== undefined && input.allowedHosts.length > 0) {
+    const merged: string[] = Array.isArray(allowedHosts) ? [...allowedHosts] : [];
+    for (const host of input.allowedHosts) {
+      if (!merged.includes(host)) merged.push(host);
+    }
+    // Never turn explicit remote-access entries into `true` bypass.
+    allowedHosts = merged;
+  }
   const bridgeOptions: BridgeMountOptions = {
     hosted: input.hosted,
     projectKey: input.hosted ? input.projectDir : undefined,
@@ -47,6 +59,8 @@ export function createViteGenerationBridge(input: {
     liveHost: input.liveHost,
     sessionToken,
     requireSessionToken,
+    remoteAccess: input.remoteAccess,
+    upgradeRejectionLogger: input.upgradeRejectionLogger,
     upgradeGuard: {
       boundHost,
       allowedHosts,
