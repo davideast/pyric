@@ -8,6 +8,7 @@
  * under a different tenant is refused with `auth/tenant-id-mismatch` before
  * mutating the stored account.
  */
+import { randomUuid } from '../../sandbox/internal/random-uuid.js';
 import { makeAuthError } from '../auth-errors.js';
 import { validateEmailFormat, validatePasswordStrength } from '../sandbox-credential-validators.js';
 
@@ -106,7 +107,7 @@ export function upsertTenantEmailLinkAccount<T extends TenantDirectoryAccount>(i
     existing.emailVerified = true;
     return { stored: existing, isNewUser: false };
   }
-  const uid = `email-${globalThis.crypto.randomUUID()}`;
+  const uid = `email-${randomUuid()}`;
   const record = input.buildAccount({
     uid,
     email: input.email,
@@ -173,7 +174,7 @@ export function createTenantEmailPasswordAccount<T extends TenantDirectoryAccoun
       `An account already exists for ${input.email}.`,
     );
   }
-  const uid = `email-${globalThis.crypto.randomUUID()}`;
+  const uid = `email-${randomUuid()}`;
   const record = input.buildAccount({
     uid,
     email: input.email,

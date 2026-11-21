@@ -18,6 +18,7 @@
  */
 import type { Sandbox } from '../../sandbox/types/service.js';
 import type { AuthState } from '../../sandbox/types/auth-state.js';
+import { randomUuid } from '../../sandbox/internal/random-uuid.js';
 import { emitSandboxEvent, makeServiceMutationEvent } from '../../sandbox/internal/sandbox-impl.js';
 import type { MessagingEventOperation } from '../events.js';
 import { deliveryHistory } from './delivery-history.js';
@@ -308,7 +309,12 @@ export class MessagingBroker {
       throw error;
     }
 
-    const messageId = target.kind === 'token' ? crypto.randomUUID() : this.mintNumericId();
+    let messageId: string;
+    if (target.kind === 'token') {
+      messageId = randomUuid();
+    } else {
+      messageId = this.mintNumericId();
+    }
     const accepted: AcceptedSend = {
       name: `projects/${projectId}/messages/${messageId}`,
       messageId,
@@ -406,7 +412,7 @@ export class MessagingBroker {
   }, recipientId = DEFAULT_RECIPIENT): DeliveryResult {
     const payload: DeliveredPayload = {
       from: spec.from ?? this.senderId,
-      messageId: spec.messageId ?? crypto.randomUUID(),
+      messageId: spec.messageId ?? randomUuid(),
     };
     if (spec.data !== undefined) payload.data = { ...spec.data };
     if (spec.notification !== undefined) payload.notification = { ...spec.notification };

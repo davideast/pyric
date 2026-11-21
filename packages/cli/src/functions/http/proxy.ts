@@ -4,6 +4,7 @@
  * the function's timeout.
  */
 import { request as httpRequest, type IncomingHttpHeaders, type IncomingMessage, type ServerResponse } from 'node:http';
+import { effectiveRequestScheme, type TrustProxyPolicy } from '../../serve/guard-policy.js';
 import { FUNCTION_TARGET_HEADER } from './child-server.js';
 import { CHILD_TOKEN_HEADER } from './child-token.js';
 
@@ -23,6 +24,8 @@ export interface ProxyTarget {
   timeoutMs: number;
   /** The 504 body when the cut comes before any of the response. */
   timeoutMessage: string;
+  /** Reverse-proxy trust rule used to derive `x-forwarded-proto` from trusted peers. */
+  trustProxy?: TrustProxyPolicy;
 }
 
 /** How a forwarded request ended. */
@@ -49,7 +52,8 @@ function forwardedHeaders(req: IncomingMessage, target: ProxyTarget): IncomingHt
   const client = req.socket.remoteAddress ?? '';
   const prior = headers['x-forwarded-for'];
   headers['x-forwarded-for'] = prior ? `${String(prior)}, ${client}` : client;
-  headers['x-forwarded-proto'] = 'http';
+  const scheme = effectiveRequestScheme(req, target.trustProxy ?? false);
+  headers['x-forwarded-proto'] = scheme === 'https:' ? 'https' : 'http';
   delete headers['x-forwarded-host'];
   for (const [name, value] of Object.entries(target.headerOverrides ?? {})) {
     if (value === undefined) delete headers[name];

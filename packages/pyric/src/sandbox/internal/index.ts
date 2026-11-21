@@ -256,6 +256,7 @@ export { requestStatusLabel } from '../types/request-observation.js';
 
 export { createActiveListenerState } from '../active-listeners.js';
 export { asSentence } from './sentence.js';
+export { randomUuid } from './random-uuid.js';
 export { assertNoReservedCustomClaims, RESERVED_CUSTOM_CLAIMS } from './auth-token-claims.js';
 export {
   accountTokenClaims, idTokenAudience, SANDBOX_PROJECT_ID, tokenClaimAccount, rulesTokenFromIdToken, withIdTokenClaims,

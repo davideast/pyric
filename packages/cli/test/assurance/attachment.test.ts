@@ -487,4 +487,54 @@ service firebase.storage {
       bucketRules,
     );
   });
+
+  it("allows credential-free same-origin non-loopback URLs while rejecting cross-origin, credentialed, and wildcard origins", async () => {
+    const sandbox = seededSandbox();
+    let seenUrl = "";
+    const attach = createSandboxAttachmentProvider(sandbox, {
+      origin: "https://devbox.example.com:8443",
+      fetchImpl: async (input) => {
+        seenUrl = String(input);
+        return new Response(
+          JSON.stringify({
+            bridgeUrl: "wss://devbox.example.com:8443/__pyric/sandbox",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      },
+    });
+
+    const attached = await attach({
+      url: "https://devbox.example.com:8443/__pyric/ui/",
+    });
+    expect(seenUrl).toBe("https://devbox.example.com:8443/__pyric/init.json");
+    expect(attached.source.origin).toBe("https://devbox.example.com:8443");
+
+    await expect(
+      attach({ url: "https://user:pass@devbox.example.com:8443/__pyric/ui/" }),
+    ).rejects.toEqual(
+      expect.objectContaining<Partial<AssuranceInputError>>({
+        code: "ASSURANCE_INVALID_INPUT",
+      }),
+    );
+    await expect(
+      attach({ url: "https://other.example.com:8443/__pyric/ui/" }),
+    ).rejects.toEqual(
+      expect.objectContaining<Partial<AssuranceInputError>>({
+        code: "ASSURANCE_INVALID_INPUT",
+      }),
+    );
+
+    const wildcardAttach = createSandboxAttachmentProvider(sandbox, {
+      origin: "http://0.0.0.0:5173",
+      fetchImpl: async () => new Response("{}"),
+    });
+    await expect(
+      wildcardAttach({ url: "http://0.0.0.0:5173/__pyric/ui/" }),
+    ).rejects.toEqual(
+      expect.objectContaining<Partial<AssuranceInputError>>({
+        code: "ASSURANCE_INVALID_INPUT",
+      }),
+    );
+  });
 });
