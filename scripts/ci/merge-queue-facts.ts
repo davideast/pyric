@@ -10,6 +10,7 @@ import {
   parseStagingCommit,
   type ActiveStaging,
   type CheckState,
+  type LandAction,
   type QueueFacts,
   type QueuedPull,
   type StagingRun,
@@ -99,12 +100,64 @@ function apiGetWith<T>(run: (args: string[]) => string, repo: string, path: stri
   return JSON.parse(run(['api', `repos/${repo}/${path}`])) as T;
 }
 
-export function apiGet<T>(io: QueueIo, path: string): T {
+function apiGet<T>(io: QueueIo, path: string): T {
   return apiGetWith<T>(workflowGh(io), io.repo, path);
 }
 
 export function mainHeadSha(io: QueueIo): string {
   return apiGet<{ commit: { sha: string } }>(io, 'branches/main').commit.sha;
+}
+
+export function isAncestor(io: QueueIo, candidate: string, descendant: string): boolean {
+  try {
+    io.git(['merge-base', '--is-ancestor', candidate, descendant]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Whether `main` is still the batch's base and every pull request in it is
+ *  still open at the staged head. */
+export function landingStillStands(io: QueueIo, action: LandAction): boolean {
+  try {
+    if (mainHeadSha(io) !== action.baseSha) return false;
+    return action.pulls.every((pull) => {
+      const current = apiGet<{ state: string; head: { sha: string } }>(io, `pulls/${pull.number}`);
+      return current.state === 'open' && current.head.sha === pull.headSha;
+    });
+  } catch {
+    return false;
+  }
+}
+
+/** Throws unless the tree on `main` is the tree the staging run proved, and
+ *  returns the verified commit SHA on `main`. */
+export function verifyLanded(io: QueueIo, action: LandAction, numbersLabel: string): string {
+  const remoteLine = io.git(['ls-remote', 'origin', 'refs/heads/main']).trim();
+  const firstToken = remoteLine.split(/\s+/)[0];
+  let mainSha = '';
+  if (firstToken !== undefined) mainSha = firstToken;
+  io.git(['fetch', '--no-tags', 'origin', mainSha]);
+  const mainTree = io.git(['rev-parse', `${mainSha}^{tree}`]).trim();
+  const provenTree = io.git(['rev-parse', `${action.stagingSha}^{tree}`]).trim();
+  if (mainTree === '' || mainTree !== provenTree) {
+    throw new Error(`After landing ${numbersLabel}, main is ${mainSha} with tree ${mainTree}, but the staging run (${action.runUrl}) proved ${action.stagingSha} with tree ${provenTree}.`);
+  }
+  return mainSha;
+}
+
+export function pullAlreadyLanded(io: QueueIo, pull: QueuedPull, currentMainSha: string): boolean {
+  try {
+    const current = apiGet<{ state: string; merged?: boolean; head?: { sha?: string } }>(io, `pulls/${pull.number}`);
+    if (current.merged === true) return true;
+    const liveSha = current.head?.sha;
+    if (liveSha !== undefined && liveSha !== '' && liveSha !== pull.headSha) return false;
+    io.git(['fetch', '--no-tags', 'origin', currentMainSha, pull.headSha]);
+    return isAncestor(io, pull.headSha, currentMainSha);
+  } catch {
+    return false;
+  }
 }
 
 function pageQuery(page: number): string {

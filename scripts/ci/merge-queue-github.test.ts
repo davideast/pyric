@@ -1,38 +1,14 @@
 import { describe, expect, test } from 'bun:test';
-import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { QUEUE_LABEL, REFUSED_BRANCH, STAGING_BRANCH, parseStagingCommit, type QueueAction } from './merge-queue.ts';
+import { SIMULATOR_PARITY_GLOBS, needsSimulatorParity, runQueuePass } from './merge-queue-github.ts';
+import { batchMembers, bisectBranch } from './auto-revert-batch.ts';
 import {
-  QUEUE_LABEL,
-  REFUSED_BRANCH,
-  STAGING_BRANCH,
-  parseStagingCommit,
-  type QueueAction,
-} from './merge-queue.ts';
-import {
-  SIMULATOR_PARITY_GLOBS,
-  needsSimulatorParity,
-  runQueuePass,
-} from './merge-queue-github.ts';
-import { batchMembers, bisectBranch, type BatchIo } from './auto-revert-batch.ts';
-import {
-  CHAIN,
-  GREEN_RUN,
-  HEAD_A,
-  HEAD_B,
-  HEAD_C,
-  MAIN,
-  RUN_URL,
-  STAGED,
-  WRAPPED,
-  createHarness,
-  greenBatch,
-  mutations,
-  pull,
-  stagedMessage,
-  type Harness,
-  type RunItem,
+  CHAIN, GREEN_RUN, HEAD_A, HEAD_B, HEAD_C, MAIN, RUN_URL, STAGED, WRAPPED,
+  createHarness, gitSh as sh, greenBatch, mutations,
+  pull, realBatchIo, stagedMessage, wireRealRemote, type Harness, type RunItem,
 } from './merge-queue-harness.ts';
 
 describe('staging a batch', () => {
@@ -457,21 +433,6 @@ describe('dry run', () => {
 });
 
 describe('against a real git remote', () => {
-  function sh(cwd: string, args: string[]): string {
-    const env = {
-      ...process.env,
-      GIT_CONFIG_GLOBAL: '/dev/null',
-      GIT_CONFIG_NOSYSTEM: '1',
-      GIT_AUTHOR_NAME: 't',
-      GIT_AUTHOR_EMAIL: 't@example.test',
-      GIT_COMMITTER_NAME: 't',
-      GIT_COMMITTER_EMAIL: 't@example.test',
-    };
-    const out = spawnSync('git', args, { cwd, encoding: 'utf8', env });
-    if (out.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${out.stderr}`);
-    return out.stdout.trim();
-  }
-
   function initPair(): { origin: string; seed: string; work: string; commit: (file: string, text: string, message: string) => string } {
     const root = mkdtempSync(join(tmpdir(), 'merge-queue-git-'));
     const origin = join(root, 'origin.git');
@@ -490,51 +451,6 @@ describe('against a real git remote', () => {
     sh(seed, ['push', '--quiet', 'origin', 'main']);
     sh(root, ['clone', '--quiet', origin, work]);
     return { origin, seed, work, commit };
-  }
-
-  function wireRealRemote(origin: string, work: string, pulls: ReturnType<typeof pull>[]): { h: Harness; syncStaging: () => string } {
-    const h = createHarness({ pulls, greenHeads: new Set(pulls.map((item) => item.headSha)) });
-    Object.defineProperty(h.remote, 'main', { get: () => sh(origin, ['rev-parse', 'refs/heads/main']), set: () => {} });
-    h.io.git = (args) => sh(work, args);
-    const syncStaging = (): string => {
-      const tip = sh(origin, ['rev-parse', `refs/heads/${STAGING_BRANCH}`]);
-      h.remote.messages[tip] = sh(origin, ['log', '-1', '--format=%B', tip]);
-      h.remote.greenHeads.add(tip);
-      h.remote.stagingRuns = [GREEN_RUN];
-      return tip;
-    };
-    return { h, syncStaging };
-  }
-
-  function realBatchIo(origin: string, pulls: ReturnType<typeof pull>[]): BatchIo {
-    return {
-      repo: 'owner/repo',
-      git: (args) => sh(origin, args),
-      log: () => {},
-      gh: (args) => {
-        const rawPath = args.find((arg) => arg.startsWith('repos/owner/repo/'));
-        let path = '';
-        if (rawPath !== undefined) path = rawPath.slice('repos/owner/repo/'.length);
-        const commitMatch = /^commits\/([0-9a-f]+)$/.exec(path);
-        if (commitMatch) {
-          const sha = commitMatch[1] ?? '';
-          const parentsRaw = sh(origin, ['log', '-1', '--format=%P', sha]);
-          const parents: { sha: string }[] = [];
-          if (parentsRaw !== '') {
-            for (const parentSha of parentsRaw.split(' ')) parents.push({ sha: parentSha });
-          }
-          const message = sh(origin, ['log', '-1', '--format=%B', sha]);
-          return JSON.stringify({ sha, parents, commit: { message } });
-        }
-        const pullMatch = /^pulls\/(\d+)$/.exec(path);
-        if (pullMatch) {
-          const found = pulls.find((item) => item.number === Number(pullMatch[1]));
-          if (found === undefined) throw new Error(`missing pull ${path}`);
-          return JSON.stringify({ number: found.number, title: found.title, head: { ref: found.headRef } });
-        }
-        throw new Error(`unexpected api ${path}`);
-      },
-    };
   }
 
   test('the staged commit has main as first parent and holds both heads, and landing makes main that very commit', () => {

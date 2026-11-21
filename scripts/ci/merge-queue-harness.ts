@@ -1,3 +1,5 @@
+import { spawnSync } from 'node:child_process';
+import type { BatchIo } from './auto-revert-batch.ts';
 import {
   QUEUE_LABEL,
   STAGING_BRANCH,
@@ -14,7 +16,7 @@ export const HEAD_C = 'd'.repeat(40);
 export const STAGED = 'c'.repeat(40);
 export const CHAIN = 'e'.repeat(40);
 export const WRAPPED = 'f'.repeat(40);
-export const NOW = Date.parse('2026-11-14T12:00:00Z');
+const NOW = Date.parse('2026-11-14T12:00:00Z');
 export const RUN_URL = 'https://github.com/owner/repo/actions/runs/500';
 export const GREEN_RUN: RunItem = {
   id: 500,
@@ -46,7 +48,7 @@ export interface RunItem {
   actor?: { login?: string } | null;
 }
 
-export interface PullFileItem {
+interface PullFileItem {
   filename: string;
   previous_filename?: string;
 }
@@ -397,5 +399,69 @@ export function mutations(h: Harness): { git: string[][]; gh: string[][] } {
   return {
     git: h.git.filter((args) => args[0] !== 'ls-remote'),
     gh: h.gh.filter((args) => args[0] !== 'api' || args.includes('-X')),
+  };
+}
+
+export function gitSh(cwd: string, args: string[]): string {
+  const env = {
+    ...process.env,
+    GIT_CONFIG_GLOBAL: '/dev/null',
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_AUTHOR_NAME: 't',
+    GIT_AUTHOR_EMAIL: 't@example.test',
+    GIT_COMMITTER_NAME: 't',
+    GIT_COMMITTER_EMAIL: 't@example.test',
+  };
+  const out = spawnSync('git', args, { cwd, encoding: 'utf8', env });
+  if (out.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${out.stderr}`);
+  return out.stdout.trim();
+}
+
+export function wireRealRemote(
+  origin: string,
+  work: string,
+  pulls: FakePull[],
+): { h: Harness; syncStaging: () => string } {
+  const h = createHarness({ pulls, greenHeads: new Set(pulls.map((item) => item.headSha)) });
+  Object.defineProperty(h.remote, 'main', { get: () => gitSh(origin, ['rev-parse', 'refs/heads/main']), set: () => {} });
+  h.io.git = (args) => gitSh(work, args);
+  const syncStaging = (): string => {
+    const tip = gitSh(origin, ['rev-parse', `refs/heads/${STAGING_BRANCH}`]);
+    h.remote.messages[tip] = gitSh(origin, ['log', '-1', '--format=%B', tip]);
+    h.remote.greenHeads.add(tip);
+    h.remote.stagingRuns = [GREEN_RUN];
+    return tip;
+  };
+  return { h, syncStaging };
+}
+
+export function realBatchIo(origin: string, pulls: FakePull[]): BatchIo {
+  return {
+    repo: 'owner/repo',
+    git: (args) => gitSh(origin, args),
+    log: () => {},
+    gh: (args) => {
+      const rawPath = args.find((arg) => arg.startsWith('repos/owner/repo/'));
+      let path = '';
+      if (rawPath !== undefined) path = rawPath.slice('repos/owner/repo/'.length);
+      const commitMatch = /^commits\/([0-9a-f]+)$/.exec(path);
+      if (commitMatch !== null && commitMatch[1] !== undefined) {
+        const sha = commitMatch[1];
+        const parentsRaw = gitSh(origin, ['log', '-1', '--format=%P', sha]);
+        const parents: { sha: string }[] = [];
+        if (parentsRaw !== '') {
+          for (const parentSha of parentsRaw.split(' ')) parents.push({ sha: parentSha });
+        }
+        const message = gitSh(origin, ['log', '-1', '--format=%B', sha]);
+        return JSON.stringify({ sha, parents, commit: { message } });
+      }
+      const pullMatch = /^pulls\/(\d+)$/.exec(path);
+      if (pullMatch !== null) {
+        const found = pulls.find((item) => item.number === Number(pullMatch[1]));
+        if (found === undefined) throw new Error(`missing pull ${path}`);
+        return JSON.stringify({ number: found.number, title: found.title, head: { ref: found.headRef } });
+      }
+      throw new Error(`unexpected api ${path}`);
+    },
   };
 }

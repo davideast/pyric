@@ -37,11 +37,14 @@ import {
 import {
   BUILD_WORKFLOW,
   SLOW_WORKFLOW,
-  apiGet,
   gatherFacts,
+  isAncestor,
+  landingStillStands,
   mainHeadSha,
+  pullAlreadyLanded,
   pullChangedPaths,
   resolveWorkflowToken,
+  verifyLanded,
   workflowGh,
   type QueueIo,
 } from './merge-queue-facts.ts';
@@ -130,15 +133,6 @@ function pullMergeMessage(pull: QueuedPull, trailers: string): string {
 function batchMessage(pulls: readonly QueuedPull[], trailers: string): string {
   const titles = pulls.map((pull) => `- #${pull.number} ${pull.title}`).join('\n');
   return `Merge queue batch: ${numbersOf(pulls)}\n\n${titles}\n\n${trailers}`;
-}
-
-function isAncestor(io: QueueIo, candidate: string, descendant: string): boolean {
-  try {
-    io.git(['merge-base', '--is-ancestor', candidate, descendant]);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 /** Places any pull request whose head is a strict ancestor of another pull
@@ -301,33 +295,6 @@ function dispatchPostMergeMainWorkflows(io: QueueIo, landedPaths: readonly strin
   }
 }
 
-/** Whether `main` is still the batch's base and every pull request in it is
- *  still open at the staged head. */
-function landingStillStands(io: QueueIo, action: LandAction): boolean {
-  try {
-    if (mainHeadSha(io) !== action.baseSha) return false;
-    return action.pulls.every((pull) => {
-      const current = apiGet<{ state: string; head: { sha: string } }>(io, `pulls/${pull.number}`);
-      return current.state === 'open' && current.head.sha === pull.headSha;
-    });
-  } catch {
-    return false;
-  }
-}
-
-/** Throws unless the tree on `main` is the tree the staging run proved, and
- *  returns the verified commit SHA on `main`. */
-function verifyLanded(io: QueueIo, action: LandAction): string {
-  const mainSha = io.git(['ls-remote', 'origin', 'refs/heads/main']).trim().split(/\s+/)[0] ?? '';
-  io.git(['fetch', '--no-tags', 'origin', mainSha]);
-  const mainTree = io.git(['rev-parse', `${mainSha}^{tree}`]).trim();
-  const provenTree = io.git(['rev-parse', `${action.stagingSha}^{tree}`]).trim();
-  if (mainTree === '' || mainTree !== provenTree) {
-    throw new Error(`After landing ${numbersOf(action.pulls)}, main is ${mainSha} with tree ${mainTree}, but the staging run (${action.runUrl}) proved ${action.stagingSha} with tree ${provenTree}.`);
-  }
-  return mainSha;
-}
-
 /** A push to `main` that was refused while nothing had moved. The first
  *  refusal of a staged commit changes nothing but a marker branch, and the
  *  next pass tries once more; the second removes the batch from the queue. */
@@ -395,18 +362,6 @@ function mergePull(io: QueueIo, pull: QueuedPull): string {
   return parsed.sha;
 }
 
-function pullAlreadyLanded(io: QueueIo, pull: QueuedPull, currentMainSha: string): boolean {
-  try {
-    const current = apiGet<{ state: string; merged?: boolean; head?: { sha?: string } }>(io, `pulls/${pull.number}`);
-    if (current.merged === true) return true;
-    if (current.head?.sha !== undefined && current.head.sha !== '' && current.head.sha !== pull.headSha) return false;
-    io.git(['fetch', '--no-tags', 'origin', currentMainSha, pull.headSha]);
-    return isAncestor(io, pull.headSha, currentMainSha);
-  } catch {
-    return false;
-  }
-}
-
 function partialLandedComment(action: LandAction, mergeSha: string): string {
   return [
     `Landed on \`main\` as \`${mergeSha}\` (from staged batch \`${action.stagingSha}\`; the remaining pull requests will be re-staged on the new \`main\`).`,
@@ -469,7 +424,7 @@ function landBatchByPullApi(
     io.log(`Landed ${numbersOf(landed.map((entry) => entry.pull))} on main before #${pull.number} could not be merged (${errorText(mergeError).split('\n')[0]}); remaining pull requests will be re-staged.`);
     return { outcomes: [action], advance: true };
   }
-  const landedSha = verifyLanded(io, action);
+  const landedSha = verifyLanded(io, action, numbersOf(action.pulls));
   const landedPaths = action.pulls.flatMap((pull) => pathsByPr.get(pull.number) ?? []);
   return finishLanding(io, action, landedSha, usingWorkflowToken, landedPaths);
 }
@@ -505,7 +460,7 @@ function executeLand(
     }
     return handleRefusal(io, action, refusal);
   }
-  const landedSha = verifyLanded(io, action);
+  const landedSha = verifyLanded(io, action, numbersOf(action.pulls));
   const landedPaths = action.pulls.flatMap((pull) => pathsByPr.get(pull.number) ?? []);
   return finishLanding(io, action, landedSha, usingWorkflowToken, landedPaths);
 }
