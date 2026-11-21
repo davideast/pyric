@@ -13,10 +13,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  createPrivateJobTmpDir,
-  removePrivateJobTmpDir,
-} from '../../../scripts/lib/private-job-tmpdir.ts';
+import { createPrivateJobTmpDir, removePrivateJobTmpDir } from '../../../scripts/lib/private-job-tmpdir.ts';
 import {
   defaultExecuteAuthSim,
   defaultExecuteFirestoreSim,
@@ -31,22 +28,9 @@ import {
   type IosRtdbCliRequest,
 } from './ios-oracle-simulator.ts';
 import { RTDB_RULES_SCOPE } from './oracle-access-token.ts';
-import {
-  loadOracleServiceAccount,
-  oracleAccessToken,
-  oracleAppOptions,
-  type OracleServiceAccount,
-} from './oracle-credential.ts';
-import {
-  OracleRulesSession,
-  firestoreOracleTarget,
-  rtdbOracleTarget,
-  runWithOracleRulesRestored,
-} from './oracle-rules-session.ts';
-import {
-  assertDedicatedOracleRtdbUrl,
-  type OracleWebConfig,
-} from './oracle-run-setup.ts';
+import { loadOracleServiceAccount, oracleAccessToken, oracleAppOptions, type OracleServiceAccount } from './oracle-credential.ts';
+import { OracleRulesSession, firestoreOracleTarget, rtdbOracleTarget, runWithOracleRulesRestored, type OracleRulesTarget } from './oracle-rules-session.ts';
+import { assertDedicatedOracleRtdbUrl, type OracleWebConfig } from './oracle-run-setup.ts';
 import { installOracleSignalRestoreGuard } from './oracle-signal-restore.ts';
 import { resolveProbeWebConfig } from './sdk-probe-runtime.ts';
 
@@ -72,6 +56,10 @@ export interface IosRtdbSessionOptions {
   stripTopLevelGrants: boolean;
 }
 
+export interface IosFirestoreSessionOptions {
+  collectionGroupId?: string;
+}
+
 interface IosProbeRuntimeDeps {
   env?: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
@@ -92,6 +80,7 @@ interface IosProbeRuntimeDeps {
     sa: OracleServiceAccount,
     runId: string,
     fn: () => Promise<T>,
+    options?: IosFirestoreSessionOptions,
   ) => Promise<T>;
   queryAvailableSimulatorsJson?: (env: NodeJS.ProcessEnv) => string;
   executeRtdbCli?: (request: IosRtdbCliRequest) => string;
@@ -103,6 +92,7 @@ export interface RunIosOracleProbeOptions {
   probeId: string;
   mode: IosOracleExecutionMode;
   rtdbRunRules?: Record<string, unknown>;
+  needsCollectionGroupRule?: boolean;
   needsCustomToken?: boolean;
   deps?: IosProbeRuntimeDeps;
 }
@@ -112,38 +102,17 @@ function nextIosRunId(): string {
 }
 
 export function buildIosRtdbRunRules(): Record<string, unknown> {
-  return {
-    '.read': true,
-    '.write': true,
-    items: {
-      '.indexOn': ['score'],
-    },
-  };
+  return { '.read': true, '.write': true, items: { '.indexOn': ['score'] } };
 }
 
 export function buildIosRtdbNavigationAndChildQueryRules(): Record<string, unknown> {
-  return {
-    '.read': true,
-    '.write': true,
-    players: {
-      '.indexOn': ['score', 'tier'],
-    },
-  };
+  return { '.read': true, '.write': true, players: { '.indexOn': ['score', 'tier'] } };
 }
 
 export function buildIosRtdbPermissionAndQueryRules(): Record<string, unknown> {
   return {
-    workspace: {
-      '.read': true,
-      '.write': true,
-      scores: {
-        '.indexOn': '.value',
-      },
-    },
-    denied_leaf: {
-      '.read': false,
-      '.write': false,
-    },
+    workspace: { '.read': true, '.write': true, scores: { '.indexOn': '.value' } },
+    denied_leaf: { '.read': false, '.write': false },
   };
 }
 
@@ -221,10 +190,40 @@ async function defaultDeployScopedRtdbSession<T>(
   }
 }
 
+export function buildIosFirestoreRulesTarget(collectionGroupId?: string): OracleRulesTarget {
+  if (collectionGroupId === undefined) {
+    return firestoreOracleTarget();
+  }
+  if (!/^cg_[A-Za-z0-9_]+$/.test(collectionGroupId)) {
+    throw new Error(`Invalid Firestore oracle collectionGroupId: '${collectionGroupId}'`);
+  }
+  const marker = `@pyric/oracle/cg:${collectionGroupId}`;
+  const block = [
+    `      // ${marker} - scoped pyric_oracle/* and collectionGroup rule`,
+    '      match /pyric_oracle/{run}/{anything=**} {',
+    '        allow read, write: if request.auth != null;',
+    '      }',
+    `      match /{path=**}/${collectionGroupId}/{docId} {`,
+    '        allow read, write: if request.auth != null;',
+    '      }',
+  ].join('\n');
+  return {
+    service: 'Firestore',
+    release: 'cloud.firestore',
+    rulesFileName: 'firestore.rules',
+    marker,
+    freshRules: `rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n${block}\n  }\n}\n`,
+    insertAfter: /(match\s+\/databases\/\{database\}\/documents\s*\{)/,
+    insertAfterDescription: '`match /databases/{database}/documents`',
+    block: `\n${block}\n`,
+  };
+}
+
 async function defaultDeployScopedFirestoreSession<T>(
   sa: OracleServiceAccount,
   runId: string,
   fn: () => Promise<T>,
+  sessionOptions?: IosFirestoreSessionOptions,
 ): Promise<T> {
   const [adminAppMod, { getFirestore }] = await Promise.all([
     import('firebase-admin/app'),
@@ -242,10 +241,14 @@ async function defaultDeployScopedFirestoreSession<T>(
     `ios-oracle-fs-admin-${runId}`,
   );
   const adminDb = getFirestore(adminApp);
+  let cgId: string | undefined;
+  if (sessionOptions !== undefined) {
+    cgId = sessionOptions.collectionGroupId;
+  }
 
   try {
     return await runWithOracleRulesRestored(session, async () => {
-      const outcome = await session.deploy(firestoreOracleTarget());
+      const outcome = await session.deploy(buildIosFirestoreRulesTarget(cgId));
       if (outcome !== 'already-configured') {
         await new Promise((resolveDone) => setTimeout(resolveDone, 10_000));
       }
@@ -450,6 +453,22 @@ export async function runIosOracleProbe(
       }
       const simSelection = selectAvailableIosSimulatorDestination(querySimulators(env));
 
+      const simInputJson = `${JSON.stringify(
+        {
+          mode: 'live',
+          probeId: options.probeId,
+          runId,
+          projectId: sa.project_id,
+          googleAppId,
+          gcmSenderId,
+          apiKey: webConfig.apiKey,
+          customToken,
+          expectedCustomUid,
+        },
+        null,
+        2,
+      )}\n`;
+
       if (options.mode === 'ios-sim-firestore') {
         const stagedDir = join(jobTmpDir, 'firestore-sim');
         stageIosPackageTemplate(FIRESTORE_SIM_TEMPLATE_DIR, stagedDir);
@@ -460,25 +479,7 @@ export async function runIosOracleProbe(
           'Resources',
           'oracle-input.json',
         );
-        writeFileSync(
-          bundledInputPath,
-          `${JSON.stringify(
-            {
-              mode: 'live',
-              probeId: options.probeId,
-              runId,
-              projectId: sa.project_id,
-              googleAppId,
-              gcmSenderId,
-              apiKey: webConfig.apiKey,
-              customToken,
-              expectedCustomUid,
-            },
-            null,
-            2,
-          )}\n`,
-          'utf8',
-        );
+        writeFileSync(bundledInputPath, simInputJson, 'utf8');
 
         let runFirestoreSession = defaultDeployScopedFirestoreSession;
         if (deps.deployScopedFirestoreSession !== undefined) {
@@ -488,21 +489,30 @@ export async function runIosOracleProbe(
         if (deps.executeFirestoreSim !== undefined) {
           executeFirestoreSim = deps.executeFirestoreSim;
         }
+        let fsSessionOpts: IosFirestoreSessionOptions | undefined;
+        if (options.needsCollectionGroupRule === true) {
+          fsSessionOpts = { collectionGroupId: `cg_${runId}` };
+        }
 
-        const simOutput = await runFirestoreSession(sa, runId, async () => {
-          try {
-            return executeFirestoreSim({
-              stagedPackageDir: stagedDir,
-              derivedDataDir: join(sharedCacheRoot, 'xcode-firestore-derived-data'),
-              clonedPackagesDir: join(sharedCacheRoot, 'xcode-source-packages'),
-              destination: simSelection.destination,
-              env,
-            });
-          } catch (simErr) {
-            recordFailedSimOutputUids(simErr, trackedUids);
-            throw simErr;
-          }
-        });
+        const simOutput = await runFirestoreSession(
+          sa,
+          runId,
+          async () => {
+            try {
+              return executeFirestoreSim({
+                stagedPackageDir: stagedDir,
+                derivedDataDir: join(sharedCacheRoot, 'xcode-firestore-derived-data'),
+                clonedPackagesDir: join(sharedCacheRoot, 'xcode-source-packages'),
+                destination: simSelection.destination,
+                env,
+              });
+            } catch (simErr) {
+              recordFailedSimOutputUids(simErr, trackedUids);
+              throw simErr;
+            }
+          },
+          fsSessionOpts,
+        );
         return parseSimOutputAndCollectUids(simOutput, trackedUids);
       }
 
@@ -515,25 +525,7 @@ export async function runIosOracleProbe(
         'Resources',
         'oracle-input.json',
       );
-      writeFileSync(
-        bundledInputPath,
-        `${JSON.stringify(
-          {
-            mode: 'live',
-            probeId: options.probeId,
-            runId,
-            projectId: sa.project_id,
-            googleAppId,
-            gcmSenderId,
-            apiKey: webConfig.apiKey,
-            customToken,
-            expectedCustomUid,
-          },
-          null,
-          2,
-        )}\n`,
-        'utf8',
-      );
+      writeFileSync(bundledInputPath, simInputJson, 'utf8');
 
       let executeAuthSim = defaultExecuteAuthSim;
       if (deps.executeAuthSim !== undefined) {
