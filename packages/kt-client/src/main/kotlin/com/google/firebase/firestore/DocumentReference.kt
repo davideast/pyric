@@ -244,6 +244,11 @@ class DocumentReference internal constructor(
         }
     }
 
+    private sealed interface SnapshotStreamEvent {
+        data class RemoteWire(val rawMsg: Any?) : SnapshotStreamEvent
+        data object LocalCacheTick : SnapshotStreamEvent
+    }
+
     @OptIn(ExperimentalCoroutinesApi::class)
     fun snapshots(metadataChanges: MetadataChanges = MetadataChanges.EXCLUDE): Flow<DocumentSnapshot> {
         firestore.ensureClientActive()
@@ -290,31 +295,47 @@ class DocumentReference internal constructor(
                             snapshotFromProjection(updatedProj, isFromCache = true)
                         }
                     } else {
-                        firestore.offlineCoordinator.markListenerOutOfSync(listenerId)
-                        var lastRaw: Any? = null
-                        var hasRaw = false
-                        val remoteFlow = firestore.bridgeClient.subscribe(
-                            target = target,
-                            actAs = lens.toMap(),
-                            includeMetadataChanges = includeMetadata
-                        ).mapNotNull { rawMsg ->
-                            if (rawMsg === BridgeSubscriptionGap) {
-                                if (hasRaw) snapshotFromWire(lastRaw, isFromCache = true) else null
-                            } else {
-                                lastRaw = rawMsg
-                                hasRaw = true
-                                snapshotFromWireAndCache(rawMsg)
+                        flow {
+                            firestore.offlineCoordinator.markListenerOutOfSync(listenerId)
+                            var lastRaw: Any? = null
+                            var hasRaw = false
+                            val remoteEvents: Flow<SnapshotStreamEvent> = firestore.bridgeClient.subscribe(
+                                target = target,
+                                actAs = lens.toMap(),
+                                includeMetadataChanges = includeMetadata
+                            ).map { rawMsg -> SnapshotStreamEvent.RemoteWire(rawMsg) }
+                            val localEvents: Flow<SnapshotStreamEvent> = firestore.offlineCoordinator.cacheVersionFlow
+                                .map { SnapshotStreamEvent.LocalCacheTick }
+
+                            // Project local cache state sequentially inside collect rather than
+                            // inside a concurrent merge mapper so a preempted cache tick cannot
+                            // emit a stale snapshot after a newer remote frame has already landed.
+                            merge(remoteEvents, localEvents).collect { event ->
+                                val snapshot = when (event) {
+                                    is SnapshotStreamEvent.RemoteWire -> {
+                                        val rawMsg = event.rawMsg
+                                        if (rawMsg === BridgeSubscriptionGap) {
+                                            if (hasRaw) snapshotFromWire(lastRaw, isFromCache = true) else null
+                                        } else {
+                                            lastRaw = rawMsg
+                                            hasRaw = true
+                                            snapshotFromWireAndCache(rawMsg)
+                                        }
+                                    }
+                                    SnapshotStreamEvent.LocalCacheTick -> {
+                                        if (hasRaw) {
+                                            val proj = firestore.offlineCoordinator.projectDocument(path)
+                                            if (proj.known) snapshotFromProjection(proj, isFromCache = false) else null
+                                        } else {
+                                            null
+                                        }
+                                    }
+                                }
+                                if (snapshot != null) {
+                                    emit(snapshot)
+                                }
                             }
                         }
-                        val localOverlayFlow = firestore.offlineCoordinator.cacheVersionFlow.mapNotNull {
-                            if (hasRaw) {
-                                val proj = firestore.offlineCoordinator.projectDocument(path)
-                                if (proj.known) snapshotFromProjection(proj, isFromCache = false) else null
-                            } else {
-                                null
-                            }
-                        }
-                        merge(remoteFlow, localOverlayFlow)
                     }
                 }.takeWhile { it != null }
                     .mapNotNull { it }

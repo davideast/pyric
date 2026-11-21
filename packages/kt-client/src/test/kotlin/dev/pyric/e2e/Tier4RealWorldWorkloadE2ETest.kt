@@ -3,10 +3,9 @@ package dev.pyric.e2e
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.snapshots
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -17,6 +16,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
+import java.util.concurrent.CopyOnWriteArrayList
 
 @DisplayName("Tier 4 Real-World Workload E2E Tests")
 class Tier4RealWorldWorkloadE2ETest {
@@ -32,22 +32,27 @@ class Tier4RealWorldWorkloadE2ETest {
         clientB = harness.createClient("client-b")
     }
 
-    // ── 1. Full Todo Application Lifecycle with Reactive Sync ─────────────
+    // -- 1. Full Todo Application Lifecycle with Reactive Sync -------------
 
     @Test
     fun testTodoAppFullLifecycleWithReactiveSync() = runBlocking(Dispatchers.IO) {
         val todosCol = clientA.collection("todos")
-        val observedActiveCounts = mutableListOf<Int>()
+        val observedActiveCounts = CopyOnWriteArrayList<Int>()
+        val initialReady = CompletableDeferred<Unit>()
 
         // Reactive listener for active (incomplete) todos
         val activeQuery = todosCol.whereEqualTo("completed", false)
         val job = launch {
             activeQuery.snapshots().take(4).collect { snap ->
-                observedActiveCounts.add(snap.size())
+                val size = snap.size()
+                observedActiveCounts.add(size)
+                if (size == 0) {
+                    initialReady.complete(Unit)
+                }
             }
         }
 
-        delay(50)
+        initialReady.await()
 
         // 1. User creates 3 todos
         val task1 = todosCol.document("task-1")
@@ -57,6 +62,10 @@ class Tier4RealWorldWorkloadE2ETest {
         Tasks.await(task1.set(mapOf("title" to "Buy milk", "completed" to false, "createdAt" to FieldValue.serverTimestamp())))
         Tasks.await(task2.set(mapOf("title" to "Walk dog", "completed" to false, "createdAt" to FieldValue.serverTimestamp())))
         Tasks.await(task3.set(mapOf("title" to "Review PR", "completed" to false, "createdAt" to FieldValue.serverTimestamp())))
+
+        job.join()
+        // Emissions observed: initial(0) -> add1(1) -> add2(2) -> add3(3)
+        assertEquals(listOf(0, 1, 2, 3), observedActiveCounts.toList())
 
         // Verify initial counts in query: 3 active todos
         val activeSnap = Tasks.await(activeQuery.get())
@@ -80,13 +89,9 @@ class Tier4RealWorldWorkloadE2ETest {
         val finalActiveSnap = Tasks.await(activeQuery.get())
         assertEquals(1, finalActiveSnap.size())
         assertEquals("Review PR", finalActiveSnap.documents[0].getString("title"))
-
-        job.join()
-        // Emissions observed: initial(0) -> add1(1) -> add2(2) -> add3(3)
-        assertEquals(listOf(0, 1, 2, 3), observedActiveCounts)
     }
 
-    // ── 2. Multi-Client Concurrent Mutations ───────────────────────────────
+    // -- 2. Multi-Client Concurrent Mutations ------------------------------
 
     @Test
     fun testMultiClientConcurrentMutations() = runBlocking(Dispatchers.IO) {
@@ -96,14 +101,20 @@ class Tier4RealWorldWorkloadE2ETest {
         Tasks.await(docRefA.set(mapOf("votes" to 0L, "voters" to emptyList<String>())))
 
         // Client B monitors poll in real time
-        val observedVotes = mutableListOf<Long>()
+        val observedVotes = CopyOnWriteArrayList<Long>()
+        val initialReady = CompletableDeferred<Unit>()
         val job = launch {
             docRefB.snapshots().take(3).collect { snap ->
-                snap.getLong("votes")?.let { observedVotes.add(it) }
+                snap.getLong("votes")?.let { votes ->
+                    observedVotes.add(votes)
+                    if (votes == 0L) {
+                        initialReady.complete(Unit)
+                    }
+                }
             }
         }
 
-        delay(50)
+        initialReady.await()
 
         // Client A and Client B cast votes concurrently using increment and arrayUnion
         val taskA = clientA.runTransaction { txn ->
@@ -146,10 +157,10 @@ class Tier4RealWorldWorkloadE2ETest {
 
         assertEquals(listOf("voterA", "voterB"), votersA)
         assertEquals(listOf("voterA", "voterB"), votersB)
-        assertEquals(listOf(0L, 1L, 2L), observedVotes)
+        assertEquals(listOf(0L, 1L, 2L), observedVotes.toList())
     }
 
-    // ── 3. Transaction Conflict Resolution Under Concurrency ──────────────
+    // -- 3. Transaction Conflict Resolution Under Concurrency --------------
 
     @Test
     fun testTransactionConflictResolutionUnderConcurrency() {
@@ -191,7 +202,7 @@ class Tier4RealWorldWorkloadE2ETest {
         assertEquals(3L, Tasks.await(inventoryRefB.get()).getLong("stock"))
     }
 
-    // ── 4. Rapid Batch Operations Workload ──────────────────────────────────
+    // -- 4. Rapid Batch Operations Workload --------------------------------
 
     @Test
     fun testRapidBatchOperationsWorkload() {
@@ -240,7 +251,7 @@ class Tier4RealWorldWorkloadE2ETest {
         assertEquals(0, emptySnap.size())
     }
 
-    // ── 5. Collaborative Audit Log Workload ─────────────────────────────────
+    // -- 5. Collaborative Audit Log Workload -------------------------------
 
     @Test
     fun testCollaborativeAuditLogWorkload() = runBlocking(Dispatchers.IO) {
@@ -249,14 +260,20 @@ class Tier4RealWorldWorkloadE2ETest {
 
         Tasks.await(orgRef.set(mapOf("name" to "Acme Corp", "eventCount" to 0L)))
 
-        val observedEventCounts = mutableListOf<Long>()
+        val observedEventCounts = CopyOnWriteArrayList<Long>()
+        val initialReady = CompletableDeferred<Unit>()
         val job = launch {
             orgRef.snapshots().take(4).collect { snap ->
-                snap.getLong("eventCount")?.let { observedEventCounts.add(it) }
+                snap.getLong("eventCount")?.let { count ->
+                    observedEventCounts.add(count)
+                    if (count == 0L) {
+                        initialReady.complete(Unit)
+                    }
+                }
             }
         }
 
-        delay(50)
+        initialReady.await()
 
         // Perform 3 collaborative events, each creating an audit record and bumping eventCount
         for (step in 1..3) {
@@ -276,10 +293,57 @@ class Tier4RealWorldWorkloadE2ETest {
         // Verify audit subcollection
         val auditLogs = Tasks.await(auditCol.get())
         assertEquals(3, auditLogs.size())
-        assertEquals(listOf(0L, 1L, 2L, 3L), observedEventCounts)
+        assertEquals(listOf(0L, 1L, 2L, 3L), observedEventCounts.toList())
     }
 
-    // ── 6. Client Disconnect and Clean Termination ─────────────────────────
+    // -- 6. Rapid Sequential Document Snapshot Monotonicity ----------------
+
+    @Test
+    fun testDocumentSnapshotsRemainMonotonicUnderRapidSequentialCommits() = runBlocking(Dispatchers.IO) {
+        val noiseDoc = clientA.collection("monotonic-noise").document("ticker")
+        val noiseJob = launch {
+            var tick = 0L
+            while (true) {
+                tick += 1L
+                Tasks.await(noiseDoc.set(mapOf("tick" to tick)))
+                kotlinx.coroutines.yield()
+            }
+        }
+
+        try {
+            repeat(500) { round ->
+                val docRef = clientA.collection("monotonic-audit").document("batch-doc-$round")
+                Tasks.await(docRef.set(mapOf("seq" to 0L)))
+
+                val observed = CopyOnWriteArrayList<Long>()
+                val initialReady = CompletableDeferred<Unit>()
+                val job = launch {
+                    docRef.snapshots().take(4).collect { snap ->
+                        snap.getLong("seq")?.let { seq ->
+                            observed.add(seq)
+                            if (seq == 0L) {
+                                initialReady.complete(Unit)
+                            }
+                        }
+                    }
+                }
+
+                initialReady.await()
+                for (step in 1..3) {
+                    val batch = clientA.batch()
+                    batch.update(docRef, mapOf("seq" to FieldValue.increment(1L)))
+                    Tasks.await(batch.commit())
+                }
+                job.join()
+                assertEquals(listOf(0L, 1L, 2L, 3L), observed.toList(), "round=$round")
+            }
+        } finally {
+            noiseJob.cancel()
+            noiseJob.join()
+        }
+    }
+
+    // -- 7. Client Disconnect and Clean Termination ------------------------
 
     @Test
     fun testClientLifecycleAndTermination() {

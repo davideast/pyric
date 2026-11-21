@@ -8,10 +8,9 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
 import com.google.firebase.firestore.snapshots
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.take
-import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -22,6 +21,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
+import java.util.concurrent.CopyOnWriteArrayList
 
 @DisplayName("Tier 1 Feature Coverage E2E Tests (Happy Path)")
 class Tier1FeatureCoverageE2ETest {
@@ -35,7 +35,7 @@ class Tier1FeatureCoverageE2ETest {
         firestore = harness.createClient("tier1-app")
     }
 
-    // ── 1. Document CRUD ───────────────────────────────────────────────────
+    // -- 1. Document CRUD -------------------------------------------------
 
     @Test
     fun testDocumentSetAndGet() {
@@ -127,7 +127,7 @@ class Tier1FeatureCoverageE2ETest {
         assertEquals("users/user1/orders/order1", subDoc.path)
     }
 
-    // ── 2. Sentinels ───────────────────────────────────────────────────────
+    // -- 2. Sentinels -----------------------------------------------------
 
     @Test
     fun testSentinelServerTimestamp() {
@@ -206,7 +206,7 @@ class Tier1FeatureCoverageE2ETest {
         assertFalse(snapshot.getData()?.containsKey("tempToken") == true)
     }
 
-    // ── 3. Compound Queries ────────────────────────────────────────────────
+    // -- 3. Compound Queries ----------------------------------------------
 
     @Test
     fun testQueryWhereEqualTo() {
@@ -362,24 +362,30 @@ class Tier1FeatureCoverageE2ETest {
         assertEquals(2, snap.size())
     }
 
-    // ── 4. Snapshot Streams (Flow) ─────────────────────────────────────────
+    // -- 4. Snapshot Streams (Flow) ---------------------------------------
 
     @Test
     fun testDocumentSnapshotFlow() = runBlocking(Dispatchers.IO) {
         val docRef = firestore.collection("stream-docs").document("doc-1")
         Tasks.await(docRef.set(mapOf("state" to "initial")))
 
-        val values = mutableListOf<String>()
+        val values = CopyOnWriteArrayList<String>()
+        val initialReady = CompletableDeferred<Unit>()
         val job = launch {
             docRef.snapshots().take(2).collect { snap ->
-                snap.getString("state")?.let { values.add(it) }
+                snap.getString("state")?.let { state ->
+                    values.add(state)
+                    if (state == "initial") {
+                        initialReady.complete(Unit)
+                    }
+                }
             }
         }
 
-        kotlinx.coroutines.delay(50)
+        initialReady.await()
         Tasks.await(docRef.update(mapOf("state" to "updated")))
         job.join()
-        assertEquals(listOf("initial", "updated"), values)
+        assertEquals(listOf("initial", "updated"), values.toList())
     }
 
     @Test
@@ -387,20 +393,25 @@ class Tier1FeatureCoverageE2ETest {
         val col = firestore.collection("stream-queries")
         Tasks.await(col.document("1").set(mapOf("status" to "open", "num" to 1)))
 
-        val snapshotCounts = mutableListOf<Int>()
+        val snapshotCounts = CopyOnWriteArrayList<Int>()
+        val initialReady = CompletableDeferred<Unit>()
         val job = launch {
             col.whereEqualTo("status", "open").snapshots().take(2).collect { snap ->
-                snapshotCounts.add(snap.size())
+                val size = snap.size()
+                snapshotCounts.add(size)
+                if (size == 1) {
+                    initialReady.complete(Unit)
+                }
             }
         }
 
-        kotlinx.coroutines.delay(50)
+        initialReady.await()
         Tasks.await(col.document("2").set(mapOf("status" to "open", "num" to 2)))
         job.join()
-        assertEquals(listOf(1, 2), snapshotCounts)
+        assertEquals(listOf(1, 2), snapshotCounts.toList())
     }
 
-    // ── 5. Transactions and Batches ────────────────────────────────────────
+    // -- 5. Transactions and Batches --------------------------------------
 
     @Test
     fun testWriteBatchAtomicCommit() {
