@@ -4,18 +4,29 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { extname, join } from 'node:path';
 import type { AppPorts } from './app-ports.js';
 import {
+  effectiveRequestScheme,
+  isAdmittedPeer,
+  isLoopbackHostHeader,
+  isTrustedProxyPeer,
+  parseAllowPeersSetting,
+  parseTrustProxySetting,
+  type RemoteAccessOptions,
+} from './guard-policy.js';
+import { parseHostHeader } from './host-pattern.js';
+import {
   appendSetCookieHeader,
   canBootstrapHtmlSession,
-  contentTypeFor,
-  decodeStaticPathname,
   formatSessionCookie,
   getHeader,
   isAllowedHost,
   isAllowedOriginOnPorts,
   isAllowedSessionToken,
   isLocalPeer,
+} from './loopback-guard.js';
+import {
+  contentTypeFor,
+  decodeStaticPathname,
   pipeFileToResponse,
-  requestSocketScheme,
   resolveStaticFile,
   resolveStaticPath,
 } from './server.js';
@@ -109,8 +120,19 @@ export function createSiteTreeHandler(
   appPorts?: AppPorts,
   allowedHosts?: string[],
   requireSessionToken?: boolean,
+  remoteAccess?: RemoteAccessOptions,
 ) {
   const studioRoutes = studioRoutesFromSite(root);
+  const allowPeers = parseAllowPeersSetting(remoteAccess?.allowPeers);
+  const trustProxy = parseTrustProxySetting(remoteAccess?.trustProxy);
+  const remoteAccessEnabled = remoteAccess !== undefined;
+  const mergedAllowedHosts: string[] = [];
+  for (const host of allowedHosts ?? []) {
+    if (!mergedAllowedHosts.includes(host)) mergedAllowedHosts.push(host);
+  }
+  for (const host of remoteAccess?.allowedHosts ?? []) {
+    if (!mergedAllowedHosts.includes(host)) mergedAllowedHosts.push(host);
+  }
 
   return (
     req: RequestWithOriginalUrl,
@@ -125,30 +147,61 @@ export function createSiteTreeHandler(
     const effectiveBoundHost = boundHost ?? 'localhost';
     const hasPeerContext =
       req.socket !== undefined || getHeader(req, 'x-pyric-remote-peer') !== undefined;
-    if (hasPeerContext && !isLocalPeer(req)) {
-      res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: local loopback route');
+    const peerLocal = !hasPeerContext || isLocalPeer(req);
+    const peerRemote = hasPeerContext && !peerLocal;
+    if (peerRemote && !isAdmittedPeer(req, { allowPeers })) {
+      res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' }).end(
+        'Forbidden: local loopback route',
+      );
       return true;
     }
     const authenticated = isAllowedSessionToken(req, url, sessionToken);
     const requiresToken = requireSessionToken === true;
-    const siteAllowedHosts =
-      requiresToken && authenticated ? (allowedHosts ?? []) : [];
     const hostHeader = getHeader(req, 'host');
     const originHeader = getHeader(req, 'origin');
-    const ports =
-      appPorts?.forRequest(req) ??
-      (req.socket?.localPort ? [req.socket.localPort] : undefined);
+    const effectiveScheme = effectiveRequestScheme(req, trustProxy);
+    const isLocalHost = isAllowedHost(hostHeader, effectiveBoundHost, []);
+    const isExtraHost =
+      !isLocalHost && isAllowedHost(hostHeader, effectiveBoundHost, mergedAllowedHosts);
+    if (!isLocalHost && !isExtraHost) {
+      res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' }).end(
+        'Forbidden: invalid host or origin',
+      );
+      return true;
+    }
+    if (isExtraHost && !remoteAccessEnabled && !(requiresToken && authenticated)) {
+      res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' }).end(
+        'Forbidden: invalid host or origin',
+      );
+      return true;
+    }
+    const basePorts = appPorts?.forRequest(req);
+    const ports: number[] = [];
+    if (basePorts !== undefined) {
+      for (const port of basePorts) ports.push(port);
+    } else if (req.socket?.localPort !== undefined) {
+      ports.push(req.socket.localPort);
+    }
+    if (isTrustedProxyPeer(req, trustProxy) && hostHeader !== undefined) {
+      const parsedHost = parseHostHeader(hostHeader);
+      if (parsedHost?.port !== undefined && !ports.includes(parsedHost.port)) {
+        ports.push(parsedHost.port);
+      }
+    }
+    const originPorts = ports.length > 0 ? ports : undefined;
+    const originAllowedHosts = isExtraHost ? mergedAllowedHosts : [];
     if (
-      !isAllowedHost(hostHeader, effectiveBoundHost, siteAllowedHosts) ||
       !isAllowedOriginOnPorts(
         originHeader,
         effectiveBoundHost,
-        siteAllowedHosts,
-        ports,
-        requestSocketScheme(req),
+        originAllowedHosts,
+        originPorts,
+        effectiveScheme,
       )
     ) {
-      res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: invalid host or origin');
+      res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' }).end(
+        'Forbidden: invalid host or origin',
+      );
       return true;
     }
     const secFetchSite = getHeader(req, 'sec-fetch-site')?.trim().toLowerCase();
@@ -157,7 +210,27 @@ export function createSiteTreeHandler(
       (secFetchSite === 'cross-site' || secFetchSite === 'same-site') &&
       secFetchMode !== 'navigate'
     ) {
-      res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: cross-site request rejected');
+      res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' }).end(
+        'Forbidden: cross-site request rejected',
+      );
+      return true;
+    }
+    const isRemoteRequest = peerRemote || !isLoopbackHostHeader(hostHeader);
+    if (isRemoteRequest && !authenticated) {
+      if (remoteAccessEnabled && remoteAccess?.browserUnlock !== false) {
+        const nextParam = encodeURIComponent(`${rawPathname}${rawRequestSearch(req, url)}`);
+        res.writeHead(401, {
+          'content-type': 'text/plain; charset=utf-8',
+          'cache-control': 'no-store',
+        }).end(
+          `pyric: session unlock required. Open /__pyric/unlock?next=${nextParam} to pair this browser.`,
+        );
+        return true;
+      }
+      res.writeHead(401, {
+        'content-type': 'text/plain; charset=utf-8',
+        'cache-control': 'no-store',
+      }).end('Unauthorized: invalid session capability token');
       return true;
     }
     const rawSearch = rawRequestSearch(req, url);
@@ -228,7 +301,7 @@ export function createSiteTreeHandler(
       return true;
     }
     if (canBootstrap && sessionToken) {
-      appendSetCookieHeader(res, formatSessionCookie(sessionToken));
+      appendSetCookieHeader(res, formatSessionCookie(sessionToken), { effectiveScheme });
     }
     const responseHeaders: Record<string, string> = {
       'content-type': contentType,

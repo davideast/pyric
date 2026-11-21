@@ -43,13 +43,20 @@ import {
 import { cliVersion } from '../../pkg-version.js';
 import { configureLocalHttpKeepAlive } from '../../serve/http-keepalive.js';
 import {
+  createGuardPolicy,
+  effectiveRequestScheme,
+  evaluateGuard,
+  isAdmittedPeer,
+  isLoopbackHostHeader,
+  type GuardDecision,
+  type RemoteAccessOptions,
+} from '../../serve/guard-policy.js';
+import {
   isAllowedHost,
-  isAllowedLoopbackRequest,
   isAllowedSessionToken,
   isAllowedUpgrade,
   isLocalPeer,
-  requestSocketScheme,
-} from '../../serve/server.js';
+} from '../../serve/loopback-guard.js';
 import { registerLocalSessionToken } from '../../serve/local-session-token.js';
 import { createAppPorts } from '../../serve/app-ports.js';
 
@@ -82,6 +89,8 @@ export interface StartServerOptions {
   sessionToken?: string;
   /** Require `x-pyric-session-token` on `/mcp` and for full `/health` details. Default: false. */
   requireSessionToken?: boolean;
+  /** Optional peer admission, leading-dot allowlist, and reverse-proxy trust configuration. */
+  remoteAccess?: RemoteAccessOptions;
 }
 
 export interface ServerHandle {
@@ -236,12 +245,58 @@ export async function startServer(
   }
 
   // ── HTTP server ─────────────────────────────────────────────────
-  // No proxy fronts this bridge, so it learns no port: an MCP request names this port or none.
-  const mcpPorts = createAppPorts('127.0.0.1');
+  const remoteAccessEnabled = opts.remoteAccess !== undefined;
+  const mergedAllowedHosts: string[] = [];
+  for (const host of opts.allowedHosts ?? []) {
+    if (!mergedAllowedHosts.includes(host)) mergedAllowedHosts.push(host);
+  }
+  for (const host of opts.remoteAccess?.allowedHosts ?? []) {
+    if (!mergedAllowedHosts.includes(host)) mergedAllowedHosts.push(host);
+  }
+  const mcpPorts = createAppPorts('127.0.0.1', {
+    allowedHosts: mergedAllowedHosts,
+    trustProxy: opts.remoteAccess?.trustProxy,
+  });
+  const basePolicy = createGuardPolicy({
+    boundHost: '127.0.0.1',
+    allowedHosts: mergedAllowedHosts,
+    allowPeers: opts.remoteAccess?.allowPeers,
+    trustProxy: opts.remoteAccess?.trustProxy,
+    browserUnlock: opts.remoteAccess?.browserUnlock,
+    remoteAccessEnabled,
+    sessionToken,
+    requireSessionToken: requiresSessionToken,
+  });
+  function writeStandaloneGuardDenial(
+    res: ServerResponse,
+    decision: Extract<GuardDecision, { ok: false }>,
+  ): void {
+    res.writeHead(decision.status, {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store',
+    });
+    if (decision.unlockRequired) {
+      res.end(
+        JSON.stringify({
+          error: 'unlock_required',
+          reason: decision.reason,
+          unlockPath: '/__pyric/unlock',
+          message: decision.message,
+        }),
+      );
+      return;
+    }
+    let label = 'Forbidden: invalid host or origin';
+    if (decision.status === 401) {
+      label = 'Unauthorized: missing or invalid session capability token';
+    }
+    res.end(JSON.stringify({ error: label, reason: decision.reason, detail: decision.message }));
+  }
+
   async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const rawHost = req.headers.host;
     const hasEmptyHost = rawHost !== undefined && rawHost.trim() === '';
-    const allowedHost = !hasEmptyHost && isAllowedHost(rawHost, '127.0.0.1', opts.allowedHosts);
+    const allowedHost = !hasEmptyHost && isAllowedHost(rawHost, '127.0.0.1', mergedAllowedHosts);
     if (!allowedHost) {
       res.writeHead(403, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Forbidden: invalid host or origin' }));
@@ -266,13 +321,23 @@ export async function startServer(
     }
     if (parsedUrl.pathname === DEFAULT_HEALTH_PATH) {
       const authenticated = isAllowedSessionToken(req, parsedUrl, sessionToken);
-      const healthAllowedHosts = requiresSessionToken && authenticated ? opts.allowedHosts : [];
-      if (
-        !isLocalPeer(req) ||
-        !isAllowedLoopbackRequest(req, '127.0.0.1', healthAllowedHosts, mcpPorts.forRequest(req))
-      ) {
-        res.writeHead(403, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Forbidden: invalid host or origin' }));
+      const isRemoteRequest = !isLocalPeer(req) || !isLoopbackHostHeader(rawHost);
+      const healthPolicy = createGuardPolicy({
+        boundHost: '127.0.0.1',
+        allowedHosts: mergedAllowedHosts,
+        allowPeers: opts.remoteAccess?.allowPeers,
+        trustProxy: opts.remoteAccess?.trustProxy,
+        browserUnlock: opts.remoteAccess?.browserUnlock,
+        remoteAccessEnabled,
+        sessionToken,
+        requireSessionToken: isRemoteRequest && requiresSessionToken,
+      });
+      const decision = evaluateGuard(req, healthPolicy, 'bridge-http', {
+        url: parsedUrl,
+        extraAppPorts: mcpPorts.forRequest(req),
+      });
+      if (!decision.ok) {
+        writeStandaloneGuardDenial(res, decision);
         return;
       }
       if (req.method !== 'GET' && req.method !== 'HEAD') {
@@ -296,19 +361,12 @@ export async function startServer(
       return;
     }
     if (parsedUrl.pathname === DEFAULT_MCP_PATH) {
-      const authenticated = isAllowedSessionToken(req, parsedUrl, sessionToken);
-      const mcpAllowedHosts = requiresSessionToken && authenticated ? opts.allowedHosts : [];
-      const refusesOrigin =
-        !isLocalPeer(req) ||
-        !isAllowedLoopbackRequest(req, '127.0.0.1', mcpAllowedHosts, mcpPorts.forRequest(req));
-      if (refusesOrigin) {
-        res.writeHead(403, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Forbidden: invalid host or origin' }));
-        return;
-      }
-      if (requiresSessionToken && !authenticated) {
-        res.writeHead(401, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-        res.end(JSON.stringify({ error: 'Unauthorized: missing or invalid session capability token' }));
+      const decision = evaluateGuard(req, basePolicy, 'bridge-http', {
+        url: parsedUrl,
+        extraAppPorts: mcpPorts.forRequest(req),
+      });
+      if (!decision.ok) {
+        writeStandaloneGuardDenial(res, decision);
         return;
       }
       const supportsMcpMethod = req.method === 'POST' || req.method === 'GET' || req.method === 'DELETE';
@@ -427,19 +485,25 @@ export async function startServer(
       socket.destroy();
       return;
     }
-    // DNS-rebinding + cross-origin guard: only a loopback page is told why.
-    // The port is not compared here: the page that reaches this socket loads
-    // from the app's own dev server on another port.
-    const refusesUpgrade = !isAllowedUpgrade(
+    // Guard standalone WS upgrades (which only close with a guidance frame):
+    // remote peers and non-loopback Hosts require session auth and scheme matching;
+    // the port is not compared so a local dev server page gets the close reason.
+    const upgradeUrl = new URL(req.url ?? '/', `http://${upgradeBaseHost}`);
+    const upgradeIsRemote = !isLocalPeer(req) || !isLoopbackHostHeader(rawUpgradeHost);
+    const upgradeScheme = effectiveRequestScheme(req, basePolicy.trustProxy) ?? 'http:';
+    const upgradePeerOk = !upgradeIsRemote || isAdmittedPeer(req, { allowPeers: basePolicy.allowPeers });
+    const upgradeTokenOk = !upgradeIsRemote || isAllowedSessionToken(req, upgradeUrl, sessionToken);
+    const upgradeAllowedHosts = upgradeIsRemote && upgradeTokenOk ? mergedAllowedHosts : [];
+    const upgradeOriginOk = isAllowedUpgrade(
       req.headers,
       '127.0.0.1',
-      [],
+      upgradeAllowedHosts,
       undefined,
-      requestSocketScheme(req),
+      upgradeScheme,
     );
-    if (refusesUpgrade) {
+    if (!upgradePeerOk || !upgradeTokenOk || !upgradeOriginOk) {
       logger.error(
-        `refused WS upgrade — Host='${req.headers.host ?? ''}' Origin='${req.headers.origin ?? ''}' (rebinding/origin guard)`,
+        `refused WS upgrade -- Host='${req.headers.host ?? ''}' Origin='${req.headers.origin ?? ''}' (rebinding/origin guard)`,
       );
       socket.destroy();
       return;

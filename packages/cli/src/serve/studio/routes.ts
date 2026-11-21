@@ -34,13 +34,22 @@ import type {
   WorkspaceStore,
 } from './store-types.js';
 import {
+  effectiveRequestScheme,
+  isAdmittedPeer,
+  isTrustedProxyPeer,
+  parseAllowPeersSetting,
+  parseTrustProxySetting,
+  type RemoteAccessOptions,
+} from '../guard-policy.js';
+import {
   getHeader,
   isAllowedHost,
-  isAllowedOrigin,
+  isAllowedOriginOnPorts,
   isAllowedSessionToken,
-  isForeignFetchWithoutOrigin,
-  requestSocketScheme,
-} from '../server.js';
+  isForeignFetchSite,
+} from '../loopback-guard.js';
+import { REMOTE_PEER_HEADER } from '../peer.js';
+import { parseHostHeader } from '../host-pattern.js';
 import type { AppPorts } from '../app-ports.js';
 import type { WriterLock } from '../writer-lock.js';
 
@@ -59,6 +68,8 @@ export interface StudioRouteOptions {
   allowedHosts?: string[];
   /** Accepted app ports under proxied dev servers. */
   appPorts?: AppPorts;
+  /** Optional remote-access policy for peer admission and trusted reverse-proxy headers. */
+  remoteAccess?: RemoteAccessOptions;
 }
 
 /** Collect the raw request body as a UTF-8 string. */
@@ -262,31 +273,57 @@ export function createStudioRoutes(opts: StudioRouteOptions) {
       const isProjectsRoute = opts.projects && url.pathname.startsWith('/__pyric/projects');
 
       if (isWorkspaceRoute || isProjectsRoute) {
+        const boundHost = opts.boundHost ?? 'localhost';
+        const extraHosts: string[] = [];
+        for (const host of opts.allowedHosts ?? []) {
+          if (!extraHosts.includes(host)) extraHosts.push(host);
+        }
+        for (const host of opts.remoteAccess?.allowedHosts ?? []) {
+          if (!extraHosts.includes(host)) extraHosts.push(host);
+        }
+        const allowPeers = parseAllowPeersSetting(opts.remoteAccess?.allowPeers);
+        const trustProxy = parseTrustProxySetting(opts.remoteAccess?.trustProxy);
+        const hasRemotePeerInfo =
+          req.socket?.remoteAddress !== undefined ||
+          getHeader(req, REMOTE_PEER_HEADER) !== undefined;
+        if (hasRemotePeerInfo && !isAdmittedPeer(req, { allowPeers })) {
+          res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' }).end(
+            'Forbidden: this route answers admitted peers only',
+          );
+          return true;
+        }
         const hostHeader = getHeader(req, 'host');
         const originHeader = getHeader(req, 'origin');
-
-        // 1. Host, Origin, and Fetch Metadata guard (Requirement 1)
-        if (!isAllowedHost(hostHeader, opts.boundHost ?? 'localhost', opts.allowedHosts)) {
+        if (!isAllowedHost(hostHeader, boundHost, extraHosts)) {
           res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: host not allowed');
           return true;
         }
-        if (originHeader !== undefined) {
-          const ports = opts.appPorts?.forRequest(req) ?? [req.socket?.localPort];
-          const scheme = requestSocketScheme(req);
-          const allowedOrigin = ports.some((port) =>
-            isAllowedOrigin(originHeader, opts.boundHost ?? 'localhost', opts.allowedHosts, port, scheme),
-          );
-          if (!allowedOrigin) {
-            res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: origin mismatch');
-            return true;
+        const scheme = effectiveRequestScheme(req, trustProxy);
+        const ports: number[] = [];
+        const basePorts = opts.appPorts?.forRequest(req);
+        if (basePorts !== undefined) {
+          for (const port of basePorts) ports.push(port);
+        } else if (req.socket?.localPort !== undefined) {
+          ports.push(req.socket.localPort);
+        }
+        if (isTrustedProxyPeer(req, trustProxy) && hostHeader !== undefined) {
+          const parsedHost = parseHostHeader(hostHeader);
+          if (parsedHost?.port !== undefined && !ports.includes(parsedHost.port)) {
+            ports.push(parsedHost.port);
           }
         }
-        if (isForeignFetchWithoutOrigin(req)) {
+        const effectivePorts = ports.length > 0 ? ports : undefined;
+        if (
+          originHeader !== undefined &&
+          !isAllowedOriginOnPorts(originHeader, boundHost, extraHosts, effectivePorts, scheme)
+        ) {
+          res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: origin mismatch');
+          return true;
+        }
+        if (isForeignFetchSite(req, boundHost, effectivePorts, scheme, extraHosts)) {
           res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: cross-site request rejected');
           return true;
         }
-
-        // 2. Per-boot session capability token guard (Requirement 2: fail-closed)
         if (!isAllowedSessionToken(req, url, opts.sessionToken)) {
           res.writeHead(401, { 'content-type': 'text/plain' }).end('Unauthorized: invalid session capability token');
           return true;

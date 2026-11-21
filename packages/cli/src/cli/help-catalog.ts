@@ -15,13 +15,16 @@ export interface CommandHelpEntry {
 
 export const TOP_LEVEL_COMMANDS: Readonly<Record<string, CommandHelpEntry>> = {
   bridge: {
-    usage: 'pyric bridge [--port N] [--project ID] [--session-token]',
+    usage: 'pyric bridge [--port N] [--project ID] [--session-token] [--allowed-host H] [--allow-remote-peers[=CIDR|any]] [--trust-proxy[=loopback|CIDR]]',
     summary:
       'Start an HTTP MCP server with the rules, conformance, identity, and capture tools. It has no browser socket: for an agent driving a sandbox in a page, run `pyric sandbox --bridge`.',
     flags: [
       ['--port N', 'Port to bind on 127.0.0.1 (0 picks an available port). Default 5174. Env: PYRIC_PORT.'],
       ['--project ID', 'Project label surfaced in /health and audit output. Env: PYRIC_PROJECT.'],
       ['--session-token', 'Require x-pyric-session-token on /mcp and full /health.'],
+      ['--allowed-host H[,H...]', 'Additional Host name or leading-dot suffix (.tailnet.ts.net). Env: PYRIC_ALLOWED_HOSTS.'],
+      ['--allow-remote-peers[=P]', 'Admit non-loopback TCP peers (CIDR list or any; requires token). Env: PYRIC_ALLOW_REMOTE_PEERS.'],
+      ['--trust-proxy[=P]', 'Trust X-Forwarded-Proto/Host from loopback or CIDR proxy hop. Env: PYRIC_TRUST_PROXY.'],
     ],
   },
   run: {

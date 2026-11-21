@@ -1,10 +1,32 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { answerAndClose } from '../bridge/server/peer.js';
-import { getHeader, isLocalPeer, timingSafeTokenMatch } from './server.js';
+import {
+  effectiveRequestScheme,
+  isAdmittedPeer,
+  isLoopbackHostHeader,
+  parseAllowPeersSetting,
+  parseTrustProxySetting,
+  type RemoteAccessOptions,
+  type TrustProxyPolicy,
+} from './guard-policy.js';
+import {
+  getHeader,
+  isAllowedHost,
+  isAllowedSessionToken,
+  isLocalPeer,
+  timingSafeTokenMatch,
+} from './loopback-guard.js';
 import {
   hasGeneratedActivitySemantics,
   type ActivityIncident,
 } from 'pyric/firestore/internal';
+
+export interface ActivityGuardOptions {
+  boundHost?: string;
+  allowedHosts?: readonly string[];
+  sessionToken?: string;
+  remoteAccess?: RemoteAccessOptions;
+}
 
 const MAX_ACTIVITY_BODY_BYTES = 32 * 1024;
 
@@ -15,6 +37,7 @@ export async function handleActivity(
   req: IncomingMessage,
   res: ServerResponse,
   activityToken: string,
+  guard?: ActivityGuardOptions,
 ): Promise<void> {
   if (req.method !== 'POST') {
     res.writeHead(405, { allow: 'POST' }).end('method not allowed');
@@ -26,10 +49,35 @@ export async function handleActivity(
       .end('content-type must be application/json');
     return;
   }
-  if (!isLocalPeer(req) || !hasTrustedOrigin(req)) {
+  const allowPeers = parseAllowPeersSetting(guard?.remoteAccess?.allowPeers);
+  const trustProxy = parseTrustProxySetting(guard?.remoteAccess?.trustProxy);
+  const localPeer = isLocalPeer(req);
+  if (!localPeer && !isAdmittedPeer(req, { allowPeers })) {
     res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' })
       .end('cross-origin activity reports are not allowed');
     return;
+  }
+  const hostHeader = req.headers.host;
+  const boundHost = guard?.boundHost ?? 'localhost';
+  const extraHosts = resolveActivityAllowedHosts(guard);
+  const isRemoteHost = !isLoopbackHostHeader(hostHeader);
+  const isRemoteRequest = !localPeer || isRemoteHost;
+  if (guard !== undefined && !isAllowedHost(hostHeader, boundHost, extraHosts)) {
+    res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' })
+      .end('cross-origin activity reports are not allowed');
+    return;
+  }
+  if (!hasTrustedOrigin(req, trustProxy)) {
+    res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' })
+      .end('cross-origin activity reports are not allowed');
+    return;
+  }
+  if (isRemoteRequest && guard?.sessionToken !== undefined) {
+    if (!isAllowedSessionToken(req, undefined, guard.sessionToken)) {
+      res.writeHead(401, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' })
+        .end('session unlock required for remote activity reports');
+      return;
+    }
   }
   if (!timingSafeTokenMatch(getHeader(req, 'x-pyric-activity-token'), activityToken)) {
     res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' })
@@ -52,15 +100,27 @@ export async function handleActivity(
   }
 }
 
-function hasTrustedOrigin(req: IncomingMessage): boolean {
+function resolveActivityAllowedHosts(guard: ActivityGuardOptions | undefined): readonly string[] {
+  if (guard === undefined) return [];
+  const merged: string[] = [];
+  for (const host of guard.allowedHosts ?? []) {
+    if (!merged.includes(host)) merged.push(host);
+  }
+  for (const host of guard.remoteAccess?.allowedHosts ?? []) {
+    if (!merged.includes(host)) merged.push(host);
+  }
+  return merged;
+}
+
+function hasTrustedOrigin(req: IncomingMessage, trustProxy: TrustProxyPolicy): boolean {
   const origin = req.headers.origin;
   if (origin === undefined) return false;
   const host = req.headers.host;
   if (!host) return false;
   try {
     const parsed = new URL(origin);
-    const protocol = (req.socket as { encrypted?: boolean }).encrypted ? 'https:' : 'http:';
-    return parsed.protocol === protocol && parsed.host === host;
+    const protocol = effectiveRequestScheme(req, trustProxy) ?? 'http:';
+    return parsed.protocol === protocol && parsed.host.toLowerCase() === host.trim().toLowerCase();
   } catch {
     return false;
   }

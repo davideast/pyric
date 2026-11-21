@@ -35,16 +35,25 @@ import { registerLocalSessionToken, writeMode600FileSync } from './local-session
 import { boundedFetch } from '../bounded-request.js';
 import { cliVersion } from '../pkg-version.js';
 import {
+  createGuardPolicy,
+  effectiveRequestScheme,
+  evaluateGuard,
+  isAdmittedPeer,
+  isLoopbackHostHeader,
+  isTrustedProxyPeer,
+  parseAllowPeersSetting,
+  parseTrustProxySetting,
+  type RemoteAccessOptions,
+} from './guard-policy.js';
+import { parseHostHeader } from './host-pattern.js';
+import {
   getHeader,
   isAllowedHost,
-  isAllowedLoopbackRequest,
   isAllowedOriginOnPorts,
   isAllowedSessionToken,
-  isAllowedUpgrade,
   isForeignFetchSite,
   isLocalPeer,
-  requestSocketScheme,
-} from './server.js';
+} from './loopback-guard.js';
 import { createAppPorts, type AppPorts } from './app-ports.js';
 import { MAX_BRIDGE_FRAME_BYTES, MAX_MOUNTED_MCP_SESSIONS, STORAGE_BYTE_ROUTE_CAPABILITY, WORKER_PORT_CAPABILITY, WORKER_RELAY_CAPABILITY } from '../bridge/protocol.js';
 import type { BridgeMessage } from '../bridge/protocol.js';
@@ -111,6 +120,10 @@ export interface BridgeMountOptions {
   sessionToken?: string;
   /** Require `sessionToken` on MCP, hosted, health-detail, and WS routes even outside live mode. */
   requireSessionToken?: boolean;
+  /** Optional remote-access policy for peer CIDRs, trusted proxy headers, and browser unlock. */
+  remoteAccess?: RemoteAccessOptions;
+  /** Optional diagnostic sink receiving throttled WebSocket upgrade refusal lines. */
+  upgradeRejectionLogger?: (line: string) => void;
 }
 
 export interface BridgeMount {
@@ -202,7 +215,21 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
   const peerOptions = { livenessTimeoutMs: testPeerLivenessMs() };
   // The ports a page of this app may name in its Origin (see app-ports.ts).
   const sharesPorts = opts.appPorts !== undefined;
-  const appPorts = opts.appPorts ?? createAppPorts(opts.upgradeGuard?.boundHost ?? 'localhost');
+  const defaultAllowedHosts: string[] = [];
+  if (Array.isArray(opts.upgradeGuard?.allowedHosts)) {
+    for (const host of opts.upgradeGuard.allowedHosts) {
+      if (!defaultAllowedHosts.includes(host)) defaultAllowedHosts.push(host);
+    }
+  }
+  for (const host of opts.remoteAccess?.allowedHosts ?? []) {
+    if (!defaultAllowedHosts.includes(host)) defaultAllowedHosts.push(host);
+  }
+  const appPorts =
+    opts.appPorts ??
+    createAppPorts(opts.upgradeGuard?.boundHost ?? 'localhost', {
+      allowedHosts: defaultAllowedHosts,
+      trustProxy: opts.remoteAccess?.trustProxy,
+    });
   const learnsHere = opts.learnsProxyPorts === true && !sharesPorts;
   let hostedRuntime: Awaited<ReturnType<typeof createHostedRuntime>> | undefined;
   let hostedStartup: Promise<void> | undefined;
@@ -423,30 +450,83 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
       const isLiveRoute = isLiveSessionRoute(url.pathname);
       const isStorageBytes = url.pathname.startsWith(STORAGE_ROUTE_PREFIX);
       const isMountRoute = isHealthRequest || isMcpRequest || isHostedMethod || isLiveRoute || isStorageBytes;
-      // These run admin commands or hand out data, and a client chooses its own
-      // headers, so `allowedHosts` does not open them to another machine.
-      const refusesPeer = isMountRoute && !isLocalPeer(req);
-      if (refusesPeer) {
-        res.writeHead(403, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Forbidden: this route answers clients on this machine only' }));
-        return true;
+      const guard = opts.upgradeGuard;
+      const boundHost = guard?.boundHost ?? 'localhost';
+      const extraAllowedHosts: string[] = [];
+      if (Array.isArray(guard?.allowedHosts)) {
+        for (const host of guard.allowedHosts) {
+          if (!extraAllowedHosts.includes(host)) extraAllowedHosts.push(host);
+        }
+      }
+      for (const host of opts.remoteAccess?.allowedHosts ?? []) {
+        if (!extraAllowedHosts.includes(host)) extraAllowedHosts.push(host);
+      }
+      const remoteAccessEnabled = opts.remoteAccess !== undefined;
+      const allowPeers = parseAllowPeersSetting(opts.remoteAccess?.allowPeers);
+      const trustProxy = parseTrustProxySetting(opts.remoteAccess?.trustProxy);
+      const allowLiveRemotePeers = opts.remoteAccess?.allowLiveRemotePeers === true;
+      const isRemotePeer = !isLocalPeer(req);
+      if (isMountRoute && isRemotePeer) {
+        if (isLiveRoute && !allowLiveRemotePeers) {
+          res.writeHead(403, { 'content-type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              error: 'Forbidden: live routes refuse non-loopback peers unless allowLiveRemotePeers is enabled',
+            }),
+          );
+          return true;
+        }
+        if (!isAdmittedPeer(req, { allowPeers })) {
+          res.writeHead(403, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Forbidden: this route answers clients on this machine only' }));
+          return true;
+        }
       }
       const rejectsClosedRequest = closed && isMountRoute;
       if (rejectsClosedRequest) {
         answerMountClosed(res);
         return true;
       }
-      const guard = opts.upgradeGuard;
-      const boundHost = guard?.boundHost ?? 'localhost';
-      const extraAllowedHosts = Array.isArray(guard?.allowedHosts) ? guard.allowedHosts : [];
+      const policyFor = (surface: 'bridge-http' | 'bridge-live' | 'bridge-storage', requireToken: boolean) =>
+        createGuardPolicy({
+          boundHost,
+          allowedHosts: extraAllowedHosts,
+          allowPeers: opts.remoteAccess?.allowPeers,
+          trustProxy: opts.remoteAccess?.trustProxy,
+          browserUnlock: opts.remoteAccess?.browserUnlock,
+          allowLiveRemotePeers,
+          remoteAccessEnabled,
+          sessionToken,
+          requireSessionToken: requireToken,
+        });
+      const requestPorts = appPorts.forRequest(req);
       if (isHealthRequest) {
-        // Loopback Host, Origin, and Sec-Fetch-Site are enforced unconditionally
-        // (never bypassed by Vite `server.allowedHosts: true`, and extra hosts
-        // are accepted only on authenticated token-gated mounts).
         const authenticated = isAllowedSessionToken(req, url, sessionToken);
-        const healthAllowedHosts = requiresSessionToken && authenticated ? extraAllowedHosts : [];
-        const isForbidden = !isAllowedLoopbackRequest(req, boundHost, healthAllowedHosts, appPorts.forRequest(req));
-        if (isForbidden) {
+        const isRemoteRequest = isRemotePeer || !isLoopbackHostHeader(getHeader(req, 'host'));
+        const healthPolicy = policyFor('bridge-http', isRemoteRequest && requiresSessionToken);
+        if (!isRemoteRequest || (requiresSessionToken && authenticated) || remoteAccessEnabled) {
+          const decision = evaluateGuard(req, healthPolicy, 'bridge-http', {
+            url,
+            extraAppPorts: requestPorts,
+          });
+          if (!decision.ok) {
+            if (decision.status === 401 && decision.unlockRequired) {
+              res.writeHead(401, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+              res.end(
+                JSON.stringify({
+                  error: 'unlock_required',
+                  reason: decision.reason,
+                  unlockPath: '/__pyric/unlock',
+                  message: decision.message,
+                }),
+              );
+              return true;
+            }
+            res.writeHead(decision.status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+            res.end(JSON.stringify({ error: decision.message, reason: decision.reason }));
+            return true;
+          }
+        } else {
           res.writeHead(403).end();
           return true;
         }
@@ -477,16 +557,46 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
       const requiresControlGuard = isMcpRequest || isHostedMethod || isLiveRoute;
       if (requiresControlGuard) {
         const routeRequiresToken = requiresSessionToken || isLiveRoute;
-        const controlAllowedHosts = routeRequiresToken ? extraAllowedHosts : [];
-        const isForbidden = !isAllowedLoopbackRequest(req, boundHost, controlAllowedHosts, appPorts.forRequest(req));
-        if (isForbidden) {
-          res.writeHead(403, { 'content-type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Forbidden: invalid host or origin' }));
-          return true;
-        }
-        if (routeRequiresToken && !isAllowedSessionToken(req, url, sessionToken)) {
+        const surface = isLiveRoute ? 'bridge-live' : 'bridge-http';
+        const authenticated = isAllowedSessionToken(req, url, sessionToken);
+        const hostHeader = getHeader(req, 'host');
+        const isLocalHost = isAllowedHost(hostHeader, boundHost, []);
+        const isExtraHost = !isLocalHost && isAllowedHost(hostHeader, boundHost, extraAllowedHosts);
+        if (routeRequiresToken && isExtraHost && !remoteAccessEnabled && !authenticated) {
+          // Preserve 401 when route always requires session token on explicit allowedHost.
+          const scheme = effectiveRequestScheme(req, trustProxy);
+          const originHeader = getHeader(req, 'origin');
+          if (
+            !isAllowedOriginOnPorts(originHeader, boundHost, extraAllowedHosts, requestPorts, scheme) ||
+            isForeignFetchSite(req, boundHost, requestPorts, scheme, extraAllowedHosts)
+          ) {
+            res.writeHead(403, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Forbidden: invalid host or origin' }));
+            return true;
+          }
           res.writeHead(401, { 'content-type': 'application/json', 'cache-control': 'no-store' });
           res.end(JSON.stringify({ error: 'Unauthorized: missing or invalid session capability token' }));
+          return true;
+        }
+        const controlPolicy = policyFor(surface, routeRequiresToken);
+        const decision = evaluateGuard(req, controlPolicy, surface, {
+          url,
+          extraAppPorts: requestPorts,
+        });
+        if (!decision.ok) {
+          res.writeHead(decision.status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+          if (decision.unlockRequired) {
+            res.end(
+              JSON.stringify({
+                error: 'unlock_required',
+                reason: decision.reason,
+                unlockPath: '/__pyric/unlock',
+                message: decision.message,
+              }),
+            );
+          } else {
+            res.end(JSON.stringify({ error: decision.message, reason: decision.reason }));
+          }
           return true;
         }
       }
@@ -494,22 +604,42 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
         // Only a page this server serves, or a process with no Origin, reaches
         // object bytes. An upload session also takes its bytes from the origin
         // its creator named. `allowedHosts: true` never bypasses this guard, and
-        // `--allowed-host` never reaches unauthenticated sandbox byte routes.
+        // `--allowed-host` / `?token=` never reaches unauthenticated remote byte routes.
         const authenticatedSession = isAllowedSessionToken(req, url, sessionToken);
-        const byteAllowedHosts = requiresSessionToken && authenticatedSession ? extraAllowedHosts : [];
         const hostHeader = getHeader(req, 'host');
         const originHeader = getHeader(req, 'origin');
-        const ports = appPorts.forRequest(req);
+        const effectiveScheme = effectiveRequestScheme(req, trustProxy);
+        const isLocalHost = isAllowedHost(hostHeader, boundHost, []);
+        const isExtraHost = !isLocalHost && isAllowedHost(hostHeader, boundHost, extraAllowedHosts);
+        if (!isLocalHost && !isExtraHost) {
+          res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: invalid host or origin');
+          return true;
+        }
+        const isRemoteRequest = isRemotePeer || !isLoopbackHostHeader(hostHeader);
+        if (isExtraHost && !remoteAccessEnabled && !(requiresSessionToken && authenticatedSession)) {
+          res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: invalid host or origin');
+          return true;
+        }
+        const ports = [...requestPorts];
+        if (isTrustedProxyPeer(req, trustProxy) && hostHeader !== undefined) {
+          const parsedHost = parseHostHeader(hostHeader);
+          if (parsedHost?.port !== undefined && !ports.includes(parsedHost.port)) {
+            ports.push(parsedHost.port);
+          }
+        }
+        const byteAllowedHosts = isExtraHost ? extraAllowedHosts : [];
         const allowsSessionOrigin = hostedRuntime?.storageAllowsOrigin(url, originHeader) === true;
         const allowedOrigin =
-          isAllowedOriginOnPorts(originHeader, boundHost, byteAllowedHosts, ports, requestSocketScheme(req)) ||
+          isAllowedOriginOnPorts(originHeader, boundHost, byteAllowedHosts, ports, effectiveScheme) ||
           allowsSessionOrigin;
-        const allowed =
-          isAllowedHost(hostHeader, boundHost, byteAllowedHosts) &&
-          allowedOrigin &&
-          (allowsSessionOrigin || !isForeignFetchSite(req, boundHost, ports));
-        if (!allowed) {
+        if (!allowedOrigin || (!allowsSessionOrigin && isForeignFetchSite(req, boundHost, ports, effectiveScheme, byteAllowedHosts))) {
           res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: invalid host or origin');
+          return true;
+        }
+        if (isRemoteRequest && !authenticatedSession) {
+          res.writeHead(401, { 'content-type': 'text/plain', 'cache-control': 'no-store' }).end(
+            'pyric: session unlock required. Open /__pyric/unlock to pair this browser.',
+          );
           return true;
         }
         const runtime = hostedRuntime;
@@ -680,6 +810,25 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
       let attachmentClosed = false;
       let attachmentClosePromise: Promise<void> | null = null;
 
+      const rejectionLogTimestamps = new Map<string, number>();
+      const WS_LOG_COOLDOWN_MS = 30_000;
+      const MAX_WS_LOG_KEYS = 64;
+      const logUpgradeRejection = (reason: string, host: string | undefined, message: string): void => {
+        if (opts.upgradeRejectionLogger === undefined) return;
+        const cleanHost = (host ?? '<none>').replace(/[\r\n\t\x00-\x1f\x7f]/g, '').slice(0, 64);
+        const key = `${reason}:${cleanHost}`;
+        const now = Date.now();
+        const previous = rejectionLogTimestamps.get(key);
+        if (previous !== undefined && now - previous < WS_LOG_COOLDOWN_MS) return;
+        rejectionLogTimestamps.delete(key);
+        rejectionLogTimestamps.set(key, now);
+        if (rejectionLogTimestamps.size > MAX_WS_LOG_KEYS) {
+          const oldest = rejectionLogTimestamps.keys().next().value;
+          if (typeof oldest === 'string') rejectionLogTimestamps.delete(oldest);
+        }
+        opts.upgradeRejectionLogger(`WS /__pyric/sandbox rejected (${reason}): ${message}`);
+      };
+
       const onUpgrade = (req: IncomingMessage, socket: Duplex, head: Buffer): void => {
         let upgradeUrl: URL;
         try {
@@ -689,25 +838,36 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
         }
         const isUnrelatedPath = upgradeUrl.pathname !== WS_PATH;
         if (isUnrelatedPath) return;
-        // The socket carries admin operations, so it is local whatever the
-        // guard below is configured to allow.
-        const refusesPeer = !isLocalPeer(req);
-        if (refusesPeer) {
-          socket.destroy();
-          return;
-        }
-        // DNS-rebinding + cross-origin hijack guard. Unconditionally enforced
-        // even when `allowedHosts: true` is set on the host dev server.
         const boundHost = guard?.boundHost ?? 'localhost';
-        const allowedHosts = guard?.allowedHosts;
-        const extra = requiresSessionToken && Array.isArray(allowedHosts) ? allowedHosts : [];
+        const allowedHostsList: string[] = [];
+        if (Array.isArray(guard?.allowedHosts)) {
+          for (const host of guard.allowedHosts) {
+            if (!allowedHostsList.includes(host)) allowedHostsList.push(host);
+          }
+        }
+        for (const host of opts.remoteAccess?.allowedHosts ?? []) {
+          if (!allowedHostsList.includes(host)) allowedHostsList.push(host);
+        }
         const acceptsProxiedPage = opts.learnsProxyPorts === true;
         const ports = acceptsProxiedPage ? appPorts.forUpgrade(req) : appPorts.forRequest(req);
-        if (!isAllowedUpgrade(req.headers, boundHost, extra, ports, requestSocketScheme(req))) {
-          socket.destroy();
-          return;
-        }
-        if (requiresSessionToken && !isAllowedSessionToken(req, upgradeUrl, sessionToken)) {
+        const upgradePolicy = createGuardPolicy({
+          boundHost,
+          allowedHosts: allowedHostsList,
+          allowPeers: opts.remoteAccess?.allowPeers,
+          trustProxy: opts.remoteAccess?.trustProxy,
+          browserUnlock: opts.remoteAccess?.browserUnlock,
+          allowLiveRemotePeers: opts.remoteAccess?.allowLiveRemotePeers,
+          remoteAccessEnabled: opts.remoteAccess !== undefined,
+          sessionToken,
+          requireSessionToken: requiresSessionToken,
+        });
+        const surface = isLiveMode ? 'bridge-live' : 'bridge-ws';
+        const decision = evaluateGuard(req, upgradePolicy, surface, {
+          url: upgradeUrl,
+          extraAppPorts: ports,
+        });
+        if (!decision.ok) {
+          logUpgradeRejection(decision.reason, getHeader(req, 'host'), decision.message);
           socket.destroy();
           return;
         }

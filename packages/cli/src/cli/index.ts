@@ -144,13 +144,89 @@ async function runBridge(parsed: ParsedArgs): Promise<number> {
   const requireSessionToken =
     parsed.flags.get('session-token') === true || pyricConfig.sessionToken === true;
 
+  let allowedHosts: string[] | undefined;
+  let allowPeers: 'loopback' | 'any' | string[] | undefined;
+  let trustProxy: false | 'loopback' | string[] | undefined;
+  try {
+    const rawAllowedHost = parsed.flags.get('allowed-host');
+    const rawAllowPeers = parsed.flags.get('allow-remote-peers');
+    const rawTrustProxy = parsed.flags.get('trust-proxy');
+    const envAllowed = process.env.PYRIC_ALLOWED_HOSTS;
+    const envPeers = process.env.PYRIC_ALLOW_REMOTE_PEERS;
+    const envTrust = process.env.PYRIC_TRUST_PROXY;
+    const hasRemoteFlag =
+      rawAllowedHost !== undefined ||
+      rawAllowPeers !== undefined ||
+      rawTrustProxy !== undefined ||
+      (envAllowed !== undefined && envAllowed.trim().length > 0) ||
+      (envPeers !== undefined && envPeers.trim().length > 0) ||
+      (envTrust !== undefined && envTrust.trim().length > 0);
+    if (hasRemoteFlag) {
+      const {
+        parseAllowedHostsInput,
+        parseAllowRemotePeersInput,
+        parseTrustProxyInput,
+      } = await import('../serve/remote-access-parse.js');
+      if (rawAllowedHost !== undefined) {
+        if (typeof rawAllowedHost === 'boolean') {
+          throw new Error('pyric: --allowed-host requires a hostname or comma-separated list.');
+        }
+        let hostInputs: string[];
+        if (Array.isArray(rawAllowedHost)) {
+          hostInputs = rawAllowedHost.filter((value): value is string => typeof value === 'string');
+        } else {
+          hostInputs = [rawAllowedHost];
+        }
+        allowedHosts = parseAllowedHostsInput(hostInputs);
+      } else if (envAllowed !== undefined && envAllowed.trim().length > 0) {
+        allowedHosts = parseAllowedHostsInput(envAllowed);
+      }
+      if (rawAllowPeers !== undefined) {
+        const lastPeer = Array.isArray(rawAllowPeers) ? rawAllowPeers[rawAllowPeers.length - 1] : rawAllowPeers;
+        if (lastPeer !== undefined) {
+          allowPeers = parseAllowRemotePeersInput(lastPeer);
+        }
+      } else if (envPeers !== undefined && envPeers.trim().length > 0) {
+        allowPeers = parseAllowRemotePeersInput(envPeers);
+      }
+      if (rawTrustProxy !== undefined) {
+        const lastTrust = Array.isArray(rawTrustProxy) ? rawTrustProxy[rawTrustProxy.length - 1] : rawTrustProxy;
+        if (lastTrust !== undefined) {
+          trustProxy = parseTrustProxyInput(lastTrust);
+        }
+      } else if (envTrust !== undefined && envTrust.trim().length > 0) {
+        trustProxy = parseTrustProxyInput(envTrust);
+      }
+    }
+  } catch (err) {
+    process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
+    return 1;
+  }
+
+  let remoteAccess:
+    | {
+        allowedHosts?: string[];
+        allowPeers?: 'loopback' | 'any' | string[];
+        trustProxy?: false | 'loopback' | string[];
+      }
+    | undefined;
+  if (allowedHosts !== undefined || allowPeers !== undefined || trustProxy !== undefined) {
+    remoteAccess = {
+      allowedHosts,
+      allowPeers,
+      trustProxy,
+    };
+  }
+
   let handle;
   try {
     const { startServer } = await import('@pyric/cli/bridge');
     handle = await startServer({
       port,
       project,
+      allowedHosts,
       requireSessionToken,
+      remoteAccess,
     });
   } catch (err) {
     process.stderr.write(
