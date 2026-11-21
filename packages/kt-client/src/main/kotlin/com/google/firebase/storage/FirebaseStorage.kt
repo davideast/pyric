@@ -4,16 +4,14 @@ import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
 import dev.pyric.auth.AuthLens
 import dev.pyric.auth.CredentialsProvider
+import dev.pyric.auth.ServiceAuthLens
 import dev.pyric.bridge.BridgeProtocol
 import dev.pyric.bridge.PyricBridgeClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 
@@ -31,13 +29,13 @@ class FirebaseStorage internal constructor(
 ) {
     internal val storageScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    @Volatile
-    private var explicitAuthLens: AuthLens? = null
-
-    private val _effectiveAuthLensFlow = MutableStateFlow(
-        credentialsProvider?.getEffectiveLens() ?: AuthLens.Anon
+    private val serviceAuthLens = ServiceAuthLens(
+        credentialsProvider = credentialsProvider,
+        bridgeClient = bridgeClient,
+        scope = storageScope
     )
-    val authLensFlow: StateFlow<AuthLens> = _effectiveAuthLensFlow.asStateFlow()
+
+    val authLensFlow: StateFlow<AuthLens> = serviceAuthLens.authLensFlow
 
     @Volatile
     var maxUploadRetryTimeMillis: Long = DEFAULT_MAX_UPLOAD_RETRY_MILLIS
@@ -59,21 +57,6 @@ class FirebaseStorage internal constructor(
     var emulatorPort: Int? = null
         private set
 
-    init {
-        storageScope.launch {
-            credentialsProvider?.authLensFlow?.collect { lens ->
-                if (explicitAuthLens == null) {
-                    _effectiveAuthLensFlow.value = lens
-                }
-            }
-        }
-        storageScope.launch {
-            bridgeClient.remoteLensEvents.collect { lens ->
-                _effectiveAuthLensFlow.value = lens
-            }
-        }
-    }
-
     internal val bucket: String
         get() {
             val resolved = configuredBucket
@@ -84,12 +67,10 @@ class FirebaseStorage internal constructor(
         }
 
     fun setAuthLens(lens: AuthLens?) {
-        explicitAuthLens = lens
-        _effectiveAuthLensFlow.value =
-            lens ?: credentialsProvider?.getEffectiveLens() ?: AuthLens.Anon
+        serviceAuthLens.setExplicitLens(lens)
     }
 
-    fun getEffectiveAuthLens(): AuthLens = _effectiveAuthLensFlow.value
+    fun getEffectiveAuthLens(): AuthLens = serviceAuthLens.getEffectiveLens()
 
     fun useEmulator(host: String, port: Int) {
         require(host.isNotBlank()) { "host must not be empty" }
