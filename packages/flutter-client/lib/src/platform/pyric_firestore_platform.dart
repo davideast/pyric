@@ -11,6 +11,7 @@ import '../transport/bridge_client.dart';
 import 'pyric_collection_reference.dart';
 import 'pyric_document_reference.dart';
 import 'pyric_field_value_factory.dart';
+import 'pyric_firestore_lifecycle.dart';
 import 'pyric_query.dart';
 import 'pyric_transaction.dart';
 import 'pyric_write_batch.dart';
@@ -20,6 +21,7 @@ class PyricFirestorePlatform extends FirebaseFirestorePlatform {
   final PyricBridgeClient _bridgeClient;
   PyricAuthCredentialsProvider? _credentialsProvider;
   Settings _settings = const Settings();
+  late final PyricFirestoreLifecycle lifecycle;
 
   PyricFirestorePlatform({
     FirebaseApp? app,
@@ -28,7 +30,12 @@ class PyricFirestorePlatform extends FirebaseFirestorePlatform {
     PyricAuthCredentialsProvider? credentialsProvider,
   })  : _bridgeClient = bridgeClient ?? PyricBridgeClient(),
         _credentialsProvider = credentialsProvider,
-        super(appInstance: app, databaseChoice: databaseId);
+        super(appInstance: app, databaseChoice: databaseId) {
+    lifecycle = PyricFirestoreLifecycle(
+      resolveAppName: () => this.app.name,
+      resolveDatabaseId: () => this.databaseId,
+    );
+  }
 
   /// Access the underlying Pyric bridge client.
   PyricBridgeClient get bridgeClient => _bridgeClient;
@@ -97,26 +104,36 @@ class PyricFirestorePlatform extends FirebaseFirestorePlatform {
 
   @override
   set settings(Settings settings) {
+    if (lifecycle.isTerminated) {
+      throw const PyricBridgeException(
+        code: 'failed-precondition',
+        message: 'The client has already been terminated.',
+      );
+    }
     _settings = settings;
   }
 
   @override
   DocumentReferencePlatform doc(String documentPath) {
+    lifecycle.ensureActiveAndMarkStarted();
     return PyricDocumentReference(this, documentPath);
   }
 
   @override
   CollectionReferencePlatform collection(String collectionPath) {
+    lifecycle.ensureActiveAndMarkStarted();
     return PyricCollectionReference(this, collectionPath);
   }
 
   @override
   QueryPlatform collectionGroup(String collectionPath) {
+    lifecycle.ensureActiveAndMarkStarted();
     return PyricQuery(this, collectionPath, isCollectionGroupQuery: true);
   }
 
   @override
   WriteBatchPlatform batch() {
+    lifecycle.ensureActiveAndMarkStarted();
     return PyricWriteBatch(this);
   }
 
@@ -126,56 +143,76 @@ class PyricFirestorePlatform extends FirebaseFirestorePlatform {
     Duration timeout = const Duration(seconds: 30),
     int maxAttempts = 5,
   }) async {
-    int attempts = 0;
-    while (true) {
-      attempts++;
-      final txn = PyricTransaction(this);
-      try {
-        final result = await transactionHandler(txn);
-        await txn.commit();
-        return result;
-      } catch (e) {
-        if (attempts >= maxAttempts) {
+    lifecycle.ensureActiveAndMarkStarted();
+    if (!lifecycle.isNetworkEnabled) {
+      throw const PyricBridgeException(
+        code: 'unavailable',
+        message: 'Transactions cannot be executed while the client is offline.',
+      );
+    }
+    Future<T?> executeAttempts() async {
+      int attempts = 0;
+      while (true) {
+        attempts++;
+        final txn = PyricTransaction(this);
+        int? writeId;
+        try {
+          final result = await transactionHandler(txn);
+          writeId = lifecycle.beginTransactionWrite();
+          await txn.commit();
+          lifecycle.finishTransactionWrite(
+            writeId,
+            committedMutations: txn.mutations,
+          );
+          return result;
+        } catch (e) {
+          if (writeId != null) {
+            lifecycle.finishTransactionWrite(writeId);
+          }
+          if (attempts >= maxAttempts) {
+            rethrow;
+          }
+          if (e is PyricBridgeException &&
+              (e.code == 'aborted' ||
+                  e.code == 'conflict' ||
+                  e.code == 'failed-precondition')) {
+            continue;
+          }
           rethrow;
         }
-        if (e is PyricBridgeException &&
-            (e.code == 'aborted' ||
-                e.code == 'conflict' ||
-                e.code == 'failed-precondition')) {
-          continue;
-        }
-        rethrow;
       }
     }
+
+    return executeAttempts().timeout(timeout);
   }
 
   @override
   Future<void> terminate() async {
-    await _bridgeClient.disconnect();
+    await lifecycle.terminate(() => _bridgeClient.disconnect());
   }
 
   @override
   Future<void> clearPersistence() {
-    throw UnimplementedError('clearPersistence() is not yet implemented');
+    return lifecycle.clearPersistence();
   }
 
   @override
   Future<void> enableNetwork() {
-    throw UnimplementedError('enableNetwork() is not yet implemented');
+    return lifecycle.enableNetwork();
   }
 
   @override
   Future<void> disableNetwork() {
-    throw UnimplementedError('disableNetwork() is not yet implemented');
+    return lifecycle.disableNetwork();
   }
 
   @override
   Future<void> waitForPendingWrites() {
-    throw UnimplementedError('waitForPendingWrites() is not yet implemented');
+    return lifecycle.waitForPendingWrites();
   }
 
   @override
   Stream<void> snapshotsInSync() {
-    throw UnimplementedError('snapshotsInSync() is not yet implemented');
+    return lifecycle.snapshotsInSync();
   }
 }

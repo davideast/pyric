@@ -1,3 +1,4 @@
+import { LIVE_HOST_CONFORMANCE_TEST } from '../defaults.ts';
 import { row } from './section.ts';
 
 export default row({
@@ -5,5 +6,7 @@ export default row({
   api: 'DocumentReferencePlatform.set(data, SetOptions(merge: true))',
   behavior: 'Merges payload fields into existing document without overwriting unspecified fields.',
   featureKeys: ['set', 'merge'],
-  flipped: 'unit-backed',
+  status: 'conforms',
+  tests: ['packages/flutter-client/test/live_host/firestore_lifecycle_and_docs_live_host_test.dart'],
+  hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

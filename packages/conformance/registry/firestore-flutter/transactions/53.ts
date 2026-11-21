@@ -1,3 +1,4 @@
+import { LIVE_HOST_CONFORMANCE_TEST } from '../defaults.ts';
 import { row } from './section.ts';
 
 export default row({
@@ -5,4 +6,7 @@ export default row({
   api: 'TransactionPlatform retry mechanism',
   behavior: 'Catches optimistic locking conflicts and re-executes handler up to maxAttempts.',
   featureKeys: ['runTransaction'],
+  status: 'conforms',
+  tests: ['packages/flutter-client/test/live_host/firestore_queries_tx_codecs_live_host_test.dart'],
+  hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

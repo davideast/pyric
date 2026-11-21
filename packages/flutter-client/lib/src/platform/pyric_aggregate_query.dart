@@ -54,6 +54,13 @@ class PyricAggregateQuery extends AggregateQueryPlatform {
     final pyricQuery = query as PyricQuery;
     final target = pyricQuery.compileTarget();
     final f = query.firestore as PyricFirestorePlatform;
+    f.lifecycle.ensureActiveAndMarkStarted();
+    if (!f.lifecycle.isNetworkEnabled) {
+      throw const PyricBridgeException(
+        code: 'unavailable',
+        message: 'Aggregate queries require active network connectivity.',
+      );
+    }
 
     final isCountOnly = aggregateFields.isEmpty ||
         (aggregateFields.length == 1 && aggregateFields.first is p.count);
