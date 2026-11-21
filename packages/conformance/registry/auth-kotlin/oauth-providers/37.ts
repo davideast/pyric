@@ -5,5 +5,8 @@ export default row({
   api: 'GoogleAuthProvider.getCredential(idToken, accessToken)',
   behavior: 'Creates an AuthCredential for Google Sign-In ("google.com") encapsulating the ID token and/or access token.',
   featureKeys: ['GoogleAuthProvider', 'getCredential'],
-  flipped: 'live-host',
+  flipped: 'oracle-backed',
+  oracleObservations: [
+    'auth-kotlin-instance-linking-reauth-and-oauth-credentials',
+  ],
 });
