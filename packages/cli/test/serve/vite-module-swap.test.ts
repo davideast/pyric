@@ -80,7 +80,7 @@ describe('Vite module swap', () => {
     ]);
     expect(config.optimizeDeps?.include).toBeUndefined();
     expect(config.optimizeDeps?.esbuildOptions?.plugins).toHaveLength(1);
-    expect(config.resolve).toBeUndefined();
+    expect(config.resolve).toEqual({ dedupe: ['firebase'] });
   });
 
   it('augments rather than replaces Vite filesystem allowances', () => {
@@ -193,7 +193,8 @@ describe('server-rendered imports under vite dev (#1123)', () => {
       expect(alias.find.test(specifier)).toBe(false);
     }
     expect(config.ssr?.external).toEqual(['@pyric/cli', ...installedFirebaseSdkNames({ projectDir: process.cwd() })]);
-    expect(swap.config({ devServer: false }).resolve).toBeUndefined();
+    expect(swap.config({ devServer: false }).resolve?.alias).toBeUndefined();
+    expect(swap.config({ devServer: false }).resolve?.dedupe).toEqual(['firebase']);
   });
 
   it('keeps the SSR loader external in other server environments, only under vite dev', () => {
@@ -486,7 +487,7 @@ describe('a real Firebase SDK load the swap does not serve stops (ADR 0022)', ()
     expect(await prodAiSwap.resolvePluginId(prodContext, 'firebase/app-check', userImporter)).toBe(
       context.entries['app-ai-passthrough-app-check'],
     );
-    // Bridge entries inside cliRoot import real firebase/app and firebase/app-check
+    // Bridge entries inside cliRoot pass through to Vite's deduped app-root resolver and record allowedUrls
     expect(
       await prodAiSwap.resolvePluginId(prodContext, 'firebase/app', context.entries['app-ai-passthrough']),
     ).toBeNull();

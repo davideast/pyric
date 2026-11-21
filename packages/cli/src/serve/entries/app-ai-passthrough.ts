@@ -37,3 +37,5 @@ export type {
   LogLevel,
   LogOptions,
 } from 'pyric/app';
+
+export * from './unsupported/app.js';

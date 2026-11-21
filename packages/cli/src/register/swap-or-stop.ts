@@ -99,13 +99,23 @@ function isInstalledFile(url: string): boolean {
  */
 function isFromAllowedSdkFile(load: ResolvedLoad, packageName: string, allowedUrls: ReadonlySet<string>): boolean {
   const importer = load.importer;
-  const isAllowedImporter = importer !== undefined && allowedUrls.has(importer);
+  const isAllowedImporter =
+    importer !== undefined &&
+    (allowedUrls.has(importer) || allowedUrls.has(canonicalFileUrl(importer)));
   if (!isAllowedImporter) return false;
-  const importerFamily = sdkFamilyOf((load.nameOf ?? packageNameOf)(importer));
+  if (importer !== undefined && isSameLocalFile(importer, load.url)) return true;
+  let nameResolver = packageNameOf;
+  if (load.nameOf !== undefined) {
+    nameResolver = load.nameOf;
+  }
+  const importerFamily = sdkFamilyOf(nameResolver(importer));
   if (importerFamily === 'client') return isProductionAiSdkPackage(packageName);
   const isAdminTarget = importerFamily === 'admin' && packageName === 'firebase-admin';
   if (!isAdminTarget) return false;
-  const pathOf = load.pathInPackage ?? pathInPackageOf;
+  let pathOf = pathInPackageOf;
+  if (load.pathInPackage !== undefined) {
+    pathOf = load.pathInPackage;
+  }
   return isAdminBridgeFile(pathOf(load.url, packageName));
 }
 
@@ -237,6 +247,7 @@ export function stopFor(load: ResolvedLoad, allowedUrls: Set<string>): Error | n
   if (isCjsReloadOfAllowedFile(load, allowedUrls)) return null;
   if (isAllowedRealLoad(load, packageName, family, allowedUrls)) {
     allowedUrls.add(load.url);
+    allowedUrls.add(canonicalFileUrl(load.url));
     return null;
   }
   const error = new Error(stopMessage(load, family, packageName));

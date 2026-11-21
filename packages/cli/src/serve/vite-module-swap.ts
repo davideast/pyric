@@ -1,5 +1,4 @@
 import { existsSync } from 'node:fs';
-import Module, { createRequire } from 'node:module';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { DepOptimizationOptions, ResolvedConfig, UserConfig } from 'vite';
@@ -17,6 +16,11 @@ import {
   type AiMode,
   type ServedFirebaseSpecifier,
 } from './firebase-module-swap.js';
+import {
+  productionAiSdkAllowDirs,
+  projectFirebaseDedupe,
+} from './vite-passthrough-resolve.js';
+import { packageRootOf, resolveUnhooked } from './vite-unhooked-resolve.js';
 import {
   OBSERVER_MODULE_ID,
   OBSERVER_SPECIFIER,
@@ -62,46 +66,8 @@ function splitSpecifierQuery(source: string): { bare: string; query: string } {
 /** The SDK package the served entries import; one instance per page. */
 const PYRIC_PACKAGE = 'pyric';
 
-/**
- * Node's CommonJS resolver, typed locally: the repo's ambient Node types
- * leave out these internals.
- */
-interface CommonJsResolver {
-  _resolveFilename?: (request: string, parent: unknown, isMain: boolean) => string;
-  _nodeModulePaths?: (from: string) => string[];
-}
-type ModuleConstructor = new (id: string) => { filename: string; paths: string[] };
-const moduleApi = Module as unknown as CommonJsResolver & ModuleConstructor;
 type OptimizerOptions = NonNullable<DepOptimizationOptions['esbuildOptions']>;
 type OptimizerPlugin = NonNullable<OptimizerOptions['plugins']>[number];
-
-function packageRootOf(file: string): string {
-  let dir = path.dirname(file);
-  while (dir !== path.dirname(dir) && !existsSync(path.join(dir, 'package.json'))) {
-    dir = path.dirname(dir);
-  }
-  return dir;
-}
-
-/**
- * The file Node resolves `specifier` to from `base`, without running the
- * process's `module.registerHooks` resolve hooks. From Node 24.16 those hooks
- * also run for `require.resolve`: pyric's own stop hook throws there, which
- * read as "not installed", and the register maps `firebase-admin` to
- * `pyric-admin`, which read as "not the real SDK", so the stop was skipped
- * (#1906). `Module._resolveFilename` runs below the hooks on Node 22.15 and
- * 24.16. Falls back to `createRequire` on a runtime without it.
- */
-function resolveUnhooked(specifier: string, base: string): string {
-  const resolveFilename = moduleApi._resolveFilename;
-  const nodeModulePaths = moduleApi._nodeModulePaths;
-  const hasInternals = typeof resolveFilename === 'function' && typeof nodeModulePaths === 'function';
-  if (!hasInternals) return createRequire(base).resolve(specifier);
-  const parent = new moduleApi(base);
-  parent.filename = base;
-  parent.paths = nodeModulePaths.call(Module, path.dirname(base));
-  return resolveFilename.call(Module, specifier, parent, false);
-}
 
 export interface ViteModuleContext {
   entries: ReturnType<typeof defaultSdkEntries>;
@@ -252,15 +218,21 @@ export function createViteModuleSwap(
     isBypassedBridgeImport,
   });
 
-  function resolveBases(importer: string | undefined): string[] {
+  function resolveBases(specifier: string, importer: string | undefined): string[] {
     const importerFile = importer?.split('?')[0];
     const fromRoot = path.join(root, 'package.json');
     const isFileImporter = importerFile !== undefined && path.isAbsolute(importerFile);
-    return isFileImporter ? [importerFile, fromRoot] : [fromRoot];
+    if (!isFileImporter) {
+      return [fromRoot];
+    }
+    if (isBypassedBridgeImport(specifier, importer, aiMode())) {
+      return [fromRoot, importerFile];
+    }
+    return [importerFile, fromRoot];
   }
 
   function installedFileOf(specifier: string, importer: string | undefined): { url: string; base: string } | null {
-    for (const base of resolveBases(importer)) {
+    for (const base of resolveBases(specifier, importer)) {
       try {
         return { url: pathToFileURL(resolveUnhooked(specifier, base)).href, base };
       } catch {
@@ -398,6 +370,7 @@ export function createViteModuleSwap(
     }
     if (original === null) return resolveId(source, importer);
     const { bare: originalBare } = splitSpecifierQuery(original);
+    const currentAiMode = aiMode();
     const environment = context.environment;
     const supplied = options?.supplied;
     if (isServer && supplied !== undefined) {
@@ -405,12 +378,16 @@ export function createViteModuleSwap(
     }
     let routed: string | null;
     if (isServer) {
+      let envName = 'ssr';
+      if (environment !== undefined) {
+        envName = environment.name;
+      }
       routed = routeServerImport({
         specifier: original,
         importer,
-        aiMode: aiMode(),
+        aiMode: currentAiMode,
         runsInProcess: runsInProcess(environment),
-        environmentName: environment?.name ?? 'ssr',
+        environmentName: envName,
       });
     } else {
       routed = resolveId(original, importer);
@@ -544,16 +521,28 @@ export function createViteModuleSwap(
       } else {
         optimizeDeps = { exclude: excludedModules, esbuildOptions: { plugins: [optimizerMirror] } };
       }
+      let projectDir = process.cwd();
+      if (configOptions?.userConfig?.root !== undefined) {
+        projectDir = configOptions.userConfig.root;
+      }
+      const dedupe = projectFirebaseDedupe(projectDir);
       routesServerImports = configOptions?.devServer === true || configOptions?.ssrBuild === true;
       if (routesServerImports) {
         serverExternal = [...SSR_EXTERNAL, ...installedSdkExternals(configOptions?.userConfig)];
+        const resolveConfig: NonNullable<UserConfig['resolve']> = { alias: [ssrSwapAlias()] };
+        if (dedupe.length > 0) {
+          resolveConfig.dedupe = dedupe;
+        }
         return {
-          resolve: { alias: [ssrSwapAlias()] },
+          resolve: resolveConfig,
           ssr: { external: serverExternal },
           optimizeDeps,
         };
       }
       serverExternal = SSR_EXTERNAL;
+      if (dedupe.length > 0) {
+        return { resolve: { dedupe }, optimizeDeps };
+      }
       return { optimizeDeps };
     },
     configEnvironment(name, environmentConfig) {
@@ -563,12 +552,20 @@ export function createViteModuleSwap(
       return { resolve: { external: [...serverExternal] } };
     },
     configResolved(config) {
-      root = config.root ?? root;
+      if (config.root !== undefined) {
+        root = config.root;
+      }
       const allow = config.server?.fs?.allow;
       if (allow === undefined || !Array.isArray(allow)) {
         return;
       }
-      for (const dir of [pyricRoot, cliRoot]) {
+      const allowedDirs = [pyricRoot, cliRoot];
+      if (aiMode() === 'production') {
+        for (const sdkDir of productionAiSdkAllowDirs(root)) {
+          allowedDirs.push(sdkDir);
+        }
+      }
+      for (const dir of allowedDirs) {
         if (!allow.includes(dir)) {
           allow.push(dir);
         }

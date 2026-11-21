@@ -14,7 +14,8 @@
  */
 
 /** The targets the register mapping routes a server import to. Anything else is refused. */
-const ROUTED_TARGET = /^(?:@pyric\/cli\/register\/client\/[a-z-]+|pyric(?:-admin)?(?:\/[a-z-]+)*)$/;
+const ROUTED_TARGET =
+  /^(?:@pyric\/cli\/register\/(?:client\/[a-z-]+|app-bridge-app-check)|pyric(?:-admin)?(?:\/[a-z-]+)*)$/;
 
 /** The routed module for `target`, as `mapFirebaseSpecifier` named it. */
 export function loadServerTarget(target: string): Promise<Record<string, unknown>> {
