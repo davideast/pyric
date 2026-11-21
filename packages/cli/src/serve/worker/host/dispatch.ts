@@ -21,6 +21,7 @@ import {
   isAuthSub,
   isEventSub,
   isRtdbSub,
+  isStorageSub,
   isAiSub,
   isMessagingSub,
   isPresenceSub,
@@ -90,6 +91,7 @@ import {
   cleanupPortPresence,
 } from './presence.js';
 import { handleSub, handleRtdbSub, handleUnsub, dropPortSubscriptionIntents } from './subscriptions.js';
+import { handleStorageSub } from './storage-subscriptions.js';
 
 // ─── Op orchestrator ────────────────────────────────────────────────────────
 
@@ -351,6 +353,7 @@ async function dispatchMessage(
     const isAuth = isAuthSub(msg);
     const isEvent = isEventSub(msg);
     const isRtdb = isRtdbSub(msg);
+    const isStorage = isStorageSub(msg);
     const isAi = isAiSub(msg);
     const isMessaging = isMessagingSub(msg);
     const isPresence = isPresenceSub(msg);
@@ -361,6 +364,8 @@ async function dispatchMessage(
       handleEventSub(ctx, port, msg);
     } else if (isRtdb) {
       handleRtdbSub(ctx, port, msg);
+    } else if (isStorage) {
+      handleStorageSub(ctx, port, msg);
     } else if (isAi) {
       // AI streams are FINITE subs registered in ctx.subs (so `unsub` cancels
       // them); they auto-unsub on the terminal done/error snap. host-ai.ts.
