@@ -1308,8 +1308,6 @@ jobs:
     timeout-minutes: 30
     needs: plan
     if: needs.plan.outputs.check-set == 'full'
-    # The Kotlin client is experimental: its job runs and reports, but a
-    # failure does not fail the native-conformance result that CI / required reads.
     continue-on-error: ${{ matrix.blocking == false }}
     strategy:
       fail-fast: false
@@ -1317,7 +1315,7 @@ jobs:
         include:
           - sdk: kotlin
             os: ubuntu-latest
-            blocking: false
+            blocking: true
           - sdk: flutter
             os: ubuntu-latest
             blocking: true
@@ -1330,72 +1328,71 @@ jobs:
       - name: Set up JDK 21
         id: kotlin-jdk
         if: matrix.sdk == 'kotlin'
-        continue-on-error: true
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '21'
           cache: 'gradle'
-
       - name: Run Kotlin client tests
         id: kotlin-tests
-        if: matrix.sdk == 'kotlin' && steps.kotlin-jdk.outcome == 'success'
-        # Step-level continue-on-error keeps the GitHub Check Run green (`✓`) so
-        # unrelated PRs and agents do not see a failing check or rebuild on
-        # experimental Kotlin flakes, while preserving full Gradle logs + reports.
-        continue-on-error: true
+        if: matrix.sdk == 'kotlin'
         working-directory: packages/kt-client
-        run: ./gradlew test --continue --stacktrace
-
-      - name: Summarize experimental Kotlin test status
-        if: always() && matrix.sdk == 'kotlin'
-        run: |
-          if [ "${{ steps.kotlin-jdk.outcome }}" != "success" ] || [ "${{ steps.kotlin-tests.outcome }}" != "success" ]; then
-            {
-              echo "### ⚠️ Experimental Kotlin SDK tests failed (non-blocking)"
-              echo "- \`Set up JDK 21\`: \`${{ steps.kotlin-jdk.outcome }}\`"
-              echo "- \`Run Kotlin client tests\`: \`${{ steps.kotlin-tests.outcome }}\`"
-              echo "- Full stacktraces are in the **Run Kotlin client tests** step log above, and HTML/XML reports are attached as \`kotlin-test-reports\`."
-            } >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "### ✅ Experimental Kotlin SDK tests passed" >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: Upload Kotlin test reports on failure
-        if: always() && matrix.sdk == 'kotlin' && steps.kotlin-tests.outcome == 'failure'
-        uses: actions/upload-artifact@v4
-        with:
-          name: kotlin-test-reports
-          path: |
-            packages/kt-client/**/build/reports/tests/
-            packages/kt-client/**/build/test-results/
-          if-no-files-found: ignore
-          retention-days: 7
-
+        run: ./gradlew test --continue --stacktrace --no-daemon
       - name: Set up Flutter
         if: matrix.sdk == 'flutter'
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
           cache: true
-
       - name: Run Flutter client tests
         if: matrix.sdk == 'flutter'
         working-directory: packages/flutter-client
         run: flutter test
-
       - name: Cache Swift build artifacts
         if: matrix.sdk == 'swift'
         uses: actions/cache@v4
         with:
           path: packages/swift-client/.build
           key: ${{ runner.os }}-spm-${{ hashFiles('packages/swift-client/Package.swift', 'packages/swift-client/Sources/**/*.swift') }}
-          restore-keys: |
-            ${{ runner.os }}-spm-
-
+          restore-keys: ${{ runner.os }}-spm-
       - name: Run Swift client tests
         if: matrix.sdk == 'swift'
         run: swift test --package-path packages/swift-client
+      - name: Set up Bun for live-host conformance
+        if: matrix.sdk == 'kotlin' || matrix.sdk == 'swift'
+        uses: oven-sh/setup-bun@v2
+        with: { bun-version: '${{ env.BUN_VERSION }}' }
+      - name: Set up Node for live-host conformance
+        if: matrix.sdk == 'kotlin' || matrix.sdk == 'swift'
+        uses: actions/setup-node@v4
+        with: { node-version: '${{ env.NODE_VERSION }}' }
+      - name: Cache Bun dependencies for live-host conformance
+        if: matrix.sdk == 'kotlin' || matrix.sdk == 'swift'
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+      - name: Install and build workspace packages for live-host conformance
+        if: matrix.sdk == 'kotlin' || matrix.sdk == 'swift'
+        run: bun install --frozen-lockfile --filter '!@pyric/playground' && bash scripts/build.sh --packages-only
+      - name: Run Kotlin live-host conformance
+        id: kotlin-live-host
+        if: matrix.sdk == 'kotlin'
+        env: { PYRIC_REQUIRE_KOTLIN_LIVE: '1' }
+        run: bun test packages/cli/test/serve/native-kotlin-conformance.test.ts
+      - name: Upload Kotlin test reports on failure
+        if: always() && matrix.sdk == 'kotlin' && (steps.kotlin-tests.outcome == 'failure' || steps.kotlin-live-host.outcome == 'failure')
+        uses: actions/upload-artifact@v4
+        with:
+          name: kotlin-test-reports
+          path: "packages/kt-client/**/build/reports/tests/\npackages/kt-client/**/build/test-results/"
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Run Swift live-host conformance
+        if: matrix.sdk == 'swift'
+        env: { PYRIC_REQUIRE_SWIFT_LIVE: '1' }
+        run: bun test packages/cli/test/serve/native-swift-conformance.test.ts
 
   required:
     name: CI / required
