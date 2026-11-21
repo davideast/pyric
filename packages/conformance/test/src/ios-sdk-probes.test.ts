@@ -60,11 +60,15 @@ describe('ios-sdk-probes manifest, SwiftPM version pins, and staged probes', () 
     expect(rtdbManifest).toContain('traits: []');
     expect(rtdbManifest).toContain('name: "FirebaseDatabase"');
     expect(rtdbManifest).not.toContain('FirebaseAuth');
+    expect(rtdbManifest).toContain('.swiftLanguageMode(.v5)');
+    expect(rtdbManifest).toMatch(/\],\s*swiftLanguageModes: \[\.v5\]\s*\)\s*$/);
 
     expect(authManifest).toContain(`exact: "${version}"`);
     expect(authManifest).toContain('traits: []');
     expect(authManifest).toContain('name: "FirebaseAuth"');
     expect(authManifest).toContain('.copy("Resources/oracle-input.json")');
+    expect(authManifest).toContain('.swiftLanguageMode(.v5)');
+    expect(authManifest).toMatch(/\],\s*swiftLanguageModes: \[\.v5\]\s*\)\s*$/);
   });
 
   it('registers ios-sdk-probes on macos-latest and discovers all auth-swift and rtdb-swift probes', async () => {

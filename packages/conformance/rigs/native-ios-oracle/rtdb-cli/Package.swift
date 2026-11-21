@@ -26,7 +26,10 @@ let package = Package(
         .product(name: "FirebaseCore", package: "firebase-ios-sdk"),
         .product(name: "FirebaseDatabase", package: "firebase-ios-sdk"),
       ],
-      swiftLanguageModes: [.v5]
+      swiftSettings: [
+        .swiftLanguageMode(.v5),
+      ]
     ),
-  ]
+  ],
+  swiftLanguageModes: [.v5]
 )
