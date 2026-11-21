@@ -10,6 +10,10 @@ import type {
 } from './delivery.js';
 import type { FirestoreDocumentVersion } from './event.js';
 import type { FirestoreTimestampProto } from './proto-encoder.js';
+import {
+  areFirestoreDocumentsEqual,
+  computeDocumentUpdateMask,
+} from './value-equality.js';
 
 export interface InMemoryCreateCommitInput {
   readonly database?: string;
@@ -18,6 +22,20 @@ export interface InMemoryCreateCommitInput {
   readonly time?: string;
   readonly createTime?: FirestoreTimestampProto;
   readonly updateTime?: FirestoreTimestampProto;
+}
+
+export interface InMemoryUpdateCommitInput {
+  readonly database?: string;
+  readonly document: string;
+  readonly fields: Record<string, unknown>;
+  readonly time?: string;
+  readonly updateTime?: FirestoreTimestampProto;
+}
+
+export interface InMemoryDeleteCommitInput {
+  readonly database?: string;
+  readonly document: string;
+  readonly time?: string;
 }
 
 function isoToTimestampProto(iso: string): FirestoreTimestampProto {
@@ -48,6 +66,16 @@ export class InMemoryFirestoreTriggerDelivery implements FirestoreTriggerDeliver
 
   emitMutation(mutation: FirestoreMutationRecord): void {
     const normalized = normalizeFirestoreDocumentPath(mutation.document);
+    if (mutation.before === null && mutation.after === null) {
+      return;
+    }
+    if (
+      mutation.before !== null &&
+      mutation.after !== null &&
+      areFirestoreDocumentsEqual(mutation.before.fields, mutation.after.fields)
+    ) {
+      return;
+    }
     const key = `${mutation.database}\u0000${normalized}`;
     if (mutation.after === null) {
       this.#documents.delete(key);
@@ -58,6 +86,16 @@ export class InMemoryFirestoreTriggerDelivery implements FirestoreTriggerDeliver
       ...mutation,
       document: normalized,
     };
+    if (
+      normalizedMutation.updateMask === undefined &&
+      mutation.before !== null &&
+      mutation.after !== null
+    ) {
+      normalizedMutation.updateMask = computeDocumentUpdateMask(
+        mutation.before.fields,
+        mutation.after.fields,
+      );
+    }
     const listeners = this.#subscribers.get(mutation.database);
     if (listeners === undefined) return;
     for (const callbacks of listeners) {
@@ -83,6 +121,43 @@ export class InMemoryFirestoreTriggerDelivery implements FirestoreTriggerDeliver
         createTime,
         updateTime,
       },
+      time,
+    });
+  }
+
+  emitUpdate(input: InMemoryUpdateCommitInput): void {
+    const database = input.database ?? DEFAULT_FIRESTORE_DATABASE;
+    const normalized = normalizeFirestoreDocumentPath(input.document);
+    const key = `${database}\u0000${normalized}`;
+    const prior = this.#documents.get(key) ?? null;
+    const time = input.time ?? '2026-07-13T20:00:05.000Z';
+    const defaultTs = isoToTimestampProto(time);
+    const createTime = prior?.createTime ?? defaultTs;
+    const updateTime = input.updateTime ?? defaultTs;
+    this.emitMutation({
+      database,
+      document: normalized,
+      before: prior,
+      after: {
+        fields: { ...input.fields },
+        createTime,
+        updateTime,
+      },
+      time,
+    });
+  }
+
+  emitDelete(input: InMemoryDeleteCommitInput): void {
+    const database = input.database ?? DEFAULT_FIRESTORE_DATABASE;
+    const normalized = normalizeFirestoreDocumentPath(input.document);
+    const key = `${database}\u0000${normalized}`;
+    const prior = this.#documents.get(key) ?? null;
+    const time = input.time ?? '2026-07-13T20:00:10.000Z';
+    this.emitMutation({
+      database,
+      document: normalized,
+      before: prior,
+      after: null,
       time,
     });
   }

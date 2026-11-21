@@ -155,4 +155,56 @@ describe('startFirestoreTriggerExecution', () => {
     await host.idle();
     expect(callOrder.length).toBe(5);
   });
+
+  test('routes create, update, and delete across all 4 lifecycle triggers and suppresses no-op updates', async () => {
+    const log: string[] = [];
+    const onCreated = firestoreFunctions.onDocumentCreated('items/{id}', (ev) => {
+      log.push(`created:${ev.params.id}:${JSON.stringify(ev.data?.data())}`);
+    });
+    const onUpdated = firestoreFunctions.onDocumentUpdated('items/{id}', (ev) => {
+      log.push(
+        `updated:${ev.params.id}:${JSON.stringify(ev.data?.before.data())}->${JSON.stringify(ev.data?.after.data())}`,
+      );
+    });
+    const onDeleted = firestoreFunctions.onDocumentDeleted('items/{id}', (ev) => {
+      log.push(`deleted:${ev.params.id}:${JSON.stringify(ev.data?.data())}`);
+    });
+    const onWritten = firestoreFunctions.onDocumentWritten('items/{id}', (ev) => {
+      log.push(
+        `written:${ev.params.id}:${String(ev.data?.before.exists)}->${String(ev.data?.after.exists)}`,
+      );
+    });
+
+    const delivery = new InMemoryFirestoreTriggerDelivery();
+    const host = startFirestoreTriggerExecution({
+      exported: { onCreated, onUpdated, onDeleted, onWritten },
+      delivery,
+      envelopeOptions: (matched, sequence) => ({
+        id: `lifecycle-${sequence}`,
+        time: matched.mutation.time,
+        projectId: 'demo-project',
+        location: 'us-central1',
+      }),
+    });
+
+    expect(host.triggerCount).toBe(4);
+    await host.ready;
+
+    delivery.emitCreate({ document: 'items/it-1', fields: { qty: 1 } });
+    // Identical write must be suppressed before firing updated or written
+    delivery.emitUpdate({ document: 'items/it-1', fields: { qty: 1 } });
+    delivery.emitUpdate({ document: 'items/it-1', fields: { qty: 3 } });
+    delivery.emitDelete({ document: 'items/it-1' });
+    await host.idle();
+
+    expect(log).toEqual([
+      'created:it-1:{"qty":1}',
+      'written:it-1:false->true',
+      'updated:it-1:{"qty":1}->{"qty":3}',
+      'written:it-1:true->true',
+      'deleted:it-1:{"qty":3}',
+      'written:it-1:true->false',
+    ]);
+    host.close();
+  });
 });

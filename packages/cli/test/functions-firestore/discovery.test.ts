@@ -34,6 +34,9 @@ describe('inspectFirestoreTriggers and firestoreTriggersFamily', () => {
   test('claims and inspects all 8 firebase-functions/v2/firestore trigger event types', () => {
     expect(FIRESTORE_EVENT_TYPES.length).toBe(8);
     expect(ACTIVE_FIRESTORE_EVENT_TYPES.has(DOCUMENT_CREATED_EVENT)).toBe(true);
+    expect(ACTIVE_FIRESTORE_EVENT_TYPES.has(DOCUMENT_UPDATED_EVENT)).toBe(true);
+    expect(ACTIVE_FIRESTORE_EVENT_TYPES.has(DOCUMENT_DELETED_EVENT)).toBe(true);
+    expect(ACTIVE_FIRESTORE_EVENT_TYPES.has(DOCUMENT_WRITTEN_EVENT)).toBe(true);
     expect(isFirestoreTriggerEventType(DOCUMENT_CREATED_EVENT)).toBe(true);
     expect(isFirestoreTriggerEventType('google.firebase.database.ref.v1.created')).toBe(false);
     const expectedOps: readonly FirestoreTriggerOperation[] = [

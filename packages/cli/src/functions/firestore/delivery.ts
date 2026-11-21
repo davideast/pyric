@@ -12,7 +12,7 @@ export interface FirestoreMutationRecord {
   readonly before: FirestoreDocumentVersion | null;
   readonly after: FirestoreDocumentVersion | null;
   readonly time: string;
-  readonly updateMask?: readonly string[];
+  updateMask?: readonly string[];
   readonly authType?: FirestoreTriggerAuthType;
   authId?: string;
 }
