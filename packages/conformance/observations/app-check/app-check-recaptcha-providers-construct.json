@@ -1,0 +1,76 @@
+{
+  "name": "app-check-recaptcha-providers-construct",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase/app-check ReCaptchaV3Provider and ReCaptchaEnterpriseProvider in a realm with global document: construct from a siteKey, return the AppCheck handle from initializeAppCheck, return the identical handle on a second call with equal options, and throw appCheck/already-initialized on a different siteKey or provider class.",
+  "observedAt": "2026-11-21T01:16:10.752Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "hasStandInDocument": true,
+    "providerContract": {
+      "recaptchaV3": {
+        "constructsInstance": true,
+        "firstInitialize": {
+          "synchronousThrow": false,
+          "returnsAppCheckForSameApp": true,
+          "hasAppProperty": true
+        },
+        "secondSameSiteKey": {
+          "synchronousThrow": false,
+          "returnsSameInstance": true
+        },
+        "thirdDifferentSiteKey": {
+          "synchronousThrow": true,
+          "name": "FirebaseError",
+          "code": "appCheck/already-initialized",
+          "message": "AppCheck: You have already called initializeAppCheck() for FirebaseApp <appName> with different options. To avoid this error, call initializeAppCheck() with the same options as when it was originally called. This will return the already initialized instance. (appCheck/already-initialized).",
+          "customDataMatchesAppName": true
+        },
+        "fourthOtherRecaptchaClassSameSiteKey": {
+          "synchronousThrow": true,
+          "name": "FirebaseError",
+          "code": "appCheck/already-initialized",
+          "message": "AppCheck: You have already called initializeAppCheck() for FirebaseApp <appName> with different options. To avoid this error, call initializeAppCheck() with the same options as when it was originally called. This will return the already initialized instance. (appCheck/already-initialized).",
+          "customDataMatchesAppName": true
+        }
+      },
+      "recaptchaEnterprise": {
+        "constructsInstance": true,
+        "firstInitialize": {
+          "synchronousThrow": false,
+          "returnsAppCheckForSameApp": true,
+          "hasAppProperty": true
+        },
+        "secondSameSiteKey": {
+          "synchronousThrow": false,
+          "returnsSameInstance": true
+        },
+        "thirdDifferentSiteKey": {
+          "synchronousThrow": true,
+          "name": "FirebaseError",
+          "code": "appCheck/already-initialized",
+          "message": "AppCheck: You have already called initializeAppCheck() for FirebaseApp <appName> with different options. To avoid this error, call initializeAppCheck() with the same options as when it was originally called. This will return the already initialized instance. (appCheck/already-initialized).",
+          "customDataMatchesAppName": true
+        },
+        "fourthOtherRecaptchaClassSameSiteKey": {
+          "synchronousThrow": true,
+          "name": "FirebaseError",
+          "code": "appCheck/already-initialized",
+          "message": "AppCheck: You have already called initializeAppCheck() for FirebaseApp <appName> with different options. To avoid this error, call initializeAppCheck() with the same options as when it was originally called. This will return the already initialized instance. (appCheck/already-initialized).",
+          "customDataMatchesAppName": true
+        }
+      }
+    },
+    "domSideEffects": {
+      "recaptchaV3": {
+        "appendedHiddenDivForApp": true,
+        "appendedRecaptchaScriptSrc": "https://www.google.com/recaptcha/api.js"
+      },
+      "recaptchaEnterprise": {
+        "appendedHiddenDivForApp": true,
+        "appendedRecaptchaScriptSrc": "https://www.google.com/recaptcha/enterprise.js?render=explicit"
+      }
+    }
+  }
+}
