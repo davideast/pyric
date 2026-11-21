@@ -13,8 +13,11 @@ import { firestoreFlutterRegistry } from './firestore-flutter.ts';
 import { firestoreKotlinRegistry } from './firestore-kotlin.ts';
 import { firestoreSwiftRegistry } from './firestore-swift.ts';
 import { functionsCallableRegistry } from './functions-callable.ts';
+import { functionsFlutterRegistry } from './functions-flutter.ts';
 import { functionsHttpRegistry } from './functions-http.ts';
+import { functionsKotlinRegistry } from './functions-kotlin.ts';
 import { functionsRtdbRegistry } from './functions-rtdb.ts';
+import { functionsSwiftRegistry } from './functions-swift.ts';
 import { messagingRegistry } from './messaging.ts';
 import { rtdbRegistry } from './rtdb.ts';
 import { rtdbFlutterRegistry } from './rtdb-flutter.ts';
@@ -63,6 +66,9 @@ export const registriesByKey: Record<string, CompatibilitySurfaceRegistry> = Obj
     appCheckFlutterRegistry,
     appCheckKotlinRegistry,
     appCheckSwiftRegistry,
+    functionsFlutterRegistry,
+    functionsKotlinRegistry,
+    functionsSwiftRegistry,
   ].map((r) => [r.surface, r]),
 );
 
@@ -83,6 +89,9 @@ export {
   authKotlinRegistry,
   authSwiftRegistry,
   firestoreKotlinRegistry,
+  functionsFlutterRegistry,
+  functionsKotlinRegistry,
+  functionsSwiftRegistry,
   rtdbFlutterRegistry,
   rtdbKotlinRegistry,
   rtdbSwiftRegistry,
