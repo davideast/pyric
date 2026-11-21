@@ -7,5 +7,6 @@ export default row({
   behavior: 'Orders query results by the value of the specified nested child key.',
   featureKeys: ['orderByChild'],
   status: 'conforms',
+  oracleObservations: ['rtdb-kotlin-dedicated-crud-and-query-order'],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

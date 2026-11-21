@@ -5,5 +5,6 @@ export default row({
   api: 'FirebaseUser.displayName',
   behavior: 'Returns the display name associated with the user profile, or null if unset.',
   featureKeys: ['displayName'],
-  flipped: 'live-host',
+  flipped: 'oracle-backed',
+  oracleObservations: ['auth-kotlin-profile-reload-and-listeners'],
 });

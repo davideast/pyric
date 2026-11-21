@@ -7,5 +7,6 @@ export default row({
   behavior: 'Returns a DatabaseReference pointing to the specified slash-delimited path.',
   featureKeys: ['getReference'],
   status: 'conforms',
+  oracleObservations: ['rtdb-kotlin-dedicated-crud-and-query-order'],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

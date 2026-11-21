@@ -5,5 +5,6 @@ export default row({
   api: 'FirebaseAuth.signInWithEmailAndPassword(email, password)',
   behavior: 'Authenticates a user with email and password via bridge auth.signInEmail, updating currentUser and AuthLens.',
   featureKeys: ['signInWithEmailAndPassword'],
-  flipped: 'live-host',
+  flipped: 'oracle-backed',
+  oracleObservations: ['auth-kotlin-email-password-lifecycle'],
 });

@@ -7,5 +7,6 @@ export default row({
   behavior: 'Returns an iterable of child DataSnapshots ordered according to the active query.',
   featureKeys: ['children'],
   status: 'conforms',
+  oracleObservations: ['rtdb-kotlin-dedicated-crud-and-query-order'],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

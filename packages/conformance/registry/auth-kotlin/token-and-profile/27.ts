@@ -5,5 +5,6 @@ export default row({
   api: 'FirebaseUser.updateProfile(request)',
   behavior: 'Mutates user display name and photo URI via bridge auth.updateProfile, updating local user state.',
   featureKeys: ['updateProfile'],
-  flipped: 'live-host',
+  flipped: 'oracle-backed',
+  oracleObservations: ['auth-kotlin-profile-reload-and-listeners'],
 });

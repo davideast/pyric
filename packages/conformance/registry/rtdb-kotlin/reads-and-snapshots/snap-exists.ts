@@ -7,5 +7,6 @@ export default row({
   behavior: 'Returns true if the DataSnapshot contains non-null data.',
   featureKeys: ['exists'],
   status: 'conforms',
+  oracleObservations: ['rtdb-kotlin-dedicated-crud-and-query-order'],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

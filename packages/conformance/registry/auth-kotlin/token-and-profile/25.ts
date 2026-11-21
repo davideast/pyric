@@ -5,5 +5,6 @@ export default row({
   api: 'FirebaseUser.getIdToken(forceRefresh)',
   behavior: 'Retrieves the JWT ID token string, forcing refresh via bridge auth.getIdTokenResult when forceRefresh is true.',
   featureKeys: ['getIdToken'],
-  flipped: 'live-host',
+  flipped: 'oracle-backed',
+  oracleObservations: ['auth-kotlin-profile-reload-and-listeners'],
 });

@@ -7,5 +7,6 @@ export default row({
   behavior: 'Performs a multi-path atomic update of specified child keys without overwriting omitted siblings.',
   featureKeys: ['updateChildren'],
   status: 'conforms',
+  oracleObservations: ['rtdb-kotlin-dedicated-crud-and-query-order'],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

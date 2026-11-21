@@ -3,15 +3,27 @@ import type {
   BridgeMessage,
   WorkerOpFrame,
   WorkerResFrame,
+  WorkerSubFrame,
 } from '../../../cli/dist/bridge/protocol.js';
 import { createHostedRuntime } from '../../../cli/dist/serve/hosted/runtime.js';
 import { REPO_ROOT } from '../../src/ledger.ts';
 
-export interface HostedBridgeHarness {
+export interface HostedKotlinBridgeOptions {
+  readonly projectId: string;
+  readonly permissive?: boolean;
+  readonly databaseRules?: { rules: Record<string, unknown> } | null;
+  readonly databaseRulesByInstance?: Record<string, { rules: Record<string, unknown> }>;
+}
+
+export interface HostedKotlinBridgeHarness {
   readonly projectId: string;
   sendOp(op: Record<string, unknown>): Promise<WorkerResFrame>;
+  subscribe(subId: string, sub: Record<string, unknown>, onSnap: (value: unknown) => void): void;
+  unsubscribe(subId: string): void;
   close(): Promise<void>;
 }
+
+const CLIENT_SESSION_ID = 'kt-oracle-replay-client';
 
 function makeInMemoryHostedPersistence() {
   const storageStub = {
@@ -36,19 +48,37 @@ function makeInMemoryHostedPersistence() {
   };
 }
 
-export async function openHostedKotlinAuthBridge(projectId: string): Promise<HostedBridgeHarness> {
+export async function openHostedKotlinBridge(
+  options: HostedKotlinBridgeOptions,
+): Promise<HostedKotlinBridgeHarness> {
   const pendingReplies = new Map<string, (frame: WorkerResFrame) => void>();
+  const pendingTimers = new Set<ReturnType<typeof setTimeout>>();
+  const subListeners = new Map<string, (value: unknown) => void>();
   const persistence = makeInMemoryHostedPersistence();
+
+  let permissive = true;
+  if (options.permissive !== undefined) {
+    permissive = options.permissive;
+  }
+  let databaseRules: { rules: Record<string, unknown> } | null = null;
+  if (options.databaseRules !== undefined) {
+    databaseRules = options.databaseRules;
+  }
+  let rulesByInstance: Record<string, { rules: Record<string, unknown> }> = {};
+  if (options.databaseRulesByInstance !== undefined) {
+    rulesByInstance = options.databaseRulesByInstance;
+  }
+
   const runtime = await createHostedRuntime(
     {
       rules: null,
       rulesHash: null,
-      databaseRules: null,
+      databaseRules,
       databaseRulesHash: null,
       databaseInstances: {
-        defaultInstance: `${projectId}-default-rtdb`,
-        projectId,
-        rules: {},
+        defaultInstance: `${options.projectId}-default-rtdb`,
+        projectId: options.projectId,
+        rules: rulesByInstance,
       },
       storageRules: null,
       storageRulesHash: null,
@@ -56,9 +86,9 @@ export async function openHostedKotlinAuthBridge(projectId: string): Promise<Hos
       seed: null,
       capture: false,
       hosted: true,
-      permissive: true,
-      projectKey: projectId,
-      sessionToken: `tok-${projectId}`,
+      permissive,
+      projectKey: options.projectId,
+      sessionToken: `tok-${options.projectId}`,
     },
     'http://127.0.0.1:4400',
     (frame: BridgeMessage) => {
@@ -68,6 +98,11 @@ export async function openHostedKotlinAuthBridge(projectId: string): Promise<Hos
           pendingReplies.delete(frame.id);
           resolver(frame);
         }
+      } else if (frame.type === 'worker-snap') {
+        const listener = subListeners.get(frame.subId);
+        if (listener !== undefined) {
+          listener(frame.value);
+        }
       }
     },
     REPO_ROOT,
@@ -76,28 +111,54 @@ export async function openHostedKotlinAuthBridge(projectId: string): Promise<Hos
 
   let seq = 0;
   return {
-    projectId,
+    projectId: options.projectId,
     sendOp(op: Record<string, unknown>): Promise<WorkerResFrame> {
       seq += 1;
-      const id = `kt-auth-oracle-${seq}`;
+      const id = `kt-oracle-${seq}`;
       return new Promise<WorkerResFrame>((resolveReply, rejectReply) => {
         const timer = setTimeout(() => {
+          pendingTimers.delete(timer);
           pendingReplies.delete(id);
           rejectReply(new Error(`Hosted worker-op '${id}' timed out`));
         }, 5_000);
+        pendingTimers.add(timer);
         pendingReplies.set(id, (frame) => {
           clearTimeout(timer);
+          pendingTimers.delete(timer);
           resolveReply(frame);
         });
         runtime.receive({
           type: 'worker-op',
           id,
-          clientSessionId: 'kt-oracle-replay-client',
+          clientSessionId: CLIENT_SESSION_ID,
           op: op as unknown as WorkerOpFrame['op'],
         });
       });
     },
+    subscribe(subId: string, sub: Record<string, unknown>, onSnap: (value: unknown) => void): void {
+      subListeners.set(subId, onSnap);
+      runtime.receive({
+        type: 'worker-sub',
+        subId,
+        clientSessionId: CLIENT_SESSION_ID,
+        sub: sub as unknown as WorkerSubFrame['sub'],
+      });
+    },
+    unsubscribe(subId: string): void {
+      subListeners.delete(subId);
+      runtime.receive({
+        type: 'worker-unsub',
+        subId,
+        clientSessionId: CLIENT_SESSION_ID,
+      });
+    },
     async close(): Promise<void> {
+      for (const timer of pendingTimers) {
+        clearTimeout(timer);
+      }
+      pendingTimers.clear();
+      pendingReplies.clear();
+      subListeners.clear();
       await runtime.close();
     },
   };

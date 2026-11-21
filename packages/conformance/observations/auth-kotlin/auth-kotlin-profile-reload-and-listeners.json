@@ -1,7 +1,17 @@
 {
   "name": "auth-kotlin-profile-reload-and-listeners",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "auth-kotlin#27",
+  "rowIds": [
+    "auth-kotlin#2",
+    "auth-kotlin#13",
+    "auth-kotlin#14",
+    "auth-kotlin#17",
+    "auth-kotlin#18",
+    "auth-kotlin#25",
+    "auth-kotlin#27",
+    "auth-kotlin#28",
+    "auth-kotlin#29"
+  ],
   "description": "Upstream Android FirebaseAuth UserProfileChangeRequest updateProfile, reload, cached vs forced getIdToken refresh, and AuthStateListener vs IdTokenListener transition counts under Robolectric.",
   "observedAt": "2026-11-21T01:39:48.535Z",
   "androidBomVersion": "35.2.0",
