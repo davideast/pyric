@@ -44,6 +44,21 @@ import {
 import { createBridgeMount } from '../serve/bridge-mount.js';
 import { writeOwnedSessionFile } from '../serve/local-session-token.js';
 import { createAppPorts } from '../serve/app-ports.js';
+import {
+  effectiveRequestScheme,
+  parseTrustProxySetting,
+  type RemoteAccessOptions,
+} from '../serve/guard-policy.js';
+import {
+  formatRemoteAccessStartupLines,
+  resolveRemoteAccessConfig,
+  type RemoteAccessSetting,
+} from '../serve/remote-access-config.js';
+import {
+  parseAllowedHostsInput,
+  parseAllowRemotePeersInput,
+  parseTrustProxyInput,
+} from '../serve/remote-access-parse.js';
 import { openBrowser, shouldAutoOpen } from '../serve/open-browser.js';
 import { readPyricConfig, type PyricConfig } from './pyric-config.js';
 import {
@@ -256,6 +271,8 @@ async function startServeRuntime(opts: {
   fresh?: boolean;
   /** Extra hostnames allowed past the DNS-rebinding guard. */
   allowedHosts?: string[];
+  /** Explicit remote workstation / reverse-proxy access configuration. */
+  remoteAccess?: RemoteAccessSetting;
   /** Write the session capture to `.pyric/last-session.json` so `pyric verify`
    *  can replay it. Default true; pass false (via `--no-capture`) to suppress.
    *  This is independent of `--persist` — capture records the live session
@@ -333,6 +350,16 @@ async function startServeRuntime(opts: {
     isLive ||
     opts.sessionToken === true ||
     (opts.sessionToken === undefined && pyricConfig.sessionToken === true);
+  const resolvedRemote = resolveRemoteAccessConfig({
+    option: opts.remoteAccess,
+    allowedHosts: opts.allowedHosts,
+    configAllowedHosts: pyricConfig.allowedHosts,
+    configRemoteAccess: pyricConfig.remoteAccess,
+    env: process.env,
+  });
+  const effectiveAllowedHosts = resolvedRemote.allowedHosts;
+  const effectiveRemoteAccess: RemoteAccessOptions | undefined = resolvedRemote.remoteAccess;
+  const effectiveTrustProxy = parseTrustProxySetting(effectiveRemoteAccess?.trustProxy);
   const owners = resolveOwnersConfig(pyricConfig.owners);
   const ruleOverrides = pyricConfig.rules;
   const hasRuleOverrides = ruleOverrides !== undefined && ruleOverrides !== '';
@@ -454,7 +481,10 @@ async function startServeRuntime(opts: {
 
   // `pyric sandbox -- next dev` serves the page from Next's port, so the
   // bridge and the guarded `/__pyric/*` routes accept the port they learn.
-  const appPorts = createAppPorts(opts.host ?? 'localhost');
+  const appPorts = createAppPorts(opts.host ?? 'localhost', {
+    allowedHosts: effectiveAllowedHosts,
+    trustProxy: effectiveRemoteAccess?.trustProxy,
+  });
   const needsBridge = Boolean(opts.bridge || opts.hosted);
   let bridgeMount: ReturnType<typeof createBridgeMount> | null = null;
   if (needsBridge) {
@@ -465,11 +495,13 @@ async function startServeRuntime(opts: {
         disableAuditLog: opts.disableAuditLog,
         liveHost,
         ownWriteRefusal: liveStart?.writeRefusal,
-        upgradeGuard: { boundHost: opts.host ?? 'localhost', allowedHosts: opts.allowedHosts },
+        upgradeGuard: { boundHost: opts.host ?? 'localhost', allowedHosts: effectiveAllowedHosts },
         learnsProxyPorts: true,
         appPorts,
         sessionToken,
         requireSessionToken,
+        remoteAccess: effectiveRemoteAccess,
+        upgradeRejectionLogger: (line) => logger.note(line),
     });
   }
   const mount = bridgeMount;
@@ -509,7 +541,8 @@ async function startServeRuntime(opts: {
     session = await createSandboxSession({
       projectDir: opts.cwd,
       boundHost: opts.host ?? 'localhost',
-      allowedHosts: opts.allowedHosts,
+      allowedHosts: effectiveAllowedHosts,
+      remoteAccess: effectiveRemoteAccess,
       appPorts,
       firebaseConfig: config,
       sdk: { dir: bundle.outDir, workerVersion },
@@ -583,8 +616,11 @@ async function startServeRuntime(opts: {
   const allowsAppOrigin = (req: IncomingMessage): boolean => {
     const boundHost = opts.host ?? 'localhost';
     const ports = appPorts.forRequest(req);
-    const scheme = requestSocketScheme(req);
-    return isAllowedOriginOnPorts(getHeader(req, 'origin'), boundHost, opts.allowedHosts ?? [], ports, scheme) && !isForeignFetchSite(req, boundHost, ports, scheme);
+    const scheme = effectiveRequestScheme(req, effectiveTrustProxy) ?? requestSocketScheme(req);
+    return (
+      isAllowedOriginOnPorts(getHeader(req, 'origin'), boundHost, effectiveAllowedHosts, ports, scheme) &&
+      !isForeignFetchSite(req, boundHost, ports, scheme, effectiveAllowedHosts)
+    );
   };
   const gatewayHandler = opts.functionsHandler;
   let functionsHandler: ((req: IncomingMessage, res: ServerResponse) => Promise<boolean>) | undefined;
@@ -609,7 +645,8 @@ async function startServeRuntime(opts: {
         remotePeer: !ctx.localPeer,
       }),
       sessionToken,
-      allowedHosts: opts.allowedHosts,
+      allowedHosts: effectiveAllowedHosts,
+      remoteAccess: effectiveRemoteAccess,
       logger,
     });
   } catch (error) {
@@ -880,6 +917,17 @@ async function startServeRuntime(opts: {
   if (hasBridge) {
     logger.info(`✔ bridge   MCP endpoint: ${handle.url}/__pyric/mcp (sandbox peers over ws at /__pyric/sandbox)`);
   }
+  if (effectiveRemoteAccess !== undefined) {
+    const startupLines = formatRemoteAccessStartupLines({
+      remoteAccess: effectiveRemoteAccess,
+      sessionToken,
+      https: handle.url.startsWith('https://'),
+      prefix: '  ',
+    });
+    for (const line of startupLines) {
+      logger.info(line);
+    }
+  }
   // AI is a mounted service like the bridge: `/__pyric/ai-proxy` answers from
   // the first request on, whether or not anything is configured. `pyric
   // sandbox` has no AI flag, so the ENGINE is always the page's own `getAI()`
@@ -1053,6 +1101,8 @@ export interface LiveServeStart {
   project: FirebaseProjectResolution;
   /** The installed `@pyric/live`'s refusal of pyric's own writes: Studio's, an MCP tool's, a command's, the seed file's. */
   writeRefusal: PyricWriteRefusal;
+  /** Explicit second opt-in set only by `pyric-live --allow-remote-live` to admit non-loopback peers in live mode. */
+  allowRemotePeers?: boolean;
 }
 
 export interface ServeRunHost {
@@ -1152,11 +1202,60 @@ export async function runServe(parsed: ParsedArgs, runHost: ServeRunHost = {}): 
     const watch = disablesWatch ? false : undefined;
     const capture = !parsed.flags.get('no-capture');
     const flagAllowedHosts = parsed.flags.get('allowed-host');
-    const hasAllowedHostsFlag = typeof flagAllowedHosts === 'string';
     let allowedHosts: string[] | undefined;
-    if (hasAllowedHostsFlag) {
-      allowedHosts = flagAllowedHosts.split(',').map((hostname) => hostname.trim()).filter(Boolean);
+    if (flagAllowedHosts !== undefined) {
+      if (typeof flagAllowedHosts === 'boolean') {
+        throw new Error('pyric: --allowed-host requires a hostname or comma-separated list.');
+      }
+      let hostInputs: string[];
+      if (Array.isArray(flagAllowedHosts)) {
+        hostInputs = flagAllowedHosts.filter((entry): entry is string => typeof entry === 'string');
+      } else {
+        hostInputs = [flagAllowedHosts];
+      }
+      allowedHosts = parseAllowedHostsInput(hostInputs);
     }
+    const flagAllowPeers = parsed.flags.get('allow-remote-peers');
+    const flagTrustProxy = parsed.flags.get('trust-proxy');
+    const allowLiveRemotePeers = runHost.liveHost?.allowRemotePeers === true;
+    let remoteAccess: RemoteAccessOptions | undefined;
+    if (flagAllowPeers !== undefined || flagTrustProxy !== undefined || allowLiveRemotePeers) {
+      const parsedRemote: RemoteAccessOptions = {};
+      if (flagAllowPeers !== undefined) {
+        let lastPeer: string | boolean | undefined;
+        if (Array.isArray(flagAllowPeers)) {
+          lastPeer = flagAllowPeers[flagAllowPeers.length - 1];
+        } else {
+          lastPeer = flagAllowPeers;
+        }
+        if (lastPeer !== undefined) {
+          parsedRemote.allowPeers = parseAllowRemotePeersInput(lastPeer);
+        }
+      }
+      if (flagTrustProxy !== undefined) {
+        let lastTrust: string | boolean | undefined;
+        if (Array.isArray(flagTrustProxy)) {
+          lastTrust = flagTrustProxy[flagTrustProxy.length - 1];
+        } else {
+          lastTrust = flagTrustProxy;
+        }
+        if (lastTrust !== undefined) {
+          parsedRemote.trustProxy = parseTrustProxyInput(lastTrust);
+        }
+      }
+      if (allowLiveRemotePeers) {
+        parsedRemote.allowLiveRemotePeers = true;
+      }
+      remoteAccess = parsedRemote;
+    }
+    const resolvedGatewayRemote = resolveRemoteAccessConfig({
+      option: remoteAccess,
+      allowedHosts,
+      configAllowedHosts: pyricConfig.allowedHosts,
+      configRemoteAccess: pyricConfig.remoteAccess,
+      env: process.env,
+    });
+    const gatewayTrustProxy = parseTrustProxySetting(resolvedGatewayRemote.remoteAccess?.trustProxy);
     let logger: Parameters<typeof startServe>[0]['logger'];
     if (json) logger = stderrServeLogger();
     if (functionsProjectId !== null) {
@@ -1169,6 +1268,7 @@ export async function runServe(parsed: ParsedArgs, runHost: ServeRunHost = {}): 
           (warning) => process.stderr.write(`  ⚠ ${warning}\n`),
         ),
         staticFileExists: (pathname) => runtime !== undefined && runtime.publicDir !== null && resolveHostingFile(runtime.publicDir, pathname) !== null,
+        trustProxy: gatewayTrustProxy,
         onWarning: (warning) => process.stderr.write(`  ⚠ ${warning}\n`),
         onServed: (record) => {
           const { failed, line } = servedLine(record);
@@ -1197,6 +1297,7 @@ export async function runServe(parsed: ParsedArgs, runHost: ServeRunHost = {}): 
       // mirrors --no-open: default is true, one flag inverts it.
       capture,
       allowedHosts,
+      remoteAccess,
       project: firebaseProject.projectId,
       firebaseProject,
       functionsHandler: functionsGateway?.handle,

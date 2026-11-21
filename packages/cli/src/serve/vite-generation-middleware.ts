@@ -4,6 +4,11 @@ import { extname } from 'node:path';
 import type { ViteDevServer } from 'vite';
 import { answerMountClosed, HEALTH_PATH, type BridgeMount } from './bridge-mount.js';
 import type { SandboxSession } from './sandbox-session.js';
+import type { RemoteAccessOptions } from './guard-policy.js';
+import {
+  isAuthenticatedRemoteHtmlRequest,
+  resolveHtmlCookieScheme,
+} from './remote-access-config.js';
 import {
   appendSetCookieHeader,
   canBootstrapHtmlSession,
@@ -24,15 +29,33 @@ export function currentViteHtmlPeerContext(): { localPeer: boolean } | undefined
  * `HttpOnly; SameSite=Strict; Path=/__pyric` session cookie on eligible local HTML navigations.
  */
 export function attachViteHtmlSessionBootstrap(
-  server: Pick<ViteDevServer, 'middlewares'> & { config?: { server?: { host?: string | boolean } } },
+  server: Pick<ViteDevServer, 'middlewares'> & {
+    config?: { server?: { host?: string | boolean; allowedHosts?: true | string[] } };
+  },
   getSessionToken: () => string | undefined,
+  getRemoteAccess?: () => { allowedHosts: readonly string[]; remoteAccess?: RemoteAccessOptions },
 ): void {
   server.middlewares.use((req: IncomingMessage & { originalUrl?: string }, res: ServerResponse, next: () => void) => {
     const boundHost = typeof server.config?.server?.host === 'string' ? server.config.server.host : 'localhost';
     const canBootstrap = canBootstrapHtmlSession(req, boundHost);
     const token = getSessionToken();
+    const remoteState = getRemoteAccess?.();
+    let fallbackHosts: string[] = [];
+    if (Array.isArray(server.config?.server?.allowedHosts)) {
+      fallbackHosts = server.config.server.allowedHosts;
+    }
+    const effectiveAllowedHosts = remoteState?.allowedHosts ?? fallbackHosts;
+    const authenticatedRemote =
+      !canBootstrap &&
+      isAuthenticatedRemoteHtmlRequest(req, {
+        boundHost,
+        allowedHosts: effectiveAllowedHosts,
+        remoteAccess: remoteState?.remoteAccess,
+        sessionToken: token,
+      });
+    const isBootstrapped = canBootstrap || authenticatedRemote;
     const method = req.method ?? 'GET';
-    if (canBootstrap && token && (method === 'GET' || method === 'HEAD')) {
+    if (isBootstrapped && token && (method === 'GET' || method === 'HEAD')) {
       const path = requestPath(req);
       const ext = extname(path).toLowerCase();
       const accept = typeof req.headers.accept === 'string' ? req.headers.accept : '';
@@ -43,10 +66,11 @@ export function attachViteHtmlSessionBootstrap(
         isDocumentDest &&
         (accept.includes('text/html') || ext === '' || ext === '.html' || ext === '.htm');
       if (isHtmlNavigation) {
-        appendSetCookieHeader(res, formatSessionCookie(token));
+        const effectiveScheme = resolveHtmlCookieScheme(req, remoteState?.remoteAccess);
+        appendSetCookieHeader(res, formatSessionCookie(token), { effectiveScheme });
       }
     }
-    viteHtmlPeerStorage.run({ localPeer: canBootstrap }, next);
+    viteHtmlPeerStorage.run({ localPeer: isBootstrapped }, next);
   });
 }
 
@@ -74,9 +98,19 @@ export function attachViteGenerationMiddleware(input: {
   server: ViteDevServer;
   bridge: BridgeMount | null;
   session: SandboxSession;
+  allowedHosts?: readonly string[];
 }): () => void {
   const { server, bridge, session } = input;
   const serverOptions = server.config.server;
+  const extraAllowedHosts: string[] = [];
+  if (Array.isArray(serverOptions.allowedHosts)) {
+    for (const entry of serverOptions.allowedHosts) {
+      if (!extraAllowedHosts.includes(entry)) extraAllowedHosts.push(entry);
+    }
+  }
+  for (const entry of input.allowedHosts ?? []) {
+    if (!extraAllowedHosts.includes(entry)) extraAllowedHosts.push(entry);
+  }
   const stack = server.middlewares;
   let active = true;
   adjustLive(stack, 1);
@@ -102,7 +136,7 @@ export function attachViteGenerationMiddleware(input: {
       const allowed = isAllowedHost(
         req.headers.host,
         typeof serverOptions.host === 'string' ? serverOptions.host : 'localhost',
-        Array.isArray(serverOptions.allowedHosts) ? serverOptions.allowedHosts : [],
+        extraAllowedHosts,
       );
       if (!allowed) {
         res.statusCode = 403;

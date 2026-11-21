@@ -24,3 +24,5 @@ export { NODE_BUILTIN_RE, NODE_BUILTIN_SHIMS } from './serve/bundler.js';
 
 export type { FlowConfig } from './serve/flow-config.js';
 export type { OwnersConfig } from './serve/owners-config.js';
+export type { RemoteAccessOptions } from './serve/guard-policy.js';
+export type { RemoteAccessSetting } from './serve/remote-access-config.js';

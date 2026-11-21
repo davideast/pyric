@@ -173,6 +173,13 @@ describe('init entry payload refusal (#2052)', () => {
         expected: 'refused the request (403)',
         forbidden: '<html>',
       },
+      {
+        respond: () => new Response(JSON.stringify({ error: 'unlock_required', unlockPath: '/__pyric/unlock' }), {
+          status: 401,
+          headers: { 'content-type': 'application/json' },
+        }),
+        expected: 'Open /__pyric/unlock?next=',
+      },
     ];
     for (const testCase of cases) {
       const unhandled: unknown[] = [];

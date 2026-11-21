@@ -16,6 +16,7 @@ import type { FunctionsChildHttpReady } from '../child-protocol.js';
 import { DEFAULT_REGION, type HttpFunctionInfo } from './discovery.js';
 import { refuseForeignOrigin, type AppOriginCheck } from './private-origin.js';
 import { proxyToChild } from './proxy.js';
+import type { TrustProxyPolicy } from '../../serve/guard-policy.js';
 import { rewriteTarget, sessionCookieOnly, type HostingRewrite, type RewriteFunction } from './rewrites.js';
 import { matchEmulatorPath } from './routes.js';
 import { unavailableReason, type FunctionsPlane } from './unavailable.js';
@@ -63,6 +64,8 @@ export interface FunctionsHttpGatewayOptions {
   onWarning?(warning: string): void;
   /** Hosting's cut for a rewritten request; tests shorten it. */
   hostingRewriteTimeoutSeconds?: number;
+  /** Optional proxy trust policy forwarded to `proxyToChild` for `x-forwarded-proto`. */
+  trustProxy?: TrustProxyPolicy;
   plane: FunctionsPlane;
 }
 
@@ -264,6 +267,7 @@ export function createFunctionsHttpGateway(options: FunctionsHttpGatewayOptions)
         forwardUrl: resolved.forwardUrl,
         timeoutMs: timeout.seconds * 1_000,
         timeoutMessage: timeoutMessage(resolved.fn.exportName, timeout),
+        ...(options.trustProxy !== undefined ? { trustProxy: options.trustProxy } : {}),
         ...(headerOverrides ? { headerOverrides } : {}),
       });
       const method = req.method ?? 'GET';

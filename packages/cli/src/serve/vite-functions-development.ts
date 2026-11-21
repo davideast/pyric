@@ -20,6 +20,7 @@ import {
 } from '../functions/http/report.js';
 import type { HostingRewrite } from '../functions/http/rewrites.js';
 import { formatUrlHost } from './advertised-host.js';
+import type { TrustProxyPolicy } from './guard-policy.js';
 import type { BridgeMount } from './bridge-mount.js';
 
 type ConnectHandler = (req: IncomingMessage, res: ServerResponse, next: (error?: unknown) => void) => void;
@@ -49,6 +50,8 @@ export interface ViteFunctionsDevelopmentOptions {
   baseEnv: NodeJS.ProcessEnv;
   registerUrl: string;
   childModuleUrl?: string | URL;
+  /** Optional proxy trust policy forwarded to `proxyToChild` for `x-forwarded-proto`. */
+  trustProxy?: TrustProxyPolicy;
   /** Internal test seam for the host adapter; production uses the shared runtime. */
   runtimeFactory?: typeof createFunctionsDevelopmentRuntime;
 }
@@ -181,6 +184,7 @@ export function attachViteFunctionsDevelopment(
     initial: { kind: 'starting' },
     ...(options.rewrites ? { rewrites: options.rewrites } : {}),
     ...(options.staticFileExists ? { staticFileExists: options.staticFileExists } : {}),
+    ...(options.trustProxy !== undefined ? { trustProxy: options.trustProxy } : {}),
     onWarning: (warning) => options.logger.warn(`  ⚠ [pyric] ${warning}`),
     onServed: (record) => {
       const { failed, line } = servedLine(record);
