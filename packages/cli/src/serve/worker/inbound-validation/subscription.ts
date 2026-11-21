@@ -43,6 +43,9 @@ export function assertSubscription(message: Record<string, unknown>): void {
       assertAiArguments(message);
       return;
     }
+    case 'firestore.writes':
+      requireOptionalString(target.database, 'target.database');
+      return;
     default:
       requireOptionalBoolean(message.includeMetadataChanges, 'includeMetadataChanges');
       assertQueryStructure(target);

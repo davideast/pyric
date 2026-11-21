@@ -2,7 +2,20 @@ import type { Query as RtdbQuery } from 'pyric/database';
 import type { AuthLens, ListenerOwner } from 'pyric/sandbox';
 import type { AiAppCheckWire, AiEngineConfigWire } from './ai.js';
 import type { AuthSubMessage } from './auth.js';
-import type { FirestoreSubMessage } from './firestore.js';
+import type { FirestoreSubMessage, ResponseDocValueEncoding } from './firestore.js';
+
+export interface FirestoreWriteSubMessage {
+  t: 'sub';
+  subId: string;
+  target: {
+    service: 'firestore.writes';
+    database?: string;
+  };
+  actAs?: AuthLens;
+  docValueEncoding?: ResponseDocValueEncoding;
+  issuer?: 'studio';
+  relaySource?: 'remote';
+}
 
 export interface EventSubMessage {
   t: 'sub';
@@ -92,6 +105,7 @@ export interface PresenceSnapshot {
 
 export type SubMessage =
   | FirestoreSubMessage
+  | FirestoreWriteSubMessage
   | AuthSubMessage
   | EventSubMessage
   | RtdbValueSubMessage
@@ -99,6 +113,15 @@ export type SubMessage =
   | AiStreamSubMessage
   | MessagingSubMessage
   | PresenceSubMessage;
+
+export function isFirestoreWriteSub(msg: SubMessage): msg is FirestoreWriteSubMessage {
+  return (
+    typeof msg.target === 'object' &&
+    msg.target !== null &&
+    'service' in msg.target &&
+    msg.target.service === 'firestore.writes'
+  );
+}
 
 export function isEventSub(msg: SubMessage): msg is EventSubMessage {
   return msg.target === 'events';

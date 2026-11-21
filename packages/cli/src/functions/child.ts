@@ -14,6 +14,9 @@ import {
   type FunctionsChildMessage,
 } from './child-protocol.js';
 import { callableOnCallFamily, inspectOnCall } from './callable/discovery.js';
+import { startFirestoreChildRuntime } from './firestore/child-runtime.js';
+import { firestoreTriggersFamily } from './firestore/discovery.js';
+import type { FirestoreTriggerExecutionHost } from './firestore/execution.js';
 import { startHttpChildServer, type HttpChildServer } from './http/child-server.js';
 import { CHILD_TOKEN_ENV, takeChildToken } from './http/child-token.js';
 import { httpFunctionInfo, httpOnRequestFamily, inspectOnRequest } from './http/discovery.js';
@@ -101,6 +104,7 @@ async function runFunctionsChild(): Promise<void> {
   const runtimeSandbox = connectAmbientRuntimeSandbox(process.env);
   let host: RtdbValueExecutionHost | undefined;
   let storageHost: StorageTriggerExecutionHost | undefined;
+  let firestoreHost: FirestoreTriggerExecutionHost | undefined;
   let httpServer: HttpChildServer | undefined;
   let closing: Promise<void> | undefined;
 
@@ -112,8 +116,9 @@ async function runFunctionsChild(): Promise<void> {
       await httpServer?.close();
       storageHost?.close();
       await storageHost?.idle();
+      firestoreHost?.close();
       host?.close();
-      await host?.idle();
+      await Promise.all([firestoreHost?.idle(), host?.idle()]);
       delete (globalThis as Record<symbol, unknown>)[LAZY_DEFAULT_AMBIENT_APP];
       runtimeSandbox.close();
       const apps = adminApp.getApps();
@@ -169,6 +174,10 @@ async function runFunctionsChild(): Promise<void> {
   process.once('SIGTERM', onSignal);
 
   try {
+    const projectId =
+      process.env.GCLOUD_PROJECT ??
+      process.env.GOOGLE_CLOUD_PROJECT ??
+      'demo-project';
     const exported = await loadFunctionsModuleExports(entry);
     host = startRtdbChildRuntime({
       exported,
@@ -190,6 +199,18 @@ async function runFunctionsChild(): Promise<void> {
     if (storageHost.triggerCount > 0) {
       surviveUncaughtErrors();
     }
+    firestoreHost = startFirestoreChildRuntime({
+      entry,
+      exported,
+      sandbox: runtimeSandbox,
+      projectId,
+      location,
+      send,
+    });
+    await firestoreHost.ready;
+    if (firestoreHost.triggerCount > 0) {
+      surviveUncaughtErrors();
+    }
     const httpFunctions = [...inspectOnRequest(exported), ...inspectOnCall(exported)];
     if (httpFunctions.length > 0) {
       if (httpToken === undefined) throw new Error(`Functions child is missing ${CHILD_TOKEN_ENV}`);
@@ -199,10 +220,12 @@ async function runFunctionsChild(): Promise<void> {
     const unsupportedTriggers = findUnsupportedTriggers(exported, [
       rtdbValueTriggerFamily,
       storageTriggersFamily,
+      firestoreTriggersFamily,
       httpOnRequestFamily,
       callableOnCallFamily,
     ]);
-    const totalTriggerCount = host.triggerCount + storageHost.triggerCount;
+    const totalTriggerCount =
+      host.triggerCount + storageHost.triggerCount + firestoreHost.triggerCount;
     if (httpServer === undefined) {
       send({
         type: 'ready',
