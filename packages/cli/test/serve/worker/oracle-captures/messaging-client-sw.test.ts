@@ -16,6 +16,12 @@ import {
   replayMessagingSwDeliveryMetricsToggle,
   type MessagingClientSwReplayTarget,
 } from '../../../../../conformance/src/messaging-client-sw-replay.ts';
+import { observeMessagingMultiTabRouting } from '../../../../../conformance/probes/messaging/messaging-web-multi-tab-routing.ts';
+import {
+  replayMessagingMultiTabRouting,
+  type MultiTabMessagingReplaySession,
+  type ReplayTabVisibility,
+} from '../../../../../conformance/src/messaging-multi-tab-replay.ts';
 import { load, restoreSharedWorker } from './support.ts';
 
 restoreSharedWorker();
@@ -213,6 +219,176 @@ async function createServedMessagingTarget(): Promise<MessagingClientSwReplayTar
   };
 }
 
+async function createMultiTabServedMessagingSession(): Promise<MultiTabMessagingReplaySession> {
+  const ctx = await makeHostCtx();
+  ctx.messagingEnabled = true;
+
+  const timers = new Set<ReturnType<typeof setTimeout>>();
+  const sharedIndexedDb = new IDBFactory();
+  const storageMap = new Map<string, string>();
+
+  class RealmSharedWorker {
+    port: FakePort;
+    addEventListener(): void {}
+    constructor() {
+      const { a: clientPort, b: hostPort } = portPair();
+      const hostPortLike: PortLike = {
+        postMessage: (message: OutboundMessage) => hostPort.postMessage(message),
+      };
+      hostPort.onmessage = (event) => {
+        void handleMessage(ctx, hostPortLike, event.data as InboundMessage);
+      };
+      this.port = clientPort;
+    }
+  }
+
+  interface TabRealm {
+    sdk: BundledServedRealm;
+    realmSandbox: Sandbox;
+    app: FirebaseApp;
+    setVisibility?: (next: ReplayTabVisibility) => void;
+  }
+
+  function spawnRealm(withDocument: boolean): TabRealm {
+    let visibilityState: ReplayTabVisibility = 'visible';
+    const visibilityListeners = new Set<() => void>();
+    const documentShim = {
+      get visibilityState(): ReplayTabVisibility {
+        return visibilityState;
+      },
+      querySelector(): null {
+        return null;
+      },
+      addEventListener(type: string, fn: () => void): void {
+        if (type === 'visibilitychange') {
+          visibilityListeners.add(fn);
+        }
+      },
+      removeEventListener(type: string, fn: () => void): void {
+        if (type === 'visibilitychange') {
+          visibilityListeners.delete(fn);
+        }
+      },
+    };
+
+    const realmGlobals: Record<string, unknown> = {
+      console,
+      TextEncoder,
+      TextDecoder,
+      URL,
+      AbortController,
+      MessageEvent,
+      Response,
+      crypto,
+      performance,
+      queueMicrotask,
+      structuredClone,
+      indexedDB: sharedIndexedDb,
+      location: new URL('https://app.example/'),
+      localStorage: {
+        getItem: (key: string) => storageMap.get(key) ?? null,
+        setItem: (key: string, value: string) => {
+          storageMap.set(key, String(value));
+        },
+        removeItem: (key: string) => {
+          storageMap.delete(key);
+        },
+      },
+      SharedWorker: RealmSharedWorker,
+      fetch: async () => Response.json({ hosted: false }),
+      setTimeout: (fn: () => void, ms?: number) => {
+        const handle = setTimeout(fn, ms);
+        timers.add(handle);
+        return handle;
+      },
+      clearTimeout: (handle: ReturnType<typeof setTimeout>) => {
+        timers.delete(handle);
+        clearTimeout(handle);
+      },
+    };
+    if (withDocument) {
+      realmGlobals.document = documentShim;
+      realmGlobals.__PYRIC_WORKER_INIT__ = { hosted: false };
+    }
+
+    const sdk = runInNewContext(bundledSource, realmGlobals) as BundledServedRealm;
+    const realmSandbox = sdk.initializeSandbox();
+    const app = sdk.createAppForSandbox(
+      realmSandbox,
+      {
+        projectId: 'demo-fcm-project',
+        appId: '1:123456789012:web:0a1b2c3d4e5f60718293a4',
+        databaseURL: 'https://test-default-rtdb.firebaseio.com',
+      },
+      'shared-origin-app',
+    );
+
+    const out: TabRealm = { sdk, realmSandbox, app };
+    if (withDocument) {
+      out.setVisibility = (next: ReplayTabVisibility): void => {
+        if (visibilityState === next) return;
+        visibilityState = next;
+        for (const listener of [...visibilityListeners]) {
+          listener();
+        }
+      };
+    }
+    return out;
+  }
+
+  const tabARealm = spawnRealm(true);
+  const tabBRealm = spawnRealm(true);
+  const swRealm = spawnRealm(false);
+
+  const tabAMessaging = tabARealm.sdk.servedClient.getMessaging(tabARealm.app);
+  const tabBMessaging = tabBRealm.sdk.servedClient.getMessaging(tabBRealm.app);
+  const swMessaging = swRealm.sdk.servedSw.getMessaging(swRealm.app);
+
+  let closed = false;
+  const closeSession = async (): Promise<void> => {
+    if (closed) return;
+    closed = true;
+    for (const realm of [tabARealm, tabBRealm, swRealm]) {
+      await realm.sdk.deleteApp(realm.app).catch(() => undefined);
+      realm.realmSandbox.dispose();
+    }
+    for (const timer of timers) {
+      clearTimeout(timer);
+    }
+    timers.clear();
+    ctx.sandbox.dispose();
+  };
+  cleanups.push({ close: closeSession });
+
+  return {
+    onTabAMessage(listener) {
+      return tabARealm.sdk.servedClient.onMessage(tabAMessaging, listener);
+    },
+    onTabBMessage(listener) {
+      return tabBRealm.sdk.servedClient.onMessage(tabBMessaging, listener);
+    },
+    onSwBackgroundMessage(listener) {
+      return swRealm.sdk.servedSw.onBackgroundMessage(swMessaging, listener);
+    },
+    async setTabVisibilities(tabAState, tabBState) {
+      tabARealm.setVisibility?.(tabAState);
+      tabBRealm.setVisibility?.(tabBState);
+      await sleep(25);
+    },
+    async deliver(spec) {
+      await swRealm.sdk.inPageMessaging.sandbox.deliver(
+        swMessaging as inPageMessagingTypes.Messaging,
+        spec,
+      );
+      await sleep(25);
+    },
+    async settleSubscriptions() {
+      await sleep(40);
+    },
+    close: closeSession,
+  };
+}
+
 describe('served SharedWorker messaging client + sw oracle captures', () => {
   it('replays messaging-web-module-boundary-and-accessors verbatim over SharedWorker', async () => {
     const target = await createServedMessagingTarget();
@@ -240,5 +416,13 @@ describe('served SharedWorker messaging client + sw oracle captures', () => {
     const expected = load('messaging-web-client-error-codes');
     const actual = await replayMessagingClientErrorCodes(target);
     expect(actual as unknown).toEqual(expected);
+  });
+
+  it('replays multi-tab foreground fan-out and shared-worker background routing across two tab realms', async () => {
+    const observed = await observeMessagingMultiTabRouting();
+    const actual = await replayMessagingMultiTabRouting(() =>
+      createMultiTabServedMessagingSession(),
+    );
+    expect(actual).toEqual(observed.deliveryRouting);
   });
 });

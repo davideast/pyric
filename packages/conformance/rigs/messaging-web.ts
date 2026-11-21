@@ -3,17 +3,18 @@ import type { RigManifestRecord } from './types.ts';
 /**
  * The FCM web receive-plane rig (`src/capture/messaging-web/harness.ts`).
  * Serves a real `firebase/messaging` app on localhost, launches HEADED
- * Chromium via Playwright against one reused persistent Chrome profile, and
- * drives token minting, foreground `onMessage`, service-worker
- * `onBackgroundMessage`, visibility routing, and `deleteToken` while a real
- * message is pushed from the send plane. Structural facts are captured as
- * `messaging-web-` observations. Real push delivery arrives over the browser's
- * live GCM channel, which needs a headed browser and a person able to confirm
- * the run — this rig cannot be trusted to run itself in CI.
+ * Chromium via Playwright against persistent Chrome profiles, and drives token
+ * minting, foreground `onMessage`, service-worker `onBackgroundMessage`,
+ * visibility routing, multi-device per-token/topic/multicast fan-out,
+ * PushSubscription token rotation, and `deleteToken` while real messages are
+ * pushed from the send plane. Structural facts are captured as `messaging-web-`
+ * observations. Real push delivery arrives over the browser's live GCM channel,
+ * which needs a headed browser and a person able to confirm the run - this rig
+ * cannot run unattended in headless CI.
  */
 export const rig: RigManifestRecord = {
   description:
-    'Serves a real firebase/messaging app and drives HEADED Chromium (Playwright, persistent profile) through token minting, onMessage, onBackgroundMessage, visibility routing, and deleteToken against live push; captures structural facts as messaging-web- observations.',
+    'Serves a real firebase/messaging app and drives HEADED Chromium (Playwright, persistent profile) through token minting, onMessage, onBackgroundMessage, visibility routing, multi-device per-token/topic/multicast fan-out, PushSubscription token rotation, and deleteToken against live push; captures structural facts as messaging-web- observations.',
   script: 'packages/conformance/src/capture/messaging-web/harness.ts',
   observationPrefixes: ['messaging-web-'],
   automation: 'human-witnessed',
@@ -23,7 +24,7 @@ export const rig: RigManifestRecord = {
       {
         name: 'PYRIC_MESSAGING_FIREBASE_CONFIG',
         description:
-          'Web app config JSON (apiKey/projectId/appId/messagingSenderId/…) for the messaging project, the same project as the VAPID key and the send credential. The harness refuses a projectId other than the credential\'s, or an appId whose project number is not the messagingSenderId. Bundled into the served app so the client SDK talks to the real project.',
+          "Web app config JSON (apiKey/projectId/appId/messagingSenderId/...) for the messaging project, the same project as the VAPID key and the send credential. The harness refuses a projectId other than the credential's, or an appId whose project number is not the messagingSenderId. Bundled into the served app so the client SDK talks to the real project.",
       },
       {
         name: 'PYRIC_MESSAGING_VAPID_KEY',
@@ -33,7 +34,7 @@ export const rig: RigManifestRecord = {
       {
         name: 'PYRIC_MESSAGING_PROJECT_ID',
         description:
-          'The messaging project id, read when PYRIC_MESSAGING_SA_BASE64 is unset. Optional: unset, the driver sends for PYRIC_ORACLE_PROJECT_ID, the oracle project (digame-mas). The driver then authenticates with Application Default Credentials from `gcloud auth application-default login --impersonate-service-account=<project service account>`, through src/messaging-credential.ts, and refuses an account that is not a service account of this project.',
+          'The messaging project id, read when PYRIC_MESSAGING_SA_BASE64 is unset. Optional: unset, the driver sends for PYRIC_ORACLE_PROJECT_ID, the oracle project. The driver then authenticates with Application Default Credentials from `gcloud auth application-default login --impersonate-service-account=<project service account>`, through src/messaging-credential.ts, and refuses an account that is not a service account of this project.',
         permission: 'cloudmessaging.messages.create (FCM send)',
       },
       {
@@ -52,21 +53,21 @@ export const rig: RigManifestRecord = {
       'Cloud Messaging enabled on the project, with a Web Push (VAPID) certificate configured.',
     ],
     local: [
-      'Playwright with a Chromium build installed (resolved from packages/playground/node_modules — run bun install there).',
+      'Playwright with a Chromium build installed (resolved from packages/playground/node_modules - run bun install there).',
       'A headed display session: the harness re-execs under caffeinate on macOS and launches a HEADED, push-capable browser, so it cannot run on a headless CI worker.',
-      'A persistent Chrome profile under TMPDIR (launchPersistentContext) — incognito disables web push, so a persistent profile is mandatory and is reused across scenarios in one run.',
+      'Persistent Chrome profile(s) under TMPDIR (launchPersistentContext) - incognito disables web push, so persistent profiles are mandatory.',
     ],
   },
   safety: {
     writes:
-      'Serves a localhost app and writes messaging-web- observation files. The driver pushes real FCM messages to the token the run itself minted; nothing else project-side is mutated.',
+      'Serves a localhost app and writes messaging-web- observation files. The driver pushes real FCM messages to tokens and run-scoped topics minted by the run itself; nothing else project-side is mutated.',
     cleanup:
-      'The deleteToken scenario unregisters the token it minted. The persistent Chrome profile is left under TMPDIR by design so a subsequent run reuses its push subscription.',
+      'Unsubscribes run-scoped topic memberships and deletes secondary/rotated/final tokens minted during the run.',
     unattendedSafe: false,
   },
   freshness: {
     versionField: 'fbSdkVersion',
     policy:
-      'Checked by packages/conformance/src/check-observation-versions.ts against the installed node_modules/firebase/package.json version — client-plane captures carry fbSdkVersion. The single cross-plane deleteToken-then-server-send capture additionally records adminSdkVersion for the transport that sent to the dead token.',
+      'Checked by packages/conformance/src/check-observation-versions.ts against the installed node_modules/firebase/package.json version - client-plane captures carry fbSdkVersion, and cross-plane server-send captures additionally record adminSdkVersion.',
   },
 };
