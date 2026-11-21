@@ -3,6 +3,8 @@ package dev.pyric.storage
 import dev.pyric.bridge.InMemoryBridgeTransport
 import dev.pyric.bridge.PyricBridgeClient
 import dev.pyric.codecs.JsonCodec
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.time.Instant
 import java.util.Base64
@@ -205,7 +207,7 @@ class StorageMockBridgeHarness(
                     id,
                     mapOf(
                         "uploadId" to uploadId,
-                        "uploadUrl" to "/__pyric/storage/v0/b/$storeKey/o?name=$path&upload_id=$uploadId&upload_token=tok"
+                        "uploadUrl" to buildMockUploadRouteUrl(storeKey, path, uploadId)
                     )
                 )
             }
@@ -332,8 +334,7 @@ class StorageMockBridgeHarness(
                 val token = (entry.metadata["downloadTokens"] as? String) ?: UUID.randomUUID().toString().also {
                     entry.metadata["downloadTokens"] = it
                 }
-                val encodedPath = path.replace("/", "%2F").replace(" ", "%20")
-                sendOk(id, mapOf("path" to "/__pyric/storage/v0/b/$displayBucket/o/$encodedPath?alt=media&token=$token"))
+                sendOk(id, mapOf("path" to buildMockDownloadRouteUrl(displayBucket, path, token)))
             }
             "storage.deleteObject" -> {
                 val (storeKey, _) = resolveBuckets(op)
@@ -406,6 +407,29 @@ class StorageMockBridgeHarness(
             nowIso = Instant.ofEpochMilli(clockMillis.addAndGet(1000L)).toString()
         )
     }
+}
+
+private fun encodeMockUriComponent(value: String): String =
+    URLEncoder.encode(value, StandardCharsets.UTF_8.name())
+        .replace("+", "%20")
+        .replace("%21", "!")
+        .replace("%27", "'")
+        .replace("%28", "(")
+        .replace("%29", ")")
+        .replace("%7E", "~")
+
+private fun buildMockUploadRouteUrl(bucketKey: String, path: String, uploadId: String): String {
+    val encodedBucket = encodeMockUriComponent(bucketKey)
+    val encodedName = URLEncoder.encode(path, StandardCharsets.UTF_8.name())
+    val encodedId = URLEncoder.encode(uploadId, StandardCharsets.UTF_8.name())
+    return "/__pyric/storage/v0/b/$encodedBucket/o?name=$encodedName&upload_id=$encodedId&upload_token=tok"
+}
+
+private fun buildMockDownloadRouteUrl(displayBucket: String, path: String, token: String): String {
+    val encodedBucket = encodeMockUriComponent(displayBucket)
+    val encodedPath = encodeMockUriComponent(path)
+    val encodedToken = encodeMockUriComponent(token)
+    return "/__pyric/storage/v0/b/$encodedBucket/o/$encodedPath?alt=media&token=$encodedToken"
 }
 
 private fun buildMockStoredEntry(
