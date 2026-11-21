@@ -1,39 +1,125 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { AppPorts } from './app-ports.js';
+import {
+  createGuardPolicy,
+  effectiveRequestScheme,
+  evaluateGuard,
+  parseTrustProxySetting,
+  type GuardDecision,
+  type GuardSurface,
+  type RemoteAccessOptions,
+  type RequestGuardPolicy,
+} from './guard-policy.js';
 import type { InitPayload } from './init-payload.js';
 import {
   getHeader,
   isAllowedHost,
   isAllowedOriginOnPorts,
-  isForeignFetchSite,
   isLocalPeer,
-  requestSocketScheme,
-} from './server.js';
+} from './loopback-guard.js';
 
-interface NamespaceGuardOptions {
+export interface NamespaceGuardOptions {
   boundHost?: string;
-  allowedHosts?: string[];
+  allowedHosts?: readonly string[];
   appPorts?: AppPorts;
+  sessionToken?: string;
+  requireSessionToken?: boolean;
+  remoteAccess?: RemoteAccessOptions;
+  /** True when `remoteAccess` features (`/unlock`, `allowPeers`, `trustProxy`) are active. */
+  remoteAccessEnabled?: boolean;
 }
 
-const NO_ALLOWED_HOSTS: string[] = [];
+/** Merge `NamespaceOptions.allowedHosts` and `remoteAccess.allowedHosts` preserving order. */
+export function resolveNamespaceAllowedHosts(opts: NamespaceGuardOptions): readonly string[] {
+  const merged: string[] = [];
+  for (const host of opts.allowedHosts ?? []) {
+    if (!merged.includes(host)) merged.push(host);
+  }
+  for (const host of opts.remoteAccess?.allowedHosts ?? []) {
+    if (!merged.includes(host)) merged.push(host);
+  }
+  return merged;
+}
 
-function isAppOrigin(
-  req: IncomingMessage,
-  originHeader: string,
+/** True when remote-access mode is explicitly configured on a namespace handler. */
+function isRemoteAccessActive(opts: NamespaceGuardOptions): boolean {
+  if (opts.remoteAccessEnabled === true) return true;
+  return opts.remoteAccess !== undefined;
+}
+
+/** Build a reusable `RequestGuardPolicy` from namespace options. */
+function buildNamespaceGuardPolicy(
   opts: NamespaceGuardOptions,
-  allowExtraHosts: boolean,
-): boolean {
-  const boundHost = opts.boundHost ?? 'localhost';
-  let extra = NO_ALLOWED_HOSTS;
-  if (allowExtraHosts && opts.allowedHosts !== undefined) {
-    extra = opts.allowedHosts;
+  overrides?: {
+    sessionToken?: string;
+    requireSessionToken?: boolean;
+    allowedHosts?: readonly string[];
+    remoteAccessEnabled?: boolean;
+  },
+): RequestGuardPolicy {
+  const remoteAccess = opts.remoteAccess;
+  const remoteAccessEnabled = overrides?.remoteAccessEnabled ?? isRemoteAccessActive(opts);
+  const allowedHosts = overrides?.allowedHosts ?? resolveNamespaceAllowedHosts(opts);
+  return createGuardPolicy({
+    boundHost: opts.boundHost ?? 'localhost',
+    allowedHosts,
+    allowPeers: remoteAccess?.allowPeers,
+    trustProxy: remoteAccess?.trustProxy,
+    browserUnlock: remoteAccess?.browserUnlock,
+    allowLiveRemotePeers: remoteAccess?.allowLiveRemotePeers,
+    sessionToken: overrides?.sessionToken ?? opts.sessionToken,
+    requireSessionToken: overrides?.requireSessionToken ?? opts.requireSessionToken,
+    remoteAccessEnabled,
+  });
+}
+
+/** Resolve effective HTTP scheme for cookie `; Secure` and proxy checks. */
+export function namespaceRequestScheme(
+  req: IncomingMessage,
+  opts: NamespaceGuardOptions,
+): 'http:' | 'https:' | undefined {
+  const trustProxy = parseTrustProxySetting(opts.remoteAccess?.trustProxy);
+  return effectiveRequestScheme(req, trustProxy);
+}
+
+/**
+ * Write a structured `401` / `403` response for a rejected `GuardDecision`.
+ * When `unlockRequired` is true on JSON routes, responds with the canonical
+ * `{ error: 'unlock_required', unlockPath, message }` payload.
+ */
+export function writeGuardRejection(
+  res: ServerResponse,
+  decision: Extract<GuardDecision, { ok: false }>,
+  options?: { json?: boolean; nextPath?: string },
+): void {
+  if (options?.json === true) {
+    res.writeHead(decision.status, {
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'no-store',
+    });
+    if (decision.unlockRequired) {
+      let unlockPath = '/__pyric/unlock';
+      if (options.nextPath !== undefined && options.nextPath.startsWith('/') && !options.nextPath.startsWith('//')) {
+        unlockPath = `/__pyric/unlock?next=${encodeURIComponent(options.nextPath)}`;
+      }
+      res.end(
+        JSON.stringify({
+          error: 'unlock_required',
+          reason: decision.reason,
+          unlockPath,
+          message: decision.message,
+        }),
+      );
+      return;
+    }
+    res.end(JSON.stringify({ error: decision.message, reason: decision.reason }));
+    return;
   }
-  let ports = opts.appPorts?.forRequest(req);
-  if (ports === undefined && req.socket?.localPort !== undefined) {
-    ports = [req.socket.localPort];
-  }
-  return isAllowedOriginOnPorts(originHeader, boundHost, extra, ports, requestSocketScheme(req));
+  res.writeHead(decision.status, {
+    'content-type': 'text/plain; charset=utf-8',
+    'cache-control': 'no-store',
+  });
+  res.end(decision.message);
 }
 
 /**
@@ -66,34 +152,36 @@ export function unauthenticatedInitPayload(payload: InitPayload): Record<string,
   return out;
 }
 
+function extraAppPortsForRequest(req: IncomingMessage, opts: NamespaceGuardOptions): readonly number[] | undefined {
+  const learned = opts.appPorts?.forRequest(req);
+  if (learned !== undefined && learned.length > 0) return learned;
+  const localPort = req.socket?.localPort;
+  if (localPort !== undefined && localPort > 0) return [localPort];
+  return undefined;
+}
+
 /**
- * PUBLIC STATIC loopback guard for `GET /__pyric/assets/avatar/<uid>`.
+ * Guard for `GET /__pyric/assets/avatar/<uid>`.
  *
- * Avatar URLs are rendered directly in `<img src>`, which cannot attach a
- * session capability token, and inside opaque-origin `blob:` / `srcdoc` iframes,
- * which browsers mark `Sec-Fetch-Site: cross-site`. This guard still requires a
- * local loopback socket peer, a loopback/bound `Host` (never admitting
- * `--allowed-host` tunnel hostnames), and no foreign `Origin`, while
- * `avatar-route.ts` disables paid/disk `source` callbacks whenever
- * `Sec-Fetch-Site` is `cross-site` or `same-site`.
+ * Local loopback `<img>` loads (including opaque-origin `blob:` / `srcdoc`
+ * iframes) remain tokenless with `sourceAllowed: false` on cross-site/same-site
+ * requests. Remote hosts and admitted non-loopback peers are served ONLY when
+ * already authenticated via session token or HttpOnly session cookie, and cross-site
+ * requests to remote avatars are refused with `403`.
  */
 export function guardAvatarLoopback(
   req: IncomingMessage,
   res: ServerResponse,
   opts: NamespaceGuardOptions,
+  url?: URL,
 ): boolean {
-  if (!isLocalPeer(req)) {
-    res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: this route answers clients on this machine only');
-    return false;
-  }
-  const hostHeader = getHeader(req, 'host');
-  if (!isAllowedHost(hostHeader, opts.boundHost ?? 'localhost')) {
-    res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: host not allowed');
-    return false;
-  }
-  const originHeader = getHeader(req, 'origin');
-  if (originHeader !== undefined && !isAppOrigin(req, originHeader, opts, false)) {
-    res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: origin mismatch');
+  const policy = buildNamespaceGuardPolicy(opts);
+  const decision = evaluateGuard(req, policy, 'avatar', {
+    url,
+    extraAppPorts: extraAppPortsForRequest(req, opts),
+  });
+  if (!decision.ok) {
+    writeGuardRejection(res, decision);
     return false;
   }
   return true;
@@ -102,35 +190,20 @@ export function guardAvatarLoopback(
 /**
  * Static `/__pyric/sdk/*` bundle guard.
  *
- * Pages opened from loopback or an explicit `--allowed-host` entry load these
- * static JS modules (which hold zero project data, rules, or credentials) so a
- * non-loopback client can run the client SDK and report why project state stays
- * on this machine. Rejects wildcard/unlisted `Host` headers, foreign `Origin`
- * headers, and `cross-site`/`same-site` Fetch Metadata (`Sec-Fetch-Site`), while
- * bootstrapping the session capability cookie strictly on local loopback peers.
+ * Pages opened from loopback or an explicit `allowedHosts` entry load these
+ * static JS modules (which hold zero project data, rules, or credentials).
  */
 export function guardSdkRequest(
   req: IncomingMessage,
   res: ServerResponse,
   opts: NamespaceGuardOptions,
 ): boolean {
-  const boundHost = opts.boundHost ?? 'localhost';
-  const hostHeader = getHeader(req, 'host');
-  if (!isAllowedHost(hostHeader, boundHost, opts.allowedHosts)) {
-    res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: host not allowed');
-    return false;
-  }
-  const originHeader = getHeader(req, 'origin');
-  if (originHeader !== undefined && !isAppOrigin(req, originHeader, opts, true)) {
-    res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: origin mismatch');
-    return false;
-  }
-  let ports = opts.appPorts?.forRequest(req);
-  if (ports === undefined && req.socket?.localPort) {
-    ports = [req.socket.localPort];
-  }
-  if (isForeignFetchSite(req, boundHost, ports)) {
-    res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: cross-site request rejected');
+  const policy = buildNamespaceGuardPolicy(opts);
+  const decision = evaluateGuard(req, policy, 'sdk', {
+    extraAppPorts: extraAppPortsForRequest(req, opts),
+  });
+  if (!decision.ok) {
+    writeGuardRejection(res, decision);
     return false;
   }
   return true;
@@ -141,8 +214,28 @@ export function canBootstrapSdkSession(req: IncomingMessage, opts: NamespaceGuar
   const boundHost = opts.boundHost ?? 'localhost';
   if (!isAllowedHost(getHeader(req, 'host'), boundHost)) return false;
   const originHeader = getHeader(req, 'origin');
-  if (originHeader !== undefined && !isAppOrigin(req, originHeader, opts, false)) return false;
+  const ports = extraAppPortsForRequest(req, opts);
+  const scheme = namespaceRequestScheme(req, opts);
+  if (originHeader !== undefined && !isAllowedOriginOnPorts(originHeader, boundHost, [], ports, scheme)) {
+    return false;
+  }
   return getHeader(req, 'sec-fetch-site')?.trim().toLowerCase() === 'same-origin';
+}
+
+export function evaluateNamespaceSurface(
+  req: IncomingMessage,
+  opts: NamespaceGuardOptions,
+  surface: GuardSurface,
+  url?: URL,
+  requireTokenOverride?: boolean,
+): GuardDecision {
+  const policy = buildNamespaceGuardPolicy(opts, {
+    requireSessionToken: requireTokenOverride ?? opts.requireSessionToken,
+  });
+  return evaluateGuard(req, policy, surface, {
+    url,
+    extraAppPorts: extraAppPortsForRequest(req, opts),
+  });
 }
 
 export function guardLoopback(
@@ -151,29 +244,21 @@ export function guardLoopback(
   opts: NamespaceGuardOptions,
   allowExtraHosts = false,
 ): boolean {
-  // First, and whatever the headers say: a client chooses its own headers.
-  const isRemotePeer = !isLocalPeer(req);
-  if (isRemotePeer) {
-    res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: this route answers clients on this machine only');
-    return false;
-  }
-  const hostHeader = getHeader(req, 'host');
-  const originHeader = getHeader(req, 'origin');
-  const extra = allowExtraHosts ? opts.allowedHosts : undefined;
-  if (!isAllowedHost(hostHeader, opts.boundHost ?? 'localhost', extra)) {
-    res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: host not allowed');
-    return false;
-  }
-  if (originHeader !== undefined && !isAppOrigin(req, originHeader, opts, allowExtraHosts)) {
-    res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: origin mismatch');
-    return false;
-  }
-  let ports = opts.appPorts?.forRequest(req);
-  if (ports === undefined && req.socket?.localPort) {
-    ports = [req.socket.localPort];
-  }
-  if (isForeignFetchSite(req, opts.boundHost ?? 'localhost', ports)) {
-    res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: cross-site request rejected');
+  const effectiveHosts = allowExtraHosts ? resolveNamespaceAllowedHosts(opts) : [];
+  const surface: GuardSurface = allowExtraHosts && opts.sessionToken === undefined ? 'studio-api' : 'namespace';
+  const policy = buildNamespaceGuardPolicy(opts, {
+    allowedHosts: effectiveHosts,
+    requireSessionToken: allowExtraHosts,
+    remoteAccessEnabled: isRemoteAccessActive(opts),
+  });
+  const decision = evaluateGuard(req, policy, surface, {
+    extraAppPorts: extraAppPortsForRequest(req, opts),
+  });
+  if (!decision.ok) {
+    if (decision.status === 401 && !isRemoteAccessActive(opts) && opts.sessionToken === undefined) {
+      return true;
+    }
+    writeGuardRejection(res, decision);
     return false;
   }
   return true;

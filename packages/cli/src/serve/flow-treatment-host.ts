@@ -9,15 +9,15 @@ import {
   type FlowConfig,
 } from "./flow-config.js";
 import {
-  inProcessSessionTokenForPort,
+  createGuardPolicy,
+  evaluateGuard,
+  type RemoteAccessOptions,
+} from "./guard-policy.js";
+import {
   isSessionTokenRequired,
+  inProcessSessionTokenForPort,
   projectSessionPolicyFor,
 } from "./local-session-token.js";
-import {
-  isAllowedLoopbackRequest,
-  isAllowedSessionToken,
-  isLocalPeer,
-} from "./server.js";
 
 /** Shared by CLI, framework hosts, and development examples. No config code
  * executes on the host: only explicitly registered browser modules are bundled. */
@@ -30,6 +30,7 @@ export async function createFlowTreatmentHost(
     appPorts?: AppPorts;
     sessionToken?: string;
     requireSessionToken?: boolean;
+    remoteAccess?: RemoteAccessOptions;
   },
 ) {
   const config = resolveFlowConfig(
@@ -59,30 +60,39 @@ export async function createFlowTreatmentHost(
       const projectPolicy = projectSessionPolicyFor(projectDir);
       const expectedToken =
         guard?.sessionToken ?? portToken ?? projectPolicy?.token;
-      const requiresToken =
-        guard?.requireSessionToken ??
-        (portToken !== undefined
-          ? isSessionTokenRequired(portToken)
-          : projectPolicy?.requireSessionToken === true);
-      const authenticated = isAllowedSessionToken(req, url, expectedToken);
-      const allowedExtraHosts =
-        requiresToken && authenticated ? (guard?.allowedHosts ?? []) : [];
-      if (
-        !isLocalPeer(req) ||
-        !isAllowedLoopbackRequest(
-          req,
-          guard?.boundHost ?? "localhost",
-          allowedExtraHosts,
-          ports,
-        )
-      ) {
-        res.statusCode = 403;
-        res.end("Forbidden: local loopback route");
-        return true;
+      let requiresToken = guard?.requireSessionToken;
+      if (requiresToken === undefined) {
+        if (portToken !== undefined) {
+          requiresToken = isSessionTokenRequired(portToken);
+        } else {
+          requiresToken = projectPolicy?.requireSessionToken === true;
+        }
       }
-      if (requiresToken && !authenticated) {
-        res.statusCode = 401;
-        res.end("Unauthorized: invalid session capability token");
+      const extraHosts: string[] = [];
+      for (const host of guard?.allowedHosts ?? []) {
+        if (!extraHosts.includes(host)) extraHosts.push(host);
+      }
+      for (const host of guard?.remoteAccess?.allowedHosts ?? []) {
+        if (!extraHosts.includes(host)) extraHosts.push(host);
+      }
+      const policy = createGuardPolicy({
+        boundHost: guard?.boundHost ?? "localhost",
+        allowedHosts: extraHosts,
+        allowPeers: guard?.remoteAccess?.allowPeers,
+        trustProxy: guard?.remoteAccess?.trustProxy,
+        browserUnlock: guard?.remoteAccess?.browserUnlock,
+        remoteAccessEnabled: guard?.remoteAccess !== undefined,
+        sessionToken: expectedToken,
+        requireSessionToken: requiresToken,
+      });
+      const decision = evaluateGuard(req, policy, "flow", {
+        url,
+        extraAppPorts: ports,
+      });
+      if (!decision.ok) {
+        res.statusCode = decision.status;
+        res.setHeader("Content-Type", "text/plain; charset=utf-8");
+        res.end(decision.message);
         return true;
       }
       if (req.method !== "GET") {

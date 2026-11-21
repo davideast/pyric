@@ -77,7 +77,7 @@ export interface RemoteAccessOptions {
   allowLiveRemotePeers?: boolean;
 }
 
-type AllowPeersPolicy = 'loopback' | 'any' | readonly ParsedCidr[];
+export type AllowPeersPolicy = 'loopback' | 'any' | readonly ParsedCidr[];
 export type TrustProxyPolicy = false | 'loopback' | readonly ParsedCidr[];
 
 export type GuardSurface =
@@ -196,7 +196,7 @@ function parseCidrList(entries: readonly string[], optionName: string): readonly
 }
 
 /** Parse and validate an `allowPeers` setting into a compiled policy. */
-function parseAllowPeersSetting(
+export function parseAllowPeersSetting(
   value: 'loopback' | 'any' | readonly string[] | undefined,
 ): AllowPeersPolicy {
   if (value === undefined || value === 'loopback') return 'loopback';
@@ -205,7 +205,7 @@ function parseAllowPeersSetting(
 }
 
 /** Parse and validate a `trustProxy` setting into a compiled policy. */
-function parseTrustProxySetting(
+export function parseTrustProxySetting(
   value: false | 'loopback' | readonly string[] | undefined,
 ): TrustProxyPolicy {
   if (value === undefined || value === false) return false;
@@ -488,7 +488,7 @@ export function evaluateGuard(
     if (!policy.remoteAccessEnabled || !policy.browserUnlock) {
       return reject(403, 'disallowed-host', 'pyric: /__pyric/unlock is disabled on this server.');
     }
-  } else if (surface !== 'sdk') {
+  } else if (surface !== 'sdk' && surface !== 'studio-api') {
     if (isExtraHost && !policy.remoteAccessEnabled && !policy.requireSessionToken) {
       return reject(403, 'disallowed-host', disallowedHostMessage(hostHeader, displayPort));
     }
@@ -542,7 +542,11 @@ export function evaluateGuard(
     surface === 'bridge-live' ||
     surface === 'studio-api' ||
     isRemoteRequest ||
-    (policy.requireSessionToken && surface !== 'html-bootstrap' && surface !== 'sdk' && surface !== 'unlock');
+    (policy.requireSessionToken &&
+      surface !== 'avatar' &&
+      surface !== 'html-bootstrap' &&
+      surface !== 'sdk' &&
+      surface !== 'unlock');
 
   if (surface !== 'sdk' && surface !== 'unlock' && requiresTokenForSurface && !authenticated) {
     const presented = hasPresentedSessionToken(req, options?.url);
