@@ -38,6 +38,8 @@ class PyricFirebaseStoragePlatform extends FirebaseStoragePlatform {
   int _maxDownloadRetryTime = _defaultMaxDownloadRetryTimeMillis;
 
   final Set<PyricTaskPlatform> _activeTasks = <PyricTaskPlatform>{};
+  final Map<String, PyricFirebaseStoragePlatform> _scopedDelegatesByKey =
+      <String, PyricFirebaseStoragePlatform>{};
   late StorageByteTransfer _byteTransfer = StorageByteTransfer(this);
 
   PyricFirebaseStoragePlatform({
@@ -191,7 +193,10 @@ class PyricFirebaseStoragePlatform extends FirebaseStoragePlatform {
         ? normalizedBucket
         : _extractAppDefaultBucket(app);
     final key = _delegateKey(app.name, effectiveBucket);
-    return _delegatesByKey.putIfAbsent(key, () {
+    final targetRegistry = identical(this, FirebaseStoragePlatform.instance)
+        ? _delegatesByKey
+        : _scopedDelegatesByKey;
+    return targetRegistry.putIfAbsent(key, () {
       return PyricFirebaseStoragePlatform(
         appInstance: app,
         bucket: effectiveBucket,
@@ -212,6 +217,9 @@ class PyricFirebaseStoragePlatform extends FirebaseStoragePlatform {
   @override
   ReferencePlatform ref([String path = '/']) {
     _checkNotDisposed();
+    if (isStorageUrlInput(path)) {
+      return refFromURL(path);
+    }
     return PyricReferencePlatform(this, path);
   }
 
@@ -226,18 +234,21 @@ class PyricFirebaseStoragePlatform extends FirebaseStoragePlatform {
         final targetStorage = delegateFor(
           app: targetApp,
           bucket: parsed.bucket,
-        );
-        return targetStorage.ref(parsed.path);
+        ) as PyricFirebaseStoragePlatform;
+        return PyricReferencePlatform(targetStorage, parsed.path);
       }
-      final scoped = PyricFirebaseStoragePlatform(
-        bucket: parsed.bucket,
-        bridgeClient: _bridgeClient,
-        credentialsProvider: _credentialsProvider,
-        authLens: authLens,
-        sessionToken: _sessionToken,
-        taskChunkSize: taskChunkSize,
-      );
-      return scoped.ref(parsed.path);
+      final key = _delegateKey('', parsed.bucket);
+      final scoped = _scopedDelegatesByKey.putIfAbsent(key, () {
+        return PyricFirebaseStoragePlatform(
+          bucket: parsed.bucket,
+          bridgeClient: _bridgeClient,
+          credentialsProvider: _credentialsProvider,
+          authLens: authLens,
+          sessionToken: _sessionToken,
+          taskChunkSize: taskChunkSize,
+        );
+      });
+      return PyricReferencePlatform(scoped, parsed.path);
     }
     return PyricReferencePlatform(this, parsed.path);
   }
@@ -324,11 +335,21 @@ class PyricFirebaseStoragePlatform extends FirebaseStoragePlatform {
   Map<String, dynamic> bucketWireParams() {
     final wire = <String, dynamic>{};
     final defaultAppBucket = _defaultAppBucket;
-    if (defaultAppBucket != null && defaultAppBucket.isNotEmpty) {
-      wire['defaultBucket'] = defaultAppBucket;
+    final primaryDefaultBucket = _tryResolvePrimaryDefaultBucket();
+    final wireDefaultBucket =
+        (primaryDefaultBucket != null && primaryDefaultBucket.isNotEmpty)
+            ? primaryDefaultBucket
+            : defaultAppBucket;
+    if (wireDefaultBucket != null && wireDefaultBucket.isNotEmpty) {
+      wire['defaultBucket'] = wireDefaultBucket;
     }
-    if (usesNamedBucket && bucket.isNotEmpty) {
-      wire['bucket'] = bucket;
+    final resolved = resolvedBucket;
+    final differsFromHostDefault = resolved.isNotEmpty &&
+        wireDefaultBucket != null &&
+        wireDefaultBucket.isNotEmpty &&
+        resolved != wireDefaultBucket;
+    if ((usesNamedBucket && bucket.isNotEmpty) || differsFromHostDefault) {
+      wire['bucket'] = resolved;
     }
     return wire;
   }
@@ -367,6 +388,13 @@ class PyricFirebaseStoragePlatform extends FirebaseStoragePlatform {
     _activeTasks.clear();
     for (final task in tasks) {
       await task.disposeTask();
+    }
+    final scopedDelegates = _scopedDelegatesByKey.values.toList(growable: false);
+    _scopedDelegatesByKey.clear();
+    for (final scopedDelegate in scopedDelegates) {
+      if (!identical(scopedDelegate, this)) {
+        await scopedDelegate.dispose();
+      }
     }
     final targetApp = _tryResolveApp();
     if (targetApp != null) {
@@ -443,6 +471,16 @@ class PyricFirebaseStoragePlatform extends FirebaseStoragePlatform {
     }
     final extracted = _extractAppDefaultBucket(targetApp);
     return extracted.isEmpty ? null : extracted;
+  }
+
+  String? _tryResolvePrimaryDefaultBucket() {
+    try {
+      final primaryApp = Firebase.app();
+      final extracted = _extractAppDefaultBucket(primaryApp);
+      return extracted.isEmpty ? null : extracted;
+    } catch (_) {
+      return _defaultAppBucket;
+    }
   }
 
   static String _extractAppDefaultBucket(FirebaseApp app) {

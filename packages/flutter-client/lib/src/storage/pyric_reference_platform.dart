@@ -51,27 +51,33 @@ class PyricReferencePlatform extends ReferencePlatform {
 
   @override
   ReferencePlatform? get parent {
+    _pyricStorage.ensureUsable();
     if (_wirePath.isEmpty) {
       return null;
     }
     final idx = _wirePath.lastIndexOf('/');
     final parentPath = idx == -1 ? '' : _wirePath.substring(0, idx);
-    return _pyricStorage.ref(parentPath);
+    return PyricReferencePlatform(_pyricStorage, parentPath);
   }
 
   @override
-  ReferencePlatform get root => _pyricStorage.ref('/');
+  ReferencePlatform get root {
+    _pyricStorage.ensureUsable();
+    return PyricReferencePlatform(_pyricStorage, '/');
+  }
 
   @override
   ReferencePlatform child(String path) {
+    _pyricStorage.ensureUsable();
+    validateRelativeStorageChildPath(path);
     final childWirePath = normalizeStorageWirePath(path);
     if (childWirePath.isEmpty) {
-      return _pyricStorage.ref(_wirePath);
+      return PyricReferencePlatform(_pyricStorage, _wirePath);
     }
     if (_wirePath.isEmpty) {
-      return _pyricStorage.ref(childWirePath);
+      return PyricReferencePlatform(_pyricStorage, childWirePath);
     }
-    return _pyricStorage.ref('$_wirePath/$childWirePath');
+    return PyricReferencePlatform(_pyricStorage, '$_wirePath/$childWirePath');
   }
 
   @override
@@ -519,14 +525,18 @@ class PyricReferencePlatform extends ReferencePlatform {
     if (rawPrefixes is List) {
       for (final entry in rawPrefixes) {
         if (entry is Map && entry['fullPath'] is String) {
-          prefixes.add(_pyricStorage.ref(entry['fullPath'] as String));
+          prefixes.add(
+            PyricReferencePlatform(_pyricStorage, entry['fullPath'] as String),
+          );
         }
       }
     }
     if (rawItems is List) {
       for (final entry in rawItems) {
         if (entry is Map && entry['fullPath'] is String) {
-          items.add(_pyricStorage.ref(entry['fullPath'] as String));
+          items.add(
+            PyricReferencePlatform(_pyricStorage, entry['fullPath'] as String),
+          );
         }
       }
     }
