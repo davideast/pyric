@@ -10,6 +10,7 @@ import '../transport/bridge_client.dart';
 import 'connection_info.dart';
 import 'instance_name.dart';
 import 'pyric_database_reference.dart';
+import 'rtdb_view_coordinator.dart';
 
 /// Entry point for the Pyric Realtime Database client SDK.
 class PyricDatabase {
@@ -18,6 +19,7 @@ class PyricDatabase {
 
   final PyricBridgeClient _bridgeClient;
   late final ConnectionInfo _connectionInfo = ConnectionInfo(_bridgeClient);
+  late final RtdbViewCoordinator viewCoordinator = RtdbViewCoordinator(this);
   PyricAuthCredentialsProvider? _credentialsProvider;
   final FirebaseApp? app;
   final String? databaseURL;
