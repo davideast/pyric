@@ -22,6 +22,9 @@ import { functionsKotlinRegistry } from './functions-kotlin.ts';
 import { functionsRtdbRegistry } from './functions-rtdb.ts';
 import { functionsSwiftRegistry } from './functions-swift.ts';
 import { messagingRegistry } from './messaging.ts';
+import { messagingFlutterRegistry } from './messaging-flutter.ts';
+import { messagingKotlinRegistry } from './messaging-kotlin.ts';
+import { messagingSwiftRegistry } from './messaging-swift.ts';
 import { rtdbRegistry } from './rtdb.ts';
 import { rtdbFlutterRegistry } from './rtdb-flutter.ts';
 import { rtdbKotlinRegistry } from './rtdb-kotlin.ts';
@@ -75,6 +78,9 @@ export const registriesByKey: Record<string, CompatibilitySurfaceRegistry> = Obj
     aiFlutterRegistry,
     aiKotlinRegistry,
     aiSwiftRegistry,
+    messagingFlutterRegistry,
+    messagingKotlinRegistry,
+    messagingSwiftRegistry,
   ].map((r) => [r.surface, r]),
 );
 
@@ -101,6 +107,9 @@ export {
   functionsFlutterRegistry,
   functionsKotlinRegistry,
   functionsSwiftRegistry,
+  messagingFlutterRegistry,
+  messagingKotlinRegistry,
+  messagingSwiftRegistry,
   rtdbFlutterRegistry,
   rtdbKotlinRegistry,
   rtdbSwiftRegistry,

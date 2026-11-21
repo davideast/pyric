@@ -1,0 +1,15 @@
+{
+  "schema": "pyric.conformance.surface.v2",
+  "kind": "integration",
+  "developerSurface": "messaging-flutter",
+  "contractSource": "firebase_messaging",
+  "observationPrefixes": [
+    "messaging-flutter-"
+  ],
+  "coverage": true,
+  "scopeNote": "integration contract: Pure-Dart Flutter client (pyric_messaging) conforming to firebase_messaging via the Pyric WebSocket bridge and MessagingBroker. Covers per-app FirebaseMessaging.instance and instanceFor isolation, useMessagingEmulator and NotificationSettings permissions, deterministic 142-character :APA91b getToken and onTokenRefresh rotation, deleteToken invalidation, local topic validation and boolean-condition sendBrokerMessage fanout, visible/hidden onMessage and onBackgroundMessage routing, direct deliver() injection, getInitialMessage and onMessageOpenedApp notification-open lifecycle, and FirebaseMessagingSendException / FirebaseException mapping.",
+  "captureRigs": [],
+  "conformanceSuite": "packages/flutter-client/test/messaging/firebase_messaging_unit_test.dart",
+  "climb": true,
+  "registry": "messaging-flutter"
+}

@@ -35,6 +35,9 @@ const NATIVE_CLIENT_SURFACES = [
   'functions-flutter',
   'functions-kotlin',
   'functions-swift',
+  'messaging-flutter',
+  'messaging-kotlin',
+  'messaging-swift',
   'rtdb-flutter',
   'rtdb-kotlin',
   'rtdb-swift',
@@ -256,7 +259,7 @@ describe('integration surfaces require live-host conformance evidence', () => {
         withLiveHostSuite.filter((p) => p.includes('firestore-kotlin#16') || p.includes('hostConformanceTests')),
       ).toEqual([]);
     }
-  }, 20_000);
+  }, 60_000);
 
   test('conformance-verdicts refuses to classify mock-only integration rows as supported', async () => {
     const graph = await loadConformanceGraph();
@@ -290,7 +293,7 @@ describe('integration surfaces require live-host conformance evidence', () => {
     const provenGraph = { ...graph, rows: provenRows };
     expect(validationProblems(provenGraph).some((p) => p.includes('firestore-kotlin#16'))).toBe(false);
     expect(deriveRegistryRowVerdict(provenGraph, 'firestore-kotlin#16')).toBe('supported');
-  }, 20_000);
+  }, 60_000);
 
   test('reports all five client behavior families (merge write, batches, transactions, value decoding, named instances) as not proven without live-host evidence', () => {
     const ledger = buildCompatibilityLedger(model);
