@@ -79,9 +79,11 @@ public enum ValueCodec {
             if NSNumberInspector.isBoolean(num) {
                 return num.boolValue
             }
-            let d = num.doubleValue
-            if !d.isFinite {
-                return encodeSpecialDouble(d)
+            if NSNumberInspector.isFloatingPoint(num) {
+                let d = num.doubleValue
+                if isSpecialWireDouble(d) {
+                    return encodeSpecialDouble(d)
+                }
             }
             return num
         }
@@ -94,11 +96,11 @@ public enum ValueCodec {
         if let int64Val = value as? Int64 { return int64Val }
         if let int32Val = value as? Int32 { return int32Val }
         if let doubleVal = value as? Double {
-            return doubleVal.isFinite ? doubleVal : encodeSpecialDouble(doubleVal)
+            return isSpecialWireDouble(doubleVal) ? encodeSpecialDouble(doubleVal) : doubleVal
         }
         if let floatVal = value as? Float {
             let d = Double(floatVal)
-            return d.isFinite ? d : encodeSpecialDouble(d)
+            return isSpecialWireDouble(d) ? encodeSpecialDouble(d) : d
         }
 
         // 3. Strings
@@ -419,9 +421,16 @@ public enum ValueCodec {
         return out
     }
 
+    private static func isSpecialWireDouble(_ value: Double) -> Bool {
+        !value.isFinite || (value == 0.0 && value.sign == .minus)
+    }
+
     private static func encodeSpecialDouble(_ value: Double) -> [String: Any] {
         if value.isNaN {
             return ["__type": "number", "value": "NaN"]
+        }
+        if value == 0.0 && value.sign == .minus {
+            return ["__type": "number", "value": "-0"]
         }
         return ["__type": "number", "value": value > 0 ? "Infinity" : "-Infinity"]
     }

@@ -315,11 +315,11 @@ struct FirestoreTransactionsLiveHostConformanceTests {
         #expect(try await acctA1.getDocument(source: .server).data()?["amount"] as? Int64 == 75)
         #expect(try await acctB1.getDocument(source: .server).data()?["amount"] as? Int64 == 245)
 
-        // Row 91: Exhausting maxAttempts: 2 throws .aborted after exactly 2 attempts; maxAttempts < 1 throws .invalidArgument.
+        // Row 91: Exhausting maxAttempts: 2 throws .failedPrecondition after 2 attempts; maxAttempts < 1 throws .invalidArgument.
         let exhaustedAttempts = TxnAttemptCounter()
         let opts = TransactionOptions(maxAttempts: 2)
         #expect(opts.maxAttempts == 2)
-        await expectTxnBridgeCode(.aborted) {
+        await expectTxnBridgeCode(.failedPrecondition) {
             _ = try await db1.runTransaction(options: opts) { txn in
                 let n = exhaustedAttempts.increment()
                 _ = try await txn.getDocument(acctA1)

@@ -125,8 +125,17 @@ class PyricFirestorePlatform extends FirebaseFirestorePlatform {
     return PyricCollectionReference(this, collectionPath);
   }
 
+  static int _nextTxnCounter = 0;
+
   @override
   QueryPlatform collectionGroup(String collectionPath) {
+    if (collectionPath.isEmpty || collectionPath.contains('/')) {
+      throw ArgumentError.value(
+        collectionPath,
+        'collectionPath',
+        'Collection IDs must be non-empty and must not contain "/".',
+      );
+    }
     lifecycle.ensureActiveAndMarkStarted();
     return PyricQuery(this, collectionPath, isCollectionGroupQuery: true);
   }
@@ -143,6 +152,13 @@ class PyricFirestorePlatform extends FirebaseFirestorePlatform {
     Duration timeout = const Duration(seconds: 30),
     int maxAttempts = 5,
   }) async {
+    if (maxAttempts < 1) {
+      throw ArgumentError.value(
+        maxAttempts,
+        'maxAttempts',
+        'maxAttempts must be at least 1.',
+      );
+    }
     lifecycle.ensureActiveAndMarkStarted();
     if (!lifecycle.isNetworkEnabled) {
       throw const PyricBridgeException(
@@ -154,11 +170,16 @@ class PyricFirestorePlatform extends FirebaseFirestorePlatform {
       int attempts = 0;
       while (true) {
         attempts++;
-        final txn = PyricTransaction(this);
+        _nextTxnCounter += 1;
+        final attemptTxnId =
+            'fl_txn_${DateTime.now().microsecondsSinceEpoch}_$_nextTxnCounter';
+        final txn = PyricTransaction(this, txnId: attemptTxnId);
         int? writeId;
+        var inCommit = false;
         try {
           final result = await transactionHandler(txn);
           writeId = lifecycle.beginTransactionWrite();
+          inCommit = true;
           await txn.commit();
           lifecycle.finishTransactionWrite(
             writeId,
@@ -170,6 +191,16 @@ class PyricFirestorePlatform extends FirebaseFirestorePlatform {
             lifecycle.finishTransactionWrite(writeId);
           }
           if (attempts >= maxAttempts) {
+            if (inCommit &&
+                e is PyricBridgeException &&
+                (e.code == 'aborted' || e.code == 'conflict')) {
+              throw PyricBridgeException(
+                code: 'failed-precondition',
+                message: e.message,
+                denialContext: e.denialContext,
+                envelope: e.envelope,
+              );
+            }
             rethrow;
           }
           if (e is PyricBridgeException &&

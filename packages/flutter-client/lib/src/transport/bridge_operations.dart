@@ -4,8 +4,16 @@ import 'codecs.dart';
 /// Extension methods adding Firestore-specific RPC conveniences to [PyricBridgeClient].
 extension PyricBridgeFirestoreOps on PyricBridgeClient {
   /// Reads a document snapshot via `getDoc`.
-  Future<dynamic> getDoc(String path, {Map<String, dynamic>? actAs}) {
-    return op('getDoc', {'path': path}, actAs: actAs);
+  Future<dynamic> getDoc(
+    String path, {
+    Map<String, dynamic>? actAs,
+    String? txnId,
+  }) {
+    final params = <String, dynamic>{
+      'path': path,
+      if (txnId != null && txnId.isNotEmpty) 'txnId': txnId,
+    };
+    return op('getDoc', params, actAs: actAs);
   }
 
   /// Reads query documents via `getDocs`.
@@ -35,16 +43,17 @@ extension PyricBridgeFirestoreOps on PyricBridgeClient {
   Future<dynamic> updateDoc(
     String path,
     Map<String, dynamic> data, {
+    List<Map<String, dynamic>>? fields,
     Map<String, dynamic>? actAs,
   }) {
-    return op(
-      'updateDoc',
-      {
-        'path': path,
+    final params = <String, dynamic>{
+      'path': path,
+      if (fields != null)
+        'fields': fields
+      else
         'data': encodeWriteData(data),
-      },
-      actAs: actAs,
-    );
+    };
+    return op('updateDoc', params, actAs: actAs);
   }
 
   /// Deletes a document via `deleteDoc`.
@@ -95,7 +104,27 @@ extension PyricBridgeFirestoreOps on PyricBridgeClient {
       actAs: actAs,
     );
     if (res is Map && res.containsKey('data') && res['data'] is Map) {
-      return Map<String, dynamic>.from(res['data'] as Map);
+      final out = Map<String, dynamic>.from(res['data'] as Map);
+      final encoded = res['encodedData'];
+      if (encoded is Map) {
+        for (final entry in encoded.entries) {
+          final key = entry.key.toString();
+          final rawMarker = entry.value;
+          if (rawMarker is Map && rawMarker['__type'] == 'number') {
+            final tag = rawMarker['value'];
+            if (tag == 'NaN') {
+              out[key] = double.nan;
+            } else if (tag == 'Infinity') {
+              out[key] = double.infinity;
+            } else if (tag == '-Infinity') {
+              out[key] = double.negativeInfinity;
+            } else if (tag == '-0') {
+              out[key] = -0.0;
+            }
+          }
+        }
+      }
+      return out;
     }
     return <String, dynamic>{};
   }
@@ -113,12 +142,14 @@ extension PyricBridgeFirestoreOps on PyricBridgeClient {
     List<Map<String, dynamic>> reads,
     List<Map<String, dynamic>> writes, {
     Map<String, dynamic>? actAs,
+    String? txnId,
   }) {
     return op(
       'txnCommit',
       {
         'reads': reads,
         'writes': writes,
+        if (txnId != null && txnId.isNotEmpty) 'txnId': txnId,
       },
       actAs: actAs,
     );
