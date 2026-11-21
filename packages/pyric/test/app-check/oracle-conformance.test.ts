@@ -27,6 +27,7 @@ import * as appCheck from 'pyric/app-check';
 import { resetAppRegistryForTests } from '../../dist/app/registry.js';
 import {
   replayCustomProviderWithoutDebugToken,
+  replayRecaptchaProvidersConstructMode,
   replayRecaptchaProvidersWithoutDocumentMode,
 } from './client-provider-replays.ts';
 
@@ -219,8 +220,14 @@ const assertions: Record<string, Assertion> = {
 
   'app-check#recaptcha-providers-construct': () =>
     withStandInDocument(async () => {
-      for (const provider of [new appCheck.ReCaptchaV3Provider('demo-site-key'), new appCheck.ReCaptchaEnterpriseProvider('demo-site-key')]) {
-        const handle = appCheck.initializeAppCheck(freshApp('recaptcha'), { provider, isTokenAutoRefreshEnabled: false });
+      const o = obs('app-check-recaptcha-providers-construct');
+      expect(o.hasStandInDocument).toBe(true);
+      expect(replayRecaptchaProvidersConstructMode((label) => freshApp(label))).toEqual(o.providerContract);
+      await withoutDebugToken(async () => {
+        expect(replayRecaptchaProvidersConstructMode((label) => freshApp(label))).toEqual(o.providerContract);
+      });
+      for (const recaptcha of [new appCheck.ReCaptchaV3Provider('demo-site-key'), new appCheck.ReCaptchaEnterpriseProvider('demo-site-key')]) {
+        const handle = appCheck.initializeAppCheck(freshApp('recaptcha'), { provider: recaptcha, isTokenAutoRefreshEnabled: false });
         expect(Object.keys(await appCheck.getToken(handle))).toEqual(['token']);
       }
     }),
@@ -472,7 +479,7 @@ describe('oracle conformance (app-check client)', () => {
 
   (isClimb ? it : it.skip)('completeness: every observations/app-check/ capture is asserted (prefix gate)', () => {
     const report = gate.report();
-    expect(report.committed.length).toBe(14);
+    expect(report.committed.length).toBe(15);
     expect(report.loadedButUnused).toEqual([]);
     expect(report.uncovered).toEqual([]);
   });

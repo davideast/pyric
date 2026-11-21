@@ -2,30 +2,71 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { initializeApp } from 'pyric/app';
 import { resetAppRegistryForTests } from '../../../pyric/dist/app/registry.js';
 import { replayRecaptchaProvidersConstructMode } from '../../../pyric/test/app-check/client-provider-replays.ts';
+import { loadObservations } from '../../src/ledger.ts';
+import {
+  loadModularProbes,
+  printModularProbePreview,
+  selectModularProbes,
+} from '../../src/sdk-probes.ts';
 import {
   observeRecaptchaProvidersConstruct,
   probe as recaptchaProvidersConstructProbe,
 } from '../../probes/app-check/app-check-recaptcha-providers-construct.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
+
+const PROBE_ID = 'app-check-recaptcha-providers-construct';
+const ROW_ID = 'app-check#recaptcha-providers-construct';
 
 type DocumentGlobal = { document?: unknown };
 
-describe('app-check-recaptcha-providers-construct staged probe', () => {
+describe('app-check#recaptcha-providers-construct linked sdk-probes capture', () => {
   afterEach(async () => {
     await resetAppRegistryForTests();
   });
 
-  test('is registered as a pendingRowLink sdk-probes target until captured and linked', () => {
+  test('is registered as a linked sdk-probes target backed by a committed observation', async () => {
+    const loaded = await loadModularProbes('sdk-probes');
+    expect(loaded.map((entry) => entry.id)).toContain(PROBE_ID);
+
     expect(recaptchaProvidersConstructProbe.rig).toBe('sdk-probes');
-    expectStagedUntilCaptured('app-check-recaptcha-providers-construct', {
+    expect(recaptchaProvidersConstructProbe.requires).toEqual(['web-config']);
+    expect(recaptchaProvidersConstructProbe.pendingRowLink).toBeUndefined();
+    expect(recaptchaProvidersConstructProbe.matrixRow).toBe(ROW_ID);
+    expect(recaptchaProvidersConstructProbe.rowIds).toEqual([ROW_ID]);
+
+    const unfilteredIds = new Set(
+      selectModularProbes(loaded, [], 'sdk-probes', {
+        includeUncapturedStaged: false,
+      }).map((entry) => entry.id),
+    );
+    expect(unfilteredIds.has(PROBE_ID)).toBe(true);
+
+    const previewLines: string[] = [];
+    printModularProbePreview({
       rig: 'sdk-probes',
-      filterFlag: '--probe',
-      filterValueFor: (name) => name,
+      scriptPath: 'packages/conformance/src/sdk-probes.ts',
+      probes: loaded,
+      log: (line) => previewLines.push(line),
     });
+    expect(
+      previewLines.some(
+        (line) =>
+          line.includes(PROBE_ID) &&
+          line.includes('observations/app-check/app-check-recaptcha-providers-construct.json') &&
+          !line.includes('[pendingRowLink]'),
+      ),
+    ).toBe(true);
+
+    const committed = loadObservations().find((entry) => entry.name === PROBE_ID);
+    expect(committed).toBeDefined();
+    expect(committed?.matrixRow).toBe(ROW_ID);
+    expect(committed?.rowIds).toEqual([ROW_ID]);
+    expect(committed?.fbSdkVersion).toBe('12.19.0');
   });
 
   test('pyric/app-check matches upstream firebase/app-check ReCaptcha provider construction and initializeAppCheck contract in a document realm', async () => {
     const observed = await observeRecaptchaProvidersConstruct();
+    const committed = loadObservations().find((entry) => entry.name === PROBE_ID);
+    expect(committed?.behavior).toEqual(observed as unknown as Record<string, unknown>);
     expect(observed.hasStandInDocument).toBe(true);
     expect(observed.domSideEffects.recaptchaV3).toEqual({
       appendedHiddenDivForApp: true,

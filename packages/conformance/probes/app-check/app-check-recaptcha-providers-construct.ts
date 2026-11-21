@@ -317,9 +317,8 @@ export async function observeRecaptchaProvidersConstruct(): Promise<RecaptchaPro
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'app-check#recaptcha-providers-construct',
+  rowIds: ['app-check#recaptcha-providers-construct'],
   description:
     'firebase/app-check ReCaptchaV3Provider and ReCaptchaEnterpriseProvider in a realm with global document: construct from a siteKey, return the AppCheck handle from initializeAppCheck, return the identical handle on a second call with equal options, and throw appCheck/already-initialized on a different siteKey or provider class.',
   async observe() {
