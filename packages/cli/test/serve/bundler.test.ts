@@ -315,6 +315,7 @@ describe('the real wrapper entries (plan step 1.2)', () => {
       'app-ai-passthrough-app-check',
       'app-check',
       'auth',
+      'crashlytics',
       'database',
       'firestore',
       'firestore-lite',

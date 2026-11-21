@@ -33,6 +33,7 @@ export const LIVE_REFUSED = 'PYRIC_LIVE_REFUSED';
 const SERVICE_NAMES: Readonly<Record<string, string>> = {
   'firebase/ai': 'Firebase AI Logic',
   'firebase/analytics': 'Analytics',
+  'firebase/crashlytics': 'Crashlytics',
   'firebase/database': 'Realtime Database',
   'firebase/firestore/lite': 'Firestore Lite',
   'firebase/functions': 'Cloud Functions',

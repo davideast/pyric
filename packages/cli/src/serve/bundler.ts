@@ -66,6 +66,7 @@ export function defaultSdkEntries(): Record<string, string> {
     'app-ai-passthrough-app-check': pick('app-ai-passthrough-app-check'),
     'app-check': pick('app-check'),
     auth: pick('auth'),
+    crashlytics: pick('crashlytics'),
     firestore: pick('firestore'),
     'firestore-lite': pick('firestore-lite'),
     functions: pick('functions'),

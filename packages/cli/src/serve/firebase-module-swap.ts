@@ -27,6 +27,7 @@ export const SDK_MODULES = [
   'firebase/app',
   'firebase/app-check',
   'firebase/auth',
+  'firebase/crashlytics',
   'firebase/firestore',
   'firebase/firestore/lite',
   'firebase/functions',

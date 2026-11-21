@@ -55,6 +55,7 @@ describe('HTML sandbox injection', () => {
       'firebase/app',
       'firebase/app-check',
       'firebase/auth',
+      'firebase/crashlytics',
       'firebase/database',
       'firebase/firestore',
       'firebase/firestore/lite',

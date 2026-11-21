@@ -45,7 +45,7 @@ function startError(value: unknown): string {
 describe('the passThrough option', () => {
   test('takes every served Firebase import live mode has no row for, except Firestore Lite, and nothing else', () => {
     const passable = [
-      'firebase/analytics', 'firebase/functions', 'firebase/performance', 'firebase/remote-config',
+      'firebase/analytics', 'firebase/crashlytics', 'firebase/functions', 'firebase/performance', 'firebase/remote-config',
     ];
     const unserved: string[] = SDK_MODULES.filter((specifier) => !INSTALLED_SDK_SPECIFIERS.has(specifier));
     expect([...unserved].sort()).toEqual([...passable, 'firebase/firestore/lite'].sort());

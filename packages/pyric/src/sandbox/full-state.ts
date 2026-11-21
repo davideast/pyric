@@ -33,6 +33,7 @@ import { getOrCreateBackend, heldDatabaseInstances } from '../database/sandbox/b
 import type { RtdbBackend } from '../database/sandbox/backend.js';
 import type { JsonValue } from '../database/sandbox/data-tree.js';
 import { DOC_VALUE_ENCODING, type DocValueEncoding } from '../firestore/internal/value-codec.js';
+import { resetCrashlyticsBroker } from '../crashlytics/internal.js';
 import { getMessagingBroker } from '../messaging/internal.js';
 import { isMessagingSnapshot, type MessagingSnapshot } from '../messaging/broker/persistence.js';
 import {
@@ -586,6 +587,7 @@ export async function applyFullState(
   applyDatabase(sandbox, state);
   applyAuth(sandbox, state.auth);
   applyMessaging(sandbox, state.messaging);
+  resetCrashlyticsBroker(sandbox);
   await applyStorage(sandbox, state.storage);
   await applyStorageRules(sandbox, state.rules.storage, state.rules.storageCrossServiceIam);
 }

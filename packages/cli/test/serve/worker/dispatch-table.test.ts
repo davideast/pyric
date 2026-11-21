@@ -157,6 +157,18 @@ const ROUTABLE_METHODS = {
     'messaging.deliver',
     'messaging.setVisibility',
   ],
+  crashlytics: [
+    'crashlytics.recordError',
+    'crashlytics.log',
+    'crashlytics.flush',
+    'crashlytics.setUserId',
+    'crashlytics.setCustomKeys',
+    'crashlytics.setCollectionEnabled',
+    'crashlytics.checkForUnsentReports',
+    'crashlytics.sendUnsentReports',
+    'crashlytics.deleteUnsentReports',
+    'crashlytics.getState',
+  ],
 } as const;
 
 const ALL_METHODS = Object.values(ROUTABLE_METHODS).flat();
@@ -167,10 +179,10 @@ describe('host dispatch table (frozen)', () => {
     ctx = await makeCtx();
   });
 
-  it('routes exactly 84 op methods across all families', () => {
-    expect(ALL_METHODS.length).toBe(84);
+  it('routes exactly 94 op methods across all families', () => {
+    expect(ALL_METHODS.length).toBe(94);
     // No duplicates in the frozen list.
-    expect(new Set(ALL_METHODS).size).toBe(84);
+    expect(new Set(ALL_METHODS).size).toBe(94);
   });
 
   for (const [family, methods] of Object.entries(ROUTABLE_METHODS)) {

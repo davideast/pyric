@@ -127,6 +127,16 @@ export const operationPersistence = {
   'presence.heartbeat': false,
   'presence.update': false,
   'presence.disconnect': false,
+  'crashlytics.recordError': true,
+  'crashlytics.log': true,
+  'crashlytics.flush': true,
+  'crashlytics.setUserId': true,
+  'crashlytics.setCustomKeys': true,
+  'crashlytics.setCollectionEnabled': true,
+  'crashlytics.checkForUnsentReports': false,
+  'crashlytics.sendUnsentReports': true,
+  'crashlytics.deleteUnsentReports': true,
+  'crashlytics.getState': false,
 } as const satisfies Record<OpMessage['method'], boolean>;
 
 export type PersistedOperationMethod = {

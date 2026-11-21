@@ -23,6 +23,7 @@ describe('mapFirebaseSpecifier', () => {
     expect(mapFirebaseSpecifier('firebase/app')).toBe('pyric/app/register');
     expect(mapFirebaseSpecifier('firebase/firestore')).toBe('pyric/firestore');
     expect(mapFirebaseSpecifier('firebase/auth')).toBe('pyric/auth');
+    expect(mapFirebaseSpecifier('firebase/crashlytics')).toBe('pyric/crashlytics');
   });
 
   it('maps nested subpaths verbatim', () => {
