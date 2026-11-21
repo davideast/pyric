@@ -1,0 +1,45 @@
+{
+  "name": "firestore-swift-crud-merge-sentinels-and-codecs",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Upstream FirebaseFirestore (firebase-ios-sdk) addDocument auto-ID, setData, setData(merge:), setData(mergeFields:), updateData with FieldValue sentinels (serverTimestamp, increment, arrayUnion, arrayRemove, delete), Timestamp/GeoPoint/Data/DocumentReference codecs, and delete on iOS Simulator.",
+  "observedAt": "2026-11-21T19:53:52.747Z",
+  "iosSdkVersion": "13.2.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "autoExists": true,
+    "autoIdLength": 20,
+    "autoOrigin": "auto-id",
+    "blobBytes": [
+      1,
+      2,
+      3,
+      254
+    ],
+    "deletedDataIsNil": true,
+    "deletedExists": false,
+    "deletedNestedExtraAbsent": true,
+    "finalTags": [
+      "a",
+      "c"
+    ],
+    "fixedTsMatches": true,
+    "geoMatches": true,
+    "hasNullKey": true,
+    "incrementedCount": 15,
+    "incrementedRatio": 3.75,
+    "initialExists": true,
+    "initialFromCache": false,
+    "initialHasPendingWrites": false,
+    "mergeAddedNestedExtra": 2,
+    "mergeFieldsNestedKeep": "selected-keep",
+    "mergeFieldsPreservedExtra": 2,
+    "mergeFieldsTitle": "AlphaSelected",
+    "mergeFieldsUnlistedNestedAbsent": true,
+    "mergeFieldsUnlistedTopAbsent": true,
+    "mergePreservedCount": 10,
+    "mergePreservedNestedKeep": "orig",
+    "refMatchesTarget": true,
+    "serverTimestampResolved": true
+  }
+}
