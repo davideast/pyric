@@ -188,27 +188,64 @@ final class ChatSession {
   /// atomically appends the user turn plus aggregated model turn upon clean,
   /// non-blocked stream completion.
   ///
-  /// Mid-stream errors, blocked chunks, or consumer `StreamSubscription.cancel()`
-  /// leave [history] untouched and release the session queue cleanly.
+  /// Turn queue reservation is deferred until the returned [Stream] is listened
+  /// to, so creating an unlistened stream never blocks later turns. Mid-stream
+  /// errors, blocked chunks, or consumer `StreamSubscription.cancel()` leave
+  /// [history] untouched and release the session queue cleanly.
   Stream<GenerateContentResponse> sendMessageStream(Content message) {
-    final previousTurn = _turnQueue;
-    final turnDone = Completer<void>();
-    _turnQueue = turnDone.future;
-
-    void releaseTurn() {
-      if (!turnDone.isCompleted) {
-        turnDone.complete();
-      }
-    }
-
     late final StreamController<GenerateContentResponse> controller;
     StreamSubscription<GenerateContentResponse>? innerSub;
+    Future<void>? detachInnerFuture;
+    Future<void>? awaitedPreviousTurn;
+    Completer<void>? turnDone;
     final collectedChunks = <GenerateContentResponse>[];
     var isCancelled = false;
     var isSettled = false;
 
+    void releaseTurn() {
+      final activeTurn = turnDone;
+      if (activeTurn == null || activeTurn.isCompleted) {
+        return;
+      }
+      final predecessor = awaitedPreviousTurn;
+      if (predecessor == null) {
+        activeTurn.complete();
+        return;
+      }
+      unawaited(
+        predecessor.whenComplete(() {
+          if (!activeTurn.isCompleted) {
+            activeTurn.complete();
+          }
+        }),
+      );
+    }
+
+    Future<void> detachInner() {
+      final inFlight = detachInnerFuture;
+      if (inFlight != null) {
+        return inFlight;
+      }
+      final active = innerSub;
+      innerSub = null;
+      if (active == null) {
+        final resolved = Future<void>.value();
+        detachInnerFuture = resolved;
+        return resolved;
+      }
+      final pending = Future<void>.sync(active.cancel);
+      detachInnerFuture = pending;
+      return pending;
+    }
+
     controller = StreamController<GenerateContentResponse>(
       onListen: () {
+        final previousTurn = _turnQueue;
+        awaitedPreviousTurn = previousTurn;
+        final currentTurn = Completer<void>();
+        turnDone = currentTurn;
+        _turnQueue = currentTurn.future;
+
         Future<void>(() async {
           await previousTurn;
           if (isCancelled || isSettled) {
@@ -260,9 +297,7 @@ final class ChatSession {
                 return;
               }
               isSettled = true;
-              final active = innerSub;
-              innerSub = null;
-              unawaited(active?.cancel());
+              unawaited(detachInner());
               releaseTurn();
               if (!controller.isClosed) {
                 controller.addError(
@@ -292,6 +327,12 @@ final class ChatSession {
             cancelOnError: true,
           );
 
+          if (isCancelled) {
+            await detachInner();
+            releaseTurn();
+            return;
+          }
+
           if (controller.isPaused) {
             innerSub?.pause();
           }
@@ -306,12 +347,8 @@ final class ChatSession {
       onCancel: () async {
         isCancelled = true;
         isSettled = true;
-        final active = innerSub;
-        innerSub = null;
         try {
-          if (active != null) {
-            await active.cancel();
-          }
+          await detachInner();
         } finally {
           releaseTurn();
         }
