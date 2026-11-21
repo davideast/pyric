@@ -25,6 +25,13 @@ import {
   serveInstanceAsDefault,
   startRtdbChildRuntime,
 } from './rtdb/child-runtime.js';
+import {
+  defaultStorageBucketFromEnv,
+  serveBucketAsDefault,
+  startStorageChildRuntime,
+} from './storage/child-runtime.js';
+import { storageTriggersFamily } from './storage/discovery.js';
+import type { StorageTriggerExecutionHost } from './storage/execution.js';
 import { findUnsupportedTriggers } from './unsupported.js';
 
 interface AdminAppInstance {
@@ -42,6 +49,7 @@ const send = (message: FunctionsChildMessage): void => sendToHost(message);
 const HOST_LOST_DEADLINE_MS = 1_500;
 /** How often the child checks that its parent is still the one that spawned it. */
 const PARENT_POLL_MS = 500;
+let uncaughtGuardInstalled = false;
 
 /**
  * An exception thrown outside any handler's own call and promise (a timer
@@ -50,6 +58,8 @@ const PARENT_POLL_MS = 500;
  * report it and keep serving instead of restarting.
  */
 function surviveUncaughtErrors(): void {
+  if (uncaughtGuardInstalled) return;
+  uncaughtGuardInstalled = true;
   let reporting = false;
   const report = (error: unknown): void => {
     // Only blocks synchronous re-entry (an error thrown inside the send). The next-tick
@@ -84,10 +94,13 @@ async function runFunctionsChild(): Promise<void> {
 
   const requireFromEntry = createRequire(entry);
   const adminApp = requireFromEntry('firebase-admin/app') as AdminAppModule;
+  const defaultBucket = defaultStorageBucketFromEnv(process.env);
   serveInstanceAsDefault(instance);
+  serveBucketAsDefault(defaultBucket);
   (globalThis as Record<symbol, unknown>)[LAZY_DEFAULT_AMBIENT_APP] = true;
   const runtimeSandbox = connectAmbientRuntimeSandbox(process.env);
   let host: RtdbValueExecutionHost | undefined;
+  let storageHost: StorageTriggerExecutionHost | undefined;
   let httpServer: HttpChildServer | undefined;
   let closing: Promise<void> | undefined;
 
@@ -97,6 +110,8 @@ async function runFunctionsChild(): Promise<void> {
       clearInterval(heartbeat);
       clearInterval(parentWatch);
       await httpServer?.close();
+      storageHost?.close();
+      await storageHost?.idle();
       host?.close();
       await host?.idle();
       delete (globalThis as Record<symbol, unknown>)[LAZY_DEFAULT_AMBIENT_APP];
@@ -164,6 +179,17 @@ async function runFunctionsChild(): Promise<void> {
       send,
     });
     await host.ready;
+    storageHost = startStorageChildRuntime({
+      exported,
+      sandbox: runtimeSandbox,
+      defaultBucket,
+      location,
+      send,
+    });
+    await storageHost.ready;
+    if (storageHost.triggerCount > 0) {
+      surviveUncaughtErrors();
+    }
     const httpFunctions = [...inspectOnRequest(exported), ...inspectOnCall(exported)];
     if (httpFunctions.length > 0) {
       if (httpToken === undefined) throw new Error(`Functions child is missing ${CHILD_TOKEN_ENV}`);
@@ -172,19 +198,21 @@ async function runFunctionsChild(): Promise<void> {
     }
     const unsupportedTriggers = findUnsupportedTriggers(exported, [
       rtdbValueTriggerFamily,
+      storageTriggersFamily,
       httpOnRequestFamily,
       callableOnCallFamily,
     ]);
+    const totalTriggerCount = host.triggerCount + storageHost.triggerCount;
     if (httpServer === undefined) {
       send({
         type: 'ready',
-        triggerCount: host.triggerCount,
+        triggerCount: totalTriggerCount,
         unsupportedTriggers,
       });
     } else {
       send({
         type: 'ready',
-        triggerCount: host.triggerCount,
+        triggerCount: totalTriggerCount,
         unsupportedTriggers,
         http: { port: httpServer.port, functions: httpFunctions.map(httpFunctionInfo) },
       });

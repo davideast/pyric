@@ -33,6 +33,10 @@ export function assertSubscription(message: Record<string, unknown>): void {
       requireOptionalString(target.event, 'target.event');
       assertRtdbQuery(target.query);
       return;
+    case 'storage':
+      requireOptionalString(target.bucket, 'target.bucket');
+      requireOptionalString(target.defaultBucket, 'target.defaultBucket');
+      return;
     case 'ai': {
       const isStream = target.op === 'streamGenerateContent';
       requireShape(isStream, 'target.op');

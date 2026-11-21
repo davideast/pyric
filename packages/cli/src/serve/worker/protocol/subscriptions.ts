@@ -39,6 +39,18 @@ export interface RtdbValueSubMessage {
   relaySource?: 'remote';
 }
 
+export interface StorageSubMessage {
+  t: 'sub';
+  subId: string;
+  target: {
+    service: 'storage';
+    bucket?: string;
+    defaultBucket?: string;
+  };
+  actAs?: AuthLens;
+  relaySource?: 'remote';
+}
+
 export interface AiStreamSubMessage {
   t: 'sub';
   subId: string;
@@ -83,6 +95,7 @@ export type SubMessage =
   | AuthSubMessage
   | EventSubMessage
   | RtdbValueSubMessage
+  | StorageSubMessage
   | AiStreamSubMessage
   | MessagingSubMessage
   | PresenceSubMessage;
@@ -105,6 +118,15 @@ export function isRtdbSub(msg: SubMessage): msg is RtdbValueSubMessage {
     msg.target !== null &&
     'service' in msg.target &&
     msg.target.service === 'rtdb'
+  );
+}
+
+export function isStorageSub(msg: SubMessage): msg is StorageSubMessage {
+  return (
+    typeof msg.target === 'object' &&
+    msg.target !== null &&
+    'service' in msg.target &&
+    msg.target.service === 'storage'
   );
 }
 
