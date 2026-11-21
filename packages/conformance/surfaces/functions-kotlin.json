@@ -1,0 +1,15 @@
+{
+  "schema": "pyric.conformance.surface.v2",
+  "kind": "integration",
+  "developerSurface": "functions-kotlin",
+  "contractSource": "com.google.firebase:firebase-functions",
+  "observationPrefixes": [
+    "functions-kotlin-"
+  ],
+  "coverage": true,
+  "scopeNote": "integration contract: Pure-Kotlin client conforming to com.google.firebase:firebase-functions via the Pyric Functions HTTP gateway and WebSocket bridge. Covers FirebaseFunctions per-app/region/customDomain singletons and KTX extensions, useEmulator, getHttpsCallable and getHttpsCallableFromUrl routing with off-machine refusal, v2 onCall and v1 https.onCall invocation, 64-bit Int64Value/UInt64Value wire serialization, automatic Auth Bearer and standard or limited-use X-Firebase-AppCheck header propagation, SSE Flow<StreamResponse> streaming, FirebaseFunctionsException error mapping, and withTimeout deadlines.",
+  "captureRigs": [],
+  "conformanceSuite": "packages/kt-client/src/test/kotlin/dev/pyric/functions/FirebaseFunctionsTest.kt",
+  "climb": true,
+  "registry": "functions-kotlin"
+}

@@ -1,0 +1,15 @@
+{
+  "schema": "pyric.conformance.surface.v2",
+  "kind": "integration",
+  "developerSurface": "functions-flutter",
+  "contractSource": "cloud_functions",
+  "observationPrefixes": [
+    "functions-flutter-"
+  ],
+  "coverage": true,
+  "scopeNote": "integration contract: Pure-Dart Flutter client (pyric_functions) conforming to cloud_functions via the Pyric Functions HTTP gateway and WebSocket bridge. Covers FirebaseFunctions.instance and instanceFor(app:, region:), useFunctionsEmulator, httpsCallable and httpsCallableFromUrl/httpsCallableFromUri routing with off-machine refusal, v2 onCall and v1 https.onCall invocation, 64-bit int and BigInt Int64Value/UInt64Value serialization, Auth Bearer and standard or limited-use X-Firebase-AppCheck header propagation, sealed StreamResponse (Chunk and Result) SSE streaming, FirebaseFunctionsException mapping, and timeout/dispose cancellation.",
+  "captureRigs": [],
+  "conformanceSuite": "packages/flutter-client/test/functions/functions_callable_unit_test.dart",
+  "climb": true,
+  "registry": "functions-flutter"
+}

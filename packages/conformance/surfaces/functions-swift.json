@@ -1,0 +1,15 @@
+{
+  "schema": "pyric.conformance.surface.v2",
+  "kind": "integration",
+  "developerSurface": "functions-swift",
+  "contractSource": "FirebaseFunctions",
+  "observationPrefixes": [
+    "functions-swift-"
+  ],
+  "coverage": true,
+  "scopeNote": "integration contract: Pure-Swift client (PyricFunctions) conforming to FirebaseFunctions via the Pyric Functions HTTP gateway and WebSocket bridge. Covers Functions per-app/region/customDomain singletons, useEmulator, untyped HTTPSCallable and generic Codable Callable<Request, Response> with callAsFunction and completion handlers, cloudfunctions.net and Cloud Run URL rewriting with off-machine refusal, 64-bit Int64Value/UInt64Value serialization, Auth Bearer and standard or limited-use X-Firebase-AppCheck header propagation, AsyncThrowingStream<StreamResponse> SSE streaming, FunctionsError/NSError bridging, and timeoutInterval deadlines.",
+  "captureRigs": [],
+  "conformanceSuite": "packages/swift-client/Tests/PyricFunctionsTests/PyricFunctionsUnitTests.swift",
+  "climb": true,
+  "registry": "functions-swift"
+}
