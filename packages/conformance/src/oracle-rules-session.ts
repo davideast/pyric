@@ -85,23 +85,42 @@ const FIRESTORE_BLOCK = `      // @pyric/oracle - read/write under pyric_oracle/
 
 const STORAGE_MARKER = '@pyric/oracle/storage';
 
+export interface FirestoreOracleTargetOptions {
+  /** Optional run-scoped collection-group ID (`^[A-Za-z0-9_]+$`) permitted via `match /{path=**}/<id>/{docId}`. */
+  collectionGroupId?: string;
+}
+
 /** The Firestore target: the `pyric_oracle` match inserted at the top of the documents block. */
-export function firestoreOracleTarget(): OracleRulesTarget {
+export function firestoreOracleTarget(options?: FirestoreOracleTargetOptions): OracleRulesTarget {
+  let marker = '@pyric/oracle';
+  let combinedBlock = FIRESTORE_BLOCK;
+  if (options !== undefined && options.collectionGroupId !== undefined) {
+    const cgId = options.collectionGroupId;
+    if (!/^[A-Za-z0-9_]+$/.test(cgId)) {
+      throw new Error(`unsafe Firestore collectionGroupId: ${cgId}`);
+    }
+    marker = `@pyric/oracle/cg:${cgId}`;
+    const cgBlock = `      // ${marker} - scoped collection-group rule for the conformance oracle harness
+      match /{path=**}/${cgId}/{docId} {
+        allow read, write: if request.auth != null;
+      }`;
+    combinedBlock = `${FIRESTORE_BLOCK}\n${cgBlock}`;
+  }
   return {
     service: 'Firestore',
     release: 'cloud.firestore',
     rulesFileName: 'firestore.rules',
-    marker: '@pyric/oracle',
+    marker,
     freshRules: `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-${FIRESTORE_BLOCK}
+${combinedBlock}
   }
 }
 `,
     insertAfter: /(match\s+\/databases\/\{database\}\/documents\s*\{)/,
     insertAfterDescription: '`match /databases/{database}/documents`',
-    block: `\n${FIRESTORE_BLOCK}\n`,
+    block: `\n${combinedBlock}\n`,
   };
 }
 

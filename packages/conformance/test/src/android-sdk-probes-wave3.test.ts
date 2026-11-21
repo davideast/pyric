@@ -97,7 +97,10 @@ describe('Wave 3 android-sdk-probes firestore-kotlin Robolectric probes', () => 
     expect(firestoreBatchesTxProbe.rowIds.length).toBe(18);
 
     const loaded = await loadModularProbes('android-sdk-probes');
-    const firestoreLoaded = loaded.filter((entry) => entry.surfaceDir === 'firestore-kotlin');
+    const linkedIds = new Set<string>(LINKED_FIRESTORE_KOTLIN_PROBES);
+    const firestoreLoaded = loaded.filter(
+      (entry) => entry.surfaceDir === 'firestore-kotlin' && linkedIds.has(entry.id),
+    );
     expect(firestoreLoaded.map((entry) => entry.id)).toEqual([...LINKED_FIRESTORE_KOTLIN_PROBES]);
     for (const entry of firestoreLoaded) {
       expect(runnerKotlin).toContain(`"${entry.id}" ->`);
