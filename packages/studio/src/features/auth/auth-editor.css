@@ -1,0 +1,386 @@
+/**
+ * Auth surface detail pane: selected-user header, sign-in providers editor,
+ * AuthUserForm, and ClaimsField (Pyric Studio, S-AUTH).
+ *
+ * Surface frame, sub-bar, user list, and responsive layout live in `./auth.css`.
+ * Every value uses semantic theme tokens from `styles/tokens.css` (no raw hexes).
+ */
+
+/* ========================================================================
+ * PER-USER SIGN-IN PROVIDERS (ProvidersEditor, in the detail pane)
+ * ======================================================================== */
+.auth-providers-editor__list {
+  display: flex;
+  flex-direction: column;
+}
+.auth-provider-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 8px var(--auth-gutter);
+  border-top: 1px solid var(--line);
+  cursor: pointer;
+}
+.auth-provider-row input[type='checkbox'] {
+  accent-color: var(--accent);
+  flex-shrink: 0;
+}
+.auth-provider-row__label {
+  font-size: 13px;
+  color: var(--ink);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.auth-provider-row__id {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--faint);
+  margin-left: auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.auth-providers-editor__derived {
+  margin: 6px 0 0;
+  padding: 0 var(--auth-gutter);
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.auth-provider-custom {
+  padding: 10px var(--auth-gutter) 0;
+}
+.auth-provider-custom__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.auth-provider-custom__label {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.auth-provider-custom__row {
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+}
+.auth-provider-custom__row input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 0 10px;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--ink);
+  background: var(--elevated);
+}
+.auth-provider-custom__row input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.auth-provider-custom__row button {
+  appearance: none;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 0 14px;
+  height: 28px;
+  border-radius: 7px;
+  border: 1px solid var(--line-2);
+  background: var(--elevated);
+  color: var(--ink);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.auth-provider-custom__row button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.auth-providers-editor .auth-save--error {
+  padding: 0 var(--auth-gutter);
+}
+
+/* ========================================================================
+ * SELECTED-USER EDITOR: detail header + the composed AuthUserForm
+ * ======================================================================== */
+
+.auth-editor {
+  padding: 0 0 40px;
+  min-width: 0;
+}
+.auth-editor__head {
+  padding: 16px var(--auth-gutter) 0;
+  min-width: 0;
+}
+.auth-editor__who {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.auth-editor__uid {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--faint);
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+.auth-editor__meta {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--faint);
+  margin-top: 6px;
+}
+
+.auth-tag-off {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--deny-ink);
+  background: var(--deny);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+.auth-editor[data-pyric-user-disabled] .auth-editor__head {
+  background: var(--deny-tint);
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.auth-group {
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin: 18px 0 8px;
+  padding: 0 var(--auth-gutter);
+}
+
+/* ========================================================================
+ * FORM -> AuthUserForm (data-pyric-ui="auth-user-form")
+ * ======================================================================== */
+
+[data-pyric-ui='auth-user-form'] {
+  padding: 6px var(--auth-gutter) 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+[data-pyric-ui='auth-user-form'] [data-pyric-field-label] {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 9px 0;
+  border-top: 1px solid var(--line);
+}
+[data-pyric-ui='auth-user-form'] [data-pyric-label-text] {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin-bottom: 6px;
+}
+[data-pyric-ui='auth-user-form'] input[data-pyric-field] {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 13px;
+  background: var(--elevated);
+  color: var(--ink);
+}
+[data-pyric-ui='auth-user-form'] input[data-pyric-field]:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* Checkbox rows (email-verified / disabled) read as inline label + box. */
+[data-pyric-ui='auth-user-form'] [data-pyric-field-label='email-verified'],
+[data-pyric-ui='auth-user-form'] [data-pyric-field-label='disabled'] {
+  flex-direction: row;
+  align-items: center;
+  gap: 9px;
+}
+[data-pyric-ui='auth-user-form'] [data-pyric-field-label='email-verified'] [data-pyric-label-text],
+[data-pyric-ui='auth-user-form'] [data-pyric-field-label='disabled'] [data-pyric-label-text] {
+  margin-bottom: 0;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 12.5px;
+  color: var(--ink);
+}
+[data-pyric-ui='auth-user-form'] input[type='checkbox'][data-pyric-field] {
+  width: auto;
+  accent-color: var(--accent);
+}
+
+/* Sign-in providers checklist (create mode). */
+[data-pyric-ui='auth-user-form'] fieldset[data-pyric-field-label='providers'] {
+  display: block;
+  border: 0;
+  margin: 0;
+  min-width: 0;
+}
+[data-pyric-ui='auth-user-form'] fieldset[data-pyric-field-label='providers'] legend {
+  padding: 0;
+}
+[data-pyric-ui='auth-user-form'] [data-pyric-provider-checklist] {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+[data-pyric-ui='auth-user-form'] [data-pyric-provider-option] {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  cursor: pointer;
+}
+[data-pyric-ui='auth-user-form'] [data-pyric-provider-option] input[type='checkbox'] {
+  accent-color: var(--accent);
+  flex-shrink: 0;
+}
+[data-pyric-ui='auth-user-form'] [data-pyric-provider-option-label] {
+  font-size: 12.5px;
+  color: var(--ink);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+[data-pyric-ui='auth-user-form'] [data-pyric-provider-option-id] {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--faint);
+  margin-left: auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Per-field validation messages. */
+[data-pyric-ui='auth-user-form'] [data-pyric-field-error] {
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  color: var(--diff-remove);
+}
+
+/* -- Claims field -> ClaimsField (data-pyric-ui="claims-field") ---------- */
+[data-pyric-ui='claims-field'] {
+  padding: 9px 0;
+  border-top: 1px solid var(--line);
+  min-width: 0;
+}
+[data-pyric-ui='claims-field'] textarea[data-pyric-field='claims'] {
+  width: 100%;
+  min-width: 0;
+  min-height: 64px;
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  border: 1px solid var(--line-2);
+  border-radius: 7px;
+  padding: 9px 11px;
+  background: var(--panel);
+  color: var(--ink);
+  line-height: 1.6;
+}
+[data-pyric-ui='claims-field'] textarea[data-pyric-field='claims']:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+[data-pyric-ui='claims-field'] textarea[data-pyric-claims-invalid] {
+  border-color: var(--diff-remove);
+}
+[data-pyric-ui='claims-field'] [data-pyric-claims-error] {
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  color: var(--diff-remove);
+}
+[data-pyric-ui='claims-field'] [data-pyric-claims-hint] {
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  color: var(--faint);
+}
+
+/* -- Form actions -------------------------------------------------------- */
+[data-pyric-ui='auth-user-form'] [data-pyric-form-actions] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+[data-pyric-ui='auth-user-form'] [data-pyric-form-actions] button {
+  appearance: none;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 15px;
+  border-radius: 7px;
+  border: 1px solid var(--line-2);
+  background: var(--elevated);
+  color: var(--ink);
+  cursor: pointer;
+}
+[data-pyric-ui='auth-user-form'] [data-pyric-submit] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+[data-pyric-ui='auth-user-form'] [data-pyric-form-actions] button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* Save-status line (composition chrome, slotted as form children). */
+.auth-save {
+  margin: 12px 0 0;
+  font-size: 12px;
+}
+.auth-save--error {
+  color: var(--diff-remove);
+}
+.auth-save--ok {
+  color: var(--accent);
+}
+
+/* -- Editor footer: delete ----------------------------------------------- */
+.auth-editor__foot {
+  display: flex;
+  align-items: center;
+  margin-top: 18px;
+  padding: 0 var(--auth-gutter);
+}
+.auth-del {
+  margin-left: auto;
+  appearance: none;
+  background: none;
+  border: none;
+  font: inherit;
+  color: var(--faint);
+  font-size: 12.5px;
+  cursor: pointer;
+  padding: 0;
+}
+.auth-del:hover {
+  color: var(--diff-remove);
+}

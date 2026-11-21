@@ -32,6 +32,7 @@ import type {
 } from '../../shell/observed-storage-mirror.js';
 import { useDataNav } from './navigation.js';
 import './storage.css';
+import './storage-inspector.css';
 import './live-observed-storage-pane.css';
 
 export interface LiveObservedStoragePaneProps {
