@@ -1,5 +1,5 @@
 /**
- * `pyric/ai` — modular Web-SDK AI adapter for the Pyric sandbox.
+ * `pyric/ai` -- modular Web-SDK AI adapter for the Pyric sandbox.
  *
  * Mirrors the admitted `firebase/ai` surface as a sandbox-only adapter.
  * Availability and reviewed dispositions are owned only by
@@ -8,7 +8,7 @@
  * unmodified `firebase/ai` imports either remain Firebase or are swapped to
  * this package by the Vite/import-map or Node register boundary.
  *
- *   - **Sandbox target** — `getAI(sandbox)` answers in-process through the
+ *   - **Sandbox target** -- `getAI(sandbox)` answers in-process through the
  *     {@link AiBroker} answer-engine seam (`scripted` default: zero-config,
  *     zero-I/O, deterministic; or `openai`: any OpenAI-compatible upstream).
  *     Scripting lives on the `pyric/ai/scripting` subpath.
@@ -16,7 +16,7 @@
  * broker. There is no production target or runtime Firebase dispatch here.
  */
 
-// ─── Re-exports: entry points and classes ─────────────────────────────
+// --- Re-exports: entry points and classes -----------------------------
 
 export { AIError, AIErrorCode } from './errors.js';
 export type { CustomErrorData } from './errors.js';
@@ -42,7 +42,7 @@ export type {
   SingleRequestOptions,
 } from './sandbox-plane.js';
 
-// ─── Re-exports: enums (const/type pairs, values verbatim from 2.12.0) ─
+// --- Re-exports: enums (const/type pairs, values verbatim from 2.12.0) -
 
 export {
   BlockReason,
@@ -66,7 +66,7 @@ export {
 } from './enums.js';
 export type { Role } from './enums.js';
 
-// ─── Re-exports: mirror-owned v1 type-only surface ────────────────────
+// --- Re-exports: mirror-owned v1 type-only surface --------------------
 //
 // These structural declarations preserve the canonical Firebase-shaped
 // surface without making `firebase/ai` a declaration dependency. The surface
@@ -137,6 +137,33 @@ export type {
   AI,
   AIOptions,
 } from './types.js';
+
+export type {
+  AudioConversationController,
+  AudioTranscriptionConfig,
+  BaseSpeechConfig,
+  ContextWindowCompressionConfig,
+  LiveGenerationConfig,
+  LiveGenerativeModel,
+  LiveModelParams,
+  LiveServerContent,
+  LiveServerGoingAwayNotice,
+  LiveServerToolCall,
+  LiveServerToolCallCancellation,
+  LiveSession,
+  LiveSessionResumptionUpdate,
+  MultiSpeakerSpeechConfig,
+  MultiSpeakerVoiceConfig,
+  PrebuiltVoiceConfig,
+  SessionResumptionConfig,
+  SingleSpeakerSpeechConfig,
+  SlidingWindow,
+  SpeakerVoiceConfig,
+  SpeechConfig,
+  StartAudioConversationOptions,
+  Transcription,
+  VoiceConfig,
+} from './types-live.js';
 
 export {
   InferenceMode,
