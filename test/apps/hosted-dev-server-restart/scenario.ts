@@ -18,10 +18,12 @@
 // of those reached the listener (checked by hand with Playwright 1.62.0); with
 // them only the 127.0.0.1 control does.
 import assert from 'node:assert/strict';
+import { mkdirSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import type { BrowserContext, Page } from '@playwright/test';
-import { launchScenarioBrowser, scenario, type App } from '../driver.ts';
+import { join } from 'node:path';
+import { chromium, type BrowserContext, type Page } from '@playwright/test';
+import { LOCAL_ONLY_RESOLVER_RULES, scenario, type App } from '../driver.ts';
 
 declare const notes: { write(text: string): Promise<void>; read(): Promise<unknown> };
 /** What Pyric's runtime puts on a page's global object: the HTML stamps the init, and the app module its own generation. */
@@ -69,6 +71,20 @@ async function listenOnEveryLocalAddress<T>(run: (port: number) => Promise<T>): 
   return seen;
 }
 
+interface CacheTracker {
+  clear(): void;
+  read(): Promise<string[]>;
+}
+
+function waitForViteHmrConnected(page: Page): Promise<unknown> {
+  const pending = page.waitForEvent('console', {
+    predicate: (message) => message.text() === '[vite] connected.',
+    timeout: 30_000,
+  });
+  pending.catch(() => {});
+  return pending;
+}
+
 /** Opens `url` in the cache-on context, with its error responses counted as the app's own pages' are. */
 async function openCached(app: App, context: BrowserContext, url: string): Promise<Page> {
   const page = await context.newPage();
@@ -77,24 +93,69 @@ async function openCached(app: App, context: BrowserContext, url: string): Promi
     (app.browserLog as string[]).push(`[cached page response ${response.status()}] ${response.request().method()} ${response.url()}`);
     app.noteErrorResponse(response.status(), response.request().method(), response.url());
   });
+  const viteConnected = waitForViteHmrConnected(page);
   await page.goto(url);
   await page.waitForFunction(() => 'notes' in window);
+  await viteConnected;
   return page;
 }
 
-/** The URLs `page` loads from the HTTP cache, or revalidates with a 304, from now on. */
-async function cacheHits(context: BrowserContext, page: Page): Promise<Set<string>> {
+/**
+ * Tracks URLs `page` serves from the HTTP cache or revalidates with HTTP 304.
+ *
+ * When Blink's renderer MemoryCache does not hold a resource (for example across
+ * a renderer swap), Chromium's network-service HttpCache performs the
+ * If-None-Match -> 304 revalidation transparently: Network.responseReceived
+ * reports synthesized status 200 with fromDiskCache false, while
+ * Network.responseReceivedExtraInfo reports wire statusCode 304. Browser-process
+ * ExtraInfo events can also arrive ahead of renderer Network.requestWillBeSent,
+ * so requestId -> url correlation runs in both arrival orders.
+ */
+async function trackCacheHits(context: BrowserContext, page: Page): Promise<CacheTracker> {
   const hits = new Set<string>();
   const urls = new Map<string, string>();
+  const pendingHitRequestIds = new Set<string>();
   const session = await context.newCDPSession(page);
-  session.on('Network.requestWillBeSent', (event) => urls.set(event.requestId, event.request.url));
-  session.on('Network.requestServedFromCache', (event) => hits.add(urls.get(event.requestId) ?? event.requestId));
+  const recordRequestHit = (requestId: string): void => {
+    const knownUrl = urls.get(requestId);
+    if (knownUrl !== undefined) {
+      hits.add(knownUrl);
+      return;
+    }
+    pendingHitRequestIds.add(requestId);
+  };
+  session.on('Network.requestWillBeSent', (event) => {
+    urls.set(event.requestId, event.request.url);
+    if (pendingHitRequestIds.delete(event.requestId)) {
+      hits.add(event.request.url);
+    }
+  });
+  session.on('Network.requestServedFromCache', (event) => {
+    recordRequestHit(event.requestId);
+  });
   session.on('Network.responseReceived', (event) => {
     const isFromCache = event.response.fromDiskCache === true || event.response.status === 304;
-    if (isFromCache) hits.add(event.response.url);
+    if (isFromCache && urls.has(event.requestId)) {
+      hits.add(event.response.url);
+    }
+  });
+  session.on('Network.responseReceivedExtraInfo', (event) => {
+    if (event.statusCode === 304) {
+      recordRequestHit(event.requestId);
+    }
   });
   await session.send('Network.enable');
-  return hits;
+  return {
+    clear(): void {
+      hits.clear();
+      urls.clear();
+      pendingHitRequestIds.clear();
+    },
+    async read(): Promise<string[]> {
+      await session.send('Runtime.evaluate', { expression: '0' });
+      return [...hits];
+    },
+  };
 }
 
 /** The host generation the page's HTML names, and the one Pyric's app module, which the cache may hold, was served for. */
@@ -148,10 +209,20 @@ export default scenario(async (app) => {
 
   const before = await app.step('read the host instance', () => hostInstance(host.url));
 
-  // Resolver rules only, no route, so the HTTP cache stays on.
-  const cachedBrowser = await launchScenarioBrowser();
+  // Resolver rules only, no route, and a persistent profile directory under
+  // .pyric/ (which Vite's watcher ignores and the runner removes on teardown),
+  // so Chromium uses its on-disk HTTP cache instead of Incognito's <= 50 MB
+  // in-memory LRU cache.
+  const cachedProfileDir = join(app.dir, '.pyric', 'cached-browser-profile');
+  mkdirSync(cachedProfileDir, { recursive: true });
+  const cachedContext = await chromium.launchPersistentContext(cachedProfileDir, {
+    headless: true,
+    args: [
+      `--host-resolver-rules=${LOCAL_ONLY_RESOLVER_RULES}`,
+      '--disk-cache-size=268435456',
+    ],
+  });
   try {
-    const cachedContext = await cachedBrowser.newContext();
     await app.watchCrashes(cachedContext);
 
     await app.step('the resolver rules alone keep the cache-on browser on loopback', async () => {
@@ -174,13 +245,16 @@ export default scenario(async (app) => {
 
     const cached = await app.step('a page in the cache-on browser loads its modules from the cache on a reload', async () => {
       const page = await openCached(app, cachedContext, host.url);
-      const hits = await cacheHits(cachedContext, page);
+      const tracker = await trackCacheHits(cachedContext, page);
+      const viteConnected = waitForViteHmrConnected(page);
       await page.reload();
       await page.waitForFunction(() => 'notes' in window);
-      assert.ok(hits.size > 0, 'no request came from the HTTP cache, so the cache is off and the restart below tests nothing');
+      await viteConnected;
+      const reloadHits = await tracker.read();
+      assert.ok(reloadHits.length > 0, 'no request came from the HTTP cache, so the cache is off and the restart below tests nothing');
       assert.deepEqual(await pageGenerations(page), { html: before, module: before });
-      hits.clear();
-      return { page, hits };
+      tracker.clear();
+      return { page, tracker };
     });
 
     // Vite's client reloads the open page once the restarted server answers.
@@ -224,17 +298,18 @@ export default scenario(async (app) => {
       await cachedReloaded;
       await cached.page.waitForFunction(() => 'notes' in window, undefined, { timeout: 30_000 });
       const after = await hostInstance(host.url);
-      assert.ok(cached.hits.size > 0, 'the reload after the restart took nothing from the HTTP cache, so it tests nothing');
-      console.log(`  hosted-dev-server-restart: the cache-on reload took ${cached.hits.size} responses from the HTTP cache or a 304: ${[...cached.hits].join(', ')}`);
+      const restartHits = await cached.tracker.read();
+      assert.ok(restartHits.length > 0, 'the reload after the restart took nothing from the HTTP cache, so it tests nothing');
+      console.log(`  hosted-dev-server-restart: the cache-on reload took ${restartHits.length} responses from the HTTP cache or a 304: ${restartHits.join(', ')}`);
       assert.deepEqual(
         await pageGenerations(cached.page),
         { html: after, module: after },
-        `the page ran a Pyric app module served for generation ${before}; it came from the cache: ${[...cached.hits].join(', ')}`,
+        `the page ran a Pyric app module served for generation ${before}; it came from the cache: ${restartHits.join(', ')}`,
       );
       const note = await within('cached page notes.read()', 30_000, cached.page.evaluate(() => notes.read()));
       assert.equal(note, 'before restart');
     });
   } finally {
-    await cachedBrowser.close();
+    await cachedContext.close();
   }
 });
