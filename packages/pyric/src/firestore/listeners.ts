@@ -31,6 +31,7 @@ import {
   type SandboxLiveTarget,
 } from './state.js';
 import { wrapSandboxDocSnap, tagSnapshotRefs, recordQuerySnapshot, applyConverterToDeliveredSnap } from './snapshots.js';
+import { createSnapshotMetadata } from './snapshot-metadata.js';
 import type {
   DocumentReference,
   Query,
@@ -340,6 +341,16 @@ function finalizeSandboxSnapshot(snap: unknown, target: Target, source: object):
         }
       }
     }
+    const rawMeta = (snap as { metadata?: { fromCache?: boolean; hasPendingWrites?: boolean } }).metadata;
+    Object.defineProperty(snap, 'metadata', {
+      value: createSnapshotMetadata(Boolean(rawMeta?.fromCache), Boolean(rawMeta?.hasPendingWrites)),
+      configurable: true,
+    });
+    Object.defineProperty(snap, 'query', {
+      value: source,
+      configurable: true,
+      enumerable: true,
+    });
     recordQuerySnapshot(snap as object, snap as object, target, source, 'listener');
   }
   return snap;

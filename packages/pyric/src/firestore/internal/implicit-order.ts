@@ -5,6 +5,7 @@
  * (#1364, FL-4).
  */
 import { fieldPathKeySegments } from '../sandbox/update-fields.js';
+import { compareUtf8Strings } from '../sandbox/utf8-order.js';
 
 export interface ImplicitOrderClause {
   readonly field: string;
@@ -19,9 +20,11 @@ export function compareFieldPaths(a: string, b: string): number {
   const bSegments = fieldPathKeySegments(b);
   const n = Math.min(aSegments.length, bSegments.length);
   for (let i = 0; i < n; i++) {
-    const left = aSegments[i]!;
-    const right = bSegments[i]!;
-    if (left !== right) return left < right ? -1 : 1;
+    const left = aSegments[i];
+    const right = bSegments[i];
+    if (left === undefined || right === undefined) continue;
+    const cmp = compareUtf8Strings(left, right);
+    if (cmp !== 0) return cmp;
   }
   return aSegments.length - bSegments.length;
 }
@@ -37,9 +40,11 @@ export function normalizeQueryOrders(
 ): ImplicitOrderClause[] {
   const out: ImplicitOrderClause[] = [...explicitOrders];
   const seen = new Set(out.map((order) => order.field));
-  const lastDirection = explicitOrders.length > 0
-    ? explicitOrders[explicitOrders.length - 1]!.direction
-    : 'asc';
+  let lastDirection: 'asc' | 'desc' = 'asc';
+  const lastExplicit = explicitOrders[explicitOrders.length - 1];
+  if (lastExplicit !== undefined) {
+    lastDirection = lastExplicit.direction;
+  }
   const unordered = [...new Set(inequalityFields)]
     .filter((field) => field !== KEY_FIELD && !seen.has(field));
   for (const field of unordered.sort(compareFieldPaths)) {

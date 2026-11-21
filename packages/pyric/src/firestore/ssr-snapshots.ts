@@ -7,6 +7,7 @@ import { FirebaseError } from '../sandbox/internal/firebase-error.js';
 import { buildModularQuery, loadBundle, namedQuery } from './bundles.js';
 import { clientStateFor } from './client-state.js';
 import { onSnapshot, type SnapshotListenOptions, type SnapshotObserver } from './listeners.js';
+import { collection } from './refs.js';
 import { doc } from './refs.js';
 import { getSnapshotField, type SnapshotFieldPath } from './sandbox/admin-compat/field-path.js';
 import { decodeBundleBytes, type BundledFilterSpec, type BundledQuerySourceSpec, type BundledWhereOp } from './sandbox/bundle-wire.js';
@@ -14,14 +15,15 @@ import { forEachDocument } from './sandbox/for-each-document.js';
 import type { QueryFilter, QueryScope } from './sandbox/query-execution.js';
 import { computeDocumentChanges, createDocChanges, type QueryConstraintPlan } from './sandbox/snapshot-listeners.js';
 import { encodeDocumentSnapshotJson, encodeQuerySnapshotJson, type SerializedSnapshotEnvelope } from './sandbox/ssr-bundle-encoder.js';
-import { recordQuerySnapshot, tagSnapshotRefs } from './snapshots.js';
+import { createSnapshotMetadata, type SnapshotMetadataInstance } from './snapshot-metadata.js';
+import { applyConverterToDocSnap, recordQuerySnapshot, tagSnapshotRefs } from './snapshots.js';
 import { finalizeSandboxData, finalizeSandboxValue, tag, targetOf, underlyingOf, type Target } from './state.js';
-import { Firestore, type DocumentSnapshot, type Firestore as FirestoreHandle, type QueryDocumentSnapshot, type QuerySnapshot, type SnapshotMetadata, type Unsubscribe } from './types.js';
+import { Firestore, type DocumentSnapshot, type Firestore as FirestoreHandle, type FirestoreDataConverter, type Query, type QueryDocumentSnapshot, type QuerySnapshot, type Unsubscribe } from './types.js';
 
 export interface SnapshotOptions { readonly serverTimestamps?: 'estimate' | 'previous' | 'none'; }
 export type ListenSource = 'default' | 'cache';
 
-const HYDRATED_METADATA: SnapshotMetadata = Object.freeze({ fromCache: false, hasPendingWrites: false });
+const HYDRATED_METADATA: SnapshotMetadataInstance = createSnapshotMetadata(false, false);
 
 function projectIdOfTarget(target: Target): string {
   const appObj = target.app as { options?: { projectId?: unknown } } | undefined;
@@ -84,7 +86,15 @@ export function parseValidatedSnapshotEnvelope(json: unknown, expectedKind: 'doc
   return rec as unknown as SerializedSnapshotEnvelope;
 }
 
-function buildHydratedDocSnapshot(db: FirestoreHandle, target: Target, docPath: string, data: Record<string, unknown>): QueryDocumentSnapshot {
+function buildHydratedDocSnapshot(
+  db: FirestoreHandle,
+  target: Target,
+  docPath: string,
+  data: Record<string, unknown>,
+): QueryDocumentSnapshot & {
+  readonly ref: import('./types.js').DocumentReference & { toJSON(): object };
+  readonly metadata: SnapshotMetadataInstance;
+} {
   const ref = doc(db, docPath);
   const readData = (): DocumentData => finalizeSandboxData(structuredClone(data)) as DocumentData;
   const readField = (fieldPath: SnapshotFieldPath): unknown => {
@@ -94,12 +104,34 @@ function buildHydratedDocSnapshot(db: FirestoreHandle, target: Target, docPath: 
       throw new FirebaseError('invalid-argument', `Function DocumentSnapshot.get() called with invalid data. ${reason}`);
     }
   };
-  const snap: QueryDocumentSnapshot = { id: ref.id, ref, exists: () => true, metadata: HYDRATED_METADATA, data: readData, get: readField, toJSON: buildDocSnapshotToJson(target, docPath, () => true, readData) };
+  const snap = { id: ref.id, ref, exists: () => true, metadata: HYDRATED_METADATA, data: readData, get: readField, toJSON: buildDocSnapshotToJson(target, docPath, () => true, readData) };
   tagSnapshotRefs(snap, target);
   return snap;
 }
 
-export function documentSnapshotFromJSON(db: FirestoreHandle, json: object): DocumentSnapshot {
+export function documentSnapshotFromJSON(
+  db: FirestoreHandle,
+  json: object,
+): DocumentSnapshot & {
+  readonly ref: import('./types.js').DocumentReference & { toJSON(): object };
+  readonly metadata: SnapshotMetadataInstance;
+};
+export function documentSnapshotFromJSON<AppModelType, DbModelType extends DocumentData = DocumentData>(
+  db: FirestoreHandle,
+  json: object,
+  converter: FirestoreDataConverter<AppModelType, DbModelType>,
+): DocumentSnapshot<AppModelType> & {
+  readonly ref: import('./types.js').DocumentReference<AppModelType> & { toJSON(): object };
+  readonly metadata: SnapshotMetadataInstance;
+};
+export function documentSnapshotFromJSON<AppModelType = DocumentData>(
+  db: FirestoreHandle,
+  json: object,
+  converter?: FirestoreDataConverter<AppModelType, DocumentData>,
+): DocumentSnapshot<AppModelType> & {
+  readonly ref: import('./types.js').DocumentReference<AppModelType> & { toJSON(): object };
+  readonly metadata: SnapshotMetadataInstance;
+} {
   if (!(db instanceof Firestore)) throw new FirebaseError('invalid-argument', 'Expected first argument to documentSnapshotFromJSON() to be a Firestore instance.');
   const target = targetOf(db);
   clientStateFor(target).markStarted();
@@ -107,21 +139,76 @@ export function documentSnapshotFromJSON(db: FirestoreHandle, json: object): Doc
   const parsed = decodeBundleBytes(new TextEncoder().encode(env.bundle));
   const first = parsed.documents[0];
   if (first === undefined || !first.exists || first.data === undefined) throw new Error('Bundled document snapshot contains no existing document.');
-  return buildHydratedDocSnapshot(db, target, first.docPath, first.data);
+  const untypedSnap = buildHydratedDocSnapshot(db, target, first.docPath, first.data);
+  if (converter !== undefined) {
+    return applyConverterToDocSnap(untypedSnap as unknown as Parameters<typeof applyConverterToDocSnap>[0], converter, target, 'document') as unknown as DocumentSnapshot<AppModelType> & {
+      readonly ref: import('./types.js').DocumentReference<AppModelType> & { toJSON(): object };
+      readonly metadata: SnapshotMetadataInstance;
+    };
+  }
+  return untypedSnap as unknown as DocumentSnapshot<AppModelType> & {
+    readonly ref: import('./types.js').DocumentReference<AppModelType> & { toJSON(): object };
+    readonly metadata: SnapshotMetadataInstance;
+  };
 }
 
-export function querySnapshotFromJSON(db: FirestoreHandle, json: object): QuerySnapshot {
+export function querySnapshotFromJSON(db: FirestoreHandle, json: object): QuerySnapshot;
+export function querySnapshotFromJSON<AppModelType, DbModelType extends DocumentData = DocumentData>(
+  db: FirestoreHandle,
+  json: object,
+  converter: FirestoreDataConverter<AppModelType, DbModelType>,
+): QuerySnapshot<AppModelType>;
+export function querySnapshotFromJSON<AppModelType = DocumentData>(
+  db: FirestoreHandle,
+  json: object,
+  converter?: FirestoreDataConverter<AppModelType, DocumentData>,
+): QuerySnapshot<AppModelType> {
   if (!(db instanceof Firestore)) throw new FirebaseError('invalid-argument', 'Expected first argument to querySnapshotFromJSON() to be a Firestore instance.');
   const target = targetOf(db);
   clientStateFor(target).markStarted();
   const env = parseValidatedSnapshotEnvelope(json, 'query');
   const parsed = decodeBundleBytes(new TextEncoder().encode(env.bundle));
-  const docs = parsed.documents.filter((d) => d.exists && d.data !== undefined).map((d) => buildHydratedDocSnapshot(db, target, d.docPath, d.data as Record<string, unknown>));
-  const changes = computeDocumentChanges(undefined, docs.map((d) => ({ path: d.ref.path })), docs, () => false, () => docs[0] as QueryDocumentSnapshot);
-  const rawQSnap = { size: docs.length, empty: docs.length === 0, docs, metadata: HYDRATED_METADATA, forEach: forEachDocument(docs), docChanges: createDocChanges(changes, false), toJSON: () => env };
-  const qsnap: QuerySnapshot = tag(rawQSnap, target);
+  const rawDocs = parsed.documents
+    .filter((d) => d.exists && d.data !== undefined)
+    .map((d) => buildHydratedDocSnapshot(db, target, d.docPath, d.data as Record<string, unknown>));
+  let docs = rawDocs as unknown as Array<
+    QueryDocumentSnapshot<AppModelType> & {
+      readonly ref: import('./types.js').DocumentReference<AppModelType> & { toJSON(): object };
+      readonly metadata: SnapshotMetadataInstance;
+    }
+  >;
+  if (converter !== undefined) {
+    docs = rawDocs.map((d) =>
+      applyConverterToDocSnap(
+        d as unknown as Parameters<typeof applyConverterToDocSnap>[0],
+        converter,
+        target,
+        'query-child',
+      ),
+    ) as unknown as typeof docs;
+  }
   const firstNamedQuery = parsed.namedQueries[0];
-  if (firstNamedQuery !== undefined) recordQuerySnapshot(qsnap, qsnap, target, buildModularQuery(db, firstNamedQuery) as object, 'listener');
+  let hydratedQuery: Query<AppModelType>;
+  if (firstNamedQuery !== undefined) {
+    const baseQuery = buildModularQuery(db, firstNamedQuery);
+    if (converter !== undefined) {
+      hydratedQuery = baseQuery.withConverter(converter);
+    } else {
+      hydratedQuery = baseQuery as Query<AppModelType>;
+    }
+  } else {
+    const fallbackColl = collection(db, env.bundleName || '__hydrated__');
+    if (converter !== undefined) {
+      hydratedQuery = fallbackColl.withConverter(converter);
+    } else {
+      hydratedQuery = fallbackColl as Query<AppModelType>;
+    }
+  }
+  const changes = computeDocumentChanges(undefined, docs.map((d) => ({ path: d.ref.path })), docs, () => false, () => docs[0] as typeof docs[number]);
+  const rawQSnap = { query: hydratedQuery, size: docs.length, empty: docs.length === 0, docs, metadata: HYDRATED_METADATA, forEach: forEachDocument(docs), docChanges: createDocChanges(changes, false), toJSON: () => env };
+  const qsnap: QuerySnapshot<AppModelType> = tag(rawQSnap, target);
+  const rawRecordView = { docs: rawDocs, metadata: HYDRATED_METADATA, docChanges: () => changes };
+  recordQuerySnapshot(qsnap, rawRecordView, target, hydratedQuery as object, 'listener');
   return qsnap;
 }
 
@@ -137,7 +224,7 @@ export function wrapInitialCachedSnapshotArgs(args: readonly unknown[]): { wrapp
     if (firstDelivery && snap !== null && typeof snap === 'object') {
       firstDelivery = false;
       const hasPending = Boolean((snap as { metadata?: { hasPendingWrites?: unknown } }).metadata?.hasPendingWrites);
-      Object.defineProperty(snap, 'metadata', { value: Object.freeze({ fromCache: true, hasPendingWrites: hasPending }), configurable: true });
+      Object.defineProperty(snap, 'metadata', { value: createSnapshotMetadata(true, hasPending), configurable: true });
     }
     return snap;
   };

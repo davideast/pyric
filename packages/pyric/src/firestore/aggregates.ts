@@ -6,6 +6,7 @@
  */
 import { beginFirestoreActivity } from './sdk-activity.js';
 import { finishSdkRead } from '../sandbox/internal/sdk-activity.js';
+import { FirebaseError } from '../sandbox/internal/firebase-error.js';
 import { withFirestoreFirebaseError } from './errors.js';
 import type {
   AggregateField as ChainAggregateField,
@@ -196,8 +197,27 @@ export async function getAggregateFromServer<S extends AggregateSpec>(
   clientStateFor(target).markStarted();
   const activity = beginFirestoreActivity(target, source, 'getAggregateFromServer', 'operation');
   try {
+    if (spec === null || typeof spec !== 'object' || Array.isArray(spec)) {
+      throw new FirebaseError(
+        'invalid-argument',
+        'StructuredAggregationQuery requires a plain object specification.',
+      );
+    }
+    const aliases = Object.keys(spec);
+    if (aliases.length < 1) {
+      throw new FirebaseError(
+        'invalid-argument',
+        'StructuredAggregationQuery requires at least 1 aggregation, got 0.',
+      );
+    }
+    if (aliases.length > 5) {
+      throw new FirebaseError(
+        'invalid-argument',
+        `StructuredAggregationQuery allows a maximum of 5 aggregations per query, got ${aliases.length}.`,
+      );
+    }
     const chainSpec: ChainAggregateSpec = {};
-    for (const alias of Object.keys(spec)) chainSpec[alias] = spec[alias] as ChainAggregateField;
+    for (const alias of aliases) chainSpec[alias] = spec[alias] as ChainAggregateField;
     const snap = await withFirestoreFirebaseError(() => chainQueryFor(target, source).aggregate(chainSpec));
     return finishSdkRead(activity, {
       type: 'AggregateQuerySnapshot',

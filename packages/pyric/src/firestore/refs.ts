@@ -20,13 +20,13 @@ import {
   asChainColl,
   asChainDoc,
 } from './state.js';
-import { DocumentReference } from './types.js';
+import { DocumentReference, Firestore } from './types.js';
 import type {
-  Firestore,
   CollectionReference,
   Query,
   FirestoreDataConverter,
 } from './types.js';
+import { registerDocumentReferenceFromJson } from './doc-ref-json.js';
 import {
   attachConverterMethod,
   convertedView,
@@ -36,7 +36,7 @@ import {
 } from './converter-method.js';
 
 registerDocumentParentCollectionResolver((owner, collectionPath, converter) => {
-  const rawColl = collection({ [TARGET_SYMBOL]: owner }, collectionPath);
+  const rawColl = collection({ [TARGET_SYMBOL]: owner, type: 'firestore' }, collectionPath);
   if (converter !== null) {
     return rawColl.withConverter(converter);
   }
@@ -44,7 +44,21 @@ registerDocumentParentCollectionResolver((owner, collectionPath, converter) => {
 });
 
 registerCollectionParentDocumentResolver((owner, docPath) => {
-  return doc({ [TARGET_SYMBOL]: owner }, docPath);
+  return doc({ [TARGET_SYMBOL]: owner, type: 'firestore' }, docPath);
+});
+
+registerDocumentReferenceFromJson((firestore, referencePath, converter) => {
+  if (!(firestore instanceof Firestore)) {
+    throw new FirebaseError(
+      'invalid-argument',
+      'Expected first argument to DocumentReference.fromJSON() to be a Firestore instance.',
+    );
+  }
+  const untypedRef = doc(firestore, referencePath);
+  if (converter !== undefined && converter !== null) {
+    return untypedRef.withConverter(converter);
+  }
+  return untypedRef;
 });
 
 // --- Path constructors ---------------------------------------------------
@@ -86,15 +100,15 @@ export function doc(
   parent: DocumentReference<unknown>,
   path: string,
   ...pathSegments: string[]
-): DocumentReference<DocumentData>;
+): DocumentReference<DocumentData> & { toJSON(): object };
 export function doc<T = DocumentData>(
   parent: Firestore | CollectionReference<T> | DocumentReference<unknown>,
   ...pathSegments: string[]
-): DocumentReference<T>;
+): DocumentReference<T> & { toJSON(): object };
 export function doc<T = DocumentData>(
   parent: Firestore | CollectionReference<T> | DocumentReference<unknown>,
   ...pathSegments: string[]
-): DocumentReference<T> {
+): DocumentReference<T> & { toJSON(): object } {
   assertObjectParent('doc', parent);
   const isHandle = TARGET_SYMBOL in parent;
   if (isHandle) {

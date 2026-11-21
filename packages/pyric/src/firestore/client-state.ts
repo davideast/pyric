@@ -1,6 +1,7 @@
 import { getAuthLens } from '../sandbox/internal/auth-lens.js';
 import { FirebaseError } from '../sandbox/internal/firebase-error.js';
 import type { Target } from './state.js';
+import { createSnapshotMetadata, type SnapshotMetadataInstance } from './snapshot-metadata.js';
 import { ClientOfflineOverlay, type OfflineMutation } from './sandbox/client-offline-overlay.js';
 
 interface PendingWrite<T = unknown> {
@@ -234,24 +235,15 @@ export class FirestoreClientState {
     return this.cachedQueries.has(query) || this.cachedPaths.size > 0;
   }
 
-  snapshotMetadata(path: string): {
-    readonly fromCache: boolean;
-    readonly hasPendingWrites: boolean;
-  } {
-    return Object.freeze({
-      fromCache: !this.networkEnabled,
-      hasPendingWrites: [...this.pending].some((write) => write.paths.has(path)),
-    });
+  snapshotMetadata(path: string): SnapshotMetadataInstance {
+    return createSnapshotMetadata(
+      !this.networkEnabled,
+      [...this.pending].some((write) => write.paths.has(path)),
+    );
   }
 
-  querySnapshotMetadata(): {
-    readonly fromCache: boolean;
-    readonly hasPendingWrites: boolean;
-  } {
-    return Object.freeze({
-      fromCache: !this.networkEnabled,
-      hasPendingWrites: this.pending.size > 0,
-    });
+  querySnapshotMetadata(): SnapshotMetadataInstance {
+    return createSnapshotMetadata(!this.networkEnabled, this.pending.size > 0);
   }
 
   addSnapshotsInSyncObserver(observer: () => void): () => void {

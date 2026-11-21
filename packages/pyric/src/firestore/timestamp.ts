@@ -4,9 +4,16 @@ import {
 } from './sandbox/activity-value-registry.js';
 import { registerQueryValue } from './sandbox/query-value-registry.js';
 import { FirebaseError } from '../sandbox/internal/firebase-error.js';
+import { validateFirestoreJson, type JsonObjectSchema } from './json-schema.js';
 
 const MIN_SECONDS = -62_135_596_800;
 const MAX_SECONDS_EXCLUSIVE = 253_402_300_800;
+const TIMESTAMP_JSON_TYPE = 'firestore/timestamp/1.0';
+const TIMESTAMP_JSON_SCHEMA: JsonObjectSchema = {
+  type: { typeString: 'string', expectedValue: TIMESTAMP_JSON_TYPE },
+  seconds: { typeString: 'number' },
+  nanoseconds: { typeString: 'number' },
+};
 
 export function isValidTimestampComponents(
   seconds: unknown,
@@ -71,7 +78,7 @@ export class Timestamp {
     return Timestamp.fromMillis(d.getTime());
   }
   static fromMillis(ms: number): Timestamp {
-    // FS-B12 — derive nanoseconds as `floor((ms - seconds*1000) * 1e6)` so
+    // FS-B12 -- derive nanoseconds as `floor((ms - seconds*1000) * 1e6)` so
     // the value is ALWAYS non-negative (matching `fb.Timestamp.fromMillis`).
     // The old `(ms % 1000) * 1e6` produced negative nanos for negative
     // millis, so `fromMillis(-500)` round-tripped to -1500 via toMillis().
@@ -79,33 +86,40 @@ export class Timestamp {
     const nanoseconds = Math.floor((ms - seconds * 1000) * 1_000_000);
     return new Timestamp(seconds, nanoseconds);
   }
+  static fromJSON(json: object): Timestamp {
+    const validated = validateFirestoreJson(json, TIMESTAMP_JSON_SCHEMA);
+    return new Timestamp(
+      validated.seconds as number,
+      validated.nanoseconds as number,
+    );
+  }
   toDate(): Date {
     return new Date(this.toMillis());
   }
   toMillis(): number {
-    // FS-B12 — `nanoseconds / 1e6` (matching `fb.Timestamp.toMillis`), not
+    // FS-B12 -- `nanoseconds / 1e6` (matching `fb.Timestamp.toMillis`), not
     // `floor(nanoseconds / 1e6)`; the floor dropped sub-millisecond nanos
     // and broke the negative-millis round-trip.
     return this.seconds * 1000 + this.nanoseconds / 1_000_000;
   }
-  /** FS-B12 — value equality, mirroring `fb.Timestamp.isEqual`. */
+  /** FS-B12 -- value equality, mirroring `fb.Timestamp.isEqual`. */
   isEqual(other: Timestamp): boolean {
     return other.seconds === this.seconds && other.nanoseconds === this.nanoseconds;
   }
-  /** FS-B12 — textual form, mirroring `fb.Timestamp.toString`. */
+  /** FS-B12 -- textual form, mirroring `fb.Timestamp.toString`. */
   toString(): string {
     return `Timestamp(seconds=${this.seconds}, nanoseconds=${this.nanoseconds})`;
   }
-  /** FS-B12 — JSON form, mirroring `fb.Timestamp.toJSON`. */
+  /** FS-B12 -- JSON form, mirroring `fb.Timestamp.toJSON`. */
   toJSON(): { type: string; seconds: number; nanoseconds: number } {
     return {
-      type: 'firestore/timestamp/1.0',
+      type: TIMESTAMP_JSON_TYPE,
       seconds: this.seconds,
       nanoseconds: this.nanoseconds,
     };
   }
   /**
-   * FS-B12 — primitive coercion for `<`/`<=`/`>=`/`>` comparisons, mirroring
+   * FS-B12 -- primitive coercion for `<`/`<=`/`>=`/`>` comparisons, mirroring
    * `fb.Timestamp.valueOf`: a zero-padded `<seconds>.<nanoseconds>` string
    * (seconds offset by MIN_SECONDS so it stays non-negative and lexically
    * ordered).

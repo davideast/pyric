@@ -7,15 +7,9 @@ import { captureIndexQuery } from '../../../indexes/query-analysis.js';
 import type { LocalEnvironment } from 'pyric/sandbox/internal';
 import { cloneSnapshotValue, translateReadData } from './snapshots.js';
 import {
-  FieldPath,
-  fieldPathSegments,
   getSnapshotField,
   type SnapshotFieldPath,
 } from './field-path.js';
-import {
-  fieldPathKey,
-  fieldPathKeySegments,
-} from '../update-fields.js';
 import { forEachDocument } from '../for-each-document.js';
 import { activityValue } from '../../../firestore/sandbox/activity-query-value.js';
 import { activityDisplayValue } from '../../../firestore/sandbox/activity-query-display.js';
@@ -49,14 +43,12 @@ import {
   gatherQueryRows,
   normalizedQueryOrders,
   type QueryExecutionSpec,
-  type QueryFilter,
   type QueryOrderClause,
   type QueryScope,
 } from '../query-execution.js';
 import {
   FirestoreCompatError,
   type FirestoreSimError,
-  type AggregateField,
   type AggregateQuerySnapshot,
   type AggregateSpec,
   type AuthContext,
@@ -71,7 +63,17 @@ import {
   type QuerySnapshot,
   type WhereFilterOp,
 } from './types.js';
-import { aggregateFieldValue, computeAggregate, resolveAggregateSegments } from './query-aggregate.js';
+import {
+  assertValidAggregationCount,
+  executeAggregateSpec,
+} from './query-aggregate.js';
+import {
+  KEY_FIELD,
+  assertFiniteLimit,
+  cursorValuesFromSnapshot,
+  normalizeFilterFields,
+  normalizeQueryField,
+} from './query-bounds.js';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Internal clause shapes (not exported — wrapper-internal).
@@ -104,55 +106,6 @@ export type QueryStatePatch = Partial<Pick<
   QueryState,
   'clauses' | 'orders' | 'limitCount' | 'limitFromEnd' | 'start' | 'end'
 >>;
-
-// FS-B8 — the document-key sentinel field. Firestore normalizes every
-// query's sort to include an implicit final ordering on the document key
-// (`__name__`) so equal-valued docs have a deterministic order and cursors
-// can disambiguate them. We model the key value as a reference-like
-// `{ path }` so the canonical `compareValues` reference branch orders it.
-const KEY_FIELD = '__name__';
-
-/**
- * Pull the cursor values out of a `DocumentSnapshot` at the query's
- * orderBy fields. Backs the `startCursorFromSnapshot` /
- * `endCursorFromSnapshot` overload that mirrors the JS SDK's
- * `startAt(snapshot)` / `startAfter(snapshot)` / `endAt(snapshot)` /
- * `endBefore(snapshot)`.
- *
- * Throws when the query has no `orderBy` clauses — production
- * raises the same precondition. The snapshot's `.data()` is read
- * once and indexed positionally for each clause.
- */
-function cursorValuesFromSnapshot(
-  snapshot: DocumentSnapshot,
-  orders: readonly OrderClause[],
-  documentRef: DocumentRefFactory,
-): unknown[] {
-  const data = snapshot.data();
-  if (data === undefined) {
-    // FS-B16 — carry a FirestoreError `.code`. Prod raises `not-found`:
-    // "Can't use a DocumentSnapshot that doesn't exist for …()."
-    // (clones/.../lite-api/query.ts:newQueryBoundFromDocument).
-    throw new FirestoreCompatError({
-      code: 'not-found',
-      message:
-        'Snapshot-based cursors require an existing document — got an empty ' +
-        `snapshot for ${snapshot.id ?? '<unknown>'}.`,
-    });
-  }
-  // FS-B8 — `orders` is the NORMALIZED sort (always carries the implicit
-  // `__name__` clause), so a `startAt(snapshot)` with no explicit orderBy
-  // is legal in prod: it positions on the document key. `__name__` reads
-  // the snapshot's ref path; data fields read positionally.
-  return orders.map((o) => {
-    if (o.field === KEY_FIELD) {
-      const refPath = snapshot.ref?.path;
-      return typeof refPath === 'string' ? documentRef(refPath) : snapshot.ref;
-    }
-    const lookupField = new FieldPath(...fieldPathKeySegments(o.field));
-    return getSnapshotField(data, lookupField);
-  });
-}
 
 type CursorInput =
   | { readonly kind: 'values'; readonly values: readonly unknown[]; readonly inclusive: boolean; readonly fromSnapshot: boolean }
@@ -616,58 +569,8 @@ export class QueryImpl implements Query {
   }
 
   async aggregate(spec: AggregateSpec, opts?: OperationOptions): Promise<AggregateQuerySnapshot> {
-    // Aggregates read through the rule-enforced path too (FS-B1) — the
-    // count/sum/avg is computed only over docs the caller can read.
+    assertValidAggregationCount(spec);
     const rows = this.readQueryRows(opts);
-    const valueFields = Object.values(spec).filter(
-      (f): f is Extract<AggregateField, { kind: 'sum' | 'average' }> =>
-        f.kind === 'sum' || f.kind === 'average',
-    );
-    const distinctFieldKeys = new Set(
-      valueFields.map((f) => resolveAggregateSegments(f.field, f.path).join('\0')),
-    );
-    let scopedRows = rows;
-    if (distinctFieldKeys.size === 1) {
-      const primary = valueFields[0]!;
-      scopedRows = rows.filter((row) => aggregateFieldValue(row.data, primary.field, primary.path) !== undefined);
-    }
-    const data: Record<string, number | null> = {};
-    for (const alias of Object.keys(spec)) {
-      data[alias] = computeAggregate(spec[alias], scopedRows);
-    }
-    return { data: () => data };
-  }
-}
-
-function normalizeFilterFields(filter: Filter): QueryFilter {
-  if (filter.kind === 'where') {
-    return {
-      kind: 'where',
-      field: normalizeQueryField(filter.field),
-      op: filter.op,
-      value: filter.value,
-    };
-  }
-  return {
-    kind: filter.kind,
-    filters: filter.filters.map(normalizeFilterFields),
-  };
-}
-
-function normalizeQueryField(field: SnapshotFieldPath): string {
-  try {
-    return fieldPathKey(fieldPathSegments(field));
-  } catch (error) {
-    throw new FirestoreCompatError({
-      code: 'invalid-argument',
-      message: (error as Error).message,
-    });
-  }
-}
-
-function assertFiniteLimit(n: number): void {
-  const hasInvalidLimit = !Number.isFinite(n);
-  if (hasInvalidLimit) {
-    throw new FirestoreCompatError({ code: 'invalid-argument', message: 'Query limit must be a finite number.' });
+    return executeAggregateSpec(spec, rows);
   }
 }

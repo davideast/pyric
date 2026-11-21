@@ -7,6 +7,7 @@ import { Timestamp } from 'pyric/rules/internal';
 import type { DocumentData } from './local-state.js';
 import { applyMerge, applyUpdate } from './field-merge.js';
 import { executeQuery, type QueryScope } from './query-execution.js';
+import { compareDocumentPaths } from './query-value-order.js';
 import {
   buildDocumentSnapshot,
   buildQuerySnapshot,
@@ -175,7 +176,7 @@ export class ClientOfflineOverlay {
       for (const m of entry.mutations) allPaths.add(m.path);
     }
     const rows: { path: string; data: DocumentData }[] = [];
-    for (const path of Array.from(allPaths).sort()) {
+    for (const path of Array.from(allPaths).sort(compareDocumentPaths)) {
       if (!matchesScope(path, scope)) continue;
       const projected = this.projectDoc(path);
       if (projected.data !== null) rows.push({ path, data: projected.data });
