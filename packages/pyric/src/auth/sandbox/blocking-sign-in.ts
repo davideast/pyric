@@ -37,7 +37,7 @@ export interface RunBeforeSignInOptions {
 }
 
 /** Build an `AuthBlockingUserCandidate` snapshot from a `StoredUser` record. */
-function buildBlockingUserCandidate(
+export function buildBlockingUserCandidate(
   backend: SandboxBackend,
   stored: StoredUser,
   override?: Partial<AuthBlockingUserCandidate>,

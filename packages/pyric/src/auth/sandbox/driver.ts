@@ -1,6 +1,13 @@
 /** Pyric-only Auth driver for fixtures, host UI, and worker administration. */
 import { SandboxError } from 'pyric/sandbox';
 import type { AuthActionCode, AuthMailResolver, OutboundAuthMail } from '../sandbox-auth-flow.js';
+import {
+  listAuthSms as listAuthSmsFromStore,
+  sendBlockedAuthSms,
+  takeAuthSms as takeAuthSmsFromStore,
+  type OutboundAuthSms,
+  type SendAuthSmsRequest,
+} from './blocking-dispatch.js';
 import type {
   AuthUserRecord,
   CreateUserRequest,
@@ -78,6 +85,18 @@ export const sandbox = {
 
   listAuthMail(auth: Auth): OutboundAuthMail[] {
     return requireSandbox(auth).backend.listMail();
+  },
+
+  sendAuthSms(auth: Auth, request: SendAuthSmsRequest): Promise<OutboundAuthSms> {
+    return sendBlockedAuthSms(auth, request);
+  },
+
+  takeAuthSms(auth: Auth, phoneNumber?: string): OutboundAuthSms | null {
+    return takeAuthSmsFromStore(auth, phoneNumber);
+  },
+
+  listAuthSms(auth: Auth): OutboundAuthSms[] {
+    return listAuthSmsFromStore(auth);
   },
 
   mockActionCode(auth: Auth, code: string, spec: AuthActionCode): void {

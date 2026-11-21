@@ -31,13 +31,14 @@ export type IdentityShortEventType =
   | 'beforeSendSms';
 
 /**
- * Event types wired for live execution in the current milestone.
- * PR 1 activates `beforeCreate`; PR 2 adds `beforeSignIn`; PR 3 adds
- * `beforeSendEmail` and `beforeSendSms`.
+ * All four `firebase-functions/v2/identity` blocking event types wired for live
+ * execution (`beforeCreate`, `beforeSignIn`, `beforeSendEmail`, `beforeSendSms`).
  */
 export const ACTIVE_IDENTITY_EVENT_TYPES: ReadonlySet<IdentityBlockingEventType> = new Set([
   BEFORE_CREATE_EVENT_TYPE,
   BEFORE_SIGN_IN_EVENT_TYPE,
+  BEFORE_SEND_EMAIL_EVENT_TYPE,
+  BEFORE_SEND_SMS_EVENT_TYPE,
 ]);
 
 const SHORT_EVENT_BY_CANONICAL: Readonly<

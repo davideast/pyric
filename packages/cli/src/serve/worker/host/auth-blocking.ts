@@ -227,6 +227,9 @@ function reconcileHostAuthBlockingHooks(
       if (input.client?.locale !== undefined) reqPayload.locale = input.client.locale;
       if (input.client?.ipAddress !== undefined) reqPayload.ipAddress = input.client.ipAddress;
       if (input.client?.userAgent !== undefined) reqPayload.userAgent = input.client.userAgent;
+      if (input.client?.recaptchaScore !== undefined) {
+        reqPayload.recaptchaScore = input.client.recaptchaScore;
+      }
       const response = await dispatchBlockingInvocation(
         ctx,
         state,
@@ -247,6 +250,9 @@ function reconcileHostAuthBlockingHooks(
       if (input.client?.locale !== undefined) reqPayload.locale = input.client.locale;
       if (input.client?.ipAddress !== undefined) reqPayload.ipAddress = input.client.ipAddress;
       if (input.client?.userAgent !== undefined) reqPayload.userAgent = input.client.userAgent;
+      if (input.client?.recaptchaScore !== undefined) {
+        reqPayload.recaptchaScore = input.client.recaptchaScore;
+      }
       const response = await dispatchBlockingInvocation(
         ctx,
         state,

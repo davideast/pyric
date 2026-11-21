@@ -222,7 +222,17 @@ export type OpMessage = (
       identity: { uid: string; providerId: string } }
   | { t: 'op'; id: string; method: 'auth.sendPasswordResetEmail'; email: string; settings?: ActionCodeSettings; tenantId?: string | null }
   | { t: 'op'; id: string; method: 'auth.takeMail'; email?: string }
-  | { t: 'op'; id: string; method: 'auth.sendSignInLinkToEmail'; email: string; settings: ActionCodeSettings }
+  | { t: 'op'; id: string; method: 'auth.sendSignInLinkToEmail'; email: string; settings: ActionCodeSettings; tenantId?: string | null }
+  | {
+      t: 'op';
+      id: string;
+      method: 'auth.sendSmsVerification';
+      phoneNumber: string;
+      smsType?: 'SIGN_IN_OR_SIGN_UP' | 'MULTI_FACTOR_SIGN_IN' | 'MULTI_FACTOR_ENROLLMENT';
+      uid?: string;
+      tenantId?: string | null;
+    }
+  | { t: 'op'; id: string; method: 'auth.takeSms'; phoneNumber?: string }
   | { t: 'op'; id: string; method: 'auth.signInWithEmailLink'; email: string; link: string; tenantId?: string | null }
   | { t: 'op'; id: string; method: 'auth.signInWithCustomToken'; customToken: string; tenantId?: string | null }
   | { t: 'op'; id: string; method: 'auth.sendEmailVerification'; uid: string; tenantId: string | null; settings?: ActionCodeSettings }

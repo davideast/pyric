@@ -63,6 +63,8 @@ export const operationPersistence = {
   'auth.sendPasswordResetEmail': false,
   'auth.takeMail': false,
   'auth.sendSignInLinkToEmail': false,
+  'auth.sendSmsVerification': true,
+  'auth.takeSms': true,
   'auth.signInWithEmailLink': true,
   'auth.signInWithCustomToken': true,
   'auth.sendEmailVerification': false,

@@ -52,6 +52,7 @@ import {
   type ActionCodeSettings,
 } from './action-codes.js';
 import { hasBeforeCreateHook, hasBeforeSignInHook } from './sandbox/blocking-hooks.js';
+import { runBeforeSendEmailForBackend } from './sandbox/blocking-dispatch.js';
 import { resolveBlockedEmailLinkIdentity } from './sandbox/blocking-user-creation.js';
 import { targetOf } from './target.js';
 import type { Auth, User, UserCredential } from './types.js';
@@ -71,11 +72,21 @@ export async function sendSignInLinkToEmail(
   email: string,
   settings: ActionCodeSettings,
 ): Promise<void> {
+  return sendTenantSignInLinkToEmail(auth, email, settings);
+}
+
+/** Internal tenant-aware helper shared with served Worker/Node action-code handlers. */
+export async function sendTenantSignInLinkToEmail(
+  auth: Auth,
+  email: string,
+  settings: ActionCodeSettings,
+  tenantId?: string | null,
+): Promise<void> {
   const t = targetOf(auth);
   const target = t;
   validateActionCodeSettings(settings, 'sendSignInLinkToEmail');
   // Oracle: `handleCodeInAppFalse: 'auth/argument-error'`. Upstream
-  // requires it be true for this flow specifically — the whole point is
+  // requires it be true for this flow specifically -- the whole point is
   // that the APP completes the sign-in, not a hosted web widget.
   if (settings.handleCodeInApp !== true) {
     throw makeAuthError(
@@ -84,6 +95,17 @@ export async function sendSignInLinkToEmail(
     );
   }
   assertEmail(email, 'sendSignInLinkToEmail');
+  let effectiveTenant = tenantId;
+  if (effectiveTenant === undefined) {
+    effectiveTenant = target.backend.getTenantId();
+  }
+  const stored = target.backend.findByEmail(email, effectiveTenant);
+  await runBeforeSendEmailForBackend(target.backend, {
+    email: stored?.email ?? email,
+    emailType: 'EMAIL_SIGN_IN',
+    tenantId: stored?.tenantId ?? effectiveTenant,
+    storedUser: stored,
+  });
   const code = target.backend.mintActionCode({
     operation: ActionCodeOperation.EMAIL_SIGNIN,
     email,

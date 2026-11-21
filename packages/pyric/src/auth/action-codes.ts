@@ -43,6 +43,7 @@
 
 import { makeAuthError } from './auth-errors.js';
 import { ActionCodeOperation } from './enums.js';
+import { runBeforeSendEmailForBackend } from './sandbox/blocking-dispatch.js';
 import { targetOf } from './target.js';
 import type { SandboxTarget } from './target.js';
 import type { Auth, User } from './types.js';
@@ -196,12 +197,20 @@ export async function sendTenantPasswordResetEmail(
     // Enumeration protection: resolve silently. No mail, no code, no tell.
     return;
   }
+  const targetEmail = stored.email ?? email;
+  const resolvedTenant = stored.tenantId ?? effectiveTenant;
+  await runBeforeSendEmailForBackend(target.backend, {
+    email: targetEmail,
+    emailType: 'PASSWORD_RESET',
+    tenantId: resolvedTenant,
+    storedUser: stored,
+  });
   emit(
     target,
     {
       operation: ActionCodeOperation.PASSWORD_RESET,
-      email: stored.email ?? email,
-      tenantId: stored.tenantId ?? effectiveTenant,
+      email: targetEmail,
+      tenantId: resolvedTenant,
     },
     settings,
   );
@@ -235,6 +244,13 @@ export async function sendEmailVerification(
       'An email address must be provided.',
     );
   }
+  const stored = target.backend.findByUid(user.uid);
+  await runBeforeSendEmailForBackend(target.backend, {
+    email: user.email,
+    emailType: 'VERIFY_EMAIL',
+    tenantId: user.tenantId ?? null,
+    storedUser: stored,
+  });
   emit(target, {
     operation: ActionCodeOperation.VERIFY_EMAIL,
     email: user.email,
@@ -265,6 +281,13 @@ export async function verifyBeforeUpdateEmail(
     throw makeAuthError('auth/missing-email', 'An email address must be provided.');
   }
   target.backend.assertRecentLogin(user.uid);
+  const stored = target.backend.findByUid(user.uid);
+  await runBeforeSendEmailForBackend(target.backend, {
+    email: newEmail,
+    emailType: 'VERIFY_AND_CHANGE_EMAIL',
+    tenantId: user.tenantId ?? null,
+    storedUser: stored,
+  });
   emit(target, {
     operation: ActionCodeOperation.VERIFY_AND_CHANGE_EMAIL,
     email: user.email,

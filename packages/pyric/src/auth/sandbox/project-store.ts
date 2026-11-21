@@ -35,7 +35,10 @@ export interface AuthProjectStore {
   readonly providerConfigSubscribers: Set<() => void>;
   readonly counters: {
     nextAdminUserId: number;
+    nextSmsCodeId: number;
   };
+  /** Outbound SMS verification messages recorded by `sandbox.sendAuthSms`. */
+  readonly smsOutbox: unknown[];
   /**
    * The project the minted ID tokens name in `iss` and `aud`, read at each
    * mint because a served host learns it after Auth starts. `undefined`
@@ -65,7 +68,9 @@ export function createAuthProjectStore(): AuthProjectStore {
     providerConfigSubscribers: new Set(),
     counters: {
       nextAdminUserId: 1,
+      nextSmsCodeId: 1,
     },
+    smsOutbox: [],
     projectId: () => undefined,
     blockingHooks: null,
   };
@@ -100,6 +105,7 @@ export function recordDeletion(store: AuthProjectStore, uid: string, nowMs: numb
 export function forgetAccountHistory(store: AuthProjectStore): void {
   store.deletedUids.clear();
   store.tokensValidAfterMs.clear();
+  store.smsOutbox.length = 0;
 }
 
 /** Each account's revocation time and the deleted uids, as plain JSON. */

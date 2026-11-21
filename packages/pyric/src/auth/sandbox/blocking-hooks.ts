@@ -89,9 +89,21 @@ export interface AuthBlockingSignInHookInput {
   client?: AuthBlockingClientContext;
 }
 
+export type AuthBlockingEmailType =
+  | 'EMAIL_SIGN_IN'
+  | 'PASSWORD_RESET'
+  | 'VERIFY_EMAIL'
+  | 'VERIFY_AND_CHANGE_EMAIL'
+  | 'REVERT_SECOND_FACTOR_ADDITION';
+
+export type AuthBlockingSmsType =
+  | 'SIGN_IN_OR_SIGN_UP'
+  | 'MULTI_FACTOR_SIGN_IN'
+  | 'MULTI_FACTOR_ENROLLMENT';
+
 export interface AuthBlockingEmailHookInput {
   email: string;
-  emailType: 'EMAIL_SIGN_IN' | 'PASSWORD_RESET';
+  emailType: AuthBlockingEmailType;
   tenantId: string | null;
   userRecord?: AuthBlockingUserCandidate;
   client?: AuthBlockingClientContext;
@@ -99,7 +111,7 @@ export interface AuthBlockingEmailHookInput {
 
 export interface AuthBlockingSmsHookInput {
   phoneNumber: string;
-  smsType: 'SIGN_IN_OR_SIGN_UP' | 'MULTI_FACTOR_SIGN_IN' | 'MULTI_FACTOR_ENROLLMENT';
+  smsType: AuthBlockingSmsType;
   tenantId: string | null;
   userRecord?: AuthBlockingUserCandidate;
   client?: AuthBlockingClientContext;
@@ -137,9 +149,13 @@ export function setAuthBlockingHooks(auth: Auth, hooks: AuthBlockingHooks | null
   store.blockingHooks = hooks;
 }
 
-export function getAuthBlockingHooks(auth: Auth): AuthBlockingHooks | null {
-  const store = SandboxBackend.projectStoreOf(targetOf(auth).backend);
+export function getBackendAuthBlockingHooks(backend: SandboxBackend): AuthBlockingHooks | null {
+  const store = SandboxBackend.projectStoreOf(backend);
   return (store.blockingHooks as AuthBlockingHooks | null) ?? null;
+}
+
+export function getAuthBlockingHooks(auth: Auth): AuthBlockingHooks | null {
+  return getBackendAuthBlockingHooks(targetOf(auth).backend);
 }
 
 export function hasBeforeCreateHook(auth: Auth): boolean {
@@ -262,4 +278,22 @@ export function applyBeforeCreateResponseToInit(
     });
   }
   return { init: next, clearPhotoUrl };
+}
+
+export function validateBeforeMessageResponse(
+  response: BeforeEmailHookResult | BeforeSmsHookResult | void,
+): 'ALLOW' | 'BLOCK' | undefined {
+  if (!response || response.recaptchaActionOverride === undefined) {
+    return undefined;
+  }
+  if (
+    response.recaptchaActionOverride !== 'ALLOW' &&
+    response.recaptchaActionOverride !== 'BLOCK'
+  ) {
+    throw makeAuthBlockingRejectionError({
+      status: 'INVALID_ARGUMENT',
+      message: 'recaptchaActionOverride must be "ALLOW" or "BLOCK".',
+    });
+  }
+  return response.recaptchaActionOverride;
 }
