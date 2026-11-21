@@ -31,6 +31,31 @@ export type {
   UserMetadata,
   UserProfile,
 } from './types-core.js';
+export type {
+  ApplicationVerifier,
+  ConfirmationResult,
+  MultiFactorAssertion,
+  MultiFactorError,
+  MultiFactorInfo,
+  MultiFactorResolver,
+  MultiFactorSession,
+  MultiFactorUser,
+  PhoneAuthCredential,
+  PhoneAuthProvider,
+  PhoneInfoOptions,
+  PhoneMultiFactorAssertion,
+  PhoneMultiFactorEnrollInfoOptions,
+  PhoneMultiFactorGenerator,
+  PhoneMultiFactorInfo,
+  PhoneMultiFactorSignInInfoOptions,
+  PhoneSingleFactorInfoOptions,
+  RecaptchaParameters,
+  RecaptchaVerifier,
+  TotpMultiFactorAssertion,
+  TotpMultiFactorGenerator,
+  TotpMultiFactorInfo,
+  TotpSecret,
+} from './types-mfa.js';
 export { TARGET_SYMBOL } from './types.js';
 export type { AuthProvider } from './providers.js';
 export type {
