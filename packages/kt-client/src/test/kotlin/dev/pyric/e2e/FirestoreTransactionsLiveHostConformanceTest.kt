@@ -232,7 +232,7 @@ class FirestoreTransactionsLiveHostConformanceTest {
         assertEquals(105L, Tasks.await(sharedCounter.get(), 10, TimeUnit.SECONDS).getLong("count"))
 
         val singleAttempts = AtomicInteger(0)
-        assertFirestoreCode(FirebaseFirestoreException.Code.ABORTED) {
+        assertFirestoreCode(FirebaseFirestoreException.Code.FAILED_PRECONDITION) {
             Tasks.await(
                 firestore.runTransaction(
                     TransactionOptions.Builder().setMaxAttempts(1).build()

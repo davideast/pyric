@@ -68,3 +68,35 @@ fun firestoreSettings(
     builder.init()
     return builder.build()
 }
+
+fun memoryCacheSettings(
+    init: MemoryCacheSettings.Builder.() -> Unit
+): MemoryCacheSettings {
+    val builder = MemoryCacheSettings.newBuilder()
+    builder.init()
+    return builder.build()
+}
+
+fun memoryEagerGcSettings(
+    init: MemoryEagerGcSettings.Builder.() -> Unit
+): MemoryEagerGcSettings {
+    val builder = MemoryEagerGcSettings.newBuilder()
+    builder.init()
+    return builder.build()
+}
+
+fun memoryLruGcSettings(
+    init: MemoryLruGcSettings.Builder.() -> Unit
+): MemoryLruGcSettings {
+    val builder = MemoryLruGcSettings.newBuilder()
+    builder.init()
+    return builder.build()
+}
+
+fun persistentCacheSettings(
+    init: PersistentCacheSettings.Builder.() -> Unit
+): PersistentCacheSettings {
+    val builder = PersistentCacheSettings.newBuilder()
+    builder.init()
+    return builder.build()
+}

@@ -50,10 +50,11 @@ class FirestoreLifecycleAndValidationParityTest {
     }
 
     @Test
-    fun `document and collectionGroup reject empty strings`() {
+    fun `document rejects empty strings while collectionGroup allows empty string and rejects slashes`() {
         assertThrows(IllegalArgumentException::class.java) { harness.firestore.document("") }
         assertThrows(IllegalArgumentException::class.java) { harness.firestore.document("///") }
-        assertThrows(IllegalArgumentException::class.java) { harness.firestore.collectionGroup("") }
+        assertEquals("", harness.firestore.collectionGroup("").collectionId)
+        assertThrows(IllegalArgumentException::class.java) { harness.firestore.collectionGroup("users/items") }
         assertThrows(IllegalArgumentException::class.java) { harness.firestore.collection("users").document("") }
     }
 

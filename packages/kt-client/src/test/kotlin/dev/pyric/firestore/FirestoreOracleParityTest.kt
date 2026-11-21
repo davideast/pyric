@@ -9,6 +9,7 @@ import com.google.firebase.firestore.DocumentChangeCalculator
 import com.google.firebase.firestore.DocumentId
 import com.google.firebase.firestore.FieldPath
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreSettings
 import com.google.firebase.firestore.QueryDocumentSnapshot
 import com.google.firebase.firestore.SnapshotMetadata
 import com.google.firebase.firestore.data
@@ -341,5 +342,175 @@ class FirestoreOracleParityTest {
         assertEquals("java.lang.Double", requireNotNull(snap.get(intAvg as AggregateField)).javaClass.name)
         assertNull(snap.get(emptyAvg))
         assertNull(snap.get(emptyAvg as AggregateField))
+    }
+
+    @Test
+    fun `FirebaseFirestoreSettings defaults, LocalCacheSettings, and KTX DSL properties match Android 35_2_0`() {
+        val defaultSettings = firestore.firestoreSettings
+        assertEquals("firestore.googleapis.com", defaultSettings.host)
+        assertTrue(defaultSettings.isSslEnabled)
+        assertTrue(defaultSettings.isPersistenceEnabled)
+        assertEquals(100L * 1024L * 1024L, defaultSettings.cacheSizeBytes)
+        assertNull(defaultSettings.cacheSettings)
+
+        assertThrows(IllegalStateException::class.java) {
+            FirebaseFirestoreSettings.Builder().setSslEnabled(false).build()
+        }
+
+        val twentyMb = 20L * 1024L * 1024L
+        val persistent = FirebaseFirestoreSettings.Builder()
+            .setLocalCacheSettings(
+                com.google.firebase.firestore.PersistentCacheSettings.newBuilder()
+                    .setSizeBytes(twentyMb)
+                    .build()
+            )
+            .build()
+        assertEquals("firestore.googleapis.com", persistent.host)
+        assertTrue(persistent.isSslEnabled)
+        assertTrue(persistent.isPersistenceEnabled)
+        assertTrue(persistent.cacheSettings is com.google.firebase.firestore.PersistentCacheSettings)
+        assertEquals(twentyMb, persistent.cacheSizeBytes)
+        assertEquals(persistent, FirebaseFirestoreSettings.Builder(persistent).build())
+
+        val dslMemory = com.google.firebase.firestore.firestoreSettings {
+            host = "127.0.0.1:8085"
+            isSslEnabled = false
+            setLocalCacheSettings(com.google.firebase.firestore.memoryCacheSettings {})
+        }
+        assertEquals("127.0.0.1:8085", dslMemory.host)
+        assertEquals(false, dslMemory.isSslEnabled)
+        assertEquals(false, dslMemory.isPersistenceEnabled)
+        assertTrue(dslMemory.cacheSettings is com.google.firebase.firestore.MemoryCacheSettings)
+        assertEquals(FirebaseFirestoreSettings.CACHE_SIZE_UNLIMITED, dslMemory.cacheSizeBytes)
+
+        val lruBytes = 8L * 1024L * 1024L
+        val dslLru = com.google.firebase.firestore.firestoreSettings {
+            setLocalCacheSettings(
+                com.google.firebase.firestore.memoryCacheSettings {
+                    setGcSettings(
+                        com.google.firebase.firestore.memoryLruGcSettings {
+                            setSizeBytes(lruBytes)
+                        }
+                    )
+                }
+            )
+        }
+        assertEquals(false, dslLru.isPersistenceEnabled)
+        assertEquals(lruBytes, dslLru.cacheSizeBytes)
+
+        val ktxPersistent = com.google.firebase.firestore.firestoreSettings {
+            setLocalCacheSettings(
+                com.google.firebase.firestore.persistentCacheSettings {
+                    setSizeBytes(16L * 1024L * 1024L)
+                }
+            )
+        }
+        assertTrue(ktxPersistent.isPersistenceEnabled)
+        assertEquals(16L * 1024L * 1024L, ktxPersistent.cacheSizeBytes)
+
+        assertThrows(IllegalStateException::class.java) {
+            FirebaseFirestoreSettings.Builder()
+                .setPersistenceEnabled(false)
+                .setLocalCacheSettings(com.google.firebase.firestore.memoryCacheSettings {})
+        }
+        assertThrows(IllegalStateException::class.java) {
+            FirebaseFirestoreSettings.Builder()
+                .setLocalCacheSettings(com.google.firebase.firestore.memoryCacheSettings {})
+                .setCacheSizeBytes(FirebaseFirestoreSettings.CACHE_SIZE_UNLIMITED)
+        }
+
+        firestore.firestoreSettings = dslMemory
+        Tasks.await(firestore.disableNetwork())
+        assertThrows(IllegalStateException::class.java) {
+            firestore.firestoreSettings = com.google.firebase.firestore.firestoreSettings {
+                host = "127.0.0.1:8086"
+                isSslEnabled = false
+            }
+        }
+    }
+
+    @Test
+    fun `collectionGroup empty-string parity and runTransaction contention exhaustion FAILED_PRECONDITION match Android 35_2_0`() {
+        val emptyGroup = firestore.collectionGroup("")
+        assertEquals("", emptyGroup.collectionId)
+        assertTrue(emptyGroup.isCollectionGroup)
+        assertThrows(IllegalArgumentException::class.java) {
+            firestore.collectionGroup("invalid/slash")
+        }
+
+        val txTransport = InMemoryBridgeTransport()
+        val txClient = PyricBridgeClient(txTransport)
+        val txDb = FirebaseFirestore(txClient, app, "tx-exhaust-db")
+        var commitCalls = 0
+        var failRemainingCommits = 1
+
+        txTransport.onServerReceive { rawJson ->
+            val frame = JsonCodec.decodeMap(rawJson)
+            when (frame["type"]) {
+                "attach" -> txTransport.sendToClient("""{"type":"attach-ack","protocol":1,"peerConnected":true}""")
+                "worker-op" -> {
+                    val id = frame["id"] as String
+                    @Suppress("UNCHECKED_CAST")
+                    val op = frame["op"] as Map<String, Any?>
+                    if (op["method"] == "txnCommit") {
+                        commitCalls += 1
+                        if (failRemainingCommits > 0) {
+                            failRemainingCommits -= 1
+                            val errReply = mapOf(
+                                "type" to "worker-res",
+                                "id" to id,
+                                "ok" to false,
+                                "error" to mapOf("code" to "aborted", "message" to "Contention on document")
+                            )
+                            txTransport.sendToClient(JsonCodec.encodeToString(errReply))
+                        } else {
+                            val okReply = mapOf(
+                                "type" to "worker-res",
+                                "id" to id,
+                                "ok" to true,
+                                "value" to null
+                            )
+                            txTransport.sendToClient(JsonCodec.encodeToString(okReply))
+                        }
+                    }
+                }
+            }
+        }
+
+        try {
+            val retried = Tasks.await(
+                txDb.runTransaction(
+                    com.google.firebase.firestore.TransactionOptions.Builder().setMaxAttempts(3).build()
+                ) { txn ->
+                    txn.set(txDb.document("counters/c1"), mapOf("v" to 42))
+                    42L
+                }
+            )
+            assertEquals(42L, retried)
+            assertEquals(2, commitCalls)
+
+            commitCalls = 0
+            failRemainingCommits = 5
+            val execErr = assertThrows(java.util.concurrent.ExecutionException::class.java) {
+                Tasks.await(
+                    txDb.runTransaction(
+                        com.google.firebase.firestore.TransactionOptions.Builder().setMaxAttempts(1).build()
+                    ) { txn ->
+                        txn.set(txDb.document("counters/c1"), mapOf("v" to 99))
+                        99L
+                    }
+                )
+            }
+            val fsErr = execErr.cause as com.google.firebase.firestore.FirebaseFirestoreException
+            assertEquals(1, commitCalls)
+            assertEquals("FAILED_PRECONDITION", fsErr.code.name)
+            assertEquals(9, fsErr.code.value())
+            assertEquals(
+                com.google.firebase.firestore.FirebaseFirestoreException.Code.FAILED_PRECONDITION,
+                com.google.firebase.firestore.FirebaseFirestoreException.Code.fromValue(9)
+            )
+        } finally {
+            runBlocking { txClient.disconnect() }
+        }
     }
 }

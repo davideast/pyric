@@ -5,7 +5,7 @@ import com.google.firebase.FirebaseException
 /**
  * Structured exception mirroring Firebase Android SDK's [FirebaseFirestoreException].
  */
-open class FirebaseFirestoreException(
+open class FirebaseFirestoreException @JvmOverloads constructor(
     message: String,
     val code: Code,
     cause: Throwable? = null,
@@ -32,7 +32,13 @@ open class FirebaseFirestoreException(
         DATA_LOSS(15),
         UNAUTHENTICATED(16);
 
+        fun value(): Int = value
+
         companion object {
+            @JvmStatic
+            fun fromValue(statusCode: Int): Code =
+                entries.firstOrNull { it.value == statusCode } ?: UNKNOWN
+
             fun fromWireCode(wireCode: String?): Code {
                 return when (wireCode?.lowercase()) {
                     "cancelled", "canceled" -> CANCELLED
