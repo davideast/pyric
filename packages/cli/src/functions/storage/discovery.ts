@@ -20,12 +20,12 @@ export const STORAGE_EVENT_TYPES = [
 export type StorageEventType = (typeof STORAGE_EVENT_TYPES)[number];
 
 /**
- * Event types wired for runtime execution in the current slice. PR 1 activates
- * `finalized`; PR 2 adds `deleted`, `archived`, and `metadataUpdated`.
+ * Event types wired for runtime execution across `firebase-functions/v2/storage`:
+ * `finalized`, `deleted`, `archived`, and `metadataUpdated`.
  */
-export const ACTIVE_STORAGE_EVENT_TYPES: ReadonlySet<StorageEventType> = new Set([
-  FINALIZED_EVENT_TYPE,
-]);
+export const ACTIVE_STORAGE_EVENT_TYPES: ReadonlySet<StorageEventType> = new Set(
+  STORAGE_EVENT_TYPES,
+);
 
 const STORAGE_EVENT_TYPE_SET: ReadonlySet<string> = new Set(STORAGE_EVENT_TYPES);
 const DEFAULT_SANDBOX_STORE_BUCKET = 'pyric-default';
