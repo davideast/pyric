@@ -12,7 +12,7 @@ export const SUITE: Readonly<Record<MessagingSurfacePlane, string>> = {
 };
 
 export const UNOBSERVED_REASON =
-  'Behavior stated from upstream typings/JSDoc only (firebase 12.13.0 / firebase-admin 13.10.0); no committed observation yet — a probe candidate before implementation.';
+  'Behavior stated from upstream typings/JSDoc only (firebase 12.13.0 / firebase-admin 13.10.0); no committed observation yet - a probe candidate before implementation.';
 
 export const CITED_NOT_REPLAYED_REASON =
   'Production observed and cited (see evidence), but not yet replayed offline against a sandbox; the citation does not lock the claim until the conformance suite replays it.';
@@ -47,8 +47,11 @@ export interface MessagingBehaviorRowSeed {
   behavior: string;
   featureKeys: string[];
   evidence: string;
-  /** Names what is unevidenced; required non-empty on every behavior-class row. */
-  riskReasons: string[];
+  /** Names what is unevidenced; required non-empty on unverified behavior-class rows. */
+  riskReasons?: string[];
+  observations?: string[];
+  tests?: string[];
+  flipped?: 'oracle-backed';
   notes?: string;
   /**
    * Set for a class the sandbox will never model. Becomes the row's
@@ -153,6 +156,8 @@ export function bindMessagingBehaviorRow(
     if ('id' in raw && raw.id !== undefined) {
       throw new Error("authored row record must not declare 'id'; id is derived from surface and filename");
     }
+    const observations = seed.observations ?? [];
+    const tests = seed.tests ?? [];
     const base: Omit<FileRowSeed<{ readonly section: string }>, 'status' | 'automation'> = {
       order: seed.order,
       section: seed.section,
@@ -161,7 +166,8 @@ export function bindMessagingBehaviorRow(
       featureKeys: seed.featureKeys,
       evidence: seed.evidence,
       notes: seed.notes,
-      riskReasons: seed.riskReasons,
+      oracleObservations: observations,
+      riskReasons: seed.riskReasons ?? [],
     };
     if (seed.unsupportedReason) {
       return section.row({
@@ -171,6 +177,14 @@ export function bindMessagingBehaviorRow(
         exceptionReason: seed.unsupportedReason,
         risk: ['unsupported'],
         riskScore: 0,
+      });
+    }
+    if (seed.flipped === 'oracle-backed') {
+      return section.row({
+        ...base,
+        status: 'conforms',
+        automation: 'oracle-backed',
+        conformanceTests: [SUITE.messaging, ...tests],
       });
     }
     return section.row({

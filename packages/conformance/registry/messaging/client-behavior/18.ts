@@ -2,15 +2,15 @@ import { row } from './section.ts';
 
 export default row({
   order: 10,
-  featureKeys: ["onMessage", "onBackgroundMessage"],
+  featureKeys: ['onMessage', 'onBackgroundMessage'],
   api: 'Multi-tab delivery routing (several window clients, one shared service worker)',
   behavior:
-    'When several window clients (browser tabs) of one origin share a single service-worker registration, a foreground delivery reaches every visible tab through `onMessage`, and when no tab is visible the one shared service worker receives the message once through `onBackgroundMessage` (the worker is shared across tabs, not instantiated per tab). A notification click focuses a single existing client rather than opening a duplicate. Stated from the FCM web SDK and the Service Worker client model; no committed observation replays the multi-tab fan-out yet.',
+    'When several window clients (browser tabs) of one origin share a single service-worker registration, `@firebase/messaging` (`onPush` over `clients.matchAll({ type: "window", includeUncontrolled: true })`) routes to the foreground plane whenever at least one non-`chrome-extension://` window client reports `visibilityState === "visible"`, posting `push-received` to every matched same-origin window client so `onMessage` fires across open tabs while `onBackgroundMessage` stays silent. When all app tabs are `hidden`, the one shared service worker receives the message once through `onBackgroundMessage` (not per tab). Clicking a notification with a same-origin link focuses a single existing client rather than opening a duplicate window.',
   evidence:
-    'Upstream documentation (`@firebase/messaging` 0.12.26 + W3C Service Worker `Clients` model); no observation yet. Candidate probe: open two tabs on one registration and deliver with one tab visible, then with both hidden — assert `onMessage` fires once per visible tab and `onBackgroundMessage` fires exactly once on the shared worker.',
+    'Staged `sdk-probes` probe `packages/conformance/probes/messaging/messaging-web-multi-tab-routing.ts` (`pendingRowLink: true`) plus dual-plane replay in `packages/conformance/test/src/messaging-multi-tab-routing-probe.test.ts` and `packages/cli/test/serve/worker/oracle-captures/messaging-client-sw.test.ts`; awaiting automated main-branch observation capture before flipping.',
   riskReasons: [
-    'Multi-tab fan-out and shared-service-worker routing stated from FCM web SDK and Service Worker documentation only; no committed observation replays it — a probe candidate before implementation.',
+    'Multi-tab `sdk-probes` probe `messaging-web-multi-tab-routing` is staged (`pendingRowLink: true`); observation file not yet committed under `packages/conformance/observations/messaging/`.',
   ],
   notes:
-    'Candidate capture for the scheduled re-capture lane (#444): a two-tab browser rig sharing one service-worker registration, asserting per-visible-tab `onMessage` and a single shared-worker `onBackgroundMessage`.',
+    'Staged for automated `sdk-probes` capture on `main`: once `messaging-web-multi-tab-routing.json` lands, link `observations` and drop `pendingRowLink`.',
 });
