@@ -29,6 +29,9 @@ const NATIVE_CLIENT_SURFACES = [
   'rtdb-flutter',
   'rtdb-kotlin',
   'rtdb-swift',
+  'storage-flutter',
+  'storage-kotlin',
+  'storage-swift',
 ] as const;
 
 const LIVE_HOST_NATIVE_SUITES = [
@@ -244,7 +247,7 @@ describe('integration surfaces require live-host conformance evidence', () => {
         withLiveHostSuite.filter((p) => p.includes('firestore-kotlin#16') || p.includes('hostConformanceTests')),
       ).toEqual([]);
     }
-  });
+  }, 20_000);
 
   test('conformance-verdicts refuses to classify mock-only integration rows as supported', async () => {
     const graph = await loadConformanceGraph();

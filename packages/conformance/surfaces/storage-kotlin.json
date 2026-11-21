@@ -1,0 +1,15 @@
+{
+  "schema": "pyric.conformance.surface.v2",
+  "kind": "integration",
+  "developerSurface": "storage-kotlin",
+  "contractSource": "com.google.firebase:firebase-storage",
+  "observationPrefixes": [
+    "storage-kotlin-"
+  ],
+  "coverage": true,
+  "scopeNote": "integration contract: Pure-Kotlin client conforming to com.google.firebase:firebase-storage via Pyric WebSocket bridge and HTTP byte-route transport. Covers FirebaseStorage instance & bucket factories, StorageReference hierarchy & URL parsing, byte/stream/file UploadTask operations, getBytes/getFile/getStream downloads, tokenized download URLs, StorageMetadata inspection & patching, object deletion, listAll & cursor-paginated list, task lifecycle (pause/resume/cancel & taskState Flow), and Storage Security Rules & App Check enforcement.",
+  "captureRigs": [],
+  "conformanceSuite": "packages/kt-client/src/test/kotlin/dev/pyric/storage/StorageCoreOperationsTest.kt",
+  "climb": true,
+  "registry": "storage-kotlin"
+}

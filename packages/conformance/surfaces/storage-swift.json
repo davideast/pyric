@@ -1,0 +1,15 @@
+{
+  "schema": "pyric.conformance.surface.v2",
+  "kind": "integration",
+  "developerSurface": "storage-swift",
+  "contractSource": "FirebaseStorage",
+  "observationPrefixes": [
+    "storage-swift-"
+  ],
+  "coverage": true,
+  "scopeNote": "integration contract: Pure-Swift client conforming to FirebaseStorage via Pyric WebSocket bridge and HTTP byte-route transport. Covers Storage instance & custom gs:// bucket factories, StorageReference hierarchy & URL parsing, async/completion/Result putData & putFile uploads, data/getData & write(toFile:) downloads, tokenized downloadURL, StorageMetadata inspection & patching, object deletion, listAll & cursor-paginated list, observable StorageUploadTask & StorageDownloadTask lifecycle (pause/resume/cancel & observers), and Storage Security Rules enforcement.",
+  "captureRigs": [],
+  "conformanceSuite": "packages/swift-client/Tests/PyricStorageTests/StorageUnitTests.swift",
+  "climb": true,
+  "registry": "storage-swift"
+}
