@@ -1,9 +1,5 @@
 import Foundation
 
-private struct TransactionCallbackResult: @unchecked Sendable {
-    let value: Any?
-}
-
 public class Firestore: @unchecked Sendable {
 
     // -- Static Instance Registry --
@@ -287,121 +283,11 @@ public class Firestore: @unchecked Sendable {
         return Query(firestore: self, rootSource: .group(collectionId: collectionId))
     }
 
-    // -- Batches and Transactions --
+    // -- Batches --
 
     public func batch() -> WriteBatch {
         markUsed()
         return WriteBatch(firestore: self)
-    }
-
-    public func runTransaction(
-        _ updateBlock: @Sendable @escaping (Transaction) async throws -> Any?
-    ) async throws -> Any? {
-        try await runTransaction(options: TransactionOptions(), updateBlock)
-    }
-
-    public func runTransaction(
-        options: TransactionOptions,
-        _ updateBlock: @Sendable @escaping (Transaction) async throws -> Any?
-    ) async throws -> Any? {
-        markUsed()
-        return try await runTransaction(turn: takeTurn(), options: options, updateBlock)
-    }
-
-    private func runTransaction(
-        turn: OperationTurn,
-        options: TransactionOptions,
-        _ updateBlock: @Sendable @escaping (Transaction) async throws -> Any?
-    ) async throws -> Any? {
-        await bridgeClient.pass(turn: turn)
-        try lifecycle.ensureActiveAndMarkStarted()
-        guard lifecycle.isNetworkEnabled else {
-            throw PyricBridgeError.unavailable("Transactions cannot be executed while the client is offline.")
-        }
-        var attempts = 0
-        let maxAttempts = max(1, options.maxAttempts)
-
-        while attempts < maxAttempts {
-            attempts += 1
-            let txn = Transaction(firestore: self)
-            do {
-                let result = try await updateBlock(txn)
-                let writeId = lifecycle.beginOnlineWrite()
-                do {
-                    try await bridgeClient.txnCommit(
-                        reads: txn.stagedReads,
-                        writes: txn.stagedWrites,
-                        actAs: effectiveAuthLens
-                    )
-                    lifecycle.finishOnlineWrite(
-                        writeId,
-                        committedMutations: txn.stagedWrites.map { $0.toOfflineMutation() }
-                    )
-                } catch {
-                    lifecycle.finishOnlineWrite(writeId, committedMutations: nil)
-                    throw error
-                }
-                return result
-            } catch let error as PyricBridgeError {
-                if error.code == .aborted || error.code == .failedPrecondition {
-                    if attempts >= maxAttempts {
-                        throw error
-                    }
-                    let delayMs = min(1000, 50 * (1 << attempts)) + Int.random(in: 10...50)
-                    try await Task.sleep(nanoseconds: UInt64(delayMs * 1_000_000))
-                    continue
-                }
-                throw error
-            } catch {
-                throw error
-            }
-        }
-        throw PyricBridgeError(code: .aborted, message: "Transaction failed after \(maxAttempts) attempts.")
-    }
-
-    public func runTransaction(
-        _ updateBlock: @escaping @Sendable (Transaction, NSErrorPointer) -> Any?,
-        completion: @escaping @Sendable (Any?, Error?) -> Void
-    ) {
-        runTransaction(options: nil, block: updateBlock, completion: completion)
-    }
-
-    public func runTransaction(
-        options: TransactionOptions?,
-        block updateBlock: @escaping @Sendable (Transaction, NSErrorPointer) -> Any?,
-        completion: @escaping @Sendable (Any?, Error?) -> Void
-    ) {
-        markUsed()
-        let opts = options ?? TransactionOptions()
-        let turn = takeTurn()
-        Task {
-            do {
-                let result = try await self.runTransaction(turn: turn, options: opts) { txn in
-                    try await UpdateBlockThread.run {
-                        var err: NSError?
-                        #if canImport(ObjectiveC)
-                        let res = updateBlock(txn, &err)
-                        #else
-                        let res = withUnsafeMutablePointer(to: &err) { ptr in
-                            updateBlock(txn, ptr)
-                        }
-                        #endif
-                        if let err {
-                            throw err
-                        }
-                        return res
-                    }
-                }
-                let boxedResult = TransactionCallbackResult(value: result)
-                self.settings.dispatchCallback {
-                    completion(boxedResult.value, nil)
-                }
-            } catch {
-                self.settings.dispatchCallback {
-                    completion(nil, error)
-                }
-            }
-        }
     }
 
     // -- Network & Cache Lifecycle --
