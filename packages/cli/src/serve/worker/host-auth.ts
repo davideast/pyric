@@ -42,9 +42,24 @@ import {
   resolveOAuthCredentialUser,
   serializeSessionUser as serializeUser,
 } from './host/auth-session-seeder.js';
-import { signInWithCredentialPayload, type CredentialPayload } from './host/auth-credential-sign-in.js';
+import {
+  signInWithBlockedCredentialPayload,
+  type CredentialPayload,
+} from './host/auth-credential-sign-in.js';
+import {
+  cleanupPortAuthBlocking,
+  handleAuthBlockingRespond,
+  handleAuthBlockingSub,
+  handleAuthBlockingUnsub,
+} from './host/auth-blocking.js';
 import { authAccountsFor, getClock, isPastIdTokenRefreshPoint, rulesTokenFromIdToken } from 'pyric/sandbox/internal';
-import { sessionKeyOf } from 'pyric/auth/internal';
+import {
+  createBlockedAnonymousUser,
+  createBlockedEmailPasswordUser,
+  hasBeforeCreateHook,
+  resolveBlockedFederatedIdentity,
+  sessionKeyOf,
+} from 'pyric/auth/internal';
 import { isPlainRecord, STANDARD_TOKEN_CLAIMS } from '../repro/token-claims.js';
 
 import { linkSessionProvider } from './host/auth-linking.js';
@@ -301,6 +316,7 @@ export function cleanupPortSession(ctx: HostCtx, port: PortLike): void {
   portTenantsFor(ctx).delete(port);
   _lastAuthStateUid.delete(port);
   stagedSignInResultsFor(ctx).clear(port);
+  cleanupPortAuthBlocking(ctx, ctx.auth, port);
 }
 
 // ─── Auth op handlers ─────────────────────────────────────────────────────
@@ -312,10 +328,26 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
     case 'auth.createUser': {
       try {
         const tenantId = resolveSignInTenant(ctx, port, msg.tenantId);
-        const session = authSandboxOps.mintSession(auth, {
-          kind: 'createPassword', email: msg.email, password: msg.password,
-          tenantId, ...portOriginScope(port),
-        });
+        let session: MintedSession;
+        if (hasBeforeCreateHook(auth)) {
+          const created = await createBlockedEmailPasswordUser(auth, {
+            email: msg.email,
+            password: msg.password,
+            tenantId,
+          });
+          session = authSandboxOps.mintSession(auth, {
+            kind: 'provider',
+            uid: created.uid,
+            providerId: 'password',
+            tenantId,
+            ...portOriginScope(port),
+          });
+        } else {
+          session = authSandboxOps.mintSession(auth, {
+            kind: 'createPassword', email: msg.email, password: msg.password,
+            tenantId, ...portOriginScope(port),
+          });
+        }
         setPortSession(ctx, port, session);
         await bestEffortFlush(ctx, msg.method); // new user record must be durable at ack
         ok(port, msg.id, credReply(session, null, true));
@@ -349,9 +381,21 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
           ok(port, msg.id, credReply(existing, null, false));
           break;
         }
-        const session = authSandboxOps.mintSession(auth, {
-          kind: 'anonymous', tenantId, ...portOriginScope(port),
-        });
+        let session: MintedSession;
+        if (hasBeforeCreateHook(auth)) {
+          const created = await createBlockedAnonymousUser(auth, { tenantId });
+          session = authSandboxOps.mintSession(auth, {
+            kind: 'provider',
+            uid: created.uid,
+            providerId: 'anonymous',
+            tenantId,
+            ...portOriginScope(port),
+          });
+        } else {
+          session = authSandboxOps.mintSession(auth, {
+            kind: 'anonymous', tenantId, ...portOriginScope(port),
+          });
+        }
         setPortSession(ctx, port, session);
         await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, credReply(session, null, true));
@@ -653,7 +697,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
         }
         const tenantId = resolveSignInTenant(ctx, port, msg.tenantId);
         const takeStaged = (providerId: string) => stagedSignInResultsFor(ctx).take(port, providerId);
-        const { session, providerId, isNewUser } = signInWithCredentialPayload(auth, cred, {
+        const { session, providerId, isNewUser } = await signInWithBlockedCredentialPayload(auth, cred, {
           tenantId, ...portOriginScope(port),
         }, takeStaged);
         setPortSession(ctx, port, session);
@@ -667,9 +711,17 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
       try {
         const tenantId = resolveSignInTenant(ctx, port, msg.tenantId);
         const { providerId, photoURL, ...identity } = msg.identity;
-        const { uid, isNewUser } = resolveOAuthCredentialUser(auth, {
-          ...identity, providerId, photoURL: photoURL ?? undefined, tenantId,
-        });
+        let resolved: { uid: string; isNewUser: boolean };
+        if (hasBeforeCreateHook(auth)) {
+          resolved = await resolveBlockedFederatedIdentity(auth, {
+            ...identity, providerId, photoURL: photoURL ?? undefined, tenantId,
+          });
+        } else {
+          resolved = resolveOAuthCredentialUser(auth, {
+            ...identity, providerId, photoURL: photoURL ?? undefined, tenantId,
+          });
+        }
+        const { uid, isNewUser } = resolved;
         const session = authSandboxOps.mintSession(auth, {
           kind: 'provider', uid, providerId, tenantId, ...portOriginScope(port),
         });
@@ -779,6 +831,11 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
       break;
     }
 
+    case 'auth.blockingRespond': {
+      handleAuthBlockingRespond(ctx, port, msg);
+      break;
+    }
+
     default: {
       fail(port, msg.id, new Error(`Unknown auth method: ${String((msg as { method: unknown }).method)}`));
     }
@@ -798,7 +855,11 @@ export function isAuthOp(method: OpMessage['method']): boolean {
  * (initial-fire parity with onAuthStateChanged/onIdTokenChanged).
  */
 export function handleAuthSub(ctx: HostCtx, port: PortLike, msg: AuthSubMessage): void {
-  ensureAuth(ctx);
+  const auth = ensureAuth(ctx);
+  if (msg.target === 'authBlocking') {
+    handleAuthBlockingSub(ctx, auth, port, msg);
+    return;
+  }
   const subs = authSubsFor(ctx);
   let bySubId = subs.get(port);
   if (!bySubId) {
@@ -819,6 +880,9 @@ export function handleAuthSub(ctx: HostCtx, port: PortLike, msg: AuthSubMessage)
 }
 
 export function handleAuthUnsub(ctx: HostCtx, port: PortLike, subId: string): boolean {
+  if (ctx.auth !== undefined && handleAuthBlockingUnsub(ctx, ctx.auth, port, subId)) {
+    return true;
+  }
   const subs = authSubsFor(ctx);
   const bySubId = subs.get(port);
   if (!bySubId || !bySubId.has(subId)) return false;

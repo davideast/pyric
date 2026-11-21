@@ -41,6 +41,9 @@ import {
   type SchedulerChildRuntimeHost,
 } from './scheduler/child-runtime.js';
 import { schedulerTriggersFamily } from './scheduler/discovery.js';
+import { startIdentityChildRuntime } from './identity/child-runtime.js';
+import { identityBlockingFamily } from './identity/discovery.js';
+import type { IdentityTriggerExecutionHost } from './identity/execution.js';
 import { findUnsupportedTriggers } from './unsupported.js';
 
 interface AdminAppInstance {
@@ -112,6 +115,7 @@ async function runFunctionsChild(): Promise<void> {
   let storageHost: StorageTriggerExecutionHost | undefined;
   let firestoreHost: FirestoreTriggerExecutionHost | undefined;
   let schedulerHost: SchedulerChildRuntimeHost | undefined;
+  let identityHost: IdentityTriggerExecutionHost | undefined;
   let httpServer: HttpChildServer | undefined;
   let closing: Promise<void> | undefined;
   let stopRequested = false;
@@ -123,6 +127,8 @@ async function runFunctionsChild(): Promise<void> {
       clearInterval(heartbeat);
       clearInterval(parentWatch);
       await httpServer?.close();
+      identityHost?.close();
+      await identityHost?.idle();
       schedulerHost?.close();
       await schedulerHost?.idle();
       storageHost?.close();
@@ -264,6 +270,16 @@ async function runFunctionsChild(): Promise<void> {
     if (schedulerHost.triggerCount > 0) {
       surviveUncaughtErrors();
     }
+    identityHost = startIdentityChildRuntime({
+      entry,
+      exported,
+      sandbox: runtimeSandbox,
+      send,
+    });
+    await identityHost.ready;
+    if (identityHost.triggerCount > 0) {
+      surviveUncaughtErrors();
+    }
     const httpFunctions = [...inspectOnRequest(exported), ...inspectOnCall(exported)];
     if (httpFunctions.length > 0) {
       if (httpToken === undefined) throw new Error(`Functions child is missing ${CHILD_TOKEN_ENV}`);
@@ -275,6 +291,7 @@ async function runFunctionsChild(): Promise<void> {
       storageTriggersFamily,
       firestoreTriggersFamily,
       schedulerTriggersFamily,
+      identityBlockingFamily,
       httpOnRequestFamily,
       callableOnCallFamily,
     ]);
@@ -282,7 +299,8 @@ async function runFunctionsChild(): Promise<void> {
       host.triggerCount +
       storageHost.triggerCount +
       firestoreHost.triggerCount +
-      schedulerHost.triggerCount;
+      schedulerHost.triggerCount +
+      identityHost.triggerCount;
     if (httpServer === undefined) {
       send({
         type: 'ready',

@@ -13,9 +13,12 @@ import {
 import { assertQueryStructure } from '../host/query-structure.js';
 import { isMessageRecord, requireShape, requireRecord, requireString, requireOptionalString,
   requireOptionalBoolean, requireOptionalRecord, requireNumber, requireOptionalNumber } from './fields.js';
+import { assertAiArguments } from './ai-arguments.js';
+import { assertAuthBlockingRespondArguments } from './auth-blocking.js';
 import { assertCrashlyticsArguments } from './crashlytics.js';
 import { assertRtdbQuery } from './rtdb-query.js';
 import { updateValuesShapeError } from '../client/rtdb-value-validation.js';
+export { assertAiArguments } from './ai-arguments.js';
 export { isMessageRecord } from './fields.js';
 
 function assertRequiredPath(message: Record<string, unknown>): void {
@@ -391,7 +394,17 @@ export function assertOperationArguments(message: Record<string, unknown>): void
       const credential = message.credential ?? message;
       requireRecord(credential, 'credential');
       requireString(credential.providerId, 'credential.providerId');
-      for (const field of ['uid', 'email', 'displayName', 'photoURL', 'idToken', 'accessToken', 'rawNonce']) {
+      for (const field of [
+        'uid',
+        'email',
+        'displayName',
+        'photoURL',
+        'idToken',
+        'accessToken',
+        'refreshToken',
+        'secret',
+        'rawNonce',
+      ]) {
         const value = credential[field];
         const isNullableString = value === undefined || value === null || typeof value === 'string';
         requireShape(isNullableString, `credential.${field}`);
@@ -525,6 +538,9 @@ export function assertOperationArguments(message: Record<string, unknown>): void
       requireOptionalString(message.projectId, 'projectId');
       requireOptionalString(message.provider, 'provider');
       return;
+    case 'auth.blockingRespond':
+      assertAuthBlockingRespondArguments(message);
+      return;
     case 'crashlytics.recordError':
     case 'crashlytics.log':
     case 'crashlytics.flush':
@@ -541,56 +557,5 @@ export function assertOperationArguments(message: Record<string, unknown>): void
       const unsupportedMethod: never = method;
       throw new FirebaseError('invalid-argument', `Unknown method: ${unsupportedMethod}`);
     }
-  }
-}
-
-
-/** An App Check claim is absent (a handle with no app) or a record whose token is a string or null. */
-function assertAiAppCheck(appCheck: unknown): void {
-  const hasNoClaim = appCheck === undefined;
-  if (hasNoClaim) return;
-  requireRecord(appCheck, 'appCheck');
-  const token = appCheck.token;
-  const hasTokenShape = token === null || typeof token === 'string';
-  requireShape(hasTokenShape, 'appCheck.token');
-}
-
-/** Unary and streaming AI requests share the same adapter-owned wire fields. */
-export function assertAiArguments(message: Record<string, unknown>): void {
-  requireString(message.model, 'model');
-  requireRecord(message.request, 'request');
-  assertAiAppCheck(message.appCheck);
-  const engine = message.engine;
-  const hasNoEngine = engine === undefined;
-  if (hasNoEngine) return;
-  requireRecord(engine, 'engine');
-  const hasSupportedEngine = engine.kind === 'scripted' || engine.kind === 'openai' || engine.kind === 'gemini';
-  requireShape(hasSupportedEngine, 'engine.kind');
-  switch (engine.kind) {
-    case 'scripted': {
-      const script = engine.script;
-      const hasScript = script !== undefined;
-      if (hasScript) {
-        const isScript = Array.isArray(script) && script.every(isMessageRecord);
-        requireShape(isScript, 'engine.script');
-      }
-      return;
-    }
-    case 'openai': {
-      requireOptionalString(engine.baseUrl, 'engine.baseUrl');
-      requireOptionalString(engine.model, 'engine.model');
-      const modelMap = engine.modelMap;
-      const hasModelMap = modelMap !== undefined;
-      if (hasModelMap) {
-        requireRecord(modelMap, 'engine.modelMap');
-        const hasStringModels = Object.values(modelMap).every(model => typeof model === 'string');
-        requireShape(hasStringModels, 'engine.modelMap');
-      }
-      return;
-    }
-    case 'gemini':
-      requireOptionalString(engine.baseUrl, 'engine.baseUrl');
-      requireOptionalString(engine.apiKey, 'engine.apiKey');
-      return;
   }
 }

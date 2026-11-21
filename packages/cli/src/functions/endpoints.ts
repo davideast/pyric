@@ -22,12 +22,16 @@ export interface FirebaseEndpoint {
   httpsTrigger?: { invoker?: unknown } | null;
   scheduleTrigger?: unknown;
   taskQueueTrigger?: unknown;
+  blockingTrigger?: {
+    eventType?: unknown;
+    options?: Record<string, unknown>;
+  };
 }
 
 /** Any exported function; a family narrows it to the handler shape it calls. */
 export type EndpointCallable = (...args: never[]) => unknown;
 
-export type FirebaseEndpointFunction<F = EndpointCallable> = F & {
+type FirebaseEndpointFunction<F = EndpointCallable> = F & {
   __endpoint?: FirebaseEndpoint;
 };
 
@@ -68,6 +72,7 @@ const TRIGGER_LABELS: ReadonlyArray<readonly [keyof FirebaseEndpoint, string]> =
   ['httpsTrigger', 'https'],
   ['scheduleTrigger', 'schedule'],
   ['taskQueueTrigger', 'task-queue'],
+  ['blockingTrigger', 'blocking'],
 ];
 
 /**
@@ -77,6 +82,8 @@ const TRIGGER_LABELS: ReadonlyArray<readonly [keyof FirebaseEndpoint, string]> =
 export function endpointTriggerLabel(endpoint: FirebaseEndpoint): string {
   const eventType = endpoint.eventTrigger?.eventType;
   if (typeof eventType === 'string') return eventType;
+  const blockingEventType = endpoint.blockingTrigger?.eventType;
+  if (typeof blockingEventType === 'string') return blockingEventType;
   const declared = TRIGGER_LABELS.find(([field]) => endpoint[field] !== undefined);
   return declared?.[1] ?? 'unknown';
 }

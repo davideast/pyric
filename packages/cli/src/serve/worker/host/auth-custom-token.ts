@@ -1,5 +1,9 @@
-import { sandbox } from 'pyric/auth';
-import { resolveCustomTokenIdentity } from 'pyric/auth/internal';
+import { sandbox, type User } from 'pyric/auth';
+import {
+  hasBeforeCreateHook,
+  resolveBlockedCustomTokenIdentity,
+  resolveCustomTokenIdentity,
+} from 'pyric/auth/internal';
 import type { OpMessage } from '../protocol.js';
 import { ensureAuth, portOriginScope, resolveSignInTenant, setPortSession } from '../host-auth.js';
 import { bestEffortFlush, fail, ok, type HostCtx, type PortLike } from '../host-context.js';
@@ -13,7 +17,13 @@ export async function handleCustomTokenSignIn(
   try {
     const auth = ensureAuth(ctx);
     const tenantId = resolveSignInTenant(ctx, port, message.tenantId);
-    const { user, isNewUser } = resolveCustomTokenIdentity(auth, message.customToken, tenantId);
+    let resolved: { user: User; isNewUser: boolean };
+    if (hasBeforeCreateHook(auth)) {
+      resolved = await resolveBlockedCustomTokenIdentity(auth, message.customToken, tenantId);
+    } else {
+      resolved = resolveCustomTokenIdentity(auth, message.customToken, tenantId);
+    }
+    const { user, isNewUser } = resolved;
     const session = sandbox.mintSession(auth, {
       kind: 'custom', uid: user.uid, tenantId, ...portOriginScope(port),
     });

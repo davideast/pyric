@@ -1,5 +1,6 @@
 import { assertQueryStructure } from '../host/query-structure.js';
 import { assertAiArguments } from './operation-arguments.js';
+import { assertAuthBlockingSubArguments } from './auth-blocking.js';
 import { assertRtdbQuery } from './rtdb-query.js';
 import { assertListenerOwners } from './listener-owners.js';
 import { requireRecord, requireShape, requireString, requireOptionalString, requireOptionalBoolean } from './fields.js';
@@ -17,6 +18,9 @@ export function assertSubscription(message: Record<string, unknown>): void {
         return;
       case 'authState': case 'idToken':
       case 'presence':
+        return;
+      case 'authBlocking':
+        assertAuthBlockingSubArguments(message);
         return;
       case 'messaging.foreground': case 'messaging.background':
         requireOptionalString(message.recipientId, 'recipientId');

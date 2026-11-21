@@ -1,8 +1,12 @@
 import { FirebaseError } from 'pyric/app';
 import { AuthCredential, EmailAuthCredential, sandbox, type Auth, type MintedSession } from 'pyric/auth';
 import {
+  hasBeforeCreateHook,
   isFederatedProviderId,
   noMockConfiguredError,
+  resolveBlockedEmailLinkIdentity,
+  resolveBlockedFederatedIdentity,
+  resolveBlockedOidcJwtIdentity,
   resolveEmailLinkIdentity,
   resolveOidcJwtIdentity,
 } from 'pyric/auth/internal';
@@ -181,6 +185,111 @@ function signInWithEmailCredential(
     kind: 'provider', uid: user.uid, providerId: EMAIL_PROVIDER_ID, ...scope,
   });
   return { session, providerId: null, isNewUser };
+}
+
+export async function signInWithBlockedCredentialPayload(
+  auth: Auth,
+  payload: CredentialPayload,
+  scope: CredentialSignInScope,
+  takeStaged: TakeStagedSignInResult,
+): Promise<CredentialSignIn> {
+  if (!hasBeforeCreateHook(auth)) {
+    return signInWithCredentialPayload(auth, payload, scope, takeStaged);
+  }
+  const isEmailCredential = payload.providerId === EMAIL_PROVIDER_ID;
+  if (isEmailCredential) {
+    const credential = credentialFromWirePayload(payload);
+    if (!(credential instanceof EmailAuthCredential)) throw invalidCredential();
+    if (credential.password !== null) {
+      const session = sandbox.mintSession(auth, {
+        kind: 'password',
+        email: credential.email,
+        password: credential.password,
+        ...scope,
+      });
+      return { session, providerId: null, isNewUser: false };
+    }
+    if (credential.emailLink === null) throw invalidCredential();
+    const { user, isNewUser } = await resolveBlockedEmailLinkIdentity(
+      auth,
+      credential.email,
+      credential.emailLink,
+      scope.tenantId,
+    );
+    const session = sandbox.mintSession(auth, {
+      kind: 'provider',
+      uid: user.uid,
+      providerId: EMAIL_PROVIDER_ID,
+      ...scope,
+    });
+    return { session, providerId: null, isNewUser };
+  }
+
+  sandbox.assertAuthProviderEnabled(auth, payload.providerId);
+  const isFederated = isFederatedProviderId(payload.providerId);
+  const signInMethod = payload.signInMethod;
+  const hasOtherSignInMethod = signInMethod !== undefined && signInMethod !== payload.providerId;
+  if (!isFederated || hasOtherSignInMethod) throw noMockConfiguredError(payload.providerId);
+
+  const staged = takeStaged(payload.providerId);
+  if (staged !== null) {
+    if (staged.uid === '') throw noMockConfiguredError(payload.providerId);
+    const { photoURL, ...identity } = staged;
+    const { uid, isNewUser } = await resolveBlockedFederatedIdentity(auth, {
+      ...identity,
+      photoURL: photoURL ?? undefined,
+      tenantId: scope.tenantId,
+    });
+    const session = sandbox.mintSession(auth, {
+      kind: 'provider',
+      uid,
+      providerId: staged.providerId,
+      ...scope,
+    });
+    return { session, providerId: staged.providerId, isNewUser };
+  }
+
+  const rawIdToken = payload['idToken'];
+  if (typeof rawIdToken === 'string' && rawIdToken.length > 0) {
+    let accessToken: string | undefined;
+    if (typeof payload['accessToken'] === 'string') {
+      accessToken = payload['accessToken'];
+    }
+    let refreshToken: string | undefined;
+    if (typeof payload['refreshToken'] === 'string') {
+      refreshToken = payload['refreshToken'];
+    }
+    let secret: string | undefined;
+    if (typeof payload['secret'] === 'string') {
+      secret = payload['secret'];
+    }
+    const resolved = await resolveBlockedOidcJwtIdentity(auth, {
+      providerId: payload.providerId,
+      idToken: rawIdToken,
+      accessToken,
+      refreshToken,
+      secret,
+      tenantId: scope.tenantId,
+    });
+    if (resolved !== null) {
+      const sessionArgs: Parameters<typeof sandbox.mintSession>[1] = {
+        kind: 'provider',
+        uid: resolved.uid,
+        providerId: payload.providerId,
+        tenantId: scope.tenantId,
+      };
+      if (scope.origin !== undefined) {
+        sessionArgs.origin = scope.origin;
+      }
+      const session = sandbox.mintSession(auth, sessionArgs);
+      return {
+        session,
+        providerId: payload.providerId,
+        isNewUser: resolved.isNewUser,
+      };
+    }
+  }
+  throw noMockConfiguredError(payload.providerId);
 }
 
 function invalidCredential(): FirebaseError {

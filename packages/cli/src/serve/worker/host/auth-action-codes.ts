@@ -1,6 +1,11 @@
 import { applyActionCode, checkActionCode, confirmPasswordReset, sendEmailVerification,
-  sendSignInLinkToEmail, sandbox, verifyBeforeUpdateEmail, verifyPasswordResetCode } from 'pyric/auth';
-import { resolveEmailLinkIdentity, sendTenantPasswordResetEmail } from 'pyric/auth/internal';
+  sendSignInLinkToEmail, sandbox, verifyBeforeUpdateEmail, verifyPasswordResetCode, type User } from 'pyric/auth';
+import {
+  hasBeforeCreateHook,
+  resolveBlockedEmailLinkIdentity,
+  resolveEmailLinkIdentity,
+  sendTenantPasswordResetEmail,
+} from 'pyric/auth/internal';
 import type { OpMessage } from '../protocol.js';
 import { ensureAuth, portOriginScope, portSession, portTenant, resolveSignInTenant, setPortSession } from '../host-auth.js';
 import { bestEffortFlush, fail, ok, type HostCtx, type PortLike } from '../host-context.js';
@@ -31,7 +36,13 @@ export async function handleAuthActionCodeOp(ctx: HostCtx, port: PortLike, messa
         break;
       case 'auth.signInWithEmailLink': {
         const tenantId = resolveSignInTenant(ctx, port, message.tenantId);
-        const { user, isNewUser } = resolveEmailLinkIdentity(auth, message.email, message.link, tenantId);
+        let resolved: { user: User; isNewUser: boolean };
+        if (hasBeforeCreateHook(auth)) {
+          resolved = await resolveBlockedEmailLinkIdentity(auth, message.email, message.link, tenantId);
+        } else {
+          resolved = resolveEmailLinkIdentity(auth, message.email, message.link, tenantId);
+        }
+        const { user, isNewUser } = resolved;
         const session = sandbox.mintSession(auth, {
           kind: 'provider',
           uid: user.uid,

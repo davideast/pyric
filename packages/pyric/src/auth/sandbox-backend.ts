@@ -2191,6 +2191,12 @@ export class SandboxBackend {
           restore.customClaims !== undefined;
         if (hasRestoreClaimsOverride) {
           claimsOverride = cloneClaimData(restore.customClaims ?? {});
+        } else if (request.sessionClaims !== undefined) {
+          assertNoReservedCustomClaims(request.sessionClaims);
+          claimsOverride = cloneClaimData({
+            ...SandboxBackend.getEffectiveClaims(this, user.uid),
+            ...request.sessionClaims,
+          });
         }
         const minted = this.establishDetachedSession(
           user,
@@ -2660,6 +2666,63 @@ export class SandboxBackend {
       return cloneClaimData({ ...base, ...tokenClaims });
     }
     return cloneClaimData(base);
+  }
+
+  /**
+   * Access the shared `AuthProjectStore` for host-installed hooks.
+   * Static, so the frozen prototype surface stays as it is.
+   */
+  static projectStoreOf(backend: SandboxBackend): AuthProjectStore {
+    return backend.projectStore;
+  }
+
+  /**
+   * Persist a newly-approved account after `beforeUserCreated` succeeds.
+   * Static, so the frozen prototype surface stays as it is.
+   */
+  static commitBlockedAccount(
+    backend: SandboxBackend,
+    init: Partial<StoredUser> & { uid: string },
+    options: {
+      signInProviderId?: string | null;
+      clearPhotoUrl?: boolean;
+      detail?: Record<string, unknown>;
+    } = {},
+  ): StoredUser {
+    if (backend.usersByUid.has(init.uid)) {
+      throw makeAuthError(
+        'auth/uid-already-exists',
+        `The user with the provided uid (${init.uid}) already exists.`,
+      );
+    }
+    const normalizedTenant = normalizeTenantScope(init.tenantId);
+    if (typeof init.email === 'string' && init.email.length > 0) {
+      const emailKey = tenantEmailKey(normalizedTenant, init.email);
+      if (backend.usersByEmail.has(emailKey)) {
+        throw makeAuthError(
+          'auth/email-already-in-use',
+          `An account already exists for ${init.email}.`,
+        );
+      }
+    }
+    const record = backend.makeStored(
+      { ...init, tenantId: normalizedTenant },
+      options.signInProviderId ?? null,
+    );
+    if (options.clearPhotoUrl === true) {
+      record.photoUrl = null;
+    }
+    backend.usersByUid.set(record.uid, record);
+    if (record.email) {
+      backend.usersByEmail.set(tenantEmailKey(normalizedTenant, record.email), record);
+    }
+    backend.notifyUsersChanged();
+    backend.emitAuthEvent('user_create', {
+      path: record.uid,
+      after: backend.toRecord(record),
+      detail: options.detail,
+    });
+    return record;
   }
 
   /**

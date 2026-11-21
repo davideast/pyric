@@ -45,9 +45,25 @@ export type MintSessionRequest = TenantScope & PageOriginScope & (
   | { kind: 'anonymous' }
   | { kind: 'password'; email: string; password: string }
   | { kind: 'createPassword'; email: string; password: string }
-  | { kind: 'uid'; uid: string; from?: User; restore?: { readonly sessionKey?: string } }
-  | { kind: 'provider'; uid: string; providerId: string }
-  | { kind: 'custom'; uid: string; from?: User }
+  | {
+      kind: 'uid';
+      uid: string;
+      from?: User;
+      restore?: { readonly sessionKey?: string };
+      sessionClaims?: Record<string, unknown>;
+    }
+  | {
+      kind: 'provider';
+      uid: string;
+      providerId: string;
+      sessionClaims?: Record<string, unknown>;
+    }
+  | {
+      kind: 'custom';
+      uid: string;
+      from?: User;
+      sessionClaims?: Record<string, unknown>;
+    }
 );
 
 /** The tenant a minted session authenticates under. Carried on every

@@ -83,6 +83,7 @@ export const operationPersistence = {
   'auth.adminClearUsers': true,
   'auth.getProviderConfig': false,
   'auth.setProviderConfig': true,
+  'auth.blockingRespond': true,
   'storage.listAll': false,
   'storage.getMetadata': false,
   // Mints the object's download token the first time.

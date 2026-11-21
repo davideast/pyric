@@ -42,6 +42,12 @@ export interface AuthProjectStore {
    * mints for `SANDBOX_PROJECT_ID`.
    */
   projectId: () => string | undefined;
+  /**
+   * Optional Identity Platform blocking trigger hooks installed by a host
+   * runtime (`beforeUserCreated`, `beforeUserSignedIn`, `beforeEmailSent`,
+   * `beforeSmsSent`). `null` when no blocking functions are active.
+   */
+  blockingHooks: unknown;
 }
 
 export function createAuthProjectStore(): AuthProjectStore {
@@ -61,6 +67,7 @@ export function createAuthProjectStore(): AuthProjectStore {
       nextAdminUserId: 1,
     },
     projectId: () => undefined,
+    blockingHooks: null,
   };
 }
 
