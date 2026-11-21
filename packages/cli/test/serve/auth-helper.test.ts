@@ -3,15 +3,20 @@
 import { describe, expect, it } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import {
+  EmailAuthProvider,
   getAuth,
+  linkWithCredential,
+  signInAnonymously,
   signInWithPopup,
   signInWithRedirect,
   getRedirectResult,
+  GithubAuthProvider,
   GoogleAuthProvider,
   sandbox as authSandbox,
 } from 'pyric/auth';
 import { child, getDatabase, ref } from 'pyric/database';
 import {
+  canSignInWithProvider,
   helperCustomClaims,
   ServeAuthHelper,
   type HelperIdentity,
@@ -311,5 +316,109 @@ describe('ServeAuthHelper', () => {
     expect(helper.snapshot()).not.toBe(before);
     helper.cancel();
     await expect(p).rejects.toMatchObject({ code: 'auth/popup-closed-by-user' });
+  });
+
+  it('excludes anonymous accounts from Google sign-in picker while keeping upgraded and email/provider accounts (#3005)', async () => {
+    const { auth, helper } = wire();
+    const anonUids: string[] = [];
+    for (let i = 0; i < 5; i += 1) {
+      const anonCred = await signInAnonymously(auth);
+      anonUids.push(anonCred.user.uid);
+      await auth.signOut();
+    }
+    expect(authSandbox.listIdentities(auth).length).toBe(5);
+
+    const popup1 = signInWithPopup(auth, new GoogleAuthProvider());
+    expect(helper.snapshot().identities).toEqual([]);
+    helper.cancel();
+    await expect(popup1).rejects.toMatchObject({ code: 'auth/popup-closed-by-user' });
+
+    // Programmatic pick of an anonymous UID is also refused.
+    const popupRejectPick = signInWithPopup(auth, new GoogleAuthProvider());
+    const firstAnonUid = anonUids[0] ?? 'anonymous-missing';
+    helper.pick(firstAnonUid);
+    await expect(popupRejectPick).rejects.toMatchObject({ code: 'auth/internal-error' });
+
+    // Upgrading an anonymous session via linkWithCredential keeps its anonymous-<uuid>
+    // UID while flipping isAnonymous to false, making that identity pickable afterward.
+    const anonToUpgrade = await signInAnonymously(auth);
+    const linked = await linkWithCredential(
+      anonToUpgrade.user,
+      EmailAuthProvider.credential('upgraded@example.com', 'upgrade-pw-123'),
+    );
+    expect(linked.user.uid).toBe(anonToUpgrade.user.uid);
+    expect(linked.user.isAnonymous).toBe(false);
+    await auth.signOut();
+
+    const popupAfterUpgrade = signInWithPopup(auth, new GoogleAuthProvider());
+    expect(helper.snapshot().identities.map((entry) => entry.uid)).toEqual([
+      anonToUpgrade.user.uid,
+    ]);
+    helper.pick(anonToUpgrade.user.uid);
+    const signedBackIn = await popupAfterUpgrade;
+    expect(signedBackIn.user.uid).toBe(anonToUpgrade.user.uid);
+    expect(signedBackIn.user.email).toBe('upgraded@example.com');
+  });
+
+  it('worker directory filtering keeps email and matching-provider users and drops anonymous or unrelated email-less users (#3005)', async () => {
+    const pool: HelperIdentity[] = [
+      {
+        uid: 'anonymous-1111',
+        email: null,
+        displayName: null,
+        isAnonymous: true,
+        providerUserInfo: [],
+        customClaims: {},
+      },
+      {
+        uid: 'phone-only-user',
+        email: null,
+        displayName: null,
+        isAnonymous: false,
+        providerUserInfo: [{ providerId: 'phone' }],
+        customClaims: {},
+      },
+      {
+        uid: 'google-no-email',
+        email: null,
+        displayName: 'Workspace Account',
+        isAnonymous: false,
+        providerUserInfo: [{ providerId: 'google.com' }],
+        customClaims: {},
+      },
+      {
+        uid: 'email-user',
+        email: 'member@example.com',
+        displayName: 'Member',
+        isAnonymous: false,
+        providerUserInfo: [{ providerId: 'password' }],
+        customClaims: {},
+      },
+    ];
+    expect(canSignInWithProvider(pool[0] as HelperIdentity, 'google.com')).toBe(false);
+    expect(canSignInWithProvider(pool[1] as HelperIdentity, 'google.com')).toBe(false);
+    expect(canSignInWithProvider(pool[2] as HelperIdentity, 'google.com')).toBe(true);
+    expect(canSignInWithProvider(pool[2] as HelperIdentity, 'github.com')).toBe(false);
+    expect(canSignInWithProvider(pool[3] as HelperIdentity, 'google.com')).toBe(true);
+
+    const helper = new ServeAuthHelper({ list: () => pool });
+    const googlePopup = helper.resolver().openPopup({
+      providerId: 'google.com',
+      authType: 'signIn',
+    });
+    expect(helper.snapshot().identities.map((entry) => entry.uid)).toEqual([
+      'google-no-email',
+      'email-user',
+    ]);
+    helper.cancel();
+    await expect(googlePopup).rejects.toMatchObject({ code: 'auth/popup-closed-by-user' });
+
+    const githubPopup = helper.resolver().openPopup({
+      providerId: GithubAuthProvider.PROVIDER_ID,
+      authType: 'signIn',
+    });
+    expect(helper.snapshot().identities.map((entry) => entry.uid)).toEqual(['email-user']);
+    helper.cancel();
+    await expect(githubPopup).rejects.toMatchObject({ code: 'auth/popup-closed-by-user' });
   });
 });

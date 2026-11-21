@@ -54,6 +54,8 @@ if (typeof document !== 'undefined' && typeof window !== 'undefined') {
           // identity's `photoURL`, so re-picking an identity hands its existing
           // photo back to `auth.acceptIdentity`.
           photoURL: user.photoUrl,
+          isAnonymous: user.isAnonymous,
+          providerUserInfo: user.providerUserInfo,
           customClaims: user.customClaims,
         })),
       })
