@@ -1,3 +1,4 @@
+import { LIVE_HOST_CONFORMANCE_TEST } from '../defaults.ts';
 import { row } from './section.ts';
 
 export default row({
@@ -5,5 +6,7 @@ export default row({
   api: 'FirebaseAuthPlatform.dispose()',
   behavior: 'Disposes platform resources, canceling bridge subscriptions and closing reactive stream controllers.',
   featureKeys: ['dispose'],
-  flipped: 'unit-backed',
+  status: 'conforms',
+  tests: ['packages/flutter-client/test/live_host/auth_live_host_conformance_test.dart'],
+  hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

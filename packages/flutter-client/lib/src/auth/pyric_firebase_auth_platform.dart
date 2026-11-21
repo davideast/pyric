@@ -7,6 +7,7 @@ import 'package:firebase_core/firebase_core.dart';
 import '../transport/bridge_auth_operations.dart';
 import '../transport/bridge_client.dart';
 import 'auth_lens.dart';
+import 'auth_wire_codec.dart';
 import 'pyric_auth_credentials_provider.dart';
 import 'pyric_user_credential_platform.dart';
 import 'pyric_user_platform.dart';
@@ -14,8 +15,11 @@ import 'pyric_user_platform.dart';
 /// Concrete [FirebaseAuthPlatform] implementing pure-Dart authentication over the Pyric bridge.
 class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
     implements PyricAuthCredentialsProvider {
-  final PyricBridgeClient _bridgeClient;
+  PyricBridgeClient _bridgeClient;
+  bool _ownsBridgeClient;
   UserPlatform? _currentUser;
+  String? _lastAuthStateUid;
+  int _pendingLocalAuthMutations = 0;
 
   final StreamController<UserPlatform?> _authStateController =
       StreamController<UserPlatform?>.broadcast();
@@ -40,12 +44,15 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
   PyricFirebaseAuthPlatform({
     super.appInstance,
     PyricBridgeClient? bridgeClient,
-  })  : _bridgeClient = bridgeClient ?? PyricBridgeClient() {
+  })  : _bridgeClient = bridgeClient ?? PyricBridgeClient(),
+        _ownsBridgeClient = bridgeClient == null {
     _initBridgeAuthListeners();
   }
 
   /// Access the underlying Pyric bridge client.
   PyricBridgeClient get bridgeClient => _bridgeClient;
+
+  bool get _isLiveBridge => _bridgeClient.channelFactory == null;
 
   /// Registers [PyricFirebaseAuthPlatform] as the default platform instance.
   static void registerWith({PyricBridgeClient? bridgeClient}) {
@@ -56,10 +63,7 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
 
   @override
   FirebaseAuthPlatform delegateFor({required FirebaseApp app}) {
-    return PyricFirebaseAuthPlatform(
-      appInstance: app,
-      bridgeClient: _bridgeClient,
-    );
+    return PyricFirebaseAuthPlatform(appInstance: app, bridgeClient: _bridgeClient);
   }
 
   @override
@@ -67,98 +71,107 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
     String? languageCode,
     InternalUserDetails? currentUser,
   }) {
+    if (languageCode != null) _languageCode = languageCode;
     if (currentUser != null) {
       _currentUser = PyricUserPlatform.fromUserDetails(
         auth: this,
         details: currentUser,
         client: _bridgeClient,
       );
+      _lastAuthStateUid = _currentUser?.uid;
     }
     return this;
   }
 
-  void _preservePreviousUserMetadata(
-    PyricUserPlatform user,
-    UserPlatform? prev,
-  ) {
-    if (prev is PyricUserPlatform && prev.uid == user.uid) {
-      if (user.customClaims == null && prev.customClaims != null) {
-        user.customClaims = prev.customClaims;
-      }
-      if (user.tenantId == null && prev.tenantId != null) {
-        user.tenantId = prev.tenantId;
-      }
+  void beginLocalAuthMutation() => _pendingLocalAuthMutations += 1;
+
+  void endLocalAuthMutation() {
+    if (_pendingLocalAuthMutations > 0) _pendingLocalAuthMutations -= 1;
+  }
+
+  void _emitAuthStateIfChanged(UserPlatform? user) {
+    final nextUid = user?.uid;
+    if (nextUid != _lastAuthStateUid) {
+      _lastAuthStateUid = nextUid;
+      _authStateController.add(user);
     }
+  }
+
+  void notifyUserMutation(PyricUserPlatform user, {required bool tokenChanged}) {
+    _currentUser = user;
+    _emitAuthStateIfChanged(user);
+    if (tokenChanged) _idTokenController.add(user);
+    _userChangesController.add(user);
+  }
+
+  void invalidateCurrentUserIfMatches(String uid) {
+    if (_currentUser != null && _currentUser?.uid != uid) return;
+    _currentUser = null;
+    _emitAuthStateIfChanged(null);
+    _idTokenController.add(null);
+    _userChangesController.add(null);
+  }
+
+  PyricUserPlatform _buildWireUserPreservingPrev(Map<String, dynamic> map) {
+    final prev = _currentUser;
+    if (prev is PyricUserPlatform && prev.uid == map['uid']) {
+      map['creationTimestamp'] ??= prev.creationTimestampMillis;
+      map['lastSignInTimestamp'] ??= prev.lastSignInTimestampMillis;
+    }
+    final user = PyricUserPlatform.fromWire(
+      auth: this,
+      data: map,
+      client: _bridgeClient,
+    );
+    if (prev is PyricUserPlatform && prev.uid == user.uid) {
+      user.customClaims ??= prev.customClaims;
+      user.liveJwtTokenClaims ??= prev.liveJwtTokenClaims;
+      user.tenantId ??= prev.tenantId;
+    }
+    return user;
   }
 
   void _initBridgeAuthListeners() {
     _bridgeAuthSub = _bridgeClient.subscribeRaw({'target': 'authState'}).listen(
       (data) {
+        if (_pendingLocalAuthMutations > 0) return;
         if (data == null) {
+          if (_currentUser == null && _lastAuthStateUid == null) return;
           _currentUser = null;
+          _emitAuthStateIfChanged(null);
+          _userChangesController.add(null);
         } else if (data is Map) {
-          final map = Map<String, dynamic>.from(
-            data['user'] is Map ? data['user'] as Map : data,
+          _currentUser = _buildWireUserPreservingPrev(
+            normalizeBridgeSnapUserMap(data),
           );
-          if (data['claims'] != null && map['claims'] == null) {
-            map['claims'] = data['claims'];
-          }
-          if (data['customClaims'] != null && map['customClaims'] == null) {
-            map['customClaims'] = data['customClaims'];
-          }
-          final user = PyricUserPlatform.fromWire(
-            auth: this,
-            data: map,
-            client: _bridgeClient,
-          );
-          _preservePreviousUserMetadata(user, _currentUser);
-          _currentUser = user;
+          _emitAuthStateIfChanged(_currentUser);
+          _userChangesController.add(_currentUser);
         }
-        _authStateController.add(_currentUser);
-        _userChangesController.add(_currentUser);
       },
-      onError: (err) {
-        _authStateController.addError(_mapAuthError(err));
-      },
+      onError: (Object err) => _authStateController.addError(mapBridgeAuthError(err)),
     );
 
     _bridgeIdTokenSub =
         _bridgeClient.subscribeRaw({'target': 'idToken'}).listen(
       (data) {
+        if (_pendingLocalAuthMutations > 0) return;
         if (data == null) {
+          if (_currentUser == null && _lastAuthStateUid == null) return;
           _currentUser = null;
+          _idTokenController.add(null);
+          _userChangesController.add(null);
         } else if (data is Map) {
-          final map = Map<String, dynamic>.from(
-            data['user'] is Map ? data['user'] as Map : data,
+          _currentUser = _buildWireUserPreservingPrev(
+            normalizeBridgeSnapUserMap(data),
           );
-          if (data['claims'] != null && map['claims'] == null) {
-            map['claims'] = data['claims'];
-          }
-          if (data['customClaims'] != null && map['customClaims'] == null) {
-            map['customClaims'] = data['customClaims'];
-          }
-          final user = PyricUserPlatform.fromWire(
-            auth: this,
-            data: map,
-            client: _bridgeClient,
-          );
-          _preservePreviousUserMetadata(user, _currentUser);
-          _currentUser = user;
+          _idTokenController.add(_currentUser);
+          _userChangesController.add(_currentUser);
         }
-        _idTokenController.add(_currentUser);
-        _userChangesController.add(_currentUser);
       },
-      onError: (err) {
-        _idTokenController.addError(_mapAuthError(err));
-      },
+      onError: (Object err) => _idTokenController.addError(mapBridgeAuthError(err)),
     );
 
-    _remoteLensSub = _bridgeClient.remoteLensStream.listen((lens) {
-      switchAuthLens(lens);
-    });
-
-    // A replaced bridge host holds no user for this session. Sign the session
-    // back in before the observers are re-sent.
+    _remoteLensSub = _bridgeClient.remoteLensStream.listen(switchAuthLens);
     _bridgeClient.restoreAuth = (op) async {
       final user = _currentUser;
       if (user == null) return;
@@ -169,33 +182,21 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
     };
   }
 
-  static Object _mapAuthError(dynamic error) {
-    if (error is PyricBridgeException) {
-      return FirebaseAuthException(
-        code: error.code,
-        message: error.message,
-      );
-    }
-    return error;
-  }
-
   @override
   UserPlatform? get currentUser => _currentUser;
 
   @override
   set currentUser(UserPlatform? userPlatform) {
     _currentUser = userPlatform;
+    _lastAuthStateUid = userPlatform?.uid;
   }
 
   @override
   String? get tenantId => _tenantId;
 
   @override
-  set tenantId(String? value) {
-    _tenantId = value;
-  }
+  set tenantId(String? value) => _tenantId = value;
 
-  @override
   Future<void> setTenantId(String? tenantId) async {
     _tenantId = tenantId;
   }
@@ -216,16 +217,66 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
   Future<void> useAuthEmulator(String host, int port) async {
     _emulatorHost = host;
     _emulatorPort = port;
+    if (!_isLiveBridge) return;
+    final cleanHost = sanitizeEmulatorHost(host);
+    await _bridgeAuthSub?.cancel();
+    _bridgeAuthSub = null;
+    await _bridgeIdTokenSub?.cancel();
+    _bridgeIdTokenSub = null;
+    await _remoteLensSub?.cancel();
+    _remoteLensSub = null;
+    if (_ownsBridgeClient) await _bridgeClient.disconnect();
+    _bridgeClient = PyricBridgeClient(
+      uri: Uri.parse('ws://$cleanHost:$port/__pyric/sandbox'),
+      headers: <String, dynamic>{'Host': '$cleanHost:$port'},
+    );
+    _ownsBridgeClient = true;
+    _initBridgeAuthListeners();
+    await _bridgeClient.connect();
   }
 
   @override
   Future<void> setPersistence(Persistence persistence) async {
-    await _bridgeClient.authSetPersistence(persistence.name);
+    try {
+      await _bridgeClient.authSetPersistence(wirePersistenceMode(persistence));
+    } catch (e) {
+      throw mapBridgeAuthError(e);
+    }
+  }
+
+  /// Stages a resolved OAuth identity on the sandbox port for the next
+  /// `signInWithCredential` call matching [providerId].
+  Future<void> stageSignInResult({
+    required String uid,
+    required String providerId,
+    String? email,
+    String? displayName,
+    String? photoURL,
+    bool? emailVerified,
+    Map<String, dynamic>? customClaims,
+  }) async {
+    try {
+      await _bridgeClient.op(
+        'auth.mockSignInResult',
+        buildMockSignInIdentityPayload(
+          uid: uid,
+          providerId: providerId,
+          email: email,
+          displayName: displayName,
+          photoURL: photoURL,
+          emailVerified: emailVerified,
+          customClaims: customClaims,
+        ),
+      );
+    } catch (e) {
+      throw mapBridgeAuthError(e);
+    }
   }
 
   @override
   void sendAuthChangesEvent(String appName, UserPlatform? userPlatform) {
     _currentUser = userPlatform;
+    _lastAuthStateUid = userPlatform?.uid;
     _authStateController.add(userPlatform);
     _idTokenController.add(userPlatform);
     _userChangesController.add(userPlatform);
@@ -256,14 +307,19 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
       _createReplayingStream(_userChangesController.stream);
 
   AuthLens _lensForUser(UserPlatform? user) {
-    if (user == null) {
-      return AuthLens.anon;
+    if (user == null) return AuthLens.anon;
+    Map<String, dynamic>? lensToken;
+    if (user is PyricUserPlatform) {
+      if (_isLiveBridge && user.liveJwtTokenClaims != null) {
+        lensToken = user.liveJwtTokenClaims;
+      } else if (user.customClaims != null && user.customClaims!.isNotEmpty) {
+        lensToken = user.customClaims;
+      }
     }
-    final claims = user is PyricUserPlatform ? user.customClaims : null;
     return AuthLens.asUser(
       uid: user.uid,
       tenant: user.tenantId ?? _tenantId,
-      token: (claims != null && claims.isNotEmpty) ? claims : null,
+      token: lensToken,
     );
   }
 
@@ -274,10 +330,8 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
   }
 
   @override
-  AuthLens get currentAuthLens {
-    if (_impersonatedLens != null) return _impersonatedLens!;
-    return _lensForUser(_currentUser);
-  }
+  AuthLens get currentAuthLens =>
+      _impersonatedLens ?? _lensForUser(_currentUser);
 
   @override
   Stream<AuthLens> get authLensChanges {
@@ -288,190 +342,144 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
     ]).distinct();
   }
 
+  Future<UserCredentialPlatform> _completeSignInResponse(
+    Map<dynamic, dynamic> res, {
+    required bool defaultIsNewUser,
+    String? fallbackProviderId,
+  }) async {
+    final userMap = normalizeBridgeSnapUserMap(res);
+    if (_tenantId != null && userMap['tenantId'] == null) {
+      userMap['tenantId'] = _tenantId;
+    }
+    if (_isLiveBridge) {
+      final tokenRes =
+          await _bridgeClient.authGetIdTokenResult(forceRefresh: false);
+      final rawClaims = tokenRes['claims'] is Map
+          ? Map<String, dynamic>.from(tokenRes['claims'] as Map)
+          : null;
+      if (rawClaims != null) {
+        userMap['liveJwtTokenClaims'] = rawClaims;
+        final extracted = extractCustomClaimsFromJwtClaims(rawClaims);
+        if (extracted != null && userMap['customClaims'] == null) {
+          userMap['customClaims'] = extracted;
+        }
+      }
+      final authTs = parseWireTimestampMillis(tokenRes['authTime']) ??
+          parseWireTimestampMillis(tokenRes['issuedAtTime']);
+      if (authTs != null) {
+        userMap['creationTimestamp'] ??= authTs;
+        userMap['lastSignInTimestamp'] ??= authTs;
+      }
+    }
+    final user = PyricUserPlatform.fromWire(
+      auth: this,
+      data: userMap,
+      client: _bridgeClient,
+    );
+    _currentUser = user;
+    _emitAuthStateIfChanged(user);
+    _idTokenController.add(user);
+    _userChangesController.add(user);
+    final addInfo = res['additionalUserInfo'] as Map?;
+    final isNewUser = addInfo != null
+        ? (addInfo['isNewUser'] as bool? ?? defaultIsNewUser)
+        : defaultIsNewUser;
+    final providerId = fallbackProviderId ??
+        (addInfo != null
+            ? addInfo['providerId'] as String?
+            : res['providerId'] as String?);
+    return PyricUserCredentialPlatform(
+      auth: this,
+      user: user,
+      additionalUserInfo: AdditionalUserInfo(
+        isNewUser: isNewUser,
+        providerId: providerId,
+      ),
+    );
+  }
+
+  Future<UserCredentialPlatform> _runSignInOp(
+    Future<dynamic> Function() rpc, {
+    required bool defaultIsNewUser,
+    String? fallbackProviderId,
+  }) async {
+    beginLocalAuthMutation();
+    try {
+      final res = await rpc();
+      return await _completeSignInResponse(
+        res as Map,
+        defaultIsNewUser: defaultIsNewUser,
+        fallbackProviderId: fallbackProviderId,
+      );
+    } catch (e) {
+      throw mapBridgeAuthError(e);
+    } finally {
+      endLocalAuthMutation();
+    }
+  }
+
   @override
   Future<UserCredentialPlatform> signInWithEmailAndPassword(
     String email,
     String password,
-  ) async {
-    try {
-      final res = await _bridgeClient.authSignInEmail(
-        email,
-        password,
-        tenantId: _tenantId,
+  ) =>
+      _runSignInOp(
+        () => _bridgeClient.authSignInEmail(email, password, tenantId: _tenantId),
+        defaultIsNewUser: false,
       );
-      final userMap = Map<String, dynamic>.from(res['user'] as Map);
-      if (_tenantId != null && userMap['tenantId'] == null) {
-        userMap['tenantId'] = _tenantId;
-      }
-      if (res['claims'] != null && userMap['claims'] == null) {
-        userMap['claims'] = res['claims'];
-      }
-      if (res['customClaims'] != null && userMap['customClaims'] == null) {
-        userMap['customClaims'] = res['customClaims'];
-      }
-      final user = PyricUserPlatform.fromWire(
-        auth: this,
-        data: userMap,
-        client: _bridgeClient,
-      );
-      _currentUser = user;
-      _authStateController.add(user);
-      _idTokenController.add(user);
-      _userChangesController.add(user);
-      final addInfo = res['additionalUserInfo'] as Map?;
-      final isNewUser = addInfo != null ? (addInfo['isNewUser'] as bool? ?? false) : false;
-      final providerId = addInfo != null ? addInfo['providerId'] as String? : res['providerId'] as String?;
-      return PyricUserCredentialPlatform(
-        auth: this,
-        user: user,
-        additionalUserInfo: AdditionalUserInfo(isNewUser: isNewUser, providerId: providerId),
-      );
-    } catch (e) {
-      throw _mapAuthError(e);
-    }
-  }
 
   @override
   Future<UserCredentialPlatform> createUserWithEmailAndPassword(
     String email,
     String password,
-  ) async {
-    try {
-      final res = await _bridgeClient.authCreateUser(
-        email,
-        password,
-        tenantId: _tenantId,
+  ) =>
+      _runSignInOp(
+        () => _bridgeClient.authCreateUser(email, password, tenantId: _tenantId),
+        defaultIsNewUser: true,
       );
-      final userMap = Map<String, dynamic>.from(res['user'] as Map);
-      if (_tenantId != null && userMap['tenantId'] == null) {
-        userMap['tenantId'] = _tenantId;
-      }
-      if (res['claims'] != null && userMap['claims'] == null) {
-        userMap['claims'] = res['claims'];
-      }
-      if (res['customClaims'] != null && userMap['customClaims'] == null) {
-        userMap['customClaims'] = res['customClaims'];
-      }
-      final user = PyricUserPlatform.fromWire(
-        auth: this,
-        data: userMap,
-        client: _bridgeClient,
-      );
-      _currentUser = user;
-      _authStateController.add(user);
-      _idTokenController.add(user);
-      _userChangesController.add(user);
-      final addInfo = res['additionalUserInfo'] as Map?;
-      final isNewUser = addInfo != null ? (addInfo['isNewUser'] as bool? ?? true) : true;
-      final providerId = addInfo != null ? addInfo['providerId'] as String? : res['providerId'] as String?;
-      return PyricUserCredentialPlatform(
-        auth: this,
-        user: user,
-        additionalUserInfo: AdditionalUserInfo(isNewUser: isNewUser, providerId: providerId),
-      );
-    } catch (e) {
-      throw _mapAuthError(e);
-    }
-  }
 
   @override
-  Future<UserCredentialPlatform> signInAnonymously() async {
-    try {
-      final res = await _bridgeClient.authSignInAnonymously(tenantId: _tenantId);
-      final userMap = Map<String, dynamic>.from(res['user'] as Map);
-      if (_tenantId != null && userMap['tenantId'] == null) {
-        userMap['tenantId'] = _tenantId;
-      }
-      if (res['claims'] != null && userMap['claims'] == null) {
-        userMap['claims'] = res['claims'];
-      }
-      if (res['customClaims'] != null && userMap['customClaims'] == null) {
-        userMap['customClaims'] = res['customClaims'];
-      }
-      final user = PyricUserPlatform.fromWire(
-        auth: this,
-        data: userMap,
-        client: _bridgeClient,
+  Future<UserCredentialPlatform> signInAnonymously() => _runSignInOp(
+        () => _bridgeClient.authSignInAnonymously(tenantId: _tenantId),
+        defaultIsNewUser: true,
       );
-      _currentUser = user;
-      _authStateController.add(user);
-      _idTokenController.add(user);
-      _userChangesController.add(user);
-      final addInfo = res['additionalUserInfo'] as Map?;
-      final isNewUser = addInfo != null ? (addInfo['isNewUser'] as bool? ?? true) : true;
-      return PyricUserCredentialPlatform(
-        auth: this,
-        user: user,
-        additionalUserInfo: AdditionalUserInfo(isNewUser: isNewUser),
-      );
-    } catch (e) {
-      throw _mapAuthError(e);
-    }
-  }
 
   @override
   Future<UserCredentialPlatform> signInWithCredential(
     AuthCredential credential,
-  ) async {
-    try {
-      final credMap = credential.asMap();
-      final payload = <String, dynamic>{
-        'providerId': credential.providerId,
-        'signInMethod': credential.signInMethod,
-        if (credMap['idToken'] != null) 'idToken': credMap['idToken'],
-        if (credMap['accessToken'] != null)
-          'accessToken': credMap['accessToken'],
-        if (credMap['rawNonce'] != null) 'rawNonce': credMap['rawNonce'],
-      };
-      final res = await _bridgeClient.authSignInWithCredential(
-        payload,
-        tenantId: _tenantId,
-      );
-      final userMap = Map<String, dynamic>.from(res['user'] as Map);
-      if (_tenantId != null && userMap['tenantId'] == null) {
-        userMap['tenantId'] = _tenantId;
-      }
-      if (res['claims'] != null && userMap['claims'] == null) {
-        userMap['claims'] = res['claims'];
-      }
-      if (res['customClaims'] != null && userMap['customClaims'] == null) {
-        userMap['customClaims'] = res['customClaims'];
-      }
-      final user = PyricUserPlatform.fromWire(
-        auth: this,
-        data: userMap,
-        client: _bridgeClient,
-      );
-      _currentUser = user;
-      _authStateController.add(user);
-      _idTokenController.add(user);
-      _userChangesController.add(user);
-      final isNewUser = (res['additionalUserInfo'] is Map)
-          ? (res['additionalUserInfo']['isNewUser'] as bool? ?? false)
-          : false;
-      return PyricUserCredentialPlatform(
-        auth: this,
-        user: user,
-        additionalUserInfo: AdditionalUserInfo(
-          isNewUser: isNewUser,
-          providerId: credential.providerId,
+  ) =>
+      _runSignInOp(
+        () => _bridgeClient.authSignInWithCredential(
+          buildCredentialWirePayload(credential),
+          tenantId: _tenantId,
         ),
+        defaultIsNewUser: false,
+        fallbackProviderId: credential.providerId,
       );
-    } catch (e) {
-      throw _mapAuthError(e);
-    }
-  }
+
+  @override
+  Future<UserCredentialPlatform> signInWithCustomToken(String token) =>
+      _runSignInOp(
+        () => _bridgeClient.op('auth.signInWithCustomToken', <String, dynamic>{
+          'customToken': token,
+          if (_tenantId != null) 'tenantId': _tenantId,
+        }),
+        defaultIsNewUser: false,
+      );
 
   @override
   Future<void> signOut() async {
+    beginLocalAuthMutation();
     try {
       await _bridgeClient.authSignOut();
       _currentUser = null;
-      _authStateController.add(null);
+      _emitAuthStateIfChanged(null);
       _idTokenController.add(null);
       _userChangesController.add(null);
     } catch (e) {
-      throw _mapAuthError(e);
+      throw mapBridgeAuthError(e);
+    } finally {
+      endLocalAuthMutation();
     }
   }
 
@@ -483,6 +491,7 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
     _bridgeIdTokenSub = null;
     await _remoteLensSub?.cancel();
     _remoteLensSub = null;
+    if (_ownsBridgeClient) await _bridgeClient.disconnect();
     await _lensController.close();
     await _authStateController.close();
     await _idTokenController.close();

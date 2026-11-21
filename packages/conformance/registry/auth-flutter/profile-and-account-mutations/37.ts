@@ -1,3 +1,4 @@
+import { LIVE_HOST_CONFORMANCE_TEST } from '../defaults.ts';
 import { row } from './section.ts';
 
 export default row({
@@ -5,5 +6,7 @@ export default row({
   api: 'UserPlatform.updateEmail(newEmail)',
   behavior: 'Updates user account email address via bridge RPC.',
   featureKeys: ['updateEmail'],
-  flipped: 'unit-backed',
+  status: 'conforms',
+  tests: ['packages/flutter-client/test/live_host/auth_tokens_mutations_live_host_test.dart'],
+  hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });
