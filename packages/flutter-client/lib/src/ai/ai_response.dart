@@ -219,6 +219,44 @@ final class Candidate {
     }
     return buffer.toString();
   }
+
+  /// Concatenated [ThoughtPart] reasoning summary for this candidate, or `null`
+  /// when blocked or when no thought parts exist.
+  String? get thoughtSummary {
+    if (finishReason?.isBlocked ?? false) {
+      return null;
+    }
+    final thoughts =
+        content.parts.whereType<ThoughtPart>().toList(growable: false);
+    if (thoughts.isEmpty) {
+      return null;
+    }
+    final buffer = StringBuffer();
+    for (final thought in thoughts) {
+      buffer.write(thought.text);
+    }
+    return buffer.toString();
+  }
+
+  /// All [FunctionCall] parts emitted in this candidate, or empty when blocked.
+  Iterable<FunctionCall> get functionCalls {
+    if (finishReason?.isBlocked ?? false) {
+      return const <FunctionCall>[];
+    }
+    return List<FunctionCall>.unmodifiable(
+      content.parts.whereType<FunctionCall>(),
+    );
+  }
+
+  /// All [InlineDataPart] payloads emitted in this candidate, or empty when blocked.
+  Iterable<InlineDataPart> get inlineDataParts {
+    if (finishReason?.isBlocked ?? false) {
+      return const <InlineDataPart>[];
+    }
+    return List<InlineDataPart>.unmodifiable(
+      content.parts.whereType<InlineDataPart>(),
+    );
+  }
 }
 
 /// Prompt-level safety feedback returned when a prompt is evaluated or blocked.
@@ -275,8 +313,12 @@ final class UsageMetadata {
   final int? thoughtsTokenCount;
   final int? cachedContentTokenCount;
   final int? toolUsePromptTokenCount;
+  final String? serviceTier;
+  final String? trafficType;
   final List<ModalityTokenCount>? promptTokensDetails;
   final List<ModalityTokenCount>? candidatesTokensDetails;
+  final List<ModalityTokenCount>? cacheTokensDetails;
+  final List<ModalityTokenCount>? toolUsePromptTokensDetails;
 
   UsageMetadata({
     this.promptTokenCount,
@@ -285,14 +327,24 @@ final class UsageMetadata {
     this.thoughtsTokenCount,
     this.cachedContentTokenCount,
     this.toolUsePromptTokenCount,
+    this.serviceTier,
+    this.trafficType,
     List<ModalityTokenCount>? promptTokensDetails,
     List<ModalityTokenCount>? candidatesTokensDetails,
+    List<ModalityTokenCount>? cacheTokensDetails,
+    List<ModalityTokenCount>? toolUsePromptTokensDetails,
   })  : promptTokensDetails = promptTokensDetails == null
             ? null
             : List<ModalityTokenCount>.unmodifiable(promptTokensDetails),
         candidatesTokensDetails = candidatesTokensDetails == null
             ? null
-            : List<ModalityTokenCount>.unmodifiable(candidatesTokensDetails);
+            : List<ModalityTokenCount>.unmodifiable(candidatesTokensDetails),
+        cacheTokensDetails = cacheTokensDetails == null
+            ? null
+            : List<ModalityTokenCount>.unmodifiable(cacheTokensDetails),
+        toolUsePromptTokensDetails = toolUsePromptTokensDetails == null
+            ? null
+            : List<ModalityTokenCount>.unmodifiable(toolUsePromptTokensDetails);
 }
 
 /// Response returned by `GenerativeModel.generateContent` and stream chunks.
@@ -311,7 +363,7 @@ final class GenerateContentResponse {
     this.responseId,
   }) : candidates = List<Candidate>.unmodifiable(candidates);
 
-  /// Concatenated non-thought [TextPart] strings from the first candidate, or
+  /// Concatenated non-thought [TextPart] strings from the primary candidate, or
   /// `null` when no candidates exist, the candidate was blocked, or no text
   /// parts are present.
   String? get text {
@@ -321,54 +373,29 @@ final class GenerateContentResponse {
     return candidates.first.text;
   }
 
-  /// Concatenated [ThoughtPart] reasoning summary from the first candidate, or
+  /// Concatenated [ThoughtPart] reasoning summary from the primary candidate, or
   /// `null` when no thought parts exist or the candidate was blocked.
   String? get thoughtSummary {
     if (candidates.isEmpty) {
       return null;
     }
-    final first = candidates.first;
-    if (first.finishReason?.isBlocked ?? false) {
-      return null;
-    }
-    final thoughts =
-        first.content.parts.whereType<ThoughtPart>().toList(growable: false);
-    if (thoughts.isEmpty) {
-      return null;
-    }
-    final buffer = StringBuffer();
-    for (final thought in thoughts) {
-      buffer.write(thought.text);
-    }
-    return buffer.toString();
+    return candidates.first.thoughtSummary;
   }
 
-  /// All [FunctionCall] parts emitted in the first candidate, in part order.
+  /// All [FunctionCall] parts emitted in the primary candidate, in part order.
   Iterable<FunctionCall> get functionCalls {
     if (candidates.isEmpty) {
       return const <FunctionCall>[];
     }
-    final first = candidates.first;
-    if (first.finishReason?.isBlocked ?? false) {
-      return const <FunctionCall>[];
-    }
-    return List<FunctionCall>.unmodifiable(
-      first.content.parts.whereType<FunctionCall>(),
-    );
+    return candidates.first.functionCalls;
   }
 
-  /// All [InlineDataPart] payloads emitted in the first candidate, in part order.
+  /// All [InlineDataPart] payloads emitted in the primary candidate, in part order.
   Iterable<InlineDataPart> get inlineDataParts {
     if (candidates.isEmpty) {
       return const <InlineDataPart>[];
     }
-    final first = candidates.first;
-    if (first.finishReason?.isBlocked ?? false) {
-      return const <InlineDataPart>[];
-    }
-    return List<InlineDataPart>.unmodifiable(
-      first.content.parts.whereType<InlineDataPart>(),
-    );
+    return candidates.first.inlineDataParts;
   }
 }
 
