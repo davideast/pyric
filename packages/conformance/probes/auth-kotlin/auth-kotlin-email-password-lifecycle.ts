@@ -12,6 +12,7 @@ export const probe: Probe = {
     'auth-kotlin#15',
     'auth-kotlin#16',
     'auth-kotlin#21',
+    'auth-kotlin#23',
     'auth-kotlin#30',
   ],
   rig: 'android-sdk-probes',

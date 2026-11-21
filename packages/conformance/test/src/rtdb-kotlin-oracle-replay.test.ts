@@ -39,6 +39,19 @@ const KT_DATA_SNAPSHOT_PATH = join(
   'DataSnapshot.kt',
 );
 
+const KT_LIVE_ORACLE_PARITY_TEST_PATH = join(
+  REPO_ROOT,
+  'packages',
+  'kt-client',
+  'src',
+  'test',
+  'kotlin',
+  'dev',
+  'pyric',
+  'e2e',
+  'OracleParityLiveHostConformanceTest.kt',
+);
+
 const DEDICATED_INSTANCE = 'pyric-oracle-rtdb-2';
 
 const gate = createObservationGate({
@@ -149,13 +162,15 @@ describe('rtdb-kotlin Android SDK production observation replay over hosted work
       expect(snapWire.value.count).toBe(obs.incrementedCount);
       expect(snapWire.value.extra).toBe(obs.extraField);
 
-      // Production Android returns `java.lang.Long` for integer snapshots (`obs.integerValueClass`),
-      // whereas kt-client's `JsonCodec.parseNumber` narrows 32-bit integers to `Int` (`DataSnapshot.getValue(Long::class.java)`
-      // coerces `Number.toLong()`); `rtdb-kotlin#snap-value` therefore remains honestly `self-tested`.
       expect(obs.integerValueClass).toBe('java.lang.Long');
+      expect(Number.isInteger(snapWire.value.count)).toBe(true);
       const dataSnapshotSource = readFileSync(KT_DATA_SNAPSHOT_PATH, 'utf8');
-      expect(dataSnapshotSource).toContain(
-        'java.lang.Long::class.java, Long::class.java -> (raw as? Number)?.toLong() as? T',
+      expect(dataSnapshotSource).toContain('internal fun normalizeRtdbValue(raw: Any?): Any?');
+      expect(dataSnapshotSource).toContain('is Int -> raw.toLong()');
+      expect(dataSnapshotSource).toContain('value = normalizeRtdbValue(value)');
+      const liveParitySuiteSource = readFileSync(KT_LIVE_ORACLE_PARITY_TEST_PATH, 'utf8');
+      expect(liveParitySuiteSource).toContain(
+        'assertEquals("java.lang.Long", countVal!!::class.java.name)',
       );
 
       const catalogPath = `${basePath}/catalog`;

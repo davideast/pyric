@@ -5,5 +5,9 @@ export default row({
   api: 'FirebaseUser.providerData',
   behavior: 'Returns a list of UserInfo instances corresponding to linked provider accounts.',
   featureKeys: ['providerData'],
-  flipped: 'live-host',
+  flipped: 'oracle-backed',
+  oracleObservations: [
+    'auth-kotlin-anonymous-and-custom-token-session',
+    'auth-kotlin-email-password-lifecycle',
+  ],
 });
