@@ -59,6 +59,8 @@ export function onAuthLensChanged(cb: (lens: AuthLens | undefined) => void): () 
   };
 }
 
+const FORBIDDEN_IMPERSONATED_KEYS = new Set(['__proto__', 'prototype', 'constructor', 'mode']);
+
 /** Resolve effective identity and admin rules-bypass state for a live listener or handle. */
 export function resolveAuthLensState(
   lens: AuthLens | undefined,
@@ -74,6 +76,18 @@ export function resolveAuthLensState(
     const impersonated: NonNullable<AuthState> = { uid: lens.uid };
     if (lens.tenant !== undefined) impersonated.tenant = lens.tenant;
     if (lens.token !== undefined) impersonated.token = lens.token;
+    for (const [key, value] of Object.entries(lens)) {
+      if (key === 'uid' || key === 'tenant' || key === 'token' || FORBIDDEN_IMPERSONATED_KEYS.has(key)) {
+        continue;
+      }
+      if (value === undefined) continue;
+      Object.defineProperty(impersonated, key, {
+        value,
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    }
     return { auth: impersonated, bypassRules: false };
   }
   return { auth: fallback, bypassRules: false };

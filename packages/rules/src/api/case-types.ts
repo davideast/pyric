@@ -266,8 +266,12 @@ export interface RtdbCase {
   /** Absolute, root-relative tree path, e.g. `"/users/alice"`. A path the
    *  SDK refuses, one holding `.`, `#`, `$`, `[` or `]`, is UNSUPPORTED. */
   path: string;
-  /** Auth context; a bare uid string, a full identity, or `null`. */
-  auth?: string | { uid: string; tenant?: string; token?: Record<string, unknown> } | null;
+  /** Auth context; a bare uid string, a full identity or auth override, or `null`. */
+  auth?:
+    | string
+    | { uid: string; tenant?: string; token?: Record<string, unknown> }
+    | ({ uid: string; tenant?: string; token?: Record<string, unknown> } & Record<string, unknown>)
+    | null;
   /**
    * The database instance the request goes to, by name, such as
    * `"demo-app-shard-1"`. Omit it for the default instance. A rule's `root`

@@ -21,6 +21,7 @@ export type EventActor =
 export type AuthLens =
   | { mode: 'admin' }
   | { mode: 'as'; uid: string; tenant?: string; token?: Record<string, unknown> }
+  | ({ mode: 'as'; uid: string; tenant?: string; token?: Record<string, unknown> } & Record<string, unknown>)
   | { mode: 'app-session' }
   | { mode: 'anon' };
 

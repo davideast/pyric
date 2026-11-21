@@ -284,18 +284,37 @@ export class RulesEvaluator {
         reasons: ['No RTDB rules loaded; default allow.'],
       };
     }
-    // The simulator's SimulationInputSchema accepts `auth` as
-    // either `null` or `{ uid: string, tenant?: string, token?: Record<string, unknown> }`.
-    // Preserve tenant and optional token from AuthState so tenant claim
-    // normalization and custom claims reach the simulator.
+    // Preserve tenant, optional token, and any extra top-level override fields
+    // from AuthState so tenant claim normalization, custom claims, and top-level
+    // auth override fields reach the simulator without synthesizing claims onto
+    // an override.
     let normalisedAuth: SimulationInput['auth'] = null;
     if (ctx.auth !== null) {
-      normalisedAuth = {
-        uid: ctx.auth.uid,
-        token: ctx.auth.token ?? {},
-      };
+      normalisedAuth = { uid: ctx.auth.uid };
+      if (ctx.auth.token !== undefined) {
+        normalisedAuth.token = ctx.auth.token;
+      }
       if (ctx.auth.tenant !== undefined) {
         normalisedAuth.tenant = ctx.auth.tenant;
+      }
+      for (const [key, value] of Object.entries(ctx.auth)) {
+        if (
+          key === 'uid' ||
+          key === 'token' ||
+          key === 'tenant' ||
+          key === '__proto__' ||
+          key === 'prototype' ||
+          key === 'constructor' ||
+          value === undefined
+        ) {
+          continue;
+        }
+        Object.defineProperty(normalisedAuth, key, {
+          value,
+          enumerable: true,
+          writable: true,
+          configurable: true,
+        });
       }
     }
     let simulatedQuery = ctx.query;

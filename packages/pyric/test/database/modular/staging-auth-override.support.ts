@@ -3,15 +3,6 @@
  * sandbox's RTDB rules simulator: each case's identity, as the rules `auth`
  * variable, writing to its rule-gated path, against the verdict production
  * gave when the same object was the request's auth override.
- *
- * `pyric verify --engine staging` sends `rtdbAuthVariable(auth)` as the
- * override, which derives `auth.provider` from
- * `auth.token.firebase.sign_in_provider`. Two of the observation's identities
- * (`flip_provider`, `flip_sign_in_provider`) carry a `provider` that differs
- * from that claim, recorded to show production reads `provider` from the
- * override verbatim. The engine never sends such an object and the sandbox
- * derives `provider`, so their `provider` field is not compared; their other
- * fields are.
  */
 import { compileRtdbRules, simulateRtdbRules } from '../../../src/rules/internal/rtdb.js';
 
@@ -53,13 +44,16 @@ export function stagingAuthOverrideMismatches(behavior: OverrideBehavior): { com
     if (testCase.mechanism !== 'rest' || testCase.identity === 'admin-no-override') continue;
     const identity = identities[testCase.identity];
     if (identity === undefined) continue;
-    // Only `auth.provider` can differ for an identity whose provider is not the
-    // one its claim implies; every other field is compared.
-    if (testCase.field === 'provider' && !providerFollowsClaim(identity)) continue;
+    let auth: Identity | null = null;
+    if (identity !== null) {
+      auth = { uid: identity.uid };
+      if (identity.provider !== undefined) auth.provider = identity.provider;
+      if (identity.token !== undefined) auth.token = identity.token;
+    }
     const result = simulateRtdbRules(compiled, {
       operation: 'write',
       path: `/probe/${testCase.field}/rest_${testCase.identity}`,
-      auth: identity === null ? null : { uid: identity.uid, token: identity.token ?? {} },
+      auth,
       mockData: {},
       newData: 'v',
       now: Date.parse('2026-10-23T17:57:00Z'),

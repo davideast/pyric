@@ -51,20 +51,55 @@ function evaluateRule(rule: RtdbRuleExpression, ctx: EvalContext): RuleOutcome {
   }
 }
 
+const FORBIDDEN_AUTH_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
+
+function signInProviderClaimOf(token: Record<string, unknown> | undefined): string | undefined {
+  if (token === undefined) return undefined;
+  const firebase = token.firebase;
+  if (typeof firebase !== 'object' || firebase === null || Array.isArray(firebase)) return undefined;
+  const signInProvider = (firebase as Record<string, unknown>).sign_in_provider;
+  if (typeof signInProvider === 'string') return signInProvider;
+  return undefined;
+}
+
 /**
- * The rules `auth` variable for a signed-in request: the uid, the ID token
- * claims with the tenant folded in by the shared normalizer, and `provider`,
- * which production reads as the token's `firebase.sign_in_provider`. There is
- * no top-level `auth.tenant`; production reads it as null.
+ * The rules `auth` variable for a non-null request identity.
+ *
+ * A client session (one carrying `token.firebase.sign_in_provider` and no extra
+ * top-level override fields) gets standard ID token claims filled in by
+ * `withIdTokenClaims` and `auth.provider` derived from `sign_in_provider`. An
+ * auth override keeps its own top-level fields on `auth` and keeps `auth.token`
+ * limited to the claims the override itself supplied. Top-level `tenant` on
+ * `AuthState` folds into `token.firebase.tenant` and never sets `auth.tenant`.
  */
 export function simulatedAuthOf(auth: NonNullable<SimulationInput['auth']>, nowMs: number): SimulatedAuth {
   const normalized = normalizeAuthState(auth);
-  const token = withIdTokenClaims(auth.uid, normalized?.token ?? {}, nowMs);
-  const simulated: SimulatedAuth = { uid: auth.uid, token };
-  const firebase = token.firebase;
-  const claims = typeof firebase === 'object' && firebase !== null ? (firebase as Record<string, unknown>) : {};
-  const signInProvider = claims.sign_in_provider;
-  if (typeof signInProvider === 'string') simulated.provider = signInProvider;
+  if (normalized === null) {
+    return { uid: auth.uid };
+  }
+  const simulated: SimulatedAuth = { uid: normalized.uid };
+  let hasOverrideField = false;
+  for (const [key, value] of Object.entries(normalized)) {
+    if (key === 'uid' || key === 'tenant' || key === 'token' || FORBIDDEN_AUTH_KEYS.has(key)) {
+      continue;
+    }
+    hasOverrideField = true;
+    Object.defineProperty(simulated, key, {
+      value,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  const signInProvider = signInProviderClaimOf(normalized.token);
+  if (!hasOverrideField && signInProvider !== undefined) {
+    simulated.token = withIdTokenClaims(normalized.uid, normalized.token ?? {}, nowMs);
+    simulated.provider = signInProvider;
+    return simulated;
+  }
+  if (normalized.token !== undefined) {
+    simulated.token = normalized.token;
+  }
   return simulated;
 }
 

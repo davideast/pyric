@@ -96,7 +96,7 @@ describe('docs: test Realtime Database rules', () => {
     const result = rules.simulate([cases[5]]).cases[0];
     expect(result.matchedPath).toBe('/records/$recordId/title');
     expect(result.matchedRule).toBe('newData.isString() && newData.val().length <= 80');
-    expect(result.reason).toBe('Validation rule evaluated to false');
+    expect(result.reason).toBe("Validation rule at '/records/$recordId/title' evaluated to false");
   });
 
   test('the sandbox rejects the unrelated user with PERMISSION_DENIED and records the rule', async () => {
@@ -194,7 +194,7 @@ describe('docs: how the simulator evaluates rules', () => {
     ]).cases;
     expect(string.decision).toBe('ALLOW');
     expect(number.decision).toBe('DENY');
-    expect(number.reason).toBe('Validation rule evaluated to false');
+    expect(number.reason).toBe("Validation rule at '/scores/$id' evaluated to false");
   });
 
   test('a validate rule that errors rejects the write and names the error', () => {
@@ -417,7 +417,7 @@ describe('docs: how the simulator evaluates rules', () => {
     expect(results[0].passed).toBe(true);
     expect(results[0].matchedPath).toBe('/records/$recordId/title');
     expect(results[0].matchedRule).toBe('newData.isString() && newData.val().length <= 80');
-    expect(results[0].reason).toBe('Validation rule evaluated to false');
+    expect(results[0].reason).toBe("Validation rule at '/records/$recordId/title' evaluated to false");
   });
 });
 

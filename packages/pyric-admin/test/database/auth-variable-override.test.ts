@@ -32,6 +32,19 @@ const RULES = {
       '.read': 'auth == null',
       '.write': 'auth == null',
     },
+    items: {
+      $id: {
+        '.read': "auth != null && auth.role == 'writer'",
+        '.write':
+          "auth != null && auth.role == 'writer' && auth.provider == 'custom-gateway' && auth.token == null && auth.token.sub == null && auth.token.iat == null && auth.token.firebase == null",
+      },
+    },
+    tokenOnly: {
+      $id: {
+        '.write':
+          'auth != null && auth.uid == $id && auth.token.gateway == true && auth.token.sub == null && auth.token.iat == null && auth.token.firebase == null',
+      },
+    },
   },
 };
 
@@ -57,7 +70,9 @@ async function refusal(work: Promise<unknown>): Promise<string | null> {
 }
 
 describe.each(ARMS)('databaseAuthVariableOverride [$name]', ({ makeSandbox }) => {
-  async function setup(override: unknown): Promise<{ admin: PyricAdminApp; scoped: PyricAdminApp }> {
+  async function setup(
+    override: unknown,
+  ): Promise<{ sandbox: Sandbox | RemoteSandbox; admin: PyricAdminApp; scoped: PyricAdminApp }> {
     const sandbox = makeSandbox();
     const admin = initializeApp({ sandbox }, `override-admin-${++seq}`);
     await getDatabase(admin).setRules(RULES);
@@ -66,7 +81,7 @@ describe.each(ARMS)('databaseAuthVariableOverride [$name]', ({ makeSandbox }) =>
       { sandbox, databaseAuthVariableOverride: override } as Parameters<typeof initializeApp>[0],
       `override-scoped-${++seq}`,
     );
-    return { admin, scoped };
+    return { sandbox, admin, scoped };
   }
 
   it('keeps the override in the app options, as firebase-admin does', async () => {
@@ -134,15 +149,43 @@ describe.each(ARMS)('databaseAuthVariableOverride [$name]', ({ makeSandbox }) =>
   it('keeps getRules and setRules as admin operations', async () => {
     const { scoped } = await setup({ uid: 'david', token: { gateway: true } });
     const rules = (await getDatabase(scoped).getRulesJSON()) as typeof RULES;
-    expect(Object.keys(rules.rules)).toEqual(['notes', 'stamps', 'public']);
+    expect(Object.keys(rules.rules)).toEqual(['notes', 'stamps', 'public', 'items', 'tokenOnly']);
   });
 
-  it('refuses an override the sandbox rules cannot represent, instead of dropping it', async () => {
-    const { scoped: topLevel } = await setup({ uid: 'david', gateway: true });
-    expect(() => getDatabase(topLevel)).toThrow(/`gateway`.*put custom fields under `token`/);
+  it('exposes top-level override fields on auth and keeps auth.token limited to the override claims (#3001)', async () => {
+    const { sandbox, admin, scoped } = await setup({
+      uid: 'david',
+      role: 'writer',
+      provider: 'custom-gateway',
+    });
+    const db = getDatabase(scoped);
+    await db.ref('items/i1').set({ ok: true });
+    expect((await db.ref('items/i1').get()).val()).toEqual({ ok: true });
+    expect((await getDatabase(admin).ref('items/i1').get()).val()).toEqual({ ok: true });
+
+    const reader = initializeApp(
+      {
+        sandbox,
+        databaseAuthVariableOverride: { uid: 'david', role: 'reader', provider: 'custom-gateway' },
+      } as Parameters<typeof initializeApp>[0],
+      `override-reader-${++seq}`,
+    );
+    expect(await refusal(getDatabase(reader).ref('items/i1').get())).toMatch(/permission/i);
+    expect(await refusal(getDatabase(reader).ref('items/i2').set({ ok: false }))).toMatch(/permission/i);
+
+    const { scoped: withToken } = await setup({ uid: 'david', token: { gateway: true } });
+    await getDatabase(withToken).ref('tokenOnly/david').set('allowed');
+    expect((await getDatabase(withToken).ref('notes/david').get()).val()).toBeNull();
+  });
+
+  it('refuses an override without uid or with a non-object value', async () => {
     const { scoped: noUid } = await setup({ token: { gateway: true } });
     expect(() => getDatabase(noUid)).toThrow(/non-empty string `uid`/);
+    const { scoped: badToken } = await setup({ uid: 'david', token: ['not-a-map'] });
+    expect(() => getDatabase(badToken)).toThrow(/`token` must be a plain object/);
     const { scoped: notObject } = await setup('david');
     expect(() => getDatabase(notObject)).toThrow('Only objects are supported for option databaseAuthVariableOverride');
+    const { scoped: arrayOverride } = await setup(['david']);
+    expect(() => getDatabase(arrayOverride)).toThrow('Only objects are supported for option databaseAuthVariableOverride');
   });
 });

@@ -89,6 +89,8 @@ export function isAdminFor(t: SandboxTarget | SandboxLiveTarget): boolean {
   return false;
 }
 
+const FORBIDDEN_LENS_KEYS = new Set(['__proto__', 'prototype', 'constructor', 'mode']);
+
 /** Resolve the active identity for a sandbox-flavored target. */
 export function authFor(t: SandboxTarget | SandboxLiveTarget): AuthState {
   if (t.admin) return null;
@@ -104,6 +106,18 @@ export function authFor(t: SandboxTarget | SandboxLiveTarget): AuthState {
     const impersonated: NonNullable<AuthState> = { uid: lens.uid };
     if (lens.tenant !== undefined) impersonated.tenant = lens.tenant;
     if (lens.token !== undefined) impersonated.token = lens.token;
+    for (const [key, value] of Object.entries(lens)) {
+      if (key === 'uid' || key === 'tenant' || key === 'token' || FORBIDDEN_LENS_KEYS.has(key)) {
+        continue;
+      }
+      if (value === undefined) continue;
+      Object.defineProperty(impersonated, key, {
+        value,
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    }
     return impersonated;
   }
   if (t.emulatorConfig?.mockUserAuth !== undefined) {

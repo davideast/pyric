@@ -23,7 +23,10 @@ import { isValidRulesDate } from '../test/case-refusals.js';
  */
 export type AuthState =
   | { uid: string; token?: Record<string, unknown>; tenant?: string }
+  | ({ uid: string; token?: Record<string, unknown>; tenant?: string } & Record<string, unknown>)
   | null;
+
+const FORBIDDEN_TOP_LEVEL_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
@@ -110,23 +113,41 @@ function cloneAuthToken(token: Record<string, unknown>): Record<string, unknown>
   return cloneAuthClaim(token) as Record<string, unknown>;
 }
 
+function copyExtraAuthFields(
+  source: NonNullable<AuthState>,
+  target: NonNullable<AuthState>,
+): void {
+  for (const [key, value] of Object.entries(source)) {
+    if (key === 'uid' || key === 'tenant' || key === 'token' || FORBIDDEN_TOP_LEVEL_KEYS.has(key)) {
+      continue;
+    }
+    if (value === undefined) continue;
+    Object.defineProperty(target, key, {
+      value: cloneAuthClaim(value),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+}
+
 /**
  * Normalize an AuthState before rules read it.
  * Automatically projects top-level `tenant` into `token.firebase.tenant`
- * while preserving custom claims and explicit nested token overrides.
+ * while preserving custom claims, explicit nested token overrides, and any
+ * extra top-level fields on an auth override.
  * Never mutates original input.
  */
 export function normalizeAuthState(auth: AuthState): AuthState {
   if (auth === null) return null;
 
   if (auth.tenant === undefined) {
-    if (auth.token === undefined) {
-      return { uid: auth.uid };
+    const normalized: NonNullable<AuthState> = { uid: auth.uid };
+    if (auth.token !== undefined) {
+      normalized.token = cloneAuthToken(auth.token);
     }
-    return {
-      uid: auth.uid,
-      token: cloneAuthToken(auth.token),
-    };
+    copyExtraAuthFields(auth, normalized);
+    return normalized;
   }
 
   const token = auth.token !== undefined ? cloneAuthToken(auth.token) : {};
@@ -152,9 +173,11 @@ export function normalizeAuthState(auth: AuthState): AuthState {
 
   token.firebase = normalizedFirebase;
 
-  return {
+  const normalized: NonNullable<AuthState> = {
     uid: auth.uid,
     tenant: auth.tenant,
     token,
   };
+  copyExtraAuthFields(auth, normalized);
+  return normalized;
 }

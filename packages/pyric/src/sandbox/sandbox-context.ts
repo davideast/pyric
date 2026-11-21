@@ -30,11 +30,25 @@ import { normalizeAuthState } from '@pyric/rules/internal';
 
 export { normalizeAuthState };
 
+const FORBIDDEN_LENS_KEYS = new Set(['__proto__', 'prototype', 'constructor', 'mode']);
+
 function authLensFor(auth: AuthState): AuthLens {
   if (auth === null) return { mode: 'anon' };
   const lens: Extract<AuthLens, { mode: 'as' }> = { mode: 'as', uid: auth.uid };
   if (auth.token !== undefined) lens.token = auth.token;
   if (auth.tenant !== undefined) lens.tenant = auth.tenant;
+  for (const [key, value] of Object.entries(auth)) {
+    if (key === 'uid' || key === 'token' || key === 'tenant' || FORBIDDEN_LENS_KEYS.has(key)) {
+      continue;
+    }
+    if (value === undefined) continue;
+    Object.defineProperty(lens, key, {
+      value,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
   return lens;
 }
 
