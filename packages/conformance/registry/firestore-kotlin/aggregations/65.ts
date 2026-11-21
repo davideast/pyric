@@ -7,6 +7,7 @@ export default row({
   behavior: 'Computes server-side numeric sum and average across matched query documents.',
   featureKeys: ['aggregate'],
   status: 'conforms',
+  oracleObservations: ['firestore-kotlin-queries-cursors-listeners-and-aggregations'],
   tests: [LIVE_HOST_TRANSACTIONS_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

@@ -37,6 +37,19 @@ describe('firestore-kotlin Android SDK production observation replay over hosted
     expect(docRefKt).toContain('snapshotFromProjection(projected, isFromCache = true)');
     expect(obs.cacheReadIsFromCache).toBe(true);
 
+    const docSnapKt = readFileSync(
+      join(KT_MAIN_ROOT, 'com', 'google', 'firebase', 'firestore', 'DocumentSnapshot.kt'),
+      'utf8',
+    );
+    const queryDocSnapKt = readFileSync(
+      join(KT_MAIN_ROOT, 'com', 'google', 'firebase', 'firestore', 'QueryDocumentSnapshot.kt'),
+      'utf8',
+    );
+    expect(docSnapKt).toContain('is Int -> value.toLong()');
+    expect(docSnapKt).toContain('FieldPath.extract(normalizedData, field)');
+    expect(docSnapKt).toContain('FieldPath.extract(normalizedData, fieldPath)');
+    expect(queryDocSnapKt).toContain('override fun getData(): Map<String, Any?> = super.getData()!!');
+
     const runId = 'replay_crud_1';
     const harness = await openAuthenticatedFirestoreBridge(
       `demo-kt-fs-crud-${Date.now()}`,
@@ -162,6 +175,8 @@ describe('firestore-kotlin Android SDK production observation replay over hosted
       expect(nested.kept).toBe(obs.nestedKeptValue);
       expect(nested.replaced).toBe(obs.nestedReplacedPreserved);
       expect('ignoredNested' in nested).toBe(obs.nestedIgnoredPresent);
+      expect(nested.items).toEqual([1, 'two', true]);
+      expect(Number.isInteger(fields.visits)).toBe(true);
       expect(fields.visits).toBe(obs.incrementLongResult);
       expect(fields.ratio).toBe(obs.incrementDoubleResult);
       expect(fields.tags).toEqual(obs.tagsAfterUnionAndRemove);
@@ -221,6 +236,13 @@ describe('firestore-kotlin Android SDK production observation replay over hosted
     const obs = gate.load<FirestoreKotlinQueriesListenersAggregationsObservation>(
       'firestore-kotlin-queries-cursors-listeners-and-aggregations',
     );
+    const aggSnapKt = readFileSync(
+      join(KT_MAIN_ROOT, 'com', 'google', 'firebase', 'firestore', 'AggregateQuerySnapshot.kt'),
+      'utf8',
+    );
+    expect(aggSnapKt).toContain('is AggregateField.SumAggregateField -> normalizeSumValue(');
+    expect(aggSnapKt).not.toContain('fun get(aggregateField: AggregateField.SumAggregateField): Double?');
+
     const runId = 'replay_queries_1';
     const harness = await openAuthenticatedFirestoreBridge(
       `demo-kt-fs-queries-${Date.now()}`,
@@ -333,8 +355,33 @@ describe('firestore-kotlin Android SDK production observation replay over hosted
       expect(aggRes.ok).toBe(true);
       const aggData = (aggRes.value as { data: Record<string, number> }).data;
       expect(aggData.count).toBe(obs.aggregateCount);
+      expect(Number.isInteger(aggData.sum_score)).toBe(true);
       expect(aggData.sum_score).toBe(obs.aggregateSumScore);
       expect(aggData.avg_score).toBe(obs.aggregateAverageScore);
+
+      const floatColPath = `pyric_oracle/${runId}/catalog_float_agg`;
+      const floatSeedRes = await harness.sendOp({
+        method: 'batchCommit',
+        writes: [
+          { method: 'set', path: `${floatColPath}/f1`, data: { weight: 12.25 } },
+          { method: 'set', path: `${floatColPath}/f2`, data: { weight: 30.25 } },
+        ],
+        actAs,
+      });
+      expect(floatSeedRes.ok).toBe(true);
+      const floatAggRes = await harness.sendOp({
+        method: 'aggregate',
+        source: { __ref: 'collection', path: floatColPath },
+        spec: {
+          sum_weight: { kind: 'sum', field: 'weight' },
+          avg_weight: { kind: 'average', field: 'weight' },
+        },
+        actAs,
+      });
+      expect(floatAggRes.ok).toBe(true);
+      const floatAggData = (floatAggRes.value as { data: Record<string, number> }).data;
+      expect(floatAggData.sum_weight).toBe(42.5);
+      expect(floatAggData.avg_weight).toBe(21.25);
 
       const watchColPath = `pyric_oracle/${runId}/live_watch`;
       await harness.sendOp({ method: 'setDoc', path: `${watchColPath}/w1`, data: { step: 1 }, actAs });
