@@ -194,7 +194,7 @@ class FirestoreCoreLiveHostConformanceTest {
     @Test
     @DisplayName("proves collectionGroup queries across hierarchies, batch atomicity, and transaction retries (#6, #7, #8)")
     fun `proves collectionGroup queries across hierarchies, batch atomicity, and transaction retries`() {
-        assertThrows(IllegalArgumentException::class.java) { firestore.collectionGroup("") }
+        assertEquals("", firestore.collectionGroup("").collectionId)
         assertThrows(IllegalArgumentException::class.java) { firestore.collectionGroup("users/items") }
 
         // Standard user without moderator claim is denied collectionGroup("items") read by Security Rules
@@ -283,11 +283,11 @@ class FirestoreCoreLiveHostConformanceTest {
                 10,
                 TimeUnit.SECONDS
             )
-            fail("Expected ABORTED from live host after exhausting setMaxAttempts(1)")
+            fail("Expected FAILED_PRECONDITION from live host after exhausting setMaxAttempts(1)")
         } catch (err: ExecutionException) {
             val cause = err.cause as? FirebaseFirestoreException
                 ?: fail("Expected FirebaseFirestoreException cause, got: ${err.cause}")
-            assertEquals(FirebaseFirestoreException.Code.ABORTED, cause.code)
+            assertEquals(FirebaseFirestoreException.Code.FAILED_PRECONDITION, cause.code)
         }
         assertEquals(1, exhaustedAttempts.get())
         assertEquals(200L, Tasks.await(counterRef.get(), 10, TimeUnit.SECONDS).getLong("balance"))
@@ -522,6 +522,51 @@ class FirestoreCoreLiveHostConformanceTest {
         assertEquals(true, matrixRow["flag"])
         assertNull(matrixRow["nothing"])
         assertArrayEquals(binaryBlob.toBytes(), (matrixRow["blob"] as Blob).toBytes())
+    }
+
+    @Test
+    @DisplayName("proves Android 35.2.0 FirebaseFirestoreSettings defaults, LocalCacheSettings, and Kotlin DSL properties (#3)")
+    fun `proves Android 35 2 0 FirebaseFirestoreSettings defaults LocalCacheSettings and Kotlin DSL properties`() {
+        val defaultBuilt = FirebaseFirestoreSettings.Builder().build()
+        assertEquals("firestore.googleapis.com", defaultBuilt.host)
+        assertTrue(defaultBuilt.isSslEnabled)
+        assertTrue(defaultBuilt.isPersistenceEnabled)
+
+        val persistentBuilt = FirebaseFirestoreSettings.Builder()
+            .setLocalCacheSettings(
+                com.google.firebase.firestore.PersistentCacheSettings.newBuilder()
+                    .setSizeBytes(20L * 1024L * 1024L)
+                    .build()
+            )
+            .build()
+        assertEquals("firestore.googleapis.com", persistentBuilt.host)
+        assertTrue(persistentBuilt.isSslEnabled)
+        assertTrue(persistentBuilt.cacheSettings is com.google.firebase.firestore.PersistentCacheSettings)
+        assertEquals(20L * 1024L * 1024L, persistentBuilt.cacheSizeBytes)
+
+        val dslClient = PyricBridgeClient(url = liveBridgeUrl)
+        try {
+            val dslApp = FirebaseApp.initializeApp(
+                "dsl-settings-fs-app-${System.nanoTime()}",
+                FirebaseOptions.Builder()
+                    .setProjectId(projectId)
+                    .setApiKey("dsl-api-key")
+                    .setApplicationId("1:424242424242:android:dsl")
+                    .build()
+            )
+            val dslFs = FirebaseFirestore.getInstance(dslApp, dslClient)
+            dslFs.firestoreSettings = firestoreSettings {
+                host = "127.0.0.1:8085"
+                isSslEnabled = false
+                setLocalCacheSettings(com.google.firebase.firestore.memoryCacheSettings {})
+            }
+            assertEquals("127.0.0.1:8085", dslFs.firestoreSettings.host)
+            assertFalse(dslFs.firestoreSettings.isSslEnabled)
+            assertFalse(dslFs.firestoreSettings.isPersistenceEnabled)
+            assertTrue(dslFs.firestoreSettings.cacheSettings is com.google.firebase.firestore.MemoryCacheSettings)
+        } finally {
+            runBlocking { dslClient.disconnect() }
+        }
     }
 
     private fun assertPermissionDenied(block: () -> Unit) {

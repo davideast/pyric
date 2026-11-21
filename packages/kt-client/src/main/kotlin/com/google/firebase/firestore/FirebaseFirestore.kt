@@ -137,9 +137,6 @@ class FirebaseFirestore(
 
     fun collectionGroup(collectionId: String): Query {
         checkNotTerminated()
-        require(collectionId.isNotEmpty()) {
-            "Invalid collectionId. Provided collection ID must not be empty."
-        }
         require(!collectionId.contains('/')) {
             "Invalid collectionId '$collectionId'. Collection IDs must not contain '/'."
         }
@@ -172,10 +169,13 @@ class FirebaseFirestore(
 
         scope.launch {
             var lastException: Exception? = null
+            var exhaustedOnCommitContention = false
             for (attempt in 1..options.maxAttempts) {
+                var inCommit = false
                 try {
                     val txn = Transaction(this@FirebaseFirestore)
                     val result = updateFunction.apply(txn)
+                    inCommit = true
                     bridgeClient.op(
                         method = "txnCommit",
                         params = mapOf(
@@ -189,18 +189,50 @@ class FirebaseFirestore(
                     return@launch
                 } catch (e: Exception) {
                     lastException = e
-                    if (!isRetryableTransactionError(e)) break
+                    if (!isRetryableTransactionError(e)) {
+                        break
+                    }
+                    if (attempt == options.maxAttempts && inCommit) {
+                        exhaustedOnCommitContention = true
+                    }
                 }
             }
             tcs.setException(
-                lastException ?: FirebaseFirestoreException(
-                    "Transaction failed after ${options.maxAttempts} attempts",
-                    FirebaseFirestoreException.Code.ABORTED
+                mapExhaustedTransactionException(
+                    lastException = lastException,
+                    maxAttempts = options.maxAttempts,
+                    exhaustedOnCommitContention = exhaustedOnCommitContention
                 )
             )
         }
 
         return tcs.task
+    }
+
+    private fun mapExhaustedTransactionException(
+        lastException: Exception?,
+        maxAttempts: Int,
+        exhaustedOnCommitContention: Boolean
+    ): Exception {
+        if (exhaustedOnCommitContention &&
+            lastException is FirebaseFirestoreException &&
+            lastException.code == FirebaseFirestoreException.Code.ABORTED
+        ) {
+            return FirebaseFirestoreException(
+                message = lastException.message ?: "Transaction failed after $maxAttempts attempts",
+                code = FirebaseFirestoreException.Code.FAILED_PRECONDITION,
+                cause = lastException,
+                denialContext = lastException.denialContext,
+                wireCode = lastException.wireCode
+            )
+        }
+        if (lastException != null) {
+            return lastException
+        }
+        return FirebaseFirestoreException(
+            "Transaction failed after $maxAttempts attempts",
+            FirebaseFirestoreException.Code.FAILED_PRECONDITION
+        )
     }
 
     fun terminate(): Task<Void?> {
