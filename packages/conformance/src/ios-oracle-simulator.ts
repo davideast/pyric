@@ -38,6 +38,14 @@ export interface IosAuthSimRequest {
   env: NodeJS.ProcessEnv;
 }
 
+export interface IosFirestoreSimRequest {
+  stagedPackageDir: string;
+  derivedDataDir: string;
+  clonedPackagesDir: string;
+  destination: string;
+  env: NodeJS.ProcessEnv;
+}
+
 interface SimctlDeviceRecord {
   udid?: unknown;
   name?: unknown;
@@ -355,6 +363,51 @@ export function defaultExecuteAuthSim(request: IosAuthSimRequest): string {
   }
   if (result.status !== 0) {
     throw formatSpawnFailure('xcodebuild AuthOracleSimTests', result.status, stdout, stderr);
+  }
+  return `${stdout}\n${stderr}`;
+}
+
+export function buildFirestoreSimXcodebuildArgs(request: IosFirestoreSimRequest): string[] {
+  return [
+    'test',
+    '-scheme',
+    'PyricIosFirestoreOracle',
+    '-destination',
+    request.destination,
+    '-derivedDataPath',
+    request.derivedDataDir,
+    '-clonedSourcePackagesDirPath',
+    request.clonedPackagesDir,
+    '-only-testing:FirestoreOracleSimTests/FirestoreOracleSimTests/testCaptureSelectedOracleProbe',
+    'CODE_SIGNING_ALLOWED=NO',
+    'CODE_SIGNING_REQUIRED=NO',
+    'CODE_SIGNING_IDENTITY=',
+  ];
+}
+
+export function defaultExecuteFirestoreSim(request: IosFirestoreSimRequest): string {
+  mkdirSync(request.derivedDataDir, { recursive: true });
+  mkdirSync(request.clonedPackagesDir, { recursive: true });
+  const args = buildFirestoreSimXcodebuildArgs(request);
+  const result = spawnSync('xcodebuild', args, {
+    cwd: request.stagedPackageDir,
+    env: request.env,
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  if (result.error) {
+    throw result.error;
+  }
+  let stdout = '';
+  if (typeof result.stdout === 'string') {
+    stdout = result.stdout;
+  }
+  let stderr = '';
+  if (typeof result.stderr === 'string') {
+    stderr = result.stderr;
+  }
+  if (result.status !== 0) {
+    throw formatSpawnFailure('xcodebuild FirestoreOracleSimTests', result.status, stdout, stderr);
   }
   return `${stdout}\n${stderr}`;
 }

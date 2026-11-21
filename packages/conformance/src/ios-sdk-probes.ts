@@ -2,12 +2,13 @@
 /**
  * Modular upstream Apple / iOS Firebase SDK oracle runner (`rig: 'ios-sdk-probes'`).
  *
- * Executes probes under `packages/conformance/probes/{auth-swift,rtdb-swift}/*.ts`
+ * Executes probes under `packages/conformance/probes/{auth-swift,rtdb-swift,firestore-swift}/*.ts`
  * declaring `rig: 'ios-sdk-probes'`:
  *   - `rtdb-swift` probes run as a headless macOS SwiftPM CLI (`RtdbOracleCLI`)
  *     with zero iOS Simulator overhead.
- *   - `auth-swift` probes run on an unsigned iOS Simulator via `xcodebuild test`
- *     (`CODE_SIGNING_ALLOWED=NO`) so `AuthKeychainServices` succeeds cleanly.
+ *   - `auth-swift` and `firestore-swift` probes run on an unsigned iOS Simulator
+ *     via `xcodebuild test` (`CODE_SIGNING_ALLOWED=NO`) so `AuthKeychainServices`
+ *     succeeds cleanly.
  *
  * Prints an inert preview unless `--write` / `--capture` is passed.
  *

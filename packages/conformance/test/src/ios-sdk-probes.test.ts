@@ -90,7 +90,9 @@ describe('ios-sdk-probes manifest, SwiftPM version pins, and staged probes', () 
       'rtdb-swift-writes-autoid-servervalue-and-transactions',
     ];
 
-    const loaded = await loadModularProbes('ios-sdk-probes');
+    const loaded = (await loadModularProbes('ios-sdk-probes')).filter(
+      (entry) => entry.surfaceDir !== 'firestore-swift',
+    );
     expect(loaded.map((entry) => entry.id)).toEqual(expectedProbeIds);
 
     expectStagedUntilCaptured(expectedProbeIds, {

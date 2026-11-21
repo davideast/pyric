@@ -1,6 +1,6 @@
 /**
  * Live-project Firebase session lifecycle for modular iOS / macOS upstream SDK
- * oracle probes (`packages/conformance/probes/{auth-swift,rtdb-swift}/<name>.ts`).
+ * oracle probes (`packages/conformance/probes/{auth-swift,rtdb-swift,firestore-swift}/<name>.ts`).
  *
  * Keeps heavy `firebase-admin/*` imports lazy inside `runIosOracleProbe` so
  * `loadModularProbes` and inert previews stay sub-100ms and read zero ambient
@@ -19,6 +19,7 @@ import {
 } from '../../../scripts/lib/private-job-tmpdir.ts';
 import {
   defaultExecuteAuthSim,
+  defaultExecuteFirestoreSim,
   defaultExecuteRtdbCli,
   defaultQueryAvailableSimulatorsJson,
   extractIosOracleCleanupUids,
@@ -26,6 +27,7 @@ import {
   selectAvailableIosSimulatorDestination,
   stageIosPackageTemplate,
   type IosAuthSimRequest,
+  type IosFirestoreSimRequest,
   type IosRtdbCliRequest,
 } from './ios-oracle-simulator.ts';
 import { RTDB_RULES_SCOPE } from './oracle-access-token.ts';
@@ -37,6 +39,7 @@ import {
 } from './oracle-credential.ts';
 import {
   OracleRulesSession,
+  firestoreOracleTarget,
   rtdbOracleTarget,
   runWithOracleRulesRestored,
 } from './oracle-rules-session.ts';
@@ -51,11 +54,12 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const IOS_RIG_ROOT = join(HERE, '..', 'rigs', 'native-ios-oracle');
 const RTDB_CLI_TEMPLATE_DIR = join(IOS_RIG_ROOT, 'rtdb-cli');
 const AUTH_SIM_TEMPLATE_DIR = join(IOS_RIG_ROOT, 'auth-sim');
+const FIRESTORE_SIM_TEMPLATE_DIR = join(IOS_RIG_ROOT, 'firestore-sim');
 const FIREBASE_MANAGEMENT_SCOPE = 'https://www.googleapis.com/auth/firebase';
 const FALLBACK_GOOGLE_APP_ID = '1:000000000000:ios:0000000000000000';
 const FALLBACK_GCM_SENDER_ID = '000000000000';
 
-type IosOracleExecutionMode = 'macos-rtdb-cli' | 'ios-sim-auth';
+type IosOracleExecutionMode = 'macos-rtdb-cli' | 'ios-sim-auth' | 'ios-sim-firestore';
 
 export interface IosAdminAuthAdapter {
   createCustomToken(uid: string, developerClaims?: Record<string, unknown>): Promise<string>;
@@ -84,9 +88,15 @@ interface IosProbeRuntimeDeps {
     fn: () => Promise<T>,
     options?: IosRtdbSessionOptions,
   ) => Promise<T>;
+  deployScopedFirestoreSession?: <T>(
+    sa: OracleServiceAccount,
+    runId: string,
+    fn: () => Promise<T>,
+  ) => Promise<T>;
   queryAvailableSimulatorsJson?: (env: NodeJS.ProcessEnv) => string;
   executeRtdbCli?: (request: IosRtdbCliRequest) => string;
   executeAuthSim?: (request: IosAuthSimRequest) => string;
+  executeFirestoreSim?: (request: IosFirestoreSimRequest) => string;
 }
 
 export interface RunIosOracleProbeOptions {
@@ -199,6 +209,85 @@ async function defaultDeployScopedRtdbSession<T>(
       console.log('[ios-sdk-probes] RTDB rules restored and verified');
     }
   }
+}
+
+async function defaultDeployScopedFirestoreSession<T>(
+  sa: OracleServiceAccount,
+  runId: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const [adminAppMod, { getFirestore }] = await Promise.all([
+    import('firebase-admin/app'),
+    import('firebase-admin/firestore'),
+  ]);
+  const session = new OracleRulesSession({
+    projectId: sa.project_id,
+    accessToken: () => oracleAccessToken(sa, FIREBASE_MANAGEMENT_SCOPE),
+  });
+  const detachSignals = installOracleSignalRestoreGuard('[ios-sdk-probes]', () =>
+    session.restoreAll(),
+  );
+  const adminApp = adminAppMod.initializeApp(
+    oracleAppOptions(sa),
+    `ios-oracle-fs-admin-${runId}`,
+  );
+  const adminDb = getFirestore(adminApp);
+
+  try {
+    return await runWithOracleRulesRestored(session, async () => {
+      const outcome = await session.deploy(firestoreOracleTarget());
+      if (outcome !== 'already-configured') {
+        await new Promise((resolveDone) => setTimeout(resolveDone, 10_000));
+      }
+      try {
+        return await fn();
+      } finally {
+        await adminDb.recursiveDelete(adminDb.doc(`pyric_oracle/${runId}`)).catch(() => undefined);
+      }
+    });
+  } finally {
+    await adminAppMod.deleteApp(adminApp).catch(() => undefined);
+    detachSignals();
+    if (session.restoredFirestoreOrStorage) {
+      console.log('[ios-sdk-probes] Firestore rules restored and verified');
+    }
+  }
+}
+
+function recordFailedSimOutputUids(simErr: unknown, trackedUids: Set<string>): void {
+  let failedOutput = '';
+  if (typeof simErr === 'object' && simErr !== null && 'output' in simErr) {
+    const attached = (simErr as { output?: unknown }).output;
+    if (typeof attached === 'string') {
+      failedOutput = attached;
+    }
+  }
+  if (failedOutput === '' && simErr instanceof Error) {
+    failedOutput = simErr.message;
+  }
+  for (const uid of extractIosOracleCleanupUids(failedOutput)) {
+    trackedUids.add(uid);
+  }
+}
+
+function parseSimOutputAndCollectUids(
+  simOutput: string,
+  trackedUids: Set<string>,
+): Record<string, unknown> {
+  for (const uid of extractIosOracleCleanupUids(simOutput)) {
+    trackedUids.add(uid);
+  }
+  const rawBehavior = extractIosOracleResultFromOutput(simOutput);
+  const cleanupList = rawBehavior._cleanupUids;
+  if (Array.isArray(cleanupList)) {
+    for (const entry of cleanupList) {
+      if (typeof entry === 'string' && entry.trim() !== '') {
+        trackedUids.add(entry.trim());
+      }
+    }
+  }
+  delete rawBehavior._cleanupUids;
+  return rawBehavior;
 }
 
 export async function runIosOracleProbe(
@@ -351,6 +440,62 @@ export async function runIosOracleProbe(
       }
       const simSelection = selectAvailableIosSimulatorDestination(querySimulators(env));
 
+      if (options.mode === 'ios-sim-firestore') {
+        const stagedDir = join(jobTmpDir, 'firestore-sim');
+        stageIosPackageTemplate(FIRESTORE_SIM_TEMPLATE_DIR, stagedDir);
+        const bundledInputPath = join(
+          stagedDir,
+          'Tests',
+          'FirestoreOracleSimTests',
+          'Resources',
+          'oracle-input.json',
+        );
+        writeFileSync(
+          bundledInputPath,
+          `${JSON.stringify(
+            {
+              mode: 'live',
+              probeId: options.probeId,
+              runId,
+              projectId: sa.project_id,
+              googleAppId,
+              gcmSenderId,
+              apiKey: webConfig.apiKey,
+              customToken,
+              expectedCustomUid,
+            },
+            null,
+            2,
+          )}\n`,
+          'utf8',
+        );
+
+        let runFirestoreSession = defaultDeployScopedFirestoreSession;
+        if (deps.deployScopedFirestoreSession !== undefined) {
+          runFirestoreSession = deps.deployScopedFirestoreSession;
+        }
+        let executeFirestoreSim = defaultExecuteFirestoreSim;
+        if (deps.executeFirestoreSim !== undefined) {
+          executeFirestoreSim = deps.executeFirestoreSim;
+        }
+
+        const simOutput = await runFirestoreSession(sa, runId, async () => {
+          try {
+            return executeFirestoreSim({
+              stagedPackageDir: stagedDir,
+              derivedDataDir: join(sharedCacheRoot, 'xcode-firestore-derived-data'),
+              clonedPackagesDir: join(sharedCacheRoot, 'xcode-source-packages'),
+              destination: simSelection.destination,
+              env,
+            });
+          } catch (simErr) {
+            recordFailedSimOutputUids(simErr, trackedUids);
+            throw simErr;
+          }
+        });
+        return parseSimOutputAndCollectUids(simOutput, trackedUids);
+      }
+
       const stagedDir = join(jobTmpDir, 'auth-sim');
       stageIosPackageTemplate(AUTH_SIM_TEMPLATE_DIR, stagedDir);
       const bundledInputPath = join(
@@ -394,36 +539,11 @@ export async function runIosOracleProbe(
           env,
         });
       } catch (simErr) {
-        let failedOutput = '';
-        if (typeof simErr === 'object' && simErr !== null && 'output' in simErr) {
-          const attached = (simErr as { output?: unknown }).output;
-          if (typeof attached === 'string') {
-            failedOutput = attached;
-          }
-        }
-        if (failedOutput === '' && simErr instanceof Error) {
-          failedOutput = simErr.message;
-        }
-        for (const uid of extractIosOracleCleanupUids(failedOutput)) {
-          trackedUids.add(uid);
-        }
+        recordFailedSimOutputUids(simErr, trackedUids);
         throw simErr;
       }
 
-      for (const uid of extractIosOracleCleanupUids(simOutput)) {
-        trackedUids.add(uid);
-      }
-      const rawBehavior = extractIosOracleResultFromOutput(simOutput);
-      const cleanupList = rawBehavior._cleanupUids;
-      if (Array.isArray(cleanupList)) {
-        for (const entry of cleanupList) {
-          if (typeof entry === 'string' && entry.trim() !== '') {
-            trackedUids.add(entry.trim());
-          }
-        }
-      }
-      delete rawBehavior._cleanupUids;
-      return rawBehavior;
+      return parseSimOutputAndCollectUids(simOutput, trackedUids);
     } finally {
       for (const uid of trackedUids) {
         try {

@@ -75,7 +75,9 @@ describe('Wave 2 ios-sdk-probes descriptors, Swift dispatch parity, and cleanup 
       'utf8',
     );
 
-    const loaded = await loadModularProbes('ios-sdk-probes');
+    const loaded = (await loadModularProbes('ios-sdk-probes')).filter(
+      (entry) => entry.surfaceDir !== 'firestore-swift',
+    );
     for (const entry of loaded) {
       if (entry.surfaceDir === 'auth-swift') {
         expect(authRunnerSwift).toContain(`case "${entry.id}":`);
