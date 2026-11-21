@@ -4,6 +4,7 @@ import android.os.Looper
 import com.google.android.gms.tasks.Task
 import com.google.firebase.FirebaseApp
 import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.firestore.FirebaseFirestore
 import org.json.JSONArray
 import org.robolectric.Shadows
 import org.robolectric.shadows.ShadowLog
@@ -19,6 +20,11 @@ private val FIREBASE_DIAGNOSTIC_TAGS = setOf(
     "Connection",
     "WebSocket",
     "FirebaseAuth",
+    "Firestore",
+    "FirestoreCallCredentials",
+    "GrpcCallProvider",
+    "RemoteStore",
+    "WatchStream",
     "SSLCertificateSocketFactory"
 )
 
@@ -75,6 +81,18 @@ internal fun shutdownFirebaseDatabaseAndApp(database: FirebaseDatabase?, app: Fi
         // before marking FirebaseApp deleted, preventing AndroidAuthTokenProvider from racing
         // against FirebaseApp.checkNotDeleted() on the background RunLoop thread.
         Thread.sleep(150)
+        pumpMainLooper()
+    }
+    runCatching { app.delete() }
+    pumpMainLooper()
+}
+
+internal fun shutdownFirebaseFirestoreAndApp(firestore: FirebaseFirestore?, app: FirebaseApp) {
+    if (firestore != null) {
+        runCatching {
+            awaitFirebaseTask(firestore.terminate(), "firestore.terminate", 10_000L)
+        }
+        Thread.sleep(100)
         pumpMainLooper()
     }
     runCatching { app.delete() }

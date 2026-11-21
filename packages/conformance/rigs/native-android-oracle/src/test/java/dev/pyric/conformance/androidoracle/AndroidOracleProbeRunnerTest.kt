@@ -109,6 +109,7 @@ class AndroidOracleProbeRunnerTest {
         }
 
         verifyLoopbackWssFirebaseDatabaseRoundTrip(context)
+        verifyLocalRobolectricFirestoreSmoke(context)
     }
 
     private fun verifyLoopbackWssFirebaseDatabaseRoundTrip(context: Context) {
@@ -164,6 +165,12 @@ class AndroidOracleProbeRunnerTest {
                 runAuthErrorCodesAndExceptionsProbe(configJson)
             "rtdb-kotlin-dedicated-crud-and-query-order" ->
                 runRtdbDedicatedCrudAndQueryProbe(configJson)
+            "firestore-kotlin-crud-merge-sentinels-and-codecs" ->
+                runFirestoreCrudMergeSentinelsAndCodecsProbe(configJson)
+            "firestore-kotlin-queries-cursors-listeners-and-aggregations" ->
+                runFirestoreQueriesCursorsListenersAndAggregationsProbe(configJson)
+            "firestore-kotlin-batches-transactions-offline-and-errors" ->
+                runFirestoreBatchesTransactionsOfflineAndErrorsProbe(configJson)
             else -> throw IllegalArgumentException("Unknown Android oracle probeId: $probeId")
         }
 

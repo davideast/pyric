@@ -155,7 +155,11 @@ describe('android-sdk-probes Robolectric oracle rig', () => {
 
   test('discovers linked and staged auth-kotlin and rtdb-kotlin probes and keeps registry validation clean across PR #1 and PR #2 states', async () => {
     const loaded = await loadModularProbes('android-sdk-probes');
-    expect(loaded.map((item) => `${item.surfaceDir}/${item.id}`)).toEqual([
+    expect(
+      loaded
+        .filter((item) => item.surfaceDir !== 'firestore-kotlin')
+        .map((item) => `${item.surfaceDir}/${item.id}`),
+    ).toEqual([
       'auth-kotlin/auth-kotlin-anonymous-and-custom-token-session',
       'auth-kotlin/auth-kotlin-email-password-lifecycle',
       'auth-kotlin/auth-kotlin-error-codes-and-exceptions',
