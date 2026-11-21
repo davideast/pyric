@@ -1,3 +1,4 @@
+import { LIVE_HOST_CONFORMANCE_TEST } from '../defaults.ts';
 import { row } from './section.ts';
 
 export default row({
@@ -7,4 +8,10 @@ export default row({
   featureKeys: ['infoConnected'],
   extraTests: ['packages/flutter-client/test/rtdb_info_connected_reconnect_test.dart'],
   evidence: 'Verified by packages/flutter-client/test/rtdb_conformance_test.dart, which follows goOffline() and goOnline(), and packages/flutter-client/test/rtdb_info_connected_reconnect_test.dart, which drives a drop, a re-attach and a replaced host over a fake bridge and asserts that no `.info` frame reaches the host.',
+  status: 'conforms',
+  tests: [
+    'packages/flutter-client/test/live_host/rtdb_live_host_conformance_test.dart',
+    LIVE_HOST_CONFORMANCE_TEST,
+  ],
+  hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

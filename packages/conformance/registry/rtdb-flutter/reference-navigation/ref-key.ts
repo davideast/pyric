@@ -1,3 +1,4 @@
+import { LIVE_HOST_CONFORMANCE_TEST } from '../defaults.ts';
 import { row } from './section.ts';
 
 export default row({
@@ -5,4 +6,10 @@ export default row({
   api: 'DatabaseReference.key',
   behavior: 'Returns the last path segment token of the reference, or null for the root reference.',
   featureKeys: ['key'],
+  status: 'conforms',
+  tests: [
+    'packages/flutter-client/test/live_host/rtdb_live_host_conformance_test.dart',
+    LIVE_HOST_CONFORMANCE_TEST,
+  ],
+  hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

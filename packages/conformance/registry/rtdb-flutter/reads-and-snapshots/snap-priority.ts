@@ -1,3 +1,4 @@
+import { LIVE_HOST_CONFORMANCE_TEST } from '../defaults.ts';
 import { row } from './section.ts';
 
 export default row({
@@ -5,4 +6,10 @@ export default row({
   api: 'DataSnapshot.priority',
   behavior: 'Returns the priority value (String, num, or null) associated with the snapshot node.',
   featureKeys: ['priority'],
+  status: 'conforms',
+  tests: [
+    'packages/flutter-client/test/live_host/rtdb_live_host_conformance_test.dart',
+    LIVE_HOST_CONFORMANCE_TEST,
+  ],
+  hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

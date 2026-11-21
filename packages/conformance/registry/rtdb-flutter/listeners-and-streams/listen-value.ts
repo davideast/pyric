@@ -1,3 +1,4 @@
+import { LIVE_HOST_CONFORMANCE_TEST } from '../defaults.ts';
 import { row } from './section.ts';
 
 export default row({
@@ -5,4 +6,10 @@ export default row({
   api: 'Query.onValue',
   behavior: 'Emits DatabaseEvent with full DataSnapshot initially and upon any data change at the path.',
   featureKeys: ['onValue'],
+  status: 'conforms',
+  tests: [
+    'packages/flutter-client/test/live_host/rtdb_streams_queries_tx_live_host_test.dart',
+    LIVE_HOST_CONFORMANCE_TEST,
+  ],
+  hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

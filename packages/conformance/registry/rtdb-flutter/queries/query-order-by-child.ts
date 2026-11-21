@@ -1,3 +1,4 @@
+import { LIVE_HOST_CONFORMANCE_TEST } from '../defaults.ts';
 import { row } from './section.ts';
 
 export default row({
@@ -5,4 +6,10 @@ export default row({
   api: 'Query.orderByChild(path)',
   behavior: 'Orders query results by the value of the specified nested child key.',
   featureKeys: ['orderByChild'],
+  status: 'conforms',
+  tests: [
+    'packages/flutter-client/test/live_host/rtdb_streams_queries_tx_live_host_test.dart',
+    LIVE_HOST_CONFORMANCE_TEST,
+  ],
+  hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });
