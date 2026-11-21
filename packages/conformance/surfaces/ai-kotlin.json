@@ -1,0 +1,15 @@
+{
+  "schema": "pyric.conformance.surface.v2",
+  "kind": "integration",
+  "developerSurface": "ai-kotlin",
+  "contractSource": "com.google.firebase:firebase-ai",
+  "observationPrefixes": [
+    "ai-kotlin-"
+  ],
+  "coverage": true,
+  "scopeNote": "integration contract: Pure-Kotlin client conforming to com.google.firebase:firebase-ai via the Pyric WebSocket bridge and AiBroker. Covers FirebaseAI per-app/backend/limited-use singletons and Firebase.ai KTX extensions, GenerativeBackend (googleAI, vertexAI, agentPlatform) model resource normalization, GenerativeModel unary generateContent and countTokens, multimodal InlineDataPart and FileDataPart attachments, ThinkingConfig thoughtSummary separation and UsageMetadata token breakdowns, Schema DSL structured JSON and FunctionCallingConfig tool loops, Flow<GenerateContentResponse> streaming with worker-unsub cancellation, multi-turn Chat history rollback, RS256 App Check enforcement, and FirebaseAIException hierarchy mapping.",
+  "captureRigs": [],
+  "conformanceSuite": "packages/kt-client/src/test/kotlin/dev/pyric/ai/FirebaseAiInstanceAndDslTest.kt",
+  "climb": true,
+  "registry": "ai-kotlin"
+}

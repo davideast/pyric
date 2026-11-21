@@ -1,4 +1,7 @@
 import { aiRegistry } from './ai.ts';
+import { aiFlutterRegistry } from './ai-flutter.ts';
+import { aiKotlinRegistry } from './ai-kotlin.ts';
+import { aiSwiftRegistry } from './ai-swift.ts';
 import { appRegistry } from './app.ts';
 import { appCheckRegistry } from './app-check.ts';
 import { appCheckFlutterRegistry } from './app-check-flutter.ts';
@@ -69,6 +72,9 @@ export const registriesByKey: Record<string, CompatibilitySurfaceRegistry> = Obj
     functionsFlutterRegistry,
     functionsKotlinRegistry,
     functionsSwiftRegistry,
+    aiFlutterRegistry,
+    aiKotlinRegistry,
+    aiSwiftRegistry,
   ].map((r) => [r.surface, r]),
 );
 
@@ -82,6 +88,9 @@ export function rowsForSurface(registry: CompatibilitySurfaceRegistry): Compatib
 export const allCompatibilityRows = surfaceRegistries.flatMap(rowsForSurface);
 
 export {
+  aiFlutterRegistry,
+  aiKotlinRegistry,
+  aiSwiftRegistry,
   appCheckFlutterRegistry,
   appCheckKotlinRegistry,
   appCheckSwiftRegistry,

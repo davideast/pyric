@@ -20,6 +20,9 @@ import {
 } from '../../src/integration-host-evidence.ts';
 
 const NATIVE_CLIENT_SURFACES = [
+  'ai-flutter',
+  'ai-kotlin',
+  'ai-swift',
   'app-check-flutter',
   'app-check-kotlin',
   'app-check-swift',
