@@ -54,7 +54,8 @@ extension Query {
                     firestore: db,
                     query: self,
                     wire: event,
-                    previousDocs: prevDocs
+                    previousDocs: prevDocs,
+                    excludesMetadataChanges: !includeMetadataChanges
                 )
                 stateBox.record(docs: snapshot.documents, wire: event, fromCache: snapshot.metadata.isFromCache)
                 if !includeMetadataChanges
@@ -80,7 +81,8 @@ extension Query {
                     query: self,
                     wire: wire,
                     previousDocs: prevDocs,
-                    isFromCache: true
+                    isFromCache: true,
+                    excludesMetadataChanges: !includeMetadataChanges
                 )
                 stateBox.record(docs: snapshot.documents, wire: wire, fromCache: true)
                 db.lifecycle.dispatchSnapshotCallback(
@@ -98,7 +100,8 @@ extension Query {
                     query: self,
                     wire: lastWire,
                     previousDocs: prevDocs ?? [],
-                    isFromCache: true
+                    isFromCache: true,
+                    excludesMetadataChanges: !includeMetadataChanges
                 )
                 stateBox.record(docs: snapshot.documents, wire: lastWire, fromCache: true)
                 db.lifecycle.dispatchSnapshotCallback(

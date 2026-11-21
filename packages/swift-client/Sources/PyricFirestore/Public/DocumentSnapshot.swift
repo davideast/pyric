@@ -14,6 +14,8 @@ public class DocumentSnapshot: @unchecked Sendable {
     public let metadata: SnapshotMetadata
     public let exists: Bool
     internal let rawData: [String: Any]?
+    internal let noneVariantData: [String: Any]?
+    internal let previousVariantData: [String: Any]?
 
     public init(
         firestore: Firestore,
@@ -28,6 +30,8 @@ public class DocumentSnapshot: @unchecked Sendable {
         self.metadata = metadata
         self.exists = exists
         self.rawData = data
+        self.noneVariantData = nil
+        self.previousVariantData = nil
     }
 
     public init(
@@ -35,7 +39,9 @@ public class DocumentSnapshot: @unchecked Sendable {
         reference: DocumentReference,
         metadata: SnapshotMetadata,
         exists: Bool,
-        rawData: [String: Any]?
+        rawData: [String: Any]?,
+        noneVariantData: [String: Any]? = nil,
+        previousVariantData: [String: Any]? = nil
     ) {
         self.firestore = firestore
         self.reference = reference
@@ -43,6 +49,8 @@ public class DocumentSnapshot: @unchecked Sendable {
         self.metadata = metadata
         self.exists = exists
         self.rawData = rawData
+        self.noneVariantData = noneVariantData
+        self.previousVariantData = previousVariantData
     }
 
     public func data() -> [String: Any]? {
@@ -50,8 +58,10 @@ public class DocumentSnapshot: @unchecked Sendable {
     }
 
     public func data(with serverTimestampBehavior: ServerTimestampBehavior) -> [String: Any]? {
-        guard exists, let raw = rawData else { return nil }
-        return sanitizeTimestamps(raw, behavior: serverTimestampBehavior)
+        guard let selected = selectVariantDictionary(behavior: serverTimestampBehavior) else {
+            return nil
+        }
+        return cloneDictionary(selected)
     }
 
     public func get(_ field: Any) -> Any? {
@@ -59,9 +69,10 @@ public class DocumentSnapshot: @unchecked Sendable {
     }
 
     public func get(_ field: Any, serverTimestampBehavior: ServerTimestampBehavior) -> Any? {
-        guard exists, let raw = rawData else { return nil }
+        guard exists else { return nil }
         let segments: [String]
         if let str = field as? String {
+            guard !str.isEmpty else { return nil }
             if str == "__name__" {
                 return documentID
             }
@@ -74,14 +85,34 @@ public class DocumentSnapshot: @unchecked Sendable {
         } else {
             return nil
         }
-        return extractNestedField(segments: segments, current: raw, behavior: serverTimestampBehavior)
+        guard let selected = selectVariantDictionary(behavior: serverTimestampBehavior) else {
+            return nil
+        }
+        return extractNestedField(segments: segments, current: selected)
     }
 
     public subscript(key: String) -> Any? {
         get { self.get(key) }
     }
 
-    // ── Internal Wire Deserialization ────────────────────────────────────────
+    public subscript(path: FieldPath) -> Any? {
+        get { self.get(path) }
+    }
+
+    private func selectVariantDictionary(behavior: ServerTimestampBehavior) -> [String: Any]? {
+        guard exists, let raw = rawData else { return nil }
+        guard metadata.hasPendingWrites else { return raw }
+        switch behavior {
+        case .estimate:
+            return raw
+        case .none:
+            return noneVariantData ?? raw
+        case .previous:
+            return previousVariantData ?? raw
+        }
+    }
+
+    // -- Internal Wire Deserialization --
 
     internal static func fromWire(
         firestore: Firestore,
@@ -126,9 +157,21 @@ public class DocumentSnapshot: @unchecked Sendable {
             )
         }
 
-        let rawPayload = wireDict["data"] ?? wireDict
-        let decoded = ValueCodec.decodeDocData(rawPayload) { refPath in
+        let resolver: DocumentReferenceResolver = { refPath in
             DocumentReference(firestore: firestore, path: refPath)
+        }
+        let rawPayload = wireDict["data"] ?? wireDict
+        let decoded = ValueCodec.decodeDocData(rawPayload, referenceResolver: resolver)
+
+        var decodedNone: [String: Any]?
+        var decodedPrevious: [String: Any]?
+        if let variants = wireDict["serverTimestampVariants"] as? [String: Any] {
+            if let rawNone = variants["none"] {
+                decodedNone = ValueCodec.decodeDocData(rawNone, referenceResolver: resolver)
+            }
+            if let rawPrevious = variants["previous"] {
+                decodedPrevious = ValueCodec.decodeDocData(rawPrevious, referenceResolver: resolver)
+            }
         }
 
         return DocumentSnapshot(
@@ -139,41 +182,39 @@ public class DocumentSnapshot: @unchecked Sendable {
                 isFromCache: resolvedFromCache
             ),
             exists: true,
-            rawData: decoded
+            rawData: decoded,
+            noneVariantData: decodedNone,
+            previousVariantData: decodedPrevious
         )
     }
 
-    private func sanitizeTimestamps(_ dict: [String: Any], behavior: ServerTimestampBehavior) -> [String: Any] {
+    private func cloneDictionary(_ dict: [String: Any]) -> [String: Any] {
         var result: [String: Any] = [:]
         for (k, v) in dict {
-            if let nested = v as? [String: Any] {
-                result[k] = sanitizeTimestamps(nested, behavior: behavior)
-            } else if let arr = v as? [Any] {
-                result[k] = arr.map { item -> Any in
-                    if let d = item as? [String: Any] { return sanitizeTimestamps(d, behavior: behavior) }
-                    return item
-                }
-            } else {
-                result[k] = v
-            }
+            result[k] = cloneValue(v)
         }
         return result
     }
 
-    private func extractNestedField(
-        segments: [String],
-        current: Any?,
-        behavior: ServerTimestampBehavior
-    ) -> Any? {
+    private func cloneValue(_ value: Any) -> Any {
+        if let nested = value as? [String: Any] {
+            return cloneDictionary(nested)
+        }
+        if let arr = value as? [Any] {
+            return arr.map { cloneValue($0) }
+        }
+        return value
+    }
+
+    private func extractNestedField(segments: [String], current: Any?) -> Any? {
         guard let first = segments.first else { return current }
         let remaining = Array(segments.dropFirst())
-
         if let dict = current as? [String: Any] {
             guard let nextVal = dict[first] else { return nil }
             if remaining.isEmpty {
-                return nextVal
+                return cloneValue(nextVal)
             }
-            return extractNestedField(segments: remaining, current: nextVal, behavior: behavior)
+            return extractNestedField(segments: remaining, current: nextVal)
         }
         return nil
     }
@@ -193,9 +234,19 @@ public final class QueryDocumentSnapshot: DocumentSnapshot, @unchecked Sendable 
         firestore: Firestore,
         reference: DocumentReference,
         metadata: SnapshotMetadata,
-        rawData: [String: Any]
+        rawData: [String: Any],
+        noneVariantData: [String: Any]? = nil,
+        previousVariantData: [String: Any]? = nil
     ) {
-        super.init(firestore: firestore, reference: reference, metadata: metadata, exists: true, rawData: rawData)
+        super.init(
+            firestore: firestore,
+            reference: reference,
+            metadata: metadata,
+            exists: true,
+            rawData: rawData,
+            noneVariantData: noneVariantData,
+            previousVariantData: previousVariantData
+        )
     }
 
     override public func data() -> [String: Any] {

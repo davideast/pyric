@@ -60,6 +60,59 @@ internal enum FirestoreOfflineProjection {
         baseRecord: CachedDocumentRecord?,
         stagedBatches: [[OfflineWriteMutation]]
     ) -> ProjectedOfflineDoc {
+        let estimatePass = applyStagedMutations(
+            path: path,
+            baseRecord: baseRecord,
+            stagedBatches: stagedBatches,
+            timestampMode: .estimate
+        )
+        let current = estimatePass.fields
+        let docId = path.split(separator: "/").last.map(String.init) ?? path
+        var wireDict: [String: AnySendable] = [
+            "id": .string(docId),
+            "path": .string(path),
+            "exists": .bool(current != nil),
+            "isFromCache": .bool(true),
+            "hasPendingWrites": .bool(estimatePass.hasPendingWrites)
+        ]
+        if let current {
+            wireDict["data"] = .dictionary(current)
+            if estimatePass.hasPendingWrites {
+                let noneFields = applyStagedMutations(
+                    path: path,
+                    baseRecord: baseRecord,
+                    stagedBatches: stagedBatches,
+                    timestampMode: .none
+                ).fields
+                if let noneFields, noneFields != current {
+                    let prevFields = applyStagedMutations(
+                        path: path,
+                        baseRecord: baseRecord,
+                        stagedBatches: stagedBatches,
+                        timestampMode: .previous
+                    ).fields ?? noneFields
+                    wireDict["serverTimestampVariants"] = .dictionary([
+                        "none": .dictionary(noneFields),
+                        "previous": .dictionary(prevFields)
+                    ])
+                }
+            }
+        }
+        return ProjectedOfflineDoc(
+            known: estimatePass.known,
+            exists: current != nil,
+            hasPendingWrites: estimatePass.hasPendingWrites,
+            encodedFields: current,
+            wirePayload: .dictionary(wireDict)
+        )
+    }
+
+    private static func applyStagedMutations(
+        path: String,
+        baseRecord: CachedDocumentRecord?,
+        stagedBatches: [[OfflineWriteMutation]],
+        timestampMode: ServerTimestampBehavior
+    ) -> (known: Bool, hasPendingWrites: Bool, fields: [String: AnySendable]?) {
         var known = (baseRecord != nil)
         var current: [String: AnySendable]? = (baseRecord?.exists == true) ? (baseRecord?.encodedFields ?? [:]) : nil
         var hasPendingWrites = false
@@ -77,7 +130,14 @@ internal enum FirestoreOfflineProjection {
                     let prior = existing
                     for (fieldKey, rawVal) in fields {
                         let segments = splitFieldPath(fieldKey)
-                        let resolved = resolveSentinels(rawVal, priorRoot: prior, prefix: segments, nowSeconds: nowSeconds, keepDeletes: true)
+                        let resolved = resolveSentinels(
+                            rawVal,
+                            priorRoot: prior,
+                            prefix: segments,
+                            nowSeconds: nowSeconds,
+                            keepDeletes: true,
+                            timestampMode: timestampMode
+                        )
                         existing = setField(in: existing, segments: segments, value: resolved)
                     }
                     current = existing
@@ -85,14 +145,28 @@ internal enum FirestoreOfflineProjection {
                     guard var existing = current else { continue }
                     let prior = existing
                     for entry in entries {
-                        let resolved = resolveSentinels(entry.value, priorRoot: prior, prefix: entry.segments, nowSeconds: nowSeconds, keepDeletes: true)
+                        let resolved = resolveSentinels(
+                            entry.value,
+                            priorRoot: prior,
+                            prefix: entry.segments,
+                            nowSeconds: nowSeconds,
+                            keepDeletes: true,
+                            timestampMode: timestampMode
+                        )
                         existing = setField(in: existing, segments: entry.segments, value: resolved)
                     }
                     current = existing
                 case .set(_, let encodedData, let merge, let mergeFields):
                     let isMerge = merge || (mergeFields != nil)
                     let prior = isMerge ? current : nil
-                    let resolvedMap = resolveMapSentinels(encodedData, priorRoot: prior, prefix: [], nowSeconds: nowSeconds, keepDeletes: isMerge)
+                    let resolvedMap = resolveMapSentinels(
+                        encodedData,
+                        priorRoot: prior,
+                        prefix: [],
+                        nowSeconds: nowSeconds,
+                        keepDeletes: isMerge,
+                        timestampMode: timestampMode
+                    )
                     if merge {
                         if let existing = current {
                             current = mergeMaps(base: existing, incoming: resolvedMap)
@@ -116,25 +190,7 @@ internal enum FirestoreOfflineProjection {
                 }
             }
         }
-
-        let docId = path.split(separator: "/").last.map(String.init) ?? path
-        var wireDict: [String: AnySendable] = [
-            "id": .string(docId),
-            "path": .string(path),
-            "exists": .bool(current != nil),
-            "isFromCache": .bool(true),
-            "hasPendingWrites": .bool(hasPendingWrites)
-        ]
-        if let current {
-            wireDict["data"] = .dictionary(current)
-        }
-        return ProjectedOfflineDoc(
-            known: known,
-            exists: current != nil,
-            hasPendingWrites: hasPendingWrites,
-            encodedFields: current,
-            wirePayload: .dictionary(wireDict)
-        )
+        return (known: known, hasPendingWrites: hasPendingWrites, fields: current)
     }
 
     static func projectQuery(
@@ -319,11 +375,19 @@ internal enum FirestoreOfflineProjection {
         priorRoot: [String: AnySendable]?,
         prefix: [String],
         nowSeconds: Int64,
-        keepDeletes: Bool
+        keepDeletes: Bool,
+        timestampMode: ServerTimestampBehavior
     ) -> [String: AnySendable] {
         var out: [String: AnySendable] = [:]
         for (key, val) in map {
-            let resolved = resolveSentinels(val, priorRoot: priorRoot, prefix: prefix + [key], nowSeconds: nowSeconds, keepDeletes: keepDeletes)
+            let resolved = resolveSentinels(
+                val,
+                priorRoot: priorRoot,
+                prefix: prefix + [key],
+                nowSeconds: nowSeconds,
+                keepDeletes: keepDeletes,
+                timestampMode: timestampMode
+            )
             if isDeletedMarker(resolved) && !keepDeletes {
                 continue
             }
@@ -337,10 +401,20 @@ internal enum FirestoreOfflineProjection {
         priorRoot: [String: AnySendable]?,
         prefix: [String],
         nowSeconds: Int64,
-        keepDeletes: Bool
+        keepDeletes: Bool,
+        timestampMode: ServerTimestampBehavior
     ) -> AnySendable {
         if let arr = node.arrayValue {
-            return .array(arr.map { resolveSentinels($0, priorRoot: priorRoot, prefix: [], nowSeconds: nowSeconds, keepDeletes: false) })
+            return .array(arr.map {
+                resolveSentinels(
+                    $0,
+                    priorRoot: priorRoot,
+                    prefix: [],
+                    nowSeconds: nowSeconds,
+                    keepDeletes: false,
+                    timestampMode: timestampMode
+                )
+            })
         }
         guard let dict = node.dictionaryValue else {
             return node
@@ -350,7 +424,14 @@ internal enum FirestoreOfflineProjection {
             case "deleteField":
                 return .dictionary(["__sentinel": .string(deletedSentinelMarker)])
             case "serverTimestamp":
-                return .dictionary(["__type": .string("timestamp"), "seconds": .int(nowSeconds), "nanos": .int(0)])
+                switch timestampMode {
+                case .estimate:
+                    return .dictionary(["__type": .string("timestamp"), "seconds": .int(nowSeconds), "nanos": .int(0)])
+                case .none:
+                    return .null
+                case .previous:
+                    return readField(in: priorRoot, segments: prefix) ?? .null
+                }
             case "increment":
                 let prev = readField(in: priorRoot, segments: prefix)
                 let addend = dict["n"]?.doubleValue ?? 0
@@ -362,7 +443,14 @@ internal enum FirestoreOfflineProjection {
             case "arrayUnion":
                 var items = readField(in: priorRoot, segments: prefix)?.arrayValue ?? []
                 for raw in dict["values"]?.arrayValue ?? [] {
-                    let resolved = resolveSentinels(raw, priorRoot: priorRoot, prefix: [], nowSeconds: nowSeconds, keepDeletes: false)
+                    let resolved = resolveSentinels(
+                        raw,
+                        priorRoot: priorRoot,
+                        prefix: [],
+                        nowSeconds: nowSeconds,
+                        keepDeletes: false,
+                        timestampMode: timestampMode
+                    )
                     if !items.contains(where: { wireValuesEqual($0, resolved) }) {
                         items.append(resolved)
                     }
@@ -371,7 +459,14 @@ internal enum FirestoreOfflineProjection {
             case "arrayRemove":
                 let existing = readField(in: priorRoot, segments: prefix)?.arrayValue ?? []
                 let removals = (dict["values"]?.arrayValue ?? []).map {
-                    resolveSentinels($0, priorRoot: priorRoot, prefix: [], nowSeconds: nowSeconds, keepDeletes: false)
+                    resolveSentinels(
+                        $0,
+                        priorRoot: priorRoot,
+                        prefix: [],
+                        nowSeconds: nowSeconds,
+                        keepDeletes: false,
+                        timestampMode: timestampMode
+                    )
                 }
                 return .array(existing.filter { item in !removals.contains(where: { wireValuesEqual(item, $0) }) })
             default:
@@ -381,6 +476,15 @@ internal enum FirestoreOfflineProjection {
         if isScalarMarker(dict) {
             return node
         }
-        return .dictionary(resolveMapSentinels(dict, priorRoot: priorRoot, prefix: prefix, nowSeconds: nowSeconds, keepDeletes: keepDeletes))
+        return .dictionary(
+            resolveMapSentinels(
+                dict,
+                priorRoot: priorRoot,
+                prefix: prefix,
+                nowSeconds: nowSeconds,
+                keepDeletes: keepDeletes,
+                timestampMode: timestampMode
+            )
+        )
     }
 }
