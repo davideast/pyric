@@ -7,5 +7,6 @@ export default row({
   behavior: 'Executes optimistic concurrency transaction handler on MutableData and commits upon success.',
   featureKeys: ['runTransaction'],
   status: 'conforms',
+  oracleObservations: ['rtdb-kotlin-listeners-transactions-connection-and-ondisconnect'],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

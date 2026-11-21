@@ -7,5 +7,6 @@ export default row({
   behavior: 'Emits ChildEvent.Removed whenever a child node is removed from the watched location.',
   featureKeys: ['onChildRemoved'],
   status: 'conforms',
+  oracleObservations: ['rtdb-kotlin-listeners-transactions-connection-and-ondisconnect'],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

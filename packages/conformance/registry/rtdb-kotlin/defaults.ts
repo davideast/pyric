@@ -11,6 +11,11 @@ const CONFORMANCE_SUITE =
 const ORACLE_REPLAY_SUITE =
   'packages/conformance/test/src/rtdb-kotlin-oracle-replay.test.ts';
 
+const WAVE4_ORACLE_REPLAY_SUITE =
+  'packages/conformance/test/src/rtdb-kotlin-wave4-oracle-replay.test.ts';
+
+const WAVE2_OBSERVATION_STEM = 'rtdb-kotlin-dedicated-crud-and-query-order';
+
 export const INFO_RECONNECT_TEST =
   'packages/kt-client/src/test/kotlin/dev/pyric/database/InfoConnectedReconnectTest.kt';
 
@@ -69,6 +74,10 @@ export function bindKotlinRtdbRow(
 
       const observations = seed.oracleObservations;
       if (observations !== undefined && observations.length > 0) {
+        let replaySuite = WAVE4_ORACLE_REPLAY_SUITE;
+        if (observations.includes(WAVE2_OBSERVATION_STEM)) {
+          replaySuite = ORACLE_REPLAY_SUITE;
+        }
         const obsTokens = observations.map((obs) => `\`${obs}.json\``).join(', ');
         return {
           api: seed.api,
@@ -78,8 +87,8 @@ export function bindKotlinRtdbRow(
           statusNote: resolveMockBridgeNote(seed.status, seed.statusNote),
           automation: 'oracle-backed',
           oracleObservations: [...observations],
-          evidence: `${resolvedEvidence} Production capture: ${obsTokens} replayed in \`${ORACLE_REPLAY_SUITE}\`; unit suite: \`${CONFORMANCE_SUITE}\` assertion set \`rtdb-kotlin#${rowRef}\`.${hostEvidence}`,
-          conformanceTests: [ORACLE_REPLAY_SUITE, CONFORMANCE_SUITE, ...extraTests],
+          evidence: `${resolvedEvidence} Production capture: ${obsTokens} replayed in \`${replaySuite}\`; unit suite: \`${CONFORMANCE_SUITE}\` assertion set \`rtdb-kotlin#${rowRef}\`.${hostEvidence}`,
+          conformanceTests: [replaySuite, CONFORMANCE_SUITE, ...extraTests],
           hostConformanceTests: hostTests,
         };
       }

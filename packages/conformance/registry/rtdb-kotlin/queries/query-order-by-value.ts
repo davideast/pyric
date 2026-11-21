@@ -7,5 +7,6 @@ export default row({
   behavior: 'Orders query results by direct scalar node values.',
   featureKeys: ['orderByValue'],
   status: 'conforms',
+  oracleObservations: ['rtdb-kotlin-queries-ranges-limits-and-permission-denied'],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

@@ -7,5 +7,6 @@ export default row({
   behavior: 'Monotonically orders generated push keys lexicographically by creation timestamp.',
   featureKeys: ['pushKeyOrdering'],
   status: 'conforms',
+  oracleObservations: ['rtdb-kotlin-navigation-push-priorities-and-snapshots'],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

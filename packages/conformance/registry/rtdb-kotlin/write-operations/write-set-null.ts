@@ -7,5 +7,6 @@ export default row({
   behavior: 'Deletes data at the reference path when setValue is called with null.',
   featureKeys: ['setValueNull'],
   status: 'conforms',
+  oracleObservations: ['rtdb-kotlin-navigation-push-priorities-and-snapshots'],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

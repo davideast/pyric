@@ -7,5 +7,6 @@ export default row({
   behavior: 'Restricts query results to the inclusive lower and upper boundary values.',
   featureKeys: ['startAt', 'endAt'],
   status: 'conforms',
+  oracleObservations: ['rtdb-kotlin-queries-ranges-limits-and-permission-denied'],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

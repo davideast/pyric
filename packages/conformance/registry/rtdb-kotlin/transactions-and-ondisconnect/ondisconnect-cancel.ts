@@ -7,5 +7,6 @@ export default row({
   behavior: 'Cancels previously queued OnDisconnect operations at the reference path.',
   featureKeys: ['onDisconnectCancel'],
   status: 'conforms',
+  oracleObservations: ['rtdb-kotlin-listeners-transactions-connection-and-ondisconnect'],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

@@ -7,5 +7,6 @@ export default row({
   behavior: 'Returns the parent DatabaseReference, or null when called on the root reference.',
   featureKeys: ['parent'],
   status: 'conforms',
+  oracleObservations: ['rtdb-kotlin-navigation-push-priorities-and-snapshots'],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });
