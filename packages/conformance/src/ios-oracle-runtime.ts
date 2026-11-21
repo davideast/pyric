@@ -67,7 +67,7 @@ export interface IosAdminAuthAdapter {
   dispose(): Promise<void>;
 }
 
-interface IosRtdbSessionOptions {
+export interface IosRtdbSessionOptions {
   rules: Record<string, unknown>;
   stripTopLevelGrants: boolean;
 }
@@ -117,6 +117,16 @@ export function buildIosRtdbRunRules(): Record<string, unknown> {
     '.write': true,
     items: {
       '.indexOn': ['score'],
+    },
+  };
+}
+
+export function buildIosRtdbNavigationAndChildQueryRules(): Record<string, unknown> {
+  return {
+    '.read': true,
+    '.write': true,
+    players: {
+      '.indexOn': ['score', 'tier'],
     },
   };
 }

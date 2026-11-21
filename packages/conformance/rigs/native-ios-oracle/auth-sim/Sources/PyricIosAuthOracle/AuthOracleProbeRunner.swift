@@ -21,6 +21,7 @@ public enum AuthOracleError: LocalizedError {
   case appLookupFailed(String)
   case expectedInvalidTokenError
   case expectedAuthRejection(String)
+  case listenerTimeout(String)
   case invalidJsonObject
 
   public var errorDescription: String? {
@@ -35,6 +36,8 @@ public enum AuthOracleError: LocalizedError {
       return "Expected signIn(withCustomToken:) with malformed token to throw an error"
     case .expectedAuthRejection(let step):
       return "Expected FirebaseAuth rejection during step '\(step)'"
+    case .listenerTimeout(let step):
+      return "Timed out waiting for FirebaseAuth listener condition '\(step)'"
     case .invalidJsonObject:
       return "Auth oracle behavior payload is not a valid JSON object"
     }
@@ -75,7 +78,7 @@ public enum AuthOracleProbeRunner {
     return unwrapped
   }
 
-  private static func deleteAppAsync(_ app: FirebaseApp) async {
+  static func deleteAppAsync(_ app: FirebaseApp) async {
     await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
       app.delete { _ in
         continuation.resume(returning: ())
@@ -192,6 +195,13 @@ public enum AuthOracleProbeRunner {
         behavior = try await runEmailPasswordAndErrorCodes(auth: auth, runId: runId)
       case "auth-swift-profile-token-claims-and-delete-lifecycle":
         behavior = try await runProfileTokenClaimsAndDeleteLifecycle(auth: auth, runId: runId)
+      case "auth-swift-instance-linking-reauth-and-oauth-credentials":
+        behavior = try await runInstanceLinkingReauthAndOAuthCredentials(
+          auth: auth,
+          app: app,
+          options: options,
+          runId: runId
+        )
       default:
         throw AuthOracleError.unknownProbe(probeId)
       }

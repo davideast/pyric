@@ -19,6 +19,7 @@ enum RtdbOracleError: LocalizedError {
   case unknownProbe(String)
   case appLookupFailed(String)
   case expectedPermissionDenied(String)
+  case listenerTimeout(String)
   case invalidJsonPayload
 
   var errorDescription: String? {
@@ -31,6 +32,8 @@ enum RtdbOracleError: LocalizedError {
       return "Failed to resolve configured FirebaseApp '\(appName)'"
     case .expectedPermissionDenied(let operation):
       return "Expected RTDB permission-denied rejection for '\(operation)'"
+    case .listenerTimeout(let step):
+      return "Timed out waiting for RTDB condition '\(step)'"
     case .invalidJsonPayload:
       return "Probe behavior payload is not valid JSON object data"
     }
@@ -219,6 +222,13 @@ func executeRtdbProbe(config: RtdbOracleConfig) async throws -> [String: Any] {
       behavior = try await runWritesAutoIdServerValueAndTransactions(db: db, runId: config.runId)
     case "rtdb-swift-queries-ranges-limits-and-permission-denied":
       behavior = try await runQueriesRangesLimitsAndPermissionDenied(db: db, runId: config.runId)
+    case "rtdb-swift-navigation-push-priorities-and-snapshots":
+      behavior = try await runNavigationPushPrioritiesAndSnapshots(db: db, config: config)
+    case "rtdb-swift-listeners-transactions-connection-and-ondisconnect":
+      behavior = try await runListenersTransactionsConnectionAndOnDisconnect(
+        db: db,
+        config: config
+      )
     default:
       throw RtdbOracleError.unknownProbe(config.probeId)
     }
