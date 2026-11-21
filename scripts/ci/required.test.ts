@@ -27,20 +27,16 @@ describe('required CI result', () => {
     );
   });
 
-  test('only the experimental Kotlin client is non-blocking in native conformance', () => {
+  test('every native SDK conformance matrix entry is blocking with no step-level continue-on-error', () => {
     const workflow = readFileSync(resolve(import.meta.dir, '../../.github/workflows/build.yml'), 'utf8');
     const nativeJob = workflow.slice(workflow.indexOf('\n  native-conformance:'), workflow.indexOf('\n  required:'));
     expect(nativeJob).toContain('continue-on-error: ${{ matrix.blocking == false }}');
     const entries = [...nativeJob.matchAll(/- sdk: (\w+)\n\s+os: [\w-]+\n\s+blocking: (true|false)/g)]
       .map(([, sdk, blocking]) => [sdk, blocking]);
-    expect(Object.fromEntries(entries)).toEqual({ kotlin: 'false', flutter: 'true', swift: 'true' });
-    // Job-level `continue-on-error` alone still marks the GitHub Check Run red (`X`),
-    // causing `gh pr checks` to exit 1. Kotlin steps must also carry step-level
-    // `continue-on-error: true` while Flutter and Swift steps stay hard-failing.
-    const kotlinStep = nativeJob.slice(nativeJob.indexOf('- name: Run Kotlin client tests'), nativeJob.indexOf('- name: Set up Flutter'));
-    expect(kotlinStep).toContain('continue-on-error: true');
-    const blockingSteps = nativeJob.slice(nativeJob.indexOf('- name: Set up Flutter'));
-    expect(blockingSteps).not.toContain('continue-on-error: true');
+    expect(Object.fromEntries(entries)).toEqual({ kotlin: 'true', flutter: 'true', swift: 'true' });
+    const nativeSteps = nativeJob.slice(nativeJob.indexOf('\n    steps:'));
+    expect(nativeSteps).not.toContain('continue-on-error: true');
+    expect(nativeSteps).toContain('bun test packages/cli/test/serve/native-kotlin-conformance.test.ts');
   });
 
   test('accepts skipped jobs only when their check set did not select them', () => {
