@@ -11,6 +11,9 @@ enum PyricDatabaseEventType {
   /// Emitted when an existing child node is modified.
   childChanged,
 
+  /// Emitted when an existing child node's indexed sort value changes.
+  childMoved,
+
   /// Emitted when a child node is removed.
   childRemoved,
 }

@@ -222,8 +222,10 @@ final class RtdbTestHarness: WebSocketTransport, @unchecked Sendable {
             setNode(path: path, val: RtdbValueCodec.fromAnySendable(op["value"]), prio: RtdbValueCodec.fromAnySendable(op["priority"]))
             notifySubscribers(toResume: &toResume)
         case "rtdb.update":
-            if let dict = RtdbValueCodec.fromAnySendable(op["values"]) as? [String: Any] {
-                for (k, v) in dict { setNode(path: path == "/" ? "/\(k)" : "\(path)/\(k)", val: v, prio: nil) }
+            if let valuesDict = op["values"]?.dictionaryValue {
+                for (k, v) in valuesDict {
+                    setNode(path: path == "/" ? "/\(k)" : "\(path)/\(k)", val: RtdbValueCodec.fromAnySendable(v), prio: nil)
+                }
             }
             notifySubscribers(toResume: &toResume)
         case "rtdb.remove":

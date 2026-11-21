@@ -11,8 +11,7 @@ public class DatabaseQuery: NSObject, @unchecked Sendable {
     internal let limitSpec: [String: AnySendable]?
 
     private let observerLock = NSLock()
-    private var observerTasks: [UInt: Task<Void, Never>] = [:]
-    nonisolated(unsafe) private static var nextObserverHandle: UInt = 1
+    private var localObserverHandles: Set<UInt> = []
 
     public init(
         database: Database,
@@ -51,6 +50,20 @@ public class DatabaseQuery: NSObject, @unchecked Sendable {
             spec["limit"] = .null
         }
         return .dictionary(spec)
+    }
+
+    internal func toSubscriptionTargetAnySendable() -> AnySendable {
+        var targetDict: [String: AnySendable] = [
+            "service": .string("rtdb"),
+            "path": .string(path),
+        ]
+        if let instance = database.wireInstance {
+            targetDict["instance"] = .string(instance)
+        }
+        if let qSpec = toQuerySpecAnySendable() {
+            targetDict["query"] = qSpec
+        }
+        return .dictionary(targetDict)
     }
 
     // -- Query Ordering --
@@ -356,21 +369,21 @@ public class DatabaseQuery: NSObject, @unchecked Sendable {
         andPreviousSiblingKeyWith block: @escaping @Sendable (DataSnapshot, String?) -> Void,
         withCancel cancelBlock: (@Sendable (Error) -> Void)? = nil
     ) -> UInt {
-        observerLock.lock()
-        let handle = DatabaseQuery.nextObserverHandle
-        DatabaseQuery.nextObserverHandle += 1
-        observerLock.unlock()
-
-        let task = startObserverTask(
+        let handle = database.viewCoordinator.registerObserver(
+            database: database,
+            path: path,
+            orderBySpec: orderBySpec,
+            querySpec: toQuerySpecAnySendable(),
+            subscriptionTarget: toSubscriptionTargetAnySendable(),
+            ref: ref,
             eventTypes: [eventType],
             onEvent: { event in
                 block(event.snapshot, event.previousSiblingKey)
             },
             onCancel: cancelBlock
         )
-
         observerLock.lock()
-        observerTasks[handle] = task
+        localObserverHandles.insert(handle)
         observerLock.unlock()
         return handle
     }
@@ -379,141 +392,36 @@ public class DatabaseQuery: NSObject, @unchecked Sendable {
         with block: @escaping @Sendable (DatabaseChildEvent) -> Void,
         withCancel cancelBlock: (@Sendable (Error) -> Void)? = nil
     ) -> UInt {
-        observerLock.lock()
-        let handle = DatabaseQuery.nextObserverHandle
-        DatabaseQuery.nextObserverHandle += 1
-        observerLock.unlock()
-
-        let task = startObserverTask(
+        let handle = database.viewCoordinator.registerObserver(
+            database: database,
+            path: path,
+            orderBySpec: orderBySpec,
+            querySpec: toQuerySpecAnySendable(),
+            subscriptionTarget: toSubscriptionTargetAnySendable(),
+            ref: ref,
             eventTypes: [.childAdded, .childChanged, .childRemoved, .childMoved],
             onEvent: block,
             onCancel: cancelBlock
         )
-
         observerLock.lock()
-        observerTasks[handle] = task
+        localObserverHandles.insert(handle)
         observerLock.unlock()
         return handle
     }
 
     public func removeObserver(withHandle handle: UInt) {
         observerLock.lock()
-        let task = observerTasks.removeValue(forKey: handle)
+        localObserverHandles.remove(handle)
         observerLock.unlock()
-        task?.cancel()
+        database.viewCoordinator.removeObserver(handle: handle)
     }
 
     public func removeAllObservers() {
         observerLock.lock()
-        let tasks = Array(observerTasks.values)
-        observerTasks.removeAll()
+        let handles = localObserverHandles
+        localObserverHandles.removeAll()
         observerLock.unlock()
-        for task in tasks {
-            task.cancel()
-        }
-    }
-
-    private func startObserverTask(
-        eventTypes: Set<DataEventType>,
-        onEvent: @escaping @Sendable (DatabaseChildEvent) -> Void,
-        onCancel: (@Sendable (Error) -> Void)?
-    ) -> Task<Void, Never> {
-        database.markUsed()
-        if ConnectionInfo.isInfoPath(path) {
-            return startInfoObserverTask(eventTypes: eventTypes, onEvent: onEvent)
-        }
-        var targetDict: [String: AnySendable] = [
-            "service": .string("rtdb"),
-            "path": .string(path)
-        ]
-        if let instance = database.wireInstance {
-            targetDict["instance"] = .string(instance)
-        }
-        if let qSpec = toQuerySpecAnySendable() {
-            targetDict["query"] = qSpec
-        }
-        let targetSendable = AnySendable.dictionary(targetDict)
-        let db = self.database
-        let queryRef = self.ref
-
-        return Task {
-            let events = SnapshotEvents(eventTypes: eventTypes, onEvent: onEvent)
-
-            // Listen to authLensStream so identity changes re-evaluate subscriptions automatically.
-            for await currentLens in db.authLensStream {
-                if Task.isCancelled { break }
-
-                let subStream = db.bridgeClient.subscribe(
-                    target: targetSendable,
-                    actAs: currentLens.toAnySendable()
-                )
-
-                final class LensChangeFlag: @unchecked Sendable {
-                    private let lock = NSLock()
-                    private var _value = false
-                    var value: Bool {
-                        get { lock.lock(); defer { lock.unlock() }; return _value }
-                        set { lock.lock(); defer { lock.unlock() }; _value = newValue }
-                    }
-                }
-                let lensChanged = LensChangeFlag()
-                let lensMonitorTask = Task {
-                    for await newLens in db.authLensStream {
-                        if newLens != currentLens {
-                            lensChanged.value = true
-                            break
-                        }
-                    }
-                }
-
-                do {
-                    for try await wireSnap in subStream {
-                        if Task.isCancelled || lensChanged.value { break }
-                        if let errDict = wireSnap["__error"] {
-                            let msg = errDict["message"]?.stringValue ?? "Permission denied"
-                            onCancel?(PyricBridgeError.permissionDenied(msg))
-                            lensMonitorTask.cancel()
-                            return
-                        }
-
-                        events.deliver(DataSnapshot(wire: wireSnap, ref: queryRef))
-                    }
-                } catch {
-                    if !Task.isCancelled && !lensChanged.value {
-                        onCancel?(error)
-                        lensMonitorTask.cancel()
-                        return
-                    }
-                }
-                lensMonitorTask.cancel()
-            }
-        }
-    }
-}
-
-extension DatabaseQuery {
-
-    /// Serves a listener on `/.info` from the client. It never subscribes on
-    /// the bridge, so re-attach never replays it.
-    private func startInfoObserverTask(
-        eventTypes: Set<DataEventType>,
-        onEvent: @escaping @Sendable (DatabaseChildEvent) -> Void
-    ) -> Task<Void, Never> {
-        let infoPath = path
-        let queryRef = ref
-        let db = database
-
-        return Task {
-            let events = SnapshotEvents(eventTypes: eventTypes, onEvent: onEvent)
-            var lastWire: AnySendable?
-            for await connected in ConnectionInfo.connectedValues(of: db) {
-                if Task.isCancelled { break }
-                let wire = ConnectionInfo.wire(at: infoPath, connected: connected)
-                let unchanged = wire == lastWire
-                if unchanged { continue }
-                lastWire = wire
-                events.deliver(DataSnapshot(wire: wire, ref: queryRef))
-            }
-        }
+        database.viewCoordinator.removeObservers(handles: handles)
+        database.viewCoordinator.removeAllObservers(path: path, querySpec: toQuerySpecAnySendable())
     }
 }

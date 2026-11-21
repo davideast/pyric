@@ -1,7 +1,5 @@
 import 'dart:async';
 
-import 'package:collection/collection.dart';
-
 import 'connection_info.dart';
 import 'pyric_data_snapshot.dart';
 import 'pyric_database.dart';
@@ -224,147 +222,38 @@ class PyricQuery {
 
   /// Emits a [PyricDatabaseEvent] with full [PyricDataSnapshot] initially and on any change.
   Stream<PyricDatabaseEvent> get onValue {
-    return database
-        .subscribeRtdb(path, querySpec: toQuerySpec())
-        .map((rawEvent) {
-      final snap = rawEvent is Map
-          ? PyricDataSnapshot.fromWire(
-              ref,
-              Map<String, dynamic>.from(rawEvent),
-            )
-          : PyricDataSnapshot(
-              ref: ref,
-              key: ref.key,
-              exists: false,
-              value: null,
-              priority: null,
-              children: const [],
-            );
-      return PyricDatabaseEvent(
-        type: PyricDatabaseEventType.value,
-        snapshot: snap,
-      );
-    });
+    return _observeViewEvent(PyricDatabaseEventType.value);
   }
 
   /// Emits a [PyricDatabaseEvent] for each existing child and whenever a new child is added.
   Stream<PyricDatabaseEvent> get onChildAdded {
-    return _transformChildEvents(PyricDatabaseEventType.childAdded);
+    return _observeViewEvent(PyricDatabaseEventType.childAdded);
   }
 
   /// Emits a [PyricDatabaseEvent] whenever an existing child node is modified.
   Stream<PyricDatabaseEvent> get onChildChanged {
-    return _transformChildEvents(PyricDatabaseEventType.childChanged);
+    return _observeViewEvent(PyricDatabaseEventType.childChanged);
+  }
+
+  /// Emits a [PyricDatabaseEvent] whenever an existing child node's indexed sort value changes.
+  Stream<PyricDatabaseEvent> get onChildMoved {
+    return _observeViewEvent(PyricDatabaseEventType.childMoved);
   }
 
   /// Emits a [PyricDatabaseEvent] whenever a child node is removed from this location.
   Stream<PyricDatabaseEvent> get onChildRemoved {
-    return _transformChildEvents(PyricDatabaseEventType.childRemoved);
+    return _observeViewEvent(PyricDatabaseEventType.childRemoved);
   }
 
-  Stream<PyricDatabaseEvent> _transformChildEvents(
+  Stream<PyricDatabaseEvent> _observeViewEvent(
     PyricDatabaseEventType targetType,
   ) {
-    late StreamController<PyricDatabaseEvent> controller;
-    StreamSubscription<PyricDatabaseEvent>? sub;
-    Map<String, PyricDataSnapshot>? previousChildren;
-
-    controller = StreamController<PyricDatabaseEvent>.broadcast(
-      onListen: () {
-        previousChildren = null;
-        sub = onValue.listen(
-          (event) {
-            final snap = event.snapshot;
-            final currentList = snap.children.toList();
-            final currentMap = <String, PyricDataSnapshot>{
-              for (final c in currentList)
-                if (c.key != null) c.key!: c,
-            };
-
-            if (previousChildren == null) {
-              // Initial snapshot
-              previousChildren = currentMap;
-              if (targetType == PyricDatabaseEventType.childAdded) {
-                String? prevKey;
-                for (final child in currentList) {
-                  controller.add(
-                    PyricDatabaseEvent(
-                      type: PyricDatabaseEventType.childAdded,
-                      snapshot: child,
-                      previousChildKey: prevKey,
-                    ),
-                  );
-                  prevKey = child.key;
-                }
-              }
-              return;
-            }
-
-            final prevMap = previousChildren!;
-            previousChildren = currentMap;
-
-            if (targetType == PyricDatabaseEventType.childAdded) {
-              String? prevKey;
-              for (final child in currentList) {
-                final k = child.key;
-                if (k != null && !prevMap.containsKey(k)) {
-                  controller.add(
-                    PyricDatabaseEvent(
-                      type: PyricDatabaseEventType.childAdded,
-                      snapshot: child,
-                      previousChildKey: prevKey,
-                    ),
-                  );
-                }
-                prevKey = k;
-              }
-            } else if (targetType == PyricDatabaseEventType.childChanged) {
-              const eq = DeepCollectionEquality();
-              String? prevKey;
-              for (final child in currentList) {
-                final k = child.key;
-                if (k != null && prevMap.containsKey(k)) {
-                  final oldChild = prevMap[k]!;
-                  final valChanged = !eq.equals(oldChild.value, child.value);
-                  final prioChanged = oldChild.priority != child.priority;
-                  if (valChanged || prioChanged) {
-                    controller.add(
-                      PyricDatabaseEvent(
-                        type: PyricDatabaseEventType.childChanged,
-                        snapshot: child,
-                        previousChildKey: prevKey,
-                      ),
-                    );
-                  }
-                }
-                prevKey = k;
-              }
-            } else if (targetType == PyricDatabaseEventType.childRemoved) {
-              for (final entry in prevMap.entries) {
-                if (!currentMap.containsKey(entry.key)) {
-                  controller.add(
-                    PyricDatabaseEvent(
-                      type: PyricDatabaseEventType.childRemoved,
-                      snapshot: entry.value,
-                    ),
-                  );
-                }
-              }
-            }
-          },
-          onError: (Object err, StackTrace st) {
-            controller.addError(err, st);
-          },
-        );
-      },
-      onCancel: () async {
-        await sub?.cancel();
-        sub = null;
-        previousChildren = null;
-      },
+    return database.viewCoordinator.observe(
+      ref: ref,
+      orderBy: _orderBy,
+      querySpec: toQuerySpec(),
+      eventType: targetType,
     );
-
-    return controller.stream;
   }
 }
 

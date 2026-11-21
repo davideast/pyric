@@ -174,6 +174,87 @@ void main() {
         });
       },
     );
+
+    test(
+      'Query.onChildMoved fires before Query.onChildChanged under orderByValue over live host',
+      () async {
+        await runLiveRtdbTest((session) async {
+          // users/$uid/scores has .indexOn: ['.value'] in MAIN_RULES
+          final scoresRef = session.userRef('scores');
+          await scoresRef.set(<String, dynamic>{'a': 1, 'b': 2});
+
+          final ordered = scoresRef.orderByValue();
+          final timeline = <String>[];
+          final initialReady = Completer<void>();
+          final cAdded = Completer<void>();
+          final aMovedAndChanged = Completer<void>();
+          final bRemoved = Completer<void>();
+
+          final addedSub = ordered.onChildAdded.listen((event) {
+            timeline.add(
+              'added:${event.snapshot.key}:prev=${event.previousChildKey}',
+            );
+            if (timeline.length >= 2 && !initialReady.isCompleted) {
+              initialReady.complete();
+            } else if (event.snapshot.key == 'c' && !cAdded.isCompleted) {
+              cAdded.complete();
+            }
+          });
+          // Register onChildChanged BEFORE onChildMoved to verify canonical EventGenerator ordering.
+          final changedSub = ordered.onChildChanged.listen((event) {
+            timeline.add('changed:${event.snapshot.key}:${event.snapshot.value}');
+            if (event.snapshot.key == 'a' && !aMovedAndChanged.isCompleted) {
+              aMovedAndChanged.complete();
+            }
+          });
+          final movedSub = ordered.onChildMoved.listen((event) {
+            timeline.add(
+              'moved:${event.snapshot.key}:prev=${event.previousChildKey}',
+            );
+          });
+          final removedSub = ordered.onChildRemoved.listen((event) {
+            timeline.add('removed:${event.snapshot.key}:${event.snapshot.value}');
+            if (event.snapshot.key == 'b' && !bRemoved.isCompleted) {
+              bRemoved.complete();
+            }
+          });
+
+          try {
+            await initialReady.future.timeout(const Duration(seconds: 5));
+            expect(
+              timeline,
+              equals(<String>['added:a:prev=null', 'added:b:prev=a']),
+            );
+
+            await scoresRef.child('c').set(3);
+            await cAdded.future.timeout(const Duration(seconds: 5));
+
+            await scoresRef.child('a').set(10);
+            await aMovedAndChanged.future.timeout(const Duration(seconds: 5));
+
+            await scoresRef.child('b').remove();
+            await bRemoved.future.timeout(const Duration(seconds: 5));
+
+            expect(
+              timeline,
+              equals(<String>[
+                'added:a:prev=null',
+                'added:b:prev=a',
+                'added:c:prev=b',
+                'moved:a:prev=c',
+                'changed:a:10',
+                'removed:b:2',
+              ]),
+            );
+          } finally {
+            await addedSub.cancel();
+            await changedSub.cancel();
+            await movedSub.cancel();
+            await removedSub.cancel();
+          }
+        });
+      },
+    );
   });
 
   group('7. Query Ordering, Filtering & Limits (live host)', () {

@@ -79,6 +79,7 @@ public final class Database: NSObject, @unchecked Sendable {
     public let app: FirebaseApp
     public let url: String
     internal let wireInstance: String?
+    internal let viewCoordinator = DatabaseViewCoordinator()
     private let usesAppBridge: Bool
 
     private let stateLock = NSLock()
@@ -247,6 +248,7 @@ public final class Database: NSObject, @unchecked Sendable {
     }
 
     internal func detachBridgeObserver() {
+        viewCoordinator.shutdown()
         let idToRemove: UUID? = {
             stateLock.lock()
             defer { stateLock.unlock() }
@@ -260,6 +262,7 @@ public final class Database: NSObject, @unchecked Sendable {
     }
 
     deinit {
+        viewCoordinator.shutdown()
         authSyncTask?.cancel()
         detachBridgeObserver()
     }
