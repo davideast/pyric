@@ -33,7 +33,7 @@ on:
   workflow_dispatch:
     inputs:
       rig:
-        description: 'Oracle rig id or comma-separated rig ids (e.g. rules-firestore, rules-storage, sdk-probes, admin-auth, messaging-send)'
+        description: 'Oracle rig id or comma-separated rig ids (e.g. rules-firestore, rules-storage, sdk-probes, android-sdk-probes, ios-sdk-probes, admin-auth, messaging-send)'
         required: true
         type: string
       filter:
@@ -51,15 +51,19 @@ concurrency:
 
 jobs:
   capture:
-    name: Capture observations on main
+    name: Capture observations on main (${{ matrix.os }})
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
     permissions:
       contents: read
       id-token: write
     outputs:
-      has_captures: ${{ steps.capture.outputs.has_captures }}
+      has_captures: ${{ steps.latched.outputs.has_captures }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -87,6 +91,7 @@ jobs:
           PARITY_SA_EMAIL: ${{ vars.PARITY_SA_EMAIL }}
           CAPTURE_WIF_PROVIDER: ${{ vars.CAPTURE_WIF_PROVIDER }}
           CAPTURE_SA_EMAIL: ${{ vars.CAPTURE_SA_EMAIL }}
+          CAPTURE_RUNNER_OS: ${{ matrix.os }}
           PLAN_FILE: ${{ runner.temp }}/oracle-capture-plan.json
         run: bun scripts/ci/oracle-capture-pr.ts plan
       - name: Authenticate read-only Rules Test API identity
@@ -103,12 +108,30 @@ jobs:
         with:
           workload_identity_provider: ${{ vars.CAPTURE_WIF_PROVIDER }}
           service_account: ${{ vars.CAPTURE_SA_EMAIL }}
+      - name: Cache Gradle dependencies for Android Robolectric oracle rig
+        if: runner.os == 'Linux' && steps.plan.outputs.should_run == 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-android-oracle-gradle-${{ hashFiles('packages/conformance/rigs/native-android-oracle/gradle.properties', 'packages/conformance/rigs/native-android-oracle/build.gradle.kts') }}
+          restore-keys: |
+            ${{ runner.os }}-android-oracle-gradle-
       - name: Build rules engine
         if: steps.plan.outputs.should_run == 'true'
         run: bun run build:rules
       - name: Build pyric runtime for oracle-run
         if: steps.plan.outputs.should_run == 'true'
         run: bun run --cwd packages/pyric build
+      - name: Cache iOS SwiftPM oracle packages
+        if: runner.os == 'macOS' && steps.plan.outputs.should_run == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pyric-ios-oracle-spm
+          key: ${{ runner.os }}-ios-oracle-spm-${{ hashFiles('packages/conformance/rigs/native-ios-oracle/**/Package.swift', 'packages/conformance/rigs/native-ios-oracle/sdk-version.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-ios-oracle-spm-
       - name: Run capture and validate observation diffs
         id: capture
         if: steps.plan.outputs.should_run == 'true'
@@ -127,11 +150,15 @@ jobs:
           PYRIC_ORACLE_FIREBASE_CONFIG: ${{ secrets.PYRIC_ORACLE_FIREBASE_CONFIG }}
           PYRIC_ORACLE_RTDB_URL: ${{ vars.PYRIC_ORACLE_RTDB_URL || secrets.PYRIC_ORACLE_RTDB_URL }}
         run: bun scripts/ci/oracle-capture-pr.ts capture
+      - name: Latch capture flag across matrix legs
+        id: latched
+        if: steps.capture.outputs.has_captures == 'true'
+        run: echo "has_captures=true" >> "$GITHUB_OUTPUT"
       - name: Upload validated observations bundle
         if: always() && steps.capture.outputs.has_captures == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: oracle-capture-observations-${{ github.run_attempt }}
+          name: oracle-capture-observations-${{ matrix.os }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/oracle-capture-bundle
           retention-days: 7
           if-no-files-found: error
@@ -144,7 +171,7 @@ jobs:
       github.event_name != 'pull_request' &&
       github.ref == 'refs/heads/main' &&
       needs.capture.result != 'cancelled' &&
-      needs.capture.outputs.has_captures == 'true'
+      (needs.capture.outputs.has_captures == 'true' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -162,18 +189,33 @@ jobs:
       - name: Download validated observations bundle
         uses: actions/download-artifact@v4
         with:
-          name: oracle-capture-observations-${{ github.run_attempt }}
+          pattern: oracle-capture-observations-*-${{ github.run_attempt }}
           path: ${{ runner.temp }}/oracle-capture-bundle
       - name: Verify bundle, push branch, and open or update PR
         env:
           GITHUB_EVENT_NAME: ${{ github.event_name }}
           GITHUB_REF: ${{ github.ref }}
-          ARTIFACT_DIR: ${{ runner.temp }}/oracle-capture-bundle
           GITHUB_REPOSITORY: ${{ github.repository }}
           PAT_TOKEN: ${{ secrets.MERGE_QUEUE_TOKEN || secrets.MERQUE_QUEUE_TOKEN }}
           GITHUB_TOKEN: ${{ github.token }}
           GH_TOKEN: ${{ secrets.MERGE_QUEUE_TOKEN || secrets.MERQUE_QUEUE_TOKEN || github.token }}
-        run: bun scripts/ci/oracle-capture-pr.ts open-pr
+        run: |
+          set -euo pipefail
+          BUNDLE_ROOT="${{ runner.temp }}/oracle-capture-bundle"
+          if [ -f "$BUNDLE_ROOT/manifest.json" ]; then
+            ARTIFACT_DIR="$BUNDLE_ROOT" bun scripts/ci/oracle-capture-pr.ts open-pr
+          else
+            found=0
+            for bundle_dir in "$BUNDLE_ROOT"/*; do
+              [ -f "$bundle_dir/manifest.json" ] || continue
+              found=1
+              echo "Processing capture artifact bundle: $bundle_dir"
+              ARTIFACT_DIR="$bundle_dir" bun scripts/ci/oracle-capture-pr.ts open-pr
+            done
+            if [ "$found" -eq 0 ]; then
+              echo "No capture artifact bundles found under $BUNDLE_ROOT; nothing to open."
+            fi
+          fi
 
   reconcile-diverted-prs:
     name: Auto-close superseded diverted capture PRs
