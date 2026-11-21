@@ -1,0 +1,23 @@
+{
+  "name": "auth-swift-anonymous-and-custom-token-session",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Upstream FirebaseAuth (firebase-ios-sdk) anonymous sign-in, custom-token claims exchange, invalid custom-token AuthErrorCode/FIRAuthErrorDomain rejection, and signOut session clearing on iOS Simulator.",
+  "observedAt": "2026-11-21T20:45:16.972Z",
+  "iosSdkVersion": "13.2.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "anonymousIsAnonymous": true,
+    "anonymousMatchesCurrent": true,
+    "currentUserNilAfterSignOut": true,
+    "customClaimsRole": "tester",
+    "customClaimsTier": 2,
+    "customIsAnonymous": false,
+    "customUidMatchesExpected": true,
+    "invalidCustomTokenCode": 17000,
+    "invalidCustomTokenDomain": "FIRAuthErrorDomain",
+    "invalidCustomTokenErrorName": "ERROR_INVALID_CUSTOM_TOKEN",
+    "invalidCustomTokenMatchesEnum": true,
+    "signInProvider": "custom"
+  }
+}
