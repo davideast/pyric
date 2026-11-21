@@ -2,8 +2,10 @@ import { describe, expect, test } from 'bun:test';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import {
+  ARCHIVED_EVENT_TYPE,
   DELETED_EVENT_TYPE,
   FINALIZED_EVENT_TYPE,
+  METADATA_UPDATED_EVENT_TYPE,
   discoverStorageTriggers,
 } from '../../src/functions/storage/discovery.js';
 import {
@@ -266,5 +268,178 @@ describe('StorageObjectData and CloudEvent v1.0 encoder', () => {
     if (outcome.status === 'rejected') {
       expect(outcome.error).toBe(expectedFailure);
     }
+  });
+
+  test('delivers onObjectDeleted, onObjectArchived, and onObjectMetadataUpdated with upstream v1 compat mappings', async () => {
+    const {
+      onObjectDeleted,
+      onObjectArchived,
+      onObjectMetadataUpdated,
+    } = storageFunctions;
+    const compatRecords: Array<Record<string, unknown>> = [];
+
+    const recordCompat = (label: string) => (event: {
+      type: string;
+      time: string;
+      bucket: string;
+      data: {
+        name: string;
+        generation: string;
+        metageneration: string;
+        timeDeleted?: string;
+        metadata?: Record<string, string>;
+      };
+    }) => {
+      const compat = event as unknown as {
+        object?: { name?: string; timeDeleted?: string };
+        context?: { eventType?: string; resource?: { name?: string } };
+      };
+      compatRecords.push({
+        label,
+        type: event.type,
+        time: event.time,
+        bucket: event.bucket,
+        name: event.data.name,
+        generation: event.data.generation,
+        metageneration: event.data.metageneration,
+        hasTimeDeleted: 'timeDeleted' in event.data,
+        timeDeleted: event.data.timeDeleted ?? null,
+        hasMetadata: 'metadata' in event.data,
+        metadata: event.data.metadata ?? null,
+        compatEventType: compat.context?.eventType,
+        compatResourceName: compat.context?.resource?.name,
+        compatObjectName: compat.object?.name,
+      });
+    };
+
+    const triggers = discoverStorageTriggers(
+      {
+        onMeta: onObjectMetadataUpdated({ bucket: 'demo-project.appspot.com' }, recordCompat('meta')),
+        onArch: onObjectArchived({ bucket: 'demo-project.appspot.com' }, recordCompat('arch')),
+        onDel: onObjectDeleted({ bucket: 'demo-project.appspot.com' }, recordCompat('del')),
+      },
+      { defaultBucket: 'demo-project.appspot.com' },
+    );
+    expect(triggers.map((item) => item.exportName)).toEqual(['onMeta', 'onArch', 'onDel']);
+    const [metaTrigger, archTrigger, delTrigger] = triggers;
+    if (metaTrigger === undefined || archTrigger === undefined || delTrigger === undefined) {
+      throw new Error('expected three lifecycle triggers');
+    }
+
+    await executeStorageTrigger(
+      metaTrigger,
+      {
+        fullPath: 'notes/readme.txt',
+        bucket: 'demo-project.appspot.com',
+        generation: '10',
+        metageneration: '2',
+        timeCreated: '2026-11-21T10:00:00.000Z',
+        updated: '2026-11-21T10:05:00.000Z',
+        size: 12,
+        contentType: 'text/plain',
+        customMetadata: { status: 'reviewed' },
+      },
+      {
+        id: 'evt-meta',
+        time: '2026-11-21T10:05:00.000Z',
+        location: 'us-central1',
+        eventType: METADATA_UPDATED_EVENT_TYPE,
+        bucket: 'demo-project.appspot.com',
+      },
+    );
+
+    await executeStorageTrigger(
+      archTrigger,
+      {
+        fullPath: 'notes/readme.txt',
+        bucket: 'demo-project.appspot.com',
+        generation: '10',
+        metageneration: '2',
+        timeCreated: '2026-11-21T10:00:00.000Z',
+        updated: '2026-11-21T10:05:00.000Z',
+        size: 12,
+        contentType: 'text/plain',
+      },
+      {
+        id: 'evt-arch',
+        time: '2026-11-21T10:06:00.000Z',
+        location: 'us-central1',
+        eventType: ARCHIVED_EVENT_TYPE,
+        bucket: 'demo-project.appspot.com',
+      },
+    );
+
+    await executeStorageTrigger(
+      delTrigger,
+      {
+        fullPath: 'notes/readme.txt',
+        bucket: 'demo-project.appspot.com',
+        generation: '11',
+        metageneration: '1',
+        timeCreated: '2026-11-21T10:06:00.000Z',
+        updated: '2026-11-21T10:06:00.000Z',
+        timeDeleted: '2026-11-21T10:09:00.000Z',
+        size: 20,
+        contentType: 'text/plain',
+      },
+      {
+        id: 'evt-del',
+        time: '2026-11-21T10:09:00.000Z',
+        location: 'us-central1',
+        eventType: DELETED_EVENT_TYPE,
+        bucket: 'demo-project.appspot.com',
+      },
+    );
+
+    expect(compatRecords).toEqual([
+      {
+        label: 'meta',
+        type: METADATA_UPDATED_EVENT_TYPE,
+        time: '2026-11-21T10:05:00.000Z',
+        bucket: 'demo-project.appspot.com',
+        name: 'notes/readme.txt',
+        generation: '10',
+        metageneration: '2',
+        hasTimeDeleted: false,
+        timeDeleted: null,
+        hasMetadata: true,
+        metadata: { status: 'reviewed' },
+        compatEventType: 'google.storage.object.metadataUpdate',
+        compatResourceName: 'projects/_/buckets/demo-project.appspot.com/objects/notes/readme.txt#10',
+        compatObjectName: 'notes/readme.txt',
+      },
+      {
+        label: 'arch',
+        type: ARCHIVED_EVENT_TYPE,
+        time: '2026-11-21T10:06:00.000Z',
+        bucket: 'demo-project.appspot.com',
+        name: 'notes/readme.txt',
+        generation: '10',
+        metageneration: '2',
+        hasTimeDeleted: false,
+        timeDeleted: null,
+        hasMetadata: false,
+        metadata: null,
+        compatEventType: 'google.storage.object.archive',
+        compatResourceName: 'projects/_/buckets/demo-project.appspot.com/objects/notes/readme.txt#10',
+        compatObjectName: 'notes/readme.txt',
+      },
+      {
+        label: 'del',
+        type: DELETED_EVENT_TYPE,
+        time: '2026-11-21T10:09:00.000Z',
+        bucket: 'demo-project.appspot.com',
+        name: 'notes/readme.txt',
+        generation: '11',
+        metageneration: '1',
+        hasTimeDeleted: true,
+        timeDeleted: '2026-11-21T10:09:00.000Z',
+        hasMetadata: false,
+        metadata: null,
+        compatEventType: 'google.storage.object.delete',
+        compatResourceName: 'projects/_/buckets/demo-project.appspot.com/objects/notes/readme.txt#11',
+        compatObjectName: 'notes/readme.txt',
+      },
+    ]);
   });
 });
