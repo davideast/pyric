@@ -18,8 +18,8 @@ import { startHttpChildServer, type HttpChildServer } from './http/child-server.
 import { CHILD_TOKEN_ENV, takeChildToken } from './http/child-token.js';
 import { httpFunctionInfo, httpOnRequestFamily, inspectOnRequest } from './http/discovery.js';
 import { loadFunctionsModuleExports } from './module-loader.js';
-import { rtdbCreatedFamily } from './rtdb/discovery.js';
-import type { OnValueCreatedExecutionHost } from './rtdb/execution.js';
+import { rtdbValueTriggerFamily } from './rtdb/discovery.js';
+import type { RtdbValueExecutionHost } from './rtdb/execution.js';
 import {
   connectAmbientRuntimeSandbox,
   serveInstanceAsDefault,
@@ -87,7 +87,7 @@ async function runFunctionsChild(): Promise<void> {
   serveInstanceAsDefault(instance);
   (globalThis as Record<symbol, unknown>)[LAZY_DEFAULT_AMBIENT_APP] = true;
   const runtimeSandbox = connectAmbientRuntimeSandbox(process.env);
-  let host: OnValueCreatedExecutionHost | undefined;
+  let host: RtdbValueExecutionHost | undefined;
   let httpServer: HttpChildServer | undefined;
   let closing: Promise<void> | undefined;
 
@@ -171,7 +171,7 @@ async function runFunctionsChild(): Promise<void> {
       httpServer = await startHttpChildServer(entry, httpFunctions, { token: httpToken });
     }
     const unsupportedTriggers = findUnsupportedTriggers(exported, [
-      rtdbCreatedFamily,
+      rtdbValueTriggerFamily,
       httpOnRequestFamily,
       callableOnCallFamily,
     ]);

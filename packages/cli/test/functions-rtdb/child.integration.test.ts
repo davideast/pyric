@@ -53,7 +53,7 @@ async function waitForEvents(events: readonly FunctionsChildEvent[], count: numb
 
 beforeAll(async () => {
   if (!existsSync(childModule)) {
-    throw new Error(`Functions child is not built — run bun run --cwd packages/cli build (${childModule})`);
+    throw new Error(`Functions child is not built -- run bun run --cwd packages/cli build (${childModule})`);
   }
   fixtureDir = mkdtempSync(join(tmpdir(), 'pyric-functions-child-'));
   mkdirSync(join(fixtureDir, 'public'));
@@ -69,7 +69,8 @@ beforeAll(async () => {
   );
   writeFileSync(
     join(fixtureDir, 'functions/index.js'),
-    `const { onValueCreated, onValueUpdated } = require('firebase-functions/v2/database');
+    `const { onValueCreated } = require('firebase-functions/v2/database');
+const functionsV1 = require('firebase-functions/v1');
 exports.makeUppercase = onValueCreated(
   '/messages/{pushId}/original',
   event => event.data.ref.parent.child('uppercase').set(event.data.val().toUpperCase()),
@@ -86,9 +87,8 @@ exports.omitted = onValueCreated(
   { ref: '/omitted/{id}', omit: true },
   () => undefined,
 );
-exports.unsupportedUpdate = onValueUpdated(
-  '/messages/{pushId}/original',
-  () => undefined,
+exports.unsupportedLegacyV1 = functionsV1.database.ref('/messages/{pushId}').onUpdate(
+  () => null,
 );
 exports.unsupportedPattern = onValueCreated(
   '/messages/{pushId=prefix/*}',
@@ -185,8 +185,8 @@ describe('isolated Functions RTDB child', () => {
         exportName: 'unsupportedInstance',
         eventType: 'google.firebase.database.ref.v1.created (unsupported instance pattern: db-*)',
       }, {
-        exportName: 'unsupportedUpdate',
-        eventType: 'google.firebase.database.ref.v1.updated',
+        exportName: 'unsupportedLegacyV1',
+        eventType: 'providers/google.firebase.database/eventTypes/ref.update',
       }],
     });
     await observer.rtdb.set('messages/id/original', 'hello');
