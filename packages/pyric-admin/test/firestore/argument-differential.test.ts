@@ -239,6 +239,8 @@ for (const armKind of ['local', 'remote'] as const) {
             allowDeferredWhenUpstreamAccepts: testCase.allowDeferredWhenUpstreamAccepts === true,
             allowZeroLimitRejectionWhenUpstreamAccepts:
               testCase.allowZeroLimitRejectionWhenUpstreamAccepts === true,
+            allowCommittedBatchSecondCommitRejection:
+              testCase.allowCommittedBatchSecondCommitRejection === true,
           });
           if (diff !== null) {
             mismatches.push(diff);

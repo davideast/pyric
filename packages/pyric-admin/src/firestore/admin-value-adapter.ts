@@ -8,15 +8,14 @@ import type {
   CollectionReference,
   DocumentData,
   DocumentReference,
-  DocumentSnapshot,
-  Filter as CompatFilter,
   OperationOptions,
   Query,
-  SnapshotFieldPath,
   Transaction,
 } from 'pyric/sandbox/admin-compat';
+import type { Sandbox } from 'pyric/sandbox';
 import type { SandboxFirestore, Unsubscribe } from 'pyric/sandbox/admin-firestore';
-import { executeAdminRunTransaction, wrapWriteBatch } from './admin-batch-transaction.js';
+import { wrapWriteBatch } from './admin-batch-transaction.js';
+import { executeAdminRunTransaction } from './admin-transaction.js';
 import { createAdminBulkWriter, type AdminBulkWriter } from './admin-bulk-writer.js';
 import { createAdminBundleBuilder } from './admin-bundle-builder.js';
 import {
@@ -28,10 +27,9 @@ import {
 } from './admin-converter-and-discovery.js';
 import { createWrappedDocRef } from './admin-doc-ref-wrapper.js';
 import {
-  applyAdminCursorArgs,
-  compileAdminFilter,
-  isAdminFilterInstance,
-} from './admin-filter-aggregate-cursors.js';
+  runWithAdminErrorsAsync,
+  runWithAdminErrorsSync,
+} from './admin-grpc-errors.js';
 import {
   adminCollectionRefBrand,
   adminQueryBrand,
@@ -54,21 +52,19 @@ import {
   normalizeRootDocumentPath,
   validateCollectionGroupId,
 } from './admin-path-validation.js';
-import { resolveTerminalQueryMethod } from './admin-query-execution.js';
-import { parseSelectFieldPaths, validateAdminOffsetInteger } from './admin-query-extensions.js';
+import { resolveWrappedQueryProperty } from './admin-query-builder.js';
 import {
   adminQueryMetadata,
   initialCollectionGroupQueryMeta,
   initialCollectionQueryMeta,
-  normalizeCompositeFilter,
-  normalizeLegacyQueryOperand,
-  unwrapCursorSnapshotForAdmin,
-  validateAdminLimitInteger,
-  validateAndNormalizeOrderByArgs,
-  validateAndNormalizeWhereArgs,
   type AdminQueryMetadata,
 } from './admin-query-validation.js';
-import { isAdminCollectionRefEqual, isAdminQueryEqual } from './admin-reference-and-snapshot-equality.js';
+import {
+  capturePreWriteBaselines,
+  recordPostWriteVersions,
+  resetAdminHistoryOnSeed,
+} from './admin-read-time-history.js';
+import { isAdminCollectionRefEqual } from './admin-reference-and-snapshot-equality.js';
 import {
   applyAdminFirestoreSettings,
   markAdminFirestoreStarted,
@@ -78,7 +74,10 @@ import {
   type AdminFirestoreSettings,
 } from './admin-settings-lifecycle.js';
 import { createAdminOnSnapshot } from './admin-snapshot-adapter.js';
-import { recordSeededAdminDocuments, recordSingleAdminWrite } from './admin-write-result-preconditions.js';
+import {
+  recordSeededAdminDocuments,
+  recordSingleAdminWrite,
+} from './admin-write-result-preconditions.js';
 import { validateAndNormalizeDocumentData } from './admin-write-validation.js';
 
 function resolveRawRootDb(rootDb: SandboxFirestore): SandboxFirestore {
@@ -90,6 +89,11 @@ function resolveRawRootDb(rootDb: SandboxFirestore): SandboxFirestore {
 function docRefOnRoot(rootDb: SandboxFirestore, path: string): DocumentReference {
   const rawRoot = resolveRawRootDb(rootDb);
   return wrapDocRef(rawRoot.doc(path), rawRoot, rootDb);
+}
+
+function wrapTempAdminDb(rawTempDb: SandboxFirestore, tempSb: Sandbox): SandboxFirestore {
+  adminRawDbSandbox.set(rawTempDb, tempSb);
+  return wrapAdminFirestoreHandle(rawTempDb, true);
 }
 
 const lookupConverter = (ref: object): AdminFirestoreDataConverter | undefined =>
@@ -139,197 +143,6 @@ const SYNTHETIC_COL_EXTRA_PROPS: ReadonlySet<PropertyKey> = new Set([
   'parent',
 ]);
 
-function wrapQueryMethods(
-  target: Query,
-  receiverQuery: Query,
-  prop: PropertyKey,
-  rawDb: SandboxFirestore,
-  rootDb: SandboxFirestore,
-  meta: AdminQueryMetadata,
-  converter?: AdminFirestoreDataConverter,
-): unknown | undefined {
-  const terminal = resolveTerminalQueryMethod(
-    target,
-    receiverQuery,
-    prop,
-    rawDb,
-    rootDb,
-    docRefOnRoot,
-    meta,
-    converter,
-  );
-  if (terminal !== undefined) return terminal;
-  switch (prop) {
-    case 'firestore':
-      return rootDb;
-    case 'isEqual':
-      return (other: unknown) => isAdminQueryEqual(receiverQuery, other);
-    case 'where':
-      return (...args: unknown[]) => {
-        if (isAdminFilterInstance(args[0])) {
-          const compiled = compileAdminFilter(args[0], meta, rootDb);
-          const nextMeta: AdminQueryMetadata = {
-            ...meta,
-            signature: [...meta.signature, `filter:${JSON.stringify(compiled)}`],
-          };
-          if (compiled === null) return wrapQuery(target, rawDb, rootDb, nextMeta, converter);
-          return wrapQuery(target.applyFilter(compiled), rawDb, rootDb, nextMeta, converter);
-        }
-        const normalized = validateAndNormalizeWhereArgs(args[0], args[1], args[2], meta, rootDb);
-        const nextMeta: AdminQueryMetadata = {
-          ...meta,
-          signature: [
-            ...meta.signature,
-            `where:${String(normalized.field)}:${normalized.op}:${JSON.stringify(normalized.value)}`,
-          ],
-        };
-        return wrapQuery(
-          target.where(normalized.field, normalized.op, normalized.value),
-          rawDb,
-          rootDb,
-          nextMeta,
-          converter,
-        );
-      };
-    case 'applyFilter':
-      return (filter: CompatFilter) => {
-        const norm = normalizeCompositeFilter(filter, rootDb);
-        const nextMeta: AdminQueryMetadata = {
-          ...meta,
-          signature: [...meta.signature, `apply:${JSON.stringify(norm)}`],
-        };
-        return wrapQuery(target.applyFilter(norm), rawDb, rootDb, nextMeta, converter);
-      };
-    case 'orderBy':
-      return (field: SnapshotFieldPath, direction?: unknown) => {
-        const normalized = validateAndNormalizeOrderByArgs(field, direction);
-        const nextMeta: AdminQueryMetadata = {
-          ...meta,
-          signature: [...meta.signature, `order:${String(normalized.field)}:${normalized.direction}`],
-          hasExplicitOrderBy: true,
-        };
-        return wrapQuery(
-          target.orderBy(normalized.field, normalized.direction),
-          rawDb,
-          rootDb,
-          nextMeta,
-          converter,
-        );
-      };
-    case 'limit':
-      return (n: number) => {
-        const parsed = validateAdminLimitInteger('limit', n);
-        let targetLimit = parsed;
-        if (meta.offsetCount !== undefined && meta.offsetCount > 0) {
-          targetLimit = meta.offsetCount + parsed;
-        }
-        const nextMeta: AdminQueryMetadata = {
-          ...meta,
-          signature: [...meta.signature, `limit:${String(parsed)}`],
-          pendingLimitType: 'first',
-          limitCount: parsed,
-        };
-        return wrapQuery(target.limit(targetLimit), rawDb, rootDb, nextMeta, converter);
-      };
-    case 'limitToLast':
-      return (n: number) => {
-        const parsed = validateAdminLimitInteger('limitToLast', n);
-        const nextMeta: AdminQueryMetadata = {
-          ...meta,
-          signature: [...meta.signature, `limitToLast:${String(parsed)}`],
-          pendingLimitType: 'last',
-          limitCount: parsed,
-        };
-        return wrapQuery(target.limitToLast(parsed), rawDb, rootDb, nextMeta, converter);
-      };
-    case 'offset':
-      return (n: number) => {
-        const parsed = validateAdminOffsetInteger(n);
-        let nextTarget = target;
-        if (parsed > 0 && meta.pendingLimitType === 'first' && meta.limitCount !== undefined) {
-          nextTarget = target.limit(parsed + meta.limitCount);
-        }
-        const nextMeta: AdminQueryMetadata = {
-          ...meta,
-          signature: [...meta.signature, `offset:${String(parsed)}`],
-          offsetCount: parsed,
-        };
-        return wrapQuery(nextTarget, rawDb, rootDb, nextMeta, converter);
-      };
-    case 'select':
-      return (...fields: unknown[]) => {
-        const selectedFields = parseSelectFieldPaths(fields);
-        const nextMeta: AdminQueryMetadata = {
-          ...meta,
-          signature: [...meta.signature, `select:${JSON.stringify(selectedFields)}`],
-          selectedFields,
-        };
-        return wrapQuery(target, rawDb, rootDb, nextMeta, undefined);
-      };
-    case 'withConverter':
-      return (nextConv: unknown) =>
-        wrapQuery(target, rawDb, rootDb, meta, assertValidConverterOrNull(nextConv));
-    case 'startAt':
-    case 'startAfter':
-    case 'endAt':
-    case 'endBefore':
-      return (...args: unknown[]) => {
-        const nextTarget = applyAdminCursorArgs(target, prop, args, rootDb);
-        const nextMeta: AdminQueryMetadata = {
-          ...meta,
-          signature: [...meta.signature, `${prop}:${String(args.length)}`],
-        };
-        return wrapQuery(nextTarget, rawDb, rootDb, nextMeta, converter);
-      };
-    case 'startCursor':
-      return (values: unknown[], inclusive: boolean, fromSnapshot?: boolean) =>
-        wrapQuery(
-          target.startCursor(
-            values.map((item) => normalizeLegacyQueryOperand(item, rootDb)),
-            inclusive,
-            fromSnapshot,
-          ),
-          rawDb,
-          rootDb,
-          meta,
-          converter,
-        );
-    case 'endCursor':
-      return (values: unknown[], inclusive: boolean, fromSnapshot?: boolean) =>
-        wrapQuery(
-          target.endCursor(
-            values.map((item) => normalizeLegacyQueryOperand(item, rootDb)),
-            inclusive,
-            fromSnapshot,
-          ),
-          rawDb,
-          rootDb,
-          meta,
-          converter,
-        );
-    case 'startCursorFromSnapshot':
-      return (snapshot: DocumentSnapshot, inclusive: boolean) =>
-        wrapQuery(
-          target.startCursorFromSnapshot(unwrapCursorSnapshotForAdmin(snapshot, rootDb), inclusive),
-          rawDb,
-          rootDb,
-          meta,
-          converter,
-        );
-    case 'endCursorFromSnapshot':
-      return (snapshot: DocumentSnapshot, inclusive: boolean) =>
-        wrapQuery(
-          target.endCursorFromSnapshot(unwrapCursorSnapshotForAdmin(snapshot, rootDb), inclusive),
-          rawDb,
-          rootDb,
-          meta,
-          converter,
-        );
-    default:
-      return undefined;
-  }
-}
-
 function wrapQuery(
   rawQuery: Query,
   rawDb: SandboxFirestore,
@@ -353,7 +166,17 @@ function wrapQuery(
             );
         }
       }
-      const queryMethod = wrapQueryMethods(t, proxy, prop, rawDb, rootDb, meta, converter);
+      const queryMethod = resolveWrappedQueryProperty(
+        t,
+        proxy,
+        prop,
+        rawDb,
+        rootDb,
+        docRefOnRoot,
+        wrapQuery,
+        meta,
+        converter,
+      );
       if (queryMethod !== undefined) return queryMethod;
       const value = Reflect.get(t, prop, t);
       if (typeof value === 'function') return value.bind(t);
@@ -364,7 +187,17 @@ function wrapQuery(
       if (own !== undefined) return own;
       if (SYNTHETIC_QUERY_PROPS.has(prop)) {
         return {
-          value: wrapQueryMethods(t, proxy, prop, rawDb, rootDb, meta, converter),
+          value: resolveWrappedQueryProperty(
+            t,
+            proxy,
+            prop,
+            rawDb,
+            rootDb,
+            docRefOnRoot,
+            wrapQuery,
+            meta,
+            converter,
+          ),
           writable: true,
           enumerable: false,
           configurable: true,
@@ -391,6 +224,7 @@ function wrapCollectionRef(
 ): CollectionReference {
   const meta = initialCollectionQueryMeta(rawColl.path);
   const segments = rawColl.path.split('/').filter((s) => s.length > 0);
+  const appBacked = isAppBackedRoot(rootDb);
   const proxy: CollectionReference = new Proxy(rawColl, {
     has(t, prop) {
       if (SYNTHETIC_QUERY_PROPS.has(prop) || SYNTHETIC_COL_EXTRA_PROPS.has(prop)) return true;
@@ -406,33 +240,50 @@ function wrapCollectionRef(
       }
       if (prop === 'listDocuments') {
         return () =>
-          adminCollectionListDocuments(
-            rootDb,
-            rawDb,
-            adminRawDbSandbox.get(rawDb),
-            t.path,
-            converter,
+          runWithAdminErrorsAsync(appBacked, () =>
+            adminCollectionListDocuments(
+              rootDb,
+              rawDb,
+              adminRawDbSandbox.get(rawDb),
+              t.path,
+              converter,
+            ),
           );
       }
       if (prop === 'withConverter') {
         return (nextConv: unknown) =>
-          wrapCollectionRef(t, rawDb, rootDb, assertValidConverterOrNull(nextConv));
+          runWithAdminErrorsSync(appBacked, () =>
+            wrapCollectionRef(t, rawDb, rootDb, assertValidConverterOrNull(nextConv)),
+          );
       }
       if (prop === 'doc') {
-        return (...args: [id?: string]) => {
-          if (args.length === 0) return wrapDocRef(t.doc(), rawDb, rootDb, converter);
-          return wrapDocRef(t.doc(normalizeChildDocumentPath(args[0])), rawDb, rootDb, converter);
-        };
+        return (...args: [id?: string]) =>
+          runWithAdminErrorsSync(appBacked, () => {
+            if (args.length === 0) return wrapDocRef(t.doc(), rawDb, rootDb, converter);
+            return wrapDocRef(t.doc(normalizeChildDocumentPath(args[0])), rawDb, rootDb, converter);
+          });
       }
       if (prop === 'add') {
-        return async (data: DocumentData, opts?: OperationOptions) => {
-          markAdminFirestoreStarted(rootDb);
-          let payload: unknown = applyConverterToWritePayload(converter, data);
-          if (shouldIgnoreUndefinedProperties(rootDb)) payload = stripUndefinedForSettings(payload);
-          const normalized = validateAndNormalizeDocumentData('data', payload, 'none', isAppBackedRoot(rootDb));
-          const ref = await t.add(normalized, opts);
-          recordSingleAdminWrite(rawDb, ref.path);
-          return wrapDocRef(ref, rawDb, rootDb, converter);
+        return (data: DocumentData, opts?: OperationOptions) => {
+          const normalized = runWithAdminErrorsSync(appBacked, () => {
+            markAdminFirestoreStarted(rootDb);
+            let payload: unknown = applyConverterToWritePayload(converter, data);
+            if (shouldIgnoreUndefinedProperties(rootDb)) payload = stripUndefinedForSettings(payload);
+            return validateAndNormalizeDocumentData('data', payload, 'none', appBacked);
+          });
+          return runWithAdminErrorsAsync(appBacked, async () => {
+            const ref = await t.add(normalized, opts);
+            await capturePreWriteBaselines(rawDb, rootDb, docRefOnRoot, []);
+            const wr = recordSingleAdminWrite(rawDb, ref.path);
+            await recordPostWriteVersions(
+              rawDb,
+              rootDb,
+              docRefOnRoot,
+              [{ path: ref.path, kind: 'write' }],
+              wr.writeTime,
+            );
+            return wrapDocRef(ref, rawDb, rootDb, converter);
+          });
         };
       }
       if (prop === 'onSnapshot') {
@@ -445,7 +296,17 @@ function wrapCollectionRef(
             );
         }
       }
-      const queryMethod = wrapQueryMethods(t, proxy, prop, rawDb, rootDb, meta, converter);
+      const queryMethod = resolveWrappedQueryProperty(
+        t,
+        proxy,
+        prop,
+        rawDb,
+        rootDb,
+        docRefOnRoot,
+        wrapQuery,
+        meta,
+        converter,
+      );
       if (queryMethod !== undefined) return queryMethod;
       const value = Reflect.get(t, prop, t);
       if (typeof value === 'function') return value.bind(t);
@@ -511,19 +372,25 @@ export function wrapAdminFirestoreHandle(
     get(t, prop) {
       switch (prop) {
         case 'doc':
-          return (path: string) => wrapDocRef(t.doc(normalizeRootDocumentPath(path)), t, proxy);
+          return (path: string) =>
+            runWithAdminErrorsSync(appBacked, () =>
+              wrapDocRef(t.doc(normalizeRootDocumentPath(path)), t, proxy),
+            );
         case 'collection':
           return (path: string) =>
-            wrapCollectionRef(t.collection(normalizeCollectionPath(path)), t, proxy);
+            runWithAdminErrorsSync(appBacked, () =>
+              wrapCollectionRef(t.collection(normalizeCollectionPath(path)), t, proxy),
+            );
         case 'collectionGroup':
-          return (collectionId: string) => {
-            const validatedId = validateCollectionGroupId(collectionId);
-            return wrapQuery(t.collectionGroup(validatedId), t, proxy, initialCollectionGroupQueryMeta(validatedId));
-          };
+          return (collectionId: string) =>
+            runWithAdminErrorsSync(appBacked, () => {
+              const validatedId = validateCollectionGroupId(collectionId);
+              return wrapQuery(t.collectionGroup(validatedId), t, proxy, initialCollectionGroupQueryMeta(validatedId));
+            });
         case 'batch':
           return () => {
             markAdminFirestoreStarted(proxy);
-            return wrapWriteBatch(t, proxy);
+            return wrapWriteBatch(t, proxy, docRefOnRoot);
           };
         case 'runTransaction':
           return <R>(
@@ -531,19 +398,25 @@ export function wrapAdminFirestoreHandle(
             opts?: OperationOptions,
           ): Promise<R> => {
             markAdminFirestoreStarted(proxy);
-            return executeAdminRunTransaction<R>(t, proxy, fn, opts, docRefOnRoot);
+            return executeAdminRunTransaction<R>(t, proxy, fn, opts, docRefOnRoot, wrapTempAdminDb);
           };
         case 'settings':
           return (settings: AdminFirestoreSettings) => applyAdminFirestoreSettings(proxy, settings);
         case 'terminate':
           return () => terminateAdminFirestore(proxy);
         case 'getAll':
-          return (...args: unknown[]) => adminGetAll(proxy, args);
+          return (...args: unknown[]) =>
+            runWithAdminErrorsAsync(appBacked, () => adminGetAll(proxy, args));
         case 'listCollections':
-          return () => adminListCollections(proxy, t, adminRawDbSandbox.get(t));
+          return () =>
+            runWithAdminErrorsAsync(appBacked, () =>
+              adminListCollections(proxy, t, adminRawDbSandbox.get(t)),
+            );
         case 'recursiveDelete':
           return (ref: DocumentReference | CollectionReference, bw?: AdminBulkWriter) =>
-            adminRecursiveDelete(proxy, t, adminRawDbSandbox.get(t), ref, bw);
+            runWithAdminErrorsAsync(appBacked, () =>
+              adminRecursiveDelete(proxy, t, adminRawDbSandbox.get(t), ref, bw),
+            );
         case 'bulkWriter':
           return () => createAdminBulkWriter(proxy);
         case 'bundle':
@@ -554,25 +427,32 @@ export function wrapAdminFirestoreHandle(
             return createAdminBundleBuilder(proxy, projectId, bundleId);
           };
         case 'seed':
-          return (options?: { documents?: Record<string, DocumentData> }) => {
-            if (options?.documents === undefined) {
-              recordSeededAdminDocuments(t, []);
-              return t.seed(options);
-            }
-            const normalizedDocs = Object.fromEntries(
-              Object.entries(options.documents).map(
-                ([docPath, docData]) =>
-                  [docPath, validateAndNormalizeDocumentData('data', docData, 'none', appBacked)] as const,
-              ),
-            );
-            const lint = t.seed({ ...options, documents: normalizedDocs });
-            recordSeededAdminDocuments(t, Object.keys(normalizedDocs));
-            return lint;
-          };
+          return (options?: { documents?: Record<string, DocumentData> }) =>
+            runWithAdminErrorsSync(appBacked, () => {
+              if (options?.documents === undefined) {
+                const seedTime = recordSeededAdminDocuments(t, []);
+                const lintEmpty = t.seed(options);
+                resetAdminHistoryOnSeed(t, seedTime);
+                return lintEmpty;
+              }
+              const normalizedDocs = Object.fromEntries(
+                Object.entries(options.documents).map(
+                  ([docPath, docData]) =>
+                    [docPath, validateAndNormalizeDocumentData('data', docData, 'none', appBacked)] as const,
+                ),
+              );
+              const lint = t.seed({ ...options, documents: normalizedDocs });
+              const seedTime = recordSeededAdminDocuments(t, Object.keys(normalizedDocs));
+              resetAdminHistoryOnSeed(t, seedTime);
+              return lint;
+            });
         default: {
           const value = Reflect.get(t, prop, t);
           if ((prop === 'setRules' || prop === 'snapshot') && typeof value === 'function') {
-            return (...args: unknown[]) => (value as (...a: unknown[]) => unknown).apply(t, args);
+            return (...args: unknown[]) =>
+              runWithAdminErrorsSync(appBacked, () =>
+                (value as (...a: unknown[]) => unknown).apply(t, args),
+              );
           }
           return value;
         }

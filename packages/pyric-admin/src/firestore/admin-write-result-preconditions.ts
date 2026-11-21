@@ -8,8 +8,10 @@ import {
   Timestamp as CompatTimestamp,
   type DocumentReference,
 } from 'pyric/sandbox/admin-compat';
-import { SandboxError } from 'pyric/sandbox';
+import { isRemoteSandbox, SandboxError } from 'pyric/sandbox';
+import { getInternalEnv } from 'pyric/sandbox/internal';
 import type { SandboxFirestore } from 'pyric/sandbox/admin-firestore';
+import { adminRawDbSandbox } from './admin-handle-registry.js';
 import { isObjectRecord } from './admin-write-validation.js';
 
 export interface ParsedAdminPrecondition {
@@ -23,12 +25,18 @@ interface AdminWriteLedger {
   lastNanos: bigint;
   readonly docCreateTimes: Map<string, CompatTimestamp>;
   readonly docWriteTimes: Map<string, CompatTimestamp>;
-  existenceReader?: RawExistenceReader;
+  readonly existenceReaders: WeakMap<object, RawExistenceReader>;
+}
+
+export interface BatchOperationCheckItem {
+  readonly kind: 'create' | 'set' | 'update' | 'delete';
+  readonly ref: DocumentReference;
+  readonly precondition?: ParsedAdminPrecondition;
 }
 
 const NANOS_PER_MS = 1_000_000n;
 const NANOS_PER_SEC = 1_000_000_000n;
-const ledgerByRawDb = new WeakMap<object, AdminWriteLedger>();
+const ledgerByIdentity = new WeakMap<object, AdminWriteLedger>();
 
 export class WriteResult {
   readonly writeTime: CompatTimestamp;
@@ -52,15 +60,28 @@ export class WriteResult {
   }
 }
 
+function resolveLedgerKey(rawDb: SandboxFirestore): object {
+  const sb = adminRawDbSandbox.get(rawDb);
+  if (sb !== undefined && !isRemoteSandbox(sb)) {
+    return getInternalEnv(sb);
+  }
+  if (sb !== undefined) {
+    return sb;
+  }
+  return rawDb;
+}
+
 function getLedger(rawDb: SandboxFirestore): AdminWriteLedger {
-  let ledger = ledgerByRawDb.get(rawDb);
+  const key = resolveLedgerKey(rawDb);
+  let ledger = ledgerByIdentity.get(key);
   if (ledger === undefined) {
     ledger = {
       lastNanos: BigInt(Date.now()) * NANOS_PER_MS,
       docCreateTimes: new Map(),
       docWriteTimes: new Map(),
+      existenceReaders: new WeakMap(),
     };
-    ledgerByRawDb.set(rawDb, ledger);
+    ledgerByIdentity.set(key, ledger);
   }
   return ledger;
 }
@@ -83,13 +104,18 @@ export function registerBypassExistenceReader(
   reader: RawExistenceReader,
 ): void {
   const ledger = getLedger(rawDb);
-  ledger.existenceReader = reader;
+  ledger.existenceReaders.set(rawDb, reader);
 }
 
 async function readDocumentExists(rawDb: SandboxFirestore, docPath: string): Promise<boolean> {
   const ledger = getLedger(rawDb);
-  if (ledger.existenceReader !== undefined) {
-    return ledger.existenceReader(docPath);
+  const reader = ledger.existenceReaders.get(rawDb);
+  if (reader !== undefined) {
+    return reader(docPath);
+  }
+  const sb = adminRawDbSandbox.get(rawDb);
+  if (sb !== undefined && !isRemoteSandbox(sb)) {
+    return getInternalEnv(sb).getDocument(docPath) !== null;
   }
   const snap = await rawDb.doc(docPath).get();
   return snap.exists;
@@ -139,8 +165,15 @@ export function verifyPreconditionState(
   method: 'update' | 'delete',
   precondition: ParsedAdminPrecondition,
   exists: boolean,
+  mutatedEarlierInBatch = false,
 ): void {
   if (precondition.lastUpdateTime !== undefined) {
+    if (mutatedEarlierInBatch) {
+      throw new SandboxError(
+        'failed-precondition',
+        `Precondition failed for document "${docPath}".`,
+      );
+    }
     const recorded = getLedger(rawDb).docWriteTimes.get(docPath);
     if (!exists || recorded === undefined || !recorded.isEqual(precondition.lastUpdateTime)) {
       throw new SandboxError(
@@ -176,16 +209,36 @@ export async function assertSingleWritePrecondition(
 
 export async function assertBatchPreconditions(
   rawDb: SandboxFirestore,
-  checks: ReadonlyArray<{
-    readonly ref: DocumentReference;
-    readonly method: 'update' | 'delete';
-    readonly precondition: ParsedAdminPrecondition | undefined;
-  }>,
+  ops: ReadonlyArray<BatchOperationCheckItem>,
 ): Promise<void> {
-  for (const item of checks) {
-    if (item.precondition !== undefined) {
-      const exists = await readDocumentExists(rawDb, item.ref.path);
-      verifyPreconditionState(rawDb, item.ref.path, item.method, item.precondition, exists);
+  const simulated = new Map<string, { exists: boolean; mutated: boolean }>();
+  for (const op of ops) {
+    const docPath = op.ref.path;
+    const prior = simulated.get(docPath);
+    let exists: boolean;
+    let mutatedEarlier = false;
+    if (prior !== undefined) {
+      exists = prior.exists;
+      mutatedEarlier = prior.mutated;
+    } else {
+      exists = await readDocumentExists(rawDb, docPath);
+    }
+
+    if ((op.kind === 'update' || op.kind === 'delete') && op.precondition !== undefined) {
+      verifyPreconditionState(
+        rawDb,
+        docPath,
+        op.kind,
+        op.precondition,
+        exists,
+        mutatedEarlier,
+      );
+    }
+
+    if (op.kind === 'delete') {
+      simulated.set(docPath, { exists: false, mutated: true });
+    } else {
+      simulated.set(docPath, { exists: true, mutated: true });
     }
   }
 }
@@ -193,7 +246,7 @@ export async function assertBatchPreconditions(
 export function recordSeededAdminDocuments(
   rawDb: SandboxFirestore,
   docPaths: readonly string[],
-): void {
+): CompatTimestamp {
   const ledger = getLedger(rawDb);
   ledger.docCreateTimes.clear();
   ledger.docWriteTimes.clear();
@@ -202,6 +255,7 @@ export function recordSeededAdminDocuments(
     ledger.docCreateTimes.set(path, seedTime);
     ledger.docWriteTimes.set(path, seedTime);
   }
+  return seedTime;
 }
 
 export function resolveExistingDocTimestamps(
@@ -270,9 +324,10 @@ export function recordBatchAdminMutations(
 export function recordTransactionAdminMutations(
   rawDb: SandboxFirestore,
   ops: ReadonlyArray<{ readonly path: string; readonly kind: 'write' | 'delete' }>,
-): void {
+): CompatTimestamp | undefined {
   if (ops.length === 0) {
-    return;
+    return undefined;
   }
-  recordBatchAdminMutations(rawDb, ops);
+  const results = recordBatchAdminMutations(rawDb, ops);
+  return results[0]?.writeTime;
 }

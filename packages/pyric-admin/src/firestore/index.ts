@@ -59,6 +59,7 @@ import { FieldValue } from './admin-field-value.js';
 import { AggregateField, Filter } from './admin-filter-aggregate-cursors.js';
 import { GeoPoint } from './admin-geopoint.js';
 import { GrpcStatus, setLogFunction } from './admin-grpc-log.js';
+import { createAdminGrpcError } from './admin-grpc-errors.js';
 import { adminRawDbProjectId, adminRawDbSandbox } from './admin-handle-registry.js';
 import {
   applyAdminFirestoreSettings,
@@ -105,8 +106,8 @@ function assertValidOptionalDatabaseId(databaseId: unknown): void {
     effectiveDatabaseId = databaseId;
   }
   if (typeof effectiveDatabaseId !== 'string') {
-    throw new SandboxError(
-      'invalid-argument',
+    throw createAdminGrpcError(
+      GrpcStatus.INVALID_ARGUMENT as number,
       'Value for argument "settings.databaseId" is not a valid string.',
     );
   }

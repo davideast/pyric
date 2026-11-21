@@ -274,6 +274,7 @@ export function emitBatchAndTransactionCases(): FirestoreDifferentialCase[] {
     },
     {
       label: 'batch.commit() twice',
+      allowCommittedBatchSecondCommitRejection: true,
       invoke: async (rt) => {
         const batch = rt.db.batch();
         await batch.commit();

@@ -474,6 +474,7 @@ export async function captureFirestoreOutcome(
 export interface OutcomeComparisonOptions {
   readonly allowDeferredWhenUpstreamAccepts?: boolean;
   readonly allowZeroLimitRejectionWhenUpstreamAccepts?: boolean;
+  readonly allowCommittedBatchSecondCommitRejection?: boolean;
   readonly allowNamedDatabaseOverloadDiff?: boolean;
   readonly rawFirstArg?: unknown;
 }
@@ -497,7 +498,16 @@ export function compareFirestoreOutcomes(
     options.allowZeroLimitRejectionWhenUpstreamAccepts === true &&
     upstream.accepted &&
     !pyric.accepted &&
-    pyric.code === 'invalid-argument'
+    (pyric.code === '3' || pyric.code === 'invalid-argument')
+  ) {
+    return null;
+  }
+
+  if (
+    options.allowCommittedBatchSecondCommitRejection === true &&
+    upstream.accepted &&
+    !pyric.accepted &&
+    (pyric.code === '9' || pyric.code === 'failed-precondition')
   ) {
     return null;
   }

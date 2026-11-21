@@ -68,8 +68,15 @@ export function createAdminBulkWriter(rootDb: SandboxFirestore): AdminBulkWriter
           if (err instanceof Error) {
             message = err.message;
           }
+          let numericCode = 2;
+          if (err !== null && typeof err === 'object') {
+            const rawCode = (err as { code?: unknown }).code;
+            if (typeof rawCode === 'number') {
+              numericCode = rawCode;
+            }
+          }
           const bwErr: AdminBulkWriterError = {
-            code: 2,
+            code: numericCode,
             message,
             documentRef,
             operationType,

@@ -18,6 +18,11 @@ import {
   buildAdminAggregateQuery,
 } from './admin-filter-aggregate-cursors.js';
 import {
+  runWithAdminErrorsAsync,
+  runWithAdminErrorsSync,
+} from './admin-grpc-errors.js';
+import { isAppBackedRoot } from './admin-handle-registry.js';
+import {
   createQueryExplainStream,
   createQueryStream,
   executeQueryExplain,
@@ -75,67 +80,81 @@ export function resolveTerminalQueryMethod(
   meta: AdminQueryMetadata,
   converter?: AdminFirestoreDataConverter,
 ): unknown | undefined {
+  const appBacked = isAppBackedRoot(rootDb);
   const runGet = (opts?: OperationOptions): Promise<QuerySnapshot> =>
-    executeWrappedQueryGet(target, receiverQuery, rootDb, docRefOnRoot, meta, converter, opts);
+    runWithAdminErrorsAsync(appBacked, () =>
+      executeWrappedQueryGet(target, receiverQuery, rootDb, docRefOnRoot, meta, converter, opts),
+    );
 
   switch (prop) {
     case 'get':
       return (opts?: OperationOptions) => runGet(opts);
     case 'count':
-      return () => {
-        markAdminFirestoreStarted(rootDb);
-        return buildAdminAggregateQuery(
-          target,
-          receiverQuery,
-          rawDb,
-          { count: AggregateField.count() },
-          meta,
-        );
-      };
+      return () =>
+        runWithAdminErrorsSync(appBacked, () => {
+          markAdminFirestoreStarted(rootDb);
+          return buildAdminAggregateQuery(
+            target,
+            receiverQuery,
+            rawDb,
+            rootDb,
+            { count: AggregateField.count() },
+            meta,
+          );
+        });
     case 'stream':
-      return () => {
-        markAdminFirestoreStarted(rootDb);
-        return createQueryStream(meta.pendingLimitType, () => runGet());
-      };
+      return () =>
+        runWithAdminErrorsSync(appBacked, () => {
+          markAdminFirestoreStarted(rootDb);
+          return createQueryStream(meta.pendingLimitType, () => runGet());
+        });
     case 'explain':
-      return (explainOpts?: { readonly analyze?: boolean }) => {
-        markAdminFirestoreStarted(rootDb);
-        return executeQueryExplain(explainOpts, () => runGet());
-      };
+      return (explainOpts?: { readonly analyze?: boolean }) =>
+        runWithAdminErrorsAsync(appBacked, () => {
+          markAdminFirestoreStarted(rootDb);
+          return executeQueryExplain(explainOpts, () => runGet());
+        });
     case 'explainStream':
-      return (explainOpts?: { readonly analyze?: boolean }) => {
-        markAdminFirestoreStarted(rootDb);
-        return createQueryExplainStream(meta.pendingLimitType, explainOpts, () => runGet());
-      };
+      return (explainOpts?: { readonly analyze?: boolean }) =>
+        runWithAdminErrorsSync(appBacked, () => {
+          markAdminFirestoreStarted(rootDb);
+          return createQueryExplainStream(meta.pendingLimitType, explainOpts, () => runGet());
+        });
     case 'findNearest':
       return (arg0: unknown, arg1?: unknown, arg2?: unknown) =>
-        buildAdminVectorQuery(
-          receiverQuery as unknown as { isEqual(o: unknown): boolean },
-          () => executeWrappedQueryGet(target, receiverQuery, rootDb, docRefOnRoot, meta, undefined),
-          (filteredDocs) => {
-            const fakeRawSnap = {
-              docs: filteredDocs,
-              size: filteredDocs.length,
-              empty: filteredDocs.length === 0,
-              forEach: () => undefined,
-              docChanges: () => [],
-            } as unknown as QuerySnapshot;
-            return wrapQuerySnapshot(fakeRawSnap, rootDb, docRefOnRoot, {
-              queryHandle: receiverQuery,
-              docsOverride: filteredDocs,
-              selectedFields: meta.selectedFields,
-              converter,
-            });
-          },
-          arg0,
-          arg1,
-          arg2,
+        runWithAdminErrorsSync(appBacked, () =>
+          buildAdminVectorQuery(
+            receiverQuery as unknown as { isEqual(o: unknown): boolean },
+            () =>
+              runWithAdminErrorsAsync(appBacked, () =>
+                executeWrappedQueryGet(target, receiverQuery, rootDb, docRefOnRoot, meta, undefined),
+              ),
+            (filteredDocs) => {
+              const fakeRawSnap = {
+                docs: filteredDocs,
+                size: filteredDocs.length,
+                empty: filteredDocs.length === 0,
+                forEach: () => undefined,
+                docChanges: () => [],
+              } as unknown as QuerySnapshot;
+              return wrapQuerySnapshot(fakeRawSnap, rootDb, docRefOnRoot, {
+                queryHandle: receiverQuery,
+                docsOverride: filteredDocs,
+                selectedFields: meta.selectedFields,
+                converter,
+              });
+            },
+            arg0,
+            arg1,
+            arg2,
+          ),
         );
     case 'aggregate':
-      return (rawSpec: unknown) => {
-        markAdminFirestoreStarted(rootDb);
-        return buildAdminAggregateQuery(target, receiverQuery, rawDb, rawSpec, meta);
-      };
+      return (rawSpec: unknown) =>
+        runWithAdminErrorsSync(appBacked, () => {
+          markAdminFirestoreStarted(rootDb);
+          return buildAdminAggregateQuery(target, receiverQuery, rawDb, rootDb, rawSpec, meta);
+        });
     default:
       return undefined;
   }

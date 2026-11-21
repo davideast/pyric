@@ -4,36 +4,17 @@ import { getFirestore as getModularFirestore } from 'pyric/firestore';
 import { getFirestore as getLocalBaseFirestore } from 'pyric/sandbox/admin-firestore';
 import { createBridge, type Bridge } from '../../../cli/src/bridge/server/bridge.js';
 import { createConsumerSession } from '../../../cli/src/bridge/server/peer.js';
-import {
-  WORKER_RELAY_CAPABILITY,
-  type BridgeMessage,
-} from '../../../cli/src/bridge/protocol.js';
-import {
-  createRemoteSandboxCore,
-  createRemoteSandboxHandle,
-  type RemoteSandbox,
-} from '../../../cli/src/remote/index.js';
-import {
-  handleMessage,
-  type HostCtx,
-  type PortLike,
-} from '../../../cli/src/serve/worker/host.js';
-import type {
-  InboundMessage,
-  OutboundMessage,
-} from '../../../cli/src/serve/worker/protocol.js';
+import { WORKER_RELAY_CAPABILITY, type BridgeMessage } from '../../../cli/src/bridge/protocol.js';
+import { createRemoteSandboxCore, createRemoteSandboxHandle, type RemoteSandbox } from '../../../cli/src/remote/index.js';
+import { handleMessage, type HostCtx, type PortLike } from '../../../cli/src/serve/worker/host.js';
+import type { InboundMessage, OutboundMessage } from '../../../cli/src/serve/worker/protocol.js';
 
 import { PassThrough } from 'node:stream';
 import * as upstreamAdminApp from 'firebase-admin/app';
 import * as upstreamAdminFirestore from 'firebase-admin/firestore';
 import * as upstreamAdminStorage from 'firebase-admin/storage';
 import { deleteApp, getApps, initializeApp, type PyricAdminApp } from '../../src/app/index.js';
-import {
-  FieldPath,
-  getFirestore,
-  onSnapshot,
-  Timestamp,
-} from '../../src/firestore/index.js';
+import { FieldPath, getFirestore, onSnapshot, Timestamp } from '../../src/firestore/index.js';
 import { getStorage } from '../../src/storage/index.js';
 
 const SERVE_URL = 'http://localhost:5000';
@@ -153,12 +134,12 @@ function createHarness(kind: ArmKind): DualArmHarness {
   return harness;
 }
 
-async function rejectedWithCode(fn: () => unknown): Promise<string | undefined> {
+async function rejectedWithCode(fn: () => unknown): Promise<string | number | undefined> {
   try {
     await fn();
     return undefined;
   } catch (err) {
-    return (err as { code?: string })?.code ?? 'thrown-without-code';
+    return (err as { code?: string | number })?.code ?? 'thrown-without-code';
   }
 }
 
@@ -309,7 +290,7 @@ describe('Admin Firestore & Storage dual-arm backend parity + upstream different
       await db.doc('items/counter').set({ count: 99 });
       unblockCommit();
 
-      expect(await rejectedWithCode(() => contendedPromise)).toBe('aborted');
+      expect(await rejectedWithCode(() => contendedPromise)).toBe(10);
       expect((await db.doc('items/counter').get()).data()).toEqual({ count: 99 });
 
       expect(
@@ -319,7 +300,7 @@ describe('Admin Firestore & Storage dual-arm backend parity + upstream different
             await tx.get(db.doc('items/order-1'));
           }),
         ),
-      ).toBe('failed-precondition');
+      ).toBe(9);
     });
   });
 
@@ -380,7 +361,7 @@ describe('Admin Firestore & Storage dual-arm backend parity + upstream different
 
         expect(
           await rejectedWithCode(() => db.doc('items/bad-ts').set({ createdAt: forgedNan })),
-        ).toBe('invalid-argument');
+        ).toBe(3);
         expect((await db.doc('items/bad-ts').get()).exists).toBe(false);
 
         if (arm === 'remote' && h.ctx !== undefined) {

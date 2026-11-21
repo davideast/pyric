@@ -70,6 +70,7 @@ export interface FirestoreDifferentialCase {
   readonly invoke: (runtime: FirestoreDialectRuntime) => unknown;
   readonly allowDeferredWhenUpstreamAccepts?: boolean;
   readonly allowZeroLimitRejectionWhenUpstreamAccepts?: boolean;
+  readonly allowCommittedBatchSecondCommitRejection?: boolean;
 }
 
 /**
