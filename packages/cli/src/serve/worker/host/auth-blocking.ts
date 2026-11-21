@@ -36,6 +36,7 @@ import {
 } from '../protocol.js';
 
 const DEFAULT_BLOCKING_TIMEOUT_SECONDS = 60;
+const HOST_TIMEOUT_SAFETY_GRACE_MS = 250;
 
 interface RegisteredBlockingSub {
   port: PortLike;
@@ -45,6 +46,7 @@ interface RegisteredBlockingSub {
 
 interface PendingBlockingInvocation {
   port: PortLike;
+  subId: string;
   timer: ReturnType<typeof setTimeout>;
   resolve(outcome: AuthBlockingOutcomeWire): void;
   reject(error: Error): void;
@@ -100,7 +102,8 @@ async function dispatchBlockingInvocation(
   const projectId = hostProjectId(ctx) ?? SANDBOX_PROJECT_ID;
   const timestampMs = getClock(ctx.sandbox).now();
   const timeoutSeconds = active.trigger.timeoutSeconds ?? DEFAULT_BLOCKING_TIMEOUT_SECONDS;
-  const timeoutMs = Math.max(1, Math.round(timeoutSeconds * 1000));
+  const timeoutMs =
+    Math.max(1, Math.round(timeoutSeconds * 1000)) + HOST_TIMEOUT_SAFETY_GRACE_MS;
 
   const outcomePromise = new Promise<AuthBlockingOutcomeWire>((resolveOutcome, rejectOutcome) => {
     const timer = setTimeout(() => {
@@ -115,6 +118,7 @@ async function dispatchBlockingInvocation(
     timer.unref?.();
     state.pending.set(requestId, {
       port: active.sub.port,
+      subId: active.sub.subId,
       timer,
       resolve: resolveOutcome,
       reject: rejectOutcome,
@@ -327,6 +331,18 @@ export function handleAuthBlockingUnsub(
     state.activeOrder.splice(orderIdx, 1);
   }
   reconcileHostAuthBlockingHooks(ctx, auth, state);
+  for (const [requestId, pending] of [...state.pending.entries()]) {
+    if (pending.port === port && pending.subId === subId) {
+      state.pending.delete(requestId);
+      clearTimeout(pending.timer);
+      pending.reject(
+        makeAuthBlockingRejectionError({
+          status: 'UNAVAILABLE',
+          message: 'Auth blocking function child unsubscribed before responding.',
+        }),
+      );
+    }
+  }
   return true;
 }
 

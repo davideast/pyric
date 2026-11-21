@@ -27,11 +27,38 @@ export interface IdentityChildRuntimeOptions {
 
 type WithInitFn = <T extends (...args: unknown[]) => unknown>(fn: T) => (...args: Parameters<T>) => Promise<Awaited<ReturnType<T>>>;
 
+function resolveGlobalTimeoutSeconds(entry: string): number | undefined {
+  let functionsMain: string;
+  try {
+    functionsMain = createRequire(entry).resolve('firebase-functions');
+  } catch {
+    // Synthetic test fixtures without a `firebase-functions` package install have no global options.
+    return undefined;
+  }
+  const libDir = dirname(dirname(functionsMain));
+  const cjsOptionsPath = join(libDir, 'v2/options.js');
+  if (!existsSync(cjsOptionsPath)) {
+    return undefined;
+  }
+  try {
+    const optionsModule = createRequire(functionsMain)(cjsOptionsPath) as {
+      getGlobalOptions?: () => { timeoutSeconds?: unknown };
+    };
+    const rawTimeout = optionsModule.getGlobalOptions?.()?.timeoutSeconds;
+    if (typeof rawTimeout === 'number' && Number.isFinite(rawTimeout) && rawTimeout > 0) {
+      return rawTimeout;
+    }
+  } catch {
+    // Ignore optional manifest inspection errors and fall back to endpoint metadata.
+  }
+  return undefined;
+}
+
 function createOnInitRunner(entry: string): () => Promise<void> {
   let initPromise: Promise<void> | undefined;
   return () => {
     if (initPromise !== undefined) return initPromise;
-    initPromise = (async () => {
+    const attempt = (async () => {
       let functionsMain: string;
       try {
         functionsMain = createRequire(entry).resolve('firebase-functions');
@@ -60,6 +87,12 @@ function createOnInitRunner(entry: string): () => Promise<void> {
         }
       }
     })();
+    initPromise = attempt.catch((error: unknown) => {
+      if (initPromise === attempt) {
+        initPromise = undefined;
+      }
+      throw error;
+    });
     return initPromise;
   };
 }
@@ -93,7 +126,8 @@ export function startIdentityChildRuntime(
   options: IdentityChildRuntimeOptions,
 ): IdentityTriggerExecutionHost {
   const { entry, exported, sandbox, send } = options;
-  return startIdentityTriggerExecution({
+  const globalTimeoutSeconds = resolveGlobalTimeoutSeconds(entry);
+  const execOpts: Parameters<typeof startIdentityTriggerExecution>[0] = {
     exported,
     delivery: new RemoteIdentityTriggerDelivery(sandbox.channel),
     ensureInitialized: createOnInitRunner(entry),
@@ -104,6 +138,8 @@ export function startIdentityChildRuntime(
         subject = `auth/users/${request.userRecord.uid}`;
       } else if (typeof request.email === 'string' && request.email.length > 0) {
         subject = `auth/email/${request.email}`;
+      } else if (typeof request.phoneNumber === 'string' && request.phoneNumber.length > 0) {
+        subject = `auth/sms/${request.phoneNumber}`;
       }
       send(executionEvent(result, trigger.exportName, subject));
     },
@@ -114,5 +150,9 @@ export function startIdentityChildRuntime(
         error: serializeError(error),
       });
     },
-  });
+  };
+  if (globalTimeoutSeconds !== undefined) {
+    execOpts.defaultTimeoutSeconds = globalTimeoutSeconds;
+  }
+  return startIdentityTriggerExecution(execOpts);
 }

@@ -38,6 +38,7 @@ export const DISALLOWED_BLOCKING_CLAIMS: readonly string[] = [
 ];
 
 export const CLAIMS_MAX_PAYLOAD_SIZE = 1000;
+export const DEFAULT_IDENTITY_TIMEOUT_SECONDS = 60;
 
 const GRPC_ERROR_CODES: Readonly<
   Record<string, { readonly canonicalName: string; readonly status: number }>
@@ -368,11 +369,65 @@ async function invokeExpressBlockingHandler(
   return undefined;
 }
 
+function raceWithIdentityDeadline<T>(
+  work: Promise<T>,
+  exportName: string,
+  timeoutSeconds: number,
+  abortSignal?: AbortSignal,
+): Promise<T> {
+  void work.catch(() => undefined);
+  if (abortSignal?.aborted === true) {
+    return Promise.reject(
+      makeHttpsLikeError('unavailable', 'Auth blocking runtime is shutting down.'),
+    );
+  }
+  const timeoutMs = Math.max(1, Math.round(timeoutSeconds * 1000));
+  return new Promise<T>((resolveWork, rejectWork) => {
+    let settled = false;
+    const finish = (fn: () => void): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (abortSignal !== undefined) {
+        abortSignal.removeEventListener('abort', onAbort);
+      }
+      fn();
+    };
+    const onAbort = (): void => {
+      finish(() => {
+        rejectWork(makeHttpsLikeError('unavailable', 'Auth blocking runtime is shutting down.'));
+      });
+    };
+    const timer = setTimeout(() => {
+      finish(() => {
+        rejectWork(
+          makeHttpsLikeError(
+            'deadline-exceeded',
+            `Auth blocking function ${exportName} timed out after ${timeoutSeconds}s.`,
+          ),
+        );
+      });
+    }, timeoutMs);
+    timer.unref?.();
+    if (abortSignal !== undefined) {
+      abortSignal.addEventListener('abort', onAbort, { once: true });
+    }
+    work.then(
+      (value) => {
+        finish(() => resolveWork(value));
+      },
+      (error: unknown) => {
+        finish(() => rejectWork(error));
+      },
+    );
+  });
+}
+
 /** Execute a discovered Identity blocking trigger against an encoded event. */
 export async function executeIdentityTrigger(
   trigger: DiscoveredIdentityTrigger,
   input: Omit<BuildAuthBlockingEventOptions, 'eventType' | 'blockingOptions'>,
-  options: { ensureInitialized?: () => Promise<void> } = {},
+  options: { ensureInitialized?: () => Promise<void>; abortSignal?: AbortSignal } = {},
 ): Promise<IdentityExecutionResult> {
   const fullOptions: BuildAuthBlockingEventOptions = {
     ...input,
@@ -380,23 +435,34 @@ export async function executeIdentityTrigger(
     blockingOptions: trigger.options,
   };
   const event = buildAuthBlockingEvent(fullOptions);
+  const timeoutSeconds = trigger.timeoutSeconds ?? DEFAULT_IDENTITY_TIMEOUT_SECONDS;
   try {
-    if (options.ensureInitialized !== undefined) {
-      await options.ensureInitialized();
-    }
-    let rawResponse: unknown;
-    if (typeof trigger.callable.run === 'function') {
-      rawResponse = await trigger.callable.run(event);
-    } else if (trigger.callable.length >= 2) {
-      const jwt = buildAuthBlockingJwt(fullOptions);
-      rawResponse = await invokeExpressBlockingHandler(
-        trigger.callable as (req: Record<string, unknown>, res: Record<string, unknown>) => unknown,
-        jwt,
-      );
-    } else {
+    const invokePromise = (async (): Promise<unknown> => {
+      if (options.ensureInitialized !== undefined) {
+        await options.ensureInitialized();
+      }
+      if (typeof trigger.callable.run === 'function') {
+        return await trigger.callable.run(event);
+      }
+      if (trigger.callable.length >= 2) {
+        const jwt = buildAuthBlockingJwt(fullOptions);
+        return await invokeExpressBlockingHandler(
+          trigger.callable as (
+            req: Record<string, unknown>,
+            res: Record<string, unknown>,
+          ) => unknown,
+          jwt,
+        );
+      }
       const directRunner = trigger.callable as (ev: Record<string, unknown>) => unknown;
-      rawResponse = await directRunner(event);
-    }
+      return await directRunner(event);
+    })();
+    const rawResponse = await raceWithIdentityDeadline(
+      invokePromise,
+      trigger.exportName,
+      timeoutSeconds,
+      options.abortSignal,
+    );
     const { response, wirePayload } = validateIdentityBlockingResponse(
       trigger.shortEventType,
       rawResponse,
