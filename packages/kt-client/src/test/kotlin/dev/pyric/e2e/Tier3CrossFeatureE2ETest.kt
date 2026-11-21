@@ -6,18 +6,18 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.snapshots
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
+import java.util.concurrent.CopyOnWriteArrayList
 
 @DisplayName("Tier 3 Cross-Feature Interaction E2E Tests")
 class Tier3CrossFeatureE2ETest {
@@ -31,7 +31,7 @@ class Tier3CrossFeatureE2ETest {
         firestore = harness.createClient("tier3-app")
     }
 
-    // ── 1. Transactions Combined with Sentinels ────────────────────────────
+    // -- 1. Transactions Combined with Sentinels --------------------------
 
     @Test
     fun testTransactionWithIncrementSentinel() {
@@ -115,23 +115,25 @@ class Tier3CrossFeatureE2ETest {
         assertEquals(listOf("alice", "charlie"), updated2.get("members"))
     }
 
-    // ── 2. Compound Queries with Real-Time Flow Listeners ──────────────────
+    // -- 2. Compound Queries with Real-Time Flow Listeners ----------------
 
     @Test
     fun testCompoundQueryWithRealtimeFlow() = runBlocking(Dispatchers.IO) {
         val col = firestore.collection("cross-flow-query")
         Tasks.await(col.document("1").set(mapOf("status" to "active", "priority" to 1)))
 
-        val observedCounts = mutableListOf<Int>()
+        val observedCounts = CopyOnWriteArrayList<Int>()
+        val initialReady = CompletableDeferred<Unit>()
         val query = col.whereEqualTo("status", "active").whereGreaterThan("priority", 0)
 
         val job = launch {
             query.snapshots().take(4).collect { snap ->
                 observedCounts.add(snap.size())
+                initialReady.complete(Unit)
             }
         }
 
-        delay(50)
+        initialReady.await()
         // Add a matching doc (count -> 2)
         Tasks.await(col.document("2").set(mapOf("status" to "active", "priority" to 5)))
         // Add a non-matching doc (count remains 2)
@@ -140,10 +142,10 @@ class Tier3CrossFeatureE2ETest {
         Tasks.await(col.document("4").set(mapOf("status" to "active", "priority" to 2)))
 
         job.join()
-        assertEquals(listOf(1, 2, 2, 3), observedCounts)
+        assertEquals(listOf(1, 2, 2, 3), observedCounts.toList())
     }
 
-    // ── 3. Batch Writes Triggering Multiple Snapshot Streams ───────────────
+    // -- 3. Batch Writes Triggering Multiple Snapshot Streams -------------
 
     @Test
     fun testBatchWriteTriggeringMultipleDocumentFlows() = runBlocking(Dispatchers.IO) {
@@ -155,15 +157,41 @@ class Tier3CrossFeatureE2ETest {
         Tasks.await(doc2.set(mapOf("v" to "init2")))
         Tasks.await(doc3.set(mapOf("v" to "init3")))
 
-        val d1Vals = mutableListOf<String>()
-        val d2Vals = mutableListOf<String>()
-        val d3Vals = mutableListOf<String>()
+        val d1Vals = CopyOnWriteArrayList<String>()
+        val d2Vals = CopyOnWriteArrayList<String>()
+        val d3Vals = CopyOnWriteArrayList<String>()
+        val ready1 = CompletableDeferred<Unit>()
+        val ready2 = CompletableDeferred<Unit>()
+        val ready3 = CompletableDeferred<Unit>()
 
-        val job1 = launch { doc1.snapshots().take(2).collect { it.getString("v")?.let { v -> d1Vals.add(v) } } }
-        val job2 = launch { doc2.snapshots().take(2).collect { it.getString("v")?.let { v -> d2Vals.add(v) } } }
-        val job3 = launch { doc3.snapshots().take(2).collect { it.getString("v")?.let { v -> d3Vals.add(v) } } }
+        val job1 = launch {
+            doc1.snapshots().take(2).collect {
+                it.getString("v")?.let { v ->
+                    d1Vals.add(v)
+                    if (v == "init1") ready1.complete(Unit)
+                }
+            }
+        }
+        val job2 = launch {
+            doc2.snapshots().take(2).collect {
+                it.getString("v")?.let { v ->
+                    d2Vals.add(v)
+                    if (v == "init2") ready2.complete(Unit)
+                }
+            }
+        }
+        val job3 = launch {
+            doc3.snapshots().take(2).collect {
+                it.getString("v")?.let { v ->
+                    d3Vals.add(v)
+                    if (v == "init3") ready3.complete(Unit)
+                }
+            }
+        }
 
-        delay(50)
+        ready1.await()
+        ready2.await()
+        ready3.await()
 
         // Single atomic batch modifying all three docs
         val batch = firestore.batch()
@@ -176,9 +204,9 @@ class Tier3CrossFeatureE2ETest {
         job2.join()
         job3.join()
 
-        assertEquals(listOf("init1", "updated1"), d1Vals)
-        assertEquals(listOf("init2", "updated2"), d2Vals)
-        assertEquals(listOf("init3", "updated3"), d3Vals)
+        assertEquals(listOf("init1", "updated1"), d1Vals.toList())
+        assertEquals(listOf("init2", "updated2"), d2Vals.toList())
+        assertEquals(listOf("init3", "updated3"), d3Vals.toList())
     }
 
     @Test
@@ -190,14 +218,16 @@ class Tier3CrossFeatureE2ETest {
         Tasks.await(docIn.set(mapOf("active" to false)))
         Tasks.await(docOut.set(mapOf("active" to true)))
 
-        val observedDocIds = mutableListOf<List<String>>()
+        val observedDocIds = CopyOnWriteArrayList<List<String>>()
+        val initialReady = CompletableDeferred<Unit>()
         val job = launch {
             col.whereEqualTo("active", true).snapshots().take(2).collect { snap ->
                 observedDocIds.add(snap.documents.map { it.id }.sorted())
+                initialReady.complete(Unit)
             }
         }
 
-        delay(50)
+        initialReady.await()
 
         // Atomic batch: docIn becomes active, docOut becomes inactive
         val batch = firestore.batch()
@@ -206,10 +236,10 @@ class Tier3CrossFeatureE2ETest {
         Tasks.await(batch.commit())
 
         job.join()
-        assertEquals(listOf(listOf("out"), listOf("in")), observedDocIds)
+        assertEquals(listOf(listOf("out"), listOf("in")), observedDocIds.toList())
     }
 
-    // ── 4. Query Cursors with Server Timestamps ────────────────────────────
+    // -- 4. Query Cursors with Server Timestamps --------------------------
 
     @Test
     fun testQueryCursorsWithServerTimestamp() {
@@ -230,7 +260,7 @@ class Tier3CrossFeatureE2ETest {
         assertEquals("third", snap.documents[1].getString("title"))
     }
 
-    // ── 5. Transaction Conflict Retry with Query Stream ────────────────────
+    // -- 5. Transaction Conflict Retry with Query Stream ------------------
 
     @Test
     fun testTransactionConflictRetryWithQueryStream() = runBlocking(Dispatchers.IO) {
@@ -240,15 +270,21 @@ class Tier3CrossFeatureE2ETest {
         // Instruct harness to simulate 1 conflict before succeeding
         harness.conflictCountdown.set(1)
 
-        val observedCounts = mutableListOf<Long>()
+        val observedCounts = CopyOnWriteArrayList<Long>()
+        val initialReady = CompletableDeferred<Unit>()
         val job = launch {
             firestore.collection("cross-conflict").whereGreaterThan("count", 0)
                 .snapshots().take(2).collect { snap ->
-                    snap.documents.firstOrNull()?.getLong("count")?.let { observedCounts.add(it) }
+                    snap.documents.firstOrNull()?.getLong("count")?.let { count ->
+                        observedCounts.add(count)
+                        if (count == 10L) {
+                            initialReady.complete(Unit)
+                        }
+                    }
                 }
         }
 
-        delay(50)
+        initialReady.await()
 
         val result = Tasks.await(
             firestore.runTransaction { txn ->
@@ -264,10 +300,10 @@ class Tier3CrossFeatureE2ETest {
 
         assertEquals(11L, result)
         assertEquals(2, harness.transactionAttemptCount.get()) // 1 failed attempt + 1 retry succeeded
-        assertEquals(listOf(10L, 11L), observedCounts)
+        assertEquals(listOf(10L, 11L), observedCounts.toList())
     }
 
-    // ── 6. Array Sentinels in Batch Impacting Array-Contains Query ─────────
+    // -- 6. Array Sentinels in Batch Impacting Array-Contains Query -------
 
     @Test
     fun testArraySentinelsInsideBatchImpactingArrayContainsQuery() = runBlocking(Dispatchers.IO) {
@@ -275,14 +311,19 @@ class Tier3CrossFeatureE2ETest {
         val doc = col.document("article")
         Tasks.await(doc.set(mapOf("tags" to listOf("general"))))
 
-        val observedMatches = mutableListOf<Int>()
+        val observedMatches = CopyOnWriteArrayList<Int>()
+        val initialReady = CompletableDeferred<Unit>()
         val job = launch {
             col.whereArrayContains("tags", "breaking").snapshots().take(2).collect { snap ->
-                observedMatches.add(snap.size())
+                val size = snap.size()
+                observedMatches.add(size)
+                if (size == 0) {
+                    initialReady.complete(Unit)
+                }
             }
         }
 
-        delay(50)
+        initialReady.await()
 
         val batch = firestore.batch()
         batch.update(doc, mapOf("tags" to FieldValue.arrayUnion("breaking", "news")))
@@ -290,10 +331,10 @@ class Tier3CrossFeatureE2ETest {
 
         job.join()
 
-        assertEquals(listOf(0, 1), observedMatches)
+        assertEquals(listOf(0, 1), observedMatches.toList())
     }
 
-    // ── 7. Delete Doc Triggers Document & Query Flow Simultaneously ────────
+    // -- 7. Delete Doc Triggers Document & Query Flow Simultaneously ------
 
     @Test
     fun testDeleteDocTriggersDocumentAndQueryFlowSimultaneously() = runBlocking(Dispatchers.IO) {
@@ -301,32 +342,43 @@ class Tier3CrossFeatureE2ETest {
         val doc = col.document("target")
         Tasks.await(doc.set(mapOf("alive" to true)))
 
-        val docExistsLog = mutableListOf<Boolean>()
-        val queryCountLog = mutableListOf<Int>()
+        val docExistsLog = CopyOnWriteArrayList<Boolean>()
+        val queryCountLog = CopyOnWriteArrayList<Int>()
+        val docReady = CompletableDeferred<Unit>()
+        val queryReady = CompletableDeferred<Unit>()
 
         val jobDoc = launch {
             doc.snapshots().take(2).collect { snap ->
-                docExistsLog.add(snap.exists())
+                val exists = snap.exists()
+                docExistsLog.add(exists)
+                if (exists) {
+                    docReady.complete(Unit)
+                }
             }
         }
         val jobQuery = launch {
             col.whereEqualTo("alive", true).snapshots().take(2).collect { snap ->
-                queryCountLog.add(snap.size())
+                val size = snap.size()
+                queryCountLog.add(size)
+                if (size == 1) {
+                    queryReady.complete(Unit)
+                }
             }
         }
 
-        delay(50)
+        docReady.await()
+        queryReady.await()
 
         Tasks.await(doc.delete())
 
         jobDoc.join()
         jobQuery.join()
 
-        assertEquals(listOf(true, false), docExistsLog)
-        assertEquals(listOf(1, 0), queryCountLog)
+        assertEquals(listOf(true, false), docExistsLog.toList())
+        assertEquals(listOf(1, 0), queryCountLog.toList())
     }
 
-    // ── 8. Subcollections in Transactions ──────────────────────────────────
+    // -- 8. Subcollections in Transactions --------------------------------
 
     @Test
     fun testSubcollectionCRUDWithBatchesAndTransactions() {
