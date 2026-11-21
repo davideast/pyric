@@ -153,7 +153,7 @@ extension FirestoreOracleProbeRunner {
       customSettings.cacheSettings = MemoryCacheSettings()
       settingsDb.settings = customSettings
       let appliedMemoryCacheSettings = settingsDb.settings.cacheSettings is MemoryCacheSettings
-      settingsDb.useEmulator(host: "127.0.0.1", port: 8080)
+      settingsDb.useEmulator(withHost: "127.0.0.1", port: 8080)
       let emulatorHostApplied = settingsDb.settings.host == "127.0.0.1:8080"
       try? await settingsDb.terminate()
       await deleteAppAsync(settingsApp)

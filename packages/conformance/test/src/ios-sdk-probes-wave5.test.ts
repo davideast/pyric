@@ -225,7 +225,7 @@ describe('Wave 5 firestore-swift ios-sdk-probes descriptors, scoped collectionGr
       expect(instanceSwift).toContain('ref.setData(from: value');
       expect(instanceSwift).toContain('Firestore.firestore()');
       expect(instanceSwift).toContain('MemoryCacheSettings()');
-      expect(instanceSwift).toContain('useEmulator(host: "127.0.0.1", port: 8080)');
+      expect(instanceSwift).toContain('useEmulator(withHost: "127.0.0.1", port: 8080)');
       expect(instanceSwift).toContain('addSnapshotsInSyncListener');
       expect(instanceSwift).toContain('addSnapshotListener(includeMetadataChanges: true)');
       expect(instanceSwift).toContain('SnapshotListenOptions()');

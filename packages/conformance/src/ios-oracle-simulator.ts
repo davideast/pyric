@@ -3,13 +3,8 @@
  * `xcodebuild test` command construction, and base64 result-envelope parsing for
  * `packages/conformance/src/ios-oracle-runtime.ts`.
  */
-import { spawnSync } from 'node:child_process';
-import {
-  copyFileSync,
-  lstatSync,
-  mkdirSync,
-  readdirSync,
-} from 'node:fs';
+import { type SpawnSyncReturns, spawnSync } from 'node:child_process';
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 const RESULT_LINE_PREFIX = 'PYRIC_IOS_ORACLE_RESULT_B64:';
@@ -130,6 +125,25 @@ interface SimctlDeviceRecord {
   isAvailable?: unknown;
 }
 
+function materializeStagedXcodeProject(stagedHostDir: string): void {
+  const templateDir = join(stagedHostDir, 'ProjectTemplate');
+  const pbxTemplate = join(templateDir, 'project.pbxproj');
+  if (!existsSync(pbxTemplate)) {
+    return;
+  }
+  for (const entry of readdirSync(templateDir).sort()) {
+    if (!entry.endsWith('.xcscheme')) {
+      continue;
+    }
+    const projectName = entry.slice(0, -'.xcscheme'.length);
+    const xcodeprojDir = join(stagedHostDir, `${projectName}.xcodeproj`);
+    const schemesDir = join(xcodeprojDir, 'xcshareddata', 'xcschemes');
+    mkdirSync(schemesDir, { recursive: true });
+    copyFileSync(pbxTemplate, join(xcodeprojDir, 'project.pbxproj'));
+    copyFileSync(join(templateDir, entry), join(schemesDir, entry));
+  }
+}
+
 export function stageIosPackageTemplate(sourceDir: string, targetDir: string): void {
   const stat = lstatSync(sourceDir);
   if (stat.isSymbolicLink() || !stat.isDirectory()) {
@@ -152,6 +166,7 @@ export function stageIosPackageTemplate(sourceDir: string, targetDir: string): v
       copyFileSync(sourceEntry, targetEntry);
     }
   }
+  materializeStagedXcodeProject(targetDir);
 }
 
 function parseIosRuntimeVersionTuple(runtimeKey: string): number[] | null {
@@ -423,12 +438,10 @@ export function formatIosOracleSpawnFailure(
   return err;
 }
 
-export function defaultQueryAvailableSimulatorsJson(env: NodeJS.ProcessEnv): string {
-  const result = spawnSync('xcrun', ['simctl', 'list', 'devices', 'available', '-j'], {
-    env,
-    encoding: 'utf8',
-    maxBuffer: 16 * 1024 * 1024,
-  });
+function readVerifiedSpawnStreams(
+  toolLabel: string,
+  result: SpawnSyncReturns<string>,
+): { stdout: string; stderr: string } {
   if (result.error) {
     throw result.error;
   }
@@ -441,9 +454,18 @@ export function defaultQueryAvailableSimulatorsJson(env: NodeJS.ProcessEnv): str
     stderr = result.stderr;
   }
   if (result.status !== 0) {
-    throw formatIosOracleSpawnFailure('xcrun simctl list devices', result.status, stdout, stderr);
+    throw formatIosOracleSpawnFailure(toolLabel, result.status, stdout, stderr);
   }
-  return stdout;
+  return { stdout, stderr };
+}
+
+export function defaultQueryAvailableSimulatorsJson(env: NodeJS.ProcessEnv): string {
+  const result = spawnSync('xcrun', ['simctl', 'list', 'devices', 'available', '-j'], {
+    env,
+    encoding: 'utf8',
+    maxBuffer: 16 * 1024 * 1024,
+  });
+  return readVerifiedSpawnStreams('xcrun simctl list devices', result).stdout;
 }
 
 export function buildRtdbSwiftRunArgs(request: IosRtdbCliRequest): string[] {
@@ -463,132 +485,91 @@ export function buildRtdbSwiftRunArgs(request: IosRtdbCliRequest): string[] {
 
 export function defaultExecuteRtdbCli(request: IosRtdbCliRequest): string {
   mkdirSync(request.scratchCacheDir, { recursive: true });
-  const args = buildRtdbSwiftRunArgs(request);
-  const result = spawnSync('swift', args, {
+  const result = spawnSync('swift', buildRtdbSwiftRunArgs(request), {
     cwd: request.stagedPackageDir,
     env: request.env,
     encoding: 'utf8',
     maxBuffer: 32 * 1024 * 1024,
   });
-  if (result.error) {
-    throw result.error;
-  }
-  let stdout = '';
-  if (typeof result.stdout === 'string') {
-    stdout = result.stdout;
-  }
-  let stderr = '';
-  if (typeof result.stderr === 'string') {
-    stderr = result.stderr;
-  }
-  if (result.status !== 0) {
-    throw formatIosOracleSpawnFailure('SwiftPM RtdbOracleCLI', result.status, stdout, stderr);
-  }
-  return `${stdout}\n${stderr}`;
+  const streams = readVerifiedSpawnStreams('SwiftPM RtdbOracleCLI', result);
+  return `${streams.stdout}\n${streams.stderr}`;
+}
+
+function buildHostedSimulatorXcodebuildArgs(
+  xcodeprojPath: string,
+  scheme: string,
+  onlyTestingTarget: string,
+  request: IosAuthSimRequest | IosFirestoreSimRequest,
+): string[] {
+  return [
+    'test',
+    '-project',
+    xcodeprojPath,
+    '-scheme',
+    scheme,
+    '-destination',
+    request.destination,
+    '-derivedDataPath',
+    request.derivedDataDir,
+    '-clonedSourcePackagesDirPath',
+    request.clonedPackagesDir,
+    '-collect-test-diagnostics',
+    'never',
+    `-only-testing:${onlyTestingTarget}`,
+    'ONLY_ACTIVE_ARCH=YES',
+    'COMPILER_INDEX_STORE_ENABLE=NO',
+    'CODE_SIGNING_REQUIRED=NO',
+    'CODE_SIGNING_ALLOWED=YES',
+  ];
 }
 
 export function buildAuthSimXcodebuildArgs(request: IosAuthSimRequest): string[] {
-  return [
-    'test',
-    '-scheme',
-    'PyricIosAuthOracle',
-    '-destination',
-    request.destination,
-    '-derivedDataPath',
-    request.derivedDataDir,
-    '-clonedSourcePackagesDirPath',
-    request.clonedPackagesDir,
-    '-collect-test-diagnostics',
-    'never',
-    '-only-testing:AuthOracleSimTests/AuthOracleSimTests/testCaptureSelectedOracleProbe',
-    'ONLY_ACTIVE_ARCH=YES',
-    'COMPILER_INDEX_STORE_ENABLE=NO',
-    'CODE_SIGNING_REQUIRED=NO',
-    'CODE_SIGNING_ALLOWED=YES',
-  ];
+  return buildHostedSimulatorXcodebuildArgs(
+    join(request.stagedPackageDir, 'HostApp', 'AuthOracleHost.xcodeproj'),
+    'AuthOracleHost',
+    'AuthOracleHostedTests/AuthOracleHostedTests/testCaptureSelectedOracleProbe',
+    request,
+  );
+}
+
+function executeHostedSimulatorXcodebuild(
+  toolLabel: string,
+  args: string[],
+  request: IosAuthSimRequest | IosFirestoreSimRequest,
+): string {
+  mkdirSync(request.derivedDataDir, { recursive: true });
+  mkdirSync(request.clonedPackagesDir, { recursive: true });
+  const result = spawnSync('xcodebuild', args, {
+    cwd: request.stagedPackageDir,
+    env: request.env,
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  const streams = readVerifiedSpawnStreams(toolLabel, result);
+  return `${streams.stdout}\n${streams.stderr}`;
 }
 
 export function defaultExecuteAuthSim(request: IosAuthSimRequest): string {
-  mkdirSync(request.derivedDataDir, { recursive: true });
-  mkdirSync(request.clonedPackagesDir, { recursive: true });
-  const args = buildAuthSimXcodebuildArgs(request);
-  const result = spawnSync('xcodebuild', args, {
-    cwd: request.stagedPackageDir,
-    env: request.env,
-    encoding: 'utf8',
-    maxBuffer: 64 * 1024 * 1024,
-  });
-  if (result.error) {
-    throw result.error;
-  }
-  let stdout = '';
-  if (typeof result.stdout === 'string') {
-    stdout = result.stdout;
-  }
-  let stderr = '';
-  if (typeof result.stderr === 'string') {
-    stderr = result.stderr;
-  }
-  if (result.status !== 0) {
-    throw formatIosOracleSpawnFailure(
-      'xcodebuild AuthOracleSimTests',
-      result.status,
-      stdout,
-      stderr,
-    );
-  }
-  return `${stdout}\n${stderr}`;
+  return executeHostedSimulatorXcodebuild(
+    'xcodebuild AuthOracleHostedTests',
+    buildAuthSimXcodebuildArgs(request),
+    request,
+  );
 }
 
 export function buildFirestoreSimXcodebuildArgs(request: IosFirestoreSimRequest): string[] {
-  return [
-    'test',
-    '-scheme',
-    'PyricIosFirestoreOracle',
-    '-destination',
-    request.destination,
-    '-derivedDataPath',
-    request.derivedDataDir,
-    '-clonedSourcePackagesDirPath',
-    request.clonedPackagesDir,
-    '-collect-test-diagnostics',
-    'never',
-    '-only-testing:FirestoreOracleSimTests/FirestoreOracleSimTests/testCaptureSelectedOracleProbe',
-    'ONLY_ACTIVE_ARCH=YES',
-    'COMPILER_INDEX_STORE_ENABLE=NO',
-    'CODE_SIGNING_REQUIRED=NO',
-    'CODE_SIGNING_ALLOWED=YES',
-  ];
+  return buildHostedSimulatorXcodebuildArgs(
+    join(request.stagedPackageDir, 'HostApp', 'FirestoreOracleHost.xcodeproj'),
+    'FirestoreOracleHost',
+    'FirestoreOracleHostedTests/FirestoreOracleHostedTests/testCaptureSelectedOracleProbe',
+    request,
+  );
 }
 
 export function defaultExecuteFirestoreSim(request: IosFirestoreSimRequest): string {
-  mkdirSync(request.derivedDataDir, { recursive: true });
-  mkdirSync(request.clonedPackagesDir, { recursive: true });
-  const args = buildFirestoreSimXcodebuildArgs(request);
-  const result = spawnSync('xcodebuild', args, {
-    cwd: request.stagedPackageDir,
-    env: request.env,
-    encoding: 'utf8',
-    maxBuffer: 64 * 1024 * 1024,
-  });
-  if (result.error) {
-    throw result.error;
-  }
-  let stdout = '';
-  if (typeof result.stdout === 'string') {
-    stdout = result.stdout;
-  }
-  let stderr = '';
-  if (typeof result.stderr === 'string') {
-    stderr = result.stderr;
-  }
-  if (result.status !== 0) {
-    throw formatIosOracleSpawnFailure(
-      'xcodebuild FirestoreOracleSimTests',
-      result.status,
-      stdout,
-      stderr,
-    );
-  }
-  return `${stdout}\n${stderr}`;
+  return executeHostedSimulatorXcodebuild(
+    'xcodebuild FirestoreOracleHostedTests',
+    buildFirestoreSimXcodebuildArgs(request),
+    request,
+  );
 }
