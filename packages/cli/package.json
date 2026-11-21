@@ -14,6 +14,10 @@
   "description": "Pyric CLI for local sandbox development, verification, artifact generation, and agent bridges.",
   "type": "module",
   "sideEffects": [
+    "./dist/next/auth-entry.js",
+    "./src/next/auth-entry.ts",
+    "./dist/next/auth-page-backend.js",
+    "./src/next/auth-page-backend.ts",
     "./dist/next/client-stop.js",
     "./src/next/client-stop.ts",
     "./dist/register/index.js",
@@ -224,7 +228,7 @@
       "import": "./dist/serve/entries/app-ai-passthrough-app-check.js"
     },
     "./next/internal/auth": {
-      "import": "./dist/serve/entries/auth.js"
+      "import": "./dist/next/auth-entry.js"
     },
     "./next/internal/crashlytics": {
       "import": "./dist/serve/entries/crashlytics.js"
