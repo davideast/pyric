@@ -6,6 +6,7 @@ export const probe: Probe = {
     'Upstream Android FirebaseFirestore single-field inequality and negative-membership filters (whereNotEqualTo, whereLessThan, whereLessThanOrEqualTo, whereGreaterThan, whereGreaterThanOrEqualTo, whereNotIn), value and DocumentSnapshot pagination cursors (startAt, startAfter, endAt, endBefore), scoped collectionGroup(id), Transaction.delete, and TransactionOptions contention retry / maxAttempts exhaustion under Robolectric.',
   matrixRow: 'firestore-kotlin#8',
   rowIds: [
+    'firestore-kotlin#6',
     'firestore-kotlin#8',
     'firestore-kotlin#22',
     'firestore-kotlin#23',
@@ -13,6 +14,7 @@ export const probe: Probe = {
     'firestore-kotlin#32',
     'firestore-kotlin#34',
     'firestore-kotlin#52',
+    'firestore-kotlin#53',
   ],
   rig: 'android-sdk-probes',
   requires: ['web-config', 'firestore-rules', 'admin-auth', 'admin-firestore'],

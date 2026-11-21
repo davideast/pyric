@@ -7,6 +7,7 @@ export default row({
   behavior: 'Instantiates a Query spanning all collections with the specified collectionId.',
   featureKeys: ['collectionGroup'],
   status: 'conforms',
+  oracleObservations: ['firestore-kotlin-inequality-cursors-collectionGroup-and-txRetry'],
   tests: [LIVE_HOST_CORE_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

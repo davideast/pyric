@@ -79,7 +79,6 @@ describe('Wave 5 android-sdk-probes firestore-kotlin Robolectric probes', () => 
       expect(descriptor.rig).toBe('android-sdk-probes');
       expect(descriptor.pendingRowLink).toBeUndefined();
       expect(descriptor.matrixRow.startsWith('firestore-kotlin#')).toBe(true);
-      expect(descriptor.rowIds.length).toBe(7);
       expect(descriptor.requires).toEqual([
         'web-config',
         'firestore-rules',
@@ -88,7 +87,9 @@ describe('Wave 5 android-sdk-probes firestore-kotlin Robolectric probes', () => 
       ]);
     }
     expect(firestoreWave5InstanceFlowsProbe.matrixRow).toBe('firestore-kotlin#1');
+    expect(firestoreWave5InstanceFlowsProbe.rowIds.length).toBe(8);
     expect(firestoreWave5InequalityCgTxProbe.matrixRow).toBe('firestore-kotlin#8');
+    expect(firestoreWave5InequalityCgTxProbe.rowIds.length).toBe(9);
 
     const loaded = await loadModularProbes('android-sdk-probes');
     const loadedIds = new Set(loaded.map((entry) => entry.id));
@@ -129,12 +130,16 @@ describe('Wave 5 android-sdk-probes firestore-kotlin Robolectric probes', () => 
     expect(pr1Problems).toEqual([]);
 
     const byName = new Map(currentObservations.map((obs) => [obs.name, obs]));
+    const expectedRowCounts = new Map<string, number>([
+      ['firestore-kotlin-instance-flows-inSync-and-toObject', 8],
+      ['firestore-kotlin-inequality-cursors-collectionGroup-and-txRetry', 9],
+    ]);
     for (const linkedName of LINKED_ANDROID_WAVE5_PROBES) {
       const committed = byName.get(linkedName);
       expect(committed).toBeDefined();
       expect(committed?.androidBomVersion).toBe('35.2.0');
       expect(committed?.matrixRow.startsWith('firestore-kotlin#')).toBe(true);
-      expect(committed?.rowIds.length).toBe(7);
+      expect(committed?.rowIds.length).toBe(expectedRowCounts.get(linkedName));
     }
   });
 
