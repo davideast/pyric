@@ -52,6 +52,7 @@ import { useStudioDataSource } from '../../shell/studio-data.js';
 import { useObservedSessionData } from '../../shell/use-observed-session-data.js';
 import { DeleteSelectedUsers, useVisibleUserSelection } from './auth-bulk-delete.js';
 import './auth.css';
+import './auth-editor.css';
 
 /** Compact "11m ago" / "just now" relative time for the list + detail. */
 function relativeTime(iso: string | null): string {

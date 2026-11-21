@@ -10,6 +10,7 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
   flex: 1;
 }
 [data-pyric-ui='data-feature'] > [data-pyric-ui='fs-browser'],

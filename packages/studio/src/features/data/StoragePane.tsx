@@ -69,6 +69,7 @@ import { ConfirmProvider, ToastProvider } from '@pyric/ui/primitives';
 import type { FirebaseStorage, FullMetadata, StorageReference } from 'pyric/storage';
 import { useDataNav } from './navigation.js';
 import './storage.css';
+import './storage-inspector.css';
 
 export interface StoragePaneProps {
   storage: FirebaseStorage;
