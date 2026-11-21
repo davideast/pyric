@@ -33,49 +33,45 @@ extension LiveHostConformanceTests {
 
     @Test("FirebaseApp.options.databaseURL, compareRtdbKeys, MutableData write-back, and DatabaseQueryValidator parity")
     func rtdbSectionsFiveThroughEightHermeticParity() async throws {
-        defer {
-            Database.reset()
-            FirebaseApp.resetAppsForTesting()
-        }
-
         // 1. FirebaseApp.options.databaseURL & projectID wiring without Firestore coupling.
-        let projOnlyOpts = FirebaseOptions(googleAppID: "1:100:ios:projonly", gcmSenderID: "100")
-        projOnlyOpts.projectID = "demo-swift-live"
-        let projOnlyName = "rtdb-projonly-\(UUID().uuidString)"
-        FirebaseApp.configure(name: projOnlyName, options: projOnlyOpts)
-        let projOnlyApp1 = try #require(FirebaseApp.app(name: projOnlyName))
-        let projOnlyDb1 = Database.database(app: projOnlyApp1)
-        #expect(projOnlyDb1.url == "https://demo-swift-live-default-rtdb.firebaseio.com")
-        #expect(projOnlyDb1.wireInstance == nil)
+        try await FirebaseGlobalTestGate.shared.withExclusiveAccess {
+            let projOnlyOpts = FirebaseOptions(googleAppID: "1:100:ios:projonly", gcmSenderID: "100")
+            projOnlyOpts.projectID = "demo-swift-live"
+            let projOnlyName = "rtdb-projonly-\(UUID().uuidString)"
+            FirebaseApp.configure(name: projOnlyName, options: projOnlyOpts)
+            let projOnlyApp1 = try #require(FirebaseApp.app(name: projOnlyName))
+            let projOnlyDb1 = Database.database(app: projOnlyApp1)
+            #expect(projOnlyDb1.url == "https://demo-swift-live-default-rtdb.firebaseio.com")
+            #expect(projOnlyDb1.wireInstance == nil)
 
-        // Reconfiguring the same named FirebaseApp evicts the stale Database handle.
-        FirebaseApp.configure(name: projOnlyName, options: projOnlyOpts)
-        let projOnlyApp2 = try #require(FirebaseApp.app(name: projOnlyName))
-        let projOnlyDb2 = Database.database(app: projOnlyApp2)
-        #expect(projOnlyDb2 !== projOnlyDb1)
+            // Reconfiguring the same named FirebaseApp evicts the stale Database handle.
+            FirebaseApp.configure(name: projOnlyName, options: projOnlyOpts)
+            let projOnlyApp2 = try #require(FirebaseApp.app(name: projOnlyName))
+            let projOnlyDb2 = Database.database(app: projOnlyApp2)
+            #expect(projOnlyDb2 !== projOnlyDb1)
 
-        let defaultOpts = FirebaseOptions(googleAppID: "1:100:ios:default", gcmSenderID: "100")
-        defaultOpts.projectID = "demo-swift-live"
-        defaultOpts.databaseURL = "https://demo-swift-live-default-rtdb.firebaseio.com/"
-        let appName = "rtdb-opts-\(UUID().uuidString)"
-        FirebaseApp.configure(name: appName, options: defaultOpts)
-        let configuredApp = try #require(FirebaseApp.app(name: appName))
-        let defaultDb = Database.database(app: configuredApp)
-        #expect(defaultDb.url == "https://demo-swift-live-default-rtdb.firebaseio.com")
-        #expect(defaultDb.wireInstance == nil)
-        #expect(Database.database(app: configuredApp, url: "https://default.firebaseio.com") === defaultDb)
+            let defaultOpts = FirebaseOptions(googleAppID: "1:100:ios:default", gcmSenderID: "100")
+            defaultOpts.projectID = "demo-swift-live"
+            defaultOpts.databaseURL = "https://demo-swift-live-default-rtdb.firebaseio.com/"
+            let appName = "rtdb-opts-\(UUID().uuidString)"
+            FirebaseApp.configure(name: appName, options: defaultOpts)
+            let configuredApp = try #require(FirebaseApp.app(name: appName))
+            let defaultDb = Database.database(app: configuredApp)
+            #expect(defaultDb.url == "https://demo-swift-live-default-rtdb.firebaseio.com")
+            #expect(defaultDb.wireInstance == nil)
+            #expect(Database.database(app: configuredApp, url: "https://default.firebaseio.com") === defaultDb)
 
-        let shardOpts = FirebaseOptions(googleAppID: "1:100:ios:shard", gcmSenderID: "100")
-        shardOpts.projectID = "demo-swift-live"
-        shardOpts.databaseURL = "https://shard-05.firebaseio.com"
-        let shardApp = FirebaseApp(name: "rtdb-shard-opts-\(UUID().uuidString)", options: shardOpts)
-        let shardDb = Database.database(app: shardApp)
-        #expect(shardDb.url == "https://shard-05.firebaseio.com")
-        #expect(shardDb.wireInstance == "shard-05")
-        #expect(
-            Database.database(app: shardApp, url: "https://shard-05.europe-west1.firebasedatabase.app")
-                === shardDb
-        )
+            let shardOpts = FirebaseOptions(googleAppID: "1:100:ios:shard", gcmSenderID: "100")
+            shardOpts.projectID = "demo-swift-live"
+            shardOpts.databaseURL = "https://shard-05.firebaseio.com"
+            let shardApp = FirebaseApp(name: "rtdb-shard-opts-\(UUID().uuidString)", options: shardOpts)
+            let shardDb = Database.database(app: shardApp)
+            #expect(shardDb.url == "https://shard-05.firebaseio.com")
+            #expect(shardDb.wireInstance == "shard-05")
+            #expect(
+                Database.database(app: shardApp, url: "https://shard-05.europe-west1.firebasedatabase.app")
+                    === shardDb
+            )
 
         // 2. RTDB 32-bit signed integer numeric-first key ordering.
         let unsortedKeys = ["b", "10", "-2", "2", "a", "2147483648", "02"]
@@ -156,6 +152,9 @@ extension LiveHostConformanceTests {
             _ = try baseRef
                 .validatedQueryLimited(toFirst: 2)
                 .validatedQueryLimited(toLast: 2)
+        }
+            await projOnlyApp2.delete()
+            await configuredApp.delete()
         }
     }
 

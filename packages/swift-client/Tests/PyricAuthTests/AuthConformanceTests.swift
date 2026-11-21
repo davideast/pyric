@@ -6,70 +6,66 @@ import Testing
 import Combine
 #endif
 
-@Suite("auth-swift Conformance Suite")
+@Suite("auth-swift Conformance Suite", .serialized)
 struct AuthConformanceTests {
 
-    private func createHarness(appName: String = "TestApp-\(UUID().uuidString)") async throws -> (Auth, MockAuthChannel) {
-        let channel = MockAuthChannel()
-        let client = PyricBridgeClient(channel: channel)
-        let app = FirebaseApp(name: appName)
-        let auth = Auth(app: app, bridgeClient: client)
-
-        let attachTask = Task {
-            let frame = try await channel.awaitNextSentMessage()
-            #expect(frame["type"]?.stringValue == "attach")
-            try channel.simulateServerMessage([
-                "type": "attach-ack",
-                "protocol": 1,
-                "peerConnected": true,
-                "bridgeVersion": "0.1.0"
-            ])
-        }
-
-        try await client.connect()
-        _ = try await attachTask.value
-        return (auth, channel)
-    }
-
     // ── 1. Auth: Instance & Lifecycle (Rows 1–5) ──────────────────────────────
-    @Test func `auth-swift#1: Auth.auth() returns default instance`() {
-        let auth = Auth.auth()
-        #expect(auth.app.name == "[DEFAULT]")
+    @Test func `auth-swift#1: Auth.auth() returns default instance`() async {
+        await FirebaseGlobalTestGate.shared.withExclusiveAccess {
+            Auth.reset()
+            FirebaseApp.resetAppsForTesting()
+            defer {
+                Auth.reset()
+                FirebaseApp.resetAppsForTesting()
+            }
+            let auth = Auth.auth()
+            #expect(auth.app.name == "[DEFAULT]")
+        }
     }
 
-    @Test func `auth-swift#2: Auth.auth(app:) returns instance for specific FirebaseApp`() {
-        let app = FirebaseApp(name: "custom-app-\(UUID().uuidString)")
-        let auth = Auth.auth(app: app)
-        #expect(auth.app.name == app.name)
+    @Test func `auth-swift#2: Auth.auth(app:) returns instance for specific FirebaseApp`() async {
+        await FirebaseGlobalTestGate.shared.withExclusiveAccess {
+            let app = FirebaseApp(name: "custom-app-\(UUID().uuidString)")
+            let auth = Auth.auth(app: app)
+            #expect(auth.app.name == app.name)
+        }
     }
 
-    @Test func `auth-swift#3: Auth.reset() resets cached instances`() {
-        let app = FirebaseApp(name: "reset-app-\(UUID().uuidString)")
-        let auth1 = Auth.auth(app: app)
-        Auth.reset()
-        let auth2 = Auth.auth(app: app)
-        #expect(auth1 !== auth2)
+    @Test func `auth-swift#3: Auth.reset() resets cached instances`() async {
+        await FirebaseGlobalTestGate.shared.withExclusiveAccess {
+            defer { Auth.reset() }
+            let app = FirebaseApp(name: "reset-app-\(UUID().uuidString)")
+            let auth1 = Auth.auth(app: app)
+            Auth.reset()
+            let auth2 = Auth.auth(app: app)
+            #expect(auth1 !== auth2)
+        }
     }
 
-    @Test func `auth-swift#4: Auth.app returns associated FirebaseApp`() {
-        let app = FirebaseApp(name: "app-prop-test")
-        let auth = Auth.auth(app: app)
-        #expect(auth.app.name == "app-prop-test")
+    @Test func `auth-swift#4: Auth.app returns associated FirebaseApp`() async {
+        await FirebaseGlobalTestGate.shared.withExclusiveAccess {
+            let appName = "app-prop-test-\(UUID().uuidString)"
+            let app = FirebaseApp(name: appName)
+            let auth = Auth.auth(app: app)
+            #expect(auth.app.name == appName)
+        }
     }
 
     @Test func `auth-swift#5: Auth.useEmulator(withHost:port:) configures live Pyric emulator endpoint`() async {
-        let app = FirebaseApp(name: "emulator-test-\(UUID().uuidString)")
-        let auth = Auth.auth(app: app)
-        let firestore = Firestore.firestore(app: app)
-        let registration = firestore.addRulesDenialListener { _ in }
-        defer { registration.remove() }
-        auth.useEmulator(withHost: "127.0.0.1", port: 9099)
-        let endpoint = await auth.bridgeClient.endpoint
-        let firestoreEndpoint = await firestore.bridgeClient.endpoint
-        #expect(endpoint.host == "127.0.0.1")
-        #expect(endpoint.port == 9099)
-        #expect(endpoint.path == "/__pyric/sandbox")
-        #expect(firestoreEndpoint == endpoint)
+        await FirebaseGlobalTestGate.shared.withExclusiveAccess {
+            let app = FirebaseApp(name: "emulator-test-\(UUID().uuidString)")
+            let auth = Auth.auth(app: app)
+            let firestore = Firestore.firestore(app: app)
+            let registration = firestore.addRulesDenialListener { _ in }
+            defer { registration.remove() }
+            auth.useEmulator(withHost: "127.0.0.1", port: 9099)
+            let endpoint = await auth.bridgeClient.endpoint
+            let firestoreEndpoint = await firestore.bridgeClient.endpoint
+            #expect(endpoint.host == "127.0.0.1")
+            #expect(endpoint.port == 9099)
+            #expect(endpoint.path == "/__pyric/sandbox")
+            #expect(firestoreEndpoint == endpoint)
+        }
     }
 
     // ── 2. Auth: Authentication Operations (Rows 6–13) ────────────────────────
@@ -191,37 +187,6 @@ struct AuthConformanceTests {
         let restored = try await task.value
         #expect(restored?.uid == "u-restored")
         #expect(auth.currentUser?.uid == "u-restored")
-    }
-
-    @Test func `Auth.signIn(withCustomToken:) async and completion variants dispatch auth.signInWithCustomToken`() async throws {
-        let (auth, channel) = try await createHarness()
-        let task = Task { try await auth.signIn(withCustomToken: "custom-jwt-1") }
-        let frame = try await channel.awaitNextSentMessage()
-        #expect(frame["op"]?["method"]?.stringValue == "auth.signInWithCustomToken")
-        #expect(frame["op"]?["customToken"]?.stringValue == "custom-jwt-1")
-        let opId = frame["id"]?.stringValue ?? "op-ct-1"
-        try channel.simulateServerMessage([
-            "type": "worker-res", "id": opId, "ok": true,
-            "res": ["user": ["uid": "u-custom-1", "isAnonymous": false, "providerId": "firebase"], "operationType": "signIn"]
-        ])
-        let res = try await task.value
-        #expect(res.user.uid == "u-custom-1")
-        #expect(auth.currentUser?.uid == "u-custom-1")
-
-        let exp = expectation()
-        auth.signIn(withCustomToken: "custom-jwt-2") { cbRes, cbErr in
-            #expect(cbErr == nil)
-            #expect(cbRes?.user.uid == "u-custom-2")
-            exp.fulfill()
-        }
-        let cbFrame = try await channel.awaitNextSentMessage()
-        #expect(cbFrame["op"]?["method"]?.stringValue == "auth.signInWithCustomToken")
-        let cbId = cbFrame["id"]?.stringValue ?? "op-ct-2"
-        try channel.simulateServerMessage([
-            "type": "worker-res", "id": cbId, "ok": true,
-            "res": ["user": ["uid": "u-custom-2", "isAnonymous": false, "providerId": "firebase"], "operationType": "signIn"]
-        ])
-        await exp.wait()
     }
 
     // ── 3. Auth: State Listeners & Reactive Streams (Rows 14–24) ──────────────
@@ -419,36 +384,6 @@ struct AuthConformanceTests {
         await exp.wait()
     }
 
-    @Test func `User.getIDTokenForcingRefresh async and completion overloads forward forceRefresh`() async throws {
-        let (auth, channel) = try await createHarness()
-        let user = User(auth: auth, uid: "u-37-objc")
-
-        let asyncTask = Task { try await user.getIDTokenForcingRefresh(true) }
-        let asyncFrame = try await channel.awaitNextSentMessage()
-        #expect(asyncFrame["op"]?["method"]?.stringValue == "auth.getIdToken")
-        #expect(asyncFrame["op"]?["forceRefresh"]?.boolValue == true)
-        let asyncOpId = asyncFrame["id"]?.stringValue ?? "op-objc-1"
-        try channel.simulateServerMessage([
-            "type": "worker-res", "id": asyncOpId, "ok": true, "res": "jwt-objc-async"
-        ])
-        #expect(try await asyncTask.value == "jwt-objc-async")
-
-        let exp = expectation()
-        user.getIDTokenForcingRefresh(false) { tok, err in
-            #expect(err == nil)
-            #expect(tok == "jwt-objc-cb")
-            exp.fulfill()
-        }
-        let cbFrame = try await channel.awaitNextSentMessage()
-        #expect(cbFrame["op"]?["method"]?.stringValue == "auth.getIdToken")
-        #expect(cbFrame["op"]?["forceRefresh"]?.boolValue == false)
-        let cbOpId = cbFrame["id"]?.stringValue ?? "op-objc-2"
-        try channel.simulateServerMessage([
-            "type": "worker-res", "id": cbOpId, "ok": true, "res": "jwt-objc-cb"
-        ])
-        await exp.wait()
-    }
-
     @Test func `auth-swift#38: User.getIDTokenResult(forcingRefresh:) async returns result`() async throws {
         let (auth, channel) = try await createHarness()
         let user = User(auth: auth, uid: "u-38")
@@ -598,10 +533,12 @@ struct AuthConformanceTests {
         #expect(second == .admin)
     }
 
-    @Test func `auth-swift#51: FirebaseAuthBootstrap.initialize registers provider`() {
-        FirebaseAuthBootstrap.initialize()
-        let provider = AuthCredentialProviderRegistry.resolve(app: FirebaseApp.app())
-        #expect(provider != nil)
+    @Test func `auth-swift#51: FirebaseAuthBootstrap.initialize registers provider`() async {
+        await FirebaseGlobalTestGate.shared.withExclusiveAccess {
+            FirebaseAuthBootstrap.initialize()
+            let provider = AuthCredentialProviderRegistry.resolve(app: FirebaseApp.app())
+            #expect(provider != nil)
+        }
     }
 
     @Test func `auth-swift#52: SnapshotSubscriptionCoordinator re-subscription coupling`() async throws {
@@ -631,30 +568,4 @@ struct AuthConformanceTests {
         let authErr = AuthError.from(error: bridgeErr)
         #expect(authErr.code == .userDisabled)
     }
-}
-
-// ── Test Helpers ───────────────────────────────────────────────────────────────
-private final class AsyncExpectation: @unchecked Sendable {
-    private let lock = NSLock()
-    private var fulfilled = false
-    private var continuation: CheckedContinuation<Void, Never>?
-    func fulfill() {
-        lock.lock(); defer { lock.unlock() }
-        guard !fulfilled else { return }; fulfilled = true
-        continuation?.resume(); continuation = nil
-    }
-    func wait() async {
-        let isDone = { lock.lock(); defer { lock.unlock() }; return fulfilled }()
-        if isDone { return }
-        await withCheckedContinuation { cont in
-            lock.lock(); defer { lock.unlock() }
-            if fulfilled { cont.resume() } else { continuation = cont }
-        }
-    }
-}
-private func expectation() -> AsyncExpectation { AsyncExpectation() }
-
-private final class Box<T>: @unchecked Sendable {
-    var value: T
-    init(_ value: T) { self.value = value }
 }

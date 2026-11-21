@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import PyricFirestore
 
-@Suite("firestore-swift Core Conformance Suite")
+@Suite("firestore-swift Core Conformance Suite", .serialized)
 struct ConformanceCoreTests {
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -10,27 +10,47 @@ struct ConformanceCoreTests {
     // ══════════════════════════════════════════════════════════════════════════
 
     @Test func `firestore-swift#1: Firestore.firestore() returns default instance`() async throws {
-        _ = try await ConformanceMockHarness.create()
-        let db = Firestore.firestore()
-        #expect(db.settings.host == "127.0.0.1:5174")
+        try await FirebaseGlobalTestGate.shared.withExclusiveAccess {
+            Firestore.reset()
+            FirebaseApp.resetAppsForTesting()
+            defer {
+                Firestore.reset()
+                FirebaseApp.resetAppsForTesting()
+            }
+            let harness = try await ConformanceMockHarness.create(appName: "[DEFAULT]")
+            Firestore.shared = harness.firestore
+            let db = Firestore.firestore()
+            #expect(db.settings.host == "127.0.0.1:5174")
+        }
     }
 
     @Test func `firestore-swift#2: Firestore.firestore(app:) - Returns a Firestore instance associated with the specified FirebaseApp.`() async throws {
-        _ = try await ConformanceMockHarness.create()
-        let db = Firestore.firestore(database: "custom-app-db")
-        #expect(db.database == "custom-app-db")
+        await FirebaseGlobalTestGate.shared.withExclusiveAccess {
+            let app = FirebaseApp(name: "custom-app-\(UUID().uuidString)")
+            let db = Firestore.firestore(app: app)
+            #expect(db.app === app)
+        }
     }
 
     @Test func `firestore-swift#3: Firestore.firestore(app:database:) - Returns a named database instance for the specified FirebaseApp.`() async throws {
-        _ = try await ConformanceMockHarness.create()
-        let db = Firestore.firestore(database: "db-secondary")
-        #expect(db.database == "db-secondary")
+        await FirebaseGlobalTestGate.shared.withExclusiveAccess {
+            let app = FirebaseApp(name: "secondary-app-\(UUID().uuidString)")
+            let db = Firestore.firestore(app: app, database: "db-secondary")
+            #expect(db.database == "db-secondary")
+        }
     }
 
     @Test func `firestore-swift#4: Firestore.firestore(database:) - Returns a named database instance for the default FirebaseApp.`() async throws {
-        _ = try await ConformanceMockHarness.create()
-        let db = Firestore.firestore(database: "named-db")
-        #expect(db.database == "named-db")
+        await FirebaseGlobalTestGate.shared.withExclusiveAccess {
+            Firestore.reset()
+            FirebaseApp.resetAppsForTesting()
+            defer {
+                Firestore.reset()
+                FirebaseApp.resetAppsForTesting()
+            }
+            let db = Firestore.firestore(database: "named-db")
+            #expect(db.database == "named-db")
+        }
     }
 
     @Test func `firestore-swift#5: Firestore.settings - Provides custom client configuration including host, sslEnabled, dispatchQueue, and cacheSettings.`() async throws {

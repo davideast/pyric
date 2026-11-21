@@ -13,6 +13,7 @@ struct FirestoreInstanceLiveHostConformanceTests {
             return
         }
 
+        try await FirebaseGlobalTestGate.shared.withExclusiveAccess {
         FirebaseApp.configure(
             options: FirebaseOptions(
                 projectID: "demo-swift-live",
@@ -75,13 +76,16 @@ struct FirestoreInstanceLiveHostConformanceTests {
             await appB.disconnectSharedBridge()
             Firestore.reset()
             Auth.reset()
+            FirebaseApp.resetAppsForTesting()
         } catch {
             await defaultApp.disconnectSharedBridge()
             await appA.disconnectSharedBridge()
             await appB.disconnectSharedBridge()
             Firestore.reset()
             Auth.reset()
+            FirebaseApp.resetAppsForTesting()
             throw error
+        }
         }
     }
 

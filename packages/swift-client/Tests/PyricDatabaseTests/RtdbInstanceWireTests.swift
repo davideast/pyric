@@ -181,31 +181,32 @@ struct RtdbInstanceWireTests {
     }
 
     @Test("Database.database(app:url:) canonicalizes InstanceKey and validates reference(fromURL:)")
-    func testCanonicalInstanceKeyAndReferenceFromURL() throws {
-        let app = FirebaseApp(name: "rtdb-canon-\(UUID().uuidString)")
-        defer { Database.reset() }
+    func testCanonicalInstanceKeyAndReferenceFromURL() async {
+        await FirebaseGlobalTestGate.shared.withExclusiveAccess {
+            let app = FirebaseApp(name: "rtdb-canon-\(UUID().uuidString)")
 
-        let primary = Database.database(app: app, url: "https://shard-03.firebaseio.com")
-        let trailingSlash = Database.database(app: app, url: "https://SHARD-03.firebaseio.com/")
-        let regional = Database.database(app: app, url: "https://shard-03.europe-west1.firebasedatabase.app")
-        #expect(primary === trailingSlash)
-        #expect(primary === regional)
+            let primary = Database.database(app: app, url: "https://shard-03.firebaseio.com")
+            let trailingSlash = Database.database(app: app, url: "https://SHARD-03.firebaseio.com/")
+            let regional = Database.database(app: app, url: "https://shard-03.europe-west1.firebasedatabase.app")
+            #expect(primary === trailingSlash)
+            #expect(primary === regional)
 
-        let ref = primary.reference(fromURL: "https://shard-03.firebaseio.com/shards/shard-03/item%20a")
-        #expect(ref.path == "/shards/shard-03/item a")
-        #expect(ref.url == "https://shard-03.firebaseio.com/shards/shard-03/item%20a")
+            let ref = primary.reference(fromURL: "https://shard-03.firebaseio.com/shards/shard-03/item%20a")
+            #expect(ref.path == "/shards/shard-03/item a")
+            #expect(ref.url == "https://shard-03.firebaseio.com/shards/shard-03/item%20a")
 
-        #expect(
-            throws: DatabaseURLValidationError.hostMismatch(
-                found: "shard-04.firebaseio.com",
-                expected: "shard-03.firebaseio.com"
-            )
-        ) {
-            _ = try DatabaseInstanceResolver.validateReferenceURL(
-                "https://shard-04.firebaseio.com/shards/shard-04/item",
-                databaseURL: primary.url,
-                emulatorHost: nil
-            )
+            #expect(
+                throws: DatabaseURLValidationError.hostMismatch(
+                    found: "shard-04.firebaseio.com",
+                    expected: "shard-03.firebaseio.com"
+                )
+            ) {
+                _ = try DatabaseInstanceResolver.validateReferenceURL(
+                    "https://shard-04.firebaseio.com/shards/shard-04/item",
+                    databaseURL: primary.url,
+                    emulatorHost: nil
+                )
+            }
         }
     }
 

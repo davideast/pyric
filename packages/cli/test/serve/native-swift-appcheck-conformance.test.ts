@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
 import type { AddressInfo, Socket } from 'node:net';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { WebSocket, WebSocketServer } from 'ws';
 import { createMemoryBackend, initializeSandbox } from 'pyric/sandbox';
 import { deleteApp, initializeApp } from 'pyric-admin/app';
@@ -18,6 +18,15 @@ import { createBridge } from '../../src/bridge/server/bridge.js';
 import { attachPeer } from '../../src/bridge/server/peer.js';
 import { createHostedRuntime } from '../../src/serve/hosted/runtime.js';
 import type { RtdbRulesJson } from '../../src/serve/init-payload.js';
+import {
+  SWIFT_LIVE_HOST_SCRATCH_SUBPATH,
+  SWIFT_LIVE_HOST_TEST_TIMEOUT_MS,
+  SWIFT_TEST_TIMEOUT_MS,
+  buildSwiftLiveHostTests,
+  collectProcessEnv,
+  formatSubprocessFailure,
+  runManagedSubprocess,
+} from './swift-live-host-subprocess.ts';
 
 const REPO_ROOT = resolve(import.meta.dir, '../../../..');
 const SWIFT_CLIENT_DIR = resolve(REPO_ROOT, 'packages/swift-client');
@@ -364,6 +373,19 @@ describe('native Swift App Check live-host conformance', () => {
       if (detectedSwiftBinary === null) {
         throw new Error('PYRIC_REQUIRE_SWIFT_LIVE=1 requires a runnable swift test toolchain.');
       }
+      const swiftScratchDir = join(SWIFT_CLIENT_DIR, SWIFT_LIVE_HOST_SCRATCH_SUBPATH);
+      const baseEnv = collectProcessEnv();
+      const buildRun = await buildSwiftLiveHostTests({
+        swiftBinary: detectedSwiftBinary,
+        repoRoot: REPO_ROOT,
+        swiftPackageDir: SWIFT_CLIENT_DIR,
+        swiftScratchDir,
+        env: baseEnv,
+      });
+      const buildDetails = formatSubprocessFailure('build', buildRun.attempt, buildRun.result);
+      expect(buildRun.result.timedOut, buildDetails).toBe(false);
+      expect(buildRun.result.exitCode, buildDetails).toBe(0);
+
       const host = await startLiveSwiftAppCheckBridgeHost();
       const verifySandbox = initializeSandbox({ projectId: PROJECT_ID });
       const adminApp = initializeApp(
@@ -372,51 +394,37 @@ describe('native Swift App Check live-host conformance', () => {
       );
 
       try {
-        const childEnv: Record<string, string> = {};
-        for (const [key, value] of Object.entries(process.env)) {
-          if (value !== undefined) {
-            childEnv[key] = value;
-          }
-        }
-        childEnv.PYRIC_LIVE_APPCHECK_BRIDGE_URL = host.bridgeUrl;
+        const childEnv: Record<string, string> = {
+          ...baseEnv,
+          PYRIC_LIVE_APPCHECK_BRIDGE_URL: host.bridgeUrl,
+        };
 
-        const proc = Bun.spawn(
-          [
-            detectedSwiftBinary,
+        const testResult = await runManagedSubprocess({
+          command: detectedSwiftBinary,
+          args: [
             'test',
+            '--skip-build',
+            '--disable-xctest',
+            '--disable-index-store',
+            '-Xswiftc',
+            '-gnone',
             '--no-parallel',
             '--package-path',
             SWIFT_CLIENT_DIR,
+            '--scratch-path',
+            swiftScratchDir,
             '--filter',
             'PyricAppCheckTests',
           ],
-          {
-            cwd: REPO_ROOT,
-            env: childEnv,
-            stdout: 'pipe',
-            stderr: 'pipe',
-          },
-        );
-        const killTimer = setTimeout(() => proc.kill(), 180_000);
-        let stdout = '';
-        let stderr = '';
-        let exitCode = 1;
-        try {
-          [stdout, stderr, exitCode] = await Promise.all([
-            new Response(proc.stdout).text(),
-            new Response(proc.stderr).text(),
-            proc.exited,
-          ]);
-        } finally {
-          clearTimeout(killTimer);
-          proc.kill();
-        }
-
-        const combined = `${stdout}\n${stderr}`;
-        if (exitCode !== 0) {
-          throw new Error(`swift test PyricAppCheckTests exited ${exitCode}:\n${combined}`);
-        }
-        expect(combined).not.toContain('with 0 tests');
+          cwd: REPO_ROOT,
+          env: childEnv,
+          timeoutMs: SWIFT_TEST_TIMEOUT_MS,
+        });
+        const combined = `${testResult.stdout}\n${testResult.stderr}`;
+        const testDetails = formatSubprocessFailure('test', 1, testResult);
+        expect(testResult.timedOut, testDetails).toBe(false);
+        expect(testResult.exitCode, testDetails).toBe(0);
+        expect(combined, testDetails).not.toContain('with 0 tests');
 
         // Verify every standard RS256 JWT minted by the Swift client with pyric-admin verifyToken().
         const adminAppCheck = getAppCheck(adminApp);
@@ -455,6 +463,6 @@ describe('native Swift App Check live-host conformance', () => {
         await host.close();
       }
     },
-    180_000,
+    SWIFT_LIVE_HOST_TEST_TIMEOUT_MS,
   );
 });
