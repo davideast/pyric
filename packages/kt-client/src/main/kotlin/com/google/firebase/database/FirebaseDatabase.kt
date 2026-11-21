@@ -4,6 +4,7 @@ import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
 import dev.pyric.auth.AuthLens
 import dev.pyric.auth.CredentialsProvider
+import dev.pyric.auth.ServiceAuthLens
 import dev.pyric.bridge.BridgeProtocol
 import dev.pyric.bridge.PyricBridgeClient
 import dev.pyric.database.internal.DatabaseInstanceResolver
@@ -26,39 +27,24 @@ class FirebaseDatabase(
     val credentialsProvider: CredentialsProvider? = null
 ) {
     internal val databaseScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var explicitAuthLens: AuthLens? = null
 
-    private val _effectiveAuthLensFlow = MutableStateFlow(
-        credentialsProvider?.getEffectiveLens() ?: AuthLens.Anon
+    private val serviceAuthLens = ServiceAuthLens(
+        credentialsProvider = credentialsProvider,
+        bridgeClient = bridgeClient,
+        scope = databaseScope
     )
-    val authLensFlow: StateFlow<AuthLens> = _effectiveAuthLensFlow.asStateFlow()
+
+    val authLensFlow: StateFlow<AuthLens> = serviceAuthLens.authLensFlow
 
     /** Off between goOffline() and goOnline(); `.info/connected` is false while it is off. */
     private val _networkEnabled = MutableStateFlow(true)
     internal val networkEnabled: StateFlow<Boolean> = _networkEnabled.asStateFlow()
 
-    init {
-        databaseScope.launch {
-            credentialsProvider?.authLensFlow?.collect { lens ->
-                if (explicitAuthLens == null) {
-                    _effectiveAuthLensFlow.value = lens
-                }
-            }
-        }
-        databaseScope.launch {
-            bridgeClient.remoteLensEvents.collect { lens ->
-                _effectiveAuthLensFlow.value = lens
-            }
-        }
-    }
-
     fun setAuthLens(lens: AuthLens?) {
-        explicitAuthLens = lens
-        _effectiveAuthLensFlow.value =
-            lens ?: credentialsProvider?.getEffectiveLens() ?: AuthLens.Anon
+        serviceAuthLens.setExplicitLens(lens)
     }
 
-    fun getEffectiveAuthLens(): AuthLens = _effectiveAuthLensFlow.value
+    fun getEffectiveAuthLens(): AuthLens = serviceAuthLens.getEffectiveLens()
 
     val reference: DatabaseReference
         get() = DatabaseReference(this, "")
