@@ -1,0 +1,15 @@
+{
+  "schema": "pyric.conformance.surface.v2",
+  "kind": "integration",
+  "developerSurface": "crashlytics-flutter",
+  "contractSource": "firebase_crashlytics",
+  "observationPrefixes": [
+    "crashlytics-flutter-"
+  ],
+  "coverage": true,
+  "scopeNote": "integration contract: Pure-Dart Flutter client (pyric_crashlytics) conforming to firebase_crashlytics via the Pyric WebSocket bridge and CrashlyticsBroker. Covers per-app FirebaseCrashlytics.instance and instanceFor isolation, setCrashlyticsCollectionEnabled overrides, log and setUserIdentifier, setCustomKey and setCustomKeysAndValues with null deletion, recordError and recordFlutterError / recordFlutterFatalError DiagnosticsNode extraction, simulated crash() and didCrashOnPreviousExecution, unsent report queues, flush and fetchAppState, and RS256 App Check token attachment.",
+  "captureRigs": [],
+  "conformanceSuite": "packages/flutter-client/test/crashlytics/firebase_crashlytics_unit_test.dart",
+  "climb": true,
+  "registry": "crashlytics-flutter"
+}

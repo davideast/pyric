@@ -11,6 +11,10 @@ import { authRegistry } from './auth.ts';
 import { authFlutterRegistry } from './auth-flutter.ts';
 import { authKotlinRegistry } from './auth-kotlin.ts';
 import { authSwiftRegistry } from './auth-swift.ts';
+import { crashlyticsRegistry } from './crashlytics.ts';
+import { crashlyticsFlutterRegistry } from './crashlytics-flutter.ts';
+import { crashlyticsKotlinRegistry } from './crashlytics-kotlin.ts';
+import { crashlyticsSwiftRegistry } from './crashlytics-swift.ts';
 import { firestoreRegistry } from './firestore.ts';
 import { firestoreFlutterRegistry } from './firestore-flutter.ts';
 import { firestoreKotlinRegistry } from './firestore-kotlin.ts';
@@ -81,6 +85,10 @@ export const registriesByKey: Record<string, CompatibilitySurfaceRegistry> = Obj
     messagingFlutterRegistry,
     messagingKotlinRegistry,
     messagingSwiftRegistry,
+    crashlyticsRegistry,
+    crashlyticsFlutterRegistry,
+    crashlyticsKotlinRegistry,
+    crashlyticsSwiftRegistry,
   ].map((r) => [r.surface, r]),
 );
 
@@ -103,6 +111,10 @@ export {
   authFlutterRegistry,
   authKotlinRegistry,
   authSwiftRegistry,
+  crashlyticsRegistry,
+  crashlyticsFlutterRegistry,
+  crashlyticsKotlinRegistry,
+  crashlyticsSwiftRegistry,
   firestoreKotlinRegistry,
   functionsFlutterRegistry,
   functionsKotlinRegistry,
