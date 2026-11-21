@@ -260,7 +260,7 @@ internal object StorageByteRouteClient {
             var retryGenerationMismatch = false
             var fetchedBytes: ByteArray? = null
             httpClient.newCall(reqBuilder.build()).execute().use { response ->
-                if (response.code == 412 && attempt == 0) {
+                if (response.code == 412) {
                     retryGenerationMismatch = true
                 } else if (!response.isSuccessful) {
                     throw httpStatusToStorageException(response.code, reference.wirePath)
@@ -277,7 +277,7 @@ internal object StorageByteRouteClient {
             }
             return bytes
         }
-        throw StorageException(StorageException.ERROR_RETRY_LIMIT_EXCEEDED)
+        throw StorageException(StorageException.ERROR_RETRY_LIMIT_EXCEEDED, httpResultCode = 412)
     }
 
     suspend fun downloadRangeOverRoute(
@@ -412,7 +412,8 @@ internal object StorageByteRouteClient {
                 httpResultCode = 404
             )
             409 -> StorageException(StorageException.ERROR_INVALID_CHECKSUM, httpResultCode = 409)
-            413 -> StorageException(StorageException.ERROR_QUOTA_EXCEEDED, httpResultCode = 413)
+            402, 413 -> StorageException(StorageException.ERROR_QUOTA_EXCEEDED, httpResultCode = statusCode)
+            503, 504 -> StorageException(StorageException.ERROR_RETRY_LIMIT_EXCEEDED, httpResultCode = statusCode)
             else -> StorageException(
                 StorageException.ERROR_UNKNOWN,
                 "Storage HTTP byte route returned status $statusCode for '$path'.",

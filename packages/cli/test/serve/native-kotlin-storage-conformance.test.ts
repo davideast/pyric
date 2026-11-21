@@ -3,10 +3,12 @@ import { describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { createServer } from 'node:http';
+import { createServer, type IncomingMessage } from 'node:http';
 import type { AddressInfo, Socket } from 'node:net';
 import { join, resolve } from 'node:path';
-import { createMemoryBackend } from 'pyric/sandbox';
+import { createMemoryBackend, initializeSandbox } from 'pyric/sandbox';
+import { deleteApp, initializeApp } from 'pyric-admin/app';
+import { getAppCheck } from 'pyric-admin/app-check';
 import { WebSocket, WebSocketServer } from 'ws';
 import {
   createPrivateJobTmpDir,
@@ -31,8 +33,10 @@ import type { RtdbRulesJson } from '../../src/serve/init-payload.js';
 const REPO_ROOT = resolve(import.meta.dir, '../../../..');
 const KT_CLIENT_DIR = resolve(REPO_ROOT, 'packages/kt-client');
 const PROJECT_ID = 'demo-kotlin-storage';
+const ANDROID_APP_ID = '1:424242424242:android:kotlinstorage';
 const DEFAULT_BUCKET = `${PROJECT_ID}.appspot.com`;
 const CUSTOM_BUCKET = 'kotlin-custom-bucket';
+const STORAGE_BYTE_ROUTE_PATH_PREFIX = '/__pyric/storage/v0/b/';
 
 const STORAGE_RULES = [
   "rules_version = '2';",
@@ -123,10 +127,39 @@ function makeTestHostedPersistence(projectDir: string): HostedPersistence {
   };
 }
 
+interface ObservedStorageAppCheckTraffic {
+  readonly mintedStandardTokens: string[];
+  readonly wsTokensByMethod: Map<string, string[]>;
+  readonly httpPutAppCheckTokens: string[];
+  readonly httpGetAppCheckTokens: string[];
+}
+
 interface LiveStorageBridgeHost {
   readonly baseOrigin: string;
   readonly bridgeUrl: string;
+  readonly traffic: ObservedStorageAppCheckTraffic;
   close(): Promise<void>;
+}
+
+function recordHttpAppCheckHeader(
+  traffic: ObservedStorageAppCheckTraffic,
+  req: IncomingMessage,
+  pathname: string,
+): void {
+  if (!pathname.startsWith(STORAGE_BYTE_ROUTE_PATH_PREFIX)) return;
+  const rawHeader = req.headers['x-firebase-appcheck'];
+  let token: string | undefined;
+  if (typeof rawHeader === 'string' && rawHeader.length > 0) {
+    token = rawHeader;
+  } else if (Array.isArray(rawHeader) && typeof rawHeader[0] === 'string' && rawHeader[0].length > 0) {
+    token = rawHeader[0];
+  }
+  if (token === undefined) return;
+  if (req.method === 'PUT') {
+    traffic.httpPutAppCheckTokens.push(token);
+  } else if (req.method === 'GET') {
+    traffic.httpGetAppCheckTokens.push(token);
+  }
 }
 
 async function startLiveStorageBridgeHost(): Promise<LiveStorageBridgeHost> {
@@ -136,6 +169,14 @@ async function startLiveStorageBridgeHost(): Promise<LiveStorageBridgeHost> {
   const sockets = new Set<Socket>();
   const wss = new WebSocketServer({ noServer: true });
   let baseOrigin = 'http://127.0.0.1:0';
+
+  const traffic: ObservedStorageAppCheckTraffic = {
+    mintedStandardTokens: [],
+    wsTokensByMethod: new Map(),
+    httpPutAppCheckTokens: [],
+    httpGetAppCheckTokens: [],
+  };
+  const pendingStandardMintIds = new Set<string>();
 
   const runtime = await createHostedRuntime(
     {
@@ -151,10 +192,21 @@ async function startLiveStorageBridgeHost(): Promise<LiveStorageBridgeHost> {
       hosted: true,
       permissive: false,
       projectKey: projectDir,
-      appOptions: { projectId: PROJECT_ID, storageBucket: DEFAULT_BUCKET },
+      appOptions: {
+        projectId: PROJECT_ID,
+        appId: ANDROID_APP_ID,
+        storageBucket: DEFAULT_BUCKET,
+      },
     },
     () => baseOrigin,
     (frame) => {
+      if (frame.type === 'worker-res' && frame.ok && pendingStandardMintIds.has(frame.id)) {
+        pendingStandardMintIds.delete(frame.id);
+        const payload = frame.value as { token?: unknown } | null;
+        if (payload !== null && typeof payload === 'object' && typeof payload.token === 'string') {
+          traffic.mintedStandardTokens.push(payload.token);
+        }
+      }
       bridge.handleSandboxMessage(frame);
     },
     projectDir,
@@ -165,7 +217,25 @@ async function startLiveStorageBridgeHost(): Promise<LiveStorageBridgeHost> {
   await runtime.deployRules('storage', STORAGE_RULES, { bucket: CUSTOM_BUCKET });
 
   const unregisterPeer = bridge.registerSandboxPeer(
-    runtime.receive,
+    (inbound) => {
+      if (inbound.type === 'worker-op') {
+        const opRecord = inbound.op as Record<string, unknown>;
+        const method = opRecord.method;
+        if (method === 'appCheck.getToken') {
+          pendingStandardMintIds.add(inbound.id);
+        }
+        const attached = opRecord.appCheckToken;
+        if (typeof method === 'string' && typeof attached === 'string' && attached.length > 0) {
+          let existing = traffic.wsTokensByMethod.get(method);
+          if (existing === undefined) {
+            existing = [];
+            traffic.wsTokensByMethod.set(method, existing);
+          }
+          existing.push(attached);
+        }
+      }
+      runtime.receive(inbound);
+    },
     [...runtime.toolNames],
     runtime.instanceId,
     [WORKER_PORT_CAPABILITY, WORKER_RELAY_CAPABILITY, STORAGE_BYTE_ROUTE_CAPABILITY],
@@ -175,6 +245,7 @@ async function startLiveStorageBridgeHost(): Promise<LiveStorageBridgeHost> {
     let rawUrl = '/';
     if (typeof req.url === 'string') rawUrl = req.url;
     const parsedUrl = new URL(rawUrl, baseOrigin);
+    recordHttpAppCheckHeader(traffic, req, parsedUrl.pathname);
     void runtime.storageHttp(req, res, parsedUrl).then(
       (handled) => {
         if (!handled && !res.headersSent) res.writeHead(404).end();
@@ -212,6 +283,7 @@ async function startLiveStorageBridgeHost(): Promise<LiveStorageBridgeHost> {
   return {
     baseOrigin,
     bridgeUrl,
+    traffic,
     async close() {
       for (const client of wss.clients) client.terminate();
       for (const socket of sockets) socket.destroy();
@@ -246,13 +318,37 @@ function detectCompatibleJavaMajor(): number | null {
   return major;
 }
 
-const requireKotlinLive = process.env.PYRIC_REQUIRE_KOTLIN_LIVE === '1';
-const isGenericCiShard = process.env.CI === 'true' && !requireKotlinLive;
+function shouldSkipKotlinLiveGradleRun(
+  ciEnv: string | undefined,
+  requireLiveEnv: string | undefined,
+  javaMajor: number | null,
+): boolean {
+  const requiresLive = requireLiveEnv === '1';
+  if (requiresLive) return false;
+  const genericCiShard = ciEnv === 'true';
+  if (genericCiShard) return true;
+  const compatibleJdk = javaMajor !== null && javaMajor >= 21;
+  return !compatibleJdk;
+}
+
 const detectedJavaMajor = detectCompatibleJavaMajor();
 const hasCompatibleJdk = detectedJavaMajor !== null && detectedJavaMajor >= 21;
-const shouldSkipGradleRun = !requireKotlinLive && (isGenericCiShard || !hasCompatibleJdk);
+const shouldSkipGradleRun = shouldSkipKotlinLiveGradleRun(
+  process.env.CI,
+  process.env.PYRIC_REQUIRE_KOTLIN_LIVE,
+  detectedJavaMajor,
+);
 
 describe('native Kotlin Storage live-host conformance', () => {
+  test('evaluates CI=true and PYRIC_REQUIRE_KOTLIN_LIVE skip-gate matrix cleanly', () => {
+    expect(shouldSkipKotlinLiveGradleRun('true', undefined, 21)).toBe(true);
+    expect(shouldSkipKotlinLiveGradleRun('true', '0', 21)).toBe(true);
+    expect(shouldSkipKotlinLiveGradleRun('true', '1', 21)).toBe(false);
+    expect(shouldSkipKotlinLiveGradleRun(undefined, undefined, 17)).toBe(true);
+    expect(shouldSkipKotlinLiveGradleRun(undefined, undefined, null)).toBe(true);
+    expect(shouldSkipKotlinLiveGradleRun(undefined, undefined, 21)).toBe(false);
+  });
+
   test('enforces Storage Security Rules and transfers bytes over HostedRuntime WebSocket + HTTP byte route', async () => {
     const host = await startLiveStorageBridgeHost();
     const socket = new WebSocket(host.bridgeUrl);
@@ -384,6 +480,12 @@ describe('native Kotlin Storage live-host conformance', () => {
       }
 
       const host = await startLiveStorageBridgeHost();
+      const verifySandbox = initializeSandbox({ projectId: PROJECT_ID });
+      const adminApp = initializeApp(
+        { sandbox: verifySandbox, projectId: PROJECT_ID },
+        `storage-appcheck-verify-${Date.now()}`,
+      );
+
       try {
         const gradlew = resolve(KT_CLIENT_DIR, 'gradlew');
         const proc = Bun.spawn(
@@ -406,6 +508,7 @@ describe('native Kotlin Storage live-host conformance', () => {
               PYRIC_LIVE_STORAGE_PROJECT_ID: PROJECT_ID,
               PYRIC_LIVE_STORAGE_DEFAULT_BUCKET: DEFAULT_BUCKET,
               PYRIC_LIVE_STORAGE_CUSTOM_BUCKET: CUSTOM_BUCKET,
+              PYRIC_LIVE_STORAGE_APP_ID: ANDROID_APP_ID,
             },
             stdout: 'pipe',
             stderr: 'pipe',
@@ -426,7 +529,7 @@ describe('native Kotlin Storage live-host conformance', () => {
         expect(existsSync(resultsDir)).toBe(true);
         const reportPattern = /^TEST-dev\.pyric\.e2e\.Storage.*LiveHostConformanceTest\.xml$/;
         const reportNames = readdirSync(resultsDir).filter((entry) => reportPattern.test(entry));
-        expect(reportNames.length).toBeGreaterThanOrEqual(1);
+        expect(reportNames.length).toBeGreaterThanOrEqual(2);
 
         let totalExecutedTests = 0;
         for (const reportName of reportNames) {
@@ -443,8 +546,38 @@ describe('native Kotlin Storage live-host conformance', () => {
           expect(xml).toContain('skipped="0"');
           totalExecutedTests += executedTests;
         }
-        expect(totalExecutedTests).toBeGreaterThanOrEqual(5);
+        expect(totalExecutedTests).toBeGreaterThanOrEqual(15);
+
+        const adminAppCheck = getAppCheck(adminApp);
+        const verifyTokenBatch = async (tokens: readonly string[], minCount: number, label: string) => {
+          expect(tokens.length, `expected >= ${minCount} tokens on ${label}`).toBeGreaterThanOrEqual(minCount);
+          for (const jwt of tokens) {
+            const verified = await adminAppCheck.verifyToken(jwt);
+            expect(verified.appId).toBe(ANDROID_APP_ID);
+            expect(verified.token.aud).toContain(`projects/${PROJECT_ID}`);
+          }
+        };
+
+        await verifyTokenBatch(host.traffic.mintedStandardTokens, 2, 'appCheck.getToken');
+        for (const methodName of [
+          'storage.beginUpload',
+          'storage.finishUpload',
+          'storage.getMetadata',
+          'storage.getDownloadURL',
+          'storage.listAll',
+          'storage.deleteObject',
+        ]) {
+          const methodTokens = host.traffic.wsTokensByMethod.get(methodName);
+          if (methodTokens === undefined) {
+            throw new Error(`Expected attached App Check token on ${methodName}`);
+          }
+          await verifyTokenBatch(methodTokens, 1, methodName);
+        }
+        await verifyTokenBatch(host.traffic.httpPutAppCheckTokens, 2, 'HTTP PUT byte route');
+        await verifyTokenBatch(host.traffic.httpGetAppCheckTokens, 3, 'HTTP GET byte route');
       } finally {
+        await deleteApp(adminApp);
+        verifySandbox.dispose();
         await host.close();
       }
     },
