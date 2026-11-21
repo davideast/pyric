@@ -18,7 +18,6 @@ class Transaction internal constructor(
     private val firestore: FirebaseFirestore
 ) {
     internal val txnId: String = "kt-txn-${UUID.randomUUID()}"
-    internal var hasReadOnServer: Boolean = false
     internal val reads = mutableListOf<Map<String, Any?>>()
     internal val writes = mutableListOf<Map<String, Any?>>()
 
@@ -51,7 +50,6 @@ class Transaction internal constructor(
         val scope = CoroutineScope(Dispatchers.IO)
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
-                hasReadOnServer = true
                 val res = firestore.bridgeClient.op(
                     method = "getDoc",
                     params = mapOf("path" to documentRef.path, "txnId" to txnId),

@@ -100,16 +100,16 @@ open class Query internal constructor(
         }
     }
 
-    fun orderBy(field: String, direction: Direction = Direction.ASCENDING): Query {
+    fun orderBy(field: String, direction: Direction = Direction.ASCENDING): Query =
+        orderBy(FieldPath.fromDotSeparated(field), direction)
+
+    fun orderBy(fieldPath: FieldPath, direction: Direction = Direction.ASCENDING): Query {
         require(cursors.isEmpty()) {
             "You must not call Query.startAt() or Query.startAfter() before calling Query.orderBy()."
         }
         val dir = if (direction == Direction.ASCENDING) dev.pyric.codecs.Direction.ASCENDING else dev.pyric.codecs.Direction.DESCENDING
-        return copy(orderBys = orderBys + OrderBy(field, dir))
+        return copy(orderBys = orderBys + OrderBy(fieldPath.canonicalString, dir, fieldPath))
     }
-
-    fun orderBy(fieldPath: FieldPath, direction: Direction = Direction.ASCENDING): Query =
-        orderBy(fieldPath.canonicalString, direction)
 
     fun limit(limit: Long): Query {
         require(limit > 0) { "Given limit must be greater than 0" }
@@ -122,31 +122,38 @@ open class Query internal constructor(
     }
 
     fun startAt(vararg fieldValues: Any?): Query =
-        addCursor(Cursor.Kind.START_AT, fieldValues.toList())
+        addCursor(Cursor(Cursor.Kind.START_AT, fieldValues.toList()))
 
     fun startAt(snapshot: DocumentSnapshot): Query =
-        addCursor(Cursor.Kind.START_AT, extractSnapshotValues(snapshot))
+        addSnapshotCursor(Cursor.Kind.START_AT, snapshot)
 
     fun startAfter(vararg fieldValues: Any?): Query =
-        addCursor(Cursor.Kind.START_AFTER, fieldValues.toList())
+        addCursor(Cursor(Cursor.Kind.START_AFTER, fieldValues.toList()))
 
     fun startAfter(snapshot: DocumentSnapshot): Query =
-        addCursor(Cursor.Kind.START_AFTER, extractSnapshotValues(snapshot))
+        addSnapshotCursor(Cursor.Kind.START_AFTER, snapshot)
 
     fun endBefore(vararg fieldValues: Any?): Query =
-        addCursor(Cursor.Kind.END_BEFORE, fieldValues.toList())
+        addCursor(Cursor(Cursor.Kind.END_BEFORE, fieldValues.toList()))
 
     fun endBefore(snapshot: DocumentSnapshot): Query =
-        addCursor(Cursor.Kind.END_BEFORE, extractSnapshotValues(snapshot))
+        addSnapshotCursor(Cursor.Kind.END_BEFORE, snapshot)
 
     fun endAt(vararg fieldValues: Any?): Query =
-        addCursor(Cursor.Kind.END_AT, fieldValues.toList())
+        addCursor(Cursor(Cursor.Kind.END_AT, fieldValues.toList()))
 
     fun endAt(snapshot: DocumentSnapshot): Query =
-        addCursor(Cursor.Kind.END_AT, extractSnapshotValues(snapshot))
+        addSnapshotCursor(Cursor.Kind.END_AT, snapshot)
 
-    private fun addCursor(kind: Cursor.Kind, values: List<Any?>): Query {
-        val newCursor = Cursor(kind, values)
+    private fun addSnapshotCursor(kind: Cursor.Kind, snapshot: DocumentSnapshot): Query {
+        require(snapshot.exists()) {
+            "Can't use a DocumentSnapshot for a document that doesn't exist for ${kind.wireKind}()."
+        }
+        return addCursor(Cursor(kind, emptyList(), snapshot = snapshot))
+    }
+
+    private fun addCursor(newCursor: Cursor): Query {
+        val kind = newCursor.kind
         val filtered = cursors.filter {
             if (kind == Cursor.Kind.START_AT || kind == Cursor.Kind.START_AFTER) {
                 it.kind != Cursor.Kind.START_AT && it.kind != Cursor.Kind.START_AFTER
@@ -155,21 +162,6 @@ open class Query internal constructor(
             }
         }
         return copy(cursors = filtered + newCursor)
-    }
-
-    private fun extractSnapshotValues(snapshot: DocumentSnapshot): List<Any?> {
-        require(snapshot.exists()) {
-            "Can't use a DocumentSnapshot for a document that doesn't exist for startAt()."
-        }
-        val values = mutableListOf<Any?>()
-        for (order in orderBys) {
-            if (order.field == "__name__") {
-                values.add(snapshot.reference.path)
-            } else {
-                values.add(snapshot.get(order.field))
-            }
-        }
-        return values
     }
 
     fun toTargetDescriptor(): Map<String, Any?> {
@@ -192,41 +184,84 @@ open class Query internal constructor(
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 val targetDesc = toTargetDescriptor()
-                val res = firestore.bridgeClient.op(
-                    method = "getDocs",
-                    params = mapOf("source" to targetDesc),
-                    actAs = firestore.getEffectiveAuthLens().toMap()
-                )
-                @Suppress("UNCHECKED_CAST")
-                val resMap = res as? Map<String, Any?> ?: emptyMap()
-                @Suppress("UNCHECKED_CAST")
-                val rawDocs = (resMap["docs"] as? List<Map<String, Any?>>) ?: emptyList()
-
-                val docs = rawDocs.map { docMap ->
-                    val docId = docMap["id"] as String
-                    val docPath = docMap["path"] as String
-                    val unpackedData = DocumentDataEnvelope.unpack(docMap["data"]) { p -> firestore.document(p) }
-                    QueryDocumentSnapshot(
-                        id = docId,
-                        reference = firestore.document(docPath),
-                        dataMap = unpackedData,
-                        metadata = SnapshotMetadata(hasPendingWrites = false, isFromCache = false)
-                    )
+                if (source == Source.CACHE) {
+                    if (!firestore.firestoreSettings.isPersistenceEnabled) {
+                        throw FirebaseFirestoreException(
+                            "Failed to get documents from cache. Persistence is disabled.",
+                            FirebaseFirestoreException.Code.UNAVAILABLE
+                        )
+                    }
+                    val cachedRawDocs = QueryCacheStore.get(firestore, targetDesc) ?: emptyList()
+                    tcs.setResult(buildOneShotSnapshot(cachedRawDocs, isFromCache = true))
+                    return@launch
                 }
 
-                val snapshot = QuerySnapshot(
-                    query = this@Query,
-                    documents = docs,
-                    documentChanges = DocumentChangeCalculator.initialChanges(docs),
-                    metadata = SnapshotMetadata(hasPendingWrites = false, isFromCache = false),
-                    excludesMetadataChanges = false
-                )
-                tcs.setResult(snapshot)
+                if (!QueryCacheStore.isNetworkEnabled(firestore)) {
+                    if (source == Source.SERVER || !firestore.firestoreSettings.isPersistenceEnabled) {
+                        throw FirebaseFirestoreException(
+                            "Failed to get documents from server. Client is offline.",
+                            FirebaseFirestoreException.Code.UNAVAILABLE
+                        )
+                    }
+                    val cachedRawDocs = QueryCacheStore.get(firestore, targetDesc) ?: emptyList()
+                    tcs.setResult(buildOneShotSnapshot(cachedRawDocs, isFromCache = true))
+                    return@launch
+                }
+
+                try {
+                    val res = firestore.bridgeClient.op(
+                        method = "getDocs",
+                        params = mapOf("source" to targetDesc),
+                        actAs = firestore.getEffectiveAuthLens().toMap()
+                    )
+                    @Suppress("UNCHECKED_CAST")
+                    val resMap = res as? Map<String, Any?> ?: emptyMap()
+                    @Suppress("UNCHECKED_CAST")
+                    val rawDocs = (resMap["docs"] as? List<Map<String, Any?>>) ?: emptyList()
+                    QueryCacheStore.put(firestore, targetDesc, rawDocs)
+                    tcs.setResult(buildOneShotSnapshot(rawDocs, isFromCache = false))
+                } catch (e: FirebaseFirestoreException) {
+                    if (source == Source.DEFAULT &&
+                        e.code == FirebaseFirestoreException.Code.UNAVAILABLE &&
+                        firestore.firestoreSettings.isPersistenceEnabled
+                    ) {
+                        val cachedRawDocs = QueryCacheStore.get(firestore, targetDesc) ?: emptyList()
+                        tcs.setResult(buildOneShotSnapshot(cachedRawDocs, isFromCache = true))
+                    } else {
+                        throw e
+                    }
+                }
             } catch (e: Exception) {
                 tcs.setException(e)
             }
         }
         return tcs.task
+    }
+
+    private fun buildOneShotSnapshot(
+        rawDocs: List<Map<String, Any?>>,
+        isFromCache: Boolean
+    ): QuerySnapshot {
+        val docs = rawDocs.map { docMap ->
+            val docId = docMap["id"] as String
+            val docPath = docMap["path"] as String
+            val unpackedData = DocumentDataEnvelope.unpack(docMap["data"]) { p -> firestore.document(p) }
+            val docPending = docMap["hasPendingWrites"] == true
+            QueryDocumentSnapshot(
+                id = docId,
+                reference = firestore.document(docPath),
+                dataMap = unpackedData,
+                metadata = SnapshotMetadata(hasPendingWrites = docPending, isFromCache = isFromCache)
+            )
+        }
+        val anyPending = docs.any { it.metadata.hasPendingWrites() }
+        return QuerySnapshot(
+            query = this@Query,
+            documents = docs,
+            documentChanges = DocumentChangeCalculator.initialChanges(docs),
+            metadata = SnapshotMetadata(hasPendingWrites = anyPending, isFromCache = isFromCache),
+            excludesMetadataChanges = false
+        )
     }
 
     fun count(): AggregateQuery = AggregateQuery(this, listOf(AggregateField.count()))
@@ -269,6 +304,11 @@ open class Query internal constructor(
                         } else {
                             lastRaw = rawMsg
                             hasRaw = true
+                            @Suppress("UNCHECKED_CAST")
+                            val wireDocs = ((rawMsg as? Map<String, Any?>)?.get("docs") as? List<Map<String, Any?>>)
+                            if (wireDocs != null) {
+                                QueryCacheStore.put(firestore, target, wireDocs)
+                            }
                             snapshotFromWire(
                                 rawMsg = rawMsg,
                                 isFromCache = false,

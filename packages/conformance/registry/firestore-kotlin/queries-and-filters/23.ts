@@ -1,3 +1,4 @@
+import { LIVE_HOST_CONFORMANCE_TEST, LIVE_HOST_QUERIES_SUITE } from '../defaults.ts';
 import { row } from './section.ts';
 
 export default row({
@@ -5,5 +6,7 @@ export default row({
   api: 'Query.whereLessThan / whereLessThanOrEqualTo / whereGreaterThan / whereGreaterThanOrEqualTo',
   behavior: 'Applies relational range comparison filters on field value.',
   featureKeys: ['whereLessThan', 'whereGreaterThan'],
-  flipped: 'unit-backed',
+  status: 'conforms',
+  tests: [LIVE_HOST_QUERIES_SUITE],
+  hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });
