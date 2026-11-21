@@ -10,7 +10,7 @@ beforeAll(async () => {
 
 describe('Firebase public-surface census', () => {
   const expectedCounts = {
-    ai: { runtime: [48, 41, 0], types: [159, 112] },
+    ai: { runtime: [48, 41, 0], types: [159, 136] },
     app: { runtime: [10, 9, 13], types: [6, 6] },
     // pyric/app-check is a deferred stub: every name resolves and throws, so the
     // census credits all 8 runtime names. Coverage is off in surfaces/app-check.json.
