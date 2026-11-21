@@ -36,6 +36,29 @@ internal fun pumpMainLooper() {
     Shadows.shadowOf(Looper.getMainLooper()).idle()
 }
 
+internal fun awaitMainLooperCondition(
+    label: String,
+    timeoutMs: Long = 30_000L,
+    predicate: () -> Boolean
+) {
+    val mainLooper = Looper.getMainLooper()
+    val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs)
+    while (true) {
+        Shadows.shadowOf(mainLooper).idle()
+        if (predicate()) {
+            Shadows.shadowOf(mainLooper).idle()
+            return
+        }
+        if (System.nanoTime() >= deadline) {
+            val recentLogs = collectRecentFirebaseLogs()
+            throw TimeoutException(
+                "Timed out waiting for condition '$label' after ${timeoutMs}ms.$recentLogs"
+            )
+        }
+        Thread.sleep(10)
+    }
+}
+
 internal fun <T> awaitFirebaseTask(
     task: Task<T>,
     label: String,

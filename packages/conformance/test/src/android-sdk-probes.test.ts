@@ -166,8 +166,12 @@ describe('android-sdk-probes Robolectric oracle rig', () => {
       'auth-kotlin/auth-kotlin-anonymous-and-custom-token-session',
       'auth-kotlin/auth-kotlin-email-password-lifecycle',
       'auth-kotlin/auth-kotlin-error-codes-and-exceptions',
+      'auth-kotlin/auth-kotlin-instance-linking-reauth-and-oauth-credentials',
       'auth-kotlin/auth-kotlin-profile-reload-and-listeners',
       'rtdb-kotlin/rtdb-kotlin-dedicated-crud-and-query-order',
+      'rtdb-kotlin/rtdb-kotlin-listeners-transactions-connection-and-ondisconnect',
+      'rtdb-kotlin/rtdb-kotlin-navigation-push-priorities-and-snapshots',
+      'rtdb-kotlin/rtdb-kotlin-queries-ranges-limits-and-permission-denied',
     ]);
 
     expectStagedUntilCaptured(STAGED_ANDROID_PROBES, {
