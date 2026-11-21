@@ -344,108 +344,126 @@ class StorageDownloadAndFlowTasksTest {
         )
         assertArrayEquals(payload, dlFile.readBytes())
 
-        // Error propagation through Flow.catch on missing object
+        // Error propagation through Flow.catch on missing object (may emit initial 0-byte InProgress if subscribed before IO failure settles)
         val caughtFlowError = CopyOnWriteArrayList<Throwable>()
         val missingStates = storage.getReference("flows/does-not-exist.bin")
             .getFile(URI.create(tempDir.resolve("nope.bin").toUri().toString()))
             .taskState
             .catch { err -> caughtFlowError.add(err) }
             .toList()
-        assertTrue(missingStates.isEmpty())
+        assertTrue(missingStates.all { it is TaskState.InProgress && it.snapshot.bytesTransferred == 0L })
         assertEquals(1, caughtFlowError.size)
         val stEx = caughtFlowError.single() as StorageException
         assertEquals(StorageException.ERROR_OBJECT_NOT_FOUND, stEx.errorCode)
 
         // Pause -> Resume emission sequence on taskState Flow
-        val gatedTransport = InMemoryBridgeTransport()
         val partArrived = CountDownLatch(1)
         val heldId = CopyOnWriteArrayList<String>()
-        gatedTransport.onServerReceive { rawJson ->
-            val frame = JsonCodec.decodeMap(rawJson)
-            if (frame["type"] == "attach") {
-                gatedTransport.sendToClient(
-                    JsonCodec.encodeToString(
-                        mapOf(
-                            "type" to "attach-ack",
-                            "protocol" to 1,
-                            "clientSessionId" to "flow-gate",
-                            "peerConnected" to true,
-                            "hostInstanceId" to "flow-host"
-                        )
-                    )
-                )
-            } else if (frame["type"] == "worker-op") {
-                val id = frame["id"] as String
-                @Suppress("UNCHECKED_CAST")
-                val op = frame["op"] as Map<String, Any?>
-                when (op["method"]) {
-                    "storage.beginUpload" -> gatedTransport.sendToClient(
-                        JsonCodec.encodeToString(
-                            mapOf("type" to "worker-res", "id" to id, "ok" to true, "value" to mapOf("uploadId" to "u-flow"))
-                        )
-                    )
-                    "storage.putPart" -> {
-                        val idx = (op["partIndex"] as Number).toInt()
-                        if (idx == 0 && heldId.isEmpty()) {
-                            heldId.add(id)
-                            partArrived.countDown()
-                        } else {
-                            gatedTransport.sendToClient(
-                                JsonCodec.encodeToString(
-                                    mapOf("type" to "worker-res", "id" to id, "ok" to true, "value" to mapOf("bytesTransferred" to 1024))
-                                )
-                            )
-                        }
+        val gatedTransport = createGatedFlowUploadTransport(payload.size, heldId, partArrived)
+
+        val gatedClient = PyricBridgeClient(gatedTransport)
+        try {
+            val gatedStorage = FirebaseStorage.getInstance(app, gatedClient, "gs://flow-bucket")
+            val pausableUpload = gatedStorage.getReference("flow/item.bin").putBytes(payload)
+            val collected = CopyOnWriteArrayList<TaskState<*>>()
+            val collectorReady = CountDownLatch(1)
+            val pausedCollected = CountDownLatch(1)
+            val collectorJob = launch(Dispatchers.Default) {
+                pausableUpload.taskState.collect { state ->
+                    collected.add(state)
+                    collectorReady.countDown()
+                    if (state is TaskState.Paused) {
+                        pausedCollected.countDown()
                     }
-                    "storage.finishUpload" -> gatedTransport.sendToClient(
-                        JsonCodec.encodeToString(
-                            mapOf(
-                                "type" to "worker-res",
-                                "id" to id,
-                                "ok" to true,
-                                "value" to mapOf(
-                                    "bucket" to "flow-bucket",
-                                    "fullPath" to "flow/item.bin",
-                                    "name" to "item.bin",
-                                    "size" to payload.size
-                                )
-                            )
-                        )
-                    )
                 }
             }
-        }
 
-        val gatedStorage = FirebaseStorage.getInstance(app, PyricBridgeClient(gatedTransport), "gs://flow-bucket")
-        val pausableUpload = gatedStorage.getReference("flow/item.bin").putBytes(payload)
-        val collected = CopyOnWriteArrayList<TaskState<*>>()
-        val collectorReady = CountDownLatch(1)
-        val collectorJob = launch(Dispatchers.Default) {
-            pausableUpload.taskState.collect { state ->
-                collected.add(state)
-                collectorReady.countDown()
-            }
-        }
-
-        assertTrue(collectorReady.await(5, TimeUnit.SECONDS))
-        assertTrue(partArrived.await(5, TimeUnit.SECONDS))
-        assertTrue(pausableUpload.pause())
-        gatedTransport.sendToClient(
-            JsonCodec.encodeToString(
-                mapOf(
-                    "type" to "worker-res",
-                    "id" to heldId.first(),
-                    "ok" to true,
-                    "value" to mapOf("bytesTransferred" to 256 * 1024)
+            assertTrue(collectorReady.await(5, TimeUnit.SECONDS))
+            assertTrue(partArrived.await(5, TimeUnit.SECONDS))
+            assertTrue(pausableUpload.pause())
+            gatedTransport.sendToClient(
+                JsonCodec.encodeToString(
+                    mapOf(
+                        "type" to "worker-res",
+                        "id" to heldId.first(),
+                        "ok" to true,
+                        "value" to mapOf("bytesTransferred" to 256 * 1024)
+                    )
                 )
             )
-        )
-        Thread.sleep(40)
-        assertTrue(pausableUpload.resume())
-        collectorJob.join()
+            assertTrue(pausedCollected.await(5, TimeUnit.SECONDS))
+            assertTrue(pausableUpload.resume())
+            collectorJob.join()
 
-        assertTrue(collected.any { it is TaskState.Paused })
-        assertTrue(collected.last() is TaskState.InProgress)
-        assertNull(pausableUpload.exception)
+            assertTrue(collected.any { it is TaskState.Paused })
+            assertTrue(collected.last() is TaskState.InProgress)
+            assertNull(pausableUpload.exception)
+        } finally {
+            gatedClient.terminate()
+        }
     }
+}
+
+private fun createGatedFlowUploadTransport(
+    payloadSize: Int,
+    heldId: MutableList<String>,
+    partArrived: CountDownLatch
+): InMemoryBridgeTransport {
+    val gatedTransport = InMemoryBridgeTransport()
+    gatedTransport.onServerReceive { rawJson ->
+        val frame = JsonCodec.decodeMap(rawJson)
+        if (frame["type"] == "attach") {
+            gatedTransport.sendToClient(
+                JsonCodec.encodeToString(
+                    mapOf(
+                        "type" to "attach-ack",
+                        "protocol" to 1,
+                        "clientSessionId" to "flow-gate",
+                        "peerConnected" to true,
+                        "hostInstanceId" to "flow-host"
+                    )
+                )
+            )
+        } else if (frame["type"] == "worker-op") {
+            val id = frame["id"] as String
+            @Suppress("UNCHECKED_CAST")
+            val op = frame["op"] as Map<String, Any?>
+            when (op["method"]) {
+                "storage.beginUpload" -> gatedTransport.sendToClient(
+                    JsonCodec.encodeToString(
+                        mapOf("type" to "worker-res", "id" to id, "ok" to true, "value" to mapOf("uploadId" to "u-flow"))
+                    )
+                )
+                "storage.putPart" -> {
+                    val idx = (op["partIndex"] as Number).toInt()
+                    if (idx == 0 && heldId.isEmpty()) {
+                        heldId.add(id)
+                        partArrived.countDown()
+                    } else {
+                        gatedTransport.sendToClient(
+                            JsonCodec.encodeToString(
+                                mapOf("type" to "worker-res", "id" to id, "ok" to true, "value" to mapOf("bytesTransferred" to 1024))
+                            )
+                        )
+                    }
+                }
+                "storage.finishUpload" -> gatedTransport.sendToClient(
+                    JsonCodec.encodeToString(
+                        mapOf(
+                            "type" to "worker-res",
+                            "id" to id,
+                            "ok" to true,
+                            "value" to mapOf(
+                                "bucket" to "flow-bucket",
+                                "fullPath" to "flow/item.bin",
+                                "name" to "item.bin",
+                                "size" to payloadSize
+                            )
+                        )
+                    )
+                )
+            }
+        }
+    }
+    return gatedTransport
 }
