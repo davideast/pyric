@@ -9,6 +9,8 @@ import { requireSandboxTarget } from './action-codes.js';
 import { getClock, mintCustomToken, readCustomToken, type SandboxCustomToken } from 'pyric/sandbox/internal';
 import type { CreateUserRequest } from './sandbox-backend-types.js';
 import { SandboxBackend } from './sandbox-backend.js';
+import { hasBeforeCreateHook } from './sandbox/blocking-hooks.js';
+import { resolveBlockedCustomTokenIdentity } from './sandbox/blocking-user-creation.js';
 import { assertMatchingTenant, normalizeTenantScope } from './sandbox/tenant-isolation.js';
 import { targetOf, type SandboxTarget } from './target.js';
 import type { Auth, User, UserCredential } from './types.js';
@@ -53,7 +55,13 @@ export async function signInWithCustomToken(
   auth: Auth,
   customToken: string,
 ): Promise<UserCredential> {
-  const { user, isNewUser } = resolveCustomTokenIdentity(auth, customToken);
+  let resolved: { user: User; isNewUser: boolean };
+  if (hasBeforeCreateHook(auth)) {
+    resolved = await resolveBlockedCustomTokenIdentity(auth, customToken);
+  } else {
+    resolved = resolveCustomTokenIdentity(auth, customToken);
+  }
+  const { user, isNewUser } = resolved;
   await targetOf(auth).backend.transitionCurrentUser(user, 'custom');
   return { user, providerId: null, operationType: 'signIn',
     _additionalUserInfo: { isNewUser, profile: {}, providerId: null } };

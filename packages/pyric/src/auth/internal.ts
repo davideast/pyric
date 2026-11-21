@@ -42,3 +42,35 @@ export {
 export { sessionKeyOf } from './sandbox/session-ledger.js';
 export { assertOrRecordAuthInitOptions, recordDefaultAuthInitOptions } from './instances.js';
 export type { ServedSandboxHook } from './sandbox/driver.js';
+export {
+  applyBeforeCreateResponseToInit,
+  getAuthBlockingHooks,
+  hasBeforeCreateHook,
+  hasBeforeSignInHook,
+  makeAuthBlockingRejectionError,
+  setAuthBlockingHooks,
+  type AuthBlockingClientContext,
+  type AuthBlockingCreateHookInput,
+  type AuthBlockingCredentialContext,
+  type AuthBlockingEmailHookInput,
+  type AuthBlockingHooks,
+  type AuthBlockingProviderInfo,
+  type AuthBlockingSignInHookInput,
+  type AuthBlockingSmsHookInput,
+  type AuthBlockingUserCandidate,
+  type BeforeCreateHookResult,
+  type BeforeEmailHookResult,
+  type BeforeSignInHookResult,
+  type BeforeSmsHookResult,
+} from './sandbox/blocking-hooks.js';
+export {
+  createBlockedAnonymousUser,
+  createBlockedEmailPasswordUser,
+  resolveBlockedCustomTokenIdentity,
+  resolveBlockedEmailLinkIdentity,
+} from './sandbox/blocking-user-creation.js';
+export {
+  resolveBlockedFederatedIdentity,
+  resolveBlockedOidcJwtIdentity,
+  type BlockedFederatedIdentityInput,
+} from './sandbox/blocking-federated-creation.js';

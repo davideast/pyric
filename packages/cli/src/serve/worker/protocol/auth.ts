@@ -3,7 +3,9 @@
  * subscription message descriptors.
  */
 
-// ─── Serialized auth user (crosses the port) ──────────────────────────────
+import type { AuthLens } from 'pyric/sandbox';
+
+// --- Serialized auth user (crosses the port) ------------------------------
 
 /** AuthCredential.toJSON fields used by credential verification and linking. */
 export type SerializedAuthCredential = {
@@ -11,6 +13,10 @@ export type SerializedAuthCredential = {
   signInMethod: string;
   email?: string;
   password?: string;
+  idToken?: string;
+  accessToken?: string;
+  refreshToken?: string;
+  secret?: string;
 };
 
 /**
@@ -170,13 +176,70 @@ export type AuthPersistenceMode = 'LOCAL' | 'SESSION' | 'NONE';
  * so a sign-in on any tab updates every tab live. The `snap.value` is a
  * `SerializedUser | null` (signed-out → null).
  */
-export interface AuthSubMessage {
+export interface AuthBlockingTriggerWire {
+  exportName: string;
+  eventType: string;
+  options: {
+    idToken: boolean;
+    accessToken: boolean;
+    refreshToken: boolean;
+  };
+  timeoutSeconds?: number;
+}
+
+export type AuthBlockingOutcomeWire =
+  | {
+      ok: true;
+      response: Record<string, unknown>;
+    }
+  | {
+      ok: false;
+      error: {
+        code: string;
+        status: string;
+        httpStatus: number;
+        message: string;
+        details?: unknown;
+      };
+    };
+
+export type AuthBlockingInvokeSnapWire =
+  | { kind: 'ready' }
+  | {
+      kind: 'invoke';
+      request: Record<string, unknown>;
+    };
+
+export interface AuthBlockingSubMessage {
   t: 'sub';
   subId: string;
-  target: 'authState' | 'idToken';
+  target: 'authBlocking';
+  triggers: ReadonlyArray<AuthBlockingTriggerWire>;
+  actAs?: AuthLens;
+  relaySource?: 'remote';
 }
+
+export interface AuthBlockingRespondOpMessage {
+  t: 'op';
+  id: string;
+  method: 'auth.blockingRespond';
+  requestId: string;
+  outcome: AuthBlockingOutcomeWire;
+}
+
+export type AuthSubMessage =
+  | {
+      t: 'sub';
+      subId: string;
+      target: 'authState' | 'idToken';
+    }
+  | AuthBlockingSubMessage;
 
 /** Type guard: is this an auth subscription (vs a Firestore / event one)? */
 export function isAuthSub(msg: { target: unknown }): msg is AuthSubMessage {
-  return msg.target === 'authState' || msg.target === 'idToken';
+  return (
+    msg.target === 'authState' ||
+    msg.target === 'idToken' ||
+    msg.target === 'authBlocking'
+  );
 }

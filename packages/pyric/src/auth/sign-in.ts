@@ -1,6 +1,15 @@
 /** Firebase-shaped Auth sign-in, redirect, persistence, and sign-out operations. */
 import { AuthCredential, EmailAuthCredential } from './credentials.js';
 import { signInWithEmailLink } from './email-link.js';
+import { hasBeforeCreateHook } from './sandbox/blocking-hooks.js';
+import {
+  createBlockedAnonymousUser,
+  createBlockedEmailPasswordUser,
+} from './sandbox/blocking-user-creation.js';
+import {
+  resolveBlockedFederatedIdentity,
+  resolveBlockedOidcJwtIdentity,
+} from './sandbox/blocking-federated-creation.js';
 import { resolveOidcJwtIdentity } from './sandbox/oidc-jwt-credential.js';
 import { isFederatedProviderId, type AuthProvider } from './providers.js';
 import type { FirebaseError } from '../sandbox/internal/firebase-error.js';
@@ -28,7 +37,12 @@ export async function signInAnonymously(auth: Auth): Promise<UserCredential> {
       _additionalUserInfo: { isNewUser: false, profile: {}, providerId: null },
     };
   }
-  const user = backend.mintAnonymousUser();
+  let user: User;
+  if (hasBeforeCreateHook(auth)) {
+    user = await createBlockedAnonymousUser(auth);
+  } else {
+    user = backend.mintAnonymousUser();
+  }
   await backend.transitionCurrentUser(user, 'anonymous');
   return {
     user,
@@ -62,7 +76,12 @@ export async function createUserWithEmailAndPassword(
 ): Promise<UserCredential> {
   const { backend } = targetOf(auth);
   backend.assertProviderEnabled('password');
-  const user = backend.buildUserFromStored(backend.createEmailPasswordUser(email, password));
+  let user: User;
+  if (hasBeforeCreateHook(auth)) {
+    user = await createBlockedEmailPasswordUser(auth, { email, password });
+  } else {
+    user = backend.buildUserFromStored(backend.createEmailPasswordUser(email, password));
+  }
   await backend.transitionCurrentUser(user, 'password');
   return {
     user,
@@ -159,6 +178,7 @@ function ensureProviderUser(
 }
 
 async function commitProviderSignIn(
+  auth: Auth,
   backend: SandboxTarget['backend'],
   credential: UserCredential,
   providerId: string,
@@ -166,6 +186,18 @@ async function commitProviderSignIn(
   const existing = backend.findByUid(credential.user.uid);
   if (existing !== undefined) {
     assertMatchingTenant(existing, backend.getTenantId());
+  } else if (hasBeforeCreateHook(auth)) {
+    const resolved = await resolveBlockedFederatedIdentity(auth, {
+      providerId,
+      uid: credential.user.uid,
+      email: credential.user.email,
+      displayName: credential.user.displayName,
+      photoURL: credential.user.photoURL,
+      emailVerified: credential.user.emailVerified,
+      tenantId: backend.getTenantId(),
+    });
+    await backend.transitionCurrentUser(resolved.user, providerId);
+    return { ...credential, user: resolved.user };
   }
   backend.assertSignInAllowed(credential.user.uid);
   backend.recordProviderSignIn(credential.user, providerId);
@@ -182,7 +214,7 @@ export async function signInWithPopup(
   const { backend } = targetOf(auth);
   const credential = await resolveFlow(backend, provider, 'signIn', resolver, 'popup');
   const providerId = credential.providerId ?? provider.providerId;
-  return commitProviderSignIn(backend, credential, providerId);
+  return commitProviderSignIn(auth, backend, credential, providerId);
 }
 
 export async function signInWithRedirect(
@@ -193,7 +225,7 @@ export async function signInWithRedirect(
   const { backend } = targetOf(auth);
   const credential = await resolveFlow(backend, provider, 'signIn', resolver, 'redirect');
   const providerId = credential.providerId ?? provider.providerId;
-  const committed = await commitProviderSignIn(backend, credential, providerId);
+  const committed = await commitProviderSignIn(auth, backend, credential, providerId);
   backend.setRedirectResult(committed);
 }
 
@@ -265,7 +297,27 @@ export async function signInWithCredential(
   if (!mock) {
     const idToken = readCredentialIdToken(credential);
     if (idToken !== null && canRedeemFederatedJwt(credential)) {
-      const resolved = resolveOidcJwtIdentity(auth, { providerId, idToken });
+      let accessToken: string | undefined;
+      const rawAccessToken = (credential as { accessToken?: unknown }).accessToken;
+      if (typeof rawAccessToken === 'string') {
+        accessToken = rawAccessToken;
+      }
+      let secret: string | undefined;
+      const rawSecret = (credential as { secret?: unknown }).secret;
+      if (typeof rawSecret === 'string') {
+        secret = rawSecret;
+      }
+      let resolved: ReturnType<typeof resolveOidcJwtIdentity>;
+      if (hasBeforeCreateHook(auth)) {
+        resolved = await resolveBlockedOidcJwtIdentity(auth, {
+          providerId,
+          idToken,
+          accessToken,
+          secret,
+        });
+      } else {
+        resolved = resolveOidcJwtIdentity(auth, { providerId, idToken });
+      }
       if (resolved !== null) {
         await backend.transitionCurrentUser(resolved.user, providerId);
         return {
@@ -286,6 +338,18 @@ export async function signInWithCredential(
   const existing = backend.findByUid(mock.user.uid);
   if (existing !== undefined) {
     assertMatchingTenant(existing, backend.getTenantId());
+  } else if (hasBeforeCreateHook(auth)) {
+    const resolved = await resolveBlockedFederatedIdentity(auth, {
+      providerId: credentialProviderId,
+      uid: mock.user.uid,
+      email: mock.user.email,
+      displayName: mock.user.displayName,
+      photoURL: mock.user.photoURL,
+      emailVerified: mock.user.emailVerified,
+      tenantId: backend.getTenantId(),
+    });
+    await backend.transitionCurrentUser(resolved.user, credentialProviderId);
+    return { ...mock, user: resolved.user };
   }
   backend.assertSignInAllowed(mock.user.uid);
   backend.recordProviderSignIn(mock.user, credentialProviderId);

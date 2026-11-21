@@ -31,6 +31,7 @@ import type {
   TxnQueryReadEntry,
 } from './protocol/firestore.js';
 import type {
+  AuthBlockingRespondOpMessage,
   AuthPersistenceMode,
   SerializedAuthCredential,
   ResolvedIdentity,
@@ -194,6 +195,10 @@ export type OpMessage = (
         displayName?: string | null;
         photoURL?: string | null;
         uid?: string | null;
+        idToken?: string | null;
+        accessToken?: string | null;
+        refreshToken?: string | null;
+        secret?: string | null;
       };
       providerId?: string;
       signInMethod?: string;
@@ -202,6 +207,10 @@ export type OpMessage = (
       displayName?: string | null;
       photoURL?: string | null;
       uid?: string | null;
+      idToken?: string | null;
+      accessToken?: string | null;
+      refreshToken?: string | null;
+      secret?: string | null;
       tenantId?: string | null;
     }
   | { t: 'op'; id: string; method: 'auth.linkWithCredential'; uid: string; tenantId: string | null;
@@ -236,6 +245,7 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'auth.adminClearUsers' }
   | { t: 'op'; id: string; method: 'auth.getProviderConfig' }
   | { t: 'op'; id: string; method: 'auth.setProviderConfig'; providerId: string; enabled: boolean }
+  | AuthBlockingRespondOpMessage
   // Storage ops. An object op names its bucket with `bucket`, or the host's
   // default bucket without one (see StorageBucketWire).
   | ({ t: 'op'; id: string; method: 'storage.listAll'; path: string } & StorageBucketWire)

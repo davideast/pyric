@@ -51,6 +51,8 @@ import {
   validateActionCodeSettings,
   type ActionCodeSettings,
 } from './action-codes.js';
+import { hasBeforeCreateHook } from './sandbox/blocking-hooks.js';
+import { resolveBlockedEmailLinkIdentity } from './sandbox/blocking-user-creation.js';
 import { targetOf } from './target.js';
 import type { Auth, User, UserCredential } from './types.js';
 
@@ -139,7 +141,13 @@ export async function signInWithEmailLink(
   email: string,
   link: string,
 ): Promise<UserCredential> {
-  const { user, isNewUser } = resolveEmailLinkIdentity(auth, email, link);
+  let resolved: { user: User; isNewUser: boolean };
+  if (hasBeforeCreateHook(auth)) {
+    resolved = await resolveBlockedEmailLinkIdentity(auth, email, link);
+  } else {
+    resolved = resolveEmailLinkIdentity(auth, email, link);
+  }
+  const { user, isNewUser } = resolved;
   await targetOf(auth).backend.transitionCurrentUser(user, 'password');
   return {
     user,
