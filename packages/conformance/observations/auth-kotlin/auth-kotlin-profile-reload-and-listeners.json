@@ -1,0 +1,33 @@
+{
+  "name": "auth-kotlin-profile-reload-and-listeners",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Upstream Android FirebaseAuth UserProfileChangeRequest updateProfile, reload, cached vs forced getIdToken refresh, and AuthStateListener vs IdTokenListener transition counts under Robolectric.",
+  "observedAt": "2026-11-21T01:39:48.535Z",
+  "androidBomVersion": "35.2.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "initialAuthStateEvents": [
+      false
+    ],
+    "initialIdTokenEvents": [
+      false
+    ],
+    "authStateIncreasedOnSignIn": true,
+    "idTokenIncreasedOnSignIn": true,
+    "requestDisplayName": "Android Oracle User",
+    "requestPhotoUri": "https://example.com/android-oracle.png",
+    "displayNameAfterUpdate": "Android Oracle User",
+    "photoUrlAfterUpdate": "https://example.com/android-oracle.png",
+    "displayNameAfterReload": "Android Oracle User",
+    "photoUrlAfterReload": "https://example.com/android-oracle.png",
+    "sameUidAfterReload": true,
+    "cachedTokenNonBlank": true,
+    "forcedTokenNonBlank": true,
+    "hasExpirationTimestamp": true,
+    "hasIssuedAtTimestamp": true,
+    "authStateUnchangedOnForceRefresh": true,
+    "idTokenIncreasedOnForceRefresh": true,
+    "noEventsAfterRemoveListeners": true
+  }
+}
