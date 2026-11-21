@@ -5,5 +5,8 @@ export default row({
   api: 'FirebaseAuth.tenantId',
   behavior: 'Configures and retrieves the tenant ID, updating the active AuthLens to include tenant scope.',
   featureKeys: ['tenantId'],
-  flipped: 'live-host',
+  flipped: 'oracle-backed',
+  oracleObservations: [
+    'auth-kotlin-instance-linking-reauth-and-oauth-credentials',
+  ],
 });

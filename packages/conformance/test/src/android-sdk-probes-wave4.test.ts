@@ -22,7 +22,7 @@ import {
   type AndroidOracleProbeConfigPayload,
   type AndroidRtdbSessionOptions,
 } from '../../src/android-oracle-runtime.ts';
-import { loadObservations, REPO_ROOT, type Observation } from '../../src/ledger.ts';
+import { loadObservations, REPO_ROOT } from '../../src/ledger.ts';
 import type { OracleServiceAccount } from '../../src/oracle-credential.ts';
 import { loadModularProbes } from '../../src/sdk-probes.ts';
 import { loadPendingRowLinkObservations } from '../../src/staged-captures.ts';
@@ -30,7 +30,9 @@ import { validateCompatibilityRegistry } from '../../src/validate-registry.ts';
 import { surfaceDescriptors } from '../../surfaces/load.ts';
 import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 
-const STAGED_ANDROID_WAVE4_PROBES = [
+const STAGED_ANDROID_WAVE4_PROBES: readonly string[] = [];
+
+const LINKED_AUTH_WAVE4_PROBES = [
   'auth-kotlin-instance-linking-reauth-and-oauth-credentials',
 ] as const;
 
@@ -72,9 +74,17 @@ describe('Wave 4 android-sdk-probes auth-kotlin and rtdb-kotlin Robolectric prob
     );
 
     expect(authWave4LinkingProbe.rig).toBe('android-sdk-probes');
-    expect(authWave4LinkingProbe.pendingRowLink).toBe(true);
-    expect(authWave4LinkingProbe.matrixRow).toBe('');
-    expect(authWave4LinkingProbe.rowIds).toEqual([]);
+    expect(authWave4LinkingProbe.pendingRowLink).toBeUndefined();
+    expect(authWave4LinkingProbe.matrixRow).toBe('auth-kotlin#1');
+    expect(authWave4LinkingProbe.rowIds).toEqual([
+      'auth-kotlin#1',
+      'auth-kotlin#2',
+      'auth-kotlin#3',
+      'auth-kotlin#4',
+      'auth-kotlin#19',
+      'auth-kotlin#23',
+      'auth-kotlin#32',
+    ]);
     expect(authWave4LinkingProbe.requires).toEqual(['web-config', 'admin-auth']);
 
     const rtdbWave4Descriptors = [rtdbWave4NavProbe, rtdbWave4QueriesProbe, rtdbWave4LiveProbe];
@@ -94,7 +104,11 @@ describe('Wave 4 android-sdk-probes auth-kotlin and rtdb-kotlin Robolectric prob
 
     const loaded = await loadModularProbes('android-sdk-probes');
     const loadedIds = new Set(loaded.map((entry) => entry.id));
-    for (const expectedId of [...STAGED_ANDROID_WAVE4_PROBES, ...LINKED_RTDB_WAVE4_PROBES]) {
+    for (const expectedId of [
+      ...STAGED_ANDROID_WAVE4_PROBES,
+      ...LINKED_AUTH_WAVE4_PROBES,
+      ...LINKED_RTDB_WAVE4_PROBES,
+    ]) {
       expect(loadedIds.has(expectedId)).toBe(true);
       expect(runnerKotlin).toContain(`"${expectedId}" ->`);
     }
@@ -131,6 +145,13 @@ describe('Wave 4 android-sdk-probes auth-kotlin and rtdb-kotlin Robolectric prob
     expect(pr1Problems).toEqual([]);
 
     const byName = new Map(currentObservations.map((obs) => [obs.name, obs]));
+    for (const linkedAuthName of LINKED_AUTH_WAVE4_PROBES) {
+      const committed = byName.get(linkedAuthName);
+      expect(committed).toBeDefined();
+      expect(committed?.androidBomVersion).toBe('35.2.0');
+      expect(committed?.matrixRow).toBe('auth-kotlin#1');
+      expect(committed?.rowIds.length).toBe(7);
+    }
     for (const linkedRtdbName of LINKED_RTDB_WAVE4_PROBES) {
       const committed = byName.get(linkedRtdbName);
       expect(committed).toBeDefined();
@@ -138,47 +159,6 @@ describe('Wave 4 android-sdk-probes auth-kotlin and rtdb-kotlin Robolectric prob
       expect(committed?.matrixRow.startsWith('rtdb-kotlin#')).toBe(true);
       expect(committed?.rowIds.length).toBeGreaterThan(0);
     }
-    for (const stagedName of STAGED_ANDROID_WAVE4_PROBES) {
-      let surfaceDir = 'rtdb-kotlin';
-      if (stagedName.startsWith('auth-kotlin-')) {
-        surfaceDir = 'auth-kotlin';
-      }
-      const simulatedObs: Observation = {
-        file: `${stagedName}.json`,
-        surfaceDir,
-        name: stagedName,
-        matrixRow: '',
-        rowIds: [],
-        observedAt: '2026-11-21T03:00:00.000Z',
-        androidBomVersion: '35.2.0',
-        behavior: { simulatedCapture: true },
-        raw: {
-          name: stagedName,
-          matrixRow: '',
-          rowIds: [],
-          description: 'Simulated captured Wave 4 Android observation',
-          observedAt: '2026-11-21T03:00:00.000Z',
-          androidBomVersion: '35.2.0',
-          projectId: 'demo-oracle',
-          behavior: { simulatedCapture: true },
-        },
-      };
-      byName.set(simulatedObs.name, simulatedObs);
-    }
-
-    const pr2Problems = validateCompatibilityRegistry({
-      rows: allCompatibilityRows,
-      descriptors: surfaceDescriptors,
-      observations: [...byName.values()],
-      observationExceptions,
-      rigManifests,
-      probeFiles,
-      rulesFirestoreScenarioIds,
-      rulesStorageScenarioIds,
-      rulesRtdbScenarioIds,
-      pendingRowLinkObservations,
-    });
-    expect(pr2Problems).toEqual([]);
   });
 
   test('forwards rtdbRunRules with stripTopLevelGrants=true and cleans up sidecar UIDs across Wave 4 Auth and RTDB probes', async () => {
