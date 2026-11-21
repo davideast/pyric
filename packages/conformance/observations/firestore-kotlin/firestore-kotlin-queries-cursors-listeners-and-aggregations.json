@@ -1,0 +1,65 @@
+{
+  "name": "firestore-kotlin-queries-cursors-listeners-and-aggregations",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Upstream Android FirebaseFirestore single-field queries (whereEqualTo, Filter.and range, Filter.or disjunction, whereIn, whereArrayContains, whereArrayContainsAny), orderBy + limit/limitToLast, value/DocumentSnapshot/documentId cursors, count/sum/average aggregations, and addSnapshotListener DocumentChange lifecycle under Robolectric.",
+  "observedAt": "2026-11-21T03:12:02.155Z",
+  "androidBomVersion": "35.2.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "equalToIds": [
+      "item_c"
+    ],
+    "rangeFilterAndIds": [
+      "item_b",
+      "item_c"
+    ],
+    "filterOrIdsSorted": [
+      "item_a",
+      "item_d"
+    ],
+    "whereInIdsSorted": [
+      "item_b",
+      "item_c"
+    ],
+    "arrayContainsIdsSorted": [
+      "item_a",
+      "item_b"
+    ],
+    "arrayContainsAnyIdsSorted": [
+      "item_c",
+      "item_d"
+    ],
+    "orderByDescLimit2Ids": [
+      "item_d",
+      "item_c"
+    ],
+    "orderByAscLimitToLast2Ids": [
+      "item_c",
+      "item_d"
+    ],
+    "cursorStartAtEndBeforeIds": [
+      "item_b",
+      "item_c"
+    ],
+    "startAfterDocumentSnapshotIds": [
+      "item_c",
+      "item_d"
+    ],
+    "documentIdCursorIds": [
+      "item_b",
+      "item_c"
+    ],
+    "countQueryCount": 3,
+    "aggregateCount": 3,
+    "aggregateSumScore": 90,
+    "aggregateAverageScore": 30,
+    "listenerDocumentChanges": [
+      "ADDED:w1",
+      "ADDED:w2",
+      "MODIFIED:w1",
+      "REMOVED:w2"
+    ],
+    "listenerQuietAfterRemove": true
+  }
+}
