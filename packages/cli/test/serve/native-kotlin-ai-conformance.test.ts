@@ -154,6 +154,20 @@ function buildKotlinAiScript(onMultimodalSpectrumSeen: () => void): Array<Record
         { promptTokenCount: 9, candidatesTokenCount: 7, thoughtsTokenCount: 13, totalTokenCount: 29 },
       ),
     },
+    { match: 'SCRIPT_CONC_FULL_1', respond: { chunks: ['full-1-a|', 'full-1-b|', 'full-1-c'] } },
+    { match: 'SCRIPT_CONC_FULL_2', respond: { chunks: ['full-2-a|', 'full-2-b|', 'full-2-c'] } },
+    { match: 'SCRIPT_CONC_FULL_3', respond: { chunks: ['full-3-a|', 'full-3-b|', 'full-3-c'] } },
+    { match: 'SCRIPT_CONC_TAKE_1', respond: { chunks: ['take-1-first', 'take-1-never'] } },
+    { match: 'SCRIPT_CONC_TAKE_2', respond: { chunks: ['take-2-first', 'take-2-never'] } },
+    { match: 'SCRIPT_CONC_JOB_CANCEL', respond: { chunks: ['job-cancel-first', 'job-cancel-never'] } },
+    { match: 'SCRIPT_CONC_EMPTY_CANDIDATES', respond: { promptFeedback: { safetyRatings: [] } } },
+    {
+      match: 'SCRIPT_CONC_CHAT_THOUGHT',
+      respond: rawModelEnvelope([
+        thoughtText('Internal chain of thought.', 'sig-conc-t'),
+        publicText('Verified public answer.', 'sig-conc-a'),
+      ]),
+    },
   ];
 }
 
@@ -484,6 +498,8 @@ describe('native Kotlin AI Logic live-host conformance', () => {
           'dev.pyric.e2e.AiLiveHostConformanceTest',
           '--tests',
           'dev.pyric.e2e.AiLiveHostHardeningConformanceTest',
+          '--tests',
+          'dev.pyric.e2e.AiLiveHostConcurrencyConformanceTest',
           '--stacktrace',
           '--no-daemon',
         ];
@@ -504,13 +520,14 @@ describe('native Kotlin AI Logic live-host conformance', () => {
 
         assertCleanJUnitXml('TEST-dev.pyric.e2e.AiLiveHostConformanceTest.xml', 6);
         assertCleanJUnitXml('TEST-dev.pyric.e2e.AiLiveHostHardeningConformanceTest.xml', 4);
+        assertCleanJUnitXml('TEST-dev.pyric.e2e.AiLiveHostConcurrencyConformanceTest.xml', 2);
 
         expect(host.traffic.verifiedInboundSpectrumCount).toBe(1);
         expect(host.traffic.aiOpModels).toContain('models/gemini-2.5-flash');
         expect(host.traffic.aiOpModels).toContain('publishers/google/models/gemini-2.5-pro');
         expect(host.traffic.aiStreamModels).toContain('models/gemini-2.5-flash');
-        expect(host.traffic.aiStreamSubIds.length).toBeGreaterThanOrEqual(7);
-        expect(host.traffic.aiStreamUnsubIds.length).toBeGreaterThanOrEqual(2);
+        expect(host.traffic.aiStreamSubIds.length).toBeGreaterThanOrEqual(14);
+        expect(host.traffic.aiStreamUnsubIds.length).toBeGreaterThanOrEqual(5);
 
         expect(host.traffic.aiAppCheckClaims.length).toBe(5);
         expect(host.traffic.aiStreamAppCheckClaims.length).toBe(2);

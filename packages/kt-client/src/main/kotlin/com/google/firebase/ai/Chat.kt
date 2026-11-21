@@ -4,6 +4,7 @@ import com.google.firebase.ai.type.Content
 import com.google.firebase.ai.type.GenerateContentResponse
 import com.google.firebase.ai.type.InvalidStateException
 import com.google.firebase.ai.type.Part
+import com.google.firebase.ai.type.SerializationException
 import com.google.firebase.ai.type.TextPart
 import com.google.firebase.ai.type.content
 import kotlinx.coroutines.flow.Flow
@@ -49,7 +50,8 @@ class Chat @JvmOverloads constructor(
                 turns
             }
             val response = model.generateContent(requestTurns)
-            val candidateContent = response.candidates.first().content
+            val candidateContent = response.candidates.firstOrNull()?.content
+                ?: throw SerializationException("Chat response contained no candidates")
             val recordedModelTurn = Content(
                 role = candidateContent.role?.takeIf { it.isNotBlank() } ?: "model",
                 parts = candidateContent.parts
@@ -86,10 +88,12 @@ class Chat @JvmOverloads constructor(
                 }
                 val aggregatedParts = ArrayList<Part>()
                 var modelRole = "model"
+                var sawCandidate = false
 
                 model.generateContentStream(requestTurns).collect { chunk ->
                     val firstCandidate = chunk.candidates.firstOrNull()
                     if (firstCandidate != null) {
+                        sawCandidate = true
                         val chunkRole = firstCandidate.content.role
                         if (!chunkRole.isNullOrBlank()) {
                             modelRole = chunkRole
@@ -97,6 +101,10 @@ class Chat @JvmOverloads constructor(
                         appendChunkParts(aggregatedParts, firstCandidate.content.parts)
                     }
                     emit(chunk)
+                }
+
+                if (!sawCandidate) {
+                    throw SerializationException("Chat stream response contained no candidates")
                 }
 
                 val recordedModelTurn = Content(role = modelRole, parts = aggregatedParts)
@@ -141,17 +149,24 @@ class Chat @JvmOverloads constructor(
 
         private fun appendChunkParts(target: MutableList<Part>, incoming: List<Part>) {
             for (part in incoming) {
+                if (
+                    part is TextPart &&
+                    part.text.isEmpty() &&
+                    !part.isThought &&
+                    part.thoughtSignature == null
+                ) {
+                    continue
+                }
                 val prev = target.lastOrNull()
                 if (
                     part is TextPart &&
-                    !part.isThought &&
                     prev is TextPart &&
-                    !prev.isThought &&
+                    part.isThought == prev.isThought &&
                     prev.thoughtSignature == null
                 ) {
                     target[target.lastIndex] = TextPart.createWithThinking(
                         text = prev.text + part.text,
-                        isThought = false,
+                        isThought = part.isThought,
                         thoughtSignature = part.thoughtSignature
                     )
                 } else {
