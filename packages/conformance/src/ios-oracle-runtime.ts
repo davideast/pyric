@@ -63,6 +63,11 @@ export interface IosAdminAuthAdapter {
   dispose(): Promise<void>;
 }
 
+interface IosRtdbSessionOptions {
+  rules: Record<string, unknown>;
+  stripTopLevelGrants: boolean;
+}
+
 interface IosProbeRuntimeDeps {
   env?: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
@@ -77,6 +82,7 @@ interface IosProbeRuntimeDeps {
     databaseUrl: string,
     runId: string,
     fn: () => Promise<T>,
+    options?: IosRtdbSessionOptions,
   ) => Promise<T>;
   queryAvailableSimulatorsJson?: (env: NodeJS.ProcessEnv) => string;
   executeRtdbCli?: (request: IosRtdbCliRequest) => string;
@@ -86,6 +92,8 @@ interface IosProbeRuntimeDeps {
 export interface RunIosOracleProbeOptions {
   probeId: string;
   mode: IosOracleExecutionMode;
+  rtdbRunRules?: Record<string, unknown>;
+  needsCustomToken?: boolean;
   deps?: IosProbeRuntimeDeps;
 }
 
@@ -99,6 +107,22 @@ export function buildIosRtdbRunRules(): Record<string, unknown> {
     '.write': true,
     items: {
       '.indexOn': ['score'],
+    },
+  };
+}
+
+export function buildIosRtdbPermissionAndQueryRules(): Record<string, unknown> {
+  return {
+    workspace: {
+      '.read': true,
+      '.write': true,
+      scores: {
+        '.indexOn': '.value',
+      },
+    },
+    denied_leaf: {
+      '.read': false,
+      '.write': false,
     },
   };
 }
@@ -131,7 +155,14 @@ async function defaultDeployScopedRtdbSession<T>(
   databaseUrl: string,
   runId: string,
   fn: () => Promise<T>,
+  sessionOptions?: IosRtdbSessionOptions,
 ): Promise<T> {
+  let sessionRules = buildIosRtdbRunRules();
+  let stripTopLevelGrants = false;
+  if (sessionOptions !== undefined) {
+    sessionRules = sessionOptions.rules;
+    stripTopLevelGrants = sessionOptions.stripTopLevelGrants;
+  }
   const getRtdbToken = () => oracleAccessToken(sa, RTDB_RULES_SCOPE);
   const session = new OracleRulesSession({
     projectId: sa.project_id,
@@ -145,8 +176,8 @@ async function defaultDeployScopedRtdbSession<T>(
       await session.deployRtdb(
         rtdbOracleTarget(databaseUrl, getRtdbToken, {
           runId,
-          rules: buildIosRtdbRunRules(),
-          stripTopLevelGrants: false,
+          rules: sessionRules,
+          stripTopLevelGrants,
         }),
       );
       await new Promise((resolveDone) => setTimeout(resolveDone, 5_000));
@@ -258,14 +289,29 @@ export async function runIosOracleProbe(
         executeRtdbCli = deps.executeRtdbCli;
       }
 
-      const cliOutput = await runRtdbSession(sa, databaseUrl, runId, async () =>
-        executeRtdbCli({
-          stagedPackageDir: stagedDir,
-          scratchCacheDir: join(sharedCacheRoot, 'rtdb-cli-build'),
-          inputPath,
-          outputPath,
-          env,
-        }),
+      let desiredRtdbRules = buildIosRtdbRunRules();
+      let stripTopLevelGrants = false;
+      if (options.rtdbRunRules !== undefined) {
+        desiredRtdbRules = options.rtdbRunRules;
+        stripTopLevelGrants = true;
+      }
+
+      const cliOutput = await runRtdbSession(
+        sa,
+        databaseUrl,
+        runId,
+        async () =>
+          executeRtdbCli({
+            stagedPackageDir: stagedDir,
+            scratchCacheDir: join(sharedCacheRoot, 'rtdb-cli-build'),
+            inputPath,
+            outputPath,
+            env,
+          }),
+        {
+          rules: desiredRtdbRules,
+          stripTopLevelGrants,
+        },
       );
 
       if (existsSync(outputPath)) {
@@ -280,14 +326,24 @@ export async function runIosOracleProbe(
     }
     const adminAuth = await openAdmin(sa, runId);
     const trackedUids = new Set<string>();
-    const expectedCustomUid = `pyric-ios-${runId}`;
-    trackedUids.add(expectedCustomUid);
+    let needsCustomToken = true;
+    if (options.needsCustomToken !== undefined) {
+      needsCustomToken = options.needsCustomToken;
+    }
+    let expectedCustomUid = '';
+    if (needsCustomToken) {
+      expectedCustomUid = `pyric-ios-${runId}`;
+      trackedUids.add(expectedCustomUid);
+    }
 
     try {
-      const customToken = await adminAuth.createCustomToken(expectedCustomUid, {
-        role: 'tester',
-        tier: 2,
-      });
+      let customToken = '';
+      if (needsCustomToken) {
+        customToken = await adminAuth.createCustomToken(expectedCustomUid, {
+          role: 'tester',
+          tier: 2,
+        });
+      }
 
       let querySimulators = defaultQueryAvailableSimulatorsJson;
       if (deps.queryAvailableSimulatorsJson !== undefined) {
@@ -332,7 +388,7 @@ export async function runIosOracleProbe(
       try {
         simOutput = executeAuthSim({
           stagedPackageDir: stagedDir,
-          derivedDataDir: join(jobTmpDir, 'DerivedData'),
+          derivedDataDir: join(sharedCacheRoot, 'xcode-derived-data'),
           clonedPackagesDir: join(sharedCacheRoot, 'xcode-source-packages'),
           destination: simSelection.destination,
           env,
