@@ -7,6 +7,7 @@ export default row({
   behavior: 'Serializes and revives Timestamp preserving seconds and nanoseconds across bridge wire format.',
   featureKeys: ['Timestamp'],
   status: 'conforms',
+  oracleObservations: ['firestore-kotlin-crud-merge-sentinels-and-codecs'],
   tests: [LIVE_HOST_CORE_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

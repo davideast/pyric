@@ -7,6 +7,7 @@ export default row({
   behavior: 'Generates auto-ID, writes document data, and returns DocumentReference.',
   featureKeys: ['add'],
   status: 'conforms',
+  oracleObservations: ['firestore-kotlin-crud-merge-sentinels-and-codecs'],
   tests: [LIVE_HOST_CORE_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

@@ -7,6 +7,7 @@ export default row({
   behavior: 'Orders query results by field ascending or descending.',
   featureKeys: ['orderBy'],
   status: 'conforms',
+  oracleObservations: ['firestore-kotlin-queries-cursors-listeners-and-aggregations'],
   tests: [LIVE_HOST_QUERIES_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

@@ -7,6 +7,11 @@ export default row({
   behavior: 'Instantiates a CollectionReference pointing to the slash-delimited path.',
   featureKeys: ['collection'],
   status: 'conforms',
+  oracleObservations: [
+    'firestore-kotlin-crud-merge-sentinels-and-codecs',
+    'firestore-kotlin-queries-cursors-listeners-and-aggregations',
+    'firestore-kotlin-batches-transactions-offline-and-errors',
+  ],
   tests: [LIVE_HOST_CORE_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

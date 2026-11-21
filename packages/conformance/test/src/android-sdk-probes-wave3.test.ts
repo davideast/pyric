@@ -22,15 +22,14 @@ import {
   runAndroidRobolectricProbe,
   type AndroidOracleProbeConfigPayload,
 } from '../../src/android-oracle-runtime.ts';
-import { loadObservations, REPO_ROOT, type Observation } from '../../src/ledger.ts';
+import { loadObservations, REPO_ROOT } from '../../src/ledger.ts';
 import type { OracleServiceAccount } from '../../src/oracle-credential.ts';
 import { loadModularProbes } from '../../src/sdk-probes.ts';
 import { loadPendingRowLinkObservations } from '../../src/staged-captures.ts';
 import { validateCompatibilityRegistry } from '../../src/validate-registry.ts';
 import { surfaceDescriptors } from '../../surfaces/load.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 
-const STAGED_FIRESTORE_KOTLIN_PROBES = [
+const LINKED_FIRESTORE_KOTLIN_PROBES = [
   'firestore-kotlin-batches-transactions-offline-and-errors',
   'firestore-kotlin-crud-merge-sentinels-and-codecs',
   'firestore-kotlin-queries-cursors-listeners-and-aggregations',
@@ -50,7 +49,7 @@ function fakeServiceAccount(): OracleServiceAccount {
 }
 
 describe('Wave 3 android-sdk-probes firestore-kotlin Robolectric probes', () => {
-  test('wires firestore-kotlin surface, Gradle firebase-firestore dependency, Kotlin dispatch arms, and staged descriptors', async () => {
+  test('wires firestore-kotlin surface, Gradle firebase-firestore dependency, Kotlin dispatch arms, and linked descriptors', async () => {
     const firestoreKt = surfaceDescriptors.find((d) => d.surface === 'firestore-kotlin');
     expect(firestoreKt?.captureRigs).toEqual(['android-sdk-probes']);
 
@@ -80,9 +79,9 @@ describe('Wave 3 android-sdk-probes firestore-kotlin Robolectric probes', () => 
     ];
     for (const descriptor of wave3Descriptors) {
       expect(descriptor.rig).toBe('android-sdk-probes');
-      expect(descriptor.pendingRowLink).toBe(true);
-      expect(descriptor.matrixRow).toBe('');
-      expect(descriptor.rowIds).toEqual([]);
+      expect(descriptor.pendingRowLink).toBeUndefined();
+      expect(descriptor.matrixRow.startsWith('firestore-kotlin#')).toBe(true);
+      expect(descriptor.rowIds.length).toBeGreaterThan(0);
       expect(descriptor.requires).toEqual([
         'web-config',
         'firestore-rules',
@@ -90,19 +89,19 @@ describe('Wave 3 android-sdk-probes firestore-kotlin Robolectric probes', () => 
         'admin-firestore',
       ]);
     }
+    expect(firestoreCrudCodecsProbe.matrixRow).toBe('firestore-kotlin#15');
+    expect(firestoreCrudCodecsProbe.rowIds.length).toBe(20);
+    expect(firestoreQueriesAggProbe.matrixRow).toBe('firestore-kotlin#21');
+    expect(firestoreQueriesAggProbe.rowIds.length).toBe(16);
+    expect(firestoreBatchesTxProbe.matrixRow).toBe('firestore-kotlin#48');
+    expect(firestoreBatchesTxProbe.rowIds.length).toBe(18);
 
     const loaded = await loadModularProbes('android-sdk-probes');
     const firestoreLoaded = loaded.filter((entry) => entry.surfaceDir === 'firestore-kotlin');
-    expect(firestoreLoaded.map((entry) => entry.id)).toEqual([...STAGED_FIRESTORE_KOTLIN_PROBES]);
+    expect(firestoreLoaded.map((entry) => entry.id)).toEqual([...LINKED_FIRESTORE_KOTLIN_PROBES]);
     for (const entry of firestoreLoaded) {
       expect(runnerKotlin).toContain(`"${entry.id}" ->`);
     }
-
-    expectStagedUntilCaptured(STAGED_FIRESTORE_KOTLIN_PROBES, {
-      rig: 'android-sdk-probes',
-      filterFlag: '--probe',
-      filterValueFor: (name) => name,
-    });
 
     const rigManifests = await loadRigManifests();
     const pendingRowLinkObservations = loadPendingRowLinkObservations();
@@ -115,7 +114,16 @@ describe('Wave 3 android-sdk-probes firestore-kotlin Robolectric probes', () => 
       ...ALL_RULES_RTDB_DEPLOY_SCENARIOS,
     ].map((s) => s.id);
 
-    const pr1Problems = validateCompatibilityRegistry({
+    const byName = new Map(currentObservations.map((obs) => [obs.name, obs]));
+    for (const probeName of LINKED_FIRESTORE_KOTLIN_PROBES) {
+      const committed = byName.get(probeName);
+      expect(committed).toBeDefined();
+      expect(committed?.androidBomVersion).toBe('35.2.0');
+      expect(committed?.matrixRow.startsWith('firestore-kotlin#')).toBe(true);
+      expect(committed?.rowIds.length).toBeGreaterThan(0);
+    }
+
+    const problems = validateCompatibilityRegistry({
       rows: allCompatibilityRows,
       descriptors: surfaceDescriptors,
       observations: currentObservations,
@@ -127,46 +135,7 @@ describe('Wave 3 android-sdk-probes firestore-kotlin Robolectric probes', () => 
       rulesRtdbScenarioIds,
       pendingRowLinkObservations,
     });
-    expect(pr1Problems).toEqual([]);
-
-    const byName = new Map(currentObservations.map((obs) => [obs.name, obs]));
-    for (const stagedName of STAGED_FIRESTORE_KOTLIN_PROBES) {
-      const simulatedObs: Observation = {
-        file: `${stagedName}.json`,
-        surfaceDir: 'firestore-kotlin',
-        name: stagedName,
-        matrixRow: '',
-        rowIds: [],
-        observedAt: '2026-11-21T00:00:00.000Z',
-        androidBomVersion: '35.2.0',
-        behavior: { simulatedCapture: true },
-        raw: {
-          name: stagedName,
-          matrixRow: '',
-          rowIds: [],
-          description: 'Simulated captured Android Firestore observation',
-          observedAt: '2026-11-21T00:00:00.000Z',
-          androidBomVersion: '35.2.0',
-          projectId: 'demo-oracle',
-          behavior: { simulatedCapture: true },
-        },
-      };
-      byName.set(simulatedObs.name, simulatedObs);
-    }
-
-    const pr2Problems = validateCompatibilityRegistry({
-      rows: allCompatibilityRows,
-      descriptors: surfaceDescriptors,
-      observations: [...byName.values()],
-      observationExceptions,
-      rigManifests,
-      probeFiles,
-      rulesFirestoreScenarioIds,
-      rulesStorageScenarioIds,
-      rulesRtdbScenarioIds,
-      pendingRowLinkObservations,
-    });
-    expect(pr2Problems).toEqual([]);
+    expect(problems).toEqual([]);
   });
 
   test('runAndroidRobolectricProbe deploys scoped Firestore session and cleans up UIDs and scratch state on success and failure', async () => {

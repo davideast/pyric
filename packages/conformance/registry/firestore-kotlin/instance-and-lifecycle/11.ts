@@ -7,6 +7,7 @@ export default row({
   behavior: 'Terminates the Firestore client, closing network connections and unsubscribing active snapshot flows.',
   featureKeys: ['terminate'],
   status: 'conforms',
+  oracleObservations: ['firestore-kotlin-batches-transactions-offline-and-errors'],
   tests: [LIVE_HOST_CORE_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

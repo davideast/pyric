@@ -7,6 +7,7 @@ export default row({
   behavior: 'Reads document snapshot within transaction context and acquires read lock.',
   featureKeys: ['get', 'transaction'],
   status: 'conforms',
+  oracleObservations: ['firestore-kotlin-batches-transactions-offline-and-errors'],
   tests: [LIVE_HOST_TRANSACTIONS_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

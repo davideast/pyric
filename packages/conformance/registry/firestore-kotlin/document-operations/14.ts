@@ -7,6 +7,10 @@ export default row({
   behavior: 'Reads a single document snapshot from server or cache based on Source.',
   featureKeys: ['get'],
   status: 'conforms',
+  oracleObservations: [
+    'firestore-kotlin-crud-merge-sentinels-and-codecs',
+    'firestore-kotlin-batches-transactions-offline-and-errors',
+  ],
   tests: [
     'packages/kt-client/src/test/kotlin/dev/pyric/e2e/FirestoreLifecycleAndDocsLiveHostConformanceTest.kt',
   ],

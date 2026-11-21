@@ -7,6 +7,7 @@ export default row({
   behavior: 'Deeply encodes and revives recursive nested Maps and Lists containing mixed primitives and sentinels.',
   featureKeys: ['data'],
   status: 'conforms',
+  oracleObservations: ['firestore-kotlin-crud-merge-sentinels-and-codecs'],
   tests: [LIVE_HOST_CORE_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

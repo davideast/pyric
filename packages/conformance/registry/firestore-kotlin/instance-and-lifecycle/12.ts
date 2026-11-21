@@ -7,6 +7,7 @@ export default row({
   behavior: 'Resolves when all locally initiated writes have been committed by the server.',
   featureKeys: ['waitForPendingWrites'],
   status: 'conforms',
+  oracleObservations: ['firestore-kotlin-batches-transactions-offline-and-errors'],
   tests: [
     'packages/kt-client/src/test/kotlin/dev/pyric/e2e/FirestoreLifecycleAndDocsLiveHostConformanceTest.kt',
   ],

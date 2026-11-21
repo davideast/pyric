@@ -7,6 +7,7 @@ export default row({
   behavior: 'Toggles client network connectivity to simulate offline operation.',
   featureKeys: ['enableNetwork', 'disableNetwork'],
   status: 'conforms',
+  oracleObservations: ['firestore-kotlin-batches-transactions-offline-and-errors'],
   tests: [
     'packages/kt-client/src/test/kotlin/dev/pyric/e2e/FirestoreLifecycleAndDocsLiveHostConformanceTest.kt',
   ],

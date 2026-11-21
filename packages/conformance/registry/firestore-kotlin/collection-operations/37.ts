@@ -7,6 +7,7 @@ export default row({
   behavior: 'Returns DocumentReference under collection; auto-generates 20-char ID if path omitted.',
   featureKeys: ['document'],
   status: 'conforms',
+  oracleObservations: ['firestore-kotlin-crud-merge-sentinels-and-codecs'],
   tests: [LIVE_HOST_CORE_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });
