@@ -1,0 +1,77 @@
+{
+  "name": "firestore-swift-inequality-cursors-collectionGroup-and-txRetry",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Upstream FirebaseFirestore (firebase-ios-sdk) single-field inequality and set filters (isNotEqualTo, isLessThan, isLessThanOrEqualTo, isGreaterThan, isGreaterThanOrEqualTo, arrayContainsAny, notIn), value and DocumentSnapshot cursor pagination (start/end at/after/before), scoped collectionGroup query, WriteBatch and Transaction merge/mergeFields/deleteDocument, and TransactionOptions.maxAttempts contention retry and exhaustion on iOS Simulator.",
+  "observedAt": "2026-11-21T21:03:43.185Z",
+  "iosSdkVersion": "13.2.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "abortDocPersistedContenderValue": 50,
+    "arrayContainsAnyIds": [
+      "d2",
+      "d4"
+    ],
+    "batchMergeAddedFlag": true,
+    "batchMergeFieldsOmittedUnlisted": true,
+    "batchMergeFieldsUpdatedSelected": true,
+    "batchMergePreservedBase": true,
+    "collectionGroupDocIds": [
+      "item_a",
+      "item_b"
+    ],
+    "collectionGroupParentIds": [
+      "p1",
+      "p2"
+    ],
+    "defaultMaxAttempts": 5,
+    "greaterThanIds": [
+      "d3",
+      "d4"
+    ],
+    "greaterThanOrEqualIds": [
+      "d3",
+      "d4"
+    ],
+    "lessThanIds": [
+      "d1",
+      "d2"
+    ],
+    "lessThanOrEqualIds": [
+      "d1",
+      "d2"
+    ],
+    "maxAttemptsExhaustedCode": 9,
+    "maxAttemptsExhaustedDomain": "FIRFirestoreErrorDomain",
+    "maxAttemptsExhaustedRejected": true,
+    "notEqualIds": [
+      "d1",
+      "d4"
+    ],
+    "notInIds": [
+      "d1"
+    ],
+    "retryAttemptsOnSingleConflict": 2,
+    "retryFinalCounter": 12,
+    "singleAttemptRunsBeforeFailure": 1,
+    "startAfterDocEndBeforeDocIds": [
+      "d2",
+      "d3"
+    ],
+    "startAfterEndAtIds": [
+      "d2",
+      "d3"
+    ],
+    "startAtDocEndAtDocIds": [
+      "d2",
+      "d3"
+    ],
+    "startAtEndBeforeIds": [
+      "d2",
+      "d3"
+    ],
+    "txDeleteRemovedTarget": true,
+    "txSetAndMergeSucceeded": true,
+    "unscopedCollectionGroupDenied": true
+  }
+}
