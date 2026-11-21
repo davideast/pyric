@@ -25,6 +25,10 @@ describe('the renames', () => {
     expect(RENAMES.reference).toBe('path');
     expect(RENAMES.contentType).toBe('metadata.contentType');
     expect(RENAMES.customMetadata).toBe('metadata.customMetadata');
+    expect(RENAMES.cacheControl).toBe('metadata.cacheControl');
+    expect(RENAMES.contentDisposition).toBe('metadata.contentDisposition');
+    expect(RENAMES.contentEncoding).toBe('metadata.contentEncoding');
+    expect(RENAMES.contentLanguage).toBe('metadata.contentLanguage');
     expect(RENAMES.data).toBe('contentBase64');
     expect(RENAMES.bytes).toBe('contentBase64');
     expect(RENAMES.content).toBe('contentBase64');
@@ -113,11 +117,17 @@ describe('pathArgument and metadata', () => {
     expect(pathArgument.safeParse(undefined).success).toBe(false);
   });
 
-  it('makes metadata and its two fields optional', () => {
+  it('makes metadata and all client-settable UploadMetadata fields optional', () => {
     expect(metadata.safeParse(undefined).success).toBe(true);
     expect(
-      metadata.safeParse({ contentType: 'image/png', customMetadata: { owner: 'alice' } })
-        .success,
+      metadata.safeParse({
+        contentType: 'image/png',
+        cacheControl: 'public, max-age=300',
+        contentDisposition: 'inline',
+        contentEncoding: 'gzip',
+        contentLanguage: 'en',
+        customMetadata: { owner: 'alice' },
+      }).success,
     ).toBe(true);
   });
 });

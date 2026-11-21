@@ -107,6 +107,21 @@ export interface SandboxClockState {
   offsetMs: number;
 }
 
+/** Minimum instant every sandbox service (including Firestore Timestamp) represents: 0001-01-01T00:00:00.000Z. */
+export const MIN_CLOCK_EPOCH_MS = -62_135_596_800_000;
+
+/** Maximum instant every sandbox service (including Firestore Timestamp) represents: 9999-12-31T23:59:59.999Z. */
+export const MAX_CLOCK_EPOCH_MS = 253_402_300_799_999;
+
+/** Whether `epochMs` is finite and falls within the valid 0001..9999 sandbox clock range. */
+export function isClockInstantInRange(epochMs: number): boolean {
+  return (
+    Number.isFinite(epochMs)
+    && epochMs >= MIN_CLOCK_EPOCH_MS
+    && epochMs <= MAX_CLOCK_EPOCH_MS
+  );
+}
+
 /** The state a clock that has never been moved reports. */
 export function wallClockState(): SandboxClockState {
   return { mode: 'wall', fixedAt: 0, offsetMs: 0 };
@@ -115,6 +130,15 @@ export function wallClockState(): SandboxClockState {
 function assertFiniteMilliseconds(value: number, label: string): void {
   if (!Number.isFinite(value)) {
     throw new RangeError(`${label} must be a finite number of milliseconds; received ${String(value)}.`);
+  }
+}
+
+function assertClockInstantInRange(epochMs: number, label: string): void {
+  assertFiniteMilliseconds(epochMs, label);
+  if (!isClockInstantInRange(epochMs)) {
+    throw new RangeError(
+      `${label} must land within 0001-01-01T00:00:00.000Z..9999-12-31T23:59:59.999Z; received ${String(epochMs)}ms.`,
+    );
   }
 }
 
@@ -174,6 +198,14 @@ export class ClockReading {
       return;
     }
     this.adopt(state);
+  }
+
+  /** Preview the offset and instant a flowing shift by `ms` would produce without mutating state. */
+  previewShift(ms: number): { nextOffsetMs: number; nextInstant: number } {
+    const nextOffsetMs = flowingOffset(this.current) + ms;
+    const nextFloor = this.floor + ms;
+    const nextInstant = Math.max(nextFloor, Date.now() + nextOffsetMs);
+    return { nextOffsetMs, nextInstant };
   }
 
   /** The current instant, in epoch milliseconds. */
@@ -239,8 +271,18 @@ export class SandboxClock {
    * returns exactly `epochMs` until the clock is advanced, set again, or reset.
    */
   set(epochMs: number): void {
-    assertFiniteMilliseconds(epochMs, 'A clock instant');
+    assertClockInstantInRange(epochMs, 'A clock instant');
     this.move({ mode: 'fixed', fixedAt: epochMs, offsetMs: 0 });
+  }
+
+  /** Preview the instant `advance(ms)` would land on without mutating clock state. */
+  nextInstantAfterAdvance(ms: number): number {
+    if (!Number.isFinite(ms)) return Number.NaN;
+    const current = this.reading.state;
+    if (current.mode === 'fixed') {
+      return current.fixedAt + ms;
+    }
+    return this.reading.previewShift(ms).nextInstant;
   }
 
   /**
@@ -252,10 +294,15 @@ export class SandboxClock {
     assertFiniteMilliseconds(ms, 'A clock advance');
     const current = this.reading.state;
     if (current.mode === 'fixed') {
-      this.move({ ...current, fixedAt: current.fixedAt + ms });
+      const nextFixedAt = current.fixedAt + ms;
+      assertClockInstantInRange(nextFixedAt, 'A clock advance');
+      this.move({ ...current, fixedAt: nextFixedAt });
       return;
     }
-    this.reading.shift({ mode: 'offset', fixedAt: 0, offsetMs: flowingOffset(current) + ms }, ms);
+    const { nextOffsetMs, nextInstant } = this.reading.previewShift(ms);
+    assertFiniteMilliseconds(nextOffsetMs, 'A clock advance');
+    assertClockInstantInRange(nextInstant, 'A clock advance');
+    this.reading.shift({ mode: 'offset', fixedAt: 0, offsetMs: nextOffsetMs }, ms);
     this.announce();
   }
 

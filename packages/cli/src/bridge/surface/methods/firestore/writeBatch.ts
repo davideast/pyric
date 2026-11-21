@@ -6,6 +6,7 @@
  * semantics there.
  */
 import { z } from 'zod';
+import { deleteDoc, doc, setDoc, updateDoc, type SetOptions } from 'pyric/firestore';
 import {
   batchFieldValuesOf,
   checkBatch,
@@ -14,6 +15,7 @@ import {
   writeEntry,
 } from '../../arguments/firestore.js';
 import { callSandboxTool } from '../../sandbox-context.js';
+import { firestoreFor } from '../../service-handles.js';
 import type { Args, MethodRecord } from '../../method-types.js';
 
 export default {
@@ -42,13 +44,57 @@ export default {
     return checkBatchFieldValues(args, fail);
   },
   async handler(args, ctx) {
-    const operations = (args.writes as Args[]).map((write, index) => {
+    const writes = args.writes as Args[];
+    const hasMergeFields = writes.some((write) => {
       const options = (write.options ?? {}) as Args;
-      const merged = write.type === 'set' && options.merge === true;
-      const entry: Args = { op: merged ? 'update' : write.type, path: write.path };
-      if (write.data !== undefined) entry.data = batchFieldValuesOf(index, write);
-      return entry;
+      return write.type === 'set' && Array.isArray(options.mergeFields);
     });
-    return callSandboxTool(ctx, 'firestore_batch_write', { operations });
+    if (!hasMergeFields) {
+      const operations = writes.map((write, index) => {
+        const options = (write.options ?? {}) as Args;
+        const merged = write.type === 'set' && options.merge === true;
+        let op = write.type;
+        if (merged) {
+          op = 'update';
+        }
+        const entry: Args = { op, path: write.path };
+        if (write.data !== undefined) entry.data = batchFieldValuesOf(index, write);
+        return entry;
+      });
+      return callSandboxTool(ctx, 'firestore_batch_write', { operations });
+    }
+    if (writes.length === 0 || writes.length > 500) {
+      return {
+        ok: false,
+        summary: `firestore_batch_write: operations must be 1..500 (got ${writes.length}).`,
+      };
+    }
+    const db = firestoreFor(ctx);
+    for (const [index, write] of writes.entries()) {
+      const target = doc(db, String(write.path));
+      if (write.type === 'delete') {
+        await deleteDoc(target);
+        continue;
+      }
+      const data = batchFieldValuesOf(index, write) as Record<string, unknown>;
+      if (write.type === 'update') {
+        await updateDoc(target, data);
+        continue;
+      }
+      const options = (write.options ?? {}) as Args;
+      const sdkOptions: SetOptions = {};
+      if (typeof options.merge === 'boolean') {
+        sdkOptions.merge = options.merge;
+      }
+      if (Array.isArray(options.mergeFields)) {
+        sdkOptions.mergeFields = options.mergeFields as string[];
+      }
+      await setDoc(target, data, sdkOptions);
+    }
+    return {
+      ok: true,
+      summary: `Applied ${writes.length} write(s)`,
+      data: { count: writes.length },
+    };
   },
 } satisfies MethodRecord;

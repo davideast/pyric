@@ -14,7 +14,7 @@
  * module owns the shared failure format and the two entry points a renderer
  * calls: one for the method name, one for the arguments.
  */
-import type { z } from 'zod';
+import { z } from 'zod';
 import { closest, quoted } from './closest-name.js';
 import { refuseUnconfirmed, refuseUnmountedProduction } from './method-effects.js';
 import type { Args, Fail, InvalidArguments, Method, Tool } from './method-types.js';
@@ -62,44 +62,222 @@ function argumentSummary(method: Method, name: string): string {
 function methodAnswerFor(
   method: Method,
   args: Args,
-  name: string,
+  field: string,
+  unindexedField: string,
   fail: Fail,
 ): InvalidArguments | null {
   const answered = method.validate?.(args, { fail }) ?? null;
   if (answered === null) return null;
-  if (answered.data.field !== name) return null;
-  return answered;
+  if (answered.data.field === field || answered.data.field === unindexedField) {
+    return answered;
+  }
+  return null;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/** Peel optional, nullable, default, readonly, catch, branded, and refinement wrappers off a schema. */
+function unwrapSchema(schema: z.ZodTypeAny): z.ZodTypeAny {
+  let current: z.ZodTypeAny = schema;
+  for (;;) {
+    const def = current._def as {
+      typeName?: string;
+      innerType?: z.ZodTypeAny;
+      schema?: z.ZodTypeAny;
+    };
+    const hasInnerType =
+      def.typeName === z.ZodFirstPartyTypeKind.ZodOptional
+      || def.typeName === z.ZodFirstPartyTypeKind.ZodNullable
+      || def.typeName === z.ZodFirstPartyTypeKind.ZodDefault
+      || def.typeName === z.ZodFirstPartyTypeKind.ZodReadonly
+      || def.typeName === z.ZodFirstPartyTypeKind.ZodCatch;
+    if (hasInnerType && def.innerType !== undefined) {
+      current = def.innerType;
+      continue;
+    }
+    const hasWrappedSchema =
+      def.typeName === z.ZodFirstPartyTypeKind.ZodEffects
+      || def.typeName === z.ZodFirstPartyTypeKind.ZodBranded;
+    if (hasWrappedSchema && def.schema !== undefined) {
+      current = def.schema;
+      continue;
+    }
+    return current;
+  }
+}
+
+function unknownNestedKeyFailure(
+  path: readonly (string | number)[],
+  name: string,
+  known: readonly string[],
+  fail: Fail,
+): InvalidArguments {
+  const fullField = fieldPath([...path, name]);
+  const container = fieldPath(path);
+  const suggestion = closest(name, known);
+  if (suggestion !== null) {
+    return fail(
+      `unknown argument ${quoted(fullField)}. '${container}' names this field '${suggestion}'.`,
+      `Pass '${container}.${suggestion}' instead of '${fullField}'.`,
+      fullField,
+    );
+  }
+  if (known.length === 0) {
+    return fail(
+      `unknown argument ${quoted(fullField)}. '${container}' accepts no fields.`,
+      `Remove '${fullField}'.`,
+      fullField,
+    );
+  }
+  return fail(
+    `unknown argument ${quoted(fullField)}. '${container}' accepts ${known.join(', ')}.`,
+    `Remove '${fullField}'.`,
+    fullField,
+  );
 }
 
 /**
- * Reject an argument name the schema does not declare, preferring the method's
- * own answer over a rename and a rename over a spelling guess. A name
- * borrowed from a neighbouring API is a different mistake from a typo and
- * takes a different correction, and a name that asks for the opposite of what
- * the method already does is a third: neither a rename nor a near miss can say
- * so, which is why the record gets to answer first.
+ * Reject an argument name the schema does not declare, at the top level and
+ * inside nested object and array schemas, preferring the method's own answer
+ * over a rename and a rename over a spelling guess. Freeform record maps
+ * (`z.record(...)`) and open (`z.unknown()`) values keep arbitrary user keys.
  */
-function checkArgumentNames(method: Method, args: Args, fail: Fail): InvalidArguments | null {
-  const known = argumentNames(method);
-  for (const name of Object.keys(args)) {
-    if (known.includes(name)) continue;
-    const answered = methodAnswerFor(method, args, name, fail);
-    if (answered !== null) return answered;
-    const renamed = method.renames?.[name] ?? closest(name, known);
-    if (renamed !== null && renamed !== undefined) {
-      return fail(
-        `unknown argument ${quoted(name)}. The SDK names this argument '${renamed}'.`,
-        `Pass '${renamed}' instead of '${name}'.`,
-        name,
-      );
+function checkSchemaArgumentNames(
+  method: Method,
+  rootArgs: Args,
+  schema: z.ZodTypeAny,
+  value: unknown,
+  path: readonly (string | number)[],
+  fail: Fail,
+): InvalidArguments | null {
+  if (value === undefined || value === null) return null;
+  const unwrapped = unwrapSchema(schema);
+  const def = unwrapped._def as {
+    typeName?: string;
+    unknownKeys?: string;
+    type?: z.ZodTypeAny;
+    valueType?: z.ZodTypeAny;
+    options?: z.ZodTypeAny[];
+  };
+
+  if (def.typeName === z.ZodFirstPartyTypeKind.ZodObject) {
+    if (!isPlainRecord(value)) return null;
+    if (def.unknownKeys === 'passthrough') return null;
+    const shape = (unwrapped as z.ZodObject<z.ZodRawShape>).shape;
+    const known = Object.keys(shape);
+    for (const name of Object.keys(value)) {
+      if (known.includes(name)) continue;
+      const fullField = fieldPath([...path, name]);
+      const stringSegments = path.filter((segment): segment is string => typeof segment === 'string');
+      const unindexedField = fieldPath([...stringSegments, name]);
+      const answered = methodAnswerFor(method, rootArgs, fullField, unindexedField, fail);
+      if (answered !== null) return answered;
+      if (path.length === 0) {
+        const renamed = method.renames?.[name] ?? closest(name, known);
+        if (renamed !== null && renamed !== undefined) {
+          return fail(
+            `unknown argument ${quoted(name)}. The SDK names this argument '${renamed}'.`,
+            `Pass '${renamed}' instead of '${name}'.`,
+            name,
+          );
+        }
+        return fail(
+          `unknown argument ${quoted(name)}. ${method.signature} accepts ${known.join(', ')}.`,
+          `Remove '${name}'.`,
+          name,
+        );
+      }
+      return unknownNestedKeyFailure(path, name, known, fail);
     }
-    return fail(
-      `unknown argument ${quoted(name)}. ${method.signature} accepts ${known.join(', ')}.`,
-      `Remove '${name}'.`,
-      name,
-    );
+    for (const name of Object.keys(value)) {
+      const childSchema = (shape as Record<string, z.ZodTypeAny | undefined>)[name];
+      if (childSchema === undefined) continue;
+      const nested = checkSchemaArgumentNames(
+        method,
+        rootArgs,
+        childSchema,
+        value[name],
+        [...path, name],
+        fail,
+      );
+      if (nested !== null) return nested;
+    }
+    return null;
   }
+
+  if (def.typeName === z.ZodFirstPartyTypeKind.ZodArray) {
+    if (!Array.isArray(value) || def.type === undefined) return null;
+    for (const [index, item] of value.entries()) {
+      const nested = checkSchemaArgumentNames(method, rootArgs, def.type, item, [...path, index], fail);
+      if (nested !== null) return nested;
+    }
+    return null;
+  }
+
+  if (def.typeName === z.ZodFirstPartyTypeKind.ZodRecord) {
+    if (!isPlainRecord(value) || def.valueType === undefined) return null;
+    for (const [key, item] of Object.entries(value)) {
+      const nested = checkSchemaArgumentNames(method, rootArgs, def.valueType, item, [...path, key], fail);
+      if (nested !== null) return nested;
+    }
+    return null;
+  }
+
+  const isUnion =
+    def.typeName === z.ZodFirstPartyTypeKind.ZodUnion
+    || def.typeName === z.ZodFirstPartyTypeKind.ZodDiscriminatedUnion;
+  if (isUnion && Array.isArray(def.options)) {
+    const unwrappedOptions = def.options.map((option) => unwrapSchema(option));
+    if (Array.isArray(value)) {
+      const arrayOption = unwrappedOptions.find(
+        (option) => (option._def as { typeName?: string }).typeName === z.ZodFirstPartyTypeKind.ZodArray,
+      );
+      if (arrayOption === undefined) return null;
+      return checkSchemaArgumentNames(method, rootArgs, arrayOption, value, path, fail);
+    }
+    if (!isPlainRecord(value)) return null;
+    const allowsArbitraryKeys = unwrappedOptions.some((option) => {
+      const kind = (option._def as { typeName?: string }).typeName;
+      return (
+        kind === z.ZodFirstPartyTypeKind.ZodRecord
+        || kind === z.ZodFirstPartyTypeKind.ZodUnknown
+        || kind === z.ZodFirstPartyTypeKind.ZodAny
+      );
+    });
+    if (allowsArbitraryKeys) return null;
+    const objectOptions = unwrappedOptions.filter(
+      (option): option is z.ZodObject<z.ZodRawShape> =>
+        (option._def as { typeName?: string }).typeName === z.ZodFirstPartyTypeKind.ZodObject,
+    );
+    if (objectOptions.length === 0) return null;
+    if (objectOptions.length === 1) {
+      return checkSchemaArgumentNames(method, rootArgs, objectOptions[0], value, path, fail);
+    }
+    let bestFailure: InvalidArguments | null = null;
+    let bestOverlap = -1;
+    for (const option of objectOptions) {
+      const candidate = checkSchemaArgumentNames(method, rootArgs, option, value, path, fail);
+      if (candidate === null) return null;
+      const optionKeys = new Set(Object.keys(option.shape));
+      let overlap = 0;
+      for (const key of Object.keys(value)) {
+        if (optionKeys.has(key)) overlap += 1;
+      }
+      if (overlap > bestOverlap) {
+        bestOverlap = overlap;
+        bestFailure = candidate;
+      }
+    }
+    return bestFailure;
+  }
+
   return null;
+}
+
+function checkArgumentNames(method: Method, args: Args, fail: Fail): InvalidArguments | null {
+  return checkSchemaArgumentNames(method, args, method.args, args, [], fail);
 }
 
 /** Turn the first Zod issue into a message that states the signature and the edit. */

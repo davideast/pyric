@@ -8,7 +8,12 @@
  */
 import { afterEach, describe, it, expect, setSystemTime } from 'bun:test';
 
-import { getClock, initializeSandbox } from 'pyric/sandbox';
+import {
+  getClock,
+  initializeSandbox,
+  MAX_CLOCK_EPOCH_MS,
+  MIN_CLOCK_EPOCH_MS,
+} from 'pyric/sandbox';
 import { SandboxClock } from '../../src/sandbox/clock.js';
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -78,6 +83,36 @@ describe('SandboxClock', () => {
     const clock = new SandboxClock();
     expect(() => clock.set(Number.NaN)).toThrow();
     expect(() => clock.advance(Number.POSITIVE_INFINITY)).toThrow();
+  });
+
+  it('refuses out-of-range instants before moving state or notifying listeners (#1921)', () => {
+    setSystemTime(WALL_MS);
+    const clock = new SandboxClock();
+    const notifications: unknown[] = [];
+    clock.onChange((state) => notifications.push(state));
+
+    expect(() => clock.advance(9e15)).toThrow(RangeError);
+    expect(() => clock.advance(-9e15)).toThrow(RangeError);
+    expect(() => clock.advance(1e15)).toThrow(RangeError);
+    expect(clock.mode).toBe('wall');
+    expect(clock.capture()).toEqual({ mode: 'wall', fixedAt: 0, offsetMs: 0 });
+    expect(clock.now()).toBe(WALL_MS);
+    expect(notifications).toEqual([]);
+
+    expect(() => clock.set(MAX_CLOCK_EPOCH_MS + 1)).toThrow(RangeError);
+    expect(() => clock.set(MIN_CLOCK_EPOCH_MS - 1)).toThrow(RangeError);
+    expect(clock.mode).toBe('wall');
+    expect(notifications).toEqual([]);
+
+    clock.set(MAX_CLOCK_EPOCH_MS);
+    expect(clock.now()).toBe(MAX_CLOCK_EPOCH_MS);
+    expect(() => clock.advance(1)).toThrow(RangeError);
+    expect(clock.now()).toBe(MAX_CLOCK_EPOCH_MS);
+
+    clock.set(MIN_CLOCK_EPOCH_MS);
+    expect(clock.now()).toBe(MIN_CLOCK_EPOCH_MS);
+    expect(() => clock.advance(-1)).toThrow(RangeError);
+    expect(clock.now()).toBe(MIN_CLOCK_EPOCH_MS);
   });
 
   it('captures and restores its state', () => {
