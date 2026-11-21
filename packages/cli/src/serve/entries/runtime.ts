@@ -1,14 +1,14 @@
 /**
- * `pyric dev` in-page runtime — the shared chunk every served SDK bundle
+ * `pyric dev` in-page runtime -- the shared chunk every served SDK bundle
  * closes over. One sandbox per page; init payload (rules, future bridge URL)
  * fetched from `/__pyric/init.json` at module init.
  *
  * TOP-LEVEL AWAIT IS LOAD-BEARING: every importer (the auth/firestore bundles,
  * and therefore the user's app module) is deferred until this module resolves,
- * so by the time app code runs the rules are deployed — no
+ * so by the time app code runs the rules are deployed -- no
  * "first write raced the ruleset" class of bugs.
  *
- * This file is BUNDLED FOR THE BROWSER by `../bundler.ts` (esbuild) — it is
+ * This file is BUNDLED FOR THE BROWSER by `../bundler.ts` (esbuild) -- it is
  * never imported by node-side @pyric/cli code. Bundle splitting must keep it
  * a single shared chunk: two copies would mean two sandboxes (P0 validation
  * constraint, design rationale section 9).
@@ -19,13 +19,12 @@ import {
   bundleRecords,
 } from 'pyric/sandbox';
 import { getApps } from 'pyric/app';
-import { getFirestore } from 'pyric/firestore';
 import { seedDocuments, setRules, snapshotDocuments } from 'pyric/sandbox/firestore';
 import { rulesSourceRejection } from 'pyric/rules/internal';
 import { getDatabase } from 'pyric/database';
-import { getStorageSandbox } from 'pyric/storage';
-import { applyStorageRulesUpdate, installServedStorageRules, storageRulesUpdateNotice, type StorageRulesUpdate } from '../storage-rules-install.js';
+import { installServedStorageRules } from '../storage-rules-install.js';
 import { getAuth, sandbox as authOps, type SeedUser } from 'pyric/auth';
+import type { ConnectedBridge } from '../../bridge/client/bridge.js';
 import {
   callTool as workerCallTool,
   relayWorkerOp,
@@ -37,6 +36,8 @@ import { initPayload, initPayloadRequest, logInitPayloadFailure } from './init-p
 export { initPayload } from './init-payload.js';
 import { keepaliveSafe } from './keepalive.js';
 import { onServiceUsed } from './service-use.js';
+import { setupInPagePersistence } from './in-page-persistence.js';
+import { setupInPageRulesEvents } from './in-page-rules-events.js';
 import { toPageOriginWsUrl } from './bridge-url.js';
 import { buildLiveSessionCaptureFixture } from '../session-capture-fixture.js';
 import { avatarMintForPayload } from '../assets/avatar-url.js';
@@ -53,7 +54,7 @@ export { databaseRules };
  * `firebase/*` entry adapters route to the worker-hosted sandbox instead of
  * the in-page one. The worker owns rules/seed/persist/capture/session (it
  * fetches the SAME `/__pyric/init.json`), so on this path the page MUST NOT
- * re-run that backend init below — doing so would double-POST captures and
+ * re-run that backend init below -- doing so would double-POST captures and
  * fight the worker over `/__pyric/state`. Unsupported browsers fall back to
  * the in-page sandbox + the shipped BroadcastChannel sync (strict enhancement).
  *
@@ -62,9 +63,8 @@ export { databaseRules };
  * module evaluates so the page takes the in-page path instead of trying to load
  * a worker that 404s. `pyric dev` always serves the worker and never sets it;
  * the `@pyric/cli/vite` plugin sets it until it serves the worker (M2).
- */
-/**
- * The in-page sandbox. On the worker path it is NOT the data backend — it
+ *
+ * The in-page sandbox. On the worker path it is NOT the data backend -- it
  * stays mounted as the FALLBACK primitive. Worker-mode provider UI reads the
  * worker user directory directly and never constructs a page-local Auth
  * backend.
@@ -84,7 +84,7 @@ interface ServeDiagnostics {
   persistEnabled: boolean;
   /** Epoch ms of the last successful state flush to the server. */
   lastFlushAt: number | null;
-  /** True when another tab holds the writer lock — this tab won't persist. */
+  /** True when another tab holds the writer lock -- this tab won't persist. */
   persistReadOnly: boolean;
   /** True when a `--seed` fixture was withheld because the sandbox already
    *  held restored/lived data (see the seed-docs block below). */
@@ -120,50 +120,83 @@ if (!useWorker) {
 }
 
 let bridgeUrlFromPayload: string | null = null;
+let persistFromPayload = false;
 let activityTokenFromPayload: string | null = null;
+let activeBridge: ConnectedBridge | null = null;
+let bridgeConnecting = false;
+let bridgeDesired = false;
 
-/**
- * The one `/__pyric/init.json` read per page. The in-page path applies the
- * whole payload below; the worker path leaves rules/seed/persist/capture to
- * the SharedWorker and reads only the page-level fields (the bridge URL, and
- * the avatar-upgrade flag `entries/init.ts` acts on), so both modes share this
- * request rather than each issuing their own.
- */
+async function connectBridgePeer(rawUrl: string): Promise<ConnectedBridge | null> {
+  if (useHosted) return null;
+  const url = toPageOriginWsUrl(rawUrl, window.location);
+  const { connectBridge } = await import('../../bridge/client/bridge.js');
+  const wdb = workerDb;
+  const hasWorkerBridge = useWorker && wdb !== null;
+  let connected: ConnectedBridge;
+  if (hasWorkerBridge) {
+    connected = connectBridge(sandbox, {
+      url,
+      dispatcher: (_sandbox, name, args, actAs, callerId) => workerCallTool(wdb, name, args, actAs, callerId),
+      workerRelay: {
+        op: (op, clientSessionId) => relayWorkerOp(wdb, op, clientSessionId),
+        subscribe: (sub, onValue, clientSessionId) => relayWorkerSub(wdb, sub, onValue, clientSessionId),
+        disconnect: (clientSessionId) => relayWorkerDisconnect(wdb, clientSessionId),
+      },
+    });
+  } else {
+    connected = connectBridge(sandbox, { url });
+  }
+  console.info('[pyric sandbox] sandbox registered with the MCP bridge at', url);
+  return connected;
+}
 
-/**
- * The payload for page-level consumers, `null` when it could not be read.
- * Never rejects: the init block below owns reporting an init failure, and a
- * consumer of one flag must not have to own it a second time. Awaiting this
- * also keeps `initPayloadRequest`'s rejection handled.
- */
+function activateInPageBridge(rawUrl: string): void {
+  bridgeDesired = true;
+  if (activeBridge !== null || bridgeConnecting) return;
+  bridgeConnecting = true;
+  void connectBridgePeer(rawUrl)
+    .then((connected) => {
+      bridgeConnecting = false;
+      if (connected === null) return;
+      if (!bridgeDesired) {
+        connected.disconnect();
+        return;
+      }
+      activeBridge = connected;
+      diagnostics.bridgeConnected = true;
+    })
+    .catch((e: unknown) => {
+      bridgeConnecting = false;
+      runtimeStatus.reportError(e, 'runtime');
+      const detail = e instanceof Error ? e.message : String(e);
+      console.error('[pyric sandbox] bridge connect failed:', detail);
+    });
+}
 
-// ── init payload: fetch + apply (top-level await — see header) ────────
-// WORKER PATH: skipped — the worker fetches the same init.json and owns
+function deactivateInPageBridge(): void {
+  bridgeDesired = false;
+  if (activeBridge !== null) {
+    activeBridge.disconnect();
+    activeBridge = null;
+  }
+  diagnostics.bridgeConnected = false;
+}
+
+// -- init payload: fetch + apply (top-level await -- see header) --
+// WORKER PATH: skipped -- the worker fetches the same init.json and owns
 // rules/seed/persist/capture/session. Running it here too would double-POST
 // captures and fight the worker over the /__pyric/state writer lock.
 if (!useWorker) try {
   const payload = await initPayloadRequest;
   bridgeUrlFromPayload = payload.bridgeUrl;
+  persistFromPayload = Boolean(payload.persist);
   activityTokenFromPayload = payload.activityToken ?? null;
-  // The avatar mint goes in BEFORE the first user record: the minted
-  // `photoURL` is stored on the record at creation, never recomputed. This
-  // server mounts the avatar route (`avatars: true`) → provider users get its
-  // URL; it does not (`false`) → they get Firebase's null. A payload without
-  // the flag leaves the sandbox's built-in data-URI mint, which needs no route.
   const avatarMint = avatarMintForPayload(payload.avatars);
   if (avatarMint) {
     authOps.setAvatarMint(getAuth(sandbox), avatarMint);
   }
-  // Register RTDB with the persistence registry BEFORE enablePersistence
-  // (below) so the restored tree rides the controller blob and is applied
-  // during restore-on-attach — same eager-registration reasoning as the
-  // worker path (serve-init.ts). `getDatabase(sandbox)` is idempotent
-  // (one backend per sandbox) so a later rules/op call reuses it.
   getDatabase(sandbox);
   if (payload.rules) {
-    // The server checks before serving, so this is a defensive surface: the
-    // check every rules load path runs, and a refused source leaves the
-    // sandbox's default rules in force.
     const rejection = rulesSourceRejection(payload.rules);
     if (rejection !== null) {
       throw new Error(`firestore.rules not loaded in the sandbox: Firestore ${rejection.message}`);
@@ -172,21 +205,14 @@ if (!useWorker) try {
     diagnostics.rulesDeployed = true;
     diagnostics.rulesHash = payload.rulesHash;
   }
-  // Each instance gets its own rules. An instance without rules follows the
-  // default policy: deny, as in production, unless the session is permissive.
   const databaseInstances = payload.databaseInstances ?? null;
-  databaseRules.deploy(databaseInstances, payload.permissive ? 'allow' : 'deny');
+  const defaultDbPolicy = payload.permissive ? 'allow' : 'deny';
+  databaseRules.deploy(databaseInstances, defaultDbPolicy);
   diagnostics.databaseRulesDeployed = Boolean(payload.databaseRules);
   diagnostics.databaseRulesHash = payload.databaseRulesHash ?? null;
-  // Open the ONE per-sandbox storage service eagerly: the FIRST open wins the
-  // rules AND the project-scoped IDB name (`pyric-storage:<projectKey>`,
-  // issue #359) — a lazy first open from app code would land on the legacy
-  // shared database. `projectKey` is absent on older servers → legacy name.
-  // Each bucket firebase.json names gets its own rules, and a bucket nothing
-  // deploys to is locked (#1313), or open in permissive mode.
-  for (const notice of installServedStorageRules(sandbox, payload)) console.info(`[pyric sandbox] ${notice}`);
-  // Rules deployed only by bucket name count as deployed, as the worker
-  // plane counts them (serve-init.ts).
+  for (const notice of installServedStorageRules(sandbox, payload)) {
+    console.info(`[pyric sandbox] ${notice}`);
+  }
   const deploysBucketRules = Object.keys(payload.storageBucketRules ?? {}).length > 0;
   if (payload.storageRules || deploysBucketRules) {
     diagnostics.storageRulesDeployed = true;
@@ -194,17 +220,10 @@ if (!useWorker) try {
   if (payload.storageRules) {
     diagnostics.storageRulesHash = payload.storageRulesHash;
   }
-  // Auth users land first in either mode (persist restore or state-file
-  // fixture) so restored docs' owner uids resolve in rules and the session
-  // restore below has a DB to restore into.
   if (payload.authUsers && payload.authUsers.length > 0) {
     authOps.seedUsers(getAuth(sandbox), payload.authUsers as unknown as SeedUser[]);
   }
   if (!payload.persist && payload.seedState) {
-    // ── ephemeral fixture (`--seed <state-file>`): restore the blob through
-    // the persistence controller's OWN deserializer (wrapper re-hydration —
-    // seedDocuments on raw marker JSON would break instanceof in rules) via
-    // a read-only backend. Writes go nowhere: ephemeral stays ephemeral.
     const seedSnap = payload.seedState as {
       firestore?: Record<string, Record<string, unknown>>;
       services?: Record<string, unknown>;
@@ -212,13 +231,6 @@ if (!useWorker) try {
     const fixtureBundle = bundleRecords(
       serializeToBuckets(seedSnap.firestore ?? {}, seedSnap.services ?? {}, 0),
     );
-    // NOTE (pre-mortem #6b): this attaches a PERMANENT controller whose
-    // write() is a no-op — so every later mutation in this page pays the
-    // whole-state serialize cost to feed a sink. pyric exposes no
-    // `disablePersistence`/dispose, so a one-shot restore isn't possible from
-    // here without a pyric change (tracked as a pyric follow-up). Accepted:
-    // fixture pages are demo-sized; the cost is bounded and invisible to
-    // correctness.
     await sandbox.enablePersistence({
       key: 'pyric-serve-fixture',
       injectedBackend: recordBackendOverBlob({
@@ -231,151 +243,38 @@ if (!useWorker) try {
     diagnostics.seededDocs = docs ? Object.keys(docs).length : 0;
   }
   if (payload.persist) {
-    // ── persist mode (flow doc section 3c): the substrate is durable. The
-    // sandbox's OWN persistence controller with an HTTP backend over
-    // /__pyric/state — it owns restore-on-attach (wrapper re-hydration),
-    // debounced auto-flush, and the beforeunload safety flush.
-    const section = (name: string): string => `/__pyric/state?section=${name}`;
-    // Single-writer lock (pre-mortem #3): a per-page id claims the writer
-    // role on first flush; a second tab gets 423 and drops to read-only so
-    // it can't erase this tab's world. The server frees a stale lock, so a
-    // reload after the writer closed can reclaim it.
-    const writerId =
-      typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `w-${Date.now()}`;
-    const sessionTokenHeaders: Record<string, string> = payload.sessionToken
-      ? { 'x-pyric-session-token': payload.sessionToken }
-      : {};
-    const writerHeaders: Record<string, string> = {
-      'content-type': 'application/json',
-      'x-pyric-writer': writerId,
-      ...sessionTokenHeaders,
-    };
-    let readOnly = false;
-    // The writer role is claimed once the page uses a service (its first
-    // getAuth, getFirestore, getDatabase or getStorage, or its first sandbox
-    // event), not on load: a page that imports no Firebase service still loads
-    // this runtime through the page script and must leave the role free. A
-    // tab that uses a service claims it before it changes anything, so a tab
-    // that loaded an older world learns it is read-only before it can save
-    // over another tab's RTDB, Storage and auth history (#2039).
-    let claimsWriterRole = false;
-    let heartbeat: ReturnType<typeof setInterval> | null = null;
-    const lostWriterLock = (): void => {
-      if (heartbeat !== null) clearInterval(heartbeat);
-      if (readOnly) return;
-      readOnly = true;
-      diagnostics.persistReadOnly = true;
-      console.warn(
-        '[pyric sandbox] another tab is the persist writer. This tab is read-only ' +
-          '(your changes here will NOT be saved). Close the other tab and reload to take over.',
-      );
-    };
-    await sandbox.enablePersistence({
-      key: 'pyric-serve',
-      injectedBackend: recordBackendOverBlob({
-        async read() {
-          const res = await fetch(section('firestore'), { headers: sessionTokenHeaders });
-          return res.status === 200 ? await res.text() : null;
-        },
-        async write(value) {
-          if (readOnly) return; // a non-writer tab silently no-ops its flushes
-          // Before the page uses a service there is nothing of its own to save
-          // (the attach flush of a page that imports no Firebase service).
-          if (!claimsWriterRole) return;
-          const res = await fetch(section('firestore'), {
-            method: 'POST',
-            headers: writerHeaders,
-            body: value,
-            // The controller's beforeunload flush fires THIS write as the
-            // page is leaving; a plain fetch is aborted on unload (pre-mortem
-            // #1 — the "crash-only" claim was wrong). `keepalive` lets a
-            // small final flush survive unload. It's capped (~64KB across
-            // all keepalive requests), so large states skip it and warn
-            // once — those lose the final unsaved delta on tab close
-            // (reload-based flushes are unaffected).
-            keepalive: keepaliveSafe(value),
-          });
-          if (res.status === 423) return lostWriterLock();
-          if (!res.ok) throw new Error(`state flush → ${res.status}`);
-          diagnostics.lastFlushAt = Date.now();
-        },
-        async clear() {
-          if (readOnly) return;
-          await fetch(section('firestore'), { method: 'POST', headers: writerHeaders, body: 'null' });
-        },
-      }),
-    });
-    diagnostics.persistEnabled = true;
-
-    // Heartbeat: claim the role, then keep an alive-but-idle writer's lock
-    // fresh. PUT claims/refreshes the lock WITHOUT writing state (a POST
-    // would clobber). Release on pagehide so another tab can take over promptly.
-    const sendHeartbeat = (): void => {
-      if (readOnly) return;
-      void fetch('/__pyric/state', { method: 'PUT', headers: writerHeaders }).then((res) => {
-        if (res.status === 423) lostWriterLock();
-      }, () => {});
-    };
-    const claimWriterRole = (): void => {
-      if (claimsWriterRole) return;
-      claimsWriterRole = true;
-      sendHeartbeat();
-      heartbeat = setInterval(sendHeartbeat, 20_000);
-    };
-    onServiceUsed(claimWriterRole);
-    const stopClaimOnEvent = sandbox.onEvent(() => {
-      stopClaimOnEvent();
-      claimWriterRole();
-    });
-    if (typeof window !== 'undefined') {
-      window.addEventListener('pagehide', () => {
-        if (heartbeat !== null) clearInterval(heartbeat);
-        if (!readOnly && claimsWriterRole) {
-          fetch('/__pyric/state', { method: 'DELETE', headers: writerHeaders, keepalive: true }).catch(() => {});
-        }
-      });
-    }
-
-    // Auth user-DB changes flush separately (the controller's blob is
-    // firestore-only). Debounced; exportUsers→seedUsers round-trips.
-    const auth = getAuth(sandbox);
-    let authFlushTimer: ReturnType<typeof setTimeout> | null = null;
-    authOps.subscribeUsers(auth, () => {
-      if (readOnly || !claimsWriterRole) return;
-      if (authFlushTimer) clearTimeout(authFlushTimer);
-      authFlushTimer = setTimeout(() => {
-        void fetch(section('auth'), {
-          method: 'POST',
-          headers: writerHeaders,
-          body: JSON.stringify({ users: authOps.exportUsers(auth) }),
-        }).then(
-          (res) => {
-            if (res.status === 423) lostWriterLock();
-            else if (res.ok) diagnostics.lastFlushAt = Date.now();
-          },
-          (e) => console.warn('[pyric sandbox] auth state flush failed:', e),
-        );
-      }, 500);
+    const rawBridgeUrl = payload.bridgeUrl;
+    await setupInPagePersistence(sandbox, payload, diagnostics, {
+      onWriterClaimed: () => {
+        if (rawBridgeUrl) activateInPageBridge(rawBridgeUrl);
+      },
+      onWriterLost: () => {
+        deactivateInPageBridge();
+      },
     });
   }
   if (payload.capture) {
-    // Capture mode: push live rules, history, and state to /__pyric/capture
-    // for `pyric verify`, independent of --persist durability.
     const flushCapture = (): void => {
       const auth = getAuth(sandbox);
       const apps = getApps();
       const defaultApp = apps.find((app) => app.name === '[DEFAULT]') ?? apps[0];
       const bucket = defaultApp?.options.storageBucket;
-      const defaultStorageBucket = typeof bucket === 'string' && bucket.length > 0 ? bucket : undefined;
-      const body = JSON.stringify(buildLiveSessionCaptureFixture({
+      let defaultStorageBucket: string | undefined;
+      if (typeof bucket === 'string' && bucket.length > 0) {
+        defaultStorageBucket = bucket;
+      }
+      const captureInput: Parameters<typeof buildLiveSessionCaptureFixture>[0] = {
         sandbox,
         defaultInstance: databaseRules.defaultName(),
-        ...(defaultStorageBucket !== undefined ? { defaultStorageBucket } : {}),
         authState: {
           users: authOps.exportUsers(auth),
           currentUser: auth.currentUser,
         },
-      }));
+      };
+      if (defaultStorageBucket !== undefined) {
+        captureInput.defaultStorageBucket = defaultStorageBucket;
+      }
+      const body = JSON.stringify(buildLiveSessionCaptureFixture(captureInput));
       const captureHeaders: Record<string, string> = {
         'content-type': 'application/json',
       };
@@ -390,15 +289,12 @@ if (!useWorker) try {
       }).catch(() => {});
     };
 
-    // Debounced flush coalesces rapid writes into a single capture POST.
     let captureTimer: ReturnType<typeof setTimeout> | null = null;
     sandbox.onEvent(() => {
-      if (captureTimer) clearTimeout(captureTimer);
+      if (captureTimer !== null) clearTimeout(captureTimer);
       captureTimer = setTimeout(flushCapture, 400);
     });
 
-    // Unload flush — best-effort, keepalive. Separate from any persist
-    // pagehide listener so they don't interfere.
     if (typeof window !== 'undefined') {
       window.addEventListener('pagehide', () => {
         flushCapture();
@@ -406,10 +302,6 @@ if (!useWorker) try {
     }
   }
   if (payload.seed && Object.keys(payload.seed).length > 0) {
-    // A seed fixture applies only into an empty home — mirrors the worker's
-    // guard (serve/worker/serve-init.ts): by this point any --persist restore
-    // above has already run, so an existing document means lived/restored
-    // data, not a blank slate. Never stomp it with a fixture.
     const existing = Object.keys(snapshotDocuments(sandbox)).length > 0;
     if (existing) {
       diagnostics.seedSkipped = true;
@@ -418,8 +310,6 @@ if (!useWorker) try {
           'have overwritten it. Use `--persist --fresh` to discard existing state and re-seed.',
       );
     } else {
-      // Admin-style fixture load (bypasses rules) — runs before app code
-      // (top-level await), so the app's first render sees the seeded state.
       seedDocuments(sandbox, payload.seed);
       diagnostics.seededDocs = Object.keys(payload.seed).length;
     }
@@ -433,9 +323,6 @@ if (!useWorker) try {
   );
 }
 
-// Unsupported/forced-in-page browsers own a real page-local sandbox rather
-// than the SharedWorker backend, so they install the same default-on guard at
-// this feed seam. Top-level await keeps this in place before application code.
 if (!useWorker && activityTokenFromPayload) {
   setupFirebaseActivityGuard(
     {
@@ -447,23 +334,20 @@ if (!useWorker && activityTokenFromPayload) {
   );
 }
 
-// The in-page AI broker's diagnostics relay lives in the AI entry
-// (`entries/ai.ts`), the only entry that runs that broker, so a page that
-// uses AI Logic without Firestore, RTDB, or Storage relays too (#1638).
-
-// ── provenance (flow doc section 3a): make the shim's presence unmistakable.
-// Source says `firebase/*`; what runs is the pyric sandbox — say so loudly
-// once, and explain any stack frame that points into /__pyric/sdk/. ────────
+function provenanceModeLabel(): string {
+  if (useHosted) {
+    return ' on the dev server (one backend for all tabs and server processes; rules/seed/persist owned by the dev server)';
+  }
+  if (useWorker) {
+    return ' in a SharedWorker (one backend for all tabs; rules/seed/persist owned by the worker)';
+  }
+  const hasAnyRules =
+    diagnostics.rulesDeployed || diagnostics.databaseRulesDeployed || diagnostics.storageRulesDeployed;
+  if (hasAnyRules) return ' (project rules loaded)';
+  return ' (no project rules)';
+}
 console.info(
-  `[pyric sandbox] firebase/* on this page is served by the Pyric sandbox` +
-    (useHosted
-      ? ' on the dev server (one backend for all tabs and server processes; rules/seed/persist owned by the dev server)'
-      : useWorker
-        ? ' in a SharedWorker (one backend for all tabs; rules/seed/persist owned by the worker)'
-        : diagnostics.rulesDeployed || diagnostics.databaseRulesDeployed || diagnostics.storageRulesDeployed
-          ? ' (project rules loaded)'
-          : ' (no project rules)') +
-    ` — diagnostics: globalThis.__pyricServe`,
+  `[pyric sandbox] firebase/* on this page is served by the Pyric sandbox${provenanceModeLabel()} -- diagnostics: globalThis.__pyricServe`,
 );
 
 let provenanceHintShown = false;
@@ -473,72 +357,34 @@ function explainSandboxFrame(stackOrUrl: string | undefined): boolean {
     provenanceHintShown = true;
     console.info(
       '[pyric sandbox] the error above originates in the Pyric sandbox shim serving firebase/*, ' +
-        'not the real Firebase SDK — behavior can differ where COMPAT coverage is incomplete.',
+        'not the real Firebase SDK -- behavior can differ where COMPAT coverage is incomplete.',
     );
   }
   return true;
 }
 if (typeof window !== 'undefined') {
-  // Stack containment is useful provenance context, but it is NOT an ownership
-  // boundary: an app callback thrown from an SDK caller also contains an SDK
-  // frame. Explicit sandbox events and runtime catches feed the status model.
-  window.addEventListener('error', (e) =>
-    explainSandboxFrame(e.error instanceof Error ? (e.error.stack ?? e.filename) : e.filename),
-  );
-  window.addEventListener('unhandledrejection', (e) =>
-    explainSandboxFrame(e.reason instanceof Error ? e.reason.stack : undefined),
-  );
+  window.addEventListener('error', (e) => {
+    const frame = e.error instanceof Error ? (e.error.stack ?? e.filename) : e.filename;
+    return explainSandboxFrame(frame);
+  });
+  window.addEventListener('unhandledrejection', (e) => {
+    const stack = e.reason instanceof Error ? e.reason.stack : undefined;
+    return explainSandboxFrame(stack);
+  });
 }
 
-// ── bridge peer (only when `pyric dev --bridge` put a URL in the payload;
-//    dynamic import so bridge-less pages never load the client chunk) ─────
-async function connectBridgePeer(rawUrl: string): Promise<void> {
-  if (useHosted) return;
-  // Re-anchor the bridge WS to THIS page's origin so it reaches the server the
-  // page was actually served from over Tailscale / a LAN IP / https, not the
-  // server's baked-in localhost. See bridge-url.ts.
-  const url = toPageOriginWsUrl(rawUrl, window.location);
-  const { connectBridge } = await import('../../bridge/client/bridge.js');
-  // On the worker path, route agent tool-calls THROUGH the SharedWorker so the
-  // agent shares the one sandbox the app + Studio use (no separate in-page
-  // backend). Off the worker path (in-page fallback), dispatch in-page as before.
-  const wdb = workerDb;
-  const hasWorkerBridge = useWorker && wdb !== null;
-  if (hasWorkerBridge) {
-    connectBridge(sandbox, {
-      url,
-      dispatcher: (_sandbox, name, args, actAs, callerId) => workerCallTool(wdb, name, args, actAs, callerId),
-      // Generic worker relay (remote sandbox, slice 1): server-side Node code
-      // (`connectRemoteSandbox`) reaches THIS page's SharedWorker through the
-      // bridge — ops and snap-delivering subscriptions pass straight through
-      // to the one sandbox the app + Studio + agent share.
-      workerRelay: {
-        op: (op, clientSessionId) => relayWorkerOp(wdb, op, clientSessionId),
-        subscribe: (sub, onValue, clientSessionId) => relayWorkerSub(wdb, sub, onValue, clientSessionId),
-        disconnect: (clientSessionId) => relayWorkerDisconnect(wdb, clientSessionId),
-      },
-    });
-  } else {
-    connectBridge(sandbox, { url });
-  }
-  diagnostics.bridgeConnected = true;
-  console.info('[pyric sandbox] sandbox registered with the MCP bridge at', url);
-}
-if (bridgeUrlFromPayload) {
-  // In-page path: bridgeUrlFromPayload came from the (already-blocking) init
-  // block above, so connect inline.
-  try {
-    await connectBridgePeer(bridgeUrlFromPayload);
-  } catch (e) {
-    runtimeStatus.reportError(e, 'runtime');
-    console.error('[pyric sandbox] bridge connect failed:', e instanceof Error ? e.message : String(e));
-  }
+// -- bridge peer --
+// On the in-page path (`page.ts` loads `runtime.ts` on every served page, even
+// pages with no Firebase imports), only a page that uses a service (and, under
+// `--persist`, holds the writer lock) registers as the MCP bridge peer (#2053).
+if (!useWorker && bridgeUrlFromPayload && !persistFromPayload) {
+  const ephemeralBridgeUrl = bridgeUrlFromPayload;
+  onServiceUsed(() => activateInPageBridge(ephemeralBridgeUrl));
+  const stopBridgeOnEvent = sandbox.onEvent(() => {
+    stopBridgeOnEvent();
+    activateInPageBridge(ephemeralBridgeUrl);
+  });
 } else if (useWorker) {
-  // Worker path: the worker owns serve-init, so the page skipped the init.json
-  // fetch. Discover the bridge URL (the agent routes its tool-calls THROUGH the
-  // worker) in a FIRE-AND-FORGET task so app boot is NEVER blocked — runtime.ts
-  // is on the load-bearing top-level-await path, and the agent connecting a beat
-  // later is fine. Bridge-less pages just read a null bridgeUrl and stop.
   void (async () => {
     let payload: Awaited<typeof initPayload>;
     try {
@@ -549,48 +395,25 @@ if (bridgeUrlFromPayload) {
     }
     try {
       const url = payload?.bridgeUrl ?? null;
-      if (url) await connectBridgePeer(url);
+      if (url) {
+        const connected = await connectBridgePeer(url);
+        if (connected !== null) diagnostics.bridgeConnected = true;
+      }
     } catch (e) {
       runtimeStatus.reportError(e, 'runtime');
-      console.error('[pyric sandbox] bridge connect failed:', e instanceof Error ? e.message : String(e));
+      const detail = e instanceof Error ? e.message : String(e);
+      console.error('[pyric sandbox] bridge connect failed:', detail);
     }
   })();
 }
 
-// ── cross-tab realtime sync — wire AFTER sandbox + auth are fully set up ──────
-//
-// Two independent channels, two independent kinds of state:
-//
-//   Channel 1 — Firestore writes (`pyric:serve:tabsync`):
-//     `sandbox.enableTabSync` owns the channel entirely. It broadcasts every
-//     committed Firestore write event to peer tabs and runs the hello/state
-//     late-join handshake so a freshly-opened tab inherits the current
-//     Firestore documents. A write in Tab A fires `onSnapshot` listeners in Tab B
-//     — restoring production's cross-client realtime without a server.
-//
-//   Channel 2 — Auth state (`pyric:serve:auth-sync`):
-//     Auth lives outside the Firestore environment so `enableTabSync` can't
-//     carry it. `wireAuthTabSync` shares account changes while retaining per-tab sessions
-//     over its own BroadcastChannel using a full-state protocol (see
-//     `tab-sync-wiring.ts` for the detailed protocol + echo-guard rationale).
-//
-// Both are no-ops in non-browser environments (`BroadcastChannel` absent).
-//
-// WORKER PATH: retired. The SharedWorker IS the single backend for all tabs, so
-// cross-tab Firestore + auth are automatic — the in-page sandbox these channels
-// would sync isn't the data backend here. Kept ONLY for the in-page fallback
-// (the tier the plan designates for browsers without SharedWorker).
+// -- cross-tab realtime sync -- wire AFTER sandbox + auth are fully set up --
 const enablesFallbackTabSync = !useWorker && typeof BroadcastChannel !== 'undefined';
 if (enablesFallbackTabSync) {
-  // 1. Firestore cross-tab — library primitive does the heavy lifting.
   sandbox.enableTabSync({
     channel: new BroadcastChannel('pyric:serve:tabsync'),
   });
 
-  // 2. Auth cross-tab — our own bridge (see tab-sync-wiring.ts).
-  //    Dynamic import keeps the module out of the critical path; the channel
-  //    is opened synchronously above so `hello` is posted as soon as the
-  //    listener is wired (wireAuthTabSync handles ordering internally).
   void import('./tab-sync-wiring.js').then(({ wireAuthTabSync }) => {
     wireAuthTabSync(
       getAuth(sandbox),
@@ -598,90 +421,14 @@ if (enablesFallbackTabSync) {
     );
   }, (e: unknown) => {
     runtimeStatus.reportError(e, 'runtime');
-    console.error('[pyric sandbox] auth tab sync failed:', e instanceof Error ? e.message : String(e));
+    const detail = e instanceof Error ? e.message : String(e);
+    console.error('[pyric sandbox] auth tab sync failed:', detail);
   });
 }
 
-// ── rules hot-reload (SSE) — `pyric dev` watches firestore.rules and
-//    broadcasts; we re-deploy in place, no page refresh. EventSource is
-//    browser-only; guarded so the bundle stays inert under other runtimes. ──
-// IN-PAGE PATH ONLY: open a per-tab SSE to re-deploy rules to the in-page
-// sandbox. On the WORKER path the SharedWorker owns ONE hot-reload stream for
-// the whole origin (see entry.ts), so tabs open NO SSE connection — multi-tab
-// pages would otherwise exhaust Chrome's ~6-connections-per-origin cap and a
-// later tab's navigation would hang until an earlier tab closed.
-if (!useWorker && typeof EventSource !== 'undefined') {
-  const events = new EventSource('/__pyric/events');
-  events.addEventListener('rules-changed', (e) => {
-    try {
-      const { rules, rulesHash } = JSON.parse((e as MessageEvent).data as string) as {
-        rules: string;
-        rulesHash: string;
-      };
-      // A refused source leaves the active rules in force.
-      const rejection = rulesSourceRejection(rules);
-      if (rejection !== null) throw new Error(`Firestore ${rejection.message}`);
-      setRules(sandbox, rules);
-      diagnostics.rulesDeployed = true;
-      diagnostics.rulesHash = rulesHash;
-      console.info(`[pyric sandbox] firestore.rules hot-reloaded (hash ${rulesHash})`);
-    } catch (err) {
-      runtimeStatus.reportError(err, 'runtime');
-      console.error('[pyric sandbox] rules hot-reload failed:', err instanceof Error ? err.message : String(err));
-    }
-  });
-  events.addEventListener('rtdb-rules-update', (e) => {
-    try {
-      // Null rules mean the rules file was deleted: `policy` then governs
-      // every read and write, as it does when the page starts without rules.
-      const { instance, target, rules, rulesHash, policy } = JSON.parse((e as MessageEvent).data as string) as {
-        instance: string;
-        target?: string;
-        rules: { rules: Record<string, unknown> } | null;
-        rulesHash: string | null;
-        policy?: 'allow' | 'deny';
-      };
-      // An unresolved deploy target's rules apply to its instances once the
-      // app's project resolved it, and are kept for that resolution until then.
-      if (target !== undefined) {
-        databaseRules.deployTarget(target, rules, policy);
-        console.info(`[pyric sandbox] RTDB rules for deploy target "${target}" ${rules === null ? 'removed' : `hot-reloaded (hash ${rulesHash})`}`);
-        return;
-      }
-      databaseRules.deployInstance(instance, rules, policy);
-      const isRemoved = rules === null;
-      const isDefaultInstance = instance === databaseRules.defaultInstance() || databaseRules.isDefaultName(instance);
-      if (isDefaultInstance) {
-        diagnostics.databaseRulesDeployed = !isRemoved;
-        diagnostics.databaseRulesHash = rulesHash ?? null;
-      }
-      if (isRemoved) {
-        console.info(`[pyric sandbox] RTDB rules for instance ${instance} removed; its reads/writes default to ${policy ?? 'deny'}`);
-      } else {
-        console.info(`[pyric sandbox] RTDB rules for instance ${instance} hot-reloaded (hash ${rulesHash})`);
-      }
-    } catch (err) {
-      runtimeStatus.reportError(err, 'runtime');
-      console.error('[pyric sandbox] database rules hot-reload failed:', err instanceof Error ? err.message : String(err));
-    }
-  });
-  events.addEventListener('storage-rules-update', (e) => {
-    // Null rules mean the rules file was deleted: Storage then denies every
-    // client operation, as it does when the page starts without rules.
-    void (async () => {
-      const update = JSON.parse((e as MessageEvent).data as string) as StorageRulesUpdate;
-      await applyStorageRulesUpdate(sandbox, update);
-      const isDefaultBucket = update.bucket === undefined;
-      if (isDefaultBucket) {
-        diagnostics.storageRulesDeployed = update.rules !== null;
-        diagnostics.storageRulesHash = update.rulesHash ?? null;
-      }
-      const hash = update.rules === null ? '' : ` (hash ${update.rulesHash})`;
-      console.info(`[pyric sandbox] ${storageRulesUpdateNotice(update)}${hash}`);
-    })().catch((err: unknown) => {
-      runtimeStatus.reportError(err, 'runtime');
-      console.error('[pyric sandbox] storage rules hot-reload failed:', err instanceof Error ? err.message : String(err));
-    });
+if (!useWorker) {
+  setupInPageRulesEvents(sandbox, databaseRules, diagnostics, (err) => {
+    runtimeStatus.reportError(err, 'runtime');
   });
 }
 
