@@ -4,7 +4,11 @@ import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.TaskCompletionSource
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.launch
+import java.io.File
+import java.io.InputStream
 import java.net.URI
+import java.util.Collections
+import java.util.concurrent.CopyOnWriteArrayList
 
 /**
  * Reference to a Google Cloud Storage object or prefix inside a [FirebaseStorage] bucket,
@@ -14,6 +18,9 @@ class StorageReference internal constructor(
     val storage: FirebaseStorage,
     internal val wirePath: String
 ) : Comparable<StorageReference> {
+
+    private val runningUploads = CopyOnWriteArrayList<UploadTask>()
+    private val runningDownloads = CopyOnWriteArrayList<FileDownloadTask>()
 
     val bucket: String
         get() = storage.bucket
@@ -43,6 +50,28 @@ class StorageReference internal constructor(
     val root: StorageReference
         get() = StorageReference(storage, "")
 
+    val activeUploadTasks: List<UploadTask>
+        get() = Collections.unmodifiableList(ArrayList(runningUploads))
+
+    val activeDownloadTasks: List<FileDownloadTask>
+        get() = Collections.unmodifiableList(ArrayList(runningDownloads))
+
+    internal fun registerActiveUpload(task: UploadTask) {
+        runningUploads.add(task)
+    }
+
+    internal fun unregisterActiveUpload(task: UploadTask) {
+        runningUploads.remove(task)
+    }
+
+    internal fun registerActiveDownload(task: FileDownloadTask) {
+        runningDownloads.add(task)
+    }
+
+    internal fun unregisterActiveDownload(task: FileDownloadTask) {
+        runningDownloads.remove(task)
+    }
+
     fun child(pathString: String): StorageReference {
         require(pathString.isNotEmpty()) { "childName cannot be null or empty" }
         val joined = StorageUrlParser.joinWirePaths(wirePath, pathString)
@@ -58,6 +87,25 @@ class StorageReference internal constructor(
     fun putBytes(bytes: ByteArray, metadata: StorageMetadata): UploadTask =
         UploadTask(this, bytes, metadata).start()
 
+    fun putStream(stream: InputStream): UploadTask =
+        UploadTask(this, UploadPayloadSource.Stream(stream), null).start()
+
+    fun putStream(stream: InputStream, metadata: StorageMetadata): UploadTask =
+        UploadTask(this, UploadPayloadSource.Stream(stream), metadata).start()
+
+    fun putFile(uri: URI): UploadTask =
+        putFile(uri, null, null)
+
+    fun putFile(uri: URI, metadata: StorageMetadata): UploadTask =
+        putFile(uri, metadata, null)
+
+    fun putFile(
+        uri: URI,
+        metadata: StorageMetadata?,
+        existingUploadUri: URI?
+    ): UploadTask =
+        UploadTask(this, UploadPayloadSource.LocalFile(uri, existingUploadUri), metadata).start()
+
     fun getBytes(maxDownloadSizeBytes: Long): Task<ByteArray> {
         require(maxDownloadSizeBytes > 0L) { "maxDownloadSizeBytes must be greater than zero" }
         if (wirePath.isEmpty()) {
@@ -67,6 +115,18 @@ class StorageReference internal constructor(
             BridgeStorageOperations.getBytes(this, maxDownloadSizeBytes)
         }
     }
+
+    fun getFile(destinationUri: URI): FileDownloadTask =
+        FileDownloadTask(this, destinationUri).start()
+
+    fun getFile(destinationFile: File): FileDownloadTask =
+        FileDownloadTask(this, destinationFile.toURI()).start()
+
+    fun getStream(): StreamDownloadTask =
+        StreamDownloadTask(this, null).start()
+
+    fun getStream(processor: StreamDownloadTask.StreamProcessor): StreamDownloadTask =
+        StreamDownloadTask(this, processor).start()
 
     fun getMetadata(): Task<StorageMetadata> {
         if (wirePath.isEmpty()) {

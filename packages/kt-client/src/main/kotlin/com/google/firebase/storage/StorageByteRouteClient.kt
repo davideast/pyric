@@ -2,6 +2,7 @@ package com.google.firebase.storage
 
 import com.google.firebase.firestore.FirebaseFirestoreException
 import dev.pyric.bridge.PyricBridgeClient
+import okhttp3.Call
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -11,6 +12,47 @@ import java.util.Collections
 import java.util.WeakHashMap
 import java.util.concurrent.TimeUnit
 
+internal class TransferCancelSignal {
+    private val lock = Any()
+    private var aborted = false
+    private var activeCall: Call? = null
+
+    val isAborted: Boolean
+        get() = synchronized(lock) { aborted }
+
+    fun attach(call: Call) {
+        val cancelImmediately = synchronized(lock) {
+            if (aborted) {
+                true
+            } else {
+                activeCall = call
+                false
+            }
+        }
+        if (cancelImmediately) {
+            call.cancel()
+        }
+    }
+
+    fun detach(call: Call) {
+        synchronized(lock) {
+            if (activeCall === call) {
+                activeCall = null
+            }
+        }
+    }
+
+    fun abort() {
+        val callToCancel = synchronized(lock) {
+            aborted = true
+            val current = activeCall
+            activeCall = null
+            current
+        }
+        callToCancel?.cancel()
+    }
+}
+
 /**
  * HTTP byte-route transfer collaborator for hosts that advertise `storageByteRoute`
  * (`/__pyric/storage/v0/b/<bucket>/o/...`), mirroring `storage-byte-route.ts`.
@@ -19,6 +61,8 @@ internal object StorageByteRouteClient {
     private const val STORAGE_ROUTE_PREFIX: String = "/__pyric/storage/v0/b/"
 
     private val httpClient: OkHttpClient = OkHttpClient.Builder()
+        .followRedirects(false)
+        .followSslRedirects(false)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
         .writeTimeout(60, TimeUnit.SECONDS)
@@ -100,26 +144,18 @@ internal object StorageByteRouteClient {
         while (offset < total) {
             val endExclusive = minOf(offset + BridgeStorageOperations.MAX_STORAGE_PART_BYTES, total)
             val sliceLen = endExclusive - offset
-            val body = bytes.toRequestBody(
-                "application/octet-stream".toMediaTypeOrNull(),
-                offset = offset,
-                byteCount = sliceLen
+            val nextOffset = sendHttpSlice(
+                reference = reference,
+                resolvedUploadUrl = resolvedUrl,
+                slice = bytes,
+                sliceArrayOffset = offset,
+                sliceByteCount = sliceLen,
+                uploadOffset = offset.toLong(),
+                totalBytes = total.toLong(),
+                cancelSignal = null
             )
-            val reqBuilder = Request.Builder()
-                .url(resolvedUrl)
-                .put(body)
-                .header("Content-Range", "bytes $offset-${endExclusive - 1}/$total")
-            applySdkByteRouteHeaders(reference, reqBuilder)
-
-            httpClient.newCall(reqBuilder.build()).execute().use { response ->
-                val code = response.code
-                val accepted = code == 200 || code == 308 || code == 409
-                if (!accepted) {
-                    throw httpStatusToStorageException(code, reference.wirePath)
-                }
-                offset = parseReceivedOffset(code, response.header("Range"), total, endExclusive)
-                onProgress?.invoke(offset.toLong())
-            }
+            offset = nextOffset.toInt()
+            onProgress?.invoke(nextOffset)
         }
         val finishRes = reference.storage.bridgeClient.op(
             method = "storage.finishUpload",
@@ -128,6 +164,83 @@ internal object StorageByteRouteClient {
             timeoutMs = reference.storage.maxUploadRetryTimeMillis.coerceAtLeast(1_000L)
         )
         return BridgeStorageOperations.parseMetadataReply(finishRes, reference)
+    }
+
+    suspend fun sendHttpSlice(
+        reference: StorageReference,
+        resolvedUploadUrl: String,
+        slice: ByteArray,
+        sliceArrayOffset: Int = 0,
+        sliceByteCount: Int = slice.size,
+        uploadOffset: Long,
+        totalBytes: Long,
+        cancelSignal: TransferCancelSignal?
+    ): Long {
+        val endInclusive = uploadOffset + sliceByteCount.toLong() - 1L
+        val body = slice.toRequestBody(
+            "application/octet-stream".toMediaTypeOrNull(),
+            offset = sliceArrayOffset,
+            byteCount = sliceByteCount
+        )
+        val reqBuilder = Request.Builder()
+            .url(resolvedUploadUrl)
+            .put(body)
+            .header("Content-Range", "bytes $uploadOffset-$endInclusive/$totalBytes")
+        applySdkByteRouteHeaders(reference, reqBuilder)
+
+        val call = httpClient.newCall(reqBuilder.build())
+        cancelSignal?.attach(call)
+        try {
+            call.execute().use { response ->
+                val code = response.code
+                val accepted = code == 200 || code == 308 || code == 409
+                if (!accepted) {
+                    throw httpStatusToStorageException(code, reference.wirePath)
+                }
+                return parseReceivedOffsetLong(
+                    statusCode = code,
+                    rangeHeader = response.header("Range"),
+                    totalSize = totalBytes,
+                    fallbackOffset = uploadOffset + sliceByteCount.toLong()
+                )
+            }
+        } finally {
+            cancelSignal?.detach(call)
+        }
+    }
+
+    suspend fun queryHttpUploadOffset(
+        reference: StorageReference,
+        resolvedUploadUrl: String,
+        totalBytes: Long,
+        cancelSignal: TransferCancelSignal?
+    ): Long {
+        val emptyBody = ByteArray(0).toRequestBody("application/octet-stream".toMediaTypeOrNull())
+        val reqBuilder = Request.Builder()
+            .url(resolvedUploadUrl)
+            .put(emptyBody)
+            .header("Content-Range", "bytes */$totalBytes")
+        applySdkByteRouteHeaders(reference, reqBuilder)
+
+        val call = httpClient.newCall(reqBuilder.build())
+        cancelSignal?.attach(call)
+        try {
+            call.execute().use { response ->
+                val code = response.code
+                val accepted = code == 200 || code == 308
+                if (!accepted) {
+                    throw httpStatusToStorageException(code, reference.wirePath)
+                }
+                return parseReceivedOffsetLong(
+                    statusCode = code,
+                    rangeHeader = response.header("Range"),
+                    totalSize = totalBytes,
+                    fallbackOffset = 0L
+                )
+            }
+        } finally {
+            cancelSignal?.detach(call)
+        }
     }
 
     suspend fun downloadOverRoute(
@@ -139,17 +252,7 @@ internal object StorageByteRouteClient {
             if (maxAllowedBytes != null && meta.sizeBytes > maxAllowedBytes) {
                 throw BridgeStorageOperations.exceedBufferLimitException()
             }
-            val bucketName = meta.bucket ?: reference.bucket
-            val encodedBucket = StorageUrlParser.encodeUriComponent(bucketName)
-            val encodedPath = StorageUrlParser.encodeUriComponent(reference.wirePath)
-            val gen = meta.generation
-            val generationQuery = if (!gen.isNullOrEmpty()) {
-                "&generation=${StorageUrlParser.encodeUriComponent(gen)}"
-            } else {
-                ""
-            }
-            val relativePath = "${STORAGE_ROUTE_PREFIX}${encodedBucket}/o/${encodedPath}?alt=media$generationQuery"
-            val resolvedUrl = resolveHttpUrl(reference.storage.bridgeClient.url, relativePath)
+            val resolvedUrl = buildObjectMediaUrl(reference, meta.bucket ?: reference.bucket, meta.generation)
 
             val reqBuilder = Request.Builder().url(resolvedUrl).get()
             applySdkByteRouteHeaders(reference, reqBuilder)
@@ -175,6 +278,62 @@ internal object StorageByteRouteClient {
             return bytes
         }
         throw StorageException(StorageException.ERROR_RETRY_LIMIT_EXCEEDED)
+    }
+
+    suspend fun downloadRangeOverRoute(
+        reference: StorageReference,
+        bucketName: String,
+        generation: String?,
+        offset: Long,
+        length: Int,
+        cancelSignal: TransferCancelSignal?
+    ): ByteArray {
+        if (length <= 0) {
+            return ByteArray(0)
+        }
+        val resolvedUrl = buildObjectMediaUrl(reference, bucketName, generation)
+        val endInclusive = offset + length.toLong() - 1L
+        val reqBuilder = Request.Builder()
+            .url(resolvedUrl)
+            .get()
+            .header("Range", "bytes=$offset-$endInclusive")
+        applySdkByteRouteHeaders(reference, reqBuilder)
+
+        val call = httpClient.newCall(reqBuilder.build())
+        cancelSignal?.attach(call)
+        try {
+            call.execute().use { response ->
+                if (response.code == 412) {
+                    throw StorageException(
+                        StorageException.ERROR_INVALID_CHECKSUM,
+                        "Object '${reference.wirePath}' changed while reading.",
+                        httpResultCode = 412
+                    )
+                }
+                if (!response.isSuccessful) {
+                    throw httpStatusToStorageException(response.code, reference.wirePath)
+                }
+                return response.body?.bytes() ?: ByteArray(0)
+            }
+        } finally {
+            cancelSignal?.detach(call)
+        }
+    }
+
+    private fun buildObjectMediaUrl(
+        reference: StorageReference,
+        bucketName: String,
+        generation: String?
+    ): String {
+        val encodedBucket = StorageUrlParser.encodeUriComponent(bucketName)
+        val encodedPath = StorageUrlParser.encodeUriComponent(reference.wirePath)
+        val generationQuery = if (!generation.isNullOrEmpty()) {
+            "&generation=${StorageUrlParser.encodeUriComponent(generation)}"
+        } else {
+            ""
+        }
+        val relativePath = "${STORAGE_ROUTE_PREFIX}${encodedBucket}/o/${encodedPath}?alt=media$generationQuery"
+        return resolveHttpUrl(reference.storage.bridgeClient.url, relativePath)
     }
 
     fun resolveHttpUrl(bridgeUrl: String, pathOrUrl: String): String {
@@ -226,18 +385,18 @@ internal object StorageByteRouteClient {
         return null
     }
 
-    private fun parseReceivedOffset(
+    private fun parseReceivedOffsetLong(
         statusCode: Int,
         rangeHeader: String?,
-        totalSize: Int,
-        fallbackOffset: Int
-    ): Int {
+        totalSize: Long,
+        fallbackOffset: Long
+    ): Long {
         if (statusCode == 200) return totalSize
         if (rangeHeader != null) {
             val match = Regex("^bytes=0-(\\d+)$").find(rangeHeader.trim())
             if (match != null) {
-                val endByte = match.groupValues[1].toIntOrNull()
-                if (endByte != null) return endByte + 1
+                val endByte = match.groupValues[1].toLongOrNull()
+                if (endByte != null) return endByte + 1L
             }
         }
         return fallbackOffset

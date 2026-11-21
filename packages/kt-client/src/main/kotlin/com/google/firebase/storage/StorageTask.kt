@@ -4,54 +4,9 @@ import com.google.android.gms.tasks.OnCanceledListener
 import com.google.android.gms.tasks.OnCompleteListener
 import com.google.android.gms.tasks.OnFailureListener
 import com.google.android.gms.tasks.OnSuccessListener
-import com.google.android.gms.tasks.Task
-import java.util.concurrent.CancellationException
-import java.util.concurrent.CopyOnWriteArrayList
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import java.util.concurrent.Executor
-
-fun interface OnProgressListener<TProgress> {
-    fun onProgress(snapshot: TProgress)
-}
-
-fun interface OnPausedListener<TProgress> {
-    fun onPaused(snapshot: TProgress)
-}
-
-sealed class TaskState<out T> {
-    class InProgress<T>(val snapshot: T) : TaskState<T>()
-    class Paused<T>(val snapshot: T) : TaskState<T>()
-}
-
-abstract class CancellableTask<StateT> : Task<StateT>() {
-    abstract fun cancel(): Boolean
-    abstract fun isInProgress(): Boolean
-
-    @get:JvmName("inProgressProp")
-    val isInProgress: Boolean
-        get() = isInProgress()
-
-    abstract fun addOnProgressListener(listener: OnProgressListener<in StateT>): CancellableTask<StateT>
-    abstract fun addOnProgressListener(
-        executor: Executor,
-        listener: OnProgressListener<in StateT>
-    ): CancellableTask<StateT>
-}
-
-abstract class ControllableTask<StateT> : CancellableTask<StateT>() {
-    abstract fun pause(): Boolean
-    abstract fun resume(): Boolean
-    abstract fun isPaused(): Boolean
-
-    @get:JvmName("pausedProp")
-    val isPaused: Boolean
-        get() = isPaused()
-
-    abstract fun addOnPausedListener(listener: OnPausedListener<in StateT>): ControllableTask<StateT>
-    abstract fun addOnPausedListener(
-        executor: Executor,
-        listener: OnPausedListener<in StateT>
-    ): ControllableTask<StateT>
-}
 
 /**
  * Controllable asynchronous Storage operation base class, matching upstream
@@ -75,249 +30,334 @@ abstract class StorageTask<TResult : StorageTask.ProvideError> internal construc
             get() = targetReference
     }
 
-    private val stateLock = Any()
-    private var completeState: Boolean = false
-    private var successfulState: Boolean = false
-    private var canceledState: Boolean = false
-    private var pausedState: Boolean = false
-    private var inProgressState: Boolean = true
-    private var resultValue: TResult? = null
-    private var exceptionValue: Exception? = null
+    protected val stateLock = Any()
+    private val listeners = StorageTaskListeners<TResult>(stateLock)
 
-    private val terminalCallbacks = mutableListOf<(StorageTask<TResult>) -> Unit>()
-    protected val progressListeners = CopyOnWriteArrayList<Pair<Executor?, OnProgressListener<in TResult>>>()
-    protected val pausedListeners = CopyOnWriteArrayList<Pair<Executor?, OnPausedListener<in TResult>>>()
+    private var internalState: StorageTaskInternalState = StorageTaskInternalState.IN_PROGRESS
+    private var terminalResult: TResult? = null
+    private var terminalException: Exception? = null
+    private var resumeGate: CompletableDeferred<Unit>? = null
+    private var settlingThread: Thread? = null
+    private val deferredReplays = ArrayList<() -> Unit>()
 
     abstract val snapshot: TResult
 
-    override fun isPaused(): Boolean = synchronized(stateLock) { pausedState }
+    override fun isComplete(): Boolean =
+        synchronized(stateLock) {
+            internalState.isTerminal &&
+                (settlingThread == null || settlingThread === Thread.currentThread())
+        }
 
-    override fun isInProgress(): Boolean = synchronized(stateLock) { inProgressState && !completeState }
+    override fun isSuccessful(): Boolean =
+        synchronized(stateLock) { internalState == StorageTaskInternalState.SUCCESS }
 
-    override fun isComplete(): Boolean = synchronized(stateLock) { completeState }
+    override fun isCanceled(): Boolean =
+        synchronized(stateLock) {
+            internalState == StorageTaskInternalState.CANCELING ||
+                internalState == StorageTaskInternalState.CANCELED
+        }
 
-    override fun isSuccessful(): Boolean = synchronized(stateLock) { successfulState }
+    override fun isInProgress(): Boolean =
+        synchronized(stateLock) { internalState.isActiveTransfer }
 
-    override fun isCanceled(): Boolean = synchronized(stateLock) { canceledState }
-
-    override fun getException(): Exception? = synchronized(stateLock) { exceptionValue }
+    override fun isPaused(): Boolean =
+        synchronized(stateLock) { internalState == StorageTaskInternalState.PAUSED }
 
     @Suppress("UNCHECKED_CAST")
     override fun getResult(): TResult = synchronized(stateLock) {
-        if (canceledState) throw CancellationException("Task is already canceled")
-        if (successfulState) return resultValue as TResult
-        throw exceptionValue ?: IllegalStateException("Task is not yet complete")
+        if (internalState == StorageTaskInternalState.CANCELED ||
+            internalState == StorageTaskInternalState.CANCELING
+        ) {
+            throw java.util.concurrent.CancellationException("Task is already canceled")
+        }
+        if (internalState == StorageTaskInternalState.SUCCESS) {
+            return terminalResult as TResult
+        }
+        throw terminalException ?: IllegalStateException("Task is not yet complete")
     }
 
     @Suppress("UNCHECKED_CAST")
     override fun <X : Throwable> getResult(exceptionType: Class<X>): TResult = synchronized(stateLock) {
-        if (canceledState) throw CancellationException("Task is already canceled")
-        if (successfulState) return resultValue as TResult
-        if (exceptionType.isInstance(exceptionValue)) throw exceptionType.cast(exceptionValue)
-        throw exceptionValue ?: IllegalStateException("Task is not yet complete")
+        if (internalState == StorageTaskInternalState.CANCELED ||
+            internalState == StorageTaskInternalState.CANCELING
+        ) {
+            throw java.util.concurrent.CancellationException("Task is already canceled")
+        }
+        if (internalState == StorageTaskInternalState.SUCCESS) {
+            return terminalResult as TResult
+        }
+        val ex = terminalException
+        if (exceptionType.isInstance(ex)) {
+            throw exceptionType.cast(ex)
+        }
+        throw ex ?: IllegalStateException("Task is not yet complete")
     }
 
-    protected fun setPausedInternal(paused: Boolean) {
+    override fun getException(): Exception? =
+        synchronized(stateLock) { terminalException }
+
+    override fun pause(): Boolean {
+        val dispatchPaused: () -> Unit
         synchronized(stateLock) {
-            if (!completeState) {
-                pausedState = paused
+            if (internalState != StorageTaskInternalState.IN_PROGRESS) {
+                return false
+            }
+            internalState = StorageTaskInternalState.PAUSED
+            if (resumeGate == null) {
+                resumeGate = CompletableDeferred()
+            }
+            onPausedTransitionLocked()
+            dispatchPaused = listeners.preparePausedDispatchLocked(snapshot)
+        }
+        dispatchPaused()
+        return true
+    }
+
+    override fun resume(): Boolean {
+        val gateToRelease: CompletableDeferred<Unit>?
+        synchronized(stateLock) {
+            if (internalState != StorageTaskInternalState.PAUSED) {
+                return false
+            }
+            internalState = StorageTaskInternalState.IN_PROGRESS
+            gateToRelease = resumeGate
+            resumeGate = null
+            onResumedTransitionLocked()
+        }
+        gateToRelease?.complete(Unit)
+        onResumedPostUnlock()
+        return true
+    }
+
+    override fun cancel(): Boolean {
+        val cancelError = StorageException(StorageException.ERROR_CANCELED)
+        val gateToCancel: CompletableDeferred<Unit>?
+        val backgroundRollback: (() -> Unit)?
+        val dispatches: Pair<() -> Unit, () -> Unit>
+        synchronized(stateLock) {
+            if (internalState.isTerminal || internalState == StorageTaskInternalState.CANCELING) {
+                return false
+            }
+            gateToCancel = resumeGate
+            resumeGate = null
+            terminalException = cancelError
+            onCanceledTransitionLocked(cancelError)
+            backgroundRollback = tryDeferCancelForRollbackLocked(cancelError)
+            internalState = StorageTaskInternalState.CANCELED
+            settlingThread = Thread.currentThread()
+            dispatches = listeners.prepareTerminalFailureDispatchLocked(
+                task = this,
+                error = cancelError,
+                canceled = true
+            )
+        }
+        gateToCancel?.completeExceptionally(CancellationException("StorageTask canceled"))
+        if (backgroundRollback != null) {
+            backgroundRollback.invoke()
+        } else {
+            onCanceledCleanup()
+        }
+        runTwoPhaseTerminalDispatch(dispatches)
+        return true
+    }
+
+    protected suspend fun awaitActiveOrThrowCanceled() {
+        while (true) {
+            val gate: CompletableDeferred<Unit>?
+            synchronized(stateLock) {
+                if (internalState == StorageTaskInternalState.CANCELING ||
+                    internalState == StorageTaskInternalState.CANCELED ||
+                    internalState.isTerminal
+                ) {
+                    throw CancellationException("StorageTask is no longer active")
+                }
+                gate = if (internalState == StorageTaskInternalState.PAUSED) resumeGate else null
+            }
+            if (gate == null) {
+                return
+            }
+            gate.await()
+        }
+    }
+
+    internal fun currentInternalState(): StorageTaskInternalState =
+        synchronized(stateLock) { internalState }
+
+    protected fun notifyProgressIfActive(progressSnapshot: TResult) {
+        val dispatchProgress = synchronized(stateLock) {
+            if (internalState == StorageTaskInternalState.IN_PROGRESS) {
+                listeners.prepareProgressDispatchLocked(progressSnapshot)
+            } else {
+                null
             }
         }
+        dispatchProgress?.invoke()
     }
 
-    protected fun tryCompleteSuccess(result: TResult): Boolean {
-        val callbacks = synchronized(stateLock) {
-            if (completeState) return false
-            completeState = true
-            successfulState = true
-            inProgressState = false
-            pausedState = false
-            resultValue = result
-            val copy = ArrayList(terminalCallbacks)
-            terminalCallbacks.clear()
-            copy
-        }
-        callbacks.forEach { it(this) }
+    protected fun tryCompleteSuccess(finalSnapshot: TResult): Boolean {
+        val dispatches = synchronized(stateLock) {
+            if (internalState != StorageTaskInternalState.IN_PROGRESS) {
+                null
+            } else {
+                internalState = StorageTaskInternalState.SUCCESS
+                terminalResult = finalSnapshot
+                settlingThread = Thread.currentThread()
+                onSuccessTransitionLocked(finalSnapshot)
+                listeners.prepareTerminalSuccessDispatchLocked(this, finalSnapshot)
+            }
+        } ?: return false
+
+        runTwoPhaseTerminalDispatch(dispatches)
         return true
     }
 
-    protected fun tryCompleteFailure(error: Exception): Boolean {
-        val callbacks = synchronized(stateLock) {
-            if (completeState) return false
-            completeState = true
-            successfulState = false
-            inProgressState = false
-            pausedState = false
-            exceptionValue = error
-            val copy = ArrayList(terminalCallbacks)
-            terminalCallbacks.clear()
-            copy
+    protected fun tryCompleteFailure(error: StorageException): Boolean {
+        val gateToFail: CompletableDeferred<Unit>?
+        val dispatches: Pair<() -> Unit, () -> Unit>?
+        synchronized(stateLock) {
+            if (internalState.isTerminal || internalState == StorageTaskInternalState.CANCELING) {
+                gateToFail = null
+                dispatches = null
+            } else {
+                internalState = StorageTaskInternalState.FAILURE
+                terminalException = error
+                settlingThread = Thread.currentThread()
+                gateToFail = resumeGate
+                resumeGate = null
+                onFailureTransitionLocked(error)
+                dispatches = listeners.prepareTerminalFailureDispatchLocked(
+                    task = this,
+                    error = error,
+                    canceled = false
+                )
+            }
         }
-        callbacks.forEach { it(this) }
+        if (dispatches == null) {
+            return false
+        }
+        gateToFail?.completeExceptionally(error)
+        runTwoPhaseTerminalDispatch(dispatches)
         return true
     }
 
-    protected fun tryCompleteCanceled(cancelError: StorageException = StorageException(StorageException.ERROR_CANCELED)): Boolean {
-        val callbacks = synchronized(stateLock) {
-            if (completeState) return false
-            completeState = true
-            successfulState = false
-            canceledState = true
-            inProgressState = false
-            pausedState = false
-            exceptionValue = cancelError
-            val copy = ArrayList(terminalCallbacks)
-            terminalCallbacks.clear()
-            copy
+    private fun runTwoPhaseTerminalDispatch(dispatches: Pair<() -> Unit, () -> Unit>) {
+        onTaskDeactivated()
+        dispatches.first()
+        val deferred = synchronized(stateLock) {
+            settlingThread = null
+            ArrayList(deferredReplays).also { deferredReplays.clear() }
         }
-        callbacks.forEach { it(this) }
-        return true
+        dispatches.second()
+        for (replay in deferred) {
+            replay()
+        }
     }
 
-    override fun pause(): Boolean = false
-
-    override fun resume(): Boolean = false
-
-    override fun cancel(): Boolean = tryCompleteCanceled(StorageException(StorageException.ERROR_CANCELED))
-
-    override fun addOnProgressListener(listener: OnProgressListener<in TResult>): StorageTask<TResult> {
-        progressListeners.add(null to listener)
-        if (isSuccessful() || isPaused()) {
-            listener.onProgress(snapshot)
+    private inline fun registerOrReplay(crossinline blockLocked: () -> (() -> Unit)?): StorageTask<TResult> {
+        val immediate = synchronized(stateLock) {
+            val replay = blockLocked()
+            if (replay != null && settlingThread != null && settlingThread !== Thread.currentThread()) {
+                deferredReplays.add(replay)
+                null
+            } else {
+                replay
+            }
         }
+        immediate?.invoke()
         return this
     }
+
+    protected open fun onPausedTransitionLocked() {}
+    protected open fun onResumedTransitionLocked() {}
+    protected open fun onResumedPostUnlock() {}
+    protected open fun onCanceledTransitionLocked(cancelError: StorageException) {}
+    protected open fun tryDeferCancelForRollbackLocked(cancelError: StorageException): (() -> Unit)? = null
+    protected open fun onCanceledCleanup() {}
+    protected open fun onSuccessTransitionLocked(finalSnapshot: TResult) {}
+    protected open fun onFailureTransitionLocked(error: StorageException) {}
+    protected open fun onTaskDeactivated() {}
+
+    override fun addOnProgressListener(listener: OnProgressListener<in TResult>): StorageTask<TResult> =
+        registerOrReplay { listeners.addProgressLocked(listener, null, internalState, snapshot) }
 
     override fun addOnProgressListener(
         executor: Executor,
         listener: OnProgressListener<in TResult>
-    ): StorageTask<TResult> {
-        progressListeners.add(executor to listener)
-        if (isSuccessful() || isPaused()) {
-            val snap = snapshot
-            executor.execute { listener.onProgress(snap) }
-        }
+    ): StorageTask<TResult> =
+        registerOrReplay { listeners.addProgressLocked(listener, executor, internalState, snapshot) }
+
+    fun removeOnProgressListener(listener: OnProgressListener<in TResult>): StorageTask<TResult> {
+        listeners.removeProgress(listener)
         return this
     }
 
-    open fun removeOnProgressListener(listener: OnProgressListener<in TResult>): StorageTask<TResult> {
-        progressListeners.removeIf { it.second == listener }
-        return this
-    }
-
-    override fun addOnPausedListener(listener: OnPausedListener<in TResult>): StorageTask<TResult> {
-        pausedListeners.add(null to listener)
-        if (isPaused()) {
-            listener.onPaused(snapshot)
-        }
-        return this
-    }
+    override fun addOnPausedListener(listener: OnPausedListener<in TResult>): StorageTask<TResult> =
+        registerOrReplay { listeners.addPausedLocked(listener, null, internalState, snapshot) }
 
     override fun addOnPausedListener(
         executor: Executor,
         listener: OnPausedListener<in TResult>
-    ): StorageTask<TResult> {
-        pausedListeners.add(executor to listener)
-        if (isPaused()) {
-            val snap = snapshot
-            executor.execute { listener.onPaused(snap) }
-        }
+    ): StorageTask<TResult> =
+        registerOrReplay { listeners.addPausedLocked(listener, executor, internalState, snapshot) }
+
+    fun removeOnPausedListener(listener: OnPausedListener<in TResult>): StorageTask<TResult> {
+        listeners.removePaused(listener)
         return this
     }
 
-    open fun removeOnPausedListener(listener: OnPausedListener<in TResult>): StorageTask<TResult> {
-        pausedListeners.removeIf { it.second == listener }
-        return this
-    }
-
-    protected fun notifyProgress(currentSnapshot: TResult) {
-        for ((executor, listener) in progressListeners) {
-            if (executor != null) {
-                executor.execute { listener.onProgress(currentSnapshot) }
-            } else {
-                listener.onProgress(currentSnapshot)
-            }
-        }
-    }
-
-    protected fun notifyPaused(currentSnapshot: TResult) {
-        for ((executor, listener) in pausedListeners) {
-            if (executor != null) {
-                executor.execute { listener.onPaused(currentSnapshot) }
-            } else {
-                listener.onPaused(currentSnapshot)
-            }
-        }
-    }
-
-    private fun registerTerminalCallback(callback: (StorageTask<TResult>) -> Unit) {
-        val runNow = synchronized(stateLock) {
-            if (!completeState) {
-                terminalCallbacks.add(callback)
-                false
-            } else {
-                true
-            }
-        }
-        if (runNow) {
-            callback(this)
-        }
-    }
-
-    override fun addOnSuccessListener(listener: OnSuccessListener<in TResult>): StorageTask<TResult> {
-        registerTerminalCallback { task ->
-            if (task.isSuccessful()) listener.onSuccess(task.getResult())
-        }
-        return this
-    }
+    override fun addOnSuccessListener(listener: OnSuccessListener<in TResult>): StorageTask<TResult> =
+        registerOrReplay { listeners.addSuccessLocked(listener, null, internalState, snapshot) }
 
     override fun addOnSuccessListener(
         executor: Executor,
         listener: OnSuccessListener<in TResult>
-    ): StorageTask<TResult> {
-        return addOnSuccessListener { res -> executor.execute { listener.onSuccess(res) } }
-    }
+    ): StorageTask<TResult> =
+        registerOrReplay { listeners.addSuccessLocked(listener, executor, internalState, snapshot) }
 
-    override fun addOnFailureListener(listener: OnFailureListener): StorageTask<TResult> {
-        registerTerminalCallback { task ->
-            val ex = task.getException()
-            if (!task.isSuccessful() && ex != null) {
-                listener.onFailure(ex)
-            }
-        }
+    fun removeOnSuccessListener(listener: OnSuccessListener<in TResult>): StorageTask<TResult> {
+        listeners.removeSuccess(listener)
         return this
     }
+
+    override fun addOnFailureListener(listener: OnFailureListener): StorageTask<TResult> =
+        registerOrReplay { listeners.addFailureLocked(listener, null, internalState, terminalException) }
 
     override fun addOnFailureListener(
         executor: Executor,
         listener: OnFailureListener
-    ): StorageTask<TResult> {
-        return addOnFailureListener { ex -> executor.execute { listener.onFailure(ex) } }
-    }
+    ): StorageTask<TResult> =
+        registerOrReplay { listeners.addFailureLocked(listener, executor, internalState, terminalException) }
 
-    override fun addOnCompleteListener(listener: OnCompleteListener<TResult>): StorageTask<TResult> {
-        registerTerminalCallback { task -> listener.onComplete(task) }
+    fun removeOnFailureListener(listener: OnFailureListener): StorageTask<TResult> {
+        listeners.removeFailure(listener)
         return this
     }
+
+    override fun addOnCompleteListener(listener: OnCompleteListener<TResult>): StorageTask<TResult> =
+        registerOrReplay { listeners.addCompleteLocked(listener, null, internalState, this) }
 
     override fun addOnCompleteListener(
         executor: Executor,
         listener: OnCompleteListener<TResult>
-    ): StorageTask<TResult> {
-        return addOnCompleteListener { task -> executor.execute { listener.onComplete(task) } }
-    }
+    ): StorageTask<TResult> =
+        registerOrReplay { listeners.addCompleteLocked(listener, executor, internalState, this) }
 
-    override fun addOnCanceledListener(listener: OnCanceledListener): StorageTask<TResult> {
-        registerTerminalCallback { task ->
-            if (task.isCanceled()) listener.onCanceled()
-        }
+    fun removeOnCompleteListener(listener: OnCompleteListener<TResult>): StorageTask<TResult> {
+        listeners.removeComplete(listener)
         return this
     }
+
+    override fun addOnCanceledListener(listener: OnCanceledListener): StorageTask<TResult> =
+        registerOrReplay { listeners.addCanceledLocked(listener, null, internalState) }
 
     override fun addOnCanceledListener(
         executor: Executor,
         listener: OnCanceledListener
-    ): StorageTask<TResult> {
-        return addOnCanceledListener { executor.execute { listener.onCanceled() } }
+    ): StorageTask<TResult> =
+        registerOrReplay { listeners.addCanceledLocked(listener, executor, internalState) }
+
+    fun removeOnCanceledListener(listener: OnCanceledListener): StorageTask<TResult> {
+        listeners.removeCanceled(listener)
+        return this
     }
 }
