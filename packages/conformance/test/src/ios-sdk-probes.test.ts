@@ -157,7 +157,7 @@ describe('ios-oracle-simulator discovery, command args, and base64 extraction', 
     );
   });
 
-  it('builds headless SwiftPM CLI args and unsigned iOS Simulator xcodebuild test args', () => {
+  it('builds headless SwiftPM CLI args and ad-hoc simulator xcodebuild test args', () => {
     const rtdbArgs = buildRtdbSwiftRunArgs({
       stagedPackageDir: '/tmp/staged/rtdb-cli',
       scratchCacheDir: '/tmp/cache/rtdb',
@@ -185,7 +185,7 @@ describe('ios-oracle-simulator discovery, command args, and base64 extraction', 
       destination: 'platform=iOS Simulator,id=SIM-123',
       env: {},
     });
-    expect(authArgs).toContain('CODE_SIGNING_ALLOWED=NO');
+    expect(authArgs).toContain('CODE_SIGNING_ALLOWED=YES');
     expect(authArgs).toContain('CODE_SIGNING_REQUIRED=NO');
     expect(authArgs).toContain('platform=iOS Simulator,id=SIM-123');
     expect(authArgs).toContain(

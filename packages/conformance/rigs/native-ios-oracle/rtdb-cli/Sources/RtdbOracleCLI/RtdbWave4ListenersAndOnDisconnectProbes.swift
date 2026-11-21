@@ -134,13 +134,7 @@ private func verifyTwoAppOnDisconnect(
   try await setValueAsync(canceledRef, value: "kept-alive")
 
   let writerAppName = "pyric-ios-rtdb-writer-\(config.runId)"
-  let writerOptions = FirebaseOptions(
-    googleAppID: config.googleAppId,
-    gcmSenderID: config.gcmSenderId
-  )
-  writerOptions.apiKey = config.apiKey
-  writerOptions.projectID = config.projectId
-  writerOptions.databaseURL = config.databaseUrl
+  let writerOptions = makeRtdbFirebaseOptions(config: config)
 
   FirebaseApp.configure(name: writerAppName, options: writerOptions)
   guard let writerApp = FirebaseApp.app(name: writerAppName) else {

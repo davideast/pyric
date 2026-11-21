@@ -14,6 +14,83 @@ import { join } from 'node:path';
 
 const RESULT_LINE_PREFIX = 'PYRIC_IOS_ORACLE_RESULT_B64:';
 const CLEANUP_UID_LINE_PREFIX = 'PYRIC_IOS_ORACLE_CLEANUP_UID:';
+const DEFAULT_IOS_GOOGLE_APP_ID = '1:000000000000:ios:0000000000000000';
+const ZERO_HEX_BUNDLE_HASH = '0000000000000000';
+const VALID_FIR_APP_NAME_PATTERN = /^[A-Za-z0-9_-]+$/;
+const APP_ID_FOUR_PART_PATTERN = /^1:([0-9]{1,18}):([A-Za-z]+):(.+)$/;
+const APP_ID_PROJECT_PREFIX_PATTERN = /^1:([0-9]{1,18}):/;
+const HEX_DIGITS_PATTERN = /^[0-9a-fA-F]+$/;
+const DECIMAL_SENDER_ID_PATTERN = /^[0-9]{1,18}$/;
+const SPAWN_TAIL_LINE_LIMIT = 120;
+const SPAWN_HIGHLIGHT_LINE_LIMIT = 40;
+
+function extractDecimalProjectNumber(candidate: string | undefined): string | null {
+  if (typeof candidate !== 'string') {
+    return null;
+  }
+  const trimmed = candidate.trim();
+  if (DECIMAL_SENDER_ID_PATTERN.test(trimmed)) {
+    return trimmed;
+  }
+  return null;
+}
+
+/**
+ * Normalizes a Firebase `appId` (including Web `1:<num>:web:<22-hex>`, Android,
+ * or macOS IDs returned by `resolveProbeWebConfig`) into the strict format
+ * enforced by `+[FIRApp validateAppID:]` in `FirebaseCore` (`FIRApp.m`):
+ * `1:<decimal-project-number>:ios:<1-to-16-lowercase-hex-digits>`.
+ */
+export function normalizeIosOracleGoogleAppId(
+  rawAppId: string | undefined,
+  gcmSenderId: string,
+): string {
+  if (typeof rawAppId === 'string') {
+    const trimmed = rawAppId.trim();
+    const fourPartMatch = APP_ID_FOUR_PART_PATTERN.exec(trimmed);
+    if (fourPartMatch !== null) {
+      const projectNumber = fourPartMatch[1];
+      const platform = fourPartMatch[2];
+      const suffix = fourPartMatch[3];
+      if (
+        projectNumber !== undefined &&
+        platform !== undefined &&
+        suffix !== undefined &&
+        HEX_DIGITS_PATTERN.test(suffix)
+      ) {
+        const lowerHex = suffix.toLowerCase();
+        if (platform.toLowerCase() === 'ios' && lowerHex.length >= 1 && lowerHex.length <= 16) {
+          return `1:${projectNumber}:ios:${lowerHex}`;
+        }
+        const boundedHex = lowerHex.slice(0, 16).padEnd(16, '0');
+        return `1:${projectNumber}:ios:${boundedHex}`;
+      }
+    }
+    const prefixMatch = APP_ID_PROJECT_PREFIX_PATTERN.exec(trimmed);
+    if (prefixMatch !== null && prefixMatch[1] !== undefined) {
+      return `1:${prefixMatch[1]}:ios:${ZERO_HEX_BUNDLE_HASH}`;
+    }
+  }
+
+  const senderProjectNumber = extractDecimalProjectNumber(gcmSenderId);
+  if (senderProjectNumber !== null) {
+    return `1:${senderProjectNumber}:ios:${ZERO_HEX_BUNDLE_HASH}`;
+  }
+  return DEFAULT_IOS_GOOGLE_APP_ID;
+}
+
+/**
+ * Validates a `FirebaseApp` name or `runId` token against `FIRApp.m`'s
+ * character-set check (`[A-Za-z0-9_-]+`).
+ */
+export function assertValidIosOracleAppName(appName: string): string {
+  if (!VALID_FIR_APP_NAME_PATTERN.test(appName)) {
+    throw new Error(
+      `Invalid FirebaseApp name token '${appName}': FirebaseCore allows only ASCII letters, digits, hyphens, and underscores.`,
+    );
+  }
+  return appName;
+}
 
 export interface IosSimulatorSelection {
   udid: string;
@@ -248,10 +325,98 @@ export function extractIosOracleCleanupUids(combinedOutput: string): string[] {
   return uids;
 }
 
-function formatSpawnFailure(toolLabel: string, status: number | null, stdout: string, stderr: string): Error {
+function isBenignCompilerCommandLine(trimmedLine: string): boolean {
+  if (trimmedLine.startsWith('CompileC ') || trimmedLine.startsWith('SwiftCompile ')) {
+    return true;
+  }
+  if (trimmedLine.includes(' -fmodules ') || trimmedLine.includes(' -module-name ')) {
+    return true;
+  }
+  return false;
+}
+
+function isDiagnosticHighlightLine(trimmedLine: string): boolean {
+  if (trimmedLine === '' || isBenignCompilerCommandLine(trimmedLine)) {
+    return false;
+  }
+  if (
+    trimmedLine.includes('*** Terminating app') ||
+    trimmedLine.includes('*** First throw call stack') ||
+    trimmedLine.includes('NSException') ||
+    trimmedLine.includes('libc++abi:') ||
+    trimmedLine.includes('terminating due to uncaught exception') ||
+    trimmedLine.includes('terminating with uncaught exception') ||
+    trimmedLine.includes('Fatal error:') ||
+    trimmedLine.includes('Assertion failure')
+  ) {
+    return true;
+  }
+  if (
+    /\[Firebase(?:Core|Auth|Firestore|Database)\]/.test(trimmedLine) ||
+    /I-(?:COR|AUT|FST)[0-9]{6}/.test(trimmedLine)
+  ) {
+    return true;
+  }
+  if (
+    trimmedLine.includes('XCTFail') ||
+    trimmedLine.includes('failed - ') ||
+    trimmedLine.startsWith('[rtdb-oracle-cli] error:') ||
+    trimmedLine.startsWith('xcodebuild: error:') ||
+    /\berror:\s/.test(trimmedLine)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+export function formatIosOracleSpawnFailure(
+  toolLabel: string,
+  status: number | null,
+  stdout: string,
+  stderr: string,
+): Error & { output?: string } {
   const combined = `${stdout}\n${stderr}`.trim();
-  const excerpt = combined.split('\n').slice(-40).join('\n');
-  const err = new Error(`${toolLabel} exited with status ${String(status)}:\n${excerpt}`) as Error & {
+  const lines = combined.split(/\r?\n/);
+  const highlights: string[] = [];
+  const seenHighlights = new Set<string>();
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const rawLine = lines[i];
+    if (rawLine === undefined) {
+      continue;
+    }
+    const trimmed = rawLine.trim();
+    if (!isDiagnosticHighlightLine(trimmed)) {
+      continue;
+    }
+    if (!seenHighlights.has(trimmed) && highlights.length < SPAWN_HIGHLIGHT_LINE_LIMIT) {
+      seenHighlights.add(trimmed);
+      highlights.push(rawLine);
+    }
+    if (trimmed.includes('*** Terminating app') && i + 1 < lines.length) {
+      const nextLine = lines[i + 1];
+      if (nextLine !== undefined) {
+        const nextTrimmed = nextLine.trim();
+        if (
+          nextTrimmed !== '' &&
+          !seenHighlights.has(nextTrimmed) &&
+          highlights.length < SPAWN_HIGHLIGHT_LINE_LIMIT
+        ) {
+          seenHighlights.add(nextTrimmed);
+          highlights.push(nextLine);
+        }
+      }
+    }
+  }
+
+  const tailExcerpt = lines.slice(-SPAWN_TAIL_LINE_LIMIT).join('\n');
+  const sections: string[] = [`${toolLabel} exited with status ${String(status)}:`];
+  if (highlights.length > 0) {
+    sections.push(`Diagnostic highlights:\n${highlights.join('\n')}`);
+  }
+  sections.push(`Recent output tail:\n${tailExcerpt}`);
+
+  const err = new Error(sections.join('\n')) as Error & {
     output?: string;
   };
   err.output = combined;
@@ -276,7 +441,7 @@ export function defaultQueryAvailableSimulatorsJson(env: NodeJS.ProcessEnv): str
     stderr = result.stderr;
   }
   if (result.status !== 0) {
-    throw formatSpawnFailure('xcrun simctl list devices', result.status, stdout, stderr);
+    throw formatIosOracleSpawnFailure('xcrun simctl list devices', result.status, stdout, stderr);
   }
   return stdout;
 }
@@ -317,7 +482,7 @@ export function defaultExecuteRtdbCli(request: IosRtdbCliRequest): string {
     stderr = result.stderr;
   }
   if (result.status !== 0) {
-    throw formatSpawnFailure('SwiftPM RtdbOracleCLI', result.status, stdout, stderr);
+    throw formatIosOracleSpawnFailure('SwiftPM RtdbOracleCLI', result.status, stdout, stderr);
   }
   return `${stdout}\n${stderr}`;
 }
@@ -333,10 +498,13 @@ export function buildAuthSimXcodebuildArgs(request: IosAuthSimRequest): string[]
     request.derivedDataDir,
     '-clonedSourcePackagesDirPath',
     request.clonedPackagesDir,
+    '-collect-test-diagnostics',
+    'never',
     '-only-testing:AuthOracleSimTests/AuthOracleSimTests/testCaptureSelectedOracleProbe',
-    'CODE_SIGNING_ALLOWED=NO',
+    'ONLY_ACTIVE_ARCH=YES',
+    'COMPILER_INDEX_STORE_ENABLE=NO',
     'CODE_SIGNING_REQUIRED=NO',
-    'CODE_SIGNING_IDENTITY=',
+    'CODE_SIGNING_ALLOWED=YES',
   ];
 }
 
@@ -362,7 +530,12 @@ export function defaultExecuteAuthSim(request: IosAuthSimRequest): string {
     stderr = result.stderr;
   }
   if (result.status !== 0) {
-    throw formatSpawnFailure('xcodebuild AuthOracleSimTests', result.status, stdout, stderr);
+    throw formatIosOracleSpawnFailure(
+      'xcodebuild AuthOracleSimTests',
+      result.status,
+      stdout,
+      stderr,
+    );
   }
   return `${stdout}\n${stderr}`;
 }
@@ -378,10 +551,13 @@ export function buildFirestoreSimXcodebuildArgs(request: IosFirestoreSimRequest)
     request.derivedDataDir,
     '-clonedSourcePackagesDirPath',
     request.clonedPackagesDir,
+    '-collect-test-diagnostics',
+    'never',
     '-only-testing:FirestoreOracleSimTests/FirestoreOracleSimTests/testCaptureSelectedOracleProbe',
-    'CODE_SIGNING_ALLOWED=NO',
+    'ONLY_ACTIVE_ARCH=YES',
+    'COMPILER_INDEX_STORE_ENABLE=NO',
     'CODE_SIGNING_REQUIRED=NO',
-    'CODE_SIGNING_IDENTITY=',
+    'CODE_SIGNING_ALLOWED=YES',
   ];
 }
 
@@ -407,7 +583,12 @@ export function defaultExecuteFirestoreSim(request: IosFirestoreSimRequest): str
     stderr = result.stderr;
   }
   if (result.status !== 0) {
-    throw formatSpawnFailure('xcodebuild FirestoreOracleSimTests', result.status, stdout, stderr);
+    throw formatIosOracleSpawnFailure(
+      'xcodebuild FirestoreOracleSimTests',
+      result.status,
+      stdout,
+      stderr,
+    );
   }
   return `${stdout}\n${stderr}`;
 }
