@@ -11,6 +11,7 @@ import {
   GeoPoint as FirestoreGeoPoint,
   Timestamp as FirestoreTimestamp,
   doc as pyricDoc,
+  deleteDoc,
   getFirestore as getClientFirestore,
   setDoc,
   updateDoc,
@@ -136,6 +137,55 @@ describe('RemoteFirestoreTriggerDelivery', () => {
       unsubscribe();
       await setDoc(pyricDoc(authedDb, 'users/after-unsub'), { ignored: true });
       expect(mutations.length).toBe(3);
+    } finally {
+      dispose();
+    }
+  });
+
+  test('suppresses no-op merge updates, propagates updateMask, and resets createTime after delete', async () => {
+    const { ctx, channel, dispose } = await createInProcessChannel();
+    try {
+      const delivery = new RemoteFirestoreTriggerDelivery(channel);
+      const mutations: FirestoreMutationRecord[] = [];
+      const unsubscribe = delivery.subscribe('(default)', {
+        onMutation(mutation) {
+          mutations.push(mutation);
+        },
+      });
+
+      const db = getClientFirestore(ctx.sandbox.withAuth({ uid: 'writer-1' }));
+      await setDoc(pyricDoc(db, 'docs/d-1'), { status: 'open', count: 1 });
+      // Idempotent merge write does not change any field: must not emit or advance updateTime
+      await setDoc(pyricDoc(db, 'docs/d-1'), { status: 'open' }, { merge: true });
+      await updateDoc(pyricDoc(db, 'docs/d-1'), { status: 'closed' });
+
+      // Batch that creates and deletes a temporary doc in the same commit is a net no-op
+      const noopBatch = writeBatch(db);
+      noopBatch.set(pyricDoc(db, 'docs/ephemeral'), { temp: true });
+      noopBatch.delete(pyricDoc(db, 'docs/ephemeral'));
+      await noopBatch.commit();
+      await Promise.resolve();
+
+      await deleteDoc(pyricDoc(db, 'docs/d-1'));
+      await new Promise((resolveSleep) => setTimeout(resolveSleep, 5));
+      await setDoc(pyricDoc(db, 'docs/d-1'), { status: 'recreated' });
+
+      expect(mutations.length).toBe(4);
+      const created = mutations[0];
+      const updated = mutations[1];
+      const deleted = mutations[2];
+      const recreated = mutations[3];
+
+      expect(created?.before).toBeNull();
+      expect(updated?.before?.updateTime).toEqual(created?.after?.updateTime);
+      expect(updated?.after?.createTime).toEqual(created?.after?.createTime);
+      expect(updated?.updateMask).toEqual(['status']);
+      expect(deleted?.before?.fields).toEqual({ status: 'closed', count: 1 });
+      expect(deleted?.after).toBeNull();
+      expect(recreated?.before).toBeNull();
+      expect(recreated?.after?.fields).toEqual({ status: 'recreated' });
+
+      unsubscribe();
     } finally {
       dispose();
     }

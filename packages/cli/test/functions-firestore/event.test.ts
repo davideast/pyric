@@ -223,4 +223,229 @@ describe('executeFirestoreTrigger', () => {
 
     expect(result).toMatchObject({ status: 'rejected', error: boom });
   });
+
+  test('delivers Change<QueryDocumentSnapshot> to onDocumentUpdated and prior snapshot to onDocumentDeleted', async () => {
+    let updatedSummary: Record<string, unknown> | undefined;
+    const onUpdated = firestoreFunctions.onDocumentUpdated(
+      'tickets/{ticketId}',
+      (event) => {
+        const change = event.data;
+        if (change === undefined) {
+          throw new Error('expected Change on onDocumentUpdated');
+        }
+        updatedSummary = {
+          type: event.type,
+          ticketId: event.params.ticketId,
+          beforeExists: change.before.exists,
+          afterExists: change.after.exists,
+          beforeData: change.before.data(),
+          afterData: change.after.data(),
+          sameCreateTime: change.before.createTime.isEqual(change.after.createTime),
+          advancedUpdateTime:
+            change.after.updateTime.toMillis() > change.before.updateTime.toMillis(),
+          v1EventType: event.context.eventType,
+        };
+      },
+    );
+
+    let deletedSummary: Record<string, unknown> | undefined;
+    const onDeleted = firestoreFunctions.onDocumentDeleted(
+      'tickets/{ticketId}',
+      (event) => {
+        const snap = event.data;
+        if (snap === undefined) {
+          throw new Error('expected QueryDocumentSnapshot on onDocumentDeleted');
+        }
+        deletedSummary = {
+          type: event.type,
+          ticketId: event.params.ticketId,
+          exists: snap.exists,
+          path: snap.ref.path,
+          data: snap.data(),
+          v1EventType: event.context.eventType,
+        };
+      },
+    );
+
+    const discovered = discoverFirestoreTriggers({ onUpdated, onDeleted });
+    const updateTrigger = discovered[0];
+    const deleteTrigger = discovered[1];
+    if (updateTrigger === undefined || deleteTrigger === undefined) {
+      throw new Error('expected updated and deleted triggers');
+    }
+
+    const updateResult = await executeFirestoreTrigger(updateTrigger, {
+      id: 'evt-upd-1',
+      time: '2026-07-13T20:01:00.000Z',
+      projectId: 'demo-project',
+      location: 'us-central1',
+      database: '(default)',
+      namespace: '(default)',
+      document: 'tickets/t-42',
+      before: {
+        fields: { status: 'open', priority: 1 },
+        createTime: { seconds: 1_720_900_800, nanos: 0 },
+        updateTime: { seconds: 1_720_900_800, nanos: 0 },
+      },
+      after: {
+        fields: { status: 'closed', priority: 1 },
+        createTime: { seconds: 1_720_900_800, nanos: 0 },
+        updateTime: { seconds: 1_720_900_860, nanos: 0 },
+      },
+      updateMask: ['status'],
+    });
+    expect(updateResult.status).toBe('fulfilled');
+    expect(updatedSummary).toEqual({
+      type: 'google.cloud.firestore.document.v1.updated',
+      ticketId: 't-42',
+      beforeExists: true,
+      afterExists: true,
+      beforeData: { status: 'open', priority: 1 },
+      afterData: { status: 'closed', priority: 1 },
+      sameCreateTime: true,
+      advancedUpdateTime: true,
+      v1EventType: 'providers/cloud.firestore/eventTypes/document.update',
+    });
+
+    const deleteResult = await executeFirestoreTrigger(deleteTrigger, {
+      id: 'evt-del-1',
+      time: '2026-07-13T20:02:00.000Z',
+      projectId: 'demo-project',
+      location: 'us-central1',
+      database: '(default)',
+      namespace: '(default)',
+      document: 'tickets/t-42',
+      before: {
+        fields: { status: 'closed', priority: 1 },
+        createTime: { seconds: 1_720_900_800, nanos: 0 },
+        updateTime: { seconds: 1_720_900_860, nanos: 0 },
+      },
+      after: null,
+    });
+    expect(deleteResult.status).toBe('fulfilled');
+    expect(deletedSummary).toEqual({
+      type: 'google.cloud.firestore.document.v1.deleted',
+      ticketId: 't-42',
+      exists: true,
+      path: 'tickets/t-42',
+      data: { status: 'closed', priority: 1 },
+      v1EventType: 'providers/cloud.firestore/eventTypes/document.delete',
+    });
+  });
+
+  test('delivers Change<DocumentSnapshot> to onDocumentWritten across create, update, and delete', async () => {
+    const states: Array<Record<string, unknown>> = [];
+    const onWritten = firestoreFunctions.onDocumentWritten(
+      'notes/{noteId}',
+      (event) => {
+        const change = event.data;
+        if (change === undefined) {
+          throw new Error('expected Change on onDocumentWritten');
+        }
+        states.push({
+          noteId: event.params.noteId,
+          beforeExists: change.before.exists,
+          afterExists: change.after.exists,
+          beforePath: change.before.ref.path,
+          afterPath: change.after.ref.path,
+          beforeData: change.before.data(),
+          afterData: change.after.data(),
+          beforeCreateUndefined: change.before.createTime === undefined,
+          afterCreateUndefined: change.after.createTime === undefined,
+          v1EventType: event.context.eventType,
+        });
+      },
+    );
+
+    const [trigger] = discoverFirestoreTriggers({ onWritten });
+    if (trigger === undefined) {
+      throw new Error('expected discovered onWritten trigger');
+    }
+
+    const baseEnvelope = {
+      projectId: 'demo-project',
+      location: 'us-central1',
+      database: '(default)',
+      namespace: '(default)',
+      document: 'notes/n-1',
+    };
+
+    await executeFirestoreTrigger(trigger, {
+      ...baseEnvelope,
+      id: 'w-1',
+      time: '2026-07-13T20:00:00.000Z',
+      before: null,
+      after: {
+        fields: { body: 'v1' },
+        createTime: { seconds: 1_720_900_800, nanos: 0 },
+        updateTime: { seconds: 1_720_900_800, nanos: 0 },
+      },
+    });
+    await executeFirestoreTrigger(trigger, {
+      ...baseEnvelope,
+      id: 'w-2',
+      time: '2026-07-13T20:00:10.000Z',
+      before: {
+        fields: { body: 'v1' },
+        createTime: { seconds: 1_720_900_800, nanos: 0 },
+        updateTime: { seconds: 1_720_900_800, nanos: 0 },
+      },
+      after: {
+        fields: { body: 'v2' },
+        createTime: { seconds: 1_720_900_800, nanos: 0 },
+        updateTime: { seconds: 1_720_900_810, nanos: 0 },
+      },
+      updateMask: ['body'],
+    });
+    await executeFirestoreTrigger(trigger, {
+      ...baseEnvelope,
+      id: 'w-3',
+      time: '2026-07-13T20:00:20.000Z',
+      before: {
+        fields: { body: 'v2' },
+        createTime: { seconds: 1_720_900_800, nanos: 0 },
+        updateTime: { seconds: 1_720_900_810, nanos: 0 },
+      },
+      after: null,
+    });
+
+    expect(states).toEqual([
+      {
+        noteId: 'n-1',
+        beforeExists: false,
+        afterExists: true,
+        beforePath: 'notes/n-1',
+        afterPath: 'notes/n-1',
+        beforeData: undefined,
+        afterData: { body: 'v1' },
+        beforeCreateUndefined: true,
+        afterCreateUndefined: false,
+        v1EventType: 'providers/cloud.firestore/eventTypes/document.write',
+      },
+      {
+        noteId: 'n-1',
+        beforeExists: true,
+        afterExists: true,
+        beforePath: 'notes/n-1',
+        afterPath: 'notes/n-1',
+        beforeData: { body: 'v1' },
+        afterData: { body: 'v2' },
+        beforeCreateUndefined: false,
+        afterCreateUndefined: false,
+        v1EventType: 'providers/cloud.firestore/eventTypes/document.write',
+      },
+      {
+        noteId: 'n-1',
+        beforeExists: true,
+        afterExists: false,
+        beforePath: 'notes/n-1',
+        afterPath: 'notes/n-1',
+        beforeData: { body: 'v2' },
+        afterData: undefined,
+        beforeCreateUndefined: false,
+        afterCreateUndefined: true,
+        v1EventType: 'providers/cloud.firestore/eventTypes/document.write',
+      },
+    ]);
+  });
 });

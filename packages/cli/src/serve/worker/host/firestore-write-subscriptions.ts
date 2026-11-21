@@ -10,6 +10,11 @@
  */
 import type { AuthLens, SandboxEvent, WriteSandboxEvent } from 'pyric/sandbox';
 import {
+  DocumentLifecycleTracker,
+  type FirestoreDocumentTransition,
+} from '../../../functions/firestore/document-change.js';
+import { WriteGroupCoalescer } from '../../../functions/firestore/write-coalescer.js';
+import {
   DOC_VALUE_ENCODING,
   serializeDocData,
   type FirestoreWriteSubMessage,
@@ -39,6 +44,7 @@ export interface FirestoreWriteStreamMutationWire {
   readonly authUid: string | null;
   readonly admin: boolean;
   readonly authLensMode: AuthLens['mode'] | null;
+  updateMask?: readonly string[];
   groupId?: string;
   groupKind?: 'batch' | 'transaction';
 }
@@ -47,31 +53,7 @@ export type FirestoreWriteStreamSnapWire =
   | { readonly kind: 'ready' }
   | { readonly kind: 'mutation'; readonly mutation: FirestoreWriteStreamMutationWire };
 
-interface DocTimestampEntry {
-  readonly createTime: FirestoreSerializedTimestamp;
-  readonly updateTime: FirestoreSerializedTimestamp;
-}
-
-interface PendingGroupedWrite {
-  readonly database: string;
-  readonly path: string;
-  readonly firstPriorState: Record<string, unknown> | null;
-  lastNextState: Record<string, unknown> | null;
-  lastEvent: WriteSandboxEvent & { authLens?: AuthLens };
-}
-
-interface WriteStreamHub {
-  readonly timestamps: Map<string, DocTimestampEntry>;
-  readonly subscribers: Set<(mutation: RawCoalescedWrite) => void>;
-}
-
-interface RawCoalescedWrite {
-  readonly database: string;
-  readonly document: string;
-  readonly priorState: Record<string, unknown> | null;
-  readonly nextState: Record<string, unknown> | null;
-  readonly beforeTimes: DocTimestampEntry | null;
-  readonly afterTimes: DocTimestampEntry | null;
+interface RawWriteMeta {
   readonly timeMs: number;
   readonly requestTime: FirestoreSerializedTimestamp;
   readonly authUid: string | null;
@@ -81,11 +63,17 @@ interface RawCoalescedWrite {
   groupKind?: 'batch' | 'transaction';
 }
 
-const hubsByCtx = new WeakMap<HostCtx, WriteStreamHub>();
-
-function docTimestampKey(database: string, path: string): string {
-  return `${database}\u0000${path}`;
+interface WriteStreamHub {
+  readonly tracker: DocumentLifecycleTracker;
+  readonly subscribers: Set<(mutation: RawCoalescedWrite) => void>;
 }
+
+interface RawCoalescedWrite {
+  readonly transition: FirestoreDocumentTransition;
+  readonly meta: RawWriteMeta;
+}
+
+const hubsByCtx = new WeakMap<HostCtx, WriteStreamHub>();
 
 function eventDatabaseOf(event: WriteSandboxEvent): string {
   const detail = event.detail as
@@ -108,91 +96,18 @@ function isWriteEvent(
 
 function seedTimestampsFromHistory(
   ctx: HostCtx,
-  timestamps: Map<string, DocTimestampEntry>,
+  tracker: DocumentLifecycleTracker,
 ): void {
-  timestamps.clear();
+  tracker.clear();
   for (const rawEvent of ctx.sandbox.history()) {
     if (!isWriteEvent(rawEvent)) continue;
-    const database = eventDatabaseOf(rawEvent);
-    const key = docTimestampKey(database, rawEvent.path);
-    if (rawEvent.nextState === null) {
-      timestamps.delete(key);
-    } else {
-      const prior = timestamps.get(key);
-      let createTime = rawEvent.requestTime;
-      if (rawEvent.priorState !== null && prior !== undefined) {
-        createTime = prior.createTime;
-      }
-      timestamps.set(key, {
-        createTime,
-        updateTime: rawEvent.requestTime,
-      });
-    }
-  }
-}
-
-function finalizeCoalescedWrite(
-  hub: WriteStreamHub,
-  database: string,
-  path: string,
-  priorState: Record<string, unknown> | null,
-  nextState: Record<string, unknown> | null,
-  sourceEvent: WriteSandboxEvent & { authLens?: AuthLens },
-): void {
-  if (priorState === null && nextState === null) {
-    return;
-  }
-  const key = docTimestampKey(database, path);
-  const existingTimes = hub.timestamps.get(key);
-  let beforeTimes: DocTimestampEntry | null = null;
-  if (priorState !== null) {
-    beforeTimes = existingTimes ?? {
-      createTime: sourceEvent.requestTime,
-      updateTime: sourceEvent.requestTime,
-    };
-  }
-
-  let afterTimes: DocTimestampEntry | null = null;
-  if (nextState !== null) {
-    let createTime = sourceEvent.requestTime;
-    if (priorState !== null && existingTimes !== undefined) {
-      createTime = existingTimes.createTime;
-    }
-    afterTimes = {
-      createTime,
-      updateTime: sourceEvent.requestTime,
-    };
-    hub.timestamps.set(key, afterTimes);
-  } else {
-    hub.timestamps.delete(key);
-  }
-
-  const lensMode = sourceEvent.authLens?.mode ?? null;
-  const isAdmin = sourceEvent.detail?.admin === true || lensMode === 'admin';
-  const authUid = sourceEvent.auth !== null ? sourceEvent.auth.uid : null;
-
-  const coalesced: RawCoalescedWrite = {
-    database,
-    document: path,
-    priorState,
-    nextState,
-    beforeTimes,
-    afterTimes,
-    timeMs: sourceEvent.at,
-    requestTime: sourceEvent.requestTime,
-    authUid,
-    admin: isAdmin,
-    authLensMode: lensMode,
-    groupId: sourceEvent.groupId,
-    groupKind: sourceEvent.groupKind,
-  };
-
-  for (const subscriber of hub.subscribers) {
-    try {
-      subscriber(coalesced);
-    } catch {
-      // Observational isolation: one broken subscriber cannot block others.
-    }
+    tracker.seedFromWrite(
+      eventDatabaseOf(rawEvent),
+      rawEvent.path,
+      rawEvent.priorState,
+      rawEvent.nextState,
+      rawEvent.requestTime,
+    );
   }
 }
 
@@ -200,89 +115,90 @@ function ensureWriteStreamHub(ctx: HostCtx): WriteStreamHub {
   const existing = hubsByCtx.get(ctx);
   if (existing !== undefined) return existing;
 
-  const timestamps = new Map<string, DocTimestampEntry>();
-  seedTimestampsFromHistory(ctx, timestamps);
+  const tracker = new DocumentLifecycleTracker();
+  seedTimestampsFromHistory(ctx, tracker);
 
   const hub: WriteStreamHub = {
-    timestamps,
+    tracker,
     subscribers: new Set(),
   };
   hubsByCtx.set(ctx, hub);
 
-  const pendingGroups = new Map<string, Map<string, PendingGroupedWrite>>();
+  const coalescer = new WriteGroupCoalescer<RawWriteMeta>((commit) => {
+    if (commit.meta === undefined) return;
+    const transition = tracker.applyWrite(
+      commit.database,
+      commit.document,
+      commit.before,
+      commit.after,
+      commit.commitTime,
+    );
+    if (transition === null) return;
+    const coalesced: RawCoalescedWrite = {
+      transition,
+      meta: commit.meta,
+    };
+    for (const subscriber of hub.subscribers) {
+      try {
+        subscriber(coalesced);
+      } catch {
+        // Observational isolation: one broken subscriber cannot block others.
+      }
+    }
+  });
 
   ctx.sandbox.onEvent((rawEvent) => {
     if (rawEvent.kind === 'session_boundary') {
-      pendingGroups.clear();
-      timestamps.clear();
+      coalescer.reset();
+      tracker.clear();
       return;
     }
     if (!isWriteEvent(rawEvent)) return;
 
-    const database = eventDatabaseOf(rawEvent);
-    const groupId = rawEvent.groupId;
-    if (groupId === undefined) {
-      finalizeCoalescedWrite(
-        hub,
-        database,
-        rawEvent.path,
-        rawEvent.priorState,
-        rawEvent.nextState,
-        rawEvent,
-      );
-      return;
+    const lensMode = rawEvent.authLens?.mode ?? null;
+    const isAdmin = rawEvent.detail?.admin === true || lensMode === 'admin';
+    const authUid = rawEvent.auth !== null ? rawEvent.auth.uid : null;
+    const meta: RawWriteMeta = {
+      timeMs: rawEvent.at,
+      requestTime: rawEvent.requestTime,
+      authUid,
+      admin: isAdmin,
+      authLensMode: lensMode,
+    };
+    if (rawEvent.groupId !== undefined) {
+      meta.groupId = rawEvent.groupId;
+    }
+    if (rawEvent.groupKind !== undefined) {
+      meta.groupKind = rawEvent.groupKind;
     }
 
-    let groupEntries = pendingGroups.get(groupId);
-    if (groupEntries === undefined) {
-      groupEntries = new Map<string, PendingGroupedWrite>();
-      pendingGroups.set(groupId, groupEntries);
-      queueMicrotask(() => {
-        const flushed = pendingGroups.get(groupId);
-        pendingGroups.delete(groupId);
-        if (flushed === undefined) return;
-        for (const entry of flushed.values()) {
-          finalizeCoalescedWrite(
-            hub,
-            entry.database,
-            entry.path,
-            entry.firstPriorState,
-            entry.lastNextState,
-            entry.lastEvent,
-          );
-        }
-      });
-    }
-
-    const docKey = docTimestampKey(database, rawEvent.path);
-    const priorPending = groupEntries.get(docKey);
-    if (priorPending === undefined) {
-      groupEntries.set(docKey, {
-        database,
-        path: rawEvent.path,
-        firstPriorState: rawEvent.priorState,
-        lastNextState: rawEvent.nextState,
-        lastEvent: rawEvent,
-      });
-    } else {
-      priorPending.lastNextState = rawEvent.nextState;
-      priorPending.lastEvent = rawEvent;
-    }
+    coalescer.push({
+      database: eventDatabaseOf(rawEvent),
+      document: rawEvent.path,
+      before: rawEvent.priorState,
+      after: rawEvent.nextState,
+      commitTime: rawEvent.requestTime,
+      groupId: rawEvent.groupId,
+      meta,
+    });
   });
 
   return hub;
 }
 
 function toWireVersion(
-  state: Record<string, unknown> | null,
-  times: DocTimestampEntry | null,
+  version: {
+    readonly fields: Record<string, unknown>;
+    readonly createTime: FirestoreSerializedTimestamp;
+    readonly updateTime: FirestoreSerializedTimestamp;
+  } | null,
   encoding: ResponseDocValueEncoding,
 ): FirestoreWriteStreamVersionWire | null {
-  if (state === null || times === null) return null;
+  if (version === null) return null;
   return {
-    data: serializeDocData(state, encoding),
-    createTime: times.createTime,
-    updateTime: times.updateTime,
+    data: serializeDocData(version.fields, encoding),
+    createTime: version.createTime,
+    updateTime: version.updateTime,
   };
 }
 
@@ -290,7 +206,7 @@ function toWireVersion(
 export function refreshFirestoreWriteStreamTimestamps(ctx: HostCtx): void {
   const hub = hubsByCtx.get(ctx);
   if (hub === undefined) return;
-  seedTimestampsFromHistory(ctx, hub.timestamps);
+  seedTimestampsFromHistory(ctx, hub.tracker);
 }
 
 /** Register a `firestore.writes` subscription on `port`. */
@@ -304,25 +220,29 @@ export function registerFirestoreWriteSubscription(
   const targetDatabase = msg.target.database;
 
   const listener = (raw: RawCoalescedWrite): void => {
-    if (targetDatabase !== undefined && raw.database !== targetDatabase) {
+    const { transition, meta } = raw;
+    if (targetDatabase !== undefined && transition.database !== targetDatabase) {
       return;
     }
     const mutation: FirestoreWriteStreamMutationWire = {
-      database: raw.database,
-      document: raw.document,
-      before: toWireVersion(raw.priorState, raw.beforeTimes, encoding),
-      after: toWireVersion(raw.nextState, raw.afterTimes, encoding),
-      timeMs: raw.timeMs,
-      requestTime: raw.requestTime,
-      authUid: raw.authUid,
-      admin: raw.admin,
-      authLensMode: raw.authLensMode,
+      database: transition.database,
+      document: transition.document,
+      before: toWireVersion(transition.before, encoding),
+      after: toWireVersion(transition.after, encoding),
+      timeMs: meta.timeMs,
+      requestTime: meta.requestTime,
+      authUid: meta.authUid,
+      admin: meta.admin,
+      authLensMode: meta.authLensMode,
     };
-    if (raw.groupId !== undefined) {
-      mutation.groupId = raw.groupId;
+    if (transition.updateMask.length > 0) {
+      mutation.updateMask = transition.updateMask;
     }
-    if (raw.groupKind !== undefined) {
-      mutation.groupKind = raw.groupKind;
+    if (meta.groupId !== undefined) {
+      mutation.groupId = meta.groupId;
+    }
+    if (meta.groupKind !== undefined) {
+      mutation.groupKind = meta.groupKind;
     }
     const snapValue: FirestoreWriteStreamSnapWire = {
       kind: 'mutation',

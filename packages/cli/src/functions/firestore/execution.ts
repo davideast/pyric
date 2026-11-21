@@ -11,6 +11,10 @@ import {
   type InspectFirestoreTriggersOptions,
 } from './discovery.js';
 import {
+  classifyDocumentTransition,
+  triggerMatchesTransitionKind,
+} from './document-change.js';
+import {
   matchFirestoreDocument,
   normalizeFirestoreDocumentPath,
 } from './document-pattern.js';
@@ -55,22 +59,6 @@ export interface FirestoreTriggerExecutionHost {
   readonly ready: Promise<void>;
   idle(): Promise<void>;
   close(): void;
-}
-
-function matchesTriggerOperation(
-  operation: DiscoveredFirestoreTrigger['operation'],
-  mutation: FirestoreMutationRecord,
-): boolean {
-  if (operation === 'created') {
-    return mutation.before === null && mutation.after !== null;
-  }
-  if (operation === 'updated') {
-    return mutation.before !== null && mutation.after !== null;
-  }
-  if (operation === 'deleted') {
-    return mutation.before !== null && mutation.after === null;
-  }
-  return mutation.before !== null || mutation.after !== null;
 }
 
 /** Subscribe discovered Firestore triggers by database and serialize handler runs. */
@@ -124,9 +112,18 @@ export function startFirestoreTriggerExecution(
         onMutation(mutation) {
           if (closed) return;
           if (mutation.database !== database) return;
+          const net = classifyDocumentTransition(
+            mutation.before?.fields ?? null,
+            mutation.after?.fields ?? null,
+          );
+          if (net.kind === 'noop') return;
+          let computedUpdateMask = mutation.updateMask;
+          if (computedUpdateMask === undefined && net.kind === 'updated') {
+            computedUpdateMask = net.updateMask;
+          }
           const normalizedDoc = normalizeFirestoreDocumentPath(mutation.document);
           for (const trigger of dbTriggers) {
-            if (!matchesTriggerOperation(trigger.operation, mutation)) continue;
+            if (!triggerMatchesTransitionKind(trigger.eventType, net.kind)) continue;
             const params = matchFirestoreDocument(trigger.document, normalizedDoc);
             if (params === null) continue;
             const matched: MatchedFirestoreTriggerDelivery = {
@@ -152,7 +149,7 @@ export function startFirestoreTriggerExecution(
                 document: normalizedDoc,
                 before: mutation.before,
                 after: mutation.after,
-                updateMask: mutation.updateMask,
+                updateMask: computedUpdateMask,
                 authType: mutation.authType,
                 authId: mutation.authId,
               };

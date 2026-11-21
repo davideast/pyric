@@ -41,9 +41,12 @@ export const DEFAULT_FIRESTORE_NAMESPACE = '(default)';
 
 const FIRESTORE_EVENT_TYPE_SET: ReadonlySet<string> = new Set(FIRESTORE_EVENT_TYPES);
 
-/** Event types wired for runtime execution in PR 1 (`onDocumentCreated`). */
+/** Event types wired for runtime execution (`created`, `updated`, `deleted`, `written`). */
 export const ACTIVE_FIRESTORE_EVENT_TYPES: ReadonlySet<FirestoreTriggerEventType> = new Set([
   DOCUMENT_CREATED_EVENT,
+  DOCUMENT_UPDATED_EVENT,
+  DOCUMENT_DELETED_EVENT,
+  DOCUMENT_WRITTEN_EVENT,
 ]);
 
 type FirestoreTriggerCallable = (

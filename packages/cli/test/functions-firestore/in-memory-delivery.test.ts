@@ -51,4 +51,48 @@ describe('InMemoryFirestoreTriggerDelivery', () => {
     });
     expect(observed.length).toBe(2);
   });
+
+  test('supports emitUpdate, emitDelete, updateMask computation, and no-op update suppression', () => {
+    const delivery = new InMemoryFirestoreTriggerDelivery();
+    const observed: FirestoreMutationRecord[] = [];
+    delivery.subscribe('(default)', {
+      onMutation(mutation) {
+        observed.push(mutation);
+      },
+    });
+
+    delivery.emitCreate({
+      document: 'orders/ord-1',
+      fields: { status: 'draft', total: 10 },
+      time: '2026-07-13T20:00:01.000Z',
+    });
+    // Identical update must be suppressed without advancing updateTime
+    delivery.emitUpdate({
+      document: 'orders/ord-1',
+      fields: { status: 'draft', total: 10 },
+      time: '2026-07-13T20:00:03.000Z',
+    });
+    delivery.emitUpdate({
+      document: 'orders/ord-1',
+      fields: { status: 'paid', total: 10 },
+      time: '2026-07-13T20:00:06.000Z',
+    });
+    delivery.emitDelete({
+      document: 'orders/ord-1',
+      time: '2026-07-13T20:00:09.000Z',
+    });
+    // Delete of already-missing document is a no-op
+    delivery.emitDelete({
+      document: 'orders/ord-1',
+      time: '2026-07-13T20:00:11.000Z',
+    });
+
+    expect(observed.length).toBe(3);
+    expect(observed[1]?.before?.updateTime).toEqual({ seconds: 1_783_972_801, nanos: 0 });
+    expect(observed[1]?.after?.createTime).toEqual({ seconds: 1_783_972_801, nanos: 0 });
+    expect(observed[1]?.after?.updateTime).toEqual({ seconds: 1_783_972_806, nanos: 0 });
+    expect(observed[1]?.updateMask).toEqual(['status']);
+    expect(observed[2]?.before?.fields).toEqual({ status: 'paid', total: 10 });
+    expect(observed[2]?.after).toBeNull();
+  });
 });

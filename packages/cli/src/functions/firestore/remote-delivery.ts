@@ -126,6 +126,9 @@ export class RemoteFirestoreTriggerDelivery implements FirestoreTriggerDelivery 
           time: formatTimestampIso(wire.requestTime),
           authType: auth.authType,
         };
+        if (wire.updateMask !== undefined) {
+          record.updateMask = wire.updateMask;
+        }
         if (auth.authId !== undefined) {
           record.authId = auth.authId;
         }

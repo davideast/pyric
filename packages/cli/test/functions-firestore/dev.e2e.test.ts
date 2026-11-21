@@ -242,4 +242,171 @@ describe('pyric sandbox --hosted Firestore v2 onDocumentCreated E2E', () => {
     expect(exitCode).toBe(0);
     expect(stderr).not.toContain('uncaught');
   }, 25_000);
+
+  test('executes onDocumentUpdated, onDocumentDeleted, and onDocumentWritten under pyric sandbox --hosted', async () => {
+    if (!existsSync(cliEntry)) {
+      throw new Error(`Build packages/cli first: ${cliEntry}`);
+    }
+
+    const cwd = tempDirs.makeTempDir();
+    mkdirSync(join(cwd, 'public'));
+    mkdirSync(join(cwd, 'functions/node_modules'), { recursive: true });
+    writeFileSync(join(cwd, 'public/index.html'), '<!doctype html><body>hosted</body>');
+    writeFileSync(
+      join(cwd, '.firebaserc'),
+      JSON.stringify({ projects: { default: 'demo-project' } }),
+    );
+    writeFileSync(
+      join(cwd, 'firestore.rules'),
+      [
+        "rules_version = '2';",
+        'service cloud.firestore {',
+        '  match /databases/{database}/documents {',
+        '    match /{document=**} {',
+        '      allow read, write: if false;',
+        '    }',
+        '  }',
+        '}',
+      ].join('\n'),
+    );
+    writeFileSync(
+      join(cwd, 'firebase.json'),
+      JSON.stringify({
+        hosting: { public: 'public' },
+        firestore: { rules: 'firestore.rules' },
+        functions: { source: 'functions' },
+      }),
+    );
+    writeFileSync(
+      join(cwd, 'functions/package.json'),
+      JSON.stringify({
+        name: 'hosted-firestore-lifecycle',
+        private: true,
+        type: 'commonjs',
+        main: 'index.cjs',
+      }),
+    );
+    writeFileSync(
+      join(cwd, 'functions/index.cjs'),
+      [
+        "const { onDocumentUpdated, onDocumentDeleted, onDocumentWritten } = require('firebase-functions/v2/firestore');",
+        "const { getApps, initializeApp } = require('firebase-admin/app');",
+        "const { getFirestore } = require('firebase-admin/firestore');",
+        '',
+        'function db() {',
+        '  if (getApps().length === 0) initializeApp();',
+        '  return getFirestore();',
+        '}',
+        '',
+        'exports.onJobUpdated = onDocumentUpdated(',
+        "  'jobs/{jobId}',",
+        '  async (event) => {',
+        '    await db().doc(`audit/updated-${event.params.jobId}`).set({',
+        '      beforeState: event.data.before.data().state,',
+        '      afterState: event.data.after.data().state,',
+        '    });',
+        '  },',
+        ');',
+        '',
+        'exports.onJobDeleted = onDocumentDeleted(',
+        "  'jobs/{jobId}',",
+        '  async (event) => {',
+        '    await db().doc(`audit/deleted-${event.params.jobId}`).set({',
+        '      deletedState: event.data.data().state,',
+        '    });',
+        '  },',
+        ');',
+        '',
+        'let writtenSeq = 0;',
+        'exports.onJobWritten = onDocumentWritten(',
+        "  'jobs/{jobId}',",
+        '  async (event) => {',
+        '    writtenSeq += 1;',
+        '    await db().doc(`audit/written-${writtenSeq}`).set({',
+        '      beforeExists: event.data.before.exists,',
+        '      afterExists: event.data.after.exists,',
+        '    });',
+        '  },',
+        ');',
+      ].join('\n'),
+    );
+    symlinkSync(
+      join(repoRoot, 'packages/conformance/node_modules/firebase-functions'),
+      join(cwd, 'functions/node_modules/firebase-functions'),
+    );
+
+    let stdout = '';
+    let stderr = '';
+    activeProcess = spawn(
+      process.env.PYRIC_TEST_NODE ?? 'node',
+      [
+        cliEntry,
+        'sandbox',
+        '--hosted',
+        '--bridge',
+        '--port=0',
+        '--host=127.0.0.1',
+        '--no-open',
+        '--no-capture',
+      ],
+      {
+        cwd,
+        env: process.env,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    );
+    activeProcess.stdout?.setEncoding('utf8');
+    activeProcess.stderr?.setEncoding('utf8');
+    activeProcess.stdout?.on('data', (chunk: string) => {
+      stdout += chunk;
+    });
+    activeProcess.stderr?.on('data', (chunk: string) => {
+      stderr += chunk;
+    });
+
+    const serveUrl = await waitFor(() => {
+      const match = /http:\/\/127\.0\.0\.1:\d+/.exec(stdout);
+      return match !== null ? match[0] : null;
+    });
+    await waitFor(() => (stdout.includes('3 onValueCreated triggers') ? true : null));
+
+    activeObserver = await connectRemoteSandbox({ url: serveUrl, cwd });
+
+    await writeHostedDoc(activeObserver, 'jobs/job-9', { state: 'queued' });
+    await writeHostedDoc(activeObserver, 'jobs/job-9', { state: 'queued' });
+    await writeHostedDoc(activeObserver, 'jobs/job-9', { state: 'done' });
+    await activeObserver.channel.op({
+      method: 'deleteDoc',
+      path: 'jobs/job-9',
+      actAs: { mode: 'admin' },
+    });
+
+    const updatedDoc = await waitFor(async () =>
+      readHostedDoc(activeObserver as RemoteSandbox, 'audit/updated-job-9'),
+    );
+    expect(updatedDoc).toEqual({ beforeState: 'queued', afterState: 'done' });
+
+    const deletedDoc = await waitFor(async () =>
+      readHostedDoc(activeObserver as RemoteSandbox, 'audit/deleted-job-9'),
+    );
+    expect(deletedDoc).toEqual({ deletedState: 'done' });
+
+    const written3 = await waitFor(async () =>
+      readHostedDoc(activeObserver as RemoteSandbox, 'audit/written-3'),
+    );
+    expect(written3).toEqual({ beforeExists: true, afterExists: false });
+    expect(await readHostedDoc(activeObserver, 'audit/written-4')).toBeNull();
+
+    activeObserver.close();
+    activeObserver = undefined;
+
+    const exitCode = await new Promise<number | null>((resolveExit) => {
+      activeProcess?.once('close', (code) => resolveExit(code));
+      activeProcess?.kill('SIGTERM');
+    });
+    activeProcess = undefined;
+
+    expect(exitCode).toBe(0);
+    expect(stderr).not.toContain('uncaught');
+  }, 25_000);
 });
