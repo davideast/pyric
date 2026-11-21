@@ -3,6 +3,7 @@ package com.google.firebase.auth
 import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.TaskCompletionSource
 import com.google.firebase.FirebaseApp
+import com.google.firebase.FirebaseException
 import com.google.firebase.firestore.FirebaseFirestoreException
 import dev.pyric.auth.AuthLens
 import dev.pyric.auth.BridgeAuthOperations
@@ -54,6 +55,21 @@ class FirebaseAuth internal constructor(
             field = value
             updateAuthLens()
         }
+
+    @Volatile
+    private var _languageCode: String? = null
+
+    val languageCode: String?
+        get() = _languageCode
+
+    fun setLanguageCode(languageCode: String) {
+        require(languageCode.isNotEmpty()) { "Given String is empty or null" }
+        _languageCode = languageCode
+    }
+
+    fun useAppLanguage() {
+        _languageCode = java.util.Locale.getDefault().toLanguageTag().ifBlank { "en" }
+    }
 
     private val authStateListeners = CopyOnWriteArrayList<AuthStateListener>()
     private val idTokenListeners = CopyOnWriteArrayList<IdTokenListener>()
@@ -224,7 +240,7 @@ class FirebaseAuth internal constructor(
         return tcs.task
     }
 
-    private suspend fun enrichSignInResponseIfNeeded(res: Map<String, Any?>): Map<String, Any?> {
+    internal suspend fun enrichSignInResponseIfNeeded(res: Map<String, Any?>): Map<String, Any?> {
         @Suppress("UNCHECKED_CAST")
         val userMap = res["user"] as? Map<String, Any?>
         val hasEmbeddedClaims = res["customClaims"] != null ||
@@ -474,6 +490,9 @@ class FirebaseAuth internal constructor(
         val rawWireCode = (e as? FirebaseFirestoreException)?.wireCode?.lowercase() ?: ""
         val msg = e.message ?: "Authentication error"
         val combined = if (rawWireCode.isNotEmpty()) "$rawWireCode $msg" else msg
+        if (combined.contains("provider-already-linked", ignoreCase = true)) {
+            return FirebaseException("User has already been linked to the given provider.", e)
+        }
         val code = when {
             combined.contains("custom-token-mismatch", ignoreCase = true) -> "ERROR_CUSTOM_TOKEN_MISMATCH"
             combined.contains("invalid-custom-token", ignoreCase = true) -> "ERROR_INVALID_CUSTOM_TOKEN"
@@ -493,7 +512,7 @@ class FirebaseAuth internal constructor(
             combined.contains("too-many-requests", ignoreCase = true) -> "ERROR_TOO_MANY_REQUESTS"
             combined.contains("no-such-provider", ignoreCase = true) -> "ERROR_NO_SUCH_PROVIDER"
             combined.contains("user-mismatch", ignoreCase = true) -> "ERROR_USER_MISMATCH"
-            combined.contains("no-mock-configured", ignoreCase = true) -> "ERROR_NO_MOCK_CONFIGURED"
+            combined.contains("no-mock-configured", ignoreCase = true) -> "ERROR_INVALID_CREDENTIAL"
             else -> "ERROR_UNKNOWN"
         }
         // The same subclasses the Firebase Android SDK throws for these codes.
