@@ -14,7 +14,9 @@ import dev.pyric.debug.model.RulesDenialContext
 import dev.pyric.debug.model.SandboxUser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -32,8 +34,8 @@ import org.junit.jupiter.api.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class ChallengerM4StressTest {
 
-    private val testDispatcher = StandardTestDispatcher()
-    private val testScope = TestScope(testDispatcher)
+    private lateinit var testDispatcher: TestDispatcher
+    private lateinit var testScope: TestScope
     private lateinit var transport: InMemoryBridgeTransport
     private lateinit var bridgeClient: PyricBridgeClient
     private lateinit var app: FirebaseApp
@@ -42,19 +44,43 @@ class ChallengerM4StressTest {
 
     @BeforeEach
     fun setUp() {
+        testDispatcher = StandardTestDispatcher()
+        testScope = TestScope(testDispatcher)
         Dispatchers.setMain(testDispatcher)
         FirebaseAuth.clearInstancesForTest()
         FirebaseFirestore.clearInstancesForTest()
 
         transport = InMemoryBridgeTransport()
-        bridgeClient = PyricBridgeClient(transport)
 
         transport.onServerReceive { json ->
             val msg = JsonCodec.decodeMap(json)
-            if (msg["type"] == "attach") {
-                transport.sendToClient("""{"type":"attach-ack","protocol":1,"peerConnected":true}""")
+            when (msg["type"] as? String) {
+                "attach" -> {
+                    transport.sendToClient("""{"type":"attach-ack","protocol":1,"peerConnected":true}""")
+                }
+                "worker-op" -> {
+                    val id = msg["id"] as String
+                    val res = mapOf(
+                        "type" to "worker-res",
+                        "id" to id,
+                        "ok" to true,
+                        "value" to emptyList<Any?>()
+                    )
+                    transport.sendToClient(JsonCodec.encodeToString(res))
+                }
+                "worker-sub" -> {
+                    val subId = msg["subId"] as String
+                    val res = mapOf(
+                        "type" to "worker-snap",
+                        "subId" to subId,
+                        "value" to null
+                    )
+                    transport.sendToClient(JsonCodec.encodeToString(res))
+                }
             }
         }
+
+        bridgeClient = PyricBridgeClient(transport)
 
         val options = FirebaseOptions.Builder()
             .setApiKey("test-api-key")
@@ -62,12 +88,14 @@ class ChallengerM4StressTest {
             .setProjectId("test-project-id")
             .build()
         app = FirebaseApp.initializeApp("test-m4-stress-app", options)
-        auth = FirebaseAuth.getInstance(app, bridgeClient)
+        auth = FirebaseAuth.getInstance(app, bridgeClient, testDispatcher)
         firestore = FirebaseFirestore(bridgeClient, app, "(default)", credentialsProvider = auth)
     }
 
     @AfterEach
     fun tearDown() {
+        bridgeClient.terminate()
+        testScope.cancel()
         Dispatchers.resetMain()
         FirebaseAuth.clearInstancesForTest()
         FirebaseFirestore.clearInstancesForTest()
@@ -181,56 +209,60 @@ class ChallengerM4StressTest {
     @Test
     fun testControllerRapidLensSwitchingAndRemoteSync() = runTest(testDispatcher) {
         val controller = PyricDebugController(auth, firestore, bridgeClient, scope = testScope)
-        advanceUntilIdle()
+        try {
+            controller.refreshUsers().join()
+            advanceUntilIdle()
 
-        assertEquals(AuthLens.Anon, controller.activeLens.value)
-        assertFalse(controller.isAdminBypassActive.value)
+            assertEquals(AuthLens.Anon, controller.activeLens.value)
+            assertFalse(controller.isAdminBypassActive.value)
 
-        val testUser = SandboxUser(
-            uid = "pilot-user-1",
-            email = "pilot@test.com",
-            displayName = "Pilot User",
-            customClaims = mapOf("tenant" to "tenant-sky", "role" to "pilot", "rank" to "captain")
-        )
-        controller.impersonateUser(testUser)
-        advanceUntilIdle()
+            val testUser = SandboxUser(
+                uid = "pilot-user-1",
+                email = "pilot@test.com",
+                displayName = "Pilot User",
+                customClaims = mapOf("tenant" to "tenant-sky", "role" to "pilot", "rank" to "captain")
+            )
+            controller.impersonateUser(testUser)
+            advanceUntilIdle()
 
-        val active = controller.activeLens.value
-        assertTrue(active is AuthLens.AsUser)
-        val userLens = active as AuthLens.AsUser
-        assertEquals("pilot-user-1", userLens.uid)
-        assertEquals("tenant-sky", userLens.tenant)
-        assertFalse(controller.isAdminBypassActive.value)
+            val active = controller.activeLens.value
+            assertTrue(active is AuthLens.AsUser)
+            val userLens = active as AuthLens.AsUser
+            assertEquals("pilot-user-1", userLens.uid)
+            assertEquals("tenant-sky", userLens.tenant)
+            assertFalse(controller.isAdminBypassActive.value)
 
-        controller.toggleAdminBypass(true)
-        advanceUntilIdle()
-        assertTrue(controller.isAdminBypassActive.value)
-        assertEquals(AuthLens.Admin, controller.activeLens.value)
+            controller.toggleAdminBypass(true)
+            advanceUntilIdle()
+            assertTrue(controller.isAdminBypassActive.value)
+            assertEquals(AuthLens.Admin, controller.activeLens.value)
 
-        controller.toggleAdminBypass(false)
-        advanceUntilIdle()
-        assertFalse(controller.isAdminBypassActive.value)
+            controller.toggleAdminBypass(false)
+            advanceUntilIdle()
+            assertFalse(controller.isAdminBypassActive.value)
 
-        // Remote push
-        val remoteMsg = mapOf(
-            "type" to "worker-event",
-            "event" to "remote-lens",
-            "payload" to mapOf(
-                "lens" to mapOf(
-                    "mode" to "as",
-                    "uid" to "remote-user-99",
-                    "tenant" to "remote-tenant-x"
+            // Remote push
+            val remoteMsg = mapOf(
+                "type" to "worker-event",
+                "event" to "remote-lens",
+                "payload" to mapOf(
+                    "lens" to mapOf(
+                        "mode" to "as",
+                        "uid" to "remote-user-99",
+                        "tenant" to "remote-tenant-x"
+                    )
                 )
             )
-        )
-        transport.sendToClient(JsonCodec.encodeToString(remoteMsg))
-        Thread.sleep(100)
-        advanceUntilIdle()
+            transport.sendToClient(JsonCodec.encodeToString(remoteMsg))
+            advanceUntilIdle()
 
-        val pushedLens = controller.activeLens.value
-        assertTrue(pushedLens is AuthLens.AsUser)
-        assertEquals("remote-user-99", (pushedLens as AuthLens.AsUser).uid)
-        assertEquals("remote-tenant-x", pushedLens.tenant)
+            val pushedLens = controller.activeLens.value
+            assertTrue(pushedLens is AuthLens.AsUser)
+            assertEquals("remote-user-99", (pushedLens as AuthLens.AsUser).uid)
+            assertEquals("remote-tenant-x", pushedLens.tenant)
+        } finally {
+            controller.close()
+        }
     }
 
     @Test

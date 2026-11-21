@@ -12,13 +12,17 @@ import dev.pyric.codecs.JsonCodec
 import dev.pyric.debug.model.SandboxUser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.TimeUnit
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -30,8 +34,8 @@ import org.junit.jupiter.api.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class PyricDebugControllerTest {
 
-    private val testDispatcher = StandardTestDispatcher()
-    private val testScope = TestScope(testDispatcher)
+    private lateinit var testDispatcher: TestDispatcher
+    private lateinit var testScope: TestScope
 
     private lateinit var transport: InMemoryBridgeTransport
     private lateinit var bridgeClient: PyricBridgeClient
@@ -66,12 +70,13 @@ class PyricDebugControllerTest {
 
     @BeforeEach
     fun setUp() {
+        testDispatcher = StandardTestDispatcher()
+        testScope = TestScope(testDispatcher)
         Dispatchers.setMain(testDispatcher)
         FirebaseAuth.clearInstancesForTest()
         FirebaseFirestore.clearInstancesForTest()
 
         transport = InMemoryBridgeTransport()
-        bridgeClient = PyricBridgeClient(transport)
 
         transport.onServerReceive { json ->
             val msg = JsonCodec.decodeMap(json)
@@ -118,6 +123,8 @@ class PyricDebugControllerTest {
             }
         }
 
+        bridgeClient = PyricBridgeClient(transport)
+
         val options = FirebaseOptions.Builder()
             .setApiKey("test-api-key")
             .setApplicationId("test-app-id")
@@ -131,6 +138,9 @@ class PyricDebugControllerTest {
 
     @AfterEach
     fun tearDown() {
+        controller.close()
+        bridgeClient.terminate()
+        testScope.cancel()
         Dispatchers.resetMain()
         FirebaseAuth.clearInstancesForTest()
         FirebaseFirestore.clearInstancesForTest()
@@ -139,6 +149,7 @@ class PyricDebugControllerTest {
 
     @Test
     fun testInitialState() = runTest(testDispatcher) {
+        bridgeClient.connect()
         advanceUntilIdle()
         assertEquals(AuthLens.Anon, controller.activeLens.value)
         assertFalse(controller.isAdminBypassActive.value)
@@ -148,11 +159,11 @@ class PyricDebugControllerTest {
 
     @Test
     fun testRefreshUsersAndSearch() = runTest(testDispatcher) {
-        controller.refreshUsers()
+        val users = controller.refreshUsersAwait()
         advanceUntilIdle()
 
-        val users = controller.users.value
         assertEquals(3, users.size)
+        assertEquals(users, controller.users.value)
         assertEquals("alice-1", users[0].uid)
         assertEquals("Alice Admin", users[0].displayName)
         assertEquals("admin", users[0].role)
@@ -180,10 +191,12 @@ class PyricDebugControllerTest {
 
     @Test
     fun testImpersonationAndAdminBypass() = runTest(testDispatcher) {
-        controller.refreshUsers()
+        controller.refreshUsers().join()
         advanceUntilIdle()
 
-        val alice = controller.users.value[0]
+        val loadedUsers = controller.users.value
+        assertEquals(3, loadedUsers.size)
+        val alice = loadedUsers[0]
         controller.impersonateUser(alice)
         advanceUntilIdle()
 
@@ -214,6 +227,7 @@ class PyricDebugControllerTest {
 
     @Test
     fun testRemoteLensEventDispatcher() = runTest(testDispatcher) {
+        bridgeClient.connect()
         advanceUntilIdle()
 
         val remoteLensMsg = mapOf(
@@ -284,5 +298,69 @@ class PyricDebugControllerTest {
         controller.clearDenials()
         advanceUntilIdle()
         assertTrue(controller.denials.value.isEmpty())
+    }
+
+    @Test
+    fun testRefreshUsersAwaitsDelayedAsyncBridgeResponse() = runTest(testDispatcher) {
+        val delayedTransport = InMemoryBridgeTransport()
+        val delayedExecutor = CompletableFuture.delayedExecutor(35, TimeUnit.MILLISECONDS)
+        delayedTransport.onServerReceive { json ->
+            val msg = JsonCodec.decodeMap(json)
+            when (msg["type"] as? String) {
+                "attach" -> {
+                    delayedExecutor.execute {
+                        delayedTransport.sendToClient(
+                            """{"type":"attach-ack","protocol":1,"peerConnected":true}"""
+                        )
+                    }
+                }
+                "worker-op" -> {
+                    val id = msg["id"] as String
+                    @Suppress("UNCHECKED_CAST")
+                    val op = msg["op"] as Map<String, Any?>
+                    val value: Any = if (op["method"] == "auth.listUsers") {
+                        sandboxUsersFixture
+                    } else {
+                        emptyMap<String, Any?>()
+                    }
+                    delayedExecutor.execute {
+                        delayedTransport.sendToClient(
+                            JsonCodec.encodeToString(
+                                mapOf("type" to "worker-res", "id" to id, "ok" to true, "value" to value)
+                            )
+                        )
+                    }
+                }
+                "worker-sub" -> {
+                    val subId = msg["subId"] as String
+                    delayedExecutor.execute {
+                        delayedTransport.sendToClient(
+                            JsonCodec.encodeToString(
+                                mapOf("type" to "worker-snap", "subId" to subId, "value" to null)
+                            )
+                        )
+                    }
+                }
+            }
+        }
+
+        val delayedClient = PyricDebugController(
+            auth = auth,
+            firestore = firestore,
+            bridgeClient = PyricBridgeClient(delayedTransport),
+            scope = testScope
+        )
+        try {
+            delayedClient.refreshUsers().join()
+            advanceUntilIdle()
+
+            val loaded = delayedClient.users.value
+            assertEquals(3, loaded.size)
+            assertEquals("alice-1", loaded[0].uid)
+            assertFalse(delayedClient.isLoadingUsers.value)
+        } finally {
+            delayedClient.bridgeClient.terminate()
+            delayedClient.close()
+        }
     }
 }

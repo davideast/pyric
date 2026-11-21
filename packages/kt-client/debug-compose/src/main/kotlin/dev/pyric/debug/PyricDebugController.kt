@@ -12,6 +12,7 @@ import dev.pyric.debug.model.SandboxUser
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -20,6 +21,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 enum class DebugTab {
     IDENTITY,
@@ -30,8 +33,12 @@ class PyricDebugController(
     val auth: FirebaseAuth,
     val firestore: FirebaseFirestore? = null,
     val bridgeClient: PyricBridgeClient = auth.bridgeClient,
-    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 ) {
+    private val controllerJob = SupervisorJob(scope.coroutineContext[Job])
+    private val controllerScope = CoroutineScope(scope.coroutineContext + controllerJob)
+    private val refreshMutex = Mutex()
+
     private val _users = MutableStateFlow<List<SandboxUser>>(emptyList())
     val users: StateFlow<List<SandboxUser>> = _users.asStateFlow()
 
@@ -57,7 +64,7 @@ class PyricDebugController(
                     (u.role?.lowercase()?.contains(lower) == true)
             }
         }
-    }.stateIn(scope, SharingStarted.Eagerly, emptyList())
+    }.stateIn(controllerScope, SharingStarted.Eagerly, emptyList())
 
     private val _activeLens = MutableStateFlow<AuthLens>(auth.getEffectiveLens())
     val activeLens: StateFlow<AuthLens> = _activeLens.asStateFlow()
@@ -70,7 +77,7 @@ class PyricDebugController(
 
     val unviewedDenialsCount: StateFlow<Int> = _denials.map { list ->
         list.count { !it.isViewed }
-    }.stateIn(scope, SharingStarted.Eagerly, 0)
+    }.stateIn(controllerScope, SharingStarted.Eagerly, 0)
 
     private val _isSheetVisible = MutableStateFlow(false)
     val isSheetVisible: StateFlow<Boolean> = _isSheetVisible.asStateFlow()
@@ -79,7 +86,7 @@ class PyricDebugController(
     val selectedTab: StateFlow<DebugTab> = _selectedTab.asStateFlow()
 
     init {
-        scope.launch {
+        controllerScope.launch {
             auth.authLensFlow.collect { lens ->
                 _activeLens.value = lens
                 _isAdminBypassActive.value = (lens is AuthLens.Admin)
@@ -93,19 +100,31 @@ class PyricDebugController(
         refreshUsers()
     }
 
-    fun refreshUsers() {
-        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+    fun refreshUsers(): Job {
+        return controllerScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            refreshUsersAwait()
+        }
+    }
+
+    suspend fun refreshUsersAwait(): List<SandboxUser> {
+        return refreshMutex.withLock {
             _isLoadingUsers.value = true
             try {
                 val rawUsers = BridgeAuthOperations.listUsers(bridgeClient)
                 val parsed = rawUsers.map { SandboxUser.fromMap(it) }
                 _users.value = parsed
+                parsed
             } catch (_: Exception) {
-                // Ignore transient list failure
+                // Keep previously loaded users on transient list failure.
+                _users.value
             } finally {
                 _isLoadingUsers.value = false
             }
         }
+    }
+
+    fun close() {
+        controllerJob.cancel()
     }
 
     fun setUserSearchQuery(query: String) {
