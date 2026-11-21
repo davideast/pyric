@@ -33,6 +33,7 @@ export interface FakePull {
   title: string;
   headRef: string;
   headSha: string;
+  headRepoFullName?: string | null;
   labels: string[];
   labeledAt?: string;
 }
@@ -72,6 +73,8 @@ export interface Remote {
   pushRefusal?: string;
   /** What a push to the staging branch is refused with. */
   stagingPushRefusal?: string;
+  /** What `git push origin --delete <branch>` throws when set. */
+  deleteBranchError?: string;
   /** What `PUT pulls/<n>/merge` is refused with (every PR). */
   mergeRefusal?: string;
   /** Optional custom handler for `PUT pulls/<n>/merge`; returns merge commit sha or throws. */
@@ -169,7 +172,12 @@ export function createHarness(initial: Partial<Remote>): Harness {
   function push(args: string[]): string {
     if (args.includes('--delete')) {
       const branch = args.at(-1);
-      if (branch !== undefined) delete remote.branches[branch];
+      if (branch !== undefined) {
+        if (!(branch in remote.branches) && remote.deleteBranchError !== undefined) {
+          throw new Error(remote.deleteBranchError);
+        }
+        delete remote.branches[branch];
+      }
       return '';
     }
     const spec = args.at(-1) ?? '';
@@ -262,13 +270,16 @@ export function createHarness(initial: Partial<Remote>): Harness {
       const payload = remote.pulls.map((item) => {
         const minute = String(item.number % 60).padStart(2, '0');
         const createdAt = item.labeledAt ?? `2026-11-14T11:${minute}:00Z`;
+        let headRepo: { full_name: string } | null = { full_name: 'owner/repo' };
+        if (item.headRepoFullName === null) headRepo = null;
+        else if (item.headRepoFullName !== undefined) headRepo = { full_name: item.headRepoFullName };
         return {
           number: item.number,
           title: item.title,
           state: 'open',
           draft: false,
           created_at: createdAt,
-          head: { ref: item.headRef, sha: item.headSha, repo: { full_name: 'owner/repo' } },
+          head: { ref: item.headRef, sha: item.headSha, repo: headRepo },
           labels: item.labels.map((name) => ({ name })),
         };
       });
@@ -281,7 +292,10 @@ export function createHarness(initial: Partial<Remote>): Harness {
       const state = found === undefined ? 'closed' : 'open';
       const merged = remote.mergedPulls?.has(targetNumber) ?? false;
       const sha = found?.headSha ?? '';
-      return JSON.stringify({ state, merged, head: { sha } });
+      let headRepo: { full_name: string } | null = { full_name: 'owner/repo' };
+      if (found?.headRepoFullName === null) headRepo = null;
+      else if (found?.headRepoFullName !== undefined) headRepo = { full_name: found.headRepoFullName };
+      return JSON.stringify({ state, merged, head: { sha, repo: headRepo } });
     }
     const mergePr = /^pulls\/(\d+)\/merge$/.exec(path);
     if (method === 'PUT' && mergePr) {

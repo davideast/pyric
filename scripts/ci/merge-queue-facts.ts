@@ -117,14 +117,25 @@ export function isAncestor(io: QueueIo, candidate: string, descendant: string): 
   }
 }
 
+interface LivePullHead {
+  sha: string;
+  repo?: { full_name?: string } | null;
+}
+
+function isSameLiveRepo(head: LivePullHead, repo: string): boolean {
+  if (head.repo === null) return false;
+  if (head.repo?.full_name === undefined) return true;
+  return head.repo.full_name === repo;
+}
+
 /** Whether `main` is still the batch's base and every pull request in it is
- *  still open at the staged head. */
+ *  still open on the same repository at the staged head. */
 export function landingStillStands(io: QueueIo, action: LandAction): boolean {
   try {
     if (mainHeadSha(io) !== action.baseSha) return false;
     return action.pulls.every((pull) => {
-      const current = apiGet<{ state: string; head: { sha: string } }>(io, `pulls/${pull.number}`);
-      return current.state === 'open' && current.head.sha === pull.headSha;
+      const current = apiGet<{ state: string; head: LivePullHead }>(io, `pulls/${pull.number}`);
+      return current.state === 'open' && current.head.sha === pull.headSha && isSameLiveRepo(current.head, io.repo);
     });
   } catch {
     return false;

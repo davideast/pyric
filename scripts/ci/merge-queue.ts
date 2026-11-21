@@ -241,6 +241,26 @@ export function isFastlaneRevert(pull: Pick<QueuedPull, 'title' | 'headRef'>): b
   return revertTitle || revertBranch;
 }
 
+const PROTECTED_HEAD_BRANCHES: ReadonlySet<string> = new Set(['main', 'master', 'gh-pages']);
+const PROTECTED_HEAD_PREFIXES: readonly string[] = ['merge-queue/', 'release/'];
+
+function isProtectedHeadBranch(branch: string): boolean {
+  if (branch === '' || branch.startsWith('refs/')) return true;
+  if (PROTECTED_HEAD_BRANCHES.has(branch)) return true;
+  return PROTECTED_HEAD_PREFIXES.some((prefix) => branch.startsWith(prefix));
+}
+
+/** Whether the merge queue may delete a pull request's remote head branch
+ *  after it lands on `main`: same-repository branches only, excluding
+ *  long-lived and queue-managed branches. */
+export function shouldDeleteLandedBranch(
+  pull: Pick<QueuedPull, 'headRef' | 'headRepoFullName'>,
+  repo: string,
+): boolean {
+  if (repo === '' || pull.headRepoFullName !== repo) return false;
+  return !isProtectedHeadBranch(pull.headRef);
+}
+
 function compareQueuedPulls(left: QueuedPull, right: QueuedPull): number {
   const leftFast = isFastlaneRevert(left);
   const rightFast = isFastlaneRevert(right);

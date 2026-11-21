@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { QUEUE_LABEL, REFUSED_BRANCH, STAGING_BRANCH, parseStagingCommit, type QueueAction } from './merge-queue.ts';
-import { SIMULATOR_PARITY_GLOBS, needsSimulatorParity, runQueuePass } from './merge-queue-github.ts';
+import { SIMULATOR_PARITY_GLOBS, deleteLandedPullBranches, needsSimulatorParity, runQueuePass } from './merge-queue-github.ts';
 import { batchMembers, bisectBranch } from './auto-revert-batch.ts';
 import {
   CHAIN, GREEN_RUN, HEAD_A, HEAD_B, HEAD_C, MAIN, RUN_URL, STAGED, WRAPPED,
@@ -331,6 +331,64 @@ describe('landing a batch', () => {
     expect(h.comments[1]?.text).toContain('splitting a failed batch');
     expect(h.remote.branches[STAGING_BRANCH]).toBeUndefined();
   });
+
+  test('deletes landed same-repo feature branches across direct push and PR merge API while keeping protected and fork branches', () => {
+    const protectedRefs = ['main', 'master', 'gh-pages', 'merge-queue/custom', 'release/1.2'];
+    const directPulls = [...protectedRefs.map((ref, idx) => ({ ...pull(201 + idx, `${idx + 2}`.repeat(40)), headRef: ref })), pull(206, HEAD_A)];
+    const directBranches: Record<string, string> = { [STAGING_BRANCH]: STAGED, 'fix/change-206': HEAD_A };
+    for (const item of directPulls) directBranches[item.headRef] = item.headSha;
+    const direct = createHarness({
+      branches: directBranches, pulls: directPulls, stagingRuns: [GREEN_RUN],
+      messages: { [STAGED]: stagedMessage({ baseSha: MAIN, pulls: directPulls.map((item) => ({ number: item.number, headSha: item.headSha })) }) },
+      greenHeads: new Set([...directPulls.map((item) => item.headSha), STAGED]),
+    });
+    expect(runQueuePass(direct.io, { dryRun: false, usingWorkflowToken: false }).map((action) => action.kind)).toEqual(['land', 'idle']);
+    expect(direct.remote.branches['fix/change-206']).toBeUndefined();
+    for (const ref of protectedRefs) {
+      expect(direct.remote.branches[ref]).toBeDefined();
+      expect(direct.git).not.toContainEqual(['push', 'origin', '--delete', ref]);
+    }
+    const refusal = 'remote: error: GH013: Repository rule violations found for refs/heads/main.';
+    const apiBatch = createHarness({
+      branches: { [STAGING_BRANCH]: STAGED, 'fix/change-101': HEAD_A, 'release/2.0': HEAD_B },
+      pulls: [pull(101, HEAD_A), { ...pull(102, HEAD_B), headRef: 'release/2.0' }],
+      messages: { [STAGED]: stagedMessage({ baseSha: MAIN, pulls: [{ number: 101, headSha: HEAD_A }, { number: 102, headSha: HEAD_B }] }) },
+      greenHeads: new Set([HEAD_A, HEAD_B, STAGED]), stagingRuns: [GREEN_RUN], pushRefusal: refusal,
+    });
+    expect(runQueuePass(apiBatch.io, { dryRun: false, usingWorkflowToken: false }).map((action) => action.kind)).toEqual(['land', 'idle']);
+    expect(apiBatch.remote.branches).toEqual({ 'release/2.0': HEAD_B });
+    const firstMergeSha = '9'.repeat(39) + '1';
+    const partial = greenBatch({
+      branches: { [STAGING_BRANCH]: STAGED, 'fix/change-101': HEAD_A, 'fix/change-102': HEAD_B }, pushRefusal: refusal,
+      onMergePull: (number) => {
+        if (number !== 101) throw new Error('gh: Head branch was modified. Review and try the merge again. (HTTP 409)');
+        partial.remote.pulls = partial.remote.pulls.filter((item) => item.number !== 101);
+        partial.remote.mergedPulls?.add(101);
+        partial.remote.main = firstMergeSha;
+        return firstMergeSha;
+      },
+    });
+    expect(runQueuePass(partial.io, { dryRun: false, usingWorkflowToken: false }).map((action) => action.kind)).toEqual(['land', 'stage']);
+    expect(partial.remote.branches['fix/change-101']).toBeUndefined();
+    expect(partial.remote.branches['fix/change-102']).toBe(HEAD_B);
+    const fork = createHarness({
+      branches: { 'feat/shared': HEAD_A }, greenHeads: new Set([HEAD_A]),
+      pulls: [{ ...pull(301, HEAD_A), headRef: 'feat/shared', headRepoFullName: 'contributor/repo' }],
+    });
+    expect(runQueuePass(fork.io, { dryRun: false, usingWorkflowToken: false }).map((action) => action.kind)).toEqual(['dequeue', 'idle']);
+    deleteLandedPullBranches(fork.io, [
+      { headRef: 'feat/shared', headRepoFullName: 'contributor/repo' },
+      { headRef: 'feat/shared', headRepoFullName: '' },
+      { headRef: 'refs/heads/main', headRepoFullName: 'owner/repo' },
+    ]);
+    expect(fork.remote.branches['feat/shared']).toBe(HEAD_A);
+    expect(fork.git.filter((args) => args.includes('--delete'))).toEqual([]);
+    const alreadyGone = greenBatch({ deleteBranchError: 'error: unable to delete remote ref: remote ref does not exist' });
+    expect(runQueuePass(alreadyGone.io, { dryRun: false, usingWorkflowToken: false }).map((action) => action.kind)).toEqual(['land', 'idle']);
+    expect(alreadyGone.comments.map((entry) => entry.pull)).toEqual([101, 102]);
+    const alreadyGoneApi = greenBatch({ pushRefusal: refusal, deleteBranchError: 'error: remote ref does not exist' });
+    expect(runQueuePass(alreadyGoneApi.io, { dryRun: false, usingWorkflowToken: false }).map((action) => action.kind)).toEqual(['land', 'idle']);
+  });
 });
 
 describe('a red main', () => {
@@ -642,6 +700,27 @@ describe('against a real git remote', () => {
     expect(h.comments.map((entry) => entry.pull)).toEqual([101, 102, 103]);
     expect(h.comments[0]?.text).toContain(mainAfter);
     expect(h.comments[0]?.text).toContain(tip);
+  }, 60_000);
+
+  test('landing against a real remote deletes landed feature branches on origin while keeping release branches', () => {
+    const { origin, seed, work, commit } = initPair();
+    sh(seed, ['checkout', '--quiet', '-b', 'fix/ephemeral', 'main']);
+    const headFeature = commit('ephemeral.txt', 'ephemeral\n', 'fix: ephemeral');
+    sh(seed, ['push', '--quiet', 'origin', 'fix/ephemeral']);
+    sh(seed, ['checkout', '--quiet', '-b', 'release/1.0', 'main']);
+    const headRelease = commit('release.txt', '1.0\n', 'chore: release 1.0');
+    sh(seed, ['push', '--quiet', 'origin', 'release/1.0']);
+
+    const batchPulls = [
+      { ...pull(101, headFeature), headRef: 'fix/ephemeral' },
+      { ...pull(102, headRelease), headRef: 'release/1.0' },
+    ];
+    const { h, syncStaging } = wireRealRemote(origin, work, batchPulls);
+    expect(runQueuePass(h.io, { dryRun: false, usingWorkflowToken: false }).map((action) => action.kind)).toEqual(['stage']);
+    syncStaging();
+    expect(runQueuePass(h.io, { dryRun: false, usingWorkflowToken: false }).map((action) => action.kind)).toEqual(['land', 'idle']);
+    const remainingRefs = sh(origin, ['for-each-ref', '--format=%(refname:short)', 'refs/heads']).split('\n').sort();
+    expect(remainingRefs).toEqual(['main', 'release/1.0']);
   }, 60_000);
 });
 

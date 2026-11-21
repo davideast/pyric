@@ -27,6 +27,7 @@ import {
   dequeueComment,
   formatStagingTrailers,
   landedComment,
+  shouldDeleteLandedBranch,
   type DequeueAction,
   type LandAction,
   type QueueAction,
@@ -102,6 +103,18 @@ function removeQueueLabel(io: QueueIo, prNumber: number): void {
 
 function deleteRemoteBranch(io: QueueIo, branch: string): void {
   ignoreError(() => io.git(['push', 'origin', '--delete', branch]));
+}
+
+export function deleteLandedPullBranches(
+  io: QueueIo,
+  pulls: readonly Pick<QueuedPull, 'headRef' | 'headRepoFullName'>[],
+): void {
+  const deleted = new Set<string>();
+  for (const pull of pulls) {
+    if (!shouldDeleteLandedBranch(pull, io.repo) || deleted.has(pull.headRef)) continue;
+    deleted.add(pull.headRef);
+    deleteRemoteBranch(io, pull.headRef);
+  }
 }
 
 function cancelRunIfPresent(io: QueueIo, runId: number | undefined): void {
@@ -342,6 +355,7 @@ function finishLanding(
     comment(io, pull.number, `landed-${pull.number}.md`, landedComment(action, pull, landedSha));
     removeQueueLabel(io, pull.number);
   }
+  deleteLandedPullBranches(io, action.pulls);
   if (action.refusedBefore) deleteRemoteBranch(io, REFUSED_BRANCH);
   if (action.search === undefined) {
     deleteRemoteBranch(io, STAGING_BRANCH);
@@ -415,6 +429,7 @@ function landBatchByPullApi(
       comment(io, entry.pull.number, `landed-${entry.pull.number}.md`, partialLandedComment(action, entry.sha));
       removeQueueLabel(io, entry.pull.number);
     }
+    deleteLandedPullBranches(io, landed.map((entry) => entry.pull));
     if (action.refusedBefore) deleteRemoteBranch(io, REFUSED_BRANCH);
     deleteRemoteBranch(io, STAGING_BRANCH);
     if (usingWorkflowToken) {

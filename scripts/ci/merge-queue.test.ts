@@ -11,6 +11,7 @@ import {
   maxSearchRuns,
   parseStagedPulls,
   parseStagingCommit,
+  shouldDeleteLandedBranch,
   type ActiveStaging,
   type CheckState,
   type DequeueAction,
@@ -538,5 +539,33 @@ describe('the merge queue workflow contract', () => {
     const watched = lane().on.workflow_run?.workflows as string[];
     expect(watched).toContain('Build & Test');
     expect(watched).toContain('Slow app scenarios');
+  });
+});
+
+describe('landed head branch deletion policy', () => {
+  test('deletes only non-protected same-repository head branches and models retention in World', () => {
+    for (const branch of ['fix/change-1', 'auto-revert/abc', 'release-notes', 'merge-queue-fix', 'mainline', 'master-plan', 'gh-pages-preview']) {
+      expect(shouldDeleteLandedBranch({ headRef: branch, headRepoFullName: 'owner/repo' }, 'owner/repo')).toBe(true);
+    }
+    for (const protectedRef of ['main', 'master', 'gh-pages', 'merge-queue/staging', 'merge-queue/refused', 'merge-queue/bisect/a/1/0', 'release/1.0', 'release/v2/rc1', '', 'refs/heads/main']) {
+      expect(shouldDeleteLandedBranch({ headRef: protectedRef, headRepoFullName: 'owner/repo' }, 'owner/repo')).toBe(false);
+    }
+    expect(shouldDeleteLandedBranch({ headRef: 'fix/change-1', headRepoFullName: 'fork/repo' }, 'owner/repo')).toBe(false);
+    expect(shouldDeleteLandedBranch({ headRef: 'fix/change-1', headRepoFullName: '' }, 'owner/repo')).toBe(false);
+    expect(shouldDeleteLandedBranch({ headRef: 'fix/change-1', headRepoFullName: 'owner/repo' }, '')).toBe(false);
+
+    const world = new World();
+    world.branches.add('shared-with-fork');
+    world.addPull({ headRef: 'feat/clean-me' });
+    world.addPull({ headRef: 'release/1.0' });
+    world.addPull({ headRef: 'gh-pages' });
+    world.addPull({ headRef: 'master' });
+    world.addPull({ headRef: 'merge-queue/keep' });
+    world.addPull({ headRef: 'shared-with-fork', headRepoFullName: 'fork/repo' });
+    expect(world.drain()).toBe(true);
+    expect(world.branches.has('feat/clean-me')).toBe(false);
+    for (const kept of ['main', 'release/1.0', 'gh-pages', 'master', 'merge-queue/keep', 'shared-with-fork']) {
+      expect(world.branches.has(kept)).toBe(true);
+    }
   });
 });
