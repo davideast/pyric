@@ -1,0 +1,15 @@
+{
+  "schema": "pyric.conformance.surface.v2",
+  "kind": "integration",
+  "developerSurface": "app-check-flutter",
+  "contractSource": "firebase_app_check_platform_interface",
+  "observationPrefixes": [
+    "app-check-flutter-"
+  ],
+  "coverage": true,
+  "scopeNote": "integration contract: Pure-Dart Flutter client conforming to firebase_app_check_platform_interface via the Pyric WebSocket bridge. Covers PyricFirebaseAppCheckPlatform registration and per-app delegates, multi-platform activate() provider resolution and sandbox RS256 JWT minting, useAppCheckEmulator(host, port), getToken/getTokenResult/getLimitedUseToken caching and coalescing, onTokenChange streams, setTokenAutoRefreshEnabled, opWithAppCheck cross-service propagation, and FirebaseException error normalization.",
+  "captureRigs": [],
+  "conformanceSuite": "packages/flutter-client/test/app_check/app_check_test.dart",
+  "climb": true,
+  "registry": "app-check-flutter"
+}

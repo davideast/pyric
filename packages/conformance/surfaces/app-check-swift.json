@@ -1,0 +1,15 @@
+{
+  "schema": "pyric.conformance.surface.v2",
+  "kind": "integration",
+  "developerSurface": "app-check-swift",
+  "contractSource": "FirebaseAppCheck",
+  "observationPrefixes": [
+    "app-check-swift-"
+  ],
+  "coverage": true,
+  "scopeNote": "integration contract: Pure-Swift client conforming to FirebaseAppCheck via the Pyric WebSocket bridge. Covers AppCheck per-app singletons and setAppCheckProviderFactory, AppCheckDebugProviderFactory/AppAttestProviderFactory/DeviceCheckProviderFactory sandbox RS256 JWT minting, custom AppCheckProvider conformers, async and completion-handler token(forcingRefresh:) and limitedUseToken(), AppCheckTokenDidChange NotificationCenter events, isTokenAutoRefreshEnabled, opWithAppCheck cross-service propagation, and AppCheckErrorCode NSError bridging.",
+  "captureRigs": [],
+  "conformanceSuite": "packages/swift-client/Tests/PyricAppCheckTests/AppCheckUnitTests.swift",
+  "climb": true,
+  "registry": "app-check-swift"
+}

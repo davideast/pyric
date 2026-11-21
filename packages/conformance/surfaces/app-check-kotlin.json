@@ -1,0 +1,15 @@
+{
+  "schema": "pyric.conformance.surface.v2",
+  "kind": "integration",
+  "developerSurface": "app-check-kotlin",
+  "contractSource": "com.google.firebase:firebase-appcheck",
+  "observationPrefixes": [
+    "app-check-kotlin-"
+  ],
+  "coverage": true,
+  "scopeNote": "integration contract: Pure-Kotlin client conforming to com.google.firebase:firebase-appcheck via the Pyric WebSocket bridge. Covers FirebaseAppCheck per-app instance scoping and KTX extensions, installAppCheckProviderFactory, DebugAppCheckProviderFactory and PlayIntegrityAppCheckProviderFactory sandbox RS256 JWT minting, custom AppCheckProvider implementations, standard and limited-use token lifecycle, AppCheckListener notifications, setTokenAutoRefreshEnabled, and automatic shared-app token attachment across Auth, Firestore, Realtime Database, Cloud Storage, Cloud Functions, and Firebase AI.",
+  "captureRigs": [],
+  "conformanceSuite": "packages/kt-client/src/test/kotlin/dev/pyric/appcheck/FirebaseAppCheckTest.kt",
+  "climb": true,
+  "registry": "app-check-kotlin"
+}
