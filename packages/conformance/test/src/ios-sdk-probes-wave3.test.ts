@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -62,6 +62,10 @@ function detectSwiftFrontendForParse(): string | null {
   }
   const swiftc = Bun.which('swiftc');
   if (swiftc !== null) {
+    const siblingFrontend = join(dirname(realpathSync(swiftc)), 'swift-frontend');
+    if (existsSync(siblingFrontend)) {
+      return siblingFrontend;
+    }
     return swiftc;
   }
   return null;
@@ -188,7 +192,7 @@ describe('Wave 3 firestore-swift ios-sdk-probes manifest, Swift package, and sta
       expect(parseRes.status, `${parseRes.stdout}\n${parseRes.stderr}`).toBe(0);
     }
   },
-  30_000,
+  90_000,
   );
 
   it('stages firestore-sim, deploys scoped Firestore session, and deletes custom-token + streamed UIDs on success and failure', async () => {

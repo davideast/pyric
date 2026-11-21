@@ -84,8 +84,11 @@ describe('ios-sdk-probes manifest, SwiftPM version pins, and staged probes', () 
     const expectedProbeIds = [
       'auth-swift-anonymous-and-custom-token-session',
       'auth-swift-email-password-and-error-codes',
+      'auth-swift-instance-linking-reauth-and-oauth-credentials',
       'auth-swift-profile-token-claims-and-delete-lifecycle',
       'rtdb-swift-dedicated-crud-and-query-order',
+      'rtdb-swift-listeners-transactions-connection-and-ondisconnect',
+      'rtdb-swift-navigation-push-priorities-and-snapshots',
       'rtdb-swift-queries-ranges-limits-and-permission-denied',
       'rtdb-swift-writes-autoid-servervalue-and-transactions',
     ];

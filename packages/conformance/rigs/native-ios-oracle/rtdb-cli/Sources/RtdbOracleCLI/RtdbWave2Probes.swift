@@ -163,6 +163,28 @@ func runQueriesRangesLimitsAndPermissionDenied(
       value: ["k1": "one", "k2": "two", "k3": "three", "k4": "four"]
     )
 
+    let keyAllSnap = try await getDataAsync(byKeyRef.queryOrderedByKey())
+    var keyAllKeys: [String] = []
+    for case let child as DataSnapshot in keyAllSnap.children {
+      keyAllKeys.append(child.key)
+    }
+
+    let keyLimitFirstSnap = try await getDataAsync(
+      byKeyRef.queryOrderedByKey().queryLimited(toFirst: 2)
+    )
+    var keyLimitToFirstKeys: [String] = []
+    for case let child as DataSnapshot in keyLimitFirstSnap.children {
+      keyLimitToFirstKeys.append(child.key)
+    }
+
+    let keyLimitLastSnap = try await getDataAsync(
+      byKeyRef.queryOrderedByKey().queryLimited(toLast: 2)
+    )
+    var keyLimitToLastKeys: [String] = []
+    for case let child as DataSnapshot in keyLimitLastSnap.children {
+      keyLimitToLastKeys.append(child.key)
+    }
+
     let keyRangeQuery = byKeyRef
       .queryOrderedByKey()
       .queryStarting(atValue: "k2")
@@ -280,6 +302,9 @@ func runQueriesRangesLimitsAndPermissionDenied(
     let cleanedWorkspaceSnap = try await getDataAsync(workspaceRef)
 
     return [
+      "keyAllKeys": keyAllKeys,
+      "keyLimitToFirstKeys": keyLimitToFirstKeys,
+      "keyLimitToLastKeys": keyLimitToLastKeys,
       "keyRangeKeys": keyRangeKeys,
       "keyRangeValues": keyRangeValues,
       "valueEqualKeys": valueEqualKeys,
