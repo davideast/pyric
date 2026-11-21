@@ -217,24 +217,46 @@ async function tryServeMemoryByteRouteGet(
     return true;
   }
 
-  const bodyBytes = Buffer.from(await stored.blob.arrayBuffer());
+  const fullBytes = Buffer.from(await stored.blob.arrayBuffer());
   let contentType = 'application/octet-stream';
   if (typeof stored.metadata.contentType === 'string' && stored.metadata.contentType.length > 0) {
     contentType = stored.metadata.contentType;
   }
+  const rawRangeHeader = req.headers.range;
+  let sliceBytes = fullBytes;
+  let statusCode = 200;
+  let contentRangeHeader: string | undefined;
+  if (typeof rawRangeHeader === 'string' && fullBytes.byteLength > 0) {
+    const rangeMatch = /^bytes=(\d+)-(\d*)$/.exec(rawRangeHeader.trim());
+    if (rangeMatch !== null) {
+      const start = Number(rangeMatch[1]);
+      let end = fullBytes.byteLength - 1;
+      if (rangeMatch[2] !== undefined && rangeMatch[2].length > 0) {
+        end = Math.min(Number(rangeMatch[2]), fullBytes.byteLength - 1);
+      }
+      if (start < fullBytes.byteLength && end >= start) {
+        sliceBytes = fullBytes.subarray(start, end + 1);
+        statusCode = 206;
+        contentRangeHeader = `bytes ${start}-${end}/${fullBytes.byteLength}`;
+      }
+    }
+  }
   const headers: Record<string, string> = {
     'content-type': contentType,
-    'content-length': String(bodyBytes.byteLength),
+    'content-length': String(sliceBytes.byteLength),
     'cache-control': stored.metadata.cacheControl ?? 'no-store',
   };
+  if (contentRangeHeader !== undefined) {
+    headers['content-range'] = contentRangeHeader;
+  }
   if (typeof stored.metadata.contentDisposition === 'string') {
     headers['content-disposition'] = stored.metadata.contentDisposition;
   }
-  res.writeHead(200, headers);
+  res.writeHead(statusCode, headers);
   if (req.method === 'HEAD') {
     res.end();
   } else {
-    res.end(bodyBytes);
+    res.end(sliceBytes);
   }
   return true;
 }
@@ -532,6 +554,7 @@ describe('native Flutter Cloud Storage live-host conformance', () => {
 
         expect(host.observedStorageMethods).toContain('storage.beginUpload');
         expect(host.observedStorageMethods).toContain('storage.finishUpload');
+        expect(host.observedStorageMethods).toContain('storage.abortUpload');
         expect(host.observedStorageMethods).toContain('storage.getMetadata');
         expect(host.observedStorageMethods).toContain('storage.setMetadata');
         expect(host.observedStorageMethods).toContain('storage.getDownloadURL');

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:firebase_core/firebase_core.dart' show FirebaseException;
@@ -7,6 +8,10 @@ import 'package:firebase_storage_platform_interface/firebase_storage_platform_in
 import '../transport/exceptions.dart';
 import 'pyric_firebase_storage_platform.dart';
 import 'pyric_list_result_platform.dart';
+import 'pyric_task_platform.dart';
+import 'storage_string_codec.dart';
+import 'storage_transfer_runner.dart';
+import 'storage_upload_sources.dart';
 import 'storage_wire_codec.dart';
 
 const int _defaultListMaxResults = 1000;
@@ -316,6 +321,86 @@ class PyricReferencePlatform extends ReferencePlatform {
     } catch (error, stackTrace) {
       throw mapToStorageFirebaseException(error, stackTrace);
     }
+  }
+
+  @override
+  TaskPlatform putData(Uint8List data, [SettableMetadata? metadata]) {
+    _pyricStorage.ensureUsable();
+    _guardNonRoot('putData');
+    return _startUploadTask(MemoryUploadChunkSource(data), metadata);
+  }
+
+  @override
+  TaskPlatform putBlob(dynamic data, [SettableMetadata? metadata]) {
+    _pyricStorage.ensureUsable();
+    _guardNonRoot('putBlob');
+    final source = resolveBlobUploadSource(data);
+    return _startUploadTask(source, metadata);
+  }
+
+  @override
+  TaskPlatform putFile(File file, [SettableMetadata? metadata]) {
+    _pyricStorage.ensureUsable();
+    _guardNonRoot('putFile');
+    return _startUploadTask(FileUploadChunkSource(file), metadata);
+  }
+
+  @override
+  TaskPlatform putString(
+    String data,
+    PutStringFormat format, [
+    SettableMetadata? metadata,
+  ]) {
+    _pyricStorage.ensureUsable();
+    _guardNonRoot('putString');
+    final decoded = decodePutStringPayload(data, format, metadata);
+    return _startUploadTask(
+      MemoryUploadChunkSource(decoded.bytes),
+      decoded.metadata,
+    );
+  }
+
+  @override
+  TaskPlatform writeToFile(File file) {
+    _pyricStorage.ensureUsable();
+    _guardNonRoot('writeToFile');
+    return PyricTaskPlatform(
+      ref: this,
+      initialTotalBytes: 0,
+      onRegister: _pyricStorage.registerActiveTask,
+      onUnregister: _pyricStorage.unregisterActiveTask,
+      runner: (PyricTaskExecutionContext ctx) {
+        return runWriteToFileTask(
+          storage: _pyricStorage,
+          context: ctx,
+          wirePath: _wirePath,
+          file: file,
+          chunkSize: _pyricStorage.taskChunkSize,
+        );
+      },
+    );
+  }
+
+  PyricTaskPlatform _startUploadTask(
+    UploadChunkSource source,
+    SettableMetadata? metadata,
+  ) {
+    return PyricTaskPlatform(
+      ref: this,
+      initialTotalBytes: source.initialKnownLength ?? 0,
+      onRegister: _pyricStorage.registerActiveTask,
+      onUnregister: _pyricStorage.unregisterActiveTask,
+      runner: (PyricTaskExecutionContext ctx) {
+        return runResumableUploadTask(
+          storage: _pyricStorage,
+          context: ctx,
+          wirePath: _wirePath,
+          source: source,
+          metadata: metadata,
+          chunkSize: _pyricStorage.taskChunkSize,
+        );
+      },
+    );
   }
 
   Future<FullMetadata> _updateMetadataWithRulesCheck(
