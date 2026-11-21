@@ -35,6 +35,7 @@ func runWritesAutoIdServerValueAndTransactions(
   let runRef = db.reference(withPath: "pyric_oracle/\(runId)")
 
   do {
+    markRtdbStep("wave2-writes:profile-crud")
     let profileRef = runRef.child("profile")
     try await setValueAsync(
       profileRef,
@@ -53,6 +54,7 @@ func runWritesAutoIdServerValueAndTransactions(
     let updatedTeamAdded = (profileDict?["team"] as? String) ?? ""
     let removedChildExists = profileSnap.childSnapshot(forPath: "legacy").exists()
 
+    markRtdbStep("wave2-writes:autoid-and-servervalue")
     let feedRef = runRef.child("feed")
     let auto1 = feedRef.childByAutoId()
     let auto2 = feedRef.childByAutoId()
@@ -96,6 +98,7 @@ func runWritesAutoIdServerValueAndTransactions(
     let serverTimestampPlausibleEpochMs =
       tsInt64 >= 1_700_000_000_000 && tsInt64 < 4_102_444_800_000
 
+    markRtdbStep("wave2-writes:transactions-and-cleanup")
     let counterRef = runRef.child("tx_counter")
     try await setValueAsync(counterRef, value: 10)
 
@@ -157,6 +160,7 @@ func runQueriesRangesLimitsAndPermissionDenied(
   let deniedRef = runRef.child("denied_leaf")
 
   do {
+    markRtdbStep("wave2-queries:ordered-by-key-and-value")
     let byKeyRef = workspaceRef.child("by_key")
     try await setValueAsync(
       byKeyRef,
@@ -244,6 +248,7 @@ func runQueriesRangesLimitsAndPermissionDenied(
       }
     }
 
+    markRtdbStep("wave2-queries:permission-denied-and-cleanup")
     var writeDeniedRejected = false
     var writeDeniedDomain = ""
     var writeDeniedCode = -1

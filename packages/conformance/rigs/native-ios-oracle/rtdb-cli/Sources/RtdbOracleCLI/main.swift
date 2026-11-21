@@ -131,6 +131,70 @@ func deleteAppAsync(_ app: FirebaseApp) async {
   }
 }
 
+private final class RtdbStepState {
+  private let lock = NSLock()
+  private var activeStep = "bootstrap"
+
+  func set(_ step: String) {
+    lock.lock()
+    activeStep = step
+    lock.unlock()
+  }
+
+  func get() -> String {
+    lock.lock()
+    defer { lock.unlock() }
+    return activeStep
+  }
+}
+
+private let rtdbStepState = RtdbStepState()
+
+func markRtdbStep(_ step: String) {
+  rtdbStepState.set(step)
+  fputs("[rtdb-oracle-cli] step: \(step)\n", stderr)
+  fflush(stderr)
+}
+
+func currentRtdbStep() -> String {
+  rtdbStepState.get()
+}
+
+func startRtdbWatchdogs(probeLabel: String, defaultWatchdogSeconds: Int = 180) {
+  let initialParentPid = getppid()
+  let envMap = ProcessInfo.processInfo.environment
+  let configuredSeconds = Int(envMap["PYRIC_IOS_RTDB_CLI_WATCHDOG_SEC"] ?? "") ?? defaultWatchdogSeconds
+  let watchdogSeconds = max(5, configuredSeconds)
+  let deadline = DispatchTime.now() + .seconds(watchdogSeconds)
+
+  DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: deadline) {
+    let step = currentRtdbStep()
+    fputs(
+      "[rtdb-oracle-cli] error: Probe '\(probeLabel)' timed out after \(watchdogSeconds)s at step '\(step)'\n",
+      stderr
+    )
+    fflush(stderr)
+    Darwin.exit(124)
+  }
+
+  if initialParentPid > 1 {
+    Thread.detachNewThread {
+      while true {
+        Thread.sleep(forTimeInterval: 1.0)
+        if getppid() != initialParentPid {
+          let step = currentRtdbStep()
+          fputs(
+            "[rtdb-oracle-cli] error: Parent process \(initialParentPid) exited at step '\(step)'; terminating orphan RtdbOracleCLI\n",
+            stderr
+          )
+          fflush(stderr)
+          Darwin.exit(125)
+        }
+      }
+    }
+  }
+}
+
 private func isRtdbDecimalProjectNumber(_ text: String) -> Bool {
   guard !text.isEmpty, text.count <= 18 else { return false }
   return text.unicodeScalars.allSatisfy { $0.value >= 48 && $0.value <= 57 }
@@ -193,6 +257,7 @@ func runDedicatedCrudAndQueryOrder(
   let itemsRef = runRef.child("items")
 
   do {
+    markRtdbStep("dedicated-crud:seed-items")
     try await setValueAsync(
       itemsRef.child("alpha"),
       value: ["label": "Alpha", "score": 20]
@@ -206,6 +271,7 @@ func runDedicatedCrudAndQueryOrder(
       value: ["label": "Gamma", "score": 12]
     )
 
+    markRtdbStep("dedicated-crud:increment-and-query")
     try await updateChildValuesAsync(
       itemsRef.child("beta"),
       values: ["score": ServerValue.increment(NSNumber(value: 5))]
@@ -229,6 +295,7 @@ func runDedicatedCrudAndQueryOrder(
       }
     }
 
+    markRtdbStep("dedicated-crud:cleanup")
     try await removeValueAsync(runRef)
     let removedSnap = try await getDataAsync(runRef)
 
@@ -253,6 +320,7 @@ func executeRtdbProbe(config: RtdbOracleConfig) async throws -> [String: Any] {
   let appName = "pyric-ios-rtdb-\(config.runId)"
   let options = makeRtdbFirebaseOptions(config: config)
 
+  markRtdbStep("configure-app:\(config.probeId)")
   FirebaseApp.configure(name: appName, options: options)
   guard let app = FirebaseApp.app(name: appName) else {
     throw RtdbOracleError.appLookupFailed(appName)
@@ -280,10 +348,12 @@ func executeRtdbProbe(config: RtdbOracleConfig) async throws -> [String: Any] {
     default:
       throw RtdbOracleError.unknownProbe(config.probeId)
     }
+    markRtdbStep("teardown:delete-app")
     db.goOffline()
     await deleteAppAsync(app)
     return behavior
   } catch {
+    markRtdbStep("teardown:delete-app-after-error")
     db.goOffline()
     await deleteAppAsync(app)
     throw error
@@ -292,11 +362,14 @@ func executeRtdbProbe(config: RtdbOracleConfig) async throws -> [String: Any] {
 
 Task {
   do {
+    markRtdbStep("parse-cli-args")
     let (inputPath, outputPath) = try parseCliArgs(CommandLine.arguments)
     let inputData = try Data(contentsOf: URL(fileURLWithPath: inputPath))
     let config = try JSONDecoder().decode(RtdbOracleConfig.self, from: inputData)
+    startRtdbWatchdogs(probeLabel: config.probeId)
     let behavior = try await executeRtdbProbe(config: config)
 
+    markRtdbStep("write-output")
     guard JSONSerialization.isValidJSONObject(behavior) else {
       throw RtdbOracleError.invalidJsonPayload
     }
@@ -309,8 +382,9 @@ Task {
     fflush(stdout)
     Darwin.exit(0)
   } catch {
+    let step = currentRtdbStep()
     let message = String(describing: error)
-    fputs("[rtdb-oracle-cli] error: \(message)\n", stderr)
+    fputs("[rtdb-oracle-cli] error: (step=\(step)) \(message)\n", stderr)
     fflush(stderr)
     Darwin.exit(1)
   }

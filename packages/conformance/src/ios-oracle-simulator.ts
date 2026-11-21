@@ -18,6 +18,10 @@ const HEX_DIGITS_PATTERN = /^[0-9a-fA-F]+$/;
 const DECIMAL_SENDER_ID_PATTERN = /^[0-9]{1,18}$/;
 const SPAWN_TAIL_LINE_LIMIT = 120;
 const SPAWN_HIGHLIGHT_LINE_LIMIT = 40;
+export const DEFAULT_IOS_SIMCTL_TIMEOUT_MS = 60_000;
+export const DEFAULT_IOS_RTDB_CLI_TIMEOUT_MS = 600_000;
+export const DEFAULT_IOS_AUTH_SIM_TIMEOUT_MS = 900_000;
+export const DEFAULT_IOS_FIRESTORE_SIM_TIMEOUT_MS = 1_200_000;
 
 function extractDecimalProjectNumber(candidate: string | undefined): string | null {
   if (typeof candidate !== 'string') {
@@ -100,23 +104,20 @@ export interface IosRtdbCliRequest {
   inputPath: string;
   outputPath: string;
   env: NodeJS.ProcessEnv;
+  timeoutMs?: number;
 }
 
-export interface IosAuthSimRequest {
+interface IosHostedSimRequest {
   stagedPackageDir: string;
   derivedDataDir: string;
   clonedPackagesDir: string;
   destination: string;
   env: NodeJS.ProcessEnv;
+  timeoutMs?: number;
 }
 
-export interface IosFirestoreSimRequest {
-  stagedPackageDir: string;
-  derivedDataDir: string;
-  clonedPackagesDir: string;
-  destination: string;
-  env: NodeJS.ProcessEnv;
-}
+export type IosAuthSimRequest = IosHostedSimRequest;
+export type IosFirestoreSimRequest = IosHostedSimRequest;
 
 interface SimctlDeviceRecord {
   udid?: unknown;
@@ -171,29 +172,17 @@ export function stageIosPackageTemplate(sourceDir: string, targetDir: string): v
 
 function parseIosRuntimeVersionTuple(runtimeKey: string): number[] | null {
   const match = /SimRuntime\.iOS-([0-9]+(?:-[0-9]+)*)$/.exec(runtimeKey);
-  if (!match) {
+  if (!match || match[1] === undefined) {
     return null;
   }
-  const versionGroup = match[1];
-  if (versionGroup === undefined) {
-    return null;
-  }
-  return versionGroup.split('-').map((segment) => Number.parseInt(segment, 10));
+  return match[1].split('-').map((segment) => Number.parseInt(segment, 10));
 }
 
 function compareVersionTuplesDescending(left: readonly number[], right: readonly number[]): number {
   const maxLen = Math.max(left.length, right.length);
   for (let i = 0; i < maxLen; i += 1) {
-    let leftPart = 0;
-    const rawLeft = left[i];
-    if (rawLeft !== undefined) {
-      leftPart = rawLeft;
-    }
-    let rightPart = 0;
-    const rawRight = right[i];
-    if (rawRight !== undefined) {
-      rightPart = rawRight;
-    }
+    const leftPart = left[i] ?? 0;
+    const rightPart = right[i] ?? 0;
     if (leftPart !== rightPart) {
       return rightPart - leftPart;
     }
@@ -219,75 +208,50 @@ export function selectAvailableIosSimulatorDestination(simctlJson: string): IosS
   const iosRuntimes: Array<{ runtimeKey: string; tuple: number[]; list: SimctlDeviceRecord[] }> = [];
   for (const [runtimeKey, value] of Object.entries(devicesMap as Record<string, unknown>)) {
     const tuple = parseIosRuntimeVersionTuple(runtimeKey);
-    if (tuple === null || !Array.isArray(value)) {
-      continue;
+    if (tuple !== null && Array.isArray(value)) {
+      iosRuntimes.push({ runtimeKey, tuple, list: value as SimctlDeviceRecord[] });
     }
-    iosRuntimes.push({
-      runtimeKey,
-      tuple,
-      list: value as SimctlDeviceRecord[],
-    });
   }
-
   iosRuntimes.sort((a, b) => compareVersionTuplesDescending(a.tuple, b.tuple));
 
   const candidates: Array<IosSimulatorSelection & { isIphone: boolean; isBooted: boolean }> = [];
   for (const runtime of iosRuntimes) {
     for (const rawDevice of runtime.list) {
-      if (typeof rawDevice !== 'object' || rawDevice === null) {
+      if (typeof rawDevice !== 'object' || rawDevice === null || rawDevice.isAvailable === false) {
         continue;
       }
-      if (rawDevice.isAvailable === false) {
-        continue;
-      }
-      if (typeof rawDevice.udid !== 'string' || rawDevice.udid.trim() === '') {
-        continue;
-      }
-      if (typeof rawDevice.name !== 'string' || rawDevice.name.trim() === '') {
+      if (typeof rawDevice.udid !== 'string' || typeof rawDevice.name !== 'string') {
         continue;
       }
       const udid = rawDevice.udid.trim();
       const name = rawDevice.name.trim();
-      const isIphone = name.startsWith('iPhone');
-      const isBooted = rawDevice.state === 'Booted';
+      if (udid === '' || name === '') {
+        continue;
+      }
       candidates.push({
         udid,
         name,
         runtimeKey: runtime.runtimeKey,
         destination: `platform=iOS Simulator,id=${udid}`,
-        isIphone,
-        isBooted,
+        isIphone: name.startsWith('iPhone'),
+        isBooted: rawDevice.state === 'Booted',
       });
     }
   }
 
-  const bootedIphone = candidates.find((item) => item.isIphone && item.isBooted);
-  if (bootedIphone) {
-    return {
-      udid: bootedIphone.udid,
-      name: bootedIphone.name,
-      runtimeKey: bootedIphone.runtimeKey,
-      destination: bootedIphone.destination,
-    };
+  let selected = candidates.find((item) => item.isIphone && item.isBooted);
+  if (selected === undefined) {
+    selected = candidates.find((item) => item.isIphone);
   }
-
-  const firstIphone = candidates.find((item) => item.isIphone);
-  if (firstIphone) {
-    return {
-      udid: firstIphone.udid,
-      name: firstIphone.name,
-      runtimeKey: firstIphone.runtimeKey,
-      destination: firstIphone.destination,
-    };
+  if (selected === undefined) {
+    selected = candidates[0];
   }
-
-  const fallbackAny = candidates[0];
-  if (fallbackAny) {
+  if (selected !== undefined) {
     return {
-      udid: fallbackAny.udid,
-      name: fallbackAny.name,
-      runtimeKey: fallbackAny.runtimeKey,
-      destination: fallbackAny.destination,
+      udid: selected.udid,
+      name: selected.name,
+      runtimeKey: selected.runtimeKey,
+      destination: selected.destination,
     };
   }
 
@@ -350,38 +314,40 @@ function isBenignCompilerCommandLine(trimmedLine: string): boolean {
   return false;
 }
 
+const DIAGNOSTIC_SUBSTRINGS = [
+  '*** Terminating app',
+  '*** First throw call stack',
+  'NSException',
+  'libc++abi:',
+  'terminating due to uncaught exception',
+  'terminating with uncaught exception',
+  'Fatal error:',
+  'Assertion failure',
+  'XCTFail',
+  'failed - ',
+];
+
 function isDiagnosticHighlightLine(trimmedLine: string): boolean {
   if (trimmedLine === '' || isBenignCompilerCommandLine(trimmedLine)) {
     return false;
   }
-  if (
-    trimmedLine.includes('*** Terminating app') ||
-    trimmedLine.includes('*** First throw call stack') ||
-    trimmedLine.includes('NSException') ||
-    trimmedLine.includes('libc++abi:') ||
-    trimmedLine.includes('terminating due to uncaught exception') ||
-    trimmedLine.includes('terminating with uncaught exception') ||
-    trimmedLine.includes('Fatal error:') ||
-    trimmedLine.includes('Assertion failure')
-  ) {
-    return true;
+  for (const token of DIAGNOSTIC_SUBSTRINGS) {
+    if (trimmedLine.includes(token)) {
+      return true;
+    }
   }
   if (
     /\[Firebase(?:Core|Auth|Firestore|Database)\]/.test(trimmedLine) ||
-    /I-(?:COR|AUT|FST)[0-9]{6}/.test(trimmedLine)
+    /I-(?:COR|AUT|FST|RDB)[0-9]{6}/.test(trimmedLine)
   ) {
     return true;
   }
-  if (
-    trimmedLine.includes('XCTFail') ||
-    trimmedLine.includes('failed - ') ||
+  return (
     trimmedLine.startsWith('[rtdb-oracle-cli] error:') ||
+    trimmedLine.startsWith('[rtdb-oracle-cli] step:') ||
     trimmedLine.startsWith('xcodebuild: error:') ||
     /\berror:\s/.test(trimmedLine)
-  ) {
-    return true;
-  }
-  return false;
+  );
 }
 
 export function formatIosOracleSpawnFailure(
@@ -438,13 +404,28 @@ export function formatIosOracleSpawnFailure(
   return err;
 }
 
+function resolveSpawnTimeoutMs(
+  overrideMs: number | undefined,
+  envRaw: string | undefined,
+  defaultMs: number,
+): number {
+  if (typeof overrideMs === 'number' && Number.isFinite(overrideMs) && overrideMs > 0) {
+    return Math.floor(overrideMs);
+  }
+  if (typeof envRaw === 'string' && DECIMAL_SENDER_ID_PATTERN.test(envRaw.trim())) {
+    const parsed = Number.parseInt(envRaw.trim(), 10);
+    if (parsed > 0) {
+      return parsed;
+    }
+  }
+  return defaultMs;
+}
+
 function readVerifiedSpawnStreams(
   toolLabel: string,
   result: SpawnSyncReturns<string>,
+  timeoutMs: number,
 ): { stdout: string; stderr: string } {
-  if (result.error) {
-    throw result.error;
-  }
   let stdout = '';
   if (typeof result.stdout === 'string') {
     stdout = result.stdout;
@@ -453,45 +434,66 @@ function readVerifiedSpawnStreams(
   if (typeof result.stderr === 'string') {
     stderr = result.stderr;
   }
+  if (result.error) {
+    if ((result.error as NodeJS.ErrnoException).code === 'ETIMEDOUT') {
+      throw formatIosOracleSpawnFailure(
+        `${toolLabel} (timed out after ${String(timeoutMs)}ms)`,
+        result.status,
+        stdout,
+        stderr,
+      );
+    }
+    throw result.error;
+  }
   if (result.status !== 0) {
     throw formatIosOracleSpawnFailure(toolLabel, result.status, stdout, stderr);
   }
   return { stdout, stderr };
 }
 
-export function defaultQueryAvailableSimulatorsJson(env: NodeJS.ProcessEnv): string {
+export function defaultQueryAvailableSimulatorsJson(
+  env: NodeJS.ProcessEnv,
+  timeoutMs?: number,
+): string {
+  const resolvedTimeout = resolveSpawnTimeoutMs(
+    timeoutMs,
+    env.PYRIC_IOS_SIMCTL_TIMEOUT_MS,
+    DEFAULT_IOS_SIMCTL_TIMEOUT_MS,
+  );
   const result = spawnSync('xcrun', ['simctl', 'list', 'devices', 'available', '-j'], {
     env,
     encoding: 'utf8',
     maxBuffer: 16 * 1024 * 1024,
+    timeout: resolvedTimeout,
+    killSignal: 'SIGKILL',
   });
-  return readVerifiedSpawnStreams('xcrun simctl list devices', result).stdout;
+  return readVerifiedSpawnStreams('xcrun simctl list devices', result, resolvedTimeout).stdout;
 }
 
 export function buildRtdbSwiftRunArgs(request: IosRtdbCliRequest): string[] {
   return [
-    'run',
-    '--package-path',
-    request.stagedPackageDir,
-    '--scratch-path',
-    request.scratchCacheDir,
-    'RtdbOracleCLI',
-    '--input',
-    request.inputPath,
-    '--output',
-    request.outputPath,
+    'run', '--package-path', request.stagedPackageDir,
+    '--scratch-path', request.scratchCacheDir, 'RtdbOracleCLI',
+    '--input', request.inputPath, '--output', request.outputPath,
   ];
 }
 
 export function defaultExecuteRtdbCli(request: IosRtdbCliRequest): string {
   mkdirSync(request.scratchCacheDir, { recursive: true });
+  const resolvedTimeout = resolveSpawnTimeoutMs(
+    request.timeoutMs,
+    request.env.PYRIC_IOS_RTDB_CLI_TIMEOUT_MS,
+    DEFAULT_IOS_RTDB_CLI_TIMEOUT_MS,
+  );
   const result = spawnSync('swift', buildRtdbSwiftRunArgs(request), {
     cwd: request.stagedPackageDir,
     env: request.env,
     encoding: 'utf8',
     maxBuffer: 32 * 1024 * 1024,
+    timeout: resolvedTimeout,
+    killSignal: 'SIGKILL',
   });
-  const streams = readVerifiedSpawnStreams('SwiftPM RtdbOracleCLI', result);
+  const streams = readVerifiedSpawnStreams('SwiftPM RtdbOracleCLI', result, resolvedTimeout);
   return `${streams.stdout}\n${streams.stderr}`;
 }
 
@@ -502,24 +504,12 @@ function buildHostedSimulatorXcodebuildArgs(
   request: IosAuthSimRequest | IosFirestoreSimRequest,
 ): string[] {
   return [
-    'test',
-    '-project',
-    xcodeprojPath,
-    '-scheme',
-    scheme,
-    '-destination',
-    request.destination,
-    '-derivedDataPath',
-    request.derivedDataDir,
-    '-clonedSourcePackagesDirPath',
-    request.clonedPackagesDir,
-    '-collect-test-diagnostics',
-    'never',
-    `-only-testing:${onlyTestingTarget}`,
-    'ONLY_ACTIVE_ARCH=YES',
-    'COMPILER_INDEX_STORE_ENABLE=NO',
-    'CODE_SIGNING_REQUIRED=NO',
-    'CODE_SIGNING_ALLOWED=YES',
+    'test', '-project', xcodeprojPath, '-scheme', scheme,
+    '-destination', request.destination, '-derivedDataPath', request.derivedDataDir,
+    '-clonedSourcePackagesDirPath', request.clonedPackagesDir,
+    '-collect-test-diagnostics', 'never', `-only-testing:${onlyTestingTarget}`,
+    'ONLY_ACTIVE_ARCH=YES', 'COMPILER_INDEX_STORE_ENABLE=NO',
+    'CODE_SIGNING_REQUIRED=NO', 'CODE_SIGNING_ALLOWED=YES',
   ];
 }
 
@@ -536,16 +526,25 @@ function executeHostedSimulatorXcodebuild(
   toolLabel: string,
   args: string[],
   request: IosAuthSimRequest | IosFirestoreSimRequest,
+  envVarName: string,
+  defaultTimeoutMs: number,
 ): string {
   mkdirSync(request.derivedDataDir, { recursive: true });
   mkdirSync(request.clonedPackagesDir, { recursive: true });
+  const resolvedTimeout = resolveSpawnTimeoutMs(
+    request.timeoutMs,
+    request.env[envVarName],
+    defaultTimeoutMs,
+  );
   const result = spawnSync('xcodebuild', args, {
     cwd: request.stagedPackageDir,
     env: request.env,
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024,
+    timeout: resolvedTimeout,
+    killSignal: 'SIGKILL',
   });
-  const streams = readVerifiedSpawnStreams(toolLabel, result);
+  const streams = readVerifiedSpawnStreams(toolLabel, result, resolvedTimeout);
   return `${streams.stdout}\n${streams.stderr}`;
 }
 
@@ -554,6 +553,8 @@ export function defaultExecuteAuthSim(request: IosAuthSimRequest): string {
     'xcodebuild AuthOracleHostedTests',
     buildAuthSimXcodebuildArgs(request),
     request,
+    'PYRIC_IOS_AUTH_SIM_TIMEOUT_MS',
+    DEFAULT_IOS_AUTH_SIM_TIMEOUT_MS,
   );
 }
 
@@ -571,5 +572,7 @@ export function defaultExecuteFirestoreSim(request: IosFirestoreSimRequest): str
     'xcodebuild FirestoreOracleHostedTests',
     buildFirestoreSimXcodebuildArgs(request),
     request,
+    'PYRIC_IOS_FIRESTORE_SIM_TIMEOUT_MS',
+    DEFAULT_IOS_FIRESTORE_SIM_TIMEOUT_MS,
   );
 }
