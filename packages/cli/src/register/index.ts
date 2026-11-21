@@ -56,7 +56,7 @@ import { installChildProcessGuard, pinInheritedVariables } from './child-process
 import { installRemotePeerMark } from './remote-peer-mark.js';
 import { installProcessHealth, sandboxHost } from './process-health.js';
 import { remoteSandbox } from '../remote/index.js';
-import { resolveAiMode, type AiMode } from '../serve/firebase-module-swap.js';
+import { isBypassedBridgeImport, resolveAiMode, type AiMode } from '../serve/firebase-module-swap.js';
 
 /** The shared seam with pyric-admin's ambient init: a synchronous factory
  *  returning the lazy branded handle. `Symbol.for` so both packages agree
@@ -175,6 +175,40 @@ function buildPinnedSandboxEnv(
   return pinned;
 }
 
+const CLI_PACKAGE_ROOT_URL = new URL('../../', import.meta.url).href;
+
+function isExternalFileImporter(parentUrl: string | undefined): parentUrl is string {
+  if (parentUrl === undefined || !parentUrl.startsWith('file:')) {
+    return false;
+  }
+  return !parentUrl.startsWith(CLI_PACKAGE_ROOT_URL);
+}
+
+function resolveBypassedFromAppTree(
+  specifier: string,
+  context: SyncResolveContext,
+  nextResolve: NextSyncResolve,
+  lastAppImporterUrl: string | undefined,
+): SyncResolveResult {
+  const candidates: string[] = [];
+  if (lastAppImporterUrl !== undefined) {
+    candidates.push(lastAppImporterUrl);
+  }
+  candidates.push(pathToFileURL(join(process.cwd(), 'package.json')).href);
+  for (const parentUrl of candidates) {
+    const candidateContext: SyncResolveContext = { parentURL: parentUrl };
+    if (context.conditions !== undefined) {
+      candidateContext.conditions = context.conditions;
+    }
+    try {
+      return nextResolve(specifier, candidateContext);
+    } catch {
+      // Try the next candidate before falling back to the bridge module's own parentURL.
+    }
+  }
+  return nextResolve(specifier, context);
+}
+
 /**
  * The sync resolve hook. A canonical Firebase specifier maps directly. A
  * Turbopack-renamed one (`firebase-admin-<hash>/app`, #1443) resolves as
@@ -182,16 +216,37 @@ function buildPinnedSandboxEnv(
  * real package, so an unrelated package with such a name stays itself.
  */
 function createResolveFirebase(activatedSandbox: string, activatedAiMode: AiMode): SyncResolve {
+  let lastAppImporterUrl: string | undefined;
   return (specifier, context, nextResolve) => {
+    const isEsmImport = isImportCondition(context.conditions);
     const mapOptions = {
       sandbox: activatedSandbox,
       aiMode: activatedAiMode,
-      isEsmImport: isImportCondition(context.conditions),
+      isEsmImport,
     };
+    const isClientBridgeBypass =
+      isEsmImport &&
+      (specifier === 'firebase/app' || specifier === 'firebase/app-check') &&
+      isBypassedBridgeImport(specifier, context.parentURL, activatedAiMode);
+    if (isClientBridgeBypass) {
+      return resolveBypassedFromAppTree(specifier, context, nextResolve, lastAppImporterUrl);
+    }
     const canonical = canonicalFirebaseSpecifier(specifier);
     if (canonical === null) {
       const mapped = mapFirebaseSpecifier(specifier, context.parentURL, mapOptions);
-      if (mapped === null) return nextResolve(specifier, context);
+      if (mapped === null) {
+        if (
+          activatedAiMode === 'production' &&
+          specifier === 'firebase/ai' &&
+          isExternalFileImporter(context.parentURL)
+        ) {
+          lastAppImporterUrl = context.parentURL;
+        }
+        return nextResolve(specifier, context);
+      }
+      if (isExternalFileImporter(context.parentURL)) {
+        lastAppImporterUrl = context.parentURL;
+      }
       return resolveMapped(mapped, context, nextResolve);
     }
     const renamed = nextResolve(specifier, context);
@@ -199,6 +254,9 @@ function createResolveFirebase(activatedSandbox: string, activatedAiMode: AiMode
     if (!isRealFirebasePackage) return renamed;
     const mapped = mapFirebaseSpecifier(canonical, context.parentURL, mapOptions);
     if (mapped === null) return renamed;
+    if (isExternalFileImporter(context.parentURL)) {
+      lastAppImporterUrl = context.parentURL;
+    }
     return resolveMapped(mapped, context, nextResolve);
   };
 }

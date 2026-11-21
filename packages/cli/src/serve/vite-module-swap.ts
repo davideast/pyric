@@ -16,6 +16,10 @@ import {
   type AiMode,
   type ServedFirebaseSpecifier,
 } from './firebase-module-swap.js';
+import {
+  productionAiSdkAllowDirs,
+  resolveBypassedBridgeFromAppRoot,
+} from './vite-passthrough-resolve.js';
 import { packageRootOf, resolveUnhooked } from './vite-unhooked-resolve.js';
 import {
   OBSERVER_MODULE_ID,
@@ -214,15 +218,21 @@ export function createViteModuleSwap(
     isBypassedBridgeImport,
   });
 
-  function resolveBases(importer: string | undefined): string[] {
+  function resolveBases(specifier: string, importer: string | undefined): string[] {
     const importerFile = importer?.split('?')[0];
     const fromRoot = path.join(root, 'package.json');
     const isFileImporter = importerFile !== undefined && path.isAbsolute(importerFile);
-    return isFileImporter ? [importerFile, fromRoot] : [fromRoot];
+    if (!isFileImporter) {
+      return [fromRoot];
+    }
+    if (isBypassedBridgeImport(specifier, importer, aiMode())) {
+      return [fromRoot, importerFile];
+    }
+    return [importerFile, fromRoot];
   }
 
   function installedFileOf(specifier: string, importer: string | undefined): { url: string; base: string } | null {
-    for (const base of resolveBases(importer)) {
+    for (const base of resolveBases(specifier, importer)) {
       try {
         return { url: pathToFileURL(resolveUnhooked(specifier, base)).href, base };
       } catch {
@@ -358,21 +368,50 @@ export function createViteModuleSwap(
     if (original === null && isServer && isRoutedServerSpecifier(source)) {
       original = source;
     }
-    if (original === null) return resolveId(source, importer);
-    const { bare: originalBare } = splitSpecifierQuery(original);
+    let candidate = source;
+    if (original !== null) {
+      candidate = original;
+    }
+    const { bare: candidateBare } = splitSpecifierQuery(candidate);
+    const currentAiMode = aiMode();
     const environment = context.environment;
     const supplied = options?.supplied;
+    const isBypassed =
+      supplied === undefined &&
+      isBypassedBridgeImport(candidateBare, importer, currentAiMode);
+    if (isBypassed) {
+      if (isServer && !runsInProcess(environment)) {
+        let envName = 'ssr';
+        if (environment !== undefined) {
+          envName = environment.name;
+        }
+        return routeServerImport({
+          specifier: candidate,
+          importer,
+          aiMode: currentAiMode,
+          runsInProcess: false,
+          environmentName: envName,
+        });
+      }
+      return resolveBypassedBridgeFromAppRoot(context, candidate, root, importer, resolveOptions);
+    }
+    if (original === null) return resolveId(source, importer);
+    const { bare: originalBare } = splitSpecifierQuery(original);
     if (isServer && supplied !== undefined) {
       return refusalIdFor(originalBare, 'server', supplied.refusal(originalBare, 'server'));
     }
     let routed: string | null;
     if (isServer) {
+      let envName = 'ssr';
+      if (environment !== undefined) {
+        envName = environment.name;
+      }
       routed = routeServerImport({
         specifier: original,
         importer,
-        aiMode: aiMode(),
+        aiMode: currentAiMode,
         runsInProcess: runsInProcess(environment),
-        environmentName: environment?.name ?? 'ssr',
+        environmentName: envName,
       });
     } else {
       routed = resolveId(original, importer);
@@ -525,12 +564,20 @@ export function createViteModuleSwap(
       return { resolve: { external: [...serverExternal] } };
     },
     configResolved(config) {
-      root = config.root ?? root;
+      if (config.root !== undefined) {
+        root = config.root;
+      }
       const allow = config.server?.fs?.allow;
       if (allow === undefined || !Array.isArray(allow)) {
         return;
       }
-      for (const dir of [pyricRoot, cliRoot]) {
+      const allowedDirs = [pyricRoot, cliRoot];
+      if (aiMode() === 'production') {
+        for (const sdkDir of productionAiSdkAllowDirs(root)) {
+          allowedDirs.push(sdkDir);
+        }
+      }
+      for (const dir of allowedDirs) {
         if (!allow.includes(dir)) {
           allow.push(dir);
         }

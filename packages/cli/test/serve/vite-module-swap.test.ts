@@ -486,12 +486,14 @@ describe('a real Firebase SDK load the swap does not serve stops (ADR 0022)', ()
     expect(await prodAiSwap.resolvePluginId(prodContext, 'firebase/app-check', userImporter)).toBe(
       context.entries['app-ai-passthrough-app-check'],
     );
-    // Bridge entries inside cliRoot import real firebase/app and firebase/app-check
+    // Bridge entries inside cliRoot resolve real firebase/app and firebase/app-check from the app root
     expect(
       await prodAiSwap.resolvePluginId(prodContext, 'firebase/app', context.entries['app-ai-passthrough']),
-    ).toBeNull();
+    ).toEqual({ id: realAppEntry });
     const appBridgeEntry = path.join(context.cliRoot, 'src', 'register', 'app-bridge-app-check.ts');
-    expect(await prodAiSwap.resolvePluginId(prodContext, 'firebase/app-check', appBridgeEntry)).toBeNull();
+    expect(await prodAiSwap.resolvePluginId(prodContext, 'firebase/app-check', appBridgeEntry)).toEqual({
+      id: realAppCheckEntry,
+    });
 
     // Real firebase/app and firebase/app-check then re-export @firebase/app and @firebase/app-check cleanly
     expect(await prodAiSwap.resolvePluginId(prodContext, '@firebase/app', realAppEntry)).toBeNull();

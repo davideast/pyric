@@ -378,7 +378,11 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
       }
       if (hostedInstanceId === undefined) return null;
       const cleanId = id.split('?')[0];
-      if (cleanId === entries.app || cleanId === entries['messaging-sw']) {
+      const stampsHostedInstance =
+        cleanId === entries.app ||
+        cleanId === entries['app-ai-passthrough'] ||
+        cleanId === entries['messaging-sw'];
+      if (stampsHostedInstance) {
         return `globalThis.__PYRIC_HOST_INSTANCE_ID__=${JSON.stringify(hostedInstanceId)};\n${code}`;
       }
       return null;
@@ -388,7 +392,10 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
       let unregisterProjectPolicy: (() => void) | undefined;
       clearProcessStop();
       if (supplied === undefined) {
-        releaseProcessStop = acquireViteProcessStop({ getAiMode: () => pageRuntime.ai().mode });
+        releaseProcessStop = acquireViteProcessStop({
+          getAiMode: () => pageRuntime.ai().mode,
+          projectRoot: server.config.root,
+        });
       } else {
         releaseProcessStop = acquireViteLiveProcessStop(supplied);
       }

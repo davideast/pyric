@@ -14,13 +14,15 @@
  * `server.close()` leaves subsequent Node resolutions untouched.
  */
 import Module from 'node:module';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { UNSUPPORTED_RUNTIME_CODE } from '../cli/unsupported-runtime.js';
 import { isLiveRegisterActive, isRegisterActive } from '../register/activation.js';
 import { canonicalFirebaseSpecifier } from '../register/mapping.js';
 import { requireRegisterHooks } from '../register/node-version-stop.js';
 import { packageNameOf } from '../register/package-identity.js';
-import { createStopReporter, stopFor, suppliedRowsStopFor } from '../register/swap-or-stop.js';
-import type { AiMode } from './firebase-module-swap.js';
+import { createStopReporter, isImportCondition, stopFor, suppliedRowsStopFor } from '../register/swap-or-stop.js';
+import { isBypassedBridgeImport, type AiMode } from './firebase-module-swap.js';
 import type { SuppliedRows } from './vite-supplied-rows.js';
 
 interface SyncResolveContext {
@@ -49,6 +51,7 @@ const moduleApi = Module as unknown as { registerHooks?: RegisterHooks };
 interface SandboxStopLease {
   readonly kind: 'sandbox';
   getAiMode: () => AiMode;
+  readonly projectRoot?: string;
   readonly report: ReturnType<typeof createStopReporter>;
   readonly allowedUrls: Set<string>;
 }
@@ -72,6 +75,35 @@ export interface ViteProcessStopHookInput {
   /** The plugin's resolved AI mode, read on each resolve. */
   getAiMode: () => AiMode;
   write: (line: string) => void;
+  /** Vite's resolved app root so bypassed SSR bridge imports prefer the app's Firebase SDK. */
+  projectRoot?: string;
+}
+
+function resolveSandboxNodeLoad(
+  lease: SandboxStopLease,
+  specifier: string,
+  context: SyncResolveContext,
+  nextResolve: (specifier: string, context?: SyncResolveContext) => SyncResolveResult,
+): SyncResolveResult {
+  const aiMode = lease.getAiMode();
+  const isEsm = context.conditions === undefined || isImportCondition(context.conditions);
+  const isClientBridgeBypass =
+    isEsm &&
+    (specifier === 'firebase/app' || specifier === 'firebase/app-check') &&
+    isBypassedBridgeImport(specifier, context.parentURL, aiMode);
+  if (isClientBridgeBypass && lease.projectRoot !== undefined && lease.projectRoot !== '') {
+    const rootParentUrl = pathToFileURL(path.join(path.resolve(lease.projectRoot), 'package.json')).href;
+    const rootContext: SyncResolveContext = { parentURL: rootParentUrl };
+    if (context.conditions !== undefined) {
+      rootContext.conditions = context.conditions;
+    }
+    try {
+      return nextResolve(specifier, rootContext);
+    } catch {
+      // Fall back to the bridge module's parentURL when not installed under projectRoot.
+    }
+  }
+  return nextResolve(specifier, context);
 }
 
 /** The package the real `firebase/ai` entry re-exports. */
@@ -151,17 +183,19 @@ export function viteProcessStopHook(input: ViteProcessStopHookInput): SyncResolv
   const lease: SandboxStopLease = {
     kind: 'sandbox',
     getAiMode: input.getAiMode,
+    projectRoot: input.projectRoot,
     report: createStopReporter(input.write),
     allowedUrls: new Set<string>(),
   };
   return (specifier, context, nextResolve) => {
-    const result = nextResolve(specifier, context);
+    const result = resolveSandboxNodeLoad(lease, specifier, context, nextResolve);
     return evaluateSandboxLease(lease, specifier, context, result);
   };
 }
 
 export interface ViteProcessStopInput {
   getAiMode?: () => AiMode;
+  projectRoot?: string;
   write?: (line: string) => void;
   /** Where the installed hook's state is kept. Defaults to `globalThis`. */
   slot?: Record<symbol, unknown>;
@@ -266,15 +300,16 @@ function ensureProcessStopState(
   const state: StopState = { leases: [] };
   registerHooks({
     resolve(specifier, context, nextResolve) {
-      const result = nextResolve(specifier, context);
-      if (registerActiveCheck()) return result;
+      if (registerActiveCheck()) return nextResolve(specifier, context);
       const active = state.leases.at(-1);
-      if (active === undefined) return result;
+      if (active === undefined) return nextResolve(specifier, context);
       if (active.kind === 'live') {
-        if (isLiveRegisterActive()) return result;
-        return evaluateLiveLease(active, specifier, context, result);
+        const liveResult = nextResolve(specifier, context);
+        if (isLiveRegisterActive()) return liveResult;
+        return evaluateLiveLease(active, specifier, context, liveResult);
       }
-      return evaluateSandboxLease(active, specifier, context, result);
+      const sandboxResult = resolveSandboxNodeLoad(active, specifier, context, nextResolve);
+      return evaluateSandboxLease(active, specifier, context, sandboxResult);
     },
   });
   slot[VITE_PROCESS_STOP] = state;
@@ -301,9 +336,14 @@ export function acquireViteProcessStop(input: ViteProcessStopInput = {}): () => 
   const state = ensureProcessStopState('sandbox', input, registerActive);
   if (state === null) return () => {};
   const write = input.write ?? ((line) => void process.stderr.write(line));
+  let getAiMode: () => AiMode = () => 'sandbox';
+  if (input.getAiMode !== undefined) {
+    getAiMode = input.getAiMode;
+  }
   const lease: SandboxStopLease = {
     kind: 'sandbox',
-    getAiMode: input.getAiMode ?? (() => 'sandbox'),
+    getAiMode,
+    projectRoot: input.projectRoot,
     report: createStopReporter(write),
     allowedUrls: new Set<string>(),
   };
