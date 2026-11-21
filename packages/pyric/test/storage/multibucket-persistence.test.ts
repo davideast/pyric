@@ -19,9 +19,9 @@ import {
   openStorageBackend,
   toStorageKey,
   parseStorageKey,
-  InMemoryStorageBackend,
   type StoredMetadata,
 } from '../../src/storage/persistence.js';
+import { InMemoryStorageBackend } from '../../src/storage/sandbox/memory-backend.js';
 import {
   getStorageSandbox,
   targetOf,
