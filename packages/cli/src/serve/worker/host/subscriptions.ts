@@ -25,8 +25,17 @@ import {
 } from 'pyric/database';
 import { listenIndexWarning } from 'pyric/database/internal';
 
-import type { FirestoreSubMessage, RtdbValueSubMessage, UnsubMessage } from '../protocol.js';
-import { serializeError, isRtdbSub } from '../protocol.js';
+import type {
+  FirestoreSubMessage,
+  FirestoreWriteSubMessage,
+  RtdbValueSubMessage,
+  UnsubMessage,
+} from '../protocol.js';
+import { serializeError, isFirestoreWriteSub, isRtdbSub } from '../protocol.js';
+import {
+  refreshFirestoreWriteStreamTimestamps,
+  registerFirestoreWriteSubscription,
+} from './firestore-write-subscriptions.js';
 import { activityJourneyId, type HostCtx, type PortLike, post } from '../host-context.js';
 import { reconcilePortSessions } from '../host-auth.js';
 import {
@@ -43,7 +52,7 @@ import { lensRtdb } from './rtdb-instances.js';
  * replacement re-establishes Firestore; auth changes select only app-session ones.
  * Parallel to `ctx.subs` (which holds only the unsub fns).
  */
-type DataSubMessage = FirestoreSubMessage | RtdbValueSubMessage;
+type DataSubMessage = FirestoreSubMessage | FirestoreWriteSubMessage | RtdbValueSubMessage;
 
 const _subscriptionIntents = new WeakMap<HostCtx, Map<PortLike, Map<string, DataSubMessage>>>();
 const _lastFirestoreFingerprints = new WeakMap<HostCtx, Map<PortLike, Map<string, string>>>();
@@ -116,6 +125,7 @@ function resubscribeSessionSubs(ctx: HostCtx, port: PortLike): void {
 
 /** Firestore replaces its environment; RTDB restores in place and rebinds only ports whose session changed. */
 export function restoreFirestoreSubscriptions(ctx: HostCtx): void {
+  refreshFirestoreWriteStreamTimestamps(ctx);
   const reconciledPorts = reconcilePortSessions(ctx);
   const byPort = _subscriptionIntents.get(ctx);
   const hasNoIntents = byPort === undefined;
@@ -123,6 +133,7 @@ export function restoreFirestoreSubscriptions(ctx: HostCtx): void {
   for (const [port, intents] of [...byPort]) {
     const portReconciled = reconciledPorts.has(port);
     for (const [subId, msg] of [...intents]) {
+      if (isFirestoreWriteSub(msg)) continue;
       const followsAppSession = !msg.actAs || msg.actAs.mode === 'app-session';
       const requiresRebinding = !isRtdbSub(msg) || (portReconciled && followsAppSession);
       if (requiresRebinding) restartSubscription(ctx, port, subId, msg);
@@ -172,9 +183,21 @@ function restartSubscription(
 export function handleSub(
   ctx: HostCtx,
   port: PortLike,
-  msg: FirestoreSubMessage,
+  msg: FirestoreSubMessage | FirestoreWriteSubMessage,
   dedupeUnchangedInitial = false,
 ): void {
+  if (isFirestoreWriteSub(msg)) {
+    const portSubs = ensurePortSubs(ctx, port);
+    if (portSubs.has(msg.subId)) return;
+    try {
+      const unsub = registerFirestoreWriteSubscription(ctx, port, msg);
+      subscriptionIntentsFor(ctx, port).set(msg.subId, msg);
+      portSubs.set(msg.subId, unsub);
+    } catch (e) {
+      post(port, { t: 'snap', subId: msg.subId, value: { __error: serializeError(e) } });
+    }
+    return;
+  }
   sdkActivity.silence(() => handleSubImpl(ctx, port, msg, dedupeUnchangedInitial));
 }
 
