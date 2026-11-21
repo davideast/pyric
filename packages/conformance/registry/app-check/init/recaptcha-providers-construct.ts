@@ -5,5 +5,5 @@ export default row({
   api: 'new ReCaptchaV3Provider(siteKey); new ReCaptchaEnterpriseProvider(siteKey)',
   featureKeys: ['ReCaptchaV3Provider', 'ReCaptchaEnterpriseProvider'],
   behavior: 'Both reCAPTCHA providers construct from a site key and are accepted by `initializeAppCheck` in a realm with a `document`, such as a page.',
-  evidence: 'Upstream-documented only (firebase 12.13.0 typings and the App Check web guide). The oracle web app has no reCAPTCHA registration, so no capture exists; the sandbox never loads reCAPTCHA.',
+  evidence: 'Upstream `firebase/app-check` 12.19.0 typings and App Check web guide; modular probe staged in `packages/conformance/probes/app-check/app-check-recaptcha-providers-construct.ts` (`sdk-probes`, `pendingRowLink: true`) awaiting main-branch capture before row linkage. The sandbox never loads reCAPTCHA.',
 });

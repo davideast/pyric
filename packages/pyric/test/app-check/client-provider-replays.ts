@@ -171,3 +171,75 @@ export function replayRecaptchaProvidersWithoutDocumentMode(
     ),
   };
 }
+
+export function replayRecaptchaProvidersConstructMode(
+  freshApp: (label: string) => FirebaseApp,
+): Record<string, unknown> {
+  const runCase = (
+    makePrimary: (
+      siteKey: string,
+    ) => appCheck.ReCaptchaV3Provider | appCheck.ReCaptchaEnterpriseProvider,
+    isPrimaryInstance: (candidate: unknown) => boolean,
+    makeOtherClass: (
+      siteKey: string,
+    ) => appCheck.ReCaptchaV3Provider | appCheck.ReCaptchaEnterpriseProvider,
+  ) => {
+    const app = freshApp('recaptcha-with-document');
+    const primary = makePrimary('demo-site-key');
+    const constructsInstance = isPrimaryInstance(primary);
+
+    const firstHandle = appCheck.initializeAppCheck(app, {
+      provider: primary,
+      isTokenAutoRefreshEnabled: false,
+    });
+    const secondHandle = appCheck.initializeAppCheck(app, {
+      provider: makePrimary('demo-site-key'),
+      isTokenAutoRefreshEnabled: false,
+    });
+
+    const thirdDifferentSiteKey = captureSyncInit(
+      () =>
+        appCheck.initializeAppCheck(app, {
+          provider: makePrimary('another-site-key'),
+          isTokenAutoRefreshEnabled: false,
+        }),
+      app.name,
+    );
+    const fourthOtherRecaptchaClassSameSiteKey = captureSyncInit(
+      () =>
+        appCheck.initializeAppCheck(app, {
+          provider: makeOtherClass('demo-site-key'),
+          isTokenAutoRefreshEnabled: false,
+        }),
+      app.name,
+    );
+
+    return {
+      constructsInstance,
+      firstInitialize: {
+        synchronousThrow: false,
+        returnsAppCheckForSameApp: firstHandle.app === app,
+        hasAppProperty: 'app' in firstHandle,
+      },
+      secondSameSiteKey: {
+        synchronousThrow: false,
+        returnsSameInstance: secondHandle === firstHandle,
+      },
+      thirdDifferentSiteKey,
+      fourthOtherRecaptchaClassSameSiteKey,
+    };
+  };
+
+  return {
+    recaptchaV3: runCase(
+      (siteKey) => new appCheck.ReCaptchaV3Provider(siteKey),
+      (candidate) => candidate instanceof appCheck.ReCaptchaV3Provider,
+      (siteKey) => new appCheck.ReCaptchaEnterpriseProvider(siteKey),
+    ),
+    recaptchaEnterprise: runCase(
+      (siteKey) => new appCheck.ReCaptchaEnterpriseProvider(siteKey),
+      (candidate) => candidate instanceof appCheck.ReCaptchaEnterpriseProvider,
+      (siteKey) => new appCheck.ReCaptchaV3Provider(siteKey),
+    ),
+  };
+}

@@ -5,12 +5,12 @@ export default row({
   featureKeys: ["send", "enableLegacyHttpTransport"],
   api: 'Send retry and backoff on transient transport failures',
   behavior:
-    'The admin SDK retries transient send-transport failures — connection errors and HTTP 5xx / `SERVER_UNAVAILABLE` / `INTERNAL` responses — with backoff before surfacing the error to the caller, so a caller sees a resolved send or a terminal error rather than every intermediate failure. `enableLegacyHttpTransport` switches `sendEach` / `sendEachForMulticast` from HTTP/2 to HTTP/1.1, changing multiplexing and the retry/transport path. Stated from the admin SDK and google-auth transport documentation; no committed observation replays the retry count or backoff schedule yet.',
+    'In `firebase-admin` 13.10.0 (`lib/utils/api-request.js` `defaultRetryConfig()`), both `AuthorizedHttpClient` (HTTP/1.1) and `AuthorizedHttp2Client` (HTTP/2) retry up to `maxRetries: 4` on HTTP `503` (`statusCodes: [503]`; HTTP `500` `INTERNAL` is not retried) and low-level `ECONNRESET` / `ETIMEDOUT` I/O errors, honoring `Retry-After` headers or exponential backoff (`0ms` on first retry, then `(2 ** retryAttempts) * 0.5s` up to `60000ms`). `enableLegacyHttpTransport` switches `sendEach` and `sendEachForMulticast` from `AuthorizedHttp2Client` (`Http2SessionHandler` over `https://fcm.googleapis.com`) to `AuthorizedHttpClient` (HTTP/1.1). `pyric-admin/messaging` dispatches in-memory to `MessagingBroker` without an HTTP retry layer, and no production observation records transport retry intervals.',
   evidence:
-    'Upstream documentation (firebase-admin 13.10.0 send transport + google-auth retry defaults); no observation yet. Candidate probe: point the send transport at a fault-injecting stub that returns 503 then 200 and record the retry count and backoff intervals before the resolved send.',
+    'Upstream `firebase-admin` 13.10.0 (`lib/messaging/messaging.js`, `lib/messaging/messaging-api-request-internal.js`, and `lib/utils/api-request.js`); no committed observation (`FCM_SEND_HOST` is hardcoded to `fcm.googleapis.com` with no emulator host override, and production FCM cannot be induced on demand to emit deterministic HTTP 503 sequences).',
   riskReasons: [
-    'Send retry/backoff on transient 5xx and connection failures stated from admin SDK / transport documentation only; no committed observation records the retry count or backoff schedule — a probe candidate before implementation.',
+    'Send transport retry (`statusCodes: [503]`, `ECONNRESET`/`ETIMEDOUT`, `maxRetries: 4`) has no committed production observation and `pyric-admin/messaging` dispatches synchronously in-memory to `MessagingBroker` with no HTTP transport.',
   ],
   notes:
-    'Candidate capture for the re-capture lane (#444): a fault-injecting stub endpoint returning 503 then 200, asserting the SDK retries with backoff and the caller observes a single resolved send.',
+    'Remains `unverified`: `FCM_SEND_HOST` is fixed to `fcm.googleapis.com` in `firebase-admin/messaging` without an emulator override, and the in-process `MessagingBroker` has no network transport layer where transient HTTP 503 or socket errors occur.',
 });
