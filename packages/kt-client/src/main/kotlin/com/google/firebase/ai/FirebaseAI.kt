@@ -8,8 +8,11 @@ import com.google.firebase.ai.type.GenerativeBackend as TypeGenerativeBackend
 import com.google.firebase.ai.type.InferenceSource as TypeInferenceSource
 import com.google.firebase.ai.type.RequestOptions
 import com.google.firebase.ai.type.SafetySetting
+import com.google.firebase.ai.type.Tool
+import com.google.firebase.ai.type.ToolConfig
 import com.google.firebase.app
 import dev.pyric.bridge.BridgeProtocol
+import dev.pyric.bridge.BridgeTransportFactory
 import dev.pyric.bridge.PyricBridgeClient
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
@@ -35,12 +38,18 @@ class FirebaseAI internal constructor(
 
     internal val bridgeClient: PyricBridgeClient
         get() = resolveBridge(app, explicitBridgeClient)
+
+    /** Optional per-stream transport factory override used by unit tests to avoid real sockets. */
+    internal var streamTransportFactory: BridgeTransportFactory? = null
+
     /** Instantiates a [GenerativeModel] configured against this [FirebaseAI] backend. */
     @JvmOverloads
     fun generativeModel(
         modelName: String,
         generationConfig: GenerationConfig? = null,
         safetySettings: List<SafetySetting>? = null,
+        tools: List<Tool>? = null,
+        toolConfig: ToolConfig? = null,
         systemInstruction: Content? = null,
         requestOptions: RequestOptions = RequestOptions()
     ): GenerativeModel {
@@ -51,6 +60,8 @@ class FirebaseAI internal constructor(
             normalizedModelName = normalized,
             generationConfig = generationConfig,
             safetySettings = safetySettings?.toList(),
+            tools = tools?.toList(),
+            toolConfig = toolConfig,
             systemInstruction = systemInstruction,
             requestOptions = requestOptions
         )
