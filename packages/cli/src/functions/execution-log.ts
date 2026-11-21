@@ -9,6 +9,7 @@
  * into the records a caller reads. There is no second copy to drift from it.
  */
 import type { LocalSandbox, SandboxEvent } from 'pyric/sandbox';
+import { emitExecutionFinished, type FunctionExecutionOutcome } from './events.js';
 
 /** One run `fire` caused. */
 export interface FunctionExecutionRecord {
@@ -26,6 +27,8 @@ export interface FunctionExecutionRecord {
   result?: unknown;
   /** The handler's thrown error, present only when `status` is `rejected`. */
   error?: string;
+  /** Retry configuration metadata when emitted by a retriable trigger family. */
+  retryConfig?: Record<string, number>;
 }
 
 /** Whether one event is a finished Functions run. */
@@ -68,6 +71,33 @@ function toRecord(event: SandboxEvent, ordinal: number): FunctionExecutionRecord
   };
   if (record.status === 'fulfilled') record.result = detail.result;
   if (record.status === 'rejected') record.error = String(detail.error);
+  if (typeof detail.retryConfig === 'object' && detail.retryConfig !== null) {
+    record.retryConfig = detail.retryConfig as Record<string, number>;
+  }
+  return record;
+}
+
+/** Emit one finished run onto `sandbox` and return its folded execution record. */
+export function recordFunctionExecution(
+  sandbox: LocalSandbox,
+  outcome: FunctionExecutionOutcome,
+): FunctionExecutionRecord {
+  const id = executionIdFor(sandbox);
+  emitExecutionFinished(sandbox, outcome);
+  const record: FunctionExecutionRecord = {
+    id,
+    trigger: outcome.trigger,
+    cause: {
+      ref: outcome.ref,
+      params: outcome.params,
+    },
+    startedAt: outcome.startedAt,
+    durationMs: outcome.durationMs,
+    status: outcome.status,
+  };
+  if (outcome.status === 'fulfilled') record.result = outcome.result;
+  if (outcome.status === 'rejected') record.error = outcome.error ?? 'Unknown error';
+  if (outcome.retryConfig !== undefined) record.retryConfig = outcome.retryConfig;
   return record;
 }
 

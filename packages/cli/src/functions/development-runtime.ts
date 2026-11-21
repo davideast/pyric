@@ -1,5 +1,13 @@
 import type { ChildProcess } from 'node:child_process';
+import type { LocalSandbox } from 'pyric/sandbox';
 import type { FunctionsChildEvent, FunctionsChildReady } from './child-protocol.js';
+import { recordFunctionExecution } from './execution-log.js';
+import { sendChildTriggerScheduled } from './scheduler/child-runtime.js';
+import {
+  retryConfigToRecord,
+  type ScheduledTriggerInvocationResult,
+  type TriggerScheduledOptions,
+} from './scheduler/execution.js';
 import {
   spawnFunctionsChild,
   type FunctionsChildHandle,
@@ -35,6 +43,17 @@ export interface FunctionsDevelopmentRuntime {
   start(): Promise<FunctionsDevelopmentResult>;
   reload(): Promise<FunctionsDevelopmentResult>;
   close(): Promise<void>;
+  triggerScheduled?(
+    exportName: string,
+    options?: TriggerScheduledOptions,
+  ): Promise<ScheduledTriggerInvocationResult>;
+}
+
+export interface FunctionsDevelopmentRuntimeHandle extends FunctionsDevelopmentRuntime {
+  triggerScheduled(
+    exportName: string,
+    options?: TriggerScheduledOptions,
+  ): Promise<ScheduledTriggerInvocationResult>;
 }
 
 export interface FunctionsDevelopmentRuntimeOptions {
@@ -64,6 +83,8 @@ export interface FunctionsDevelopmentRuntimeOptions {
   reloadPeerTimeoutMs?: number;
   /** Internal test seam for the child heartbeat watchdog. */
   heartbeatTimeoutMs?: number;
+  /** Optional local sandbox for recording programmatic trigger executions. */
+  sandbox?: LocalSandbox;
 }
 
 function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
@@ -186,7 +207,7 @@ function attachOutput(
 
 export function createFunctionsDevelopmentRuntime(
   options: FunctionsDevelopmentRuntimeOptions,
-): FunctionsDevelopmentRuntime {
+): FunctionsDevelopmentRuntimeHandle {
   const spawn = options.spawn ?? spawnFunctionsChild;
   const emit = (event: FunctionsDevelopmentEvent): void => options.onEvent?.(event);
   const expectedStops = new WeakSet<FunctionsChildHandle>();
@@ -287,7 +308,7 @@ export function createFunctionsDevelopmentRuntime(
     });
   };
 
-  const runtime: FunctionsDevelopmentRuntime = {
+  const runtime: FunctionsDevelopmentRuntimeHandle = {
     start() {
       if (closed) return Promise.resolve({ kind: 'failed', error: new Error('Functions runtime is closed') });
       const activeReload = reloadPromise;
@@ -338,6 +359,57 @@ export function createFunctionsDevelopmentRuntime(
         await stopChild(activeChild);
       })();
       return closePromise;
+    },
+    async triggerScheduled(
+      exportName: string,
+      invokeOptions: TriggerScheduledOptions = {},
+    ): Promise<ScheduledTriggerInvocationResult> {
+      if (closed) {
+        throw new Error('Functions runtime is closed');
+      }
+      if (activeChild === null) {
+        throw new Error('Functions runtime has no active child process');
+      }
+      const summary = await sendChildTriggerScheduled(
+        activeChild.child,
+        exportName,
+        invokeOptions,
+      );
+      if (options.sandbox !== undefined) {
+        const ref = summary.jobName ?? `schedule/${summary.exportName}`;
+        const params: Record<string, string> = {
+          scheduleTime: summary.scheduleTime,
+        };
+        const retryRecord = retryConfigToRecord(summary.retryConfig);
+        const outcome: {
+          trigger: string;
+          ref: string;
+          params: Record<string, string>;
+          startedAt: number;
+          durationMs: number;
+          status: 'fulfilled' | 'rejected';
+          result?: unknown;
+          error?: string;
+          retryConfig?: Record<string, number>;
+        } = {
+          trigger: summary.exportName,
+          ref,
+          params,
+          startedAt: summary.startedAt,
+          durationMs: summary.durationMs,
+          status: summary.status,
+        };
+        if (summary.status === 'fulfilled') {
+          outcome.result = summary.result;
+        } else {
+          outcome.error = summary.error;
+        }
+        if (Object.keys(retryRecord).length > 0) {
+          outcome.retryConfig = retryRecord;
+        }
+        summary.record = recordFunctionExecution(options.sandbox, outcome);
+      }
+      return summary;
     },
   };
   return runtime;

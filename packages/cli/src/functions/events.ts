@@ -28,6 +28,7 @@ export interface FunctionExecutionOutcome {
   status: 'fulfilled' | 'rejected' | 'timeout';
   result?: unknown;
   error?: string;
+  retryConfig?: Record<string, number>;
 }
 
 function emit(
@@ -87,5 +88,6 @@ export function emitExecutionFinished(
   };
   if (outcome.status === 'fulfilled') detail.result = outcome.result;
   if (outcome.status === 'rejected') detail.error = outcome.error;
+  if (outcome.retryConfig !== undefined) detail.retryConfig = outcome.retryConfig;
   emit(sandbox, 'execution_finished', outcome.ref, detail);
 }
