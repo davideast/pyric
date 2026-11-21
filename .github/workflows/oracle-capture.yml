@@ -33,7 +33,7 @@ on:
   workflow_dispatch:
     inputs:
       rig:
-        description: 'Oracle rig id or comma-separated rig ids (e.g. rules-firestore, rules-storage, sdk-probes, android-sdk-probes, ios-sdk-probes, admin-auth, messaging-send)'
+        description: 'Oracle rig id or comma-separated rig ids (e.g. rules-firestore, rules-storage, sdk-probes, android-sdk-probes, ios-sdk-probes, functions-callable, functions-http, admin-auth, messaging-send)'
         required: true
         type: string
       filter:
@@ -132,6 +132,17 @@ jobs:
           key: ${{ runner.os }}-ios-oracle-spm-${{ hashFiles('packages/conformance/rigs/native-ios-oracle/**/Package.swift', 'packages/conformance/rigs/native-ios-oracle/sdk-version.properties') }}
           restore-keys: |
             ${{ runner.os }}-ios-oracle-spm-
+      - name: Cache Playwright Chromium browser
+        if: runner.os == 'Linux' && steps.plan.outputs.should_run == 'true' && steps.plan.outputs.needs_chromium == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('packages/conformance/package.json', 'package.json') }}
+          restore-keys: |
+            playwright-chromium-${{ runner.os }}-
+      - name: Install Playwright Chromium for browser capture rigs
+        if: runner.os == 'Linux' && steps.plan.outputs.should_run == 'true' && steps.plan.outputs.needs_chromium == 'true'
+        run: bunx playwright install --with-deps chromium
       - name: Run capture and validate observation diffs
         id: capture
         if: steps.plan.outputs.should_run == 'true'

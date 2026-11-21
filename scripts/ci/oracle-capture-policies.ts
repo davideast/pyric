@@ -14,6 +14,7 @@ export interface RigCapturePolicy {
   filterFlag?: '--scenario' | '--probe';
   autoPushSafe?: boolean;
   perProbeStaged?: boolean;
+  needsChromium?: boolean;
   iamHint?: RigIamHint;
 }
 
@@ -90,6 +91,23 @@ const RIG_CAPTURE_POLICIES: Readonly<Record<string, RigCapturePolicy>> = {
   },
   'firestore-rules-sibling-merge': {
     iamHint: LIVE_SDK_IAM_HINT,
+  },
+  'functions-callable': {
+    needsChromium: true,
+    iamHint: {
+      permission:
+        'cloudfunctions.functions.create, run.services.create, firebasehosting.sites.update, firebaseauth.users.create, firebaseappcheck.debugTokens.create, artifactregistry.repositories.deleteArtifacts, logging.logEntries.list, iam.serviceAccounts.actAs, iam.serviceAccounts.signBlob',
+      role: 'roles/cloudfunctions.developer, roles/run.admin, roles/iam.serviceAccountUser, roles/iam.serviceAccountTokenCreator, roles/firebasehosting.admin, roles/firebaseauth.admin, roles/firebaseappcheck.admin, roles/logging.viewer, roles/artifactregistry.repoAdmin, roles/firebase.viewer',
+      api: 'cloudfunctions.googleapis.com, run.googleapis.com, cloudbuild.googleapis.com, artifactregistry.googleapis.com, eventarc.googleapis.com, firebasehosting.googleapis.com, identitytoolkit.googleapis.com, firebaseappcheck.googleapis.com, logging.googleapis.com, firebase.googleapis.com',
+    },
+  },
+  'functions-http': {
+    iamHint: {
+      permission:
+        'cloudfunctions.functions.create, run.services.create, firebasehosting.sites.update, artifactregistry.repositories.deleteArtifacts, logging.logEntries.list, iam.serviceAccounts.actAs',
+      role: 'roles/cloudfunctions.developer, roles/run.admin, roles/iam.serviceAccountUser, roles/firebasehosting.admin, roles/logging.viewer, roles/artifactregistry.repoAdmin, roles/firebase.viewer',
+      api: 'cloudfunctions.googleapis.com, run.googleapis.com, cloudbuild.googleapis.com, artifactregistry.googleapis.com, eventarc.googleapis.com, firebasehosting.googleapis.com, logging.googleapis.com, firebase.googleapis.com',
+    },
   },
   'ios-sdk-probes': {
     filterFlag: '--probe',
