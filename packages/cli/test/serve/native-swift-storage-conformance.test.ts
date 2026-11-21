@@ -41,6 +41,11 @@ service firebase.storage {
     match /users/{userId}/{allPaths=**} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
+    match /validated/{userId}/{allPaths=**} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow write: if request.auth != null && request.auth.uid == userId
+        && request.resource.size <= 4096 && request.resource.contentType.matches('application/.*');
+    }
     match /public/{allPaths=**} {
       allow read: if true;
       allow write: if request.auth != null;
@@ -334,6 +339,7 @@ async function startLiveSwiftStorageBridgeHost() {
   );
 
   await hostedRuntime.deployRules('storage', STORAGE_RULES);
+  await hostedRuntime.deployRules('storage', STORAGE_RULES, { bucket: 'archive-vault' });
 
   const unregisterPeer = bridge.registerSandboxPeer(
     (inbound) => {
@@ -546,10 +552,7 @@ describe('native Swift Cloud Storage live-host conformance', () => {
 
       const host = await startLiveSwiftStorageBridgeHost();
       try {
-        const childEnv: Record<string, string> = {
-          ...baseEnv,
-          PYRIC_LIVE_STORAGE_BRIDGE_URL: host.bridgeUrl,
-        };
+        const childEnv: Record<string, string> = { ...baseEnv, PYRIC_LIVE_STORAGE_BRIDGE_URL: host.bridgeUrl };
 
         const testResult = await runManagedSubprocess({
           command: detectedSwiftBinary,
@@ -578,8 +581,10 @@ describe('native Swift Cloud Storage live-host conformance', () => {
         expect(host.traffic.rpcMethods).toContain('storage.setMetadata');
         expect(host.traffic.rpcMethods).toContain('storage.listAll');
         expect(host.traffic.rpcMethods).toContain('storage.deleteObject');
-        expect(host.traffic.httpRequests.filter((r) => r.method === 'PUT').length).toBeGreaterThanOrEqual(4);
-        expect(host.traffic.httpRequests.filter((r) => r.method === 'GET').length).toBeGreaterThanOrEqual(4);
+        expect(host.traffic.httpRequests.filter((r) => r.method === 'PUT').length).toBeGreaterThanOrEqual(8);
+        expect(host.traffic.httpRequests.filter((r) => r.method === 'GET').length).toBeGreaterThanOrEqual(8);
+        expect(host.traffic.httpRequests.some((r) => r.pathname.includes('archive-vault'))).toBe(true);
+        expect(host.traffic.httpRequests.some((r) => r.pathname.includes('%C3%A9'))).toBe(true);
       } finally {
         await host.close();
       }

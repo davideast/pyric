@@ -233,7 +233,12 @@ extension StorageDownloadTask {
         }()
 
         for attempt in 0..<2 {
-            guard await gate.waitUntilRunnable() else { return }
+            guard await gate.waitUntilRunnable() else {
+                if attempt == 0 {
+                    await client.pass(turn: turn)
+                }
+                return
+            }
 
             var stagingURL: URL?
             var stagingHandle: FileHandle?
