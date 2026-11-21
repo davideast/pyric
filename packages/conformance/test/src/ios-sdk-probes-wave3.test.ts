@@ -1,5 +1,4 @@
-import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -30,6 +29,10 @@ import { firestoreOracleTarget } from '../../src/oracle-rules-session.ts';
 import { resolvedIosSdkVersion } from '../../src/package-version.ts';
 import { loadModularProbes } from '../../src/sdk-probes.ts';
 import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
+import {
+  expectSwiftFilesParseCleanly,
+  SWIFT_SYNTAX_PARSE_TEST_TIMEOUT_MS,
+} from './swift-syntax-parse.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CONFORMANCE_ROOT = resolve(HERE, '..', '..');
@@ -50,26 +53,6 @@ const SYNTHETIC_SERVICE_ACCOUNT: OracleServiceAccount = {
     getAccessToken: async () => ({ access_token: 'synthetic-token', expires_in: 3600 }),
   },
 };
-
-function detectSwiftFrontendForParse(): string | null {
-  const localFrontend = join(homedir(), '.local', 'swift', 'usr', 'bin', 'swift-frontend');
-  if (existsSync(localFrontend)) {
-    return localFrontend;
-  }
-  const pathFrontend = Bun.which('swift-frontend');
-  if (pathFrontend !== null) {
-    return pathFrontend;
-  }
-  const swiftc = Bun.which('swiftc');
-  if (swiftc !== null) {
-    const siblingFrontend = join(dirname(realpathSync(swiftc)), 'swift-frontend');
-    if (existsSync(siblingFrontend)) {
-      return siblingFrontend;
-    }
-    return swiftc;
-  }
-  return null;
-}
 
 describe('Wave 3 firestore-swift ios-sdk-probes manifest, Swift package, and staged probes', () => {
   it('wires firestore-swift surface, firestore-sim Package.swift, and staged probe descriptors', async () => {
@@ -129,7 +112,7 @@ describe('Wave 3 firestore-swift ios-sdk-probes manifest, Swift package, and sta
 
   it(
     'verifies Swift switch arms, cleanup discipline, single-field predicates, and Swift syntax parsing',
-    () => {
+    async () => {
     const runnerSwift = readFileSync(
       join(FIRESTORE_SIM_DIR, 'Sources', 'PyricIosFirestoreOracle', 'FirestoreOracleProbeRunner.swift'),
       'utf8',
@@ -180,21 +163,17 @@ describe('Wave 3 firestore-swift ios-sdk-probes manifest, Swift package, and sta
     expect(batchTxSwift).toContain('FirestoreErrorCode.permissionDenied.rawValue');
     expect(batchTxSwift).toContain('db.clearPersistence()');
 
-    const swiftParser = detectSwiftFrontendForParse();
-    if (swiftParser !== null) {
-      const swiftFiles = [
-        join(FIRESTORE_SIM_DIR, 'Package.swift'),
-        join(FIRESTORE_SIM_DIR, 'Sources', 'PyricIosFirestoreOracle', 'FirestoreOracleProbeRunner.swift'),
-        join(FIRESTORE_SIM_DIR, 'Sources', 'PyricIosFirestoreOracle', 'FirestoreCrudAndCodecProbes.swift'),
-        join(FIRESTORE_SIM_DIR, 'Sources', 'PyricIosFirestoreOracle', 'FirestoreQueryAndAggregateProbes.swift'),
-        join(FIRESTORE_SIM_DIR, 'Sources', 'PyricIosFirestoreOracle', 'FirestoreBatchTxAndErrorProbes.swift'),
-        join(FIRESTORE_SIM_DIR, 'Tests', 'FirestoreOracleSimTests', 'FirestoreOracleSimTests.swift'),
-      ];
-      const parseRes = spawnSync(swiftParser, ['-parse', ...swiftFiles], { encoding: 'utf8' });
-      expect(parseRes.status, `${parseRes.stdout}\n${parseRes.stderr}`).toBe(0);
-    }
+    const swiftFiles = [
+      join(FIRESTORE_SIM_DIR, 'Package.swift'),
+      join(FIRESTORE_SIM_DIR, 'Sources', 'PyricIosFirestoreOracle', 'FirestoreOracleProbeRunner.swift'),
+      join(FIRESTORE_SIM_DIR, 'Sources', 'PyricIosFirestoreOracle', 'FirestoreCrudAndCodecProbes.swift'),
+      join(FIRESTORE_SIM_DIR, 'Sources', 'PyricIosFirestoreOracle', 'FirestoreQueryAndAggregateProbes.swift'),
+      join(FIRESTORE_SIM_DIR, 'Sources', 'PyricIosFirestoreOracle', 'FirestoreBatchTxAndErrorProbes.swift'),
+      join(FIRESTORE_SIM_DIR, 'Tests', 'FirestoreOracleSimTests', 'FirestoreOracleSimTests.swift'),
+    ];
+    await expectSwiftFilesParseCleanly(swiftFiles);
   },
-  90_000,
+  SWIFT_SYNTAX_PARSE_TEST_TIMEOUT_MS,
   );
 
   it('stages firestore-sim, deploys scoped Firestore session, and deletes custom-token + streamed UIDs on success and failure', async () => {
