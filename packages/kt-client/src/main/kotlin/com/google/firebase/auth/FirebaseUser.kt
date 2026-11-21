@@ -2,6 +2,7 @@ package com.google.firebase.auth
 
 import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.TaskCompletionSource
+import com.google.firebase.FirebaseException
 import dev.pyric.auth.BridgeAuthOperations
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -238,6 +239,178 @@ class FirebaseUser internal constructor(
             }
         }
         return tcs.task
+    }
+
+    fun linkWithCredential(credential: AuthCredential): Task<AuthResult> {
+        if (providerData.any { it.providerId == credential.provider }) {
+            val failed = TaskCompletionSource<AuthResult>()
+            failed.setException(FirebaseException("User has already been linked to the given provider."))
+            return failed.task
+        }
+        val tcs = TaskCompletionSource<AuthResult>()
+        val scope = CoroutineScope(Dispatchers.IO)
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            try {
+                val res = BridgeAuthOperations.linkWithCredential(
+                    auth.bridgeClient,
+                    uid,
+                    credential.toWireMap(),
+                    tenantId
+                )
+                val enriched = auth.enrichSignInResponseIfNeeded(res)
+                tcs.setResult(applyCredentialOperationResult(enriched, credential.provider))
+            } catch (e: Exception) {
+                val wrapped = auth.wrapException(e)
+                auth.clearCurrentUserIfInvalidated(wrapped, uid)
+                tcs.setException(wrapped)
+            }
+        }
+        return tcs.task
+    }
+
+    fun reauthenticate(credential: AuthCredential): Task<Void?> {
+        val tcs = TaskCompletionSource<Void?>()
+        val scope = CoroutineScope(Dispatchers.IO)
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            try {
+                val res = BridgeAuthOperations.reauthenticateWithCredential(
+                    auth.bridgeClient,
+                    uid,
+                    credential.toWireMap(),
+                    tenantId
+                )
+                applyCredentialOperationResult(res, credential.provider)
+                tcs.setResult(null)
+            } catch (e: Exception) {
+                val wrapped = auth.wrapException(e)
+                auth.clearCurrentUserIfInvalidated(wrapped, uid)
+                tcs.setException(wrapped)
+            }
+        }
+        return tcs.task
+    }
+
+    fun reauthenticateAndRetrieveData(credential: AuthCredential): Task<AuthResult> {
+        val tcs = TaskCompletionSource<AuthResult>()
+        val scope = CoroutineScope(Dispatchers.IO)
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            try {
+                val res = BridgeAuthOperations.reauthenticateWithCredential(
+                    auth.bridgeClient,
+                    uid,
+                    credential.toWireMap(),
+                    tenantId
+                )
+                val enriched = auth.enrichSignInResponseIfNeeded(res)
+                tcs.setResult(applyCredentialOperationResult(enriched, credential.provider))
+            } catch (e: Exception) {
+                val wrapped = auth.wrapException(e)
+                auth.clearCurrentUserIfInvalidated(wrapped, uid)
+                tcs.setException(wrapped)
+            }
+        }
+        return tcs.task
+    }
+
+    fun unlink(provider: String): Task<AuthResult> {
+        require(provider.isNotEmpty()) { "Given String is empty or null" }
+        val tcs = TaskCompletionSource<AuthResult>()
+        val scope = CoroutineScope(Dispatchers.IO)
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            try {
+                val res = BridgeAuthOperations.unlink(auth.bridgeClient, uid, provider, tenantId)
+                @Suppress("UNCHECKED_CAST")
+                val updated = (res["user"] as? Map<String, Any?>) ?: res
+                if (updated["uid"] is String) {
+                    applyUpdatedUserMap(updated)
+                }
+                auth.notifyUserUpdated(this@FirebaseUser)
+                tcs.setResult(AuthResult(this@FirebaseUser, null))
+            } catch (e: Exception) {
+                val wrapped = auth.wrapException(e)
+                auth.clearCurrentUserIfInvalidated(wrapped, uid)
+                tcs.setException(wrapped)
+            }
+        }
+        return tcs.task
+    }
+
+    fun updatePassword(password: String): Task<Void?> {
+        require(password.isNotEmpty()) { "Given String is empty or null" }
+        val tcs = TaskCompletionSource<Void?>()
+        val scope = CoroutineScope(Dispatchers.IO)
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            try {
+                val updated = BridgeAuthOperations.updatePassword(auth.bridgeClient, password)
+                if (updated["uid"] is String) {
+                    applyUpdatedUserMap(updated)
+                }
+                auth.notifyUserUpdated(this@FirebaseUser)
+                tcs.setResult(null)
+            } catch (e: Exception) {
+                val wrapped = auth.wrapException(e)
+                auth.clearCurrentUserIfInvalidated(wrapped, uid)
+                tcs.setException(wrapped)
+            }
+        }
+        return tcs.task
+    }
+
+    fun updateEmail(email: String): Task<Void?> {
+        require(email.isNotEmpty()) { "Given String is empty or null" }
+        val tcs = TaskCompletionSource<Void?>()
+        val scope = CoroutineScope(Dispatchers.IO)
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            try {
+                val updated = BridgeAuthOperations.updateEmail(auth.bridgeClient, email)
+                if (updated["uid"] is String) {
+                    applyUpdatedUserMap(updated)
+                }
+                auth.notifyUserUpdated(this@FirebaseUser)
+                tcs.setResult(null)
+            } catch (e: Exception) {
+                val wrapped = auth.wrapException(e)
+                auth.clearCurrentUserIfInvalidated(wrapped, uid)
+                tcs.setException(wrapped)
+            }
+        }
+        return tcs.task
+    }
+
+    private fun applyCredentialOperationResult(
+        res: Map<String, Any?>,
+        fallbackProvider: String
+    ): AuthResult {
+        @Suppress("UNCHECKED_CAST")
+        val userMap = (res["user"] as? Map<String, Any?>) ?: res
+        @Suppress("UNCHECKED_CAST")
+        val addInfo = res["additionalUserInfo"] as? Map<String, Any?>
+        val explicitProviderId = (addInfo?.get("providerId") as? String) ?: (res["providerId"] as? String)
+        if (userMap["uid"] is String) {
+            applyUpdatedUserMap(userMap, res)
+        }
+        val effectiveProvider = explicitProviderId ?: fallbackProvider
+        if (effectiveProvider.isNotBlank()) {
+            signInProviderOverride = effectiveProvider
+        }
+        auth.notifyUserUpdated(this)
+        val isNew = (addInfo?.get("isNewUser") as? Boolean) ?: false
+        return AuthResult(this, AdditionalUserInfo(explicitProviderId ?: fallbackProvider, isNew))
+    }
+
+    private fun applyUpdatedUserMap(
+        userMap: Map<String, Any?>,
+        envelope: Map<String, Any?>? = null
+    ) {
+        rawData = userMap
+        @Suppress("UNCHECKED_CAST")
+        val claims = (userMap["customClaims"] as? Map<String, Any?>)
+            ?: (userMap["claims"] as? Map<String, Any?>)
+            ?: (envelope?.get("customClaims") as? Map<String, Any?>)
+            ?: (envelope?.get("claims") as? Map<String, Any?>)
+        if (claims != null) {
+            customClaims = extractCustomClaims(claims)
+        }
     }
 
     companion object {

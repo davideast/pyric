@@ -121,6 +121,58 @@ object BridgeAuthOperations {
         return client.op("auth.updateProfile", params) as? Map<String, Any?> ?: emptyMap()
     }
 
+    suspend fun linkWithCredential(
+        client: PyricBridgeClient,
+        uid: String,
+        credential: Map<String, Any?>,
+        tenantId: String? = null
+    ): Map<String, Any?> {
+        val params = LinkedHashMap<String, Any?>()
+        params["uid"] = uid
+        params["credential"] = credential
+        params["tenantId"] = tenantId
+        @Suppress("UNCHECKED_CAST")
+        return client.op("auth.linkWithCredential", params) as? Map<String, Any?> ?: emptyMap()
+    }
+
+    suspend fun reauthenticateWithCredential(
+        client: PyricBridgeClient,
+        uid: String,
+        credential: Map<String, Any?>,
+        tenantId: String? = null
+    ): Map<String, Any?> {
+        val params = LinkedHashMap<String, Any?>()
+        params["uid"] = uid
+        params["credential"] = credential
+        params["tenantId"] = tenantId
+        @Suppress("UNCHECKED_CAST")
+        return client.op("auth.reauthenticateWithCredential", params) as? Map<String, Any?> ?: emptyMap()
+    }
+
+    suspend fun unlink(
+        client: PyricBridgeClient,
+        uid: String,
+        providerId: String,
+        tenantId: String? = null
+    ): Map<String, Any?> {
+        val params = LinkedHashMap<String, Any?>()
+        params["uid"] = uid
+        params["providerId"] = providerId
+        params["tenantId"] = tenantId
+        @Suppress("UNCHECKED_CAST")
+        return client.op("auth.unlink", params) as? Map<String, Any?> ?: emptyMap()
+    }
+
+    suspend fun updatePassword(client: PyricBridgeClient, password: String): Map<String, Any?> {
+        @Suppress("UNCHECKED_CAST")
+        return client.op("auth.updatePassword", mapOf("password" to password)) as? Map<String, Any?> ?: emptyMap()
+    }
+
+    suspend fun updateEmail(client: PyricBridgeClient, email: String): Map<String, Any?> {
+        @Suppress("UNCHECKED_CAST")
+        return client.op("auth.updateEmail", mapOf("email" to email)) as? Map<String, Any?> ?: emptyMap()
+    }
+
     fun subscribeAuthState(client: PyricBridgeClient): Flow<Map<String, Any?>?> {
         return client.subscribe("authState").map { raw ->
             @Suppress("UNCHECKED_CAST")

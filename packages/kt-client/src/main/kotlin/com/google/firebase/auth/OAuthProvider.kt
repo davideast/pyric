@@ -2,31 +2,46 @@ package com.google.firebase.auth
 
 object OAuthProvider {
     class CredentialBuilder internal constructor(private val providerId: String) {
-        private var idToken: String? = null
-        private var accessToken: String? = null
-        private var rawNonce: String? = null
+        private var idTokenField: String? = null
+        private var accessTokenField: String? = null
+        private var rawNonceField: String? = null
+
+        val idToken: String?
+            get() = idTokenField
+
+        val accessToken: String?
+            get() = accessTokenField
 
         fun setIdToken(idToken: String): CredentialBuilder {
-            this.idToken = idToken
+            this.idTokenField = idToken
             return this
         }
 
         fun setIdTokenWithRawNonce(idToken: String, rawNonce: String?): CredentialBuilder {
-            this.idToken = idToken
-            this.rawNonce = rawNonce
+            this.idTokenField = idToken
+            this.rawNonceField = rawNonce
             return this
         }
 
         fun setAccessToken(accessToken: String): CredentialBuilder {
-            this.accessToken = accessToken
+            this.accessTokenField = accessToken
             return this
         }
 
-        fun build(): AuthCredential = OAuthCredential(providerId, idToken, accessToken, rawNonce)
+        fun build(): AuthCredential {
+            require(providerId.isNotEmpty()) { "Must specify a non-empty providerId" }
+            if (idTokenField.isNullOrEmpty() && accessTokenField.isNullOrEmpty()) {
+                throw IllegalArgumentException("Must specify an idToken or an accessToken.")
+            }
+            return OAuthCredential(providerId, idTokenField, accessTokenField, rawNonceField)
+        }
     }
 
     @JvmStatic
-    fun newCredentialBuilder(providerId: String): CredentialBuilder = CredentialBuilder(providerId)
+    fun newCredentialBuilder(providerId: String): CredentialBuilder {
+        require(providerId.isNotEmpty()) { "Must specify a non-empty providerId" }
+        return CredentialBuilder(providerId)
+    }
 
     @JvmStatic
     @JvmOverloads
@@ -35,5 +50,11 @@ object OAuthProvider {
         idToken: String?,
         accessToken: String? = null,
         rawNonce: String? = null
-    ): AuthCredential = OAuthCredential(providerId, idToken, accessToken, rawNonce)
+    ): AuthCredential {
+        require(providerId.isNotEmpty()) { "Must specify a non-empty providerId" }
+        if (idToken.isNullOrEmpty() && accessToken.isNullOrEmpty()) {
+            throw IllegalArgumentException("Must specify an idToken or an accessToken.")
+        }
+        return OAuthCredential(providerId, idToken, accessToken, rawNonce)
+    }
 }

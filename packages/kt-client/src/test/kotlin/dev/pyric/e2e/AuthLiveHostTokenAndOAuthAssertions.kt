@@ -9,6 +9,7 @@ import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
 import com.google.firebase.auth.FirebaseAuthInvalidUserException
 import com.google.firebase.auth.FirebaseAuthUserCollisionException
 import com.google.firebase.auth.FirebaseAuthWeakPasswordException
+import com.google.firebase.auth.GoogleAuthCredential
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.auth.OAuthCredential
 import com.google.firebase.auth.OAuthProvider
@@ -341,9 +342,12 @@ internal fun runCredentialsAndOAuthLiveHostAssertions() = runBlocking {
 
         // auth-kotlin#37: GoogleAuthProvider.getCredential
         val googleCred = GoogleAuthProvider.getCredential("google-id-token-37", "google-access-token-37")
+        assertTrue(googleCred is GoogleAuthCredential)
         assertEquals("google.com", googleCred.provider)
+        assertEquals(GoogleAuthProvider.GOOGLE_SIGN_IN_METHOD, googleCred.signInMethod)
         val googleWire = googleCred.toWireMap()
         assertEquals("google.com", googleWire["providerId"])
+        assertEquals("google.com", googleWire["signInMethod"])
         assertEquals("google-id-token-37", googleWire["idToken"])
         assertEquals("google-access-token-37", googleWire["accessToken"])
 
@@ -357,6 +361,7 @@ internal fun runCredentialsAndOAuthLiveHostAssertions() = runBlocking {
         assertTrue(githubCred is OAuthCredential)
         val ghTyped = githubCred as OAuthCredential
         assertEquals("github.com", ghTyped.provider)
+        assertEquals("github.com", ghTyped.signInMethod)
         assertEquals("gh-id-token-38", ghTyped.idToken)
         assertEquals("gh-access-token-38", ghTyped.accessToken)
         assertEquals("raw-nonce-xyz", ghTyped.rawNonce)
@@ -366,6 +371,7 @@ internal fun runCredentialsAndOAuthLiveHostAssertions() = runBlocking {
             .setAccessToken("apple-access-token-38")
             .build()
         assertEquals("apple.com", appleCred.provider)
+        assertEquals("apple.com", appleCred.signInMethod)
         assertEquals("apple-raw-nonce", (appleCred as OAuthCredential).rawNonce)
 
         // auth-kotlin#39: Sign in with GitHub OAuth credential carrying role = "member" and tenant = "tenant-beta"
