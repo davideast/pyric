@@ -9,6 +9,8 @@ import {
 export const probe: FunctionsCallableWireProbe = {
   kind: 'wire',
   name: 'functions-callable-app-check-enforced',
+  rig: 'functions-callable',
+  pendingRowLink: true,
   matrixRow: 'functions-callable #10',
   rowIds: ['functions-callable#10'],
   description:

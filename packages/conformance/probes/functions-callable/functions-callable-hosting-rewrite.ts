@@ -12,6 +12,8 @@ import {
 export const probe: FunctionsCallableWireProbe = {
   kind: 'wire',
   name: 'functions-callable-hosting-rewrite',
+  rig: 'functions-callable',
+  pendingRowLink: true,
   matrixRow: 'functions-callable #17',
   rowIds: ['functions-callable#17'],
   description:

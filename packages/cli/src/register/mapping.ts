@@ -37,7 +37,7 @@ const MAPPINGS: ReadonlyArray<readonly [from: string, to: string]> = [
 ];
 
 /** Client SDK subpaths the Node host client serves under a remote activation. */
-const NODE_HOST_CLIENT_SUBPATHS = new Set(['database', 'firestore', 'auth', 'storage']);
+const NODE_HOST_CLIENT_SUBPATHS = new Set(['database', 'firestore', 'auth', 'storage', 'functions']);
 const NODE_HOST_CLIENT = '@pyric/cli/register/client';
 /** Production AI mode: the Firebase App Check SDK on the shadow app `firebase/ai` reads. */
 const APP_CHECK_BRIDGE = '@pyric/cli/register/app-bridge-app-check';

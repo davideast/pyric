@@ -50,6 +50,8 @@ export interface CallableProbeRequest extends ProbeRequest {
 export interface FunctionsCallableWireProbe {
   kind: 'wire';
   name: string;
+  rig?: string;
+  pendingRowLink?: boolean;
   matrixRow: string;
   rowIds: string[];
   description: string;
@@ -87,6 +89,8 @@ export interface ClientScenarioInput {
 export interface FunctionsCallableClientProbe {
   kind: 'client';
   name: string;
+  rig?: string;
+  pendingRowLink?: boolean;
   matrixRow: string;
   rowIds: string[];
   description: string;

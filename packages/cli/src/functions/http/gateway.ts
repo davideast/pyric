@@ -192,7 +192,16 @@ export function createFunctionsHttpGateway(options: FunctionsHttpGatewayOptions)
 
   const resolve = (rawUrl: string, functions: readonly HttpFunctionInfo[] | null): Resolved | null => {
     const emulator = matchEmulatorPath(rawUrl, { projectId: options.projectId, functions });
-    if (emulator?.kind === 'function') return { kind: 'function', fn: emulator.fn, forwardUrl: emulator.forwardUrl, viaRewrite: false };
+    if (emulator?.kind === 'function') {
+      if (emulator.ambiguousRunService) {
+        const { service, exports } = emulator.ambiguousRunService;
+        warnOnce(
+          `run-service:${service}`,
+          `httpsCallableFromURL run.app service '${service}' matches multiple onCall exports (${exports.join(', ')}); routing to ${emulator.fn.exportName}.`,
+        );
+      }
+      return { kind: 'function', fn: emulator.fn, forwardUrl: emulator.forwardUrl, viaRewrite: false };
+    }
     if (emulator?.kind === 'emulator-path') return { kind: 'pending' };
     const pathname = hostingPathname(rawUrl);
     const target = rewriteTarget(rewrites, pathname);

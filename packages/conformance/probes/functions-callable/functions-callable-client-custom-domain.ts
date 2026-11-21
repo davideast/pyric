@@ -8,6 +8,8 @@ import { withoutRunValues, type FunctionsCallableClientProbe } from '../../src/c
 export const probe: FunctionsCallableClientProbe = {
   kind: 'client',
   name: 'functions-callable-client-custom-domain',
+  rig: 'functions-callable',
+  pendingRowLink: true,
   matrixRow: 'functions-callable #17',
   rowIds: ['functions-callable#17'],
   description: 'firebase/functions in a page on the Hosting origin calling httpsCallable(getFunctions(app, location.origin), "pyricCallableEcho").',

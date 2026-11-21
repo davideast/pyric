@@ -8,6 +8,8 @@ import { withoutRunValues, type FunctionsCallableClientProbe } from '../../src/c
 export const probe: FunctionsCallableClientProbe = {
   kind: 'client',
   name: 'functions-callable-client-errors',
+  rig: 'functions-callable',
+  pendingRowLink: true,
   matrixRow: 'functions-callable #18',
   rowIds: ['functions-callable#18'],
   description:

@@ -12,6 +12,8 @@ import {
 export const probe: FunctionsCallableWireProbe = {
   kind: 'wire',
   name: 'functions-callable-app-check-unenforced',
+  rig: 'functions-callable',
+  pendingRowLink: true,
   matrixRow: 'functions-callable #11',
   rowIds: ['functions-callable#11'],
   description:

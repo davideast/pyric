@@ -10,7 +10,13 @@ import { useWorker } from './worker-runtime.js';
 
 const wc = wcRaw as unknown as typeof ipAuth;
 const selectedAuth = useWorker ? wc : ipAuth;
-type ActiveAuth = { currentUser: RuntimeIdentity | null };
+type TokenCapableIdentity = RuntimeIdentity & {
+  getIdToken?: (forceRefresh?: boolean) => Promise<string>;
+};
+type ActiveAuth = {
+  readonly app?: { readonly name?: string };
+  currentUser: TokenCapableIdentity | null;
+};
 const observeActiveAuth = selectedAuth.onAuthStateChanged as unknown as (
   auth: ActiveAuth,
   listener: (user: RuntimeIdentity | null) => void,
@@ -19,6 +25,23 @@ const activeAuthRegistry = createActiveAuthRegistry<ActiveAuth>(observeActiveAut
 
 export function registerActiveAuth(auth: ActiveAuth): () => void {
   return activeAuthRegistry.register(auth);
+}
+
+export async function getAuthTokenForApp(
+  app: { readonly name?: string },
+): Promise<string | null> {
+  for (const auth of activeAuthRegistry.auths()) {
+    const sameApp =
+      auth.app === app ||
+      (auth.app?.name !== undefined && auth.app.name === app.name);
+    if (!sameApp) continue;
+    const current = auth.currentUser;
+    if (current && typeof current.getIdToken === 'function') {
+      return current.getIdToken();
+    }
+    return null;
+  }
+  return null;
 }
 
 export function subscribeToActiveAuth(

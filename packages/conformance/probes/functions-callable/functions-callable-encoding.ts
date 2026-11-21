@@ -12,6 +12,8 @@ const RETURNED = ['date', 'nan', 'infinity', 'large-integer', 'nested'];
 export const probe: FunctionsCallableWireProbe = {
   kind: 'wire',
   name: 'functions-callable-encoding',
+  rig: 'functions-callable',
+  pendingRowLink: true,
   matrixRow: 'functions-callable #2',
   rowIds: ['functions-callable#2'],
   description:

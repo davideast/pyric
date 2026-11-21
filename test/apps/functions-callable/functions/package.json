@@ -1,0 +1,6 @@
+{
+  "name": "functions",
+  "private": true,
+  "type": "module",
+  "main": "index.js"
+}

@@ -1,0 +1,12 @@
+{
+  "schema": "pyric.conformance.surface.v2",
+  "kind": "census-only",
+  "developerSurface": "functions-callable",
+  "censusSurface": "functions",
+  "upstream": "firebase/functions",
+  "mirrors": [
+    "pyric/functions"
+  ],
+  "privateRuntimeExports": [],
+  "dispositions": []
+}

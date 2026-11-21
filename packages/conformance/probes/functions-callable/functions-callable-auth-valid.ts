@@ -11,6 +11,8 @@ import {
 export const probe: FunctionsCallableWireProbe = {
   kind: 'wire',
   name: 'functions-callable-auth-valid',
+  rig: 'functions-callable',
+  pendingRowLink: true,
   matrixRow: 'functions-callable #6',
   rowIds: ['functions-callable#6'],
   description:

@@ -45,6 +45,7 @@ export const CLIENT = '@firebase/functions 0.14.0 `dist/esm/index.esm.js`';
 export const SUITE = 'packages/cli/test/functions-callable/oracle-conformance.test.ts';
 export const VITE_PLANE = 'packages/cli/test/functions-callable/vite-plane.test.ts';
 export const WIRE_SERVING = 'packages/cli/test/functions-callable/wire-serving.test.ts';
+export const CLIENT_UNIT = 'packages/pyric/test/functions/client.test.ts';
 
 export const section = defineRowSection({
   surface: 'functions-callable',

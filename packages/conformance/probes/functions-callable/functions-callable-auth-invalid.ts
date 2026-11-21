@@ -16,6 +16,8 @@ const KINDS: AuthTokenKind[] = ['forged', 'garbage', 'basic'];
 export const probe: FunctionsCallableWireProbe = {
   kind: 'wire',
   name: 'functions-callable-auth-invalid',
+  rig: 'functions-callable',
+  pendingRowLink: true,
   matrixRow: 'functions-callable #8',
   rowIds: ['functions-callable#8'],
   description:

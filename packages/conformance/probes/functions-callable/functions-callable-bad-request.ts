@@ -21,6 +21,8 @@ const request = (id: string, extra: Partial<CallableProbeRequest>): CallableProb
 export const probe: FunctionsCallableWireProbe = {
   kind: 'wire',
   name: 'functions-callable-bad-request',
+  rig: 'functions-callable',
+  pendingRowLink: true,
   matrixRow: 'functions-callable #5',
   rowIds: ['functions-callable#5'],
   description:

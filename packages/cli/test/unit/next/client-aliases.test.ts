@@ -40,7 +40,6 @@ describe('client aliases', () => {
     const cases: ReadonlyArray<readonly [specifier: string, entry: string, exportName: string]> = [
       ['firebase/analytics', 'analytics', 'getAnalytics'],
       ['firebase/firestore/lite', 'firestore-lite', 'getFirestore'],
-      ['firebase/functions', 'functions', 'getFunctions'],
       ['firebase/performance', 'performance', 'getPerformance'],
       ['firebase/remote-config', 'remote-config', 'getRemoteConfig'],
     ];
@@ -51,6 +50,19 @@ describe('client aliases', () => {
         `pyric: '${specifier}' is not yet mirrored by the local sandbox.`,
       );
     }
+  });
+
+  it('sends firebase/functions to the Functions mirror', async () => {
+    const aliases = getClientAliases();
+    expect(aliases['firebase/functions']).toBe('@pyric/cli/next/internal/functions');
+    const mod = (await import(aliases['firebase/functions'] ?? '')) as Record<string, unknown>;
+    expect(Object.keys(mod).sort()).toEqual([
+      'FunctionsError',
+      'connectFunctionsEmulator',
+      'getFunctions',
+      'httpsCallable',
+      'httpsCallableFromURL',
+    ]);
   });
 
   it('sends firebase/app-check to the App Check mirror', async () => {
