@@ -148,15 +148,6 @@
     "messaging": [],
     "messaging-sw": [],
     "database": [],
-    "storage": [
-      "EmulatorMockTokenOptions",
-      "ListOptions",
-      "StorageObserver",
-      "TaskEvent",
-      "TaskState",
-      "UploadMetadata",
-      "UploadTask",
-      "UploadTaskSnapshot"
-    ]
+    "storage": []
   }
 }

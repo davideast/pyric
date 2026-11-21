@@ -29,7 +29,7 @@ import type { StorageReference } from './reference.js';
 
 /**
  * Client-settable fields. Passed to `uploadBytes` /
- * `uploadString` / `updateMetadata`. Every field is optional — the
+ * `uploadString` / `updateMetadata`. Every field is optional -- the
  * upload pipeline fills any unsupplied client fields with sane
  * defaults (e.g. `contentType` falls back to `application/octet-stream`).
  */
@@ -43,6 +43,14 @@ export interface SettableMetadata {
 }
 
 /**
+ * Object metadata accepted at upload time, mirroring `firebase/storage`'s
+ * `UploadMetadata`.
+ */
+export interface UploadMetadata extends SettableMetadata {
+  md5Hash?: string | undefined;
+}
+
+/**
  * Server-set + client-settable fields read back from
  * `uploadBytes` / `getMetadata` / `updateMetadata`. Server-set
  * fields (`bucket`, `fullPath`, `name`, `generation`,
@@ -50,7 +58,7 @@ export interface SettableMetadata {
  * by the upload pipeline; client-settable fields round-trip from
  * `SettableMetadata`.
  */
-export interface FullMetadata extends SettableMetadata {
+export interface FullMetadata extends UploadMetadata {
   bucket: string;
   fullPath: string;
   name: string;
@@ -59,7 +67,6 @@ export interface FullMetadata extends SettableMetadata {
   timeCreated: string;
   updated: string;
   size: number;
-  md5Hash?: string;
 }
 
 /** Return shape of `uploadBytes` / `uploadString`. */
@@ -132,7 +139,7 @@ export function toFullMetadata(
  * `StoredMetadata`, replacing only the client-settable fields. The
  * server-set fields (`bucket`, `fullPath`, `name`, `generation`,
  * `timeCreated`, `size`, `md5Hash`) are preserved. `metageneration`
- * is bumped, and `updated` is refreshed to the call moment — both
+ * is bumped, and `updated` is refreshed to the call moment -- both
  * are server-tracked but driven by client-initiated changes.
  *
  * Used by `updateMetadata` in Slice 6. Defined here in Slice 5 so
@@ -200,14 +207,14 @@ function bump(value: string): string {
   return String(parsed + 1);
 }
 
-// ─── Public operations (Slice 6) ───────────────────────────────────
+// --- Public operations (Slice 6) -----------------------------------
 
 /**
  * Read the full metadata record at `ref`. Throws when no object
  * exists at the path (`storage/object-not-found`).
  *
  * Mirrors `firebase/storage`'s `getMetadata`. Returns the same
- * `FullMetadata` shape `uploadBytes` produced — server-set fields
+ * `FullMetadata` shape `uploadBytes` produced -- server-set fields
  * pinned at upload time, client-settable fields whatever the latest
  * write left them as.
  */
@@ -248,7 +255,7 @@ async function readObjectMetadata(ref: StorageReference): Promise<FullMetadata> 
  * `provenance` (host-only): op {@link EventProvenance} bound at ISSUE time,
  * threaded EXPLICITLY onto the emitted `metadata_update` event. Emit runs
  * after the backend awaits, escaping the sandbox's synchronous
- * ambient-provenance window — see the note on `uploadBytes`.
+ * ambient-provenance window -- see the note on `uploadBytes`.
  */
 export function updateMetadata(
   ref: StorageReference,
@@ -388,7 +395,7 @@ async function rewriteMetadata(
       operationProvenance,
     );
   } catch {
-    // Observational — never let event emission break a metadata update.
+    // Observational -- never let event emission break a metadata update.
   }
   return toFullMetadata(next, planeOf(target), ref.bucket);
 }

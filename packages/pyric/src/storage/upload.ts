@@ -9,7 +9,7 @@
  *      backend.
  *   4. Return `{ ref, metadata: toFullMetadata(stored) }`.
  *
- * Slice 5 ships the upload surface without rule evaluation —
+ * Slice 5 ships the upload surface without rule evaluation --
  * Slice 8 will wrap this pipeline so denials throw before the IDB
  * write happens.
  *
@@ -19,8 +19,8 @@
  *   - `uploadString` accepts `raw` | `base64` | `data_url` formats;
  *     the data-url variant pulls `contentType` from the prefix
  *     unless explicitly overridden.
- *   - `contentType` precedence: caller's `metadata.contentType` →
- *     payload's intrinsic type (`Blob.type`, data-url prefix) →
+ *   - `contentType` precedence: caller's `metadata.contentType` ->
+ *     payload's intrinsic type (`Blob.type`, data-url prefix) ->
  *     `application/octet-stream`. Matches the JS SDK.
  */
 import { createMd5Hasher, md5 } from '@pyric/rules/internal/storage';
@@ -31,7 +31,13 @@ import { operationStorageOf } from './sandbox/cross-bucket-target.js';
 import { getStorageService, storageAuth, storageOperationProvenance, targetOf } from './service.js';
 import { enforceRules } from './enforce.js';
 import { resourceFromStored, requestResourceFor } from './sandbox/rules-resources.js';
-import { cloneCustomMetadata, toFullMetadata, type SettableMetadata, type UploadResult } from './metadata.js';
+import {
+  cloneCustomMetadata,
+  toFullMetadata,
+  type SettableMetadata,
+  type UploadMetadata,
+  type UploadResult,
+} from './metadata.js';
 import { planeOf, uploadContentDisposition } from './content-defaults.js';
 import { StorageError, invalidRootOperation, invalidFormat } from './errors.js';
 import { clockGeneration, generationIssuer } from './generation.js';
@@ -49,7 +55,7 @@ export type { StringFormat } from './string-format.js';
  * object at the path. Returns the populated `FullMetadata` and the
  * same `ref` for chaining.
  *
- * Throws when the reference targets the root (`fullPath === ''`) —
+ * Throws when the reference targets the root (`fullPath === ''`) --
  * uploads need a non-empty path, matching Firebase's
  * `invalid-root-operation` precondition.
  *
@@ -62,7 +68,7 @@ export type { StringFormat } from './string-format.js';
 export function uploadBytes(
   ref: StorageReference,
   data: Blob | Uint8Array | ArrayBuffer,
-  metadata?: SettableMetadata,
+  metadata?: UploadMetadata,
   provenance?: EventProvenance,
 ): Promise<UploadResult> {
   guardNonRoot(ref, 'uploadBytes');
@@ -167,7 +173,7 @@ export async function uploadObjectReplacing(
       operationProvenance,
     );
   } catch {
-    // Observational — never let event emission break a storage write.
+    // Observational -- never let event emission break a storage write.
   }
   return { result: { ref, metadata: toFullMetadata(stored, planeOf(target), ref.bucket) }, replaced };
 }
@@ -185,7 +191,7 @@ export function uploadString(
   ref: StorageReference,
   value: string,
   format: StringFormat = 'raw',
-  metadata?: SettableMetadata,
+  metadata?: UploadMetadata,
   provenance?: EventProvenance,
 ): Promise<UploadResult> {
   guardNonRoot(ref, 'uploadString');
@@ -259,13 +265,13 @@ export function buildStoredMetadata(args: {
   return stored;
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────
+// --- Helpers ------------------------------------------------------
 
 /**
  * Normalize the user's input to a `Blob`. The `contentType` hint
  * (from caller-supplied `SettableMetadata`) takes precedence over
- * any intrinsic type on the source — matching Firebase's "caller
- * → blob.type → octet-stream" precedence (survey Section 4).
+ * any intrinsic type on the source -- matching Firebase's "caller
+ * -> blob.type -> octet-stream" precedence (survey Section 4).
  *
  * The case where `data` is already a `Blob` and `contentTypeHint`
  * is undefined preserves the blob's intrinsic type, so users
