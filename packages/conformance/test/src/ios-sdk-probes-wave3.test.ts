@@ -92,6 +92,8 @@ describe('Wave 3 firestore-swift ios-sdk-probes manifest, Swift package, and sta
     expect(firestoreManifest).toContain('name: "FirebaseAuth"');
     expect(firestoreManifest).toContain('name: "FirebaseFirestore"');
     expect(firestoreManifest).toContain('.copy("Resources/oracle-input.json")');
+    expect(firestoreManifest).toContain('.swiftLanguageMode(.v5)');
+    expect(firestoreManifest).toMatch(/\],\s*swiftLanguageModes: \[\.v5\]\s*\)\s*$/);
 
     const wave3Descriptors = [
       firestoreBatchTxErrorsProbe,

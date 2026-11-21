@@ -28,7 +28,9 @@ let package = Package(
         .product(name: "FirebaseAuth", package: "firebase-ios-sdk"),
         .product(name: "FirebaseFirestore", package: "firebase-ios-sdk"),
       ],
-      swiftLanguageModes: [.v5]
+      swiftSettings: [
+        .swiftLanguageMode(.v5),
+      ]
     ),
     .testTarget(
       name: "FirestoreOracleSimTests",
@@ -36,7 +38,10 @@ let package = Package(
       resources: [
         .copy("Resources/oracle-input.json"),
       ],
-      swiftLanguageModes: [.v5]
+      swiftSettings: [
+        .swiftLanguageMode(.v5),
+      ]
     ),
-  ]
+  ],
+  swiftLanguageModes: [.v5]
 )
