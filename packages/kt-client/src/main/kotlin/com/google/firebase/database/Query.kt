@@ -359,51 +359,16 @@ open class Query(
 
     internal fun childEventsFlow(): Flow<ChildEvent> = callbackFlow {
         var previousChildren: Map<String, DataSnapshot>? = null
-        var previousOrder: List<String>? = null
 
         val job = launch {
             try {
                 snapshotsFlow().collect { snapshot ->
                     val currentList = snapshot.children.toList()
-                    val currentMap = currentList.associateBy { it.key ?: "" }
-                    val currentOrder = currentList.map { it.key ?: "" }
-
-                    val prev = previousChildren
-                    if (prev == null) {
-                        var prevKey: String? = null
-                        for (child in currentList) {
-                            trySend(ChildEvent.Added(child, prevKey))
-                            prevKey = child.key
-                        }
-                    } else {
-                        for ((k, oldSnap) in prev) {
-                            if (!currentMap.containsKey(k)) {
-                                trySend(ChildEvent.Removed(oldSnap))
-                            }
-                        }
-                        val survivingPrevOrder = previousOrder?.filter { currentMap.containsKey(it) } ?: emptyList()
-                        val survivingCurrentOrder = currentOrder.filter { prev.containsKey(it) }
-                        val orderChanged = survivingPrevOrder != survivingCurrentOrder
-
-                        var prevKey: String? = null
-                        for (child in currentList) {
-                            val k = child.key ?: ""
-                            val oldSnap = prev[k]
-                            if (oldSnap == null) {
-                                trySend(ChildEvent.Added(child, prevKey))
-                            } else {
-                                if (oldSnap.value != child.value || oldSnap.priority != child.priority) {
-                                    trySend(ChildEvent.Changed(child, prevKey))
-                                }
-                                if (orderChanged && survivingPrevOrder.indexOf(k) != survivingCurrentOrder.indexOf(k)) {
-                                    trySend(ChildEvent.Moved(child, prevKey))
-                                }
-                            }
-                            prevKey = k
-                        }
+                    val events = diffChildSnapshots(previousChildren, currentList, querySpec)
+                    for (event in events) {
+                        trySend(event)
                     }
-                    previousChildren = currentMap
-                    previousOrder = currentOrder
+                    previousChildren = currentList.associateBy { it.key ?: "" }
                 }
             } catch (e: Exception) {
                 if (e !is CancellationException) {

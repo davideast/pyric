@@ -19,16 +19,16 @@ class DataSnapshot internal constructor(
     ) : this(
         ref = ref,
         value = normalizeRtdbValue(value),
-        priority = normalizeRtdbValue(priority),
+        priority = normalizeRtdbPriority(priority),
         orderedEntries = orderedEntries?.map { entry ->
             ChildEntry(
                 key = entry.key,
                 value = normalizeRtdbValue(entry.value),
-                priority = normalizeRtdbValue(entry.priority),
-                exportValue = normalizeRtdbValue(entry.exportValue)
+                priority = normalizeRtdbPriority(entry.priority),
+                exportValue = normalizeRtdbExportValue(entry.exportValue)
             )
         },
-        exportValue = normalizeRtdbValue(exportValue),
+        exportValue = normalizeRtdbExportValue(exportValue),
         normalizedMarker = true
     )
 
@@ -44,8 +44,15 @@ class DataSnapshot internal constructor(
 
     fun exists(): Boolean = value != null
 
-    fun getValue(useExportFormat: Boolean): Any? =
-        if (useExportFormat) (exportValue ?: value) else value
+    fun getValue(useExportFormat: Boolean): Any? {
+        if (!useExportFormat) {
+            return value
+        }
+        if (exportValue != null) {
+            return exportValue
+        }
+        return synthesizeExportValue(value, priority)
+    }
 
     @Suppress("UNCHECKED_CAST")
     fun <T> getValue(valueType: Class<T>): T? {
@@ -242,6 +249,40 @@ class DataSnapshot internal constructor(
             }
         }
 
+        internal fun normalizeRtdbPriority(raw: Any?): Any? {
+            return when (raw) {
+                null, is String, is Double -> raw
+                is Number -> raw.toDouble()
+                else -> raw
+            }
+        }
+
+        internal fun normalizeRtdbExportValue(raw: Any?): Any? {
+            return when (raw) {
+                null, is Boolean, is String, is Long, is Double -> raw
+                is Int -> raw.toLong()
+                is Short -> raw.toLong()
+                is Byte -> raw.toLong()
+                is Float -> raw.toDouble()
+                is Map<*, *> -> {
+                    val normalized = LinkedHashMap<String, Any?>(raw.size)
+                    for ((k, v) in raw) {
+                        if (k != null) {
+                            val keyStr = k.toString()
+                            if (keyStr == ".priority") {
+                                normalized[keyStr] = normalizeRtdbPriority(v)
+                            } else {
+                                normalized[keyStr] = normalizeRtdbExportValue(v)
+                            }
+                        }
+                    }
+                    normalized
+                }
+                is List<*> -> raw.map { normalizeRtdbExportValue(it) }
+                else -> raw
+            }
+        }
+
         private fun tryParseRtdbIntKey(key: String): Int? {
             if (!RTDB_INT_KEY_REGEX.matches(key)) return null
             val parsed = key.toLongOrNull() ?: return null
@@ -264,9 +305,26 @@ class DataSnapshot internal constructor(
             return a.compareTo(b)
         }
 
+        private fun synthesizeExportValue(value: Any?, priority: Any?): Any? {
+            if (value == null || priority == null) {
+                return value
+            }
+            if (value is Map<*, *>) {
+                val exported = LinkedHashMap<String, Any?>(value.size + 1)
+                for ((k, v) in value) {
+                    if (k != null) {
+                        exported[k.toString()] = v
+                    }
+                }
+                exported[".priority"] = priority
+                return exported
+            }
+            return mapOf(".value" to value, ".priority" to priority)
+        }
+
         private fun priorityFromExport(exported: Any?): Any? {
             val map = exported as? Map<*, *> ?: return null
-            return map[".priority"]
+            return normalizeRtdbPriority(map[".priority"])
         }
 
         private fun exportValueAt(root: Any?, segments: List<String>): Any? {
