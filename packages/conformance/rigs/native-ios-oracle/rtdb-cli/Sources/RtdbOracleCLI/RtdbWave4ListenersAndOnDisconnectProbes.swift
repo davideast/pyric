@@ -58,6 +58,7 @@ private final class RtdbListenerRecorder {
   private let lock = NSLock()
   private var connectedTransitions: [Bool] = []
   private var observedOffsetNumber = false
+  private var observedUnknownInfoEvent = false
   private var valueCounts: [Int] = []
   private var childTimeline: [String] = []
 
@@ -77,6 +78,12 @@ private final class RtdbListenerRecorder {
     }
   }
 
+  func recordUnknownInfoEvent() {
+    lock.lock()
+    defer { lock.unlock() }
+    observedUnknownInfoEvent = true
+  }
+
   func recordValueCount(_ count: Int) {
     lock.lock()
     defer { lock.unlock() }
@@ -92,12 +99,19 @@ private final class RtdbListenerRecorder {
   func snapshot() -> (
     connected: [Bool],
     sawOffset: Bool,
+    sawUnknownInfo: Bool,
     counts: [Int],
     timeline: [String]
   ) {
     lock.lock()
     defer { lock.unlock() }
-    return (connectedTransitions, observedOffsetNumber, valueCounts, childTimeline)
+    return (
+      connectedTransitions,
+      observedOffsetNumber,
+      observedUnknownInfoEvent,
+      valueCounts,
+      childTimeline
+    )
   }
 }
 
@@ -128,6 +142,7 @@ private func verifyTwoAppOnDisconnect(
   let ephemeralRef = presenceRef.child("ephemeral_session")
   let canceledRef = presenceRef.child("kept_after_cancel")
 
+  markRtdbStep("wave4-live:ondisconnect-seed")
   try await setValueAsync(statusRef, value: "online")
   try await setValueAsync(metaRef, value: ["state": "active", "keep": 1])
   try await setValueAsync(ephemeralRef, value: "active-ephemeral")
@@ -147,6 +162,7 @@ private func verifyTwoAppOnDisconnect(
   writerDb.goOnline()
 
   do {
+    markRtdbStep("wave4-live:ondisconnect-register")
     let writerPresence = writerDb.reference(withPath: "pyric_oracle/\(config.runId)/presence")
     try await setValueAsync(writerPresence.child("writer_ready"), value: true)
 
@@ -165,6 +181,7 @@ private func verifyTwoAppOnDisconnect(
     )
     try await cancelDisconnectOperationsAsync(writerPresence.child("kept_after_cancel"))
 
+    markRtdbStep("wave4-live:ondisconnect-writer-offline")
     writerDb.goOffline()
     await deleteAppAsync(writerApp)
   } catch {
@@ -173,6 +190,7 @@ private func verifyTwoAppOnDisconnect(
     throw error
   }
 
+  markRtdbStep("wave4-live:ondisconnect-verify")
   var observedStatus = (try await getDataAsync(statusRef)).value as? String ?? ""
   let maxPolls = 150
   var pollIndex = 0
@@ -211,6 +229,10 @@ func runListenersTransactionsConnectionAndOnDisconnect(
   let recorder = RtdbListenerRecorder()
   db.goOnline()
 
+  // FRepo.m infoListenProvider only emits initial events for non-empty .info
+  // nodes (.info/connected, .info/serverTimeOffset, .info/authenticated); an
+  // observeSingleEvent(of: .value) on an unknown .info key never fires. Verify
+  // that behavior via a non-blocking .value observer across connect/offline/online.
   let connectedHandle = connectedRef.observe(.value) { snapshot in
     if let state = (snapshot.value as? NSNumber)?.boolValue {
       recorder.recordConnected(state)
@@ -218,6 +240,9 @@ func runListenersTransactionsConnectionAndOnDisconnect(
   }
   let offsetHandle = offsetRef.observe(.value) { snapshot in
     recorder.recordOffset(snapshot.value)
+  }
+  let unknownInfoHandle = unknownInfoRef.observe(.value) { _ in
+    recorder.recordUnknownInfoEvent()
   }
 
   var valueHandle: DatabaseHandle?
@@ -229,21 +254,20 @@ func runListenersTransactionsConnectionAndOnDisconnect(
   let orderedWatch = watchRef.queryOrderedByValue()
 
   do {
+    markRtdbStep("wave4-live:handshake-and-info-connected")
     try await setValueAsync(runRef.child("handshake_ping"), value: "ready")
     try await awaitRtdbCondition("info-connected-initial-true") {
       let snap = recorder.snapshot()
       return snap.connected.contains(true) && snap.sawOffset
     }
 
-    let unknownInfoSnap = try await observeSingleValueAsync(unknownInfoRef)
-    let unknownInfoExists = unknownInfoSnap.exists()
-    let unknownInfoValueIsNSNull = unknownInfoSnap.value is NSNull
-
+    markRtdbStep("wave4-live:go-offline")
     db.goOffline()
     try await awaitRtdbCondition("info-connected-offline-false") {
       recorder.snapshot().connected.last == false
     }
 
+    markRtdbStep("wave4-live:go-online")
     db.goOnline()
     try await awaitRtdbCondition("info-connected-reconnected-true") {
       let connected = recorder.snapshot().connected
@@ -252,7 +276,9 @@ func runListenersTransactionsConnectionAndOnDisconnect(
 
     connectedRef.removeObserver(withHandle: connectedHandle)
     offsetRef.removeObserver(withHandle: offsetHandle)
+    unknownInfoRef.removeObserver(withHandle: unknownInfoHandle)
 
+    markRtdbStep("wave4-live:watch-child-observers")
     try await setValueAsync(watchRef, value: ["a": 1, "b": 2])
 
     valueHandle = watchRef.observe(.value) { snapshot in
@@ -315,6 +341,7 @@ func runListenersTransactionsConnectionAndOnDisconnect(
       removedHandle = nil
     }
 
+    markRtdbStep("wave4-live:unsub-fence-and-observe-single")
     let snapshotAtUnsub = recorder.snapshot()
     try await setValueAsync(watchRef.child("d"), value: 4)
     let fenceSingleSnap = try await observeSingleValueAsync(watchRef)
@@ -323,6 +350,7 @@ func runListenersTransactionsConnectionAndOnDisconnect(
       snapshotAfterFence.counts.count == snapshotAtUnsub.counts.count
       && snapshotAfterFence.timeline.count == snapshotAtUnsub.timeline.count
 
+    markRtdbStep("wave4-live:transactions")
     let txRef = runRef.child("tx_counter")
     try await setValueAsync(txRef, value: 10)
 
@@ -343,6 +371,7 @@ func runListenersTransactionsConnectionAndOnDisconnect(
       observerRunRef: runRef
     )
 
+    markRtdbStep("wave4-live:cleanup")
     try await removeValueAsync(runRef)
     let removedRunSnap = try await getDataAsync(runRef)
 
@@ -356,8 +385,8 @@ func runListenersTransactionsConnectionAndOnDisconnect(
     return [
       "infoConnectedToggleTrueFalseTrue": sawTrueFalseTrue,
       "infoServerTimeOffsetIsNSNumber": snapshotAfterFence.sawOffset,
-      "infoUnknownKeyExists": unknownInfoExists,
-      "infoUnknownKeyValueIsNSNull": unknownInfoValueIsNSNull,
+      "infoUnknownKeyKey": unknownInfoRef.key ?? "",
+      "infoUnknownKeyFiredValueEvent": snapshotAfterFence.sawUnknownInfo,
       "valueListenerInitialCount": snapshotAfterFence.counts.first ?? -1,
       "valueListenerObservedMutations": snapshotAfterFence.counts.count >= 4,
       "childTimeline": snapshotAfterFence.timeline,
@@ -373,6 +402,7 @@ func runListenersTransactionsConnectionAndOnDisconnect(
   } catch {
     connectedRef.removeObserver(withHandle: connectedHandle)
     offsetRef.removeObserver(withHandle: offsetHandle)
+    unknownInfoRef.removeObserver(withHandle: unknownInfoHandle)
     if let h = valueHandle {
       watchRef.removeObserver(withHandle: h)
     }

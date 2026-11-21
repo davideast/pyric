@@ -145,6 +145,7 @@ func runNavigationPushPrioritiesAndSnapshots(
     let fromUrlMatchesKeyAndUrl =
       fromUrlRef.key == "leaf_node" && fromUrlRef.url == nestedLeaf.url
 
+    markRtdbStep("wave4-nav:push-and-value-types")
     let pushGroup = runRef.child("pushed_items")
     let push1 = pushGroup.childByAutoId()
     let push2 = pushGroup.childByAutoId()
@@ -183,6 +184,7 @@ func runNavigationPushPrioritiesAndSnapshots(
 
     let missingSnap = try await getDataAsync(runRef.child("missing_leaf"))
 
+    markRtdbStep("wave4-nav:priorities-and-child-queries")
     let prioGroup = runRef.child("priority_items")
     let pSecond = prioGroup.child("item_second")
     let pFirst = prioGroup.child("item_first")
@@ -262,6 +264,7 @@ func runNavigationPushPrioritiesAndSnapshots(
       )
     )
 
+    markRtdbStep("wave4-nav:cleanup")
     try await removeValueAsync(runRef)
     let removedRunSnap = try await getDataAsync(runRef)
 
