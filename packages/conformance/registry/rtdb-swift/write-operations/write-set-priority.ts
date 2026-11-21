@@ -8,4 +8,5 @@ export default row({
   featureKeys: ['setPriority'],
   status: 'conforms',
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
+  oracleObservations: ['rtdb-swift-navigation-push-priorities-and-snapshots'],
 });

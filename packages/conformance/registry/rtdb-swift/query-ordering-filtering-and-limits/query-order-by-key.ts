@@ -8,4 +8,5 @@ export default row({
   featureKeys: ['queryOrderedByKey'],
   status: 'conforms',
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
+  oracleObservations: ['rtdb-swift-queries-ranges-limits-and-permission-denied'],
 });

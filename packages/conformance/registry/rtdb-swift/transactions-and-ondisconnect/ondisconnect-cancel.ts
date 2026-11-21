@@ -8,4 +8,5 @@ export default row({
   featureKeys: ['onDisconnectCancel'],
   status: 'conforms',
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
+  oracleObservations: ['rtdb-swift-listeners-transactions-connection-and-ondisconnect'],
 });

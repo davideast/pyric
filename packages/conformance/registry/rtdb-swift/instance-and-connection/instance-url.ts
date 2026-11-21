@@ -9,4 +9,8 @@ export default row({
   status: 'conforms',
   evidence: 'FirebaseDatabase Swift specification. Live-host 11-shard suite (`RtdbLiveHostConformanceTests.swift`) isolates data and rules across default + `shard-00..shard-09` over a single shared bridge connection.',
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
+  oracleObservations: [
+    'rtdb-swift-dedicated-crud-and-query-order',
+    'rtdb-swift-navigation-push-priorities-and-snapshots',
+  ],
 });

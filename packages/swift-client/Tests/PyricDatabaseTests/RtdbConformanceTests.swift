@@ -7,7 +7,7 @@ import FirebaseAuth
 @Suite("rtdb-swift Conformance Suite", .serialized)
 struct RtdbConformanceTests {
 
-    // ── 1. Database Instance & Connection (5 rows) ────────────────────────────
+    // -- 1. Database Instance & Connection (5 rows) ----------------------------
     @Test func `rtdb-swift#instance-default: Database.database() returns default instance`() async throws {
         await FirebaseGlobalTestGate.shared.withExclusiveAccess {
             Database.reset()
@@ -50,7 +50,7 @@ struct RtdbConformanceTests {
         #expect(harness.isOffline == false)
     }
 
-    // ── 2. DatabaseReference Navigation & Properties (7 rows) ─────────────────
+    // -- 2. DatabaseReference Navigation & Properties (7 rows) -----------------
     @Test func `rtdb-swift#ref-child: DatabaseReference.child(_:) navigates relative path`() async throws {
         let harness = try await RtdbTestHarness.create()
         let ref = harness.database.reference(withPath: "users").child("bob/profile")
@@ -92,7 +92,7 @@ struct RtdbConformanceTests {
         #expect(k1 < k2 && k2 < k3)
     }
 
-    // ── 3. Write Operations (6 rows) ──────────────────────────────────────────
+    // -- 3. Write Operations (6 rows) ------------------------------------------
     @Test func `rtdb-swift#write-set: DatabaseReference.setValue(_:) writes value at path`() async throws {
         let harness = try await RtdbTestHarness.create()
         let ref = harness.database.reference(withPath: "greeting")
@@ -141,7 +141,7 @@ struct RtdbConformanceTests {
         #expect(snap.exists() == false)
     }
 
-    // ── 4. ServerValue Sentinels (2 rows) ─────────────────────────────────────
+    // -- 4. ServerValue Sentinels (2 rows) -------------------------------------
     @Test func `rtdb-swift#sentinel-timestamp: ServerValue.timestamp() resolves to epoch ms`() async throws {
         let harness = try await RtdbTestHarness.create()
         let ref = harness.database.reference(withPath: "createdAt")
@@ -158,7 +158,7 @@ struct RtdbConformanceTests {
         #expect((snap.value as? NSNumber)?.intValue == 15)
     }
 
-    // ── 5. One-Shot Reads & DataSnapshot Inspection (7 rows) ──────────────────
+    // -- 5. One-Shot Reads & DataSnapshot Inspection (7 rows) ------------------
     @Test func `rtdb-swift#read-get: DatabaseReference.getData() fetches DataSnapshot`() async throws {
         let harness = try await RtdbTestHarness.create()
         let ref = harness.database.reference(withPath: "config/theme")
@@ -212,7 +212,7 @@ struct RtdbConformanceTests {
         #expect(snap.priority as? String == "p1")
     }
 
-    // ── 6. Realtime Listeners & Streams (5 rows) ──────────────────────────────
+    // -- 6. Realtime Listeners & Streams (5 rows) ------------------------------
     @Test func `rtdb-swift#listen-value: DatabaseQuery.observe(.value) emits snapshots`() async throws {
         let harness = try await RtdbTestHarness.create()
         let ref = harness.database.reference(withPath: "liveValue")
@@ -258,7 +258,7 @@ struct RtdbConformanceTests {
         #expect(handle > 0)
     }
 
-    // ── 7. Query Ordering, Filtering & Limits (6 rows) ────────────────────────
+    // -- 7. Query Ordering, Filtering & Limits (6 rows) ------------------------
     @Test func `rtdb-swift#query-order-by-child: DatabaseQuery.queryOrdered(byChild:) orders by nested key`() async throws {
         let harness = try await RtdbTestHarness.create()
         let ref = harness.database.reference(withPath: "scores")
@@ -305,7 +305,7 @@ struct RtdbConformanceTests {
         #expect(lastTwo.childrenSnapshots.compactMap { $0.key } == ["k3", "k4"])
     }
 
-    // ── 8. Transactions & OnDisconnect (4 rows) ───────────────────────────────
+    // -- 8. Transactions & OnDisconnect (4 rows) -------------------------------
     @Test func `rtdb-swift#tx-run: DatabaseReference.runTransactionBlock(_:) commits updated MutableData`() async throws {
         let harness = try await RtdbTestHarness.create()
         let ref = harness.database.reference(withPath: "balance")
@@ -344,7 +344,7 @@ struct RtdbConformanceTests {
         #expect(snap.value as? String == "online")
     }
 
-    // ── AuthLens Propagation Integration Verification ─────────────────────────
+    // -- AuthLens Propagation Integration Verification -------------------------
     @Test func `authlens-propagation: Database propagates active AuthLens on ops and subscriptions`() async throws {
         let harness = try await RtdbTestHarness.create()
         let ref = harness.database.reference(withPath: "secure/data")
@@ -360,7 +360,7 @@ struct RtdbConformanceTests {
         #expect(harness.recordedOps.last?.actAs?["mode"]?.stringValue == "anon")
     }
 
-    // ── 1. Database Instance & Connection: `.info`, served by the client ─────
+    // -- 1. Database Instance & Connection: `.info`, served by the client -----
     @Test func `rtdb-swift#info-connected: .info/connected follows the bridge connection and goOffline()`() async throws {
         let harness = try await RtdbTestHarness.create()
         let info = harness.database.reference(withPath: ".info/connected")
@@ -399,8 +399,38 @@ struct RtdbConformanceTests {
         let unknown = try await harness.database.reference(withPath: ".info/authenticated").getData()
         #expect(unknown.exists() == false)
 
+        let unknownObserverFired = LockedFlag()
+        let unknownRef = harness.database.reference(withPath: ".info/nonexistent_key")
+        let unknownHandle = unknownRef.observe(.value) { _ in
+            unknownObserverFired.setTrue()
+        }
+        try await Task.sleep(nanoseconds: 25_000_000)
+
         #expect(harness.recordedSubs.isEmpty)
         #expect(harness.recordedOps.isEmpty)
+
+        try await harness.database.goOffline()
+        try await harness.database.goOnline()
+        try await Task.sleep(nanoseconds: 25_000_000)
+        unknownRef.removeObserver(withHandle: unknownHandle)
+        #expect(unknownObserverFired.value == false)
+    }
+}
+
+private final class LockedFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var flag = false
+
+    func setTrue() {
+        lock.lock()
+        flag = true
+        lock.unlock()
+    }
+
+    var value: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return flag
     }
 }
 

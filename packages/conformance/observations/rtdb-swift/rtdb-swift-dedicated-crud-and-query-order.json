@@ -1,7 +1,21 @@
 {
   "name": "rtdb-swift-dedicated-crud-and-query-order",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "rtdb-swift#write-set",
+  "rowIds": [
+    "rtdb-swift#instance-url",
+    "rtdb-swift#ref-path",
+    "rtdb-swift#ref-child",
+    "rtdb-swift#write-set",
+    "rtdb-swift#write-update",
+    "rtdb-swift#write-remove",
+    "rtdb-swift#sentinel-increment",
+    "rtdb-swift#read-get",
+    "rtdb-swift#snap-exists",
+    "rtdb-swift#snap-key",
+    "rtdb-swift#snap-children",
+    "rtdb-swift#query-order-by-child",
+    "rtdb-swift#query-limit"
+  ],
   "description": "Upstream FirebaseDatabase (firebase-ios-sdk) dedicated-instance setValue, updateChildValues with ServerValue.increment, queryOrdered(byChild:) + queryLimited(toFirst:) ordering, and removeValue via headless macOS SwiftPM CLI.",
   "observedAt": "2026-11-21T17:21:39.856Z",
   "iosSdkVersion": "13.2.0",

@@ -8,4 +8,9 @@ export default row({
   featureKeys: ['queryLimitedToFirst', 'queryLimitedToLast'],
   status: 'conforms',
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
+  oracleObservations: [
+    'rtdb-swift-dedicated-crud-and-query-order',
+    'rtdb-swift-queries-ranges-limits-and-permission-denied',
+    'rtdb-swift-navigation-push-priorities-and-snapshots',
+  ],
 });

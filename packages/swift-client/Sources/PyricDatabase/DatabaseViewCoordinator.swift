@@ -355,6 +355,7 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
                 for await connected in ConnectionInfo.connectedValues(of: database) {
                     if Task.isCancelled { break }
                     let wire = ConnectionInfo.wire(at: path, connected: connected)
+                    guard wire["exists"]?.boolValue == true else { continue }
                     if wire == lastWire { continue }
                     lastWire = wire
                     activeView.handleSnapshot(DataSnapshot(wire: wire, ref: queryRef))

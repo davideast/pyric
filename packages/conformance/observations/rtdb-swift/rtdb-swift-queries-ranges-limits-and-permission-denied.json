@@ -1,7 +1,16 @@
 {
   "name": "rtdb-swift-queries-ranges-limits-and-permission-denied",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "rtdb-swift#query-order-by-key",
+  "rowIds": [
+    "rtdb-swift#write-set",
+    "rtdb-swift#read-get",
+    "rtdb-swift#listen-value",
+    "rtdb-swift#query-order-by-key",
+    "rtdb-swift#query-order-by-value",
+    "rtdb-swift#query-equal-to",
+    "rtdb-swift#query-range",
+    "rtdb-swift#query-limit"
+  ],
   "description": "Upstream FirebaseDatabase (firebase-ios-sdk) queryOrderedByKey and queryOrderedByValue with queryEqual(toValue:), queryStarting(atValue:), queryEnding(atValue:), and queryLimited(toLast:), plus permission-denied NSError domain and code on setValue, observeSingleEvent, and getData against run-scoped rules.",
   "observedAt": "2026-11-21T21:12:53.946Z",
   "iosSdkVersion": "13.2.0",

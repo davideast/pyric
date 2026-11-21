@@ -102,7 +102,20 @@ describe('ios-sdk-probes manifest, SwiftPM version pins, and staged probes', () 
     );
     expect(loaded.map((entry) => entry.id)).toEqual(expectedProbeIds);
 
-    expectStagedUntilCaptured(expectedProbeIds, {
+    const stagedProbeIds: string[] = [];
+    for (const entry of loaded) {
+      if (entry.probe.pendingRowLink === true) {
+        expect(entry.probe.matrixRow).toBe('');
+        expect(entry.probe.rowIds).toEqual([]);
+        stagedProbeIds.push(entry.id);
+      } else {
+        expect(entry.probe.pendingRowLink).toBeUndefined();
+        expect(entry.probe.matrixRow.startsWith(`${entry.surfaceDir}#`)).toBe(true);
+        expect(entry.probe.rowIds.length).toBeGreaterThan(0);
+      }
+    }
+
+    expectStagedUntilCaptured(stagedProbeIds, {
       rig: 'ios-sdk-probes',
       filterFlag: '--probe',
     });

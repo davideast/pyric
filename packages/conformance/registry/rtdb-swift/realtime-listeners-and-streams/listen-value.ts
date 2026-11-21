@@ -8,4 +8,8 @@ export default row({
   featureKeys: ['observeValue', 'valueStream'],
   status: 'conforms',
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
+  oracleObservations: [
+    'rtdb-swift-queries-ranges-limits-and-permission-denied',
+    'rtdb-swift-listeners-transactions-connection-and-ondisconnect',
+  ],
 });
