@@ -462,7 +462,7 @@ struct AuthLiveHostConformanceTests {
         #expect(richUser.phoneNumber == seededPhone)
         #expect(richUser.isAnonymous == false)
         #expect(richUser.isEmailVerified == true)
-        #expect(richUser.providerID == "firebase")
+        #expect(richUser.providerID == "Firebase")
         #expect(richUser.providerData.contains { info in
             info.providerID == "password" && info.email == seededEmail
         })

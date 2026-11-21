@@ -14,7 +14,10 @@ public final class OAuthCredential: AuthCredential, @unchecked Sendable {
     }
 
     override internal func toWireParams() -> [String: AnySendable] {
-        var params: [String: AnySendable] = ["providerId": .string(provider)]
+        var params: [String: AnySendable] = [
+            "providerId": .string(provider),
+            "signInMethod": .string(provider),
+        ]
         if let idToken { params["idToken"] = .string(idToken) }
         if let accessToken { params["accessToken"] = .string(accessToken) }
         if let rawNonce { params["rawNonce"] = .string(rawNonce) }

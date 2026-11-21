@@ -2,8 +2,12 @@ import { row } from './section.ts';
 
 export default row({
   order: 50,
-  flipped: 'live-host',
+  flipped: 'oracle-backed',
   api: 'Auth.signInAnonymously()',
   behavior: 'Signs in as an anonymous user asynchronously, returning AuthDataResult.',
   featureKeys: ['signInAnonymously'],
+  oracleObservations: [
+    'auth-swift-anonymous-and-custom-token-session',
+    'auth-swift-instance-linking-reauth-and-oauth-credentials',
+  ],
 });

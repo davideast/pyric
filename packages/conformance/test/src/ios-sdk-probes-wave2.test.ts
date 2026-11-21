@@ -39,8 +39,14 @@ describe('Wave 2 ios-sdk-probes descriptors, Swift dispatch parity, and cleanup 
     ];
     for (const descriptor of wave2Probes) {
       expect(descriptor.rig).toBe('ios-sdk-probes');
-      expect(descriptor.pendingRowLink).toBe(true);
-      expect(descriptor.rowIds).toEqual([]);
+      if (descriptor.pendingRowLink === true) {
+        expect(descriptor.matrixRow).toBe('');
+        expect(descriptor.rowIds).toEqual([]);
+      } else {
+        expect(descriptor.pendingRowLink).toBeUndefined();
+        expect(descriptor.matrixRow.length).toBeGreaterThan(0);
+        expect(descriptor.rowIds.length).toBeGreaterThan(0);
+      }
       if (process.platform !== 'darwin') {
         await expect(descriptor.observe()).rejects.toThrow(/requires macOS \(darwin\)/);
       }

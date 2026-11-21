@@ -1,7 +1,7 @@
 import Foundation
 import PyricFirestore
 
-/// Canonical Firebase Auth error codes.
+/// Canonical Firebase Auth error codes and FIRAuthErrorDomain integer/name mappings.
 public enum AuthErrorCode: String, Sendable, Error, CaseIterable {
     case invalidEmail = "auth/invalid-email"
     case wrongPassword = "auth/wrong-password"
@@ -11,6 +11,7 @@ public enum AuthErrorCode: String, Sendable, Error, CaseIterable {
     case emailAlreadyInUse = "auth/email-already-in-use"
     case accountExistsWithDifferentCredential = "auth/account-exists-with-different-credential"
     case credentialAlreadyInUse = "auth/credential-already-in-use"
+    case providerAlreadyLinked = "auth/provider-already-linked"
     case weakPassword = "auth/weak-password"
     case operationNotAllowed = "auth/operation-not-allowed"
     case requiresRecentLogin = "auth/requires-recent-login"
@@ -23,6 +24,59 @@ public enum AuthErrorCode: String, Sendable, Error, CaseIterable {
     case noMockConfigured = "auth/no-mock-configured"
     case noCurrentUser = "auth/no-current-user"
     case internalError = "auth/internal-error"
+
+    /// Upstream firebase-ios-sdk FIRAuthErrorCode integer rawValue.
+    public var firErrorCode: Int {
+        switch self {
+        case .invalidCustomToken: return 17000
+        case .customTokenMismatch: return 17002
+        case .invalidCredential, .noMockConfigured: return 17004
+        case .userDisabled: return 17005
+        case .operationNotAllowed: return 17006
+        case .emailAlreadyInUse: return 17007
+        case .invalidEmail: return 17008
+        case .wrongPassword: return 17009
+        case .tooManyRequests: return 17010
+        case .userNotFound: return 17011
+        case .accountExistsWithDifferentCredential: return 17012
+        case .requiresRecentLogin: return 17014
+        case .providerAlreadyLinked: return 17015
+        case .networkError: return 17020
+        case .userTokenExpired: return 17021
+        case .userMismatch: return 17024
+        case .credentialAlreadyInUse: return 17025
+        case .weakPassword: return 17026
+        case .noCurrentUser: return 17995
+        case .internalError: return 17999
+        }
+    }
+
+    /// Upstream firebase-ios-sdk AuthErrorUserInfoNameKey symbolic name.
+    public var errorName: String {
+        switch self {
+        case .invalidCustomToken: return "ERROR_INVALID_CUSTOM_TOKEN"
+        case .customTokenMismatch: return "ERROR_CUSTOM_TOKEN_MISMATCH"
+        case .invalidCredential, .noMockConfigured: return "ERROR_INVALID_CREDENTIAL"
+        case .userDisabled: return "ERROR_USER_DISABLED"
+        case .operationNotAllowed: return "ERROR_OPERATION_NOT_ALLOWED"
+        case .emailAlreadyInUse: return "ERROR_EMAIL_ALREADY_IN_USE"
+        case .invalidEmail: return "ERROR_INVALID_EMAIL"
+        case .wrongPassword: return "ERROR_WRONG_PASSWORD"
+        case .tooManyRequests: return "ERROR_TOO_MANY_REQUESTS"
+        case .userNotFound: return "ERROR_USER_NOT_FOUND"
+        case .accountExistsWithDifferentCredential:
+            return "ERROR_ACCOUNT_EXISTS_WITH_DIFFERENT_CREDENTIAL"
+        case .requiresRecentLogin: return "ERROR_REQUIRES_RECENT_LOGIN"
+        case .providerAlreadyLinked: return "ERROR_PROVIDER_ALREADY_LINKED"
+        case .networkError: return "ERROR_NETWORK_REQUEST_FAILED"
+        case .userTokenExpired: return "ERROR_USER_TOKEN_EXPIRED"
+        case .userMismatch: return "ERROR_USER_MISMATCH"
+        case .credentialAlreadyInUse: return "ERROR_CREDENTIAL_ALREADY_IN_USE"
+        case .weakPassword: return "ERROR_WEAK_PASSWORD"
+        case .noCurrentUser: return "ERROR_NO_CURRENT_USER"
+        case .internalError: return "ERROR_INTERNAL_ERROR"
+        }
+    }
 
     public static func from(codeString: String) -> AuthErrorCode {
         let normalized = codeString.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -42,6 +96,7 @@ public enum AuthErrorCode: String, Sendable, Error, CaseIterable {
         case "email-already-in-use": return .emailAlreadyInUse
         case "account-exists-with-different-credential": return .accountExistsWithDifferentCredential
         case "credential-already-in-use": return .credentialAlreadyInUse
+        case "provider-already-linked": return .providerAlreadyLinked
         case "weak-password": return .weakPassword
         case "operation-not-allowed": return .operationNotAllowed
         case "requires-recent-login": return .requiresRecentLogin

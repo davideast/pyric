@@ -3,6 +3,9 @@ import PyricFirestore
 
 /// Represents an authenticated user identity within Firebase Authentication.
 public final class User: @unchecked Sendable, UserInfo {
+    /// Upstream firebase-ios-sdk top-level User.providerID constant (kFirebaseAuthProviderID).
+    public static let firebaseProviderID = "Firebase"
+
     internal weak var auth: Auth?
     private let lock = NSLock()
 
@@ -17,6 +20,7 @@ public final class User: @unchecked Sendable, UserInfo {
     private var _providerData: [UserInfoImpl]
     private var _tenant: String?
     private var _claims: [String: AnySendable]
+    private var _metadata: UserMetadata
 
     public var email: String? {
         lock.lock(); defer { lock.unlock() }; return _email
@@ -48,11 +52,17 @@ public final class User: @unchecked Sendable, UserInfo {
     public var tenantId: String? {
         lock.lock(); defer { lock.unlock() }; return _tenant
     }
+    public var tenantID: String? {
+        lock.lock(); defer { lock.unlock() }; return _tenant
+    }
     public var claims: [String: AnySendable] {
         lock.lock(); defer { lock.unlock() }; return _claims
     }
     public var customClaims: [String: AnySendable] {
         claims
+    }
+    public var metadata: UserMetadata {
+        lock.lock(); defer { lock.unlock() }; return _metadata
     }
 
     public init(
@@ -64,10 +74,11 @@ public final class User: @unchecked Sendable, UserInfo {
         phoneNumber: String? = nil,
         isAnonymous: Bool = false,
         isEmailVerified: Bool = false,
-        providerID: String = "firebase",
+        providerID: String = User.firebaseProviderID,
         providerData: [UserInfoImpl] = [],
         tenant: String? = nil,
-        claims: [String: AnySendable] = [:]
+        claims: [String: AnySendable] = [:],
+        metadata: UserMetadata = UserMetadata()
     ) {
         self.auth = auth
         self.uid = uid
@@ -77,13 +88,24 @@ public final class User: @unchecked Sendable, UserInfo {
         self._phoneNumber = phoneNumber
         self._isAnonymous = isAnonymous
         self._isEmailVerified = isEmailVerified
-        self._providerID = providerID
+        self._providerID = Self.normalizeTopLevelProviderID(providerID)
         self._providerData = providerData
         self._tenant = tenant
         self._claims = claims
+        self._metadata = metadata
     }
 
-    // ── ID Tokens ────────────────────────────────────────────────────────────
+    private static func normalizeTopLevelProviderID(_ raw: String?) -> String {
+        guard let raw, !raw.isEmpty else {
+            return firebaseProviderID
+        }
+        if raw == "firebase" {
+            return firebaseProviderID
+        }
+        return raw
+    }
+
+    // -- ID Tokens --
 
     public func getIDToken(forcingRefresh: Bool = false) async throws -> String {
         let auth = try attachedAuth()
@@ -161,7 +183,11 @@ public final class User: @unchecked Sendable, UserInfo {
         }
     }
 
-    // ── Profile Updates ──────────────────────────────────────────────────────
+    // -- Profile & Account Lifecycle Mutations --
+
+    public func createProfileChangeRequest() -> UserProfileChangeRequest {
+        UserProfileChangeRequest(user: self)
+    }
 
     public func updateProfile(displayName: String?, photoURL: URL?) async throws {
         let auth = try attachedAuth()
@@ -224,9 +250,100 @@ public final class User: @unchecked Sendable, UserInfo {
         }
     }
 
-    // ── Call Order ───────────────────────────────────────────────────────────
+    public func delete() async throws {
+        let auth = try attachedAuth()
+        let turn = auth.takeTurn()
+        do {
+            try await auth.bridgeClient.authDeleteUser(turn: turn)
+            if auth.currentUser?.uid == self.uid {
+                auth.applyUserTransition(nil)
+            }
+        } catch {
+            throw AuthError.from(error: error)
+        }
+    }
 
-    /// The Auth instance this user belongs to, or the error a call reports without one.
+    public func delete(completion: (@Sendable (Error?) -> Void)?) {
+        inVoidCallOrder(completion: completion) { auth, turn in
+            do {
+                try await auth.bridgeClient.authDeleteUser(turn: turn)
+                if auth.currentUser?.uid == self.uid {
+                    auth.applyUserTransition(nil)
+                }
+            } catch {
+                throw AuthError.from(error: error)
+            }
+        }
+    }
+
+    public func updatePassword(to password: String) async throws {
+        let auth = try attachedAuth()
+        let turn = auth.takeTurn()
+        do {
+            let reply = try await auth.bridgeClient.authUpdatePassword(turn: turn, password: password)
+            if let dict = reply.dictionaryValue {
+                self.update(from: dict)
+                auth.notifyUserUpdated(self)
+            }
+        } catch {
+            throw AuthError.from(error: error)
+        }
+    }
+
+    public func link(with credential: AuthCredential) async throws -> AuthDataResult {
+        let auth = try attachedAuth()
+        let turn = auth.takeTurn()
+        do {
+            let reply = try await auth.bridgeClient.authLinkWithCredential(
+                turn: turn,
+                uid: self.uid,
+                tenantId: self.tenantID,
+                credentialParams: credential.toWireParams()
+            )
+            return try await auth.decodeUserCredentialWire(reply, existingUser: self)
+        } catch {
+            throw AuthError.from(error: error)
+        }
+    }
+
+    public func reauthenticate(with credential: AuthCredential) async throws -> AuthDataResult {
+        let auth = try attachedAuth()
+        let turn = auth.takeTurn()
+        do {
+            let reply = try await auth.bridgeClient.authReauthenticateWithCredential(
+                turn: turn,
+                uid: self.uid,
+                tenantId: self.tenantID,
+                credentialParams: credential.toWireParams()
+            )
+            return try await auth.decodeUserCredentialWire(reply, existingUser: self)
+        } catch {
+            throw AuthError.from(error: error)
+        }
+    }
+
+    public func unlink(fromProvider providerID: String) async throws -> User {
+        let auth = try attachedAuth()
+        let turn = auth.takeTurn()
+        do {
+            let reply = try await auth.bridgeClient.authUnlink(
+                turn: turn,
+                uid: self.uid,
+                tenantId: self.tenantID,
+                providerID: providerID
+            )
+            if let dict = reply.dictionaryValue {
+                self.update(from: dict)
+                auth.notifyUserUpdated(self)
+            }
+            return self
+        } catch {
+            throw AuthError.from(error: error)
+        }
+    }
+
+    // -- Call Order --
+
     private func attachedAuth() throws -> Auth {
         guard let auth = self.auth else {
             throw AuthError(code: .noCurrentUser, message: "User is not attached to an active Auth instance.")
@@ -234,8 +351,6 @@ public final class User: @unchecked Sendable, UserInfo {
         return auth
     }
 
-    /// Runs a call from a completion-block form in the place of a turn taken
-    /// here, before the task starts. A user with no Auth instance takes no turn.
     private func inCallOrder<T: Sendable>(
         completion: (@Sendable (T?, Error?) -> Void)?,
         _ call: @escaping @Sendable (Auth, OperationTurn) async throws -> T
@@ -294,18 +409,23 @@ public final class User: @unchecked Sendable, UserInfo {
             self._isEmailVerified = emailVerified
         }
         if let providerId = wire["providerId"]?.stringValue {
-            self._providerID = providerId
+            self._providerID = Self.normalizeTopLevelProviderID(providerId)
         }
         if let providerArr = wire["providerData"]?.arrayValue {
             self._providerData = providerArr.compactMap { item in
                 item.dictionaryValue.map { UserInfoImpl.fromWire($0) }
             }
         }
-        if let tenant = wire["tenantId"]?.stringValue ?? wire["tenant"]?.stringValue {
-            self._tenant = tenant
+        if let tenant = wire["tenantId"] {
+            self._tenant = tenant.stringValue
+        } else if let tenant = wire["tenant"] {
+            self._tenant = tenant.stringValue
         }
         if let claims = wire["customClaims"]?.dictionaryValue ?? wire["claims"]?.dictionaryValue {
             self._claims = claims
+        }
+        if let metaDict = wire["metadata"]?.dictionaryValue {
+            self._metadata = UserMetadata.fromWire(metaDict, fallbackDate: self._metadata.creationDate ?? Date())
         }
     }
 
@@ -330,12 +450,13 @@ public final class User: @unchecked Sendable, UserInfo {
         let phoneNumber = dict["phoneNumber"]?.stringValue
         let isAnonymous = dict["isAnonymous"]?.boolValue ?? false
         let emailVerified = dict["emailVerified"]?.boolValue ?? false
-        let providerID = dict["providerId"]?.stringValue ?? "firebase"
+        let providerID = normalizeTopLevelProviderID(dict["providerId"]?.stringValue)
         let tenant = dict["tenantId"]?.stringValue ?? dict["tenant"]?.stringValue
         let claims = dict["customClaims"]?.dictionaryValue ?? dict["claims"]?.dictionaryValue ?? [:]
         let providerData = (dict["providerData"]?.arrayValue ?? []).compactMap { item in
             item.dictionaryValue.map { UserInfoImpl.fromWire($0) }
         }
+        let metadata = UserMetadata.fromWire(dict["metadata"]?.dictionaryValue)
 
         return User(
             auth: auth,
@@ -349,7 +470,8 @@ public final class User: @unchecked Sendable, UserInfo {
             providerID: providerID,
             providerData: providerData,
             tenant: tenant,
-            claims: claims
+            claims: claims,
+            metadata: metadata
         )
     }
 }

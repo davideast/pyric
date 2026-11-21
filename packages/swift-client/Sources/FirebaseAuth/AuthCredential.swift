@@ -9,6 +9,9 @@ open class AuthCredential: @unchecked Sendable {
     }
 
     internal func toWireParams() -> [String: AnySendable] {
-        ["providerId": .string(provider)]
+        [
+            "providerId": .string(provider),
+            "signInMethod": .string(provider),
+        ]
     }
 }

@@ -1,14 +1,31 @@
 import Foundation
 import PyricFirestore
 
-/// Represents a structured Firebase Authentication error.
-public struct AuthError: LocalizedError, CustomStringConvertible, Sendable, Equatable {
+/// Upstream firebase-ios-sdk NSError domain and userInfo error-name key for FirebaseAuth.
+public let AuthErrorDomain = "FIRAuthErrorDomain"
+public let AuthErrorUserInfoNameKey = "FIRAuthErrorUserInfoNameKey"
+
+/// Represents a structured Firebase Authentication error bridged to FIRAuthErrorDomain.
+public struct AuthError: LocalizedError, CustomNSError, CustomStringConvertible, Sendable, Equatable {
+    public static var errorDomain: String { AuthErrorDomain }
+
     public let code: AuthErrorCode
     public let message: String
 
     public init(code: AuthErrorCode, message: String) {
         self.code = code
         self.message = message
+    }
+
+    public var errorCode: Int {
+        code.firErrorCode
+    }
+
+    public var errorUserInfo: [String: Any] {
+        [
+            NSLocalizedDescriptionKey: message,
+            AuthErrorUserInfoNameKey: code.errorName,
+        ]
     }
 
     public var errorDescription: String? {
