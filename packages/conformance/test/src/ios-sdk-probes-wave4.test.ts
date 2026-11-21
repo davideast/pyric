@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -66,6 +66,10 @@ function detectSwiftFrontendForParse(): string | null {
   }
   const swiftc = Bun.which('swiftc');
   if (swiftc !== null) {
+    const siblingFrontend = join(dirname(realpathSync(swiftc)), 'swift-frontend');
+    if (existsSync(siblingFrontend)) {
+      return siblingFrontend;
+    }
     return swiftc;
   }
   return null;
@@ -275,7 +279,7 @@ describe('Wave 4 ios-sdk-probes auth-swift and rtdb-swift oracle probes', () => 
 
       const swiftParser = detectSwiftFrontendForParse();
       if (swiftParser !== null) {
-        const swiftFiles = [
+        const authSwiftFiles = [
           join(AUTH_SIM_DIR, 'Package.swift'),
           join(AUTH_SIM_DIR, 'Sources', 'PyricIosAuthOracle', 'AuthOracleProbeRunner.swift'),
           join(
@@ -291,6 +295,13 @@ describe('Wave 4 ios-sdk-probes auth-swift and rtdb-swift oracle probes', () => 
             'AuthWave4LinkingAndOAuthProbes.swift',
           ),
           join(AUTH_SIM_DIR, 'Tests', 'AuthOracleSimTests', 'AuthOracleSimTests.swift'),
+        ];
+        const authParseRes = spawnSync(swiftParser, ['-parse', ...authSwiftFiles], {
+          encoding: 'utf8',
+        });
+        expect(authParseRes.status, `${authParseRes.stdout}\n${authParseRes.stderr}`).toBe(0);
+
+        const rtdbSwiftFiles = [
           join(RTDB_CLI_DIR, 'Package.swift'),
           join(RTDB_CLI_DIR, 'Sources', 'RtdbOracleCLI', 'main.swift'),
           join(RTDB_CLI_DIR, 'Sources', 'RtdbOracleCLI', 'RtdbWave2Probes.swift'),
@@ -307,11 +318,13 @@ describe('Wave 4 ios-sdk-probes auth-swift and rtdb-swift oracle probes', () => 
             'RtdbWave4ListenersAndOnDisconnectProbes.swift',
           ),
         ];
-        const parseRes = spawnSync(swiftParser, ['-parse', ...swiftFiles], { encoding: 'utf8' });
-        expect(parseRes.status, `${parseRes.stdout}\n${parseRes.stderr}`).toBe(0);
+        const rtdbParseRes = spawnSync(swiftParser, ['-parse', ...rtdbSwiftFiles], {
+          encoding: 'utf8',
+        });
+        expect(rtdbParseRes.status, `${rtdbParseRes.stdout}\n${rtdbParseRes.stderr}`).toBe(0);
       }
     },
-    30_000,
+    90_000,
   );
 
   it('forwards Wave 4 child-query RTDB rules, cleans up Wave 4 Auth UIDs on success and failure, and routes macos-latest in planCaptureRun', async () => {
