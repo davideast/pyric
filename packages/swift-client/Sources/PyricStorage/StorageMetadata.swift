@@ -342,6 +342,73 @@ open class StorageMetadata: NSObject, @unchecked Sendable {
         return (contentType: nonEmptyContentType, metadata: wire.isEmpty ? nil : wire)
     }
 
+    /// Merges touched fields on `self` over `existingRaw` so partial `updateMetadata` calls
+    /// probe Storage Rules (`storage.beginUpload`) with accurate `size`, `contentType`, and `metadata`.
+    package func toMergedRulesGateWire(
+        existingRaw: AnySendable?
+    ) -> (size: Int64, contentType: String?, metadata: [String: AnySendable]?) {
+        stateLock.lock()
+        let currentValues: [String: String?] = [
+            "contentType": _contentType,
+            "cacheControl": _cacheControl,
+            "contentDisposition": _contentDisposition,
+            "contentEncoding": _contentEncoding,
+            "contentLanguage": _contentLanguage
+        ]
+        let currentCustom = _customMetadata
+        let touched = _touchedFields
+        stateLock.unlock()
+
+        let existingDict = existingRaw?.dictionaryValue
+        let resolvedSize: Int64
+        if let sInt = existingDict?["size"]?.intValue {
+            resolvedSize = max(0, sInt)
+        } else if let sDbl = existingDict?["size"]?.doubleValue {
+            resolvedSize = max(0, Int64(sDbl))
+        } else if let sStr = existingDict?["size"]?.stringValue, let parsed = Int64(sStr) {
+            resolvedSize = max(0, parsed)
+        } else {
+            resolvedSize = 0
+        }
+
+        var mergedSettable: [String: String] = [:]
+        for field in ["contentType", "cacheControl", "contentDisposition", "contentEncoding", "contentLanguage"] {
+            let cur = currentValues[field] ?? nil
+            let wasModified = touched.contains(field) || initialSettableFields[field] != cur
+            if wasModified {
+                if let cur, !cur.isEmpty {
+                    mergedSettable[field] = cur
+                }
+            } else if let existingVal = existingDict?[field]?.stringValue, !existingVal.isEmpty {
+                mergedSettable[field] = existingVal
+            }
+        }
+
+        var wire: [String: AnySendable] = [:]
+        for (key, value) in mergedSettable {
+            wire[key] = .string(value)
+        }
+
+        let customWasModified = touched.contains("customMetadata") || initialCustomMetadata != nil
+        if customWasModified {
+            if let currentCustom {
+                var customWire: [String: AnySendable] = [:]
+                for (k, v) in currentCustom {
+                    customWire[k] = .string(v)
+                }
+                wire["customMetadata"] = .dictionary(customWire)
+            }
+        } else if let existingCustom = existingDict?["customMetadata"]?.dictionaryValue {
+            wire["customMetadata"] = .dictionary(existingCustom)
+        }
+
+        return (
+            size: resolvedSize,
+            contentType: mergedSettable["contentType"],
+            metadata: wire.isEmpty ? nil : wire
+        )
+    }
+
     /// Encodes `StorageMetadataPatchWire` for `storage.setMetadata`, clearing removed keys with `.null`.
     package func toAdminPatchWire(existingCustomKeys: Set<String>) -> [String: AnySendable] {
         stateLock.lock()

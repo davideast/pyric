@@ -4,7 +4,6 @@ import PyricFirestore
 /// Entry point for the Firebase Cloud Storage Swift SDK (`PyricStorage`), mirroring `FirebaseStorage 13.2.0`.
 public final class Storage: NSObject, @unchecked Sendable {
     private static let minChunkSizeUnit: Int64 = 262_144
-    private static let fallbackCallbackQueue = DispatchQueue(label: "dev.pyric.storage.callback-fallback")
 
     private struct InstanceKey: Hashable {
         let appName: String
@@ -236,19 +235,7 @@ public final class Storage: NSObject, @unchecked Sendable {
     }
 
     package func dispatchCallback(_ block: @escaping @Sendable () -> Void) {
-        let queue = callbackQueue
-        #if os(macOS)
-        if queue === DispatchQueue.main {
-            Self.fallbackCallbackQueue.async(execute: block)
-            return
-        }
-        #elseif os(Linux)
-        if queue === DispatchQueue.main || queue.label == DispatchQueue.main.label {
-            Self.fallbackCallbackQueue.async(execute: block)
-            return
-        }
-        #endif
-        queue.async(execute: block)
+        StorageCallbackDispatcher.dispatch(on: callbackQueue, block)
     }
 
     public var credentialProvider: (any AuthCredentialProvider)? {
