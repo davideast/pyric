@@ -99,7 +99,8 @@ class PyricAggregateQuery extends AggregateQueryPlatform {
     for (final field in aggregateFields) {
       if (field is p.sum) {
         final key = 'sum_${field.field}';
-        final val = (data[key] as num?)?.toDouble();
+        final rawVal = data[key];
+        final val = rawVal == null ? 0.0 : (rawVal as num).toDouble();
         sums.add(AggregateQueryResponse(
           type: AggregateType.sum,
           field: field.field,

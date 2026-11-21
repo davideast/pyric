@@ -7,7 +7,7 @@ import 'sentinels.dart';
 
 export 'sentinels.dart';
 
-// ─── Base64 Encoding & Decoding Helpers ─────────────────────────────────────
+// --- Base64 Encoding & Decoding Helpers ---
 
 /// Encode a [Uint8List] as RFC 4648 unpadded base64url string (`-`/`_`, no `=`).
 String base64UrlEncodeUnpadded(Uint8List bytes) {
@@ -29,7 +29,7 @@ Uint8List base64StdDecode(String input) {
   return Uint8List.fromList(base64.decode(base64.normalize(input)));
 }
 
-// ─── Reference Holder & Resolver ────────────────────────────────────────────
+// --- Reference Holder & Resolver ---
 
 /// Lightweight holder for DocumentReference path decoded from wire markers.
 class PyricDocumentReferenceHolder {
@@ -52,7 +52,7 @@ class PyricDocumentReferenceHolder {
 /// Function signature to resolve a decoded path into a platform document reference.
 typedef DocumentReferenceResolver = dynamic Function(String path);
 
-// ─── Value Serializer (Dart -> Wire JSON) ───────────────────────────────────
+// --- Value Serializer (Dart -> Wire JSON) ---
 
 /// Sentinel marker types recognizable from incoming map payloads.
 const _sentinelTypes = <String>{
@@ -67,10 +67,35 @@ const _sentinelTypes = <String>{
 /// Encodes a Dart value into its plain-JSON Pyric wire representation.
 dynamic encodeValue(dynamic value) {
   if (value == null) return null;
-  if (value is bool || value is num || value is String) return value;
+  if (value is bool || value is String) return value;
+  if (value is int) return value;
+  if (value is double) {
+    if (value.isNaN) {
+      return const {'__type': 'number', 'value': 'NaN'};
+    }
+    if (value == double.infinity) {
+      return const {'__type': 'number', 'value': 'Infinity'};
+    }
+    if (value == double.negativeInfinity) {
+      return const {'__type': 'number', 'value': '-Infinity'};
+    }
+    if (value == 0.0 && value.isNegative) {
+      return const {'__type': 'number', 'value': '-0'};
+    }
+    return value;
+  }
+  if (value is num) return value;
 
   if (value is PyricSentinel) {
     return value.toWireSentinel();
+  }
+
+  if (value is VectorValue) {
+    final doubles = _extractFiniteVectorDoubles(value.toArray());
+    return {
+      'type': 'firestore/vectorValue/1.0',
+      'vectorValues': doubles,
+    };
   }
 
   if (value is Timestamp) {
@@ -147,6 +172,20 @@ dynamic encodeValue(dynamic value) {
           'values': rawValues.map(encodeValue).toList(),
         };
       }
+      if (sentinel == 'vector') {
+        final rawValues = (value['values'] ?? value['vectorValues']) as List?;
+        if (rawValues == null) {
+          throw ArgumentError.value(
+            value,
+            'value',
+            'Vector sentinel values must be a list of finite numbers.',
+          );
+        }
+        return {
+          'type': 'firestore/vectorValue/1.0',
+          'vectorValues': _extractFiniteVectorDoubles(rawValues),
+        };
+      }
     }
 
     // 2. Transmutation of __type sentinel markers
@@ -211,7 +250,7 @@ Map<String, dynamic> encodeWriteData(Map<String, dynamic> data) {
   return <String, dynamic>{};
 }
 
-// ─── Value Deserializer (Wire JSON -> Dart) ─────────────────────────────────
+// --- Value Deserializer (Wire JSON -> Dart) ---
 
 /// Declared document value encoding capability for lossless Firestore wire maps and numbers.
 const String docValueEncodingV1 = 'pyric/firestore-values/1';
@@ -273,6 +312,13 @@ dynamic decodeValue(
                 : PyricDocumentReferenceHolder(path);
           }
           break;
+        case 'vector':
+          final rawVec = map['value'] ?? map['values'];
+          if (rawVec is List) {
+            final parsed = _tryExtractFiniteVectorDoubles(rawVec);
+            if (parsed != null) return VectorValue(parsed);
+          }
+          break;
         case 'number':
           if (map.length == 2 && map.containsKey('value')) {
             final numVal = map['value'];
@@ -283,6 +329,19 @@ dynamic decodeValue(
           }
           break;
       }
+    }
+
+    if (map['__sentinel'] == 'vector') {
+      final rawVec = map['values'] ?? map['value'];
+      if (rawVec is List) {
+        final parsed = _tryExtractFiniteVectorDoubles(rawVec);
+        if (parsed != null) return VectorValue(parsed);
+      }
+    }
+
+    if (map['__type__'] == '__vector__' && map['value'] is List) {
+      final parsed = _tryExtractFiniteVectorDoubles(map['value'] as List);
+      if (parsed != null) return VectorValue(parsed);
     }
 
     // 2. Escaped user map wrapper under declared pyric/firestore-values/1 encoding
@@ -324,6 +383,13 @@ dynamic decodeValue(
           if (map['bytes'] is String) {
             final b64 = map['bytes'] as String;
             return Blob(base64StdDecode(b64));
+          }
+          break;
+        case 'firestore/vectorValue/1.0':
+          if (map['vectorValues'] is List) {
+            final parsed =
+                _tryExtractFiniteVectorDoubles(map['vectorValues'] as List);
+            if (parsed != null) return VectorValue(parsed);
           }
           break;
       }
@@ -385,4 +451,38 @@ Map<String, dynamic> decodeDocData(
   }
 
   return <String, dynamic>{};
+}
+
+List<double> _extractFiniteVectorDoubles(List<dynamic> raw) {
+  final out = <double>[];
+  for (final item in raw) {
+    if (item is! num) {
+      throw ArgumentError.value(
+        item,
+        'vectorValues',
+        'Vector elements must be finite numbers.',
+      );
+    }
+    final d = item.toDouble();
+    if (!d.isFinite) {
+      throw ArgumentError.value(
+        item,
+        'vectorValues',
+        'Vector elements must be finite numbers.',
+      );
+    }
+    out.add(d);
+  }
+  return List<double>.unmodifiable(out);
+}
+
+List<double>? _tryExtractFiniteVectorDoubles(List<dynamic> raw) {
+  final out = <double>[];
+  for (final item in raw) {
+    if (item is! num) return null;
+    final d = item.toDouble();
+    if (!d.isFinite) return null;
+    out.add(d);
+  }
+  return List<double>.unmodifiable(out);
 }

@@ -400,7 +400,7 @@ struct FirestoreInstanceLiveHostConformanceTests {
 
         // Row 12: TransactionOptions(maxAttempts: 1) stops without retrying when read-set conflicts.
         let singleAttemptCounter = IntBox()
-        await expectBridgeCode(.aborted) {
+        await expectBridgeCode(.failedPrecondition) {
             _ = try await db1.runTransaction(options: TransactionOptions(maxAttempts: 1)) { txn in
                 _ = singleAttemptCounter.increment()
                 _ = try await txn.getDocument(counterRef1)

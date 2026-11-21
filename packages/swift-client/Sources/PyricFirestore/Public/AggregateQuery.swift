@@ -5,28 +5,69 @@ public enum AggregateSource: Int, Sendable {
 }
 
 public struct AggregateField: Sendable, Equatable {
+    internal enum Kind: Sendable, Equatable {
+        case count
+        case sum
+        case average
+    }
+
     internal let alias: String
     internal let descriptor: AggregateFieldDescriptor
-    internal let isCount: Bool
+    internal let kind: Kind
+
+    internal var isCount: Bool {
+        kind == .count
+    }
+
+    private static func canonicalAliasSuffix(_ segments: [String]) -> String {
+        segments
+            .map {
+                $0.replacingOccurrences(of: "\\", with: "\\\\")
+                    .replacingOccurrences(of: ".", with: "\\.")
+            }
+            .joined(separator: ".")
+    }
 
     public static func count() -> AggregateField {
-        AggregateField(alias: "count", descriptor: .count, isCount: true)
+        AggregateField(alias: "count", descriptor: .count, kind: .count)
     }
 
     public static func sum(_ field: String) -> AggregateField {
-        AggregateField(alias: "sum_\(field)", descriptor: .sum(field: field), isCount: false)
+        let segments = field.components(separatedBy: ".")
+        return AggregateField(
+            alias: "sum_\(canonicalAliasSuffix(segments))",
+            descriptor: .sum(field: field, path: nil),
+            kind: .sum
+        )
     }
 
     public static func sum(_ fieldPath: FieldPath) -> AggregateField {
-        sum(fieldPath.stringValue)
+        let segments = fieldPath.segments
+        let hasLiteralDot = segments.contains { $0.contains(".") }
+        return AggregateField(
+            alias: "sum_\(canonicalAliasSuffix(segments))",
+            descriptor: .sum(field: fieldPath.stringValue, path: hasLiteralDot ? segments : nil),
+            kind: .sum
+        )
     }
 
     public static func average(_ field: String) -> AggregateField {
-        AggregateField(alias: "avg_\(field)", descriptor: .average(field: field), isCount: false)
+        let segments = field.components(separatedBy: ".")
+        return AggregateField(
+            alias: "avg_\(canonicalAliasSuffix(segments))",
+            descriptor: .average(field: field, path: nil),
+            kind: .average
+        )
     }
 
     public static func average(_ fieldPath: FieldPath) -> AggregateField {
-        average(fieldPath.stringValue)
+        let segments = fieldPath.segments
+        let hasLiteralDot = segments.contains { $0.contains(".") }
+        return AggregateField(
+            alias: "avg_\(canonicalAliasSuffix(segments))",
+            descriptor: .average(field: fieldPath.stringValue, path: hasLiteralDot ? segments : nil),
+            kind: .average
+        )
     }
 }
 
@@ -49,7 +90,7 @@ public final class AggregateQuery: @unchecked Sendable {
         let target = query.compileTarget()
 
         if aggregateFields.count == 1 && aggregateFields[0].isCount {
-            let countResult = try await query.firestore.bridgeClient.count(
+            let countResult = try await query.firestore.bridgeClient.count64(
                 turn: turn,
                 source: target,
                 actAs: query.firestore.effectiveAuthLens
@@ -57,7 +98,7 @@ public final class AggregateQuery: @unchecked Sendable {
             return AggregateQuerySnapshot(
                 query: self,
                 countValue: countResult,
-                results: ["count": Double(countResult)]
+                results: ["count": .int64(countResult)]
             )
         }
 
@@ -66,13 +107,21 @@ public final class AggregateQuery: @unchecked Sendable {
             spec[field.alias] = field.descriptor
         }
 
-        let results = try await query.firestore.bridgeClient.aggregate(
+        let results = try await query.firestore.bridgeClient.aggregateValues(
             turn: turn,
             source: target,
             spec: spec,
             actAs: query.firestore.effectiveAuthLens
         )
-        let countVal = Int(results["count"]??.rounded() ?? 0)
+        let countVal: Int64
+        switch results["count"] {
+        case .int64(let i):
+            countVal = i
+        case .double(let d):
+            countVal = Int64(d.rounded())
+        default:
+            countVal = 0
+        }
 
         return AggregateQuerySnapshot(
             query: self,
@@ -93,10 +142,10 @@ public final class AggregateQuery: @unchecked Sendable {
 
 public final class AggregateQuerySnapshot: @unchecked Sendable {
     public let query: AggregateQuery
-    private let countValue: Int
-    private let results: [String: Double?]
+    private let countValue: Int64
+    private let results: [String: AggregateScalarValue]
 
-    internal init(query: AggregateQuery, countValue: Int, results: [String: Double?]) {
+    internal init(query: AggregateQuery, countValue: Int64, results: [String: AggregateScalarValue]) {
         self.query = query
         self.countValue = countValue
         self.results = results
@@ -110,12 +159,30 @@ public final class AggregateQuerySnapshot: @unchecked Sendable {
         if aggregateField.isCount {
             return count
         }
-        guard let optVal = results[aggregateField.alias] else {
+        guard let scalar = results[aggregateField.alias] else {
             return nil
         }
-        guard let val = optVal else {
-            return NSNull()
+        switch aggregateField.kind {
+        case .count:
+            return count
+        case .sum:
+            switch scalar {
+            case .int64(let i):
+                return NSNumber(value: i)
+            case .double(let d):
+                return NSNumber(value: d)
+            case .null:
+                return NSNumber(value: Int64(0))
+            }
+        case .average:
+            switch scalar {
+            case .int64(let i):
+                return NSNumber(value: Double(i))
+            case .double(let d):
+                return NSNumber(value: d)
+            case .null:
+                return NSNull()
+            }
         }
-        return NSNumber(value: val)
     }
 }

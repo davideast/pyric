@@ -1,5 +1,54 @@
 import Foundation
 
+package enum AggregateScalarValue: Sendable, Equatable {
+    case int64(Int64)
+    case double(Double)
+    case null
+
+    package var optionalDoubleValue: Double? {
+        switch self {
+        case .int64(let i):
+            return Double(i)
+        case .double(let d):
+            return d
+        case .null:
+            return nil
+        }
+    }
+
+    package static func decode(raw: AnySendable, encoded: AnySendable?) -> AggregateScalarValue {
+        if let marker = encoded?.dictionaryValue,
+           marker["__type"]?.stringValue == "number",
+           let tag = marker["value"]?.stringValue {
+            switch tag {
+            case "NaN":
+                return .double(.nan)
+            case "Infinity":
+                return .double(.infinity)
+            case "-Infinity":
+                return .double(-.infinity)
+            case "-0":
+                return .double(-0.0)
+            default:
+                break
+            }
+        }
+        switch raw {
+        case .null:
+            return .null
+        case .int(let i):
+            return .int64(i)
+        case .double(let d):
+            return .double(d)
+        default:
+            if let d = raw.doubleValue {
+                return .double(d)
+            }
+            return .null
+        }
+    }
+}
+
 extension PyricBridgeClient {
 
     /// Reads a document snapshot via getDoc.
@@ -114,13 +163,17 @@ extension PyricBridgeClient {
 
     /// Counts matching documents via count, in the place `turn` holds.
     package func count(turn: OperationTurn, source: TargetDescriptor, actAs: AuthLens?) async throws -> Int {
+        Int(try await count64(turn: turn, source: source, actAs: actAs))
+    }
+
+    package func count64(turn: OperationTurn, source: TargetDescriptor, actAs: AuthLens?) async throws -> Int64 {
         let res = try await op(
             turn: turn,
             method: "count",
             params: ["source": source.toAnySendable()],
             actAs: actAs
         )
-        return Int(res["count"]?.intValue ?? 0)
+        return res["count"]?.intValue ?? 0
     }
 
     /// Performs server-side aggregations via aggregate.
@@ -139,6 +192,20 @@ extension PyricBridgeClient {
         spec: [String: AggregateFieldDescriptor],
         actAs: AuthLens?
     ) async throws -> [String: Double?] {
+        let typed = try await aggregateValues(turn: turn, source: source, spec: spec, actAs: actAs)
+        var result: [String: Double?] = [:]
+        for (k, v) in typed {
+            result[k] = v.optionalDoubleValue
+        }
+        return result
+    }
+
+    package func aggregateValues(
+        turn: OperationTurn,
+        source: TargetDescriptor,
+        spec: [String: AggregateFieldDescriptor],
+        actAs: AuthLens?
+    ) async throws -> [String: AggregateScalarValue] {
         let specMap = spec.mapValues { $0.toAnySendable() }
         let res = try await op(
             turn: turn,
@@ -152,13 +219,10 @@ extension PyricBridgeClient {
         guard let data = res["data"]?.dictionaryValue else {
             return [:]
         }
-        var result: [String: Double?] = [:]
+        let encodedData = res["encodedData"]?.dictionaryValue
+        var result: [String: AggregateScalarValue] = [:]
         for (k, v) in data {
-            if v == .null {
-                result[k] = nil
-            } else {
-                result[k] = v.doubleValue
-            }
+            result[k] = AggregateScalarValue.decode(raw: v, encoded: encodedData?[k])
         }
         return result
     }

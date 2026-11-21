@@ -43,9 +43,11 @@ extension Firestore {
             attempts += 1
             let attemptTxnId = UUID().uuidString
             let txn = Transaction(firestore: self, txnId: attemptTxnId)
+            var inCommit = false
             do {
                 let result = try await updateBlock(txn)
                 let writeId = lifecycle.beginOnlineWrite()
+                inCommit = true
                 do {
                     try await bridgeClient.txnCommit(
                         reads: txn.stagedReads,
@@ -65,6 +67,15 @@ extension Firestore {
             } catch let error as PyricBridgeError {
                 if error.code == .aborted || error.code == .failedPrecondition {
                     if attempts >= maxAttempts {
+                        if inCommit && error.code == .aborted {
+                            throw PyricBridgeError(
+                                code: .failedPrecondition,
+                                rawCode: FirestoreErrorCode.failedPrecondition.rawValue,
+                                message: error.message,
+                                denialContext: error.denialContext,
+                                envelope: error.envelope
+                            )
+                        }
                         throw error
                     }
                     let delayMs = min(1000, 50 * (1 << attempts)) + Int.random(in: 10...50)

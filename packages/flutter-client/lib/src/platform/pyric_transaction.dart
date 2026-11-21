@@ -12,11 +12,12 @@ import 'pyric_offline_projection.dart';
 /// Concrete [TransactionPlatform] managing reads and writes within an atomic transaction.
 class PyricTransaction extends TransactionPlatform {
   final FirebaseFirestorePlatform firestore;
+  final String? txnId;
   final List<Map<String, dynamic>> _reads = [];
   final List<Map<String, dynamic>> _writes = [];
   final List<OfflineFirestoreMutation> _mutations = [];
 
-  PyricTransaction(this.firestore) : super();
+  PyricTransaction(this.firestore, {this.txnId}) : super();
 
   PyricFirestorePlatform get _firestorePlatform {
     final f = firestore;
@@ -41,7 +42,11 @@ class PyricTransaction extends TransactionPlatform {
         message: 'Transactions cannot be executed while the client is offline.',
       );
     }
-    final res = await _client.getDoc(documentPath, actAs: f.effectiveAuthLens);
+    final res = await _client.getDoc(
+      documentPath,
+      actAs: f.effectiveAuthLens,
+      txnId: txnId,
+    );
     f.lifecycle.recordOnlineDoc(documentPath, res);
     final snap = PyricDocumentSnapshot.fromWire(firestore, documentPath, res);
     Map<String, dynamic>? serializedData;
@@ -88,6 +93,23 @@ class PyricTransaction extends TransactionPlatform {
   ) {
     final stringMap = serializeUpdateData(data);
     final encoded = encodeWriteData(stringMap);
+    final useFieldVectors = hasLiteralDotSegment(data.keys);
+
+    if (useFieldVectors) {
+      _writes.add({
+        'method': 'update',
+        'path': documentPath,
+        'fields': serializeUpdateFieldDescriptors(data),
+      });
+      _mutations.add(
+        OfflineFirestoreMutation.update(
+          documentPath,
+          encoded,
+          updateSegments: serializeOfflineUpdateSegments(data),
+        ),
+      );
+      return this;
+    }
 
     _writes.add({
       'method': 'update',
@@ -111,6 +133,11 @@ class PyricTransaction extends TransactionPlatform {
   /// Commits all transaction reads and writes via the Pyric bridge.
   Future<void> commit() async {
     final f = _firestorePlatform;
-    await _client.txnCommit(_reads, _writes, actAs: f.effectiveAuthLens);
+    await _client.txnCommit(
+      _reads,
+      _writes,
+      actAs: f.effectiveAuthLens,
+      txnId: txnId,
+    );
   }
 }

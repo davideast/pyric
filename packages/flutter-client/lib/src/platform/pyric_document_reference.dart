@@ -112,15 +112,25 @@ class PyricDocumentReference extends DocumentReferencePlatform {
     final f = _firestorePlatform;
     final stringMap = serializeUpdateData(data);
     final encoded = encodeWriteData(stringMap);
+    final useFieldVectors = hasLiteralDotSegment(data.keys);
+    final fieldDescriptors =
+        useFieldVectors ? serializeUpdateFieldDescriptors(data) : null;
+    final offlineSegments =
+        useFieldVectors ? serializeOfflineUpdateSegments(data) : null;
     final lens = f.effectiveAuthLens;
 
     return f.lifecycle.executeWrite(
       mutations: [
-        OfflineFirestoreMutation.update(path, encoded),
+        OfflineFirestoreMutation.update(
+          path,
+          encoded,
+          updateSegments: offlineSegments,
+        ),
       ],
       sendOnline: () => _client.updateDoc(
         path,
         stringMap,
+        fields: fieldDescriptors,
         actAs: lens,
       ),
     );

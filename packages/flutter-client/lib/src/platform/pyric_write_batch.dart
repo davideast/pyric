@@ -61,6 +61,23 @@ class PyricWriteBatch extends WriteBatchPlatform {
     _assertNotCommitted();
     final stringMap = serializeUpdateData(data);
     final encoded = encodeWriteData(stringMap);
+    final useFieldVectors = hasLiteralDotSegment(data.keys);
+
+    if (useFieldVectors) {
+      _writes.add({
+        'method': 'update',
+        'path': documentPath,
+        'fields': serializeUpdateFieldDescriptors(data),
+      });
+      _mutations.add(
+        OfflineFirestoreMutation.update(
+          documentPath,
+          encoded,
+          updateSegments: serializeOfflineUpdateSegments(data),
+        ),
+      );
+      return;
+    }
 
     _writes.add({
       'method': 'update',

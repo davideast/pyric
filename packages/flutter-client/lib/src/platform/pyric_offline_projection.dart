@@ -8,6 +8,7 @@ class OfflineFirestoreMutation {
   final OfflineMutationKind kind;
   final String path;
   final Map<String, dynamic>? encodedData;
+  final List<MapEntry<List<String>, dynamic>>? updateSegments;
   final bool merge;
   final List<String>? mergeFields;
 
@@ -15,6 +16,7 @@ class OfflineFirestoreMutation {
     required this.kind,
     required this.path,
     this.encodedData,
+    this.updateSegments,
     this.merge = false,
     this.mergeFields,
   });
@@ -42,12 +44,21 @@ class OfflineFirestoreMutation {
 
   factory OfflineFirestoreMutation.update(
     String path,
-    Map<String, dynamic> encodedFields,
-  ) {
+    Map<String, dynamic> encodedFields, {
+    List<MapEntry<List<String>, dynamic>>? updateSegments,
+  }) {
     return OfflineFirestoreMutation._(
       kind: OfflineMutationKind.update,
       path: path,
       encodedData: _deepCopyMap(encodedFields),
+      updateSegments: updateSegments
+          ?.map(
+            (entry) => MapEntry(
+              List<String>.unmodifiable(entry.key),
+              _deepCopyValue(entry.value),
+            ),
+          )
+          .toList(),
     );
   }
 
@@ -222,18 +233,32 @@ class FirestoreOfflineProjection {
           case OfflineMutationKind.update:
             if (current == null) continue;
             final prior = _deepCopyMap(current);
-            final fields = mutation.encodedData ?? const <String, dynamic>{};
             var updated = _deepCopyMap(current);
-            for (final entry in fields.entries) {
-              final segments = entry.key.split('.');
-              final resolved = _resolveSentinelValue(
-                entry.value,
-                priorRoot: prior,
-                segments: segments,
-                nowSeconds: nowSeconds,
-                keepDeletes: true,
-              );
-              updated = _setField(updated, segments, resolved);
+            final explicitSegments = mutation.updateSegments;
+            if (explicitSegments != null) {
+              for (final entry in explicitSegments) {
+                final resolved = _resolveSentinelValue(
+                  entry.value,
+                  priorRoot: prior,
+                  segments: entry.key,
+                  nowSeconds: nowSeconds,
+                  keepDeletes: true,
+                );
+                updated = _setField(updated, entry.key, resolved);
+              }
+            } else {
+              final fields = mutation.encodedData ?? const <String, dynamic>{};
+              for (final entry in fields.entries) {
+                final segments = entry.key.split('.');
+                final resolved = _resolveSentinelValue(
+                  entry.value,
+                  priorRoot: prior,
+                  segments: segments,
+                  nowSeconds: nowSeconds,
+                  keepDeletes: true,
+                );
+                updated = _setField(updated, segments, resolved);
+              }
             }
             current = updated;
           case OfflineMutationKind.set:

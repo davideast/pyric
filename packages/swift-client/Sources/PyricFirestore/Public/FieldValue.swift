@@ -57,6 +57,10 @@ public struct VectorValue: Equatable, Hashable, Codable, Sendable {
         self.values = values.map { Double($0) }
     }
 
+    public var array: [Double] {
+        values
+    }
+
     public var arrayValue: [Double] {
         values
     }
