@@ -58,13 +58,6 @@ const DEFERRED_SUBPATHS: readonly DeferredSubpathSpec[] = [
     syncMethod: 'runtime',
   },
   {
-    subpath: 'functions',
-    factory: 'getFunctions',
-    serviceClass: 'Functions',
-    extraExports: ['TaskQueue'],
-    syncMethod: 'taskQueue',
-  },
-  {
     subpath: 'installations',
     factory: 'getInstallations',
     serviceClass: 'Installations',
