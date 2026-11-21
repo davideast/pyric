@@ -368,7 +368,7 @@ class ConformanceTest {
         val data = snap.getData()
         assertNotNull(data)
         assertEquals("Alice", data!!["name"])
-        assertEquals(30, data["age"])
+        assertEquals(30L, data["age"])
     }
 
     @Test
@@ -376,6 +376,7 @@ class ConformanceTest {
     fun `firestore-kotlin#41 DocumentSnapshot get extracts nested field by path`() {
         val snap = Tasks.await(harness.firestore.document("users/alice").get())
         assertEquals("Alice", snap.getString("name"))
+        assertEquals(30L, snap.get("age"))
         assertEquals(30L, snap.getLong("age"))
     }
 
@@ -588,8 +589,9 @@ class ConformanceTest {
     @Test
     @DisplayName("firestore-kotlin#65: AggregateQuery.aggregate computes sum and average")
     fun `firestore-kotlin#65 AggregateQuery aggregate computes sum and average`() {
-        val snap = Tasks.await(harness.firestore.collection("scores").aggregate(AggregateField.sum("score"), AggregateField.average("score")).get())
-        assertEquals(150.0, snap.get(AggregateField.sum("score")))
+        val snap = Tasks.await(harness.firestore.collection("scores").aggregate(AggregateField.sum("score"), AggregateField.sum("bonus"), AggregateField.average("score")).get())
+        assertEquals(150L, snap.get(AggregateField.sum("score")))
+        assertEquals(42.5, snap.get(AggregateField.sum("bonus")))
         assertEquals(75.0, snap.get(AggregateField.average("score")))
     }
 }

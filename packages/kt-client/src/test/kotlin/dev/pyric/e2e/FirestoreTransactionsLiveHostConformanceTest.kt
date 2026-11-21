@@ -261,9 +261,9 @@ class FirestoreTransactionsLiveHostConformanceTest {
         val prefix = "agg-${System.nanoTime()}"
         val itemsCol = firestore.collection("role_items/moderator/items")
         val rows = listOf(
-            Triple("$prefix-1", 10L, 2.5),
-            Triple("$prefix-2", 20L, 7.5),
-            Triple("$prefix-3", 30L, 5.0)
+            Triple("$prefix-1", 10L, 2.25),
+            Triple("$prefix-2", 20L, 6.0),
+            Triple("$prefix-3", 30L, 7.5)
         )
         for ((docId, price, bonus) in rows) {
             Tasks.await(
@@ -304,10 +304,18 @@ class FirestoreTransactionsLiveHostConformanceTest {
             TimeUnit.SECONDS
         )
         assertEquals(3L, multiSnap.count)
-        assertEquals(60.0, multiSnap.get(AggregateField.sum("price"))!!, 1e-9)
-        assertEquals(20.0, multiSnap.get(AggregateField.average("price"))!!, 1e-9)
-        assertEquals(15.0, multiSnap.get(AggregateField.sum(bonusPath))!!, 1e-9)
-        assertEquals(5.0, multiSnap.get(AggregateField.average(bonusPath))!!, 1e-9)
+        val priceSum = requireNotNull(multiSnap.get(AggregateField.sum("price")))
+        assertEquals("java.lang.Long", priceSum.javaClass.name)
+        assertEquals(60L, priceSum)
+        assertEquals(60L, multiSnap.getLong(AggregateField.sum("price")))
+        assertEquals(60.0, multiSnap.getDouble(AggregateField.sum("price"))!!, 1e-9)
+        val priceAvg: Any = requireNotNull(multiSnap.get(AggregateField.average("price")))
+        assertEquals("java.lang.Double", priceAvg.javaClass.name)
+        assertEquals(20.0, priceAvg as Double, 1e-9)
+        val bonusSum = requireNotNull(multiSnap.get(AggregateField.sum(bonusPath)))
+        assertEquals("java.lang.Double", bonusSum.javaClass.name)
+        assertEquals(15.75, bonusSum as Double, 1e-9)
+        assertEquals(5.25, multiSnap.get(AggregateField.average(bonusPath))!!, 1e-9)
         assertThrows(IllegalArgumentException::class.java) {
             multiSnap.get(AggregateField.sum("unrequested"))
         }
@@ -323,7 +331,9 @@ class FirestoreTransactionsLiveHostConformanceTest {
             TimeUnit.SECONDS
         )
         assertEquals(0L, emptyAgg.count)
-        assertEquals(0.0, emptyAgg.get(AggregateField.sum("price"))!!, 1e-9)
+        val emptySum = requireNotNull(emptyAgg.get(AggregateField.sum("price")))
+        assertEquals("java.lang.Long", emptySum::class.java.name)
+        assertEquals(0L, emptySum)
         assertNull(emptyAgg.get(AggregateField.average("price")))
 
         assertFirestoreCode(FirebaseFirestoreException.Code.PERMISSION_DENIED) {

@@ -400,8 +400,8 @@ class FirestoreSnapshotsBatchTransactionsAggregateTest {
         assertEquals(3L, aggSnap.count)
         assertEquals(42.5, aggSnap.get(AggregateField.sum(dottedField)))
         assertNull(aggSnap.get(AggregateField.average("emptyField")))
-        assertEquals(0.0, aggSnap.get(AggregateField.sum("emptyField")))
-        assertTrue(aggSnap.get(AggregateField.sum("nanField"))!!.isNaN())
+        assertEquals(0L, aggSnap.get(AggregateField.sum("emptyField")))
+        assertTrue((aggSnap.get(AggregateField.sum("nanField")) as Double).isNaN())
         assertThrows(IllegalArgumentException::class.java) {
             aggSnap.get(AggregateField.average("unrequested"))
         }

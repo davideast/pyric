@@ -7,21 +7,23 @@ open class DocumentSnapshot internal constructor(
     val id: String,
     val reference: DocumentReference,
     private val exists: Boolean,
-    private val rawData: Map<String, Any?>?,
+    rawData: Map<String, Any?>?,
     val metadata: SnapshotMetadata = SnapshotMetadata(hasPendingWrites = false, isFromCache = false),
     internal val rawWireData: Map<String, Any?>? = null
 ) {
+    private val normalizedData: Map<String, Any?>? = rawData?.let { copyMap(it) }
+
     open fun exists(): Boolean = exists
 
-    open fun getData(): Map<String, Any?>? = rawData?.let { copyMap(it) }
+    open fun getData(): Map<String, Any?>? = normalizedData?.let { copyMap(it) }
 
-    internal fun rawMapSnapshot(): Map<String, Any?> = rawData ?: emptyMap()
+    internal fun rawMapSnapshot(): Map<String, Any?> = normalizedData ?: emptyMap()
 
-    fun contains(field: String): Boolean = exists && FieldPath.contains(rawData, field)
-    fun contains(fieldPath: FieldPath): Boolean = exists && FieldPath.contains(rawData, fieldPath)
+    fun contains(field: String): Boolean = exists && FieldPath.contains(normalizedData, field)
+    fun contains(fieldPath: FieldPath): Boolean = exists && FieldPath.contains(normalizedData, fieldPath)
 
-    fun get(field: String): Any? = if (!exists) null else copyValue(FieldPath.extract(rawData, field))
-    fun get(fieldPath: FieldPath): Any? = if (!exists) null else copyValue(FieldPath.extract(rawData, fieldPath))
+    fun get(field: String): Any? = if (!exists) null else copyValue(FieldPath.extract(normalizedData, field))
+    fun get(fieldPath: FieldPath): Any? = if (!exists) null else copyValue(FieldPath.extract(normalizedData, fieldPath))
     fun getString(field: String): String? = get(field) as? String
     fun getString(fieldPath: FieldPath): String? = get(fieldPath) as? String
     fun getLong(field: String): Long? = (get(field) as? Number)?.toLong()
@@ -40,7 +42,7 @@ open class DocumentSnapshot internal constructor(
     fun getDocumentReference(fieldPath: FieldPath): DocumentReference? = get(fieldPath) as? DocumentReference
 
     open fun <T> toObject(valueType: Class<T>): T? =
-        if (!exists || rawData == null) null else PojoCodec.deserialize(rawData, valueType, id, reference)
+        if (!exists || normalizedData == null) null else PojoCodec.deserialize(normalizedData, valueType, id, reference)
 
     companion object {
         internal fun copyMap(source: Map<String, Any?>): Map<String, Any?> {
@@ -51,37 +53,44 @@ open class DocumentSnapshot internal constructor(
             return out
         }
 
-        private fun copyValue(value: Any?): Any? {
-            if (value is Map<*, *>) {
-                val out = LinkedHashMap<String, Any?>(value.size)
-                for ((k, v) in value) {
-                    out[k.toString()] = copyValue(v)
+        internal fun copyValue(value: Any?): Any? {
+            return when (value) {
+                is Byte -> value.toLong()
+                is Short -> value.toLong()
+                is Int -> value.toLong()
+                is Float -> value.toDouble()
+                is Map<*, *> -> {
+                    val out = LinkedHashMap<String, Any?>(value.size)
+                    for ((k, v) in value) {
+                        out[k.toString()] = copyValue(v)
+                    }
+                    out
                 }
-                return out
+                is List<*> -> value.map { copyValue(it) }
+                else -> value
             }
-            if (value is List<*>) {
-                return value.map { copyValue(it) }
-            }
-            return value
         }
     }
 
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is DocumentSnapshot) return false
-        return id == other.id && reference == other.reference && exists == other.exists && rawData == other.rawData
+        return id == other.id &&
+            reference == other.reference &&
+            exists == other.exists &&
+            normalizedData == other.normalizedData
     }
 
     override fun hashCode(): Int {
         var result = id.hashCode()
         result = 31 * result + reference.hashCode()
         result = 31 * result + exists.hashCode()
-        result = 31 * result + (rawData?.hashCode() ?: 0)
+        result = 31 * result + (normalizedData?.hashCode() ?: 0)
         return result
     }
 
     override fun toString(): String =
-        "DocumentSnapshot(id=$id, path=${reference.path}, exists=$exists, data=$rawData)"
+        "DocumentSnapshot(id=$id, path=${reference.path}, exists=$exists, data=$normalizedData)"
 }
 
 val DocumentSnapshot.data: Map<String, Any?>?
