@@ -17,7 +17,8 @@
     "firestore-kotlin#33",
     "firestore-kotlin#35",
     "firestore-kotlin#44",
-    "firestore-kotlin#64"
+    "firestore-kotlin#64",
+    "firestore-kotlin#65"
   ],
   "description": "Upstream Android FirebaseFirestore single-field queries (whereEqualTo, Filter.and range, Filter.or disjunction, whereIn, whereArrayContains, whereArrayContainsAny), orderBy + limit/limitToLast, value/DocumentSnapshot/documentId cursors, count/sum/average aggregations, and addSnapshotListener DocumentChange lifecycle under Robolectric.",
   "observedAt": "2026-11-21T03:12:02.155Z",

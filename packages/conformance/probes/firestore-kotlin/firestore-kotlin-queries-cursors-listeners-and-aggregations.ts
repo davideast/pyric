@@ -22,6 +22,7 @@ export const probe: Probe = {
     'firestore-kotlin#35',
     'firestore-kotlin#44',
     'firestore-kotlin#64',
+    'firestore-kotlin#65',
   ],
   rig: 'android-sdk-probes',
   requires: ['web-config', 'firestore-rules', 'admin-auth', 'admin-firestore'],

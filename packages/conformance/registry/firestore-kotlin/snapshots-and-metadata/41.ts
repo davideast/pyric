@@ -7,6 +7,7 @@ export default row({
   behavior: 'Extracts single field value supporting dot notation or FieldPath instances.',
   featureKeys: ['get'],
   status: 'conforms',
+  oracleObservations: ['firestore-kotlin-crud-merge-sentinels-and-codecs'],
   tests: [LIVE_HOST_SNAPSHOTS_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

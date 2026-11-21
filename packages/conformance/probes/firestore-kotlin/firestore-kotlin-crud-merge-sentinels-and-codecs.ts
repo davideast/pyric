@@ -15,6 +15,8 @@ export const probe: Probe = {
     'firestore-kotlin#37',
     'firestore-kotlin#38',
     'firestore-kotlin#39',
+    'firestore-kotlin#40',
+    'firestore-kotlin#41',
     'firestore-kotlin#43',
     'firestore-kotlin#54',
     'firestore-kotlin#55',

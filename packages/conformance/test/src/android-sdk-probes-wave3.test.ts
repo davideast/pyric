@@ -90,9 +90,9 @@ describe('Wave 3 android-sdk-probes firestore-kotlin Robolectric probes', () => 
       ]);
     }
     expect(firestoreCrudCodecsProbe.matrixRow).toBe('firestore-kotlin#15');
-    expect(firestoreCrudCodecsProbe.rowIds.length).toBe(20);
+    expect(firestoreCrudCodecsProbe.rowIds.length).toBe(22);
     expect(firestoreQueriesAggProbe.matrixRow).toBe('firestore-kotlin#21');
-    expect(firestoreQueriesAggProbe.rowIds.length).toBe(16);
+    expect(firestoreQueriesAggProbe.rowIds.length).toBe(17);
     expect(firestoreBatchesTxProbe.matrixRow).toBe('firestore-kotlin#48');
     expect(firestoreBatchesTxProbe.rowIds.length).toBe(18);
 
