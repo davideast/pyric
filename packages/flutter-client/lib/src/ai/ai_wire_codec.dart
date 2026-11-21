@@ -115,8 +115,13 @@ Map<String, dynamic> encodeCountTokensRequest({
 }
 
 Uint8List _decodeBase64Bytes(String encoded) {
+  final compact = encoded.replaceAll(RegExp(r'\s+'), '');
+  if (compact.isEmpty) {
+    return Uint8List(0);
+  }
+  final standardAlphabet = compact.replaceAll('-', '+').replaceAll('_', '/');
   try {
-    return base64Decode(base64.normalize(encoded.trim()));
+    return base64Decode(base64.normalize(standardAlphabet));
   } on FormatException catch (error) {
     throw SerializationException(
       'Invalid base64 payload in inlineData.data: ${error.message}',
@@ -128,9 +133,10 @@ Uint8List _decodeBase64Bytes(String encoded) {
 Part decodeWirePart(Map<String, dynamic> raw) {
   final thoughtSignature = raw['thoughtSignature'] as String?;
 
-  if (raw['thought'] == true && raw['text'] is String) {
+  if (raw['thought'] == true) {
+    final textValue = raw['text'] is String ? raw['text'] as String : '';
     return ThoughtPart(
-      raw['text'] as String,
+      textValue,
       thoughtSignature: thoughtSignature,
     );
   }
@@ -142,8 +148,15 @@ Part decodeWirePart(Map<String, dynamic> raw) {
   }
   if (raw['inlineData'] is Map) {
     final inlineMap = Map<String, dynamic>.from(raw['inlineData'] as Map);
-    final mimeType = inlineMap['mimeType'] as String? ?? 'application/octet-stream';
-    final dataStr = inlineMap['data'] as String? ?? '';
+    final mimeType =
+        inlineMap['mimeType'] as String? ?? 'application/octet-stream';
+    final dataRaw = inlineMap['data'];
+    if (dataRaw != null && dataRaw is! String) {
+      throw const SerializationException(
+        'Expected string base64 payload in inlineData.data.',
+      );
+    }
+    final dataStr = dataRaw as String? ?? '';
     final willContinue = inlineMap['willContinue'] as bool?;
     return InlineDataPart(
       mimeType,
@@ -154,7 +167,8 @@ Part decodeWirePart(Map<String, dynamic> raw) {
   }
   if (raw['fileData'] is Map) {
     final fileMap = Map<String, dynamic>.from(raw['fileData'] as Map);
-    final mimeType = fileMap['mimeType'] as String? ?? 'application/octet-stream';
+    final mimeType =
+        fileMap['mimeType'] as String? ?? 'application/octet-stream';
     final fileUri = fileMap['fileUri'] as String? ?? '';
     return FileData(
       mimeType,
@@ -186,6 +200,23 @@ Part decodeWirePart(Map<String, dynamic> raw) {
         : const <String, Object?>{};
     final id = respMap['id'] as String?;
     return FunctionResponse(name, response, id: id);
+  }
+  if (raw['executableCode'] is Map) {
+    final codeMap = Map<String, dynamic>.from(raw['executableCode'] as Map);
+    return ExecutableCodePart(
+      CodeExecutionLanguage.fromWire(codeMap['language'] as String?),
+      codeMap['code'] as String? ?? '',
+      thoughtSignature: thoughtSignature,
+    );
+  }
+  if (raw['codeExecutionResult'] is Map) {
+    final resultMap =
+        Map<String, dynamic>.from(raw['codeExecutionResult'] as Map);
+    return CodeExecutionResultPart(
+      CodeExecutionOutcome.fromWire(resultMap['outcome'] as String?),
+      resultMap['output'] as String? ?? '',
+      thoughtSignature: thoughtSignature,
+    );
   }
   return UnknownPart(raw);
 }
@@ -319,13 +350,23 @@ UsageMetadata? _decodeUsageMetadata(Object? raw) {
     thoughtsTokenCount: (map['thoughtsTokenCount'] as num?)?.toInt(),
     cachedContentTokenCount: (map['cachedContentTokenCount'] as num?)?.toInt(),
     toolUsePromptTokenCount: (map['toolUsePromptTokenCount'] as num?)?.toInt(),
+    serviceTier: map['serviceTier'] as String?,
+    trafficType: map['trafficType'] as String?,
     promptTokensDetails: _decodeModalityTokenCounts(map['promptTokensDetails']),
     candidatesTokensDetails:
         _decodeModalityTokenCounts(map['candidatesTokensDetails']),
+    cacheTokensDetails: _decodeModalityTokenCounts(map['cacheTokensDetails']),
+    toolUsePromptTokensDetails:
+        _decodeModalityTokenCounts(map['toolUsePromptTokensDetails']),
   );
 }
 
 /// Decodes a unary or streamed [GenerateContentResponse] wire envelope.
+///
+/// When `candidateCount > 1` produces multiple candidates on the wire, orders
+/// [GenerateContentResponse.candidates] deterministically by wire `index`
+/// (preserving arrival order on ties) so `candidates.first` always addresses
+/// candidate `0`.
 GenerateContentResponse decodeGenerateContentResponse(Object? raw) {
   if (raw is! Map) {
     throw const SerializationException(
@@ -333,18 +374,31 @@ GenerateContentResponse decodeGenerateContentResponse(Object? raw) {
     );
   }
   final map = Map<String, dynamic>.from(raw);
-  final candidates = <Candidate>[];
+  final indexedCandidates = <({int arrival, Candidate candidate})>[];
   final rawCandidates = map['candidates'];
   if (rawCandidates is List) {
     for (var i = 0; i < rawCandidates.length; i += 1) {
       final entry = rawCandidates[i];
       if (entry is Map) {
-        candidates.add(
-          _decodeCandidate(Map<String, dynamic>.from(entry), i),
-        );
+        indexedCandidates.add((
+          arrival: i,
+          candidate: _decodeCandidate(Map<String, dynamic>.from(entry), i),
+        ));
       }
     }
   }
+  indexedCandidates.sort((left, right) {
+    final leftIdx = left.candidate.index ?? left.arrival;
+    final rightIdx = right.candidate.index ?? right.arrival;
+    final cmp = leftIdx.compareTo(rightIdx);
+    if (cmp != 0) {
+      return cmp;
+    }
+    return left.arrival.compareTo(right.arrival);
+  });
+  final candidates = indexedCandidates
+      .map((entry) => entry.candidate)
+      .toList(growable: false);
   return GenerateContentResponse(
     candidates,
     _decodePromptFeedback(map['promptFeedback']),
