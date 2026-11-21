@@ -134,27 +134,31 @@ export function startFirestoreTriggerExecution(
             const deliverySequence = (sequence += 1);
             tail = tail.then(async () => {
               if (closed) return;
-              const envelope = await options.envelopeOptions(
-                matched,
-                deliverySequence,
-                trigger,
-              );
-              const eventInput: FirestoreEventBuildInput = {
-                id: envelope.id,
-                time: envelope.time,
-                projectId: envelope.projectId,
-                location: envelope.location,
-                database: trigger.database,
-                namespace: trigger.namespace,
-                document: normalizedDoc,
-                before: mutation.before,
-                after: mutation.after,
-                updateMask: computedUpdateMask,
-                authType: mutation.authType,
-                authId: mutation.authId,
-              };
-              const result = await executeFirestoreTrigger(trigger, eventInput);
-              options.onExecution?.(result, trigger, matched);
+              try {
+                const envelope = await options.envelopeOptions(
+                  matched,
+                  deliverySequence,
+                  trigger,
+                );
+                const eventInput: FirestoreEventBuildInput = {
+                  id: envelope.id,
+                  time: envelope.time,
+                  projectId: envelope.projectId,
+                  location: envelope.location,
+                  database: trigger.database,
+                  namespace: trigger.namespace,
+                  document: normalizedDoc,
+                  before: mutation.before,
+                  after: mutation.after,
+                  updateMask: computedUpdateMask,
+                  authType: mutation.authType,
+                  authId: mutation.authId,
+                };
+                const result = await executeFirestoreTrigger(trigger, eventInput);
+                options.onExecution?.(result, trigger, matched);
+              } catch (error) {
+                options.onDeliveryError?.(error, trigger);
+              }
             });
           }
         },

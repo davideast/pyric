@@ -163,21 +163,8 @@ describe('pyric sandbox --hosted Firestore v2 onDocumentCreated E2E', () => {
     let stderr = '';
     activeProcess = spawn(
       process.env.PYRIC_TEST_NODE ?? 'node',
-      [
-        cliEntry,
-        'sandbox',
-        '--hosted',
-        '--bridge',
-        '--port=0',
-        '--host=127.0.0.1',
-        '--no-open',
-        '--no-capture',
-      ],
-      {
-        cwd,
-        env: process.env,
-        stdio: ['ignore', 'pipe', 'pipe'],
-      },
+      [cliEntry, 'sandbox', '--hosted', '--bridge', '--port=0', '--host=127.0.0.1', '--no-open', '--no-capture'],
+      { cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] },
     );
     activeProcess.stdout?.setEncoding('utf8');
     activeProcess.stderr?.setEncoding('utf8');
@@ -339,21 +326,8 @@ describe('pyric sandbox --hosted Firestore v2 onDocumentCreated E2E', () => {
     let stderr = '';
     activeProcess = spawn(
       process.env.PYRIC_TEST_NODE ?? 'node',
-      [
-        cliEntry,
-        'sandbox',
-        '--hosted',
-        '--bridge',
-        '--port=0',
-        '--host=127.0.0.1',
-        '--no-open',
-        '--no-capture',
-      ],
-      {
-        cwd,
-        env: process.env,
-        stdio: ['ignore', 'pipe', 'pipe'],
-      },
+      [cliEntry, 'sandbox', '--hosted', '--bridge', '--port=0', '--host=127.0.0.1', '--no-open', '--no-capture'],
+      { cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] },
     );
     activeProcess.stdout?.setEncoding('utf8');
     activeProcess.stderr?.setEncoding('utf8');
@@ -408,5 +382,181 @@ describe('pyric sandbox --hosted Firestore v2 onDocumentCreated E2E', () => {
 
     expect(exitCode).toBe(0);
     expect(stderr).not.toContain('uncaught');
+  }, 25_000);
+
+  test('propagates *WithAuthContext principals and serializes handler/uncaught errors without crashing sibling triggers under pyric sandbox --hosted', async () => {
+    if (!existsSync(cliEntry)) {
+      throw new Error(`Build packages/cli first: ${cliEntry}`);
+    }
+
+    const cwd = tempDirs.makeTempDir();
+    mkdirSync(join(cwd, 'public'));
+    mkdirSync(join(cwd, 'functions/node_modules'), { recursive: true });
+    writeFileSync(join(cwd, 'public/index.html'), '<!doctype html><body>hosted</body>');
+    writeFileSync(
+      join(cwd, '.firebaserc'),
+      JSON.stringify({ projects: { default: 'demo-project' } }),
+    );
+    writeFileSync(
+      join(cwd, 'firestore.rules'),
+      [
+        "rules_version = '2';",
+        'service cloud.firestore {',
+        '  match /databases/{database}/documents {',
+        '    match /notes/{noteId} {',
+        '      allow read, write: if true;',
+        '    }',
+        '    match /audit/{docId} {',
+        '      allow read, write: if false;',
+        '    }',
+        '  }',
+        '}',
+      ].join('\n'),
+    );
+    writeFileSync(
+      join(cwd, 'firebase.json'),
+      JSON.stringify({
+        hosting: { public: 'public' },
+        firestore: { rules: 'firestore.rules' },
+        functions: { source: 'functions' },
+      }),
+    );
+    writeFileSync(
+      join(cwd, 'functions/package.json'),
+      JSON.stringify({
+        name: 'hosted-firestore-auth-and-errors',
+        private: true,
+        type: 'commonjs',
+        main: 'index.cjs',
+      }),
+    );
+    writeFileSync(
+      join(cwd, 'functions/index.cjs'),
+      [
+        'const {',
+        '  onDocumentCreated,',
+        '  onDocumentWrittenWithAuthContext,',
+        '  onDocumentCreatedWithAuthContext,',
+        "} = require('firebase-functions/v2/firestore');",
+        "const { getApps, initializeApp } = require('firebase-admin/app');",
+        "const { getFirestore } = require('firebase-admin/firestore');",
+        '',
+        'function db() {',
+        '  if (getApps().length === 0) initializeApp();',
+        '  return getFirestore();',
+        '}',
+        '',
+        'let seq = 0;',
+        'exports.auditNoteAuth = onDocumentWrittenWithAuthContext(',
+        "  'notes/{noteId}',",
+        '  async (event) => {',
+        '    seq += 1;',
+        '    await db().doc(`audit/auth-${seq}`).set({',
+        '      noteId: event.params.noteId,',
+        '      authType: event.authType,',
+        '      authId: event.authId ?? null,',
+        '    });',
+        '  },',
+        ');',
+        '',
+        "exports.failingNoteHandler = onDocumentCreated('notes/{noteId}', async (event) => {",
+        "  if (event.params.noteId === 'boom') {",
+        '    setImmediate(() => {',
+        "      throw new Error('EXPECTED_HOSTED_UNCAUGHT_TIMER');",
+        '    });',
+        "    throw new Error('EXPECTED_HOSTED_HANDLER_REJECTION');",
+        '  }',
+        '});',
+        '',
+        'exports.analyticsOnlyAuth = onDocumentCreatedWithAuthContext(',
+        "  { document: 'notes/{noteId}', database: 'analytics' },",
+        '  async () => {',
+        "    await db().doc('audit/wrong-db').set({ fired: true });",
+        '  },',
+        ');',
+      ].join('\n'),
+    );
+    symlinkSync(
+      join(repoRoot, 'packages/conformance/node_modules/firebase-functions'),
+      join(cwd, 'functions/node_modules/firebase-functions'),
+    );
+
+    let stdout = '';
+    let stderr = '';
+    activeProcess = spawn(
+      process.env.PYRIC_TEST_NODE ?? 'node',
+      [cliEntry, 'sandbox', '--hosted', '--bridge', '--port=0', '--host=127.0.0.1', '--no-open', '--no-capture'],
+      { cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] },
+    );
+    activeProcess.stdout?.setEncoding('utf8');
+    activeProcess.stderr?.setEncoding('utf8');
+    activeProcess.stdout?.on('data', (chunk: string) => {
+      stdout += chunk;
+    });
+    activeProcess.stderr?.on('data', (chunk: string) => {
+      stderr += chunk;
+    });
+
+    const serveUrl = await waitFor(() => {
+      const match = /http:\/\/127\.0\.0\.1:\d+/.exec(stdout);
+      return match !== null ? match[0] : null;
+    });
+    await waitFor(() => (stdout.includes('3 onValueCreated triggers') ? true : null));
+
+    activeObserver = await connectRemoteSandbox({ url: serveUrl, cwd });
+
+    const aliceEncoded = serializeDocData({ text: 'from alice' }, DOC_VALUE_ENCODING);
+    await activeObserver.channel.op({
+      method: 'setDoc',
+      path: 'notes/boom',
+      data: JSON.parse(aliceEncoded.json) as unknown,
+      valueEncoding: DOC_VALUE_ENCODING,
+      actAs: { mode: 'as', uid: 'uid-alice' },
+    });
+
+    const anonEncoded = serializeDocData({ text: 'from anon' }, DOC_VALUE_ENCODING);
+    await activeObserver.channel.op({
+      method: 'setDoc',
+      path: 'notes/ok-after-error',
+      data: JSON.parse(anonEncoded.json) as unknown,
+      valueEncoding: DOC_VALUE_ENCODING,
+      actAs: { mode: 'anon' },
+    });
+
+    await writeHostedDoc(activeObserver, 'notes/from-admin', { text: 'admin write' });
+
+    const auth1 = await waitFor(async () =>
+      readHostedDoc(activeObserver as RemoteSandbox, 'audit/auth-1'),
+    );
+    const auth2 = await waitFor(async () =>
+      readHostedDoc(activeObserver as RemoteSandbox, 'audit/auth-2'),
+    );
+    const auth3 = await waitFor(async () =>
+      readHostedDoc(activeObserver as RemoteSandbox, 'audit/auth-3'),
+    );
+
+    expect(auth1).toEqual({ noteId: 'boom', authType: 'unknown', authId: 'uid-alice' });
+    expect(auth2).toEqual({ noteId: 'ok-after-error', authType: 'unauthenticated', authId: null });
+    expect(auth3).toEqual({ noteId: 'from-admin', authType: 'service_account', authId: null });
+    expect(await readHostedDoc(activeObserver, 'audit/wrong-db')).toBeNull();
+
+    await waitFor(() => {
+      const hasBothErrors =
+        stderr.includes('EXPECTED_HOSTED_HANDLER_REJECTION') &&
+        stderr.includes('EXPECTED_HOSTED_UNCAUGHT_TIMER');
+      if (hasBothErrors) return true;
+      return null;
+    });
+
+    activeObserver.close();
+    activeObserver = undefined;
+
+    const exitCode = await new Promise<number | null>((resolveExit) => {
+      activeProcess?.once('close', (code) => resolveExit(code));
+      activeProcess?.kill('SIGTERM');
+    });
+    activeProcess = undefined;
+
+    expect(exitCode).toBe(0);
   }, 25_000);
 });
