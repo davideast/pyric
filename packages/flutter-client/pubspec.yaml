@@ -16,6 +16,7 @@ dependencies:
   cloud_firestore_platform_interface: ^8.0.7
   firebase_auth_platform_interface: ^9.0.7
   firebase_app_check_platform_interface: ^0.4.2+1
+  firebase_storage_platform_interface: ^6.0.7
   plugin_platform_interface: ^2.1.8
   web_socket_channel: ^3.0.3
   async: ^2.11.0
