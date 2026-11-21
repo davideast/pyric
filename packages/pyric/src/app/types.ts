@@ -20,3 +20,14 @@ export interface FirebaseApp {
   readonly options: FirebaseOptions;
   automaticDataCollectionEnabled: boolean;
 }
+
+export interface FirebaseServerAppSettings extends Omit<FirebaseAppSettings, 'name'> {
+  authIdToken?: string;
+  appCheckToken?: string;
+  releaseOnDeref?: object;
+}
+
+export interface FirebaseServerApp extends FirebaseApp {
+  name: string;
+  readonly settings: FirebaseServerAppSettings;
+}
