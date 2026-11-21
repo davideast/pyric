@@ -1,0 +1,72 @@
+{
+  "name": "firestore-kotlin-instance-flows-inSync-and-toObject",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Upstream Android FirebaseFirestore default/KTX getInstance, FirebaseFirestoreSettings (persistent/memory cache, host/sslEnabled, post-start immutability), document(path), DocumentReference.update(map) + NOT_FOUND on missing doc, addSnapshotsInSyncListener, DocumentReference/Query snapshots(MetadataChanges) coroutine Flows, and DocumentSnapshot.toObject<T>() under Robolectric.",
+  "observedAt": "2026-11-21T07:26:52.707Z",
+  "androidBomVersion": "35.2.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "defaultInstanceSameAsKtx": true,
+    "defaultInstanceAppName": "[DEFAULT]",
+    "namedInstanceSameAsKtx": true,
+    "defaultAndNamedInstancesDistinct": true,
+    "settingsDefaultHost": "firestore.googleapis.com",
+    "settingsDefaultSslEnabled": true,
+    "settingsPersistentCacheConfigured": true,
+    "settingsPersistentCacheSizeBytes": 20971520,
+    "settingsCustomHost": "127.0.0.1:8085",
+    "settingsCustomSslEnabled": false,
+    "settingsMemoryCacheConfigured": true,
+    "settingsReconfigureAfterStartThrowsIllegalState": true,
+    "directDocEqualsCollectionChain": true,
+    "directDocId": "direct_profile",
+    "directDocParentId": "instance_flows",
+    "directDocOddSegmentsThrowsIllegalArgument": true,
+    "updateMapPreservedHandle": "grace",
+    "updateMapUpdatedLevel": 5,
+    "updateMapNestedReviews": 9,
+    "updateMapPreservedCommits": 10,
+    "updateMapDeletedFieldPresent": false,
+    "updateMissingDocErrorCodeName": "NOT_FOUND",
+    "updateMissingDocErrorCodeValue": 5,
+    "toObjectDocumentId": "direct_profile",
+    "toObjectHandle": "grace",
+    "toObjectLevel": 5,
+    "toObjectScore": 42.5,
+    "toObjectActive": true,
+    "toObjectTags": [
+      "kotlin",
+      "android"
+    ],
+    "toObjectNestedBadgeCode": "pioneer",
+    "toObjectNestedBadgeTier": 2,
+    "toObjectClassMatchesReified": true,
+    "toObjectMissingDocReturnsNull": true,
+    "inSyncFiredOnAttach": true,
+    "inSyncFiredAfterWrite": true,
+    "inSyncQuietAfterRemove": true,
+    "docSnapshotsExcludeStages": [
+      "alpha:1",
+      "beta:2"
+    ],
+    "docSnapshotsIncludeObservedPendingAndSynced": true,
+    "docSnapshotsQuietAfterCancel": true,
+    "querySnapshotsEmissionHistory": [
+      [
+        "qf_1"
+      ],
+      [
+        "qf_2",
+        "qf_1"
+      ],
+      [
+        "qf_2"
+      ]
+    ],
+    "querySnapshotsLatestToObjects": [
+      "qf_2:margaret"
+    ],
+    "querySnapshotsQuietAfterCancel": true
+  }
+}

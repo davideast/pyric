@@ -1,0 +1,108 @@
+{
+  "name": "firestore-kotlin-inequality-cursors-collectionGroup-and-txRetry",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Upstream Android FirebaseFirestore single-field inequality and negative-membership filters (whereNotEqualTo, whereLessThan, whereLessThanOrEqualTo, whereGreaterThan, whereGreaterThanOrEqualTo, whereNotIn), value and DocumentSnapshot pagination cursors (startAt, startAfter, endAt, endBefore), scoped collectionGroup(id), Transaction.delete, and TransactionOptions contention retry / maxAttempts exhaustion under Robolectric.",
+  "observedAt": "2026-11-21T07:26:28.467Z",
+  "androidBomVersion": "35.2.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "whereNotEqualToTierIds": [
+      "d1",
+      "d5",
+      "d4",
+      "d2"
+    ],
+    "whereNotEqualToScoreIds": [
+      "d1",
+      "d2",
+      "d4",
+      "d5"
+    ],
+    "whereLessThanIds": [
+      "d1",
+      "d2"
+    ],
+    "whereLessThanOrEqualToIds": [
+      "d1",
+      "d2",
+      "d3"
+    ],
+    "whereGreaterThanIds": [
+      "d4",
+      "d5"
+    ],
+    "whereGreaterThanOrEqualToIds": [
+      "d3",
+      "d4",
+      "d5"
+    ],
+    "openRangeDescIds": [
+      "d4",
+      "d3",
+      "d2"
+    ],
+    "whereNotInTierIds": [
+      "d4",
+      "d2"
+    ],
+    "whereNotInScoreIds": [
+      "d2",
+      "d3",
+      "d4"
+    ],
+    "cursorStartAtValuesLimit2Ids": [
+      "d2",
+      "d3"
+    ],
+    "cursorStartAfterEndAtValuesIds": [
+      "d3",
+      "d4"
+    ],
+    "cursorDescStartAfterEndBeforeValuesIds": [
+      "d3",
+      "d2"
+    ],
+    "cursorStartAtEndAtDocSnapshotIds": [
+      "d2",
+      "d3",
+      "d4"
+    ],
+    "cursorStartAfterEndBeforeDocSnapshotIds": [
+      "d3"
+    ],
+    "cursorDescStartAtEndAtDocSnapshotIds": [
+      "d4",
+      "d3",
+      "d2"
+    ],
+    "collectionGroupEmptyThrowsIllegalArgument": false,
+    "collectionGroupSlashThrowsIllegalArgument": true,
+    "collectionGroupIdsSorted": [
+      "cg_org_a",
+      "cg_root",
+      "cg_team_x"
+    ],
+    "collectionGroupRedactedPathsSorted": [
+      "cg_<run>/cg_root",
+      "pyric_oracle/<run>/orgs/org_a/cg_<run>/cg_org_a",
+      "pyric_oracle/<run>/orgs/org_b/teams/team_x/cg_<run>/cg_team_x"
+    ],
+    "collectionGroupUnscopedDeniedCodeName": "PERMISSION_DENIED",
+    "txInvalidMaxAttemptsThrowsIllegalArgument": true,
+    "txRetryAttempts": 2,
+    "txRetryObservedCounters": [
+      0,
+      40
+    ],
+    "txRetryReturnCounter": 42,
+    "txRetryFinalCounter": 42,
+    "txDeletedTargetExistsAfterCommit": false,
+    "txExhaustedMaxAttempts": 1,
+    "txExhaustedAttempts": 1,
+    "txExhaustedThrew": true,
+    "txExhaustedErrorCodeName": "FAILED_PRECONDITION",
+    "txExhaustedErrorCodeValue": 9,
+    "txExhaustedFinalCounter": 99
+  }
+}
