@@ -42,9 +42,19 @@ export type { SeedUser } from './seed-user.js';
  * of its own, so any revocation recorded for the uid refuses it.
  */
 export type MintSessionRequest = TenantScope & PageOriginScope & (
-  | { kind: 'anonymous' }
-  | { kind: 'password'; email: string; password: string }
-  | { kind: 'createPassword'; email: string; password: string }
+  | { kind: 'anonymous'; sessionClaims?: Record<string, unknown> }
+  | {
+      kind: 'password';
+      email: string;
+      password: string;
+      sessionClaims?: Record<string, unknown>;
+    }
+  | {
+      kind: 'createPassword';
+      email: string;
+      password: string;
+      sessionClaims?: Record<string, unknown>;
+    }
   | {
       kind: 'uid';
       uid: string;

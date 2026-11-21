@@ -9,7 +9,6 @@ import type { FunctionsChildEvent } from '../../src/functions/child-protocol.js'
 import {
   BEFORE_SEND_EMAIL_EVENT_TYPE,
   BEFORE_SEND_SMS_EVENT_TYPE,
-  BEFORE_SIGN_IN_EVENT_TYPE,
 } from '../../src/functions/identity/discovery.js';
 import { spawnFunctionsChild, type FunctionsChildHandle } from '../../src/functions/spawn.js';
 import { connectRemoteSandbox, type RemoteSandbox } from '../../src/remote/index.js';
@@ -256,16 +255,15 @@ describe('isolated CJS Functions Identity child against live HostedRuntime', () 
     tempDirs.cleanupTempDirs();
   });
 
-  test('discovers beforeUserCreated and reports omitted and unactivated identity triggers', () => {
+  test('discovers beforeUserCreated and beforeUserSignedIn and reports omitted and unactivated identity triggers', () => {
     expect(readyPayload).toEqual({
-      triggerCount: 2,
+      triggerCount: 3,
       unsupportedTriggers: [
         {
           exportName: 'omittedBeforeCreate',
           eventType:
             'providers/cloud.auth/eventTypes/user.beforeCreate (omitted from emulation)',
         },
-        { exportName: 'pendingSignIn', eventType: BEFORE_SIGN_IN_EVENT_TYPE },
         { exportName: 'pendingEmail', eventType: BEFORE_SEND_EMAIL_EVENT_TYPE },
         { exportName: 'pendingSms', eventType: BEFORE_SEND_SMS_EVENT_TYPE },
       ],

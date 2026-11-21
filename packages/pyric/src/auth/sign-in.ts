@@ -1,7 +1,11 @@
 /** Firebase-shaped Auth sign-in, redirect, persistence, and sign-out operations. */
 import { AuthCredential, EmailAuthCredential } from './credentials.js';
 import { signInWithEmailLink } from './email-link.js';
-import { hasBeforeCreateHook } from './sandbox/blocking-hooks.js';
+import { hasBeforeCreateHook, hasBeforeSignInHook } from './sandbox/blocking-hooks.js';
+import {
+  extractBlockingCredentialContext,
+  signInBlockedEmailPasswordUser,
+} from './sandbox/blocking-sign-in.js';
 import {
   createBlockedAnonymousUser,
   createBlockedEmailPasswordUser,
@@ -38,8 +42,9 @@ export async function signInAnonymously(auth: Auth): Promise<UserCredential> {
     };
   }
   let user: User;
-  if (hasBeforeCreateHook(auth)) {
-    user = await createBlockedAnonymousUser(auth);
+  if (hasBeforeCreateHook(auth) || hasBeforeSignInHook(auth)) {
+    const outcome = await createBlockedAnonymousUser(auth, { stageForCurrentUser: true });
+    user = outcome.user;
   } else {
     user = backend.mintAnonymousUser();
   }
@@ -59,7 +64,17 @@ export async function signInWithEmailAndPassword(
 ): Promise<UserCredential> {
   const { backend } = targetOf(auth);
   backend.assertProviderEnabled('password');
-  const user = backend.buildUserFromStored(backend.validatePassword(email, password));
+  let user: User;
+  if (hasBeforeSignInHook(auth)) {
+    const outcome = await signInBlockedEmailPasswordUser(auth, {
+      email,
+      password,
+      stageForCurrentUser: true,
+    });
+    user = outcome.user;
+  } else {
+    user = backend.buildUserFromStored(backend.validatePassword(email, password));
+  }
   await backend.transitionCurrentUser(user, 'password');
   return {
     user,
@@ -77,8 +92,13 @@ export async function createUserWithEmailAndPassword(
   const { backend } = targetOf(auth);
   backend.assertProviderEnabled('password');
   let user: User;
-  if (hasBeforeCreateHook(auth)) {
-    user = await createBlockedEmailPasswordUser(auth, { email, password });
+  if (hasBeforeCreateHook(auth) || hasBeforeSignInHook(auth)) {
+    const outcome = await createBlockedEmailPasswordUser(auth, {
+      email,
+      password,
+      stageForCurrentUser: true,
+    });
+    user = outcome.user;
   } else {
     user = backend.buildUserFromStored(backend.createEmailPasswordUser(email, password));
   }
@@ -186,7 +206,8 @@ async function commitProviderSignIn(
   const existing = backend.findByUid(credential.user.uid);
   if (existing !== undefined) {
     assertMatchingTenant(existing, backend.getTenantId());
-  } else if (hasBeforeCreateHook(auth)) {
+  }
+  if (hasBeforeCreateHook(auth) || hasBeforeSignInHook(auth)) {
     const resolved = await resolveBlockedFederatedIdentity(auth, {
       providerId,
       uid: credential.user.uid,
@@ -195,6 +216,7 @@ async function commitProviderSignIn(
       photoURL: credential.user.photoURL,
       emailVerified: credential.user.emailVerified,
       tenantId: backend.getTenantId(),
+      stageForCurrentUser: true,
     });
     await backend.transitionCurrentUser(resolved.user, providerId);
     return { ...credential, user: resolved.user };
@@ -277,9 +299,19 @@ export async function signInWithCredential(
 
   if (credential instanceof EmailAuthCredential) {
     if (credential.password !== null) {
-      const user = backend.buildUserFromStored(
-        backend.validatePassword(credential.email, credential.password),
-      );
+      let user: User;
+      if (hasBeforeSignInHook(auth)) {
+        const outcome = await signInBlockedEmailPasswordUser(auth, {
+          email: credential.email,
+          password: credential.password,
+          stageForCurrentUser: true,
+        });
+        user = outcome.user;
+      } else {
+        user = backend.buildUserFromStored(
+          backend.validatePassword(credential.email, credential.password),
+        );
+      }
       await backend.transitionCurrentUser(user, 'password');
       return {
         user,
@@ -297,23 +329,16 @@ export async function signInWithCredential(
   if (!mock) {
     const idToken = readCredentialIdToken(credential);
     if (idToken !== null && canRedeemFederatedJwt(credential)) {
-      let accessToken: string | undefined;
-      const rawAccessToken = (credential as { accessToken?: unknown }).accessToken;
-      if (typeof rawAccessToken === 'string') {
-        accessToken = rawAccessToken;
-      }
-      let secret: string | undefined;
-      const rawSecret = (credential as { secret?: unknown }).secret;
-      if (typeof rawSecret === 'string') {
-        secret = rawSecret;
-      }
+      const extracted = extractBlockingCredentialContext(credential);
       let resolved: ReturnType<typeof resolveOidcJwtIdentity>;
-      if (hasBeforeCreateHook(auth)) {
+      if (hasBeforeCreateHook(auth) || hasBeforeSignInHook(auth)) {
         resolved = await resolveBlockedOidcJwtIdentity(auth, {
           providerId,
           idToken,
-          accessToken,
-          secret,
+          accessToken: extracted?.accessToken,
+          refreshToken: extracted?.refreshToken,
+          secret: extracted?.secret,
+          stageForCurrentUser: true,
         });
       } else {
         resolved = resolveOidcJwtIdentity(auth, { providerId, idToken });
@@ -338,16 +363,23 @@ export async function signInWithCredential(
   const existing = backend.findByUid(mock.user.uid);
   if (existing !== undefined) {
     assertMatchingTenant(existing, backend.getTenantId());
-  } else if (hasBeforeCreateHook(auth)) {
-    const resolved = await resolveBlockedFederatedIdentity(auth, {
-      providerId: credentialProviderId,
-      uid: mock.user.uid,
-      email: mock.user.email,
-      displayName: mock.user.displayName,
-      photoURL: mock.user.photoURL,
-      emailVerified: mock.user.emailVerified,
-      tenantId: backend.getTenantId(),
-    });
+  }
+  if (hasBeforeCreateHook(auth) || hasBeforeSignInHook(auth)) {
+    const extracted = extractBlockingCredentialContext(credential);
+    const resolved = await resolveBlockedFederatedIdentity(
+      auth,
+      {
+        providerId: credentialProviderId,
+        uid: mock.user.uid,
+        email: mock.user.email,
+        displayName: mock.user.displayName,
+        photoURL: mock.user.photoURL,
+        emailVerified: mock.user.emailVerified,
+        tenantId: backend.getTenantId(),
+        stageForCurrentUser: true,
+      },
+      extracted !== undefined ? { credential: extracted } : undefined,
+    );
     await backend.transitionCurrentUser(resolved.user, credentialProviderId);
     return { ...mock, user: resolved.user };
   }

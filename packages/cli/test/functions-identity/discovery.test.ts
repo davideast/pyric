@@ -56,6 +56,7 @@ describe('firebase-functions/v2/identity trigger discovery', () => {
       BEFORE_SEND_SMS_EVENT_TYPE,
     ]);
     expect(ACTIVE_IDENTITY_EVENT_TYPES.has(BEFORE_CREATE_EVENT_TYPE)).toBe(true);
+    expect(ACTIVE_IDENTITY_EVENT_TYPES.has(BEFORE_SIGN_IN_EVENT_TYPE)).toBe(true);
     expect(isIdentityBlockingEventType(BEFORE_CREATE_EVENT_TYPE)).toBe(true);
     expect(isIdentityBlockingEventType(BEFORE_SIGN_IN_EVENT_TYPE)).toBe(true);
     expect(isIdentityBlockingEventType(BEFORE_SEND_EMAIL_EVENT_TYPE)).toBe(true);
@@ -128,7 +129,7 @@ describe('firebase-functions/v2/identity trigger discovery', () => {
     ]);
   });
 
-  test('activates beforeCreate in PR 1 and reports unactivated identity events via findUnsupportedTriggers', () => {
+  test('activates beforeCreate and beforeSignIn in PR 2 and reports unactivated identity events via findUnsupportedTriggers', () => {
     const { beforeUserCreated, beforeUserSignedIn, beforeEmailSent, beforeSmsSent } =
       identityFunctions;
     const onCreate = beforeUserCreated(() => undefined);
@@ -137,14 +138,13 @@ describe('firebase-functions/v2/identity trigger discovery', () => {
     const onSms = beforeSmsSent(() => undefined);
 
     const active = discoverIdentityTriggers({ auth: { onCreate, onSignIn, onEmail, onSms } });
-    expect(active.map((item) => item.exportName)).toEqual(['auth-onCreate']);
+    expect(active.map((item) => item.exportName)).toEqual(['auth-onCreate', 'auth-onSignIn']);
 
     const unsupported = findUnsupportedTriggers(
       { auth: { onCreate, onSignIn, onEmail, onSms } },
       [rtdbValueTriggerFamily, storageTriggersFamily, identityBlockingFamily],
     );
     expect(unsupported).toEqual([
-      { exportName: 'auth-onSignIn', eventType: BEFORE_SIGN_IN_EVENT_TYPE },
       { exportName: 'auth-onEmail', eventType: BEFORE_SEND_EMAIL_EVENT_TYPE },
       { exportName: 'auth-onSms', eventType: BEFORE_SEND_SMS_EVENT_TYPE },
     ]);

@@ -150,6 +150,74 @@ export function hasBeforeSignInHook(auth: Auth): boolean {
   return typeof getAuthBlockingHooks(auth)?.beforeSignIn === 'function';
 }
 
+const DISALLOWED_BLOCKING_CLAIMS: readonly string[] = [
+  'acr',
+  'amr',
+  'at_hash',
+  'aud',
+  'auth_time',
+  'azp',
+  'cnf',
+  'c_hash',
+  'exp',
+  'iat',
+  'iss',
+  'jti',
+  'nbf',
+  'nonce',
+  'sub',
+  'firebase',
+];
+
+const BLOCKING_CLAIMS_MAX_PAYLOAD_SIZE = 1000;
+
+export function validateBlockingClaimsPayload(
+  claims: unknown,
+  fieldName: 'customClaims' | 'sessionClaims',
+): Record<string, unknown> {
+  if (typeof claims !== 'object' || claims === null || Array.isArray(claims)) {
+    throw makeAuthBlockingRejectionError({
+      status: 'INVALID_ARGUMENT',
+      message: `The ${fieldName} payload must be a plain object.`,
+    });
+  }
+  const record = claims as Record<string, unknown>;
+  const reserved = DISALLOWED_BLOCKING_CLAIMS.filter((claim) =>
+    Object.prototype.hasOwnProperty.call(record, claim),
+  );
+  if (reserved.length > 0) {
+    throw makeAuthBlockingRejectionError({
+      status: 'INVALID_ARGUMENT',
+      message: `The ${fieldName} claims "${reserved.join(',')}" are reserved and cannot be specified.`,
+    });
+  }
+  assertNoReservedCustomClaims(record);
+  if (JSON.stringify(record).length > BLOCKING_CLAIMS_MAX_PAYLOAD_SIZE) {
+    throw makeAuthBlockingRejectionError({
+      status: 'INVALID_ARGUMENT',
+      message: `The ${fieldName} payload should not exceed ${BLOCKING_CLAIMS_MAX_PAYLOAD_SIZE} characters.`,
+    });
+  }
+  return structuredClone(record);
+}
+
+export function validateCombinedBlockingClaimsPayload(
+  customClaims: Record<string, unknown> | undefined,
+  sessionClaims: Record<string, unknown> | undefined,
+): void {
+  if (sessionClaims === undefined) return;
+  const combined = {
+    ...(customClaims ?? {}),
+    ...sessionClaims,
+  };
+  if (JSON.stringify(combined).length > BLOCKING_CLAIMS_MAX_PAYLOAD_SIZE) {
+    throw makeAuthBlockingRejectionError({
+      status: 'INVALID_ARGUMENT',
+      message: `The customClaims and sessionClaims payloads should not exceed ${BLOCKING_CLAIMS_MAX_PAYLOAD_SIZE} characters combined.`,
+    });
+  }
+}
+
 export function applyBeforeCreateResponseToInit(
   base: Partial<StoredUser> & { uid: string },
   response: BeforeCreateHookResult | void,
@@ -160,7 +228,11 @@ export function applyBeforeCreateResponseToInit(
     return { init: next, clearPhotoUrl };
   }
   if (response.displayName !== undefined) {
-    next.displayName = response.displayName.length === 0 ? null : response.displayName;
+    if (response.displayName.length === 0) {
+      next.displayName = null;
+    } else {
+      next.displayName = response.displayName;
+    }
   }
   if (response.photoURL !== undefined) {
     if (response.photoURL.length === 0) {
@@ -177,8 +249,17 @@ export function applyBeforeCreateResponseToInit(
     next.disabled = response.disabled;
   }
   if (response.customClaims !== undefined) {
-    assertNoReservedCustomClaims(response.customClaims);
-    next.customClaims = structuredClone(response.customClaims);
+    next.customClaims = validateBlockingClaimsPayload(response.customClaims, 'customClaims');
+  }
+  if (
+    response.recaptchaActionOverride !== undefined &&
+    response.recaptchaActionOverride !== 'ALLOW' &&
+    response.recaptchaActionOverride !== 'BLOCK'
+  ) {
+    throw makeAuthBlockingRejectionError({
+      status: 'INVALID_ARGUMENT',
+      message: 'recaptchaActionOverride must be "ALLOW" or "BLOCK".',
+    });
   }
   return { init: next, clearPhotoUrl };
 }

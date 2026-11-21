@@ -57,8 +57,10 @@ import {
   createBlockedAnonymousUser,
   createBlockedEmailPasswordUser,
   hasBeforeCreateHook,
+  hasBeforeSignInHook,
   resolveBlockedFederatedIdentity,
   sessionKeyOf,
+  signInBlockedEmailPasswordUser,
 } from 'pyric/auth/internal';
 import { isPlainRecord, STANDARD_TOKEN_CLAIMS } from '../repro/token-claims.js';
 
@@ -329,7 +331,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
       try {
         const tenantId = resolveSignInTenant(ctx, port, msg.tenantId);
         let session: MintedSession;
-        if (hasBeforeCreateHook(auth)) {
+        if (hasBeforeCreateHook(auth) || hasBeforeSignInHook(auth)) {
           const created = await createBlockedEmailPasswordUser(auth, {
             email: msg.email,
             password: msg.password,
@@ -337,9 +339,10 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
           });
           session = authSandboxOps.mintSession(auth, {
             kind: 'provider',
-            uid: created.uid,
+            uid: created.user.uid,
             providerId: 'password',
             tenantId,
+            sessionClaims: created.sessionClaims,
             ...portOriginScope(port),
           });
         } else {
@@ -358,10 +361,27 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
     case 'auth.signInEmail': {
       try {
         const tenantId = resolveSignInTenant(ctx, port, msg.tenantId);
-        const session = authSandboxOps.mintSession(auth, {
-          kind: 'password', email: msg.email, password: msg.password,
-          tenantId, ...portOriginScope(port),
-        });
+        let session: MintedSession;
+        if (hasBeforeSignInHook(auth)) {
+          const signedIn = await signInBlockedEmailPasswordUser(auth, {
+            email: msg.email,
+            password: msg.password,
+            tenantId,
+          });
+          session = authSandboxOps.mintSession(auth, {
+            kind: 'provider',
+            uid: signedIn.user.uid,
+            providerId: 'password',
+            tenantId,
+            sessionClaims: signedIn.sessionClaims,
+            ...portOriginScope(port),
+          });
+        } else {
+          session = authSandboxOps.mintSession(auth, {
+            kind: 'password', email: msg.email, password: msg.password,
+            tenantId, ...portOriginScope(port),
+          });
+        }
         setPortSession(ctx, port, session);
         await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, credReply(session, null, false));
@@ -382,13 +402,14 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
           break;
         }
         let session: MintedSession;
-        if (hasBeforeCreateHook(auth)) {
+        if (hasBeforeCreateHook(auth) || hasBeforeSignInHook(auth)) {
           const created = await createBlockedAnonymousUser(auth, { tenantId });
           session = authSandboxOps.mintSession(auth, {
             kind: 'provider',
-            uid: created.uid,
+            uid: created.user.uid,
             providerId: 'anonymous',
             tenantId,
+            sessionClaims: created.sessionClaims,
             ...portOriginScope(port),
           });
         } else {
@@ -711,8 +732,8 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
       try {
         const tenantId = resolveSignInTenant(ctx, port, msg.tenantId);
         const { providerId, photoURL, ...identity } = msg.identity;
-        let resolved: { uid: string; isNewUser: boolean };
-        if (hasBeforeCreateHook(auth)) {
+        let resolved: { uid: string; isNewUser: boolean; sessionClaims?: Record<string, unknown> };
+        if (hasBeforeCreateHook(auth) || hasBeforeSignInHook(auth)) {
           resolved = await resolveBlockedFederatedIdentity(auth, {
             ...identity, providerId, photoURL: photoURL ?? undefined, tenantId,
           });
@@ -721,9 +742,14 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
             ...identity, providerId, photoURL: photoURL ?? undefined, tenantId,
           });
         }
-        const { uid, isNewUser } = resolved;
+        const { uid, isNewUser, sessionClaims } = resolved;
         const session = authSandboxOps.mintSession(auth, {
-          kind: 'provider', uid, providerId, tenantId, ...portOriginScope(port),
+          kind: 'provider',
+          uid,
+          providerId,
+          tenantId,
+          sessionClaims,
+          ...portOriginScope(port),
         });
         setPortSession(ctx, port, session);
         await bestEffortFlush(ctx, msg.method);

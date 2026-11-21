@@ -1,7 +1,9 @@
 import { FirebaseError } from 'pyric/app';
 import { AuthCredential, EmailAuthCredential, sandbox, type Auth, type MintedSession } from 'pyric/auth';
 import {
+  extractBlockingCredentialContext,
   hasBeforeCreateHook,
+  hasBeforeSignInHook,
   isFederatedProviderId,
   noMockConfiguredError,
   resolveBlockedEmailLinkIdentity,
@@ -9,6 +11,7 @@ import {
   resolveBlockedOidcJwtIdentity,
   resolveEmailLinkIdentity,
   resolveOidcJwtIdentity,
+  signInBlockedEmailPasswordUser,
 } from 'pyric/auth/internal';
 import { resolveOAuthCredentialUser, type OAuthCredentialPayload } from './auth-session-seeder.js';
 import type { ResolvedIdentity } from '../protocol.js';
@@ -193,7 +196,7 @@ export async function signInWithBlockedCredentialPayload(
   scope: CredentialSignInScope,
   takeStaged: TakeStagedSignInResult,
 ): Promise<CredentialSignIn> {
-  if (!hasBeforeCreateHook(auth)) {
+  if (!hasBeforeCreateHook(auth) && !hasBeforeSignInHook(auth)) {
     return signInWithCredentialPayload(auth, payload, scope, takeStaged);
   }
   const isEmailCredential = payload.providerId === EMAIL_PROVIDER_ID;
@@ -201,16 +204,22 @@ export async function signInWithBlockedCredentialPayload(
     const credential = credentialFromWirePayload(payload);
     if (!(credential instanceof EmailAuthCredential)) throw invalidCredential();
     if (credential.password !== null) {
-      const session = sandbox.mintSession(auth, {
-        kind: 'password',
+      const signedIn = await signInBlockedEmailPasswordUser(auth, {
         email: credential.email,
         password: credential.password,
+        tenantId: scope.tenantId,
+      });
+      const session = sandbox.mintSession(auth, {
+        kind: 'provider',
+        uid: signedIn.user.uid,
+        providerId: EMAIL_PROVIDER_ID,
+        sessionClaims: signedIn.sessionClaims,
         ...scope,
       });
       return { session, providerId: null, isNewUser: false };
     }
     if (credential.emailLink === null) throw invalidCredential();
-    const { user, isNewUser } = await resolveBlockedEmailLinkIdentity(
+    const { user, isNewUser, sessionClaims } = await resolveBlockedEmailLinkIdentity(
       auth,
       credential.email,
       credential.emailLink,
@@ -220,6 +229,7 @@ export async function signInWithBlockedCredentialPayload(
       kind: 'provider',
       uid: user.uid,
       providerId: EMAIL_PROVIDER_ID,
+      sessionClaims,
       ...scope,
     });
     return { session, providerId: null, isNewUser };
@@ -235,15 +245,21 @@ export async function signInWithBlockedCredentialPayload(
   if (staged !== null) {
     if (staged.uid === '') throw noMockConfiguredError(payload.providerId);
     const { photoURL, ...identity } = staged;
-    const { uid, isNewUser } = await resolveBlockedFederatedIdentity(auth, {
-      ...identity,
-      photoURL: photoURL ?? undefined,
-      tenantId: scope.tenantId,
-    });
+    const wireCredential = extractBlockingCredentialContext(payload);
+    const { uid, isNewUser, sessionClaims } = await resolveBlockedFederatedIdentity(
+      auth,
+      {
+        ...identity,
+        photoURL: photoURL ?? undefined,
+        tenantId: scope.tenantId,
+      },
+      wireCredential !== undefined ? { credential: wireCredential } : undefined,
+    );
     const session = sandbox.mintSession(auth, {
       kind: 'provider',
       uid,
       providerId: staged.providerId,
+      sessionClaims,
       ...scope,
     });
     return { session, providerId: staged.providerId, isNewUser };
@@ -251,24 +267,13 @@ export async function signInWithBlockedCredentialPayload(
 
   const rawIdToken = payload['idToken'];
   if (typeof rawIdToken === 'string' && rawIdToken.length > 0) {
-    let accessToken: string | undefined;
-    if (typeof payload['accessToken'] === 'string') {
-      accessToken = payload['accessToken'];
-    }
-    let refreshToken: string | undefined;
-    if (typeof payload['refreshToken'] === 'string') {
-      refreshToken = payload['refreshToken'];
-    }
-    let secret: string | undefined;
-    if (typeof payload['secret'] === 'string') {
-      secret = payload['secret'];
-    }
+    const wireCredential = extractBlockingCredentialContext(payload);
     const resolved = await resolveBlockedOidcJwtIdentity(auth, {
       providerId: payload.providerId,
       idToken: rawIdToken,
-      accessToken,
-      refreshToken,
-      secret,
+      accessToken: wireCredential?.accessToken,
+      refreshToken: wireCredential?.refreshToken,
+      secret: wireCredential?.secret,
       tenantId: scope.tenantId,
     });
     if (resolved !== null) {
@@ -277,6 +282,7 @@ export async function signInWithBlockedCredentialPayload(
         uid: resolved.uid,
         providerId: payload.providerId,
         tenantId: scope.tenantId,
+        sessionClaims: resolved.sessionClaims,
       };
       if (scope.origin !== undefined) {
         sessionArgs.origin = scope.origin;

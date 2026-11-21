@@ -6,9 +6,11 @@ import { buildChildEnv, registerModuleUrl } from '../../src/cli/sandbox-runner.j
 import { spawnFunctionsChild, type FunctionsChildHandle } from '../../src/functions/spawn.js';
 import { connectRemoteSandbox, type RemoteSandbox } from '../../src/remote/index.js';
 import {
+  adminCreateUser,
   createUserWithEmailAndPassword,
   getAuth as getClientAuth,
   listUsers,
+  signInWithEmailAndPassword,
   type ClientDb,
 } from '../../src/serve/worker/client.js';
 import { trackTempDirs } from '../use-temp-dirs.js';
@@ -69,7 +71,7 @@ describe('isolated ESM Functions Identity child against live HostedRuntime', () 
       join(fixtureDir, 'functions-esm/index.js'),
       [
         "import { initializeApp, getApps } from 'firebase-admin/app';",
-        "import { beforeUserCreated, HttpsError } from 'firebase-functions/v2/identity';",
+        "import { beforeUserCreated, beforeUserSignedIn, HttpsError } from 'firebase-functions/v2/identity';",
         '',
         'await Promise.resolve();',
         'if (getApps().length === 0) initializeApp();',
@@ -88,6 +90,15 @@ describe('isolated ESM Functions Identity child against live HostedRuntime', () 
         '  return {',
         "    displayName: 'ESM Approved',",
         "    customClaims: { runtime: 'esm' },",
+        '  };',
+        '});',
+        '',
+        'export const esmSignInGate = beforeUserSignedIn((event) => {',
+        "  if (event.data?.email?.endsWith('@esm-signin-blocked.test')) {",
+        "    throw new HttpsError('permission-denied', 'ESM policy blocked sign-in');",
+        '  }',
+        '  return {',
+        "    sessionClaims: { esmSession: true },",
         '  };',
         '});',
       ].join('\n'),
@@ -131,7 +142,7 @@ describe('isolated ESM Functions Identity child against live HostedRuntime', () 
 
   test('supersedes earlier duplicate beforeUserCreated export deterministically in ESM', () => {
     expect(readyPayload).toEqual({
-      triggerCount: 1,
+      triggerCount: 2,
       unsupportedTriggers: [
         {
           exportName: 'alphaShadowedGate',
@@ -164,7 +175,26 @@ describe('isolated ESM Functions Identity child against live HostedRuntime', () 
       'secret123',
     );
     expect(allowedCred.user.displayName).toBe('ESM Approved');
-    expect((await allowedCred.user.getIdTokenResult()).claims.runtime).toBe('esm');
+    const allowedTokens = await allowedCred.user.getIdTokenResult();
+    expect(allowedTokens.claims.runtime).toBe('esm');
+    expect(allowedTokens.claims.esmSession).toBe(true);
+  });
+
+  test('executes ESM beforeUserSignedIn sessionClaims and HttpsError rejection on existing accounts', async () => {
+    const setup = await makeClientSession();
+    await adminCreateUser(setup.auth, {
+      uid: 'esm-signin-deny-1',
+      email: 'user@esm-signin-blocked.test',
+      password: 'secret123',
+    });
+    let signInErr: (Error & { code?: string }) | undefined;
+    try {
+      await signInWithEmailAndPassword(setup.auth, 'user@esm-signin-blocked.test', 'secret123');
+    } catch (err) {
+      signInErr = err as Error & { code?: string };
+    }
+    expect(signInErr?.code).toBe('auth/internal-error');
+    expect(signInErr?.message).toContain('ESM policy blocked sign-in');
   });
 
   test('fails closed with INTERNAL and persists zero user record when handler throws non-HttpsError', async () => {
