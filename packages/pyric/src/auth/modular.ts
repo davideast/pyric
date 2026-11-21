@@ -13,6 +13,24 @@ export type {
   UserCredential,
   UserInfo,
 } from './types.js';
+export type {
+  AuthError,
+  AuthSettings,
+  CompleteFn,
+  Config,
+  CustomParameters,
+  Dependencies,
+  EmulatorConfig,
+  ErrorFn,
+  NextFn,
+  NextOrObserver,
+  OAuthCredentialOptions,
+  ParsedToken,
+  PopupRedirectResolver,
+  ReactNativeAsyncStorage,
+  UserMetadata,
+  UserProfile,
+} from './types-core.js';
 export { TARGET_SYMBOL } from './types.js';
 export type { AuthProvider } from './providers.js';
 export type {
