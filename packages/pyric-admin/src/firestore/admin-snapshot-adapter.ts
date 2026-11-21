@@ -32,9 +32,14 @@ import {
 import type { AdminFirestoreDataConverter } from './admin-converter-and-discovery.js';
 import { GeoPoint } from './admin-geopoint.js';
 import {
+  runWithAdminErrorsSync,
+  translateErrorForRootDb,
+} from './admin-grpc-errors.js';
+import {
   adminDocSnapshotBrand,
   adminToRootDb,
   adminToUnderlying,
+  isAppBackedRoot,
   isPlainMap,
   unwrapAdminObject,
 } from './admin-handle-registry.js';
@@ -216,7 +221,9 @@ function wrapDocSnapshotLike<
               readTime,
               data: () => untyped,
               get: (fp: SnapshotFieldPath) =>
-                readProjectedNested(untyped, validateStringOrFieldPath('fieldPath', fp)).value,
+                runWithAdminErrorsSync(isAppBackedRoot(rootDb), () =>
+                  readProjectedNested(untyped, validateStringOrFieldPath('fieldPath', fp)).value,
+                ),
             } as unknown as QueryDocumentSnapshot;
             return conv.fromFirestore(qdsView);
           };
@@ -224,18 +231,22 @@ function wrapDocSnapshotLike<
         return computeUntypedData;
       }
       if (prop === 'get') {
+        const appBacked = isAppBackedRoot(rootDb);
         if (options?.selectedFields !== undefined) {
-          return (fieldPath: SnapshotFieldPath) => {
-            const projected = computeUntypedData();
-            if (projected === undefined) return undefined;
-            return readProjectedNested(
-              projected,
-              validateStringOrFieldPath('fieldPath', fieldPath),
-            ).value;
-          };
+          return (fieldPath: SnapshotFieldPath) =>
+            runWithAdminErrorsSync(appBacked, () => {
+              const projected = computeUntypedData();
+              if (projected === undefined) return undefined;
+              return readProjectedNested(
+                projected,
+                validateStringOrFieldPath('fieldPath', fieldPath),
+              ).value;
+            });
         }
         return (fieldPath: SnapshotFieldPath) =>
-          finalizeReadValue(t.get(fieldPath), rootDb, buildDocRef);
+          runWithAdminErrorsSync(appBacked, () =>
+            finalizeReadValue(t.get(fieldPath), rootDb, buildDocRef),
+          );
       }
       const value = Reflect.get(t, prop, t);
       if (typeof value === 'function') {
@@ -463,7 +474,10 @@ function wrapObserverOrCallbackArg(
       };
     }
     if (typeof obs.error === 'function') {
-      wrapped.error = obs.error.bind(obs);
+      const boundErr = obs.error.bind(obs);
+      wrapped.error = (err: unknown) => {
+        boundErr(translateErrorForRootDb(err, rootDb));
+      };
     }
     if (typeof obs.complete === 'function') {
       wrapped.complete = obs.complete.bind(obs);
@@ -558,21 +572,17 @@ export function createAdminOnSnapshot(
       typeof (arg2 as { error?: unknown }).error !== 'function' &&
       typeof (arg2 as { complete?: unknown }).complete !== 'function';
 
+    const wrapErr = (cb: unknown): unknown => {
+      if (typeof cb !== 'function') return cb;
+      return (e: unknown) => (cb as (x: unknown) => void)(translateErrorForRootDb(e, rootDb));
+    };
     if (arg2IsOptions) {
       return (baseOnSnapshot as (...a: unknown[]) => Unsubscribe)(
-        rawReference,
-        arg2,
-        wrapObserverOrCallbackArg(arg3, rootDb, buildDocRef, booleanExists, qHandle, converter),
-        arg4,
-        arg5,
+        rawReference, arg2, wrapObserverOrCallbackArg(arg3, rootDb, buildDocRef, booleanExists, qHandle, converter), wrapErr(arg4), arg5,
       );
     }
     return (baseOnSnapshot as (...a: unknown[]) => Unsubscribe)(
-      rawReference,
-      wrapObserverOrCallbackArg(arg2, rootDb, buildDocRef, booleanExists, qHandle, converter),
-      arg3,
-      arg4,
-      arg5,
+      rawReference, wrapObserverOrCallbackArg(arg2, rootDb, buildDocRef, booleanExists, qHandle, converter), wrapErr(arg3), arg4, arg5,
     );
   }
 

@@ -6,14 +6,20 @@
 
 import { FieldPath, type OperationOptions } from 'pyric/sandbox/admin-compat';
 import { SandboxError } from 'pyric/sandbox';
+import { formatCustomObjectErrorMessage } from './admin-error-messages.js';
 import {
   compareFieldSegments,
+  validatePreconditionObject,
+} from './admin-set-and-precondition-validation.js';
+import {
   isFieldPathInstance,
   isPlainDocumentObject,
   validateAndNormalizeFirestoreValue,
-  validatePreconditionObject,
   validateStringOrFieldPath,
 } from './admin-write-validation.js';
+
+const UPDATE_LEADING_ERROR =
+  'Update() requires either a single JavaScript object or an alternating list of field/value pairs that can be followed by an optional precondition.';
 
 function isFieldPathPrefix(prefix: readonly string[], candidate: readonly string[]): boolean {
   if (prefix.length > candidate.length) {
@@ -49,7 +55,7 @@ function requireUpdatePrecondition(
   precondition: unknown,
 ): OperationOptions | undefined {
   if (typeof precondition !== 'object' || precondition === null) {
-    throw new SandboxError('invalid-argument', 'Input is not an object.');
+    throw new SandboxError('invalid-argument', `${UPDATE_LEADING_ERROR} Input is not an object.`);
   }
   return validatePreconditionObject(argLabel, precondition, true);
 }
@@ -84,11 +90,14 @@ export function validateAndNormalizeUpdateArgs(
         seenPaths.push(segs);
         const normalizedVal = validateAndNormalizeFirestoreValue(args[i + 1], {
           arg: i + 1,
+          expectedType: 'Firestore value',
+          leadingMessage: UPDATE_LEADING_ERROR,
+          segments: segs,
           allowDeletes: 'root',
           allowTransforms: true,
           requireSentinelBrand,
-          level: 0,
-          pathLength: segs.length,
+          level: 1,
+          pathLength: 1,
           inArray: false,
           directArrayElement: false,
         });
@@ -106,7 +115,13 @@ export function validateAndNormalizeUpdateArgs(
   if (!isPlainDocumentObject(dataOrField)) {
     throw new SandboxError(
       'invalid-argument',
-      'Update() requires either a single JavaScript object or an alternating list of field/value pairs that can be followed by an optional precondition. Value for argument "dataOrField" is not a valid Firestore document.',
+      formatCustomObjectErrorMessage(
+        'dataOrField',
+        'Firestore document',
+        UPDATE_LEADING_ERROR,
+        dataOrField,
+        [],
+      ),
     );
   }
 
@@ -114,14 +129,14 @@ export function validateAndNormalizeUpdateArgs(
   if (keys.length === 0) {
     throw new SandboxError(
       'invalid-argument',
-      'Update() requires either a single JavaScript object or an alternating list of field/value pairs that can be followed by an optional precondition. At least one field must be updated.',
+      `${UPDATE_LEADING_ERROR} At least one field must be updated.`,
     );
   }
 
   if (args.length > 2) {
     throw new SandboxError(
       'invalid-argument',
-      'Update() requires either a single JavaScript object or an alternating list of field/value pairs that can be followed by an optional precondition. Function "update()" accepts at most 3 arguments.',
+      `${UPDATE_LEADING_ERROR} Function "update()" accepts at most 3 arguments.`,
     );
   }
 
@@ -133,6 +148,9 @@ export function validateAndNormalizeUpdateArgs(
     Object.defineProperty(normalizedMap, key, {
       value: validateAndNormalizeFirestoreValue(dataOrField[key], {
         arg: 'dataOrField',
+        expectedType: 'Firestore value',
+        leadingMessage: UPDATE_LEADING_ERROR,
+        segments: segs,
         allowDeletes: 'root',
         allowTransforms: true,
         requireSentinelBrand,

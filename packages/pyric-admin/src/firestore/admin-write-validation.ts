@@ -9,22 +9,25 @@ import {
   LatLng as InternalLatLng,
   Reference as InternalReference,
 } from 'pyric/rules/internal';
-import { isAdminGeoPoint } from './admin-geopoint.js';
-import { encodeAdminVectorForWire, isAdminVectorValue } from './admin-vector-and-errors.js';
 import {
   FieldPath,
   FieldValue as CompatFieldValue,
   isValidTimestampComponents,
   registeredAdminReferencePath,
   Timestamp as CompatTimestamp,
-  type AuthContext,
   type DocumentData,
   type FieldValueSentinel,
-  type OperationOptions,
-  type SetOptions,
 } from 'pyric/sandbox/admin-compat';
 import { SandboxError } from 'pyric/sandbox';
+import {
+  formatCustomObjectErrorMessage,
+  formatFieldPathSuffix,
+  formatSentinelMethodName,
+  formatValueValidationPrefix,
+} from './admin-error-messages.js';
+import { isAdminGeoPoint } from './admin-geopoint.js';
 import { adminDocumentRefBrand } from './admin-handle-registry.js';
+import { encodeAdminVectorForWire, isAdminVectorValue } from './admin-vector-and-errors.js';
 
 const MAX_OBJECT_DEPTH = 20;
 const MIN_INT64 = -9223372036854775808n;
@@ -156,6 +159,9 @@ export function validateStringOrFieldPath(
 
 export interface ValueValidationContext {
   readonly arg: string | number;
+  readonly expectedType?: string;
+  readonly leadingMessage?: string;
+  readonly segments?: readonly string[];
   readonly allowDeletes: 'none' | 'root' | 'all';
   readonly allowTransforms: boolean;
   readonly requireSentinelBrand: boolean;
@@ -163,23 +169,28 @@ export interface ValueValidationContext {
   readonly pathLength: number;
   readonly inArray: boolean;
   readonly directArrayElement: boolean;
+  readonly arrayElementValidator?: boolean;
 }
 
 export function validateAndNormalizeFirestoreValue(
   value: unknown,
   ctx: ValueValidationContext,
 ): unknown {
+  const segments = ctx.segments ?? [];
+  const prefix = formatValueValidationPrefix(ctx.arg, ctx.expectedType, ctx.leadingMessage);
+  const pathSuffix = formatFieldPathSuffix(segments);
+
   if (ctx.pathLength > MAX_OBJECT_DEPTH) {
     throw new SandboxError(
       'invalid-argument',
-      `Input object is deeper than ${MAX_OBJECT_DEPTH} levels or contains a cycle.`,
+      `${prefix}Input object is deeper than ${MAX_OBJECT_DEPTH} levels or contains a cycle.`,
     );
   }
 
   if (value === undefined) {
     throw new SandboxError(
       'invalid-argument',
-      'Cannot use "undefined" as a Firestore value. If you want to ignore undefined values, enable `ignoreUndefinedProperties`.',
+      `${prefix}Cannot use "undefined" as a Firestore value${pathSuffix}. If you want to ignore undefined values, enable \`ignoreUndefinedProperties\`.`,
     );
   }
 
@@ -202,17 +213,29 @@ export function validateAndNormalizeFirestoreValue(
     return Number(value);
   }
 
-  if (typeof value === 'function' || typeof value === 'symbol') {
-    throw new SandboxError('invalid-argument', 'Cannot encode unsupported JavaScript value.');
+  if (typeof value === 'function') {
+    throw new SandboxError('invalid-argument', `Cannot encode value: ${String(value)}`);
+  }
+  if (typeof value === 'symbol') {
+    throw new SandboxError('invalid-argument', 'Cannot convert a symbol to a string');
   }
 
   if (Array.isArray(value)) {
     if (ctx.directArrayElement) {
-      throw new SandboxError('invalid-argument', 'Nested arrays are not supported.');
+      if (ctx.arrayElementValidator === true) {
+        throw new SandboxError('invalid-argument', `${prefix}Nested arrays are not supported.`);
+      }
+      throw new SandboxError(
+        'invalid-argument',
+        'Cannot convert an array value in an array value.',
+      );
     }
-    return value.map((entry) =>
+    return value.map((entry, idx) =>
       validateAndNormalizeFirestoreValue(entry, {
         arg: ctx.arg,
+        expectedType: ctx.expectedType,
+        leadingMessage: ctx.leadingMessage,
+        segments: [...segments, String(idx)],
         allowDeletes: ctx.allowDeletes,
         allowTransforms: ctx.allowTransforms,
         requireSentinelBrand: ctx.requireSentinelBrand,
@@ -220,6 +243,7 @@ export function validateAndNormalizeFirestoreValue(
         pathLength: ctx.pathLength + 1,
         inArray: true,
         directArrayElement: true,
+        arrayElementValidator: false,
       }),
     );
   }
@@ -229,35 +253,36 @@ export function validateAndNormalizeFirestoreValue(
       if (ctx.inArray) {
         throw new SandboxError(
           'invalid-argument',
-          'FieldValue.delete() cannot be used inside of an array.',
+          `${prefix}FieldValue.delete() cannot be used inside of an array${pathSuffix}.`,
         );
       }
       if (ctx.allowDeletes === 'none') {
         throw new SandboxError(
           'invalid-argument',
-          'FieldValue.delete() must appear at the top-level and can only be used in update() or set() with {merge:true}.',
+          `${prefix}FieldValue.delete() must appear at the top-level and can only be used in update() or set() with {merge:true}${pathSuffix}.`,
         );
       }
       const allowedAtRoot = ctx.level === 0 || (ctx.level === 1 && ctx.pathLength === 1);
       if (ctx.allowDeletes === 'root' && !allowedAtRoot) {
         throw new SandboxError(
           'invalid-argument',
-          'FieldValue.delete() must appear at the top-level and can only be used in update() or set() with {merge:true}.',
+          `${prefix}FieldValue.delete() must appear at the top-level and can only be used in update() or set() with {merge:true}${pathSuffix}.`,
         );
       }
       return value;
     }
 
+    const methodName = formatSentinelMethodName(value.__type);
     if (ctx.inArray) {
       throw new SandboxError(
         'invalid-argument',
-        `FieldValue.${value.__type}() cannot be used inside of an array.`,
+        `${prefix}${methodName}() cannot be used inside of an array${pathSuffix}.`,
       );
     }
     if (!ctx.allowTransforms) {
       throw new SandboxError(
         'invalid-argument',
-        `FieldValue.${value.__type}() can only be used in set(), create() or update().`,
+        `${prefix}${methodName}() can only be used in set(), create() or update()${pathSuffix}.`,
       );
     }
     if (value.__type === 'increment') {
@@ -273,6 +298,8 @@ export function validateAndNormalizeFirestoreValue(
       const normalizedElements = value.values.map((entry, idx) =>
         validateAndNormalizeFirestoreValue(entry, {
           arg: idx,
+          expectedType: 'array element',
+          segments: [],
           allowDeletes: 'none',
           allowTransforms: false,
           requireSentinelBrand: ctx.requireSentinelBrand,
@@ -280,6 +307,7 @@ export function validateAndNormalizeFirestoreValue(
           pathLength: 0,
           inArray: true,
           directArrayElement: true,
+          arrayElementValidator: true,
         }),
       );
       if (value.__type === 'arrayUnion') {
@@ -327,7 +355,7 @@ export function validateAndNormalizeFirestoreValue(
   if (isFieldPathInstance(value)) {
     throw new SandboxError(
       'invalid-argument',
-      'Cannot use object of type "FieldPath" as a Firestore value.',
+      `${prefix}Cannot use object of type "FieldPath" as a Firestore value${pathSuffix}.`,
     );
   }
 
@@ -343,6 +371,9 @@ export function validateAndNormalizeFirestoreValue(
       Object.defineProperty(out, key, {
         value: validateAndNormalizeFirestoreValue(value[key], {
           arg: ctx.arg,
+          expectedType: ctx.expectedType,
+          leadingMessage: ctx.leadingMessage,
+          segments: [...segments, key],
           allowDeletes: ctx.allowDeletes,
           allowTransforms: ctx.allowTransforms,
           requireSentinelBrand: ctx.requireSentinelBrand,
@@ -350,6 +381,7 @@ export function validateAndNormalizeFirestoreValue(
           pathLength: ctx.pathLength + 1,
           inArray: ctx.inArray,
           directArrayElement: false,
+          arrayElementValidator: false,
         }),
         enumerable: true,
         writable: true,
@@ -365,7 +397,13 @@ export function validateAndNormalizeFirestoreValue(
 
   throw new SandboxError(
     'invalid-argument',
-    'Firestore does not support JavaScript objects with custom prototypes.',
+    formatCustomObjectErrorMessage(
+      ctx.arg,
+      ctx.expectedType,
+      ctx.leadingMessage,
+      value,
+      segments,
+    ),
   );
 }
 
@@ -378,11 +416,13 @@ export function validateAndNormalizeDocumentData(
   if (!isPlainDocumentObject(data)) {
     throw new SandboxError(
       'invalid-argument',
-      `Value for argument "${argName}" is not a valid Firestore document. Input is not a plain JavaScript object.`,
+      formatCustomObjectErrorMessage(argName, 'Firestore document', undefined, data, []),
     );
   }
   return validateAndNormalizeFirestoreValue(data, {
     arg: argName,
+    expectedType: 'Firestore document',
+    segments: [],
     allowDeletes,
     allowTransforms: true,
     requireSentinelBrand,
@@ -390,204 +430,6 @@ export function validateAndNormalizeDocumentData(
     pathLength: 0,
     inArray: false,
     directArrayElement: false,
+    arrayElementValidator: false,
   }) as DocumentData;
-}
-
-export function compareFieldSegments(left: readonly string[], right: readonly string[]): number {
-  const minLen = Math.min(left.length, right.length);
-  for (let i = 0; i < minLen; i += 1) {
-    const a = left[i] ?? '';
-    const b = right[i] ?? '';
-    if (a < b) return -1;
-    if (a > b) return 1;
-  }
-  return left.length - right.length;
-}
-
-function deduplicateSortedPaths(
-  paths: ReadonlyArray<readonly string[]>,
-): Array<readonly string[]> {
-  const sorted = [...paths].sort(compareFieldSegments);
-  const unique: Array<readonly string[]> = [];
-  for (const segs of sorted) {
-    const prev = unique[unique.length - 1];
-    if (prev === undefined || compareFieldSegments(prev, segs) !== 0) {
-      unique.push(segs);
-    }
-  }
-  return unique;
-}
-
-function verifyMaskPathsPresentInData(
-  data: Record<string, unknown>,
-  sortedUniquePaths: ReadonlyArray<readonly string[]>,
-): void {
-  const remaining = new Set<number>(sortedUniquePaths.map((_, idx) => idx));
-
-  function findExactMaskIndex(candidate: readonly string[]): number {
-    for (let i = 0; i < sortedUniquePaths.length; i += 1) {
-      const target = sortedUniquePaths[i];
-      if (target !== undefined && compareFieldSegments(target, candidate) === 0) {
-        return i;
-      }
-    }
-    return -1;
-  }
-
-  function walkObject(current: Record<string, unknown>, prefix: readonly string[]): void {
-    for (const key of Object.keys(current)) {
-      const childPath = [...prefix, key];
-      const matchedIdx = findExactMaskIndex(childPath);
-      if (matchedIdx !== -1) {
-        remaining.delete(matchedIdx);
-      } else {
-        const childVal = current[key];
-        if (isPlainDocumentObject(childVal)) {
-          walkObject(childVal, childPath);
-        }
-      }
-    }
-  }
-
-  walkObject(data, []);
-
-  for (let i = 0; i < sortedUniquePaths.length; i += 1) {
-    if (remaining.has(i)) {
-      const missingSegs = sortedUniquePaths[i] ?? [];
-      const formatted = new FieldPath(...missingSegs).toString();
-      throw new SandboxError('invalid-argument', `Input data is missing for field "${formatted}".`);
-    }
-  }
-}
-
-function copyOptionalAuth(source: Record<string, unknown>, target: SetOptions): void {
-  if ('auth' in source) {
-    target.auth = source.auth as AuthContext;
-  }
-}
-
-export function validateAndNormalizeSetCall(
-  data: unknown,
-  rawOptions: unknown,
-  coerceFalsyOptions: boolean,
-  requireSentinelBrand: boolean,
-): { data: DocumentData; options: SetOptions | undefined } {
-  let effectiveOptions = rawOptions;
-  if (coerceFalsyOptions && !rawOptions) {
-    effectiveOptions = undefined;
-  }
-
-  if (effectiveOptions === undefined) {
-    return {
-      data: validateAndNormalizeDocumentData('data', data, 'none', requireSentinelBrand),
-      options: undefined,
-    };
-  }
-
-  if (!isObjectRecord(effectiveOptions)) {
-    throw new SandboxError(
-      'invalid-argument',
-      'Value for argument "options" is not a valid set() options argument. Input is not an object.',
-    );
-  }
-
-  const hasMergeKey = 'merge' in effectiveOptions;
-  const hasMergeFieldsKey = 'mergeFields' in effectiveOptions;
-  if (hasMergeKey && hasMergeFieldsKey) {
-    throw new SandboxError(
-      'invalid-argument',
-      'Value for argument "options" is not a valid set() options argument. You cannot specify both "merge" and "mergeFields".',
-    );
-  }
-
-  let sortedUniqueMask: Array<readonly string[]> | undefined;
-  if (hasMergeFieldsKey) {
-    const rawMask = effectiveOptions.mergeFields;
-    const rawLength = (rawMask as { length: number }).length;
-    for (let i = 0; i < rawLength; i += 1) {
-      validateStringOrFieldPath(i, (rawMask as Record<number, unknown>)[i]);
-    }
-    const maskInputs: Array<readonly string[]> = [];
-    for (const item of rawMask as Iterable<unknown>) {
-      maskInputs.push(validateStringOrFieldPath('mergeFields', item));
-    }
-    sortedUniqueMask = deduplicateSortedPaths(maskInputs);
-  }
-
-  const mergeLeaves = hasMergeKey && Boolean(effectiveOptions.merge);
-  let allowDeletes: 'none' | 'all' = 'none';
-  if (mergeLeaves || hasMergeFieldsKey) {
-    allowDeletes = 'all';
-  }
-  const normalizedData = validateAndNormalizeDocumentData(
-    'data',
-    data,
-    allowDeletes,
-    requireSentinelBrand,
-  );
-
-  if (sortedUniqueMask !== undefined) {
-    verifyMaskPathsPresentInData(normalizedData, sortedUniqueMask);
-    const outOptions: SetOptions = {
-      mergeFields: sortedUniqueMask.map((segs) => new FieldPath(...segs)),
-    };
-    copyOptionalAuth(effectiveOptions, outOptions);
-    return { data: normalizedData, options: outOptions };
-  }
-
-  if (hasMergeKey) {
-    const outOptions: SetOptions = { merge: mergeLeaves };
-    copyOptionalAuth(effectiveOptions, outOptions);
-    return { data: normalizedData, options: outOptions };
-  }
-
-  const outOptions: SetOptions = {};
-  copyOptionalAuth(effectiveOptions, outOptions);
-  return { data: normalizedData, options: outOptions };
-}
-
-export function validatePreconditionObject(
-  argName: string,
-  precondition: unknown,
-  forbidExistsFalse = false,
-): OperationOptions | undefined {
-  if (precondition === undefined) {
-    return undefined;
-  }
-  if (typeof precondition !== 'object' || precondition === null) {
-    throw new SandboxError('invalid-argument', 'Input is not an object.');
-  }
-  const record = precondition as Record<string, unknown>;
-  const existsVal = record.exists;
-  const lastUpdateVal = record.lastUpdateTime;
-  if (existsVal !== undefined) {
-    if (typeof existsVal !== 'boolean') {
-      throw new SandboxError(
-        'invalid-argument',
-        `Value for argument "${argName}" is not a valid precondition. "exists" is not a boolean.`,
-      );
-    }
-    if (forbidExistsFalse && existsVal === false) {
-      throw new SandboxError(
-        'invalid-argument',
-        `Value for argument "${argName}" is not a valid precondition. "exists" is not allowed to have the value false (allowed values: true)`,
-      );
-    }
-  }
-  if (lastUpdateVal !== undefined && !(lastUpdateVal instanceof CompatTimestamp)) {
-    throw new SandboxError(
-      'invalid-argument',
-      `Value for argument "${argName}" is not a valid precondition. "lastUpdateTime" is not a Firestore Timestamp.`,
-    );
-  }
-  if (existsVal !== undefined && lastUpdateVal !== undefined) {
-    throw new SandboxError(
-      'invalid-argument',
-      `Value for argument "${argName}" is not a valid precondition. Input specifies more than one precondition.`,
-    );
-  }
-  if ('auth' in record) {
-    return { auth: record.auth as AuthContext };
-  }
-  return undefined;
 }

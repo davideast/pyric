@@ -12,6 +12,7 @@ import {
   type DocumentSnapshot,
   type Filter,
   type OrderDirection,
+  type Query,
   type SnapshotFieldPath,
   type WhereFilterOp,
 } from 'pyric/sandbox/admin-compat';
@@ -41,6 +42,7 @@ export interface AdminQueryMetadata {
   readonly offsetCount?: number;
   readonly limitCount?: number;
   readonly selectedFields?: ReadonlyArray<readonly string[]>;
+  readonly replayOnRoot?: (db: SandboxFirestore) => Query;
 }
 
 export const adminQueryMetadata = new WeakMap<object, AdminQueryMetadata>();
@@ -64,6 +66,7 @@ export function initialCollectionQueryMeta(path: string): AdminQueryMetadata {
     signature: [`col:${path}`],
     hasExplicitOrderBy: false,
     pendingLimitType: 'none',
+    replayOnRoot: (db) => db.collection(path),
   };
 }
 
@@ -73,6 +76,7 @@ export function initialCollectionGroupQueryMeta(collectionId: string): AdminQuer
     signature: [`group:${collectionId}`],
     hasExplicitOrderBy: false,
     pendingLimitType: 'none',
+    replayOnRoot: (db) => db.collectionGroup(collectionId),
   };
 }
 
@@ -416,7 +420,13 @@ export function validateAndNormalizeOrderByArgs(
 }
 
 export function validateAdminLimitInteger(argName: 'limit' | 'limitToLast', value: unknown): number {
-  if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
+  if (typeof value !== 'number' || Number.isNaN(value) || !Number.isInteger(value)) {
+    throw new SandboxError(
+      'invalid-argument',
+      `Value for argument "${argName}" is not a valid integer.`,
+    );
+  }
+  if (value <= 0) {
     throw new SandboxError(
       'invalid-argument',
       `Value for argument "${argName}" is not a valid positive integer limit.`,

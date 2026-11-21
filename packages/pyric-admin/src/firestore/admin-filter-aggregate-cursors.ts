@@ -17,7 +17,12 @@ import {
 } from 'pyric/sandbox/admin-compat';
 import { SandboxError } from 'pyric/sandbox';
 import type { SandboxFirestore } from 'pyric/sandbox/admin-firestore';
-import { adminDocSnapshotBrand } from './admin-handle-registry.js';
+import { adminDocSnapshotBrand, isAppBackedRoot } from './admin-handle-registry.js';
+import {
+  createAdminGrpcError,
+  runWithAdminErrorsAsync,
+  runWithAdminErrorsSync,
+} from './admin-grpc-errors.js';
 import {
   assertQueryExecutable,
   normalizeLegacyQueryOperand,
@@ -26,8 +31,8 @@ import {
   type AdminQueryMetadata,
 } from './admin-query-validation.js';
 import { nextAdminTimestamp } from './admin-write-result-preconditions.js';
+import { compareFieldSegments } from './admin-set-and-precondition-validation.js';
 import {
-  compareFieldSegments,
   isFieldPathInstance,
   isPlainDocumentObject,
   validateAndNormalizeFirestoreValue,
@@ -55,15 +60,15 @@ export class Filter {
   }
 
   static where(fieldPath: SnapshotFieldPath, opStr: WhereFilterOp, value: unknown): Filter {
-    validateStringOrFieldPath('fieldPath', fieldPath);
+    runWithAdminErrorsSync(true, () => validateStringOrFieldPath('fieldPath', fieldPath));
     return new Filter({ kind: 'where', fieldPath, opStr, value });
   }
 
   static or(...filters: Filter[]): Filter {
     for (const entry of filters) {
       if (!(entry instanceof Filter)) {
-        throw new SandboxError(
-          'invalid-argument',
+        throw createAdminGrpcError(
+          3,
           'Function "Filter.or()" requires every argument to be a Filter.',
         );
       }
@@ -74,8 +79,8 @@ export class Filter {
   static and(...filters: Filter[]): Filter {
     for (const entry of filters) {
       if (!(entry instanceof Filter)) {
-        throw new SandboxError(
-          'invalid-argument',
+        throw createAdminGrpcError(
+          3,
           'Function "Filter.and()" requires every argument to be a Filter.',
         );
       }
@@ -146,7 +151,7 @@ export class AggregateField {
   }
 
   static sum(field: string | CompatFieldPath): AggregateField {
-    const segments = validateStringOrFieldPath('field', field);
+    const segments = runWithAdminErrorsSync(true, () => validateStringOrFieldPath('field', field));
     let normalizedField: string | CompatFieldPath = new CompatFieldPath(...segments);
     if (typeof field === 'string') {
       normalizedField = field;
@@ -159,7 +164,7 @@ export class AggregateField {
   }
 
   static average(field: string | CompatFieldPath): AggregateField {
-    const segments = validateStringOrFieldPath('field', field);
+    const segments = runWithAdminErrorsSync(true, () => validateStringOrFieldPath('field', field));
     let normalizedField: string | CompatFieldPath = new CompatFieldPath(...segments);
     if (typeof field === 'string') {
       normalizedField = field;
@@ -217,46 +222,60 @@ export function buildAdminAggregateQuery(
   target: Query,
   receiverQuery: Query,
   rawDb: SandboxFirestore,
+  rootDb: SandboxFirestore,
   rawSpec: unknown,
   meta: AdminQueryMetadata,
 ): Record<string, unknown> {
-  if (!isPlainDocumentObject(rawSpec)) {
-    throw new SandboxError(
-      'invalid-argument',
-      'Value for argument "aggregateSpec" is not a plain JavaScript object.',
-    );
-  }
-  const normalizedSpec: AggregateSpec = {};
-  for (const alias of Object.keys(rawSpec)) {
-    normalizedSpec[alias] = normalizeSingleAggregateEntry(alias, rawSpec[alias]);
-  }
+  const appBacked = isAppBackedRoot(rootDb);
+  const normalizedSpec = runWithAdminErrorsSync(appBacked, () => {
+    if (!isPlainDocumentObject(rawSpec)) {
+      throw new SandboxError(
+        'invalid-argument',
+        'Value for argument "aggregateSpec" is not a plain JavaScript object.',
+      );
+    }
+    const specOut: AggregateSpec = {};
+    for (const alias of Object.keys(rawSpec)) {
+      specOut[alias] = normalizeSingleAggregateEntry(alias, rawSpec[alias]);
+    }
+    return specOut;
+  });
   const aggQuery: Record<string, unknown> = {
     query: receiverQuery,
-    async get() {
-      assertQueryExecutable(meta);
-      const rawSnap = await target.aggregate(normalizedSpec);
-      const computed = rawSnap.data();
-      const readTime = nextAdminTimestamp(rawDb);
-      return {
-        query: receiverQuery,
-        readTime,
-        data: () => ({ ...computed }),
-        isEqual(other: unknown): boolean {
-          if (typeof other !== 'object' || other === null) {
-            return false;
-          }
-          const otherDataFn = (other as { data?: unknown }).data;
-          if (typeof otherDataFn !== 'function') {
-            return false;
-          }
-          const otherData = (otherDataFn as () => Record<string, unknown>).call(other);
-          const keys = Object.keys(computed);
-          if (keys.length !== Object.keys(otherData).length) {
-            return false;
-          }
-          return keys.every((key) => computed[key] === otherData[key]);
-        },
-      };
+    get() {
+      return runWithAdminErrorsAsync(appBacked, async () => {
+        assertQueryExecutable(meta);
+        const aliasCount = Object.keys(normalizedSpec).length;
+        if (aliasCount < 1 || aliasCount > 5) {
+          throw new SandboxError(
+            'invalid-argument',
+            'A minimum of one and maximum of five aggregations per query is required.',
+          );
+        }
+        const rawSnap = await target.aggregate(normalizedSpec);
+        const computed = rawSnap.data();
+        const readTime = nextAdminTimestamp(rawDb);
+        return {
+          query: receiverQuery,
+          readTime,
+          data: () => ({ ...computed }),
+          isEqual(other: unknown): boolean {
+            if (typeof other !== 'object' || other === null) {
+              return false;
+            }
+            const otherDataFn = (other as { data?: unknown }).data;
+            if (typeof otherDataFn !== 'function') {
+              return false;
+            }
+            const otherData = (otherDataFn as () => Record<string, unknown>).call(other);
+            const keys = Object.keys(computed);
+            if (keys.length !== Object.keys(otherData).length) {
+              return false;
+            }
+            return keys.every((key) => computed[key] === otherData[key]);
+          },
+        };
+      });
     },
     isEqual(other: unknown): boolean {
       if (other === aggQuery) {

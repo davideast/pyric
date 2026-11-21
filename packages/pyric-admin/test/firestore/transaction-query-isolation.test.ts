@@ -146,7 +146,7 @@ describe('pyric-admin/firestore runTransaction query snapshot isolation and conf
             { maxAttempts: 2 },
           ),
         ).rejects.toMatchObject({
-          code: 'aborted',
+          code: 10,
         });
 
         expect(attempts).toBe(2);
@@ -163,7 +163,7 @@ describe('pyric-admin/firestore runTransaction query snapshot isolation and conf
             tx.set(db.doc('orders/o1'), { total: 10 });
             await tx.get(db.collection('orders'));
           }),
-        ).rejects.toMatchObject({ code: 'failed-precondition' });
+        ).rejects.toMatchObject({ code: 9 });
 
         const snap = await db.doc('orders/o1').get();
         expect(snap.exists).toBe(false);

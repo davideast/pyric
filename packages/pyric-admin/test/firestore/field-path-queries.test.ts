@@ -134,14 +134,14 @@ describe.each([
 
     for (const invalidPath of ['', '.a', 'a.', 'a..b', 'a*b', 'a[0]']) {
       expect(() => coll.where(invalidPath, '==', 1)).toThrow(
-        expect.objectContaining({ code: 'invalid-argument' }),
+        expect.objectContaining({ code: 3 }),
       );
       expect(() => coll.orderBy(invalidPath, 'asc')).toThrow(
-        expect.objectContaining({ code: 'invalid-argument' }),
+        expect.objectContaining({ code: 3 }),
       );
       expect(() =>
         coll.applyFilter({ kind: 'where', field: invalidPath, op: '==', value: 1 }),
-      ).toThrow(expect.objectContaining({ code: 'invalid-argument' }));
+      ).toThrow(expect.objectContaining({ code: 3 }));
     }
   });
 });

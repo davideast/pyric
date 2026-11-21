@@ -74,7 +74,7 @@ describe('pyric-admin/firestore WriteResult, Precondition, Filter, AggregateFiel
     } catch (err) {
       staleErr = err;
     }
-    expect((staleErr as { code?: string }).code).toBe('failed-precondition');
+    expect((staleErr as { code?: number }).code).toBe(9);
 
     let existsFalseErr: unknown;
     try {
@@ -82,7 +82,7 @@ describe('pyric-admin/firestore WriteResult, Precondition, Filter, AggregateFiel
     } catch (err) {
       existsFalseErr = err;
     }
-    expect((existsFalseErr as { code?: string }).code).toBe('already-exists');
+    expect((existsFalseErr as { code?: number }).code).toBe(6);
 
     const deleted = await ref.delete({ lastUpdateTime: matchedUpdate.writeTime });
     expect(deleted.writeTime).toBeInstanceOf(Timestamp);
@@ -93,7 +93,7 @@ describe('pyric-admin/firestore WriteResult, Precondition, Filter, AggregateFiel
     } catch (err) {
       missingDeleteErr = err;
     }
-    expect((missingDeleteErr as { code?: string }).code).toBe('not-found');
+    expect((missingDeleteErr as { code?: number }).code).toBe(5);
   });
 
   it('executes Filter.where/or/and, AggregateQuery, and value + snapshot cursors', async () => {
@@ -176,6 +176,6 @@ describe('pyric-admin/firestore WriteResult, Precondition, Filter, AggregateFiel
     } catch (err) {
       zeroArgsErr = err;
     }
-    expect((zeroArgsErr as { code?: string }).code).toBe('invalid-argument');
+    expect((zeroArgsErr as { code?: number }).code).toBe(3);
   });
 });

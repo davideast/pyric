@@ -21,6 +21,10 @@ import {
   type AdminFirestoreDataConverter,
 } from './admin-converter-and-discovery.js';
 import {
+  runWithAdminErrorsAsync,
+  runWithAdminErrorsSync,
+} from './admin-grpc-errors.js';
+import {
   adminDocumentRefBrand,
   adminRawDbSandbox,
   adminToRootDb,
@@ -28,6 +32,10 @@ import {
   isAppBackedRoot,
 } from './admin-handle-registry.js';
 import { normalizeCollectionPath } from './admin-path-validation.js';
+import {
+  capturePreWriteBaselines,
+  recordPostWriteVersions,
+} from './admin-read-time-history.js';
 import { isAdminDocRefEqual } from './admin-reference-and-snapshot-equality.js';
 import {
   markAdminFirestoreStarted,
@@ -45,10 +53,10 @@ import {
   type WriteResult,
 } from './admin-write-result-preconditions.js';
 import {
-  validateAndNormalizeDocumentData,
   validateAndNormalizeSetCall,
   validatePreconditionObject,
-} from './admin-write-validation.js';
+} from './admin-set-and-precondition-validation.js';
+import { validateAndNormalizeDocumentData } from './admin-write-validation.js';
 
 const SYNTHETIC_DOC_REF_PROPS = new Set<PropertyKey>([
   'firestore',
@@ -75,6 +83,7 @@ export function createWrappedDocRef(
   callbacks: WrapDocRefCallbacks,
   converter?: AdminFirestoreDataConverter,
 ): DocumentReference {
+  const appBacked = isAppBackedRoot(rootDb);
   const proxy: DocumentReference = new Proxy(rawRef, {
     has(t, prop) {
       if (SYNTHETIC_DOC_REF_PROPS.has(prop)) return true;
@@ -102,51 +111,111 @@ export function createWrappedDocRef(
         case 'isEqual':
           return (other: unknown) => isAdminDocRefEqual(proxy, other);
         case 'listCollections':
-          return () => adminDocListCollections(rootDb, rawDb, adminRawDbSandbox.get(rawDb), t.path);
+          return () =>
+            runWithAdminErrorsAsync(appBacked, () =>
+              adminDocListCollections(rootDb, rawDb, adminRawDbSandbox.get(rawDb), t.path),
+            );
         case 'withConverter':
           return (nextConv: unknown) =>
-            createWrappedDocRef(t, rawDb, rootDb, callbacks, assertValidConverterOrNull(nextConv));
+            runWithAdminErrorsSync(appBacked, () =>
+              createWrappedDocRef(t, rawDb, rootDb, callbacks, assertValidConverterOrNull(nextConv)),
+            );
         case 'collection':
           return (name: string) =>
-            callbacks.wrapCollectionRef(t.collection(normalizeCollectionPath(name)), rawDb, rootDb);
+            runWithAdminErrorsSync(appBacked, () =>
+              callbacks.wrapCollectionRef(t.collection(normalizeCollectionPath(name)), rawDb, rootDb),
+            );
         case 'get':
-          return async (opts?: OperationOptions) => {
-            markAdminFirestoreStarted(rootDb);
-            return wrapDocSnapshot(await t.get(opts), rootDb, callbacks.docRefOnRoot, { converter });
-          };
+          return (opts?: OperationOptions) =>
+            runWithAdminErrorsAsync(appBacked, async () => {
+              markAdminFirestoreStarted(rootDb);
+              return wrapDocSnapshot(await t.get(opts), rootDb, callbacks.docRefOnRoot, { converter });
+            });
         case 'create':
-          return async (data: DocumentData, opts?: OperationOptions): Promise<WriteResult> => {
-            markAdminFirestoreStarted(rootDb);
-            let payload: unknown = applyConverterToWritePayload(converter, data);
-            if (shouldIgnoreUndefinedProperties(rootDb)) payload = stripUndefinedForSettings(payload);
-            const normalized = validateAndNormalizeDocumentData('data', payload, 'none', isAppBackedRoot(rootDb));
-            await t.create(normalized, opts);
-            return recordSingleAdminWrite(rawDb, t.path);
+          return (data: DocumentData, opts?: OperationOptions): Promise<WriteResult> => {
+            const normalized = runWithAdminErrorsSync(appBacked, () => {
+              markAdminFirestoreStarted(rootDb);
+              let payload: unknown = applyConverterToWritePayload(converter, data);
+              if (shouldIgnoreUndefinedProperties(rootDb)) payload = stripUndefinedForSettings(payload);
+              return validateAndNormalizeDocumentData('data', payload, 'none', appBacked);
+            });
+            return runWithAdminErrorsAsync(appBacked, async () => {
+              await capturePreWriteBaselines(rawDb, rootDb, callbacks.docRefOnRoot, [t.path]);
+              await t.create(normalized, opts);
+              const res = recordSingleAdminWrite(rawDb, t.path);
+              await recordPostWriteVersions(
+                rawDb,
+                rootDb,
+                callbacks.docRefOnRoot,
+                [{ path: t.path, kind: 'write' }],
+                res.writeTime,
+              );
+              return res;
+            });
           };
         case 'set':
-          return async (data: DocumentData, options?: SetOptions): Promise<WriteResult> => {
-            markAdminFirestoreStarted(rootDb);
-            let payload: unknown = applyConverterToWritePayload(converter, data, options);
-            if (shouldIgnoreUndefinedProperties(rootDb)) payload = stripUndefinedForSettings(payload);
-            const validated = validateAndNormalizeSetCall(payload, options, true, isAppBackedRoot(rootDb));
-            await t.set(validated.data, validated.options);
-            return recordSingleAdminWrite(rawDb, t.path);
+          return (data: DocumentData, options?: SetOptions): Promise<WriteResult> => {
+            const validated = runWithAdminErrorsSync(appBacked, () => {
+              markAdminFirestoreStarted(rootDb);
+              let payload: unknown = applyConverterToWritePayload(converter, data, options);
+              if (shouldIgnoreUndefinedProperties(rootDb)) payload = stripUndefinedForSettings(payload);
+              return validateAndNormalizeSetCall(payload, options, true, appBacked);
+            });
+            return runWithAdminErrorsAsync(appBacked, async () => {
+              await capturePreWriteBaselines(rawDb, rootDb, callbacks.docRefOnRoot, [t.path]);
+              await t.set(validated.data, validated.options);
+              const res = recordSingleAdminWrite(rawDb, t.path);
+              await recordPostWriteVersions(
+                rawDb,
+                rootDb,
+                callbacks.docRefOnRoot,
+                [{ path: t.path, kind: 'write' }],
+                res.writeTime,
+              );
+              return res;
+            });
           };
         case 'update':
-          return async (...args: unknown[]): Promise<WriteResult> => {
-            markAdminFirestoreStarted(rootDb);
-            const normalized = validateAndNormalizeUpdateArgs(args, isAppBackedRoot(rootDb));
-            await assertSingleWritePrecondition(rawDb, t.path, 'update', extractUpdateTrailingPrecondition(args));
-            await (t.update as (...a: unknown[]) => Promise<void>)(...normalized);
-            return recordSingleAdminWrite(rawDb, t.path);
+          return (...args: unknown[]): Promise<WriteResult> => {
+            const normalized = runWithAdminErrorsSync(appBacked, () => {
+              markAdminFirestoreStarted(rootDb);
+              return validateAndNormalizeUpdateArgs(args, appBacked);
+            });
+            return runWithAdminErrorsAsync(appBacked, async () => {
+              await assertSingleWritePrecondition(rawDb, t.path, 'update', extractUpdateTrailingPrecondition(args));
+              await capturePreWriteBaselines(rawDb, rootDb, callbacks.docRefOnRoot, [t.path]);
+              await (t.update as (...a: unknown[]) => Promise<void>)(...normalized);
+              const res = recordSingleAdminWrite(rawDb, t.path);
+              await recordPostWriteVersions(
+                rawDb,
+                rootDb,
+                callbacks.docRefOnRoot,
+                [{ path: t.path, kind: 'write' }],
+                res.writeTime,
+              );
+              return res;
+            });
           };
         case 'delete':
-          return async (...args: [opts?: OperationOptions]): Promise<WriteResult> => {
-            markAdminFirestoreStarted(rootDb);
-            const validatedOpts = validatePreconditionObject('precondition', args[0]);
-            await assertSingleWritePrecondition(rawDb, t.path, 'delete', extractParsedPrecondition(args[0]));
-            await t.delete(validatedOpts);
-            return recordSingleAdminDelete(rawDb, t.path);
+          return (...args: [opts?: OperationOptions]): Promise<WriteResult> => {
+            const validatedOpts = runWithAdminErrorsSync(appBacked, () => {
+              markAdminFirestoreStarted(rootDb);
+              return validatePreconditionObject('precondition', args[0]);
+            });
+            return runWithAdminErrorsAsync(appBacked, async () => {
+              await assertSingleWritePrecondition(rawDb, t.path, 'delete', extractParsedPrecondition(args[0]));
+              await capturePreWriteBaselines(rawDb, rootDb, callbacks.docRefOnRoot, [t.path]);
+              await t.delete(validatedOpts);
+              const res = recordSingleAdminDelete(rawDb, t.path);
+              await recordPostWriteVersions(
+                rawDb,
+                rootDb,
+                callbacks.docRefOnRoot,
+                [{ path: t.path, kind: 'delete' }],
+                res.writeTime,
+              );
+              return res;
+            });
           };
         case 'onSnapshot': {
           const underlying = Reflect.get(t, prop, t);
