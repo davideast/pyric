@@ -67,9 +67,12 @@ describe('ios-sdk-probes manifest, SwiftPM version pins, and staged probes', () 
     expect(authManifest).toContain('.copy("Resources/oracle-input.json")');
   });
 
-  it('registers ios-sdk-probes on macos-latest and discovers auth-swift and rtdb-swift seed probes', async () => {
+  it('registers ios-sdk-probes on macos-latest and discovers all auth-swift and rtdb-swift probes', async () => {
     expect(iosSdkProbesRig.runnerOs).toBe('macos-latest');
     expect(iosSdkProbesRig.freshness.versionField).toBe('iosSdkVersion');
+    expect(iosSdkProbesRig.requires.projectFeatures).toContain(
+      'Email/Password sign-in enabled on the dedicated oracle project.',
+    );
     expect(authSwiftSeedProbe.rig).toBe('ios-sdk-probes');
     expect(rtdbSwiftSeedProbe.rig).toBe('ios-sdk-probes');
 
@@ -78,19 +81,22 @@ describe('ios-sdk-probes manifest, SwiftPM version pins, and staged probes', () 
     expect(found?.runnerOs).toBe('macos-latest');
     expect(loadObservations().length).toBeGreaterThan(0);
 
-    const loaded = await loadModularProbes('ios-sdk-probes');
-    expect(loaded.map((entry) => entry.id)).toEqual([
+    const expectedProbeIds = [
       'auth-swift-anonymous-and-custom-token-session',
+      'auth-swift-email-password-and-error-codes',
+      'auth-swift-profile-token-claims-and-delete-lifecycle',
       'rtdb-swift-dedicated-crud-and-query-order',
-    ]);
+      'rtdb-swift-queries-ranges-limits-and-permission-denied',
+      'rtdb-swift-writes-autoid-servervalue-and-transactions',
+    ];
 
-    expectStagedUntilCaptured(
-      [
-        'auth-swift-anonymous-and-custom-token-session',
-        'rtdb-swift-dedicated-crud-and-query-order',
-      ],
-      { rig: 'ios-sdk-probes', filterFlag: '--probe' },
-    );
+    const loaded = await loadModularProbes('ios-sdk-probes');
+    expect(loaded.map((entry) => entry.id)).toEqual(expectedProbeIds);
+
+    expectStagedUntilCaptured(expectedProbeIds, {
+      rig: 'ios-sdk-probes',
+      filterFlag: '--probe',
+    });
   });
 });
 

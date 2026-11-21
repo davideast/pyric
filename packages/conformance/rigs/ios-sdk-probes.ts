@@ -46,6 +46,7 @@ export const rig: RigManifestRecord = {
     ],
     projectFeatures: [
       'Anonymous sign-in enabled on the dedicated oracle project.',
+      'Email/Password sign-in enabled on the dedicated oracle project.',
       'Dedicated non-default Realtime Database instance provisioned.',
     ],
     local: [

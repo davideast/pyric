@@ -1,3 +1,4 @@
+import Darwin
 import FirebaseAuth
 import FirebaseCore
 import Foundation
@@ -19,6 +20,7 @@ public enum AuthOracleError: LocalizedError {
   case unknownProbe(String)
   case appLookupFailed(String)
   case expectedInvalidTokenError
+  case expectedAuthRejection(String)
   case invalidJsonObject
 
   public var errorDescription: String? {
@@ -31,13 +33,41 @@ public enum AuthOracleError: LocalizedError {
       return "Failed to resolve configured FirebaseApp '\(appName)'"
     case .expectedInvalidTokenError:
       return "Expected signIn(withCustomToken:) with malformed token to throw an error"
+    case .expectedAuthRejection(let step):
+      return "Expected FirebaseAuth rejection during step '\(step)'"
     case .invalidJsonObject:
       return "Auth oracle behavior payload is not a valid JSON object"
     }
   }
 }
 
+struct CapturedIosAuthError {
+  let domain: String
+  let code: Int
+  let errorName: String
+}
+
 public enum AuthOracleProbeRunner {
+  static func emitCleanupUid(_ uid: String, into cleanupUids: inout [String]) {
+    if !uid.isEmpty {
+      if !cleanupUids.contains(uid) {
+        cleanupUids.append(uid)
+      }
+      print("PYRIC_IOS_ORACLE_CLEANUP_UID:\(uid)")
+      fflush(stdout)
+    }
+  }
+
+  static func extractAuthError(_ error: Error) -> CapturedIosAuthError {
+    let nsError = error as NSError
+    let errorName = (nsError.userInfo[AuthErrors.userInfoNameKey] as? String) ?? ""
+    return CapturedIosAuthError(
+      domain: nsError.domain,
+      code: nsError.code,
+      errorName: errorName
+    )
+  }
+
   private static func requireNonEmpty(_ value: String?, field: String) throws -> String {
     guard let unwrapped = value, !unwrapped.isEmpty else {
       throw AuthOracleError.missingField(field)
@@ -66,17 +96,13 @@ public enum AuthOracleProbeRunner {
 
     let anonResult = try await auth.signInAnonymously()
     let anonUser = anonResult.user
-    cleanupUids.append(anonUser.uid)
-    print("PYRIC_IOS_ORACLE_CLEANUP_UID:\(anonUser.uid)")
-    fflush(stdout)
+    emitCleanupUid(anonUser.uid, into: &cleanupUids)
     let anonymousIsAnonymous = anonUser.isAnonymous
     let anonymousMatchesCurrent = auth.currentUser?.uid == anonUser.uid
 
     let customResult = try await auth.signIn(withCustomToken: customToken)
     let customUser = customResult.user
-    cleanupUids.append(customUser.uid)
-    print("PYRIC_IOS_ORACLE_CLEANUP_UID:\(customUser.uid)")
-    fflush(stdout)
+    emitCleanupUid(customUser.uid, into: &cleanupUids)
     let customUidMatchesExpected = customUser.uid == expectedCustomUid
     let customIsAnonymous = customUser.isAnonymous
 
@@ -91,14 +117,14 @@ public enum AuthOracleProbeRunner {
     var invalidTokenRejected = false
 
     do {
-      _ = try await auth.signIn(withCustomToken: "not-a-valid-jwt")
+      let unexpected = try await auth.signIn(withCustomToken: "not-a-valid-jwt")
+      emitCleanupUid(unexpected.user.uid, into: &cleanupUids)
     } catch {
       invalidTokenRejected = true
-      let nsError = error as NSError
-      invalidCustomTokenDomain = nsError.domain
-      invalidCustomTokenCode = nsError.code
-      invalidCustomTokenErrorName =
-        (nsError.userInfo[AuthErrors.userInfoNameKey] as? String) ?? ""
+      let captured = extractAuthError(error)
+      invalidCustomTokenDomain = captured.domain
+      invalidCustomTokenCode = captured.code
+      invalidCustomTokenErrorName = captured.errorName
     }
 
     if !invalidTokenRejected {
@@ -162,6 +188,10 @@ public enum AuthOracleProbeRunner {
           customToken: customToken,
           expectedCustomUid: expectedUid
         )
+      case "auth-swift-email-password-and-error-codes":
+        behavior = try await runEmailPasswordAndErrorCodes(auth: auth, runId: runId)
+      case "auth-swift-profile-token-claims-and-delete-lifecycle":
+        behavior = try await runProfileTokenClaimsAndDeleteLifecycle(auth: auth, runId: runId)
       default:
         throw AuthOracleError.unknownProbe(probeId)
       }
