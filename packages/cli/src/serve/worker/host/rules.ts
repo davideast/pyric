@@ -238,7 +238,7 @@ function rejectionMessages(rejection: RulesSourceRejection): ActiveRulesState['m
  * sandbox evaluates no request against it. `previous` is the status it
  * replaces, whose rules stay the last known good ones.
  */
-export function enforcedFirestoreRulesState(
+function enforcedFirestoreRulesState(
   source: string,
   previous: ActiveRulesState | undefined,
   activeMessages: ActiveRulesState['messages'] = [],
@@ -281,18 +281,33 @@ export function deployFirestoreRulesToHost(ctx: HostCtx, source: string): {
   // in force, as production deploys it; its findings stay in `messages`.
   const okDeploy = !refused;
   ctx.activeRules ??= {};
-  const previous = ctx.activeRules.firestore?.status === 'active'
-    ? ctx.activeRules.firestore.source
-    : ctx.activeRules.firestore?.lastKnownGood;
-  ctx.activeRules.firestore = {
-    // The source the sandbox enforces: the new one when it was installed,
-    // even with lint errors, and the active one when it was refused.
-    source: !refused ? source : ctx.activeRules.firestore?.source ?? source,
+  let previous: unknown;
+  if (ctx.activeRules.firestore?.status === 'active') {
+    previous = ctx.activeRules.firestore.source;
+  } else {
+    previous = ctx.activeRules.firestore?.lastKnownGood;
+  }
+  // The source the sandbox enforces: the new one when it was installed, even
+  // with lint errors, and the active one when it was refused (absent when none
+  // was deployed, so a reset never installs a refused ruleset).
+  let enforcedSource: unknown = source;
+  if (refused) {
+    enforcedSource = ctx.activeRules.firestore?.source;
+  }
+  let nextStatus: 'active' | 'error' = 'error';
+  if (okDeploy) {
+    nextStatus = 'active';
+  }
+  const nextState: ActiveRulesState = {
+    source: enforcedSource,
     updatedAt: Date.now(),
-    status: okDeploy ? 'active' : 'error',
+    status: nextStatus,
     messages,
-    ...(previous ? { lastKnownGood: previous } : {}),
   };
+  if (Boolean(previous)) {
+    nextState.lastKnownGood = previous;
+  }
+  ctx.activeRules.firestore = nextState;
   const rejectionMessage = rejection !== null ? `Firestore ${rejection.message}` : null;
   return { ok: okDeploy, warnings: result.warnings, messages, rejectionMessage };
 }
