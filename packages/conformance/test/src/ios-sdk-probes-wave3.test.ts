@@ -215,10 +215,13 @@ describe('Wave 3 firestore-swift ios-sdk-probes manifest, Swift package, and sta
       '/tmp/cache/firestore-dd',
       '-clonedSourcePackagesDirPath',
       '/tmp/cache/spm',
+      '-collect-test-diagnostics',
+      'never',
       '-only-testing:FirestoreOracleSimTests/FirestoreOracleSimTests/testCaptureSelectedOracleProbe',
-      'CODE_SIGNING_ALLOWED=NO',
+      'ONLY_ACTIVE_ARCH=YES',
+      'COMPILER_INDEX_STORE_ENABLE=NO',
       'CODE_SIGNING_REQUIRED=NO',
-      'CODE_SIGNING_IDENTITY=',
+      'CODE_SIGNING_ALLOWED=YES',
     ]);
 
     const fsTarget = firestoreOracleTarget();

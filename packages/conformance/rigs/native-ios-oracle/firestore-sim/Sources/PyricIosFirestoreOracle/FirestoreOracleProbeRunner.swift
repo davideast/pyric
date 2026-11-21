@@ -79,6 +79,42 @@ public enum FirestoreOracleProbeRunner {
     return unwrapped
   }
 
+  private static func isDecimalProjectNumber(_ text: String) -> Bool {
+    guard !text.isEmpty, text.count <= 18 else { return false }
+    return text.unicodeScalars.allSatisfy { $0.value >= 48 && $0.value <= 57 }
+  }
+
+  private static func isAsciiHex(_ text: String) -> Bool {
+    guard !text.isEmpty else { return false }
+    return text.unicodeScalars.allSatisfy { scalar in
+      (scalar.value >= 48 && scalar.value <= 57)
+        || (scalar.value >= 65 && scalar.value <= 70)
+        || (scalar.value >= 97 && scalar.value <= 102)
+    }
+  }
+
+  static func normalizeIosGoogleAppId(_ rawAppId: String, gcmSenderId: String) -> String {
+    let trimmed = rawAppId.trimmingCharacters(in: .whitespacesAndNewlines)
+    let parts = trimmed.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
+    if parts.count == 4, parts[0] == "1", isDecimalProjectNumber(parts[1]), isAsciiHex(parts[3]) {
+      let lowerHex = parts[3].lowercased()
+      if parts[2].lowercased() == "ios", lowerHex.count >= 1, lowerHex.count <= 16 {
+        return "1:\(parts[1]):ios:\(lowerHex)"
+      }
+      let truncated = String(lowerHex.prefix(16))
+      let padded = truncated + String(repeating: "0", count: max(0, 16 - truncated.count))
+      return "1:\(parts[1]):ios:\(padded)"
+    }
+    if parts.count >= 2, parts[0] == "1", isDecimalProjectNumber(parts[1]) {
+      return "1:\(parts[1]):ios:0000000000000000"
+    }
+    let trimmedSender = gcmSenderId.trimmingCharacters(in: .whitespacesAndNewlines)
+    if isDecimalProjectNumber(trimmedSender) {
+      return "1:\(trimmedSender):ios:0000000000000000"
+    }
+    return "1:000000000000:ios:0000000000000000"
+  }
+
   static func deleteAppAsync(_ app: FirebaseApp) async {
     await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
       app.delete { _ in
@@ -104,9 +140,13 @@ public enum FirestoreOracleProbeRunner {
     let expectedUid = try requireNonEmpty(input.expectedCustomUid, field: "expectedCustomUid")
 
     let appName = "pyric-ios-firestore-\(runId)"
-    let options = FirebaseOptions(googleAppID: googleAppId, gcmSenderID: gcmSenderId)
+    let resolvedGoogleAppId = normalizeIosGoogleAppId(googleAppId, gcmSenderId: gcmSenderId)
+    let options = FirebaseOptions(googleAppID: resolvedGoogleAppId, gcmSenderID: gcmSenderId)
     options.apiKey = apiKey
     options.projectID = projectId
+    if (options.bundleID ?? "").isEmpty {
+      options.bundleID = "dev.pyric.ios.oracle.firestore"
+    }
 
     FirebaseApp.configure(name: appName, options: options)
     guard let app = FirebaseApp.app(name: appName) else {

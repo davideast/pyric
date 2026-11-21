@@ -15,12 +15,14 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createPrivateJobTmpDir, removePrivateJobTmpDir } from '../../../scripts/lib/private-job-tmpdir.ts';
 import {
+  assertValidIosOracleAppName,
   defaultExecuteAuthSim,
   defaultExecuteFirestoreSim,
   defaultExecuteRtdbCli,
   defaultQueryAvailableSimulatorsJson,
   extractIosOracleCleanupUids,
   extractIosOracleResultFromOutput,
+  normalizeIosOracleGoogleAppId,
   selectAvailableIosSimulatorDestination,
   stageIosPackageTemplate,
   type IosAuthSimRequest,
@@ -40,7 +42,6 @@ const RTDB_CLI_TEMPLATE_DIR = join(IOS_RIG_ROOT, 'rtdb-cli');
 const AUTH_SIM_TEMPLATE_DIR = join(IOS_RIG_ROOT, 'auth-sim');
 const FIRESTORE_SIM_TEMPLATE_DIR = join(IOS_RIG_ROOT, 'firestore-sim');
 const FIREBASE_MANAGEMENT_SCOPE = 'https://www.googleapis.com/auth/firebase';
-const FALLBACK_GOOGLE_APP_ID = '1:000000000000:ios:0000000000000000';
 const FALLBACK_GCM_SENDER_ID = '000000000000';
 
 type IosOracleExecutionMode = 'macos-rtdb-cli' | 'ios-sim-auth' | 'ios-sim-firestore';
@@ -339,16 +340,13 @@ export async function runIosOracleProbe(
   }
   const webConfig = await resolveConfig(sa, env as Record<string, string | undefined>);
 
-  let googleAppId = FALLBACK_GOOGLE_APP_ID;
-  if (typeof webConfig.appId === 'string' && webConfig.appId.trim() !== '') {
-    googleAppId = webConfig.appId.trim();
-  }
   let gcmSenderId = FALLBACK_GCM_SENDER_ID;
   if (typeof webConfig.messagingSenderId === 'string' && webConfig.messagingSenderId.trim() !== '') {
     gcmSenderId = webConfig.messagingSenderId.trim();
   }
+  const googleAppId = normalizeIosOracleGoogleAppId(webConfig.appId, gcmSenderId);
 
-  const runId = nextIosRunId();
+  const runId = assertValidIosOracleAppName(nextIosRunId());
   const jobTmpDir = createPrivateJobTmpDir('ios-oracle', env);
   const sharedCacheRoot = join(homedir(), '.cache', 'pyric-ios-oracle-spm');
 

@@ -80,13 +80,7 @@ func runNavigationPushPrioritiesAndSnapshots(
   let trimmedDbUrl = config.databaseUrl.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
   let createdDefaultApp = FirebaseApp.app() == nil
   if createdDefaultApp {
-    let defaultOptions = FirebaseOptions(
-      googleAppID: config.googleAppId,
-      gcmSenderID: config.gcmSenderId
-    )
-    defaultOptions.apiKey = config.apiKey
-    defaultOptions.projectID = config.projectId
-    defaultOptions.databaseURL = config.databaseUrl
+    let defaultOptions = makeRtdbFirebaseOptions(config: config)
     FirebaseApp.configure(options: defaultOptions)
   }
 

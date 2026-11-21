@@ -131,6 +131,60 @@ func deleteAppAsync(_ app: FirebaseApp) async {
   }
 }
 
+private func isRtdbDecimalProjectNumber(_ text: String) -> Bool {
+  guard !text.isEmpty, text.count <= 18 else { return false }
+  return text.unicodeScalars.allSatisfy { $0.value >= 48 && $0.value <= 57 }
+}
+
+private func isRtdbAsciiHex(_ text: String) -> Bool {
+  guard !text.isEmpty else { return false }
+  return text.unicodeScalars.allSatisfy { scalar in
+    (scalar.value >= 48 && scalar.value <= 57)
+      || (scalar.value >= 65 && scalar.value <= 70)
+      || (scalar.value >= 97 && scalar.value <= 102)
+  }
+}
+
+func normalizeRtdbIosGoogleAppId(_ rawAppId: String, gcmSenderId: String) -> String {
+  let trimmed = rawAppId.trimmingCharacters(in: .whitespacesAndNewlines)
+  let parts = trimmed.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
+  if parts.count == 4, parts[0] == "1", isRtdbDecimalProjectNumber(parts[1]), isRtdbAsciiHex(parts[3]) {
+    let lowerHex = parts[3].lowercased()
+    if parts[2].lowercased() == "ios", lowerHex.count >= 1, lowerHex.count <= 16 {
+      return "1:\(parts[1]):ios:\(lowerHex)"
+    }
+    let truncated = String(lowerHex.prefix(16))
+    let padded = truncated + String(repeating: "0", count: max(0, 16 - truncated.count))
+    return "1:\(parts[1]):ios:\(padded)"
+  }
+  if parts.count >= 2, parts[0] == "1", isRtdbDecimalProjectNumber(parts[1]) {
+    return "1:\(parts[1]):ios:0000000000000000"
+  }
+  let trimmedSender = gcmSenderId.trimmingCharacters(in: .whitespacesAndNewlines)
+  if isRtdbDecimalProjectNumber(trimmedSender) {
+    return "1:\(trimmedSender):ios:0000000000000000"
+  }
+  return "1:000000000000:ios:0000000000000000"
+}
+
+func makeRtdbFirebaseOptions(config: RtdbOracleConfig) -> FirebaseOptions {
+  let resolvedGoogleAppId = normalizeRtdbIosGoogleAppId(
+    config.googleAppId,
+    gcmSenderId: config.gcmSenderId
+  )
+  let options = FirebaseOptions(
+    googleAppID: resolvedGoogleAppId,
+    gcmSenderID: config.gcmSenderId
+  )
+  options.apiKey = config.apiKey
+  options.projectID = config.projectId
+  options.databaseURL = config.databaseUrl
+  if (options.bundleID ?? "").isEmpty {
+    options.bundleID = "dev.pyric.ios.oracle.rtdb"
+  }
+  return options
+}
+
 func runDedicatedCrudAndQueryOrder(
   db: Database,
   runId: String
@@ -197,13 +251,7 @@ func runDedicatedCrudAndQueryOrder(
 
 func executeRtdbProbe(config: RtdbOracleConfig) async throws -> [String: Any] {
   let appName = "pyric-ios-rtdb-\(config.runId)"
-  let options = FirebaseOptions(
-    googleAppID: config.googleAppId,
-    gcmSenderID: config.gcmSenderId
-  )
-  options.apiKey = config.apiKey
-  options.projectID = config.projectId
-  options.databaseURL = config.databaseUrl
+  let options = makeRtdbFirebaseOptions(config: config)
 
   FirebaseApp.configure(name: appName, options: options)
   guard let app = FirebaseApp.app(name: appName) else {
