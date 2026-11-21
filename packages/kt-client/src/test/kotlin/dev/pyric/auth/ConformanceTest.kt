@@ -252,8 +252,31 @@ class ConformanceTest {
     @DisplayName("auth-kotlin#23: FirebaseUser.providerData lists linked providers")
     fun `auth-kotlin#23 FirebaseUser providerData lists linked providers`() {
         val user = Tasks.await(harness.auth.signInWithEmailAndPassword("alice@example.com", "pass123")).user!!
-        assertEquals(1, user.providerData.size)
-        assertEquals("password", user.providerData[0].providerId)
+        assertEquals(listOf("firebase", "password"), user.providerData.map { it.providerId })
+        assertEquals("user-alice", user.providerData[0].uid)
+        assertEquals("alice@example.com", user.providerData[0].email)
+        assertEquals("Alice", user.providerData[0].displayName)
+        assertTrue(user.providerData[0].isEmailVerified)
+        assertEquals("alice@example.com", user.providerData[1].email)
+
+        val anonUser = Tasks.await(harness.auth.signInAnonymously()).user!!
+        assertEquals(listOf("firebase"), anonUser.providerData.map { it.providerId })
+        assertEquals("anon-123", anonUser.providerData[0].uid)
+        assertNull(anonUser.providerData[0].email)
+
+        // Verify a wire payload that already includes "firebase" does not double-insert it
+        val preseeded = com.google.firebase.auth.FirebaseUser(
+            harness.auth,
+            mapOf(
+                "uid" to "preseeded-uid",
+                "email" to "pre@example.com",
+                "providerData" to listOf(
+                    mapOf("uid" to "pre@example.com", "email" to "pre@example.com", "providerId" to "password"),
+                    mapOf("uid" to "preseeded-uid", "email" to "pre@example.com", "providerId" to "firebase")
+                )
+            )
+        )
+        assertEquals(listOf("firebase", "password"), preseeded.providerData.map { it.providerId })
     }
 
     @Test

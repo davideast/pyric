@@ -1,8 +1,10 @@
 package com.google.firebase.database
 
+import dev.pyric.codecs.PojoCodec
+
 class MutableData(
     initialValue: Any?,
-    var priority: Any? = null,
+    initialPriority: Any? = null,
     val key: String? = null,
     private val onValueMutated: ((Any?) -> Unit)? = null
 ) {
@@ -12,10 +14,16 @@ class MutableData(
         key: String? = null
     ) : this(value, priority, key, null)
 
-    var value: Any? = initialValue
+    var priority: Any? = DataSnapshot.normalizeRtdbValue(initialPriority)
+        set(newPriority) {
+            field = DataSnapshot.normalizeRtdbValue(newPriority)
+        }
+
+    var value: Any? = DataSnapshot.normalizeRtdbValue(initialValue)
         set(newValue) {
-            field = newValue
-            onValueMutated?.invoke(newValue)
+            val normalized = DataSnapshot.normalizeRtdbValue(newValue)
+            field = normalized
+            onValueMutated?.invoke(normalized)
         }
 
     @Suppress("UNCHECKED_CAST")
@@ -31,7 +39,11 @@ class MutableData(
             java.lang.Float::class.java, Float::class.java -> (raw as? Number)?.toFloat() as? T
             java.lang.Boolean::class.java, Boolean::class.java -> raw as? T
             String::class.java -> raw.toString() as? T
-            else -> raw as? T
+            else -> if (raw is Map<*, *> && !Map::class.java.isAssignableFrom(valueType) && valueType != Any::class.java) {
+                PojoCodec.deserialize(raw as Map<String, Any?>, valueType)
+            } else {
+                raw as? T
+            }
         }
     }
 

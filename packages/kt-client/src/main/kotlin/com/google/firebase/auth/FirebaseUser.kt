@@ -34,11 +34,29 @@ class FirebaseUser internal constructor(
     override val providerId: String get() = rawData["providerId"] as? String ?: "firebase"
     val tenantId: String? get() = (rawData["tenantId"] as? String) ?: auth.tenantId
 
+    private fun buildMasterFirebaseUserInfo(): UserInfo {
+        val masterUid = uid
+        val masterEmail = email
+        val masterDisplayName = displayName
+        val masterPhotoUrl = photoUrl
+        val masterPhone = phoneNumber
+        val masterEmailVerified = isEmailVerified
+        return object : UserInfo {
+            override val uid: String = masterUid
+            override val email: String? = masterEmail
+            override val displayName: String? = masterDisplayName
+            override val photoUrl: URI? = masterPhotoUrl
+            override val phoneNumber: String? = masterPhone
+            override val providerId: String = "firebase"
+            override val isEmailVerified: Boolean = masterEmailVerified
+        }
+    }
+
     val providerData: List<UserInfo>
         get() {
             @Suppress("UNCHECKED_CAST")
-            val rawList = rawData["providerData"] as? List<Map<String, Any?>> ?: return emptyList()
-            return rawList.map { p ->
+            val rawList = rawData["providerData"] as? List<Map<String, Any?>> ?: emptyList()
+            val mapped = rawList.map { p ->
                 val pUid = p["uid"] as? String ?: ""
                 val pEmail = p["email"] as? String
                 val pDisplayName = p["displayName"] as? String
@@ -57,6 +75,15 @@ class FirebaseUser internal constructor(
                     override val isEmailVerified: Boolean = pEmailVerified
                 }
             }
+            val existingFirebase = mapped.firstOrNull { it.providerId == "firebase" }
+            if (existingFirebase != null) {
+                if (mapped.first().providerId == "firebase" && mapped.count { it.providerId == "firebase" } == 1) {
+                    return mapped
+                }
+                val linkedProviders = mapped.filter { it.providerId != "firebase" }
+                return listOf(existingFirebase) + linkedProviders
+            }
+            return listOf(buildMasterFirebaseUserInfo()) + mapped
         }
 
     internal fun resolveSignInProvider(): String {
