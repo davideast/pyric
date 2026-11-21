@@ -44,6 +44,11 @@ import { schedulerTriggersFamily } from './scheduler/discovery.js';
 import { startIdentityChildRuntime } from './identity/child-runtime.js';
 import { identityBlockingFamily } from './identity/discovery.js';
 import type { IdentityTriggerExecutionHost } from './identity/execution.js';
+import {
+  startPubSubChildRuntime,
+  type PubSubChildRuntimeHost,
+} from './pubsub/child-runtime.js';
+import { pubsubTriggersFamily } from './pubsub/discovery.js';
 import { findUnsupportedTriggers } from './unsupported.js';
 
 interface AdminAppInstance {
@@ -116,6 +121,7 @@ async function runFunctionsChild(): Promise<void> {
   let firestoreHost: FirestoreTriggerExecutionHost | undefined;
   let schedulerHost: SchedulerChildRuntimeHost | undefined;
   let identityHost: IdentityTriggerExecutionHost | undefined;
+  let pubsubHost: PubSubChildRuntimeHost | undefined;
   let httpServer: HttpChildServer | undefined;
   let closing: Promise<void> | undefined;
   let stopRequested = false;
@@ -127,6 +133,8 @@ async function runFunctionsChild(): Promise<void> {
       clearInterval(heartbeat);
       clearInterval(parentWatch);
       await httpServer?.close();
+      pubsubHost?.close();
+      await pubsubHost?.idle();
       identityHost?.close();
       await identityHost?.idle();
       schedulerHost?.close();
@@ -208,6 +216,31 @@ async function runFunctionsChild(): Promise<void> {
             message: error instanceof Error ? error.message : String(error),
           });
         });
+      return;
+    }
+    if (raw.type === 'publish-pubsub') {
+      if (pubsubHost === undefined || stopRequested) {
+        send({
+          type: 'publish-pubsub-result',
+          requestId: raw.requestId,
+          outcome: 'invalid-argument',
+          message: 'Functions pubsub runtime is not ready',
+        });
+        return;
+      }
+      void pubsubHost
+        .handleHostPublishRequest(raw)
+        .then((reply) => {
+          send(reply);
+        })
+        .catch((error: unknown) => {
+          send({
+            type: 'publish-pubsub-result',
+            requestId: raw.requestId,
+            outcome: 'invalid-argument',
+            message: error instanceof Error ? error.message : String(error),
+          });
+        });
     }
   };
   process.on('message', onParentMessage);
@@ -280,6 +313,17 @@ async function runFunctionsChild(): Promise<void> {
     if (identityHost.triggerCount > 0) {
       surviveUncaughtErrors();
     }
+    pubsubHost = startPubSubChildRuntime({
+      exported,
+      sandbox: runtimeSandbox,
+      projectId,
+      location,
+      send,
+    });
+    await pubsubHost.ready;
+    if (pubsubHost.triggerCount > 0) {
+      surviveUncaughtErrors();
+    }
     const httpFunctions = [...inspectOnRequest(exported), ...inspectOnCall(exported)];
     if (httpFunctions.length > 0) {
       if (httpToken === undefined) throw new Error(`Functions child is missing ${CHILD_TOKEN_ENV}`);
@@ -292,6 +336,7 @@ async function runFunctionsChild(): Promise<void> {
       firestoreTriggersFamily,
       schedulerTriggersFamily,
       identityBlockingFamily,
+      pubsubTriggersFamily,
       httpOnRequestFamily,
       callableOnCallFamily,
     ]);
@@ -300,7 +345,8 @@ async function runFunctionsChild(): Promise<void> {
       storageHost.triggerCount +
       firestoreHost.triggerCount +
       schedulerHost.triggerCount +
-      identityHost.triggerCount;
+      identityHost.triggerCount +
+      pubsubHost.triggerCount;
     if (httpServer === undefined) {
       send({
         type: 'ready',

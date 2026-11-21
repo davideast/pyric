@@ -3,6 +3,10 @@
  * by both sides so neither re-declares the other's shapes.
  */
 import type { HttpFunctionInfo } from './http/discovery.js';
+import type {
+  PubSubPublishResult,
+  PubSubWirePublishRequest,
+} from './pubsub/delivery.js';
 import type { UnsupportedFunctionsTrigger } from './unsupported.js';
 
 export interface SerializedFunctionsError {
@@ -68,9 +72,15 @@ export interface TriggerScheduledHostRequest {
   hasJobNameOverride?: boolean;
 }
 
+export interface PublishPubSubHostRequest extends PubSubWirePublishRequest {
+  type: 'publish-pubsub';
+  requestId: string;
+}
+
 export type FunctionsHostMessage =
   | { type: 'stop' }
-  | TriggerScheduledHostRequest;
+  | TriggerScheduledHostRequest
+  | PublishPubSubHostRequest;
 
 export type TriggerScheduledChildResult =
   | {
@@ -111,10 +121,25 @@ export type TriggerScheduledChildResult =
       message: string;
     };
 
+export type PublishPubSubChildResult =
+  | {
+      type: 'publish-pubsub-result';
+      requestId: string;
+      outcome: 'published';
+      result: PubSubPublishResult;
+    }
+  | {
+      type: 'publish-pubsub-result';
+      requestId: string;
+      outcome: 'invalid-argument';
+      message: string;
+    };
+
 export type FunctionsChildMessage =
   | ({ type: 'ready' } & FunctionsChildReadyMessage)
   | FunctionsChildEvent
   | TriggerScheduledChildResult
+  | PublishPubSubChildResult
   | { type: 'fatal'; error: SerializedFunctionsError }
   /** Sent every HEARTBEAT_INTERVAL_MS while the child's event loop runs. */
   | { type: 'heartbeat' }
@@ -146,5 +171,9 @@ export function isHostMessage(value: unknown): value is FunctionsHostMessage {
     return false;
   }
   const kind = (value as { type?: unknown }).type;
-  return kind === 'stop' || kind === 'trigger-scheduled';
+  return (
+    kind === 'stop' ||
+    kind === 'trigger-scheduled' ||
+    kind === 'publish-pubsub'
+  );
 }
