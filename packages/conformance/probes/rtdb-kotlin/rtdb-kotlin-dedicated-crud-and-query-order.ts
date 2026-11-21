@@ -16,6 +16,7 @@ export const probe: Probe = {
     'rtdb-kotlin#read-get',
     'rtdb-kotlin#snap-exists',
     'rtdb-kotlin#snap-key',
+    'rtdb-kotlin#snap-value',
     'rtdb-kotlin#snap-children',
     'rtdb-kotlin#snap-child-path',
     'rtdb-kotlin#query-order-by-child',

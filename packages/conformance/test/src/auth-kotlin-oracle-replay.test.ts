@@ -94,6 +94,20 @@ const KT_FIREBASE_AUTH_PATH = join(
   'FirebaseAuth.kt',
 );
 
+const KT_FIREBASE_USER_PATH = join(
+  REPO_ROOT,
+  'packages',
+  'kt-client',
+  'src',
+  'main',
+  'kotlin',
+  'com',
+  'google',
+  'firebase',
+  'auth',
+  'FirebaseUser.kt',
+);
+
 const KT_PROFILE_REQUEST_PATH = join(
   REPO_ROOT,
   'packages',
@@ -127,7 +141,7 @@ const gate = createObservationGate({
 });
 
 describe('auth-kotlin Android SDK production observation replay over hosted worker bridge', () => {
-  test('auth-kotlin#8 auth-kotlin#9 auth-kotlin#10 auth-kotlin#20 auth-kotlin#22 replay BridgeAuthOperations anonymous session, currentUser, providerId, and signOut RPCs', async () => {
+  test('auth-kotlin#8 auth-kotlin#9 auth-kotlin#10 auth-kotlin#20 auth-kotlin#22 auth-kotlin#23 replay BridgeAuthOperations anonymous session, currentUser, providerId, providerData, and signOut RPCs', async () => {
     const obs = gate.load<AuthKotlinAnonymousAndCustomTokenObservation>(
       'auth-kotlin-anonymous-and-custom-token-session',
     );
@@ -140,7 +154,12 @@ describe('auth-kotlin Android SDK production observation replay over hosted work
       const anonRes = await harness.sendOp({ method: 'auth.signInAnonymously' });
       expect(anonRes.ok).toBe(true);
       const anonPayload = anonRes.value as {
-        user: { uid: string; isAnonymous: boolean; providerId?: string };
+        user: {
+          uid: string;
+          isAnonymous: boolean;
+          providerId?: string;
+          providerData?: Array<{ providerId?: string }>;
+        };
       };
       expect(anonPayload.user.uid.length).toBeGreaterThan(0);
       expect(anonPayload.user.isAnonymous).toBe(obs.anonymousIsAnonymous);
@@ -150,7 +169,20 @@ describe('auth-kotlin Android SDK production observation replay over hosted work
         resolvedProviderId = anonPayload.user.providerId;
       }
       expect(resolvedProviderId).toBe(obs.anonymousProviderId);
-      expect(obs.anonymousProviderDataIds).toContain('firebase');
+
+      const wireAnonProviders: string[] = [];
+      if (Array.isArray(anonPayload.user.providerData)) {
+        for (const entry of anonPayload.user.providerData) {
+          if (typeof entry.providerId === 'string' && entry.providerId !== 'firebase') {
+            wireAnonProviders.push(entry.providerId);
+          }
+        }
+      }
+      expect(['firebase', ...wireAnonProviders]).toEqual(obs.anonymousProviderDataIds);
+
+      const ktUserSource = readFileSync(KT_FIREBASE_USER_PATH, 'utf8');
+      expect(ktUserSource).toContain('private fun buildMasterFirebaseUserInfo(): UserInfo');
+      expect(ktUserSource).toContain('return listOf(buildMasterFirebaseUserInfo()) + mapped');
 
       const currentWhileSignedIn = await harness.sendOp({ method: 'auth.getCurrentUser' });
       expect(currentWhileSignedIn.ok).toBe(true);
@@ -255,7 +287,7 @@ describe('auth-kotlin Android SDK production observation replay over hosted work
     }
   });
 
-  test('auth-kotlin#2 auth-kotlin#6 auth-kotlin#7 auth-kotlin#15 auth-kotlin#16 auth-kotlin#21 auth-kotlin#30 replay email/password account creation, sign-in, AdditionalUserInfo.isNewUser, and delete lifecycle', async () => {
+  test('auth-kotlin#2 auth-kotlin#6 auth-kotlin#7 auth-kotlin#15 auth-kotlin#16 auth-kotlin#21 auth-kotlin#23 auth-kotlin#30 replay email/password account creation, providerData, sign-in, AdditionalUserInfo.isNewUser, and delete lifecycle', async () => {
     const obs = gate.load<AuthKotlinEmailPasswordLifecycleObservation>(
       'auth-kotlin-email-password-lifecycle',
     );
@@ -277,6 +309,7 @@ describe('auth-kotlin Android SDK production observation replay over hosted work
           isAnonymous: boolean;
           emailVerified: boolean;
           providerId?: string;
+          providerData?: Array<{ providerId?: string }>;
         };
         additionalUserInfo?: { isNewUser?: boolean };
       };
@@ -295,9 +328,24 @@ describe('auth-kotlin Android SDK production observation replay over hosted work
         resolvedProviderId = createdPayload.user.providerId;
       }
       expect(resolvedProviderId).toBe(obs.createdProviderId);
-      // Production Android prepends master `"firebase"` before `"password"`; `auth-kotlin#23`
-      // (`FirebaseUser.providerData`) stays honestly `self-tested` until kt-client prepends `"firebase"`.
-      expect(obs.createdProviderDataIds).toContain('password');
+
+      const wireCreatedProviders: string[] = [];
+      if (Array.isArray(createdPayload.user.providerData)) {
+        for (const entry of createdPayload.user.providerData) {
+          if (typeof entry.providerId === 'string' && entry.providerId !== 'firebase') {
+            wireCreatedProviders.push(entry.providerId);
+          }
+        }
+      }
+      expect(['firebase', ...wireCreatedProviders]).toEqual(obs.createdProviderDataIds);
+
+      const ktLiveHostSuiteSource = readFileSync(KT_LIVE_HOST_AUTH_TEST_PATH, 'utf8');
+      expect(ktLiveHostSuiteSource).toContain(
+        'assertEquals(listOf("firebase", "password"), emailUser.providerData.map { it.providerId })',
+      );
+      expect(ktLiveHostSuiteSource).toContain(
+        'assertEquals(listOf("firebase"), anonUser.providerData.map { it.providerId })',
+      );
 
       const createdTokenRes = await harness.sendOp({
         method: 'auth.getIdTokenResult',

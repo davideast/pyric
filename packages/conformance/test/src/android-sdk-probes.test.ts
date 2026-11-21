@@ -82,6 +82,7 @@ describe('android-sdk-probes Robolectric oracle rig', () => {
       'auth-kotlin#10',
       'auth-kotlin#20',
       'auth-kotlin#22',
+      'auth-kotlin#23',
       'auth-kotlin#24',
       'auth-kotlin#26',
       'auth-kotlin#31',
