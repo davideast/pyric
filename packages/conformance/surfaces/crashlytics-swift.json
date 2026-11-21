@@ -1,0 +1,15 @@
+{
+  "schema": "pyric.conformance.surface.v2",
+  "kind": "integration",
+  "developerSurface": "crashlytics-swift",
+  "contractSource": "FirebaseCrashlytics",
+  "observationPrefixes": [
+    "crashlytics-swift-"
+  ],
+  "coverage": true,
+  "scopeNote": "integration contract: Pure-Swift client (PyricCrashlytics) conforming to FirebaseCrashlytics via the Pyric WebSocket bridge and CrashlyticsBroker. Covers per-app Crashlytics.crashlytics singletons and multi-app isolation, setCrashlyticsCollectionEnabled overrides, plain and formatted log breadcrumbs, setUserID and setCustomValue / setCustomKeysAndValues with nil key removal, NSError underlying-cause and ExceptionModel / StackFrame recording, checkForUnsentReports and checkAndUpdateUnsentReports post-crash annotation, flush and getState inspection, and RS256 App Check token attachment.",
+  "captureRigs": [],
+  "conformanceSuite": "packages/swift-client/Tests/PyricCrashlyticsTests/PyricCrashlyticsUnitTests.swift",
+  "climb": true,
+  "registry": "crashlytics-swift"
+}

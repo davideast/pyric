@@ -16,10 +16,10 @@ import surfaceContractJsonSchema from '../../schemas/surface-contract.v2.schema.
 
 describe('machine-readable surface contracts', () => {
   it('loads every authored contract through one schema-validated seam', () => {
-    expect(surfaceContracts).toHaveLength(47);
+    expect(surfaceContracts).toHaveLength(51);
     expect(surfaceContracts.map(({ key }) => key)).toEqual(surfaceContracts.map(({ key }) => key).toSorted());
     expect(surfaceContracts.every(({ record }) => !('order' in record))).toBe(true);
-    expect(surfaceDescriptors).toHaveLength(45);
+    expect(surfaceDescriptors).toHaveLength(49);
     expect(loadCensusPairs()).toHaveLength(10);
     expect(loadSurfaceDispositions()).toHaveLength(32);
   });
@@ -64,6 +64,7 @@ describe('machine-readable surface contracts', () => {
       'ai', 'ai-flutter', 'ai-kotlin', 'ai-swift',
       'app', 'app-check', 'app-check-admin', 'app-check-flutter', 'app-check-kotlin', 'app-check-swift',
       'auth', 'auth-admin', 'auth-flutter', 'auth-kotlin', 'auth-swift',
+      'crashlytics', 'crashlytics-flutter', 'crashlytics-kotlin', 'crashlytics-swift',
       'firestore', 'firestore-admin', 'firestore-flutter', 'firestore-kotlin', 'firestore-rules', 'firestore-swift',
       'functions-callable', 'functions-flutter', 'functions-http', 'functions-kotlin', 'functions-rtdb', 'functions-swift',
       'messaging', 'messaging-admin', 'messaging-flutter', 'messaging-kotlin', 'messaging-swift',

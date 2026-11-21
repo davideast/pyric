@@ -1,0 +1,15 @@
+{
+  "schema": "pyric.conformance.surface.v2",
+  "kind": "integration",
+  "developerSurface": "crashlytics-kotlin",
+  "contractSource": "com.google.firebase:firebase-crashlytics",
+  "observationPrefixes": [
+    "crashlytics-kotlin-"
+  ],
+  "coverage": true,
+  "scopeNote": "integration contract: Pure-Kotlin client conforming to com.google.firebase:firebase-crashlytics via the Pyric WebSocket bridge and CrashlyticsBroker. Covers per-app FirebaseCrashlytics.getInstance and Firebase.crashlytics KTX extensions, primitive and nullable setCrashlyticsCollectionEnabled overrides, FIFO log breadcrumbs, setUserId and KeyValueBuilder custom keys, recordException stack and chained-cause serialization with per-report custom keys, checkForUnsentReports / sendUnsentReports / deleteUnsentReports queues, flush and getState inspection, and RS256 App Check token attachment.",
+  "captureRigs": [],
+  "conformanceSuite": "packages/kt-client/src/test/kotlin/dev/pyric/crashlytics/FirebaseCrashlyticsTest.kt",
+  "climb": true,
+  "registry": "crashlytics-kotlin"
+}

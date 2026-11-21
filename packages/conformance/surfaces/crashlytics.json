@@ -1,0 +1,18 @@
+{
+  "schema": "pyric.conformance.surface.v2",
+  "kind": "integration",
+  "developerSurface": "crashlytics",
+  "contractSource": "@firebase/crashlytics",
+  "evidenceImports": [
+    "pyric/crashlytics"
+  ],
+  "observationPrefixes": [
+    "crashlytics-web-"
+  ],
+  "coverage": true,
+  "scopeNote": "integration contract: pyric/crashlytics conforming to @firebase/crashlytics (firebase/crashlytics public preview) via CrashlyticsBroker and the served SharedWorker / HostedRuntime WebSocket bridge. Covers per-app and per-sandbox getCrashlytics singletons, firebase/crashlytics specifier swapping across register/Next.js/import-maps, log and breadcrumbs() ring buffers, recordError normalization and attribute precedence, flush and all 10 shared crashlytics.* broker operations, checkpoint snapshots, loopback endpointUrl guards, inbound wire schema validation, and live-mode write refusals.",
+  "captureRigs": [],
+  "conformanceSuite": "packages/pyric/test/crashlytics/crashlytics.test.ts",
+  "climb": true,
+  "registry": "crashlytics"
+}
