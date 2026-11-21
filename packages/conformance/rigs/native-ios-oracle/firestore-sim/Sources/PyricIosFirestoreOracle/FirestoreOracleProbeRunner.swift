@@ -22,6 +22,7 @@ public enum FirestoreOracleError: LocalizedError {
   case appLookupFailed(String)
   case customUidMismatch(expected: String, actual: String)
   case expectedFirestoreRejection(String)
+  case listenerTimeout(String)
   case invalidJsonObject
 
   public var errorDescription: String? {
@@ -36,6 +37,8 @@ public enum FirestoreOracleError: LocalizedError {
       return "Signed-in custom UID '\(actual)' did not match expected '\(expected)'"
     case .expectedFirestoreRejection(let step):
       return "Expected FirebaseFirestore rejection during step '\(step)'"
+    case .listenerTimeout(let step):
+      return "Timed out waiting for FirebaseFirestore listener condition '\(step)'"
     case .invalidJsonObject:
       return "Firestore oracle behavior payload is not a valid JSON object"
     }
@@ -76,7 +79,7 @@ public enum FirestoreOracleProbeRunner {
     return unwrapped
   }
 
-  private static func deleteAppAsync(_ app: FirebaseApp) async {
+  static func deleteAppAsync(_ app: FirebaseApp) async {
     await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
       app.delete { _ in
         continuation.resume(returning: ())
@@ -136,6 +139,20 @@ public enum FirestoreOracleProbeRunner {
         let outcome = try await runBatchesTransactionsOfflineAndErrors(db: db, runId: runId)
         behavior = outcome.behavior
         alreadyTerminated = outcome.didTerminate
+      case "firestore-swift-instance-snapshots-inSync-and-codable":
+        behavior = try await runInstanceSnapshotsInSyncAndCodable(
+          db: db,
+          app: app,
+          options: options,
+          runId: runId
+        )
+      case "firestore-swift-inequality-cursors-collectionGroup-and-txRetry":
+        behavior = try await runInequalityCursorsCollectionGroupAndTxRetry(
+          db: db,
+          options: options,
+          customToken: customToken,
+          runId: runId
+        )
       default:
         throw FirestoreOracleError.unknownProbe(probeId)
       }

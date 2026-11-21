@@ -115,7 +115,7 @@ describe('Wave 3 firestore-swift ios-sdk-probes manifest, Swift package, and sta
     }
 
     const loadedFirestore = (await loadModularProbes('ios-sdk-probes')).filter(
-      (entry) => entry.surfaceDir === 'firestore-swift',
+      (entry) => entry.surfaceDir === 'firestore-swift' && WAVE3_FIRESTORE_PROBE_IDS.includes(entry.id),
     );
     expect(loadedFirestore.map((entry) => entry.id)).toEqual(WAVE3_FIRESTORE_PROBE_IDS);
 
