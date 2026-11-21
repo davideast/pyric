@@ -500,6 +500,7 @@ async function runPlanCli(env: NodeJS.ProcessEnv): Promise<void> {
   appendGithubOutput(env, 'needs_wif', String(plan.needsWif));
   appendGithubOutput(env, 'needs_parity_wif', String(Boolean(plan.needsParityWif)));
   appendGithubOutput(env, 'needs_capture_wif', String(Boolean(plan.needsCaptureWif)));
+  appendGithubOutput(env, 'needs_chromium', String(Boolean(plan.needsChromium)));
   if (!plan.shouldRun) {
     console.log('[oracle-capture] No runnable uncaptured staged probes or pending rig prefixes; skipping.');
   } else {

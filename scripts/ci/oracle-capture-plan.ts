@@ -31,6 +31,7 @@ export interface CapturePlan {
   needsWif: boolean;
   needsParityWif?: boolean;
   needsCaptureWif?: boolean;
+  needsChromium?: boolean;
   invocations: PlannedRigInvocation[];
   skippedRigs?: string[];
 }
@@ -132,6 +133,7 @@ function emptyCapturePlan(skippedRigs: string[] = []): CapturePlan {
     needsWif: false,
     needsParityWif: false,
     needsCaptureWif: false,
+    needsChromium: false,
     invocations: [],
     skippedRigs,
   };
@@ -306,11 +308,14 @@ export async function planCaptureRun(
     }
   }
 
+  const needsChromium = activeInvocations.some((inv) => policyForRig(inv.rig).needsChromium === true);
+
   return {
     shouldRun: true,
     needsWif: needsParityWif || needsCaptureWif,
     needsParityWif,
     needsCaptureWif,
+    needsChromium,
     invocations: activeInvocations,
     skippedRigs,
   };

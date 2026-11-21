@@ -275,6 +275,30 @@ describe('planCaptureRun', () => {
         wifTier: 'parity-readonly',
       },
     ]);
+    expect(pushPlan.needsChromium).toBe(false);
+  });
+
+  test('gates Playwright Chromium install strictly on functions-callable manual dispatch and preserves manual IAM hints', async () => {
+    const wf = readFileSync(resolve(ROOT, '.github/workflows/oracle-capture.yml'), 'utf8');
+    expect(wf).toContain("steps.plan.outputs.needs_chromium == 'true'");
+    expect(wf).toContain('bunx playwright install --with-deps chromium');
+    const callablePlan = await planCaptureRun({
+      ...validEnv,
+      GITHUB_EVENT_NAME: 'workflow_dispatch',
+      INPUT_RIG: 'functions-callable',
+    });
+    expect(callablePlan.shouldRun).toBe(true);
+    expect(callablePlan.needsCaptureWif).toBe(true);
+    expect(callablePlan.needsChromium).toBe(true);
+    const httpPlan = await planCaptureRun({
+      ...validEnv,
+      GITHUB_EVENT_NAME: 'workflow_dispatch',
+      INPUT_RIG: 'functions-http',
+    });
+    expect(httpPlan.shouldRun).toBe(true);
+    expect(httpPlan.needsChromium).toBe(false);
+    const hint = diagnoseCaptureFailure('functions-callable', '403 PERMISSION_DENIED', {});
+    expect(hint).toContain('roles/cloudfunctions.developer');
   });
 });
 
