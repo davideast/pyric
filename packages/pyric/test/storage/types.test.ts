@@ -157,6 +157,7 @@ describe('pyric/storage public TypeScript type parity', () => {
     const finalSnapshot = await task;
     expect(finalSnapshot.state).toBe('success');
     expect(completed).toBe(true);
-    expect(states.includes('success')).toBe(true);
+    expect(states.includes('running')).toBe(true);
+    expect(states.includes('success')).toBe(false);
   });
 });

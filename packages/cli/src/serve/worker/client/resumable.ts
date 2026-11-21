@@ -30,6 +30,10 @@ function asError(value: unknown): Error {
   return new Error(String(value));
 }
 
+function deferMicrotask(callback: () => void): void {
+  void Promise.resolve().then(callback);
+}
+
 type ClientTaskState = 'running' | 'paused' | 'success' | 'canceled' | 'error';
 
 export interface ClientUploadTaskSnapshot {
@@ -68,10 +72,7 @@ interface ClientTaskObserver {
 }
 
 function computePayloadSize(data: Blob | Uint8Array | ArrayBuffer): number {
-  const isBlob = data instanceof Blob;
-  if (isBlob) {
-    return data.size;
-  }
+  if (data instanceof Blob) return data.size;
   return data.byteLength;
 }
 
@@ -87,8 +88,8 @@ class ClientUploadTaskImpl implements ClientUploadTask {
   readonly [Symbol.toStringTag] = 'UploadTask';
   private _snapshot: ClientUploadTaskSnapshot;
   private _promise: Promise<ClientUploadTaskSnapshot>;
-  private _resolve!: (snapshot: ClientUploadTaskSnapshot) => void;
-  private _reject!: (error: Error) => void;
+  private _resolve: (snapshot: ClientUploadTaskSnapshot) => void = () => {};
+  private _reject: (error: Error) => void = () => {};
   private _observers: ClientTaskObserver[] = [];
   private _didIntermediateProgress = false;
   private _committing = false;
@@ -125,28 +126,19 @@ class ClientUploadTaskImpl implements ClientUploadTask {
     const now = new Date(sandboxNow()).toISOString();
 
     let contentType = 'application/octet-stream';
-    const isBlob = data instanceof Blob;
-    if (isBlob) {
-      const hasBlobType = data.type !== '';
-      if (hasBlobType) {
-        contentType = data.type;
-      }
+    if (data instanceof Blob && data.type !== '') {
+      contentType = data.type;
     }
-    const hasMetadata = metadata !== undefined;
-    if (hasMetadata) {
-      const hasMetaType = metadata.contentType !== undefined && metadata.contentType !== '';
-      if (hasMetaType) {
-        const metaTypeDefined = metadata.contentType;
-        if (metaTypeDefined !== undefined && metaTypeDefined !== '') {
-          contentType = metaTypeDefined;
-        }
-      }
+    if (metadata?.contentType !== undefined && metadata.contentType !== '') {
+      contentType = metadata.contentType;
     }
 
+    let resolvedBucket = 'default';
+    if (ref.bucket !== '') resolvedBucket = ref.bucket;
     const initialMetadata: FullMetadata = {
       fullPath: ref.fullPath,
       name: ref.name,
-      bucket: ref.bucket || 'default',
+      bucket: resolvedBucket,
       generation: '1',
       metageneration: '1',
       timeCreated: now,
@@ -155,12 +147,16 @@ class ClientUploadTaskImpl implements ClientUploadTask {
       contentType,
       contentDisposition: uploadContentDisposition(metadata?.contentDisposition, ref.fullPath),
       contentEncoding: clientContentEncoding(metadata?.contentEncoding),
-      ...(clonedMetadata?.cacheControl !== undefined ? { cacheControl: clonedMetadata.cacheControl } : {}),
-      ...(clonedMetadata?.contentLanguage !== undefined ? { contentLanguage: clonedMetadata.contentLanguage } : {}),
-      ...(clonedMetadata?.customMetadata !== undefined
-        ? { customMetadata: cloneCustomMetadata(clonedMetadata.customMetadata) }
-        : {}),
     };
+    if (clonedMetadata?.cacheControl !== undefined) {
+      initialMetadata.cacheControl = clonedMetadata.cacheControl;
+    }
+    if (clonedMetadata?.contentLanguage !== undefined) {
+      initialMetadata.contentLanguage = clonedMetadata.contentLanguage;
+    }
+    if (clonedMetadata?.customMetadata !== undefined) {
+      initialMetadata.customMetadata = cloneCustomMetadata(clonedMetadata.customMetadata);
+    }
 
     this._promise = new Promise<ClientUploadTaskSnapshot>((resolve, reject) => {
       this._resolve = resolve;
@@ -180,8 +176,10 @@ class ClientUploadTaskImpl implements ClientUploadTask {
 
     // The first frame goes out at the call (D1, D2); progress reports follow on a microtask.
     this._start();
-    queueMicrotask(() => {
-      this._runStep();
+    deferMicrotask(() => {
+      queueMicrotask(() => {
+        this._runStep();
+      });
     });
   }
 
@@ -222,7 +220,7 @@ class ClientUploadTaskImpl implements ClientUploadTask {
       this._resyncs = true;
       this._inFlight?.abort();
       this._updateSnapshot('paused', this._snapshot.bytesTransferred);
-      this._notifyObservers('next');
+      this._notifyObservers();
       return true;
     }
     return false;
@@ -232,7 +230,7 @@ class ClientUploadTaskImpl implements ClientUploadTask {
     const isPaused = this._snapshot.state === 'paused';
     if (isPaused) {
       this._updateSnapshot('running', this._snapshot.bytesTransferred);
-      this._notifyObservers('next');
+      this._notifyObservers();
       queueMicrotask(() => {
         this._runStep();
       });
@@ -242,17 +240,7 @@ class ClientUploadTaskImpl implements ClientUploadTask {
   }
 
   cancel(): boolean {
-    let canCancel = false;
-    const isRunning = this._snapshot.state === 'running';
-    if (isRunning) {
-      canCancel = true;
-    } else {
-      const isPaused = this._snapshot.state === 'paused';
-      if (isPaused) {
-        canCancel = true;
-      }
-    }
-
+    const canCancel = this._snapshot.state === 'running' || this._snapshot.state === 'paused';
     if (canCancel) {
       const canceled = createCanceledError();
       this._updateSnapshot('canceled', this._snapshot.bytesTransferred);
@@ -275,7 +263,7 @@ class ClientUploadTaskImpl implements ClientUploadTask {
    */
   private _settleCanceled(error: Error): void {
     this._error = error;
-    this._notifyObservers('error');
+    this._notifyObservers();
     this._reject(error);
   }
 
@@ -290,7 +278,10 @@ class ClientUploadTaskImpl implements ClientUploadTask {
     const held = this._heldOutcome;
     this._heldOutcome = undefined;
     const sent = this._sentCommit;
-    const outcome = held ?? (sent === undefined ? undefined : await sent);
+    let outcome = held;
+    if (outcome === undefined && sent !== undefined) {
+      outcome = await sent;
+    }
     const upload = this._upload;
     if (upload !== undefined) await abortRouteUpload(upload);
     const stored = storedUpload(outcome);
@@ -331,143 +322,23 @@ class ClientUploadTaskImpl implements ClientUploadTask {
     let errCb: ((error: Error) => unknown) | undefined;
     let compCb: (() => unknown) | undefined;
 
-    let isObjectObserver = false;
-    const isObject = typeof nextOrObserver === 'object';
-    if (isObject) {
-      const isNotNull = nextOrObserver !== null;
-      if (isNotNull) {
-        isObjectObserver = true;
-      }
-    }
-
-    if (isObjectObserver) {
-      const observerObj = nextOrObserver as {
-        next?: (snapshot: ClientUploadTaskSnapshot) => unknown;
-        error?: (error: Error) => unknown;
-        complete?: () => unknown;
-      };
-      const hasNext = typeof observerObj.next === 'function';
-      if (hasNext) {
-        nextCb = observerObj.next!.bind(observerObj);
-      }
-      const hasError = typeof observerObj.error === 'function';
-      if (hasError) {
-        errCb = observerObj.error!.bind(observerObj);
-      }
-      const hasComplete = typeof observerObj.complete === 'function';
-      if (hasComplete) {
-        compCb = observerObj.complete!.bind(observerObj);
-      }
+    if (typeof nextOrObserver === 'object' && nextOrObserver !== null) {
+      if (typeof nextOrObserver.next === 'function') nextCb = nextOrObserver.next.bind(nextOrObserver);
+      if (typeof nextOrObserver.error === 'function') errCb = nextOrObserver.error.bind(nextOrObserver);
+      if (typeof nextOrObserver.complete === 'function') compCb = nextOrObserver.complete.bind(nextOrObserver);
     } else {
-      const isFunction = typeof nextOrObserver === 'function';
-      if (isFunction) {
-        nextCb = nextOrObserver as (snapshot: ClientUploadTaskSnapshot) => unknown;
-      }
-      const isErrorFunction = typeof error === 'function';
-      if (isErrorFunction) {
-        errCb = error as (error: Error) => unknown;
-      }
-      const isCompleteFunction = typeof complete === 'function';
-      if (isCompleteFunction) {
-        compCb = complete as () => unknown;
-      }
+      if (typeof nextOrObserver === 'function') nextCb = nextOrObserver;
+      if (typeof error === 'function') errCb = error;
+      if (typeof complete === 'function') compCb = complete;
     }
 
     const observer: ClientTaskObserver = { next: nextCb, error: errCb, complete: compCb };
     this._observers.push(observer);
-
-    const isCurrentlyRunning = this._snapshot.state === 'running';
-    if (isCurrentlyRunning) {
-      const hasNextCb = nextCb !== undefined;
-      if (hasNextCb) {
-        const fn = nextCb as (snapshot: ClientUploadTaskSnapshot) => unknown;
-        try {
-          storageTaskProgress(this);
-            fn(this._snapshot);
-        } catch {
-          // Observational
-        }
-      }
-    } else {
-      const isCurrentlyPaused = this._snapshot.state === 'paused';
-      if (isCurrentlyPaused) {
-        const hasNextCb = nextCb !== undefined;
-        if (hasNextCb) {
-          const fn = nextCb as (snapshot: ClientUploadTaskSnapshot) => unknown;
-          try {
-            storageTaskProgress(this);
-            fn(this._snapshot);
-          } catch {
-            // Observational
-          }
-        }
-      } else {
-        const isAlreadySuccess = this._snapshot.state === 'success';
-        if (isAlreadySuccess) {
-          const hasNextCb = nextCb !== undefined;
-          if (hasNextCb) {
-            const fn = nextCb as (snapshot: ClientUploadTaskSnapshot) => unknown;
-            try {
-              storageTaskProgress(this);
-            fn(this._snapshot);
-            } catch {
-              // Observational
-            }
-          }
-          const hasCompleteCb = compCb !== undefined;
-          if (hasCompleteCb) {
-            const fn = compCb as () => unknown;
-            try {
-              storageTaskResult(this);
-            fn();
-            } catch {
-              // Observational
-            }
-          }
-        } else {
-          const isAlreadyError = this._snapshot.state === 'error';
-          if (isAlreadyError) {
-            const hasErrCb = errCb !== undefined;
-            if (hasErrCb) {
-              const hasStoredError = this._error !== undefined;
-              if (hasStoredError) {
-                const fn = errCb as (error: Error) => unknown;
-                const err = this._error as Error;
-                try {
-                  fn(err);
-                } catch {
-                  // Observational
-                }
-              }
-            }
-          } else {
-            const isAlreadyCanceled = this._snapshot.state === 'canceled';
-            if (isAlreadyCanceled) {
-              const hasErrCb = errCb !== undefined;
-              if (hasErrCb) {
-                const hasStoredError = this._error !== undefined;
-                if (hasStoredError) {
-                  const fn = errCb as (error: Error) => unknown;
-                  const err = this._error as Error;
-                  try {
-                    fn(err);
-                  } catch {
-                    // Observational
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
+    this._notifyObserver(observer);
 
     return () => {
       const index = this._observers.indexOf(observer);
-      const isFound = index !== -1;
-      if (isFound) {
-        this._observers.splice(index, 1);
-      }
+      if (index !== -1) this._observers.splice(index, 1);
     };
   }
 
@@ -487,55 +358,55 @@ class ClientUploadTaskImpl implements ClientUploadTask {
     };
   }
 
-  private _notifyObservers(kind: 'next' | 'error' | 'complete'): void {
-    const isNext = kind === 'next';
-    if (isNext) {
-      for (const obs of this._observers) {
-        const hasNext = obs.next !== undefined;
-        if (hasNext) {
-          const fn = obs.next as (snapshot: ClientUploadTaskSnapshot) => unknown;
+  private _notifyObservers(): void {
+    const observers = this._observers.slice();
+    for (const observer of observers) {
+      this._notifyObserver(observer);
+    }
+  }
+
+  private _notifyObserver(observer: ClientTaskObserver): void {
+    const state = this._snapshot.state;
+    if (state === 'running' || state === 'paused') {
+      const nextFn = observer.next;
+      if (nextFn !== undefined) {
+        const snapshot = this._snapshot;
+        deferMicrotask(() => {
           try {
             storageTaskProgress(this);
-            fn(this._snapshot);
+            nextFn(snapshot);
           } catch {
             // Ignore observer exceptions
           }
-        }
+        });
       }
+      return;
     }
-
-    const isError = kind === 'error';
-    if (isError) {
-      for (const obs of this._observers) {
-        const hasError = obs.error !== undefined;
-        if (hasError) {
-          const isErrorDefined = this._error !== undefined;
-          if (isErrorDefined) {
-            const fn = obs.error as (error: Error) => unknown;
-            const err = this._error as Error;
-            try {
-              fn(err);
-            } catch {
-              // Ignore observer exceptions
-            }
-          }
-        }
-      }
-    }
-
-    const isComplete = kind === 'complete';
-    if (isComplete) {
-      for (const obs of this._observers) {
-        const hasComplete = obs.complete !== undefined;
-        if (hasComplete) {
-          const fn = obs.complete as () => unknown;
+    if (state === 'success') {
+      const completeFn = observer.complete;
+      if (completeFn !== undefined) {
+        deferMicrotask(() => {
           try {
             storageTaskResult(this);
-            fn();
+            completeFn();
           } catch {
             // Ignore observer exceptions
           }
-        }
+        });
+      }
+      return;
+    }
+    if (state === 'error' || state === 'canceled') {
+      const errorFn = observer.error;
+      const err = this._error;
+      if (errorFn !== undefined && err !== undefined) {
+        deferMicrotask(() => {
+          try {
+            errorFn(err);
+          } catch {
+            // Ignore observer exceptions
+          }
+        });
       }
     }
   }
@@ -551,10 +422,16 @@ class ClientUploadTaskImpl implements ClientUploadTask {
     const data = uploadBlobOf(this._data);
     const running = () => this._snapshot.state === 'running';
     try {
-      const route = byteRouteOf(this._ref)!;
+      const route = byteRouteOf(this._ref);
+      if (route === undefined) return;
       let upload = this._upload;
       if (upload === undefined) {
-        const contentType = (this._metadata?.contentType || undefined) ?? (data.type !== '' ? data.type : undefined);
+        let contentType: string | undefined;
+        if (this._metadata?.contentType !== undefined && this._metadata.contentType !== '') {
+          contentType = this._metadata.contentType;
+        } else if (data.type !== '') {
+          contentType = data.type;
+        }
         upload = await beginRouteUpload(this._ref, route, data.size, contentType, this._metadata);
         this._upload = upload;
         const canceled = this._snapshot.state === 'canceled';
@@ -573,7 +450,7 @@ class ClientUploadTaskImpl implements ClientUploadTask {
         this._inFlight = undefined;
         if (!running()) return;
         this._updateSnapshot('running', offset);
-        this._notifyObservers('next');
+        this._notifyObservers();
       }
       if (!running()) return;
       const outcome = await this._sendCommit(finishRouteUpload(upload, true));
@@ -584,11 +461,11 @@ class ClientUploadTaskImpl implements ClientUploadTask {
       this._inFlight = undefined;
       // A pause or a cancel aborts the slice in flight; neither is a failure.
       if (!running()) return;
-      this._error = error instanceof Error ? error : new Error(String(error));
+      this._error = asError(error);
       this._updateSnapshot('error', this._snapshot.bytesTransferred);
       const upload = this._upload;
       if (upload !== undefined) await abortRouteUpload(upload);
-      this._notifyObservers('error');
+      this._notifyObservers();
       this._reject(this._error);
     } finally {
       this._sending = false;
@@ -618,7 +495,7 @@ class ClientUploadTaskImpl implements ClientUploadTask {
         middleBytes = Math.floor(this._snapshot.totalBytes / 2);
       }
       this._updateSnapshot('running', middleBytes);
-      this._notifyObservers('next');
+      this._notifyObservers();
     }
 
     const reported = this._releaseHeldOutcome();
@@ -627,15 +504,14 @@ class ClientUploadTaskImpl implements ClientUploadTask {
 
   private _succeed(metadata: FullMetadata): void {
     this._updateSnapshot('success', this._snapshot.totalBytes, metadata);
-    this._notifyObservers('next');
-    this._notifyObservers('complete');
+    this._notifyObservers();
     this._resolve(this._snapshot);
   }
 
   private _fail(err: unknown): void {
-    this._error = err instanceof Error ? err : new Error(String(err));
+    this._error = asError(err);
     this._updateSnapshot('error', this._snapshot.bytesTransferred);
-    this._notifyObservers('error');
+    this._notifyObservers();
     this._reject(this._error);
   }
 

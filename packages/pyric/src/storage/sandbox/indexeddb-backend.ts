@@ -3,6 +3,7 @@
  */
 
 import { higherGeneration, raisedMark, type GenerationIssuer } from '../generation.js';
+import { prefixKeyRange } from '../idb-prefix-range.js';
 import {
   DEFAULT_BUCKET,
   assertMatchingSize,
@@ -234,7 +235,7 @@ export class IndexedDbStorageBackend implements StorageBackend {
     const targetBucket = bucket ?? this._defaultBucket ?? DEFAULT_BUCKET;
     const tx = this.transaction(METADATA_STORE, 'readonly');
     const keyPrefix = `${targetBucket}/${prefix}`;
-    const range = IDBKeyRange.bound(keyPrefix, keyPrefix + '\ufffd', false, false);
+    const range = prefixKeyRange(keyPrefix);
     return awaitRequest<StoredMetadata[]>(
       tx.objectStore(METADATA_STORE).getAll(range),
     );
@@ -247,10 +248,11 @@ export class IndexedDbStorageBackend implements StorageBackend {
       tx.objectStore(METADATA_STORE).clear();
       this._defaultBucket = undefined;
     } else {
-      const bucketPrefix = `${bucket}/`;
-      const range = IDBKeyRange.bound(bucketPrefix, bucketPrefix + '\ufffd', false, false);
-      tx.objectStore(BLOBS_STORE).delete(range);
-      tx.objectStore(METADATA_STORE).delete(range);
+      const range = prefixKeyRange(`${bucket}/`);
+      if (range !== undefined) {
+        tx.objectStore(BLOBS_STORE).delete(range);
+        tx.objectStore(METADATA_STORE).delete(range);
+      }
     }
     await awaitTransaction(tx);
   }

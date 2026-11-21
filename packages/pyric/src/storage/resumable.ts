@@ -45,6 +45,10 @@ interface TaskObserver {
   complete: (() => unknown) | undefined;
 }
 
+function deferMicrotask(callback: () => void): void {
+  void Promise.resolve().then(callback);
+}
+
 function normalizeBlob(
   data: Blob | Uint8Array | ArrayBuffer,
   contentTypeHint: string | undefined,
@@ -125,8 +129,10 @@ class UploadTaskImpl implements UploadTask {
       task: this,
     };
 
-    queueMicrotask(() => {
-      this._runStep();
+    deferMicrotask(() => {
+      queueMicrotask(() => {
+        this._runStep();
+      });
     });
   }
 
@@ -155,7 +161,7 @@ class UploadTaskImpl implements UploadTask {
     const isRunning = this._snapshot.state === 'running';
     if (isRunning) {
       this._updateSnapshot('paused', this._snapshot.bytesTransferred);
-      this._notifyObservers('next');
+      this._notifyObservers();
       return true;
     }
     return false;
@@ -165,7 +171,7 @@ class UploadTaskImpl implements UploadTask {
     const isPaused = this._snapshot.state === 'paused';
     if (isPaused) {
       this._updateSnapshot('running', this._snapshot.bytesTransferred);
-      this._notifyObservers('next');
+      this._notifyObservers();
       queueMicrotask(() => {
         const stillRunning = this._snapshot.state === 'running';
         if (!stillRunning) return;
@@ -268,92 +274,7 @@ class UploadTaskImpl implements UploadTask {
 
     const observer: TaskObserver = { next: nextCb, error: errCb, complete: compCb };
     this._observers.push(observer);
-
-    const isCurrentlyRunning = this._snapshot.state === 'running';
-    if (isCurrentlyRunning) {
-      const hasNextCb = nextCb !== undefined;
-      if (hasNextCb) {
-        const fn = nextCb as (snapshot: UploadTaskSnapshot) => unknown;
-        try {
-          storageTaskProgress(this);
-            fn(this._snapshot);
-        } catch {
-          // Observational
-        }
-      }
-    } else {
-      const isCurrentlyPaused = this._snapshot.state === 'paused';
-      if (isCurrentlyPaused) {
-        const hasNextCb = nextCb !== undefined;
-        if (hasNextCb) {
-          const fn = nextCb as (snapshot: UploadTaskSnapshot) => unknown;
-          try {
-            storageTaskProgress(this);
-            fn(this._snapshot);
-          } catch {
-            // Observational
-          }
-        }
-      } else {
-        const isAlreadySuccess = this._snapshot.state === 'success';
-        if (isAlreadySuccess) {
-          const hasNextCb = nextCb !== undefined;
-          if (hasNextCb) {
-            const fn = nextCb as (snapshot: UploadTaskSnapshot) => unknown;
-            try {
-              storageTaskProgress(this);
-            fn(this._snapshot);
-            } catch {
-              // Observational
-            }
-          }
-          const hasCompleteCb = compCb !== undefined;
-          if (hasCompleteCb) {
-            const fn = compCb as () => unknown;
-            try {
-              storageTaskResult(this);
-            fn();
-            } catch {
-              // Observational
-            }
-          }
-        } else {
-          const isAlreadyError = this._snapshot.state === 'error';
-          if (isAlreadyError) {
-            const hasErrCb = errCb !== undefined;
-            if (hasErrCb) {
-              const hasStoredError = this._error !== undefined;
-              if (hasStoredError) {
-                const fn = errCb as (error: Error | StorageError) => unknown;
-                const err = this._error as Error | StorageError;
-                try {
-                  fn(err);
-                } catch {
-                  // Observational
-                }
-              }
-            }
-          } else {
-            const isAlreadyCanceled = this._snapshot.state === 'canceled';
-            if (isAlreadyCanceled) {
-              const hasErrCb = errCb !== undefined;
-              if (hasErrCb) {
-                const hasStoredError = this._error !== undefined;
-                if (hasStoredError) {
-                  const fn = errCb as (error: Error | StorageError) => unknown;
-                  const err = this._error as Error | StorageError;
-                  try {
-                    fn(err);
-                  } catch {
-                    // Observational
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
+    this._notifyObserver(observer);
 
     return () => {
       const index = this._observers.indexOf(observer);
@@ -380,55 +301,55 @@ class UploadTaskImpl implements UploadTask {
     };
   }
 
-  private _notifyObservers(kind: 'next' | 'error' | 'complete'): void {
-    const isNext = kind === 'next';
-    if (isNext) {
-      for (const obs of this._observers) {
-        const hasNext = obs.next !== undefined;
-        if (hasNext) {
-          const fn = obs.next as (snapshot: UploadTaskSnapshot) => unknown;
+  private _notifyObservers(): void {
+    const observers = this._observers.slice();
+    for (const observer of observers) {
+      this._notifyObserver(observer);
+    }
+  }
+
+  private _notifyObserver(observer: TaskObserver): void {
+    const state = this._snapshot.state;
+    if (state === 'running' || state === 'paused') {
+      const nextFn = observer.next;
+      if (nextFn !== undefined) {
+        const snapshot = this._snapshot;
+        deferMicrotask(() => {
           try {
             storageTaskProgress(this);
-            fn(this._snapshot);
+            nextFn(snapshot);
           } catch {
             // Ignore observer exceptions
           }
-        }
+        });
       }
+      return;
     }
-
-    const isError = kind === 'error';
-    if (isError) {
-      for (const obs of this._observers) {
-        const hasError = obs.error !== undefined;
-        if (hasError) {
-          const isErrorDefined = this._error !== undefined;
-          if (isErrorDefined) {
-            const fn = obs.error as (error: Error | StorageError) => unknown;
-            const err = this._error as Error | StorageError;
-            try {
-              fn(err);
-            } catch {
-              // Ignore observer exceptions
-            }
-          }
-        }
-      }
-    }
-
-    const isComplete = kind === 'complete';
-    if (isComplete) {
-      for (const obs of this._observers) {
-        const hasComplete = obs.complete !== undefined;
-        if (hasComplete) {
-          const fn = obs.complete as () => unknown;
+    if (state === 'success') {
+      const completeFn = observer.complete;
+      if (completeFn !== undefined) {
+        deferMicrotask(() => {
           try {
             storageTaskResult(this);
-            fn();
+            completeFn();
           } catch {
             // Ignore observer exceptions
           }
-        }
+        });
+      }
+      return;
+    }
+    if (state === 'error' || state === 'canceled') {
+      const errorFn = observer.error;
+      const err = this._error;
+      if (errorFn !== undefined && err !== undefined) {
+        deferMicrotask(() => {
+          try {
+            errorFn(err);
+          } catch {
+            // Ignore observer exceptions
+          }
+        });
       }
     }
   }
@@ -448,7 +369,7 @@ class UploadTaskImpl implements UploadTask {
         middleBytes = Math.floor(this._snapshot.totalBytes / 2);
       }
       this._updateSnapshot('running', middleBytes);
-      this._notifyObservers('next');
+      this._notifyObservers();
       queueMicrotask(() => {
         this._runStep();
       });
@@ -527,8 +448,7 @@ class UploadTaskImpl implements UploadTask {
     }
     if ('stored' in outcome) {
       this._updateSnapshot('success', this._snapshot.totalBytes, outcome.stored.result.metadata);
-      this._notifyObservers('next');
-      this._notifyObservers('complete');
+      this._notifyObservers();
       this._resolve(this._snapshot);
       return;
     }
@@ -538,7 +458,7 @@ class UploadTaskImpl implements UploadTask {
   /** Tell observers and the promise how the cancel ended, together. */
   private _settleCanceled(error: Error): void {
     this._error = error;
-    this._notifyObservers('error');
+    this._notifyObservers();
     this._reject(error);
   }
 
@@ -552,7 +472,7 @@ class UploadTaskImpl implements UploadTask {
     }
     this._error = errObj;
     this._updateSnapshot('error', this._snapshot.bytesTransferred);
-    this._notifyObservers('error');
+    this._notifyObservers();
     this._reject(this._error);
   }
 

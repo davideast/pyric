@@ -8,6 +8,7 @@
  */
 import { afterEach, describe, expect, it } from 'bun:test';
 import { arrayBufferToBase64, base64ToBytes } from '../../src/storage/base64.js';
+import { StorageError } from '../../src/storage/errors.js';
 
 const globals = globalThis as { Buffer?: unknown };
 const realBuffer = globals.Buffer;
@@ -77,6 +78,43 @@ describe('base64ToBytes', () => {
       const encoded = arrayBufferToBase64(bufferOf(source));
       expect(Array.from(base64ToBytes(encoded))).toEqual(source);
       expect(Array.from(withoutBuffer(() => base64ToBytes(encoded)))).toEqual(source);
+    }
+  });
+
+  it('decodes padded and unpadded base64url on both branches', () => {
+    expect(Array.from(base64ToBytes('-_8BAg', 'base64url'))).toEqual([251, 255, 1, 2]);
+    expect(Array.from(withoutBuffer(() => base64ToBytes('-_8BAg', 'base64url')))).toEqual([
+      251, 255, 1, 2,
+    ]);
+    expect(Array.from(base64ToBytes('-_8=', 'base64url'))).toEqual([251, 255]);
+    expect(Array.from(withoutBuffer(() => base64ToBytes('-_8=', 'base64url')))).toEqual([
+      251, 255,
+    ]);
+  });
+
+  it('throws StorageError(storage/invalid-format) for malformed base64 and base64url on both branches (#1962)', () => {
+    const badBase64 = ['!!!', 'aGVsbG8-', 'aGVsbG8_', 'a', 'ab=', '===='];
+    for (const input of badBase64) {
+      expect(() => base64ToBytes(input, 'base64')).toThrow(StorageError);
+      expect(() => base64ToBytes(input, 'base64')).toThrow(
+        expect.objectContaining({ code: 'storage/invalid-format' }),
+      );
+      expect(() => withoutBuffer(() => base64ToBytes(input, 'base64'))).toThrow(StorageError);
+      expect(() => withoutBuffer(() => base64ToBytes(input, 'base64'))).toThrow(
+        expect.objectContaining({ code: 'storage/invalid-format' }),
+      );
+    }
+
+    const badBase64Url = ['!!!', 'aGVsbG8+', 'aGVsbG8/', 'a', 'ab=', '===='];
+    for (const input of badBase64Url) {
+      expect(() => base64ToBytes(input, 'base64url')).toThrow(StorageError);
+      expect(() => base64ToBytes(input, 'base64url')).toThrow(
+        expect.objectContaining({ code: 'storage/invalid-format' }),
+      );
+      expect(() => withoutBuffer(() => base64ToBytes(input, 'base64url'))).toThrow(StorageError);
+      expect(() => withoutBuffer(() => base64ToBytes(input, 'base64url'))).toThrow(
+        expect.objectContaining({ code: 'storage/invalid-format' }),
+      );
     }
   });
 });

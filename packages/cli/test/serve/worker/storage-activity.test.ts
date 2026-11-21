@@ -76,7 +76,8 @@ async function uploadCallbackScenario(afterSubscribe?: () => void): Promise<void
     expect(phases).toContain('progress');
     phases.length = 0;
     task.on('state_changed', { next: completed, complete: completed });
-    expect(completionSignals).toEqual(['progress', 'progress', 'progress', 'progress']);
+    await Promise.resolve();
+    expect(completionSignals).toEqual(['progress', 'progress', 'progress']);
     stopResults();
     off();
     expect(beforeCallbacks.length).toBeGreaterThan(1);
