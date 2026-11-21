@@ -202,7 +202,7 @@ class StorageTaskAndTransferEdgeTest {
         assertEquals(multiChunkBytes.size.toLong(), snap.bytesTransferred)
         val methods = harness.recordedOps.map { it["method"] as String }
         assertTrue(methods.contains("storage.beginUpload"))
-        assertEquals(2, methods.count { it == "storage.putPart" })
+        assertEquals(17, methods.count { it == "storage.putPart" })
         assertTrue(methods.contains("storage.finishUpload"))
 
         val downloaded = ref.getBytes(5L * 1024L * 1024L).coroutinesAwait()
