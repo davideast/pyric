@@ -38,7 +38,8 @@ abstract class StorageTask<TResult : StorageTask.ProvideError> internal construc
     private var terminalException: Exception? = null
     private var resumeGate: CompletableDeferred<Unit>? = null
     private var settlingThread: Thread? = null
-    private val deferredReplays = ArrayList<() -> Unit>()
+    private val deferredPreCompleteReplays = ArrayList<() -> Unit>()
+    private val deferredCompleteReplays = ArrayList<() -> Unit>()
 
     abstract val snapshot: TResult
 
@@ -243,21 +244,43 @@ abstract class StorageTask<TResult : StorageTask.ProvideError> internal construc
     private fun runTwoPhaseTerminalDispatch(dispatches: Pair<() -> Unit, () -> Unit>) {
         onTaskDeactivated()
         dispatches.first()
-        val deferred = synchronized(stateLock) {
-            settlingThread = null
-            ArrayList(deferredReplays).also { deferredReplays.clear() }
+        // Drain pre-complete replays (progress/paused/success/failure/canceled) while
+        // settlingThread is still active so external callers awaiting isComplete/await()
+        // never return before callbacks registered prior to completion have finished.
+        while (true) {
+            val preBatch = synchronized(stateLock) {
+                if (deferredPreCompleteReplays.isEmpty()) {
+                    settlingThread = null
+                    null
+                } else {
+                    ArrayList(deferredPreCompleteReplays).also { deferredPreCompleteReplays.clear() }
+                }
+            } ?: break
+            for (replay in preBatch) {
+                replay()
+            }
         }
         dispatches.second()
-        for (replay in deferred) {
+        val completeBatch = synchronized(stateLock) {
+            ArrayList(deferredCompleteReplays).also { deferredCompleteReplays.clear() }
+        }
+        for (replay in completeBatch) {
             replay()
         }
     }
 
-    private inline fun registerOrReplay(crossinline blockLocked: () -> (() -> Unit)?): StorageTask<TResult> {
+    private inline fun registerOrReplay(
+        isCompleteCallback: Boolean = false,
+        crossinline blockLocked: () -> (() -> Unit)?
+    ): StorageTask<TResult> {
         val immediate = synchronized(stateLock) {
             val replay = blockLocked()
             if (replay != null && settlingThread != null && settlingThread !== Thread.currentThread()) {
-                deferredReplays.add(replay)
+                if (isCompleteCallback) {
+                    deferredCompleteReplays.add(replay)
+                } else {
+                    deferredPreCompleteReplays.add(replay)
+                }
                 null
             } else {
                 replay
@@ -334,13 +357,13 @@ abstract class StorageTask<TResult : StorageTask.ProvideError> internal construc
     }
 
     override fun addOnCompleteListener(listener: OnCompleteListener<TResult>): StorageTask<TResult> =
-        registerOrReplay { listeners.addCompleteLocked(listener, null, internalState, this) }
+        registerOrReplay(isCompleteCallback = true) { listeners.addCompleteLocked(listener, null, internalState, this) }
 
     override fun addOnCompleteListener(
         executor: Executor,
         listener: OnCompleteListener<TResult>
     ): StorageTask<TResult> =
-        registerOrReplay { listeners.addCompleteLocked(listener, executor, internalState, this) }
+        registerOrReplay(isCompleteCallback = true) { listeners.addCompleteLocked(listener, executor, internalState, this) }
 
     fun removeOnCompleteListener(listener: OnCompleteListener<TResult>): StorageTask<TResult> {
         listeners.removeComplete(listener)

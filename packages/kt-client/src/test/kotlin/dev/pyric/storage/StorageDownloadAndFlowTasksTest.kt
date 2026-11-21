@@ -142,6 +142,7 @@ class StorageDownloadAndFlowTasksTest {
         val fullPayload = ByteArray(512 * 1024) { idx -> ((idx * 19 + 5) and 0xFF).toByte() }
         val transport = InMemoryBridgeTransport()
         val firstChunkHeld = CopyOnWriteArrayList<String>()
+        val requestedOffsets = CopyOnWriteArrayList<Int>()
         val firstChunkRequested = CountDownLatch(1)
 
         transport.onServerReceive { rawJson ->
@@ -185,6 +186,7 @@ class StorageDownloadAndFlowTasksTest {
                     "storage.getBytes" -> {
                         val off = (op["offset"] as Number).toInt()
                         val len = (op["length"] as Number).toInt()
+                        requestedOffsets.add(off)
                         if (off == 0 && firstChunkHeld.isEmpty()) {
                             firstChunkHeld.add(id)
                             firstChunkRequested.countDown()
@@ -212,10 +214,13 @@ class StorageDownloadAndFlowTasksTest {
 
         val dlStorage = FirebaseStorage.getInstance(app, PyricBridgeClient(transport), "gs://dl-gated")
         val outFile = tempDir.resolve("paused-dl.bin").toFile()
+        val pausedLatch = CountDownLatch(1)
         val task = dlStorage.getReference("gated/file.bin").getFile(outFile)
+        task.addOnPausedListener { pausedLatch.countDown() }
 
         assertTrue(firstChunkRequested.await(5, TimeUnit.SECONDS))
         assertTrue(task.pause())
+        assertTrue(pausedLatch.await(5, TimeUnit.SECONDS))
         assertTrue(task.isPaused)
 
         val heldId = firstChunkHeld.first()
@@ -234,14 +239,16 @@ class StorageDownloadAndFlowTasksTest {
                 )
             )
         )
-        Thread.sleep(40)
+        kotlinx.coroutines.yield()
         assertTrue(task.isPaused)
         assertFalse(task.isComplete)
+        assertEquals(listOf(0), requestedOffsets.toList())
 
         assertTrue(task.resume())
         val done = task.await()
         assertEquals(fullPayload.size.toLong(), done.bytesTransferred)
         assertArrayEquals(fullPayload, outFile.readBytes())
+        assertEquals(256 * 1024, requestedOffsets.last())
     }
 
     @Test
@@ -288,19 +295,24 @@ class StorageDownloadAndFlowTasksTest {
         // A new in-progress processor task canceled mid-read:
         val enteredProcessor = CountDownLatch(1)
         val allowContinue = CountDownLatch(1)
+        val processorExited = CountDownLatch(1)
         val sawCanceledIo = AtomicBoolean(false)
         val midCancelTask = ref.getStream { _, stream ->
-            val firstByte = stream.read()
-            assertTrue(firstByte >= 0)
-            enteredProcessor.countDown()
-            allowContinue.await(5, TimeUnit.SECONDS)
             try {
-                stream.read(ByteArray(1024))
-            } catch (ioe: IOException) {
-                if ((ioe.cause as? StorageException)?.errorCode == StorageException.ERROR_CANCELED) {
-                    sawCanceledIo.set(true)
+                val firstByte = stream.read()
+                assertTrue(firstByte >= 0)
+                enteredProcessor.countDown()
+                assertTrue(allowContinue.await(5, TimeUnit.SECONDS))
+                try {
+                    stream.read(ByteArray(1024))
+                } catch (ioe: IOException) {
+                    if ((ioe.cause as? StorageException)?.errorCode == StorageException.ERROR_CANCELED) {
+                        sawCanceledIo.set(true)
+                    }
+                    throw ioe
                 }
-                throw ioe
+            } finally {
+                processorExited.countDown()
             }
         }
         assertTrue(enteredProcessor.await(5, TimeUnit.SECONDS))
@@ -308,8 +320,62 @@ class StorageDownloadAndFlowTasksTest {
         allowContinue.countDown()
         val cancelAwaitEx = assertThrows<StorageException> { midCancelTask.await() }
         assertEquals(StorageException.ERROR_CANCELED, cancelAwaitEx.errorCode)
+        assertTrue(processorExited.await(5, TimeUnit.SECONDS))
         assertTrue(sawCanceledIo.get())
         openedSnap.stream.close()
+    }
+
+    @Test
+    fun streamDownloadLateProgressAndMidStreamCancelRemainDeterministicUnderContention() = runBlocking {
+        val payload = ByteArray(64 * 1024) { idx -> ((idx * 17 + 9) and 0xFF).toByte() }
+        val ref = storage.getReference("streams/contention.bin")
+        ref.putBytes(payload).await()
+
+        repeat(250) { round ->
+            val progressEvents = CopyOnWriteArrayList<Long>()
+            val processorTask = ref.getStream { _, stream ->
+                val drain = ByteArray(16 * 1024)
+                while (stream.read(drain) != -1) {
+                    // consume
+                }
+            }
+            processorTask.addOnProgressListener { snap ->
+                progressEvents.add(snap.bytesTransferred)
+            }
+            val snap = processorTask.await()
+            assertEquals(payload.size.toLong(), snap.bytesTransferred, "round=$round")
+            assertTrue(progressEvents.isNotEmpty(), "round=$round empty progressEvents")
+
+            val entered = CountDownLatch(1)
+            val release = CountDownLatch(1)
+            val exited = CountDownLatch(1)
+            val canceledIo = AtomicBoolean(false)
+            val cancelTask = ref.getStream { _, stream ->
+                try {
+                    val b = stream.read()
+                    assertTrue(b >= 0)
+                    entered.countDown()
+                    assertTrue(release.await(5, TimeUnit.SECONDS))
+                    try {
+                        stream.read(ByteArray(512))
+                    } catch (ioe: IOException) {
+                        if ((ioe.cause as? StorageException)?.errorCode == StorageException.ERROR_CANCELED) {
+                            canceledIo.set(true)
+                        }
+                        throw ioe
+                    }
+                } finally {
+                    exited.countDown()
+                }
+            }
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            assertTrue(cancelTask.cancel())
+            release.countDown()
+            val ex = assertThrows<StorageException> { cancelTask.await() }
+            assertEquals(StorageException.ERROR_CANCELED, ex.errorCode)
+            assertTrue(exited.await(5, TimeUnit.SECONDS))
+            assertTrue(canceledIo.get(), "round=$round canceledIo")
+        }
     }
 
     @Test
