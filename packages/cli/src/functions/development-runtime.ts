@@ -16,6 +16,18 @@ import {
   type FunctionsChildHandle,
   type SpawnFunctionsChildOptions,
 } from './spawn.js';
+import {
+  attachDevelopmentRuntimeSandboxTaskBridge,
+  recordChildTaskExecutionEvent,
+  sendChildDeleteTask,
+  sendChildDrainTasks,
+  sendChildEnqueueTask,
+} from './tasks/child-runtime.js';
+import type {
+  DrainTasksOptions,
+  EnqueueTaskOptions,
+  EnqueuedTaskReceipt,
+} from './tasks/execution.js';
 import { buildChildEnv, createLinePrefixer } from '../cli/sandbox-runner.js';
 
 const INITIAL_PEER_TIMEOUT_MS = 30_000;
@@ -55,6 +67,17 @@ export interface FunctionsDevelopmentRuntime {
     payload?: unknown,
     attributes?: PubSubPublishAttributesOrOptions,
   ): Promise<PubSubPublishResult>;
+  enqueueTask?(
+    targetName: string,
+    data?: unknown,
+    options?: EnqueueTaskOptions,
+  ): Promise<EnqueuedTaskReceipt>;
+  deleteTask?(
+    targetName: string,
+    taskId: string,
+    options?: { extensionId?: string; locationId?: string; projectId?: string },
+  ): Promise<boolean>;
+  drainTasks?(options?: DrainTasksOptions): Promise<void>;
 }
 
 export interface FunctionsDevelopmentRuntimeHandle extends FunctionsDevelopmentRuntime {
@@ -67,6 +90,17 @@ export interface FunctionsDevelopmentRuntimeHandle extends FunctionsDevelopmentR
     payload?: unknown,
     attributes?: PubSubPublishAttributesOrOptions,
   ): Promise<PubSubPublishResult>;
+  enqueueTask(
+    targetName: string,
+    data?: unknown,
+    options?: EnqueueTaskOptions,
+  ): Promise<EnqueuedTaskReceipt>;
+  deleteTask(
+    targetName: string,
+    taskId: string,
+    options?: { extensionId?: string; locationId?: string; projectId?: string },
+  ): Promise<boolean>;
+  drainTasks(options?: DrainTasksOptions): Promise<void>;
 }
 
 export interface FunctionsDevelopmentRuntimeOptions {
@@ -231,6 +265,11 @@ export function createFunctionsDevelopmentRuntime(
   let reloadPromise: Promise<FunctionsDevelopmentResult> | null = null;
   let reloadQueued = false;
   let closePromise: Promise<void> | null = null;
+  const detachSandboxTaskBridge = attachDevelopmentRuntimeSandboxTaskBridge(
+    options.sandbox,
+    () => activeChild?.child ?? null,
+    () => closed,
+  );
 
   const stopChild = async (child: FunctionsChildHandle | null): Promise<void> => {
     if (!child) return;
@@ -275,7 +314,10 @@ export function createFunctionsDevelopmentRuntime(
         location: options.location,
         projectId: options.projectId,
         ...(options.childModuleUrl === undefined ? {} : { childModuleUrl: options.childModuleUrl }),
-        onEvent: (event) => emit({ type: 'child-event', event }),
+        onEvent: (event) => {
+          recordChildTaskExecutionEvent(options.sandbox, event);
+          emit({ type: 'child-event', event });
+        },
         onUnresponsive: () => restartUnresponsive(),
         ...(options.heartbeatTimeoutMs === undefined ? {} : { heartbeatTimeoutMs: options.heartbeatTimeoutMs }),
       });
@@ -360,6 +402,7 @@ export function createFunctionsDevelopmentRuntime(
       if (closePromise) return closePromise;
       closePromise = (async () => {
         closed = true;
+        detachSandboxTaskBridge?.();
         reloadQueued = false;
         activeWait?.abort();
         await stopChild(activeChild);
@@ -479,6 +522,29 @@ export function createFunctionsDevelopmentRuntime(
         }
       }
       return summary;
+    },
+    async enqueueTask(
+      targetName: string,
+      data?: unknown,
+      enqueueOptions: EnqueueTaskOptions = {},
+    ): Promise<EnqueuedTaskReceipt> {
+      if (closed) throw new Error('Functions runtime is closed');
+      if (activeChild === null) throw new Error('Functions runtime has no active child process');
+      return sendChildEnqueueTask(activeChild.child, targetName, data, enqueueOptions);
+    },
+    async deleteTask(
+      targetName: string,
+      taskId: string,
+      deleteOptions?: { extensionId?: string; locationId?: string; projectId?: string },
+    ): Promise<boolean> {
+      if (closed) throw new Error('Functions runtime is closed');
+      if (activeChild === null) throw new Error('Functions runtime has no active child process');
+      return sendChildDeleteTask(activeChild.child, targetName, taskId, deleteOptions);
+    },
+    async drainTasks(drainOptions: DrainTasksOptions = {}): Promise<void> {
+      if (closed) throw new Error('Functions runtime is closed');
+      if (activeChild === null) throw new Error('Functions runtime has no active child process');
+      await sendChildDrainTasks(activeChild.child, drainOptions);
     },
   };
   return runtime;

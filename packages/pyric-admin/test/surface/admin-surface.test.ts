@@ -50,7 +50,6 @@ const DEFERRED_ENTRIES = [
   'data-connect',
   'eventarc',
   'extensions',
-  'functions',
   'installations',
   'instance-id',
   'machine-learning',
@@ -60,7 +59,7 @@ const DEFERRED_ENTRIES = [
   'security-rules',
 ] as const;
 
-const MIRRORED_ENTRIES = ['.', 'app', 'auth', 'database', 'firestore', 'storage', 'messaging', 'app-check'] as const;
+const MIRRORED_ENTRIES = ['.', 'app', 'auth', 'database', 'firestore', 'storage', 'messaging', 'app-check', 'functions'] as const;
 
 type Module = Record<string, unknown>;
 
@@ -178,6 +177,14 @@ const PROBES: readonly Probe[] = [
 
   { entry: 'app-check', owner: 'AppCheck', path: ['getAppCheck'], make: (arm) => appCheckEntry.getAppCheck(arm.app) },
 
+  { entry: 'functions', owner: 'Functions', path: ['getFunctions'], make: (arm) => functionsEntry.getFunctions(arm.app) },
+  {
+    entry: 'functions',
+    owner: 'TaskQueue',
+    path: ['getFunctions', 'taskQueue'],
+    make: (arm) => functionsEntry.getFunctions(arm.app).taskQueue('surfaceQueue'),
+  },
+
   // Deferred service handles: `get<Service>(app)` succeeds and every member on
   // the returned handle matches upstream (`.app` implemented, methods deferred).
   {
@@ -192,7 +199,6 @@ const PROBES: readonly Probe[] = [
   },
   { entry: 'eventarc', owner: 'Eventarc', path: ['getEventarc'], make: (arm) => eventarcEntry.getEventarc(arm.app) },
   { entry: 'extensions', owner: 'Extensions', path: ['getExtensions'], make: (arm) => extensionsEntry.getExtensions(arm.app) },
-  { entry: 'functions', owner: 'Functions', path: ['getFunctions'], make: (arm) => functionsEntry.getFunctions(arm.app) },
   { entry: 'installations', owner: 'Installations', path: ['getInstallations'], make: (arm) => installationsEntry.getInstallations(arm.app) },
   { entry: 'instance-id', owner: 'InstanceId', path: ['getInstanceId'], make: (arm) => instanceIdEntry.getInstanceId(arm.app) },
   { entry: 'machine-learning', owner: 'MachineLearning', path: ['getMachineLearning'], make: (arm) => machineLearningEntry.getMachineLearning(arm.app) },
@@ -216,6 +222,7 @@ const MIRRORED_MODULES: Record<(typeof MIRRORED_ENTRIES)[number], Module> = {
   storage: storageEntry as Module,
   messaging: messagingEntry as Module,
   'app-check': appCheckEntry as Module,
+  functions: functionsEntry as Module,
 };
 
 const TOP_LEVEL = '(exports)';

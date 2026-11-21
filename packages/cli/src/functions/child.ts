@@ -49,6 +49,11 @@ import {
   type PubSubChildRuntimeHost,
 } from './pubsub/child-runtime.js';
 import { pubsubTriggersFamily } from './pubsub/discovery.js';
+import {
+  startTasksChildRuntime,
+  type TasksChildRuntimeHost,
+} from './tasks/child-runtime.js';
+import { tasksTriggersFamily } from './tasks/discovery.js';
 import { findUnsupportedTriggers } from './unsupported.js';
 
 interface AdminAppInstance {
@@ -122,6 +127,7 @@ async function runFunctionsChild(): Promise<void> {
   let schedulerHost: SchedulerChildRuntimeHost | undefined;
   let identityHost: IdentityTriggerExecutionHost | undefined;
   let pubsubHost: PubSubChildRuntimeHost | undefined;
+  let tasksHost: TasksChildRuntimeHost | undefined;
   let httpServer: HttpChildServer | undefined;
   let closing: Promise<void> | undefined;
   let stopRequested = false;
@@ -133,6 +139,8 @@ async function runFunctionsChild(): Promise<void> {
       clearInterval(heartbeat);
       clearInterval(parentWatch);
       await httpServer?.close();
+      tasksHost?.close();
+      await tasksHost?.idle();
       pubsubHost?.close();
       await pubsubHost?.idle();
       identityHost?.close();
@@ -241,6 +249,37 @@ async function runFunctionsChild(): Promise<void> {
             message: error instanceof Error ? error.message : String(error),
           });
         });
+      return;
+    }
+    if (
+      raw.type === 'enqueue-task' ||
+      raw.type === 'delete-task' ||
+      raw.type === 'drain-tasks'
+    ) {
+      if (tasksHost === undefined || stopRequested) {
+        send({
+          type: 'tasks-op-result',
+          requestId: raw.requestId,
+          outcome: 'error',
+          code: 'functions/failed-precondition',
+          message: 'Functions tasks runtime is not ready',
+        });
+        return;
+      }
+      void tasksHost
+        .handleHostRequest(raw)
+        .then((reply) => {
+          send(reply);
+        })
+        .catch((error: unknown) => {
+          send({
+            type: 'tasks-op-result',
+            requestId: raw.requestId,
+            outcome: 'error',
+            code: 'functions/internal-error',
+            message: error instanceof Error ? error.message : String(error),
+          });
+        });
     }
   };
   process.on('message', onParentMessage);
@@ -324,6 +363,17 @@ async function runFunctionsChild(): Promise<void> {
     if (pubsubHost.triggerCount > 0) {
       surviveUncaughtErrors();
     }
+    tasksHost = startTasksChildRuntime({
+      exported,
+      sandbox: runtimeSandbox,
+      location,
+      projectId,
+      send,
+    });
+    await tasksHost.ready;
+    if (tasksHost.triggerCount > 0) {
+      surviveUncaughtErrors();
+    }
     const httpFunctions = [...inspectOnRequest(exported), ...inspectOnCall(exported)];
     if (httpFunctions.length > 0) {
       if (httpToken === undefined) throw new Error(`Functions child is missing ${CHILD_TOKEN_ENV}`);
@@ -337,6 +387,7 @@ async function runFunctionsChild(): Promise<void> {
       schedulerTriggersFamily,
       identityBlockingFamily,
       pubsubTriggersFamily,
+      tasksTriggersFamily,
       httpOnRequestFamily,
       callableOnCallFamily,
     ]);
@@ -346,7 +397,8 @@ async function runFunctionsChild(): Promise<void> {
       firestoreHost.triggerCount +
       schedulerHost.triggerCount +
       identityHost.triggerCount +
-      pubsubHost.triggerCount;
+      pubsubHost.triggerCount +
+      tasksHost.triggerCount;
     if (httpServer === undefined) {
       send({
         type: 'ready',

@@ -7,6 +7,10 @@ import type {
   PubSubPublishResult,
   PubSubWirePublishRequest,
 } from './pubsub/delivery.js';
+import type {
+  TasksChildResult,
+  TasksHostRequest,
+} from './tasks/child-runtime.js';
 import type { UnsupportedFunctionsTrigger } from './unsupported.js';
 
 export interface SerializedFunctionsError {
@@ -22,6 +26,9 @@ export type FunctionsChildEvent =
       ref: string;
       params: Record<string, string>;
       status: 'fulfilled';
+      startedAt?: number;
+      durationMs?: number;
+      retryConfig?: Record<string, number>;
     }
   | {
       type: 'execution';
@@ -30,6 +37,9 @@ export type FunctionsChildEvent =
       params: Record<string, string>;
       status: 'rejected';
       error: SerializedFunctionsError;
+      startedAt?: number;
+      durationMs?: number;
+      retryConfig?: Record<string, number>;
     }
   | {
       type: 'delivery-error';
@@ -80,7 +90,8 @@ export interface PublishPubSubHostRequest extends PubSubWirePublishRequest {
 export type FunctionsHostMessage =
   | { type: 'stop' }
   | TriggerScheduledHostRequest
-  | PublishPubSubHostRequest;
+  | PublishPubSubHostRequest
+  | TasksHostRequest;
 
 export type TriggerScheduledChildResult =
   | {
@@ -140,6 +151,7 @@ export type FunctionsChildMessage =
   | FunctionsChildEvent
   | TriggerScheduledChildResult
   | PublishPubSubChildResult
+  | TasksChildResult
   | { type: 'fatal'; error: SerializedFunctionsError }
   /** Sent every HEARTBEAT_INTERVAL_MS while the child's event loop runs. */
   | { type: 'heartbeat' }
@@ -174,6 +186,9 @@ export function isHostMessage(value: unknown): value is FunctionsHostMessage {
   return (
     kind === 'stop' ||
     kind === 'trigger-scheduled' ||
-    kind === 'publish-pubsub'
+    kind === 'publish-pubsub' ||
+    kind === 'enqueue-task' ||
+    kind === 'delete-task' ||
+    kind === 'drain-tasks'
   );
 }
