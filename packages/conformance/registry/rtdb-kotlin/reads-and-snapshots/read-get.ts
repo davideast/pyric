@@ -7,5 +7,6 @@ export default row({
   behavior: 'Fetches a one-shot DataSnapshot of the current data at the reference path.',
   featureKeys: ['get'],
   status: 'conforms',
+  oracleObservations: ['rtdb-kotlin-dedicated-crud-and-query-order'],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

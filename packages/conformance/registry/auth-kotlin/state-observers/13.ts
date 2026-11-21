@@ -5,5 +5,6 @@ export default row({
   api: 'FirebaseAuth.addAuthStateListener(listener)',
   behavior: 'Registers an AuthStateListener invoked immediately on registration and whenever authentication state changes.',
   featureKeys: ['addAuthStateListener', 'removeAuthStateListener'],
-  flipped: 'live-host',
+  flipped: 'oracle-backed',
+  oracleObservations: ['auth-kotlin-profile-reload-and-listeners'],
 });

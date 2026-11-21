@@ -5,5 +5,10 @@ export default row({
   api: 'FirebaseAuth.getInstance(app) / Firebase.auth(app)',
   behavior: 'Provides isolated FirebaseAuth instances distinguished by FirebaseApp.',
   featureKeys: ['getInstance'],
-  flipped: 'live-host',
+  flipped: 'oracle-backed',
+  oracleObservations: [
+    'auth-kotlin-email-password-lifecycle',
+    'auth-kotlin-profile-reload-and-listeners',
+    'auth-kotlin-error-codes-and-exceptions',
+  ],
 });

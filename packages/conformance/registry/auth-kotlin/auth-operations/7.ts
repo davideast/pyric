@@ -5,5 +5,6 @@ export default row({
   api: 'FirebaseAuth.createUserWithEmailAndPassword(email, password)',
   behavior: 'Creates a new user account with email and password via bridge auth.createUser, updating currentUser and AuthLens.',
   featureKeys: ['createUserWithEmailAndPassword'],
-  flipped: 'live-host',
+  flipped: 'oracle-backed',
+  oracleObservations: ['auth-kotlin-email-password-lifecycle'],
 });

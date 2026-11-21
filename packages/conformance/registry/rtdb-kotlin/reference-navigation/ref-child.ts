@@ -7,5 +7,6 @@ export default row({
   behavior: 'Returns a child DatabaseReference relative to the current path.',
   featureKeys: ['child'],
   status: 'conforms',
+  oracleObservations: ['rtdb-kotlin-dedicated-crud-and-query-order'],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

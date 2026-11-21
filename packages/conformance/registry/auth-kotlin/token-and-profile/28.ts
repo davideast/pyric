@@ -5,5 +5,6 @@ export default row({
   api: 'FirebaseUser.reload()',
   behavior: 'Reloads user profile and custom claims from bridge auth.getCurrentUser and auth.getIdTokenResult.',
   featureKeys: ['reload'],
-  flipped: 'live-host',
+  flipped: 'oracle-backed',
+  oracleObservations: ['auth-kotlin-profile-reload-and-listeners'],
 });

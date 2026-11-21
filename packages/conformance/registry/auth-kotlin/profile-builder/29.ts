@@ -5,5 +5,6 @@ export default row({
   api: 'UserProfileChangeRequest.Builder',
   behavior: 'Builds immutable UserProfileChangeRequest configuring displayName and photoUri.',
   featureKeys: ['userProfileChangeRequest'],
-  flipped: 'live-host',
+  flipped: 'oracle-backed',
+  oracleObservations: ['auth-kotlin-profile-reload-and-listeners'],
 });

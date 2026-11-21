@@ -7,5 +7,6 @@ export default row({
   behavior: 'Atomically increments the numeric value at the target path by delta on the server.',
   featureKeys: ['serverIncrement'],
   status: 'conforms',
+  oracleObservations: ['rtdb-kotlin-dedicated-crud-and-query-order'],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

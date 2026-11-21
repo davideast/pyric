@@ -1,7 +1,21 @@
 {
   "name": "rtdb-kotlin-dedicated-crud-and-query-order",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "rtdb-kotlin#write-set",
+  "rowIds": [
+    "rtdb-kotlin#instance-url",
+    "rtdb-kotlin#ref-path",
+    "rtdb-kotlin#ref-child",
+    "rtdb-kotlin#write-set",
+    "rtdb-kotlin#write-update",
+    "rtdb-kotlin#write-remove",
+    "rtdb-kotlin#sentinel-increment",
+    "rtdb-kotlin#read-get",
+    "rtdb-kotlin#snap-exists",
+    "rtdb-kotlin#snap-key",
+    "rtdb-kotlin#snap-children",
+    "rtdb-kotlin#snap-child-path",
+    "rtdb-kotlin#query-order-by-child"
+  ],
   "description": "Upstream Android FirebaseDatabase dedicated-instance setValue, updateChildren with ServerValue.increment, orderByChild + limitToFirst ordering, and removeValue under Robolectric.",
   "observedAt": "2026-11-21T01:40:09.027Z",
   "androidBomVersion": "35.2.0",

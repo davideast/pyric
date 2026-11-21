@@ -5,5 +5,6 @@ export default row({
   api: 'FirebaseUser.photoUrl',
   behavior: 'Returns the profile photo URI or null if unset.',
   featureKeys: ['photoUrl'],
-  flipped: 'live-host',
+  flipped: 'oracle-backed',
+  oracleObservations: ['auth-kotlin-profile-reload-and-listeners'],
 });

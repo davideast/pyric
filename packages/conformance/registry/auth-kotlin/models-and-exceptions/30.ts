@@ -5,5 +5,6 @@ export default row({
   api: 'AuthResult / AdditionalUserInfo',
   behavior: 'AuthResult packages authenticated FirebaseUser and AdditionalUserInfo (providerId, isNewUser).',
   featureKeys: ['authResult', 'additionalUserInfo'],
-  flipped: 'live-host',
+  flipped: 'oracle-backed',
+  oracleObservations: ['auth-kotlin-email-password-lifecycle'],
 });

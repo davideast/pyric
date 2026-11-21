@@ -7,5 +7,6 @@ export default row({
   behavior: 'Returns a DataSnapshot for the relative descendant path within the snapshot.',
   featureKeys: ['snapshotChild'],
   status: 'conforms',
+  oracleObservations: ['rtdb-kotlin-dedicated-crud-and-query-order'],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

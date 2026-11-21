@@ -47,12 +47,7 @@ import { validateCompatibilityRegistry } from '../../src/validate-registry.ts';
 import { surfaceDescriptors } from '../../surfaces/load.ts';
 import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 
-const STAGED_ANDROID_PROBES = [
-  'auth-kotlin-email-password-lifecycle',
-  'auth-kotlin-error-codes-and-exceptions',
-  'auth-kotlin-profile-reload-and-listeners',
-  'rtdb-kotlin-dedicated-crud-and-query-order',
-] as const;
+const STAGED_ANDROID_PROBES: readonly string[] = [];
 
 function fakeServiceAccount(): OracleServiceAccount {
   return {
@@ -93,9 +88,17 @@ describe('android-sdk-probes Robolectric oracle rig', () => {
       'auth-kotlin#32',
     ]);
     expect(authKotlinEmailProbe.rig).toBe('android-sdk-probes');
+    expect(authKotlinEmailProbe.pendingRowLink).toBeUndefined();
+    expect(authKotlinEmailProbe.matrixRow).toBe('auth-kotlin#7');
     expect(authKotlinErrorsProbe.rig).toBe('android-sdk-probes');
+    expect(authKotlinErrorsProbe.pendingRowLink).toBeUndefined();
+    expect(authKotlinErrorsProbe.matrixRow).toBe('auth-kotlin#32');
     expect(authKotlinProfileProbe.rig).toBe('android-sdk-probes');
+    expect(authKotlinProfileProbe.pendingRowLink).toBeUndefined();
+    expect(authKotlinProfileProbe.matrixRow).toBe('auth-kotlin#27');
     expect(rtdbKotlinCrudProbe.rig).toBe('android-sdk-probes');
+    expect(rtdbKotlinCrudProbe.pendingRowLink).toBeUndefined();
+    expect(rtdbKotlinCrudProbe.matrixRow).toBe('rtdb-kotlin#write-set');
     expect(androidRig.automation).toBe('credentialed');
     expect(androidRig.network).toBe('firebase-production');
     expect(androidRig.runnerOs).toBe('ubuntu-latest');

@@ -1,7 +1,10 @@
 {
   "name": "auth-kotlin-error-codes-and-exceptions",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "auth-kotlin#32",
+  "rowIds": [
+    "auth-kotlin#2",
+    "auth-kotlin#32"
+  ],
   "description": "Upstream Android FirebaseAuthException subclass and errorCode outcomes for invalid email, weak password, duplicate email registration, wrong password, and missing user sign-in under Robolectric.",
   "observedAt": "2026-11-21T01:39:34.518Z",
   "androidBomVersion": "35.2.0",

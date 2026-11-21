@@ -7,5 +7,6 @@ export default row({
   behavior: 'Overwrites data at the reference path with the provided value.',
   featureKeys: ['setValue'],
   status: 'conforms',
+  oracleObservations: ['rtdb-kotlin-dedicated-crud-and-query-order'],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });
