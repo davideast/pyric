@@ -66,127 +66,95 @@ public final class StorageReference: NSObject, Sendable {
 
     // MARK: - Upload Data
 
-    /// Uploads in-memory `Data` to this `StorageReference`, invoking `completion` on `storage.callbackQueue`.
+    /// Uploads in-memory `Data` to this `StorageReference`, returning an observable `StorageUploadTask`.
+    @discardableResult
     public func putData(
         _ uploadData: Data,
         metadata: StorageMetadata? = nil,
         completion: (@Sendable (StorageMetadata?, Error?) -> Void)? = nil
-    ) {
-        storage.markUsed()
-        let client = storage.bridgeClient
-        let turn = client.takeTurn()
-        let actAs = storage.activeAuthLens()
-        let chunkLimit = storage.uploadChunkSizeBytes
-        let timeout = storage.maxUploadRetryTime
-        let storage = self.storage
-        Task {
-            do {
-                let stored = try await BridgeStorageTransport.uploadData(
-                    reference: self,
-                    client: client,
-                    turn: turn,
-                    actAs: actAs,
-                    data: uploadData,
-                    metadata: metadata,
-                    chunkSizeBytes: chunkLimit,
-                    timeout: timeout,
-                    onProgress: nil
-                )
-                if let completion {
-                    storage.dispatchCallback { completion(stored, nil) }
-                }
-            } catch {
-                if let completion {
-                    let mapped = StorageErrorCode.from(error) as NSError
-                    storage.dispatchCallback { completion(nil, mapped) }
-                }
-            }
-        }
+    ) -> StorageUploadTask {
+        let uploadTask = StorageUploadTask(
+            reference: self,
+            source: .data(uploadData),
+            metadata: metadata,
+            completion: completion
+        )
+        uploadTask.enqueue()
+        return uploadTask
     }
 
-    /// Async upload of in-memory `Data` to this `StorageReference`.
+    /// Async upload of in-memory `Data` to this `StorageReference` with optional `Progress` snapshots.
     public func putDataAsync(
         _ uploadData: Data,
         metadata: StorageMetadata? = nil,
         onProgress: (@Sendable (Progress?) -> Void)? = nil
     ) async throws -> StorageMetadata {
-        storage.markUsed()
-        let client = storage.bridgeClient
-        let turn = client.takeTurn()
-        let actAs = storage.activeAuthLens()
-        do {
-            return try await BridgeStorageTransport.uploadData(
+        try await withCancellableStorageTask { continuation in
+            let uploadTask = StorageUploadTask(
                 reference: self,
-                client: client,
-                turn: turn,
-                actAs: actAs,
-                data: uploadData,
-                metadata: metadata,
-                chunkSizeBytes: storage.uploadChunkSizeBytes,
-                timeout: storage.maxUploadRetryTime,
-                onProgress: onProgress
-            )
-        } catch {
-            throw StorageErrorCode.from(error)
+                source: .data(uploadData),
+                metadata: metadata
+            ) { stored, error in
+                if let stored {
+                    continuation.resume(returning: stored)
+                } else if let error {
+                    continuation.resume(throwing: StorageErrorCode.from(error))
+                } else {
+                    continuation.resume(throwing: StorageErrorCode.internalError)
+                }
+            }
+            if let onProgress {
+                uploadTask.observe(.progress) { snapshot in
+                    onProgress(snapshot.progress)
+                }
+            }
+            uploadTask.enqueue()
+            return uploadTask
         }
     }
 
     // MARK: - Download Data
 
     /// Downloads the object at this `StorageReference` in memory up to `maxSize` bytes (`FirebaseStorage` spelling).
+    @discardableResult
     public func getData(
         maxSize: Int64,
         completion: @escaping @Sendable (Data?, Error?) -> Void
-    ) {
+    ) -> StorageDownloadTask {
         data(maxSize: maxSize, completion: completion)
     }
 
     /// Downloads the object at this `StorageReference` in memory up to `maxSize` bytes.
+    @discardableResult
     public func data(
         maxSize: Int64,
         completion: @escaping @Sendable (Data?, Error?) -> Void
-    ) {
-        storage.markUsed()
-        let client = storage.bridgeClient
-        let turn = client.takeTurn()
-        let actAs = storage.activeAuthLens()
-        let timeout = storage.maxDownloadRetryTime
-        let storage = self.storage
-        Task {
-            do {
-                let bytes = try await BridgeStorageTransport.downloadData(
-                    reference: self,
-                    client: client,
-                    turn: turn,
-                    actAs: actAs,
-                    maxSize: maxSize,
-                    timeout: timeout
-                )
-                storage.dispatchCallback { completion(bytes, nil) }
-            } catch {
-                let mapped = StorageErrorCode.from(error) as NSError
-                storage.dispatchCallback { completion(nil, mapped) }
-            }
-        }
+    ) -> StorageDownloadTask {
+        let downloadTask = StorageDownloadTask(
+            reference: self,
+            target: .memory(maxSize: maxSize, completion: completion)
+        )
+        downloadTask.enqueue()
+        return downloadTask
     }
 
     /// Async download of the object at this `StorageReference` up to `maxSize` bytes.
     public func data(maxSize: Int64) async throws -> Data {
-        storage.markUsed()
-        let client = storage.bridgeClient
-        let turn = client.takeTurn()
-        let actAs = storage.activeAuthLens()
-        do {
-            return try await BridgeStorageTransport.downloadData(
+        try await withCancellableStorageTask { continuation in
+            let downloadTask = StorageDownloadTask(
                 reference: self,
-                client: client,
-                turn: turn,
-                actAs: actAs,
-                maxSize: maxSize,
-                timeout: storage.maxDownloadRetryTime
+                target: .memory(maxSize: maxSize) { bytes, error in
+                    if let bytes {
+                        continuation.resume(returning: bytes)
+                    } else if let error {
+                        continuation.resume(throwing: StorageErrorCode.from(error))
+                    } else {
+                        continuation.resume(throwing: StorageErrorCode.internalError)
+                    }
+                }
             )
-        } catch {
-            throw StorageErrorCode.from(error)
+            downloadTask.enqueue()
+            return downloadTask
         }
     }
 
