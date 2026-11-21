@@ -7,6 +7,10 @@ export default row({
   behavior: 'Instantiates a WriteBatch for atomic batched mutations.',
   featureKeys: ['batch'],
   status: 'conforms',
+  oracleObservations: [
+    'firestore-kotlin-queries-cursors-listeners-and-aggregations',
+    'firestore-kotlin-batches-transactions-offline-and-errors',
+  ],
   tests: [LIVE_HOST_CORE_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

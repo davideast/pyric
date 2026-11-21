@@ -4,6 +4,8 @@ import type { CompatStatus } from '../types.ts';
 
 const CONFORMANCE_SUITE =
   'packages/kt-client/src/test/kotlin/dev/pyric/firestore/ConformanceTest.kt';
+const ORACLE_REPLAY_SUITE =
+  'packages/conformance/test/src/firestore-kotlin-oracle-replay.test.ts';
 const UNOBSERVED_REASON =
   'Behavior stated from com.google.firebase.firestore specification; unit test has not passed yet.';
 
@@ -27,6 +29,8 @@ export interface KotlinFirestoreRowSeed {
   tests?: string[];
   /** Live Pyric host end-to-end suites proving this row against a running host. */
   hostConformanceTests?: string[];
+  /** Production Android SDK observation stems proving this row. */
+  oracleObservations?: string[];
   flipped?: 'unit-backed';
   status?: CompatStatus;
   statusNote?: string;
@@ -54,6 +58,38 @@ export function bindKotlinFirestoreRow(
     }
 
     return section.rowFromRef(seed.order, (rowRef) => {
+      const observations = seed.oracleObservations;
+      if (observations !== undefined && observations.length > 0) {
+        let resolvedEvidence = 'com.google.firebase.firestore specification.';
+        if (seed.evidence !== undefined) {
+          resolvedEvidence = seed.evidence;
+        }
+        let resolvedStatus: CompatStatus = 'unverified';
+        if (seed.status !== undefined) {
+          resolvedStatus = seed.status;
+        }
+        const conformanceTests: string[] = [ORACLE_REPLAY_SUITE, CONFORMANCE_SUITE];
+        if (seed.tests !== undefined) {
+          for (const extraTest of seed.tests) {
+            conformanceTests.push(extraTest);
+          }
+        }
+        const hostEvidence = formatHostEvidence(seed.hostConformanceTests);
+        const obsTokens = observations.map((obs) => `\`${obs}.json\``).join(', ');
+        return {
+          api: seed.api,
+          behavior: seed.behavior,
+          featureKeys: seed.featureKeys,
+          status: resolvedStatus,
+          statusNote: resolveMockBridgeNote(seed.status, seed.statusNote),
+          automation: 'oracle-backed',
+          oracleObservations: [...observations],
+          evidence: `${resolvedEvidence} Production capture: ${obsTokens} replayed in \`${ORACLE_REPLAY_SUITE}\`; unit suite: \`${CONFORMANCE_SUITE}\` assertion set \`firestore-kotlin#${rowRef}\`.${hostEvidence}`,
+          conformanceTests,
+          hostConformanceTests: seed.hostConformanceTests,
+        };
+      }
+
       const unitBacked = seed.flipped !== undefined || seed.status !== undefined;
       if (unitBacked) {
         let resolvedEvidence = 'com.google.firebase.firestore specification.';

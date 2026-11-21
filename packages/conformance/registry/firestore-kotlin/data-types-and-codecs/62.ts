@@ -7,6 +7,7 @@ export default row({
   behavior: 'Encodes and decodes DocumentReference values stored within document fields.',
   featureKeys: ['DocumentReference'],
   status: 'conforms',
+  oracleObservations: ['firestore-kotlin-crud-merge-sentinels-and-codecs'],
   tests: [LIVE_HOST_CORE_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

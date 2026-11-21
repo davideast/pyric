@@ -7,6 +7,7 @@ export default row({
   behavior: 'Serializes byte arrays to base64 bridge wire format and revives them as Blob.',
   featureKeys: ['Blob'],
   status: 'conforms',
+  oracleObservations: ['firestore-kotlin-crud-merge-sentinels-and-codecs'],
   tests: [LIVE_HOST_CORE_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

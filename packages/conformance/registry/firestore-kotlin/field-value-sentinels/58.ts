@@ -7,6 +7,7 @@ export default row({
   behavior: 'Encodes transformation removing matching elements from array field.',
   featureKeys: ['arrayRemove'],
   status: 'conforms',
+  oracleObservations: ['firestore-kotlin-crud-merge-sentinels-and-codecs'],
   tests: [LIVE_HOST_CORE_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

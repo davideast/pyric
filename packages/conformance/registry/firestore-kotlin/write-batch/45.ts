@@ -7,6 +7,7 @@ export default row({
   behavior: 'Enqueues set or merge operation into atomic mutation batch.',
   featureKeys: ['set', 'batch'],
   status: 'conforms',
+  oracleObservations: ['firestore-kotlin-batches-transactions-offline-and-errors'],
   tests: [LIVE_HOST_TRANSACTIONS_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

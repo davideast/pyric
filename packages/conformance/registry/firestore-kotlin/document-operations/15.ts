@@ -7,6 +7,10 @@ export default row({
   behavior: 'Overwrites target document completely with provided map or POJO payload.',
   featureKeys: ['set'],
   status: 'conforms',
+  oracleObservations: [
+    'firestore-kotlin-crud-merge-sentinels-and-codecs',
+    'firestore-kotlin-batches-transactions-offline-and-errors',
+  ],
   tests: [
     'packages/kt-client/src/test/kotlin/dev/pyric/e2e/FirestoreLifecycleAndDocsLiveHostConformanceTest.kt',
   ],

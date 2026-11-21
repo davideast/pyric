@@ -7,6 +7,7 @@ export default row({
   behavior: 'Merges payload fields into existing document without overwriting unspecified fields.',
   featureKeys: ['set', 'merge'],
   status: 'conforms',
+  oracleObservations: ['firestore-kotlin-crud-merge-sentinels-and-codecs'],
   tests: [
     'packages/kt-client/src/test/kotlin/dev/pyric/e2e/FirestoreLifecycleAndDocsLiveHostConformanceTest.kt',
   ],

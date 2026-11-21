@@ -7,6 +7,7 @@ export default row({
   behavior: 'Filters documents matching exact field equality.',
   featureKeys: ['whereEqualTo'],
   status: 'conforms',
+  oracleObservations: ['firestore-kotlin-queries-cursors-listeners-and-aggregations'],
   tests: [LIVE_HOST_QUERIES_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

@@ -7,6 +7,7 @@ export default row({
   behavior: 'Positions ending cursor boundary using field values.',
   featureKeys: ['endAt', 'endBefore'],
   status: 'conforms',
+  oracleObservations: ['firestore-kotlin-queries-cursors-listeners-and-aggregations'],
   tests: [LIVE_HOST_QUERIES_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

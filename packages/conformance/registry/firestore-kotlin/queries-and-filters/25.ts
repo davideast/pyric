@@ -7,6 +7,7 @@ export default row({
   behavior: 'Filters documents where array field contains any element from the values list.',
   featureKeys: ['whereArrayContainsAny'],
   status: 'conforms',
+  oracleObservations: ['firestore-kotlin-queries-cursors-listeners-and-aggregations'],
   tests: [LIVE_HOST_QUERIES_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

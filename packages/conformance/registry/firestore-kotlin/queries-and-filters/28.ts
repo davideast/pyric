@@ -7,6 +7,7 @@ export default row({
   behavior: 'Evaluates composite boolean expressions constructed via Filter.and(...) or Filter.or(...).',
   featureKeys: ['where', 'filter'],
   status: 'conforms',
+  oracleObservations: ['firestore-kotlin-queries-cursors-listeners-and-aggregations'],
   tests: [LIVE_HOST_QUERIES_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

@@ -7,6 +7,7 @@ export default row({
   behavior: 'Limits query results to the last N documents relative to query ordering.',
   featureKeys: ['limitToLast'],
   status: 'conforms',
+  oracleObservations: ['firestore-kotlin-queries-cursors-listeners-and-aggregations'],
   tests: [LIVE_HOST_QUERIES_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

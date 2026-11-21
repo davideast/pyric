@@ -7,6 +7,7 @@ export default row({
   behavior: 'Atomically commits all enqueued mutations across multiple documents.',
   featureKeys: ['commit', 'batch'],
   status: 'conforms',
+  oracleObservations: ['firestore-kotlin-batches-transactions-offline-and-errors'],
   tests: [LIVE_HOST_TRANSACTIONS_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

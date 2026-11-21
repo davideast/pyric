@@ -7,6 +7,11 @@ export default row({
   behavior: 'Returns a child CollectionReference nested under this document.',
   featureKeys: ['collection'],
   status: 'conforms',
+  oracleObservations: [
+    'firestore-kotlin-crud-merge-sentinels-and-codecs',
+    'firestore-kotlin-queries-cursors-listeners-and-aggregations',
+    'firestore-kotlin-batches-transactions-offline-and-errors',
+  ],
   tests: [
     'packages/kt-client/src/test/kotlin/dev/pyric/e2e/FirestoreLifecycleAndDocsLiveHostConformanceTest.kt',
   ],
