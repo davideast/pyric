@@ -106,19 +106,56 @@ describe('multi-axis conformance model', () => {
     });
   });
 
-  it('keeps baseline-tolerated type gaps queryable without claiming runtime availability', () => {
+  it('keeps pure type exports and baseline-tolerated type gaps queryable without claiming runtime availability', () => {
     expect(canIUse(model, 'auth/ApplicationVerifier')).toMatchObject({
       match: 'exact',
       supports: [expect.objectContaining({
         feature: 'ApplicationVerifier',
         surface: 'auth',
+        availability: 'available',
+        fidelity: 'not-applicable',
+        assurance: 'not-applicable',
+        claims: [expect.objectContaining({ id: 'auth:type:ApplicationVerifier', kind: 'type-export', status: 'mapped' })],
+      })],
+    });
+    expect(model.census.find(({ surface }) => surface === 'auth')?.types.unmapped).toEqual([]);
+    const syntheticGapModel: ConformanceModel = {
+      ...model,
+      supports: [
+        ...model.supports,
+        {
+          feature: 'SyntheticTypeGap',
+          surface: 'auth',
+          importPaths: ['pyric/auth'],
+          evidenceSlug: 'auth-compat',
+          availability: 'unavailable',
+          fidelity: 'not-applicable',
+          assurance: 'not-applicable',
+          summary: 'SyntheticTypeGap is unavailable; behavior fidelity and assurance are not applicable until the surface exists.',
+          caveats: ['Public type export is not mirrored.'],
+          claims: [{
+            id: 'auth:type:SyntheticTypeGap',
+            kind: 'type-export',
+            surface: 'auth',
+            behavior: 'SyntheticTypeGap is missing from the Pyric type namespace',
+            status: 'unmapped',
+            evidence: [],
+            assurance: 'not-applicable',
+          }],
+        },
+      ],
+    };
+    expect(canIUse(syntheticGapModel, 'auth/SyntheticTypeGap')).toMatchObject({
+      match: 'exact',
+      supports: [expect.objectContaining({
+        feature: 'SyntheticTypeGap',
+        surface: 'auth',
         availability: 'unavailable',
         fidelity: 'not-applicable',
         assurance: 'not-applicable',
-        claims: [expect.objectContaining({ id: 'auth:type:ApplicationVerifier', status: 'unmapped' })],
+        claims: [expect.objectContaining({ id: 'auth:type:SyntheticTypeGap', status: 'unmapped' })],
       })],
     });
-    expect(model.census.find(({ surface }) => surface === 'auth')?.types.unmapped).toContain('ApplicationVerifier');
     const indexedClaims = new Set(Object.values(model.featureIndex).flat());
     for (const entry of model.census) {
       for (const symbol of entry.types.unmapped) {
