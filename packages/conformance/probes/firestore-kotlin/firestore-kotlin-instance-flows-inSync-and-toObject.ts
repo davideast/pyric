@@ -7,6 +7,7 @@ export const probe: Probe = {
   matrixRow: 'firestore-kotlin#1',
   rowIds: [
     'firestore-kotlin#1',
+    'firestore-kotlin#3',
     'firestore-kotlin#4',
     'firestore-kotlin#13',
     'firestore-kotlin#17',

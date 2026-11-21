@@ -17,6 +17,7 @@ import {
   INEQUALITY_CG_TX_STEM,
   INSTANCE_FLOWS_STEM,
   seedWave5ScoreCollection,
+  verifyWave5SettingsCollectionGroupAndTxExhaustion,
   waitUntilCondition,
   WAVE5_FILENAMES,
   type FirestoreKotlinWave5InequalityCgTxObservation,
@@ -535,6 +536,12 @@ describe('Wave 5 firestore-kotlin Android SDK production observation replay over
     } finally {
       await harness.close();
     }
+  });
+
+  test('firestore-kotlin#3 firestore-kotlin#6 firestore-kotlin#53 replay FirebaseFirestoreSettings, collectionGroup, and exhausted runTransaction contention', async () => {
+    const obsInst = gate.load<FirestoreKotlinWave5InstanceFlowsObservation>(INSTANCE_FLOWS_STEM);
+    const obsCgTx = gate.load<FirestoreKotlinWave5InequalityCgTxObservation>(INEQUALITY_CG_TX_STEM);
+    await verifyWave5SettingsCollectionGroupAndTxExhaustion(obsInst, obsCgTx);
   });
 
   test('covers both Wave 5 firestore-kotlin observations through createObservationGate', () => {
