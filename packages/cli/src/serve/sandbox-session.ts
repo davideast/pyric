@@ -35,6 +35,7 @@ import {
   type StorageRulesReloadResult,
 } from './sandbox-session-rules-reload.js';
 import type { ServeLogger } from './server.js';
+import type { RemoteAccessOptions } from './guard-policy.js';
 import { createStateStore, type StateStore } from './state-store.js';
 import { restoredStateCounts } from './state-summary.js';
 import { diskProjectStore, diskWorkspace } from './studio/index.js';
@@ -82,6 +83,8 @@ export interface SandboxSessionOptions {
   sessionToken?: string;
   /** Require `sessionToken` on every namespace route instead of only workspace/project and AI proxy routes. */
   requireSessionToken?: boolean;
+  /** Explicit remote workstation / reverse-proxy access configuration. */
+  remoteAccess?: RemoteAccessOptions;
 }
 
 export interface SandboxSessionSummary {
@@ -202,13 +205,16 @@ export async function createSandboxSession(
     }
   }
 
+  const sessionToken = options.sessionToken ?? randomBytes(24).toString('base64url');
   const flowTreatments = await createFlowTreatmentHost(options.projectDir, options.flow, {
     boundHost: options.boundHost,
     allowedHosts: options.allowedHosts,
     appPorts: options.appPorts,
+    sessionToken,
+    requireSessionToken: options.requireSessionToken,
+    remoteAccess: options.remoteAccess,
   });
   const events = createEventHub();
-  const sessionToken = options.sessionToken ?? randomBytes(24).toString('base64url');
   const avatarsResolver = createAvatarsResolver(options.avatars, options.projectDir, (key) => {
     events.broadcast('avatar-ready', { key });
   });
@@ -385,6 +391,7 @@ export async function createSandboxSession(
       capture,
       sessionToken,
       requireSessionToken: options.requireSessionToken,
+      remoteAccess: options.remoteAccess,
       studio: studioConfig,
       siteUiDir,
       workerVersion: options.sdk.workerVersion,

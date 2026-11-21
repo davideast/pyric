@@ -1,4 +1,5 @@
 import { createDiagnostics } from './diagnostics.js';
+import { createUnlockHandler, LOGOUT_PATH, UNLOCK_PATH } from './unlock-route.js';
 import { DIAGNOSTICS_PATH } from './runtime/diagnostics-report.js';
 import { handleRateCaptures } from './rate-capture-route.js';
 import { handleThresholdConfig } from './threshold-config-route.js';
@@ -227,7 +228,22 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
     }
     return true;
   };
+  let unlockHandler: ((req: IncomingMessage, res: ServerResponse, url: URL) => Promise<boolean>) | null = null;
+  if (opts.remoteAccess !== undefined && opts.remoteAccess.browserUnlock !== false) {
+    unlockHandler = createUnlockHandler({
+      boundHost: opts.boundHost ?? 'localhost',
+      allowedHosts: mergedAllowedHosts,
+      remoteAccess: opts.remoteAccess,
+      sessionToken,
+    });
+  }
   const handler = (req: IncomingMessage, res: ServerResponse, url: URL): boolean | Promise<boolean> => {
+    if (
+      unlockHandler !== null &&
+      (url.pathname === UNLOCK_PATH || url.pathname === LOGOUT_PATH)
+    ) {
+      return unlockHandler(req, res, url);
+    }
     const isDiagnostics = url.pathname === DIAGNOSTICS_PATH;
     if (isDiagnostics) {
       if (!guardRoute(req, res, url, 'namespace')) return true;

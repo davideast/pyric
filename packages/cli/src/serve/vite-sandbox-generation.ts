@@ -56,6 +56,8 @@ import { watchViteGenerationRules } from './vite-generation-rules-watch.js';
 import { claimProjectState, type ProjectStateScope } from './hosted/project-ownership.js';
 import { refuseOwnWrite, type PyricWriteRefusal } from './hosted/own-writes.js';
 import { servesHttps } from './vite-https.js';
+import type { RemoteAccessOptions } from './guard-policy.js';
+import { formatRemoteAccessStartupLines } from './remote-access-config.js';
 
 export interface ViteSandboxGenerationOptions {
   hosted?: boolean;
@@ -73,6 +75,10 @@ export interface ViteSandboxGenerationOptions {
   project?: string;
   /** Require `sessionToken` across every `/__pyric/*`, MCP, and WS route. */
   requireSessionToken?: boolean;
+  /** Additional validated Host entries merged with Vite's array `server.allowedHosts`. */
+  allowedHosts?: readonly string[];
+  /** Explicit remote workstation / reverse-proxy access configuration. */
+  remoteAccess?: RemoteAccessOptions;
   /** Set only through `@pyric/live`'s seam: the host reports its status as live (`live-host-state.ts`). */
   liveHost?: boolean;
   /** The live host's pass-through list: the `firebase/*` imports its health report lists (`live-host-state.ts`). */
@@ -269,6 +275,9 @@ export async function createViteSandboxGeneration(
       functionsProjectId: functions.projectId,
       sessionToken,
       requireSessionToken,
+      allowedHosts: options.allowedHosts,
+      remoteAccess: options.remoteAccess,
+      upgradeRejectionLogger: (line: string) => server.config.logger.warn(line),
       createBridge: dependencies.createBridge,
     };
     bridge = createViteGenerationBridge(bridgeInput);
@@ -312,8 +321,15 @@ export async function createViteSandboxGeneration(
     const hasBoundHost = typeof configuredHost === 'string';
     const boundHost = hasBoundHost ? configuredHost : 'localhost';
     const configuredAllowedHosts = server.config.server.allowedHosts;
-    const hasAllowedHosts = Array.isArray(configuredAllowedHosts);
-    const allowedHosts = hasAllowedHosts ? configuredAllowedHosts : [];
+    const allowedHosts: string[] = [];
+    if (Array.isArray(configuredAllowedHosts)) {
+      for (const entry of configuredAllowedHosts) {
+        if (!allowedHosts.includes(entry)) allowedHosts.push(entry);
+      }
+    }
+    for (const entry of options.allowedHosts ?? []) {
+      if (!allowedHosts.includes(entry)) allowedHosts.push(entry);
+    }
     const sessionOptions: SandboxSessionOptions = {
       boundHost,
       allowedHosts,
@@ -332,6 +348,7 @@ export async function createViteSandboxGeneration(
       hostInstanceId: () => bridge?.instanceId,
       sessionToken,
       requireSessionToken,
+      remoteAccess: options.remoteAccess,
       ai: aiOptions,
       avatars: avatarsConfig,
       aiProxyUpstream: ai.proxyUpstream,
@@ -398,7 +415,7 @@ export async function createViteSandboxGeneration(
       server.config.logger.info('  ⓘ [pyric] sandbox runs in this server process (hosted)');
     }
 
-    const middlewareInput = { server, bridge, session };
+    const middlewareInput = { server, bridge, session, allowedHosts };
     const disposeMiddleware = attachViteGenerationMiddleware(middlewareInput);
     listenerDisposers.push(disposeMiddleware);
 
@@ -413,9 +430,23 @@ export async function createViteSandboxGeneration(
       resolved: functions,
       registerModuleUrl: dependencies.registerModuleUrl,
       fileExists: dependencies.fileExists,
+      allowedHosts,
+      remoteAccess: options.remoteAccess,
       attach: dependencies.attachFunctions,
     };
     functionsAttachment = attachViteGenerationFunctions(functionsAttachmentInput);
+    if (options.remoteAccess !== undefined) {
+      const startupLines = formatRemoteAccessStartupLines({
+        remoteAccess: options.remoteAccess,
+        sessionToken,
+        https: servesHttps(server),
+        prefix: '  [pyric] ',
+      });
+      for (const line of startupLines) {
+        if (line.includes('warning')) server.config.logger.warn(line);
+        else server.config.logger.info(line);
+      }
+    }
 
     const runningSession = session;
     liveHost?.readRulesFiles(() => rulesFilesOf(runningSession, cwd));

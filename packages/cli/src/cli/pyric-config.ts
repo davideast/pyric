@@ -7,6 +7,7 @@
  */
 
 import type { FlowConfig } from '../serve/flow-config.js';
+import type { RemoteAccessOptions } from '../serve/guard-policy.js';
 import type { OwnersConfig } from '../serve/owners-config.js';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -33,6 +34,10 @@ export interface PyricConfig {
   project?: string;
   /** Require a per-boot session capability token on every local route in sandbox and bridge modes. */
   sessionToken?: boolean;
+  /** Extra hostnames or leading-dot suffixes (`>= 2` labels) allowed past the DNS-rebinding guard. */
+  allowedHosts?: string[];
+  /** Explicit remote workstation / reverse-proxy access policy (`allowPeers`, `trustProxy`, `browserUnlock`). */
+  remoteAccess?: RemoteAccessOptions;
   /** `pyric verify` settings. */
   verify?: {
     /** The dedicated RTDB instance `pyric verify --engine staging` replays against. */

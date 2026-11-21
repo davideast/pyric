@@ -7,6 +7,11 @@ import type {
   FunctionsProject,
 } from '../functions/project.js';
 import type { BridgeMount } from './bridge-mount.js';
+import {
+  effectiveRequestScheme,
+  parseTrustProxySetting,
+  type RemoteAccessOptions,
+} from './guard-policy.js';
 import { hostingRewrites } from '../functions/http/rewrites.js';
 import {
   getHeader,
@@ -98,16 +103,28 @@ export function attachViteGenerationFunctions(input: {
   resolved: ResolvedViteGenerationFunctions;
   registerModuleUrl(): string;
   fileExists?: (path: string) => boolean;
+  allowedHosts?: readonly string[];
+  remoteAccess?: RemoteAccessOptions;
   attach(options: ViteFunctionsDevelopmentOptions): ViteFunctionsDevelopmentAttachment;
 }): ViteFunctionsDevelopmentAttachment | null {
   const { server, projectDir, cliRoot, bridge, resolved, registerModuleUrl, attach } = input;
   if (!resolved.project || !resolved.projectId || !bridge || !server.httpServer) return null;
+  const trustProxy = parseTrustProxySetting(input.remoteAccess?.trustProxy);
   const builtChild = path.join(cliRoot, 'dist/functions/child.js');
   const fileExists = input.fileExists ?? existsSync;
   const childModuleUrl = fileExists(builtChild) ? builtChild : undefined;
   const host =
     (typeof server.config.server.host === 'string' && server.config.server.host) || 'localhost';
   const registerUrl = registerModuleUrl();
+  const mergedAllowedHosts: string[] = [];
+  if (Array.isArray(server.config.server.allowedHosts)) {
+    for (const entry of server.config.server.allowedHosts) {
+      if (!mergedAllowedHosts.includes(entry)) mergedAllowedHosts.push(entry);
+    }
+  }
+  for (const entry of input.allowedHosts ?? []) {
+    if (!mergedAllowedHosts.includes(entry)) mergedAllowedHosts.push(entry);
+  }
   const attachmentOptions: ViteFunctionsDevelopmentOptions = {
     cwd: projectDir,
     project: resolved.project,
@@ -120,20 +137,21 @@ export function attachViteGenerationFunctions(input: {
     middlewares: server.middlewares,
     rewrites: readRewrites(projectDir, (message) => server.config.logger.warn(message)),
     staticFileExists: (pathname) => viteServesPath(server, pathname),
+    trustProxy,
     isAllowedRequest: (req) => {
       const serverOptions = server.config.server;
-      return serverOptions.allowedHosts === true || isAllowedHost(
-        req.headers.host,
-        typeof serverOptions.host === 'string' ? serverOptions.host : 'localhost',
-        Array.isArray(serverOptions.allowedHosts) ? serverOptions.allowedHosts : [],
-      );
+      if (serverOptions.allowedHosts === true) return true;
+      const boundHost = typeof serverOptions.host === 'string' ? serverOptions.host : 'localhost';
+      return isAllowedHost(req.headers.host, boundHost, mergedAllowedHosts);
     },
     // The page Vite serves names Vite's own port and scheme, the socket the request came in on.
     allowsAppOrigin: (req) => {
       const serverOptions = server.config.server;
       const origin = getHeader(req, 'origin');
       const fallbackScheme = serverOptions.https ? 'https:' : 'http:';
-      const expectedScheme = requestSocketScheme(req) ?? fallbackScheme;
+      let expectedScheme = effectiveRequestScheme(req, trustProxy);
+      if (expectedScheme === undefined) expectedScheme = requestSocketScheme(req);
+      if (expectedScheme === undefined) expectedScheme = fallbackScheme;
       const allowsAnyHost = serverOptions.allowedHosts === true;
       if (allowsAnyHost) {
         return (
@@ -141,11 +159,10 @@ export function attachViteGenerationFunctions(input: {
           !isForeignFetchSite(req, host, undefined, expectedScheme)
         );
       }
-      const extraHosts = Array.isArray(serverOptions.allowedHosts) ? serverOptions.allowedHosts : [];
       const ports = req.socket.localPort === undefined ? [] : [req.socket.localPort];
       return (
-        isAllowedOriginOnPorts(origin, host, extraHosts, ports, expectedScheme) &&
-        !isForeignFetchSite(req, host, ports, expectedScheme)
+        isAllowedOriginOnPorts(origin, host, mergedAllowedHosts, ports, expectedScheme) &&
+        !isForeignFetchSite(req, host, ports, expectedScheme, mergedAllowedHosts)
       );
     },
     watcher: server.watcher,

@@ -55,6 +55,8 @@ import { loadRowModulePackage } from './vite-live-package.js';
 import { pyricFsDeny } from './vite-state-deny.js';
 import { attachViteRealPathDeny } from './vite-real-path-deny.js';
 import { attachViteProxyCheck } from './vite-proxy-check.js';
+import type { RemoteAccessOptions } from './guard-policy.js';
+import { resolveRemoteAccessConfig, type RemoteAccessSetting } from './remote-access-config.js';
 
 /** Vite 6's `configEnvironment` hook, which the Vite 5 `Plugin` type does not declare. */
 export interface EnvironmentHooks {
@@ -202,6 +204,11 @@ export interface PyricOptions {
    *  route, MCP, and `WS /__pyric/sandbox` (workspace, project, and AI proxy
    *  routes always require one). Default: `false` (or `pyric.json#sessionToken`). */
   sessionToken?: boolean;
+  /** Opt in to remote workstation / reverse-proxy access across `/__pyric/*`.
+   *  Passing `true` inherits Vite's array `server.allowedHosts` (never `true`),
+   *  with `allowPeers: 'loopback'`, `trustProxy: 'loopback'`, and `browserUnlock: true`.
+   *  Every non-loopback request requires the per-boot session token (`/__pyric/unlock`). */
+  remoteAccess?: RemoteAccessSetting;
 }
 
 function resolveFunctionsOptions(
@@ -293,6 +300,9 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
   let hostedProjectKey: string | undefined;
   let hostedInstanceId: string | undefined;
   let activeSessionToken: string | undefined;
+  let activeRemoteAccess: { allowedHosts: string[]; remoteAccess?: RemoteAccessOptions } = {
+    allowedHosts: [],
+  };
   let owners: OwnersConfig | undefined = resolveOwnersConfig(undefined, options.owners);
 
   function clearProcessStop(): void {
@@ -410,7 +420,11 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
         const middlewareStack = (server.middlewares as { stack?: unknown[] }).stack;
         const stackBeforePyricPre = Array.isArray(middlewareStack) ? middlewareStack.length : 0;
         attachViteRealPathDeny(server, projectDir);
-        attachViteHtmlSessionBootstrap(server, () => activeSessionToken);
+        attachViteHtmlSessionBootstrap(
+          server,
+          () => activeSessionToken,
+          () => activeRemoteAccess,
+        );
         attachViteSdkRequestGate(server, {
           allowedUrls: moduleSwap.allowedUrls,
           aiMode: () => pageRuntime.ai().mode,
@@ -428,6 +442,14 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
         const slot = ownsProjectState ? projectGenerationSlot(projectDir, stateScope) : instanceSlot;
         await slot.take()?.close();
         const pyricConfig = await readPyricConfig(projectDir);
+        const resolvedRemoteAccess = resolveRemoteAccessConfig({
+          option: options.remoteAccess,
+          configAllowedHosts: pyricConfig.allowedHosts,
+          configRemoteAccess: pyricConfig.remoteAccess,
+          viteAllowedHosts: server.config.server.allowedHosts,
+          env: process.env,
+        });
+        activeRemoteAccess = resolvedRemoteAccess;
         owners = resolveOwnersConfig(pyricConfig.owners, options.owners);
         const requireSessionToken =
           supplied !== undefined ||
@@ -459,6 +481,8 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
           flow: options.flow,
           project: options.project,
           requireSessionToken,
+          allowedHosts: resolvedRemoteAccess.allowedHosts,
+          remoteAccess: resolvedRemoteAccess.remoteAccess,
           liveHost: supplied !== undefined,
           livePassThrough,
           liveObserved: moduleSwap.observed,
