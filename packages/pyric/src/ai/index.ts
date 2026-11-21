@@ -182,6 +182,18 @@ export type {
   OnDeviceParams,
 } from './types-hybrid.js';
 
+export type {
+  RetrievedContextAttribution,
+  StartTemplateChatParams,
+  TemplateChatSession,
+  TemplateFunctionDeclaration,
+  TemplateFunctionDeclarationsTool,
+  TemplateGenerativeModel,
+  TemplateTool,
+  TemplateToolConfig,
+  WebAttribution,
+} from './types-template.js';
+
 export {
   InferenceMode,
   InferenceSource,
