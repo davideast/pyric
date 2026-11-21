@@ -1,0 +1,99 @@
+{
+  "name": "rtdb-swift-navigation-push-priorities-and-snapshots",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Upstream FirebaseDatabase (firebase-ios-sdk) default, URL, and named Database instances, DatabaseReference root/parent/key/url/reference(fromURL:) navigation, monotonic 20-char childByAutoId() keys, DataSnapshot value/priority/valueInExportFormat()/NSNull runtime shapes, setPriority, setValue(_:andPriority:), setValue(nil) deletion, and queryOrdered(byChild:) 1-arg/2-arg queryEqual, inclusive/exclusive ranges, and limits via headless macOS SwiftPM CLI.",
+  "observedAt": "2026-11-21T21:12:35.583Z",
+  "iosSdkVersion": "13.2.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "arrayValueKind": "Array",
+    "booleanValueKind": "Bool",
+    "cleanupRemovedRunNode": true,
+    "deepChildSnapshotInnerValue": 7,
+    "defaultInstanceIdentical": true,
+    "defaultPriorityOrderedValues": [
+      "first-with-priority",
+      "second-by-set-priority",
+      "third-string-priority"
+    ],
+    "defaultRootMatchesDatabaseUrl": true,
+    "dictionaryValueKind": "Dictionary",
+    "existedBeforeSetNil": true,
+    "existsAfterSetNil": false,
+    "explicitPriorityOrderedValues": [
+      "first-with-priority",
+      "second-by-set-priority",
+      "third-string-priority"
+    ],
+    "exportFormatHasValueAndPriority": true,
+    "floatingValueKind": "NSNumber",
+    "fromUrlMatchesKeyAndUrl": true,
+    "hasChildDeepNestedInner": true,
+    "hasChildMissing": false,
+    "hasChildNested": true,
+    "hasChildrenTrue": true,
+    "integralValueEquals42": true,
+    "integralValueKind": "NSNumber",
+    "missingSnapshotChildrenCount": 0,
+    "missingSnapshotExists": false,
+    "missingSnapshotHasChildren": false,
+    "missingSnapshotPriorityKind": "NSNull",
+    "missingSnapshotValueKind": "NSNull",
+    "namedAppMatches": true,
+    "namedDatabaseIdentical": true,
+    "nestedDescriptionSuffixMatches": true,
+    "nestedGrandParentKey": "nav",
+    "nestedKey": "leaf_node",
+    "nestedParentKey": "section",
+    "nestedRootKeyIsNil": true,
+    "nestedRootUrlMatchesRoot": true,
+    "nestedUrlSuffixMatches": true,
+    "orderByChildEqualToGold": [
+      "p1",
+      "p3"
+    ],
+    "orderByChildEqualToGoldWithKeyP3": [
+      "p3"
+    ],
+    "orderByChildScoreExclusiveRangeAfter10Before40": [
+      "p2",
+      "p3"
+    ],
+    "orderByChildScoreInclusiveRange20To30": [
+      "p2",
+      "p3"
+    ],
+    "orderByChildScoreLimitToFirst2": [
+      "p1",
+      "p2"
+    ],
+    "orderByChildScoreLimitToLast2": [
+      "p3",
+      "p4"
+    ],
+    "priorityKindAfterSetNil": "NSNull",
+    "pushKeyLength": 20,
+    "pushKeysLexicographicallyMonotonic": true,
+    "pushOrderedValues": [
+      "first",
+      "second",
+      "third"
+    ],
+    "rootKeyIsNil": true,
+    "rootParentIsNil": true,
+    "rootSelfUrlMatches": true,
+    "rootUrlMatchesDatabaseUrl": true,
+    "serverTimestampPlausibleEpochMs": true,
+    "serverTimestampValueKind": "NSNumber",
+    "setPriorityNumericKind": "NSNumber",
+    "setPriorityNumericValue": 20,
+    "setPriorityPreservedValue": "second-by-set-priority",
+    "setValueWithNumericPriority": 5,
+    "setValueWithStringPriority": "zeta",
+    "setValueWithStringPriorityKind": "String",
+    "stringValueKind": "String",
+    "urlInstanceIdentical": true,
+    "valueKindAfterSetNil": "NSNull"
+  }
+}

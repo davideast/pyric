@@ -1,0 +1,75 @@
+{
+  "name": "firestore-swift-queries-cursors-filters-and-aggregations",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Upstream FirebaseFirestore (firebase-ios-sdk) single-field equality/range/in/arrayContains predicates, Filter.orFilter, order(by:descending:), limit(to:) / limit(toLast:), value and DocumentSnapshot cursors, addSnapshotListener diffs + remove(), and server-side count/sum/average aggregations on iOS Simulator.",
+  "observedAt": "2026-11-21T21:11:30.854Z",
+  "iosSdkVersion": "13.2.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "afterDocIds": [
+      "d3",
+      "d4"
+    ],
+    "aggAverage": 25,
+    "aggCount": 4,
+    "aggSum": 100,
+    "arrayContainsIds": [
+      "d3",
+      "d4"
+    ],
+    "ascLimitIds": [
+      "d1",
+      "d2"
+    ],
+    "cursorWindowIds": [
+      "d2",
+      "d3"
+    ],
+    "descLimitIds": [
+      "d4",
+      "d3"
+    ],
+    "eqIds": [
+      "d2",
+      "d3"
+    ],
+    "gtIds": [
+      "d2",
+      "d3",
+      "d4"
+    ],
+    "inIds": [
+      "d1",
+      "d4"
+    ],
+    "initialAddedIds": [
+      "d1",
+      "d2",
+      "d3",
+      "d4"
+    ],
+    "initialListenerIds": [
+      "d1",
+      "d2",
+      "d3",
+      "d4"
+    ],
+    "limitToLastIds": [
+      "d3",
+      "d4"
+    ],
+    "lteIds": [
+      "d1",
+      "d2"
+    ],
+    "noEventsAfterRemove": true,
+    "orFilterIds": [
+      "d1",
+      "d4"
+    ],
+    "secondEventModifiedIds": [
+      "d2"
+    ]
+  }
+}

@@ -1,0 +1,63 @@
+{
+  "name": "firestore-swift-instance-snapshots-inSync-and-codable",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Upstream FirebaseFirestore (firebase-ios-sdk) default and named Firestore.firestore() instances, FirestoreSettings, document and collection reference navigation, loadBundle and getQuery(named:), addSnapshotsInSyncListener, SnapshotListenOptions document and query listeners plus AsyncSequence snapshots, FieldValue.vector, updateData NOT_FOUND rejection, and @DocumentID / @ServerTimestamp Codable setData(from:) and data(as:) round-trips on iOS Simulator.",
+  "observedAt": "2026-11-21T21:07:01.375Z",
+  "iosSdkVersion": "13.2.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "appliedMemoryCacheSettings": true,
+    "asyncDocSnapshotId": "doc_alpha",
+    "asyncQuerySnapshotIds": [
+      "doc_alpha",
+      "doc_beta"
+    ],
+    "codableDecodedDocumentId": "codable_doc",
+    "codableDecodedHasTimestamp": true,
+    "codableDecodedLabel": "codable-v1",
+    "codableDecodedPoints": 42,
+    "codableMergedActive": false,
+    "codableMergedLabel": "codable-v2",
+    "codableMergedPoints": 99,
+    "codableOmittedDocumentIdField": true,
+    "codableServerTimestampResolved": true,
+    "dataWithEstimateHasStamped": true,
+    "defaultFirestoreAppIsDefault": true,
+    "defaultFirestoreIdentical": true,
+    "defaultSettingsHost": "firestore.googleapis.com",
+    "docListenerObservedLabels": [
+      "alpha-v2",
+      "alpha-v3"
+    ],
+    "docParentCollectionId": "wave5_items",
+    "docPathSuffixMatches": true,
+    "emptyBundleSucceeded": true,
+    "emptyQueryCount": 0,
+    "emptyQueryIsEmpty": true,
+    "emulatorHostApplied": true,
+    "generatedDocIdLength": 20,
+    "getByFieldPathTag": "core",
+    "getByStringLabel": "alpha-v1",
+    "inSyncFired": true,
+    "malformedBundleRejected": true,
+    "missingNamedQueryIsNil": true,
+    "namedFirestoreAppMatches": true,
+    "namedFirestoreIdentical": true,
+    "nonEmptyQueryCount": 2,
+    "nonEmptyQueryIsEmpty": false,
+    "optionsListenerObservedMetadata": true,
+    "queryOptionsObservedChanges": true,
+    "silentAfterListenerRemove": true,
+    "snapshotRefMatchesPath": true,
+    "subColParentMatchesDoc": true,
+    "subscriptLabel": "alpha-v1",
+    "topColParentMatchesRunDoc": true,
+    "updateMissingMatchesNotFound": true,
+    "vectorRoundTrip": [
+      1,
+      2.5,
+      3.75
+    ]
+  }
+}
