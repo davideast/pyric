@@ -1,5 +1,5 @@
 /**
- * Slice 3 — IndexedDB persistence layer.
+ * Slice 3 -- IndexedDB persistence layer.
  *
  * Covers what every higher slice depends on: CRUD round-trips, blob
  * + metadata atomicity, prefix listing semantics, reset, and
@@ -8,29 +8,29 @@
  * `fake-indexeddb/auto` installs `globalThis.indexedDB` +
  * `globalThis.IDBKeyRange` once at module load. Each test scopes
  * itself to a unique database name so state doesn't leak between
- * cases — there's no per-test factory reset.
+ * cases -- there's no per-test factory reset.
  */
 import 'fake-indexeddb/auto';
 import { describe, it, expect } from 'bun:test';
 import {
-  InMemoryStorageBackend,
-  ScopedStorageBackend,
   openStorageBackend,
   type StorageBackend,
   type StoredMetadata,
 } from '../../src/storage/persistence.js';
+import { InMemoryStorageBackend } from '../../src/storage/sandbox/memory-backend.js';
+import { ScopedStorageBackend } from '../../src/storage/sandbox/scoped-backend.js';
 
 /**
  * Generate a unique database name per test invocation so cases don't
  * step on each other's state. fake-indexeddb persists named databases
- * across opens within the same process — same semantics as the real
+ * across opens within the same process -- same semantics as the real
  * browser API.
  */
 function uniqueDbName(label: string): string {
   return `pyric-storage-test-${label}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-/** Minimal `StoredMetadata` with sensible defaults — tests override fields they care about. */
+/** Minimal `StoredMetadata` with sensible defaults -- tests override fields they care about. */
 function makeMetadata(overrides: Partial<StoredMetadata> = {}): StoredMetadata {
   const base: StoredMetadata = {
     fullPath: 'sessions/s1.json',
@@ -203,7 +203,7 @@ describe('IndexedDB persistence', () => {
 
   it('put writes blob + metadata atomically (transactional consistency check)', async () => {
     // We can't easily force a half-applied write through the public
-    // API — the transaction either commits or rolls back at the IDB
+    // API -- the transaction either commits or rolls back at the IDB
     // layer. What we *can* verify is that after a successful `put`,
     // BOTH the blob store and the metadata store reflect the write
     // and neither lags behind. Any non-atomic implementation (two

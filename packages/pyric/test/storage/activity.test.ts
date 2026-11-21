@@ -110,7 +110,8 @@ test('each completion observer and late successful observer has a render signal 
     expect(signals).toContain('progress'); // window for the awaited result
     signals.length = 0;
     task.on('state_changed', { next: completion, complete: completion });
-    expect(callbackSignals).toEqual(['progress', 'progress', 'progress', 'progress']);
+    await Promise.resolve();
+    expect(callbackSignals).toEqual(['progress', 'progress', 'progress']);
     expect(results).toBe(1);
   } finally { stop(); sandbox.dispose(); }
 });

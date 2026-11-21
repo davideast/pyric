@@ -271,4 +271,70 @@ service firebase.storage {
     const surviving = new Uint8Array(await getBytes(ref2));
     expect([...surviving]).toEqual([1, 1, 1]);
   });
+
+  it('suppresses terminal success on next and fires complete only for late observers (#1963)', async () => {
+    const storage = freshStorage('resumable-no-success-next');
+    const fileRef = ref(storage, 'data/trace.bin');
+    const task = uploadBytesResumable(fileRef, new Uint8Array([1, 2, 3, 4]));
+
+    const events: string[] = [];
+    task.on(
+      'state_changed',
+      (snap) => {
+        events.push(`next:${snap.state}`);
+      },
+      (err) => {
+        events.push(`error:${err.code}`);
+      },
+      () => {
+        events.push('complete');
+      },
+    );
+
+    const done = await task;
+    expect(done.state).toBe('success');
+    expect(events).toEqual(['next:running', 'next:running', 'complete']);
+
+    const lateEvents: string[] = [];
+    let lateSyncFired = false;
+    let registeringLate = true;
+    task.on('state_changed', {
+      next: (snap) => {
+        if (registeringLate) lateSyncFired = true;
+        lateEvents.push(`next:${snap.state}`);
+      },
+      complete: () => {
+        if (registeringLate) lateSyncFired = true;
+        lateEvents.push('complete');
+      },
+    });
+    registeringLate = false;
+    expect(lateSyncFired).toBe(false);
+    expect(lateEvents).toEqual([]);
+
+    await Promise.resolve();
+    expect(lateEvents).toEqual(['complete']);
+  });
+
+  it('defers observer delivery to a microtask so const unsub = task.on(() => unsub()) fires once (#1964)', async () => {
+    const storage = freshStorage('resumable-deferred-self-unsub');
+    const fileRef = ref(storage, 'data/self-unsub.bin');
+    const task = uploadBytesResumable(fileRef, new Uint8Array([1, 2, 3, 4]));
+
+    let calls = 0;
+    let syncInsideOn = false;
+    let registering = true;
+    const unsub = task.on('state_changed', () => {
+      if (registering) syncInsideOn = true;
+      calls += 1;
+      unsub();
+    });
+    registering = false;
+
+    expect(syncInsideOn).toBe(false);
+    expect(calls).toBe(0);
+
+    await task;
+    expect(calls).toBe(1);
+  });
 });

@@ -12,12 +12,13 @@ import { afterEach, describe, it, expect, spyOn } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import { getClock } from 'pyric/sandbox/internal';
 import {
-  InMemoryStorageBackend,
   openStorageBackend,
-  ScopedStorageBackend,
   type StorageBackend,
   type StoredMetadata,
 } from '../../src/storage/persistence.js';
+import { IndexedDbStorageBackend } from '../../src/storage/sandbox/indexeddb-backend.js';
+import { InMemoryStorageBackend } from '../../src/storage/sandbox/memory-backend.js';
+import { ScopedStorageBackend } from '../../src/storage/sandbox/scoped-backend.js';
 import { getStorageSandbox, ref, uploadBytes, type FirebaseStorage } from '../../src/storage/index.js';
 import { resetStorageState, restoreStorageState, snapshotStorageState } from '../../src/storage/internal.js';
 
@@ -103,7 +104,7 @@ describe('a version-1 IndexedDB store', () => {
     const stored = String(FIXED_AT * 1000 + 7);
     await versionOneStore(dbName, stored);
     const backend = await openStorageBackend(dbName, BUCKET);
-    expect(backend).toBeInstanceOf((await import('../../src/storage/persistence.js')).IndexedDbStorageBackend);
+    expect(backend).toBeInstanceOf(IndexedDbStorageBackend);
     expect(await (await backend.getBlob(PATH, BUCKET))?.text()).toBe('old');
     backend.close();
     expect(await write(frozenStorage(dbName), 'new')).toBe(BigInt(stored) + 1n);

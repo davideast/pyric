@@ -13,11 +13,11 @@ import { createSandboxRoot } from '../../src/sandbox/internal/index.js';
 import { getAdminStorageSandbox, getStorageService, installStorageBackend } from '../../src/storage/service.js';
 import {
   DEFAULT_BUCKET,
-  InMemoryStorageBackend,
   openStorageBackend,
   type StorageBackend,
   type StoredMetadata,
 } from '../../src/storage/persistence.js';
+import { InMemoryStorageBackend } from '../../src/storage/sandbox/memory-backend.js';
 import { restoreStorageState, snapshotStorageState } from '../../src/storage/sandbox/persistence-state.js';
 import { ref, uploadBytes } from '../../src/storage/index.js';
 

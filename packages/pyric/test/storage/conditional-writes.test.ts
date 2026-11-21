@@ -12,12 +12,12 @@ import { describe, it, expect } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import { getClock } from 'pyric/sandbox/internal';
 import {
-  InMemoryStorageBackend,
   openStorageBackend,
-  ScopedStorageBackend,
   type StorageBackend,
   type StoredMetadata,
 } from '../../src/storage/persistence.js';
+import { InMemoryStorageBackend } from '../../src/storage/sandbox/memory-backend.js';
+import { ScopedStorageBackend } from '../../src/storage/sandbox/scoped-backend.js';
 import { getBytes, getStorageSandbox, ref, type FirebaseStorage } from '../../src/storage/index.js';
 import { getStorageService, uploadObjectReplacing } from '../../src/storage/internal.js';
 

@@ -26,7 +26,7 @@
 import { createMd5Hasher, md5 } from '@pyric/rules/internal/storage';
 import { emitSandboxEvent, getClock, makeServiceMutationEvent } from 'pyric/sandbox/internal';
 import type { EventProvenance } from 'pyric/sandbox';
-import { arrayBufferToBase64 } from './base64.js';
+import { arrayBufferToBase64, base64ToBytes } from './base64.js';
 import { operationStorageOf } from './sandbox/cross-bucket-target.js';
 import { getStorageService, storageAuth, storageOperationProvenance, targetOf } from './service.js';
 import { enforceRules } from './enforce.js';
@@ -365,10 +365,10 @@ export function decodeString(
     return { bytes: new TextEncoder().encode(value), inferredType: undefined };
   }
   if (format === 'base64') {
-    return { bytes: base64ToBytes(value), inferredType: undefined };
+    return { bytes: base64ToBytes(value, 'base64'), inferredType: undefined };
   }
   if (format === 'base64url') {
-    return { bytes: base64UrlToBytes(value), inferredType: undefined };
+    return { bytes: base64ToBytes(value, 'base64url'), inferredType: undefined };
   }
   if (format !== 'data_url') {
     throw new StorageError(
@@ -396,7 +396,7 @@ export function decodeString(
     mime = 'application/octet-stream';
   }
   if (isB64) {
-    return { bytes: base64ToBytes(payload), inferredType: mime };
+    return { bytes: base64ToBytes(payload, 'base64'), inferredType: mime };
   }
   // Upstream `percentEncodedBytes_` maps decode failures to
   // storage/invalid-format (string.test.ts: `data:,%%0`).
@@ -407,26 +407,6 @@ export function decodeString(
     throw invalidFormat('data_url', 'Malformed data URL.');
   }
   return { bytes: new TextEncoder().encode(decoded), inferredType: mime };
-}
-
-function base64UrlToBytes(b64url: string): Uint8Array {
-  const standard = b64url.replace(/-/g, '+').replace(/_/g, '/');
-  const remainder = standard.length % 4;
-  let padded = standard;
-  if (remainder === 2) {
-    padded = `${standard}==`;
-  } else if (remainder === 3) {
-    padded = `${standard}=`;
-  }
-  return base64ToBytes(padded);
-}
-
-function base64ToBytes(b64: string): Uint8Array {
-  // `atob` is universally available in both browsers and Bun.
-  const binary = atob(b64);
-  const out = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
-  return out;
 }
 
 export function defaultRawContentType(_format: StringFormat): string {
