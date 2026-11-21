@@ -120,12 +120,13 @@ internal object AiResponseDecoder {
         val inlineMap = map["inlineData"] as? Map<*, *>
         if (inlineMap != null) {
             val mimeType = inlineMap["mimeType"] as? String ?: "application/octet-stream"
-            val b64 = inlineMap["data"] as? String ?: ""
-            val bytes = try {
-                Base64.getDecoder().decode(b64)
-            } catch (e: IllegalArgumentException) {
-                throw SerializationException("Malformed Base64 payload in inlineData part.", e)
+            val rawData = inlineMap["data"]
+            if (rawData != null && rawData !is String) {
+                throw SerializationException(
+                    "Expected Base64 string in inlineData.data, got: ${rawData.javaClass.simpleName}"
+                )
             }
+            val bytes = decodeBase64Payload(rawData as? String ?: "")
             val displayName = inlineMap["displayName"] as? String
             return InlineDataPart.createWithThinking(
                 bytes,
@@ -240,6 +241,33 @@ internal object AiResponseDecoder {
             val modality = ContentModality.fromWire(m["modality"] as? String)
             val count = (m["tokenCount"] as? Number)?.toInt() ?: 0
             ModalityTokenCount(modality, count)
+        }
+    }
+
+    private fun decodeBase64Payload(raw: String): ByteArray {
+        val stripped = StringBuilder(raw.length)
+        for (ch in raw) {
+            if (ch == ' ' || ch == '\n' || ch == '\r' || ch == '\t') continue
+            when (ch) {
+                '-' -> stripped.append('+')
+                '_' -> stripped.append('/')
+                else -> stripped.append(ch)
+            }
+        }
+        if (stripped.isEmpty()) return ByteArray(0)
+        val remainder = stripped.length % 4
+        if (remainder == 1) {
+            throw SerializationException("Malformed Base64 payload in inlineData part.")
+        }
+        if (remainder == 2) {
+            stripped.append("==")
+        } else if (remainder == 3) {
+            stripped.append('=')
+        }
+        return try {
+            Base64.getDecoder().decode(stripped.toString())
+        } catch (e: IllegalArgumentException) {
+            throw SerializationException("Malformed Base64 payload in inlineData part.", e)
         }
     }
 }

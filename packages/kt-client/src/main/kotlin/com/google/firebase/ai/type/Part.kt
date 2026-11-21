@@ -40,23 +40,28 @@ class TextPart internal constructor(
 
 /** Represents binary data with an associated IANA MIME type sent inline with a request or response. */
 class InlineDataPart internal constructor(
-    val inlineData: ByteArray,
+    inlineData: ByteArray,
     val mimeType: String,
     val displayName: String?,
     override val isThought: Boolean,
     val thoughtSignature: String?
 ) : Part {
 
+    private val rawInlineData: ByteArray = inlineData.copyOf()
+
+    val inlineData: ByteArray
+        get() = rawInlineData.copyOf()
+
     constructor(inlineData: ByteArray, mimeType: String) :
-        this(inlineData.copyOf(), mimeType, null, false, null)
+        this(inlineData, mimeType, null, false, null)
 
     constructor(inlineData: ByteArray, mimeType: String, displayName: String) :
-        this(inlineData.copyOf(), mimeType, displayName, false, null)
+        this(inlineData, mimeType, displayName, false, null)
 
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is InlineDataPart) return false
-        return inlineData.contentEquals(other.inlineData) &&
+        return rawInlineData.contentEquals(other.rawInlineData) &&
             mimeType == other.mimeType &&
             displayName == other.displayName &&
             isThought == other.isThought &&
@@ -64,7 +69,7 @@ class InlineDataPart internal constructor(
     }
 
     override fun hashCode(): Int {
-        var result = inlineData.contentHashCode()
+        var result = rawInlineData.contentHashCode()
         result = 31 * result + mimeType.hashCode()
         result = 31 * result + (displayName?.hashCode() ?: 0)
         result = 31 * result + isThought.hashCode()
@@ -73,7 +78,7 @@ class InlineDataPart internal constructor(
     }
 
     override fun toString(): String =
-        "InlineDataPart(mimeType=$mimeType, size=${inlineData.size}, isThought=$isThought)"
+        "InlineDataPart(mimeType=$mimeType, size=${rawInlineData.size}, isThought=$isThought)"
 
     companion object {
         @JvmStatic
@@ -84,7 +89,7 @@ class InlineDataPart internal constructor(
             isThought: Boolean,
             thoughtSignature: String?
         ): InlineDataPart = InlineDataPart(
-            inlineData.copyOf(),
+            inlineData,
             mimeType,
             displayName,
             isThought,
