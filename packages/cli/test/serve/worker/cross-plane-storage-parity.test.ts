@@ -379,7 +379,7 @@ describe('Cross-plane Storage SDK and Admin Storage parity', () => {
     }
   });
 
-  it('normalizes leading, doubled, and trailing slashes across pyric-admin SandboxFile and byte-routed RemoteFile', async () => {
+  it('preserves literal leading, doubled, and trailing slashes across pyric-admin SandboxFile and byte-routed RemoteFile', async () => {
     async function collectStream(stream: NodeJS.ReadableStream): Promise<Buffer> {
       const chunks: Buffer[] = [];
       for await (const chunk of stream) chunks.push(Buffer.from(chunk as Uint8Array));
@@ -399,13 +399,13 @@ describe('Cross-plane Storage SDK and Admin Storage parity', () => {
     const bucket = getAdminStorage(adminApp).bucket();
 
     const unnormalized = bucket.file('/files//user-1/doc.txt/');
-    await unnormalized.save('normalized-payload');
+    await unnormalized.save('literal-payload');
 
     expect(await unnormalized.exists()).toEqual([true]);
     const [downloaded] = await unnormalized.download();
-    expect(downloaded.toString('utf8')).toBe('normalized-payload');
-    expect((await collectStream(unnormalized.createReadStream())).toString('utf8')).toBe('normalized-payload');
-    expect(await bucket.file('files/user-1/doc.txt').exists()).toEqual([true]);
+    expect(downloaded.toString('utf8')).toBe('literal-payload');
+    expect((await collectStream(unnormalized.createReadStream())).toString('utf8')).toBe('literal-payload');
+    expect(await bucket.file('files/user-1/doc.txt').exists()).toEqual([false]);
 
     // 2. Byte-routed RemoteFile (ctx.byteRoute = true so frame reads/writes are refused)
     const remoteSandbox = initializeSandbox();
@@ -551,6 +551,7 @@ describe('Cross-plane Storage SDK and Admin Storage parity', () => {
 
       const remoteStreamed = await collectStream(remoteUnnormalized.createReadStream());
       expect(remoteStreamed.toString('utf8')).toBe('remote-byte-route-payload');
+      expect(await remoteBucket.file('files/user-1/doc.txt').exists()).toEqual([false]);
     } finally {
       remoteHandle?.close();
       if (server !== undefined) {
