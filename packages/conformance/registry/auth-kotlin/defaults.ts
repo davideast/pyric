@@ -12,6 +12,10 @@ const LIVE_HOST_RUNNER =
   'packages/cli/test/serve/native-kotlin-conformance.test.ts';
 const ORACLE_REPLAY_SUITE =
   'packages/conformance/test/src/auth-kotlin-oracle-replay.test.ts';
+const WAVE4_ORACLE_REPLAY_SUITE =
+  'packages/conformance/test/src/auth-kotlin-wave4-oracle-replay.test.ts';
+const WAVE4_OBSERVATION_STEM =
+  'auth-kotlin-instance-linking-reauth-and-oauth-credentials';
 const UNOBSERVED_REASON =
   'Behavior stated from com.google.firebase.auth specification; unit test has not passed yet.';
 
@@ -51,7 +55,17 @@ export function bindKotlinAuthRow(
         if (seed.evidence !== undefined) {
           oracleEvidence = seed.evidence;
         }
+        const hasWave4 = observations.includes(WAVE4_OBSERVATION_STEM);
+        const hasWave2 = observations.some((obs) => obs !== WAVE4_OBSERVATION_STEM);
+        const replaySuites: string[] = [];
+        if (hasWave2) {
+          replaySuites.push(ORACLE_REPLAY_SUITE);
+        }
+        if (hasWave4) {
+          replaySuites.push(WAVE4_ORACLE_REPLAY_SUITE);
+        }
         const obsTokens = observations.map((obs) => `\`${obs}.json\``).join(', ');
+        const replayTokens = replaySuites.map((suite) => `\`${suite}\``).join(', ');
         return {
           api: seed.api,
           behavior: seed.behavior,
@@ -59,9 +73,9 @@ export function bindKotlinAuthRow(
           status: 'conforms',
           automation: 'oracle-backed',
           oracleObservations: [...observations],
-          evidence: `${oracleEvidence} Production capture: ${obsTokens} replayed in \`${ORACLE_REPLAY_SUITE}\`; unit suite: \`${CONFORMANCE_SUITE}\` assertion set \`auth-kotlin#${rowRef}\`; live host: \`${LIVE_HOST_SUITE}\` via \`${LIVE_HOST_RUNNER}\`.`,
+          evidence: `${oracleEvidence} Production capture: ${obsTokens} replayed in ${replayTokens}; unit suite: \`${CONFORMANCE_SUITE}\` assertion set \`auth-kotlin#${rowRef}\`; live host: \`${LIVE_HOST_SUITE}\` via \`${LIVE_HOST_RUNNER}\`.`,
           conformanceTests: [
-            ORACLE_REPLAY_SUITE,
+            ...replaySuites,
             CONFORMANCE_SUITE,
             LIVE_HOST_SUITE,
             LIVE_HOST_RUNNER,

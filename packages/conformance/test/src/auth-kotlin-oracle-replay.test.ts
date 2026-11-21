@@ -135,9 +135,13 @@ const KT_LIVE_HOST_AUTH_TEST_PATH = join(
   'AuthLiveHostConformanceTest.kt',
 );
 
+const WAVE4_AUTH_KOTLIN_OBSERVATION =
+  'auth-kotlin-instance-linking-reauth-and-oauth-credentials.json';
+
 const gate = createObservationGate({
   dir: AUTH_KOTLIN_OBSERVATIONS_DIR,
-  match: (filename) => filename.startsWith('auth-kotlin-'),
+  match: (filename) =>
+    filename.startsWith('auth-kotlin-') && filename !== WAVE4_AUTH_KOTLIN_OBSERVATION,
 });
 
 describe('auth-kotlin Android SDK production observation replay over hosted worker bridge', () => {

@@ -10,5 +10,6 @@ export default row({
     'auth-kotlin-email-password-lifecycle',
     'auth-kotlin-profile-reload-and-listeners',
     'auth-kotlin-error-codes-and-exceptions',
+    'auth-kotlin-instance-linking-reauth-and-oauth-credentials',
   ],
 });

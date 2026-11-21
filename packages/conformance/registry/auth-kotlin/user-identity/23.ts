@@ -9,5 +9,6 @@ export default row({
   oracleObservations: [
     'auth-kotlin-anonymous-and-custom-token-session',
     'auth-kotlin-email-password-lifecycle',
+    'auth-kotlin-instance-linking-reauth-and-oauth-credentials',
   ],
 });

@@ -5,5 +5,8 @@ export default row({
   api: 'FirebaseUser.phoneNumber',
   behavior: 'Returns the phone number string associated with the user profile, or null if unset.',
   featureKeys: ['phoneNumber'],
-  flipped: 'live-host',
+  flipped: 'oracle-backed',
+  oracleObservations: [
+    'auth-kotlin-instance-linking-reauth-and-oauth-credentials',
+  ],
 });
