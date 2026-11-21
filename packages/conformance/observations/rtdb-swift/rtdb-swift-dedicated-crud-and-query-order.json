@@ -1,0 +1,26 @@
+{
+  "name": "rtdb-swift-dedicated-crud-and-query-order",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Upstream FirebaseDatabase (firebase-ios-sdk) dedicated-instance setValue, updateChildValues with ServerValue.increment, queryOrdered(byChild:) + queryLimited(toFirst:) ordering, and removeValue via headless macOS SwiftPM CLI.",
+  "observedAt": "2026-11-21T17:21:39.856Z",
+  "iosSdkVersion": "13.2.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "betaExists": true,
+    "betaIncrementedScore": 10,
+    "betaKey": "beta",
+    "betaLabel": "Beta",
+    "orderedKeys": [
+      "beta",
+      "gamma"
+    ],
+    "orderedLimitedCount": 2,
+    "orderedScores": [
+      10,
+      12
+    ],
+    "removedExistsAfterCleanup": false,
+    "sdkVersionPresent": true
+  }
+}
