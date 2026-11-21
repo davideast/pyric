@@ -5,5 +5,6 @@ export default row({
   api: 'FirebaseAuth.currentUser',
   behavior: 'Returns the currently signed-in FirebaseUser, or null if unauthenticated.',
   featureKeys: ['currentUser'],
-  flipped: 'live-host',
+  flipped: 'oracle-backed',
+  oracleObservations: ['auth-kotlin-anonymous-and-custom-token-session'],
 });

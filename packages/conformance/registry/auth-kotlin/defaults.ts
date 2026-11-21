@@ -10,6 +10,8 @@ const LIVE_HOST_SUITE =
   'packages/kt-client/src/test/kotlin/dev/pyric/e2e/AuthLiveHostConformanceTest.kt';
 const LIVE_HOST_RUNNER =
   'packages/cli/test/serve/native-kotlin-conformance.test.ts';
+const ORACLE_REPLAY_SUITE =
+  'packages/conformance/test/src/auth-kotlin-oracle-replay.test.ts';
 const UNOBSERVED_REASON =
   'Behavior stated from com.google.firebase.auth specification; unit test has not passed yet.';
 
@@ -19,7 +21,8 @@ export interface KotlinAuthRowSeed {
   behavior: string;
   featureKeys: string[];
   evidence?: string;
-  flipped?: 'unit-backed' | 'live-host';
+  flipped?: 'unit-backed' | 'live-host' | 'oracle-backed';
+  oracleObservations?: string[];
   rowRef?: never;
   id?: never;
 }
@@ -37,6 +40,35 @@ export function bindKotlinAuthRow(
     }
 
     return section.rowFromRef(seed.order, (rowRef) => {
+      if (seed.flipped === 'oracle-backed') {
+        const observations = seed.oracleObservations;
+        if (!observations || observations.length === 0) {
+          throw new Error(
+            `auth-kotlin#${rowRef}: flipped: 'oracle-backed' requires non-empty oracleObservations`,
+          );
+        }
+        let oracleEvidence = 'com.google.firebase.auth Android SDK production capture.';
+        if (seed.evidence !== undefined) {
+          oracleEvidence = seed.evidence;
+        }
+        const obsTokens = observations.map((obs) => `\`${obs}.json\``).join(', ');
+        return {
+          api: seed.api,
+          behavior: seed.behavior,
+          featureKeys: seed.featureKeys,
+          status: 'conforms',
+          automation: 'oracle-backed',
+          oracleObservations: [...observations],
+          evidence: `${oracleEvidence} Production capture: ${obsTokens} replayed in \`${ORACLE_REPLAY_SUITE}\`; unit suite: \`${CONFORMANCE_SUITE}\` assertion set \`auth-kotlin#${rowRef}\`; live host: \`${LIVE_HOST_SUITE}\` via \`${LIVE_HOST_RUNNER}\`.`,
+          conformanceTests: [
+            ORACLE_REPLAY_SUITE,
+            CONFORMANCE_SUITE,
+            LIVE_HOST_SUITE,
+            LIVE_HOST_RUNNER,
+          ],
+          hostConformanceTests: [LIVE_HOST_RUNNER],
+        };
+      }
       if (seed.flipped === 'live-host') {
         let liveEvidence = 'com.google.firebase.auth specification.';
         if (seed.evidence !== undefined) {

@@ -1,3 +1,5 @@
+import org.gradle.api.tasks.testing.logging.TestExceptionFormat
+import org.gradle.api.tasks.testing.logging.TestLogEvent
 import java.io.File
 
 plugins {
@@ -33,6 +35,20 @@ android {
                         languageVersion.set(JavaLanguageVersion.of(21))
                     }
                 )
+                testTask.testLogging {
+                    events(
+                        TestLogEvent.PASSED,
+                        TestLogEvent.SKIPPED,
+                        TestLogEvent.FAILED,
+                        TestLogEvent.STANDARD_OUT,
+                        TestLogEvent.STANDARD_ERROR
+                    )
+                    exceptionFormat = TestExceptionFormat.FULL
+                    showExceptions = true
+                    showCauses = true
+                    showStackTraces = true
+                    showStandardStreams = true
+                }
                 val configPath = System.getProperty("pyric.android.oracle.configPath")
                 if (!configPath.isNullOrBlank()) {
                     testTask.systemProperty("pyric.android.oracle.configPath", configPath)

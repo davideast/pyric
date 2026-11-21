@@ -11,22 +11,61 @@ import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ServerValue
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assume
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.io.File
+import javax.net.ssl.SSLContext
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [35])
+@Config(
+    sdk = [35],
+    shadows = [
+        RobolectricSslCertificateSocketFactoryShadow::class,
+        RobolectricSslSessionCacheShadow::class
+    ]
+)
 class AndroidOracleProbeRunnerTest {
+
+    @Before
+    fun installRobolectricTls() {
+        RobolectricTlsSupport.install()
+    }
 
     @Test
     fun localRobolectricSdkSmokeTest() {
+        assertTrue(
+            Rfc2818HostnameVerifier.matchesDnsPattern(
+                "demo-pyric-oracle.firebaseio.com",
+                "*.firebaseio.com"
+            )
+        )
+        assertFalse(
+            Rfc2818HostnameVerifier.matchesDnsPattern(
+                "nested.sub.firebaseio.com",
+                "*.firebaseio.com"
+            )
+        )
+        assertFalse(
+            Rfc2818HostnameVerifier.matchesDnsPattern(
+                "evil.example.org",
+                "*.firebaseio.com"
+            )
+        )
+        assertFalse(
+            Rfc2818HostnameVerifier.matchesDnsPattern(
+                "firebaseio.com",
+                "*.com"
+            )
+        )
+
         val context = ApplicationProvider.getApplicationContext<Context>()
         val appName = "pyric-robolectric-smoke-${System.nanoTime()}"
         val options = FirebaseOptions.Builder()
@@ -66,8 +105,38 @@ class AndroidOracleProbeRunnerTest {
             assertTrue(ServerValue.TIMESTAMP.isNotEmpty())
             assertNotNull(ServerValue.increment(5L))
         } finally {
-            database?.goOffline()
-            app.delete()
+            shutdownFirebaseDatabaseAndApp(database, app)
+        }
+
+        verifyLoopbackWssFirebaseDatabaseRoundTrip(context)
+    }
+
+    private fun verifyLoopbackWssFirebaseDatabaseRoundTrip(context: Context) {
+        val originalDefaultSsl = SSLContext.getDefault()
+        LoopbackRtdbWssTestServer.open().use { wssServer ->
+            SSLContext.setDefault(wssServer.clientSslContext)
+            val wssUrl = "https://localhost:${wssServer.port}?ns=demo-robolectric-oracle"
+            val wssAppName = "pyric-robolectric-wss-${System.nanoTime()}"
+            val wssOptions = FirebaseOptions.Builder()
+                .setProjectId("demo-robolectric-oracle")
+                .setApplicationId("1:123456789000:android:abcdef012345")
+                .setApiKey("AIzaSyDemoRobolectricSmokeKey00000000000")
+                .setDatabaseUrl(wssUrl)
+                .build()
+            val wssApp = FirebaseApp.initializeApp(context, wssOptions, wssAppName)
+            var wssDb: FirebaseDatabase? = null
+            try {
+                val db = FirebaseDatabase.getInstance(wssApp, wssUrl)
+                wssDb = db
+                db.goOnline()
+                val probeRef = db.getReference("pyric_oracle/wss_smoke/greeting")
+                awaitFirebaseTask(probeRef.setValue("hello-over-wss"), "wss.smoke.setValue", 10_000L)
+                val snap = awaitFirebaseTask(probeRef.get(), "wss.smoke.get", 10_000L)
+                assertEquals("hello-over-wss", snap.getValue(String::class.java))
+            } finally {
+                shutdownFirebaseDatabaseAndApp(wssDb, wssApp)
+                SSLContext.setDefault(originalDefaultSsl)
+            }
         }
     }
 
@@ -87,6 +156,12 @@ class AndroidOracleProbeRunnerTest {
         val behavior: JSONObject = when (probeId) {
             "auth-kotlin-anonymous-and-custom-token-session" ->
                 runAuthAnonymousAndCustomTokenProbe(configJson)
+            "auth-kotlin-email-password-lifecycle" ->
+                runAuthEmailPasswordLifecycleProbe(configJson)
+            "auth-kotlin-profile-reload-and-listeners" ->
+                runAuthProfileReloadAndListenersProbe(configJson)
+            "auth-kotlin-error-codes-and-exceptions" ->
+                runAuthErrorCodesAndExceptionsProbe(configJson)
             "rtdb-kotlin-dedicated-crud-and-query-order" ->
                 runRtdbDedicatedCrudAndQueryProbe(configJson)
             else -> throw IllegalArgumentException("Unknown Android oracle probeId: $probeId")

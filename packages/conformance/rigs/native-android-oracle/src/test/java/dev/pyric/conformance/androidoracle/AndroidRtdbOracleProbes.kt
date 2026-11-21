@@ -6,11 +6,13 @@ import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.database.Logger
 import com.google.firebase.database.ServerValue
 import org.json.JSONArray
 import org.json.JSONObject
 
 internal fun runRtdbDedicatedCrudAndQueryProbe(config: JSONObject): JSONObject {
+    RobolectricTlsSupport.install()
     val context = ApplicationProvider.getApplicationContext<Context>()
     val runId = config.getString("runId")
     val databaseUrl = config.getString("databaseUrl")
@@ -26,26 +28,34 @@ internal fun runRtdbDedicatedCrudAndQueryProbe(config: JSONObject): JSONObject {
     var db: FirebaseDatabase? = null
     try {
         val auth = FirebaseAuth.getInstance(app)
-        awaitFirebaseTask(auth.signInWithCustomToken(config.getString("customToken")))
+        awaitFirebaseTask(
+            auth.signInWithCustomToken(config.getString("customToken")),
+            "rtdb.auth.signInWithCustomToken"
+        )
 
         val database = FirebaseDatabase.getInstance(app, databaseUrl)
         db = database
+        runCatching { database.setLogLevel(Logger.Level.DEBUG) }
         database.goOnline()
 
         val baseRef = database.getReference("pyric_oracle/$runId/rtdb_kotlin")
         try {
             val itemRef = baseRef.child("counter_doc")
-            awaitFirebaseTask(itemRef.setValue(mapOf("label" to "alpha", "count" to 10L)))
+            awaitFirebaseTask(
+                itemRef.setValue(mapOf("label" to "alpha", "count" to 10L)),
+                "rtdb.itemRef.setValue"
+            )
             awaitFirebaseTask(
                 itemRef.updateChildren(
                     mapOf(
                         "count" to ServerValue.increment(5L),
                         "extra" to "kept"
                     )
-                )
+                ),
+                "rtdb.itemRef.updateChildren"
             )
 
-            val snap = awaitFirebaseTask(itemRef.get())
+            val snap = awaitFirebaseTask(itemRef.get(), "rtdb.itemRef.getAfterUpdate")
             val countVal = snap.child("count").value
 
             val catalogRef = baseRef.child("catalog")
@@ -56,19 +66,21 @@ internal fun runRtdbDedicatedCrudAndQueryProbe(config: JSONObject): JSONObject {
                         "a" to mapOf("score" to 10L),
                         "b" to mapOf("score" to 20L)
                     )
-                )
+                ),
+                "rtdb.catalogRef.setValue"
             )
 
             val topTwoSnap = awaitFirebaseTask(
-                catalogRef.orderByChild("score").limitToFirst(2).get()
+                catalogRef.orderByChild("score").limitToFirst(2).get(),
+                "rtdb.catalogRef.orderByChildScoreLimitToFirst2"
             )
             val orderedKeys = JSONArray()
             for (child in topTwoSnap.children) {
                 orderedKeys.put(child.key)
             }
 
-            awaitFirebaseTask(itemRef.removeValue())
-            val afterRemoveSnap = awaitFirebaseTask(itemRef.get())
+            awaitFirebaseTask(itemRef.removeValue(), "rtdb.itemRef.removeValue")
+            val afterRemoveSnap = awaitFirebaseTask(itemRef.get(), "rtdb.itemRef.getAfterRemove")
 
             return JSONObject()
                 .put("existsAfterWrite", snap.exists())
@@ -80,11 +92,12 @@ internal fun runRtdbDedicatedCrudAndQueryProbe(config: JSONObject): JSONObject {
                 .put("orderedLimitToFirstKeys", orderedKeys)
                 .put("existsAfterRemove", afterRemoveSnap.exists())
         } finally {
-            runCatching { awaitFirebaseTask(baseRef.removeValue(), 10_000L) }
+            runCatching {
+                awaitFirebaseTask(baseRef.removeValue(), "rtdb.cleanup.removeValue", 10_000L)
+            }
             auth.signOut()
         }
     } finally {
-        db?.goOffline()
-        app.delete()
+        shutdownFirebaseDatabaseAndApp(db, app)
     }
 }
