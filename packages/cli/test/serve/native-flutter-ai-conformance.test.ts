@@ -38,87 +38,57 @@ const FLUTTER_ANDROID_APP_ID = '1:424242424242:android:flutterailive';
 const SCRIPTED_AI_ENGINE: AiEngineConfigWire = {
   kind: 'scripted',
   script: [
-    {
-      match: 'FLUTTER_AI_JSON_RECIPE',
-      respond: { json: { dish: 'Matcha Pancakes', servings: 2 } },
-    },
+    { match: 'FLUTTER_AI_JSON_RECIPE', respond: { json: { dish: 'Matcha Pancakes', servings: 2 } } },
     {
       match: 'FLUTTER_AI_THOUGHT_AND_TOOL',
       respond: {
         modelVersion: 'gemini-2.5-flash',
         responseId: 'resp-live-tool-1',
-        candidates: [
-          {
-            index: 0,
-            finishReason: 'STOP',
-            content: {
-              role: 'model',
-              parts: [
-                {
-                  text: 'Need current weather for Kyoto.',
-                  thought: true,
-                  thoughtSignature: 'sig-live-thought-1',
-                },
-                {
-                  functionCall: {
-                    name: 'getCurrentWeather',
-                    args: { city: 'Kyoto', unit: 'celsius' },
-                    id: 'call-kyoto-1',
-                  },
-                  thoughtSignature: 'sig-live-fn-1',
-                },
-              ],
-            },
+        candidates: [{
+          index: 0,
+          finishReason: 'STOP',
+          content: {
+            role: 'model',
+            parts: [
+              { text: 'Need current weather for Kyoto.', thought: true, thoughtSignature: 'sig-live-thought-1' },
+              {
+                functionCall: { name: 'getCurrentWeather', args: { city: 'Kyoto', unit: 'celsius' }, id: 'call-kyoto-1' },
+                thoughtSignature: 'sig-live-fn-1',
+              },
+            ],
           },
-        ],
-        usageMetadata: {
-          promptTokenCount: 12,
-          candidatesTokenCount: 9,
-          thoughtsTokenCount: 6,
-          totalTokenCount: 27,
-        },
+        }],
+        usageMetadata: { promptTokenCount: 12, candidatesTokenCount: 9, thoughtsTokenCount: 6, totalTokenCount: 27 },
       },
     },
     {
       match: 'FLUTTER_AI_SAFETY_BLOCK',
       respond: {
-        candidates: [
-          {
-            index: 0,
-            finishReason: 'SAFETY',
-            finishMessage: 'Candidate blocked by safety filter.',
-            safetyRatings: [
-              {
-                category: 'HARM_CATEGORY_DANGEROUS_CONTENT',
-                probability: 'HIGH',
-                blocked: true,
-              },
-            ],
-          },
-        ],
+        candidates: [{
+          index: 0,
+          finishReason: 'SAFETY',
+          finishMessage: 'Candidate blocked by safety filter.',
+          safetyRatings: [{ category: 'HARM_CATEGORY_DANGEROUS_CONTENT', probability: 'HIGH', blocked: true }],
+        }],
       },
     },
     {
       match: 'FLUTTER_AI_RECITATION_BLOCK',
       respond: {
-        candidates: [
-          {
-            index: 0,
-            finishReason: 'RECITATION',
-            finishMessage: 'Candidate blocked due to recitation.',
-          },
-        ],
+        candidates: [{ index: 0, finishReason: 'RECITATION', finishMessage: 'Candidate blocked due to recitation.' }],
       },
     },
     {
       match: 'FLUTTER_AI_QUOTA_ERR',
-      respond: {
-        error: {
-          code: 429,
-          message: 'Quota exhausted for model gemini-2.5-flash.',
-          status: 'RESOURCE_EXHAUSTED',
-        },
-      },
+      respond: { error: { code: 429, message: 'Quota exhausted for model gemini-2.5-flash.', status: 'RESOURCE_EXHAUSTED' } },
+    },
+    { match: 'FLUTTER_AI_STREAM_CHUNKS', respond: { chunks: ['Stream ', 'chunk ', 'complete!'] } },
+    { match: 'FLUTTER_AI_STREAM_CANCEL', respond: { chunks: ['Alpha ', 'Beta ', 'Gamma'] } },
+    { match: 'FLUTTER_AI_CHAT_TOOL_START', respond: { functionCall: { name: 'lookupStock', args: { ticker: 'GOOG' } } } },
+    { match: 'FLUTTER_AI_CHAT_STREAM_TURN', respond: { chunks: ['GOOG trades ', 'at 198.25 USD.'] } },
+    {
+      match: 'FLUTTER_AI_CHAT_SAFETY_TURN',
+      respond: { candidates: [{ index: 0, finishReason: 'SAFETY', finishMessage: 'Chat turn blocked.' }] },
     },
   ],
 };
@@ -148,7 +118,23 @@ function makeInMemoryHostedPersistence() {
 
 interface ObservedFlutterAiTraffic {
   aiOpMethods: string[];
+  aiSubCount: number;
+  aiUnsubCount: number;
   attachedAppCheckTokens: Array<{ method: string; token: string | null }>;
+}
+
+function recordAiAppCheckClaim(
+  traffic: ObservedFlutterAiTraffic,
+  method: string,
+  rawClaim: unknown,
+): void {
+  if (rawClaim === null || typeof rawClaim !== 'object') return;
+  const claimRecord = rawClaim as { token?: unknown };
+  if (typeof claimRecord.token === 'string') {
+    traffic.attachedAppCheckTokens.push({ method, token: claimRecord.token });
+  } else if (claimRecord.token === null) {
+    traffic.attachedAppCheckTokens.push({ method, token: null });
+  }
 }
 
 async function startLiveFlutterAiHost() {
@@ -163,6 +149,8 @@ async function startLiveFlutterAiHost() {
   let baseOrigin = 'http://127.0.0.1:0';
   const traffic: ObservedFlutterAiTraffic = {
     aiOpMethods: [],
+    aiSubCount: 0,
+    aiUnsubCount: 0,
     attachedAppCheckTokens: [],
   };
 
@@ -198,16 +186,17 @@ async function startLiveFlutterAiHost() {
         const method = opRecord.method;
         if (typeof method === 'string' && method.startsWith('ai.')) {
           traffic.aiOpMethods.push(method);
-          const rawClaim = opRecord.appCheck;
-          if (rawClaim !== null && typeof rawClaim === 'object') {
-            const claimRecord = rawClaim as { token?: unknown };
-            if (typeof claimRecord.token === 'string') {
-              traffic.attachedAppCheckTokens.push({ method, token: claimRecord.token });
-            } else if (claimRecord.token === null) {
-              traffic.attachedAppCheckTokens.push({ method, token: null });
-            }
-          }
+          recordAiAppCheckClaim(traffic, method, opRecord.appCheck);
         }
+      } else if (inbound.type === 'worker-sub') {
+        const subRecord = inbound.sub as Record<string, unknown>;
+        const target = subRecord.target as { service?: unknown } | undefined;
+        if (target !== undefined && target !== null && target.service === 'ai') {
+          traffic.aiSubCount += 1;
+          recordAiAppCheckClaim(traffic, 'ai.streamGenerateContent', subRecord.appCheck);
+        }
+      } else if (inbound.type === 'worker-unsub') {
+        traffic.aiUnsubCount += 1;
       }
       hostedRuntime.receive(inbound);
     },
@@ -514,10 +503,12 @@ describe('native Flutter AI Logic live-host conformance', () => {
         const summary = summarizeFlutterMachineOutput(stdout);
         expect(summary.failed, combined).toBe(0);
         expect(summary.skipped, combined).toBe(0);
-        expect(summary.passed, combined).toBeGreaterThanOrEqual(4);
+        expect(summary.passed, combined).toBeGreaterThanOrEqual(6);
 
         expect(host.traffic.aiOpMethods).toContain('ai.generateContent');
         expect(host.traffic.aiOpMethods).toContain('ai.countTokens');
+        expect(host.traffic.aiSubCount).toBeGreaterThanOrEqual(3);
+        expect(host.traffic.aiUnsubCount).toBeGreaterThanOrEqual(2);
 
         const nullClaims = host.traffic.attachedAppCheckTokens.filter(
           (entry) => entry.token === null,

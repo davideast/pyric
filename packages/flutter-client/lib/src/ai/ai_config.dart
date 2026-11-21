@@ -1,4 +1,8 @@
 import 'ai_exception.dart';
+import 'ai_schema.dart';
+
+export 'ai_schema.dart';
+export 'ai_tool.dart';
 
 /// Harm categories evaluated by Gemini safety filters.
 enum HarmCategory {
@@ -161,36 +165,6 @@ enum ResponseModality {
 
   final String wireValue;
   const ResponseModality(this.wireValue);
-}
-
-/// Structured JSON schema contract serialized onto `responseSchema` or tool parameters.
-class Schema {
-  final Map<String, dynamic> _wireJson;
-
-  Schema.fromJsonMap(Map<String, dynamic> json)
-      : _wireJson = Map<String, dynamic>.unmodifiable(json);
-
-  Map<String, dynamic> toJson() => Map<String, dynamic>.from(_wireJson);
-}
-
-/// Tool declaration container passed to `GenerativeModel` or `generateContent`.
-class Tool {
-  final Map<String, dynamic> _wireJson;
-
-  Tool.fromJsonMap(Map<String, dynamic> json)
-      : _wireJson = Map<String, dynamic>.unmodifiable(json);
-
-  Map<String, dynamic> toJson() => Map<String, dynamic>.from(_wireJson);
-}
-
-/// Tool invocation policy configuration (`toolConfig` on the Gemini wire).
-class ToolConfig {
-  final Map<String, dynamic> _wireJson;
-
-  ToolConfig.fromJsonMap(Map<String, dynamic> json)
-      : _wireJson = Map<String, dynamic>.unmodifiable(json);
-
-  Map<String, dynamic> toJson() => Map<String, dynamic>.from(_wireJson);
 }
 
 /// Controls sampling, output formatting, structured schema, and thinking behavior.

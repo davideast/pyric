@@ -1,207 +1,14 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:firebase_core/firebase_core.dart' show Firebase, FirebaseApp;
+import 'package:firebase_core/firebase_core.dart' show Firebase;
 import 'package:firebase_core_platform_interface/firebase_core_platform_interface.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pyric_firestore/pyric_ai.dart';
 import 'package:pyric_firestore/pyric_app_check.dart';
 
-class _LiveAiFirebasePlatform extends FirebasePlatform {
-  final Map<String, FirebaseAppPlatform> _apps = <String, FirebaseAppPlatform>{};
-
-  @override
-  List<FirebaseAppPlatform> get apps => _apps.values.toList();
-
-  @override
-  Future<FirebaseAppPlatform> initializeApp({
-    String? name,
-    FirebaseOptions? options,
-  }) async {
-    final appName = name ?? defaultFirebaseAppName;
-    final resolvedOptions = options ??
-        const FirebaseOptions(
-          apiKey: 'demo-flutter-live-api-key',
-          appId: '1:424242424242:android:flutterailive',
-          messagingSenderId: '424242424242',
-          projectId: 'demo-flutter-live',
-        );
-    final app = FirebaseAppPlatform(appName, resolvedOptions);
-    _apps[appName] = app;
-    return app;
-  }
-
-  @override
-  FirebaseAppPlatform app([String name = defaultFirebaseAppName]) {
-    final existing = _apps[name];
-    if (existing != null) {
-      return existing;
-    }
-    final created = FirebaseAppPlatform(
-      name,
-      const FirebaseOptions(
-        apiKey: 'demo-flutter-live-api-key',
-        appId: '1:424242424242:android:flutterailive',
-        messagingSenderId: '424242424242',
-        projectId: 'demo-flutter-live',
-      ),
-    );
-    _apps[name] = created;
-    return created;
-  }
-}
-
-class _ForgedAppCheckPlatform extends FirebaseAppCheckPlatform {
-  final String? tokenValue;
-
-  _ForgedAppCheckPlatform(this.tokenValue);
-
-  @override
-  Future<String?> getToken(bool forceRefresh) async => tokenValue;
-
-  @override
-  Future<String> getLimitedUseToken() async => tokenValue ?? '';
-}
-
-Uri? _resolveLiveBridgeUri() {
-  final liveRaw = Platform.environment['PYRIC_LIVE_BRIDGE_URL']?.trim() ?? '';
-  if (liveRaw.isNotEmpty) {
-    return Uri.parse(liveRaw);
-  }
-  final fallbackRaw = Platform.environment['PYRIC_BRIDGE_URL']?.trim() ?? '';
-  if (fallbackRaw.isNotEmpty) {
-    return Uri.parse(fallbackRaw);
-  }
-  return null;
-}
-
-String _resolveLiveProjectId() {
-  final raw = Platform.environment['PYRIC_LIVE_PROJECT_ID']?.trim() ?? '';
-  if (raw.isNotEmpty) {
-    return raw;
-  }
-  return 'demo-flutter-live';
-}
-
-Map<String, dynamic> _scriptedAiEngineWire() {
-  return <String, dynamic>{
-    'kind': 'scripted',
-    'script': <Map<String, dynamic>>[
-      <String, dynamic>{
-        'match': 'FLUTTER_AI_JSON_RECIPE',
-        'respond': <String, dynamic>{
-          'json': <String, dynamic>{
-            'dish': 'Matcha Pancakes',
-            'servings': 2,
-          },
-        },
-      },
-      <String, dynamic>{
-        'match': 'FLUTTER_AI_THOUGHT_AND_TOOL',
-        'respond': <String, dynamic>{
-          'modelVersion': 'gemini-2.5-flash',
-          'responseId': 'resp-live-tool-1',
-          'candidates': <Map<String, dynamic>>[
-            <String, dynamic>{
-              'index': 0,
-              'finishReason': 'STOP',
-              'content': <String, dynamic>{
-                'role': 'model',
-                'parts': <Map<String, dynamic>>[
-                  <String, dynamic>{
-                    'text': 'Need current weather for Kyoto.',
-                    'thought': true,
-                    'thoughtSignature': 'sig-live-thought-1',
-                  },
-                  <String, dynamic>{
-                    'functionCall': <String, dynamic>{
-                      'name': 'getCurrentWeather',
-                      'args': <String, dynamic>{
-                        'city': 'Kyoto',
-                        'unit': 'celsius',
-                      },
-                      'id': 'call-kyoto-1',
-                    },
-                    'thoughtSignature': 'sig-live-fn-1',
-                  },
-                ],
-              },
-            },
-          ],
-          'usageMetadata': <String, dynamic>{
-            'promptTokenCount': 12,
-            'candidatesTokenCount': 9,
-            'thoughtsTokenCount': 6,
-            'totalTokenCount': 27,
-          },
-        },
-      },
-      <String, dynamic>{
-        'match': 'FLUTTER_AI_SAFETY_BLOCK',
-        'respond': <String, dynamic>{
-          'candidates': <Map<String, dynamic>>[
-            <String, dynamic>{
-              'index': 0,
-              'finishReason': 'SAFETY',
-              'finishMessage': 'Candidate blocked by safety filter.',
-              'safetyRatings': <Map<String, dynamic>>[
-                <String, dynamic>{
-                  'category': 'HARM_CATEGORY_DANGEROUS_CONTENT',
-                  'probability': 'HIGH',
-                  'blocked': true,
-                },
-              ],
-            },
-          ],
-        },
-      },
-      <String, dynamic>{
-        'match': 'FLUTTER_AI_RECITATION_BLOCK',
-        'respond': <String, dynamic>{
-          'candidates': <Map<String, dynamic>>[
-            <String, dynamic>{
-              'index': 0,
-              'finishReason': 'RECITATION',
-              'finishMessage': 'Candidate blocked due to recitation.',
-            },
-          ],
-        },
-      },
-      <String, dynamic>{
-        'match': 'FLUTTER_AI_QUOTA_ERR',
-        'respond': <String, dynamic>{
-          'error': <String, dynamic>{
-            'code': 429,
-            'message': 'Quota exhausted for model gemini-2.5-flash.',
-            'status': 'RESOURCE_EXHAUSTED',
-          },
-        },
-      },
-    ],
-  };
-}
-
-Future<({FirebaseApp app, PyricBridgeClient client})> _connectLiveApp(
-  Uri bridgeUri,
-  String suffix,
-) async {
-  final projectId = _resolveLiveProjectId();
-  final liveApp = await Firebase.initializeApp(
-    name: 'flutter-ai-$suffix-${DateTime.now().microsecondsSinceEpoch}',
-    options: FirebaseOptions(
-      apiKey: 'demo-flutter-live-api-key',
-      appId: '1:424242424242:android:flutterailive',
-      messagingSenderId: '424242424242',
-      projectId: projectId,
-    ),
-  );
-  final client = PyricBridgeClient(
-    uri: bridgeUri,
-    headers: <String, dynamic>{'Host': '${bridgeUri.host}:${bridgeUri.port}'},
-  );
-  await client.connect();
-  return (app: liveApp, client: client);
-}
+import '../ai/ai_live_host_fixture.dart';
 
 void main() {
   HttpOverrides? previousHttpOverrides;
@@ -209,7 +16,7 @@ void main() {
   setUp(() async {
     previousHttpOverrides = HttpOverrides.current;
     HttpOverrides.global = null;
-    FirebasePlatform.instance = _LiveAiFirebasePlatform();
+    FirebasePlatform.instance = LiveAiFirebasePlatform();
     await FirebaseAI.clearInstancesForTest();
     await PyricFirebaseAppCheckPlatform.clearInstancesForTest();
   });
@@ -224,7 +31,7 @@ void main() {
     test(
       'executes unary generateContent and structured JSON, ThoughtPart, and FunctionCall decoding',
       () async {
-        final bridgeUri = _resolveLiveBridgeUri();
+        final bridgeUri = resolveLiveAiBridgeUri();
         if (bridgeUri == null) {
           final offlineApp = await Firebase.initializeApp(name: 'offline-ai-1');
           final googleAi = FirebaseAI.googleAI(app: offlineApp);
@@ -235,53 +42,35 @@ void main() {
           return;
         }
 
-        final ctx = await _connectLiveApp(bridgeUri, 'unary');
+        final ctx = await connectLiveAiApp(bridgeUri, 'unary');
         try {
           final model = FirebaseAI.googleAI(
             app: ctx.app,
             bridgeClient: ctx.client,
-            engine: _scriptedAiEngineWire(),
+            engine: scriptedAiEngineWire(),
           ).generativeModel(
             model: 'gemini-2.5-flash',
-            systemInstruction:
-                Content.system('You are a deterministic test assistant.'),
-            generationConfig: GenerationConfig(
-              temperature: 0.2,
-              maxOutputTokens: 256,
-            ),
+            systemInstruction: Content.system('You are a deterministic test assistant.'),
+            generationConfig: GenerationConfig(temperature: 0.2, maxOutputTokens: 256),
             safetySettings: const <SafetySetting>[
-              SafetySetting(
-                HarmCategory.dangerousContent,
-                HarmBlockThreshold.medium,
-              ),
+              SafetySetting(HarmCategory.dangerousContent, HarmBlockThreshold.medium),
             ],
           );
 
           final recipeResponse = await model.generateContent(
             <Content>[Content.text('Return FLUTTER_AI_JSON_RECIPE')],
-            generationConfig: GenerationConfig(
-              responseMimeType: 'application/json',
-            ),
+            generationConfig: GenerationConfig(responseMimeType: 'application/json'),
           );
-          expect(recipeResponse.text, isNotNull);
-          final decodedRecipe =
-              jsonDecode(recipeResponse.text!) as Map<String, dynamic>;
+          final decodedRecipe = jsonDecode(recipeResponse.text!) as Map<String, dynamic>;
           expect(decodedRecipe['dish'], equals('Matcha Pancakes'));
           expect(decodedRecipe['servings'], equals(2));
-          expect(
-            recipeResponse.usageMetadata?.totalTokenCount,
-            greaterThan(0),
-          );
+          expect(recipeResponse.usageMetadata?.totalTokenCount, greaterThan(0));
 
           final toolResponse = await model.generateContent(
             <Content>[Content.text('Invoke FLUTTER_AI_THOUGHT_AND_TOOL')],
           );
           expect(toolResponse.text, isNull);
-          expect(
-            toolResponse.thoughtSummary,
-            equals('Need current weather for Kyoto.'),
-          );
-          expect(toolResponse.functionCalls, hasLength(1));
+          expect(toolResponse.thoughtSummary, equals('Need current weather for Kyoto.'));
           final fnCall = toolResponse.functionCalls.single;
           expect(fnCall.name, equals('getCurrentWeather'));
           expect(fnCall.args['city'], equals('Kyoto'));
@@ -296,7 +85,7 @@ void main() {
     test(
       'handles SAFETY and RECITATION blocked candidates and maps 429/400 wire errors to FirebaseAIException',
       () async {
-        final bridgeUri = _resolveLiveBridgeUri();
+        final bridgeUri = resolveLiveAiBridgeUri();
         if (bridgeUri == null) {
           final mapped = mapBridgeErrorToFirebaseAIException(
             const PyricBridgeException(
@@ -308,22 +97,19 @@ void main() {
           return;
         }
 
-        final ctx = await _connectLiveApp(bridgeUri, 'blocks');
+        final ctx = await connectLiveAiApp(bridgeUri, 'blocks');
         try {
           final model = FirebaseAI.googleAI(
             app: ctx.app,
             bridgeClient: ctx.client,
-            engine: _scriptedAiEngineWire(),
+            engine: scriptedAiEngineWire(),
           ).generativeModel(model: 'gemini-2.5-flash');
 
           final safetyBlocked = await model.generateContent(
             <Content>[Content.text('Trigger FLUTTER_AI_SAFETY_BLOCK')],
           );
           expect(safetyBlocked.text, isNull);
-          expect(
-            safetyBlocked.candidates.single.finishReason,
-            equals(FinishReason.safety),
-          );
+          expect(safetyBlocked.candidates.single.finishReason, equals(FinishReason.safety));
           expect(
             safetyBlocked.candidates.single.safetyRatings?.single.category,
             equals(HarmCategory.dangerousContent),
@@ -339,17 +125,11 @@ void main() {
           );
 
           await expectLater(
-            model.generateContent(
-              <Content>[Content.text('Trigger FLUTTER_AI_QUOTA_ERR')],
-            ),
+            model.generateContent(<Content>[Content.text('Trigger FLUTTER_AI_QUOTA_ERR')]),
             throwsA(
               isA<QuotaExceeded>()
                   .having((err) => err.code, 'code', equals('quota-exceeded'))
-                  .having(
-                    (err) => err.httpStatusCode,
-                    'httpStatusCode',
-                    equals(429),
-                  ),
+                  .having((err) => err.httpStatusCode, 'httpStatusCode', equals(429)),
             ),
           );
 
@@ -358,11 +138,7 @@ void main() {
             throwsA(
               isA<FirebaseAIException>()
                   .having((err) => err.code, 'code', equals('invalid-argument'))
-                  .having(
-                    (err) => err.httpStatusCode,
-                    'httpStatusCode',
-                    equals(400),
-                  ),
+                  .having((err) => err.httpStatusCode, 'httpStatusCode', equals(400)),
             ),
           );
         } finally {
@@ -374,39 +150,32 @@ void main() {
     test(
       'counts prompt tokens deterministically via ai.countTokens across Google AI and Vertex AI models',
       () async {
-        final bridgeUri = _resolveLiveBridgeUri();
+        final bridgeUri = resolveLiveAiBridgeUri();
         if (bridgeUri == null) {
           final vertexModel = FirebaseAI.vertexAI(location: 'europe-west1')
               .generativeModel(model: 'gemini-2.5-flash');
-          expect(
-            vertexModel.model,
-            equals('publishers/google/models/gemini-2.5-flash'),
-          );
+          expect(vertexModel.model, equals('publishers/google/models/gemini-2.5-flash'));
           return;
         }
 
-        final ctx = await _connectLiveApp(bridgeUri, 'tokens');
+        final ctx = await connectLiveAiApp(bridgeUri, 'tokens');
         try {
           final model = FirebaseAI.vertexAI(
             app: ctx.app,
             location: 'us-central1',
             bridgeClient: ctx.client,
-            engine: _scriptedAiEngineWire(),
+            engine: scriptedAiEngineWire(),
           ).generativeModel(
             model: 'gemini-2.5-flash',
             systemInstruction: Content.system('Count system tokens too.'),
           );
 
-          final shortCount = await model.countTokens(
-            <Content>[Content.text('short prompt')],
-          );
-          final longCount = await model.countTokens(
-            <Content>[
-              Content.text(
-                'a substantially longer prompt containing many additional words for deterministic token counting',
-              ),
-            ],
-          );
+          final shortCount = await model.countTokens(<Content>[Content.text('short prompt')]);
+          final longCount = await model.countTokens(<Content>[
+            Content.text(
+              'a substantially longer prompt containing many additional words for deterministic token counting',
+            ),
+          ]);
           expect(shortCount.totalTokens, greaterThan(0));
           expect(longCount.totalTokens, greaterThan(shortCount.totalTokens));
         } finally {
@@ -418,7 +187,7 @@ void main() {
     test(
       'enforces RS256 App Check tokens across missing, forged, standard, and limited-use claims',
       () async {
-        final bridgeUri = _resolveLiveBridgeUri();
+        final bridgeUri = resolveLiveAiBridgeUri();
         if (bridgeUri == null) {
           final offlineAppCheck =
               PyricFirebaseAppCheckPlatform(isTokenAutoRefreshEnabled: false);
@@ -427,7 +196,7 @@ void main() {
           return;
         }
 
-        final ctx = await _connectLiveApp(bridgeUri, 'appcheck');
+        final ctx = await connectLiveAiApp(bridgeUri, 'appcheck');
         PyricFirebaseAppCheckPlatform? unactivatedAppCheck;
         try {
           unactivatedAppCheck = PyricFirebaseAppCheckPlatform(
@@ -439,7 +208,7 @@ void main() {
             app: ctx.app,
             appCheck: unactivatedAppCheck,
             bridgeClient: ctx.client,
-            engine: _scriptedAiEngineWire(),
+            engine: scriptedAiEngineWire(),
           ).generativeModel(model: 'gemini-2.5-flash');
 
           await expectLater(
@@ -449,32 +218,22 @@ void main() {
             throwsA(
               isA<FirebaseAIException>()
                   .having((err) => err.code, 'code', equals('unauthenticated'))
-                  .having(
-                    (err) => err.httpStatusCode,
-                    'httpStatusCode',
-                    equals(401),
-                  ),
+                  .having((err) => err.httpStatusCode, 'httpStatusCode', equals(401)),
             ),
           );
 
           final forgedModel = FirebaseAI.googleAI(
             app: ctx.app,
-            appCheck: _ForgedAppCheckPlatform('forged.invalid.jwt'),
+            appCheck: ForgedAppCheckPlatform('forged.invalid.jwt'),
             bridgeClient: ctx.client,
           ).generativeModel(model: 'gemini-2.5-flash');
 
           await expectLater(
-            forgedModel.countTokens(
-              <Content>[Content.text('Forged App Check token request')],
-            ),
+            forgedModel.countTokens(<Content>[Content.text('Forged App Check token request')]),
             throwsA(
               isA<FirebaseAIException>()
                   .having((err) => err.code, 'code', equals('unauthenticated'))
-                  .having(
-                    (err) => err.httpStatusCode,
-                    'httpStatusCode',
-                    equals(401),
-                  ),
+                  .having((err) => err.httpStatusCode, 'httpStatusCode', equals(401)),
             ),
           );
 
@@ -482,12 +241,9 @@ void main() {
             bridgeClient: ctx.client,
             isTokenAutoRefreshEnabled: false,
           );
-          final liveAppCheck =
-              FirebaseAppCheckPlatform.instanceFor(app: ctx.app)
-                  as PyricFirebaseAppCheckPlatform;
-          await liveAppCheck.activate(
-            providerAndroid: const AndroidPlayIntegrityProvider(),
-          );
+          final liveAppCheck = FirebaseAppCheckPlatform.instanceFor(app: ctx.app)
+              as PyricFirebaseAppCheckPlatform;
+          await liveAppCheck.activate(providerAndroid: const AndroidPlayIntegrityProvider());
 
           final verifiedModel = FirebaseAI.vertexAI(
             app: ctx.app,
@@ -497,10 +253,7 @@ void main() {
           final verifiedGen = await verifiedModel.generateContent(
             <Content>[Content.text('Authenticated App Check prompt')],
           );
-          expect(
-            verifiedGen.text,
-            contains('Authenticated App Check prompt'),
-          );
+          expect(verifiedGen.text, contains('Authenticated App Check prompt'));
 
           final verifiedCount = await verifiedModel.countTokens(
             <Content>[Content.text('Authenticated App Check prompt')],
@@ -520,6 +273,166 @@ void main() {
           await unactivatedAppCheck?.dispose();
           await PyricFirebaseAppCheckPlatform.clearInstancesForTest();
           await FirebaseAI.clearInstancesForTest();
+          await ctx.client.disconnect();
+        }
+      },
+    );
+
+    test(
+      'streams generateContentStream chunks in order, supports early cancel worker-unsub, and gates stream App Check',
+      () async {
+        final bridgeUri = resolveLiveAiBridgeUri();
+        if (bridgeUri == null) {
+          final schema = Schema.enumString(enumValues: <String>['fast', 'accurate']);
+          expect(schema.toJson()['format'], equals('enum'));
+          return;
+        }
+
+        final ctx = await connectLiveAiApp(bridgeUri, 'stream');
+        try {
+          final model = FirebaseAI.googleAI(
+            app: ctx.app,
+            bridgeClient: ctx.client,
+            engine: scriptedAiEngineWire(),
+          ).generativeModel(model: 'gemini-2.5-flash');
+
+          final fullChunks = await model
+              .generateContentStream(<Content>[Content.text('Run FLUTTER_AI_STREAM_CHUNKS')])
+              .map((chunk) => chunk.text)
+              .toList();
+          expect(fullChunks, equals(<String?>['Stream ', 'chunk ', 'complete!']));
+
+          final partial = <String?>[];
+          final firstArrived = Completer<void>();
+          late final StreamSubscription<GenerateContentResponse> sub;
+          sub = model
+              .generateContentStream(<Content>[Content.text('Run FLUTTER_AI_STREAM_CANCEL')])
+              .listen((chunk) {
+            partial.add(chunk.text);
+            if (!firstArrived.isCompleted) {
+              firstArrived.complete();
+            }
+          });
+          await firstArrived.future;
+          await sub.cancel();
+          expect(partial, hasLength(1));
+
+          final forgedStreamModel = FirebaseAI.googleAI(
+            app: ctx.app,
+            appCheck: ForgedAppCheckPlatform('forged.invalid.jwt'),
+            bridgeClient: ctx.client,
+          ).generativeModel(model: 'gemini-2.5-flash');
+
+          await expectLater(
+            forgedStreamModel
+                .generateContentStream(<Content>[Content.text('Forged stream request')])
+                .toList(),
+            throwsA(
+              isA<FirebaseAIException>()
+                  .having((err) => err.code, 'code', equals('unauthenticated')),
+            ),
+          );
+        } finally {
+          await ctx.client.disconnect();
+        }
+      },
+    );
+
+    test(
+      'executes Schema structured output and multi-turn ChatSession tool calls, sendMessageStream, and block rollback',
+      () async {
+        final bridgeUri = resolveLiveAiBridgeUri();
+        if (bridgeUri == null) {
+          final decl = FunctionDeclaration(
+            'lookupStock',
+            'Fetch stock quote',
+            parameters: <String, Schema>{'ticker': Schema.string()},
+          );
+          expect(decl.toJson()['name'], equals('lookupStock'));
+          return;
+        }
+
+        final ctx = await connectLiveAiApp(bridgeUri, 'chat-schema');
+        try {
+          final ai = FirebaseAI.googleAI(
+            app: ctx.app,
+            bridgeClient: ctx.client,
+            engine: scriptedAiEngineWire(),
+          );
+
+          final structuredSchema = Schema.object(
+            properties: <String, Schema>{
+              'status': Schema.enumString(enumValues: <String>['ok', 'degraded']),
+              'count': Schema.integer(),
+              'active': Schema.boolean(),
+              'tags': Schema.array(items: Schema.string()),
+            },
+            optionalProperties: <String>['tags'],
+            propertyOrdering: <String>['status', 'count', 'active', 'tags'],
+          );
+          final schemaRes = await ai
+              .generativeModel(
+                model: 'gemini-2.5-flash',
+                generationConfig: GenerationConfig(
+                  responseMimeType: 'application/json',
+                  responseSchema: structuredSchema,
+                ),
+              )
+              .generateContent(<Content>[Content.text('Synthesize schema output')]);
+          final parsedJson = jsonDecode(schemaRes.text!) as Map<String, dynamic>;
+          expect(parsedJson['status'], equals('ok'));
+          expect(parsedJson['count'], equals(1));
+          expect(parsedJson['active'], isTrue);
+
+          final chatModel = ai.generativeModel(
+            model: 'gemini-2.5-flash',
+            tools: <Tool>[
+              Tool.functionDeclarations(<FunctionDeclaration>[
+                FunctionDeclaration(
+                  'lookupStock',
+                  'Look up ticker quote',
+                  parameters: <String, Schema>{
+                    'ticker': Schema.string(description: 'Ticker symbol'),
+                  },
+                ),
+              ]),
+            ],
+            toolConfig: ToolConfig(functionCallingConfig: FunctionCallingConfig.auto()),
+          );
+
+          final chat = chatModel.startChat();
+          final turn1 = await chat.sendMessage(
+            Content.text('Quote FLUTTER_AI_CHAT_TOOL_START'),
+          );
+          final call = turn1.functionCalls.single;
+          expect(call.name, equals('lookupStock'));
+          expect(call.args['ticker'], equals('GOOG'));
+          expect(call.thoughtSignature, isNotNull);
+          expect(chat.history, hasLength(2));
+
+          final turn2 = await chat.sendMessage(
+            Content.functionResponse(
+              call.name,
+              <String, Object?>{'price': 198.25, 'currency': 'USD'},
+              id: call.id,
+            ),
+          );
+          expect(turn2.text, isNotNull);
+          expect(chat.history, hasLength(4));
+
+          final turn3Chunks = await chat
+              .sendMessageStream(Content.text('Summarize FLUTTER_AI_CHAT_STREAM_TURN'))
+              .map((c) => c.text)
+              .toList();
+          expect(turn3Chunks, equals(<String?>['GOOG trades ', 'at 198.25 USD.']));
+          expect(chat.history, hasLength(6));
+
+          final blockedTurn = await chat.sendMessage(
+            Content.text('Check FLUTTER_AI_CHAT_SAFETY_TURN'),
+          );
+          expect(blockedTurn.candidates.single.finishReason, equals(FinishReason.safety));
+          expect(chat.history, hasLength(6));
+        } finally {
           await ctx.client.disconnect();
         }
       },
