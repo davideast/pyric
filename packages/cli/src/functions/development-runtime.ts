@@ -2,6 +2,9 @@ import type { ChildProcess } from 'node:child_process';
 import type { LocalSandbox } from 'pyric/sandbox';
 import type { FunctionsChildEvent, FunctionsChildReady } from './child-protocol.js';
 import { recordFunctionExecution } from './execution-log.js';
+import { sendChildPublishPubSub } from './pubsub/child-runtime.js';
+import type { PubSubPublishResult } from './pubsub/delivery.js';
+import type { PubSubPublishAttributesOrOptions } from './pubsub/event.js';
 import { sendChildTriggerScheduled } from './scheduler/child-runtime.js';
 import {
   retryConfigToRecord,
@@ -47,6 +50,11 @@ export interface FunctionsDevelopmentRuntime {
     exportName: string,
     options?: TriggerScheduledOptions,
   ): Promise<ScheduledTriggerInvocationResult>;
+  publishPubSub?(
+    topic: string,
+    payload?: unknown,
+    attributes?: PubSubPublishAttributesOrOptions,
+  ): Promise<PubSubPublishResult>;
 }
 
 export interface FunctionsDevelopmentRuntimeHandle extends FunctionsDevelopmentRuntime {
@@ -54,6 +62,11 @@ export interface FunctionsDevelopmentRuntimeHandle extends FunctionsDevelopmentR
     exportName: string,
     options?: TriggerScheduledOptions,
   ): Promise<ScheduledTriggerInvocationResult>;
+  publishPubSub(
+    topic: string,
+    payload?: unknown,
+    attributes?: PubSubPublishAttributesOrOptions,
+  ): Promise<PubSubPublishResult>;
 }
 
 export interface FunctionsDevelopmentRuntimeOptions {
@@ -408,6 +421,62 @@ export function createFunctionsDevelopmentRuntime(
           outcome.retryConfig = retryRecord;
         }
         summary.record = recordFunctionExecution(options.sandbox, outcome);
+      }
+      return summary;
+    },
+    async publishPubSub(
+      topic: string,
+      payload?: unknown,
+      attributes?: PubSubPublishAttributesOrOptions,
+    ): Promise<PubSubPublishResult> {
+      if (closed) {
+        throw new Error('Functions runtime is closed');
+      }
+      if (activeChild === null) {
+        throw new Error('Functions runtime has no active child process');
+      }
+      const summary = await sendChildPublishPubSub(
+        activeChild.child,
+        topic,
+        payload,
+        attributes,
+        options.projectId,
+      );
+      if (options.sandbox !== undefined) {
+        for (const delivery of summary.deliveries) {
+          const outcome: {
+            trigger: string;
+            ref: string;
+            params: Record<string, string>;
+            startedAt: number;
+            durationMs: number;
+            status: 'fulfilled' | 'rejected';
+            result?: unknown;
+            error?: string;
+            retryConfig?: Record<string, number>;
+          } = {
+            trigger: delivery.exportName,
+            ref: summary.topicResource,
+            params: {
+              topic: summary.topic,
+              messageId: summary.messageId,
+            },
+            startedAt: delivery.startedAt,
+            durationMs: delivery.durationMs,
+            status: delivery.status,
+          };
+          if (delivery.status === 'fulfilled') {
+            if (delivery.result !== undefined) {
+              outcome.result = delivery.result;
+            }
+          } else {
+            outcome.error = delivery.error?.message ?? 'Unknown error';
+          }
+          if (delivery.retry) {
+            outcome.retryConfig = { retry: 1 };
+          }
+          recordFunctionExecution(options.sandbox, outcome);
+        }
       }
       return summary;
     },
