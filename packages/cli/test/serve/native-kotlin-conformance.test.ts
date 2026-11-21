@@ -216,7 +216,7 @@ async function startLiveKotlinBridgeHost(): Promise<LiveKotlinBridgeHost> {
     { persistence: persistence as never, record: false },
   );
 
-  bridge.registerSandboxPeer(
+  const unregisterPeer = bridge.registerSandboxPeer(
     runtime.receive,
     [...runtime.toolNames],
     runtime.instanceId,
@@ -249,6 +249,7 @@ async function startLiveKotlinBridgeHost(): Promise<LiveKotlinBridgeHost> {
         socket.terminate();
       }
       server.close();
+      unregisterPeer();
       await runtime.close();
     },
   };
@@ -288,6 +289,21 @@ function detectCompatibleJavaMajor(): number | null {
   }
   return major;
 }
+
+const SHARED_BRIDGE_LIVE_HOST_SUITES: readonly string[] = [
+  'dev.pyric.e2e.LiveHostConformanceTest',
+  'dev.pyric.e2e.AuthLiveHostConformanceTest',
+  'dev.pyric.e2e.AuthCredentialsOracleParityLiveHostConformanceTest',
+  'dev.pyric.e2e.RtdbLiveHostConformanceTest',
+  'dev.pyric.e2e.RtdbOracleParityLiveHostConformanceTest',
+  'dev.pyric.e2e.OracleParityLiveHostConformanceTest',
+  'dev.pyric.e2e.FirestoreLiveHostConformanceTest',
+  'dev.pyric.e2e.FirestoreCoreLiveHostConformanceTest',
+  'dev.pyric.e2e.FirestoreLifecycleAndDocsLiveHostConformanceTest',
+  'dev.pyric.e2e.FirestoreQueriesLiveHostConformanceTest',
+  'dev.pyric.e2e.FirestoreSnapshotsLiveHostConformanceTest',
+  'dev.pyric.e2e.FirestoreTransactionsLiveHostConformanceTest',
+];
 
 const requireKotlinLive = process.env.PYRIC_REQUIRE_KOTLIN_LIVE === '1';
 const isGenericCiShard = process.env.CI === 'true' && !requireKotlinLive;
@@ -389,35 +405,34 @@ describe('native Kotlin client live-host conformance', () => {
           nowMs,
         });
         const gradlew = resolve(KT_CLIENT_DIR, 'gradlew');
-        const proc = Bun.spawn(
-          [
-            gradlew,
-            '-p',
-            KT_CLIENT_DIR,
-            ':cleanTest',
-            ':test',
-            '--tests',
-            'dev.pyric.e2e.*LiveHostConformanceTest',
-            '--stacktrace',
-            '--no-daemon',
-          ],
-          {
-            cwd: REPO_ROOT,
-            env: {
-              ...process.env,
-              PYRIC_LIVE_BRIDGE_URL: host.bridgeUrl,
-              PYRIC_LIVE_CUSTOM_TOKEN_VALID: validCustomToken,
-              PYRIC_LIVE_CUSTOM_TOKEN_MISMATCH: mismatchCustomToken,
-            },
-            stdout: 'pipe',
-            stderr: 'pipe',
+        const gradleArgs: string[] = [gradlew, '-p', KT_CLIENT_DIR, ':cleanTest', ':test'];
+        for (const suiteName of SHARED_BRIDGE_LIVE_HOST_SUITES) {
+          gradleArgs.push('--tests', suiteName);
+        }
+        gradleArgs.push('--stacktrace', '--no-daemon');
+        const proc = Bun.spawn(gradleArgs, {
+          cwd: REPO_ROOT,
+          env: {
+            ...process.env,
+            PYRIC_LIVE_BRIDGE_URL: host.bridgeUrl,
+            PYRIC_LIVE_CUSTOM_TOKEN_VALID: validCustomToken,
+            PYRIC_LIVE_CUSTOM_TOKEN_MISMATCH: mismatchCustomToken,
           },
-        );
-        const [stdout, stderr, exitCode] = await Promise.all([
-          new Response(proc.stdout).text(),
-          new Response(proc.stderr).text(),
-          proc.exited,
-        ]);
+          stdout: 'pipe',
+          stderr: 'pipe',
+        });
+        let stdout = '';
+        let stderr = '';
+        let exitCode = 1;
+        try {
+          [stdout, stderr, exitCode] = await Promise.all([
+            new Response(proc.stdout).text(),
+            new Response(proc.stderr).text(),
+            proc.exited,
+          ]);
+        } finally {
+          proc.kill();
+        }
         if (exitCode !== 0) {
           throw new Error(
             `Gradle LiveHostConformanceTest exited ${exitCode}:\n${stdout}\n${stderr}`,
@@ -426,13 +441,19 @@ describe('native Kotlin client live-host conformance', () => {
 
         const resultsDir = resolve(KT_CLIENT_DIR, 'build/test-results/test');
         expect(existsSync(resultsDir)).toBe(true);
-        const reportPattern = /^TEST-dev\.pyric\.e2e\..*LiveHostConformanceTest\.xml$/;
-        const reportFiles = readdirSync(resultsDir).filter((name) => reportPattern.test(name));
-        expect(reportFiles.length).toBeGreaterThanOrEqual(1);
+        const expectedReportFiles = SHARED_BRIDGE_LIVE_HOST_SUITES.map(
+          (suiteName) => `TEST-${suiteName}.xml`,
+        ).sort();
+        const actualReportFiles = readdirSync(resultsDir)
+          .filter((name) => name.startsWith('TEST-') && name.endsWith('.xml'))
+          .sort();
+        expect(actualReportFiles).toEqual(expectedReportFiles);
 
         let totalTests = 0;
-        for (const fileName of reportFiles) {
-          const xml = readFileSync(resolve(resultsDir, fileName), 'utf8');
+        for (const fileName of expectedReportFiles) {
+          const reportPath = resolve(resultsDir, fileName);
+          expect(existsSync(reportPath)).toBe(true);
+          const xml = readFileSync(reportPath, 'utf8');
           const countMatch = /\btests="(\d+)"/.exec(xml);
           expect(countMatch).not.toBeNull();
           if (countMatch !== null) {
@@ -447,7 +468,7 @@ describe('native Kotlin client live-host conformance', () => {
           expect(xml).toContain('failures="0"');
           expect(xml).toContain('errors="0"');
         }
-        expect(totalTests).toBeGreaterThanOrEqual(2);
+        expect(totalTests).toBeGreaterThanOrEqual(SHARED_BRIDGE_LIVE_HOST_SUITES.length);
       } finally {
         await host.close();
       }
