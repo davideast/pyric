@@ -17,6 +17,7 @@
  * whatever its keys (FL-3), and the rules `LatLng` and `Vector` wrappers
  * the store holds rank as geopoint and vector (FL-1, FL-2).
  */
+import { compareUtf8Strings } from './utf8-order.js';
 import { firestoreScalar, type FirestoreScalar } from './value-equality.js';
 
 export const enum TypeRank {
@@ -58,11 +59,14 @@ export function typeOrderRank(v: unknown): TypeRank {
   const scalar = firestoreScalar(v);
   // Plain maps, and anything that is not a Firestore value (symbol,
   // function), rank as maps so they sort last and never throw.
-  return scalar === undefined ? TypeRank.Map : SCALAR_RANK[scalar.kind];
+  if (scalar === undefined) return TypeRank.Map;
+  return SCALAR_RANK[scalar.kind];
 }
 
 function compareOrder<T>(a: T, b: T): number {
-  return a < b ? -1 : a > b ? 1 : 0;
+  if (a < b) return -1;
+  if (a > b) return 1;
+  return 0;
 }
 
 function compareNumbers(a: number, b: number): number {
@@ -77,11 +81,7 @@ function compareNumbers(a: number, b: number): number {
 }
 
 function compareStrings(a: string, b: string): number {
-  // Firestore compares strings by UTF-8 byte order. For the BMP-only
-  // corpus the sandbox exercises, JS's `<`/`>` (UTF-16 code-unit order)
-  // agrees with UTF-8 byte order; surrogate-pair edge cases are an
-  // accepted approximation (documented divergence).
-  return compareOrder(a, b);
+  return compareUtf8Strings(a, b);
 }
 
 function compareSequences<T>(
@@ -91,7 +91,10 @@ function compareSequences<T>(
 ): number {
   const n = Math.min(a.length, b.length);
   for (let i = 0; i < n; i++) {
-    const cmp = compare(a[i]!, b[i]!);
+    const left = a[i];
+    const right = b[i];
+    if (left === undefined || right === undefined) continue;
+    const cmp = compare(left, right);
     if (cmp !== 0) return cmp;
   }
   return compareOrder(a.length, b.length);
@@ -109,7 +112,9 @@ export function compareDocumentPaths(a: string, b: string): number {
 
 function compareScalars(a: FirestoreScalar, b: FirestoreScalar): number {
   if (a.kind === 'timestamp' && b.kind === 'timestamp') {
-    return compareOrder(a.seconds, b.seconds) || compareOrder(a.nanoseconds, b.nanoseconds);
+    const secCmp = compareOrder(a.seconds, b.seconds);
+    if (secCmp !== 0) return secCmp;
+    return compareOrder(a.nanoseconds, b.nanoseconds);
   }
   if (a.kind === 'bytes' && b.kind === 'bytes') {
     return compareSequences(a.values, b.values, compareOrder);
@@ -118,26 +123,32 @@ function compareScalars(a: FirestoreScalar, b: FirestoreScalar): number {
     return compareDocumentPaths(a.path, b.path);
   }
   if (a.kind === 'geo-point' && b.kind === 'geo-point') {
-    return compareNumbers(a.latitude, b.latitude) || compareNumbers(a.longitude, b.longitude);
+    const latCmp = compareNumbers(a.latitude, b.latitude);
+    if (latCmp !== 0) return latCmp;
+    return compareNumbers(a.longitude, b.longitude);
   }
   if (a.kind === 'vector' && b.kind === 'vector') {
     // Upstream `compareVectors`: dimension first, then components.
-    return compareOrder(a.values.length, b.values.length)
-      || compareSequences(a.values, b.values, compareNumbers);
+    const lenCmp = compareOrder(a.values.length, b.values.length);
+    if (lenCmp !== 0) return lenCmp;
+    return compareSequences(a.values, b.values, compareNumbers);
   }
   return 0;
 }
 
 function compareMaps(am: Record<string, unknown>, bm: Record<string, unknown>): number {
-  // Maps compare by sorted key, then value, then length — matching
+  // Maps compare by UTF-8 sorted key, then value, then length -- matching
   // upstream `compareMaps`.
-  const aKeys = Object.keys(am).sort();
-  const bKeys = Object.keys(bm).sort();
+  const aKeys = Object.keys(am).sort(compareStrings);
+  const bKeys = Object.keys(bm).sort(compareStrings);
   const n = Math.min(aKeys.length, bKeys.length);
   for (let i = 0; i < n; i++) {
-    const keyCmp = compareStrings(aKeys[i]!, bKeys[i]!);
+    const aKey = aKeys[i];
+    const bKey = bKeys[i];
+    if (aKey === undefined || bKey === undefined) continue;
+    const keyCmp = compareStrings(aKey, bKey);
     if (keyCmp !== 0) return keyCmp;
-    const cmp = compareValues(am[aKeys[i]!], bm[bKeys[i]!]);
+    const cmp = compareValues(am[aKey], bm[bKey]);
     if (cmp !== 0) return cmp;
   }
   return compareOrder(aKeys.length, bKeys.length);
@@ -150,13 +161,19 @@ function compareMaps(am: Record<string, unknown>, bm: Record<string, unknown>): 
 export function compareValues(a: unknown, b: unknown): number {
   const ra = typeOrderRank(a);
   const rb = typeOrderRank(b);
-  if (ra !== rb) return ra < rb ? -1 : 1;
+  if (ra !== rb) {
+    if (ra < rb) return -1;
+    return 1;
+  }
 
   switch (ra) {
     case TypeRank.Null:
       return 0;
-    case TypeRank.Boolean:
-      return (a === b) ? 0 : (a ? 1 : -1);
+    case TypeRank.Boolean: {
+      if (a === b) return 0;
+      if (a) return 1;
+      return -1;
+    }
     case TypeRank.Number:
       return compareNumbers(Number(a), Number(b));
     case TypeRank.String:
@@ -165,7 +182,11 @@ export function compareValues(a: unknown, b: unknown): number {
       return compareSequences(a as unknown[], b as unknown[], compareValues);
     case TypeRank.Map:
       return compareMaps(a as Record<string, unknown>, b as Record<string, unknown>);
-    default:
-      return compareScalars(firestoreScalar(a)!, firestoreScalar(b)!);
+    default: {
+      const sa = firestoreScalar(a);
+      const sb = firestoreScalar(b);
+      if (sa === undefined || sb === undefined) return 0;
+      return compareScalars(sa, sb);
+    }
   }
 }

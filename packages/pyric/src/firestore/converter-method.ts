@@ -19,6 +19,7 @@ import {
   copyQueryValueRegistration,
   registerReferenceQueryValue,
 } from './sandbox/query-value-registry.js';
+import { buildDocumentReferenceToJson } from './doc-ref-json.js';
 import type {
   CollectionReference,
   DocumentData,
@@ -73,14 +74,14 @@ export function registerDocumentReferenceValue<T = DocumentData>(
   path: string,
   owner: Target,
   converter: FirestoreDataConverter<unknown, DocumentData> | null = null,
-): DocumentReference<T> {
+): DocumentReference<T> & { toJSON(): object } {
   function convert<A, D extends DocumentData = DocumentData>(
     nextConverter: FirestoreDataConverter<A, D>,
-  ): DocumentReference<A>;
-  function convert(nextConverter: null): DocumentReference<DocumentData>;
+  ): DocumentReference<A> & { toJSON(): object };
+  function convert(nextConverter: null): DocumentReference<DocumentData> & { toJSON(): object };
   function convert(
     nextConverter: FirestoreDataConverter<unknown, DocumentData> | null,
-  ): DocumentReference<unknown> {
+  ): DocumentReference<unknown> & { toJSON(): object } {
     if (nextConverter === null) {
       return registerDocumentReferenceValue(ref, path, owner, null);
     }
@@ -93,6 +94,11 @@ export function registerDocumentReferenceValue<T = DocumentData>(
     type: 'document' as const,
     converter,
     withConverter: convert,
+  });
+  Object.defineProperty(reference, 'toJSON', {
+    value: buildDocumentReferenceToJson(path),
+    configurable: true,
+    writable: true,
   });
   Object.defineProperty(reference, 'parent', {
     get() {
@@ -107,7 +113,7 @@ export function registerDocumentReferenceValue<T = DocumentData>(
   registerActivityValue(reference, boundedActivityIdentity('reference', path));
   registerReferenceQueryValue(underlying, path, owner);
   copyQueryValueRegistration(underlying, reference);
-  return reference as unknown as DocumentReference<T>;
+  return reference as unknown as DocumentReference<T> & { toJSON(): object };
 }
 
 /**
@@ -206,6 +212,13 @@ export function decorateUntypedSnapshotRef(
     Object.defineProperty(snapRef, 'withConverter', {
       value: (next: FirestoreDataConverter<unknown, DocumentData> | null) =>
         registerDocumentReferenceValue(backing, path, owner, next),
+      configurable: true,
+      writable: true,
+    });
+  }
+  if (typeof (snapRef as { toJSON?: unknown }).toJSON !== 'function') {
+    Object.defineProperty(snapRef, 'toJSON', {
+      value: buildDocumentReferenceToJson(path),
       configurable: true,
       writable: true,
     });

@@ -38,6 +38,7 @@ import type { ReferenceDecoder } from './internal/value-codec.js';
 import { firestoreValuesEqual } from './sandbox/value-equality.js';
 import { registerReferenceQueryValue } from './sandbox/query-value-registry.js';
 import { clientStateFor } from './client-state.js';
+import { createSnapshotMetadata, type SnapshotMetadataInstance } from './snapshot-metadata.js';
 import {
   captureQueryOperand,
   capturedQueryOperandsEqual,
@@ -47,7 +48,6 @@ import type {
   DocumentSnapshot,
   QueryDocumentSnapshot,
   FirestoreDataConverter,
-  SnapshotMetadata,
 } from './types.js';
 
 interface DocumentSnapshotEqualityState {
@@ -271,14 +271,14 @@ function readSnapshotField(
   }
 }
 
-function mergedSnapshotMetadata(snap: object, target: Target, path: string): SnapshotMetadata {
+function mergedSnapshotMetadata(snap: object, target: Target, path: string): SnapshotMetadataInstance {
   const clientMeta = clientStateFor(target).snapshotMetadata(path);
   const existingMeta = (snap as { metadata?: { fromCache?: boolean; hasPendingWrites?: boolean } }).metadata;
   if (!existingMeta) return clientMeta;
-  return Object.freeze({
-    fromCache: Boolean(existingMeta.fromCache || clientMeta.fromCache),
-    hasPendingWrites: Boolean(existingMeta.hasPendingWrites || clientMeta.hasPendingWrites),
-  });
+  return createSnapshotMetadata(
+    Boolean(existingMeta.fromCache || clientMeta.fromCache),
+    Boolean(existingMeta.hasPendingWrites || clientMeta.hasPendingWrites),
+  );
 }
 
 function normalizeSnapshotDatabaseId(raw: string | undefined): string | undefined {
@@ -294,10 +294,10 @@ function createSnapshotReferenceDecoder(target: Target): ReferenceDecoder {
       const normalizedDbId = normalizeSnapshotDatabaseId(databaseId);
       const currentDbId = normalizeSnapshotDatabaseId(target.databaseId);
       if (normalizedDbId === currentDbId) {
-        return doc({ [TARGET_SYMBOL]: target }, path);
+        return doc({ [TARGET_SYMBOL]: target, type: 'firestore' }, path);
       }
       const rebasedTarget: Target = { ...target, databaseId: normalizedDbId };
-      return doc({ [TARGET_SYMBOL]: rebasedTarget }, path);
+      return doc({ [TARGET_SYMBOL]: rebasedTarget, type: 'firestore' }, path);
     },
   };
 }
@@ -350,18 +350,22 @@ export function applyConverterToDocSnap<AppModel>(
   target: Target,
   kind: 'document' | 'query-child',
 ): DocumentSnapshot<AppModel> & { exists(): boolean } {
-  const rawReference = doc({ [TARGET_SYMBOL]: target }, snap.ref.path);
+  const rawReference = doc({ [TARGET_SYMBOL]: target, type: 'firestore' }, snap.ref.path);
   const reference = rawReference.withConverter(conv);
   const references = createSnapshotReferenceDecoder(target);
-  const readRawField = (fieldPath: SnapshotFieldPath): unknown => {
+  const snapWithOptions = snap as { data: (options?: SnapshotOptions) => DocumentData | undefined };
+  const readRawField = (fieldPath: SnapshotFieldPath, options?: SnapshotOptions): unknown => {
     const isMissing = !snapshotExists(snap);
-    const rawData = isMissing ? undefined : (snap.data() as DocumentData);
+    let rawData: DocumentData | undefined;
+    if (!isMissing) {
+      rawData = snapWithOptions.data(options);
+    }
     return readSnapshotField(rawData, fieldPath, references);
   };
   const mergedMeta = mergedSnapshotMetadata(snap, target, snap.ref.path);
-  const readRawDataObject = (): Record<string, unknown> | undefined => {
+  const readRawDataObject = (options?: SnapshotOptions): Record<string, unknown> | undefined => {
     if (!snapshotExists(snap)) return undefined;
-    return finalizeSandboxData(snap.data() as DocumentData, references) as Record<string, unknown>;
+    return finalizeSandboxData(snapWithOptions.data(options), references) as Record<string, unknown>;
   };
   const wrapped = {
     id: snap.id,
@@ -371,21 +375,22 @@ export function applyConverterToDocSnap<AppModel>(
     data: (options?: SnapshotOptions) => {
       const isMissing = !snapshotExists(snap);
       if (isMissing) return undefined;
-      if (snap.data() === undefined) return undefined;
+      if (snapWithOptions.data(options) === undefined) return undefined;
       const queryDocSnap: QueryDocumentSnapshot = {
         id: snap.id,
         ref: rawReference,
         exists: () => true,
         metadata: mergedMeta,
-        data: () => finalizeSandboxData(snap.data() as DocumentData, references) as DocumentData,
+        data: (innerOptions?: SnapshotOptions) =>
+          finalizeSandboxData(snapWithOptions.data(innerOptions), references) as DocumentData,
         get: readRawField,
-        toJSON: buildDocSnapshotToJson(target, snap.ref.path, () => true, readRawDataObject),
+        toJSON: buildDocSnapshotToJson(target, snap.ref.path, () => true, () => readRawDataObject()),
       };
       const resolvedOptions: SnapshotOptions = options ?? {};
       return conv.fromFirestore(queryDocSnap, resolvedOptions);
     },
     get: readRawField,
-    toJSON: buildDocSnapshotToJson(target, snap.ref.path, () => snapshotExists(snap), readRawDataObject),
+    toJSON: buildDocSnapshotToJson(target, snap.ref.path, () => snapshotExists(snap), () => readRawDataObject()),
   };
   tag(wrapped, target);
   tag(snap.ref as object, target);
@@ -426,7 +431,7 @@ export function applyConverterToDeliveredSnap(
   };
   const path = s.ref?.path ?? '';
   const readRaw = s.data.bind(snapshot);
-  const rawReference = doc({ [TARGET_SYMBOL]: target }, path);
+  const rawReference = doc({ [TARGET_SYMBOL]: target, type: 'firestore' }, path);
   const references = createSnapshotReferenceDecoder(target);
   let readRawField: (fieldPath: SnapshotFieldPath, options?: SnapshotOptions) => unknown;
   if (typeof s.get === 'function') {

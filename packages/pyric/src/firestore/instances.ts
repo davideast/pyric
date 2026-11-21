@@ -295,10 +295,15 @@ export function getAdminFirestore(target: Sandbox | SandboxContext | FirebaseApp
   if (appRuntime) {
     appRuntime.assertAlive();
     const sandbox = appRuntime.sandbox;
-    return getAdminFirestore(bindOperationContext(sandbox.withAuth(null), {
+    const adminHandle = getAdminFirestore(bindOperationContext(sandbox.withAuth(null), {
       source: { kind: 'app' },
       authLens: { mode: 'admin' },
     }));
+    return {
+      [TARGET_SYMBOL]: adminHandle[TARGET_SYMBOL],
+      type: 'firestore',
+      app: target as FirebaseApp,
+    };
   }
   const context = isSandboxContext(target)
     ? target

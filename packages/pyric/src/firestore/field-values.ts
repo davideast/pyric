@@ -1,5 +1,5 @@
 /**
- * `pyric/firestore` — field-value sentinels + sandbox scalar types.
+ * `pyric/firestore` -- field-value sentinels + sandbox scalar types.
  *
  * Canonical `firebase/firestore` imports still receive Firebase's classes
  * when package resolution has not selected Pyric. This mirror owns local
@@ -9,6 +9,7 @@ import {
   Timestamp as ChainTimestamp,
   type FieldValueSentinel,
 } from 'pyric/sandbox/admin-firestore';
+import { FirebaseError } from '../sandbox/internal/firebase-error.js';
 import {
   FieldValue,
   createArrayRemoveSentinel,
@@ -27,8 +28,20 @@ export class FieldPath {
   readonly _internalPath: { segments: string[]; offset: number; len: number };
 
   constructor(...fieldNames: string[]) {
-    if (fieldNames.length === 0 || fieldNames.some((name) => name.length === 0)) {
-      throw new TypeError('FieldPath requires at least one non-empty field name.');
+    if (fieldNames.length === 0) {
+      throw new FirebaseError(
+        'invalid-argument',
+        'Function FieldPath() cannot be called with no arguments.',
+      );
+    }
+    for (let index = 0; index < fieldNames.length; index += 1) {
+      const name = fieldNames[index];
+      if (typeof name !== 'string' || name.length === 0) {
+        throw new FirebaseError(
+          'invalid-argument',
+          `Invalid field name at argument ${index + 1}. Field names must not be empty.`,
+        );
+      }
     }
     this._internalPath = {
       segments: fieldNames.slice(),

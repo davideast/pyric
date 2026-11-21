@@ -29,6 +29,7 @@ import { attachQuerySnapshotToJson } from './ssr-snapshots.js';
 import { EVICT_APP_CACHE_SYMBOL } from './internal/app-cache-symbol.js';
 import { getFirestore } from './instances.js';
 import { clientStateFor } from './client-state.js';
+import { createSnapshotMetadata } from './snapshot-metadata.js';
 import { forEachDocument } from './sandbox/for-each-document.js';
 import { markHandlePersistentCache } from './cache-index-manager.js';
 import {
@@ -273,17 +274,17 @@ export function getDocFromCache<T = DocumentData>(
   }
   return readDocument(ref, activity).then((snapshot) => {
     Object.defineProperty(snapshot, 'metadata', {
-      value: Object.freeze({
-        fromCache: true,
-        hasPendingWrites: client.snapshotMetadata(ref.path).hasPendingWrites,
-      }),
+      value: createSnapshotMetadata(
+        true,
+        client.snapshotMetadata(ref.path).hasPendingWrites,
+      ),
       configurable: true,
     });
     return snapshot;
   });
 }
 
-/** Query-plural form of {@link getDocFromCache} — same cache-miss divergence. */
+/** Query-plural form of {@link getDocFromCache} -- same cache-miss divergence. */
 export function getDocsFromCache<T = DocumentData>(
   query: Query<T>,
 ): Promise<QuerySnapshot<T>> {
@@ -292,11 +293,12 @@ export function getDocsFromCache<T = DocumentData>(
   const activity = beginFirestoreActivity(target, query, 'getDocsFromCache', 'operation');
   if (!client.hasCachedQuery(query as object)) {
     const emptySnap = tag({
+      query,
       size: 0,
       empty: true,
       docs: [],
       forEach: forEachDocument([]),
-      metadata: Object.freeze({ fromCache: true, hasPendingWrites: false }),
+      metadata: createSnapshotMetadata(true, false),
       toJSON: () => ({}),
     }, target) as QuerySnapshot<T>;
     attachQuerySnapshotToJson(emptySnap, target, query as object);
@@ -304,10 +306,10 @@ export function getDocsFromCache<T = DocumentData>(
   }
   return readQuery(query, activity).then((snapshot) => {
     Object.defineProperty(snapshot, 'metadata', {
-      value: Object.freeze({
-        fromCache: true,
-        hasPendingWrites: client.querySnapshotMetadata().hasPendingWrites,
-      }),
+      value: createSnapshotMetadata(
+        true,
+        client.querySnapshotMetadata().hasPendingWrites,
+      ),
       configurable: true,
     });
     return snapshot;

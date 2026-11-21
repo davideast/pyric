@@ -26,6 +26,7 @@ import type { SnapshotOptions } from './ssr-snapshots.js';
 import type { OperationOptions } from './sandbox/admin-compat/types.js';
 import type { AuthState, Sandbox, SandboxContext } from 'pyric/sandbox';
 import type { FirebaseApp } from '../app/types.js';
+import { invokeDocumentReferenceFromJson } from './doc-ref-json.js';
 import { TARGET_SYMBOL, type Target } from './state.js';
 
 /**
@@ -61,7 +62,7 @@ export interface FirestoreDataConverter<
  */
 export interface Firestore {
   readonly [TARGET_SYMBOL]: Target;
-  readonly type?: 'firestore';
+  readonly type: 'firestore';
   readonly app?: FirebaseApp;
 }
 
@@ -92,6 +93,7 @@ export interface DocumentReference<_T = DocumentData> {
   readonly parent: CollectionReference<_T>;
   withConverter<T, D extends DocumentData = DocumentData>(converter: FirestoreDataConverter<T, D>): DocumentReference<T>;
   withConverter(converter: null): DocumentReference<DocumentData>;
+  toJSON?(): object;
 }
 /** A reference to a Firestore collection. Backend-opaque. */
 export interface CollectionReference<_T = DocumentData> extends Query<_T> {
@@ -114,6 +116,7 @@ export interface Query<_T = DocumentData> {
 export interface SnapshotMetadata {
   readonly fromCache: boolean;
   readonly hasPendingWrites: boolean;
+  isEqual?(other: SnapshotMetadata): boolean;
 }
 /** A point-in-time view of one document. */
 export interface DocumentSnapshot<T = DocumentData> {
@@ -122,11 +125,11 @@ export interface DocumentSnapshot<T = DocumentData> {
   readonly exists: boolean | (() => boolean);
   readonly metadata: SnapshotMetadata;
   data(options?: SnapshotOptions): T | undefined;
-  get(fieldPath: string | FieldPath): unknown;
+  get(fieldPath: string | FieldPath, options?: SnapshotOptions): unknown;
   toJSON(): object;
 }
 /**
- * `QueryDocumentSnapshot` is a `DocumentSnapshot` known to exist —
+ * `QueryDocumentSnapshot` is a `DocumentSnapshot` known to exist --
  * `.data()` always returns the typed model, never `undefined`. Yielded
  * by `QuerySnapshot.docs` and passed to converter `fromFirestore`
  * callbacks. Mirrors the JS SDK's narrowing.
@@ -136,10 +139,11 @@ export interface QueryDocumentSnapshot<T = DocumentData> extends DocumentSnapsho
 }
 /** A point-in-time view of a query result. */
 export interface QuerySnapshot<T = DocumentData> {
+  readonly query: Query<T>;
   readonly size: number;
   readonly empty: boolean;
   readonly docs: ReadonlyArray<QueryDocumentSnapshot<T>>;
-  readonly metadata: SnapshotMetadata;
+  readonly metadata: SnapshotMetadata & { isEqual(other: SnapshotMetadata): boolean };
   /** Calls `callback.call(thisArg, doc)` once per document, in query order. */
   forEach(callback: (result: QueryDocumentSnapshot<T>) => void, thisArg?: unknown): void;
   toJSON(): object;
@@ -189,6 +193,25 @@ export class Firestore {
   }
 }
 export class DocumentReference<_T = DocumentData> {
+  static fromJSON(
+    firestore: Firestore,
+    json: object,
+  ): DocumentReference<DocumentData> & { toJSON(): object };
+  static fromJSON<AppModelType, DbModelType extends DocumentData = DocumentData>(
+    firestore: Firestore,
+    json: object,
+    converter: FirestoreDataConverter<AppModelType, DbModelType>,
+  ): DocumentReference<AppModelType> & { toJSON(): object };
+  static fromJSON(
+    firestore: Firestore,
+    json: object,
+    converter?: FirestoreDataConverter<unknown, DocumentData> | null,
+  ): DocumentReference<unknown> & { toJSON(): object } {
+    return invokeDocumentReferenceFromJson(firestore, json, converter) as DocumentReference<unknown> & {
+      toJSON(): object;
+    };
+  }
+
   static [Symbol.hasInstance](instance: unknown): boolean {
     if (instance === null || typeof instance !== 'object') return false;
     const kind = (instance as { type?: unknown }).type;

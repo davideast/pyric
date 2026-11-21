@@ -131,16 +131,17 @@ export async function readQuery<T = DocumentData>(query: Query<T>, activity: Sdk
           c,
           target,
           'query-child',
-        ) as QueryDocumentSnapshot<T>,
-      );
+        ),
+      ) as unknown as QuerySnapshot<T>['docs'];
       const changes = computeDocumentChanges(
         undefined,
         wrappedDocs.map((doc) => ({ path: doc.ref.path })),
-        wrappedDocs,
+        [...wrappedDocs],
         () => false,
-        () => wrappedDocs[0]!,
+        () => wrappedDocs[0] as QueryDocumentSnapshot<T>,
       );
       const wrapped = tag({
+        query,
         size: wrappedDocs.length,
         empty: wrappedDocs.length === 0,
         docs: wrappedDocs,
@@ -158,6 +159,11 @@ export async function readQuery<T = DocumentData>(query: Query<T>, activity: Sdk
       client.cachePath(d.ref.path);
       wrapSandboxDocSnap(d as object, target);
     }
+    Object.defineProperty(snap, 'query', {
+      value: query,
+      configurable: true,
+      enumerable: true,
+    });
     Object.defineProperty(snap, 'metadata', {
       value: client.querySnapshotMetadata(),
       configurable: true,
