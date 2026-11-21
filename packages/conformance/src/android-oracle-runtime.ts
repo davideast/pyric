@@ -70,6 +70,11 @@ export interface AndroidAdminAuthAdapter {
   dispose(): Promise<void>;
 }
 
+export interface AndroidRtdbSessionOptions {
+  rules: Record<string, unknown>;
+  stripTopLevelGrants: boolean;
+}
+
 interface AndroidProbeRuntimeDeps {
   env?: NodeJS.ProcessEnv;
   loadServiceAccount?: (env?: NodeJS.ProcessEnv) => Promise<OracleServiceAccount>;
@@ -83,6 +88,7 @@ interface AndroidProbeRuntimeDeps {
     databaseUrl: string,
     runId: string,
     fn: () => Promise<T>,
+    options?: AndroidRtdbSessionOptions,
   ) => Promise<T>;
   deployScopedFirestoreSession?: <T>(
     sa: OracleServiceAccount,
@@ -95,9 +101,33 @@ interface AndroidProbeRuntimeDeps {
 interface RunAndroidRobolectricProbeOptions {
   probeId: string;
   needsDedicatedRtdb?: boolean;
+  rtdbRunRules?: Record<string, unknown>;
   needsFirestore?: boolean;
   needsCustomToken?: boolean;
   deps?: AndroidProbeRuntimeDeps;
+}
+
+const DEFAULT_ANDROID_RTDB_RUN_RULES: Record<string, unknown> = {
+  '.read': 'auth != null',
+  '.write': 'auth != null',
+  rtdb_kotlin: {
+    catalog: { '.indexOn': ['score'] },
+  },
+};
+
+export function buildAndroidRtdbPermissionAndQueryRules(): Record<string, unknown> {
+  return {
+    rtdb_kotlin: {
+      '.read': 'auth != null',
+      '.write': 'auth != null',
+      scores: { '.indexOn': '.value' },
+      players: { '.indexOn': ['score', 'tier'] },
+    },
+    denied_zone: {
+      '.read': false,
+      '.write': false,
+    },
+  };
 }
 
 function nextAndroidRunId(): string {
@@ -283,7 +313,14 @@ async function defaultDeployScopedRtdbSession<T>(
   databaseUrl: string,
   runId: string,
   fn: () => Promise<T>,
+  sessionOptions?: AndroidRtdbSessionOptions,
 ): Promise<T> {
+  let sessionRules = DEFAULT_ANDROID_RTDB_RUN_RULES;
+  let stripTopLevelGrants = false;
+  if (sessionOptions !== undefined) {
+    sessionRules = sessionOptions.rules;
+    stripTopLevelGrants = sessionOptions.stripTopLevelGrants;
+  }
   const getRtdbToken = () => oracleAccessToken(sa, RTDB_RULES_SCOPE);
   const session = new OracleRulesSession({
     projectId: sa.project_id,
@@ -297,14 +334,8 @@ async function defaultDeployScopedRtdbSession<T>(
       await session.deployRtdb(
         rtdbOracleTarget(databaseUrl, getRtdbToken, {
           runId,
-          rules: {
-            '.read': 'auth != null',
-            '.write': 'auth != null',
-            rtdb_kotlin: {
-              catalog: { '.indexOn': ['score'] },
-            },
-          },
-          stripTopLevelGrants: false,
+          rules: sessionRules,
+          stripTopLevelGrants,
         }),
       );
       await new Promise((resolveDone) => setTimeout(resolveDone, 5_000));
@@ -496,12 +527,24 @@ export async function runAndroidRobolectricProbe(
       });
     };
 
+    let rtdbSessionOptions: AndroidRtdbSessionOptions | undefined;
+    if (options.rtdbRunRules !== undefined) {
+      rtdbSessionOptions = {
+        rules: options.rtdbRunRules,
+        stripTopLevelGrants: true,
+      };
+    }
+
     if (databaseUrl !== undefined && options.needsFirestore === true) {
-      await runRtdbSession(sa, databaseUrl, runId, () =>
-        runFirestoreSession(sa, runId, invokeRunner),
+      await runRtdbSession(
+        sa,
+        databaseUrl,
+        runId,
+        () => runFirestoreSession(sa, runId, invokeRunner),
+        rtdbSessionOptions,
       );
     } else if (databaseUrl !== undefined) {
-      await runRtdbSession(sa, databaseUrl, runId, invokeRunner);
+      await runRtdbSession(sa, databaseUrl, runId, invokeRunner, rtdbSessionOptions);
     } else if (options.needsFirestore === true) {
       await runFirestoreSession(sa, runId, invokeRunner);
     } else {

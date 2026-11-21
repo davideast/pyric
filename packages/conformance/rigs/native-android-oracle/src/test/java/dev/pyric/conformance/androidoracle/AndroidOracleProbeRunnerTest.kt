@@ -7,8 +7,11 @@ import com.google.firebase.FirebaseOptions
 import com.google.firebase.auth.EmailAuthProvider
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
+import com.google.firebase.database.DataSnapshot
+import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ServerValue
+import com.google.firebase.database.ValueEventListener
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -108,6 +111,7 @@ class AndroidOracleProbeRunnerTest {
             shutdownFirebaseDatabaseAndApp(database, app)
         }
 
+        verifyLocalRobolectricAuthWave4Smoke(context)
         verifyLoopbackWssFirebaseDatabaseRoundTrip(context)
         verifyLocalRobolectricFirestoreSmoke(context)
     }
@@ -130,10 +134,32 @@ class AndroidOracleProbeRunnerTest {
                 val db = FirebaseDatabase.getInstance(wssApp, wssUrl)
                 wssDb = db
                 db.goOnline()
-                val probeRef = db.getReference("pyric_oracle/wss_smoke/greeting")
-                awaitFirebaseTask(probeRef.setValue("hello-over-wss"), "wss.smoke.setValue", 10_000L)
-                val snap = awaitFirebaseTask(probeRef.get(), "wss.smoke.get", 10_000L)
-                assertEquals("hello-over-wss", snap.getValue(String::class.java))
+                val connectedStates = mutableListOf<Boolean>()
+                val connectedRef = db.getReference(".info/connected")
+                val connectedListener = object : ValueEventListener {
+                    override fun onDataChange(snapshot: DataSnapshot) {
+                        val connected = snapshot.getValue(Boolean::class.java) ?: return
+                        if (connectedStates.lastOrNull() != connected) {
+                            connectedStates.add(connected)
+                        }
+                    }
+
+                    override fun onCancelled(error: DatabaseError) {}
+                }
+                connectedRef.addValueEventListener(connectedListener)
+                try {
+                    val pushed = db.getReference("pyric_oracle/wss_smoke/pushed").push()
+                    assertEquals(20, pushed.key?.length)
+                    val probeRef = db.getReference("pyric_oracle/wss_smoke/greeting")
+                    awaitFirebaseTask(probeRef.setValue("hello-over-wss"), "wss.smoke.setValue", 10_000L)
+                    awaitMainLooperCondition("wss.smoke.infoConnectedTrue", 10_000L) {
+                        connectedStates.contains(true)
+                    }
+                    val snap = awaitFirebaseTask(probeRef.get(), "wss.smoke.get", 10_000L)
+                    assertEquals("hello-over-wss", snap.getValue(String::class.java))
+                } finally {
+                    connectedRef.removeEventListener(connectedListener)
+                }
             } finally {
                 shutdownFirebaseDatabaseAndApp(wssDb, wssApp)
                 SSLContext.setDefault(originalDefaultSsl)
@@ -163,8 +189,16 @@ class AndroidOracleProbeRunnerTest {
                 runAuthProfileReloadAndListenersProbe(configJson)
             "auth-kotlin-error-codes-and-exceptions" ->
                 runAuthErrorCodesAndExceptionsProbe(configJson)
+            "auth-kotlin-instance-linking-reauth-and-oauth-credentials" ->
+                runAuthInstanceLinkingReauthAndOauthCredentialsProbe(configJson)
             "rtdb-kotlin-dedicated-crud-and-query-order" ->
                 runRtdbDedicatedCrudAndQueryProbe(configJson)
+            "rtdb-kotlin-navigation-push-priorities-and-snapshots" ->
+                runRtdbNavigationPushPrioritiesAndSnapshotsProbe(configJson)
+            "rtdb-kotlin-queries-ranges-limits-and-permission-denied" ->
+                runRtdbQueriesRangesLimitsAndPermissionDeniedProbe(configJson)
+            "rtdb-kotlin-listeners-transactions-connection-and-ondisconnect" ->
+                runRtdbListenersTransactionsConnectionAndOnDisconnectProbe(configJson)
             "firestore-kotlin-crud-merge-sentinels-and-codecs" ->
                 runFirestoreCrudMergeSentinelsAndCodecsProbe(configJson)
             "firestore-kotlin-queries-cursors-listeners-and-aggregations" ->
