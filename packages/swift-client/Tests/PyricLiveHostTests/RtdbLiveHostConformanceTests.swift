@@ -9,7 +9,7 @@ extension LiveHostConformanceTests {
     // -- Hermetic Validation & Codec Parity Checks (Linux + macOS) --
 
     @Test("DatabaseInstanceResolver canonicalizes shard URLs and project default instances")
-    func instanceResolverAndCanonicalKeyParity() {
+    func instanceResolverAndCanonicalKeyParity() async {
         #expect(
             DatabaseInstanceResolver.resolveInstanceName(
                 from: "https://demo-swift-live-default-rtdb.firebaseio.com",
@@ -34,23 +34,24 @@ extension LiveHostConformanceTests {
             ) == "instance:shard-04"
         )
 
-        let app = FirebaseApp(name: "rtdb-canonical-\(UUID().uuidString)")
-        defer { Database.reset() }
-        let s1 = Database.database(app: app, url: "https://shard-04.firebaseio.com")
-        let s2 = Database.database(app: app, url: "https://SHARD-04.firebaseio.com/")
-        let s3 = Database.database(app: app, url: "https://shard-04.europe-west1.firebasedatabase.app")
-        let s4 = Database.database(app: app, url: "http://127.0.0.1:9000/?ns=shard-04")
-        #expect(s1 === s2)
-        #expect(s1 === s3)
-        #expect(s1 === s4)
+        await FirebaseGlobalTestGate.shared.withExclusiveAccess {
+            let app = FirebaseApp(name: "rtdb-canonical-\(UUID().uuidString)")
+            let s1 = Database.database(app: app, url: "https://shard-04.firebaseio.com")
+            let s2 = Database.database(app: app, url: "https://SHARD-04.firebaseio.com/")
+            let s3 = Database.database(app: app, url: "https://shard-04.europe-west1.firebasedatabase.app")
+            let s4 = Database.database(app: app, url: "http://127.0.0.1:9000/?ns=shard-04")
+            #expect(s1 === s2)
+            #expect(s1 === s3)
+            #expect(s1 === s4)
+        }
     }
 
     @Test("Database.reference(fromURL:) validates scheme, host, namespace, fragments, and path tokens")
-    func referenceFromURLValidationAndRouting() throws {
-        let app = FirebaseApp(name: "rtdb-refurl-\(UUID().uuidString)")
-        defer { Database.reset() }
+    func referenceFromURLValidationAndRouting() async throws {
+        await FirebaseGlobalTestGate.shared.withExclusiveAccess {
+            let app = FirebaseApp(name: "rtdb-refurl-\(UUID().uuidString)")
 
-        let shard00 = Database.database(app: app, url: "https://shard-00.firebaseio.com/")
+            let shard00 = Database.database(app: app, url: "https://shard-00.firebaseio.com/")
         #expect(shard00.url == "https://shard-00.firebaseio.com")
 
         let roomRef = shard00.reference(fromURL: "https://shard-00.firebaseio.com/rooms/room%20alpha")
@@ -97,6 +98,7 @@ extension LiveHostConformanceTests {
             )
         ) {
             _ = try shard00.validatedReference(fromURL: "http://127.0.0.1:9150/rooms/r1?ns=shard-01")
+        }
         }
     }
 

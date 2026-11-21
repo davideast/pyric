@@ -63,20 +63,21 @@ struct AppCheckLiveHostTests {
         let host = try #require(parsedUrl.host)
         let port = try #require(parsedUrl.port)
 
-        AppCheck.reset()
-        Auth.reset()
-        Database.reset()
-        Firestore.reset()
-        FirebaseApp.resetAppsForTesting()
-        defer {
+        try await FirebaseGlobalTestGate.shared.withExclusiveAccess {
             AppCheck.reset()
             Auth.reset()
             Database.reset()
             Firestore.reset()
             FirebaseApp.resetAppsForTesting()
-        }
+            defer {
+                AppCheck.reset()
+                Auth.reset()
+                Database.reset()
+                Firestore.reset()
+                FirebaseApp.resetAppsForTesting()
+            }
 
-        AppCheck.setAppCheckProviderFactory(AppCheckDebugProviderFactory())
+            AppCheck.setAppCheckProviderFactory(AppCheckDebugProviderFactory())
         let options = FirebaseOptions(
             projectID: Self.projectId,
             databaseURL: "https://\(Self.projectId)-default-rtdb.firebaseio.com",
@@ -172,6 +173,7 @@ struct AppCheckLiveHostTests {
         #expect(aiReply != .null)
 
         await app.delete()
+        }
     }
 
     @Test("Shared FirebaseApp services and AppAttestProviderFactory interoperate over live WebSocket")
@@ -184,20 +186,21 @@ struct AppCheckLiveHostTests {
         let host = try #require(parsedUrl.host)
         let port = try #require(parsedUrl.port)
 
-        AppCheck.reset()
-        Auth.reset()
-        Database.reset()
-        Firestore.reset()
-        FirebaseApp.resetAppsForTesting()
-        defer {
+        try await FirebaseGlobalTestGate.shared.withExclusiveAccess {
             AppCheck.reset()
             Auth.reset()
             Database.reset()
             Firestore.reset()
             FirebaseApp.resetAppsForTesting()
-        }
+            defer {
+                AppCheck.reset()
+                Auth.reset()
+                Database.reset()
+                Firestore.reset()
+                FirebaseApp.resetAppsForTesting()
+            }
 
-        AppCheck.setAppCheckProviderFactory(AppAttestProviderFactory())
+            AppCheck.setAppCheckProviderFactory(AppAttestProviderFactory())
         let options = FirebaseOptions(
             projectID: Self.projectId,
             databaseURL: "https://\(Self.projectId)-default-rtdb.firebaseio.com",
@@ -255,5 +258,6 @@ struct AppCheckLiveHostTests {
         )
 
         await app.delete()
+        }
     }
 }

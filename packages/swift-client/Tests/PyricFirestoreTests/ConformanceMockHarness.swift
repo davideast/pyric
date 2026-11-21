@@ -333,12 +333,15 @@ public final class ConformanceMockHarness: WebSocketTransport, @unchecked Sendab
 
     // MARK: - Factory Lifecycle
 
-    public static func create(sendDelayNanoseconds: UInt64 = 0) async throws -> ConformanceMockHarness {
+    public static func create(
+        sendDelayNanoseconds: UInt64 = 0,
+        appName: String = "mock-harness-\(UUID().uuidString)"
+    ) async throws -> ConformanceMockHarness {
         let harness = ConformanceMockHarness(sendDelayNanoseconds: sendDelayNanoseconds)
         let client = PyricBridgeClient(channel: harness)
         try await client.connect()
-        let firestore = Firestore(bridgeClient: client)
-        Firestore.shared = firestore
+        let app = FirebaseApp(name: appName)
+        let firestore = Firestore(bridgeClient: client, app: app)
         harness.client = client
         harness.firestore = firestore
         return harness

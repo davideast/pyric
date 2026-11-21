@@ -41,15 +41,17 @@ struct AuthLiveHostConformanceTests {
         #expect(envLiveFallback.endpoint.absoluteString == "ws://127.0.0.1:6102/__pyric/sandbox")
 
         let appName = "unit-cfg-\(UUID().uuidString)"
-        FirebaseApp.configure(name: appName, options: fullOptions)
-        let configured = FirebaseApp.app(name: appName)
-        #expect(configured != nil)
-        #expect(configured?.options == fullOptions)
-        #expect(FirebaseApp.allApps?[appName] === configured)
-        if let configured {
-            await configured.delete()
+        await FirebaseGlobalTestGate.shared.withExclusiveAccess {
+            FirebaseApp.configure(name: appName, options: fullOptions)
+            let configured = FirebaseApp.app(name: appName)
+            #expect(configured != nil)
+            #expect(configured?.options == fullOptions)
+            #expect(FirebaseApp.allApps?[appName] === configured)
+            if let configured {
+                await configured.delete()
+            }
+            #expect(FirebaseApp.app(name: appName) == nil)
         }
-        #expect(FirebaseApp.app(name: appName) == nil)
     }
 
     @Test("auth-swift#1..5: Auth instance lifecycle, FirebaseApp binding, reset, and useEmulator over live host")
@@ -58,12 +60,13 @@ struct AuthLiveHostConformanceTests {
             return
         }
 
-        defer {
-            Auth.reset()
-            Firestore.reset()
-            Database.reset()
-            FirebaseApp.resetAppsForTesting()
-        }
+        try await FirebaseGlobalTestGate.shared.withExclusiveAccess {
+            defer {
+                Auth.reset()
+                Firestore.reset()
+                Database.reset()
+                FirebaseApp.resetAppsForTesting()
+            }
 
         // auth-swift#1 & auth-swift#4: Default FirebaseApp.configure(options:) + Auth.auth() + Auth.app
         let defaultOptions = FirebaseOptions(
@@ -128,6 +131,7 @@ struct AuthLiveHostConformanceTests {
         let postResetAuth = Auth.auth(app: secondaryApp)
         #expect(postResetAuth !== secondaryAuth)
         await secondaryApp.disconnectSharedBridge()
+        }
     }
 
     @Test("auth-swift#6..13: createUser, signIn, signInAnonymously, signOut, restoreSession, customToken, and getIDTokenForcingRefresh")

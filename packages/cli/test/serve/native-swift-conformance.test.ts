@@ -28,6 +28,15 @@ import { createBridge } from '../../src/bridge/server/bridge.js';
 import { attachPeer } from '../../src/bridge/server/peer.js';
 import { createHostedRuntime } from '../../src/serve/hosted/runtime.js';
 import type { InitPayload } from '../../src/serve/init-payload.js';
+import {
+  SWIFT_LIVE_HOST_SCRATCH_SUBPATH,
+  SWIFT_LIVE_HOST_TEST_TIMEOUT_MS,
+  SWIFT_TEST_TIMEOUT_MS,
+  buildSwiftLiveHostTests,
+  collectProcessEnv,
+  formatSubprocessFailure,
+  runManagedSubprocess,
+} from './swift-live-host-subprocess.ts';
 
 const REPO_ROOT = resolve(import.meta.dir, '../../../..');
 const DEFAULT_RTDB_INSTANCE = 'demo-swift-live-default-rtdb';
@@ -516,14 +525,22 @@ describe('Swift native SDK live-host conformance', () => {
       }
 
       const swiftPackageDir = join(REPO_ROOT, 'packages/swift-client');
+      const swiftScratchDir = join(swiftPackageDir, SWIFT_LIVE_HOST_SCRATCH_SUBPATH);
+      const baseEnv = collectProcessEnv();
+
+      const buildRun = await buildSwiftLiveHostTests({
+        swiftBinary,
+        repoRoot: REPO_ROOT,
+        swiftPackageDir,
+        swiftScratchDir,
+        env: baseEnv,
+      });
+      const buildDetails = formatSubprocessFailure('build', buildRun.attempt, buildRun.result);
+      expect(buildRun.result.timedOut, buildDetails).toBe(false);
+      expect(buildRun.result.exitCode, buildDetails).toBe(0);
+
       const host = await startLoopbackSwiftBridgeHost();
       try {
-        const childEnv: Record<string, string> = {};
-        for (const [key, value] of Object.entries(process.env)) {
-          if (value !== undefined) {
-            childEnv[key] = value;
-          }
-        }
         const nowMs = Date.now();
         const validCustomToken = mintCustomToken({
           uid: 'swift-custom-uid-01',
@@ -536,45 +553,43 @@ describe('Swift native SDK live-host conformance', () => {
           projectId: 'other-swift-project',
           nowMs,
         });
-        childEnv.PYRIC_LIVE_BRIDGE_URL = host.wsUrl;
-        childEnv.PYRIC_LIVE_CUSTOM_TOKEN_VALID = validCustomToken;
-        childEnv.PYRIC_LIVE_CUSTOM_TOKEN_MISMATCH = mismatchCustomToken;
+        const childEnv: Record<string, string> = {
+          ...baseEnv,
+          PYRIC_LIVE_BRIDGE_URL: host.wsUrl,
+          PYRIC_LIVE_CUSTOM_TOKEN_VALID: validCustomToken,
+          PYRIC_LIVE_CUSTOM_TOKEN_MISMATCH: mismatchCustomToken,
+        };
 
-        const child = Bun.spawn(
-          [
-            swiftBinary,
+        const testResult = await runManagedSubprocess({
+          command: swiftBinary,
+          args: [
             'test',
+            '--skip-build',
+            '--disable-xctest',
+            '--disable-index-store',
+            '-Xswiftc',
+            '-gnone',
             '--no-parallel',
             '--package-path',
             swiftPackageDir,
+            '--scratch-path',
+            swiftScratchDir,
             '--filter',
             'PyricLiveHostTests',
           ],
-          {
-            cwd: REPO_ROOT,
-            env: childEnv,
-            stdout: 'pipe',
-            stderr: 'pipe',
-          },
-        );
-        const killTimer = setTimeout(() => child.kill(), 180_000);
-        try {
-          const [exitCode, stdout, stderr] = await Promise.all([
-            child.exited,
-            new Response(child.stdout).text(),
-            new Response(child.stderr).text(),
-          ]);
-          const combinedOutput = `${stdout}\n${stderr}`;
-          expect(exitCode, combinedOutput).toBe(0);
-          expect(combinedOutput).not.toContain('with 0 tests');
-        } finally {
-          clearTimeout(killTimer);
-          child.kill();
-        }
+          cwd: REPO_ROOT,
+          env: childEnv,
+          timeoutMs: SWIFT_TEST_TIMEOUT_MS,
+        });
+        const combinedOutput = `${testResult.stdout}\n${testResult.stderr}`;
+        const testDetails = formatSubprocessFailure('test', 1, testResult);
+        expect(testResult.timedOut, testDetails).toBe(false);
+        expect(testResult.exitCode, testDetails).toBe(0);
+        expect(combinedOutput, testDetails).not.toContain('with 0 tests');
       } finally {
         await host.close();
       }
     },
-    240_000,
+    SWIFT_LIVE_HOST_TEST_TIMEOUT_MS,
   );
 });

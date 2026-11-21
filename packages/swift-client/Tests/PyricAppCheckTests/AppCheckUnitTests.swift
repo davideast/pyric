@@ -105,97 +105,98 @@ struct AppCheckUnitTests {
     }
 
     @Test("Singleton identity, per-app scoping, and nil factory handling match FirebaseAppCheck")
-    func singletonIdentityAndAppScoping() throws {
-        resetAll()
-        defer { resetAll() }
+    func singletonIdentityAndAppScoping() async throws {
+        try await FirebaseGlobalTestGate.shared.withExclusiveAccess {
+            resetAll()
+            defer { resetAll() }
 
-        AppCheck.setAppCheckProviderFactory(AppCheckDebugProviderFactory())
-        FirebaseApp.configure(
-            options: FirebaseOptions(
-                projectID: "demo-appcheck-unit",
-                googleAppID: "1:111111111111:ios:defaultapp"
+            AppCheck.setAppCheckProviderFactory(AppCheckDebugProviderFactory())
+            FirebaseApp.configure(
+                options: FirebaseOptions(
+                    projectID: "demo-appcheck-unit",
+                    googleAppID: "1:111111111111:ios:defaultapp"
+                )
             )
-        )
 
-        let defaultCheck = AppCheck.appCheck()
-        let viaExplicitDefault = try #require(AppCheck.appCheck(app: FirebaseApp.app()))
-        #expect(defaultCheck === viaExplicitDefault)
+            let defaultCheck = AppCheck.appCheck()
+            let viaExplicitDefault = try #require(AppCheck.appCheck(app: FirebaseApp.app()))
+            #expect(defaultCheck === viaExplicitDefault)
 
-        let secondaryOptions = FirebaseOptions(
-            projectID: "demo-appcheck-unit",
-            googleAppID: "1:111111111111:ios:secondaryapp"
-        )
-        FirebaseApp.configure(name: "secondary-ios", options: secondaryOptions)
-        let secondaryApp = try #require(FirebaseApp.app(name: "secondary-ios"))
-        let secondaryCheck = try #require(AppCheck.appCheck(app: secondaryApp))
-        #expect(secondaryCheck !== defaultCheck)
-        #expect(secondaryCheck.app === secondaryApp)
-
-        // Setting provider factory to nil causes appCheck(app:) for uninstantiated apps to return nil.
-        AppCheck.setAppCheckProviderFactory(nil)
-        FirebaseApp.configure(
-            name: "unconfigured-provider-app",
-            options: FirebaseOptions(
+            let secondaryOptions = FirebaseOptions(
                 projectID: "demo-appcheck-unit",
-                googleAppID: "1:111111111111:ios:thirdapp"
+                googleAppID: "1:111111111111:ios:secondaryapp"
             )
-        )
-        let thirdApp = try #require(FirebaseApp.app(name: "unconfigured-provider-app"))
-        #expect(AppCheck.appCheck(app: thirdApp) == nil)
+            FirebaseApp.configure(name: "secondary-ios", options: secondaryOptions)
+            let secondaryApp = try #require(FirebaseApp.app(name: "secondary-ios"))
+            let secondaryCheck = try #require(AppCheck.appCheck(app: secondaryApp))
+            #expect(secondaryCheck !== defaultCheck)
+            #expect(secondaryCheck.app === secondaryApp)
+
+            // Setting provider factory to nil causes appCheck(app:) for uninstantiated apps to return nil.
+            AppCheck.setAppCheckProviderFactory(nil)
+            FirebaseApp.configure(
+                name: "unconfigured-provider-app",
+                options: FirebaseOptions(
+                    projectID: "demo-appcheck-unit",
+                    googleAppID: "1:111111111111:ios:thirdapp"
+                )
+            )
+            let thirdApp = try #require(FirebaseApp.app(name: "unconfigured-provider-app"))
+            #expect(AppCheck.appCheck(app: thirdApp) == nil)
+        }
     }
 
     @Test("Debug, AppAttest, and DeviceCheck providers validate googleAppID and resolve debug tokens")
-    func builtInProvidersAndDebugTokenPriority() throws {
-        resetAll()
-        defer { resetAll() }
+    func builtInProvidersAndDebugTokenPriority() async throws {
+        try await FirebaseGlobalTestGate.shared.withExclusiveAccess {
+            AppCheck.reset()
+            defer { AppCheck.reset() }
 
-        let emptyIdApp = FirebaseApp(
-            name: "empty-id",
-            options: FirebaseOptions(projectID: "demo", googleAppID: "   ")
-        )
-        #expect(AppCheckDebugProvider(app: emptyIdApp) == nil)
-        #expect(AppAttestProvider(app: emptyIdApp) == nil)
-        #expect(DeviceCheckProvider(app: emptyIdApp) == nil)
-
-        let validApp = FirebaseApp(
-            name: "debug-token-app",
-            options: FirebaseOptions(
-                projectID: "demo",
-                googleAppID: "1:222222222222:ios:debugapp"
+            let emptyIdApp = FirebaseApp(
+                name: "empty-id",
+                options: FirebaseOptions(projectID: "demo", googleAppID: "   ")
             )
-        )
-        let generatedOnly = try #require(AppCheckDebugProvider(app: validApp, environment: [:]))
-        let local1 = generatedOnly.localDebugToken()
-        let local2 = generatedOnly.localDebugToken()
-        #expect(!local1.isEmpty)
-        #expect(local1 == local2)
-        #expect(generatedOnly.currentDebugToken() == local1)
+            #expect(AppCheckDebugProvider(app: emptyIdApp) == nil)
+            #expect(AppAttestProvider(app: emptyIdApp) == nil)
+            #expect(DeviceCheckProvider(app: emptyIdApp) == nil)
 
-        let withLegacyEnv = try #require(
-            AppCheckDebugProvider(
-                app: validApp,
-                environment: ["FIRAAppCheckDebugToken": "legacy-env-secret"]
+            let validApp = FirebaseApp(
+                name: "debug-token-app",
+                options: FirebaseOptions(
+                    projectID: "demo",
+                    googleAppID: "1:222222222222:ios:debugapp"
+                )
             )
-        )
-        #expect(withLegacyEnv.currentDebugToken() == "legacy-env-secret")
+            let generatedOnly = try #require(AppCheckDebugProvider(app: validApp, environment: [:]))
+            let local1 = generatedOnly.localDebugToken()
+            let local2 = generatedOnly.localDebugToken()
+            #expect(!local1.isEmpty)
+            #expect(local1 == local2)
+            #expect(generatedOnly.currentDebugToken() == local1)
 
-        let withPrimaryEnv = try #require(
-            AppCheckDebugProvider(
-                app: validApp,
-                environment: [
-                    "AppCheckDebugToken": "primary-env-secret",
-                    "FIRAAppCheckDebugToken": "legacy-env-secret"
-                ]
+            let withLegacyEnv = try #require(
+                AppCheckDebugProvider(
+                    app: validApp,
+                    environment: ["FIRAAppCheckDebugToken": "legacy-env-secret"]
+                )
             )
-        )
-        #expect(withPrimaryEnv.currentDebugToken() == "primary-env-secret")
+            #expect(withLegacyEnv.currentDebugToken() == "legacy-env-secret")
+
+            let withPrimaryEnv = try #require(
+                AppCheckDebugProvider(
+                    app: validApp,
+                    environment: [
+                        "AppCheckDebugToken": "primary-env-secret",
+                        "FIRAAppCheckDebugToken": "legacy-env-secret"
+                    ]
+                )
+            )
+            #expect(withPrimaryEnv.currentDebugToken() == "primary-env-secret")
+        }
     }
 
     @Test("Custom provider caches valid tokens, coalesces concurrent mints, supports forceRefresh, expiry, limitedUseToken, and notifications")
     func cachingForceRefreshExpiryLimitedUseAndNotifications() async throws {
-        resetAll()
-        defer { resetAll() }
-
         let clock = MutableClock(Date(timeIntervalSince1970: 1_700_000_000))
         let calls = AtomicCounter()
         let center = NotificationCenter()
@@ -281,9 +282,6 @@ struct AppCheckUnitTests {
 
     @Test("Auto-refresh schedules background renewal when enabled and cancels when disabled")
     func autoRefreshRenewsExpiringToken() async throws {
-        resetAll()
-        defer { resetAll() }
-
         let calls = AtomicCounter()
         let center = NotificationCenter()
         let observed = ObservedTokens()
@@ -355,10 +353,11 @@ struct AppCheckUnitTests {
 
     @Test("Bridge providers send appCheck.getToken, appCheck.getLimitedUseToken, attach opWithAppCheck, and map errors to AppCheckErrorCode")
     func bridgeWireOperationsAndErrorMapping() async throws {
-        resetAll()
-        defer { resetAll() }
+        try await FirebaseGlobalTestGate.shared.withExclusiveAccess {
+            AppCheck.reset()
+            defer { AppCheck.reset() }
 
-        let mintCounter = AtomicCounter()
+            let mintCounter = AtomicCounter()
         let channel = MockAppCheckBridgeChannel { frame, transport in
             let type = frame["type"]?.stringValue
             if type == "attach" {
@@ -477,5 +476,6 @@ struct AppCheckUnitTests {
         #expect(nsUnavailable.code == AppCheckErrorCode.serverUnreachable.rawValue)
 
         await bridge.disconnect()
+        }
     }
 }

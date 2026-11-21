@@ -6,48 +6,66 @@ import Testing
 import Combine
 #endif
 
-@Suite("auth-swift Conformance Suite")
+@Suite("auth-swift Conformance Suite", .serialized)
 struct AuthConformanceTests {
 
     // ── 1. Auth: Instance & Lifecycle (Rows 1–5) ──────────────────────────────
-    @Test func `auth-swift#1: Auth.auth() returns default instance`() {
-        let auth = Auth.auth()
-        #expect(auth.app.name == "[DEFAULT]")
+    @Test func `auth-swift#1: Auth.auth() returns default instance`() async {
+        await FirebaseGlobalTestGate.shared.withExclusiveAccess {
+            Auth.reset()
+            FirebaseApp.resetAppsForTesting()
+            defer {
+                Auth.reset()
+                FirebaseApp.resetAppsForTesting()
+            }
+            let auth = Auth.auth()
+            #expect(auth.app.name == "[DEFAULT]")
+        }
     }
 
-    @Test func `auth-swift#2: Auth.auth(app:) returns instance for specific FirebaseApp`() {
-        let app = FirebaseApp(name: "custom-app-\(UUID().uuidString)")
-        let auth = Auth.auth(app: app)
-        #expect(auth.app.name == app.name)
+    @Test func `auth-swift#2: Auth.auth(app:) returns instance for specific FirebaseApp`() async {
+        await FirebaseGlobalTestGate.shared.withExclusiveAccess {
+            let app = FirebaseApp(name: "custom-app-\(UUID().uuidString)")
+            let auth = Auth.auth(app: app)
+            #expect(auth.app.name == app.name)
+        }
     }
 
-    @Test func `auth-swift#3: Auth.reset() resets cached instances`() {
-        let app = FirebaseApp(name: "reset-app-\(UUID().uuidString)")
-        let auth1 = Auth.auth(app: app)
-        Auth.reset()
-        let auth2 = Auth.auth(app: app)
-        #expect(auth1 !== auth2)
+    @Test func `auth-swift#3: Auth.reset() resets cached instances`() async {
+        await FirebaseGlobalTestGate.shared.withExclusiveAccess {
+            defer { Auth.reset() }
+            let app = FirebaseApp(name: "reset-app-\(UUID().uuidString)")
+            let auth1 = Auth.auth(app: app)
+            Auth.reset()
+            let auth2 = Auth.auth(app: app)
+            #expect(auth1 !== auth2)
+        }
     }
 
-    @Test func `auth-swift#4: Auth.app returns associated FirebaseApp`() {
-        let app = FirebaseApp(name: "app-prop-test")
-        let auth = Auth.auth(app: app)
-        #expect(auth.app.name == "app-prop-test")
+    @Test func `auth-swift#4: Auth.app returns associated FirebaseApp`() async {
+        await FirebaseGlobalTestGate.shared.withExclusiveAccess {
+            let appName = "app-prop-test-\(UUID().uuidString)"
+            let app = FirebaseApp(name: appName)
+            let auth = Auth.auth(app: app)
+            #expect(auth.app.name == appName)
+        }
     }
 
     @Test func `auth-swift#5: Auth.useEmulator(withHost:port:) configures live Pyric emulator endpoint`() async {
-        let app = FirebaseApp(name: "emulator-test-\(UUID().uuidString)")
-        let auth = Auth.auth(app: app)
-        let firestore = Firestore.firestore(app: app)
-        let registration = firestore.addRulesDenialListener { _ in }
-        defer { registration.remove() }
-        auth.useEmulator(withHost: "127.0.0.1", port: 9099)
-        let endpoint = await auth.bridgeClient.endpoint
-        let firestoreEndpoint = await firestore.bridgeClient.endpoint
-        #expect(endpoint.host == "127.0.0.1")
-        #expect(endpoint.port == 9099)
-        #expect(endpoint.path == "/__pyric/sandbox")
-        #expect(firestoreEndpoint == endpoint)
+        await FirebaseGlobalTestGate.shared.withExclusiveAccess {
+            let app = FirebaseApp(name: "emulator-test-\(UUID().uuidString)")
+            let auth = Auth.auth(app: app)
+            let firestore = Firestore.firestore(app: app)
+            let registration = firestore.addRulesDenialListener { _ in }
+            defer { registration.remove() }
+            auth.useEmulator(withHost: "127.0.0.1", port: 9099)
+            let endpoint = await auth.bridgeClient.endpoint
+            let firestoreEndpoint = await firestore.bridgeClient.endpoint
+            #expect(endpoint.host == "127.0.0.1")
+            #expect(endpoint.port == 9099)
+            #expect(endpoint.path == "/__pyric/sandbox")
+            #expect(firestoreEndpoint == endpoint)
+        }
     }
 
     // ── 2. Auth: Authentication Operations (Rows 6–13) ────────────────────────
@@ -515,10 +533,12 @@ struct AuthConformanceTests {
         #expect(second == .admin)
     }
 
-    @Test func `auth-swift#51: FirebaseAuthBootstrap.initialize registers provider`() {
-        FirebaseAuthBootstrap.initialize()
-        let provider = AuthCredentialProviderRegistry.resolve(app: FirebaseApp.app())
-        #expect(provider != nil)
+    @Test func `auth-swift#51: FirebaseAuthBootstrap.initialize registers provider`() async {
+        await FirebaseGlobalTestGate.shared.withExclusiveAccess {
+            FirebaseAuthBootstrap.initialize()
+            let provider = AuthCredentialProviderRegistry.resolve(app: FirebaseApp.app())
+            #expect(provider != nil)
+        }
     }
 
     @Test func `auth-swift#52: SnapshotSubscriptionCoordinator re-subscription coupling`() async throws {

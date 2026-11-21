@@ -9,12 +9,28 @@ struct RtdbConformanceTests {
 
     // ── 1. Database Instance & Connection (5 rows) ────────────────────────────
     @Test func `rtdb-swift#instance-default: Database.database() returns default instance`() async throws {
-        let db = Database.database()
-        #expect(db.url == "https://default.firebaseio.com")
+        await FirebaseGlobalTestGate.shared.withExclusiveAccess {
+            Database.reset()
+            FirebaseApp.resetAppsForTesting()
+            defer {
+                Database.reset()
+                FirebaseApp.resetAppsForTesting()
+            }
+            let db = Database.database()
+            #expect(db.url == "https://default.firebaseio.com")
+        }
     }
     @Test func `rtdb-swift#instance-url: Database.database(url:) returns custom URL instance`() async throws {
-        let db = Database.database(url: "https://custom-rtdb.firebaseio.com")
-        #expect(db.url == "https://custom-rtdb.firebaseio.com")
+        await FirebaseGlobalTestGate.shared.withExclusiveAccess {
+            Database.reset()
+            FirebaseApp.resetAppsForTesting()
+            defer {
+                Database.reset()
+                FirebaseApp.resetAppsForTesting()
+            }
+            let db = Database.database(url: "https://custom-rtdb.firebaseio.com")
+            #expect(db.url == "https://custom-rtdb.firebaseio.com")
+        }
     }
     @Test func `rtdb-swift#ref-root: Database.reference() returns root reference`() async throws {
         let harness = try await RtdbTestHarness.create()
