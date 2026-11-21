@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.google.firebase.Firebase
 import com.google.firebase.FirebaseApp
+import com.google.firebase.FirebaseException
 import com.google.firebase.FirebaseOptions
 import com.google.firebase.auth.EmailAuthProvider
 import com.google.firebase.auth.FirebaseAuth
@@ -57,6 +58,7 @@ internal fun verifyLocalRobolectricAuthWave4Smoke(context: Context) {
         assertEquals("google.com", googleCred.provider)
         assertEquals("google.com", googleCred.signInMethod)
 
+        @Suppress("DEPRECATION")
         val githubCred = OAuthProvider.getCredential(
             "github.com",
             "synthetic-gh-id",
@@ -73,6 +75,20 @@ internal fun verifyLocalRobolectricAuthWave4Smoke(context: Context) {
         assertEquals("apple.com", appleCred.provider)
         assertEquals("synthetic-apple-id", appleCred.idToken)
         assertEquals("synthetic-apple-access", appleCred.accessToken)
+
+        val collisionCaptured = captureWave4AuthFailure {
+            throw FirebaseAuthUserCollisionException("ERROR_CREDENTIAL_ALREADY_IN_USE", "Credential in use")
+        }
+        assertEquals(true, collisionCaptured.getBoolean("threw"))
+        assertEquals(true, collisionCaptured.getBoolean("isCollisionSubclass"))
+        assertEquals("ERROR_CREDENTIAL_ALREADY_IN_USE", collisionCaptured.getString("errorCode"))
+
+        val alreadyLinkedCaptured = captureWave4AuthFailure {
+            throw FirebaseException("User has already been linked to the given provider.")
+        }
+        assertEquals(true, alreadyLinkedCaptured.getBoolean("threw"))
+        assertEquals("FirebaseException", alreadyLinkedCaptured.getString("exceptionClass"))
+        assertEquals(true, alreadyLinkedCaptured.getBoolean("alreadyLinkedProviderMessage"))
     } finally {
         runCatching { namedApp.delete() }
         if (createdDefaultApp) {
@@ -156,18 +172,36 @@ internal fun runAuthInstanceLinkingReauthAndOauthCredentialsProbe(config: JSONOb
         flushCleanupUidsSidecar(cleanupUidsPath, createdUids)
         auth.signOut()
 
+        val collisionAnonResult = awaitFirebaseTask(
+            auth.signInAnonymously(),
+            "auth.wave4.signInCollisionAnon"
+        )
+        val collisionAnonUser = requireNotNull(collisionAnonResult.user)
+        createdUids.add(collisionAnonUser.uid)
+        flushCleanupUidsSidecar(cleanupUidsPath, createdUids)
+
+        val collisionOutcome = captureWave4AuthFailure {
+            awaitFirebaseTask(
+                collisionAnonUser.linkWithCredential(
+                    EmailAuthProvider.getCredential(collisionEmail, initialPassword)
+                ),
+                "auth.wave4.linkCollision"
+            )
+        }
+        auth.signOut()
+
         val reloginResult = awaitFirebaseTask(
             auth.signInWithEmailAndPassword(upgradeEmail, initialPassword),
             "auth.wave4.signInLinkedUser"
         )
         val activeLinkedUser = requireNotNull(reloginResult.user)
 
-        val collisionOutcome = captureWave4AuthFailure {
+        val alreadyLinkedProviderOutcome = captureWave4AuthFailure {
             awaitFirebaseTask(
                 activeLinkedUser.linkWithCredential(
                     EmailAuthProvider.getCredential(collisionEmail, initialPassword)
                 ),
-                "auth.wave4.linkCollision"
+                "auth.wave4.alreadyLinkedProvider"
             )
         }
 
@@ -209,6 +243,7 @@ internal fun runAuthInstanceLinkingReauthAndOauthCredentialsProbe(config: JSONOb
             "synthetic-google-id-token",
             "synthetic-google-access-token"
         )
+        @Suppress("DEPRECATION")
         val githubCredential = OAuthProvider.getCredential(
             "github.com",
             "synthetic-github-id-token",
@@ -250,6 +285,7 @@ internal fun runAuthInstanceLinkingReauthAndOauthCredentialsProbe(config: JSONOb
             .put("linkedPhoneNumberNull", linkedPhoneNumberNull)
             .put("linkedProviderEntries", linkedProviderEntries)
             .put("linkCollision", collisionOutcome)
+            .put("alreadyLinkedProvider", alreadyLinkedProviderOutcome)
             .put("reauthenticatePreservedUid", reauthSameUid)
             .put("updatedPasswordCredentialSameUid", updatedPasswordSameUid)
             .put("unlinkedProviderIds", unlinkedProviderIds)
@@ -305,5 +341,14 @@ private inline fun captureWave4AuthFailure(block: () -> Unit): JSONObject {
             .put("exceptionClass", err.javaClass.simpleName)
             .put("isCollisionSubclass", false)
             .put("errorCode", err.errorCode)
+    } catch (err: FirebaseException) {
+        JSONObject()
+            .put("threw", true)
+            .put("exceptionClass", err.javaClass.simpleName)
+            .put("isCollisionSubclass", false)
+            .put(
+                "alreadyLinkedProviderMessage",
+                err.message?.contains("already been linked", ignoreCase = true) == true
+            )
     }
 }
