@@ -12,6 +12,7 @@
     "rtdb-kotlin#write-set-null",
     "rtdb-kotlin#write-set-priority",
     "rtdb-kotlin#write-set-with-priority",
+    "rtdb-kotlin#snap-priority",
     "rtdb-kotlin#sentinel-timestamp"
   ],
   "description": "Upstream Android FirebaseDatabase default/named getInstance and Firebase.database parity, DatabaseReference root/parent/key/path navigation, monotonic 20-char push() keys, ServerValue.TIMESTAMP, setPriority, setValue(value, priority), setValue(null) deletion, and DataSnapshot value/priority runtime classes under Robolectric.",
