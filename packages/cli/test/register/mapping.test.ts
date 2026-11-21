@@ -203,7 +203,7 @@ describe('mapFirebaseSpecifier under a remote activation (#1082)', () => {
   it('sends the client SDKs the Node host serves to its Node client', () => {
     for (const sandbox of remoteSettings) {
       expect(mapFirebaseSpecifier('firebase/app', undefined, { sandbox }), sandbox).toBe('@pyric/cli/register/client/app');
-      for (const service of ['database', 'firestore', 'auth', 'storage']) {
+      for (const service of ['database', 'firestore', 'auth', 'storage', 'functions']) {
         expect(mapFirebaseSpecifier(`firebase/${service}`, undefined, { sandbox }), `${sandbox} ${service}`)
           .toBe(`@pyric/cli/register/client/${service}`);
       }
@@ -214,7 +214,6 @@ describe('mapFirebaseSpecifier under a remote activation (#1082)', () => {
     const sandbox = 'remote';
     expect(mapFirebaseSpecifier('firebase/ai', undefined, { sandbox })).toBe('pyric/ai');
     expect(mapFirebaseSpecifier('firebase/messaging', undefined, { sandbox })).toBe('pyric/messaging');
-    expect(mapFirebaseSpecifier('firebase/functions', undefined, { sandbox })).toBe('pyric/functions');
     expect(mapFirebaseSpecifier('firebase/firestore/lite', undefined, { sandbox })).toBe('pyric/firestore/lite');
     expect(mapFirebaseSpecifier('firebase-admin/database', undefined, { sandbox })).toBe('pyric-admin/database');
   });

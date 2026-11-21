@@ -16,11 +16,11 @@ import surfaceContractJsonSchema from '../../schemas/surface-contract.v2.schema.
 
 describe('machine-readable surface contracts', () => {
   it('loads every authored contract through one schema-validated seam', () => {
-    expect(surfaceContracts).toHaveLength(31);
+    expect(surfaceContracts).toHaveLength(32);
     expect(surfaceContracts.map(({ key }) => key)).toEqual(surfaceContracts.map(({ key }) => key).toSorted());
     expect(surfaceContracts.every(({ record }) => !('order' in record))).toBe(true);
     expect(surfaceDescriptors).toHaveLength(30);
-    expect(loadCensusPairs()).toHaveLength(9);
+    expect(loadCensusPairs()).toHaveLength(10);
     expect(loadSurfaceDispositions()).toHaveLength(32);
   });
 

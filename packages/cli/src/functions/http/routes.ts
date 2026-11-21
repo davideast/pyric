@@ -6,7 +6,7 @@
  */
 import type { HttpFunctionInfo } from './discovery.js';
 
-export interface AmbiguousRunService {
+interface AmbiguousRunService {
   service: string;
   exports: string[];
 }

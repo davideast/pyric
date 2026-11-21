@@ -24,6 +24,7 @@ import { initializeSandbox, type Sandbox } from 'pyric/sandbox';
 let sandbox: Sandbox;
 
 beforeEach(() => {
+  resetAppRegistryForTests();
   sandbox = initializeSandbox();
   bindAppRegistrySandbox(sandbox);
   resetConnectFunctionsEmulatorWarningForTests();

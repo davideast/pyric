@@ -72,7 +72,8 @@ interface BrowserPlane extends Plane {
   page: Page;
 }
 
-let browserPlane: Promise<BrowserPlane> | undefined;
+let nonHostedPlane: Promise<Plane> | undefined;
+let browserPlane: Promise<BrowserPlane | null> | undefined;
 let hostedPlane: Promise<Plane> | undefined;
 
 async function waitFor<T>(
@@ -160,10 +161,20 @@ async function waitForReady(url: string): Promise<void> {
   if (!ready) throw new Error('pyricCallableEcho did not answer 200');
 }
 
-async function getBrowserPlane(): Promise<BrowserPlane> {
+function getNonHostedPlane(): Promise<Plane> {
+  if (nonHostedPlane === undefined) {
+    nonHostedPlane = startPlane('browser', []);
+  }
+  return nonHostedPlane;
+}
+
+async function getBrowserPlane(): Promise<BrowserPlane | null> {
+  if (!existsSync(chromium.executablePath())) {
+    return null;
+  }
   if (browserPlane === undefined) {
     browserPlane = (async () => {
-      const plane = await startPlane('browser', []);
+      const plane = await getNonHostedPlane();
       const browser = await chromium.launch({ headless: true });
       const context = await browser.newContext();
       await context.addInitScript((token: string) => {
@@ -196,27 +207,31 @@ async function getHostedPlane(): Promise<Plane> {
   return hostedPlane;
 }
 
-async function runOnBothPlanes(
+async function runOnAvailablePlanes(
   scenario: string,
   buildInput: (origin: string) => Record<string, unknown>,
-): Promise<{ page: Record<string, unknown>; hosted: Record<string, unknown> }> {
+): Promise<Array<Record<string, unknown>>> {
+  const results: Array<Record<string, unknown>> = [];
   const browser = await getBrowserPlane();
-  const pageJson = await browser.page.evaluate(
-    async ([name, cfg, inp]) => {
-      const ns = (
-        globalThis as unknown as {
-          functionsCallableProbes: Record<
-            string,
-            (c: unknown, i: unknown) => Promise<Record<string, unknown>>
-          >;
-        }
-      ).functionsCallableProbes;
-      const fn = ns[name];
-      if (!fn) throw new Error(`missing scenario ${name}`);
-      return JSON.stringify(await fn(cfg, inp));
-    },
-    [scenario, WEB_CONFIG, buildInput(browser.url)] as const,
-  );
+  if (browser !== null) {
+    const pageJson = await browser.page.evaluate(
+      async ([name, cfg, inp]) => {
+        const ns = (
+          globalThis as unknown as {
+            functionsCallableProbes: Record<
+              string,
+              (c: unknown, i: unknown) => Promise<Record<string, unknown>>
+            >;
+          }
+        ).functionsCallableProbes;
+        const fn = ns[name];
+        if (!fn) throw new Error(`missing scenario ${name}`);
+        return JSON.stringify(await fn(cfg, inp));
+      },
+      [scenario, WEB_CONFIG, buildInput(browser.url)] as const,
+    );
+    results.push(JSON.parse(pageJson) as Record<string, unknown>);
+  }
 
   const host = await getHostedPlane();
   const child = spawn(
@@ -251,10 +266,8 @@ async function runOnBothPlanes(
   if (!match || !match[1]) {
     throw new Error(`registered process failed on ${scenario}:\n${out}`);
   }
-  return {
-    page: JSON.parse(pageJson) as Record<string, unknown>,
-    hosted: JSON.parse(match[1]) as Record<string, unknown>,
-  };
+  results.push(JSON.parse(match[1]) as Record<string, unknown>);
+  return results;
 }
 
 afterAll(async () => {
@@ -262,8 +275,9 @@ afterAll(async () => {
   if (browser) {
     await browser.browser.close().catch(() => undefined);
   }
+  const nonHosted = await nonHostedPlane?.catch(() => undefined);
   const hosted = await hostedPlane?.catch(() => undefined);
-  for (const plane of [browser, hosted]) {
+  for (const plane of [nonHosted, hosted]) {
     const pid = plane?.command.pid;
     let children: number[] = [];
     if (pid !== undefined) {
@@ -283,15 +297,15 @@ afterAll(async () => {
 
 describe('functions-callable client probes on browser page and registered Node host', () => {
   test('encoding, errors, fromUrl, and customDomain match across page and Node host', async () => {
-    const encoding = await runOnBothPlanes('encoding', () => ({ region: REGION }));
-    for (const facts of [encoding.page, encoding.hosted]) {
+    const encoding = await runOnAvailablePlanes('encoding', () => ({ region: REGION }));
+    for (const facts of encoding) {
       expect((facts.nan as { threw: boolean }).threw).toBe(true);
       expect((facts.infinity as { threw: boolean }).threw).toBe(true);
       expect((facts.sent as { threw: boolean }).threw).toBe(false);
     }
 
-    const errors = await runOnBothPlanes('errors', () => ({ region: REGION }));
-    for (const facts of [errors.page, errors.hosted]) {
+    const errors = await runOnAvailablePlanes('errors', () => ({ region: REGION }));
+    for (const facts of errors) {
       expect(facts.isFunctionsErrorName).toBe('FirebaseError');
       const missingFn = facts.missingFunction as {
         threw: boolean;
@@ -303,30 +317,30 @@ describe('functions-callable client probes on browser page and registered Node h
       expect(missingFn.customDataKeys).toEqual(['url']);
     }
 
-    const fromUrl = await runOnBothPlanes('fromUrl', () => ({
+    const fromUrl = await runOnAvailablePlanes('fromUrl', () => ({
       region: REGION,
       urls: {
         cloudfunctions: `https://${REGION}-${PROJECT_ID}.cloudfunctions.net/pyricCallableEcho`,
         run: 'https://pyriccallableecho-pyric-uc.a.run.app',
       },
     }));
-    for (const facts of [fromUrl.page, fromUrl.hosted]) {
+    for (const facts of fromUrl) {
       expect((facts.cloudfunctions as { threw: boolean }).threw).toBe(false);
       expect((facts.run as { threw: boolean }).threw).toBe(false);
     }
 
-    const customDomain = await runOnBothPlanes('customDomain', (origin) => ({
+    const customDomain = await runOnAvailablePlanes('customDomain', (origin) => ({
       region: REGION,
       customDomain: origin,
     }));
-    for (const facts of [customDomain.page, customDomain.hosted]) {
+    for (const facts of customDomain) {
       expect((facts.call as { threw: boolean }).threw).toBe(false);
     }
   }, 120_000);
 
   test('limitedUse, stream, and signedIn match across page and Node host', async () => {
-    const limitedUse = await runOnBothPlanes('limitedUse', () => ({ region: REGION }));
-    for (const facts of [limitedUse.page, limitedUse.hosted]) {
+    const limitedUse = await runOnAvailablePlanes('limitedUse', () => ({ region: REGION }));
+    for (const facts of limitedUse) {
       const first = facts.limitedFirst as { value?: { data?: { app?: { alreadyConsumed?: boolean } } } };
       const second = facts.limitedSecond as { value?: { data?: { app?: { alreadyConsumed?: boolean } } } };
       const cachedSecond = facts.cachedSecond as { value?: { data?: { app?: { alreadyConsumed?: boolean } } } };
@@ -335,8 +349,8 @@ describe('functions-callable client probes on browser page and registered Node h
       expect(cachedSecond.value?.data?.app?.alreadyConsumed).toBe(true);
     }
 
-    const stream = await runOnBothPlanes('stream', () => ({ region: REGION }));
-    for (const facts of [stream.page, stream.hosted]) {
+    const stream = await runOnAvailablePlanes('stream', () => ({ region: REGION }));
+    for (const facts of stream) {
       const ok = facts.chunks as { value?: { chunks?: unknown[]; result?: { value?: { acceptsStreaming?: boolean } } } };
       expect(ok.value?.chunks).toEqual(['one', 'two', 'three']);
       expect(ok.value?.result?.value?.acceptsStreaming).toBe(true);
@@ -354,11 +368,11 @@ describe('functions-callable client probes on browser page and registered Node h
       expect(failing.value?.result?.code).toBe('functions/failed-precondition');
     }
 
-    const signedIn = await runOnBothPlanes('signedIn', () => ({
+    const signedIn = await runOnAvailablePlanes('signedIn', () => ({
       region: REGION,
       customToken: CUSTOM_TOKEN,
     }));
-    for (const facts of [signedIn.page, signedIn.hosted]) {
+    for (const facts of signedIn) {
       const v2 = facts.v2 as { value?: { data?: { auth?: { present?: boolean } } } };
       const v1 = facts.v1 as { value?: { data?: { auth?: { present?: boolean } } } };
       const signedOut = facts.signedOut as { value?: { data?: { auth?: { present?: boolean } } } };
@@ -369,7 +383,7 @@ describe('functions-callable client probes on browser page and registered Node h
   }, 120_000);
 
   test('refuses a registered Node process targeting a non-hosted browser plane (offHostRefusal)', async () => {
-    const browser = await getBrowserPlane();
+    const nonHosted = await getNonHostedPlane();
     const child = spawn(
       'node',
       [
@@ -378,11 +392,11 @@ describe('functions-callable client probes on browser page and registered Node h
         'callable-runner.mjs',
         'customDomain',
         JSON.stringify(WEB_CONFIG),
-        JSON.stringify({ region: REGION, customDomain: browser.url }),
+        JSON.stringify({ region: REGION, customDomain: nonHosted.url }),
       ],
       {
-        cwd: browser.cwd,
-        env: { ...process.env, PYRIC_SANDBOX: `remote:${browser.url}` },
+        cwd: nonHosted.cwd,
+        env: { ...process.env, PYRIC_SANDBOX: `remote:${nonHosted.url}` },
         stdio: ['ignore', 'pipe', 'pipe'],
       },
     );
