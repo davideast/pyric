@@ -1,6 +1,4 @@
-import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'bun:test';
@@ -33,6 +31,10 @@ import { loadPendingRowLinkObservations } from '../../src/staged-captures.ts';
 import { validateCompatibilityRegistry } from '../../src/validate-registry.ts';
 import { surfaceDescriptors } from '../../surfaces/load.ts';
 import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
+import {
+  expectSwiftFilesParseCleanly,
+  SWIFT_SYNTAX_PARSE_TEST_TIMEOUT_MS,
+} from './swift-syntax-parse.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CONFORMANCE_ROOT = resolve(HERE, '..', '..');
@@ -54,26 +56,6 @@ const SYNTHETIC_SERVICE_ACCOUNT: OracleServiceAccount = {
     getAccessToken: async () => ({ access_token: 'synthetic-token', expires_in: 3600 }),
   },
 };
-
-function detectSwiftFrontendForParse(): string | null {
-  const localFrontend = join(homedir(), '.local', 'swift', 'usr', 'bin', 'swift-frontend');
-  if (existsSync(localFrontend)) {
-    return localFrontend;
-  }
-  const pathFrontend = Bun.which('swift-frontend');
-  if (pathFrontend !== null) {
-    return pathFrontend;
-  }
-  const swiftc = Bun.which('swiftc');
-  if (swiftc !== null) {
-    const siblingFrontend = join(dirname(realpathSync(swiftc)), 'swift-frontend');
-    if (existsSync(siblingFrontend)) {
-      return siblingFrontend;
-    }
-    return swiftc;
-  }
-  return null;
-}
 
 describe('Wave 4 ios-sdk-probes auth-swift and rtdb-swift oracle probes', () => {
   it('wires Wave 4 Auth and RTDB descriptors, Swift runner dispatch arms, and PR #1 / PR #2 registry cleanliness', async () => {
@@ -196,7 +178,7 @@ describe('Wave 4 ios-sdk-probes auth-swift and rtdb-swift oracle probes', () => 
 
   it(
     'verifies Wave 4 Swift API coverage, zero email-sending calls, immediate UID flush, and Swift syntax parsing',
-    () => {
+    async () => {
       const authWave4Swift = readFileSync(
         join(AUTH_SIM_DIR, 'Sources', 'PyricIosAuthOracle', 'AuthWave4LinkingAndOAuthProbes.swift'),
         'utf8',
@@ -277,54 +259,45 @@ describe('Wave 4 ios-sdk-probes auth-swift and rtdb-swift oracle probes', () => 
       expect(rtdbLiveSwift).toContain('onDisconnectRemoveValue');
       expect(rtdbLiveSwift).toContain('cancelDisconnectOperations');
 
-      const swiftParser = detectSwiftFrontendForParse();
-      if (swiftParser !== null) {
-        const authSwiftFiles = [
-          join(AUTH_SIM_DIR, 'Package.swift'),
-          join(AUTH_SIM_DIR, 'Sources', 'PyricIosAuthOracle', 'AuthOracleProbeRunner.swift'),
-          join(
-            AUTH_SIM_DIR,
-            'Sources',
-            'PyricIosAuthOracle',
-            'AuthEmailPasswordAndProfileProbes.swift',
-          ),
-          join(
-            AUTH_SIM_DIR,
-            'Sources',
-            'PyricIosAuthOracle',
-            'AuthWave4LinkingAndOAuthProbes.swift',
-          ),
-          join(AUTH_SIM_DIR, 'Tests', 'AuthOracleSimTests', 'AuthOracleSimTests.swift'),
-        ];
-        const authParseRes = spawnSync(swiftParser, ['-parse', ...authSwiftFiles], {
-          encoding: 'utf8',
-        });
-        expect(authParseRes.status, `${authParseRes.stdout}\n${authParseRes.stderr}`).toBe(0);
+      const authSwiftFiles = [
+        join(AUTH_SIM_DIR, 'Package.swift'),
+        join(AUTH_SIM_DIR, 'Sources', 'PyricIosAuthOracle', 'AuthOracleProbeRunner.swift'),
+        join(
+          AUTH_SIM_DIR,
+          'Sources',
+          'PyricIosAuthOracle',
+          'AuthEmailPasswordAndProfileProbes.swift',
+        ),
+        join(
+          AUTH_SIM_DIR,
+          'Sources',
+          'PyricIosAuthOracle',
+          'AuthWave4LinkingAndOAuthProbes.swift',
+        ),
+        join(AUTH_SIM_DIR, 'Tests', 'AuthOracleSimTests', 'AuthOracleSimTests.swift'),
+      ];
+      await expectSwiftFilesParseCleanly(authSwiftFiles);
 
-        const rtdbSwiftFiles = [
-          join(RTDB_CLI_DIR, 'Package.swift'),
-          join(RTDB_CLI_DIR, 'Sources', 'RtdbOracleCLI', 'main.swift'),
-          join(RTDB_CLI_DIR, 'Sources', 'RtdbOracleCLI', 'RtdbWave2Probes.swift'),
-          join(
-            RTDB_CLI_DIR,
-            'Sources',
-            'RtdbOracleCLI',
-            'RtdbWave4NavigationAndSnapshotProbes.swift',
-          ),
-          join(
-            RTDB_CLI_DIR,
-            'Sources',
-            'RtdbOracleCLI',
-            'RtdbWave4ListenersAndOnDisconnectProbes.swift',
-          ),
-        ];
-        const rtdbParseRes = spawnSync(swiftParser, ['-parse', ...rtdbSwiftFiles], {
-          encoding: 'utf8',
-        });
-        expect(rtdbParseRes.status, `${rtdbParseRes.stdout}\n${rtdbParseRes.stderr}`).toBe(0);
-      }
+      const rtdbSwiftFiles = [
+        join(RTDB_CLI_DIR, 'Package.swift'),
+        join(RTDB_CLI_DIR, 'Sources', 'RtdbOracleCLI', 'main.swift'),
+        join(RTDB_CLI_DIR, 'Sources', 'RtdbOracleCLI', 'RtdbWave2Probes.swift'),
+        join(
+          RTDB_CLI_DIR,
+          'Sources',
+          'RtdbOracleCLI',
+          'RtdbWave4NavigationAndSnapshotProbes.swift',
+        ),
+        join(
+          RTDB_CLI_DIR,
+          'Sources',
+          'RtdbOracleCLI',
+          'RtdbWave4ListenersAndOnDisconnectProbes.swift',
+        ),
+      ];
+      await expectSwiftFilesParseCleanly(rtdbSwiftFiles);
     },
-    90_000,
+    SWIFT_SYNTAX_PARSE_TEST_TIMEOUT_MS,
   );
 
   it('forwards Wave 4 child-query RTDB rules, cleans up Wave 4 Auth UIDs on success and failure, and routes macos-latest in planCaptureRun', async () => {
