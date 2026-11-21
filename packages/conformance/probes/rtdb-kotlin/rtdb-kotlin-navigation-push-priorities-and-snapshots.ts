@@ -16,6 +16,7 @@ export const probe: Probe = {
     'rtdb-kotlin#write-set-null',
     'rtdb-kotlin#write-set-priority',
     'rtdb-kotlin#write-set-with-priority',
+    'rtdb-kotlin#snap-priority',
     'rtdb-kotlin#sentinel-timestamp',
   ],
   rig: 'android-sdk-probes',

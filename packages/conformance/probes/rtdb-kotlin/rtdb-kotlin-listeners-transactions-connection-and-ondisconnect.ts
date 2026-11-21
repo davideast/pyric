@@ -10,6 +10,7 @@ export const probe: Probe = {
     'rtdb-kotlin#info-connected',
     'rtdb-kotlin#listen-value',
     'rtdb-kotlin#listen-child-added',
+    'rtdb-kotlin#listen-child-changed',
     'rtdb-kotlin#listen-child-removed',
     'rtdb-kotlin#listen-cancel',
     'rtdb-kotlin#tx-run',

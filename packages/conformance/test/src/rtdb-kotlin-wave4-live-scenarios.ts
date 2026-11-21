@@ -17,8 +17,21 @@ export async function verifyWave4ListenersTransactionsAndOnDisconnect(
     join(KT_MAIN_ROOT, 'dev', 'pyric', 'database', 'internal', 'ConnectionInfo.kt'),
     'utf8',
   );
+  const childEventDiffKt = readFileSync(
+    join(KT_MAIN_ROOT, 'com', 'google', 'firebase', 'database', 'ChildEventDiff.kt'),
+    'utf8',
+  );
+  const queryKt = readFileSync(
+    join(KT_MAIN_ROOT, 'com', 'google', 'firebase', 'database', 'Query.kt'),
+    'utf8',
+  );
   expect(connInfoKt).toContain('state == BridgeConnectionState.ATTACHED && online');
   expect(connInfoKt).toContain('internal const val SERVER_TIME_OFFSET = 0L');
+  expect(queryKt).toContain('diffChildSnapshots(previousChildren, currentList, querySpec)');
+  expect(childEventDiffKt).toContain('indexedSortValueChanged(oldSnap, child, querySpec)');
+  expect(childEventDiffKt.indexOf('ChildEvent.Moved(')).toBeLessThan(
+    childEventDiffKt.indexOf('ChildEvent.Changed('),
+  );
   expect(obs.infoConnectedToggleTrueFalseTrue).toBe(true);
   expect(obs.infoServerTimeOffsetClass).toBe('java.lang.Long');
 
@@ -45,7 +58,7 @@ export async function verifyWave4ListenersTransactionsAndOnDisconnect(
     });
 
     const valueCounts: number[] = [];
-    const addedAndRemovedEvents: string[] = [];
+    const childTimelineEvents: string[] = [];
     const waitTimers = new Set<ReturnType<typeof setTimeout>>();
     let prevEntries: Array<{ key: string; value: unknown }> | null = null;
     let notifyWatch: (() => void) | null = null;
@@ -99,26 +112,43 @@ export async function verifyWave4ListenersTransactionsAndOnDisconnect(
         (raw) => {
           const snap = raw as RtdbWireSnap;
           const current = snap.entries.map((e) => ({ key: e.key, value: e.value }));
+          const prevKeyByChild = new Map<string, string>();
+          let runningPrev = 'null';
+          for (const item of current) {
+            prevKeyByChild.set(item.key, runningPrev);
+            runningPrev = item.key;
+          }
           if (prevEntries === null) {
-            let prevKey = 'null';
             for (const item of current) {
-              addedAndRemovedEvents.push(`added:${item.key}:prev=${prevKey}`);
-              prevKey = item.key;
+              const prevName = prevKeyByChild.get(item.key);
+              childTimelineEvents.push(`added:${item.key}:prev=${String(prevName)}`);
             }
           } else {
-            const currentKeys = new Set(current.map((e) => e.key));
-            const prevKeys = new Set(prevEntries.map((e) => e.key));
+            const currentByKey = new Map(current.map((e) => [e.key, e]));
+            const prevByKey = new Map(prevEntries.map((e) => [e.key, e]));
             for (const oldItem of prevEntries) {
-              if (!currentKeys.has(oldItem.key)) {
-                addedAndRemovedEvents.push(`removed:${oldItem.key}:${String(oldItem.value)}`);
+              if (!currentByKey.has(oldItem.key)) {
+                childTimelineEvents.push(`removed:${oldItem.key}:${String(oldItem.value)}`);
               }
             }
-            let prevKey = 'null';
             for (const item of current) {
-              if (!prevKeys.has(item.key)) {
-                addedAndRemovedEvents.push(`added:${item.key}:prev=${prevKey}`);
+              if (!prevByKey.has(item.key)) {
+                const prevName = prevKeyByChild.get(item.key);
+                childTimelineEvents.push(`added:${item.key}:prev=${String(prevName)}`);
               }
-              prevKey = item.key;
+            }
+            for (const item of current) {
+              const oldItem = prevByKey.get(item.key);
+              if (oldItem !== undefined && oldItem.value !== item.value) {
+                const prevName = prevKeyByChild.get(item.key);
+                childTimelineEvents.push(`moved:${item.key}:prev=${String(prevName)}`);
+              }
+            }
+            for (const item of current) {
+              const oldItem = prevByKey.get(item.key);
+              if (oldItem !== undefined && oldItem.value !== item.value) {
+                childTimelineEvents.push(`changed:${item.key}:${String(item.value)}`);
+              }
             }
           }
           prevEntries = current;
@@ -128,7 +158,7 @@ export async function verifyWave4ListenersTransactionsAndOnDisconnect(
         },
       );
 
-      await waitWatch(() => valueCounts.length >= 1 && addedAndRemovedEvents.length >= 2, 'initial');
+      await waitWatch(() => valueCounts.length >= 1 && childTimelineEvents.length >= 2, 'initial');
       await bridge.sendOpAsSession(observerSession, {
         method: 'rtdb.set',
         instance: DEDICATED_INSTANCE,
@@ -136,7 +166,7 @@ export async function verifyWave4ListenersTransactionsAndOnDisconnect(
         value: 3,
         actAs,
       });
-      await waitWatch(() => addedAndRemovedEvents.includes('added:c:prev=b'), 'added-c');
+      await waitWatch(() => childTimelineEvents.includes('added:c:prev=b'), 'added-c');
 
       await bridge.sendOpAsSession(observerSession, {
         method: 'rtdb.set',
@@ -145,7 +175,12 @@ export async function verifyWave4ListenersTransactionsAndOnDisconnect(
         value: 10,
         actAs,
       });
-      await waitWatch(() => valueCounts.length >= 3, 'updated-a');
+      await waitWatch(
+        () =>
+          childTimelineEvents.includes('moved:a:prev=c') &&
+          childTimelineEvents.includes('changed:a:10'),
+        'updated-a',
+      );
 
       await bridge.sendOpAsSession(observerSession, {
         method: 'rtdb.remove',
@@ -153,25 +188,16 @@ export async function verifyWave4ListenersTransactionsAndOnDisconnect(
         path: `${watchPath}/b`,
         actAs,
       });
-      await waitWatch(() => addedAndRemovedEvents.includes('removed:b:2'), 'removed-b');
+      await waitWatch(() => childTimelineEvents.includes('removed:b:2'), 'removed-b');
 
       expect(valueCounts[0]).toBe(obs.valueListenerInitialCount);
       expect(valueCounts.length >= 3).toBe(obs.valueListenerObservedMutations);
-      expect(obs.childTimeline).toContain('added:a:prev=null');
-      expect(obs.childTimeline).toContain('added:b:prev=a');
-      expect(obs.childTimeline).toContain('added:c:prev=b');
-      expect(obs.childTimeline).toContain('removed:b:2');
-      expect(addedAndRemovedEvents).toEqual([
-        'added:a:prev=null',
-        'added:b:prev=a',
-        'added:c:prev=b',
-        'removed:b:2',
-      ]);
+      expect(childTimelineEvents).toEqual(obs.childTimeline);
 
       bridge.unsubscribeAsSession(observerSession, 'rsub-rtdb-val');
       bridge.unsubscribeAsSession(observerSession, 'rsub-rtdb-child');
       const valCountAtUnsub = valueCounts.length;
-      const childCountAtUnsub = addedAndRemovedEvents.length;
+      const childCountAtUnsub = childTimelineEvents.length;
 
       await bridge.sendOpAsSession(observerSession, {
         method: 'rtdb.set',
@@ -188,7 +214,7 @@ export async function verifyWave4ListenersTransactionsAndOnDisconnect(
       });
       const quiet =
         valueCounts.length === valCountAtUnsub &&
-        addedAndRemovedEvents.length === childCountAtUnsub;
+        childTimelineEvents.length === childCountAtUnsub;
       expect(quiet).toBe(obs.silentAfterRemoveEventListener);
     } finally {
       for (const timer of waitTimers) {

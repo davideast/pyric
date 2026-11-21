@@ -48,6 +48,10 @@ describe('rtdb-kotlin Wave 4 Android SDK production observation replay over host
       join(KT_MAIN_ROOT, 'com', 'google', 'firebase', 'database', 'DataSnapshot.kt'),
       'utf8',
     );
+    const mutableDataKt = readFileSync(
+      join(KT_MAIN_ROOT, 'com', 'google', 'firebase', 'database', 'MutableData.kt'),
+      'utf8',
+    );
 
     expect(dbKtxKt).toContain('get() = FirebaseDatabase.getInstance()');
     expect(obs.defaultInstanceMatchesFirebaseKtx).toBe(true);
@@ -68,6 +72,13 @@ describe('rtdb-kotlin Wave 4 Android SDK production observation replay over host
     expect(obs.normalizedRelativePathSuffixMatches).toBe(true);
     expect(pushKt).toContain('val id = StringBuilder(20)');
     expect(snapKt).toContain('is Int -> raw.toLong()');
+    expect(snapKt).toContain('priority = normalizeRtdbPriority(priority)');
+    expect(snapKt).toContain('exportValue = normalizeRtdbExportValue(exportValue)');
+    expect(snapKt).toContain('internal fun normalizeRtdbPriority(raw: Any?): Any?');
+    expect(snapKt).toContain('is Number -> raw.toDouble()');
+    expect(mutableDataKt).toContain(
+      'var priority: Any? = DataSnapshot.normalizeRtdbPriority(initialPriority)',
+    );
     expect(obs.integralValueClass).toBe('java.lang.Long');
     expect(obs.stringValueClass).toBe('java.lang.String');
     expect(obs.floatingValueClass).toBe('java.lang.Double');
@@ -220,9 +231,12 @@ describe('rtdb-kotlin Wave 4 Android SDK production observation replay over host
       );
 
       expect(pSecondSnap.value).toBe(obs.setPriorityPreservedValue);
+      expect(typeof pSecondSnap.priority).toBe('number');
       expect(pSecondSnap.priority).toBe(obs.setPriorityNumericValue);
       expect(obs.setPriorityNumericClass).toBe('java.lang.Double');
+      expect(typeof pFirstSnap.priority).toBe('number');
       expect(pFirstSnap.priority).toBe(obs.setValueWithNumericPriority);
+      expect(typeof pThirdSnap.priority).toBe('string');
       expect(pThirdSnap.priority).toBe(obs.setValueWithStringPriority);
       expect(obs.setValueWithStringPriorityClass).toBe('java.lang.String');
       expect(prioGroupSnap.entries.map((e) => e.value)).toEqual(obs.defaultPriorityOrderedValues);

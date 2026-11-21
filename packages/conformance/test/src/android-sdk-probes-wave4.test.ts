@@ -96,11 +96,11 @@ describe('Wave 4 android-sdk-probes auth-kotlin and rtdb-kotlin Robolectric prob
       expect(descriptor.requires).toEqual(['web-config', 'dedicated-rtdb', 'admin-auth']);
     }
     expect(rtdbWave4NavProbe.matrixRow).toBe('rtdb-kotlin#ref-push');
-    expect(rtdbWave4NavProbe.rowIds.length).toBe(11);
+    expect(rtdbWave4NavProbe.rowIds.length).toBe(12);
     expect(rtdbWave4QueriesProbe.matrixRow).toBe('rtdb-kotlin#query-order-by-key');
     expect(rtdbWave4QueriesProbe.rowIds.length).toBe(5);
     expect(rtdbWave4LiveProbe.matrixRow).toBe('rtdb-kotlin#tx-run');
-    expect(rtdbWave4LiveProbe.rowIds.length).toBe(10);
+    expect(rtdbWave4LiveProbe.rowIds.length).toBe(11);
 
     const loaded = await loadModularProbes('android-sdk-probes');
     const loadedIds = new Set(loaded.map((entry) => entry.id));

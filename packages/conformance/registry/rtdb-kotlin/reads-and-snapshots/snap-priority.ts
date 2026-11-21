@@ -7,5 +7,6 @@ export default row({
   behavior: 'Returns the priority value (String, Number, or null) associated with the snapshot node.',
   featureKeys: ['priority'],
   status: 'conforms',
+  oracleObservations: ['rtdb-kotlin-navigation-push-priorities-and-snapshots'],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

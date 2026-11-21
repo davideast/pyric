@@ -7,5 +7,6 @@ export default row({
   behavior: 'Emits ChildEvent.Changed whenever an existing child node is modified.',
   featureKeys: ['onChildChanged'],
   status: 'conforms',
+  oracleObservations: ['rtdb-kotlin-listeners-transactions-connection-and-ondisconnect'],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });
