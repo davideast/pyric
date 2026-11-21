@@ -11,7 +11,7 @@ beforeAll(async () => {
 describe('Firebase public-surface census', () => {
   const expectedCounts = {
     ai: { runtime: [48, 41, 0], types: [159, 112] },
-    app: { runtime: [10, 9, 13], types: [6, 4] },
+    app: { runtime: [10, 9, 13], types: [6, 6] },
     // pyric/app-check is a deferred stub: every name resolves and throws, so the
     // census credits all 8 runtime names. Coverage is off in surfaces/app-check.json.
     'app-check': { runtime: [8, 8, 0], types: [11, 11] },
@@ -20,8 +20,8 @@ describe('Firebase public-surface census', () => {
     functions: { runtime: [5, 5, 0], types: [9, 9] },
     database: { runtime: [44, 44, 10], types: [15, 15] },
     storage: { runtime: [18, 16, 9], types: [17, 13] },
-    messaging: { runtime: [9, 5, 0], types: [9, 8] },
-    'messaging-sw': { runtime: [6, 4, 0], types: [9, 8] },
+    messaging: { runtime: [9, 5, 0], types: [9, 9] },
+    'messaging-sw': { runtime: [6, 4, 0], types: [9, 9] },
   } as const;
 
   it('pins public runtime and type denominators for every mirrored Firebase entry point', () => {
@@ -91,8 +91,8 @@ describe('Firebase public-surface census', () => {
   it('tracks the public App type surface independently', async () => {
     const app = census.find((surface) => surface.surface === 'app')!;
     expect(app.types.upstreamCount).toBe(6);
-    expect(app.types.mapped).toHaveLength(4);
-    expect(app.types.unmapped).toEqual(['FirebaseServerApp', 'FirebaseServerAppSettings']);
+    expect(app.types.mapped).toHaveLength(6);
+    expect(app.types.unmapped).toEqual([]);
   });
 
   it('never credits pyric-only exports toward Firebase coverage', async () => {

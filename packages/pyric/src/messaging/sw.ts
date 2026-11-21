@@ -1,12 +1,12 @@
 /**
- * `pyric/messaging/sw` — the `firebase/messaging/sw` (service-worker) mirror
+ * `pyric/messaging/sw` -- the `firebase/messaging/sw` (service-worker) mirror
  * over the sandbox {@link MessagingBroker}. Surface `messaging`, rows
- * `messaging#13`–`messaging#17` in `packages/conformance/registry/messaging.ts`.
+ * `messaging#13`-`messaging#17` in `packages/conformance/registry/messaging.ts`.
  *
  * MODULE BOUNDARY (row messaging#17): this entry exports
  * `onBackgroundMessage` / `getMessaging` / the BigQuery metrics toggle /
  * `isSupported` and does NOT export `getToken` / `deleteToken` / `onMessage`
- * — those live in `pyric/messaging`, the mirror image. Both entries
+ * -- those live in `pyric/messaging`, the mirror image. Both entries
  * re-export identical shared type declarations, and both bind to the SAME
  * per-sandbox broker (production's one-service-worker-per-origin model), so
  * routing between the two planes is a single visibility decision.
@@ -33,6 +33,7 @@ import type {
   Observer,
   Unsubscribe,
 } from './client.js';
+import type { RegisterOptions } from './types.js';
 
 // Shared type parity with the client entry (row messaging#17).
 export type {
@@ -43,11 +44,12 @@ export type {
   NextFn,
   NotificationPayload,
   Observer,
+  RegisterOptions,
   Unsubscribe,
 };
 
 /**
- * Return the FCM `Messaging` instance for the given (or default) app —
+ * Return the FCM `Messaging` instance for the given (or default) app --
  * service-worker plane (upstream: `getMessagingInSw`, component name
  * `messaging-sw`).
  */
@@ -84,7 +86,7 @@ const bigQueryExport = new WeakMap<Messaging, boolean>();
 /**
  * Toggle delivery-metrics export to BigQuery at runtime; default off. The
  * sandbox records the flag (observable via repeated calls) but exports
- * nothing — there is no BigQuery plane to export to.
+ * nothing -- there is no BigQuery plane to export to.
  */
 export function experimentalSetDeliveryMetricsExportedToBigQueryEnabled(
   messaging: Messaging,
@@ -94,15 +96,15 @@ export function experimentalSetDeliveryMetricsExportedToBigQueryEnabled(
   bigQueryExport.set(messaging, enable);
 }
 
-/** Whether every API FCM requires exists in this (simulated) sw context — always true. */
+/** Whether every API FCM requires exists in this (simulated) sw context -- always true. */
 export async function isSupported(): Promise<boolean> {
   return true;
 }
 
-// ── Sandbox-only driver namespace (no upstream counterpart) ──────────────────
+// -- Sandbox-only driver namespace (no upstream counterpart) ------------------
 
 export const sandbox = {
-  /** Same driver as the client entry — see `pyric/messaging`'s `sandbox.deliver`. */
+  /** Same driver as the client entry -- see `pyric/messaging`'s `sandbox.deliver`. */
   deliver(messaging: Messaging, spec: DeliverSpec): Promise<DeliveryResult> {
     return deliverToMessaging(messaging, spec);
   },

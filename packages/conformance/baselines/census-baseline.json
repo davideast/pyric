@@ -55,10 +55,7 @@
       "VoiceConfig",
       "WebAttribution"
     ],
-    "app": [
-      "FirebaseServerApp",
-      "FirebaseServerAppSettings"
-    ],
+    "app": [],
     "auth": [
       "ApplicationVerifier",
       "AuthError",
@@ -148,12 +145,8 @@
       "UpdateData",
       "WithFieldValue"
     ],
-    "messaging": [
-      "RegisterOptions"
-    ],
-    "messaging-sw": [
-      "RegisterOptions"
-    ],
+    "messaging": [],
+    "messaging-sw": [],
     "database": [],
     "storage": [
       "EmulatorMockTokenOptions",
