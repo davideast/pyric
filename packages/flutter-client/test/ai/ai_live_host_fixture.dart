@@ -196,6 +196,84 @@ Map<String, dynamic> scriptedAiEngineWire() {
           ],
         },
       },
+      <String, dynamic>{
+        'match': 'FLUTTER_AI_MULTIMODAL_CANDIDATES',
+        'respond': <String, dynamic>{
+          'modelVersion': 'gemini-2.5-flash',
+          'responseId': 'resp-live-multi-1',
+          'candidates': <Map<String, dynamic>>[
+            <String, dynamic>{
+              'index': 0,
+              'finishReason': 'STOP',
+              'content': <String, dynamic>{
+                'role': 'model',
+                'parts': <Map<String, dynamic>>[
+                  <String, dynamic>{
+                    'text': 'Analyzing 8-byte PNG header.',
+                    'thought': true,
+                    'thoughtSignature': 'sig-live-multi-thought',
+                  },
+                  <String, dynamic>{'text': 'Primary caption.'},
+                  <String, dynamic>{
+                    'inlineData': <String, dynamic>{
+                      'mimeType': 'image/png',
+                      'data': 'iVBORw0KGgo=',
+                    },
+                  },
+                ],
+              },
+            },
+            <String, dynamic>{
+              'index': 1,
+              'finishReason': 'STOP',
+              'content': <String, dynamic>{
+                'role': 'model',
+                'parts': <Map<String, dynamic>>[
+                  <String, dynamic>{'text': 'Secondary caption.'},
+                ],
+              },
+            },
+          ],
+          'usageMetadata': <String, dynamic>{
+            'promptTokenCount': 18,
+            'candidatesTokenCount': 14,
+            'thoughtsTokenCount': 5,
+            'totalTokenCount': 37,
+          },
+        },
+      },
+      <String, dynamic>{
+        'match': 'FLUTTER_AI_PERMISSION_ERR',
+        'respond': <String, dynamic>{
+          'error': <String, dynamic>{
+            'code': 403,
+            'message': 'Permission denied on project demo-flutter-ai-live.',
+            'status': 'PERMISSION_DENIED',
+          },
+        },
+      },
+      <String, dynamic>{
+        'match': 'FLUTTER_AI_UNAVAILABLE_ERR',
+        'respond': <String, dynamic>{
+          'error': <String, dynamic>{
+            'code': 503,
+            'message': 'Model backend temporarily unavailable.',
+            'status': 'UNAVAILABLE',
+          },
+        },
+      },
+      <String, dynamic>{
+        'match': 'FLUTTER_AI_CONCURRENT_CANCEL_A',
+        'respond': <String, dynamic>{
+          'chunks': <String>['CancelA-1 ', 'CancelA-2 ', 'CancelA-3'],
+        },
+      },
+      <String, dynamic>{
+        'match': 'FLUTTER_AI_CONCURRENT_COMPLETE_B',
+        'respond': <String, dynamic>{
+          'chunks': <String>['Parallel ', 'stream ', 'intact!'],
+        },
+      },
     ],
   };
 }

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:firebase_core/firebase_core.dart' show Firebase;
 import 'package:firebase_core_platform_interface/firebase_core_platform_interface.dart';
@@ -432,6 +433,121 @@ void main() {
           );
           expect(blockedTurn.candidates.single.finishReason, equals(FinishReason.safety));
           expect(chat.history, hasLength(6));
+        } finally {
+          await ctx.client.disconnect();
+        }
+      },
+    );
+
+    test(
+      'round-trips multimodal InlineDataPart, candidateCount > 1 with ThoughtPart filtering, and error status parity',
+      () async {
+        final pngSignature = Uint8List.fromList(<int>[137, 80, 78, 71, 13, 10, 26, 10]);
+        final bridgeUri = resolveLiveAiBridgeUri();
+        if (bridgeUri == null) {
+          final inline = InlineDataPart('image/png', pngSignature);
+          expect((inline.toJson()['inlineData'] as Map)['data'], equals('iVBORw0KGgo='));
+          return;
+        }
+
+        final ctx = await connectLiveAiApp(bridgeUri, 'multimodal');
+        try {
+          final model = FirebaseAI.googleAI(
+            app: ctx.app,
+            bridgeClient: ctx.client,
+            engine: scriptedAiEngineWire(),
+          ).generativeModel(
+            model: 'gemini-2.5-flash',
+            generationConfig: GenerationConfig(candidateCount: 2),
+          );
+
+          final multiRes = await model.generateContent(<Content>[
+            Content.multi(<Part>[
+              const TextPart('Inspect FLUTTER_AI_MULTIMODAL_CANDIDATES'),
+              InlineDataPart('image/png', pngSignature),
+            ]),
+          ]);
+          expect(multiRes.text, equals('Primary caption.'));
+          expect(multiRes.thoughtSummary, equals('Analyzing 8-byte PNG header.'));
+          expect(multiRes.inlineDataParts.single.bytes, equals(pngSignature));
+          expect(multiRes.candidates, hasLength(2));
+          expect(multiRes.candidates[1].text, equals('Secondary caption.'));
+          expect(multiRes.usageMetadata?.promptTokenCount, equals(18));
+          expect(multiRes.usageMetadata?.candidatesTokenCount, equals(14));
+          expect(multiRes.usageMetadata?.thoughtsTokenCount, equals(5));
+          expect(multiRes.usageMetadata?.totalTokenCount, equals(37));
+
+          await expectLater(
+            model.generateContent(<Content>[Content.text('Trigger FLUTTER_AI_PERMISSION_ERR')]),
+            throwsA(
+              isA<FirebaseAIException>()
+                  .having((err) => err.code, 'code', equals('permission-denied'))
+                  .having((err) => err.httpStatusCode, 'httpStatusCode', equals(403)),
+            ),
+          );
+
+          await expectLater(
+            model.generateContent(<Content>[Content.text('Trigger FLUTTER_AI_UNAVAILABLE_ERR')]),
+            throwsA(
+              isA<ServerException>()
+                  .having((err) => err.code, 'code', equals('unavailable'))
+                  .having((err) => err.httpStatusCode, 'httpStatusCode', equals(503)),
+            ),
+          );
+        } finally {
+          await ctx.client.disconnect();
+        }
+      },
+    );
+
+    test(
+      'isolates concurrent generateContentStream cancellations on HostedRuntime without cross-stream interference',
+      () async {
+        final bridgeUri = resolveLiveAiBridgeUri();
+        if (bridgeUri == null) {
+          final unavailable = mapBridgeErrorToFirebaseAIException(
+            const PyricBridgeException(code: 'ai/UNAVAILABLE', message: 'Offline check'),
+          );
+          expect(unavailable, isA<ServerException>());
+          expect(unavailable.code, equals('unavailable'));
+          return;
+        }
+
+        final ctx = await connectLiveAiApp(bridgeUri, 'concurrent-streams');
+        try {
+          final model = FirebaseAI.googleAI(
+            app: ctx.app,
+            bridgeClient: ctx.client,
+            engine: scriptedAiEngineWire(),
+          ).generativeModel(model: 'gemini-2.5-flash');
+
+          final seenA = <String?>[];
+          final firstA = Completer<void>();
+          late final StreamSubscription<GenerateContentResponse> subA;
+          subA = model
+              .generateContentStream(
+                <Content>[Content.text('Run FLUTTER_AI_CONCURRENT_CANCEL_A')],
+              )
+              .listen((chunk) {
+            seenA.add(chunk.text);
+            if (!firstA.isCompleted) {
+              firstA.complete();
+            }
+          });
+
+          final streamBFuture = model
+              .generateContentStream(
+                <Content>[Content.text('Run FLUTTER_AI_CONCURRENT_COMPLETE_B')],
+              )
+              .map((chunk) => chunk.text)
+              .toList();
+
+          await firstA.future;
+          await subA.cancel();
+          final seenB = await streamBFuture;
+
+          expect(seenA, hasLength(1));
+          expect(seenB, equals(<String?>['Parallel ', 'stream ', 'intact!']));
         } finally {
           await ctx.client.disconnect();
         }

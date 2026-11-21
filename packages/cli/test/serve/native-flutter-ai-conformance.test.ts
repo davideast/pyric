@@ -90,6 +90,39 @@ const SCRIPTED_AI_ENGINE: AiEngineConfigWire = {
       match: 'FLUTTER_AI_CHAT_SAFETY_TURN',
       respond: { candidates: [{ index: 0, finishReason: 'SAFETY', finishMessage: 'Chat turn blocked.' }] },
     },
+    {
+      match: 'FLUTTER_AI_MULTIMODAL_CANDIDATES',
+      respond: {
+        modelVersion: 'gemini-2.5-flash',
+        responseId: 'resp-live-multi-1',
+        candidates: [
+          {
+            index: 0,
+            finishReason: 'STOP',
+            content: {
+              role: 'model',
+              parts: [
+                { text: 'Analyzing 8-byte PNG header.', thought: true, thoughtSignature: 'sig-live-multi-thought' },
+                { text: 'Primary caption.' },
+                { inlineData: { mimeType: 'image/png', data: 'iVBORw0KGgo=' } },
+              ],
+            },
+          },
+          { index: 1, finishReason: 'STOP', content: { role: 'model', parts: [{ text: 'Secondary caption.' }] } },
+        ],
+        usageMetadata: { promptTokenCount: 18, candidatesTokenCount: 14, thoughtsTokenCount: 5, totalTokenCount: 37 },
+      },
+    },
+    {
+      match: 'FLUTTER_AI_PERMISSION_ERR',
+      respond: { error: { code: 403, message: 'Permission denied on project demo-flutter-ai-live.', status: 'PERMISSION_DENIED' } },
+    },
+    {
+      match: 'FLUTTER_AI_UNAVAILABLE_ERR',
+      respond: { error: { code: 503, message: 'Model backend temporarily unavailable.', status: 'UNAVAILABLE' } },
+    },
+    { match: 'FLUTTER_AI_CONCURRENT_CANCEL_A', respond: { chunks: ['CancelA-1 ', 'CancelA-2 ', 'CancelA-3'] } },
+    { match: 'FLUTTER_AI_CONCURRENT_COMPLETE_B', respond: { chunks: ['Parallel ', 'stream ', 'intact!'] } },
   ],
 };
 
@@ -503,12 +536,12 @@ describe('native Flutter AI Logic live-host conformance', () => {
         const summary = summarizeFlutterMachineOutput(stdout);
         expect(summary.failed, combined).toBe(0);
         expect(summary.skipped, combined).toBe(0);
-        expect(summary.passed, combined).toBeGreaterThanOrEqual(6);
+        expect(summary.passed, combined).toBeGreaterThanOrEqual(8);
 
         expect(host.traffic.aiOpMethods).toContain('ai.generateContent');
         expect(host.traffic.aiOpMethods).toContain('ai.countTokens');
-        expect(host.traffic.aiSubCount).toBeGreaterThanOrEqual(3);
-        expect(host.traffic.aiUnsubCount).toBeGreaterThanOrEqual(2);
+        expect(host.traffic.aiSubCount).toBeGreaterThanOrEqual(5);
+        expect(host.traffic.aiUnsubCount).toBeGreaterThanOrEqual(4);
 
         const nullClaims = host.traffic.attachedAppCheckTokens.filter(
           (entry) => entry.token === null,

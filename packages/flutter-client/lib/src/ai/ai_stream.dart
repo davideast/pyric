@@ -24,15 +24,25 @@ Stream<T> streamAiGenerateContent<T>({
 }) {
   late final StreamController<T> controller;
   StreamSubscription<dynamic>? upstreamSub;
+  Future<void>? detachFuture;
   var isCancelled = false;
   var isFinished = false;
 
-  Future<void> detachUpstream() async {
+  Future<void> detachUpstream() {
+    final inFlight = detachFuture;
+    if (inFlight != null) {
+      return inFlight;
+    }
     final active = upstreamSub;
     upstreamSub = null;
-    if (active != null) {
-      await active.cancel();
+    if (active == null) {
+      final resolved = Future<void>.value();
+      detachFuture = resolved;
+      return resolved;
     }
+    final pending = Future<void>.sync(active.cancel);
+    detachFuture = pending;
+    return pending;
   }
 
   void failAndClose(Object error, [StackTrace? stackTrace]) {
@@ -40,11 +50,7 @@ Stream<T> streamAiGenerateContent<T>({
       return;
     }
     isFinished = true;
-    final active = upstreamSub;
-    upstreamSub = null;
-    if (active != null) {
-      unawaited(active.cancel());
-    }
+    unawaited(detachUpstream());
     if (!controller.isClosed) {
       final mapped = mapError(error);
       if (stackTrace != null) {
