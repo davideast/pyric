@@ -69,19 +69,10 @@ public final class WriteBatch: @unchecked Sendable {
     ) -> WriteBatch {
         do {
             try checkCapacity()
-            let fieldStrings = try mergeFields.map { item -> String in
-                if let s = item as? String { return s }
-                if let fp = item as? FieldPath { return fp.stringRepresentation }
-                throw PyricFirestoreError.invalidArgument("mergeFields elements must be String or FieldPath")
-            }
-            for field in fieldStrings {
-                let rootKey = field.components(separatedBy: ".").first ?? field
-                guard data.keys.contains(rootKey) else {
-                    throw PyricFirestoreError.invalidArgument(
-                        "Field '\(field)' specified in mergeFields was not provided in data."
-                    )
-                }
-            }
+            let fieldStrings = try WriteDescriptor.validateAndEncodeMergeFields(
+                data: data,
+                mergeFields: mergeFields
+            )
             let encoded = try ValueCodec.encodeWriteData(data)
             let encodedSendable = AnySendable.from(encoded)
             stagedWrites.append(
@@ -106,36 +97,37 @@ public final class WriteBatch: @unchecked Sendable {
     }
 
     @discardableResult
+    public func setData<T: Encodable>(
+        from value: T,
+        forDocument document: DocumentReference,
+        merge: Bool = false,
+        encoder: Firestore.Encoder = Firestore.Encoder()
+    ) throws -> WriteBatch {
+        let encodedDict = try encoder.encode(value)
+        return setData(encodedDict, forDocument: document, merge: merge)
+    }
+
+    @discardableResult
+    public func setData<T: Encodable>(
+        from value: T,
+        forDocument document: DocumentReference,
+        mergeFields: [Any],
+        encoder: Firestore.Encoder = Firestore.Encoder()
+    ) throws -> WriteBatch {
+        let encodedDict = try encoder.encode(value)
+        return setData(encodedDict, forDocument: document, mergeFields: mergeFields)
+    }
+
+    @discardableResult
     public func updateData(
         _ fields: [AnyHashable: Any],
         forDocument document: DocumentReference
     ) -> WriteBatch {
         do {
             try checkCapacity()
-            var stringDict: [String: Any] = [:]
-            for (key, val) in fields {
-                if let str = key as? String {
-                    stringDict[str] = val
-                } else if let fp = key as? FieldPath {
-                    stringDict[fp.stringRepresentation] = val
-                } else {
-                    throw PyricFirestoreError.invalidArgument("updateData keys must be String or FieldPath")
-                }
-            }
-            let encoded = try ValueCodec.encodeWriteData(stringDict)
-            let encodedSendable = AnySendable.from(encoded)
-            stagedWrites.append(
-                .update(
-                    path: document.path,
-                    data: encodedSendable
-                )
-            )
-            stagedMutations.append(
-                .update(
-                    path: document.path,
-                    encodedFields: encodedSendable.dictionaryValue ?? [:]
-                )
-            )
+            let descriptor = try WriteDescriptor.prepareAtomicUpdate(path: document.path, fields: fields)
+            stagedWrites.append(descriptor)
+            stagedMutations.append(descriptor.toOfflineMutation())
         } catch {
             preconditionFailure("WriteBatch.updateData failed: \(error)")
         }

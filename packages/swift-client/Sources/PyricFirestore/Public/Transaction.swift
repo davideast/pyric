@@ -19,16 +19,18 @@ public final class TransactionOptions: @unchecked Sendable, NSCopying {
 public final class Transaction: @unchecked Sendable {
 
     private let firestore: Firestore
+    internal let txnId: String?
     private var hasWritten: Bool = false
 
     public internal(set) var stagedReads: [TxnReadEntry] = []
     public internal(set) var stagedWrites: [WriteDescriptor] = []
 
-    internal init(firestore: Firestore) {
+    internal init(firestore: Firestore, txnId: String? = nil) {
         self.firestore = firestore
+        self.txnId = txnId
     }
 
-    // ── Transaction Reads (Must precede all writes) ──────────────────────────
+    // -- Transaction Reads (Must precede all writes) --
 
     public func getDocument(_ document: DocumentReference) async throws -> DocumentSnapshot {
         guard !hasWritten else {
@@ -36,7 +38,11 @@ public final class Transaction: @unchecked Sendable {
                 "Firestore transactions require all reads to be executed before all writes."
             )
         }
-        let raw = try await firestore.bridgeClient.getDoc(path: document.path, actAs: firestore.effectiveAuthLens)
+        let raw = try await firestore.bridgeClient.getDoc(
+            path: document.path,
+            actAs: firestore.effectiveAuthLens,
+            txnId: txnId
+        )
         let snapshot = DocumentSnapshot.fromWire(firestore: firestore, path: document.path, wire: raw)
 
         // Capture read state for optimistic concurrency check
@@ -104,7 +110,7 @@ public final class Transaction: @unchecked Sendable {
         return box.result
     }
 
-    // ── Transaction Writes ───────────────────────────────────────────────────
+    // -- Transaction Writes --
 
     @discardableResult
     public func setData(
@@ -144,19 +150,10 @@ public final class Transaction: @unchecked Sendable {
     ) -> Transaction {
         hasWritten = true
         do {
-            let fieldStrings = try mergeFields.map { item -> String in
-                if let s = item as? String { return s }
-                if let fp = item as? FieldPath { return fp.stringRepresentation }
-                throw PyricFirestoreError.invalidArgument("mergeFields elements must be String or FieldPath")
-            }
-            for field in fieldStrings {
-                let rootKey = field.components(separatedBy: ".").first ?? field
-                guard data.keys.contains(rootKey) else {
-                    throw PyricFirestoreError.invalidArgument(
-                        "Field '\(field)' specified in mergeFields was not provided in data."
-                    )
-                }
-            }
+            let fieldStrings = try WriteDescriptor.validateAndEncodeMergeFields(
+                data: data,
+                mergeFields: mergeFields
+            )
             let encoded = try ValueCodec.encodeWriteData(data)
             stagedWrites.append(
                 .set(
@@ -172,29 +169,36 @@ public final class Transaction: @unchecked Sendable {
     }
 
     @discardableResult
+    public func setData<T: Encodable>(
+        from value: T,
+        forDocument document: DocumentReference,
+        merge: Bool = false,
+        encoder: Firestore.Encoder = Firestore.Encoder()
+    ) throws -> Transaction {
+        let encodedDict = try encoder.encode(value)
+        return setData(encodedDict, forDocument: document, merge: merge)
+    }
+
+    @discardableResult
+    public func setData<T: Encodable>(
+        from value: T,
+        forDocument document: DocumentReference,
+        mergeFields: [Any],
+        encoder: Firestore.Encoder = Firestore.Encoder()
+    ) throws -> Transaction {
+        let encodedDict = try encoder.encode(value)
+        return setData(encodedDict, forDocument: document, mergeFields: mergeFields)
+    }
+
+    @discardableResult
     public func updateData(
         _ fields: [AnyHashable: Any],
         forDocument document: DocumentReference
     ) -> Transaction {
         hasWritten = true
         do {
-            var stringDict: [String: Any] = [:]
-            for (key, val) in fields {
-                if let str = key as? String {
-                    stringDict[str] = val
-                } else if let fp = key as? FieldPath {
-                    stringDict[fp.stringRepresentation] = val
-                } else {
-                    throw PyricFirestoreError.invalidArgument("updateData keys must be String or FieldPath")
-                }
-            }
-            let encoded = try ValueCodec.encodeWriteData(stringDict)
-            stagedWrites.append(
-                .update(
-                    path: document.path,
-                    data: AnySendable.from(encoded)
-                )
-            )
+            let descriptor = try WriteDescriptor.prepareAtomicUpdate(path: document.path, fields: fields)
+            stagedWrites.append(descriptor)
         } catch {
             preconditionFailure("Transaction.updateData failed: \(error)")
         }

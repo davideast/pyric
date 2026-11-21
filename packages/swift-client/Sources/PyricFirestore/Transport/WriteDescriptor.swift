@@ -1,10 +1,28 @@
 import Foundation
 
-// ─── Write & Transaction Descriptors ─────────────────────────────────────────
+// --- Write & Transaction Descriptors ---
+
+public struct UpdateFieldWire: Sendable, Equatable {
+    public let path: [String]
+    public let value: AnySendable
+
+    public init(path: [String], value: AnySendable) {
+        self.path = path
+        self.value = value
+    }
+
+    public func toAnySendable() -> AnySendable {
+        .dictionary([
+            "path": .array(path.map { .string($0) }),
+            "value": value
+        ])
+    }
+}
 
 public enum WriteDescriptor: Sendable, Equatable {
     case set(path: String, data: AnySendable, options: SetOptionsWire? = nil)
     case update(path: String, data: AnySendable)
+    case updateFields(path: String, fields: [UpdateFieldWire])
     case delete(path: String)
 
     public func toAnySendable() -> AnySendable {
@@ -22,6 +40,12 @@ public enum WriteDescriptor: Sendable, Equatable {
                 "method": .string("update"),
                 "path": .string(path),
                 "data": data
+            ])
+        case .updateFields(let path, let fields):
+            return .dictionary([
+                "method": .string("update"),
+                "path": .string(path),
+                "fields": .array(fields.map { $0.toAnySendable() })
             ])
         case .delete(let path):
             return .dictionary([
@@ -50,9 +74,98 @@ public enum WriteDescriptor: Sendable, Equatable {
             )
         case .update(let path, let data):
             return .update(path: path, encodedFields: data.dictionaryValue ?? [:])
+        case .updateFields(let path, let fields):
+            return .updateSegments(
+                path: path,
+                entries: fields.map { UpdateSegmentEntry(segments: $0.path, value: $0.value) }
+            )
         case .delete(let path):
             return .delete(path: path)
         }
+    }
+
+    internal static func validateAndEncodeMergeFields(
+        data: [String: Any],
+        mergeFields: [Any]
+    ) throws -> [String] {
+        var wireKeys: [String] = []
+        wireKeys.reserveCapacity(mergeFields.count)
+        for item in mergeFields {
+            let segments: [String]
+            if let str = item as? String {
+                segments = FirestoreOfflineProjection.splitFieldPath(str)
+                if str.isEmpty || segments.contains(where: \.isEmpty) {
+                    throw PyricFirestoreError.invalidArgument("Invalid field path '\(str)' in mergeFields.")
+                }
+            } else if let fp = item as? FieldPath {
+                segments = fp.segments
+            } else {
+                throw PyricFirestoreError.invalidArgument("mergeFields elements must be String or FieldPath")
+            }
+
+            var current: Any? = data
+            for seg in segments {
+                guard let dict = current as? [String: Any], let nextVal = dict[seg] else {
+                    throw PyricFirestoreError.invalidArgument(
+                        "Field '\(segments.joined(separator: "."))' specified in mergeFields was not provided in data."
+                    )
+                }
+                current = nextVal
+            }
+            wireKeys.append(FirestoreOfflineProjection.encodeFieldPathKey(segments))
+        }
+        return wireKeys
+    }
+
+    internal static func prepareAtomicUpdate(
+        path: String,
+        fields: [AnyHashable: Any]
+    ) throws -> WriteDescriptor {
+        let needsSegmentForm = fields.keys.contains { key in
+            guard let fp = key as? FieldPath else { return false }
+            return fp.segments.contains { $0.contains(".") || $0.contains("`") || $0.contains("\\") }
+        }
+        if needsSegmentForm {
+            var keyedEntries: [(sortKey: String, entry: UpdateFieldWire)] = []
+            keyedEntries.reserveCapacity(fields.count)
+            for (key, val) in fields {
+                let segments: [String]
+                if let str = key as? String {
+                    segments = FirestoreOfflineProjection.splitFieldPath(str)
+                    if str.isEmpty || segments.contains(where: \.isEmpty) {
+                        throw PyricFirestoreError.invalidArgument("Invalid updateData field path '\(str)'.")
+                    }
+                } else if let fp = key as? FieldPath {
+                    segments = fp.segments
+                } else {
+                    throw PyricFirestoreError.invalidArgument("updateData keys must be String or FieldPath")
+                }
+                let encodedVal = AnySendable.from(try ValueCodec.encodeValue(val))
+                keyedEntries.append((
+                    sortKey: FirestoreOfflineProjection.encodeFieldPathKey(segments),
+                    entry: UpdateFieldWire(path: segments, value: encodedVal)
+                ))
+            }
+            keyedEntries.sort { $0.sortKey < $1.sortKey }
+            return .updateFields(path: path, fields: keyedEntries.map(\.entry))
+        }
+
+        var stringDict: [String: Any] = [:]
+        for (key, val) in fields {
+            if let str = key as? String {
+                let parts = str.split(separator: ".", omittingEmptySubsequences: false)
+                if str.isEmpty || parts.contains(where: \.isEmpty) {
+                    throw PyricFirestoreError.invalidArgument("Invalid updateData field path '\(str)'.")
+                }
+                stringDict[str] = val
+            } else if let fp = key as? FieldPath {
+                stringDict[fp.stringRepresentation] = val
+            } else {
+                throw PyricFirestoreError.invalidArgument("updateData keys must be String or FieldPath")
+            }
+        }
+        let encoded = try ValueCodec.encodeWriteData(stringDict)
+        return .update(path: path, data: AnySendable.from(encoded))
     }
 }
 

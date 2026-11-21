@@ -3,13 +3,22 @@ import Foundation
 extension PyricBridgeClient {
 
     /// Reads a document snapshot via getDoc.
-    public func getDoc(path: String, actAs: AuthLens? = nil) async throws -> AnySendable {
-        try await getDoc(turn: takeTurn(), path: path, actAs: actAs)
+    public func getDoc(path: String, actAs: AuthLens? = nil, txnId: String? = nil) async throws -> AnySendable {
+        try await getDoc(turn: takeTurn(), path: path, actAs: actAs, txnId: txnId)
     }
 
     /// Reads a document snapshot via getDoc, in the place `turn` holds.
-    package func getDoc(turn: OperationTurn, path: String, actAs: AuthLens?) async throws -> AnySendable {
-        try await op(turn: turn, method: "getDoc", params: ["path": .string(path)], actAs: actAs)
+    package func getDoc(
+        turn: OperationTurn,
+        path: String,
+        actAs: AuthLens?,
+        txnId: String? = nil
+    ) async throws -> AnySendable {
+        var params: [String: AnySendable] = ["path": .string(path)]
+        if let txnId, !txnId.isEmpty {
+            params["txnId"] = .string(txnId)
+        }
+        return try await op(turn: turn, method: "getDoc", params: params, actAs: actAs)
     }
 
     /// Reads query documents via getDocs.
@@ -163,14 +172,19 @@ extension PyricBridgeClient {
     public func txnCommit(
         reads: [TxnReadEntry],
         writes: [WriteDescriptor],
-        actAs: AuthLens? = nil
+        actAs: AuthLens? = nil,
+        txnId: String? = nil
     ) async throws {
+        var params: [String: AnySendable] = [
+            "reads": .array(reads.map { $0.toAnySendable() }),
+            "writes": .array(writes.map { $0.toAnySendable() })
+        ]
+        if let txnId, !txnId.isEmpty {
+            params["txnId"] = .string(txnId)
+        }
         _ = try await op(
             method: "txnCommit",
-            params: [
-                "reads": .array(reads.map { $0.toAnySendable() }),
-                "writes": .array(writes.map { $0.toAnySendable() })
-            ],
+            params: params,
             actAs: actAs
         )
     }
