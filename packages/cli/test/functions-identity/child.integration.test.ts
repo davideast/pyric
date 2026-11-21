@@ -78,6 +78,7 @@ describe('isolated CJS Functions Identity child against live HostedRuntime', () 
     const port = createChannelClientPort(conn);
     const db: ClientDb = { __kind: 'client-db', type: 'firestore', port };
     return {
+      conn,
       port,
       auth: getClientAuth(db),
       firestore: db,
@@ -382,10 +383,17 @@ describe('isolated CJS Functions Identity child against live HostedRuntime', () 
       email_verified: false,
       name: 'Original Google Name',
     });
-    const googleCred = GoogleAuthProvider.credential(oidcJwt, 'google-access-token-xyz');
-    (googleCred as unknown as { refreshToken?: string }).refreshToken =
-      'google-refresh-token-hidden';
-    const oauthResult = await signInWithCredential(oauthClient.auth, googleCred);
+    const oauthResult = (await oauthClient.conn.channel.op({
+      method: 'auth.signInWithCredential',
+      credential: {
+        providerId: 'google.com',
+        signInMethod: 'google.com',
+        idToken: oidcJwt,
+        accessToken: 'google-access-token-xyz',
+        refreshToken: 'google-refresh-token-hidden',
+      },
+      tenantId: null,
+    })) as { user: { uid: string; displayName: string | null } };
     expect(oauthResult.user.uid).toBe('google-uid-77');
     expect(oauthResult.user.displayName).toBe('Member grace');
     const oauthAudit = (await observer.rtdb.get('audits/google-uid-77')) as RecordedBlockingAudit;

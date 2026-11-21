@@ -6,10 +6,6 @@ import type { SerializedAuthCredential } from '../protocol/auth.js';
 export type SignInCredential = {
   providerId: string;
   signInMethod?: string;
-  idToken?: string;
-  accessToken?: string;
-  refreshToken?: string;
-  secret?: string;
   toJSON?: () => Record<string, unknown>;
 };
 
@@ -32,36 +28,18 @@ export function credentialWire(credential: SignInCredential): CredentialWire {
 }
 
 /** A federated credential as the host reads it: its provider and, when it has one, its sign-in method. */
-function federatedCredentialWire(credential: SignInCredential): CredentialWire {
-  const out: {
-    providerId: string;
-    signInMethod?: string;
-    idToken?: string;
-    accessToken?: string;
-    refreshToken?: string;
-    secret?: string;
-  } = { providerId: credential.providerId };
-  if (credential.signInMethod !== undefined) {
-    out.signInMethod = credential.signInMethod;
+function federatedCredentialWire(credential: {
+  providerId: string;
+  signInMethod?: string;
+}): {
+  providerId: string;
+  signInMethod?: string;
+} {
+  const { providerId, signInMethod } = credential;
+  if (signInMethod === undefined) {
+    return { providerId };
   }
-  const serialized = credential.toJSON?.() ?? {};
-  const idToken = credential.idToken ?? serialized['idToken'];
-  if (typeof idToken === 'string') {
-    out.idToken = idToken;
-  }
-  const accessToken = credential.accessToken ?? serialized['accessToken'];
-  if (typeof accessToken === 'string') {
-    out.accessToken = accessToken;
-  }
-  const refreshToken = credential.refreshToken ?? serialized['refreshToken'];
-  if (typeof refreshToken === 'string') {
-    out.refreshToken = refreshToken;
-  }
-  const secret = credential.secret ?? serialized['secret'];
-  if (typeof secret === 'string') {
-    out.secret = secret;
-  }
-  return out;
+  return { providerId, signInMethod };
 }
 
 /**
