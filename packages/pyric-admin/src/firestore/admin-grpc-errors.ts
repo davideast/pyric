@@ -61,6 +61,10 @@ export function createAdminGrpcError(
   return err;
 }
 
+function isPyricHostTransportRefusal(message: unknown): boolean {
+  return typeof message === 'string' && message.startsWith('pyric: ');
+}
+
 function translateAdminError(err: unknown, appBacked: boolean): unknown {
   if (!appBacked) {
     return err;
@@ -73,6 +77,9 @@ function translateAdminError(err: unknown, appBacked: boolean): unknown {
     return err;
   }
   if (typeof candidate.code !== 'string') {
+    return err;
+  }
+  if (isPyricHostTransportRefusal(candidate.message)) {
     return err;
   }
   const mappedCode = mapStringCodeToGrpcStatus(candidate.code);
