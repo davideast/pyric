@@ -134,6 +134,7 @@ const KNOWN_SCOPED_FIREBASE_PACKAGES: readonly string[] = [
   '@firebase/auth-interop-types',
   '@firebase/auth-types',
   '@firebase/component',
+  '@firebase/crashlytics',
   '@firebase/data-connect',
   '@firebase/database',
   '@firebase/database-compat',

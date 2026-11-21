@@ -80,6 +80,8 @@ const NON_PERSISTED_LIVE_WRITE: Readonly<Record<NonPersistedOperationMethod, boo
   exportState: false,
   listCheckpoints: false,
   getSnapshot: false,
+  'crashlytics.checkForUnsentReports': false,
+  'crashlytics.getState': false,
   // Live-page and Studio client presence tracking
   'presence.register': false,
   'presence.heartbeat': false,

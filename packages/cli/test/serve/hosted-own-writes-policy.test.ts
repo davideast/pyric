@@ -278,6 +278,8 @@ describe('live host non-persisted write and byte-route upload refusal', () => {
       'presence.heartbeat',
       'presence.update',
       'presence.disconnect',
+      'crashlytics.checkForUnsentReports',
+      'crashlytics.getState',
     ]);
 
     for (const method of Object.keys(operationPersistence) as Array<OpMessage['method']>) {

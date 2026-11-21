@@ -15,6 +15,7 @@ export * from './protocol/firestore.js';
 export * from './protocol/auth.js';
 export * from './protocol/storage.js';
 export * from './protocol/app-check.js';
+export * from './protocol/crashlytics.js';
 export * from './protocol/ai.js';
 export * from './protocol/subscriptions.js';
 export * from './protocol/error-serialization.js';
@@ -35,6 +36,7 @@ import type {
   ResolvedIdentity,
 } from './protocol/auth.js';
 import type { AppCheckOpMessage } from './protocol/app-check.js';
+import type { CrashlyticsOpMessage } from './protocol/crashlytics.js';
 import type { AiAppCheckWire, AiEngineConfigWire } from './protocol/ai.js';
 import type {
   PresenceClientKind,
@@ -330,6 +332,7 @@ export type OpMessage = (
       email?: string | null;
     }
   | { t: 'op'; id: string; method: 'presence.disconnect'; clientId: string }
+  | CrashlyticsOpMessage
 ) & {
   actAs?: AuthLens;
   issuer?: 'studio'; relaySource?: 'remote'; docValueEncoding?: ResponseDocValueEncoding;

@@ -116,6 +116,14 @@
       "types": "./dist/messaging/internal.d.ts",
       "import": "./dist/messaging/internal.js"
     },
+    "./crashlytics": {
+      "types": "./dist/crashlytics/index.d.ts",
+      "import": "./dist/crashlytics/index.js"
+    },
+    "./crashlytics/internal": {
+      "types": "./dist/crashlytics/internal.d.ts",
+      "import": "./dist/crashlytics/internal.js"
+    },
     "./rules": {
       "types": "./dist/rules/index.d.ts",
       "import": "./dist/rules/index.js"

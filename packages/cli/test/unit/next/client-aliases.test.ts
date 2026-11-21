@@ -75,6 +75,17 @@ describe('client aliases', () => {
     ]);
   });
 
+  it('sends firebase/crashlytics to the Crashlytics mirror', async () => {
+    const aliases = getClientAliases();
+    expect(aliases['firebase/crashlytics']).toBe('@pyric/cli/next/internal/crashlytics');
+    const target = aliases['firebase/crashlytics'];
+    expect(typeof target).toBe('string');
+    const mod = (await import(target as string)) as Record<string, unknown>;
+    expect(Object.keys(mod).sort()).toEqual([
+      'breadcrumbs', 'flush', 'getCrashlytics', 'log', 'recordError',
+    ]);
+  });
+
   it('aliases no @firebase/* package', () => {
     const scoped = Object.keys(getClientAliases()).filter((source) => source.startsWith('@firebase/'));
     expect(scoped).toEqual([]);

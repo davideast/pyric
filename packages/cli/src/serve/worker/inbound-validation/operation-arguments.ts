@@ -13,6 +13,7 @@ import {
 import { assertQueryStructure } from '../host/query-structure.js';
 import { isMessageRecord, requireShape, requireRecord, requireString, requireOptionalString,
   requireOptionalBoolean, requireOptionalRecord, requireNumber, requireOptionalNumber } from './fields.js';
+import { assertCrashlyticsArguments } from './crashlytics.js';
 import { assertRtdbQuery } from './rtdb-query.js';
 import { updateValuesShapeError } from '../client/rtdb-value-validation.js';
 export { isMessageRecord } from './fields.js';
@@ -523,6 +524,18 @@ export function assertOperationArguments(message: Record<string, unknown>): void
       requireOptionalString(message.appId, 'appId');
       requireOptionalString(message.projectId, 'projectId');
       requireOptionalString(message.provider, 'provider');
+      return;
+    case 'crashlytics.recordError':
+    case 'crashlytics.log':
+    case 'crashlytics.flush':
+    case 'crashlytics.setUserId':
+    case 'crashlytics.setCustomKeys':
+    case 'crashlytics.setCollectionEnabled':
+    case 'crashlytics.checkForUnsentReports':
+    case 'crashlytics.sendUnsentReports':
+    case 'crashlytics.deleteUnsentReports':
+    case 'crashlytics.getState':
+      assertCrashlyticsArguments(method, message);
       return;
     default: {
       const unsupportedMethod: never = method;

@@ -226,6 +226,9 @@
     "./next/internal/auth": {
       "import": "./dist/serve/entries/auth.js"
     },
+    "./next/internal/crashlytics": {
+      "import": "./dist/serve/entries/crashlytics.js"
+    },
     "./next/internal/firestore": {
       "import": "./dist/serve/entries/firestore.js"
     },

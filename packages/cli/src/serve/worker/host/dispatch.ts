@@ -62,6 +62,10 @@ import {
   recordPortAppCheckToken,
 } from './app-check.js';
 import {
+  handleCrashlyticsOp,
+  isCrashlyticsOp,
+} from '../host-crashlytics.js';
+import {
   lensDb,
   lensProvenance,
   opProvenance,
@@ -325,6 +329,7 @@ async function dispatchMessage(
     const isAi = isAiOp(msg.method);
     const isMessaging = isMessagingOp(msg.method);
     const isAppCheck = isAppCheckOp(msg.method);
+    const isCrashlytics = isCrashlyticsOp(msg.method);
     if (isActionCode) {
       await handleAuthActionCodeOp(ctx, port, msg);
     } else if (isCustomToken) {
@@ -337,6 +342,8 @@ async function dispatchMessage(
       await handleMessagingOp(ctx, port, msg);
     } else if (isAppCheck) {
       await handleAppCheckOp(ctx, port, msg);
+    } else if (isCrashlytics) {
+      await handleCrashlyticsOp(ctx, port, msg);
     } else {
       await handleOp(ctx, port, msg);
     }
