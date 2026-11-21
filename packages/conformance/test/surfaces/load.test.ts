@@ -16,10 +16,10 @@ import surfaceContractJsonSchema from '../../schemas/surface-contract.v2.schema.
 
 describe('machine-readable surface contracts', () => {
   it('loads every authored contract through one schema-validated seam', () => {
-    expect(surfaceContracts).toHaveLength(32);
+    expect(surfaceContracts).toHaveLength(35);
     expect(surfaceContracts.map(({ key }) => key)).toEqual(surfaceContracts.map(({ key }) => key).toSorted());
     expect(surfaceContracts.every(({ record }) => !('order' in record))).toBe(true);
-    expect(surfaceDescriptors).toHaveLength(30);
+    expect(surfaceDescriptors).toHaveLength(33);
     expect(loadCensusPairs()).toHaveLength(10);
     expect(loadSurfaceDispositions()).toHaveLength(32);
   });
@@ -65,7 +65,7 @@ describe('machine-readable surface contracts', () => {
       'firestore', 'firestore-admin', 'firestore-flutter', 'firestore-kotlin', 'firestore-rules', 'firestore-swift',
       'functions-callable', 'functions-http', 'functions-rtdb', 'messaging', 'messaging-admin',
       'rtdb', 'rtdb-admin', 'rtdb-flutter', 'rtdb-kotlin', 'rtdb-rules', 'rtdb-swift',
-      'storage', 'storage-admin', 'storage-rules',
+      'storage', 'storage-admin', 'storage-flutter', 'storage-kotlin', 'storage-rules', 'storage-swift',
     ]);
     expect(surfaceContractJsonSchema.$defs.developerSurface).not.toHaveProperty('enum');
     const app = surfaceContracts.find(({ key }) => key === 'app')?.record;

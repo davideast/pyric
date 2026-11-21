@@ -1,0 +1,15 @@
+{
+  "schema": "pyric.conformance.surface.v2",
+  "kind": "integration",
+  "developerSurface": "storage-flutter",
+  "contractSource": "firebase_storage_platform_interface",
+  "observationPrefixes": [
+    "storage-flutter-"
+  ],
+  "coverage": true,
+  "scopeNote": "integration contract: Pure-Dart Flutter client conforming to firebase_storage_platform_interface via Pyric WebSocket bridge and HTTP byte-route transport. Covers PyricFirebaseStoragePlatform delegates & bucket scoping, ReferencePlatform hierarchy & refFromURL, putData/putString/putFile/putBlob upload tasks, getData & writeToFile downloads, tokenized getDownloadURL, FullMetadata & SettableMetadata operations, object deletion, listAll & paginated list(ListOptions), TaskPlatform pause/resume/cancel & snapshotEvents, and Storage Security Rules enforcement.",
+  "captureRigs": [],
+  "conformanceSuite": "packages/flutter-client/test/storage/pyric_reference_platform_test.dart",
+  "climb": true,
+  "registry": "storage-flutter"
+}
