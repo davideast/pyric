@@ -63,19 +63,32 @@ export interface UploadSessions {
 
 type Target = { kind: 'object'; bucket: string; path: string } | { kind: 'upload'; bucket: string };
 
+function decodeRouteSegment(encoded: string): string | undefined {
+  try {
+    return decodeURIComponent(encoded);
+  } catch (error) {
+    if (error instanceof URIError) return undefined;
+    throw error;
+  }
+}
+
 /** Where a byte route path points, or undefined when it is not one. */
 function targetOf(pathname: string): Target | undefined {
+  if (!pathname.startsWith(STORAGE_ROUTE_PREFIX)) return undefined;
   const rest = pathname.slice(STORAGE_ROUTE_PREFIX.length);
   const slash = rest.indexOf('/');
   const malformed = slash <= 0;
   if (malformed) return undefined;
-  const bucket = decodeURIComponent(rest.slice(0, slash));
+  const bucket = decodeRouteSegment(rest.slice(0, slash));
+  if (bucket === undefined) return undefined;
   const tail = rest.slice(slash + 1);
   const isUpload = tail === 'o';
   if (isUpload) return { kind: 'upload', bucket };
   const isObject = tail.startsWith('o/') && tail.length > 2;
   if (!isObject) return undefined;
-  return { kind: 'object', bucket, path: decodeURIComponent(tail.slice(2)) };
+  const path = decodeRouteSegment(tail.slice(2));
+  if (path === undefined) return undefined;
+  return { kind: 'object', bucket, path };
 }
 
 function refuse(res: ServerResponse, status: number, message: string, headers: Record<string, string> = {}): void {
@@ -436,6 +449,7 @@ export function createStorageByteRoute(opts: StorageByteRouteOptions) {
     const target = targetOf(url.pathname);
     const unknownPath = target === undefined;
     if (unknownPath) {
+      req.resume();
       refuse(res, 404, 'Not a byte route path.');
       return true;
     }
