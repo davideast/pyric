@@ -164,6 +164,98 @@ extension PyricBridgeClient {
         return try await op(turn: turn, method: "auth.updateProfile", params: params)
     }
 
+    public func authDeleteUser() async throws {
+        try await authDeleteUser(turn: takeTurn())
+    }
+
+    package func authDeleteUser(turn: OperationTurn) async throws {
+        _ = try await op(turn: turn, method: "auth.deleteUser", params: [:])
+    }
+
+    public func authUpdatePassword(password: String) async throws -> AnySendable {
+        try await authUpdatePassword(turn: takeTurn(), password: password)
+    }
+
+    package func authUpdatePassword(turn: OperationTurn, password: String) async throws -> AnySendable {
+        try await op(
+            turn: turn,
+            method: "auth.updatePassword",
+            params: ["password": .string(password)]
+        )
+    }
+
+    public func authLinkWithCredential(
+        uid: String,
+        tenantId: String?,
+        credentialParams: [String: AnySendable]
+    ) async throws -> AnySendable {
+        try await authLinkWithCredential(
+            turn: takeTurn(),
+            uid: uid,
+            tenantId: tenantId,
+            credentialParams: credentialParams
+        )
+    }
+
+    package func authLinkWithCredential(
+        turn: OperationTurn,
+        uid: String,
+        tenantId: String?,
+        credentialParams: [String: AnySendable]
+    ) async throws -> AnySendable {
+        let params: [String: AnySendable] = [
+            "uid": .string(uid),
+            "tenantId": tenantId.map { .string($0) } ?? .null,
+            "credential": .dictionary(credentialParams),
+        ]
+        return try await op(turn: turn, method: "auth.linkWithCredential", params: params)
+    }
+
+    public func authReauthenticateWithCredential(
+        uid: String,
+        tenantId: String?,
+        credentialParams: [String: AnySendable]
+    ) async throws -> AnySendable {
+        try await authReauthenticateWithCredential(
+            turn: takeTurn(),
+            uid: uid,
+            tenantId: tenantId,
+            credentialParams: credentialParams
+        )
+    }
+
+    package func authReauthenticateWithCredential(
+        turn: OperationTurn,
+        uid: String,
+        tenantId: String?,
+        credentialParams: [String: AnySendable]
+    ) async throws -> AnySendable {
+        let params: [String: AnySendable] = [
+            "uid": .string(uid),
+            "tenantId": tenantId.map { .string($0) } ?? .null,
+            "credential": .dictionary(credentialParams),
+        ]
+        return try await op(turn: turn, method: "auth.reauthenticateWithCredential", params: params)
+    }
+
+    public func authUnlink(uid: String, tenantId: String?, providerID: String) async throws -> AnySendable {
+        try await authUnlink(turn: takeTurn(), uid: uid, tenantId: tenantId, providerID: providerID)
+    }
+
+    package func authUnlink(
+        turn: OperationTurn,
+        uid: String,
+        tenantId: String?,
+        providerID: String
+    ) async throws -> AnySendable {
+        let params: [String: AnySendable] = [
+            "uid": .string(uid),
+            "tenantId": tenantId.map { .string($0) } ?? .null,
+            "providerId": .string(providerID),
+        ]
+        return try await op(turn: turn, method: "auth.unlink", params: params)
+    }
+
     public func authMockSignInResult(
         providerID: String,
         uid: String,

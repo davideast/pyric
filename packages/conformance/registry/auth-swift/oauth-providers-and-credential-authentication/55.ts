@@ -2,8 +2,9 @@ import { row } from './section.ts';
 
 export default row({
   order: 10,
-  flipped: 'live-host',
+  flipped: 'oracle-backed',
   api: 'GoogleAuthProvider.credential(withIDToken:accessToken:)',
   behavior: 'Constructs an AuthCredential for Google Sign-In ("google.com") encapsulating ID token and access token.',
   featureKeys: ['GoogleAuthProvider', 'credential'],
+  oracleObservations: ['auth-swift-instance-linking-reauth-and-oauth-credentials'],
 });

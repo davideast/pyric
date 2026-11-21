@@ -78,22 +78,24 @@ function detectSwiftFrontendForParse(): string | null {
 describe('Wave 4 ios-sdk-probes auth-swift and rtdb-swift oracle probes', () => {
   it('wires Wave 4 Auth and RTDB descriptors, Swift runner dispatch arms, and PR #1 / PR #2 registry cleanliness', async () => {
     expect(authWave4LinkingProbe.rig).toBe('ios-sdk-probes');
-    expect(authWave4LinkingProbe.pendingRowLink).toBe(true);
-    expect(authWave4LinkingProbe.matrixRow).toBe('');
-    expect(authWave4LinkingProbe.rowIds).toEqual([]);
     expect(authWave4LinkingProbe.requires).toEqual(['web-config', 'admin-auth']);
 
     const rtdbWave4Descriptors = [rtdbWave4NavProbe, rtdbWave4LiveProbe];
     for (const descriptor of rtdbWave4Descriptors) {
       expect(descriptor.rig).toBe('ios-sdk-probes');
-      expect(descriptor.pendingRowLink).toBe(true);
-      expect(descriptor.matrixRow).toBe('');
-      expect(descriptor.rowIds).toEqual([]);
       expect(descriptor.requires).toEqual(['web-config', 'dedicated-rtdb']);
     }
 
     const allWave4Descriptors = [authWave4LinkingProbe, ...rtdbWave4Descriptors];
     for (const descriptor of allWave4Descriptors) {
+      if (descriptor.pendingRowLink === true) {
+        expect(descriptor.matrixRow).toBe('');
+        expect(descriptor.rowIds).toEqual([]);
+      } else {
+        expect(descriptor.pendingRowLink).toBeUndefined();
+        expect(descriptor.matrixRow.length).toBeGreaterThan(0);
+        expect(descriptor.rowIds.length).toBeGreaterThan(0);
+      }
       if (process.platform !== 'darwin') {
         await expect(descriptor.observe()).rejects.toThrow(/requires macOS \(darwin\)/);
       }
@@ -119,7 +121,17 @@ describe('Wave 4 ios-sdk-probes auth-swift and rtdb-swift oracle probes', () => 
       }
     }
 
-    expectStagedUntilCaptured(STAGED_IOS_WAVE4_PROBES, {
+    const wave4Entries = loaded.filter((entry) =>
+      (STAGED_IOS_WAVE4_PROBES as readonly string[]).includes(entry.id),
+    );
+    const currentlyStagedWave4Ids: string[] = [];
+    for (const entry of wave4Entries) {
+      if (entry.probe.pendingRowLink === true) {
+        currentlyStagedWave4Ids.push(entry.id);
+      }
+    }
+
+    expectStagedUntilCaptured(currentlyStagedWave4Ids, {
       rig: 'ios-sdk-probes',
       filterFlag: '--probe',
     });
@@ -151,7 +163,16 @@ describe('Wave 4 ios-sdk-probes auth-swift and rtdb-swift oracle probes', () => 
 
     const iosVersion = resolvedIosSdkVersion();
     const byName = new Map(currentObservations.map((obs) => [obs.name, obs]));
-    for (const stagedName of STAGED_IOS_WAVE4_PROBES) {
+    for (const entry of wave4Entries) {
+      if (entry.probe.pendingRowLink !== true) {
+        const committed = byName.get(entry.id);
+        expect(committed).toBeDefined();
+        expect(committed?.iosSdkVersion).toBe(iosVersion);
+        expect(committed?.matrixRow).toBe(entry.probe.matrixRow);
+        expect(committed?.rowIds).toEqual(entry.probe.rowIds);
+      }
+    }
+    for (const stagedName of currentlyStagedWave4Ids) {
       let surfaceDir = 'rtdb-swift';
       if (stagedName.startsWith('auth-swift-')) {
         surfaceDir = 'auth-swift';
