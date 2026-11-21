@@ -82,6 +82,27 @@ public final class Transaction: @unchecked Sendable {
         var error: Error?
     }
 
+    /// Reads a document synchronously inside `(Transaction, NSErrorPointer) -> Any?` blocks.
+    /// Inside an `async` update block, prefer `try await transaction.getDocument(_:)`.
+    @_disfavoredOverload
+    public func getDocument(_ document: DocumentReference) throws -> DocumentSnapshot {
+        var err: NSError?
+        #if canImport(ObjectiveC)
+        let snap = getDocument(document, error: &err)
+        #else
+        let snap = withUnsafeMutablePointer(to: &err) { ptr in
+            getDocument(document, error: ptr)
+        }
+        #endif
+        if let err {
+            throw err
+        }
+        guard let snap else {
+            throw PyricBridgeError.internalError("Transaction.getDocument returned nil without error.")
+        }
+        return snap
+    }
+
     /// Reads a document and blocks the calling thread until the reply arrives.
     /// `runTransaction(_:completion:)` runs its update block on a thread of its own
     /// for this; inside an async update block, use `getDocument(_:) async` instead.

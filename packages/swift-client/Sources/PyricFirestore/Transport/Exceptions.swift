@@ -1,5 +1,8 @@
 import Foundation
 
+/// Error domain matching `FIRFirestoreErrorDomain` (`FirestoreErrorDomain`) in `FirebaseFirestore`.
+public let FirestoreErrorDomain = "FIRFirestoreErrorDomain"
+
 /// Canonical Firebase and Pyric error codes.
 public enum FirestoreErrorCode: String, Sendable, Codable, CaseIterable, ExpressibleByStringLiteral {
     case ok = "ok"
@@ -20,6 +23,52 @@ public enum FirestoreErrorCode: String, Sendable, Codable, CaseIterable, Express
     case dataLoss = "data-loss"
     case unauthenticated = "unauthenticated"
 
+    /// Canonical gRPC / `FIRFirestoreErrorCode` integer value (`0..16`).
+    public var grpcErrorCode: Int {
+        switch self {
+        case .ok: return 0
+        case .cancelled: return 1
+        case .unknown: return 2
+        case .invalidArgument: return 3
+        case .deadlineExceeded: return 4
+        case .notFound: return 5
+        case .alreadyExists: return 6
+        case .permissionDenied: return 7
+        case .resourceExhausted: return 8
+        case .failedPrecondition: return 9
+        case .aborted: return 10
+        case .outOfRange: return 11
+        case .unimplemented: return 12
+        case .internalError: return 13
+        case .unavailable: return 14
+        case .dataLoss: return 15
+        case .unauthenticated: return 16
+        }
+    }
+
+    public init?(grpcErrorCode: Int) {
+        switch grpcErrorCode {
+        case 0: self = .ok
+        case 1: self = .cancelled
+        case 2: self = .unknown
+        case 3: self = .invalidArgument
+        case 4: self = .deadlineExceeded
+        case 5: self = .notFound
+        case 6: self = .alreadyExists
+        case 7: self = .permissionDenied
+        case 8: self = .resourceExhausted
+        case 9: self = .failedPrecondition
+        case 10: self = .aborted
+        case 11: self = .outOfRange
+        case 12: self = .unimplemented
+        case 13: self = .internalError
+        case 14: self = .unavailable
+        case 15: self = .dataLoss
+        case 16: self = .unauthenticated
+        default: return nil
+        }
+    }
+
     public init(stringLiteral value: String) {
         self = FirestoreErrorCode(rawValue: value) ?? .unknown
     }
@@ -34,12 +83,24 @@ public enum FirestoreErrorCode: String, Sendable, Codable, CaseIterable, Express
 }
 
 /// Structured error thrown on Pyric bridge RPC rejections, timeouts, or connection failures.
-public struct PyricBridgeError: Error, CustomStringConvertible, LocalizedError, Sendable, Equatable {
+public struct PyricBridgeError: Error, CustomStringConvertible, LocalizedError, CustomNSError, Sendable, Equatable {
+    public static var errorDomain: String {
+        FirestoreErrorDomain
+    }
+
     public let code: FirestoreErrorCode
     public let rawCode: String
     public let message: String
     public let denialContext: AnySendable?
     public let envelope: AnySendable?
+
+    public var errorCode: Int {
+        code.grpcErrorCode
+    }
+
+    public var errorUserInfo: [String: Any] {
+        [NSLocalizedDescriptionKey: message]
+    }
 
     public init(
         code: FirestoreErrorCode,
@@ -155,7 +216,7 @@ public struct PyricBridgeError: Error, CustomStringConvertible, LocalizedError, 
 }
 
 /// Generic client-side errors for PyricFirestore.
-public enum PyricFirestoreError: Error, LocalizedError, Equatable, Sendable {
+public enum PyricFirestoreError: Error, LocalizedError, CustomNSError, Equatable, Sendable {
     case invalidArgument(String)
     case serializationError(String)
     case deserializationError(String)
@@ -166,6 +227,39 @@ public enum PyricFirestoreError: Error, LocalizedError, Equatable, Sendable {
     case alreadyExists(String)
     case permissionDenied(String)
     case internalError(String)
+
+    public static var errorDomain: String {
+        FirestoreErrorDomain
+    }
+
+    public var firestoreErrorCode: FirestoreErrorCode {
+        switch self {
+        case .invalidArgument, .serializationError:
+            return .invalidArgument
+        case .deserializationError, .internalError:
+            return .internalError
+        case .bridgeError(let code, let message):
+            return PyricBridgeError.fromCode(code: code, message: message).code
+        case .connectionFailed:
+            return .unavailable
+        case .cancelled:
+            return .cancelled
+        case .notFound:
+            return .notFound
+        case .alreadyExists:
+            return .alreadyExists
+        case .permissionDenied:
+            return .permissionDenied
+        }
+    }
+
+    public var errorCode: Int {
+        firestoreErrorCode.grpcErrorCode
+    }
+
+    public var errorUserInfo: [String: Any] {
+        [NSLocalizedDescriptionKey: errorDescription ?? "Firestore error"]
+    }
 
     public var errorDescription: String? {
         switch self {

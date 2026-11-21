@@ -7,6 +7,7 @@ export default row({
   behavior: 'Deletes document at reference path from Firestore database.',
   featureKeys: ['delete'],
   status: 'conforms',
+  oracleObservations: ['firestore-swift-crud-merge-sentinels-and-codecs'],
   tests: [LIVE_HOST_CRUD_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

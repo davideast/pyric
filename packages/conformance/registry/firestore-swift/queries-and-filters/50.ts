@@ -7,6 +7,7 @@ export default row({
   behavior: 'Filters documents where field value matches none in argument list.',
   featureKeys: ['whereFieldNotIn'],
   status: 'conforms',
+  oracleObservations: ['firestore-swift-inequality-cursors-collectionGroup-and-txRetry'],
   tests: [LIVE_HOST_QUERIES_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

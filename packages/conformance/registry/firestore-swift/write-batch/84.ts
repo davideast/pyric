@@ -7,6 +7,7 @@ export default row({
   behavior: 'Atomically commits all enqueued batch mutations in a single transaction.',
   featureKeys: ['batchCommit'],
   status: 'conforms',
+  oracleObservations: ['firestore-swift-batches-transactions-offline-and-errors'],
   tests: [LIVE_HOST_TRANSACTIONS_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

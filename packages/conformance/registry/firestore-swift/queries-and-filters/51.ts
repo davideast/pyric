@@ -7,6 +7,7 @@ export default row({
   behavior: 'Applies composite boolean Filter using andFilter or orFilter disjunctions.',
   featureKeys: ['whereFilter'],
   status: 'conforms',
+  oracleObservations: ['firestore-swift-queries-cursors-filters-and-aggregations'],
   tests: [LIVE_HOST_QUERIES_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

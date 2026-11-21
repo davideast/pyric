@@ -7,6 +7,7 @@ export default row({
   behavior: 'Transformation adding unique elements to array field if absent.',
   featureKeys: ['arrayUnion'],
   status: 'conforms',
+  oracleObservations: ['firestore-swift-crud-merge-sentinels-and-codecs'],
   tests: [LIVE_HOST_TYPES_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

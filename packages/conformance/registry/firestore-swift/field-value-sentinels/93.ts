@@ -7,6 +7,7 @@ export default row({
   behavior: 'Sentinel deleting target field during document update operation.',
   featureKeys: ['deleteField'],
   status: 'conforms',
+  oracleObservations: ['firestore-swift-crud-merge-sentinels-and-codecs'],
   tests: [LIVE_HOST_TYPES_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

@@ -290,13 +290,163 @@ struct FirestoreOracleParityTests {
         #expect(committedVal as? Int == 42)
         #expect(retryCounter.value == 2)
 
-        // Missing-doc updateData surfaces .notFound.
+        // Missing-doc updateData surfaces .notFound (gRPC code 5 under FIRFirestoreErrorDomain).
         var updateMissingCode: FirestoreErrorCode?
+        var updateMissingNsDomain: String?
+        var updateMissingNsCode: Int?
         do {
             try await harness.firestore.document("items/missing").updateData(["v": 9])
         } catch let err as PyricBridgeError {
             updateMissingCode = err.code
+            let nsErr = err as NSError
+            updateMissingNsDomain = nsErr.domain
+            updateMissingNsCode = nsErr.code
         }
         #expect(updateMissingCode == .notFound)
+        #expect(updateMissingNsDomain == FirestoreErrorDomain)
+        #expect(updateMissingNsCode == 5)
+    }
+
+    @Test("FirestoreErrorDomain gRPC NSError bridging, useEmulator(withHost:port:), 2-arg async/with: runTransaction overloads, and throwing Transaction.getDocument")
+    func testFirestoreErrorDomainUseEmulatorAndTransactionOverloadParity() async throws {
+        #expect(FirestoreErrorDomain == "FIRFirestoreErrorDomain")
+        let expectedGrpcCodes: [(FirestoreErrorCode, Int)] = [
+            (.ok, 0),
+            (.cancelled, 1),
+            (.unknown, 2),
+            (.invalidArgument, 3),
+            (.deadlineExceeded, 4),
+            (.notFound, 5),
+            (.alreadyExists, 6),
+            (.permissionDenied, 7),
+            (.resourceExhausted, 8),
+            (.failedPrecondition, 9),
+            (.aborted, 10),
+            (.outOfRange, 11),
+            (.unimplemented, 12),
+            (.internalError, 13),
+            (.unavailable, 14),
+            (.dataLoss, 15),
+            (.unauthenticated, 16),
+        ]
+        for (code, expectedInt) in expectedGrpcCodes {
+            #expect(code.grpcErrorCode == expectedInt)
+            #expect(FirestoreErrorCode(grpcErrorCode: expectedInt) == code)
+            let bridgeErr = PyricBridgeError(code: code, message: "msg-\(expectedInt)")
+            let nsErr = bridgeErr as NSError
+            #expect(nsErr.domain == FirestoreErrorDomain)
+            #expect(nsErr.code == expectedInt)
+            #expect(nsErr.localizedDescription == "msg-\(expectedInt)")
+        }
+
+        let emulatorApp = FirebaseApp(
+            name: "oracle-parity-emu-\(UUID().uuidString)",
+            options: FirebaseOptions()
+        )
+        let emulatorDb = Firestore.firestore(app: emulatorApp)
+        emulatorDb.useEmulator(withHost: "127.0.0.1", port: 8080)
+        #expect(emulatorDb.settings.host == "127.0.0.1:8080")
+        #expect(emulatorDb.settings.sslEnabled == false)
+        try await emulatorDb.terminate()
+        await emulatorApp.disconnectSharedBridge()
+
+        let harness = try await AdversarialMockHarness.create()
+        defer {
+            Task { try? await harness.firestore.terminate() }
+        }
+
+        // Malformed bundle surfaces FirestoreErrorDomain on NSError bridging.
+        var bundleNsDomain: String?
+        var bundleNsCode: Int?
+        do {
+            _ = try await harness.firestore.loadBundle(Data("malformed-bundle".utf8))
+        } catch {
+            let nsErr = error as NSError
+            bundleNsDomain = nsErr.domain
+            bundleNsCode = nsErr.code
+        }
+        #expect(bundleNsDomain == FirestoreErrorDomain)
+        #expect(bundleNsCode == 3)
+
+        harness.onWorkerOp = { id, method, _ in
+            if method == "getDoc" {
+                return [
+                    "type": "worker-res",
+                    "id": id,
+                    "ok": true,
+                    "value": [
+                        "id": "b1",
+                        "path": "items/b1",
+                        "exists": true,
+                        "data": [
+                            "valueEncoding": ValueCodec.docValueEncodingV1,
+                            "json": "{\"points\":17}",
+                        ] as [String: Any],
+                    ] as [String: Any],
+                ]
+            }
+            if method == "txnCommit" {
+                return ["type": "worker-res", "id": id, "ok": true, "value": NSNull()]
+            }
+            return nil
+        }
+
+        let docRef = harness.firestore.document("items/b1")
+
+        // 2-arg async runTransaction + synchronous throwing transaction.getDocument(_:)
+        let twoArgResult = try await harness.firestore.runTransaction { transaction, _ in
+            let snap: DocumentSnapshot
+            do {
+                snap = try transaction.getDocument(docRef)
+            } catch {
+                return nil
+            }
+            let current = (snap.data()?["points"] as? Int) ?? (snap.data()?["points"] as? Int64).map(Int.init) ?? 0
+            transaction.updateData(["points": current + 5], forDocument: docRef)
+            return "committed-\(current + 5)"
+        }
+        #expect(twoArgResult as? String == "committed-22")
+
+        // 2-arg async runTransaction NSErrorPointer abort preserves caller NSError domain and code.
+        var abortedDomain: String?
+        var abortedCode: Int?
+        do {
+            _ = try await harness.firestore.runTransaction { transaction, errorPointer in
+                _ = try? transaction.getDocument(docRef)
+                errorPointer?.pointee = NSError(domain: "DemoTxAbortDomain", code: 77)
+                return nil
+            }
+        } catch {
+            let nsErr = error as NSError
+            abortedDomain = nsErr.domain
+            abortedCode = nsErr.code
+        }
+        #expect(abortedDomain == "DemoTxAbortDomain")
+        #expect(abortedCode == 77)
+
+        // Completion-based runTransaction(with:block:completion:) with external `with:` label.
+        let withOptionsValue: String? = try await withCheckedThrowingContinuation { continuation in
+            harness.firestore.runTransaction(
+                with: TransactionOptions(maxAttempts: 2),
+                block: { transaction, errorPointer in
+                    do {
+                        let snap = try transaction.getDocument(docRef)
+                        let pts = (snap.data()?["points"] as? Int) ?? (snap.data()?["points"] as? Int64).map(Int.init) ?? 0
+                        return "with-options-\(pts)"
+                    } catch {
+                        errorPointer?.pointee = error as NSError
+                        return nil
+                    }
+                },
+                completion: { value, error in
+                    if let error {
+                        continuation.resume(throwing: error)
+                    } else {
+                        continuation.resume(returning: value as? String)
+                    }
+                }
+            )
+        }
+        #expect(withOptionsValue == "with-options-17")
     }
 }

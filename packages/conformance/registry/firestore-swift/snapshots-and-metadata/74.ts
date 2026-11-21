@@ -7,6 +7,7 @@ export default row({
   behavior: 'Ordered array of QueryDocumentSnapshot instances matched by query.',
   featureKeys: ['documents'],
   status: 'conforms',
+  oracleObservations: ['firestore-swift-queries-cursors-filters-and-aggregations'],
   tests: [LIVE_HOST_SNAPSHOTS_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

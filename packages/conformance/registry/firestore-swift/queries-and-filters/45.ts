@@ -7,6 +7,10 @@ export default row({
   behavior: 'Filters documents where field is strictly greater than value.',
   featureKeys: ['whereFieldGreaterThan'],
   status: 'conforms',
+  oracleObservations: [
+    'firestore-swift-queries-cursors-filters-and-aggregations',
+    'firestore-swift-inequality-cursors-collectionGroup-and-txRetry',
+  ],
   tests: [LIVE_HOST_QUERIES_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

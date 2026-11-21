@@ -7,6 +7,7 @@ export default row({
   behavior: 'Filters documents where field is greater than or equal to value.',
   featureKeys: ['whereFieldGreaterThanOrEqualTo'],
   status: 'conforms',
+  oracleObservations: ['firestore-swift-inequality-cursors-collectionGroup-and-txRetry'],
   tests: [LIVE_HOST_QUERIES_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

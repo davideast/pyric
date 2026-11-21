@@ -7,6 +7,10 @@ export default row({
   behavior: 'Delta change descriptor indicating added, modified, or removed mutations.',
   featureKeys: ['documentChange'],
   status: 'conforms',
+  oracleObservations: [
+    'firestore-swift-queries-cursors-filters-and-aggregations',
+    'firestore-swift-instance-snapshots-inSync-and-codable',
+  ],
   tests: [LIVE_HOST_SNAPSHOTS_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

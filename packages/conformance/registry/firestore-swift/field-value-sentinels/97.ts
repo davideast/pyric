@@ -7,6 +7,7 @@ export default row({
   behavior: 'Constructs dense vector embedding from Double or Float array.',
   featureKeys: ['vector'],
   status: 'conforms',
+  oracleObservations: ['firestore-swift-instance-snapshots-inSync-and-codable'],
   tests: [LIVE_HOST_TYPES_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

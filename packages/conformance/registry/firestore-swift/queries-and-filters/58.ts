@@ -7,6 +7,10 @@ export default row({
   behavior: 'Positions starting cursor using DocumentSnapshot position.',
   featureKeys: ['startAtDocument', 'startAfterDocument'],
   status: 'conforms',
+  oracleObservations: [
+    'firestore-swift-queries-cursors-filters-and-aggregations',
+    'firestore-swift-inequality-cursors-collectionGroup-and-txRetry',
+  ],
   tests: [LIVE_HOST_QUERIES_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

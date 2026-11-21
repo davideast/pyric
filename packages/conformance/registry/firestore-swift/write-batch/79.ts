@@ -7,6 +7,7 @@ export default row({
   behavior: 'Enqueues set overwrite operation into atomic mutation batch.',
   featureKeys: ['batchSetData'],
   status: 'conforms',
+  oracleObservations: ['firestore-swift-batches-transactions-offline-and-errors'],
   tests: [LIVE_HOST_TRANSACTIONS_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

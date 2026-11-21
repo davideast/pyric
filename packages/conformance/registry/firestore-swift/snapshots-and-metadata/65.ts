@@ -7,6 +7,7 @@ export default row({
   behavior: 'Unique key string identifying the snapshot document.',
   featureKeys: ['snapshotDocumentID'],
   status: 'conforms',
+  oracleObservations: ['firestore-swift-instance-snapshots-inSync-and-codable'],
   tests: [LIVE_HOST_SNAPSHOTS_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

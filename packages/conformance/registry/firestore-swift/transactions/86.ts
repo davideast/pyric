@@ -7,6 +7,7 @@ export default row({
   behavior: 'Stages transactional set overwrite mutation.',
   featureKeys: ['transactionSetData'],
   status: 'conforms',
+  oracleObservations: ['firestore-swift-inequality-cursors-collectionGroup-and-txRetry'],
   tests: [LIVE_HOST_TRANSACTIONS_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

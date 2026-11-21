@@ -7,6 +7,7 @@ export default row({
   behavior: 'Listens to document snapshot updates including metadata-only transitions.',
   featureKeys: ['addSnapshotListenerMetadata'],
   status: 'conforms',
+  oracleObservations: ['firestore-swift-instance-snapshots-inSync-and-codable'],
   tests: [LIVE_HOST_CRUD_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

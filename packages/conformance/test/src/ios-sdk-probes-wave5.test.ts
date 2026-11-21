@@ -22,7 +22,7 @@ import {
   type IosAdminAuthAdapter,
   type IosFirestoreSessionOptions,
 } from '../../src/ios-oracle-runtime.ts';
-import { loadObservations, type Observation } from '../../src/ledger.ts';
+import { loadObservations } from '../../src/ledger.ts';
 import type { OracleServiceAccount } from '../../src/oracle-credential.ts';
 import { OracleRulesSession } from '../../src/oracle-rules-session.ts';
 import { resolvedIosSdkVersion } from '../../src/package-version.ts';
@@ -35,6 +35,8 @@ import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CONFORMANCE_ROOT = resolve(HERE, '..', '..');
 const FIRESTORE_SIM_DIR = join(CONFORMANCE_ROOT, 'rigs', 'native-ios-oracle', 'firestore-sim');
+
+const STAGED_WAVE5_FIRESTORE_PROBE_IDS: readonly string[] = [];
 
 const WAVE5_FIRESTORE_PROBE_IDS = [
   'firestore-swift-inequality-cursors-collectionGroup-and-txRetry',
@@ -99,9 +101,9 @@ describe('Wave 5 firestore-swift ios-sdk-probes descriptors, scoped collectionGr
     const wave5Descriptors = [firestoreWave5InstanceProbe, firestoreWave5QueriesProbe];
     for (const descriptor of wave5Descriptors) {
       expect(descriptor.rig).toBe('ios-sdk-probes');
-      expect(descriptor.pendingRowLink).toBe(true);
-      expect(descriptor.matrixRow).toBe('');
-      expect(descriptor.rowIds).toEqual([]);
+      expect(descriptor.pendingRowLink).toBeUndefined();
+      expect(descriptor.matrixRow.startsWith('firestore-swift#')).toBe(true);
+      expect(descriptor.rowIds.length).toBeGreaterThan(0);
       expect(descriptor.requires).toEqual([
         'web-config',
         'firestore-rules',
@@ -112,13 +114,17 @@ describe('Wave 5 firestore-swift ios-sdk-probes descriptors, scoped collectionGr
         await expect(descriptor.observe()).rejects.toThrow(/requires macOS \(darwin\)/);
       }
     }
+    expect(firestoreWave5InstanceProbe.matrixRow).toBe('firestore-swift#1');
+    expect(firestoreWave5InstanceProbe.rowIds.length).toBe(38);
+    expect(firestoreWave5QueriesProbe.matrixRow).toBe('firestore-swift#9');
+    expect(firestoreWave5QueriesProbe.rowIds.length).toBe(21);
 
     const loadedFirestore = (await loadModularProbes('ios-sdk-probes')).filter(
       (entry) => entry.surfaceDir === 'firestore-swift',
     );
     expect(loadedFirestore.map((entry) => entry.id)).toEqual(ALL_FIRESTORE_SWIFT_PROBE_IDS);
 
-    expectStagedUntilCaptured(WAVE5_FIRESTORE_PROBE_IDS, {
+    expectStagedUntilCaptured(STAGED_WAVE5_FIRESTORE_PROBE_IDS, {
       rig: 'ios-sdk-probes',
       filterFlag: '--probe',
     });
@@ -134,7 +140,7 @@ describe('Wave 5 firestore-swift ios-sdk-probes descriptors, scoped collectionGr
       ...ALL_RULES_RTDB_DEPLOY_SCENARIOS,
     ].map((s) => s.id);
 
-    const pr1Problems = validateCompatibilityRegistry({
+    const registryProblems = validateCompatibilityRegistry({
       rows: allCompatibilityRows,
       descriptors: surfaceDescriptors,
       observations: currentObservations,
@@ -146,47 +152,23 @@ describe('Wave 5 firestore-swift ios-sdk-probes descriptors, scoped collectionGr
       rulesRtdbScenarioIds,
       pendingRowLinkObservations,
     });
-    expect(pr1Problems).toEqual([]);
+    expect(registryProblems).toEqual([]);
 
     const iosVersion = resolvedIosSdkVersion();
     const byName = new Map(currentObservations.map((obs) => [obs.name, obs]));
-    for (const stagedName of WAVE5_FIRESTORE_PROBE_IDS) {
-      const simulatedObs: Observation = {
-        file: `${stagedName}.json`,
-        surfaceDir: 'firestore-swift',
-        name: stagedName,
-        matrixRow: '',
-        rowIds: [],
-        observedAt: '2026-11-21T06:35:00.000Z',
-        iosSdkVersion: iosVersion,
-        behavior: { simulatedCapture: true },
-        raw: {
-          name: stagedName,
-          matrixRow: '',
-          rowIds: [],
-          description: 'Simulated captured Wave 5 iOS Firestore observation',
-          observedAt: '2026-11-21T06:35:00.000Z',
-          iosSdkVersion: iosVersion,
-          projectId: 'demo-oracle-project',
-          behavior: { simulatedCapture: true },
-        },
-      };
-      byName.set(simulatedObs.name, simulatedObs);
+    const wave5NamedProbes = [
+      ['firestore-swift-instance-snapshots-inSync-and-codable', firestoreWave5InstanceProbe],
+      ['firestore-swift-inequality-cursors-collectionGroup-and-txRetry', firestoreWave5QueriesProbe],
+    ] as const;
+    for (const [probeName, descriptor] of wave5NamedProbes) {
+      const committed = byName.get(probeName);
+      if (committed === undefined) {
+        throw new Error(`Missing committed Wave 5 observation ${probeName}`);
+      }
+      expect(committed.iosSdkVersion).toBe(iosVersion);
+      expect(committed.matrixRow).toBe(descriptor.matrixRow);
+      expect(committed.rowIds).toEqual([...descriptor.rowIds]);
     }
-
-    const pr2Problems = validateCompatibilityRegistry({
-      rows: allCompatibilityRows,
-      descriptors: surfaceDescriptors,
-      observations: [...byName.values()],
-      observationExceptions,
-      rigManifests,
-      probeFiles,
-      rulesFirestoreScenarioIds,
-      rulesStorageScenarioIds,
-      rulesRtdbScenarioIds,
-      pendingRowLinkObservations,
-    });
-    expect(pr2Problems).toEqual([]);
   });
 
   it(

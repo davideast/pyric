@@ -7,6 +7,7 @@ export default row({
   behavior: 'Replaces only explicitly specified field paths in the target document.',
   featureKeys: ['setDataMergeFields'],
   status: 'conforms',
+  oracleObservations: ['firestore-swift-crud-merge-sentinels-and-codecs'],
   tests: [LIVE_HOST_CRUD_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

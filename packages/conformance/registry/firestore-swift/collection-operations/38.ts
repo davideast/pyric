@@ -7,6 +7,7 @@ export default row({
   behavior: 'Instantiates a child DocumentReference with an auto-generated unique ID.',
   featureKeys: ['documentAutoId'],
   status: 'conforms',
+  oracleObservations: ['firestore-swift-instance-snapshots-inSync-and-codable'],
   tests: [LIVE_HOST_INSTANCE_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

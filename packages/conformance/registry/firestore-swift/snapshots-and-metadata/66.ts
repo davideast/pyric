@@ -7,6 +7,7 @@ export default row({
   behavior: 'DocumentReference pointing to the snapshot document location.',
   featureKeys: ['reference'],
   status: 'conforms',
+  oracleObservations: ['firestore-swift-instance-snapshots-inSync-and-codable'],
   tests: [LIVE_HOST_SNAPSHOTS_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

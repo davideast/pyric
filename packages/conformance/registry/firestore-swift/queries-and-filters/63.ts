@@ -7,6 +7,7 @@ export default row({
   behavior: 'Attaches real-time query listener configured with SnapshotListenOptions.',
   featureKeys: ['addQuerySnapshotListenerOptions'],
   status: 'conforms',
+  oracleObservations: ['firestore-swift-instance-snapshots-inSync-and-codable'],
   tests: [LIVE_HOST_QUERIES_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

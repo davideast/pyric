@@ -7,6 +7,7 @@ export default row({
   behavior: 'Toggles client network connectivity to simulate offline and online operation.',
   featureKeys: ['enableNetwork', 'disableNetwork'],
   status: 'conforms',
+  oracleObservations: ['firestore-swift-batches-transactions-offline-and-errors'],
   tests: [LIVE_HOST_LIFECYCLE_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

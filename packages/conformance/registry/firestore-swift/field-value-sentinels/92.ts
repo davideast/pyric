@@ -7,6 +7,7 @@ export default row({
   behavior: 'Sentinel replaced by server commit timestamp during write processing.',
   featureKeys: ['serverTimestamp'],
   status: 'conforms',
+  oracleObservations: ['firestore-swift-crud-merge-sentinels-and-codecs'],
   tests: [LIVE_HOST_TYPES_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

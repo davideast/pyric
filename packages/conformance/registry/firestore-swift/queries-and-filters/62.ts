@@ -7,6 +7,7 @@ export default row({
   behavior: 'Attaches real-time query listener receiving metadata-only change notifications.',
   featureKeys: ['addQuerySnapshotListenerMetadata'],
   status: 'conforms',
+  oracleObservations: ['firestore-swift-queries-cursors-filters-and-aggregations'],
   tests: [LIVE_HOST_QUERIES_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

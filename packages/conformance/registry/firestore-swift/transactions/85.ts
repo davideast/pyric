@@ -7,6 +7,7 @@ export default row({
   behavior: 'Reads document snapshot within transaction and establishes read lock.',
   featureKeys: ['transactionGetDocument'],
   status: 'conforms',
+  oracleObservations: ['firestore-swift-batches-transactions-offline-and-errors'],
   tests: [LIVE_HOST_TRANSACTIONS_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

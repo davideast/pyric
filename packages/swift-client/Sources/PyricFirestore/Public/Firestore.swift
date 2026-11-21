@@ -250,6 +250,10 @@ public class Firestore: @unchecked Sendable {
         reconfigureBridge()
     }
 
+    public func useEmulator(withHost host: String, port: Int) {
+        useEmulator(host: host, port: port)
+    }
+
     // -- Document and Collection Accessors --
 
     public func document(_ path: String) -> DocumentReference {

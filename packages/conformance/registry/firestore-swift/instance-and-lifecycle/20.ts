@@ -7,6 +7,7 @@ export default row({
   behavior: 'Loads serialized Firestore bundle data into the local cache.',
   featureKeys: ['loadBundle'],
   status: 'conforms',
+  oracleObservations: ['firestore-swift-instance-snapshots-inSync-and-codable'],
   tests: [LIVE_HOST_LIFECYCLE_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

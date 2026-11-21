@@ -7,6 +7,7 @@ export default row({
   behavior: 'Merges payload fields into existing document without overwriting unspecified fields.',
   featureKeys: ['setDataMerge'],
   status: 'conforms',
+  oracleObservations: ['firestore-swift-crud-merge-sentinels-and-codecs'],
   tests: [LIVE_HOST_CRUD_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });
