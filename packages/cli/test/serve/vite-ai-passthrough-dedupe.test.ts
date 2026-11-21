@@ -20,7 +20,7 @@ import { pyric } from '../../src/serve/vite-plugin.js';
 import { viteProcessStopHook } from '../../src/serve/vite-process-stop.js';
 import { attachViteSdkRequestGate } from '../../src/serve/vite-sdk-file-gate.js';
 import { loadServerTarget } from '../../src/serve/vite-ssr-loader.js';
-import { SSR_SWAP_PREFIX } from '../../src/serve/vite-ssr-routing.js';
+import { SSR_SWAP_PREFIX, ssrSwapAlias } from '../../src/serve/vite-ssr-routing.js';
 
 const STOP_PREFIX = '\0pyric-stop:';
 const clientEnvironment: SwapEnvironment = { name: 'client', config: { consumer: 'client' } };
@@ -245,7 +245,13 @@ describe('Vite and Node PYRIC_AI_MODE=production cross-tree Firebase deduplicati
       devServer: true,
       userConfig: { root: fixture.appRoot },
     };
-    prodSwap.config(configOpts);
+    const devConfig = prodSwap.config(configOpts);
+    let dedupeList: string[] = [];
+    if (devConfig.resolve !== undefined && devConfig.resolve.dedupe !== undefined) {
+      dedupeList = devConfig.resolve.dedupe;
+    }
+    expect(dedupeList).toEqual(['firebase']);
+    expect(prodSwap.config({ devServer: false, userConfig: { root: fixture.appRoot } }).resolve?.dedupe).toEqual(['firebase']);
     const fsAllow = [fixture.appRoot];
     prodSwap.configResolved({
       root: fixture.appRoot,
@@ -256,23 +262,33 @@ describe('Vite and Node PYRIC_AI_MODE=production cross-tree Firebase deduplicati
     expect(fsAllow).toContain(fixture.scopedAppPkgRoot);
     expect(fsAllow).toContain(fixture.scopedComponentPkgRoot);
 
-    const seenImporters: Array<string | undefined> = [];
+    const aliasRule = ssrSwapAlias();
+    const activeAliasImporters = new Set<string>();
     const resolveContext: SwapResolveContext = {
       environment: clientEnvironment,
-      resolve: async (source, importer) => {
-        seenImporters.push(importer);
-        const fromAppRoot =
-          importer !== undefined && importer.startsWith(fixture.appRoot + path.sep);
-        if (source === 'firebase/app') {
-          if (fromAppRoot) {
-            return { id: fixture.realFirebaseAppFile };
+      resolve: async (source, importer, resolveOptions) => {
+        const aliasKey = `${source}\0${String(importer)}`;
+        if (aliasRule.find.test(source) && !activeAliasImporters.has(aliasKey)) {
+          activeAliasImporters.add(aliasKey);
+          try {
+            const aliased = source.replace(aliasRule.find, aliasRule.replacement);
+            const routed = await prodSwap.resolvePluginId(resolveContext, aliased, importer, resolveOptions);
+            if (typeof routed === 'string') return { id: routed };
+            if (routed !== null) return routed;
+            return null;
+          } finally {
+            activeAliasImporters.delete(aliasKey);
           }
+        }
+        const isDedupedFirebase = source.startsWith('firebase/') && dedupeList.includes('firebase');
+        const fromAppRoot =
+          isDedupedFirebase || (importer !== undefined && importer.startsWith(fixture.appRoot + path.sep));
+        if (source === 'firebase/app') {
+          if (fromAppRoot) return { id: fixture.realFirebaseAppFile };
           return { id: '/wrong-cli-tree/node_modules/firebase/app/dist/index.esm.js' };
         }
         if (source === 'firebase/app-check') {
-          if (fromAppRoot) {
-            return { id: fixture.realFirebaseAppCheckFile };
-          }
+          if (fromAppRoot) return { id: fixture.realFirebaseAppCheckFile };
           return { id: '/wrong-cli-tree/node_modules/firebase/app-check/dist/index.esm.js' };
         }
         if (source === '@firebase/app' && importer === fixture.realFirebaseAppFile) {
@@ -287,54 +303,24 @@ describe('Vite and Node PYRIC_AI_MODE=production cross-tree Firebase deduplicati
 
     const userMain = path.join(fixture.appRoot, 'src', 'main.js');
     const passthroughAppEntry = context.entries['app-ai-passthrough'];
-    const appCheckBridgeEntry = path.join(
-      context.cliRoot,
-      'src',
-      'register',
-      'app-bridge-app-check.ts',
-    );
+    const appCheckBridgeEntry = path.join(context.cliRoot, 'src', 'register', 'app-bridge-app-check.ts');
 
-    const aliasedApp = await prodSwap.resolvePluginId(
-      resolveContext,
-      `${SSR_SWAP_PREFIX}firebase/app`,
-      passthroughAppEntry,
-    );
+    activeAliasImporters.add(`firebase/app\0${passthroughAppEntry}`);
+    const aliasedApp = await prodSwap.resolvePluginId(resolveContext, `${SSR_SWAP_PREFIX}firebase/app`, passthroughAppEntry);
+    activeAliasImporters.delete(`firebase/app\0${passthroughAppEntry}`);
     expect(aliasedApp).toEqual({ id: fixture.realFirebaseAppFile });
 
-    const unaliasedCheck = await prodSwap.resolvePluginId(
-      resolveContext,
-      'firebase/app-check',
-      appCheckBridgeEntry,
-    );
-    expect(unaliasedCheck).toEqual({ id: fixture.realFirebaseAppCheckFile });
-    expect(seenImporters[0]).toBe(path.join(fixture.appRoot, 'package.json'));
+    const unaliasedCheck = await prodSwap.resolvePluginId(resolveContext, 'firebase/app-check', appCheckBridgeEntry);
+    expect(unaliasedCheck).toBeNull();
 
     expect(prodSwap.allowedUrls.has(pathToFileURL(fixture.realFirebaseAppFile).href)).toBe(true);
-    expect(prodSwap.allowedUrls.has(pathToFileURL(fixture.realFirebaseAppCheckFile).href)).toBe(
-      true,
-    );
+    expect(prodSwap.allowedUrls.has(pathToFileURL(fixture.realFirebaseAppCheckFile).href)).toBe(true);
 
-    const scopedApp = await prodSwap.resolvePluginId(
-      resolveContext,
-      '@firebase/app',
-      fixture.realFirebaseAppFile,
-    );
-    expect(scopedApp).toBeNull();
+    expect(await prodSwap.resolvePluginId(resolveContext, '@firebase/app', fixture.realFirebaseAppFile)).toBeNull();
     expect(prodSwap.allowedUrls.has(pathToFileURL(fixture.realScopedAppFile).href)).toBe(true);
 
-    const directAppStop = await prodSwap.resolvePluginId(
-      resolveContext,
-      '@firebase/app',
-      userMain,
-    );
-    expect(directAppStop).toStartWith(STOP_PREFIX);
-
-    const directComponentStop = await prodSwap.resolvePluginId(
-      resolveContext,
-      '@firebase/component',
-      userMain,
-    );
-    expect(directComponentStop).toStartWith(STOP_PREFIX);
+    expect(await prodSwap.resolvePluginId(resolveContext, '@firebase/app', userMain)).toStartWith(STOP_PREFIX);
+    expect(await prodSwap.resolvePluginId(resolveContext, '@firebase/component', userMain)).toStartWith(STOP_PREFIX);
 
     let gateMiddleware:
       | ((req: IncomingMessage, res: ServerResponse, next: () => void) => void)

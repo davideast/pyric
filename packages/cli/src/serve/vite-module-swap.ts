@@ -18,7 +18,7 @@ import {
 } from './firebase-module-swap.js';
 import {
   productionAiSdkAllowDirs,
-  resolveBypassedBridgeFromAppRoot,
+  projectFirebaseDedupe,
 } from './vite-passthrough-resolve.js';
 import { packageRootOf, resolveUnhooked } from './vite-unhooked-resolve.js';
 import {
@@ -368,35 +368,11 @@ export function createViteModuleSwap(
     if (original === null && isServer && isRoutedServerSpecifier(source)) {
       original = source;
     }
-    let candidate = source;
-    if (original !== null) {
-      candidate = original;
-    }
-    const { bare: candidateBare } = splitSpecifierQuery(candidate);
+    if (original === null) return resolveId(source, importer);
+    const { bare: originalBare } = splitSpecifierQuery(original);
     const currentAiMode = aiMode();
     const environment = context.environment;
     const supplied = options?.supplied;
-    const isBypassed =
-      supplied === undefined &&
-      isBypassedBridgeImport(candidateBare, importer, currentAiMode);
-    if (isBypassed) {
-      if (isServer && !runsInProcess(environment)) {
-        let envName = 'ssr';
-        if (environment !== undefined) {
-          envName = environment.name;
-        }
-        return routeServerImport({
-          specifier: candidate,
-          importer,
-          aiMode: currentAiMode,
-          runsInProcess: false,
-          environmentName: envName,
-        });
-      }
-      return resolveBypassedBridgeFromAppRoot(context, candidate, root, importer, resolveOptions);
-    }
-    if (original === null) return resolveId(source, importer);
-    const { bare: originalBare } = splitSpecifierQuery(original);
     if (isServer && supplied !== undefined) {
       return refusalIdFor(originalBare, 'server', supplied.refusal(originalBare, 'server'));
     }
@@ -545,16 +521,28 @@ export function createViteModuleSwap(
       } else {
         optimizeDeps = { exclude: excludedModules, esbuildOptions: { plugins: [optimizerMirror] } };
       }
+      let projectDir = process.cwd();
+      if (configOptions?.userConfig?.root !== undefined) {
+        projectDir = configOptions.userConfig.root;
+      }
+      const dedupe = projectFirebaseDedupe(projectDir);
       routesServerImports = configOptions?.devServer === true || configOptions?.ssrBuild === true;
       if (routesServerImports) {
         serverExternal = [...SSR_EXTERNAL, ...installedSdkExternals(configOptions?.userConfig)];
+        const resolveConfig: NonNullable<UserConfig['resolve']> = { alias: [ssrSwapAlias()] };
+        if (dedupe.length > 0) {
+          resolveConfig.dedupe = dedupe;
+        }
         return {
-          resolve: { alias: [ssrSwapAlias()] },
+          resolve: resolveConfig,
           ssr: { external: serverExternal },
           optimizeDeps,
         };
       }
       serverExternal = SSR_EXTERNAL;
+      if (dedupe.length > 0) {
+        return { resolve: { dedupe }, optimizeDeps };
+      }
       return { optimizeDeps };
     },
     configEnvironment(name, environmentConfig) {

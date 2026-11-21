@@ -3,7 +3,6 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { packageRootDirOf } from '../register/package-identity.js';
 import { isProductionAiSdkPackage } from './firebase-module-swap.js';
-import type { SwapResolveContext } from './vite-module-swap.js';
 import { packageRootOf, resolveUnhooked } from './vite-unhooked-resolve.js';
 
 const PRODUCTION_AI_SUBPATHS = [
@@ -41,29 +40,22 @@ function addResolvedPackageRoot(specifier: string, base: string, out: Set<string
 }
 
 /**
- * Resolves a bypassed production-AI bridge import (`firebase/app` or
- * `firebase/app-check` imported from Pyric's shadow wrappers) from the Vite
- * application root first so the shadow app shares the exact `@firebase/app`
- * and `@firebase/component` singleton that app code's `firebase/ai` registers
- * onto, even when `@pyric/cli` lives in a separate `node_modules` tree.
+ * Returns `['firebase']` for Vite's `resolve.dedupe` when `firebase` resolves
+ * from `projectDir` (or an ancestor `node_modules`). Vite's `vite:resolve`
+ * resolves every `dedupe` package from `config.root` regardless of `importer`,
+ * so Pyric's shadow wrappers (`app-bridge-shadow`, `app-bridge-app-check`)
+ * share the application's `@firebase/app` and `@firebase/component` singleton
+ * without mutating `importer` across Vite 6/7 `EnvironmentPluginContainer`
+ * alias frames.
  */
-export async function resolveBypassedBridgeFromAppRoot(
-  context: SwapResolveContext,
-  specifier: string,
-  appRoot: string,
-  importer: string | undefined,
-  resolveOptions: { ssr?: boolean } | undefined,
-): Promise<{ id: string; external?: boolean } | null> {
-  const nextOptions: { skipSelf: boolean; ssr?: boolean } = { skipSelf: true };
-  if (resolveOptions !== undefined && resolveOptions.ssr !== undefined) {
-    nextOptions.ssr = resolveOptions.ssr;
+export function projectFirebaseDedupe(projectDir: string): string[] {
+  const rootBase = path.join(path.resolve(projectDir), 'package.json');
+  try {
+    resolveUnhooked('firebase/app', rootBase);
+    return ['firebase'];
+  } catch {
+    return [];
   }
-  const rootAnchor = path.join(path.resolve(appRoot), 'package.json');
-  const fromRoot = await context.resolve(specifier, rootAnchor, nextOptions);
-  if (fromRoot !== null) {
-    return fromRoot;
-  }
-  return context.resolve(specifier, importer, nextOptions);
 }
 
 /**
