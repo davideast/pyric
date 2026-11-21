@@ -7,6 +7,7 @@ export default row({
   behavior: 'Filters documents where field value matches no element in values list (NOT IN query).',
   featureKeys: ['whereNotIn'],
   status: 'conforms',
+  oracleObservations: ['firestore-kotlin-inequality-cursors-collectionGroup-and-txRetry'],
   tests: [LIVE_HOST_QUERIES_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

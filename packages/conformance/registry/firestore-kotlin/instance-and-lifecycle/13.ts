@@ -7,6 +7,7 @@ export default row({
   behavior: 'Notifies when all active snapshot listeners are in sync with server state.',
   featureKeys: ['snapshotsInSync'],
   status: 'conforms',
+  oracleObservations: ['firestore-kotlin-instance-flows-inSync-and-toObject'],
   tests: [
     'packages/kt-client/src/test/kotlin/dev/pyric/e2e/FirestoreLifecycleAndDocsLiveHostConformanceTest.kt',
   ],

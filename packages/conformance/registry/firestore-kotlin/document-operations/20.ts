@@ -7,6 +7,7 @@ export default row({
   behavior: 'Returns a Coroutine Flow emitting DocumentSnapshot on document changes.',
   featureKeys: ['snapshots'],
   status: 'conforms',
+  oracleObservations: ['firestore-kotlin-instance-flows-inSync-and-toObject'],
   tests: [
     'packages/kt-client/src/test/kotlin/dev/pyric/e2e/FirestoreLifecycleAndDocsLiveHostConformanceTest.kt',
   ],

@@ -1,7 +1,15 @@
 {
   "name": "firestore-kotlin-instance-flows-inSync-and-toObject",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore-kotlin#1",
+  "rowIds": [
+    "firestore-kotlin#1",
+    "firestore-kotlin#4",
+    "firestore-kotlin#13",
+    "firestore-kotlin#17",
+    "firestore-kotlin#20",
+    "firestore-kotlin#36",
+    "firestore-kotlin#42"
+  ],
   "description": "Upstream Android FirebaseFirestore default/KTX getInstance, FirebaseFirestoreSettings (persistent/memory cache, host/sslEnabled, post-start immutability), document(path), DocumentReference.update(map) + NOT_FOUND on missing doc, addSnapshotsInSyncListener, DocumentReference/Query snapshots(MetadataChanges) coroutine Flows, and DocumentSnapshot.toObject<T>() under Robolectric.",
   "observedAt": "2026-11-21T07:26:52.707Z",
   "androidBomVersion": "35.2.0",

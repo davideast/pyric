@@ -7,6 +7,7 @@ export default row({
   behavior: 'Positions query pagination cursors using DocumentSnapshot instances.',
   featureKeys: ['startAt', 'endAt'],
   status: 'conforms',
+  oracleObservations: ['firestore-kotlin-inequality-cursors-collectionGroup-and-txRetry'],
   tests: [LIVE_HOST_QUERIES_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

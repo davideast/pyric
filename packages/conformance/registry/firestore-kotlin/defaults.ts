@@ -6,6 +6,12 @@ const CONFORMANCE_SUITE =
   'packages/kt-client/src/test/kotlin/dev/pyric/firestore/ConformanceTest.kt';
 const ORACLE_REPLAY_SUITE =
   'packages/conformance/test/src/firestore-kotlin-oracle-replay.test.ts';
+const WAVE5_ORACLE_REPLAY_SUITE =
+  'packages/conformance/test/src/firestore-kotlin-wave5-oracle-replay.test.ts';
+const WAVE5_OBSERVATION_STEMS = new Set([
+  'firestore-kotlin-instance-flows-inSync-and-toObject',
+  'firestore-kotlin-inequality-cursors-collectionGroup-and-txRetry',
+]);
 const UNOBSERVED_REASON =
   'Behavior stated from com.google.firebase.firestore specification; unit test has not passed yet.';
 
@@ -68,7 +74,16 @@ export function bindKotlinFirestoreRow(
         if (seed.status !== undefined) {
           resolvedStatus = seed.status;
         }
-        const conformanceTests: string[] = [ORACLE_REPLAY_SUITE, CONFORMANCE_SUITE];
+        const hasWave5 = observations.some((obs) => WAVE5_OBSERVATION_STEMS.has(obs));
+        const hasWave3 = observations.some((obs) => WAVE5_OBSERVATION_STEMS.has(obs) === false);
+        const replaySuites: string[] = [];
+        if (hasWave3) {
+          replaySuites.push(ORACLE_REPLAY_SUITE);
+        }
+        if (hasWave5) {
+          replaySuites.push(WAVE5_ORACLE_REPLAY_SUITE);
+        }
+        const conformanceTests: string[] = [...replaySuites, CONFORMANCE_SUITE];
         if (seed.tests !== undefined) {
           for (const extraTest of seed.tests) {
             conformanceTests.push(extraTest);
@@ -76,6 +91,7 @@ export function bindKotlinFirestoreRow(
         }
         const hostEvidence = formatHostEvidence(seed.hostConformanceTests);
         const obsTokens = observations.map((obs) => `\`${obs}.json\``).join(', ');
+        const replayTokens = replaySuites.map((suite) => `\`${suite}\``).join(', ');
         return {
           api: seed.api,
           behavior: seed.behavior,
@@ -84,7 +100,7 @@ export function bindKotlinFirestoreRow(
           statusNote: resolveMockBridgeNote(seed.status, seed.statusNote),
           automation: 'oracle-backed',
           oracleObservations: [...observations],
-          evidence: `${resolvedEvidence} Production capture: ${obsTokens} replayed in \`${ORACLE_REPLAY_SUITE}\`; unit suite: \`${CONFORMANCE_SUITE}\` assertion set \`firestore-kotlin#${rowRef}\`.${hostEvidence}`,
+          evidence: `${resolvedEvidence} Production capture: ${obsTokens} replayed in ${replayTokens}; unit suite: \`${CONFORMANCE_SUITE}\` assertion set \`firestore-kotlin#${rowRef}\`.${hostEvidence}`,
           conformanceTests,
           hostConformanceTests: seed.hostConformanceTests,
         };

@@ -7,6 +7,7 @@ export default row({
   behavior: 'Updates specified fields in an existing document; fails if document does not exist.',
   featureKeys: ['update'],
   status: 'conforms',
+  oracleObservations: ['firestore-kotlin-instance-flows-inSync-and-toObject'],
   tests: [
     'packages/kt-client/src/test/kotlin/dev/pyric/e2e/FirestoreLifecycleAndDocsLiveHostConformanceTest.kt',
   ],
