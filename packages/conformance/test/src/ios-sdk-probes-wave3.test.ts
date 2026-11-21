@@ -56,6 +56,10 @@ function detectSwiftFrontendForParse(): string | null {
   if (existsSync(localFrontend)) {
     return localFrontend;
   }
+  const pathFrontend = Bun.which('swift-frontend');
+  if (pathFrontend !== null) {
+    return pathFrontend;
+  }
   const swiftc = Bun.which('swiftc');
   if (swiftc !== null) {
     return swiftc;
@@ -117,7 +121,9 @@ describe('Wave 3 firestore-swift ios-sdk-probes manifest, Swift package, and sta
     });
   });
 
-  it('verifies Swift switch arms, cleanup discipline, single-field predicates, and Swift syntax parsing', () => {
+  it(
+    'verifies Swift switch arms, cleanup discipline, single-field predicates, and Swift syntax parsing',
+    () => {
     const runnerSwift = readFileSync(
       join(FIRESTORE_SIM_DIR, 'Sources', 'PyricIosFirestoreOracle', 'FirestoreOracleProbeRunner.swift'),
       'utf8',
@@ -181,7 +187,9 @@ describe('Wave 3 firestore-swift ios-sdk-probes manifest, Swift package, and sta
       const parseRes = spawnSync(swiftParser, ['-parse', ...swiftFiles], { encoding: 'utf8' });
       expect(parseRes.status, `${parseRes.stdout}\n${parseRes.stderr}`).toBe(0);
     }
-  });
+  },
+  30_000,
+  );
 
   it('stages firestore-sim, deploys scoped Firestore session, and deletes custom-token + streamed UIDs on success and failure', async () => {
     const xcodeArgs = buildFirestoreSimXcodebuildArgs({
