@@ -1,0 +1,35 @@
+{
+  "name": "rtdb-kotlin-listeners-transactions-connection-and-ondisconnect",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Upstream Android FirebaseDatabase .info/connected and .info/serverTimeOffset listeners across goOffline/goOnline, ValueEventListener and ChildEventListener add/change/move/remove delivery plus removeEventListener silence, runTransaction commit and abort, and two-app OnDisconnect setValue/removeValue/cancel under Robolectric.",
+  "observedAt": "2026-11-21T04:23:11.314Z",
+  "androidBomVersion": "35.2.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "infoConnectedToggleTrueFalseTrue": true,
+    "infoServerTimeOffsetClass": "java.lang.Long",
+    "valueListenerInitialCount": 2,
+    "valueListenerObservedMutations": true,
+    "childTimeline": [
+      "added:a:prev=null",
+      "added:b:prev=a",
+      "added:c:prev=b",
+      "moved:a:prev=c",
+      "changed:a:10",
+      "removed:b:2"
+    ],
+    "silentAfterRemoveEventListener": true,
+    "txCommitErrorNull": true,
+    "txCommitCommitted": true,
+    "txCommitFinalValue": 17,
+    "txAbortErrorNull": true,
+    "txAbortCommitted": false,
+    "txServerValueAfterAbort": 17,
+    "onDisconnect": {
+      "statusAfterDisconnect": "offline-by-ondisconnect",
+      "ephemeralExistsAfterDisconnect": false,
+      "canceledPathValueAfterDisconnect": "kept-alive"
+    }
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "name": "rtdb-kotlin-queries-ranges-limits-and-permission-denied",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Upstream Android FirebaseDatabase orderByKey, orderByValue, and orderByChild queries with startAt/endAt ranges, 1-arg and 2-arg equalTo filters, limitToFirst/limitToLast bounds, and DatabaseError.PERMISSION_DENIED on denied read/write paths under Robolectric.",
+  "observedAt": "2026-11-21T04:24:03.787Z",
+  "androidBomVersion": "35.2.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "orderByKeyAll": [
+      "a",
+      "b",
+      "c",
+      "d",
+      "e"
+    ],
+    "orderByKeyRangeBToD": [
+      "b",
+      "c",
+      "d"
+    ],
+    "orderByKeyLimitToFirst2": [
+      "a",
+      "b"
+    ],
+    "orderByKeyLimitToLast2": [
+      "d",
+      "e"
+    ],
+    "orderByValueAll": [
+      "b",
+      "d",
+      "e",
+      "a",
+      "c"
+    ],
+    "orderByValueEqualTo20": [
+      "d",
+      "e"
+    ],
+    "orderByValueRange15To35": [
+      "d",
+      "e",
+      "a"
+    ],
+    "orderByValueLimitToLast2": [
+      "a",
+      "c"
+    ],
+    "orderByChildEqualToGold": [
+      "p1",
+      "p3"
+    ],
+    "orderByChildEqualToGoldWithKeyP3": [
+      "p3"
+    ],
+    "orderByChildScoreRange20To30": [
+      "p2",
+      "p3"
+    ],
+    "orderByChildScoreLimitToLast2": [
+      "p3",
+      "p4"
+    ],
+    "deniedReadCancelledWithPermissionDenied": true,
+    "deniedReadErrorCode": -3,
+    "deniedWriteThrewDatabaseException": true,
+    "deniedWriteMessageMentionsPermissionDenied": true
+  }
+}
