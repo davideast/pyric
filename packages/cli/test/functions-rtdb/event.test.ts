@@ -28,6 +28,7 @@ beforeAll(() => {
 });
 
 afterAll(async () => {
+  functionsV2.app.setEmulatedAdminApp(undefined as never);
   await adminApp.deleteApp(testAdminApp);
 });
 

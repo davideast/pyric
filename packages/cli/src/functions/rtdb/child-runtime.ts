@@ -1,7 +1,8 @@
 /**
- * The RTDB create family inside the isolated Functions child: it aliases the
- * configured instance to the default one, then delivers created values to
- * the discovered `onValueCreated` handlers and reports each run to the host.
+ * The v2 RTDB trigger family inside the isolated Functions child: it aliases
+ * the configured instance to the default one, then delivers created, updated,
+ * deleted, and written value transitions to the discovered handlers and reports
+ * each run to the host.
  */
 import { randomUUID } from 'node:crypto';
 import { REMOTE_SANDBOX_FACTORY } from 'pyric/sandbox';
@@ -16,11 +17,11 @@ import {
   serializeError,
   type FunctionsChildEvent,
 } from '../child-protocol.js';
-import { inspectOnValueCreated } from './discovery.js';
-import type { CreatedExecutionResult } from './event.js';
+import { inspectRtdbValueTriggers } from './discovery.js';
+import type { RtdbExecutionResult } from './event.js';
 import {
-  startOnValueCreatedExecution,
-  type OnValueCreatedExecutionHost,
+  startRtdbValueExecution,
+  type RtdbValueExecutionHost,
 } from './execution.js';
 import { RemoteRtdbTriggerDelivery } from './remote-delivery.js';
 
@@ -79,30 +80,51 @@ export function serveInstanceAsDefault(name: string): void {
   };
 }
 
+function aliasInstanceValue(instance: unknown, name: string): unknown {
+  if (instance === name) return undefined;
+  return instance;
+}
+
 /** A channel that sends `instance: name` as the default instance. */
 function aliasDefaultInstance(channel: RemoteSandboxChannel, name: string): RemoteSandboxChannel {
-  const alias = (instance: unknown): unknown => (instance === name ? undefined : instance);
   return {
-    op: (payload) => channel.op(
-      'instance' in payload ? { ...payload, instance: alias(payload.instance) } as WorkerOpPayload : payload,
-    ),
+    op: (payload) => {
+      if ('instance' in payload) {
+        return channel.op({
+          ...payload,
+          instance: aliasInstanceValue(payload.instance, name),
+        } as WorkerOpPayload);
+      }
+      return channel.op(payload);
+    },
     subscribe: (sub, onSnap, onError) => {
       const target = sub.target;
-      const isRtdb = typeof target === 'object' && target !== null && 'service' in target && target.service === 'rtdb';
-      const aliased = isRtdb ? { ...sub, target: { ...target, instance: alias(target.instance) } } as WorkerSubPayload : sub;
-      return channel.subscribe(aliased, onSnap, onError);
+      const isRtdb =
+        typeof target === 'object' &&
+        target !== null &&
+        'service' in target &&
+        target.service === 'rtdb';
+      if (isRtdb) {
+        const aliased = {
+          ...sub,
+          target: { ...target, instance: aliasInstanceValue(target.instance, name) },
+        } as WorkerSubPayload;
+        return channel.subscribe(aliased, onSnap, onError);
+      }
+      return channel.subscribe(sub, onSnap, onError);
     },
     byteRoute: () => channel.byteRoute?.() ?? Promise.resolve(undefined),
   };
 }
 
-/** Start delivering created values to every discovered `onValueCreated` export. */
-export function startRtdbChildRuntime(options: RtdbChildRuntimeOptions): OnValueCreatedExecutionHost {
+/** Start delivering value transitions to every discovered v2 RTDB trigger export. */
+export function startRtdbChildRuntime(options: RtdbChildRuntimeOptions): RtdbValueExecutionHost {
   const { exported, sandbox, instance, location, databaseHost, send } = options;
   const effectiveInstances = [...new Set(
-    inspectOnValueCreated(exported).triggers.map((trigger) =>
-      trigger.instance === '*' ? instance : trigger.instance,
-    ),
+    inspectRtdbValueTriggers(exported).triggers.map((trigger) => {
+      if (trigger.instance === '*') return instance;
+      return trigger.instance;
+    }),
   )].sort();
   if (effectiveInstances.length > 1) {
     throw new Error(
@@ -111,20 +133,25 @@ export function startRtdbChildRuntime(options: RtdbChildRuntimeOptions): OnValue
     );
   }
   // Deliver from the instance the triggers name.
-  const rtdb = sandbox.rtdb.forInstance(effectiveInstances[0] ?? instance);
-  return startOnValueCreatedExecution({
+  const targetInstance = effectiveInstances[0] ?? instance;
+  const rtdb = sandbox.rtdb.forInstance(targetInstance);
+  return startRtdbValueExecution({
     exported,
     delivery: new RemoteRtdbTriggerDelivery(rtdb),
-    eventOptions: async (_projection, sequence, trigger) => ({
-      id: `${randomUUID()}-${sequence}`,
-      // The delivery's instant is the sandbox's, not this process's: the
-      // write that triggered it was stamped by that clock, and a CloudEvent
-      // claiming a different `time` would contradict the data it carries.
-      time: new Date(await sandboxNow(sandbox)).toISOString(),
-      instance: trigger.instance === '*' ? instance : trigger.instance,
-      location: trigger.location ?? location,
-      databaseHost,
-    }),
+    eventOptions: async (_projection, sequence, trigger) => {
+      let resolvedInstance = trigger.instance;
+      if (resolvedInstance === '*') resolvedInstance = instance;
+      return {
+        id: `${randomUUID()}-${sequence}`,
+        // The delivery's instant is the sandbox's, not this process's: the
+        // write that triggered it was stamped by that clock, and a CloudEvent
+        // claiming a different `time` would contradict the data it carries.
+        time: new Date(await sandboxNow(sandbox)).toISOString(),
+        instance: resolvedInstance,
+        location: trigger.location ?? location,
+        databaseHost,
+      };
+    },
     onExecution(result, trigger, projection) {
       send(executionEvent(result, trigger.exportName, projection.ref, projection.params));
     },
@@ -139,7 +166,7 @@ export function startRtdbChildRuntime(options: RtdbChildRuntimeOptions): OnValue
 }
 
 function executionEvent(
-  result: CreatedExecutionResult,
+  result: RtdbExecutionResult,
   exportName: string,
   ref: string,
   params: Record<string, string>,
