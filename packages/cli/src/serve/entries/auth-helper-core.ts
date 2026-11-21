@@ -35,6 +35,10 @@ export interface HelperIdentity {
    *  that does not surface photos (the account picker does not show them)
    *  omits it, and the credential it mints reports `photoURL: null`. */
   photoURL?: string | null;
+  /** Whether the account is an unlinked anonymous session (`signInAnonymously`). */
+  isAnonymous?: boolean;
+  /** Linked sign-in providers recorded on the account, when supplied by the directory. */
+  providerUserInfo?: ReadonlyArray<{ providerId: string }>;
   customClaims: Record<string, unknown>;
 }
 
@@ -105,10 +109,20 @@ export class ServeAuthHelper {
   }
 
   snapshot(): HelperSnapshot {
-    this.cached ??= {
-      request: this.pending?.req ?? null,
-      identities: this.identities,
-    };
+    if (this.cached === null) {
+      let activeRequest: AuthFlowRequest | null = null;
+      let requestedProviderId: string | undefined;
+      if (this.pending !== null) {
+        activeRequest = this.pending.req;
+        requestedProviderId = this.pending.req.providerId;
+      }
+      this.cached = {
+        request: activeRequest,
+        identities: this.identities.filter((identity) =>
+          canSignInWithProvider(identity, requestedProviderId),
+        ),
+      };
+    }
     return this.cached;
   }
 
@@ -144,7 +158,10 @@ export class ServeAuthHelper {
   pick(uid: string): void {
     const pending = this.take();
     if (!pending) return;
-    const identity = this.identities.find((candidate) => candidate.uid === uid);
+    const identity = this.identities.find(
+      (candidate) =>
+        candidate.uid === uid && canSignInWithProvider(candidate, pending.req.providerId),
+    );
     if (!identity) {
       pending.reject(authError('auth/internal-error', `unknown identity ${uid}`));
       return;
@@ -215,6 +232,42 @@ export class ServeAuthHelper {
       (identity) => identity.email?.toLowerCase() === normalized,
     );
   }
+}
+
+function hasNonEmptyEmail(identity: HelperIdentity): boolean {
+  return typeof identity.email === 'string' && identity.email.trim().length > 0;
+}
+
+function hasLinkedProvider(
+  identity: HelperIdentity,
+  providerId: string | undefined,
+): boolean {
+  const providers = identity.providerUserInfo;
+  if (providers === undefined || providers.length === 0) {
+    return false;
+  }
+  if (providerId === undefined) {
+    return true;
+  }
+  return providers.some((entry) => entry.providerId === providerId);
+}
+
+/**
+ * Whether an identity in the user pool can be picked to satisfy a provider
+ * sign-in flow: unlinked anonymous accounts are excluded, while accounts with
+ * an email address or a linked matching provider remain pickable.
+ */
+export function canSignInWithProvider(
+  identity: HelperIdentity,
+  providerId?: string,
+): boolean {
+  if (identity.isAnonymous === true) {
+    return false;
+  }
+  if (hasNonEmptyEmail(identity)) {
+    return true;
+  }
+  return hasLinkedProvider(identity, providerId);
 }
 
 /** The custom claims of the identity each resolved credential was minted for. */

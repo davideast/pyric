@@ -66,7 +66,14 @@ describe('mountAuthHelperDialog keyboard & autofill event isolation', () => {
   });
 });
 
-type ListedIdentity = { uid: string; email: string; displayName: string; customClaims: Record<string, unknown> };
+type ListedIdentity = {
+  uid: string;
+  email: string | null;
+  displayName: string | null;
+  isAnonymous?: boolean;
+  providerUserInfo?: Array<{ providerId: string }>;
+  customClaims: Record<string, unknown>;
+};
 
 describe('mountAuthHelperDialog keeps the form across emits', () => {
   it('keeps the typed email, its input node and focus when the identities list arrives', async () => {
@@ -115,10 +122,16 @@ describe('mountAuthHelperDialog keeps the form across emits', () => {
       email!.value = 'erin@example.com';
       expect(doc.activeElement).toBe(email);
 
-      releaseList([{ uid: 'u1', email: 'ada@example.com', displayName: 'Ada', customClaims: {} }]);
+      releaseList([
+        { uid: 'anonymous-a1', email: null, displayName: null, isAnonymous: true, customClaims: {} },
+        { uid: 'anonymous-a2', email: null, displayName: null, isAnonymous: true, customClaims: {} },
+        { uid: 'u1', email: 'ada@example.com', displayName: 'Ada', isAnonymous: false, customClaims: {} },
+      ]);
       await new Promise((r) => setTimeout(r, 0));
 
-      expect(doc.querySelectorAll('dialog[data-pyric-auth] .ids button').length).toBe(1);
+      const buttons = doc.querySelectorAll('dialog[data-pyric-auth] .ids button');
+      expect(buttons.length).toBe(1);
+      expect(buttons[0]?.textContent).toBe('Ada (ada@example.com)');
       const after = doc.querySelector<HTMLInputElement>('dialog[data-pyric-auth] input[type="email"]');
       expect(after).toBe(email);
       expect(after!.value).toBe('erin@example.com');
