@@ -8,6 +8,8 @@ protocol BridgeClock: Sendable {
     func now() -> TimeInterval
     /// Suspends for `seconds` (returning immediately when `<= 0`) or throws on task cancellation.
     func sleep(seconds: TimeInterval) async throws
+    /// Suspends until `now()` reaches `deadline` (returning immediately if already reached).
+    func sleepUntil(deadline: TimeInterval) async throws
 }
 
 extension BridgeClock {

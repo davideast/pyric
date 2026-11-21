@@ -659,8 +659,12 @@ struct BridgeReconnectTests {
         }
         #expect(bridge.connectCalls >= 2)
 
+        // Advancing by 0.08 s also woke the 0.02 s reconnect timer; let that refused
+        // attempt finish and park the next reconnect sleeper before accepting connections.
+        try await until {
+            bridge.connectCalls == 3 && clock.sleeperCount == 1 && clock.nextWakeMilliseconds == 20
+        }
         bridge.refuseConnections = false
-        try await until { clock.sleeperCount >= 1 }
         clock.advance(by: 0.02)
         try await until { await client.isConnected }
         #expect(bridge.ops(named: "setDoc").isEmpty)
