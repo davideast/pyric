@@ -29,9 +29,13 @@ import { isPlainObject, type ReproBase, type ReproEntry } from './format.js';
 /** Entries one window holds before the recorder reads a new starting state. */
 export const DEFAULT_REPRO_WINDOW = 1000;
 
+/** Encoded JSON bytes one window holds before the recorder opens a new window. */
+export const DEFAULT_REPRO_WINDOW_BYTES = 2 * 1024 * 1024;
+
 const DEFAULT_RETAINED_DENIALS = 1000;
 const DEFAULT_RETAINED_DENIAL_BYTES = 2 * 1024 * 1024;
 const DENIAL_QUEUE_COMPACT_THRESHOLD = 256;
+const MAX_EVICTION_SKIP_INBOUNDS = 32;
 const utf8 = new TextEncoder();
 
 /** What the host supplies when a window opens; the recorder adds the listeners it tracked. */
@@ -59,6 +63,7 @@ interface ArchivedDenial {
 interface Window {
   base: ReproBase;
   entries: RecordedEntry[];
+  bytes: number;
 }
 
 export interface ReproLog {
@@ -116,14 +121,18 @@ function isSerializedDenialError(value: unknown): value is SerializedError {
   return isPlainObject(value.denialContext);
 }
 
-function encodedEntryBytes(entry: OutboundReproEntry): number {
+function encodedValueBytes(value: unknown): number {
   try {
-    const json = JSON.stringify(entry);
+    const json = JSON.stringify(value);
     if (typeof Buffer === 'function') return Buffer.byteLength(json);
     return utf8.encode(json).byteLength;
   } catch {
     return Infinity;
   }
+}
+
+function encodedEntryBytes(entry: RecordedEntry): number {
+  return encodedValueBytes(entry);
 }
 
 /**
@@ -162,12 +171,15 @@ function archivedDenialEntry(entry: RecordedEntry): OutboundReproEntry | null {
 export function createReproRecorder(options: {
   capture: ReproBaseCapture;
   limit?: number;
+  byteLimit?: number;
   denialLimit?: number;
   denialByteLimit?: number;
   now?: () => number;
   onDrop?: (dropped: RecordedEntry[], retained: RecordedEntry[]) => void;
 }): ReproRecorder {
   const limit = Math.max(1, options.limit ?? DEFAULT_REPRO_WINDOW);
+  const byteLimit = Math.max(1, options.byteLimit ?? DEFAULT_REPRO_WINDOW_BYTES);
+  const maxRetainedBytes = byteLimit * 2;
   const denialLimit = Math.max(0, options.denialLimit ?? DEFAULT_RETAINED_DENIALS);
   const denialByteLimit = Math.max(0, options.denialByteLimit ?? DEFAULT_RETAINED_DENIAL_BYTES);
   const now = options.now ?? Date.now;
@@ -175,6 +187,8 @@ export function createReproRecorder(options: {
   let current: Window | undefined;
   let truncated = false;
   let opening: Promise<void> | undefined;
+  let consecutiveOversizedEvictions = 0;
+  let skipOpenInboundsRemaining = 0;
   let retainedDenials: Array<ArchivedDenial | undefined> = [];
   let retainedDenialHead = 0;
   let retainedDenialBytes = 0;
@@ -222,6 +236,48 @@ export function createReproRecorder(options: {
     }
   }
 
+  function isUploadEntry(entry: RecordedEntry): boolean {
+    return entry.kind === 'upload-slice' || entry.kind === 'upload';
+  }
+
+  function dropPreviousWindow(): void {
+    if (previous === undefined) return;
+    const dropped = previous;
+    previous = undefined;
+    truncated = true;
+    archiveDroppedDenials(dropped.entries);
+    let retainedEntries: RecordedEntry[] = [];
+    if (current !== undefined) {
+      retainedEntries = current.entries;
+    }
+    options.onDrop?.(dropped.entries, retainedEntries);
+  }
+
+  function evictAllWindows(recordOversizedBackoff: boolean): void {
+    const hadOpenWindow = current !== undefined;
+    const droppedEntries: RecordedEntry[] = [];
+    if (previous !== undefined) {
+      for (const item of previous.entries) droppedEntries.push(item);
+      previous = undefined;
+    }
+    if (current !== undefined) {
+      for (const item of current.entries) droppedEntries.push(item);
+      current = undefined;
+    }
+    truncated = true;
+    if (droppedEntries.length > 0) {
+      archiveDroppedDenials(droppedEntries);
+      options.onDrop?.(droppedEntries, []);
+    }
+    if (recordOversizedBackoff && hadOpenWindow) {
+      consecutiveOversizedEvictions += 1;
+      if (consecutiveOversizedEvictions >= 2) {
+        const power = Math.min(5, consecutiveOversizedEvictions - 1);
+        skipOpenInboundsRemaining = Math.min(MAX_EVICTION_SKIP_INBOUNDS, 2 ** power);
+      }
+    }
+  }
+
   /** Read a starting state and make it the current window. Concurrent callers share one read. */
   function openWindow(): Promise<void> {
     opening ??= (async () => {
@@ -230,15 +286,10 @@ export function createReproRecorder(options: {
         const base = { ...(await options.capture()), subscriptions };
         const retained = current;
         if (retained !== undefined) {
-          const dropped = previous;
-          if (dropped !== undefined) {
-            truncated = true;
-            archiveDroppedDenials(dropped.entries);
-          }
+          dropPreviousWindow();
           previous = retained;
-          if (dropped !== undefined) options.onDrop?.(dropped.entries, retained.entries);
         }
-        current = { base, entries: [] };
+        current = { base, entries: [], bytes: 0 };
       } finally {
         opening = undefined;
       }
@@ -261,14 +312,54 @@ export function createReproRecorder(options: {
     }
   }
 
-  function append(entry: RecordedEntry): void {
-    current?.entries.push(entry);
+  function append(entry: RecordedEntry, bytes: number): void {
+    if (current === undefined) {
+      archiveDroppedDenials([entry]);
+      if (isUploadEntry(entry)) {
+        options.onDrop?.([entry], []);
+      }
+      return;
+    }
+    if (!Number.isFinite(bytes) || current.bytes + bytes > maxRetainedBytes) {
+      evictAllWindows(true);
+      archiveDroppedDenials([entry]);
+      if (isUploadEntry(entry)) {
+        options.onDrop?.([entry], []);
+      }
+      return;
+    }
+    current.entries.push(entry);
+    current.bytes += bytes;
+    if (previous !== undefined && previous.bytes + current.bytes > maxRetainedBytes) {
+      dropPreviousWindow();
+    }
   }
 
   return {
     async inbound(session, frame) {
       if (!isRecordedInbound(frame)) return;
-      const needsWindow = current === undefined || current.entries.length >= limit;
+      const cleanFrame = recordedFrame(frame);
+      const frameBytes = encodedValueBytes(cleanFrame);
+      const sessionBytes = encodedValueBytes(session);
+      const estimatedBytes = frameBytes + sessionBytes + 52;
+      if (!Number.isFinite(estimatedBytes) || estimatedBytes > maxRetainedBytes) {
+        evictAllWindows(false);
+        track(session, frame);
+        return;
+      }
+      if (current !== undefined) {
+        consecutiveOversizedEvictions = 0;
+        skipOpenInboundsRemaining = 0;
+      } else if (skipOpenInboundsRemaining > 0) {
+        skipOpenInboundsRemaining -= 1;
+        truncated = true;
+        track(session, frame);
+        return;
+      }
+      const needsWindow =
+        current === undefined
+        || current.entries.length >= limit
+        || (current.bytes > 0 && current.bytes + estimatedBytes > byteLimit);
       if (needsWindow) {
         try {
           await openWindow();
@@ -277,18 +368,23 @@ export function createReproRecorder(options: {
           console.warn(`[pyric] The repro log could not read a starting state: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
-      append({ kind: 'in', at: now(), session, frame: recordedFrame(frame) });
+      const at = now();
+      const entry: RecordedEntry = { kind: 'in', at, session, frame: cleanFrame };
+      const exactBytes = frameBytes + sessionBytes + String(at).length + 39;
+      append(entry, exactBytes);
       track(session, frame);
     },
     outbound(session, frame) {
       const isRecorded = frame.t === 'res' || frame.t === 'snap';
-      if (isRecorded) append({ kind: 'out', at: now(), session, frame });
+      if (!isRecorded) return;
+      const entry: RecordedEntry = { kind: 'out', at: now(), session, frame };
+      append(entry, encodedEntryBytes(entry));
     },
     note(entry) {
       if (entry.kind === 'client' && entry.event === 'disconnect') {
         open.delete(entry.session);
       }
-      append(entry);
+      append(entry, encodedEntryBytes(entry));
     },
     async log() {
       if (current === undefined) await openWindow();

@@ -22,6 +22,10 @@ export const RENAMES: Readonly<Record<string, string>> = {
   reference: 'path',
   contentType: 'metadata.contentType',
   customMetadata: 'metadata.customMetadata',
+  cacheControl: 'metadata.cacheControl',
+  contentDisposition: 'metadata.contentDisposition',
+  contentEncoding: 'metadata.contentEncoding',
+  contentLanguage: 'metadata.contentLanguage',
   data: 'contentBase64',
   bytes: 'contentBase64',
   content: 'contentBase64',
@@ -66,24 +70,9 @@ export function checkBucket(args: Args, fail: Fail): InvalidArguments | null {
   }
 }
 
-/** Object metadata, as the SDK groups it. */
-export const metadata = z
-  .object({
-    contentType: z.string().optional().describe('MIME type stored with the object.'),
-    customMetadata: z
-      .record(z.string())
-      .optional()
-      .describe('Custom string metadata stored with the object.'),
-  })
-  .optional()
-  .describe('Object metadata, as the SDK groups it.');
-
 /**
- * Every client-settable metadata field, which is what a metadata update
- * replaces. The upload path groups only the two an upload usually names; an
- * update reaches the caching and disposition fields too, because changing one
- * of those without rewriting the object is the whole reason the SDK has a
- * separate call for it.
+ * Every client-settable metadata field, which is what both `uploadBytes`
+ * (`UploadMetadata`) and `updateMetadata` (`SettableMetadata`) accept in the SDK.
  */
 export const settableMetadata = z
   .object({
@@ -107,6 +96,11 @@ export const settableMetadata = z
       .describe('Content-Language header served with the object.'),
   })
   .describe('The client-settable metadata fields, as the SDK groups them.');
+
+/** Object metadata accepted by `uploadBytes`, as `UploadMetadata` groups it. */
+export const metadata = settableMetadata
+  .optional()
+  .describe('Object metadata, as the SDK groups it.');
 
 /** The two cross-service IAM postures a project's Storage service agent can be in. */
 export const CROSS_SERVICE_IAM_MODES = ['granted', 'denied'] as const;

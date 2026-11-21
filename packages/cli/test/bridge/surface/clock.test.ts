@@ -221,6 +221,44 @@ describe('advanceClock', () => {
     expect((first.data as { clock: { now: number } }).clock.now).toBe(wall + 60_000);
     expect((second.data as { clock: { now: number } }).clock.now).toBe(wall + 5 + 60_000);
   });
+
+  it('refuses out-of-range ms before moving the clock, leaving inspect and $serverTimestamp healthy (#1921)', async () => {
+    const { ctx, sandbox } = freshContext();
+    await call(ctx, 'sandbox.setClock', { isoTime: '2026-06-01T00:00:00.000Z' });
+    const pinnedState = getClock(sandbox).capture();
+
+    for (const ms of [9_000_000_000_000_000, 1_000_000_000_000_000, 252_000_000_000_000]) {
+      const refused = await call(ctx, 'sandbox.advanceClock', { ms });
+      expect(refused.ok).toBe(false);
+      expect((refused.data as { code?: string; field?: string }).code).toBe('invalid_arguments');
+      expect((refused.data as { field?: string }).field).toBe('ms');
+      expect(getClock(sandbox).capture()).toEqual(pinnedState);
+    }
+
+    const outOfRangeSet = await call(ctx, 'sandbox.setClock', {
+      isoTime: '+020000-01-01T00:00:00.000Z',
+    });
+    expect(outOfRangeSet.ok).toBe(false);
+    expect((outOfRangeSet.data as { code?: string; field?: string }).code).toBe('invalid_arguments');
+    expect((outOfRangeSet.data as { field?: string }).field).toBe('isoTime');
+    expect(getClock(sandbox).capture()).toEqual(pinnedState);
+
+    const inspected = await call(ctx, 'sandbox.inspect');
+    expect(inspected.ok).toBe(true);
+    expect((inspected.data as { clock: { now: number } }).clock.now).toBe(
+      Date.parse('2026-06-01T00:00:00.000Z'),
+    );
+
+    const stamped = await call(ctx, 'firestore.setDoc', {
+      path: 'notes/after-refusal',
+      data: { updatedAt: { $serverTimestamp: true } },
+    });
+    expect(stamped.ok).toBe(true);
+    const stored = await call(ctx, 'firestore.getDoc', { path: 'notes/after-refusal' });
+    const seconds = (stored.data as { data: { updatedAt: { seconds: number } } }).data.updatedAt
+      .seconds;
+    expect(seconds).toBe(Date.parse('2026-06-01T00:00:00.000Z') / 1000);
+  });
 });
 
 describe('resetClock', () => {

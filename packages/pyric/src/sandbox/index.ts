@@ -81,7 +81,13 @@ export {
 // `ServerValue.TIMESTAMP` and rules `now`, Storage `timeCreated` / `updated`,
 // auth token `iat` / `exp` / `auth_time`, and every listener and event stamp
 // together.
-export { SandboxClock, wallClockState } from './clock.js';
+export {
+  isClockInstantInRange,
+  MAX_CLOCK_EPOCH_MS,
+  MIN_CLOCK_EPOCH_MS,
+  SandboxClock,
+  wallClockState,
+} from './clock.js';
 export type { SandboxClockMode, SandboxClockState } from './clock.js';
 export { getClock } from './clock.js';
 

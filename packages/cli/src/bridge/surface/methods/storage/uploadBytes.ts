@@ -1,7 +1,7 @@
 /** Store one Cloud Storage object from a base64 payload or from a file in the project. */
 import { readFileSync } from 'node:fs';
 import { z } from 'zod';
-import { ref, uploadBytes } from 'pyric/storage';
+import { ref, uploadBytes, type SettableMetadata } from 'pyric/storage';
 import {
   bucketArgument,
   checkBucket,
@@ -45,16 +45,25 @@ function refuseAmbiguousSource(args: Args, ctx: MethodValidationContext): Invali
 }
 
 /** The metadata an upload settles on, with the extension filling in an unnamed type. */
-function metadataFor(
-  supplied: Args,
-  path: string,
-): { contentType?: string; customMetadata?: Record<string, string> } {
-  const settable: { contentType?: string; customMetadata?: Record<string, string> } = {};
+function metadataFor(supplied: Args, path: string): SettableMetadata {
+  const settable: SettableMetadata = {};
   const inferred = contentTypeForPath(path);
   if (supplied.contentType !== undefined) {
     settable.contentType = String(supplied.contentType);
   } else if (inferred !== null) {
     settable.contentType = inferred;
+  }
+  if (supplied.cacheControl !== undefined) {
+    settable.cacheControl = String(supplied.cacheControl);
+  }
+  if (supplied.contentDisposition !== undefined) {
+    settable.contentDisposition = String(supplied.contentDisposition);
+  }
+  if (supplied.contentEncoding !== undefined) {
+    settable.contentEncoding = String(supplied.contentEncoding);
+  }
+  if (supplied.contentLanguage !== undefined) {
+    settable.contentLanguage = String(supplied.contentLanguage);
   }
   if (supplied.customMetadata !== undefined) {
     settable.customMetadata = supplied.customMetadata as Record<string, string>;

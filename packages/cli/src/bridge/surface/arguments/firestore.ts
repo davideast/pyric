@@ -55,16 +55,28 @@ export const constraint = z
   })
   .describe('One query constraint, spelled as the SDK names it.');
 
+/** Set options shared by `setDoc` and batched `set` writes. */
+export const setOptions = z
+  .object({
+    merge: z
+      .boolean()
+      .optional()
+      .describe('Merge the fields into the existing document instead of replacing it.'),
+    mergeFields: z
+      .array(z.string().min(1))
+      .optional()
+      .describe('Field paths in data to merge; unlisted fields in data are ignored.'),
+  })
+  .optional()
+  .describe('Set options.');
+
 /** One batched write. */
 export const writeEntry = z
   .object({
     type: z.enum(['set', 'update', 'delete']).describe('The write this entry performs.'),
     path: z.string().describe('Document path the write targets.'),
     data: z.record(z.unknown()).optional().describe('Fields for set and update.'),
-    options: z
-      .object({ merge: z.boolean().optional().describe('Merge rather than replace.') })
-      .optional()
-      .describe('Set options.'),
+    options: setOptions,
   })
   .describe('One batched write.');
 

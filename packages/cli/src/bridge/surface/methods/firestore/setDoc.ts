@@ -1,12 +1,15 @@
 /** Write one Firestore document at an explicit path. */
 import { z } from 'zod';
+import { doc, setDoc, type SetOptions } from 'pyric/firestore';
 import {
   checkDocumentPath,
   checkFieldValues,
   fieldValuesOf,
   RENAMES,
+  setOptions,
 } from '../../arguments/firestore.js';
 import { callSandboxTool } from '../../sandbox-context.js';
+import { firestoreFor } from '../../service-handles.js';
 import type { Args, MethodRecord } from '../../method-types.js';
 
 export default {
@@ -17,19 +20,11 @@ export default {
   effect: 'write',
   signature: 'setDoc(path, data, options?)',
   description:
-    'Write one document, replacing unless options.merge is true. Values accept $serverTimestamp/$increment/$arrayUnion/$arrayRemove sentinels.',
+    'Write one document, replacing unless options.merge is true or options.mergeFields lists fields to merge. Values accept $serverTimestamp/$increment/$arrayUnion/$arrayRemove sentinels.',
   args: z.object({
     path: z.string().describe('Document path, for example users/alice.'),
     data: z.record(z.unknown()).describe('The document fields to write.'),
-    options: z
-      .object({
-        merge: z
-          .boolean()
-          .optional()
-          .describe('Merge the fields into the existing document instead of replacing it.'),
-      })
-      .optional()
-      .describe('Set options.'),
+    options: setOptions,
   }),
   operation: 'write_firestore_document',
   renames: RENAMES,
@@ -41,8 +36,24 @@ export default {
   },
   async handler(args, ctx) {
     const options = (args.options ?? {}) as Args;
-    const call = { path: args.path, data: fieldValuesOf('setDoc', args.data) };
-    if (options.merge === true) return callSandboxTool(ctx, 'firestore_update_document', call);
-    return callSandboxTool(ctx, 'firestore_create_document', call);
+    const path = String(args.path);
+    const decodedData = fieldValuesOf('setDoc', args.data);
+    const hasMergeOption = options.merge === true || Array.isArray(options.mergeFields);
+    if (!hasMergeOption) {
+      return callSandboxTool(ctx, 'firestore_create_document', { path, data: decodedData });
+    }
+    const sdkOptions: SetOptions = {};
+    if (typeof options.merge === 'boolean') {
+      sdkOptions.merge = options.merge;
+    }
+    if (Array.isArray(options.mergeFields)) {
+      sdkOptions.mergeFields = options.mergeFields as string[];
+    }
+    await setDoc(
+      doc(firestoreFor(ctx), path),
+      decodedData as Record<string, unknown>,
+      sdkOptions,
+    );
+    return { ok: true, summary: `Updated ${path}` };
   },
 } satisfies MethodRecord;

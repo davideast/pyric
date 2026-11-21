@@ -124,6 +124,57 @@ describe('validateArguments', () => {
   it('passes well-formed arguments through to null', () => {
     expect(validateArguments(fakeMethod(), { id: 'w1', speed: 'slow' })).toBeNull();
   });
+
+  it('rejects unknown keys inside nested object and array schemas while allowing z.record maps (#1922)', () => {
+    const method = fakeMethod({
+      args: z.object({
+        id: z.string(),
+        options: z
+          .object({
+            merge: z.boolean().optional(),
+            mergeFields: z.array(z.string()).optional(),
+          })
+          .optional(),
+        items: z
+          .array(
+            z.object({
+              kind: z.string(),
+            }),
+          )
+          .optional(),
+        labels: z.record(z.string()).optional(),
+      }),
+    });
+
+    const typoNested = validateArguments(method, {
+      id: 'w1',
+      options: { mrege: true },
+    });
+    expect(typoNested?.data.field).toBe('options.mrege');
+    expect(typoNested?.data.fix).toContain("'options.merge'");
+
+    const extraNested = validateArguments(method, {
+      id: 'w1',
+      options: { unrelatedKey: 1 },
+    });
+    expect(extraNested?.data.field).toBe('options.unrelatedKey');
+    expect(extraNested?.summary).toContain('merge, mergeFields');
+
+    const arrayItemExtra = validateArguments(method, {
+      id: 'w1',
+      items: [{ kind: 'ok', unknownProp: true }],
+    });
+    expect(arrayItemExtra?.data.field).toBe('items.0.unknownProp');
+
+    expect(
+      validateArguments(method, {
+        id: 'w1',
+        options: { mergeFields: ['a'] },
+        items: [{ kind: 'ok' }],
+        labels: { arbitraryUserKey: 'kept' },
+      }),
+    ).toBeNull();
+  });
 });
 
 describe('methodNames and validateMethodName', () => {
