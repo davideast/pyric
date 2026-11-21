@@ -1,6 +1,8 @@
-/// Pyric Flutter Client SDK exporting Realtime Database, AuthLens, and WebSocket Bridge transport.
+/// Pyric Flutter Client SDK exporting App Check, Realtime Database, AuthLens, and WebSocket Bridge transport.
 library;
 
+export 'src/app_check/app_check_wire_codec.dart';
+export 'src/app_check/pyric_firebase_app_check_platform.dart';
 export 'src/auth/auth_lens.dart';
 export 'src/auth/pyric_auth_credentials_provider.dart';
 export 'src/database/pyric_data_snapshot.dart';
