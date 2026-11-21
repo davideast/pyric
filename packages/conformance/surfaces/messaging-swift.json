@@ -1,0 +1,15 @@
+{
+  "schema": "pyric.conformance.surface.v2",
+  "kind": "integration",
+  "developerSurface": "messaging-swift",
+  "contractSource": "FirebaseMessaging",
+  "observationPrefixes": [
+    "messaging-swift-"
+  ],
+  "coverage": true,
+  "scopeNote": "integration contract: Pure-Swift client (PyricMessaging) conforming to FirebaseMessaging via the Pyric WebSocket bridge and MessagingBroker. Covers per-app Messaging singletons and multi-app isolation, deterministic 142-character :APA91b FCM token minting and MessagingDelegate notifications, retrieveFCMToken/deleteFCMToken multi-sender tokens, deleteToken invalidation and rotation, local MessagingTopicValidator checks and boolean-condition/validateOnly sendBrokerMessage fanout, visible/hidden foregroundMessages and backgroundMessages AsyncStreams, direct deliver() injection, appDidReceiveMessage and BigQuery delivery metrics export, and MessagingError CustomNSError mapping.",
+  "captureRigs": [],
+  "conformanceSuite": "packages/swift-client/Tests/PyricMessagingTests/PyricMessagingUnitTests.swift",
+  "climb": true,
+  "registry": "messaging-swift"
+}

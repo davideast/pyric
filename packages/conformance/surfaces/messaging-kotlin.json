@@ -1,0 +1,15 @@
+{
+  "schema": "pyric.conformance.surface.v2",
+  "kind": "integration",
+  "developerSurface": "messaging-kotlin",
+  "contractSource": "com.google.firebase:firebase-messaging",
+  "observationPrefixes": [
+    "messaging-kotlin-"
+  ],
+  "coverage": true,
+  "scopeNote": "integration contract: Pure-Kotlin client conforming to com.google.firebase:firebase-messaging via the Pyric WebSocket bridge and MessagingBroker. Covers per-app FirebaseMessaging singletons and Firebase.messaging KTX extensions, deterministic 142-character :APA91b FCM token minting, deleteToken invalidation and rotation, register/unregister lifecycle flows, local topic validation and MessagingBroker topic/boolean-condition fanout, visible/hidden foregroundMessages and backgroundMessages routing, FirebaseMessagingService delivery callbacks and RemoteMessage decoding, outbound send() with SendException error codes, and RS256 App Check token attachment.",
+  "captureRigs": [],
+  "conformanceSuite": "packages/kt-client/src/test/kotlin/dev/pyric/messaging/FirebaseMessagingTest.kt",
+  "climb": true,
+  "registry": "messaging-kotlin"
+}
