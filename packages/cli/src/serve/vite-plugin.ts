@@ -1,17 +1,17 @@
 import type { FlowConfig } from './flow-config.js';
 /**
- * `@pyric/cli/vite` — the firebase->pyric-sandbox swap as a Vite plugin.
+ * `@pyric/cli/vite` -- the firebase->pyric-sandbox swap as a Vite plugin.
  *
  * The serve analog for SOURCE-driven apps: instead of `vite build && pyric sandbox
  * dist`, a team keeps `vite dev` (HMR, source maps) with the in-process sandbox
- * standing in for Firebase. The app's `firebase/*` imports are UNCHANGED — the
+ * standing in for Firebase. The app's `firebase/*` imports are UNCHANGED -- the
  * plugin swaps them at the module-resolution layer (`resolveId`), the same way
  * `pyric sandbox` swaps via a runtime import map. (Design: `plans/pyric-vite-plugin.md`.)
  *
  * Two flavors, one `apply` function. Under `vite dev` the swap is ALWAYS on.
  * For `vite build` the swap is MODE-gated: a plain `vite build` (mode
- * `production`) ships the real `firebase` package — the swap never reaches the
- * prod artifact — while `vite build --mode development` (any NON-production
+ * `production`) ships the real `firebase` package -- the swap never reaches the
+ * prod artifact -- while `vite build --mode development` (any NON-production
  * mode) produces a SANDBOX build that bundles pyric's in-page adapters instead
  * of the real SDK: self-contained, meant to be previewed under `pyric sandbox`, and
  * stamped with the sandbox-build marker so it can never be deployed (`pyric
@@ -36,6 +36,10 @@ import {
 import { localGenerationSlot, projectGenerationSlot, projectSessionToken } from './vite-generation-registry.js';
 import { registerProjectSessionPolicy } from './local-session-token.js';
 import { attachViteHtmlSessionBootstrap, currentViteHtmlPeerContext } from './vite-generation-middleware.js';
+import {
+  attachVitePendingDiagnosticsMiddleware,
+  type VitePendingDiagnosticsPolicy,
+} from './vite-pending-diagnostics.js';
 import { createViteModuleContext, createViteModuleSwap } from './vite-module-swap.js';
 import { createVitePageRuntime } from './vite-page-runtime.js';
 import { stampHostedTarget } from './runtime/hosted-target.js';
@@ -99,11 +103,11 @@ export interface PyricOptions {
   /** Write the live session fixture to `.pyric/last-session.json` (for
    *  `pyric verify`). Default `true`; pass `false` to suppress. */
   capture?: boolean;
-  /** Seed file: a `"collection/doc" → fields` JSON map, or a `pyric snapshot`
+  /** Seed file: a `"collection/doc" -> fields` JSON map, or a `pyric snapshot`
    *  state-file envelope. Applied at page init (state wins once it exists). */
   seed?: string;
   /** Mount the MCP **bridge** on Vite's dev origin so an external agent
-   *  (Claude Code, Cursor) can drive this sandbox over MCP — `POST /__pyric/mcp`
+   *  (Claude Code, Cursor) can drive this sandbox over MCP -- `POST /__pyric/mcp`
    *  + `GET /__pyric/health` + `WS /__pyric/sandbox`, all on Vite's port.
    *  `true` is shorthand for `{}`. The agent and the page share ONE sandbox.
    *
@@ -137,7 +141,7 @@ export interface PyricOptions {
    *  discovered automatically: its `onValueCreated` triggers run in an isolated
    *  node child against the shared sandbox (other trigger kinds warn and are
    *  skipped), and the discovered codebase turns the MCP bridge mount on (the
-   *  child dials the sandbox over the bridge WS — the page's sandbox topology
+   *  child dials the sandbox over the bridge WS -- the page's sandbox topology
    *  is unchanged, see `bridge`). `functions: false` is the off switch: no
    *  discovery, no child, no functions-forced bridge mount.
    *
@@ -149,17 +153,17 @@ export interface PyricOptions {
    *    `demo-project`.
    *  - `watch`: hot-reload the functions source (default `true`, matching
    *    rules). A save under the functions source dir stops the child and
-   *    respawns it — redeploy semantics: in-flight executions in the old child
+   *    respawns it -- redeploy semantics: in-flight executions in the old child
    *    may drop, and writes landing during the swap gap are consumed as the new
    *    child's baseline (they do not fire). Unlike rules, a broken save cannot
-   *    keep last-good live — the old child is already gone — so functions stay
+   *    keep last-good live -- the old child is already gone -- so functions stay
    *    down until the next good save. */
   functions?: false | { region?: string; instance?: string; watch?: boolean };
-  /** Force whether `vite build` runs the firebase→pyric swap, overriding the
+  /** Force whether `vite build` runs the firebase->pyric swap, overriding the
    *  mode default. Unset (default): swap for any NON-production mode, keep real
    *  firebase for mode `production`. `true` = always produce a sandbox build;
    *  `false` = never swap in build (real firebase regardless of mode). `vite
-   *  dev` is unaffected — the swap is always on there. */
+   *  dev` is unaffected -- the swap is always on there. */
   swapInBuild?: boolean;
   /**
    * Dev-server-level AI configuration for `pyric/ai` (the sanctioned
@@ -417,6 +421,7 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
           fresh: options.fresh === true,
         });
         activeSessionToken = sessionToken;
+        let pendingDiagnosticsPolicy: VitePendingDiagnosticsPolicy | undefined;
         const middlewareStack = (server.middlewares as { stack?: unknown[] }).stack;
         const stackBeforePyricPre = Array.isArray(middlewareStack) ? middlewareStack.length : 0;
         attachViteRealPathDeny(server, projectDir);
@@ -430,6 +435,11 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
           aiMode: () => pageRuntime.ai().mode,
           supplied,
         });
+        attachVitePendingDiagnosticsMiddleware(
+          server,
+          options.hosted === true,
+          () => pendingDiagnosticsPolicy,
+        );
         if (supplied !== undefined) attachLiveSdkRequestGate(server, supplied);
         if (
           Array.isArray(middlewareStack) &&
@@ -439,8 +449,6 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
           const added = middlewareStack.splice(stackBeforePyricPre);
           middlewareStack.unshift(...added);
         }
-        const slot = ownsProjectState ? projectGenerationSlot(projectDir, stateScope) : instanceSlot;
-        await slot.take()?.close();
         const pyricConfig = await readPyricConfig(projectDir);
         const resolvedRemoteAccess = resolveRemoteAccessConfig({
           option: options.remoteAccess,
@@ -455,6 +463,14 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
           supplied !== undefined ||
           options.sessionToken === true ||
           (options.sessionToken === undefined && pyricConfig.sessionToken === true);
+        pendingDiagnosticsPolicy = {
+          sessionToken,
+          requireSessionToken,
+          allowedHosts: resolvedRemoteAccess.allowedHosts,
+          remoteAccess: resolvedRemoteAccess.remoteAccess,
+        };
+        const slot = ownsProjectState ? projectGenerationSlot(projectDir, stateScope) : instanceSlot;
+        await slot.take()?.close();
         unregisterProjectPolicy = registerProjectSessionPolicy(projectDir, {
           token: sessionToken,
           requireSessionToken,

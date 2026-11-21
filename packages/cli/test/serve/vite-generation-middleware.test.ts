@@ -7,11 +7,15 @@
  */
 import { describe, expect, it } from 'bun:test';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { Readable } from 'node:stream';
 import type { ViteDevServer } from 'vite';
 import type { BridgeMount } from '../../src/serve/bridge-mount.js';
+import { createDiagnostics } from '../../src/serve/diagnostics.js';
+import { evaluateNamespaceSurface, writeGuardRejection } from '../../src/serve/namespace-guards.js';
+import { DIAGNOSTICS_PATH } from '../../src/serve/runtime/diagnostics-report.js';
 import type { SandboxSession } from '../../src/serve/sandbox-session.js';
 import { attachViteGenerationMiddleware } from '../../src/serve/vite-generation-middleware.js';
-import { MockRes, type PyricMiddleware } from './vite-plugin-harness.js';
+import { MockRes, type PyricMiddleware, type PyricReq } from './vite-plugin-harness.js';
 
 interface Answer {
   readonly statusCode: number;
@@ -127,4 +131,92 @@ describe('a closed Vite generation', () => {
     expect(answer.statusCode).toBe(403);
     expect(answer.nexted).toBe(false);
   });
+
+  it('keeps answering POST /__pyric/diagnostics with 204 while no replacement generation is live (#2098)', async () => {
+    const stack = viteServer();
+    const diagnostics = createDiagnostics(() => 'hosted');
+    const session = {
+      async handle(req: IncomingMessage, res: ServerResponse, url: URL): Promise<boolean> {
+        if (url.pathname !== DIAGNOSTICS_PATH) return false;
+        const decision = evaluateNamespaceSurface(
+          req,
+          { boundHost: 'localhost', sessionToken: 'tok-1', requireSessionToken: false },
+          'namespace',
+          url,
+        );
+        if (!decision.ok) {
+          writeGuardRejection(res, decision, { nextPath: url.pathname });
+          return true;
+        }
+        await diagnostics(req, res);
+        return true;
+      },
+    } as unknown as SandboxSession;
+    const dispose = attachViteGenerationMiddleware({ server: stack.server, bridge: null, session });
+    const handler = stack.last();
+    if (handler === undefined) throw new Error('no /__pyric middleware was attached');
+    dispose();
+
+    const validBody = JSON.stringify({
+      version: 1,
+      clientId: 'tab-1',
+      sequence: 1,
+      realm: 'page',
+      pageOrigin: 'http://localhost:5173',
+      events: [{ at: 1, phase: 'socket-close', connectionId: 'c1', endpoint: 'ws://localhost:5173/__pyric/sandbox', code: 1006 }],
+    });
+    const postAnswer = await callDiagnostics(handler, { method: 'POST', body: validBody });
+    expect(postAnswer.nexted).toBe(false);
+    expect(postAnswer.statusCode).toBe(204);
+
+    // Rebound Host and cross-origin browser requests remain blocked (#3130/#3147).
+    const reboundAnswer = await callDiagnostics(handler, {
+      method: 'POST',
+      host: 'evil.example:5173',
+      body: validBody,
+    });
+    expect(reboundAnswer.statusCode).toBe(403);
+
+    const crossOriginAnswer = await callDiagnostics(handler, {
+      method: 'POST',
+      headers: { origin: 'http://localhost:9999' },
+      body: validBody,
+    });
+    expect(crossOriginAnswer.statusCode).toBe(403);
+
+    // Oversized body (> 16 KiB) still rejects with 413.
+    const hugeAnswer = await callDiagnostics(handler, {
+      method: 'POST',
+      body: JSON.stringify({ payload: 'x'.repeat(20_000) }),
+    });
+    expect(hugeAnswer.statusCode).toBe(413);
+
+    // Once a replacement generation attaches on the same stack, the closed one yields.
+    attach(true, stack);
+    const yielded = await callDiagnostics(handler, { method: 'POST', body: validBody });
+    expect(yielded.nexted).toBe(true);
+  });
 });
+
+function callDiagnostics(
+  handler: PyricMiddleware,
+  opts: { method: string; host?: string; headers?: Record<string, string>; body?: string },
+): Promise<Answer> {
+  const response = new MockRes();
+  const stream = Readable.from(opts.body ? [Buffer.from(opts.body, 'utf8')] : []);
+  const req = Object.assign(stream, {
+    method: opts.method,
+    url: '/diagnostics',
+    originalUrl: DIAGNOSTICS_PATH,
+    headers: {
+      host: opts.host ?? 'localhost:5173',
+      'content-type': 'application/json',
+      ...(opts.headers ?? {}),
+    },
+    socket: { remoteAddress: '127.0.0.1', localPort: 5173, end() {}, destroy() {} },
+  }) as unknown as PyricReq;
+  return new Promise((resolve) => {
+    response.on('finish', () => resolve({ statusCode: response.statusCode, body: response.body, nexted: false }));
+    handler(req, response, () => resolve({ statusCode: 0, body: '', nexted: true }));
+  });
+}

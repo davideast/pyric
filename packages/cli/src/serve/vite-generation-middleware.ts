@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { extname } from 'node:path';
 import type { ViteDevServer } from 'vite';
 import { answerMountClosed, HEALTH_PATH, type BridgeMount } from './bridge-mount.js';
+import { DIAGNOSTICS_PATH } from './runtime/diagnostics-report.js';
 import type { SandboxSession } from './sandbox-session.js';
 import type { RemoteAccessOptions } from './guard-policy.js';
 import {
@@ -56,7 +57,7 @@ export function attachViteHtmlSessionBootstrap(
     const isBootstrapped = canBootstrap || authenticatedRemote;
     const method = req.method ?? 'GET';
     if (isBootstrapped && token && (method === 'GET' || method === 'HEAD')) {
-      const path = requestPath(req);
+      const path = viteRequestPath(req);
       const ext = extname(path).toLowerCase();
       const accept = typeof req.headers.accept === 'string' ? req.headers.accept : '';
       const secFetchDest = getHeader(req, 'sec-fetch-dest')?.trim().toLowerCase();
@@ -75,7 +76,7 @@ export function attachViteHtmlSessionBootstrap(
 }
 
 /** The request's path, from the URL before Connect stripped the `/__pyric` mount. */
-function requestPath(req: IncomingMessage & { originalUrl?: string }): string {
+export function viteRequestPath(req: IncomingMessage & { originalUrl?: string }): string {
   const raw = req.originalUrl ?? req.url ?? '/';
   const queryAt = raw.indexOf('?');
   return queryAt === -1 ? raw : raw.slice(0, queryAt);
@@ -91,6 +92,11 @@ const liveGenerations = new WeakMap<object, number>();
 
 function adjustLive(stack: object, by: number): void {
   liveGenerations.set(stack, (liveGenerations.get(stack) ?? 0) + by);
+}
+
+/** Whether `stack` currently has at least one active Pyric generation attached. */
+export function hasLiveViteGeneration(stack: object): boolean {
+  return (liveGenerations.get(stack) ?? 0) > 0;
 }
 
 /** Attach one generation's guarded namespace handler to Vite's permanent Connect stack. */
@@ -115,38 +121,56 @@ export function attachViteGenerationMiddleware(input: {
   let active = true;
   adjustLive(stack, 1);
 
+  const guardAllowedHost = (req: IncomingMessage, res: ServerResponse): boolean => {
+    const boundHost = typeof serverOptions.host === 'string' ? serverOptions.host : 'localhost';
+    const allowed = isAllowedHost(req.headers.host, boundHost, extraAllowedHosts);
+    if (!allowed) {
+      res.statusCode = 403;
+      res.end(`pyric: refused request for Host '${req.headers.host ?? ''}' (DNS-rebinding guard).`);
+      return false;
+    }
+    return true;
+  };
+
+  const toRequestUrl = (req: IncomingMessage & { originalUrl?: string }): URL =>
+    new URL(
+      req.originalUrl ?? req.url ?? '/',
+      `http://${req.headers.host ?? 'localhost'}`,
+    );
+
   server.middlewares.use(
     '/__pyric',
     (req: IncomingMessage & { originalUrl?: string }, res: ServerResponse, next: () => void) => {
       if (!active) {
-        // With no live generation on this stack, a closed generation's mount
-        // still says it is closing, as the mount itself does once closed, so
-        // `pyric run --wait` waits for the restarted server instead of
-        // reading Vite's 404 as "not a host" (#1568).
-        const isHealthRequest = requestPath(req) === HEALTH_PATH;
-        const hasLiveGeneration = (liveGenerations.get(stack) ?? 0) > 0;
-        const answersClosing = bridge !== null && isHealthRequest && !hasLiveGeneration;
-        if (answersClosing) {
-          answerMountClosed(res);
-          return;
+        const path = viteRequestPath(req);
+        const hasLiveGeneration = hasLiveViteGeneration(stack);
+        if (!hasLiveGeneration) {
+          if (bridge !== null && path === HEALTH_PATH) {
+            answerMountClosed(res);
+            return;
+          }
+          // Keep answering `/__pyric/diagnostics` with full namespace guards
+          // while the replacement generation boots so a browser connection
+          // report across a restart never falls through to Vite's 404 (#2098).
+          if (path === DIAGNOSTICS_PATH) {
+            if (!guardAllowedHost(req, res)) return;
+            const url = toRequestUrl(req);
+            Promise.resolve(session.handle(req, res, url))
+              .then((handled) => {
+                if (!handled) next();
+              })
+              .catch((error: unknown) => {
+                if (!res.headersSent) res.statusCode = 500;
+                res.end(error instanceof Error ? error.message : String(error));
+              });
+            return;
+          }
         }
         next();
         return;
       }
-      const allowed = isAllowedHost(
-        req.headers.host,
-        typeof serverOptions.host === 'string' ? serverOptions.host : 'localhost',
-        extraAllowedHosts,
-      );
-      if (!allowed) {
-        res.statusCode = 403;
-        res.end(`pyric: refused request for Host '${req.headers.host ?? ''}' (DNS-rebinding guard).`);
-        return;
-      }
-      const url = new URL(
-        req.originalUrl ?? req.url ?? '/',
-        `http://${req.headers.host ?? 'localhost'}`,
-      );
+      if (!guardAllowedHost(req, res)) return;
+      const url = toRequestUrl(req);
       let bridgeResult: boolean | Promise<boolean> = false;
       if (bridge) bridgeResult = bridge.handler(req, res, url);
       Promise.resolve(bridgeResult)
