@@ -1,0 +1,40 @@
+{
+  "name": "firestore-kotlin-crud-merge-sentinels-and-codecs",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Upstream Android FirebaseFirestore document CRUD (collection.add, set, SetOptions.merge, SetOptions.mergeFields, update, delete), FieldValue sentinels (serverTimestamp, increment, arrayUnion, arrayRemove, delete), Source.SERVER/CACHE reads, and Timestamp/GeoPoint/Blob/DocumentReference codecs under Robolectric.",
+  "observedAt": "2026-11-21T03:11:45.965Z",
+  "androidBomVersion": "35.2.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "autoDocumentIdLength": 20,
+    "collectionAddIdLength": 20,
+    "collectionAddExistsBeforeDelete": true,
+    "collectionAddExistsAfterDelete": false,
+    "missingDocExists": false,
+    "missingDocDataIsNull": true,
+    "serverReadIsFromCache": false,
+    "serverReadHasPendingWrites": false,
+    "cacheReadIsFromCache": true,
+    "titleAfterMergeFields": "MergedSelected",
+    "ignoredFieldPresent": false,
+    "mergedFlag": true,
+    "nestedKeptValue": "updated-selective",
+    "nestedReplacedPreserved": "after-merge",
+    "nestedIgnoredPresent": false,
+    "incrementLongResult": 15,
+    "incrementDoubleResult": 1.75,
+    "tagsAfterUnionAndRemove": [
+      "alpha",
+      "beta",
+      "gamma"
+    ],
+    "deletedFieldPresent": false,
+    "serverTimestampResolved": true,
+    "timestampSecondsPreserved": true,
+    "timestampNanosecondsPreserved": true,
+    "geoPointMatches": true,
+    "blobBytesMatch": true,
+    "documentReferenceRelativeSuffixMatches": true
+  }
+}

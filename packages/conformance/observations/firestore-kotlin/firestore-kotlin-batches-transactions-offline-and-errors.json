@@ -1,0 +1,27 @@
+{
+  "name": "firestore-kotlin-batches-transactions-offline-and-errors",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Upstream Android FirebaseFirestore WriteBatch commit, runTransaction read-modify-write and abort rollback, disableNetwork/enableNetwork/waitForPendingWrites offline mutation replay, PERMISSION_DENIED FirebaseFirestoreException.Code mapping, and terminate/clearPersistence lifecycle under Robolectric.",
+  "observedAt": "2026-11-21T03:11:30.318Z",
+  "androidBomVersion": "35.2.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "batchItemScore": 25,
+    "batchItemMergedFlag": true,
+    "batchDeletedDocExists": false,
+    "transactionReturnBalance": 145,
+    "transactionReceiptBalance": 145,
+    "transactionAbortRejected": true,
+    "balanceUnchangedAfterAbort": 145,
+    "offlineCacheHasPendingWrites": true,
+    "offlineCacheIsFromCache": true,
+    "offlineServerReadErrorCode": "UNAVAILABLE",
+    "flushedServerHasPendingWrites": false,
+    "flushedServerIsFromCache": false,
+    "permissionDeniedCodeName": "PERMISSION_DENIED",
+    "permissionDeniedCodeValue": 7,
+    "clearPersistenceWhileActiveCodeName": "FAILED_PRECONDITION",
+    "clearPersistenceAfterTerminateSucceeded": true
+  }
+}
