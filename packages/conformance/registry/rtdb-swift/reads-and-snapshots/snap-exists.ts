@@ -8,4 +8,8 @@ export default row({
   featureKeys: ['exists'],
   status: 'conforms',
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
+  oracleObservations: [
+    'rtdb-swift-dedicated-crud-and-query-order',
+    'rtdb-swift-navigation-push-priorities-and-snapshots',
+  ],
 });

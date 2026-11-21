@@ -8,4 +8,8 @@ export default row({
   featureKeys: ['runTransactionBlock'],
   status: 'conforms',
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
+  oracleObservations: [
+    'rtdb-swift-writes-autoid-servervalue-and-transactions',
+    'rtdb-swift-listeners-transactions-connection-and-ondisconnect',
+  ],
 });

@@ -12,4 +12,5 @@ export default row({
   tests: [INFO_RECONNECT_TESTS],
   evidence: 'FirebaseDatabase Swift specification and ADR-0019 (amendment of 2026-10-16). The conformance test asserts the values across attach, goOffline() and goOnline(), and that no `.info` listen or read reaches the worker. Reconnect tests: `RtdbInfoConnectedTests.swift` asserts false, true, false, true across a drop with no repeated value, a presence re-arm sent on the new socket after the replayed listener and the held operation, and after the Auth restore on a replaced host.',
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
+  oracleObservations: ['rtdb-swift-listeners-transactions-connection-and-ondisconnect'],
 });

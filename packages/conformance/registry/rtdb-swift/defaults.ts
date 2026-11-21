@@ -2,9 +2,23 @@ import { resolveMockBridgeNote } from '../define-rows.ts';
 import type { AuthoredRowRecord, RowSection } from '../section-rows.ts';
 import type { CompatStatus } from '../types.ts';
 
-const CONFORMANCE_SUITE = 'packages/swift-client/Tests/PyricDatabaseTests/RtdbConformanceTests.swift';
+const CONFORMANCE_SUITE =
+  'packages/swift-client/Tests/PyricDatabaseTests/RtdbConformanceTests.swift';
 
-export const LIVE_HOST_CONFORMANCE_TEST = 'packages/cli/test/serve/native-swift-conformance.test.ts';
+const WAVE2_ORACLE_REPLAY_SUITE =
+  'packages/conformance/test/src/rtdb-swift-oracle-replay.test.ts';
+
+const WAVE2_QUERIES_ORACLE_REPLAY_SUITE =
+  'packages/conformance/test/src/rtdb-swift-wave2-queries-oracle-replay.test.ts';
+
+const WAVE4_NAV_ORACLE_REPLAY_SUITE =
+  'packages/conformance/test/src/rtdb-swift-wave4-nav-oracle-replay.test.ts';
+
+const WAVE4_LIVE_ORACLE_REPLAY_SUITE =
+  'packages/conformance/test/src/rtdb-swift-wave4-live-oracle-replay.test.ts';
+
+export const LIVE_HOST_CONFORMANCE_TEST =
+  'packages/cli/test/serve/native-swift-conformance.test.ts';
 
 export interface SwiftRtdbRowSeed {
   order?: number;
@@ -19,6 +33,8 @@ export interface SwiftRtdbRowSeed {
   tests?: string[];
   /** Live Pyric host end-to-end suites proving this row against a running host. */
   hostConformanceTests?: string[];
+  /** Production Apple FirebaseDatabase observation stems proving this row. */
+  oracleObservations?: string[];
   rowRef?: never;
   id?: never;
 }
@@ -37,11 +53,11 @@ function resolveRtdbStatus(status: CompatStatus | undefined): CompatStatus {
   return 'unverified';
 }
 
-function resolveRtdbTests(tests: readonly string[] | undefined): string[] {
+function resolveExtraTests(tests: readonly string[] | undefined): string[] {
   if (tests === undefined) {
-    return [CONFORMANCE_SUITE];
+    return [];
   }
-  return [CONFORMANCE_SUITE, ...tests];
+  return [...tests];
 }
 
 function formatHostEvidence(hostTests: readonly string[] | undefined): string {
@@ -49,6 +65,30 @@ function formatHostEvidence(hostTests: readonly string[] | undefined): string {
     return '';
   }
   return ` Live host: \`${hostTests.join('`, `')}\`.`;
+}
+
+function replaySuiteForObservation(stem: string): string {
+  if (stem === 'rtdb-swift-queries-ranges-limits-and-permission-denied') {
+    return WAVE2_QUERIES_ORACLE_REPLAY_SUITE;
+  }
+  if (stem === 'rtdb-swift-navigation-push-priorities-and-snapshots') {
+    return WAVE4_NAV_ORACLE_REPLAY_SUITE;
+  }
+  if (stem === 'rtdb-swift-listeners-transactions-connection-and-ondisconnect') {
+    return WAVE4_LIVE_ORACLE_REPLAY_SUITE;
+  }
+  return WAVE2_ORACLE_REPLAY_SUITE;
+}
+
+function resolveReplaySuites(observations: readonly string[]): string[] {
+  const suites: string[] = [];
+  for (const stem of observations) {
+    const suite = replaySuiteForObservation(stem);
+    if (!suites.includes(suite)) {
+      suites.push(suite);
+    }
+  }
+  return suites;
 }
 
 export function bindSwiftRtdbRow(
@@ -65,18 +105,40 @@ export function bindSwiftRtdbRow(
     const resolvedEvidence = resolveRtdbEvidence(seed.evidence);
     const resolvedStatus = resolveRtdbStatus(seed.status);
     const resolvedStatusNote = resolveMockBridgeNote(seed.status, seed.statusNote);
-    const resolvedTests = resolveRtdbTests(seed.tests);
+    const extraTests = resolveExtraTests(seed.tests);
     const hostEvidence = formatHostEvidence(seed.hostConformanceTests);
-    return section.rowFromRef(seed.order, (rowRef) => ({
-      api: seed.api,
-      behavior: seed.behavior,
-      featureKeys: seed.featureKeys,
-      status: resolvedStatus,
-      statusNote: resolvedStatusNote,
-      automation: 'unit-backed',
-      evidence: `${resolvedEvidence} Swift test: \`${CONFORMANCE_SUITE}\` assertion set \`rtdb-swift#${rowRef}\`.${hostEvidence}`,
-      conformanceTests: resolvedTests,
-      hostConformanceTests: seed.hostConformanceTests,
-    }));
+    const observations = seed.oracleObservations;
+
+    return section.rowFromRef(seed.order, (rowRef) => {
+      if (observations !== undefined && observations.length > 0) {
+        const replaySuites = resolveReplaySuites(observations);
+        const obsTokens = observations.map((obs) => `\`${obs}.json\``).join(', ');
+        const replayTokens = replaySuites.map((suite) => `\`${suite}\``).join(', ');
+        return {
+          api: seed.api,
+          behavior: seed.behavior,
+          featureKeys: seed.featureKeys,
+          status: resolvedStatus,
+          statusNote: resolvedStatusNote,
+          automation: 'oracle-backed',
+          oracleObservations: [...observations],
+          evidence: `${resolvedEvidence} Production capture: ${obsTokens} replayed in ${replayTokens}; Swift test: \`${CONFORMANCE_SUITE}\` assertion set \`rtdb-swift#${rowRef}\`.${hostEvidence}`,
+          conformanceTests: [...replaySuites, CONFORMANCE_SUITE, ...extraTests],
+          hostConformanceTests: seed.hostConformanceTests,
+        };
+      }
+
+      return {
+        api: seed.api,
+        behavior: seed.behavior,
+        featureKeys: seed.featureKeys,
+        status: resolvedStatus,
+        statusNote: resolvedStatusNote,
+        automation: 'unit-backed',
+        evidence: `${resolvedEvidence} Swift test: \`${CONFORMANCE_SUITE}\` assertion set \`rtdb-swift#${rowRef}\`.${hostEvidence}`,
+        conformanceTests: [CONFORMANCE_SUITE, ...extraTests],
+        hostConformanceTests: seed.hostConformanceTests,
+      };
+    });
   };
 }
