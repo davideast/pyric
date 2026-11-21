@@ -59,7 +59,7 @@ class ConformanceMockHarness {
                         }
                         "aggregate" -> {
                             transport.sendToClient(
-                                """{"type":"worker-res","id":"$id","ok":true,"value":{"data":{"sum_score":150.0,"avg_score":75.0}}}"""
+                                """{"type":"worker-res","id":"$id","ok":true,"value":{"data":{"sum_score":150,"sum_bonus":42.5,"avg_score":75.0}}}"""
                             )
                         }
                         else -> {

@@ -160,6 +160,12 @@ class FirestoreSnapshotsLiveHostConformanceTest {
 
         val dataMap = requireNotNull(snap.getData())
         assertEquals("Control Room", dataMap["title"])
+        assertEquals(12L, dataMap["capacity"])
+        assertEquals("java.lang.Long", requireNotNull(dataMap["capacity"])::class.java.name)
+        @Suppress("UNCHECKED_CAST")
+        val nestedStats = dataMap["stats"] as Map<String, Any?>
+        assertEquals(3L, nestedStats["floor"])
+        assertEquals("java.lang.Long", requireNotNull(nestedStats["floor"])::class.java.name)
         assertEquals(eventTime, dataMap["eventTime"])
         assertEquals(geo, dataMap["coords"])
         assertArrayEquals(rawBytes, (dataMap["payload"] as Blob).toBytes())
@@ -170,7 +176,11 @@ class FirestoreSnapshotsLiveHostConformanceTest {
             (dataMap as MutableMap<String, Any?>)["title"] = "Tampered"
         }
         assertEquals("Control Room", snap.getString("title"))
+        assertEquals(12L, snap.get("capacity"))
+        assertEquals("java.lang.Long", requireNotNull(snap.get("capacity"))::class.java.name)
         assertEquals("north", snap.getString("stats.zone"))
+        assertEquals(3L, snap.get(FieldPath.of("stats", "floor")))
+        assertEquals("java.lang.Long", requireNotNull(snap.get(FieldPath.of("stats", "floor")))::class.java.name)
         assertEquals(3L, snap.getLong(FieldPath.of("stats", "floor")))
         assertEquals("top-level-dotted", snap.getString(FieldPath.of("meta.v1")))
         assertNull(snap.get("nullableNote"))

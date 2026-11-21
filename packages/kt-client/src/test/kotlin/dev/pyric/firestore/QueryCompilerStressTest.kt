@@ -268,7 +268,7 @@ class QueryCompilerStressTest {
             assertEquals(true, startAtCursor!!["fromSnapshot"])
             assertEquals("pyric/firestore-values/1", startAtCursor["valueEncoding"])
             assertEquals(
-                listOf(30, "NY", mapOf("__type" to "reference", "path" to "users/alice")),
+                listOf(30L, "NY", mapOf("__type" to "reference", "path" to "users/alice")),
                 startAtCursor["values"]
             )
         }

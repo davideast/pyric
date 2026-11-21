@@ -325,10 +325,11 @@ class Tier2BoundaryCornerE2ETest {
     fun testDeeplyNestedLists() {
         val docRef = firestore.collection("boundary-nesting").document("deep-list")
         val matrix = listOf(listOf(listOf(1, 2), listOf(3, 4)), listOf(listOf(5, 6)))
+        val expectedMatrix = listOf(listOf(listOf(1L, 2L), listOf(3L, 4L)), listOf(listOf(5L, 6L)))
         Tasks.await(docRef.set(mapOf("matrix" to matrix)))
 
         val snap = Tasks.await(docRef.get())
-        assertEquals(matrix, snap.get("matrix"))
+        assertEquals(expectedMatrix, snap.get("matrix"))
     }
 
     @Test
