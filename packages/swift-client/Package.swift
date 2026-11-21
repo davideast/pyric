@@ -18,6 +18,10 @@ var products: [Product] = [
         name: "PyricAppCheck",
         targets: ["PyricAppCheck"]
     ),
+    .library(
+        name: "PyricStorage",
+        targets: ["PyricStorage"]
+    ),
 ]
 
 var targets: [Target] = [
@@ -39,6 +43,11 @@ var targets: [Target] = [
         dependencies: ["PyricFirestore"],
         path: "Sources/PyricAppCheck"
     ),
+    .target(
+        name: "PyricStorage",
+        dependencies: ["PyricFirestore"],
+        path: "Sources/PyricStorage"
+    ),
     .testTarget(
         name: "PyricLiveHostTests",
         dependencies: ["PyricFirestore", "FirebaseAuth", "PyricDatabase"],
@@ -48,6 +57,11 @@ var targets: [Target] = [
         name: "PyricAppCheckTests",
         dependencies: ["PyricAppCheck", "PyricFirestore", "FirebaseAuth", "PyricDatabase"],
         path: "Tests/PyricAppCheckTests"
+    ),
+    .testTarget(
+        name: "PyricStorageTests",
+        dependencies: ["PyricStorage", "PyricFirestore", "FirebaseAuth", "PyricDatabase", "PyricAppCheck"],
+        path: "Tests/PyricStorageTests"
     ),
 ]
 
