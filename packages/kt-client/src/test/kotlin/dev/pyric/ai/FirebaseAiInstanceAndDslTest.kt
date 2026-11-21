@@ -21,6 +21,7 @@ import com.google.firebase.ai.type.InvalidStateException
 import com.google.firebase.ai.type.RequestOptions
 import com.google.firebase.ai.type.ResponseModality
 import com.google.firebase.ai.type.SafetySetting
+import com.google.firebase.ai.type.Schema
 import com.google.firebase.ai.type.TextPart
 import com.google.firebase.ai.type.ThinkingConfig
 import com.google.firebase.ai.type.ThinkingLevel
@@ -194,9 +195,8 @@ class FirebaseAiInstanceAndDslTest {
 
     @Test
     fun generationConfigThinkingConfigSafetySettingAndRequestOptionsValidateAndRoundTripBuilder() {
-        val schemaMap = mapOf(
-            "type" to "OBJECT",
-            "properties" to mapOf("answer" to mapOf("type" to "STRING"))
+        val responseObjSchema = Schema.obj(
+            mapOf("answer" to Schema.string())
         )
         val config = generationConfig {
             temperature = 0.4f
@@ -208,7 +208,7 @@ class FirebaseAiInstanceAndDslTest {
             frequencyPenalty = 0.2f
             stopSequences = listOf("END", "STOP_HERE")
             responseMimeType = "application/json"
-            responseSchema = schemaMap
+            responseSchema = responseObjSchema
             responseModalities = listOf(ResponseModality.TEXT)
             thinkingConfig = thinkingConfig {
                 thinkingBudget = 256
@@ -223,7 +223,7 @@ class FirebaseAiInstanceAndDslTest {
         assertEquals(512, config.maxOutputTokens)
         assertEquals(listOf("END", "STOP_HERE"), config.stopSequences)
         assertEquals("application/json", config.responseMimeType)
-        assertEquals(schemaMap, config.responseSchema)
+        assertEquals(responseObjSchema, config.responseSchema)
         assertEquals(256, config.thinkingConfig?.thinkingBudget)
         assertEquals(true, config.thinkingConfig?.includeThoughts)
 

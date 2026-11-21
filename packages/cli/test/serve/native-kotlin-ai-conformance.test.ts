@@ -62,101 +62,86 @@ function makeInMemoryHostedPersistence() {
   };
 }
 
+function safetyBlockedEnvelope(finishMessage: string): Record<string, unknown> {
+  return {
+    candidates: [
+      { index: 0, finishReason: 'SAFETY', finishMessage, content: { role: 'model', parts: [] } },
+    ],
+  };
+}
+
 function buildKotlinAiScript(): Array<Record<string, unknown>> {
   return [
-    {
-      match: 'SMOKE_UNARY',
-      respond: { text: 'smoke-unary-ok' },
-    },
-    {
-      match: 'SMOKE_SAFETY_BLOCK',
-      respond: {
-        candidates: [
-          {
-            index: 0,
-            finishReason: 'SAFETY',
-            finishMessage: 'Smoke safety block.',
-            content: { role: 'model', parts: [] },
-          },
-        ],
-      },
-    },
-    {
-      match: 'SCRIPT_GREET',
-      respond: { text: 'Kotlin AI Logic unary greeting verified!' },
-    },
+    { match: 'SMOKE_UNARY', respond: { text: 'smoke-unary-ok' } },
+    { match: 'SMOKE_SAFETY_BLOCK', respond: safetyBlockedEnvelope('Smoke safety block.') },
+    { match: 'SCRIPT_GREET', respond: { text: 'Kotlin AI Logic unary greeting verified!' } },
     {
       match: 'SCRIPT_FNCALL',
-      respond: {
-        functionCall: {
-          name: 'lookupWeather',
-          args: { city: 'Kyoto' },
-        },
-      },
+      respond: { functionCall: { name: 'lookupWeather', args: { city: 'Kyoto' } } },
     },
-    {
-      match: 'SCRIPT_FNRESULT',
-      respond: { text: 'Kyoto is 19C and clear.' },
-    },
+    { match: 'SCRIPT_FNRESULT', respond: { text: 'Kyoto is 19C and clear.' } },
     {
       match: 'SCRIPT_BLOCK_SAFETY',
-      respond: {
-        candidates: [
-          {
-            index: 0,
-            finishReason: 'SAFETY',
-            finishMessage: 'Candidate withheld by safety filter.',
-            content: { role: 'model', parts: [] },
-          },
-        ],
-      },
+      respond: safetyBlockedEnvelope('Candidate withheld by safety filter.'),
     },
-    {
-      match: 'SCRIPT_BLOCK_PROMPT',
-      respond: {
-        promptFeedback: {
-          blockReason: 'PROHIBITED_CONTENT',
-        },
-      },
-    },
+    { match: 'SCRIPT_BLOCK_PROMPT', respond: { promptFeedback: { blockReason: 'PROHIBITED_CONTENT' } } },
     {
       match: 'SCRIPT_ERR_QUOTA',
       respond: {
-        error: {
-          code: 429,
-          message: 'Resource has been exhausted (e.g. check quota).',
-          status: 'RESOURCE_EXHAUSTED',
-        },
+        error: { code: 429, message: 'Resource has been exhausted (e.g. check quota).', status: 'RESOURCE_EXHAUSTED' },
       },
     },
     {
       match: 'SCRIPT_ERR_APIKEY',
       respond: {
-        error: {
-          code: 400,
-          message: 'API key not valid. Please pass a valid API key.',
-          status: 'INVALID_ARGUMENT',
-        },
+        error: { code: 400, message: 'API key not valid. Please pass a valid API key.', status: 'INVALID_ARGUMENT' },
       },
     },
+    { match: 'SCRIPT_APPCHECK_STD', respond: { text: 'Standard App Check claim admitted!' } },
+    { match: 'SCRIPT_APPCHECK_LIM_1', respond: { text: 'Limited-use App Check call 1 admitted!' } },
+    { match: 'SCRIPT_APPCHECK_LIM_2', respond: { text: 'Limited-use App Check call 2 admitted!' } },
+    { match: 'SCRIPT_STREAM_MULTI', respond: { chunks: ['Kotlin ', 'Flow ', 'stream!'] } },
     {
-      match: 'SCRIPT_APPCHECK_STD',
-      respond: { text: 'Standard App Check claim admitted!' },
+      match: 'SCRIPT_STREAM_CANCEL',
+      respond: { chunks: ['first-cancel-chunk', 'second-never-seen', 'third-never-seen'] },
     },
     {
-      match: 'SCRIPT_APPCHECK_LIM_1',
-      respond: { text: 'Limited-use App Check call 1 admitted!' },
+      match: 'SCRIPT_STREAM_ERR',
+      respond: { error: { code: 429, message: 'Stream quota exceeded.', status: 'RESOURCE_EXHAUSTED' } },
     },
     {
-      match: 'SCRIPT_APPCHECK_LIM_2',
-      respond: { text: 'Limited-use App Check call 2 admitted!' },
+      match: 'SCRIPT_CHAT_TURN_1',
+      respond: { text: 'Nice to meet you, Ada! Your favorite language is Kotlin.' },
     },
+    { match: 'SCRIPT_CHAT_BLOCKED', respond: safetyBlockedEnvelope('Blocked in chat.') },
+    { match: 'SCRIPT_CHAT_TURN_2', respond: { chunks: ['Your name is Ada ', 'and you love Kotlin!'] } },
+    { match: 'SCRIPT_CHAT_STREAM_CANCEL', respond: { chunks: ['partial-chat-chunk-1', 'partial-chat-chunk-2'] } },
+    {
+      match: 'SCRIPT_CHAT_FN',
+      respond: { functionCall: { name: 'lookupWeather', args: { city: 'Reykjavik' } } },
+    },
+    { match: 'SCRIPT_CHAT_FN', respond: { text: 'Reykjavik is 4C and brisk!' } },
   ];
+}
+
+function readClaimToken(rawClaim: unknown): string | null | undefined {
+  if (rawClaim === undefined || rawClaim === null || typeof rawClaim !== 'object') {
+    return undefined;
+  }
+  const tokenVal = (rawClaim as { token?: unknown }).token;
+  if (typeof tokenVal === 'string' || tokenVal === null) {
+    return tokenVal;
+  }
+  return undefined;
 }
 
 interface ObservedAiBridgeTraffic {
   aiOpModels: string[];
+  aiStreamModels: string[];
+  aiStreamSubIds: string[];
+  aiStreamUnsubIds: string[];
   aiAppCheckClaims: Array<string | null>;
+  aiStreamAppCheckClaims: Array<string | null>;
   mintedLimitedUseTokens: string[];
 }
 
@@ -168,7 +153,11 @@ async function startLiveAiBridgeHost() {
 
   const traffic: ObservedAiBridgeTraffic = {
     aiOpModels: [],
+    aiStreamModels: [],
+    aiStreamSubIds: [],
+    aiStreamUnsubIds: [],
     aiAppCheckClaims: [],
+    aiStreamAppCheckClaims: [],
     mintedLimitedUseTokens: [],
   };
   const pendingLimitedMintIds = new Set<string>();
@@ -229,13 +218,32 @@ async function startLiveAiBridgeHost() {
           if (typeof opRecord.model === 'string') {
             traffic.aiOpModels.push(opRecord.model);
           }
-          const rawClaim = opRecord.appCheck;
-          if (rawClaim !== undefined && rawClaim !== null && typeof rawClaim === 'object') {
-            const tokenVal = (rawClaim as { token?: unknown }).token;
-            if (typeof tokenVal === 'string' || tokenVal === null) {
-              traffic.aiAppCheckClaims.push(tokenVal);
-            }
+          const opClaim = readClaimToken(opRecord.appCheck);
+          if (opClaim !== undefined) {
+            traffic.aiAppCheckClaims.push(opClaim);
           }
+        }
+      } else if (inbound.type === 'worker-sub') {
+        const subRecord = inbound.sub as Record<string, unknown>;
+        const target = subRecord.target;
+        const isAiSub =
+          target !== undefined &&
+          target !== null &&
+          typeof target === 'object' &&
+          (target as { service?: unknown }).service === 'ai';
+        if (isAiSub) {
+          traffic.aiStreamSubIds.push(inbound.subId);
+          if (typeof subRecord.model === 'string') {
+            traffic.aiStreamModels.push(subRecord.model);
+          }
+          const subClaim = readClaimToken(subRecord.appCheck);
+          if (subClaim !== undefined) {
+            traffic.aiStreamAppCheckClaims.push(subClaim);
+          }
+        }
+      } else if (inbound.type === 'worker-unsub') {
+        if (traffic.aiStreamSubIds.includes(inbound.subId)) {
+          traffic.aiStreamUnsubIds.push(inbound.subId);
         }
       }
       hostedRuntime.receive(inbound);
@@ -507,7 +515,7 @@ describe('native Kotlin AI Logic live-host conformance', () => {
         );
         expect(existsSync(xmlReport)).toBe(true);
         const xml = readFileSync(xmlReport, 'utf8');
-        expect(xml).toContain('tests="3"');
+        expect(xml).toContain('tests="6"');
         expect(xml).toContain('skipped="0"');
         expect(xml).toContain('failures="0"');
         expect(xml).toContain('errors="0"');
@@ -515,13 +523,19 @@ describe('native Kotlin AI Logic live-host conformance', () => {
         // Verify both GoogleAI (`models/...`) and VertexAI (`publishers/google/models/...`) model paths arrived on the wire.
         expect(host.traffic.aiOpModels).toContain('models/gemini-2.5-flash');
         expect(host.traffic.aiOpModels).toContain('publishers/google/models/gemini-2.5-pro');
+        expect(host.traffic.aiStreamModels).toContain('models/gemini-2.5-flash');
+        expect(host.traffic.aiStreamSubIds.length).toBeGreaterThanOrEqual(5);
+        // Both generateContentStream().take(1) and chat.sendMessageStream().take(1) must send worker-unsub.
+        expect(host.traffic.aiStreamUnsubIds.length).toBeGreaterThanOrEqual(2);
 
-        // Verify attached App Check claims on AI ops: 2 standard + 2 limited-use + 1 forged refusal.
+        // Verify attached App Check claims on AI ops + streams.
         expect(host.traffic.aiAppCheckClaims.length).toBe(5);
-        const validClaims = host.traffic.aiAppCheckClaims.filter(
-          (tok): tok is string => typeof tok === 'string' && tok !== 'forged.unsigned.jwt',
-        );
-        expect(validClaims.length).toBe(4);
+        expect(host.traffic.aiStreamAppCheckClaims.length).toBe(2);
+        const validClaims = [
+          ...host.traffic.aiAppCheckClaims,
+          ...host.traffic.aiStreamAppCheckClaims,
+        ].filter((tok): tok is string => typeof tok === 'string' && tok !== 'forged.unsigned.jwt');
+        expect(validClaims.length).toBe(6);
 
         const adminAppCheck = getAppCheck(adminApp);
         for (const jwt of validClaims) {

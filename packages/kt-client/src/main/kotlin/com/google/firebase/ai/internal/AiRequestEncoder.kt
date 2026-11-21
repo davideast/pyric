@@ -10,9 +10,12 @@ import com.google.firebase.ai.type.InlineDataPart
 import com.google.firebase.ai.type.InvalidStateException
 import com.google.firebase.ai.type.Part
 import com.google.firebase.ai.type.SafetySetting
+import com.google.firebase.ai.type.Schema
 import com.google.firebase.ai.type.SerializationException
 import com.google.firebase.ai.type.TextPart
 import com.google.firebase.ai.type.ThinkingConfig
+import com.google.firebase.ai.type.Tool
+import com.google.firebase.ai.type.ToolConfig
 import java.util.Base64
 
 internal object AiRequestEncoder {
@@ -21,6 +24,8 @@ internal object AiRequestEncoder {
         prompt: List<Content>,
         generationConfig: GenerationConfig?,
         safetySettings: List<SafetySetting>?,
+        tools: List<Tool>?,
+        toolConfig: ToolConfig?,
         systemInstruction: Content?,
         backend: GenerativeBackend
     ): Map<String, Any?> {
@@ -40,6 +45,15 @@ internal object AiRequestEncoder {
             }
             request["safetySettings"] = safetySettings.map(::encodeSafetySetting)
         }
+        if (!tools.isNullOrEmpty()) {
+            request["tools"] = tools.map { it.toWireMap() }
+        }
+        if (toolConfig != null) {
+            val encodedToolConfig = toolConfig.toWireMap()
+            if (encodedToolConfig.isNotEmpty()) {
+                request["toolConfig"] = encodedToolConfig
+            }
+        }
         if (systemInstruction != null) {
             request["systemInstruction"] = encodeSystemInstruction(systemInstruction)
         }
@@ -48,12 +62,23 @@ internal object AiRequestEncoder {
 
     fun encodeCountTokensRequest(
         prompt: List<Content>,
-        systemInstruction: Content?
+        systemInstruction: Content?,
+        tools: List<Tool>? = null,
+        generationConfig: GenerationConfig? = null
     ): Map<String, Any?> {
         val request = LinkedHashMap<String, Any?>()
         request["contents"] = prompt.map(::encodeContent)
         if (systemInstruction != null) {
             request["systemInstruction"] = encodeSystemInstruction(systemInstruction)
+        }
+        if (!tools.isNullOrEmpty()) {
+            request["tools"] = tools.map { it.toWireMap() }
+        }
+        if (generationConfig != null) {
+            val encodedConfig = encodeGenerationConfig(generationConfig)
+            if (encodedConfig.isNotEmpty()) {
+                request["generationConfig"] = encodedConfig
+            }
         }
         return request
     }
@@ -154,12 +179,7 @@ internal object AiRequestEncoder {
         return out
     }
 
-    private fun encodeSchemaValue(schema: Any): Any = when (schema) {
-        is Map<*, *> -> schema
-        else -> throw SerializationException(
-            "Unsupported responseSchema type: ${schema.javaClass.simpleName}"
-        )
-    }
+    private fun encodeSchemaValue(schema: Schema): Map<String, Any?> = schema.toWireMap()
 
     private fun encodeThinkingConfig(thinking: ThinkingConfig): Map<String, Any?> {
         val out = LinkedHashMap<String, Any?>(3)

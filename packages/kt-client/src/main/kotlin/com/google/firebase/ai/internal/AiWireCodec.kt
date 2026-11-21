@@ -9,6 +9,8 @@ import com.google.firebase.ai.type.GenerationConfig
 import com.google.firebase.ai.type.GenerativeBackend
 import com.google.firebase.ai.type.Part
 import com.google.firebase.ai.type.SafetySetting
+import com.google.firebase.ai.type.Tool
+import com.google.firebase.ai.type.ToolConfig
 
 /** Internal facade delegating to [AiRequestEncoder], [AiResponseDecoder], and [AiBridgeCallPolicy]. */
 internal object AiWireCodec {
@@ -17,20 +19,31 @@ internal object AiWireCodec {
         prompt: List<Content>,
         generationConfig: GenerationConfig?,
         safetySettings: List<SafetySetting>?,
+        tools: List<Tool>? = null,
+        toolConfig: ToolConfig? = null,
         systemInstruction: Content?,
         backend: GenerativeBackend
     ): Map<String, Any?> = AiRequestEncoder.encodeGenerateContentRequest(
         prompt = prompt,
         generationConfig = generationConfig,
         safetySettings = safetySettings,
+        tools = tools,
+        toolConfig = toolConfig,
         systemInstruction = systemInstruction,
         backend = backend
     )
 
     fun encodeCountTokensRequest(
         prompt: List<Content>,
-        systemInstruction: Content?
-    ): Map<String, Any?> = AiRequestEncoder.encodeCountTokensRequest(prompt, systemInstruction)
+        systemInstruction: Content?,
+        tools: List<Tool>? = null,
+        generationConfig: GenerationConfig? = null
+    ): Map<String, Any?> = AiRequestEncoder.encodeCountTokensRequest(
+        prompt = prompt,
+        systemInstruction = systemInstruction,
+        tools = tools,
+        generationConfig = generationConfig
+    )
 
     fun encodeContent(content: Content): Map<String, Any?> = AiRequestEncoder.encodeContent(content)
 
@@ -56,4 +69,11 @@ internal object AiWireCodec {
 
     fun mapBridgeException(error: Throwable): FirebaseAIException =
         AiBridgeCallPolicy.mapBridgeException(error)
+
+    fun mapStreamError(
+        code: String,
+        message: String,
+        aiEnvelope: Map<String, Any?>?,
+        cause: Throwable?
+    ): FirebaseAIException = AiBridgeCallPolicy.mapStreamError(code, message, aiEnvelope, cause)
 }

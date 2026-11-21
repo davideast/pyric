@@ -9,6 +9,8 @@ import com.google.firebase.ai.ai
 import com.google.firebase.ai.type.BlockReason
 import com.google.firebase.ai.type.ContentModality
 import com.google.firebase.ai.type.FinishReason
+import com.google.firebase.ai.type.FunctionCallingConfig
+import com.google.firebase.ai.type.FunctionDeclaration
 import com.google.firebase.ai.type.FunctionResponsePart
 import com.google.firebase.ai.type.GenerativeBackend
 import com.google.firebase.ai.type.HarmBlockThreshold
@@ -18,8 +20,13 @@ import com.google.firebase.ai.type.PromptBlockedException
 import com.google.firebase.ai.type.QuotaExceededException
 import com.google.firebase.ai.type.ResponseStoppedException
 import com.google.firebase.ai.type.SafetySetting
+import com.google.firebase.ai.type.Schema
 import com.google.firebase.ai.type.ServerException
+import com.google.firebase.ai.type.TextPart
 import com.google.firebase.ai.type.ThinkingLevel
+import com.google.firebase.ai.type.Tool
+import com.google.firebase.ai.type.ToolConfig
+import com.google.firebase.ai.type.asTextOrNull
 import com.google.firebase.ai.type.content
 import com.google.firebase.ai.type.generationConfig
 import com.google.firebase.ai.type.thinkingConfig
@@ -30,6 +37,9 @@ import com.google.firebase.appcheck.FirebaseAppCheck
 import com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory
 import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
 import dev.pyric.bridge.PyricBridgeClient
+import dev.pyric.codecs.JsonCodec
+import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -271,5 +281,181 @@ class AiLiveHostConformanceTest {
         }
         assertNotEquals("", refused.message)
         assertTrue(refused.message!!.contains("Firebase App Check token is invalid."))
+    }
+
+    @Test
+    fun streamingGenerateContentStreamMultiChunkTakeOneCancelAndAppCheckOverLiveOkHttp(): Unit = runBlocking {
+        val app = initApp("live-ai-streaming", "1:424242424242:android:aistandardcheck")
+        val bridge = newBridge()
+        FirebaseAppCheck.getInstance(app, bridge)
+            .installAppCheckProviderFactory(DebugAppCheckProviderFactory.getInstance())
+
+        val model = FirebaseAI.getInstance(app, bridge).generativeModel("gemini-2.5-flash")
+
+        val multiChunks = model.generateContentStream(
+            "SCRIPT_STREAM_MULTI: stream three ordered chunks"
+        ).toList()
+        assertEquals(3, multiChunks.size)
+        assertEquals("Kotlin Flow stream!", multiChunks.joinToString("") { it.text.orEmpty() })
+        assertEquals(FinishReason.STOP, multiChunks.last().candidates.single().finishReason)
+        assertTrue((multiChunks.last().usageMetadata?.totalTokenCount ?: 0) > 0)
+
+        // Early .take(1) cancellation over real OkHttp WebSocket triggers worker-unsub on HostedRuntime
+        val cancelledSlice = model.generateContentStream(
+            "SCRIPT_STREAM_CANCEL: cancel immediately after first chunk"
+        ).take(1).toList()
+        assertEquals(1, cancelledSlice.size)
+        assertEquals("first-cancel-chunk", cancelledSlice.single().text)
+
+        // Stream wire error maps to exact FirebaseAIException subtype
+        val unauthenticatedApp = initApp(
+            "live-ai-streaming-err",
+            "1:424242424242:android:aistreamerr"
+        )
+        val plainStreamModel = FirebaseAI.getInstance(unauthenticatedApp, bridge)
+            .generativeModel("gemini-2.5-flash")
+        assertThrows<QuotaExceededException> {
+            runBlocking {
+                plainStreamModel.generateContentStream("SCRIPT_STREAM_ERR: trigger stream 429").toList()
+            }
+        }
+    }
+
+    @Test
+    fun multiTurnChatSendMessageStreamSafetyExclusionAndFunctionCallingLoop(): Unit = runBlocking {
+        val app = initApp("live-ai-chat", "1:424242424242:android:aichatapp")
+        val bridge = newBridge()
+        val ai = FirebaseAI.getInstance(app, bridge)
+        val model = ai.generativeModel("gemini-2.5-flash")
+
+        val chat = model.startChat(
+            listOf(
+                content("user") { text("Seed: project code is 731.") },
+                content("model") { text("Acknowledged project code 731.") }
+            )
+        )
+        val initialSnapshot = chat.history
+        assertEquals(2, initialSnapshot.size)
+
+        val turn1 = chat.sendMessage("SCRIPT_CHAT_TURN_1: Hi, I am Ada.")
+        assertEquals("Nice to meet you, Ada! Your favorite language is Kotlin.", turn1.text)
+        assertEquals(2, initialSnapshot.size)
+        assertEquals(4, chat.history.size)
+
+        // Safety-blocked turn must not pollute chat.history
+        assertThrows<ResponseStoppedException> {
+            runBlocking { chat.sendMessage("SCRIPT_CHAT_BLOCKED: unsafe chat request") }
+        }
+        assertEquals(4, chat.history.size)
+
+        // Streaming turn coalesces chunks into chat.history on clean completion
+        val streamReply = chat.sendMessageStream("SCRIPT_CHAT_TURN_2: What is my name?").toList()
+        assertEquals(2, streamReply.size)
+        assertEquals("Your name is Ada and you love Kotlin!", streamReply.joinToString("") { it.text.orEmpty() })
+        assertEquals(6, chat.history.size)
+        val mergedStreamPart = chat.history.last().parts.single() as TextPart
+        assertEquals("Your name is Ada and you love Kotlin!", mergedStreamPart.text)
+        assertNotNull(mergedStreamPart.thoughtSignature)
+
+        // Early .take(1) on sendMessageStream unsubscribes and excludes incomplete turn from history
+        val partialChatChunk = chat.sendMessageStream("SCRIPT_CHAT_STREAM_CANCEL: stop early")
+            .take(1)
+            .toList()
+        assertEquals("partial-chat-chunk-1", partialChatChunk.single().text)
+        assertEquals(6, chat.history.size)
+
+        // End-to-end Chat function-calling loop (thoughtSignature preserved + user/function role accepted)
+        val weatherTool = Tool.functionDeclarations(
+            listOf(
+                FunctionDeclaration(
+                    name = "lookupWeather",
+                    description = "Returns current weather for a city",
+                    parameters = mapOf("city" to Schema.string(description = "City name"))
+                )
+            )
+        )
+        val toolChat = ai.generativeModel(
+            modelName = "gemini-2.5-flash",
+            tools = listOf(weatherTool),
+            toolConfig = ToolConfig(FunctionCallingConfig.auto())
+        ).startChat()
+
+        val fnCallTurn = toolChat.sendMessage("SCRIPT_CHAT_FN: Weather in Reykjavik?")
+        val fnCall = fnCallTurn.functionCalls.single()
+        assertEquals("lookupWeather", fnCall.name)
+        assertEquals("Reykjavik", fnCall.args["city"])
+        assertNotNull(fnCall.thoughtSignature)
+
+        val fnSummaryTurn = toolChat.sendMessage(
+            content("function") {
+                part(
+                    FunctionResponsePart(
+                        name = fnCall.name,
+                        response = mapOf("tempC" to 4, "wind" to "brisk"),
+                        id = fnCall.id
+                    )
+                )
+            }
+        )
+        assertEquals("Reykjavik is 4C and brisk!", fnSummaryTurn.text)
+        assertEquals(4, toolChat.history.size)
+    }
+
+    @Test
+    fun structuredJsonResponseSchemaAndForcedToolConfigAnySynthesizeLiveBrokerShapes(): Unit = runBlocking {
+        val app = initApp("live-ai-schema-tools", "1:424242424242:android:aischemaapp")
+        val bridge = newBridge()
+        val ai = FirebaseAI.getInstance(app, bridge)
+
+        // Unscripted prompt with ToolConfig(Mode.ANY) exercises AiBroker/ScriptedEngine schema synthesis
+        val flightDecl = FunctionDeclaration(
+            name = "bookFlight",
+            description = "Books a flight itinerary",
+            parameters = mapOf(
+                "origin" to Schema.enumeration(listOf("SFO", "NRT")),
+                "passengers" to Schema.integer()
+            )
+        )
+        val forcedToolModel = ai.generativeModel(
+            modelName = "gemini-2.5-flash",
+            tools = listOf(Tool.functionDeclarations(listOf(flightDecl))),
+            toolConfig = ToolConfig(FunctionCallingConfig.any(listOf("bookFlight")))
+        )
+        val forcedRes = forcedToolModel.generateContent("UNSCRIPTED_FORCED_TOOL: book trip")
+        val forcedCall = forcedRes.functionCalls.single()
+        assertEquals("bookFlight", forcedCall.name)
+        assertEquals("SFO", forcedCall.args["origin"])
+        assertEquals(1, (forcedCall.args["passengers"] as Number).toInt())
+        assertNotNull(forcedCall.thoughtSignature)
+
+        // Unscripted prompt with responseMimeType = application/json + responseSchema synthesizes matching JSON
+        val reportSchema = Schema.obj(
+            properties = mapOf(
+                "status" to Schema.enumeration(listOf("READY", "PENDING")),
+                "count" to Schema.integer(),
+                "ok" to Schema.boolean(),
+                "tags" to Schema.array(Schema.string())
+            ),
+            propertyOrdering = listOf("status", "count", "ok", "tags")
+        )
+        val jsonModel = ai.generativeModel(
+            modelName = "gemini-2.5-flash",
+            generationConfig = generationConfig {
+                responseMimeType = "application/json"
+                responseSchema = reportSchema
+            }
+        )
+        val unaryJson = JsonCodec.decodeMap(jsonModel.generateContent("UNSCRIPTED_SCHEMA_JSON: unary").text!!)
+        assertEquals("READY", unaryJson["status"])
+        assertEquals(1, (unaryJson["count"] as Number).toInt())
+        assertEquals(true, unaryJson["ok"])
+        assertEquals(listOf("pyric"), unaryJson["tags"])
+
+        val streamedJsonRaw = jsonModel.generateContentStream("UNSCRIPTED_SCHEMA_JSON_STREAM: stream")
+            .toList()
+            .joinToString("") { it.text.orEmpty() }
+        val streamedJson = JsonCodec.decodeMap(streamedJsonRaw)
+        assertEquals("READY", streamedJson["status"])
+        assertEquals(true, streamedJson["ok"])
     }
 }

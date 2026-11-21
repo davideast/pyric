@@ -34,7 +34,7 @@ class GenerationConfig private constructor(
     val frequencyPenalty: Float?,
     val stopSequences: List<String>?,
     val responseMimeType: String?,
-    val responseSchema: Any?,
+    val responseSchema: Schema?,
     val responseModalities: List<ResponseModality>?,
     val thinkingConfig: ThinkingConfig?
 ) {
@@ -95,7 +95,7 @@ class GenerationConfig private constructor(
         @JvmField var frequencyPenalty: Float? = null
         @JvmField var stopSequences: List<String>? = null
         @JvmField var responseMimeType: String? = null
-        @JvmField var responseSchema: Any? = null
+        @JvmField var responseSchema: Schema? = null
         @JvmField var responseModalities: List<ResponseModality>? = null
         @JvmField var thinkingConfig: ThinkingConfig? = null
 
@@ -109,7 +109,7 @@ class GenerationConfig private constructor(
             frequencyPenalty: Float?,
             stopSequences: List<String>?,
             responseMimeType: String?,
-            responseSchema: Any?,
+            responseSchema: Schema?,
             responseModalities: List<ResponseModality>?,
             thinkingConfig: ThinkingConfig?
         ) : this() {
@@ -157,7 +157,7 @@ class GenerationConfig private constructor(
             this.responseMimeType = responseMimeType
         }
 
-        fun setResponseSchema(responseSchema: Any?): Builder = apply {
+        fun setResponseSchema(responseSchema: Schema?): Builder = apply {
             this.responseSchema = responseSchema
         }
 

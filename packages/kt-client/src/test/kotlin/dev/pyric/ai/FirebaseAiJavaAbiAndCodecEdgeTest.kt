@@ -1,11 +1,15 @@
 package dev.pyric.ai
 
 import com.google.firebase.FirebaseApp
+import com.google.firebase.ai.Chat
 import com.google.firebase.ai.FirebaseAI
+import com.google.firebase.ai.GenerativeModel
 import com.google.firebase.ai.type.BlockReason
 import com.google.firebase.ai.type.Content
 import com.google.firebase.ai.type.ContentModality
 import com.google.firebase.ai.type.FinishReason
+import com.google.firebase.ai.type.FunctionCallingConfig
+import com.google.firebase.ai.type.FunctionDeclaration
 import com.google.firebase.ai.type.GenerationConfig
 import com.google.firebase.ai.type.GenerativeBackend
 import com.google.firebase.ai.type.HarmBlockMethod
@@ -19,6 +23,8 @@ import com.google.firebase.ai.type.SafetySetting
 import com.google.firebase.ai.type.SerializationException
 import com.google.firebase.ai.type.TextPart
 import com.google.firebase.ai.type.ThinkingConfig
+import com.google.firebase.ai.type.Tool
+import com.google.firebase.ai.type.ToolConfig
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -66,7 +72,7 @@ class FirebaseAiJavaAbiAndCodecEdgeTest {
             assertTrue(Modifier.isStatic(m.modifiers), "Expected FirebaseAI.$name to be static")
         }
 
-        // @JvmOverloads on generativeModel exposes 1-arg through 5-arg overloads
+        // @JvmOverloads on generativeModel exposes 1-arg through 7-arg upstream overloads
         assertNotNullMethod(aiClass, "generativeModel", String::class.java)
         assertNotNullMethod(
             aiClass,
@@ -74,6 +80,8 @@ class FirebaseAiJavaAbiAndCodecEdgeTest {
             String::class.java,
             GenerationConfig::class.java,
             List::class.java,
+            List::class.java,
+            ToolConfig::class.java,
             Content::class.java,
             RequestOptions::class.java
         )
@@ -125,6 +133,37 @@ class FirebaseAiJavaAbiAndCodecEdgeTest {
             HarmBlockThreshold::class.java,
             HarmBlockMethod::class.java
         )
+
+        // PR 2 Java ABI surface: streaming, Chat, Tool, FunctionDeclaration, FunctionCallingConfig, ToolConfig
+        val modelClass = GenerativeModel::class.java
+        assertNotNullMethod(modelClass, "generateContentStream", String::class.java)
+        assertNotNullMethod(modelClass, "generateContentStream", List::class.java)
+        assertNotNullMethod(modelClass, "startChat")
+        assertNotNullMethod(modelClass, "startChat", List::class.java)
+
+        val chatClass = Chat::class.java
+        assertNotNullMethod(chatClass, "getHistory")
+        assertNotNullMethod(chatClass, "sendMessageStream", String::class.java)
+        assertNotNullMethod(chatClass, "sendMessageStream", Content::class.java)
+
+        assertTrue(
+            Modifier.isStatic(
+                Tool::class.java.getMethod("functionDeclarations", List::class.java).modifiers
+            )
+        )
+        assertTrue(Modifier.isStatic(FunctionCallingConfig::class.java.getMethod("auto").modifiers))
+        assertTrue(Modifier.isStatic(FunctionCallingConfig::class.java.getMethod("none").modifiers))
+        assertTrue(
+            Modifier.isStatic(
+                FunctionCallingConfig::class.java.getMethod("any", List::class.java).modifiers
+            )
+        )
+        FunctionDeclaration::class.java.getConstructor(
+            String::class.java,
+            String::class.java,
+            Map::class.java
+        )
+        ToolConfig::class.java.getConstructor(FunctionCallingConfig::class.java)
     }
 
     private fun assertNotNullMethod(cls: Class<*>, name: String, vararg params: Class<*>) {
