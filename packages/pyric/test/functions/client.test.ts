@@ -23,8 +23,8 @@ import { initializeSandbox, type Sandbox } from 'pyric/sandbox';
 
 let sandbox: Sandbox;
 
-beforeEach(() => {
-  resetAppRegistryForTests();
+beforeEach(async () => {
+  await resetAppRegistryForTests();
   sandbox = initializeSandbox();
   bindAppRegistrySandbox(sandbox);
   resetConnectFunctionsEmulatorWarningForTests();
@@ -32,7 +32,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   await Promise.all(getApps().map((app) => deleteApp(app)));
-  resetAppRegistryForTests();
+  await resetAppRegistryForTests();
   sandbox.dispose();
 });
 
