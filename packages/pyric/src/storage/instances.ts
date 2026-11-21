@@ -14,6 +14,7 @@ import {
   type SandboxTarget,
   type StorageOptions,
 } from './service.js';
+import type { EmulatorMockTokenOptions } from './types.js';
 
 /** Resolve the Firebase-shaped Storage service associated with an app. */
 export function getStorage(app?: FirebaseApp, bucketUrl?: string): AppFirebaseStorage {
@@ -89,5 +90,5 @@ export function connectStorageEmulator(
   _storage: FirebaseStorage,
   _host: string,
   _port: number,
-  _options?: { mockUserToken?: string | Record<string, unknown> },
+  _options?: { mockUserToken?: EmulatorMockTokenOptions | string },
 ): void {}

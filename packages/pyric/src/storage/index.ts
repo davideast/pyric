@@ -1,9 +1,9 @@
 /**
- * `pyric/storage` — Firebase Storage adapter for the Pyric sandbox.
+ * `pyric/storage` -- Firebase Storage adapter for the Pyric sandbox.
  *
  * Sibling-package layout mirrors Firebase:
- *   `firebase/app`     ↔ `firebase/storage`
- *   `pyric/sandbox`   ↔ `pyric/storage`
+ *   `firebase/app`     <-> `firebase/storage`
+ *   `pyric/sandbox`   <-> `pyric/storage`
  *
  * Public surface lands incrementally through the slices in
  * the design rationale:
@@ -35,12 +35,20 @@ export { uploadBytes, uploadString } from './observed.js';
 export { StringFormat } from './string-format.js';
 
 export { uploadBytesResumable } from './observed.js';
-export type { UploadTask, UploadTaskSnapshot, TaskState, TaskEvent } from './resumable.js';
+export type {
+  EmulatorMockTokenOptions,
+  ListOptions,
+  StorageObserver,
+  UploadTask,
+  UploadTaskSnapshot,
+  TaskState,
+  TaskEvent,
+} from './types.js';
 
 export { getBytes, getBlob, getDownloadURL, deleteObject } from './observed.js';
 
 export { getMetadata, updateMetadata } from './observed.js';
-export type { SettableMetadata, FullMetadata, UploadResult } from './metadata.js';
+export type { SettableMetadata, UploadMetadata, FullMetadata, UploadResult } from './metadata.js';
 
 export { listAll } from './observed.js';
 export type { ListResult } from './list.js';
@@ -60,7 +68,7 @@ export type {
   FirestoreLookup,
 } from './rules.js';
 
-// ─── Admin / control-plane surface ───────────────────────────────────
+// --- Admin / control-plane surface -----------------------------------
 // Firebase Storage provisioning + status. The pure-fetch `api.ts`
 // layer (browser + Node compatible), the `ProjectScope`-shaped
 // handlers, and the agent-tool factory.

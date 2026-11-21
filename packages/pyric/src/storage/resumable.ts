@@ -11,46 +11,21 @@ import { storageTaskProgress, storageTaskResult } from '../sandbox/internal/stor
  */
 import type { EventProvenance } from 'pyric/sandbox';
 import type { StorageReference } from './reference.js';
-import type { SettableMetadata, FullMetadata, UploadResult } from './metadata.js';
+import type { SettableMetadata, UploadMetadata, FullMetadata, UploadResult } from './metadata.js';
 import { cloneSettableMetadata, toFullMetadata } from './metadata.js';
 import { planeOf } from './content-defaults.js';
 import { getStorageService, targetOf } from './service.js';
 import { buildStoredMetadata, uploadObjectReplacing } from './upload.js';
 import { invalidRootOperation, uploadCanceled, type StorageError } from './errors.js';
 import type { StoredObject } from './persistence.js';
+import type {
+  StorageObserver,
+  TaskEvent,
+  TaskState,
+  UploadTask,
+  UploadTaskSnapshot,
+} from './types.js';
 import { rollBackCanceledCommit } from './upload-rollback.js';
-
-export type TaskEvent = 'state_changed';
-export type TaskState = 'running' | 'paused' | 'success' | 'canceled' | 'error';
-
-export interface UploadTaskSnapshot {
-  readonly bytesTransferred: number;
-  readonly totalBytes: number;
-  readonly state: TaskState;
-  readonly metadata: FullMetadata;
-  readonly ref: StorageReference;
-  readonly task: UploadTask;
-}
-
-export interface UploadTask extends Promise<UploadTaskSnapshot> {
-  readonly snapshot: UploadTaskSnapshot;
-  cancel(): boolean;
-  pause(): boolean;
-  resume(): boolean;
-  on(
-    event: TaskEvent | string,
-    nextOrObserver?:
-      | null
-      | ((snapshot: UploadTaskSnapshot) => unknown)
-      | {
-          next?: (snapshot: UploadTaskSnapshot) => unknown;
-          error?: (error: Error | StorageError) => unknown;
-          complete?: () => unknown;
-        },
-    error?: null | ((error: Error | StorageError) => unknown),
-    complete?: null | (() => unknown),
-  ): () => void;
-}
 
 /** What one commit stored, and the object it replaced. */
 interface StoredUpload {
@@ -97,8 +72,8 @@ class UploadTaskImpl implements UploadTask {
   readonly [Symbol.toStringTag] = 'UploadTask';
   private _snapshot: UploadTaskSnapshot;
   private _promise: Promise<UploadTaskSnapshot>;
-  private _resolve!: (snapshot: UploadTaskSnapshot) => void;
-  private _reject!: (error: Error | StorageError) => void;
+  private _resolve: (snapshot: UploadTaskSnapshot) => void = () => {};
+  private _reject: (error: Error | StorageError) => void = () => {};
   private _observers: TaskObserver[] = [];
   private _didIntermediateProgress = false;
   private _committing = false;
@@ -233,12 +208,16 @@ class UploadTaskImpl implements UploadTask {
     nextOrObserver?:
       | null
       | ((snapshot: UploadTaskSnapshot) => unknown)
+      | StorageObserver<UploadTaskSnapshot>
       | {
-          next?: (snapshot: UploadTaskSnapshot) => unknown;
-          error?: (error: Error | StorageError) => unknown;
-          complete?: () => unknown;
+          next?: ((snapshot: UploadTaskSnapshot) => unknown) | null;
+          error?: ((error: Error | StorageError) => unknown) | null;
+          complete?: (() => unknown) | null;
         },
-    error?: null | ((error: Error | StorageError) => unknown),
+    error?:
+      | null
+      | ((error: StorageError) => unknown)
+      | ((error: Error | StorageError) => unknown),
     complete?: null | (() => unknown),
   ): () => void {
     let nextCb: ((snapshot: UploadTaskSnapshot) => unknown) | undefined;
@@ -256,21 +235,21 @@ class UploadTaskImpl implements UploadTask {
 
     if (isObjectObserver) {
       const observerObj = nextOrObserver as {
-        next?: (snapshot: UploadTaskSnapshot) => unknown;
-        error?: (error: Error | StorageError) => unknown;
-        complete?: () => unknown;
+        next?: ((snapshot: UploadTaskSnapshot) => unknown) | null;
+        error?: ((error: Error | StorageError) => unknown) | null;
+        complete?: (() => unknown) | null;
       };
-      const hasNext = typeof observerObj.next === 'function';
-      if (hasNext) {
-        nextCb = observerObj.next!.bind(observerObj);
+      const nextFn = observerObj.next;
+      if (typeof nextFn === 'function') {
+        nextCb = nextFn.bind(observerObj);
       }
-      const hasError = typeof observerObj.error === 'function';
-      if (hasError) {
-        errCb = observerObj.error!.bind(observerObj);
+      const errFn = observerObj.error;
+      if (typeof errFn === 'function') {
+        errCb = errFn.bind(observerObj) as (error: Error | StorageError) => unknown;
       }
-      const hasComplete = typeof observerObj.complete === 'function';
-      if (hasComplete) {
-        compCb = observerObj.complete!.bind(observerObj);
+      const compFn = observerObj.complete;
+      if (typeof compFn === 'function') {
+        compCb = compFn.bind(observerObj);
       }
     } else {
       const isFunction = typeof nextOrObserver === 'function';
@@ -601,7 +580,7 @@ class UploadTaskImpl implements UploadTask {
 export function uploadBytesResumable(
   ref: StorageReference,
   data: Blob | Uint8Array | ArrayBuffer,
-  metadata?: SettableMetadata,
+  metadata?: UploadMetadata,
   provenance?: EventProvenance,
 ): UploadTask {
   const isRoot = ref.fullPath === '';
