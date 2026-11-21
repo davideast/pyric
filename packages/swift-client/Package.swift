@@ -30,6 +30,10 @@ var products: [Product] = [
         name: "PyricFunctions",
         targets: ["PyricFunctions"]
     ),
+    .library(
+        name: "PyricMessaging",
+        targets: ["PyricMessaging"]
+    ),
 ]
 
 var targets: [Target] = [
@@ -66,6 +70,11 @@ var targets: [Target] = [
         dependencies: ["PyricFirestore", "FirebaseAuth", "PyricAppCheck"],
         path: "Sources/PyricFunctions"
     ),
+    .target(
+        name: "PyricMessaging",
+        dependencies: ["PyricFirestore"],
+        path: "Sources/PyricMessaging"
+    ),
     .testTarget(
         name: "PyricLiveHostTests",
         dependencies: ["PyricFirestore", "FirebaseAuth", "PyricDatabase"],
@@ -90,6 +99,11 @@ var targets: [Target] = [
         name: "PyricFunctionsTests",
         dependencies: ["PyricFunctions", "PyricFirestore", "FirebaseAuth", "PyricAppCheck"],
         path: "Tests/PyricFunctionsTests"
+    ),
+    .testTarget(
+        name: "PyricMessagingTests",
+        dependencies: ["PyricMessaging", "PyricFirestore", "FirebaseAuth", "PyricAppCheck"],
+        path: "Tests/PyricMessagingTests"
     ),
 ]
 
