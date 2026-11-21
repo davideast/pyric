@@ -189,7 +189,7 @@ describe('ios-oracle-simulator discovery, command args, and base64 extraction', 
     expect(authArgs).toContain('CODE_SIGNING_REQUIRED=NO');
     expect(authArgs).toContain('platform=iOS Simulator,id=SIM-123');
     expect(authArgs).toContain(
-      '-only-testing:AuthOracleSimTests/AuthOracleSimTests/testCaptureSelectedOracleProbe',
+      '-only-testing:AuthOracleHostedTests/AuthOracleHostedTests/testCaptureSelectedOracleProbe',
     );
   });
 

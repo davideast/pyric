@@ -4,6 +4,10 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  createPrivateJobTmpDir,
+  removePrivateJobTmpDir,
+} from '../../../../scripts/lib/private-job-tmpdir.ts';
+import {
   runIosOracleProbe,
   type IosAdminAuthAdapter,
 } from '../../src/ios-oracle-runtime.ts';
@@ -13,6 +17,7 @@ import {
   buildFirestoreSimXcodebuildArgs,
   formatIosOracleSpawnFailure,
   normalizeIosOracleGoogleAppId,
+  stageIosPackageTemplate,
 } from '../../src/ios-oracle-simulator.ts';
 import type { OracleServiceAccount } from '../../src/oracle-credential.ts';
 
@@ -136,8 +141,10 @@ describe('Simulator xcodebuild flags and NSException diagnostic extraction', () 
     });
     expect(authArgs).toEqual([
       'test',
+      '-project',
+      '/tmp/staged/auth-sim/HostApp/AuthOracleHost.xcodeproj',
       '-scheme',
-      'PyricIosAuthOracle',
+      'AuthOracleHost',
       '-destination',
       'platform=iOS Simulator,id=SIM-AUTH-1',
       '-derivedDataPath',
@@ -146,7 +153,7 @@ describe('Simulator xcodebuild flags and NSException diagnostic extraction', () 
       '/tmp/cache/spm',
       '-collect-test-diagnostics',
       'never',
-      '-only-testing:AuthOracleSimTests/AuthOracleSimTests/testCaptureSelectedOracleProbe',
+      '-only-testing:AuthOracleHostedTests/AuthOracleHostedTests/testCaptureSelectedOracleProbe',
       'ONLY_ACTIVE_ARCH=YES',
       'COMPILER_INDEX_STORE_ENABLE=NO',
       'CODE_SIGNING_REQUIRED=NO',
@@ -162,10 +169,26 @@ describe('Simulator xcodebuild flags and NSException diagnostic extraction', () 
       destination: 'platform=iOS Simulator,id=SIM-FS-1',
       env: {},
     });
-    expect(fsArgs).toContain('CODE_SIGNING_ALLOWED=YES');
-    expect(fsArgs).toContain('CODE_SIGNING_REQUIRED=NO');
-    expect(fsArgs).toContain('ONLY_ACTIVE_ARCH=YES');
-    expect(fsArgs).toContain('-collect-test-diagnostics');
+    expect(fsArgs).toEqual([
+      'test',
+      '-project',
+      '/tmp/staged/firestore-sim/HostApp/FirestoreOracleHost.xcodeproj',
+      '-scheme',
+      'FirestoreOracleHost',
+      '-destination',
+      'platform=iOS Simulator,id=SIM-FS-1',
+      '-derivedDataPath',
+      '/tmp/cache/firestore-dd',
+      '-clonedSourcePackagesDirPath',
+      '/tmp/cache/spm',
+      '-collect-test-diagnostics',
+      'never',
+      '-only-testing:FirestoreOracleHostedTests/FirestoreOracleHostedTests/testCaptureSelectedOracleProbe',
+      'ONLY_ACTIVE_ARCH=YES',
+      'COMPILER_INDEX_STORE_ENABLE=NO',
+      'CODE_SIGNING_REQUIRED=NO',
+      'CODE_SIGNING_ALLOWED=YES',
+    ]);
   });
 
   it('preserves NSException reason, FirebaseCore log codes, and early stack frames above trailing xcodebuild summary noise', () => {
@@ -379,6 +402,34 @@ describe('runIosOracleProbe Web appId normalization across all Apple rigs and Sw
             'RtdbOracleCLI',
             'RtdbWave4NavigationAndSnapshotProbes.swift',
           ),
+          join(
+            NATIVE_IOS_RIG_ROOT,
+            'auth-sim',
+            'HostApp',
+            'Sources',
+            'AuthOracleHostApp.swift',
+          ),
+          join(
+            NATIVE_IOS_RIG_ROOT,
+            'auth-sim',
+            'HostApp',
+            'Tests',
+            'AuthOracleHostedTests.swift',
+          ),
+          join(
+            NATIVE_IOS_RIG_ROOT,
+            'firestore-sim',
+            'HostApp',
+            'Sources',
+            'FirestoreOracleHostApp.swift',
+          ),
+          join(
+            NATIVE_IOS_RIG_ROOT,
+            'firestore-sim',
+            'HostApp',
+            'Tests',
+            'FirestoreOracleHostedTests.swift',
+          ),
         ];
         const parsed = await runSingleProcessSwiftParse(swiftParser, swiftFiles);
         expect(parsed.exitCode, parsed.output).toBe(0);
@@ -386,4 +437,123 @@ describe('runIosOracleProbe Web appId normalization across all Apple rigs and Sw
     },
     90_000,
   );
+
+  it('validates Simulator TEST_HOST Xcode projects, keychain entitlements, schemes, and template staging for Auth and Firestore rigs', () => {
+    const specs = [
+      {
+        rigSubdir: 'auth-sim',
+        hostName: 'AuthOracleHost',
+        testTargetName: 'AuthOracleHostedTests',
+        packageProductName: 'PyricIosAuthOracle',
+        bundleId: 'dev.pyric.ios.oracle.auth',
+        appTargetId: 'AA0000000000000000000010',
+        testTargetId: 'AA0000000000000000000020',
+      },
+      {
+        rigSubdir: 'firestore-sim',
+        hostName: 'FirestoreOracleHost',
+        testTargetName: 'FirestoreOracleHostedTests',
+        packageProductName: 'PyricIosFirestoreOracle',
+        bundleId: 'dev.pyric.ios.oracle.firestore',
+        appTargetId: 'BB0000000000000000000010',
+        testTargetId: 'BB0000000000000000000020',
+      },
+    ];
+
+    const scratch = createPrivateJobTmpDir('ios-host-ut');
+    try {
+      for (const spec of specs) {
+        const templateDir = join(NATIVE_IOS_RIG_ROOT, spec.rigSubdir);
+        const stagedDir = join(scratch, spec.rigSubdir);
+        stageIosPackageTemplate(templateDir, stagedDir);
+
+        const hostDir = join(stagedDir, 'HostApp');
+        const pbxprojPath = join(hostDir, `${spec.hostName}.xcodeproj`, 'project.pbxproj');
+        const schemePath = join(
+          hostDir,
+          `${spec.hostName}.xcodeproj`,
+          'xcshareddata',
+          'xcschemes',
+          `${spec.hostName}.xcscheme`,
+        );
+        const entitlementsPath = join(hostDir, 'Resources', `${spec.hostName}.entitlements`);
+        const infoPlistPath = join(hostDir, 'Resources', 'Info.plist');
+
+        expect(existsSync(join(templateDir, 'HostApp', `${spec.hostName}.xcodeproj`))).toBe(false);
+        expect(existsSync(join(hostDir, '..', 'Package.swift'))).toBe(true);
+        expect(existsSync(pbxprojPath)).toBe(true);
+        expect(existsSync(schemePath)).toBe(true);
+        expect(existsSync(entitlementsPath)).toBe(true);
+        expect(existsSync(infoPlistPath)).toBe(true);
+
+        const pbx = readFileSync(pbxprojPath, 'utf8');
+        expect(pbx.startsWith('// !$*UTF8*$!\n')).toBe(true);
+        expect(pbx).toContain('objectVersion = 56;');
+        expect(pbx).toContain(`CODE_SIGN_ENTITLEMENTS = Resources/${spec.hostName}.entitlements;`);
+        expect(pbx).toContain('ENTITLEMENTS_REQUIRED = YES;');
+        expect(pbx).toContain('CODE_SIGN_STYLE = Automatic;');
+        expect(pbx).toContain(`PRODUCT_BUNDLE_IDENTIFIER = ${spec.bundleId};`);
+        expect(pbx).toContain('BUNDLE_LOADER = "$(TEST_HOST)";');
+        expect(pbx).toContain(
+          `TEST_HOST = "$(BUILT_PRODUCTS_DIR)/${spec.hostName}.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/${spec.hostName}";`,
+        );
+        expect(pbx).toContain('isa = XCLocalSwiftPackageReference;');
+        expect(pbx).toContain('relativePath = ..;');
+        expect(pbx).toContain(`productName = ${spec.packageProductName};`);
+
+        let curlyDepth = 0;
+        let parenDepth = 0;
+        for (const ch of pbx) {
+          if (ch === '{') curlyDepth += 1;
+          if (ch === '}') curlyDepth -= 1;
+          if (ch === '(') parenDepth += 1;
+          if (ch === ')') parenDepth -= 1;
+          expect(curlyDepth >= 0 && parenDepth >= 0).toBe(true);
+        }
+        expect(curlyDepth).toBe(0);
+        expect(parenDepth).toBe(0);
+
+        const definedIds = new Set<string>();
+        for (const defMatch of pbx.matchAll(/^\t\t([0-9A-F]{24})\b[^\n=]*=\s*\{/gm)) {
+          const id = defMatch[1];
+          if (id !== undefined) {
+            definedIds.add(id);
+          }
+        }
+        expect(definedIds.has(spec.appTargetId)).toBe(true);
+        expect(definedIds.has(spec.testTargetId)).toBe(true);
+        for (const refMatch of pbx.matchAll(/\b([0-9A-F]{24})\b/g)) {
+          const id = refMatch[1];
+          if (id !== undefined) {
+            expect(definedIds.has(id)).toBe(true);
+          }
+        }
+
+        for (const groupFileMatch of pbx.matchAll(
+          /path = ([^;]+); sourceTree = "<group>";/g,
+        )) {
+          const relPath = groupFileMatch[1];
+          if (relPath !== undefined && relPath !== 'Products') {
+            expect(existsSync(join(hostDir, relPath))).toBe(true);
+          }
+        }
+
+        const entitlementsXml = readFileSync(entitlementsPath, 'utf8');
+        expect(entitlementsXml).toContain('<key>keychain-access-groups</key>');
+        expect(entitlementsXml).not.toContain('AppIdentifierPrefix');
+
+        const infoPlistXml = readFileSync(infoPlistPath, 'utf8');
+        expect(infoPlistXml).toContain('<key>UIApplicationSceneManifest</key>');
+
+        const schemeXml = readFileSync(schemePath, 'utf8');
+        expect(schemeXml).toContain(`BlueprintIdentifier = "${spec.appTargetId}"`);
+        expect(schemeXml).toContain(`BlueprintIdentifier = "${spec.testTargetId}"`);
+        expect(schemeXml).toContain(`BuildableName = "${spec.hostName}.app"`);
+        expect(schemeXml).toContain(`BuildableName = "${spec.testTargetName}.xctest"`);
+        expect(schemeXml).toContain('parallelizable = "NO"');
+      }
+    } finally {
+      removePrivateJobTmpDir(scratch);
+    }
+  });
 });

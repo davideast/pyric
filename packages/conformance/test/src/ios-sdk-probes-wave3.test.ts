@@ -207,8 +207,10 @@ describe('Wave 3 firestore-swift ios-sdk-probes manifest, Swift package, and sta
     });
     expect(xcodeArgs).toEqual([
       'test',
+      '-project',
+      '/tmp/staged/firestore-sim/HostApp/FirestoreOracleHost.xcodeproj',
       '-scheme',
-      'PyricIosFirestoreOracle',
+      'FirestoreOracleHost',
       '-destination',
       'platform=iOS Simulator,id=SIM-FS-1',
       '-derivedDataPath',
@@ -217,7 +219,7 @@ describe('Wave 3 firestore-swift ios-sdk-probes manifest, Swift package, and sta
       '/tmp/cache/spm',
       '-collect-test-diagnostics',
       'never',
-      '-only-testing:FirestoreOracleSimTests/FirestoreOracleSimTests/testCaptureSelectedOracleProbe',
+      '-only-testing:FirestoreOracleHostedTests/FirestoreOracleHostedTests/testCaptureSelectedOracleProbe',
       'ONLY_ACTIVE_ARCH=YES',
       'COMPILER_INDEX_STORE_ENABLE=NO',
       'CODE_SIGNING_REQUIRED=NO',

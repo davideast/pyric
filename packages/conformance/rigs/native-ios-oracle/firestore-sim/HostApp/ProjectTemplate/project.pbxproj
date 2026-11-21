@@ -1,0 +1,419 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		BB0000000000000000000016 /* FirestoreOracleHostApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000015 /* FirestoreOracleHostApp.swift */; };
+		BB000000000000000000001A /* oracle-input.json in Resources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000019 /* oracle-input.json */; };
+		BB0000000000000000000026 /* FirestoreOracleHostedTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000025 /* FirestoreOracleHostedTests.swift */; };
+		BB0000000000000000000032 /* PyricIosFirestoreOracle in Frameworks */ = {isa = PBXBuildFile; productRef = BB0000000000000000000031 /* PyricIosFirestoreOracle */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		BB0000000000000000000027 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = BB0000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = BB0000000000000000000010;
+			remoteInfo = FirestoreOracleHost;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		BB0000000000000000000011 /* FirestoreOracleHost.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FirestoreOracleHost.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		BB0000000000000000000015 /* FirestoreOracleHostApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/FirestoreOracleHostApp.swift; sourceTree = "<group>"; };
+		BB0000000000000000000017 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Resources/Info.plist; sourceTree = "<group>"; };
+		BB0000000000000000000018 /* FirestoreOracleHost.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Resources/FirestoreOracleHost.entitlements; sourceTree = "<group>"; };
+		BB0000000000000000000019 /* oracle-input.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = ../Tests/FirestoreOracleSimTests/Resources/oracle-input.json; sourceTree = "<group>"; };
+		BB0000000000000000000021 /* FirestoreOracleHostedTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FirestoreOracleHostedTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		BB0000000000000000000025 /* FirestoreOracleHostedTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/FirestoreOracleHostedTests.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		BB0000000000000000000013 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BB0000000000000000000032 /* PyricIosFirestoreOracle in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BB0000000000000000000023 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		BB0000000000000000000002 = {
+			isa = PBXGroup;
+			children = (
+				BB0000000000000000000015 /* FirestoreOracleHostApp.swift */,
+				BB0000000000000000000017 /* Info.plist */,
+				BB0000000000000000000018 /* FirestoreOracleHost.entitlements */,
+				BB0000000000000000000019 /* oracle-input.json */,
+				BB0000000000000000000025 /* FirestoreOracleHostedTests.swift */,
+				BB0000000000000000000003 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		BB0000000000000000000003 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				BB0000000000000000000011 /* FirestoreOracleHost.app */,
+				BB0000000000000000000021 /* FirestoreOracleHostedTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		BB0000000000000000000010 /* FirestoreOracleHost */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BB0000000000000000000050 /* Build configuration list for PBXNativeTarget "FirestoreOracleHost" */;
+			buildPhases = (
+				BB0000000000000000000012 /* Sources */,
+				BB0000000000000000000013 /* Frameworks */,
+				BB0000000000000000000014 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = FirestoreOracleHost;
+			packageProductDependencies = (
+				BB0000000000000000000031 /* PyricIosFirestoreOracle */,
+			);
+			productName = FirestoreOracleHost;
+			productReference = BB0000000000000000000011 /* FirestoreOracleHost.app */;
+			productType = "com.apple.product-type.application";
+		};
+		BB0000000000000000000020 /* FirestoreOracleHostedTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BB0000000000000000000060 /* Build configuration list for PBXNativeTarget "FirestoreOracleHostedTests" */;
+			buildPhases = (
+				BB0000000000000000000022 /* Sources */,
+				BB0000000000000000000023 /* Frameworks */,
+				BB0000000000000000000024 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				BB0000000000000000000028 /* PBXTargetDependency */,
+			);
+			name = FirestoreOracleHostedTests;
+			productName = FirestoreOracleHostedTests;
+			productReference = BB0000000000000000000021 /* FirestoreOracleHostedTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		BB0000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1600;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					BB0000000000000000000010 = {
+						CreatedOnToolsVersion = 16.0;
+					};
+					BB0000000000000000000020 = {
+						CreatedOnToolsVersion = 16.0;
+						TestTargetID = BB0000000000000000000010;
+					};
+				};
+			};
+			buildConfigurationList = BB0000000000000000000040 /* Build configuration list for PBXProject "FirestoreOracleHost" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = BB0000000000000000000002;
+			packageReferences = (
+				BB0000000000000000000030 /* XCLocalSwiftPackageReference ".." */,
+			);
+			productRefGroup = BB0000000000000000000003 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				BB0000000000000000000010 /* FirestoreOracleHost */,
+				BB0000000000000000000020 /* FirestoreOracleHostedTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		BB0000000000000000000014 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BB000000000000000000001A /* oracle-input.json in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BB0000000000000000000024 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		BB0000000000000000000012 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BB0000000000000000000016 /* FirestoreOracleHostApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BB0000000000000000000022 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BB0000000000000000000026 /* FirestoreOracleHostedTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		BB0000000000000000000028 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = BB0000000000000000000010 /* FirestoreOracleHost */;
+			targetProxy = BB0000000000000000000027 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		BB0000000000000000000041 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		BB0000000000000000000042 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		BB0000000000000000000051 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Resources/FirestoreOracleHost.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = NO;
+				ENTITLEMENTS_REQUIRED = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Resources/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-ObjC",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.pyric.ios.oracle.firestore;
+				PRODUCT_MODULE_NAME = FirestoreOracleHost;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		BB0000000000000000000052 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Resources/FirestoreOracleHost.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = NO;
+				ENTITLEMENTS_REQUIRED = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Resources/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-ObjC",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.pyric.ios.oracle.firestore;
+				PRODUCT_MODULE_NAME = FirestoreOracleHost;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		BB0000000000000000000061 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.pyric.ios.oracle.firestore.tests;
+				PRODUCT_MODULE_NAME = FirestoreOracleHostedTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/FirestoreOracleHost.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/FirestoreOracleHost";
+			};
+			name = Debug;
+		};
+		BB0000000000000000000062 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.pyric.ios.oracle.firestore.tests;
+				PRODUCT_MODULE_NAME = FirestoreOracleHostedTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/FirestoreOracleHost.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/FirestoreOracleHost";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		BB0000000000000000000040 /* Build configuration list for PBXProject "FirestoreOracleHost" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BB0000000000000000000041 /* Debug */,
+				BB0000000000000000000042 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		BB0000000000000000000050 /* Build configuration list for PBXNativeTarget "FirestoreOracleHost" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BB0000000000000000000051 /* Debug */,
+				BB0000000000000000000052 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		BB0000000000000000000060 /* Build configuration list for PBXNativeTarget "FirestoreOracleHostedTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BB0000000000000000000061 /* Debug */,
+				BB0000000000000000000062 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		BB0000000000000000000030 /* XCLocalSwiftPackageReference ".." */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ..;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		BB0000000000000000000031 /* PyricIosFirestoreOracle */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = PyricIosFirestoreOracle;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = BB0000000000000000000001 /* Project object */;
+}
