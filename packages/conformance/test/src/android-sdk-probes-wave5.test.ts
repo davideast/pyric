@@ -19,7 +19,7 @@ import {
   type AndroidFirestoreSessionOptions,
   type AndroidOracleProbeConfigPayload,
 } from '../../src/android-oracle-runtime.ts';
-import { loadObservations, REPO_ROOT, type Observation } from '../../src/ledger.ts';
+import { loadObservations, REPO_ROOT } from '../../src/ledger.ts';
 import type { OracleServiceAccount } from '../../src/oracle-credential.ts';
 import {
   OracleRulesSession,
@@ -32,7 +32,9 @@ import { validateCompatibilityRegistry } from '../../src/validate-registry.ts';
 import { surfaceDescriptors } from '../../surfaces/load.ts';
 import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 
-const STAGED_ANDROID_WAVE5_PROBES = [
+const STAGED_ANDROID_WAVE5_PROBES: readonly string[] = [];
+
+const LINKED_ANDROID_WAVE5_PROBES = [
   'firestore-kotlin-inequality-cursors-collectionGroup-and-txRetry',
   'firestore-kotlin-instance-flows-inSync-and-toObject',
 ] as const;
@@ -75,9 +77,9 @@ describe('Wave 5 android-sdk-probes firestore-kotlin Robolectric probes', () => 
     const wave5Descriptors = [firestoreWave5InstanceFlowsProbe, firestoreWave5InequalityCgTxProbe];
     for (const descriptor of wave5Descriptors) {
       expect(descriptor.rig).toBe('android-sdk-probes');
-      expect(descriptor.pendingRowLink).toBe(true);
-      expect(descriptor.matrixRow).toBe('');
-      expect(descriptor.rowIds).toEqual([]);
+      expect(descriptor.pendingRowLink).toBeUndefined();
+      expect(descriptor.matrixRow.startsWith('firestore-kotlin#')).toBe(true);
+      expect(descriptor.rowIds.length).toBe(7);
       expect(descriptor.requires).toEqual([
         'web-config',
         'firestore-rules',
@@ -85,10 +87,12 @@ describe('Wave 5 android-sdk-probes firestore-kotlin Robolectric probes', () => 
         'admin-firestore',
       ]);
     }
+    expect(firestoreWave5InstanceFlowsProbe.matrixRow).toBe('firestore-kotlin#1');
+    expect(firestoreWave5InequalityCgTxProbe.matrixRow).toBe('firestore-kotlin#8');
 
     const loaded = await loadModularProbes('android-sdk-probes');
     const loadedIds = new Set(loaded.map((entry) => entry.id));
-    for (const expectedId of STAGED_ANDROID_WAVE5_PROBES) {
+    for (const expectedId of [...STAGED_ANDROID_WAVE5_PROBES, ...LINKED_ANDROID_WAVE5_PROBES]) {
       expect(loadedIds.has(expectedId)).toBe(true);
       expect(runnerKotlin).toContain(`"${expectedId}" ->`);
     }
@@ -125,43 +129,13 @@ describe('Wave 5 android-sdk-probes firestore-kotlin Robolectric probes', () => 
     expect(pr1Problems).toEqual([]);
 
     const byName = new Map(currentObservations.map((obs) => [obs.name, obs]));
-    for (const stagedName of STAGED_ANDROID_WAVE5_PROBES) {
-      const simulatedObs: Observation = {
-        file: `${stagedName}.json`,
-        surfaceDir: 'firestore-kotlin',
-        name: stagedName,
-        matrixRow: '',
-        rowIds: [],
-        observedAt: '2026-11-21T06:30:00.000Z',
-        androidBomVersion: '35.2.0',
-        behavior: { simulatedCapture: true },
-        raw: {
-          name: stagedName,
-          matrixRow: '',
-          rowIds: [],
-          description: 'Simulated captured Wave 5 Android Firestore observation',
-          observedAt: '2026-11-21T06:30:00.000Z',
-          androidBomVersion: '35.2.0',
-          projectId: 'demo-oracle',
-          behavior: { simulatedCapture: true },
-        },
-      };
-      byName.set(simulatedObs.name, simulatedObs);
+    for (const linkedName of LINKED_ANDROID_WAVE5_PROBES) {
+      const committed = byName.get(linkedName);
+      expect(committed).toBeDefined();
+      expect(committed?.androidBomVersion).toBe('35.2.0');
+      expect(committed?.matrixRow.startsWith('firestore-kotlin#')).toBe(true);
+      expect(committed?.rowIds.length).toBe(7);
     }
-
-    const pr2Problems = validateCompatibilityRegistry({
-      rows: allCompatibilityRows,
-      descriptors: surfaceDescriptors,
-      observations: [...byName.values()],
-      observationExceptions,
-      rigManifests,
-      probeFiles,
-      rulesFirestoreScenarioIds,
-      rulesStorageScenarioIds,
-      rulesRtdbScenarioIds,
-      pendingRowLinkObservations,
-    });
-    expect(pr2Problems).toEqual([]);
   });
 
   test('firestoreOracleTarget scopes collectionGroup rules safely and restores baseline ruleset on exit', async () => {

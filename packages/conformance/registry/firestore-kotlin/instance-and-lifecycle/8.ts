@@ -7,6 +7,7 @@ export default row({
   behavior: 'Runs interactive transaction handler with automatic conflict retries up to TransactionOptions.maxAttempts.',
   featureKeys: ['runTransaction'],
   status: 'conforms',
+  oracleObservations: ['firestore-kotlin-inequality-cursors-collectionGroup-and-txRetry'],
   tests: [LIVE_HOST_CORE_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

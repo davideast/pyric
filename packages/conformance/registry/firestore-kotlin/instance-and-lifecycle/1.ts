@@ -7,6 +7,7 @@ export default row({
   behavior: 'Returns the default FirebaseFirestore instance for the default FirebaseApp.',
   featureKeys: ['getInstance'],
   status: 'conforms',
+  oracleObservations: ['firestore-kotlin-instance-flows-inSync-and-toObject'],
   tests: [LIVE_HOST_CORE_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

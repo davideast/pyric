@@ -7,6 +7,7 @@ export default row({
   behavior: 'Deserializes snapshot into typed data object via reified extension function.',
   featureKeys: ['toObject'],
   status: 'conforms',
+  oracleObservations: ['firestore-kotlin-instance-flows-inSync-and-toObject'],
   tests: [LIVE_HOST_SNAPSHOTS_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

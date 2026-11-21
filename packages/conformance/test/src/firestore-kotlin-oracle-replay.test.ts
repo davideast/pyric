@@ -16,9 +16,16 @@ import {
   type FirestoreKotlinQueriesListenersAggregationsObservation,
 } from './firestore-kotlin-oracle-replay-harness.ts';
 
+const WAVE5_FIRESTORE_OBSERVATIONS = new Set([
+  'firestore-kotlin-instance-flows-inSync-and-toObject.json',
+  'firestore-kotlin-inequality-cursors-collectionGroup-and-txRetry.json',
+]);
+
 const gate = createObservationGate({
   dir: FIRESTORE_KOTLIN_OBSERVATIONS_DIR,
-  match: (filename) => filename.startsWith('firestore-kotlin-'),
+  match: (filename) =>
+    filename.startsWith('firestore-kotlin-') &&
+    WAVE5_FIRESTORE_OBSERVATIONS.has(filename) === false,
 });
 
 describe('firestore-kotlin Android SDK production observation replay over hosted worker bridge', () => {

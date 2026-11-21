@@ -7,6 +7,7 @@ export default row({
   behavior: 'Instantiates a DocumentReference pointing to the slash-delimited path.',
   featureKeys: ['document'],
   status: 'conforms',
+  oracleObservations: ['firestore-kotlin-instance-flows-inSync-and-toObject'],
   tests: [LIVE_HOST_CORE_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

@@ -1,7 +1,15 @@
 {
   "name": "firestore-kotlin-inequality-cursors-collectionGroup-and-txRetry",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore-kotlin#8",
+  "rowIds": [
+    "firestore-kotlin#8",
+    "firestore-kotlin#22",
+    "firestore-kotlin#23",
+    "firestore-kotlin#27",
+    "firestore-kotlin#32",
+    "firestore-kotlin#34",
+    "firestore-kotlin#52"
+  ],
   "description": "Upstream Android FirebaseFirestore single-field inequality and negative-membership filters (whereNotEqualTo, whereLessThan, whereLessThanOrEqualTo, whereGreaterThan, whereGreaterThanOrEqualTo, whereNotIn), value and DocumentSnapshot pagination cursors (startAt, startAfter, endAt, endBefore), scoped collectionGroup(id), Transaction.delete, and TransactionOptions contention retry / maxAttempts exhaustion under Robolectric.",
   "observedAt": "2026-11-21T07:26:28.467Z",
   "androidBomVersion": "35.2.0",

@@ -7,6 +7,7 @@ export default row({
   behavior: 'Enqueues transactional delete mutation to be committed on handler completion.',
   featureKeys: ['delete', 'transaction'],
   status: 'conforms',
+  oracleObservations: ['firestore-kotlin-inequality-cursors-collectionGroup-and-txRetry'],
   tests: [LIVE_HOST_TRANSACTIONS_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

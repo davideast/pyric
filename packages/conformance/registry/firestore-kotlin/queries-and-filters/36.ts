@@ -7,6 +7,7 @@ export default row({
   behavior: 'Returns a Coroutine Flow emitting QuerySnapshot upon matching changes.',
   featureKeys: ['snapshots'],
   status: 'conforms',
+  oracleObservations: ['firestore-kotlin-instance-flows-inSync-and-toObject'],
   tests: [LIVE_HOST_QUERIES_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

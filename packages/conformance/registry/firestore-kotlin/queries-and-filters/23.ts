@@ -7,6 +7,7 @@ export default row({
   behavior: 'Applies relational range comparison filters on field value.',
   featureKeys: ['whereLessThan', 'whereGreaterThan'],
   status: 'conforms',
+  oracleObservations: ['firestore-kotlin-inequality-cursors-collectionGroup-and-txRetry'],
   tests: [LIVE_HOST_QUERIES_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });
