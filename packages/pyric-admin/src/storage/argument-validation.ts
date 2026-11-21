@@ -13,7 +13,7 @@ import type {
   GetSignedUrlOptions,
   SaveOptions,
   Storage,
-} from './index.js';
+} from './types.js';
 
 /** Default sandbox bucket name shared with `pyric/storage`. */
 export const DEFAULT_SANDBOX_BUCKET = 'pyric-default';
