@@ -58,7 +58,7 @@ const channels: MessageChannel[] = [];
 let sharedCtx: HostCtx;
 
 beforeAll(async () => {
-  const existingWindow = (globalThis as { window?: Record<string, unknown> }).window;
+  const existingWindow = (globalThis as unknown as { window?: Record<string, unknown> }).window;
   if (existingWindow !== undefined && typeof existingWindow.addEventListener !== 'function') {
     existingWindow.addEventListener = () => {};
     existingWindow.removeEventListener = () => {};

@@ -5,7 +5,7 @@ import type { ParsedArgs } from './parse-args.js';
 function selectsInProcessSalvage(sourceInput: string): boolean {
   const stat = statSync(sourceInput, { throwIfNoEntry: false });
   if (stat === undefined) return false;
-  if (stat.isFile()) return true;
+  if (stat.isFile()) return !sourceInput.endsWith('.sqlite');
   if (!stat.isDirectory()) return false;
   const hasHostedDb = existsSync(join(sourceInput, 'state.sqlite'));
   const hasInProcessJson = existsSync(join(sourceInput, 'in-process.json'));
