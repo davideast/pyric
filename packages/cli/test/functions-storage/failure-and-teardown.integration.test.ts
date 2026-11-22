@@ -215,27 +215,27 @@ describe('v2 Storage trigger failure isolation and zero-leak child teardown on H
       ).toEqual([
         {
           exportName: 'onBrokenSyncFinalized',
-          ref: 'demo-project.appspot.com/failures/first.txt',
+          ref: 'demo-project.firebasestorage.app/failures/first.txt',
           message: 'SYNC_FINALIZED_BOOM:failures/first.txt',
         },
         {
           exportName: 'onBrokenAsyncFinalized',
-          ref: 'demo-project.appspot.com/failures/first.txt',
+          ref: 'demo-project.firebasestorage.app/failures/first.txt',
           message: 'ASYNC_FINALIZED_BOOM:failures/first.txt',
         },
         {
           exportName: 'onBrokenDeleted',
-          ref: 'demo-project.appspot.com/failures/first.txt',
+          ref: 'demo-project.firebasestorage.app/failures/first.txt',
           message: 'ASYNC_DELETED_BOOM:failures/first.txt',
         },
         {
           exportName: 'onBrokenSyncFinalized',
-          ref: 'demo-project.appspot.com/failures/second.txt',
+          ref: 'demo-project.firebasestorage.app/failures/second.txt',
           message: 'SYNC_FINALIZED_BOOM:failures/second.txt',
         },
         {
           exportName: 'onBrokenAsyncFinalized',
-          ref: 'demo-project.appspot.com/failures/second.txt',
+          ref: 'demo-project.firebasestorage.app/failures/second.txt',
           message: 'ASYNC_FINALIZED_BOOM:failures/second.txt',
         },
       ]);

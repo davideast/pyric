@@ -68,7 +68,15 @@ export function stateAfterStart(
 
 /** What both planes print when the child stops beating. */
 export const UNRESPONSIVE_LINE =
-  'Functions child unresponsive: no heartbeat for longer than its functions\' timeoutSeconds allow (10 s when it serves no HTTP function), so a handler may be stuck in a synchronous loop. Restarting it.';
+  'Functions child unresponsive: no heartbeat for longer than its functions\' timeoutSeconds allow (10 s when it serves no function), so a handler may be stuck in a synchronous loop. Restarting it.';
+
+/** What both planes print when a ready child exits unexpectedly (#1942). */
+export function unexpectedExitLine(code: number, restarting = true): string {
+  if (!restarting) {
+    return `Functions child exited unexpectedly (code ${code}); automatic restart paused after repeated rapid exits.`;
+  }
+  return `Functions child exited unexpectedly (code ${code}). Restarting it.`;
+}
 
 /**
  * The execution record of one served request, as a log line (functions-http#21;

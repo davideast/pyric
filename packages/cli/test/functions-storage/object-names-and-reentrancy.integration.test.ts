@@ -312,9 +312,9 @@ describe('special/Unicode object names, zero-byte uploads, and re-entrant prefix
       expect(receipt).toEqual({
         name: item.path,
         subject: `objects/${item.path}`,
-        selfLink: `https://www.googleapis.com/storage/v1/b/demo-project.appspot.com/o/${encodedName}`,
+        selfLink: `https://www.googleapis.com/storage/v1/b/demo-project.firebasestorage.app/o/${encodedName}`,
         mediaLink: receipt.mediaLink,
-        bucket: 'demo-project.appspot.com',
+        bucket: 'demo-project.firebasestorage.app',
         generation: receipt.generation,
         metageneration: '1',
         size: String(item.bytes.byteLength),
@@ -325,7 +325,7 @@ describe('special/Unicode object names, zero-byte uploads, and re-entrant prefix
         downloadedLength: item.bytes.byteLength,
         hasMetadata: false,
       });
-      expect(receipt.mediaLink).toContain(`/b/demo-project.appspot.com/o/${encodedName}?generation=`);
+      expect(receipt.mediaLink).toContain(`/b/demo-project.firebasestorage.app/o/${encodedName}?generation=`);
       expect(receipt.mediaLink).toEndWith('&alt=media');
     }
 
@@ -340,7 +340,7 @@ describe('special/Unicode object names, zero-byte uploads, and re-entrant prefix
       undefined,
       'bucket-special',
       true,
-      'demo-project.appspot.com',
+      'demo-project.firebasestorage.app',
     );
     const namedPath = 'named/caf\u00e9/query?x=1#tag%25/data.bin';
     const namedBytes = new Uint8Array([0x00, 0x7f, 0x80, 0xff, 0x10]);
@@ -437,7 +437,7 @@ describe('special/Unicode object names, zero-byte uploads, and re-entrant prefix
     );
     expect(webpMeta).toEqual({
       name: targetPath,
-      bucket: 'demo-project.appspot.com',
+      bucket: 'demo-project.firebasestorage.app',
       generation: finalized.generation,
       metageneration: '2',
       size: String(rawBytes.byteLength),
@@ -467,7 +467,7 @@ describe('special/Unicode object names, zero-byte uploads, and re-entrant prefix
     );
     expect(zeroMeta).toMatchObject({
       name: zeroPath,
-      bucket: 'demo-project.appspot.com',
+      bucket: 'demo-project.firebasestorage.app',
       metageneration: '2',
       size: '0',
       contentType: 'text/plain; charset=utf-8',

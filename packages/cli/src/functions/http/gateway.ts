@@ -13,16 +13,16 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { posix } from 'node:path';
 import type { FunctionsChildHttpReady } from '../child-protocol.js';
+import { maxHttpBodyBytes } from './child-server.js';
 import { DEFAULT_REGION, type HttpFunctionInfo } from './discovery.js';
 import { refuseForeignOrigin, type AppOriginCheck } from './private-origin.js';
-import { proxyToChild } from './proxy.js';
+import { proxyToChild, writeProxyBadGateway, type ProxyTarget } from './proxy.js';
 import type { TrustProxyPolicy } from '../../serve/guard-policy.js';
 import { rewriteTarget, sessionCookieOnly, type HostingRewrite, type RewriteFunction } from './rewrites.js';
 import { matchEmulatorPath } from './routes.js';
 import { unavailableReason, type FunctionsPlane } from './unavailable.js';
 
 export type { AppOriginCheck } from './private-origin.js';
-export type { FunctionsPlane } from './unavailable.js';
 
 export type FunctionsHttpState =
   /** Waiting for a sandbox peer before the first start. */
@@ -34,7 +34,9 @@ export type FunctionsHttpState =
   | { kind: 'failed'; message: string }
   /** The child stopped beating; the runtime is restarting it. */
   | { kind: 'unresponsive' }
-  /** The child exited after it was ready. */
+  /** The child exited unexpectedly; the runtime is restarting a fresh instance (#1942). */
+  | { kind: 'restarting'; code: number; ready?: Promise<void> }
+  /** The child exited after it was ready and is not restarting. */
   | { kind: 'exited'; code: number }
   | { kind: 'stopped' }
   | { kind: 'ready'; http: FunctionsChildHttpReady | null };
@@ -85,8 +87,12 @@ const DEFAULT_TIMEOUT_SECONDS = 60;
 const HOSTING_REWRITE_TIMEOUT_SECONDS = 60;
 /** The longest timeoutSeconds production allows an HTTP function; it also keeps setTimeout's delay in range. */
 const MAX_TIMEOUT_SECONDS = 3_600;
+/** Maximum time a request waits for a post-crash cold start before falling back to 503. */
+const CRASH_RESTART_WAIT_MS = 10_000;
+/** Brief window to absorb TCP-before-IPC close ordering when a handler calls process.exit(). */
+const DEAD_CHILD_TRANSITION_WAIT_MS = 200;
 
-export interface RequestTimeout {
+interface RequestTimeout {
   seconds: number;
   /** True when Hosting's rewrite cap, not the function's own timeout, sets `seconds`. */
   cutByHosting: boolean;
@@ -97,14 +103,18 @@ export interface RequestTimeout {
  * capped at Hosting's 60 s (firebase.google.com/docs/hosting/functions); the
  * emulator path keeps the function's own timeout.
  */
-export function requestTimeout(
+function requestTimeout(
   fn: HttpFunctionInfo,
   route: { viaRewrite: boolean },
   hostingCapSeconds: number = HOSTING_REWRITE_TIMEOUT_SECONDS,
 ): RequestTimeout {
   const own = Math.min(fn.timeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS);
   const cutByHosting = route.viaRewrite && hostingCapSeconds < own;
-  return { seconds: cutByHosting ? hostingCapSeconds : own, cutByHosting };
+  let seconds = own;
+  if (cutByHosting) {
+    seconds = hostingCapSeconds;
+  }
+  return { seconds, cutByHosting };
 }
 
 export function requestTimeoutSeconds(fn: HttpFunctionInfo, route: { viaRewrite: boolean }): number {
@@ -113,9 +123,28 @@ export function requestTimeoutSeconds(fn: HttpFunctionInfo, route: { viaRewrite:
 
 /** The 504 body, naming the limit that cut the request. */
 function timeoutMessage(exportName: string, timeout: RequestTimeout): string {
-  return timeout.cutByHosting
-    ? `pyric: ${exportName} did not respond within Hosting's ${timeout.seconds} s limit for a rewritten request.`
-    : `pyric: ${exportName} did not respond within its timeout (${timeout.seconds} s).`;
+  if (timeout.cutByHosting) {
+    return `pyric: ${exportName} did not respond within Hosting's ${timeout.seconds} s limit for a rewritten request.`;
+  }
+  return `pyric: ${exportName} did not respond within its timeout (${timeout.seconds} s).`;
+}
+
+function waitBounded(promise: Promise<void>, timeoutMs: number): Promise<void> {
+  return new Promise((resolveWait) => {
+    const timer = setTimeout(resolveWait, timeoutMs);
+    timer.unref();
+    void promise.finally(() => {
+      clearTimeout(timer);
+      resolveWait();
+    });
+  });
+}
+
+function delayMs(ms: number): Promise<void> {
+  return new Promise((resolveDelay) => {
+    const timer = setTimeout(resolveDelay, ms);
+    timer.unref();
+  });
 }
 
 const PLAIN_TEXT = { 'content-type': 'text/plain; charset=utf-8' };
@@ -139,7 +168,7 @@ type RewriteMatch =
  * region. With several and no us-central1 it is refused, as firebase-tools
  * 15.23.0 refuses it (`lib/deploy/hosting/convertConfig.js:48-56`).
  */
-export function rewriteFunction(target: RewriteFunction, functions: readonly HttpFunctionInfo[]): RewriteMatch {
+function rewriteFunction(target: RewriteFunction, functions: readonly HttpFunctionInfo[]): RewriteMatch {
   const named = functions.find((candidate) => candidate.exportName === target.functionId);
   if (target.region !== null) {
     const servesRegion = named?.regions.includes(target.region) ?? false;
@@ -222,16 +251,50 @@ export function createFunctionsHttpGateway(options: FunctionsHttpGatewayOptions)
     return { kind: 'function', fn: match.fn, forwardUrl: rawUrl, viaRewrite: true };
   };
 
+  const waitForFreshChildAfterRefusal = async (deadToken: string): Promise<FunctionsChildHttpReady | null> => {
+    const deadline = Date.now() + DEAD_CHILD_TRANSITION_WAIT_MS;
+    while (Date.now() < deadline) {
+      const observed = current;
+      if (observed.kind === 'restarting') {
+        if (observed.ready !== undefined) {
+          await waitBounded(observed.ready, CRASH_RESTART_WAIT_MS);
+        }
+        if (current.kind === 'ready' && current.http !== null && current.http.token !== deadToken) {
+          return current.http;
+        }
+        return null;
+      }
+      if (observed.kind === 'ready' && observed.http !== null && observed.http.token !== deadToken) {
+        return observed.http;
+      }
+      if (observed.kind !== 'ready') {
+        return null;
+      }
+      await delayMs(10);
+    }
+    return null;
+  };
+
   return {
     state: () => current,
     update(state) {
       current = state;
     },
     async handle(req, res, allowsAppOrigin) {
-      const state = current;
-      const http = state.kind === 'ready' ? state.http : null;
-      const functions = state.kind === 'ready' ? http?.functions ?? [] : null;
       const rawUrl = req.url ?? '/';
+      if (current.kind === 'restarting' && current.ready !== undefined) {
+        const probeMatch = resolve(rawUrl, null);
+        if (probeMatch === null) return false;
+        await waitBounded(current.ready, CRASH_RESTART_WAIT_MS);
+      }
+
+      const state = current;
+      let http: FunctionsChildHttpReady | null = null;
+      let functions: readonly HttpFunctionInfo[] | null = null;
+      if (state.kind === 'ready') {
+        http = state.http;
+        functions = http?.functions ?? [];
+      }
       const resolved = resolve(rawUrl, functions);
       if (resolved === null) return false;
       const reason = unavailableReason(state, options.plane);
@@ -240,36 +303,61 @@ export function createFunctionsHttpGateway(options: FunctionsHttpGatewayOptions)
         return true;
       }
       if (resolved.kind === 'unknown-function') {
-        const leavesToPlane = http === null || mayBeStaticRead(req);
-        if (leavesToPlane) return false;
+        if (http === null || mayBeStaticRead(req)) return false;
         res.writeHead(404, PLAIN_TEXT).end(notFoundText(resolved.key, http.functions));
         return true;
       }
       if (resolved.kind !== 'function' || http === null) {
-        const message = resolved.kind === 'refused' ? resolved.message : unknownRewriteTarget('unknown', functions ?? []);
+        let message = unknownRewriteTarget('unknown', functions ?? []);
+        if (resolved.kind === 'refused') {
+          message = resolved.message;
+        }
         res.writeHead(404, PLAIN_TEXT).end(message);
         return true;
       }
       if (refuseForeignOrigin(req, res, resolved.fn, allowsAppOrigin)) return true;
-      const headerOverrides = resolved.viaRewrite
-        ? {
-            cookie: sessionCookieOnly(req.headers.cookie),
-            'x-forwarded-host': req.headers.host ?? '',
-            'x-original-url': rawUrl,
-          }
-        : undefined;
+
+      let headerOverrides: Record<string, string | undefined> | undefined;
+      if (resolved.viaRewrite) {
+        headerOverrides = {
+          cookie: sessionCookieOnly(req.headers.cookie),
+          'x-forwarded-host': req.headers.host ?? '',
+          'x-original-url': rawUrl,
+        };
+      }
       const startedAt = Date.now();
       const timeout = requestTimeout(resolved.fn, resolved, options.hostingRewriteTimeoutSeconds);
-      const outcome = await proxyToChild(req, res, {
-        port: http.port,
-        token: http.token,
-        exportName: resolved.fn.exportName,
-        forwardUrl: resolved.forwardUrl,
-        timeoutMs: timeout.seconds * 1_000,
-        timeoutMessage: timeoutMessage(resolved.fn.exportName, timeout),
-        ...(options.trustProxy !== undefined ? { trustProxy: options.trustProxy } : {}),
-        ...(headerOverrides ? { headerOverrides } : {}),
-      });
+      const buildTarget = (activeHttp: FunctionsChildHttpReady, deferRefused: boolean): ProxyTarget => {
+        const proxyTarget: ProxyTarget = {
+          port: activeHttp.port,
+          token: activeHttp.token,
+          exportName: resolved.fn.exportName,
+          forwardUrl: resolved.forwardUrl,
+          timeoutMs: timeout.seconds * 1_000,
+          timeoutMessage: timeoutMessage(resolved.fn.exportName, timeout),
+          maxBodyBytes: maxHttpBodyBytes(resolved.fn.platform),
+          deferConnectRefused: deferRefused,
+        };
+        if (options.trustProxy !== undefined) {
+          proxyTarget.trustProxy = options.trustProxy;
+        }
+        if (headerOverrides !== undefined) {
+          proxyTarget.headerOverrides = headerOverrides;
+        }
+        return proxyTarget;
+      };
+
+      let outcome = await proxyToChild(req, res, buildTarget(http, true));
+      if (outcome.connectRefused === true) {
+        const replacementHttp = await waitForFreshChildAfterRefusal(http.token);
+        if (replacementHttp !== null) {
+          outcome = await proxyToChild(req, res, buildTarget(replacementHttp, false));
+        } else {
+          writeProxyBadGateway(res);
+          outcome = { status: 502, timedOut: false };
+        }
+      }
+
       const method = req.method ?? 'GET';
       const isCallablePreflight = resolved.fn.kind === 'callable' && method === 'OPTIONS';
       if (!isCallablePreflight) {

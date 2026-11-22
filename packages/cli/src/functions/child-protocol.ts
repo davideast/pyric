@@ -71,7 +71,11 @@ export interface FunctionsChildReady {
 }
 
 /** What the child's ready message carries: it never sends the token back. */
-type FunctionsChildReadyMessage = Omit<FunctionsChildReady, 'http'> & { http?: FunctionsChildHttpListener };
+type FunctionsChildReadyMessage = Omit<FunctionsChildReady, 'http'> & {
+  http?: FunctionsChildHttpListener;
+  /** Declared `timeoutSeconds` (or `null` when unset) for each active non-HTTP trigger. */
+  eventTimeouts?: Array<number | null>;
+};
 
 export interface TriggerScheduledHostRequest {
   type: 'trigger-scheduled';

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { EventEmitter } from 'node:events';
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import path from 'node:path';
-import type { Server } from 'node:http';
 import type { ViteDevServer } from 'vite';
 import type {
   FunctionsDevelopmentRuntime,
@@ -100,8 +100,14 @@ describe('Vite Functions development adapter', () => {
 
     runtimeOptions?.onEvent?.({ type: 'output', stream: 'stderr', line: '[functions] warning\n' });
     runtimeOptions?.onEvent?.({ type: 'unexpected-exit', code: 7 });
+    runtimeOptions?.onEvent?.({ type: 'starting', mode: 'reload' });
+    runtimeOptions?.onEvent?.({
+      type: 'restarted',
+      result: { kind: 'ready', ready: { triggerCount: 1, unsupportedTriggers: [] } },
+    });
     expect(warnings).toContain('[functions] warning');
     expect(errors.some((message) => message.includes('exited unexpectedly (code 7)'))).toBe(true);
+    expect(info.some((message) => message.includes('functions restarted'))).toBe(true);
 
     await attachment.close();
     await attachment.close();
@@ -236,4 +242,97 @@ it('retries after reconnect even during startup, without duplicate starts or lis
   } finally { await attachment.close(); }
   expect(connected.size).toBe(0);
   expect(closes).toBe(1);
+});
+
+it('transitions the HTTP gateway immediately to exited (503) without blocking when rapid crash restarts pause (#1942)', async () => {
+  const watcher = new FakeWatcher();
+  const errors: string[] = [];
+  let runtimeOptions: FunctionsDevelopmentRuntimeOptions | undefined;
+  let middleware: ((req: IncomingMessage, res: ServerResponse, next: (err?: unknown) => void) => void) | undefined;
+
+  const server = createServer((req, res) => {
+    if (middleware) {
+      middleware(req, res, () => {
+        res.statusCode = 404;
+        res.end('not handled');
+      });
+      return;
+    }
+    res.statusCode = 404;
+    res.end('no middleware');
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (address === null || typeof address === 'string') {
+    throw new Error('expected TCP server address');
+  }
+
+  const attachment = attachViteFunctionsDevelopment({
+    cwd: '/project',
+    project: { sourceDir: '/project/functions', entry: '/project/functions/index.js' },
+    projectId: 'demo',
+    host: '127.0.0.1',
+    watch: false,
+    httpServer: server,
+    middlewares: {
+      use(handler) {
+        middleware = handler;
+      },
+    },
+    isAllowedRequest: () => true,
+    allowsAppOrigin: () => true,
+    watcher: watcher as unknown as ViteDevServer['watcher'],
+    logger: {
+      info() {},
+      warn() {},
+      error: (msg) => errors.push(msg),
+    } as unknown as ViteDevServer['config']['logger'],
+    bridge: { sandboxConnected: () => true, onSandboxPeerConnected: () => () => {} } as unknown as BridgeMount,
+    baseEnv: {},
+    registerUrl: 'file:///register.js',
+    runtimeFactory: (options) => {
+      runtimeOptions = options;
+      return {
+        async start() {
+          return {
+            kind: 'ready',
+            ready: {
+              triggerCount: 0,
+              unsupportedTriggers: [],
+              http: {
+                port: 1,
+                token: 'token',
+                functions: [{
+                  exportName: 'hello',
+                  regions: ['us-central1'],
+                  platform: 'gcfv2',
+                  privateInvoker: false,
+                  timeoutSeconds: null,
+                }],
+              },
+            },
+          };
+        },
+        async reload() {
+          return { kind: 'ready', ready: { triggerCount: 0, unsupportedTriggers: [] } };
+        },
+        async close() {},
+      };
+    },
+  });
+
+  try {
+    await Bun.sleep(10);
+    runtimeOptions?.onEvent?.({ type: 'unexpected-exit', code: 1, restarting: false });
+    const startedAt = performance.now();
+    const response = await fetch(`http://127.0.0.1:${address.port}/demo/us-central1/hello`);
+    const elapsedMs = performance.now() - startedAt;
+    expect(response.status).toBe(503);
+    expect(await response.text()).toContain('The Functions child exited (code 1)');
+    expect(elapsedMs).toBeLessThan(1_000);
+    expect(errors.some((line) => line.includes('automatic restart paused after repeated rapid exits'))).toBe(true);
+  } finally {
+    await attachment.close();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
 });

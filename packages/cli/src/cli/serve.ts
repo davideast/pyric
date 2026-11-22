@@ -93,6 +93,7 @@ import {
   stateAfterStart,
   UNRESPONSIVE_LINE,
   uncaughtErrorLine,
+  unexpectedExitLine,
 } from '../functions/http/report.js';
 import { hostingRewrites } from '../functions/http/rewrites.js';
 import {
@@ -127,13 +128,13 @@ export function extractHosting(config: FirebaseJson | null): HostingConfig | nul
  *  block: production has no Hosting site then, so pyric serves no static
  *  files (#1779). A block without `public` uses production's default,
  *  `public`. */
-export function hostingPublicDir(cwd: string, hosting: HostingConfig | null): string | null {
+function hostingPublicDir(cwd: string, hosting: HostingConfig | null): string | null {
   if (hosting === null) return null;
   return resolve(cwd, hosting.public ?? 'public');
 }
 
 /** The startup line for a project that serves no static site. */
-export function hostingOffLine(hasFirebaseJson: boolean): string {
+function hostingOffLine(hasFirebaseJson: boolean): string {
   if (!hasFirebaseJson) return '• hosting  Off: no firebase.json. Add one with hosting.public to serve a site.';
   return '• hosting  Off: firebase.json has no hosting block. Add hosting.public to serve a site.';
 }
@@ -1104,7 +1105,7 @@ const LIVE_HOST_CLIENTS =
   '  For a Vite app, add pyricLive() from @pyric/live/vite: its dev server is the live host.\n';
 
 /** What only `@pyric/live`'s seam (`serve/live-host.ts`) sets on a run: the project it resolved, and where from. */
-export interface LiveServeStart {
+interface LiveServeStart {
   project: FirebaseProjectResolution;
   /** The installed `@pyric/live`'s refusal of pyric's own writes: Studio's, an MCP tool's, a command's, the seed file's. */
   writeRefusal: PyricWriteRefusal;
@@ -1356,7 +1357,13 @@ export async function runServe(parsed: ParsedArgs, runHost: ServeRunHost = {}): 
   let devChild: SandboxChildHandle | null = null;
   let beaconWatchdog: BeaconWatchdog | null = null;
   let functionsRuntime: FunctionsDevelopmentRuntime | null = null;
-  const { promise: functionsExited, resolve: resolveFunctionsExit } = Promise.withResolvers<number>();
+  let crashRestartWait: { promise: Promise<void>; resolve: () => void } | null = null;
+  const resolveCrashRestartWait = (): void => {
+    if (crashRestartWait !== null) {
+      crashRestartWait.resolve();
+      crashRestartWait = null;
+    }
+  };
   const { promise: signal, resolve: resolveSignal } = Promise.withResolvers<NodeJS.Signals>();
   const onSigint = (): void => resolveSignal('SIGINT');
   const onSigterm = (): void => resolveSignal('SIGTERM');
@@ -1378,6 +1385,7 @@ export async function runServe(parsed: ParsedArgs, runHost: ServeRunHost = {}): 
     const activeChild = devChild;
     const hasRunningChild = activeChild !== null && activeChild.child.exitCode === null;
     if (hasRunningChild) activeChild.signal(await signal);
+    resolveCrashRestartWait();
     await functionsRuntime?.close().catch(() => undefined);
     await runtime.handle.stop().catch(() => undefined);
     removeSignalHandlers();
@@ -1394,7 +1402,13 @@ export async function runServe(parsed: ParsedArgs, runHost: ServeRunHost = {}): 
     const warnPrivateInvokers = createPrivateInvokerWarnings();
     const reportFunctionsEvent = (event: FunctionsDevelopmentEvent): void => {
       if (event.type === 'starting') {
-        functionsGateway?.update({ kind: event.mode === 'reload' ? 'reloading' : 'starting' });
+        if (crashRestartWait === null) {
+          let nextKind: 'starting' | 'reloading' = 'starting';
+          if (event.mode === 'reload') {
+            nextKind = 'reloading';
+          }
+          functionsGateway?.update({ kind: nextKind });
+        }
         return;
       }
       const isOutput = event.type === 'output';
@@ -1406,8 +1420,19 @@ export async function runServe(parsed: ParsedArgs, runHost: ServeRunHost = {}): 
       }
       const isUnexpectedExit = event.type === 'unexpected-exit';
       if (isUnexpectedExit) {
-        functionsGateway?.update({ kind: 'exited', code: event.code });
-        resolveFunctionsExit(event.code);
+        resolveCrashRestartWait();
+        const isRestarting = event.restarting !== false;
+        if (isRestarting) {
+          crashRestartWait = Promise.withResolvers<void>();
+          functionsGateway?.update({
+            kind: 'restarting',
+            code: event.code,
+            ready: crashRestartWait.promise,
+          });
+        } else {
+          functionsGateway?.update({ kind: 'exited', code: event.code });
+        }
+        process.stderr.write(`pyric sandbox: ${unexpectedExitLine(event.code, isRestarting)}\n`);
         return;
       }
       if (event.type === 'unresponsive') {
@@ -1417,6 +1442,7 @@ export async function runServe(parsed: ParsedArgs, runHost: ServeRunHost = {}): 
       }
       if (event.type === 'restarted') {
         functionsGateway?.update(stateAfterStart(event.result, serveUrl));
+        resolveCrashRestartWait();
         const restarted = event.result.kind === 'ready';
         if (restarted) info.write('↻ functions restarted\n');
         else process.stderr.write(`✖ functions did not restart (${event.result.kind === 'failed' ? event.result.error.message : 'no sandbox peer'})\n`);
@@ -1582,6 +1608,7 @@ export async function runServe(parsed: ParsedArgs, runHost: ServeRunHost = {}): 
       settled = true;
       void (async () => {
         beaconWatchdog?.stop();
+        resolveCrashRestartWait();
         await functionsRuntime?.close().catch(() => undefined);
         const activeChild = devChild;
         const hasRunningChild = activeChild !== null && activeChild.child.exitCode === null;
@@ -1599,6 +1626,7 @@ export async function runServe(parsed: ParsedArgs, runHost: ServeRunHost = {}): 
       shuttingDown = true;
       const output = json ? process.stderr : process.stdout;
       output.write('\nShutting down...\n');
+      resolveCrashRestartWait();
       void functionsRuntime?.close();
       const activeChild = devChild;
       const hasRunningChild = activeChild !== null && activeChild.child.exitCode === null;
@@ -1615,18 +1643,6 @@ export async function runServe(parsed: ParsedArgs, runHost: ServeRunHost = {}): 
     const activeChild = devChild;
     const hasChild = activeChild !== null;
     if (hasChild) void activeChild.exited.then((code) => finish(code));
-    const hasFunctionsRuntime = functionsRuntime !== null;
-    if (hasFunctionsRuntime) {
-      void functionsExited.then((code) => {
-        const exitedUnexpectedly = !settled && !shuttingDown;
-        if (exitedUnexpectedly) {
-          process.stderr.write(`pyric sandbox: Functions child exited unexpectedly (code ${code}).\n`);
-          const exitedSuccessfully = code === 0;
-          const failureCode = exitedSuccessfully ? 1 : code;
-          finish(failureCode);
-        }
-      });
-    }
     void signal.then(shutdown);
   });
 }

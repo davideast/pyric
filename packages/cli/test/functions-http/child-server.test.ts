@@ -1,7 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 import { request } from 'node:http';
 import { join } from 'node:path';
-import { startHttpChildServer } from '../../src/functions/http/child-server.js';
+import { gzipSync } from 'node:zlib';
+import {
+  MAX_V1_HTTP_BODY_BYTES,
+  MAX_V2_HTTP_BODY_BYTES,
+  startHttpChildServer,
+} from '../../src/functions/http/child-server.js';
 import { CHILD_TOKEN_HEADER } from '../../src/functions/http/child-token.js';
 import type { DiscoveredOnRequest } from '../../src/functions/http/discovery.js';
 
@@ -10,11 +15,15 @@ const ENTRY = join(import.meta.dir, '../../../conformance/package.json');
 
 type Res = { end(body: string): void };
 
-function fn(exportName: string, handler: (req: unknown, res: Res) => void): DiscoveredOnRequest {
+function fn(
+  exportName: string,
+  handler: (req: unknown, res: Res) => void,
+  platform: 'gcfv1' | 'gcfv2' = 'gcfv2',
+): DiscoveredOnRequest {
   return {
     exportName,
     regions: ['us-central1'],
-    platform: 'gcfv2',
+    platform,
     privateInvoker: false,
     timeoutSeconds: null,
     handler: handler as DiscoveredOnRequest['handler'],
@@ -110,4 +119,167 @@ describe('the child HTTP server', () => {
       await server.close();
     }
   });
+
+  test('enforces 10 MB uncompressed limit on 1st-gen and 32 MB on 2nd-gen functions across Content-Length, chunked, gzip, and untyped bodies (#1943)', async () => {
+    let v1Runs = 0;
+    let v2Runs = 0;
+    const server = await startHttpChildServer(
+      ENTRY,
+      [
+        fn(
+          'v1Upload',
+          (req, res) => {
+            v1Runs += 1;
+            const rawBody = (req as { rawBody?: Buffer }).rawBody;
+            res.end(`v1:${rawBody?.byteLength ?? 0}`);
+          },
+          'gcfv1',
+        ),
+        fn(
+          'v2Upload',
+          (req, res) => {
+            v2Runs += 1;
+            const rawBody = (req as { rawBody?: Buffer }).rawBody;
+            res.end(`v2:${rawBody?.byteLength ?? 0}`);
+          },
+          'gcfv2',
+        ),
+      ],
+      { token: TOKEN },
+    );
+
+    const chunkedBody = (totalBytes: number): ReadableStream<Uint8Array> => {
+      const unit = new Uint8Array(1024 * 1024);
+      let remaining = totalBytes;
+      return new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (remaining <= 0) {
+            controller.close();
+            return;
+          }
+          const count = Math.min(remaining, unit.byteLength);
+          remaining -= count;
+          if (count === unit.byteLength) {
+            controller.enqueue(unit);
+          } else {
+            controller.enqueue(unit.subarray(0, count));
+          }
+        },
+      });
+    };
+
+    const postChunked = async (
+      targetName: string,
+      totalBytes: number,
+      contentType?: string,
+    ): Promise<number> => {
+      const headers: Record<string, string> = {
+        'x-pyric-function-target': targetName,
+        [CHILD_TOKEN_HEADER]: TOKEN,
+      };
+      if (contentType !== undefined) {
+        headers['content-type'] = contentType;
+      }
+      const init: RequestInit & { duplex: 'half' } = {
+        method: 'POST',
+        headers,
+        body: chunkedBody(totalBytes),
+        duplex: 'half',
+      };
+      const response = await fetch(`http://127.0.0.1:${server.port}/`, init);
+      return response.status;
+    };
+
+    try {
+      const exact10Mb = new Uint8Array(MAX_V1_HTTP_BODY_BYTES);
+      const okV1 = await fetch(`http://127.0.0.1:${server.port}/`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/octet-stream',
+          'x-pyric-function-target': 'v1Upload',
+          [CHILD_TOKEN_HEADER]: TOKEN,
+        },
+        body: exact10Mb,
+      });
+      expect(okV1.status).toBe(200);
+      expect(await okV1.text()).toBe(`v1:${MAX_V1_HTTP_BODY_BYTES}`);
+      expect(v1Runs).toBe(1);
+
+      // Exact #1943 repro: 12 MiB POST to v1 is refused with 413; v2 accepts it.
+      const twelveMb = new Uint8Array(12 * 1024 * 1024);
+      const refusedV1 = await fetch(`http://127.0.0.1:${server.port}/`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/octet-stream',
+          'x-pyric-function-target': 'v1Upload',
+          [CHILD_TOKEN_HEADER]: TOKEN,
+        },
+        body: twelveMb,
+      });
+      expect(refusedV1.status).toBe(413);
+      expect(v1Runs).toBe(1);
+
+      // Untyped (missing Content-Type) 12 MiB POST to v1 is also refused with 413.
+      const refusedV1Untyped = await fetch(`http://127.0.0.1:${server.port}/`, {
+        method: 'POST',
+        headers: {
+          'x-pyric-function-target': 'v1Upload',
+          [CHILD_TOKEN_HEADER]: TOKEN,
+        },
+        body: twelveMb,
+      });
+      expect(refusedV1Untyped.status).toBe(413);
+      expect(v1Runs).toBe(1);
+
+      // Gzip-compressed body < 50 KB on the wire that expands past 10 MiB uncompressed is refused.
+      const compressedOver10Mb = gzipSync(Buffer.alloc(MAX_V1_HTTP_BODY_BYTES + 1024, 0x7a));
+      expect(compressedOver10Mb.byteLength).toBeLessThan(100_000);
+      const refusedGzipV1 = await fetch(`http://127.0.0.1:${server.port}/`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/octet-stream',
+          'content-encoding': 'gzip',
+          'x-pyric-function-target': 'v1Upload',
+          [CHILD_TOKEN_HEADER]: TOKEN,
+        },
+        body: compressedOver10Mb,
+      });
+      expect(refusedGzipV1.status).toBe(413);
+      expect(v1Runs).toBe(1);
+
+      // Chunked Transfer-Encoding (no Content-Length) past 10 MiB on v1 is refused, with and without Content-Type.
+      expect(await postChunked('v1Upload', MAX_V1_HTTP_BODY_BYTES + 1, 'application/octet-stream')).toBe(413);
+      expect(await postChunked('v1Upload', MAX_V1_HTTP_BODY_BYTES + 1)).toBe(413);
+      expect(v1Runs).toBe(1);
+
+      // 2nd-gen accepts 12 MiB and refuses above 32 MiB.
+      const okV2 = await fetch(`http://127.0.0.1:${server.port}/`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/octet-stream',
+          'x-pyric-function-target': 'v2Upload',
+          [CHILD_TOKEN_HEADER]: TOKEN,
+        },
+        body: twelveMb,
+      });
+      expect(okV2.status).toBe(200);
+      expect(await okV2.text()).toBe(`v2:${twelveMb.byteLength}`);
+      expect(v2Runs).toBe(1);
+
+      const over32Mb = new Uint8Array(MAX_V2_HTTP_BODY_BYTES + 1);
+      const refusedV2 = await fetch(`http://127.0.0.1:${server.port}/`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/octet-stream',
+          'x-pyric-function-target': 'v2Upload',
+          [CHILD_TOKEN_HEADER]: TOKEN,
+        },
+        body: over32Mb,
+      });
+      expect(refusedV2.status).toBe(413);
+      expect(v2Runs).toBe(1);
+    } finally {
+      await server.close();
+    }
+  }, 30_000);
 });

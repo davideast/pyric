@@ -255,12 +255,12 @@ describe('isolated Functions Storage child against live HostedRuntime', () => {
     expect(putBytesReceipt).toMatchObject({
       specversion: '1.0',
       type: 'google.cloud.storage.object.v1.finalized',
-      source: '//storage.googleapis.com/projects/_/buckets/demo-project.appspot.com',
+      source: '//storage.googleapis.com/projects/_/buckets/demo-project.firebasestorage.app',
       subject: 'objects/uploads/put-bytes/nested/hello.txt',
-      bucket: 'demo-project.appspot.com',
+      bucket: 'demo-project.firebasestorage.app',
       location: 'us-central1',
       name: 'uploads/put-bytes/nested/hello.txt',
-      dataBucket: 'demo-project.appspot.com',
+      dataBucket: 'demo-project.firebasestorage.app',
       size: String(putBytesPayload.byteLength),
       sizeType: 'string',
       metageneration: '1',
@@ -306,7 +306,7 @@ describe('isolated Functions Storage child against live HostedRuntime', () => {
       'receipts/uploads_put-string_nested_note_txt',
     );
     expect(stringReceipt).toMatchObject({
-      bucket: 'demo-project.appspot.com',
+      bucket: 'demo-project.firebasestorage.app',
       name: 'uploads/put-string/nested/note.txt',
       size: String(stringBytes.byteLength),
       contentType: 'text/plain',
@@ -344,7 +344,7 @@ describe('isolated Functions Storage child against live HostedRuntime', () => {
       'receipts/uploads_http-route_nested_stream_bin',
     );
     expect(sessionReceipt).toMatchObject({
-      bucket: 'demo-project.appspot.com',
+      bucket: 'demo-project.firebasestorage.app',
       name: 'uploads/http-route/nested/stream.bin',
       size: String(sessionBytes.byteLength),
       contentType: 'application/octet-stream',
@@ -369,7 +369,7 @@ describe('isolated Functions Storage child against live HostedRuntime', () => {
       'receipts/uploads_admin-save_nested_config_json',
     );
     expect(adminSaveReceipt).toMatchObject({
-      bucket: 'demo-project.appspot.com',
+      bucket: 'demo-project.firebasestorage.app',
       name: 'uploads/admin-save/nested/config.json',
       size: String(adminJsonBytes.byteLength),
       contentType: 'application/json',
@@ -385,7 +385,7 @@ describe('isolated Functions Storage child against live HostedRuntime', () => {
       undefined,
       'regional-media-bucket',
       true,
-      'demo-project.appspot.com',
+      'demo-project.firebasestorage.app',
     );
     await clientUploadBytes(
       clientRef(regionalStorage, 'clips/intro.txt'),
@@ -409,7 +409,7 @@ describe('isolated Functions Storage child against live HostedRuntime', () => {
     expect(events).toContainEqual({
       type: 'execution',
       exportName: 'onDefaultFinalized',
-      ref: 'demo-project.appspot.com/uploads/put-bytes/nested/hello.txt',
+      ref: 'demo-project.firebasestorage.app/uploads/put-bytes/nested/hello.txt',
       params: {},
       status: 'fulfilled',
     });
@@ -451,7 +451,7 @@ describe('isolated Functions Storage child against live HostedRuntime', () => {
     );
     expect(esmReceipt).toEqual({
       name: 'esm/nested/greeting.txt',
-      bucket: 'demo-project.appspot.com',
+      bucket: 'demo-project.firebasestorage.app',
       text: 'hello from esm trigger',
     });
 

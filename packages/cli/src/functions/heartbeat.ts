@@ -11,27 +11,46 @@
  */
 import { HEARTBEAT_INTERVAL_MS, type FunctionsChildHttpListener } from './child-protocol.js';
 
-/** Ten missed beats: how long a child that serves no HTTP function may stay silent. */
+/** Ten missed beats: how long a child that serves no function may stay silent. */
 export const HEARTBEAT_FLOOR_MS = 10_000;
 
-/** Cloud Functions' default `timeoutSeconds` for an HTTP function, in v1 and v2. */
-const DEFAULT_HTTP_TIMEOUT_SECONDS = 60;
+/** Cloud Functions' default `timeoutSeconds` across HTTP and event-driven triggers. */
+const DEFAULT_TRIGGER_TIMEOUT_SECONDS = 60;
 
-/** The largest `timeoutSeconds` an HTTP function may declare. */
-const MAX_HTTP_TIMEOUT_SECONDS = 3_600;
+/** Maximum `timeoutSeconds` for event-driven functions and 1st-gen HTTP functions. */
+const MAX_EVENT_TIMEOUT_SECONDS = 540;
+
+/** Maximum `timeoutSeconds` for 2nd-gen HTTP and callable functions. */
+const MAX_HTTP_V2_TIMEOUT_SECONDS = 3_600;
 
 /**
  * The longest silence to allow: the floor, or the longest timeout among the
- * served HTTP functions plus one beat, whichever is longer. The extra beat
- * covers the gap between the last beat and the request's start.
+ * child's HTTP and event-driven triggers plus one beat, whichever is longer.
+ * The extra beat covers the gap between the last beat and the invocation start.
  */
-export function heartbeatLimitMs(http: FunctionsChildHttpListener | undefined, floorMs: number): number {
-  const timeouts = (http?.functions ?? []).map((fn) =>
-    Math.min(fn.timeoutSeconds ?? DEFAULT_HTTP_TIMEOUT_SECONDS, MAX_HTTP_TIMEOUT_SECONDS));
-  const servesHttp = timeouts.length > 0;
-  if (!servesHttp) return floorMs;
-  const longestRequestMs = Math.max(...timeouts) * 1_000 + HEARTBEAT_INTERVAL_MS;
-  return Math.max(floorMs, longestRequestMs);
+export function heartbeatLimitMs(
+  http: FunctionsChildHttpListener | undefined,
+  floorMs: number,
+  eventTimeouts?: readonly (number | null)[],
+): number {
+  const timeouts: number[] = [];
+  for (const fn of http?.functions ?? []) {
+    let maxSeconds = MAX_HTTP_V2_TIMEOUT_SECONDS;
+    if (fn.platform === 'gcfv1') {
+      maxSeconds = MAX_EVENT_TIMEOUT_SECONDS;
+    }
+    const declared = fn.timeoutSeconds ?? DEFAULT_TRIGGER_TIMEOUT_SECONDS;
+    timeouts.push(Math.min(declared, maxSeconds));
+  }
+  for (const rawTimeout of eventTimeouts ?? []) {
+    const declared = rawTimeout ?? DEFAULT_TRIGGER_TIMEOUT_SECONDS;
+    timeouts.push(Math.min(declared, MAX_EVENT_TIMEOUT_SECONDS));
+  }
+  if (timeouts.length === 0) {
+    return floorMs;
+  }
+  const longestInvocationMs = Math.max(...timeouts) * 1_000 + HEARTBEAT_INTERVAL_MS;
+  return Math.max(floorMs, longestInvocationMs);
 }
 
 export interface HeartbeatWatch {
