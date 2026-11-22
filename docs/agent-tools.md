@@ -64,14 +64,14 @@ A `production` method reaches Google infrastructure with real credentials. It is
 | `functions` | `listTriggers`, `fire`, `executions` |
 | `ai_logic` | `script`, `clearScripts`, `scripts`, `status` |
 | `rules` | `lint`, `simulate`, `explainDenial`, `set`, `listStdlib`, `getStdlib` |
-| `sandbox` | `inspect`, `events`, `listeners`, `activity`, `seed`, `seedFromFixture`, `exportFixture`, `reset` (destructive; requires `confirm: true`; `scope` narrows it to one service), `checkpoint`, `restore` (destructive; requires `confirm: true`), `listCheckpoints`, `deleteCheckpoint` (destructive; requires `confirm: true`), `fork`, `apply`, `diff`, `promote` (destructive; requires `confirm: true`), `discard`, `listBranches`, `listCaptures`, `openCapture`, `saveCapture`, `renameCapture`, `deleteCapture` (destructive; requires `confirm: true`), `setClock`, `advanceClock`, `resetClock` |
+| `sandbox` | `inspect`, `events`, `listeners`, `activity`, `seed`, `seedFromFixture`, `exportFixture`, `reset` (destructive; requires `confirm: true`; `scope` narrows it to one service), `checkpoint` (overwriting an existing checkpoint requires `confirm: true`), `restore` (destructive; requires `confirm: true`), `listCheckpoints`, `deleteCheckpoint` (destructive; requires `confirm: true`), `fork`, `apply`, `diff`, `promote` (destructive; requires `confirm: true`), `discard`, `listBranches`, `listCaptures`, `openCapture`, `saveCapture`, `renameCapture`, `deleteCapture` (destructive; requires `confirm: true`), `setClock`, `advanceClock`, `resetClock` |
 | `assurance` | `replaySession`, `verifyCases`, `canIUse`, `attach`, `start`, `map`, `define`, `propose`, `run`, `inspect`, `minimize`, `verify`, `export`, `derive`, `testRulesHosted` (production; disabled unless the server was started with `--allow-production`, and then requires `confirm: true`) |
 
 `checkpoint` writes the whole live sandbox under a name into
 `.pyric/state/checkpoints/`: Firestore documents, the Realtime Database tree,
 Storage objects with their bytes and metadata, auth accounts, and the three
 rule sources. `restore` puts one back, `listCheckpoints` reports what is
-stored, and `deleteCheckpoint` discards one and leaves the sandbox alone. A checkpoint is the only copy of the state it holds, so that call is destructive and takes `confirm: true`. `events` pages the operation log by cursor and filters
+stored, and `deleteCheckpoint` discards one and leaves the sandbox alone. A checkpoint is the only copy of the state it holds, so deleting or overwriting an existing checkpoint takes `confirm: true` (creating a new checkpoint name does not). `events` pages the operation log by cursor and filters
 it to denials or writes; a cursor from a log a restore or a reset replaced is
 refused rather than read as the start of the new log. `exportFixture` writes the live state as a fixture and
 `seedFromFixture` loads one back. The fixture carries the sandbox's seeded
@@ -268,7 +268,8 @@ sandbox --hosted` or Vite `pyric({ hosted: true })`), a derived command routes
 directly to it and logs `pyric: hosted sandbox, <url>` on stderr (pass
 `--in-process` to act on the local `.pyric/state/in-process.json` file
 instead). When no host is running, it acts on `.pyric/state/in-process.json`
-and logs that path. When a running browser SharedWorker host (`pyric sandbox
+(persisting data, the app session, the held agent identity, the sandbox clock,
+and queued AI Logic scripts across CLI processes) and logs that path. When a running browser SharedWorker host (`pyric sandbox
 --bridge`) holds the sandbox in a browser tab, a derived CLI command cannot
 execute method records against it directly, so it refuses rather than answer
 about a different sandbox, naming `--in-process` (which overrides the refusal)
@@ -291,61 +292,61 @@ argument passed both inline and from a file is refused.
 ## The transport surface: `pyric sandbox --bridge`
 
 Counts and names below are generated from the factory sources (grep
-`name: '…'` under each file). If this table disagrees with the code, the code
-wins — update this file.
+`name: '...'` under each file). If this table disagrees with the code, the code
+wins -- update this file.
 
-## Firestore data — `createFirestoreDataTools` / `createFirestoreInspectTools` (`pyric/firestore`)
+## Firestore data -- `createFirestoreDataTools` / `createFirestoreInspectTools` (`pyric/firestore`)
 
 CRUD + queries against the sandbox (or whichever backend the handle carries),
 plus sandbox inspection.
 
-`firestore_get_document` · `firestore_list_documents` ·
-`firestore_create_document` · `firestore_add_document` ·
-`firestore_update_document` · `firestore_delete_document` ·
-`firestore_batch_write` · `firestore_query_where` ·
+`firestore_get_document` | `firestore_list_documents` |
+`firestore_create_document` | `firestore_add_document` |
+`firestore_update_document` | `firestore_delete_document` |
+`firestore_batch_write` | `firestore_query_where` |
 `sandbox_inspect`
 
-## Security Rules — `createFirestoreRulesTools` / `createFirestoreRulesStdlibTools` (`pyric/rules`, Node-only pieces under `pyric/rules/internal/node`)
+## Security Rules -- `createFirestoreRulesTools` / `createFirestoreRulesStdlibTools` (`pyric/rules`, Node-only pieces under `pyric/rules/internal/node`)
 
 The service-neutral catalog and resolver cover Firestore and Storage. Existing
 Firestore-prefixed names remain compatibility aliases. Firestore lint,
 simulation, and optional hosted testing remain service-specific.
 
-`rules_stdlib_list` · `rules_stdlib_get` ·
-`rules_resolve_modules` (`2+modules` → plain v2) ·
-`firestore_rules_stdlib_list` · `firestore_rules_stdlib_get` ·
-`firestore_resolve_modules` · `firestore_lint_rules` ·
-`firestore_simulate_rules` ·
-`firestore_test_rules` (live Rules Test API — only when a `ProjectScope` is
+`rules_stdlib_list` | `rules_stdlib_get` |
+`rules_resolve_modules` (`2+modules` -> plain v2) |
+`firestore_rules_stdlib_list` | `firestore_rules_stdlib_get` |
+`firestore_resolve_modules` | `firestore_lint_rules` |
+`firestore_simulate_rules` |
+`firestore_test_rules` (live Rules Test API -- only when a `ProjectScope` is
 supplied; build one with `@pyric/cli/credentials/node`)
 
 The default MCP bridge registers the local rules tools **without**
 `firestore_test_rules` (no scope). Prefer `pyric verify --engine
 rules-test-api|both` for hosted verification.
 
-## Firestore simulator session — `createFirestoreSimulatorTools` (`pyric/rules`)
+## Firestore simulator session -- `createFirestoreSimulatorTools` (`pyric/rules`)
 
 A stateful sandbox-backed Firestore session for agents: seed, execute,
 read, batch, transact, undo/redo, inspect the event log.
 
-`firestore_simulator_create` · `firestore_simulator_execute` ·
-`firestore_simulator_read` · `firestore_simulator_batch` ·
-`firestore_simulator_transaction` · `firestore_simulator_undo` ·
-`firestore_simulator_redo` · `firestore_simulator_events` ·
+`firestore_simulator_create` | `firestore_simulator_execute` |
+`firestore_simulator_read` | `firestore_simulator_batch` |
+`firestore_simulator_transaction` | `firestore_simulator_undo` |
+`firestore_simulator_redo` | `firestore_simulator_events` |
 `firestore_create_with_auto_id`
 
-## Realtime Database sandbox inspection — `@pyric/cli` bridge
+## Realtime Database sandbox inspection -- `@pyric/cli` bridge
 
 Local inspection of the RTDB state owned by the connected sandbox. Simulation
 reads the currently installed rules and data on every call; crawling returns a
 bounded structural view without leaf values. Neither tool contacts a production
 database or requires a rules-loading tool call first.
 
-`rtdb_simulate_access` · `rtdb_crawl_structure`
+`rtdb_simulate_access` | `rtdb_crawl_structure`
 
-## Realtime Database deployed rules — `createRtdbInspectRulesTool` (`@pyric/cli`)
+## Realtime Database deployed rules -- `createRtdbInspectRulesTool` (`@pyric/cli`)
 
-`rtdb_inspect_rules` — the Realtime Database counterpart of
+`rtdb_inspect_rules` -- the Realtime Database counterpart of
 `firestore_inspect_rules`. It sends one `GET` of
 `<databaseURL>/.settings/rules.json` with credentials from the scope
 (`FIREBASE_SA_BASE64`, `GOOGLE_APPLICATION_CREDENTIALS`, or Application Default
@@ -357,11 +358,11 @@ rulesets. It is strictly read-only: it never issues `PUT`, `PATCH`, `POST` or
 credential sources and the role the principal needs. Library only; **not** on
 the default MCP bridge.
 
-## Sandbox auth users — `createAuthUsersTools` (`@pyric/cli` bridge)
+## Sandbox auth users -- `createAuthUsersTools` (`@pyric/cli` bridge)
 
-`auth_create_user` · `auth_import_users` · `auth_get_user` ·
-`auth_list_users` · `auth_update_user` · `auth_delete_user` ·
-`auth_set_claims` · `auth_custom_token`
+`auth_create_user` | `auth_import_users` | `auth_get_user` |
+`auth_list_users` | `auth_update_user` | `auth_delete_user` |
+`auth_set_claims` | `auth_custom_token`
 
 These administer the one user pool the application, Studio, and rules
 evaluation share, calling the same `pyric/auth` sandbox driver the served
@@ -370,9 +371,9 @@ password is never returned. A user created under a dotted provider id
 (`google.com`, `oidc.acme`) with no password is assigned a generated
 `photoUrl`; `password`, `phone`, and anonymous users keep `photoUrl` null.
 
-## Auth identity — `createAuthIdentityTools` (`@pyric/cli` bridge)
+## Auth identity -- `createAuthIdentityTools` (`@pyric/cli` bridge)
 
-`auth_impersonate` · `auth_reset` · `auth_whoami` · `auth_sessions`
+`auth_impersonate` | `auth_reset` | `auth_whoami` | `auth_sessions`
 
 `auth_impersonate` takes exactly one of `uid` (with optional `tenant` and
 `claims`), `admin: true`, or `anonymous: true`. `auth_reset` returns to the
@@ -408,9 +409,9 @@ sandbox itself holds, the agent identity and the app session; `auth_sessions`
 on a bridge reports the clients connected to it, and `pyric serve sessions` is
 the command that prints those rows, with the target ids `--target` takes.
 
-## Index extraction — `pyric/rules/indexes`
+## Index extraction -- `pyric/rules/indexes`
 
-`firestore_extract_indexes` — derive composite-index definitions from query
+`firestore_extract_indexes` -- derive composite-index definitions from query
 shapes found by static analysis of application source. Available as a library
 and via `pyric firestore indexes generate`; **not** registered on the default
 MCP bridge.
@@ -419,29 +420,29 @@ The product surface's `firestore.extractIndexes` and `firestore.writeIndexes`
 (above) are a different capability: they take queries directly rather than
 parsing source, and run against the sandbox rather than a source tree.
 
-## Realtime Database rule artifacts — `@pyric/cli`
+## Realtime Database rule artifacts -- `@pyric/cli`
 
 Local compilation of a constraints module to `database.rules.json` data. It
 does not fetch or deploy production rules.
 
-`rtdb_generate_rules` — library / CLI (`pyric database rules generate`);
+`rtdb_generate_rules` -- library / CLI (`pyric database rules generate`);
 **not** on the default MCP bridge.
 
-## Storage control plane — `createStorageAdminTools` (`pyric/storage`)
+## Storage control plane -- `createStorageAdminTools` (`pyric/storage`)
 
-`storage_get_status` · `storage_provision`
+`storage_get_status` | `storage_provision`
 
 Library surface for provisioning / status, and the client the service surface's
 `storage.status` and `storage.provision` reach through. **Not** on the default
 `pyric sandbox --bridge` surface; on `pyric mcp` it is the two production methods above,
 which no server runs without `--allow-production`.
 
-## Discovery — `createFirestoreDiscoverTools` (`@pyric/cli/discover`)
+## Discovery -- `createFirestoreDiscoverTools` (`@pyric/cli/discover`)
 
 Credential-free crawl helpers for agents that compose their own registry and
 provide the data source:
 
-`firestore_discover_paths` · `firestore_find_collection_group`
+`firestore_discover_paths` | `firestore_find_collection_group`
 
 These exist in `@pyric/cli/discover` but are **not** registered on the default
 `pyric sandbox --bridge` surface. The product surface's
@@ -449,16 +450,16 @@ These exist in `@pyric/cli/discover` but are **not** registered on the default
 separate, exhaustive implementation over the sandbox's own document index
 rather than a sampled crawl, and are registered on `pyric mcp`.
 
-## Assurance — `createAssuranceTools` (`@pyric/cli/assurance`)
+## Assurance -- `createAssuranceTools` (`@pyric/cli/assurance`)
 
 Available for applications that compose their own tool registry, but **not**
 registered on the default `pyric sandbox --bridge` surface:
 
-`firebase_assurance_attach` · `firebase_assurance_start` ·
-`firebase_assurance_map` · `firebase_assurance_define` ·
-`firebase_assurance_propose` · `firebase_assurance_run` ·
-`firebase_assurance_inspect` · `firebase_assurance_minimize` ·
-`firebase_assurance_verify` · `firebase_assurance_export`
+`firebase_assurance_attach` | `firebase_assurance_start` |
+`firebase_assurance_map` | `firebase_assurance_define` |
+`firebase_assurance_propose` | `firebase_assurance_run` |
+`firebase_assurance_inspect` | `firebase_assurance_minimize` |
+`firebase_assurance_verify` | `firebase_assurance_export`
 
 The `assurance` service tool on the product surface reaches these same ten
 operations, one method each, against the sandbox the in-process server owns.

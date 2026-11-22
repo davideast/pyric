@@ -73,7 +73,7 @@ interface ClassifiedError {
   message: string;
 }
 
-export function classifyRpcError(err: unknown): ClassifiedError | null {
+function classifyRpcError(err: unknown): ClassifiedError | null {
   if (err === null || typeof err !== 'object') return null;
   const e = err as { code?: unknown; message?: unknown };
   let codeStr: string | null = null;

@@ -32,9 +32,19 @@ import { registerRenderedSurface } from './surface-server.js';
 import { renderSurface } from '../surface/index.js';
 import { createSurfaceContext } from '../surface/context.js';
 import {
+  AGENT_IDENTITY_SERVICE_KEY,
+  AI_LOGIC_SCRIPTS_SERVICE_KEY,
   APP_SESSION_SERVICE_KEY,
+  CLOCK_STATE_SERVICE_KEY,
+  captureAgentIdentity,
+  captureAiLogicScripts,
   captureAppSession,
+  captureClockState,
+  restoreAgentIdentity,
+  restoreAiLogicScripts,
   restoreAppSession,
+  restoreClockState,
+  syncHydratedAgentIdentity,
 } from '../surface/methods/in-process-session-state.js';
 import { rememberUnloadedStorageRules } from '../surface/storage-rules.js';
 import {
@@ -132,6 +142,7 @@ export function buildInProcessMcpServer(sandbox: LocalSandbox, opts?: InProcessM
   );
   const server = new McpServer({ name: 'pyric', version: bridge.version }, { instructions });
   const surfaceContext = createSurfaceContext(sandbox, projectDir, targetRouter);
+  syncHydratedAgentIdentity(surfaceContext);
   const defaultBucketName = inProcessDefaultBucketName(projectDir);
   surfaceContext.storageBucketName = () => defaultBucketName;
   let onCallRejectedHandler: ((rejection: RejectedToolCall) => void) | undefined;
@@ -290,7 +301,7 @@ function readDiskFirestoreRules(cwd: string): string | null {
     }
     return rulesSourceRejection(candidate) === null ? candidate : null;
   } catch (error) {
-    if (error instanceof Error) return null;
+    if (!(error instanceof Error)) throw error;
     return null;
   }
 }
@@ -310,7 +321,7 @@ function readDiskStorageRules(cwd: string): { default: string | null; buckets: R
       try {
         return prepareStorageRulesSource(readFileSync(target.path, 'utf8'), target.path);
       } catch (error) {
-        if (error instanceof Error) return null;
+        if (!(error instanceof Error)) throw error;
         return null;
       }
     };
@@ -324,7 +335,7 @@ function readDiskStorageRules(cwd: string): { default: string | null; buckets: R
     }
     return { default: defaultRules, buckets };
   } catch (error) {
-    if (error instanceof Error) return { default: null, buckets };
+    if (!(error instanceof Error)) throw error;
     return { default: null, buckets };
   }
 }
@@ -373,7 +384,7 @@ function readPersistedRulesState(cwd: string): PersistedRulesState | null {
     }
     return null;
   } catch (error) {
-    if (error instanceof Error) return null;
+    if (!(error instanceof Error)) throw error;
     return null;
   }
 }
@@ -384,6 +395,9 @@ export function saveSandboxSnapshot(sandbox: LocalSandbox, cwd: string): void {
   const services = {
     ...snap.services,
     [APP_SESSION_SERVICE_KEY]: captureAppSession(sandbox),
+    [AGENT_IDENTITY_SERVICE_KEY]: captureAgentIdentity(sandbox),
+    [CLOCK_STATE_SERVICE_KEY]: captureClockState(sandbox),
+    [AI_LOGIC_SCRIPTS_SERVICE_KEY]: captureAiLogicScripts(sandbox),
     [RULES_STATE_SERVICE_KEY]: captureRulesState(sandbox, cwd),
   };
   const bundle = bundleRecords(serializeToBuckets(snap.firestore, services, 0));
@@ -401,6 +415,9 @@ export function loadSandboxSnapshot(sandbox: LocalSandbox, cwd: string): number 
   const snap = decodeInProcessSnapshot(path);
   sandbox.loadSnapshot(snap);
   restoreAppSession(sandbox, snap.services[APP_SESSION_SERVICE_KEY]);
+  restoreAgentIdentity(sandbox, snap.services[AGENT_IDENTITY_SERVICE_KEY]);
+  restoreClockState(sandbox, snap.services[CLOCK_STATE_SERVICE_KEY]);
+  restoreAiLogicScripts(sandbox, snap.services[AI_LOGIC_SCRIPTS_SERVICE_KEY]);
   const persistedRules = snap.services[RULES_STATE_SERVICE_KEY] as PersistedRulesState | null | undefined;
   const persistedFs = persistedRules?.firestore;
   if (

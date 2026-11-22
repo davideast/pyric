@@ -325,7 +325,7 @@ export async function crawl(
     state.phase = 'sampling';
     state.frontierPaths = [];
     state.samplingQueue = Array.from(discovered.keys()).filter(
-      (tpl) => !(tpl in state.finalizedSchemas),
+      (tpl) => !Object.hasOwn(state.finalizedSchemas, tpl),
     );
   }
 
@@ -345,14 +345,19 @@ export async function crawl(
     );
     state.readOps += tplReadOps;
 
-    state.finalizedSchemas[tpl] = {
-      templatePath: tpl,
-      examplePath: entry.examplePath,
-      schema: finalizedSchema.schema,
-      samplingComplete: finalizedSchema.samplingComplete,
-      declaredAt: finalizedSchema.declaredAt,
-      subcollectionTemplatePaths: directChildTemplatePaths(tpl, discovered),
-    };
+    Object.defineProperty(state.finalizedSchemas, tpl, {
+      value: {
+        templatePath: tpl,
+        examplePath: entry.examplePath,
+        schema: finalizedSchema.schema,
+        samplingComplete: finalizedSchema.samplingComplete,
+        declaredAt: finalizedSchema.declaredAt,
+        subcollectionTemplatePaths: directChildTemplatePaths(tpl, discovered),
+      },
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
     state.samplingQueue.shift();
     state.discovered = serializeDiscovered(discovered);
 

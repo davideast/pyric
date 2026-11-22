@@ -1,6 +1,6 @@
 /** Write one Firestore document at an explicit path. */
 import { z } from 'zod';
-import { doc, setDoc, type SetOptions } from 'pyric/firestore';
+import { type SetOptions } from 'pyric/firestore';
 import {
   checkDocumentPath,
   checkFieldValues,
@@ -9,14 +9,11 @@ import {
   setOptions,
 } from '../../arguments/firestore.js';
 import {
-  assertDeclaredFirestoreDatabase,
   callFirestoreSandboxTool,
   checkFirestoreDatabase,
   databaseArgument,
   firestoreDatabaseSelector,
-  onFirestoreDatabase,
 } from '../../firestore-database.js';
-import { firestoreFor } from '../../service-handles.js';
 import type { Args, MethodRecord } from '../../method-types.js';
 
 export default {
@@ -49,28 +46,15 @@ export default {
     const path = String(args.path);
     const selector = firestoreDatabaseSelector(args.database);
     const decodedData = fieldValuesOf('setDoc', args.data);
-    const hasMergeOption = options.merge === true || Array.isArray(options.mergeFields);
-    if (!hasMergeOption) {
-      return callFirestoreSandboxTool(
-        ctx,
-        'firestore_create_document',
-        { path, data: decodedData },
-        selector,
-      );
+    const hasMerge = typeof options.merge === 'boolean';
+    const hasMergeFields = Array.isArray(options.mergeFields);
+    const toolArgs: Record<string, unknown> = { path, data: decodedData };
+    if (hasMerge || hasMergeFields) {
+      const sdkOptions: SetOptions = {};
+      if (hasMerge) sdkOptions.merge = options.merge as boolean;
+      if (hasMergeFields) sdkOptions.mergeFields = options.mergeFields as string[];
+      toolArgs.options = sdkOptions;
     }
-    assertDeclaredFirestoreDatabase(ctx, selector);
-    const sdkOptions: SetOptions = {};
-    if (typeof options.merge === 'boolean') {
-      sdkOptions.merge = options.merge;
-    }
-    if (Array.isArray(options.mergeFields)) {
-      sdkOptions.mergeFields = options.mergeFields as string[];
-    }
-    await setDoc(
-      doc(firestoreFor(ctx, selector), path),
-      decodedData as Record<string, unknown>,
-      sdkOptions,
-    );
-    return { ok: true, summary: onFirestoreDatabase(`Updated ${path}`, selector) };
+    return callFirestoreSandboxTool(ctx, 'firestore_create_document', toolArgs, selector);
   },
 } satisfies MethodRecord;

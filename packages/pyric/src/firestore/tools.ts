@@ -22,7 +22,7 @@ import {
 } from './sandbox/unescaped-map.js';
 import type { LocalSandbox } from 'pyric/sandbox';
 import { inspect } from './sandbox-controls.js';
-import type { Firestore } from './index.js';
+import type { Firestore, QueryConstraint, SetOptions } from './index.js';
 import {
   doc,
   collection,
@@ -32,6 +32,7 @@ import {
   addDoc,
   updateDoc,
   deleteDoc,
+  writeBatch,
   query,
   where,
   orderBy,
@@ -47,7 +48,7 @@ export interface UserAuth {
 
 /**
  * Who a data-plane op runs as. The default (omitted, or the literal `'admin'`)
- * is an ADMIN write that BYPASSES rules — the right mode for sandbox seeding.
+ * is an ADMIN write that BYPASSES rules - the right mode for sandbox seeding.
  * A `{ uid, claims? }` runs as that user with rules ENFORCED. The point of the
  * explicit literal: bypass is NAMED (`as:'admin'`), not the silent consequence
  * of omitting an auth field, and acting-as-a-user is named too.
@@ -72,14 +73,25 @@ const AS_SCHEMA = {
   ],
 };
 
-/** Pre-mortem M9 — constrain where-op to the WhereFilterOp union
- *  at the schema level so agents can't pass `==` typos. */
+/** Constrain where-op to the WhereFilterOp union at the schema level. */
 type WhereOp = typeof QUERY_WHERE_OPERATORS[number];
 
 interface WhereClause {
   field: string;
   op: WhereOp;
   value: unknown;
+}
+
+interface OrderByClause {
+  field: string;
+  direction?: 'asc' | 'desc';
+}
+
+type OrderByArg = string | OrderByClause[];
+
+interface ToolSetOptions {
+  merge?: boolean;
+  mergeFields?: string[];
 }
 
 const WHERE_CLAUSE_SCHEMA = {
@@ -92,6 +104,33 @@ const WHERE_CLAUSE_SCHEMA = {
   required: ['field', 'op', 'value'],
 };
 
+const ORDER_BY_SCHEMA = {
+  description: 'Field name (ascending) or ordered list of `{ field, direction? }` clauses.',
+  oneOf: [
+    { type: 'string' as const },
+    {
+      type: 'array' as const,
+      items: {
+        type: 'object' as const,
+        properties: {
+          field: { type: 'string' as const },
+          direction: { type: 'string' as const, enum: ['asc', 'desc'] },
+        },
+        required: ['field'],
+      },
+    },
+  ],
+};
+
+const SET_OPTIONS_SCHEMA = {
+  type: 'object' as const,
+  description: 'Set options: `{ merge: true }` or `{ mergeFields: [...] }`.',
+  properties: {
+    merge: { type: 'boolean' as const },
+    mergeFields: { type: 'array' as const, items: { type: 'string' as const } },
+  },
+};
+
 const DATABASE_SCHEMA = {
   type: 'string' as const,
   description: 'Optional Firestore database id. Omit or "(default)" targets the default database.',
@@ -100,8 +139,8 @@ const DATABASE_SCHEMA = {
 export interface FirestoreDataToolDeps {
   /**
    * Resolver returning a `Firestore` handle. Called per-dispatch with the
-   * op's `as` value: `'admin'` (or undefined) → an admin-bypass Firestore;
-   * `{ uid, claims? }` → a rules-enforcing Firestore acting as that user.
+   * op's `as` value: `'admin'` (or undefined) -> an admin-bypass Firestore;
+   * `{ uid, claims? }` -> a rules-enforcing Firestore acting as that user.
    *
    * The host decides the posture; the tool layer does NOT enforce it. A sandbox
    * resolver may default to admin (rules bypass is the point of seeding), but a
@@ -157,9 +196,42 @@ function rehydrateToolWriteData(value: unknown): unknown {
   return copyUnescapedUserMapTag(rec, out);
 }
 
+function buildSetOptions(raw: ToolSetOptions | undefined): SetOptions | undefined {
+  if (raw === undefined) return undefined;
+  const hasMerge = typeof raw.merge === 'boolean';
+  const hasMergeFields = Array.isArray(raw.mergeFields);
+  if (!hasMerge && !hasMergeFields) return undefined;
+  const out: SetOptions = {};
+  if (hasMerge) out.merge = raw.merge;
+  if (hasMergeFields) out.mergeFields = raw.mergeFields;
+  return out;
+}
+
+function appendOrderAndLimitConstraints(
+  constraints: QueryConstraint[],
+  orderByArg: OrderByArg | undefined,
+  limitArg: number | undefined,
+  limitsArg: number[] | undefined,
+): void {
+  if (typeof orderByArg === 'string' && orderByArg.length > 0) {
+    constraints.push(orderBy(orderByArg));
+  } else if (Array.isArray(orderByArg)) {
+    for (const clause of orderByArg) {
+      constraints.push(orderBy(clause.field, clause.direction));
+    }
+  }
+  if (Array.isArray(limitsArg) && limitsArg.length > 0) {
+    for (const count of limitsArg) {
+      constraints.push(limit(count));
+    }
+  } else if (limitArg !== undefined) {
+    constraints.push(limit(limitArg));
+  }
+}
+
 /**
- * Modular Web-SDK-shaped Firestore data tools — get, list, create,
- * update, delete. Each tool's `auth` arg is forwarded to the
+ * Modular Web-SDK-shaped Firestore data tools - get, list, create,
+ * update, delete, batch, and query. Each tool's `as` arg is forwarded to the
  * resolver; omitted = admin mode, supplied = user mode.
  */
 export function createFirestoreDataTools(deps: FirestoreDataToolDeps): ToolHandler[] {
@@ -197,7 +269,7 @@ export function createFirestoreDataTools(deps: FirestoreDataToolDeps): ToolHandl
         type: 'object',
         properties: {
           collection: { type: 'string' },
-          orderBy: { type: 'string' },
+          orderBy: ORDER_BY_SCHEMA,
           limit: { type: 'number' },
           database: DATABASE_SCHEMA,
           as: AS_SCHEMA,
@@ -205,12 +277,18 @@ export function createFirestoreDataTools(deps: FirestoreDataToolDeps): ToolHandl
         required: ['collection'],
       },
       async execute(args) {
-        const a = args as { collection: string; orderBy?: string; limit?: number; database?: string; as?: As };
+        const a = args as {
+          collection: string;
+          orderBy?: OrderByArg;
+          limit?: number;
+          limits?: number[];
+          database?: string;
+          as?: As;
+        };
         const db = await resolveDb(a.as, a.database);
         const baseColl = collection(db, a.collection);
-        const constraints = [];
-        if (a.orderBy) constraints.push(orderBy(a.orderBy));
-        if (a.limit) constraints.push(limit(a.limit));
+        const constraints: QueryConstraint[] = [];
+        appendOrderAndLimitConstraints(constraints, a.orderBy, a.limit, a.limits);
         const snap = await getDocs(query(baseColl, ...constraints));
         return {
           ok: true,
@@ -221,27 +299,42 @@ export function createFirestoreDataTools(deps: FirestoreDataToolDeps): ToolHandl
     },
     {
       name: 'firestore_create_document',
-      description: 'Create or replace a Firestore document at an explicit path. Admin by default (bypasses rules — for seeding); pass `as:{uid}` to write as that user with rules enforced.',
+      description: 'Create or replace a Firestore document at an explicit path (or merge when `options.merge` / `options.mergeFields` is set). Admin by default (bypasses rules - for seeding); pass `as:{uid}` to write as that user with rules enforced.',
       parameters: {
         type: 'object',
         properties: {
           path: { type: 'string' },
           data: { type: 'object' },
+          options: SET_OPTIONS_SCHEMA,
           database: DATABASE_SCHEMA,
           as: AS_SCHEMA,
         },
         required: ['path', 'data'],
       },
       async execute(args) {
-        const a = args as { path: string; data: Record<string, unknown>; database?: string; as?: As };
+        const a = args as {
+          path: string;
+          data: Record<string, unknown>;
+          options?: ToolSetOptions;
+          database?: string;
+          as?: As;
+        };
         const db = await resolveDb(a.as, a.database);
-        await setDoc(doc(db, a.path), rehydrateToolWriteData(a.data) as Record<string, unknown>);
-        return { ok: true, summary: `Created ${a.path}` };
+        const payload = rehydrateToolWriteData(a.data) as Record<string, unknown>;
+        const sdkOptions = buildSetOptions(a.options);
+        const merges = a.options?.merge === true || Array.isArray(a.options?.mergeFields);
+        if (sdkOptions !== undefined) {
+          await setDoc(doc(db, a.path), payload, sdkOptions);
+        } else {
+          await setDoc(doc(db, a.path), payload);
+        }
+        const verb = merges ? 'Updated' : 'Created';
+        return { ok: true, summary: `${verb} ${a.path}` };
       },
     },
     {
       name: 'firestore_add_document',
-      description: 'Add a document with an auto-generated id under a collection (mirrors the Web SDK addDoc). Admin by default — the right tool for seeding; pass `as:{uid}` to write as a user with rules enforced. Returns the minted path.',
+      description: 'Add a document with an auto-generated id under a collection (mirrors the Web SDK addDoc). Admin by default - the right tool for seeding; pass `as:{uid}` to write as a user with rules enforced. Returns the minted path.',
       parameters: {
         type: 'object',
         properties: {
@@ -303,13 +396,13 @@ export function createFirestoreDataTools(deps: FirestoreDataToolDeps): ToolHandl
     },
     {
       name: 'firestore_batch_write',
-      description: 'Apply many writes (set / update / delete) in ONE call — the efficient way to seed or bulk-edit (one call, not N). Applied in order; stops on the first failure. Admin by default; pass `as:{uid}` to apply them as a user with rules enforced. Up to 500 ops.',
+      description: 'Commit many writes (set / update / delete) atomically in ONE call - the efficient way to seed or bulk-edit (one call, not N). All writes succeed or none are applied. Admin by default; pass `as:{uid}` to apply them as a user with rules enforced. Up to 500 ops.',
       parameters: {
         type: 'object',
         properties: {
           operations: {
             type: 'array',
-            description: 'Writes applied in order; stops on the first failure (NOT atomic — earlier writes are not rolled back).',
+            description: 'Writes committed atomically as a batch; if any write fails, none are applied.',
             minItems: 1,
             maxItems: 500,
             items: {
@@ -318,6 +411,7 @@ export function createFirestoreDataTools(deps: FirestoreDataToolDeps): ToolHandl
                 op: { type: 'string', enum: ['set', 'update', 'delete'] },
                 path: { type: 'string' },
                 data: { type: 'object', description: 'Required for set/update; ignored for delete.' },
+                options: SET_OPTIONS_SCHEMA,
               },
               required: ['op', 'path'],
             },
@@ -329,29 +423,37 @@ export function createFirestoreDataTools(deps: FirestoreDataToolDeps): ToolHandl
       },
       async execute(args) {
         const a = args as {
-          operations: Array<{ op: 'set' | 'update' | 'delete'; path: string; data?: Record<string, unknown> }>;
+          operations: Array<{
+            op: 'set' | 'update' | 'delete';
+            path: string;
+            data?: Record<string, unknown>;
+            options?: ToolSetOptions;
+          }>;
           database?: string;
           as?: As;
         };
-        // The schema's minItems/maxItems aren't enforced by the MCP validation
-        // boundary, so guard the documented 1..500 bound here.
         if (a.operations.length === 0 || a.operations.length > 500) {
           return { ok: false, summary: `firestore_batch_write: operations must be 1..500 (got ${a.operations.length}).` };
         }
         const db = await resolveDb(a.as, a.database);
-        // Applied in order via the modular API. (The shim's WriteBatch ref type
-        // has drifted from doc()'s return in the .d.ts; sequential keeps this
-        // typesafe and is fine for the seed / bulk-edit use case.)
+        const batch = writeBatch(db);
         for (const o of a.operations) {
           const ref = doc(db, o.path);
           if (o.op === 'set') {
-            await setDoc(ref, rehydrateToolWriteData(o.data ?? {}) as Record<string, unknown>);
+            const payload = rehydrateToolWriteData(o.data ?? {}) as Record<string, unknown>;
+            const sdkOptions = buildSetOptions(o.options);
+            if (sdkOptions !== undefined) {
+              batch.set(ref, payload, sdkOptions);
+            } else {
+              batch.set(ref, payload);
+            }
           } else if (o.op === 'update') {
-            await updateDoc(ref, rehydrateToolWriteData(o.data ?? {}) as Record<string, unknown>);
+            batch.update(ref, rehydrateToolWriteData(o.data ?? {}) as Record<string, unknown>);
           } else {
-            await deleteDoc(ref);
+            batch.delete(ref);
           }
         }
+        await batch.commit();
         return { ok: true, summary: `Applied ${a.operations.length} write(s)`, data: { count: a.operations.length } };
       },
     },
@@ -368,7 +470,7 @@ export function createFirestoreDataTools(deps: FirestoreDataToolDeps): ToolHandl
             items: WHERE_CLAUSE_SCHEMA,
             minItems: 1,
           },
-          orderBy: { type: 'string' },
+          orderBy: ORDER_BY_SCHEMA,
           limit: { type: 'number' },
           database: DATABASE_SCHEMA,
           as: AS_SCHEMA,
@@ -379,16 +481,16 @@ export function createFirestoreDataTools(deps: FirestoreDataToolDeps): ToolHandl
         const a = args as {
           collection: string;
           where: WhereClause[];
-          orderBy?: string;
+          orderBy?: OrderByArg;
           limit?: number;
+          limits?: number[];
           database?: string;
           as?: As;
         };
         const db = await resolveDb(a.as, a.database);
         const baseColl = collection(db, a.collection);
-        const constraints = a.where.map((w) => where(w.field, w.op, w.value));
-        if (a.orderBy) constraints.push(orderBy(a.orderBy));
-        if (a.limit) constraints.push(limit(a.limit));
+        const constraints: QueryConstraint[] = a.where.map((w) => where(w.field, w.op, w.value));
+        appendOrderAndLimitConstraints(constraints, a.orderBy, a.limit, a.limits);
         const snap = await getDocs(query(baseColl, ...constraints));
         return {
           ok: true,
@@ -401,22 +503,9 @@ export function createFirestoreDataTools(deps: FirestoreDataToolDeps): ToolHandl
 }
 
 /**
- * `sandbox_inspect` — the missing-tool tax this entire library
- * used to charge agents. Without it, debugging "why aren't my rules
- * working?" took 51 tool calls + 72k tokens of grepping node_modules
- * (recorded in CLAUDE_DEBUG_SESSION.md). With it, the same diagnosis
- * is one tool call:
- *
- *   { rules: { source, sizeBytes, isEmpty, lint: { errors, warnings, findings } },
- *     documents: { totalCount, byCollection },
- *     events: { totalCount, recentDenials, recentRequests } }
- *
- * Returns a snapshot of sandbox state — current rules, lint summary,
- * document census by collection, and the most-recent denials + requests
- * from sandbox.history(). Everything an agent needs to localize a
- * sandbox bug in one round-trip.
- *
- * Sandbox-only. `resolveSandbox` must return the owning Sandbox.
+ * `sandbox_inspect` - single-call sandbox diagnostic returning current rules
+ * source, lint summary, doc count by collection, and recent denials + requests
+ * from `sandbox.history()`.
  */
 export function createFirestoreInspectTools(deps: FirestoreInspectToolDeps): ToolHandler[] {
   const { resolveSandbox } = deps;
@@ -424,7 +513,7 @@ export function createFirestoreInspectTools(deps: FirestoreInspectToolDeps): Too
     {
       name: 'sandbox_inspect',
       description:
-        'Single-call sandbox diagnostic. Returns current rules source, lint summary, doc count by collection, and recent denials + requests. Use this FIRST when debugging unexpected sandbox behavior — it surfaces the rules / state / event log without forcing per-tool grep.',
+        'Single-call sandbox diagnostic. Returns current rules source, lint summary, doc count by collection, and recent denials + requests. Use this FIRST when debugging unexpected sandbox behavior - it surfaces the rules / state / event log without forcing per-tool grep.',
       parameters: {
         type: 'object',
         properties: {
@@ -443,12 +532,15 @@ export function createFirestoreInspectTools(deps: FirestoreInspectToolDeps): Too
           recentEventLimit: a.recentEventLimit,
           databaseId: a.database,
         });
-        // Punch up the summary so it's useful in tool-result previews
-        // without forcing the agent to drill into `data`.
+        let rulesPart = `${report.rules.sizeBytes}B, ${report.rules.lint.errors} errors / ${report.rules.lint.warnings} warnings`;
+        if (report.rules.isEmpty) {
+          rulesPart = 'EMPTY (setRules has not been called)';
+        }
+        const dot = '\u00b7';
         const summary =
-          `rules: ${report.rules.isEmpty ? 'EMPTY (setRules has not been called)' : `${report.rules.sizeBytes}B, ${report.rules.lint.errors} errors / ${report.rules.lint.warnings} warnings`}`
-          + ` · docs: ${report.documents.totalCount} across ${Object.keys(report.documents.byCollection).length} collections`
-          + ` · events: ${report.events.totalCount} total, ${report.events.recentDenials.length} recent denials`;
+          `rules: ${rulesPart}`
+          + ` ${dot} docs: ${report.documents.totalCount} across ${Object.keys(report.documents.byCollection).length} collections`
+          + ` ${dot} events: ${report.events.totalCount} total, ${report.events.recentDenials.length} recent denials`;
         return {
           ok: true,
           summary,

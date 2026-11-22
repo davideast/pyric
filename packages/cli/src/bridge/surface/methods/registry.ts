@@ -1,5 +1,5 @@
 /**
- * The loaded surface: seven service tools and the methods behind them, and the
+ * The loaded surface: ten service tools and the methods behind them, and the
  * lookups every derived surface joins on.
  *
  * The list is not authored here. `scripts/generate-surface-manifest.ts` reads the `tools`
@@ -10,14 +10,58 @@
  * and auditable under neither.
  */
 import { METHOD_RECORDS, TOOL_RECORDS } from '../manifest.generated.js';
-import { operationIds, stampRecord, type Method, type Tool } from '../method-types.js';
+import {
+  operationIds,
+  stampRecord,
+  type Args,
+  type Method,
+  type Tool,
+} from '../method-types.js';
+import type { SandboxSurfaceContext, SurfaceContext } from '../types.js';
+import {
+  markAiLogicTouched,
+  recordAgentIdentityForSave,
+  syncHydratedAgentIdentity,
+} from './in-process-session-state.js';
+
+function wrapSessionPersistence(method: Method): Method {
+  if (method.runsIn === 'sandbox') {
+    const originalHandler = method.handler;
+    return {
+      ...method,
+      async handler(args: Args, ctx: SandboxSurfaceContext) {
+        syncHydratedAgentIdentity(ctx);
+        if (method.tool === 'ai_logic') {
+          markAiLogicTouched(ctx.sandbox);
+        }
+        const result = await originalHandler(args, ctx);
+        if (result.ok) {
+          recordAgentIdentityForSave(ctx.sandbox, ctx.identity.rawInput());
+        }
+        return result;
+      },
+    };
+  }
+  const originalHandler = method.handler;
+  return {
+    ...method,
+    async handler(args: Args, ctx: SurfaceContext) {
+      syncHydratedAgentIdentity(ctx);
+      const result = await originalHandler(args, ctx);
+      if (result.ok) {
+        recordAgentIdentityForSave(ctx.sandbox, ctx.identity.rawInput());
+      }
+      return result;
+    },
+  };
+}
 
 /** Methods of one tool, in the order the manifest lists them. */
 function methodsOf(tool: string): Method[] {
   const loaded: Method[] = [];
   for (const [owner, name, record] of METHOD_RECORDS) {
     if (owner !== tool) continue;
-    loaded.push(stampRecord(owner, name, record));
+    loaded.push(wrapSessionPersistence(stampRecord(owner, name, record)));
   }
   return loaded;
 }

@@ -21,13 +21,18 @@ export function serializeDiscovered(
 ): Record<string, PersistedDiscoveredCollection> {
   const out: Record<string, PersistedDiscoveredCollection> = {};
   for (const [tpl, d] of map) {
-    out[tpl] = {
-      templatePath: d.templatePath,
-      depth: d.depth,
-      examplePath: d.examplePath,
-      refPaths: d.refs.map((r) => r.path),
-      docRefPaths: d.docRefs.map((r) => r.path),
-    };
+    Object.defineProperty(out, tpl, {
+      value: {
+        templatePath: d.templatePath,
+        depth: d.depth,
+        examplePath: d.examplePath,
+        refPaths: d.refs.map((r) => r.path),
+        docRefPaths: d.docRefs.map((r) => r.path),
+      },
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
   }
   return out;
 }
@@ -59,7 +64,7 @@ export function requireCollection(db: CrawlerFirestore, path: string): CrawlerCo
   return db.collection(path);
 }
 
-export function requireDoc(db: CrawlerFirestore, path: string): CrawlerDocumentRef {
+function requireDoc(db: CrawlerFirestore, path: string): CrawlerDocumentRef {
   if (typeof db.doc !== 'function') {
     throw new Error(
       'Cannot resume crawl: db.doc(path) is required to reconstruct refs ' +
