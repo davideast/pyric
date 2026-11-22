@@ -673,6 +673,7 @@ export class SandboxBackend {
       emailVerified: false,
       createdAt: this.now().toISOString(),
       lastLoginAt: null,
+      lastRefreshAt: null,
       tenantId: null,
       ...init,
       customClaims,
@@ -1011,7 +1012,10 @@ export class SandboxBackend {
       const hasCreatedAt = createdAt !== undefined;
       if (hasCreatedAt) record.createdAt = createdAt;
       const hasLastLoginAt = lastLoginAt !== undefined;
-      if (hasLastLoginAt) record.lastLoginAt = lastLoginAt;
+      if (hasLastLoginAt) {
+        record.lastLoginAt = lastLoginAt;
+        record.lastRefreshAt = lastLoginAt;
+      }
       const indexesEmail = !isAnonymousSeed && email !== undefined;
       if (indexesEmail) this.usersByEmail.set(tenantEmailKey(record.tenantId, email), record);
       this.usersByUid.set(u.uid, record);
@@ -1596,21 +1600,24 @@ export class SandboxBackend {
     const claims = SandboxBackend.getEffectiveClaims(this, user.uid);
 
     // A `signInProvider` argument marks an actual sign-in (the test
-    // driver omits it) — bump the record's lastLoginAt.
+    // driver omits it) - bump the record's lastLoginAt and lastRefreshAt.
+    const transitionNow = this.now();
     const recordsSignIn = isSignIn && stored !== undefined;
     if (recordsSignIn) {
-      stored.lastLoginAt = this.now().toISOString();
+      const signInIso = transitionNow.toISOString();
+      stored.lastLoginAt = signInIso;
+      stored.lastRefreshAt = signInIso;
       this.notifyUsersChanged();
     }
 
     // Stash the (possibly richer) User snapshot so listeners fire with
     // the full display name / email, not just the AuthState round-trip.
     this.cachedUser = user;
-    // Every sign-in mints a fresh token — a new session, even if the uid
+    // Every sign-in mints a fresh token - a new session, even if the uid
     // is unchanged (AUTH-B8: a same-uid re-sign-in still rotates the
     // token, which `onIdTokenChanged` then observes). Matches prod's
     // "new session = new token".
-    const minted = this.mintToken(user.uid, claims, user.tenantId ?? null);
+    const minted = this.mintToken(user.uid, claims, user.tenantId ?? null, transitionNow);
 
     // Push to the sandbox under the guard so the synchronous subscriber
     // doesn't notify — we drive the fan-out below with the correct
@@ -2275,17 +2282,20 @@ export class SandboxBackend {
     this.sessions.adopt(user);
     const stored = this.usersByUid.get(user.uid);
     const claims = claimsOverride ?? SandboxBackend.getEffectiveClaims(this, user.uid);
+    const sessionNow = this.now();
     const hasStoredUser = stored !== undefined;
     if (hasStoredUser) (user as Mutable<User>).photoURL = readPhotoUrl(stored, this.photoOriginByUid);
     if (hasStoredUser && authenticates) {
-      stored.lastLoginAt = this.now().toISOString();
+      const signInIso = sessionNow.toISOString();
+      stored.lastLoginAt = signInIso;
+      stored.lastRefreshAt = signInIso;
       this.notifyUsersChanged();
     }
     // The tenant rides on the session, not on the shared record: ports are
     // independent sessions over one user pool, so two ports can hold the same
     // identity under different tenants and neither may overwrite the other.
     (user as Mutable<User>).tenantId = tenantId;
-    const minted = this.mintToken(user.uid, claims, tenantId);
+    const minted = this.mintToken(user.uid, claims, tenantId, sessionNow);
     const state: NonNullable<AuthState> = { uid: user.uid, token: rulesTokenClaims(minted.result) };
     const hasTenant = tenantId !== null;
     if (hasTenant) state.tenant = tenantId;
@@ -2338,12 +2348,12 @@ export class SandboxBackend {
     uid: string,
     claims: Record<string, unknown>,
     tenantId: string | null,
+    issuedAt: Date = this.now(),
   ): { token: string; result: IdTokenResult } {
-    const issuedAt = this.now();
     // Production's one-hour lifetime; a read past the refresh point mints again.
     const expires = new Date(issuedAt.getTime() + ID_TOKEN_LIFETIME_MS);
     const serial = this.nextTokenSerial++;
-    // The provider of the current sign-in session for this uid —
+    // The provider of the current sign-in session for this uid -
     // recorded by setCurrentUser at sign-in time. Null for identities
     // driven via the test driver (no prod analog for that path).
     const signInProvider = this.signInProviderByUid.get(uid) ?? null;
@@ -2354,6 +2364,9 @@ export class SandboxBackend {
     // so a profile or verification change reaches the token on the next
     // refresh, as custom claims do.
     const stored = this.usersByUid.get(uid);
+    if (stored !== undefined) {
+      stored.lastRefreshAt = issuedAt.toISOString();
+    }
     const { iss, aud } = idTokenAudience(this.projectStore.projectId() ?? SANDBOX_PROJECT_ID);
     const fullClaims: Record<string, unknown> = {
       sub: uid,

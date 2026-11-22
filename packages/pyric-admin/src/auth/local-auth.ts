@@ -86,7 +86,12 @@ function storeFor(sandbox: Sandbox): AuthStore {
 }
 
 function clientAccountStanding(sandbox: Sandbox, uid: string): AuthAccountStanding {
-  return authAccountsFor(sandbox)?.standing(uid) ?? { kind: 'unrecorded' };
+  let accounts = authAccountsFor(sandbox);
+  if (accounts === undefined) {
+    getClientAuth(sandbox);
+    accounts = authAccountsFor(sandbox);
+  }
+  return accounts?.standing(uid) ?? { kind: 'unrecorded' };
 }
 
 function notImplemented(method: string): Error {

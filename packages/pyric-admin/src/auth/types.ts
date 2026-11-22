@@ -33,7 +33,7 @@ export interface DecodedIdToken extends Record<string, unknown> {
 
 export interface UserMetadataInit {
   readonly creationTime: string;
-  readonly lastSignInTime: string;
+  readonly lastSignInTime: string | null;
   readonly lastRefreshTime?: string | null;
 }
 

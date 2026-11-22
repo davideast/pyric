@@ -22,8 +22,34 @@ afterEach(async () => {
 
 type Recorded = { resolved?: true; code?: string | null; threw?: string; rejected?: true };
 const OBSERVATION = JSON.parse(readFileSync(new URL('../../../conformance/observations/auth/auth-request-auth-per-sign-in.json', import.meta.url), 'utf8')) as {
-  behavior: { admin: Record<string, Recorded> };
+  behavior: {
+    admin: Record<string, Recorded> & {
+      freshPasswordUserRecord: {
+        creationTime: string;
+        customClaims: Record<string, unknown> | null;
+        lastRefreshTime: string | null;
+        lastSignInTime: string;
+        providerData: string[];
+        tenantId: string | null;
+      };
+      userRecordAfterSignIn: {
+        lastRefreshTime: string;
+        lastSignInTime: string;
+      };
+    };
+  };
 };
+
+function timeFormat(value: string | null | undefined): string {
+  if (value === null || value === undefined) return String(value);
+  if (/^[A-Z][a-z]{2}, \d{2} [A-Z][a-z]{2} \d{4} \d{2}:\d{2}:\d{2} GMT$/.test(value)) {
+    return 'toUTCString';
+  }
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) {
+    return 'toISOString';
+  }
+  return `other: ${value.length} chars`;
+}
 
 function summary(r: Recorded): string {
   if (r.resolved) return 'resolved';
@@ -54,9 +80,25 @@ describe('pyric-admin auth answers as the production Admin SDK does', () => {
     const email = 'ad@example.com';
     const uid = 'oracle-ad';
     await admin.createUser({ uid, email, password: 'secret-pw' });
+    const fresh = await admin.getUser(uid);
+    expect({
+      creationTime: timeFormat(fresh.metadata.creationTime),
+      lastSignInTime: timeFormat(fresh.metadata.lastSignInTime),
+      lastRefreshTime: fresh.metadata.lastRefreshTime ?? null,
+      providerData: fresh.providerData.map((p) => p.providerId),
+      tenantId: fresh.tenantId ?? null,
+      customClaims: fresh.customClaims ?? null,
+    }).toEqual(OBSERVATION.behavior.admin.freshPasswordUserRecord);
 
-    // A client session on the same sandbox, for verifyIdToken.
+    // A client session on the same sandbox, for verifyIdToken and post-sign-in metadata.
     const client = getClientAuth(sandbox);
+    await signInWithEmailAndPassword(client, email, 'secret-pw');
+    const afterSignIn = await admin.getUser(uid);
+    expect({
+      lastSignInTime: timeFormat(afterSignIn.metadata.lastSignInTime),
+      lastRefreshTime: timeFormat(afterSignIn.metadata.lastRefreshTime),
+    }).toEqual(OBSERVATION.behavior.admin.userRecordAfterSignIn);
+
     const { user } = await createUserWithEmailAndPassword(client, 'verify@example.com', 'secret-pw');
     const idToken = await user.getIdToken();
 
