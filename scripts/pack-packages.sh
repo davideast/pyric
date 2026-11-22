@@ -1,25 +1,24 @@
 #!/usr/bin/env bash
-# Pack every published Pyric package into `dist/packages/` for manual
-# testing, side-by-side comparison, or local-install workflows.
+# Pack every published Pyric package (or `@pyric/rules` alone with
+# `--package rules`) into `dist/packages/` for manual testing, side-by-side
+# comparison, or release workflows.
 #
 # Output: `dist/packages/<name>-<version>.tgz` (npm's default tarball
-# naming, scoped names flattened — e.g. `@pyric/ui` → `pyric-ui-0.1.0-alpha.7.tgz`).
+# naming, scoped names flattened -- e.g. `@pyric/ui` -> `pyric-ui-0.1.0-alpha.7.tgz`).
 #
 # Default behavior: rebuilds before packing so dist/ is fresh. Pass
-# `--skip-build` to pack the current dist/ contents (useful when
-# iterating).
+# `--skip-build` to pack the current dist/ contents.
 #
-# `workspace:*` deps are rewritten to `^<version-of-target-workspace>`
-# in each packed tarball via scripts/lib/rewrite-workspace-deps.mjs. npm
-# does not rewrite them on pack (pnpm does); leaving them literal would
-# trip `EUNSUPPORTEDPROTOCOL` in any downstream `npm install`. Rewriting
-# to `*` would resolve "any version" — also dangerous. Concrete version
-# refs are the only safe shape.
+# `workspace:*` deps are rewritten to concrete version refs in each packed
+# tarball via scripts/lib/rewrite-workspace-deps.mjs. npm does not rewrite
+# them on pack (pnpm does); leaving them literal would trip
+# `EUNSUPPORTEDPROTOCOL` in any downstream `npm install`.
 #
-# After rewrite we VERIFY no `workspace:` remains — load-bearing safety
-# net so a future rewriter bug can't ship a broken manifest to consumers.
+# After rewrite we VERIFY no `workspace:` remains -- load-bearing safety
+# net so a future rewriter bug cannot ship a broken manifest to consumers.
 #
 # Run as: bash scripts/pack-packages.sh
+#         bash scripts/pack-packages.sh --package rules
 #         bash scripts/pack-packages.sh --skip-build
 #         bash scripts/pack-packages.sh --skip-build --out <dir>
 #         npm run pack
@@ -38,13 +37,23 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT_DIR="$ROOT/dist/packages"
 
 SKIP_BUILD=0
+PACKAGE_TARGET="pyric"
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --skip-build) SKIP_BUILD=1; shift ;;
     --out) OUT_DIR="${2:?--out needs a directory}"; shift 2 ;;
-    *) echo "pack-packages: unknown argument $1 (takes --skip-build and --out <dir>)" >&2; exit 2 ;;
+    --package) PACKAGE_TARGET="${2:?--package needs pyric or rules}"; shift 2 ;;
+    --package=*) PACKAGE_TARGET="${1#--package=}"; shift ;;
+    *) echo "pack-packages: unknown argument $1 (takes --package pyric|rules, --skip-build, and --out <dir>)" >&2; exit 2 ;;
   esac
 done
+
+case "$PACKAGE_TARGET" in
+  pyric) ;;
+  rules|@pyric/rules) PACKAGE_TARGET="rules" ;;
+  *) echo "pack-packages: unknown --package '$PACKAGE_TARGET' (expected pyric or rules)" >&2; exit 2 ;;
+esac
+
 case "$OUT_DIR" in
   /*) ;;
   *) OUT_DIR="$PWD/$OUT_DIR" ;;
@@ -72,39 +81,49 @@ if [ -n "$(git -C "$ROOT" status --porcelain --untracked-files=all --ignore-subm
 fi
 
 # Packages to ship. Listed in dependency order (dependencies first) for
-# readability; the actual pack order does not matter since each tarball
-# is self-contained after the workspace:* rewrite.
-PACKAGES=(
-  "packages/rules"
-  "packages/pyric"
-  "packages/pyric-admin"
-  "packages/create-pyric"
-  "packages/cli"
-  "packages/ui"
-  "packages/live"
-)
-
-# ─── Phase 0: optional rebuild ─────────────────────────────────────────
-if [ "$SKIP_BUILD" -eq 0 ]; then
-  echo "━━━ Phase 0: build ━━━"
-  cd "$ROOT"
-  bash scripts/build.sh
+# readability; `--package rules` packs `@pyric/rules` alone on its own release line.
+if [ "$PACKAGE_TARGET" = "rules" ]; then
+  PACKAGES=(
+    "packages/rules"
+  )
 else
-  echo "━━━ Phase 0: skipped (--skip-build) ━━━"
+  PACKAGES=(
+    "packages/rules"
+    "packages/pyric"
+    "packages/pyric-admin"
+    "packages/create-pyric"
+    "packages/cli"
+    "packages/ui"
+    "packages/live"
+  )
 fi
 
-# ─── Phase 1: prep output dir ──────────────────────────────────────────
+# --- Phase 0: optional rebuild -----------------------------------------
+if [ "$SKIP_BUILD" -eq 0 ]; then
+  echo "=== Phase 0: build ==="
+  cd "$ROOT"
+  if [ "$PACKAGE_TARGET" = "rules" ]; then
+    rm -rf "$ROOT/packages/rules/dist"
+    bun run --cwd "$ROOT/packages/rules" build
+  else
+    bash scripts/build.sh
+  fi
+else
+  echo "=== Phase 0: skipped (--skip-build) ==="
+fi
+
+# --- Phase 1: prep output dir ------------------------------------------
 echo ""
-echo "━━━ Phase 1: prep $OUT_DIR ━━━"
+echo "=== Phase 1: prep $OUT_DIR ==="
 # Clear every tarball, the manifest and the proven.json stamp, never the
 # directory or its other files. A new pack is unproven until publish-alpha.sh
 # stamps it again.
 mkdir -p "$OUT_DIR"
 clear_outputs
 
-# ─── Phase 2: pack each package ────────────────────────────────────────
+# --- Phase 2: pack each package ----------------------------------------
 echo ""
-echo "━━━ Phase 2: pack ━━━"
+echo "=== Phase 2: pack ==="
 
 # The npm-facing README for the core packages is the root README. Each package
 # keeps its own README.md in the source tree. Replace the README only inside the
@@ -125,7 +144,7 @@ pack_one() {
   name=$(jq -r '.name' "$ROOT/$pkg_dir/package.json")
   local version
   version=$(jq -r '.version' "$ROOT/$pkg_dir/package.json")
-  echo "▸ packing $name@$version"
+  echo "> packing $name@$version"
 
   # npm pack writes <flattened-name>-<version>.tgz (scope removed,
   # `/` replaced by `-`). Capture the produced filename via npm's
@@ -163,37 +182,37 @@ pack_one() {
 
   # Verification: no `workspace:` may survive into the shipped tarball.
   if tar -xzOf "$full" package/package.json | grep -nE '"workspace:'; then
-    echo "  ✗ $name tarball still contains workspace: deps after rewrite" >&2
+    echo "  x $name tarball still contains workspace: deps after rewrite" >&2
     echo "    (see lines above; fix scripts/lib/rewrite-workspace-deps.mjs)" >&2
     exit 1
   fi
 
   local size
   size=$(du -h "$full" | awk '{print $1}')
-  echo "    → $full ($size)"
+  echo "    -> $full ($size)"
 }
 
 for pkg_dir in "${PACKAGES[@]}"; do
   pack_one "$pkg_dir"
 done
 
-# ─── Phase 3: write a manifest ─────────────────────────────────────────
+# --- Phase 3: write a manifest -----------------------------------------
 echo ""
-echo "━━━ Phase 3: manifest ━━━"
+echo "=== Phase 3: manifest ==="
 
 node "$ROOT/scripts/lib/package-artifact-manifest.mjs" \
   "$ROOT" "$OUT_DIR" "${PACKAGES[@]}"
 # Each tarball's sha256 as written here, and the tree it came from.
 node "$ROOT/scripts/lib/proven-stamp.mjs" record "$OUT_DIR" "$ROOT" "$PACK_HEAD" "$PACK_CLEAN"
 
-# ─── Phase 4: report ───────────────────────────────────────────────────
+# --- Phase 4: report ---------------------------------------------------
 echo ""
-echo "━━━ Phase 4: report ━━━"
+echo "=== Phase 4: report ==="
 echo ""
 ls -lh "$OUT_DIR" | tail -n +2 | awk '{print "  " $9 "  " $5}'
 
 echo ""
-echo "✓ All ${#PACKAGES[@]} packages packed into $OUT_DIR/"
+echo "ok All ${#PACKAGES[@]} packages packed into $OUT_DIR/"
 echo ""
 echo "See $OUT_DIR/manifest.json for exact tarball filenames."
 

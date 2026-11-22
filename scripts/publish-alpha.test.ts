@@ -1,69 +1,47 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
+import { chmodSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { pinPyricPackages, tarballsIn } from '../test/apps/install.ts';
+import {
+  ALL_READ_WRITE,
+  FIVE_EXISTING,
+  NPM_PACK_STUB,
+  PUBLISHED_NAMES,
+  publishForReal,
+  REAL_NODE,
+  realStampRepo,
+  REPO_ROOT,
+  runPack,
+  runPublish,
+  staleOutDir,
+  TempDirTracker,
+  accessJson,
+} from './lib/publish-test-harness.ts';
+import {
+  checkRulesTarball,
+  isNodeBuiltinSpecifier,
+  verifyBrowserBundlesHaveNoNodeBuiltins,
+} from './lib/rules-release-gate.ts';
 
-const root = resolve(import.meta.dir, '..');
-const workDirs: string[] = [];
+const root = REPO_ROOT;
+const tracker = new TempDirTracker();
 afterEach(() => {
-  for (const directory of workDirs.splice(0)) rmSync(directory, { recursive: true, force: true });
+  tracker.cleanup();
 });
-
-function runPublish(
-  options: { skip?: boolean; dryRun?: boolean; failBunCommand?: string; failCommand?: string; publishTag?: string; npmRegistry?: string } = {},
-) {
-  const work = mkdtempSync(join(tmpdir(), 'pyric-publish-contract-'));
-  workDirs.push(work);
-  const bin = join(work, 'bin');
-  Bun.spawnSync(['mkdir', '-p', bin]);
-  const log = join(work, 'commands.log');
-  const registryLog = join(work, 'registry.log');
-  const fake = `#!/bin/bash
-set -eu
-name="$(basename "$0")"
-echo "$name $*" >> "$COMMAND_LOG"
-if [ "$name" = "npm" ]; then echo "\${NPM_CONFIG_REGISTRY:-}" >> "$REGISTRY_LOG"; fi
-if [ "$name $*" = "bun run packages/conformance/src/print-fb-tag.ts" ]; then echo fb12.13; fi
-if [ -n "\${FAIL_BUN_COMMAND:-}" ] && [ "$name $*" = "bun $FAIL_BUN_COMMAND" ]; then exit 17; fi
-if [ -n "\${FAIL_COMMAND:-}" ] && [ "$name $*" = "$FAIL_COMMAND" ]; then exit 17; fi
-`;
-  for (const command of ['node', 'bun', 'npm', 'bash', 'cp']) {
-    const path = join(bin, command);
-    writeFileSync(path, fake);
-    chmodSync(path, 0o755);
-  }
-  const args = [join(root, 'scripts/publish-alpha.sh')];
-  if (options.dryRun) args.push('--dry-run');
-  args.push('0.1.0-alpha.9');
-  const env: NodeJS.ProcessEnv = {
-    ...envWithoutReleaseSettings(),
-    PATH: `${bin}:${process.env.PATH}`,
-    COMMAND_LOG: log,
-    REGISTRY_LOG: registryLog,
-    FAIL_BUN_COMMAND: options.failBunCommand ?? '',
-    FAIL_COMMAND: options.failCommand ?? '',
-    PYRIC_PUBLISH_SKIP_GATES: options.skip ? '1' : '0',
-    PYRIC_PUBLISH_TAG: options.publishTag ?? '',
-    NPM_CONFIG_REGISTRY: 'http://workstation-proxy.internal:999/',
-  };
-  if (options.npmRegistry !== undefined) env.PYRIC_NPM_REGISTRY = options.npmRegistry;
-  else delete env.PYRIC_NPM_REGISTRY;
-  const result = spawnSync('/bin/bash', args, {
-    cwd: root,
-    encoding: 'utf8',
-    env,
-  });
-  const registries = Bun.file(registryLog).size > 0 ? readFileSync(registryLog, 'utf8').trim().split('\n') : [];
-  return { result, commands: readFileSync(log, 'utf8').trim().split('\n'), registries };
-}
 
 const PACK = 'bash scripts/pack-packages.sh';
 const PACKAGING_GATE = 'bash scripts/packaging-test.sh --packages dist/packages';
+const UPLOADED = 'pyric pyric-admin create-pyric pyric-cli pyric-ui pyric-live';
+const STAMP_WRITE = `node ${join(root, 'scripts/lib/proven-stamp.mjs')} write ${join(root, 'dist/packages')} 0.1.0-alpha.9 ${root} ${UPLOADED}`;
+const STAMP_VERIFY = `node ${join(root, 'scripts/lib/proven-stamp.mjs')} verify ${join(root, 'dist/packages')} 0.1.0-alpha.9 ${root} ${UPLOADED}`;
+const PACKED_UPLOADS = ['pyric', 'pyric-admin', 'create-pyric', 'pyric-cli', 'pyric-ui', 'pyric-live'].map(
+  (name) => `uploaded ${name}-0.1.0-alpha.9.tgz packed ${name}`,
+);
 
 describe('alpha publish safety contract', () => {
   test('proves the tree before the first irreversible publish', () => {
-    const { result, commands } = runPublish();
+    const { result, commands } = runPublish(tracker);
     expect(result.status).toBe(0);
     const tests = commands.indexOf('bun run test');
     const pack = commands.indexOf(PACK);
@@ -75,20 +53,26 @@ describe('alpha publish safety contract', () => {
     expect(packaging).toBeLessThan(publish);
   });
 
-  test('packs once, and the packaging gate tests those tarballs instead of building and packing its own', () => {
-    const { result, commands } = runPublish();
+  test('packs once, checks packed @pyric/rules drift, and runs the packaging gate on those tarballs', () => {
+    const { result, commands } = runPublish(tracker);
     expect(result.status).toBe(0);
     expect(commands.filter((command) => command.startsWith(PACK))).toEqual([PACK]);
     expect(commands).not.toContain('bun run test:packaging');
     expect(commands.filter((command) => command.startsWith('bash scripts/packaging-test.sh'))).toEqual([PACKAGING_GATE]);
     const pack = commands.indexOf(PACK);
-    const rebuildsOrRepacks = commands.slice(pack + 1).filter((command) =>
-      command.startsWith('bash scripts/build.sh') || command.startsWith('npm pack') || command === 'bun run build');
+    const packedDrift = commands.findIndex((command) => command.includes('check-publish-version.mjs --packed'));
+    expect(packedDrift).toBeGreaterThan(pack);
+    const rebuildsOrRepacks = commands.slice(pack + 1).filter(
+      (command) =>
+        command.startsWith('bash scripts/build.sh') ||
+        command.startsWith('npm pack') ||
+        command === 'bun run build',
+    );
     expect(rebuildsOrRepacks).toEqual([]);
   });
 
   test('every publish uploads a copy of a tarball the pack wrote, from the directory the last check verified', () => {
-    const { result, commands } = runPublish();
+    const { result, commands } = runPublish(tracker);
     expect(result.status).toBe(0);
     const uploads = commands.filter((command) => command.startsWith('npm publish ')).map((command) => command.split(' ')[2] ?? '');
     const names = ['pyric', 'pyric-admin', 'create-pyric', 'pyric-cli', 'pyric-ui', 'pyric-live'].map((name) => `${name}-0.1.0-alpha.9.tgz`);
@@ -100,37 +84,24 @@ describe('alpha publish safety contract', () => {
     expect(lastVerify).toContain(`verify ${uploadDir} 0.1.0-alpha.9`);
   });
 
-  test('a failed packaging gate prevents every publish', () => {
-    const { result, commands } = runPublish({ failCommand: PACKAGING_GATE });
-    expect(result.status).toBe(17);
-    expect(commands.some((command) => command.startsWith('npm publish '))).toBe(false);
+  test('a failed packaging gate, app scenario, or proof prevents every publish', () => {
+    expect(runPublish(tracker, { failCommand: PACKAGING_GATE }).commands.some((c) => c.startsWith('npm publish '))).toBe(false);
+    expect(runPublish(tracker, { failBunCommand: 'test/apps/run.ts --packages dist/packages' }).commands.some((c) => c.startsWith('npm publish '))).toBe(false);
+    expect(runPublish(tracker, { failBunCommand: 'run test' }).commands.some((c) => c.startsWith('npm publish '))).toBe(false);
   });
 
   test('runs the app scenarios on the packed tarballs before the first publish', () => {
-    const { result, commands } = runPublish();
+    const { result, commands } = runPublish(tracker);
     expect(result.status).toBe(0);
-    const pack = commands.indexOf('bash scripts/pack-packages.sh');
+    const pack = commands.indexOf(PACK);
     const apps = commands.indexOf('bun test/apps/run.ts --packages dist/packages');
     const publish = commands.findIndex((command) => command.startsWith('npm publish '));
-    expect(pack).toBeGreaterThanOrEqual(0);
     expect(pack).toBeLessThan(apps);
     expect(apps).toBeLessThan(publish);
   });
 
-  test('a failed app scenario prevents every publish', () => {
-    const { result, commands } = runPublish({ failBunCommand: 'test/apps/run.ts --packages dist/packages' });
-    expect(result.status).toBe(17);
-    expect(commands.some((command) => command.startsWith('npm publish '))).toBe(false);
-  });
-
-  test('a failed proof prevents every publish', () => {
-    const { result, commands } = runPublish({ failBunCommand: 'run test' });
-    expect(result.status).toBe(17);
-    expect(commands.some((command) => command.startsWith('npm publish '))).toBe(false);
-  });
-
   test('the explicit rerun escape hatch skips the proofs and the pack, and uploads the tarballs they proved', () => {
-    const { result, commands } = runPublish({ skip: true });
+    const { result, commands } = runPublish(tracker, { skip: true });
     expect(result.status).toBe(0);
     expect(commands).not.toContain('bun run test');
     expect(commands).not.toContain(PACKAGING_GATE);
@@ -140,11 +111,11 @@ describe('alpha publish safety contract', () => {
   });
 
   test('the packaging gate given --packages neither builds nor packs', () => {
-    const work = mkdtempSync(join(tmpdir(), 'pyric-packaging-gate-'));
-    workDirs.push(work);
+    const work = tracker.create('pkg-gate');
     const bin = join(work, 'bin');
     const packages = join(work, 'packages');
-    Bun.spawnSync(['mkdir', '-p', bin, packages]);
+    mkdirSync(bin, { recursive: true });
+    mkdirSync(packages, { recursive: true });
     const log = join(work, 'commands.log');
     writeFileSync(log, '');
     for (const command of ['bash', 'npm', 'bun']) {
@@ -152,8 +123,6 @@ describe('alpha publish safety contract', () => {
       writeFileSync(path, `#!/bin/bash\necho "$(basename "$0") $*" >> "$COMMAND_LOG"\n`);
       chmodSync(path, 0o755);
     }
-    // A manifest naming tarballs that are not there: the gate stops at the first
-    // one it looks up, after the point where it would otherwise build and pack.
     writeFileSync(join(packages, 'manifest.json'), JSON.stringify({ packages: [] }));
     const result = spawnSync('/bin/bash', [join(root, 'scripts/packaging-test.sh'), '--packages', packages], {
       cwd: root,
@@ -170,32 +139,26 @@ describe('alpha publish safety contract', () => {
   });
 
   test('dry-run proves authentication and package shape without mutating the registry', () => {
-    const { result, commands } = runPublish({ dryRun: true });
+    const { result, commands } = runPublish(tracker, { dryRun: true });
     expect(result.status).toBe(0);
     expect(commands).toContain('npm whoami --registry=https://registry.npmjs.org/');
     expect(commands.filter((command) => command.startsWith('npm publish '))).toHaveLength(6);
-    expect(
-      commands
-        .filter((command) => command.startsWith('npm publish '))
-        .every((command) => command.includes(' --dry-run')),
-    ).toBe(true);
+    expect(commands.filter((c) => c.startsWith('npm publish ')).every((c) => c.includes(' --dry-run'))).toBe(true);
     expect(commands).toContain('bun run compat:check');
     expect(commands).toContain('bun run packages/conformance/src/print-fb-tag.ts');
     expect(commands.some((command) => command.startsWith('npm dist-tag add '))).toBe(false);
   });
 
-  test('the generated release checklist requires preflight before publishing', () => {
+  test('the generated release checklists require preflight before publishing and open PRs with ci-packaging', () => {
     const script = readFileSync(join(root, 'scripts/prepare-release.sh'), 'utf8');
     const checklist = script.slice(script.indexOf('BODY_FILE='));
-    const preflight = checklist.indexOf('bun run release:preflight');
-    const publish = checklist.indexOf('bash scripts/publish-alpha.sh');
-    expect(preflight).toBeGreaterThanOrEqual(0);
-    expect(preflight).toBeLessThan(publish);
+    expect(checklist.indexOf('bun run release:preflight --package rules')).toBeLessThan(
+      checklist.indexOf('bash scripts/publish-alpha.sh --package rules'),
+    );
+    expect(checklist.lastIndexOf('bun run release:preflight')).toBeLessThan(
+      checklist.lastIndexOf('bash scripts/publish-alpha.sh'),
+    );
     expect(checklist).not.toContain('OTP-capable');
-  });
-
-  test('prepare-release opens the release PR with the ci-packaging label', () => {
-    const script = readFileSync(join(root, 'scripts/prepare-release.sh'), 'utf8');
     expect(script).toContain('gh pr create');
     expect(script).toContain('--label ci-packaging');
   });
@@ -205,7 +168,7 @@ describe('alpha publish safety contract', () => {
     const publish = readFileSync(join(root, 'scripts/publish-alpha.sh'), 'utf8');
     const uploaded = /^TARBALLS=\(([^)]*)\)$/m.exec(publish)?.[1]?.split(' ') ?? [];
     const prepare = readFileSync(join(root, 'scripts/prepare-release.sh'), 'utf8');
-    const bumpedDirs = /^for dir in ([^;]*); do$/m.exec(prepare)?.[1]?.split(' ') ?? [];
+    const bumpedDirs = /^\s*for dir in ([^;]*); do$/m.exec(prepare)?.[1]?.split(' ') ?? [];
     const bumped = bumpedDirs.map((dir) => (JSON.parse(readFileSync(join(root, 'packages', dir, 'package.json'), 'utf8')) as { name: string }).name);
     const checker = readFileSync(join(root, 'scripts/lib/check-publish-version.mjs'), 'utf8');
     const checkedDirs = [...checker.matchAll(/^ {2}'(packages\/[^']+)',$/gm)].map((match) => match[1] ?? '');
@@ -216,414 +179,408 @@ describe('alpha publish safety contract', () => {
     expect(published.map(tarballOf)).toEqual(uploaded);
     expect(bumped.map(tarballOf).sort()).toEqual([...uploaded].sort());
     expect(checked.map(tarballOf).sort()).toEqual([...uploaded].sort());
-    for (const dir of bumpedDirs) {
+    for (const dir of [...bumpedDirs, 'rules']) {
       const manifest = JSON.parse(readFileSync(join(root, 'packages', dir, 'package.json'), 'utf8')) as { private?: boolean };
       expect(manifest.private).toBeUndefined();
     }
   });
 
-  test('supports publishing under the next tag without moving latest or alpha (#689)', () => {
-    const { result, commands } = runPublish({ skip: true, publishTag: 'next' });
-    expect(result.status).toBe(0);
-    expect(commands.filter((c) => c.startsWith('npm publish ')).every((c) => c.includes('--tag next'))).toBe(true);
-    const distTagAdds = commands.filter((c) => c.startsWith('npm dist-tag add '));
-    expect(distTagAdds.every((c) => !c.endsWith(' latest'))).toBe(true);
-    expect(distTagAdds.every((c) => !c.endsWith(' alpha'))).toBe(true);
-    expect(distTagAdds.some((c) => c.endsWith(' next'))).toBe(true);
-  });
+  test('supports next, exp, and default latest channels plus registry pinning', () => {
+    const nextRun = runPublish(tracker, { skip: true, publishTag: 'next' });
+    expect(nextRun.result.status).toBe(0);
+    const nextTags = nextRun.commands.filter((c) => c.startsWith('npm dist-tag add '));
+    expect(nextTags.every((c) => !c.endsWith(' latest') && !c.endsWith(' alpha'))).toBe(true);
+    expect(nextTags.some((c) => c.endsWith(' next'))).toBe(true);
 
-  test('an experimental tag moves only itself: not latest, alpha, next, or the fb certificate', () => {
-    const { result, commands } = runPublish({ skip: true, publishTag: 'exp' });
-    expect(result.status).toBe(0);
-    expect(commands.filter((c) => c.startsWith('npm publish ')).every((c) => c.includes('--tag exp'))).toBe(true);
-    const distTagAdds = commands.filter((c) => c.startsWith('npm dist-tag add '));
-    expect(distTagAdds.length).toBeGreaterThan(0);
-    expect(distTagAdds.every((c) => c.endsWith(' exp'))).toBe(true);
-    expect(commands).not.toContain('bun run compat:check');
-  });
+    const expRun = runPublish(tracker, { skip: true, publishTag: 'exp' });
+    expect(expRun.result.status).toBe(0);
+    expect(expRun.commands.filter((c) => c.startsWith('npm dist-tag add ')).every((c) => c.endsWith(' exp'))).toBe(true);
+    expect(expRun.commands).not.toContain('bun run compat:check');
+    expect(expRun.registries.every((r) => r === 'https://registry.npmjs.org/')).toBe(true);
 
-  test('the default latest release still moves latest, alpha, and the fb certificate', () => {
-    const { result, commands } = runPublish({ skip: true });
-    expect(result.status).toBe(0);
-    const distTagAdds = commands.filter((c) => c.startsWith('npm dist-tag add '));
-    expect(distTagAdds.some((c) => c.endsWith(' latest'))).toBe(true);
-    expect(distTagAdds.some((c) => c.endsWith(' alpha'))).toBe(true);
-    expect(distTagAdds.some((c) => c.endsWith(' fb12.13'))).toBe(true);
-  });
-
-  test('@pyric/live moves latest and alpha with the others, and takes no fb certificate', () => {
-    const { result, commands } = runPublish({ skip: true });
-    expect(result.status).toBe(0);
-    const liveTags = commands.filter((c) => c.startsWith('npm dist-tag add @pyric/live@0.1.0-alpha.9 '));
+    const latestRun = runPublish(tracker, { skip: true });
+    expect(latestRun.result.status).toBe(0);
+    const liveTags = latestRun.commands.filter((c) => c.startsWith('npm dist-tag add @pyric/live@0.1.0-alpha.9 '));
     expect(liveTags).toEqual([
       'npm dist-tag add @pyric/live@0.1.0-alpha.9 latest',
       'npm dist-tag add @pyric/live@0.1.0-alpha.9 alpha',
     ]);
-    expect(commands).toContain('npm dist-tag ls @pyric/live');
-  });
+    expect(latestRun.commands.some((c) => c.endsWith(' fb12.13'))).toBe(true);
 
-  test('pins NPM_CONFIG_REGISTRY to registry.npmjs.org even when ambient env points elsewhere', () => {
-    const { result, registries } = runPublish({ skip: true, publishTag: 'exp' });
-    expect(result.status).toBe(0);
-    expect(registries.length).toBeGreaterThan(0);
-    expect(registries.every((r) => r === 'https://registry.npmjs.org/')).toBe(true);
-
-    const custom = runPublish({ skip: true, publishTag: 'exp', npmRegistry: 'http://127.0.0.1:4873/' });
-    expect(custom.result.status).toBe(0);
+    const custom = runPublish(tracker, { skip: true, publishTag: 'exp', npmRegistry: 'http://127.0.0.1:4873/' });
     expect(custom.registries.every((r) => r === 'http://127.0.0.1:4873/')).toBe(true);
   });
 });
 
-const UPLOADED = 'pyric pyric-admin create-pyric pyric-cli pyric-ui pyric-live';
-const STAMP_WRITE = `node ${join(root, 'scripts/lib/proven-stamp.mjs')} write ${join(root, 'dist/packages')} 0.1.0-alpha.9 ${root} ${UPLOADED}`;
-const STAMP_VERIFY = `node ${join(root, 'scripts/lib/proven-stamp.mjs')} verify ${join(root, 'dist/packages')} 0.1.0-alpha.9 ${root} ${UPLOADED}`;
+describe('@pyric/rules standalone release path (--package rules, #1521)', () => {
+  const RULES_PACK = 'bash scripts/pack-packages.sh --package rules';
+  const RULES_PROOF = 'bun scripts/lib/rules-release-gate.ts proof';
+  const RULES_TARBALL_GATE = `bun scripts/lib/rules-release-gate.ts tarball ${join(root, 'dist/packages/pyric-rules-0.1.0.tgz')}`;
+  const RULES_STANDALONE_APP = 'bun test/apps/run.ts --packages dist/packages rules-standalone';
+  const RULES_STAMP_WRITE = `node ${join(root, 'scripts/lib/proven-stamp.mjs')} write ${join(root, 'dist/packages')} 0.1.0 ${root} pyric-rules`;
+  const RULES_STAMP_VERIFY = `node ${join(root, 'scripts/lib/proven-stamp.mjs')} verify ${join(root, 'dist/packages')} 0.1.0 ${root} pyric-rules`;
+
+  test('runs the rules proof, single-package pack, tarball gate, and rules-standalone scenario before stamping and uploading', () => {
+    const { result, commands } = runPublish(tracker, { packageTarget: 'rules', version: '0.1.0' });
+    expect(result.status).toBe(0);
+    expect(commands[0]).toContain('check-publish-version.mjs --package rules 0.1.0');
+    expect(commands.find((c) => c.includes('check-publish-access.mjs'))).toContain('@pyric/rules');
+    const proof = commands.indexOf(RULES_PROOF);
+    const pack = commands.indexOf(RULES_PACK);
+    const tgzGate = commands.indexOf(RULES_TARBALL_GATE);
+    const app = commands.indexOf(RULES_STANDALONE_APP);
+    const stamp = commands.indexOf(RULES_STAMP_WRITE);
+    const publish = commands.findIndex((c) => c.startsWith('npm publish '));
+    expect(proof).toBeGreaterThanOrEqual(0);
+    expect(proof).toBeLessThan(pack);
+    expect(pack).toBeLessThan(tgzGate);
+    expect(tgzGate).toBeLessThan(app);
+    expect(app).toBeLessThan(stamp);
+    expect(stamp).toBeLessThan(publish);
+
+    const uploads = commands.filter((c) => c.startsWith('npm publish '));
+    expect(uploads).toHaveLength(1);
+    expect(uploads[0]).toContain('/pyric-rules-0.1.0.tgz --tag latest --access public');
+    expect(commands).not.toContain('bun run test');
+    expect(commands).not.toContain('bun run compat:check');
+    expect(commands.filter((c) => c.startsWith('npm dist-tag add '))).toEqual([
+      'npm dist-tag add @pyric/rules@0.1.0 latest',
+    ]);
+    expect(result.stdout).toContain('git tag rules-v0.1.0 && git push origin rules-v0.1.0');
+  });
+
+  test('accepts --dry-run both before and after --package rules (for bun run release:preflight --package rules)', () => {
+    for (const dryRunAfterPackage of [false, true]) {
+      const { result, commands } = runPublish(tracker, {
+        packageTarget: 'rules',
+        dryRun: true,
+        dryRunAfterPackage,
+        version: '0.1.0',
+      });
+      expect(result.status).toBe(0);
+      expect(commands).toContain('npm whoami --registry=https://registry.npmjs.org/');
+      const uploads = commands.filter((c) => c.startsWith('npm publish '));
+      expect(uploads).toHaveLength(1);
+      expect(uploads[0]).toContain('--dry-run');
+      expect(commands.some((c) => c.startsWith('npm dist-tag add '))).toBe(false);
+      expect(result.stdout).toContain('Preflight complete. No packages or dist-tags were published or changed.');
+      expect(result.stdout).toContain('rules-v0.1.0');
+    }
+  });
+
+  test('any failed rules gate blocks upload, and PYRIC_PUBLISH_SKIP_GATES=1 verifies the single-tarball stamp', () => {
+    for (const failBunCommand of [
+      'scripts/lib/rules-release-gate.ts proof',
+      `scripts/lib/rules-release-gate.ts tarball ${join(root, 'dist/packages/pyric-rules-0.1.0.tgz')}`,
+      'test/apps/run.ts --packages dist/packages rules-standalone',
+    ]) {
+      const failed = runPublish(tracker, { packageTarget: 'rules', failBunCommand });
+      expect(failed.result.status).toBe(17);
+      expect(failed.commands.some((c) => c.startsWith('npm publish '))).toBe(false);
+    }
+
+    const skipped = runPublish(tracker, { packageTarget: 'rules', skip: true, publishTag: 'exp' });
+    expect(skipped.result.status).toBe(0);
+    expect(skipped.commands).toContain(RULES_STAMP_VERIFY);
+    expect(skipped.commands).not.toContain(RULES_PROOF);
+    expect(skipped.commands).not.toContain(RULES_PACK);
+    expect(skipped.commands.filter((c) => c.startsWith('npm dist-tag add '))).toEqual([
+      'npm dist-tag add @pyric/rules@0.1.0 exp',
+    ]);
+  });
+
+  test('real stamp + access check refuses a brand-new @pyric/rules until PYRIC_PUBLISH_SCOPE_WRITE=@pyric is set', () => {
+    const repo = realStampRepo(tracker);
+    const refused = publishForReal(
+      repo,
+      { ACCESS_JSON: ALL_READ_WRITE, NEW_PACKAGES: '@pyric/rules' },
+      { packageTarget: 'rules', version: '0.1.0' },
+    );
+    expect(refused.result.status).toBe(1);
+    expect(refused.result.stderr).toContain('@pyric/rules');
+    expect(refused.result.stderr).toContain('PYRIC_PUBLISH_SCOPE_WRITE=@pyric');
+    expect(refused.uploads).toEqual([]);
+
+    const allowed = publishForReal(
+      repo,
+      { ACCESS_JSON: ALL_READ_WRITE, NEW_PACKAGES: '@pyric/rules', PYRIC_PUBLISH_SCOPE_WRITE: '@pyric' },
+      { packageTarget: 'rules', version: '0.1.0' },
+    );
+    expect(allowed.result.status).toBe(0);
+    expect(allowed.uploads).toEqual(['uploaded pyric-rules-0.1.0.tgz packed pyric-rules']);
+  }, 15_000);
+
+  test('pack-packages.sh --package rules writes a single-package manifest and pinPyricPackages fails closed on missing packages', async () => {
+    const out = tracker.create('rules-pack-out');
+    const packed = runPack(tracker, out, { npm: NPM_PACK_STUB }, ['--package', 'rules']);
+    expect(packed.status).toBe(0);
+    expect(readdirSync(out).sort()).toEqual(['manifest.json', 'pyric-rules-0.1.0.tgz']);
+    const resolved = tarballsIn(root, out);
+    expect([...resolved.keys()]).toEqual(['@pyric/rules']);
+
+    const standaloneApp = tracker.create('standalone-app');
+    writeFileSync(join(standaloneApp, 'package.json'), JSON.stringify({ private: true, devDependencies: { '@pyric/rules': '*' } }));
+    pinPyricPackages(standaloneApp, resolved);
+    expect(readFileSync(join(standaloneApp, 'package.json'), 'utf8')).toContain('file:');
+
+    const fullApp = tracker.create('full-app');
+    writeFileSync(join(fullApp, 'package.json'), JSON.stringify({ private: true, dependencies: { pyric: '*', '@pyric/cli': '*' } }));
+    expect(() => pinPyricPackages(fullApp, resolved)).toThrow('missing packed package pyric in tarball set');
+
+    const tmpRoot = tracker.create('tgz-fail-root');
+    const previousTmpRoot = process.env.PYRIC_TEST_TMP_ROOT;
+    process.env.PYRIC_TEST_TMP_ROOT = tmpRoot;
+    try {
+      await expect(checkRulesTarball(join(out, 'pyric-rules-0.1.0.tgz'))).rejects.toThrow();
+      expect(readdirSync(tmpRoot)).toEqual([]);
+    } finally {
+      if (previousTmpRoot === undefined) delete process.env.PYRIC_TEST_TMP_ROOT;
+      else process.env.PYRIC_TEST_TMP_ROOT = previousTmpRoot;
+    }
+  }, 15_000);
+
+  test('browser bundle gate catches Node built-in imports outside /internal/node', async () => {
+    expect(isNodeBuiltinSpecifier('node:fs')).toBe(true);
+    expect(isNodeBuiltinSpecifier('fs/promises')).toBe(true);
+    expect(isNodeBuiltinSpecifier('ohm-js')).toBe(false);
+    expect(isNodeBuiltinSpecifier('@pyric/rules')).toBe(false);
+
+    const fakeWork = tracker.create('browser-gate');
+    const pkgDir = join(fakeWork, 'node_modules/@pyric/rules');
+    mkdirSync(join(pkgDir, 'dist/internal'), { recursive: true });
+    writeFileSync(
+      join(pkgDir, 'package.json'),
+      JSON.stringify({
+        name: '@pyric/rules',
+        version: '0.1.0',
+        type: 'module',
+        exports: {
+          '.': { import: './dist/index.js' },
+          './internal/node': { import: './dist/internal/node.js' },
+        },
+      }),
+    );
+    writeFileSync(join(pkgDir, 'dist/internal/node.js'), "import { readFileSync } from 'node:fs';\nexport { readFileSync };\n");
+    writeFileSync(join(pkgDir, 'dist/index.js'), 'export const ok = 1;\n');
+    expect(await verifyBrowserBundlesHaveNoNodeBuiltins(fakeWork, pkgDir)).toEqual([]);
+
+    writeFileSync(join(pkgDir, 'dist/index.js'), "import { readFileSync } from 'node:fs';\nexport { readFileSync };\n");
+    const violations = await verifyBrowserBundlesHaveNoNodeBuiltins(fakeWork, pkgDir);
+    expect(violations.some((v) => v.includes("imports Node built-in 'node:fs'"))).toBe(true);
+  });
+
+  test('prepare-release.sh --package rules bumps only packages/rules and opens a rules-v PR', () => {
+    const base = tracker.create('prep-rules');
+    const remote = join(base, 'origin.git');
+    const clone = join(base, 'work');
+    const bin = join(base, 'bin');
+    const ghLog = join(base, 'gh.log');
+    mkdirSync(bin, { recursive: true });
+
+    spawnSync('git', ['init', '-q', '--bare', '-b', 'main', remote], { encoding: 'utf8' });
+    spawnSync('git', ['clone', '-q', remote, clone], { encoding: 'utf8' });
+    const git = (...args: string[]) => {
+      const r = spawnSync('git', ['-c', 'user.email=t@example.test', '-c', 'user.name=t', ...args], {
+        cwd: clone,
+        encoding: 'utf8',
+      });
+      if (r.status !== 0) throw new Error(r.stderr);
+      return r.stdout.trim();
+    };
+    git('config', 'user.email', 't@example.test');
+    git('config', 'user.name', 't');
+
+    mkdirSync(join(clone, 'scripts/lib'), { recursive: true });
+    writeFileSync(join(clone, 'scripts/prepare-release.sh'), readFileSync(join(root, 'scripts/prepare-release.sh')));
+    writeFileSync(join(clone, 'scripts/lib/check-publish-version.mjs'), readFileSync(join(root, 'scripts/lib/check-publish-version.mjs')));
+    writeFileSync(join(clone, 'package.json'), JSON.stringify({ name: 'test-mono', private: true, workspaces: ['packages/*'] }, null, 2));
+    mkdirSync(join(clone, 'packages/rules'), { recursive: true });
+    writeFileSync(join(clone, 'packages/rules/package.json'), `${JSON.stringify({ name: '@pyric/rules', version: '0.1.0' }, null, 2)}\n`);
+    for (const [dir, name] of [['pyric', 'pyric'], ['pyric-admin', 'pyric-admin'], ['create-pyric', 'create-pyric'], ['cli', '@pyric/cli'], ['ui', '@pyric/ui'], ['live', '@pyric/live']]) {
+      mkdirSync(join(clone, 'packages', dir ?? ''), { recursive: true });
+      writeFileSync(join(clone, 'packages', dir ?? '', 'package.json'), `${JSON.stringify({ name, version: '0.1.0-alpha.35' }, null, 2)}\n`);
+    }
+    writeFileSync(join(clone, 'bun.lock'), '# lock\n');
+    git('add', '-A');
+    git('commit', '-q', '-m', 'feat(rules): initial engine');
+    git('push', '-q', '-u', 'origin', 'main');
+
+    writeFileSync(join(bin, 'bun'), '#!/bin/bash\nexit 0\n');
+    writeFileSync(join(bin, 'gh'), `#!/bin/bash\necho "gh $*" >> "${ghLog}"\n`);
+    chmodSync(join(bin, 'bun'), 0o755);
+    chmodSync(join(bin, 'gh'), 0o755);
+
+    const run = spawnSync('/bin/bash', ['scripts/prepare-release.sh', '--package', 'rules', '0.1.1'], {
+      cwd: clone,
+      encoding: 'utf8',
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+    });
+    expect(run.status).toBe(0);
+    expect(git('rev-parse', '--abbrev-ref', 'HEAD')).toBe('release/rules-v0.1.1');
+    expect(git('log', '-n', '1', '--format=%s')).toBe('release: rules-v0.1.1');
+    expect((JSON.parse(readFileSync(join(clone, 'packages/rules/package.json'), 'utf8')) as { version: string }).version).toBe('0.1.1');
+    expect((JSON.parse(readFileSync(join(clone, 'packages/pyric/package.json'), 'utf8')) as { version: string }).version).toBe('0.1.0-alpha.35');
+    expect(readFileSync(ghLog, 'utf8')).toContain('--head release/rules-v0.1.1 --title release: rules-v0.1.1');
+    expect(readFileSync(ghLog, 'utf8')).toContain('--label ci-packaging');
+
+    const badPrep = spawnSync('/bin/bash', ['scripts/prepare-release.sh', '0.1.2', '--package', 'rules'], { cwd: clone, encoding: 'utf8' });
+    expect(badPrep.status).toBe(2);
+    expect((JSON.parse(readFileSync(join(clone, 'packages/pyric/package.json'), 'utf8')) as { version: string }).version).toBe('0.1.0-alpha.35');
+    const badPub = spawnSync('/bin/bash', [join(root, 'scripts/publish-alpha.sh'), '0.1.0', '--package', 'rules'], { cwd: root, encoding: 'utf8' });
+    expect(badPub.status).toBe(2);
+  }, 15_000);
+});
 
 describe('the proven-tarball stamp', () => {
   test('every gate passes, then the tarballs are stamped, then the first upload', () => {
-    const { result, commands } = runPublish();
+    const { result, commands } = runPublish(tracker);
     expect(result.status).toBe(0);
     const apps = commands.indexOf('bun test/apps/run.ts --packages dist/packages');
     const stamp = commands.indexOf(STAMP_WRITE);
     const publish = commands.findIndex((command) => command.startsWith('npm publish '));
-    expect(apps).toBeGreaterThanOrEqual(0);
     expect(apps).toBeLessThan(stamp);
     expect(stamp).toBeLessThan(publish);
     expect(commands).not.toContain(STAMP_VERIFY);
   });
 
-  test('a gate-skipping rerun checks the stamp first, before the release smoke, and does not stamp', () => {
-    const { result, commands } = runPublish({ skip: true });
+  test('a gate-skipping rerun checks the stamp first and refuses tampered tarballs', () => {
+    const { result, commands } = runPublish(tracker, { skip: true });
     expect(result.status).toBe(0);
     const verify = commands.indexOf(STAMP_VERIFY);
     const smoke = commands.findIndex((command) => command.startsWith('bash scripts/release-smoke.sh'));
     expect(verify).toBeGreaterThanOrEqual(0);
     expect(verify).toBeLessThan(smoke);
     expect(commands).not.toContain(STAMP_WRITE);
+
+    const bad = runPublish(tracker, { skip: true, failCommand: STAMP_VERIFY });
+    expect(bad.result.status).toBe(17);
+    expect(bad.commands.some((command) => command.startsWith('npm publish '))).toBe(false);
   });
 
-  test('a gate-skipping rerun whose tarballs the stamp does not match uploads nothing', () => {
-    const { result, commands } = runPublish({ skip: true, failCommand: STAMP_VERIFY });
-    expect(result.status).toBe(17);
-    expect(commands.some((command) => command.startsWith('npm publish '))).toBe(false);
-  });
-});
+  test('real stamp inside publish-alpha.sh rejects mid-gate swaps, protects against post-check swaps, and clears stamp on failure', () => {
+    expect(publishForReal(realStampRepo(tracker)).uploads).toEqual(PACKED_UPLOADS);
 
-/** The real tools, found before a test puts its stubs first on PATH. */
-const REAL_NODE = spawnSync('which', ['node'], { encoding: 'utf8' }).stdout.trim();
+    const midgate = publishForReal(realStampRepo(tracker), { MIDGATE: '1' });
+    expect(midgate.result.status).toBe(1);
+    expect(midgate.result.stderr).toContain('pyric-cli-0.1.0-alpha.9.tgz is not the file the pack names');
+    expect(midgate.uploads).toEqual([]);
 
-/** Run the real pack-packages.sh with stubbed tools, into `out`. */
-function runPack(out: string, stubs: Record<string, string>) {
-  const work = mkdtempSync(join(tmpdir(), 'pyric-pack-'));
-  workDirs.push(work);
-  const bin = join(work, 'bin');
-  Bun.spawnSync(['mkdir', '-p', bin]);
-  for (const [name, script] of Object.entries(stubs)) {
-    writeFileSync(join(bin, name), `#!/bin/bash\n${script}\n`);
-    chmodSync(join(bin, name), 0o755);
-  }
-  return spawnSync('/bin/bash', [join(root, 'scripts/pack-packages.sh'), '--out', out, ...(stubs.bash ? [] : ['--skip-build'])], {
-    cwd: root,
-    encoding: 'utf8',
-    env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
-  });
-}
+    const race = publishForReal(realStampRepo(tracker), { RACE: '1' });
+    expect(race.result.status).toBe(0);
+    expect(race.uploads).toEqual(PACKED_UPLOADS);
 
-function staleOutDir(): string {
-  const out = mkdtempSync(join(tmpdir(), 'pyric-pack-out-'));
-  workDirs.push(out);
-  writeFileSync(join(out, 'pyric-0.1.0-alpha.8.tgz'), 'an older pack');
-  writeFileSync(join(out, 'proven.json'), '{}');
-  writeFileSync(join(out, 'notes.txt'), 'not the pack\'s');
-  return out;
-}
-
-/** npm pack as a stub: a tarball holding the package's manifest, named the way npm names it. */
-const NPM_PACK = `if [ "$1" = pack ]; then
-  dest="$4"; name=$(jq -r .name package.json); version=$(jq -r .version package.json)
-  file="$(printf '%s' "\${name#@}" | tr / -)-\${version}.tgz"
-  tmp=$(mktemp -d); mkdir -p "$tmp/package"; cp package.json "$tmp/package/"
-  tar -czf "$dest/$file" -C "$tmp" package; echo "$file"; exit 0
-fi
-echo "npm stub: unexpected npm $*" >&2; exit 64`;
-
-describe('a pack that fails leaves no tarball behind', () => {
-  test('a failed build removes the older pack and its stamp, and keeps other files', () => {
-    const out = staleOutDir();
-    const run = runPack(out, { bash: 'exit 17' });
-    expect(run.status).not.toBe(0);
-    expect(readdirSync(out).sort()).toEqual(['notes.txt']);
-  });
-
-  test('a tarball that fails its own check is removed, with every tarball already packed', () => {
-    const out = staleOutDir();
-    const run = runPack(out, {
-      npm: NPM_PACK,
-      node: `if [[ "$1" == *verify-published-sourcemaps.mjs ]] && grep -q '"name": "pyric-admin"' "$2/package.json"; then echo "broken source map" >&2; exit 3; fi\nexec ${REAL_NODE} "$@"`,
-    });
-    expect(run.status).not.toBe(0);
-    expect(run.stderr).toContain('broken source map');
-    expect(readdirSync(out).sort()).toEqual(['notes.txt']);
-  });
-});
-
-/**
- * publish-alpha.sh with the real node (check-publish-version and
- * proven-stamp), in a scratch git repo holding copies of the scripts, with
- * npm, bun and bash stubbed. The bash stub packs the way pack-packages.sh
- * does: six tarballs, a manifest, and a real `proven-stamp.mjs record`.
- */
-function realStampRepo(): string {
-  const repo = mkdtempSync(join(tmpdir(), 'pyric-publish-real-stamp-'));
-  workDirs.push(repo);
-  const git = (...args: string[]) => {
-    const run = spawnSync('git', ['-c', 'user.email=t@example.test', '-c', 'user.name=t', ...args], { cwd: repo, encoding: 'utf8' });
-    if (run.status !== 0) throw new Error(run.stderr);
-    return run.stdout.trim();
-  };
-  git('init', '-q');
-  for (const path of ['scripts/publish-alpha.sh', 'scripts/lib/check-publish-version.mjs', 'scripts/lib/check-publish-access.mjs', 'scripts/lib/proven-stamp.mjs']) {
-    if (!existsSync(join(root, path))) continue;
-    mkdirSync(dirname(join(repo, path)), { recursive: true });
-    writeFileSync(join(repo, path), readFileSync(join(root, path)));
-  }
-  for (const [dir, name] of [['pyric', 'pyric'], ['pyric-admin', 'pyric-admin'], ['create-pyric', 'create-pyric'], ['cli', '@pyric/cli'], ['ui', '@pyric/ui'], ['live', '@pyric/live']]) {
-    mkdirSync(join(repo, 'packages', dir ?? ''), { recursive: true });
-    writeFileSync(join(repo, 'packages', dir ?? '', 'package.json'), JSON.stringify({ name, version: '0.1.0-alpha.9' }));
-  }
-  writeFileSync(join(repo, '.gitignore'), 'dist/\nbin/\ncommands.log\n');
-  git('add', '-A');
-  git('commit', '-q', '-m', 'release');
-  return repo;
-}
-
-/** What `npm access list packages <user> --json` prints: package name to `read-write` or `read-only`. */
-// The release itself runs with these set (the preflight runs this file), so a test that
-// inherits them would test the owner's release settings instead of its own.
-function envWithoutReleaseSettings(): NodeJS.ProcessEnv {
-  const env = { ...process.env };
-  for (const name of ['PYRIC_PUBLISH_SCOPE_WRITE', 'PYRIC_PUBLISH_SKIP_GATES', 'PYRIC_PUBLISH_TAG', 'PYRIC_NPM_REGISTRY']) delete env[name];
-  return env;
-}
-
-const PUBLISHED_NAMES = ['pyric', 'pyric-admin', 'create-pyric', '@pyric/cli', '@pyric/ui', '@pyric/live'];
-const accessJson = (names: string[], permission = 'read-write') =>
-  JSON.stringify(Object.fromEntries(names.map((name) => [name, permission])));
-const ALL_READ_WRITE = accessJson(PUBLISHED_NAMES);
-const FIVE_EXISTING = accessJson(PUBLISHED_NAMES.filter((name) => name !== '@pyric/live'));
-
-function publishForReal(repo: string, env: Record<string, string> = {}) {
-  const bin = join(repo, 'bin');
-  mkdirSync(bin, { recursive: true });
-  const log = join(repo, 'commands.log');
-  const packages = join(repo, 'dist/packages');
-  const realNode = spawnSync('which', ['node'], { encoding: 'utf8' }).stdout.trim();
-  const stubs: Record<string, string> = {
-    npm: `echo "npm $*" >> "${log}"
-if [ "$1" = whoami ]; then echo releaser; exit 0; fi
-if [ "$1 $2 $3" = "access list packages" ]; then
-  if [ "\${LISTING_FAILS:-}" = 1 ]; then echo "npm error code E403" >&2; exit 1; fi
-  printf '%s\\n' "$ACCESS_JSON"; exit 0
-fi
-if [ "$1 $2 $3" = "access list collaborators" ]; then
-  if [ "\${COLLABORATORS_FAIL:-}" = 1 ]; then echo "npm error code E403" >&2; exit 1; fi
-  printf '%s\\n' "$COLLABORATORS_JSON"; exit 0
-fi
-if [ "$1" = view ]; then
-  if [ "\${VIEW_FAILS:-}" = "$2" ]; then echo "npm error code ECONNRESET" >&2; exit 1; fi
-  case " \${NEW_PACKAGES:-} " in *" $2 "*) echo "npm error code E404" >&2; echo "npm error 404 Not Found - GET https://registry.npmjs.org/$2" >&2; exit 1;; esac
-  echo "$2"; exit 0
-fi
-if [ "$1" = publish ]; then
-  echo "uploaded $(basename "$2") $(cat "$2")" >> "${log}"
-  if [ "\${RACE:-}" = 1 ]; then echo "swapped after the check" > "${packages}/pyric-cli-0.1.0-alpha.9.tgz"; fi
-fi`,
-    bun: `echo "bun $*" >> "${log}"
-if [ "\${MIDGATE:-}" = 1 ] && [ "$1" = test/apps/run.ts ]; then echo "a concurrent repack" > "${packages}/pyric-cli-0.1.0-alpha.9.tgz"; fi
-if [ "\${TESTS_FAIL:-}" = 1 ] && [ "$*" = "run test" ]; then exit 1; fi`,
-    bash: `echo "bash $*" >> "${log}"
-if [ "$1" = scripts/pack-packages.sh ]; then
-  mkdir -p "${packages}"; rm -f "${packages}"/*.tgz "${packages}"/*.json
-  for n in pyric pyric-admin create-pyric pyric-cli pyric-ui pyric-live; do echo "packed $n" > "${packages}/$n-0.1.0-alpha.9.tgz"; done
-  echo '{"packages":[]}' > "${packages}/manifest.json"
-  ${realNode} "${repo}/scripts/lib/proven-stamp.mjs" record "${packages}" "${repo}" "$(git -C "${repo}" rev-parse HEAD)" true
-fi`,
-  };
-  for (const [name, script] of Object.entries(stubs)) {
-    writeFileSync(join(bin, name), `#!/bin/bash\n${script}\nexit 0\n`);
-    chmodSync(join(bin, name), 0o755);
-  }
-  writeFileSync(log, '');
-  const result = spawnSync('/bin/bash', [join(repo, 'scripts/publish-alpha.sh'), '--dry-run', '0.1.0-alpha.9'], {
-    cwd: repo,
-    encoding: 'utf8',
-    env: { ...envWithoutReleaseSettings(), ACCESS_JSON: ALL_READ_WRITE, COLLABORATORS_JSON: '{}', ...env, PATH: `${bin}:${process.env.PATH}`, PYRIC_PUBLISH_TAG: 'exp' },
-  });
-  const commands = readFileSync(log, 'utf8').split('\n');
-  const uploads = commands.filter((line) => line.startsWith('uploaded '));
-  return { result, uploads, commands };
-}
-
-const PACKED_UPLOADS = ['pyric', 'pyric-admin', 'create-pyric', 'pyric-cli', 'pyric-ui', 'pyric-live'].map((name) => `uploaded ${name}-0.1.0-alpha.9.tgz packed ${name}`);
-
-describe('the stamp, with the real node, inside publish-alpha.sh', () => {
-  test('a run whose gates pass uploads the six packed tarballs', () => {
-    const { result, uploads } = publishForReal(realStampRepo());
-    expect(result.status).toBe(0);
-    expect(uploads).toEqual(PACKED_UPLOADS);
-  });
-
-  test('a tarball something swapped during the gates is not stamped, and nothing uploads', () => {
-    const { result, uploads } = publishForReal(realStampRepo(), { MIDGATE: '1' });
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain('pyric-cli-0.1.0-alpha.9.tgz is not the file the pack names');
-    expect(uploads).toEqual([]);
-  });
-
-  test('a tarball swapped in dist/packages after the last check does not change what uploads', () => {
-    const { result, uploads } = publishForReal(realStampRepo(), { RACE: '1' });
-    expect(result.status).toBe(0);
-    expect(uploads).toEqual(PACKED_UPLOADS);
-  });
-
-  test('after a run whose tests fail, a gate-skipping rerun finds no stamp and uploads nothing', () => {
-    const repo = realStampRepo();
+    const repo = realStampRepo(tracker);
     expect(publishForReal(repo).result.status).toBe(0);
     expect(publishForReal(repo, { TESTS_FAIL: '1' }).result.status).toBe(1);
     const rerun = publishForReal(repo, { PYRIC_PUBLISH_SKIP_GATES: '1' });
     expect(rerun.result.status).toBe(1);
     expect(rerun.result.stderr).toContain('no gate run proved these tarballs');
     expect(rerun.uploads).toEqual([]);
-  });
+  }, 30_000);
 });
 
 describe('publish access is checked for every package before any gate or upload (#2029)', () => {
-  test('a token that can publish every listed package passes and uploads all six', () => {
-    const { result, uploads, commands } = publishForReal(realStampRepo());
-    expect(result.status).toBe(0);
-    expect(commands).toContain('npm access list packages releaser --json');
-    expect(uploads).toEqual(PACKED_UPLOADS);
-  });
+  test('enforces read-write access, scope acknowledgement for new packages, collaborator fallback, and non-404 errors', () => {
+    const ok = publishForReal(realStampRepo(tracker));
+    expect(ok.result.status).toBe(0);
+    expect(ok.commands).toContain('npm access list packages releaser --json');
+    expect(ok.uploads).toEqual(PACKED_UPLOADS);
 
-  test('a package not yet on the registry is refused before the gates, naming it and the scope access it needs', () => {
-    const { result, uploads, commands } = publishForReal(realStampRepo(), { ACCESS_JSON: FIVE_EXISTING, NEW_PACKAGES: '@pyric/live' });
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain('@pyric/live');
-    expect(result.stderr).toContain('not on the registry yet');
-    expect(result.stderr).toContain('read-write access to the @pyric scope');
-    expect(result.stderr).toContain('PYRIC_PUBLISH_SCOPE_WRITE=@pyric');
-    expect(commands).not.toContain('bun run test');
-    expect(commands.some((command) => command.startsWith('npm publish '))).toBe(false);
-    expect(uploads).toEqual([]);
-  });
+    const newRefused = publishForReal(realStampRepo(tracker), { ACCESS_JSON: FIVE_EXISTING, NEW_PACKAGES: '@pyric/live' });
+    expect(newRefused.result.status).toBe(1);
+    expect(newRefused.result.stderr).toContain('PYRIC_PUBLISH_SCOPE_WRITE=@pyric');
+    expect(newRefused.commands).not.toContain('bun run test');
 
-  test('the owner acknowledging a scope-wide token lets the new package through', () => {
-    const { result, uploads } = publishForReal(realStampRepo(), {
-      ACCESS_JSON: FIVE_EXISTING, NEW_PACKAGES: '@pyric/live', PYRIC_PUBLISH_SCOPE_WRITE: '@pyric',
+    const newAck = publishForReal(realStampRepo(tracker), {
+      ACCESS_JSON: FIVE_EXISTING,
+      NEW_PACKAGES: '@pyric/live',
+      PYRIC_PUBLISH_SCOPE_WRITE: '@pyric',
     });
-    expect(result.status).toBe(0);
-    expect(result.stdout).toContain('@pyric/live');
-    expect(uploads).toEqual(PACKED_UPLOADS);
-  });
+    expect(newAck.result.status).toBe(0);
+    expect(newAck.uploads).toEqual(PACKED_UPLOADS);
 
-  test('an acknowledgement for another scope does not cover the new package', () => {
-    const { result, uploads } = publishForReal(realStampRepo(), {
-      ACCESS_JSON: FIVE_EXISTING, NEW_PACKAGES: '@pyric/live', PYRIC_PUBLISH_SCOPE_WRITE: '@other',
+    expect(
+      publishForReal(realStampRepo(tracker), {
+        ACCESS_JSON: FIVE_EXISTING,
+        NEW_PACKAGES: '@pyric/live',
+        PYRIC_PUBLISH_SCOPE_WRITE: '@other',
+      }).result.status,
+    ).toBe(1);
+
+    const readOnly = JSON.stringify({ ...JSON.parse(ALL_READ_WRITE), 'pyric-admin': 'read-only' });
+    expect(publishForReal(realStampRepo(tracker), { ACCESS_JSON: readOnly, PYRIC_PUBLISH_SCOPE_WRITE: '@pyric' }).result.status).toBe(1);
+
+    const missingUi = accessJson(PUBLISHED_NAMES.filter((name) => name !== '@pyric/ui'));
+    expect(publishForReal(realStampRepo(tracker), { ACCESS_JSON: missingUi }).result.status).toBe(1);
+
+    const collabOk = publishForReal(realStampRepo(tracker), {
+      LISTING_FAILS: '1',
+      COLLABORATORS_JSON: JSON.stringify({ releaser: 'read-write', someone: 'read-only' }),
     });
-    expect(result.status).toBe(1);
-    expect(uploads).toEqual([]);
-  });
+    expect(collabOk.result.status).toBe(0);
+    expect(collabOk.commands).toContain('npm access list collaborators @pyric/live --json');
 
-  test('an existing package the account can only read is refused, and the acknowledgement does not cover it', () => {
-    const access = JSON.stringify({ ...JSON.parse(ALL_READ_WRITE), 'pyric-admin': 'read-only' });
-    const { result, uploads } = publishForReal(realStampRepo(), { ACCESS_JSON: access, PYRIC_PUBLISH_SCOPE_WRITE: '@pyric' });
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain('pyric-admin');
-    expect(result.stderr).toContain('read-only');
-    expect(uploads).toEqual([]);
-  });
+    expect(publishForReal(realStampRepo(tracker), { LISTING_FAILS: '1', COLLABORATORS_FAIL: '1' }).result.status).toBe(1);
+    expect(
+      publishForReal(realStampRepo(tracker), {
+        LISTING_FAILS: '1',
+        COLLABORATORS_JSON: JSON.stringify({ releaser: 'read-only' }),
+      }).result.status,
+    ).toBe(1);
+    expect(publishForReal(realStampRepo(tracker), { ACCESS_JSON: 'null' }).result.stderr).not.toContain('TypeError');
+    expect(
+      publishForReal(realStampRepo(tracker), {
+        ACCESS_JSON: FIVE_EXISTING,
+        VIEW_FAILS: '@pyric/live',
+        PYRIC_PUBLISH_SCOPE_WRITE: '@pyric',
+      }).result.status,
+    ).toBe(1);
 
-  test('an existing package missing from the account\'s list is refused', () => {
-    const access = accessJson(PUBLISHED_NAMES.filter((name) => name !== '@pyric/ui'));
-    const { result, uploads } = publishForReal(realStampRepo(), { ACCESS_JSON: access });
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain('@pyric/ui');
-    expect(uploads).toEqual([]);
-  });
-
-  test('a failed account listing falls back to each package\'s collaborators, and passes a read-write account', () => {
-    const { result, uploads, commands } = publishForReal(realStampRepo(), {
-      LISTING_FAILS: '1', COLLABORATORS_JSON: JSON.stringify({ releaser: 'read-write', someone: 'read-only' }),
-    });
-    expect(result.status).toBe(0);
-    expect(commands).toContain('npm access list collaborators @pyric/live --json');
-    expect(uploads).toEqual(PACKED_UPLOADS);
-  });
-
-  test('a failed account listing whose collaborators fallback fails too is refused', () => {
-    const { result, uploads } = publishForReal(realStampRepo(), { LISTING_FAILS: '1', COLLABORATORS_FAIL: '1' });
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain('collaborator list failed (npm error code E403)');
-    expect(uploads).toEqual([]);
-  });
-
-  test('a collaborator list that holds the account read-only is refused', () => {
-    const { result, uploads } = publishForReal(realStampRepo(), {
-      LISTING_FAILS: '1', COLLABORATORS_JSON: JSON.stringify({ releaser: 'read-only' }),
-    });
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain('read-only access as a collaborator');
-    expect(uploads).toEqual([]);
-  });
-
-  test('a listing that prints null is refused, not a crash', () => {
-    const { result, uploads } = publishForReal(realStampRepo(), { ACCESS_JSON: 'null' });
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain('npm access list packages releaser did not print JSON');
-    expect(result.stderr).not.toContain('TypeError');
-    expect(uploads).toEqual([]);
-  });
-
-  test('a registry lookup that fails for a reason other than E404 is refused, even with the acknowledgement', () => {
-    const { result, uploads } = publishForReal(realStampRepo(), {
-      ACCESS_JSON: FIVE_EXISTING, VIEW_FAILS: '@pyric/live', PYRIC_PUBLISH_SCOPE_WRITE: '@pyric',
-    });
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain('@pyric/live: not in the account\'s package list, and the registry lookup failed (npm error code ECONNRESET)');
-    expect(uploads).toEqual([]);
-  });
-
-  test('the check runs before the gates on a real release, a dry run and a gate-skipping rerun', () => {
     for (const options of [{}, { dryRun: true }, { skip: true }]) {
-      const { result, commands } = runPublish(options);
+      const { result, commands } = runPublish(tracker, options);
       expect(result.status).toBe(0);
       const check = commands.findIndex((command) => command.includes('scripts/lib/check-publish-access.mjs'));
       const smoke = commands.findIndex((command) => command.startsWith('bash scripts/release-smoke.sh'));
-      const publish = commands.findIndex((command) => command.startsWith('npm publish '));
-      expect(check).toBeGreaterThanOrEqual(0);
       expect(check).toBeLessThan(smoke);
-      expect(check).toBeLessThan(publish);
-      expect(commands[check]).toContain(PUBLISHED_NAMES.join(' '));
     }
-  });
+  }, 30_000);
 });
 
-describe('an interrupted pack leaves no tarball behind', () => {
+describe('a pack that fails or is interrupted leaves no tarball behind', () => {
+  test('a failed build or broken source map removes older tarballs and keeps unrelated files', () => {
+    const out1 = staleOutDir(tracker);
+    expect(runPack(tracker, out1, { bash: 'exit 17' }).status).not.toBe(0);
+    expect(readdirSync(out1).sort()).toEqual(['notes.txt']);
+
+    const out2 = staleOutDir(tracker);
+    const broken = runPack(tracker, out2, {
+      npm: NPM_PACK_STUB,
+      node: `if [[ "$1" == *verify-published-sourcemaps.mjs ]] && grep -q '"name": "pyric-admin"' "$2/package.json"; then echo "broken source map" >&2; exit 3; fi\nexec ${REAL_NODE} "$@"`,
+    });
+    expect(broken.status).not.toBe(0);
+    expect(broken.stderr).toContain('broken source map');
+    expect(readdirSync(out2).sort()).toEqual(['notes.txt']);
+  });
+
   for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
     test(`${signal} during the build clears the older pack and its stamp`, async () => {
-      const out = staleOutDir();
-      const work = mkdtempSync(join(tmpdir(), 'pyric-pack-signal-'));
-      workDirs.push(work);
+      const out = staleOutDir(tracker);
+      const work = tracker.create('pack-sig');
       const bin = join(work, 'bin');
       mkdirSync(bin);
       writeFileSync(join(bin, 'bash'), '#!/bin/bash\nexec sleep 30\n');
       chmodSync(join(bin, 'bash'), 0o755);
-      // Its own process group, as a shell gives a command; the signal goes to the group.
       const pack = spawn('/bin/bash', [join(root, 'scripts/pack-packages.sh'), '--out', out], {
-        cwd: root, detached: true, stdio: 'ignore', env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+        cwd: root,
+        detached: true,
+        stdio: 'ignore',
+        env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
       });
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, 1500));
       process.kill(-(pack.pid ?? 0), signal);
-      const code = await new Promise<number | null>((resolve) => pack.once('close', (exitCode) => resolve(exitCode)));
+      const code = await new Promise<number | null>((resolvePromise) =>
+        pack.once('close', (exitCode) => resolvePromise(exitCode)),
+      );
       expect(code).not.toBe(0);
       expect(readdirSync(out).sort()).toEqual(['notes.txt']);
     }, 15_000);
