@@ -206,11 +206,10 @@ export function resolveOidcJwtIdentity(
 
   if (existing !== undefined) {
     backend.assertSignInAllowed(existing.uid);
-    const callerDecidesVerification = decoded.emailVerified !== undefined;
     backend.createSignInCredential({
       providerId: input.providerId,
       uid: existing.uid,
-      verifyEmail: !callerDecidesVerification,
+      verifyEmail: decoded.emailVerified !== false,
     });
 
     const updateReq: UpdateUserRequest = {};

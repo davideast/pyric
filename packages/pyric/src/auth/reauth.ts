@@ -137,9 +137,26 @@ async function reauthViaFlow(
   target.backend.assertProviderEnabled(provider.providerId);
   const req: AuthFlowRequest = { providerId: provider.providerId, authType: 'reauth' };
   const resolver = perCall ?? target.backend.getResolver();
-  const resolved = resolver
-    ? (kind === 'popup' ? await resolver.openPopup(req) : await resolver.openRedirect(req))
-    : target.backend.consumeMockResult(provider.providerId);
+  let resolved: UserCredential | undefined;
+  if (resolver) {
+    if (kind === 'popup') {
+      resolved = await resolver.openPopup(req);
+    } else {
+      resolved = await resolver.openRedirect(req);
+    }
+  } else {
+    resolved = target.backend.consumeMockResult(provider.providerId);
+    if (!resolved) {
+      const hostResolver = SandboxBackend.hostResolverOf(target.backend);
+      if (hostResolver) {
+        if (kind === 'popup') {
+          resolved = await hostResolver.openPopup(req);
+        } else {
+          resolved = await hostResolver.openRedirect(req);
+        }
+      }
+    }
+  }
   if (!resolved) {
     throw makeAuthError(
       'auth/argument-error',

@@ -10,11 +10,13 @@ import {
   type User,
 } from 'pyric/auth';
 import {
+  absoluteProviderPhotoUrls,
   assertMatchingTenant,
   isFederatedProviderId,
   normalizeTenantScope,
   sessionKeyOf,
 } from 'pyric/auth/internal';
+import { absolutePhotoUrl, realmOrigin } from 'pyric/sandbox/internal';
 import { serializeUser, type SerializedIdTokenResult, type SerializedUser } from '../protocol.js';
 import { FirebaseError } from 'pyric/app';
 
@@ -71,7 +73,20 @@ export function isAcceptedIdentityProviderId(providerId: string): boolean {
 
 /** A session's user in wire form, with the session key a reloaded page hands back (#1950). */
 export function serializeSessionUser(user: User | null): SerializedUser | null {
-  return serializeUser(user, user === null ? undefined : sessionKeyOf(user));
+  let sessionKey: string | undefined;
+  if (user !== null) {
+    sessionKey = sessionKeyOf(user);
+  }
+  const serialized = serializeUser(user, sessionKey);
+  if (serialized === null) {
+    return null;
+  }
+  const origin = realmOrigin();
+  return {
+    ...serialized,
+    photoURL: absolutePhotoUrl(serialized.photoURL, origin),
+    providerData: absoluteProviderPhotoUrls(serialized.providerData, origin),
+  };
 }
 
 /** Payload describing an OAuth credential submitted for sign-in over the bridge. */
@@ -215,6 +230,7 @@ export function applyProfileToUser(
 export function resolveOAuthCredentialUser(
   auth: Auth,
   credential: OAuthCredentialPayload,
+  options?: { readonly preserveExistingProfile?: boolean },
 ): { uid: string; isNewUser: boolean } {
   if (!isAcceptedIdentityProviderId(credential.providerId)) {
     throw new FirebaseError('invalid-argument', 'Invalid sandbox operation field: identity.providerId.');
@@ -248,19 +264,27 @@ export function resolveOAuthCredentialUser(
   const callerDecidesVerification = credential.emailVerified !== undefined;
   if (existing) {
     assertMatchingTenant(existing, targetTenant);
+    if (existing.disabled) {
+      throw new FirebaseError(
+        'auth/user-disabled',
+        'The user account has been disabled by an administrator.',
+      );
+    }
     // A caller's flag leaves an existing account's flag as stored.
     authSandboxOps.createSignInCredential(auth, {
       providerId: credential.providerId, uid: targetUid, verifyEmail: !callerDecidesVerification,
     });
-    authSandboxOps.updateUser(auth, targetUid, {
-      displayName: credential.displayName ?? existing.displayName,
-      email: credential.email ?? existing.email ?? undefined,
-    });
-    if (credential.photoURL !== undefined) {
-      authSandboxOps.updateProfile(auth, targetUid, {
-        photoURL: credential.photoURL,
+    if (options?.preserveExistingProfile !== true) {
+      authSandboxOps.updateUser(auth, targetUid, {
         displayName: credential.displayName ?? existing.displayName,
+        email: credential.email ?? existing.email ?? undefined,
       });
+      if (credential.photoURL !== undefined) {
+        authSandboxOps.updateProfile(auth, targetUid, {
+          photoURL: credential.photoURL,
+          displayName: credential.displayName ?? existing.displayName,
+        });
+      }
     }
   } else {
     const createReq: Record<string, unknown> = {

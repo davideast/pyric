@@ -5,6 +5,8 @@
 import { makeAuthError } from '../auth-errors.js';
 import type { StoredUser, UpdateUserRequest } from '../sandbox-backend-types.js';
 import { validateEmailFormat } from '../sandbox-credential-validators.js';
+import { normalizeStoredPhotoUrl } from './photo-origin.js';
+import type { AuthProjectStore } from './project-store.js';
 import { tenantEmailKey, unindexStoredUserEmail } from './tenant-isolation.js';
 
 function belongsToTenant(user: StoredUser, tenantId: string | null): boolean {
@@ -37,9 +39,9 @@ export function applyAdminUserUpdateFields(params: {
   update: UpdateUserRequest;
   usersByUid: ReadonlyMap<string, StoredUser>;
   usersByEmail: Map<string, StoredUser>;
-  photoOriginByUid: Map<string, string>;
+  projectStore: AuthProjectStore;
 }): void {
-  const { stored, update, usersByUid, usersByEmail, photoOriginByUid } = params;
+  const { stored, update, usersByUid, usersByEmail, projectStore } = params;
   const targetTenant = stored.tenantId ?? null;
 
   // Validate all candidate field constraints before mutating stored state or indexes.
@@ -87,8 +89,12 @@ export function applyAdminUserUpdateFields(params: {
   }
 
   if (update.photoUrl !== undefined) {
-    stored.photoUrl = update.photoUrl;
-    photoOriginByUid.delete(stored.uid);
+    stored.photoUrl = normalizeStoredPhotoUrl(
+      projectStore,
+      stored.uid,
+      update.photoUrl,
+      true,
+    );
   }
   if (update.displayName !== undefined) stored.displayName = update.displayName;
   if (update.disabled !== undefined) stored.disabled = update.disabled;

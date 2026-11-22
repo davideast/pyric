@@ -108,4 +108,24 @@ describe('sandbox.mockSignInResult with a served hook', () => {
     expect(code).toBe('invalid-argument');
     expect(hook.calls).toHaveLength(0);
   });
+
+  it('refuses an empty or whitespace uid with SandboxError(invalid-argument) on both in-page and served handles', () => {
+    const inPageAuth = getAuth(initializeSandbox());
+    const hook = recordingHook();
+    const served = attachHook({}, hook);
+
+    for (const handle of [inPageAuth, served]) {
+      for (const badUid of ['', '   ']) {
+        let caught: unknown;
+        try {
+          authSandbox.mockSignInResult(handle, googleResult(badUid));
+        } catch (err) {
+          caught = err;
+        }
+        expect(caught).toBeInstanceOf(SandboxError);
+        expect((caught as SandboxError).code).toBe('invalid-argument');
+      }
+    }
+    expect(hook.calls).toHaveLength(0);
+  });
 });

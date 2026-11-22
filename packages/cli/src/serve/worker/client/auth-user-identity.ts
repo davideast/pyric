@@ -75,6 +75,20 @@ export function applyClientUserSessionKey(
   });
 }
 
+/** Resolve relative avatar `photoURL` entries on a `ClientUser.providerData` array. */
+export function resolveClientProviderData(
+  entries: SerializedUser['providerData'],
+): SerializedUser['providerData'] {
+  const origin = realmOrigin();
+  return entries.map((entry) => {
+    const resolved = absolutePhotoUrl(entry.photoURL, origin);
+    if (resolved === entry.photoURL) {
+      return entry;
+    }
+    return { ...entry, photoURL: resolved };
+  });
+}
+
 /** Copy serialized wire fields onto a live `ClientUser` without leaking `sessionKey`. */
 export function applySerializedUserFields(target: ClientUser, raw: SerializedUser): ClientUser {
   const mutable = target as { -readonly [K in keyof ClientUser]: ClientUser[K] };
@@ -86,7 +100,7 @@ export function applySerializedUserFields(target: ClientUser, raw: SerializedUse
   mutable.isAnonymous = raw.isAnonymous;
   mutable.tenantId = raw.tenantId ?? null;
   mutable.providerId = raw.providerId;
-  mutable.providerData = raw.providerData;
+  mutable.providerData = resolveClientProviderData(raw.providerData);
   applyClientUserSessionKey(target, raw.sessionKey);
   return target;
 }

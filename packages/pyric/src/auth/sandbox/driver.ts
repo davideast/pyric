@@ -8,17 +8,19 @@ import {
   type OutboundAuthSms,
   type SendAuthSmsRequest,
 } from './blocking-dispatch.js';
-import type {
-  AuthUserRecord,
-  CreateUserRequest,
-  MintSessionRequest,
-  MintedSession,
-  SeedUser,
-  SignInIdentitySpec,
-  UpdateUserRequest,
+import {
+  SandboxBackend,
+  type AuthUserRecord,
+  type CreateUserRequest,
+  type MintSessionRequest,
+  type MintedSession,
+  type SeedUser,
+  type SignInIdentitySpec,
+  type UpdateUserRequest,
 } from '../sandbox-backend.js';
 import { targetOf, type SandboxTarget } from '../target.js';
 import type { AvatarMint } from './default-avatar.js';
+import { recordStorePhotoOrigin } from './photo-origin.js';
 import {
   TARGET_SYMBOL,
   type Auth,
@@ -55,6 +57,15 @@ function servedHookOf(auth: Auth): ServedSandboxHook | undefined {
  *  which keeps an in-page hook from calling itself. */
 function hasOwnTarget(auth: Auth): boolean {
   return TARGET_SYMBOL in auth;
+}
+
+/** Record a served port's HTTP(S) origin on the Auth handle's shared project store. */
+export function recordAuthPhotoOrigin(
+  auth: Auth,
+  origin: string | null | undefined,
+): void {
+  const store = SandboxBackend.projectStoreOf(requireSandbox(auth).backend);
+  recordStorePhotoOrigin(store, origin);
 }
 
 export const sandbox = {
@@ -118,10 +129,19 @@ export const sandbox = {
 
   mockSignInResult(auth: Auth, result: UserCredential): void {
     const providerId = result.providerId;
-    if (!providerId) {
+    const hasProvider = typeof providerId === 'string' && providerId.trim() !== '';
+    if (!hasProvider) {
       throw new SandboxError(
         'invalid-argument',
         'sandbox.mockSignInResult: result.providerId is required so the next signInWithPopup / signInWithCredential call can match.',
+      );
+    }
+    const uid = result.user?.uid;
+    const hasUid = typeof uid === 'string' && uid.trim() !== '';
+    if (!hasUid) {
+      throw new SandboxError(
+        'invalid-argument',
+        'sandbox.mockSignInResult: result.user.uid must be a non-empty string.',
       );
     }
     const hook = servedHookOf(auth);

@@ -6,11 +6,12 @@
  * true` on the ID token and `firebase.sign_in_provider: 'google.com'`, and
  * Security Rules read the same claim on `request.auth.token`. The picker lets
  * a developer type any address for a Google account, so a typed address is
- * verified too. An existing password or other-provider account keeps its own
- * flag: Firebase trusts Google for account linking only on `@gmail.com`, and
- * there it removes the unverified password, which the sandbox does not do.
- * A staged sign-in result keeps the caller's flag. Other federated providers
- * keep the account's own flag.
+ * verified too. On `@gmail.com`, Firebase trusts Google as authoritative and
+ * overwrites an unverified account (clearing any unverified password and
+ * unverified providers and marking `emailVerified: true`), while a verified
+ * account keeps its password and linked providers (#1814). Non-`@gmail.com`
+ * addresses and other federated providers keep the account's own flag, and a
+ * staged sign-in result keeps the caller's flag.
  */
 import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'bun:test';
@@ -20,6 +21,7 @@ import {
   getAuth,
   sandbox as authSandbox,
   signInWithPopup,
+  signInWithCredential,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut,
@@ -109,26 +111,106 @@ describe('Google picker sign-in marks the email verified', () => {
   });
 });
 
-describe('an existing account keeps its own flag on a Google sign-in', () => {
-  it('an unverified password account stays unverified, and its password still signs in', async () => {
+describe('Google sign-in on existing accounts (#1814)', () => {
+  it('overwrites an unverified @gmail.com password and GitHub account, removing the password and marking verified', async () => {
     const auth = providerAuth(initializeSandbox(), 'google.com');
+    authSandbox.setAuthProviderConfig(auth, 'github.com', true);
     const victim = 'victim@gmail.com';
     const created = await createUserWithEmailAndPassword(auth, victim, 'secret-pw');
+    authSandbox.createSignInCredential(auth, { providerId: 'github.com', uid: created.user.uid });
     await signOut(auth);
     authSandbox.setAuthFlowResolver(auth, typedResolver(auth, 'google.com', { email: victim }));
+
+    const { user } = await signInWithPopup(auth, new GoogleAuthProvider());
+    expect(user.uid).toBe(created.user.uid);
+    expect(user.emailVerified).toBe(true);
+    expect((await user.getIdTokenResult()).claims.email_verified).toBe(true);
+    expect(
+      authSandbox
+        .listUsers(auth)
+        .find((record) => record.uid === user.uid)
+        ?.providerUserInfo.map((p) => p.providerId),
+    ).toEqual(['google.com']);
+
+    await signOut(auth);
+    let pwCode: string | undefined;
+    try {
+      await signInWithEmailAndPassword(auth, victim, 'secret-pw');
+    } catch (err) {
+      pwCode = (err as { code?: string }).code;
+    }
+    expect(pwCode).toBe('auth/invalid-credential');
+  });
+
+  it('preserves password and linked providers when a @gmail.com account is already verified', async () => {
+    const auth = providerAuth(initializeSandbox(), 'google.com');
+    const owner = 'owner@gmail.com';
+    const created = await createUserWithEmailAndPassword(auth, owner, 'secret-pw');
+    authSandbox.updateUser(auth, created.user.uid, { emailVerified: true });
+    await signOut(auth);
+    authSandbox.setAuthFlowResolver(auth, typedResolver(auth, 'google.com', { email: owner }));
+
+    const { user } = await signInWithPopup(auth, new GoogleAuthProvider());
+    expect(user.uid).toBe(created.user.uid);
+    expect(user.emailVerified).toBe(true);
+    expect(
+      authSandbox
+        .listUsers(auth)
+        .find((record) => record.uid === user.uid)
+        ?.providerUserInfo.map((p) => p.providerId),
+    ).toEqual(['password', 'google.com']);
+
+    await signOut(auth);
+    const again = await signInWithEmailAndPassword(auth, owner, 'secret-pw');
+    expect(again.user.uid).toBe(created.user.uid);
+    expect(again.user.emailVerified).toBe(true);
+  });
+
+  it('overwrites an unverified @gmail.com account on OIDC JWT Google signInWithCredential', async () => {
+    const auth = providerAuth(initializeSandbox(), 'google.com');
+    const victim = 'oidc-victim@gmail.com';
+    const created = await createUserWithEmailAndPassword(auth, victim, 'secret-pw');
+    await signOut(auth);
+
+    const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url');
+    const payload = Buffer.from(
+      JSON.stringify({ sub: 'google-sub-1', email: victim, email_verified: true }),
+    ).toString('base64url');
+    const { user } = await signInWithCredential(
+      auth,
+      GoogleAuthProvider.credential(`${header}.${payload}.`),
+    );
+    expect(user.uid).toBe(created.user.uid);
+    expect(user.emailVerified).toBe(true);
+    expect(
+      authSandbox
+        .listUsers(auth)
+        .find((record) => record.uid === user.uid)
+        ?.providerUserInfo.map((p) => p.providerId),
+    ).toEqual(['google.com']);
+  });
+
+  it('keeps an unverified non-@gmail.com password account unverified and preserves its password', async () => {
+    const auth = providerAuth(initializeSandbox(), 'google.com');
+    const created = await createUserWithEmailAndPassword(auth, EMAIL, 'secret-pw');
+    await signOut(auth);
+    authSandbox.setAuthFlowResolver(auth, typedResolver(auth, 'google.com', { email: EMAIL }));
     const { user } = await signInWithPopup(auth, new GoogleAuthProvider());
     expect(user.uid).toBe(created.user.uid);
     expect(user.emailVerified).toBe(false);
     expect((await user.getIdTokenResult()).claims.email_verified).toBe(false);
-    expect(authSandbox.listUsers(auth).find((record) => record.uid === user.uid)?.providerUserInfo.map((p) => p.providerId))
-      .toEqual(['password', 'google.com']);
+    expect(
+      authSandbox
+        .listUsers(auth)
+        .find((record) => record.uid === user.uid)
+        ?.providerUserInfo.map((p) => p.providerId),
+    ).toEqual(['password', 'google.com']);
     await signOut(auth);
-    const again = await signInWithEmailAndPassword(auth, victim, 'secret-pw');
+    const again = await signInWithEmailAndPassword(auth, EMAIL, 'secret-pw');
     expect(again.user.emailVerified).toBe(false);
-    expect((await again.user.getIdTokenResult()).claims.email_verified).toBe(false);
   });
 
-  it('a GitHub account followed by a typed Google address stays unverified', async () => {
+  it('a GitHub account followed by a typed non-@gmail.com Google address stays unverified', async () => {
     const auth = providerAuth(initializeSandbox(), 'google.com');
     authSandbox.setAuthProviderConfig(auth, 'github.com', true);
     const github = authSandbox.createSignInCredential(auth, { providerId: 'github.com', spec: { email: EMAIL } });

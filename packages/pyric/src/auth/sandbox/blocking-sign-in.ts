@@ -15,6 +15,7 @@ import {
   type AuthBlockingProviderInfo,
   type AuthBlockingUserCandidate,
 } from './blocking-hooks.js';
+import { readStoredPhotoUrl } from './photo-origin.js';
 import { normalizeTenantScope } from './tenant-isolation.js';
 import { targetOf } from '../target.js';
 import type { Auth, User } from '../types.js';
@@ -42,6 +43,8 @@ export function buildBlockingUserCandidate(
   stored: StoredUser,
   override?: Partial<AuthBlockingUserCandidate>,
 ): AuthBlockingUserCandidate {
+  const store = SandboxBackend.projectStoreOf(backend);
+  const resolvedPhotoUrl = readStoredPhotoUrl(store, stored);
   const providerData: AuthBlockingProviderInfo[] = [];
   for (const entry of stored.providerUserInfo) {
     let providerUid = stored.uid;
@@ -53,7 +56,7 @@ export function buildBlockingUserCandidate(
       providerId: entry.providerId,
       displayName: stored.displayName,
       email: stored.email,
-      photoURL: stored.photoUrl,
+      photoURL: resolvedPhotoUrl,
       phoneNumber: stored.phoneNumber,
     });
   }
@@ -63,7 +66,7 @@ export function buildBlockingUserCandidate(
     customClaims = structuredClone(stored.customClaims);
   }
 
-  const tokensValidAfterMs = SandboxBackend.projectStoreOf(backend).tokensValidAfterMs.get(
+  const tokensValidAfterMs = store.tokensValidAfterMs.get(
     stored.uid,
   );
   let tokensValidAfterSeconds: number | null = null;
@@ -76,7 +79,7 @@ export function buildBlockingUserCandidate(
     email: stored.email,
     emailVerified: stored.emailVerified,
     displayName: stored.displayName,
-    photoURL: stored.photoUrl,
+    photoURL: resolvedPhotoUrl,
     phoneNumber: stored.phoneNumber,
     disabled: stored.disabled,
     creationTime: stored.createdAt,

@@ -31,6 +31,7 @@ import {
   reconcileMatchingCurrentUsers,
   registerPortAuthHandle,
   requireUserPort,
+  resolveClientProviderData,
   stampClientUserMetadata,
   syncClientUserFromWire,
 } from './auth-user-identity.js';
@@ -116,7 +117,7 @@ function makeClientUser(port: ClientPort, raw: SerializedUser): ClientUser {
     isAnonymous: raw.isAnonymous,
     tenantId: raw.tenantId ?? null,
     providerId: raw.providerId,
-    providerData: raw.providerData,
+    providerData: resolveClientProviderData(raw.providerData),
     async getIdToken(forceRefresh?: boolean) {
       return (await rpc(port, attachHeldUserIdentity(user, {
         t: 'op', id: nextId(), method: 'auth.getIdToken', forceRefresh,
@@ -448,7 +449,7 @@ export async function updateProfile(
   const mutable = user as { -readonly [K in keyof ClientUser]: ClientUser[K] };
   mutable.displayName = raw.displayName;
   mutable.photoURL = absolutePhotoUrl(raw.photoURL, realmOrigin());
-  mutable.providerData = raw.providerData;
+  mutable.providerData = resolveClientProviderData(raw.providerData);
   applyClientUserSessionKey(user, raw.sessionKey);
   reconcileMatchingCurrentUsers(port, raw);
 }
@@ -476,7 +477,7 @@ export async function updateEmail(user: ClientUser, newEmail: string): Promise<v
   const mutable = user as { -readonly [K in keyof ClientUser]: ClientUser[K] };
   mutable.email = raw.email;
   mutable.emailVerified = raw.emailVerified;
-  mutable.providerData = raw.providerData;
+  mutable.providerData = resolveClientProviderData(raw.providerData);
   applyClientUserSessionKey(user, raw.sessionKey);
   reconcileMatchingCurrentUsers(port, raw);
 }

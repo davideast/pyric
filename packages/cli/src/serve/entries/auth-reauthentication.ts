@@ -4,6 +4,7 @@ import { reauthenticateWithCredential as verifyWorkerCredential,
 import type { ClientUser } from '../worker/client/auth.js';
 import { useWorker } from './worker-runtime.js';
 import { resolveServeAuthFlow } from './auth-helper-runtime.js';
+import { afterPageBackend } from './page-backend-wait.js';
 
 async function reauthenticateProvider(
   user: inPage.User,
@@ -19,10 +20,19 @@ async function reauthenticateProvider(
   return { ...verified, user };
 }
 
-export const reauthenticateWithCredential = (useWorker ? verifyWorkerCredential : inPage.reauthenticateWithCredential) as typeof inPage.reauthenticateWithCredential;
-export const reauthenticateWithPopup: typeof inPage.reauthenticateWithPopup = useWorker
-  ? (user, provider, resolver) => reauthenticateProvider(user, provider, resolver, 'popup')
-  : inPage.reauthenticateWithPopup;
-export const reauthenticateWithRedirect: typeof inPage.reauthenticateWithRedirect = useWorker
-  ? (user, provider, resolver) => reauthenticateProvider(user, provider, resolver, 'redirect')
-  : inPage.reauthenticateWithRedirect;
+let resolvedReauthenticateWithCredential: typeof inPage.reauthenticateWithCredential;
+let resolvedReauthenticateWithPopup: typeof inPage.reauthenticateWithPopup;
+let resolvedReauthenticateWithRedirect: typeof inPage.reauthenticateWithRedirect;
+if (useWorker) {
+  resolvedReauthenticateWithCredential = verifyWorkerCredential as unknown as typeof inPage.reauthenticateWithCredential;
+  resolvedReauthenticateWithPopup = (user, provider, resolver) => reauthenticateProvider(user, provider, resolver, 'popup');
+  resolvedReauthenticateWithRedirect = (user, provider, resolver) => reauthenticateProvider(user, provider, resolver, 'redirect');
+} else {
+  resolvedReauthenticateWithCredential = afterPageBackend(inPage.reauthenticateWithCredential);
+  resolvedReauthenticateWithPopup = afterPageBackend(inPage.reauthenticateWithPopup);
+  resolvedReauthenticateWithRedirect = afterPageBackend(inPage.reauthenticateWithRedirect);
+}
+
+export const reauthenticateWithCredential: typeof inPage.reauthenticateWithCredential = resolvedReauthenticateWithCredential;
+export const reauthenticateWithPopup: typeof inPage.reauthenticateWithPopup = resolvedReauthenticateWithPopup;
+export const reauthenticateWithRedirect: typeof inPage.reauthenticateWithRedirect = resolvedReauthenticateWithRedirect;
