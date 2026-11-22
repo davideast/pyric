@@ -130,7 +130,18 @@ describe('loadSandboxSnapshot fail-closed decoding', () => {
       bucket.docs['items/a'] = { count: 999 };
     }
     writeFileSync(statePath, JSON.stringify(parsed));
-    expect(() => loadSandboxSnapshot(initializeSandbox(), dir)).toThrow(/corrupt or unsupported/i);
+    let mismatchError: Error | null = null;
+    try {
+      loadSandboxSnapshot(initializeSandbox(), dir);
+    } catch (error) {
+      if (error instanceof Error) mismatchError = error;
+      else mismatchError = new Error(String(error));
+    }
+    expect(mismatchError).not.toBeNull();
+    expect(mismatchError?.message).toMatch(/corrupt or unsupported/i);
+    expect(mismatchError?.message).toContain('pyric sandbox salvage --source');
+    expect(mismatchError?.message).toContain(join(dir, '.pyric', 'state'));
+    expect(mismatchError?.message).toContain('will not overwrite');
   });
 });
 
