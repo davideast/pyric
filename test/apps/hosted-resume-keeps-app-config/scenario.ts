@@ -6,8 +6,7 @@
 // RTDB rules instead of refusing it as an unconfigured instance.
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { createServer as createHttpServer } from 'node:http';
-import { connect } from 'node:net';
+import { connect, createServer } from 'node:net';
 import { join } from 'node:path';
 import { scenario, sleep, type AppProcess } from '../driver.ts';
 import { get } from '../peer-client.ts';
@@ -32,6 +31,28 @@ async function waitForHostReady(port: number, running: () => boolean): Promise<v
   }
 }
 
+function rewriteHttpHeaderPort(chunk: Buffer, proxyPort: number, hostPort: number): {
+  bytes: Buffer;
+  isWsUpgrade: boolean;
+} {
+  const headEnd = chunk.indexOf('\r\n\r\n');
+  if (headEnd < 0) return { bytes: chunk, isWsUpgrade: false };
+  const rawHead = chunk.subarray(0, headEnd).toString('latin1');
+  const isWsUpgrade = /upgrade:\s*websocket/i.test(rawHead);
+  const lines = rawHead.split('\r\n').filter(line => {
+    if (!isWsUpgrade) return true;
+    return !line.toLowerCase().startsWith('sec-websocket-extensions:');
+  });
+  const rewritten = lines
+    .join('\r\n')
+    .replaceAll(`:${proxyPort}`, `:${hostPort}`);
+  const tail = chunk.subarray(headEnd);
+  return {
+    bytes: Buffer.concat([Buffer.from(rewritten, 'latin1'), tail]),
+    isWsUpgrade,
+  };
+}
+
 export default scenario(async (app) => {
   const hostPort = await app.freePort();
   const proxyPort = await app.freePort();
@@ -54,53 +75,29 @@ export default scenario(async (app) => {
   let wsUpgrades = 0;
   let droppedFirstBeforeAppConfig = false;
 
-  const proxy = createHttpServer(async (req, res) => {
-    try {
-      const headers: Record<string, string> = {};
-      for (const [k, v] of Object.entries(req.headers)) {
-        if (typeof v === 'string') {
-          headers[k] = v.replaceAll(`:${proxyPort}`, `:${hostPort}`);
-        }
-      }
-      headers.host = `127.0.0.1:${hostPort}`;
-      const upstreamRes = await fetch(`http://127.0.0.1:${hostPort}${req.url ?? '/'}`, {
-        method: req.method ?? 'GET',
-        headers,
-      });
-      const text = (await upstreamRes.text()).replaceAll(`:${hostPort}`, `:${proxyPort}`);
-      res.writeHead(upstreamRes.status, {
-        'content-type': upstreamRes.headers.get('content-type') ?? 'application/json',
-      });
-      res.end(text);
-    } catch (err) {
-      res.writeHead(502);
-      res.end(String(err));
-    }
-  });
-
-  proxy.on('upgrade', (req, clientSocket, head) => {
-    wsUpgrades += 1;
-    const isFirstWs = wsUpgrades === 1;
+  const proxy = createServer((clientSocket) => {
     const upstream = connect({ host: '127.0.0.1', port: hostPort });
     clientSocket.setNoDelay(true);
     upstream.setNoDelay(true);
 
+    let inspectedFirstChunk = false;
+    let isFirstWs = false;
     let sawAttachAckOnFirstWs = false;
     let upstreamText = '';
 
-    upstream.once('connect', () => {
-      const headerLines = [`GET ${req.url ?? '/__pyric/sandbox'} HTTP/1.1`];
-      for (let i = 0; i < req.rawHeaders.length; i += 2) {
-        const name = req.rawHeaders[i] ?? '';
-        const value = (req.rawHeaders[i + 1] ?? '').replaceAll(`:${proxyPort}`, `:${hostPort}`);
-        headerLines.push(`${name}: ${value}`);
-      }
-      headerLines.push('', '');
-      upstream.write(headerLines.join('\r\n'));
-      if (head.length > 0) upstream.write(head);
-    });
-
     clientSocket.on('data', (chunk: Buffer) => {
+      if (!inspectedFirstChunk) {
+        inspectedFirstChunk = true;
+        const rewritten = rewriteHttpHeaderPort(chunk, proxyPort, hostPort);
+        if (rewritten.isWsUpgrade) {
+          wsUpgrades += 1;
+          if (wsUpgrades === 1) {
+            isFirstWs = true;
+          }
+        }
+        upstream.write(rewritten.bytes);
+        return;
+      }
       if (isFirstWs && sawAttachAckOnFirstWs) {
         // Drop WebSocket #1 before forwarding its post-attach-ack frames
         // (`appConfig` + initial RTDB op) to the Node host.
@@ -148,7 +145,7 @@ export default scenario(async (app) => {
       const run = await app.command(
         'node',
         ['--import', '@pyric/cli/register', 'client.mjs'],
-        { timeoutMs: 30_000 },
+        { env: { PYRIC_SANDBOX: 'remote' }, timeoutMs: 30_000 },
       );
       assert.equal(run.code, 0, run.output);
       assert.equal(droppedFirstBeforeAppConfig, true, 'proxy did not trigger early first-socket drop');
