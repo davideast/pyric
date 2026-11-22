@@ -230,7 +230,7 @@ export class PersistenceState {
   }
 
   restore(root: JsonValue): void {
-    this.state.resetGeneration += 1;
+    this.state.bumpConnectionResetGeneration();
     const priors = this.children.snapshotParents();
     const persisted = decode(root);
 
@@ -269,10 +269,11 @@ export class PersistenceState {
     this.state.mutations.mark('/');
     this.writes.cancelDeniedListeners();
     this.writes.fanOutAll(['/'], priors);
+    this.state.notifyConnectionResetListeners();
   }
 
   reset(preserveRules = false): void {
-    this.state.resetGeneration += 1;
+    this.state.bumpConnectionResetGeneration();
     const priors = this.children.snapshotParents();
     this.state.tree.restore({});
     this.state.priorities.restore({});
@@ -283,6 +284,7 @@ export class PersistenceState {
     }
     this.writes.cancelDeniedListeners();
     this.writes.fanOutAll(['/'], priors);
+    this.state.notifyConnectionResetListeners();
   }
 
   subscribe(onChange: () => void): () => void {

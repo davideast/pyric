@@ -74,6 +74,7 @@ export class RtdbConnectionLifecycle {
   private draining: Promise<void> | null = null;
   private online = true;
   private readonly connectionListeners = new Set<(online: boolean) => void>();
+  private stopResetListener: (() => void) | null = null;
   private resetGeneration: number;
 
   constructor(
@@ -94,9 +95,9 @@ export class RtdbConnectionLifecycle {
   private synchronizeReset(): void {
     const isCurrentGeneration = this.resetGeneration === this.backend.connectionResetGeneration;
     if (isCurrentGeneration) return;
-    this.operations.clear();
-    this.online = true;
     this.resetGeneration = this.backend.connectionResetGeneration;
+    this.operations.clear();
+    this.setOnline(true);
   }
 
   register(operation: DisconnectOperation): Promise<void> {
@@ -131,7 +132,7 @@ export class RtdbConnectionLifecycle {
 
   clear(): void {
     this.operations.clear();
-    this.online = true;
+    this.setOnline(true);
   }
 
   goOffline(): void {
@@ -149,9 +150,20 @@ export class RtdbConnectionLifecycle {
 
   observeConnection(next: (online: boolean) => void): () => void {
     this.synchronizeReset();
+    if (this.connectionListeners.size === 0 && this.stopResetListener === null) {
+      this.stopResetListener = this.backend.onConnectionReset(() => {
+        this.synchronizeReset();
+      });
+    }
     this.connectionListeners.add(next);
     next(this.online);
-    return () => { this.connectionListeners.delete(next); };
+    return () => {
+      this.connectionListeners.delete(next);
+      if (this.connectionListeners.size === 0 && this.stopResetListener !== null) {
+        this.stopResetListener();
+        this.stopResetListener = null;
+      }
+    };
   }
 
   private setOnline(online: boolean): void {

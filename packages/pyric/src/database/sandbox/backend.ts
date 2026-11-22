@@ -62,7 +62,15 @@ export class RtdbBackend {
   private get transactionMutationHistory(): Array<{ version: number; paths: string[] }> {
     return this.state.mutations.entries;
   }
-  invalidateConnectionQueues(): void { this.state.resetGeneration += 1; }
+  onConnectionReset(listener: () => void): () => void {
+    this.state.resetListeners.add(listener);
+    return () => {
+      this.state.resetListeners.delete(listener);
+    };
+  }
+  invalidateConnectionQueues(): void {
+    this.state.notifyConnectionReset();
+  }
 
   getPriority(path: string): Priority { return this.state.priorities.get(path); }
   readPath(path: string): JsonValue { return this.state.tree.read(path); }

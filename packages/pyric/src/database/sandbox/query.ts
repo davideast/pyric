@@ -150,8 +150,6 @@ export type Constraint =
 
 export {
   canonicalChildPath,
-  compareValues,
-  nameCompare,
   extractOrderValue,
   indexedOrderValueChanged,
   executeQuery,

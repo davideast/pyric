@@ -99,22 +99,42 @@ function writeFrozenAt(
   idx: number,
   value: JsonValue,
 ): Record<string, JsonValue> | null {
-  const targetKey = segs[idx]!;
+  const targetKey = segs[idx];
+  if (targetKey === undefined) {
+    return parent;
+  }
+  const hasExisting = Object.hasOwn(parent, targetKey);
+  let existing: JsonValue | undefined;
+  if (hasExisting) {
+    existing = parent[targetKey];
+  }
   let nextChild: JsonValue | null;
   if (idx === segs.length - 1) {
-    nextChild = value === null ? null : cloneFrozenJson(value);
+    if (value === null) {
+      nextChild = null;
+    } else {
+      nextChild = cloneFrozenJson(value);
+    }
   } else {
-    const existing = Object.hasOwn(parent, targetKey) ? parent[targetKey] : undefined;
-    const childObj =
-      existing !== undefined && existing !== null && typeof existing === 'object' && !Array.isArray(existing)
-        ? (existing as Record<string, JsonValue>)
-        : EMPTY_FROZEN_OBJECT;
-    nextChild = writeFrozenAt(childObj, segs, idx + 1, value);
+    const isExistingObject =
+      existing !== undefined && existing !== null && typeof existing === 'object' && !Array.isArray(existing);
+    if (!isExistingObject) {
+      // Removing or writing null below a primitive leaf or absent node leaves
+      // the parent untouched, matching RTDB LeafNode.updateChild.
+      if (value === null) {
+        if (Object.keys(parent).length === 0) return null;
+        return parent;
+      }
+      nextChild = writeFrozenAt(EMPTY_FROZEN_OBJECT, segs, idx + 1, value);
+    } else {
+      nextChild = writeFrozenAt(existing as Record<string, JsonValue>, segs, idx + 1, value);
+    }
   }
 
   if (nextChild === null) {
-    if (!Object.hasOwn(parent, targetKey)) {
-      return Object.keys(parent).length === 0 ? null : parent;
+    if (!hasExisting) {
+      if (Object.keys(parent).length === 0) return null;
+      return parent;
     }
     const out: Record<string, JsonValue> = {};
     let count = 0;
@@ -123,14 +143,23 @@ function writeFrozenAt(
       setOwnProperty(out, k, v);
       count += 1;
     }
-    return count === 0 ? null : Object.freeze(out);
+    if (count === 0) return null;
+    return Object.freeze(out);
+  }
+
+  if (hasExisting && nextChild === existing) {
+    return parent;
   }
 
   const out: Record<string, JsonValue> = {};
   let wrote = false;
   for (const [k, v] of Object.entries(parent)) {
-    setOwnProperty(out, k, k === targetKey ? nextChild : v);
-    if (k === targetKey) wrote = true;
+    if (k === targetKey) {
+      setOwnProperty(out, k, nextChild);
+      wrote = true;
+    } else {
+      setOwnProperty(out, k, v);
+    }
   }
   if (!wrote) {
     setOwnProperty(out, targetKey, nextChild);
@@ -279,13 +308,19 @@ export class DataTree {
       this.root = value === null ? EMPTY_FROZEN_OBJECT : cloneFrozenJson(value);
       return prior;
     }
-    // A non-root write into a tree whose root is a primitive replaces the
-    // root with a fresh object — "writes win" (the primitive is gone).
-    const baseRoot =
-      this.root !== null && typeof this.root === 'object' && !Array.isArray(this.root)
-        ? (this.root as Record<string, JsonValue>)
-        : EMPTY_FROZEN_OBJECT;
-    this.root = writeFrozenAt(baseRoot, segs, 0, value) ?? EMPTY_FROZEN_OBJECT;
+    const isRootObject =
+      this.root !== null && typeof this.root === 'object' && !Array.isArray(this.root);
+    if (!isRootObject) {
+      // Removing or writing null below a primitive root leaves the root intact
+      // (matching LeafNode.updateChild). Non-null writes replace the primitive
+      // root with a fresh object.
+      if (value === null) {
+        return prior;
+      }
+      this.root = writeFrozenAt(EMPTY_FROZEN_OBJECT, segs, 0, value) ?? EMPTY_FROZEN_OBJECT;
+      return prior;
+    }
+    this.root = writeFrozenAt(this.root as Record<string, JsonValue>, segs, 0, value) ?? EMPTY_FROZEN_OBJECT;
     return prior;
   }
 

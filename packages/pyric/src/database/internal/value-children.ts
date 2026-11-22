@@ -43,7 +43,7 @@ export function valueChildren(value: unknown): ValueChild[] {
  *  addressed by its index as a string key. Own properties only. */
 function childValue(value: unknown, key: string): unknown {
   const isNode = value !== null && typeof value === 'object';
-  if (!isNode || !Object.hasOwn(value, key)) return null;
+  if (!isNode || !Object.prototype.propertyIsEnumerable.call(value, key)) return null;
   return (value as Record<string, unknown>)[key] ?? null;
 }
 
