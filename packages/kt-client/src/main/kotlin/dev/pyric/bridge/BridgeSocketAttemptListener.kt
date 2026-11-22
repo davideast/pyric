@@ -10,12 +10,13 @@ internal class BridgeSocketAttemptListener(
     private val usesDirectTransport: Boolean,
     private val currentClientGeneration: () -> Int,
     private val isCurrentGeneration: (Int) -> Boolean,
+    private val nextInboundWireSeq: () -> Long,
     private val onFrameHeard: () -> Unit,
     private val sendAttach: () -> Unit,
     private val sendRawJson: (String) -> Unit,
     private val onAttachAck: (attemptGeneration: Int, msg: Map<String, Any?>) -> Unit,
-    private val onWorkerRes: (Map<String, Any?>) -> Unit,
-    private val onWorkerSnap: (Map<String, Any?>) -> Unit,
+    private val onWorkerRes: (Map<String, Any?>, Long) -> Unit,
+    private val onWorkerSnap: (Map<String, Any?>, Long) -> Unit,
     private val onRemoteLens: (AuthLens) -> Unit,
     private val onConnectionLoss: (attemptGeneration: Int, error: FirebaseFirestoreException, closeCode: Int?) -> Unit
 ) : BridgeListener {
@@ -84,8 +85,8 @@ internal class BridgeSocketAttemptListener(
                     } catch (_: Throwable) {}
                 }
             }
-            BridgeProtocol.TYPE_WORKER_RES -> onWorkerRes(msg)
-            BridgeProtocol.TYPE_WORKER_SNAP -> onWorkerSnap(msg)
+            BridgeProtocol.TYPE_WORKER_RES -> onWorkerRes(msg, nextInboundWireSeq())
+            BridgeProtocol.TYPE_WORKER_SNAP -> onWorkerSnap(msg, nextInboundWireSeq())
             BridgeProtocol.TYPE_WORKER_EVENT -> handleWorkerEvent(msg)
         }
     }

@@ -9,7 +9,6 @@ import dev.pyric.auth.AuthLens
 import dev.pyric.auth.BridgeAuthOperations
 import dev.pyric.auth.CredentialsProvider
 import dev.pyric.bridge.PyricBridgeClient
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -17,9 +16,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
@@ -32,29 +29,29 @@ class FirebaseAuth internal constructor(
 ) : CredentialsProvider {
 
     private val scope = CoroutineScope(dispatcher)
+    private val sync = FirebaseAuthBridgeSync(this, scope)
 
-    private val _currentUser = MutableStateFlow<FirebaseUser?>(null)
-    val currentUser: FirebaseUser? get() = _currentUser.value
+    val currentUser: FirebaseUser?
+        get() = sync.currentUser
 
-    private val _lensOverride = MutableStateFlow<AuthLens?>(null)
-    val lensOverrideFlow: StateFlow<AuthLens?> = _lensOverride.asStateFlow()
+    val lensOverrideFlow: StateFlow<AuthLens?>
+        get() = sync.lensOverrideFlow
 
-    private val _authLens = MutableStateFlow<AuthLens>(AuthLens.Anon)
-    override val authLensFlow: StateFlow<AuthLens> = _authLens.asStateFlow()
+    override val authLensFlow: StateFlow<AuthLens>
+        get() = sync.authLensFlow
 
     fun setAuthLens(lens: AuthLens?) {
-        _lensOverride.value = lens
-        updateAuthLens()
+        sync.setAuthLens(lens)
     }
 
     fun clearAuthLensOverride() {
         setAuthLens(null)
     }
 
-    var tenantId: String? = null
+    var tenantId: String?
+        get() = sync.tenantId
         set(value) {
-            field = value
-            updateAuthLens()
+            sync.tenantId = value
         }
 
     @Volatile
@@ -75,19 +72,6 @@ class FirebaseAuth internal constructor(
     private val authStateListeners = CopyOnWriteArrayList<AuthStateListener>()
     private val idTokenListeners = CopyOnWriteArrayList<IdTokenListener>()
 
-    private val authStateLock = Any()
-    private var authStateEpoch = 0L
-    private var initialBridgeSnapshotReceived = false
-    private var initialIdTokenSnapshotReceived = false
-
-    private sealed class BridgeTokenEnrichment {
-        data object SessionMovedOn : BridgeTokenEnrichment()
-        data class Resolved(
-            val claims: Map<String, Any?>?,
-            val signInProvider: String?
-        ) : BridgeTokenEnrichment()
-    }
-
     init {
         // A replaced bridge host holds no user for this session. Sign the session
         // back in before the observers are re-sent.
@@ -97,105 +81,18 @@ class FirebaseAuth internal constructor(
                 op("auth.restorePortSession", mapOf("uid" to user.uid, "tenantId" to user.tenantId))
             }
         }
-        scope.launch {
-            try {
-                BridgeAuthOperations.subscribeAuthState(bridgeClient).collect { rawUser ->
-                    updateUserFromBridge(rawUser)
-                }
-            } catch (_: Throwable) {}
-        }
-        scope.launch {
-            try {
-                BridgeAuthOperations.subscribeIdToken(bridgeClient).collect { rawSnap ->
-                    val shouldNotify = synchronized(authStateLock) {
-                        if (!initialIdTokenSnapshotReceived) {
-                            initialIdTokenSnapshotReceived = true
-                            if (rawSnap == null) return@synchronized false
-                        }
-                        rawSnap != null || _currentUser.value != null
-                    }
-                    if (!shouldNotify) return@collect
-                    if (rawSnap == null) {
-                        updateUserFromBridge(null)
-                        return@collect
-                    }
-                    val snapUid = rawSnap["uid"] as? String
-                    val (targetUser, epochBeforeFetch) = synchronized(authStateLock) {
-                        _currentUser.value to authStateEpoch
-                    }
-                    if (targetUser == null) {
-                        // A non-null idToken snapshot carrying a uid can arrive ahead of
-                        // the sign-in transition that installs currentUser; that transition
-                        // emits the idToken notification once claims are ready.
-                        if (!snapUid.isNullOrEmpty()) return@collect
-                        notifyIdTokenChanged()
-                        return@collect
-                    }
-                    if (!snapUid.isNullOrEmpty() && snapUid != targetUser.uid) {
-                        return@collect
-                    }
-                    @Suppress("UNCHECKED_CAST")
-                    val snapClaims = (rawSnap["customClaims"] as? Map<String, Any?>)
-                        ?: (rawSnap["claims"] as? Map<String, Any?>)
-                    if (snapClaims != null) {
-                        val stillCurrent = synchronized(authStateLock) {
-                            if (_currentUser.value?.uid == targetUser.uid) {
-                                targetUser.customClaims = FirebaseUser.extractCustomClaims(snapClaims)
-                                updateAuthLens()
-                                true
-                            } else {
-                                false
-                            }
-                        }
-                        if (!stillCurrent) return@collect
-                    } else {
-                        when (val enrichment = fetchBridgeUserTokenEnrichment(targetUser.uid)) {
-                            BridgeTokenEnrichment.SessionMovedOn -> return@collect
-                            is BridgeTokenEnrichment.Resolved -> {
-                                val stillCurrent = synchronized(authStateLock) {
-                                    if (_currentUser.value?.uid != targetUser.uid) {
-                                        false
-                                    } else {
-                                        if (authStateEpoch == epochBeforeFetch) {
-                                            enrichment.signInProvider?.let { targetUser.signInProviderOverride = it }
-                                            enrichment.claims?.let {
-                                                targetUser.customClaims = FirebaseUser.extractCustomClaims(it)
-                                                updateAuthLens()
-                                            }
-                                        }
-                                        true
-                                    }
-                                }
-                                if (!stillCurrent) return@collect
-                            }
-                        }
-                    }
-                    notifyIdTokenChanged()
-                }
-            } catch (_: Throwable) {}
-        }
-        scope.launch {
-            try {
-                bridgeClient.remoteLensEvents.collect { remoteLens ->
-                    if (remoteLens is AuthLens.AppSession) {
-                        clearAuthLensOverride()
-                    } else {
-                        setAuthLens(remoteLens)
-                    }
-                }
-            } catch (_: Throwable) {}
-        }
+        sync.startSubscriptions()
     }
 
-    override fun getEffectiveLens(): AuthLens = _authLens.value
+    override fun getEffectiveLens(): AuthLens = sync.getEffectiveLens()
 
     fun signInWithEmailAndPassword(email: String, password: String): Task<AuthResult> {
         val tcs = TaskCompletionSource<AuthResult>()
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
-                val res = BridgeAuthOperations.signInEmail(bridgeClient, email, password, tenantId)
-                val enriched = enrichSignInResponseIfNeeded(res)
-                val authResult = handleAuthSuccess(enriched)
+                val res = BridgeAuthOperations.signInEmailSequenced(bridgeClient, email, password, tenantId)
+                val enriched = enrichSignInResponseIfNeeded(res.data)
+                val authResult = sync.handleAuthSuccess(enriched, res.wireSeq)
                 tcs.setResult(authResult)
             } catch (e: Exception) {
                 tcs.setException(wrapException(e))
@@ -208,8 +105,8 @@ class FirebaseAuth internal constructor(
         val tcs = TaskCompletionSource<AuthResult>()
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
-                val res = BridgeAuthOperations.createUser(bridgeClient, email, password, tenantId)
-                val authResult = handleAuthSuccess(res)
+                val res = BridgeAuthOperations.createUserSequenced(bridgeClient, email, password, tenantId)
+                val authResult = sync.handleAuthSuccess(res.data, res.wireSeq)
                 tcs.setResult(authResult)
             } catch (e: Exception) {
                 tcs.setException(wrapException(e))
@@ -222,8 +119,8 @@ class FirebaseAuth internal constructor(
         val tcs = TaskCompletionSource<AuthResult>()
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
-                val res = BridgeAuthOperations.signInAnonymously(bridgeClient, tenantId)
-                val authResult = handleAuthSuccess(res, defaultSignInProvider = "anonymous")
+                val res = BridgeAuthOperations.signInAnonymouslySequenced(bridgeClient, tenantId)
+                val authResult = sync.handleAuthSuccess(res.data, res.wireSeq, defaultSignInProvider = "anonymous")
                 tcs.setResult(authResult)
             } catch (e: Exception) {
                 tcs.setException(wrapException(e))
@@ -236,9 +133,9 @@ class FirebaseAuth internal constructor(
         val tcs = TaskCompletionSource<AuthResult>()
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
-                val res = BridgeAuthOperations.signInWithCustomToken(bridgeClient, token, tenantId)
-                val enriched = enrichSignInResponseIfNeeded(res)
-                val authResult = handleAuthSuccess(enriched, defaultSignInProvider = "custom")
+                val res = BridgeAuthOperations.signInWithCustomTokenSequenced(bridgeClient, token, tenantId)
+                val enriched = enrichSignInResponseIfNeeded(res.data)
+                val authResult = sync.handleAuthSuccess(enriched, res.wireSeq, defaultSignInProvider = "custom")
                 tcs.setResult(authResult)
             } catch (e: Exception) {
                 tcs.setException(wrapException(e))
@@ -251,10 +148,10 @@ class FirebaseAuth internal constructor(
         val tcs = TaskCompletionSource<AuthResult>()
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
-                val res = BridgeAuthOperations.signInWithCredential(bridgeClient, credential, tenantId)
-                val enriched = enrichSignInResponseIfNeeded(res)
+                val res = BridgeAuthOperations.signInWithCredentialSequenced(bridgeClient, credential, tenantId)
+                val enriched = enrichSignInResponseIfNeeded(res.data)
                 val fallbackProvider = credential["providerId"] as? String
-                val authResult = handleAuthSuccess(enriched, defaultSignInProvider = fallbackProvider)
+                val authResult = sync.handleAuthSuccess(enriched, res.wireSeq, defaultSignInProvider = fallbackProvider)
                 tcs.setResult(authResult)
             } catch (e: Exception) {
                 tcs.setException(wrapException(e))
@@ -267,9 +164,13 @@ class FirebaseAuth internal constructor(
         val tcs = TaskCompletionSource<AuthResult>()
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
-                val res = BridgeAuthOperations.signInWithCredential(bridgeClient, credential.toWireMap(), tenantId)
-                val enriched = enrichSignInResponseIfNeeded(res)
-                val authResult = handleAuthSuccess(enriched, defaultSignInProvider = credential.provider)
+                val res = BridgeAuthOperations.signInWithCredentialSequenced(
+                    bridgeClient,
+                    credential.toWireMap(),
+                    tenantId
+                )
+                val enriched = enrichSignInResponseIfNeeded(res.data)
+                val authResult = sync.handleAuthSuccess(enriched, res.wireSeq, defaultSignInProvider = credential.provider)
                 tcs.setResult(authResult)
             } catch (e: Exception) {
                 tcs.setException(wrapException(e))
@@ -278,22 +179,8 @@ class FirebaseAuth internal constructor(
         return tcs.task
     }
 
-    internal suspend fun enrichSignInResponseIfNeeded(res: Map<String, Any?>): Map<String, Any?> {
-        @Suppress("UNCHECKED_CAST")
-        val userMap = res["user"] as? Map<String, Any?>
-        val hasEmbeddedClaims = res["customClaims"] != null ||
-            res["claims"] != null ||
-            userMap?.get("customClaims") != null ||
-            userMap?.get("claims") != null
-        if (hasEmbeddedClaims) return res
-        val tokenSnapshot = runCatching {
-            BridgeAuthOperations.getIdTokenResult(bridgeClient, forceRefresh = false)
-        }.getOrNull() ?: return res
-        if (tokenSnapshot["claims"] !is Map<*, *>) return res
-        val copy = LinkedHashMap(res)
-        copy["claims"] = tokenSnapshot["claims"]
-        return copy
-    }
+    internal suspend fun enrichSignInResponseIfNeeded(res: Map<String, Any?>): Map<String, Any?> =
+        sync.enrichSignInResponseIfNeeded(res)
 
     /**
      * Stages a federated provider identity on this FirebaseAuth instance's active
@@ -335,22 +222,15 @@ class FirebaseAuth internal constructor(
         // Signing out is synchronous in the Firebase Android SDK: when this
         // returns, currentUser is null and the next request is unauthenticated.
         // Clear the local session first; the host is told afterwards.
-        synchronized(authStateLock) {
-            authStateEpoch += 1
-            _currentUser.value = null
-            _lensOverride.value = null
-            _authLens.value = AuthLens.Anon
-        }
-        notifyAuthStateChanged()
-        notifyIdTokenChanged()
+        sync.signOutLocal()
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
-                BridgeAuthOperations.signOut(bridgeClient)
+                BridgeAuthOperations.signOutSequenced(bridgeClient)
             } catch (_: Exception) {}
         }
     }
 
-    fun authStateFlow(): StateFlow<FirebaseUser?> = _currentUser.asStateFlow()
+    fun authStateFlow(): StateFlow<FirebaseUser?> = sync.currentUserFlow
 
     fun idTokenFlow(): Flow<FirebaseUser?> = callbackFlow {
         val listener = IdTokenListener { auth ->
@@ -378,210 +258,20 @@ class FirebaseAuth internal constructor(
         idTokenListeners.remove(listener)
     }
 
-    internal fun notifyTokenRefreshed(user: FirebaseUser) {
-        synchronized(authStateLock) {
-            if (_currentUser.value?.uid == user.uid) {
-                authStateEpoch += 1
-                _currentUser.value = user
-                updateAuthLens()
-            }
-        }
-        notifyIdTokenChanged()
+    internal fun notifyTokenRefreshed(user: FirebaseUser, wireSeq: Long = 0L) {
+        sync.notifyTokenRefreshed(user, wireSeq)
     }
 
-    internal fun notifyUserUpdated(user: FirebaseUser) {
-        synchronized(authStateLock) {
-            if (_currentUser.value?.uid == user.uid) {
-                authStateEpoch += 1
-                _currentUser.value = user
-                updateAuthLens()
-            }
-        }
-        notifyIdTokenChanged()
+    internal fun notifyUserUpdated(user: FirebaseUser, wireSeq: Long = 0L) {
+        sync.notifyUserUpdated(user, wireSeq)
     }
 
     internal fun clearCurrentUserIfInvalidated(error: Exception, targetUid: String) {
-        val authEx = error as? FirebaseAuthException ?: return
-        val invalidated = authEx.errorCode == "ERROR_USER_TOKEN_EXPIRED" ||
-            authEx.errorCode == "ERROR_USER_DISABLED" ||
-            authEx.errorCode == "ERROR_USER_NOT_FOUND"
-        if (!invalidated) return
-        val cleared = synchronized(authStateLock) {
-            if (_currentUser.value?.uid == targetUid) {
-                authStateEpoch += 1
-                _currentUser.value = null
-                updateAuthLens()
-                true
-            } else {
-                false
-            }
-        }
-        if (cleared) {
-            notifyAuthStateChanged()
-            notifyIdTokenChanged()
-        }
+        sync.clearCurrentUserIfInvalidated(error, targetUid)
     }
 
-    internal fun clearCurrentUserAfterDelete(targetUid: String) {
-        val cleared = synchronized(authStateLock) {
-            if (_currentUser.value?.uid == targetUid) {
-                authStateEpoch += 1
-                _currentUser.value = null
-                updateAuthLens()
-                true
-            } else {
-                false
-            }
-        }
-        if (cleared) {
-            notifyAuthStateChanged()
-            notifyIdTokenChanged()
-        }
-    }
-
-    private fun handleAuthSuccess(
-        res: Map<String, Any?>,
-        defaultSignInProvider: String? = null
-    ): AuthResult {
-        @Suppress("UNCHECKED_CAST")
-        val userMap = res["user"] as? Map<String, Any?> ?: emptyMap()
-        @Suppress("UNCHECKED_CAST")
-        val addInfo = res["additionalUserInfo"] as? Map<String, Any?>
-        val explicitProviderId = (addInfo?.get("providerId") as? String) ?: (res["providerId"] as? String)
-        val user = FirebaseUser(this, userMap, signInProviderOverride = explicitProviderId ?: defaultSignInProvider)
-        @Suppress("UNCHECKED_CAST")
-        val resClaims = (res["customClaims"] as? Map<String, Any?>) ?: (res["claims"] as? Map<String, Any?>)
-        if (resClaims != null && user.customClaims.isEmpty()) {
-            user.customClaims = FirebaseUser.extractCustomClaims(resClaims)
-        }
-        synchronized(authStateLock) {
-            authStateEpoch += 1
-            _currentUser.value = user
-            updateAuthLens()
-        }
-        notifyAuthStateChanged()
-        notifyIdTokenChanged()
-        val providerId = explicitProviderId
-            ?: user.providerData.firstOrNull { it.providerId.isNotBlank() && it.providerId != "firebase" }?.providerId
-        val isNew = (addInfo?.get("isNewUser") as? Boolean)
-            ?: (res["operationType"] == "signIn" && userMap["isAnonymous"] != true)
-        return AuthResult(user, AdditionalUserInfo(providerId, isNew))
-    }
-
-    private suspend fun fetchBridgeUserTokenEnrichment(expectedUid: String): BridgeTokenEnrichment {
-        val res = try {
-            BridgeAuthOperations.getIdTokenResult(bridgeClient, forceRefresh = false)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            val wireCode = (e as? FirebaseFirestoreException)?.wireCode?.lowercase() ?: ""
-            val msg = e.message?.lowercase() ?: ""
-            if (wireCode.contains("no-current-user") || msg.contains("no-current-user")) {
-                return BridgeTokenEnrichment.SessionMovedOn
-            }
-            return BridgeTokenEnrichment.Resolved(claims = null, signInProvider = null)
-        }
-        @Suppress("UNCHECKED_CAST")
-        val claims = res["claims"] as? Map<String, Any?>
-        val tokenSub = claims?.get("sub") as? String
-        if (!tokenSub.isNullOrBlank() && tokenSub != expectedUid) {
-            return BridgeTokenEnrichment.SessionMovedOn
-        }
-        @Suppress("UNCHECKED_CAST")
-        val firebaseMap = claims?.get("firebase") as? Map<String, Any?>
-        val provider = (res["signInProvider"] as? String)?.takeIf { it.isNotBlank() }
-            ?: (firebaseMap?.get("sign_in_provider") as? String)?.takeIf { it.isNotBlank() }
-        return BridgeTokenEnrichment.Resolved(claims = claims, signInProvider = provider)
-    }
-
-    private suspend fun updateUserFromBridge(userMap: Map<String, Any?>?) {
-        val uid = userMap?.get("uid") as? String
-        if (userMap == null || uid.isNullOrEmpty()) {
-            val changed = synchronized(authStateLock) {
-                // Apply the initial snapshot atomically with sign-in completion;
-                // an already-checked null must not erase a newly signed-in user.
-                if (!initialBridgeSnapshotReceived) {
-                    initialBridgeSnapshotReceived = true
-                    if (_currentUser.value != null) return
-                }
-                val prevUid = _currentUser.value?.uid
-                authStateEpoch += 1
-                _currentUser.value = null
-                _authLens.value = AuthLens.Anon
-                prevUid != null
-            }
-            if (changed) {
-                notifyAuthStateChanged()
-                notifyIdTokenChanged()
-            }
-            return
-        }
-
-        val hasEmbeddedClaims = userMap["customClaims"] != null || userMap["claims"] != null
-        val fetchEpoch: Long? = synchronized(authStateLock) {
-            initialBridgeSnapshotReceived = true
-            val existingUser = _currentUser.value
-            if (hasEmbeddedClaims || (existingUser != null && existingUser.uid == uid)) {
-                null
-            } else {
-                authStateEpoch
-            }
-        }
-
-        val enrichment: BridgeTokenEnrichment.Resolved? = if (fetchEpoch != null) {
-            when (val resolved = fetchBridgeUserTokenEnrichment(uid)) {
-                BridgeTokenEnrichment.SessionMovedOn -> return
-                is BridgeTokenEnrichment.Resolved -> resolved
-            }
-        } else {
-            null
-        }
-
-        val changed = synchronized(authStateLock) {
-            if (fetchEpoch != null && authStateEpoch != fetchEpoch) {
-                return
-            }
-            val existingUser = _currentUser.value
-            val prevUid = existingUser?.uid
-            val inheritedProvider = if (existingUser != null && existingUser.uid == uid) {
-                existingUser.signInProviderOverride
-            } else {
-                enrichment?.signInProvider
-            }
-            val user = FirebaseUser(this, userMap, signInProviderOverride = inheritedProvider)
-            val enrichedClaims = enrichment?.claims
-            if (enrichedClaims != null && user.customClaims.isEmpty()) {
-                user.customClaims = FirebaseUser.extractCustomClaims(enrichedClaims)
-            } else if (existingUser != null && existingUser.uid == user.uid && user.customClaims.isEmpty() && existingUser.customClaims.isNotEmpty()) {
-                user.customClaims = existingUser.customClaims
-            }
-            authStateEpoch += 1
-            _currentUser.value = user
-            updateAuthLens()
-            _currentUser.value?.uid != prevUid
-        }
-        if (changed) {
-            notifyAuthStateChanged()
-            notifyIdTokenChanged()
-        }
-    }
-
-    private fun updateAuthLens() = synchronized(authStateLock) {
-        val override = _lensOverride.value
-        if (override != null) {
-            _authLens.value = override
-            return
-        }
-        val user = _currentUser.value
-        _authLens.value = if (user != null) {
-            AuthLens.AsUser(
-                uid = user.uid,
-                token = user.buildJwtClaims(),
-                tenant = user.tenantId ?: tenantId
-            )
-        } else {
-            AuthLens.Anon
-        }
+    internal fun clearCurrentUserAfterDelete(targetUid: String, wireSeq: Long = 0L) {
+        sync.clearCurrentUserAfterDelete(targetUid, wireSeq)
     }
 
     internal fun notifyAuthStateChanged() {

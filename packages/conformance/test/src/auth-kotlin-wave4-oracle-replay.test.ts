@@ -48,7 +48,7 @@ describe('Wave 4 auth-kotlin Android SDK production observation replay over host
     );
     expect(ktAuthSource).toContain('fun getInstance(app: FirebaseApp): FirebaseAuth');
     expect(ktAuthSource).toContain('val app: FirebaseApp,');
-    expect(ktAuthSource).toContain('var tenantId: String? = null');
+    expect(ktAuthSource).toContain('var tenantId: String?');
     expect(ktAuthSource).toContain('fun setLanguageCode(languageCode: String)');
     expect(ktAuthSource).toContain('fun useAppLanguage()');
     expect(ktKtxSource).toContain('val Firebase.auth: FirebaseAuth');

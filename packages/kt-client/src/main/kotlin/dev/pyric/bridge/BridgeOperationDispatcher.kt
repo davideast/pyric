@@ -17,10 +17,15 @@ import java.util.concurrent.atomic.AtomicReference
 internal class TransportRefused(message: String) :
     FirebaseFirestoreException(message, FirebaseFirestoreException.Code.UNAVAILABLE)
 
+internal data class BridgeSequencedResult(
+    val value: Any?,
+    val wireSeq: Long
+)
+
 /** What happened to an operation's frame when it was handed to the transport. */
 internal sealed interface BridgeDispatch {
     /** The transport took the frame, or the operation already failed. */
-    class Started(val result: CompletableDeferred<Any?>) : BridgeDispatch
+    class Started(val result: CompletableDeferred<BridgeSequencedResult>) : BridgeDispatch
 
     /** The transport refused the frame. The operation is not registered and may be sent again. */
     data object Refused : BridgeDispatch
@@ -44,7 +49,7 @@ class BridgeOperationDispatcher(
 
     private class PendingOp(
         val method: String,
-        val deferred: CompletableDeferred<Any?>,
+        val deferred: CompletableDeferred<BridgeSequencedResult>,
         val timeoutJob: Job
     ) {
         val state = AtomicReference<SendState>(SendState.Unsent)
@@ -72,13 +77,14 @@ class BridgeOperationDispatcher(
         timeoutMs: Long? = null,
         sendJson: (String) -> Unit,
         jsonSerializer: (Any?) -> String
-    ): Any? = startOp(method, params, actAs, timeoutMs, sendJson, jsonSerializer).await()
+    ): Any? = startSequencedOp(method, params, actAs, timeoutMs, sendJson, jsonSerializer).await().value
 
     /**
      * Registers the operation and hands its frame to [sendJson] before returning.
      * The result settles on its `worker-res`, its timeout, or a [failAll]. A
      * refused frame fails the operation.
      */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     fun startOp(
         method: String,
         params: Map<String, Any?>,
@@ -87,6 +93,26 @@ class BridgeOperationDispatcher(
         sendJson: (String) -> Unit,
         jsonSerializer: (Any?) -> String
     ): CompletableDeferred<Any?> {
+        val sequenced = startSequencedOp(method, params, actAs, timeoutMs, sendJson, jsonSerializer)
+        val plain = CompletableDeferred<Any?>()
+        sequenced.invokeOnCompletion { cause ->
+            if (cause != null) {
+                plain.completeExceptionally(cause)
+            } else {
+                plain.complete(sequenced.getCompleted().value)
+            }
+        }
+        return plain
+    }
+
+    internal fun startSequencedOp(
+        method: String,
+        params: Map<String, Any?>,
+        actAs: Map<String, Any?>? = null,
+        timeoutMs: Long? = null,
+        sendJson: (String) -> Unit,
+        jsonSerializer: (Any?) -> String
+    ): CompletableDeferred<BridgeSequencedResult> {
         val started = dispatch(method, params, actAs, timeoutMs, holdsRefusal = false, sendJson, jsonSerializer)
         return (started as BridgeDispatch.Started).result
     }
@@ -105,7 +131,7 @@ class BridgeOperationDispatcher(
         jsonSerializer: (Any?) -> String
     ): BridgeDispatch {
         val id = "rop-${opCounter.incrementAndGet()}"
-        val deferred = CompletableDeferred<Any?>()
+        val deferred = CompletableDeferred<BridgeSequencedResult>()
         val effectiveTimeout = timeoutMs ?: defaultTimeoutMs
 
         val timeoutJob = scope.launch {
@@ -180,14 +206,14 @@ class BridgeOperationDispatcher(
         pending.deferred.completeExceptionally(error)
     }
 
-    fun handleWorkerRes(msg: Map<String, Any?>) {
+    fun handleWorkerRes(msg: Map<String, Any?>, wireSeq: Long = 0L) {
         val id = msg["id"] as? String ?: return
         val pending = pendingOps.remove(id) ?: return
         pending.timeoutJob.cancel()
 
         val ok = msg["ok"] == true
         if (ok) {
-            pending.deferred.complete(msg["value"])
+            pending.deferred.complete(BridgeSequencedResult(msg["value"], wireSeq))
         } else {
             @Suppress("UNCHECKED_CAST")
             val errorMap = msg["error"] as? Map<String, Any?> ?: emptyMap()
