@@ -14,23 +14,33 @@ afterEach(() => {
 
 test('stopDiagnosticReporting cancels scheduled HTTP flushes while keeping local events (#2056)', async () => {
   const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://10.203.0.1:5000/' });
-  const prevLocation = globalThis.location;
-  const prevFetch = globalThis.fetch;
+  const prevLocationDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'location');
+  const prevFetchDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'fetch');
   let postCount = 0;
   Object.defineProperty(globalThis, 'location', {
     value: dom.window.location,
     configurable: true,
+    writable: true,
   });
-  globalThis.fetch = (async () => {
-    postCount += 1;
-    return new Response('forbidden', { status: 403 });
-  }) as typeof fetch;
+  Object.defineProperty(globalThis, 'fetch', {
+    value: (async () => {
+      postCount += 1;
+      return new Response('forbidden', { status: 403 });
+    }) as typeof fetch,
+    configurable: true,
+    writable: true,
+  });
   cleanups.push(() => {
-    Object.defineProperty(globalThis, 'location', {
-      value: prevLocation,
-      configurable: true,
-    });
-    globalThis.fetch = prevFetch;
+    if (prevLocationDescriptor !== undefined) {
+      Object.defineProperty(globalThis, 'location', prevLocationDescriptor);
+    } else {
+      delete (globalThis as { location?: unknown }).location;
+    }
+    if (prevFetchDescriptor !== undefined) {
+      Object.defineProperty(globalThis, 'fetch', prevFetchDescriptor);
+    } else {
+      delete (globalThis as { fetch?: unknown }).fetch;
+    }
     dom.window.close();
   });
 
@@ -41,4 +51,11 @@ test('stopDiagnosticReporting cancels scheduled HTTP flushes while keeping local
 
   expect(postCount).toBe(0);
   expect(globalThis.__pyricDiagnostics?.getSnapshot().events).toHaveLength(2);
+});
+
+test('cleanup restores globalThis.location without leaving it readonly', () => {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'location');
+  const isAssignable =
+    descriptor === undefined || descriptor.writable === true || typeof descriptor.set === 'function';
+  expect(isAssignable).toBe(true);
 });
