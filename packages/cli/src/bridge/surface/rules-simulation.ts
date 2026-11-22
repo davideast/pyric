@@ -49,6 +49,8 @@ export interface SimulationRequest {
 
 export interface SimulationOutcome {
   allowed: boolean;
+  unsupported: boolean;
+  decision: 'ALLOW' | 'DENY' | 'UNSUPPORTED';
   result: OperationResult;
   auth: { uid: string; token: Record<string, unknown> } | null;
 }
@@ -112,7 +114,12 @@ export async function simulateFirestoreCase(
   });
   const result = toolResult(simulated);
   const first = simulated.success ? simulated.data.results[0] : undefined;
-  return { allowed: first?.state === 'PASSED', result, auth };
+  let decision: 'ALLOW' | 'DENY' | 'UNSUPPORTED' = 'DENY';
+  if (first !== undefined) {
+    decision = first.decision;
+  }
+  const unsupported = first?.state === 'UNSUPPORTED' || decision === 'UNSUPPORTED';
+  return { allowed: first?.state === 'PASSED', unsupported, decision, result, auth };
 }
 
 type TestCase = Parameters<SimulateFirestoreRulesHandler['simulate']>[1][number];
@@ -122,9 +129,65 @@ function toolResult(simulated: ReturnType<SimulateFirestoreRulesHandler['simulat
   if (!simulated.success) {
     return { ok: false, summary: `Simulation failed: ${simulated.error.message}`, data: simulated };
   }
-  const { results } = simulated.data;
-  const passed = results.filter((one) => one.state === 'PASSED').length;
+  const { passed, failed, unsupported, results } = simulated.data;
+  if (unsupported > 0) {
+    return {
+      ok: true,
+      summary: `${passed}/${results.length} test cases passed (${failed} failed, ${unsupported} unsupported)`,
+      data: simulated,
+    };
+  }
   return { ok: true, summary: `${passed}/${results.length} test cases passed`, data: simulated };
+}
+
+const SYNTHETIC_LIST_NOTE_PREFIX = "list on collection path '";
+
+/**
+ * Why the simulator abstained on an `UNSUPPORTED` case, reading both top-level
+ * `notes` and `UNSUPPORTED` trace entry messages.
+ */
+export function unsupportedReason(detail: Record<string, unknown> | null): string | null {
+  if (detail === null) return null;
+  const reasons: string[] = [];
+  const seen = new Set<string>();
+  const addReason = (text: string): void => {
+    const trimmed = text.trim();
+    if (trimmed.length === 0 || seen.has(trimmed)) return;
+    seen.add(trimmed);
+    reasons.push(trimmed);
+  };
+
+  const notes = detail.notes;
+  if (Array.isArray(notes)) {
+    for (const note of notes) {
+      if (typeof note === 'string' && !note.startsWith(SYNTHETIC_LIST_NOTE_PREFIX)) {
+        addReason(note);
+      }
+    }
+  }
+
+  const trace = detail.trace;
+  if (Array.isArray(trace)) {
+    for (const entry of trace) {
+      if (entry !== null && typeof entry === 'object') {
+        const record = entry as { verdict?: unknown; message?: unknown };
+        if (record.verdict === 'UNSUPPORTED' && typeof record.message === 'string') {
+          addReason(record.message);
+        }
+      }
+    }
+  }
+
+  if (reasons.length === 0 && Array.isArray(notes)) {
+    for (const note of notes) {
+      if (typeof note === 'string') {
+        addReason(note);
+      }
+    }
+  }
+
+  if (reasons.length === 0) return null;
+  return reasons.join('; ');
 }
 
 /** The one case's full record, including the evaluation trace when the simulator produced one. */

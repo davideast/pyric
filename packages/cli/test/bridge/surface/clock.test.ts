@@ -154,7 +154,7 @@ service firebase.storage {
 });
 
 describe('a minted token follows the clock', () => {
-  it('a signed-in user’s iat is the pinned instant', async () => {
+  it("a signed-in user's iat is the pinned instant", async () => {
     const { ctx, sandbox } = freshContext();
     await call(ctx, 'auth.createUser', {
       uid: 'clock-holder',
@@ -340,6 +340,48 @@ describe('rules.simulate cases evaluate at their own instant', () => {
     expect(refused.ok).toBe(false);
     expect(refused.summary).toContain('next tuesday');
   });
+
+  it('refuses Date.parse quirks and naive local strings on setClock and rules.simulate (#1920)', async () => {
+    const { ctx, sandbox } = freshContext();
+    await call(ctx, 'sandbox.setClock', { isoTime: '2026-06-01T00:00:00.000Z' });
+    const pinnedState = getClock(sandbox).capture();
+
+    for (const bad of ['1', 'March 7', '2026-09-09 12:00', '2026-09-09T12:00:00']) {
+      const setRefused = await call(ctx, 'sandbox.setClock', { isoTime: bad });
+      expect(setRefused.ok).toBe(false);
+      expect((setRefused.data as { code?: string; field?: string }).code).toBe('invalid_arguments');
+      expect((setRefused.data as { field?: string }).field).toBe('isoTime');
+      expect(setRefused.summary).toContain('ISO 8601 instant');
+      expect(getClock(sandbox).capture()).toEqual(pinnedState);
+
+      const simRefused = await call(ctx, 'rules.simulate', {
+        service: 'firestore',
+        operation: 'get',
+        path: 'promo/p1',
+        requestTime: bad,
+      });
+      expect(simRefused.ok).toBe(false);
+      expect((simRefused.data as { code?: string; field?: string }).code).toBe('invalid_arguments');
+      expect((simRefused.data as { field?: string }).field).toBe('requestTime');
+
+      const caseRefused = await call(ctx, 'rules.simulate', {
+        service: 'firestore',
+        cases: [{ operation: 'get', path: 'promo/p1', requestTime: bad }],
+      });
+      expect(caseRefused.ok).toBe(false);
+      expect((caseRefused.data as { code?: string; field?: string }).code).toBe('invalid_arguments');
+    }
+
+    const offsetSim = await call(ctx, 'rules.simulate', {
+      service: 'firestore',
+      rules: GATED_RULES,
+      operation: 'get',
+      path: 'promo/p1',
+      requestTime: '2027-12-31T23:30:00-02:00',
+    });
+    expect(offsetSim.ok).toBe(true);
+    expect((offsetSim.data as { allowed: boolean }).allowed).toBe(false);
+  });
 });
 
 describe('a checkpoint taken under a pinned clock restores that clock', () => {
@@ -387,7 +429,7 @@ describe('the clock is an experiment control, not data a branch lands', () => {
 });
 
 describe('a read leaves the clock, and the snapshot, exactly as it found them', () => {
-  it('inspect does not change getClock’s own report', async () => {
+  it("inspect does not change getClock's own report", async () => {
     const { ctx, sandbox } = freshContext();
     await call(ctx, 'sandbox.setClock', { isoTime: '2026-05-01T00:00:00.000Z' });
     const before = getClock(sandbox).now();
