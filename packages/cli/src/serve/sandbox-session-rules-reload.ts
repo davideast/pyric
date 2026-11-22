@@ -5,6 +5,16 @@ import type { FirebaseJson } from '../cli/firebase-json.js';
 import type { FirebaseProjectResolution } from '../cli/firebase-project.js';
 import type { RtdbRulesJson, RulesDestination } from './init-payload.js';
 import {
+  DEFAULT_FIRESTORE_DATABASE,
+} from 'pyric/sandbox/internal';
+import {
+  loadFirestoreRulesTarget,
+  loadPendingFirestoreTarget,
+  type FirestoreRulesTarget,
+  type LoadedFirestoreDatabaseRules,
+  type LoadedPendingFirestoreTarget,
+} from './firestore-project-rules.js';
+import {
   firestoreRulesPath,
   loadDatabaseInstanceRules,
   loadPendingDatabaseTargetRules,
@@ -36,6 +46,14 @@ export interface StorageRulesReloadResult {
   /** The bucket by name, or null for the app's default bucket or a pending target. */
   bucket: string | null;
   /** The deploy target no project resolved at startup, when the reload is a pending target's. */
+  target?: string;
+  file: string;
+  result: RulesReloadResult;
+}
+
+/** One Firestore database's, or pending deploy target's, reload after its rules file changed. */
+export interface FirestoreRulesReloadResult {
+  database?: string;
   target?: string;
   file: string;
   result: RulesReloadResult;
@@ -74,7 +92,12 @@ export interface SessionRulesReloadDeps {
   firestore: {
     sourcePath: string | null;
     moduleFiles: readonly string[];
+    targets?: readonly FirestoreRulesTarget[];
+    databases?: ReadonlyMap<string, LoadedFirestoreDatabaseRules>;
+    pending?: readonly LoadedPendingFirestoreTarget[];
   };
+  liveFirestoreDatabases?: Map<string, { rules: string; rulesHash: string } | null>;
+  livePendingFirestore?: Map<string, { rules: string; rulesHash: string; moduleFiles?: string[] } | null>;
   database: {
     defaultInstance: string;
     targets: readonly DatabaseRulesTarget[];
@@ -114,9 +137,23 @@ export function createSessionRulesReloaders(deps: SessionRulesReloadDeps) {
     liveStorageBuckets,
     livePendingStorage,
   } = deps;
+  const liveFirestoreDatabases =
+    deps.liveFirestoreDatabases ?? new Map<string, { rules: string; rulesHash: string } | null>();
+  const livePendingFirestore =
+    deps.livePendingFirestore ??
+    new Map<string, { rules: string; rulesHash: string; moduleFiles?: string[] } | null>();
 
   let attemptedModuleFiles: readonly string[] = [];
   const firestoreSourcePath = firestoreRulesPath(projectDir, firebaseConfig, project);
+  const fsModuleFilesByTarget = new Map<FirestoreRulesTarget | LoadedPendingFirestoreTarget, readonly string[]>();
+  const fsAttemptedModuleFilesByTarget = new Map<FirestoreRulesTarget | LoadedPendingFirestoreTarget, readonly string[]>();
+  for (const target of firestore.targets ?? []) {
+    const loaded = firestore.databases?.get(target.database);
+    fsModuleFilesByTarget.set(target, loaded?.moduleFiles ?? []);
+  }
+  for (const pendingTarget of firestore.pending ?? []) {
+    fsModuleFilesByTarget.set(pendingTarget, pendingTarget.moduleFiles);
+  }
 
   const reloadFirestoreRules = async (): Promise<RulesReloadResult> => {
     const sourcePath = firestoreSourcePath;
@@ -151,8 +188,154 @@ export function createSessionRulesReloaders(deps: SessionRulesReloadDeps) {
   };
 
   const firestoreRulesFiles = (): readonly string[] => {
-    const sourceFiles = firestoreSourcePath === null ? [] : [firestoreSourcePath];
-    return [...new Set([...sourceFiles, ...firestore.moduleFiles, ...attemptedModuleFiles])];
+    const files: string[] = [];
+    if (firestoreSourcePath !== null) {
+      files.push(firestoreSourcePath);
+    }
+    files.push(...firestore.moduleFiles, ...attemptedModuleFiles);
+    for (const target of firestore.targets ?? []) {
+      if (target.path !== undefined) {
+        files.push(target.path);
+      }
+      files.push(...(fsModuleFilesByTarget.get(target) ?? []));
+      files.push(...(fsAttemptedModuleFilesByTarget.get(target) ?? []));
+    }
+    for (const pendingTarget of firestore.pending ?? []) {
+      if (pendingTarget.path !== undefined) {
+        files.push(pendingTarget.path);
+      }
+      files.push(...(fsModuleFilesByTarget.get(pendingTarget) ?? []));
+      files.push(...(fsAttemptedModuleFilesByTarget.get(pendingTarget) ?? []));
+    }
+    return [...new Set(files)];
+  };
+
+  const reloadSingleFirestoreTarget = async (target: FirestoreRulesTarget): Promise<RulesReloadResult> => {
+    if (target.database === DEFAULT_FIRESTORE_DATABASE) {
+      const res = await reloadFirestoreRules();
+      fsModuleFilesByTarget.set(target, firestore.moduleFiles);
+      fsAttemptedModuleFilesByTarget.set(target, attemptedModuleFiles);
+      return res;
+    }
+    if (target.path === undefined) {
+      return { kind: 'not-configured' };
+    }
+    if (!existsSync(target.path)) {
+      const hadRules = (liveFirestoreDatabases.get(target.database) ?? null) !== null;
+      if (!hadRules) {
+        return { kind: 'not-configured' };
+      }
+      return { kind: 'rejected', error: new Error(`pyric sandbox: ${target.path} does not exist.`) };
+    }
+    try {
+      const loaded = await loadFirestoreRulesTarget({ ...target, configured: true });
+      if (loaded.rules === null || loaded.rulesHash === null) {
+        return { kind: 'not-configured' };
+      }
+      fsModuleFilesByTarget.set(target, loaded.moduleFiles);
+      fsAttemptedModuleFilesByTarget.set(target, []);
+      await deployHostedRules?.('firestore', loaded.rules, target.database);
+      liveFirestoreDatabases.set(target.database, {
+        rules: loaded.rules,
+        rulesHash: loaded.rulesHash,
+      });
+      events.broadcast('firestore-rules-update', {
+        database: target.database,
+        rules: loaded.rules,
+        rulesHash: loaded.rulesHash,
+        policy: permissive ? 'allow' : 'deny',
+      });
+      return { kind: 'reloaded', rulesHash: loaded.rulesHash, clients: events.clientCount() };
+    } catch (error) {
+      let attempted: readonly string[] = [];
+      if (error instanceof RulesPrepareError) {
+        attempted = error.moduleFiles;
+      }
+      fsAttemptedModuleFilesByTarget.set(target, attempted);
+      return { kind: 'rejected', error: toError(error) };
+    }
+  };
+
+  const reloadPendingFirestoreTargetRules = async (
+    target: LoadedPendingFirestoreTarget,
+  ): Promise<RulesReloadResult> => {
+    if (target.path === undefined) {
+      return { kind: 'not-configured' };
+    }
+    const destination = { target: target.target };
+    if (!existsSync(target.path)) {
+      const hadRules = (livePendingFirestore.get(target.target) ?? null) !== null;
+      if (!hadRules) {
+        return { kind: 'not-configured' };
+      }
+      return { kind: 'rejected', error: new Error(`pyric sandbox: ${target.path} does not exist.`) };
+    }
+    try {
+      const loaded = await loadPendingFirestoreTarget(target);
+      if (loaded.rules === null || loaded.rulesHash === null) {
+        return { kind: 'not-configured' };
+      }
+      fsModuleFilesByTarget.set(target, loaded.moduleFiles);
+      fsAttemptedModuleFilesByTarget.set(target, []);
+      await deployHostedRules?.('firestore', loaded.rules, destination);
+      livePendingFirestore.set(target.target, {
+        rules: loaded.rules,
+        rulesHash: loaded.rulesHash,
+        moduleFiles: loaded.moduleFiles,
+      });
+      events.broadcast('firestore-rules-update', {
+        target: target.target,
+        rules: loaded.rules,
+        rulesHash: loaded.rulesHash,
+        policy: permissive ? 'allow' : 'deny',
+      });
+      return { kind: 'reloaded', rulesHash: loaded.rulesHash, clients: events.clientCount() };
+    } catch (error) {
+      let attempted: readonly string[] = [];
+      if (error instanceof RulesPrepareError) {
+        attempted = error.moduleFiles;
+      }
+      fsAttemptedModuleFilesByTarget.set(target, attempted);
+      return { kind: 'rejected', error: toError(error) };
+    }
+  };
+
+  const matchesFirestoreTargetFile = (
+    candidate: FirestoreRulesTarget | LoadedPendingFirestoreTarget,
+    resolvedFile: string,
+  ): boolean => {
+    if (candidate.path !== undefined && resolve(candidate.path) === resolvedFile) {
+      return true;
+    }
+    if ((fsModuleFilesByTarget.get(candidate) ?? []).some((m) => resolve(m) === resolvedFile)) {
+      return true;
+    }
+    if ((fsAttemptedModuleFilesByTarget.get(candidate) ?? []).some((m) => resolve(m) === resolvedFile)) {
+      return true;
+    }
+    return false;
+  };
+
+  const reloadFirestoreDatabaseRules = async (
+    file: string,
+  ): Promise<FirestoreRulesReloadResult[]> => {
+    const resolvedFile = resolve(file);
+    const results: FirestoreRulesReloadResult[] = [];
+    for (const target of (firestore.targets ?? []).filter((c) => matchesFirestoreTargetFile(c, resolvedFile))) {
+      results.push({
+        database: target.database,
+        file: target.path ?? file,
+        result: await reloadSingleFirestoreTarget(target),
+      });
+    }
+    for (const pendingTarget of (firestore.pending ?? []).filter((c) => matchesFirestoreTargetFile(c, resolvedFile))) {
+      results.push({
+        target: pendingTarget.target,
+        file: pendingTarget.path ?? file,
+        result: await reloadPendingFirestoreTargetRules(pendingTarget),
+      });
+    }
+    return results;
   };
 
   const databaseRulesFiles = (): readonly string[] => [
@@ -356,6 +539,7 @@ export function createSessionRulesReloaders(deps: SessionRulesReloadDeps) {
 
   return {
     reloadFirestoreRules,
+    reloadFirestoreDatabaseRules,
     reloadDatabaseRules,
     reloadStorageRules,
     firestoreRulesFiles,

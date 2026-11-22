@@ -12,7 +12,7 @@ import * as workerClient from '../../../../src/serve/worker/index.js';
 import { refEqual as workerRefEqual } from '../../../../src/serve/worker/client/firestore-reference-equality.js';
 import { connectClientToHost, makeHostCtx } from '../integration-support.js';
 import { hostedFirestoreContext } from './hosted-firestore-support.ts';
-import { expectReplay, load, restoreSharedWorker, type Pin } from './support.ts';
+import { expectReplay, load, restoreSharedWorker } from './support.ts';
 import type { Behavior } from '../../../../../conformance/src/capture/sdk-scenarios/replay-comparison.ts';
 
 restoreSharedWorker();
@@ -380,53 +380,43 @@ async function replayOfflineCacheInitWithDriver(
   }
 }
 
-function buildNamedDbPins(production: Behavior): Pin[] {
-  const prodInit = production.initializeFirestoreHandles as Record<string, unknown>;
-  const prodRefEqual = production.refEqualChecks as Record<string, Record<string, unknown>>;
-  const namedSameOutcome = {
-    ...prodRefEqual.sameDocPathNamedVsDefaultDb,
-    result: true,
-  };
-  return [
-    {
-      key: 'initializeFirestoreHandles',
-      finding: 'MD2: served getFirestore(app, databaseId) resolves every database id to the (default) handle',
-      production: prodInit,
-      pyric: {
-        ...prodInit,
-        namedDatabaseDistinctFromDefault: false,
-      },
-    },
-    {
-      key: 'refEqualChecks',
-      finding: 'MD2: served getFirestore(app, databaseId) resolves every database id to the (default) handle',
-      production: prodRefEqual,
-      pyric: {
-        ...prodRefEqual,
-        sameDocPathNamedVsDefaultDb: namedSameOutcome,
-      },
-    },
-  ];
+function normalizeDriverDbKey(databaseId: string | undefined): string {
+  if (databaseId === undefined || databaseId === '' || databaseId === '(default)') {
+    return '(default)';
+  }
+  return databaseId;
 }
 
 describe('firestore-offline-cache-init-index-and-refequal oracle capture (served worker + Node host)', () => {
   it('replays over SharedWorker client + host handles (firestore#112, #115, #145, #146, #149, #157)', async () => {
     const production = load('firestore-offline-cache-init-index-and-refequal');
     const host = await makeHostCtx();
-    const byApp = new WeakMap<FirebaseApp, unknown>();
+    const baseByApp = new WeakMap<FirebaseApp, workerClient.ClientDb>();
+    const byAppAndDb = new WeakMap<FirebaseApp, Map<string, unknown>>();
     const driver: PlaneDriver = {
       getFirestore(app: FirebaseApp, databaseId?: string) {
-        const existing = byApp.get(app);
+        const dbKey = normalizeDriverDbKey(databaseId);
+        let perDb = byAppAndDb.get(app);
+        if (perDb === undefined) {
+          perDb = new Map();
+          byAppAndDb.set(app, perDb);
+        }
+        const existing = perDb.get(dbKey);
         if (existing !== undefined) {
           recordImplicitAppFirestoreSettings(app, databaseId, existing as object);
           return existing;
         }
-        const connected = connectClientToHost(host, `worker://cache-init-${app.name}`).db;
-        const handle = Object.assign(connected, {
+        let base = baseByApp.get(app);
+        if (base === undefined) {
+          base = connectClientToHost(host, `worker://cache-init-${app.name}`).db;
+          baseByApp.set(app, base);
+        }
+        const scoped = dbKey === '(default)' ? base : workerClient.withDatabaseId(base, dbKey);
+        const handle = Object.assign({ ...scoped }, {
           app,
           type: 'firestore' as const,
         });
-        byApp.set(app, handle);
+        perDb.set(dbKey, handle);
         recordImplicitAppFirestoreSettings(app, databaseId, handle);
         return handle;
       },
@@ -455,7 +445,6 @@ describe('firestore-offline-cache-init-index-and-refequal oracle capture (served
       expectReplay({
         production,
         pyric,
-        pins: buildNamedDbPins(production),
       });
     } finally {
       host.sandbox.dispose();
@@ -470,20 +459,27 @@ describe('firestore-offline-cache-init-index-and-refequal oracle capture (served
       const opened = await hosted.newClient(`hosted-${label}`);
       preAllocated.set(`served-hosted-cache-init-${label}`, opened.db);
     }
-    const byApp = new WeakMap<FirebaseApp, unknown>();
+    const byAppAndDb = new WeakMap<FirebaseApp, Map<string, unknown>>();
     const driver: PlaneDriver = {
       getFirestore(app: FirebaseApp, databaseId?: string) {
-        const existing = byApp.get(app);
+        const dbKey = normalizeDriverDbKey(databaseId);
+        let perDb = byAppAndDb.get(app);
+        if (perDb === undefined) {
+          perDb = new Map();
+          byAppAndDb.set(app, perDb);
+        }
+        const existing = perDb.get(dbKey);
         if (existing !== undefined) {
           recordImplicitAppFirestoreSettings(app, databaseId, existing as object);
           return existing;
         }
-        const rawClient = preAllocated.get(app.name) ?? hosted.db;
-        const handle = Object.assign(rawClient as object, {
+        const rawClient = (preAllocated.get(app.name) ?? hosted.db) as workerClient.ClientDb;
+        const scoped = dbKey === '(default)' ? rawClient : workerClient.withDatabaseId(rawClient, dbKey);
+        const handle = Object.assign({ ...scoped }, {
           app,
           type: 'firestore' as const,
         });
-        byApp.set(app, handle);
+        perDb.set(dbKey, handle);
         recordImplicitAppFirestoreSettings(app, databaseId, handle);
         return handle;
       },
@@ -511,7 +507,6 @@ describe('firestore-offline-cache-init-index-and-refequal oracle capture (served
     expectReplay({
       production,
       pyric,
-      pins: buildNamedDbPins(production),
     });
   });
 

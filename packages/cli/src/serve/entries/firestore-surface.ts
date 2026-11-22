@@ -19,11 +19,17 @@ import * as ip from 'pyric/firestore';
 import {
   applySettingsCacheMode,
   assertAndRecordAppFirestoreSettings,
-  clearAppFirestoreSettings,
+  clearAppFirestoreDatabaseSettings,
   readDocumentAs,
   readQueryAs,
   recordImplicitAppFirestoreSettings,
 } from 'pyric/firestore/internal';
+import {
+  hasPendingFirestoreTargets,
+  resolvePendingFirestoreTargets,
+} from '../firestore-rules-install.js';
+import { normalizeClientDatabaseId } from '../worker/client/firestore-database.js';
+import { sandbox as pageSandbox } from './app-backend.js';
 import {
   readDocumentAs as workerDocumentRead,
   readQueryAs as workerQueryRead,
@@ -122,30 +128,69 @@ export const and = D.and;
 
 // ── getFirestore — the canonical bare call returns the page's shared backend:
 //    the worker ClientDb on the worker path, the in-page sandbox otherwise. ──
-const workerFirestoreByApp = new WeakMap<FirebaseApp, ReturnType<typeof pyricGetFirestore>>();
+const workerFirestoreByApp = new WeakMap<FirebaseApp, Map<string, ReturnType<typeof pyricGetFirestore>>>();
 
-export const getFirestore = ((app?: FirebaseApp, databaseId?: string) => {
-  const resolved = app ?? getApp();
+function getOrCreateWorkerAppMap(app: FirebaseApp): Map<string, ReturnType<typeof pyricGetFirestore>> {
+  const existing = workerFirestoreByApp.get(app);
+  if (existing !== undefined) {
+    return existing;
+  }
+  const created = new Map<string, ReturnType<typeof pyricGetFirestore>>();
+  workerFirestoreByApp.set(app, created);
+  return created;
+}
+
+export const getFirestore = ((appOrDbId?: FirebaseApp | string, databaseId?: string) => {
+  let resolved: FirebaseApp;
+  let effectiveDbId = databaseId;
+  if (typeof appOrDbId === 'string') {
+    resolved = getApp();
+    effectiveDbId = appOrDbId;
+  } else {
+    resolved = appOrDbId ?? getApp();
+  }
   markServiceUsed();
-  if (!useWorker) return pyricGetFirestore(resolved, databaseId);
-  const existing = workerFirestoreByApp.get(resolved);
-  if (existing) {
-    recordImplicitAppFirestoreSettings(resolved, databaseId, existing);
+  if (!useWorker) {
+    if (hasPendingFirestoreTargets(pageSandbox)) {
+      for (const notice of resolvePendingFirestoreTargets(pageSandbox, resolved.options?.projectId)) {
+        console.info(`[pyric sandbox] ${notice}`);
+      }
+    }
+    return pyricGetFirestore(resolved, effectiveDbId);
+  }
+  const normalizedDb = normalizeClientDatabaseId(effectiveDbId);
+  const dbKey = normalizedDb ?? '(default)';
+  const byDb = getOrCreateWorkerAppMap(resolved);
+  const existing = byDb.get(dbKey);
+  if (existing !== undefined) {
+    recordImplicitAppFirestoreSettings(resolved, effectiveDbId, existing);
     return existing;
   }
   const client = workerClientForApp(resolved);
-  const handle = {
-    __kind: 'client-db' as const,
+  const rawHandle: {
+    __kind: 'client-db';
+    port: typeof client.port;
+    app: FirebaseApp;
+    type: 'firestore';
+    databaseId?: string;
+  } = {
+    __kind: 'client-db',
     port: client.port,
     app: resolved,
-    type: 'firestore' as const,
-  } as unknown as ReturnType<typeof pyricGetFirestore>;
+    type: 'firestore',
+  };
+  if (normalizedDb !== undefined) {
+    rawHandle.databaseId = normalizedDb;
+  }
+  const handle = rawHandle as unknown as ReturnType<typeof pyricGetFirestore>;
   registerWorkerDbTeardown(handle as object, () => {
-    workerFirestoreByApp.delete(resolved);
-    clearAppFirestoreSettings(resolved);
+    if (byDb.get(dbKey) === handle) {
+      byDb.delete(dbKey);
+    }
+    clearAppFirestoreDatabaseSettings(resolved, effectiveDbId, handle);
   });
-  workerFirestoreByApp.set(resolved, handle);
-  recordImplicitAppFirestoreSettings(resolved, databaseId, handle);
+  byDb.set(dbKey, handle);
+  recordImplicitAppFirestoreSettings(resolved, effectiveDbId, handle);
   return handle;
 }) as typeof pyricGetFirestore;
 
@@ -170,7 +215,7 @@ function acceptedNoOp(name: string): void {
 export const CACHE_SIZE_UNLIMITED = -1;
 
 export function initializeFirestore(
-  app?: Parameters<typeof pyricGetFirestore>[0],
+  app?: Parameters<typeof ip.initializeFirestore>[0],
   settings?: ip.FirestoreSettings,
   databaseId?: string,
 ): ReturnType<typeof getFirestore> {

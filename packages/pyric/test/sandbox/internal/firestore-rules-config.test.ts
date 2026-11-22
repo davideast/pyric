@@ -6,6 +6,9 @@ import { describe, expect, test } from 'bun:test';
 import {
   defaultFirestoreDatabase,
   firestoreRulesConfig,
+  invalidFirestoreDatabaseWarnings,
+  isValidFirestoreDatabaseConfigId,
+  MAX_CONFIGURED_FIRESTORE_DATABASES,
   unservedFirestoreDatabaseWarnings,
 } from '../../../src/sandbox/internal/firestore-rules-config.js';
 
@@ -25,18 +28,20 @@ describe('firestoreRulesConfig', () => {
     ]);
   });
 
-  test('an object with a named database deploys to it, and pyric still serves its rules on (default)', () => {
+  test('an object with a named database deploys to that named database and leaves (default) undeployed', () => {
     const config = firestoreRulesConfig({ database: 'reports', rules: 'reports.rules' });
     expect(config.databases.map((entry) => entry.database)).toEqual(['reports']);
-    // Pyric enforced this file on (default) before it modeled named databases; it keeps doing so.
-    expect(defaultFirestoreDatabase(config)?.rulesFile).toBe('reports.rules');
-    expect(unservedFirestoreDatabaseWarnings(config)).toEqual([
-      'firebase.json deploys reports.rules to Firestore database "reports". Pyric serves only (default) for now, so it enforces reports.rules on (default), and getFirestore(app, "reports") reads and writes (default). See https://github.com/davideast/pyric/issues/1314.',
-    ]);
+    expect(defaultFirestoreDatabase(config)).toBeUndefined();
+    expect(unservedFirestoreDatabaseWarnings(config)).toEqual([]);
   });
 
-  test('an object with a named database and no rules keeps the firestore.rules fallback', () => {
-    expect(defaultFirestoreDatabase(firestoreRulesConfig({ database: 'reports' }))?.rulesFile).toBe('firestore.rules');
+  test('an object with a named database and no rules declares it alongside the firestore.rules fallback for (default)', () => {
+    const config = firestoreRulesConfig({ database: 'reports' });
+    expect(defaultFirestoreDatabase(config)?.rulesFile).toBe('firestore.rules');
+    expect(config.databases).toEqual([
+      { database: '(default)', rulesFile: 'firestore.rules', label: 'firebase.json', configured: false },
+      { database: 'reports', label: 'firebase.json firestore', configured: false },
+    ]);
   });
 
   test('an object that names no rules keeps the firestore.rules fallback for (default)', () => {
@@ -133,23 +138,44 @@ describe('firestoreRulesConfig', () => {
       { database: 'reports', rulesFile: 'a.rules', indexesFile: 'i.json', label: 'firebase.json firestore[0]', configured: true },
     ]);
   });
+
+  test('validates Firebase named-database naming rules and enforces the 100-database cap', () => {
+    expect(isValidFirestoreDatabaseConfigId('(default)')).toBe(true);
+    expect(isValidFirestoreDatabaseConfigId('reports-1')).toBe(true);
+    expect(isValidFirestoreDatabaseConfigId('Bad_Id')).toBe(false);
+    expect(isValidFirestoreDatabaseConfigId('-bad')).toBe(false);
+    expect(isValidFirestoreDatabaseConfigId('bad-')).toBe(false);
+    expect(isValidFirestoreDatabaseConfigId('abc')).toBe(false);
+    expect(isValidFirestoreDatabaseConfigId('550e8400-e29b-41d4-a716-446655440000')).toBe(false);
+
+    const hundredEntries = Array.from({ length: MAX_CONFIGURED_FIRESTORE_DATABASES }, (_, idx) => ({
+      database: `db-${String(idx).padStart(3, '0')}`,
+      rules: 'r.rules',
+    }));
+    expect(() => firestoreRulesConfig(hundredEntries)).toThrow(/exceeding the limit of 100 databases/);
+  });
 });
 
 describe('unservedFirestoreDatabaseWarnings', () => {
-  test('one warning per named database and per unresolved target, none for (default)', () => {
+  test('emits no warning for valid named databases, and warns on invalid ids and unresolved targets', () => {
     const config = firestoreRulesConfig([
       { database: '(default)', rules: 'firestore.default.rules' },
       { database: 'reports', rules: 'reports.rules' },
+      { database: 'Bad_Id', rules: 'bad.rules' },
       { target: 'archive', rules: 'archive.rules' },
     ]);
+    expect(invalidFirestoreDatabaseWarnings(config)).toEqual([
+      'firebase.json firestore[2] deploys bad.rules to Firestore database "Bad_Id", which is not a valid Firestore database id (must be 4-63 lowercase letters, digits, or hyphens, starting with a letter, ending with a letter or digit, and not a UUID), so pyric does not declare or serve it.',
+    ]);
     expect(unservedFirestoreDatabaseWarnings(config)).toEqual([
-      'firebase.json deploys reports.rules to Firestore database "reports". Pyric serves only (default) for now, so getFirestore(app, "reports") reads and writes (default) under (default)\'s rules. See https://github.com/davideast/pyric/issues/1314.',
-      'firebase.json firestore[2] deploys archive.rules to deploy target "archive", which .firebaserc does not map for this project, so pyric does not serve it. Pyric serves only (default) for now. See https://github.com/davideast/pyric/issues/1314.',
+      'firebase.json firestore[2] deploys bad.rules to Firestore database "Bad_Id", which is not a valid Firestore database id (must be 4-63 lowercase letters, digits, or hyphens, starting with a letter, ending with a letter or digit, and not a UUID), so pyric does not declare or serve it.',
+      'firebase.json firestore[3] deploys archive.rules to deploy target "archive", which .firebaserc does not map for this project, so pyric does not serve it.',
     ]);
   });
 
-  test('no warnings for the object form or a (default)-only array', () => {
+  test('no warnings for valid object or array forms', () => {
     expect(unservedFirestoreDatabaseWarnings(firestoreRulesConfig({ rules: 'a.rules' }))).toEqual([]);
-    expect(unservedFirestoreDatabaseWarnings(firestoreRulesConfig([{ database: '(default)', rules: 'a.rules' }]))).toEqual([]);
+    expect(unservedFirestoreDatabaseWarnings(firestoreRulesConfig({ database: 'reports', rules: 'a.rules' }))).toEqual([]);
+    expect(unservedFirestoreDatabaseWarnings(firestoreRulesConfig([{ database: '(default)', rules: 'a.rules' }, { database: 'reports', rules: 'b.rules' }]))).toEqual([]);
   });
 });

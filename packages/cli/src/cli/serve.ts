@@ -22,6 +22,11 @@ import { isStandalone, materializeServeAssets, materializeSiteUi, embeddedWorker
 import { resolveProjectAndDefaultInstance } from '../bridge/surface/database-instance-project.js';
 import { hasSandboxBuildMarker } from '../serve/sandbox-marker.js';
 import { watchRulesFiles } from '../serve/rules-files-watch.js';
+import {
+  formatFirestoreReloadNotes,
+  formatFirestoreWatcherErrorNote,
+  formatStartupFirestoreRulesLines,
+} from '../serve/firestore-project-rules.js';
 import { formatDatabaseRulesRemoved, formatStorageRulesRemoved, storageBucketSuffix } from '../serve/rules.js';
 import { formatBeaconReceipt } from '../serve/beacon-route.js';
 import type { InitPayload } from '../serve/namespace.js';
@@ -744,31 +749,27 @@ async function startServeRuntime(opts: {
   const isWatchEnabled = opts.watch ?? true;
   if (isWatchEnabled) {
     let debounce: ReturnType<typeof setTimeout> | null = null;
+    const changedFirestoreFiles = new Set<string>();
     const rulesFiles = watchRulesFiles(
       () => session.firestoreRulesFiles(),
-      () => {
+      (file) => {
+        changedFirestoreFiles.add(file);
         const pendingReload = debounce;
         const hasPendingReload = pendingReload !== null;
         if (hasPendingReload) clearTimeout(pendingReload);
         debounce = setTimeout(() => {
-          void session.reloadFirestoreRules().then((result) => {
-            rulesFiles.sync();
-            const isReloaded = result.kind === 'reloaded';
-            const isRejected = result.kind === 'rejected';
-            if (isReloaded) {
-              logger.note(`  ↻ rules reloaded (hash ${result.rulesHash}) → ${result.clients} page(s)${getVerifyHint()}`);
-              if (result.fixtureCheck && result.fixtureCheck.ran > 0) {
-                for (const line of result.fixtureCheck.lines) logger.note(line);
-              }
-            } else if (isRejected) {
-              logger.note(`  ⚠ rules NOT reloaded (last-good stays live): ${result.error.message}`);
-            }
-          });
+          const files = [...changedFirestoreFiles];
+          changedFirestoreFiles.clear();
+          for (const changed of files) {
+            void session.reloadFirestoreDatabaseRules(changed).then((results) => {
+              rulesFiles.sync();
+              for (const line of formatFirestoreReloadNotes(results, getVerifyHint())) logger.note(line);
+            });
+          }
         }, 150);
       },
       (error) => {
-        const message = serveErrorMessage(error);
-        logger.note(`  ⚠ rules watcher failed (hot reload off): ${message}`);
+        logger.note(formatFirestoreWatcherErrorNote(serveErrorMessage(error)));
       },
     );
     handle.server.once('close', () => {
@@ -889,11 +890,15 @@ async function startServeRuntime(opts: {
     logger.info(`✔ sandbox  pyric SDK bundles built in ${bundleMs}ms`);
   }
   const rulesTarget = usesHostedSandbox ? 'Node sandbox' : 'in-page sandbox';
-  const hasFirestoreRules = Boolean(session.payload().rules);
-  if (hasFirestoreRules) {
-    logger.info(`✔ rules    ${session.summary.rules.firestore.sourcePath} → deployed to the ${rulesTarget} (hash ${session.summary.rules.firestore.hash})`);
-  } else {
-    logger.info('• rules    no firestore.rules — sandbox runs with default rules');
+  for (const line of formatStartupFirestoreRulesLines({
+    hasDefaultRules: Boolean(session.payload().rules),
+    defaultSourcePath: session.summary.rules.firestore.sourcePath,
+    defaultHash: session.summary.rules.firestore.hash,
+    rulesTarget,
+    namedDatabases: session.summary.rules.firestoreDatabases,
+    permissive: Boolean(opts.permissive),
+  })) {
+    logger.info(line);
   }
   const loadedDatabaseRules = session.summary.rules.database;
   const hasDatabaseRules = loadedDatabaseRules.length > 0;

@@ -41,7 +41,9 @@ import {
 
 /** Restore SDK scalar values and references bound to this snapshot's client port. */
 function rehydrateDocData(serialized: SerializedDocData, port: ClientPort): Record<string, unknown> {
-  const references = { create: (path: string) => createDocumentReference(port, path) };
+  const references = {
+    create: (path: string, databaseId?: string) => createDocumentReference(port, path, null, undefined, databaseId),
+  };
   return deserializeDocData(serialized, references) as Record<string, unknown>;
 }
 
@@ -86,7 +88,9 @@ export function rawClientSnapshotForCursor(snapshot: object): RawCursorSnapshot 
 
 function mapDescriptorFilter(port: ClientPort, f: FilterConstraintDescriptor): BundledFilterSpec {
   if (f.kind === 'where') {
-    const references = { create: (path: string) => createDocumentReference(port, path) };
+    const references = {
+      create: (path: string, databaseId?: string) => createDocumentReference(port, path, null, undefined, databaseId),
+    };
     return {
       kind: 'where',
       fieldPath: f.field,

@@ -1,8 +1,12 @@
 import path from 'node:path';
 import type { ViteDevServer } from 'vite';
+import { firestoreDatabaseSuffix } from './firestore-project-rules.js';
 import { formatDatabaseRulesRemoved, formatStorageRulesRemoved, storageBucketSuffix } from './rules.js';
 import type { SandboxSession } from './sandbox-session.js';
 import { createVerifyHint } from './verify-hint.js';
+
+const RELOAD_GLYPH = String.fromCharCode(0x21bb);
+const WARN_GLYPH = String.fromCharCode(0x26a0);
 
 /**
  * Adapt Vite's watcher to the session's last-good rules reload operations.
@@ -31,15 +35,18 @@ export function watchViteGenerationRules(input: {
   // The services whose files changed since the last reload. One debounce
   // covers every file, so a change to one service's file does not drop a
   // pending reload of another's.
-  const pending = { firestore: false, database: new Set<string>(), storage: new Set<string>() };
+  const pending = { firestore: new Set<string>(), database: new Set<string>(), storage: new Set<string>() };
   const onRulesChange = (file: string): void => {
     const resolvedFile = path.resolve(file);
-    pending.firestore ||= session.firestoreRulesFiles().some((file) => path.resolve(file) === resolvedFile);
+    const matchesFirestore = session.firestoreRulesFiles().some((candidate) => path.resolve(candidate) === resolvedFile);
+    if (matchesFirestore) {
+      pending.firestore.add(resolvedFile);
+    }
     const databaseFile = databaseFileByResolved.get(resolvedFile);
     if (databaseFile !== undefined) pending.database.add(databaseFile);
     const storageFile = session.storageRulesFiles().find((candidate) => path.resolve(candidate) === resolvedFile);
     if (storageFile !== undefined) pending.storage.add(storageFile);
-    const isNoMatch = !pending.firestore && pending.database.size === 0 && pending.storage.size === 0;
+    const isNoMatch = pending.firestore.size === 0 && pending.database.size === 0 && pending.storage.size === 0;
     if (isNoMatch) {
       return;
     }
@@ -48,33 +55,46 @@ export function watchViteGenerationRules(input: {
       clearTimeout(debounce as ReturnType<typeof setTimeout>);
     }
     debounce = setTimeout(() => {
-      const { firestore: isFirestoreMatch } = pending;
+      const changedFirestoreFiles = [...pending.firestore];
       const changedDatabaseFiles = [...pending.database];
       const changedStorageFiles = [...pending.storage];
-      pending.firestore = false;
+      pending.firestore.clear();
       pending.database.clear();
       pending.storage.clear();
-      if (isFirestoreMatch) {
-        void session.reloadFirestoreRules().then((result) => {
-          server.watcher.add([...session.firestoreRulesFiles()]);
-          const isReloaded = result.kind === 'reloaded';
-          if (isReloaded) {
-            server.config.logger.info(`  ↻ [pyric] rules reloaded (${result.rulesHash})${getVerifyHint()}`);
+      const logFirestoreReloads = (
+        results: Awaited<ReturnType<SandboxSession['reloadFirestoreDatabaseRules']>>,
+      ): void => {
+        server.watcher.add([...session.firestoreRulesFiles()]);
+        for (const { database, target, result } of results) {
+          const named = firestoreDatabaseSuffix(database, target);
+          if (result.kind === 'reloaded') {
+            server.config.logger.info(
+              `  ${RELOAD_GLYPH} [pyric] rules reloaded${named} (${result.rulesHash})${getVerifyHint()}`,
+            );
             if (result.fixtureCheck && result.fixtureCheck.ran > 0) {
-              const logFn = result.fixtureCheck.ok
-                ? (m: string) => server.config.logger.info(m)
-                : (m: string) => server.config.logger.warn(m);
+              let logFn = (m: string) => server.config.logger.warn(m);
+              if (result.fixtureCheck.ok) {
+                logFn = (m: string) => server.config.logger.info(m);
+              }
               for (const line of result.fixtureCheck.lines) logFn(line);
             }
-          } else {
-            const isRejected = result.kind === 'rejected';
-            if (isRejected) {
-              server.config.logger.warn(
-                `  ⚠ [pyric] rules NOT reloaded (last-good stays live): ${result.error.message}`,
-              );
-            }
+          } else if (result.kind === 'rejected') {
+            server.config.logger.warn(
+              `  ${WARN_GLYPH} [pyric] rules NOT reloaded (last-good stays live): ${result.error.message}${named}`,
+            );
           }
-        });
+        }
+      };
+      if (changedFirestoreFiles.length > 0) {
+        if (typeof session.reloadFirestoreDatabaseRules === 'function') {
+          for (const firestoreFile of changedFirestoreFiles) {
+            void session.reloadFirestoreDatabaseRules(firestoreFile).then(logFirestoreReloads);
+          }
+        } else {
+          void session
+            .reloadFirestoreRules()
+            .then((result) => logFirestoreReloads([{ file: changedFirestoreFiles[0]!, result }]));
+        }
       }
       for (const databaseFile of changedDatabaseFiles) {
         void session.reloadDatabaseRules(databaseFile).then((results) => {

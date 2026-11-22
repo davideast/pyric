@@ -12,6 +12,12 @@ import { getAdminDatabase, sandbox as rtdbSandbox } from 'pyric/database';
 import { heldDatabaseInstances } from 'pyric/database/internal';
 import { sandbox as authOps, type SeedUser } from 'pyric/auth';
 import {
+  applyFirestoreRulesUpdate,
+  firestoreRulesUpdateNotice,
+  installServedFirestoreRules,
+  type FirestoreRulesUpdate,
+} from '../firestore-rules-install.js';
+import {
   applyStorageRulesUpdate,
   installServedStorageRules,
   storageRulesUpdateNotice,
@@ -78,6 +84,22 @@ export function setupWorkerHotReload(
       if (err instanceof Error) reason = err.message;
       // eslint-disable-next-line no-console
       console.error('[pyric worker] rules hot-reload failed:', reason);
+    }
+  });
+  events.addEventListener('firestore-rules-update', (ev) => {
+    try {
+      const update = JSON.parse(ev.data) as FirestoreRulesUpdate;
+      applyFirestoreRulesUpdate(ctx.sandbox, update, (dbId, rules) => {
+        const deployed = deployFirestoreRulesToHost(ctx, rules, dbId);
+        if (deployed.rejectionMessage !== null) throw new Error(deployed.rejectionMessage);
+      });
+      // eslint-disable-next-line no-console
+      console.info(`[pyric worker] ${firestoreRulesUpdateNotice(update)}`);
+    } catch (err) {
+      let reason = String(err);
+      if (err instanceof Error) reason = err.message;
+      // eslint-disable-next-line no-console
+      console.error('[pyric worker] firestore rules hot-reload failed:', reason);
     }
   });
   events.addEventListener('rtdb-rules-update', (ev) => {
@@ -273,6 +295,18 @@ export function applyServeInit(
         messages: firestoreRuleMessages(lint),
       };
     }
+  }
+  const hostFirestoreDeploy = (dbId: string, rules: string): void => {
+    const deployed = deployFirestoreRulesToHost(ctx, rules, dbId);
+    if (deployed.rejectionMessage !== null) {
+      throw new Error(deployed.rejectionMessage);
+    }
+  };
+  for (const notice of installServedFirestoreRules(ctx.sandbox, payload, hostFirestoreDeploy)) {
+    console.info(`[pyric] ${notice}`);
+  }
+  if (Object.keys(payload.firestoreDatabases?.rules ?? {}).length > 0) {
+    result.rulesDeployed = true;
   }
 
   ctx.rtdbDefaultPolicy = payload.permissive ? 'allow' : 'deny';

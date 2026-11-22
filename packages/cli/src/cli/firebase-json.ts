@@ -67,13 +67,23 @@ export function withDefaultFirestoreRules(
   firestore: FirebaseJson['firestore'],
   rules: string,
 ): FirestoreConfig | FirestoreConfigEntry[] {
-  if (!Array.isArray(firestore)) return { ...firestore, rules };
+  if (!Array.isArray(firestore)) {
+    const namedOnObject =
+      firestore !== undefined &&
+      typeof firestore.database === 'string' &&
+      firestore.database !== '' &&
+      firestore.database !== '(default)';
+    if (namedOnObject) {
+      return [firestore, { pyricRulesOverride: rules }];
+    }
+    return { ...firestore, rules };
+  }
   const entries = firestore.filter((entry) => entry.pyricRulesOverride === undefined);
   return [...entries, { pyricRulesOverride: rules }];
 }
 
 /** The single-object `database` form: `rules` deploys to the default instance. */
-export interface DatabaseRulesConfig {
+interface DatabaseRulesConfig {
   rules?: string;
 }
 

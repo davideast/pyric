@@ -24,6 +24,7 @@ export { markHandlePersistentCache } from '../cache-index-manager.js';
 export {
   applySettingsCacheMode,
   assertAndRecordAppFirestoreSettings,
+  clearAppFirestoreDatabaseSettings,
   clearAppFirestoreSettings,
   recordImplicitAppFirestoreSettings,
 } from '../init-settings.js';

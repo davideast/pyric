@@ -44,10 +44,24 @@ function invalidQueryArgument(message: string): FirebaseError {
  * nested array is rejected with `invalid-argument` matching `pyric/firestore`'s
  * `captureQueryOperand`.
  */
+const ENCODED_REF_DB_RE = /^databases\/([^/]+)\/documents(?:\/|$)/;
+
+function extractEncodedReferenceDatabaseId(encoded: Record<string, unknown>): string | undefined {
+  if (encoded.__type !== 'reference' || typeof encoded.path !== 'string') {
+    return undefined;
+  }
+  const match = ENCODED_REF_DB_RE.exec(encoded.path);
+  if (match !== null && typeof match[1] === 'string' && match[1].length > 0) {
+    return match[1];
+  }
+  return '(default)';
+}
+
 function assertEncodedQueryOperand(
   encoded: unknown,
   allowNestedArrays: boolean,
   parentIsArray = false,
+  targetDatabaseId = '(default)',
 ): void {
   if (
     encoded === null
@@ -76,7 +90,7 @@ function assertEncodedQueryOperand(
       throw invalidQueryArgument('Nested arrays are not supported.');
     }
     for (const item of encoded) {
-      assertEncodedQueryOperand(item, allowNestedArrays, true);
+      assertEncodedQueryOperand(item, allowNestedArrays, true, targetDatabaseId);
     }
     return;
   }
@@ -84,12 +98,16 @@ function assertEncodedQueryOperand(
   if (prototype !== Object.prototype && prototype !== null) {
     throw invalidQueryArgument('Firestore query maps must be plain objects.');
   }
+  const refDb = extractEncodedReferenceDatabaseId(encoded as Record<string, unknown>);
+  if (refDb !== undefined && refDb !== targetDatabaseId) {
+    throw invalidQueryArgument('Document reference belongs to a different Firestore database.');
+  }
   for (const child of Object.values(encoded as Record<string, unknown>)) {
-    assertEncodedQueryOperand(child, allowNestedArrays, false);
+    assertEncodedQueryOperand(child, allowNestedArrays, false, targetDatabaseId);
   }
 }
 
-function validateFilterConstraint(filter: FilterConstraintDescriptor): void {
+function validateFilterConstraint(filter: FilterConstraintDescriptor, targetDatabaseId: string): void {
   if (filter.kind === 'where') {
     if (!VALID_WHERE_OPERATORS.has(filter.op)) {
       throw invalidQueryArgument('Unsupported Firestore filter operator.');
@@ -98,20 +116,21 @@ function validateFilterConstraint(filter: FilterConstraintDescriptor): void {
       throw invalidQueryArgument(`Firestore ${filter.op} filter requires an array operand.`);
     }
     const allowsNestedArray = filter.op === 'in' || filter.op === 'not-in';
-    assertEncodedQueryOperand(filter.value, allowsNestedArray);
+    assertEncodedQueryOperand(filter.value, allowsNestedArray, false, targetDatabaseId);
     return;
   }
   for (const nested of filter.filters) {
-    validateFilterConstraint(nested);
+    validateFilterConstraint(nested, targetDatabaseId);
   }
 }
 
 export function validateResolvedQueryConstraint(
   constraint: QueryConstraintDescriptor,
   explicitOrderFields: readonly string[],
+  targetDatabaseId = '(default)',
 ): void {
   if (constraint.kind === 'where' || constraint.kind === 'and' || constraint.kind === 'or') {
-    validateFilterConstraint(constraint);
+    validateFilterConstraint(constraint, targetDatabaseId);
     return;
   }
   if (constraint.kind === 'orderBy') {
@@ -136,7 +155,7 @@ export function validateResolvedQueryConstraint(
       // while refusing to silently coerce `undefined` to `null` over JSON wire.
       return;
     }
-    assertEncodedQueryOperand(encodedValue, false);
+    assertEncodedQueryOperand(encodedValue, false, false, targetDatabaseId);
     if (constraint.fromSnapshot !== true && explicitOrderFields[index] === '__name__') {
       if (typeof encodedValue !== 'string') {
         throw invalidQueryArgument('Expected a string for a document ID cursor value.');

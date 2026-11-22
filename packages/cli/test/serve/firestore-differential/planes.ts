@@ -88,6 +88,7 @@ export async function openSandboxPool(): Promise<PlanePool> {
         app,
         async setRules(rulesSource: string): Promise<void> {
           setRules(sandbox, rulesSource);
+          setRules(sandbox, rulesSource, 'reports');
         },
         async readAdminState(extraPaths: readonly string[]): Promise<Record<string, unknown>> {
           const directKeys = canonicalizeSnapshotKeys(snapshotDocuments(sandbox));
@@ -166,7 +167,10 @@ export async function openHostedPool(): Promise<PlanePool> {
   mkdirSync(join(projectDir, 'public'), { recursive: true });
   writeFileSync(
     join(projectDir, 'firebase.json'),
-    JSON.stringify({ hosting: { public: 'public' } }),
+    JSON.stringify({
+      hosting: { public: 'public' },
+      firestore: [{ database: '(default)' }, { database: 'reports' }],
+    }),
   );
   writeFileSync(
     join(projectDir, '.firebaserc'),
@@ -256,6 +260,7 @@ export async function openHostedPool(): Promise<PlanePool> {
         app,
         async setRules(rulesSource: string): Promise<void> {
           await remote.channel.op({ method: 'setFirestoreRules', source: rulesSource });
+          await remote.channel.op({ method: 'setFirestoreRules', source: rulesSource, databaseId: 'reports' });
         },
         async readAdminState(extraPaths: readonly string[]): Promise<Record<string, unknown>> {
           const rawState = (await remote.channel.op({ method: 'admin.readState' })) as Record<string, unknown>;

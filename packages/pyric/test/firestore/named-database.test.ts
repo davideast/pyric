@@ -1,9 +1,7 @@
 /**
- * Named Firestore databases. Production `getFirestore(app, databaseId)`
- * returns a handle bound to that database, with its own documents and its
- * own rules evaluation context. The sandbox models one database per app,
- * `(default)`. These tests pin that behavior so a change to it is a
- * deliberate registry edit.
+ * Named Firestore databases. `getFirestore(app, databaseId)` and
+ * `getFirestore(databaseId)` return handles bound to that database, with
+ * isolated documents and per-database rules evaluation.
  */
 import { describe, expect, it } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
@@ -21,6 +19,8 @@ service cloud.firestore {
 function sandboxApp() {
   const sandbox = initializeSandbox();
   setRules(sandbox, OPEN_RULES);
+  setRules(sandbox, OPEN_RULES, 'reports');
+  setRules(sandbox, OPEN_RULES, 'archive');
   const app = createAppForSandbox(
     sandbox,
     { projectId: 'named-database-test' },
@@ -29,34 +29,48 @@ function sandboxApp() {
   return { sandbox, app };
 }
 
-/** The two-argument production signature, which the sandbox overloads do not declare. */
-const getFirestoreWithDatabaseId = getFirestore as unknown as (
-  app: unknown,
-  databaseId: string,
-) => ReturnType<typeof getFirestore>;
-
 describe('getFirestore(app, databaseId) in the sandbox', () => {
-  it('returns the (default) database handle for any database id', () => {
+  it('returns distinct cached handles per database id and aliases "" and "(default)"', () => {
     const { app } = sandboxApp();
     const defaultDb = getFirestore(app);
-    expect(getFirestoreWithDatabaseId(app, 'reports')).toBe(defaultDb);
-    expect(getFirestoreWithDatabaseId(app, 'archive')).toBe(defaultDb);
+    expect(getFirestore(app, '(default)')).toBe(defaultDb);
+    expect(getFirestore(app, '')).toBe(defaultDb);
+
+    const reportsDb = getFirestore(app, 'reports');
+    const archiveDb = getFirestore(app, 'archive');
+    expect(reportsDb).not.toBe(defaultDb);
+    expect(archiveDb).not.toBe(defaultDb);
+    expect(archiveDb).not.toBe(reportsDb);
+    expect(getFirestore(app, 'reports')).toBe(reportsDb);
+    expect(reportsDb.app).toBe(app);
   });
 
-  it('shares documents between database ids', async () => {
+  it('isolates documents between (default) and named databases', async () => {
     const { app } = sandboxApp();
-    await setDoc(doc(getFirestoreWithDatabaseId(app, 'reports'), 'items/one'), { from: 'reports' });
+    await setDoc(doc(getFirestore(app, 'reports'), 'items/one'), { from: 'reports' });
+    await setDoc(doc(getFirestore(app, 'archive'), 'items/one'), { from: 'archive' });
+
     const fromDefault = await getDoc(doc(getFirestore(app), 'items/one'));
-    const fromArchive = await getDoc(doc(getFirestoreWithDatabaseId(app, 'archive'), 'items/one'));
-    expect(fromDefault.data()).toEqual({ from: 'reports' });
-    expect(fromArchive.data()).toEqual({ from: 'reports' });
+    const fromReports = await getDoc(doc(getFirestore(app, 'reports'), 'items/one'));
+    const fromArchive = await getDoc(doc(getFirestore(app, 'archive'), 'items/one'));
+    expect(fromDefault.exists()).toBe(false);
+    expect(fromReports.data()).toEqual({ from: 'reports' });
+    expect(fromArchive.data()).toEqual({ from: 'archive' });
+  });
+
+  it('rejects reads on an undeclared named database with unavailable (offline)', async () => {
+    const { app } = sandboxApp();
+    const missing = getFirestore(app, 'undeclared');
+    await expect(getDoc(doc(missing, 'items/one'))).rejects.toMatchObject({ code: 'unavailable' });
   });
 });
 
 describe('the rules `database` binding', () => {
   it('binds the database path variable to (default)', async () => {
     const { sandbox, app } = sandboxApp();
-    setRules(sandbox, `rules_version = '2';
+    setRules(
+      sandbox,
+      `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /probe/{id} {
@@ -66,8 +80,10 @@ service cloud.firestore {
       allow read, write: if database == 'reports';
     }
   }
-}`);
-    const reports = getFirestoreWithDatabaseId(app, 'reports');
+}`,
+      'reports',
+    );
+    const reports = getFirestore(app, 'reports');
     await setDoc(doc(reports, 'probe/one'), { ok: true });
     expect((await getDoc(doc(reports, 'probe/one'))).data()).toEqual({ ok: true });
     await expect(setDoc(doc(reports, 'named/one'), { ok: true })).rejects.toThrow(/denied by rules/);

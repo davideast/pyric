@@ -1,3 +1,4 @@
+import { clientDatabaseIdOf } from './firestore-database.js';
 import type { CollRefHandle, DocRefHandle } from './handles.js';
 
 type Reference = DocRefHandle | CollRefHandle;
@@ -21,14 +22,15 @@ function isServedReference(candidate: unknown): candidate is Reference {
   return record.port !== null && typeof record.port === 'object';
 }
 
-/** Served reference identity belongs to one app's port, path, and converter. */
+/** Served reference identity belongs to one app's port, database id, path, and converter. */
 export function refEqual(left: Reference, right: Reference): boolean {
   if (!isServedReference(left) || !isServedReference(right)) {
     return false;
   }
   const sameKind = left.__kind === right.__kind;
   const sameInstance = left.port === right.port;
+  const sameDatabase = (clientDatabaseIdOf(left) ?? '(default)') === (clientDatabaseIdOf(right) ?? '(default)');
   const samePath = left.path === right.path;
   const sameConverter = converterOf(left) === converterOf(right);
-  return sameKind && sameInstance && samePath && sameConverter;
+  return sameKind && sameInstance && sameDatabase && samePath && sameConverter;
 }
