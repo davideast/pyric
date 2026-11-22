@@ -127,6 +127,23 @@ describe('normalizeHostname on IP literals', () => {
     '::ffff:169.254.169.254%eth0',
     '[::ffff:a9fe:a9fe%25lo]',
     '[::ffff:a9fe:a9fe%lo]',
+    // IPv4-translated (RFC 2765, ::ffff:0:a.b.c.d), NAT64 (RFC 6052, 64:ff9b::a.b.c.d),
+    // and IPv4-compatible (::a.b.c.d) embedded IPv4 forms (#1465).
+    '::ffff:0:169.254.169.254',
+    '::ffff:0:a9fe:a9fe',
+    '[::ffff:0:a9fe:a9fe]',
+    '0:0:0:0:ffff:0:a9fe:a9fe',
+    '::FFFF:0:A9FE:A9FE%lo',
+    '64:ff9b::169.254.169.254',
+    '64:ff9b::a9fe:a9fe',
+    '[64:ff9b::a9fe:a9fe]',
+    '0064:ff9b:0:0:0:0:a9fe:a9fe',
+    '[64:FF9B::A9FE:A9FE%25eth0]',
+    '::169.254.169.254',
+    '::a9fe:a9fe',
+    '[::a9fe:a9fe]',
+    '0:0:0:0:0:0:a9fe:a9fe',
+    '::A9FE:A9FE%lo',
   ];
 
   it('writes every IPv4 spelling of the metadata IP as its dotted quad', () => {
@@ -136,10 +153,19 @@ describe('normalizeHostname on IP literals', () => {
   });
 
   it('writes other IPv6 addresses in one compressed form without brackets', () => {
+    expect(normalizeHostname('::')).toBe('::');
+    expect(normalizeHostname('[::]')).toBe('::');
     expect(normalizeHostname('[::1]')).toBe('::1');
     expect(normalizeHostname('0:0:0:0:0:0:0:1')).toBe('::1');
+    expect(normalizeHostname('::ffff')).toBe('::ffff');
+    expect(normalizeHostname('::0:ffff')).toBe('::ffff');
+    expect(normalizeHostname('::00ff:0001')).toBe('::ff:1');
     expect(normalizeHostname('2001:DB8::1')).toBe('2001:db8::1');
     expect(normalizeHostname('fe80::1%eth0')).toBe('fe80::1');
+    expect(normalizeHostname('fd20:ce::254')).toBe('fd20:ce::254');
+    expect(normalizeHostname('[FD20:00CE::0254]')).toBe('fd20:ce::254');
+    expect(normalizeHostname('64:ff9b::1:a9fe:a9fe')).toBe('64:ff9b::1:a9fe:a9fe');
+    expect(normalizeHostname('0064:ff9b:0:1::a9fe:a9fe')).toBe('64:ff9b:0:1::a9fe:a9fe');
   });
 
   it('leaves hostnames, including ones made of hex digits, as text', () => {

@@ -16,6 +16,7 @@
 import Module from 'node:module';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { isMainThread } from 'node:worker_threads';
 import { UNSUPPORTED_RUNTIME_CODE } from '../cli/unsupported-runtime.js';
 import { isLiveRegisterActive, isRegisterActive } from '../register/activation.js';
 import { canonicalFirebaseSpecifier } from '../register/mapping.js';
@@ -23,7 +24,13 @@ import { requireRegisterHooks } from '../register/node-version-stop.js';
 import { packageNameOf } from '../register/package-identity.js';
 import { createStopReporter, isImportCondition, stopFor, suppliedRowsStopFor } from '../register/swap-or-stop.js';
 import { isBypassedBridgeImport, type AiMode } from './firebase-module-swap.js';
-import type { SuppliedRows } from './vite-supplied-rows.js';
+import { suppliedRows, type SuppliedRows } from './vite-supplied-rows.js';
+import {
+  installViteWorkerGuard,
+  readViteWorkerStopEnv,
+  restoreSharedViteWorkerEnv,
+  type ActiveViteStopConfig,
+} from './vite-worker-stop.js';
 
 interface SyncResolveContext {
   parentURL?: string;
@@ -66,6 +73,8 @@ type ProcessStopLease = SandboxStopLease | LiveStopLease;
 
 interface StopState {
   readonly leases: ProcessStopLease[];
+  readonly sharedEnvBackup: Map<string, string | undefined>;
+  workerGuardInstalled: boolean;
 }
 
 /** Holds the installed hook's state, once per process. */
@@ -205,6 +214,10 @@ export interface ViteProcessStopInput {
   registerActive?: () => boolean;
   /** Defaults to `process.versions.node`. */
   nodeVersion?: string;
+  /** Optional `node:worker_threads` stand-in for unit tests. */
+  workerThreads?: { Worker: unknown };
+  /** Override the preload module URL injected into spawned workers (for tests). */
+  workerPreloadUrl?: string;
 }
 
 export interface ViteLiveProcessStopInput {
@@ -213,6 +226,8 @@ export interface ViteLiveProcessStopInput {
   registerHooks?: RegisterHooks;
   registerActive?: () => boolean;
   nodeVersion?: string;
+  workerThreads?: { Worker: unknown };
+  workerPreloadUrl?: string;
 }
 
 const BUN_TEST_ENTRYPOINT = /\.(?:test|spec)\.[cm]?[jt]sx?$/;
@@ -273,6 +288,41 @@ export function validateViteProcessStopRuntime(
   requireRegisterHooks(resolveHooksCallback(input), label, input.nodeVersion ?? process.versions.node, write);
 }
 
+function activeStopConfig(
+  state: StopState,
+  registerActiveCheck: () => boolean,
+): ActiveViteStopConfig | null {
+  const active = state.leases.at(-1);
+  if (active === undefined) return null;
+  if (registerActiveCheck()) return null;
+  if (active.kind === 'live') {
+    if (isLiveRegisterActive()) return null;
+    return { kind: 'live' };
+  }
+  return {
+    kind: 'sandbox',
+    aiMode: active.getAiMode(),
+    projectRoot: active.projectRoot,
+  };
+}
+
+function ensureWorkerGuard(
+  state: StopState,
+  input: ViteLiveProcessStopInput,
+  registerActiveCheck: () => boolean,
+): void {
+  if (state.workerGuardInstalled) return;
+  const shouldGuardWorkers = 'workerThreads' in input || input.slot === undefined;
+  if (!shouldGuardWorkers) return;
+  state.workerGuardInstalled = true;
+  installViteWorkerGuard({
+    preloadUrl: input.workerPreloadUrl ?? import.meta.url,
+    getActiveConfig: () => activeStopConfig(state, registerActiveCheck),
+    sharedEnvBackup: state.sharedEnvBackup,
+    workerThreads: input.workerThreads,
+  });
+}
+
 function ensureProcessStopState(
   surface: 'sandbox' | 'live',
   input: ViteLiveProcessStopInput,
@@ -289,7 +339,10 @@ function ensureProcessStopState(
     throw error;
   }
   const existing = slot[VITE_PROCESS_STOP] as StopState | undefined;
-  if (existing !== undefined) return existing;
+  if (existing !== undefined) {
+    ensureWorkerGuard(existing, input, registerActiveCheck);
+    return existing;
+  }
   const label = surface === 'live' ? '@pyric/live/vite' : 'pyric() Vite plugin';
   const registerHooks = requireRegisterHooks(
     resolveHooksCallback(input),
@@ -297,7 +350,11 @@ function ensureProcessStopState(
     input.nodeVersion ?? process.versions.node,
     write,
   );
-  const state: StopState = { leases: [] };
+  const state: StopState = {
+    leases: [],
+    sharedEnvBackup: new Map<string, string | undefined>(),
+    workerGuardInstalled: false,
+  };
   registerHooks({
     resolve(specifier, context, nextResolve) {
       if (registerActiveCheck()) return nextResolve(specifier, context);
@@ -312,6 +369,7 @@ function ensureProcessStopState(
       return evaluateSandboxLease(active, specifier, context, sandboxResult);
     },
   });
+  ensureWorkerGuard(state, input, registerActiveCheck);
   slot[VITE_PROCESS_STOP] = state;
   return state;
 }
@@ -324,6 +382,9 @@ function pushLease(state: StopState, lease: ProcessStopLease): () => void {
     released = true;
     const index = state.leases.lastIndexOf(lease);
     if (index !== -1) state.leases.splice(index, 1);
+    if (state.leases.length === 0) {
+      restoreSharedViteWorkerEnv(state.sharedEnvBackup, process.env);
+    }
   };
 }
 
@@ -369,3 +430,35 @@ export function acquireViteLiveProcessStop(
   };
   return pushLease(state, lease);
 }
+
+const VITE_WORKER_STOP_PRELOAD_INSTALLED = Symbol.for('pyric.viteWorkerStopPreloadInstalled');
+
+function workerLiveRefusal(specifier: string): Error {
+  const error = new Error(
+    `pyric: ${specifier} is refused on the server in live mode, because @pyric/live/vite stops direct Firebase SDK imports in the Vite dev server process and its worker threads.`,
+  );
+  return Object.assign(error, { code: 'PYRIC_LIVE_REFUSED' });
+}
+
+/**
+ * Auto-activate the Vite process-stop hook when preloaded inside a
+ * `worker_threads.Worker` spawned under an active standalone Vite lease.
+ */
+function activateViteWorkerProcessStopIfNeeded(): void {
+  if (isMainThread) return;
+  const g = globalThis as Record<symbol, unknown>;
+  if (g[VITE_WORKER_STOP_PRELOAD_INSTALLED] === true) return;
+  const config = readViteWorkerStopEnv(process.env);
+  if (config === null) return;
+  g[VITE_WORKER_STOP_PRELOAD_INSTALLED] = true;
+  if (config.kind === 'live') {
+    acquireViteLiveProcessStop(suppliedRows((specifier) => workerLiveRefusal(specifier)));
+    return;
+  }
+  acquireViteProcessStop({
+    getAiMode: () => config.aiMode,
+    projectRoot: config.projectRoot,
+  });
+}
+
+activateViteWorkerProcessStopIfNeeded();
