@@ -118,6 +118,7 @@ function compareEntries([a]: [string, unknown], [b]: [string, unknown]): number 
 function canonicalizeHydratedValue(value: unknown): unknown {
   if (value === null) return ['null'];
   if (typeof value === 'boolean') return ['bool', value];
+  if (typeof value === 'bigint') return ['int64', value.toString()];
   if (typeof value === 'number') {
     if (Number.isNaN(value)) return ['num', 'NaN'];
     if (value === Infinity) return ['num', 'Infinity'];

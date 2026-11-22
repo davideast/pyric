@@ -1,5 +1,6 @@
 import { DIVIDE_BY_ZERO_MESSAGE } from './eval-error.js';
 import { RulesFloat } from './wrappers/float.js';
+export { parseClaimJson, stringifyClaimJson } from './rules-int-json.js';
 
 /**
  * Rules ints, shared by the Firestore simulator and the Storage evaluator.
@@ -66,10 +67,20 @@ export function hostNumber(value: number): number | RulesFloat {
  * int, as it read before #1781; production's typing there needs a capture.
  */
 export function typeClaimNumbers(value: unknown): unknown {
+  if (typeof value === 'bigint') return inInt64(value) ? value : Number(value);
   if (typeof value === 'number') return isInt64Integral(value) ? BigInt(value) : value;
   if (Array.isArray(value)) return value.map(typeClaimNumbers);
   if (!isPlainRecord(value)) return value;
-  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, typeClaimNumbers(item)]));
+  const out: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value)) {
+    Object.defineProperty(out, key, {
+      value: typeClaimNumbers(item),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  return out;
 }
 
 function isInt64Integral(value: number): boolean {

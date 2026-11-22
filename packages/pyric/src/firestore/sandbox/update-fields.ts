@@ -24,6 +24,8 @@
  */
 import {
   Bytes as RulesBytes,
+  INT64_MAX,
+  INT64_MIN,
   LatLng as RulesLatLng,
   Reference,
   RulesValue,
@@ -319,36 +321,125 @@ export function canonicalFieldPath(segments: readonly string[]): string {
     .join('.');
 }
 
+export interface WriteValidationOptions {
+  readonly allowInt64?: boolean;
+}
+
+function unsupportedFieldValueError(
+  methodName: string,
+  targetDoc: string,
+  typeLabel: string,
+  path: readonly string[] | undefined,
+): FirebaseError {
+  const field = path !== undefined && path.length > 0 ? ` in field ${canonicalFieldPath(path)}` : '';
+  return new FirebaseError(
+    'invalid-argument',
+    `Function ${methodName}() called with invalid data. Unsupported field value: ${typeLabel} (found${field} in document ${targetDoc})`,
+  );
+}
+
+function checkBigIntWriteValue(
+  methodName: string,
+  targetDoc: string,
+  value: bigint,
+  path: readonly string[] | undefined,
+  allowInt64: boolean,
+): void {
+  if (!allowInt64) {
+    throw unsupportedFieldValueError(methodName, targetDoc, 'bigint', path);
+  }
+  if (value < INT64_MIN || value > INT64_MAX) {
+    throw new FirebaseError(
+      'invalid-argument',
+      'BigInt value is out of signed 64-bit integer range.',
+    );
+  }
+}
+
+function walkWriteValue(
+  methodName: string,
+  targetDoc: string,
+  value: unknown,
+  path: readonly string[] | undefined,
+  rejectUndefined: boolean,
+  allowInt64: boolean,
+  seen: WeakSet<object>,
+): void {
+  if (value === undefined) {
+    if (rejectUndefined) {
+      throw unsupportedFieldValueError(methodName, targetDoc, 'undefined', path);
+    }
+    return;
+  }
+  if (typeof value === 'bigint') {
+    checkBigIntWriteValue(methodName, targetDoc, value, path, allowInt64);
+    return;
+  }
+  if (value === null || typeof value !== 'object') return;
+  if (seen.has(value)) return;
+  seen.add(value);
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      walkWriteValue(methodName, targetDoc, entry, undefined, rejectUndefined, allowInt64, seen);
+    }
+    return;
+  }
+  if (isRegisteredFieldValueSentinel(value)) {
+    const sentinel = value as { __type?: unknown; value?: unknown; values?: unknown };
+    if (sentinel.__type === 'increment') {
+      walkWriteValue(methodName, targetDoc, sentinel.value, path, rejectUndefined, allowInt64, seen);
+    } else if (Array.isArray(sentinel.values)) {
+      for (const entry of sentinel.values) {
+        walkWriteValue(methodName, targetDoc, entry, undefined, rejectUndefined, allowInt64, seen);
+      }
+    }
+    return;
+  }
+  if (registeredReferenceQueryValue(value) !== undefined) {
+    return;
+  }
+  if (isPlainObject(value)) {
+    for (const [key, entry] of Object.entries(value)) {
+      walkWriteValue(
+        methodName,
+        targetDoc,
+        entry,
+        path === undefined ? undefined : [...path, key],
+        rejectUndefined,
+        allowInt64,
+        seen,
+      );
+    }
+  }
+}
+
 /**
- * The Web SDK refuses `undefined` anywhere in written data. The message
- * names the field when the value sits in a map; an array element has no
- * field path, as in the SDK.
+ * Validate Web SDK write payloads against unsupported `bigint` field values
+ * (#1430), while allowing exact signed 64-bit `bigint` values on admin-bypass
+ * writes (#1816).
+ */
+export function assertSupportedWriteData(
+  methodName: string,
+  targetDoc: string,
+  value: unknown,
+  options?: WriteValidationOptions,
+): void {
+  walkWriteValue(methodName, targetDoc, value, [], false, options?.allowInt64 === true, new WeakSet());
+}
+
+/**
+ * The Web SDK refuses `undefined` and `bigint` anywhere in written data. The
+ * message names the field when the value sits in a map; an array element has
+ * no field path, as in the SDK.
  */
 function assertNoUndefined(
   methodName: string,
   targetDoc: string,
   value: unknown,
   path: readonly string[] | undefined,
+  allowInt64: boolean,
 ): void {
-  if (value === undefined) {
-    const field = path !== undefined && path.length > 0 ? ` in field ${canonicalFieldPath(path)}` : '';
-    throw new FirebaseError(
-      'invalid-argument',
-      `Function ${methodName}() called with invalid data. Unsupported field value: undefined (found${field} in document ${targetDoc})`,
-    );
-  }
-  if (Array.isArray(value)) {
-    for (const entry of value) assertNoUndefined(methodName, targetDoc, entry, undefined);
-    return;
-  }
-  if (typeof value === 'object' && value !== null && registeredReferenceQueryValue(value) !== undefined) {
-    return;
-  }
-  if (isPlainObject(value)) {
-    for (const [key, entry] of Object.entries(value)) {
-      assertNoUndefined(methodName, targetDoc, entry, path === undefined ? undefined : [...path, key]);
-    }
-  }
+  walkWriteValue(methodName, targetDoc, value, path, true, allowInt64, new WeakSet());
 }
 
 function invalidData(methodName: string, reason: string, targetDoc?: string): FirebaseError {
@@ -398,14 +489,16 @@ export function parseUpdateArguments(
   targetDoc: string,
   dataOrField: unknown,
   rest: readonly unknown[],
+  options?: WriteValidationOptions,
 ): UpdateField[] {
+  const allowInt64 = options?.allowInt64 === true;
   if (!isFieldArgument(dataOrField)) {
     if (!isPlainObject(dataOrField)) {
       throw invalidData(methodName, 'Data must be an object, but it was: ' + describe(dataOrField), targetDoc);
     }
     return Object.entries(dataOrField).map(([key, value]) => {
       const path = dotSeparatedSegments(methodName, key, targetDoc);
-      assertNoUndefined(methodName, targetDoc, value, path);
+      assertNoUndefined(methodName, targetDoc, value, path, allowInt64);
       return { path, value };
     });
   }
@@ -432,7 +525,7 @@ export function parseUpdateArguments(
     const key = fieldPathKey(fields[i].path);
     if (checked.includes(key)) continue;
     checked.push(key);
-    assertNoUndefined(methodName, targetDoc, fields[i].value, fields[i].path);
+    assertNoUndefined(methodName, targetDoc, fields[i].value, fields[i].path, allowInt64);
   }
   return fields;
 }

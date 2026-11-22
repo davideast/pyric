@@ -99,6 +99,7 @@ function isEncodedScalar(value: Record<string, unknown>): boolean {
       || value.__type === 'reference'
       || value.__type === 'path'
       || value.__type === 'number'
+      || value.__type === 'int64'
     ) {
       return true;
     }
@@ -151,7 +152,17 @@ function wrapEncodedMap(fields: Record<string, unknown>): Record<string, unknown
   return fields;
 }
 
-function decodeEncodedNumber(value: unknown): number | undefined {
+const INT64_MIN = -(2n ** 63n);
+const INT64_MAX = 2n ** 63n - 1n;
+const MIN_SAFE_BIGINT = BigInt(Number.MIN_SAFE_INTEGER);
+const MAX_SAFE_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
+const INT64_DECIMAL_RE = /^-?\d+$/;
+
+function isSafeIntNumber(value: number): boolean {
+  return Number.isSafeInteger(value) && !Object.is(value, -0);
+}
+
+function decodeEncodedNumeric(value: unknown): number | bigint | undefined {
   if (typeof value === 'number') return value;
   if (isRecord(value) && value.__type === 'number') {
     if (value.value === 'NaN') return Number.NaN;
@@ -159,15 +170,43 @@ function decodeEncodedNumber(value: unknown): number | undefined {
     if (value.value === '-Infinity') return -Infinity;
     if (value.value === '-0') return -0;
   }
+  if (isRecord(value) && value.__type === 'int64' && typeof value.value === 'string' && INT64_DECIMAL_RE.test(value.value)) {
+    const parsed = BigInt(value.value);
+    if (parsed >= INT64_MIN && parsed <= INT64_MAX) return parsed;
+  }
   return undefined;
 }
 
-function encodeNumberResult(value: number): unknown {
+function encodeNumericResult(value: number | bigint): unknown {
+  if (typeof value === 'bigint') {
+    let clamped = value;
+    if (clamped > INT64_MAX) clamped = INT64_MAX;
+    if (clamped < INT64_MIN) clamped = INT64_MIN;
+    if (clamped >= MIN_SAFE_BIGINT && clamped <= MAX_SAFE_BIGINT) {
+      return Number(clamped);
+    }
+    return { __type: 'int64', value: clamped.toString() };
+  }
   if (Number.isNaN(value)) return { __type: 'number', value: 'NaN' };
   if (value === Infinity) return { __type: 'number', value: 'Infinity' };
   if (value === -Infinity) return { __type: 'number', value: '-Infinity' };
   if (Object.is(value, -0)) return { __type: 'number', value: '-0' };
   return value;
+}
+
+function applyOfflineIncrement(prior: unknown, encodedDelta: unknown): unknown {
+  const delta = decodeEncodedNumeric(encodedDelta);
+  const deltaNum = typeof delta === 'bigint' ? Number(delta) : (delta ?? 0);
+  const prev = decodeEncodedNumeric(prior);
+  if (prev === undefined) return encodeNumericResult(deltaNum);
+  if (typeof prev === 'bigint') {
+    if (isSafeIntNumber(deltaNum)) return encodeNumericResult(prev + BigInt(deltaNum));
+    return encodeNumericResult(Number(prev) + deltaNum);
+  }
+  if (isSafeIntNumber(prev) && isSafeIntNumber(deltaNum)) {
+    return encodeNumericResult(BigInt(prev) + BigInt(deltaNum));
+  }
+  return encodeNumericResult(prev + deltaNum);
 }
 
 function lastSegment(path: string): string {
@@ -292,9 +331,7 @@ function resolveEncodedSentinels(
   }
   if (isSentinel(node, 'increment')) {
     const prevVal = readEncodedAt(priorRoot, prefix).value;
-    const addend = decodeEncodedNumber(node.n) ?? 0;
-    const base = decodeEncodedNumber(prevVal) ?? 0;
-    return encodeNumberResult(base + addend);
+    return applyOfflineIncrement(prevVal, node.n);
   }
   if (isSentinel(node, 'arrayUnion')) {
     const prevVal = readEncodedAt(priorRoot, prefix).value;

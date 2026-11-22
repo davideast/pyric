@@ -15,6 +15,7 @@
  * as an ID token and an edited one fails. It is not a security boundary:
  * anyone with this source can mint a token that checks.
  */
+import { parseClaimJson } from '@pyric/rules/internal';
 import { JWS_SHAPE, latin1FromBase64url, sandboxSignatureSync, signSandboxJwtSync, utf8FromBase64url } from './sandbox-jwt.js';
 
 /** The `aud` of every custom token (firebase-admin token-generator.js `FIREBASE_AUDIENCE`). */
@@ -89,9 +90,10 @@ function isJsonObject(value: unknown): value is Record<string, unknown> {
 function decodePayload(segments: string[]): Record<string, unknown> | undefined {
   try {
     const header: unknown = JSON.parse(latin1FromBase64url(segments[0] ?? ''));
-    const payload: unknown = JSON.parse(utf8FromBase64url(segments[1] ?? ''));
+    const payload: unknown = parseClaimJson(utf8FromBase64url(segments[1] ?? ''));
     return isJsonObject(header) && isJsonObject(payload) ? payload : undefined;
   } catch {
+    // Malformed custom token segments classify as non-custom tokens.
     return undefined;
   }
 }

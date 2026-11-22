@@ -28,6 +28,7 @@ import { registerAtomicWriterCreate } from './internal/atomic-create.js';
 import { parseChainUpdate } from './chain-update.js';
 import type { OfflineMutation } from './sandbox/client-offline-overlay.js';
 import {
+  assertSupportedWriteData,
   normalizeMergeFields,
   parseUpdateArguments,
   updateFieldsData,
@@ -51,8 +52,10 @@ import type {
 
 /** Apply the model converter before the backing adapter captures document data. */
 function convertSetData<T>(
+  methodName: string,
   ref: DocumentReference<T>,
   data: PartialWithFieldValue<T> | WithFieldValue<T>,
+  allowInt64: boolean,
   options?: SetOptions,
 ): DocumentData {
   const converter = converterOf(ref) as FirestoreDataConverter<T> | null | undefined;
@@ -66,7 +69,9 @@ function convertSetData<T>(
       payload = converter.toFirestore(data as WithFieldValue<T>);
     }
   }
-  return markUserWriteValue(requireDocumentData(payload)) as DocumentData;
+  const checked = requireDocumentData(payload);
+  assertSupportedWriteData(methodName, ref.path, checked, { allowInt64 });
+  return markUserWriteValue(checked) as DocumentData;
 }
 
 function assertMatchingDatabaseTarget(owner: Target, candidate: object): void {
@@ -134,7 +139,7 @@ export async function runTransaction<R>(
             options?: SetOptions,
           ) {
             assertMatchingDatabaseTarget(target, ref as object);
-            const payload = convertSetData(ref, data, options);
+            const payload = convertSetData('Transaction.set', ref, data, target.adminBypass === true, options);
             hasWrites = true;
             writtenPaths.add(ref.path);
             backing.set(database.doc(ref.path), payload, options);
@@ -143,7 +148,7 @@ export async function runTransaction<R>(
           },
           update(ref, dataOrField: unknown, ...rest: unknown[]) {
             assertMatchingDatabaseTarget(target, ref as object);
-            const args = parseChainUpdate('Transaction.update', ref.path, dataOrField, rest);
+            const args = parseChainUpdate('Transaction.update', ref.path, dataOrField, rest, { allowInt64: target.adminBypass === true });
             hasWrites = true;
             if (readExistence.get(ref.path) === false && !writtenPaths.has(ref.path)) {
               stickyError ??= new FirebaseError(
@@ -169,7 +174,7 @@ export async function runTransaction<R>(
         };
         registerAtomicWriterCreate(transaction, (ref, data) => {
           assertMatchingDatabaseTarget(target, ref as object);
-          const payload = convertSetData(ref, data);
+          const payload = convertSetData('Transaction.create', ref, data, target.adminBypass === true);
           hasWrites = true;
           writtenPaths.add(ref.path);
           backing.create(database.doc(ref.path), payload);
@@ -230,7 +235,7 @@ export function writeBatch(db: Firestore): WriteBatch {
       options?: SetOptions,
     ) {
       assertMatchingDatabaseTarget(target, ref as object);
-      const payload = convertSetData(ref, data, options);
+      const payload = convertSetData('WriteBatch.set', ref, data, target.adminBypass === true, options);
       withBatchError(() => backing.set(database.doc(ref.path), payload, options));
       let mergeFields: string[] | undefined;
       if (options?.mergeFields !== undefined && options.merge !== true) {
@@ -249,8 +254,9 @@ export function writeBatch(db: Firestore): WriteBatch {
     },
     update(ref, dataOrField: unknown, ...rest: unknown[]) {
       assertMatchingDatabaseTarget(target, ref as object);
-      const parsed = parseUpdateArguments('WriteBatch.update', ref.path, dataOrField, rest);
-      const args = parseChainUpdate('WriteBatch.update', ref.path, dataOrField, rest);
+      const validation = { allowInt64: target.adminBypass === true };
+      const parsed = parseUpdateArguments('WriteBatch.update', ref.path, dataOrField, rest, validation);
+      const args = parseChainUpdate('WriteBatch.update', ref.path, dataOrField, rest, validation);
       withBatchError(() => backing.update(database.doc(ref.path), ...args));
       offlineMutations.push({
         kind: 'update',
@@ -283,7 +289,7 @@ export function writeBatch(db: Firestore): WriteBatch {
   };
   registerAtomicWriterCreate(batch, (ref, data) => {
     assertMatchingDatabaseTarget(target, ref as object);
-    const payload = convertSetData(ref, data);
+    const payload = convertSetData('WriteBatch.create', ref, data, target.adminBypass === true);
     withBatchError(() => backing.create(database.doc(ref.path), payload));
     offlineMutations.push({ kind: 'set', path: ref.path, data: payload });
     touchedPaths.add(ref.path);

@@ -1,5 +1,6 @@
 /** Canonical internal identity for trusted, already-projected activity data. */
 export function activityStructuralIdentity(value: unknown): string {
+  if (typeof value === 'bigint') return value.toString();
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
   if (Array.isArray(value)) {
     return `[${value.map((entry) => activityStructuralIdentity(entry)).join(',')}]`;

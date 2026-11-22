@@ -5,7 +5,7 @@ import { sandbox as authSandbox, type Auth, type MintedSession } from 'pyric/aut
 import { normalizeTenantScope, resolveCustomTokenIdentity } from 'pyric/auth/internal';
 import { get as rawRtdbGet, getAdminDatabase as pyricGetAdminDatabase, getDatabase as pyricGetDatabase, ref as rtdbRef, remove as rawRtdbRemove, set as rawRtdbSet, update as rawRtdbUpdate, type Database } from 'pyric/database';
 import type { AuthState } from 'pyric/sandbox';
-import { authAccountsFor, checkIdToken, getClock, resolveDatabaseInstance, rulesTokenFromIdToken, SANDBOX_PROJECT_ID, sdkActivity, utf8FromBase64url } from 'pyric/sandbox/internal';
+import { authAccountsFor, checkIdToken, getClock, parseClaimJson, resolveDatabaseInstance, rulesTokenFromIdToken, SANDBOX_PROJECT_ID, sdkActivity, utf8FromBase64url } from 'pyric/sandbox/internal';
 import { answerAndClose, collectRawBody, isBodyTooLarge } from '../bridge/server/peer.js';
 import type { PyricWriteRefusal } from './hosted/own-writes.js';
 import { getHeader } from './loopback-guard.js';
@@ -120,7 +120,7 @@ function issueRefreshToken(ctx: HostCtx, session: MintedSession): string {
   return token;
 }
 function decodeBase64JsonSegment(segment: string): Record<string, unknown> | null {
-  const parsed: unknown = JSON.parse(utf8FromBase64url(segment.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')));
+  const parsed: unknown = parseClaimJson(utf8FromBase64url(segment.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')));
   if (isPlainObject(parsed)) return parsed;
   return null;
 }

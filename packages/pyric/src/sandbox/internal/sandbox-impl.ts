@@ -19,6 +19,7 @@ import { EventHistory, type EventHistoryLimits } from './event-history.js';
  * to {@link SandboxContext}, derived via `withAuth`.
  */
 
+import { stringifyClaimJson } from '@pyric/rules/internal';
 import { LocalEnvironment } from '../../firestore/sandbox/local-environment.js';
 import { recordedAdminDelete, recordedAdminSet } from '../../firestore/sandbox/admin-writes.js';
 import { SandboxClock, SANDBOX_CLOCK } from '../clock.js';
@@ -786,8 +787,8 @@ function currentUserEqual(a: AuthState, b: AuthState): boolean {
   if (a.uid !== b.uid) return false;
   // Token comparison via JSON — tokens are plain object claim maps,
   // not expected to contain non-serializable values.
-  const aTok = a.token === undefined ? undefined : JSON.stringify(a.token);
-  const bTok = b.token === undefined ? undefined : JSON.stringify(b.token);
+  const aTok = a.token === undefined ? undefined : stringifyClaimJson(a.token);
+  const bTok = b.token === undefined ? undefined : stringifyClaimJson(b.token);
   return aTok === bTok;
 }
 

@@ -37,14 +37,23 @@ function invalidQueryArgument(message: string): FirebaseError {
 
 /**
  * Validates an already-encoded wire value (`encodeDocValue(...)`) as a query or
- * cursor operand. `encodeDocValue` leaves `undefined`, `bigint`, `function`,
- * `symbol`, `Uint8Array`, and unrecognized class instances untouched and
- * encodes supported SDK class instances into plain marker objects, so any
- * surviving non-JSON primitive, non-plain object prototype, or disallowed
- * nested array is rejected with `invalid-argument` matching `pyric/firestore`'s
- * `captureQueryOperand`.
+ * cursor operand. `encodeDocValue` encodes `bigint` as an int64 marker, escapes
+ * marker-shaped user maps as `{ type: 'pyric/map/1.0', fields }`, leaves
+ * `undefined`, `function`, `symbol`, `Uint8Array`, and unrecognized class
+ * instances untouched, and encodes supported SDK class instances into plain
+ * marker objects, so any surviving non-JSON primitive, encoded `bigint`,
+ * non-plain object prototype, or disallowed nested array is rejected with
+ * `invalid-argument` matching `pyric/firestore`'s `captureQueryOperand`.
  */
 const ENCODED_REF_DB_RE = /^databases\/([^/]+)\/documents(?:\/|$)/;
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
 
 function extractEncodedReferenceDatabaseId(encoded: Record<string, unknown>): string | undefined {
   if (encoded.__type !== 'reference' || typeof encoded.path !== 'string') {
@@ -98,11 +107,34 @@ function assertEncodedQueryOperand(
   if (prototype !== Object.prototype && prototype !== null) {
     throw invalidQueryArgument('Firestore query maps must be plain objects.');
   }
-  const refDb = extractEncodedReferenceDatabaseId(encoded as Record<string, unknown>);
+  const record = encoded as Record<string, unknown>;
+  const keys = Object.keys(record);
+  if (
+    keys.length === 2
+    && Object.hasOwn(record, 'type')
+    && record.type === 'pyric/map/1.0'
+    && Object.hasOwn(record, 'fields')
+    && isPlainRecord(record.fields)
+  ) {
+    for (const child of Object.values(record.fields)) {
+      assertEncodedQueryOperand(child, allowNestedArrays, false, targetDatabaseId);
+    }
+    return;
+  }
+  const isEncodedBigInt =
+    keys.length === 2
+    && Object.hasOwn(record, '__type')
+    && record.__type === 'int64'
+    && typeof record.value === 'string'
+    && /^-?\d+$/.test(record.value);
+  if (isEncodedBigInt) {
+    throw invalidQueryArgument('Unsupported Firestore query value: bigint.');
+  }
+  const refDb = extractEncodedReferenceDatabaseId(record);
   if (refDb !== undefined && refDb !== targetDatabaseId) {
     throw invalidQueryArgument('Document reference belongs to a different Firestore database.');
   }
-  for (const child of Object.values(encoded as Record<string, unknown>)) {
+  for (const child of Object.values(record)) {
     assertEncodedQueryOperand(child, allowNestedArrays, false, targetDatabaseId);
   }
 }

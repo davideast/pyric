@@ -3,7 +3,7 @@
  * `beforeUserSignedIn`, `beforeEmailSent`, `beforeSmsSent`) and response
  * application primitives for `pyric/auth`.
  */
-import { assertNoReservedCustomClaims } from 'pyric/sandbox/internal';
+import { assertNoReservedCustomClaims, stringifyClaimJson } from 'pyric/sandbox/internal';
 import { makeAuthError } from '../auth-errors.js';
 import type { StoredUser } from '../sandbox-backend-types.js';
 import { SandboxBackend } from '../sandbox-backend.js';
@@ -208,7 +208,7 @@ export function validateBlockingClaimsPayload(
     });
   }
   assertNoReservedCustomClaims(record);
-  if (JSON.stringify(record).length > BLOCKING_CLAIMS_MAX_PAYLOAD_SIZE) {
+  if (stringifyClaimJson(record).length > BLOCKING_CLAIMS_MAX_PAYLOAD_SIZE) {
     throw makeAuthBlockingRejectionError({
       status: 'INVALID_ARGUMENT',
       message: `The ${fieldName} payload should not exceed ${BLOCKING_CLAIMS_MAX_PAYLOAD_SIZE} characters.`,
@@ -226,7 +226,7 @@ export function validateCombinedBlockingClaimsPayload(
     ...(customClaims ?? {}),
     ...sessionClaims,
   };
-  if (JSON.stringify(combined).length > BLOCKING_CLAIMS_MAX_PAYLOAD_SIZE) {
+  if (stringifyClaimJson(combined).length > BLOCKING_CLAIMS_MAX_PAYLOAD_SIZE) {
     throw makeAuthBlockingRejectionError({
       status: 'INVALID_ARGUMENT',
       message: `The customClaims and sessionClaims payloads should not exceed ${BLOCKING_CLAIMS_MAX_PAYLOAD_SIZE} characters combined.`,

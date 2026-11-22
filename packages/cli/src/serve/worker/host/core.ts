@@ -40,9 +40,11 @@ import {
   type CollectionReference,
   type Query,
 } from 'pyric/firestore';
+import { readWireSnapshotData } from 'pyric/firestore/internal';
 import { assertEncodedDocValueDepth, decodeDocValue, type DocValueEncoding } from 'pyric/firestore/internal/value-codec';
 import { FirebaseError } from 'pyric/app';
 import type { AuthLens, AuthState, EventProvenance } from 'pyric/sandbox';
+import { stringifyClaimJson } from 'pyric/sandbox/internal';
 import type { MintedSession } from 'pyric/auth';
 
 import type {
@@ -200,15 +202,15 @@ export function serializeDocSnap(
   let serverTimestampVariants: { none: SerializedDocData; previous: SerializedDocData } | undefined;
   if (existsBool) {
     if (snap.metadata?.hasPendingWrites === true) {
-      const estimateDoc = snap.data({ serverTimestamps: 'estimate' });
-      const noneDoc = snap.data({ serverTimestamps: 'none' });
+      const estimateDoc = readWireSnapshotData(snap, { serverTimestamps: 'estimate' });
+      const noneDoc = readWireSnapshotData(snap, { serverTimestamps: 'none' });
       if (estimateDoc !== undefined) {
         const serializedEstimate = serializeDocData(estimateDoc, encoding);
         serializedData = serializedEstimate;
         if (noneDoc !== undefined) {
           const serializedNone = serializeDocData(noneDoc, encoding);
           if (serializedEstimate.json !== serializedNone.json) {
-            let prevDoc = snap.data({ serverTimestamps: 'previous' });
+            let prevDoc = readWireSnapshotData(snap, { serverTimestamps: 'previous' });
             if (prevDoc === undefined) prevDoc = noneDoc;
             serverTimestampVariants = {
               none: serializedNone,
@@ -218,7 +220,7 @@ export function serializeDocSnap(
         }
       }
     } else {
-      const data = snap.data();
+      const data = readWireSnapshotData(snap);
       if (data !== undefined) {
         serializedData = serializeDocData(data, encoding);
       }
@@ -347,7 +349,7 @@ export function lensCacheKey(actAs: Extract<AuthLens, { mode: 'as' }>): string {
   const record = actAs as Record<string, unknown>;
   const parts = [actAs.uid];
   if (actAs.tenant !== undefined) parts.push(`tenant:${actAs.tenant}`);
-  if (actAs.token !== undefined) parts.push(JSON.stringify(actAs.token));
+  if (actAs.token !== undefined) parts.push(stringifyClaimJson(actAs.token));
   const extraKeys = Object.keys(record)
     .filter(
       (key) =>
@@ -368,7 +370,7 @@ export function lensCacheKey(actAs: Extract<AuthLens, { mode: 'as' }>): string {
         configurable: true,
       });
     }
-    parts.push(`extra:${JSON.stringify(extra)}`);
+    parts.push(`extra:${stringifyClaimJson(extra)}`);
   }
   return parts.join(':');
 }
@@ -378,7 +380,7 @@ export function sessionCacheKey(session: MintedSession): string {
   const tenantPart = session.state.tenant ?? '';
   return session.state.token === undefined
     ? `${session.user.uid}:${tenantPart}`
-    : `${session.user.uid}:${tenantPart}:${JSON.stringify(session.state.token)}`;
+    : `${session.user.uid}:${tenantPart}:${stringifyClaimJson(session.state.token)}`;
 }
 
 /**

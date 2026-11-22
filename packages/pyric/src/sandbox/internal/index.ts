@@ -263,7 +263,7 @@ export { asSentence } from './sentence.js';
 export { randomUuid } from './random-uuid.js';
 export { assertNoReservedCustomClaims, RESERVED_CUSTOM_CLAIMS } from './auth-token-claims.js';
 export {
-  accountTokenClaims, idTokenAudience, SANDBOX_PROJECT_ID, tokenClaimAccount, rulesTokenFromIdToken, withIdTokenClaims,
+  accountTokenClaims, idTokenAudience, parseClaimJson, SANDBOX_PROJECT_ID, stringifyClaimJson, tokenClaimAccount, rulesTokenFromIdToken, withIdTokenClaims,
   type TokenClaimAccount, type TokenClaimRecord,
 } from '@pyric/rules/internal';
 export { providerVerifiesEmail } from './provider-email-verification.js';

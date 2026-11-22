@@ -13,7 +13,7 @@ import {
 import { FirebaseError } from '../sandbox/internal/firebase-error.js';
 import { isPlainObject } from './plain-object.js';
 import { isRegisteredFieldValueSentinel, markUserWriteValue } from './sandbox/unescaped-map.js';
-import { parseUpdateArguments } from './sandbox/update-fields.js';
+import { parseUpdateArguments, type WriteValidationOptions } from './sandbox/update-fields.js';
 
 export type ChainUpdateArguments = [DocumentData | ChainFieldPath, ...unknown[]];
 
@@ -52,8 +52,9 @@ export function parseChainUpdate(
   documentPath: string,
   dataOrField: unknown,
   rest: readonly unknown[],
+  options?: WriteValidationOptions,
 ): ChainUpdateArguments {
-  const fields = parseUpdateArguments(methodName, documentPath, dataOrField, rest);
+  const fields = parseUpdateArguments(methodName, documentPath, dataOrField, rest, options);
   // An empty data object still requires the document to exist.
   if (fields.length === 0) return [{}];
   const args: unknown[] = [];

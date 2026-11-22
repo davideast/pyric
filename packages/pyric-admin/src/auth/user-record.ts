@@ -1,6 +1,7 @@
 /**
  * `firebase-admin/auth` `UserRecord` runtime class (`lib/auth/user-record.js`, v13.10.0).
  */
+import { parseClaimJson, stringifyClaimJson } from 'pyric/sandbox/internal';
 import type { UserRecordInit } from './types.js';
 import type { UserInfo } from './user-info.js';
 import type { UserMetadata } from './user-metadata.js';
@@ -37,7 +38,7 @@ export class UserRecord {
   toJSON(): Record<string, unknown> {
     let clonedClaims: Record<string, unknown> | undefined;
     if (this.customClaims !== undefined) {
-      clonedClaims = JSON.parse(JSON.stringify(this.customClaims)) as Record<string, unknown>;
+      clonedClaims = parseClaimJson(stringifyClaimJson(this.customClaims)) as Record<string, unknown>;
     }
     return {
       uid: this.uid,

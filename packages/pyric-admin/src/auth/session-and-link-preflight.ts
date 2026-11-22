@@ -7,6 +7,7 @@ import {
   CUSTOM_TOKEN_AUDIENCE,
   JWS_SHAPE,
   latin1FromBase64url,
+  parseClaimJson,
   utf8FromBase64url,
 } from 'pyric/sandbox/internal';
 import type { PyricAdminApp } from '../app/index.js';
@@ -76,7 +77,7 @@ function assertVerifySessionCookiePreflight(
   let payload: unknown;
   try {
     header = JSON.parse(latin1FromBase64url(parts[0] ?? ''));
-    payload = JSON.parse(utf8FromBase64url(parts[1] ?? ''));
+    payload = parseClaimJson(utf8FromBase64url(parts[1] ?? ''));
   } catch {
     throw new FirebaseAuthError(
       'argument-error',

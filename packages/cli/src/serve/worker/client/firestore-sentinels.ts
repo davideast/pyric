@@ -29,38 +29,75 @@ export function deleteField(): FieldValue & SentinelMarker {
   return createDeleteFieldSentinel() as unknown as FieldValue & SentinelMarker;
 }
 
-export function assertNoUndefinedInWorkerSentinels(
+function assertWorkerWriteValue(
   methodName: string,
   documentPath: string,
   value: unknown,
+  rejectUndefined: boolean,
+  seen: WeakSet<object>,
 ): void {
-  if (value === undefined) {
+  if (rejectUndefined && value === undefined) {
     throw new FirebaseError(
       'invalid-argument',
       `Function ${methodName}() called with invalid data. Unsupported field value: undefined (found in document ${documentPath})`,
     );
   }
+  if (typeof value === 'bigint') {
+    throw new FirebaseError(
+      'invalid-argument',
+      `Function ${methodName}() called with invalid data. Unsupported field value: bigint (found in document ${documentPath})`,
+    );
+  }
+  if (value === null || typeof value !== 'object') return;
+  if (seen.has(value)) return;
+  seen.add(value);
   if (Array.isArray(value)) {
     for (const entry of value) {
-      assertNoUndefinedInWorkerSentinels(methodName, documentPath, entry);
+      assertWorkerWriteValue(methodName, documentPath, entry, rejectUndefined, seen);
     }
     return;
   }
-  if (value !== null && typeof value === 'object' && '__sentinel' in value) {
-    const sentinel = value as { values?: unknown };
-    if (Array.isArray(sentinel.values)) {
+  if ('__sentinel' in value) {
+    const sentinel = value as { __sentinel?: unknown; n?: unknown; values?: unknown };
+    if (sentinel.__sentinel === 'serverTimestamp' || sentinel.__sentinel === 'deleteField') {
+      return;
+    }
+    if (sentinel.__sentinel === 'increment') {
+      assertWorkerWriteValue(methodName, documentPath, sentinel.n, rejectUndefined, seen);
+      return;
+    }
+    if (
+      (sentinel.__sentinel === 'arrayUnion' || sentinel.__sentinel === 'arrayRemove')
+      && Array.isArray(sentinel.values)
+    ) {
       for (const entry of sentinel.values) {
-        assertNoUndefinedInWorkerSentinels(methodName, documentPath, entry);
+        assertWorkerWriteValue(methodName, documentPath, entry, rejectUndefined, seen);
       }
-    }
-    return;
-  }
-  if (value !== null && typeof value === 'object') {
-    const proto = Object.getPrototypeOf(value);
-    if (proto === Object.prototype || proto === null) {
-      for (const entry of Object.values(value)) {
-        assertNoUndefinedInWorkerSentinels(methodName, documentPath, entry);
-      }
+      return;
     }
   }
+  const proto = Object.getPrototypeOf(value);
+  if (proto === Object.prototype || proto === null) {
+    for (const entry of Object.values(value)) {
+      assertWorkerWriteValue(methodName, documentPath, entry, rejectUndefined, seen);
+    }
+  }
+}
+
+export function assertNoUndefinedInWorkerSentinels(
+  methodName: string,
+  documentPath: string,
+  value: unknown,
+  seen = new WeakSet<object>(),
+): void {
+  assertWorkerWriteValue(methodName, documentPath, value, true, seen);
+}
+
+export function assertNoBigIntInWorkerWriteData(
+  methodName: string,
+  documentPath: string,
+  value: unknown,
+  seen = new WeakSet<object>(),
+): void {
+  assertWorkerWriteValue(methodName, documentPath, value, false, seen);
 }

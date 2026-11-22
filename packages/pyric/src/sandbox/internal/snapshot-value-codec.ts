@@ -20,6 +20,8 @@ import {
 } from '../../firestore/internal/value-codec.js';
 import {
   Bytes as RulesBytes,
+  INT64_MAX,
+  INT64_MIN,
   LatLng as RulesLatLng,
   Reference as RulesReference,
   Timestamp as RulesTimestamp,
@@ -217,6 +219,9 @@ export function encodeSnapshotValue(value: unknown): unknown {
     if (Object.is(value, -0)) return { type: 'pyric/number/1.0', value: '-0' };
     return value;
   }
+  if (typeof value === 'bigint') {
+    return { __type: 'int64', value: value.toString() };
+  }
   if (value === null || typeof value !== 'object') {
     return value;
   }
@@ -347,6 +352,14 @@ export function encodeSnapshotMap(map: Readonly<Record<string, unknown>>): Encod
 
 type DecodeTargetMode = 'sdk' | 'env';
 
+const INT64_DECIMAL_RE = /^-?\d+$/;
+
+function isValidInt64Decimal(raw: unknown): boolean {
+  if (typeof raw !== 'string' || !INT64_DECIMAL_RE.test(raw)) return false;
+  const parsed = BigInt(raw);
+  return parsed >= INT64_MIN && parsed <= INT64_MAX;
+}
+
 /**
  * Sanitize hand-authored maps whose `type` or `__type` key looks like a marker
  * name without valid marker payload fields, so plain hand-authored `SandboxSeed`
@@ -441,6 +454,10 @@ function guardMalformedHandAuthoredMarkers(value: unknown, mode: DecodeTargetMod
     typeof ownField(record, 'nanos') === 'number';
   const isValidDunderPath =
     dunderType === 'path' && Array.isArray(ownField(record, 'segments'));
+  const isValidDunderInt64 =
+    dunderType === 'int64'
+    && Object.keys(record).length === 2
+    && isValidInt64Decimal(ownField(record, 'value'));
   const isValidDunderVector =
     dunderVectorType === '__vector__' && Array.isArray(ownField(record, 'value'));
 
@@ -454,6 +471,7 @@ function guardMalformedHandAuthoredMarkers(value: unknown, mode: DecodeTargetMod
     isValidDunderLatLng ||
     isValidDunderDuration ||
     isValidDunderPath ||
+    isValidDunderInt64 ||
     isValidDunderVector;
   if (isRecognizedValidMarker) return record;
 
@@ -468,6 +486,7 @@ function guardMalformedHandAuthoredMarkers(value: unknown, mode: DecodeTargetMod
     dunderType === 'reference' ||
     dunderType === 'duration' ||
     dunderType === 'path' ||
+    dunderType === 'int64' ||
     dunderVectorType === '__vector__';
 
   const next: Record<string, unknown> = {};

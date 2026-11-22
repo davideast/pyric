@@ -11,7 +11,7 @@
  * Legacy unknown markers remain maps. Complete validation and write-intent
  * handling are still required by the wire contract.
  */
-import { Bytes as RulesBytes } from '@pyric/rules/internal';
+import { Bytes as RulesBytes, INT64_MAX, INT64_MIN } from '@pyric/rules/internal';
 import { Duration } from '@pyric/rules/internal';
 import { LatLng } from '@pyric/rules/internal';
 import { Path } from '@pyric/rules/internal';
@@ -134,9 +134,19 @@ export function decodeAggregateData<T extends Record<string, number | null>>(
   return decoded as T;
 }
 
+const INT64_DECIMAL_PATTERN = /^-?\d+$/;
+
+function parseInt64MarkerValue(raw: unknown): bigint | undefined {
+  if (typeof raw !== 'string' || !INT64_DECIMAL_PATTERN.test(raw)) return undefined;
+  const parsed = BigInt(raw);
+  if (parsed < INT64_MIN || parsed > INT64_MAX) return undefined;
+  return parsed;
+}
+
 /** Encode SDK values before transport removes their class or copies their owner. */
 export function encodeDocValue(value: unknown): unknown {
   if (typeof value === 'number') return encodeNumberScalar(value);
+  if (typeof value === 'bigint') return { __type: 'int64', value: value.toString() };
   const isScalar = value === null || typeof value !== 'object';
   if (isScalar) return value;
   const isTimestamp = value instanceof Timestamp;
@@ -210,6 +220,7 @@ export interface ReferenceDecoder {
 interface ValueConstructors {
   bytes(value: Uint8Array): object;
   geoPoint(latitude: number, longitude: number): object;
+  int64(value: bigint): bigint | number;
   reference(path: string, databaseId?: string): object;
   timestamp(seconds: number, nanoseconds: number): object;
   vector(values: readonly number[]): object;
@@ -218,6 +229,7 @@ interface ValueConstructors {
 const rulesValues: ValueConstructors = {
   bytes: (value) => new RulesBytes(value),
   geoPoint: (latitude, longitude) => new LatLng(latitude, longitude),
+  int64: (value) => value,
   reference: (path, databaseId) => new Reference(path, databaseId),
   timestamp: (seconds, nanoseconds) => new RulesTimestamp(seconds, nanoseconds),
   vector: (values) => new Vector(values),
@@ -270,6 +282,7 @@ export function decodeDocValue(value: unknown, references: ReferenceDecoder, enc
   return rehydrateValue(value, true, {
     bytes: (value) => Bytes.fromUint8Array(value),
     geoPoint: (latitude, longitude) => new GeoPoint(latitude, longitude),
+    int64: (value) => Number(value),
     reference: (path, databaseId) => references.create(path, databaseId),
     timestamp: (seconds, nanoseconds) => new Timestamp(seconds, nanoseconds),
     vector: (values) => VectorValue.create(values.slice()),
@@ -356,6 +369,13 @@ function rehydrateValue(value: unknown, registerRootIdentity: boolean, construct
         if (obj.value === '-Infinity') return -Infinity;
         if (obj.value === '-0') return -0;
         break;
+      case 'int64': {
+        if (Object.keys(obj).length === 2 && Object.hasOwn(obj, 'value')) {
+          const parsedInt64 = parseInt64MarkerValue(obj.value);
+          if (parsedInt64 !== undefined) return constructors.int64(parsedInt64);
+        }
+        break;
+      }
     }
   }
 

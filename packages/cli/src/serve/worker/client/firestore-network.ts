@@ -111,7 +111,7 @@ function lensCacheFor(state: PortFirestoreState, databaseId?: string): LensWarmC
   const lens = getLens();
   let lensPart = 'app-session';
   if (lens !== undefined) {
-    lensPart = JSON.stringify(lens);
+    lensPart = JSON.stringify(lens, (_key, value) => (typeof value === 'bigint' ? value.toString() : value));
   }
   const dbPart = normalizedNetworkDbId(databaseId);
   const key = `${dbPart}::${lensPart}`;
