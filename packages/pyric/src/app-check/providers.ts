@@ -68,9 +68,9 @@ export class CustomProvider implements ComparableProvider {
   constructor(private readonly options: CustomProviderOptions) {}
   /** @internal */
   initialize(): void {}
-  /** @internal The app's own `getToken`, called as upstream `CustomProvider.getToken` calls it; a rejection propagates. */
-  getToken(): Promise<AppCheckTokenFromProvider> {
-    return this.options.getToken();
+  /** @internal The app's own `getToken`, awaited as upstream `CustomProvider.getToken` awaits it; a rejection propagates. */
+  async getToken(): Promise<AppCheckTokenFromProvider> {
+    return await this.options.getToken();
   }
   /** Upstream compares the getToken functions by source text, so a provider rebuilt by the same factory is equal. */
   isEqual(other: unknown): boolean {

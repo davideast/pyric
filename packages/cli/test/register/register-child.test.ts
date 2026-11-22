@@ -235,7 +235,7 @@ console.log('CLIENT_OK');
 import { initializeApp } from 'firebase/app';
 import { getAI, getGenerativeModel } from 'firebase/ai';
 import { CustomProvider, initializeAppCheck } from 'firebase/app-check';
-const app = initializeApp({ apiKey: 'ignored', projectId: 'demo-ai-project' });
+const app = initializeApp({ apiKey: 'ignored', projectId: 'demo-ai-project', appId: '1:100000000000:web:demoaiproject' });
 // The sandbox refuses AI Logic requests without an App Check token, so App
 // Check comes before getAI. Node has no document for reCAPTCHA, so the debug
 // token stands in for the provider.

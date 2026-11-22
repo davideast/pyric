@@ -10,11 +10,12 @@
  * temporary files on disk.
  */
 import { describe, expect, it } from 'bun:test';
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { generateKeyPairSync, randomBytes, sign } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { startInMemoryRemoteHost } from './remote-host-test-support.js';
 
 const cliRoot = resolve(import.meta.dir, '../..');
 const repoRoot = resolve(cliRoot, '../..');
@@ -280,9 +281,9 @@ interface ChildReport {
   outcomes: Record<string, ChildVerifyOutcome>;
 }
 
-function runRegisteredVerify(
+async function runRegisteredVerify(
   mode: 'production' | 'passthrough' | 'sandbox',
-): ChildReport {
+): Promise<ChildReport> {
   if (!existsSync(registerDist)) {
     throw new Error(`missing built register entry at ${registerDist}; run bun run pretest first`);
   }
@@ -307,42 +308,67 @@ function runRegisteredVerify(
     certToken: signFirebaseAppCheckJwt(CERT_PROJECT_ID),
   });
 
-  const env: Record<string, string | undefined> = {
-    PATH: process.env.PATH,
-    HOME: process.env.HOME,
-    PYRIC_SANDBOX: '1',
-    PYRIC_TEST_JWKS_JSON: jwksJson,
-    PYRIC_TEST_INPUT_JSON: inputJson,
-  };
-  if (mode === 'production') {
-    env.PYRIC_AI_MODE = 'production';
-  } else if (mode === 'passthrough') {
-    env.PYRIC_AI_PASSTHROUGH = '1';
-  }
+  const host = await startInMemoryRemoteHost({
+    projectKey: repoRoot,
+    projectId: PROJECT_ID,
+  });
+  try {
+    const env: Record<string, string | undefined> = {
+      PATH: process.env.PATH,
+      HOME: process.env.HOME,
+      PYRIC_SANDBOX: `remote:${host.origin}`,
+      PYRIC_SANDBOX_INSTANCE: host.instanceId,
+      PYRIC_TEST_JWKS_JSON: jwksJson,
+      PYRIC_TEST_INPUT_JSON: inputJson,
+    };
+    if (mode === 'production') {
+      env.PYRIC_AI_MODE = 'production';
+    } else if (mode === 'passthrough') {
+      env.PYRIC_AI_PASSTHROUGH = '1';
+    }
 
-  const result = spawnSync(
-    'node',
-    ['--import', jwksPreloadUrl, '--import', registerUrl, '--input-type=module', '-e', CHILD_SCRIPT],
-    {
-      cwd: repoRoot,
-      encoding: 'utf8',
-      env: env as NodeJS.ProcessEnv,
-      timeout: 30_000,
-    },
-  );
-  if (result.status !== 0) {
-    throw new Error(`registered child exited ${String(result.status)}:\n${result.stderr}\n${result.stdout}`);
+    const result = await new Promise<{ status: number | null; stdout: string; stderr: string }>(
+      (resolveChild, rejectChild) => {
+        const child = spawn(
+          'node',
+          ['--import', jwksPreloadUrl, '--import', registerUrl, '--input-type=module', '-e', CHILD_SCRIPT],
+          {
+            cwd: repoRoot,
+            env: env as NodeJS.ProcessEnv,
+          },
+        );
+        let stdout = '';
+        let stderr = '';
+        child.stdout.setEncoding('utf8');
+        child.stderr.setEncoding('utf8');
+        child.stdout.on('data', (chunk: string) => {
+          stdout += chunk;
+        });
+        child.stderr.on('data', (chunk: string) => {
+          stderr += chunk;
+        });
+        child.on('error', rejectChild);
+        child.on('close', (status) => {
+          resolveChild({ status, stdout, stderr });
+        });
+      },
+    );
+    if (result.status !== 0) {
+      throw new Error(`registered child exited ${String(result.status)}:\n${result.stderr}\n${result.stdout}`);
+    }
+    const reportLine = result.stdout.split('\n').find((line) => line.startsWith('VERIFY_REPORT '));
+    if (!reportLine) {
+      throw new Error(`missing VERIFY_REPORT line:\n${result.stdout}\n${result.stderr}`);
+    }
+    const parsed = JSON.parse(reportLine.slice('VERIFY_REPORT '.length)) as Omit<ChildReport, 'stderr'>;
+    return { ...parsed, stderr: result.stderr };
+  } finally {
+    await host.stop();
   }
-  const reportLine = result.stdout.split('\n').find((line) => line.startsWith('VERIFY_REPORT '));
-  if (!reportLine) {
-    throw new Error(`missing VERIFY_REPORT line:\n${result.stdout}\n${result.stderr}`);
-  }
-  const parsed = JSON.parse(reportLine.slice('VERIFY_REPORT '.length)) as Omit<ChildReport, 'stderr'>;
-  return { ...parsed, stderr: result.stderr };
 }
 
 describe('app-check-admin#verify-token-firebase-token-production-ai-mode under @pyric/cli/register', () => {
-  it('replays app-check-admin-verify-token and error contracts through firebase-admin in production AI mode', () => {
+  it('replays app-check-admin-verify-token and error contracts through firebase-admin in production AI mode', async () => {
     const oVerify = readObservation<{
       debugExchanged: {
         resultKeySet: string[];
@@ -366,7 +392,7 @@ describe('app-check-admin#verify-token-firebase-token-production-ai-mode under @
       plainVerifyAfterConsume: { resultKeySet: string[]; alreadyConsumed: null };
     }>('app-check-admin-verify-consume');
 
-    const report = runRegisteredVerify('production');
+    const report = await runRegisteredVerify('production');
     expect(report.isMirrorApp).toBe(true);
     expect(report.bridgeLoaded).toBe(true);
     expect(report.realAdminLoaded).toBe(true);
@@ -451,8 +477,8 @@ describe('app-check-admin#verify-token-firebase-token-production-ai-mode under @
     });
   });
 
-  it('activates the same firebase-admin verifier bridge when PYRIC_AI_PASSTHROUGH=1 selects production AI mode', () => {
-    const report = runRegisteredVerify('passthrough');
+  it('activates the same firebase-admin verifier bridge when PYRIC_AI_PASSTHROUGH=1 selects production AI mode', async () => {
+    const report = await runRegisteredVerify('passthrough');
     expect(report.bridgeLoaded).toBe(true);
     expect(report.realAdminLoaded).toBe(true);
     expect(report.outcomes.valid?.threw).toBe(false);
@@ -460,8 +486,8 @@ describe('app-check-admin#verify-token-firebase-token-production-ai-mode under @
     expect(report.refused).toEqual([]);
   });
 
-  it('keeps firebase-admin unloaded and refuses foreign-kid tokens in sandbox AI mode', () => {
-    const report = runRegisteredVerify('sandbox');
+  it('keeps firebase-admin unloaded and refuses foreign-kid tokens in sandbox AI mode', async () => {
+    const report = await runRegisteredVerify('sandbox');
     expect(report.bridgeLoaded).toBe(false);
     expect(report.realAdminLoaded).toBe(false);
     expect(report.served).toEqual([]);

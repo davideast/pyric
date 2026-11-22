@@ -111,8 +111,8 @@ test('same-origin tabs cannot silently attach conflicting Firebase configs to on
   await second.route('**/main.js', async (route) => {
     const response = await route.fetch();
     const body = (await response.text()).replace(
-      "{ apiKey: 'demo', projectId: 'demo' }",
-      "{ apiKey: 'conflict', projectId: 'conflict' }",
+      "{ apiKey: 'demo', projectId: 'demo', appId: '1:100000000000:web:demo' }",
+      "{ apiKey: 'conflict', projectId: 'conflict', appId: '1:100000000000:web:conflict' }",
     );
     await route.fulfill({ response, body });
   });

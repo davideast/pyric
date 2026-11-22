@@ -1,5 +1,15 @@
 import { afterEach, describe, expect, it } from 'bun:test';
-import { initializeSandbox } from 'pyric/sandbox';
+import {
+  REMOTE_SANDBOX,
+  createMemoryBackend,
+  initializeSandbox,
+  type RemoteSandbox,
+} from 'pyric/sandbox';
+import {
+  consumeAppCheckToken,
+  MAX_CONSUMED_TOKEN_ID_LENGTH,
+  validatePersistedService,
+} from 'pyric/sandbox/internal';
 import { ADMIN_APP_TARGET, deleteApp, getApps, initializeApp } from '../../src/app/index.js';
 import { getAppCheck } from '../../src/app-check/index.js';
 
@@ -85,5 +95,133 @@ describe('AppCheck service and createToken / verifyToken options', () => {
     const app = initializeApp({ sandbox: initializeSandbox(), projectId: 'demo-appcheck' }, 'ac-brand');
     await deleteApp(app);
     expect(() => getAppCheck(app)).toThrow(/already been deleted/);
+  });
+
+  it('persists consumed token ids in the sandbox across snapshots, persistence backends, resetAll, and sibling apps (#1297)', async () => {
+    const memoryBackend = createMemoryBackend();
+    const firstSandbox = initializeSandbox();
+    await firstSandbox.enablePersistence({ key: 'ac-consume-persist', injectedBackend: memoryBackend });
+
+    const appOne = initializeApp({ sandbox: firstSandbox, projectId: 'demo-appcheck' }, 'ac-p1');
+    const appSibling = initializeApp({ sandbox: firstSandbox, projectId: 'demo-appcheck' }, 'ac-p2');
+    const serviceOne = getAppCheck(appOne);
+    const serviceSibling = getAppCheck(appSibling);
+
+    const { token } = await serviceOne.createToken(APP_ID);
+    const firstConsume = await serviceOne.verifyToken(token, { consume: true });
+    expect(firstConsume.alreadyConsumed).toBe(false);
+
+    // Sibling admin app on the same sandbox sees it already consumed.
+    const siblingConsume = await serviceSibling.verifyToken(token, { consume: true });
+    expect(siblingConsume.alreadyConsumed).toBe(true);
+
+    // Plain verify after consume omits alreadyConsumed.
+    const plainVerify = await serviceOne.verifyToken(token);
+    expect('alreadyConsumed' in plainVerify).toBe(false);
+
+    await firstSandbox.flush();
+    const snapshot = firstSandbox.snapshot();
+
+    // Restoring via loadSnapshot into an unrelated sandbox preserves consumption even before first getAppCheck.
+    const snapshotRestored = initializeSandbox();
+    snapshotRestored.loadSnapshot(snapshot);
+    const restoredApp = initializeApp(
+      { sandbox: snapshotRestored, projectId: 'demo-appcheck' },
+      'ac-snap-restored',
+    );
+    const afterSnapshotLoad = await getAppCheck(restoredApp).verifyToken(token, { consume: true });
+    expect(afterSnapshotLoad.alreadyConsumed).toBe(true);
+
+    // Restoring via enablePersistence on a restarted sandbox preserves consumption.
+    const restartedSandbox = initializeSandbox();
+    await restartedSandbox.enablePersistence({ key: 'ac-consume-persist', injectedBackend: memoryBackend });
+    const restartedApp = initializeApp(
+      { sandbox: restartedSandbox, projectId: 'demo-appcheck' },
+      'ac-restarted',
+    );
+    const afterRestart = await getAppCheck(restartedApp).verifyToken(token, { consume: true });
+    expect(afterRestart.alreadyConsumed).toBe(true);
+
+    // resetAll clears the sandbox's consumed set.
+    const resetReport = await restartedSandbox.resetAll();
+    expect(resetReport.errors).toEqual([]);
+    const afterResetAll = await getAppCheck(restartedApp).verifyToken(token, { consume: true });
+    expect(afterResetAll.alreadyConsumed).toBe(false);
+
+    firstSandbox.dispose();
+    snapshotRestored.dispose();
+    restartedSandbox.dispose();
+  });
+
+  it('dispatches verifyToken(..., { consume: true }) over RemoteSandbox.channel (#1297)', async () => {
+    const remoteConsumed = new Set<string>();
+    const dispatchedOps: Array<{ method: string; tokenId?: string }> = [];
+    const remoteSandbox = {
+      [REMOTE_SANDBOX]: true as const,
+      serveUrl: 'http://localhost:5000',
+      withAuth: initializeSandbox().withAuth,
+      channel: {
+        async op(payload: { method: string; tokenId?: string }) {
+          dispatchedOps.push(payload);
+          if (payload.method === 'appCheck.consumeToken' && typeof payload.tokenId === 'string') {
+            const alreadyConsumed = remoteConsumed.has(payload.tokenId);
+            remoteConsumed.add(payload.tokenId);
+            return { alreadyConsumed };
+          }
+          throw new Error(`unexpected op: ${payload.method}`);
+        },
+        subscribe() {
+          return () => {};
+        },
+      },
+    } as unknown as RemoteSandbox;
+
+    const appA = initializeApp({ sandbox: remoteSandbox, projectId: 'demo-appcheck' }, 'ac-rem-a');
+    const appB = initializeApp({ sandbox: remoteSandbox, projectId: 'demo-appcheck' }, 'ac-rem-b');
+    const { token } = await getAppCheck(appA).createToken(APP_ID, {
+      limitedUse: true,
+      jti: 'remote-jti-42',
+    });
+
+    const first = await getAppCheck(appA).verifyToken(token, { consume: true });
+    const second = await getAppCheck(appB).verifyToken(token, { consume: true });
+    const plain = await getAppCheck(appB).verifyToken(token);
+
+    expect(first.alreadyConsumed).toBe(false);
+    expect(second.alreadyConsumed).toBe(true);
+    expect('alreadyConsumed' in plain).toBe(false);
+    expect(dispatchedOps).toEqual([
+      { method: 'appCheck.consumeToken', tokenId: 'remote-jti-42' },
+      { method: 'appCheck.consumeToken', tokenId: 'remote-jti-42' },
+    ]);
+  });
+
+  it('roundtrips a 5000-character tokenId through validatePersistedService and rejects out-of-bounds tokenIds (#1297)', () => {
+    const sandbox = initializeSandbox();
+    try {
+      const longTokenId = 't'.repeat(5000);
+      expect(consumeAppCheckToken(sandbox, longTokenId)).toEqual({ alreadyConsumed: false });
+      expect(consumeAppCheckToken(sandbox, longTokenId)).toEqual({ alreadyConsumed: true });
+
+      expect(() => consumeAppCheckToken(sandbox, '')).toThrow(RangeError);
+      expect(() =>
+        consumeAppCheckToken(sandbox, 'x'.repeat(MAX_CONSUMED_TOKEN_ID_LENGTH + 1)),
+      ).toThrow(RangeError);
+
+      const snapshot = sandbox.snapshot();
+      expect(() =>
+        validatePersistedService('app-check', snapshot.services['app-check']),
+      ).not.toThrow();
+
+      const restored = initializeSandbox();
+      try {
+        restored.loadSnapshot(snapshot);
+        expect(consumeAppCheckToken(restored, longTokenId)).toEqual({ alreadyConsumed: true });
+      } finally {
+        restored.dispose();
+      }
+    } finally {
+      sandbox.dispose();
+    }
   });
 });

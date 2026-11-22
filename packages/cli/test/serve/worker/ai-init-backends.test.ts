@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { FirebaseError, deleteApp } from 'pyric/app';
 import { createAppForSandbox } from 'pyric/app/internal';
+import { CustomProvider, getToken, initializeAppCheck } from 'pyric/app-check';
 import { mintAppCheckToken } from 'pyric/sandbox/internal';
 import { aiDiagnosticPayloadFor } from '../../../src/serve/ai-diagnostics-relay.js';
 import { handleMessage, type PortLike } from '../../../src/serve/worker/host.js';
@@ -66,6 +67,9 @@ interface InitBackendsBehavior {
   guards: {
     emptyModelThrow: SyncAiThrowShape;
     missingModelPropThrow: SyncAiThrowShape;
+    missingApiKeyThrow: SyncAiThrowShape;
+    missingProjectIdThrow: SyncAiThrowShape;
+    missingAppIdThrow: SyncAiThrowShape;
   };
 }
 
@@ -229,6 +233,43 @@ describe('served AI entry and SharedWorker init/backend/model-guard parity', () 
       expect(
         observeThrow(() => getGenerativeModel(defaultAi, {} as { model: string })),
       ).toEqual(facts.guards.missingModelPropThrow);
+
+      const missingApiKeyApp = createAppForSandbox(
+        ctx.sandbox,
+        { projectId: 'demo-ai-worker-init', appId: '1:123456789012:web:noapikey' },
+        `served-ai-no-apikey-${++appSeq}`,
+      );
+      const missingProjectIdApp = createAppForSandbox(
+        ctx.sandbox,
+        { apiKey: 'fake-api-key', appId: '1:123456789012:web:noproject' },
+        `served-ai-no-project-${++appSeq}`,
+      );
+      const missingAppIdApp = createAppForSandbox(
+        ctx.sandbox,
+        { apiKey: 'fake-api-key', projectId: 'demo-ai-worker-init' },
+        `served-ai-no-appid-${++appSeq}`,
+      );
+      try {
+        expect(
+          observeThrow(() =>
+            getGenerativeModel(getAI(missingApiKeyApp), { model: 'gemini-flash-lite-latest' }),
+          ),
+        ).toEqual(facts.guards.missingApiKeyThrow);
+        expect(
+          observeThrow(() =>
+            getGenerativeModel(getAI(missingProjectIdApp), { model: 'gemini-flash-lite-latest' }),
+          ),
+        ).toEqual(facts.guards.missingProjectIdThrow);
+        expect(
+          observeThrow(() =>
+            getGenerativeModel(getAI(missingAppIdApp), { model: 'gemini-flash-lite-latest' }),
+          ),
+        ).toEqual(facts.guards.missingAppIdThrow);
+      } finally {
+        await deleteApp(missingApiKeyApp);
+        await deleteApp(missingProjectIdApp);
+        await deleteApp(missingAppIdApp);
+      }
     } finally {
       await deleteApp(primaryApp);
       await deleteApp(secondaryApp);
@@ -319,6 +360,67 @@ describe('served AI entry and SharedWorker init/backend/model-guard parity', () 
           },
         }),
       ).toBeNull();
+    } finally {
+      await deleteApp(app);
+      ctx.sandbox.dispose();
+    }
+  });
+
+  it('applies the latest getAI useLimitedUseAppCheckTokens option across SharedWorker entries/ai (#1910)', async () => {
+    const { ctx, servedAi } = await setupServedAi();
+    const appId = '1:123456789012:web:workerlim01';
+    const projectId = 'demo-ai-worker-lim';
+    const app = createAppForSandbox(
+      ctx.sandbox,
+      { apiKey: 'fake-api-key', projectId, appId },
+      `served-ai-limited-${++appSeq}`,
+    );
+    let providerCalls = 0;
+    const appCheck = initializeAppCheck(app, {
+      provider: new CustomProvider({
+        getToken: async () => {
+          providerCalls += 1;
+          return mintAppCheckToken({ appId, projectId }, 3600);
+        },
+      }),
+      isTokenAutoRefreshEnabled: false,
+    });
+
+    try {
+      const cached = await getToken(appCheck);
+      expect(providerCalls).toBe(1);
+
+      const firstAi = servedAi.getAI(app);
+      expect(firstAi.options).toEqual({ useLimitedUseAppCheckTokens: false });
+      const cachedModel = servedAi.getGenerativeModel(firstAi, {
+        model: 'gemini-flash-lite-latest',
+      });
+
+      const secondAi = servedAi.getAI(app, { useLimitedUseAppCheckTokens: true });
+      expect(secondAi).toBe(firstAi);
+      expect(secondAi.options).toEqual({ useLimitedUseAppCheckTokens: true });
+      const limitedModel = servedAi.getGenerativeModel(secondAi, {
+        model: 'gemini-flash-lite-latest',
+      });
+
+      const thirdAi = servedAi.getAI(app);
+      expect(thirdAi).toBe(firstAi);
+      expect(thirdAi.options).toEqual({ useLimitedUseAppCheckTokens: false });
+      const revertedModel = servedAi.getGenerativeModel(thirdAi, {
+        model: 'gemini-flash-lite-latest',
+      });
+
+      await cachedModel.generateContent('cached-1');
+      expect(providerCalls).toBe(1);
+
+      await limitedModel.generateContent('limited-1');
+      expect(providerCalls).toBe(2);
+      await limitedModel.countTokens('limited-2');
+      expect(providerCalls).toBe(3);
+
+      await revertedModel.generateContent('cached-2');
+      expect(providerCalls).toBe(3);
+      expect((await getToken(appCheck)).token).toBe(cached.token);
     } finally {
       await deleteApp(app);
       ctx.sandbox.dispose();

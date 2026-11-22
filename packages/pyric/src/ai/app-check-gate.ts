@@ -37,7 +37,7 @@ import type { AppCheckClaim, WireErrorEnvelope } from './broker/types.js';
 import { RequestHeadersFailure } from './errors.js';
 
 /** An enforced project's message for a refused request (capture `app-check-ai-gate-wire`), verbatim. */
-export const APP_CHECK_REQUIRED_MESSAGE = 'Firebase App Check token is invalid.';
+const APP_CHECK_REQUIRED_MESSAGE = 'Firebase App Check token is invalid.';
 
 /** An enforced project's HTTP status and status for a refused request (capture `app-check-ai-gate-wire`). */
 const APP_CHECK_REQUIRED_CODE = 401;
@@ -117,6 +117,8 @@ export interface AppCheckAttachment {
   claim(): Promise<AppCheckClaim>;
   /** Log pyric's guidance once for this app, after the gate refused one of its requests. */
   warnRefused(): void;
+  /** Return an attachment bound to a model's `useLimitedUseAppCheckTokens` snapshot (`initApiSettings`). */
+  withLimitedUse?(limitedUse: boolean): AppCheckAttachment;
 }
 
 const warnedApps = new WeakSet<object>();
@@ -145,12 +147,23 @@ async function tokenForRequest(app: FirebaseApp, limitedUse: boolean): Promise<s
  * The attachment for a handle `getAI(app)` builds now. App Check is read once,
  * here: a handle built before `initializeAppCheck` never attaches a token.
  * With `useLimitedUseAppCheckTokens`, each request takes a fresh limited-use
- * token.
+ * token; `withLimitedUse` lets each built model snapshot the latest `getAI`
+ * option while preserving `activeAtCreation`.
  */
 export function appCheckAttachmentFor(app: FirebaseApp, limitedUse: boolean): AppCheckAttachment {
   const activeAtCreation = appCheckActivationOf(app) !== undefined;
-  return {
-    claim: async () => ({ token: activeAtCreation ? await tokenForRequest(app, limitedUse) : null }),
-    warnRefused: () => warnOnce(app),
-  };
+  function buildAttachment(mode: boolean): AppCheckAttachment {
+    return {
+      claim: async () => {
+        if (!activeAtCreation) {
+          return { token: null };
+        }
+        const token = await tokenForRequest(app, mode);
+        return { token };
+      },
+      warnRefused: () => warnOnce(app),
+      withLimitedUse: (nextLimitedUse: boolean) => buildAttachment(nextLimitedUse),
+    };
+  }
+  return buildAttachment(limitedUse);
 }

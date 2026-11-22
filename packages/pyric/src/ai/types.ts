@@ -57,8 +57,12 @@ export interface SandboxTarget {
   backend: Backend;
   sandbox: Sandbox;
   broker: AiBroker;
+  /** App-backed handles carry their owning FirebaseApp so `initApiSettings` validates config fields. */
+  app?: FirebaseApp;
   /** App-backed handles assert their container is live before every operation. */
   assertAlive?: () => void;
+  /** Reads the handle's latest `useLimitedUseAppCheckTokens` option when a model is built. */
+  resolveLimitedUse?: () => boolean;
   /** App-backed handles attach App Check to every request; handles with no app have none and are not gated. */
   appCheck?: AppCheckAttachment;
 }
@@ -69,8 +73,12 @@ export interface TransportTarget {
   /** The handle's backend: the SDK's request URL, which errors quote, depends on it. */
   backend: Backend;
   transport: AnswerEngine;
+  /** App-backed handles carry their owning FirebaseApp so `initApiSettings` validates config fields. */
+  app?: FirebaseApp;
   /** App-backed handles assert their container is live before every operation. */
   assertAlive?: () => void;
+  /** Reads the handle's latest `useLimitedUseAppCheckTokens` option when a model is built. */
+  resolveLimitedUse?: () => boolean;
   /** App-backed handles attach App Check to every request; handles with no app have none and are not gated. */
   appCheck?: AppCheckAttachment;
 }

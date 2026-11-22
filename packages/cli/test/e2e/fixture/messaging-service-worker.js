@@ -4,7 +4,7 @@ import {
   onBackgroundMessage,
 } from '/__pyric/sdk/messaging-sw.js';
 
-const app = initializeApp({ apiKey: 'demo', projectId: 'demo' });
+const app = initializeApp({ apiKey: 'demo', projectId: 'demo', appId: '1:100000000000:web:demo' });
 const messaging = getMessaging(app);
 const realmId = crypto.randomUUID();
 

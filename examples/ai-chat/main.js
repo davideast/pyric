@@ -49,7 +49,11 @@ const engine =
       };
 
 // ── The app, exactly as it would be written against real Firebase ─────────
-const app = initializeApp({ apiKey: 'demo-key', projectId: 'demo-project' });
+const app = initializeApp({
+  apiKey: 'demo-key',
+  projectId: 'demo-project',
+  appId: '1:100000000000:web:demoproject',
+});
 // Pyric refuses AI Logic requests without an App Check token with a 403.
 // Firebase enforces App Check for AI Logic from November 2, 2026, and a project
 // can delay enforcement up to January 21, 2027. getAI reads App Check when it

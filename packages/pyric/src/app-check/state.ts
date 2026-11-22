@@ -8,6 +8,7 @@
  * providers the sandbox cannot run, the sandbox mints its own token.
  */
 import type { FirebaseApp } from '../app/types.js';
+import { resolveClientAppIncludingDeleted } from '../sandbox/internal/client-app.js';
 import {
   APP_CHECK_PLACEHOLDER_TOKEN,
   mintAppCheckToken,
@@ -65,12 +66,23 @@ function record(app: FirebaseApp, state: AppCheckState): void {
 const BLOCKED_REFRESH_WARNING =
   '`isTokenAutoRefreshEnabled` is true but `automaticDataCollectionEnabled` was set to false during `initializeApp()`. This blocks automatic token refresh.';
 
-/** Upstream `_activate`: an omitted flag is `false`, and `automaticDataCollectionEnabled: false` blocks `true`. */
+/** Asserts that an app registered through `createAppForSandbox` or `initializeApp` has not been deleted. */
+export function assertAppAlive(app: FirebaseApp): void {
+  const runtime = resolveClientAppIncludingDeleted(app);
+  if (runtime !== undefined) {
+    runtime.assertAlive();
+  }
+}
+
+/** Upstream `_activate`: always reads `app.automaticDataCollectionEnabled` (throwing `app/app-deleted` if deleted). */
 function effectiveAutoRefresh(app: FirebaseApp, requested: boolean | undefined): boolean {
-  const wanted = requested ?? false;
-  const blocked = wanted && !app.automaticDataCollectionEnabled;
-  if (blocked) console.warn(BLOCKED_REFRESH_WARNING);
-  return wanted && app.automaticDataCollectionEnabled;
+  assertAppAlive(app);
+  const automaticDataCollectionEnabled = app.automaticDataCollectionEnabled;
+  const wanted = requested === true;
+  if (!automaticDataCollectionEnabled && wanted) {
+    console.warn(BLOCKED_REFRESH_WARNING);
+  }
+  return wanted && automaticDataCollectionEnabled;
 }
 
 /**
@@ -135,7 +147,10 @@ function notifyError(observers: Iterable<TokenObserver>, error: unknown): void {
 
 /** The app's provider token, or a sandbox-minted one when it has no provider to call. */
 function freshToken(_app: FirebaseApp, state: AppCheckState, now: number, ttlSeconds: number = TTL_SECONDS): Promise<MintedToken> {
-  if (state.attestedBy !== null) return state.attestedBy.getToken();
+  const provider = state.attestedBy;
+  if (provider !== null) {
+    return Promise.resolve().then(() => provider.getToken());
+  }
   warnIfProductionNeverSettles(state.provider, state.debugMode);
   return mintAppCheckToken(state.identity, ttlSeconds, now);
 }
