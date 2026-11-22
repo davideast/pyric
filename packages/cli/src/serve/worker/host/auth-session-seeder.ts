@@ -14,8 +14,42 @@ import {
   normalizeTenantScope,
   sessionKeyOf,
 } from 'pyric/auth/internal';
-import { serializeUser, type SerializedUser } from '../protocol.js';
+import { serializeUser, type SerializedIdTokenResult, type SerializedUser } from '../protocol.js';
 import { FirebaseError } from 'pyric/app';
+
+function toWireIsoTimestamp(value: string): string {
+  const ms = Date.parse(value);
+  if (Number.isFinite(ms)) {
+    return new Date(ms).toISOString();
+  }
+  return value;
+}
+
+/**
+ * Serialize an `IdTokenResult` onto the multi-SDK bridge wire.
+ * Native SDKs (Swift `ISO8601DateFormatter`, Flutter `DateTime.tryParse`,
+ * Kotlin `Instant.parse`) parse ISO-8601 timestamps on the wire, while the
+ * browser worker client converts them back to RFC 7231 UTC strings for JS.
+ */
+export function serializeIdTokenResultForWire(result: {
+  token: string;
+  claims: Record<string, unknown>;
+  expirationTime: string;
+  issuedAtTime: string;
+  authTime: string;
+  signInProvider?: string | null;
+  signInSecondFactor?: string | null;
+}): SerializedIdTokenResult {
+  return {
+    token: result.token,
+    claims: result.claims,
+    expirationTime: toWireIsoTimestamp(result.expirationTime),
+    issuedAtTime: toWireIsoTimestamp(result.issuedAtTime),
+    authTime: toWireIsoTimestamp(result.authTime),
+    signInProvider: result.signInProvider ?? null,
+    signInSecondFactor: result.signInSecondFactor ?? null,
+  };
+}
 
 /** A session's user in wire form, with the session key a reloaded page hands back (#1950). */
 export function serializeSessionUser(user: User | null): SerializedUser | null {

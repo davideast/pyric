@@ -40,6 +40,7 @@ import {
   remintSessionWithClaims,
   applyProfileToUser,
   resolveOAuthCredentialUser,
+  serializeIdTokenResultForWire,
   serializeSessionUser as serializeUser,
 } from './host/auth-session-seeder.js';
 import {
@@ -524,15 +525,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
         const r = await user.getIdTokenResult(msg.forceRefresh);
         const refreshesClaims = msg.forceRefresh === true || sessionTokenExpired(ctx, session);
         if (refreshesClaims) refreshPortAuthorization(ctx, port, session, r.claims);
-        ok(port, msg.id, {
-          token: r.token,
-          claims: r.claims,
-          expirationTime: r.expirationTime,
-          issuedAtTime: r.issuedAtTime,
-          authTime: r.authTime,
-          signInProvider: r.signInProvider ?? null,
-          signInSecondFactor: r.signInSecondFactor ?? null,
-        });
+        ok(port, msg.id, serializeIdTokenResultForWire(r));
       } catch (e) {
         signOutPortIfInvalidated(ctx, port, e);
         fail(port, msg.id, e);

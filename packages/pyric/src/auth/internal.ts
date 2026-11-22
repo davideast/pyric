@@ -45,6 +45,11 @@ export {
 /** The key a page stores to resume its session after a reload (#1950). */
 export { sessionKeyOf } from './sandbox/session-ledger.js';
 export { assertOrRecordAuthInitOptions, recordDefaultAuthInitOptions } from './instances.js';
+export {
+  resolveInitializeAuthPersistence,
+  resolvePersistenceMode,
+  type ResolvedPersistenceConfig,
+} from './sandbox/persistence-options.js';
 export type { ServedSandboxHook } from './sandbox/driver.js';
 export {
   applyBeforeCreateResponseToInit,

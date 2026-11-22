@@ -97,4 +97,34 @@ describe('SessionStore', () => {
     secondaryStore.clear();
     expect(defaultStore.load()?.uid).toBe('default-user');
   });
+
+  it('setInitialMode and load(allowedModes) isolate initializeAuth persistence without migrating or wiping prior slots', () => {
+    const { local, session } = wire();
+    const prior = new SessionStore({ local, session });
+    prior.save('local-user');
+
+    // Case A: initializeAuth(..., { persistence: browserSessionPersistence }) must not restore or migrate LOCAL.
+    const sessionOnly = new SessionStore({ local, session });
+    sessionOnly.setInitialMode('SESSION');
+    expect(sessionOnly.getMode()).toBe('SESSION');
+    expect(sessionOnly.load(new Set(['SESSION']))).toBeNull();
+    sessionOnly.clearActive();
+    expect(Object.keys(local.dump())).toHaveLength(1);
+    expect(Object.keys(session.dump())).toHaveLength(0);
+
+    // Signing in on the SESSION-only store writes only to sessionStorage and keeps localStorage intact.
+    sessionOnly.save('session-user');
+    expect(sessionOnly.load(new Set(['SESSION']))?.uid).toBe('session-user');
+    expect(new SessionStore({ local, session }).load(new Set(['LOCAL']))?.uid).toBe('local-user');
+
+    // Case B: initializeAuth(..., { persistence: inMemoryPersistence }) leaves both slots untouched.
+    const memoryOnly = new SessionStore({ local, session });
+    memoryOnly.setInitialMode('NONE');
+    expect(memoryOnly.getMode()).toBe('NONE');
+    expect(memoryOnly.load(new Set())).toBeNull();
+    memoryOnly.save('mem-user');
+    memoryOnly.clearActive();
+    expect(new SessionStore({ local, session }).load(new Set(['LOCAL']))?.uid).toBe('local-user');
+    expect(new SessionStore({ local, session }).load(new Set(['SESSION']))?.uid).toBe('session-user');
+  });
 });

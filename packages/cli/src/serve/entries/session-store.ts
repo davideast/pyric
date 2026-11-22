@@ -50,31 +50,44 @@ export class SessionStore {
       : `${DEFAULT_KEY}:${encodeURIComponent(appName)}`;
   }
 
+  getMode(): SessionMode {
+    return this.mode;
+  }
+
+  /** Set initial persistence from `initializeAuth` without migrating or clearing storage. */
+  setInitialMode(mode: SessionMode): void {
+    this.mode = mode;
+  }
+
   /** `setPersistence` parity: switch the backing store and MIGRATE any
    *  current session into it (the real SDK carries the session over). */
   setMode(mode: SessionMode): void {
-    const current = this.load();
-    this.clear();
+    let current: StoredSession | null = null;
+    if (this.mode !== 'NONE') {
+      current = this.load(new Set([this.mode]));
+      this.clearActive();
+    }
     this.mode = mode;
-    if (current) this.save(current.uid, current.sessionKey);
+    if (current !== null) {
+      this.save(current.uid, current.sessionKey);
+    }
   }
 
   save(uid: string, sessionKey?: string): void {
-    this.clear(); // a session lives in exactly one store
     if (this.mode === 'NONE') return;
     const record: StoredSession = sessionKey === undefined ? { uid } : { uid, sessionKey };
     this.backing().setItem(this.key, JSON.stringify(record));
   }
 
-  /** Reads BOTH storages (localStorage first — matches lookup order when a
-   *  prior page used a different mode). Restoring also restores the mode:
-   *  the initial Auth observer resaves the user, and must not migrate a
-   *  SESSION record into the default LOCAL slot. */
-  load(): StoredSession | null {
-    for (const [mode, store] of [
-      ['LOCAL', this.stores.local],
-      ['SESSION', this.stores.session],
-    ] as const) {
+  /** Reads permitted storages (localStorage then sessionStorage by default, or
+   *  in `allowedModes` iteration order when constrained by `initializeAuth`).
+   *  Restoring also restores the mode: the initial Auth observer resaves the
+   *  user, and must not migrate a SESSION record into the default LOCAL slot. */
+  load(allowedModes?: ReadonlySet<'LOCAL' | 'SESSION'>): StoredSession | null {
+    const modesToCheck: ReadonlyArray<'LOCAL' | 'SESSION'> =
+      allowedModes === undefined ? ['LOCAL', 'SESSION'] : [...allowedModes];
+    for (const mode of modesToCheck) {
+      const store = mode === 'SESSION' ? this.stores.session : this.stores.local;
       const raw = store.getItem(this.key);
       if (!raw) continue;
       try {
@@ -84,10 +97,16 @@ export class SessionStore {
           return parsed;
         }
       } catch {
-        store.removeItem(this.key); // corrupt → drop, never throw at page init
+        store.removeItem(this.key); // corrupt -> drop, never throw at page init
       }
     }
     return null;
+  }
+
+  /** Clear only the active persistence slot, leaving other slots untouched. */
+  clearActive(): void {
+    if (this.mode === 'NONE') return;
+    this.backing().removeItem(this.key);
   }
 
   clear(): void {
