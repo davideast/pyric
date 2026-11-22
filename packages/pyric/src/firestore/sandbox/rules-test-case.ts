@@ -20,7 +20,7 @@ function projectRequestData(
   if (method === 'get' || method === 'list') return undefined;
   if (!data) return data;
   const isMergeSet = merge !== undefined && merge !== false
-    && (method === 'create' || method === 'update');
+    && (method === 'create' || method === 'update' || method === 'set');
   if (isMergeSet) {
     const mergeFields = merge === true ? undefined : merge.mergeFields;
     return applyMerge(existingDoc ?? {}, data, mergeFields);

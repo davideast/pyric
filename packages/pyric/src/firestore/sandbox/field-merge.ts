@@ -134,7 +134,7 @@ export function applyUpdate(
  * level of an `updateDoc` (or anywhere in a non-merge `set`). The write
  * layer maps this to an `invalid-argument` FirestoreError.
  */
-export class DeleteFieldNestedError extends Error {
+class DeleteFieldNestedError extends Error {
   constructor() {
     super('FieldValue.delete() can only appear at the top level of your update data');
     this.name = 'DeleteFieldNestedError';
@@ -167,6 +167,48 @@ export function assertNoNestedDeleteField(resolved: DocumentData): void {
   }
 }
 
+function resolveMergeFieldEntries(
+  resolved: DocumentData,
+  mergeFields: readonly string[],
+): Array<{ segments: string[]; value: unknown }> {
+  const entries: Array<{ segments: string[]; value: unknown }> = [];
+  for (const field of mergeFields) {
+    const argSegments = fieldPathArgumentSegments(field);
+    let segments: string[];
+    if (argSegments !== undefined) {
+      segments = argSegments;
+    } else {
+      segments = fieldPathKeySegments(String(field));
+    }
+    for (const seg of segments) {
+      assertSafeSegment(seg);
+    }
+    const value = readPath(resolved, segments);
+    const isMissing = value === ABSENT;
+    if (isMissing) {
+      throw new FirebaseError(
+        'invalid-argument',
+        `Field '${field}' is specified in your field mask but missing from your input data.`,
+      );
+    }
+    entries.push({ segments, value });
+  }
+  return entries;
+}
+
+/**
+ * Validate that every path in `mergeFields` uses safe segments and is present
+ * in `resolved`. Throws `FirebaseError('invalid-argument', ...)` when a masked
+ * field is missing from input data so `WriteEngine.execute` can refuse before
+ * rule evaluation and record a request event (#1379).
+ */
+export function assertValidMergeFields(
+  resolved: DocumentData,
+  mergeFields: readonly string[],
+): void {
+  resolveMergeFieldEntries(resolved, mergeFields);
+}
+
 /**
  * `setDoc(merge:true)` semantics — recursively extract the leaf-path mask
  * from `resolved` (nested maps deep-merge), then set each leaf. When
@@ -185,15 +227,8 @@ export function applyMerge(
   if (hasFieldMask) {
     // Restrict to the listed field paths. Each is a dot-separated path
     // into `resolved` and must be present in the supplied data.
-    for (const field of mergeFields) {
-      const argSegments = fieldPathArgumentSegments(field);
-      const segments = argSegments !== undefined ? argSegments : fieldPathKeySegments(String(field));
-      const value = readPath(resolved, segments);
-      const isMissing = value === ABSENT;
-      if (isMissing) {
-        throw new FirebaseError('invalid-argument', `Field '${field}' is specified in your field mask but missing from your input data.`);
-      }
-      mask.push({ segments, value });
+    for (const entry of resolveMergeFieldEntries(resolved, mergeFields)) {
+      mask.push(entry);
     }
   } else {
     collectLeaves(resolved, [], mask);

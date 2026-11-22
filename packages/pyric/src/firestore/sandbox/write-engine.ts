@@ -26,7 +26,7 @@ import type {
 import { EventLog } from './event-log.js';
 import { FirestoreEventBus } from './event-bus.js';
 import { TriggerScope, type TriggeringOps } from './trigger-scope.js';
-import { assertNoNestedDeleteField } from './field-merge.js';
+import { assertNoNestedDeleteField, assertValidMergeFields } from './field-merge.js';
 import { generateAutoId } from './auto-id.js';
 import { walkForSentinels } from './sentinel-capture.js';
 import {
@@ -89,7 +89,8 @@ export class WriteEngine {
     data?: DocumentData,
     merge?: boolean | { mergeFields: readonly string[] },
   ): FirestoreSimError | null {
-    if (merge !== undefined && merge !== false && (method === 'create' || method === 'update')) {
+    const isMergeMethod = method === 'create' || method === 'update' || method === 'set';
+    if (merge !== undefined && merge !== false && isMergeMethod) {
       const mergeFields = merge === true ? undefined : merge.mergeFields;
       this.runtime.state.setMerge(path, data ?? {}, mergeFields);
       return null;
@@ -159,6 +160,7 @@ export class WriteEngine {
     // prior) may throw. Surface as a denial — the agent's rule was
     // never given a chance to evaluate, but the operation is rejected.
     let resolvedData: DocumentData | undefined;
+    let testCase: ReturnType<WriteRuntime['buildTestCase']>;
     try {
       assertServerWriteLimits(path, method, data);
       resolvedData = data
@@ -179,28 +181,54 @@ export class WriteEngine {
       if (isNonMergeUpdate && resolvedData) {
         assertNoNestedDeleteField(resolvedData);
       }
+      const isMergeMethod = method === 'create' || method === 'update' || method === 'set';
+      if (isMergeMethod && merge !== undefined && merge !== false && merge !== true) {
+        assertValidMergeFields(resolvedData ?? {}, merge.mergeFields);
+      }
+      testCase = this.runtime.buildTestCase({ ...operation, data: resolvedData }, serverTime);
     } catch (e) {
-      const msg = (e as Error).message;
+      let msg: string;
+      if (e instanceof Error) {
+        msg = e.message;
+      } else {
+        msg = String(e);
+      }
+      let eventAuth: { uid: string } | null = null;
+      if (auth !== null && auth !== undefined) {
+        eventAuth = { uid: auth.uid };
+      }
       const event = this.runtime.eventLog.append({
-        type: 'single', method, path, auth: auth ? { uid: auth.uid } : null,
+        type: 'single', method, path, auth: eventAuth,
         data, allowed: false, priorDocs: snapshot,
         debugMessages: [`FieldValue resolve error: ${msg}`],
       });
-      // Issue #307 — sentinel-resolution failures never reached the rules
-      // engine but the user's op still produced a denial. evalMs is 0
-      // because no simulate call happened.
-      this.runtime.emitRequest({
-        at: this.runtime.clock.now(), evalMs: 0, method, path, auth, result: 'deny',
+      // Issue #307 - pre-rules write validation failures never reached the rules
+      // engine, but the user's op still produced a denial. evalMs is 0 because
+      // no simulate call happened.
+      const priorForError = snapshot[path] ?? null;
+      const errorRequest: Parameters<WriteRuntime['emitRequest']>[0] = {
+        at: this.runtime.clock.now(),
+        evalMs: 0,
+        method,
+        path,
+        auth,
+        result: 'deny',
         rulesDisposition: { kind: 'not-evaluated', reason: 'runtime-error' },
         debugMessages: [`FieldValue resolve error: ${msg}`],
-        ...(requestPayload ?? {}),
-        resourceBefore: { data: snapshot[path] ?? null, exists: (snapshot[path] ?? null) !== null },
+        resourceBefore: { data: priorForError, exists: priorForError !== null },
         origin: 'user',
-        ...(detail ? { detail } : {}),
-      });
-      // Item 6: a sentinel-resolution throw maps to `invalid-argument`.
-      // The admin SDK throws the same code when a FieldValue is malformed
-      // for the prior data shape (e.g., increment on a non-number).
+      };
+      if (requestPayload !== undefined) {
+        Object.assign(errorRequest, requestPayload);
+      } else if (requestMerge !== undefined) {
+        errorRequest.merge = requestMerge;
+      }
+      if (detail !== undefined) {
+        errorRequest.detail = detail;
+      }
+      this.runtime.emitRequest(errorRequest);
+      // Item 6: a sentinel-resolution or merge-field validation throw maps to
+      // `invalid-argument`.
       return {
         allowed: false,
         debugMessages: [msg],
@@ -209,7 +237,6 @@ export class WriteEngine {
       };
     }
 
-    const testCase = this.runtime.buildTestCase({ ...operation, data: resolvedData }, serverTime);
     // Issue #307 — time the simulate call for RequestEvent.evalMs.
     const evalAt = this.runtime.clock.now();
     const evalStart = performance.now();

@@ -20,6 +20,7 @@ import {
 import type { RawDocResult, ClientDocSnapshot } from './snapshots.js';
 import { createDocumentReference } from './firestore-reference.js';
 import { assertNoUndefinedInWorkerSentinels } from './firestore-sentinels.js';
+import { TransactionRetryBackoff } from './firestore-transaction-backoff.js';
 import {
   captureWorkerFirestoreCacheEpoch,
   enqueueWorkerOfflineWrite,
@@ -436,7 +437,12 @@ export async function runTransaction<R>(
 
     let attemptsRemaining = maxAttempts;
     let hasAttempts = attemptsRemaining > 0;
+    const retryBackoff = new TransactionRetryBackoff();
     while (hasAttempts) {
+      const waitedMs = await retryBackoff.waitForNextAttempt();
+      if (waitedMs > 0) {
+        assertWorkerFirestoreActive(db);
+      }
       attemptsRemaining -= 1;
       const reads: TxnReadEntry[] = [];
       const writes: WriteDescriptor[] = [];

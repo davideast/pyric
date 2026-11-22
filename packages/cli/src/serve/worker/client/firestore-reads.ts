@@ -400,12 +400,24 @@ export function onSnapshot(
         const hasCachedContent = (Array.isArray(frame.docs) && frame.docs.length > 0) || frame.exists === true;
         if (hasCachedContent && frame.hasPendingWrites !== true) {
           const baseFrame = raw as Record<string, unknown>;
+          const stampFrameFromCache = (fromCache: boolean): Record<string, unknown> => {
+            if (!Array.isArray(frame.docs)) {
+              return { ...baseFrame, fromCache };
+            }
+            const stampedDocs = frame.docs.map((entry) => {
+              if (entry !== null && typeof entry === 'object') {
+                return { ...(entry as Record<string, unknown>), fromCache };
+              }
+              return entry;
+            });
+            return { ...baseFrame, fromCache, docs: stampedDocs };
+          };
           deliveredCount += 1;
-          deliverRawFrame({ ...baseFrame, fromCache: true });
+          deliverRawFrame(stampFrameFromCache(true));
           queueMicrotask(() => {
             if (unsubscribed || isWorkerFirestoreOffline(port)) return;
             deliveredCount += 1;
-            deliverRawFrame({ ...baseFrame, fromCache: false });
+            deliverRawFrame(stampFrameFromCache(false));
           });
           return;
         }
