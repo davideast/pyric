@@ -38,9 +38,16 @@ import {
   adminToRootDb,
   adminToUnderlying,
   appBackedFirestoreRoots,
+  DEFAULT_ADMIN_DATABASE_ID,
+  getAdminHandleDatabaseId,
   isAppBackedRoot,
   wrappedDbCache,
 } from './admin-handle-registry.js';
+import {
+  assertAdminRootDatabaseDeclared,
+  declareAdminSandboxDatabase,
+  getAdminRootOriginalSandbox,
+} from './admin-named-databases.js';
 import {
   adminGetAll,
   adminListCollections,
@@ -272,7 +279,9 @@ function wrapCollectionRef(
             return validateAndNormalizeDocumentData('data', payload, 'none', appBacked);
           });
           return runWithAdminErrorsAsync(appBacked, async () => {
-            const ref = await t.add(normalized, opts);
+            assertAdminRootDatabaseDeclared(rootDb);
+            const liveColl = rawDb.collection(t.path);
+            const ref = await liveColl.add(normalized, opts);
             await capturePreWriteBaselines(rawDb, rootDb, docRefOnRoot, []);
             const wr = recordSingleAdminWrite(rawDb, ref.path);
             await recordPostWriteVersions(
@@ -424,11 +433,17 @@ export function wrapAdminFirestoreHandle(
             let projectId = 'pyric-sandbox';
             const mappedProject = adminRawDbProjectId.get(t);
             if (mappedProject !== undefined) projectId = mappedProject;
-            return createAdminBundleBuilder(proxy, projectId, bundleId);
+            const dbId = getAdminHandleDatabaseId(proxy);
+            return createAdminBundleBuilder(proxy, projectId, bundleId, dbId);
           };
         case 'seed':
           return (options?: { documents?: Record<string, DocumentData> }) =>
             runWithAdminErrorsSync(appBacked, () => {
+              const dbId = getAdminHandleDatabaseId(proxy);
+              const origSb = getAdminRootOriginalSandbox(proxy);
+              if (dbId !== DEFAULT_ADMIN_DATABASE_ID && origSb !== undefined) {
+                declareAdminSandboxDatabase(origSb, dbId);
+              }
               if (options?.documents === undefined) {
                 const seedTime = recordSeededAdminDocuments(t, []);
                 const lintEmpty = t.seed(options);
@@ -450,9 +465,16 @@ export function wrapAdminFirestoreHandle(
           const value = Reflect.get(t, prop, t);
           if ((prop === 'setRules' || prop === 'snapshot') && typeof value === 'function') {
             return (...args: unknown[]) =>
-              runWithAdminErrorsSync(appBacked, () =>
-                (value as (...a: unknown[]) => unknown).apply(t, args),
-              );
+              runWithAdminErrorsSync(appBacked, () => {
+                if (prop === 'setRules') {
+                  const dbId = getAdminHandleDatabaseId(proxy);
+                  const origSb = getAdminRootOriginalSandbox(proxy);
+                  if (dbId !== DEFAULT_ADMIN_DATABASE_ID && origSb !== undefined) {
+                    declareAdminSandboxDatabase(origSb, dbId);
+                  }
+                }
+                return (value as (...a: unknown[]) => unknown).apply(t, args);
+              });
           }
           return value;
         }

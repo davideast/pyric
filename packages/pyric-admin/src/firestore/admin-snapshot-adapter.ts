@@ -45,6 +45,7 @@ import {
 } from './admin-handle-registry.js';
 import { projectDataByFieldPaths, readProjectedNested } from './admin-query-extensions.js';
 import { isAdminDocSnapshotEqual } from './admin-reference-and-snapshot-equality.js';
+import { prepareAdminSnapshotSubscription } from './admin-snapshot-named-db.js';
 import { tryDecodeAdminVectorFromWire } from './admin-vector-and-errors.js';
 import {
   nextAdminTimestamp,
@@ -571,6 +572,11 @@ export function createAdminOnSnapshot(
       typeof (arg2 as { next?: unknown }).next !== 'function' &&
       typeof (arg2 as { error?: unknown }).error !== 'function' &&
       typeof (arg2 as { complete?: unknown }).complete !== 'function';
+    const prepared = prepareAdminSnapshotSubscription(
+      reference, rawReference, rootDb, arg2IsOptions, arg2, arg3, arg4,
+    );
+    if (prepared.immediateUnsub !== undefined) return prepared.immediateUnsub;
+    const subRef = prepared.resolvedRawReference;
 
     const wrapErr = (cb: unknown): unknown => {
       if (typeof cb !== 'function') return cb;
@@ -578,11 +584,11 @@ export function createAdminOnSnapshot(
     };
     if (arg2IsOptions) {
       return (baseOnSnapshot as (...a: unknown[]) => Unsubscribe)(
-        rawReference, arg2, wrapObserverOrCallbackArg(arg3, rootDb, buildDocRef, booleanExists, qHandle, converter), wrapErr(arg4), arg5,
+        subRef, arg2, wrapObserverOrCallbackArg(arg3, rootDb, buildDocRef, booleanExists, qHandle, converter), wrapErr(arg4), arg5,
       );
     }
     return (baseOnSnapshot as (...a: unknown[]) => Unsubscribe)(
-      rawReference, wrapObserverOrCallbackArg(arg2, rootDb, buildDocRef, booleanExists, qHandle, converter), wrapErr(arg3), arg4, arg5,
+      subRef, wrapObserverOrCallbackArg(arg2, rootDb, buildDocRef, booleanExists, qHandle, converter), wrapErr(arg3), arg4, arg5,
     );
   }
 

@@ -11,6 +11,7 @@
  * preserve `SandboxError` string codes and `denialContext` for rules-simulation callers.
  */
 
+import { FirebaseError } from 'pyric/app';
 import { GrpcStatus } from './admin-grpc-log.js';
 import { isAppBackedRoot } from './admin-handle-registry.js';
 
@@ -51,21 +52,49 @@ export function createAdminGrpcError(
   code: number,
   message: string,
   sourceStack?: string,
+  detailsOverride?: string,
 ): AdminFirestoreGrpcError {
   const err = new Error(message) as AdminFirestoreGrpcError;
   err.code = code;
-  err.details = message;
+  if (detailsOverride !== undefined) {
+    err.details = detailsOverride;
+  } else {
+    err.details = message;
+  }
   if (typeof sourceStack === 'string' && sourceStack.length > 0) {
     err.stack = sourceStack;
   }
   return err;
 }
 
-function isPyricHostTransportRefusal(message: unknown): boolean {
+export function createPrefixedAdminGrpcError(
+  code: number,
+  statusLabel: string,
+  details: string,
+  sourceStack?: string,
+): AdminFirestoreGrpcError {
+  const message = `${String(code)} ${statusLabel}: ${details}`;
+  return createAdminGrpcError(code, message, sourceStack, details);
+}
+
+function isPyricHostTransportRefusal(message: unknown): message is string {
   return typeof message === 'string' && message.startsWith('pyric: ');
 }
 
 function translateAdminError(err: unknown, appBacked: boolean): unknown {
+  if (err !== null && typeof err === 'object') {
+    const candidate = err as { code?: unknown; message?: unknown; stack?: unknown };
+    if (isPyricHostTransportRefusal(candidate.message) && typeof candidate.code === 'string') {
+      if (err instanceof FirebaseError) {
+        return err;
+      }
+      const wrapped = new FirebaseError(candidate.code, candidate.message);
+      if (typeof candidate.stack === 'string' && candidate.stack.length > 0) {
+        wrapped.stack = candidate.stack;
+      }
+      return wrapped;
+    }
+  }
   if (!appBacked) {
     return err;
   }
@@ -79,9 +108,6 @@ function translateAdminError(err: unknown, appBacked: boolean): unknown {
   if (typeof candidate.code !== 'string') {
     return err;
   }
-  if (isPyricHostTransportRefusal(candidate.message)) {
-    return err;
-  }
   const mappedCode = mapStringCodeToGrpcStatus(candidate.code);
   if (mappedCode === undefined) {
     return err;
@@ -93,6 +119,15 @@ function translateAdminError(err: unknown, appBacked: boolean): unknown {
   let sourceStack: string | undefined;
   if (typeof candidate.stack === 'string') {
     sourceStack = candidate.stack;
+  }
+  if (mappedCode === (GrpcStatus.NOT_FOUND as number) && message.startsWith('The database ')) {
+    return createPrefixedAdminGrpcError(mappedCode, 'NOT_FOUND', message, sourceStack);
+  }
+  if (
+    mappedCode === (GrpcStatus.INVALID_ARGUMENT as number) &&
+    message.startsWith("The request was for database '")
+  ) {
+    return createPrefixedAdminGrpcError(mappedCode, 'INVALID_ARGUMENT', message, sourceStack);
   }
   return createAdminGrpcError(mappedCode, message, sourceStack);
 }

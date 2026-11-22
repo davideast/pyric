@@ -11,6 +11,9 @@ import type {
 } from 'pyric/sandbox/admin-compat';
 import type { SandboxFirestore } from 'pyric/sandbox/admin-firestore';
 import type { WriteResult } from './admin-write-result-preconditions.js';
+import { runWithAdminErrorsAsync } from './admin-grpc-errors.js';
+import { isAppBackedRoot } from './admin-handle-registry.js';
+import { assertSameDatabaseTarget } from './admin-named-databases.js';
 import { markAdminFirestoreStarted } from './admin-settings-lifecycle.js';
 
 interface AdminBulkWriterError {
@@ -57,6 +60,9 @@ export function createAdminBulkWriter(rootDb: SandboxFirestore): AdminBulkWriter
     const execute = async (): Promise<WriteResult> => {
       for (;;) {
         try {
+          await runWithAdminErrorsAsync(isAppBackedRoot(rootDb), async () => {
+            assertSameDatabaseTarget(rootDb, documentRef);
+          });
           const result = await runOnce();
           if (onResultCallback !== null) {
             onResultCallback(documentRef, result);

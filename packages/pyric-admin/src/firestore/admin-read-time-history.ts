@@ -22,6 +22,7 @@ import {
   type Transaction,
 } from 'pyric/sandbox/admin-compat';
 import { adminRawDbSandbox, isPlainMap } from './admin-handle-registry.js';
+import { assertSameDatabaseTarget } from './admin-named-databases.js';
 import { wrapDocSnapshot, wrapQuerySnapshot, type DocRefBuilder } from './admin-snapshot-adapter.js';
 import { parseTransactionGetAllArgs, projectDocSnapshotFields } from './admin-transaction-getall.js';
 import { assertQueryExecutable, type AdminQueryMetadata } from './admin-query-validation.js';
@@ -428,6 +429,7 @@ export async function executeReadOnlyTransactionAtReadTime<R>(
     const historicalTx: Transaction = {
       async get(refOrQuery: DocumentReference | Query): Promise<any> {
         if (hooks.isAdminQueryTarget(refOrQuery)) {
+          assertSameDatabaseTarget(rootDb, refOrQuery);
           const meta = hooks.getQueryMeta(refOrQuery);
           assertQueryExecutable(meta);
           if (meta?.replayOnRoot !== undefined) {
@@ -441,6 +443,7 @@ export async function executeReadOnlyTransactionAtReadTime<R>(
           }
         }
         if (hooks.isAdminDocRefTarget(refOrQuery)) {
+          assertSameDatabaseTarget(rootDb, refOrQuery);
           const rawSnap = await rawTempDb.doc(refOrQuery.path).get();
           const wrapped = wrapDocSnapshot(rawSnap, rootDb, hooks.docRefOnRoot);
           return stampHistoricalSnapshotTimestamps(
@@ -463,6 +466,9 @@ export async function executeReadOnlyTransactionAtReadTime<R>(
     Object.defineProperty(historicalTx, 'getAll', {
       value: async (...args: unknown[]): Promise<DocumentSnapshot[]> => {
         const parsed = parseTransactionGetAllArgs(args);
+        for (const ref of parsed.refs) {
+          assertSameDatabaseTarget(rootDb, ref);
+        }
         const results: DocumentSnapshot[] = [];
         for (const ref of parsed.refs) {
           const rawSnap = await rawTempDb.doc(ref.path).get();

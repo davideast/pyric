@@ -125,11 +125,13 @@ describe('generative Admin Firestore argument differential: getFirestore & admin
         const pGet = await captureFirestoreOutcome(() =>
           invokeSingleAppAccessor(getFirestore as (app?: never) => unknown, candidate),
         );
-        // Documented Row #2: 1-arg non-object `getFirestore(databaseId)` falls back to getApp() upstream
-        // when a default app exists, whereas pyric-admin only accepts undefined/PyricAdminApp/SandboxContext.
-        const isOneArgNonObjectFallback =
-          candidate.label !== 'undefined' && (typeof rawVal !== 'object' || rawVal === null);
-        if (!isOneArgNonObjectFallback) {
+        // Non-object non-string 1-arg values (number/boolean/symbol/bigint) fall back to getApp()
+        // upstream when a default app exists, whereas string 1-arg `getFirestore(databaseId)` matches upstream directly.
+        const isOneArgNonStringNonObjectFallback =
+          candidate.label !== 'undefined' &&
+          typeof rawVal !== 'string' &&
+          (typeof rawVal !== 'object' || rawVal === null);
+        if (!isOneArgNonStringNonObjectFallback) {
           const diff = compareFirestoreOutcomes(
             `with-default:getFirestore(${candidate.label})`,
             uGet,

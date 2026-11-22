@@ -21,7 +21,11 @@ import {
   runWithAdminErrorsAsync,
   runWithAdminErrorsSync,
 } from './admin-grpc-errors.js';
-import { isAppBackedRoot } from './admin-handle-registry.js';
+import { isAppBackedRoot, unwrapAdminObject } from './admin-handle-registry.js';
+import {
+  assertAdminRootDatabaseDeclared,
+  isBoundToUndeclaredPlaceholderEnv,
+} from './admin-named-databases.js';
 import {
   createQueryExplainStream,
   createQueryStream,
@@ -41,6 +45,7 @@ import { buildAdminVectorQuery } from './admin-vector-query.js';
 async function executeWrappedQueryGet(
   target: Query,
   receiverQuery: Query,
+  rawDb: SandboxFirestore,
   rootDb: SandboxFirestore,
   docRefOnRoot: DocRefBuilder,
   meta: AdminQueryMetadata,
@@ -48,11 +53,22 @@ async function executeWrappedQueryGet(
   opts?: OperationOptions,
 ): Promise<QuerySnapshot> {
   markAdminFirestoreStarted(rootDb);
+  assertAdminRootDatabaseDeclared(rootDb);
   assertQueryExecutable(meta);
   if (meta.offsetCount !== undefined && meta.offsetCount < 0) {
     throw new SandboxError('invalid-argument', 'Value for argument "offset" must be non-negative.');
   }
-  const snap = await target.get(opts);
+  let liveTarget = target;
+  if (isBoundToUndeclaredPlaceholderEnv(target)) {
+    if (meta.replayOnRoot !== undefined) {
+      liveTarget = unwrapAdminObject(meta.replayOnRoot(rootDb));
+    } else if (meta.source.kind === 'collection') {
+      liveTarget = rawDb.collection(meta.source.path);
+    } else {
+      liveTarget = rawDb.collectionGroup(meta.source.collectionId);
+    }
+  }
+  const snap = await liveTarget.get(opts);
   let docsOverride: readonly QueryDocumentSnapshot[] | undefined;
   if (meta.offsetCount !== undefined && meta.offsetCount > 0) {
     const sliced = snap.docs.slice(meta.offsetCount);
@@ -83,7 +99,7 @@ export function resolveTerminalQueryMethod(
   const appBacked = isAppBackedRoot(rootDb);
   const runGet = (opts?: OperationOptions): Promise<QuerySnapshot> =>
     runWithAdminErrorsAsync(appBacked, () =>
-      executeWrappedQueryGet(target, receiverQuery, rootDb, docRefOnRoot, meta, converter, opts),
+      executeWrappedQueryGet(target, receiverQuery, rawDb, rootDb, docRefOnRoot, meta, converter, opts),
     );
 
   switch (prop) {
@@ -127,7 +143,7 @@ export function resolveTerminalQueryMethod(
             receiverQuery as unknown as { isEqual(o: unknown): boolean },
             () =>
               runWithAdminErrorsAsync(appBacked, () =>
-                executeWrappedQueryGet(target, receiverQuery, rootDb, docRefOnRoot, meta, undefined),
+                executeWrappedQueryGet(target, receiverQuery, rawDb, rootDb, docRefOnRoot, meta, undefined),
               ),
             (filteredDocs) => {
               const fakeRawSnap = {
