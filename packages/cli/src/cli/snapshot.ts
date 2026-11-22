@@ -3,17 +3,18 @@
  * (flow doc section 3c: seed.json is intent, `.pyric/state/` is runtime, promote
  * bridges them).
  *
- *   pyric snapshot [--out DIR] [--port N] [--force] [--json]
+ *   pyric snapshot [--out FILE|DIR] [--port N] [--force] [--json]
  *
  * Source preference:
  *   1. Live state from a running `pyric sandbox --persist`
- *      (`GET /__pyric/state` — `--port`, else the 3473+ scan window),
+ *      (`GET /__pyric/state` - `--port`, else the 3473+ scan window),
  *   2. else hosted SQLite when present, otherwise the browser/MCP JSON store,
  *   3. else exit 2 with a clear message.
  *
- * The output is a directory: `state.json`, a `PyricStateFile` whose Storage
+ * When `--out` ends in `.json`, the output is a single state JSON file. Otherwise
+ * the output is a directory: `state.json`, a `PyricStateFile` whose Storage
  * entries refer to objects by SHA-256, and `objects/<ab>/<sha256>` holding their
- * bytes. It is directly re-servable: `pyric sandbox --seed <out>`.
+ * bytes. Both are directly re-servable: `npx pyric sandbox --seed <out>`.
  */
 import { createHash, randomUUID } from 'node:crypto';
 import { copyFileSync, createWriteStream, existsSync, mkdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -26,6 +27,13 @@ import { hostedStateDirectory, loadHostedSnapshot } from '../serve/hosted/persis
 import { isStorageReference, objectFileIn, type StorageObjectReference, type StorageStateEntry } from '../serve/state-file.js';
 import { firestoreDocCount } from '../serve/state-summary.js';
 import type { ParsedArgs } from './parse-args.js';
+import { formatPyricCommand, type PyricCommandPrefixOptions } from './command-hint.js';
+import {
+  inlineSnapshotObjects,
+  isJsonSnapshotFile,
+  SnapshotFileObjectError,
+  writeJsonSnapshotAtomically,
+} from './snapshot-json-file.js';
 import { resolveSessionTokenForTarget } from '../serve/local-session-token.js';
 import { createStateStore, type PyricStateFile } from '../serve/state-store.js';
 
@@ -108,6 +116,7 @@ export interface SnapshotDeps {
   stderr?: { write(s: string): void };
   /** Injectable live-fetch (tests). */
   fetchLive?: (port: number) => Promise<LiveState | null>;
+  commandPrefixOptions?: PyricCommandPrefixOptions;
 }
 
 export async function runSnapshot(parsed: ParsedArgs, deps: SnapshotDeps = {}): Promise<number> {
@@ -185,8 +194,9 @@ export async function runSnapshot(parsed: ParsedArgs, deps: SnapshotDeps = {}): 
   const selectedState = envelope;
   const missingState = selectedState === null;
   if (missingState) {
+    const persistCmd = formatPyricCommand('sandbox --persist', deps.commandPrefixOptions);
     err.write(
-      'pyric snapshot: no state found. No `pyric sandbox --persist` is running here and ' +
+      `pyric snapshot: no state found. No \`${persistCmd}\` is running here and ` +
         'no persisted state exists. Run hosted mode or use --persist in browser mode first.\n',
     );
     return 2;
@@ -232,44 +242,71 @@ export async function runSnapshot(parsed: ParsedArgs, deps: SnapshotDeps = {}): 
     promoted = { ...promoted, firestore: rest };
   }
 
-  const outputIsFile = existsSync(outPath) && !statSync(outPath).isDirectory();
-  if (outputIsFile) {
-    err.write(`pyric snapshot: ${outPath} is a file; a snapshot is a directory holding state.json and objects/.\n`);
-    return 2;
-  }
-  const createsOutput = !existsSync(outPath);
-  mkdirSync(outPath, { recursive: true });
+  const writesSingleJsonFile = hasOutputPath && isJsonSnapshotFile(outputName);
   let objects = 0;
-  try {
-    const storage = promoted.storage;
-    const hasStorage = storage !== undefined;
-    if (hasStorage) {
-      const references = await writeObjects(storage, outPath, readObject);
-      objects = new Set(references.map(reference => reference.sha256)).size;
-      promoted = { ...promoted, storage: references };
+  if (writesSingleJsonFile) {
+    const outputIsDirectory = existsSync(outPath) && statSync(outPath).isDirectory();
+    if (outputIsDirectory) {
+      err.write(
+        `pyric snapshot: ${outPath} is a directory; remove the directory or pass a directory name without .json.\n`,
+      );
+      return 2;
     }
-  } catch (error) {
-    const unwritableObject = error instanceof SnapshotObjectError;
-    if (!unwritableObject) throw error;
-    if (createsOutput) rmSync(outPath, { recursive: true, force: true });
-    err.write(`pyric snapshot: ${error.message}\n`);
-    return 2;
+    try {
+      const storage = promoted.storage;
+      if (storage !== undefined) {
+        const inlined = await inlineSnapshotObjects(storage, readObject);
+        objects = inlined.uniqueObjects;
+        promoted = { ...promoted, storage: inlined.entries };
+      }
+    } catch (error) {
+      const unwritableObject =
+        error instanceof SnapshotObjectError || error instanceof SnapshotFileObjectError;
+      if (!unwritableObject) throw error;
+      err.write(`pyric snapshot: ${error.message}\n`);
+      return 2;
+    }
+    writeJsonSnapshotAtomically(outPath, promoted);
+  } else {
+    const outputIsFile = existsSync(outPath) && !statSync(outPath).isDirectory();
+    if (outputIsFile) {
+      err.write(`pyric snapshot: ${outPath} is a file; a snapshot is a directory holding state.json and objects/.\n`);
+      return 2;
+    }
+    const createsOutput = !existsSync(outPath);
+    mkdirSync(outPath, { recursive: true });
+    try {
+      const storage = promoted.storage;
+      const hasStorage = storage !== undefined;
+      if (hasStorage) {
+        const references = await writeObjects(storage, outPath, readObject);
+        objects = new Set(references.map(reference => reference.sha256)).size;
+        promoted = { ...promoted, storage: references };
+      }
+    } catch (error) {
+      const unwritableObject = error instanceof SnapshotObjectError;
+      if (!unwritableObject) throw error;
+      if (createsOutput) rmSync(outPath, { recursive: true, force: true });
+      err.write(`pyric snapshot: ${error.message}\n`);
+      return 2;
+    }
+    // The document is written last, so a directory with state.json is complete.
+    const document = join(outPath, 'state.json');
+    const partialDocument = `${document}.${randomUUID()}.tmp`;
+    writeFileSync(partialDocument, JSON.stringify(promoted, null, 2) + '\n', 'utf8');
+    renameSync(partialDocument, document);
   }
-  // The document is written last, so a directory with state.json is complete.
-  const document = join(outPath, 'state.json');
-  const partialDocument = `${document}.${randomUUID()}.tmp`;
-  writeFileSync(partialDocument, JSON.stringify(promoted, null, 2) + '\n', 'utf8');
-  renameSync(partialDocument, document);
 
   const docs = firestoreDocCount(promoted.firestore);
   const users = promoted.auth?.users?.length ?? 0;
   report.write(`pyric snapshot: ${docs} doc(s) + ${users} user(s) + ${objects} object file(s) from ${source}\n`);
-  report.write(`  → ${outPath}\n`);
+  report.write(`  \u2192 ${outPath}\n`);
   const redactedPasswords = redactedCount > 0;
   if (redactedPasswords) {
-    report.write(`  ⓘ redacted ${redactedCount} password(s) — re-run with --include-passwords to keep them\n`);
+    report.write(`  \u24d8 redacted ${redactedCount} password(s) \u2014 re-run with --include-passwords to keep them\n`);
   }
-  report.write(`  Re-serve it: pyric sandbox --seed ${outputName}\n`);
+  const reserveCmd = formatPyricCommand(`sandbox --seed ${outputName}`, deps.commandPrefixOptions);
+  report.write(`  Re-serve it: ${reserveCmd}\n`);
   if (json) out.write(JSON.stringify({ out: outPath, docs, users, objects, source, redactedPasswords: redactedCount }) + '\n');
   return 0;
 }

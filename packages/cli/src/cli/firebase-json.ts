@@ -13,6 +13,7 @@
 import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { formatPyricCommand } from './command-hint.js';
 
 export interface FirebaseJson {
   /**
@@ -134,7 +135,8 @@ export async function readFirebaseJson(cwd: string = process.cwd()): Promise<Fir
     raw = await readFile(path, 'utf-8');
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
-      throw new Error(`pyric: no firebase.json found at ${path}. Run \`pyric init\` to scaffold one.`);
+      const initCmd = formatPyricCommand('init');
+      throw new Error(`pyric: no firebase.json found at ${path}. Run \`${initCmd}\` to scaffold one.`);
     }
     throw e;
   }

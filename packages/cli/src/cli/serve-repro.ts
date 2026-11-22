@@ -13,6 +13,7 @@
 import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { ParsedArgs } from './parse-args.js';
+import { formatPyricCommand, type PyricCommandPrefixOptions } from './command-hint.js';
 import { discoverServe, probeHostUrl, selectProjectHost, type Discovered } from '../serve/discovery.js';
 import { HOSTED_REPRO_PATH } from '../serve/hosted/method-protocol.js';
 import {
@@ -30,6 +31,7 @@ export interface ServeReproDeps {
   stdout?: Output;
   stderr?: Output;
   discover?: (cwd: string) => Promise<Discovered | null>;
+  commandPrefixOptions?: PyricCommandPrefixOptions;
 }
 
 const DEFAULT_OUT = 'pyric-repro.json';
@@ -54,7 +56,8 @@ async function resolveExplicitUrlHost(
     (parsedUrl.protocol === 'https:' ? await probeHttpsHostUrl(parsedUrl.origin, cwd) : null) ??
     (await probeHostUrl(parsedUrl.origin));
   if (hit === null || hit.instanceId === null) {
-    err.write(`pyric ${command}: no running Node host found at ${explicitUrl}. Start \`pyric sandbox\` or the Vite dev server, reproduce the problem, then run this command.\n`);
+    const startCmd = formatPyricCommand('sandbox');
+    err.write(`pyric ${command}: no running Node host found at ${explicitUrl}. Start \`${startCmd}\` or the Vite dev server, reproduce the problem, then run this command.\n`);
     return { exit: 2 };
   }
   return { base: hit.base, instanceId: hit.instanceId };
@@ -127,7 +130,8 @@ export async function fetchReproBody(
         selectProjectHost(await discoverServe(projectDir, () => {}), () => {});
     }
     if (host === null || host.instanceId === null) {
-      err.write(`pyric ${command}: no running Node host found for this project. Start \`pyric sandbox\` or the Vite dev server, reproduce the problem, then run this command.\n`);
+      const startCmd = formatPyricCommand('sandbox');
+      err.write(`pyric ${command}: no running Node host found for this project. Start \`${startCmd}\` or the Vite dev server, reproduce the problem, then run this command.\n`);
       return { exit: 2 };
     }
     base = host.base;
@@ -219,7 +223,11 @@ export async function runServeReproCapture(parsed: ParsedArgs, deps: ServeReproD
   const repro = JSON.parse(body) as { entries: unknown[]; truncated: boolean };
   out.write(`Wrote ${repro.entries.length} log entries and the starting state to ${target}.\n`);
   if (repro.truncated) out.write('The log is bounded; older entries were dropped.\n');
-  out.write(`Replay it with: pyric serve repro replay ${target}\n`);
+  const replayCmd = formatPyricCommand(
+    `serve repro replay ${target}`,
+    deps.commandPrefixOptions,
+  );
+  out.write(`Replay it with: ${replayCmd}\n`);
   return 0;
 }
 

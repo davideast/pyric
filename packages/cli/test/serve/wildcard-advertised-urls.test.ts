@@ -20,6 +20,7 @@ import type { ViteDevServer } from 'vite';
 import { startServe, serveJsonLine, type ServeRuntime } from '../../src/cli/serve.js';
 import { formatStartupEnvExport } from '../../src/cli/sandbox-runner.js';
 import { createBridgeMount } from '../../src/serve/bridge-mount.js';
+import { resolveNodeExecutable } from './require-node-on-path.js';
 import { createSandboxSession } from '../../src/serve/sandbox-session.js';
 import { createViteSandboxGeneration } from '../../src/serve/vite-sandbox-generation.js';
 import { isAllowedHost, type ServeLogger } from '../../src/serve/server.js';
@@ -273,6 +274,7 @@ describe('wildcard bind hosts advertise connectable loopback URLs', () => {
 
       // Running the advertised URL via `pyric run --sandbox` succeeds from the project dir
       // and from an unrelated directory outside the project.
+      const nodeBin = resolveNodeExecutable();
       const outsideDir = makeUnrelatedDir();
       for (const runCwd of [cwd, outsideDir]) {
         const result = await runCommandAsync(
@@ -283,7 +285,7 @@ describe('wildcard bind hosts advertise connectable loopback URLs', () => {
             '--sandbox',
             pointer.url,
             '--',
-            'node',
+            nodeBin,
             '-e',
             'if (!process.env.PYRIC_SANDBOX_INSTANCE) process.exit(3);',
           ],

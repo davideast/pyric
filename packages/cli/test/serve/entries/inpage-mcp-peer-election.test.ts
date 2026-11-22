@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'bun:test';
 import { startServe } from '../../../src/cli/serve.js';
 import { silentServeLogger } from '../../../src/serve/server.js';
+import { resolveNodeExecutable } from '../require-node-on-path.js';
 
 function createTempProject(prefix: string): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
@@ -18,9 +19,10 @@ function createTempProject(prefix: string): string {
 }
 
 async function runRealmFixture(args: string[]): Promise<void> {
+  const nodeBin = resolveNodeExecutable();
   const fixture = new URL('./fixtures/inpage-mcp-peer-election.ts', import.meta.url).pathname;
   const child = Bun.spawn(
-    [process.env.PYRIC_TEST_NODE ?? 'node', '--experimental-strip-types', '--experimental-vm-modules', fixture, ...args],
+    [nodeBin, '--experimental-strip-types', '--experimental-vm-modules', fixture, ...args],
     { stdout: 'pipe', stderr: 'pipe' },
   );
   const deadline = setTimeout(() => child.kill(), 45_000);

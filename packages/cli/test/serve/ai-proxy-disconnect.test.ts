@@ -6,6 +6,7 @@ import { describe, expect, it } from 'bun:test';
 import { fetchAiUpstream, handleAiProxy } from '../../src/serve/ai-proxy.js';
 import { watchAiProxyClientDisconnect } from '../../src/serve/ai-proxy-disconnect.js';
 import { createGeminiProxy, GEMINI_PROXY_PATH } from '../../src/serve/gemini-proxy.js';
+import { resolveNodeExecutable } from './require-node-on-path.js';
 
 interface MockHttpPair {
   req: IncomingMessage & EventEmitter;
@@ -305,10 +306,7 @@ describe('AI proxy client disconnect before upstream headers (#1634)', () => {
       'process.exit(0);',
     ].join('\n');
 
-    let nodeBin = 'node';
-    if (typeof process.env.PYRIC_TEST_NODE === 'string' && process.env.PYRIC_TEST_NODE !== '') {
-      nodeBin = process.env.PYRIC_TEST_NODE;
-    }
+    const nodeBin = resolveNodeExecutable();
     const result = spawnSync(nodeBin, ['--input-type=module', '-e', childScript], {
       encoding: 'utf8',
       timeout: 30_000,

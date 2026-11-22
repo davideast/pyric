@@ -19,6 +19,7 @@ import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, relative, resolve, sep } from 'node:path';
 import { hasCollidingFirestoreMarkerShape } from 'pyric/sandbox/internal';
 import type { ParsedArgs } from './parse-args.js';
+import { formatPyricCommand } from './command-hint.js';
 import { discoverServe, selectProjectHost, type Discovered } from '../serve/discovery.js';
 import { resolveSessionTokenForTarget } from '../serve/local-session-token.js';
 import { ensureGitignored } from '../serve/capture-store.js';
@@ -308,9 +309,10 @@ async function exportSeedFile(
   }
   let rtdbSummary = '';
   if (instance !== null) rtdbSummary = ` and RTDB instance '${instance}'`;
+  const seedCmd = formatPyricCommand(`sandbox --seed ${outFlag}`);
   out.write(
     `Exported ${firestoreDocs} observed Firestore document(s)${rtdbSummary} to ${targetPath}.\n` +
-      `Start a local sandbox with it using: pyric sandbox --seed ${outFlag}\n`,
+      `Start a local sandbox with it using: ${seedCmd}\n`,
   );
   return 0;
 }

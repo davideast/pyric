@@ -18,6 +18,7 @@ import {
   restoreSharedViteWorkerEnv,
   type ActiveViteStopConfig,
 } from '../../src/serve/vite-worker-stop.js';
+import { resolveNodeExecutable } from './require-node-on-path.js';
 
 const CLI_ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const DIST_PRELOAD_URL = new URL('../../dist/serve/vite-process-stop.js', import.meta.url).href;
@@ -477,8 +478,9 @@ describe('standalone Vite process stop in real Node worker_threads (#1447)', () 
         PYRIC_VITE_WORKER_STOP_AI_MODE: undefined,
         PYRIC_VITE_WORKER_STOP_PROJECT_ROOT: undefined,
       };
+      const nodeBin = resolveNodeExecutable();
       const result = spawnSync(
-        process.env.PYRIC_TEST_NODE ?? 'node',
+        nodeBin,
         ['--max-old-space-size=4096', probeFile, DIST_PRELOAD_URL, tmpDir, cliPackageAnchor],
         {
           cwd: CLI_ROOT,

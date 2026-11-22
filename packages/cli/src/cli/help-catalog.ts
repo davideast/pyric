@@ -69,13 +69,13 @@ export const TOP_LEVEL_COMMANDS: Readonly<Record<string, CommandHelpEntry>> = {
     ],
   },
   snapshot: {
-    usage: 'pyric snapshot [--out=DIR] [--port N] [--force] [--json] [--include-passwords]',
+    usage: 'pyric snapshot [--out=FILE|DIR] [--port N] [--force] [--json] [--include-passwords]',
     summary:
-      'Promote lived sandbox state (live sandbox --persist, hosted state, or .pyric/state/state.json) to a committable directory (state.json plus objects/) that `pyric sandbox --seed DIR` re-serves.',
+      'Promote lived sandbox state (live sandbox --persist, hosted state, or .pyric/state/state.json) to a committable JSON file (when --out ends in .json) or directory (state.json plus objects/) that `pyric sandbox --seed` re-serves.',
     flags: [
-      ['--out DIR', 'Destination directory for state.json and objects/.'],
+      ['--out FILE|DIR', 'Destination .json state file, or directory for state.json and objects/.'],
       ['--port N', 'Live sandbox port to snapshot instead of scanning 3473-3477.'],
-      ['--force', 'Overwrite an existing snapshot directory.'],
+      ['--force', 'Overwrite an existing snapshot file or directory.'],
       ['--include-passwords', 'Keep user passwords instead of redacting them.'],
       ['--json', 'Print machine-readable JSON on stdout.'],
     ],

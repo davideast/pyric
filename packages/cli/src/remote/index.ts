@@ -77,6 +77,7 @@ import { rtdbFateAtDrop, type DropFate } from '../serve/worker/rtdb-drop-fates.j
 import type { AnsweringHost, Discovered } from '../serve/discovery.js';
 import { resolveSessionTokenForTarget } from '../serve/local-session-token.js';
 import { resolveRemoteHost } from './resolve-host.js';
+import { formatNoTabMessage } from './app-origin.js';
 import { versionSkewGuidance as skewGuidance } from './version-skew.js';
 
 /** Sits just above the bridge's own 30s `callTimeoutMs` so a legitimately
@@ -105,10 +106,10 @@ function remoteError(
   return err;
 }
 
-function noTabError(serveUrl: string): Error & { code: string } {
+function noTabError(serveUrl: string, appOrigin?: string): Error & { code: string } {
   return remoteError(
     'unavailable',
-    `no browser tab is connected to the sandbox — open ${serveUrl} in a browser and retry.`,
+    formatNoTabMessage(serveUrl, appOrigin),
   );
 }
 
@@ -161,6 +162,8 @@ export interface ConnectRemoteSandboxOptions {
   trust?: HostTrust;
   /** Explicit per-boot capability token for the bridge WS and HTTP byte routes. */
   sessionToken?: string;
+  /** Optional browser origin of the child app server when separate from the sandbox host (#1200). */
+  appOrigin?: string;
 }
 
 /**
@@ -327,9 +330,15 @@ function fateAtDrop(payload: WorkerOpPayload): DropFate {
  */
 export function createRemoteSandboxCore(
   transport: RemoteTransport,
-  opts: { serveUrl: string; opTimeoutMs?: number; clientInfo?: AttachFromConsumer['clientInfo'] },
+  opts: {
+    serveUrl: string;
+    appOrigin?: string;
+    opTimeoutMs?: number;
+    clientInfo?: AttachFromConsumer['clientInfo'];
+  },
 ): RemoteSandboxCore {
   const serveUrl = opts.serveUrl;
+  const appOrigin = opts.appOrigin;
   const opTimeoutMs = opts.opTimeoutMs ?? DEFAULT_OP_TIMEOUT_MS;
 
   const operationBudget = createOperationBudget();
@@ -479,7 +488,7 @@ export function createRemoteSandboxCore(
         advertised = Array.isArray(msg.capabilities) ? msg.capabilities.filter(item => typeof item === 'string') : [];
         const hasPeer = msg.peerConnected;
         if (hasPeer) readyResolve();
-        else readyReject(noTabError(serveUrl));
+        else readyReject(noTabError(serveUrl, appOrigin));
         return;
       }
       case 'worker-res': {
@@ -504,7 +513,7 @@ export function createRemoteSandboxCore(
           const hasNoSandbox = message === NO_SANDBOX_ERROR_MESSAGE;
           const hasUnknownMethod = /^Unknown method:/.test(message);
           if (hasNoSandbox) {
-            message = noTabError(serveUrl).message;
+            message = noTabError(serveUrl, appOrigin).message;
           } else if (hasUnknownMethod) {
             // Version skew: a live tab whose SharedWorker predates this op.
             // Other open pages of this origin keep the old worker alive.
@@ -964,7 +973,7 @@ export async function connectRemoteSandbox(
       ref: () => wsSocket()?.ref(),
       unref: () => wsSocket()?.unref(),
     },
-    { serveUrl, opTimeoutMs: options.opTimeoutMs },
+    { serveUrl, appOrigin: options.appOrigin, opTimeoutMs: options.opTimeoutMs },
   );
 
   let liveness: HostLiveness | undefined;

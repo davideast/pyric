@@ -25,6 +25,7 @@ import {
   isAlive,
   killFunctionsChildren,
 } from '../functions-http/children.js';
+import { resolveNodeExecutable } from './require-node-on-path.js';
 import {
   SWIFT_LIVE_HOST_SCRATCH_SUBPATH,
   SWIFT_LIVE_HOST_TEST_TIMEOUT_MS,
@@ -117,6 +118,7 @@ async function handleRegionalInt64Route(
 }
 
 async function startLiveSwiftFunctionsHost() {
+  resolveNodeExecutable();
   const childModulePath = join(CLI_ROOT, 'dist/functions/child.js');
   const registerPath = join(CLI_ROOT, 'dist/register/index.js');
   if (!existsSync(childModulePath) || !existsSync(registerPath)) {

@@ -2,11 +2,13 @@
  * The persist writer role and optimistic concurrency across in-page tabs (#2039, #2051).
  */
 import { describe, expect, it } from 'bun:test';
+import { resolveNodeExecutable } from '../require-node-on-path.js';
 
 async function runCase(name: string): Promise<void> {
+  const nodeBin = resolveNodeExecutable();
   const fixture = new URL('./fixtures/persist-writer-role.ts', import.meta.url).pathname;
   const child = Bun.spawn(
-    [process.env.PYRIC_TEST_NODE ?? 'node', '--experimental-strip-types', '--experimental-vm-modules', fixture, name],
+    [nodeBin, '--experimental-strip-types', '--experimental-vm-modules', fixture, name],
     { stdout: 'pipe', stderr: 'pipe' },
   );
   const deadline = setTimeout(() => child.kill(), 20_000);

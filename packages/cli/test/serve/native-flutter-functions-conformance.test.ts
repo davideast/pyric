@@ -20,6 +20,7 @@ import { spawnFunctionsChild, type FunctionsChildHandle } from '../../src/functi
 import type { HostedPersistence } from '../../src/serve/hosted/persistence.js';
 import { createHostedRuntime } from '../../src/serve/hosted/runtime.js';
 import { functionsChildrenOf, isAlive, killFunctionsChildren } from '../functions-http/children.js';
+import { resolveNodeExecutable } from './require-node-on-path.js';
 
 const REPO_ROOT = resolve(import.meta.dir, '../../../..');
 const CLI_ROOT = resolve(import.meta.dir, '../..');
@@ -102,6 +103,7 @@ async function handleRegionalInt64Route(
 }
 
 async function startLiveFlutterFunctionsHost() {
+  resolveNodeExecutable();
   const childModulePath = join(CLI_ROOT, 'dist/functions/child.js');
   const registerPath = join(CLI_ROOT, 'dist/register/index.js');
   if (!existsSync(childModulePath) || !existsSync(registerPath)) {

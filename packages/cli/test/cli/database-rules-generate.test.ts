@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+import { formatPyricCommand } from '../../src/cli/command-hint.js';
 import { runDatabaseRulesGenerate } from '../../src/cli/database-rules.js';
 import type { ParsedArgs } from '../../src/cli/parse-args.js';
 
@@ -28,7 +29,9 @@ describe('database rules generate', () => {
     const result = await run({ rules: { '.read': 'auth != null' } });
     expect(result.exit).toBe(0);
     expect(result.written).toContain('"rules"');
-    expect(result.stdout).toContain('Test before deploy: pyric verify --service rtdb --rules rtdb=out.json');
+    expect(result.stdout).toContain(
+      `Test before deploy: ${formatPyricCommand('verify --service rtdb --rules rtdb=out.json')}`,
+    );
   });
 
   it('writes nothing and names the reason when production would refuse the generated rules', async () => {

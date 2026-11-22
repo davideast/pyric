@@ -27,6 +27,7 @@ import {
   type FlagValue,
   type ParsedArgs,
 } from './parse-args.js';
+import { formatPyricCommand } from './command-hint.js';
 import { readPyricConfig } from './pyric-config.js';
 
 export interface VerifyCliDeps {
@@ -38,7 +39,7 @@ export interface VerifyCliDeps {
 export class StagingAbortedError extends Error {}
 
 /** Where a staging run keeps the prior rules while it runs, for `pyric verify staging restore`. */
-export const STAGING_RESTORE_RELATIVE_PATH = join('.pyric', 'staging-restore.json');
+const STAGING_RESTORE_RELATIVE_PATH = join('.pyric', 'staging-restore.json');
 
 function messageOf(value: unknown): string {
   if (value instanceof Error) return value.message;
@@ -139,8 +140,9 @@ export function stagingRunGuard(
       controller.abort(new StagingAbortedError(`interrupted by ${signal}`));
       return;
     }
+    const restoreCmd = formatPyricCommand('verify staging restore');
     process.stderr.write(
-      `pyric verify: quitting without restoring ${target.databaseUrl}. Run \`pyric verify staging restore\` to put it back.\n`,
+      `pyric verify: quitting without restoring ${target.databaseUrl}. Run \`${restoreCmd}\` to put it back.\n`,
     );
     process.exit(130);
   };
@@ -352,9 +354,10 @@ export async function runVerifyStaging(
     process.stderr.write(`pyric verify staging init: ${messageOf(e)}\n`);
     return 1;
   }
+  const stagingVerifyCmd = formatPyricCommand('verify --engine staging');
   process.stdout.write(
-    `✓ enrolled ${target.databaseUrl} (project ${target.projectId}, credentials: ${opened.source}).\n` +
-      '  Run `pyric verify --engine staging` to replay a captured session against it; add `--engine sandbox` to compare engines.\n',
+    `\u2713 enrolled ${target.databaseUrl} (project ${target.projectId}, credentials: ${opened.source}).\n` +
+      `  Run \`${stagingVerifyCmd}\` to replay a captured session against it; add \`--engine sandbox\` to compare engines.\n`,
   );
   return 0;
 }

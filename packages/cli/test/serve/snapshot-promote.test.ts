@@ -1,7 +1,7 @@
 /** `pyric snapshot` + state-file `--seed` round-trip (pyric-persist 3.1/3.2). */
 import { afterAll, describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { runSnapshot } from '../../src/cli/snapshot.js';
 import { startServe, type ServeRuntime } from '../../src/cli/serve.js';
@@ -207,4 +207,91 @@ describe('--seed accepts the state-file shape (3.2)', () => {
     stops.push(r);
     expect(createStateStore(cwd).readSection('storage')).toEqual([INLINE]);
   }, 30_000);
+});
+
+describe('pyric snapshot --out <file>.json single-file output (#1197)', () => {
+  it('writes a single JSON file instead of a directory, inlines Storage objects, and round-trips via --seed', async () => {
+    const cwd = project();
+    const c = capture();
+    const live = async () => ({
+      envelope: {
+        version: 1 as const,
+        firestore: BLOB,
+        auth: { users: USERS },
+        storage: [REFERENCE],
+      },
+      projectDir: cwd,
+      readObject: async () => BYTES,
+    });
+
+    const outPath = join(cwd, 'pyric-carryover.json');
+    expect(
+      await runSnapshot(args({ out: 'pyric-carryover.json', json: true }), {
+        ...c.io(cwd),
+        fetchLive: live,
+      }),
+    ).toBe(0);
+
+    expect(statSync(outPath).isFile()).toBe(true);
+    expect(existsSync(join(outPath, 'state.json'))).toBe(false);
+
+    const parsed = JSON.parse(readFileSync(outPath, 'utf8')) as PyricStateFile;
+    const { savedAt: _ignored, ...blobWithoutSavedAt } = BLOB as Record<string, unknown>;
+    expect(parsed.firestore).toEqual(blobWithoutSavedAt);
+    expect(parsed.storage).toEqual([INLINE]);
+    expect(parsed.auth?.users[0]?.password).toBe('__pyric_no_password__');
+
+    // Refuses overwrite without --force, then overwrites cleanly with --force.
+    const cOverwrite = capture();
+    expect(
+      await runSnapshot(args({ out: 'pyric-carryover.json' }), {
+        ...cOverwrite.io(cwd),
+        fetchLive: live,
+      }),
+    ).toBe(2);
+    expect(cOverwrite.err()).toContain('--force');
+
+    const cForce = capture();
+    expect(
+      await runSnapshot(args({ out: 'pyric-carryover.json', force: true }), {
+        ...cForce.io(cwd),
+        fetchLive: live,
+      }),
+    ).toBe(0);
+
+    // Round-trip into a fresh project via --seed pyric-carryover.json.
+    const consumer = project();
+    writeFileSync(join(consumer, 'pyric-carryover.json'), readFileSync(outPath));
+    const served = await startServe({
+      cwd: consumer,
+      port: 0,
+      cacheRoot: join(consumer, '.cache'),
+      seed: 'pyric-carryover.json',
+      persist: true,
+      logger: silentServeLogger(),
+    });
+    stops.push(served);
+
+    const consumerStore = createStateStore(consumer);
+    expect(consumerStore.readSection('firestore')).toEqual(blobWithoutSavedAt);
+    expect(consumerStore.readSection('storage')).toEqual([INLINE]);
+  }, 30_000);
+
+  it('refuses when a .json destination path already exists as a directory even with --force', async () => {
+    const cwd = project();
+    createStateStore(cwd).writeSection('firestore', BLOB);
+    const collidingDir = join(cwd, 'existing-dir.json');
+    mkdirSync(collidingDir);
+    writeFileSync(join(collidingDir, 'keep.txt'), 'do not delete');
+
+    const c = capture();
+    expect(
+      await runSnapshot(args({ out: 'existing-dir.json', force: true }), {
+        ...c.io(cwd),
+        fetchLive: async () => null,
+      }),
+    ).toBe(2);
+    expect(c.err()).toContain('is a directory');
+    expect(existsSync(join(collidingDir, 'keep.txt'))).toBe(true);
+  });
 });

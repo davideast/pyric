@@ -1,6 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 import { EventEmitter } from 'node:events';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { ViteDevServer } from 'vite';
+import { formatPyricCommand } from '../../src/cli/command-hint.js';
+import { recordGeneratedRulesWrite } from '../../src/serve/verify-hint.js';
 import type { SandboxSession } from '../../src/serve/sandbox-session.js';
 import { watchViteGenerationRules } from '../../src/serve/vite-generation-rules-watch.js';
 
@@ -294,19 +299,36 @@ describe('Vite Storage rules watching', () => {
 
 describe('Vite rules watching on a live host', () => {
   async function reloadAll(live: boolean): Promise<string[]> {
-    const f = missingFilesFakes([{ kind: 'reloaded', rulesHash: 'dh', clients: 1 }]);
-    Object.assign(f.session, {
-      reloadStorageRules: async (file: string) => [{ bucket: null, file, result: { kind: 'reloaded', rulesHash: 'sh', clients: 1 } }],
-    });
-    const stop = watchViteGenerationRules({ server: f.server, session: f.session, live });
-    f.watcher.emit('change', FIRESTORE);
-    f.watcher.emit('change', DATABASE);
-    f.watcher.emit('change', STORAGE);
-    await settle();
-    f.watcher.emit('change', FIRESTORE);
-    await settle();
-    stop();
-    return f.logs.filter((line) => line.includes('reloaded'));
+    const tempDir = mkdtempSync(join(tmpdir(), 'pyric-vite-live-vs-sandbox-'));
+    try {
+      const capturePath = join(tempDir, '.pyric', 'last-session.json');
+      mkdirSync(join(tempDir, '.pyric'), { recursive: true });
+      writeFileSync(
+        capturePath,
+        JSON.stringify({
+          schemaVersion: 1,
+          events: [{ service: 'firestore', op: 'get', path: 'items/a', allowed: true }],
+        }),
+      );
+      const f = missingFilesFakes([{ kind: 'reloaded', rulesHash: 'dh', clients: 1 }]);
+      Object.assign(f.session, {
+        summary: { ...f.session.summary, capturePath },
+        reloadStorageRules: async (file: string) => [
+          { bucket: null, file, result: { kind: 'reloaded', rulesHash: 'sh', clients: 1 } },
+        ],
+      });
+      const stop = watchViteGenerationRules({ server: f.server, session: f.session, live });
+      f.watcher.emit('change', FIRESTORE);
+      f.watcher.emit('change', DATABASE);
+      f.watcher.emit('change', STORAGE);
+      await settle();
+      f.watcher.emit('change', FIRESTORE);
+      await settle();
+      stop();
+      return f.logs.filter((line) => line.includes('reloaded'));
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   }
 
   test('says each reload changed only the sandbox, with no verify hint', async () => {
@@ -318,9 +340,10 @@ describe('Vite rules watching on a live host', () => {
     ].sort());
   });
 
-  test('a sandbox host keeps its verify hint, once', async () => {
+  test('a sandbox host prints its verify hint once per service when a captured session exists', async () => {
     const lines = await reloadAll(false);
-    expect(lines.filter((line) => line.includes('pyric verify'))).toHaveLength(1);
+    const verifyCmd = formatPyricCommand('verify');
+    expect(lines.filter((line) => line.includes(verifyCmd))).toHaveLength(3);
     expect(lines.some((line) => line.includes('Production keeps'))).toBe(false);
   });
 });
@@ -411,5 +434,159 @@ describe('Vite rules watching with named Firestore databases', () => {
     expect(reloadedFiles).toEqual([REPORTS]);
     expect(f.logs.some((line) => line.includes('rules reloaded for database "reports" (rh)'))).toBe(true);
     stop?.();
+  });
+});
+
+describe('Vite rules watching verify hint (#1259)', () => {
+  test('prints verify hint only when a captured session exists, once per service, and skips generated rules writes', async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), 'pyric-vite-verify-hint-'));
+    try {
+      const fsFile = join(projectDir, 'firestore.rules');
+      const dbFile = join(projectDir, 'database.rules.json');
+      writeFileSync(fsFile, "rules_version = '2';");
+      writeFileSync(dbFile, JSON.stringify({ rules: { '.read': false } }));
+
+      const f = missingFilesFakes([
+        { kind: 'reloaded', rulesHash: 'dbh1', clients: 1 },
+        { kind: 'reloaded', rulesHash: 'dbh2', clients: 1 },
+        { kind: 'reloaded', rulesHash: 'dbh3', clients: 1 },
+        { kind: 'reloaded', rulesHash: 'dbh4', clients: 1 },
+      ]);
+      const capturePath = join(projectDir, '.pyric', 'last-session.json');
+      Object.assign(f.session, {
+        summary: {
+          ...f.session.summary,
+          capturePath,
+        },
+        firestoreRulesFiles: () => [fsFile],
+        databaseRulesFiles: () => [dbFile],
+      });
+
+      const verifyText = `(run \`${formatPyricCommand('verify')}\` to replay the captured session against these rules)`;
+      const stop = watchViteGenerationRules({
+        server: f.server,
+        session: f.session,
+      });
+
+      // 1. Reload before capture exists -> no verify hint, not spent.
+      f.watcher.emit('change', dbFile);
+      await settle();
+      expect(f.logs.at(-1) ?? '').not.toContain('verify');
+
+      // 2. Write non-empty capture, then simulate tool-generated write -> still not spent.
+      mkdirSync(join(projectDir, '.pyric'), { recursive: true });
+      writeFileSync(
+        capturePath,
+        JSON.stringify({
+          schemaVersion: 1,
+          events: [{ service: 'rtdb', op: 'get', path: '/items/a', allowed: true }],
+        }),
+      );
+      const generatedContent = `${JSON.stringify({ rules: { '.read': 'auth != null' } }, null, 2)}\n`;
+      recordGeneratedRulesWrite(projectDir, dbFile, generatedContent);
+      writeFileSync(dbFile, generatedContent);
+      f.watcher.emit('change', dbFile);
+      await settle();
+      expect(f.logs.at(-1) ?? '').not.toContain('verify');
+
+      // 3. First user edit to database.rules.json -> prints verify hint!
+      writeFileSync(
+        dbFile,
+        JSON.stringify({ rules: { '.read': 'auth != null', '.write': 'auth != null' } }),
+      );
+      f.watcher.emit('change', dbFile);
+      await settle();
+      expect(f.logs.at(-1) ?? '').toContain(verifyText);
+
+      // 4. Second user edit to database.rules.json -> already spent for database.
+      writeFileSync(dbFile, JSON.stringify({ rules: { '.read': true } }));
+      f.watcher.emit('change', dbFile);
+      await settle();
+      expect(f.logs.at(-1) ?? '').not.toContain(verifyText);
+
+      // 5. First user edit to firestore.rules -> prints once for Firestore!
+      writeFileSync(fsFile, "rules_version = '2'; // user edit");
+      f.watcher.emit('change', fsFile);
+      await settle();
+      expect(f.logs.at(-1) ?? '').toContain(verifyText);
+
+      stop?.();
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  test('suppresses verify hint across multiple RTDB instances and duplicate events sharing one generated database.rules.json, then prints on manual edit', async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), 'pyric-vite-multi-inst-gen-'));
+    try {
+      const dbFile = join(projectDir, 'database.rules.json');
+      writeFileSync(dbFile, JSON.stringify({ rules: { '.read': false } }));
+
+      const f = missingFilesFakes([]);
+      const capturePath = join(projectDir, '.pyric', 'last-session.json');
+      mkdirSync(join(projectDir, '.pyric'), { recursive: true });
+      writeFileSync(
+        capturePath,
+        JSON.stringify({
+          schemaVersion: 1,
+          events: [{ service: 'rtdb', op: 'get', path: '/items/a', allowed: true }],
+        }),
+      );
+
+      let reloadCall = 0;
+      Object.assign(f.session, {
+        summary: { ...f.session.summary, capturePath },
+        databaseRulesFiles: () => [dbFile],
+        reloadDatabaseRules: async (file: string) => {
+          reloadCall += 1;
+          return [
+            {
+              instance: 'demo-default-rtdb',
+              file,
+              result: { kind: 'reloaded' as const, rulesHash: `h-def-${String(reloadCall)}`, clients: 1 },
+            },
+            {
+              instance: 'demo-analytics-rtdb',
+              file,
+              result: { kind: 'reloaded' as const, rulesHash: `h-ana-${String(reloadCall)}`, clients: 1 },
+            },
+          ];
+        },
+      });
+
+      const verifyText = `(run \`${formatPyricCommand('verify')}\` to replay the captured session against these rules)`;
+      const stop = watchViteGenerationRules({
+        server: f.server,
+        session: f.session,
+      });
+
+      // Tool-generated write reloads TWO instances AND fires a duplicate watcher event with identical bytes.
+      const generatedContent = `${JSON.stringify({ rules: { '.read': 'auth != null' } }, null, 2)}\n`;
+      recordGeneratedRulesWrite(projectDir, dbFile, generatedContent);
+      writeFileSync(dbFile, generatedContent);
+      f.watcher.emit('change', dbFile);
+      await settle();
+      f.watcher.emit('change', dbFile);
+      await settle();
+
+      expect(f.logs.length).toBe(4);
+      expect(f.logs.some((line) => line.includes('verify'))).toBe(false);
+
+      // Manual edit changes content hash -> clears stamp and prints verify hint once!
+      f.logs.length = 0;
+      writeFileSync(
+        dbFile,
+        `${JSON.stringify({ rules: { '.read': 'auth != null', '.write': 'auth != null' } }, null, 2)}\n`,
+      );
+      f.watcher.emit('change', dbFile);
+      await settle();
+
+      expect(f.logs.length).toBe(2);
+      expect(f.logs.filter((line) => line.includes(verifyText))).toHaveLength(1);
+
+      stop?.();
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+    }
   });
 });

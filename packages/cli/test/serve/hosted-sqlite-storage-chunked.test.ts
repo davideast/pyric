@@ -3,8 +3,10 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { resolveNodeExecutable } from './require-node-on-path.js';
 
 async function runNodeFixture(name: string): Promise<string> {
+  const nodeBin = resolveNodeExecutable();
   const directory = mkdtempSync(join(tmpdir(), 'pyric-node-sqlite-test-'));
   try {
     symlinkSync(new URL('../../../../node_modules', import.meta.url).pathname, join(directory, 'node_modules'), 'dir');
@@ -20,7 +22,7 @@ async function runNodeFixture(name: string): Promise<string> {
       naming: 'scenario.mjs',
     });
     expect(build.success).toBe(true);
-    const result = spawnSync(process.env.PYRIC_TEST_NODE ?? 'node', [join(directory, 'scenario.mjs'), directory], {
+    const result = spawnSync(nodeBin, [join(directory, 'scenario.mjs'), directory], {
       encoding: 'utf8', timeout: 15_000,
     });
     const failed = result.status !== 0;

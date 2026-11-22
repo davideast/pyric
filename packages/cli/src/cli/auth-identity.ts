@@ -18,12 +18,13 @@
  */
 
 import type { ParsedArgs } from './parse-args.js';
+import { formatPyricCommand } from './command-hint.js';
 import {
   runBridgeCommand,
   type BridgeCommandDeps,
   type BridgeToolResult,
 } from './bridge-tool-call.js';
-import { SELF_SCOPE_NOTE, TARGET_SCOPE_NOTE, describeIdentity } from '../auth/identity.js';
+import { SELF_SCOPE_NOTE, TARGET_SCOPE_NOTE } from '../auth/identity.js';
 
 /** Read a flag that must carry a string value, not a bare boolean. */
 function stringFlag(parsed: ParsedArgs, key: string): string | null | undefined {
@@ -40,7 +41,7 @@ function targetFromFlags(parsed: ParsedArgs): { target?: string } | { error: str
     return {
       error:
         '--target requires the target id of a connected client. ' +
-        'pyric serve sessions lists the ids.',
+        `${formatPyricCommand('serve sessions')} lists the ids.`,
     };
   }
   return target === undefined ? {} : { target };
@@ -78,5 +79,3 @@ export async function runAuthReset(
     withScopeNote(scope.target === undefined ? SELF_SCOPE_NOTE : TARGET_SCOPE_NOTE),
   );
 }
-
-export { describeIdentity };

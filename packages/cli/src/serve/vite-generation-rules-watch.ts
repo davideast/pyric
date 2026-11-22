@@ -25,7 +25,10 @@ export function watchViteGenerationRules(input: {
   /** The dev server is a live host (`pyricLive()`). */
   live?: boolean;
 }): () => void {
-  const getVerifyHint = createVerifyHint({ live: input.live });
+  const getVerifyHint = createVerifyHint({
+    live: input.live,
+    capturePath: input.session.summary?.capturePath ?? null,
+  });
 
   const { server, session } = input;
   const databaseFiles = session.databaseRulesFiles();
@@ -62,6 +65,7 @@ export function watchViteGenerationRules(input: {
       pending.database.clear();
       pending.storage.clear();
       const logFirestoreReloads = (
+        firestoreFile: string,
         results: Awaited<ReturnType<SandboxSession['reloadFirestoreDatabaseRules']>>,
       ): void => {
         server.watcher.add([...session.firestoreRulesFiles()]);
@@ -69,7 +73,7 @@ export function watchViteGenerationRules(input: {
           const named = firestoreDatabaseSuffix(database, target);
           if (result.kind === 'reloaded') {
             server.config.logger.info(
-              `  ${RELOAD_GLYPH} [pyric] rules reloaded${named} (${result.rulesHash})${getVerifyHint()}`,
+              `  ${RELOAD_GLYPH} [pyric] rules reloaded${named} (${result.rulesHash})${getVerifyHint('firestore', firestoreFile)}`,
             );
             if (result.fixtureCheck && result.fixtureCheck.ran > 0) {
               let logFn = (m: string) => server.config.logger.warn(m);
@@ -85,34 +89,42 @@ export function watchViteGenerationRules(input: {
           }
         }
       };
-      if (changedFirestoreFiles.length > 0) {
+      const firstFirestoreFile = changedFirestoreFiles[0];
+      if (firstFirestoreFile !== undefined) {
         if (typeof session.reloadFirestoreDatabaseRules === 'function') {
           for (const firestoreFile of changedFirestoreFiles) {
-            void session.reloadFirestoreDatabaseRules(firestoreFile).then(logFirestoreReloads);
+            void session
+              .reloadFirestoreDatabaseRules(firestoreFile)
+              .then((results) => logFirestoreReloads(firestoreFile, results));
           }
         } else {
           void session
             .reloadFirestoreRules()
-            .then((result) => logFirestoreReloads([{ file: changedFirestoreFiles[0]!, result }]));
+            .then((result) => logFirestoreReloads(firstFirestoreFile, [{ file: firstFirestoreFile, result }]));
         }
       }
       for (const databaseFile of changedDatabaseFiles) {
         void session.reloadDatabaseRules(databaseFile).then((results) => {
           for (const { instance, result } of results) {
             if (result.kind === 'reloaded') {
-              server.config.logger.info(`  ↻ [pyric] rtdb rules reloaded for ${instance} (${result.rulesHash})${getVerifyHint()}`);
+              server.config.logger.info(
+                `  ${RELOAD_GLYPH} [pyric] rtdb rules reloaded for ${instance} (${result.rulesHash})${getVerifyHint('database', databaseFile)}`,
+              );
               if (result.fixtureCheck && result.fixtureCheck.ran > 0) {
-                const logFn = result.fixtureCheck.ok
-                  ? (m: string) => server.config.logger.info(m)
-                  : (m: string) => server.config.logger.warn(m);
+                let logFn = (m: string) => server.config.logger.warn(m);
+                if (result.fixtureCheck.ok) {
+                  logFn = (m: string) => server.config.logger.info(m);
+                }
                 for (const line of result.fixtureCheck.lines) logFn(line);
               }
             } else if (result.kind === 'rejected') {
               server.config.logger.warn(
-                `  ⚠ [pyric] rtdb rules NOT reloaded for ${instance} (last-good stays live): ${result.error.message}`,
+                `  ${WARN_GLYPH} [pyric] rtdb rules NOT reloaded for ${instance} (last-good stays live): ${result.error.message}`,
               );
             } else if (result.kind === 'removed') {
-              server.config.logger.warn(`  ⚠ [pyric] ${formatDatabaseRulesRemoved(databaseFile, result.policy, instance)}`);
+              server.config.logger.warn(
+                `  ${WARN_GLYPH} [pyric] ${formatDatabaseRulesRemoved(databaseFile, result.policy, instance)}`,
+              );
             }
           }
         });
@@ -123,13 +135,17 @@ export function watchViteGenerationRules(input: {
           for (const { bucket, target, file: source, result } of results) {
             const named = storageBucketSuffix(bucket, target);
             if (result.kind === 'reloaded') {
-              server.config.logger.info(`  ↻ [pyric] storage rules reloaded${named} (${result.rulesHash})${getVerifyHint()}`);
+              server.config.logger.info(
+                `  ${RELOAD_GLYPH} [pyric] storage rules reloaded${named} (${result.rulesHash})${getVerifyHint('storage', storageFile)}`,
+              );
             } else if (result.kind === 'rejected') {
               server.config.logger.warn(
-                `  ⚠ [pyric] storage rules NOT reloaded (last-good stays live): ${result.error.message}${named}`,
+                `  ${WARN_GLYPH} [pyric] storage rules NOT reloaded (last-good stays live): ${result.error.message}${named}`,
               );
             } else if (result.kind === 'removed') {
-              server.config.logger.warn(`  ⚠ [pyric] ${formatStorageRulesRemoved(source, result.policy, bucket, target)}`);
+              server.config.logger.warn(
+                `  ${WARN_GLYPH} [pyric] ${formatStorageRulesRemoved(source, result.policy, bucket, target)}`,
+              );
             }
           }
         });

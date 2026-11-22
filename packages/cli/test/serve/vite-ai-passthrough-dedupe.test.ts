@@ -20,6 +20,7 @@ import { pyric } from '../../src/serve/vite-plugin.js';
 import { viteProcessStopHook } from '../../src/serve/vite-process-stop.js';
 import { attachViteSdkRequestGate } from '../../src/serve/vite-sdk-file-gate.js';
 import { loadServerTarget } from '../../src/serve/vite-ssr-loader.js';
+import { resolveNodeExecutable } from './require-node-on-path.js';
 import { SSR_SWAP_PREFIX, ssrSwapAlias } from '../../src/serve/vite-ssr-routing.js';
 
 const STOP_PREFIX = '\0pyric-stop:';
@@ -481,10 +482,7 @@ describe('Vite and Node PYRIC_AI_MODE=production cross-tree Firebase deduplicati
       ].join('\n'),
     );
 
-    let nodeBin = 'node';
-    if (typeof process.env.PYRIC_TEST_NODE === 'string' && process.env.PYRIC_TEST_NODE !== '') {
-      nodeBin = process.env.PYRIC_TEST_NODE;
-    }
+    const nodeBin = resolveNodeExecutable();
 
     const child = spawnSync(nodeBin, ['--import', registerEntryUrl, appScript], {
       cwd: fixture.workspaceDir,

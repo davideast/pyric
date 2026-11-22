@@ -17,6 +17,7 @@ import type { AddressInfo } from 'node:net';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { blackholedPort } from '../blackholed-port.js';
+import { resolveNodeExecutable } from './require-node-on-path.js';
 
 const discoveryUrl = pathToFileURL(join(resolve(import.meta.dir, '../..'), 'dist/serve/discovery.js')).href;
 
@@ -44,8 +45,9 @@ const probeEndedAt = Date.now();
 await new Promise((resolve) => setImmediate(() => setImmediate(resolve)));
 const resources = process.getActiveResourcesInfo();
 process.stdout.write(JSON.stringify({ health, probeMs, probeEndedAt, resources }));`;
+  const nodeBin = resolveNodeExecutable();
   const started = performance.now();
-  const child = spawn('node', ['--input-type=module', '-e', script], { stdio: ['ignore', 'pipe', 'inherit'] });
+  const child = spawn(nodeBin, ['--input-type=module', '-e', script], { stdio: ['ignore', 'pipe', 'inherit'] });
   let stdout = '';
   child.stdout.setEncoding('utf8');
   child.stdout.on('data', (chunk: string) => { stdout += chunk; });

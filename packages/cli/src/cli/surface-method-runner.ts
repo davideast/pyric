@@ -32,6 +32,7 @@ import { selectAllowProduction } from './mcp-proxy.js';
 import { callHostedMethod } from './hosted-method.js';
 import { claimProjectState } from '../serve/hosted/project-ownership.js';
 import type { ParsedArgs } from './parse-args.js';
+import { formatPyricCommand } from './command-hint.js';
 
 /** Where output goes. A test supplies its own so it can read what was printed. */
 export interface SurfaceMethodDeps {
@@ -57,11 +58,12 @@ const USAGE_ERROR = 1;
  * command refuses unless the caller says which one they mean.
  */
 function runningServeRefusal(url: string): string {
+  const mcpCmd = formatPyricCommand('mcp');
   return (
     `a running \`pyric serve\` at ${url} owns this project's sandbox in the browser, ` +
     `and this command acts only on the in-process sandbox in ${IN_PROCESS_STATE_RELATIVE}. ` +
     'Pass --in-process to select the local sandbox when its persisted state is free, ' +
-    'or reach the running sandbox through `pyric mcp`.'
+    `or reach the running sandbox through \`${mcpCmd}\`.`
   );
 }
 
