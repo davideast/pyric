@@ -18,7 +18,7 @@ import {
   type FirebaseProjectResolution,
   type FirebaseProjectSource,
   type FirebaseToolsActiveLookup,
-} from 'pyric/sandbox/internal';
+} from 'pyric/sandbox/internal/firebase-project';
 import { readFirebaseRcSync, type FirebaseRc } from './firebase-json.js';
 
 export {

@@ -176,6 +176,10 @@
       "types": "./dist/sandbox/internal/index.d.ts",
       "import": "./dist/sandbox/internal/index.js"
     },
+    "./sandbox/internal/firebase-project": {
+      "types": "./dist/sandbox/internal/firebase-project.d.ts",
+      "import": "./dist/sandbox/internal/firebase-project.js"
+    },
     "./sandbox/admin-compat": {
       "types": "./dist/sandbox/admin-compat.d.ts",
       "import": "./dist/sandbox/admin-compat.js"
