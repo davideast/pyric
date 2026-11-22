@@ -35,12 +35,12 @@ export interface IdTokenResult {
   /** Custom + standard claims. Same map seen by the rules engine as
    *  `request.auth.token.*`. */
   claims: Record<string, unknown>;
-  /** ISO string. Sandbox: far-future. */
+  /** UTC date string (`Date.prototype.toUTCString()`). */
   expirationTime: string;
-  /** ISO string. */
+  /** UTC date string (`Date.prototype.toUTCString()`). */
   issuedAtTime: string;
-  /** ISO string — when the user last *signed in* (not when the token
-   *  was last refreshed). */
+  /** UTC date string (`Date.prototype.toUTCString()`) -- when the user last
+   *  *signed in* (not when the token was last refreshed). */
   authTime: string;
   /**
    * Provider of the current sign-in session — `'password'`,

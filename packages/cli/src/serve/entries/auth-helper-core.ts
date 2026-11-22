@@ -299,8 +299,9 @@ function mintProviderUid(): string {
 
 /** Bare helper User — worker path discards this in favor of `acceptIdentity`. */
 function bareCredential(identity: HelperIdentity, providerId: string): UserCredential {
-  const issuedAtTime = new Date().toISOString();
-  const expirationTime = new Date(Date.now() + 3600_000).toISOString();
+  const issuedAtSeconds = Math.floor(Date.now() / 1000);
+  const issuedAtTime = new Date(issuedAtSeconds * 1000).toUTCString();
+  const expirationTime = new Date((issuedAtSeconds + 3600) * 1000).toUTCString();
   const claims: Record<string, unknown> = {
     sub: identity.uid,
     ...idTokenAudience(SANDBOX_PROJECT_ID),
@@ -335,6 +336,7 @@ function bareCredential(identity: HelperIdentity, providerId: string): UserCrede
       token,
       claims,
       signInProvider: providerId,
+      signInSecondFactor: null,
       expirationTime,
       issuedAtTime,
       authTime: issuedAtTime,

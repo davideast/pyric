@@ -9,6 +9,10 @@ import {
 import { makeAuthError } from './auth-errors.js';
 import { SandboxBackend } from './sandbox-backend.js';
 import { registerAuthPersistence } from './sandbox/persistence.js';
+import {
+  resolveInitializeAuthPersistence,
+  type ResolvedPersistenceConfig,
+} from './sandbox/persistence-options.js';
 // The package specifier, as the backend imports it, so the registry is the
 // one module instance `pyric-admin` reads.
 import { getClock, registerAuthAccounts } from 'pyric/sandbox/internal';
@@ -62,7 +66,7 @@ export function recordDefaultAuthInitOptions(owner: object): void {
   }
 }
 
-export function assertOrRecordAuthInitOptions(owner: object, deps: unknown): void {
+export function assertOrRecordAuthInitOptions(owner: object, deps: unknown): boolean {
   const normalized = deps ?? {};
   if (initializedOptions.has(owner)) {
     const initial = initializedOptions.get(owner);
@@ -72,9 +76,11 @@ export function assertOrRecordAuthInitOptions(owner: object, deps: unknown): voi
         'initializeAuth() has already been called with different options. To avoid this error, call initializeAuth() with the same options as when it was originally called, or call getAuth() to return the already initialized instance.',
       );
     }
-    return;
+    return false;
   }
+  resolveInitializeAuthPersistence(deps);
   initializedOptions.set(owner, normalized);
+  return true;
 }
 
 function projectStoreFor(sandbox: Sandbox): AuthProjectStore {
@@ -110,18 +116,35 @@ function notifyUserDb(store: AuthProjectStore): void {
   }
 }
 
-function backendFor(sandbox: Sandbox): SandboxBackend {
+function backendFor(
+  sandbox: Sandbox,
+  initialPersistence?: ResolvedPersistenceConfig,
+): SandboxBackend {
   let backend = sandboxBackends.get(sandbox);
   if (!backend) {
     const store = projectStoreFor(sandbox);
     backend = new SandboxBackend(sandbox, sandbox, store);
+    if (initialPersistence !== undefined) {
+      backend.setPersistenceMode(initialPersistence.mode);
+    }
     sandboxBackends.set(sandbox, backend);
-    registerAuthPersistence(sandbox, backend, sandbox, store);
+    registerAuthPersistence(
+      sandbox,
+      backend,
+      sandbox,
+      store,
+      '[DEFAULT]',
+      initialPersistence?.restoreModes,
+    );
   }
   return backend;
 }
 
-function backendForApp(app: FirebaseApp, runtime: ClientAppRuntime): SandboxBackend {
+function backendForApp(
+  app: FirebaseApp,
+  runtime: ClientAppRuntime,
+  initialPersistence?: ResolvedPersistenceConfig,
+): SandboxBackend {
   return runtime.service('auth/backend', () => {
     const { sandbox, session } = runtime;
     const store = projectStoreFor(sandbox);
@@ -138,17 +161,28 @@ function backendForApp(app: FirebaseApp, runtime: ClientAppRuntime): SandboxBack
       store,
       (cleanup) => { runtime.onDelete(cleanup); },
     );
-    runtime.onDelete(registerAuthPersistence(sandbox, backend, session, store, app.name));
+    if (initialPersistence !== undefined) {
+      backend.setPersistenceMode(initialPersistence.mode);
+    }
+    runtime.onDelete(
+      registerAuthPersistence(
+        sandbox,
+        backend,
+        session,
+        store,
+        app.name,
+        initialPersistence?.restoreModes,
+      ),
+    );
     return backend;
   });
 }
 
-export function getAuth(): AppAuth;
-export function getAuth(sandbox: Sandbox): Auth;
-export function getAuth(app: FirebaseApp): AppAuth;
-export function getAuth(target?: Sandbox | FirebaseApp): Auth;
-export function getAuth(target?: Sandbox | FirebaseApp): Auth {
-  if (target === undefined) return getAuth(defaultClientApp() as FirebaseApp);
+function resolveAuthHandle(
+  target: Sandbox | FirebaseApp | undefined,
+  initialPersistence?: ResolvedPersistenceConfig,
+): Auth {
+  if (target === undefined) return resolveAuthHandle(defaultClientApp() as FirebaseApp, initialPersistence);
   const appRuntime = resolveClientApp(target);
   if (appRuntime) {
     recordDefaultAuthInitOptions(target);
@@ -156,7 +190,7 @@ export function getAuth(target?: Sandbox | FirebaseApp): Auth {
       const t: SandboxTarget = {
         kind: 'sandbox',
         sandbox: appRuntime.sandbox,
-        backend: backendForApp(target as FirebaseApp, appRuntime),
+        backend: backendForApp(target as FirebaseApp, appRuntime, initialPersistence),
         own: (cleanup) => appRuntime.onDelete(cleanup),
         assertAlive: () => appRuntime.assertAlive(),
       };
@@ -167,7 +201,11 @@ export function getAuth(target?: Sandbox | FirebaseApp): Auth {
     recordDefaultAuthInitOptions(target);
     let handle = sandboxHandles.get(target);
     if (handle) return handle;
-    handle = makeAuthHandle({ kind: 'sandbox', sandbox: target, backend: backendFor(target) });
+    handle = makeAuthHandle({
+      kind: 'sandbox',
+      sandbox: target,
+      backend: backendFor(target, initialPersistence),
+    });
     sandboxHandles.set(target, handle);
     return handle;
   }
@@ -176,14 +214,27 @@ export function getAuth(target?: Sandbox | FirebaseApp): Auth {
   );
 }
 
+export function getAuth(): AppAuth;
+export function getAuth(sandbox: Sandbox): Auth;
+export function getAuth(app: FirebaseApp): AppAuth;
+export function getAuth(target?: Sandbox | FirebaseApp): Auth;
+export function getAuth(target?: Sandbox | FirebaseApp): Auth {
+  return resolveAuthHandle(target);
+}
+
 export function initializeAuth(app: FirebaseApp, deps?: unknown): AppAuth;
 export function initializeAuth(app: Sandbox, deps?: unknown): Auth;
 export function initializeAuth(app: Sandbox | FirebaseApp, deps?: unknown): Auth {
   const isKnownOwner = Boolean(resolveClientApp(app)) || isSandbox(app);
-  if (isKnownOwner) {
-    assertOrRecordAuthInitOptions(app, deps);
+  if (!isKnownOwner) {
+    return resolveAuthHandle(app as never);
   }
-  return getAuth(app as never);
+  const firstInit = assertOrRecordAuthInitOptions(app, deps);
+  if (!firstInit) {
+    return resolveAuthHandle(app);
+  }
+  const initialPersistence = resolveInitializeAuthPersistence(deps);
+  return resolveAuthHandle(app, initialPersistence);
 }
 
 function isSandbox(target: Sandbox | FirebaseApp): target is Sandbox {

@@ -19,6 +19,7 @@ const registeredStores = new WeakSet<Sandbox>();
 interface SessionBinding {
   backend: SandboxBackend;
   session: AuthSession;
+  restoreModes?: ReadonlySet<'LOCAL' | 'SESSION'>;
   subscribers: Set<() => void>;
   unsubscribeBackend?: () => void;
   unregisterService?: () => void;
@@ -33,9 +34,10 @@ export function registerAuthPersistence(
   session: AuthSession,
   store: AuthProjectStore,
   appName = '[DEFAULT]',
+  restoreModes?: ReadonlySet<'LOCAL' | 'SESSION'>,
 ): () => void {
   registerAccountStore(sandbox, backend, store);
-  return registerAppSession(sandbox, backend, session, appName);
+  return registerAppSession(sandbox, backend, session, appName, restoreModes);
 }
 
 function registerAccountStore(sandbox: Sandbox, backend: SandboxBackend, store: AuthProjectStore): void {
@@ -105,6 +107,9 @@ function appSessionPersistenceHooks(binding: SessionBinding) {
         return current === null ? undefined : sessionKeyOf(current);
       },
       restore: (uid: string, mode: 'LOCAL' | 'SESSION', sessionKey?: string) => {
+        if (binding.restoreModes !== undefined && !binding.restoreModes.has(mode)) {
+          return;
+        }
         binding.backend.setPersistenceMode(mode);
         binding.backend.restoreSession(uid, sessionKey);
       },
@@ -133,6 +138,7 @@ function registerAppSession(
   backend: SandboxBackend,
   session: AuthSession,
   appName: string,
+  restoreModes?: ReadonlySet<'LOCAL' | 'SESSION'>,
 ): () => void {
   let bindings = sessionBindings.get(sandbox);
   if (!bindings) {
@@ -152,6 +158,7 @@ function registerAppSession(
     existing.unsubscribeBackend = undefined;
     existing.backend = backend;
     existing.session = session;
+    existing.restoreModes = restoreModes;
     existing.unregisterService = sandbox.registerPersistableService(
       serviceName,
       appSessionPersistenceHooks(existing),
@@ -163,14 +170,15 @@ function registerAppSession(
       existing.unsubscribeBackend?.();
       existing.unsubscribeBackend = undefined;
       existing.subscribers.clear();
-      if (bindings!.get(serviceName) === existing) bindings!.delete(serviceName);
-      if (bindings!.size === 0) sessionBindings.delete(sandbox);
+      if (bindings.get(serviceName) === existing) bindings.delete(serviceName);
+      if (bindings.size === 0) sessionBindings.delete(sandbox);
     };
   }
 
   const binding: SessionBinding = {
     backend,
     session,
+    restoreModes,
     subscribers: new Set(),
     generation: 1,
   };

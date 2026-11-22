@@ -1,6 +1,32 @@
 import type { AuthCredential } from 'pyric/auth';
 import type { OpMessage } from '../protocol.js';
-import type { SerializedAuthCredential } from '../protocol/auth.js';
+import type { SerializedAuthCredential, SerializedIdTokenResult } from '../protocol/auth.js';
+
+function toWebUtcTimestamp(value: string): string {
+  const ms = Date.parse(value);
+  if (Number.isFinite(ms)) {
+    return new Date(ms).toUTCString();
+  }
+  return value;
+}
+
+/**
+ * Normalize ISO-8601 bridge-wire `IdTokenResult` timestamps into `@firebase/auth`
+ * RFC 7231 UTC strings for browser JS callers.
+ */
+export function normalizeClientIdTokenResult(
+  wire: SerializedIdTokenResult,
+): SerializedIdTokenResult {
+  return {
+    token: wire.token,
+    claims: wire.claims,
+    expirationTime: toWebUtcTimestamp(wire.expirationTime),
+    issuedAtTime: toWebUtcTimestamp(wire.issuedAtTime),
+    authTime: toWebUtcTimestamp(wire.authTime),
+    signInProvider: wire.signInProvider ?? null,
+    signInSecondFactor: wire.signInSecondFactor ?? null,
+  };
+}
 
 /** The fields of an `AuthCredential` the served client reads. */
 export type SignInCredential = {

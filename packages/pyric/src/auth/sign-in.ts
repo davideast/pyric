@@ -18,6 +18,7 @@ import { resolveOidcJwtIdentity } from './sandbox/oidc-jwt-credential.js';
 import { isFederatedProviderId, type AuthProvider } from './providers.js';
 import type { FirebaseError } from '../sandbox/internal/firebase-error.js';
 import { makeAuthError } from './sandbox-backend.js';
+import { resolvePersistenceMode } from './sandbox/persistence-options.js';
 import { assertMatchingTenant } from './sandbox/tenant-isolation.js';
 import { targetOf, type SandboxTarget } from './target.js';
 import type {
@@ -129,18 +130,7 @@ export async function signOut(auth: Auth): Promise<void> {
 }
 
 export async function setPersistence(auth: Auth, persistence: Persistence): Promise<void> {
-  const mode = ({
-    LOCAL: 'LOCAL',
-    SESSION: 'SESSION',
-    NONE: 'NONE',
-    COOKIE: 'LOCAL',
-  } as const)[persistence.type];
-  if (mode === undefined) {
-    throw makeAuthError(
-      'auth/argument-error',
-      `setPersistence: unrecognized persistence type ${String(persistence.type)}`,
-    );
-  }
+  const mode = resolvePersistenceMode(persistence, 'setPersistence');
   targetOf(auth).backend.setPersistenceMode(mode);
 }
 

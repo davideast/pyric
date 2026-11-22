@@ -18,6 +18,7 @@ import { FirebaseError } from 'pyric/app';
 import { absolutePhotoUrl, realmOrigin } from 'pyric/sandbox/internal';
 import {
   credentialWire,
+  normalizeClientIdTokenResult,
   normalizeWorkerProfileUpdate,
   type SignInCredential,
 } from './auth-credential-wire.js';
@@ -125,9 +126,9 @@ function makeClientUser(port: ClientPort, raw: SerializedUser): ClientUser {
       })) as string;
     },
     async getIdTokenResult(forceRefresh?: boolean) {
-      return (await rpc(port, {
+      return normalizeClientIdTokenResult((await rpc(port, {
         t: 'op', id: nextId(), method: 'auth.getIdTokenResult', forceRefresh,
-      })) as SerializedIdTokenResult;
+      })) as SerializedIdTokenResult);
     },
   };
   Object.defineProperty(user, CLIENT_USER_PORT, { value: port, enumerable: false });

@@ -47,10 +47,37 @@ function load(stem: string): unknown {
   );
 }
 
+interface ObservedIdTokenResult {
+  authTime: string;
+  issuedAtTime: string;
+  expirationTime: string;
+  signInSecondFactor: string | null;
+  keys: string[];
+  expMinusIat: number;
+  authTimeBeforeIat: boolean;
+}
+
+const UTC_DATE_RE = /^[A-Z][a-z]{2}, \d{2} [A-Z][a-z]{2} \d{4} \d{2}:\d{2}:\d{2} GMT$/;
+
+function classifyTimeString(value: unknown): string {
+  if (typeof value !== 'string') {
+    return typeof value;
+  }
+  if (UTC_DATE_RE.test(value)) {
+    return 'toUTCString';
+  }
+  return value;
+}
+
 const OBSERVATION = load('auth-request-auth-per-sign-in') as {
   behavior: Record<
     string,
-    { claims?: Claims | null; signInProvider?: string | null; rtdb?: Record<string, string> }
+    {
+      claims?: Claims | null;
+      signInProvider?: string | null;
+      idTokenResult?: ObservedIdTokenResult;
+      rtdb?: Record<string, string>;
+    }
   >;
 };
 
@@ -141,6 +168,7 @@ const KINDS: Record<string, () => Promise<Run>> = {
         name: 'custom-name',
       },
     });
+    getClock(run.sandbox).advance(2000);
     await activeUser.getIdToken(true);
     return run;
   },
@@ -287,11 +315,12 @@ async function evaluate(run: Run) {
   let claims: Claims | null = null;
   let signInProvider: string | null = null;
   let uid: string | null = null;
+  let idTokenResult: Awaited<ReturnType<User['getIdTokenResult']>> | null = null;
   if (run.user !== null) {
     uid = run.user.uid;
-    const result = await run.user.getIdTokenResult();
-    claims = result.claims as Claims;
-    signInProvider = result.signInProvider ?? null;
+    idTokenResult = await run.user.getIdTokenResult();
+    claims = idTokenResult.claims as Claims;
+    signInProvider = idTokenResult.signInProvider ?? null;
   }
   const probes = probesFor(uid, claims, signInProvider);
   // Production read every probe at least 8 s after the sign-in.
@@ -345,7 +374,7 @@ ${celProbes.map((p) => `    match /${p.id}/{doc} { allow get: if ${p.cel}; }`).j
   for (const p of celProbes) {
     storage[p.label] = await verdict(() => getMetadata(storageRef(userStorage, `${p.id}/d`)));
   }
-  return { claims, rtdb, firestore, storage, signInProvider };
+  return { claims, rtdb, firestore, storage, signInProvider, idTokenResult };
 }
 
 function differences(
@@ -399,7 +428,7 @@ describe('request.auth per sign-in kind matches the production capture across RT
       expect(production).toBeDefined();
       const run = await setUp();
       try {
-        const { rtdb, firestore, storage, claims, signInProvider } = await evaluate(run);
+        const { rtdb, firestore, storage, claims, signInProvider, idTokenResult } = await evaluate(run);
         const found = differences(kind, rtdb, firestore, storage, production, claims);
         const expectedProvider = production.signInProvider ?? null;
         if (signInProvider !== expectedProvider) {
@@ -407,6 +436,25 @@ describe('request.auth per sign-in kind matches the production capture across RT
             pyric: String(signInProvider),
             production: String(expectedProvider),
           };
+        }
+        const expectedResult = production.idTokenResult;
+        if (expectedResult !== undefined) {
+          if (idTokenResult === null) {
+            found[`idTokenResult ${kind}`] = { pyric: 'null', production: 'present' };
+          } else {
+            const actualSummary: ObservedIdTokenResult = {
+              authTime: classifyTimeString(idTokenResult.authTime),
+              issuedAtTime: classifyTimeString(idTokenResult.issuedAtTime),
+              expirationTime: classifyTimeString(idTokenResult.expirationTime),
+              signInSecondFactor: idTokenResult.signInSecondFactor ?? null,
+              keys: Object.keys(idTokenResult).sort(),
+              expMinusIat:
+                Number(idTokenResult.claims['exp']) - Number(idTokenResult.claims['iat']),
+              authTimeBeforeIat:
+                Number(idTokenResult.claims['auth_time']) < Number(idTokenResult.claims['iat']),
+            };
+            expect(actualSummary).toEqual(expectedResult);
+          }
         }
         expect(found).toEqual({});
       } finally {

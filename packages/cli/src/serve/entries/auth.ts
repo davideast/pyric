@@ -23,15 +23,17 @@ import { acceptProviderCredential, clientUserSessionKey, restorePortSession, sta
 import {
   assertOrRecordAuthInitOptions,
   recordDefaultAuthInitOptions,
+  resolveInitializeAuthPersistence,
+  resolvePersistenceMode,
   SERVED_SANDBOX_HOOK,
   sessionKeyOf,
+  type ResolvedPersistenceConfig,
   type ServedSandboxHook,
 } from 'pyric/auth/internal';
 import { useWorker } from './worker-runtime.js';
 import { sessionStoreForApp } from './app-session-store.js';
 import { helperCustomClaims } from './auth-helper-core.js';
 import { resolveServeAuthFlow } from './auth-helper-runtime.js';
-import type { SessionMode } from './session-store.js';
 import { getApp, type FirebaseApp } from 'pyric/app';
 import { registerAppCleanup } from 'pyric/app/internal';
 import { workerClientForApp } from './app-client.js';
@@ -107,52 +109,76 @@ const persistenceWired = new WeakSet<FirebaseApp>();
 function wireAppPersistence(
   app: FirebaseApp,
   auth: ReturnType<typeof pyricGetAuth>,
+  initialPersistence?: ResolvedPersistenceConfig,
 ): void {
   if (persistenceWired.has(app)) return;
   persistenceWired.add(app);
   const store = sessionStoreForApp(app);
+  if (initialPersistence !== undefined) {
+    store.setInitialMode(initialPersistence.mode);
+  }
+  const restoreModes = initialPersistence?.restoreModes;
+  const allowsRestore = restoreModes === undefined || restoreModes.size > 0;
   if (useWorker) {
-    restoreWorkerSession(auth, store);
+    if (initialPersistence !== undefined) {
+      void (wc.setPersistence as typeof pyricSetPersistence)(auth, {
+        type: initialPersistence.mode,
+      });
+    }
+    if (allowsRestore) {
+      restoreWorkerSession(auth, store, restoreModes);
+    }
     saveSessionChanges(auth, store);
     return;
   }
   // The restore needs the saved accounts and session records, so it waits for them.
   runAfterPageBackend(() => {
-    restoreInPageSession(auth, store);
+    if (allowsRestore) {
+      restoreInPageSession(auth, store, restoreModes);
+    }
     saveSessionChanges(auth, store);
   });
 }
 
 type AppSessionStore = ReturnType<typeof sessionStoreForApp>;
 
-function restoreWorkerSession(auth: ReturnType<typeof pyricGetAuth>, store: AppSessionStore): void {
-  const stored = store.load();
+function restoreWorkerSession(
+  auth: ReturnType<typeof pyricGetAuth>,
+  store: AppSessionStore,
+  restoreModes?: ReadonlySet<'LOCAL' | 'SESSION'>,
+): void {
+  const stored = store.load(restoreModes);
   if (!stored) return;
   // Posting restore before listener registration preserves FIFO ordering on
   // this app's MessagePort, so the initial listener value is the restore.
   // A host that cannot answer now leaves the stored session for the next load.
   void restorePortSession(auth as never, stored.uid, undefined, undefined, stored.sessionKey).then(
     (user) => {
-      if (!user) store.clear();
+      if (!user) store.clearActive();
     },
     (error: unknown) => console.warn('[pyric] session restore failed:', error instanceof Error ? error.message : String(error)),
   );
 }
 
-function restoreInPageSession(auth: ReturnType<typeof pyricGetAuth>, store: AppSessionStore): void {
-  const stored = store.load();
+function restoreInPageSession(
+  auth: ReturnType<typeof pyricGetAuth>,
+  store: AppSessionStore,
+  restoreModes?: ReadonlySet<'LOCAL' | 'SESSION'>,
+): void {
+  const stored = store.load(restoreModes);
   if (!stored) return;
   try {
     ipAuth.sandbox.restoreSession(auth, stored.uid, stored.sessionKey);
   } catch {
-    store.clear();
+    store.clearActive();
   }
 }
 
 function saveSessionChanges(auth: ReturnType<typeof pyricGetAuth>, store: AppSessionStore): void {
   A.onAuthStateChanged(auth, (user) => {
+    if (store.getMode() === 'NONE') return;
     if (user) store.save(user.uid, storedSessionKey(user));
-    else store.clear();
+    else store.clearActive();
   });
 }
 
@@ -169,9 +195,10 @@ function attachServedSandboxHook(
   Object.defineProperty(handle, SERVED_SANDBOX_HOOK, { value: hook, writable: false, configurable: false });
 }
 
-export const getAuth = ((app?: FirebaseApp) => {
-  const resolved = app ?? getApp();
-  recordDefaultAuthInitOptions(resolved);
+function resolveServedAuth(
+  resolved: FirebaseApp,
+  initialPersistence?: ResolvedPersistenceConfig,
+): ReturnType<typeof pyricGetAuth> {
   markServiceUsed();
   if (!useWorker) {
     const handle = pyricGetAuth(resolved);
@@ -179,7 +206,7 @@ export const getAuth = ((app?: FirebaseApp) => {
     attachServedSandboxHook(handle, {
       mockSignInResult: (result) => ipAuth.sandbox.mockSignInResult(handle, result),
     });
-    wireAppPersistence(resolved, handle);
+    wireAppPersistence(resolved, handle, initialPersistence);
     const releaseActiveAuth = registerActiveAuth(handle);
     registerAppCleanup(resolved, releaseActiveAuth);
     return handle;
@@ -194,28 +221,19 @@ export const getAuth = ((app?: FirebaseApp) => {
     mockSignInResult: (result) => stageSignInResult(handle as never, result),
   });
   workerAuthByApp.set(resolved, handle);
-  wireAppPersistence(resolved, handle);
+  wireAppPersistence(resolved, handle, initialPersistence);
   const releaseActiveAuth = registerActiveAuth(handle);
   // Match Firebase's cached-service lifecycle: getAuth(deletedApp) still
   // returns its existing handle, but that handle no longer joins chip fan-out.
   registerAppCleanup(resolved, releaseActiveAuth);
   return handle;
-}) as typeof pyricGetAuth;
-
-/**
- * Narrow a `Persistence.type` to the three web-storage slots the session store
- * actually has.
- *
- * `'COOKIE'` (upstream's `browserCookiePersistence`, for SSR) is the fourth
- * member of the union and has no slot of its own here. It maps to `'LOCAL'`:
- * both are long-lived session storage, and the distinction is invisible to
- * consumer code once the session is restored either way. The alternative —
- * widening SessionMode — would add a storage backend the serve layer does not
- * have.
- */
-function toSessionMode(type: 'LOCAL' | 'SESSION' | 'NONE' | 'COOKIE'): SessionMode {
-  return type === 'COOKIE' ? 'LOCAL' : type;
 }
+
+export const getAuth = ((app?: FirebaseApp) => {
+  const resolved = app ?? getApp();
+  recordDefaultAuthInitOptions(resolved);
+  return resolveServedAuth(resolved);
+}) as typeof pyricGetAuth;
 
 /** The session key the signed-in user carries: from the worker on the worker
  *  path, from the in-page engine otherwise. */
@@ -225,7 +243,7 @@ function storedSessionKey(user: unknown): string | undefined {
 
 /** `setPersistence`: selects which web storage holds THIS TAB's session (and
  *  migrates the current one). On the worker path the record is still client-
- *  side (#754 — per-port sessions restore via `auth.restorePortSession`); the
+ *  side (#754 -- per-port sessions restore via `auth.restorePortSession`); the
  *  RPC just keeps the worker's surface-parity mode in sync. */
 export const setPersistence = (
   useWorker
@@ -233,14 +251,24 @@ export const setPersistence = (
         auth: Parameters<typeof pyricSetPersistence>[0],
         persistence: Parameters<typeof pyricSetPersistence>[1],
       ) => {
-        sessionStoreForApp(auth.app ?? getApp()).setMode(toSessionMode(persistence.type));
-        return (wc.setPersistence as typeof pyricSetPersistence)(auth, persistence);
+        const mode = resolvePersistenceMode(persistence, 'setPersistence');
+        const store = sessionStoreForApp(auth.app ?? getApp());
+        store.setMode(mode);
+        if (auth.currentUser && mode !== 'NONE') {
+          store.save(auth.currentUser.uid, storedSessionKey(auth.currentUser));
+        }
+        return (wc.setPersistence as typeof pyricSetPersistence)(auth, { type: mode });
       })
     : afterPageBackend(async (
         auth: Parameters<typeof pyricSetPersistence>[0],
         persistence: Parameters<typeof pyricSetPersistence>[1],
       ) => {
-        sessionStoreForApp(auth.app ?? getApp()).setMode(toSessionMode(persistence.type));
+        const mode = resolvePersistenceMode(persistence, 'setPersistence');
+        const store = sessionStoreForApp(auth.app ?? getApp());
+        store.setMode(mode);
+        if (auth.currentUser && mode !== 'NONE') {
+          store.save(auth.currentUser.uid, storedSessionKey(auth.currentUser));
+        }
         return pyricSetPersistence(auth, persistence);
       })
 ) as typeof pyricSetPersistence;
@@ -312,11 +340,28 @@ export const signInWithCredential = (
 ) as typeof ipAuth.signInWithCredential;
 
 /** `initializeAuth(app, deps?)` -- shares the `getAuth(app)` handle while
- *  enforcing `auth/already-initialized` when re-called with mismatched `deps`. */
+ *  applying `deps.persistence` on first init and enforcing
+ *  `auth/already-initialized` when re-called with mismatched `deps`. */
 export const initializeAuth = ((app?: unknown, deps?: unknown) => {
   const resolved = (app as FirebaseApp | undefined) ?? getApp();
-  assertOrRecordAuthInitOptions(resolved, deps);
-  return getAuth(resolved);
+  if (!useWorker) {
+    const handle = ipAuth.initializeAuth(resolved, deps);
+    const initialPersistence = resolveInitializeAuthPersistence(deps);
+    markServiceUsed();
+    attachServedSandboxHook(handle, {
+      mockSignInResult: (result) => ipAuth.sandbox.mockSignInResult(handle, result),
+    });
+    wireAppPersistence(resolved, handle, initialPersistence);
+    const releaseActiveAuth = registerActiveAuth(handle);
+    registerAppCleanup(resolved, releaseActiveAuth);
+    return handle;
+  }
+  const firstInit = assertOrRecordAuthInitOptions(resolved, deps);
+  if (!firstInit) {
+    return resolveServedAuth(resolved);
+  }
+  const initialPersistence = resolveInitializeAuthPersistence(deps);
+  return resolveServedAuth(resolved, initialPersistence);
 }) as typeof ipAuth.initializeAuth;
 
 /** `useDeviceLanguage(auth)` — accepted no-op (no device locale in the served

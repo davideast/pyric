@@ -1548,7 +1548,14 @@ export class SandboxBackend {
       }
       const hadUser = previousUser !== null;
       if (hadUser) {
-        this.tokenCache.delete(previousUser.uid);
+        const previousTenantId = previousUser.tenantId ?? null;
+        const cachedTenants = this.tokenCache.get(previousUser.uid);
+        if (cachedTenants !== undefined) {
+          cachedTenants.delete(previousTenantId);
+          if (cachedTenants.size === 0) {
+            this.tokenCache.delete(previousUser.uid);
+          }
+        }
         this.customTokenClaimsByUid.delete(previousUser.uid);
         this.blockingSessionClaimsByUid.delete(previousUser.uid);
         this.notifyAuthListeners();
@@ -2368,13 +2375,16 @@ export class SandboxBackend {
       stored.lastRefreshAt = issuedAt.toISOString();
     }
     const { iss, aud } = idTokenAudience(this.projectStore.projectId() ?? SANDBOX_PROJECT_ID);
+    const authTimeSeconds = Math.floor(authenticatedAt.getTime() / 1000);
+    const issuedAtSeconds = Math.floor(issuedAt.getTime() / 1000);
+    const expirationSeconds = Math.floor(expires.getTime() / 1000);
     const fullClaims: Record<string, unknown> = {
       sub: uid,
       aud,
       iss,
-      auth_time: Math.floor(authenticatedAt.getTime() / 1000),
-      iat: Math.floor(issuedAt.getTime() / 1000),
-      exp: Math.floor(expires.getTime() / 1000),
+      auth_time: authTimeSeconds,
+      iat: issuedAtSeconds,
+      exp: expirationSeconds,
       // Custom claims, the account's standard claims over them, and the
       // reserved `firebase` namespace last (custom claims cannot shadow it).
       ...accountTokenClaims(
@@ -2390,14 +2400,20 @@ export class SandboxBackend {
     // included, so `verifyIdToken` returns the minted `auth_time`, `iat` and
     // `exp` rather than values made up at verify time.
     const token = sandboxTokenFor(tokenClaims, serial);
+    const firebaseClaim = tokenClaims.firebase as Record<string, unknown> | undefined;
+    const rawSecondFactor = firebaseClaim?.['sign_in_second_factor'];
+    let signInSecondFactor: string | null = null;
+    if (typeof rawSecondFactor === 'string' && rawSecondFactor.length > 0) {
+      signInSecondFactor = rawSecondFactor;
+    }
     const result: IdTokenResult = {
       token,
       claims: tokenClaims,
-      expirationTime: expires.toISOString(),
-      issuedAtTime: issuedAt.toISOString(),
-      authTime: authenticatedAt.toISOString(),
+      expirationTime: new Date(expirationSeconds * 1000).toUTCString(),
+      issuedAtTime: new Date(issuedAtSeconds * 1000).toUTCString(),
+      authTime: new Date(authTimeSeconds * 1000).toUTCString(),
       signInProvider,
-      signInSecondFactor: null,
+      signInSecondFactor,
     };
     const entry = { token, result };
     const tokens = this.tokenCache.get(uid) ?? new Map<string | null, typeof entry>();
@@ -2972,6 +2988,12 @@ export class SandboxBackend {
     this.applyStoredToUser(user, stored);
     if (this.cachedUser && this.cachedUser.uid === user.uid && this.cachedUser !== user) {
       this.applyStoredToUser(this.cachedUser, stored);
+    }
+    // Match `@firebase/auth` `reload` -> `_notifyListenersIfCurrent(user)`:
+    // notify `onIdTokenChanged` once when `user` is the current user (leaving
+    // `onAuthStateChanged` quiet because `lastNotifiedUid` is unchanged).
+    if (user === this.cachedUser) {
+      this.notifyAuthListeners();
     }
   }
 

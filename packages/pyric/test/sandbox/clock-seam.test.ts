@@ -210,7 +210,7 @@ describe('the sandbox clock drives auth token minting', () => {
     expect(result.claims['iat']).toBe(issuedSeconds);
     expect(result.claims['auth_time']).toBe(issuedSeconds);
     expect(result.claims['exp']).toBeGreaterThan(issuedSeconds);
-    expect(result.issuedAtTime).toBe(new Date(FUTURE).toISOString());
+    expect(result.issuedAtTime).toBe(new Date(FUTURE).toUTCString());
   });
 
   it('follows the clock on a forced refresh', async () => {
