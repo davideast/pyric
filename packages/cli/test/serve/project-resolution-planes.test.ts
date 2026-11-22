@@ -10,7 +10,14 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initializeSandbox } from 'pyric/sandbox';
+import { getStorageRulesResolution } from 'pyric/storage/internal';
 
+import {
+  inProcessDefaultBucketName,
+  loadProjectRules as loadBridgeProjectRules,
+  openPersistedServices,
+  saveSandboxSnapshot,
+} from '../../src/bridge/server/in-process.js';
 import { resolveFirebaseProject } from '../../src/cli/firebase-project.js';
 import {
   loadInProcessFirestoreProjectRules,
@@ -27,6 +34,15 @@ const TARGET_RULES = [
   '}',
 ].join('\n');
 
+const STORAGE_TARGET_RULES = [
+  "rules_version = '2';",
+  'service firebase.storage {',
+  '  match /b/{bucket}/o {',
+  '    match /assets/{allPaths=**} { allow read: if true; }',
+  '  }',
+  '}',
+].join('\n');
+
 const dirs: string[] = [];
 
 function makeTempDir(prefix: string): string {
@@ -38,6 +54,7 @@ function makeTempDir(prefix: string): string {
 function writeMultiAliasProject(dir: string): Record<string, unknown> {
   const firebaseJson = {
     firestore: [{ target: 'main', rules: 'target.rules' }],
+    storage: [{ target: 'media', rules: 'storage.target.rules' }],
   };
   const firebaseRc = {
     projects: {
@@ -47,12 +64,14 @@ function writeMultiAliasProject(dir: string): Record<string, unknown> {
     targets: {
       'staging-proj': {
         firestore: { main: ['(default)', 'reports'] },
+        storage: { media: ['staging-proj.firebasestorage.app'] },
       },
     },
   };
   writeFileSync(join(dir, 'firebase.json'), JSON.stringify(firebaseJson));
   writeFileSync(join(dir, '.firebaserc'), JSON.stringify(firebaseRc));
   writeFileSync(join(dir, 'target.rules'), TARGET_RULES);
+  writeFileSync(join(dir, 'storage.target.rules'), STORAGE_TARGET_RULES);
   return firebaseJson;
 }
 
@@ -94,6 +113,16 @@ describe('cross-plane Firebase project selection for .firebaserc deploy targets 
         );
         expect(inProcWarnings).toEqual([]);
         expect(inProcLoaded).toEqual({ path: expectedPath, refused: null });
+
+        // Bridge in-process server plane: default bucket name, Storage target
+        // rules, loadProjectRules, and diskAtSave snapshot capture (#1454).
+        expect(inProcessDefaultBucketName(dir)).toBe('staging-proj.firebasestorage.app');
+        const bridgeSandbox = initializeSandbox();
+        const storageHandle = openPersistedServices(bridgeSandbox, dir);
+        expect(getStorageRulesResolution(storageHandle)?.source).toBe(STORAGE_TARGET_RULES);
+        const bridgeLoaded = loadBridgeProjectRules(bridgeSandbox, dir);
+        expect(bridgeLoaded).toEqual({ path: expectedPath, refused: null });
+        saveSandboxSnapshot(bridgeSandbox, dir);
 
         const verifyLoaded = await resolveFirestoreCandidateRules({
           cwd: dir,
