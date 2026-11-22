@@ -232,11 +232,13 @@ function resolveBypassedFromAppTree(
   // Capture before trying candidate parentURLs: Node's customization_hooks
   // mutates `context` in place whenever `nextResolve` receives a replacement.
   const originalParentUrl = context.parentURL;
-  let originalConditions: unknown;
+  let originalConditionsArray: unknown[] | undefined;
+  let originalConditionsScalar: unknown;
+  const hasOriginalConditions = context.conditions !== undefined;
   if (Array.isArray(context.conditions)) {
-    originalConditions = [...context.conditions];
-  } else if (context.conditions !== undefined) {
-    originalConditions = context.conditions;
+    originalConditionsArray = [...context.conditions];
+  } else if (hasOriginalConditions) {
+    originalConditionsScalar = context.conditions;
   }
   const candidates: string[] = [];
   const seen = new Set<string>();
@@ -253,8 +255,10 @@ function resolveBypassedFromAppTree(
   }
   for (const parentUrl of candidates) {
     const candidateContext: SyncResolveContext = { parentURL: parentUrl };
-    if (originalConditions !== undefined) {
-      candidateContext.conditions = originalConditions;
+    if (originalConditionsArray !== undefined) {
+      candidateContext.conditions = [...originalConditionsArray];
+    } else if (hasOriginalConditions) {
+      candidateContext.conditions = originalConditionsScalar;
     }
     try {
       return nextResolve(specifier, candidateContext);
@@ -269,8 +273,10 @@ function resolveBypassedFromAppTree(
   if (originalParentUrl !== undefined) {
     fallbackContext.parentURL = originalParentUrl;
   }
-  if (originalConditions !== undefined) {
-    fallbackContext.conditions = originalConditions;
+  if (originalConditionsArray !== undefined) {
+    fallbackContext.conditions = [...originalConditionsArray];
+  } else if (hasOriginalConditions) {
+    fallbackContext.conditions = originalConditionsScalar;
   }
   return nextResolve(specifier, fallbackContext);
 }

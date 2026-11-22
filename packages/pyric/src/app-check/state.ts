@@ -8,6 +8,7 @@
  * providers the sandbox cannot run, the sandbox mints its own token.
  */
 import type { FirebaseApp } from '../app/types.js';
+import type { Sandbox } from '../sandbox/types/service.js';
 import { SANDBOX_CLOCK, type SandboxClock } from '../sandbox/clock.js';
 import { isRemoteSandbox } from '../sandbox/remote.js';
 import { resolveClientAppIncludingDeleted } from '../sandbox/internal/client-app.js';
@@ -124,8 +125,16 @@ function attestationProvider(provider: AppCheckProvider, debugMode: boolean): Cu
 function clockOf(app: FirebaseApp): SandboxClock | null {
   const runtime = resolveClientAppIncludingDeleted(app);
   if (runtime === undefined) return null;
-  if (isRemoteSandbox(runtime.sandbox)) return null;
-  const carried = (runtime.sandbox as Partial<Record<typeof SANDBOX_CLOCK, SandboxClock>>)[SANDBOX_CLOCK];
+  // Remotely activated apps (Node host / Vite SSR via `attachRefusedSandboxApp`)
+  // define `runtime.sandbox` as a throwing accessor getter; inspect the own
+  // descriptor so App Check does not trigger that refusal when reading time.
+  const descriptor = Object.getOwnPropertyDescriptor(runtime, 'sandbox');
+  if (descriptor === undefined || typeof descriptor.get === 'function') return null;
+  const sandbox = descriptor.value as Sandbox | null | undefined;
+  if (sandbox === null || sandbox === undefined || typeof sandbox !== 'object' || isRemoteSandbox(sandbox)) {
+    return null;
+  }
+  const carried = (sandbox as Partial<Record<typeof SANDBOX_CLOCK, SandboxClock>>)[SANDBOX_CLOCK];
   if (carried === undefined) return null;
   return carried;
 }

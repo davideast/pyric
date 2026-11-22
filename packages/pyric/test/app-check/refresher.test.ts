@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import { deleteApp, getApps, initializeApp } from '../../src/app/index.js';
-import { createAppForSandbox, resetAppRegistryForTests } from '../../src/app/internal.js';
+import { bindAppRegistryRefusal, clientSdkRefusal, createAppForSandbox, resetAppRegistryForTests } from '../../src/app/internal.js';
 import type { FirebaseApp } from '../../src/app/types.js';
 import {
   CustomProvider,
   ReCaptchaV3Provider,
+  getLimitedUseToken,
   getToken,
   initializeAppCheck,
   onTokenChanged,
@@ -431,5 +432,29 @@ describe('#1656: sandbox App Check token refresher and schedule formula', () => 
     } finally {
       warnSpy.mockRestore();
     }
+  });
+
+  it('does not trigger a refused sandbox getter on remote/SSR apps (falls back to Date.now())', async () => {
+    await resetAppRegistryForTests();
+    bindAppRegistryRefusal(() => clientSdkRefusal('remote:http://127.0.0.1:5000'));
+    const app = initializeApp(OPTIONS, 'ssr-refused-sandbox');
+    let calls = 0;
+    const appCheck = initializeAppCheck(app, {
+      provider: new CustomProvider({
+        getToken: async () => {
+          calls += 1;
+          return { token: `ssr-tok-${calls}`, expireTimeMillis: Date.now() + 3_600_000 };
+        },
+      }),
+      isTokenAutoRefreshEnabled: false,
+    });
+    const seen: string[] = [];
+    const unsub = onTokenChanged(appCheck, (res) => seen.push(res.token));
+    expect(await getToken(appCheck)).toEqual({ token: 'ssr-tok-1' });
+    expect(await getLimitedUseToken(appCheck)).toEqual({ token: 'ssr-tok-2' });
+    await flushMicrotasks();
+    expect(seen).toEqual(['ssr-tok-1']);
+    unsub();
+    await deleteApp(app);
   });
 });
