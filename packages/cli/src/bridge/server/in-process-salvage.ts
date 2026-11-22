@@ -26,7 +26,6 @@ import {
 import {
   CHUNK_FORMAT_VERSION,
   UnsupportedPersistedServiceError,
-  V3_BUNDLE_FORMAT,
   checksumDocs,
   decodeImportBundle,
   deserializeRtdbRecords,
@@ -51,6 +50,8 @@ import { restoreStorage, type StorageObjectRecord } from '../surface/storage-sta
 import type { ProjectStateOwner } from './in-process-persistence.js';
 import { validateCliService } from './in-process-salvage-services.js';
 import { salvageStorageSidecar } from './in-process-salvage-storage.js';
+
+const V3_BUNDLE_FORMAT = 'pyric-v3-records';
 
 const metadataShape = z.object({
   version: z.literal(CHUNK_FORMAT_VERSION),

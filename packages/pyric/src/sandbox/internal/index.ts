@@ -33,7 +33,6 @@ export { authAccountsFor, refreshRefusal, registerAuthAccounts, type AuthAccount
 export type { ToolContext, ToolHandler, ToolParameters, ToolResult } from './tool-handler.js';
 export {
   CHUNK_FORMAT_VERSION,
-  V3_BUNDLE_FORMAT,
   checksumDocs,
   pathToBucketId,
 } from '../persistence/chunk-format.js';

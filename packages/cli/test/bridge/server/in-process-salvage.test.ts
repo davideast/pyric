@@ -25,7 +25,6 @@ import { getAdminDatabase, ref as dbRef, set as dbSet } from 'pyric/database';
 import { doc, getDoc, getFirestore, setDoc } from 'pyric/firestore';
 import {
   CHUNK_FORMAT_VERSION,
-  V3_BUNDLE_FORMAT,
   checksumDocs,
   pathToBucketId,
 } from 'pyric/sandbox/internal';
@@ -39,6 +38,8 @@ import {
   saveSandboxSnapshot,
 } from '../../../src/bridge/server/in-process.js';
 import { salvageInProcessState } from '../../../src/bridge/server/in-process-salvage.js';
+
+const V3_BUNDLE_FORMAT = 'pyric-v3-records';
 import {
   STORAGE_SIDECAR_RELATIVE,
   loadStorageSidecar,
