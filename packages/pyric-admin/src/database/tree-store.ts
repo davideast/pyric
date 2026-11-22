@@ -19,6 +19,65 @@ import type { AdminServiceLifecycle } from '../app/lifecycle.js';
 import type { JsonValue } from './types.js';
 
 const UNSAFE_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor']);
+const INVALID_PATH_CHARS = /[.#$[\]\u0000-\u001F\u007F]/;
+
+function assertValidPathString(fnName: string, path: unknown): asserts path is string {
+  const isString = typeof path === 'string';
+  const isEmpty = isString && path.length === 0;
+  const hasForbiddenChar = isString && INVALID_PATH_CHARS.test(path);
+  if (!isString || isEmpty || hasForbiddenChar) {
+    throw new Error(
+      `${fnName} failed: path argument was an invalid path = "${String(path)}". ` +
+        'Paths must be non-empty strings and can\'t contain ".", "#", "$", "[", or "]"',
+    );
+  }
+}
+
+/**
+ * Validate a root-anchored RTDB reference path (`Database#ref` or root
+ * `Reference#child`), allowing a leading `/.info` segment while rejecting
+ * empty strings, non-strings, control characters, and `.`, `#`, `$`, `[`, `]`.
+ */
+export function validateAdminRefPath(path: unknown): string {
+  let candidate: unknown = path;
+  if (typeof candidate === 'string' && candidate.length > 0) {
+    candidate = candidate.replace(/^\/*\.info(\/|$)/, '/');
+  }
+  assertValidPathString('child', candidate);
+  return path as string;
+}
+
+/**
+ * Validate a relative `Reference#child(path)` argument, coercing numeric keys
+ * to strings and permitting leading `.info` only when invoked on the root ref.
+ */
+export function validateAdminChildPath(parentSegs: readonly string[], path: unknown): string {
+  let normalized: unknown = path;
+  if (typeof normalized === 'number') {
+    normalized = String(normalized);
+  }
+  if (parentSegs.length === 0) {
+    return validateAdminRefPath(normalized);
+  }
+  assertValidPathString('child', normalized);
+  return normalized;
+}
+
+/**
+ * Validate a `DataSnapshot#child` or `DataSnapshot#hasChild` path argument.
+ */
+export function validateSnapshotChildPath(
+  fnName: 'DataSnapshot.child' | 'DataSnapshot.hasChild',
+  path: unknown,
+  coerceToString: boolean,
+): string {
+  let candidate: unknown = path;
+  if (coerceToString) {
+    candidate = String(candidate);
+  }
+  assertValidPathString(fnName, candidate);
+  return candidate;
+}
 
 /** Normalise a path to non-empty segments. `'/'` -> `[]`.
  *  Throws if any segment is a prototype-pollution vector. */
@@ -121,28 +180,14 @@ export function validateValuesArg(segs: string[], values: unknown): Record<strin
   return Object.fromEntries(normalizedEntries);
 }
 
-/** Run a synchronous in-memory write as a settled promise, invoking `onComplete` if supplied. */
+/** Run a synchronous in-memory write as a settled promise, invoking `onComplete` asynchronously if supplied. */
 export function settled(write: () => void, onComplete?: (err: Error | null) => void): Promise<void> {
   try {
     write();
   } catch (error) {
-    if (onComplete) {
-      try {
-        onComplete(error as Error);
-      } catch (cbError) {
-        return Promise.reject(cbError);
-      }
-    }
-    return Promise.reject(error);
+    return withOnComplete(Promise.reject(error), onComplete);
   }
-  if (onComplete) {
-    try {
-      onComplete(null);
-    } catch (cbError) {
-      return Promise.reject(cbError);
-    }
-  }
-  return Promise.resolve();
+  return withOnComplete(Promise.resolve(), onComplete);
 }
 
 /** Return a rejected `app/app-deleted` promise when `lifecycle` has been tombstoned, or `null`. */

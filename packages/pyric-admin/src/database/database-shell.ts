@@ -9,6 +9,7 @@ import {
 import type { PyricAdminApp } from '../app/index.js';
 import type { AdminServiceLifecycle } from '../app/lifecycle.js';
 import type { DatabaseRulesControls } from './admin-rules.js';
+import { validateAdminRefPath } from './tree-store.js';
 import {
   isAdminReference,
   type Database,
@@ -87,10 +88,8 @@ export function buildDatabaseShell(
       if (isAdminReference(path)) {
         return db.refFromURL(path.toString());
       }
-      if (path !== undefined && (typeof path !== 'string' || path.length === 0)) {
-        throw new Error(
-          `child failed: path argument was an invalid path = "${String(path)}". Paths must be non-empty strings and can't contain ".", "#", "$", "[", or "]"`,
-        );
+      if (path !== undefined) {
+        validateAdminRefPath(path);
       }
       return refFactory(db as unknown as Database, path ?? '/', activeUrlMeta);
     },

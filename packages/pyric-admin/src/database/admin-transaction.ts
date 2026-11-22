@@ -141,11 +141,22 @@ function writeAtSegments(
   if (key === undefined) {
     return leaf;
   }
+  const isObjectNode = node !== null && typeof node === 'object' && !Array.isArray(node);
+  if (!isObjectNode && node !== null && leaf === null) {
+    // Removing or setting null below a primitive leaf leaves the leaf intact (#1935).
+    return node;
+  }
   let baseRecord: Record<string, JsonValue> = {};
-  if (node !== null && typeof node === 'object' && !Array.isArray(node)) {
+  if (isObjectNode) {
     baseRecord = { ...(node as Record<string, JsonValue>) };
   }
-  const existingChild = baseRecord[key] ?? null;
+  let existingChild: JsonValue = null;
+  if (Object.hasOwn(baseRecord, key)) {
+    const ownVal = baseRecord[key];
+    if (ownVal !== undefined) {
+      existingChild = ownVal;
+    }
+  }
   const updatedChild = writeAtSegments(existingChild, segs, index + 1, leaf);
   if (updatedChild === null) {
     delete baseRecord[key];

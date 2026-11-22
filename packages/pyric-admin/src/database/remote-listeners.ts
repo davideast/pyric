@@ -261,6 +261,7 @@ export function onceRemoteListener(
     let detach: (() => void) | null = null;
     let untrack: (() => void) | null = null;
     let isSettled = false;
+    let inSyncAttach = true;
     const isDeleted = (): boolean => target.lifecycle?.isDeleted === true;
     const cleanup = (): void => {
       const fn = detach;
@@ -270,41 +271,38 @@ export function onceRemoteListener(
       untrack = null;
       if (release !== null) release();
     };
+    const runDeferredIfSync = (action: () => void): void => {
+      if (inSyncAttach) {
+        queueMicrotask(action);
+      } else {
+        action();
+      }
+    };
     const failOnce = (err: Error) => {
       if (isSettled) return;
       isSettled = true;
       cleanup();
-      if (failureCb !== undefined) {
-        try {
-          failureCb.call(boundContext, err);
-        } catch {
-          // Ignore secondary callback throw before rejecting with the read error.
+      runDeferredIfSync(() => {
+        if (failureCb !== undefined) {
+          try {
+            failureCb.call(boundContext, err);
+          } catch (secondaryErr) {
+            // Preserve the primary read error when a consumer failure callback throws.
+            void secondaryErr;
+          }
         }
-      }
-      reject(err);
-    };
-    if (isDeleted()) {
-      try {
-        target.lifecycle?.assertActive();
-      } catch (err) {
-        failOnce(err as Error);
-        return;
-      }
-    }
-    if (target.lifecycle !== undefined) {
-      untrack = target.lifecycle.trackSubscription(() => {
-        isSettled = true;
-        const fn = detach;
-        detach = null;
-        if (fn !== null) fn();
+        reject(err);
       });
-    }
+    };
     const resolveOnce = (snap: DataSnapshot, prevKey: string | null) => {
       if (isSettled || isDeleted()) return;
       isSettled = true;
       cleanup();
-      deliverRemoteCallback(eventType, successCb, boundContext, snap, prevKey);
-      resolve(snap);
+      runDeferredIfSync(() => {
+        if (isDeleted()) return;
+        deliverRemoteCallback(eventType, successCb, boundContext, snap, prevKey);
+        resolve(snap);
+      });
     };
     const handleWireDelivery = (wire: RemoteWireSnapshot): void => {
       if (isSettled || isDeleted()) return;
@@ -336,19 +334,22 @@ export function onceRemoteListener(
         return;
       }
       try {
-        const attachedUnsub = isInfoPath(target.canonical)
-          ? subscribeRemoteInfo(target, segs, spec, eventType, handleWireDelivery)
-          : subscribeRemoteRtdb(
-              target,
-              wireQuery,
-              eventType,
-              (value) => {
-                handleWireDelivery(value as RemoteWireSnapshot);
-              },
-              (err) => {
-                failOnce(err);
-              },
-            );
+        let attachedUnsub: () => void;
+        if (isInfoPath(target.canonical)) {
+          attachedUnsub = subscribeRemoteInfo(target, segs, spec, eventType, handleWireDelivery);
+        } else {
+          attachedUnsub = subscribeRemoteRtdb(
+            target,
+            wireQuery,
+            eventType,
+            (value) => {
+              handleWireDelivery(value as RemoteWireSnapshot);
+            },
+            (err) => {
+              failOnce(err);
+            },
+          );
+        }
         if (isSettled || isDeleted()) {
           isSettled = true;
           attachedUnsub();
@@ -361,14 +362,34 @@ export function onceRemoteListener(
       }
     };
 
-    if (!isInfoPath(target.canonical)) {
-      const barrier = target.waitConnectionBarrier?.() ?? null;
-      if (barrier !== null) {
-        void barrier.then(startSubscribe);
-        return;
+    try {
+      if (isDeleted()) {
+        try {
+          target.lifecycle?.assertActive();
+        } catch (err) {
+          failOnce(err as Error);
+          return;
+        }
       }
+      if (target.lifecycle !== undefined) {
+        untrack = target.lifecycle.trackSubscription(() => {
+          isSettled = true;
+          const fn = detach;
+          detach = null;
+          if (fn !== null) fn();
+        });
+      }
+      if (!isInfoPath(target.canonical)) {
+        const barrier = target.waitConnectionBarrier?.() ?? null;
+        if (barrier !== null) {
+          void barrier.then(startSubscribe);
+          return;
+        }
+      }
+      startSubscribe();
+    } finally {
+      inSyncAttach = false;
     }
-    startSubscribe();
   });
 }
 
