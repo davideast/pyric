@@ -30,7 +30,8 @@ import {
   pathToBucketId,
 } from 'pyric/sandbox/internal';
 import { getAdminStorageSandbox } from 'pyric/storage/internal';
-import { getBytes, ref as storageRef, uploadBytes } from 'pyric/storage';
+import { deleteObject, getBytes, ref as storageRef, uploadBytes } from 'pyric/storage';
+import { listStoredPaths } from '../../../src/bridge/surface/storage-state.js';
 import {
   IN_PROCESS_STATE_RELATIVE,
   loadSandboxSnapshot,
@@ -63,7 +64,16 @@ function findCollidingDocPath(targetBucket: string): string {
   throw new Error(`Could not find colliding doc path for bucket ${targetBucket}`);
 }
 
-afterEach(() => {
+async function clearDefaultStorage(): Promise<void> {
+  const cleanupSandbox = initializeSandbox();
+  const storage = getAdminStorageSandbox(cleanupSandbox);
+  for (const storedPath of await listStoredPaths(storage)) {
+    await deleteObject(storageRef(storage, storedPath));
+  }
+}
+
+afterEach(async () => {
+  await clearDefaultStorage();
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop();
     if (dir !== undefined) rmSync(dir, { recursive: true, force: true });
@@ -72,6 +82,7 @@ afterEach(() => {
 
 describe('salvageInProcessState (#1384)', () => {
   it('excludes a malformed document in the same bucket while recovering sibling docs, services, and storage sidecar', async () => {
+    await clearDefaultStorage();
     const projectDir = makeTempDir('pyric-inproc-salvage-');
     const sandbox = initializeSandbox();
     openPersistedServices(sandbox, projectDir);
@@ -178,6 +189,7 @@ describe('salvageInProcessState (#1384)', () => {
     mkdirSync(join(activatedProject, '.pyric'), { recursive: true });
     cpSync(outDir, activatedStateDir, { recursive: true });
 
+    await clearDefaultStorage();
     const restoredSandbox = initializeSandbox();
     const restoredStorage = openPersistedServices(restoredSandbox, activatedProject);
     const restoredDocCount = loadSandboxSnapshot(restoredSandbox, activatedProject);
