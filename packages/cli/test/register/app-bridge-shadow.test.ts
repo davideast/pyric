@@ -11,6 +11,7 @@
  * throws only while `failShadow` is set, and it lives in its own file.
  */
 import { afterEach, describe, expect, it, mock } from 'bun:test';
+import { inspect } from 'node:util';
 import * as sdkApp from 'firebase/app';
 
 const realExports = { ...sdkApp };
@@ -29,6 +30,7 @@ mock.module('firebase/app', () => ({
 const { shadowAppOf, shadowedAppRegistry } = await import('../../src/register/app-bridge-shadow.js');
 const bridge = await import('../../src/register/app-bridge-app-check.js');
 const { CustomProvider } = await import('firebase/app-check');
+const realAi = await import('firebase/ai');
 
 const OPTIONS = { apiKey: 'demo-api-key', appId: '1:123456789012:web:0a1b2c3d4e5f60718293a4', projectId: 'demo-shadow' };
 
@@ -76,7 +78,66 @@ describe('shadow app creation failure in production AI mode', () => {
     const name = nextName();
     const app = pyricLikeRegistry().initializeApp(OPTIONS, name);
     expect(app.name).toBe(name);
-    expect('container' in app).toBe(false);
+    // The failure container getter is non-enumerable so inspection/serialization stays safe.
+    expect(Object.keys(app)).not.toContain('container');
+    expect(() => inspect(app)).not.toThrow();
+    expect(JSON.parse(JSON.stringify(app))).toEqual({
+      name,
+      options: OPTIONS,
+      automaticDataCollectionEnabled: false,
+    });
+    const descriptor = Object.getOwnPropertyDescriptor(app, 'container');
+    expect(descriptor?.enumerable).toBe(false);
+    expect(typeof descriptor?.get).toBe('function');
+  });
+
+  it('makes real firebase/ai getAI(app) throw the named shadow-app error without App Check (#1548)', () => {
+    failShadow = true;
+    const name = nextName();
+    const app = pyricLikeRegistry().initializeApp(OPTIONS, name);
+    const error = thrown(() => realAi.getAI(app as never)) as Error & { cause?: unknown };
+    expect(error).toBeInstanceOf(Error);
+    expect(error.message).toBe(
+      `Pyric could not create the Firebase app that firebase/app-check and firebase/ai attach to in production AI mode, for app "${name}": ${SHADOW_FAILURE.message}.`,
+    );
+    expect(error.cause).toBe(SHADOW_FAILURE);
+  });
+
+  it('clears a stale failure record once shadowAppOf observes a real Firebase app (#1548)', async () => {
+    const registry = pyricLikeRegistry();
+    const name = nextName();
+    failShadow = true;
+    const app = registry.initializeApp(OPTIONS, name);
+    expect(thrown(() => shadowAppOf(app))).toBeInstanceOf(Error);
+
+    // App code creates a real Firebase app directly under the same name.
+    failShadow = false;
+    const directShadow = sdkApp.initializeApp(OPTIONS, name);
+    expect(shadowAppOf(app)).toBe(directShadow);
+
+    // Deleting through the real SDK leaves no stale failure record behind.
+    await sdkApp.deleteApp(directShadow);
+    expect(shadowAppOf(app)).toBe(app);
+    expect((app as { container?: unknown }).container).toBeUndefined();
+  });
+
+  it('clears a stale failure record when getAI(app) observes a real Firebase app (#1548)', async () => {
+    const registry = pyricLikeRegistry();
+    const name = nextName();
+    failShadow = true;
+    const app = registry.initializeApp(OPTIONS, name);
+    expect(thrown(() => realAi.getAI(app as never))).toBeInstanceOf(Error);
+
+    // App code creates a real Firebase app directly; getAI attaches cleanly.
+    failShadow = false;
+    const directShadow = sdkApp.initializeApp(OPTIONS, name);
+    const ai = realAi.getAI(app as never);
+    expect(ai.app).toBe(directShadow);
+
+    // Deleting through the real SDK must not resurrect the earlier shadow failure.
+    await sdkApp.deleteApp(directShadow);
+    expect(shadowAppOf(app)).toBe(app);
+    expect((app as { container?: unknown }).container).toBeUndefined();
   });
 
   it('makes initializeAppCheck throw an error that names the cause, with the original as cause', () => {
@@ -112,9 +173,10 @@ describe('shadow app creation failure in production AI mode', () => {
     const app = registry.initializeApp(OPTIONS, name);
     await registry.deleteApp(app);
     expect(shadowAppOf(app)).toBe(app);
+    expect('container' in app).toBe(false);
   });
 
-  it('records failures from the served firebase/app entry where the register bridge reads them', async () => {
+  it('records failures from the served firebase/app entry for both App Check and AI (#1548)', async () => {
     const served = await import('../../src/serve/entries/app-ai-passthrough.js');
     // Pyric allows one Firebase configuration per runtime; other suites in this process bind theirs.
     const { resetAppRegistryForTests } = await import('pyric/app/internal');
@@ -123,9 +185,13 @@ describe('shadow app creation failure in production AI mode', () => {
     const name = nextName();
     const app = served.initializeApp(OPTIONS, name);
     try {
-      const error = thrown(() => bridge.initializeAppCheck(app, { provider: provider() })) as Error & { cause?: unknown };
-      expect(error.message).toContain(`for app "${name}": ${SHADOW_FAILURE.message}`);
-      expect(error.cause).toBe(SHADOW_FAILURE);
+      const appCheckError = thrown(() => bridge.initializeAppCheck(app, { provider: provider() })) as Error & { cause?: unknown };
+      expect(appCheckError.message).toContain(`for app "${name}": ${SHADOW_FAILURE.message}`);
+      expect(appCheckError.cause).toBe(SHADOW_FAILURE);
+
+      const aiError = thrown(() => realAi.getAI(app as never)) as Error & { cause?: unknown };
+      expect(aiError.message).toContain(`for app "${name}": ${SHADOW_FAILURE.message}`);
+      expect(aiError.cause).toBe(SHADOW_FAILURE);
     } finally {
       await served.deleteApp(app);
       await resetAppRegistryForTests();

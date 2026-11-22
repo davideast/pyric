@@ -207,9 +207,22 @@ export class OpenAiEngine implements AnswerEngine {
       }
 
       const reader = res.body.getReader();
+      let streamFinished = false;
+      const onAbort = (): void => {
+        void reader.cancel(signal?.reason).catch(() => undefined);
+      };
+      if (signal !== undefined) {
+        if (signal.aborted) {
+          onAbort();
+        } else {
+          signal.addEventListener('abort', onAbort, { once: true });
+        }
+      }
       try {
         for (;;) {
+          throwIfAborted(signal);
           const { done, value } = await readStream(reader);
+          throwIfAborted(signal);
           let payloads: string[];
           if (done) {
             payloads = parser.push('\n\n');
@@ -244,11 +257,21 @@ export class OpenAiEngine implements AnswerEngine {
             if (parts.length > 0) yield frame(parts);
           }
 
-          if (done) break;
+          if (done) {
+            streamFinished = true;
+            break;
+          }
         }
       } finally {
-        if (signal?.aborted) {
-          await reader.cancel().catch(() => undefined);
+        if (signal !== undefined) {
+          signal.removeEventListener('abort', onAbort);
+        }
+        if (!streamFinished) {
+          let cancelReason: unknown;
+          if (signal?.aborted) {
+            cancelReason = signal.reason;
+          }
+          await reader.cancel(cancelReason).catch(() => undefined);
         }
         reader.releaseLock();
       }

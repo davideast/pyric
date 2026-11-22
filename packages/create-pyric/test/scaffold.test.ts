@@ -156,6 +156,50 @@ describe('runScaffold', () => {
     expect(rulesContent).toContain('request.auth != null && request.auth.uid == userId');
   });
 
+  it('reads every VITE_FIREBASE_* variable declared in the web template .env.example (#1567)', async () => {
+    const io = bufferIo();
+    const writeFn = mock(async () => undefined);
+    const mkdirFn = mock(async () => undefined);
+    const code = await runScaffold(
+      {
+        dir: 'env-app',
+        commandLabel: 'create-pyric',
+        effectiveTemplate: applyDepsMode(TEMPLATES.web, 'npm', { version: null }),
+      },
+      {
+        ...io,
+        cwd: '/tmp',
+        writeFile: writeFn as never,
+        mkdir: mkdirFn as never,
+        exists: async () => false,
+      },
+    );
+    expect(code).toBe(0);
+
+    const envCall = writeFn.mock.calls.find((c) => String(c[0]).endsWith('.env.example'));
+    const mainCall = writeFn.mock.calls.find((c) => String(c[0]).endsWith('src/main.ts'));
+    expect(envCall).toBeDefined();
+    expect(mainCall).toBeDefined();
+
+    const envExample = String(envCall?.[1]);
+    const mainSource = String(mainCall?.[1]);
+    const declaredKeys = [...envExample.matchAll(/^(VITE_FIREBASE_[A-Z_]+)=/gm)].map((match) => match[1]);
+    expect(declaredKeys).toEqual([
+      'VITE_FIREBASE_API_KEY',
+      'VITE_FIREBASE_AUTH_DOMAIN',
+      'VITE_FIREBASE_PROJECT_ID',
+      'VITE_FIREBASE_STORAGE_BUCKET',
+      'VITE_FIREBASE_MESSAGING_SENDER_ID',
+      'VITE_FIREBASE_APP_ID',
+    ]);
+    for (const key of declaredKeys) {
+      expect(mainSource).toContain(`import.meta.env.${key}`);
+    }
+    expect(mainSource).toContain('firebaseConfig.storageBucket');
+    expect(mainSource).toContain('firebaseConfig.messagingSenderId');
+    expect(mainSource).toContain('firebaseConfig.appId');
+  });
+
   it('writes the nextjs scaffold when selected', async () => {
     const io = bufferIo();
     const writeFn = mock(async () => undefined);

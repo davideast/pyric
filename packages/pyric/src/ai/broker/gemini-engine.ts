@@ -292,6 +292,17 @@ export class GeminiEngine implements AnswerEngine {
     const decoder = new TextDecoder();
     let buffer = '';
     let eventDataLines: string[] = [];
+    let streamFinished = false;
+    const onAbort = (): void => {
+      void reader.cancel(signal?.reason).catch(() => undefined);
+    };
+    if (signal !== undefined) {
+      if (signal.aborted) {
+        onAbort();
+      } else {
+        signal.addEventListener('abort', onAbort, { once: true });
+      }
+    }
 
     function* ingestLine(line: string): Generator<WireChunk> {
       if (line === '') {
@@ -308,9 +319,12 @@ export class GeminiEngine implements AnswerEngine {
 
     try {
       while (true) {
+        throwIfAborted(signal);
         const { done, value } = await this.readStream(reader, credentials, signal);
+        throwIfAborted(signal);
         const isDone = done === true;
         if (isDone) {
+          streamFinished = true;
           break;
         }
         buffer += decoder.decode(value, { stream: true });
@@ -338,8 +352,15 @@ export class GeminiEngine implements AnswerEngine {
       eventDataLines = [];
       yield* parseSseEventData(trailingDataLines, credentials);
     } finally {
-      if (signal?.aborted) {
-        await reader.cancel().catch(() => undefined);
+      if (signal !== undefined) {
+        signal.removeEventListener('abort', onAbort);
+      }
+      if (!streamFinished) {
+        let cancelReason: unknown;
+        if (signal?.aborted) {
+          cancelReason = signal.reason;
+        }
+        await reader.cancel(cancelReason).catch(() => undefined);
       }
       reader.releaseLock();
     }

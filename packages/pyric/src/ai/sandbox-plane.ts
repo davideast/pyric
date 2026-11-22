@@ -211,6 +211,113 @@ export async function planeGenerateContent(
   }
 }
 
+function closeIteratorSafely(iterator: AsyncIterator<WireResponse>): void {
+  if (typeof iterator.return !== 'function') return;
+  try {
+    void Promise.resolve(iterator.return()).catch(() => undefined);
+  } catch {
+    // Best-effort cleanup if the iterator throws synchronously on return().
+  }
+}
+
+function emptyStream(): AsyncGenerator<EnhancedResponse> {
+  return (async function* doneStream(): AsyncGenerator<EnhancedResponse> {
+    // Completed empty stream with no chunks.
+  })();
+}
+
+function pumpStream(
+  target: AITarget,
+  modelResource: string,
+  activity: ReturnType<typeof beginAiActivity>,
+  streamScope: RequestAbortScope,
+  inner: AsyncIterable<WireResponse> | undefined,
+  preOpenedIterator: AsyncIterator<WireResponse> | undefined,
+  buffered: WireResponse[],
+): GenerateContentStreamResult {
+  // Pump eagerly (upstream tees the body stream): the aggregate resolves
+  // even if the consumer never drains `stream`.
+  let done = false;
+  let hasFailure = false;
+  let failure: unknown;
+  let notify: (() => void) | undefined;
+  const wake = (): void => {
+    notify?.();
+    notify = undefined;
+  };
+
+  const pumped = (async () => {
+    let iterator = preOpenedIterator;
+    try {
+      if (iterator === undefined) {
+        if (inner === undefined) {
+          throw new Error('Missing stream iterable.');
+        }
+        iterator = inner[Symbol.asyncIterator]();
+      }
+      for (;;) {
+        const step = await streamScope.race(iterator.next());
+        streamScope.clearTimeout();
+        if (step.done) break;
+        activity.chunk(step.value);
+        buffered.push(step.value);
+        wake();
+      }
+    } catch (err) {
+      if (streamScope.signal.aborted && iterator !== undefined) {
+        closeIteratorSafely(iterator);
+      }
+      activity.fail(err);
+      failure = planeError(target, err, modelResource, 'streamGenerateContent');
+      hasFailure = true;
+      wake();
+      throw failure;
+    } finally {
+      streamScope.dispose();
+      done = true;
+      wake();
+    }
+    const lastChunk = buffered.length > 0 ? buffered[buffered.length - 1] : undefined;
+    const aggregate = aggregateResponses(buffered);
+    activity.finish(lastChunk ?? {}, aggregate);
+    return aggregate;
+  })();
+
+  const response: Promise<EnhancedResponse> = pumped.then((aggregate) =>
+    createEnhancedContentResponse(aggregate),
+  );
+  // Consumers may only iterate `stream` -- never let an un-awaited aggregate
+  // rejection surface as an unhandled rejection (the error still reaches
+  // whoever DOES await `response`).
+  void response.catch(() => undefined);
+
+  async function* stream(): AsyncGenerator<EnhancedResponse> {
+    let next = 0;
+    for (;;) {
+      if (streamScope.signal.aborted) {
+        if (hasFailure) throw failure;
+        throw abortReasonOf(streamScope.signal);
+      }
+      if (next < buffered.length) {
+        const chunk = buffered[next];
+        next += 1;
+        if (chunk === undefined) continue;
+        // Chunks are broker-owned fresh objects; enhance in place.
+        activity.progress();
+        yield createEnhancedContentResponse(structuredClone(chunk));
+        continue;
+      }
+      if (hasFailure) throw failure;
+      if (done) return;
+      await new Promise<void>((resolve) => {
+        notify = resolve;
+      });
+    }
+  }
+
+  return { stream: stream(), response };
+}
+
 export async function planeGenerateContentStream(
   target: AITarget,
   modelResource: string,
@@ -218,8 +325,12 @@ export async function planeGenerateContentStream(
   singleRequestOptions?: SingleRequestOptions,
 ): Promise<GenerateContentStreamResult> {
   const activity = beginAiActivity(target, modelResource, 'generateContentStream');
-  let inner: AsyncIterable<WireResponse>;
+  const isTransport = target.kind === 'transport';
   let activeScope: RequestAbortScope | undefined;
+  let inner: AsyncIterable<WireResponse> | undefined;
+  let iterator: AsyncIterator<WireResponse> | undefined;
+  const buffered: WireResponse[] = [];
+  let initialDone = false;
   try {
     activeScope = createRequestAbortScope(singleRequestOptions);
     const normalized = normalizeRequest(request) as unknown as GenerateContentRequest;
@@ -227,7 +338,7 @@ export async function planeGenerateContentStream(
     let appCheck: AppCheckClaim | undefined;
     const attachment = target.appCheck;
     if (attachment !== undefined) appCheck = await activeScope.race(attachment.claim());
-    // The App Check gate and broker validation run eagerly here — a refused
+    // The App Check gate and broker validation run eagerly here -- a refused
     // or bad request throws before iteration, the way production answers
     // HTTP errors instead of a stream.
     const admitsBeforeStream = target.kind === 'sandbox' && appCheck !== undefined;
@@ -238,85 +349,48 @@ export async function planeGenerateContentStream(
     // call instead of deferring validation behind its own gate.
     const claimForStream = admitsBeforeStream ? undefined : appCheck;
     const scopeRef = activeScope;
-    const dispatch = target.kind === 'transport' ? target.transport : target.broker;
+    const dispatch = isTransport ? target.transport : target.broker;
     inner = dispatch.streamGenerateContent(normalized, modelResource, claimForStream, {
       signal: scopeRef.signal,
       onStreamOpen: () => scopeRef.clearTimeout(),
     });
+    if (isTransport) {
+      // On SharedWorker and Node host planes, App Check admission, validation,
+      // and upstream checks run over the worker port. Wait for the first stream
+      // event or refusal before resolving generateContentStream (#1553).
+      iterator = inner[Symbol.asyncIterator]();
+      const firstStep = await activeScope.race(iterator.next());
+      activeScope.clearTimeout();
+      if (firstStep.done) {
+        initialDone = true;
+      } else {
+        activity.chunk(firstStep.value);
+        buffered.push(firstStep.value);
+      }
+    }
   } catch (err) {
+    if (iterator !== undefined) {
+      closeIteratorSafely(iterator);
+    }
     activeScope?.dispose();
     activity.fail(err);
     throw planeError(target, err, modelResource, 'streamGenerateContent');
   }
 
-  const streamScope = activeScope;
-  // Pump eagerly (upstream tees the body stream): the aggregate resolves
-  // even if the consumer never drains `stream`.
-  const buffered: WireResponse[] = [];
-  let done = false;
-  let failure: unknown;
-  let notify: (() => void) | undefined;
-  const wake = (): void => {
-    notify?.();
-    notify = undefined;
-  };
-
-  const pumped = (async () => {
-    let iterator: AsyncIterator<WireResponse> | undefined;
-    try {
-      iterator = inner[Symbol.asyncIterator]();
-      for (;;) {
-        const step = await streamScope.race(iterator.next());
-        streamScope.clearTimeout();
-        if (step.done) break;
-        activity.chunk(step.value);
-        buffered.push(step.value);
-        wake();
-      }
-    } catch (err) {
-      if (streamScope.signal.aborted && iterator && typeof iterator.return === 'function') {
-        void iterator.return().catch(() => undefined);
-      }
-      activity.fail(err);
-      failure = planeError(target, err, modelResource, 'streamGenerateContent');
-      wake();
-      throw failure;
-    } finally {
-      streamScope.dispose();
-      done = true;
-      wake();
-    }
-    const aggregate = aggregateResponses(buffered);
-    activity.finish(buffered.at(-1) ?? {}, aggregate);
-    return aggregate;
-  })();
-
-  const response: Promise<EnhancedResponse> = pumped.then((aggregate) =>
-    createEnhancedContentResponse(aggregate),
-  );
-  // Consumers may only iterate `stream` — never let an un-awaited aggregate
-  // rejection surface as an unhandled rejection (the error still reaches
-  // whoever DOES await `response`).
-  void response.catch(() => undefined);
-
-  async function* stream(): AsyncGenerator<EnhancedResponse> {
-    let next = 0;
-    for (;;) {
-      if (next < buffered.length) {
-        // Chunks are broker-owned fresh objects; enhance in place.
-        activity.progress();
-        yield createEnhancedContentResponse(structuredClone(buffered[next++]!));
-        continue;
-      }
-      if (failure !== undefined) throw failure;
-      if (done) return;
-      await new Promise<void>((resolve) => {
-        notify = resolve;
-      });
-    }
+  if (initialDone) {
+    activeScope.dispose();
+    const aggregate = aggregateResponses([]);
+    activity.finish({}, aggregate);
+    return {
+      stream: emptyStream(),
+      response: Promise.resolve(createEnhancedContentResponse(aggregate)),
+    };
   }
 
-  return { stream: stream(), response };
+  if (isTransport) {
+    return pumpStream(target, modelResource, activity, activeScope, undefined, iterator, buffered);
+  }
+  return pumpStream(target, modelResource, activity, activeScope, inner, undefined, buffered);
 }
 
 export async function planeCountTokens(

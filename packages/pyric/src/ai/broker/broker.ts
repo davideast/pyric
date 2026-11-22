@@ -336,7 +336,9 @@ export class AiBroker {
       this.emitBlockIfBlocked(model, response);
       return this.annotate(response, identity);
     } catch (err) {
-      this.emitRejectionIfBrokerError(model, err);
+      if (!options?.signal?.aborted) {
+        this.emitRejectionIfBrokerError(model, err);
+      }
       throw err;
     }
   }
@@ -406,7 +408,9 @@ export class AiBroker {
         }
         emit(chunkCount);
       } catch (err) {
-        emitRejection(err);
+        if (!options?.signal?.aborted) {
+          emitRejection(err);
+        }
         throw err;
       }
     })();
@@ -432,7 +436,9 @@ export class AiBroker {
       const { totalTokens } = aiUsageEvidence({ totalTokenCount: response.totalTokens });
       return setAiEvidence(response, { ...identity, totalTokens, usageSource: this.engineKind === 'gemini' ? 'backend' : this.engineKind === 'openai' ? 'estimated' : this.engineKind === 'scripted' ? 'scripted' : 'unknown' });
     } catch (err) {
-      this.emitRejectionIfBrokerError(model, err);
+      if (!options?.signal?.aborted) {
+        this.emitRejectionIfBrokerError(model, err);
+      }
       throw err;
     }
   }

@@ -313,18 +313,27 @@ function portEngine(
         }
       }
     },
-    streamGenerateContent(req: Record<string, unknown>, model: string, appCheck?: AppCheckClaim): AsyncIterable<Record<string, unknown>> {
+    streamGenerateContent(
+      req: Record<string, unknown>,
+      model: string,
+      appCheck?: AppCheckClaim,
+      options?: { signal?: AbortSignal; onStreamOpen?: () => void },
+    ): AsyncIterable<Record<string, unknown>> {
       return (async function* mapped(): AsyncGenerator<Record<string, unknown>> {
         const resolved = resolveAiWorkerDb(app);
+        const signal = options?.signal;
+        const streamOptions = signal === undefined ? undefined : { signal };
         const inner = aiStreamGenerateContent(
           resolved.db,
           buildAiOpParams(model, req, engineWire, appCheck),
+          streamOptions,
         );
         try {
           for await (const chunk of inner) {
             yield unpackAiEvidence(chunk);
           }
         } catch (err) {
+          if (signal?.aborted) throw err;
           throw aiErrorFromWire(err, model, 'streamGenerateContent', backend);
         } finally {
           if (resolved.ephemeral) {
