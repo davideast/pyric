@@ -1,3 +1,4 @@
+import { answerAndClose } from '../bridge/server/peer.js';
 import { createDiagnostics } from './diagnostics.js';
 import { createUnlockHandler, LOGOUT_PATH, UNLOCK_PATH } from './unlock-route.js';
 import { DIAGNOSTICS_PATH } from './runtime/diagnostics-report.js';
@@ -283,7 +284,11 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
       const isRead = req.method === 'GET';
       const conflictsWithHost = hostOwnsState && !isRead;
       if (conflictsWithHost) {
-        res.writeHead(423, { 'content-type': 'text/plain' }).end(
+        answerAndClose(
+          req,
+          res,
+          423,
+          { 'content-type': 'text/plain' },
           'The hosted sandbox owns this state. Use its SDK, CLI or MCP interface to change data.',
         );
         return true;

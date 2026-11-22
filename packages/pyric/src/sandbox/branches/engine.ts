@@ -38,7 +38,11 @@ import { getOrCreateBackend } from '../../database/sandbox/backend-for.js';
 import type { JsonValue } from '../../database/sandbox/data-tree.js';
 import type { Priority } from '../../database/sandbox/query.js';
 import { toStrictRulesJson } from '@pyric/rules/internal/rtdb';
-import { getAdminStorageSandbox, replaceStorageRules } from '../../storage/internal.js';
+import {
+  deployStorageBucketRules,
+  getAdminStorageSandbox,
+  replaceStorageRules,
+} from '../../storage/internal.js';
 import { Timestamp } from 'pyric/rules/internal';
 import type { BatchOperationInput } from '../../firestore/sandbox/writes.js';
 import { getClock } from '../clock.js';
@@ -69,8 +73,12 @@ export interface BranchCandidateRules {
   firestore?: string;
   /** Realtime Database ruleset to run the branch under. */
   database?: DatabaseRuleset;
+  /** Secondary Realtime Database rulesets by instance name to run the branch under. */
+  databaseInstances?: Record<string, DatabaseRuleset | null>;
   /** Storage Security Rules source to run the branch under. */
   storage?: string;
+  /** Per-bucket Storage Security Rules sources by bucket name to run the branch under. */
+  storageBuckets?: Record<string, string | null>;
 }
 
 /**
@@ -156,8 +164,20 @@ async function installCandidateRules(
   if (candidate.database !== undefined) {
     getOrCreateBackend(sandbox).setRules(structuredClone(candidate.database));
   }
+  if (candidate.databaseInstances !== undefined) {
+    for (const [instanceName, instanceRules] of Object.entries(candidate.databaseInstances)) {
+      getOrCreateBackend(sandbox, databaseInstanceNamed(instanceName)).setRules(
+        structuredClone(instanceRules),
+      );
+    }
+  }
   if (candidate.storage !== undefined) {
     await replaceStorageRules(sandbox, candidate.storage);
+  }
+  if (candidate.storageBuckets !== undefined) {
+    for (const [bucketName, bucketRules] of Object.entries(candidate.storageBuckets)) {
+      deployStorageBucketRules(sandbox, bucketName, bucketRules);
+    }
   }
 }
 
@@ -234,7 +254,8 @@ export function apply(branch: Branch, events: readonly SandboxEvent[]): Branch {
 
   try {
     for (let index = 0; index < replayable.length;) {
-      const current = replayable[index]!;
+      const current = replayable[index];
+      if (current === undefined) break;
       if (current.kind === 'commit') {
         replayRtdbCommit(branch.sandbox, current, pinClockMs);
         index += 1;
@@ -257,10 +278,13 @@ export function apply(branch: Branch, events: readonly SandboxEvent[]): Branch {
           if (event.merge !== undefined) operation.merge = event.merge;
           return operation;
         });
-        try {
-          env.batch(operations, group[0]!.auth, group[0]!.detail?.admin === true);
-        } catch {
-          // A denied or failed batch surfaces later as state divergence in diff().
+        const groupHead = group[0];
+        if (groupHead !== undefined) {
+          try {
+            env.batch(operations, groupHead.auth, groupHead.detail?.admin === true);
+          } catch {
+            // A denied or failed batch surfaces later as state divergence in diff().
+          }
         }
         index += group.length;
         continue;
@@ -320,16 +344,19 @@ function replayRtdbCommit(
   commit: SandboxCommitEvent & { service: 'rtdb' },
   pinClockMs: (ms: number) => void,
 ): void {
-  const instance = commit.instance === undefined
-    ? undefined
-    : databaseInstanceNamed(commit.instance);
+  const instance = commit.instance === undefined ? undefined : databaseInstanceNamed(commit.instance);
   const backend = getOrCreateBackend(sandbox, instance);
   const requestTimeMs = commit.replay?.requestTime ?? commit.at;
   if (typeof requestTimeMs === 'number' && Number.isFinite(requestTimeMs)) {
     pinClockMs(requestTimeMs);
   }
   const rawPath = commit.path ?? '/';
-  const path = rawPath === '' || rawPath === '/' ? '/' : rawPath.startsWith('/') ? rawPath : `/${rawPath}`;
+  let path = `/${rawPath}`;
+  if (rawPath === '' || rawPath === '/') {
+    path = '/';
+  } else if (rawPath.startsWith('/')) {
+    path = rawPath;
+  }
   const isAdmin = commit.detail?.admin === true;
 
   try {
@@ -382,8 +409,8 @@ function groupAt(events: readonly ReplayableBranchEvent[], index: number): Write
   const groupId = first.groupId;
   const group: WriteSandboxEvent[] = [];
   for (let at = index; at < events.length; at++) {
-    const entry = events[at]!;
-    if (entry.kind !== 'write' || entry.groupId !== groupId) break;
+    const entry = events[at];
+    if (entry === undefined || entry.kind !== 'write' || entry.groupId !== groupId) break;
     group.push(entry);
   }
   return group;
@@ -404,10 +431,9 @@ function executionFor(
   bypassRules?: boolean;
   requestTime: Timestamp;
 } {
-  const method: WriteSandboxEvent['method'] =
-    write.method === 'update' && write.updateMask === undefined && write.merge === undefined
-      ? 'set'
-      : write.method;
+  const replaceAsSet =
+    write.method === 'update' && write.updateMask === undefined && write.merge === undefined;
+  const method: WriteSandboxEvent['method'] = replaceAsSet ? 'set' : write.method;
   const execution: {
     method: WriteSandboxEvent['method'];
     path: string;

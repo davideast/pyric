@@ -102,7 +102,7 @@ export function listingPage(names: readonly string[], query: GetFilesOptions, pa
   const after = resumesAfter(query);
   let remaining = entries;
   if (after !== undefined) {
-    remaining = entries.filter(entry => entry.key > after);
+    remaining = entries.filter(entry => compareKeys(entry.key, after) > 0);
   }
   const page = remaining.slice(0, pageSize);
   const more = remaining.length > page.length;
@@ -183,11 +183,9 @@ function entriesOf(names: readonly string[], query: GetFilesOptions): Entry[] {
   return [...byKey.values()].sort((a, b) => compareKeys(a.key, b.key));
 }
 
-/** Name order, as the JSON API lists objects. */
+/** Name order, as the JSON API lists objects: UTF-8 byte order. */
 export function compareKeys(a: string, b: string): number {
-  if (a < b) return -1;
-  if (a > b) return 1;
-  return 0;
+  return Buffer.compare(Buffer.from(a, 'utf8'), Buffer.from(b, 'utf8'));
 }
 
 function encodeToken(key: string): string {

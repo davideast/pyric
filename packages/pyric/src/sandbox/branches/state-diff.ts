@@ -23,6 +23,7 @@ import type {
 } from '../full-state.js';
 import type { Divergence } from '../replay/index.js';
 import { decodeStateDocument } from '../internal/state-values.js';
+import { normalizeObjectBucket } from '../internal/storage-full-state.js';
 import { jsonEqual } from '@pyric/rules/internal/rtdb';
 
 export { jsonEqual };
@@ -38,6 +39,8 @@ export type BranchDivergence = Extract<Divergence, { kind: 'real-divergence' }> 
   service: SandboxService;
   /** Secondary Realtime Database instance name; omitted for the default instance and non-RTDB services. */
   instance?: string;
+  /** Non-default Storage bucket name; omitted for the default bucket and non-Storage services. */
+  bucket?: string;
 };
 
 /**
@@ -300,28 +303,58 @@ function diffDatabase(before: FullSandboxState, after: FullSandboxState): Branch
   return out;
 }
 
-/** Storage objects by path, one map so a missing object is a path-level difference. */
-function objectsByPath(
+/** Group Storage objects by normalized bucket (`undefined` for default), then by path. */
+function objectsByBucket(
   objects: readonly StorageObjectState[],
-): Map<string, StorageObjectState> {
-  return new Map(objects.map((object) => [object.path, object]));
+): Map<string | undefined, Map<string, StorageObjectState>> {
+  const byBucket = new Map<string | undefined, Map<string, StorageObjectState>>();
+  for (const object of objects) {
+    const bucket = normalizeObjectBucket(object.bucket);
+    let byPath = byBucket.get(bucket);
+    if (byPath === undefined) {
+      byPath = new Map();
+      byBucket.set(bucket, byPath);
+    }
+    byPath.set(object.path, object);
+  }
+  return byBucket;
 }
 
-/** Storage objects, by object path. Bytes, content type, and custom metadata. */
+/** Storage objects, by bucket and object path. Bytes, content type, and custom metadata. */
 function diffStorage(before: FullSandboxState, after: FullSandboxState): BranchDivergence[] {
   const out: BranchDivergence[] = [];
-  const beforeObjects = objectsByPath(before.storage);
-  const afterObjects = objectsByPath(after.storage);
-  const paths = new Set([...beforeObjects.keys(), ...afterObjects.keys()]);
-  for (const path of [...paths].sort()) {
-    const beforeObject = beforeObjects.get(path);
-    const afterObject = afterObjects.get(path);
-    const oneSideMissing = beforeObject === undefined || afterObject === undefined;
-    if (oneSideMissing) {
-      out.push(divergenceAt('storage', path, undefined, beforeObject, afterObject));
-      continue;
+  const beforeBuckets = objectsByBucket(before.storage);
+  const afterBuckets = objectsByBucket(after.storage);
+  const namedBuckets = new Set<string>();
+  for (const key of beforeBuckets.keys()) {
+    if (key !== undefined) namedBuckets.add(key);
+  }
+  for (const key of afterBuckets.keys()) {
+    if (key !== undefined) namedBuckets.add(key);
+  }
+  const orderedBuckets: Array<string | undefined> = [undefined, ...[...namedBuckets].sort()];
+  for (const bucket of orderedBuckets) {
+    const beforeObjects = beforeBuckets.get(bucket) ?? new Map<string, StorageObjectState>();
+    const afterObjects = afterBuckets.get(bucket) ?? new Map<string, StorageObjectState>();
+    const paths = new Set([...beforeObjects.keys(), ...afterObjects.keys()]);
+    for (const path of [...paths].sort()) {
+      const beforeObject = beforeObjects.get(path);
+      const afterObject = afterObjects.get(path);
+      const bucketDivergences: BranchDivergence[] = [];
+      const oneSideMissing = beforeObject === undefined || afterObject === undefined;
+      if (oneSideMissing) {
+        bucketDivergences.push(divergenceAt('storage', path, undefined, beforeObject, afterObject));
+      } else {
+        walkDocument('storage', path, beforeObject, afterObject, bucketDivergences);
+      }
+      for (const entry of bucketDivergences) {
+        if (bucket === undefined) {
+          out.push(entry);
+        } else {
+          out.push({ ...entry, bucket });
+        }
+      }
     }
-    walkDocument('storage', path, beforeObject, afterObject, out);
   }
   return out;
 }
@@ -411,6 +444,32 @@ function diffRules(before: FullSandboxState, after: FullSandboxState): BranchDiv
   if (before.rules.storage !== after.rules.storage) {
     out.push(
       divergenceAt('rules', 'storage', undefined, before.rules.storage, after.rules.storage),
+    );
+  }
+  const beforeStorageBuckets = before.rules.storageBuckets ?? {};
+  const afterStorageBuckets = after.rules.storageBuckets ?? {};
+  const storageBucketNames = [
+    ...new Set([...Object.keys(beforeStorageBuckets), ...Object.keys(afterStorageBuckets)]),
+  ].sort();
+  for (const bucket of storageBucketNames) {
+    const beforeRules = beforeStorageBuckets[bucket] ?? null;
+    const afterRules = afterStorageBuckets[bucket] ?? null;
+    if (beforeRules !== afterRules) {
+      out.push({
+        ...divergenceAt('rules', 'storage', undefined, beforeRules, afterRules),
+        bucket,
+      });
+    }
+  }
+  if (before.rules.storageUndeployedPolicy !== after.rules.storageUndeployedPolicy) {
+    out.push(
+      divergenceAt(
+        'rules',
+        'storageUndeployedPolicy',
+        undefined,
+        before.rules.storageUndeployedPolicy,
+        after.rules.storageUndeployedPolicy,
+      ),
     );
   }
   const beforeIam = before.rules.storageCrossServiceIam ?? 'granted';

@@ -20,11 +20,16 @@ import type { RtdbBackend } from '../../database/sandbox/backend.js';
 import type { JsonValue } from '../../database/sandbox/data-tree.js';
 import { deleteObject, ref, uploadBytes } from '../../storage/index.js';
 import {
+  DEFAULT_BUCKET,
   base64ToBytes,
+  deployStorageBucketRules,
   getAdminStorageSandbox,
+  lockUndeployedStorageBuckets,
+  pruneStorageBucketRules,
   replaceCrossServiceIam,
   replaceStorageRules,
   restoreStorageState,
+  storageBucketsWithRules,
 } from '../../storage/internal.js';
 import {
   applyMessaging,
@@ -39,6 +44,7 @@ import type { AuthAccountHistory } from '../internal/auth-accounts.js';
 import { databaseInstanceNamed } from '../internal/instances.js';
 import { getInternalEnv } from '../internal/sandbox-impl.js';
 import { decodeStateDocument } from '../internal/state-values.js';
+import { normalizeObjectBucket } from '../internal/storage-full-state.js';
 import type { LocalSandbox } from '../types/service.js';
 import {
   AUTH_DELETIONS_PATH,
@@ -236,10 +242,10 @@ function promoteDatabase(
       target,
       instance === undefined ? undefined : databaseInstanceNamed(instance),
     );
-    const nextPriorities =
-      instance === undefined
-        ? databasePrioritiesOf(next)
-        : databasePrioritiesOfEnvelope(nextInstances[instance] ?? null);
+    let nextPriorities = databasePrioritiesOf(next);
+    if (instance !== undefined) {
+      nextPriorities = databasePrioritiesOfEnvelope(nextInstances[instance] ?? null);
+    }
     promoteDatabaseInstance(backend, nextPriorities, slice);
   }
 }
@@ -260,6 +266,14 @@ function isStorageObjectNotFound(error: unknown): boolean {
   return (error as { code?: unknown } | null)?.code === 'storage/object-not-found';
 }
 
+function handleForStorageBucket(
+  target: LocalSandbox,
+  bucket: string | undefined,
+): ReturnType<typeof getAdminStorageSandbox> {
+  if (bucket === undefined) return getAdminStorageSandbox(target);
+  return getAdminStorageSandbox(target, { bucket });
+}
+
 async function removeTargetStorageObject(
   storage: ReturnType<typeof getAdminStorageSandbox>,
   path: string,
@@ -271,38 +285,65 @@ async function removeTargetStorageObject(
   }
 }
 
-/** Land the Storage objects the branch added, changed, or removed. */
+/** Land the Storage objects the branch added, changed, or removed across all buckets. */
 async function promoteStorage(
   target: LocalSandbox,
   next: FullSandboxState,
   divergences: readonly BranchDivergence[],
 ): Promise<void> {
-  const storage = getAdminStorageSandbox(target);
-  const objects = new Map(next.storage.map((object) => [object.path, object]));
-  for (const path of divergedPaths(divergences)) {
-    const object = objects.get(path);
-    if (object === undefined) {
-      await removeTargetStorageObject(storage, path);
-      continue;
+  if (divergences.length === 0) return;
+  const byBucket = new Map<string | undefined, BranchDivergence[]>();
+  for (const divergence of divergences) {
+    const bucket = normalizeObjectBucket(divergence.bucket);
+    let slice = byBucket.get(bucket);
+    if (slice === undefined) {
+      slice = [];
+      byBucket.set(bucket, slice);
     }
-    // A branch is captured with its bytes inline; a reference names bytes only its own store holds.
-    const inline = holdsBytesInline(object);
-    if (!inline) throw new Error(`Storage object '${path}' in a branch carries no bytes to promote.`);
-    const metadata = object.metadata;
-    if (metadata !== undefined) {
-      await restoreStorageState(storage, [{
-        dataBase64: object.contentBase64,
-        blobType: object.blobType ?? object.contentType ?? '',
-        metadata: {
-          ...metadata,
-          fullPath: object.path,
-          contentType: object.contentType,
-          customMetadata: { ...object.customMetadata },
-        },
-      }]);
-      continue;
+    slice.push(divergence);
+  }
+
+  const nextByBucket = new Map<string | undefined, Map<string, StorageObjectState>>();
+  for (const object of next.storage) {
+    const bucket = normalizeObjectBucket(object.bucket);
+    let map = nextByBucket.get(bucket);
+    if (map === undefined) {
+      map = new Map();
+      nextByBucket.set(bucket, map);
     }
-    await uploadBytes(ref(storage, path), base64ToBytes(object.contentBase64), settableOf(object));
+    map.set(object.path, object);
+  }
+
+  for (const [bucket, slice] of byBucket) {
+    const storage = handleForStorageBucket(target, bucket);
+    const targetBucket = bucket ?? DEFAULT_BUCKET;
+    const objects = nextByBucket.get(bucket) ?? new Map<string, StorageObjectState>();
+    for (const path of divergedPaths(slice)) {
+      const object = objects.get(path);
+      if (object === undefined) {
+        await removeTargetStorageObject(storage, path);
+        continue;
+      }
+      // A branch is captured with its bytes inline; a reference names bytes only its own store holds.
+      const inline = holdsBytesInline(object);
+      if (!inline) throw new Error(`Storage object '${path}' in a branch carries no bytes to promote.`);
+      const metadata = object.metadata;
+      if (metadata !== undefined) {
+        await restoreStorageState(storage, [{
+          dataBase64: object.contentBase64,
+          blobType: object.blobType ?? object.contentType ?? '',
+          metadata: {
+            ...metadata,
+            bucket: targetBucket,
+            fullPath: object.path,
+            contentType: object.contentType,
+            customMetadata: { ...object.customMetadata },
+          },
+        }]);
+        continue;
+      }
+      await uploadBytes(ref(storage, path), base64ToBytes(object.contentBase64), settableOf(object));
+    }
   }
 }
 
@@ -333,7 +374,8 @@ function promoteAuth(
   if (providerChanges.length > 0) {
     const mergedProviders = { ...authSandbox.exportProviderConfig(auth) };
     for (const change of providerChanges) {
-      const providerId = change.field!;
+      const providerId = change.field;
+      if (providerId === undefined) continue;
       if (typeof change.after === 'boolean') {
         mergedProviders[providerId] = change.after;
       } else {
@@ -378,13 +420,8 @@ function promoteAuthHistory(
 }
 
 /**
- * Land whichever of the three rule sources the branch changed. The diff names
- * each source by its service, so one record is one installation.
- *
- * A branch that ran Storage without rules carries a null source, and
- * {@link installsStorageRules} is the one place that says what that means: no
- * change, because there is no source to install and no way to un-install one.
- * The total replace in `applyFullState` reads the same predicate.
+ * Land whichever of the rule sources the branch changed, including secondary
+ * Realtime Database instances and per-bucket Storage rulesets.
  */
 async function promoteRules(
   target: LocalSandbox,
@@ -393,7 +430,7 @@ async function promoteRules(
 ): Promise<void> {
   const seen = new Set<string>();
   for (const divergence of divergences) {
-    const key = `${divergence.path}:${divergence.instance ?? ''}`;
+    const key = `${divergence.path}:${divergence.instance ?? ''}:${divergence.bucket ?? ''}`;
     if (seen.has(key)) continue;
     seen.add(key);
 
@@ -419,6 +456,24 @@ async function promoteRules(
     }
     if (divergence.path === 'storageCrossServiceIam') {
       await replaceCrossServiceIam(target, next.rules.storageCrossServiceIam ?? 'granted');
+      continue;
+    }
+    if (divergence.path === 'storageUndeployedPolicy') {
+      if (next.rules.storageUndeployedPolicy !== undefined) {
+        lockUndeployedStorageBuckets(target, next.rules.storageUndeployedPolicy);
+      } else if (storageBucketsWithRules(target).length === 0) {
+        pruneStorageBucketRules(target, new Set());
+      } else {
+        lockUndeployedStorageBuckets(target, 'deny');
+      }
+      continue;
+    }
+    if (divergence.path === 'storage' && divergence.bucket !== undefined) {
+      const nextBucketRules = next.rules.storageBuckets?.[divergence.bucket] ?? null;
+      deployStorageBucketRules(target, divergence.bucket, nextBucketRules);
+      if (storageBucketsWithRules(target).length === 0 && next.rules.storageUndeployedPolicy === undefined) {
+        pruneStorageBucketRules(target, new Set());
+      }
       continue;
     }
     await replaceStorageRules(target, next.rules.storage);

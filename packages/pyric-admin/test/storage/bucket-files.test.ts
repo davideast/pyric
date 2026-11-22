@@ -62,8 +62,8 @@ describe.each(STORAGE_ARMS)('Bucket.getFiles and deleteFiles, %s', (_arm, open) 
   it('maxResults gives one page and the next query resumes after it', async () => {
     const bucket = await seeded(getStorage(open()).bucket());
     const [first, nextQuery] = await bucket.getFiles({ prefix: 'users/', maxResults: 4 });
-    expect(nextQuery).not.toBeNull();
-    const [second, last] = await bucket.getFiles(nextQuery!);
+    if (nextQuery === null) throw new Error('Expected nextQuery to be present.');
+    const [second, last] = await bucket.getFiles(nextQuery);
     expect([...first, ...second].map((file) => file.name)).toEqual([...UNDER, ...OUTSIDE.filter((name) => name.startsWith('users/'))].sort());
     expect(last).toBeNull();
   });
@@ -90,5 +90,24 @@ describe.each(STORAGE_ARMS)('Bucket.getFiles and deleteFiles, %s', (_arm, open) 
     const callback = (() => {}) as unknown as Parameters<Bucket['getFiles']>[0];
     await expect(bucket.getFiles(callback)).rejects.toThrow(/callback form is not supported/);
     await expect(bucket.deleteFiles(callback)).rejects.toThrow(/callback form is not supported/);
+  });
+
+  it('orders astral and U+E000..U+FFFF names and pages by UTF-8 bytes (#1208)', async () => {
+    const bucket = getStorage(open()).bucket();
+    await bucket.file('a/\u{1F600}').save('astral');
+    await bucket.file('a/\uFF01').save('fullwidth');
+    await bucket.file('a/\u{1F600}/nested').save('nested');
+
+    expect(await namesIn(bucket, 'a/')).toEqual(['a/\uFF01', 'a/\u{1F600}', 'a/\u{1F600}/nested']);
+
+    const [firstPage, secondQuery] = await bucket.getFiles({ prefix: 'a/', maxResults: 1 });
+    expect(firstPage.map((file) => file.name)).toEqual(['a/\uFF01']);
+    if (secondQuery === null) throw new Error('expected next page query');
+    const [secondPage, thirdQuery] = await bucket.getFiles(secondQuery);
+    expect(secondPage.map((file) => file.name)).toEqual(['a/\u{1F600}']);
+    if (thirdQuery === null) throw new Error('expected third page query');
+    const [thirdPage, doneQuery] = await bucket.getFiles(thirdQuery);
+    expect(thirdPage.map((file) => file.name)).toEqual(['a/\u{1F600}/nested']);
+    expect(doneQuery).toBeNull();
   });
 });

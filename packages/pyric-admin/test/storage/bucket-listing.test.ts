@@ -42,6 +42,23 @@ describe('listingPage', () => {
     expect(everyListedName(NAMES, { prefix: 'users/' })).toHaveLength(4);
     expect(everyListedName(NAMES, { prefix: 'users/', maxResults: 3 })).toEqual(['users/123/a.png', 'users/123/b/c.png', 'users/124/a.png']);
   });
+
+  it('orders names and page tokens by UTF-8 bytes rather than UTF-16 code units (#1208)', () => {
+    const names = ['a/\u{1F600}', 'a/\uFF01', 'a/\uE000', 'a/z'];
+    const expected = ['a/z', 'a/\uE000', 'a/\uFF01', 'a/\u{1F600}'];
+    expect(listingPage(names, { prefix: 'a/' }).names).toEqual(expected);
+
+    const paged: string[] = [];
+    let query: GetFilesOptions = { prefix: 'a/', maxResults: 1 };
+    for (;;) {
+      const page = listingPage(names, query);
+      paged.push(...page.names);
+      if (page.nextPageToken === undefined) break;
+      query = { prefix: 'a/', maxResults: 1, pageToken: page.nextPageToken };
+    }
+    expect(paged).toEqual(expected);
+    expect(everyListedName(names, { prefix: 'a/', maxResults: 3 })).toEqual(expected.slice(0, 3));
+  });
 });
 
 describe('getFilesResponse', () => {
@@ -218,9 +235,10 @@ describe('namesForQuery over a wide tree (#1183)', () => {
 
   it('resumes at a pageToken without entering the folders before it', async () => {
     const [, next] = getFilesResponse(WIDE, { prefix: 'media/', maxResults: 500 }, (name) => name);
+    if (next === null) throw new Error('Expected next query to be present.');
     const { stats, listFolder } = host(WIDE);
-    const names = await namesForQuery(next!, listFolder, pageNamesFound(next!));
-    expect(getFilesResponse(names, next!, (name) => name)).toEqual(getFilesResponse(WIDE, next!, (name) => name));
+    const names = await namesForQuery(next, listFolder, pageNamesFound(next));
+    expect(getFilesResponse(names, next, (name) => name)).toEqual(getFilesResponse(WIDE, next, (name) => name));
     expect(stats.listed.length).toBeLessThan(520 + 2 * WALK_CONCURRENCY);
   });
 
@@ -291,5 +309,44 @@ describe('namesForQuery over a wide tree (#1183)', () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(stats.listed.length).toBe(listedAtFailure);
     expect(stats.inFlight).toBe(0);
+  });
+
+  it('walks folders and skips pageToken bounds in UTF-8 byte order (#1208)', async () => {
+    const names = ['a/\u{1F600}/nested.txt', 'a/\u{1F600}-file.txt', 'a/\uFF01/first.txt', 'a/\uFF01.txt'];
+    const expected = ['a/\uFF01.txt', 'a/\uFF01/first.txt', 'a/\u{1F600}-file.txt', 'a/\u{1F600}/nested.txt'];
+    const fullWalk = host(names);
+    expect(await namesForQuery({ prefix: 'a/' }, fullWalk.listFolder)).toEqual(expected);
+
+    const pages: string[][] = [];
+    let query: GetFilesOptions | null = { prefix: 'a/', maxResults: 2 };
+    while (query !== null) {
+      const pagedHost = host(names);
+      const found = await namesForQuery(query, pagedHost.listFolder, pageNamesFound(query));
+      const [page, next] = getFilesResponse(found, query, (name) => name);
+      pages.push(page);
+      if (query.pageToken !== undefined) {
+        expect(pagedHost.stats.listed).toContain('a/\u{1F600}');
+      }
+      query = next;
+    }
+    expect(pages).toEqual([
+      ['a/\uFF01.txt', 'a/\uFF01/first.txt'],
+      ['a/\u{1F600}-file.txt', 'a/\u{1F600}/nested.txt'],
+    ]);
+
+    const [, afterAstralSibling] = getFilesResponse(names, { prefix: 'a/', maxResults: 3 }, (name) => name);
+    if (afterAstralSibling === null) throw new Error('expected page query after astral sibling');
+    const skipHost = host(names);
+    const tail = await namesForQuery(afterAstralSibling, skipHost.listFolder, pageNamesFound(afterAstralSibling));
+    expect(skipHost.stats.listed).not.toContain('a/\uFF01');
+    expect(skipHost.stats.listed).toContain('a/\u{1F600}');
+    expect(getFilesResponse(tail, afterAstralSibling, (name) => name)[0]).toEqual(['a/\u{1F600}/nested.txt']);
+
+    const [, afterFirst] = getFilesResponse(names, { prefix: 'a/', maxResults: 1 }, (name) => name);
+    if (afterFirst === null) throw new Error('expected second page query');
+    const deleteQuery: GetFilesOptions = { ...afterFirst, maxResults: 2 };
+    const deleteHost = host(names);
+    const toDelete = await namesForQuery(deleteQuery, deleteHost.listFolder, deletedNamesFound(deleteQuery));
+    expect(everyListedName(toDelete, deleteQuery)).toEqual(['a/\uFF01/first.txt', 'a/\u{1F600}-file.txt']);
   });
 });

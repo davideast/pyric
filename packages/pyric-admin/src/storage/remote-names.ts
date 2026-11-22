@@ -59,7 +59,7 @@ interface FolderNode {
 type WalkNode = { kind: 'names'; names: string[] } | FolderNode;
 
 /** Yield the names under `query`'s prefix in name order, `concurrency` listings at a time at most. */
-export async function* walkNames(
+async function* walkNames(
   query: GetFilesOptions,
   listFolder: ListFolder,
   concurrency = WALK_CONCURRENCY,
@@ -131,7 +131,7 @@ function childrenOf(listing: FolderListing, query: GetFilesOptions): WalkNode[] 
   for (const { fullPath } of listing.prefixes) {
     const key = `${fullPath}/`;
     const holdsMatch = canHoldMatch(key, prefix);
-    const passedByToken = after !== undefined && `${fullPath}0` <= after;
+    const passedByToken = after !== undefined && compareKeys(`${fullPath}0`, after) <= 0;
     if (!holdsMatch || passedByToken) continue;
     const rolledUp = rollUpOf(key, query);
     let node: WalkNode;
