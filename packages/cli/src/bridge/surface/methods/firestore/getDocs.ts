@@ -14,7 +14,12 @@ import {
   constraintsOf,
   RENAMES,
 } from '../../arguments/firestore.js';
-import { callSandboxTool } from '../../sandbox-context.js';
+import {
+  callFirestoreSandboxTool,
+  checkFirestoreDatabase,
+  databaseArgument,
+  firestoreDatabaseSelector,
+} from '../../firestore-database.js';
 import type { MethodRecord } from '../../method-types.js';
 import type { OperationResult } from '../../types.js';
 
@@ -32,7 +37,7 @@ export default {
   runsIn: 'sandbox',
   sdkOrigin: 'firebase-js',
   effect: 'read',
-  signature: 'getDocs(path, constraints?[asc|desc])',
+  signature: 'getDocs(path, constraints?[asc|desc], database?)',
   description:
     'Read a collection. With no constraints this lists the collection; with constraints it runs a query.',
   args: z.object({
@@ -41,6 +46,7 @@ export default {
       .array(constraint)
       .optional()
       .describe('where, orderBy, and limit constraints, applied in order.'),
+    database: databaseArgument,
   }),
   operation: {
     ids: ['list_firestore_documents', 'query_firestore_documents'],
@@ -55,10 +61,16 @@ export default {
       { type: 'limit', value: 10 },
     ],
   },
-  validate: (args, { fail }) => checkConstraints(args, fail),
+  validate: (args, { fail }) =>
+    checkFirestoreDatabase(args, fail) ?? checkConstraints(args, fail),
   async handler(args, ctx) {
     const read = collectionRead(args);
-    const tool = read.filtered ? 'firestore_query_where' : 'firestore_list_documents';
-    return applyDirection(await callSandboxTool(ctx, tool, read.call), read.direction);
+    const selector = firestoreDatabaseSelector(args.database);
+    let tool = 'firestore_list_documents';
+    if (read.filtered) {
+      tool = 'firestore_query_where';
+    }
+    const rawResult = await callFirestoreSandboxTool(ctx, tool, read.call, selector);
+    return applyDirection(rawResult, read.direction);
   },
 } satisfies MethodRecord;

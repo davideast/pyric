@@ -12,6 +12,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { LocalSandbox } from 'pyric/sandbox';
+import { captureNamedFirestoreState } from 'pyric/firestore/internal';
 import {
   DEFAULT_SNAPSHOT_RESOURCE,
   captureSandboxSnapshot,
@@ -97,6 +98,23 @@ export async function buildFixture(
   const firestoreRules = snapshot.rules.firestore?.[DEFAULT_SNAPSHOT_RESOURCE];
   if (firestoreRules !== undefined) fixture.firestoreRules = firestoreRules;
 
+  const namedFirestore = captureNamedFirestoreState(sandbox);
+  if (namedFirestore.declared.length > 0) {
+    fixture.firestoreDeclared = namedFirestore.declared;
+    const namedDocs: Record<string, Record<string, Record<string, unknown>>> = {};
+    for (const [dbId, docs] of Object.entries(namedFirestore.databases)) {
+      const clonedDocs: Record<string, Record<string, unknown>> = {};
+      for (const [docPath, encodedDoc] of Object.entries(docs)) {
+        clonedDocs[docPath] = { ...encodedDoc };
+      }
+      namedDocs[dbId] = clonedDocs;
+    }
+    fixture.firestoreDatabases = namedDocs;
+    if (Object.keys(namedFirestore.rules).length > 0) {
+      fixture.firestoreDatabaseRules = { ...namedFirestore.rules };
+    }
+  }
+
   const defaultDatabase = snapshot.rtdb[DEFAULT_SNAPSHOT_RESOURCE];
   if (defaultDatabase !== null && defaultDatabase !== undefined) {
     fixture.database = defaultDatabase as SandboxSeedDatabase;
@@ -135,6 +153,21 @@ function parseStateFixture(value: unknown): SandboxStateFixture {
   if (value.firestore !== undefined && !isPlainObject(value.firestore)) {
     throw new Error(
       formatWrongFileError('state-fixture', value, 'Invalid sandbox state fixture: firestore must be an object'),
+    );
+  }
+  if (value.firestoreDatabases !== undefined && !isPlainObject(value.firestoreDatabases)) {
+    throw new Error(
+      formatWrongFileError('state-fixture', value, 'Invalid sandbox state fixture: firestoreDatabases must be an object'),
+    );
+  }
+  if (value.firestoreDeclared !== undefined && !Array.isArray(value.firestoreDeclared)) {
+    throw new Error(
+      formatWrongFileError('state-fixture', value, 'Invalid sandbox state fixture: firestoreDeclared must be an array'),
+    );
+  }
+  if (value.firestoreDatabaseRules !== undefined && !isPlainObject(value.firestoreDatabaseRules)) {
+    throw new Error(
+      formatWrongFileError('state-fixture', value, 'Invalid sandbox state fixture: firestoreDatabaseRules must be an object'),
     );
   }
   if (value.users !== undefined && !Array.isArray(value.users)) {

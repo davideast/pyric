@@ -2,6 +2,13 @@
 import { z } from 'zod';
 import { getCountFromServer } from 'pyric/firestore';
 import { checkQueryArgs, constraint, queryFrom, RENAMES } from '../../arguments/firestore.js';
+import {
+  assertDeclaredFirestoreDatabase,
+  checkFirestoreDatabase,
+  databaseArgument,
+  firestoreDatabaseSelector,
+  onFirestoreDatabase,
+} from '../../firestore-database.js';
 import { firestoreFor } from '../../service-handles.js';
 import type { MethodRecord } from '../../method-types.js';
 
@@ -11,7 +18,7 @@ export default {
   runsIn: 'sandbox',
   sdkOrigin: 'firebase-js',
   effect: 'read',
-  signature: 'getCountFromServer(path, constraints?[asc|desc])',
+  signature: 'getCountFromServer(path, constraints?[asc|desc], database?)',
   description: 'Count matching documents without reading them.',
   args: z.object({
     path: z.string().describe('Collection path, for example users.'),
@@ -19,6 +26,7 @@ export default {
       .array(constraint)
       .optional()
       .describe('where, orderBy, and limit constraints narrowing what is counted.'),
+    database: databaseArgument,
   }),
   operation: 'count_firestore_documents',
   renames: RENAMES,
@@ -26,16 +34,19 @@ export default {
     path: 'users',
     constraints: [{ type: 'where', field: 'role', op: '==', value: 'admin' }],
   },
-  validate: (args, { fail }) => checkQueryArgs('getCountFromServer', args, fail),
+  validate: (args, { fail }) =>
+    checkFirestoreDatabase(args, fail) ?? checkQueryArgs('getCountFromServer', args, fail),
   async handler(args, ctx) {
     const path = String(args.path);
-    const db = firestoreFor(ctx);
+    const selector = firestoreDatabaseSelector(args.database);
+    assertDeclaredFirestoreDatabase(ctx, selector);
+    const db = firestoreFor(ctx, selector);
     const target = queryFrom(db, path, args);
     const snapshot = await getCountFromServer(target);
     const count = snapshot.data().count;
     return {
       ok: true,
-      summary: `${count} document(s) match ${path}.`,
+      summary: onFirestoreDatabase(`${count} document(s) match ${path}.`, selector),
       data: { count },
     };
   },

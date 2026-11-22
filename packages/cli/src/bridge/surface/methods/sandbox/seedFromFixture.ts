@@ -37,7 +37,10 @@ export default {
       return operationFailure(`No fixture file at '${given}'.`);
     }
     const refusals = await applyFixture(ctx.sandbox, fixture);
-    const docs = Object.keys(fixture.firestore ?? {}).length;
+    let docs = Object.keys(fixture.firestore ?? {}).length;
+    for (const namedDocs of Object.values(fixture.firestoreDatabases ?? {})) {
+      docs += Object.keys(namedDocs ?? {}).length;
+    }
     const users = fixture.users?.length ?? 0;
     const loaded = `Loaded a fixture of ${docs} doc(s) and ${users} user(s) from ${given}.`;
     let summary = loaded;

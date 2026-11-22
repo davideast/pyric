@@ -11,6 +11,7 @@
  * not the feed (C3: drill-in).
  */
 
+import { DEFAULT_FIRESTORE_DATABASE } from 'pyric/firestore/internal';
 import type { SandboxEvent } from 'pyric/sandbox';
 import type { CommandTarget } from './command.js';
 
@@ -30,6 +31,8 @@ export interface ActivityRow {
    *  "alice", "app"). */
   identity: string;
   summary: string;
+  /** Non-default Firestore database id when the event targeted a named database. */
+  database?: string;
   /** True for a rules denial (rendered distinctly). */
   denied: boolean;
   /** Route of the row's subject; null when nothing addressable exists. */
@@ -54,9 +57,29 @@ function provenanceOf(event: SandboxEvent): {
   return { provenance: 'app', identity: uid ?? 'app' };
 }
 
-function firestoreTarget(path: string | undefined): CommandTarget | null {
+function eventNamedDatabase(event: SandboxEvent): string | undefined {
+  const raw = (event as { database?: unknown }).database;
+  if (typeof raw === 'string' && raw.length > 0 && raw !== DEFAULT_FIRESTORE_DATABASE) {
+    return raw;
+  }
+  const detailDb = (event as { detail?: { database?: unknown } }).detail?.database;
+  if (
+    typeof detailDb === 'string' &&
+    detailDb.length > 0 &&
+    detailDb !== DEFAULT_FIRESTORE_DATABASE
+  ) {
+    return detailDb;
+  }
+  return undefined;
+}
+
+function firestoreTarget(path: string | undefined, database?: string): CommandTarget | null {
   if (!path) return null;
-  return { tab: 'firestore', rest: path.split('/').filter(Boolean) };
+  const target: CommandTarget = { tab: 'firestore', rest: path.split('/').filter(Boolean) };
+  if (database !== undefined) {
+    target.query = { database };
+  }
+  return target;
 }
 
 /** Project one event onto a feed row, or null to skip it. */
@@ -65,33 +88,45 @@ export function toActivityRow(event: SandboxEvent): ActivityRow | null {
   const base = { id: event.id, at: event.at, provenance, identity };
 
   switch (event.kind) {
-    case 'write':
-      return {
+    case 'write': {
+      const database = eventNamedDatabase(event);
+      const prefix = database !== undefined ? ` [${database}]` : '';
+      const row: ActivityRow = {
         ...base,
         denied: false,
-        summary: `${event.method} /${event.path}`,
-        target: firestoreTarget(event.path),
+        summary: `${event.method}${prefix} /${event.path}`,
+        target: firestoreTarget(event.path, database),
       };
-    case 'request':
-      // Only denials surface on Home; allowed reads/writes are either noise
-      // (reads) or already covered by their committed `write` event.
+      if (database !== undefined) row.database = database;
+      return row;
+    }
+    case 'request': {
       if (event.result !== 'deny') return null;
-      return {
+      const database = eventNamedDatabase(event);
+      const prefix = database !== undefined ? ` [${database}]` : '';
+      const row: ActivityRow = {
         ...base,
         denied: true,
-        summary: `denied ${event.method} /${event.path}`,
+        summary: `denied${prefix} ${event.method} /${event.path}`,
         target: { tab: 'traffic', query: { inspect: event.id } },
       };
+      if (database !== undefined) row.database = database;
+      return row;
+    }
     case 'operation': {
       if (event.result === 'deny') {
-        return {
+        const database = event.service === 'firestore' ? eventNamedDatabase(event) : undefined;
+        const dbTag = database !== undefined ? `:${database}` : '';
+        const row: ActivityRow = {
           ...base,
           denied: true,
-          summary: `denied ${event.service} ${event.method}${event.path ? ` ${event.path}` : ''}`,
+          summary: `denied ${event.service}${dbTag} ${event.method}${event.path ? ` ${event.path}` : ''}`,
           target: { tab: 'traffic', query: { inspect: event.id } },
         };
+        if (database !== undefined) row.database = database;
+        return row;
       }
-      return null; // allowed operations mirror request/commit coverage
+      return null;
     }
     case 'service_mutation': {
       const path = event.path ? ` ${event.path}` : '';

@@ -34,6 +34,10 @@ import { useEffect, useMemo, useState } from 'react';
 import type { FirebaseApp } from 'pyric/app';
 import { createAppForSandbox } from 'pyric/app/internal';
 import { getAdminFirestore, getFirestore, type Firestore } from 'pyric/firestore';
+import {
+  DEFAULT_FIRESTORE_DATABASE,
+  getDatabaseEnv,
+} from 'pyric/firestore/internal';
 import { getAuth, type Auth } from 'pyric/auth';
 import type { FirebaseStorage } from 'pyric/storage';
 import { initializeSandbox, type PersistenceBackend, type Sandbox } from 'pyric/sandbox';
@@ -59,6 +63,8 @@ export interface ListedDocument {
 export interface StudioDataHandles {
   sandbox: Sandbox;
   app: FirebaseApp;
+  /** Active Firestore database id (`undefined` for `(default)`). */
+  databaseId?: string;
   /** Rules-respecting handle (`app-session` lens). */
   firestore: Firestore;
   /** Rules-bypass handle (`admin` lens, "edit anything"). */
@@ -145,6 +151,41 @@ function makeHandles(sandbox: Sandbox): StudioDataHandles {
     listRootCollections: () => env.listRootCollections(),
     listSubcollections: (docPath: string) => env.listSubcollections(docPath),
     listDocuments: (collectionPath: string) => listDocumentsForBrowse(env, collectionPath),
+  };
+}
+
+/** Scope an in-process `StudioDataHandles` bundle to a named Firestore database (`(default)` when omitted). */
+export function scopeHandlesForDatabase(
+  base: StudioDataHandles,
+  databaseId?: string,
+): StudioDataHandles {
+  if (
+    databaseId === undefined ||
+    databaseId === '' ||
+    databaseId === DEFAULT_FIRESTORE_DATABASE
+  ) {
+    return base;
+  }
+  const studioContext = studioAdminContext(base.sandbox);
+  const resolveEnv = () => {
+    try {
+      return getDatabaseEnv(base.sandbox, databaseId);
+    } catch {
+      return null;
+    }
+  };
+  return {
+    ...base,
+    databaseId,
+    firestore: getFirestore(base.sandbox, databaseId),
+    adminFirestore: getAdminFirestore(studioContext, databaseId),
+    listRootCollections: () => resolveEnv()?.listRootCollections() ?? [],
+    listSubcollections: (docPath: string) => resolveEnv()?.listSubcollections(docPath) ?? [],
+    listDocuments: (collectionPath: string) => {
+      const env = resolveEnv();
+      if (!env) return [];
+      return listDocumentsForBrowse(env, collectionPath);
+    },
   };
 }
 

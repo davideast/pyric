@@ -222,7 +222,7 @@ describe('the sdk-service validator', () => {
   it('refuses a service that has no Security Rules', async () => {
     const result = await call('rules', 'lint', { service: 'firestone' });
     expect(result.summary).toBe(
-      "rules.lint: argument 'service' is 'firestone', which is not one of firestore, database, storage. The SDK signature is lint(service: firestore|database|storage, rules?, instance?). Pass 'service' as 'firestore'.",
+      "rules.lint: argument 'service' is 'firestone', which is not one of firestore, database, storage. The SDK signature is lint(service: firestore|database|storage, rules?, database?, instance?). Pass 'service' as 'firestore'.",
     );
   });
 
@@ -318,7 +318,7 @@ describe('optional args', () => {
     const result = await rendered.execute({ method: 'getDoc' }, createSurfaceContext(sandbox));
     expect(result.ok).toBe(false);
     expect(result.summary).toBe(
-      "firestore.getDoc: argument 'path' is missing. The SDK signature is getDoc(path). " +
+      "firestore.getDoc: argument 'path' is missing. The SDK signature is getDoc(path, database?). " +
         "Pass 'path'. Document path, for example users/alice.",
     );
   });

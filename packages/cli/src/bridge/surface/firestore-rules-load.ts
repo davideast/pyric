@@ -15,27 +15,54 @@
  * other rules ends that.
  */
 import type { LocalSandbox } from 'pyric/sandbox';
+import {
+  DEFAULT_FIRESTORE_DATABASE,
+  getDatabaseEnv,
+  normalizeFirestoreDatabaseId,
+} from 'pyric/firestore/internal';
 import { setRules } from 'pyric/sandbox/firestore';
 import { getInternalEnv } from 'pyric/sandbox/internal';
 import { rulesSourceRejection, type RulesSourceRejection } from 'pyric/rules/internal';
 
-/** A refused source, and the rules that were in force when it was refused. */
-const refusedLoads = new WeakMap<LocalSandbox, { source: string; inForce: string }>();
+/** A refused source per database, and the rules that were in force when it was refused. */
+const refusedLoads = new WeakMap<LocalSandbox, Map<string, { source: string; inForce: string }>>();
 
-/** The Firestore rules source the sandbox enforces. */
-export function firestoreRulesInForce(sandbox: LocalSandbox): string {
-  return getInternalEnv(sandbox).getRules();
+function refusedMapFor(sandbox: LocalSandbox, create: boolean): Map<string, { source: string; inForce: string }> | undefined {
+  let map = refusedLoads.get(sandbox);
+  if (map === undefined && create) {
+    map = new Map();
+    refusedLoads.set(sandbox, map);
+  }
+  return map;
+}
+
+/** The Firestore rules source the sandbox enforces for `databaseId` (defaults to `(default)`). */
+export function firestoreRulesInForce(sandbox: LocalSandbox, databaseId?: string): string {
+  const normalized = normalizeFirestoreDatabaseId(databaseId);
+  if (normalized === DEFAULT_FIRESTORE_DATABASE) {
+    return getInternalEnv(sandbox).getRules();
+  }
+  return getDatabaseEnv(sandbox, normalized).getRules();
 }
 
 /**
  * Install `source` as the sandbox's Firestore rules when production would
  * load it. Otherwise keep the rules in force and return why.
  */
-export function installFirestoreRules(sandbox: LocalSandbox, source: string): RulesSourceRejection | null {
+export function installFirestoreRules(
+  sandbox: LocalSandbox,
+  source: string,
+  databaseId?: string,
+): RulesSourceRejection | null {
   const rejection = rulesSourceRejection(source);
   if (rejection !== null) return rejection;
-  setRules(sandbox, source);
-  refusedLoads.delete(sandbox);
+  const normalized = normalizeFirestoreDatabaseId(databaseId);
+  if (normalized === DEFAULT_FIRESTORE_DATABASE) {
+    setRules(sandbox, source);
+  } else {
+    setRules(sandbox, source, normalized);
+  }
+  refusedLoads.get(sandbox)?.delete(normalized);
   return null;
 }
 
@@ -46,16 +73,35 @@ export function installFirestoreRules(sandbox: LocalSandbox, source: string): Ru
  * stays readable through {@link firestoreRulesSource} until other rules are
  * installed.
  */
-export function loadFirestoreRules(sandbox: LocalSandbox, source: string): string | null {
-  const rejection = installFirestoreRules(sandbox, source);
+export function loadFirestoreRules(
+  sandbox: LocalSandbox,
+  source: string,
+  databaseId?: string,
+): string | null {
+  const normalized = normalizeFirestoreDatabaseId(databaseId);
+  const rejection = installFirestoreRules(sandbox, source, normalized);
   if (rejection === null) return null;
-  refusedLoads.set(sandbox, { source, inForce: firestoreRulesInForce(sandbox) });
-  return `Firestore ${rejection.message}`;
+  refusedMapFor(sandbox, true)!.set(normalized, {
+    source,
+    inForce: firestoreRulesInForce(sandbox, normalized),
+  });
+  if (normalized === DEFAULT_FIRESTORE_DATABASE) {
+    return `Firestore ${rejection.message}`;
+  }
+  return `Firestore (${normalized}) ${rejection.message}`;
 }
 
 /** Remember a refused raw rules source so lint and simulate inspect it while existing rules stay in force. */
-export function rememberRefusedFirestoreRules(sandbox: LocalSandbox, source: string): void {
-  refusedLoads.set(sandbox, { source, inForce: firestoreRulesInForce(sandbox) });
+export function rememberRefusedFirestoreRules(
+  sandbox: LocalSandbox,
+  source: string,
+  databaseId?: string,
+): void {
+  const normalized = normalizeFirestoreDatabaseId(databaseId);
+  refusedMapFor(sandbox, true)!.set(normalized, {
+    source,
+    inForce: firestoreRulesInForce(sandbox, normalized),
+  });
 }
 
 /**
@@ -63,8 +109,12 @@ export function rememberRefusedFirestoreRules(sandbox: LocalSandbox, source: str
  * refused, while the rules in force at the refusal still are, or else the
  * rules in force.
  */
-export function firestoreRulesSource(sandbox: LocalSandbox): string {
-  const inForce = firestoreRulesInForce(sandbox);
-  const refused = refusedLoads.get(sandbox);
-  return refused !== undefined && refused.inForce === inForce ? refused.source : inForce;
+export function firestoreRulesSource(sandbox: LocalSandbox, databaseId?: string): string {
+  const normalized = normalizeFirestoreDatabaseId(databaseId);
+  const inForce = firestoreRulesInForce(sandbox, normalized);
+  const refused = refusedLoads.get(sandbox)?.get(normalized);
+  if (refused !== undefined && refused.inForce === inForce) {
+    return refused.source;
+  }
+  return inForce;
 }

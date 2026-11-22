@@ -1,7 +1,12 @@
 /** Read one Firestore document by path under the held identity. */
 import { z } from 'zod';
 import { checkDocumentPath, RENAMES } from '../../arguments/firestore.js';
-import { callSandboxTool } from '../../sandbox-context.js';
+import {
+  callFirestoreSandboxTool,
+  checkFirestoreDatabase,
+  databaseArgument,
+  firestoreDatabaseSelector,
+} from '../../firestore-database.js';
 import type { MethodRecord } from '../../method-types.js';
 
 export default {
@@ -10,14 +15,19 @@ export default {
   runsIn: 'sandbox',
   sdkOrigin: 'firebase-js',
   effect: 'read',
-  signature: 'getDoc(path)',
+  signature: 'getDoc(path, database?)',
   description: 'Read one document.',
-  args: z.object({ path: z.string().describe('Document path, for example users/alice.') }),
+  args: z.object({
+    path: z.string().describe('Document path, for example users/alice.'),
+    database: databaseArgument,
+  }),
   operation: 'get_firestore_document',
   renames: RENAMES,
   example: { path: 'users/alice' },
-  validate: (args, { fail }) => checkDocumentPath('getDoc', args, fail),
+  validate: (args, { fail }) =>
+    checkFirestoreDatabase(args, fail) ?? checkDocumentPath('getDoc', args, fail),
   async handler(args, ctx) {
-    return callSandboxTool(ctx, 'firestore_get_document', { path: args.path });
+    const selector = firestoreDatabaseSelector(args.database);
+    return callFirestoreSandboxTool(ctx, 'firestore_get_document', { path: args.path }, selector);
   },
 } satisfies MethodRecord;

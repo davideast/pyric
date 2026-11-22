@@ -20,7 +20,10 @@ const RATE_CAPTURE_SCHEMA = 'pyric.rate-capture.v1' as const;
 /** Top-level keys recognized on a sandbox state fixture (versioned or legacy). */
 export const STATE_FIXTURE_KEYS: ReadonlySet<string> = new Set([
   'firestore',
+  'firestoreDatabases',
+  'firestoreDeclared',
   'firestoreRules',
+  'firestoreDatabaseRules',
   'database',
   'databaseRules',
   'storage',

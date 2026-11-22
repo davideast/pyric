@@ -24,11 +24,14 @@
  * pinned instant must not silently pin the live sandbox to it. So live keeps
  * the clock it had, and a caller who wants the branch's instant sets it.
  */
-import { promote } from 'pyric/sandbox';
 import { loadBranch, removeBranch } from 'pyric/sandbox/branches/store';
 import { z } from 'zod';
 
 import { branchName, refuseUnknownBranch } from '../../arguments/sandbox.js';
+import {
+  hydrateLoadedBranchNamedFirestore,
+  promoteBranchWithNamedFirestore,
+} from '../../branch-firestore-databases.js';
 import { operationFailure } from '../../context.js';
 import { failFor } from '../../method-validation.js';
 import type { MethodRecord } from '../../method-types.js';
@@ -57,8 +60,9 @@ export default {
     if (loaded === null) {
       return refuseUnknownBranch(ctx.projectDir, name, failFor('sandbox', 'promote'));
     }
+    const { baseNamed } = hydrateLoadedBranchNamedFirestore(ctx.projectDir, name, loaded.branch);
     try {
-      await promote(loaded.branch, ctx.sandbox);
+      await promoteBranchWithNamedFirestore(loaded.branch, ctx.sandbox, baseNamed);
     } catch (error) {
       loaded.branch.sandbox.dispose();
       let reason = String(error);

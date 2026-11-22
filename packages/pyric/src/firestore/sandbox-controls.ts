@@ -272,6 +272,47 @@ export function inspect(
   };
 }
 
+export interface FirestoreUndoSummary {
+  readonly undone: boolean;
+  readonly path?: string;
+  readonly method?: string;
+}
+
+export interface FirestoreRedoSummary {
+  readonly redone: boolean;
+  readonly allowed?: boolean;
+}
+
+/** Undo the most recent write operation in `databaseId` (defaults to `(default)`). */
+export function undo(sandbox: LocalSandbox, databaseId?: string): FirestoreUndoSummary {
+  const normalized = normalizeFirestoreDatabaseId(databaseId);
+  const event = getDatabaseEnv(sandbox, normalized).undo();
+  if (event === null) {
+    return { undone: false };
+  }
+  const summary: { undone: true; path?: string; method?: string } = { undone: true };
+  if (typeof event.path === 'string') {
+    summary.path = event.path;
+  }
+  if (typeof event.method === 'string') {
+    summary.method = event.method;
+  }
+  return summary;
+}
+
+/** Redo the most recently undone write operation in `databaseId` (defaults to `(default)`). */
+export function redo(sandbox: LocalSandbox, databaseId?: string): FirestoreRedoSummary {
+  const normalized = normalizeFirestoreDatabaseId(databaseId);
+  const result = getDatabaseEnv(sandbox, normalized).redo();
+  if (result === null) {
+    return { redone: false };
+  }
+  return {
+    redone: true,
+    allowed: result.allowed,
+  };
+}
+
 type Assert<T extends true> = T;
 type RemoteSandboxIsRejectedByControls = Assert<
   RemoteSandbox extends Parameters<typeof setRules>[0] ? false : true

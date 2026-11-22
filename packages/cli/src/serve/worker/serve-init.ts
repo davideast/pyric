@@ -1,6 +1,9 @@
 import { getMessagingBroker } from 'pyric/messaging/internal';
-import { doc } from 'pyric/firestore';
+import { doc, getFirestore } from 'pyric/firestore';
 import {
+  DEFAULT_FIRESTORE_DATABASE,
+  declareFirestoreDatabase,
+  isValidFirestoreDatabaseId,
   listDeclaredFirestoreDatabases,
   seedDocuments,
   setRules,
@@ -197,10 +200,13 @@ function sandboxHasExistingData(ctx: HostCtx): boolean {
 
 const SANDBOX_SEED_SECTION_KEYS: ReadonlySet<string> = new Set([
   'firestore',
+  'firestoreDatabases',
+  'firestoreDeclared',
   'database',
   'users',
   'storage',
   'firestoreRules',
+  'firestoreDatabaseRules',
   'databaseRules',
   'storageRules',
 ]);
@@ -228,8 +234,20 @@ function isSandboxSeedEnvelope(seed: Record<string, unknown>): boolean {
 function decodeSeedDocuments(
   ctx: HostCtx,
   rawDocs: Record<string, Record<string, unknown>>,
+  databaseId?: string,
 ): Record<string, Record<string, unknown>> {
-  const referenceDecoder = { create: (refPath: string) => doc(ctx.db, refPath) };
+  let targetDb = ctx.db;
+  if (databaseId !== undefined && databaseId !== DEFAULT_FIRESTORE_DATABASE) {
+    targetDb = getFirestore(ctx.sandbox, databaseId);
+  }
+  const referenceDecoder = {
+    create: (refPath: string, refDatabaseId?: string) => {
+      if (refDatabaseId !== undefined && refDatabaseId !== DEFAULT_FIRESTORE_DATABASE) {
+        return doc(getFirestore(ctx.sandbox, refDatabaseId), refPath);
+      }
+      return doc(targetDb, refPath);
+    },
+  };
   const decoded: Record<string, Record<string, unknown>> = {};
   for (const [docPath, rawDoc] of Object.entries(rawDocs)) {
     if (!isPlainSeedObject(rawDoc)) continue;
@@ -386,7 +404,37 @@ export function applyServeInit(
       const decodedDocs = decodeSeedDocuments(ctx, firestoreSection);
       if (Object.keys(decodedDocs).length > 0) {
         seedDocuments(ctx.sandbox, decodedDocs);
-        result.seededDocs = Object.keys(decodedDocs).length;
+        result.seededDocs += Object.keys(decodedDocs).length;
+      }
+      if (Array.isArray(rawSeed.firestoreDeclared)) {
+        for (const rawId of rawSeed.firestoreDeclared) {
+          if (typeof rawId === 'string' && rawId !== DEFAULT_FIRESTORE_DATABASE && isValidFirestoreDatabaseId(rawId)) {
+            declareFirestoreDatabase(ctx.sandbox, rawId);
+          }
+        }
+      }
+      if (isPlainSeedObject(rawSeed.firestoreDatabaseRules)) {
+        for (const [dbId, ruleSource] of Object.entries(rawSeed.firestoreDatabaseRules)) {
+          if (dbId === DEFAULT_FIRESTORE_DATABASE || !isValidFirestoreDatabaseId(dbId)) continue;
+          if (typeof ruleSource !== 'string' || ruleSource.length === 0) continue;
+          deployFirestoreRulesToHost(ctx, ruleSource, dbId);
+        }
+      }
+      if (isPlainSeedObject(rawSeed.firestoreDatabases)) {
+        for (const [dbId, rawDbDocs] of Object.entries(rawSeed.firestoreDatabases)) {
+          if (dbId === DEFAULT_FIRESTORE_DATABASE || !isValidFirestoreDatabaseId(dbId)) continue;
+          if (!isPlainSeedObject(rawDbDocs)) continue;
+          declareFirestoreDatabase(ctx.sandbox, dbId);
+          const decodedNamed = decodeSeedDocuments(
+            ctx,
+            rawDbDocs as Record<string, Record<string, unknown>>,
+            dbId,
+          );
+          if (Object.keys(decodedNamed).length > 0) {
+            seedDocuments(ctx.sandbox, decodedNamed, dbId);
+            result.seededDocs += Object.keys(decodedNamed).length;
+          }
+        }
       }
       if (isPlainSeedObject(rawSeed.database)) {
         rtdbSandbox.setData(rtdb.live, rawSeed.database);

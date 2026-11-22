@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { SandboxSnapshot } from 'pyric/sandbox';
 import { useDevSeed } from '../dev/DevSeedProvider.js';
+import { snapshotWithNamedFirestore } from './saved-state-branches.js';
 import { useSandboxWorkerLive } from './use-sandbox-worker-gate.js';
 
 /**
@@ -27,7 +28,7 @@ export function useStudioSnapshot(): () => Promise<SandboxSnapshot | null> {
   const live = useSandboxWorkerLive();
   const seedSandbox = seed.status === 'ready' ? seed.handles.sandbox : null;
   return useCallback(async () => {
-    if (seedSandbox) return seedSandbox.snapshot();
+    if (seedSandbox) return snapshotWithNamedFirestore(seedSandbox);
     if (live) return live.getSnapshot();
     return null;
   }, [seedSandbox, live]);

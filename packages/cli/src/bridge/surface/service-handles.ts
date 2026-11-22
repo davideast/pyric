@@ -31,10 +31,15 @@ export function databaseFor(ctx: SandboxSurfaceContext, selector?: string): Data
 // (`collection`, `query`, `where`, `orderBy`, `limit`), which needs a live
 // `Firestore` handle rather than the dispatcher's plain-object tool call.
 
-/** A Cloud Firestore handle for the held identity, for the methods that build a `Query` directly. */
-export function firestoreFor(ctx: SandboxSurfaceContext): Firestore {
-  if (ctx.identity.bypassesRules()) return getAdminFirestore(ctx.sandbox);
-  return getFirestore(ctx.sandbox.withAuth(ctx.identity.authState()));
+/** A Cloud Firestore handle for the held identity, optionally targeting a named `databaseId`. */
+export function firestoreFor(ctx: SandboxSurfaceContext, databaseId?: string): Firestore {
+  if (ctx.identity.bypassesRules()) {
+    if (databaseId !== undefined) return getAdminFirestore(ctx.sandbox, databaseId);
+    return getAdminFirestore(ctx.sandbox);
+  }
+  const scoped = ctx.sandbox.withAuth(ctx.identity.authState());
+  if (databaseId !== undefined) return getFirestore(scoped, databaseId);
+  return getFirestore(scoped);
 }
 
 /** A Cloud Storage handle for the held identity. */

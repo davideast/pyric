@@ -30,7 +30,12 @@ import {
   type Sandbox,
   type SandboxSnapshot,
 } from 'pyric/sandbox';
-import { documentDivergences, forkFromSavedState } from '../../shell/saved-state-branches.js';
+import {
+  documentDivergences,
+  forkFromSavedState,
+  snapshotWithNamedFirestore,
+  type SavedNamedFirestoreSnapshot,
+} from '../../shell/saved-state-branches.js';
 import {
   getFirestore as getSandboxFirestore,
   doc,
@@ -165,10 +170,12 @@ export interface EditedRulesetRerun {
  * @param live        Diff reference: the live sandbox/snapshot to compare against.
  */
 /** The state behind a diff reference, read when the reference is a sandbox. */
-function snapshotOf(reference: LocalSandbox | SandboxSnapshot): SandboxSnapshot {
+function snapshotOf(reference: LocalSandbox | SandboxSnapshot): SavedNamedFirestoreSnapshot {
   const asSandbox = reference as LocalSandbox;
-  if (typeof asSandbox.snapshot === 'function') return asSandbox.snapshot();
-  return reference as SandboxSnapshot;
+  if (typeof asSandbox.snapshot === 'function') {
+    return snapshotWithNamedFirestore(asSandbox);
+  }
+  return reference as SavedNamedFirestoreSnapshot;
 }
 
 export async function rerunAgainstRules(
@@ -212,14 +219,31 @@ export async function rerunAgainstRules(
     }
   }
 
-  const branch = await forkFromSavedState(snapshot, editedRules);
+  const reference = snapshotOf(live);
+  let baseline: SavedNamedFirestoreSnapshot = snapshot;
+  if (
+    denial.database !== undefined &&
+    baseline.firestoreDatabases === undefined &&
+    reference.firestoreDatabases !== undefined
+  ) {
+    baseline = {
+      ...baseline,
+      firestoreDeclared: reference.firestoreDeclared,
+      firestoreDatabases: reference.firestoreDatabases,
+      firestoreDatabaseRules: reference.firestoreDatabaseRules,
+      firestoreLocked: reference.firestoreLocked,
+    };
+  }
+  const branch = await forkFromSavedState(baseline, editedRules, denial.database);
   try {
     const result = await issueOp(branch.sandbox, denial);
     // Only a mutation that actually landed can diverge; a denied/read op leaves
     // the branch identical to its base, so `diff` is naturally empty there.
     const allowed = result.outcome === 'allow';
-    const reference = snapshotOf(live);
-    const divergences = allowed ? documentDivergences(branch, reference) : [];
+    let divergences: Divergence[] = [];
+    if (allowed) {
+      divergences = documentDivergences(branch, reference, denial.database);
+    }
     return { result, diff: divergences, lint };
   } finally {
     discard(branch);
@@ -291,7 +315,7 @@ export async function issueOp(sandbox: Sandbox, denial: Denial): Promise<RerunRe
       reasons,
     };
   }
-  const db = getSandboxFirestore(sandbox.withAuth(denial.auth as AuthState));
+  const db = getSandboxFirestore(sandbox.withAuth(denial.auth as AuthState), denial.database);
   const resourceData = documentData(denial.resourceData);
   try {
     switch (denial.method) {

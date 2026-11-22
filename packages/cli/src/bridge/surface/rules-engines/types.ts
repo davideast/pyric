@@ -27,6 +27,8 @@ export interface RulesRequest {
   /** The query a database `read` carries, in the members rules read as `query.*`. */
   query?: Record<string, unknown>;
   rules?: string;
+  /** Cloud Firestore database id when evaluating a non-default database. */
+  database?: string;
   /** Realtime Database instance name, URL, or `default` when evaluating non-default instances. */
   instance?: string;
   /** Cloud Storage bucket, by name or `gs://` URL, whose rules evaluate; omit for the default bucket. */

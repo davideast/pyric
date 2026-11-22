@@ -40,6 +40,7 @@ import {
 } from './worker-runtime.js';
 import {
   getFirestore as workerGetFirestore,
+  withDatabaseId,
   setOpIssuer,
   getAuth as workerGetAuth,
   getStorage as workerGetStorage,
@@ -161,6 +162,8 @@ export interface LiveEventFeed {
 export interface WorkerLivePlane {
   /** The worker-backed Firestore handle (carries the `MessagePort`). */
   db: ClientDb;
+  /** Resolve a worker-backed Firestore handle scoped to `databaseId` (`(default)` when omitted). */
+  dbFor(databaseId?: string): ClientDb;
   /** Worker version state and the explicit replacement action for Studio. */
   runtime: StudioWorkerRuntime;
   /** F1: the unified event stream as an `EventFeed`. */
@@ -172,12 +175,15 @@ export interface WorkerLivePlane {
   /** F2 data browse: enumerate root collection ids over the worker keyspace.
    *  Coalesced: at most one request in flight, and every call made while one
    *  is in flight shares a single follow-up request. */
-  listRootCollections(): Promise<string[]>;
+  listRootCollections(databaseId?: string): Promise<string[]>;
   /** F2 data browse: enumerate subcollection ids under a document path. */
-  listSubcollections(docPath: string): Promise<string[]>;
+  listSubcollections(docPath: string, databaseId?: string): Promise<string[]>;
   /** F2 data browse: phantom-inclusive document listing for a collection path
    *  (`phantom: true` = a "missing" parent — descendants but no stored doc). */
-  listDocuments(collectionPath: string): Promise<{ path: string; phantom?: boolean }[]>;
+  listDocuments(
+    collectionPath: string,
+    databaseId?: string,
+  ): Promise<{ path: string; phantom?: boolean }[]>;
   /** RTDB browse: read the full worker-backed RTDB tree with the admin lens. */
   readRtdbState(): Promise<unknown>;
   /** RTDB browse: replace a node with the admin lens. */
@@ -449,8 +455,32 @@ export function connectWorkerLive(
   const authHandle = workerGetAuth(db);
   let disposed = false;
 
+  const scopedDbs = new Map<string, ClientDb>();
+  const dbFor = (databaseId?: string): ClientDb => {
+    if (databaseId === undefined || databaseId === '' || databaseId === '(default)') {
+      return db;
+    }
+    const existing = scopedDbs.get(databaseId);
+    if (existing !== undefined) return existing;
+    const created = withDatabaseId(db, databaseId);
+    scopedDbs.set(databaseId, created);
+    return created;
+  };
+  const coalescedRootsByDb = new Map<string, () => Promise<string[]>>();
+  const readRootsFor = (databaseId?: string): Promise<string[]> => {
+    const key = databaseId === undefined || databaseId === '' ? '(default)' : databaseId;
+    let reader = coalescedRootsByDb.get(key);
+    if (!reader) {
+      const handle = dbFor(key);
+      reader = coalesceReads(() => workerListRootCollections(handle));
+      coalescedRootsByDb.set(key, reader);
+    }
+    return reader();
+  };
+
   return {
     db,
+    dbFor,
     runtime,
     dispose: async () => {
       if (disposed) return;
@@ -471,15 +501,16 @@ export function connectWorkerLive(
     feed,
     setLens: (lens) => workerSetLens(lens),
     getLens: () => workerGetLens() as StudioLens | undefined,
-    listRootCollections: coalesceReads(() => workerListRootCollections(db)),
-    listSubcollections: (docPath) => workerListSubcollections(db, docPath),
-    // Browse-only listing: drop `data` at this seam (the pane only needs the
-    // id + the phantom flag; document CONTENT always reads via getDoc).
-    listDocuments: async (collectionPath) =>
-      (await workerAdminListDocuments(db, collectionPath)).map(({ path, phantom }) => ({
-        path,
-        phantom,
-      })),
+    listRootCollections: (databaseId) => readRootsFor(databaseId),
+    listSubcollections: (docPath, databaseId) =>
+      workerListSubcollections(dbFor(databaseId), docPath),
+    listDocuments: async (collectionPath, databaseId) =>
+      (await workerAdminListDocuments(dbFor(databaseId), collectionPath)).map(
+        ({ path, phantom }) => ({
+          path,
+          phantom,
+        }),
+      ),
     readRtdbState: () => workerAdminReadRtdbState(db),
     setRtdbValue: (path, value) => workerAdminSetRtdbValue(db, path, value),
     updateRtdbValue: (path, values) => workerAdminUpdateRtdbValue(db, path, values),

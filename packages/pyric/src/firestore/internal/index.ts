@@ -41,6 +41,7 @@ export {
 export {
   LoadBundleTask,
   assertBundleInputSupported,
+  assertBundleMatchesDatabase,
   readBundleSourceBytes,
   type LoadBundleTaskProgress,
 } from '../bundles.js';
@@ -93,3 +94,12 @@ export {
   getDatabaseChainableAdminFirestore,
   getDatabaseChainableFirestore,
 } from '../sandbox/named-compat-handle.js';
+export {
+  captureNamedFirestoreState,
+  isFirestoreDatabaseLockedByDefault,
+  resetFirestoreDatabaseToDefaultPolicy,
+  restoreNamedFirestoreState,
+  type NamedFirestoreCapturedState,
+  type RestoreNamedFirestoreOptions,
+} from '../sandbox/named-databases-state.js';
+export { replayNamedFirestoreEventsForDatabase } from '../sandbox/named-databases-replay.js';

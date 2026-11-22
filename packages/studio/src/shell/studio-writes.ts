@@ -12,7 +12,7 @@ import { useCallback } from 'react';
 import { setRules as setInProcessFirestoreRules } from 'pyric/sandbox/firestore';
 import { doc as inProcessDoc, setDoc as inProcessSetDoc } from 'pyric/firestore';
 import { sandbox as authSandbox, type CreateUserRequest } from 'pyric/auth';
-import { setRules as workerSetRules } from '@pyric/cli/serve/worker';
+import { setFirestoreRules as workerSetFirestoreRules } from '@pyric/cli/serve/worker';
 import { useDevSeed } from '../dev/DevSeedProvider.js';
 import { studioSessionHeaders } from './serve-init.js';
 import { useStudioDataSource } from './studio-data.js';
@@ -24,23 +24,23 @@ import { useSandboxWorkerLive } from './use-sandbox-worker-gate.js';
  * `pyric dev --ui`. The same `setRules` op the served app uses. Throws when
  * neither source is present.
  */
-export function useStudioSetRules(): (source: string) => Promise<void> {
+export function useStudioSetRules(databaseId?: string): (source: string) => Promise<void> {
   const seed = useDevSeed();
   const live = useSandboxWorkerLive();
   const seedSandbox = seed.status === 'ready' ? seed.handles.sandbox : null;
   return useCallback(
     async (source: string) => {
       if (seedSandbox) {
-        setInProcessFirestoreRules(seedSandbox, source);
+        setInProcessFirestoreRules(seedSandbox, source, databaseId);
         return;
       }
       if (live) {
-        await workerSetRules(live.db, source);
+        await workerSetFirestoreRules(live.db, source, databaseId);
         return;
       }
       throw new Error('No sandbox available to deploy rules to.');
     },
-    [seedSandbox, live],
+    [seedSandbox, live, databaseId],
   );
 }
 
@@ -56,8 +56,10 @@ export interface SeedOp {
  * grids use: the in-process `pyric/firestore` for dev-seed, the worker bundle in
  * served mode. Returns per-op errors so the caller can report partial failures.
  */
-export function useStudioSeed(): (ops: readonly SeedOp[]) => Promise<{ written: number; errors: string[] }> {
-  const data = useStudioDataSource();
+export function useStudioSeed(
+  databaseId?: string,
+): (ops: readonly SeedOp[]) => Promise<{ written: number; errors: string[] }> {
+  const data = useStudioDataSource(databaseId);
   return useCallback(
     async (ops: readonly SeedOp[]) => {
       if (data.status !== 'ready') throw new Error('No sandbox available to seed.');

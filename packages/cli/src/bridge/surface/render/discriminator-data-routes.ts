@@ -56,37 +56,53 @@ export const DATA_ROUTES: DiscriminatorRoute[] = [
     action: 'set',
     selects: onBoth('service', 'firestore', 'action', 'set'),
     operation: 'write_firestore_document',
-    translate: (args) => ({
-      path: args.path,
-      data: parseJsonObject(text(args, 'dataJson')) ?? {},
-    }),
+    translate: (args) => {
+      const translated: Args = {
+        path: args.path,
+        data: parseJsonObject(text(args, 'dataJson')) ?? {},
+      };
+      assign(translated, 'database', text(args, 'database'));
+      return translated;
+    },
   },
   {
     tool: 'mutate_sandbox_data',
     action: 'add',
     selects: onBoth('service', 'firestore', 'action', 'add'),
     operation: 'add_firestore_document',
-    translate: (args) => ({
-      path: args.path,
-      data: parseJsonObject(text(args, 'dataJson')) ?? {},
-    }),
+    translate: (args) => {
+      const translated: Args = {
+        path: args.path,
+        data: parseJsonObject(text(args, 'dataJson')) ?? {},
+      };
+      assign(translated, 'database', text(args, 'database'));
+      return translated;
+    },
   },
   {
     tool: 'mutate_sandbox_data',
     action: 'update',
     selects: onBoth('service', 'firestore', 'action', 'update'),
     operation: 'update_firestore_document',
-    translate: (args) => ({
-      path: args.path,
-      data: parseJsonObject(text(args, 'dataJson')) ?? {},
-    }),
+    translate: (args) => {
+      const translated: Args = {
+        path: args.path,
+        data: parseJsonObject(text(args, 'dataJson')) ?? {},
+      };
+      assign(translated, 'database', text(args, 'database'));
+      return translated;
+    },
   },
   {
     tool: 'mutate_sandbox_data',
     action: 'delete',
     selects: onBoth('service', 'firestore', 'action', 'delete'),
     operation: 'delete_firestore_document',
-    translate: (args) => ({ path: args.path }),
+    translate: (args) => {
+      const translated: Args = { path: args.path };
+      assign(translated, 'database', text(args, 'database'));
+      return translated;
+    },
   },
   {
     tool: 'mutate_sandbox_data',
@@ -100,7 +116,9 @@ export const DATA_ROUTES: DiscriminatorRoute[] = [
         assign(write, 'data', parseJsonObject(entry.dataJson));
         return write;
       });
-      return { writes };
+      const translated: Args = { writes };
+      assign(translated, 'database', text(args, 'database'));
+      return translated;
     },
   },
   {
@@ -161,6 +179,7 @@ export const DATA_ROUTES: DiscriminatorRoute[] = [
       assign(translated, 'orderBy', text(args, 'orderByField'));
       assign(translated, 'direction', text(args, 'orderDirection'));
       assign(translated, 'limit', args.limit);
+      assign(translated, 'database', text(args, 'database'));
       return translated;
     },
   },
@@ -172,6 +191,7 @@ export const DATA_ROUTES: DiscriminatorRoute[] = [
     translate: (args) => {
       const translated: Args = { path: args.path };
       assign(translated, 'limit', args.limit);
+      assign(translated, 'database', text(args, 'database'));
       return translated;
     },
   },
@@ -226,6 +246,7 @@ export const FIRESTORE_STRUCTURE_ROUTES: DiscriminatorRoute[] = [
     translate: (args) => {
       const translated: Args = { path: args.path };
       assign(translated, 'constraints', constraintsFromFiltersJson(args));
+      assign(translated, 'database', text(args, 'database'));
       return translated;
     },
   },
@@ -237,6 +258,7 @@ export const FIRESTORE_STRUCTURE_ROUTES: DiscriminatorRoute[] = [
     translate: (args) => {
       const translated: Args = { path: args.path, spec: parseJsonObject(text(args, 'specJson')) ?? {} };
       assign(translated, 'constraints', constraintsFromFiltersJson(args));
+      assign(translated, 'database', text(args, 'database'));
       return translated;
     },
   },
@@ -249,6 +271,7 @@ export const FIRESTORE_STRUCTURE_ROUTES: DiscriminatorRoute[] = [
       const translated: Args = {};
       assign(translated, 'depth', args.depth);
       assign(translated, 'limit', args.limit);
+      assign(translated, 'database', text(args, 'database'));
       return translated;
     },
   },
@@ -257,7 +280,11 @@ export const FIRESTORE_STRUCTURE_ROUTES: DiscriminatorRoute[] = [
     action: 'findCollectionGroup',
     selects: on('action', 'findCollectionGroup'),
     operation: 'find_firestore_collection_group',
-    translate: (args) => ({ collectionId: args.collectionId }),
+    translate: (args) => {
+      const translated: Args = { collectionId: args.collectionId };
+      assign(translated, 'database', text(args, 'database'));
+      return translated;
+    },
   },
   {
     tool: 'inspect_firestore_structure',

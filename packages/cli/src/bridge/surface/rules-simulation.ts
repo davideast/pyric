@@ -13,6 +13,11 @@
  * with the patch applied. A draft `rules` source changes only the rules, not
  * the documents.
  */
+import {
+  DEFAULT_FIRESTORE_DATABASE,
+  getDatabaseEnv,
+  normalizeFirestoreDatabaseId,
+} from 'pyric/firestore/internal';
 import { getInternalEnv } from 'pyric/sandbox/internal';
 import { SimulateFirestoreRulesHandler, documentRelativePath } from 'pyric/rules/internal';
 import { firestoreRulesSource } from './firestore-rules-load.js';
@@ -26,6 +31,7 @@ export interface SimulationRequest {
   uid?: string;
   data?: Record<string, unknown>;
   rules?: string;
+  database?: string;
   /** ISO 8601 instant `request.time` evaluates at. Defaults to the sandbox clock. */
   requestTime?: string;
   /** The `request.query` (and `where` constraints for static list-query proof) a `list` carries. */
@@ -52,8 +58,8 @@ export interface SimulationOutcome {
  * are loaded; or, while those rules are still in force, the project or seed
  * source a load refused, so lint and simulate report what is wrong with it.
  */
-export function activeFirestoreRules(ctx: SurfaceContext): string {
-  return firestoreRulesSource(ctx.sandbox);
+export function activeFirestoreRules(ctx: SurfaceContext, databaseId?: string): string {
+  return firestoreRulesSource(ctx.sandbox, databaseId);
 }
 
 /** The identity a simulation runs as: the named uid, or the held identity. */
@@ -76,14 +82,14 @@ export async function simulateFirestoreCase(
   ctx: SurfaceContext,
   request: SimulationRequest,
 ): Promise<SimulationOutcome> {
-  const source = request.rules ?? activeFirestoreRules(ctx);
+  const normalizedDb = normalizeFirestoreDatabaseId(request.database);
+  const source = request.rules ?? activeFirestoreRules(ctx, normalizedDb);
   const auth = simulationAuth(ctx, request.uid);
-  // `request.time` always names an instant, explicit or the sandbox clock's
-  // own, so a simulation with no `requestTime` still moves with a pinned or
-  // advanced clock rather than falling back to the engine's own wall clock.
-  // The engine wants it as ISO, so this is where that conversion happens.
   const requestTime = new Date(requestInstant(ctx, request.requestTime)).toISOString();
-  const env = getInternalEnv(ctx.sandbox);
+  let env = getInternalEnv(ctx.sandbox);
+  if (normalizedDb !== DEFAULT_FIRESTORE_DATABASE) {
+    env = getDatabaseEnv(ctx.sandbox, normalizedDb);
+  }
   const stored = env.getDocument(documentRelativePath(request.path));
   const testCase: TestCase = {
     description: `${request.operation} ${request.path}`,

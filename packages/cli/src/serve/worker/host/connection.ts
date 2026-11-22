@@ -19,7 +19,6 @@ import {
   recordCheckpointBackend,
   removeCheckpoint,
   restoreNamedCheckpoint,
-  saveCheckpoint,
   type CheckpointBackend,
 } from 'pyric/sandbox/checkpoints';
 
@@ -27,7 +26,12 @@ import { WORKER_PROTOCOL_VERSION, type OpMessage } from '../protocol.js';
 import { type HostCtx, type PortLike, ok, fail, bestEffortFlush } from '../host-context.js';
 import { reapplyActiveHostRulesAfterReset, syncHostRulesAfterCheckpointRestore } from './rules.js';
 import { restoreFirestoreSubscriptions } from './subscriptions.js';
-import { exportStateBundle, importStateBundle } from './state-transfer.js';
+import {
+  applyNamedFirestoreCheckpoint,
+  exportStateBundle,
+  importStateBundle,
+  saveCheckpoint,
+} from './state-transfer.js';
 
 /** Build hash injected by the bundler's esbuild `define`. Undefined when the
  *  compiled host is imported directly (tests) — guarded with `typeof`. */
@@ -151,7 +155,7 @@ export async function handleConnectionOp(
         }
         const imported = await importStateBundle(ctx.sandbox, msg.bundle);
         if (imported.kind === 'checkpoint') {
-          syncHostRulesAfterCheckpointRestore(ctx, imported.rules);
+          syncHostRulesAfterCheckpointRestore(ctx, imported.rules, imported.firestoreDatabaseRules);
         } else {
           reapplyActiveHostRulesAfterReset(ctx, imported.rtdbRules);
         }
@@ -212,7 +216,8 @@ export async function handleConnectionOp(
         ok(port, msg.id, { ok: false, error: `no such checkpoint: ${msg.name}` });
         break;
       }
-      syncHostRulesAfterCheckpointRestore(ctx, restored.state.rules);
+      const namedFirestoreRules = applyNamedFirestoreCheckpoint(ctx.sandbox, restored);
+      syncHostRulesAfterCheckpointRestore(ctx, restored.state.rules, namedFirestoreRules);
       await ctx.captureFlush?.();
       restoreFirestoreSubscriptions(ctx);
       await bestEffortFlush(ctx, msg.method);

@@ -11,6 +11,13 @@
  */
 import { z } from 'zod';
 import { snapshotDocuments } from 'pyric/sandbox/firestore';
+import {
+  assertDeclaredFirestoreDatabase,
+  checkFirestoreDatabase,
+  databaseArgument,
+  firestoreDatabaseSelector,
+  onFirestoreDatabase,
+} from '../../firestore-database.js';
 import type { MethodRecord } from '../../method-types.js';
 
 const DEFAULT_DEPTH = 5;
@@ -43,7 +50,7 @@ export default {
   runsIn: 'sandbox',
   sdkOrigin: 'pyric',
   effect: 'read',
-  signature: 'discoverPaths(depth?, limit?)',
+  signature: 'discoverPaths(depth?, limit?, database?)',
   description: 'List paths present in the sandbox, with per-collection counts.',
   args: z.object({
     depth: z
@@ -54,13 +61,23 @@ export default {
       .number()
       .optional()
       .describe('Maximum document paths to list. Default 200. Collection counts are never truncated.'),
+    database: databaseArgument,
   }),
   operation: 'discover_firestore_paths',
   example: { depth: 2, limit: 200 },
+  validate: (args, { fail }) => checkFirestoreDatabase(args, fail),
   async handler(args, ctx) {
-    const depth = typeof args.depth === 'number' ? args.depth : DEFAULT_DEPTH;
-    const limit = typeof args.limit === 'number' ? args.limit : DEFAULT_LIMIT;
-    const documents = snapshotDocuments(ctx.sandbox);
+    const selector = firestoreDatabaseSelector(args.database);
+    assertDeclaredFirestoreDatabase(ctx, selector);
+    let depth = DEFAULT_DEPTH;
+    if (typeof args.depth === 'number') {
+      depth = args.depth;
+    }
+    let limit = DEFAULT_LIMIT;
+    if (typeof args.limit === 'number') {
+      limit = args.limit;
+    }
+    const documents = snapshotDocuments(ctx.sandbox, selector);
     const inScope = Object.keys(documents)
       .filter((path) => collectionNestingLevel(path) <= depth)
       .sort();
@@ -76,12 +93,14 @@ export default {
 
     const truncated = inScope.length > limit;
     const documentPaths = inScope.slice(0, limit);
+    let baseSummary = `${collections.length} collection(s) to depth ${depth}, ${documentPaths.length} document(s).`;
+    if (truncated) {
+      baseSummary = `${collections.length} collection(s) to depth ${depth}, showing ${documentPaths.length} of ${inScope.length} document(s) (truncated by limit ${limit}).`;
+    }
 
     return {
       ok: true,
-      summary: truncated
-        ? `${collections.length} collection(s) to depth ${depth}, showing ${documentPaths.length} of ${inScope.length} document(s) (truncated by limit ${limit}).`
-        : `${collections.length} collection(s) to depth ${depth}, ${documentPaths.length} document(s).`,
+      summary: onFirestoreDatabase(baseSummary, selector),
       data: { depth, limit, collections, documents: documentPaths, truncated },
     };
   },

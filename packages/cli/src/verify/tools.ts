@@ -26,6 +26,7 @@ export function createVerifyTools(deps: VerifyToolDeps = {}): ToolHandler[] {
             type: 'object',
             properties: {
               firestore: { type: 'string' },
+              firestoreDatabases: { type: 'object' },
               rtdb: { type: 'object' },
               rtdbInstances: { type: 'object' },
               storage: { type: 'string' },
@@ -79,6 +80,7 @@ export function createVerifyTools(deps: VerifyToolDeps = {}): ToolHandler[] {
         properties: {
           fixture: { type: 'object' },
           service: { type: 'string', enum: ['firestore'] },
+          database: { type: 'string' },
           includeAllowed: { type: 'boolean' },
           includeDenied: { type: 'boolean' },
           mockReads: { type: 'string', enum: ['strict', 'omit'] },
@@ -89,17 +91,22 @@ export function createVerifyTools(deps: VerifyToolDeps = {}): ToolHandler[] {
         const input = args as {
           fixture: unknown;
           service?: 'firestore';
+          database?: string;
           includeAllowed?: boolean;
           includeDenied?: boolean;
           mockReads?: 'strict' | 'omit';
         };
         try {
-          const result = deriveRulesTestCases(input.fixture, {
+          const deriveOpts: Parameters<typeof deriveRulesTestCases>[1] = {
             service: input.service ?? 'firestore',
             includeAllowed: input.includeAllowed,
             includeDenied: input.includeDenied,
             mockReads: input.mockReads,
-          });
+          };
+          if (input.database !== undefined) {
+            deriveOpts.database = input.database;
+          }
+          const result = deriveRulesTestCases(input.fixture, deriveOpts);
           return {
             ok: result.ok,
             summary: result.ok

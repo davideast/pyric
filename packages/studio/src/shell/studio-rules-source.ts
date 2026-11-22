@@ -9,6 +9,10 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
+import {
+  DEFAULT_FIRESTORE_DATABASE,
+  getDatabaseEnv,
+} from 'pyric/firestore/internal';
 import { getInternalEnv } from 'pyric/sandbox/internal';
 import type { LocalSandbox } from 'pyric/sandbox';
 import { getActiveRules as getActiveDatabaseRules } from 'pyric/sandbox/database';
@@ -64,6 +68,13 @@ export function useStudioRulesSource(service: string = 'firestore', instance?: s
       .then(
         (payload: {
           rules?: string | null;
+          firestoreDatabaseRules?: Record<
+            string,
+            { rules?: string | null } | string | null
+          > | null;
+          firestoreDatabases?: {
+            rules?: Record<string, { rules?: string | null } | string | null>;
+          } | null;
           databaseRules?: unknown | null;
           databaseInstances?: {
             defaultInstance?: string;
@@ -76,6 +87,27 @@ export function useStudioRulesSource(service: string = 'firestore', instance?: s
           const resolved: Record<string, string> = {};
           if (typeof payload.rules === 'string') {
             resolved.firestore = payload.rules;
+          }
+          const firestoreMaps = [
+            payload.firestoreDatabaseRules,
+            payload.firestoreDatabases?.rules,
+          ];
+          for (const map of firestoreMaps) {
+            if (!map || typeof map !== 'object') continue;
+            for (const [dbId, entry] of Object.entries(map)) {
+              let ruleText: string | undefined;
+              if (typeof entry === 'string') {
+                ruleText = entry;
+              } else if (entry && typeof entry.rules === 'string') {
+                ruleText = entry.rules;
+              }
+              if (ruleText === undefined) continue;
+              if (dbId === DEFAULT_FIRESTORE_DATABASE) {
+                resolved.firestore ??= ruleText;
+              } else if (dbId.length > 0) {
+                resolved[`firestore:${dbId}`] = ruleText;
+              }
+            }
           }
           const defaultRtdb = formatRtdbRulesPayload(payload.databaseRules);
           if (defaultRtdb !== undefined) {
@@ -115,6 +147,16 @@ export function useStudioRulesSource(service: string = 'firestore', instance?: s
     const isOfflineSeed = seed.status === 'ready';
     const normalizedService = service === 'database' ? 'rtdb' : service;
     if (!isOfflineSeed) {
+      if (
+        normalizedService === 'firestore' &&
+        instance !== undefined &&
+        instance !== '' &&
+        instance !== DEFAULT_FIRESTORE_DATABASE
+      ) {
+        const namedFirestore = servedRules[`firestore:${instance}`];
+        if (namedFirestore !== undefined) return namedFirestore;
+        return '';
+      }
       if (normalizedService === 'rtdb' && instance !== undefined && instance !== '') {
         const named = servedRules[`rtdb:${instance}`];
         if (named !== undefined) return named;
@@ -134,6 +176,14 @@ export function useStudioRulesSource(service: string = 'firestore', instance?: s
           return JSON.stringify(active, null, 2);
         }
         return '';
+      }
+      if (
+        normalizedService === 'firestore' &&
+        instance !== undefined &&
+        instance !== '' &&
+        instance !== DEFAULT_FIRESTORE_DATABASE
+      ) {
+        return getDatabaseEnv(seed.handles.sandbox, instance).getRules();
       }
       const rawRules = getInternalEnv(seed.handles.sandbox).getRules();
       return rawRules;

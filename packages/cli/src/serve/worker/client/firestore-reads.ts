@@ -33,6 +33,7 @@ import {
 import {
   assertWorkerFirestoreActive,
   markWorkerHandleStarted,
+  ownerOfWorkerHandle,
   registerWorkerOwnedListener,
 } from './firestore-lifecycle.js';
 import { readWorkerDocFromCache, readWorkerQueryFromCache } from './firestore-cache-reads.js';
@@ -112,7 +113,16 @@ export async function readQueryAs(source: CollRefHandle | QueryHandle, method: s
     }
     return finishSdkRead(
       activity,
-      makeQuerySnapshot(result, source.port, source.converter, undefined, sourceDescriptor),
+      makeQuerySnapshot(
+        result,
+        source.port,
+        source.converter,
+        undefined,
+        sourceDescriptor,
+        undefined,
+        ownerOfWorkerHandle(source),
+        dbId,
+      ),
     );
   } catch (error) { activity.fail(); throw error; }
 }
@@ -345,6 +355,7 @@ export function onSnapshot(
   let deliveredCount = 0;
   let isOpenOnHost = false;
   const targetDbId = clientDatabaseIdOf(target);
+  const targetOwner = ownerOfWorkerHandle(target);
   const descriptor = target.descriptor;
   const hasWarmCacheAtSubscribe = !isWorkerFirestoreOffline(port)
     && isWorkerTargetWarm(port, descriptor, targetDbId);
@@ -353,7 +364,7 @@ export function onSnapshot(
   const deliverRawFrame = (raw: unknown): void => {
     let decoded: ClientDocSnapshot | ClientQuerySnapshot | null;
     try {
-      decoded = makeSnapshot(raw, port, target.converter, baseline);
+      decoded = makeSnapshot(raw, port, target.converter, baseline, targetOwner, targetDbId, descriptor);
     } catch (error) {
       stop();
       reportError(error);

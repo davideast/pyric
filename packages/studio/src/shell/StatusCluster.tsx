@@ -37,6 +37,10 @@ import { useBridgeAvailability } from './bridge-availability.js';
 import { usePresenceView } from './presence.js';
 import { useBridgeRemoteConsumers } from './bridge-presence.js';
 import { RemoteClientsPopover } from './RemoteClientsPopover.js';
+import {
+  describeRuntimeFirestoreDatabases,
+  useStudioFirestoreDatabases,
+} from './firestore-databases.js';
 import { useStudioDataSource } from './studio-data.js';
 import { hrefFor, pushPath } from './router.js';
 import { liveLabel } from 'pyric/sandbox/internal';
@@ -74,6 +78,8 @@ export function StatusCluster() {
   const { consumers: remoteConsumers, setLens: setRemoteLens } = useBridgeRemoteConsumers();
   const [remoteOpen, setRemoteOpen] = useState(false);
   const remoteTriggerRef = useRef<HTMLButtonElement>(null);
+  const firestoreDatabases = useStudioFirestoreDatabases();
+  const firestoreDatabasesChip = describeRuntimeFirestoreDatabases(firestoreDatabases);
   const studioData = useStudioDataSource();
   const hasStudioData = studioData.status === 'ready';
   const authHandle = hasStudioData ? studioData.handles?.auth : undefined;
@@ -254,6 +260,21 @@ export function StatusCluster() {
             auth={authHandle}
           />
         </span>
+      )}
+      {firestoreDatabasesChip !== null && (
+        <a
+          className="studio-chip"
+          data-studio-firestore-databases=""
+          href={hrefFor({ tab: 'firestore' })}
+          title={firestoreDatabasesChip.title}
+          onClick={(e) => {
+            e.preventDefault();
+            pushPath({ tab: 'firestore' });
+          }}
+        >
+          <span className="studio-chip__dot" aria-hidden="true" />
+          {firestoreDatabasesChip.label}
+        </a>
       )}
       {connected && (
         <span

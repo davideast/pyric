@@ -10,12 +10,12 @@
  * checkpoint a page saves and a checkpoint the CLI saves are the same value.
  */
 import {
+  captureCheckpoint,
   checkpointNames as namesOf,
   listCheckpoints as listOf,
   readCheckpoint as readOf,
   removeCheckpoint as removeOf,
   restoreNamedCheckpoint as restoreOf,
-  saveCheckpoint as saveOf,
   type Checkpoint,
   type CheckpointBackend,
   type CheckpointCounts,
@@ -24,6 +24,10 @@ import {
 } from 'pyric/sandbox/checkpoints';
 import { directoryCheckpointBackend } from 'pyric/sandbox/checkpoints/directory';
 import type { LocalSandbox } from 'pyric/sandbox';
+import {
+  applyNamedFirestoreCheckpoint,
+  withNamedFirestoreCheckpoint,
+} from '../../serve/worker/host/state-transfer.js';
 
 export { CHECKPOINT_NAME_PATTERN } from 'pyric/sandbox/checkpoints';
 export type { Checkpoint, CheckpointCounts, CheckpointListing };
@@ -42,12 +46,19 @@ function backendFor(place: CheckpointPlace): CheckpointBackend {
 }
 
 /** Capture the sandbox under `name`, replacing whatever that name held. */
-export function writeCheckpoint(
+export async function writeCheckpoint(
   sandbox: LocalSandbox,
   place: CheckpointPlace,
   name: string,
 ): Promise<SavedCheckpoint> {
-  return saveOf(backendFor(place), name, sandbox);
+  const backend = backendFor(place);
+  const overwrote = (await backend.read(name)) !== null;
+  const baseCheckpoint = await captureCheckpoint(sandbox, {
+    storage: backend.storage ?? 'inline',
+  });
+  const checkpoint = withNamedFirestoreCheckpoint(sandbox, baseCheckpoint);
+  await backend.write(name, checkpoint);
+  return { name, overwrote, checkpoint };
 }
 
 /** The checkpoint saved under `name`, or null when the project holds none. */
@@ -70,12 +81,15 @@ export function listProjectCheckpoints(place: CheckpointPlace): Promise<Checkpoi
  * one was restored. Resolves null when the project holds no such checkpoint,
  * and the sandbox is left exactly as it was.
  */
-export function restoreCheckpoint(
+export async function restoreCheckpoint(
   sandbox: LocalSandbox,
   place: CheckpointPlace,
   name: string,
 ): Promise<Checkpoint | null> {
-  return restoreOf(backendFor(place), name, sandbox);
+  const restored = await restoreOf(backendFor(place), name, sandbox);
+  if (restored === null) return null;
+  applyNamedFirestoreCheckpoint(sandbox, restored);
+  return restored;
 }
 
 /** Remove one checkpoint. Reports whether there was one to remove. */

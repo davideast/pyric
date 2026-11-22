@@ -40,6 +40,12 @@ import {
 import { useStudioTrafficFeed, STUDIO_EVENT_CAP } from '../../shell/studio-events.js';
 import { useLiveHost } from '../../shell/live-status.js';
 import { currentPath, pushPath, subscribeToLocation } from '../../shell/router.js';
+import { DEFAULT_FIRESTORE_DATABASE } from 'pyric/firestore/internal';
+import {
+  filterByFirestoreDatabase,
+  observedFirestoreDatabases,
+  type FirestoreDatabaseFilter,
+} from './firestore-database-filter.js';
 import {
   filterByVerdict,
   filterStudioTraffic,
@@ -211,6 +217,8 @@ export function TrafficSurface() {
   );
   const hiddenStudioCount = allEvents.length - withoutStudio.length;
   const [verdictFilter, setVerdictFilter] = useState<VerdictFilter>('all');
+  const [databaseFilter, setDatabaseFilter] = useState<FirestoreDatabaseFilter>('all');
+  const namedDatabases = useMemo(() => observedFirestoreDatabases(events), [events]);
   const [timeFocus, setTimeFocus] = useState<TimeWindow | null>(null);
   const expandedId = useInspectParam();
   const [visibleRows, setVisibleRows] = useState(PAGE_SIZE);
@@ -263,8 +271,12 @@ export function TrafficSurface() {
   // Newest-first stream; verdict filter first, then grouping (the volume
   // reducer: storms → one row).
   const ordered = useMemo(
-    () => filterByVerdict(tableEvents, verdictFilter).sort((a, b) => b.at - a.at),
-    [tableEvents, verdictFilter],
+    () =>
+      filterByFirestoreDatabase(
+        filterByVerdict(tableEvents, verdictFilter),
+        databaseFilter,
+      ).sort((a, b) => b.at - a.at),
+    [tableEvents, verdictFilter, databaseFilter],
   );
   const { items } = useTrafficGroups({ events: ordered });
   const visibleItems = items.slice(0, visibleRows);
@@ -417,6 +429,25 @@ export function TrafficSurface() {
                 {verdictLabel(f)}
               </button>
             ))}
+            {namedDatabases.length > 0 || databaseFilter !== 'all' ? (
+              <>
+                <span className="traffic__filters-label" aria-hidden="true">
+                  database
+                </span>
+                {(['all', DEFAULT_FIRESTORE_DATABASE, ...namedDatabases] as const).map((dbOpt) => (
+                  <button
+                    key={`db-${dbOpt}`}
+                    type="button"
+                    className="traffic__filter"
+                    data-firestore-database-filter={dbOpt}
+                    aria-pressed={databaseFilter === dbOpt}
+                    onClick={() => setDatabaseFilter(dbOpt)}
+                  >
+                    {dbOpt}
+                  </button>
+                ))}
+              </>
+            ) : null}
           </div>
 
           {/* Deep-linked op with no visible row (filtered out, beyond the

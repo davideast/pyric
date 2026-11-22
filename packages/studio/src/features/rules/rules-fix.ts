@@ -99,7 +99,10 @@ export function makeTestRulesEditTool(deps: TestRulesEditDeps): ToolHandler {
       // 2. Regression: re-run a sample of recently-allowed ops under the edit.
       const regressions: string[] = [];
       for (const op of deps.recentOps.slice(0, 8)) {
-        const branch = await forkFromSavedState(snap, rules);
+        if ((op.database ?? undefined) !== (deps.denial.database ?? undefined)) {
+          continue;
+        }
+        const branch = await forkFromSavedState(snap, rules, deps.denial.database);
         try {
           const r = await issueOp(branch.sandbox, op);
           if (r.outcome === 'deny') regressions.push(`${op.method} ${op.path}`);

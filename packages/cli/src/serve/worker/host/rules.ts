@@ -38,6 +38,7 @@ import { rtdbInstance, rtdbInstanceKey, rtdbInstances } from './rtdb-instances.j
 import {
   assertValidFirestoreDatabaseDeclaration,
   DEFAULT_FIRESTORE_DATABASE,
+  isFirestoreDatabaseDeclared,
   normalizeFirestoreDatabaseId,
 } from 'pyric/firestore/internal';
 
@@ -349,7 +350,11 @@ export function syncFirestoreActiveRules(ctx: HostCtx): void {
 }
 
 /** Synchronize `ctx.activeRules` and RTDB instance rules after a full-state checkpoint restore. */
-export function syncHostRulesAfterCheckpointRestore(ctx: HostCtx, rules: SandboxRuleSources): void {
+export function syncHostRulesAfterCheckpointRestore(
+  ctx: HostCtx,
+  rules: SandboxRuleSources,
+  namedFirestoreRules: Record<string, string> = {},
+): void {
   if (rules.firestore.length > 0) {
     ctx.activeRules ??= {};
     ctx.activeRules.firestore = enforcedFirestoreRulesState(
@@ -359,6 +364,25 @@ export function syncHostRulesAfterCheckpointRestore(ctx: HostCtx, rules: Sandbox
     );
   } else if (ctx.activeRules) {
     delete ctx.activeRules.firestore;
+  }
+
+  for (const [dbId, source] of Object.entries(namedFirestoreRules)) {
+    if (source.length === 0) continue;
+    const entry = firestoreDatabaseEntry(ctx, dbId);
+    entry.rules = enforcedFirestoreRulesState(
+      source,
+      entry.rules,
+      firestoreRuleMessages(lintFirestoreRules(source, { targetService: 'cloud.firestore' })),
+    );
+  }
+  for (const [dbId, entry] of [...(ctx.firestoreDatabases?.entries() ?? [])]) {
+    if (!isFirestoreDatabaseDeclared(ctx.sandbox, dbId)) {
+      ctx.firestoreDatabases?.delete(dbId);
+      continue;
+    }
+    if (!Object.hasOwn(namedFirestoreRules, dbId)) {
+      delete entry.rules;
+    }
   }
 
   const defaultRtdb = rtdbInstance(ctx);

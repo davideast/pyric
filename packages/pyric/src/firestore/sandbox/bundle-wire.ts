@@ -2,6 +2,7 @@
  * `pyric/firestore` -- length-prefixed JSON bundle wire decoder and shared
  * bundle AST types consumed by `loadBundle`, `namedQuery`, and SSR hydration.
  */
+import { Reference as RulesReference } from 'pyric/rules/internal';
 import { Bytes, GeoPoint, Timestamp } from '../field-values.js';
 
 export type BundledWhereOp = '==' | '!=' | '<' | '<=' | '>' | '>=' | 'array-contains' | 'in' | 'array-contains-any' | 'not-in';
@@ -18,9 +19,13 @@ export interface BundledQuerySourceSpec {
   readonly limitCount?: number;
   readonly limitType?: 'FIRST' | 'LAST';
 }
-interface BundledNamedQueryEntry extends BundledQuerySourceSpec { readonly name: string; }
+interface BundledNamedQueryEntry extends BundledQuerySourceSpec {
+  readonly name: string;
+  readonly databaseId?: string;
+}
 interface BundledDocumentEntry {
   readonly docPath: string;
+  readonly databaseId?: string;
   readonly exists: boolean;
   readonly data?: Record<string, unknown>;
   readonly queries: readonly string[];
@@ -57,6 +62,14 @@ function relativeDocPath(resourceName: string): string {
   return resourceName.slice(idx + marker.length);
 }
 
+const RESOURCE_DB_PATTERN = /^projects\/([^/]+)\/databases\/([^/]+)\/documents(?:\/|$)/;
+
+function resourceDatabaseId(resourceName: string): string | undefined {
+  const match = RESOURCE_DB_PATTERN.exec(resourceName);
+  if (match === null) return undefined;
+  return match[2];
+}
+
 function decodeRestValue(raw: Record<string, unknown>): unknown {
   if ('nullValue' in raw) return null;
   if (typeof raw.booleanValue === 'boolean') return raw.booleanValue;
@@ -65,6 +78,11 @@ function decodeRestValue(raw: Record<string, unknown>): unknown {
   if (typeof raw.doubleValue === 'number' || typeof raw.doubleValue === 'string') return Number(raw.doubleValue);
   if (typeof raw.timestampValue === 'string') return Timestamp.fromDate(new Date(raw.timestampValue));
   if (typeof raw.bytesValue === 'string') return Bytes.fromBase64String(raw.bytesValue);
+  if (typeof raw.referenceValue === 'string') {
+    const relPath = relativeDocPath(raw.referenceValue);
+    const refDb = resourceDatabaseId(raw.referenceValue);
+    return new RulesReference(relPath, refDb);
+  }
   if (raw.geoPointValue && typeof raw.geoPointValue === 'object') {
     const gp = raw.geoPointValue as { latitude?: number; longitude?: number };
     const lat = gp.latitude ?? 0;
@@ -135,7 +153,29 @@ function parseNamedQueryElement(nq: { name?: string; bundledQuery?: Record<strin
   if (bq.limitType === 'LAST') limitType = 'LAST';
   let queryName = '';
   if (typeof nq.name === 'string') queryName = nq.name;
-  return { name: queryName, collectionPath, isCollectionGroup: from0.allDescendants === true, filters, orders, limitCount, limitType };
+  const databaseId = resourceDatabaseId(rawParent);
+  const entry: {
+    name: string;
+    databaseId?: string;
+    collectionPath: string;
+    isCollectionGroup: boolean;
+    filters: BundledFilterSpec[];
+    orders: Array<{ fieldPath: string; direction: 'asc' | 'desc' }>;
+    limitCount?: number;
+    limitType: 'FIRST' | 'LAST';
+  } = {
+    name: queryName,
+    collectionPath,
+    isCollectionGroup: from0.allDescendants === true,
+    filters,
+    orders,
+    limitCount,
+    limitType,
+  };
+  if (databaseId !== undefined) {
+    entry.databaseId = databaseId;
+  }
+  return entry;
 }
 export function decodeBundleBytes(bytes: Uint8Array): ParsedBundle {
   if (bytes.byteLength === 0) throw new Error('Bundle payload is empty.');
@@ -173,17 +213,53 @@ export function decodeBundleBytes(bytes: Uint8Array): ParsedBundle {
       let rawDocName = '';
       if (typeof dm.name === 'string') rawDocName = dm.name;
       const docPath = relativeDocPath(rawDocName);
+      let databaseId = resourceDatabaseId(rawDocName);
       let queries: string[] = [];
       if (Array.isArray(dm.queries)) queries = dm.queries.map(String);
       if (dm.exists === true) {
         const next = rawElements[idx + 1];
         if (next === undefined || !next.value.document || typeof next.value.document !== 'object') throw new Error(`Missing document payload for ${docPath}.`);
-        const rawDoc = next.value.document as { fields?: Record<string, Record<string, unknown>> };
+        const rawDoc = next.value.document as { name?: string; fields?: Record<string, Record<string, unknown>> };
+        if (databaseId === undefined && typeof rawDoc.name === 'string') {
+          databaseId = resourceDatabaseId(rawDoc.name);
+        }
         const docFields = rawDoc.fields ?? {};
-        documents.push({ docPath, exists: true, data: decodeRestFields(docFields), queries, bytesLoadedAfterDoc: next.endOffset - headerBytes });
+        const docEntry: {
+          docPath: string;
+          databaseId?: string;
+          exists: true;
+          data: Record<string, unknown>;
+          queries: string[];
+          bytesLoadedAfterDoc: number;
+        } = {
+          docPath,
+          exists: true,
+          data: decodeRestFields(docFields),
+          queries,
+          bytesLoadedAfterDoc: next.endOffset - headerBytes,
+        };
+        if (databaseId !== undefined) {
+          docEntry.databaseId = databaseId;
+        }
+        documents.push(docEntry);
         idx += 2;
       } else {
-        documents.push({ docPath, exists: false, queries, bytesLoadedAfterDoc: current.endOffset - headerBytes });
+        const docEntry: {
+          docPath: string;
+          databaseId?: string;
+          exists: false;
+          queries: string[];
+          bytesLoadedAfterDoc: number;
+        } = {
+          docPath,
+          exists: false,
+          queries,
+          bytesLoadedAfterDoc: current.endOffset - headerBytes,
+        };
+        if (databaseId !== undefined) {
+          docEntry.databaseId = databaseId;
+        }
+        documents.push(docEntry);
         idx += 1;
       }
     } else {

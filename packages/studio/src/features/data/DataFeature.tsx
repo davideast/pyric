@@ -19,6 +19,7 @@ import { useAuthUsers, AuthApiProvider } from '@pyric/ui/auth';
 import { FirestoreApiProvider } from '@pyric/ui/firestore';
 import { StorageApiProvider } from '@pyric/ui/storage';
 import { LiveFirestorePane } from './FirestorePane.js';
+import { FirestoreDatabaseBar } from './FirestoreDatabaseBar.js';
 import { LiveAuthPane } from './AuthPane.js';
 import { LiveObservedStoragePane } from './LiveObservedStoragePane.js';
 import { LiveStoragePane } from './StoragePane.js';
@@ -30,6 +31,11 @@ import {
   useObservedSessionData,
   type ObservedSessionViewState,
 } from '../../shell/use-observed-session-data.js';
+import {
+  useSelectedFirestoreDatabase,
+  useStudioFirestoreDatabases,
+  type StudioFirestoreDatabaseStatus,
+} from '../../shell/firestore-databases.js';
 import { useStudioDataSource } from '../../shell/studio-data.js';
 import './data-feature.css';
 
@@ -103,9 +109,11 @@ export function DataFeature({ view }: { view: DataView }) {
   const liveHost = useLiveHost();
   const hostAnswered = useHostAnswered();
   const observed = useObservedSessionData(liveHost !== null, liveHost?.projectId);
+  const [selectedDatabase, setSelectedDatabase] = useSelectedFirestoreDatabase();
+  const databases = useStudioFirestoreDatabases();
 
-  // Live handles, dev-seed first (review), env-hydrated otherwise (`dev --ui`).
-  const data = useStudioDataSource();
+  const activeDb = view === 'firestore' ? selectedDatabase : undefined;
+  const data = useStudioDataSource(activeDb);
 
   // Shared live user list (one subscription for the whole feature). The auth
   // handle only exists once the sandbox handles resolved.
@@ -135,6 +143,9 @@ export function DataFeature({ view }: { view: DataView }) {
             target={target}
             firestoreApi={data.firestoreApi}
             storageApi={data.storageApi}
+            databases={databases}
+            selectedDatabase={selectedDatabase}
+            onSelectDatabase={setSelectedDatabase}
           />
         </AuthApiProvider>
       ) : (
@@ -145,6 +156,9 @@ export function DataFeature({ view }: { view: DataView }) {
           target={target}
           firestoreApi={data.firestoreApi}
           storageApi={data.storageApi}
+          databases={databases}
+          selectedDatabase={selectedDatabase}
+          onSelectDatabase={setSelectedDatabase}
         />
       )}
     </div>
@@ -158,6 +172,9 @@ function DataViews({
   target,
   firestoreApi,
   storageApi,
+  databases,
+  selectedDatabase,
+  onSelectDatabase,
 }: {
   view: DataView;
   handles: import('./sandbox.js').StudioDataHandles;
@@ -165,21 +182,30 @@ function DataViews({
   target: import('./navigation.js').DataTarget | null;
   firestoreApi?: import('@pyric/ui/firestore').FirestoreApi;
   storageApi?: import('@pyric/ui/storage').StorageApi;
+  databases: readonly StudioFirestoreDatabaseStatus[];
+  selectedDatabase: string | undefined;
+  onSelectDatabase: (databaseId: string | undefined) => void;
 }) {
-  // Shared user list + uid set for cross-ref resolution.
   const { users } = useAuthUsers(auth);
   const knownUids = useMemo(() => new Set(users.map((u) => u.uid)), [users]);
 
   switch (view) {
     case 'firestore': {
-      const pane = <LiveFirestorePane handles={handles} knownUids={knownUids} />;
-      // Served mode supplies the worker FirestoreApi bundle so the grid drives
-      // the live worker; dev-seed leaves it undefined (in-process default).
-      return firestoreApi ? (
-        <FirestoreApiProvider value={firestoreApi}>{pane}</FirestoreApiProvider>
-      ) : (
-        pane
+      const paneKey = selectedDatabase ?? '(default)';
+      const pane = (
+        <>
+          <FirestoreDatabaseBar
+            databases={databases}
+            selectedDatabase={selectedDatabase}
+            onSelectDatabase={onSelectDatabase}
+          />
+          <LiveFirestorePane key={paneKey} handles={handles} knownUids={knownUids} />
+        </>
       );
+      if (firestoreApi) {
+        return <FirestoreApiProvider value={firestoreApi}>{pane}</FirestoreApiProvider>;
+      }
+      return pane;
     }
     case 'auth':
       return (

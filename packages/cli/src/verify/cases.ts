@@ -13,6 +13,10 @@ import {
   type PyricVerifyFixture,
 } from './fixture.js';
 import {
+  filterFixtureForFirestoreDatabase,
+  firestoreEventDatabase,
+} from './firestore-databases.js';
+import {
   rulesSourceUsesLookups,
   textContainsDocumentLookupCall,
 } from './rules-lookup-analysis.js';
@@ -46,6 +50,7 @@ export type VerifyUnsupportedEvent = {
 
 export interface DeriveRulesTestCasesOptions {
   service?: 'firestore';
+  database?: string;
   includeAllowed?: boolean;
   includeDenied?: boolean;
   includeListenerReads?: boolean;
@@ -54,6 +59,7 @@ export interface DeriveRulesTestCasesOptions {
 
 export interface DerivedRulesTestCase {
   eventId: string;
+  database?: string;
   testCase: TestCase;
 }
 
@@ -71,7 +77,11 @@ export function deriveRulesTestCases(
   fixtureInput: PyricVerifyFixture | unknown,
   opts: DeriveRulesTestCasesOptions = {},
 ): DeriveRulesTestCasesResult {
-  const fixture = parseVerifyFixture(fixtureInput);
+  const parsed = parseVerifyFixture(fixtureInput);
+  let fixture = parsed;
+  if (opts.database !== undefined) {
+    fixture = filterFixtureForFirestoreDatabase(parsed, opts.database);
+  }
   const includeAllowed = opts.includeAllowed ?? true;
   const includeDenied = opts.includeDenied ?? true;
   const includeListenerReads = opts.includeListenerReads ?? true;
@@ -150,7 +160,8 @@ export function deriveRulesTestCases(
       });
     }
 
-    derived.push({
+    const eventDatabase = firestoreEventDatabase(event);
+    const entry: DerivedRulesTestCase = {
       eventId: event.id,
       testCase: buildTestCase(
         event,
@@ -159,7 +170,11 @@ export function deriveRulesTestCases(
         committedGroupFinalStates,
         uncommittedGroupProjections,
       ),
-    });
+    };
+    if (eventDatabase !== undefined) {
+      entry.database = eventDatabase;
+    }
+    derived.push(entry);
   }
 
   const result: DeriveRulesTestCasesResult = {

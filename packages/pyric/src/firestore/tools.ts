@@ -92,6 +92,11 @@ const WHERE_CLAUSE_SCHEMA = {
   required: ['field', 'op', 'value'],
 };
 
+const DATABASE_SCHEMA = {
+  type: 'string' as const,
+  description: 'Optional Firestore database id. Omit or "(default)" targets the default database.',
+};
+
 export interface FirestoreDataToolDeps {
   /**
    * Resolver returning a `Firestore` handle. Called per-dispatch with the
@@ -103,7 +108,7 @@ export interface FirestoreDataToolDeps {
    * resolver wired to a real backend should require an explicit identity or
    * confirm-gate admin writes (see the bridge's prod confirm-policy).
    */
-  resolveDb(as?: As): Promise<Firestore> | Firestore;
+  resolveDb(as?: As, database?: string): Promise<Firestore> | Firestore;
 }
 
 export interface FirestoreInspectToolDeps {
@@ -167,13 +172,14 @@ export function createFirestoreDataTools(deps: FirestoreDataToolDeps): ToolHandl
         type: 'object',
         properties: {
           path: { type: 'string', description: 'e.g. "users/alice"' },
+          database: DATABASE_SCHEMA,
           as: AS_SCHEMA,
         },
         required: ['path'],
       },
       async execute(args) {
-        const a = args as { path: string; as?: As };
-        const db = await resolveDb(a.as);
+        const a = args as { path: string; database?: string; as?: As };
+        const db = await resolveDb(a.as, a.database);
         const ref = doc(db, a.path);
         const snap = await getDoc(ref);
         const exists = typeof snap.exists === 'function' ? snap.exists() : snap.exists;
@@ -193,13 +199,14 @@ export function createFirestoreDataTools(deps: FirestoreDataToolDeps): ToolHandl
           collection: { type: 'string' },
           orderBy: { type: 'string' },
           limit: { type: 'number' },
+          database: DATABASE_SCHEMA,
           as: AS_SCHEMA,
         },
         required: ['collection'],
       },
       async execute(args) {
-        const a = args as { collection: string; orderBy?: string; limit?: number; as?: As };
-        const db = await resolveDb(a.as);
+        const a = args as { collection: string; orderBy?: string; limit?: number; database?: string; as?: As };
+        const db = await resolveDb(a.as, a.database);
         const baseColl = collection(db, a.collection);
         const constraints = [];
         if (a.orderBy) constraints.push(orderBy(a.orderBy));
@@ -220,13 +227,14 @@ export function createFirestoreDataTools(deps: FirestoreDataToolDeps): ToolHandl
         properties: {
           path: { type: 'string' },
           data: { type: 'object' },
+          database: DATABASE_SCHEMA,
           as: AS_SCHEMA,
         },
         required: ['path', 'data'],
       },
       async execute(args) {
-        const a = args as { path: string; data: Record<string, unknown>; as?: As };
-        const db = await resolveDb(a.as);
+        const a = args as { path: string; data: Record<string, unknown>; database?: string; as?: As };
+        const db = await resolveDb(a.as, a.database);
         await setDoc(doc(db, a.path), rehydrateToolWriteData(a.data) as Record<string, unknown>);
         return { ok: true, summary: `Created ${a.path}` };
       },
@@ -239,13 +247,14 @@ export function createFirestoreDataTools(deps: FirestoreDataToolDeps): ToolHandl
         properties: {
           collection: { type: 'string', description: 'Collection to add the doc under, e.g. "users" or "users/u1/posts".' },
           data: { type: 'object' },
+          database: DATABASE_SCHEMA,
           as: AS_SCHEMA,
         },
         required: ['collection', 'data'],
       },
       async execute(args) {
-        const a = args as { collection: string; data: Record<string, unknown>; as?: As };
-        const db = await resolveDb(a.as);
+        const a = args as { collection: string; data: Record<string, unknown>; database?: string; as?: As };
+        const db = await resolveDb(a.as, a.database);
         const ref = await addDoc(
           collection(db, a.collection),
           rehydrateToolWriteData(a.data) as Record<string, unknown>,
@@ -261,13 +270,14 @@ export function createFirestoreDataTools(deps: FirestoreDataToolDeps): ToolHandl
         properties: {
           path: { type: 'string' },
           data: { type: 'object' },
+          database: DATABASE_SCHEMA,
           as: AS_SCHEMA,
         },
         required: ['path', 'data'],
       },
       async execute(args) {
-        const a = args as { path: string; data: Record<string, unknown>; as?: As };
-        const db = await resolveDb(a.as);
+        const a = args as { path: string; data: Record<string, unknown>; database?: string; as?: As };
+        const db = await resolveDb(a.as, a.database);
         await updateDoc(doc(db, a.path), rehydrateToolWriteData(a.data) as Record<string, unknown>);
         return { ok: true, summary: `Updated ${a.path}` };
       },
@@ -279,13 +289,14 @@ export function createFirestoreDataTools(deps: FirestoreDataToolDeps): ToolHandl
         type: 'object',
         properties: {
           path: { type: 'string' },
+          database: DATABASE_SCHEMA,
           as: AS_SCHEMA,
         },
         required: ['path'],
       },
       async execute(args) {
-        const a = args as { path: string; as?: As };
-        const db = await resolveDb(a.as);
+        const a = args as { path: string; database?: string; as?: As };
+        const db = await resolveDb(a.as, a.database);
         await deleteDoc(doc(db, a.path));
         return { ok: true, summary: `Deleted ${a.path}` };
       },
@@ -311,6 +322,7 @@ export function createFirestoreDataTools(deps: FirestoreDataToolDeps): ToolHandl
               required: ['op', 'path'],
             },
           },
+          database: DATABASE_SCHEMA,
           as: AS_SCHEMA,
         },
         required: ['operations'],
@@ -318,6 +330,7 @@ export function createFirestoreDataTools(deps: FirestoreDataToolDeps): ToolHandl
       async execute(args) {
         const a = args as {
           operations: Array<{ op: 'set' | 'update' | 'delete'; path: string; data?: Record<string, unknown> }>;
+          database?: string;
           as?: As;
         };
         // The schema's minItems/maxItems aren't enforced by the MCP validation
@@ -325,7 +338,7 @@ export function createFirestoreDataTools(deps: FirestoreDataToolDeps): ToolHandl
         if (a.operations.length === 0 || a.operations.length > 500) {
           return { ok: false, summary: `firestore_batch_write: operations must be 1..500 (got ${a.operations.length}).` };
         }
-        const db = await resolveDb(a.as);
+        const db = await resolveDb(a.as, a.database);
         // Applied in order via the modular API. (The shim's WriteBatch ref type
         // has drifted from doc()'s return in the .d.ts; sequential keeps this
         // typesafe and is fine for the seed / bulk-edit use case.)
@@ -357,6 +370,7 @@ export function createFirestoreDataTools(deps: FirestoreDataToolDeps): ToolHandl
           },
           orderBy: { type: 'string' },
           limit: { type: 'number' },
+          database: DATABASE_SCHEMA,
           as: AS_SCHEMA,
         },
         required: ['collection', 'where'],
@@ -367,9 +381,10 @@ export function createFirestoreDataTools(deps: FirestoreDataToolDeps): ToolHandl
           where: WhereClause[];
           orderBy?: string;
           limit?: number;
+          database?: string;
           as?: As;
         };
-        const db = await resolveDb(a.as);
+        const db = await resolveDb(a.as, a.database);
         const baseColl = collection(db, a.collection);
         const constraints = a.where.map((w) => where(w.field, w.op, w.value));
         if (a.orderBy) constraints.push(orderBy(a.orderBy));
@@ -418,13 +433,15 @@ export function createFirestoreInspectTools(deps: FirestoreInspectToolDeps): Too
             description: 'Cap on recent denials/requests returned. Default 10.',
             default: 10,
           },
+          database: DATABASE_SCHEMA,
         },
       },
       async execute(args) {
-        const a = args as { recentEventLimit?: number };
+        const a = args as { recentEventLimit?: number; database?: string };
         const sandbox = await resolveSandbox();
         const report = inspect(sandbox, {
           recentEventLimit: a.recentEventLimit,
+          databaseId: a.database,
         });
         // Punch up the summary so it's useful in tool-result previews
         // without forcing the agent to drill into `data`.

@@ -9,6 +9,13 @@ import {
   queryFrom,
   RENAMES,
 } from '../../arguments/firestore.js';
+import {
+  assertDeclaredFirestoreDatabase,
+  checkFirestoreDatabase,
+  databaseArgument,
+  firestoreDatabaseSelector,
+  onFirestoreDatabase,
+} from '../../firestore-database.js';
 import { firestoreFor } from '../../service-handles.js';
 import type { MethodRecord } from '../../method-types.js';
 import type { InvalidArguments } from '../../method-types.js';
@@ -28,7 +35,7 @@ export default {
   runsIn: 'sandbox',
   sdkOrigin: 'firebase-js',
   effect: 'read',
-  signature: 'getAggregateFromServer(path, spec{count?, sum?, average?}, constraints?[asc|desc])',
+  signature: 'getAggregateFromServer(path, spec{count?, sum?, average?}, constraints?[asc|desc], database?)',
   description: 'Compute count, sum, average over a query.',
   args: z.object({
     path: z.string().describe('Collection path, for example orders.'),
@@ -37,6 +44,7 @@ export default {
       .array(constraint)
       .optional()
       .describe('where, orderBy, and limit constraints narrowing what is aggregated.'),
+    database: databaseArgument,
   }),
   operation: 'aggregate_firestore_documents',
   renames: RENAMES,
@@ -46,14 +54,18 @@ export default {
     constraints: [{ type: 'where', field: 'status', op: '==', value: 'paid' }],
   },
   validate: (args, { fail }): InvalidArguments | null => {
+    const dbCheck = checkFirestoreDatabase(args, fail);
+    if (dbCheck !== null) return dbCheck;
     const query = checkQueryArgs('getAggregateFromServer', args, fail);
     if (query !== null) return query;
     return checkAggregateSpec(args, fail);
   },
   async handler(args, ctx) {
     const path = String(args.path);
+    const selector = firestoreDatabaseSelector(args.database);
+    assertDeclaredFirestoreDatabase(ctx, selector);
     const spec = args.spec as { count?: boolean; sum?: string; average?: string };
-    const db = firestoreFor(ctx);
+    const db = firestoreFor(ctx, selector);
     const target = queryFrom(db, path, args);
     const snapshot = await getAggregateFromServer(target, chainSpecFrom(spec));
     const data = snapshot.data();
@@ -63,7 +75,7 @@ export default {
     if (typeof spec.average === 'string') parts.push(`average ${data.average}`);
     return {
       ok: true,
-      summary: `${path}: ${parts.join(', ')}.`,
+      summary: onFirestoreDatabase(`${path}: ${parts.join(', ')}.`, selector),
       data,
     };
   },

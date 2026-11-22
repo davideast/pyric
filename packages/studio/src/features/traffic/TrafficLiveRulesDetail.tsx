@@ -303,7 +303,8 @@ export function LiveRulesView({
   showDrift: boolean;
 }) {
   const service = event.service ?? 'firestore';
-  const rulesSource = useStudioRulesSource(service, event.instance);
+  const resourceKey = service === 'rtdb' ? event.instance : event.database;
+  const rulesSource = useStudioRulesSource(service, resourceKey);
   const production = event.production;
   const evaluation = liveRuleEvaluation(event, rulesSource);
   let unevaluated: LiveUnevaluatedInspection | undefined;

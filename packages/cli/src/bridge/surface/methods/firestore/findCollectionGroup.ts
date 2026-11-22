@@ -10,6 +10,13 @@
 import { z } from 'zod';
 import { snapshotDocuments } from 'pyric/sandbox/firestore';
 import { quoted } from '../../closest-name.js';
+import {
+  assertDeclaredFirestoreDatabase,
+  checkFirestoreDatabase,
+  databaseArgument,
+  firestoreDatabaseSelector,
+  onFirestoreDatabase,
+} from '../../firestore-database.js';
 import type { InvalidArguments, MethodRecord } from '../../method-types.js';
 
 /** A document's path segments. */
@@ -33,14 +40,17 @@ export default {
   runsIn: 'sandbox',
   sdkOrigin: 'pyric',
   effect: 'read',
-  signature: 'findCollectionGroup(collectionId)',
+  signature: 'findCollectionGroup(collectionId, database?)',
   description: 'Find collection paths ending in one id.',
   args: z.object({
     collectionId: z.string().describe('The collection id to search for, for example comments.'),
+    database: databaseArgument,
   }),
   operation: 'find_firestore_collection_group',
   example: { collectionId: 'comments' },
   validate: (args, { fail }): InvalidArguments | null => {
+    const dbCheck = checkFirestoreDatabase(args, fail);
+    if (dbCheck !== null) return dbCheck;
     const id = args.collectionId;
     if (typeof id === 'string' && id.length > 0) return null;
     return fail(
@@ -51,7 +61,9 @@ export default {
   },
   async handler(args, ctx) {
     const collectionId = String(args.collectionId);
-    const documents = snapshotDocuments(ctx.sandbox);
+    const selector = firestoreDatabaseSelector(args.database);
+    assertDeclaredFirestoreDatabase(ctx, selector);
+    const documents = snapshotDocuments(ctx.sandbox, selector);
     const counts = new Map<string, number>();
     for (const path of Object.keys(documents)) {
       const collectionPath = collectionOf(path);
@@ -64,7 +76,10 @@ export default {
 
     return {
       ok: true,
-      summary: `'${collectionId}' appears as ${hosts.length} collection(s).`,
+      summary: onFirestoreDatabase(
+        `'${collectionId}' appears as ${hosts.length} collection(s).`,
+        selector,
+      ),
       data: { collectionId, hosts },
     };
   },
