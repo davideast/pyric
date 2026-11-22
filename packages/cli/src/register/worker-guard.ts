@@ -32,7 +32,7 @@ import {
 type Env = Record<string, string | undefined>;
 
 /** The `Worker` options this module reads. */
-interface WorkerOptionsLike {
+export interface WorkerOptionsLike {
   eval?: unknown;
   execArgv?: unknown;
   env?: unknown;
@@ -52,12 +52,12 @@ const USE_STRICT = /^(\s*(['"])use strict\2;?[ \t]*\n?)/;
  * a symbol, and a worker with `undefined` or `null` `env` gets a copy of this
  * thread's env.
  */
-function isOwnEnv(env: unknown): env is Env {
+export function isOwnEnv(env: unknown): env is Env {
   return typeof env === 'object' && env !== null;
 }
 
 /** Matches Node `worker_threads` truthiness for `options.eval`. */
-function isEvalWorker(options: WorkerOptionsLike | undefined): boolean {
+export function isEvalWorker(options: WorkerOptionsLike | undefined): boolean {
   return Boolean(options?.eval);
 }
 
@@ -78,7 +78,7 @@ function copyExecArgvOnce(raw: unknown): unknown {
  * `env` (own, non-enumerable, or inherited) cannot return different values to
  * the guard versus `super()`.
  */
-function snapshotWorkerOptions(options: WorkerOptionsLike | undefined): WorkerOptionsLike | undefined {
+export function snapshotWorkerOptions(options: WorkerOptionsLike | undefined): WorkerOptionsLike | undefined {
   if (options === undefined || options === null || typeof options !== 'object') {
     return options;
   }
@@ -266,7 +266,7 @@ export function guardWorkerArguments(
  * runs the source as CommonJS; ESM source already ran the preload, and the
  * prefix does nothing there.
  */
-function withRegisterPrefix(source: string, registerUrl: string): string {
+export function withRegisterPrefix(source: string, registerUrl: string): string {
   const prefix = `typeof require === 'function' && require(${JSON.stringify(fileURLToPath(registerUrl))});\n`;
   const directive = USE_STRICT.exec(source)?.[1];
   if (directive === undefined) return `${prefix}${source}`;

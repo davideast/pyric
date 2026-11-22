@@ -127,13 +127,12 @@ const IPV4_CANDIDATE = /^[0-9a-fx.]+$/;
 
 const DOTTED_QUAD = /^\d{1,3}(?:\.\d{1,3}){3}$/;
 
-/** An IPv4-mapped IPv6 address as the URL parser writes it. */
-const MAPPED_IPV4 = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/;
-
 /**
  * `text` written the way the URL parser writes an IP address: a dotted quad
  * for every IPv4 form, and for IPv6 the compressed form without brackets, or
- * its IPv4 address when it is IPv4-mapped. `undefined` for anything that is
+ * its IPv4 address when it embeds IPv4 via IPv4-mapped (`::ffff:a.b.c.d`),
+ * IPv4-translated (`::ffff:0:a.b.c.d`), NAT64 (`64:ff9b::a.b.c.d`), or
+ * IPv4-compatible (`::a.b.c.d`) prefixes. `undefined` for anything that is
  * not an IP address, which stays as text.
  */
 function canonicalIpAddress(text: string): string | undefined {
@@ -159,18 +158,83 @@ function canonicalIpv6Text(text: string): string | undefined {
   return canonicalIpv6(bare);
 }
 
+const HEX_HEXTET_PATTERN = /^[0-9a-f]{1,4}$/;
+
+function parseHextetGroup(part: string): number[] | undefined {
+  if (part === '') return [];
+  const pieces = part.split(':');
+  const out: number[] = [];
+  for (const piece of pieces) {
+    if (!HEX_HEXTET_PATTERN.test(piece)) return undefined;
+    out.push(Number.parseInt(piece, 16));
+  }
+  return out;
+}
+
+function parseIpv6Hextets(address: string): readonly number[] | undefined {
+  const halves = address.split('::');
+  if (halves.length > 2) return undefined;
+  const left = parseHextetGroup(halves[0] ?? '');
+  if (left === undefined) return undefined;
+  if (halves.length === 1) {
+    return left.length === 8 ? left : undefined;
+  }
+  const right = parseHextetGroup(halves[1] ?? '');
+  if (right === undefined) return undefined;
+  const missing = 8 - left.length - right.length;
+  if (missing < 1) return undefined;
+  const zeros: number[] = [];
+  for (let i = 0; i < missing; i += 1) {
+    zeros.push(0);
+  }
+  return [...left, ...zeros, ...right];
+}
+
+function embeddedIpv4FromHextets(hextets: readonly number[]): string | undefined {
+  const h0 = hextets[0];
+  const h1 = hextets[1];
+  const h2 = hextets[2];
+  const h3 = hextets[3];
+  const h4 = hextets[4];
+  const h5 = hextets[5];
+  const h6 = hextets[6];
+  const h7 = hextets[7];
+  if (
+    h0 === undefined ||
+    h1 === undefined ||
+    h2 === undefined ||
+    h3 === undefined ||
+    h4 === undefined ||
+    h5 === undefined ||
+    h6 === undefined ||
+    h7 === undefined
+  ) {
+    return undefined;
+  }
+  const isIpv4Mapped =
+    h0 === 0 && h1 === 0 && h2 === 0 && h3 === 0 && h4 === 0 && h5 === 0xffff;
+  const isIpv4Translated =
+    h0 === 0 && h1 === 0 && h2 === 0 && h3 === 0 && h4 === 0xffff && h5 === 0;
+  const isNat64WellKnown =
+    h0 === 0x0064 && h1 === 0xff9b && h2 === 0 && h3 === 0 && h4 === 0 && h5 === 0;
+  // IPv4-compatible (`::a.b.c.d`): require high octet >= 1 so `::`, `::1`, and
+  // single-hextet IPv6 addresses stay IPv6 while routable IPv4 values unwrap.
+  const isIpv4Compatible =
+    h0 === 0 && h1 === 0 && h2 === 0 && h3 === 0 && h4 === 0 && h5 === 0 && h6 >= 0x0100;
+
+  if (!isIpv4Mapped && !isIpv4Translated && !isNat64WellKnown && !isIpv4Compatible) {
+    return undefined;
+  }
+  return `${h6 >> 8}.${h6 & 0xff}.${h7 >> 8}.${h7 & 0xff}`;
+}
+
 function canonicalIpv6(bare: string): string | undefined {
   const hostname = parsedHostname(`[${bare}]`);
   if (hostname === undefined) return undefined;
   const address = hostname.replace(/^\[(.*)\]$/, '$1');
-  const mapped = MAPPED_IPV4.exec(address);
-  if (mapped === null) return address;
-  return [...hextetBytes(mapped[1]!), ...hextetBytes(mapped[2]!)].join('.');
-}
-
-function hextetBytes(hextet: string): [number, number] {
-  const value = Number.parseInt(hextet, 16);
-  return [value >> 8, value & 0xff];
+  const hextets = parseIpv6Hextets(address);
+  if (hextets === undefined) return address;
+  return embeddedIpv4FromHextets(hextets) ?? address;
 }
 
 /** The hostname the WHATWG URL parser reads from `host`, or `undefined`. */
