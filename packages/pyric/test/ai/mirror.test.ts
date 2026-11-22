@@ -78,8 +78,13 @@ describe('getAI instance identity', () => {
 
   it('distinct app handles over one sandbox share one AI broker', async () => {
     const sandbox = initializeSandbox();
-    const appA = createAppForSandbox(sandbox, { projectId: 'shared-ai' }, 'ai-a');
-    const appB = createAppForSandbox(sandbox, { projectId: 'shared-ai' }, 'ai-b');
+    const sharedConfig = {
+      apiKey: 'fake-api-key',
+      projectId: 'shared-ai',
+      appId: '1:100000000000:web:sharedai',
+    };
+    const appA = createAppForSandbox(sandbox, sharedConfig, 'ai-a');
+    const appB = createAppForSandbox(sandbox, sharedConfig, 'ai-b');
     try {
       const aiA = getAI(withAppCheck(appA));
       const aiB = getAI(withAppCheck(appB));
@@ -344,7 +349,7 @@ describe('sandbox app target', () => {
   it('models minted from an app handle answer through its sandbox without network I/O', async () => {
     const app = createAppForSandbox(
       initializeSandbox(),
-      { projectId: 'ai-test' },
+      { apiKey: 'fake-api-key', projectId: 'ai-test', appId: '1:100000000000:web:aitest1' },
       `ai-unit-${Math.random().toString(36).slice(2)}`,
     );
     const ai = getAI(withAppCheck(app));
@@ -385,7 +390,7 @@ describe('pyric/ai/scripting', () => {
   it('script() accepts a sandbox app handle', async () => {
     const app = createAppForSandbox(
       initializeSandbox(),
-      { projectId: 'ai-test' },
+      { apiKey: 'fake-api-key', projectId: 'ai-test', appId: '1:100000000000:web:aitest2' },
       `ai-unit-${Math.random().toString(36).slice(2)}`,
     );
     try {

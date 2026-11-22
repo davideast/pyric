@@ -1,5 +1,5 @@
 export const firebaseConfig = {
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID ?? "1:100000000000:web:orbitdemo",
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY ?? "demo",
   authDomain:

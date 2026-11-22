@@ -35,7 +35,14 @@ it('retained services follow Firebase deletion lifecycle', async () => {
   const previousDebugToken = debugGlobal.FIREBASE_APPCHECK_DEBUG_TOKEN;
   debugGlobal.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
   try {
-    const app = initializeApp({ projectId: 'deleted-service-lifecycle' }, 'retained-services');
+    const app = initializeApp(
+      {
+        apiKey: 'fake-api-key',
+        projectId: 'deleted-service-lifecycle',
+        appId: '1:100000000000:web:deletedservices',
+      },
+      'retained-services',
+    );
     const auth = getAuth(app);
     const firestore = getFirestore(app);
     const firestoreDoc = doc(firestore, 'notes/note-01');

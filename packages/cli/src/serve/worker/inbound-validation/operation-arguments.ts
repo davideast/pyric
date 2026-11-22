@@ -20,6 +20,7 @@ import {
   assertAuthSendSmsArguments,
   assertAuthTakeSmsArguments,
 } from './auth-blocking.js';
+import { assertAppCheckArguments } from './app-check.js';
 import { assertCrashlyticsArguments } from './crashlytics.js';
 import { assertRtdbQuery } from './rtdb-query.js';
 import { assertFirestoreOpDatabaseId } from './database-id.js';
@@ -550,15 +551,9 @@ export function assertOperationArguments(message: Record<string, unknown>): void
     case 'resetAll':
       return;
     case 'appCheck.getToken':
-      requireOptionalString(message.appId, 'appId');
-      requireOptionalString(message.projectId, 'projectId');
-      requireOptionalString(message.provider, 'provider');
-      requireOptionalBoolean(message.forceRefresh, 'forceRefresh');
-      return;
     case 'appCheck.getLimitedUseToken':
-      requireOptionalString(message.appId, 'appId');
-      requireOptionalString(message.projectId, 'projectId');
-      requireOptionalString(message.provider, 'provider');
+    case 'appCheck.consumeToken':
+      assertAppCheckArguments(method, message);
       return;
     case 'auth.blockingRespond':
       assertAuthBlockingRespondArguments(message);

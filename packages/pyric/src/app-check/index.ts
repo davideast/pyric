@@ -19,6 +19,7 @@ import { CustomProvider, ReCaptchaEnterpriseProvider, ReCaptchaV3Provider, sameP
 import {
   activate,
   addObserver,
+  assertAppAlive,
   cachedOrMint,
   mintLimitedUse,
   stateOf,
@@ -67,7 +68,10 @@ export function initializeAppCheck(app: FirebaseApp | undefined, options: AppChe
   const target = app ?? getApp();
   const existing = stateOf(target);
   if (existing) {
-    if (!hasSameOptions(existing, options)) throw appCheckError('already-initialized', target.name);
+    if (!hasSameOptions(existing, options)) {
+      assertAppAlive(target);
+      throw appCheckError('already-initialized', target.name);
+    }
     return handles.get(target)!;
   }
   activate(target, options.provider, options.isTokenAutoRefreshEnabled);

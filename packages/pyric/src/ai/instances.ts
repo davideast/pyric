@@ -10,7 +10,7 @@ import { AiBroker } from './broker/broker.js';
 import { appCheckAttachmentFor } from './app-check-gate.js';
 import type { AnswerEngine, EngineConfig } from './broker/types.js';
 import { TARGET_SYMBOL, isSandbox } from './target.js';
-import type { AI, AIOptions, SandboxTarget } from './types.js';
+import type { AI, AIOptions, AppAI, SandboxTarget } from './types.js';
 
 const handlesByOwner = new WeakMap<Sandbox | FirebaseApp, Map<string, AI>>();
 const brokersBySandbox = new WeakMap<Sandbox, AiBroker>();
@@ -73,13 +73,13 @@ function cachedHandles(owner: Sandbox | FirebaseApp): Map<string, AI> {
  *   - `getAI(sandbox, options?)` answers through the sandbox engine.
  *   - `getAI(app, options?)` preserves `ai.app === app`.
  *
- * Repeat calls for the same owner and backend return a stable handle; the
- * first call's options win. A later call passing a structurally different
- * `engine` option is a no-op — `console.warn`s once per sandbox so the
- * silent drop has a signal.
+ * Repeat calls for the same owner and backend return a stable handle; each call
+ * updates `handle.options` (`useLimitedUseAppCheckTokens`) as `@firebase/ai`
+ * does, while the sandbox's `engine` stays first-call-wins (`console.warn`s
+ * once per sandbox when a later call passes a structurally different engine).
  */
 export function getAI(sandbox: Sandbox, options?: AIOptions): AI;
-export function getAI(app?: FirebaseApp, options?: AIOptions): import('./types.js').AppAI;
+export function getAI(app?: FirebaseApp, options?: AIOptions): AppAI;
 export function getAI(target?: Sandbox | FirebaseApp, options?: AIOptions): AI {
   if (target === undefined) {
     return getAI(defaultClientApp() as FirebaseApp, options);
@@ -96,6 +96,11 @@ export function getAI(target?: Sandbox | FirebaseApp, options?: AIOptions): AI {
   );
 }
 
+function resolveInstanceOptions(options: AIOptions | undefined): AIOptions {
+  const useLimitedUse = options?.useLimitedUseAppCheckTokens === true;
+  return { useLimitedUseAppCheckTokens: useLimitedUse };
+}
+
 function sandboxAI(sandbox: Sandbox, options?: AIOptions, app?: FirebaseApp): AI {
   const backend = options?.backend ?? new GoogleAIBackend();
   const { key } = describeBackend(backend);
@@ -105,6 +110,7 @@ function sandboxAI(sandbox: Sandbox, options?: AIOptions, app?: FirebaseApp): AI
     if (options?.engine !== undefined && engineOptionsDiffer(options.engine, brokerEngineBySandbox.get(sandbox))) {
       warnIgnoredEngineOnce(sandbox);
     }
+    existing.options = resolveInstanceOptions(options);
     return existing;
   }
 
@@ -126,37 +132,45 @@ function sandboxAI(sandbox: Sandbox, options?: AIOptions, app?: FirebaseApp): AI
  */
 export function createConfiguredSandboxAI(sandbox: Sandbox, options: AIOptions): AI {
   const supplied = options.engine;
-  const engine = supplied && !isCustomEngine(supplied) && supplied.kind === 'openai'
-    ? { ...supplied, modelMap: { ...supplied.modelMap } }
-    : supplied;
+  let engine = supplied;
+  const isOpenAiConfig = supplied !== undefined && !isCustomEngine(supplied) && supplied.kind === 'openai';
+  if (isOpenAiConfig) {
+    engine = { ...supplied, modelMap: { ...supplied.modelMap } };
+  }
   return sandboxHandle(sandbox, new AiBroker({ sandbox, engine, validateModels: true }), { ...options, engine });
 }
 
 function sandboxHandle(sandbox: Sandbox, broker: AiBroker, options?: AIOptions, app?: FirebaseApp): AI {
   const backend = options?.backend ?? new GoogleAIBackend();
   const { location } = describeBackend(backend);
+  const resolvedOptions = resolveInstanceOptions(options);
   const handle: AI = {
-    ...(app !== undefined ? { app } : {}),
     backend,
     location,
-    ...(options !== undefined ? { options } : {}),
+    options: resolvedOptions,
   };
-  const appRuntime = app === undefined
-    ? undefined
-    : resolveClientAppIncludingDeleted(app);
+  if (app !== undefined) {
+    handle.app = app;
+  }
+  let appRuntime: ReturnType<typeof resolveClientAppIncludingDeleted>;
+  if (app !== undefined) {
+    appRuntime = resolveClientAppIncludingDeleted(app);
+  }
   const target: SandboxTarget = {
     kind: 'sandbox',
     backend,
     sandbox,
     broker,
-    ...(appRuntime !== undefined
-      ? { assertAlive: () => appRuntime.assertAlive() }
-      : {}),
-    // Read App Check now, as the SDK's AI service does when it is built.
-    ...(app !== undefined
-      ? { appCheck: appCheckAttachmentFor(app, options?.useLimitedUseAppCheckTokens === true) }
-      : {}),
+    resolveLimitedUse: () => handle.options?.useLimitedUseAppCheckTokens === true,
   };
+  if (appRuntime !== undefined) {
+    target.assertAlive = () => appRuntime.assertAlive();
+  }
+  if (app !== undefined) {
+    target.app = app;
+    // Read App Check activation now, as the SDK's AI service does when it is built.
+    target.appCheck = appCheckAttachmentFor(app, resolvedOptions.useLimitedUseAppCheckTokens === true);
+  }
   Object.defineProperty(handle, TARGET_SYMBOL, { value: target, enumerable: false });
   return handle;
 }

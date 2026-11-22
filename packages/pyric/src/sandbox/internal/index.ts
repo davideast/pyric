@@ -344,12 +344,15 @@ export {
 export {
   appCheckProjectNumber,
   checkAppCheckToken,
+  consumeAppCheckToken,
+  MAX_CONSUMED_TOKEN_ID_LENGTH,
   mintAppCheckToken,
   signAppCheckToken,
   type AppCheckIdentity,
   type AppCheckTokenCheck,
   type AppCheckTokenClaims,
   type AppCheckTokenParts,
+  type ConsumedAppCheckSnapshot,
   type MintedAppCheckToken,
 } from './app-check-token.js';
 // The JWT codec and sandbox signer every sandbox token kind shares.

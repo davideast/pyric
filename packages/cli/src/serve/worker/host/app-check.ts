@@ -1,5 +1,16 @@
-import { mintAppCheckToken, type MintedAppCheckToken } from 'pyric/sandbox/internal';
-import { fail, hostProjectId, ok, type HostCtx, type PortLike } from '../host-context.js';
+import {
+  consumeAppCheckToken,
+  mintAppCheckToken,
+  type MintedAppCheckToken,
+} from 'pyric/sandbox/internal';
+import {
+  bestEffortFlush,
+  fail,
+  hostProjectId,
+  ok,
+  type HostCtx,
+  type PortLike,
+} from '../host-context.js';
 import type { AiAppCheckWire, InboundMessage, OpMessage } from '../protocol.js';
 import { randomUuid } from './connection.js';
 
@@ -13,11 +24,15 @@ const DEFAULT_ANDROID_APP_ID = '1:000000000000:android:pyricsandbox';
 
 type AppCheckOpMessage = Extract<
   OpMessage,
-  { method: 'appCheck.getToken' | 'appCheck.getLimitedUseToken' }
+  { method: 'appCheck.getToken' | 'appCheck.getLimitedUseToken' | 'appCheck.consumeToken' }
 >;
 
 export function isAppCheckOp(method: OpMessage['method']): boolean {
-  return method === 'appCheck.getToken' || method === 'appCheck.getLimitedUseToken';
+  return (
+    method === 'appCheck.getToken' ||
+    method === 'appCheck.getLimitedUseToken' ||
+    method === 'appCheck.consumeToken'
+  );
 }
 
 function resolveProjectId(ctx: HostCtx, requested: string | undefined): string {
@@ -61,6 +76,13 @@ export async function handleAppCheckOp(
 ): Promise<void> {
   const appCheckMsg = msg as AppCheckOpMessage;
   try {
+    if (appCheckMsg.method === 'appCheck.consumeToken') {
+      const outcome = consumeAppCheckToken(ctx.sandbox, appCheckMsg.tokenId);
+      await bestEffortFlush(ctx, appCheckMsg.method);
+      ok(port, appCheckMsg.id, outcome);
+      return;
+    }
+
     const projectId = resolveProjectId(ctx, appCheckMsg.projectId);
     const appId = resolveAppId(ctx, appCheckMsg.appId);
 

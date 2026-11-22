@@ -11,10 +11,10 @@ import {
   GoogleAuthProvider,
 } from 'firebase/auth';
 
-const app = initializeApp({ apiKey: 'demo', projectId: 'demo' });
+const app = initializeApp({ apiKey: 'demo', projectId: 'demo', appId: '1:100000000000:web:demo' });
 const auth = getAuth(app);
 const namedApp = initializeApp(
-  { apiKey: 'demo', projectId: 'demo' },
+  { apiKey: 'demo', projectId: 'demo', appId: '1:100000000000:web:demo' },
   'fanout-observer',
 );
 const namedAuth = getAuth(namedApp);
@@ -26,7 +26,7 @@ onAuthStateChanged(namedAuth, (user) => {
 
 window.__registerThenDeleteNamedAuth = async () => {
   const namedApp = initializeApp(
-    { apiKey: 'demo', projectId: 'demo' },
+    { apiKey: 'demo', projectId: 'demo', appId: '1:100000000000:web:demo' },
     'deleted-before-switch',
   );
   getAuth(namedApp);

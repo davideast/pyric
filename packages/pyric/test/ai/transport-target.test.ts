@@ -39,7 +39,11 @@ describe('AI transport targets', () => {
     };
     const app = {
       name: 'transport-app',
-      options: { projectId: 'transport-project' },
+      options: {
+        apiKey: 'fake-api-key',
+        projectId: 'transport-project',
+        appId: '1:100000000000:web:transport',
+      },
       automaticDataCollectionEnabled: false,
     } as FirebaseApp;
 

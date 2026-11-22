@@ -18,4 +18,10 @@ export type AppCheckOpMessage =
       appId?: string;
       projectId?: string;
       provider?: string;
+    }
+  | {
+      t: 'op';
+      id: string;
+      method: 'appCheck.consumeToken';
+      tokenId: string;
     };

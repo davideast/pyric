@@ -127,6 +127,47 @@ function validateGenerationConfig(generationConfig: GenerationConfig | Record<st
   }
 }
 
+/** Upstream `initApiSettings`: validates required Firebase config fields before building a model. */
+function validateAppApiSettings(app: { readonly options: { readonly apiKey?: string; readonly projectId?: string; readonly appId?: string } }): void {
+  const options = app.options;
+  if (!options?.apiKey) {
+    throw new AIError(
+      AIErrorCode.NO_API_KEY,
+      'The "apiKey" field is empty in the local Firebase config. Firebase AI requires this field to contain a valid API key.',
+    );
+  }
+  if (!options?.projectId) {
+    throw new AIError(
+      AIErrorCode.NO_PROJECT_ID,
+      'The "projectId" field is empty in the local Firebase config. Firebase AI requires this field to contain a valid project ID.',
+    );
+  }
+  if (!options?.appId) {
+    throw new AIError(
+      AIErrorCode.NO_APP_ID,
+      'The "appId" field is empty in the local Firebase config. Firebase AI requires this field to contain a valid app ID.',
+    );
+  }
+}
+
+/** Snapshots the handle's liveness, required Firebase config, and current App Check token mode (`initApiSettings`). */
+function bindModelTarget(target: AITarget): AITarget {
+  if (target.assertAlive !== undefined) {
+    target.assertAlive();
+  }
+  if (target.app !== undefined) {
+    validateAppApiSettings(target.app);
+  }
+  const withLimitedUse = target.appCheck?.withLimitedUse;
+  const resolveLimitedUse = target.resolveLimitedUse;
+  if (withLimitedUse === undefined || resolveLimitedUse === undefined) {
+    return target;
+  }
+  const limitedUse = resolveLimitedUse();
+  const appCheck = withLimitedUse(limitedUse);
+  return { ...target, appCheck };
+}
+
 /** Class for generative model APIs on a sandbox target. */
 export class GenerativeModel extends AIModel {
   readonly generationConfig: GenerationConfig;
@@ -139,11 +180,9 @@ export class GenerativeModel extends AIModel {
   private readonly target: AITarget;
 
   constructor(target: AITarget, modelParams: ModelParams, requestOptions?: RequestOptions) {
-    if (target.assertAlive !== undefined) {
-      target.assertAlive();
-    }
-    super(modelParams.model, target.backend.backendType);
-    this.target = target;
+    const boundTarget = bindModelTarget(target);
+    super(modelParams.model, boundTarget.backend.backendType);
+    this.target = boundTarget;
     this.generationConfig = modelParams.generationConfig ?? {};
     validateGenerationConfig(this.generationConfig);
     this.safetySettings = modelParams.safetySettings ?? [];

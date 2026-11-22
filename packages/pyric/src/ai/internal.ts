@@ -74,25 +74,35 @@ export function createTransportAI(
     handles = new Map();
     transportHandles.set(app, handles);
   }
+  const resolvedOptions: AIOptions = {
+    useLimitedUseAppCheckTokens: options?.useLimitedUseAppCheckTokens === true,
+  };
   const existing = handles.get(key);
-  if (existing) return existing;
+  if (existing) {
+    existing.options = resolvedOptions;
+    return existing;
+  }
 
   const backend = options?.backend ?? new GoogleAIBackend();
   const handle: AI = {
     app,
     backend,
     location,
-    ...(options !== undefined ? { options } : {}),
+    options: resolvedOptions,
   };
   const target: TransportTarget = {
     kind: 'transport',
     backend,
     transport,
-    ...(assertAlive !== undefined ? { assertAlive } : {}),
+    app,
+    resolveLimitedUse: () => handle.options?.useLimitedUseAppCheckTokens === true,
     // Read App Check now, as the SDK's AI service does when it is built; the
     // claim crosses to the remote broker with every request.
-    appCheck: appCheckAttachmentFor(app, options?.useLimitedUseAppCheckTokens === true),
+    appCheck: appCheckAttachmentFor(app, resolvedOptions.useLimitedUseAppCheckTokens === true),
   };
+  if (assertAlive !== undefined) {
+    target.assertAlive = assertAlive;
+  }
   Object.defineProperty(handle, TARGET_SYMBOL, { value: target, enumerable: false });
   handles.set(key, handle);
   return handle;

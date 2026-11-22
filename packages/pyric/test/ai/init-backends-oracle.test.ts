@@ -267,7 +267,7 @@ describe('oracle replay: ai-offline-init-backends-and-model-guards', () => {
     }
   });
 
-  it('replays synchronous no-model AIError / FirebaseError guards and pins sandbox minimal-app-config tolerance', async () => {
+  it('replays synchronous no-model and missing-config AIError / FirebaseError guards', async () => {
     const facts = loadInitBackendsObservation();
     const sandbox = initializeSandbox();
     const fullApp = createAppForSandbox(
@@ -279,10 +279,29 @@ describe('oracle replay: ai-offline-init-backends-and-model-guards', () => {
       },
       'ai-offline-replay-guards-full',
     );
-    const minimalProjectOnlyApp = createAppForSandbox(
+    const missingApiKeyApp = createAppForSandbox(
       sandbox,
-      { projectId: 'demo-ai-offline' },
-      'ai-offline-replay-guards-minimal',
+      {
+        projectId: 'demo-ai-offline',
+        appId: '1:100000000000:web:deadbeef0022',
+      },
+      'ai-offline-replay-guards-no-apikey',
+    );
+    const missingProjectIdApp = createAppForSandbox(
+      sandbox,
+      {
+        apiKey: 'fake-api-key',
+        appId: '1:100000000000:web:deadbeef0023',
+      },
+      'ai-offline-replay-guards-no-project',
+    );
+    const missingAppIdApp = createAppForSandbox(
+      sandbox,
+      {
+        apiKey: 'fake-api-key',
+        projectId: 'demo-ai-offline',
+      },
+      'ai-offline-replay-guards-no-appid',
     );
 
     try {
@@ -291,22 +310,42 @@ describe('oracle replay: ai-offline-init-backends-and-model-guards', () => {
       const missingModelPropThrow = observeSyncAiThrow(() =>
         getGenerativeModel(ai, {} as { model: string }),
       );
+      const missingApiKeyThrow = observeSyncAiThrow(() =>
+        getGenerativeModel(getAI(missingApiKeyApp), { model: 'gemini-flash-lite-latest' }),
+      );
+      const missingProjectIdThrow = observeSyncAiThrow(() =>
+        getGenerativeModel(getAI(missingProjectIdApp), { model: 'gemini-flash-lite-latest' }),
+      );
+      const missingAppIdThrow = observeSyncAiThrow(() =>
+        getGenerativeModel(getAI(missingAppIdApp), { model: 'gemini-flash-lite-latest' }),
+      );
 
       expect(emptyModelThrow).toEqual(facts.guards.emptyModelThrow);
       expect(missingModelPropThrow).toEqual(facts.guards.missingModelPropThrow);
+      expect(missingApiKeyThrow).toEqual(facts.guards.missingApiKeyThrow);
+      expect(missingProjectIdThrow).toEqual(facts.guards.missingProjectIdThrow);
+      expect(missingAppIdThrow).toEqual(facts.guards.missingAppIdThrow);
 
-      // Upstream firebase/ai requires apiKey/projectId/appId for cloud REST endpoints;
-      // Pyric sandbox apps intentionally accept minimal local configs (e.g. { projectId }).
-      expect(facts.guards.missingApiKeyThrow.code).toBe('no-api-key');
-      expect(facts.guards.missingProjectIdThrow.code).toBe('no-project-id');
-      expect(facts.guards.missingAppIdThrow.code).toBe('no-app-id');
-      const minimalModel = getGenerativeModel(getAI(minimalProjectOnlyApp), {
-        model: 'gemini-flash-lite-latest',
-      });
-      expect(minimalModel.model).toBe(facts.modelNames.googleShortNormalized);
+      expect(() =>
+        getGenerativeModel(getAI(missingApiKeyApp), { model: 'gemini-flash-lite-latest' }),
+      ).toThrow(
+        'AI: The "apiKey" field is empty in the local Firebase config. Firebase AI requires this field to contain a valid API key. (AI/no-api-key)',
+      );
+      expect(() =>
+        getGenerativeModel(getAI(missingProjectIdApp), { model: 'gemini-flash-lite-latest' }),
+      ).toThrow(
+        'AI: The "projectId" field is empty in the local Firebase config. Firebase AI requires this field to contain a valid project ID. (AI/no-project-id)',
+      );
+      expect(() =>
+        getGenerativeModel(getAI(missingAppIdApp), { model: 'gemini-flash-lite-latest' }),
+      ).toThrow(
+        'AI: The "appId" field is empty in the local Firebase config. Firebase AI requires this field to contain a valid app ID. (AI/no-app-id)',
+      );
     } finally {
       await deleteApp(fullApp);
-      await deleteApp(minimalProjectOnlyApp);
+      await deleteApp(missingApiKeyApp);
+      await deleteApp(missingProjectIdApp);
+      await deleteApp(missingAppIdApp);
       sandbox.dispose();
     }
   });

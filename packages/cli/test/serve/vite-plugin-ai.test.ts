@@ -32,7 +32,7 @@ import { getAI, getGenerativeModel } from 'firebase/ai';
 import { CustomProvider, initializeAppCheck } from 'firebase/app-check';
 
 export async function run() {
-  const app = initializeApp({ apiKey: 'ignored', projectId: 'vite-ai-smoke' });
+  const app = initializeApp({ apiKey: 'ignored', projectId: 'vite-ai-smoke', appId: '1:100000000000:web:viteaismoke' });
   // The sandbox refuses AI Logic requests without an App Check token, so App
   // Check comes before getAI. Bun has no document for reCAPTCHA, so the debug
   // token stands in for the provider.
@@ -113,7 +113,7 @@ import { getAI, getGenerativeModel } from 'firebase/ai';
 import { CustomProvider, initializeAppCheck } from 'firebase/app-check';
 
 export async function run() {
-  const app = initializeApp({ apiKey: 'ignored', projectId: 'vite-ai-engine' });
+  const app = initializeApp({ apiKey: 'ignored', projectId: 'vite-ai-engine', appId: '1:100000000000:web:viteaiengine' });
   // The sandbox refuses AI Logic requests without an App Check token, so App
   // Check comes before getAI. Bun has no document for reCAPTCHA, so the debug
   // token stands in for the provider.

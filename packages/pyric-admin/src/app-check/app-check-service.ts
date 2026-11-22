@@ -1,8 +1,10 @@
 /**
  * `AppCheck` service implementation and `getAppCheck` factory for `pyric-admin/app-check`.
  */
+import { isRemoteSandbox } from 'pyric/sandbox';
 import {
   checkAppCheckToken,
+  consumeAppCheckToken,
   mintAppCheckToken,
   type AppCheckIdentity,
   type AppCheckTokenClaims,
@@ -55,21 +57,6 @@ const MESSAGES = {
 };
 
 const APP_CHECK_ISSUER = 'https://firebaseappcheck.googleapis.com/';
-
-const CONSUMED_BY_SANDBOX = Symbol.for('pyric.admin.appCheck.consumedBySandbox');
-type GlobalConsumed = { [CONSUMED_BY_SANDBOX]?: WeakMap<object, Set<string>> };
-
-function consumedFor(app: PyricAdminApp): Set<string> {
-  const global = globalThis as GlobalConsumed;
-  const bySandbox = (global[CONSUMED_BY_SANDBOX] ??= new WeakMap());
-  const key = app.sandbox as object;
-  let consumed = bySandbox.get(key);
-  if (!consumed) {
-    consumed = new Set();
-    bySandbox.set(key, consumed);
-  }
-  return consumed;
-}
 
 function validateCreateTokenOptions(options: AppCheckTokenOptions | undefined): void {
   if (options === undefined) return;
@@ -178,20 +165,28 @@ export class AppCheck {
     return this.#recordConsume(result, appCheckToken, options);
   }
 
-  #recordConsume(
+  async #recordConsume(
     result: VerifyAppCheckTokenResponse,
     appCheckToken: string,
     options: VerifyAppCheckTokenOptions | undefined,
-  ): VerifyAppCheckTokenResponse {
+  ): Promise<VerifyAppCheckTokenResponse> {
     if (!options?.consume) return result;
-    const consumed = consumedFor(this.#app);
     const jti = result.token.jti;
     let tokenId = appCheckToken;
-    if (typeof jti === 'string') {
+    if (typeof jti === 'string' && jti.length > 0) {
       tokenId = jti;
     }
-    const alreadyConsumed = consumed.has(tokenId);
-    consumed.add(tokenId);
+    const sandbox = this.#app.sandbox;
+    let alreadyConsumed: boolean;
+    if (isRemoteSandbox(sandbox)) {
+      const reply = (await sandbox.channel.op({
+        method: 'appCheck.consumeToken',
+        tokenId,
+      })) as { alreadyConsumed: boolean };
+      alreadyConsumed = reply.alreadyConsumed === true;
+    } else {
+      alreadyConsumed = consumeAppCheckToken(sandbox, tokenId).alreadyConsumed;
+    }
     return { alreadyConsumed, appId: result.appId, token: result.token };
   }
 

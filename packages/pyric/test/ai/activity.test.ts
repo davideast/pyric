@@ -56,7 +56,11 @@ test('worker metadata survives serialization; streaming counts once and only fin
   ].map(chunk => `data: ${JSON.stringify(chunk)}\n\n`).join('')) } });
   const wire = <T extends object>(value: T) => unpackAiEvidence(structuredClone(packAiEvidence(value)));
   // A transport-owned app handle must not initialize the in-page app registry.
-  const app: FirebaseApp = { name: 'ai-flow', options: { projectId: 'ai-flow' }, automaticDataCollectionEnabled: false };
+  const app: FirebaseApp = {
+    name: 'ai-flow',
+    options: { apiKey: 'fake-api-key', projectId: 'ai-flow', appId: '1:100000000000:web:aiflow' },
+    automaticDataCollectionEnabled: false,
+  };
   const ai = createTransportAI(app, undefined, {
     generateContent: async (req, model) => wire(await broker.generateContent(req, model)),
     streamGenerateContent: (req, model) => (async function* () { for await (const chunk of broker.streamGenerateContent(req, model)) yield wire(chunk); })(),
