@@ -89,7 +89,8 @@ export async function runAiChecks(tag, tokenUrl, makeProvider = recaptchaProvide
   const bare = getAI(initializeApp(options, `${tag}-no-app-check`));
   const noAppCheck = {
     generateContent: await outcome(() => modelFor(bare).generateContent("ping")),
-    generateContentStream: await outcome(async () => (await modelFor(bare).generateContentStream("ping")).response),
+    // Assert the call itself rejects without awaiting .response (#1553).
+    generateContentStream: await outcome(() => modelFor(bare).generateContentStream("ping")),
     countTokens: await outcome(() => modelFor(bare).countTokens("ping")),
   };
 
@@ -97,7 +98,8 @@ export async function runAiChecks(tag, tokenUrl, makeProvider = recaptchaProvide
   const vertex = getAI(initializeApp(options, `${tag}-vertex-no-app-check`), { backend: new VertexAIBackend("europe-west4") });
   const vertexNoAppCheck = {
     generateContent: await outcome(() => modelFor(vertex).generateContent("ping")),
-    generateContentStream: await outcome(async () => (await modelFor(vertex).generateContentStream("ping")).response),
+    // Assert the call itself rejects without awaiting .response (#1553).
+    generateContentStream: await outcome(() => modelFor(vertex).generateContentStream("ping")),
   };
 
   const first = getAI(withAppCheck(initializeApp(options, `${tag}-app-check-first`), makeProvider));

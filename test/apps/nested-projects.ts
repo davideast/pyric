@@ -32,6 +32,7 @@ export const NESTED_PROJECTS: readonly NestedProject[] = [
   { app: 'create-pyric-chat-app-check', path: 'my-chat', manifest: { template: 'chat' } },
   { app: 'create-pyric-chat-node-host', path: 'my-chat', manifest: { template: 'chat' } },
   { app: 'create-pyric-node-template', path: 'my-node-app', manifest: { template: 'node' } },
+  { app: 'create-pyric-web-env', path: 'my-web-app', manifest: { template: 'web' } },
   { app: 'live-from-sibling-install', path: 'rules', manifest: { dir: 'rules' } },
   { app: 'live-mode-2113-layout', path: 'rules', manifest: { dir: 'rules' } },
   { app: 'long-session-soak', path: 'my-web', manifest: { template: 'web' } },

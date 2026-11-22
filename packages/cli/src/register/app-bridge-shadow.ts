@@ -36,6 +36,26 @@ function shadowFailedError(name: string, cause: unknown): Error {
   );
 }
 
+function installFailedContainerGetter(app: FirebaseApp): void {
+  Object.defineProperty(app, 'container', {
+    configurable: true,
+    enumerable: false,
+    get() {
+      const resolved = shadowAppOf(app);
+      if (resolved === app) return undefined;
+      return (resolved as { container?: unknown }).container;
+    },
+  });
+}
+
+function clearOwnContainer(app: FirebaseApp): void {
+  const descriptor = Object.getOwnPropertyDescriptor(app, 'container');
+  const isConfigurable = descriptor !== undefined && descriptor.configurable === true;
+  if (isConfigurable) {
+    delete (app as { container?: unknown }).container;
+  }
+}
+
 function decorateApp(
   app: FirebaseApp,
   options?: FirebaseOptions,
@@ -60,24 +80,31 @@ function decorateApp(
     const hasShadowContainer = shadow.container !== undefined && shadow.container !== null;
     if (hasShadowContainer) {
       Object.defineProperty(app, 'container', { value: shadow.container, configurable: true });
+    } else {
+      clearOwnContainer(app);
     }
   } catch (error) {
-    // Pyric's initializeApp still succeeds; shadowAppOf reports the cause
-    // when firebase/app-check or firebase/ai needs the shadow.
+    // Pyric's initializeApp still succeeds; both shadowAppOf (App Check) and
+    // the non-enumerable `container` getter (unswapped firebase/ai `getAI(app)`)
+    // report this cause if the service attaches without a shadow app (#1548).
     shadowFailures.set(app.name, error);
+    installFailedContainerGetter(app);
   }
   return app;
 }
 
 /**
  * The shadow Firebase app for a Pyric app, by name. When creating it failed,
- * throws an error that names the app and keeps the failure as `cause`. A
- * Firebase app passed in directly, or a Pyric app with no attempt yet, is
- * returned unchanged.
+ * throws an error that names the app and keeps the failure as `cause`. When a
+ * real Firebase app of that name exists, clears any stale failure record so a
+ * later deletion does not resurrect it. A Firebase app passed in directly, or
+ * a Pyric app with no attempt yet, is returned unchanged.
  */
 export function shadowAppOf(app: { name: string }): object {
   try {
-    return realApp.getApp(app.name);
+    const shadow = realApp.getApp(app.name);
+    shadowFailures.delete(app.name);
+    return shadow;
   } catch {
     const hasFailure = shadowFailures.has(app.name);
     if (hasFailure) throw shadowFailedError(app.name, shadowFailures.get(app.name));
@@ -99,6 +126,7 @@ export function shadowedAppRegistry(pyricApp: PyricAppRegistry): PyricAppRegistr
     },
     async deleteApp(app) {
       shadowFailures.delete(app.name);
+      clearOwnContainer(app);
       try {
         const shadow = realApp.getApp(app.name);
         const hasShadow = shadow !== undefined && shadow !== null;

@@ -8,7 +8,7 @@ export default row({
   featureKeys: ['generateContentStream', 'countTokens'],
   api: 'generateContentStream and countTokens without App Check in sandbox AI mode',
   behavior:
-    'Streaming and `countTokens` are refused with the same 401 `AIError` as `generateContent`. In process `generateContentStream` rejects before any chunk; on the SharedWorker and Node host planes the error reaches the caller through the stream and `response`, as other request errors do there.',
+    'Streaming and `countTokens` are refused with the same 401 `AIError` as `generateContent`. `generateContentStream` rejects the call itself before yielding any chunk across in-process, in-page, SharedWorker, and Node host planes.',
   automation: 'oracle-backed',
   ...ERROR_RISK,
   evidence:

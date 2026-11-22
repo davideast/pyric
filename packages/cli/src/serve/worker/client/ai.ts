@@ -3,7 +3,7 @@
  * as the mirror AnswerEngine on the worker path (see entries/ai.ts).
  */
 
-import type { AiAppCheckWire, AiEngineConfigWire, InboundMessage } from '../protocol.js';
+import type { AiAppCheckWire, AiEngineConfigWire, AiStreamSubMessage } from '../protocol.js';
 import { closeSubscription, nextId, nextSubId, openSnapshotSubscription, rpc } from './core.js';
 import type { ClientDb } from './handles.js';
 
@@ -64,18 +64,32 @@ export async function aiCountTokens(
   })) as Record<string, unknown>;
 }
 
+interface AiStreamOptions {
+  signal?: AbortSignal;
+}
+
+function abortReasonOf(signal: AbortSignal): unknown {
+  if (signal.reason !== undefined) return signal.reason;
+  return new DOMException('The operation was aborted.', 'AbortError');
+}
+
 /**
  * Streamed `generateContent` over an AI stream SUBSCRIPTION: chunks arrive
  * as `{ chunk }` snaps in order, the terminal `{ done: true }` snap ends the
  * iteration, and a snap `__error` throws (with `.code` / `.aiEnvelope`).
  * The host auto-unsubs on done; the generator additionally sends `unsub` on
- * teardown so early consumer abandonment cancels the worker-side pump (the
- * done/unsub race is a benign no-op on the host).
+ * teardown or immediately when `options.signal` aborts so early consumer
+ * abandonment cancels the worker-side pump and upstream generation (#1633).
  */
 export async function* aiStreamGenerateContent(
   db: ClientDb,
   params: AiOpParams,
+  options?: AiStreamOptions,
 ): AsyncGenerator<Record<string, unknown>> {
+  const signal = options?.signal;
+  if (signal?.aborted) {
+    throw abortReasonOf(signal);
+  }
   const subId = nextSubId();
   type QueueItem =
     | { kind: 'chunk'; chunk: Record<string, unknown> }
@@ -83,11 +97,37 @@ export async function* aiStreamGenerateContent(
     | { kind: 'error'; error: unknown };
   const queue: QueueItem[] = [];
   let notify: (() => void) | null = null;
-  const push = (item: QueueItem): void => {
-    queue.push(item);
+  let closed = false;
+  const wake = (): void => {
     notify?.();
     notify = null;
   };
+  const push = (item: QueueItem): void => {
+    queue.push(item);
+    wake();
+  };
+  const closeOnce = (): void => {
+    if (closed) return;
+    closed = true;
+    closeSubscription(db.port, subId);
+  };
+  const onAbort = (): void => {
+    closeOnce();
+    wake();
+  };
+  if (signal !== undefined) {
+    signal.addEventListener('abort', onAbort, { once: true });
+  }
+
+  const subMessage: AiStreamSubMessage = {
+    t: 'sub',
+    subId,
+    target: { service: 'ai', op: 'streamGenerateContent' },
+    model: params.model,
+    request: params.request,
+  };
+  if (params.engine !== undefined) subMessage.engine = params.engine;
+  if (params.appCheck !== undefined) subMessage.appCheck = params.appCheck;
 
   const opened = openSnapshotSubscription(db.port, subId, {
     port: db.port,
@@ -97,33 +137,34 @@ export async function* aiStreamGenerateContent(
       else push({ kind: 'chunk', chunk: v.chunk ?? {} });
     },
     error: (err) => push({ kind: 'error', error: err }),
-  }, {
-    t: 'sub',
-    subId,
-    target: { service: 'ai', op: 'streamGenerateContent' },
-    model: params.model,
-    request: params.request,
-    ...(params.engine !== undefined ? { engine: params.engine } : {}),
-    ...(params.appCheck !== undefined ? { appCheck: params.appCheck } : {}),
-  } satisfies InboundMessage);
-  if (!opened) push({
-    kind: 'error',
-    error: Object.assign(new Error('Firebase App was deleted'), { code: 'app/app-deleted' }),
-  });
+  }, subMessage);
+  if (!opened) {
+    push({
+      kind: 'error',
+      error: Object.assign(new Error('Firebase App was deleted'), { code: 'app/app-deleted' }),
+    });
+  }
 
   try {
     for (;;) {
-      while (queue.length === 0) {
+      while (queue.length === 0 && !signal?.aborted) {
         await new Promise<void>((resolve) => {
           notify = resolve;
         });
       }
-      const item = queue.shift()!;
+      if (signal?.aborted) {
+        throw abortReasonOf(signal);
+      }
+      const item = queue.shift();
+      if (item === undefined) continue;
       if (item.kind === 'error') throw item.error;
       if (item.kind === 'done') return;
       yield item.chunk;
     }
   } finally {
-    closeSubscription(db.port, subId);
+    if (signal !== undefined) {
+      signal.removeEventListener('abort', onAbort);
+    }
+    closeOnce();
   }
 }

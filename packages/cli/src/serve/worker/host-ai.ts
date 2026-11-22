@@ -270,9 +270,12 @@ export function handleAiSub(ctx: HostCtx, port: PortLike, msg: AiStreamSubMessag
   if (portSubs.has(msg.subId)) return; // idempotent
 
   const observation = observeAiRequest(ctx, port, msg, 'generateContentStream', msg.model);
+  const controller = new AbortController();
   let cancelled = false;
   const cancel = (): void => {
+    if (cancelled) return;
     cancelled = true;
+    controller.abort();
     observation.finish('cancelled');
   };
   portSubs.set(msg.subId, cancel);
@@ -290,9 +293,17 @@ export function handleAiSub(ctx: HostCtx, port: PortLike, msg: AiStreamSubMessag
         msg,
         resolveEffectiveAiAppCheck(msg.appCheck, attachedAppCheck),
       );
-      // The App Check gate answers before any chunk, as AI Logic answers 403 before a stream.
+      // The App Check gate answers before any chunk, as AI Logic answers 401 before a stream.
       await broker.admitAppCheck(msg.model, effectiveAppCheck);
-      for await (const chunk of broker.streamGenerateContent(msg.request, msg.model, effectiveAppCheck)) {
+      if (cancelled) return;
+      // Claim is already admitted above; pass undefined so streamGenerateContent
+      // runs validation eagerly and forwards the host abort signal to the engine.
+      for await (const chunk of broker.streamGenerateContent(
+        msg.request,
+        msg.model,
+        undefined,
+        { signal: controller.signal },
+      )) {
         if (cancelled) return;
         observation.response(chunk, true);
         post(port, { t: 'snap', subId: msg.subId, value: { chunk: packAiEvidence(chunk) } });
@@ -309,7 +320,7 @@ export function handleAiSub(ctx: HostCtx, port: PortLike, msg: AiStreamSubMessag
       }
     } finally {
       // Auto-unsub: drop OUR registration only (an early client unsub may
-      // have already removed it — handleUnsub ran the cancel and deleted it).
+      // have already removed it -- handleUnsub ran the cancel and deleted it).
       const subs = ctx.subs.get(port);
       if (subs?.get(msg.subId) === cancel) subs.delete(msg.subId);
     }
