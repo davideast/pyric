@@ -891,7 +891,7 @@ describe('worker auth multi-tenant isolation, currentUser reference parity, and 
       alphaAuth.tenantId = 'org-alpha';
 
       const accepted = await workerClient.acceptProviderCredential(alphaAuth, {
-        uid: '',
+        uid: 'alpha-alice',
         providerId: 'google.com',
         email: 'alice@example.test',
         displayName: 'Alpha Alice',

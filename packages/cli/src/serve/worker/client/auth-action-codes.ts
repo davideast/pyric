@@ -2,6 +2,7 @@ import type { ActionCodeInfo, ActionCodeSettings, OutboundAuthMail } from 'pyric
 import type { AuthBlockingSmsType, OutboundAuthSms } from 'pyric/auth/internal';
 import type { SerializedUserCredential } from '../protocol.js';
 import { hydrateCred, requireUserPort, type ClientAuth, type ClientUser, type ClientUserCredential } from './auth.js';
+import { attachHeldUserIdentity } from './auth-user-identity.js';
 import { nextId, rpc } from './core.js';
 
 /** Consume the shared sandbox's in-memory mailbox. Any attached page can take mail. */
@@ -69,12 +70,16 @@ export async function sendPasswordResetEmail(auth: ClientAuth, email: string, se
 
 export async function sendEmailVerification(user: ClientUser, settings?: ActionCodeSettings): Promise<void> {
   const port = requireUserPort(user, 'sendEmailVerification');
-  await rpc(port, { t: 'op', id: nextId(), method: 'auth.sendEmailVerification', uid: user.uid, tenantId: user.tenantId, settings });
+  await rpc(port, attachHeldUserIdentity(user, {
+    t: 'op', id: nextId(), method: 'auth.sendEmailVerification', uid: user.uid, tenantId: user.tenantId, settings,
+  }));
 }
 
 export async function verifyBeforeUpdateEmail(user: ClientUser, newEmail: string, settings?: ActionCodeSettings): Promise<void> {
   const port = requireUserPort(user, 'verifyBeforeUpdateEmail');
-  await rpc(port, { t: 'op', id: nextId(), method: 'auth.verifyBeforeUpdateEmail', uid: user.uid, tenantId: user.tenantId, newEmail, settings });
+  await rpc(port, attachHeldUserIdentity(user, {
+    t: 'op', id: nextId(), method: 'auth.verifyBeforeUpdateEmail', uid: user.uid, tenantId: user.tenantId, newEmail, settings,
+  }));
 }
 
 export async function applyActionCode(auth: ClientAuth, code: string): Promise<void> {

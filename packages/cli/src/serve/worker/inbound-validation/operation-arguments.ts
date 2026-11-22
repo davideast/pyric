@@ -11,6 +11,7 @@ import {
   requireUpdateFields,
 } from '../protocol/firestore-validation.js';
 import { assertQueryStructure } from '../host/query-structure.js';
+import { isAcceptedIdentityProviderId } from '../host/auth-session-seeder.js';
 import { isMessageRecord, requireShape, requireRecord, requireString, requireOptionalString,
   requireOptionalBoolean, requireOptionalRecord, requireNumber, requireOptionalNumber } from './fields.js';
 import { assertAiArguments } from './ai-arguments.js';
@@ -46,7 +47,12 @@ function assertRequiredPath(message: Record<string, unknown>): void {
 function requireResolvedIdentity(identity: unknown): void {
   requireRecord(identity, 'identity');
   requireString(identity.uid, 'identity.uid');
+  const hasNonEmptyUid = typeof identity.uid === 'string' && identity.uid.trim().length > 0;
+  requireShape(hasNonEmptyUid, 'identity.uid');
   requireString(identity.providerId, 'identity.providerId');
+  const hasAcceptedProvider =
+    typeof identity.providerId === 'string' && isAcceptedIdentityProviderId(identity.providerId);
+  requireShape(hasAcceptedProvider, 'identity.providerId');
   for (const field of ['email', 'displayName', 'photoURL']) {
     const value = identity[field];
     const isNullableString = value === undefined || value === null || typeof value === 'string';
@@ -65,6 +71,7 @@ function assertSharedAuthFields(message: Record<string, unknown>): void {
   const hasValidTenant = tenant === undefined || tenant === null || typeof tenant === 'string';
   requireShape(hasValidTenant, 'tenantId');
   requireOptionalBoolean(message.forceRefresh, 'forceRefresh');
+  requireOptionalString(message.sessionKey, 'sessionKey');
 }
 
 /** The RTDB ops and the database rules ops name their instance with an optional string; connection-scoped RTDB ops also carry an optional connectionId. */
@@ -322,6 +329,7 @@ export function assertOperationArguments(message: Record<string, unknown>): void
       return;
     }
     case 'auth.updateProfile': {
+      requireOptionalString(message.uid, 'uid');
       const displayName = message.displayName;
       const hasDisplayName = displayName === undefined || displayName === null || typeof displayName === 'string';
       requireShape(hasDisplayName, 'displayName');
@@ -509,17 +517,19 @@ export function assertOperationArguments(message: Record<string, unknown>): void
     case 'rtdb.goOffline':
     case 'rtdb.goOnline':
     case 'listRootCollections':
-    case 'auth.createUser':
-    case 'auth.signInEmail':
-    case 'auth.signInAnonymously':
-    case 'auth.signOut':
     case 'auth.getIdToken':
     case 'auth.getIdTokenResult':
-    case 'auth.getCurrentUser':
     case 'auth.reload':
     case 'auth.deleteUser':
     case 'auth.updateEmail':
     case 'auth.updatePassword':
+      requireOptionalString(message.uid, 'uid');
+      return;
+    case 'auth.createUser':
+    case 'auth.signInEmail':
+    case 'auth.signInAnonymously':
+    case 'auth.signOut':
+    case 'auth.getCurrentUser':
     case 'auth.listUsers':
     case 'auth.adminClearUsers':
     case 'auth.getProviderConfig':

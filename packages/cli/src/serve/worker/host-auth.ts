@@ -34,15 +34,20 @@ import {
 } from './protocol.js';
 import {
   credReply,
-  makeNoUserError,
-  requirePortSession,
-  requireReloadSession,
   remintSessionWithClaims,
   applyProfileToUser,
   resolveOAuthCredentialUser,
   serializeIdTokenResultForWire,
   serializeSessionUser as serializeUser,
 } from './host/auth-session-seeder.js';
+import {
+  clearHeldSessions,
+  reconcileHeldSessions,
+  rememberHeldSession,
+  replaceHeldSession,
+  requireHeldReloadSession,
+  requireHeldUserSession,
+} from './host/auth-held-sessions.js';
 import {
   signInWithBlockedCredentialPayload,
   type CredentialPayload,
@@ -184,7 +189,10 @@ function setPortSession(
   session: MintedSession | null,
   options?: { skipResubscribe?: boolean },
 ): void {
-  if (session) alignSessionTenant(session);
+  if (session) {
+    alignSessionTenant(session);
+    rememberHeldSession(ctx, port, session);
+  }
   portSessionsFor(ctx).set(port, session);
 
   // Clear cached session handles so they rebuild with the new session/tenant state
@@ -240,8 +248,9 @@ export function reconcilePortSessions(ctx: HostCtx): Set<PortLike> {
   clearRtdbSessionHandles(ctx);
   ctx.sessionStorages?.clear();
   const changed = new Set<PortLike>();
-  if (!ctx.portSessions || ctx.portSessions.size === 0) return changed;
   const auth = ensureAuth(ctx);
+  reconcileHeldSessions(ctx, (session) => reconciledSession(auth, session));
+  if (!ctx.portSessions || ctx.portSessions.size === 0) return changed;
   for (const [port, session] of [...ctx.portSessions]) {
     if (session === null) continue;
     const refreshed = reconciledSession(auth, session);
@@ -316,6 +325,7 @@ function refreshPortAuthorization(
 /** Tear down a disconnected port's session (called from cleanupPort). */
 export function cleanupPortSession(ctx: HostCtx, port: PortLike): void {
   ctx.portSessions?.delete(port);
+  clearHeldSessions(ctx, port);
   portTenantsFor(ctx).delete(port);
   _lastAuthStateUid.delete(port);
   stagedSignInResultsFor(ctx).clear(port);
@@ -504,30 +514,46 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
     }
 
     case 'auth.getIdToken': {
+      let isCurrent = false;
       try {
-        const session = requirePortSession(portSession(ctx, port), 'getIdToken');
-        const user = session.user;
-        const result = await user.getIdTokenResult(msg.forceRefresh);
+        const target = requireHeldUserSession(ctx, port, portSession(ctx, port), msg, 'getIdToken');
+        isCurrent = target.isCurrent;
+        const session = target.session;
+        const result = await session.user.getIdTokenResult(msg.forceRefresh);
         const refreshesClaims = msg.forceRefresh === true || sessionTokenExpired(ctx, session);
-        if (refreshesClaims) refreshPortAuthorization(ctx, port, session, result.claims);
+        if (refreshesClaims) {
+          if (isCurrent) {
+            refreshPortAuthorization(ctx, port, session, result.claims);
+          } else {
+            session.state.token = rulesTokenFromIdToken(result.claims);
+          }
+        }
         ok(port, msg.id, result.token);
       } catch (e) {
-        signOutPortIfInvalidated(ctx, port, e);
+        if (isCurrent) signOutPortIfInvalidated(ctx, port, e);
         fail(port, msg.id, e);
       }
       break;
     }
 
     case 'auth.getIdTokenResult': {
+      let isCurrent = false;
       try {
-        const session = requirePortSession(portSession(ctx, port), 'getIdTokenResult');
-        const user = session.user;
-        const r = await user.getIdTokenResult(msg.forceRefresh);
+        const target = requireHeldUserSession(ctx, port, portSession(ctx, port), msg, 'getIdTokenResult');
+        isCurrent = target.isCurrent;
+        const session = target.session;
+        const r = await session.user.getIdTokenResult(msg.forceRefresh);
         const refreshesClaims = msg.forceRefresh === true || sessionTokenExpired(ctx, session);
-        if (refreshesClaims) refreshPortAuthorization(ctx, port, session, r.claims);
+        if (refreshesClaims) {
+          if (isCurrent) {
+            refreshPortAuthorization(ctx, port, session, r.claims);
+          } else {
+            session.state.token = rulesTokenFromIdToken(r.claims);
+          }
+        }
         ok(port, msg.id, serializeIdTokenResultForWire(r));
       } catch (e) {
-        signOutPortIfInvalidated(ctx, port, e);
+        if (isCurrent) signOutPortIfInvalidated(ctx, port, e);
         fail(port, msg.id, e);
       }
       break;
@@ -560,9 +586,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
 
     case 'auth.updateProfile': {
       try {
-        const session = portSession(ctx, port);
-        const hasNoSession = session === null;
-        if (hasNoSession) throw makeNoUserError('updateProfile');
+        const { session } = requireHeldUserSession(ctx, port, portSession(ctx, port), msg, 'updateProfile');
         const profile = { displayName: msg.displayName, photoURL: msg.photoURL };
         authSandboxOps.updateProfile(auth, session.user.uid, profile);
         applyProfileToUser(session.user, profile);
@@ -574,22 +598,27 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
     }
 
     case 'auth.reload': {
+      let isCurrent = false;
       try {
-        const session = requireReloadSession(auth, portSession(ctx, port), msg.uid);
+        const target = requireHeldReloadSession(ctx, port, auth, portSession(ctx, port), msg);
+        isCurrent = target.isCurrent;
+        const session = target.session;
         // `reload(user)` refreshes `User` profile properties in-place via
         // `accounts:lookup` without exchanging the refresh token or minting a
         // new ID token (`auth-request-auth-per-sign-in.json`).
         await reload(session.user);
         const serialized = serializeUser(session.user);
-        for (const [subId, target] of authSubsFor(ctx).get(port) ?? []) {
-          const isTokenSubscription = target === 'idToken';
-          if (isTokenSubscription) {
-            post(port, { t: 'snap', subId, value: serialized });
+        if (isCurrent) {
+          for (const [subId, targetSub] of authSubsFor(ctx).get(port) ?? []) {
+            const isTokenSubscription = targetSub === 'idToken';
+            if (isTokenSubscription) {
+              post(port, { t: 'snap', subId, value: serialized });
+            }
           }
         }
         ok(port, msg.id, serialized);
       } catch (e) {
-        signOutPortIfInvalidated(ctx, port, e);
+        if (isCurrent) signOutPortIfInvalidated(ctx, port, e);
         fail(port, msg.id, e);
       }
       break;
@@ -597,7 +626,13 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
 
     case 'auth.deleteUser': {
       try {
-        const session = requirePortSession(portSession(ctx, port), 'deleteUser');
+        const { session, isCurrent } = requireHeldUserSession(
+          ctx,
+          port,
+          portSession(ctx, port),
+          msg,
+          'deleteUser',
+        );
         const uid = session.user.uid;
         const accountExists = authSandboxOps.listUsers(auth).some((record) => record.uid === uid);
         // An account removed out of band reports `auth/user-not-found`
@@ -605,7 +640,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
         // engine's deleteUser so the recent-login gate applies.
         if (accountExists) await deleteUser(session.user);
         else authSandboxOps.deleteUser(auth, uid);
-        setPortSession(ctx, port, null);
+        if (isCurrent) setPortSession(ctx, port, null);
         await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
@@ -614,11 +649,18 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
 
     case 'auth.updateEmail': {
       try {
-        const session = requirePortSession(portSession(ctx, port), 'updateEmail');
+        const { session, isCurrent } = requireHeldUserSession(
+          ctx,
+          port,
+          portSession(ctx, port),
+          msg,
+          'updateEmail',
+        );
         const email = msg.email ?? msg.newEmail ?? '';
         const { session: nextSession, changed } = await updatePortSessionEmail(auth, session, email);
         if (changed) {
-          setPortSession(ctx, port, nextSession);
+          replaceHeldSession(ctx, port, session, nextSession);
+          if (isCurrent) setPortSession(ctx, port, nextSession);
           await bestEffortFlush(ctx, msg.method);
         }
         ok(port, msg.id, serializeUser(nextSession.user));
@@ -628,11 +670,18 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
 
     case 'auth.updatePassword': {
       try {
-        const session = requirePortSession(portSession(ctx, port), 'updatePassword');
+        const { session, isCurrent } = requireHeldUserSession(
+          ctx,
+          port,
+          portSession(ctx, port),
+          msg,
+          'updatePassword',
+        );
         const password = msg.password ?? msg.newPassword ?? '';
         await updatePassword(session.user, password);
         const freshSession = remintSessionWithClaims(auth, session);
-        setPortSession(ctx, port, freshSession);
+        replaceHeldSession(ctx, port, session, freshSession);
+        if (isCurrent) setPortSession(ctx, port, freshSession);
         await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, serializeUser(freshSession.user));
       } catch (e) { fail(port, msg.id, e); }
@@ -669,9 +718,10 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
     case 'auth.reauthenticateWithCredential':
     case 'auth.reauthenticateWithProvider': {
       try {
-        const original = portSession(ctx, port);
-        const { session, providerId } = await reauthenticateSession(original, msg);
-        const stillOwnsSession = portSession(ctx, port) === original;
+        const target = requireHeldUserSession(ctx, port, portSession(ctx, port), msg, msg.method);
+        const { session, providerId } = await reauthenticateSession(target.session, msg);
+        replaceHeldSession(ctx, port, target.session, session);
+        const stillOwnsSession = target.isCurrent && portSession(ctx, port) === target.session;
         if (stillOwnsSession) setPortSession(ctx, port, session);
         ok(port, msg.id, { ...credReply(session, providerId), operationType: 'reauthenticate' });
       } catch (error) { fail(port, msg.id, error); }
