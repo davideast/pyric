@@ -47,38 +47,21 @@ const PREFIX = 'replay/request-resource';
 
 type Verdict = 'ALLOW' | 'DENY';
 
-const HASHES = 'The sandbox does not compute or persist md5Hash or crc32c, so request.resource does not carry them.';
-const ETAG = 'The sandbox does not persist an etag, so a metadata update has none to carry.';
 const STORAGE_CLASS = 'The sandbox does not model storage classes, so request.resource has no storageClass.';
-const KEYS = 'request.resource lacks the unmodeled md5Hash, crc32c, and storageClass keys (and etag on a metadata update).';
+const KEYS = 'request.resource lacks the unmodeled storageClass key (14 keys instead of 15).';
 
 const allowDenied = (reason: string) => ({ production: 'ALLOW' as const, sandbox: 'DENY' as const, reason });
+const denyAllowed = (reason: string) => ({ production: 'DENY' as const, sandbox: 'ALLOW' as const, reason });
 
 const KNOWN_DIVERGENCES: Record<string, { production: Verdict; sandbox: Verdict; reason: string }> = {
-  'create/present-md5Hash': allowDenied(HASHES),
-  'create/present-crc32c': allowDenied(HASHES),
-  'create/md5-string': allowDenied(HASHES),
-  'create/crc32c-string': allowDenied(HASHES),
   'create/storage-class-null': allowDenied(STORAGE_CLASS),
   'create/extra-key-storageClass': allowDenied(STORAGE_CLASS),
+  'create/keys-size-14': denyAllowed(KEYS),
   'create/keys-size-15': allowDenied(KEYS),
-  'create/keys-documented-13': allowDenied(KEYS),
-  'update/present-md5Hash': allowDenied(HASHES),
-  'update/present-crc32c': allowDenied(HASHES),
-  'update/md5-string': allowDenied(HASHES),
-  'update/crc32c-string': allowDenied(HASHES),
-  'update/md5-unchanged': allowDenied(HASHES),
-  'update/crc32c-unchanged': allowDenied(HASHES),
-  'update/present-etag': allowDenied(ETAG),
-  'update/etag-string': allowDenied(ETAG),
-  'update/etag-unchanged': allowDenied(ETAG),
   'update/storage-class-standard': allowDenied(STORAGE_CLASS),
   'update/extra-key-storageClass': allowDenied(STORAGE_CLASS),
+  'update/keys-size-14': denyAllowed(KEYS),
   'update/keys-size-15': allowDenied(KEYS),
-  'update/keys-documented-13': allowDenied(KEYS),
-  'overwrite/present-md5Hash': allowDenied(HASHES),
-  'overwrite/present-crc32c': allowDenied(HASHES),
-  'overwrite/md5-changed': allowDenied(HASHES),
   'overwrite/keys-size-15': allowDenied(KEYS),
 };
 

@@ -97,6 +97,28 @@ describe('update', () => {
     expect(resource?.cacheControl).toBeNull();
     expect(resource?.metadata).toEqual({ owner: 'alice' });
   });
+
+  it('carries stored md5Hash, crc32c, and etag on update and accepts explicit digests on create and update (#3258)', () => {
+    const storedWithDigests: StoredMetadata = {
+      ...STORED,
+      md5Hash: 'asHla8ePAxBZvnvoVFIsTA==',
+      crc32c: 'T037qw==',
+      etag: 'Nzoy',
+    };
+    const updated = built('update', undefined, storedWithDigests);
+    expect(updated?.md5Hash).toBe('asHla8ePAxBZvnvoVFIsTA==');
+    expect(updated?.crc32c).toBe('T037qw==');
+    expect(updated?.etag).toBe('Nzoy');
+
+    const created = built('create', {
+      size: 6,
+      md5Hash: 'asHla8ePAxBZvnvoVFIsTA==',
+      crc32c: 'T037qw==',
+    });
+    expect(created?.md5Hash).toBe('asHla8ePAxBZvnvoVFIsTA==');
+    expect(created?.crc32c).toBe('T037qw==');
+    expect(created?.etag).toBeNull();
+  });
 });
 
 describe('reads and deletes', () => {

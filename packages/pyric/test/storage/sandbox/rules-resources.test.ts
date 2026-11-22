@@ -257,6 +257,25 @@ describe('request.resource carries the fields production builds for a write', ()
     });
   });
 
+  it('carries md5Hash and crc32c on uploads (with null etag) and carries md5Hash, crc32c, and stored etag on metadata updates (#3258)', () => {
+    const withDigests = {
+      ...stored,
+      md5Hash: 'asHla8ePAxBZvnvoVFIsTA==',
+      crc32c: 'T037qw==',
+      etag: 'MTcwMDAwMDAwMDAwMDAwMDoz',
+    };
+    expect(requestResourceFor(withDigests, 'upload')).toMatchObject({
+      md5Hash: 'asHla8ePAxBZvnvoVFIsTA==',
+      crc32c: 'T037qw==',
+      etag: null,
+    });
+    expect(requestResourceFor(withDigests, 'metadataUpdate')).toMatchObject({
+      md5Hash: 'asHla8ePAxBZvnvoVFIsTA==',
+      crc32c: 'T037qw==',
+      etag: 'MTcwMDAwMDAwMDAwMDAwMDoz',
+    });
+  });
+
   it('neither write carries timeCreated or updated', () => {
     for (const write of ['upload', 'metadataUpdate'] as const) {
       const resource = requestResourceFor(stored, write);

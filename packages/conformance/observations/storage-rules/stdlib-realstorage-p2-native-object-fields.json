@@ -1,7 +1,10 @@
 {
   "name": "stdlib-realstorage-p2-native-object-fields",
   "matrixRow": "",
-  "rowIds": [],
+  "rowIds": [
+    "storage-rules#126",
+    "storage-rules#205"
+  ],
   "description": "Real-resource Storage Rules visibility and relationships for server-populated generation, metageneration, hashes, etag, creation/update time, metadata-only updates, and byte overwrites.",
   "observedAt": "2026-10-30T15:44:36.570Z",
   "fbSdkVersion": "12.19.0",

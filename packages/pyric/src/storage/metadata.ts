@@ -363,7 +363,22 @@ async function rewriteMetadata(
   const operationProvenance = storageOperationProvenance(target, provenance);
   const service = await getStorageService(operationStorage);
   const existing = await service.backend.getMetadata(ref.fullPath);
-  const next = existing ? change(existing, getClock(target.sandbox).date()) : undefined;
+  let next: StoredMetadata | undefined;
+  let requestResource: ReturnType<typeof requestResourceFor> | undefined;
+  if (existing !== undefined) {
+    next = change(existing, getClock(target.sandbox).date());
+    // The changed view drives `request.resource`, with the stored
+    // `metageneration` and `etag`: production shows the rule the version
+    // before this write advances it (`update/etag-unchanged: ALLOW`).
+    requestResource = requestResourceFor(
+      {
+        ...next,
+        metageneration: existing.metageneration,
+        etag: existing.etag,
+      },
+      'metadataUpdate',
+    );
+  }
   enforceRules(service, {
     request: {
       auth: storageAuth(target),
@@ -371,12 +386,7 @@ async function rewriteMetadata(
       // object-not-found below when absent), so the verb is `update`.
       method: 'update',
       path: ref.fullPath,
-      // The changed view drives `request.resource`, with the stored
-      // metageneration: production shows the rule the version before this
-      // write advances it.
-      resource: existing && next
-        ? requestResourceFor({ ...next, metageneration: existing.metageneration }, 'metadataUpdate')
-        : undefined,
+      resource: requestResource,
     },
     resource: resourceFromStored(existing),
   }, target, operationProvenance);

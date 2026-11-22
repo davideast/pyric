@@ -109,9 +109,12 @@ export interface WrittenObject {
   contentDisposition?: string;
   contentEncoding?: string;
   contentLanguage?: string;
+  md5Hash?: string;
+  crc32c?: string;
   /** Persisted as a numeric string; read only for a metadata update. */
   generation?: string;
   metageneration?: string;
+  etag?: string;
 }
 
 /**
@@ -128,26 +131,33 @@ export type StorageWrite = 'upload' | 'metadataUpdate';
  * An upload gets the default `contentDisposition` a client upload stores, and
  * `null` versions and `etag`, which the object has not been assigned yet. Both
  * writes report an unset `contentEncoding` as `identity`, as the Firebase
- * Storage endpoint does (see content-defaults.ts). A metadata update reads
- * `generation` and `metageneration` from `object`, so the caller passes the
- * stored metageneration: production does not show the rule the advance the
- * write makes.
+ * Storage endpoint does (see content-defaults.ts), and carry `md5Hash` and
+ * `crc32c` when computed or stored. A metadata update reads `generation`,
+ * `metageneration`, and `etag` from `object`, so the caller passes the stored
+ * `metageneration` and `etag`: production does not show the rule the advance
+ * the write makes.
  */
 export function requestResourceFor(object: WrittenObject, write: StorageWrite): StorageRequestResource {
   const name = objectNameFromFullPath(object.fullPath, object.bucket);
   const upload = write === 'upload';
+  let contentDisposition: string | null;
+  if (upload) {
+    contentDisposition = uploadContentDisposition(object.contentDisposition, name ?? '');
+  } else {
+    contentDisposition = object.contentDisposition ?? null;
+  }
   const resource: StorageRequestResource = {
     name,
     bucket: object.bucket,
     size: object.size,
     contentType: object.contentType,
-    contentDisposition: upload
-      ? uploadContentDisposition(object.contentDisposition, name ?? '')
-      : object.contentDisposition ?? null,
+    contentDisposition,
     contentEncoding: clientContentEncoding(object.contentEncoding),
     contentLanguage: object.contentLanguage ?? null,
     cacheControl: object.cacheControl ?? null,
     metadata: object.customMetadata ?? null,
+    md5Hash: object.md5Hash,
+    crc32c: object.crc32c,
   };
   if (upload) {
     resource.generation = null;
@@ -156,6 +166,7 @@ export function requestResourceFor(object: WrittenObject, write: StorageWrite): 
   } else {
     resource.generation = numberOrUndefined(object.generation);
     resource.metageneration = numberOrUndefined(object.metageneration);
+    resource.etag = object.etag;
   }
   return omitUndefined(resource);
 }

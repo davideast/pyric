@@ -84,7 +84,9 @@ export interface StorageRequestResource {
   cacheControl?: string | null;
   generation?: number | null;
   metageneration?: number | null;
-  etag?: null;
+  md5Hash?: string;
+  crc32c?: string;
+  etag?: string | null;
 }
 
 /** Existing-object bindings (for `resource.*`). `null` when no object exists yet (creates). */

@@ -22,3 +22,10 @@ window.readBytes = (path) =>
     (buf) => `ok:${buf.byteLength}`,
     (error) => error.code,
   );
+
+/** Upload `bytes` to `path`, returning `"ok"` or the error code. */
+window.uploadVerified = (path, bytes) =>
+  uploadBytes(ref(storage, path), new Uint8Array(bytes)).then(
+    () => "ok",
+    (error) => error.code,
+  );

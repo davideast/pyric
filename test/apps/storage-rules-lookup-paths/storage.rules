@@ -10,5 +10,14 @@ service firebase.storage {
         && resource.etag is string
         && resource.etag != '';
     }
+    match /verified/{file} {
+      allow create: if request.resource.md5Hash == 'asHla8ePAxBZvnvoVFIsTA=='
+        && request.resource.crc32c == 'T037qw=='
+        && request.resource.etag == null;
+      allow update: if request.resource.md5Hash == resource.md5Hash
+        && request.resource.crc32c == resource.crc32c
+        && request.resource.etag is string
+        && request.resource.etag == resource.etag;
+    }
   }
 }

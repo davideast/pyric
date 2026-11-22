@@ -10,10 +10,14 @@ export default row({
   risk: ["rules-denial"],
   riskScore: 2,
   riskReasons: ["the evaluator denies reads and writes production allows on these fields"],
-  oracleObservations: ["rules-storage-h1-resource-unmodeled-fields"],
+  oracleObservations: [
+    "rules-storage-h1-resource-unmodeled-fields",
+    "stdlib-realstorage-p2-native-object-fields",
+  ],
   conformanceTests: [
     "packages/rules/test/storage/rules-oracle-conformance.test.ts",
     "packages/pyric/test/storage/sandbox/rules-resource-fields.test.ts",
+    "packages/pyric/test/storage/native-object-fields-real-replay.test.ts",
   ],
   constructs: [
     "storage.binding.resource.md5Hash",
