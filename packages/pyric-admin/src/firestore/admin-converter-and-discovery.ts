@@ -13,6 +13,7 @@ import type {
   SetOptions,
 } from 'pyric/sandbox/admin-compat';
 import type { SandboxFirestore } from 'pyric/sandbox/admin-firestore';
+import { assertAdminRootDatabaseDeclared } from './admin-named-databases.js';
 import { markAdminFirestoreStarted } from './admin-settings-lifecycle.js';
 
 export interface AdminFirestoreDataConverter<T = unknown> {
@@ -79,6 +80,7 @@ export async function adminCollectionListDocuments(
   converter: AdminFirestoreDataConverter | undefined,
 ): Promise<DocumentReference[]> {
   markAdminFirestoreStarted(rootDb);
+  assertAdminRootDatabaseDeclared(rootDb);
   const cleanCol = collectionPath.replace(/^\/+|\/+$/g, '');
   const prefix = `${cleanCol}/`;
   const allPaths = await readStorePathsUnderPrefix(rawDb, sandbox, cleanCol);
@@ -110,6 +112,7 @@ export async function adminDocListCollections(
   documentPath: string,
 ): Promise<CollectionReference[]> {
   markAdminFirestoreStarted(rootDb);
+  assertAdminRootDatabaseDeclared(rootDb);
   const cleanDoc = documentPath.replace(/^\/+|\/+$/g, '');
   const prefix = `${cleanDoc}/`;
   const allPaths = await readStorePathsUnderPrefix(rawDb, sandbox, cleanDoc);

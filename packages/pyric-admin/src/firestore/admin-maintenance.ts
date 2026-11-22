@@ -14,6 +14,10 @@ import {
 import type { SandboxFirestore } from 'pyric/sandbox/admin-firestore';
 import { adminDocSnapshotBrand, adminDocumentRefBrand, adminToRootDb, isPlainMap } from './admin-handle-registry.js';
 import type { AdminBulkWriter } from './admin-bulk-writer.js';
+import {
+  assertAdminRootDatabaseDeclared,
+  assertSameDatabaseTarget,
+} from './admin-named-databases.js';
 import { markAdminFirestoreStarted } from './admin-settings-lifecycle.js';
 import {
   assertAdminDocumentReference,
@@ -116,6 +120,10 @@ export async function adminGetAll(
     assertAdminDocumentReference('documentRefsOrReadOptions', candidate);
     refs.push(candidate as DocumentReference);
   }
+  for (const ref of refs) {
+    assertSameDatabaseTarget(rootDb, ref);
+  }
+  assertAdminRootDatabaseDeclared(rootDb);
   const snapshots: DocumentSnapshot[] = [];
   for (const ref of refs) {
     const snap = await ref.get();
@@ -148,6 +156,7 @@ export async function adminListCollections(
   sandbox: Sandbox | undefined,
 ): Promise<CollectionReference[]> {
   markAdminFirestoreStarted(rootDb);
+  assertAdminRootDatabaseDeclared(rootDb);
   const paths = await readStorePaths(rawDb, sandbox);
   const topIds = new Set<string>();
   for (const docPath of paths) {
@@ -168,6 +177,8 @@ export async function adminRecursiveDelete(
   if (ref === null || typeof ref !== 'object' || typeof (ref as { path?: unknown }).path !== 'string') {
     throw new Error('Value for argument "ref" must be a DocumentReference or CollectionReference.');
   }
+  assertSameDatabaseTarget(rootDb, ref);
+  assertAdminRootDatabaseDeclared(rootDb);
   const targetPath = ref.path.replace(/^\/+|\/+$/g, '');
   const isDocRef = targetPath.split('/').filter((s) => s.length > 0).length % 2 === 0;
   const allPaths = await readStorePaths(rawDb, sandbox, targetPath);

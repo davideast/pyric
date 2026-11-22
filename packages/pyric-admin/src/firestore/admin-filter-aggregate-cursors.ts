@@ -17,12 +17,16 @@ import {
 } from 'pyric/sandbox/admin-compat';
 import { SandboxError } from 'pyric/sandbox';
 import type { SandboxFirestore } from 'pyric/sandbox/admin-firestore';
-import { adminDocSnapshotBrand, isAppBackedRoot } from './admin-handle-registry.js';
+import { adminDocSnapshotBrand, isAppBackedRoot, unwrapAdminObject } from './admin-handle-registry.js';
 import {
   createAdminGrpcError,
   runWithAdminErrorsAsync,
   runWithAdminErrorsSync,
 } from './admin-grpc-errors.js';
+import {
+  assertAdminRootDatabaseDeclared,
+  isBoundToUndeclaredPlaceholderEnv,
+} from './admin-named-databases.js';
 import {
   assertQueryExecutable,
   normalizeLegacyQueryOperand,
@@ -244,6 +248,7 @@ export function buildAdminAggregateQuery(
     query: receiverQuery,
     get() {
       return runWithAdminErrorsAsync(appBacked, async () => {
+        assertAdminRootDatabaseDeclared(rootDb);
         assertQueryExecutable(meta);
         const aliasCount = Object.keys(normalizedSpec).length;
         if (aliasCount < 1 || aliasCount > 5) {
@@ -252,7 +257,17 @@ export function buildAdminAggregateQuery(
             'A minimum of one and maximum of five aggregations per query is required.',
           );
         }
-        const rawSnap = await target.aggregate(normalizedSpec);
+        let liveTarget = target;
+        if (isBoundToUndeclaredPlaceholderEnv(target)) {
+          if (meta.replayOnRoot !== undefined) {
+            liveTarget = unwrapAdminObject(meta.replayOnRoot(rootDb));
+          } else if (meta.source.kind === 'collection') {
+            liveTarget = rawDb.collection(meta.source.path);
+          } else {
+            liveTarget = rawDb.collectionGroup(meta.source.collectionId);
+          }
+        }
+        const rawSnap = await liveTarget.aggregate(normalizedSpec);
         const computed = rawSnap.data();
         const readTime = nextAdminTimestamp(rawDb);
         return {

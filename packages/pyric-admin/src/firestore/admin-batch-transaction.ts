@@ -23,6 +23,10 @@ import {
   unwrapAdminObject,
 } from './admin-handle-registry.js';
 import {
+  assertAdminRootDatabaseDeclared,
+  assertSameDatabaseTarget,
+} from './admin-named-databases.js';
+import {
   capturePreWriteBaselines,
   recordPostWriteVersions,
 } from './admin-read-time-history.js';
@@ -45,21 +49,29 @@ import {
 } from './admin-write-validation.js';
 
 type BufferedBatchOperation =
-  | { readonly kind: 'create'; readonly ref: DocumentReference; readonly data: DocumentData }
+  | {
+      readonly kind: 'create';
+      readonly wrappedRef: DocumentReference;
+      readonly ref: DocumentReference;
+      readonly data: DocumentData;
+    }
   | {
       readonly kind: 'set';
+      readonly wrappedRef: DocumentReference;
       readonly ref: DocumentReference;
       readonly data: DocumentData;
       readonly options: SetOptions | undefined;
     }
   | {
       readonly kind: 'update';
+      readonly wrappedRef: DocumentReference;
       readonly ref: DocumentReference;
       readonly args: readonly unknown[];
       readonly precondition: ParsedAdminPrecondition | undefined;
     }
   | {
       readonly kind: 'delete';
+      readonly wrappedRef: DocumentReference;
       readonly ref: DocumentReference;
       readonly precondition: ParsedAdminPrecondition | undefined;
     };
@@ -99,6 +111,7 @@ export function wrapWriteBatch(
               assertBatchMutable();
               bufferedOps.push({
                 kind: 'create',
+                wrappedRef: ref,
                 ref: unwrapAdminObject(ref),
                 data: normalized,
               });
@@ -117,6 +130,7 @@ export function wrapWriteBatch(
               assertBatchMutable();
               bufferedOps.push({
                 kind: 'set',
+                wrappedRef: ref,
                 ref: unwrapAdminObject(ref),
                 data: validated.data,
                 options: validated.options,
@@ -143,6 +157,7 @@ export function wrapWriteBatch(
               const precondition = extractUpdateTrailingPrecondition(rawUpdateArgs);
               bufferedOps.push({
                 kind: 'update',
+                wrappedRef: ref,
                 ref: unwrapAdminObject(ref),
                 args: normalizedArgs,
                 precondition,
@@ -158,6 +173,7 @@ export function wrapWriteBatch(
               assertBatchMutable();
               bufferedOps.push({
                 kind: 'delete',
+                wrappedRef: ref,
                 ref: unwrapAdminObject(ref),
                 precondition,
               });
@@ -168,22 +184,27 @@ export function wrapWriteBatch(
             runWithAdminErrorsAsync(appBacked, async () => {
               assertBatchMutable();
               committed = true;
+              for (const op of bufferedOps) {
+                assertSameDatabaseTarget(rootDb, op.wrappedRef);
+              }
+              assertAdminRootDatabaseDeclared(rootDb);
               await assertBatchPreconditions(rawDb, bufferedOps);
               const affectedPaths = bufferedOps.map((op) => op.ref.path);
               await capturePreWriteBaselines(rawDb, rootDb, docRefOnRoot, affectedPaths);
               const executionBatch = rawDb.batch();
               for (const op of bufferedOps) {
+                const liveRef = rawDb.doc(op.ref.path);
                 if (op.kind === 'create') {
-                  executionBatch.create(op.ref, op.data);
+                  executionBatch.create(liveRef, op.data);
                 } else if (op.kind === 'set') {
-                  executionBatch.set(op.ref, op.data, op.options);
+                  executionBatch.set(liveRef, op.data, op.options);
                 } else if (op.kind === 'update') {
                   (executionBatch.update as (r: DocumentReference, ...a: unknown[]) => WriteBatch)(
-                    op.ref,
+                    liveRef,
                     ...op.args,
                   );
                 } else {
-                  executionBatch.delete(op.ref);
+                  executionBatch.delete(liveRef);
                 }
               }
               await executionBatch.commit(opts);

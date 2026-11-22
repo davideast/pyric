@@ -33,6 +33,12 @@ import {
   unwrapAdminObject,
 } from './admin-handle-registry.js';
 import {
+  assertAdminRootDatabaseDeclared,
+  assertSameDatabaseTarget,
+  hasCrossDatabaseMismatch,
+  isBoundToUndeclaredPlaceholderEnv,
+} from './admin-named-databases.js';
+import {
   adminQueryMetadata,
   assertQueryExecutable,
 } from './admin-query-validation.js';
@@ -102,6 +108,7 @@ function isAdminQueryTarget(value: unknown): value is Query {
 interface TransactionAttemptContext {
   readonly tx: Transaction;
   readonly verifyPreconditions: () => Promise<void>;
+  readonly assertQueuedWritesSameDatabase: () => void;
   readonly mutations: Array<{ readonly path: string; readonly kind: 'write' | 'delete' }>;
 }
 
@@ -113,6 +120,7 @@ function wrapTransaction(
   docRefOnRoot: (db: SandboxFirestore, path: string) => DocumentReference,
 ): TransactionAttemptContext {
   let hasQueuedWrites = false;
+  let firstCrossDbWriteTarget: object | null = null;
   const appBacked = isAppBackedRoot(rootDb);
   const txReadExists = new Map<string, boolean>();
   const pendingPreconditions: Array<{
@@ -135,13 +143,26 @@ function wrapTransaction(
           return (refOrQuery: DocumentReference | Query): Promise<QuerySnapshot | DocumentSnapshot> =>
             runWithAdminErrorsAsync(appBacked, async () => {
               if (isAdminQueryTarget(refOrQuery)) {
-                assertQueryExecutable(adminQueryMetadata.get(refOrQuery));
-                const unwrappedQuery = unwrapAdminObject(refOrQuery);
+                assertSameDatabaseTarget(rootDb, refOrQuery);
+                const meta = adminQueryMetadata.get(refOrQuery);
+                assertQueryExecutable(meta);
+                let unwrappedQuery = unwrapAdminObject(refOrQuery);
+                if (
+                  meta !== undefined &&
+                  typeof meta.replayOnRoot === 'function' &&
+                  isBoundToUndeclaredPlaceholderEnv(unwrappedQuery)
+                ) {
+                  unwrappedQuery = unwrapAdminObject(meta.replayOnRoot(rootDb));
+                }
                 const snap = await t.get(unwrappedQuery);
                 return wrapQuerySnapshot(snap, rootDb, docRefOnRoot);
               }
               if (isAdminDocRefTarget(refOrQuery)) {
-                const unwrappedRef = unwrapAdminObject(refOrQuery);
+                assertSameDatabaseTarget(rootDb, refOrQuery);
+                let unwrappedRef = unwrapAdminObject(refOrQuery);
+                if (isBoundToUndeclaredPlaceholderEnv(unwrappedRef)) {
+                  unwrappedRef = unwrapAdminObject(rootDb.doc(refOrQuery.path));
+                }
                 const snap = await t.get(unwrappedRef);
                 txReadExists.set(unwrappedRef.path, snap.exists);
                 return wrapDocSnapshot(snap, rootDb, docRefOnRoot);
@@ -158,9 +179,15 @@ function wrapTransaction(
             }
             return runWithAdminErrorsAsync(appBacked, async () => {
               const parsed = parseTransactionGetAllArgs(args);
+              for (const ref of parsed.refs) {
+                assertSameDatabaseTarget(rootDb, ref);
+              }
               const results: DocumentSnapshot[] = [];
               for (const ref of parsed.refs) {
-                const unwrappedRef = unwrapAdminObject(ref);
+                let unwrappedRef = unwrapAdminObject(ref);
+                if (isBoundToUndeclaredPlaceholderEnv(unwrappedRef)) {
+                  unwrappedRef = unwrapAdminObject(rootDb.doc(ref.path));
+                }
                 const snap = await t.get(unwrappedRef);
                 txReadExists.set(unwrappedRef.path, snap.exists);
                 const wrapped = wrapDocSnapshot(snap, rootDb, docRefOnRoot);
@@ -184,9 +211,15 @@ function wrapTransaction(
                 'none',
                 appBacked,
               );
+              hasQueuedWrites = true;
+              if (hasCrossDatabaseMismatch(rootDb, ref)) {
+                if (firstCrossDbWriteTarget === null) {
+                  firstCrossDbWriteTarget = ref;
+                }
+                return proxy;
+              }
               const unwrappedRef = unwrapAdminObject(ref);
               t.create(unwrappedRef, normalized);
-              hasQueuedWrites = true;
               mutations.push({ path: unwrappedRef.path, kind: 'write' });
               return proxy;
             });
@@ -201,9 +234,15 @@ function wrapTransaction(
                 appBacked,
               );
               assertAdminDocumentReference('documentRef', ref);
+              hasQueuedWrites = true;
+              if (hasCrossDatabaseMismatch(rootDb, ref)) {
+                if (firstCrossDbWriteTarget === null) {
+                  firstCrossDbWriteTarget = ref;
+                }
+                return proxy;
+              }
               const unwrappedRef = unwrapAdminObject(ref);
               t.set(unwrappedRef, validated.data, validated.options);
-              hasQueuedWrites = true;
               mutations.push({ path: unwrappedRef.path, kind: 'write' });
               return proxy;
             });
@@ -224,6 +263,13 @@ function wrapTransaction(
                 rawUpdateArgs,
                 appBacked,
               );
+              hasQueuedWrites = true;
+              if (hasCrossDatabaseMismatch(rootDb, ref)) {
+                if (firstCrossDbWriteTarget === null) {
+                  firstCrossDbWriteTarget = ref;
+                }
+                return proxy;
+              }
               const precondition = extractUpdateTrailingPrecondition(rawUpdateArgs);
               const unwrappedRef = unwrapAdminObject(ref);
               if (precondition !== undefined) {
@@ -237,7 +283,6 @@ function wrapTransaction(
                 unwrappedRef,
                 ...normalizedArgs,
               );
-              hasQueuedWrites = true;
               mutations.push({ path: unwrappedRef.path, kind: 'write' });
               return proxy;
             });
@@ -247,6 +292,13 @@ function wrapTransaction(
               assertWritable();
               assertAdminDocumentReference('documentRef', ref);
               validatePreconditionObject('precondition', rest[0], false);
+              hasQueuedWrites = true;
+              if (hasCrossDatabaseMismatch(rootDb, ref)) {
+                if (firstCrossDbWriteTarget === null) {
+                  firstCrossDbWriteTarget = ref;
+                }
+                return proxy;
+              }
               const precondition = extractParsedPrecondition(rest[0]);
               const unwrappedRef = unwrapAdminObject(ref);
               if (precondition !== undefined) {
@@ -257,7 +309,6 @@ function wrapTransaction(
                 });
               }
               t.delete(unwrappedRef);
-              hasQueuedWrites = true;
               mutations.push({ path: unwrappedRef.path, kind: 'delete' });
               return proxy;
             });
@@ -293,6 +344,11 @@ function wrapTransaction(
   return {
     tx: proxy,
     mutations,
+    assertQueuedWritesSameDatabase(): void {
+      if (firstCrossDbWriteTarget !== null) {
+        assertSameDatabaseTarget(rootDb, firstCrossDbWriteTarget);
+      }
+    },
     async verifyPreconditions(): Promise<void> {
       for (const item of pendingPreconditions) {
         const cachedExists = txReadExists.get(item.path);
@@ -415,20 +471,22 @@ export function executeAdminRunTransaction<R>(
 
   if (parsedOpts.readOnly && parsedOpts.readTime !== undefined) {
     const readTime = parsedOpts.readTime;
-    return runWithAdminErrorsAsync(appBacked, () =>
-      executeReadOnlyTransactionAtReadTime<R>(rawDb, rootDb, readTime, callback, {
+    return runWithAdminErrorsAsync(appBacked, async () => {
+      assertAdminRootDatabaseDeclared(rootDb);
+      return executeReadOnlyTransactionAtReadTime<R>(rawDb, rootDb, readTime, callback, {
         isAdminDocRefTarget,
         isAdminQueryTarget,
         getQueryMeta: (q) => adminQueryMetadata.get(q),
         docRefOnRoot,
         wrapTempAdminDb,
-      }),
-    );
+      });
+    });
   }
 
   let committedAttemptMutations: Array<{ readonly path: string; readonly kind: 'write' | 'delete' }> = [];
 
   return runWithAdminErrorsAsync(appBacked, async () => {
+    assertAdminRootDatabaseDeclared(rootDb);
     try {
       const result = await rawDb.runTransaction(async (rawTx) => {
         const attempt = wrapTransaction(
@@ -446,6 +504,7 @@ export function executeAdminRunTransaction<R>(
           );
         }
         const value = await returned;
+        attempt.assertQueuedWritesSameDatabase();
         await attempt.verifyPreconditions();
         await capturePreWriteBaselines(
           rawDb,

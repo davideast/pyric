@@ -29,8 +29,11 @@ import {
   adminRawDbSandbox,
   adminToRootDb,
   adminToUnderlying,
+  getAdminHandleDatabaseId,
+  getAdminHandleProjectId,
   isAppBackedRoot,
 } from './admin-handle-registry.js';
+import { assertAdminRootDatabaseDeclared } from './admin-named-databases.js';
 import { normalizeCollectionPath } from './admin-path-validation.js';
 import {
   capturePreWriteBaselines,
@@ -60,6 +63,7 @@ import { validateAndNormalizeDocumentData } from './admin-write-validation.js';
 
 const SYNTHETIC_DOC_REF_PROPS = new Set<PropertyKey>([
   'firestore',
+  'formattedName',
   'isEqual',
   'listCollections',
   'withConverter',
@@ -106,6 +110,8 @@ export function createWrappedDocRef(
       switch (prop) {
         case 'firestore':
           return rootDb;
+        case 'formattedName':
+          return `projects/${getAdminHandleProjectId(rootDb)}/databases/${getAdminHandleDatabaseId(rootDb)}/documents/${t.path}`;
         case 'parent':
           return callbacks.wrapCollectionRef(t.parent, rawDb, rootDb, converter);
         case 'isEqual':
@@ -129,7 +135,9 @@ export function createWrappedDocRef(
           return (opts?: OperationOptions) =>
             runWithAdminErrorsAsync(appBacked, async () => {
               markAdminFirestoreStarted(rootDb);
-              return wrapDocSnapshot(await t.get(opts), rootDb, callbacks.docRefOnRoot, { converter });
+              assertAdminRootDatabaseDeclared(rootDb);
+              const liveRef = rawDb.doc(t.path);
+              return wrapDocSnapshot(await liveRef.get(opts), rootDb, callbacks.docRefOnRoot, { converter });
             });
         case 'create':
           return (data: DocumentData, opts?: OperationOptions): Promise<WriteResult> => {
@@ -140,8 +148,10 @@ export function createWrappedDocRef(
               return validateAndNormalizeDocumentData('data', payload, 'none', appBacked);
             });
             return runWithAdminErrorsAsync(appBacked, async () => {
+              assertAdminRootDatabaseDeclared(rootDb);
+              const liveRef = rawDb.doc(t.path);
               await capturePreWriteBaselines(rawDb, rootDb, callbacks.docRefOnRoot, [t.path]);
-              await t.create(normalized, opts);
+              await liveRef.create(normalized, opts);
               const res = recordSingleAdminWrite(rawDb, t.path);
               await recordPostWriteVersions(
                 rawDb,
@@ -162,8 +172,10 @@ export function createWrappedDocRef(
               return validateAndNormalizeSetCall(payload, options, true, appBacked);
             });
             return runWithAdminErrorsAsync(appBacked, async () => {
+              assertAdminRootDatabaseDeclared(rootDb);
+              const liveRef = rawDb.doc(t.path);
               await capturePreWriteBaselines(rawDb, rootDb, callbacks.docRefOnRoot, [t.path]);
-              await t.set(validated.data, validated.options);
+              await liveRef.set(validated.data, validated.options);
               const res = recordSingleAdminWrite(rawDb, t.path);
               await recordPostWriteVersions(
                 rawDb,
@@ -182,9 +194,11 @@ export function createWrappedDocRef(
               return validateAndNormalizeUpdateArgs(args, appBacked);
             });
             return runWithAdminErrorsAsync(appBacked, async () => {
+              assertAdminRootDatabaseDeclared(rootDb);
+              const liveRef = rawDb.doc(t.path);
               await assertSingleWritePrecondition(rawDb, t.path, 'update', extractUpdateTrailingPrecondition(args));
               await capturePreWriteBaselines(rawDb, rootDb, callbacks.docRefOnRoot, [t.path]);
-              await (t.update as (...a: unknown[]) => Promise<void>)(...normalized);
+              await (liveRef.update as (...a: unknown[]) => Promise<void>)(...normalized);
               const res = recordSingleAdminWrite(rawDb, t.path);
               await recordPostWriteVersions(
                 rawDb,
@@ -203,9 +217,11 @@ export function createWrappedDocRef(
               return validatePreconditionObject('precondition', args[0]);
             });
             return runWithAdminErrorsAsync(appBacked, async () => {
+              assertAdminRootDatabaseDeclared(rootDb);
+              const liveRef = rawDb.doc(t.path);
               await assertSingleWritePrecondition(rawDb, t.path, 'delete', extractParsedPrecondition(args[0]));
               await capturePreWriteBaselines(rawDb, rootDb, callbacks.docRefOnRoot, [t.path]);
-              await t.delete(validatedOpts);
+              await liveRef.delete(validatedOpts);
               const res = recordSingleAdminDelete(rawDb, t.path);
               await recordPostWriteVersions(
                 rawDb,

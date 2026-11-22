@@ -26,7 +26,12 @@ import {
   formatValueValidationPrefix,
 } from './admin-error-messages.js';
 import { isAdminGeoPoint } from './admin-geopoint.js';
-import { adminDocumentRefBrand } from './admin-handle-registry.js';
+import {
+  adminDocumentRefBrand,
+  adminToRootDb,
+  DEFAULT_ADMIN_DATABASE_ID,
+  getAdminHandleDatabaseId,
+} from './admin-handle-registry.js';
 import { encodeAdminVectorForWire, isAdminVectorValue } from './admin-vector-and-errors.js';
 
 const MAX_OBJECT_DEPTH = 20;
@@ -341,7 +346,15 @@ export function validateAndNormalizeFirestoreValue(
 
   const referencePath = registeredAdminReferencePath(value);
   if (referencePath !== undefined) {
-    return new InternalReference(referencePath);
+    let refDatabaseId: string | undefined;
+    const ownerRoot = adminToRootDb.get(value);
+    if (ownerRoot !== undefined) {
+      const candidateDbId = getAdminHandleDatabaseId(ownerRoot);
+      if (candidateDbId !== DEFAULT_ADMIN_DATABASE_ID) {
+        refDatabaseId = candidateDbId;
+      }
+    }
+    return new InternalReference(referencePath, refDatabaseId);
   }
 
   if (value instanceof Uint8Array) {

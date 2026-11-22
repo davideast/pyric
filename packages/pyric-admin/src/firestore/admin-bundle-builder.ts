@@ -54,6 +54,7 @@ export function createAdminBundleBuilder(
   rootDb: SandboxFirestore,
   projectId: string,
   bundleId = 'pyric-admin-bundle',
+  databaseId = '(default)',
 ): AdminBundleBuilder {
   markAdminFirestoreStarted(rootDb);
   if (typeof bundleId !== 'string' || bundleId.length === 0) {
@@ -85,7 +86,7 @@ export function createAdminBundleBuilder(
           throw new Error('BundleBuilder.add(queryName, querySnapshot) requires a query name and QuerySnapshot.');
         }
         let collectionId = 'items';
-        let parentPath = `projects/${projectId}/databases/(default)/documents`;
+        let parentPath = `projects/${projectId}/databases/${databaseId}/documents`;
         const firstDoc = second.docs[0];
         if (firstDoc !== undefined) {
           const segments = firstDoc.ref.path.split('/');
@@ -122,7 +123,7 @@ export function createAdminBundleBuilder(
       }
 
       for (const entry of docsByPath.values()) {
-        const resourceName = `projects/${projectId}/databases/(default)/documents/${entry.path}`;
+        const resourceName = `projects/${projectId}/databases/${databaseId}/documents/${entry.path}`;
         bodyChunks.push(
           encodeLengthPrefixedElement({
             documentMetadata: {
