@@ -176,5 +176,26 @@ describe('diskWorkspace symlink boundary traversal protection (Finding 5)', () =
       expect(await ws.read('internal-alias.txt')).toBe('UPDATED');
       expect(readFileSync(internalFile, 'utf8')).toBe('UPDATED');
     });
+
+    it('rejects dangling symlink + .. lexical-collapse escapes and non-existent traversal tricks', async () => {
+      const outsideDeep = join(outsideDir, 'deep');
+      mkdirSync(outsideDeep, { recursive: true });
+      writeFileSync(join(workspaceRoot, 'inside.txt'), 'INSIDE', 'utf8');
+
+      symlinkSync(outsideDeep, join(workspaceRoot, 'escape_dir'));
+      symlinkSync('escape_dir/../pwned.txt', join(workspaceRoot, 'trick'));
+      symlinkSync('escape_dir/./../pwned2.txt', join(workspaceRoot, 'trick2'));
+      symlinkSync('escape_dir/nonexistent/../../../workspace/inside.txt', join(workspaceRoot, 'trick3'));
+
+      const ws = diskWorkspace(workspaceRoot);
+      await expect(ws.write('trick', 'PWNED_OUTSIDE')).rejects.toThrow(WorkspacePathError);
+      await expect(ws.write('trick2', 'PWNED_OUTSIDE_2')).rejects.toThrow(WorkspacePathError);
+      await expect(ws.write('escape_dir/../pwned.txt', 'PWNED_DIRECT')).rejects.toThrow(WorkspacePathError);
+      await expect(ws.write('trick3', 'PWNED_BOUNCE')).rejects.toThrow(WorkspacePathError);
+
+      expect(existsSync(join(outsideDir, 'pwned.txt'))).toBe(false);
+      expect(existsSync(join(outsideDir, 'pwned2.txt'))).toBe(false);
+      expect(readFileSync(join(workspaceRoot, 'inside.txt'), 'utf8')).toBe('INSIDE');
+    });
   });
 });

@@ -3,7 +3,7 @@
  * module, and the spawn, ready, and stop handshake over IPC.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   STOP_DEADLINE_MS,
@@ -75,16 +75,37 @@ export function resolveChildModulePath(childModuleUrl?: string | URL): string {
   return fileURLToPath(childModuleUrl);
 }
 
+const STRIPPED_HOST_ENV_KEYS: ReadonlySet<string> = new Set([
+  'google_application_credentials',
+  'firebase_sa_base64',
+  'google_cloud_quota_project',
+  'gcloud_project',
+  'google_cloud_project',
+  'gcp_project',
+  'cloudsdk_config',
+  'home',
+  'appdata',
+  'userprofile',
+  'firebase_debug_mode',
+  'firebase_debug_features',
+]);
+
 /**
  * Assemble the child process environment variables.
  *
- * Guaranteed child-only synthetic sandbox metadata:
+ * Guaranteed child-only synthetic sandbox metadata and credential isolation:
  * - GCLOUD_PROJECT, GOOGLE_CLOUD_PROJECT and GCP_PROJECT are set to the
  *   resolved sandbox project ID, as production sets them to the function's
- *   own project (the Firebase emulator reserves the same three)
- * - FIREBASE_CONFIG is set to synthetic JSON with projectId, databaseURL, and storageBucket
- * - GOOGLE_APPLICATION_CREDENTIALS is removed, so a Google client in function
- *   code never loads the host's credentials file
+ *   own project (the Firebase emulator reserves the same three), and any
+ *   lowercase or mixed-case host variants are removed.
+ * - FIREBASE_CONFIG is set to synthetic JSON with projectId, databaseURL, and storageBucket.
+ * - Host Google credential and quota variables (GOOGLE_APPLICATION_CREDENTIALS,
+ *   google_application_credentials, FIREBASE_SA_BASE64, and
+ *   GOOGLE_CLOUD_QUOTA_PROJECT, case-insensitively) are stripped from the child env.
+ * - Well-known Application Default Credentials lookup directories (CLOUDSDK_CONFIG,
+ *   HOME, APPDATA, USERPROFILE) are redirected to a non-existent path under the
+ *   resolved entry path so google-auth-library and gcloud ADC helpers do not fall
+ *   back to the developer's `~/.config/gcloud/application_default_credentials.json`.
  *
  * Explicit control flow ensures that host environment cannot pollute or route
  * sandbox functions execution to a production Firebase/GCP project.
@@ -95,6 +116,7 @@ export function buildFunctionsChildEnv(options: FunctionsChildEnvOptions): NodeJ
   const resolvedEntry = resolve(entry);
   const databaseURL = `https://${instance}.${databaseHost}`;
   const storageBucket = `${projectId}.appspot.com`;
+  const isolatedAdcDir = join(resolvedEntry, '.pyric-isolated-adc');
 
   const syntheticFirebaseConfig = JSON.stringify({
     projectId,
@@ -102,21 +124,27 @@ export function buildFunctionsChildEnv(options: FunctionsChildEnvOptions): NodeJ
     storageBucket,
   });
 
-  const childEnv: NodeJS.ProcessEnv = {
-    ...baseEnv,
-    PYRIC_FUNCTIONS_RTDB_CHILD: '1',
-    PYRIC_FUNCTIONS_ENTRY: resolvedEntry,
-    PYRIC_FUNCTIONS_INSTANCE: instance,
-    PYRIC_FUNCTIONS_LOCATION: location,
-    PYRIC_FUNCTIONS_DATABASE_HOST: databaseHost,
-    GCLOUD_PROJECT: projectId,
-    GOOGLE_CLOUD_PROJECT: projectId,
-    GCP_PROJECT: projectId,
-    FIREBASE_CONFIG: syntheticFirebaseConfig,
-  };
-  delete childEnv.GOOGLE_APPLICATION_CREDENTIALS;
-  delete childEnv.FIREBASE_DEBUG_MODE;
-  delete childEnv.FIREBASE_DEBUG_FEATURES;
+  const childEnv: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(baseEnv)) {
+    if (STRIPPED_HOST_ENV_KEYS.has(key.toLowerCase())) {
+      continue;
+    }
+    childEnv[key] = value;
+  }
+
+  childEnv.PYRIC_FUNCTIONS_RTDB_CHILD = '1';
+  childEnv.PYRIC_FUNCTIONS_ENTRY = resolvedEntry;
+  childEnv.PYRIC_FUNCTIONS_INSTANCE = instance;
+  childEnv.PYRIC_FUNCTIONS_LOCATION = location;
+  childEnv.PYRIC_FUNCTIONS_DATABASE_HOST = databaseHost;
+  childEnv.GCLOUD_PROJECT = projectId;
+  childEnv.GOOGLE_CLOUD_PROJECT = projectId;
+  childEnv.GCP_PROJECT = projectId;
+  childEnv.FIREBASE_CONFIG = syntheticFirebaseConfig;
+  childEnv.CLOUDSDK_CONFIG = isolatedAdcDir;
+  childEnv.HOME = isolatedAdcDir;
+  childEnv.APPDATA = isolatedAdcDir;
+  childEnv.USERPROFILE = isolatedAdcDir;
 
   return childEnv;
 }

@@ -1,7 +1,7 @@
 /** Rules wiring (plan step 1.5) — plain v2 passthrough, 2+modules resolution,
  *  parse/lint failure, file discovery semantics. */
 import { describe, expect, it } from 'bun:test';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   loadProjectRules,
@@ -277,5 +277,58 @@ export function canRead() { return helper(); }`);
       join(dir, 'games', 'pool', 'pool.rules'),
       join(dir, 'games', 'pool', 'physics.rules'),
     ]);
+  });
+
+  it('refuses 2+modules imports escaping the source directory via .. or symlinks and allows internal ones (#1446)', () => {
+    const parent = makeTempDir();
+    const project = join(parent, 'project');
+    const outside = join(parent, 'outside');
+    mkdirSync(join(project, 'sub'), { recursive: true });
+    mkdirSync(outside, { recursive: true });
+
+    const moduleBody = "rules_version = '2+modules';\nexport function canRead() { return request.auth != null; }\n";
+    writeFileSync(join(outside, 'secret.rules'), moduleBody, 'utf8');
+    writeFileSync(join(project, 'shared.rules'), moduleBody, 'utf8');
+    writeFileSync(
+      join(project, 'sub', 'nested.rules'),
+      "rules_version = '2+modules';\nimport { canRead } from '../shared';\nexport function allowNested() { return canRead(); }\n",
+      'utf8',
+    );
+    symlinkSync(join(outside, 'secret.rules'), join(project, 'escape-file.rules'));
+    symlinkSync(outside, join(project, 'escape-dir'));
+    const outsideDeep = join(outside, 'deep');
+    mkdirSync(outsideDeep, { recursive: true });
+    symlinkSync(outsideDeep, join(project, 'escape-deep'));
+    symlinkSync('escape-deep/../secret.rules', join(project, 'trick-secret.rules'));
+    symlinkSync(join(project, 'shared.rules'), join(project, 'internal-alias.rules'));
+
+    const main = join(project, 'firestore.modules.rules');
+
+    for (const escaping of [
+      '../outside/secret',
+      './escape-file',
+      './escape-dir/secret',
+      './trick-secret',
+      './escape-deep/../secret',
+    ]) {
+      const error = failure(() => prepareProjectRules(importing(escaping), main));
+      expect(error.message).toContain(escaping);
+      expect(error.message).toContain('not found');
+      expect(error.moduleFiles).toEqual([]);
+    }
+
+    const internalSymlink = prepareProjectRules(importing('./internal-alias'), main);
+    expect(internalSymlink.rules).toContain('function canRead()');
+
+    const nestedSource = `rules_version = '2+modules';
+import { allowNested } from './sub/nested';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /b/{id} { allow read: if allowNested(); }
+  }
+}`;
+    const nestedContained = prepareProjectRules(nestedSource, main);
+    expect(nestedContained.rules).toContain('function allowNested()');
+    expect(nestedContained.rules).toContain('function canRead()');
   });
 });

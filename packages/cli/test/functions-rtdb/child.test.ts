@@ -1,10 +1,16 @@
 import { describe, expect, test } from 'bun:test';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   buildFunctionsChildEnv,
   resolveChildDatabaseHost,
   resolveChildModulePath,
 } from '../../src/functions/spawn.js';
+import { adcWellKnownPath } from '../../src/credentials/node/from-adc.js';
+import { useTempDirs } from '../use-temp-dirs.js';
+
+const makeTempDir = useTempDirs('pyric-functions-env-');
 
 describe('functions child metadata and environment resolution', () => {
   describe('resolveChildDatabaseHost', () => {
@@ -106,6 +112,77 @@ describe('functions child metadata and environment resolution', () => {
       expect(childEnv.GCP_PROJECT).toBe('sandbox-app');
       expect('GOOGLE_APPLICATION_CREDENTIALS' in childEnv).toBe(false);
       expect(childEnv.PATH).toBe('/usr/bin');
+    });
+
+    test('closes all remaining host Google credential and ADC fallback paths (#1463)', () => {
+      const hostHome = makeTempDir();
+      const hostGcloud = join(hostHome, '.config', 'gcloud');
+      mkdirSync(hostGcloud, { recursive: true });
+      const hostAdcFile = join(hostGcloud, 'application_default_credentials.json');
+      writeFileSync(
+        hostAdcFile,
+        JSON.stringify({
+          type: 'authorized_user',
+          client_id: 'dev-client',
+          client_secret: 'dev-secret',
+          refresh_token: 'dev-refresh',
+        }),
+        'utf8',
+      );
+      const entry = join(hostHome, 'project', 'functions', 'index.js');
+
+      const childEnv = buildFunctionsChildEnv({
+        baseEnv: {
+          PATH: '/usr/bin',
+          HOME: hostHome,
+          APPDATA: hostHome,
+          USERPROFILE: hostHome,
+          CLOUDSDK_CONFIG: hostGcloud,
+          GOOGLE_APPLICATION_CREDENTIALS: '/host/upper-sa.json',
+          google_application_credentials: '/host/lower-sa.json',
+          Google_Application_Credentials: '/host/mixed-sa.json',
+          FIREBASE_SA_BASE64: 'eyJ0eXBlIjoic2VydmljZV9hY2NvdW50In0=',
+          firebase_sa_base64: 'eyJ0eXBlIjoic2VydmljZV9hY2NvdW50In0=',
+          GOOGLE_CLOUD_QUOTA_PROJECT: 'corp-billing-project',
+          google_cloud_quota_project: 'corp-billing-lower',
+          gcloud_project: 'corp-lower-project',
+          google_cloud_project: 'corp-lower-project',
+          gcp_project: 'corp-lower-project',
+        },
+        entry,
+        instance: 'sandbox-app-default-rtdb',
+        location: 'us-central1',
+        databaseHost: 'firebasedatabase.app',
+        projectId: 'sandbox-app',
+      });
+
+      for (const key of Object.keys(childEnv)) {
+        const lower = key.toLowerCase();
+        expect(lower).not.toBe('google_application_credentials');
+        expect(lower).not.toBe('firebase_sa_base64');
+        expect(lower).not.toBe('google_cloud_quota_project');
+      }
+      expect('gcloud_project' in childEnv).toBe(false);
+      expect('google_cloud_project' in childEnv).toBe(false);
+      expect('gcp_project' in childEnv).toBe(false);
+      expect(childEnv.GCLOUD_PROJECT).toBe('sandbox-app');
+      expect(childEnv.GOOGLE_CLOUD_PROJECT).toBe('sandbox-app');
+      expect(childEnv.GCP_PROJECT).toBe('sandbox-app');
+
+      expect(childEnv.HOME).toBeDefined();
+      expect(childEnv.HOME).not.toBe(hostHome);
+      expect(childEnv.CLOUDSDK_CONFIG).toBeDefined();
+      expect(childEnv.CLOUDSDK_CONFIG).not.toBe(hostGcloud);
+      expect(childEnv.APPDATA).toBeDefined();
+      expect(childEnv.APPDATA).not.toBe(hostHome);
+      expect(childEnv.USERPROFILE).toBeDefined();
+      expect(childEnv.USERPROFILE).not.toBe(hostHome);
+
+      const posixWellKnown = join(childEnv.HOME ?? '', '.config', 'gcloud', 'application_default_credentials.json');
+      const winWellKnown = join(childEnv.APPDATA ?? '', 'gcloud', 'application_default_credentials.json');
+      expect(existsSync(posixWellKnown)).toBe(false);
+      expect(existsSync(winWellKnown)).toBe(false);
+      expect(existsSync(adcWellKnownPath(childEnv))).toBe(false);
     });
   });
 });

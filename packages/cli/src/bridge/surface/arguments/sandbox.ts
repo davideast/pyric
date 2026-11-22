@@ -12,9 +12,10 @@
  * what is their own.
  */
 import { readFileSync } from 'node:fs';
-import { isAbsolute, relative, resolve } from 'node:path';
+import { relative, resolve } from 'node:path';
 import type { SandboxEvent } from 'pyric/sandbox';
 import { BRANCH_NAME_PATTERN, listBranches } from 'pyric/sandbox/branches/store';
+import { getCanonicalPath, realPathWithin } from '../../../project-containment.js';
 import { CAPTURE_RELATIVE_PATH } from '../../../serve/capture-store.js';
 import { formatWrongFileError, identifyPyricFile } from '../../../verify/file-format.js';
 import { z } from 'zod';
@@ -115,16 +116,18 @@ export function projectPathWithin(
   field: string,
   fail: Fail,
 ): { path: string } | InvalidArguments {
-  const resolved = isAbsolute(candidate) ? candidate : resolve(projectDir, candidate);
-  const inside = relative(projectDir, resolved);
-  if (inside.startsWith('..') || isAbsolute(inside)) {
+  const absRoot = resolve(projectDir);
+  const canonicalTarget = realPathWithin(absRoot, candidate);
+  if (canonicalTarget === null) {
     return fail(
       `'${field}' is '${candidate}', which is outside the project directory.`,
       `Pass '${field}' as a path inside the project directory, such as '${CAPTURE_RELATIVE_PATH}'.`,
       field,
     );
   }
-  return { path: resolved };
+  const canonicalRoot = getCanonicalPath(absRoot);
+  const relInside = relative(canonicalRoot, canonicalTarget);
+  return { path: resolve(absRoot, relInside) };
 }
 
 /**

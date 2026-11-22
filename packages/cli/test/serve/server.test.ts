@@ -1,7 +1,7 @@
 /** `pyric dev` static server (plan step 1.3) — real HTTP over ephemeral
  *  ports: static files, traversal, SPA rewrite, seams, port scan-forward. */
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -15,6 +15,7 @@ import {
   isForeignFetchWithoutOrigin,
   loopbackHosts,
   resolveStaticFile,
+  resolveStaticPath,
   silentServeLogger,
   startStaticServer,
   type ServeHandle,
@@ -79,6 +80,58 @@ describe('resolveStaticFile', () => {
     expect(resolveStaticFile(site, '/%2e%2e/%2e%2e/etc/passwd')).toBeNull();
     expect(resolveStaticFile(site, '/nested/%E0%A4%A')).toBeNull();
     expect(resolveStaticFile(site, '/missing.js')).toBeNull();
+  });
+
+  it('refuses symlinks pointing outside publicDir and accepts symlinks staying inside (#1446)', () => {
+    const site = fixtureSite();
+    const outside = makeTempDir('pyric-serve-outside-');
+    writeFileSync(join(outside, 'secret.txt'), 'OUTSIDE_SECRET', 'utf8');
+    writeFileSync(join(outside, 'index.html'), 'OUTSIDE_INDEX', 'utf8');
+
+    symlinkSync(join(outside, 'secret.txt'), join(site, 'escape.txt'));
+    symlinkSync(outside, join(site, 'escape-dir'));
+    const outsideDeep = join(outside, 'deep');
+    mkdirSync(outsideDeep, { recursive: true });
+    symlinkSync(outsideDeep, join(site, 'escape-deep'));
+    symlinkSync('escape-deep/../secret.txt', join(site, 'trick-secret.txt'));
+    symlinkSync('escape-deep/./../pwned.txt', join(site, 'trick-dangling.txt'));
+    symlinkSync(join(outside, 'missing.txt'), join(site, 'dangling-escape.txt'));
+    mkdirSync(join(site, 'escaped-index'));
+    symlinkSync(join(outside, 'index.html'), join(site, 'escaped-index', 'index.html'));
+    symlinkSync(join(site, 'app.js'), join(site, 'alias.js'));
+    symlinkSync(join(site, 'nested'), join(site, 'nested-link'));
+
+    expect(resolveStaticPath(site, '/escape.txt')).toBeNull();
+    expect(resolveStaticFile(site, '/escape.txt')).toBeNull();
+    expect(resolveStaticPath(site, '/escape-dir/secret.txt')).toBeNull();
+    expect(resolveStaticFile(site, '/escape-dir/secret.txt')).toBeNull();
+    expect(resolveStaticPath(site, '/trick-secret.txt')).toBeNull();
+    expect(resolveStaticFile(site, '/trick-secret.txt')).toBeNull();
+    expect(resolveStaticPath(site, '/trick-dangling.txt')).toBeNull();
+    expect(resolveStaticPath(site, '/escape-deep/../secret.txt')).toBeNull();
+    expect(resolveStaticPath(site, '/dangling-escape.txt')).toBeNull();
+    expect(resolveStaticFile(site, '/escaped-index')).toBeNull();
+
+    expect(resolveStaticPath(site, '/alias.js')).toContain('app.js');
+    expect(resolveStaticFile(site, '/alias.js')).toContain('app.js');
+    expect(resolveStaticFile(site, '/nested-link')).toContain('index.html');
+  });
+
+  it('answers 404 over HTTP for a symlink escaping publicDir and 200 for an internal symlink', async () => {
+    const site = fixtureSite();
+    const outside = makeTempDir('pyric-serve-outside-http-');
+    writeFileSync(join(outside, 'secret.txt'), 'OUTSIDE_SECRET', 'utf8');
+    symlinkSync(join(outside, 'secret.txt'), join(site, 'escape.txt'));
+    symlinkSync(join(site, 'app.js'), join(site, 'alias.js'));
+
+    const h = await start({ publicDir: site });
+    const escaped = await fetch(`${h.url}/escape.txt`);
+    expect(escaped.status).toBe(404);
+    expect(await escaped.text()).not.toContain('OUTSIDE_SECRET');
+
+    const internal = await fetch(`${h.url}/alias.js`);
+    expect(internal.status).toBe(200);
+    expect(await internal.text()).toContain('export const x = 1;');
   });
 });
 

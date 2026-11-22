@@ -19,15 +19,19 @@ import {
 } from 'node:fs/promises';
 import {
   existsSync,
-  lstatSync,
   mkdirSync,
-  readlinkSync,
-  realpathSync,
   watch as fsWatch,
   type FSWatcher,
 } from 'node:fs';
-import { basename, dirname, join, posix, relative, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
 
+import {
+  getCanonicalPath,
+  isContained,
+  PathContainmentCycleError,
+  PathContainmentTraversalError,
+  resolveCanonicalPath,
+} from '../../project-containment.js';
 import { isProjectSecretPath } from '../project-secret-paths.js';
 import { readBranches } from './branch-store-reading.js';
 
@@ -59,64 +63,24 @@ export class WorkspaceDeniedPathError extends WorkspacePathError {
 }
 
 /**
- * Resolves the canonical realpath of a path, handling symlinks and non-existent
- * terminal segments by resolving the nearest existing ancestor.
- */
-function getCanonicalPath(targetPath: string, seen = new Set<string>()): string {
-  const abs = resolve(targetPath);
-  if (seen.has(abs)) {
-    throw new WorkspacePathError(targetPath);
-  }
-  seen.add(abs);
-
-  try {
-    return realpathSync(abs);
-  } catch (err: any) {
-    if (err?.code === 'ELOOP') {
-      throw new WorkspacePathError(targetPath);
-    }
-    if (err?.code !== 'ENOENT' && err?.code !== 'ENOTDIR') {
-      throw err;
-    }
-  }
-
-  try {
-    const st = lstatSync(abs);
-    if (st.isSymbolicLink()) {
-      const linkTarget = readlinkSync(abs);
-      const nextTarget = resolve(dirname(abs), linkTarget);
-      return getCanonicalPath(nextTarget, seen);
-    }
-  } catch {
-    // abs does not exist as a directory entry
-  }
-
-  const parent = dirname(abs);
-  if (parent === abs) {
-    return abs;
-  }
-  const canonicalParent = getCanonicalPath(parent, seen);
-  return join(canonicalParent, basename(abs));
-}
-
-/** Check whether canonical target is contained within canonical root. */
-function isContained(root: string, target: string): boolean {
-  if (target === root) return true;
-  const prefix = root.endsWith(sep) ? root : root + sep;
-  return target.startsWith(prefix);
-}
-
-/**
  * Resolve a project-relative POSIX path to an absolute OS path inside `root`,
  * or throw {@link WorkspacePathError} if it would escape. Leading slashes are
  * stripped (treated as project-root-relative); empty / `.` resolves to the
  * root itself.
  */
 export function resolveWorkspacePath(root: string, rel: string): string {
+  if (rel.includes('\0')) {
+    throw new WorkspacePathError(rel);
+  }
   const cleaned = rel.replace(/^\/+/, '');
-  // Normalize via POSIX semantics first so `a/../b` collapses predictably,
-  // then map separators to the host OS.
-  const normalized = posix.normalize(cleaned === '' ? '.' : cleaned);
+  const rawRel = cleaned === '' ? '.' : cleaned;
+  if (isAbsolute(rawRel)) {
+    throw new WorkspacePathError(rel);
+  }
+  // Normalize via POSIX semantics to check lexical traversal and secret path
+  // names, while resolving containment left-to-right on the raw segments so
+  // `symlink/../outside` cannot be collapsed before the symlink is expanded.
+  const normalized = posix.normalize(rawRel);
   if (normalized === '..' || normalized.startsWith('../')) {
     throw new WorkspacePathError(rel);
   }
@@ -126,13 +90,17 @@ export function resolveWorkspacePath(root: string, rel: string): string {
   }
 
   // Canonical realpath containment check:
-  // Reject symlinks that escape the workspace root.
-  const canonicalRoot = getCanonicalPath(root);
+  // Reject symlinks and symlink+.. traversals that escape the workspace root.
+  let canonicalRoot: string;
   let canonicalTarget: string;
   try {
-    canonicalTarget = getCanonicalPath(abs);
-  } catch (err) {
-    if (err instanceof WorkspacePathError) {
+    canonicalRoot = getCanonicalPath(root);
+    canonicalTarget = resolveCanonicalPath(canonicalRoot, rawRel.split('/').join(sep));
+  } catch (err: unknown) {
+    if (
+      err instanceof PathContainmentCycleError ||
+      err instanceof PathContainmentTraversalError
+    ) {
       throw new WorkspacePathError(rel);
     }
     throw err;
@@ -150,6 +118,9 @@ export function resolveWorkspacePath(root: string, rel: string): string {
     throw new WorkspaceDeniedPathError(rel);
   }
 
+  if (rawRel.split('/').includes('..')) {
+    return resolve(root, realRelative);
+  }
   return abs;
 }
 

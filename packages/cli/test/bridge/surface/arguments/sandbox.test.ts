@@ -4,7 +4,7 @@
  * check, and the session-file reader.
  */
 import { describe, expect, it, beforeEach, afterEach } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BRANCH_FORMAT, BRANCH_STORE_RELATIVE } from 'pyric/sandbox/branches/store';
@@ -142,6 +142,92 @@ describe('projectPathWithin', () => {
   it('refuses a path that climbs out of the project directory', () => {
     const refused = projectPathWithin(projectDir, '../outside.json', 'sessionPath', fail);
     expect('path' in refused).toBe(false);
+  });
+
+  it('refuses symlinks pointing outside the project directory (existing, missing target, dangling, loop)', () => {
+    const outsideDir = mkdtempSync(join(tmpdir(), 'pyric-branch-args-out-'));
+    try {
+      const outsideFile = join(outsideDir, 'secret.json');
+      writeFileSync(outsideFile, '{"secret":true}', 'utf8');
+      symlinkSync(outsideFile, join(projectDir, 'escape-file.json'));
+      symlinkSync(outsideDir, join(projectDir, 'escape-dir'));
+      symlinkSync(join(outsideDir, 'dangling.json'), join(projectDir, 'dangling.json'));
+      symlinkSync(join(projectDir, 'loop-b'), join(projectDir, 'loop-a'));
+      symlinkSync(join(projectDir, 'loop-a'), join(projectDir, 'loop-b'));
+
+      for (const candidate of [
+        'escape-file.json',
+        'escape-dir/secret.json',
+        'escape-dir/new-export.json',
+        'dangling.json',
+        'loop-a',
+      ]) {
+        const refused = projectPathWithin(projectDir, candidate, 'path', fail);
+        expect('path' in refused).toBe(false);
+        if (!('path' in refused)) {
+          expect(refused.summary).toContain(candidate);
+          expect(refused.summary).toContain('outside the project directory');
+        }
+      }
+    } finally {
+      rmSync(outsideDir, { recursive: true, force: true });
+    }
+  });
+
+  it('accepts an internal symlink whose real target stays inside the project directory', () => {
+    mkdirSync(join(projectDir, 'fixtures'), { recursive: true });
+    const target = join(projectDir, 'fixtures', 'seed.json');
+    writeFileSync(target, '{}', 'utf8');
+    symlinkSync(target, join(projectDir, 'seed-link.json'));
+
+    const resolved = projectPathWithin(projectDir, 'seed-link.json', 'path', fail);
+    expect(resolved).toEqual({ path: target });
+  });
+
+  it('handles a symlinked projectDir itself while still refusing escaping symlinks', () => {
+    const outer = mkdtempSync(join(tmpdir(), 'pyric-branch-args-symroot-'));
+    try {
+      const realProject = join(outer, 'real-project');
+      const outside = join(outer, 'outside');
+      const symlinkedProject = join(outer, 'link-project');
+      mkdirSync(realProject, { recursive: true });
+      mkdirSync(outside, { recursive: true });
+      writeFileSync(join(realProject, 'inside.json'), '{}', 'utf8');
+      writeFileSync(join(outside, 'secret.json'), '{}', 'utf8');
+      symlinkSync(realProject, symlinkedProject);
+      symlinkSync(join(outside, 'secret.json'), join(realProject, 'escape.json'));
+
+      const ok = projectPathWithin(symlinkedProject, 'inside.json', 'path', fail);
+      expect(ok).toEqual({ path: join(symlinkedProject, 'inside.json') });
+
+      const refused = projectPathWithin(symlinkedProject, 'escape.json', 'path', fail);
+      expect('path' in refused).toBe(false);
+    } finally {
+      rmSync(outer, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses symlink + .. lexical-collapse escapes without silently redirecting', () => {
+    const outside = mkdtempSync(join(tmpdir(), 'pyric-branch-args-trick-'));
+    try {
+      const outsideDeep = join(outside, 'deep');
+      mkdirSync(outsideDeep, { recursive: true });
+      symlinkSync(outsideDeep, join(projectDir, 'escape_dir'));
+      symlinkSync('escape_dir/../pwned.json', join(projectDir, 'trick.json'));
+      symlinkSync('escape_dir/./../pwned2.json', join(projectDir, 'trick2.json'));
+      symlinkSync('escape_dir/nonexistent/../../../inside.json', join(projectDir, 'trick3.json'));
+
+      for (const candidate of ['trick.json', 'trick2.json', 'escape_dir/../pwned.json', 'trick3.json']) {
+        const refused = projectPathWithin(projectDir, candidate, 'path', fail);
+        expect('path' in refused).toBe(false);
+        if (!('path' in refused)) {
+          expect(refused.summary).toContain(candidate);
+          expect(refused.summary).toContain('outside the project directory');
+        }
+      }
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
   });
 });
 
