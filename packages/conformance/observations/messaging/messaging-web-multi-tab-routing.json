@@ -1,0 +1,55 @@
+{
+  "name": "messaging-web-multi-tab-routing",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase/messaging and firebase/messaging/sw multi-tab delivery routing across shared ServiceWorkerRegistration window clients ([visible, visible], [visible, hidden], [hidden, hidden] with chrome-extension exclusion) and notificationclick single-client focus.",
+  "observedAt": "2026-11-22T00:05:41.912Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "deliveryRouting": {
+      "bothTabsVisible": {
+        "tabACount": 1,
+        "tabBCount": 1,
+        "swBackgroundCount": 0,
+        "tabADataStep": "both-visible",
+        "tabBDataStep": "both-visible",
+        "swDataStep": null
+      },
+      "oneVisibleOneHidden": {
+        "tabACount": 1,
+        "tabBCount": 1,
+        "swBackgroundCount": 0,
+        "tabADataStep": "one-visible",
+        "tabBDataStep": "one-visible",
+        "swDataStep": null
+      },
+      "allTabsHidden": {
+        "tabACount": 0,
+        "tabBCount": 0,
+        "swBackgroundCount": 1,
+        "tabADataStep": null,
+        "tabBDataStep": null,
+        "swDataStep": "all-hidden"
+      }
+    },
+    "swNativeIntegration": {
+      "showNotificationCounts": {
+        "bothTabsVisible": 0,
+        "oneVisibleOneHidden": 0,
+        "allTabsHidden": 1
+      },
+      "chromeExtensionVisibleIgnoredWhenAppTabsHidden": true,
+      "notificationClickExistingTabs": {
+        "notificationClosed": true,
+        "tabAFocusCount": 1,
+        "tabBFocusCount": 0,
+        "openWindowCount": 0,
+        "tabAReceivedNotificationClickedMessage": true,
+        "tabBReceivedNotificationClickedMessage": false,
+        "tabAOnMessageCountAfterClick": 0,
+        "tabBOnMessageCountAfterClick": 0
+      }
+    }
+  }
+}
