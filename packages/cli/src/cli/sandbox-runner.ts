@@ -61,13 +61,15 @@ export async function waitForSandboxPeer(
   // process is paused, would move the deadline away from the timers that
   // enforce it (#1705).
   const deadline = performance.now() + timeoutMs;
-  // By default each poll is bounded by the time left, connect included, so a
-  // health port whose connect never completes cannot carry the wait past its
-  // timeout or hold the process open after it (#1167).
+  // By default each poll is bounded by min(2 s, time left), connect included,
+  // so a dropped SYN retries within the wait instead of holding one connect
+  // for the whole window or holding the process open after it (#1167).
+  const maxPollDeadlineMs = 2_000;
   const fetchHealth = (url: string): Promise<Response> => {
     const injected = opts.fetchImpl;
     if (injected) return injected(url);
-    return boundedFetch(url, { deadlineMs: Math.max(1, deadline - performance.now()) });
+    const remainingMs = Math.max(1, deadline - performance.now());
+    return boundedFetch(url, { deadlineMs: Math.min(maxPollDeadlineMs, remainingMs) });
   };
   for (;;) {
     try {

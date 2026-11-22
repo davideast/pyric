@@ -9,13 +9,13 @@
  * accepts the connection and nothing answers until the process runs again.
  */
 import { afterEach, describe, expect, it } from 'bun:test';
-import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { discoverServe, selectExplicitHost } from '../../src/serve/discovery.js';
+import { discoverServe, probeHealth, readProjectPointer, selectExplicitHost } from '../../src/serve/discovery.js';
 import { closedPort } from '../closed-port.js';
 
 const INSTANCE_ID = 'stalled-host-instance';
@@ -27,8 +27,14 @@ interface StalledHost {
 }
 
 const servers: Server[] = [];
+const tempDirs: string[] = [];
+const children: ChildProcess[] = [];
 afterEach(async () => {
+  for (const child of children.splice(0)) {
+    child.kill('SIGKILL');
+  }
   for (const server of servers.splice(0)) await new Promise((resolve) => server.close(resolve));
+  for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
 async function stalledHost(instanceId = INSTANCE_ID): Promise<StalledHost> {
@@ -50,6 +56,7 @@ async function stalledHost(instanceId = INSTANCE_ID): Promise<StalledHost> {
 
 function projectWithPointer(pointer: Record<string, unknown>): string {
   const cwd = mkdtempSync(join(tmpdir(), 'pyric-stalled-host-'));
+  tempDirs.push(cwd);
   mkdirSync(join(cwd, '.pyric'));
   writeFileSync(join(cwd, '.pyric', 'serve.json'), JSON.stringify(pointer));
   return cwd;
@@ -110,5 +117,69 @@ describe('a pointer that names no live host', () => {
 
     expect(found).toBeNull();
     expect(Date.now() - started).toBeLessThan(1_000);
+  });
+
+  it('shares one 10 s wait deadline across multiple unpinned pointers (#1545)', async () => {
+    const firstPort = await closedPort();
+    const secondPort = await closedPort();
+    const cwd = mkdtempSync(join(tmpdir(), 'pyric-shared-deadline-'));
+    tempDirs.push(cwd);
+    writeFileSync(join(cwd, 'firebase.json'), '{}\n');
+    mkdirSync(join(cwd, '.pyric'), { recursive: true });
+    mkdirSync(join(cwd, 'web', '.pyric'), { recursive: true });
+    writeFileSync(
+      join(cwd, '.pyric', 'serve.json'),
+      JSON.stringify({ url: `http://127.0.0.1:${firstPort}`, port: firstPort, pid: process.pid }),
+    );
+    writeFileSync(
+      join(cwd, 'web', '.pyric', 'serve.json'),
+      JSON.stringify({ url: `http://127.0.0.1:${secondPort}`, port: secondPort, pid: process.pid }),
+    );
+    const started = performance.now();
+
+    const found = await discoverServe(cwd, undefined, noScan);
+
+    const elapsedMs = performance.now() - started;
+    expect(found).toBeNull();
+    expect(elapsedMs).toBeGreaterThanOrEqual(9_500);
+    expect(elapsedMs).toBeLessThan(14_000);
+  }, 20_000);
+
+  it.if(process.platform === 'linux')('fails at once when the pointer pid was reused by a newer Node process (#1545)', async () => {
+    const port = await closedPort();
+    const reused = spawn('node', ['-e', 'setInterval(() => {}, 30000)'], { stdio: 'ignore' });
+    children.push(reused);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const pid = reused.pid ?? 0;
+    const cwd = projectWithPointer(pointerFor(port, pid));
+    const writtenBeforeReuse = new Date(Date.now() - 5_000);
+    utimesSync(join(cwd, '.pyric', 'serve.json'), writtenBeforeReuse, writtenBeforeReuse);
+    const started = performance.now();
+
+    expect(await probeHealth(`http://127.0.0.1:${port}`)).toBeNull();
+    expect(readProjectPointer(cwd)).toBeNull();
+    const choice = await selectExplicitHost({ url: `http://127.0.0.1:${port}`, cwd });
+    const found = await discoverServe(cwd, undefined, noScan);
+
+    expect(choice.kind).toBe('stale');
+    expect(found).toBeNull();
+    expect(performance.now() - started).toBeLessThan(1_500);
+  });
+
+  it.if(process.platform === 'linux')('fails at once when the pointer pid belongs to a non-runtime host process (#1545)', async () => {
+    const port = await closedPort();
+    const foreign = spawn('sleep', ['30'], { stdio: 'ignore' });
+    children.push(foreign);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const pid = foreign.pid ?? 0;
+    const cwd = projectWithPointer(pointerFor(port, pid));
+    const started = performance.now();
+
+    const choice = await selectExplicitHost({ url: `http://127.0.0.1:${port}`, cwd });
+    const found = await discoverServe(cwd, undefined, noScan);
+
+    expect(choice.kind).toBe('stale');
+    expect(found).toBeNull();
+    expect(performance.now() - started).toBeLessThan(1_500);
   });
 });

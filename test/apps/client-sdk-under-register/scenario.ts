@@ -223,15 +223,24 @@ export default scenario(async (app) => {
     // the host is not gone (#1527).
     const pid = host.process.pid;
     assert.ok(pid !== undefined, 'the dev server has no pid');
+    const resumeHost = (): void => {
+      try {
+        process.kill(pid, 'SIGCONT');
+      } catch (error) {
+        const isGone = (error as NodeJS.ErrnoException).code === 'ESRCH';
+        if (!isGone) throw error;
+      }
+    };
     process.kill(pid, 'SIGSTOP');
     let output: string;
     try {
       const run = app.serverScript('busy-host.mjs', [], { env, timeoutMs: 30_000 });
+      run.catch(() => undefined);
       await sleep(HOST_STALL_MS);
-      process.kill(pid, 'SIGCONT');
+      resumeHost();
       output = (await run).output;
     } finally {
-      process.kill(pid, 'SIGCONT');
+      resumeHost();
     }
     assert.doesNotMatch(output, /is stale/, output);
     expectOk(output, 'busy.listener', null);

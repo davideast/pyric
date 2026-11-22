@@ -15,6 +15,13 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import {
+  formatShellCommand,
+  spawnDevChild,
+  spawnSandboxChild,
+  type DevChildHandle,
+  type DevChildPlan,
+} from '../../src/cli/sandbox-runner.js';
 import { blackholedPort } from '../blackholed-port.js';
 
 const dist = (path: string): string => pathToFileURL(join(resolve(import.meta.dir, '../..'), 'dist', path)).href;
@@ -37,7 +44,7 @@ interface CommandRun {
  * the order they fall due, so a child the machine stalls or starves (#1705)
  * runs late on both and keeps that order, where a wall-clock bound fails.
  */
-function runInNode(body: string): Promise<CommandRun> {
+function runInNode(body: string, onStderr?: (chunk: string) => void): Promise<CommandRun> {
   const script = `let result;
 let beatSentinel;
 const beforeSentinel = async (sentinelMs, run) => {
@@ -56,7 +63,12 @@ process.stdout.write(JSON.stringify({ result, beatSentinel, endedAt: Date.now() 
   let stdout = '';
   child.stdout.setEncoding('utf8');
   child.stdout.on('data', (chunk: string) => { stdout += chunk; });
-  child.stderr.resume();
+  child.stderr.setEncoding('utf8');
+  if (onStderr !== undefined) {
+    child.stderr.on('data', onStderr);
+  } else {
+    child.stderr.resume();
+  }
   return new Promise((resolvePromise, reject) => {
     child.once('error', reject);
     child.once('exit', () => {
@@ -87,6 +99,13 @@ function runPyric(args: string[], cwd: string): Promise<{ code: number | null; w
 }
 
 describe('the pyric command against a port whose connect never completes', () => {
+  it('keeps sandbox-runner compatibility exports wired', () => {
+    const plan: DevChildPlan = { argv: ['node', 'server.mjs'], label: 'node server.mjs' };
+    const checkHandleType = (handle: DevChildHandle): Promise<number> => handle.exited;
+    expect(formatShellCommand(plan.argv)).toBe('node server.mjs');
+    expect(spawnDevChild).toBe(spawnSandboxChild);
+    expect(typeof checkHandleType).toBe('function');
+  });
   it('pyric snapshot --port exits about its two 750 ms probes after start', async () => {
     const hole = await blackholedPort();
     const cwd = mkdtempSync(join(tmpdir(), 'pyric-snapshot-bin-blackhole-'));
@@ -206,6 +225,150 @@ result = await beforeSentinel(2000, () => waitForSandboxPeer('http://127.0.0.1:$
       expect(run.lingerMs).toBeLessThan(PROMPT_EXIT_MS);
     } finally {
       hole.close();
+    }
+  }, 30_000);
+
+  it('the sandbox peer wait caps each poll at 2 s so a dropped first SYN retries once the host answers', async () => {
+    const hole = await blackholedPort();
+    const targetPort = hole.port;
+    let healthyServer: ReturnType<typeof import('node:http').createServer> | undefined;
+    let swapTimer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const { createServer } = await import('node:http');
+      let swapped = false;
+      const onChildStderr = (chunk: string): void => {
+        if (swapped || !chunk.includes('POLL_STARTED')) return;
+        swapped = true;
+        swapTimer = setTimeout(() => {
+          hole.close();
+          const server = createServer((_req, res) => {
+            res.writeHead(200, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ status: 'ok', mode: 'sandbox', sandboxConnected: true }));
+          });
+          healthyServer = server;
+          const bind = (attempt: number): void => {
+            server.once('error', (err: NodeJS.ErrnoException) => {
+              if (err.code === 'EADDRINUSE' && attempt < 40) {
+                setTimeout(() => bind(attempt + 1), 15);
+              }
+            });
+            server.listen(targetPort, '127.0.0.1');
+          };
+          bind(0);
+        }, 2_050);
+      };
+      const run = await runInNode(
+        `const { waitForSandboxPeer } = await import(${JSON.stringify(dist('cli/sandbox-runner.js'))});
+const waiting = waitForSandboxPeer('http://127.0.0.1:${targetPort}', { timeoutMs: 2800, intervalMs: 150 });
+process.stderr.write('POLL_STARTED\\n');
+result = await waiting;`,
+        onChildStderr,
+      );
+      expect(run.result).toBe(true);
+      expect(run.lingerMs).toBeLessThan(PROMPT_EXIT_MS);
+    } finally {
+      if (swapTimer !== undefined) clearTimeout(swapTimer);
+      hole.close();
+      if (healthyServer !== undefined) {
+        await new Promise<void>((done) => healthyServer?.close(() => done()));
+      }
+    }
+  }, 30_000);
+
+  it('the Functions HTTP peer readiness wait ends at its timeout on a blackholed port, then exits', async () => {
+    const hole = await blackholedPort();
+    try {
+      const run = await runInNode(`const { createHttpFunctionsPeerReadiness } = await import(${JSON.stringify(dist('functions/development-runtime.js'))});
+const readiness = createHttpFunctionsPeerReadiness('http://127.0.0.1:${hole.port}');
+result = await beforeSentinel(2000, () => readiness.wait({ timeoutMs: 1000, signal: new AbortController().signal }));`);
+      expect(run.result).toBe(false);
+      expect(run.beatSentinel).toBe(true);
+      expect(run.lingerMs).toBeLessThan(PROMPT_EXIT_MS);
+    } finally {
+      hole.close();
+    }
+  }, 30_000);
+
+  it('closing the Functions development runtime aborts a blackholed peer wait at once, leaving no pending connect', async () => {
+    const hole = await blackholedPort();
+    try {
+      const run = await runInNode(`const { createFunctionsDevelopmentRuntime, createHttpFunctionsPeerReadiness } = await import(${JSON.stringify(dist('functions/development-runtime.js'))});
+const runtime = createFunctionsDevelopmentRuntime({
+  sourceDir: '/project/functions',
+  entry: '/project/functions/index.js',
+  baseEnv: {},
+  serveUrl: 'http://127.0.0.1:${hole.port}',
+  registerUrl: 'file:///register.js',
+  instance: 'demo-default-rtdb',
+  projectId: 'demo',
+  location: 'us-central1',
+  readiness: createHttpFunctionsPeerReadiness('http://127.0.0.1:${hole.port}'),
+  initialPeerTimeoutMs: 30000,
+  spawn() { throw new Error('must not spawn without a peer'); },
+});
+const starting = runtime.start();
+await new Promise((done) => setTimeout(done, 150));
+const closeStarted = performance.now();
+await runtime.close();
+const closeMs = performance.now() - closeStarted;
+const startOutcome = await starting;
+result = { closeMs, startOutcome };`);
+      const outcome = run.result as { closeMs: number; startOutcome: unknown };
+      expect(outcome.closeMs).toBeLessThan(500);
+      expect(outcome.startOutcome).toEqual({ kind: 'no-peer' });
+      expect(run.lingerMs).toBeLessThan(PROMPT_EXIT_MS);
+    } finally {
+      hole.close();
+    }
+  }, 30_000);
+
+  it('the Functions HTTP peer readiness wait caps each poll at 2 s so a dropped first SYN retries once the host answers', async () => {
+    const hole = await blackholedPort();
+    const targetPort = hole.port;
+    let healthyServer: ReturnType<typeof import('node:http').createServer> | undefined;
+    let swapTimer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const { createServer } = await import('node:http');
+      let swapped = false;
+      const onChildStderr = (chunk: string): void => {
+        if (swapped || !chunk.includes('POLL_STARTED')) return;
+        swapped = true;
+        // Swap just past the 2 s per-poll cap (while Linux's second SYN RTO is
+        // still backed off until ~3 s), so an uncapped 2.8 s wait never retries.
+        swapTimer = setTimeout(() => {
+          hole.close();
+          const server = createServer((_req, res) => {
+            res.writeHead(200, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ status: 'ok', mode: 'sandbox', sandboxConnected: true }));
+          });
+          healthyServer = server;
+          const bind = (attempt: number): void => {
+            server.once('error', (err: NodeJS.ErrnoException) => {
+              if (err.code === 'EADDRINUSE' && attempt < 40) {
+                setTimeout(() => bind(attempt + 1), 15);
+              }
+            });
+            server.listen(targetPort, '127.0.0.1');
+          };
+          bind(0);
+        }, 2_050);
+      };
+      const run = await runInNode(
+        `const { createHttpFunctionsPeerReadiness } = await import(${JSON.stringify(dist('functions/development-runtime.js'))});
+const readiness = createHttpFunctionsPeerReadiness('http://127.0.0.1:${targetPort}', { intervalMs: 150 });
+const waiting = readiness.wait({ timeoutMs: 2800, signal: new AbortController().signal });
+process.stderr.write('POLL_STARTED\\n');
+result = await waiting;`,
+        onChildStderr,
+      );
+      expect(run.result).toBe(true);
+      expect(run.lingerMs).toBeLessThan(PROMPT_EXIT_MS);
+    } finally {
+      if (swapTimer !== undefined) clearTimeout(swapTimer);
+      hole.close();
+      if (healthyServer !== undefined) {
+        await new Promise<void>((done) => healthyServer?.close(() => done()));
+      }
     }
   }, 30_000);
 });
