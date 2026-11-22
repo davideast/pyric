@@ -172,6 +172,17 @@ describe('loadProjectRules (pyric/app/register)', () => {
     expect(stderr).toContain('could not load storage.rules: firebase.json names missing.rules');
   });
 
+  it('serves no Firestore rules file when firebase.json has an object firestore block with no rules key (#1452)', async () => {
+    const denyAll = FIRESTORE_RULES.replace('if true', 'if false');
+    const { sandbox, stderr } = load(project({
+      'firebase.json': { firestore: { indexes: 'firestore.indexes.json' } },
+      'firestore.rules': denyAll,
+    }));
+    expect(stderr).toBe('');
+    const app = createDistAppForSandbox(sandbox, { projectId: 'rules-demo' }, `register-no-rules-${Math.random()}`);
+    await setDoc(doc(getFirestore(app), 'open/a'), { ok: true });
+  });
+
   it('does nothing without firebase.json', () => {
     expect(load(project({})).stderr).toBe('');
   });

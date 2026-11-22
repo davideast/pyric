@@ -18,12 +18,14 @@
  * the CLI deploys both, so the configuration does not determine which
  * ruleset production keeps. This follows `database-rules-config.ts` for RTDB.
  *
- * Without a `firestore` key, or with an object that names no `rules`,
- * `firestore.rules` goes to `(default)` with `configured: false` (#1452). When
- * an object names a non-`(default)` `database` and no `rules`, that database is
- * also declared with no `rulesFile` so server-only Admin projects work with
- * `{ "database": "reports" }`. The array form gets no `firestore.rules`
- * fallback.
+ * Without a `firestore` key (`form: 'absent'`), `firestore.rules` goes to
+ * `(default)` with `configured: false`. An object `firestore` block that
+ * names no `rules` deploys no Firestore rules file (`rulesFile` omitted,
+ * `configured: false`), matching `firebase deploy` (#1452). When an object
+ * names a non-`(default)` `database` and no `rules`, that database is
+ * declared with no `rulesFile` so server-only Admin projects work with
+ * `{ "database": "reports" }`, and `(default)` receives no `firestore.rules`
+ * fallback. The array form gets no `firestore.rules` fallback either.
  *
  * An array entry `{ pyricRulesOverride: file }`, which only pyric writes (for a
  * Vite or `pyric.config` rules override), replaces the rules `(default)`
@@ -134,20 +136,13 @@ function normalizedDatabase(id: string): string {
   return id;
 }
 
-function fallbackDefault(
-  resolveFile: (file: string) => string,
-  indexesFile?: string,
-): FirestoreDatabaseConfig {
-  const entry: FirestoreDatabaseConfig = {
+function fallbackDefault(resolveFile: (file: string) => string): FirestoreDatabaseConfig {
+  return {
     database: DEFAULT_FIRESTORE_DATABASE,
     rulesFile: resolveFile(DEFAULT_FIRESTORE_RULES_FILE),
     label: 'firebase.json',
     configured: false,
   };
-  if (indexesFile !== undefined) {
-    entry.indexesFile = indexesFile;
-  }
-  return entry;
 }
 
 function entryFiles(
@@ -173,34 +168,15 @@ function objectConfig(
     database = entry.database;
   }
   const files = entryFiles(entry, resolveFile);
-  if (files.rulesFile === undefined) {
-    if (database === DEFAULT_FIRESTORE_DATABASE) {
-      return {
-        form: 'object',
-        databases: [fallbackDefault(resolveFile, files.indexesFile)],
-        unresolved: [],
-      };
-    }
-    const namedDeclaration: FirestoreDatabaseConfig = {
-      database,
-      label: 'firebase.json firestore',
-      configured: false,
-    };
-    if (files.indexesFile !== undefined) {
-      namedDeclaration.indexesFile = files.indexesFile;
-    }
-    return {
-      form: 'object',
-      databases: [fallbackDefault(resolveFile), namedDeclaration],
-      unresolved: [],
-    };
-  }
+  const hasRulesFile = files.rulesFile !== undefined;
   const single: FirestoreDatabaseConfig = {
     database,
-    rulesFile: files.rulesFile,
     label: 'firebase.json firestore',
-    configured: true,
+    configured: hasRulesFile,
   };
+  if (files.rulesFile !== undefined) {
+    single.rulesFile = files.rulesFile;
+  }
   if (files.indexesFile !== undefined) {
     single.indexesFile = files.indexesFile;
   }
