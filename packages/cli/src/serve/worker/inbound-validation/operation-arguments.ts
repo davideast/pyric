@@ -22,6 +22,7 @@ import {
 } from './auth-blocking.js';
 import { assertCrashlyticsArguments } from './crashlytics.js';
 import { assertRtdbQuery } from './rtdb-query.js';
+import { assertFirestoreOpDatabaseId } from './database-id.js';
 import { updateValuesShapeError } from '../client/rtdb-value-validation.js';
 export { assertAiArguments } from './ai-arguments.js';
 export { isMessageRecord } from './fields.js';
@@ -119,6 +120,7 @@ export function assertOperationArguments(message: Record<string, unknown>): void
   assertRequiredPath(message);
   assertSharedAuthFields(message);
   assertDatabaseInstance(message);
+  assertFirestoreOpDatabaseId(message);
   assertStorageBucket(message);
   // Only the dispatch is typed; each payload field remains untrusted.
   // The default refuses methods outside the protocol at runtime.

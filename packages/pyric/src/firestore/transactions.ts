@@ -69,6 +69,18 @@ function convertSetData<T>(
   return markUserWriteValue(requireDocumentData(payload)) as DocumentData;
 }
 
+function assertMatchingDatabaseTarget(owner: Target, candidate: object): void {
+  const refTarget = targetOf(candidate);
+  const ownerDb = owner.databaseId ?? '(default)';
+  const refDb = refTarget.databaseId ?? '(default)';
+  if (ownerDb !== refDb) {
+    throw new FirebaseError(
+      'invalid-argument',
+      'Provided document reference is from a different Firestore instance.',
+    );
+  }
+}
+
 export async function runTransaction<R>(
   db: Firestore,
   fn: (tx: Transaction) => Promise<R> | R,
@@ -76,7 +88,10 @@ export async function runTransaction<R>(
 ): Promise<R> {
   const target = targetOf(db);
   const client = clientStateFor(target);
-  client.markStarted();
+  const missingDb = client.syncMissingDatabaseOfflineState(target);
+  if (missingDb) {
+    throw new FirebaseError('unavailable', 'Failed to get document because the client is offline.');
+  }
   // For sandbox-live, the transaction runs under the auth captured at
   // `runTransaction` start and stays identity-stable until completion.
   const database = sandboxDb(target);
@@ -104,6 +119,7 @@ export async function runTransaction<R>(
           }
           const readsQuery = 'where' in reference;
           if (readsQuery) return baseGet(reference);
+          assertMatchingDatabaseTarget(target, reference as object);
           const snap = await baseGet(reference);
           if (!writtenPaths.has(reference.path) && !readExistence.has(reference.path)) {
             readExistence.set(reference.path, snap.exists());
@@ -117,6 +133,7 @@ export async function runTransaction<R>(
             data: PartialWithFieldValue<T> | WithFieldValue<T>,
             options?: SetOptions,
           ) {
+            assertMatchingDatabaseTarget(target, ref as object);
             const payload = convertSetData(ref, data, options);
             hasWrites = true;
             writtenPaths.add(ref.path);
@@ -125,6 +142,7 @@ export async function runTransaction<R>(
             return transaction;
           },
           update(ref, dataOrField: unknown, ...rest: unknown[]) {
+            assertMatchingDatabaseTarget(target, ref as object);
             const args = parseChainUpdate('Transaction.update', ref.path, dataOrField, rest);
             hasWrites = true;
             if (readExistence.get(ref.path) === false && !writtenPaths.has(ref.path)) {
@@ -140,6 +158,7 @@ export async function runTransaction<R>(
             return transaction;
           },
           delete(ref) {
+            assertMatchingDatabaseTarget(target, ref as object);
             hasWrites = true;
             writtenPaths.add(ref.path);
             readExistence.set(ref.path, false);
@@ -149,6 +168,7 @@ export async function runTransaction<R>(
           },
         };
         registerAtomicWriterCreate(transaction, (ref, data) => {
+          assertMatchingDatabaseTarget(target, ref as object);
           const payload = convertSetData(ref, data);
           hasWrites = true;
           writtenPaths.add(ref.path);
@@ -189,7 +209,7 @@ function modularTransactionRead(read: ChainTransaction['get'], database: ReturnT
 export function writeBatch(db: Firestore): WriteBatch {
   const target = targetOf(db);
   const client = clientStateFor(target);
-  client.markStarted();
+  client.syncMissingDatabaseOfflineState(target);
   const database = sandboxDb(target);
   const backing = database.batch();
   const touchedPaths = new Set<string>();
@@ -209,6 +229,7 @@ export function writeBatch(db: Firestore): WriteBatch {
       data: PartialWithFieldValue<T> | WithFieldValue<T>,
       options?: SetOptions,
     ) {
+      assertMatchingDatabaseTarget(target, ref as object);
       const payload = convertSetData(ref, data, options);
       withBatchError(() => backing.set(database.doc(ref.path), payload, options));
       let mergeFields: string[] | undefined;
@@ -227,6 +248,7 @@ export function writeBatch(db: Firestore): WriteBatch {
       return batch;
     },
     update(ref, dataOrField: unknown, ...rest: unknown[]) {
+      assertMatchingDatabaseTarget(target, ref as object);
       const parsed = parseUpdateArguments('WriteBatch.update', ref.path, dataOrField, rest);
       const args = parseChainUpdate('WriteBatch.update', ref.path, dataOrField, rest);
       withBatchError(() => backing.update(database.doc(ref.path), ...args));
@@ -240,6 +262,7 @@ export function writeBatch(db: Firestore): WriteBatch {
       return batch;
     },
     delete(ref) {
+      assertMatchingDatabaseTarget(target, ref as object);
       withBatchError(() => backing.delete(database.doc(ref.path)));
       offlineMutations.push({ kind: 'delete', path: ref.path });
       touchedPaths.add(ref.path);
@@ -259,6 +282,7 @@ export function writeBatch(db: Firestore): WriteBatch {
     },
   };
   registerAtomicWriterCreate(batch, (ref, data) => {
+    assertMatchingDatabaseTarget(target, ref as object);
     const payload = convertSetData(ref, data);
     withBatchError(() => backing.create(database.doc(ref.path), payload));
     offlineMutations.push({ kind: 'set', path: ref.path, data: payload });

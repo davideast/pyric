@@ -30,9 +30,16 @@ import { sandbox as rtdbSandbox } from 'pyric/database';
 
 import { parseRtdbRulesText } from '../../../rtdb/rules-json.js';
 import type { OpMessage } from '../protocol.js';
+import { requestDatabaseId } from '../request-database-id.js';
 import type { DatabaseInstanceRulesHost, DatabaseTargetDeploy } from '../../database-instance-rules-host.js';
 import { type ActiveRulesState, type HostCtx, type PortLike, ok, fail, bestEffortFlush } from '../host-context.js';
+import { firestoreDatabaseEntry } from './firestore-databases.js';
 import { rtdbInstance, rtdbInstanceKey, rtdbInstances } from './rtdb-instances.js';
+import {
+  assertValidFirestoreDatabaseDeclaration,
+  DEFAULT_FIRESTORE_DATABASE,
+  normalizeFirestoreDatabaseId,
+} from 'pyric/firestore/internal';
 
 export function normalizeDatabaseRules(source: unknown): { rules: Record<string, unknown> } | null {
   if (source === null) return null;
@@ -191,14 +198,22 @@ function activeRulesView(
   ctx: HostCtx,
   service: 'firestore' | 'database' | undefined,
   instance: string | undefined,
+  databaseId?: string,
 ): unknown {
-  if (service === 'firestore') return ctx.activeRules?.firestore ?? null;
+  const normalizedDb = normalizeFirestoreDatabaseId(databaseId);
+  let firestoreState: ActiveRulesState | undefined;
+  if (normalizedDb === DEFAULT_FIRESTORE_DATABASE) {
+    firestoreState = ctx.activeRules?.firestore;
+  } else {
+    firestoreState = ctx.firestoreDatabases?.get(normalizedDb)?.rules;
+  }
+  if (service === 'firestore') return firestoreState ?? null;
   const databaseRules = rtdbInstances(ctx).get(rtdbInstanceKey(ctx, instance))?.rules;
   if (service === 'database') return databaseRules ?? null;
-  return {
-    ...(ctx.activeRules?.firestore ? { firestore: ctx.activeRules.firestore } : {}),
-    ...(databaseRules ? { database: databaseRules } : {}),
-  };
+  const combined: Record<string, unknown> = {};
+  if (firestoreState !== undefined) combined.firestore = firestoreState;
+  if (databaseRules !== undefined) combined.database = databaseRules;
+  return combined;
 }
 
 /** The lint findings of an installed ruleset, one message each. */
@@ -263,36 +278,41 @@ function enforcedFirestoreRulesState(
  * service twice, or is past a compile limit) is not installed, and is reported
  * with the reason every plane gives.
  */
-export function deployFirestoreRulesToHost(ctx: HostCtx, source: string): {
+export function deployFirestoreRulesToHost(ctx: HostCtx, source: string, databaseId?: string): {
   ok: boolean;
   warnings: ReturnType<typeof lintFirestoreRules>['warnings'];
   messages: ActiveRulesState['messages'];
   rejectionMessage: string | null;
 } {
+  const normalizedDb = assertValidFirestoreDatabaseDeclaration(databaseId ?? DEFAULT_FIRESTORE_DATABASE);
+  const isDefaultDb = normalizedDb === DEFAULT_FIRESTORE_DATABASE;
   const rejection = rulesSourceRejection(source);
   const refused = rejection !== null;
   let result = lintFirestoreRules(source, { targetService: 'cloud.firestore' });
   if (!refused) {
-    result = setRules(ctx.sandbox, source);
+    let targetDbArg: string | undefined;
+    if (!isDefaultDb) {
+      targetDbArg = normalizedDb;
+    }
+    result = setRules(ctx.sandbox, source, targetDbArg);
   }
   const messages = rejection === null ? firestoreRuleMessages(result) : rejectionMessages(rejection);
-  // `ok` reports whether the rules took effect. An installed ruleset with an
-  // error-severity lint finding (an always-true `match /{document=**}`) is
-  // in force, as production deploys it; its findings stay in `messages`.
   const okDeploy = !refused;
-  ctx.activeRules ??= {};
-  let previous: unknown;
-  if (ctx.activeRules.firestore?.status === 'active') {
-    previous = ctx.activeRules.firestore.source;
+  let currentRulesState: ActiveRulesState | undefined;
+  if (isDefaultDb) {
+    currentRulesState = ctx.activeRules?.firestore;
   } else {
-    previous = ctx.activeRules.firestore?.lastKnownGood;
+    currentRulesState = firestoreDatabaseEntry(ctx, normalizedDb).rules;
   }
-  // The source the sandbox enforces: the new one when it was installed, even
-  // with lint errors, and the active one when it was refused (absent when none
-  // was deployed, so a reset never installs a refused ruleset).
+  let previous: unknown;
+  if (currentRulesState?.status === 'active') {
+    previous = currentRulesState.source;
+  } else {
+    previous = currentRulesState?.lastKnownGood;
+  }
   let enforcedSource: unknown = source;
   if (refused) {
-    enforcedSource = ctx.activeRules.firestore?.source;
+    enforcedSource = currentRulesState?.source;
   }
   let nextStatus: 'active' | 'error' = 'error';
   if (okDeploy) {
@@ -307,7 +327,12 @@ export function deployFirestoreRulesToHost(ctx: HostCtx, source: string): {
   if (Boolean(previous)) {
     nextState.lastKnownGood = previous;
   }
-  ctx.activeRules.firestore = nextState;
+  if (isDefaultDb) {
+    ctx.activeRules ??= {};
+    ctx.activeRules.firestore = nextState;
+  } else {
+    firestoreDatabaseEntry(ctx, normalizedDb).rules = nextState;
+  }
   const rejectionMessage = rejection !== null ? `Firestore ${rejection.message}` : null;
   return { ok: okDeploy, warnings: result.warnings, messages, rejectionMessage };
 }
@@ -390,6 +415,12 @@ export function reapplyActiveHostRulesAfterReset(
   const firestoreRules = ctx.activeRules?.firestore;
   const source = firestoreRules?.source;
   if (typeof source === 'string') setRules(ctx.sandbox, source);
+  for (const [dbId, entry] of ctx.firestoreDatabases?.entries() ?? []) {
+    const namedSource = entry.rules?.source;
+    if (typeof namedSource === 'string') {
+      setRules(ctx.sandbox, namedSource, dbId);
+    }
+  }
   if (importedRtdbRules !== undefined) {
     for (const [selector, rulesObj] of importedRtdbRules) {
       const entry = rtdbInstance(ctx, selector);
@@ -431,6 +462,12 @@ export async function resetHostSandbox<T>(ctx: HostCtx, scope: string, doReset: 
     const firestoreRules = ctx.activeRules?.firestore;
     const source = firestoreRules?.source;
     if (typeof source === 'string') setRules(ctx.sandbox, source);
+    for (const [dbId, entry] of ctx.firestoreDatabases?.entries() ?? []) {
+      const namedSource = entry.rules?.source;
+      if (typeof namedSource === 'string') {
+        setRules(ctx.sandbox, namedSource, dbId);
+      }
+    }
   }
   return result;
 }
@@ -459,7 +496,11 @@ export async function handleRulesOp(
     case 'setRules':
     case 'setFirestoreRules': {
       try {
-        const deployed = deployFirestoreRulesToHost(ctx, msg.source);
+        const dbId = requestDatabaseId(msg);
+        const deployed = deployFirestoreRulesToHost(ctx, msg.source, dbId);
+        if (dbId !== undefined && deployed.ok) {
+          await bestEffortFlush(ctx, msg.method);
+        }
         ok(port, msg.id, { warnings: deployed.warnings, messages: deployed.messages, ok: deployed.ok });
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -477,7 +518,7 @@ export async function handleRulesOp(
     case 'getActiveRules':
     case 'getRulesStatus': {
       try {
-        ok(port, msg.id, activeRulesView(ctx, msg.service, msg.instance));
+        ok(port, msg.id, activeRulesView(ctx, msg.service, msg.instance, requestDatabaseId(msg)));
       } catch (e) { fail(port, msg.id, e); }
       break;
     }

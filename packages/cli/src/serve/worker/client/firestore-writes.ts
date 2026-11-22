@@ -8,10 +8,15 @@ import { beginWorkerFirestoreActivity } from './sdk-activity.js';
 import type { WriteDescriptor, TxnReadEntry, UpdateFieldDescriptor } from '../protocol.js';
 import { normalizeMergeFields, parseUpdateArguments } from 'pyric/firestore/internal/update-fields';
 import { encodeDocValue, requireDocumentData, DOC_VALUE_ENCODING } from 'pyric/firestore/internal/value-codec';
-import { nextId, dataRpc } from './core.js';
+import { nextId } from './core.js';
+import { clientDatabaseIdOf, firestoreDataRpc } from './firestore-database.js';
 import type { ClientDb, DocRefHandle, CollRefHandle } from './handles.js';
 import { makeDocSnapshot } from './snapshots.js';
-import { assertWorkerFirestoreActive, markWorkerHandleStarted } from './firestore-lifecycle.js';
+import {
+  assertWorkerFirestoreActive,
+  markWorkerHandleStarted,
+  ownerOfWorkerHandle,
+} from './firestore-lifecycle.js';
 import type { RawDocResult, ClientDocSnapshot } from './snapshots.js';
 import { createDocumentReference } from './firestore-reference.js';
 import { assertNoUndefinedInWorkerSentinels } from './firestore-sentinels.js';
@@ -103,8 +108,9 @@ export async function setDoc<T = DocumentData>(
       encodedData,
       options: capturedOptions,
     };
+    const dbId = clientDatabaseIdOf(ref);
     const sendOnline = async (): Promise<void> => {
-      await dataRpc(ref.port, {
+      await firestoreDataRpc(ref, {
         t: 'op',
         id: nextId(),
         method: 'setDoc',
@@ -115,10 +121,10 @@ export async function setDoc<T = DocumentData>(
       });
     };
     if (isWorkerFirestoreOffline(ref.port)) {
-      return enqueueWorkerOfflineWrite(ref.port, [mutation], sendOnline);
+      return enqueueWorkerOfflineWrite(ref.port, [mutation], sendOnline, dbId);
     }
     await sendOnline();
-    markWorkerCommittedWrite(ref.port, [mutation]);
+    markWorkerCommittedWrite(ref.port, [mutation], dbId);
   });
 }
 
@@ -165,8 +171,9 @@ export function updateDoc(
       path: ref.descriptor.path,
       fields,
     };
+    const dbId = clientDatabaseIdOf(ref);
     const sendOnline = async (): Promise<void> => {
-      await dataRpc(ref.port, {
+      await firestoreDataRpc(ref, {
         t: 'op',
         id: nextId(),
         method: 'updateDoc',
@@ -176,10 +183,10 @@ export function updateDoc(
       });
     };
     if (isWorkerFirestoreOffline(ref.port)) {
-      return enqueueWorkerOfflineWrite(ref.port, [mutation], sendOnline);
+      return enqueueWorkerOfflineWrite(ref.port, [mutation], sendOnline, dbId);
     }
     await sendOnline();
-    markWorkerCommittedWrite(ref.port, [mutation]);
+    markWorkerCommittedWrite(ref.port, [mutation], dbId);
   });
 }
 
@@ -188,8 +195,9 @@ export async function deleteDoc(ref: DocRefHandle): Promise<void> {
   markWorkerHandleStarted(ref);
   return runSdkWrite(beginWorkerFirestoreActivity(ref, 'deleteDoc', 'operation'), async () => {
     const mutation: WorkerOfflineMutation = { kind: 'delete', path: ref.descriptor.path };
+    const dbId = clientDatabaseIdOf(ref);
     const sendOnline = async (): Promise<void> => {
-      await dataRpc(ref.port, {
+      await firestoreDataRpc(ref, {
         t: 'op',
         id: nextId(),
         method: 'deleteDoc',
@@ -197,10 +205,10 @@ export async function deleteDoc(ref: DocRefHandle): Promise<void> {
       });
     };
     if (isWorkerFirestoreOffline(ref.port)) {
-      return enqueueWorkerOfflineWrite(ref.port, [mutation], sendOnline);
+      return enqueueWorkerOfflineWrite(ref.port, [mutation], sendOnline, dbId);
     }
     await sendOnline();
-    markWorkerCommittedWrite(ref.port, [mutation]);
+    markWorkerCommittedWrite(ref.port, [mutation], dbId);
   });
 }
 
@@ -213,12 +221,14 @@ export async function addDoc(
   return runSdkWrite(beginWorkerFirestoreActivity(coll, 'addDoc', 'operation'), async () => {
     const payload = convertSetData(coll, data);
     const encodedData = encodeDocValue(payload);
+    const dbId = clientDatabaseIdOf(coll);
+    const owner = ownerOfWorkerHandle(coll);
     if (isWorkerFirestoreOffline(coll.port)) {
       const mintedId = generateWorkerAutoId();
       const mintedPath = `${coll.descriptor.path}/${mintedId}`;
       const mutation: WorkerOfflineMutation = { kind: 'set', path: mintedPath, encodedData };
       await enqueueWorkerOfflineWrite(coll.port, [mutation], async () => {
-        await dataRpc(coll.port, {
+        await firestoreDataRpc(coll, {
           t: 'op',
           id: nextId(),
           method: 'setDoc',
@@ -226,10 +236,10 @@ export async function addDoc(
           data: encodedData,
           valueEncoding: DOC_VALUE_ENCODING,
         });
-      });
-      return createDocumentReference(coll.port, mintedPath, coll.converter);
+      }, dbId);
+      return createDocumentReference(coll.port, mintedPath, coll.converter, owner);
     }
-    const result = await dataRpc(coll.port, {
+    const result = await firestoreDataRpc(coll, {
       t: 'op',
       id: nextId(),
       method: 'addDoc',
@@ -237,8 +247,8 @@ export async function addDoc(
       data: encodedData,
       valueEncoding: DOC_VALUE_ENCODING,
     }) as { id: string; path: string };
-    markWorkerCommittedWrite(coll.port, [{ kind: 'set', path: result.path, encodedData }]);
-    return createDocumentReference(coll.port, result.path, coll.converter);
+    markWorkerCommittedWrite(coll.port, [{ kind: 'set', path: result.path, encodedData }], dbId);
+    return createDocumentReference(coll.port, result.path, coll.converter, owner);
   });
 }
 
@@ -281,6 +291,17 @@ export function writeBatch(db: ClientDb): ClientWriteBatch {
     }
   }
 
+  function assertSameBatchInstance(ref: DocRefHandle<unknown>): void {
+    const ownerDbId = clientDatabaseIdOf(db) ?? '(default)';
+    const refDbId = clientDatabaseIdOf(ref) ?? '(default)';
+    if (ref.port !== db.port || ownerDbId !== refDbId) {
+      throw new FirebaseError(
+        'invalid-argument',
+        'Provided document reference is from a different Firestore instance.',
+      );
+    }
+  }
+
   const batch: ClientWriteBatch = {
     set<T = DocumentData>(
       ref: DocRefHandle<T>,
@@ -288,6 +309,7 @@ export function writeBatch(db: ClientDb): ClientWriteBatch {
       options?: ClientSetOptions,
     ) {
       assertNotCommitted();
+      assertSameBatchInstance(ref);
       const capturedOptions = captureSetOptions(options);
       const payload = convertSetData(ref, data, options);
       const encodedData = encodeDocValue(payload);
@@ -297,6 +319,7 @@ export function writeBatch(db: ClientDb): ClientWriteBatch {
     },
     update(ref: DocRefHandle, dataOrField: unknown, ...rest: unknown[]) {
       assertNotCommitted();
+      assertSameBatchInstance(ref);
       const fields = encodeUpdate('WriteBatch.update', ref, dataOrField, rest);
       writes.push({ method: 'update', path: ref.descriptor.path, fields, valueEncoding: DOC_VALUE_ENCODING });
       offlineMutations.push({ kind: 'update', path: ref.descriptor.path, fields });
@@ -304,6 +327,7 @@ export function writeBatch(db: ClientDb): ClientWriteBatch {
     },
     delete(ref) {
       assertNotCommitted();
+      assertSameBatchInstance(ref);
       writes.push({ method: 'delete', path: ref.descriptor.path });
       offlineMutations.push({ kind: 'delete', path: ref.descriptor.path });
       return batch;
@@ -312,8 +336,9 @@ export function writeBatch(db: ClientDb): ClientWriteBatch {
       assertWorkerFirestoreActive(db);
       assertNotCommitted();
       committed = true;
+      const dbId = clientDatabaseIdOf(db);
       const sendOnline = async (): Promise<void> => {
-        await dataRpc(port, {
+        await firestoreDataRpc(db, {
           t: 'op',
           id: nextId(),
           method: 'batchCommit',
@@ -324,11 +349,11 @@ export function writeBatch(db: ClientDb): ClientWriteBatch {
         beginGroupActivity(db, 'writeBatch.commit'),
         async () => {
           if (isWorkerFirestoreOffline(port)) {
-            await enqueueWorkerOfflineWrite(port, offlineMutations, sendOnline);
+            await enqueueWorkerOfflineWrite(port, offlineMutations, sendOnline, dbId);
             return;
           }
           await sendOnline();
-          markWorkerCommittedWrite(port, offlineMutations);
+          markWorkerCommittedWrite(port, offlineMutations, dbId);
         },
         () => ({
           documentWrites: writes.filter((write) => write.method !== 'delete').length,
@@ -388,15 +413,25 @@ export async function runTransaction<R>(
 ): Promise<R> {
   assertWorkerFirestoreActive(db);
   markWorkerHandleStarted(db);
+  function assertSameTxnInstance(ref: DocRefHandle<unknown>): void {
+    const ownerDbId = clientDatabaseIdOf(db) ?? '(default)';
+    const refDbId = clientDatabaseIdOf(ref) ?? '(default)';
+    if (ref.port !== db.port || ownerDbId !== refDbId) {
+      throw new FirebaseError(
+        'invalid-argument',
+        'Provided document reference is from a different Firestore instance.',
+      );
+    }
+  }
+
   return runSdkWrite(beginGroupActivity(db, 'runTransaction'), async () => {
-    const port = db.port;
+    const dbId = clientDatabaseIdOf(db);
     const maxAttempts = options?.maxAttempts ?? TXN_MAX_ATTEMPTS;
 
     let attemptsRemaining = maxAttempts;
     let hasAttempts = attemptsRemaining > 0;
     while (hasAttempts) {
       attemptsRemaining -= 1;
-      // Fresh read-set and write buffer for each attempt.
       const reads: TxnReadEntry[] = [];
       const writes: WriteDescriptor[] = [];
       let hasWrites = false;
@@ -407,6 +442,7 @@ export async function runTransaction<R>(
       const txn: ClientTransaction = {
         async get(ref) {
           assertWorkerFirestoreActive(ref);
+          assertSameTxnInstance(ref);
           if (hasWrites) {
             const err = new FirebaseError(
               'invalid-argument',
@@ -415,18 +451,13 @@ export async function runTransaction<R>(
             stickyError ??= err;
             throw err;
           }
-          // RPC to the worker — capture the raw result before rehydration.
-          const rawResult = await dataRpc(ref.port, {
+          const rawResult = await firestoreDataRpc(db, {
             t: 'op',
             id: nextId(),
             method: 'getDoc',
             path: ref.descriptor.path,
             activity: { groupKind: 'transaction' },
           }) as RawDocResult;
-
-          // Record the raw serialized data (or null) in the read-set.
-          // We preserve the wire-form SerializedDocData so the worker can
-          // re-serialize the current doc and compare JSON strings.
           const serialized = rawResult.data;
           const hasData = rawResult.exists && serialized !== undefined;
           let readData: typeof serialized | null = null;
@@ -441,7 +472,7 @@ export async function runTransaction<R>(
             readExistence.set(ref.descriptor.path, Boolean(rawResult.exists));
           }
 
-          recordWorkerOnlineDoc(ref.port, ref.descriptor.path, rawResult.exists, rawResult.data);
+          recordWorkerOnlineDoc(ref.port, ref.descriptor.path, rawResult.exists, rawResult.data, dbId);
           return makeDocSnapshot(rawResult, ref.port, ref);
         },
         set<T = DocumentData>(
@@ -449,6 +480,7 @@ export async function runTransaction<R>(
           data: PartialWithFieldValue<T> | WithFieldValue<T>,
           options?: ClientSetOptions,
         ) {
+          assertSameTxnInstance(ref);
           const capturedOptions = captureSetOptions(options);
           const payload = convertSetData(ref, data, options);
           hasWrites = true;
@@ -457,6 +489,7 @@ export async function runTransaction<R>(
           return txn;
         },
         update(ref: DocRefHandle, dataOrField: unknown, ...rest: unknown[]) {
+          assertSameTxnInstance(ref);
           const fields = encodeUpdate('Transaction.update', ref, dataOrField, rest);
           hasWrites = true;
           if (readExistence.get(ref.descriptor.path) === false && !writtenPaths.has(ref.descriptor.path)) {
@@ -471,6 +504,7 @@ export async function runTransaction<R>(
           return txn;
         },
         delete(ref) {
+          assertSameTxnInstance(ref);
           hasWrites = true;
           writtenPaths.add(ref.descriptor.path);
           readExistence.set(ref.descriptor.path, false);
@@ -482,9 +516,8 @@ export async function runTransaction<R>(
       const result = await updateFn(txn);
       if (stickyError) throw stickyError;
 
-      // Send read-set + writes to the worker for validation and commit.
       try {
-        await dataRpc(port, {
+        await firestoreDataRpc(db, {
           t: 'op',
           id: nextId(),
           method: 'txnCommit',
@@ -501,7 +534,7 @@ export async function runTransaction<R>(
             committedMutations.push({ kind: 'delete', path: w.path });
           }
         }
-        markWorkerCommittedWrite(port, committedMutations);
+        markWorkerCommittedWrite(db.port, committedMutations, dbId);
         return result;
       } catch (err) {
         const isErrorObject = err !== null && typeof err === 'object';

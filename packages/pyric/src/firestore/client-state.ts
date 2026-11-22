@@ -3,6 +3,12 @@ import { FirebaseError } from '../sandbox/internal/firebase-error.js';
 import type { Target } from './state.js';
 import { createSnapshotMetadata, type SnapshotMetadataInstance } from './snapshot-metadata.js';
 import { ClientOfflineOverlay, type OfflineMutation } from './sandbox/client-offline-overlay.js';
+import {
+  DEFAULT_FIRESTORE_DATABASE,
+  getDatabaseEnv,
+  isFirestoreDatabaseDeclared,
+  logMissingFirestoreDatabaseNoticeOnce,
+} from './sandbox/named-databases.js';
 
 interface PendingWrite<T = unknown> {
   readonly paths: ReadonlySet<string>;
@@ -21,6 +27,7 @@ export interface ClientManagedListener {
 export class FirestoreClientState {
   private started = false;
   private networkEnabled = true;
+  private missingDbOffline = false;
   private persistenceMode: 'single' | 'multiple' | undefined;
   private readonly pending = new Set<PendingWrite>();
   private readonly cachedPaths = new Set<string>();
@@ -48,6 +55,29 @@ export class FirestoreClientState {
 
   markStarted(): void {
     this.started = true;
+  }
+
+  syncMissingDatabaseOfflineState(target: Target, requestedPath?: string): boolean {
+    this.started = true;
+    const dbId = target.databaseId;
+    const checksDeclaration =
+      dbId !== undefined &&
+      dbId !== DEFAULT_FIRESTORE_DATABASE &&
+      target.adminBypass !== true;
+    if (!checksDeclaration) {
+      return false;
+    }
+    if (!isFirestoreDatabaseDeclared(target.sandbox, dbId)) {
+      logMissingFirestoreDatabaseNoticeOnce(target.sandbox, dbId, requestedPath);
+      this.missingDbOffline = true;
+      this.disableNetwork();
+      return true;
+    }
+    if (this.missingDbOffline) {
+      this.missingDbOffline = false;
+      void this.enableNetwork();
+    }
+    return false;
   }
 
   isStarted(): boolean {
@@ -273,6 +303,12 @@ export function clientStateFor(target: Target): FirestoreClientState {
   let state = clientStates.get(target as object);
   if (!state) {
     const readAdminDoc = (path: string): Record<string, unknown> | null => {
+      if (target.databaseId !== undefined && target.databaseId !== DEFAULT_FIRESTORE_DATABASE) {
+        if (!isFirestoreDatabaseDeclared(target.sandbox, target.databaseId)) {
+          return null;
+        }
+        return getDatabaseEnv(target.sandbox, target.databaseId).getDocument(path);
+      }
       const admin = (
         target.sandbox as { admin?: { getDocument?: (docPath: string) => Record<string, unknown> | null | undefined } }
       ).admin;

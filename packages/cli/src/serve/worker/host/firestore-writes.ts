@@ -30,7 +30,7 @@ import {
   type Transaction as ModularTransaction,
   type WriteBatch,
 } from 'pyric/firestore';
-import { atomicWriterCreate } from 'pyric/firestore/internal';
+import { atomicWriterCreate, getDatabaseAdmin } from 'pyric/firestore/internal';
 import { assertEncodedDocValueDepth, rehydrateEncodedDocValue, requireDocumentData, type DocValueEncoding } from 'pyric/firestore/internal/value-codec';
 import {
   Bytes as RulesBytes,
@@ -44,6 +44,7 @@ import {
 import { FirebaseError } from 'pyric/app';
 
 import type { OpMessage, TargetDescriptor, WriteDescriptor, UpdatePayload } from '../protocol.js';
+import { requestDatabaseId } from '../request-database-id.js';
 import {
   assertAtomicList,
   assertNoTopLevelSetOptions,
@@ -419,8 +420,9 @@ export async function handleFirestoreWriteOp(
       };
 
       try {
+        const dbId = requestDatabaseId(msg);
         if (typeof msg.txnId === 'string' && msg.txnId.length > 0) {
-          releasePinnedTxnSnapshot(ctx.sandbox, msg.txnId);
+          releasePinnedTxnSnapshot(ctx.sandbox, msg.txnId, dbId);
         }
         if (msg.abortOnly === true) {
           ok(port, msg.id, null);
@@ -455,7 +457,11 @@ export async function handleFirestoreWriteOp(
             const ref = pyricDoc(db, path);
             const currentSnap = await tx.get(ref);
             const existsBool = currentSnap.exists();
-            const liveDoc = existsBool ? (ctx.sandbox.admin.getDocument(path) ?? currentSnap.data() ?? null) : null;
+            let liveDoc: unknown = null;
+            if (existsBool) {
+              const adminSurface = getDatabaseAdmin(ctx.sandbox, dbId);
+              liveDoc = adminSurface.getDocument(path) ?? currentSnap.data() ?? null;
+            }
 
             const workerHasNull = liveDoc === null;
             const hasChangedExistence = clientHadNull !== workerHasNull;

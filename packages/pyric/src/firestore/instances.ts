@@ -6,8 +6,6 @@
  * backend-shape predicates they dispatch on.
  */
 import {
-  getFirestore as getChainableFirestore,
-  getAdminFirestore as getChainableAdminFirestore,
   type SandboxFirestore,
 } from 'pyric/sandbox/admin-firestore';
 import { SandboxContextImpl } from 'pyric/sandbox';
@@ -25,6 +23,11 @@ import {
   onAuthLensChanged,
   resolveAuthLensState,
 } from '../sandbox/internal/auth-lens.js';
+import {
+  getDatabaseChainableAdminFirestore,
+  getDatabaseChainableFirestore,
+} from './sandbox/named-compat-handle.js';
+import { getClientHandleEnv } from './sandbox/named-databases.js';
 
 import {
   TARGET_SYMBOL,
@@ -144,7 +147,7 @@ export function getFirestore(target?: SandboxContext | Sandbox | FirebaseApp, da
   }
   const namedDb = normalizeDatabaseId(databaseId);
   if (isSandboxContext(target)) {
-    const chainable = getChainableFirestore(target);
+    const chainable = getDatabaseChainableFirestore(target, namedDb);
     const t: SandboxTarget = {
       kind: 'sandbox',
       activityApp: target,
@@ -161,7 +164,7 @@ export function getFirestore(target?: SandboxContext | Sandbox | FirebaseApp, da
     const lifecycle = createFirestoreTargetLifecycle();
     const unsubLens = onAuthLensChanged((lens) => {
       const next = resolveAuthLensState(lens, target.currentUser);
-      getInternalEnv(target).reevaluateLiveListeners(next.auth, undefined, next.bypassRules);
+      getClientHandleEnv(target, namedDb).reevaluateLiveListeners(next.auth, undefined, next.bypassRules);
     });
     lifecycle.own(unsubLens);
     if (typeof target.onEvent === 'function') {
@@ -177,7 +180,7 @@ export function getFirestore(target?: SandboxContext | Sandbox | FirebaseApp, da
       kind: 'sandbox-live',
       activityApp: target,
       sandbox: target,
-      getDb: makeGetDb(target),
+      getDb: makeGetDb(target, () => target.currentUser, namedDb),
       ...lifecycle,
     };
     if (namedDb !== undefined) {
@@ -251,8 +254,8 @@ function createFirestoreTargetLifecycle(): Required<
  * named, discoverable seam for multi-user scenarios. See
  * the design rationale.
  */
-export function actingAs(sandbox: Sandbox, identity: AuthState): Firestore {
-  return getFirestore(sandbox.withAuth(identity));
+export function actingAs(sandbox: Sandbox, identity: AuthState, databaseId?: string): Firestore {
+  return getFirestore(sandbox.withAuth(identity), databaseId);
 }
 
 /**
@@ -287,10 +290,10 @@ export function actingAs(sandbox: Sandbox, identity: AuthState): Firestore {
  * await setDoc(doc(adminDb, 'locked/x'), { a: 1 }); // bypasses rules
  * ```
  */
-export function getAdminFirestore(sandbox: Sandbox): Firestore;
-export function getAdminFirestore(ctx: SandboxContext): Firestore;
-export function getAdminFirestore(app: FirebaseApp): Firestore;
-export function getAdminFirestore(target: Sandbox | SandboxContext | FirebaseApp): Firestore {
+export function getAdminFirestore(sandbox: Sandbox, databaseId?: string): Firestore;
+export function getAdminFirestore(ctx: SandboxContext, databaseId?: string): Firestore;
+export function getAdminFirestore(app: FirebaseApp, databaseId?: string): Firestore;
+export function getAdminFirestore(target: Sandbox | SandboxContext | FirebaseApp, databaseId?: string): Firestore {
   const appRuntime = resolveClientApp(target);
   if (appRuntime) {
     appRuntime.assertAlive();
@@ -298,19 +301,28 @@ export function getAdminFirestore(target: Sandbox | SandboxContext | FirebaseApp
     const adminHandle = getAdminFirestore(bindOperationContext(sandbox.withAuth(null), {
       source: { kind: 'app' },
       authLens: { mode: 'admin' },
-    }));
+    }), databaseId);
     return {
       [TARGET_SYMBOL]: adminHandle[TARGET_SYMBOL],
       type: 'firestore',
       app: target as FirebaseApp,
     };
   }
+  const namedDb = normalizeDatabaseId(databaseId);
   const context = isSandboxContext(target)
     ? target
     : (target as Sandbox).withAuth(null);
   const sandbox = context.sandbox;
-  const chainable = getChainableAdminFirestore(context);
-  const t: SandboxTarget = { kind: 'sandbox', db: chainable, sandbox };
+  const chainable = getDatabaseChainableAdminFirestore(context, namedDb);
+  const t: SandboxTarget = {
+    kind: 'sandbox',
+    db: chainable,
+    sandbox,
+    adminBypass: true,
+  };
+  if (namedDb !== undefined) {
+    t.databaseId = namedDb;
+  }
   return { [TARGET_SYMBOL]: t, type: 'firestore' };
 }
 
@@ -366,21 +378,22 @@ function isSandbox(target: SandboxContext | Sandbox | FirebaseApp): target is Sa
 function makeGetDb(
   sandbox: Sandbox,
   currentUser: () => AuthState = () => sandbox.currentUser,
+  databaseId?: string,
 ): () => SandboxFirestore {
   return () => {
     const lens = getAuthLens();
     const resolved = resolveAuthLensState(lens, currentUser());
     if (resolved.bypassRules) {
-      return getChainableAdminFirestore(bindOperationContext(sandbox.withAuth(null), {
+      return getDatabaseChainableAdminFirestore(bindOperationContext(sandbox.withAuth(null), {
         source: { kind: 'app' },
         authLens: { mode: 'admin' },
-      }));
+      }), databaseId);
     }
     const ctx = bindOperationContext(sandbox.withAuth(resolved.auth), {
       source: { kind: 'app' },
       authLens: lens ?? { mode: 'app-session' },
     });
-    return getChainableFirestore(ctx);
+    return getDatabaseChainableFirestore(ctx, databaseId);
   };
 }
 

@@ -54,3 +54,41 @@ export {
   type QueryWhereFilterOp,
 } from '../sandbox/query-execution.js';
 export { firestoreValuesEqual } from '../sandbox/value-equality.js';
+export {
+  DEFAULT_FIRESTORE_DATABASE,
+  MAX_FIRESTORE_DATABASES,
+  assertValidFirestoreDatabaseDeclaration,
+  declareFirestoreDatabase,
+  firestoreRecordSpaceKey,
+  firestoreRecordSpacePrefix,
+  getAdminHandleEnv,
+  getClientHandleEnv,
+  getDatabaseAdmin,
+  getDatabaseEnv,
+  getFirestoreDatabaseEnv,
+  isFirestoreDatabaseDeclared,
+  isValidFirestoreDatabaseId,
+  listDeclaredFirestoreDatabases,
+  logMissingFirestoreDatabaseNoticeOnce,
+  missingFirestoreDatabaseNotFoundMessage,
+  normalizeFirestoreDatabaseId,
+  onNamedFirestorePersistenceChange,
+  parseFirestoreRecordSpaceKey,
+  undeclareFirestoreDatabase,
+  type DeclareFirestoreDatabaseOptions,
+} from '../sandbox/named-databases.js';
+export {
+  markAllNamedFirestoreDirty,
+  parseNamedFirestoreBundleRecords,
+  prepareNamedFirestorePersistence,
+  readFirestoreDeclaredFromMeta,
+  restoreNamedFirestorePersistence,
+  serializeNamedFirestoreDocsToBuckets,
+  stampFirestoreDeclaredOnMeta,
+  type NamedDatabaseFlushDiff,
+  type NamedFirestorePersistencePlan,
+} from '../sandbox/named-databases-persistence.js';
+export {
+  getDatabaseChainableAdminFirestore,
+  getDatabaseChainableFirestore,
+} from '../sandbox/named-compat-handle.js';

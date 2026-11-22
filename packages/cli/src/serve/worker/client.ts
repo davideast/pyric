@@ -43,6 +43,7 @@ export type { ClientDocSnapshot, ClientQuerySnapshot } from './client/snapshots.
 // API families. Each module exports only its public surface; internal helpers
 // stay unexported, so `export *` re-exports exactly the published symbols.
 export * from './client/connection.js';
+export { withDatabaseId } from './client/firestore-database.js';
 export * from './client/firestore-refs.js';
 export * from './client/firestore-reads.js';
 export * from './client/firestore-writes.js';

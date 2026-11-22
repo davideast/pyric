@@ -6,6 +6,7 @@
  * shape (see `snapshots.ts`).
  */
 import { withFirestoreFirebaseError } from './errors.js';
+import { FirebaseError } from '../sandbox/internal/firebase-error.js';
 import type {
   AdminDocumentSnapshot as ChainDocSnap,
   AdminQuerySnapshot as ChainQuerySnap,
@@ -53,7 +54,7 @@ export async function readDocumentAs<T = DocumentData>(ref: DocumentReference<T>
 export async function readDocument<T = DocumentData>(ref: DocumentReference<T>, activity: SdkActivityHandle): Promise<DocumentSnapshot<T>> {
   const target = targetOf(ref);
   const client = clientStateFor(target);
-  client.markStarted();
+  const missingDb = client.syncMissingDatabaseOfflineState(target, ref.path);
   try {
     const conv = converterOf(ref);
     if (!client.isNetworkEnabled()) {
@@ -71,6 +72,9 @@ export async function readDocument<T = DocumentData>(ref: DocumentReference<T>, 
         }
         tagSnapshotRefs(offlineSnap, target);
         return finishSdkRead(activity, wrapSandboxDocSnap<T>(offlineSnap as object, target));
+      }
+      if (missingDb) {
+        throw new FirebaseError('unavailable', 'Failed to get document because the client is offline.');
       }
     }
     const snap = await withFirestoreFirebaseError(() => chainDocFor(target, ref).get());
@@ -104,8 +108,11 @@ export async function readQueryAs<T = DocumentData>(query: Query<T>, method: str
 export async function readQuery<T = DocumentData>(query: Query<T>, activity: SdkActivityHandle): Promise<QuerySnapshot<T>> {
   const target = targetOf(query);
   const client = clientStateFor(target);
-  client.markStarted();
+  const missingDb = client.syncMissingDatabaseOfflineState(target);
   try {
+    if (missingDb) {
+      throw new FirebaseError('unavailable', 'Failed to get document because the client is offline.');
+    }
     const conv = converterOf(query);
     const snap = await withFirestoreFirebaseError(() => chainQueryFor(target, query).get());
     const rawDocs = (snap as unknown as ChainQuerySnap).docs;

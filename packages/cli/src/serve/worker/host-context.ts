@@ -92,6 +92,8 @@ export interface HostCtx {
   /** The shared Storage handle (Pyric Studio data browse). Lazily created on
    *  the first storage op via `getStorageSandbox(sandbox)`. */
   storage?: FirebaseStorage;
+  /** Named Firestore databases served by this host, keyed by normalized database id. */
+  firestoreDatabases?: Map<string, HostFirestoreDatabase>;
   /**
    * The RTDB instances the host serves, keyed by instance name. Each holds its
    * own sandbox store, rules and handles; the sandbox's one Auth session pool
@@ -323,6 +325,15 @@ export interface HostCtx {
   appCheckTokens?: WeakMap<PortLike, Map<string, { token: string; expireTimeMillis: number }>>;
   /** Most recent App Check token attached to an inbound request on each port. */
   portAppCheckTokens?: WeakMap<PortLike, string>;
+}
+
+/** One named Firestore database entry cached on the host: its handles and rules. */
+export interface HostFirestoreDatabase {
+  readonly id: string;
+  readonly live: Firestore;
+  admin?: Firestore;
+  anon?: Firestore;
+  rules?: ActiveRulesState;
 }
 
 /** One RTDB instance the host serves: its store's handles and its rules. */

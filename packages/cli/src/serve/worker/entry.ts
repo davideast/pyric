@@ -61,7 +61,7 @@ import {
 } from './host.js';
 import { fail } from './host-context.js';
 import { buildWorkerCtx, type EventSourceLike } from './serve-init.js';
-import type { InboundMessage } from './protocol.js';
+import { WORKER_PROTOCOL_VERSION, type InboundMessage } from './protocol.js';
 import { refuseInvalidInboundMessage } from './inbound-validation.js';
 import {
   SERVICE_WORKER_CHANNEL,
@@ -180,6 +180,7 @@ workerScope.onconnect = (e: MessageEvent) => {
         ok: true,
         value: {
           version: workerEpoch,
+          workerProtocol: WORKER_PROTOCOL_VERSION,
         },
       });
       return;

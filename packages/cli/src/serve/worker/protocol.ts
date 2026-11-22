@@ -89,6 +89,9 @@ interface StorageMetadataPatchWire {
   downloadTokens?: string | null;
 }
 
+/** Worker protocol version: 2 adds optional Firestore `databaseId` on ops and subscriptions (ADR-0021 Decision 4). */
+export const WORKER_PROTOCOL_VERSION = 2 as const;
+
 export type OpMessage = (
   | {
       t: 'op';
@@ -96,30 +99,31 @@ export type OpMessage = (
       method: 'getDoc';
       path: string;
       txnId?: string;
+      databaseId?: string;
       activity?: { groupKind?: 'transaction' };
     }
-  | { t: 'op'; id: string; method: 'getDocs'; source: TargetDescriptor; txnId?: string }
-  | { t: 'op'; id: string; method: 'setDoc'; path: string; data: unknown; valueEncoding?: DocValueEncoding; options?: { merge?: boolean; mergeFields?: string[] } }
-  | ({ t: 'op'; id: string; method: 'updateDoc'; path: string; valueEncoding?: DocValueEncoding } & UpdatePayload)
-  | { t: 'op'; id: string; method: 'deleteDoc'; path: string }
-  | { t: 'op'; id: string; method: 'addDoc'; collectionPath: string; data: unknown; valueEncoding?: DocValueEncoding }
-  | { t: 'op'; id: string; method: 'count'; source: TargetDescriptor }
-  | { t: 'op'; id: string; method: 'aggregate'; source: TargetDescriptor; spec: AggregateSpecDescriptor }
-  | { t: 'op'; id: string; method: 'batchCommit'; writes: WriteDescriptor[] }
-  | { t: 'op'; id: string; method: 'txnCommit'; txnId?: string; abortOnly?: boolean; reads: TxnReadEntry[]; queryReads?: TxnQueryReadEntry[]; writes: WriteDescriptor[] }
-  | { t: 'op'; id: string; method: 'setRules'; source: string }
-  | { t: 'op'; id: string; method: 'setFirestoreRules'; source: string }
+  | { t: 'op'; id: string; method: 'getDocs'; source: TargetDescriptor; txnId?: string; databaseId?: string }
+  | { t: 'op'; id: string; method: 'setDoc'; path: string; data: unknown; valueEncoding?: DocValueEncoding; options?: { merge?: boolean; mergeFields?: string[] }; databaseId?: string }
+  | ({ t: 'op'; id: string; method: 'updateDoc'; path: string; valueEncoding?: DocValueEncoding; databaseId?: string } & UpdatePayload)
+  | { t: 'op'; id: string; method: 'deleteDoc'; path: string; databaseId?: string }
+  | { t: 'op'; id: string; method: 'addDoc'; collectionPath: string; data: unknown; valueEncoding?: DocValueEncoding; databaseId?: string }
+  | { t: 'op'; id: string; method: 'count'; source: TargetDescriptor; databaseId?: string }
+  | { t: 'op'; id: string; method: 'aggregate'; source: TargetDescriptor; spec: AggregateSpecDescriptor; databaseId?: string }
+  | { t: 'op'; id: string; method: 'batchCommit'; writes: WriteDescriptor[]; databaseId?: string }
+  | { t: 'op'; id: string; method: 'txnCommit'; txnId?: string; abortOnly?: boolean; reads: TxnReadEntry[]; queryReads?: TxnQueryReadEntry[]; writes: WriteDescriptor[]; databaseId?: string }
+  | { t: 'op'; id: string; method: 'setRules'; source: string; databaseId?: string }
+  | { t: 'op'; id: string; method: 'setFirestoreRules'; source: string; databaseId?: string }
   // `instance` names an RTDB instance (the SDK's namespace) on the RTDB ops,
   // RTDB subscriptions and the database rules ops. Absent is the default
   // instance.
   | { t: 'op'; id: string; method: 'setDatabaseRules'; source: unknown; instance?: string }
-  | { t: 'op'; id: string; method: 'getActiveRules'; service?: 'firestore' | 'database'; instance?: string }
-  | { t: 'op'; id: string; method: 'getRulesStatus'; service?: 'firestore' | 'database'; instance?: string }
-  | { t: 'op'; id: string; method: 'admin.getDocument'; path: string }
-  | { t: 'op'; id: string; method: 'admin.listDocuments'; path: string }
-  | { t: 'op'; id: string; method: 'admin.setDocument'; path: string; data: unknown }
-  | { t: 'op'; id: string; method: 'admin.deleteDocument'; path: string }
-  | { t: 'op'; id: string; method: 'admin.readState'; path?: string; maxDepth?: number }
+  | { t: 'op'; id: string; method: 'getActiveRules'; service?: 'firestore' | 'database'; instance?: string; databaseId?: string }
+  | { t: 'op'; id: string; method: 'getRulesStatus'; service?: 'firestore' | 'database'; instance?: string; databaseId?: string }
+  | { t: 'op'; id: string; method: 'admin.getDocument'; path: string; databaseId?: string }
+  | { t: 'op'; id: string; method: 'admin.listDocuments'; path: string; databaseId?: string }
+  | { t: 'op'; id: string; method: 'admin.setDocument'; path: string; data: unknown; databaseId?: string }
+  | { t: 'op'; id: string; method: 'admin.deleteDocument'; path: string; databaseId?: string }
+  | { t: 'op'; id: string; method: 'admin.readState'; path?: string; maxDepth?: number; databaseId?: string }
   | {
       t: 'op'; id: string; method: 'rtdb.get'; instance: string | undefined; path: string; query?: RtdbWireQuerySpec;
       /** A transaction's read of its current value: the sandbox's transaction
@@ -156,8 +160,8 @@ export type OpMessage = (
       value: unknown;
       applyLocally?: boolean;
     }
-  | { t: 'op'; id: string; method: 'listRootCollections' }
-  | { t: 'op'; id: string; method: 'listSubcollections'; docPath: string }
+  | { t: 'op'; id: string; method: 'listRootCollections'; databaseId?: string }
+  | { t: 'op'; id: string; method: 'listSubcollections'; docPath: string; databaseId?: string }
   // ── Auth ops (surface: 'auth') ──────────────────────────────────────────
   // `tenantId` on the sign-in ops carries the calling port's `Auth.tenantId`
   // (absent or null means the project-level pool). Sessions are per-port, so

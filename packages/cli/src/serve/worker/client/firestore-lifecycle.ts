@@ -96,6 +96,10 @@ export function resolveWorkerParentOwner(parent: WorkerTarget): object {
   return ownerForTarget(parent);
 }
 
+export function ownerOfWorkerHandle(target: WorkerTarget): object {
+  return ownerForTarget(target);
+}
+
 export function markWorkerHandleStarted(target: WorkerTarget): void {
   getOrCreateLifecycle(ownerForTarget(target)).started = true;
 }

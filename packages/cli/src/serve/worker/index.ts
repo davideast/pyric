@@ -63,6 +63,7 @@ export {
   setOpIssuer,
   // Connect + handles
   getFirestore,
+  withDatabaseId,
   getAuth,
   getWorkerVersion,
   getWorkerInstanceId,
@@ -257,13 +258,15 @@ export type {
   RtdbDataSnapshot,
 } from './client/handles.js';
 
-export type {
-  AuthPersistenceMode,
-  SerializedUser,
-  SerializedUserCredential,
-  SerializedIdTokenResult,
-  ResolvedIdentity,
+export {
+  WORKER_PROTOCOL_VERSION,
+  type AuthPersistenceMode,
+  type SerializedUser,
+  type SerializedUserCredential,
+  type SerializedIdTokenResult,
+  type ResolvedIdentity,
 } from './protocol.js';
+export { requestDatabaseId } from './request-database-id.js';
 
 export { getHostedFirestore } from './client/websocket-connection.js';
 export { readHostedTarget } from '../runtime/hosted-target.js';

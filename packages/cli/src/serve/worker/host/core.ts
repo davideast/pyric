@@ -57,6 +57,7 @@ import { type HostCtx, type PortLike } from '../host-context.js';
 import { portSession } from '../host-auth.js';
 import { assertQueryStructure } from './query-structure.js';
 import { callerOf } from './caller.js';
+import { lensNamedFirestoreDb } from './firestore-databases.js';
 
 // ─── Descriptor → live ref resolution ───────────────────────────────────
 
@@ -280,8 +281,16 @@ export function serializeDocSnap(
  * when to attach a write op's `actAs`), NOT here. Default behaviour stays admin/
  * app-session unless a caller sets `actAs`; no UI is added by T2.
  */
-export function lensDb(ctx: HostCtx, actAs?: AuthLens, port?: PortLike): Firestore {
-  // Absent / app-session → the port's session handle (or ctx.db when signed out / port omitted).
+export function lensDb(
+  ctx: HostCtx,
+  actAs?: AuthLens,
+  port?: PortLike,
+  databaseId?: string,
+): Firestore {
+  if (databaseId !== undefined && databaseId !== '' && databaseId !== '(default)') {
+    return lensNamedFirestoreDb(ctx, databaseId, actAs, port);
+  }
+  // Absent / app-session -> the port's session handle (or ctx.db when signed out / port omitted).
   if (!actAs || actAs.mode === 'app-session') {
     return port ? sessionDb(ctx, port) : ctx.db;
   }

@@ -77,7 +77,11 @@ export function onSnapshot(
 ): Unsubscribe {
   const target = targetOf(ref);
   const clientState = clientStateFor(target);
-  clientState.markStarted();
+  let refPath: string | undefined;
+  if (typeof (ref as { path?: unknown }).path === 'string') {
+    refPath = (ref as { path: string }).path;
+  }
+  clientState.syncMissingDatabaseOfflineState(target, refPath);
   const r = resolveSandboxListenable(target, ref);
   let attribution: SnapshotListenOptions | undefined;
   if (typeof arg2 === 'object' && arg2 !== null && !isPartialObserver(arg2)) {

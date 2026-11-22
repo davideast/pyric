@@ -17,6 +17,7 @@
 
 import type { InboundMessage, OpMessage, ToolMessage } from '../protocol.js';
 import { refuseInvalidInboundMessage } from '../inbound-validation.js';
+import { requestDatabaseId } from '../request-database-id.js';
 import {
   isAuthSub,
   isEventSub,
@@ -91,13 +92,34 @@ import {
   cleanupPortPresence,
 } from './presence.js';
 import { handleSub, handleRtdbSub, handleUnsub, dropPortSubscriptionIntents } from './subscriptions.js';
+import {
+  handleUndeclaredFirestoreDatabaseOp,
+  isUndeclaredRequestedDatabase,
+} from './firestore-databases.js';
 import { handleStorageSub } from './storage-subscriptions.js';
 
 // ─── Op orchestrator ────────────────────────────────────────────────────────
 
 async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<void> {
-  // Explicit lens (Studio admin / as / app-session) → lensDb; no lens → the
-  // PORT'S SESSION (#754), so app ops run as whoever this tab signed in as.
+  const isFsRead = isFirestoreReadOp(msg.method);
+  const isFsWrite = isFirestoreWriteOp(msg.method);
+  if (isFsRead || isFsWrite) {
+    const requestedDb = requestDatabaseId(msg);
+    if (isUndeclaredRequestedDatabase(ctx, requestedDb)) {
+      handleUndeclaredFirestoreDatabaseOp(ctx, port, msg, requestedDb, isFsRead);
+      return;
+    }
+    let fsDb: ReturnType<typeof lensDb>;
+    try {
+      fsDb = lensDb(ctx, msg.actAs, port, requestedDb);
+    } catch (e) {
+      fail(port, msg.id, e);
+      return;
+    }
+    if (isFsRead) return handleFirestoreReadOp(ctx, port, msg, fsDb);
+    return handleFirestoreWriteOp(ctx, port, msg, fsDb);
+  }
+
   let db: ReturnType<typeof lensDb>;
   try {
     db = lensDb(ctx, msg.actAs, port);
@@ -105,18 +127,9 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
     fail(port, msg.id, e);
     return;
   }
-  // Provenance the op runs under. Stamped onto the unified event stream's
-  // `authLens` by the emit path (C1 field / T1 emit). For `{ mode: 'as', uid }`
-  // the resolved `db` already carries `auth: { uid }`, so a rules eval emits
-  // under that identity; `lens` is the canonical normalised value the host
-  // hands forward when the explicit emit-time stamp seam exists (see lensProvenance).
   const lens = lensProvenance(msg.actAs);
   void lens;
 
-  // Firestore reads/writes run against the resolved `db` (lens/session)
-  // computed above; peeled off to their family modules.
-  if (isFirestoreReadOp(msg.method)) return handleFirestoreReadOp(ctx, port, msg, db);
-  if (isFirestoreWriteOp(msg.method)) return handleFirestoreWriteOp(ctx, port, msg, db);
   if (isRulesOp(msg.method)) return handleRulesOp(ctx, port, msg, db);
   if (isAdminFirestoreOp(msg.method)) return handleAdminFirestoreOp(ctx, port, msg);
   if (isRtdbOp(msg.method)) return handleRtdbOp(ctx, port, msg);

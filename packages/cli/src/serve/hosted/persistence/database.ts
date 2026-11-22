@@ -3,9 +3,22 @@ import { addCheckpointTables, CHECKPOINT_TABLES, createHostedCheckpointBackend }
 import { createCommitController } from './commits.js';
 import { mkdirSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
+import type { Sandbox } from 'pyric/sandbox';
+import { CHUNK_FORMAT_VERSION } from 'pyric/sandbox/internal';
+import {
+  firestoreRecordSpaceKey,
+  firestoreRecordSpacePrefix,
+  markAllNamedFirestoreDirty,
+  onNamedFirestorePersistenceChange,
+  prepareNamedFirestorePersistence,
+  readFirestoreDeclaredFromMeta,
+  restoreNamedFirestorePersistence,
+  stampFirestoreDeclaredOnMeta,
+} from 'pyric/firestore/internal';
 import { inTransaction, openNodeSqlite, requireNodePersistence, sqlText, type SqlConnection } from './sqlite.js';
 import { createSqliteStorage } from './storage.js';
 import { FILE_BYTES_SCHEMA_VERSION, storedObjects } from './stored-objects.js';
+import { BIND_HOSTED_SANDBOX_SYMBOL } from '../../worker/hosted-checkpoint-bind.js';
 
 /** Version 4 stages uploads in files and has no staging table. */
 const FILE_STAGING_SCHEMA_VERSION = 4;
@@ -14,14 +27,23 @@ const FILE_STAGING_SCHEMA_VERSION = 4;
 const CHECKPOINTS_SCHEMA_VERSION = 5;
 
 /** Version 6 keeps each Storage path's generation high-water mark. */
-export const HOSTED_SCHEMA_VERSION = 6;
+const GENERATIONS_SCHEMA_VERSION = 6;
+
+/** Version 7 keys named Firestore databases under `<base>/firestore/<id>` namespaces. */
+export const HOSTED_SCHEMA_VERSION = 7;
 
 /**
  * Every schema version this build can read. A writable open upgrades an older
  * one in place; a read-only open reads it as it is.
  */
 export const READABLE_HOSTED_SCHEMA_VERSIONS: ReadonlySet<number> = new Set([
-  1, 2, FILE_BYTES_SCHEMA_VERSION, FILE_STAGING_SCHEMA_VERSION, CHECKPOINTS_SCHEMA_VERSION, HOSTED_SCHEMA_VERSION,
+  1,
+  2,
+  FILE_BYTES_SCHEMA_VERSION,
+  FILE_STAGING_SCHEMA_VERSION,
+  CHECKPOINTS_SCHEMA_VERSION,
+  GENERATIONS_SCHEMA_VERSION,
+  HOSTED_SCHEMA_VERSION,
 ]);
 
 /**
@@ -40,7 +62,14 @@ const STORAGE_GENERATIONS_TABLE = `
 /** Version 5 to 6: an empty table of marks. A path with no mark falls back to its stored generation. */
 function addGenerationsTable(connection: SqlConnection): void {
   inTransaction(connection, () => {
-    connection.exec(`${STORAGE_GENERATIONS_TABLE} PRAGMA user_version=${HOSTED_SCHEMA_VERSION};`);
+    connection.exec(`${STORAGE_GENERATIONS_TABLE} PRAGMA user_version=${GENERATIONS_SCHEMA_VERSION};`);
+  });
+}
+
+/** Version 6 to 7: named Firestore namespaces (`<base>/firestore/<id>`); existing rows stay `(default)`. */
+function upgradeToNamedFirestoreSchema(connection: SqlConnection): void {
+  inTransaction(connection, () => {
+    connection.exec(`PRAGMA user_version=${HOSTED_SCHEMA_VERSION};`);
   });
 }
 
@@ -144,17 +173,22 @@ export async function openHostedDatabase(directory: string, options: { readOnly?
       if (skip) return;
       activated = true;
       if (upgradePending) {
+        const initialVersion = schemaVersion;
         const holdsInlineBytes = schemaVersion < FILE_BYTES_SCHEMA_VERSION;
         if (holdsInlineBytes) moveBytesToFiles(connection, objects, schemaVersion);
         const stagesInTable = schemaVersion === FILE_BYTES_SCHEMA_VERSION;
         if (stagesInTable) dropStagingTable(connection);
         const lacksCheckpoints = schemaVersion < CHECKPOINTS_SCHEMA_VERSION;
         if (lacksCheckpoints) addCheckpointTables(connection, objects, options.checkpointFiles, CHECKPOINTS_SCHEMA_VERSION);
-        addGenerationsTable(connection);
+        const lacksGenerations = schemaVersion < GENERATIONS_SCHEMA_VERSION;
+        if (lacksGenerations) addGenerationsTable(connection);
+        const lacksNamedFirestore = schemaVersion < HOSTED_SCHEMA_VERSION;
+        if (lacksNamedFirestore) upgradeToNamedFirestoreSchema(connection);
         schemaVersion = HOSTED_SCHEMA_VERSION;
-        // Without the bytes and the staged parts the live data is small, so
-        // rebuilding the file to give their pages back is quick.
-        connection.exec('VACUUM');
+        // Reclaim dropped inline-byte / staging pages when upgrading from < 6.
+        if (initialVersion < GENERATIONS_SCHEMA_VERSION) {
+          connection.exec('VACUUM');
+        }
         connection.exec('PRAGMA wal_checkpoint(TRUNCATE)');
       }
       // No upload survives the host that began it.
@@ -163,9 +197,47 @@ export async function openHostedDatabase(directory: string, options: { readOnly?
     const commits = createCommitController(connection);
     const read = connection.prepare('SELECT payload FROM records WHERE namespace=? AND id=?');
     const list = connection.prepare('SELECT id FROM records WHERE namespace=? ORDER BY id');
+    const listSubspaces = connection.prepare(
+      'SELECT DISTINCT namespace FROM records WHERE substr(namespace, 1, ?)=? ORDER BY namespace',
+    );
+    const hasSubspaceRow = connection.prepare(
+      'SELECT 1 FROM records WHERE substr(namespace, 1, ?)=? LIMIT 1',
+    );
     const put = connection.prepare('INSERT INTO records VALUES (?, ?, ?) ON CONFLICT(namespace, id) DO UPDATE SET payload=excluded.payload');
     const remove = connection.prepare('DELETE FROM records WHERE namespace=? AND id=?');
     const clear = connection.prepare('DELETE FROM records WHERE namespace=?');
+    const clearPrefix = connection.prepare('DELETE FROM records WHERE substr(namespace, 1, ?)=?');
+
+    const boundSandboxes = new Map<string, Sandbox>();
+    const boundUnsubs = new Set<() => void>();
+    const boundTimers = new Set<ReturnType<typeof setTimeout>>();
+
+    function encodeChangedEntries(
+      changed: ReadonlyMap<string, unknown>,
+      serialized?: ReadonlyMap<string, string>,
+    ): Array<{ id: string; payload: string }> {
+      return [...changed].map(([id, value]) => {
+        const payload = serialized?.get(id) ?? JSON.stringify(value);
+        const missing = payload === undefined;
+        if (missing) throw new Error(`Record '${id}' has no JSON representation.`);
+        return { id, payload };
+      });
+    }
+
+    function readRawRecord(key: string, id: string): unknown | null {
+      const row = read.get(key, id);
+      if (row === undefined) return null;
+      return JSON.parse(sqlText(row, 'payload'));
+    }
+
+    function readAllRecords(key: string): Map<string, unknown> {
+      return new Map(list.all(key).map(row => {
+        const id = sqlText(row, 'id');
+        const record = read.get(key, id);
+        if (record === undefined) throw new Error(`Persisted record '${id}' disappeared during a read.`);
+        return [id, JSON.parse(sqlText(record, 'payload'))];
+      }));
+    }
 
     function commitChanges(
       key: string,
@@ -173,28 +245,109 @@ export async function openHostedDatabase(directory: string, options: { readOnly?
       removed: readonly string[],
       serialized?: ReadonlyMap<string, string>,
     ): void {
-      const empty = changed.size === 0 && removed.length === 0;
-      if (empty) return;
-      const encoded = [...changed].map(([id, value]) => {
-        const payload = serialized?.get(id) ?? JSON.stringify(value);
-        const missing = payload === undefined;
-        if (missing) throw new Error(`Record '${id}' has no JSON representation.`);
-        return { id, payload };
-      });
+      const boundSandbox = boundSandboxes.get(key);
+      if (boundSandbox === undefined) {
+        if (changed.size === 0 && removed.length === 0) return;
+        const encoded = encodeChangedEntries(changed, serialized);
+        commits.commit(() => {
+          for (const { id, payload } of encoded) put.run(key, id, payload);
+          for (const id of removed) remove.run(key, id);
+        });
+        return;
+      }
+
+      const plan = prepareNamedFirestorePersistence(boundSandbox);
+      const effectiveChanged = new Map<string, unknown>(changed);
+      const effectiveSerialized = new Map<string, string>(serialized ?? []);
+
+      if (effectiveChanged.has('meta')) {
+        const rawMeta = effectiveChanged.get('meta');
+        if (rawMeta !== null && typeof rawMeta === 'object' && !Array.isArray(rawMeta)) {
+          const stamped = stampFirestoreDeclaredOnMeta(rawMeta as Record<string, unknown>, plan.declared);
+          effectiveChanged.set('meta', stamped);
+          effectiveSerialized.set('meta', JSON.stringify(stamped));
+        }
+      } else if (plan.declaredChanged) {
+        const priorMeta = readRawRecord(key, 'meta');
+        let baseMeta: Record<string, unknown>;
+        if (priorMeta !== null && typeof priorMeta === 'object' && !Array.isArray(priorMeta)) {
+          baseMeta = priorMeta as Record<string, unknown>;
+        } else {
+          baseMeta = { version: CHUNK_FORMAT_VERSION, savedAt: Date.now(), services: {} };
+        }
+        const stamped = stampFirestoreDeclaredOnMeta(baseMeta, plan.declared);
+        effectiveChanged.set('meta', stamped);
+        effectiveSerialized.set('meta', JSON.stringify(stamped));
+      }
+
+      const hasBaseWork = effectiveChanged.size > 0 || removed.length > 0;
+      if (!hasBaseWork && plan.databases.size === 0) {
+        plan.commit();
+        return;
+      }
+
+      const baseEncoded = encodeChangedEntries(effectiveChanged, effectiveSerialized);
+      const namedEncoded: Array<{
+        namespace: string;
+        encoded: Array<{ id: string; payload: string }>;
+        removed: readonly string[];
+      }> = [];
+      for (const [dbId, diff] of plan.databases) {
+        namedEncoded.push({
+          namespace: firestoreRecordSpaceKey(key, dbId),
+          encoded: encodeChangedEntries(diff.changed, diff.serializedChanged),
+          removed: diff.removed,
+        });
+      }
+
+      try {
+        commits.commit(() => {
+          for (const { id, payload } of baseEncoded) put.run(key, id, payload);
+          for (const id of removed) remove.run(key, id);
+          for (const space of namedEncoded) {
+            for (const { id, payload } of space.encoded) put.run(space.namespace, id, payload);
+            for (const id of space.removed) remove.run(space.namespace, id);
+          }
+        });
+        plan.commit();
+      } catch (error) {
+        plan.retry();
+        throw error;
+      }
+    }
+
+    function listNamedFirestoreDatabases(baseKey: string): string[] {
+      const prefix = firestoreRecordSpacePrefix(baseKey);
+      return listSubspaces
+        .all(prefix.length, prefix)
+        .map(row => sqlText(row, 'namespace').slice(prefix.length));
+    }
+
+    function clearAllRecordSpaces(baseKey: string): void {
+      if (baseKey.includes('/firestore/')) {
+        commits.commit(() => { clear.run(baseKey); });
+        return;
+      }
+      const prefix = firestoreRecordSpacePrefix(baseKey);
       commits.commit(() => {
-        for (const { id, payload } of encoded) put.run(key, id, payload);
-        for (const id of removed) remove.run(key, id);
+        clear.run(baseKey);
+        clearPrefix.run(prefix.length, prefix);
       });
+      const boundSandbox = boundSandboxes.get(baseKey);
+      if (boundSandbox !== undefined) {
+        markAllNamedFirestoreDirty(boundSandbox);
+      }
     }
 
     let closed = false;
-    return {
+    const checkpoints = createHostedCheckpointBackend(connection, commits.commit, objects);
+    const databaseHandle = {
       storage: createSqliteStorage(connection, commits.commit, objects),
       objects,
       /** The version of the schema as it is now; an upgrade changes it. */
       schemaVersion: (): number => schemaVersion,
       /** Checkpoints of the hosted sandbox, kept in this store. */
-      checkpoints: createHostedCheckpointBackend(connection, commits.commit, objects),
+      checkpoints,
       /** Every object file hash a row or a checkpoint names: the files a sweep keeps. */
       referencedObjects(): Set<string> {
         const rows = connection.prepare('SELECT sha256 FROM storage_objects UNION SELECT sha256 FROM checkpoint_objects').all();
@@ -210,32 +363,49 @@ export async function openHostedDatabase(directory: string, options: { readOnly?
       ...commits,
       connection,
       readOnly,
-      readRecord(key: string, id: string): unknown | null {
-        const row = read.get(key, id);
-        const hasRecord = row !== undefined;
-        if (hasRecord) return JSON.parse(sqlText(row, 'payload'));
-        return null;
-      },
+      readRecord: readRawRecord,
       hasRecords(key: string): boolean {
         return connection.prepare('SELECT 1 FROM records WHERE namespace=? LIMIT 1').get(key) !== undefined;
       },
-      readRecords(key: string): Map<string, unknown> {
-        return new Map(list.all(key).map(row => {
-          const id = sqlText(row, 'id');
-          const record = read.get(key, id);
-          const missingRecord = record === undefined;
-          if (missingRecord) throw new Error(`Persisted record '${id}' disappeared during a read.`);
-          return [id, JSON.parse(sqlText(record, 'payload'))];
-        }));
+      hasAnyRecords(baseKey: string): boolean {
+        if (connection.prepare('SELECT 1 FROM records WHERE namespace=? LIMIT 1').get(baseKey) !== undefined) {
+          return true;
+        }
+        if (baseKey.includes('/firestore/')) return false;
+        const prefix = firestoreRecordSpacePrefix(baseKey);
+        return hasSubspaceRow.get(prefix.length, prefix) !== undefined;
+      },
+      readRecords: readAllRecords,
+      listNamedFirestoreDatabases,
+      clearAllRecordSpaces,
+      bindSandbox(sandbox: Sandbox, baseKey = 'hosted'): void {
+        if (boundSandboxes.get(baseKey) === sandbox) return;
+        boundSandboxes.set(baseKey, sandbox);
+        const meta = readRawRecord(baseKey, 'meta');
+        const declared = readFirestoreDeclaredFromMeta(meta);
+        const dbRecords = new Map<string, Map<string, unknown>>();
+        for (const dbId of declared) {
+          dbRecords.set(dbId, readAllRecords(firestoreRecordSpaceKey(baseKey, dbId)));
+        }
+        restoreNamedFirestorePersistence(sandbox, declared, dbRecords);
+        let timer: ReturnType<typeof setTimeout> | null = null;
+        const unsub = onNamedFirestorePersistenceChange(sandbox, () => {
+          if (closed || readOnly || timer !== null) return;
+          timer = setTimeout(() => {
+            if (timer !== null) boundTimers.delete(timer);
+            timer = null;
+            if (closed || readOnly) return;
+            void sandbox.flush().catch(() => {});
+          }, 50);
+          boundTimers.add(timer);
+        });
+        boundUnsubs.add(unsub);
       },
       commitChanges,
       records: {
         retryFailedFlush: false,
         async getRecord(key: string, id: string): Promise<unknown | null> {
-          const row = read.get(key, id);
-          const missingRecord = row === undefined;
-          if (missingRecord) return null;
-          return JSON.parse(sqlText(row, 'payload'));
+          return readRawRecord(key, id);
         },
         async listRecords(key: string): Promise<string[]> {
           return list.all(key).map(row => sqlText(row, 'id'));
@@ -255,15 +425,28 @@ export async function openHostedDatabase(directory: string, options: { readOnly?
           commitChanges(key, new Map(), ids);
         },
         async clear(key: string): Promise<void> {
-          commits.commit(() => { clear.run(key); });
+          clearAllRecordSpaces(key);
         },
       },
       close(): void {
         if (closed) return;
-        connection.close();
         closed = true;
+        for (const unsub of boundUnsubs) unsub();
+        boundUnsubs.clear();
+        for (const timer of boundTimers) clearTimeout(timer);
+        boundTimers.clear();
+        boundSandboxes.clear();
+        connection.close();
       },
     };
+    Object.defineProperty(checkpoints, BIND_HOSTED_SANDBOX_SYMBOL, {
+      value: (sandbox: Sandbox) => {
+        databaseHandle.bindSandbox(sandbox, 'hosted');
+      },
+      enumerable: false,
+      configurable: true,
+    });
+    return databaseHandle;
   } catch (error) {
     connection.close();
     throw error;

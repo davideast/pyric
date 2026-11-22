@@ -23,7 +23,7 @@ import {
   type CheckpointBackend,
 } from 'pyric/sandbox/checkpoints';
 
-import type { OpMessage } from '../protocol.js';
+import { WORKER_PROTOCOL_VERSION, type OpMessage } from '../protocol.js';
 import { type HostCtx, type PortLike, ok, fail, bestEffortFlush } from '../host-context.js';
 import { reapplyActiveHostRulesAfterReset, syncHostRulesAfterCheckpointRestore } from './rules.js';
 import { restoreFirestoreSubscriptions } from './subscriptions.js';
@@ -84,6 +84,7 @@ function checkpointsOf(ctx: HostCtx): CheckpointBackend | null {
 
 /** The connection, state-transfer, and checkpoint methods routed here. */
 const CONNECTION_METHODS = new Set<string>([
+  'getRuntimeEpoch',
   'getVersion',
   'exportState',
   'importState',
@@ -103,15 +104,29 @@ export async function handleConnectionOp(
   msg: OpMessage,
 ): Promise<void> {
   switch (msg.method) {
-    case 'getVersion': {
-      // The build hash is injected by the bundler (esbuild `define`). `typeof`
-      // guards the non-bundled path (tests import the compiled host directly,
-      // where the global is undefined) → reports 'dev'.
+    case 'getRuntimeEpoch': {
       const hasBuildVersion = typeof __PYRIC_WORKER_VERSION__ !== 'undefined';
       ok(port, msg.id, {
         version: hasBuildVersion ? __PYRIC_WORKER_VERSION__ : 'dev',
-        instanceId: ctx.instanceId,
+        workerProtocol: WORKER_PROTOCOL_VERSION,
       });
+      break;
+    }
+
+    case 'getVersion': {
+      const hasBuildVersion = typeof __PYRIC_WORKER_VERSION__ !== 'undefined';
+      let version = 'dev';
+      if (hasBuildVersion) {
+        version = __PYRIC_WORKER_VERSION__;
+      }
+      const reply: { version: string; instanceId?: string; workerProtocol?: number } = {
+        version,
+      };
+      if (ctx.instanceId !== undefined) {
+        reply.instanceId = ctx.instanceId;
+        reply.workerProtocol = WORKER_PROTOCOL_VERSION;
+      }
+      ok(port, msg.id, reply);
       break;
     }
 

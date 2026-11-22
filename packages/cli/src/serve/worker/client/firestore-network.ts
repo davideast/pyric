@@ -25,6 +25,7 @@ export type { WorkerOfflineMutation };
 
 export interface WorkerManagedFirestoreListener {
   readonly target: TargetDescriptor;
+  readonly databaseId?: string;
   hasDelivered(): boolean;
   suspendFromHost(): void;
   resumeOnHost(): void;
@@ -45,7 +46,11 @@ interface PortFirestoreState {
   networkEnabled: boolean;
   nextStageId: number;
   readonly cachesByLens: Map<string, LensWarmCache>;
-  readonly staged: Array<{ readonly id: number; readonly mutations: readonly WorkerOfflineMutation[] }>;
+  readonly staged: Array<{
+    readonly id: number;
+    readonly databaseId: string;
+    readonly mutations: readonly WorkerOfflineMutation[];
+  }>;
   readonly pendingWrites: Set<PendingPortWrite>;
   readonly listeners: Set<WorkerManagedFirestoreListener>;
   readonly releaseLensWatch: () => void;
@@ -85,12 +90,29 @@ function stateForPort(port: ClientPort): PortFirestoreState {
   return state;
 }
 
-function lensCacheFor(state: PortFirestoreState): LensWarmCache {
-  const lens = getLens();
-  let key = 'app-session';
-  if (lens !== undefined) {
-    key = JSON.stringify(lens);
+function normalizedNetworkDbId(databaseId?: string): string {
+  if (databaseId !== undefined && databaseId !== '' && databaseId !== '(default)') {
+    return databaseId;
   }
+  return '(default)';
+}
+
+function stagedForDatabase(
+  state: PortFirestoreState,
+  databaseId?: string,
+): Array<{ readonly id: number; readonly databaseId: string; readonly mutations: readonly WorkerOfflineMutation[] }> {
+  const dbPart = normalizedNetworkDbId(databaseId);
+  return state.staged.filter((entry) => entry.databaseId === dbPart);
+}
+
+function lensCacheFor(state: PortFirestoreState, databaseId?: string): LensWarmCache {
+  const lens = getLens();
+  let lensPart = 'app-session';
+  if (lens !== undefined) {
+    lensPart = JSON.stringify(lens);
+  }
+  const dbPart = normalizedNetworkDbId(databaseId);
+  const key = `${dbPart}::${lensPart}`;
   let cache = state.cachesByLens.get(key);
   if (cache === undefined) {
     cache = { baseDocs: new Map(), warmExistingPaths: new Set() };
@@ -108,8 +130,9 @@ export function recordWorkerOnlineDoc(
   path: string,
   exists: boolean,
   data: SerializedDocData | undefined,
+  databaseId?: string,
 ): void {
-  const cache = lensCacheFor(stateForPort(port));
+  const cache = lensCacheFor(stateForPort(port), databaseId);
   markWorkerPathCached(port, path);
   if (exists && data !== undefined) {
     cache.baseDocs.set(path, data);
@@ -123,8 +146,9 @@ export function recordWorkerOnlineDoc(
 export function markWorkerCommittedWrite(
   port: ClientPort,
   mutations: readonly WorkerOfflineMutation[],
+  databaseId?: string,
 ): void {
-  const cache = lensCacheFor(stateForPort(port));
+  const cache = lensCacheFor(stateForPort(port), databaseId);
   for (const m of mutations) {
     if (m.kind === 'delete') {
       cache.baseDocs.set(m.path, null);
@@ -144,14 +168,15 @@ export function markWorkerCommittedWrite(
 export function readWorkerCachedDocProjection(
   port: ClientPort,
   path: string,
+  databaseId?: string,
 ): { readonly known: boolean; readonly result: RawDocResult } {
   const state = stateForPort(port);
-  const cache = lensCacheFor(state);
-  return projectWorkerOfflineDoc(path, cache.baseDocs.get(path), state.staged);
+  const cache = lensCacheFor(state, databaseId);
+  return projectWorkerOfflineDoc(path, cache.baseDocs.get(path), stagedForDatabase(state, databaseId));
 }
 
-export function isWorkerTargetWarm(port: ClientPort, target: TargetDescriptor): boolean {
-  const cache = lensCacheFor(stateForPort(port));
+export function isWorkerTargetWarm(port: ClientPort, target: TargetDescriptor, databaseId?: string): boolean {
+  const cache = lensCacheFor(stateForPort(port), databaseId);
   if (target.__ref === 'doc') return cache.warmExistingPaths.has(target.path);
   for (const path of cache.warmExistingPaths) {
     if (targetMatchesPath(target, path)) return true;
@@ -159,11 +184,15 @@ export function isWorkerTargetWarm(port: ClientPort, target: TargetDescriptor): 
   return false;
 }
 
-export function readWorkerOfflineDoc(port: ClientPort, path: string): RawDocResult | undefined {
+export function readWorkerOfflineDoc(
+  port: ClientPort,
+  path: string,
+  databaseId?: string,
+): RawDocResult | undefined {
   const state = stateForPort(port);
   if (state.networkEnabled) return undefined;
-  const cache = lensCacheFor(state);
-  const projected = projectWorkerOfflineDoc(path, cache.baseDocs.get(path), state.staged);
+  const cache = lensCacheFor(state, databaseId);
+  const projected = projectWorkerOfflineDoc(path, cache.baseDocs.get(path), stagedForDatabase(state, databaseId));
   if (!projected.known) return undefined;
   return projected.result;
 }
@@ -171,13 +200,15 @@ export function readWorkerOfflineDoc(port: ClientPort, path: string): RawDocResu
 export function buildWorkerOfflineWire(
   port: ClientPort,
   target: TargetDescriptor,
+  databaseId?: string,
 ): RawDocResult | RawQueryResult {
   const state = stateForPort(port);
-  const cache = lensCacheFor(state);
+  const cache = lensCacheFor(state, databaseId);
+  const dbStaged = stagedForDatabase(state, databaseId);
   if (target.__ref === 'doc') {
-    return projectWorkerOfflineDoc(target.path, cache.baseDocs.get(target.path), state.staged).result;
+    return projectWorkerOfflineDoc(target.path, cache.baseDocs.get(target.path), dbStaged).result;
   }
-  return projectWorkerOfflineQuery(target, cache.baseDocs, state.staged);
+  return projectWorkerOfflineQuery(target, cache.baseDocs, dbStaged);
 }
 
 export function registerWorkerManagedListener(
@@ -195,8 +226,10 @@ export function enqueueWorkerOfflineWrite<T>(
   port: ClientPort,
   mutations: readonly WorkerOfflineMutation[],
   sendOnline: () => Promise<T>,
+  databaseId?: string,
 ): Promise<T> {
   const state = stateForPort(port);
+  const dbPart = normalizedNetworkDbId(databaseId);
   for (const m of mutations) {
     if (m.kind === 'delete') {
       unmarkWorkerPathCached(port, m.path);
@@ -206,14 +239,15 @@ export function enqueueWorkerOfflineWrite<T>(
   }
   const stageId = state.nextStageId;
   state.nextStageId += 1;
-  state.staged.push({ id: stageId, mutations });
+  state.staged.push({ id: stageId, databaseId: dbPart, mutations });
 
   const touchedPaths = mutations.map((m) => m.path);
   queueMicrotask(() => {
     if (state.networkEnabled) return;
     for (const listener of [...state.listeners]) {
+      if (normalizedNetworkDbId(listener.databaseId) !== dbPart) continue;
       if (touchedPaths.some((p) => targetMatchesPath(listener.target, p))) {
-        listener.deliverOfflineWire(buildWorkerOfflineWire(port, listener.target));
+        listener.deliverOfflineWire(buildWorkerOfflineWire(port, listener.target, listener.databaseId));
       }
     }
   });
@@ -237,7 +271,7 @@ export function enqueueWorkerOfflineWrite<T>(
       try {
         const result = await sendOnline();
         clearStaged();
-        markWorkerCommittedWrite(port, mutations);
+        markWorkerCommittedWrite(port, mutations, databaseId);
         state.pendingWrites.delete(entry);
         resolveOut?.(result);
       } catch (error) {
@@ -273,7 +307,7 @@ export async function disableNetwork(db: ClientDb): Promise<void> {
     if (!listener.hasDelivered()) {
       queueMicrotask(() => {
         if (!state.networkEnabled && state.listeners.has(listener) && !listener.hasDelivered()) {
-          listener.deliverOfflineWire(buildWorkerOfflineWire(db.port, listener.target));
+          listener.deliverOfflineWire(buildWorkerOfflineWire(db.port, listener.target, listener.databaseId));
         }
       });
     }

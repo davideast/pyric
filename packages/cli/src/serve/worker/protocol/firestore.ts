@@ -86,7 +86,9 @@ export type QueryConstraintDescriptor =
   | { kind: 'endAt'; values: unknown[]; isSnapshot?: false; fromSnapshot?: boolean; valueEncoding?: DocValueEncoding }
   | { kind: 'endBefore'; values: unknown[]; isSnapshot?: false; fromSnapshot?: boolean; valueEncoding?: DocValueEncoding };
 
-export type TargetDescriptor = DocRef | CollRef | GroupRef | QueryDescriptor;
+export type TargetDescriptor = (DocRef | CollRef | GroupRef | QueryDescriptor) & {
+  readonly databaseId?: string;
+};
 
 // ─── Sentinel markers (cross the port embedded in write data) ─────────────
 
@@ -197,6 +199,8 @@ export interface FirestoreSubMessage {
   t: 'sub';
   subId: string;
   target: TargetDescriptor;
+  /** Optional named Firestore database selector; absent means `(default)`. */
+  databaseId?: string;
   /**
    * Per-subscription auth lens (Pyric Studio F4 — "watch as user"). Mirrors
    * the per-op `actAs` on OpMessage: `{ mode: 'as', uid }` registers the
