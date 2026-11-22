@@ -1,21 +1,11 @@
 /**
  * Process lifecycle regression suite for `pyric sandbox` and its spawned child
  * command (#1775, #1677, #1551, #1195):
- *
  *  - Unit coverage for `sandbox-process-guard.ts` and `sandbox-child-lifeline.ts`.
- *  - Bounded subprocess coverage against the built CLI (`dist/cli/index.js`):
- *    1. `#1775`: `SIGKILL` to `pyric sandbox --hosted -- node server.mjs`
- *       terminates the child command (and any grandchild in its process group)
- *       and frees its port within a couple of seconds.
- *    2. `#1677`: Killing only the child command by PID (`SIGTERM` or `SIGKILL`)
- *       shuts `pyric sandbox` down cleanly without CPU spin, with open or
- *       closed output pipes.
- *    3. `#1195`: Closing `pyric sandbox`'s stdout/stderr pipes triggers no
- *       `EPIPE` / `uncaughtException` feedback loop, and `SIGINT` / `SIGTERM`
- *       stops the sandbox and releases its hosted project lock.
- *    4. `#1551`: Reparenting `pyric sandbox` when its parent process exits
- *       shuts the orphaned sandbox and its child down without spinning, and
- *       the sandbox honors `SIGTERM`.
+ *  - Subprocess coverage against `dist/cli/index.js` verifying `SIGKILL` stops
+ *    the child group and frees ports (#1775), killing the child stops the host
+ *    without CPU spin (#1677), closed output pipes never spin on `EPIPE` (#1195),
+ *    and parent loss / `SIGTERM` shuts orphaned sandboxes down cleanly (#1551).
  */
 import { afterEach, describe, expect, it } from 'bun:test';
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -81,18 +71,30 @@ function forceKillPidAndGroup(pid: number | undefined): void {
   killSafe(pid, 'SIGKILL');
 }
 
-function readLinuxStat(pid: number): { state: string; ticks: number } | null {
+type LinuxProcStat = { state: string; ticks: number; numThreads: number };
+
+function parseLinuxStat(raw: string): LinuxProcStat | null {
+  const closeParen = raw.lastIndexOf(')');
+  if (closeParen === -1) return null;
+  const fields = raw.slice(closeParen + 2).trim().split(/\s+/);
+  const state = fields[0];
+  const utime = Number(fields[11]);
+  const stime = Number(fields[12]);
+  const numThreads = Number(fields[17]);
+  if (state === undefined || !Number.isFinite(utime) || !Number.isFinite(stime) || !Number.isFinite(numThreads)) return null;
+  return { state, ticks: utime + stime, numThreads };
+}
+
+function isLinuxStatAlive(stat: LinuxProcStat): boolean {
+  // In Linux do_group_exit(), leader state hits 'Z' before sibling threads finish exit_files().
+  if (stat.numThreads > 1) return true;
+  return stat.state !== 'Z' && stat.state !== 'X';
+}
+
+function readLinuxStat(pid: number): LinuxProcStat | null {
   if (process.platform !== 'linux') return null;
   try {
-    const raw = readFileSync(`/proc/${pid}/stat`, 'utf8');
-    const closeParen = raw.lastIndexOf(')');
-    if (closeParen === -1) return null;
-    const fields = raw.slice(closeParen + 2).trim().split(/\s+/);
-    const state = fields[0];
-    const utime = Number(fields[11]);
-    const stime = Number(fields[12]);
-    if (state === undefined || !Number.isFinite(utime) || !Number.isFinite(stime)) return null;
-    return { state, ticks: utime + stime };
+    return parseLinuxStat(readFileSync(`/proc/${pid}/stat`, 'utf8'));
   } catch (error) {
     if (isErrno(error, 'ENOENT') || isErrno(error, 'ESRCH') || isErrno(error, 'EACCES')) return null;
     throw error;
@@ -103,7 +105,7 @@ function isRunning(pid: number): boolean {
   if (!killSafe(pid, 0)) return false;
   const stat = readLinuxStat(pid);
   if (stat === null) return process.platform !== 'linux';
-  return stat.state !== 'Z' && stat.state !== 'X';
+  return isLinuxStatAlive(stat);
 }
 
 async function waitUntilGone(pid: number, timeoutMs: number): Promise<{ gone: boolean; cpuTicks: number }> {
@@ -143,6 +145,15 @@ async function canBindPort(port: number): Promise<boolean> {
       srv.close(() => resolveBind(true));
     });
   });
+}
+
+async function waitForPortFree(port: number, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await canBindPort(port)) return true;
+    await Bun.sleep(40);
+  }
+  return await canBindPort(port);
 }
 
 async function waitForHttpOk(url: string, timeoutMs: number): Promise<boolean> {
@@ -313,6 +324,25 @@ describe('sandbox-process-guard unit', () => {
     expect(spawnDevChild).toBe(spawnSandboxChild);
     expect(typeof readExit).toBe('function');
   });
+
+  it('treats zombie leaders with live sibling threads as running and fails waitForPortFree on held ports', async () => {
+    const mkStat = (state: string, threads: number): string =>
+      `100 (node) ${state} 1 100 100 0 -1 0 0 0 0 0 5 3 0 0 20 0 ${threads} 0 999`;
+    const tearingDown = parseLinuxStat(mkStat('Z', 2));
+    const zombieAlone = parseLinuxStat(mkStat('Z', 1));
+    expect(tearingDown !== null && isLinuxStatAlive(tearingDown)).toBe(true);
+    expect(zombieAlone !== null && isLinuxStatAlive(zombieAlone)).toBe(false);
+
+    const heldPort = await freeLoopbackPort();
+    const holder = createServer();
+    await new Promise<void>((r) => holder.listen(heldPort, '127.0.0.1', () => r()));
+    try {
+      expect(await waitForPortFree(heldPort, 100)).toBe(false);
+    } finally {
+      await new Promise<void>((r) => holder.close(() => r()));
+    }
+    expect(await waitForPortFree(heldPort, 500)).toBe(true);
+  });
 });
 
 posixOnly('sandbox-child-lifeline unit', () => {
@@ -377,7 +407,8 @@ linuxOnly('pyric sandbox subprocess lifecycle (#1775, #1677, #1551, #1195)', () 
     const workerOutcome = await waitUntilGone(workerPid, 4_000);
     expect(childOutcome.gone).toBe(true);
     expect(workerOutcome.gone).toBe(true);
-    expect(await canBindPort(appPort)).toBe(true);
+    expect(await waitForPortFree(appPort, 1_500)).toBe(true);
+    expect(await waitForPortFree(hostPort, 1_500)).toBe(true);
   }, 45_000);
 
   it('honors SIGINT and SIGTERM without CPU spin after stdout and stderr pipes close (#1195)', async () => {
@@ -404,7 +435,7 @@ linuxOnly('pyric sandbox subprocess lifecycle (#1775, #1677, #1551, #1195)', () 
       const outcome = await waitUntilGone(pid, 4_000);
       expect(outcome.gone).toBe(true);
       expect(outcome.cpuTicks / CLOCK_TICKS_PER_SECOND).toBeLessThan(0.75);
-      expect(await canBindPort(hostPort)).toBe(true);
+      expect(await waitForPortFree(hostPort, 1_500)).toBe(true);
     }
   }, 45_000);
 
@@ -499,8 +530,8 @@ linuxOnly('pyric sandbox subprocess lifecycle (#1775, #1677, #1551, #1195)', () 
     expect(sandboxOutcome.gone).toBe(true);
     expect(childOutcome.gone).toBe(true);
     expect(sandboxOutcome.cpuTicks / CLOCK_TICKS_PER_SECOND).toBeLessThan(0.75);
-    expect(await canBindPort(hostPort)).toBe(true);
-    expect(await canBindPort(appPort)).toBe(true);
+    expect(await waitForPortFree(hostPort, 1_500)).toBe(true);
+    expect(await waitForPortFree(appPort, 1_500)).toBe(true);
   }, 45_000);
 
   it('reaps a SIGTERM-ignoring grandchild in the child process group when the wrapper exits early', async () => {
