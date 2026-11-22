@@ -18,7 +18,13 @@ import type { ParsedArgs } from './parse-args.js';
 import { readFirebaseJson, readFirebaseRc, withDefaultFirestoreRules, type FirebaseJson } from './firebase-json.js';
 import { resolveFirebaseProject, type FirebaseProjectResolution } from './firebase-project.js';
 import { bundleSdk, bundleWorker, defaultSdkEntries, planProjectFirebase, resolveSiteUiDir } from '../serve/bundler.js';
-import { isStandalone, materializeServeAssets, materializeSiteUi, embeddedWorkerVersion } from '../serve/standalone-assets.js';
+import {
+  assertStandaloneSupportsAiMode,
+  embeddedWorkerVersion,
+  isStandalone,
+  materializeServeAssets,
+  materializeSiteUi,
+} from '../serve/standalone-assets.js';
 import { resolveProjectAndDefaultInstance } from '../bridge/surface/database-instance-project.js';
 import { hasSandboxBuildMarker } from '../serve/sandbox-marker.js';
 import { watchRulesFiles } from '../serve/rules-files-watch.js';
@@ -428,20 +434,29 @@ async function startServeRuntime(opts: {
   // is trusted and the scan is skipped (marker present, no real SDK to find).
   const needsSdkScan = publicDir !== null && !hasSandboxBuildMarker(publicDir);
   if (needsSdkScan) {
-    const inlined = scanForInlinedFirebase(publicDir);
+    const scanWarnings: string[] = [];
+    const inlined = scanForInlinedFirebase(publicDir, {
+      publicDirLabel: hosting?.public ?? 'public',
+      onWarning: (line) => {
+        scanWarnings.push(line);
+      },
+    });
     const hasInlinedSdk = inlined.length > 0;
     if (hasInlinedSdk) {
       throw new Error(
         `pyric sandbox: ${inlined[0]} bundles the real Firebase SDK, so this dist cannot be ` +
-          `sandboxed — its firebase/* calls would reach LIVE Google endpoints, not the ` +
+          `sandboxed - its firebase/* calls would reach LIVE Google endpoints, not the ` +
           `pyric sandbox. Two ways forward:\n` +
           `  (a) \`pyric sandbox -- <command>\` runs the child server with the @pyric/cli/vite ` +
-          `plugin swaps firebase/* live) — use \`bun run dev\`;\n` +
+          `plugin swaps firebase/* live) - use \`bun run dev\`;\n` +
           `  (b) rebuild as a self-contained sandbox bundle and serve THAT: ` +
           `\`vite build --mode development\` (or pyric({ swapInBuild: true })) then ` +
           `\`pyric sandbox\`.\n` +
-          `A plain \`vite build\` is your production build — deploy it, don't sandbox it.`,
+          `A plain \`vite build\` is your production build - deploy it, don't sandbox it.`,
       );
+    }
+    for (const warning of scanWarnings) {
+      logger.note(warning);
     }
   }
 
@@ -461,6 +476,9 @@ async function startServeRuntime(opts: {
   let workerVersion: string;
   const usesEmbeddedAssets = isStandalone();
   const aiMode = resolveAiMode(undefined, process.env);
+  if (usesEmbeddedAssets) {
+    assertStandaloneSupportsAiMode(aiMode, process.env);
+  }
   // Production AI mode serves the project's own Firebase SDK for firebase/ai,
   // firebase/app and firebase/app-check (#1290).
   let projectFirebase: { projectDir: string } | undefined;
@@ -470,7 +488,7 @@ async function startServeRuntime(opts: {
     if (firebasePlan.warning) logger.note(firebasePlan.warning);
   }
   if (usesEmbeddedAssets) {
-    bundle = await materializeServeAssets();
+    bundle = await materializeServeAssets({ aiMode });
     workerVersion = embeddedWorkerVersion();
   } else {
     bundle = await bundleSdk({

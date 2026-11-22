@@ -30,6 +30,7 @@ import {
 import { embeddedAssetVersion } from '../../scripts/embedded-asset-version.js';
 import * as standaloneAssets from '../../src/serve/standalone-assets.js';
 import {
+  assertStandaloneSupportsAiMode,
   embeddedWorkerVersion,
   isStandalone,
   materializeServeAssets,
@@ -301,5 +302,38 @@ describe('embedded() guard', () => {
 
   it('does not expose a separate pyricVersion fallback alongside cliVersion', () => {
     expect('pyricVersion' in standaloneAssets).toBe(false);
+  });
+});
+
+describe('assertStandaloneSupportsAiMode (#1531)', () => {
+  it('allows sandbox AI mode and refuses production AI mode naming @pyric/cli', async () => {
+    expect(() => assertStandaloneSupportsAiMode('sandbox', {})).not.toThrow();
+
+    expect(() =>
+      assertStandaloneSupportsAiMode('production', { PYRIC_AI_MODE: 'production' }),
+    ).toThrow(/PYRIC_AI_MODE=production.*@pyric\/cli/);
+
+    expect(() =>
+      assertStandaloneSupportsAiMode('production', { PYRIC_AI_PASSTHROUGH: '1' }),
+    ).toThrow(/PYRIC_AI_PASSTHROUGH=1.*unset PYRIC_AI_PASSTHROUGH/);
+
+    const beforeCalls = sdkCalls;
+    await expect(
+      materializeServeAssets({
+        aiMode: 'production',
+        env: { PYRIC_AI_MODE: 'production' },
+      }),
+    ).rejects.toThrow(/standalone pyric binary.*@pyric\/cli/);
+    expect(sdkCalls).toBe(beforeCalls);
+
+    const saved = globalThis.__PYRIC_EMBEDDED__;
+    globalThis.__PYRIC_EMBEDDED__ = undefined;
+    try {
+      expect(() =>
+        assertStandaloneSupportsAiMode('production', { PYRIC_AI_MODE: 'production' }),
+      ).not.toThrow();
+    } finally {
+      globalThis.__PYRIC_EMBEDDED__ = saved;
+    }
   });
 });

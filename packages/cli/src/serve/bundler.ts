@@ -22,7 +22,7 @@
  * bypasses.
  */
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, existsSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, existsSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -345,7 +345,7 @@ export interface BundleResult {
 }
 
 /** Bump when bundler logic changes in a way that must invalidate caches. */
-const BUNDLER_REV = 10; // 10: wrappers import the project's Firebase SDK by URL; production keys cover it
+const BUNDLER_REV = 11; // 11: production AI cache key hashes resolved firebase and @firebase SDK files
 
 const RESOLUTION_FILES = [
   'bun.lock',
@@ -401,6 +401,195 @@ function packageResolutionHash(graphRoot: string, pyricRoot: string): string {
   return h.digest('hex');
 }
 
+const PRODUCTION_AI_FIREBASE_SEEDS = [
+  '@firebase/ai',
+  '@firebase/app',
+  '@firebase/app-check',
+  '@firebase/app-check-interop-types',
+  '@firebase/component',
+  '@firebase/logger',
+  '@firebase/util',
+] as const;
+
+const FIREBASE_SDK_FILE = /\.(js|mjs|cjs)$/i;
+
+const EXPECTED_BUNDLER_FS_CODES: ReadonlySet<string> = new Set([
+  'ENOENT',
+  'EACCES',
+  'EPERM',
+  'ENOTDIR',
+  'ELOOP',
+]);
+
+function isExpectedBundlerFsError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null || !('code' in error)) {
+    return false;
+  }
+  const code = (error as NodeJS.ErrnoException).code;
+  return typeof code === 'string' && EXPECTED_BUNDLER_FS_CODES.has(code);
+}
+
+function resolveRealPathOrNull(dir: string): string | null {
+  try {
+    return realpathSync(dir);
+  } catch (error) {
+    if (isExpectedBundlerFsError(error)) return null;
+    throw error;
+  }
+}
+
+function resolvePackageDirsFrom(packageName: string, starts: readonly string[]): string[] {
+  const segments = packageName.split('/');
+  const seenDirs = new Set<string>();
+  const results: string[] = [];
+  for (const start of starts) {
+    const roots: string[] = [];
+    const real = resolveRealPathOrNull(start);
+    if (real !== null) {
+      roots.push(real);
+    }
+    if (real !== start) {
+      roots.push(start);
+    }
+    for (const root of roots) {
+      let dir = root;
+      while (true) {
+        const manifest = join(dir, 'node_modules', ...segments, 'package.json');
+        if (existsSync(manifest)) {
+          const pkgDir = dirname(manifest);
+          const identity = resolveRealPathOrNull(pkgDir) ?? pkgDir;
+          if (!seenDirs.has(identity)) {
+            seenDirs.add(identity);
+            results.push(pkgDir);
+          }
+          break;
+        }
+        const parent = dirname(dir);
+        if (parent === dir) break;
+        dir = parent;
+      }
+    }
+  }
+  return results;
+}
+
+function readAtFirebaseDependencies(pkgDir: string): string[] {
+  const manifestPath = join(pkgDir, 'package.json');
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(readFileSync(manifestPath, 'utf8')) as Record<string, unknown>;
+  } catch (error) {
+    if (error instanceof SyntaxError || isExpectedBundlerFsError(error)) {
+      return [];
+    }
+    throw error;
+  }
+  const names = new Set<string>();
+  for (const field of ['dependencies', 'peerDependencies', 'optionalDependencies'] as const) {
+    const table = parsed[field];
+    if (typeof table !== 'object' || table === null) continue;
+    for (const key of Object.keys(table)) {
+      if (key.startsWith('@firebase/')) {
+        names.add(key);
+      }
+    }
+  }
+  return [...names].sort();
+}
+
+function hashFirebasePackageSubtree(
+  h: ReturnType<typeof createHash>,
+  rootDir: string,
+  allowedTopDirs?: ReadonlySet<string>,
+): void {
+  const rootManifest = join(rootDir, 'package.json');
+  if (existsSync(rootManifest)) {
+    h.update('package.json\0');
+    h.update(readFileSync(rootManifest));
+    h.update('\0');
+  }
+  const relFiles: string[] = [];
+  const visit = (current: string, rel: string, depth: number): void => {
+    let entries;
+    try {
+      entries = readdirSync(current, { withFileTypes: true });
+    } catch (error) {
+      if (isExpectedBundlerFsError(error)) return;
+      throw error;
+    }
+    for (const entry of entries) {
+      const name = entry.name;
+      if (name === 'node_modules' || name.startsWith('.')) continue;
+      const childRel = rel.length > 0 ? `${rel}/${name}` : name;
+      if (entry.isDirectory()) {
+        if (depth === 0 && allowedTopDirs !== undefined && !allowedTopDirs.has(name)) {
+          continue;
+        }
+        visit(join(current, name), childRel, depth + 1);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      const isNestedManifest = depth > 0 && name === 'package.json';
+      if (isNestedManifest || FIREBASE_SDK_FILE.test(name)) {
+        relFiles.push(childRel);
+      }
+    }
+  };
+  visit(rootDir, '', 0);
+  relFiles.sort();
+  for (const rel of relFiles) {
+    h.update(rel);
+    h.update('\0');
+    h.update(readFileSync(join(rootDir, ...rel.split('/'))));
+    h.update('\0');
+  }
+}
+
+function projectFirebaseContentHash(projectDir: string, firebase: ProjectFirebase): string {
+  const h = createHash('sha256');
+  const firebaseFolders = new Set(
+    [...REAL_SDK_ENTRIES.keys()].map((specifier) => specifier.slice('firebase/'.length)),
+  );
+  h.update('pkg\0firebase\0');
+  hashFirebasePackageSubtree(h, firebase.root, firebaseFolders);
+
+  const visited = new Set<string>();
+  const resolved = new Map<string, string[]>();
+  const queue: Array<{ name: string; starts: string[] }> = PRODUCTION_AI_FIREBASE_SEEDS.map((name) => ({
+    name,
+    starts: [firebase.root, projectDir],
+  }));
+
+  while (queue.length > 0) {
+    const item = queue.shift();
+    if (item === undefined || visited.has(item.name)) continue;
+    visited.add(item.name);
+    const pkgDirs = resolvePackageDirsFrom(item.name, item.starts);
+    if (pkgDirs.length === 0) continue;
+    resolved.set(item.name, pkgDirs);
+    for (const pkgDir of pkgDirs) {
+      for (const dep of readAtFirebaseDependencies(pkgDir)) {
+        if (!visited.has(dep)) {
+          queue.push({ name: dep, starts: [pkgDir, firebase.root, projectDir] });
+        }
+      }
+    }
+  }
+
+  const sortedPackages = [...resolved.entries()].sort(([left], [right]) => {
+    if (left < right) return -1;
+    if (left > right) return 1;
+    return 0;
+  });
+  for (const [pkgName, pkgDirs] of sortedPackages) {
+    for (const pkgDir of pkgDirs) {
+      h.update(`pkg\0${pkgName}\0`);
+      hashFirebasePackageSubtree(h, pkgDir);
+    }
+  }
+  return h.digest('hex');
+}
+
 export function cacheKey(
   opts: BundleOptions,
   version: string,
@@ -419,13 +608,14 @@ export function cacheKey(
     h.update(name);
     h.update(readFileSync(file, 'utf8'));
   }
-  // Production AI mode serves the project's Firebase SDK; hash package.json
-  // rather than its directory path so identical versions share one cache key.
+  // Production AI mode serves the project's Firebase SDK; hash firebase and
+  // resolved @firebase/* contents (never projectDir) so identical installs
+  // share one cache key while patch-package or hand edits invalidate it (#1544).
   const projectFirebase = opts.projectFirebase;
   if (projectFirebase) {
     const firebase = resolveProjectFirebase(projectFirebase.projectDir);
     h.update(`firebase-sdk\0${firebase.version}\0`);
-    h.update(readFileSync(join(firebase.root, 'package.json')));
+    h.update(projectFirebaseContentHash(projectFirebase.projectDir, firebase));
   }
   return `${version}-${h.digest('hex').slice(0, 12)}`;
 }

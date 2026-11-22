@@ -28,6 +28,11 @@ const AI_LOGIC_HOST = 'firebasevertexai.googleapis.com';
 interface Outcome { ok: boolean; text?: string; error?: string }
 declare function runWithAppCheck(): Promise<{ token: string; outcome: Outcome }>;
 declare function runAppCheckAfterAi(): Promise<Outcome>;
+declare global {
+  interface Window {
+    __pyricPatchedAiSdk?: string;
+  }
+}
 
 /** An HTTP proxy that refuses every request and CONNECT, and records each. */
 function proxyTrap(): Promise<{ port: number; seen: string[]; server: Server }> {
@@ -103,7 +108,7 @@ export default scenario(async (app) => {
       const html = await (await fetch(`${host.url}/`)).text();
       const match = /<script type="importmap"[^>]*>([^<]*)<\/script>/.exec(html);
       assert.ok(match, `the page has no import map:\n${html}`);
-      const { imports } = JSON.parse(match[1]!) as { imports: Record<string, string> };
+      const { imports } = JSON.parse(match[1] ?? '{}') as { imports: Record<string, string> };
       assert.equal(imports['firebase/ai'], '/__pyric/sdk/firebase-sdk-ai.js', JSON.stringify(imports));
       assert.equal(imports['firebase/app-check'], '/__pyric/sdk/app-ai-passthrough-app-check.js');
       assert.equal(imports['firebase/app'], '/__pyric/sdk/app-ai-passthrough.js');
@@ -129,6 +134,45 @@ export default scenario(async (app) => {
       assert.deepEqual(mirror, [], `the page loaded Pyric's App Check mirror or AI broker: ${mirror.join(', ')}`);
       const served = pageRequests.filter((url) => /\/__pyric\/sdk\/firebase-sdk-ai\.js$/.test(url));
       assert.equal(served.length, 1, `the page did not load the Firebase SDK's firebase/ai: ${pageRequests.join('\n')}`);
+    });
+
+    const initialAiBundle = await app.step('record the initial cached firebase-sdk-ai bundle before patching @firebase/ai', async () => {
+      const text = await (await fetch(`${host.url}/__pyric/sdk/firebase-sdk-ai.js`)).text();
+      assert.equal(text.includes('patched-ai-sdk-1544'), false);
+      const markerBefore = await page.evaluate(() => window.__pyricPatchedAiSdk ?? null);
+      assert.equal(markerBefore, null);
+      return text;
+    });
+
+    await app.step('patch @firebase/ai in node_modules and restart pyric sandbox without --no-cache (#1544)', async () => {
+      await page.close();
+      await host.process.stop();
+      const targetRel = 'node_modules/@firebase/ai/dist/esm/index.esm.js';
+      const original = app.readFile(targetRel);
+      app.writeFile(
+        targetRel,
+        `${original}\nglobalThis.__pyricPatchedAiSdk = "patched-ai-sdk-1544";\n`,
+      );
+      const restarted = await app.sandboxServer({
+        env: {
+          PYRIC_AI_MODE: 'production',
+          NODE_USE_ENV_PROXY: '1',
+          HTTP_PROXY: trapUrl,
+          HTTPS_PROXY: trapUrl,
+          NO_PROXY: '127.0.0.1,localhost,::1',
+        },
+      });
+      try {
+        const updatedAiBundle = await (await fetch(`${restarted.url}/__pyric/sdk/firebase-sdk-ai.js`)).text();
+        assert.notEqual(updatedAiBundle, initialAiBundle, 'firebase-sdk-ai.js did not change after patching @firebase/ai');
+        const patchedPage = await app.page(restarted.url);
+        await patchedPage.waitForFunction(() => 'runWithAppCheck' in window, undefined, { timeout: 30_000 });
+        const markerAfter = await patchedPage.evaluate(() => window.__pyricPatchedAiSdk ?? null);
+        assert.equal(markerAfter, 'patched-ai-sdk-1544');
+        await patchedPage.close();
+      } finally {
+        await restarted.process.stop();
+      }
     });
 
     await app.step('nothing left the machine', () => {
