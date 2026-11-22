@@ -43,6 +43,9 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs, type FlagValue, type ParsedArgs } from './parse-args.js';
 import { cliVersion } from '../pkg-version.js';
 import { FIREBASE_TESTED_AGAINST } from '../version/compat-target.js';
+import { INITIAL_PARENT_PID, flushStandardStreamsBeforeExit } from './sandbox-process-guard.js';
+
+void INITIAL_PARENT_PID;
 
 // Each command's module is imported when that command runs, never at startup.
 // The service commands alone load about 500 modules, the TypeScript compiler
@@ -475,8 +478,5 @@ if (isDirectRun()) runDirect();
  * underlying fd. See nodejs/node #6379.
  */
 function exitAfterFlush(code: number): void {
-  let pending = 2;
-  const done = () => { if (--pending === 0) process.exit(code); };
-  process.stdout.write('', done);
-  process.stderr.write('', done);
+  flushStandardStreamsBeforeExit(code);
 }
