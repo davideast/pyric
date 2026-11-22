@@ -4,7 +4,7 @@
 // sandbox reads its projectId the way Firebase does. `vite build` ships the
 // real `firebase` package with the same config. Graduation is a build, not
 // a code edit.
-import { initializeApp } from 'firebase/app';
+import { initializeApp, type FirebaseOptions } from 'firebase/app';
 import {
   getAuth,
   onAuthStateChanged,
@@ -20,31 +20,59 @@ import {
   serverTimestamp,
 } from 'firebase/firestore';
 
+const apiKeyEnv = import.meta.env.VITE_FIREBASE_API_KEY;
 let apiKey = 'demo';
-const hasApiKey = import.meta.env.VITE_FIREBASE_API_KEY !== undefined;
+const hasApiKey = apiKeyEnv !== undefined && apiKeyEnv !== null && apiKeyEnv !== '';
 if (hasApiKey) {
-  apiKey = import.meta.env.VITE_FIREBASE_API_KEY as string;
+  apiKey = apiKeyEnv as string;
 }
 
+const authDomainEnv = import.meta.env.VITE_FIREBASE_AUTH_DOMAIN;
 let authDomain = 'demo.firebaseapp.com';
-const hasAuthDomain = import.meta.env.VITE_FIREBASE_AUTH_DOMAIN !== undefined;
+const hasAuthDomain = authDomainEnv !== undefined && authDomainEnv !== null && authDomainEnv !== '';
 if (hasAuthDomain) {
-  authDomain = import.meta.env.VITE_FIREBASE_AUTH_DOMAIN as string;
+  authDomain = authDomainEnv as string;
 }
 
+const projectIdEnv = import.meta.env.VITE_FIREBASE_PROJECT_ID;
 let projectId = 'demo';
-const hasProjectId = import.meta.env.VITE_FIREBASE_PROJECT_ID !== undefined;
+const hasProjectId = projectIdEnv !== undefined && projectIdEnv !== null && projectIdEnv !== '';
 if (hasProjectId) {
-  projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID as string;
+  projectId = projectIdEnv as string;
 }
 
-const app = initializeApp({
-  // Filled from .env (see .env.example) at `vite build` time for production.
-  // In `vite dev` the pyric sandbox stands in for Firebase and reads projectId.
+// Filled from .env (see .env.example) at `vite build` time and for production
+// AI mode. In `vite dev` the pyric sandbox stands in for Firebase and reads
+// the configured options.
+const firebaseConfig: FirebaseOptions = {
   apiKey,
   authDomain,
   projectId,
-});
+};
+
+const storageBucketEnv = import.meta.env.VITE_FIREBASE_STORAGE_BUCKET;
+const hasStorageBucket =
+  storageBucketEnv !== undefined && storageBucketEnv !== null && storageBucketEnv !== '';
+if (hasStorageBucket) {
+  firebaseConfig.storageBucket = storageBucketEnv as string;
+}
+
+const messagingSenderIdEnv = import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID;
+const hasMessagingSenderId =
+  messagingSenderIdEnv !== undefined &&
+  messagingSenderIdEnv !== null &&
+  messagingSenderIdEnv !== '';
+if (hasMessagingSenderId) {
+  firebaseConfig.messagingSenderId = messagingSenderIdEnv as string;
+}
+
+const appIdEnv = import.meta.env.VITE_FIREBASE_APP_ID;
+const hasAppId = appIdEnv !== undefined && appIdEnv !== null && appIdEnv !== '';
+if (hasAppId) {
+  firebaseConfig.appId = appIdEnv as string;
+}
+
+const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
