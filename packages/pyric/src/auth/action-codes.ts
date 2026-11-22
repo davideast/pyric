@@ -276,7 +276,7 @@ export async function verifyBeforeUpdateEmail(
   const t = userInternal(user, 'verifyBeforeUpdateEmail').target;
   const target = t;
   if (settings) validateActionCodeSettings(settings, 'verifyBeforeUpdateEmail');
-  assertEmailFormat(newEmail, 'verifyBeforeUpdateEmail');
+  assertNewEmailFormat(newEmail, 'verifyBeforeUpdateEmail');
   if (!user.email) {
     throw makeAuthError('auth/missing-email', 'An email address must be provided.');
   }
@@ -486,9 +486,19 @@ function assertLive(
   void code;
 }
 
+function isFormattedEmail(email: string): boolean {
+  return typeof email === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
 function assertEmailFormat(email: string, api: string): void {
-  if (typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+  if (!isFormattedEmail(email)) {
     throw makeAuthError('auth/invalid-email', `${api}: the email address is badly formatted.`);
+  }
+}
+
+function assertNewEmailFormat(email: string, api: string): void {
+  if (!isFormattedEmail(email)) {
+    throw makeAuthError('auth/invalid-new-email', `${api}: the new email address is badly formatted.`);
   }
 }
 

@@ -196,6 +196,23 @@ function attachServedSandboxHook(
   Object.defineProperty(handle, SERVED_SANDBOX_HOOK, { value: hook, writable: false, configurable: false });
 }
 
+const authStateReadyAttached = new WeakSet<object>();
+
+function attachServedInPageAuthStateReady(handle: ReturnType<typeof pyricGetAuth>): void {
+  if (authStateReadyAttached.has(handle)) {
+    return;
+  }
+  authStateReadyAttached.add(handle);
+  const baseAuthStateReady = handle.authStateReady.bind(handle);
+  const wrapped = afterPageBackend(() => baseAuthStateReady());
+  Object.defineProperty(handle, 'authStateReady', {
+    value: wrapped,
+    writable: true,
+    enumerable: true,
+    configurable: true,
+  });
+}
+
 function resolveServedAuth(
   resolved: FirebaseApp,
   initialPersistence?: ResolvedPersistenceConfig,
@@ -208,6 +225,7 @@ function resolveServedAuth(
       mockSignInResult: (result) => ipAuth.sandbox.mockSignInResult(handle, result),
     });
     wireAppPersistence(resolved, handle, initialPersistence);
+    attachServedInPageAuthStateReady(handle);
     const releaseActiveAuth = registerActiveAuth(handle);
     registerAppCleanup(resolved, releaseActiveAuth);
     return handle;
@@ -357,6 +375,7 @@ export const initializeAuth = ((app?: unknown, deps?: unknown) => {
       mockSignInResult: (result) => ipAuth.sandbox.mockSignInResult(handle, result),
     });
     wireAppPersistence(resolved, handle, initialPersistence);
+    attachServedInPageAuthStateReady(handle);
     const releaseActiveAuth = registerActiveAuth(handle);
     registerAppCleanup(resolved, releaseActiveAuth);
     return handle;

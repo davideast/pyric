@@ -81,7 +81,7 @@ export async function signInWithEmailAndPassword(
     user,
     providerId: null,
     operationType: 'signIn',
-    _additionalUserInfo: { isNewUser: false, profile: {}, providerId: null },
+    _additionalUserInfo: { isNewUser: false, profile: {}, providerId: 'password' },
   };
 }
 
@@ -108,7 +108,7 @@ export async function createUserWithEmailAndPassword(
     user,
     providerId: null,
     operationType: 'signIn',
-    _additionalUserInfo: { isNewUser: true, profile: {}, providerId: null },
+    _additionalUserInfo: { isNewUser: true, profile: {}, providerId: 'password' },
   };
 }
 
@@ -307,7 +307,7 @@ export async function signInWithCredential(
         user,
         providerId: null,
         operationType: 'signIn',
-        _additionalUserInfo: { isNewUser: false, profile: {}, providerId: null },
+        _additionalUserInfo: { isNewUser: false, profile: {}, providerId: 'password' },
       };
     }
     if (credential.emailLink !== null) {
@@ -375,6 +375,10 @@ export async function signInWithCredential(
   }
   backend.assertSignInAllowed(mock.user.uid);
   backend.recordProviderSignIn(mock.user, credentialProviderId);
-  await backend.transitionCurrentUser(mock.user, credentialProviderId);
-  return mock;
+  const user = ensureProviderUser(backend, mock.user, credentialProviderId);
+  await backend.transitionCurrentUser(user, credentialProviderId);
+  if (user === mock.user) {
+    return mock;
+  }
+  return { ...mock, user };
 }

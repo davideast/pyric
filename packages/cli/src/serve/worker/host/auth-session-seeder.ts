@@ -91,20 +91,50 @@ export interface OAuthCredentialPayload {
   readonly emailVerified?: boolean;
 }
 
+const upgradedAnonymousSessions = new WeakSet<MintedSession>();
+
+/** Record that a minted session resulted from upgrading an anonymous user with an email credential (#1698). */
+export function markAnonymousUpgradeSession(session: MintedSession): void {
+  upgradedAnonymousSessions.add(session);
+}
+
+function additionalInfoProviderId(
+  session: MintedSession,
+  credentialProviderId: string | null,
+): string | null {
+  if (credentialProviderId !== null) {
+    return credentialProviderId;
+  }
+  const firebaseClaim = session.state.token?.firebase as
+    | { sign_in_provider?: unknown }
+    | undefined;
+  const signInProvider = firebaseClaim?.sign_in_provider;
+  if (
+    typeof signInProvider === 'string' &&
+    signInProvider.length > 0 &&
+    signInProvider !== 'anonymous' &&
+    signInProvider !== 'custom'
+  ) {
+    return signInProvider;
+  }
+  return null;
+}
+
 /** Serialized UserCredential reply shape for a minted session. */
 export function credReply(
   session: MintedSession,
   providerId: string | null,
   isNewUser: boolean = false,
 ) {
+  const wasAnonymousUpgrade = upgradedAnonymousSessions.delete(session);
   return {
     user: serializeSessionUser(session.user),
     providerId,
     operationType: 'signIn' as const,
     additionalUserInfo: {
-      isNewUser,
+      isNewUser: isNewUser || wasAnonymousUpgrade,
       profile: {},
-      providerId,
+      providerId: additionalInfoProviderId(session, providerId),
     },
   };
 }

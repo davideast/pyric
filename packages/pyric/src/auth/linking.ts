@@ -72,23 +72,28 @@ export async function linkWithCredential(
   target.backend.assertProviderEnabled(credential.providerId);
 
   if (credential instanceof EmailAuthCredential) {
+    const wasAnonymous = target.backend.findByUid(user.uid)?.isAnonymous === true;
     const password = credential.password;
+    let emailVerified: boolean | undefined;
+    if (credential.emailLink !== null) {
+      emailVerified = true;
+    }
     const stored = target.backend.linkProvider(user.uid, credential.providerId, {
       email: credential.email,
-      // An email-LINK credential carries no password — the account is
+      // An email-LINK credential carries no password -- the account is
       // linked without one, and stays passwordless until it sets one.
       password,
       // A link credential proves control of the address; a password
       // credential proves nothing about the address itself.
-      emailVerified: credential.emailLink !== null ? true : undefined,
+      emailVerified,
     });
-    return completeLink(target, stored.uid, credential.providerId);
+    return completeLink(target, stored.uid, credential.providerId, wasAnonymous);
   }
 
   // OAuth (or any non-email) credential: the sandbox cannot verify the
   // IdP's token, so the identity behind it must come through the seam.
   const stored = target.backend.linkProvider(user.uid, credential.providerId);
-  return completeLink(target, stored.uid, credential.providerId);
+  return completeLink(target, stored.uid, credential.providerId, false);
 }
 
 /**
@@ -183,7 +188,7 @@ async function linkViaFlow(
   }
   const providerId = resolved.providerId ?? provider.providerId;
   const stored = target.backend.linkProvider(user.uid, providerId);
-  return completeLink(target, stored.uid, providerId);
+  return completeLink(target, stored.uid, providerId, false);
 }
 
 /** Rebuild the linked user, make it current if it is, and shape the
@@ -192,6 +197,7 @@ function completeLink(
   target: SandboxTarget,
   uid: string,
   providerId: string,
+  upgradedAnonymous: boolean,
 ): UserCredential {
   const stored = target.backend.findByUid(uid);
   if (!stored) {
@@ -203,22 +209,24 @@ function completeLink(
     // setCurrentUser (not transitionCurrentUser) because the UID does not
     // change: this is not a sign-in, so the beforeAuthStateChanged gate
     // must not fire and onAuthStateChanged must not re-announce a
-    // "new" user. Prod agrees — a link keeps the session.
+    // "new" user. Prod agrees -- a link keeps the session.
     target.backend.setCurrentUser(updated, providerId);
+  }
+  let credentialProviderId: string | null = providerId;
+  if (providerId === 'password') {
+    credentialProviderId = null;
   }
   return {
     user: updated,
-    // The credential names the provider that was attached — unlike a
-    // password SIGN-IN, where providerId is null. A link is by definition
-    // about a specific provider.
-    providerId: providerId === 'password' ? null : providerId,
+    providerId: credentialProviderId,
     operationType: 'link',
     _additionalUserInfo: {
-      // A link never creates an identity — it attaches to one that
-      // already existed.
-      isNewUser: false,
+      // Production's email linkEmailPassword hits /v1/accounts:signUp, so
+      // upgrading an anonymous account to email/password reports isNewUser
+      // true with providerId 'password' (#1698).
+      isNewUser: upgradedAnonymous,
       profile: {},
-      providerId: providerId === 'password' ? null : providerId,
+      providerId,
     },
   };
 }

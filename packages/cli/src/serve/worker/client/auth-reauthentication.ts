@@ -12,7 +12,12 @@ export async function reauthenticateWithCredential(user: ClientUser, credential:
     credential: credentialWireOf(credential),
   })) as SerializedUserCredential;
   syncClientUserFromWire(port, user, raw.user);
-  return { ...raw, user };
+  return {
+    user,
+    providerId: raw.providerId,
+    operationType: raw.operationType,
+    _additionalUserInfo: raw.additionalUserInfo,
+  };
 }
 
 export async function reauthenticateWithProvider(
@@ -24,5 +29,10 @@ export async function reauthenticateWithProvider(
     t: 'op', id: nextId(), method: 'auth.reauthenticateWithProvider', uid: user.uid, tenantId: user.tenantId, identity,
   })) as SerializedUserCredential;
   syncClientUserFromWire(port, user, raw.user);
-  return { ...raw, user };
+  return {
+    user,
+    providerId: raw.providerId,
+    operationType: raw.operationType,
+    _additionalUserInfo: raw.additionalUserInfo,
+  };
 }

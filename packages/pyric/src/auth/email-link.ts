@@ -183,7 +183,7 @@ export async function signInWithEmailLink(
     // Email/password credentials have a null providerId, including email links.
     providerId: null,
     operationType: 'signIn',
-    _additionalUserInfo: { isNewUser, profile: {}, providerId: null },
+    _additionalUserInfo: { isNewUser, profile: {}, providerId: 'password' },
   };
 }
 

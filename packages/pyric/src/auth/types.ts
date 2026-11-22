@@ -301,8 +301,11 @@ export interface Auth {
    *  `tenantId`, and rules evaluate the session with
    *  `request.auth.token.firebase.tenant` set to it. */
   tenantId: string | null;
+  /** Resolves once the initial auth state has settled. Mirrors
+   *  `firebase/auth`'s `Auth.authStateReady()`. */
+  authStateReady(): Promise<void>;
   /** Sign the current user out. Method form of the free `signOut(auth)`
-   *  function — `firebase/auth`'s `Auth` exposes both, so consumer code
+   *  function -- `firebase/auth`'s `Auth` exposes both, so consumer code
    *  written as `auth.signOut()` works unchanged (AUTH-GAP). */
   signOut(): Promise<void>;
   /** Internal — identifies the owning sandbox backend. */

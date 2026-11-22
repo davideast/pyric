@@ -77,7 +77,9 @@ for (const hosted of [false, true]) {
         firstInfo: { isNewUser: true, providerId: null }, secondInfo: { isNewUser: false, providerId: null },
         readable: { secret: 'owned' }, denied: 'permission-denied', invalid: 'auth/invalid-custom-token',
         currentAfterInvalid: 'custom-user', otherUid: result.originalOtherUid,
-        anonymousInfo: { isNewUser: true }, createdInfo: { isNewUser: true }, existingInfo: { isNewUser: false },
+        anonymousInfo: { isNewUser: true, providerId: null },
+        createdInfo: { isNewUser: true, providerId: 'password' },
+        existingInfo: { isNewUser: false, providerId: 'password' },
       });
       expect(result.tokenLength).toBeGreaterThan(0);
     } finally {

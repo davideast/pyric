@@ -74,12 +74,16 @@ describe('linkWithCredential — the anonymous upgrade', () => {
     expect(cred.user.isAnonymous).toBe(false);
     expect(cred.user.email).toBe('ada@example.com');
     expect(cred.operationType).toBe('link');
+    expect(cred.providerId).toBeNull();
     expect(providerIds(cred.user)).toContain('password');
-    // A link never creates an identity.
-    expect(getAdditionalUserInfo(cred)!.isNewUser).toBe(false);
+    // Upgrading an anonymous account to email/password reports isNewUser true
+    // and providerId 'password' (#1698).
+    const info = getAdditionalUserInfo(cred);
+    expect(info?.isNewUser).toBe(true);
+    expect(info?.providerId).toBe('password');
     // The upgraded identity is the live current user, same uid.
-    expect(auth.currentUser!.uid).toBe(anonUid);
-    expect(auth.currentUser!.isAnonymous).toBe(false);
+    expect(auth.currentUser?.uid).toBe(anonUid);
+    expect(auth.currentUser?.isAnonymous).toBe(false);
   });
 
   it('the linked credential then works as a real sign-in', async () => {

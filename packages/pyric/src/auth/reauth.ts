@@ -182,7 +182,7 @@ function completeReauth(
     _additionalUserInfo: {
       isNewUser: false,
       profile: {},
-      providerId,
+      providerId: signInProvider,
     },
   };
 }
