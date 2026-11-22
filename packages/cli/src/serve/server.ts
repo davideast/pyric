@@ -31,6 +31,7 @@ import {
   type GuardDecision,
   type RemoteAccessOptions,
 } from './guard-policy.js';
+import { isRemoteClientRequest } from './project-key.js';
 import {
   isAuthenticatedRemoteHtmlRequest,
   resolveHtmlCookieScheme,
@@ -127,7 +128,7 @@ export interface StaticServerOptions {
    *  REST routes when backed by a host sandbox. */
   restHandler?: RestAuthRtdbHandler;
   /** Applied to every served `.html` body (import-map/init injection). */
-  transformHtml?: (html: string, context: { localPeer: boolean }) => string;
+  transformHtml?: (html: string, context: { localPeer: boolean; remoteClient?: boolean }) => string;
   /** Session capability token minted for this boot; set as an HttpOnly `/__pyric`
    *  cookie on local-peer HTML responses so same-origin browser/worker requests authenticate. */
   sessionToken?: string;
@@ -436,7 +437,11 @@ async function handleRequest(
     }
     if (opts.transformHtml) {
       const { readFile } = await import('node:fs/promises');
-      const html = opts.transformHtml(await readFile(file, 'utf8'), { localPeer: hasLocalOrAuthedSession });
+      const remoteClient = isRemoteClientRequest(req);
+      const html = opts.transformHtml(await readFile(file, 'utf8'), {
+        localPeer: hasLocalOrAuthedSession,
+        remoteClient,
+      });
       res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store' });
       res.end(req.method === 'HEAD' ? undefined : html);
       return;

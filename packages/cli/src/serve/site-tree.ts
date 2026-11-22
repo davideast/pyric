@@ -1,4 +1,5 @@
 import { stampHostedTarget } from './runtime/hosted-target.js';
+import { clientProjectKey } from './project-key.js';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { extname, join } from 'node:path';
@@ -313,7 +314,9 @@ export function createSiteTreeHandler(
     res.writeHead(200, responseHeaders);
     if (isStudioHtml) {
       const canStampIdentity = canBootstrap || authenticated;
-      const stampProject = canStampIdentity ? hostedProjectKey : undefined;
+      const stampProject = canStampIdentity
+        ? clientProjectKey(hostedProjectKey, isRemoteRequest)
+        : undefined;
       const stampToken = canBootstrap ? sessionToken : undefined;
       const stampOptions = hostedProjectKey !== undefined ? { hosted: true } : undefined;
       res.end(

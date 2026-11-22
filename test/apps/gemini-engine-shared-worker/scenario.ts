@@ -470,6 +470,23 @@ export default scenario(async (app) => {
       assert.ok(bodies.length > 0, 'the browser received responses');
     });
 
+    await app.step('ai.engine.apiKey configured in Vite config stays server-side across served HTML and init.json (#1591)', async () => {
+      const configKeyServer = await app.devServer({
+        name: 'config-api-key-dev-server',
+        env: { GEMINI_STAND_IN_URL: standIn.url, GEMINI_CONFIG_API_KEY: SERVER_KEY },
+      });
+      const configPage = await openPage(app, configKeyServer);
+      assert.deepEqual(await configPage.evaluate(() => runGemini('config-api-key', true)), ANSWERED);
+      const served = await Promise.all(SERVED_PATHS.map((path) => servedText(configKeyServer, path)));
+      for (const text of served) {
+        assert.ok(!text.includes(SERVER_KEY), text.slice(0, 200));
+        assert.ok(!text.includes(standIn.url), text.slice(0, 200));
+      }
+      const servedHtml = served[0] ?? '';
+      assert.ok(servedHtml.includes('globalThis.__PYRIC_AI_ENGINE__={"kind":"gemini"};'), servedHtml);
+      await configKeyServer.process.stop();
+    });
+
     await app.step('no module the dev server serves carries a VITE_ variable the page never reads', async () => {
       const served = await Promise.all(SERVED_PATHS.map(async (path) => `${path}\n${await servedText(host, path)}`));
       const carriers = [...served, ...bodies].filter((text) => text.includes(VITE_VALUE)).map((text) => text.split('\n', 1)[0]);

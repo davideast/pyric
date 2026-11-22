@@ -74,6 +74,7 @@ export async function handleState(
   req: IncomingMessage,
   res: ServerResponse,
   url: URL,
+  options: { isRemoteRequest?: boolean } = {},
 ): Promise<void> {
   const section = url.searchParams.get('section');
   const writerId = (req.headers['x-pyric-writer'] as string | undefined) ?? '';
@@ -95,12 +96,15 @@ export async function handleState(
         }).end('null');
         return;
       }
-      res.writeHead(200, {
+      const responseHeaders: Record<string, string> = {
         'content-type': 'application/json; charset=utf-8',
         'cache-control': 'no-store',
-        'x-pyric-project-dir': state.projectDir,
         [STATE_VERSION_HEADER]: currentVersion,
-      });
+      };
+      if (options.isRemoteRequest !== true) {
+        responseHeaders['x-pyric-project-dir'] = state.projectDir;
+      }
+      res.writeHead(200, responseHeaders);
       res.end(JSON.stringify(value));
       return;
     }

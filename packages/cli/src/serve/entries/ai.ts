@@ -43,7 +43,7 @@ import {
   type ClientDb,
 } from '../worker/client.js';
 import { disconnectClient } from '../worker/client/disconnect.js';
-import { AI_PROXY_PATH, browserGeminiEngine } from '../worker/ai-proxy-paths.js';
+import { AI_PROXY_PATH, browserGeminiEngine, hasNonBlankApiKey } from '../worker/ai-proxy-paths.js';
 import { stampedSessionToken } from '../runtime/hosted-target.js';
 import { openWorkerDb, useWorker, workerDb } from './worker-runtime.js';
 import { workerClientForApp } from './app-client.js';
@@ -221,7 +221,7 @@ function withProxyDefault(options?: ipAi.AIOptions): ipAi.AIOptions | undefined 
       } as EngineOption,
     };
   }
-  const isKeylessGemini = config.kind === 'gemini' && (engine as { apiKey?: string }).apiKey === undefined;
+  const isKeylessGemini = config.kind === 'gemini' && !hasNonBlankApiKey((engine as { apiKey?: string }).apiKey);
   if (isKeylessGemini) {
     const proxyFetch = config.fetch === undefined ? proxyFetchWithSessionToken() : undefined;
     return {

@@ -20,16 +20,26 @@ type GeminiWire = Extract<AiEngineConfigWire, { kind: 'gemini' }>;
  *  the engine the dev server attaches the credentials. */
 export type BrowserGeminiEngine = GeminiWire & { serverAttachesAuth?: true };
 
+/** True when a wire or engine config provides a non-empty static API key. */
+export function hasNonBlankApiKey(apiKey: string | undefined): apiKey is string {
+  return typeof apiKey === 'string' && apiKey.trim().length > 0;
+}
+
 /**
  * The gemini engine config for a browser. The browser has no server
- * environment, so a config without its own `apiKey` sends through the dev
+ * environment, so a config without a non-blank `apiKey` sends through the dev
  * server's {@link GEMINI_PROXY_PATH}, which attaches the key and sends to
  * the server's configured base URL: the key never reaches the browser. A
- * config with an `apiKey` already holds its key in the browser, so it keeps
- * its own target.
+ * config with a non-blank `apiKey` already holds its key in the browser, so
+ * it keeps its own target.
  */
 export function browserGeminiEngine(wire: GeminiWire): BrowserGeminiEngine {
-  const holdsItsOwnKey = wire.apiKey !== undefined;
-  if (holdsItsOwnKey) return { ...wire };
+  if (hasNonBlankApiKey(wire.apiKey)) {
+    const result: BrowserGeminiEngine = { kind: 'gemini', apiKey: wire.apiKey.trim() };
+    if (wire.baseUrl !== undefined) {
+      result.baseUrl = wire.baseUrl;
+    }
+    return result;
+  }
   return { kind: 'gemini', baseUrl: GEMINI_PROXY_PATH, serverAttachesAuth: true };
 }

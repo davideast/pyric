@@ -27,6 +27,7 @@ import { formatBeaconReceipt } from '../serve/beacon-route.js';
 import type { InitPayload } from '../serve/namespace.js';
 import { formatAiStatusLine } from '../serve/ai-status.js';
 import { injectServeTags } from '../serve/html-injection.js';
+import { opaqueProjectKey } from '../serve/project-key.js';
 import { liveHostPageImportMap } from '../serve/live-host-pages.js';
 import { requireLiveProject } from '../serve/live-project.js';
 import { createLiveHostState } from '../serve/live-host-state.js';
@@ -638,12 +639,18 @@ async function startServeRuntime(opts: {
       // Never force in-page: serve always serves the worker, and the bridge peer
       // routes agent tool-calls THROUGH the worker (see connectBridgePeer), so app
       // + Studio + agent share the one sandbox even under --bridge.
-      transformHtml: (html, ctx) => injectServeTags(html, {
-        workerVersion, hosted, aiMode, owners,
-        importMap: pageImportMap,
-        sessionToken: ctx.localPeer ? sessionToken : undefined,
-        remotePeer: !ctx.localPeer,
-      }),
+      transformHtml: (html, ctx) => {
+        let htmlHosted = hosted;
+        if (hosted !== undefined && ctx.remoteClient === true) {
+          htmlHosted = { projectKey: opaqueProjectKey(hosted.projectKey) };
+        }
+        return injectServeTags(html, {
+          workerVersion, hosted: htmlHosted, aiMode, owners,
+          importMap: pageImportMap,
+          sessionToken: ctx.localPeer ? sessionToken : undefined,
+          remotePeer: !ctx.localPeer,
+        });
+      },
       sessionToken,
       allowedHosts: effectiveAllowedHosts,
       remoteAccess: effectiveRemoteAccess,

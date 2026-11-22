@@ -159,7 +159,7 @@ describe('Vite AI configuration', () => {
     expect(viteWorkerEpochSalt('/other-app', undefined)).not.toBe(scripted);
   });
 
-  it('strips upstream userinfo from browser-served engine wire values (#1766)', () => {
+  it('strips Gemini apiKey and upstream userinfo from browser-served engine wire values (#1591, #1766)', () => {
     expect(browserAiEngineWire(undefined)).toBeUndefined();
     expect(browserAiEngineWire({ kind: 'scripted', script: [{ respond: { text: 'hi' } }] })).toEqual({
       kind: 'scripted',
@@ -177,11 +177,13 @@ describe('Vite AI configuration', () => {
         apiKey: 'explicit-key',
         baseUrl: `http://gateway-user:gateway-secret-1766 "q'@127.0.0.1:9999`,
       }),
-    ).toEqual({
-      kind: 'gemini',
-      apiKey: 'explicit-key',
-      baseUrl: 'http://127.0.0.1:9999',
-    });
+    ).toEqual({ kind: 'gemini' });
+    expect(
+      browserAiEngineWire({
+        kind: 'gemini',
+        apiKey: 'AIzaSy-config-secret-1591',
+      }),
+    ).toEqual({ kind: 'gemini' });
     expect(
       browserAiEngineWire({
         kind: 'openai',

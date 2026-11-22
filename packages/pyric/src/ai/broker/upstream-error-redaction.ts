@@ -18,19 +18,10 @@
  * envelope unparseable.
  */
 import { redactUrl } from './synthesizer.js';
-
-export const CREDENTIAL_MASK = '***';
-
-/**
- * Every form every credential can appear in, raw and percent-encoded,
- * longest first. One credential can contain another, such as an ADC token
- * and the refreshed token that extends it, so the longer is masked first:
- * masking the shorter first would leave the rest of the longer behind.
- */
-export function quotedForms(credentials: readonly string[]): string[] {
-  const forms = new Set(credentials.flatMap((credential) => [encodeURIComponent(credential), credential]));
-  return [...forms].sort((a, b) => b.length - a.length);
-}
+import {
+  encodeUtf8Base64,
+  redactTransformedCredentials,
+} from './credential-transform-redaction.js';
 
 /** A URL's scheme and the slashes after it, forward or back, any count. */
 const SCHEME_PREFIX = /^(\s*[a-z][a-z0-9+.-]*:[/\\]*)/i;
@@ -163,37 +154,6 @@ function decoded(part: string): string {
   } catch {
     return part;
   }
-}
-
-const BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-
-function encodeUtf8Base64(text: string): string {
-  const bytes = new TextEncoder().encode(text);
-  if (bytes.length === 0) return '';
-  let out = '';
-  let i = 0;
-  while (i + 2 < bytes.length) {
-    const triple = (bytes[i]! << 16) | (bytes[i + 1]! << 8) | bytes[i + 2]!;
-    out += BASE64_ALPHABET[(triple >> 18) & 63]!;
-    out += BASE64_ALPHABET[(triple >> 12) & 63]!;
-    out += BASE64_ALPHABET[(triple >> 6) & 63]!;
-    out += BASE64_ALPHABET[triple & 63]!;
-    i += 3;
-  }
-  const remaining = bytes.length - i;
-  if (remaining === 1) {
-    const single = bytes[i]! << 16;
-    out += BASE64_ALPHABET[(single >> 18) & 63]!;
-    out += BASE64_ALPHABET[(single >> 12) & 63]!;
-    out += '==';
-  } else if (remaining === 2) {
-    const pair = (bytes[i]! << 16) | (bytes[i + 1]! << 8);
-    out += BASE64_ALPHABET[(pair >> 18) & 63]!;
-    out += BASE64_ALPHABET[(pair >> 12) & 63]!;
-    out += BASE64_ALPHABET[(pair >> 6) & 63]!;
-    out += '=';
-  }
-  return out;
 }
 
 function synthesizedBasicTokens(url: string, rawUserinfo: string): string[] {
@@ -359,9 +319,7 @@ export function redactUpstreamUrl(url: string): string {
  * one message or one header value.
  */
 export function redactUpstreamText(text: string, credentials: readonly string[]): string {
-  let masked = text;
-  for (const form of quotedForms(credentials)) masked = masked.split(form).join(CREDENTIAL_MASK);
-  return redactUrl(masked);
+  return redactUrl(redactTransformedCredentials(text, credentials));
 }
 
 function redactValue(value: unknown, credentials: readonly string[]): unknown {

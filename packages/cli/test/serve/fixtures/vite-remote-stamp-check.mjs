@@ -60,6 +60,19 @@ try {
     host: `127.0.0.1:${port}`,
     accept: 'text/html',
   });
+  const tokenMatch = /"sessionToken":"([^"]+)"/.exec(report.local.body);
+  if (tokenMatch && tokenMatch[1]) {
+    const token = tokenMatch[1];
+    report.authedRemote = await getRawHtml(port, '/', {
+      host: `remote.example:${port}`,
+      accept: 'text/html',
+      'x-pyric-session-token': token,
+    });
+    report.authedRemoteInit = await getRawHtml(port, '/__pyric/init.json', {
+      host: `remote.example:${port}`,
+      'x-pyric-session-token': token,
+    });
+  }
 } catch (error) {
   if (error instanceof Error) {
     report.failure = error.stack ?? error.message;

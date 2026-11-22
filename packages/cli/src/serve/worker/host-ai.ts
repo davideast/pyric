@@ -33,7 +33,7 @@ import { getAI, TARGET_SYMBOL, type AIOptions } from 'pyric/ai';
 
 import { serializeError, type OpMessage, type AiStreamSubMessage, type AiEngineConfigWire } from './protocol.js';
 import { type HostCtx, type PortLike, type AiBrokerLike, post, ok, fail } from './host-context.js';
-import { AI_PROXY_PATH, browserGeminiEngine } from './ai-proxy-paths.js';
+import { AI_PROXY_PATH, browserGeminiEngine, hasNonBlankApiKey } from './ai-proxy-paths.js';
 import { resolveEffectiveAiAppCheck } from './host/app-check.js';
 
 /** Is this op an AI op (routed here instead of handleOp)? */
@@ -55,17 +55,45 @@ function proxyFetchWithSessionToken(sessionToken: string | undefined): typeof fe
   }) as typeof fetch;
 }
 
+function resolveNodeGeminiEngine(
+  wire: Extract<AiEngineConfigWire, { kind: 'gemini' }>,
+  fromServerConfig: boolean,
+): NonNullable<AIOptions['engine']> {
+  if (fromServerConfig) {
+    const serverConfig: Extract<AiEngineConfigWire, { kind: 'gemini' }> = { kind: 'gemini' };
+    if (wire.baseUrl !== undefined) serverConfig.baseUrl = wire.baseUrl;
+    if (wire.apiKey !== undefined) serverConfig.apiKey = wire.apiKey;
+    return serverConfig;
+  }
+  // Page-supplied configs on a hosted Node worker must never redirect server
+  // GEMINI_API_KEY / GOOGLE_GENAI_API_KEY / ADC credentials to a page-chosen
+  // baseUrl (#1599). Allow page baseUrl only when paired with a non-blank
+  // page apiKey; otherwise ignore baseUrl and drop blank apiKey.
+  if (hasNonBlankApiKey(wire.apiKey)) {
+    const pageConfig: Extract<AiEngineConfigWire, { kind: 'gemini' }> = {
+      kind: 'gemini',
+      apiKey: wire.apiKey.trim(),
+    };
+    if (wire.baseUrl !== undefined) pageConfig.baseUrl = wire.baseUrl;
+    return pageConfig;
+  }
+  return { kind: 'gemini' };
+}
+
 /**
- * Wire config → the mirror's `EngineConfig`. Browser workers use the proxy;
- * Node resolves that same route to its server-only upstream. Explicit engine
- * URLs keep their target. Script entries pass through as-is (they are the broker's own
- * plain authoring shapes; predicate matchers never made it across the port —
- * structured clone rejects functions loudly at send time).
+ * Wire config -> the mirror's `EngineConfig`. Browser workers use the proxy;
+ * Node resolves that same route to its server-only upstream. Server-configured
+ * URLs keep their target; page-supplied Gemini baseUrls on Node are honored
+ * only when the page supplies its own non-blank apiKey (#1599). Script entries
+ * pass through as-is (they are the broker's own plain authoring shapes;
+ * predicate matchers never made it across the port -- structured clone rejects
+ * functions loudly at send time).
  */
 function resolveEngineConfig(
   wire: AiEngineConfigWire,
   upstream: HostCtx['aiUpstream'],
   runsInBrowser: boolean,
+  fromServerConfig: boolean,
   sessionToken?: string,
 ): NonNullable<AIOptions['engine']> {
   if (wire.kind === 'openai') {
@@ -73,38 +101,48 @@ function resolveEngineConfig(
     const usesProxy = configuredUrl.replace(/\/$/, '') === AI_PROXY_PATH;
     const baseUrl = usesProxy ? (upstream?.baseUrl ?? configuredUrl) : configuredUrl;
     const proxyFetch = usesProxy && !upstream?.fetch ? proxyFetchWithSessionToken(sessionToken) : undefined;
-    return {
+    const openAiConfig: Extract<NonNullable<AIOptions['engine']>, { kind: 'openai' }> = {
       kind: 'openai',
       baseUrl,
       fetch: upstream?.fetch ?? proxyFetch,
-      ...(wire.model !== undefined ? { model: wire.model } : {}),
-      ...(wire.modelMap !== undefined ? { modelMap: wire.modelMap } : {}),
     };
+    if (wire.model !== undefined) openAiConfig.model = wire.model;
+    if (wire.modelMap !== undefined) openAiConfig.modelMap = wire.modelMap;
+    return openAiConfig;
   }
   const isGeminiWire = wire.kind === 'gemini';
   if (isGeminiWire) {
-    // Node reads the key from its own environment. A browser worker has
-    // none, so it sends through the dev server's gemini proxy.
-    const config = runsInBrowser ? browserGeminiEngine(wire) : wire;
-    const proxyFetch = runsInBrowser && (config as { serverAttachesAuth?: boolean }).serverAttachesAuth
-      ? proxyFetchWithSessionToken(sessionToken)
-      : undefined;
-    return {
-      ...config,
-      ...(proxyFetch !== undefined ? { fetch: proxyFetch } : {}),
-    } as NonNullable<AIOptions['engine']>;
+    if (!runsInBrowser) {
+      return resolveNodeGeminiEngine(wire, fromServerConfig);
+    }
+    const config = browserGeminiEngine(wire);
+    const geminiConfig: Extract<NonNullable<AIOptions['engine']>, { kind: 'gemini' }> & {
+      serverAttachesAuth?: true;
+    } = { kind: 'gemini' };
+    if (config.baseUrl !== undefined) geminiConfig.baseUrl = config.baseUrl;
+    if (config.apiKey !== undefined) geminiConfig.apiKey = config.apiKey;
+    if (config.serverAttachesAuth === true) {
+      geminiConfig.serverAttachesAuth = true;
+      const proxyFetch = proxyFetchWithSessionToken(sessionToken);
+      if (proxyFetch !== undefined) geminiConfig.fetch = proxyFetch;
+    }
+    return geminiConfig;
   }
-  return {
+  const scriptedConfig: Extract<NonNullable<AIOptions['engine']>, { kind: 'scripted' }> = {
     kind: 'scripted',
-    ...(wire.script !== undefined
-      ? { script: wire.script as unknown as Extract<NonNullable<AIOptions['engine']>, { kind: 'scripted' }>['script'] }
-      : {}),
   };
+  if (wire.script !== undefined) {
+    scriptedConfig.script = wire.script as unknown as Extract<
+      NonNullable<AIOptions['engine']>,
+      { kind: 'scripted' }
+    >['script'];
+  }
+  return scriptedConfig;
 }
 
 /**
  * The sandbox's AiBroker, created once per worker lifetime. `getAI` is
- * idempotent per sandbox+backend, so this IS the mirror's broker — a page
+ * idempotent per sandbox+backend, so this IS the mirror's broker -- a page
  * embedding host and this handler resolve the same instance, and every
  * broker op lands `service: 'ai'` events on the shared sandbox's unified
  * event stream (what Studio consumes).
@@ -115,11 +153,20 @@ function resolveEngineConfig(
  */
 function ensureAiBroker(ctx: HostCtx, opEngine?: AiEngineConfigWire): AiBrokerLike {
   if (ctx.aiBroker) return ctx.aiBroker;
-  const wire = ctx.aiEngine ?? opEngine;
+  const fromServerConfig = ctx.aiEngine !== undefined;
+  const wire = fromServerConfig ? ctx.aiEngine : opEngine;
   const ai = getAI(
     ctx.sandbox,
     wire
-      ? { engine: resolveEngineConfig(wire, ctx.aiUpstream, ctx.aiRunsInBrowser === true, ctx.sessionToken) }
+      ? {
+          engine: resolveEngineConfig(
+            wire,
+            ctx.aiUpstream,
+            ctx.aiRunsInBrowser === true,
+            fromServerConfig,
+            ctx.sessionToken,
+          ),
+        }
       : undefined,
   );
   const target = (ai as unknown as {

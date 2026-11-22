@@ -31,10 +31,11 @@ import { createStudioRoutes, type StudioRouteOptions } from './studio/index.js';
 import { registerSessionTokenRequirement } from './local-session-token.js';
 import {
   isAdmittedPeer,
-  isLoopbackHostHeader,
   parseAllowPeersSetting,
   type RemoteAccessOptions,
 } from './guard-policy.js';
+import { browserAiEngineWire } from './ai-engine-wire.js';
+import { isRemoteClientRequest, opaqueProjectKey } from './project-key.js';
 import {
   appendSetCookieHeader,
   formatSessionCookie,
@@ -287,7 +288,9 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
         );
         return true;
       }
-      return handleState(state, stateWriterLock, req, res, url).then(() => true);
+      return handleState(state, stateWriterLock, req, res, url, {
+        isRemoteRequest: isRemoteClientRequest(req),
+      }).then(() => true);
     }
     const rateCaptures = opts.rateCaptures;
     const isRateCaptureRequest = rateCaptures !== undefined && url.pathname === '/__pyric/rate-captures';
@@ -352,8 +355,7 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
         res.end(isHead ? undefined : JSON.stringify(remotePeerInitPayload(opts.initPayload())));
         return true;
       }
-      const isRemoteHost = !isLoopbackHostHeader(req.headers.host);
-      const isRemoteRequest = !peerIsLocal || isRemoteHost;
+      const isRemoteRequest = isRemoteClientRequest(req);
       const decision = evaluateNamespaceSurface(req, guardOpts, 'init', url, isRemoteRequest);
       if (!decision.ok) {
         writeGuardRejection(res, decision, { json: true });
@@ -365,7 +367,7 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
       }
       const authenticated = isAllowedSessionToken(req, url, sessionToken);
       const isHead = req.method === 'HEAD';
-      const raw = opts.initPayload();
+      const raw = sanitizeInitPayloadForClient(opts.initPayload(), isRemoteRequest);
       if (!authenticated) {
         res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
         if (requiresSessionToken) {
@@ -455,6 +457,20 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
     return false; // unknown /__pyric/* -> caller 404s
   };
   return Object.assign(handler, { sessionToken });
+}
+
+function sanitizeInitPayloadForClient(raw: InitPayload, isRemote: boolean): InitPayload {
+  let next = raw;
+  if (raw.ai !== undefined && raw.ai !== null && raw.ai.engine !== undefined) {
+    const sanitizedEngine = browserAiEngineWire(raw.ai.engine);
+    if (sanitizedEngine !== raw.ai.engine) {
+      next = { ...next, ai: { ...raw.ai, engine: sanitizedEngine } };
+    }
+  }
+  if (isRemote && typeof raw.projectKey === 'string' && raw.projectKey.length > 0) {
+    next = { ...next, projectKey: opaqueProjectKey(raw.projectKey) };
+  }
+  return next;
 }
 
 function buildActivityEndpoint(

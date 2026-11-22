@@ -72,6 +72,23 @@ describe('Vite page runtime', () => {
     expect(page.transformIndexHtml(html)).toBe(html);
   });
 
+  it('strips configured Gemini apiKey and baseUrl from HTML while keeping server config (#1591)', () => {
+    const secretKey = 'AIzaSy-config-secret-page-1591';
+    const customBase = 'http://127.0.0.1:41999/custom-gemini';
+    const page = runtime({
+      ai: { engine: { kind: 'gemini', apiKey: secretKey, baseUrl: customBase } },
+    });
+    const html = page.transformIndexHtml('<html><head></head></html>');
+    expect(html).toContain('globalThis.__PYRIC_AI_ENGINE__={"kind":"gemini"};');
+    expect(html).not.toContain(secretKey);
+    expect(html).not.toContain(customBase);
+    expect(page.ai().engineWire).toEqual({
+      kind: 'gemini',
+      apiKey: secretKey,
+      baseUrl: customBase,
+    });
+  });
+
   it('puts the sandbox init script ahead of the page own scripts', () => {
     const page = runtime();
     page.config({}, { command: 'build', mode: 'development' } as never);

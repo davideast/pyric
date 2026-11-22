@@ -17,11 +17,12 @@ import {
   getHeader,
   isAllowedHost,
 } from './server.js';
+import { isRemoteClientRequest } from './project-key.js';
 
-const viteHtmlPeerStorage = new AsyncLocalStorage<{ localPeer: boolean }>();
+const viteHtmlPeerStorage = new AsyncLocalStorage<{ localPeer: boolean; remoteClient: boolean }>();
 
 /** Current Vite dev request peer context while `transformIndexHtml` runs, if inside a request. */
-export function currentViteHtmlPeerContext(): { localPeer: boolean } | undefined {
+export function currentViteHtmlPeerContext(): { localPeer: boolean; remoteClient: boolean } | undefined {
   return viteHtmlPeerStorage.getStore();
 }
 
@@ -71,7 +72,8 @@ export function attachViteHtmlSessionBootstrap(
         appendSetCookieHeader(res, formatSessionCookie(token), { effectiveScheme });
       }
     }
-    viteHtmlPeerStorage.run({ localPeer: isBootstrapped }, next);
+    const remoteClient = isRemoteClientRequest(req);
+    viteHtmlPeerStorage.run({ localPeer: isBootstrapped, remoteClient }, next);
   });
 }
 
