@@ -7,244 +7,70 @@
  * `Sandbox`, while `getStorageSandbox(ctx)` is identity-stable per context.
  */
 import { SandboxContextImpl } from 'pyric/sandbox';
-import type { AuthState, EventCaller, EventProvenance, Sandbox, SandboxContext } from 'pyric/sandbox';
-import type { FirebaseApp } from '../app/types.js';
-import { createStorageRetryHandle } from './handle-retry-times.js';
-import {
-  bindOperationContext,
-  provenanceForOperationContext,
-  resolveOperationContext,
-} from 'pyric/sandbox/internal';
-import { getAuthLens } from '../sandbox/internal/auth-lens.js';
-import { openStorageBackend, storageDbName, type StorageBackend } from './persistence.js';
-import { StorageService, type CrossServiceIam } from './sandbox/running-service.js';
-import type { StorageRules } from '@pyric/rules/internal/storage';
+import type { Sandbox, SandboxContext } from 'pyric/sandbox';
+import { bindOperationContext } from 'pyric/sandbox/internal';
 import {
   compileStorageRules,
+  rulesBucketName,
+  type StorageRules,
   type StorageRulesResolution,
 } from '@pyric/rules/internal/storage';
-import { rulesBucketName } from '@pyric/rules/internal/storage';
-
-/**
- * Default sandbox bucket identifier. v1 has a single implicit
- * bucket; the field is recorded on every uploaded metadata record
- * so consumer code can round-trip it.
- */
-const DEFAULT_BUCKET = 'pyric-default';
-
-/**
- * Hidden property on every {@link FirebaseStorage} handle. Carries
- * the sandbox state free functions share without exposing it publicly.
- * Registered globally (`Symbol.for`) so `src` and `dist` module copies
- * recognize handles and share per-sandbox service state across package boundaries.
- */
-export const TARGET_SYMBOL: unique symbol = Symbol.for('pyric/storage/target') as never;
-
-/**
- * Sandbox target — IDB-backed, identity from `SandboxContext`, rules
- * enforced in-process via `enforce.ts`.
- */
-export interface SandboxTarget {
-  readonly kind: 'sandbox';
-  readonly sandbox: Sandbox;
-  readonly context: SandboxContext;
-  /** App handles resolve auth at operation time; explicit contexts stay frozen. */
-  readonly currentAuth?: () => AuthState;
-  readonly bucket: string;
-  /**
-   * The name the caller knows this bucket by, which Storage rules see in place
-   * of the store key `bucket` (see `@pyric/rules` `storage/rules-bucket-name.ts`). Absent when
-   * the caller named none, and the rules then see the store key.
-   */
-  readonly bucketName?: string;
-  readonly servicePromise: Promise<StorageService>;
-  /**
-   * Rules-bypass admin plane. `true` only on handles minted by the
-   * INTERNAL {@link getAdminStorageSandbox} factory (exported via
-   * `pyric/storage/internal`, never the public surface): operations
-   * on an admin handle skip rule evaluation entirely — the storage
-   * mirror of `getAdminFirestore` / `getAdminDatabase`. The public
-   * modular surface stays rules-honest; this exists so hosts (the
-   * SharedWorker's `actAs: { mode: 'admin' }` lens) can serve
-   * firebase-admin semantics against the same shared store.
-   */
-  readonly admin?: boolean;
-  /** The connection an operation-scoped handle serves; see `EventCaller`. */
-  readonly caller?: EventCaller;
-}
-
-export type Target = SandboxTarget;
-
-export function storageAuth(target: SandboxTarget): AuthState {
-  if (target.admin === true) return null;
-  if (target.currentAuth !== undefined) {
-    const lens = getAuthLens();
-    if (lens?.mode === 'admin' || lens?.mode === 'anon') return null;
-    if (lens?.mode === 'as') {
-      const impersonated: NonNullable<AuthState> = { uid: lens.uid };
-      if (lens.tenant) impersonated.tenant = lens.tenant;
-      if (lens.token) impersonated.token = lens.token;
-      return impersonated;
-    }
-    return target.currentAuth();
-  }
-  return target.context.auth;
-}
-
-/**
- * Public opaque handle. Carries a {@link Target} via
- * {@link TARGET_SYMBOL}; never inspected by consumer code, which
- * interacts with storage only through {@link ref} and the operation
- * free functions.
- */
-export interface FirebaseStorage {
-  readonly [TARGET_SYMBOL]: Target;
-  readonly app?: FirebaseApp;
-  maxOperationRetryTime: number;
-  maxUploadRetryTime: number;
-}
-
-/** Storage handle returned by Firebase-shaped app overloads. */
-export type AppFirebaseStorage = FirebaseStorage & { readonly app: FirebaseApp };
+import { createStorageRetryHandle } from './handle-retry-times.js';
+import { openStorageBackend, storageDbName, type StorageBackend } from './persistence.js';
+import { deployStorageBucketRules } from './sandbox/bucket-rules.js';
+import { StorageService, type CrossServiceIam } from './sandbox/running-service.js';
+import {
+  DEFAULT_STORAGE_BUCKET,
+  serviceCaches,
+  TARGET_SYMBOL,
+  type FirebaseStorage,
+  type SandboxTarget,
+  type StorageOptions,
+} from './sandbox/service-caches.js';
 
 export { StorageService, type CrossServiceIam } from './sandbox/running-service.js';
+export {
+  getStorageService,
+  TARGET_SYMBOL,
+  targetOf,
+  type AppFirebaseStorage,
+  type FirebaseStorage,
+  type SandboxTarget,
+  type StorageOptions,
+  type Target,
+} from './sandbox/service-caches.js';
+export {
+  compiledStorageRulesForBucket,
+  deployStorageBucketRules,
+  getStorageRulesResolution,
+  lockUndeployedStorageBuckets,
+  storageBucketsWithRules,
+  storageRulesInForce,
+  type StorageRulesInForce,
+} from './sandbox/bucket-rules.js';
+export {
+  bindStorageOperationContext,
+  nameStorageBucket,
+  storageAuth,
+  storageOperationProvenance,
+} from './sandbox/handle-provenance.js';
 
-/** Options for {@link getStorageSandbox}. */
-export interface StorageOptions {
-  /**
-   * Bucket identifier recorded on uploaded metadata and used to isolate
-   * storage persistence across multiple buckets.
-   */
-  bucket?: string;
-  /**
-   * Override the IndexedDB database name. Tests pass per-case unique
-   * names so state doesn't leak between runs.
-   * Only takes effect on the FIRST call per `Sandbox`.
-   */
-  dbName?: string;
-  /**
-   * Project identity used to derive the default IndexedDB database name
-   * (`pyric-storage:<projectId>` — see {@link storageDbName}). IndexedDB is
-   * origin-scoped, so without this every project served on the same
-   * localhost port shared one storage database (issue #359). Ignored when
-   * an explicit `dbName` is given; only honored on the FIRST call per
-   * `Sandbox`. Hosts pass their project identity here (`pyric sandbox` passes
-   * the served project's key; app handles pass `options.projectId`).
-   */
-  projectId?: string;
-  /**
-   * Storage rules source. Parsed eagerly so a malformed string
-   * throws at config time. Only honored on the FIRST call per
-   * `Sandbox`.
-   */
-  rules?: string;
-  /**
-   * Model the production Storage→Firestore IAM dependency (see
-   * {@link CrossServiceIam}). Defaults to `'granted'`. Like `rules`,
-   * only honored on the FIRST storage call per `Sandbox`; a LATER,
-   * DIFFERING value throws instead of silently flipping the mode.
-   */
-  crossServiceIam?: CrossServiceIam;
-}
-
-// ─── Caches ─────────────────────────────────────────────────────────
-
-/**
- * Everything one `Sandbox` opened its storage service WITH, in one record.
- * These four facts are written together on the first storage call and read
- * together afterwards, so they live in one map rather than four parallel
- * ones that can drift out of step.
- */
-interface OpenStorageService {
-  /** The service itself, resolving once its IndexedDB backend is open. */
-  readonly service: Promise<StorageService>;
-  /** The rules source it was opened with, `null` when opened without rules. */
-  readonly rulesSource: string | null;
-  /** The parsed Storage rules installed synchronously without a bucket, `null` when absent. */
-  readonly compiledRules: StorageRules | null;
-  /** The module-resolution record for that source, `null` without rules. */
-  readonly rulesResolution: StorageRulesResolution | null;
-  /** The cross-service IAM mode it was opened with. */
-  readonly crossServiceIam: CrossServiceIam;
-  /** Whether a client or explicit rules configuration has locked `rulesSource`. */
-  readonly rulesLocked: boolean;
-  /** Whether a client or explicit IAM configuration has locked `crossServiceIam`. */
-  readonly crossServiceIamLocked: boolean;
-}
-
-/**
- * Process-wide WeakMap caches keyed by `Symbol.for` so a workspace that loads
- * both `src/storage/service.ts` and `dist/storage/service.js` shares one
- * `StorageService` per `Sandbox` (matching `SANDBOX_CLOCK` and `APP_REGISTRY`).
- */
-const SERVICE_CACHES_KEY = Symbol.for('pyric.storage.service-caches');
-
-interface StorageServiceCaches {
-  readonly openServices: WeakMap<Sandbox, OpenStorageService>;
-  readonly hostBackends: WeakMap<Sandbox, StorageBackend>;
-  readonly scopedServices: WeakMap<Sandbox, Map<string, Promise<StorageService>>>;
-  readonly sandboxHandles: WeakMap<SandboxContext, Map<string, FirebaseStorage>>;
-  readonly bareSandboxHandles: WeakMap<Sandbox, Map<string, FirebaseStorage>>;
-  readonly adminContextHandles: WeakMap<SandboxContext, Map<string, FirebaseStorage>>;
-  readonly bareAdminHandles: WeakMap<Sandbox, Map<string, FirebaseStorage>>;
-  bucketRules?: WeakMap<Sandbox, Map<string, BucketRules>>;
-  defaultStoreNames?: WeakMap<Sandbox, string>;
-  undeployedPolicies?: WeakMap<Sandbox, StorageDefaultPolicy>;
-}
-
-/** The rules deployed to one bucket, by name. */
-interface BucketRules {
-  readonly source: string;
-  readonly rules: StorageRules;
-  readonly resolution: StorageRulesResolution;
-}
-
-const globalServiceCaches = globalThis as { [SERVICE_CACHES_KEY]?: StorageServiceCaches };
-const serviceCaches: StorageServiceCaches = (globalServiceCaches[SERVICE_CACHES_KEY] ??= {
-  openServices: new WeakMap(),
-  hostBackends: new WeakMap(),
-  scopedServices: new WeakMap(),
-  sandboxHandles: new WeakMap(),
-  bareSandboxHandles: new WeakMap(),
-  adminContextHandles: new WeakMap(),
-  bareAdminHandles: new WeakMap(),
-});
-
-/**
- * The rules deployed to each bucket by name, per `Sandbox`. A sandbox has an
- * entry once a host deploys rules per bucket (see
- * {@link lockUndeployedStorageBuckets}); until then its one ruleset governs
- * every bucket.
- */
-const BUCKET_RULES = (serviceCaches.bucketRules ??= new WeakMap());
-
-/**
- * The bucket name the default store is first used under, per `Sandbox`, once
- * rules are deployed per bucket. The default store holds one bucket's
- * objects, so a second name on it is locked rather than reading the first
- * bucket's objects under its own rules.
- */
-const DEFAULT_STORE_NAMES = (serviceCaches.defaultStoreNames ??= new WeakMap());
-
-/**
- * What a bucket with no rules deployed answers, per `Sandbox`, once rules are
- * deployed per bucket. Absent means `deny`.
- */
-const UNDEPLOYED_POLICIES = (serviceCaches.undeployedPolicies ??= new WeakMap());
-
-/** One open storage service, with its opening configuration, per `Sandbox`. */
 const OPEN_SERVICES = serviceCaches.openServices;
 const HOST_BACKENDS = serviceCaches.hostBackends;
+const SCOPED_SERVICES = serviceCaches.scopedServices;
+const SANDBOX_HANDLES = serviceCaches.sandboxHandles;
+const BARE_SANDBOX_HANDLES = serviceCaches.bareSandboxHandles;
+const ADMIN_CONTEXT_HANDLES = serviceCaches.adminContextHandles;
+const BARE_ADMIN_HANDLES = serviceCaches.bareAdminHandles;
 
 /** Hosts install their durable backend before any Storage service is created. */
 export function installStorageBackend(sandbox: Sandbox, backend: StorageBackend): void {
   const alreadyOpened = OPEN_SERVICES.has(sandbox) || HOST_BACKENDS.has(sandbox);
-  if (alreadyOpened) throw new Error('Storage backend must be installed once, before Storage initializes.');
+  if (alreadyOpened) {
+    throw new Error('Storage backend must be installed once, before Storage initializes.');
+  }
   HOST_BACKENDS.set(sandbox, backend);
 }
-
-/** One scoped `StorageService` per (Sandbox, bucket). */
-const SCOPED_SERVICES = serviceCaches.scopedServices;
 
 function getOrCreateScopedService(
   sandbox: Sandbox,
@@ -259,9 +85,10 @@ function getOrCreateScopedService(
   let existing = bucketMap.get(bucket);
   if (!existing) {
     existing = rootServicePromise.then((rootService) => {
-      const backend = rootService.backend.scoped
-        ? rootService.backend.scoped(bucket)
-        : rootService.backend;
+      let backend = rootService.backend;
+      if (rootService.backend.scoped !== undefined) {
+        backend = rootService.backend.scoped(bucket);
+      }
       return new StorageService(backend, rootService.rules, rootService.crossServiceIam);
     });
     bucketMap.set(bucket, existing);
@@ -269,27 +96,10 @@ function getOrCreateScopedService(
   return existing;
 }
 
-/** Sandbox `FirebaseStorage` handles cached per `(SandboxContext, bucket)`. */
-const SANDBOX_HANDLES = serviceCaches.sandboxHandles;
-
 /**
- * Anonymous handles cached per `(Sandbox, bucket)`. `Sandbox.withAuth(null)`
- * mints a FRESH `SandboxContext` on every call, so the per-context
- * cache above would miss for the bare-`Sandbox` convenience path —
- * `getStorageSandbox(sandbox)` twice returned two different handles
- * (ST-B3). Caching on the `Sandbox` keeps that path identity-stable,
- * matching the documented "handle is identity-stable per Sandbox".
- */
-const BARE_SANDBOX_HANDLES = serviceCaches.bareSandboxHandles;
-
-/**
- * Reject a late option that differs from the one the service is already
- * open with. Both `rules` and `crossServiceIam` are honored only on the
- * FIRST storage call per `Sandbox`. Silently discarding a later, differing
- * value would wipe the rules, or reopen the false-ALLOW surface the IAM
- * mode models, without a word. Re-supplying the IDENTICAL value stays fine
- * (idempotent multi-handle construction, for example per-user contexts),
- * and so does omitting it.
+ * Reject a late option that differs from the one the service is already open
+ * with. Both `rules` and `crossServiceIam` are honored only on the FIRST
+ * storage call per `Sandbox`.
  */
 function rejectDifferingLateConfig(
   option: string,
@@ -299,9 +109,10 @@ function rejectDifferingLateConfig(
   caller: string,
 ): void {
   if (supplied === undefined || supplied === openedWith) return;
-  const openedDescription = openedWith === null
-    ? `without ${option}`
-    : `with a different ${descriptor}`;
+  let openedDescription = `with a different ${descriptor}`;
+  if (openedWith === null) {
+    openedDescription = `without ${option}`;
+  }
   throw new Error(
     `pyric/storage: ${caller} received a ${descriptor}, but this sandbox's storage service ` +
       `is already open ${openedDescription}. ${option} is honored only on the FIRST storage ` +
@@ -312,23 +123,7 @@ function rejectDifferingLateConfig(
 
 /**
  * Install a new ruleset into a sandbox's storage service, replacing whatever
- * it is enforcing.
- *
- * This is the deliberate counterpart to the late-config guard in
- * {@link ensureService}. That guard exists because a `rules` option passed to
- * a FACTORY after the service is open would be silently discarded, and a
- * caller asking for a handle has not asked to change the ruleset. Here the
- * caller has asked for exactly that and nothing is discarded: the source is
- * compiled first, so a source that does not parse throws and leaves the
- * ruleset in force untouched, and the factory guard is unchanged, so the
- * served-app path still refuses a late differing option.
- *
- * A null source removes the ruleset, the state a service opened without
- * rules is in: every client operation is denied. A service that is not open
- * yet is left to open as its first storage call configures it.
- *
- * The new ruleset reaches the root service and every per-bucket scoped
- * service, because each holds its own reference to the parsed rules.
+ * it is enforcing. When `options.bucket` is provided, deploys to that bucket.
  */
 export async function replaceStorageRules(
   sandbox: Sandbox,
@@ -336,10 +131,16 @@ export async function replaceStorageRules(
   options: { bucket?: string } = {},
 ): Promise<void> {
   if (options.bucket !== undefined) {
-    await replaceBucketRules(sandbox, source, options.bucket);
+    deployStorageBucketRules(sandbox, options.bucket, source);
     return;
   }
-  const compiled = source === null ? { rules: null, resolution: null } : compileStorageRules(source);
+  let compiled: { rules: StorageRules | null; resolution: StorageRulesResolution | null } = {
+    rules: null,
+    resolution: null,
+  };
+  if (source !== null) {
+    compiled = compileStorageRules(source);
+  }
   const open = OPEN_SERVICES.get(sandbox);
   if (open === undefined) {
     if (source === null) return;
@@ -363,161 +164,12 @@ export async function replaceStorageRules(
   }
 }
 
-/** What a bucket with no rules deployed answers: `deny` as production creates a bucket, `allow` in permissive mode. */
-export type StorageDefaultPolicy = 'allow' | 'deny';
-
-/**
- * Deploy rules per bucket from here on: each bucket enforces the rules
- * deployed to it by name, the default bucket also enforces the rules
- * {@link replaceStorageRules} installs without a bucket, and a bucket nothing
- * deploys to follows `policy`. Under `deny`, the default, it is locked,
- * denying every client operation, as production creates a bucket. Under
- * `allow`, permissive mode, it is open, as an RTDB instance with no rules is.
- * Without this call the sandbox's one ruleset governs every bucket.
- * Idempotent; a later call sets the policy again.
- */
-export function lockUndeployedStorageBuckets(sandbox: Sandbox, policy: StorageDefaultPolicy = 'deny'): void {
-  deployPerBucket(sandbox);
-  UNDEPLOYED_POLICIES.set(sandbox, policy);
-}
-
-/** Start deploying rules per bucket, keeping any policy already set. */
-function deployPerBucket(sandbox: Sandbox): Map<string, BucketRules> {
-  let byBucket = BUCKET_RULES.get(sandbox);
-  if (byBucket === undefined) {
-    byBucket = new Map();
-    BUCKET_RULES.set(sandbox, byBucket);
-  }
-  return byBucket;
-}
-
-/** {@link replaceStorageRules} for one named bucket. */
-async function replaceBucketRules(sandbox: Sandbox, source: string | null, bucket: string): Promise<void> {
-  deployStorageBucketRules(sandbox, bucket, source);
-}
-
-/**
- * Deploy `source` to one bucket by name, and deploy per bucket from here on
- * (see {@link lockUndeployedStorageBuckets}). A null source removes the
- * bucket's rules, which returns it to the undeployed policy. A source that does not compile throws and
- * leaves the bucket's rules as they were. The service need not be open: the
- * rules apply to every handle on the bucket once it is.
- */
-export function deployStorageBucketRules(sandbox: Sandbox, bucket: string, source: string | null): void {
-  const compiled = source === null ? null : compileStorageRules(source);
-  const byBucket = deployPerBucket(sandbox);
-  const name = rulesBucketName(bucket, bucket);
-  if (source === null || compiled === null) {
-    byBucket.delete(name);
-    return;
-  }
-  byBucket.set(name, { source, rules: compiled.rules, resolution: compiled.resolution });
-}
-
-/** The rules one request is checked against, or why there are none. */
-export type StorageRulesInForce =
-  | { readonly kind: 'rules'; readonly rules: StorageRules }
-  | { readonly kind: 'none' }
-  | { readonly kind: 'locked'; readonly bucket: string }
-  | { readonly kind: 'open'; readonly bucket: string }
-  | { readonly kind: 'second-default'; readonly bucket: string; readonly defaultBucket: string };
-
-/**
- * The name the default store answers to: the first name it is used under.
- * Null when `target` is not on the default store or names no bucket.
- */
-function pinnedDefaultName(target: SandboxTarget, name: string): string | null {
-  const unnamedDefault = !addressesDefaultBucket(target) || target.bucketName === undefined;
-  if (unnamedDefault) return null;
-  const pinned = DEFAULT_STORE_NAMES.get(target.sandbox);
-  if (pinned !== undefined) return pinned;
-  DEFAULT_STORE_NAMES.set(target.sandbox, name);
-  return name;
-}
-
-/** Whether a handle addresses the app's default bucket, the one stored under the default key. */
-function addressesDefaultBucket(target: SandboxTarget): boolean {
-  return target.bucket === DEFAULT_BUCKET;
-}
-
-/**
- * The rules a request through `target` is checked against: the rules
- * deployed to its bucket by name, else for the default bucket the rules
- * installed without a bucket. Once a host deploys per bucket, any other
- * bucket is locked, or open in permissive mode.
- */
-export function storageRulesInForce(service: StorageService, target: SandboxTarget): StorageRulesInForce {
-  const byBucket = BUCKET_RULES.get(target.sandbox);
-  if (byBucket === undefined) return service.rules ? { kind: 'rules', rules: service.rules } : { kind: 'none' };
-  const name = rulesBucketName(target.bucket, target.bucketName);
-  const pinned = pinnedDefaultName(target, name);
-  if (pinned !== null && pinned !== name) return { kind: 'second-default', bucket: name, defaultBucket: pinned };
-  const deployed = byBucket.get(name);
-  if (deployed !== undefined) return { kind: 'rules', rules: deployed.rules };
-  const defaultRules = addressesDefaultBucket(target) ? service.rules : null;
-  if (defaultRules) return { kind: 'rules', rules: defaultRules };
-  const isPermissive = UNDEPLOYED_POLICIES.get(target.sandbox) === 'allow';
-  if (isPermissive) return { kind: 'open', bucket: name };
-  return { kind: 'locked', bucket: name };
-}
-
-/** The bucket names rules are deployed to by name, in deploy order. */
-export function storageBucketsWithRules(sandbox: Sandbox): string[] {
-  return [...(BUCKET_RULES.get(sandbox)?.keys() ?? [])];
-}
-
-/**
- * The compiled Storage rules the app deployed to `bucket`, read
- * synchronously: the rules deployed to that bucket by name, else the default
- * rules for the default bucket (no bucket named, the pinned default store's
- * name, or one of `defaultBuckets`). `null` for any other bucket, whose
- * rules the app did not load, unless the host knows no default bucket name
- * at all, when every bucket reads as the default one.
- */
-export function compiledStorageRulesForBucket(
-  sandbox: Sandbox,
-  bucket?: string,
-  defaultBuckets: readonly string[] = [],
-): StorageRules | null {
-  const defaultRules = OPEN_SERVICES.get(sandbox)?.compiledRules ?? null;
-  if (bucket === undefined) return defaultRules;
-  const normalized = rulesBucketName(bucket, bucket);
-  const byBucket = BUCKET_RULES.get(sandbox);
-  const deployed = byBucket?.get(normalized);
-  if (deployed !== undefined) return deployed.rules;
-  const pinnedDefault = DEFAULT_STORE_NAMES.get(sandbox);
-  if (pinnedDefault === normalized) return defaultRules;
-  if (defaultBuckets.some((name) => rulesBucketName(name, name) === normalized)) return defaultRules;
-  const knowsNoBucketName = (byBucket?.size ?? 0) === 0 && defaultBuckets.length === 0 && pinnedDefault === undefined;
-  if (knowsNoBucketName) return defaultRules;
-  return null;
-}
-
-/**
- * The cross-service IAM posture a sandbox's storage service is running under.
- *
- * A sandbox whose storage service has never been opened reports the default a
- * first open would take, so a reader gets the mode that is in force rather
- * than an absence it has to interpret.
- */
+/** The cross-service IAM posture a sandbox's storage service is running under. */
 export function getStorageCrossServiceIam(sandbox: Sandbox): CrossServiceIam {
   return OPEN_SERVICES.get(sandbox)?.crossServiceIam ?? 'granted';
 }
 
-/**
- * Move a sandbox's storage service between the granted and denied
- * cross-service IAM states, replacing whatever it is enforcing.
- *
- * This is the deliberate counterpart to the late-config guard in
- * {@link ensureService}, on the same argument that gives
- * {@link replaceStorageRules} its exception: a `crossServiceIam` option passed
- * to a FACTORY after the service is open would be silently discarded, and a
- * caller asking for a handle has not asked to change the project's IAM
- * posture. Here the caller has asked for exactly that.
- *
- * The new mode reaches the root service and every per-bucket scoped service,
- * because each holds its own reference to it.
- */
+/** Move a sandbox's storage service between granted and denied cross-service IAM states. */
 export async function replaceCrossServiceIam(
   sandbox: Sandbox,
   mode: CrossServiceIam,
@@ -544,13 +196,6 @@ export async function replaceCrossServiceIam(
   }
 }
 
-/**
- * Get (or open) the ONE per-sandbox `StorageService`. Loud on the
- * silent-rules-wipe hazard: when the service is already open and the
- * caller supplies a `rules` source differing from the one it was opened
- * with (including "opened without rules"), this throws — configure rules
- * on the first storage call for the sandbox instead.
- */
 function ensureService(
   sandbox: Sandbox,
   options: StorageOptions,
@@ -558,8 +203,7 @@ function ensureService(
 ): Promise<StorageService> {
   const isAdminCaller = caller === 'getAdminStorageSandbox';
   const existing = OPEN_SERVICES.get(sandbox);
-  const alreadyOpen = existing !== undefined;
-  if (alreadyOpen) {
+  if (existing !== undefined) {
     if (existing.rulesLocked) {
       rejectDifferingLateConfig(
         'rules',
@@ -579,11 +223,13 @@ function ensureService(
       );
     }
 
-    const adoptRules = !existing.rulesLocked && options.rules !== undefined;
-    const adoptIam = !existing.crossServiceIamLocked && options.crossServiceIam !== undefined;
-    const nextRulesLocked = existing.rulesLocked || !isAdminCaller || options.rules !== undefined;
+    const suppliedRules = options.rules;
+    const suppliedIam = options.crossServiceIam;
+    const adoptRules = !existing.rulesLocked && suppliedRules !== undefined;
+    const adoptIam = !existing.crossServiceIamLocked && suppliedIam !== undefined;
+    const nextRulesLocked = existing.rulesLocked || !isAdminCaller || suppliedRules !== undefined;
     const nextIamLocked =
-      existing.crossServiceIamLocked || !isAdminCaller || options.crossServiceIam !== undefined;
+      existing.crossServiceIamLocked || !isAdminCaller || suppliedIam !== undefined;
 
     if (
       !adoptRules &&
@@ -597,19 +243,21 @@ function ensureService(
     let nextRules = existing.compiledRules;
     let nextResolution = existing.rulesResolution;
     let nextRulesSource = existing.rulesSource;
-    if (adoptRules) {
-      const hasSuppliedRules = typeof options.rules === 'string' && options.rules.length > 0;
-      if (hasSuppliedRules) {
-        const compiled = compileStorageRules(options.rules!);
+    if (adoptRules && suppliedRules !== undefined) {
+      if (suppliedRules.length > 0) {
+        const compiled = compileStorageRules(suppliedRules);
         nextRules = compiled.rules;
         nextResolution = compiled.resolution;
       } else {
         nextRules = null;
         nextResolution = null;
       }
-      nextRulesSource = options.rules ?? null;
+      nextRulesSource = suppliedRules;
     }
-    const nextIam = adoptIam ? options.crossServiceIam! : existing.crossServiceIam;
+    let nextIam = existing.crossServiceIam;
+    if (adoptIam && suppliedIam !== undefined) {
+      nextIam = suppliedIam;
+    }
 
     let nextService = existing.service;
     if (adoptRules || adoptIam) {
@@ -644,26 +292,29 @@ function ensureService(
     });
     return nextService;
   }
+
   let rules: StorageRules | null = null;
   let resolution: StorageRulesResolution | null = null;
   const rulesSource = options.rules;
-  const hasRules = typeof rulesSource === 'string' && rulesSource.length > 0;
-  if (hasRules) {
+  if (typeof rulesSource === 'string' && rulesSource.length > 0) {
     const compiled = compileStorageRules(rulesSource);
     rules = compiled.rules;
     resolution = compiled.resolution;
   }
-  // Explicit dbName wins; otherwise scope the default by project identity so
-  // two projects on one origin never share a storage database (issue #359).
+
   const crossServiceIam = options.crossServiceIam ?? 'granted';
   const injectedBackend = HOST_BACKENDS.get(sandbox);
   let backendPromise: Promise<StorageBackend>;
-  const hasInjectedBackend = injectedBackend !== undefined;
-  if (hasInjectedBackend) backendPromise = Promise.resolve(injectedBackend);
-  else {
+  if (injectedBackend !== undefined) {
+    backendPromise = Promise.resolve(injectedBackend);
+  } else {
+    let defaultBucket = DEFAULT_STORAGE_BUCKET;
+    if (options.bucket !== undefined) {
+      defaultBucket = rulesBucketName(options.bucket, options.bucket);
+    }
     backendPromise = openStorageBackend(
       options.dbName ?? storageDbName(options.projectId),
-      options.bucket !== undefined ? rulesBucketName(options.bucket, options.bucket) : DEFAULT_BUCKET,
+      defaultBucket,
     );
   }
   const servicePromise = backendPromise.then(
@@ -678,12 +329,6 @@ function ensureService(
     rulesLocked: !isAdminCaller || options.rules !== undefined,
     crossServiceIamLocked: !isAdminCaller || options.crossServiceIam !== undefined,
   });
-  // Join the sandbox's persistable-service REGISTRY so `sandbox.resetAll()`
-  // reaches storage (issue #359: Studio's reset cleared Firestore + auth but
-  // never storage — storage was invisible to the sandbox). Storage does NOT
-  // ride the persistence blob: it owns its durability (IndexedDB), and blobs
-  // aren't JSON-serializable — so snapshot/restore are deliberate no-ops and
-  // `reset` is the only live hook (clears both IDB object stores).
   sandbox.registerPersistableService('storage', {
     snapshot: () => null,
     restore: () => {},
@@ -695,54 +340,61 @@ function ensureService(
   return servicePromise;
 }
 
-/**
- * Type predicate distinguishing `SandboxContext` from `Sandbox`. We
- * use the class-identity test (every real `SandboxContext` is a
- * `SandboxContextImpl`) so the TS narrowing works downstream.
- */
 function isContext(target: Sandbox | SandboxContext): target is SandboxContext {
-  return target instanceof SandboxContextImpl || ('sandbox' in target && target.sandbox !== undefined);
+  return (
+    target instanceof SandboxContextImpl ||
+    ('sandbox' in target && target.sandbox !== undefined)
+  );
 }
 
-/**
- * Construct (or return cached) a sandbox-backed `FirebaseStorage`
- * handle. Accepts either a bare `Sandbox` (anonymous identity wired
- * up via `sandbox.withAuth(null)`) or an explicit `SandboxContext`.
- * Idempotent on `SandboxContext` identity.
- */
+function resolveBucketOption(bucketOption: string | undefined): string {
+  if (bucketOption !== undefined) {
+    return rulesBucketName(bucketOption, bucketOption);
+  }
+  return DEFAULT_STORAGE_BUCKET;
+}
+
+/** Construct (or return cached) a sandbox-backed `FirebaseStorage` handle. */
 export function getStorageSandbox(
   target: Sandbox | SandboxContext,
   options: StorageOptions = {},
 ): FirebaseStorage {
   const fromBareSandbox = !isContext(target);
-  const sandbox: Sandbox = isContext(target) ? target.sandbox : target;
+  let sandbox: Sandbox;
+  if (isContext(target)) {
+    sandbox = target.sandbox;
+  } else {
+    sandbox = target;
+  }
 
-  // Open (or fetch) the ONE per-sandbox service FIRST — before any handle
-  // cache fast-path — so a late, differing `rules` option throws instead of
-  // being silently discarded (see ensureService).
   const rootServicePromise = ensureService(sandbox, options, 'getStorageSandbox');
-  const bucket = options.bucket !== undefined
-    ? rulesBucketName(options.bucket, options.bucket)
-    : DEFAULT_BUCKET;
+  const bucket = resolveBucketOption(options.bucket);
 
-  // Fast path: a repeat bare-`Sandbox` call returns the cached
-  // anonymous handle for the requested bucket.
   if (fromBareSandbox) {
     const cachedBare = BARE_SANDBOX_HANDLES.get(sandbox)?.get(bucket);
     if (cachedBare) return cachedBare;
   }
 
-  const ctx = isContext(target) ? target : target.withAuth(null);
+  let ctx: SandboxContext;
+  if (isContext(target)) {
+    ctx = target;
+  } else {
+    ctx = target.withAuth(null);
+  }
   const cached = SANDBOX_HANDLES.get(ctx)?.get(bucket);
   if (cached) return cached;
 
   const servicePromise = getOrCreateScopedService(sandbox, bucket, rootServicePromise);
 
+  let currentAuth: SandboxTarget['currentAuth'];
+  if (fromBareSandbox) {
+    currentAuth = () => sandbox.currentUser;
+  }
   const sandboxTarget: SandboxTarget = {
     kind: 'sandbox',
     sandbox,
     context: ctx,
-    currentAuth: fromBareSandbox ? () => sandbox.currentUser : undefined,
+    currentAuth,
     bucket,
     servicePromise,
   };
@@ -766,53 +418,49 @@ export function getStorageSandbox(
   return handle;
 }
 
-/** Admin handles are cached by bound context so Studio, agent, and
- * unattributed callers can share storage state without sharing provenance. */
-const ADMIN_CONTEXT_HANDLES = serviceCaches.adminContextHandles;
-const BARE_ADMIN_HANDLES = serviceCaches.bareAdminHandles;
-
-/**
- * INTERNAL (exported via `pyric/storage/internal` only) — construct
- * (or return cached) the rules-BYPASS admin `FirebaseStorage` handle
- * for a sandbox or bound context. Shares the SAME `StorageService` (one IDB store, one
- * ruleset) as every rules-honest handle on that sandbox; only rule
- * evaluation is skipped (see {@link SandboxTarget.admin}). Bucket /
- * dbName / rules options follow the same first-call-per-`Sandbox`
- * semantics as {@link getStorageSandbox}.
- *
- * This is the storage mirror of `getAdminFirestore` /
- * `getAdminDatabase` — the handle the SharedWorker host resolves for
- * `actAs: { mode: 'admin' }` storage ops (firebase-admin semantics
- * over the bridge). Deliberately NOT on the public `pyric/storage`
- * surface so the modular API stays rules-honest.
- */
+/** INTERNAL (`pyric/storage/internal` only) -- rules-bypass admin `FirebaseStorage` handle. */
 export function getAdminStorageSandbox(
   target: Sandbox | SandboxContext,
   options: StorageOptions = {},
 ): FirebaseStorage {
   const fromBareSandbox = !isContext(target);
-  const sandbox = isContext(target) ? target.sandbox : target;
-  // Service first (late differing `rules` must throw, even on a cache hit).
+  let sandbox: Sandbox;
+  if (isContext(target)) {
+    sandbox = target.sandbox;
+  } else {
+    sandbox = target;
+  }
+
   const rootServicePromise = ensureService(sandbox, options, 'getAdminStorageSandbox');
-  const bucket = options.bucket !== undefined
-    ? rulesBucketName(options.bucket, options.bucket)
-    : DEFAULT_BUCKET;
+  const bucket = resolveBucketOption(options.bucket);
 
   if (fromBareSandbox) {
     const cachedBare = BARE_ADMIN_HANDLES.get(sandbox)?.get(bucket);
     if (cachedBare) return cachedBare;
   }
 
-  const baseContext = isContext(target) ? target : sandbox.withAuth(null);
-  const context = baseContext.operationContext.authLens.mode === 'admin'
-    ? baseContext
-    : bindOperationContext(baseContext, {
+  let baseContext: SandboxContext;
+  if (isContext(target)) {
+    baseContext = target;
+  } else {
+    baseContext = sandbox.withAuth(null);
+  }
+  let context = baseContext;
+  if (baseContext.operationContext.authLens.mode !== 'admin') {
+    const planId = baseContext.operationContext.planId;
+    if (planId === undefined) {
+      context = bindOperationContext(baseContext, {
         source: baseContext.operationContext.source,
         authLens: { mode: 'admin' },
-        ...(baseContext.operationContext.planId === undefined
-          ? {}
-          : { planId: baseContext.operationContext.planId }),
       });
+    } else {
+      context = bindOperationContext(baseContext, {
+        source: baseContext.operationContext.source,
+        authLens: { mode: 'admin' },
+        planId,
+      });
+    }
+  }
   const cached = ADMIN_CONTEXT_HANDLES.get(baseContext)?.get(bucket);
   if (cached) return cached;
 
@@ -844,104 +492,4 @@ export function getAdminStorageSandbox(
     bareMap.set(bucket, handle);
   }
   return handle;
-}
-
-/** Merge a host override with the immutable provenance bound to a Storage
- * handle. The result is captured before awaits, so concurrent async
- * operations cannot exchange source or auth-lens identity. */
-export function storageOperationProvenance(
-  target: SandboxTarget,
-  override?: EventProvenance,
-): EventProvenance {
-  let lensOverride = override;
-  if (target.currentAuth !== undefined && override?.authLens === undefined) {
-    const activeLens = getAuthLens();
-    if (activeLens !== undefined) {
-      lensOverride = { ...override, authLens: activeLens };
-    }
-  }
-  const context = resolveOperationContext(
-    lensOverride,
-    provenanceForOperationContext(target.context.operationContext),
-  );
-  const caller = override?.caller ?? target.caller;
-  return {
-    ...lensOverride,
-    ...provenanceForOperationContext(context),
-    ...(caller === undefined ? {} : { caller }),
-    service: 'storage',
-  };
-}
-
-/** Return an operation-scoped view of a Storage handle. The backing service,
- * bucket, and admin/rules mode are shared; only immutable operation identity is
- * rebound. Worker hosts use this internal seam instead of extending Firebase's
- * public function signatures with host-only provenance arguments. */
-export function bindStorageOperationContext(
-  storage: FirebaseStorage,
-  provenance: EventProvenance | undefined,
-): FirebaseStorage {
-  if (!provenance) return storage;
-  const target = targetOf(storage);
-  const context = resolveOperationContext(
-    provenance,
-    provenanceForOperationContext(target.context.operationContext),
-  );
-  const scopedTarget: SandboxTarget = {
-    ...target,
-    context: bindOperationContext(target.context, context),
-    ...(provenance.caller === undefined ? {} : { caller: provenance.caller }),
-  };
-  const props: { [TARGET_SYMBOL]: SandboxTarget; app?: FirebaseApp } = { [TARGET_SYMBOL]: scopedTarget };
-  if (storage.app !== undefined) props.app = storage.app;
-  return createStorageRetryHandle<FirebaseStorage>(props, storage);
-}
-
-/**
- * A view of a Storage handle whose rules see the bucket as `name`, the name
- * its caller knows it by. Objects, metadata and persistence keep the store's
- * bucket key; only the rules input changes. No name returns the handle as is.
- */
-export function nameStorageBucket(storage: FirebaseStorage, name: string | undefined): FirebaseStorage {
-  if (name === undefined || name === '') return storage;
-  const target = targetOf(storage);
-  if (target.bucketName === name) return storage;
-  const namedTarget: SandboxTarget = { ...target, bucketName: name };
-  const props: { [TARGET_SYMBOL]: SandboxTarget; app?: FirebaseApp } = { [TARGET_SYMBOL]: namedTarget };
-  if (storage.app !== undefined) props.app = storage.app;
-  return createStorageRetryHandle<FirebaseStorage>(props, storage);
-}
-
-/**
- * Internal — extract the {@link Target} from a handle. Throws on
- * objects that weren't produced by a factory in this module.
- */
-export function targetOf(storage: FirebaseStorage): Target {
-  const t = (storage as { [TARGET_SYMBOL]?: Target })[TARGET_SYMBOL];
-  if (!t) {
-    throw new TypeError(
-      'pyric/storage: not a FirebaseStorage handle — was it produced by getStorageSandbox?',
-    );
-  }
-  return t;
-}
-
-/**
- * Internal — fetch the backing `StorageService` promise for a sandbox handle.
- */
-export function getStorageService(storage: FirebaseStorage): Promise<StorageService> {
-  return targetOf(storage).servicePromise;
-}
-
-/** Internal assurance seam for the exact rules source retained by Storage setup. */
-export function getStorageRulesResolution(
-  storage: FirebaseStorage,
-): StorageRulesResolution | null {
-  const target = targetOf(storage);
-  const name = rulesBucketName(target.bucket, target.bucketName);
-  const deployed = BUCKET_RULES.get(target.sandbox)?.get(name);
-  if (deployed !== undefined) return deployed.resolution;
-  const byBucket = BUCKET_RULES.has(target.sandbox);
-  if (byBucket && !addressesDefaultBucket(target)) return null;
-  return OPEN_SERVICES.get(target.sandbox)?.rulesResolution ?? null;
 }
