@@ -17,6 +17,7 @@ import { maxHttpBodyBytes } from './child-server.js';
 import { DEFAULT_REGION, type HttpFunctionInfo } from './discovery.js';
 import { refuseForeignOrigin, type AppOriginCheck } from './private-origin.js';
 import { proxyToChild, writeProxyBadGateway, type ProxyTarget } from './proxy.js';
+import { captureInboundRequestBody } from './request-body-buffer.js';
 import type { TrustProxyPolicy } from '../../serve/guard-policy.js';
 import { rewriteTarget, sessionCookieOnly, type HostingRewrite, type RewriteFunction } from './rewrites.js';
 import { matchEmulatorPath } from './routes.js';
@@ -282,11 +283,20 @@ export function createFunctionsHttpGateway(options: FunctionsHttpGatewayOptions)
     },
     async handle(req, res, allowsAppOrigin) {
       const rawUrl = req.url ?? '/';
+      let capturedForRestart = false;
       if (current.kind === 'restarting' && current.ready !== undefined) {
         const probeMatch = resolve(rawUrl, null);
         if (probeMatch === null) return false;
+        captureInboundRequestBody(req);
+        capturedForRestart = true;
         await waitBounded(current.ready, CRASH_RESTART_WAIT_MS);
       }
+
+      const drainIfCaptured = (): void => {
+        if (capturedForRestart) {
+          captureInboundRequestBody(req).drainRemaining();
+        }
+      };
 
       const state = current;
       let http: FunctionsChildHttpReady | null = null;
@@ -296,14 +306,22 @@ export function createFunctionsHttpGateway(options: FunctionsHttpGatewayOptions)
         functions = http?.functions ?? [];
       }
       const resolved = resolve(rawUrl, functions);
-      if (resolved === null) return false;
+      if (resolved === null) {
+        drainIfCaptured();
+        return false;
+      }
       const reason = unavailableReason(state, options.plane);
       if (reason !== null) {
+        drainIfCaptured();
         res.writeHead(503, { ...PLAIN_TEXT, 'retry-after': '1' }).end(reason);
         return true;
       }
       if (resolved.kind === 'unknown-function') {
-        if (http === null || mayBeStaticRead(req)) return false;
+        if (http === null || mayBeStaticRead(req)) {
+          drainIfCaptured();
+          return false;
+        }
+        drainIfCaptured();
         res.writeHead(404, PLAIN_TEXT).end(notFoundText(resolved.key, http.functions));
         return true;
       }
@@ -312,10 +330,14 @@ export function createFunctionsHttpGateway(options: FunctionsHttpGatewayOptions)
         if (resolved.kind === 'refused') {
           message = resolved.message;
         }
+        drainIfCaptured();
         res.writeHead(404, PLAIN_TEXT).end(message);
         return true;
       }
-      if (refuseForeignOrigin(req, res, resolved.fn, allowsAppOrigin)) return true;
+      if (refuseForeignOrigin(req, res, resolved.fn, allowsAppOrigin)) {
+        drainIfCaptured();
+        return true;
+      }
 
       let headerOverrides: Record<string, string | undefined> | undefined;
       if (resolved.viaRewrite) {
@@ -353,6 +375,7 @@ export function createFunctionsHttpGateway(options: FunctionsHttpGatewayOptions)
         if (replacementHttp !== null) {
           outcome = await proxyToChild(req, res, buildTarget(replacementHttp, false));
         } else {
+          captureInboundRequestBody(req).drainRemaining();
           writeProxyBadGateway(res);
           outcome = { status: 502, timedOut: false };
         }
