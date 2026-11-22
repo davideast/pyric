@@ -60,8 +60,23 @@ describe('functions child metadata and environment resolution', () => {
       expect(config).toEqual({
         projectId: 'my-sandbox',
         databaseURL: 'https://my-sandbox-default-rtdb.firebasedatabase.app',
-        storageBucket: 'my-sandbox.appspot.com',
+        storageBucket: 'my-sandbox.firebasestorage.app',
       });
+    });
+
+    test('preserves explicit storageBucket configuration when provided (#1940)', () => {
+      const childEnv = buildFunctionsChildEnv({
+        baseEnv: {},
+        entry: '/app/functions/index.js',
+        instance: 'my-sandbox-default-rtdb',
+        location: 'us-central1',
+        databaseHost: 'firebasedatabase.app',
+        storageBucket: 'custom-legacy.appspot.com',
+        projectId: 'my-sandbox',
+      });
+
+      const config = JSON.parse(childEnv.FIREBASE_CONFIG ?? '{}');
+      expect(config.storageBucket).toBe('custom-legacy.appspot.com');
     });
 
     test('overrides host GCLOUD_PROJECT and FIREBASE_CONFIG to guarantee sandbox isolation', () => {
@@ -90,7 +105,7 @@ describe('functions child metadata and environment resolution', () => {
       const config = JSON.parse(childEnv.FIREBASE_CONFIG ?? '{}');
       expect(config.projectId).toBe('sandbox-app');
       expect(config.databaseURL).toBe('https://sandbox-app-default-rtdb.firebasedatabase.app');
-      expect(config.storageBucket).toBe('sandbox-app.appspot.com');
+      expect(config.storageBucket).toBe('sandbox-app.firebasestorage.app');
     });
 
     test('replaces the host Google project variables and drops its credentials file', () => {

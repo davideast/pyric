@@ -1,9 +1,12 @@
 /**
  * The isolated Functions child's entry: it initializes the ambient
- * firebase-admin app, loads the user's Functions source with the real SDK,
- * starts each trigger family, and reports ready to the host over IPC.
+ * firebase-admin app, loads `.env` configuration, loads the user's Functions
+ * source with the real SDK, starts each trigger family, and reports ready to
+ * the host over IPC.
  */
+import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
 import { LAZY_DEFAULT_AMBIENT_APP } from 'pyric/sandbox/internal';
 import { disconnectFromHost, sendToHost } from './child-ipc.js';
 import {
@@ -15,6 +18,8 @@ import {
   type FunctionsChildMessage,
 } from './child-protocol.js';
 import { callableOnCallFamily, inspectOnCall } from './callable/discovery.js';
+import { applyFunctionsDotenv, resolveFunctionsSourceDir } from './dotenv.js';
+import { listFirebaseEndpoints } from './endpoints.js';
 import { startFirestoreChildRuntime } from './firestore/child-runtime.js';
 import { firestoreTriggersFamily } from './firestore/discovery.js';
 import type { FirestoreTriggerExecutionHost } from './firestore/execution.js';
@@ -84,8 +89,6 @@ function surviveUncaughtErrors(): void {
   uncaughtGuardInstalled = true;
   let reporting = false;
   const report = (error: unknown): void => {
-    // Only blocks synchronous re-entry (an error thrown inside the send). The next-tick
-    // loop a send on a closed channel used to start is prevented in sendToHost instead.
     if (reporting) return;
     reporting = true;
     try {
@@ -96,6 +99,59 @@ function surviveUncaughtErrors(): void {
   };
   process.on('uncaughtException', report);
   process.on('unhandledRejection', report);
+}
+
+function resolveGlobalTimeoutSeconds(entry: string): number | undefined {
+  let functionsMain: string;
+  try {
+    functionsMain = createRequire(entry).resolve('firebase-functions');
+  } catch {
+    // Synthetic test fixtures without a `firebase-functions` install have no global options.
+    return undefined;
+  }
+  const libDir = dirname(dirname(functionsMain));
+  const cjsOptionsPath = join(libDir, 'v2/options.js');
+  if (!existsSync(cjsOptionsPath)) {
+    return undefined;
+  }
+  try {
+    const optionsModule = createRequire(functionsMain)(cjsOptionsPath) as {
+      getGlobalOptions?: () => { timeoutSeconds?: unknown };
+    };
+    const rawTimeout = optionsModule.getGlobalOptions?.()?.timeoutSeconds;
+    if (typeof rawTimeout === 'number' && Number.isFinite(rawTimeout) && rawTimeout > 0) {
+      return rawTimeout;
+    }
+  } catch {
+    // Optional inspection fallback when `v2/options.js` layout differs.
+  }
+  return undefined;
+}
+
+function collectActiveEventTimeouts(
+  entry: string,
+  exported: Record<string, unknown>,
+  unsupportedNames: ReadonlySet<string>,
+): Array<number | null> {
+  const globalTimeoutSeconds = resolveGlobalTimeoutSeconds(entry);
+  const timeouts: Array<number | null> = [];
+  for (const { exportName, callable } of listFirebaseEndpoints(exported)) {
+    const endpoint = callable.__endpoint;
+    if (!endpoint) continue;
+    if (unsupportedNames.has(exportName)) continue;
+    if (httpOnRequestFamily.claims(endpoint) || callableOnCallFamily.claims(endpoint)) {
+      continue;
+    }
+    const rawTimeout = endpoint.timeoutSeconds;
+    if (typeof rawTimeout === 'number' && Number.isFinite(rawTimeout) && rawTimeout > 0) {
+      timeouts.push(rawTimeout);
+    } else if (rawTimeout === undefined && globalTimeoutSeconds !== undefined) {
+      timeouts.push(globalTimeoutSeconds);
+    } else {
+      timeouts.push(null);
+    }
+  }
+  return timeouts;
 }
 
 async function runFunctionsChild(): Promise<void> {
@@ -109,6 +165,15 @@ async function runFunctionsChild(): Promise<void> {
 
   // Taken before the user's module loads, so function code never reads it.
   const httpToken = takeChildToken(process.env);
+  const sourceDir = resolveFunctionsSourceDir(entry, process.env.PYRIC_FUNCTIONS_SOURCE_DIR);
+  delete process.env.PYRIC_FUNCTIONS_SOURCE_DIR;
+
+  const projectId =
+    process.env.GCLOUD_PROJECT ??
+    process.env.GOOGLE_CLOUD_PROJECT ??
+    'demo-project';
+  applyFunctionsDotenv(process.env, { sourceDir, projectId });
+
   // A handler stuck in a synchronous loop stops these beats, which is how the host
   // tells a wedged child from a busy one.
   const heartbeat = setInterval(() => send({ type: 'heartbeat' }), HEARTBEAT_INTERVAL_MS);
@@ -116,9 +181,9 @@ async function runFunctionsChild(): Promise<void> {
 
   const requireFromEntry = createRequire(entry);
   const adminApp = requireFromEntry('firebase-admin/app') as AdminAppModule;
-  const defaultBucket = defaultStorageBucketFromEnv(process.env);
+  const defaultBucket = defaultStorageBucketFromEnv(process.env, projectId);
   serveInstanceAsDefault(instance);
-  serveBucketAsDefault(defaultBucket);
+  serveBucketAsDefault(defaultBucket, projectId);
   (globalThis as Record<symbol, unknown>)[LAZY_DEFAULT_AMBIENT_APP] = true;
   const runtimeSandbox = connectAmbientRuntimeSandbox(process.env);
   let host: RtdbValueExecutionHost | undefined;
@@ -169,8 +234,6 @@ async function runFunctionsChild(): Promise<void> {
     disconnectFromHost();
   };
 
-  // The host is gone (its channel closed, or this process was re-parented) or asked
-  // us to stop by signal: close what can be closed, and exit by the deadline either way.
   let exiting = false;
   const exitSoon = (deadlineMs: number): void => {
     if (exiting) return;
@@ -216,12 +279,16 @@ async function runFunctionsChild(): Promise<void> {
           send(reply);
         })
         .catch((error: unknown) => {
+          let message = String(error);
+          if (error instanceof Error) {
+            message = error.message;
+          }
           send({
             type: 'trigger-scheduled-result',
             requestId: raw.requestId,
             outcome: 'invalid-argument',
             exportName: raw.exportName,
-            message: error instanceof Error ? error.message : String(error),
+            message,
           });
         });
       return;
@@ -242,11 +309,15 @@ async function runFunctionsChild(): Promise<void> {
           send(reply);
         })
         .catch((error: unknown) => {
+          let message = String(error);
+          if (error instanceof Error) {
+            message = error.message;
+          }
           send({
             type: 'publish-pubsub-result',
             requestId: raw.requestId,
             outcome: 'invalid-argument',
-            message: error instanceof Error ? error.message : String(error),
+            message,
           });
         });
       return;
@@ -272,20 +343,21 @@ async function runFunctionsChild(): Promise<void> {
           send(reply);
         })
         .catch((error: unknown) => {
+          let message = String(error);
+          if (error instanceof Error) {
+            message = error.message;
+          }
           send({
             type: 'tasks-op-result',
             requestId: raw.requestId,
             outcome: 'error',
             code: 'functions/internal-error',
-            message: error instanceof Error ? error.message : String(error),
+            message,
           });
         });
     }
   };
   process.on('message', onParentMessage);
-  // Ctrl-C reaches this process directly, alongside the host's own stop request.
-  // Its deadline is the host's force-kill deadline, so in-flight triggers get the
-  // same time either way.
   const onSignal = (): void => {
     void shutdown().catch(() => undefined);
     exitSoon(STOP_DEADLINE_MS);
@@ -294,10 +366,6 @@ async function runFunctionsChild(): Promise<void> {
   process.once('SIGTERM', onSignal);
 
   try {
-    const projectId =
-      process.env.GCLOUD_PROJECT ??
-      process.env.GOOGLE_CLOUD_PROJECT ??
-      'demo-project';
     const exported = await loadFunctionsModuleExports(entry);
     host = startRtdbChildRuntime({
       exported,
@@ -308,6 +376,9 @@ async function runFunctionsChild(): Promise<void> {
       send,
     });
     await host.ready;
+    if (host.triggerCount > 0) {
+      surviveUncaughtErrors();
+    }
     storageHost = startStorageChildRuntime({
       exported,
       sandbox: runtimeSandbox,
@@ -399,20 +470,26 @@ async function runFunctionsChild(): Promise<void> {
       identityHost.triggerCount +
       pubsubHost.triggerCount +
       tasksHost.triggerCount;
-    if (httpServer === undefined) {
-      send({
-        type: 'ready',
-        triggerCount: totalTriggerCount,
-        unsupportedTriggers,
-      });
-    } else {
-      send({
-        type: 'ready',
-        triggerCount: totalTriggerCount,
-        unsupportedTriggers,
-        http: { port: httpServer.port, functions: httpFunctions.map(httpFunctionInfo) },
-      });
+    const unsupportedNames = new Set(unsupportedTriggers.map((item) => item.exportName));
+    let eventTimeouts: Array<number | null> = [];
+    if (totalTriggerCount > 0) {
+      eventTimeouts = collectActiveEventTimeouts(entry, exported, unsupportedNames);
     }
+    const readyMessage: FunctionsChildMessage = {
+      type: 'ready',
+      triggerCount: totalTriggerCount,
+      unsupportedTriggers,
+    };
+    if (eventTimeouts.length > 0) {
+      readyMessage.eventTimeouts = eventTimeouts;
+    }
+    if (httpServer !== undefined) {
+      readyMessage.http = {
+        port: httpServer.port,
+        functions: httpFunctions.map(httpFunctionInfo),
+      };
+    }
+    send(readyMessage);
   } catch (error) {
     await close();
     throw error;

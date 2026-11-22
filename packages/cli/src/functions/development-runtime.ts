@@ -1,6 +1,7 @@
 import type { ChildProcess } from 'node:child_process';
 import type { LocalSandbox } from 'pyric/sandbox';
 import type { FunctionsChildEvent, FunctionsChildReady } from './child-protocol.js';
+import { createCrashRestartController } from './crash-restart.js';
 import { recordFunctionExecution } from './execution-log.js';
 import { sendChildPublishPubSub } from './pubsub/child-runtime.js';
 import type { PubSubPublishResult } from './pubsub/delivery.js';
@@ -52,7 +53,7 @@ export type FunctionsDevelopmentEvent =
   /** How the restart after an unresponsive child ended. */
   | { type: 'restarted'; result: FunctionsDevelopmentResult }
   | { type: 'output'; stream: 'stdout' | 'stderr'; line: string }
-  | { type: 'unexpected-exit'; code: number };
+  | { type: 'unexpected-exit'; code: number; restarting?: boolean };
 
 export interface FunctionsDevelopmentRuntime {
   start(): Promise<FunctionsDevelopmentResult>;
@@ -333,7 +334,8 @@ export function createFunctionsDevelopmentRuntime(
       if (activeChild === handle && !closed && !expectedStops.has(handle)) {
         activeChild = null;
         startPromise = null;
-        emit({ type: 'unexpected-exit', code });
+        const restarting = crashRestarts.scheduleAfterUnexpectedExit();
+        emit({ type: 'unexpected-exit', code, restarting });
       }
     };
     void handle.exited.then((code) => {
@@ -343,6 +345,7 @@ export function createFunctionsDevelopmentRuntime(
     try {
       const ready = await handle.ready;
       readyReached = true;
+      crashRestarts.markReady();
       if (exitBeforeReady !== null) reportUnexpectedExit(exitBeforeReady);
       if (closed) {
         await stopChild(handle);
@@ -355,10 +358,50 @@ export function createFunctionsDevelopmentRuntime(
     }
   };
 
+  const reloadInternal = (): Promise<FunctionsDevelopmentResult> => {
+    if (closed) {
+      return Promise.resolve({ kind: 'failed', error: new Error('Functions runtime is closed') });
+    }
+    reloadQueued = true;
+    if (!reloadPromise) {
+      reloadPromise = (async (): Promise<FunctionsDevelopmentResult> => {
+        let result: FunctionsDevelopmentResult = { kind: 'no-peer' };
+        if (startPromise) await startPromise;
+        do {
+          reloadQueued = false;
+          await stopChild(activeChild);
+          if (closed) return { kind: 'no-peer' };
+          result = await launch('reload');
+        } while (reloadQueued && !closed);
+        return result;
+      })()
+        .then((result) => {
+          const ready = result.kind === 'ready';
+          startPromise = ready ? Promise.resolve(result) : null;
+          return result;
+        })
+        .finally(() => {
+          reloadPromise = null;
+        });
+    }
+    return reloadPromise;
+  };
+
+  const crashRestarts = createCrashRestartController({
+    isClosed: () => closed,
+    reload: async () => {
+      const result = await reloadInternal();
+      if (!closed) {
+        emit({ type: 'restarted', result });
+      }
+    },
+  });
+
   const restartUnresponsive = (): void => {
     if (closed) return;
+    crashRestarts.cancelPending();
     emit({ type: 'unresponsive' });
-    void runtime.reload().then((result) => {
+    void reloadInternal().then((result) => {
       if (!closed) emit({ type: 'restarted', result });
     });
   };
@@ -378,30 +421,14 @@ export function createFunctionsDevelopmentRuntime(
     },
     reload() {
       if (closed) return Promise.resolve({ kind: 'failed', error: new Error('Functions runtime is closed') });
-      reloadQueued = true;
-      if (!reloadPromise) {
-        reloadPromise = (async (): Promise<FunctionsDevelopmentResult> => {
-          let result: FunctionsDevelopmentResult = { kind: 'no-peer' };
-          if (startPromise) await startPromise;
-          do {
-            reloadQueued = false;
-            await stopChild(activeChild);
-            if (closed) return { kind: 'no-peer' };
-            result = await launch('reload');
-          } while (reloadQueued && !closed);
-          return result;
-        })().then(result => {
-          const ready = result.kind === 'ready';
-          startPromise = ready ? Promise.resolve(result) : null;
-          return result;
-        }).finally(() => { reloadPromise = null; });
-      }
-      return reloadPromise as Promise<FunctionsDevelopmentResult>;
+      crashRestarts.reset();
+      return reloadInternal();
     },
     close() {
       if (closePromise) return closePromise;
       closePromise = (async () => {
         closed = true;
+        crashRestarts.cancelPending();
         detachSandboxTaskBridge?.();
         reloadQueued = false;
         activeWait?.abort();

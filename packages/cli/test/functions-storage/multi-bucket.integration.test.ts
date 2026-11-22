@@ -148,7 +148,7 @@ describe('multi-bucket Storage trigger isolation against live HostedRuntime', ()
         '});',
         '',
         'exports.onDefaultExplicit = onObjectFinalized(',
-        "  { bucket: 'demo-project.appspot.com' },",
+        "  { bucket: 'demo-project.firebasestorage.app' },",
         '  async (event) => {',
         "    await recordHit('onDefaultExplicit', event);",
         '  },',
@@ -268,7 +268,7 @@ describe('multi-bucket Storage trigger isolation against live HostedRuntime', ()
       undefined,
       'bucket-beta',
       true,
-      'demo-project.appspot.com',
+      'demo-project.firebasestorage.app',
     );
     const sharedPath = 'reports/2026/summary.txt';
     const pathHex = Buffer.from(sharedPath, 'utf8').toString('hex');
@@ -310,14 +310,14 @@ describe('multi-bucket Storage trigger isolation against live HostedRuntime', ()
       undefined,
       'bucket-alpha',
       true,
-      'demo-project.appspot.com',
+      'demo-project.firebasestorage.app',
     );
     const unwatchedStorage = getClientStorage(
       { __kind: 'client-db', type: 'firestore', port: clientPort },
       undefined,
       'bucket-unwatched',
       true,
-      'demo-project.appspot.com',
+      'demo-project.firebasestorage.app',
     );
     const sharedPath = 'reports/2026/summary.txt';
     const pathHex = Buffer.from(sharedPath, 'utf8').toString('hex');
@@ -370,9 +370,9 @@ describe('multi-bucket Storage trigger isolation against live HostedRuntime', ()
       `bucketHits/onDefaultExplicit/${pathHex}`,
     );
     expect(omittedHit.text).toBe('payload-in-default');
-    expect(omittedHit.bucket).toBe('demo-project.appspot.com');
+    expect(omittedHit.bucket).toBe('demo-project.firebasestorage.app');
     expect(explicitHit.text).toBe('payload-in-default');
-    expect(explicitHit.bucket).toBe('demo-project.appspot.com');
+    expect(explicitHit.bucket).toBe('demo-project.firebasestorage.app');
 
     // Earlier bucket-beta receipt still holds beta's payload, uncorrupted.
     const betaHitAfter = await waitForRtdbValue<BucketTriggerRecord>(
@@ -393,7 +393,7 @@ describe('multi-bucket Storage trigger isolation against live HostedRuntime', ()
       undefined,
       'bucket-alpha',
       true,
-      'demo-project.appspot.com',
+      'demo-project.firebasestorage.app',
     );
     const sourcePath = 'relay-to-beta/job-9.txt';
     const mirroredPath = 'mirrored/job-9.txt';
@@ -434,14 +434,14 @@ describe('multi-bucket Storage trigger isolation against live HostedRuntime', ()
       undefined,
       'bucket-alpha',
       true,
-      'demo-project.appspot.com',
+      'demo-project.firebasestorage.app',
     );
     const betaStorage = getClientStorage(
       { __kind: 'client-db', type: 'firestore', port: clientPort },
       undefined,
       'bucket-beta',
       true,
-      'demo-project.appspot.com',
+      'demo-project.firebasestorage.app',
     );
     const sharedPath = 'lifecycle-isolated/item.txt';
     const pathHex = Buffer.from(sharedPath, 'utf8').toString('hex');

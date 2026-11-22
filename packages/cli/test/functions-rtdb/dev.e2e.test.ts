@@ -6,6 +6,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  rmSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -468,82 +469,126 @@ require('node:child_process').execFileSync(process.execPath, ['-e', 'setTimeout(
     }
   }, 20_000);
 
-  test('an unexpected Functions exit also stops the project dev child', async () => {
+  test('an unexpected Functions exit restarts the child, keeps the project dev child alive, and serves the next call (#1942)', async () => {
     if (!existsSync(cliEntry)) throw new Error(`build the CLI first: ${cliEntry}`);
-    const cwd = mkdtempSync(join(tmpdir(), 'pyric-functions-fatal-stop-'));
+    const cwd = mkdtempSync(join(tmpdir(), 'pyric-functions-crash-restart-'));
     mkdirSync(join(cwd, 'public'));
-    mkdirSync(join(cwd, 'functions'));
+    mkdirSync(join(cwd, 'functions/node_modules'), { recursive: true });
     writeFileSync(join(cwd, 'public/index.html'), '<!doctype html><body>fixture</body>');
     writeFileSync(join(cwd, '.firebaserc'), JSON.stringify({ projects: { default: 'demo-project' } }));
-    writeFileSync(join(cwd, 'firebase.json'), JSON.stringify({
-      hosting: { public: 'public' },
-      functions: { source: 'functions' },
-    }));
+    writeFileSync(join(cwd, 'firebase.json'), JSON.stringify({ hosting: { public: 'public' }, functions: { source: 'functions' } }));
     writeFileSync(join(cwd, 'pyric.json'), JSON.stringify({
       command: `node -e "require('node:fs').writeFileSync('dev-child.pid', String(process.pid)); setTimeout(() => {}, 60000)"`,
     }));
     writeFileSync(join(cwd, 'functions/package.json'), JSON.stringify({
-      name: 'fatal-functions',
-      private: true,
-      type: 'commonjs',
-      main: 'index.cjs',
+      name: 'crash-restart-functions', private: true, type: 'commonjs', main: 'index.cjs',
     }));
-    writeFileSync(join(cwd, 'functions/index.cjs'), 'setTimeout(() => process.exit(7), 3000);\n');
+    symlinkSync(join(repoRoot, 'packages/conformance/node_modules/firebase-functions'), join(cwd, 'functions/node_modules/firebase-functions'));
+    writeFileSync(
+      join(cwd, 'functions/index.cjs'),
+      [
+        "const { onRequest } = require('firebase-functions/v2/https');",
+        'const bootPid = process.pid;',
+        'exports.crashOrServe = onRequest((req, res) => {',
+        "  if (req.url && req.url.includes('crash=1')) process.exit(1);",
+        '  res.json({ pid: bootPid });',
+        '});',
+      ].join('\n'),
+    );
 
+    let stdout = '';
     let stderr = '';
-    const fatalCommand = spawn('node', [
-      cliEntry,
-      'sandbox',
-      '--port=0',
-      '--host=127.0.0.1',
-      '--no-open',
-      '--no-capture',
-    ], { cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
-    fatalCommand.stderr?.setEncoding('utf8');
-    fatalCommand.stderr?.on('data', (chunk: string) => { stderr += chunk; });
+    const sandboxProcess = spawn(
+      'node',
+      [cliEntry, 'sandbox', '--port=0', '--host=127.0.0.1', '--no-open', '--no-capture'],
+      { cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] },
+    );
+    sandboxProcess.stdout?.setEncoding('utf8');
+    sandboxProcess.stderr?.setEncoding('utf8');
+    sandboxProcess.stdout?.on('data', (chunk: string) => { stdout += chunk; });
+    sandboxProcess.stderr?.on('data', (chunk: string) => { stderr += chunk; });
     let devPid: number | undefined;
-    let fatalPeer: { close(): Promise<void> } | undefined;
+    let restartedFnPid: number | undefined;
+    let peer: { close(): Promise<void> } | undefined;
 
     try {
       const pointer = await waitFor(() => {
-        const path = join(cwd, '.pyric/serve.json');
-        return existsSync(path)
-          ? JSON.parse(readFileSync(path, 'utf8')) as { url: string }
-          : null;
+        const pointerPath = join(cwd, '.pyric/serve.json');
+        if (!existsSync(pointerPath)) return null;
+        return JSON.parse(readFileSync(pointerPath, 'utf8')) as { url: string };
       });
-      fatalPeer = await connectWorkerPeer(
+      peer = await connectWorkerPeer(
         `${pointer.url.replace(/^http/, 'ws')}/__pyric/sandbox`,
         { cwd },
       );
       devPid = await waitFor(() => {
-        const path = join(cwd, 'dev-child.pid');
-        return existsSync(path) ? Number(readFileSync(path, 'utf8')) : null;
+        const pidPath = join(cwd, 'dev-child.pid');
+        if (!existsSync(pidPath)) return null;
+        return Number(readFileSync(pidPath, 'utf8'));
       });
-      const code = await Promise.race([
-        new Promise<number>((resolveExit) =>
-          fatalCommand.once('exit', (exit) => resolveExit(exit ?? 1))),
-        Bun.sleep(5_000).then(() => -1),
-      ]);
-      expect(code).toBe(7);
-      expect(stderr).toContain('Functions child exited unexpectedly (code 7)');
-      await waitFor(() => {
-        try {
-          process.kill(devPid!, 0);
-          return null;
-        } catch {
-          return true;
-        }
-      }, 5_000);
+
+      const fnUrl = `${pointer.url.replace(/\/$/, '')}/demo-project/us-central1/crashOrServe`;
+      const initial = await waitFor(async () => {
+        const res = await fetch(fnUrl);
+        if (res.status !== 200) return null;
+        return (await res.json()) as { pid: number };
+      }, 15_000);
+
+      const crashResponse = await fetch(`${fnUrl}?crash=1`).catch(() => null);
+      if (crashResponse !== null) {
+        expect(crashResponse.status).toBeGreaterThanOrEqual(500);
+      }
+
+      // Immediately invoke the next request: the sandbox host stays up, restarts
+      // the Functions child, and serves the next call from a fresh process.
+      const nextResponse = await fetch(fnUrl);
+      expect(nextResponse.status).toBe(200);
+      const nextPayload = (await nextResponse.json()) as { pid: number };
+      restartedFnPid = nextPayload.pid;
+      expect(nextPayload.pid).not.toBe(initial.pid);
+      expect(sandboxProcess.exitCode).toBeNull();
+      expect(stderr).toContain('Functions child exited unexpectedly (code 1). Restarting it.');
+      expect(stdout).toContain('functions restarted');
+
+      // The project dev child must still be alive.
+      if (devPid === undefined) {
+        throw new Error('expected devPid');
+      }
+      process.kill(devPid, 0);
     } finally {
-      await fatalPeer?.close().catch(() => {});
-      if (fatalCommand.exitCode === null) fatalCommand.kill('SIGKILL');
+      await peer?.close().catch(() => {});
+      if (sandboxProcess.exitCode === null) {
+        sandboxProcess.kill('SIGTERM');
+        await Promise.race([
+          new Promise<void>((resolveExit) => {
+            sandboxProcess.once('exit', () => resolveExit());
+          }),
+          Bun.sleep(3_000),
+        ]);
+        if (sandboxProcess.exitCode === null) {
+          sandboxProcess.kill('SIGKILL');
+        }
+      }
+      if (restartedFnPid !== undefined) {
+        const pidToVerify = restartedFnPid;
+        const orphanCleared = await waitFor(() => {
+          try {
+            process.kill(pidToVerify, 0);
+            return null;
+          } catch {
+            return true;
+          }
+        }, 5_000);
+        expect(orphanCleared).toBe(true);
+      }
       if (devPid !== undefined) {
         try {
           process.kill(devPid, 'SIGKILL');
         } catch {
-          // Expected: fatal Functions shutdown owns and stops the dev child.
+          // Process already exited during sandbox SIGTERM teardown.
         }
       }
+      rmSync(cwd, { recursive: true, force: true });
     }
-  }, 20_000);
+  }, 25_000);
 });

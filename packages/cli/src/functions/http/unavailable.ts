@@ -2,7 +2,7 @@
  * What a matched function route answers while the child cannot serve it
  * (functions-http#20). Each line says what actually brings Functions back on
  * the plane that prints it: the Vite plugin retries when a tab connects and
- * reloads on save, and `pyric sandbox` does neither.
+ * reloads on save, and both planes restart an unexpectedly exited child.
  */
 import type { FunctionsHttpState } from './gateway.js';
 
@@ -40,6 +40,8 @@ export function unavailableReason(state: FunctionsHttpState, plane: FunctionsPla
       return `Functions failed to start: ${state.message}`;
     case 'unresponsive':
       return 'The Functions child is unresponsive: a handler may be stuck in a synchronous loop. pyric is restarting it; retry in a moment.';
+    case 'restarting':
+      return `The Functions child exited unexpectedly (code ${state.code}); pyric is restarting it. Retry in a moment.`;
     case 'exited':
       return exitedReason(state.code, plane);
     case 'stopped':

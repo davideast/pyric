@@ -44,7 +44,7 @@ export function defaultStorageBucketFromEnv(
         return parsed.storageBucket;
       }
       if (typeof parsed.projectId === 'string' && parsed.projectId.length > 0) {
-        return `${parsed.projectId}.appspot.com`;
+        return `${parsed.projectId}.firebasestorage.app`;
       }
     } catch {
       // Fall back to projectId env vars when FIREBASE_CONFIG is not JSON.
@@ -56,29 +56,51 @@ export function defaultStorageBucketFromEnv(
   } else if (typeof env.GOOGLE_CLOUD_PROJECT === 'string' && env.GOOGLE_CLOUD_PROJECT.length > 0) {
     projectId = env.GOOGLE_CLOUD_PROJECT;
   }
-  return `${projectId}.appspot.com`;
+  return `${projectId}.firebasestorage.app`;
 }
 
-function aliasStorageOpBucket(payload: WorkerOpPayload, defaultBucket: string): WorkerOpPayload {
+function defaultBucketAliasSet(defaultBucket: string, projectId?: string): ReadonlySet<string> {
+  const aliases = new Set<string>([defaultBucket]);
+  if (typeof projectId === 'string' && projectId.length > 0) {
+    const modernDefault = `${projectId}.firebasestorage.app`;
+    const legacyDefault = `${projectId}.appspot.com`;
+    if (defaultBucket === modernDefault || defaultBucket === legacyDefault) {
+      aliases.add(modernDefault);
+      aliases.add(legacyDefault);
+    }
+  }
+  return aliases;
+}
+
+function aliasStorageOpBucket(
+  payload: WorkerOpPayload,
+  defaultBuckets: ReadonlySet<string>,
+): WorkerOpPayload {
   if (!payload.method.startsWith('storage.')) return payload;
   const record = payload as Record<string, unknown>;
   let changed = false;
   const clone: Record<string, unknown> = { ...record };
 
-  if (clone.bucket === defaultBucket) {
+  if (typeof clone.bucket === 'string' && defaultBuckets.has(clone.bucket)) {
     delete clone.bucket;
     changed = true;
   }
-  if (clone.defaultBucket === defaultBucket) {
+  if (typeof clone.defaultBucket === 'string' && defaultBuckets.has(clone.defaultBucket)) {
     delete clone.defaultBucket;
     changed = true;
   }
   if (payload.method === 'storage.copyObject') {
-    if (clone.destinationBucket === defaultBucket) {
+    if (
+      typeof clone.destinationBucket === 'string' &&
+      defaultBuckets.has(clone.destinationBucket)
+    ) {
       delete clone.destinationBucket;
       changed = true;
     }
-    if (clone.destinationDefaultBucket === defaultBucket) {
+    if (
+      typeof clone.destinationDefaultBucket === 'string' &&
+      defaultBuckets.has(clone.destinationDefaultBucket)
+    ) {
       delete clone.destinationDefaultBucket;
       changed = true;
     }
@@ -87,25 +109,35 @@ function aliasStorageOpBucket(payload: WorkerOpPayload, defaultBucket: string): 
   return clone as WorkerOpPayload;
 }
 
+function rewriteByteRoutePathname(
+  pathname: string,
+  encodedDefaultPrefixes: readonly string[],
+): string | null {
+  for (const prefix of encodedDefaultPrefixes) {
+    if (pathname.startsWith(prefix)) {
+      return `${BYTE_ROUTE_PREFIX}${DEFAULT_STORE_BUCKET}/${pathname.slice(prefix.length)}`;
+    }
+  }
+  return null;
+}
+
 function rewriteDefaultBucketByteRouteInput(
   input: string | URL,
-  encodedDefaultPrefix: string,
+  encodedDefaultPrefixes: readonly string[],
 ): string | URL {
   if (typeof input === 'string') {
     const url = new URL(input);
-    if (url.pathname.startsWith(encodedDefaultPrefix)) {
-      url.pathname =
-        `${BYTE_ROUTE_PREFIX}${DEFAULT_STORE_BUCKET}/` +
-        url.pathname.slice(encodedDefaultPrefix.length);
+    const rewrittenPath = rewriteByteRoutePathname(url.pathname, encodedDefaultPrefixes);
+    if (rewrittenPath !== null) {
+      url.pathname = rewrittenPath;
       return url.href;
     }
     return input;
   }
-  if (input.pathname.startsWith(encodedDefaultPrefix)) {
+  const rewrittenPath = rewriteByteRoutePathname(input.pathname, encodedDefaultPrefixes);
+  if (rewrittenPath !== null) {
     const rewritten = new URL(input.href);
-    rewritten.pathname =
-      `${BYTE_ROUTE_PREFIX}${DEFAULT_STORE_BUCKET}/` +
-      input.pathname.slice(encodedDefaultPrefix.length);
+    rewritten.pathname = rewrittenPath;
     return rewritten;
   }
   return input;
@@ -113,49 +145,53 @@ function rewriteDefaultBucketByteRouteInput(
 
 function aliasDefaultBucketByteRoute(
   route: RemoteByteRoute | undefined,
-  defaultBucket: string,
+  defaultBuckets: ReadonlySet<string>,
 ): RemoteByteRoute | undefined {
   if (route === undefined) return undefined;
-  const encodedPrefix = `${BYTE_ROUTE_PREFIX}${encodeURIComponent(defaultBucket)}/`;
+  const encodedPrefixes = [...defaultBuckets].map(
+    (bucket) => `${BYTE_ROUTE_PREFIX}${encodeURIComponent(bucket)}/`,
+  );
   const baseFetch = route.fetch ?? fetch;
   return {
     baseUrl: route.baseUrl,
     sessionToken: () => route.sessionToken(),
     fetch: (input, init) =>
-      baseFetch(rewriteDefaultBucketByteRouteInput(input, encodedPrefix), init),
+      baseFetch(rewriteDefaultBucketByteRouteInput(input, encodedPrefixes), init),
   };
 }
 
 function aliasDefaultStorageChannel(
   channel: RemoteSandboxChannel,
-  defaultBucket: string,
+  defaultBuckets: ReadonlySet<string>,
 ): RemoteSandboxChannel {
   return {
-    op: (payload) => channel.op(aliasStorageOpBucket(payload, defaultBucket)),
+    op: (payload) => channel.op(aliasStorageOpBucket(payload, defaultBuckets)),
     subscribe: (sub, onSnap, onError) => channel.subscribe(sub, onSnap, onError),
     byteRoute: async () => {
       const route = await channel.byteRoute?.();
-      return aliasDefaultBucketByteRoute(route, defaultBucket);
+      return aliasDefaultBucketByteRoute(route, defaultBuckets);
     },
   };
 }
 
 /**
  * Wrap the ambient remote sandbox factory so `firebase-admin/storage` calls for
- * the child's synthetic default bucket (`<projectId>.appspot.com`) reach the
- * host's default bucket store even when unnamed uploads arrived earlier.
+ * the child's synthetic default bucket (`<projectId>.firebasestorage.app` and
+ * legacy `<projectId>.appspot.com` when running on the project default) reach
+ * the host's default bucket store even when unnamed uploads arrived earlier.
  */
-export function serveBucketAsDefault(defaultBucket: string): void {
+export function serveBucketAsDefault(defaultBucket: string, projectId?: string): void {
   if (!defaultBucket || defaultBucket === DEFAULT_STORE_BUCKET) return;
   const globalRecord = globalThis as Record<symbol, unknown>;
   const factory = globalRecord[REMOTE_SANDBOX_FACTORY] as
     | ((options?: { url?: string }) => RemoteSandbox)
     | undefined;
   if (typeof factory !== 'function') return;
+  const defaultBuckets = defaultBucketAliasSet(defaultBucket, projectId);
   globalRecord[REMOTE_SANDBOX_FACTORY] = (options?: { url?: string }): RemoteSandbox => {
     const inner = factory(options);
     return createRemoteSandboxHandle({
-      channel: aliasDefaultStorageChannel(inner.channel, defaultBucket),
+      channel: aliasDefaultStorageChannel(inner.channel, defaultBuckets),
       serveUrl: inner.serveUrl,
       close: () => inner.close(),
     });

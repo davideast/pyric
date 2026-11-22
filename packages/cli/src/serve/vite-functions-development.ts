@@ -15,6 +15,7 @@ import {
   httpFunctionLines,
   servedLine,
   stateAfterStart,
+  unexpectedExitLine,
   UNRESPONSIVE_LINE,
   uncaughtErrorLine,
 } from '../functions/http/report.js';
@@ -71,7 +72,7 @@ function reportEvent(
     return;
   }
   if (event.type === 'unexpected-exit') {
-    logger.error(`  ✖ [pyric] Functions child exited unexpectedly (code ${event.code}).`);
+    logger.error(`  \u2716 [pyric] ${unexpectedExitLine(event.code, event.restarting !== false)}`);
     return;
   }
   if (event.type === 'starting') return;
@@ -178,6 +179,13 @@ export function attachViteFunctionsDevelopment(
   let starting: Promise<FunctionsDevelopmentResult> | null = null;
   let reconnectQueued = false;
   let closePromise: Promise<void> | null = null;
+  let crashRestartWait: { promise: Promise<void>; resolve: () => void } | null = null;
+  const resolveCrashRestartWait = (): void => {
+    if (crashRestartWait !== null) {
+      crashRestartWait.resolve();
+      crashRestartWait = null;
+    }
+  };
   const warnPrivateInvokers = createPrivateInvokerWarnings();
   const gateway: FunctionsHttpGateway = createFunctionsHttpGateway({
     projectId: options.projectId,
@@ -251,14 +259,28 @@ export function attachViteFunctionsDevelopment(
         const exited = event.type === 'unexpected-exit';
         if (exited) {
           running = false;
-          gateway.update({ kind: 'exited', code: event.code });
+          resolveCrashRestartWait();
+          const isRestarting = event.restarting !== false;
+          if (isRestarting) {
+            crashRestartWait = Promise.withResolvers<void>();
+            gateway.update({ kind: 'restarting', code: event.code, ready: crashRestartWait.promise });
+          } else {
+            gateway.update({ kind: 'exited', code: event.code });
+          }
         }
         if (event.type === 'unresponsive') gateway.update({ kind: 'unresponsive' });
         if (event.type === 'restarted') {
           running = event.result.kind === 'ready';
           gateway.update(stateAfterStart(event.result, url));
+          resolveCrashRestartWait();
         }
-        if (event.type === 'starting') gateway.update({ kind: event.mode === 'reload' ? 'reloading' : 'starting' });
+        if (event.type === 'starting' && crashRestartWait === null) {
+          let nextKind: 'starting' | 'reloading' = 'starting';
+          if (event.mode === 'reload') {
+            nextKind = 'reloading';
+          }
+          gateway.update({ kind: nextKind });
+        }
         reportEvent(options.logger, event);
       },
       ...(options.childModuleUrl === undefined ? {} : { childModuleUrl: options.childModuleUrl }),
@@ -276,6 +298,7 @@ export function attachViteFunctionsDevelopment(
     reloadDebounce = setTimeout(() => {
       if (!runtime || closed) return;
       running = false;
+      resolveCrashRestartWait();
       gateway.update({ kind: 'reloading' });
       const transition = runtime.reload();
       if (reportedReload === transition) return;
@@ -306,6 +329,7 @@ export function attachViteFunctionsDevelopment(
       if (closePromise) return closePromise;
       closePromise = (async () => {
         closed = true;
+        resolveCrashRestartWait();
         gateway.update({ kind: 'stopped' });
         releasePeerListener();
         reconnectQueued = false;

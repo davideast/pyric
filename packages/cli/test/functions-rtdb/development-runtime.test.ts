@@ -10,6 +10,7 @@ import {
   type FunctionsDevelopmentEvent,
   type FunctionsPeerReadiness,
 } from '../../src/functions/development-runtime.js';
+import { createCrashRestartController } from '../../src/functions/crash-restart.js';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -195,32 +196,141 @@ describe('Functions development runtime', () => {
     await runtime.close();
   });
 
-  it('emits an unexpected-exit event only for the active ready child', async () => {
+  it('emits unexpected-exit for the active ready child and automatically restarts a replacement (#1942)', async () => {
     const events: FunctionsDevelopmentEvent[] = [];
-    const child = fakeChild(Promise.resolve({ triggerCount: 1, unsupportedTriggers: [] }));
+    const first = fakeChild(Promise.resolve({ triggerCount: 1, unsupportedTriggers: [] }));
+    const replacement = fakeChild(Promise.resolve({ triggerCount: 2, unsupportedTriggers: [] }));
+    let spawns = 0;
     const runtime = createFunctionsDevelopmentRuntime(runtimeOptions(
       { wait: async () => true },
-      () => child.handle,
+      () => {
+        spawns += 1;
+        if (spawns === 1) {
+          return first.handle;
+        }
+        return replacement.handle;
+      },
       events,
     ));
     await runtime.start();
-    child.exit.resolve(7);
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(events).toContainEqual({ type: 'unexpected-exit', code: 7 });
+    first.exit.resolve(7);
+    const deadline = Date.now() + 2_000;
+    while (!events.some((event) => event.type === 'restarted') && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(events).toContainEqual({ type: 'unexpected-exit', code: 7, restarting: true });
+    expect(events).toContainEqual({
+      type: 'restarted',
+      result: { kind: 'ready', ready: { triggerCount: 2, unsupportedTriggers: [] } },
+    });
+    expect(spawns).toBe(2);
+    await runtime.close();
   });
 
-  it('does not lose an exit already settled when readiness resolves', async () => {
+  it('does not lose an exit already settled when readiness resolves and restarts cleanly (#1942)', async () => {
     const events: FunctionsDevelopmentEvent[] = [];
-    const child = fakeChild(Promise.resolve({ triggerCount: 1, unsupportedTriggers: [] }));
-    child.exit.resolve(9);
+    const first = fakeChild(Promise.resolve({ triggerCount: 1, unsupportedTriggers: [] }));
+    const replacement = fakeChild(Promise.resolve({ triggerCount: 1, unsupportedTriggers: [] }));
+    first.exit.resolve(9);
+    let spawns = 0;
     const runtime = createFunctionsDevelopmentRuntime(runtimeOptions(
       { wait: async () => true },
-      () => child.handle,
+      () => {
+        spawns += 1;
+        if (spawns === 1) {
+          return first.handle;
+        }
+        return replacement.handle;
+      },
       events,
     ));
     expect((await runtime.start()).kind).toBe('ready');
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(events).toContainEqual({ type: 'unexpected-exit', code: 9 });
+    const deadline = Date.now() + 2_000;
+    while (!events.some((event) => event.type === 'restarted') && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(events).toContainEqual({ type: 'unexpected-exit', code: 9, restarting: true });
+    expect(spawns).toBe(2);
+    await runtime.close();
+  });
+
+  it('pauses automatic restart on the 6th consecutive rapid crash and resets after healthy uptime or reset (#1942)', async () => {
+    let clock = 1_000;
+    let reloads = 0;
+    const controller = createCrashRestartController({
+      isClosed: () => false,
+      reload: async () => {
+        reloads += 1;
+      },
+      now: () => clock,
+    });
+    for (let attempt = 1; attempt <= 5; attempt += 1) {
+      controller.markReady();
+      clock += 50;
+      expect(controller.scheduleAfterUnexpectedExit()).toBe(true);
+    }
+    controller.markReady();
+    clock += 50;
+    expect(controller.scheduleAfterUnexpectedExit()).toBe(false);
+    controller.cancelPending();
+
+    controller.reset();
+    controller.markReady();
+    clock += 50;
+    expect(controller.scheduleAfterUnexpectedExit()).toBe(true);
+
+    controller.markReady();
+    clock += 2_500;
+    expect(controller.scheduleAfterUnexpectedExit()).toBe(true);
+    controller.cancelPending();
+    expect(reloads).toBeGreaterThanOrEqual(3);
+
+    // Runtime-level verification: 6 consecutive rapid crashes emit 5 restarting:true then 1 restarting:false.
+    const events: FunctionsDevelopmentEvent[] = [];
+    const children = Array.from({ length: 7 }, () =>
+      fakeChild(Promise.resolve({ triggerCount: 1, unsupportedTriggers: [] })),
+    );
+    let spawns = 0;
+    const runtime = createFunctionsDevelopmentRuntime(runtimeOptions(
+      { wait: async () => true },
+      () => {
+        const next = children[spawns];
+        spawns += 1;
+        if (!next) {
+          throw new Error('unexpected 7th spawn');
+        }
+        return next.handle;
+      },
+      events,
+    ));
+    await runtime.start();
+    for (let crash = 0; crash < 6; crash += 1) {
+      const current = children[crash];
+      if (!current) {
+        throw new Error(`missing child ${crash}`);
+      }
+      current.exit.resolve(1);
+      if (crash < 5) {
+        const expectedRestarts = crash + 1;
+        const deadline = Date.now() + 2_500;
+        while (events.filter((e) => e.type === 'restarted').length < expectedRestarts && Date.now() < deadline) {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+      } else {
+        await new Promise((resolve) => setTimeout(resolve, 30));
+      }
+    }
+    const unexpectedExits = events.filter((e) => e.type === 'unexpected-exit');
+    expect(unexpectedExits).toEqual([
+      { type: 'unexpected-exit', code: 1, restarting: true },
+      { type: 'unexpected-exit', code: 1, restarting: true },
+      { type: 'unexpected-exit', code: 1, restarting: true },
+      { type: 'unexpected-exit', code: 1, restarting: true },
+      { type: 'unexpected-exit', code: 1, restarting: true },
+      { type: 'unexpected-exit', code: 1, restarting: false },
+    ]);
+    expect(spawns).toBe(6);
+    await runtime.close();
   });
 });
 

@@ -32,10 +32,17 @@ process.on('message', (message) => {
 });
 `;
 
-function fakeChildModule(http?: object): URL {
+function fakeChildModule(http?: object, eventTimeouts?: Array<number | null>): URL {
   const dir = mkdtempSync(join(tmpdir(), 'pyric-heartbeat-'));
   const file = join(dir, 'child.cjs');
-  const readyHttp = http === undefined ? '{}' : JSON.stringify({ http });
+  const extra: Record<string, unknown> = {};
+  if (http !== undefined) {
+    extra.http = http;
+  }
+  if (eventTimeouts !== undefined) {
+    extra.eventTimeouts = eventTimeouts;
+  }
+  const readyHttp = JSON.stringify(extra);
   writeFileSync(file, FAKE_CHILD.replace('READY_HTTP', readyHttp));
   return pathToFileURL(file);
 }
@@ -54,7 +61,11 @@ afterEach(() => {
   }
 });
 
-function spawnFake(onUnresponsive: () => void, http?: object): FunctionsChildHandle {
+function spawnFake(
+  onUnresponsive: () => void,
+  http?: object,
+  eventTimeouts?: Array<number | null>,
+): FunctionsChildHandle {
   const handle = spawnFunctionsChild({
     cwd: tmpdir(),
     entry: join(tmpdir(), 'index.js'),
@@ -62,7 +73,7 @@ function spawnFake(onUnresponsive: () => void, http?: object): FunctionsChildHan
     instance: 'demo-default-rtdb',
     location: 'us-central1',
     projectId: 'demo',
-    childModuleUrl: fakeChildModule(http),
+    childModuleUrl: fakeChildModule(http, eventTimeouts),
     heartbeatTimeoutMs: 500,
     onUnresponsive,
   });
@@ -110,13 +121,38 @@ describe('Functions child heartbeat', () => {
     await handle.stop();
   }, 15_000);
 
-  it('the limit is the longest timeoutSeconds plus one beat, the platform default when unset, capped at an hour', () => {
-    const fn = (timeoutSeconds: number | null) => ({ exportName: 'f', regions: ['us-central1'], platform: 'gcfv2' as const, privateInvoker: false, timeoutSeconds });
+  it('the limit honors HTTP and event trigger timeoutSeconds, capped at 540 s for events/v1 and 3600 s for v2 HTTP (#1944)', () => {
+    const fn = (timeoutSeconds: number | null, platform: 'gcfv1' | 'gcfv2' = 'gcfv2') => ({
+      exportName: 'f',
+      regions: ['us-central1'],
+      platform,
+      privateInvoker: false,
+      timeoutSeconds,
+    });
     expect(heartbeatLimitMs(undefined, 10_000)).toBe(10_000);
     expect(heartbeatLimitMs({ port: 1, functions: [fn(2)] }, 10_000)).toBe(10_000);
     expect(heartbeatLimitMs({ port: 1, functions: [fn(30), fn(null)] }, 10_000)).toBe(61_000);
     expect(heartbeatLimitMs({ port: 1, functions: [fn(9_000)] }, 10_000)).toBe(3_601_000);
+    expect(heartbeatLimitMs({ port: 1, functions: [fn(9_000, 'gcfv1')] }, 10_000)).toBe(541_000);
+    expect(heartbeatLimitMs(undefined, 10_000, [null])).toBe(61_000);
+    expect(heartbeatLimitMs(undefined, 10_000, [120])).toBe(121_000);
+    expect(heartbeatLimitMs(undefined, 10_000, [900])).toBe(541_000);
+    expect(heartbeatLimitMs({ port: 1, functions: [fn(30)] }, 10_000, [180])).toBe(181_000);
   });
+
+  it('synchronous event-trigger work within declared timeoutSeconds is not reported (#1944)', async () => {
+    let reported = 0;
+    const handle = spawnFake(() => { reported += 1; }, undefined, [2]);
+    await handle.ready;
+    handle.child.send({ type: 'wedge', ms: 1_500 });
+    await Bun.sleep(2_500);
+    expect(reported).toBe(0);
+    handle.child.send({ type: 'wedge' });
+    const deadline = Date.now() + 6_000;
+    while (reported === 0 && Date.now() < deadline) await Bun.sleep(50);
+    expect(reported).toBe(1);
+    await handle.stop();
+  }, 15_000);
 
   it('a wall-clock jump, as when a laptop wakes from sleep, does not count as silence', async () => {
     let reported = 0;

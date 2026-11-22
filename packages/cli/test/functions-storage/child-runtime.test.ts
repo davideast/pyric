@@ -70,15 +70,15 @@ describe('Storage child-runtime helpers', () => {
       defaultStorageBucketFromEnv({
         FIREBASE_CONFIG: JSON.stringify({ projectId: 'alpha-proj' }),
       }),
-    ).toBe('alpha-proj.appspot.com');
+    ).toBe('alpha-proj.firebasestorage.app');
 
     expect(
       defaultStorageBucketFromEnv({ GCLOUD_PROJECT: 'beta-proj' }),
-    ).toBe('beta-proj.appspot.com');
+    ).toBe('beta-proj.firebasestorage.app');
 
     expect(
       defaultStorageBucketFromEnv({ GCLOUD_PROJECT: '', GOOGLE_CLOUD_PROJECT: 'gamma-proj' }),
-    ).toBe('gamma-proj.appspot.com');
+    ).toBe('gamma-proj.firebasestorage.app');
   });
 
   test('serveBucketAsDefault aliases default-bucket ops and byte-route URLs onto pyric-default', async () => {
@@ -114,21 +114,27 @@ describe('Storage child-runtime helpers', () => {
       });
 
     try {
-      serveBucketAsDefault('demo-project.appspot.com');
+      serveBucketAsDefault('demo-project.firebasestorage.app', 'demo-project');
       const wrappedFactory = globalRecord[REMOTE_SANDBOX_FACTORY] as () => RemoteSandbox;
       const handle = wrappedFactory();
 
       await handle.channel.op({
         method: 'storage.getMetadata',
         path: 'a/b.txt',
+        bucket: 'demo-project.firebasestorage.app',
+        defaultBucket: 'demo-project.firebasestorage.app',
+      });
+      await handle.channel.op({
+        method: 'storage.getMetadata',
+        path: 'a/b.txt',
         bucket: 'demo-project.appspot.com',
-        defaultBucket: 'demo-project.appspot.com',
+        defaultBucket: 'demo-project.firebasestorage.app',
       });
       await handle.channel.op({
         method: 'storage.getMetadata',
         path: 'a/b.txt',
         bucket: 'other-bucket',
-        defaultBucket: 'demo-project.appspot.com',
+        defaultBucket: 'demo-project.firebasestorage.app',
       });
 
       const route = await handle.channel.byteRoute?.();
@@ -136,7 +142,7 @@ describe('Storage child-runtime helpers', () => {
         throw new Error('expected wrapped byteRoute fetch');
       }
       await route.fetch(
-        'http://127.0.0.1:4400/__pyric/storage/v0/b/demo-project.appspot.com/o/a%2Fb.txt?alt=media',
+        'http://127.0.0.1:4400/__pyric/storage/v0/b/demo-project.firebasestorage.app/o/a%2Fb.txt?alt=media',
       );
       await route.fetch(
         new URL(
@@ -145,6 +151,7 @@ describe('Storage child-runtime helpers', () => {
       );
 
       expect(seenOps).toEqual([
+        { method: 'storage.getMetadata', path: 'a/b.txt' },
         { method: 'storage.getMetadata', path: 'a/b.txt' },
         { method: 'storage.getMetadata', path: 'a/b.txt', bucket: 'other-bucket' },
       ]);
@@ -312,7 +319,7 @@ describe('isolated Functions Storage child over worker-peer frame and chunked pu
 
     expect(receipt).toEqual({
       name: 'chunks/nested/assembled.txt',
-      bucket: 'demo-project.appspot.com',
+      bucket: 'demo-project.firebasestorage.app',
       size: String(combined.byteLength),
       crc32c: computeCrc32cBase64(combined),
       md5Hash: computeMd5Base64(combined),

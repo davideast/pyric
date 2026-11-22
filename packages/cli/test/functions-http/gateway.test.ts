@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { createServer, get, request, type Server } from 'node:http';
 import { join } from 'node:path';
-import { startHttpChildServer } from '../../src/functions/http/child-server.js';
+import {
+  FUNCTION_TARGET_HEADER,
+  MAX_V1_HTTP_BODY_BYTES,
+  MAX_V2_HTTP_BODY_BYTES,
+  startHttpChildServer,
+} from '../../src/functions/http/child-server.js';
 import type { DiscoveredOnRequest } from '../../src/functions/http/discovery.js';
 import type { AddressInfo } from 'node:net';
 import {
@@ -14,7 +19,6 @@ import {
 import type { HttpFunctionInfo } from '../../src/functions/http/discovery.js';
 import { servedLine } from '../../src/functions/http/report.js';
 import { hostingRewrites } from '../../src/functions/http/rewrites.js';
-import { FUNCTION_TARGET_HEADER } from '../../src/functions/http/child-server.js';
 import { CHILD_TOKEN_HEADER } from '../../src/functions/http/child-token.js';
 
 const TOKEN = 'test-token';
@@ -71,6 +75,8 @@ describe('functions HTTP gateway', () => {
     expect(await read()).toEqual([503, 'Functions failed to start: SyntaxError in index.js']);
     gateway.update({ kind: 'unresponsive' });
     expect(await read()).toEqual([503, 'The Functions child is unresponsive: a handler may be stuck in a synchronous loop. pyric is restarting it; retry in a moment.']);
+    gateway.update({ kind: 'restarting', code: 1 });
+    expect(await read()).toEqual([503, 'The Functions child exited unexpectedly (code 1); pyric is restarting it. Retry in a moment.']);
     gateway.update({ kind: 'exited', code: 1 });
     expect(await read()).toEqual([503, 'The Functions child exited (code 1). Restart pyric sandbox to start it again.']);
     // A path that is not a function route is never claimed, whatever the state.
@@ -399,4 +405,146 @@ describe('functions HTTP gateway', () => {
     });
     expect(line).toBe('function  api ← GET /api/items 200 (3 ms)');
   });
+
+  test('holds an incoming request while restarting after an unexpected exit and serves it once the replacement child is ready (#1942)', async () => {
+    const replacement = await listen(
+      createServer((_req, res) => {
+        res.end('served-by-replacement');
+      }),
+    );
+    const replacementPort = Number(new URL(replacement).port);
+    const { promise: restartReady, resolve: markRestartReady } = Promise.withResolvers<void>();
+    const gateway = createFunctionsHttpGateway({
+      projectId: 'demo-app',
+      initial: { kind: 'restarting', code: 1, ready: restartReady },
+      plane: 'pyric-sandbox',
+    });
+    const base = await plane(gateway);
+
+    setTimeout(() => {
+      gateway.update({
+        kind: 'ready',
+        http: { port: replacementPort, token: TOKEN, functions: [info('api')] },
+      });
+      markRestartReady();
+    }, 60);
+
+    const response = await fetch(`${base}/demo-app/us-central1/api`);
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe('served-by-replacement');
+  });
+
+  test('enforces 10 MB v1 and 32 MB v2 request body limits through the gateway proxy without EPIPE 502 races (#1943)', async () => {
+    let seenCount = 0;
+    const child = await startHttpChildServer(
+      join(import.meta.dir, '../../../conformance/package.json'),
+      [
+        {
+          exportName: 'v1Fn',
+          regions: ['us-central1'],
+          platform: 'gcfv1',
+          privateInvoker: false,
+          timeoutSeconds: null,
+          handler: ((req: { rawBody?: Buffer }, res: { end(body: string): void }) => {
+            seenCount += 1;
+            res.end(`v1:${req.rawBody?.byteLength ?? 0}`);
+          }) as DiscoveredOnRequest['handler'],
+        },
+        {
+          exportName: 'v2Fn',
+          regions: ['us-central1'],
+          platform: 'gcfv2',
+          privateInvoker: false,
+          timeoutSeconds: null,
+          handler: ((req: { rawBody?: Buffer }, res: { end(body: string): void }) => {
+            seenCount += 1;
+            res.end(`v2:${req.rawBody?.byteLength ?? 0}`);
+          }) as DiscoveredOnRequest['handler'],
+        },
+      ],
+      { token: TOKEN },
+    );
+
+    const records: FunctionsHttpRecord[] = [];
+    const gateway = createFunctionsHttpGateway({
+      projectId: 'demo-app',
+      initial: {
+        kind: 'ready',
+        http: {
+          port: child.port,
+          token: TOKEN,
+          functions: [
+            { exportName: 'v1Fn', regions: ['us-central1'], platform: 'gcfv1', privateInvoker: false, timeoutSeconds: null },
+            { exportName: 'v2Fn', regions: ['us-central1'], platform: 'gcfv2', privateInvoker: false, timeoutSeconds: null },
+          ],
+        },
+      },
+      onServed: (record) => records.push(record),
+      plane: 'pyric-sandbox',
+    });
+    const base = new URL(await plane(gateway));
+
+    const sendChunked = async (fnName: string, totalBytes: number): Promise<number> => {
+      const block = new Uint8Array(1024 * 1024);
+      let left = totalBytes;
+      const body = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (left <= 0) {
+            controller.close();
+            return;
+          }
+          const count = Math.min(left, block.byteLength);
+          left -= count;
+          if (count === block.byteLength) {
+            controller.enqueue(block);
+          } else {
+            controller.enqueue(block.subarray(0, count));
+          }
+        },
+      });
+      const init: RequestInit & { duplex: 'half' } = {
+        method: 'POST',
+        headers: { 'content-type': 'application/octet-stream' },
+        body,
+        duplex: 'half',
+      };
+      const response = await fetch(`${base.origin}/demo-app/us-central1/${fnName}`, init);
+      return response.status;
+    };
+
+    try {
+      const twelveMb = new Uint8Array(12 * 1024 * 1024);
+      const v1Refused = await fetch(`${base.origin}/demo-app/us-central1/v1Fn`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/octet-stream' },
+        body: twelveMb,
+      });
+      expect(v1Refused.status).toBe(413);
+      expect(seenCount).toBe(0);
+
+      expect(await sendChunked('v1Fn', MAX_V1_HTTP_BODY_BYTES + 1)).toBe(413);
+      expect(seenCount).toBe(0);
+
+      const v2Accepted = await fetch(`${base.origin}/demo-app/us-central1/v2Fn`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/octet-stream' },
+        body: twelveMb,
+      });
+      expect(v2Accepted.status).toBe(200);
+      expect(await v2Accepted.text()).toBe(`v2:${twelveMb.byteLength}`);
+      expect(seenCount).toBe(1);
+
+      const over32Mb = new Uint8Array(MAX_V2_HTTP_BODY_BYTES + 1);
+      const v2Refused = await fetch(`${base.origin}/demo-app/us-central1/v2Fn`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/octet-stream' },
+        body: over32Mb,
+      });
+      expect(v2Refused.status).toBe(413);
+      expect(seenCount).toBe(1);
+      expect(records.map((item) => item.status)).toEqual([413, 413, 200, 413]);
+    } finally {
+      await child.close();
+    }
+  }, 30_000);
 });

@@ -251,7 +251,7 @@ describe('v2 Storage lifecycle triggers (deleted, metadataUpdated, archived, rol
     expect(created).toMatchObject({
       kind: 'finalized',
       type: 'google.cloud.storage.object.v1.finalized',
-      bucket: 'demo-project.appspot.com',
+      bucket: 'demo-project.firebasestorage.app',
       subject: `objects/${objectPath}`,
       name: objectPath,
       size: String(v1Bytes.byteLength),
