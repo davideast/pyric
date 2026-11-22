@@ -53,7 +53,8 @@ export async function salvageStorageSidecar(
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
-  } catch {
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
     if (!hasSnapshotFile) {
       throw new Error(
         'In-process storage sidecar is not valid JSON; recovery cannot establish the payload format.',

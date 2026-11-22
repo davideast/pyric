@@ -32,8 +32,11 @@ function isJsonDatabaseRuleset(source: string): boolean {
   let parsed: unknown;
   try {
     parsed = JSON.parse(toStrictRulesJson(source));
-  } catch {
-    return false;
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      return false;
+    }
+    throw error;
   }
   const isObject = parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed);
   if (!isObject) {

@@ -56,7 +56,10 @@ export function decodeInProcessSnapshot(path: string): ReturnType<typeof decodeI
   const raw = readFileSync(path, 'utf8');
   try {
     JSON.parse(raw);
-  } catch {
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) {
+      throw error;
+    }
     // Avoid quoting parser fragments that may contain private user data.
     throw new Error(
       `In-process state file at ${path} is not valid JSON. ` +

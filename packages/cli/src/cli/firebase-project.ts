@@ -96,12 +96,21 @@ function ancestorChain(start: string): string[] {
   return chain;
 }
 
+function isFilesystemError(error: unknown): boolean {
+  return error instanceof Error && 'code' in error;
+}
+
 function readActiveLookup(projectDir: string, env: NodeJS.ProcessEnv): FirebaseToolsActiveLookup | null {
+  const storePath = firebaseToolsConfigstorePath(env);
+  if (!existsSync(storePath)) {
+    return null;
+  }
   let raw: string;
   try {
-    raw = readFileSync(firebaseToolsConfigstorePath(env), 'utf8');
-  } catch {
-    return null;
+    raw = readFileSync(storePath, 'utf8');
+  } catch (error) {
+    if (isFilesystemError(error)) return null;
+    throw error;
   }
   const activeProjects = parseFirebaseToolsActiveProjects(raw);
   if (activeProjects === null) {
@@ -109,13 +118,15 @@ function readActiveLookup(projectDir: string, env: NodeJS.ProcessEnv): FirebaseT
   }
   const resolvedStart = resolve(projectDir);
   const chains: string[][] = [ancestorChain(resolvedStart)];
-  try {
-    const realStart = realpathSync(projectDir);
-    if (realStart !== resolvedStart) {
-      chains.push(ancestorChain(realStart));
+  if (existsSync(projectDir)) {
+    try {
+      const realStart = realpathSync(projectDir);
+      if (realStart !== resolvedStart) {
+        chains.push(ancestorChain(realStart));
+      }
+    } catch (error) {
+      if (!isFilesystemError(error)) throw error;
     }
-  } catch {
-    // Missing directory has no real path; the resolved chain is still matched.
   }
   return { activeProjects, ancestorChains: chains };
 }
@@ -127,8 +138,9 @@ function readPyricJsonProject(projectDir: string): string | undefined {
   }
   try {
     return parsePyricConfigProject(readFileSync(pyricPath, 'utf8'));
-  } catch {
-    return undefined;
+  } catch (error) {
+    if (isFilesystemError(error)) return undefined;
+    throw error;
   }
 }
 

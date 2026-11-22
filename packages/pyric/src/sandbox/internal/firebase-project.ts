@@ -97,8 +97,11 @@ export function parseFirebaseToolsActiveProjects(rawJson: string): Record<string
       return null;
     }
     return store.activeProjects as Record<string, unknown>;
-  } catch {
-    return null;
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      return null;
+    }
+    throw error;
   }
 }
 
@@ -110,8 +113,11 @@ export function parsePyricConfigProject(rawJson: string): string | undefined {
       return undefined;
     }
     return nonEmptyString(parsed.project);
-  } catch {
-    return undefined;
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      return undefined;
+    }
+    throw error;
   }
 }
 
@@ -141,8 +147,12 @@ export function selectFirebaseProject(input: SelectFirebaseProjectInput): Fireba
       if (input.readRc !== undefined) {
         try {
           cachedRc = input.readRc();
-        } catch {
-          cachedRc = null;
+        } catch (error) {
+          if (error instanceof Error) {
+            cachedRc = null;
+          } else {
+            throw error;
+          }
         }
       } else {
         cachedRc = null;

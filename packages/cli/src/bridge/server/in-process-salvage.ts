@@ -130,7 +130,8 @@ function salvageBucketRecord(id: string, value: unknown, target: BucketSalvageTa
       }
       target.documents[path] = decoded.firestore[path];
       target.report.recoveredDocuments++;
-    } catch {
+    } catch (error) {
+      if (!(error instanceof Error)) throw error;
       target.report.excluded.push({
         namespace: target.namespace,
         id: path,
@@ -147,7 +148,8 @@ function parseSourceRecords(raw: string): {
   let parsedTop: unknown;
   try {
     parsedTop = JSON.parse(raw);
-  } catch {
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
     throw new Error(
       'In-process state file is not valid JSON; recovery cannot establish the payload format.',
     );
@@ -305,7 +307,8 @@ export async function salvageInProcessState(
             recoveredDeclared = readFirestoreDeclaredFromMeta({
               firestoreDeclared: metadata.data.firestoreDeclared,
             });
-          } catch {
+          } catch (error) {
+            if (!(error instanceof Error)) throw error;
             report.excluded.push({
               namespace: 'in-process',
               id: 'firestoreDeclared',
@@ -349,7 +352,8 @@ export async function salvageInProcessState(
           try {
             validateRtdbImportRecord(id, value);
             salvagedRtdbRecords.push([id, value]);
-          } catch {
+          } catch (error) {
+            if (!(error instanceof Error)) throw error;
             report.excluded.push({
               namespace: 'in-process',
               id,
