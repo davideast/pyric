@@ -177,6 +177,16 @@ export function npmHasVersion(name, version) {
   return lines[0] ?? `npm view exited ${run.status}`;
 }
 
+function describeError(error) {
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
+
+function parseOctalSize(rawSize) {
+  if (rawSize === '') return 0;
+  return Number.parseInt(rawSize, 8);
+}
+
 function sha256Hex(buffer) {
   return createHash('sha256').update(buffer).digest('hex');
 }
@@ -189,15 +199,16 @@ function tarHeaderField(header, start, length) {
 }
 
 function paxPath(body) {
-  const record = body.toString('utf8').split('\n').find((line) => / path=/.test(line));
+  const record = body.toString('utf8').split('\n').find((line) => /^\d+ path=/.test(line));
   if (!record) return undefined;
   return record.slice(record.indexOf('=') + 1);
 }
 
 function underPackagePrefix(rawPath) {
-  const slash = rawPath.indexOf('/');
+  const normalized = rawPath.replace(/^(?:\.\/)+/, '');
+  const slash = normalized.indexOf('/');
   if (slash === -1) return undefined;
-  const rest = rawPath.slice(slash + 1);
+  const rest = normalized.slice(slash + 1);
   if (rest === '') return undefined;
   return rest;
 }
@@ -213,12 +224,17 @@ export function tarEntryHashesFromTgz(tgzBytes) {
     if (name === '') break;
     const prefix = tarHeaderField(header, 345, 155);
     const type = tarHeaderField(header, 156, 1) || '\0';
-    const size = Number.parseInt(tarHeaderField(header, 124, 12).trim() || '0', 8);
+    const rawSize = tarHeaderField(header, 124, 12).trim();
+    const size = parseOctalSize(rawSize);
+    if (!Number.isInteger(size) || size < 0 || offset + TAR_BLOCK + size > tar.length) {
+      throw new Error('corrupt or truncated tar entry header');
+    }
     const body = tar.subarray(offset + TAR_BLOCK, offset + TAR_BLOCK + size);
     offset += TAR_BLOCK + Math.ceil(size / TAR_BLOCK) * TAR_BLOCK;
     if (LONG_NAME_TAR_TYPES.has(type)) {
       if (type === 'x') {
-        nextName = paxPath(body);
+        const parsedPath = paxPath(body);
+        if (parsedPath !== undefined) nextName = parsedPath;
       } else {
         nextName = tarHeaderField(body, 0, body.length);
       }
@@ -315,7 +331,7 @@ export async function npmFetchPublishedTarballHashes(name, version) {
   try {
     response = await fetch(dist.tarball, { signal: AbortSignal.timeout(30_000) });
   } catch (error) {
-    return error instanceof Error ? error.message : String(error);
+    return describeError(error);
   }
   if (!response.ok) {
     return `HTTP ${response.status} fetching ${dist.tarball}`;
@@ -327,7 +343,11 @@ export async function npmFetchPublishedTarballHashes(name, version) {
       return `tarball integrity mismatch for ${name}@${version}`;
     }
   }
-  return tarEntryHashesFromTgz(bytes);
+  try {
+    return tarEntryHashesFromTgz(bytes);
+  } catch (error) {
+    return `failed to unpack ${name}@${version} tarball (${describeError(error)})`;
+  }
 }
 
 export async function findDriftedPinnedWorkspaceDependencies(
@@ -452,6 +472,6 @@ async function main() {
   }
 }
 
-if (import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   await main();
 }

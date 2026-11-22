@@ -10,7 +10,7 @@ First standalone release of `@pyric/rules`: in-process parsing, linting, simulat
 
 ### Behavior changes
 
-- Added `storageRules(source, { bucket })` with `StorageCase`, `lint()`, `simulate(cases)`, `explain(case)`, and `assertCase` support, refusing cases whose paths or verbs (`get`, `list`, `create`, `update`, `delete`, `read`) production would interpret differently (#2599). Storage rules bind `request.auth.token` to `{}` when auth is given as `{ uid }` without a `token` map, and bind `md5Hash`, `crc32c`, `etag`, `cacheControl`, `contentDisposition`, `contentEncoding`, and `contentLanguage` when present on `resource` or `requestResource`.
+- Added `storageRules(source, { bucket })` with `StorageCase`, `lint()`, `simulate(cases)`, `explain(case)`, and `assertCase` support, refusing cases whose paths or verbs (`get`, `list`, `create`, `update`, `delete`, `read`) production would interpret differently (#2599). Storage rules bind `request.auth.token` to `{}` when auth is given as `{ uid }` without a `token` map, bind `md5Hash`, `crc32c`, `etag`, `cacheControl`, `contentDisposition`, `contentEncoding`, and `contentLanguage` when present on `resource`, and bind `cacheControl`, `contentDisposition`, `contentEncoding`, and `contentLanguage` when present on `requestResource`.
 - Non-Storage `service` headers in Storage rulesets compile to deny-all rather than failing to load (#2839).
 - Firestore rulesets leave `{database}` unbound under literal `/databases/(default)/documents` roots and report the runtime type of a document reference as `path` (#3238).
 - Wire-level refusals, root open-access lint (`SEC-1`), auth-guarded `SEC-5` / `SEC-6` owner-scope lint warnings, Storage path integer bindings, and Realtime Database `.validate` rule names match production (#3237, #3238).
@@ -25,4 +25,4 @@ First standalone release of `@pyric/rules`: in-process parsing, linting, simulat
 
 ### Known gaps
 
-- When evaluated against Pyric's Storage sandbox rather than explicit `StorageCase` inputs, stored objects do not yet populate `resource.crc32c` or `resource.etag` (#1342), and uploads and metadata updates do not yet populate `request.resource.md5Hash`, `request.resource.crc32c`, or `request.resource.etag`. In standalone `storageRules` cases, `resource` and `requestResource` carry only the fields the caller supplies.
+- `StorageCase.requestResource` (`StorageRequestResource`) does not yet accept `md5Hash` or `crc32c` on writes or type `etag` as a string on metadata updates, and Pyric's Storage sandbox does not yet populate `request.resource.md5Hash`, `request.resource.crc32c`, or `request.resource.etag` (#3258).

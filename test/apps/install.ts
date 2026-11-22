@@ -29,6 +29,16 @@ const PUBLISHED_PACKAGE_DIRS = [
   'packages/live',
 ];
 
+const PUBLISHED_PACKAGE_NAMES = new Set([
+  '@pyric/rules',
+  'pyric',
+  'pyric-admin',
+  'create-pyric',
+  '@pyric/cli',
+  '@pyric/ui',
+  '@pyric/live',
+]);
+
 /** Files in an app directory that drive it and are not part of the app. */
 const DRIVER_FILES = new Set(['scenario.ts', 'README.md', 'node_modules', '.pyric']);
 
@@ -40,8 +50,24 @@ function tarballName(name: string, version: string): string {
 
 /** The tarball of each published package in `dir`, named as `npm pack` names them. */
 export function tarballsIn(root: string, dir: string): Tarballs {
+  const manifestPath = join(dir, 'manifest.json');
+  let packageDirs = PUBLISHED_PACKAGE_DIRS;
+  if (existsSync(manifestPath)) {
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+      packages?: Array<{ sourceDir?: string }>;
+    };
+    const listedDirs = manifest.packages
+      ?.map((pkg) => pkg.sourceDir)
+      .filter(
+        (sourceDir): sourceDir is string =>
+          typeof sourceDir === 'string' && PUBLISHED_PACKAGE_DIRS.includes(sourceDir),
+      );
+    if (listedDirs && listedDirs.length > 0) {
+      packageDirs = listedDirs;
+    }
+  }
   const tarballs: Tarballs = new Map();
-  for (const packageDir of PUBLISHED_PACKAGE_DIRS) {
+  for (const packageDir of packageDirs) {
     const manifest = JSON.parse(readFileSync(join(root, packageDir, 'package.json'), 'utf8')) as {
       name: string;
       version: string;
@@ -186,7 +212,13 @@ export function pinPyricPackages(projectDir: string, tarballs: Tarballs): void {
     const dependencies = manifest[field] as Record<string, string> | undefined;
     if (!dependencies) continue;
     for (const name of Object.keys(dependencies)) {
-      if (pins[name]) dependencies[name] = pins[name];
+      if (pins[name]) {
+        dependencies[name] = pins[name];
+      } else if (PUBLISHED_PACKAGE_NAMES.has(name)) {
+        throw new Error(
+          `missing packed package ${name} in tarball set (run bash scripts/pack-packages.sh to pack all workspace packages)`,
+        );
+      }
     }
   }
   manifest.overrides = { ...(manifest.overrides as object | undefined), ...pins };
