@@ -56,16 +56,20 @@ import {
   type StorageService,
   type Target,
 } from './service.js';
-import { evaluateStorageRules } from '@pyric/rules/internal/storage';
-import { RuleEvalError } from '@pyric/rules/internal/storage';
-import type {
-  EvaluationInput,
-  FirestoreLookup,
-  StorageRequestResource,
-  StorageResource,
+import {
+  emptyStorageObservation,
+  evaluateStorageRules,
+  RuleEvalError,
+  bindRulesBucket,
+  rulesBucketName,
+  type EvaluationInput,
+  type FirestoreLookup,
+  type StorageEvaluationObservation,
+  type StorageRequestResource,
+  type StorageResource,
+  type StorageRules,
 } from '@pyric/rules/internal/storage';
 import { unauthorized } from './errors.js';
-import { bindRulesBucket, rulesBucketName } from '@pyric/rules/internal/storage';
 
 /**
  * `request.resource` and existing `resource` bindings captured beside a denied
@@ -159,8 +163,14 @@ function normalizeStorageRequestResource(raw: unknown): StorageRequestResource |
   if (raw.metageneration === null || (typeof raw.metageneration === 'number' && Number.isFinite(raw.metageneration))) {
     out.metageneration = raw.metageneration;
   }
-  if (raw.etag === null) {
-    out.etag = null;
+  if (typeof raw.md5Hash === 'string') {
+    out.md5Hash = raw.md5Hash;
+  }
+  if (typeof raw.crc32c === 'string') {
+    out.crc32c = raw.crc32c;
+  }
+  if (raw.etag === null || typeof raw.etag === 'string') {
+    out.etag = raw.etag;
   }
   return out;
 }
@@ -286,6 +296,16 @@ export interface EnforceOptions {
    * per operation: a chunked upload checks at its start and as it lands.
    */
   record?: 'every-decision' | 'denials';
+  /**
+   * Consulted when an early check denies (`!result.allowed`). Returning `true`
+   * suppresses the premature denial so the commit-time check (once streamed
+   * payload digests exist) makes the authoritative decision.
+   */
+  deferDenial?: (
+    rules: StorageRules,
+    canonicalInput: EvaluationInput,
+    observation: StorageEvaluationObservation,
+  ) => boolean;
 }
 
 export function enforceRules(
@@ -293,7 +313,7 @@ export function enforceRules(
   input: EvaluationInput,
   target?: Target,
   provenance?: EventProvenance,
-  { record = 'every-decision' }: EnforceOptions = {},
+  { record = 'every-decision', deferDenial }: EnforceOptions = {},
 ): void {
   const boundProvenance = target?.kind === 'sandbox'
     ? storageOperationProvenance(target, provenance)
@@ -334,13 +354,23 @@ export function enforceRules(
   // so a `request.time < timestamp.date(...)` rule flips with it. A pure
   // evaluation with no target keeps the evaluator's own wall-clock default.
   const requestTime = target ? getClock(target.sandbox).date() : undefined;
+  let observation: StorageEvaluationObservation | undefined;
+  if (deferDenial !== undefined) {
+    observation = { ...emptyStorageObservation(), evaluatedAllows: [] };
+  }
   const result = evaluateStorageRules(
     inForce.rules,
     evaluationInput,
     requestTime,
     firestoreLookupFor(target, service.crossServiceIam),
+    observation,
   );
   if (!result.allowed) {
+    if (deferDenial !== undefined && observation !== undefined) {
+      if (deferDenial(inForce.rules, evaluationInput, observation)) {
+        return;
+      }
+    }
     emitOperation(target, input, 'deny', result.reasons, 'user', true, boundProvenance);
     const detail = result.reasons.length > 0 ? ` — ${result.reasons.join('; ')}` : '';
     throw unauthorized(input.request.method, input.request.path, detail, deniedBucketName(target));

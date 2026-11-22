@@ -12,6 +12,7 @@ import { scenario } from '../driver.ts';
 
 declare function upload(path: string, customMetadata?: Record<string, string>): Promise<string>;
 declare function readBytes(path: string): Promise<string>;
+declare function uploadVerified(path: string, bytes: number[]): Promise<string>;
 
 export default scenario(async (app) => {
   // A refused upload goes over the hosted bridge, not the host's Storage
@@ -43,6 +44,29 @@ export default scenario(async (app) => {
 
   await app.step('a read guarded by resource.md5Hash, resource.crc32c, and resource.etag succeeds (#1342)', async () => {
     assert.equal(await page.evaluate(() => readBytes('seeded/capture-s.bin')), 'ok:6');
+  });
+
+  await app.step('an upload and metadata update guarded by request.resource.md5Hash, crc32c, and etag succeed (#3258)', async () => {
+    assert.equal(
+      await page.evaluate(() => uploadVerified('verified/six.bin', [9, 9, 9, 9, 9, 9])),
+      'storage/unauthorized',
+    );
+    assert.equal(
+      await page.evaluate(() => uploadVerified('verified/six.bin', [1, 2, 3, 4, 5, 6])),
+      'ok',
+    );
+    const updated = await app.pyric(
+      [
+        'storage',
+        'updateMetadata',
+        '--path',
+        'verified/six.bin',
+        '--metadata',
+        '{"customMetadata":{"tag":"v2"}}',
+      ],
+      { env: sandbox },
+    );
+    assert.equal(updated.code, 0, updated.output);
   });
 
   await app.step('pyric rules set installs rules with no rules_version', async () => {

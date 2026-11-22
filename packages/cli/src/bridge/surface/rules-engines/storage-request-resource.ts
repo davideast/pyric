@@ -42,6 +42,8 @@ const FIELDS = [
   'customMetadata',
   'generation',
   'metageneration',
+  'md5Hash',
+  'crc32c',
   'etag',
 ] as const;
 
@@ -63,7 +65,9 @@ interface CaseFields {
   metadata?: Record<string, string> | null;
   generation?: number | null;
   metageneration?: number | null;
-  etag?: null;
+  md5Hash?: string;
+  crc32c?: string;
+  etag?: string | null;
 }
 
 type Checked<T> = { ok: true; value: T } | { ok: false; reason: string };
@@ -120,7 +124,7 @@ function isField(key: string): key is Field {
 }
 
 /** Check one field and write it onto `out`, or say why it is refused. */
-function checkField(out: CaseFields, field: Field, value: unknown): string | null {
+function checkField(out: CaseFields, field: Field, value: unknown, write: 'upload' | 'metadataUpdate'): string | null {
   const nullable = (NULLABLE_CONTENT as readonly string[]).includes(field);
   if (nullable && value === null) {
     out[field as (typeof NULLABLE_CONTENT)[number]] = null;
@@ -152,10 +156,21 @@ function checkField(out: CaseFields, field: Field, value: unknown): string | nul
       out.metadata = checked.value;
       return null;
     }
-    case 'etag':
-      if (value !== null) return `data.etag can only be null, and it is ${typeName(value)}.`;
-      out.etag = null;
+    case 'etag': {
+      if (write === 'upload') {
+        if (value !== null) return `data.etag can only be null, and it is ${typeName(value)}.`;
+        out.etag = null;
+        return null;
+      }
+      if (value === null) {
+        out.etag = null;
+        return null;
+      }
+      const checked = stringOf(field, value);
+      if (!checked.ok) return checked.reason;
+      out.etag = checked.value;
       return null;
+    }
     default: {
       const checked = stringOf(field, value);
       if (!checked.ok) return checked.reason;
@@ -166,7 +181,7 @@ function checkField(out: CaseFields, field: Field, value: unknown): string | nul
 }
 
 /** Check a case's `data` against the fields `request.resource` has. */
-function caseFieldsOf(data: unknown): Checked<CaseFields> {
+function caseFieldsOf(data: unknown, write: 'upload' | 'metadataUpdate'): Checked<CaseFields> {
   if (data === undefined) return { ok: true, value: {} };
   if (!isRecord(data)) return refuse(`data must be an object, and it is ${typeName(data)}.`);
   const out: CaseFields = {};
@@ -174,7 +189,7 @@ function caseFieldsOf(data: unknown): Checked<CaseFields> {
     if (!isField(key)) {
       return refuse(`data.${key} is not a field of request.resource. Its fields are ${FIELDS.join(', ')}.`);
     }
-    const reason = checkField(out, key, value);
+    const reason = checkField(out, key, value, write);
     if (reason !== null) return refuse(reason);
   }
   return { ok: true, value: out };
@@ -207,6 +222,8 @@ function uploadResource(object: StorageReference, fields: CaseFields): RequestRe
       contentDisposition: presentOrUndefined(fields.contentDisposition),
       contentEncoding: presentOrUndefined(fields.contentEncoding),
       contentLanguage: presentOrUndefined(fields.contentLanguage),
+      md5Hash: fields.md5Hash,
+      crc32c: fields.crc32c,
     },
     'upload',
   );
@@ -231,8 +248,11 @@ function updateResource(fields: CaseFields, existing: StoredMetadata): RequestRe
       contentDisposition: patched(fields.contentDisposition, existing.contentDisposition),
       contentEncoding: patched(fields.contentEncoding, existing.contentEncoding),
       contentLanguage: patched(fields.contentLanguage, existing.contentLanguage),
+      md5Hash: fields.md5Hash ?? existing.md5Hash,
+      crc32c: fields.crc32c ?? existing.crc32c,
       generation: existing.generation,
       metageneration: existing.metageneration,
+      etag: patched(fields.etag, existing.etag),
     },
     'metadataUpdate',
   );
@@ -265,7 +285,7 @@ export function simulatedRequestResource(
     if (data === undefined) return { ok: true, resource: undefined };
     return { ok: false, reason: `a ${operation} request carries no request.resource; remove 'data'.` };
   }
-  const fields = caseFieldsOf(data);
+  const fields = caseFieldsOf(data, write);
   if (!fields.ok) return fields;
   if (write === 'upload') return { ok: true, resource: applyNulls(uploadResource(object, fields.value), fields.value) };
   // An update of an object that is not stored carries none, as the live

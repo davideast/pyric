@@ -68,6 +68,7 @@ export interface StorageEvaluationObservation {
   evaluatedAllows?: StorageEvaluatedAllowRule[];
   readResource: boolean;
   readRequestResource: boolean;
+  readRequestResourceDigest?: boolean;
   readFirestore: boolean;
   readAuthToken: boolean;
   readAuthTokenEmail: boolean;
@@ -88,6 +89,9 @@ export function emptyStorageObservation(): StorageEvaluationObservation {
 function mergeObservation(into: StorageEvaluationObservation, run: StorageEvaluationObservation): void {
   into.readResource ||= run.readResource;
   into.readRequestResource ||= run.readRequestResource;
+  if (run.readRequestResourceDigest) {
+    into.readRequestResourceDigest = true;
+  }
   into.readFirestore ||= run.readFirestore;
   into.readAuthToken ||= run.readAuthToken;
   into.readAuthTokenEmail ||= run.readAuthTokenEmail;

@@ -6,7 +6,7 @@ import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'bun:test';
 import { createMemoryBackend, initializeSandbox } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
-import { getStorageSandbox } from 'pyric/storage';
+import { getStorageSandbox, ref, updateMetadata } from 'pyric/storage';
 import {
   computeStorageEtag,
   getAdminStorageSandbox,
@@ -150,5 +150,94 @@ service firebase.storage {
     expect(afterMint?.metageneration).toBe('2');
     expect(afterMint?.etag).not.toBe(beforeMint?.etag);
     expect(afterMint?.etag).toBe(computeStorageEtag(afterMint?.generation ?? '', '2'));
+  });
+
+  it('evaluates request.resource md5Hash, crc32c, and etag across putBytes, chunked uploads, and updateMetadata (#3258)', async () => {
+    const ctx = await makeCtx();
+    await replaceStorageRules(ctx.sandbox, `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /verified/{name} {
+      allow create: if request.resource.size == 6
+        && request.resource.md5Hash == '${SIX_BYTES_MD5}'
+        && request.resource.crc32c == '${SIX_BYTES_CRC32C}'
+        && request.resource.etag == null;
+      allow update: if request.resource.md5Hash == resource.md5Hash
+        && request.resource.crc32c == resource.crc32c
+        && request.resource.etag is string
+        && request.resource.etag == resource.etag;
+    }
+  }
+}`);
+
+    // Single-frame putBytes with matching bytes succeeds; wrong bytes fail.
+    const okSingle = await op(ctx, {
+      method: 'storage.putBytes',
+      path: 'verified/single.bin',
+      dataB64: bytesToBase64(SIX_BYTES),
+      contentType: 'application/octet-stream',
+    });
+    expect(okSingle.ok).toBe(true);
+
+    const badSingle = await op(ctx, {
+      method: 'storage.putBytes',
+      path: 'verified/bad-single.bin',
+      dataB64: bytesToBase64(new Uint8Array([9, 9, 9, 9, 9, 9])),
+      contentType: 'application/octet-stream',
+    });
+    expect(badSingle.ok).toBe(false);
+
+    // Non-digest mismatch (size != 6) still fast-fails at storage.beginUpload.
+    const badSizeBegin = await op(ctx, {
+      method: 'storage.beginUpload',
+      path: 'verified/wrong-size.bin',
+      size: 2,
+      contentType: 'application/octet-stream',
+    });
+    expect(badSizeBegin.ok).toBe(false);
+
+    // Digest-guarded chunked upload defers at beginUpload, allows matching bytes at finishUpload, and denies mismatched bytes.
+    const begunGood = await op(ctx, {
+      method: 'storage.beginUpload',
+      path: 'verified/chunked.bin',
+      size: SIX_BYTES.byteLength,
+      contentType: 'application/octet-stream',
+    });
+    expect(begunGood.ok).toBe(true);
+    if (!begunGood.ok) {
+      throw new Error('beginUpload failed');
+    }
+    const goodUploadId = (begunGood.value as { uploadId: string }).uploadId;
+    await op(ctx, { method: 'storage.putPart', uploadId: goodUploadId, partIndex: 0, dataB64: bytesToBase64(SIX_BYTES) });
+    const finishedGood = await op(ctx, { method: 'storage.finishUpload', uploadId: goodUploadId });
+    expect(finishedGood.ok).toBe(true);
+
+    const begunBad = await op(ctx, {
+      method: 'storage.beginUpload',
+      path: 'verified/bad-chunked.bin',
+      size: SIX_BYTES.byteLength,
+      contentType: 'application/octet-stream',
+    });
+    expect(begunBad.ok).toBe(true);
+    if (!begunBad.ok) {
+      throw new Error('beginUpload failed');
+    }
+    const badUploadId = (begunBad.value as { uploadId: string }).uploadId;
+    await op(ctx, {
+      method: 'storage.putPart',
+      uploadId: badUploadId,
+      partIndex: 0,
+      dataB64: bytesToBase64(new Uint8Array([6, 5, 4, 3, 2, 1])),
+    });
+    const finishedBad = await op(ctx, { method: 'storage.finishUpload', uploadId: badUploadId });
+    expect(finishedBad.ok).toBe(false);
+
+    // Client metadata update carries stored md5Hash, crc32c, and pre-advance etag on request.resource.
+    const updated = await updateMetadata(
+      ref(getStorageSandbox(ctx.sandbox), 'verified/chunked.bin'),
+      { customMetadata: { tag: 'v2' } },
+    );
+    expect(updated.md5Hash).toBe(SIX_BYTES_MD5);
+    expect(updated.customMetadata).toEqual({ tag: 'v2' });
   });
 });

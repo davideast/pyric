@@ -10,7 +10,7 @@ First standalone release of `@pyric/rules`: in-process parsing, linting, simulat
 
 ### Behavior changes
 
-- Added `storageRules(source, { bucket })` with `StorageCase`, `lint()`, `simulate(cases)`, `explain(case)`, and `assertCase` support, refusing cases whose paths or verbs (`get`, `list`, `create`, `update`, `delete`, `read`) production would interpret differently (#2599). Storage rules bind `request.auth.token` to `{}` when auth is given as `{ uid }` without a `token` map, bind `md5Hash`, `crc32c`, `etag`, `cacheControl`, `contentDisposition`, `contentEncoding`, and `contentLanguage` when present on `resource`, and bind `cacheControl`, `contentDisposition`, `contentEncoding`, and `contentLanguage` when present on `requestResource`.
+- Added `storageRules(source, { bucket })` with `StorageCase`, `lint()`, `simulate(cases)`, `explain(case)`, and `assertCase` support, refusing cases whose paths or verbs (`get`, `list`, `create`, `update`, `delete`, `read`) production would interpret differently (#2599, #1342, #3258). Storage rules bind `request.auth.token` to `{}` when auth is given as `{ uid }` without a `token` map, and bind `md5Hash`, `crc32c`, `etag`, `cacheControl`, `contentDisposition`, `contentEncoding`, and `contentLanguage` when present on `resource` or `requestResource` (`requestResource.etag` accepts `null` or a string; in Pyric's Storage runtime, `etag` matches production in presence and type, `null` on uploads and a string equal to `resource.etag` on metadata updates, rather than GCS's opaque `etag` value).
 - Non-Storage `service` headers in Storage rulesets compile to deny-all rather than failing to load (#2839).
 - Firestore rulesets leave `{database}` unbound under literal `/databases/(default)/documents` roots and report the runtime type of a document reference as `path` (#3238).
 - Wire-level refusals, root open-access lint (`SEC-1`), auth-guarded `SEC-5` / `SEC-6` owner-scope lint warnings, Storage path integer bindings, and Realtime Database `.validate` rule names match production (#3237, #3238).
@@ -22,7 +22,3 @@ First standalone release of `@pyric/rules`: in-process parsing, linting, simulat
 - Source-size lint and load checks enforce production's 262,144-byte ceiling and check service identity and duplicate `service` blocks before compile limits (#2594, #2646).
 - Helper `let` bindings preserve lexical shadowing and trace projections, and Firestore lookup evaluation fails closed when the lookup frontier overflows (#2647).
 - Standalone rules handles freeze returned data and preserve authored line numbers and ISO instant precision (#2607, #2646).
-
-### Known gaps
-
-- `StorageCase.requestResource` (`StorageRequestResource`) does not yet accept `md5Hash` or `crc32c` on writes or type `etag` as a string on metadata updates, and Pyric's Storage sandbox does not yet populate `request.resource.md5Hash`, `request.resource.crc32c`, or `request.resource.etag` (#3258).

@@ -36,7 +36,7 @@ import type { PathParamValue } from './rules-path-match.js';
 import { StoragePath, interpolationSegments } from './rules-path.js';
 import { RuleError, isRuleError as isErr } from './rules-values.js';
 
-export type TrackedRoot = 'request' | 'auth' | 'token' | 'firebase' | 'identities';
+export type TrackedRoot = 'request' | 'requestResource' | 'auth' | 'token' | 'firebase' | 'identities';
 
 /** `obj.name`: a map's own key, a path's bound name, or production's error (`index-access.ts`). */
 function readProperty(obj: unknown, name: string): unknown {
@@ -102,8 +102,16 @@ function notePropertyRead(ctx: EvalCtx, target: unknown, name: string, result: u
   if (!obs || !tracked || target === null || typeof target !== 'object') return;
   const kind = tracked.get(target);
   if (kind === 'request') {
-    if (name === 'resource') obs.readRequestResource = true;
-    else if (name === 'auth') trackObject(ctx, result, 'auth');
+    if (name === 'resource') {
+      obs.readRequestResource = true;
+      trackObject(ctx, result, 'requestResource');
+    } else if (name === 'auth') {
+      trackObject(ctx, result, 'auth');
+    }
+  } else if (kind === 'requestResource') {
+    if (name === 'md5Hash' || name === 'crc32c') {
+      obs.readRequestResourceDigest = true;
+    }
   } else if (kind === 'auth') {
     if (name === 'token') {
       obs.readAuthToken = true;
@@ -159,8 +167,11 @@ export function noteMapEnumerationRead(ctx: EvalCtx, receiver: unknown): void {
   const kind = tracked.get(receiver);
   if (kind === 'request') {
     obs.readRequestResource = true;
+    obs.readRequestResourceDigest = true;
     obs.readAuthToken = true;
     obs.readAuthTokenEmail = true;
+  } else if (kind === 'requestResource') {
+    obs.readRequestResourceDigest = true;
   } else if (kind === 'auth') {
     obs.readAuthToken = true;
     obs.readAuthTokenEmail = true;

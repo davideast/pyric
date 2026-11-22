@@ -326,7 +326,11 @@ function buildStorageRequestResource(
     const after = pairedMutation?.after as StoredMetadata | undefined;
     if (after) {
       return requestResourceFor(
-        { ...after, metageneration: existing?.metageneration ?? after.metageneration },
+        {
+          ...after,
+          metageneration: existing?.metageneration ?? after.metageneration,
+          etag: existing?.etag ?? after.etag,
+        },
         'metadataUpdate',
       );
     }
@@ -345,8 +349,11 @@ function buildStorageRequestResource(
         bucket,
         size: existing?.size ?? detailResource?.size ?? 0,
         contentType: existing?.contentType ?? detailResource?.contentType ?? 'application/octet-stream',
+        md5Hash: existing?.md5Hash ?? detailResource?.md5Hash,
+        crc32c: existing?.crc32c ?? detailResource?.crc32c,
         generation,
         metageneration,
+        etag: existing?.etag ?? detailResource?.etag,
       },
       'metadataUpdate',
     );

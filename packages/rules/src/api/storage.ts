@@ -90,6 +90,8 @@ const STORAGE_REQUEST_RESOURCE_KEYS: readonly string[] = [
   'cacheControl',
   'generation',
   'metageneration',
+  'md5Hash',
+  'crc32c',
   'etag',
 ];
 
@@ -235,7 +237,7 @@ function validateRequestResource(value: unknown): string | null {
   if (!isNonNegativeInt(value.size)) {
     return `Case refused: requestResource.size must be a non-negative integer, got ${String(value.size)}.`;
   }
-  for (const strKey of ['name', 'bucket'] as const) {
+  for (const strKey of ['name', 'bucket', 'md5Hash', 'crc32c'] as const) {
     if (value[strKey] !== undefined && typeof value[strKey] !== 'string') {
       return `Case refused: requestResource.${strKey} must be a string.`;
     }
