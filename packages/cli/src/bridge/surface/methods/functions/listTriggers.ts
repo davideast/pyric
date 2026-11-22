@@ -5,22 +5,15 @@
  * each one was turned away.
  */
 import { z } from 'zod';
-import { discoverFunctionsTriggers } from '../../functions-runtime.js';
+import {
+  discoverFunctionsTriggers,
+  type DiscoveredFunctionsTrigger,
+} from '../../functions-runtime.js';
 import type { MethodRecord } from '../../method-types.js';
 
 /** The discovered trigger, without the live callable a JSON result cannot carry. */
-function describeTrigger(trigger: {
-  exportName: string;
-  reference: string;
-  instance: string;
-  location?: string;
-}): Record<string, unknown> {
-  const described: Record<string, unknown> = {
-    exportName: trigger.exportName,
-    reference: trigger.reference,
-    instance: trigger.instance,
-  };
-  if (trigger.location !== undefined) described.location = trigger.location;
+function describeTrigger(trigger: DiscoveredFunctionsTrigger): Record<string, unknown> {
+  const { callable: _callable, ...described } = trigger;
   return described;
 }
 

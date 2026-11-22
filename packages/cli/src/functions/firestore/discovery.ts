@@ -2,7 +2,11 @@
  * Discovery and validation of `firebase-functions/v2/firestore` document trigger
  * exports across all 8 `google.cloud.firestore.document.v1.*` event types.
  */
-import { listFirebaseEndpoints, type FirebaseEndpoint } from '../endpoints.js';
+import {
+  classifyEndpointOmit,
+  listFirebaseEndpoints,
+  type FirebaseEndpoint,
+} from '../endpoints.js';
 import type { FunctionsTriggerFamily } from '../unsupported.js';
 import {
   normalizeFirestoreDocumentPath,
@@ -173,14 +177,15 @@ export function inspectFirestoreTriggers(
     const eventType = trigger?.eventType;
     if (!isFirestoreTriggerEventType(eventType)) continue;
 
-    if (endpoint?.omit === true) {
+    const omitState = classifyEndpointOmit(endpoint?.omit);
+    if (omitState === 'omitted') {
       unsupported.push({
         exportName,
         eventType: `${eventType} (omitted from emulation)`,
       });
       continue;
     }
-    if (endpoint?.omit !== undefined && endpoint.omit !== false) {
+    if (omitState === 'dynamic') {
       unsupported.push({
         exportName,
         eventType: `${eventType} (unsupported dynamic omit option)`,

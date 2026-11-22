@@ -66,6 +66,38 @@ export function listFirebaseEndpoints<F = EndpointCallable>(
   return endpoints;
 }
 
+const RESET_VALUE_TAG = Symbol.for('firebase-functions:ResetValue:Tag');
+
+/** Whether `value` is Firebase Functions' `RESET_VALUE` sentinel (`toJSON() === null`). */
+export function isResetValueObject(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) return false;
+  if ((value as Record<symbol, unknown>)[RESET_VALUE_TAG] === true) return true;
+  const candidate = value as { toJSON?: unknown };
+  if (typeof candidate.toJSON !== 'function') return false;
+  try {
+    return (candidate.toJSON as () => unknown)() === null;
+  } catch {
+    // Non-ResetValue objects with custom toJSON represent dynamic expressions.
+    return false;
+  }
+}
+
+type EndpointOmitClassification = 'active' | 'omitted' | 'dynamic';
+
+/**
+ * Classify `__endpoint.omit` the way `firebase-tools` `build.js` and
+ * `firebase-functions` `stackToWire` resolve it: `true` skips deployment and
+ * emulation, `false` / `undefined` / `null` / `RESET_VALUE` keeps the endpoint
+ * active, and any other value is a dynamic parameter expression.
+ */
+export function classifyEndpointOmit(omit: unknown): EndpointOmitClassification {
+  if (omit === true) return 'omitted';
+  if (omit === undefined || omit === null || omit === false || isResetValueObject(omit)) {
+    return 'active';
+  }
+  return 'dynamic';
+}
+
 /** The manifest field each non-event trigger kind sets, and the label it reports under. */
 const TRIGGER_LABELS: ReadonlyArray<readonly [keyof FirebaseEndpoint, string]> = [
   ['callableTrigger', 'callable'],
@@ -77,13 +109,16 @@ const TRIGGER_LABELS: ReadonlyArray<readonly [keyof FirebaseEndpoint, string]> =
 
 /**
  * The label an endpoint reports when no family serves it: its event type for
- * an event trigger, otherwise the kind of trigger its manifest declares.
+ * an event or blocking trigger, otherwise the kind of trigger its manifest declares.
  */
 export function endpointTriggerLabel(endpoint: FirebaseEndpoint): string {
   const eventType = endpoint.eventTrigger?.eventType;
-  if (typeof eventType === 'string') return eventType;
+  if (typeof eventType === 'string' && eventType.length > 0) return eventType;
   const blockingEventType = endpoint.blockingTrigger?.eventType;
-  if (typeof blockingEventType === 'string') return blockingEventType;
+  if (typeof blockingEventType === 'string' && blockingEventType.length > 0) {
+    return blockingEventType;
+  }
   const declared = TRIGGER_LABELS.find(([field]) => endpoint[field] !== undefined);
-  return declared?.[1] ?? 'unknown';
+  if (declared !== undefined) return declared[1];
+  return 'unknown';
 }

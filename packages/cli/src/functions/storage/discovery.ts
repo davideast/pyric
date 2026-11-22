@@ -2,7 +2,12 @@
  * Discovery and bucket-target classification for `firebase-functions/v2/storage`
  * Cloud Storage object triggers (`google.cloud.storage.object.v1.*`).
  */
-import { listFirebaseEndpoints, type FirebaseEndpoint } from '../endpoints.js';
+import {
+  classifyEndpointOmit,
+  isResetValueObject,
+  listFirebaseEndpoints,
+  type FirebaseEndpoint,
+} from '../endpoints.js';
 import type { FunctionsTriggerFamily } from '../unsupported.js';
 
 export const FINALIZED_EVENT_TYPE = 'google.cloud.storage.object.v1.finalized';
@@ -77,18 +82,6 @@ function defaultBucketFromEnv(env: NodeJS.ProcessEnv = process.env): string | un
   return undefined;
 }
 
-function isResetValueObject(value: unknown): boolean {
-  if (typeof value !== 'object' || value === null) return false;
-  const candidate = value as { toJSON?: unknown };
-  if (typeof candidate.toJSON !== 'function') return false;
-  try {
-    return (candidate.toJSON as () => unknown)() === null;
-  } catch {
-    // Non-ResetValue objects with custom toJSON are dynamic expressions.
-    return false;
-  }
-}
-
 function parseEndpointLocation(
   region: unknown,
 ): { ok: true; location?: string } | { ok: false } {
@@ -129,14 +122,15 @@ export function inspectStorageTriggers(
     const eventType = endpoint?.eventTrigger?.eventType;
     if (!isStorageEventType(eventType)) continue;
 
-    if (endpoint?.omit === true) {
+    const omitState = classifyEndpointOmit(endpoint?.omit);
+    if (omitState === 'omitted') {
       unsupported.push({
         exportName,
         eventType: `${eventType} (omitted from emulation)`,
       });
       continue;
     }
-    if (endpoint?.omit !== undefined && endpoint.omit !== false) {
+    if (omitState === 'dynamic') {
       unsupported.push({
         exportName,
         eventType: `${eventType} (unsupported dynamic omit option)`,

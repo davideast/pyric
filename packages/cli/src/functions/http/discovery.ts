@@ -2,7 +2,11 @@
  * The HTTP `onRequest` family: v2 `onRequest` and v1 `https.onRequest`
  * exports, read from the `__endpoint.httpsTrigger` manifest both set.
  */
-import { listFirebaseEndpoints, type FirebaseEndpoint } from '../endpoints.js';
+import {
+  classifyEndpointOmit,
+  listFirebaseEndpoints,
+  type FirebaseEndpoint,
+} from '../endpoints.js';
 import type { FunctionsTriggerFamily } from '../unsupported.js';
 
 /** The handler an onRequest export is: express's `(req, res)`. */
@@ -68,7 +72,7 @@ export function inspectOnRequest(exported: Record<string, unknown>): DiscoveredO
   for (const { exportName, callable } of listFirebaseEndpoints<HttpRequestHandler>(exported)) {
     const endpoint = callable.__endpoint;
     if (!endpoint || !isHttpsEndpoint(endpoint)) continue;
-    if (endpoint.omit !== undefined && endpoint.omit !== false) continue;
+    if (classifyEndpointOmit(endpoint.omit) !== 'active') continue;
     discovered.push({
       exportName,
       regions: regionsOf(endpoint),
@@ -95,9 +99,10 @@ export const httpOnRequestFamily: FunctionsTriggerFamily = {
     for (const { exportName, callable } of listFirebaseEndpoints<HttpRequestHandler>(exported)) {
       const endpoint = callable.__endpoint;
       if (!endpoint || !isHttpsEndpoint(endpoint)) continue;
-      if (endpoint.omit === true) {
+      const omitState = classifyEndpointOmit(endpoint.omit);
+      if (omitState === 'omitted') {
         unsupported.push({ exportName, eventType: 'https (omitted from emulation)' });
-      } else if (endpoint.omit !== undefined && endpoint.omit !== false) {
+      } else if (omitState === 'dynamic') {
         unsupported.push({ exportName, eventType: 'https (unsupported dynamic omit option)' });
       }
     }

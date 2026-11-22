@@ -2,7 +2,12 @@
  * Discovery and topic filter resolution for `firebase-functions/v2/pubsub`
  * triggers (`google.cloud.pubsub.topic.v1.messagePublished`).
  */
-import { listFirebaseEndpoints, type FirebaseEndpoint } from '../endpoints.js';
+import {
+  classifyEndpointOmit,
+  isResetValueObject,
+  listFirebaseEndpoints,
+  type FirebaseEndpoint,
+} from '../endpoints.js';
 import type { FunctionsTriggerFamily } from '../unsupported.js';
 
 export const MESSAGE_PUBLISHED_EVENT_TYPE =
@@ -87,18 +92,6 @@ export function defaultProjectIdFromEnv(
   return fallbackProjectId;
 }
 
-function isResetValueObject(value: unknown): boolean {
-  if (typeof value !== 'object' || value === null) return false;
-  const candidate = value as { toJSON?: unknown };
-  if (typeof candidate.toJSON !== 'function') return false;
-  try {
-    return (candidate.toJSON as () => unknown)() === null;
-  } catch {
-    // Non-ResetValue objects with custom toJSON represent dynamic expressions.
-    return false;
-  }
-}
-
 function tryResolvePubSubTopic(
   rawTopic: string,
   defaultProjectId: string,
@@ -147,16 +140,6 @@ export function normalizePubSubTopic(
     );
   }
   return resolved;
-}
-
-function parseEndpointOmit(
-  omit: unknown,
-): { kind: 'active' } | { kind: 'omitted' } | { kind: 'dynamic' } {
-  if (omit === true) return { kind: 'omitted' };
-  if (omit === undefined || omit === null || omit === false || isResetValueObject(omit)) {
-    return { kind: 'active' };
-  }
-  return { kind: 'dynamic' };
 }
 
 function parseEndpointLocation(
@@ -242,15 +225,15 @@ export function inspectPubSubTriggers(
     const eventType = eventTrigger?.eventType;
     if (!isPubSubEventType(eventType)) continue;
 
-    const omitState = parseEndpointOmit(endpoint?.omit);
-    if (omitState.kind === 'omitted') {
+    const omitState = classifyEndpointOmit(endpoint?.omit);
+    if (omitState === 'omitted') {
       unsupported.push({
         exportName,
         eventType: `${eventType} (omitted from emulation)`,
       });
       continue;
     }
-    if (omitState.kind === 'dynamic') {
+    if (omitState === 'dynamic') {
       unsupported.push({
         exportName,
         eventType: `${eventType} (unsupported dynamic omit option)`,

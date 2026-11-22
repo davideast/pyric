@@ -3,6 +3,8 @@
  * (`onTaskDispatched`): unwraps `RESET_VALUE` sentinels and validates
  * `retryConfig`, `rateLimits`, `invoker`, `region`, and `timeoutSeconds`.
  */
+import { isResetValueObject } from '../endpoints.js';
+
 export interface TasksRetryConfig {
   maxAttempts?: number;
   maxRetrySeconds?: number;
@@ -25,18 +27,6 @@ type TasksRateLimitsValidationResult =
   | { ok: false; kind: 'dynamic' | 'invalid'; reason: string };
 
 const MAX_TASK_TIMEOUT_SECONDS = 1800;
-
-export function isResetValueObject(value: unknown): boolean {
-  if (typeof value !== 'object' || value === null) return false;
-  const candidate = value as { toJSON?: unknown };
-  if (typeof candidate.toJSON !== 'function') return false;
-  try {
-    return (candidate.toJSON as () => unknown)() === null;
-  } catch (err: unknown) {
-    if (err instanceof Error) return false;
-    return false;
-  }
-}
 
 export function parseTaskEndpointRegions(
   region: unknown,

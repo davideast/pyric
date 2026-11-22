@@ -3,7 +3,9 @@
  * Auth blocking triggers (`providers/cloud.auth/eventTypes/user.*`).
  */
 import {
+  classifyEndpointOmit,
   endpointTriggerLabel,
+  isResetValueObject,
   listFirebaseEndpoints,
   type FirebaseEndpoint,
 } from '../endpoints.js';
@@ -99,18 +101,6 @@ function isBlockingEndpoint(endpoint: FirebaseEndpoint): boolean {
   return typeof trigger === 'object' && trigger !== null;
 }
 
-function isResetValueObject(value: unknown): boolean {
-  if (typeof value !== 'object' || value === null) return false;
-  const candidate = value as { toJSON?: unknown };
-  if (typeof candidate.toJSON !== 'function') return false;
-  try {
-    return (candidate.toJSON as () => unknown)() === null;
-  } catch {
-    // Non-ResetValue objects with custom toJSON are dynamic expressions.
-    return false;
-  }
-}
-
 function parseEndpointLocation(
   region: unknown,
 ): { ok: true; location?: string } | { ok: false } {
@@ -194,17 +184,26 @@ export function inspectIdentityTriggers(
     if (!endpoint || !isBlockingEndpoint(endpoint)) continue;
 
     const label = endpointTriggerLabel(endpoint);
-    if (endpoint.omit === true) {
+    const omitState = classifyEndpointOmit(endpoint.omit);
+    if (omitState === 'omitted') {
       unsupported.push({
         exportName,
         eventType: `${label} (omitted from emulation)`,
       });
       continue;
     }
-    if (endpoint.omit !== undefined && endpoint.omit !== false) {
+    if (omitState === 'dynamic') {
       unsupported.push({
         exportName,
         eventType: `${label} (unsupported dynamic omit option)`,
+      });
+      continue;
+    }
+
+    if (endpoint.platform === 'gcfv1') {
+      unsupported.push({
+        exportName,
+        eventType: `${label} (v1 auth.user() blocking is not supported)`,
       });
       continue;
     }
