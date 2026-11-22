@@ -16,6 +16,7 @@ export const MESSAGING_WEB_SCENARIO_NAMES = [
   'onbackgroundmessage',
   'multi-device-fanout',
   'token-rotation',
+  'offline-store-and-forward',
   'deletetoken-unregistered',
 ] as const;
 
@@ -60,6 +61,18 @@ export interface DeleteTokenRawResult {
   noDeliveryToClient: boolean;
 }
 
+export interface OfflineStoreAndForwardRawResult {
+  onlineBaselineDelivered: boolean;
+  tokenPreservedAcrossOfflineRestart: boolean;
+  nonCollapsibleQueuedDeliveredOnReconnect: boolean;
+  collapsibleFirstDelivered: boolean;
+  collapsibleSecondDelivered: boolean;
+  collapsibleReplacedOlderPending: boolean;
+  expiredShortTtlDelivered: boolean;
+  expiredShortTtlDroppedBeforeReconnect: boolean;
+  cleanupTokenDeletedTruthy: boolean;
+}
+
 export interface MessagingWebRawResults {
   fg?: MessagingWebCaptureEvent;
   tokenStable?: Record<string, unknown>;
@@ -68,6 +81,7 @@ export interface MessagingWebRawResults {
   bg?: MessagingWebCaptureEvent;
   multiDeviceFanout?: MultiDeviceFanoutRawResult;
   tokenRotation?: TokenRotationRawResult;
+  offlineStoreAndForward?: OfflineStoreAndForwardRawResult;
   deleteToken?: DeleteTokenRawResult;
 }
 
@@ -321,6 +335,27 @@ export function writeMessagingWebObservations(
         priorTokenUnregisteredErrorStatus: err.status ?? null,
         priorTokenFcmErrorCode: fcmDetail?.errorCode ?? null,
         noDeliveryFromPriorToken: r.noDeliveryFromPriorToken,
+      },
+      { fbSdkVersion, adminSdkVersion },
+    );
+  }
+
+  if (results.offlineStoreAndForward) {
+    const o = results.offlineStoreAndForward;
+    writeOne(
+      'messaging-web-offline-store-and-forward',
+      ['messaging-admin#42'],
+      'Offline store-and-forward Web Push delivery across persistent Chromium restart: while the browser GCM channel is closed, FCM buffers non-collapsible messages within TTL for delivery on reconnect, collapses pending messages sharing webpush.headers.Topic / collapseKey so the newer replaces the older, and drops messages whose short TTL expires before reconnect.',
+      {
+        onlineBaselineDelivered: o.onlineBaselineDelivered,
+        tokenPreservedAcrossOfflineRestart: o.tokenPreservedAcrossOfflineRestart,
+        nonCollapsibleQueuedDeliveredOnReconnect: o.nonCollapsibleQueuedDeliveredOnReconnect,
+        collapsibleFirstDelivered: o.collapsibleFirstDelivered,
+        collapsibleSecondDelivered: o.collapsibleSecondDelivered,
+        collapsibleReplacedOlderPending: o.collapsibleReplacedOlderPending,
+        expiredShortTtlDelivered: o.expiredShortTtlDelivered,
+        expiredShortTtlDroppedBeforeReconnect: o.expiredShortTtlDroppedBeforeReconnect,
+        cleanupTokenDeletedTruthy: o.cleanupTokenDeletedTruthy,
       },
       { fbSdkVersion, adminSdkVersion },
     );
