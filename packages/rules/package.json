@@ -1,7 +1,6 @@
 {
   "name": "@pyric/rules",
   "version": "0.1.0",
-  "private": true,
   "license": "Apache-2.0",
   "homepage": "https://pyric.dev",
   "repository": {
