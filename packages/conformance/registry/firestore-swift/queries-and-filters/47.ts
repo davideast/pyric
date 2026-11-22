@@ -7,6 +7,7 @@ export default row({
   behavior: 'Filters documents where array field contains argument element.',
   featureKeys: ['whereFieldArrayContains'],
   status: 'conforms',
+  oracleObservations: ['firestore-swift-queries-cursors-filters-and-aggregations'],
   tests: [LIVE_HOST_QUERIES_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

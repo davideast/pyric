@@ -7,6 +7,7 @@ export default row({
   behavior: 'Executes an interactive transaction asynchronously via Swift concurrency.',
   featureKeys: ['runTransactionAsync'],
   status: 'conforms',
+  oracleObservations: ['firestore-swift-batches-transactions-offline-and-errors'],
   tests: [LIVE_HOST_INSTANCE_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

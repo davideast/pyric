@@ -7,6 +7,7 @@ export default row({
   behavior: 'Returns dictionary of document fields or nil if document does not exist.',
   featureKeys: ['data'],
   status: 'conforms',
+  oracleObservations: ['firestore-swift-crud-merge-sentinels-and-codecs'],
   tests: [LIVE_HOST_SNAPSHOTS_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

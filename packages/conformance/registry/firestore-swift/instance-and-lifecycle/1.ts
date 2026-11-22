@@ -7,6 +7,7 @@ export default row({
   behavior: 'Returns the default Firestore instance configured with the default FirebaseApp.',
   featureKeys: ['firestore'],
   status: 'conforms',
+  oracleObservations: ['firestore-swift-instance-snapshots-inSync-and-codable'],
   tests: [LIVE_HOST_INSTANCE_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

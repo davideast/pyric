@@ -7,6 +7,7 @@ export default row({
   behavior: 'Retrieves a named query from a previously loaded Firestore bundle.',
   featureKeys: ['getQuery'],
   status: 'conforms',
+  oracleObservations: ['firestore-swift-instance-snapshots-inSync-and-codable'],
   tests: [LIVE_HOST_INSTANCE_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

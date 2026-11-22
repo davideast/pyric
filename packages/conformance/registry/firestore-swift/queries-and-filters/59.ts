@@ -7,6 +7,7 @@ export default row({
   behavior: 'Positions ending cursor using DocumentSnapshot position.',
   featureKeys: ['endBeforeDocument', 'endAtDocument'],
   status: 'conforms',
+  oracleObservations: ['firestore-swift-inequality-cursors-collectionGroup-and-txRetry'],
   tests: [LIVE_HOST_QUERIES_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

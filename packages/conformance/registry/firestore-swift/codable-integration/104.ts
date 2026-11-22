@@ -7,6 +7,7 @@ export default row({
   behavior: 'Property wrapper encoding nil as serverTimestamp sentinel on write.',
   featureKeys: ['serverTimestampPropertyWrapper'],
   status: 'conforms',
+  oracleObservations: ['firestore-swift-instance-snapshots-inSync-and-codable'],
   tests: [LIVE_HOST_TYPES_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

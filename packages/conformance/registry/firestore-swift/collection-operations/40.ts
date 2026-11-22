@@ -7,6 +7,7 @@ export default row({
   behavior: 'Auto-generates document ID, writes data payload, and returns document reference.',
   featureKeys: ['addDocument'],
   status: 'conforms',
+  oracleObservations: ['firestore-swift-crud-merge-sentinels-and-codecs'],
   tests: [LIVE_HOST_INSTANCE_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

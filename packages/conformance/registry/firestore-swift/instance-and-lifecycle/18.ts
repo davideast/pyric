@@ -7,6 +7,7 @@ export default row({
   behavior: 'Awaits backend acknowledgment of all pending local writes.',
   featureKeys: ['waitForPendingWrites'],
   status: 'conforms',
+  oracleObservations: ['firestore-swift-batches-transactions-offline-and-errors'],
   tests: [LIVE_HOST_LIFECYCLE_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

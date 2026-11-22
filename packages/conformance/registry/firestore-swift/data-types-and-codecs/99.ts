@@ -7,6 +7,7 @@ export default row({
   behavior: 'Immutable geographic coordinate pair with latitude and longitude bounds.',
   featureKeys: ['geoPoint'],
   status: 'conforms',
+  oracleObservations: ['firestore-swift-crud-merge-sentinels-and-codecs'],
   tests: [LIVE_HOST_TYPES_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

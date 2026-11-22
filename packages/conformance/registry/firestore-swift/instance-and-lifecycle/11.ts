@@ -7,6 +7,7 @@ export default row({
   behavior: 'Executes an interactive transaction block with automatic conflict retry.',
   featureKeys: ['runTransaction'],
   status: 'conforms',
+  oracleObservations: ['firestore-swift-inequality-cursors-collectionGroup-and-txRetry'],
   tests: [LIVE_HOST_INSTANCE_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

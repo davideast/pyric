@@ -7,6 +7,7 @@ export default row({
   behavior: 'Limits results to last N documents requiring explicit orderBy constraint.',
   featureKeys: ['limitToLast'],
   status: 'conforms',
+  oracleObservations: ['firestore-swift-queries-cursors-filters-and-aggregations'],
   tests: [LIVE_HOST_QUERIES_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

@@ -13,12 +13,52 @@ extension Firestore {
     }
 
     public func runTransaction(
+        with options: TransactionOptions,
+        _ updateBlock: @Sendable @escaping (Transaction) async throws -> Any?
+    ) async throws -> Any? {
+        try await runTransaction(options: options, updateBlock)
+    }
+
+    public func runTransaction(
         options: TransactionOptions,
         _ updateBlock: @Sendable @escaping (Transaction) async throws -> Any?
     ) async throws -> Any? {
         markUsed()
         let copiedOptions = (options.copy(with: nil) as? TransactionOptions) ?? options
         return try await runTransaction(turn: takeTurn(), options: copiedOptions, updateBlock)
+    }
+
+    @_disfavoredOverload
+    public func runTransaction(
+        _ updateBlock: @escaping @Sendable (Transaction, NSErrorPointer) -> Any?
+    ) async throws -> Any? {
+        try await runTransaction(with: nil, block: updateBlock)
+    }
+
+    public func runTransaction(
+        with options: TransactionOptions?,
+        block updateBlock: @escaping @Sendable (Transaction, NSErrorPointer) -> Any?
+    ) async throws -> Any? {
+        markUsed()
+        let rawOptions = options ?? TransactionOptions()
+        let opts = (rawOptions.copy(with: nil) as? TransactionOptions) ?? rawOptions
+        let turn = takeTurn()
+        return try await runTransaction(turn: turn, options: opts) { txn in
+            try await UpdateBlockThread.run {
+                var err: NSError?
+                #if canImport(ObjectiveC)
+                let res = updateBlock(txn, &err)
+                #else
+                let res = withUnsafeMutablePointer(to: &err) { ptr in
+                    updateBlock(txn, ptr)
+                }
+                #endif
+                if let err {
+                    throw err
+                }
+                return res
+            }
+        }
     }
 
     private func runTransaction(
@@ -94,7 +134,15 @@ extension Firestore {
         _ updateBlock: @escaping @Sendable (Transaction, NSErrorPointer) -> Any?,
         completion: @escaping @Sendable (Any?, Error?) -> Void
     ) {
-        runTransaction(options: nil, block: updateBlock, completion: completion)
+        runTransaction(with: nil, block: updateBlock, completion: completion)
+    }
+
+    public func runTransaction(
+        with options: TransactionOptions?,
+        block updateBlock: @escaping @Sendable (Transaction, NSErrorPointer) -> Any?,
+        completion: @escaping @Sendable (Any?, Error?) -> Void
+    ) {
+        runTransaction(options: options, block: updateBlock, completion: completion)
     }
 
     public func runTransaction(

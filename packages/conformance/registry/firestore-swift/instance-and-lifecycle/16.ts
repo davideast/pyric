@@ -7,6 +7,7 @@ export default row({
   behavior: 'Clears offline client persistence cache when no active listeners exist.',
   featureKeys: ['clearPersistence'],
   status: 'conforms',
+  oracleObservations: ['firestore-swift-batches-transactions-offline-and-errors'],
   tests: [LIVE_HOST_LIFECYCLE_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

@@ -7,6 +7,10 @@ export default row({
   behavior: 'Boolean indicating whether document currently exists in Firestore.',
   featureKeys: ['exists'],
   status: 'conforms',
+  oracleObservations: [
+    'firestore-swift-crud-merge-sentinels-and-codecs',
+    'firestore-swift-batches-transactions-offline-and-errors',
+  ],
   tests: [LIVE_HOST_SNAPSHOTS_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

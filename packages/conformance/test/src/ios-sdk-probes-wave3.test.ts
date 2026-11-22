@@ -24,6 +24,7 @@ import {
   selectAvailableIosSimulatorDestination,
   stageIosPackageTemplate,
 } from '../../src/ios-oracle-simulator.ts';
+import { loadObservations } from '../../src/ledger.ts';
 import type { OracleServiceAccount } from '../../src/oracle-credential.ts';
 import { firestoreOracleTarget } from '../../src/oracle-rules-session.ts';
 import { resolvedIosSdkVersion } from '../../src/package-version.ts';
@@ -38,6 +39,8 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const CONFORMANCE_ROOT = resolve(HERE, '..', '..');
 const NATIVE_IOS_ROOT = join(CONFORMANCE_ROOT, 'rigs', 'native-ios-oracle');
 const FIRESTORE_SIM_DIR = join(NATIVE_IOS_ROOT, 'firestore-sim');
+
+const STAGED_WAVE3_FIRESTORE_PROBE_IDS: readonly string[] = [];
 
 const WAVE3_FIRESTORE_PROBE_IDS = [
   'firestore-swift-batches-transactions-offline-and-errors',
@@ -85,9 +88,9 @@ describe('Wave 3 firestore-swift ios-sdk-probes manifest, Swift package, and sta
     ];
     for (const descriptor of wave3Descriptors) {
       expect(descriptor.rig).toBe('ios-sdk-probes');
-      expect(descriptor.pendingRowLink).toBe(true);
-      expect(descriptor.matrixRow).toBe('');
-      expect(descriptor.rowIds).toEqual([]);
+      expect(descriptor.pendingRowLink).toBeUndefined();
+      expect(descriptor.matrixRow.startsWith('firestore-swift#')).toBe(true);
+      expect(descriptor.rowIds.length).toBeGreaterThan(0);
       expect(descriptor.requires).toEqual([
         'web-config',
         'firestore-rules',
@@ -98,16 +101,38 @@ describe('Wave 3 firestore-swift ios-sdk-probes manifest, Swift package, and sta
         await expect(descriptor.observe()).rejects.toThrow(/requires macOS \(darwin\)/);
       }
     }
+    expect(firestoreBatchTxErrorsProbe.matrixRow).toBe('firestore-swift#10');
+    expect(firestoreBatchTxErrorsProbe.rowIds.length).toBe(17);
+    expect(firestoreCrudCodecsProbe.matrixRow).toBe('firestore-swift#26');
+    expect(firestoreCrudCodecsProbe.rowIds.length).toBe(19);
+    expect(firestoreQueriesAggProbe.matrixRow).toBe('firestore-swift#41');
+    expect(firestoreQueriesAggProbe.rowIds.length).toBe(18);
 
     const loadedFirestore = (await loadModularProbes('ios-sdk-probes')).filter(
       (entry) => entry.surfaceDir === 'firestore-swift' && WAVE3_FIRESTORE_PROBE_IDS.includes(entry.id),
     );
     expect(loadedFirestore.map((entry) => entry.id)).toEqual(WAVE3_FIRESTORE_PROBE_IDS);
 
-    expectStagedUntilCaptured(WAVE3_FIRESTORE_PROBE_IDS, {
+    expectStagedUntilCaptured(STAGED_WAVE3_FIRESTORE_PROBE_IDS, {
       rig: 'ios-sdk-probes',
       filterFlag: '--probe',
     });
+
+    const observationsByName = new Map(loadObservations().map((obs) => [obs.name, obs]));
+    const wave3NamedProbes = [
+      ['firestore-swift-batches-transactions-offline-and-errors', firestoreBatchTxErrorsProbe],
+      ['firestore-swift-crud-merge-sentinels-and-codecs', firestoreCrudCodecsProbe],
+      ['firestore-swift-queries-cursors-filters-and-aggregations', firestoreQueriesAggProbe],
+    ] as const;
+    for (const [probeName, descriptor] of wave3NamedProbes) {
+      const committed = observationsByName.get(probeName);
+      if (committed === undefined) {
+        throw new Error(`Missing committed Wave 3 observation ${probeName}`);
+      }
+      expect(committed.iosSdkVersion).toBe(version);
+      expect(committed.matrixRow).toBe(descriptor.matrixRow);
+      expect(committed.rowIds).toEqual([...descriptor.rowIds]);
+    }
   });
 
   it(

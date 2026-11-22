@@ -7,6 +7,7 @@ export default row({
   behavior: 'List of DocumentChange deltas since previous snapshot emission.',
   featureKeys: ['documentChanges'],
   status: 'conforms',
+  oracleObservations: ['firestore-swift-queries-cursors-filters-and-aggregations'],
   tests: [LIVE_HOST_SNAPSHOTS_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });

@@ -7,6 +7,7 @@ export default row({
   behavior: 'Returns the parent CollectionReference containing this document.',
   featureKeys: ['parent'],
   status: 'conforms',
+  oracleObservations: ['firestore-swift-instance-snapshots-inSync-and-codable'],
   tests: [LIVE_HOST_CRUD_SUITE],
   hostConformanceTests: [LIVE_HOST_CONFORMANCE_TEST],
 });
