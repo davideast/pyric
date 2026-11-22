@@ -242,5 +242,45 @@ describe('urlCredentials and maskStreamErrors', () => {
     expect(maskedEcho).not.toContain(serverKey);
     expect(maskedEcho).not.toContain(encodeURIComponent(serverKey));
     expect(JSON.parse(maskedEcho)).toEqual({ text: 'echo *** and *** plus ?key=keep-me' });
+
+    // Transformed (base64 + lowercased) server credential echoed in 200 JSON is also masked while keeping unrelated ?key=.
+    const transformedEcho = JSON.stringify({
+      text: `b64=${btoa(serverKey)} lower=${serverKey.toLowerCase()} keep=https://x.test/?key=public`,
+    });
+    const maskedTransformed = redactUpstreamSuccessBody(transformedEcho, [serverKey], {
+      maskExactCredentials: true,
+    });
+    expect(JSON.parse(maskedTransformed)).toEqual({
+      text: 'b64=*** lower=*** keep=https://x.test/?key=public',
+    });
+  });
+
+  it('masks mid-stream SSE errors with bare CR line endings, trailing whitespace on event:error, and transformed echoes (#1600)', async () => {
+    const encoder = new TextEncoder();
+    const secretKey = 'synthetic-bare-cr-secret-1600';
+    const b64Secret = btoa(secretKey);
+    const payload =
+      'data: {"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}\r\r' +
+      `data: {"error":{"code":500,"message":"Bare CR ${b64Secret} and ${secretKey.toLowerCase()}"}}\r\r` +
+      'event: error   \r' +
+      `data: Gateway rejected ${secretKey}\r\r`;
+
+    // Split across 7-byte chunks so CRLF/bare-CR boundaries split across reads.
+    const input = new ReadableStream<Uint8Array>({
+      start(controller) {
+        const bytes = encoder.encode(payload);
+        for (let offset = 0; offset < bytes.length; offset += 7) {
+          controller.enqueue(bytes.slice(offset, offset + 7));
+        }
+        controller.close();
+      },
+    });
+    const result = await new Response(maskStreamErrors(input, [secretKey])).text();
+    expect(result).toContain('data: {"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}\r\r');
+    expect(result).not.toContain(secretKey);
+    expect(result).not.toContain(secretKey.toLowerCase());
+    expect(result).not.toContain(b64Secret);
+    expect(result).toContain('data: {"error":{"code":500,"message":"Bare CR *** and ***"}}' + '\r\r');
+    expect(result).toContain('event: error   \rdata: Gateway rejected ***\r\r');
   });
 });

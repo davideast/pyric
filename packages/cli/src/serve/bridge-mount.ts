@@ -34,6 +34,7 @@ import { hostTrustFor } from '../remote/loopback-tls.js';
 import { registerLocalSessionToken, writeMode600FileSync } from './local-session-token.js';
 import { boundedFetch } from '../bounded-request.js';
 import { cliVersion } from '../pkg-version.js';
+import { opaqueProjectKey } from './project-key.js';
 import {
   createGuardPolicy,
   effectiveRequestScheme,
@@ -875,7 +876,20 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
         socket.once('close', () => upgradedSockets.delete(socket));
         wss.handleUpgrade(req, socket, head, (ws: WebSocket) => {
           const allowSandboxPeer = opts.hosted !== true;
-          attachPeer(bridge, ws, allowSandboxPeer, peerOptions);
+          let peerBridge = bridge;
+          if (
+            decision.isRemoteRequest &&
+            typeof bridge.projectKey === 'string' &&
+            bridge.projectKey.length > 0
+          ) {
+            peerBridge = Object.create(bridge, {
+              projectKey: {
+                value: opaqueProjectKey(bridge.projectKey),
+                enumerable: true,
+              },
+            }) as typeof bridge;
+          }
+          attachPeer(peerBridge, ws, allowSandboxPeer, peerOptions);
         });
       };
 

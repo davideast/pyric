@@ -43,6 +43,7 @@ import {
 import { createViteModuleContext, createViteModuleSwap } from './vite-module-swap.js';
 import { createVitePageRuntime } from './vite-page-runtime.js';
 import { stampHostedTarget } from './runtime/hosted-target.js';
+import { clientProjectKey } from './project-key.js';
 import { attachLiveSdkRequestGate } from './vite-live-sdk-requests.js';
 import { attachViteSdkRequestGate } from './vite-sdk-file-gate.js';
 import {
@@ -553,12 +554,13 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
     transformIndexHtml(html) {
       const peerContext = currentViteHtmlPeerContext();
       const isLocalPeer = peerContext?.localPeer === true;
+      const isRemoteClient = peerContext?.remoteClient === true;
       const stampToken = isLocalPeer ? activeSessionToken : undefined;
       const canStampHostedIdentity = activeSessionToken === undefined || isLocalPeer;
       let stampProject: string | undefined;
       let stampInstanceId: string | undefined;
       if (canStampHostedIdentity) {
-        stampProject = hostedProjectKey;
+        stampProject = clientProjectKey(hostedProjectKey, isRemoteClient);
         stampInstanceId = hostedInstanceId;
       }
       const stampOptions = hostedProjectKey !== undefined ? { hosted: true } : undefined;

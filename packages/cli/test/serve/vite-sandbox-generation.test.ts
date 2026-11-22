@@ -479,4 +479,53 @@ describe('Vite sandbox generation project', () => {
       }
     }
   });
+
+  it('strips configured Gemini apiKey from browser init.json while keeping full server config for proxy and hosted host (#1591)', async () => {
+    const hostedDir = mkdtempSync(join(tmpdir(), 'pyric-vite-gemini-key-1591-'));
+    try {
+      const secretKey = 'AIzaSy-config-secret-gen-1591';
+      const customBase = 'http://127.0.0.1:42111/gemini';
+      const h = harness();
+      h.input.projectDir = hostedDir;
+      h.input.options.hosted = true;
+      h.input.ai = {
+        mode: 'sandbox',
+        engineWire: { kind: 'gemini', apiKey: secretKey, baseUrl: customBase },
+        proxyUpstream: undefined,
+      };
+      let capturedSession: SandboxSessionOptions | undefined;
+      let capturedHostedPayload: Record<string, unknown> | undefined;
+      const baseCreateSession = h.dependencies.createSession;
+      h.dependencies.createSession = async (sessionOptions) => {
+        capturedSession = sessionOptions;
+        if (!baseCreateSession) throw new Error('missing createSession stub');
+        return baseCreateSession(sessionOptions);
+      };
+      const baseCreateBridge = h.dependencies.createBridge;
+      h.dependencies.createBridge = (bridgeOptions) => {
+        if (!baseCreateBridge) throw new Error('missing createBridge stub');
+        const created = baseCreateBridge(bridgeOptions);
+        return {
+          ...created,
+          startHostedSandbox: async (payload) => {
+            capturedHostedPayload = payload as unknown as Record<string, unknown>;
+          },
+        };
+      };
+      const generation = await createViteSandboxGeneration(h.input, h.dependencies);
+      try {
+        expect(capturedSession?.ai).toEqual({ engine: { kind: 'gemini' } });
+        expect(JSON.stringify(capturedSession?.ai)).not.toContain(secretKey);
+        expect(JSON.stringify(capturedSession?.ai)).not.toContain(customBase);
+        expect(capturedSession?.aiGemini).toEqual({ apiKey: secretKey, baseUrl: customBase });
+        expect(capturedHostedPayload?.ai).toEqual({
+          engine: { kind: 'gemini', apiKey: secretKey, baseUrl: customBase },
+        });
+      } finally {
+        await generation.close();
+      }
+    } finally {
+      rmSync(hostedDir, { recursive: true, force: true });
+    }
+  });
 });

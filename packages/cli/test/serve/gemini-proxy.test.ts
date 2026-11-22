@@ -450,6 +450,54 @@ describe('/__pyric/ai-proxy/gemini', () => {
     expect(text).not.toContain(adcToken);
     expect(text).toContain('token ***');
   });
+
+  it('keeps JSON error envelopes intact for short keys (< 8 chars) while redacting URL query params (#1600)', async () => {
+    process.env.GEMINI_API_KEY = 'e';
+    const upstream = standIn((url) =>
+      Response.json(
+        { error: { code: 400, message: `Refused request to ${url.href}`, status: 'INVALID_ARGUMENT' } },
+        { status: 400 },
+      ),
+    );
+    const h = await startServe(upstream.url);
+    const response = await post(`${h.url}${CALL}`);
+    expect(response.status).toBe(400);
+    const parsed = (await response.json()) as { error: { code: number; message: string; status: string } };
+    expect(parsed.error).toEqual({
+      code: 400,
+      message: `Refused request to ${upstream.url}/v1beta/models/gemini-2.5-flash:generateContent?key=***`,
+      status: 'INVALID_ARGUMENT',
+    });
+  });
+
+  it('masks base64, lowercased, and HTML-entity transformed key echoes in proxy errors and bare-CR SSE errors (#1600)', async () => {
+    const longKey = 'AIzaSy-ProxySecret/1600+';
+    process.env.GEMINI_API_KEY = longKey;
+    const b64Key = btoa(longKey);
+    let mode: 'html' | 'sse' = 'html';
+    const upstream = standIn(() => {
+      if (mode === 'html') {
+        return new Response(
+          `<html>Bad key ${b64Key} / ${longKey.toLowerCase()} / AIzaSy&#45;ProxySecret&#x2f;1600&plus;</html>`,
+          { status: 502, headers: { 'content-type': 'text/html' } },
+        );
+      }
+      return new Response(
+        `data: {"error":{"code":500,"message":"Stream ${b64Key} and ${longKey.toLowerCase()}"}}\r\r`,
+        { status: 200, headers: { 'content-type': 'text/event-stream' } },
+      );
+    });
+    const h = await startServe(upstream.url);
+
+    const htmlRes = await post(`${h.url}${CALL}`);
+    expect(htmlRes.status).toBe(502);
+    expect(await htmlRes.text()).toBe('<html>Bad key *** / *** / ***</html>');
+
+    mode = 'sse';
+    const sseRes = await post(`${h.url}${GEMINI_PROXY_PATH}/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse`);
+    expect(sseRes.status).toBe(200);
+    expect(await sseRes.text()).toBe('data: {"error":{"code":500,"message":"Stream *** and ***"}}' + '\r\r');
+  });
 });
 
 describe('geminiProxyConfig', () => {

@@ -145,7 +145,11 @@ export function errorEnvelope(code: number, message: string, status: string): Wi
  * malformed query back. A regex on "`[?&]<param>=`" catches the value
  * regardless of how the surrounding query string is (mal)formed.
  */
-const SENSITIVE_URL_PARAM_PATTERN = /([?&](?:key|apiKey|api_key|access_token)=)[^&\s]*/gi;
+const SENSITIVE_URL_PARAM_PATTERN =
+  /((?:[?&]|&amp;|&#38;|&#x26;|\\u0026)(?:key|apiKey|api_key|access_token)=)[^&\s"'<>\\]*/gi;
+
+const SENSITIVE_ENCODED_URL_PARAM_PATTERN =
+  /((?:%3f|%26)(?:key|apiKey|api_key|access_token)%3d)(?:(?!%26)[^&\s"'<>\\)])*/gi;
 
 /**
  * The userinfo of a URL, `user:password@`, wherever a URL appears in the
@@ -158,7 +162,7 @@ const URL_USERINFO_PATTERN = /([a-z][a-z0-9+.-]*:[/\\]+)[^\s/\\?#"']*@/gi;
 
 /**
  * Redacts credential-bearing query-string VALUES from a URL (or any string
- * that may embed one) before it lands in an error message or log line —
+ * that may embed one) before it lands in an error message or log line --
  * e.g. `?key=AIza...` becomes `?key=***`. Host and path are preserved so
  * the message stays useful for diagnosing connectivity failures; only the
  * secret value is masked. The userinfo of a URL is dropped whole, so a
@@ -168,10 +172,13 @@ const URL_USERINFO_PATTERN = /([a-z][a-z0-9+.-]*:[/\\]+)[^\s/\\?#"']*@/gi;
  * into a thrown error or logged text, so a leaked key never reaches
  * terminal output, CI logs, or Studio traffic captures. Safe to apply
  * defensively to values that are not themselves URLs (e.g. a raw fetch
- * error message) — it is a no-op when no sensitive param is present.
+ * error message) -- it is a no-op when no sensitive param is present.
  */
 export function redactUrl(url: string): string {
-  return url.replace(URL_USERINFO_PATTERN, '$1').replace(SENSITIVE_URL_PARAM_PATTERN, '$1***');
+  return url
+    .replace(URL_USERINFO_PATTERN, '$1')
+    .replace(SENSITIVE_URL_PARAM_PATTERN, '$1***')
+    .replace(SENSITIVE_ENCODED_URL_PARAM_PATTERN, '$1***');
 }
 
 /** `ai-error-unknown-model` (404 NOT_FOUND), captured text verbatim — including production's `v1main`. */

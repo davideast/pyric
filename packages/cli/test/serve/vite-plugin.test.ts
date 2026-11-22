@@ -5,12 +5,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { mergeConfig, type UserConfig } from 'vite';
 import { pyric } from '../../src/serve/vite-plugin.js';
+import { opaqueProjectKey } from '../../src/serve/project-key.js';
 
 interface RemoteStampReport {
   failure?: string;
   closeFailure?: string;
   remote?: { status: number; body: string };
   local?: { status: number; body: string };
+  authedRemote?: { status: number; body: string };
+  authedRemoteInit?: { status: number; body: string };
 }
 
 describe('Vite plugin', () => {
@@ -110,7 +113,7 @@ describe('Vite plugin', () => {
       writeFileSync(join(root, 'index.html'), '<!doctype html><html><head><title>items</title></head><body></body></html>');
       writeFileSync(join(root, 'vite.config.mjs'), [
         "import { pyric } from '@pyric/cli/vite';",
-        'export default { plugins: [pyric({ hosted: true, ui: false })] };',
+        "export default { plugins: [pyric({ hosted: true, ui: false, remoteAccess: { allowedHosts: ['remote.example'] } })] };",
         '',
       ].join('\n'));
 
@@ -140,6 +143,18 @@ describe('Vite plugin', () => {
       expect(localHtml).toContain('"hosted":true');
       expect(localHtml).toContain('data-project-key=');
       expect(localHtml).toContain('"sessionToken"');
+
+      const expectedOpaque = opaqueProjectKey(root);
+      const authedRemoteHtml = report.authedRemote?.body ?? '';
+      expect(report.authedRemote?.status).toBe(200);
+      expect(authedRemoteHtml).toContain(`data-project-key="${expectedOpaque}"`);
+      expect(authedRemoteHtml).toContain(`"projectKey":"${expectedOpaque}"`);
+      expect(authedRemoteHtml).not.toContain(root);
+
+      const authedRemoteInit = report.authedRemoteInit?.body ?? '';
+      expect(report.authedRemoteInit?.status).toBe(200);
+      expect(authedRemoteInit).not.toContain(root);
+      expect((JSON.parse(authedRemoteInit) as { projectKey?: string }).projectKey).toBe(expectedOpaque);
     } finally {
       rmSync(parent, { recursive: true, force: true });
     }
