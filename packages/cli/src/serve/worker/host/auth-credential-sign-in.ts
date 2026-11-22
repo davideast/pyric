@@ -108,7 +108,7 @@ export function signInWithCredentialPayload(
   if (!isFederated || hasOtherSignInMethod) throw noMockConfiguredError(payload.providerId);
   const staged = takeStaged(payload.providerId);
   if (staged !== null) {
-    if (staged.uid === '') throw noMockConfiguredError(payload.providerId);
+    if (staged.uid.trim() === '') throw noMockConfiguredError(payload.providerId);
     return signInAsStaged(auth, staged, scope);
   }
   const oidcSignIn = signInWithOidcJwtPayload(auth, payload, scope);
@@ -243,7 +243,7 @@ export async function signInWithBlockedCredentialPayload(
 
   const staged = takeStaged(payload.providerId);
   if (staged !== null) {
-    if (staged.uid === '') throw noMockConfiguredError(payload.providerId);
+    if (staged.uid.trim() === '') throw noMockConfiguredError(payload.providerId);
     const { photoURL, ...identity } = staged;
     const wireCredential = extractBlockingCredentialContext(payload);
     const { uid, isNewUser, sessionClaims } = await resolveBlockedFederatedIdentity(

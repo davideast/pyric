@@ -11,7 +11,8 @@ import {
 import type { OpMessage } from '../protocol.js';
 import { ensureAuth, portOriginScope, portSession, portTenant, resolveSignInTenant, setPortSession } from '../host-auth.js';
 import { bestEffortFlush, fail, ok, type HostCtx, type PortLike } from '../host-context.js';
-import { credReply, requireMatchingPortSession } from './auth-session-seeder.js';
+import { requireHeldUserSession } from './auth-held-sessions.js';
+import { credReply } from './auth-session-seeder.js';
 
 const methods = [
   'auth.sendPasswordResetEmail', 'auth.sendEmailVerification', 'auth.verifyBeforeUpdateEmail',
@@ -104,12 +105,12 @@ export async function handleAuthActionCodeOp(ctx: HostCtx, port: PortLike, messa
         break;
       }
       case 'auth.sendEmailVerification': {
-        const session = requireMatchingPortSession(portSession(ctx, port), message);
+        const { session } = requireHeldUserSession(ctx, port, portSession(ctx, port), message, message.method);
         await sendEmailVerification(session.user, message.settings);
         break;
       }
       case 'auth.verifyBeforeUpdateEmail': {
-        const session = requireMatchingPortSession(portSession(ctx, port), message);
+        const { session } = requireHeldUserSession(ctx, port, portSession(ctx, port), message, message.method);
         await verifyBeforeUpdateEmail(session.user, message.newEmail, message.settings);
         break;
       }

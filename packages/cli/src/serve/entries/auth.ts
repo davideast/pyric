@@ -20,6 +20,7 @@ import * as ipAuth from 'pyric/auth';
 import { getAuth as pyricGetAuth, setPersistence as pyricSetPersistence } from 'pyric/auth';
 import * as wcRaw from '../worker/client.js';
 import { acceptProviderCredential, clientUserSessionKey, restorePortSession, stageSignInResult, type ClientUser } from '../worker/client.js';
+import { consumeStagedSignIn } from '../worker/client/auth-staged.js';
 import {
   assertOrRecordAuthInitOptions,
   recordDefaultAuthInitOptions,
@@ -291,6 +292,10 @@ async function bridgeProviderSignIn(
   kind: 'popup' | 'redirect',
 ): Promise<unknown> {
   const providerId = (provider as { providerId?: string }).providerId ?? 'oidc';
+  const staged = await consumeStagedSignIn(auth as never, providerId);
+  if (staged !== null) {
+    return staged;
+  }
   const cred = await resolveServeAuthFlow(
     { providerId, authType: 'signIn' },
     kind,

@@ -4,15 +4,13 @@ import { OAuthProvider, reauthenticateWithCredential, reauthenticateWithPopup,
 import { rulesTokenFromIdToken } from 'pyric/sandbox/internal';
 import type { OpMessage } from '../protocol.js';
 import { credentialFromWirePayload } from './auth-credential-sign-in.js';
-import { requireMatchingPortSession } from './auth-session-seeder.js';
 
 type ReauthenticationOperation = Extract<OpMessage, {
   method: 'auth.reauthenticateWithCredential' | 'auth.reauthenticateWithProvider';
 }>;
 
 /** Reuse engine verification without creating a new sign-in or persisted account mutation. */
-export async function reauthenticateSession(current: MintedSession | null, message: ReauthenticationOperation) {
-  const original = requireMatchingPortSession(current, message);
+export async function reauthenticateSession(original: MintedSession, message: ReauthenticationOperation) {
   const isCredential = message.method === 'auth.reauthenticateWithCredential';
   let result: UserCredential;
   if (isCredential) {

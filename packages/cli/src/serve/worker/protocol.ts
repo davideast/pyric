@@ -167,16 +167,16 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'auth.signInEmail'; email: string; password: string; tenantId?: string | null }
   | { t: 'op'; id: string; method: 'auth.signInAnonymously'; tenantId?: string | null }
   | { t: 'op'; id: string; method: 'auth.signOut' }
-  | { t: 'op'; id: string; method: 'auth.getIdToken'; forceRefresh?: boolean }
-  | { t: 'op'; id: string; method: 'auth.getIdTokenResult'; forceRefresh?: boolean }
+  | { t: 'op'; id: string; method: 'auth.getIdToken'; forceRefresh?: boolean; uid?: string; tenantId?: string | null; sessionKey?: string }
+  | { t: 'op'; id: string; method: 'auth.getIdTokenResult'; forceRefresh?: boolean; uid?: string; tenantId?: string | null; sessionKey?: string }
   | { t: 'op'; id: string; method: 'auth.setPersistence'; mode: AuthPersistenceMode }
   | { t: 'op'; id: string; method: 'auth.getCurrentUser' }
-  | { t: 'op'; id: string; method: 'auth.updateProfile'; displayName?: string | null; photoURL?: string | null }
+  | { t: 'op'; id: string; method: 'auth.updateProfile'; displayName?: string | null; photoURL?: string | null; uid?: string; tenantId?: string | null; sessionKey?: string }
   | { t: 'op'; id: string; method: 'auth.setTenantId'; tenantId: string | null }
-  | { t: 'op'; id: string; method: 'auth.reload'; uid?: string }
-  | { t: 'op'; id: string; method: 'auth.deleteUser' }
-  | { t: 'op'; id: string; method: 'auth.updateEmail'; email?: string; newEmail?: string; uid?: string }
-  | { t: 'op'; id: string; method: 'auth.updatePassword'; password?: string; newPassword?: string; uid?: string }
+  | { t: 'op'; id: string; method: 'auth.reload'; uid?: string; tenantId?: string | null; sessionKey?: string }
+  | { t: 'op'; id: string; method: 'auth.deleteUser'; uid?: string; tenantId?: string | null; sessionKey?: string }
+  | { t: 'op'; id: string; method: 'auth.updateEmail'; email?: string; newEmail?: string; uid?: string; tenantId?: string | null; sessionKey?: string }
+  | { t: 'op'; id: string; method: 'auth.updatePassword'; password?: string; newPassword?: string; uid?: string; tenantId?: string | null; sessionKey?: string }
   | { t: 'op'; id: string; method: 'auth.updateCurrentUser'; uid: string | null; tenantId?: string | null; sessionKey?: string }
   | {
       t: 'op';
@@ -217,9 +217,9 @@ export type OpMessage = (
       credential: SerializedAuthCredential }
   | { t: 'op'; id: string; method: 'auth.unlink'; uid: string; tenantId: string | null; providerId: string }
   | { t: 'op'; id: string; method: 'auth.reauthenticateWithCredential'; uid: string; tenantId: string | null;
-      credential: SerializedAuthCredential }
+      credential: SerializedAuthCredential; sessionKey?: string }
   | { t: 'op'; id: string; method: 'auth.reauthenticateWithProvider'; uid: string; tenantId: string | null;
-      identity: { uid: string; providerId: string } }
+      identity: { uid: string; providerId: string }; sessionKey?: string }
   | { t: 'op'; id: string; method: 'auth.sendPasswordResetEmail'; email: string; settings?: ActionCodeSettings; tenantId?: string | null }
   | { t: 'op'; id: string; method: 'auth.takeMail'; email?: string }
   | { t: 'op'; id: string; method: 'auth.sendSignInLinkToEmail'; email: string; settings: ActionCodeSettings; tenantId?: string | null }
@@ -235,8 +235,8 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'auth.takeSms'; phoneNumber?: string }
   | { t: 'op'; id: string; method: 'auth.signInWithEmailLink'; email: string; link: string; tenantId?: string | null }
   | { t: 'op'; id: string; method: 'auth.signInWithCustomToken'; customToken: string; tenantId?: string | null }
-  | { t: 'op'; id: string; method: 'auth.sendEmailVerification'; uid: string; tenantId: string | null; settings?: ActionCodeSettings }
-  | { t: 'op'; id: string; method: 'auth.verifyBeforeUpdateEmail'; uid: string; tenantId: string | null; newEmail: string; settings?: ActionCodeSettings }
+  | { t: 'op'; id: string; method: 'auth.sendEmailVerification'; uid: string; tenantId: string | null; settings?: ActionCodeSettings; sessionKey?: string }
+  | { t: 'op'; id: string; method: 'auth.verifyBeforeUpdateEmail'; uid: string; tenantId: string | null; newEmail: string; settings?: ActionCodeSettings; sessionKey?: string }
   | { t: 'op'; id: string; method: 'auth.applyActionCode'; code: string }
   | { t: 'op'; id: string; method: 'auth.checkActionCode'; code: string }
   | { t: 'op'; id: string; method: 'auth.verifyPasswordResetCode'; code: string }

@@ -11,6 +11,7 @@ import {
 } from 'pyric/auth';
 import {
   assertMatchingTenant,
+  isFederatedProviderId,
   normalizeTenantScope,
   sessionKeyOf,
 } from 'pyric/auth/internal';
@@ -49,6 +50,23 @@ export function serializeIdTokenResultForWire(result: {
     signInProvider: result.signInProvider ?? null,
     signInSecondFactor: result.signInSecondFactor ?? null,
   };
+}
+
+const NON_FEDERATED_IDENTITY_PROVIDER_IDS: ReadonlySet<string> = new Set([
+  'password',
+  'phone',
+  'anonymous',
+]);
+
+/**
+ * Whether `providerId` is a real Firebase provider accepted by served identity
+ * hand-off (`auth.acceptIdentity` and `auth.mockSignInResult`, #1491):
+ * federated providers (`isFederatedProviderId`) plus `password`, `phone`, and
+ * `anonymous`. Exact case-sensitive match so look-alikes like `Password` are
+ * refused.
+ */
+export function isAcceptedIdentityProviderId(providerId: string): boolean {
+  return isFederatedProviderId(providerId) || NON_FEDERATED_IDENTITY_PROVIDER_IDS.has(providerId);
 }
 
 /** A session's user in wire form, with the session key a reloaded page hands back (#1950). */
@@ -98,27 +116,8 @@ export function makeNoUserError(api: string): Error & { code: string } {
   return err;
 }
 
-/** Ensure a port session is present or throw `auth/no-current-user` (or `auth/user-token-expired` when `uid` was deleted). */
-export function requireReloadSession(
-  auth: Auth,
-  session: MintedSession | null,
-  uid?: string,
-): MintedSession {
-  if (session !== null) return session;
-  if (typeof uid === 'string') {
-    const exists = authSandboxOps.listUsers(auth).some((record) => record.uid === uid);
-    if (!exists) {
-      throw new FirebaseError(
-        'auth/user-token-expired',
-        "The user's credential is no longer valid. The user must sign in again.",
-      );
-    }
-  }
-  throw makeNoUserError('reload');
-}
-
 /** Ensure a port session is present or throw `auth/no-current-user`. */
-export function requirePortSession(session: MintedSession | null, api: string): MintedSession {
+function requirePortSession(session: MintedSession | null, api: string): MintedSession {
   if (!session) throw makeNoUserError(api);
   return session;
 }
@@ -187,10 +186,18 @@ export function resolveOAuthCredentialUser(
   auth: Auth,
   credential: OAuthCredentialPayload,
 ): { uid: string; isNewUser: boolean } {
+  if (!isAcceptedIdentityProviderId(credential.providerId)) {
+    throw new FirebaseError('invalid-argument', 'Invalid sandbox operation field: identity.providerId.');
+  }
+  const hasBlankExplicitUid =
+    typeof credential.uid === 'string' && credential.uid.trim().length === 0;
+  if (hasBlankExplicitUid) {
+    throw new FirebaseError('invalid-argument', 'Invalid sandbox operation field: identity.uid.');
+  }
   authSandboxOps.assertAuthProviderEnabled(auth, credential.providerId);
   const targetTenant = normalizeTenantScope(credential.tenantId);
   const existingUsers = authSandboxOps.listUsers(auth);
-  let targetUid = credential.uid && credential.uid.length > 0 ? credential.uid : null;
+  let targetUid = credential.uid && credential.uid.trim().length > 0 ? credential.uid : null;
   if (!targetUid && credential.email) {
     const lowerEmail = credential.email.toLowerCase();
     const byEmail = existingUsers.find(

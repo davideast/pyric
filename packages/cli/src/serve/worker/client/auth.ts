@@ -14,7 +14,6 @@ import type {
   ResolvedIdentity,
   OpMessage,
 } from '../protocol.js';
-import { FirebaseError } from 'pyric/app';
 import { absolutePhotoUrl, realmOrigin } from 'pyric/sandbox/internal';
 import {
   credentialWire,
@@ -24,6 +23,19 @@ import {
 } from './auth-credential-wire.js';
 import { closeSubscription, isDisconnectedPort, nextId, nextSubId, openSnapshotSubscription, rpc, wirePort } from './core.js';
 import type { ClientDb, ClientPort, Unsubscribe } from './handles.js';
+import {
+  applyClientUserSessionKey,
+  applySerializedUserFields,
+  attachHeldUserIdentity,
+  clientUserSessionKey,
+  reconcileMatchingCurrentUsers,
+  registerPortAuthHandle,
+  requireUserPort,
+  stampClientUserMetadata,
+  syncClientUserFromWire,
+} from './auth-user-identity.js';
+export { stageSignInResult } from './auth-staged.js';
+export { clientUserSessionKey, requireUserPort } from './auth-user-identity.js';
 
 export {
   listUsers,
@@ -91,22 +103,6 @@ export interface ClientAuth {
   signOut(): Promise<void>;
 }
 
-/** Hidden per-`ClientUser` port handle so top-level user lifecycle functions
- *  can RPC without an `auth` handle in scope (mirrors `firebase/auth`'s
- *  user-only signature). Non-enumerable — never serialized. */
-const CLIENT_USER_PORT: unique symbol = Symbol('pyric.clientUser.port');
-
-/** Hidden per-`ClientUser` worker session key ({@link SerializedUser.sessionKey}).
- *  Non-enumerable, like the port. */
-const CLIENT_USER_SESSION_KEY: unique symbol = Symbol('pyric.clientUser.sessionKey');
-const authHandlesByPort = new WeakMap<ClientPort, Set<ClientAuth>>();
-
-/** The worker session key `user` carries, which a page stores to resume the
- *  session after a reload; undefined when the worker sent none. */
-export function clientUserSessionKey(user: ClientUser): string | undefined {
-  return (user as { [CLIENT_USER_SESSION_KEY]?: string })[CLIENT_USER_SESSION_KEY];
-}
-
 /** Build a token-capable ClientUser from a wire SerializedUser. */
 function makeClientUser(port: ClientPort, raw: SerializedUser): ClientUser {
   const user: ClientUser = {
@@ -121,42 +117,18 @@ function makeClientUser(port: ClientPort, raw: SerializedUser): ClientUser {
     providerId: raw.providerId,
     providerData: raw.providerData,
     async getIdToken(forceRefresh?: boolean) {
-      return (await rpc(port, {
+      return (await rpc(port, attachHeldUserIdentity(user, {
         t: 'op', id: nextId(), method: 'auth.getIdToken', forceRefresh,
-      })) as string;
+      }))) as string;
     },
     async getIdTokenResult(forceRefresh?: boolean) {
-      return normalizeClientIdTokenResult((await rpc(port, {
+      return normalizeClientIdTokenResult((await rpc(port, attachHeldUserIdentity(user, {
         t: 'op', id: nextId(), method: 'auth.getIdTokenResult', forceRefresh,
-      })) as SerializedIdTokenResult);
+      }))) as SerializedIdTokenResult);
     },
   };
-  Object.defineProperty(user, CLIENT_USER_PORT, { value: port, enumerable: false });
-  Object.defineProperty(user, CLIENT_USER_SESSION_KEY, {
-    value: raw.sessionKey,
-    enumerable: false,
-    configurable: true,
-  });
+  stampClientUserMetadata(user, port, raw.sessionKey);
   return user;
-}
-
-function applySerializedUserFields(target: ClientUser, raw: SerializedUser): ClientUser {
-  const mutable = target as { -readonly [K in keyof ClientUser]: ClientUser[K] };
-  mutable.email = raw.email;
-  mutable.emailVerified = raw.emailVerified;
-  mutable.displayName = raw.displayName;
-  mutable.photoURL = absolutePhotoUrl(raw.photoURL, realmOrigin());
-  mutable.phoneNumber = raw.phoneNumber;
-  mutable.isAnonymous = raw.isAnonymous;
-  mutable.tenantId = raw.tenantId ?? null;
-  mutable.providerId = raw.providerId;
-  mutable.providerData = raw.providerData;
-  Object.defineProperty(target, CLIENT_USER_SESSION_KEY, {
-    value: raw.sessionKey,
-    enumerable: false,
-    configurable: true,
-  });
-  return target;
 }
 
 /**
@@ -171,7 +143,8 @@ function reconcileClientUser(auth: ClientAuth, raw: SerializedUser | null): Clie
     return null;
   }
   const existing = auth.currentUser;
-  if (existing !== null && existing.uid === raw.uid) {
+  const targetTenant = raw.tenantId ?? null;
+  if (existing !== null && existing.uid === raw.uid && existing.tenantId === targetTenant) {
     return applySerializedUserFields(existing, raw);
   }
   const created = makeClientUser(auth.port, raw);
@@ -238,12 +211,7 @@ export function getAuth(source: ClientDb | string | URL, name?: string): ClientA
     },
   }, { t: 'sub', subId, target: 'idToken' } satisfies InboundMessage);
 
-  let registered = authHandlesByPort.get(port);
-  if (registered === undefined) {
-    registered = new Set<ClientAuth>();
-    authHandlesByPort.set(port, registered);
-  }
-  registered.add(auth);
+  registerPortAuthHandle(port, auth);
 
   return auth;
 }
@@ -320,65 +288,6 @@ export async function acceptProviderCredential(
     tenantId: auth.tenantId,
   })) as SerializedUserCredential;
   return hydrateCred(auth, raw);
-}
-
-/** The parts of a staged `UserCredential` the host needs: who signs in, and through which provider. */
-export interface StagedSignInResult {
-  readonly user: {
-    readonly uid: string;
-    readonly email?: string | null;
-    readonly displayName?: string | null;
-    readonly photoURL?: string | null;
-    readonly emailVerified?: boolean;
-  };
-  readonly providerId: string | null;
-}
-
-/**
- * Stage the user this port's next `signInWithCredential` for
- * `result.providerId` signs in as (served `sandbox.mockSignInResult`, #1466).
- * Sent without waiting, as the `tenantId` setter is: the port delivers in
- * order, so the host has it before the next sign-in. The checks the host would
- * make run here first, so a malformed result throws at the call.
- */
-export function stageSignInResult(auth: ClientAuth, result: StagedSignInResult): void {
-  const providerId = result.providerId;
-  const uid = result.user?.uid;
-  const hasProvider = typeof providerId === 'string' && providerId !== '';
-  const hasUid = typeof uid === 'string' && uid !== '';
-  if (!hasProvider || !hasUid) {
-    throw new FirebaseError(
-      'invalid-argument',
-      'sandbox.mockSignInResult: result.providerId and result.user.uid must be non-empty strings.',
-    );
-  }
-  const identity: ResolvedIdentity = {
-    uid,
-    providerId,
-    email: profileField(result.user.email),
-    displayName: profileField(result.user.displayName),
-    photoURL: profileField(result.user.photoURL),
-    customClaims: {},
-    // In-page, a staged user without the flag is unverified; the wire says so.
-    emailVerified: result.user.emailVerified === true,
-  };
-  // The signature is void, so an error reply (a deleted app, a refused send)
-  // has nowhere to go; the next sign-in reports auth/no-mock-configured.
-  rpc(auth.port, { t: 'op', id: nextId(), method: 'auth.mockSignInResult', identity }).catch(() => {});
-}
-
-/** A staged profile field the host accepts: a string, or null when absent. Anything else throws at the call. */
-function profileField(value: unknown): string | null {
-  const isAbsent = value === undefined || value === null;
-  if (isAbsent) return null;
-  const isString = typeof value === 'string';
-  if (!isString) {
-    throw new FirebaseError(
-      'invalid-argument',
-      'sandbox.mockSignInResult: result.user.email, displayName and photoURL must be strings or null.',
-    );
-  }
-  return value;
 }
 
 /**
@@ -491,19 +400,6 @@ export async function getIdTokenResult(
   return user.getIdTokenResult(forceRefresh);
 }
 
-export function requireUserPort(user: ClientUser, api: string): ClientPort {
-  const port = (user as { [CLIENT_USER_PORT]?: ClientPort })[CLIENT_USER_PORT];
-  const hasNoPort = port === undefined;
-  if (hasNoPort) {
-    const err = new Error(
-      `${api}: unrecognized user — was it produced by a worker-path sign-in?`,
-    ) as Error & { code: string };
-    err.code = 'auth/invalid-user-token';
-    throw err;
-  }
-  return port;
-}
-
 export async function updateProfile(
   user: ClientUser,
   profile: { displayName?: string | null; photoURL?: string | null },
@@ -513,60 +409,58 @@ export async function updateProfile(
   if (normalized.displayName === undefined && normalized.photoURL === undefined) {
     return;
   }
-  const raw = (await rpc(port, {
+  const raw = (await rpc(port, attachHeldUserIdentity(user, {
     t: 'op',
     id: nextId(),
     method: 'auth.updateProfile',
     displayName: normalized.displayName,
     photoURL: normalized.photoURL,
-  })) as SerializedUser;
+  }))) as SerializedUser;
   const mutable = user as { -readonly [K in keyof ClientUser]: ClientUser[K] };
   mutable.displayName = raw.displayName;
   mutable.photoURL = absolutePhotoUrl(raw.photoURL, realmOrigin());
   mutable.providerData = raw.providerData;
-  const handles = authHandlesByPort.get(port);
-  if (handles !== undefined) {
-    for (const authHandle of handles) {
-      if (authHandle.currentUser !== null && authHandle.currentUser.uid === raw.uid) {
-        reconcileClientUser(authHandle, raw);
-      }
-    }
-  }
+  applyClientUserSessionKey(user, raw.sessionKey);
+  reconcileMatchingCurrentUsers(port, raw);
 }
 
 export async function reload(user: ClientUser): Promise<void> {
   const port = requireUserPort(user, 'reload');
-  const raw = (await rpc(port, { t: 'op', id: nextId(), method: 'auth.reload', uid: user.uid })) as SerializedUser;
-  const mutable = user as { -readonly [K in keyof ClientUser]: ClientUser[K] };
-  mutable.email = raw.email;
-  mutable.emailVerified = raw.emailVerified;
-  mutable.displayName = raw.displayName;
-  mutable.photoURL = absolutePhotoUrl(raw.photoURL, realmOrigin());
-  mutable.phoneNumber = raw.phoneNumber;
-  mutable.providerData = raw.providerData;
-  mutable.tenantId = raw.tenantId ?? null;
+  const raw = (await rpc(port, attachHeldUserIdentity(user, {
+    t: 'op', id: nextId(), method: 'auth.reload',
+  }))) as SerializedUser;
+  syncClientUserFromWire(port, user, raw);
 }
 
 export async function deleteUser(user: ClientUser): Promise<void> {
   const port = requireUserPort(user, 'deleteUser');
-  await rpc(port, { t: 'op', id: nextId(), method: 'auth.deleteUser' });
+  await rpc(port, attachHeldUserIdentity(user, {
+    t: 'op', id: nextId(), method: 'auth.deleteUser',
+  }));
 }
 
 export async function updateEmail(user: ClientUser, newEmail: string): Promise<void> {
   const port = requireUserPort(user, 'updateEmail');
-  const raw = (await rpc(port, {
+  const raw = (await rpc(port, attachHeldUserIdentity(user, {
     t: 'op', id: nextId(), method: 'auth.updateEmail', email: newEmail,
-  })) as SerializedUser;
+  }))) as SerializedUser;
   const mutable = user as { -readonly [K in keyof ClientUser]: ClientUser[K] };
   mutable.email = raw.email;
+  mutable.emailVerified = raw.emailVerified;
   mutable.providerData = raw.providerData;
+  applyClientUserSessionKey(user, raw.sessionKey);
+  reconcileMatchingCurrentUsers(port, raw);
 }
 
 export async function updatePassword(user: ClientUser, newPassword: string): Promise<void> {
   const port = requireUserPort(user, 'updatePassword');
-  await rpc(port, {
+  const raw = (await rpc(port, attachHeldUserIdentity(user, {
     t: 'op', id: nextId(), method: 'auth.updatePassword', password: newPassword,
-  });
+  }))) as SerializedUser | null | undefined;
+  if (raw !== null && raw !== undefined) {
+    applyClientUserSessionKey(user, raw.sessionKey);
+    reconcileMatchingCurrentUsers(port, raw);
+  }
 }
 
 export async function updateCurrentUser(auth: ClientAuth, user: ClientUser | null): Promise<void> {
