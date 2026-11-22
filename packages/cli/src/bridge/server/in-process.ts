@@ -10,8 +10,7 @@ import {
   bundleRecords,
   type LocalSandbox,
 } from 'pyric/sandbox';
-import { getFirestore } from 'pyric/firestore';
-import { getAuth, sandbox as authSandbox } from 'pyric/auth';
+import { getAuth } from 'pyric/auth';
 import { getAdminDatabase } from 'pyric/database';
 import {
   deployStorageBucketRules,
@@ -32,6 +31,11 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerRenderedSurface } from './surface-server.js';
 import { renderSurface } from '../surface/index.js';
 import { createSurfaceContext } from '../surface/context.js';
+import {
+  APP_SESSION_SERVICE_KEY,
+  captureAppSession,
+  restoreAppSession,
+} from '../surface/methods/in-process-session-state.js';
 import { rememberUnloadedStorageRules } from '../surface/storage-rules.js';
 import {
   firestoreRulesInForce,
@@ -69,53 +73,25 @@ async function openStdioTransport(): Promise<Transport> {
   return new StdioServerTransport();
 }
 
-/** Where the in-process sandbox snapshot is persisted (relative to the project
- *  dir). Deliberately separate from serve's `state.json` (different format). */
+/** In-process sandbox snapshot path relative to the project directory. */
 export const IN_PROCESS_STATE_RELATIVE = join('.pyric', 'state', 'in-process.json');
 
 export interface InProcessMcpServerOptions extends LocalBridgeOptions {
-  /** Tool-surface variant id. Absent serves the default surface. */
   surface?: string;
-  /**
-   * Directory the session's `.pyric/` files live under, handed to every method
-   * that reaches the filesystem. Absent, the process working directory.
-   */
   projectDir?: string;
-  /**
-   * Mount `production` methods (ADR-0014 Decision 5). Defaults to false: a
-   * `production` method is neither listed nor callable unless the server was
-   * started with `--allow-production`.
-   */
   allowProduction?: boolean;
-  /**
-   * Called for a tool call the MCP SDK refused before any handler ran, so a
-   * schema rejection is still recorded. Absent leaves the server as it was.
-   */
   onCallRejected?: (event: BridgeToolEvent) => void;
-  /** Suppress following a live Node host (--in-process flag). */
   inProcessOnly?: boolean;
-  /** Pre-configured target router, if any. */
   targetRouter?: TargetRouter;
-  /** Cache TTL in ms for the pointer check (default 1000ms). */
   cacheTtlMs?: number;
-  /** Injected discovery function for testing. */
   discover?: typeof discoverServe;
-  /** Injected hosted method caller for testing. */
   callHosted?: typeof callHostedMethod;
-  /** Pre-discovered Node host present when the session started. */
   initialHost?: Discovered;
-  /** Runtime mode of `initialHost`. */
   initialHostMode?: 'sandbox' | 'live';
-  /** Optional hook run before local fallback execution in TargetRouter. */
   onBeforeLocalFallback?: () => Promise<string | undefined>;
 }
 
-/**
- * Build the in-process MCP server around an in-process sandbox. Pure: no I/O and
- * no transport, so callers (and tests) can drive it however they like. Mirrors
- * the served bridge's construction (forwarded data-plane + in-process rules
- * tools), with `dispatch` bound to the local sandbox instead of a ws peer.
- */
+/** Build the pure in-process MCP server around an in-process sandbox. */
 export function buildInProcessMcpServer(sandbox: LocalSandbox, opts?: InProcessMcpServerOptions) {
   const bridge = createLocalBridge(sandbox, opts);
   const onCallRejected = opts?.onCallRejected;
@@ -156,11 +132,14 @@ export function buildInProcessMcpServer(sandbox: LocalSandbox, opts?: InProcessM
   );
   const server = new McpServer({ name: 'pyric', version: bridge.version }, { instructions });
   const surfaceContext = createSurfaceContext(sandbox, projectDir, targetRouter);
-  // With no page, rules see the default bucket under the name the project gives it.
   const defaultBucketName = inProcessDefaultBucketName(projectDir);
   surfaceContext.storageBucketName = () => defaultBucketName;
+  let onCallRejectedHandler: ((rejection: RejectedToolCall) => void) | undefined;
+  if (onCallRejected !== undefined) {
+    onCallRejectedHandler = rejectionEvent;
+  }
   return registerRenderedSurface(server, bridge, rendered, surfaceContext, {
-    onCallRejected: onCallRejected ? rejectionEvent : undefined,
+    onCallRejected: onCallRejectedHandler,
     onAfterCall: opts?.onAfterDispatch,
     projectIdentity,
   });
@@ -169,8 +148,12 @@ export function buildInProcessMcpServer(sandbox: LocalSandbox, opts?: InProcessM
 /** The project rules file a load read, and why it was refused, if it was. */
 export interface ProjectRulesLoad {
   path: string;
-  /** Why production would not load the file, when the sandbox refused it; null when it loaded. */
   refused: string | null;
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
 }
 
 function readProjectFirebaseJson(cwd: string): FirebaseJson | null {
@@ -179,22 +162,11 @@ function readProjectFirebaseJson(cwd: string): FirebaseJson | null {
   try {
     return JSON.parse(readFileSync(path, 'utf8')) as FirebaseJson;
   } catch (error) {
-    throw new Error(`pyric: failed to parse firebase.json: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`pyric: failed to parse firebase.json: ${errorMessage(error)}`);
   }
 }
 
-/**
- * Load the rules `<cwd>/firebase.json` deploys to the `(default)` Firestore
- * database, resolved as the dev server resolves them, else
- * `<cwd>/firestore.rules` when `firebase.json` names none. A file production
- * would not load (it does not parse, or it is past a compile limit) is
- * refused: the rules in force stay, and lint and simulate read the file's
- * source. Null when there is no rules file. Without rules, rules-enforcing
- * (`as:{uid}`) ops fall back to the sandbox's default; admin ops are
- * unaffected. `onWarning` receives one line per named database or unresolved
- * deploy target pyric does not serve yet, and one for a named file that is
- * missing.
- */
+/** Load the rules `<cwd>/firebase.json` deploys to `(default)`, else `firestore.rules`. */
 export function loadProjectRules(
   sandbox: LocalSandbox,
   cwd: string,
@@ -212,38 +184,26 @@ export function loadProjectRules(
   );
 }
 
-/**
- * Open the services whose state a snapshot carries.
- *
- * `loadSnapshot` restores only services that are already registered, so a start
- * that applies a snapshot before anything has touched auth, database, or
- * storage drops those buckets without a word. Opening them first is what makes
- * a restored session complete. Returns the storage handle, which the sidecar
- * codec reads and writes; storage keeps its own durability and is not in the
- * bundle at all.
- *
- * Storage enforces the rules `firebase.json` deploys to each bucket (or the
- * runtime rules persisted in the snapshot when the disk rules have not changed
- * since save), resolved by the dev server's `storageRulesTargets` and prepared
- * by `prepareStorageRulesSource`, with `2+modules` imports resolved against the
- * file's own directory. With no page to name the default bucket, it is the
- * bucket `.firebaserc`'s project names (see {@link inProcessDefaultBucketName}).
- */
+/** Open auth, database, and storage so `loadSnapshot` restores every bucket. */
 export function openPersistedServices(sandbox: LocalSandbox, cwd: string): FirebaseStorage {
   getAuth(sandbox);
   getAdminDatabase(sandbox);
-  // Storage rules are read only by the call that opens the service, so the
-  // project's rules have to be in hand here or not at all.
   const persistedStorage = readPersistedRulesState(cwd)?.storage;
   const projectId = readFirebaseRcSync(cwd)?.projects?.default;
-  const { targets } = storageRulesTargets(cwd, readProjectFirebaseJson(cwd), projectId === undefined ? {} : { projectId });
+  const targetOpts: { projectId?: string } = {};
+  if (projectId !== undefined) {
+    targetOpts.projectId = projectId;
+  }
+  const { targets } = storageRulesTargets(cwd, readProjectFirebaseJson(cwd), targetOpts);
   const defaultTarget = targets.find((target) => isDefaultBucketTarget(target, projectId));
   for (const target of targets) {
     if (target.bucket === null) continue;
     const prepared = prepareStorageTarget(sandbox, target);
     const savedBucket = persistedStorage?.buckets?.[target.bucket];
-    const effective =
-      savedBucket !== undefined && savedBucket.diskAtSave === prepared ? savedBucket.active : prepared;
+    let effective = prepared;
+    if (savedBucket !== undefined && savedBucket.diskAtSave === prepared) {
+      effective = savedBucket.active;
+    }
     if (effective !== null) deployStorageBucketRules(sandbox, target.bucket, effective);
   }
   for (const [bucket, savedBucket] of Object.entries(persistedStorage?.buckets ?? {})) {
@@ -252,20 +212,20 @@ export function openPersistedServices(sandbox: LocalSandbox, cwd: string): Fireb
       deployStorageBucketRules(sandbox, bucket, savedBucket.active);
     }
   }
-  const diskDefault = defaultTarget === undefined ? null : prepareStorageTarget(sandbox, defaultTarget);
+  let diskDefault: string | null = null;
+  if (defaultTarget !== undefined) {
+    diskDefault = prepareStorageTarget(sandbox, defaultTarget);
+  }
   const savedDefault = persistedStorage?.default;
-  const defaultRules =
-    savedDefault !== undefined && savedDefault.diskAtSave === diskDefault ? savedDefault.active : diskDefault;
+  let defaultRules = diskDefault;
+  if (savedDefault !== undefined && savedDefault.diskAtSave === diskDefault) {
+    defaultRules = savedDefault.active;
+  }
   if (defaultRules === null) return getAdminStorageSandbox(sandbox);
   return getAdminStorageSandbox(sandbox, { rules: defaultRules });
 }
 
-/**
- * The default bucket's name with no page to give it: the bucket
- * `firebase.json` names that `.firebaserc`'s project owns by default,
- * `<project>.appspot.com` or `<project>.firebasestorage.app`, else
- * `<project>.appspot.com`. Undefined without a project.
- */
+/** Resolve the project's default Storage bucket name without a connected page. */
 export function inProcessDefaultBucketName(cwd: string): string | undefined {
   const projectId = readFirebaseRcSync(cwd)?.projects?.default;
   if (projectId === undefined) return undefined;
@@ -274,19 +234,12 @@ export function inProcessDefaultBucketName(cwd: string): string | undefined {
   return named?.bucket ?? `${projectId}.appspot.com`;
 }
 
-/** Whether a deploy target is the default bucket's: unnamed, or named for the project's default bucket. */
 function isDefaultBucketTarget(target: StorageRulesTarget, projectId: string | undefined): boolean {
   if (target.bucket === null) return true;
   if (projectId === undefined) return false;
   return target.bucket === `${projectId}.appspot.com` || target.bucket === `${projectId}.firebasestorage.app`;
 }
 
-/**
- * One target's rules, prepared for install, or null when its file is missing
- * or does not install. A rules file the sandbox cannot install cannot govern
- * its bucket, but a lint call must still be able to say what is wrong with
- * it, so the source is kept for the lint operation.
- */
 function prepareStorageTarget(sandbox: LocalSandbox, target: StorageRulesTarget): string | null {
   if (!existsSync(target.path)) return null;
   const source = readFileSync(target.path, 'utf8');
@@ -294,21 +247,13 @@ function prepareStorageTarget(sandbox: LocalSandbox, target: StorageRulesTarget)
     return prepareStorageRulesSource(source, target.path);
   } catch (error) {
     process.stderr.write(
-      `[pyric mcp in-process] Storage rules not loaded: ${error instanceof Error ? error.message : String(error)}\n`,
+      `[pyric mcp in-process] Storage rules not loaded: ${errorMessage(error)}\n`,
     );
     rememberUnloadedStorageRules(sandbox, source);
     return null;
   }
 }
 
-/**
- * Where the app session rides inside a snapshot's `services` map, alongside
- * the persistable services the sandbox core knows about. `sandbox.snapshot()`
- * and `loadSnapshot()` are keyed by registered service name and this name is
- * never registered, so the sandbox core passes it through untouched in both
- * directions without knowing it carries anything auth-shaped.
- */
-const APP_SESSION_SERVICE_KEY = '__pyric_cli_app_session';
 const RULES_STATE_SERVICE_KEY = '__pyric_cli_rules_state';
 
 interface PersistedRulesEntry {
@@ -328,7 +273,11 @@ function readDiskFirestoreRules(cwd: string): string | null {
   try {
     const config = readProjectFirebaseJson(cwd);
     const projectId = readFirebaseRcSync(cwd)?.projects?.default;
-    const databases = firestoreDatabases(cwd, config, projectId === undefined ? {} : { projectId });
+    const dbOpts: { projectId?: string } = {};
+    if (projectId !== undefined) {
+      dbOpts.projectId = projectId;
+    }
+    const databases = firestoreDatabases(cwd, config, dbOpts);
     const entry = defaultFirestoreDatabase(databases);
     const path = entry?.rulesFile;
     if (entry === undefined || path === undefined || !existsSync(path)) return null;
@@ -340,7 +289,8 @@ function readDiskFirestoreRules(cwd: string): string | null {
       candidate = resolved.data.resolved;
     }
     return rulesSourceRejection(candidate) === null ? candidate : null;
-  } catch {
+  } catch (error) {
+    if (error instanceof Error) return null;
     return null;
   }
 }
@@ -349,13 +299,18 @@ function readDiskStorageRules(cwd: string): { default: string | null; buckets: R
   const buckets: Record<string, string | null> = {};
   try {
     const projectId = readFirebaseRcSync(cwd)?.projects?.default;
-    const { targets } = storageRulesTargets(cwd, readProjectFirebaseJson(cwd), projectId === undefined ? {} : { projectId });
+    const targetOpts: { projectId?: string } = {};
+    if (projectId !== undefined) {
+      targetOpts.projectId = projectId;
+    }
+    const { targets } = storageRulesTargets(cwd, readProjectFirebaseJson(cwd), targetOpts);
     const defaultTarget = targets.find((target) => isDefaultBucketTarget(target, projectId));
     const prepareQuiet = (target: StorageRulesTarget): string | null => {
       if (!existsSync(target.path)) return null;
       try {
         return prepareStorageRulesSource(readFileSync(target.path, 'utf8'), target.path);
-      } catch {
+      } catch (error) {
+        if (error instanceof Error) return null;
         return null;
       }
     };
@@ -363,9 +318,13 @@ function readDiskStorageRules(cwd: string): { default: string | null; buckets: R
       if (target.bucket === null) continue;
       buckets[target.bucket] = prepareQuiet(target);
     }
-    const defaultRules = defaultTarget === undefined ? null : prepareQuiet(defaultTarget);
+    let defaultRules: string | null = null;
+    if (defaultTarget !== undefined) {
+      defaultRules = prepareQuiet(defaultTarget);
+    }
     return { default: defaultRules, buckets };
-  } catch {
+  } catch (error) {
+    if (error instanceof Error) return { default: null, buckets };
     return { default: null, buckets };
   }
 }
@@ -386,13 +345,21 @@ function captureRulesState(sandbox: LocalSandbox, cwd: string): PersistedRulesSt
       bucketEntries[bucket] = { active: activeBucket, diskAtSave: diskStorage.buckets[bucket] ?? null };
     }
   }
-  if (defaultStorage !== null || Object.keys(bucketEntries).length > 0) {
-    state.storage = {
-      ...(defaultStorage !== null ? { default: { active: defaultStorage, diskAtSave: diskStorage.default } } : {}),
-      ...(Object.keys(bucketEntries).length > 0 ? { buckets: bucketEntries } : {}),
-    };
+  const hasBuckets = Object.keys(bucketEntries).length > 0;
+  if (defaultStorage !== null || hasBuckets) {
+    const storageState: NonNullable<PersistedRulesState['storage']> = {};
+    if (defaultStorage !== null) {
+      storageState.default = { active: defaultStorage, diskAtSave: diskStorage.default };
+    }
+    if (hasBuckets) {
+      storageState.buckets = bucketEntries;
+    }
+    state.storage = storageState;
   }
-  return state.firestore !== undefined || state.storage !== undefined ? state : null;
+  if (state.firestore !== undefined || state.storage !== undefined) {
+    return state;
+  }
+  return null;
 }
 
 function readPersistedRulesState(cwd: string): PersistedRulesState | null {
@@ -401,57 +368,17 @@ function readPersistedRulesState(cwd: string): PersistedRulesState | null {
   try {
     const snap = decodeInProcessSnapshot(path);
     const raw = snap.services[RULES_STATE_SERVICE_KEY];
-    return raw !== null && typeof raw === 'object' ? (raw as PersistedRulesState) : null;
-  } catch {
+    if (raw !== null && typeof raw === 'object') {
+      return raw as PersistedRulesState;
+    }
+    return null;
+  } catch (error) {
+    if (error instanceof Error) return null;
     return null;
   }
 }
 
-/** What is captured for the app session: the signed-in uid and the tenant
- *  scope it authenticated under, so a later process restores both rather than
- *  just the uid and a default (untenanted) scope. */
-interface PersistedAppSession {
-  uid: string;
-  tenantId: string | null;
-}
-
-/** The app session to fold into a snapshot's `services` map, or `null` when
- *  signed out, meaning nothing for a later process to restore. */
-function captureAppSession(sandbox: LocalSandbox): PersistedAppSession | null {
-  const auth = getAuth(sandbox);
-  const uid = auth.currentUser?.uid ?? null;
-  if (uid === null) return null;
-  return { uid, tenantId: authSandbox.getTenantId(auth) };
-}
-
-/**
- * Sign the captured uid back in through the auth backend's own restore seam
- * (`sandbox.restoreSession`), never a session minted outside it, then restore
- * the tenant scope it carried. Called after `sandbox.loadSnapshot()` so the
- * user pool the uid names is already back in place. A uid the pool no longer
- * holds (the user was deleted since the snapshot was taken) leaves the app
- * signed out rather than throwing: the state file is stale, not corrupt.
- */
-function restoreAppSession(sandbox: LocalSandbox, stored: unknown): void {
-  const parsed = stored as PersistedAppSession | null | undefined;
-  if (parsed === null || parsed === undefined) return;
-  const auth = getAuth(sandbox);
-  try {
-    authSandbox.restoreSession(auth, parsed.uid);
-  } catch {
-    return;
-  }
-  authSandbox.setTenantId(auth, parsed.tenantId);
-}
-
-/**
- * Persist the sandbox to `<cwd>/.pyric/state/in-process.json` using the v3 bundle
- * codec (the same `serializeToBuckets` + `bundleRecords` the worker uses). Atomic
- * tmp+rename so a crash mid-write never truncates the live file. Carries the
- * app session (the uid `auth.currentUser` names, and its tenant) alongside the
- * user pool, so `pyric auth signInWithEmailAndPassword` in one process and
- * `pyric auth whoami` in the next see the same session.
- */
+/** Persist the sandbox to `<cwd>/.pyric/state/in-process.json` atomically. */
 export function saveSandboxSnapshot(sandbox: LocalSandbox, cwd: string): void {
   const snap = sandbox.snapshot();
   const services = {
@@ -467,10 +394,7 @@ export function saveSandboxSnapshot(sandbox: LocalSandbox, cwd: string): void {
   renameSync(tmp, path);
 }
 
-/**
- * Restore the sandbox from the in-process snapshot file if present (a clobber via
- * `loadSnapshot`). Returns the restored doc count, or null when there is no file.
- */
+/** Restore the sandbox from `.pyric/state/in-process.json` when present. */
 export function loadSandboxSnapshot(sandbox: LocalSandbox, cwd: string): number | null {
   const path = join(cwd, IN_PROCESS_STATE_RELATIVE);
   if (!existsSync(path)) return null;
@@ -490,50 +414,24 @@ export function loadSandboxSnapshot(sandbox: LocalSandbox, cwd: string): number 
 }
 
 export interface InProcessRunOptions {
-  /** Tool-surface variant id, from `--surface` or `PYRIC_TOOL_SURFACE`. */
   surface?: string;
-  /**
-   * Mount `production` methods, from `--allow-production` or
-   * `PYRIC_ALLOW_PRODUCTION`. Defaults to false.
-   */
   allowProduction?: boolean;
-  /**
-   * Directory the session reads its rules files and `.pyric/state` from and
-   * writes them back to, from `--project-dir` or `PYRIC_PROJECT_DIR`. A relative
-   * value resolves against `cwd`. Absent, the project directory is `cwd`, which
-   * is what every existing caller gets.
-   */
   projectDir?: string;
-  /** Environment to read the evaluation settings from. Defaults to the process. */
   env?: NodeJS.ProcessEnv;
-  /**
-   * Transport to serve on. Defaults to stdio, which is what an editor and the
-   * evaluation runner both use; a test supplies an in-memory pair so it can
-   * close the session and observe the final flush.
-   */
   transport?: Transport;
-  /** Suppress following a live Node host (--in-process flag). */
   inProcessOnly?: boolean;
-  /** Pre-discovered Node host present when the session started. */
   initialHost?: Discovered;
-  /** Runtime mode of `initialHost`. */
   initialHostMode?: 'sandbox' | 'live';
 }
 
-/**
- * Build the tool-event writer for an in-process session. Returns null when no
- * evaluation log is named, which is the default and records nothing.
- */
+/** Build the tool-event writer for an in-process session, or null when unset. */
 export function createInProcessEventWriter(env: NodeJS.ProcessEnv): AuditWriter | null {
   const evalLogPath = env[EVAL_LOG_ENV_KEY];
   if (evalLogPath === undefined || evalLogPath.trim() === '') return null;
   return createEvalLogWriter(evalLogPath, readEvalRunIdentity(env));
 }
 
-/**
- * Wire a session's event writer into the server options. Without a writer the
- * options are left as they were, and the server records nothing.
- */
+/** Wire a session's event writer into the server options when present. */
 export function withInProcessEventWriter(
   options: InProcessMcpServerOptions,
   writer: AuditWriter | null,
@@ -546,11 +444,7 @@ export function withInProcessEventWriter(
   };
 }
 
-/**
- * Run the stdio MCP server. Owns `.pyric/state/in-process.json` when no Node
- * host was discovered at startup; routes straight to `options.initialHost`
- * without claiming the in-process lock when a Node host is already running.
- */
+/** Run the stdio MCP server, owning `.pyric/state/in-process.json` when local. */
 export async function runInProcessMcp(
   cwd: string = process.cwd(),
   options: InProcessRunOptions = {},
@@ -575,10 +469,6 @@ async function runInProcessSession(
 ): Promise<number> {
   const log = (m: string): void => {
     process.stderr.write(`[pyric mcp in-process] ${m}\n`);
-  };
-  const failureMessage = (error: unknown): string => {
-    const isError = error instanceof Error;
-    return isError ? error.message : String(error);
   };
 
   const env = options.env ?? process.env;
@@ -609,8 +499,6 @@ async function runInProcessSession(
   });
 
   try {
-    // A corrupt state file or unknown surface id is a start-up failure, not a
-    // per-call one: never serve over an unreadable snapshot or mislabel a run.
     let server;
     try {
       await persistence.hydrateAtStartup();
@@ -625,8 +513,8 @@ async function runInProcessSession(
         initialHostMode: options.initialHostMode,
       };
       server = buildInProcessMcpServer(sandbox, withInProcessEventWriter(baseServerOptions, evalLog));
-    } catch (e) {
-      log(failureMessage(e));
+    } catch (error) {
+      log(errorMessage(error));
       return 1;
     }
     const transport = options.transport ?? (await openStdioTransport());
@@ -639,26 +527,20 @@ async function runInProcessSession(
         try {
           await server.close();
           return code;
-        } catch (e) {
-          log(`shutdown failed: ${failureMessage(e)}`);
-          const wasSuccessful = code === 0;
-          return wasSuccessful ? 1 : code;
+        } catch (error) {
+          log(`shutdown failed: ${errorMessage(error)}`);
+          if (code === 0) return 1;
+          return code;
         }
       };
       const stop = (code: number): void => {
         if (stopping) return;
         stopping = true;
         process.stdin.off('end', onStdinEnd);
-        // Synchronous, and before `server.close()`: the debounced timer can hold
-        // writes that have not reached disk, and nothing after this point is
-        // guaranteed to run.
         persistence.flush();
         void finishStop(code).then(resolveExit);
       };
       transport.onclose = () => stop(0);
-      // StdioServerTransport 1.29 no longer reports stdin EOF through onclose.
-      // Editors close the pipe to end an MCP session, so own that lifecycle
-      // signal explicitly and then close the server/transport above.
       process.stdin.once('end', onStdinEnd);
       process.once('SIGINT', () => stop(0));
       process.once('SIGTERM', () => stop(0));
@@ -668,8 +550,8 @@ async function runInProcessSession(
       }
       void server.connect(transport).then(
         () => log(readyMessage),
-        (e) => {
-          log(`failed to start: ${failureMessage(e)}`);
+        (error) => {
+          log(`failed to start: ${errorMessage(error)}`);
           resolveExit(1);
         },
       );
