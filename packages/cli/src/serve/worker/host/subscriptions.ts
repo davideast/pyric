@@ -32,6 +32,7 @@ import type {
   UnsubMessage,
 } from '../protocol.js';
 import { serializeError, isFirestoreWriteSub, isRtdbSub } from '../protocol.js';
+import { requestDatabaseId } from '../request-database-id.js';
 import {
   refreshFirestoreWriteStreamTimestamps,
   registerFirestoreWriteSubscription,
@@ -46,6 +47,10 @@ import {
 } from './core.js';
 import { rtdbSnapToWire, rtdbTarget } from './rtdb.js';
 import { lensRtdb } from './rtdb-instances.js';
+import {
+  handleUndeclaredFirestoreDatabaseSub,
+  isUndeclaredRequestedDatabase,
+} from './firestore-databases.js';
 
 /**
  * The original data-subscription messages, including explicit lenses. State
@@ -212,6 +217,13 @@ function handleSubImpl(
   const alreadyRegistered = portSubs.has(msg.subId);
   if (alreadyRegistered) return;
 
+  const requestedDb = requestDatabaseId(msg);
+  if (isUndeclaredRequestedDatabase(ctx, requestedDb)) {
+    _lastFirestoreFingerprints.get(ctx)?.get(port)?.delete(msg.subId);
+    handleUndeclaredFirestoreDatabaseSub(ctx, port, msg, requestedDb);
+    return;
+  }
+
   let target: DocumentReference | CollectionReference | Query;
   let unsub: () => void;
   const errored = { current: false };
@@ -221,7 +233,7 @@ function handleSubImpl(
     // listener as that user so its rule evals impersonate, `{ mode: 'admin' }`
     // bypasses rules. Absent ⇒ the PORT'S SESSION (#754), so an app listener
     // evaluates rules as whoever this tab signed in as.
-    const db = lensDb(ctx, msg.actAs, port);
+    const db = lensDb(ctx, msg.actAs, port, requestDatabaseId(msg));
     target = resolveTarget(db, msg.target);
     unsub = registerListener(ctx, port, msg, target, errored, dedupeUnchangedInitial);
   } catch (e) {

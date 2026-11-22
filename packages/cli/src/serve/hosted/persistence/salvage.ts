@@ -18,6 +18,14 @@ import {
   persistedServiceHasData,
   UnsupportedPersistedServiceError,
 } from 'pyric/sandbox/internal';
+import {
+  DEFAULT_FIRESTORE_DATABASE,
+  firestoreRecordSpaceKey,
+  parseFirestoreRecordSpaceKey,
+  readFirestoreDeclaredFromMeta,
+  serializeNamedFirestoreDocsToBuckets,
+  stampFirestoreDeclaredOnMeta,
+} from 'pyric/firestore/internal';
 import { claimProjectState } from '../project-ownership.js';
 import { createBlobStore, hashFile } from './blob-store.js';
 import { writeCheckpointRow } from './checkpoints.js';
@@ -41,7 +49,11 @@ export interface RecoveryReport {
 const QUARANTINE_REASON = 'Object bytes do not match their hash; the file was copied to quarantine';
 const SHA256_HEX = /^[0-9a-f]{64}$/;
 
-const metadataShape = z.object({ version: z.literal(CHUNK_FORMAT_VERSION), services: z.record(z.unknown()) });
+const metadataShape = z.object({
+  version: z.literal(CHUNK_FORMAT_VERSION),
+  services: z.record(z.unknown()),
+  firestoreDeclared: z.unknown().optional(),
+});
 const bucketShape = z.object({ docs: z.record(z.unknown()), encoding: z.string().optional(), checksum: z.number().optional() });
 const emptyMeta = { version: CHUNK_FORMAT_VERSION, savedAt: 0, services: {} };
 
@@ -105,6 +117,9 @@ export async function salvageHostedState(sourceInput: string, outputInput: strin
         repairedObjects: [], excluded: [], quarantined: [],
       };
       const documents: Record<string, Record<string, unknown>> = {};
+      const namedDocuments = new Map<string, Record<string, Record<string, unknown>>>();
+      const namedDuplicates = new Map<string, Set<string>>();
+      let recoveredDeclared: string[] = [];
       const services: Record<string, unknown> = {};
       const salvagedRtdbRecords: Array<[string, unknown]> = [];
       const duplicatePaths = new Set<string>();
@@ -116,14 +131,25 @@ export async function salvageHostedState(sourceInput: string, outputInput: strin
       for (const row of rows) {
         const namespace = sqlText(row, 'namespace');
         const id = sqlText(row, 'id');
-        const unknownNamespace = namespace !== 'hosted';
-        if (unknownNamespace) throw new Error(`Unsupported persistence namespace '${namespace}'.`);
+        const parsedDbId = parseFirestoreRecordSpaceKey('hosted', namespace);
+        if (parsedDbId === null) {
+          throw new Error(`Unsupported persistence namespace '${namespace}'.`);
+        }
+        const isNamedSpace = parsedDbId !== DEFAULT_FIRESTORE_DATABASE;
         let value: unknown;
         try { value = JSON.parse(sqlText(row, 'payload')); }
         catch {
-          const isMetadata = id === 'meta';
+          const isMetadata = !isNamedSpace && id === 'meta';
           if (isMetadata) throw new Error('Malformed metadata; recovery cannot establish the payload format.');
           report.excluded.push({ namespace, id, reason: 'Invalid JSON' });
+          continue;
+        }
+        if (isNamedSpace && (id === 'meta' || isRtdbRecordId(id))) {
+          report.excluded.push({
+            namespace,
+            id,
+            reason: 'Unexpected metadata or RTDB record in named Firestore namespace',
+          });
           continue;
         }
         const isMetadata = id === 'meta';
@@ -131,6 +157,17 @@ export async function salvageHostedState(sourceInput: string, outputInput: strin
           const metadata = metadataShape.safeParse(value);
           const invalidMetadata = !metadata.success;
           if (invalidMetadata) throw new Error('Unsupported or malformed metadata; recovery cannot establish the payload format.');
+          if (metadata.data.firestoreDeclared !== undefined) {
+            try {
+              recoveredDeclared = readFirestoreDeclaredFromMeta({ firestoreDeclared: metadata.data.firestoreDeclared });
+            } catch {
+              report.excluded.push({
+                namespace: 'hosted',
+                id: 'firestoreDeclared',
+                reason: 'Named Firestore declaration list validation failed',
+              });
+            }
+          }
           for (const [name, data] of Object.entries(metadata.data.services)) {
             if (name === 'rtdb') {
               report.excluded.push({ namespace: 'services', id: name, reason: 'Inline RTDB metadata service is unsupported' });
@@ -169,21 +206,37 @@ export async function salvageHostedState(sourceInput: string, outputInput: strin
           try { decodeImportBundle(bundleRecords(new Map<string, unknown>([['meta', emptyMeta], [id, value]]))); }
           catch { report.excluded.push({ namespace, id, reason: 'Bucket integrity or value validation failed' }); continue; }
         }
+        let targetDocs = documents;
+        let targetDuplicates = duplicatePaths;
+        if (isNamedSpace) {
+          let existingDocs = namedDocuments.get(parsedDbId);
+          if (existingDocs === undefined) {
+            existingDocs = {};
+            namedDocuments.set(parsedDbId, existingDocs);
+          }
+          let existingDuplicates = namedDuplicates.get(parsedDbId);
+          if (existingDuplicates === undefined) {
+            existingDuplicates = new Set<string>();
+            namedDuplicates.set(parsedDbId, existingDuplicates);
+          }
+          targetDocs = existingDocs;
+          targetDuplicates = existingDuplicates;
+        }
         for (const [path, data] of Object.entries(bucket.data.docs)) {
           try {
             const record = { docs: { [path]: data }, encoding: bucket.data.encoding };
             const decoded = decodeImportBundle(bundleRecords(new Map<string, unknown>([['meta', emptyMeta], [id, record]])));
-            const previouslyExcluded = duplicatePaths.has(path);
+            const previouslyExcluded = targetDuplicates.has(path);
             if (previouslyExcluded) continue;
-            const duplicate = Object.hasOwn(documents, path);
+            const duplicate = Object.hasOwn(targetDocs, path);
             if (duplicate) {
-              delete documents[path];
+              delete targetDocs[path];
               report.recoveredDocuments--;
-              duplicatePaths.add(path);
+              targetDuplicates.add(path);
               report.excluded.push({ namespace, id: path, reason: 'Duplicate document path; all versions excluded' });
               continue;
             }
-            documents[path] = decoded.firestore[path];
+            targetDocs[path] = decoded.firestore[path];
             report.recoveredDocuments++;
           } catch { report.excluded.push({ namespace, id: path, reason: 'Document validation failed' }); }
         }
@@ -361,13 +414,30 @@ export async function salvageHostedState(sourceInput: string, outputInput: strin
             report.recoveredCheckpoints++;
           }
         }
-        const emptyRecovery = report.recoveredDocuments + report.recoveredServices + report.recoveredObjects + report.recoveredCheckpoints === 0;
+        const emptyRecovery =
+          report.recoveredDocuments +
+            report.recoveredServices +
+            report.recoveredObjects +
+            report.recoveredCheckpoints +
+            recoveredDeclared.length ===
+          0;
         if (emptyRecovery) throw new Error('No recoverable state was found; no empty replacement was produced.');
         if (hasRecords) {
-          const records = serializeToBuckets(documents, services, Date.now());
+          const records: Map<string, unknown> = serializeToBuckets(documents, services, Date.now());
+          if (recoveredDeclared.length > 0 && records.has('meta')) {
+            records.set(
+              'meta',
+              stampFirestoreDeclaredOnMeta(records.get('meta') as Record<string, unknown>, recoveredDeclared),
+            );
+          }
           const decoded = decodeImportBundle(bundleRecords(records));
           for (const [name, data] of Object.entries(decoded.services)) validatePersistedService(name, data);
           await recovered.records.putRecords('hosted', records);
+          for (const [dbId, dbDocs] of namedDocuments) {
+            if (Object.keys(dbDocs).length === 0) continue;
+            const dbBuckets = serializeNamedFirestoreDocsToBuckets(dbDocs);
+            await recovered.records.putRecords(firestoreRecordSpaceKey('hosted', dbId), dbBuckets);
+          }
         }
         validateHostedDatabase(recovered);
         recovered.connection.exec('PRAGMA wal_checkpoint(TRUNCATE)');

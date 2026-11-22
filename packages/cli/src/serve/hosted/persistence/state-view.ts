@@ -1,12 +1,20 @@
 import { MAX_STORAGE_OP_BYTES, storagePayloadTooLarge } from '../../worker/protocol/storage.js';
 import { bundleRecords, parseBundle, serializeToBuckets } from 'pyric/sandbox';
 import {
+  CHUNK_FORMAT_VERSION,
   decodeImportBundle,
   isRtdbRecordId,
   seedUserSchema,
   serializeRtdbServiceToRecords,
   storedMetadataSchema,
 } from 'pyric/sandbox/internal';
+import {
+  DEFAULT_FIRESTORE_DATABASE,
+  firestoreRecordSpaceKey,
+  isValidFirestoreDatabaseId,
+  readFirestoreDeclaredFromMeta,
+  stampFirestoreDeclaredOnMeta,
+} from 'pyric/firestore/internal';
 import { z } from 'zod';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -36,11 +44,37 @@ function storageEntries(value: unknown): StorageStateEntry[] {
  */
 export function createHostedStateView(projectDir: string, directory: string, database: Database, namespace: string): StateStore & { seed(fixture: PyricStateFile, objectsFrom?: string): Promise<void> } {
   const connection = database.connection;
+  function listNamedSpaces(): string[] {
+    if (typeof database.listNamedFirestoreDatabases === 'function') {
+      return database.listNamedFirestoreDatabases(namespace);
+    }
+    return [];
+  }
+  function readNamedDatabases(): Record<string, Record<string, unknown>> {
+    const out: Record<string, Record<string, unknown>> = Object.create(null) as Record<string, Record<string, unknown>>;
+    for (const dbId of listNamedSpaces()) {
+      const dbRecords = database.readRecords(firestoreRecordSpaceKey(namespace, dbId));
+      if (dbRecords.size === 0) continue;
+      out[dbId] = Object.fromEntries(dbRecords);
+    }
+    return out;
+  }
   function firestore() {
     const records = database.readRecords(namespace);
-    const empty = records.size === 0;
+    const namedDatabases = readNamedDatabases();
+    const hasNamed = Object.keys(namedDatabases).length > 0;
+    const empty = records.size === 0 && !hasNamed;
     if (empty) return null;
-    return JSON.parse(bundleRecords(records));
+    let parsed: Record<string, unknown>;
+    if (records.size > 0) {
+      parsed = JSON.parse(bundleRecords(records)) as Record<string, unknown>;
+    } else {
+      parsed = { format: 'pyric-v3-records', records: {} };
+    }
+    if (hasNamed) {
+      parsed.firestoreDatabases = namedDatabases;
+    }
+    return parsed;
   }
   function auth() {
     const metadata = database.readRecord(namespace, 'meta');
@@ -61,20 +95,66 @@ export function createHostedStateView(projectDir: string, directory: string, dat
     });
   }
   function exists() {
-    const hasRecords = database.hasRecords(namespace);
+    let hasRecords: boolean;
+    if (typeof database.hasAnyRecords === 'function') {
+      hasRecords = database.hasAnyRecords(namespace);
+    } else {
+      hasRecords = database.hasRecords(namespace) || listNamedSpaces().length > 0;
+    }
     const hasObjects = connection.prepare('SELECT 1 AS present FROM storage_objects LIMIT 1').get() !== undefined;
     return hasRecords || hasObjects;
+  }
+  function parseIncomingNamedDatabases(value: unknown): Map<string, Map<string, unknown>> {
+    const out = new Map<string, Map<string, unknown>>();
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+      return out;
+    }
+    if (!Object.hasOwn(value, 'firestoreDatabases')) {
+      return out;
+    }
+    const rawMap = (value as { firestoreDatabases?: unknown }).firestoreDatabases;
+    if (rawMap === undefined) {
+      return out;
+    }
+    if (rawMap === null || typeof rawMap !== 'object' || Array.isArray(rawMap)) {
+      throw new Error('Invalid firestoreDatabases bundle section: expected an object.');
+    }
+    const syntheticMeta = { version: CHUNK_FORMAT_VERSION, savedAt: 0, services: {} };
+    for (const [dbId, rawDbRecords] of Object.entries(rawMap as Record<string, unknown>)) {
+      if (dbId === DEFAULT_FIRESTORE_DATABASE || !isValidFirestoreDatabaseId(dbId)) {
+        throw new Error(`Invalid Firestore database id '${dbId}' in firestoreDatabases.`);
+      }
+      if (rawDbRecords === null || typeof rawDbRecords !== 'object' || Array.isArray(rawDbRecords)) {
+        throw new Error(`Invalid record map for Firestore database '${dbId}'.`);
+      }
+      const entries = new Map<string, unknown>(Object.entries(rawDbRecords as Record<string, unknown>));
+      for (const recordId of entries.keys()) {
+        if (recordId === 'meta' || isRtdbRecordId(recordId)) {
+          throw new Error(`Invalid record '${recordId}' in firestoreDatabases['${dbId}'].`);
+        }
+      }
+      if (entries.size > 0) {
+        const checkRecords = new Map<string, unknown>([['meta', syntheticMeta], ...entries]);
+        decodeImportBundle(bundleRecords(checkRecords));
+      }
+      out.set(dbId, entries);
+    }
+    return out;
   }
   function writeSection(section: StateSection, value: unknown, writes: StorageWrites, objectsFrom?: string): void {
     const isFirestore = section === 'firestore';
     if (isFirestore) {
       const existing = database.readRecords(namespace);
       const existingServices = existing.size > 0 ? decodeImportBundle(bundleRecords(existing)).services : {};
+      const existingNamedIds = listNamedSpaces();
       let records = new Map<string, unknown>();
+      let incomingNamed = new Map<string, Map<string, unknown>>();
       const hasValue = value !== null;
       if (hasValue) {
+        incomingNamed = parseIncomingNamedDatabases(value);
         records = parseBundle(JSON.stringify(value));
         const incoming = decodeImportBundle(bundleRecords(records));
+        const incomingDeclared = readFirestoreDeclaredFromMeta(records.get('meta'));
         const mergedServices = { ...existingServices, ...incoming.services };
         for (const id of [...records.keys()]) {
           if (isRtdbRecordId(id)) records.delete(id);
@@ -87,14 +167,31 @@ export function createHostedStateView(projectDir: string, directory: string, dat
             for (const [id, rec] of rtdbRecords) records.set(id, rec);
           }
         }
-        const meta = records.get('meta') as Record<string, unknown>;
-        records.set('meta', { ...meta, services: metaServices });
+        const meta = (records.get('meta') as Record<string, unknown> | undefined) ?? {
+          version: CHUNK_FORMAT_VERSION,
+          savedAt: Date.now(),
+          services: {},
+        };
+        records.set('meta', stampFirestoreDeclaredOnMeta({ ...meta, services: metaServices }, incomingDeclared));
       } else {
         const hasServices = Object.keys(existingServices).length > 0;
         if (hasServices) records = serializeToBuckets({}, existingServices, Date.now());
       }
       const removed = [...existing.keys()].filter(id => !records.has(id));
       database.commitChanges(namespace, records, removed);
+      for (const [dbId, dbRecords] of incomingNamed) {
+        const dbNs = firestoreRecordSpaceKey(namespace, dbId);
+        const priorDb = database.readRecords(dbNs);
+        const dbRemoved = [...priorDb.keys()].filter(id => !dbRecords.has(id));
+        database.commitChanges(dbNs, dbRecords, dbRemoved);
+      }
+      for (const priorDbId of existingNamedIds) {
+        if (!incomingNamed.has(priorDbId)) {
+          const dbNs = firestoreRecordSpaceKey(namespace, priorDbId);
+          const priorDb = database.readRecords(dbNs);
+          database.commitChanges(dbNs, new Map(), [...priorDb.keys()]);
+        }
+      }
       return;
     }
     const isAuth = section === 'auth';
@@ -109,14 +206,29 @@ export function createHostedStateView(projectDir: string, directory: string, dat
         incomingExtras = rest;
       }
       const records = database.readRecords(namespace);
+      const preservedDeclared = readFirestoreDeclaredFromMeta(records.get('meta'));
       let snapshot: ReturnType<typeof decodeImportBundle> = { firestore: {}, services: {} };
       const hasRecords = records.size > 0;
       if (hasRecords) snapshot = decodeImportBundle(bundleRecords(records));
       const clearsAuth = !hasValue;
       if (clearsAuth) {
         const { auth: _cleared, ...restServices } = snapshot.services;
-        const hasRemainingState = Object.keys(snapshot.firestore).length > 0 || Object.keys(restServices).length > 0;
-        const next = hasRemainingState ? serializeToBuckets(snapshot.firestore, restServices, Date.now()) : new Map<string, unknown>();
+        const hasNamedSpaces = listNamedSpaces().length > 0;
+        const hasRemainingState =
+          Object.keys(snapshot.firestore).length > 0 ||
+          Object.keys(restServices).length > 0 ||
+          preservedDeclared.length > 0 ||
+          hasNamedSpaces;
+        let next: Map<string, unknown> = new Map<string, unknown>();
+        if (hasRemainingState) {
+          next = serializeToBuckets(snapshot.firestore, restServices, Date.now());
+        }
+        if (next.has('meta') && preservedDeclared.length > 0) {
+          next.set(
+            'meta',
+            stampFirestoreDeclaredOnMeta(next.get('meta') as Record<string, unknown>, preservedDeclared),
+          );
+        }
         const removed = [...records.keys()].filter(id => !next.has(id));
         database.commitChanges(namespace, next, removed);
         return;
@@ -129,18 +241,29 @@ export function createHostedStateView(projectDir: string, directory: string, dat
           : {};
       const incomingProviders = z.record(z.boolean()).safeParse(incomingExtras.providers);
       const previousProviders = z.record(z.boolean()).safeParse(existingAuth.providers);
-      const providers: Record<string, boolean> = incomingProviders.success
-        ? incomingProviders.data
-        : previousProviders.success
-          ? previousProviders.data
-          : {};
+      let providers: Record<string, boolean> = {};
+      if (incomingProviders.success) {
+        providers = incomingProviders.data;
+      } else if (previousProviders.success) {
+        providers = previousProviders.data;
+      }
       const nextAuth = {
         ...existingAuth,
         ...incomingExtras,
         users,
         providers,
       };
-      const next = serializeToBuckets(snapshot.firestore, { ...snapshot.services, auth: nextAuth }, Date.now());
+      const next: Map<string, unknown> = serializeToBuckets(
+        snapshot.firestore,
+        { ...snapshot.services, auth: nextAuth },
+        Date.now(),
+      );
+      if (next.has('meta') && preservedDeclared.length > 0) {
+        next.set(
+          'meta',
+          stampFirestoreDeclaredOnMeta(next.get('meta') as Record<string, unknown>, preservedDeclared),
+        );
+      }
       const removed = [...records.keys()].filter(id => !next.has(id));
       database.commitChanges(namespace, next, removed);
       return;

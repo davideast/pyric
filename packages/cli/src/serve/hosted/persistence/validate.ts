@@ -1,6 +1,19 @@
 import { bundleRecords } from 'pyric/sandbox';
 import { CHECKPOINT_FORMAT, CHECKPOINT_NAME_PATTERN, isCheckpointEnvelope } from 'pyric/sandbox/checkpoints';
-import { assertCheckpointState, decodeImportBundle, storedMetadataSchema, validatePersistedService } from 'pyric/sandbox/internal';
+import {
+  assertCheckpointState,
+  CHUNK_FORMAT_VERSION,
+  decodeImportBundle,
+  isRtdbRecordId,
+  storedMetadataSchema,
+  validatePersistedService,
+} from 'pyric/sandbox/internal';
+import {
+  DEFAULT_FIRESTORE_DATABASE,
+  firestoreRecordSpaceKey,
+  parseFirestoreRecordSpaceKey,
+  readFirestoreDeclaredFromMeta,
+} from 'pyric/firestore/internal';
 import { createHash } from 'node:crypto';
 import type { StoredMetadata } from 'pyric/storage/internal';
 import type { openHostedDatabase } from './database.js';
@@ -28,13 +41,37 @@ export function repairedStorageMetadata(metadata: StoredMetadata, bytes: Uint8Ar
 /** Validate every hosted payload before normal startup or repaired-state activation. */
 export function validateHostedDatabase(database: Awaited<ReturnType<typeof openHostedDatabase>>): StorageMetadataRepair[] {
   const namespaces = database.connection.prepare('SELECT DISTINCT namespace FROM records').all();
-  const unknownNamespace = namespaces.some(row => row.namespace !== 'hosted');
-  if (unknownNamespace) throw new Error('Unsupported hosted persistence namespace.');
+  const namedIds: string[] = [];
+  for (const row of namespaces) {
+    const ns = sqlText(row, 'namespace');
+    const parsedDbId = parseFirestoreRecordSpaceKey('hosted', ns);
+    if (parsedDbId === null) {
+      throw new Error('Unsupported hosted persistence namespace.');
+    }
+    if (parsedDbId !== DEFAULT_FIRESTORE_DATABASE) {
+      namedIds.push(parsedDbId);
+    }
+  }
   const records = database.readRecords('hosted');
   const hasState = records.size > 0;
   if (hasState) {
     const snapshot = decodeImportBundle(bundleRecords(records));
     for (const [name, value] of Object.entries(snapshot.services)) validatePersistedService(name, value);
+    readFirestoreDeclaredFromMeta(records.get('meta'));
+  }
+  const syntheticMeta = { version: CHUNK_FORMAT_VERSION, savedAt: 0, services: {} };
+  for (const dbId of namedIds) {
+    const namedNamespace = firestoreRecordSpaceKey('hosted', dbId);
+    const namedRecords = database.readRecords(namedNamespace);
+    for (const recordId of namedRecords.keys()) {
+      if (recordId === 'meta' || isRtdbRecordId(recordId)) {
+        throw new Error(`Unsupported record '${recordId}' in hosted Firestore namespace '${namedNamespace}'.`);
+      }
+    }
+    if (namedRecords.size > 0) {
+      const verificationRecords = new Map<string, unknown>([['meta', syntheticMeta], ...namedRecords]);
+      decodeImportBundle(bundleRecords(verificationRecords));
+    }
   }
   const repairs: StorageMetadataRepair[] = [];
   const repairedRows: StoredObjectRow[] = [];

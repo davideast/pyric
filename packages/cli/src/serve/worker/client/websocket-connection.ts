@@ -18,6 +18,7 @@ import { watchHostSilence } from './host-silence.js';
 import { settleInFlightAtDrop } from './in-flight-at-drop.js';
 import { closeSendOrder, waitsToSend } from './send-order.js';
 import { announceTabReads, answerTabCall } from './tab-reads.js';
+import { setPortHostUrl } from './protocol-version.js';
 
 
 const CONNECTION_LOST = 'The hosted sandbox connection was lost. Requests already sent may have completed; check state before retrying.';
@@ -567,6 +568,7 @@ export function getHostedFirestore(target: {
     });
   }
 
+  setPortHostUrl(port, target.url);
   const db = { __kind: 'client-db', type: 'firestore', port } satisfies ClientDb;
   if (!existingPort) wirePort(port);
   connect();

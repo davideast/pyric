@@ -3,6 +3,7 @@ import { assertAiArguments } from './operation-arguments.js';
 import { assertAuthBlockingSubArguments } from './auth-blocking.js';
 import { assertRtdbQuery } from './rtdb-query.js';
 import { assertListenerOwners } from './listener-owners.js';
+import { assertFirestoreSubDatabaseId } from './database-id.js';
 import { requireRecord, requireShape, requireString, requireOptionalString, requireOptionalBoolean } from './fields.js';
 
 /** Check target routing and adapter fields before retaining listener intent. */
@@ -51,6 +52,7 @@ export function assertSubscription(message: Record<string, unknown>): void {
       requireOptionalString(target.database, 'target.database');
       return;
     default:
+      assertFirestoreSubDatabaseId(message, target);
       requireOptionalBoolean(message.includeMetadataChanges, 'includeMetadataChanges');
       assertQueryStructure(target);
   }

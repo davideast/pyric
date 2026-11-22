@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { deleteApp, FirebaseError, getApps, initializeApp } from 'pyric/app';
 import { resetAppRegistryForTests } from 'pyric/app/internal';
 import * as surface from '../../../../src/serve/entries/firestore-surface.js';
@@ -17,10 +17,13 @@ import { load, restoreSharedWorker, servedFirestoreContext } from './support.ts'
 
 restoreSharedWorker();
 
-afterEach(async () => {
+async function resetApps(): Promise<void> {
   await Promise.all(getApps().map((app) => deleteApp(app).catch(() => undefined)));
   resetAppRegistryForTests();
-});
+}
+
+beforeEach(resetApps);
+afterEach(resetApps);
 
 function errorCodeOf(err: unknown): string {
   if (err !== null && typeof err === 'object') {

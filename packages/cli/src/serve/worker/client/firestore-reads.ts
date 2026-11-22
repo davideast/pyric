@@ -11,7 +11,12 @@ import {
   type AggregateSpecDescriptor,
   type InboundMessage,
 } from '../protocol.js';
-import { closeSubscription, nextId, nextSubId, dataRpc, _defaultLens, subscribeLens, openSnapshotSubscription, stampIssuer } from './core.js';
+import { closeSubscription, nextId, nextSubId, _defaultLens, subscribeLens, stampIssuer } from './core.js';
+import {
+  clientDatabaseIdOf,
+  firestoreDataRpc,
+  openFirestoreSnapshotSubscription,
+} from './firestore-database.js';
 import type { ClientDb, DocRefHandle, CollRefHandle, QueryHandle, Unsubscribe } from './handles.js';
 import { assertExecutableQueryDescriptor } from './firestore-query-validation.js';
 import { pageListenerOwners } from './listener-owners.js';
@@ -50,7 +55,8 @@ export async function readDocumentAs<T = DocumentData>(ref: DocRefHandle<T>, met
   markWorkerHandleStarted(ref);
   const activity = beginWorkerFirestoreActivity(ref, method, 'operation');
   try {
-    const offlineDoc = readWorkerOfflineDoc(ref.port, ref.descriptor.path);
+    const dbId = clientDatabaseIdOf(ref);
+    const offlineDoc = readWorkerOfflineDoc(ref.port, ref.descriptor.path, dbId);
     if (offlineDoc !== undefined) {
       const offlineMeta = Object.freeze({
         fromCache: true,
@@ -58,13 +64,13 @@ export async function readDocumentAs<T = DocumentData>(ref: DocRefHandle<T>, met
       });
       return finishSdkRead(activity, makeDocSnapshot(offlineDoc, ref.port, ref, offlineMeta));
     }
-    const result = await dataRpc(ref.port, {
+    const result = await firestoreDataRpc(ref, {
       t: 'op',
       id: nextId(),
       method: 'getDoc',
       path: ref.descriptor.path,
     }) as RawDocResult;
-    recordWorkerOnlineDoc(ref.port, ref.descriptor.path, result.exists, result.data);
+    recordWorkerOnlineDoc(ref.port, ref.descriptor.path, result.exists, result.data, dbId);
     return finishSdkRead(activity, makeDocSnapshot(result, ref.port, ref));
   } catch (error) { activity.fail(); throw error; }
 }
@@ -92,7 +98,8 @@ export async function readQueryAs(source: CollRefHandle | QueryHandle, method: s
     if (source.__kind === 'coll-ref') {
       sourceDescriptor = (source as CollRefHandle).descriptor;
     }
-    const result = await dataRpc(source.port, {
+    const dbId = clientDatabaseIdOf(source);
+    const result = await firestoreDataRpc(source, {
       t: 'op',
       id: nextId(),
       method: 'getDocs',
@@ -100,7 +107,7 @@ export async function readQueryAs(source: CollRefHandle | QueryHandle, method: s
     }) as RawQueryResult;
     for (const d of result.docs) {
       if (d.path !== undefined) {
-        recordWorkerOnlineDoc(source.port, d.path, d.exists, d.data);
+        recordWorkerOnlineDoc(source.port, d.path, d.exists, d.data, dbId);
       }
     }
     return finishSdkRead(
@@ -117,7 +124,7 @@ export async function readQueryAs(source: CollRefHandle | QueryHandle, method: s
  * lens-independent.
  */
 export async function listRootCollections(db: ClientDb): Promise<string[]> {
-  const r = (await dataRpc(db.port, {
+  const r = (await firestoreDataRpc(db, {
     t: 'op',
     id: nextId(),
     method: 'listRootCollections',
@@ -127,7 +134,7 @@ export async function listRootCollections(db: ClientDb): Promise<string[]> {
 
 /** Enumerate subcollection ids under a document path (Pyric Studio data browse). */
 export async function listSubcollections(db: ClientDb, docPath: string): Promise<string[]> {
-  const r = (await dataRpc(db.port, {
+  const r = (await firestoreDataRpc(db, {
     t: 'op',
     id: nextId(),
     method: 'listSubcollections',
@@ -144,7 +151,7 @@ export async function getCountFromServer(
   const activity = beginWorkerFirestoreActivity(source, 'getCountFromServer', 'operation');
   try {
     assertExecutableTarget(source);
-    const result = await dataRpc(source.port, {
+    const result = await firestoreDataRpc(source, {
       t: 'op',
       id: nextId(),
       method: 'count',
@@ -210,7 +217,7 @@ export async function getAggregateFromServer<S extends AggregateSpecDescriptor>(
     } else {
       targetDescriptor = (source as QueryHandle).descriptor;
     }
-    const result = await dataRpc(source.port, {
+    const result = await firestoreDataRpc(source, {
       t: 'op',
       id: nextId(),
       method: 'aggregate',
@@ -337,9 +344,10 @@ export function onSnapshot(
   let unregisterNetwork: () => void = () => {};
   let deliveredCount = 0;
   let isOpenOnHost = false;
+  const targetDbId = clientDatabaseIdOf(target);
   const descriptor = target.descriptor;
   const hasWarmCacheAtSubscribe = !isWorkerFirestoreOffline(port)
-    && isWorkerTargetWarm(port, descriptor);
+    && isWorkerTargetWarm(port, descriptor, targetDbId);
   const wasWarmAtSubscribe = includeMetadataChanges && hasWarmCacheAtSubscribe;
 
   const deliverRawFrame = (raw: unknown): void => {
@@ -356,10 +364,10 @@ export function onSnapshot(
     if (rawRec.fromCache !== true) {
       if (Array.isArray(rawRec.docs)) {
         for (const d of rawRec.docs) {
-          if (d.path !== undefined) recordWorkerOnlineDoc(port, d.path, d.exists, d.data);
+          if (d.path !== undefined) recordWorkerOnlineDoc(port, d.path, d.exists, d.data, targetDbId);
         }
       } else if (typeof rawRec.path === 'string' && typeof rawRec.exists === 'boolean') {
-        recordWorkerOnlineDoc(port, rawRec.path, rawRec.exists, rawRec.data);
+        recordWorkerOnlineDoc(port, rawRec.path, rawRec.exists, rawRec.data, targetDbId);
       }
     }
     const snapshot = decoded;
@@ -397,7 +405,7 @@ export function onSnapshot(
     error: (error: unknown) => {
       if (unsubscribed || isWorkerFirestoreOffline(port)) return;
       if (deliveredCount === 0 && hasWarmCacheAtSubscribe) {
-        const cachedWire = buildWorkerOfflineWire(port, descriptor);
+        const cachedWire = buildWorkerOfflineWire(port, descriptor, targetDbId);
         const cachedRec = cachedWire as { docs?: RawDocResult[]; exists?: boolean };
         const hasCachedDocs = (Array.isArray(cachedRec.docs) && cachedRec.docs.length > 0)
           || cachedRec.exists === true;
@@ -424,7 +432,13 @@ export function onSnapshot(
     const hasOwners = owners !== undefined;
     if (hasOwners) message.owners = owners;
     if (includeMetadataChanges) message.includeMetadataChanges = true;
-    const opened = openSnapshotSubscription(port, currentSubId, subscription, stampIssuer(message));
+    const opened = openFirestoreSnapshotSubscription(
+      target,
+      port,
+      currentSubId,
+      subscription,
+      stampIssuer(message),
+    );
     isOpenOnHost = opened;
     const failedToOpen = !opened;
     if (failedToOpen) activity.fail();
@@ -435,6 +449,7 @@ export function onSnapshot(
 
   unregisterNetwork = registerWorkerManagedListener(port, {
     target: descriptor,
+    databaseId: targetDbId,
     hasDelivered: () => deliveredCount > 0,
     suspendFromHost: () => {
       if (!isOpenOnHost) return;
@@ -460,7 +475,7 @@ export function onSnapshot(
     queueMicrotask(() => {
       if (!unsubscribed && isWorkerFirestoreOffline(port)) {
         deliveredCount += 1;
-        deliverRawFrame(buildWorkerOfflineWire(port, descriptor));
+        deliverRawFrame(buildWorkerOfflineWire(port, descriptor, targetDbId));
       }
     });
   }

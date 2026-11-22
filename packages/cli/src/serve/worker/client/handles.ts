@@ -59,6 +59,7 @@ export interface ClientDb {
   readonly __kind: 'client-db';
   readonly type?: 'firestore';
   readonly port: ClientPort;
+  readonly databaseId?: string;
 }
 
 /** The RTDB instance a served handle reads and writes. */
@@ -117,6 +118,7 @@ export interface DocRefHandle<_T = DocumentData> {
   readonly type: 'document';
   readonly descriptor: DocRef;
   readonly port: ClientPort;
+  readonly databaseId?: string;
   readonly id: string;
   readonly path: string;
   readonly converter: FirestoreDataConverter<unknown> | null;
@@ -131,6 +133,7 @@ export interface CollRefHandle<_T = DocumentData> {
   readonly type: 'collection';
   readonly descriptor: CollRef;
   readonly port: ClientPort;
+  readonly databaseId?: string;
   readonly id: string;
   readonly path: string;
   readonly converter: FirestoreDataConverter<unknown> | null;
@@ -145,6 +148,7 @@ export interface QueryHandle<_T = DocumentData> {
   readonly type: 'query';
   readonly descriptor: QueryDescriptor;
   readonly port: ClientPort;
+  readonly databaseId?: string;
   readonly converter: FirestoreDataConverter<unknown> | null;
   withConverter<T, D extends DocumentData = DocumentData>(converter: FirestoreDataConverter<T, D>): QueryHandle<T>;
   withConverter(converter: null): QueryHandle;

@@ -10,6 +10,10 @@ import type { InitPayload } from '../namespace.js';
 import { SERVE_HISTORY_LIMITS } from '../observation-limits.js';
 import { setupFirebaseActivityGuard } from './activity-bootstrap.js';
 import { createWorkerDurableBackend, setupServerAuthFlush } from './durable-persistence.js';
+import {
+  createWorkerFirestorePersistenceBinding,
+  type MirrorablePersistenceBackend,
+} from './firestore-persistence-backend.js';
 import { getOrCreateInstanceId, type HostCtx } from './host.js';
 import {
   applyServeInit,
@@ -109,14 +113,21 @@ export async function buildWorkerCtx(bootEnv: WorkerBootEnv): Promise<HostCtx> {
   const payload = await fetchInitPayload(env.fetch, env.sessionToken);
 
   const hasPayload = payload !== null;
-  let durable: PersistenceBackend = env.idb;
+  let durable: MirrorablePersistenceBackend = env.idb;
   if (hasPayload) {
     durable = createWorkerDurableBackend(env.idb, payload, env);
   }
+  const resolvedPersistenceKey = env.persistenceKey ?? workerPersistenceKey(payload?.projectKey);
+  const firestoreBinding = createWorkerFirestorePersistenceBinding(
+    sandbox,
+    durable,
+    resolvedPersistenceKey,
+  );
   await sandbox.enablePersistence({
-    key: env.persistenceKey ?? workerPersistenceKey(payload?.projectKey),
-    injectedBackend: durable,
+    key: resolvedPersistenceKey,
+    injectedBackend: firestoreBinding.backend,
   });
+  await firestoreBinding.hydrate();
 
   getAuth(sandbox);
   getDatabase(sandbox);

@@ -17,12 +17,36 @@ import {
 import { getInternalEnv } from 'pyric/sandbox/internal';
 import { lintFirestoreRules, rulesSourceRejection } from 'pyric/rules/internal';
 import { markUserWriteValue, stripUnescapedUserMapTag } from './sandbox/unescaped-map.js';
+import {
+  DEFAULT_FIRESTORE_DATABASE,
+  MAX_FIRESTORE_DATABASES,
+  declareFirestoreDatabase,
+  getDatabaseEnv,
+  isFirestoreDatabaseDeclared,
+  isValidFirestoreDatabaseId,
+  listDeclaredFirestoreDatabases,
+  normalizeFirestoreDatabaseId,
+  undeclareFirestoreDatabase,
+} from './sandbox/named-databases.js';
+
+export {
+  DEFAULT_FIRESTORE_DATABASE,
+  MAX_FIRESTORE_DATABASES,
+  declareFirestoreDatabase,
+  isFirestoreDatabaseDeclared,
+  isValidFirestoreDatabaseId,
+  listDeclaredFirestoreDatabases,
+  normalizeFirestoreDatabaseId,
+  undeclareFirestoreDatabase,
+};
 
 import type { DocumentData, LintResult } from './types.js';
 
 export interface FirestoreInspectOptions {
   /** Maximum number of recent requests and denials to return. Defaults to 10. */
   recentEventLimit?: number;
+  /** Optional Firestore database id to inspect. Defaults to `(default)`. */
+  databaseId?: string;
 }
 
 /** Stable JSON-serializable Firestore diagnostic used by Studio and tools. */
@@ -62,17 +86,27 @@ export interface FirestoreInspectReport {
   };
 }
 
-/** Load Firestore Rules into one sandbox and notify its live listeners. */
-export function setRules(sandbox: LocalSandbox, source: string): LintResult {
-  return getInternalEnv(sandbox).deployRules(source);
+/** Load Firestore Rules into one sandbox database (declaring it when named) and notify its live listeners. */
+export function setRules(sandbox: LocalSandbox, source: string, databaseId?: string): LintResult {
+  const normalized = normalizeFirestoreDatabaseId(databaseId);
+  if (normalized === DEFAULT_FIRESTORE_DATABASE) {
+    return getInternalEnv(sandbox).deployRules(source);
+  }
+  declareFirestoreDatabase(sandbox, normalized);
+  return getDatabaseEnv(sandbox, normalized).deployRules(source);
 }
 
 /** Replace Firestore documents in bulk, preserving rules and bypassing evaluation. */
 export function seedDocuments(
   sandbox: LocalSandbox,
   documents: Record<string, DocumentData>,
+  databaseId?: string,
 ): LintResult {
-  const env = getInternalEnv(sandbox);
+  const normalized = normalizeFirestoreDatabaseId(databaseId);
+  if (normalized !== DEFAULT_FIRESTORE_DATABASE) {
+    declareFirestoreDatabase(sandbox, normalized);
+  }
+  const env = getDatabaseEnv(sandbox, normalized);
   const markedDocuments: Record<string, DocumentData> = {};
   for (const [path, docData] of Object.entries(documents)) {
     Object.defineProperty(markedDocuments, path, {
@@ -92,8 +126,13 @@ export function seedDocuments(
 /** Snapshot only Firestore documents without traversing other sandbox services. */
 export function snapshotDocuments(
   sandbox: LocalSandbox,
+  databaseId?: string,
 ): Record<string, DocumentData> {
-  const raw = getInternalEnv(sandbox).snapshot();
+  const normalized = normalizeFirestoreDatabaseId(databaseId);
+  if (!isFirestoreDatabaseDeclared(sandbox, normalized)) {
+    return {};
+  }
+  const raw = getDatabaseEnv(sandbox, normalized).snapshot();
   const out: Record<string, DocumentData> = {};
   for (const [path, docData] of Object.entries(raw)) {
     Object.defineProperty(out, path, {
@@ -112,7 +151,8 @@ export function inspect(
   options: FirestoreInspectOptions = {},
 ): FirestoreInspectReport {
   const recentLimit = options.recentEventLimit ?? 10;
-  const env = getInternalEnv(sandbox);
+  const normalized = normalizeFirestoreDatabaseId(options.databaseId);
+  const env = getDatabaseEnv(sandbox, normalized);
   const rulesSource = env.getRules();
   let lint: { warnings: ReturnType<typeof lintFirestoreRules>['warnings'] } = { warnings: [] };
   if (rulesSource) {
@@ -154,8 +194,17 @@ export function inspect(
   }
 
   const history = sandbox.history();
+  let scopedEventCount = 0;
   const operations: Array<{ event: SandboxEvent; record: OperationRecord }> = [];
   for (const event of history) {
+    const rawEventDb = (event as { database?: string }).database;
+    const evDb = normalizeFirestoreDatabaseId(rawEventDb);
+    if (normalized === DEFAULT_FIRESTORE_DATABASE) {
+      if (rawEventDb !== undefined && evDb !== DEFAULT_FIRESTORE_DATABASE) continue;
+    } else if (rawEventDb !== normalized) {
+      continue;
+    }
+    scopedEventCount += 1;
     if (!isOperationEvent(event)) continue;
     const record = toOperationRecord(event);
     if (record !== null) {
@@ -216,7 +265,7 @@ export function inspect(
       byCollection,
     },
     events: {
-      totalCount: history.length,
+      totalCount: scopedEventCount,
       recentDenials,
       recentRequests,
     },

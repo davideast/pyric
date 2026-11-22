@@ -16,6 +16,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'AUTH_LENS_STORAGE_KEY',
   'PRESENCE_HEARTBEAT_INTERVAL_MS', 'PRESENCE_STALE_MS',
   'PYRIC_WORKER_GENERATION_KEY', 'PYRIC_WORKER_NAME', 'PYRIC_WORKER_URL', 'RtdbOnDisconnect',
+  'WORKER_PROTOCOL_VERSION',
   'acceptProviderCredential', 'addDoc', 'adminClearUsers', 'adminCreateUser',
   'adminDeleteDocument', 'adminDeleteRtdbValue', 'adminDeleteUser', 'adminGetDocument',
   'adminListDocuments', 'adminReadRtdbState', 'adminReadState', 'adminSetDocument',
@@ -38,7 +39,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'onAuthStateChanged', 'onIdTokenChanged', 'onSnapshot', 'onWorkerRuntimeReload',
   'or', 'orderBy', 'ownClientUntilPagehide', 'preflightWorkerEpochStorage', 'query',
   'readHostedTarget', 'readPyricRuntimeManifest', 'ref', 'relayWorkerOp', 'relayWorkerSub',
-  'rememberWorkerEpoch', 'resetAll', 'retireWorkerRuntime', 'rtdbChild',
+  'rememberWorkerEpoch', 'requestDatabaseId', 'resetAll', 'retireWorkerRuntime', 'rtdbChild',
   'rtdbConnectDatabaseEmulator', 'rtdbGet', 'rtdbGetDatabase', 'rtdbGoOffline',
   'rtdbGoOnline', 'rtdbOff', 'rtdbOnChildAdded', 'rtdbOnChildChanged', 'rtdbOnChildMoved',
   'rtdbOnChildRemoved', 'rtdbOnDisconnect', 'rtdbOnValue', 'rtdbPush', 'rtdbRef',
@@ -50,7 +51,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'signInWithEmailAndPassword', 'signOut', 'startAfter', 'startAt', 'startPresence',
   'subscribeEvents', 'subscribeLens', 'subscribePresence',
   'takeAuthMail', 'terminate',
-  'sum', 'restoreWorkerCheckpoint', 'updateDoc', 'uploadBytes', 'uploadString', 'uploadBytesResumable', 'waitForPendingWrites', 'where', 'wirePort', 'workerNameForEpoch',
+  'sum', 'restoreWorkerCheckpoint', 'updateDoc', 'uploadBytes', 'uploadString', 'uploadBytesResumable', 'waitForPendingWrites', 'where', 'wirePort', 'withDatabaseId', 'workerNameForEpoch',
   'writeBatch',
 ];
 

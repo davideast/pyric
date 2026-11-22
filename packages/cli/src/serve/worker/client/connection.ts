@@ -18,6 +18,8 @@ import {
   closeSubscription,
 } from './core.js';
 import type { ClientDb } from './handles.js';
+import { normalizeClientDatabaseId } from './firestore-database.js';
+import { recordPeerWorkerProtocol, setPortHostUrl } from './protocol-version.js';
 
 // ─── Public API ────────────────────────────────────────────────────────────
 
@@ -33,6 +35,7 @@ import type { ClientDb } from './handles.js';
  */
 export interface SharedWorkerConnectionOptions {
   onError?: (error: Error) => void;
+  databaseId?: string;
 }
 
 export function getFirestore(
@@ -58,8 +61,13 @@ export function getFirestore(
     });
   }
   const port = worker.port;
+  setPortHostUrl(port, String(workerUrl));
   wirePort(port);
   port.start();
+  const normalizedDb = normalizeClientDatabaseId(options.databaseId);
+  if (normalizedDb !== undefined) {
+    return { __kind: 'client-db', type: 'firestore', port, databaseId: normalizedDb };
+  }
   return { __kind: 'client-db', type: 'firestore', port };
 }
 
@@ -79,7 +87,8 @@ export async function getWorkerVersion(
     { t: 'op', id, method: 'getRuntimeEpoch' },
     timeoutMs,
     `Timed out waiting for the Pyric SharedWorker version handshake after ${timeoutMs}ms.`,
-  )) as { version: string };
+  )) as { version: string; workerProtocol?: number };
+  recordPeerWorkerProtocol(db.port, r.workerProtocol);
   return r.version;
 }
 
@@ -91,7 +100,11 @@ export async function getWorkerVersion(
  * the two are told apart.
  */
 export async function getWorkerInstanceId(db: ClientDb): Promise<string> {
-  const r = (await rpc(db.port, { t: 'op', id: nextId(), method: 'getVersion' })) as { instanceId?: string };
+  const r = (await rpc(db.port, { t: 'op', id: nextId(), method: 'getVersion' })) as {
+    instanceId?: string;
+    workerProtocol?: number;
+  };
+  recordPeerWorkerProtocol(db.port, r.workerProtocol);
   return r.instanceId ?? '';
 }
 

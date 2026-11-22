@@ -1,32 +1,25 @@
 /**
- * SharedWorker host — admin-lens Firestore document ops (rules bypass).
- *
- * The `admin.*` surface used by the pyric-admin remote arm + Pyric Studio's
- * "edit anything as admin": direct document get/list/set/delete against the
- * sandbox admin plane, plus `admin.readState` (a prefix/depth-scoped snapshot
- * of the whole store through the cached admin handle).
- *
- * Routed here by the host dispatcher. These ops act on `ctx.sandbox.admin` /
- * the admin handle directly, so they take no resolved `db`. Never imports the
- * dispatcher.
+ * SharedWorker host -- admin-lens Firestore document ops (rules bypass),
+ * routed per Firestore database via `requestDatabaseId(msg)` (ADR-0021 Decisions 3 and 4).
  */
 
 import { encodeLegacyDocValue, type OpMessage, type ResponseDocValueEncoding } from '../protocol.js';
+import { requestDatabaseId } from '../request-database-id.js';
 import { snapshotDocuments } from 'pyric/sandbox/firestore';
+import {
+  getDatabaseAdmin,
+  isFirestoreDatabaseDeclared,
+  missingFirestoreDatabaseNotFoundMessage,
+} from 'pyric/firestore/internal';
 import { encodeDocValue, requireDocumentData } from 'pyric/firestore/internal/value-codec';
-import { type HostCtx, type PortLike, ok, fail, bestEffortFlush } from '../host-context.js';
+import { SandboxError } from 'pyric/sandbox';
+import { hostProjectId, type HostCtx, type PortLike, ok, fail, bestEffortFlush } from '../host-context.js';
 
-/**
- * Serialize a stored sandbox document into wire-safe JSON objects so `RulesBytes`
- * (`Uint8Array`) and sibling `RulesValue` wrappers become their `.toJSON()`
- * marker objects before crossing the hosted/bridge JSON relay.
- */
 function encodeAdminDocument(document: unknown, encoding?: ResponseDocValueEncoding): Record<string, unknown> {
   const encoded = encoding === 'legacy' ? encodeLegacyDocValue(document) : encodeDocValue(document);
   return requireDocumentData(JSON.parse(JSON.stringify(encoded)));
 }
 
-/** The admin-lens op methods routed to {@link handleAdminFirestoreOp}. */
 const ADMIN_METHODS = new Set<string>([
   'admin.getDocument',
   'admin.listDocuments',
@@ -44,10 +37,18 @@ export async function handleAdminFirestoreOp(
   port: PortLike,
   msg: OpMessage,
 ): Promise<void> {
+  const dbId = requestDatabaseId(msg);
+  const projectId = hostProjectId(ctx) ?? 'demo-project';
+  if (dbId !== undefined && !isFirestoreDatabaseDeclared(ctx.sandbox, dbId)) {
+    fail(port, msg.id, new SandboxError('not-found', missingFirestoreDatabaseNotFoundMessage(dbId, projectId)));
+    return;
+  }
+
   switch (msg.method) {
     case 'admin.getDocument': {
       try {
-        const doc = ctx.sandbox.admin.getDocument(msg.path);
+        const admin = getDatabaseAdmin(ctx.sandbox, dbId, projectId);
+        const doc = admin.getDocument(msg.path);
         ok(port, msg.id, doc == null ? doc : encodeAdminDocument(doc, msg.docValueEncoding));
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -55,7 +56,8 @@ export async function handleAdminFirestoreOp(
 
     case 'admin.listDocuments': {
       try {
-        const rows = ctx.sandbox.admin.listDocuments(msg.path).map((row) => ({
+        const admin = getDatabaseAdmin(ctx.sandbox, dbId, projectId);
+        const rows = admin.listDocuments(msg.path).map((row) => ({
           ...row,
           data: encodeAdminDocument(row.data, msg.docValueEncoding),
         }));
@@ -66,7 +68,8 @@ export async function handleAdminFirestoreOp(
 
     case 'admin.setDocument': {
       try {
-        ctx.sandbox.admin.setDocument(msg.path, msg.data as Record<string, unknown>);
+        const admin = getDatabaseAdmin(ctx.sandbox, dbId, projectId);
+        admin.setDocument(msg.path, msg.data as Record<string, unknown>);
         await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
@@ -75,7 +78,8 @@ export async function handleAdminFirestoreOp(
 
     case 'admin.deleteDocument': {
       try {
-        const deleted = ctx.sandbox.admin.deleteDocument(msg.path);
+        const admin = getDatabaseAdmin(ctx.sandbox, dbId, projectId);
+        const deleted = admin.deleteDocument(msg.path);
         await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, deleted);
       } catch (e) { fail(port, msg.id, e); }
@@ -84,7 +88,7 @@ export async function handleAdminFirestoreOp(
 
     case 'admin.readState': {
       try {
-        const snap = snapshotDocuments(ctx.sandbox);
+        const snap = snapshotDocuments(ctx.sandbox, dbId);
         const out: Record<string, unknown> = {};
         const prefix = msg.path ?? '';
         for (const [path, data] of Object.entries(snap)) {

@@ -1,6 +1,11 @@
 import { getMessagingBroker } from 'pyric/messaging/internal';
 import { doc } from 'pyric/firestore';
-import { seedDocuments, setRules, snapshotDocuments } from 'pyric/sandbox/firestore';
+import {
+  listDeclaredFirestoreDatabases,
+  seedDocuments,
+  setRules,
+  snapshotDocuments,
+} from 'pyric/sandbox/firestore';
 import { rulesSourceRejection } from 'pyric/rules/internal';
 import { rtdbRulesSourceRejection } from 'pyric/rules/internal/rtdb';
 import { getAdminDatabase, sandbox as rtdbSandbox } from 'pyric/database';
@@ -29,6 +34,7 @@ import {
 import { connectDatabaseInstanceRules, createPendingDatabaseTargets } from '../database-instance-rules-host.js';
 import { buildLiveSessionCaptureFixture } from '../session-capture-fixture.js';
 import { STATE_FIXTURE_SCHEMA } from '../../verify/file-format.js';
+import { bindSandboxToCheckpointBackend } from './hosted-checkpoint-bind.js';
 
 export {
   buildWorkerCtx,
@@ -154,6 +160,9 @@ function hasNonEmptyRtdbState(state: unknown): boolean {
 function sandboxHasExistingData(ctx: HostCtx): boolean {
   const docs = snapshotDocuments(ctx.sandbox);
   if (Object.keys(docs).length > 0) return true;
+  for (const dbId of listDeclaredFirestoreDatabases(ctx.sandbox)) {
+    if (Object.keys(snapshotDocuments(ctx.sandbox, dbId)).length > 0) return true;
+  }
   const auth = ensureAuth(ctx);
   if (authOps.exportUsers(auth).length > 0) return true;
   if (hasNonEmptyRtdbState(rtdbSandbox.snapshotState(rtdbInstance(ctx).live))) return true;
@@ -220,6 +229,7 @@ export function applyServeInit(
   payload: InitPayload,
   env: ServeInitEnv = { fetch: globalThis.fetch },
 ): ServeInitResult {
+  bindSandboxToCheckpointBackend(ctx.checkpointBackend, ctx.sandbox);
   const result: ServeInitResult = {
     rulesDeployed: false,
     storageRulesDeployed: false,

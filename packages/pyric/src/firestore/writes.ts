@@ -118,7 +118,9 @@ export async function setDoc<T = DocumentData>(
       merge: options?.merge === true,
       mergeFields,
     };
-    return clientStateFor(target).runWrite(
+    const client = clientStateFor(target);
+    client.syncMissingDatabaseOfflineState(target, ref.path);
+    return client.runWrite(
       () => withFirestoreFirebaseError(() =>
         chainDocFor(target, ref).set(payload, options as ChainSetOptions | undefined),
       ),
@@ -160,7 +162,9 @@ export function updateDoc(
     parsedFields.map((field) => ({ path: field.path, value: markUserWriteValue(field.value) })),
   );
   return runSdkWrite(beginFirestoreActivity(target, ref, 'updateDoc', 'operation'), async () => {
-    return clientStateFor(target).runWrite(
+    const client = clientStateFor(target);
+    client.syncMissingDatabaseOfflineState(target, ref.path);
+    return client.runWrite(
       () => withFirestoreFirebaseError(() => chainDocFor(target, ref).update(...args)),
       ref.path,
       [{ kind: 'update', path: ref.path, data: offlineData }],
@@ -171,7 +175,9 @@ export function updateDoc(
 export async function deleteDoc(ref: DocumentReference): Promise<void> {
   const target = targetOf(ref);
   return runSdkWrite(beginFirestoreActivity(target, ref, 'deleteDoc', 'operation'), async () => {
-    return clientStateFor(target).runWrite(
+    const client = clientStateFor(target);
+    client.syncMissingDatabaseOfflineState(target, ref.path);
+    return client.runWrite(
       () => withFirestoreFirebaseError(() => chainDocFor(target, ref).delete()),
       ref.path,
       [{ kind: 'delete', path: ref.path }],
@@ -192,6 +198,7 @@ export async function addDoc<T = DocumentData>(
     }
     const payload = markUserWriteValue(requireDocumentData(rawPayload)) as DocumentData;
     const clientState = clientStateFor(target);
+    clientState.syncMissingDatabaseOfflineState(target, coll.path);
     let ref: { id: string; path: string };
     if (!clientState.isNetworkEnabled()) {
       const mintedId = generateAutoId();

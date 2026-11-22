@@ -20,10 +20,17 @@ import {
   type Firestore,
   type Query,
 } from 'pyric/firestore';
-import { getInternalEnv, sdkActivity } from 'pyric/sandbox/internal';
+import {
+  getDatabaseEnv,
+  isFirestoreDatabaseDeclared,
+  missingFirestoreDatabaseNotFoundMessage,
+} from 'pyric/firestore/internal';
+import { SandboxError } from 'pyric/sandbox';
+import { sdkActivity } from 'pyric/sandbox/internal';
 
 import { encodeAggregateData, type OpMessage } from '../protocol.js';
-import { type HostCtx, type PortLike, ok, fail } from '../host-context.js';
+import { requestDatabaseId } from '../request-database-id.js';
+import { hostProjectId, type HostCtx, type PortLike, ok, fail } from '../host-context.js';
 import { resolveTarget, serializeDocSnap } from './core.js';
 import { getOrCreatePinnedTxnSnapshot } from './firestore-txn-snapshots.js';
 
@@ -48,17 +55,24 @@ export async function handleFirestoreReadOp(
   db: Firestore,
 ): Promise<void> {
   const { sandbox } = ctx;
+  const dbId = requestDatabaseId(msg);
   switch (msg.method) {
     case 'getDoc': {
       try {
         const ref = pyricDoc(db, msg.path);
-        const snapPromise =
-          typeof msg.txnId === 'string' && msg.txnId.length > 0
-            ? getInternalEnv(sandbox).withPinnedSnapshot(
-                getOrCreatePinnedTxnSnapshot(sandbox, msg.txnId),
-                () => sdkActivity.silence(() => getDoc(ref)),
-              )
-            : sdkActivity.silence(() => getDoc(ref));
+        const canPin =
+          typeof msg.txnId === 'string' &&
+          msg.txnId.length > 0 &&
+          isFirestoreDatabaseDeclared(sandbox, dbId);
+        let snapPromise: Promise<unknown>;
+        if (canPin) {
+          snapPromise = getDatabaseEnv(sandbox, dbId).withPinnedSnapshot(
+            getOrCreatePinnedTxnSnapshot(sandbox, msg.txnId!, dbId),
+            () => sdkActivity.silence(() => getDoc(ref)),
+          );
+        } else {
+          snapPromise = sdkActivity.silence(() => getDoc(ref));
+        }
         const snap = await snapPromise;
         ok(port, msg.id, serializeDocSnap(snap as Parameters<typeof serializeDocSnap>[0], msg.docValueEncoding));
       } catch (e) { fail(port, msg.id, e); }
@@ -68,17 +82,19 @@ export async function handleFirestoreReadOp(
     case 'getDocs': {
       try {
         const source = resolveTarget(db, msg.source);
-        // CollectionReference is always also queryable — getDocs accepts Query<T>
-        // and CollectionReference is structurally compatible at runtime even though
-        // the type system doesn't know that (CollectionReference has no `_isQuery`
-        // brand). Cast through Query to satisfy the type checker.
-        const snapPromise =
-          typeof msg.txnId === 'string' && msg.txnId.length > 0
-            ? getInternalEnv(sandbox).withPinnedSnapshot(
-                getOrCreatePinnedTxnSnapshot(sandbox, msg.txnId),
-                () => sdkActivity.silence(() => getDocs(source as Query)),
-              )
-            : sdkActivity.silence(() => getDocs(source as Query));
+        const canPin =
+          typeof msg.txnId === 'string' &&
+          msg.txnId.length > 0 &&
+          isFirestoreDatabaseDeclared(sandbox, dbId);
+        let snapPromise: Promise<Awaited<ReturnType<typeof getDocs>>>;
+        if (canPin) {
+          snapPromise = getDatabaseEnv(sandbox, dbId).withPinnedSnapshot(
+            getOrCreatePinnedTxnSnapshot(sandbox, msg.txnId!, dbId),
+            () => sdkActivity.silence(() => getDocs(source as Query)),
+          );
+        } else {
+          snapPromise = sdkActivity.silence(() => getDocs(source as Query));
+        }
         const snap = await snapPromise;
         const docs = snap.docs.map((d) =>
           serializeDocSnap(d as Parameters<typeof serializeDocSnap>[0], msg.docValueEncoding),
@@ -119,17 +135,27 @@ export async function handleFirestoreReadOp(
     }
 
     case 'listRootCollections': {
-      // Keyspace enumeration (Pyric Studio data browse). Lens-independent: it
-      // lists the collection ids present, not rule-gated reads.
       try {
-        ok(port, msg.id, { ids: getInternalEnv(sandbox).listRootCollections() });
+        if (dbId !== undefined && !isFirestoreDatabaseDeclared(sandbox, dbId)) {
+          throw new SandboxError(
+            'not-found',
+            missingFirestoreDatabaseNotFoundMessage(dbId, hostProjectId(ctx) ?? 'demo-project'),
+          );
+        }
+        ok(port, msg.id, { ids: getDatabaseEnv(sandbox, dbId).listRootCollections() });
       } catch (e) { fail(port, msg.id, e); }
       break;
     }
 
     case 'listSubcollections': {
       try {
-        ok(port, msg.id, { ids: getInternalEnv(sandbox).listSubcollections(msg.docPath) });
+        if (dbId !== undefined && !isFirestoreDatabaseDeclared(sandbox, dbId)) {
+          throw new SandboxError(
+            'not-found',
+            missingFirestoreDatabaseNotFoundMessage(dbId, hostProjectId(ctx) ?? 'demo-project'),
+          );
+        }
+        ok(port, msg.id, { ids: getDatabaseEnv(sandbox, dbId).listSubcollections(msg.docPath) });
       } catch (e) { fail(port, msg.id, e); }
       break;
     }
