@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import { scenario } from '../driver.ts';
 
 declare function upload(path: string, customMetadata?: Record<string, string>): Promise<string>;
+declare function readBytes(path: string): Promise<string>;
 
 export default scenario(async (app) => {
   // A refused upload goes over the hosted bridge, not the host's Storage
@@ -38,6 +39,10 @@ export default scenario(async (app) => {
 
   await app.step('an upload whose uid names a seeded admin succeeds', async () => {
     assert.equal(await page.evaluate(() => upload('avatars/b.png', { uid: 'alice' })), 'ok');
+  });
+
+  await app.step('a read guarded by resource.md5Hash, resource.crc32c, and resource.etag succeeds (#1342)', async () => {
+    assert.equal(await page.evaluate(() => readBytes('seeded/capture-s.bin')), 'ok:6');
   });
 
   await app.step('pyric rules set installs rules with no rules_version', async () => {

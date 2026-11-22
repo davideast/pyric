@@ -28,6 +28,10 @@ import {
   type FirebaseStorage,
 } from './service.js';
 import { cloneCustomMetadata } from './metadata.js';
+import {
+  computeCrc32cBase64,
+  computeMd5Base64,
+} from './digests.js';
 import { buildStoredMetadata } from './upload.js';
 
 export {
@@ -79,10 +83,21 @@ export {
   type AdminSettableMetadataPatch,
 } from './metadata.js';
 export {
+  attachPrecomputedDigests,
   attachPrecomputedMd5,
+  computeBlobDigests,
+  computeCrc32cBase64,
+  computeMd5Base64,
+  computeStorageEtag,
+  createCrc32cHasher,
+  precomputedDigestsOf,
+  precomputedMd5Of,
+  type Crc32cHasher,
+  type PrecomputedBlobDigests,
+} from './digests.js';
+export {
   decodeString,
   defaultRawContentType,
-  precomputedMd5Of,
   uploadObject,
   uploadObjectReplacing,
   type ReplacingUploadResult,
@@ -214,6 +229,8 @@ export async function seedStorageObject(
       customMetadata,
     },
     now: uploadedAt,
+    md5Hash: computeMd5Base64(bytes),
+    crc32c: computeCrc32cBase64(bytes),
   });
   const service = await getStorageService(storage);
   await service.backend.put(

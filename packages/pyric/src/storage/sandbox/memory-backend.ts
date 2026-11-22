@@ -3,6 +3,7 @@
  * or when IndexedDB cannot be opened.
  */
 
+import { computeStorageEtag } from '../digests.js';
 import { higherGeneration, raisedMark, type GenerationIssuer } from '../generation.js';
 import {
   DEFAULT_BUCKET,
@@ -42,6 +43,9 @@ export class InMemoryStorageBackend implements StorageBackend {
     const mark = this.highWater.get(key);
     if (issue !== undefined) {
       metadata.generation = issue(higherGeneration(replaced?.metadata.generation, mark));
+      metadata.etag = computeStorageEtag(metadata.generation, metadata.metageneration);
+    } else if (metadata.etag === undefined) {
+      metadata.etag = computeStorageEtag(metadata.generation, metadata.metageneration);
     }
     this.blobs.set(key, blob);
     this.metadata.set(key, metadata);

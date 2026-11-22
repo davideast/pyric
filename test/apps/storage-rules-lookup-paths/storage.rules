@@ -4,5 +4,11 @@ service firebase.storage {
     match /avatars/{file} {
       allow write: if firestore.get(/databases/(default)/documents/users/$(request.resource.metadata.uid)).data.admin == true;
     }
+    match /seeded/{file} {
+      allow read: if resource.md5Hash == 'asHla8ePAxBZvnvoVFIsTA=='
+        && resource.crc32c == 'T037qw=='
+        && resource.etag is string
+        && resource.etag != '';
+    }
   }
 }

@@ -15,7 +15,7 @@ import {
   readFirestoreDeclaredFromMeta,
 } from 'pyric/firestore/internal';
 import { createHash } from 'node:crypto';
-import type { StoredMetadata } from 'pyric/storage/internal';
+import { computeCrc32cBase64, type StoredMetadata } from 'pyric/storage/internal';
 import type { openHostedDatabase } from './database.js';
 import { sqlText } from './sqlite.js';
 import { storedObjects, type StoredObjectRow, type StoredObjects } from './stored-objects.js';
@@ -35,6 +35,7 @@ export function repairedStorageMetadata(metadata: StoredMetadata, bytes: Uint8Ar
   const hashed = typeof metadata.md5Hash === 'string';
   // Base64 MD5, the encoding `FullMetadata.md5Hash` carries. This store runs only under Node.
   if (hashed) repaired.md5Hash = createHash('md5').update(bytes).digest('base64');
+  if (typeof metadata.crc32c === 'string') repaired.crc32c = computeCrc32cBase64(bytes);
   return repaired;
 }
 

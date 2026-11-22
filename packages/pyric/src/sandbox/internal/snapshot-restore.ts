@@ -26,6 +26,9 @@ import {
 } from '../../storage/index.js';
 import {
   DEFAULT_BUCKET,
+  computeCrc32cBase64,
+  computeMd5Base64,
+  computeStorageEtag,
   deployStorageBucketRules,
   generationIssuer,
   getAdminStorageSandbox,
@@ -183,9 +186,9 @@ async function restoreStorageObject(
   if (item.downloadTokens !== undefined) {
     stored.downloadTokens = item.downloadTokens;
   }
-  if (item.md5Hash !== undefined) {
-    stored.md5Hash = item.md5Hash;
-  }
+  stored.md5Hash = item.md5Hash ?? computeMd5Base64(bytes);
+  stored.crc32c = item.crc32c ?? computeCrc32cBase64(bytes);
+  stored.etag = item.etag ?? computeStorageEtag(stored.generation, stored.metageneration);
   const customMetadata = cloneCustomMetadataSafe(item.customMetadata);
   if (customMetadata !== undefined) {
     stored.customMetadata = customMetadata;

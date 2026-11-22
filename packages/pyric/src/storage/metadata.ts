@@ -23,6 +23,7 @@ import { getStorageService, storageAuth, storageOperationProvenance, targetOf } 
 import { enforceRules } from './enforce.js';
 import { resourceFromStored, requestResourceFor } from './sandbox/rules-resources.js';
 import { clientContentEncoding, planeOf, type StoragePlane } from './content-defaults.js';
+import { computeStorageEtag } from './digests.js';
 import { objectNotFound, invalidRootOperation } from './errors.js';
 import type { StoredMetadata } from './persistence.js';
 import type { StorageReference } from './reference.js';
@@ -122,7 +123,7 @@ export function toFullMetadata(
   plane: StoragePlane,
   bucket = stored.bucket,
 ): FullMetadata {
-  const { customMetadata: rawCustomMetadata, ...rest } = stored;
+  const { customMetadata: rawCustomMetadata, crc32c: _crc32c, etag: _etag, ...rest } = stored;
   const custom = cloneCustomMetadata(rawCustomMetadata);
   const out: FullMetadata = { ...rest, bucket };
   if (plane !== 'admin') {
@@ -174,9 +175,11 @@ function applyMetadataPatch(
   patch: SettableMetadata,
   now: Date = new Date(),
 ): StoredMetadata {
+  const metageneration = bump(base.metageneration);
   const next: StoredMetadata = {
     ...base,
-    metageneration: bump(base.metageneration),
+    metageneration,
+    etag: computeStorageEtag(base.generation, metageneration),
     updated: now.toISOString(),
   };
   const rawPatch = patch as AdminSettableMetadataPatch;
@@ -306,9 +309,11 @@ export async function patchObjectMetadata(
   provenance?: EventProvenance,
 ): Promise<FullMetadata> {
   return rewriteMetadata(ref, 'setMetadata', (existing, now) => {
+    const metageneration = bump(existing.metageneration);
     const next: StoredMetadata = {
       ...existing,
-      metageneration: bump(existing.metageneration),
+      metageneration,
+      etag: computeStorageEtag(existing.generation, metageneration),
       updated: now.toISOString(),
     };
     const settable = patch.settable;

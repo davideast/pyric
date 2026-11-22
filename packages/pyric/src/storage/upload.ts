@@ -23,10 +23,15 @@
  *     payload's intrinsic type (`Blob.type`, data-url prefix) ->
  *     `application/octet-stream`. Matches the JS SDK.
  */
-import { createMd5Hasher, md5 } from '@pyric/rules/internal/storage';
 import { emitSandboxEvent, getClock, makeServiceMutationEvent } from 'pyric/sandbox/internal';
 import type { EventProvenance } from 'pyric/sandbox';
-import { arrayBufferToBase64, base64ToBytes } from './base64.js';
+import { base64ToBytes } from './base64.js';
+import {
+  attachPrecomputedDigests,
+  computeBlobDigests,
+  computeStorageEtag,
+  precomputedDigestsOf,
+} from './digests.js';
 import { operationStorageOf } from './sandbox/cross-bucket-target.js';
 import { getStorageService, storageAuth, storageOperationProvenance, targetOf } from './service.js';
 import { enforceRules } from './enforce.js';
@@ -127,11 +132,11 @@ export async function uploadObjectReplacing(
   }
   const operationProvenance = storageOperationProvenance(target, provenance);
   const blob = toBlob(data, metadata?.contentType);
-  const md5Hash = await computePayloadMd5Base64(data, blob);
+  const { md5Hash, crc32c } = await computeBlobDigests(data, blob);
   // Server-set object times come from the sandbox clock, so `timeCreated` and
   // `updated` agree with the `request.time` the rules see for this same upload.
   const uploadedAt = getClock(target.sandbox).date();
-  const stored = buildStoredMetadata({ ref, blob, settable: metadata, now: uploadedAt, md5Hash });
+  const stored = buildStoredMetadata({ ref, blob, settable: metadata, now: uploadedAt, md5Hash, crc32c });
   if (setsTokens) stored.downloadTokens = downloadTokens;
   const service = await getStorageService(operationStorage);
   const existing = await service.backend.getMetadata(ref.fullPath);
@@ -226,11 +231,14 @@ export function buildStoredMetadata(args: {
   settable: SettableMetadata | undefined;
   now?: Date;
   md5Hash?: string;
+  crc32c?: string;
+  etag?: string;
 }): StoredMetadata {
   const { ref, blob, settable } = args;
   const now = (args.now ?? new Date()).toISOString();
   // Provisional: the backend issues the generation the write stores.
   const generation = String(clockGeneration((args.now ?? new Date()).getTime()));
+  const metageneration = '1';
   const name = ref.name;
   const target = targetOf(operationStorageOf(ref));
   const client = planeOf(target) === 'client';
@@ -243,7 +251,7 @@ export function buildStoredMetadata(args: {
     name,
     bucket: target.bucket,
     generation,
-    metageneration: '1',
+    metageneration,
     timeCreated: now,
     updated: now,
     size: blob.size,
@@ -258,9 +266,13 @@ export function buildStoredMetadata(args: {
     contentEncoding: settable?.contentEncoding,
     contentLanguage: settable?.contentLanguage,
     customMetadata: cloneCustomMetadata(settable?.customMetadata),
+    etag: args.etag ?? computeStorageEtag(generation, metageneration),
   };
   if (args.md5Hash !== undefined) {
     stored.md5Hash = args.md5Hash;
+  }
+  if (args.crc32c !== undefined) {
+    stored.crc32c = args.crc32c;
   }
   return stored;
 }
@@ -278,20 +290,6 @@ export function buildStoredMetadata(args: {
  * passing `new Blob([...], { type: 'application/json' })` don't
  * lose the type info.
  */
-const PRECOMPUTED_MD5_KEY = Symbol.for('pyric.storage.precomputed-md5');
-const globalPrecomputedMd5 = globalThis as { [PRECOMPUTED_MD5_KEY]?: WeakMap<Blob, string> };
-const PRECOMPUTED_MD5 = (globalPrecomputedMd5[PRECOMPUTED_MD5_KEY] ??= new WeakMap());
-
-/** Attach a precomputed RFC 1321 base64 MD5 digest to a staged file-backed `Blob` so finishing never re-reads the file. */
-export function attachPrecomputedMd5(blob: Blob, md5Base64: string): void {
-  PRECOMPUTED_MD5.set(blob, md5Base64);
-}
-
-/** Read any precomputed base64 MD5 digest attached to `blob`. */
-export function precomputedMd5Of(blob: Blob): string | undefined {
-  return PRECOMPUTED_MD5.get(blob);
-}
-
 function toBlob(
   data: Blob | Uint8Array | ArrayBuffer,
   contentTypeHint: string | undefined,
@@ -300,9 +298,9 @@ function toBlob(
     if (contentTypeHint && contentTypeHint !== data.type) {
       // Force the caller's hint by rewrapping. Same bytes, new type.
       const rewrapped = new Blob([data], { type: contentTypeHint });
-      const existingMd5 = precomputedMd5Of(data);
-      if (existingMd5 !== undefined) {
-        attachPrecomputedMd5(rewrapped, existingMd5);
+      const existingDigests = precomputedDigestsOf(data);
+      if (existingDigests !== undefined) {
+        attachPrecomputedDigests(rewrapped, existingDigests);
       }
       return rewrapped;
     }
@@ -311,44 +309,6 @@ function toBlob(
   // Uint8Array / ArrayBuffer -> Blob. ArrayBuffer-passing through
   // the Blob constructor's BlobPart accepts both shapes natively.
   return new Blob([data as ArrayBuffer], { type: contentTypeHint ?? '' });
-}
-
-const MD5_SLICE_BYTES = 64 * 1024;
-
-async function computePayloadMd5Base64(
-  data: Blob | Uint8Array | ArrayBuffer,
-  blob: Blob,
-): Promise<string> {
-  if (data instanceof Blob) {
-    const precomputed = precomputedMd5Of(data);
-    if (precomputed !== undefined) {
-      return precomputed;
-    }
-    const hasher = createMd5Hasher();
-    for (let offset = 0; offset < blob.size; offset += MD5_SLICE_BYTES) {
-      const end = Math.min(offset + MD5_SLICE_BYTES, blob.size);
-      const chunk = new Uint8Array(await blob.slice(offset, end).arrayBuffer());
-      hasher.update(chunk);
-    }
-    const digest = hasher.digest();
-    const buf = digest.buffer.slice(
-      digest.byteOffset,
-      digest.byteOffset + digest.byteLength,
-    ) as ArrayBuffer;
-    return arrayBufferToBase64(buf);
-  }
-  let bytes: Uint8Array;
-  if (data instanceof Uint8Array) {
-    bytes = data;
-  } else {
-    bytes = new Uint8Array(data);
-  }
-  const digest = md5(bytes);
-  const buf = digest.buffer.slice(
-    digest.byteOffset,
-    digest.byteOffset + digest.byteLength,
-  ) as ArrayBuffer;
-  return arrayBufferToBase64(buf);
 }
 
 /**
