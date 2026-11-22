@@ -7,7 +7,7 @@ import {
 } from './diagnostics-report.js';
 import { stampedSessionToken } from './hosted-target.js';
 
-export interface BrowserDiagnostics {
+interface BrowserDiagnostics {
   getSnapshot(): BrowserDiagnosticReport;
   record(event: Omit<DiagnosticEvent, 'at'>): void;
   flush(): Promise<void>;

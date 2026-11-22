@@ -119,7 +119,7 @@ export function serializeToBuckets(
 }
 
 /** Tag for a v3 record bundle (a single committable JSON of all records). */
-export const V3_BUNDLE_FORMAT = 'pyric-v3-records';
+const V3_BUNDLE_FORMAT = 'pyric-v3-records';
 
 /**
  * Bundle v3 records into one committable JSON string, for single-blob stores

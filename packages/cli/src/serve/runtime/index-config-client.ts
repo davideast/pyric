@@ -9,14 +9,14 @@ import {
 import { stampedSessionToken } from './hosted-target.js';
 import { indexPresentation } from './service-presentation.js';
 
-export interface LocalIndexConfig {
+interface LocalIndexConfig {
   service?: 'firestore' | 'rtdb';
   status?: 'configured' | 'unconfigured';
   path: string;
   config: ServiceIndexConfig;
   revision: string;
 }
-export interface IndexPreview extends LocalIndexConfig {
+interface IndexPreview extends LocalIndexConfig {
   addition: ServiceIndexDefinition | null;
 }
 export interface IndexConfigClient {
