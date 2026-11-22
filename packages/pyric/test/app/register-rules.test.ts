@@ -3,7 +3,7 @@
  * `PYRIC_SANDBOX=local` takes every rules file `firebase.json` declares.
  */
 import { afterEach, describe, expect, it, spyOn } from 'bun:test';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initializeSandbox, type LocalSandbox } from 'pyric/sandbox';
@@ -269,5 +269,71 @@ service cloud.firestore {
       'reports.rules': DECOY_RULES,
     }));
     expect(stderr).toContain('Bad_Id');
+  });
+
+  it('resolves Firestore, RTDB, and Storage deploy targets via PYRIC_PROJECT, pyric.json, and firebase use (#1454)', async () => {
+    const baseFiles = {
+      'firebase.json': {
+        firestore: [{ target: 'main', rules: 'firestore.default.rules' }],
+        database: [{ target: 'chat', rules: 'chat.rules.json' }],
+        storage: [{ target: 'media', rules: 'storage.rules' }],
+      },
+      '.firebaserc': {
+        projects: { staging: 'staging-proj', prod: 'prod-proj' },
+        targets: {
+          'staging-proj': {
+            firestore: { main: ['(default)'] },
+            database: { chat: ['staging-chat'] },
+            storage: { media: [STORAGE_BUCKET] },
+          },
+        },
+      },
+      'firestore.default.rules': FIRESTORE_RULES,
+      'chat.rules.json': CHAT_RTDB_RULES,
+      'storage.rules': STORAGE_RULES,
+    };
+
+    const prevProject = process.env.PYRIC_PROJECT;
+    const prevHome = process.env.HOME;
+    const prevXdg = process.env.XDG_CONFIG_HOME;
+    try {
+      const cleanHome = mkdtempSync(join(tmpdir(), 'pyric-reg-home-'));
+      dirs.push(cleanHome);
+      process.env.HOME = cleanHome;
+      delete process.env.XDG_CONFIG_HOME;
+
+      // 1. PYRIC_PROJECT alias
+      process.env.PYRIC_PROJECT = 'staging';
+      const envLoaded = load(project(baseFiles));
+      expect(envLoaded.stderr).toBe('');
+      const app1 = createDistAppForSandbox(envLoaded.sandbox, { projectId: 'staging-proj' }, `reg-1454-1-${Math.random()}`);
+      await expect(setDoc(doc(getFirestore(app1), 'closed/x'), { ok: false })).rejects.toMatchObject({
+        code: 'permission-denied',
+      });
+      await set(ref(getDatabase(envLoaded.sandbox.withAuth(null), 'staging-chat'), 'rooms/a'), 1);
+      await uploadString(storageRef(appStorage(envLoaded.sandbox), 'public/a.txt'), 'ok');
+
+      // 2. pyric.json project
+      delete process.env.PYRIC_PROJECT;
+      const pyricJsonLoaded = load(project({ ...baseFiles, 'pyric.json': { project: 'staging' } }));
+      expect(pyricJsonLoaded.stderr).toBe('');
+
+      // 3. firebase use configstore activeProjects
+      const useDir = project(baseFiles);
+      mkdirSync(join(cleanHome, '.config', 'configstore'), { recursive: true });
+      writeFileSync(
+        join(cleanHome, '.config', 'configstore', 'firebase-tools.json'),
+        JSON.stringify({ activeProjects: { [useDir]: 'staging' } }),
+      );
+      const useLoaded = load(useDir);
+      expect(useLoaded.stderr).toBe('');
+    } finally {
+      if (prevProject === undefined) delete process.env.PYRIC_PROJECT;
+      else process.env.PYRIC_PROJECT = prevProject;
+      if (prevHome === undefined) delete process.env.HOME;
+      else process.env.HOME = prevHome;
+      if (prevXdg === undefined) delete process.env.XDG_CONFIG_HOME;
+      else process.env.XDG_CONFIG_HOME = prevXdg;
+    }
   });
 });

@@ -22,6 +22,7 @@ import {
   describeFirebaseProject,
   FIREBASE_PROJECT_FIXES,
   FIREBASE_PROJECT_SOURCES_TRIED,
+  resolveFirebaseProject,
   type FirebaseProjectResolution,
 } from '../cli/firebase-project.js';
 import {
@@ -411,16 +412,18 @@ export async function loadProjectFirestoreRules(
     if (target.database !== DEFAULT_FIRESTORE_DATABASE) {
       declared.add(target.database);
     }
-    if (target.path !== undefined && preparedByPath.has(target.path)) {
-      const cached = preparedByPath.get(target.path)!;
-      databases.set(target.database, {
-        database: target.database,
-        rules: cached.rules,
-        rulesHash: cached.rulesHash,
-        sourcePath: target.path,
-        moduleFiles: [...cached.moduleFiles],
-      });
-      continue;
+    if (target.path !== undefined) {
+      const cached = preparedByPath.get(target.path);
+      if (cached !== undefined) {
+        databases.set(target.database, {
+          database: target.database,
+          rules: cached.rules,
+          rulesHash: cached.rulesHash,
+          sourcePath: target.path,
+          moduleFiles: [...cached.moduleFiles],
+        });
+        continue;
+      }
     }
     const loaded = await loadFirestoreRulesTarget(target);
     if (loaded.rules !== null && loaded.rulesHash !== null && loaded.sourcePath !== null) {
@@ -471,17 +474,20 @@ export function loadInProcessFirestoreProjectRules(
   inProcessStatePath: string,
   onWarning: (message: string) => void,
 ): { path: string; refused: string | null } | null {
-  const projectId = readFirebaseRcSync(cwd)?.projects?.default;
-  const projectOpts: FirestoreRulesConfigOptionsForSync = {};
-  if (projectId !== undefined) {
-    projectOpts.projectId = projectId;
-  }
+  let cachedRc: FirebaseRc | null | undefined;
+  const readRc = (): FirebaseRc | null => {
+    if (cachedRc === undefined) {
+      cachedRc = readFirebaseRcSync(cwd);
+    }
+    return cachedRc;
+  };
+  const projectId = resolveFirebaseProject({ projectDir: cwd, rc: readRc() }).projectId;
   const resolved = firestoreRulesConfig(config?.firestore, {
     targetDatabases: (target) => {
-      if (projectOpts.projectId === undefined) {
+      if (projectId === undefined) {
         return [];
       }
-      return readFirebaseRcSync(cwd)?.targets?.[projectOpts.projectId]?.firestore?.[target] ?? [];
+      return readRc()?.targets?.[projectId]?.firestore?.[target] ?? [];
     },
     resolveFile: (file) => projectFilePath(cwd, file),
   });
@@ -564,8 +570,4 @@ export function loadInProcessFirestoreProjectRules(
 
   void firestoreRulesInForce;
   return defaultResult;
-}
-
-interface FirestoreRulesConfigOptionsForSync {
-  projectId?: string;
 }
