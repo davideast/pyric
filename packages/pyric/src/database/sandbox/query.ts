@@ -1,5 +1,5 @@
 /**
- * RTDB query pipeline — order, filter, limit over an in-memory subtree.
+ * RTDB query pipeline -- order, filter, limit over an in-memory subtree.
  *
  * The modular SDK's `query(ref, ...constraints)` constructs a tagged
  * `Query` carrying a `QuerySpec`. `get(query)` / `onValue(query, cb)`
@@ -13,7 +13,7 @@
  *      priority index with key tie-breaking if none supplied).
  *   3. Apply `startAt` / `startAfter` / `endAt` / `endBefore` / `equalTo`
  *      bounds against the active ordering's comparison value.
- *   4. Apply `limitToFirst(n)` or `limitToLast(n)` — they truncate the
+ *   4. Apply `limitToFirst(n)` or `limitToLast(n)` -- they truncate the
  *      result window from either end.
  *
  * The output is an ordered list of `{ key, value }` pairs ready for the
@@ -24,7 +24,7 @@
  *     (`rtdb-modular-orderbychild-window.json`).
  *   - `startAfter`/`endBefore` are **exclusive**
  *     (`rtdb-modular-startafter-endbefore-exclusive.json`).
- *   - `equalTo(v)` returns ALL children whose ordered key === v — no
+ *   - `equalTo(v)` returns ALL children whose ordered key === v -- no
  *     uniqueness enforced (`rtdb-modular-equalTo-filter.json`).
  *   - `limitToFirst(n)` keeps the first n; `limitToLast(n)` keeps the
  *     last n (post-order, pre-limit window). Locked by
@@ -38,6 +38,12 @@
  * `RulesEvaluator.missingQueryIndex` and `query-index.ts`.
  */
 import {
+  END_ALREADY_SET,
+  START_ALREADY_SET,
+  type EndEndpointKind,
+  type StartEndpointKind,
+} from '@pyric/rules/internal/rtdb';
+import {
   canonicalChildPath,
   type Bound,
   type LimitKind,
@@ -45,32 +51,29 @@ import {
   type QuerySpec,
 } from '../internal/query-projection.js';
 
-/** Empty spec — equivalent to "no constraints" (a plain ref query). */
+/** Empty spec -- equivalent to "no constraints" (a plain ref query). */
 export function emptySpec(): QuerySpec {
   return { orderBy: null, bounds: [], limit: null };
 }
 
-type StartKind = 'startAt' | 'startAfter' | 'equalTo';
-type EndKind = 'endAt' | 'endBefore' | 'equalTo';
-
 /** Whether a bound sets the start: `startAt`, `startAfter` or `equalTo`. */
-function isStartKind(kind: Bound['kind']): kind is StartKind {
+function isStartKind(kind: Bound['kind']): kind is StartEndpointKind {
   return kind === 'startAt' || kind === 'startAfter' || kind === 'equalTo';
 }
 
 /** Whether a bound sets the end: `endAt`, `endBefore` or `equalTo`. */
-function isEndKind(kind: Bound['kind']): kind is EndKind {
+function isEndKind(kind: Bound['kind']): kind is EndEndpointKind {
   return kind === 'endAt' || kind === 'endBefore' || kind === 'equalTo';
 }
 
 /** Whether the spec already has a lower-bound (start) constraint. */
 function specHasStart(spec: QuerySpec): boolean {
-  return spec.bounds.some((b) => isStartKind(b.kind));
+  return spec.bounds.some(b => isStartKind(b.kind));
 }
 
 /** Whether the spec already has an upper-bound (end) constraint. */
 function specHasEnd(spec: QuerySpec): boolean {
-  return spec.bounds.some((b) => isEndKind(b.kind));
+  return spec.bounds.some(b => isEndKind(b.kind));
 }
 
 /** The public call that set each ordering, as the SDK names it in errors. */
@@ -81,37 +84,23 @@ const ORDER_BY_CALL: Record<OrderBy['kind'], string> = {
   value: 'orderByValue',
 };
 
-// The SDK's texts, kept verbatim: startAt names `startBefore`, and endAt and
-// endBefore say "Starting point" for an end point.
-const START_ALREADY_SET: Record<StartKind, string> = {
-  startAt: 'startAt: Starting point was already set (by another call to startAt, startBefore or equalTo).',
-  startAfter: 'startAfter: Starting point was already set (by another call to startAt, startAfter, or equalTo).',
-  equalTo: 'equalTo: Starting point was already set (by another call to startAt/startAfter or equalTo).',
-};
-const END_ALREADY_SET: Record<EndKind, string> = {
-  endAt: 'endAt: Starting point was already set (by another call to endAt, endBefore or equalTo).',
-  endBefore: 'endBefore: Starting point was already set (by another call to endAt, endBefore or equalTo).',
-  equalTo: 'equalTo: Ending point was already set (by another call to endAt/endBefore or equalTo).',
-};
-
 /**
  * Append a constraint, returning a NEW spec. (Constraints are immutable
  * values; the query builder threads them via free functions matching
  * `firebase/database`'s shape.)
  *
  * Conflicting constraints throw, mirroring the upstream `_apply` guards
- * (`api/Reference_impl.ts`) — DB-B5. Prod rejects: multiple `orderBy*`,
+ * (`api/Reference_impl.ts`) -- DB-B5. Prod rejects: multiple `orderBy*`,
  * a second `limitToFirst`/`limitToLast`, a second start (`startAt`/
  * `startAfter`/`equalTo`) or end (`endAt`/`endBefore`/`equalTo`).
  */
-export function applyConstraint(
-  spec: QuerySpec,
-  c: Constraint,
-): QuerySpec {
+export function applyConstraint(spec: QuerySpec, c: Constraint): QuerySpec {
   switch (c.kind) {
     case 'orderBy': {
       if (spec.orderBy !== null) {
-        throw new Error(`${ORDER_BY_CALL[c.spec.kind]}: You can't combine multiple orderBy calls.`);
+        throw new Error(
+          `${ORDER_BY_CALL[c.spec.kind]}: You can't combine multiple orderBy calls.`,
+        );
       }
       if (c.spec.kind === 'child') {
         return { ...spec, orderBy: { kind: 'child', path: canonicalChildPath(c.spec.path) } };
@@ -139,7 +128,7 @@ export function applyConstraint(
 }
 
 /**
- * Internal constraint variant — produced by the public `orderBy*`,
+ * Internal constraint variant -- produced by the public `orderBy*`,
  * `startAt`, `limitToFirst`, ... factories and consumed by `query()`
  * which folds them into a `QuerySpec`.
  */
