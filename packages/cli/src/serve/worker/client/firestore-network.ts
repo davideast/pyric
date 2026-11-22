@@ -38,6 +38,8 @@ interface PendingPortWrite {
 }
 
 interface LensWarmCache {
+  epoch: number;
+  readonly docEpochs: Map<string, number>;
   readonly baseDocs: Map<string, SerializedDocData | null>;
   readonly warmExistingPaths: Set<string>;
 }
@@ -115,10 +117,17 @@ function lensCacheFor(state: PortFirestoreState, databaseId?: string): LensWarmC
   const key = `${dbPart}::${lensPart}`;
   let cache = state.cachesByLens.get(key);
   if (cache === undefined) {
-    cache = { baseDocs: new Map(), warmExistingPaths: new Set() };
+    cache = { epoch: 0, docEpochs: new Map(), baseDocs: new Map(), warmExistingPaths: new Set() };
     state.cachesByLens.set(key, cache);
   }
   return cache;
+}
+
+export function captureWorkerFirestoreCacheEpoch(
+  port: ClientPort,
+  databaseId?: string,
+): number {
+  return lensCacheFor(stateForPort(port), databaseId).epoch;
 }
 
 export function isWorkerFirestoreOffline(port: ClientPort): boolean {
@@ -133,6 +142,8 @@ export function recordWorkerOnlineDoc(
   databaseId?: string,
 ): void {
   const cache = lensCacheFor(stateForPort(port), databaseId);
+  cache.epoch += 1;
+  cache.docEpochs.set(path, cache.epoch);
   markWorkerPathCached(port, path);
   if (exists && data !== undefined) {
     cache.baseDocs.set(path, data);
@@ -147,20 +158,39 @@ export function markWorkerCommittedWrite(
   port: ClientPort,
   mutations: readonly WorkerOfflineMutation[],
   databaseId?: string,
+  sinceEpoch?: number,
 ): void {
   const cache = lensCacheFor(stateForPort(port), databaseId);
+  const byPath = new Map<string, WorkerOfflineMutation[]>();
   for (const m of mutations) {
-    if (m.kind === 'delete') {
-      cache.baseDocs.set(m.path, null);
-      cache.warmExistingPaths.delete(m.path);
-      unmarkWorkerPathCached(port, m.path);
-    } else {
-      const projected = projectWorkerOfflineDoc(m.path, cache.baseDocs.get(m.path), [{ mutations: [m] }]);
-      if (projected.result.exists && projected.result.data !== undefined) {
-        cache.baseDocs.set(m.path, projected.result.data);
+    let list = byPath.get(m.path);
+    if (list === undefined) {
+      list = [];
+      byPath.set(m.path, list);
+    }
+    list.push(m);
+  }
+  for (const [path, pathMutations] of byPath) {
+    const last = pathMutations[pathMutations.length - 1];
+    if (last?.kind === 'delete') {
+      cache.baseDocs.set(path, null);
+      cache.warmExistingPaths.delete(path);
+      unmarkWorkerPathCached(port, path);
+      continue;
+    }
+    if (sinceEpoch !== undefined && (cache.docEpochs.get(path) ?? 0) > sinceEpoch) {
+      const current = cache.baseDocs.get(path);
+      if (current !== null && current !== undefined) {
+        cache.warmExistingPaths.add(path);
+        markWorkerPathCached(port, path);
       }
-      cache.warmExistingPaths.add(m.path);
-      markWorkerPathCached(port, m.path);
+      continue;
+    }
+    const projected = projectWorkerOfflineDoc(path, cache.baseDocs.get(path), [{ mutations: pathMutations }]);
+    if (projected.result.exists && projected.result.data !== undefined) {
+      cache.baseDocs.set(path, projected.result.data);
+      cache.warmExistingPaths.add(path);
+      markWorkerPathCached(port, path);
     }
   }
 }
@@ -269,9 +299,10 @@ export function enqueueWorkerOfflineWrite<T>(
       if (flushed) return;
       flushed = true;
       try {
+        const sinceEpoch = captureWorkerFirestoreCacheEpoch(port, databaseId);
         const result = await sendOnline();
         clearStaged();
-        markWorkerCommittedWrite(port, mutations, databaseId);
+        markWorkerCommittedWrite(port, mutations, databaseId, sinceEpoch);
         state.pendingWrites.delete(entry);
         resolveOut?.(result);
       } catch (error) {

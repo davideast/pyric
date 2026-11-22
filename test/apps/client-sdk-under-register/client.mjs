@@ -3,9 +3,9 @@
 // `<name> {"ok":true,...}` or `<name> {"ok":false,"code":...}`. It deletes its
 // app at the end and then exits on its own, with no process.exit.
 import { initializeApp, deleteApp } from "firebase/app";
-import { getDatabase, ref, set, get, onValue, onDisconnect } from "firebase/database";
-import { getFirestore, doc, setDoc, getDoc, collection, query, limit, onSnapshot, serverTimestamp, deleteField, Timestamp, getAggregateFromServer, count, sum, average } from "firebase/firestore";
-import { getAuth, createUserWithEmailAndPassword } from "firebase/auth";
+import { getDatabase, ref, set, get, onValue, onDisconnect, runTransaction } from "firebase/database";
+import { getFirestore, doc, setDoc, getDoc, collection, query, limit, onSnapshot, serverTimestamp, deleteField, increment, Timestamp, getAggregateFromServer, count, sum, average } from "firebase/firestore";
+import { getAuth, createUserWithEmailAndPassword, signOut } from "firebase/auth";
 import { getStorage, ref as storageRef, uploadString, uploadBytesResumable, getBytes, getMetadata, getDownloadURL, deleteObject } from "firebase/storage";
 import { getFunctions, httpsCallable } from "firebase/functions";
 
@@ -180,6 +180,50 @@ await outcome("database.ownPath", () => set(ref(db, `users/${user?.uid}`), "mine
 await outcome("database.otherPath", () => set(ref(db, "users/someone-else"), "theirs"));
 await outcome("database.onDisconnect", () => onDisconnect(ref(db, "server/presence")).set("gone"));
 await outcome("database.presence", () => set(ref(db, "server/presence"), "here"));
+
+const uid = user?.uid ?? "missing";
+const profileRef = ref(db, `userProfiles/${uid}`);
+await set(profileRef, { created: true });
+const counterDocRef = doc(fsDb, `userDocs/${uid}/items/d1`);
+let liveInitialReady;
+const liveInitialDone = new Promise((resolve) => { liveInitialReady = resolve; });
+let liveIncrementReady;
+const liveIncrementDone = new Promise((resolve) => { liveIncrementReady = resolve; });
+const unsubLiveCounter = onSnapshot(counterDocRef, (snap) => {
+  if (!snap.exists()) {
+    liveInitialReady();
+    return;
+  }
+  if (snap.data()?.n === 2) {
+    liveIncrementReady();
+  }
+});
+await liveInitialDone;
+await setDoc(counterDocRef, { label: "pinned", n: increment(2) }, { merge: true });
+await liveIncrementDone;
+unsubLiveCounter();
+
+await signOut(getAuth(app));
+
+await outcome("database.revokedWarmCreateOnlyTxn", async () => {
+  const result = await runTransaction(profileRef, (cur) => (cur === null ? { created: false } : undefined));
+  return { committed: result.committed, val: result.snapshot.val() };
+});
+
+await outcome("firestore.liveListenerIncrementCache", () =>
+  new Promise((resolve) => {
+    let cachedDocs = null;
+    const unsub = onSnapshot(
+      collection(fsDb, `userDocs/${uid}/items`),
+      (snap) => {
+        cachedDocs = snap.docs.map((d) => d.data());
+      },
+      (error) => {
+        unsub();
+        resolve({ docs: cachedDocs, errorCode: error?.code ?? null });
+      },
+    );
+  }));
 
 await outcome("ai", async () => (await import("firebase/ai")).getAI(app));
 await outcome("messaging", async () => (await import("firebase/messaging")).getMessaging(app));

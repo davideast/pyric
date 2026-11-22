@@ -1,0 +1,13 @@
+{
+  "description": "A warm client whose cached non-null server mirror is invalidated by rules or auth revocation re-runs a create-only transaction callback against null and rejects with permission_denied when write rules also deny.",
+  "sequence": {
+    "seed": 651566,
+    "instances": 3,
+    "initialRules": [0, 0, 0],
+    "steps": [
+      { "op": "set", "db": 2, "path": "users/$me", "value": { "$ts": true } },
+      { "op": "rules", "db": 2, "rules": 6 },
+      { "op": "transaction", "db": 2, "path": "users/$me", "script": "createOnly" }
+    ]
+  }
+}
