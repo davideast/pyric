@@ -33,8 +33,16 @@ class FirebaseAuth internal constructor(
 
     private val scope = CoroutineScope(dispatcher)
 
+    private data class SessionState(
+        val user: FirebaseUser? = null,
+        val lensOverride: AuthLens? = null,
+        val tenantId: String? = null,
+        val effectiveLens: AuthLens = AuthLens.Anon
+    )
+
     private val _currentUser = MutableStateFlow<FirebaseUser?>(null)
-    val currentUser: FirebaseUser? get() = _currentUser.value
+    val currentUser: FirebaseUser?
+        get() = synchronized(authStateLock) { sessionState.user }
 
     private val _lensOverride = MutableStateFlow<AuthLens?>(null)
     val lensOverrideFlow: StateFlow<AuthLens?> = _lensOverride.asStateFlow()
@@ -43,18 +51,21 @@ class FirebaseAuth internal constructor(
     override val authLensFlow: StateFlow<AuthLens> = _authLens.asStateFlow()
 
     fun setAuthLens(lens: AuthLens?) {
-        _lensOverride.value = lens
-        updateAuthLens()
+        synchronized(authStateLock) {
+            commitSessionStateLocked(lensOverride = lens)
+        }
     }
 
     fun clearAuthLensOverride() {
         setAuthLens(null)
     }
 
-    var tenantId: String? = null
+    var tenantId: String?
+        get() = synchronized(authStateLock) { sessionState.tenantId }
         set(value) {
-            field = value
-            updateAuthLens()
+            synchronized(authStateLock) {
+                commitSessionStateLocked(tenantId = value)
+            }
         }
 
     @Volatile
@@ -79,6 +90,8 @@ class FirebaseAuth internal constructor(
     private var authStateEpoch = 0L
     private var initialBridgeSnapshotReceived = false
     private var initialIdTokenSnapshotReceived = false
+    @Volatile
+    private var sessionState = SessionState()
 
     private sealed class BridgeTokenEnrichment {
         data object SessionMovedOn : BridgeTokenEnrichment()
@@ -112,7 +125,7 @@ class FirebaseAuth internal constructor(
                             initialIdTokenSnapshotReceived = true
                             if (rawSnap == null) return@synchronized false
                         }
-                        rawSnap != null || _currentUser.value != null
+                        rawSnap != null || sessionState.user != null
                     }
                     if (!shouldNotify) return@collect
                     if (rawSnap == null) {
@@ -121,7 +134,7 @@ class FirebaseAuth internal constructor(
                     }
                     val snapUid = rawSnap["uid"] as? String
                     val (targetUser, epochBeforeFetch) = synchronized(authStateLock) {
-                        _currentUser.value to authStateEpoch
+                        sessionState.user to authStateEpoch
                     }
                     if (targetUser == null) {
                         // A non-null idToken snapshot carrying a uid can arrive ahead of
@@ -139,9 +152,14 @@ class FirebaseAuth internal constructor(
                         ?: (rawSnap["claims"] as? Map<String, Any?>)
                     if (snapClaims != null) {
                         val stillCurrent = synchronized(authStateLock) {
-                            if (_currentUser.value?.uid == targetUser.uid) {
-                                targetUser.customClaims = FirebaseUser.extractCustomClaims(snapClaims)
-                                updateAuthLens()
+                            val current = sessionState.user
+                            if (current?.uid == targetUser.uid) {
+                                val extracted = FirebaseUser.extractCustomClaims(snapClaims)
+                                current.customClaims = extracted
+                                if (targetUser !== current) {
+                                    targetUser.customClaims = extracted
+                                }
+                                commitSessionStateLocked()
                                 true
                             } else {
                                 false
@@ -153,14 +171,26 @@ class FirebaseAuth internal constructor(
                             BridgeTokenEnrichment.SessionMovedOn -> return@collect
                             is BridgeTokenEnrichment.Resolved -> {
                                 val stillCurrent = synchronized(authStateLock) {
-                                    if (_currentUser.value?.uid != targetUser.uid) {
+                                    val current = sessionState.user
+                                    if (current?.uid != targetUser.uid) {
                                         false
                                     } else {
                                         if (authStateEpoch == epochBeforeFetch) {
-                                            enrichment.signInProvider?.let { targetUser.signInProviderOverride = it }
+                                            enrichment.signInProvider?.let {
+                                                current.signInProviderOverride = it
+                                                if (targetUser !== current) {
+                                                    targetUser.signInProviderOverride = it
+                                                }
+                                            }
                                             enrichment.claims?.let {
-                                                targetUser.customClaims = FirebaseUser.extractCustomClaims(it)
-                                                updateAuthLens()
+                                                val extracted = FirebaseUser.extractCustomClaims(it)
+                                                current.customClaims = extracted
+                                                if (targetUser !== current) {
+                                                    targetUser.customClaims = extracted
+                                                }
+                                            }
+                                            if (enrichment.signInProvider != null || enrichment.claims != null) {
+                                                commitSessionStateLocked()
                                             }
                                         }
                                         true
@@ -187,7 +217,8 @@ class FirebaseAuth internal constructor(
         }
     }
 
-    override fun getEffectiveLens(): AuthLens = _authLens.value
+    override fun getEffectiveLens(): AuthLens =
+        synchronized(authStateLock) { sessionState.effectiveLens }
 
     fun signInWithEmailAndPassword(email: String, password: String): Task<AuthResult> {
         val tcs = TaskCompletionSource<AuthResult>()
@@ -337,9 +368,7 @@ class FirebaseAuth internal constructor(
         // Clear the local session first; the host is told afterwards.
         synchronized(authStateLock) {
             authStateEpoch += 1
-            _currentUser.value = null
-            _lensOverride.value = null
-            _authLens.value = AuthLens.Anon
+            commitSessionStateLocked(user = null, lensOverride = null)
         }
         notifyAuthStateChanged()
         notifyIdTokenChanged()
@@ -380,10 +409,9 @@ class FirebaseAuth internal constructor(
 
     internal fun notifyTokenRefreshed(user: FirebaseUser) {
         synchronized(authStateLock) {
-            if (_currentUser.value?.uid == user.uid) {
+            if (sessionState.user?.uid == user.uid) {
                 authStateEpoch += 1
-                _currentUser.value = user
-                updateAuthLens()
+                commitSessionStateLocked(user = user)
             }
         }
         notifyIdTokenChanged()
@@ -391,10 +419,9 @@ class FirebaseAuth internal constructor(
 
     internal fun notifyUserUpdated(user: FirebaseUser) {
         synchronized(authStateLock) {
-            if (_currentUser.value?.uid == user.uid) {
+            if (sessionState.user?.uid == user.uid) {
                 authStateEpoch += 1
-                _currentUser.value = user
-                updateAuthLens()
+                commitSessionStateLocked(user = user)
             }
         }
         notifyIdTokenChanged()
@@ -407,10 +434,9 @@ class FirebaseAuth internal constructor(
             authEx.errorCode == "ERROR_USER_NOT_FOUND"
         if (!invalidated) return
         val cleared = synchronized(authStateLock) {
-            if (_currentUser.value?.uid == targetUid) {
+            if (sessionState.user?.uid == targetUid) {
                 authStateEpoch += 1
-                _currentUser.value = null
-                updateAuthLens()
+                commitSessionStateLocked(user = null)
                 true
             } else {
                 false
@@ -424,10 +450,9 @@ class FirebaseAuth internal constructor(
 
     internal fun clearCurrentUserAfterDelete(targetUid: String) {
         val cleared = synchronized(authStateLock) {
-            if (_currentUser.value?.uid == targetUid) {
+            if (sessionState.user?.uid == targetUid) {
                 authStateEpoch += 1
-                _currentUser.value = null
-                updateAuthLens()
+                commitSessionStateLocked(user = null)
                 true
             } else {
                 false
@@ -456,8 +481,7 @@ class FirebaseAuth internal constructor(
         }
         synchronized(authStateLock) {
             authStateEpoch += 1
-            _currentUser.value = user
-            updateAuthLens()
+            commitSessionStateLocked(user = user)
         }
         notifyAuthStateChanged()
         notifyIdTokenChanged()
@@ -502,12 +526,11 @@ class FirebaseAuth internal constructor(
                 // an already-checked null must not erase a newly signed-in user.
                 if (!initialBridgeSnapshotReceived) {
                     initialBridgeSnapshotReceived = true
-                    if (_currentUser.value != null) return
+                    if (sessionState.user != null) return
                 }
-                val prevUid = _currentUser.value?.uid
+                val prevUid = sessionState.user?.uid
                 authStateEpoch += 1
-                _currentUser.value = null
-                _authLens.value = AuthLens.Anon
+                commitSessionStateLocked(user = null)
                 prevUid != null
             }
             if (changed) {
@@ -520,7 +543,7 @@ class FirebaseAuth internal constructor(
         val hasEmbeddedClaims = userMap["customClaims"] != null || userMap["claims"] != null
         val fetchEpoch: Long? = synchronized(authStateLock) {
             initialBridgeSnapshotReceived = true
-            val existingUser = _currentUser.value
+            val existingUser = sessionState.user
             if (hasEmbeddedClaims || (existingUser != null && existingUser.uid == uid)) {
                 null
             } else {
@@ -541,7 +564,7 @@ class FirebaseAuth internal constructor(
             if (fetchEpoch != null && authStateEpoch != fetchEpoch) {
                 return
             }
-            val existingUser = _currentUser.value
+            val existingUser = sessionState.user
             val prevUid = existingUser?.uid
             val inheritedProvider = if (existingUser != null && existingUser.uid == uid) {
                 existingUser.signInProviderOverride
@@ -556,9 +579,8 @@ class FirebaseAuth internal constructor(
                 user.customClaims = existingUser.customClaims
             }
             authStateEpoch += 1
-            _currentUser.value = user
-            updateAuthLens()
-            _currentUser.value?.uid != prevUid
+            commitSessionStateLocked(user = user)
+            sessionState.user?.uid != prevUid
         }
         if (changed) {
             notifyAuthStateChanged()
@@ -566,22 +588,29 @@ class FirebaseAuth internal constructor(
         }
     }
 
-    private fun updateAuthLens() = synchronized(authStateLock) {
-        val override = _lensOverride.value
-        if (override != null) {
-            _authLens.value = override
-            return
-        }
-        val user = _currentUser.value
-        _authLens.value = if (user != null) {
+    private fun commitSessionStateLocked(
+        user: FirebaseUser? = sessionState.user,
+        lensOverride: AuthLens? = sessionState.lensOverride,
+        tenantId: String? = sessionState.tenantId
+    ) {
+        val resolvedLens = lensOverride ?: if (user != null) {
             AuthLens.AsUser(
                 uid = user.uid,
                 token = user.buildJwtClaims(),
-                tenant = user.tenantId ?: tenantId
+                tenant = (user.rawData["tenantId"] as? String) ?: tenantId
             )
         } else {
             AuthLens.Anon
         }
+        sessionState = SessionState(
+            user = user,
+            lensOverride = lensOverride,
+            tenantId = tenantId,
+            effectiveLens = resolvedLens
+        )
+        _lensOverride.value = lensOverride
+        _authLens.value = resolvedLens
+        _currentUser.value = user
     }
 
     internal fun notifyAuthStateChanged() {

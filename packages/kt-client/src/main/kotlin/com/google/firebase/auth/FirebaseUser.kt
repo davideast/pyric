@@ -13,10 +13,11 @@ import java.time.Instant
 
 class FirebaseUser internal constructor(
     internal val auth: FirebaseAuth,
-    internal var rawData: Map<String, Any?>,
-    internal var signInProviderOverride: String? = null
+    @Volatile internal var rawData: Map<String, Any?>,
+    @Volatile internal var signInProviderOverride: String? = null
 ) : UserInfo {
 
+    @Volatile
     @Suppress("UNCHECKED_CAST")
     var customClaims: Map<String, Any?> = extractCustomClaims(
         (rawData["customClaims"] as? Map<String, Any?>)

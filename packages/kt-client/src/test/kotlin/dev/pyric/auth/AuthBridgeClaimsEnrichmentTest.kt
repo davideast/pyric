@@ -475,4 +475,150 @@ class AuthBridgeClaimsEnrichmentTest {
             auth.removeIdTokenListener(listener)
         }
     }
+
+    @Test
+    fun currentUserAndAuthStateFlowNeverPublishAheadOfEffectiveLens() = runBlocking {
+        val transport = InMemoryBridgeTransport()
+        val bridge = PyricBridgeClient(transport)
+        var authStateSubId: String? = null
+        val activeTokenSub = AtomicReference("user-0")
+        val sentDocActAs = CopyOnWriteArrayList<Map<String, Any?>>()
+
+        transport.onServerReceive { json ->
+            val msg = JsonCodec.decodeMap(json)
+            when (msg["type"]) {
+                "attach" -> transport.sendToClient("""{"type":"attach-ack","protocol":1,"peerConnected":true}""")
+                "worker-sub" -> {
+                    val subId = msg["subId"] as String
+                    @Suppress("UNCHECKED_CAST")
+                    val sub = msg["sub"] as Map<String, Any?>
+                    if (sub["target"] == "authState") {
+                        authStateSubId = subId
+                        transport.sendToClient("""{"type":"worker-snap","subId":"$subId","value":null}""")
+                    } else if (sub["target"] == "idToken") {
+                        transport.sendToClient("""{"type":"worker-snap","subId":"$subId","value":null}""")
+                    }
+                }
+                "worker-op" -> {
+                    val id = msg["id"] as String
+                    @Suppress("UNCHECKED_CAST")
+                    val op = msg["op"] as Map<String, Any?>
+                    when (op["method"]) {
+                        "auth.getIdTokenResult" -> {
+                            val sub = activeTokenSub.get()
+                            transport.sendToClient(
+                                """{"type":"worker-res","id":"$id","ok":true,"value":{"token":"tok","claims":{"sub":"$sub","role":"member"},"signInProvider":"password"}}"""
+                            )
+                        }
+                        "auth.signOut" -> {
+                            transport.sendToClient("""{"type":"worker-res","id":"$id","ok":true,"value":null}""")
+                        }
+                        "getDoc" -> {
+                            @Suppress("UNCHECKED_CAST")
+                            sentDocActAs.add((op["actAs"] as? Map<String, Any?>) ?: emptyMap())
+                            transport.sendToClient(
+                                """{"type":"worker-res","id":"$id","ok":true,"value":{"id":"item-1","path":"items/item-1","exists":false}}"""
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        val app = newApp("atomic-user-and-lens")
+        val auth = FirebaseAuth.getInstance(app, bridge)
+        val firestore = FirebaseFirestore(bridge, app, "(default)", credentialsProvider = auth)
+        awaitCondition { authStateSubId != null }
+
+        val mismatchFailure = AtomicReference<Throwable?>(null)
+        val stopPolling = java.util.concurrent.atomic.AtomicBoolean(false)
+        val pollerReady = CountDownLatch(1)
+        val poller = Thread {
+            pollerReady.countDown()
+            var lastSeenUid: String? = null
+            try {
+                while (!stopPolling.get()) {
+                    val userBefore = auth.currentUser
+                    if (userBefore != null) {
+                        lastSeenUid = userBefore.uid
+                        val lens = auth.getEffectiveLens()
+                        val flowLens = auth.authLensFlow.value
+                        val userAfter = auth.currentUser
+                        if (userAfter?.uid == userBefore.uid) {
+                            val asUser = lens as AuthLens.AsUser
+                            assertEquals(userBefore.uid, asUser.uid)
+                            assertEquals("member", asUser.token?.get("role"))
+                            val flowAsUser = flowLens as AuthLens.AsUser
+                            assertEquals(userBefore.uid, flowAsUser.uid)
+                            assertEquals("member", flowAsUser.token?.get("role"))
+                        }
+                    } else {
+                        val priorUid = lastSeenUid
+                        val lens = auth.getEffectiveLens()
+                        if (priorUid != null && lens is AuthLens.AsUser && lens.uid == priorUid) {
+                            throw AssertionError(
+                                "Observed currentUser=null before getEffectiveLens() cleared stale uid=$priorUid"
+                            )
+                        }
+                    }
+                    Thread.onSpinWait()
+                }
+            } catch (t: Throwable) {
+                mismatchFailure.compareAndSet(null, t)
+            }
+        }
+        poller.start()
+        assertTrue(pollerReady.await(3, TimeUnit.SECONDS))
+
+        val unconfinedScope = CoroutineScope(Dispatchers.Unconfined)
+        val flowLensSnapshot = CopyOnWriteArrayList<Pair<String, AuthLens>>()
+        val flowJob = unconfinedScope.launch {
+            auth.authStateFlow().collect { user ->
+                if (user != null) {
+                    flowLensSnapshot.add(user.uid to auth.getEffectiveLens())
+                    firestore.document("items/item-1").get()
+                }
+            }
+        }
+
+        try {
+            repeat(40) { cycle ->
+                mismatchFailure.get()?.let { throw it }
+                val uid = "user-$cycle"
+                activeTokenSub.set(uid)
+                val userJson = """{"uid":"$uid","email":"$uid@example.com","isAnonymous":false}"""
+                transport.sendToClient("""{"type":"worker-snap","subId":"$authStateSubId","value":$userJson}""")
+                awaitCondition { auth.currentUser?.uid == uid }
+                val lens = auth.getEffectiveLens() as AuthLens.AsUser
+                assertEquals(uid, lens.uid)
+                assertEquals("member", lens.token?.get("role"))
+                auth.signOut()
+                assertNull(auth.currentUser)
+                assertEquals(AuthLens.Anon, auth.getEffectiveLens())
+            }
+            mismatchFailure.get()?.let { throw it }
+
+            assertEquals(40, flowLensSnapshot.size, "Expected authStateFlow to emit every signed-in user")
+            for ((uid, lens) in flowLensSnapshot) {
+                assertTrue(
+                    lens is AuthLens.AsUser && lens.uid == uid && lens.token?.get("role") == "member",
+                    "authStateFlow emitted $uid before effectiveLens updated: $lens"
+                )
+            }
+            awaitCondition { sentDocActAs.size >= flowLensSnapshot.size }
+            assertTrue(
+                sentDocActAs.all {
+                    it["mode"] == "as" &&
+                        (it["uid"] as? String)?.startsWith("user-") == true &&
+                        (it["token"] as? Map<*, *>)?.get("role") == "member"
+                },
+                "Firestore get() triggered from authStateFlow sent stale actAs: $sentDocActAs"
+            )
+        } finally {
+            stopPolling.set(true)
+            poller.join(2_000)
+            flowJob.cancel()
+            unconfinedScope.cancel()
+        }
+    }
 }
