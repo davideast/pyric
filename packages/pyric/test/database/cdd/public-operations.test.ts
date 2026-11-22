@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'bun:test';
 import { deleteApp, initializeApp } from 'firebase/app';
-import { getDatabase as getFirebaseDatabase } from 'firebase/database';
+import {
+  connectDatabaseEmulator as connectFirebaseEmulator,
+  getDatabase as getFirebaseDatabase,
+  goOffline as firebaseGoOffline,
+  refFromURL as firebaseRefFromURL,
+} from 'firebase/database';
+import { initializeSandbox } from 'pyric/sandbox';
+import { createAppForSandbox } from '../../../src/app/internal.js';
 import {
   TARGET_SYMBOL,
   api,
@@ -72,6 +79,8 @@ describe('rtdb-modular CDD: public operation rows', () => {
     expect(() => api.push(target, NaN)).toThrow('contains NaN');
     expect(() => api.setPriority(target, NaN)).toThrow('priority argument is NaN');
     expect(() => api.setWithPriority(target, NaN, 1)).toThrow('contains NaN');
+    expect(() => api.runTransaction(target, () => NaN)).toThrow('contains NaN');
+    expect(() => api.set(target, { '.sv': 'bogus' })).toThrow('Unexpected server value: bogus');
     expect((await api.get(target)).exportVal()).toEqual({ k: 5, j: 1, '.priority': 3 });
   });
   row('119', async () => { const { db } = setup(); const target = api.ref(db, 'x'); await api.set(target, { a: 1, b: 2 }); await api.update(target, { a: null }); expect((await api.get(target)).val()).toEqual({ b: 2 }); });
@@ -107,7 +116,7 @@ describe('rtdb-modular CDD: public operation rows', () => {
     await api.set(parent, { k1: { rank: 1, label: 'a' }, k2: { rank: 2, label: 'b' }, k3: { rank: 3, label: 'c' } });
     const source = api.query(parent, api.orderByChild('rank')); const moved: Array<[string | null, string | null]> = []; const changed: string[] = [];
     const stopMoved = api.onChildMoved(source, (snap, previous) => moved.push([snap.key, previous]));
-    const stopChanged = api.onChildChanged(source, snap => changed.push(snap.key!));
+    const stopChanged = api.onChildChanged(source, snap => { if (snap.key !== null) changed.push(snap.key); });
     await api.update(api.child(parent, 'k1'), { rank: 4 });
     await api.update(api.child(parent, 'k1'), { rank: 2.5 });
     await api.update(api.child(parent, 'k1'), { rank: 0 });
@@ -207,6 +216,39 @@ describe('rtdb-modular CDD: public operation rows', () => {
       api.enableLogging(false);
     }
   });
-  row('174', () => { const { db, sandbox } = setup(); expect(referenceObservation.mismatchedHost.timing).toBe('synchronous-throw'); const hostMatch = /expected ([^)]+)\)/.exec(String(referenceObservation.mismatchedHost.message)); const expectedHost = hostMatch?.[1] ?? 'example-project-rtdb.firebaseio.com'; const hosted = api.getDatabase(sandbox, `https://${expectedHost}`); expect(() => api.refFromURL(hosted, `https://other-${expectedHost}/a`)).toThrow(referenceObservation.mismatchedHost.message); const parsed = api.refFromURL(db, 'ftp://other.example.com/a/b?ignored=1'); expect([parsed.key, parsed.toString()]).toEqual(['b', 'https://demo-pyric-default-rtdb.firebaseio.com/a/b']); expect(() => api.refFromURL(db, 'https://other.example.com/a#fragment')).toThrow(); });
+  row('174', async () => {
+    const { db, sandbox } = setup();
+    expect(referenceObservation.mismatchedHost.timing).toBe('synchronous-throw');
+    const hostMatch = /expected ([^)]+)\)/.exec(String(referenceObservation.mismatchedHost.message));
+    const expectedHost = hostMatch?.[1] ?? 'example-project-rtdb.firebaseio.com';
+    const hosted = api.getDatabase(sandbox, `https://${expectedHost}`);
+    expect(() => api.refFromURL(hosted, `https://other-${expectedHost}/a`)).toThrow(referenceObservation.mismatchedHost.message);
+    const parsed = api.refFromURL(db, 'ftp://other.example.com/a/b?ignored=1');
+    expect([parsed.key, parsed.toString()]).toEqual(['b', 'https://demo-pyric-default-rtdb.firebaseio.com/a/b']);
+    expect(() => api.refFromURL(db, 'https://other.example.com/a#fragment')).toThrow();
+
+    // #1472: after connectDatabaseEmulator, refFromURL treats the emulator host as custom and skips host-match errors, matching firebase/database.
+    const fbApp = initializeApp({ projectId: 'p1', databaseURL: 'https://p1-default-rtdb.firebaseio.com' }, `cdd-1472-fb-${Date.now()}`);
+    const pySandbox = initializeSandbox({ projectId: 'p1', databaseURL: 'https://p1-default-rtdb.firebaseio.com' });
+    const pyApp = createAppForSandbox(pySandbox, { projectId: 'p1', databaseURL: 'https://p1-default-rtdb.firebaseio.com' }, `cdd-1472-py-${Date.now()}`);
+    try {
+      const fbDb = getFirebaseDatabase(fbApp);
+      connectFirebaseEmulator(fbDb, '127.0.0.1', 9000);
+      firebaseGoOffline(fbDb);
+      const pyDb = api.getDatabase(pyApp);
+      api.connectDatabaseEmulator(pyDb, '127.0.0.1', 9000);
+      for (const candidateUrl of [
+        'http://localhost:9000/a?ns=p1-default-rtdb',
+        'https://other-db.firebaseio.com/a/b',
+      ]) {
+        const fbRef = firebaseRefFromURL(fbDb, candidateUrl);
+        const pyRef = api.refFromURL(pyDb, candidateUrl);
+        expect([pyRef.key, pyRef.toString()]).toEqual([fbRef.key, fbRef.toString()]);
+      }
+    } finally {
+      await deleteApp(fbApp);
+      pySandbox.dispose();
+    }
+  });
   row('M95', assertM95InfoWrites);
 });

@@ -8,7 +8,12 @@ import {
   isWorkerPathWarm,
   markWorkerPathsWarm,
 } from './rtdb-client-cache.js';
-import { isWorkerInstanceOffline, runWorkerOfflineTransaction } from './rtdb-offline-state.js';
+import {
+  isWorkerInstanceOffline,
+  recordWorkerOnlineGetWire,
+  runWorkerOfflineTransaction,
+} from './rtdb-offline-state.js';
+import { readAuthoritativeWarmTransactionWire } from './rtdb-server-mirror.js';
 import {
   hasOverlappingActiveRtdbTransaction,
   rtdbRpc,
@@ -57,9 +62,11 @@ async function runWarmTransactionLoop<T>(
   startAttempt: number,
 ): Promise<RtdbTransactionResult> {
   for (let attempt = startAttempt; attempt < 25; attempt += 1) {
-    const before = hydrateRtdbSnapshot(ref, await rtdbRpc(ref, {
+    const rawBefore = await rtdbRpc(ref, {
       t: 'op', id: nextId(), method: 'rtdb.get', path: ref.path, transaction: true,
-    }));
+    });
+    recordWorkerOnlineGetWire(ref, undefined, rawBefore);
+    const before = hydrateRtdbSnapshot(ref, rawBefore);
     const expected = before.val() as T | null;
     let current: T | null = null;
     if (expected !== null) {
@@ -81,6 +88,7 @@ async function runWarmTransactionLoop<T>(
       value,
       applyLocally: options?.applyLocally,
     }) as RtdbTransactionCommitReply;
+    recordWorkerOnlineGetWire(ref, undefined, wire.snapshot);
     const snapshot = hydrateRtdbSnapshot(ref, wire.snapshot);
     if (!wire.retry) {
       markWorkerPathsWarm(ref, [ref.path]);
@@ -99,10 +107,11 @@ export function rtdbRunTransaction<T>(
   if (typeof transactionUpdate !== 'function') {
     throw new TypeError('transactionUpdate must be a function');
   }
-  const run = async (): Promise<RtdbTransactionResult> => {
+  const activity = beginWorkerDatabaseActivity(ref, 'runTransaction', 'operation');
+  try {
     if (isWorkerInstanceOffline(ref)) {
       const applyLocally = options?.applyLocally !== false;
-      return runWorkerOfflineTransaction(
+      const offlineOutcome = runWorkerOfflineTransaction(
         ref,
         transactionUpdate,
         applyLocally,
@@ -118,6 +127,7 @@ export function rtdbRunTransaction<T>(
               value: proposed0,
               applyLocally: options?.applyLocally,
             }) as RtdbTransactionCommitReply;
+            recordWorkerOnlineGetWire(ref, undefined, wire0.snapshot);
             if (!wire0.retry) {
               markWorkerPathsWarm(ref, [ref.path]);
               return transactionResult(wire0.committed, hydrateRtdbSnapshot(ref, wire0.snapshot));
@@ -126,44 +136,105 @@ export function rtdbRunTransaction<T>(
             return runWarmTransactionLoop(ref, transactionUpdate, options, 1);
           }),
       );
+      return runSdkWrite(activity, () => offlineOutcome);
     }
-    if (isWorkerPathWarm(ref, ref.path) || hasOverlappingActiveRtdbTransaction(ref)) {
-      return withRtdbTransactionBarrier(ref, () =>
-        runWarmTransactionLoop(ref, transactionUpdate, options, 0),
+    const hadOverlappingTxn = hasOverlappingActiveRtdbTransaction(ref);
+    const isWarmPath = isWorkerPathWarm(ref, ref.path);
+    if (isWarmPath || hadOverlappingTxn) {
+      let warmWire0: RtdbWireSnapshot | undefined;
+      if (!hadOverlappingTxn && isWarmPath) {
+        warmWire0 = readAuthoritativeWarmTransactionWire(ref);
+      }
+      if (warmWire0 !== undefined) {
+        const expected0 = warmWire0.value as T | null;
+        let current0: T | null = null;
+        if (expected0 !== null) {
+          current0 = structuredClone(expected0);
+        }
+        const warmValue0 = withRtdbTransactionUpdate(() => transactionUpdate(current0));
+        if (warmValue0 === undefined) {
+          return runSdkWrite(activity, () =>
+            withRtdbTransactionBarrier(ref, async () => {
+              const rawAbort = await rtdbRpc(ref, {
+                t: 'op', id: nextId(), method: 'rtdb.get', path: ref.path, transaction: true,
+              });
+              recordWorkerOnlineGetWire(ref, undefined, rawAbort);
+              markWorkerPathsWarm(ref, [ref.path]);
+              return transactionResult(false, hydrateRtdbSnapshot(ref, rawAbort));
+            }),
+          );
+        }
+        validateRtdbTransactionValue(warmValue0, ref.path);
+        return runSdkWrite(activity, () =>
+          withRtdbTransactionBarrier(ref, async () => {
+            const wire0 = await rtdbRpc(ref, {
+              t: 'op',
+              id: nextId(),
+              method: 'rtdb.transactionCommit',
+              path: ref.path,
+              expected: expected0,
+              value: warmValue0,
+              applyLocally: options?.applyLocally,
+            }) as RtdbTransactionCommitReply;
+            recordWorkerOnlineGetWire(ref, undefined, wire0.snapshot);
+            if (!wire0.retry) {
+              markWorkerPathsWarm(ref, [ref.path]);
+              return transactionResult(wire0.committed, hydrateRtdbSnapshot(ref, wire0.snapshot));
+            }
+            markWorkerPathsWarm(ref, [ref.path]);
+            return runWarmTransactionLoop(ref, transactionUpdate, options, 1);
+          }),
+        );
+      }
+      const probe0 = withRtdbTransactionUpdate(() => transactionUpdate(null));
+      if (probe0 !== undefined) {
+        validateRtdbTransactionValue(probe0, ref.path);
+      }
+      return runSdkWrite(activity, () =>
+        withRtdbTransactionBarrier(ref, () =>
+          runWarmTransactionLoop(ref, transactionUpdate, options, 0),
+        ),
       );
     }
     const value0 = withRtdbTransactionUpdate(() => transactionUpdate(null));
     if (value0 === undefined) {
-      await Promise.resolve();
-      return transactionResult(false, makeRtdbSnapshot(ref, null, false, null, [], null));
+      return runSdkWrite(activity, async () => {
+        await Promise.resolve();
+        return transactionResult(false, makeRtdbSnapshot(ref, null, false, null, [], null));
+      });
     }
     validateRtdbTransactionValue(value0, ref.path);
     const sent = beginWorkerColdTransaction(ref, ref.path);
-    let wire0: RtdbTransactionCommitReply;
-    try {
-      wire0 = await rtdbRpc(ref, {
-        t: 'op',
-        id: nextId(),
-        method: 'rtdb.transactionCommit',
-        path: ref.path,
-        expected: null,
-        value: value0,
-        applyLocally: options?.applyLocally,
-      }) as RtdbTransactionCommitReply;
-    } finally {
-      sent.release();
-    }
-    if (!wire0.retry) {
+    return runSdkWrite(activity, async () => {
+      let wire0: RtdbTransactionCommitReply;
+      try {
+        wire0 = await rtdbRpc(ref, {
+          t: 'op',
+          id: nextId(),
+          method: 'rtdb.transactionCommit',
+          path: ref.path,
+          expected: null,
+          value: value0,
+          applyLocally: options?.applyLocally,
+        }) as RtdbTransactionCommitReply;
+      } finally {
+        sent.release();
+      }
+      recordWorkerOnlineGetWire(ref, undefined, wire0.snapshot);
+      if (!wire0.retry) {
+        markWorkerPathsWarm(ref, [ref.path]);
+        return transactionResult(wire0.committed, hydrateRtdbSnapshot(ref, wire0.snapshot));
+      }
+      if (sent.isAbortedBySet()) {
+        throw new Error('set');
+      }
       markWorkerPathsWarm(ref, [ref.path]);
-      return transactionResult(wire0.committed, hydrateRtdbSnapshot(ref, wire0.snapshot));
-    }
-    if (sent.isAbortedBySet()) {
-      throw new Error('set');
-    }
-    markWorkerPathsWarm(ref, [ref.path]);
-    return withRtdbTransactionBarrier(ref, () =>
-      runWarmTransactionLoop(ref, transactionUpdate, options, 1),
-    );
-  };
-  return runSdkWrite(beginWorkerDatabaseActivity(ref, 'runTransaction', 'operation'), run);
+      return withRtdbTransactionBarrier(ref, () =>
+        runWarmTransactionLoop(ref, transactionUpdate, options, 1),
+      );
+    });
+  } catch (error) {
+    activity.fail();
+    throw error;
+  }
 }

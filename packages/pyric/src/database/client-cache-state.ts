@@ -64,7 +64,13 @@ export function updateTargetPaths(basePath: string, values: Record<string, unkno
     return [canonicalClientPath(basePath)];
   }
   const baseSegments = pathSegments(basePath);
-  return keys.map((key) => joinPath([...baseSegments, ...pathSegments(key)]));
+  return keys.map((key) => {
+    const segs = [...baseSegments, ...pathSegments(key)];
+    if (segs.at(-1) === '.priority') {
+      return joinPath(segs.slice(0, -1));
+    }
+    return joinPath(segs);
+  });
 }
 
 export function markClientPathsWarm(target: Target, paths: readonly string[]): void {

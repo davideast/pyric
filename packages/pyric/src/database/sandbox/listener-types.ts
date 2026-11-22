@@ -9,6 +9,7 @@ export interface ValueListenerSnapshot {
   exists: boolean;
   key: string | null;
   rows?: QueryRow[];
+  priorities?: PriorityRecord;
 }
 
 export interface ValueListener {

@@ -19,14 +19,17 @@ function db() {
 const fn = () => 1;
 const KEYS_RULE = 'Keys must be non-empty strings and can\'t contain ".", "#", "$", "/", "[", or "]"';
 
-/** The error a refused write rejects or throws with. */
-async function refusal(write: () => unknown): Promise<string> {
+/** The error a refused write throws synchronously (#1224). */
+function refusal(write: () => unknown): string {
   try {
-    await write();
+    const result = write();
+    if (result !== null && typeof result === 'object' && 'catch' in result && typeof result.catch === 'function') {
+      result.catch(() => {});
+    }
   } catch (error) {
     return (error as Error).message;
   }
-  throw new Error('the write was not refused');
+  throw new Error('the write did not throw synchronously');
 }
 
 // The text `@firebase/database` 1.1.3 gives each refusal
@@ -49,7 +52,7 @@ describe('the in-page sandbox refuses a write with the SDK text', () => {
   for (const [name, write, message] of cases) {
     test(name, async () => {
       const database = db();
-      expect(await refusal(() => write(database))).toBe(message);
+      expect(refusal(() => write(database))).toBe(message);
       expect((await get(ref(database, 'node'))).val()).toBeNull();
     });
   }

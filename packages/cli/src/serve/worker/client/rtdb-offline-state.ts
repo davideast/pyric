@@ -1,5 +1,5 @@
 /** Per-(port, instance) RTDB offline outbound queue and listener isolation. */
-import { coerceArrays, resolveSentinels, type Priority } from 'pyric/database/internal';
+import { resolveSentinels, type Priority } from 'pyric/database/internal';
 import type { RtdbQuerySpec } from '../protocol.js';
 import { sandboxNow } from './clock.js';
 import type { RtdbDataSnapshot, RtdbRefHandle } from './handles.js';
@@ -136,7 +136,7 @@ export function attachWorkerOfflineSubscription(
   scope.listeners.add(entry);
   return {
     receiveServerWire(wire: unknown): void {
-      recordServerWireOnScope(scope, canonical, wire, query);
+      recordServerWireOnScope(scope, canonical, wire, query, !onlyOnce);
       if (scope.offline) {
         if (!initialLocalQueued) {
           entry.deferredWire = wire as RtdbWireSnapshot;
@@ -337,7 +337,7 @@ export function runWorkerOfflineTransaction<T, R>(
   if (canServeWorkerOfflineGet(scope, canonical)) {
     const raw = treeRead(scope.overlayTree, canonical);
     if (raw !== null) {
-      initialInput = coerceArrays(raw as never) as OverlayJson;
+      initialInput = buildWireFromOverlay(scope, canonical, undefined).value as OverlayJson;
     }
   }
   let clonedInput: T | null = null;

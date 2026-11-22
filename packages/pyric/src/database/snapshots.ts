@@ -1,5 +1,5 @@
 import { asSdkArray } from './sandbox/normalize.js';
-import { isReservedSegment, joinPath, pathSegments, setOwnProperty, type JsonValue } from './sandbox/data-tree.js';
+import { isReservedSegment, setOwnProperty, type JsonValue } from './sandbox/data-tree.js';
 import { executeQuery, isScalarLeafValue, type Priority, type QueryRow } from './internal/query-projection.js';
 import type { PriorityRecord } from './sandbox/priority-state.js';
 import type { SandboxLiveTarget, SandboxTarget } from './routing.js';
@@ -10,12 +10,18 @@ function hasReservedSegment(path: string): boolean {
   return path.split('/').some(isReservedSegment);
 }
 
+function canonicalSnapshotPath(path: string): string {
+  const segments = path.split('/').filter((segment) => segment.length > 0);
+  if (segments.length === 0) return '/';
+  return `/${segments.join('/')}`;
+}
+
 function childPathOf(basePath: string, key: string): string {
   if (basePath === '/' || basePath === '') return `/${key}`;
   return `${basePath}/${key}`;
 }
 
-// ─── Snapshot wrappers ───────────────────────────────────────────────
+// --- Snapshot wrappers ---
 
 export function buildSandboxSnap(
   target: SandboxTarget | SandboxLiveTarget,
@@ -25,18 +31,53 @@ export function buildSandboxSnap(
   return buildSandboxSnapFromRaw(target, refForSnap, val);
 }
 
-/** Where a snapshot reads priorities: the live tree, or a record a removed child carried. */
+/** Where a snapshot reads priorities: a captured record or the live tree at build time. */
 type PriorityLookup = (path: string) => Priority;
 
 function priorityLookup(target: SandboxTarget | SandboxLiveTarget, record?: PriorityRecord): PriorityLookup {
-  if (record === undefined) return (path) => target.backend.getPriority(path);
-  return (path) => record[joinPath(pathSegments(path))] ?? null;
+  if (record === undefined) {
+    return (path) => target.backend.getPriority(path);
+  }
+  return recordPriorityLookup(record);
+}
+
+function recordPriorityLookup(record: PriorityRecord): PriorityLookup {
+  return (path) => {
+    const canonical = canonicalSnapshotPath(path);
+    if (!Object.hasOwn(record, canonical)) return null;
+    const stored = record[canonical];
+    return stored === undefined ? null : stored;
+  };
+}
+
+function captureSubtreePriorities(
+  val: JsonValue,
+  basePath: string,
+  readPriority: PriorityLookup,
+): PriorityRecord {
+  const captured: PriorityRecord = {};
+  const walk = (node: JsonValue, nodePath: string, reservedAncestor: boolean): void => {
+    if (node === null || reservedAncestor) return;
+    const canonical = canonicalSnapshotPath(nodePath);
+    const ownPriority = readPriority(canonical);
+    if (ownPriority !== null) {
+      setOwnProperty(captured, canonical, ownPriority);
+    }
+    if (typeof node !== 'object' || Array.isArray(node)) return;
+    for (const [key, childVal] of Object.entries(node as Record<string, JsonValue>)) {
+      if (isReservedSegment(key)) continue;
+      walk(childVal, childPathOf(canonical, key), false);
+    }
+  };
+  walk(val, basePath, hasReservedSegment(basePath));
+  return captured;
 }
 
 /**
  * A snapshot of `val` at `refForSnap`. `priorities`, when given, holds the
- * priorities of a subtree the tree no longer has, such as a removed child's;
- * otherwise they are read from the live tree.
+ * priorities of a subtree the tree no longer has (or an offline overlay);
+ * otherwise they are captured from the tree when the snapshot is built so
+ * later priority mutations cannot alter an existing snapshot (#1418).
  */
 export function buildSandboxSnapFromRaw(
   target: SandboxTarget | SandboxLiveTarget,
@@ -44,7 +85,32 @@ export function buildSandboxSnapFromRaw(
   val: JsonValue,
   priorities?: PriorityRecord,
 ): DataSnapshot {
-  return snapshotWithPriorities(target, refForSnap, val, priorityLookup(target, priorities));
+  const captured = captureSubtreePriorities(
+    val,
+    refForSnap._path,
+    priorityLookup(target, priorities),
+  );
+  return snapshotWithPriorities(target, refForSnap, val, recordPriorityLookup(captured));
+}
+
+function walkSnapshotSegments(val: JsonValue, relativePath: string): JsonValue {
+  const segs = relativePath.split('/').filter((segment) => segment.length > 0);
+  let cur: JsonValue = val;
+  for (const s of segs) {
+    if (cur === null || typeof cur !== 'object' || Array.isArray(cur) || !Object.hasOwn(cur, s)) {
+      return null;
+    }
+    const next = (cur as Record<string, JsonValue>)[s];
+    cur = next === undefined ? null : next;
+  }
+  return cur;
+}
+
+function countSnapshotChildren(val: JsonValue): number {
+  if (val !== null && typeof val === 'object' && !Array.isArray(val)) {
+    return Object.keys(val as Record<string, JsonValue>).length;
+  }
+  return 0;
 }
 
 function snapshotWithPriorities(
@@ -56,10 +122,8 @@ function snapshotWithPriorities(
   const exists = val !== null;
   // `val` is the stored (integer-keyed) shape. Structural ops
   // (`child`/`forEach`/`hasChildren`/`numChildren`) walk it directly;
-  // `val()`, `exportVal()` and `toJSON()` render it on each call.
-  const childCount = (val !== null && typeof val === 'object' && !Array.isArray(val))
-    ? Object.keys(val as Record<string, JsonValue>).length
-    : 0;
+  // `val()`, `exportVal()` and `toJSON()` render from `priorityOf`.
+  const childCount = countSnapshotChildren(val);
   const refHasReserved = hasReservedSegment(refForSnap._path);
   let priority: Priority = null;
   if (exists && !refHasReserved) {
@@ -73,24 +137,15 @@ function snapshotWithPriorities(
     exists(): boolean { return exists; },
     val(): JsonValue { return renderNode(priorityOf, refForSnap._path, refHasReserved, val, false); },
     child(p: string): DataSnapshot {
-      const segs = pathSegments(p);
-      let cur: JsonValue = val;
-      for (const s of segs) {
-        if (cur === null || typeof cur !== 'object' || Array.isArray(cur) || !Object.hasOwn(cur, s)) {
-          cur = null;
-          break;
-        }
-        cur = (cur as Record<string, JsonValue>)[s] ?? null;
-      }
       const childRef = child(refForSnap, p);
+      const cur = walkSnapshotSegments(val, p);
       return snapshotWithPriorities(target, childRef, cur, priorityOf);
     },
     hasChild(p: string): boolean {
       return this.child(p).exists();
     },
     hasChildren(): boolean {
-      return val !== null && typeof val === 'object' && !Array.isArray(val)
-        && Object.keys(val as Record<string, JsonValue>).length > 0;
+      return childCount > 0;
     },
     exportVal(): JsonValue { return renderNode(priorityOf, refForSnap._path, refHasReserved, val, true); },
     toJSON(): JsonValue { return renderNode(priorityOf, refForSnap._path, refHasReserved, val, true); },
@@ -125,9 +180,10 @@ export function buildSandboxQuerySnap(
   rows: QueryRow[],
   unfiltered = true,
   leafValue: JsonValue = null,
+  priorities?: PriorityRecord,
 ): DataSnapshot {
   if (rows.length === 0 && unfiltered && isScalarLeafValue(leafValue)) {
-    return buildSandboxSnapFromRaw(target, refForSnap, leafValue);
+    return buildSandboxSnapFromRaw(target, refForSnap, leafValue, priorities);
   }
   let val: JsonValue;
   if (rows.length === 0) {
@@ -139,10 +195,15 @@ export function buildSandboxQuerySnap(
   }
   const exists = rows.length > 0;
   const refHasReserved = hasReservedSegment(refForSnap._path);
-  const priorityOf = priorityLookup(target);
+  const captured = captureSubtreePriorities(
+    val,
+    refForSnap._path,
+    priorityLookup(target, priorities),
+  );
+  const priorityOf = recordPriorityLookup(captured);
   let priority: Priority = null;
   if (exists && unfiltered && !refHasReserved) {
-    priority = target.backend.getPriority(refForSnap._path);
+    priority = priorityOf(refForSnap._path);
   }
   const implementation: DataSnapshotImplementation = {
     key: refForSnap.key,
@@ -154,17 +215,9 @@ export function buildSandboxQuerySnap(
     // priority, then key; only `forEach` follows the query's order (RT-7).
     val(): JsonValue { return renderNode(priorityOf, refForSnap._path, refHasReserved, val, false); },
     child(p: string): DataSnapshot {
-      const segs = pathSegments(p);
-      let cur: JsonValue = val;
-      for (const s of segs) {
-        if (cur === null || typeof cur !== 'object' || Array.isArray(cur) || !Object.hasOwn(cur, s)) {
-          cur = null;
-          break;
-        }
-        cur = (cur as Record<string, JsonValue>)[s] ?? null;
-      }
       const childRef = child(refForSnap, p);
-      return buildSandboxSnapFromRaw(target, childRef, cur);
+      const cur = walkSnapshotSegments(val, p);
+      return snapshotWithPriorities(target, childRef, cur, priorityOf);
     },
     hasChild(p: string): boolean {
       return this.child(p).exists();
@@ -179,13 +232,26 @@ export function buildSandboxQuerySnap(
     forEach(cb): boolean {
       for (const { key, value } of rows) {
         const childRef = child(refForSnap, key);
-        const childSnap = buildSandboxSnapFromRaw(target, childRef, value);
+        const childSnap = snapshotWithPriorities(target, childRef, value, priorityOf);
         if (cb(childSnap) === true) return true;
       }
       return false;
     },
   };
   return new DataSnapshot(implementation);
+}
+
+/**
+ * Render a stored RTDB value as `DataSnapshot.val()` exposes it: object keys
+ * ordered by `(priority, nameCompare)` at every depth and dense integer-keyed
+ * maps coerced to arrays with sparse holes (#1419).
+ */
+export function renderSnapshotVal(
+  nodePath: string,
+  value: JsonValue,
+  readPriority: (path: string) => Priority,
+): JsonValue {
+  return renderNode(readPriority, nodePath, hasReservedSegment(nodePath), value, false);
 }
 
 /** The children of a stored object in priority, then key order, as `forEach` walks them. */

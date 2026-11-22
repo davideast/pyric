@@ -25,16 +25,16 @@ import { errorPrefix, validatePriorityArg, validateUpdate, validateWrite } from 
 import { loadsAllData } from './internal/query-projection.js';
 import { buildSandboxQuerySnap, buildSandboxSnap } from './snapshots.js';
 
-// ─── Reads ───────────────────────────────────────────────────────────
+// --- Reads ---
 
 /**
- * `get(ref)` — one-shot read at the ref's path. Resolves to a
+ * `get(ref)` -- one-shot read at the ref's path. Resolves to a
  * `DataSnapshot`-shaped object.
  *
  * Runs through the sandbox rule engine; denial throws the plain-`Error`
  * shape locked by the oracle.
  *
- * Absent path → `snap.val() === null && snap.exists() === false`.
+ * Absent path -> `snap.val() === null && snap.exists() === false`.
  * Matches the SDK's `DataSnapshot.val()` contract.
  */
 export function get(r: DatabaseReference | Query): Promise<DataSnapshot> {
@@ -82,8 +82,8 @@ export function get(r: DatabaseReference | Query): Promise<DataSnapshot> {
 }
 
 /**
- * `set(ref, value)` — replace the value at `ref`'s path. `null`
- * deletes (matches the RTDB invariant — locked by oracle observation
+ * `set(ref, value)` -- replace the value at `ref`'s path. `null`
+ * deletes (matches the RTDB invariant -- locked by oracle observation
  * `rtdb-remove-vs-set-null.json`).
  *
  * `serverTimestamp()` sentinels are resolved at write time.
@@ -91,7 +91,10 @@ export function get(r: DatabaseReference | Query): Promise<DataSnapshot> {
 export function set(r: DatabaseReference, value: unknown): Promise<void> {
   validateWritablePath('set', r._path);
   const target = targetOf(r as unknown as object);
-  validateWrite(value, r._path, errorPrefix('set', 'value'));
+  validateWrite(value, r._path, errorPrefix('set', 'value'), {
+    checkInlinePriorities: !isAdminFor(target),
+    checkServerValues: true,
+  });
   abortColdTransactionsOnClientWrite(target, [r._path]);
   markClientPathsWarm(target, [r._path]);
   return runSdkWrite(beginDatabaseActivity(r, 'set', 'operation'), () => {
@@ -114,7 +117,7 @@ export function setPriority(
 ): Promise<void> {
   validateWritablePath('setPriority', r._path);
   const target = targetOf(r as unknown as object);
-  validatePriorityArg('setPriority', priority);
+  validatePriorityArg('setPriority', priority, { checkServerValues: true });
   abortColdTransactionsOnClientWrite(target, [r._path]);
   markClientPathsWarm(target, [r._path]);
   return runSdkWrite(beginDatabaseActivity(r, 'setPriority', 'operation'), () => {
@@ -138,8 +141,11 @@ export function setWithPriority(
 ): Promise<void> {
   validateWritablePath('setWithPriority', r._path);
   const target = targetOf(r as unknown as object);
-  validateWrite(value, r._path, errorPrefix('setWithPriority', 'value'));
-  validatePriorityArg('setWithPriority', priority);
+  validateWrite(value, r._path, errorPrefix('setWithPriority', 'value'), {
+    checkInlinePriorities: !isAdminFor(target),
+    checkServerValues: true,
+  });
+  validatePriorityArg('setWithPriority', priority, { checkServerValues: true });
   abortColdTransactionsOnClientWrite(target, [r._path]);
   markClientPathsWarm(target, [r._path]);
   return runSdkWrite(beginDatabaseActivity(r, 'setWithPriority', 'operation'), () => {
@@ -167,7 +173,7 @@ export function setWithPriority(
 }
 
 /**
- * `update(ref, values)` — partial update.
+ * `update(ref, values)` -- partial update.
  *
  *   - When `values` keys contain `/`, the call is a **multi-path atomic
  *     update**: every listed path is written as one transaction (any
@@ -191,7 +197,10 @@ export function update(
     throw new Error(`${errorPrefix('update', 'values')} must be an object containing the children to replace.`);
   }
   validateUpdatePaths(values);
-  validateUpdate(values, r._path, 'update');
+  validateUpdate(values, r._path, 'update', {
+    checkInlinePriorities: !isAdminFor(target),
+    checkServerValues: true,
+  });
   const targetPaths = updateTargetPaths(r._path, values);
   abortColdTransactionsOnClientWrite(target, targetPaths);
   markClientPathsWarm(target, targetPaths);
@@ -218,7 +227,7 @@ export function update(
 }
 
 /**
- * `remove(ref)` — delete the subtree at the ref's path.
+ * `remove(ref)` -- delete the subtree at the ref's path.
  *
  * RTDB invariant (oracle: `rtdb-remove-vs-set-null.json`): equivalent
  * to `set(ref, null)`. The sandbox backend dispatches `remove` through
@@ -244,7 +253,7 @@ export function remove(r: DatabaseReference): Promise<void> {
 }
 
 /**
- * `push(ref, value?)` — mint an auto-id child key under `ref`'s path,
+ * `push(ref, value?)` -- mint an auto-id child key under `ref`'s path,
  * optionally writing `value` at the new child.
  *
  * Returns a ref at the new child path. The ref's `key` is the minted
@@ -254,7 +263,7 @@ export function remove(r: DatabaseReference): Promise<void> {
  * Production note: the key is minted **client-side** (no server
  * round-trip required); it's available synchronously on the returned
  * ref even when the optional write is denied by rules. The oracle
- * observation confirms this — the sandbox matches.
+ * observation confirms this -- the sandbox matches.
  */
 export function push(r: DatabaseReference, value?: unknown): ThenableReference {
   validateWritablePath('push', r._path);
@@ -262,18 +271,21 @@ export function push(r: DatabaseReference, value?: unknown): ThenableReference {
   if (value !== undefined) {
     // The SDK validates the optional value synchronously before minting a child
     // key, naming the parent's path rather than a minted child's.
-    validateWrite(value, r._path, errorPrefix('push', 'value'));
+    validateWrite(value, r._path, errorPrefix('push', 'value'), {
+      checkInlinePriorities: !isAdminFor(target),
+      checkServerValues: true,
+    });
   }
   // Mint the key SYNCHRONOUSLY (client-side, no rule check) so the
   // returned ref + `.key` are available even if the optional write is
   // later denied (DB-B7). The write is deferred onto the thenable's
-  // promise — a rules denial REJECTS the promise rather than throwing
+  // promise -- a rules denial REJECTS the promise rather than throwing
   // here and discarding the key.
   const key = target.backend.mintKey();
   const childPath = joinPath([...pathSegments(r._path), key]);
   // Two refs (mirroring upstream): `thenablePushRef` gets then/catch and
   // is returned; `pushRef` is a SEPARATE plain ref used as the promise's
-  // fulfilled value — so resolving the promise doesn't re-enter the
+  // fulfilled value -- so resolving the promise doesn't re-enter the
   // thenable's own `then` (the self-reference unwrap trap).
   const thenablePushRef = buildSandboxRef(target, childPath);
   const pushRef = buildSandboxRef(target, childPath);
@@ -302,7 +314,7 @@ export function push(r: DatabaseReference, value?: unknown): ThenableReference {
 /**
  * Attach `then`/`catch` to a ref so it satisfies {@link ThenableReference}.
  * Mirrors upstream's `thenablePushRef.then = promise.then.bind(promise)`
- * (`api/Reference_impl.ts:627-629`). The ref's own fields are untouched —
+ * (`api/Reference_impl.ts:627-629`). The ref's own fields are untouched --
  * it stays a usable {@link DatabaseReference}.
  */
 function makeThenable(

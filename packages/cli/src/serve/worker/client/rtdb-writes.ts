@@ -21,6 +21,11 @@ import {
   enqueueWorkerOfflineUpdate,
   isWorkerInstanceOffline,
 } from './rtdb-offline-state.js';
+import {
+  sendWorkerOnlineSet,
+  sendWorkerOnlineSetPriority,
+  sendWorkerOnlineUpdate,
+} from './rtdb-server-mirror.js';
 import { afterActiveRtdbTransactions, makeRtdbRef, normalizeRtdbPath, rtdbRpc } from './rtdb-references.js';
 
 const RTDB_PUSH_CHARS = '-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz';
@@ -64,7 +69,7 @@ export function rtdbSet(ref: RtdbRefHandle, value: unknown): Promise<void> {
     if (isWorkerInstanceOffline(ref)) {
       return enqueueWorkerOfflineSet(ref, ref.path, value, null, false, send);
     }
-    return send();
+    return sendWorkerOnlineSet(ref, ref.path, value, null, false, send);
   };
   return runSdkWrite(beginWorkerDatabaseActivity(ref, 'set', 'operation'), run);
 }
@@ -82,7 +87,7 @@ export function rtdbSetPriority(ref: RtdbRefHandle, priority: string | number | 
     if (isWorkerInstanceOffline(ref)) {
       return enqueueWorkerOfflineSetPriority(ref, ref.path, priority, send);
     }
-    return send();
+    return sendWorkerOnlineSetPriority(ref, ref.path, priority, send);
   };
   return runSdkWrite(beginWorkerDatabaseActivity(ref, 'setPriority', 'operation'), run);
 }
@@ -107,21 +112,28 @@ export function rtdbSetWithPriority(
     if (isWorkerInstanceOffline(ref)) {
       return enqueueWorkerOfflineSet(ref, ref.path, value, priority, true, send);
     }
-    return send();
+    return sendWorkerOnlineSet(ref, ref.path, value, priority, true, send);
   };
   return runSdkWrite(beginWorkerDatabaseActivity(ref, 'setWithPriority', 'operation'), run);
+}
+
+function updateEntryTargetPath(basePath: string, key: string): string {
+  const segs = normalizeRtdbPath(`${basePath}/${key}`).split('/').filter(Boolean);
+  if (segs.at(-1) === '.priority') {
+    return normalizeRtdbPath(`/${segs.slice(0, -1).join('/')}`);
+  }
+  return normalizeRtdbPath(`/${segs.join('/')}`);
 }
 
 export function rtdbUpdate(ref: RtdbRefHandle, values: Record<string, unknown>): Promise<void> {
   validateRtdbUpdateValues('update', values, ref.path);
   validateUpdatePaths(values);
   const keys = Object.keys(values);
-  let targetPaths: string[] = [ref.path];
-  if (keys.length > 0) {
-    targetPaths = keys.map((key) => normalizeRtdbPath(`${ref.path}/${key}`));
+  const targetPaths = keys.map((key) => updateEntryTargetPath(ref.path, key));
+  if (targetPaths.length > 0) {
+    abortWorkerColdTransactionsOnWrite(ref, targetPaths);
+    markWorkerPathsWarm(ref, targetPaths);
   }
-  abortWorkerColdTransactionsOnWrite(ref, targetPaths);
-  markWorkerPathsWarm(ref, targetPaths);
   const send = () =>
     afterActiveRtdbTransactions(ref, targetPaths, async () => {
       await rtdbRpc(ref, { t: 'op', id: nextId(), method: 'rtdb.update', path: ref.path, values });
@@ -130,7 +142,7 @@ export function rtdbUpdate(ref: RtdbRefHandle, values: Record<string, unknown>):
     if (isWorkerInstanceOffline(ref)) {
       return enqueueWorkerOfflineUpdate(ref, ref.path, values, send);
     }
-    return send();
+    return sendWorkerOnlineUpdate(ref, ref.path, values, send);
   };
   return runSdkWrite(beginWorkerDatabaseActivity(ref, 'update', 'operation'), run);
 }
@@ -147,7 +159,7 @@ export function rtdbRemove(ref: RtdbRefHandle): Promise<void> {
     if (isWorkerInstanceOffline(ref)) {
       return enqueueWorkerOfflineSet(ref, ref.path, null, null, false, send);
     }
-    return send();
+    return sendWorkerOnlineSet(ref, ref.path, null, null, false, send);
   };
   return runSdkWrite(beginWorkerDatabaseActivity(ref, 'remove', 'operation'), run);
 }
@@ -175,7 +187,7 @@ export function rtdbPush(
       if (isWorkerInstanceOffline(ref)) {
         await enqueueWorkerOfflineSet(ref, pushed.path, value, null, false, send);
       } else {
-        await send();
+        await sendWorkerOnlineSet(ref, pushed.path, value, null, false, send);
       }
       return settledRef;
     };

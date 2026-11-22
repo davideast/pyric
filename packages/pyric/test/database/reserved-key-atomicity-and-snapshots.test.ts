@@ -80,14 +80,14 @@ describe('reserved prototype keys in writes and snapshot rendering', () => {
         const withPriority = JSON.parse(
           `{"${reservedKey}":{"nested":{".value":2,".priority":5}},"other":99}`,
         );
-        await expect(
+        expect(() =>
           runTransaction(ref(db, 'items'), () => withPriority),
-        ).rejects.toThrow(`Invalid RTDB path segment '${reservedKey}'`);
+        ).toThrow(`Invalid RTDB path segment '${reservedKey}'`);
 
         const plainPayload = JSON.parse(`{"${reservedKey}":1,"other":99}`);
-        await expect(
+        expect(() =>
           runTransaction(ref(db, 'items'), () => plainPayload),
-        ).rejects.toThrow(`Invalid RTDB path segment '${reservedKey}'`);
+        ).toThrow(`Invalid RTDB path segment '${reservedKey}'`);
 
         expect((await get(ref(db, 'items'))).val()).toEqual({ intact: 1 });
         expect(plainObserved.length).toBe(plainBefore);

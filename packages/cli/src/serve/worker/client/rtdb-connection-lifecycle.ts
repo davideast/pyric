@@ -116,7 +116,7 @@ export class RtdbOnDisconnect {
 
   set(value: unknown): Promise<void> {
     validateWritablePath('OnDisconnect.set', this._path);
-    validateRtdbValue('OnDisconnect.set', value, this._path);
+    validateRtdbValue('OnDisconnect.set', value, this._path, false, { checkServerValues: false });
     markWorkerPathsWarm(this._repo, [this._path]);
     const target = { ...this._repo, path: this._path };
     const send = () =>
@@ -133,8 +133,8 @@ export class RtdbOnDisconnect {
 
   setWithPriority(value: unknown, priority: string | number | null): Promise<void> {
     validateWritablePath('OnDisconnect.setWithPriority', this._path);
-    validateRtdbValue('OnDisconnect.setWithPriority', value, this._path);
-    validateRtdbPriority('OnDisconnect.setWithPriority', priority);
+    validateRtdbValue('OnDisconnect.setWithPriority', value, this._path, false, { checkServerValues: false });
+    validateRtdbPriority('OnDisconnect.setWithPriority', priority, { checkServerValues: false });
     markWorkerPathsWarm(this._repo, [this._path]);
     const target = { ...this._repo, path: this._path };
     const send = () =>
@@ -151,14 +151,19 @@ export class RtdbOnDisconnect {
 
   update(values: Record<string, unknown>): Promise<void> {
     validateWritablePath('OnDisconnect.update', this._path);
-    validateRtdbUpdateValues('OnDisconnect.update', values, this._path);
+    validateRtdbUpdateValues('OnDisconnect.update', values, this._path, { checkServerValues: false });
     validateUpdatePaths(values, undefined, 'OnDisconnect.update');
     const keys = Object.keys(values);
-    let targetPaths: string[] = [this._path];
     if (keys.length > 0) {
-      targetPaths = keys.map((key) => normalizeRtdbPath(`${this._path}/${key}`));
+      const targetPaths = keys.map((key) => {
+        const segs = normalizeRtdbPath(`${this._path}/${key}`).split('/').filter(Boolean);
+        if (segs.at(-1) === '.priority') {
+          return normalizeRtdbPath(`/${segs.slice(0, -1).join('/')}`);
+        }
+        return normalizeRtdbPath(`/${segs.join('/')}`);
+      });
+      markWorkerPathsWarm(this._repo, targetPaths);
     }
-    markWorkerPathsWarm(this._repo, targetPaths);
     const target = { ...this._repo, path: this._path };
     const send = () =>
       rtdbRpc(this._repo, {
