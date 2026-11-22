@@ -210,11 +210,12 @@ describe('ledger D7 (#1385): per-consumer observation queue', () => {
       }
     }
 
-    const summary = wave1Delivered.map(event =>
-      event.kind === 'observation_gap'
-        ? `gap:${event.firstEventId}..${event.lastEventId}(${event.omittedCount})`
-        : event.id,
-    );
+    const summary = wave1Delivered.map(event => {
+      if (event.kind === 'observation_gap') {
+        return `gap:${event.firstEventId}..${event.lastEventId}(${event.omittedCount})`;
+      }
+      return event.id;
+    });
     expect(summary).toEqual([
       'gap:ev-1..ev-4(4)',
       'ev-5',
