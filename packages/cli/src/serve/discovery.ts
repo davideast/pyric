@@ -11,8 +11,8 @@
  * pointed server's identity can't be matched, callers get `null` (plus a
  * `log` diagnostic).
  */
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { basename, dirname } from 'node:path';
 import {
   basesForPort,
   canonicalServeUrl,
@@ -26,11 +26,9 @@ import {
   servesViteClient,
   urlPort,
   type AnsweringHost,
-  type HealthLite,
-  type HostUrlAnswer,
 } from './discovery-health.js';
 import { inProcessSessionTokenForPort, resolveSessionTokenForTarget } from './local-session-token.js';
-import { candidatePointerFiles, POINTER_REL } from './workspace-boundary.js';
+import { candidatePointerFiles } from './workspace-boundary.js';
 
 export {
   basesForPort,
@@ -43,11 +41,7 @@ export {
   servesViteClient,
   urlPort,
   type AnsweringHost,
-  type HealthLite,
-  type HostUrlAnswer,
 };
-
-export const POINTER = POINTER_REL;
 
 function candidatePointerPaths(startDir: string): string[] {
   return candidatePointerFiles(startDir);
@@ -201,17 +195,118 @@ export async function selectExplicitHost(input: {
   };
 }
 
-/** Whether the process a pointer names is still running. A pointer without a
- *  pid cannot be checked and counts as live. */
-function isPointerProcessAlive(pid: unknown): boolean {
-  const hasPid = typeof pid === 'number' && Number.isInteger(pid) && pid > 0;
-  if (!hasPid) return true;
+const LINUX_USER_HZ = 100;
+const POINTER_START_SKEW_MS = 2_000;
+const HAS_LINUX_PROC = process.platform === 'linux' && existsSync('/proc/self/stat');
+const HOST_RUNTIME_BINARIES = new Set([
+  'node',
+  'nodejs',
+  'bun',
+  'deno',
+  'workerd',
+  'electron',
+  'tsx',
+  'vite',
+  'next',
+  'pyric',
+]);
+
+function isPositiveIntegerPid(pid: unknown): pid is number {
+  return typeof pid === 'number' && Number.isInteger(pid) && pid > 0;
+}
+
+function isExpectedProcError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException).code;
+  return code === 'ENOENT' || code === 'ESRCH' || code === 'EACCES' || code === 'EPERM';
+}
+
+function readProcFile(path: string): string | null | 'unreadable' {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT' || code === 'ESRCH') return null;
+    if (code === 'EACCES' || code === 'EPERM') return 'unreadable';
+    throw error;
+  }
+}
+
+function isHostRuntimeCmdline(cmdline: string): boolean {
+  if (cmdline.length === 0) return false;
+  const argv = cmdline.split('\0').filter((token) => token.length > 0);
+  const firstToken = argv[0];
+  if (firstToken === undefined) return false;
+  const exe = basename(firstToken).toLowerCase();
+  if (HOST_RUNTIME_BINARIES.has(exe) || exe.startsWith('node')) return true;
+  return argv.some((token) => {
+    const lower = token.toLowerCase();
+    return lower.includes('pyric') || lower.includes('vite') || lower.includes('next');
+  });
+}
+
+function startedAfterPointerWrite(startTicks: number, pointerPath: string): boolean {
+  const uptimeText = readProcFile('/proc/uptime');
+  if (uptimeText === null || uptimeText === 'unreadable') return false;
+  const uptimeSeconds = Number(uptimeText.trim().split(/\s+/)[0]);
+  if (!Number.isFinite(uptimeSeconds) || uptimeSeconds <= 0) return false;
+  let pointerMtimeMs: number;
+  try {
+    pointerMtimeMs = statSync(pointerPath).mtimeMs;
+  } catch (error) {
+    if (isExpectedProcError(error)) return true;
+    throw error;
+  }
+  const ageMs = (uptimeSeconds - startTicks / LINUX_USER_HZ) * 1000;
+  const processStartedAtMs = Date.now() - ageMs;
+  return processStartedAtMs > pointerMtimeMs + POINTER_START_SKEW_MS;
+}
+
+function isLiveProcessOnProc(pid: number, pointerPath?: string): boolean {
+  const statText = readProcFile(`/proc/${pid}/stat`);
+  if (statText === null) return false;
+  if (statText !== 'unreadable') {
+    const closeParen = statText.lastIndexOf(')');
+    if (closeParen !== -1) {
+      const fields = statText.slice(closeParen + 2).trim().split(/\s+/);
+      const state = fields[0];
+      if (state === 'Z' || state === 'X') return false;
+      const startTicks = Number(fields[19]);
+      const canCheckStart = pointerPath !== undefined && Number.isFinite(startTicks) && startTicks > 0;
+      if (canCheckStart && startedAfterPointerWrite(startTicks, pointerPath)) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+function hasHostRuntimeCmdlineOnProc(pid: number): boolean {
+  if (!HAS_LINUX_PROC) return true;
+  const cmdline = readProcFile(`/proc/${pid}/cmdline`);
+  if (cmdline === null) return false;
+  if (cmdline !== 'unreadable' && !isHostRuntimeCmdline(cmdline)) return false;
+  return true;
+}
+
+/**
+ * Whether the process a pointer names is still running. On Linux `/proc` also
+ * rules out zombies and a reused pid that started after the pointer file was
+ * written (#1545). Off Linux, `process.kill(pid, 0)` is the only portable
+ * check and cannot distinguish a reused or foreign-ns pid. A pointer without a
+ * pid cannot be checked and counts as live for sync reads.
+ */
+function isPointerProcessAlive(pid: unknown, pointerPath?: string): boolean {
+  if (!isPositiveIntegerPid(pid)) return true;
   try {
     process.kill(pid, 0);
-    return true;
   } catch (error) {
-    return (error as { code?: string }).code === 'EPERM';
+    const isOtherUser = (error as NodeJS.ErrnoException).code === 'EPERM';
+    if (!isOtherUser) return false;
   }
+  if (HAS_LINUX_PROC) {
+    return isLiveProcessOnProc(pid, pointerPath);
+  }
+  return true;
 }
 
 /**
@@ -221,12 +316,12 @@ function isPointerProcessAlive(pid: unknown): boolean {
 export function pointerHeldByAnotherHost(
   pointer: { pid?: unknown; instanceId?: unknown },
   instanceId: string,
+  pointerPath?: string,
 ): boolean {
   if (pointer.instanceId === instanceId) return false;
   const pid = pointer.pid;
-  const hasPid = typeof pid === 'number' && Number.isInteger(pid) && pid > 0;
-  if (!hasPid || pid === process.pid) return false;
-  return isPointerProcessAlive(pid);
+  if (!isPositiveIntegerPid(pid) || pid === process.pid) return false;
+  return isPointerProcessAlive(pid, pointerPath);
 }
 
 /** What a project's `.pyric/serve.json` records, read without a health probe. */
@@ -264,7 +359,7 @@ export function readProjectPointer(cwd: string): ProjectPointer | null {
     if (!hasPointerFile) continue;
     try {
       const p = JSON.parse(readFileSync(pointerPath, 'utf8')) as ServePointer;
-      const isLeftOver = !isPointerProcessAlive(p.pid);
+      const isLeftOver = !isPointerProcessAlive(p.pid, pointerPath);
       if (isLeftOver) continue;
       const port = p.port ?? portOf(p.mcpUrl) ?? portOf(p.url);
       const hasPort = port !== null && Boolean(port);
@@ -327,10 +422,16 @@ function readPointer(pointerPath: string): ServePointer | null {
   }
 }
 
-/** Whether a pointer records a pid and that process is running. */
-function hasRunningProcess(pid: unknown): boolean {
-  const hasPid = typeof pid === 'number' && Number.isInteger(pid) && pid > 0;
-  return hasPid && isPointerProcessAlive(pid);
+/**
+ * Whether a pointer records a pid and that host process is still running, so
+ * discovery should wait up to {@link LIVE_POINTER_WAIT_MS} for its port. On
+ * Linux `/proc/<pid>/cmdline` also rejects a foreign-namespace or reused pid
+ * belonging to a kernel thread or non-JS process (#1545).
+ */
+function hasRunningProcess(pid: unknown, pointerPath: string): boolean {
+  if (!isPositiveIntegerPid(pid)) return false;
+  if (!isPointerProcessAlive(pid, pointerPath)) return false;
+  return hasHostRuntimeCmdlineOnProc(pid);
 }
 
 /** One look at the host the pointer at `pointerPath` names. */
@@ -344,7 +445,7 @@ async function probePointer(pointerPath: string): Promise<PointerOutcome> {
   const probe = await probePort(port, expectedId, p.url ?? p.mcpUrl);
   const match = probe.match;
   if (match === null) {
-    const waits = !probe.otherAnswered && hasRunningProcess(p.pid);
+    const waits = !probe.otherAnswered && hasRunningProcess(p.pid, pointerPath);
     return { kind: 'unanswered', port, expectedId, waits };
   }
   let pointerProjectDir: string;
@@ -366,11 +467,12 @@ async function probePointer(pointerPath: string): Promise<PointerOutcome> {
   return { kind: 'found', host };
 }
 
-async function waitForPointerHost(pointerPath: string): Promise<PointerOutcome> {
-  const deadline = Date.now() + LIVE_POINTER_WAIT_MS;
+async function waitForPointerHost(pointerPath: string, deadline: number): Promise<PointerOutcome> {
   let outcome = await probePointer(pointerPath);
-  while (outcome.kind === 'unanswered' && outcome.waits && Date.now() < deadline) {
-    await new Promise((resolveWait) => setTimeout(resolveWait, LIVE_POINTER_POLL_MS));
+  while (outcome.kind === 'unanswered' && outcome.waits && performance.now() < deadline) {
+    const remainingMs = deadline - performance.now();
+    const sleepMs = Math.min(LIVE_POINTER_POLL_MS, Math.max(1, remainingMs));
+    await new Promise((resolveWait) => setTimeout(resolveWait, sleepMs));
     outcome = await probePointer(pointerPath);
   }
   return outcome;
@@ -396,8 +498,9 @@ export async function discoverServe(
   log: (m: string) => void = () => {},
   scanPorts: number[] = SCAN_PORTS,
 ): Promise<Discovered | null> {
+  const waitDeadline = performance.now() + LIVE_POINTER_WAIT_MS;
   for (const pointerPath of candidatePointerPaths(cwd)) {
-    const outcome = await waitForPointerHost(pointerPath);
+    const outcome = await waitForPointerHost(pointerPath, waitDeadline);
     if (outcome.kind === 'found') return outcome.host;
     if (outcome.kind === 'unusable') continue;
     const expectedId = outcome.expectedId;

@@ -29,11 +29,13 @@ import type {
   EnqueueTaskOptions,
   EnqueuedTaskReceipt,
 } from './tasks/execution.js';
+import { boundedFetch } from '../bounded-request.js';
 import { buildChildEnv, createLinePrefixer } from '../cli/sandbox-runner.js';
 
 const INITIAL_PEER_TIMEOUT_MS = 30_000;
 const RELOAD_PEER_TIMEOUT_MS = 5_000;
 const PEER_POLL_INTERVAL_MS = 250;
+const PEER_POLL_DEADLINE_MS = 2_000;
 
 export interface FunctionsPeerReadiness {
   wait(options: { timeoutMs: number; signal: AbortSignal }): Promise<boolean>;
@@ -194,9 +196,9 @@ export function createHttpFunctionsPeerReadiness(
   } = {},
 ): FunctionsPeerReadiness {
   const baseUrl = serveUrl.replace(/\/$/, '');
-  const fetchImpl = options.fetchImpl ?? fetch;
+  const injectedFetch = options.fetchImpl;
   const intervalMs = options.intervalMs ?? PEER_POLL_INTERVAL_MS;
-  const now = options.now ?? Date.now;
+  const now = options.now ?? (() => performance.now());
   const sleep = options.sleep ?? abortableDelay;
   return {
     async wait({ timeoutMs, signal }) {
@@ -207,11 +209,23 @@ export function createHttpFunctionsPeerReadiness(
       const waitSignal = AbortSignal.any([signal, deadlineAbort.signal]);
       try {
         while (!waitSignal.aborted) {
+          const remainingMs = deadline - now();
+          if (remainingMs <= 0) return false;
+          const pollDeadlineMs = Math.min(PEER_POLL_DEADLINE_MS, Math.max(1, remainingMs));
+          const healthUrl = `${baseUrl}/__pyric/health`;
           try {
-            const response = await settleBeforeAbort(
-              fetchImpl(`${baseUrl}/__pyric/health`, { signal: waitSignal }),
-              waitSignal,
-            );
+            let response: Response;
+            if (injectedFetch !== undefined) {
+              response = await settleBeforeAbort(
+                injectedFetch(healthUrl, { signal: waitSignal }),
+                waitSignal,
+              );
+            } else {
+              response = await boundedFetch(healthUrl, {
+                deadlineMs: pollDeadlineMs,
+                signal: waitSignal,
+              });
+            }
             if (response.ok) {
               const health = await settleBeforeAbort(
                 response.json() as Promise<{ sandboxConnected?: boolean }>,
@@ -219,8 +233,11 @@ export function createHttpFunctionsPeerReadiness(
               );
               if (health.sandboxConnected === true) return true;
             }
-          } catch {
+          } catch (error) {
             if (waitSignal.aborted) return false;
+            const isProbeFailure =
+              error instanceof Error || (typeof error === 'object' && error !== null && 'name' in error);
+            if (!isProbeFailure) throw error;
           }
           if (now() >= deadline) return false;
           await sleep(intervalMs, waitSignal);

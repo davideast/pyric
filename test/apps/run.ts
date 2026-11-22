@@ -149,6 +149,13 @@ function withTimeout<T>(promise: Promise<T>, ms: number, run: AppRun): Promise<T
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
+interface ActiveAppRun {
+  readonly run: AppRun;
+  readonly work: string;
+}
+
+const activeAppRuns = new Set<ActiveAppRun>();
+
 async function runApp(name: string, context: {
   tarballs: Tarballs;
   store: DependencyStore;
@@ -163,6 +170,8 @@ async function runApp(name: string, context: {
   mkdirSync(projectDir);
   mkdirSync(join(home, '.config'), { recursive: true });
   const run = new AppRun(name, projectDir, home, context.browser, { tarballs: context.tarballs, store: context.store });
+  const activeEntry: ActiveAppRun = { run, work };
+  activeAppRuns.add(activeEntry);
   const logs: AppResult['logs'] = [];
   let failure: unknown;
   let inScenario = false;
@@ -203,10 +212,18 @@ async function runApp(name: string, context: {
   // The tree is removed off the event loop, which every running app's steps
   // share. An rmSync of one app's installed tree held it for over 4 s on CI,
   // and the apps still running timed that stall as their own.
-  const cleanupFailures = await cleanUpApp({
-    close: () => run.close(),
-    remove: async () => (context.keep ? undefined : removeTree(work)),
-  });
+  let cleanupFailures: string[];
+  try {
+    cleanupFailures = await cleanUpApp({
+      close: () => run.close(),
+      remove: async () => {
+        if (context.keep) return undefined;
+        return removeTree(work);
+      },
+    });
+  } finally {
+    activeAppRuns.delete(activeEntry);
+  }
   if (context.keep) console.log(`  ${name}: installed at ${projectDir}`);
   // Read after close, so a crash while the app's processes shut down counts too.
   const verdict = run.crashVerdict(expectedCrashes);
@@ -363,6 +380,45 @@ async function main(): Promise<void> {
 
   const browser = new SharedBrowser(() => launchScenarioBrowser(), (line) => console.log(line));
 
+  let signalShutdown: Promise<never> | null = null;
+  const signalExitCode = (sig: NodeJS.Signals): number => {
+    if (sig === 'SIGHUP') return 129;
+    if (sig === 'SIGINT') return 130;
+    return 143;
+  };
+  const onTerminateSignal = (sig: NodeJS.Signals): void => {
+    if (signalShutdown !== null) return;
+    const code = signalExitCode(sig);
+    const forceExit = setTimeout(() => process.exit(code), 15_000);
+    forceExit.unref();
+    signalShutdown = (async (): Promise<never> => {
+      const running = [...activeAppRuns];
+      activeAppRuns.clear();
+      await Promise.allSettled([
+        browser.close(),
+        ...running.map(({ run, work }) =>
+          cleanUpApp({
+            close: () => run.close(),
+            remove: async () => {
+              if (options.keep) return undefined;
+              return removeTree(work);
+            },
+          }),
+        ),
+      ]);
+      if (!options.keep) {
+        await removeTree(installsDir);
+      }
+      process.exit(code);
+    })();
+  };
+  const handleSigInt = (): void => onTerminateSignal('SIGINT');
+  const handleSigTerm = (): void => onTerminateSignal('SIGTERM');
+  const handleSigHup = (): void => onTerminateSignal('SIGHUP');
+  process.on('SIGINT', handleSigInt);
+  process.on('SIGTERM', handleSigTerm);
+  process.on('SIGHUP', handleSigHup);
+
   const jobs = options.jobs ?? defaultJobs(machine, process.env);
   const load = `${(machine.load / machine.threads).toFixed(2)} busy per thread`;
   console.log(`▸ running ${names.length} app${names.length === 1 ? '' : 's'}, ${jobs} at a time (${load}), longest first`);
@@ -380,8 +436,16 @@ async function main(): Promise<void> {
     });
     await browser.close();
   } finally {
-    if (options.keep) console.log(`  shared installs: ${installsDir}`);
-    else installsFailure = await removeTree(installsDir);
+    process.off('SIGINT', handleSigInt);
+    process.off('SIGTERM', handleSigTerm);
+    process.off('SIGHUP', handleSigHup);
+    if (signalShutdown !== null) {
+      await signalShutdown;
+    } else if (options.keep) {
+      console.log(`  shared installs: ${installsDir}`);
+    } else {
+      installsFailure = await removeTree(installsDir);
+    }
   }
 
   if (shard) {

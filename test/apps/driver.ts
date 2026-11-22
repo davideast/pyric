@@ -25,6 +25,14 @@ import {
   type ExitTiming,
   type LiveProcess,
 } from './unreaped-exit.ts';
+import {
+  collectDescendantGroups,
+  endProcessGroups,
+  hasLiveGroupProcesses,
+  killProcessGroupsNow,
+  trackGroupOnRunnerExit,
+  untrackGroupsOnRunnerExit,
+} from './process-reaper.ts';
 import { childOutputSockets, describeOutputSockets, isExitWithoutClose } from './output-sockets.ts';
 import { CrashWatch, type CrashVerdict, type ExpectedCrash, type WatchedProcess } from './crash-watch.ts';
 import { firstLine, HostErrors, LOCAL_HOSTS, responseTimes, STOPPING_HOST_NOTE } from './host-errors.ts';
@@ -71,6 +79,15 @@ export interface ProcessTiming {
 
 export const DEFAULT_PROCESS_TIMING: ProcessTiming = { exit: DEFAULT_EXIT_TIMING, stop: DEFAULT_STOP_GRACE };
 
+function killGroupIgnoringGone(group: number, signal: NodeJS.Signals): void {
+  try {
+    process.kill(group, signal);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== 'ESRCH' && code !== 'EPERM') throw error;
+  }
+}
+
 /** One child process of the app, with its interleaved stdout and stderr. */
 export class AppProcess {
   readonly exited: Promise<number | null>;
@@ -84,6 +101,7 @@ export class AppProcess {
   private spawnAttempts = 0;
   private childWrote = false;
   private stopWatchingExit: () => void = () => {};
+  private readonly subgroups = new Set<number>();
   /**
    * Set when the child's exit was counted without its `close` (#1274): a
    * process it started may still be in its group, holding its pipes.
@@ -120,6 +138,9 @@ export class AppProcess {
   private start(): ChildProcess {
     this.spawnAttempts += 1;
     const child = this.spawnChild(this.command, this.args, { cwd: this.cwd, env: this.env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    if (this.spawnChild === spawn && child.pid !== undefined) {
+      trackGroupOnRunnerExit(child.pid);
+    }
     const outputSockets = childOutputSockets(child.pid);
     const isCurrent = () => child === this.child;
     const record = (chunk: unknown) => {
@@ -148,12 +169,19 @@ export class AppProcess {
     this.stopWatchingExit();
     this.stopWatchingExit = watchChildExit(child, this.name, (exit) => {
       if (!isCurrent()) return;
+      this.captureSubgroups();
       this.text += exit.note;
       // Without `close`, output can go missing: say whether the kernel still holds it (#1797).
       if (isExitWithoutClose(exit.source)) this.text += describeOutputSockets(this.name, outputSockets);
       if (exit.source !== 'close') this.exitedEarly = true;
       this.leftoverProcesses.push(...exit.leftovers);
       this.finish(exit.code);
+      if (exit.source === 'close' && child.pid !== undefined) {
+        const allGroups = new Set<number>([child.pid, ...this.subgroups]);
+        if (!hasLiveGroupProcesses(allGroups)) {
+          this.untrackFromReaper();
+        }
+      }
     }, this.timing.exit);
     return child;
   }
@@ -172,7 +200,33 @@ export class AppProcess {
   /** Ends a child whose spawn failed, in case it got a process before the error. */
   private abandon(child: ChildProcess): void {
     if (child.pid === undefined) return;
-    try { process.kill(-child.pid, 'SIGKILL'); } catch { /* never started or already gone */ }
+    killGroupIgnoringGone(-child.pid, 'SIGKILL');
+    if (this.spawnChild === spawn) {
+      untrackGroupsOnRunnerExit([child.pid]);
+    }
+  }
+
+  /** Records any detached child process groups currently reachable under this process. */
+  snapshotSubgroups(): void {
+    this.captureSubgroups();
+  }
+
+  private captureSubgroups(): void {
+    const pid = this.child.pid;
+    if (this.spawnChild !== spawn || pid === undefined) return;
+    const beforeSize = this.subgroups.size;
+    collectDescendantGroups(pid, this.subgroups);
+    if (this.subgroups.size > beforeSize) {
+      for (const subgroup of this.subgroups) {
+        trackGroupOnRunnerExit(subgroup);
+      }
+    }
+  }
+
+  private untrackFromReaper(): void {
+    const pid = this.child.pid;
+    if (this.spawnChild !== spawn || pid === undefined) return;
+    untrackGroupsOnRunnerExit([pid, ...this.subgroups]);
   }
 
   private finish(code: number | null): void {
@@ -212,7 +266,10 @@ export class AppProcess {
     const deadline = Date.now() + (options.timeoutMs ?? 30_000);
     for (;;) {
       const match = this.text.slice(options.since ?? 0).match(pattern);
-      if (match) return match;
+      if (match) {
+        this.snapshotSubgroups();
+        return match;
+      }
       if (!this.running) throw new Error(`${this.name} exited before logging ${pattern}`);
       if (Date.now() > deadline) throw new Error(`${this.name} did not log ${pattern} in time`);
       await sleep(100);
@@ -257,27 +314,40 @@ export class AppProcess {
    */
   async stop(grace: StopGrace = this.timing.stop): Promise<void> {
     if (this.child.pid === undefined) return;
+    this.captureSubgroups();
     if (this.running) this.stopRequestedAt ??= Date.now();
     if (!this.running) {
       await this.stopLeftoverGroup(grace);
+      await endProcessGroups(this.subgroups, grace.termMs);
+      this.untrackFromReaper();
       return;
     }
     const group = -this.child.pid;
     // A stopped process holds SIGTERM until it is continued.
     if (this.isPaused) {
-      try { process.kill(group, 'SIGCONT'); } catch { /* already gone */ }
+      killGroupIgnoringGone(group, 'SIGCONT');
       this.isPaused = false;
     }
-    try { process.kill(group, 'SIGTERM'); } catch { /* the group is gone; wait for close below */ }
+    killGroupIgnoringGone(group, 'SIGTERM');
     if (await this.closesWithin(grace.termMs)) {
+      this.captureSubgroups();
       // The leader went; a member that ignores SIGTERM may hold its pipes.
-      if (this.exitedEarly) try { process.kill(group, 'SIGKILL'); } catch { /* the group is gone */ }
+      if (this.exitedEarly) killGroupIgnoringGone(group, 'SIGKILL');
+      await endProcessGroups(this.subgroups, grace.termMs);
+      this.untrackFromReaper();
       return;
     }
-    try { process.kill(group, 'SIGKILL'); } catch { /* already gone */ }
-    if (await this.closesWithin(grace.killMs)) return;
+    this.captureSubgroups();
+    killGroupIgnoringGone(group, 'SIGKILL');
+    if (await this.closesWithin(grace.killMs)) {
+      await endProcessGroups(this.subgroups, Math.min(grace.termMs, grace.killMs));
+      this.untrackFromReaper();
+      return;
+    }
     this.text += `\n[driver] ${this.name} did not close within ${grace.killMs / 1000}s of SIGKILL; the driver records it as gone${describeProcState(this.child.pid)}\n`;
     this.finish(null);
+    killProcessGroupsNow(this.subgroups);
+    this.untrackFromReaper();
   }
 
   /**
@@ -679,6 +749,7 @@ export class AppRun implements App {
       if (Date.now() > deadline) throw new Error(`${name} did not serve ${url}/ and ${url}/__pyric/init.json within 90s`);
       await sleep(250);
     }
+    child.snapshotSubgroups();
     return { url, port, process: child };
   }
 
