@@ -2,6 +2,8 @@
 import type { AuthAccountStanding } from 'pyric/sandbox/internal';
 import type { AuthAccountHistory } from '../../sandbox/internal/auth-accounts.js';
 import type { StoredUser } from '../sandbox-backend-types.js';
+import type { AuthFlowResolver } from '../types.js';
+import type { AvatarMint } from './default-avatar.js';
 import type { SessionRecord } from './session-ledger.js';
 
 export interface AuthProjectStore {
@@ -51,6 +53,14 @@ export interface AuthProjectStore {
    * `beforeSmsSent`). `null` when no blocking functions are active.
    */
   blockingHooks: unknown;
+  /** Per-uid page/client HTTP(S) origin recorded at detached session mint. */
+  readonly photoOriginByUid: Map<string, string>;
+  /** Last HTTP(S) origin recorded on this project store, used when a uid has no per-uid entry (#581, #1244). */
+  fallbackPhotoOrigin: string | null;
+  /** Host-level fallback AuthFlowResolver shared with app-scoped backends when no per-app resolver or mock is staged (#1802). */
+  hostFlowResolver: AuthFlowResolver | null;
+  /** Host-level avatar mint shared with app-scoped backends when no per-app mint override was installed. */
+  defaultAvatarMint: AvatarMint | null;
 }
 
 export function createAuthProjectStore(): AuthProjectStore {
@@ -73,6 +83,10 @@ export function createAuthProjectStore(): AuthProjectStore {
     smsOutbox: [],
     projectId: () => undefined,
     blockingHooks: null,
+    photoOriginByUid: new Map(),
+    fallbackPhotoOrigin: null,
+    hostFlowResolver: null,
+    defaultAvatarMint: null,
   };
 }
 
@@ -105,6 +119,7 @@ export function recordDeletion(store: AuthProjectStore, uid: string, nowMs: numb
 export function forgetAccountHistory(store: AuthProjectStore): void {
   store.deletedUids.clear();
   store.tokensValidAfterMs.clear();
+  store.photoOriginByUid.clear();
   store.smsOutbox.length = 0;
 }
 

@@ -43,6 +43,7 @@ import { makeAuthError } from './auth-errors.js';
 import { requireSandboxUser, userInternal } from './action-codes.js';
 import { AuthCredential, EmailAuthCredential } from './credentials.js';
 import type { AuthProvider } from './providers.js';
+import { SandboxBackend } from './sandbox-backend.js';
 import type { SandboxTarget } from './target.js';
 import type { AuthFlowRequest, AuthFlowResolver, User, UserCredential } from './types.js';
 
@@ -176,9 +177,23 @@ async function linkViaFlow(
   const resolver = perCall ?? target.backend.getResolver();
   let resolved: UserCredential | undefined;
   if (resolver) {
-    resolved = kind === 'popup' ? await resolver.openPopup(req) : await resolver.openRedirect(req);
+    if (kind === 'popup') {
+      resolved = await resolver.openPopup(req);
+    } else {
+      resolved = await resolver.openRedirect(req);
+    }
   } else {
     resolved = target.backend.consumeMockResult(provider.providerId);
+    if (!resolved) {
+      const hostResolver = SandboxBackend.hostResolverOf(target.backend);
+      if (hostResolver) {
+        if (kind === 'popup') {
+          resolved = await hostResolver.openPopup(req);
+        } else {
+          resolved = await hostResolver.openRedirect(req);
+        }
+      }
+    }
   }
   if (!resolved) {
     throw makeAuthError(

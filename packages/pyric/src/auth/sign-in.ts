@@ -17,17 +17,18 @@ import {
 import { resolveOidcJwtIdentity } from './sandbox/oidc-jwt-credential.js';
 import { isFederatedProviderId, type AuthProvider } from './providers.js';
 import type { FirebaseError } from '../sandbox/internal/firebase-error.js';
-import { makeAuthError } from './sandbox-backend.js';
+import { SandboxBackend, makeAuthError } from './sandbox-backend.js';
 import { resolvePersistenceMode } from './sandbox/persistence-options.js';
 import { assertMatchingTenant } from './sandbox/tenant-isolation.js';
 import { targetOf, type SandboxTarget } from './target.js';
-import type {
-  Auth,
-  AuthFlowRequest,
-  AuthFlowResolver,
-  Persistence,
-  User,
-  UserCredential,
+import {
+  USER_INTERNAL,
+  type Auth,
+  type AuthFlowRequest,
+  type AuthFlowResolver,
+  type Persistence,
+  type User,
+  type UserCredential,
 } from './types.js';
 
 export async function signInAnonymously(auth: Auth): Promise<UserCredential> {
@@ -144,9 +145,17 @@ async function resolveFlow(
   backend.assertProviderEnabled(provider.providerId);
   const request: AuthFlowRequest = { providerId: provider.providerId, authType };
   const resolver = perCall ?? backend.getResolver();
-  if (resolver) return kind === 'popup' ? resolver.openPopup(request) : resolver.openRedirect(request);
+  if (resolver) {
+    if (kind === 'popup') return resolver.openPopup(request);
+    return resolver.openRedirect(request);
+  }
   const mock = backend.consumeMockResult(provider.providerId);
   if (mock) return mock;
+  const hostResolver = SandboxBackend.hostResolverOf(backend);
+  if (hostResolver) {
+    if (kind === 'popup') return hostResolver.openPopup(request);
+    return hostResolver.openRedirect(request);
+  }
   const api = kind === 'popup' ? 'signInWithPopup' : 'signInWithRedirect';
   throw makeAuthError(
     'auth/argument-error',
@@ -166,12 +175,17 @@ function ensureProviderUser(
   user: User,
   providerId: string,
 ): User {
-  if (user.providerData?.some((entry) => entry.providerId === providerId)) {
+  const internal = (user as { [USER_INTERNAL]?: { target?: SandboxTarget } })[USER_INTERNAL];
+  const mintedByOtherBackend = internal !== undefined && internal.target?.backend !== backend;
+  if (!mintedByOtherBackend && user.providerData?.some((entry) => entry.providerId === providerId)) {
     return user;
   }
   const stored = backend.findByUid(user.uid);
   if (!stored) return user;
   const rebuilt = backend.buildUserFromStored(stored);
+  if (mintedByOtherBackend) {
+    return rebuilt;
+  }
   const mutable = user as { -readonly [K in keyof User]: User[K] };
   try {
     mutable.providerId = rebuilt.providerId ?? 'firebase';

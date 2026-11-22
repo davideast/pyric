@@ -1,7 +1,8 @@
 // A provider sign-in through the hosted sandbox gives the user a default
 // avatar. Production photoURL values are absolute, so an app can hand one to a
 // blob-URL iframe, whose base cannot resolve a relative path. The page's
-// user.photoURL, the ID token's picture claim, and firebase-admin's getUser
+// user.photoURL, user.providerData[0].photoURL, auth-state snapshots, unified
+// sandbox events, the ID token's picture claim, and firebase-admin's getUser
 // must all carry the absolute URL on the page's origin.
 import assert from 'node:assert/strict';
 import { scenario } from '../driver.ts';
@@ -9,9 +10,24 @@ import { scenario } from '../driver.ts';
 interface SignInReport {
   uid: string;
   photoURL: string | null;
+  providerPhotoURL: string | null;
+  authStatePhotoURL: string | null;
+  authStateProviderPhotoURL: string | null;
   picture: string | null;
   topLoaded: boolean;
   iframe: { loaded: boolean; error: string | null };
+}
+
+interface SandboxEventsEnvelope {
+  data?: {
+    events?: Array<{
+      service?: string;
+      method?: string;
+      path?: string;
+      auth?: { token?: { picture?: string | null } } | null;
+      resourceAfter?: { data?: { photoUrl?: string | null } };
+    }>;
+  };
 }
 
 declare function signIn(): Promise<SignInReport>;
@@ -43,6 +59,25 @@ export default scenario(async (app) => {
 
   await app.step('user.photoURL is absolute on the page origin', () => {
     assert.ok(report.photoURL?.startsWith(avatarPrefix), `photoURL ${report.photoURL} is not under ${avatarPrefix}`);
+  });
+
+  await app.step('providerData[0].photoURL and auth-state snapshot equal user.photoURL', () => {
+    assert.equal(report.providerPhotoURL, report.photoURL);
+    assert.equal(report.authStatePhotoURL, report.photoURL);
+    assert.equal(report.authStateProviderPhotoURL, report.photoURL);
+  });
+
+  await app.step('the sandbox sign_in event payload carries the same absolute photoURL', async () => {
+    const eventsResult = await app.pyric(['sandbox', 'events', '--limit', '50', '--json']);
+    assert.equal(eventsResult.code, 0, eventsResult.output);
+    const jsonStart = eventsResult.output.indexOf('{');
+    assert.ok(jsonStart >= 0, `expected JSON output from pyric sandbox events:\n${eventsResult.output}`);
+    const parsed = JSON.parse(eventsResult.output.slice(jsonStart)) as SandboxEventsEnvelope;
+    const signInEvent = parsed.data?.events?.find(
+      (event) => event.service === 'auth' && event.method === 'sign_in' && event.path === report.uid,
+    );
+    assert.ok(signInEvent, `expected sign_in event for ${report.uid}`);
+    assert.equal(signInEvent.auth?.token?.picture ?? null, report.photoURL);
   });
 
   await app.step('the ID token picture claim is the same absolute URL', () => {

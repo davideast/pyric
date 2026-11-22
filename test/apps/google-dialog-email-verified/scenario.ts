@@ -4,9 +4,8 @@
 // `firebase.sign_in_provider: 'google.com'`. The app's rule reads
 // `/allowlist/{email}` only when `request.auth.token.email_verified == true`,
 // so a user typed into the dialog, and the same user picked from the account
-// list on a second sign-in, must both read their entry. The SharedWorker page
-// and a page on the Node host must agree. The in-page sandbox has no step: its
-// dialog does not open on a page's own Auth handle (#1802).
+// list on a second sign-in, must both read their entry. The in-page sandbox,
+// the SharedWorker page and a page on the Node host must agree.
 import assert from 'node:assert/strict';
 import type { Page } from '@playwright/test';
 import { scenario, type App } from '../driver.ts';
@@ -21,7 +20,7 @@ interface SignInReport {
 declare function signIn(): Promise<SignInReport>;
 declare function signOutUser(): Promise<void>;
 
-type Runtime = 'shared-worker' | 'hosted';
+type Runtime = 'in-page' | 'shared-worker' | 'hosted';
 
 const BANNER = '[pyric sandbox] firebase/* on this page is served by the Pyric sandbox';
 const EMAIL = 'ada@example.com';
@@ -38,9 +37,15 @@ async function openPage(app: App, url: string, runtime: Runtime): Promise<Page> 
   const log = app.browserLog as string[];
   page.on('console', (message) => log.push(`[${runtime} page console.${message.type()}] ${message.text()}`));
   page.on('pageerror', (error) => log.push(`[${runtime} page error] ${error.stack ?? error.message}`));
+  if (runtime === 'in-page') {
+    await page.addInitScript(() => {
+      (globalThis as { __PYRIC_FORCE_INPAGE__?: boolean }).__PYRIC_FORCE_INPAGE__ = true;
+    });
+  }
   const banner = page.waitForEvent('console', { predicate: (message) => message.text().startsWith(BANNER), timeout: 30_000 });
   await page.goto(url);
   const text = (await banner).text();
+  if (runtime === 'in-page') assert.doesNotMatch(text, /SharedWorker|on the dev server/, text);
   if (runtime === 'shared-worker') assert.match(text, /in a SharedWorker/, text);
   if (runtime === 'hosted') assert.match(text, /on the dev server/, text);
   await page.waitForFunction(() => 'signIn' in window);
@@ -78,6 +83,9 @@ async function checkRuntime(app: App, url: string, runtime: Runtime): Promise<vo
 
 export default scenario(async (app) => {
   const local = await app.step('start the dev server', () => app.devServer());
+
+  await app.step('in-page, a Google dialog sign-in has a verified email and reads its allowlist entry', () =>
+    checkRuntime(app, local.url, 'in-page'));
 
   await app.step('in a SharedWorker, a Google dialog sign-in has a verified email and reads its allowlist entry', () =>
     checkRuntime(app, local.url, 'shared-worker'));

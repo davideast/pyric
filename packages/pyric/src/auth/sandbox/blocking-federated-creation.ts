@@ -18,6 +18,7 @@ import {
   type ResolveOidcJwtInput,
   type ResolvedOidcJwtIdentity,
 } from './oidc-jwt-credential.js';
+import { resolvePhotoUrlForUid } from './photo-origin.js';
 import { assertMatchingTenant, normalizeTenantScope } from './tenant-isolation.js';
 import { targetOf } from '../target.js';
 import type { Auth, User } from '../types.js';
@@ -31,6 +32,7 @@ export interface BlockedFederatedIdentityInput {
   readonly customClaims?: Record<string, unknown>;
   readonly tenantId?: string | null;
   readonly emailVerified?: boolean;
+  readonly preserveExistingProfile?: boolean;
 }
 
 export interface BlockedOidcJwtIdentityOutcome extends ResolvedOidcJwtIdentity {
@@ -92,7 +94,7 @@ export async function resolveBlockedOidcJwtIdentity(
         backend.createSignInCredential({
           providerId: input.providerId,
           uid: matchedExisting.uid,
-          verifyEmail: decoded.emailVerified === undefined,
+          verifyEmail: decoded.emailVerified !== false,
         });
         const updateReq: UpdateUserRequest = {};
         let hasUpdate = false;
@@ -163,13 +165,18 @@ export async function resolveBlockedOidcJwtIdentity(
   let finalInit = baseInit;
   let clearPhotoUrl = false;
   if (beforeCreate !== undefined) {
+    const candidatePhotoUrl = resolvePhotoUrlForUid(
+      SandboxBackend.projectStoreOf(backend),
+      decoded.sub,
+      decoded.photoURL,
+    );
     const response = await beforeCreate({
       userRecord: {
         uid: decoded.sub,
         email: decoded.email,
         emailVerified: initialEmailVerified,
         displayName: decoded.displayName,
-        photoURL: decoded.photoURL,
+        photoURL: candidatePhotoUrl,
         phoneNumber: null,
         disabled: false,
         creationTime: createdAtIso,
@@ -179,7 +186,7 @@ export async function resolveBlockedOidcJwtIdentity(
             uid: decoded.sub,
             email: decoded.email,
             displayName: decoded.displayName,
-            photoURL: decoded.photoURL,
+            photoURL: candidatePhotoUrl,
             providerId: input.providerId,
           },
         ],
@@ -262,6 +269,9 @@ export async function resolveBlockedFederatedIdentity(
           uid: resolvedTargetUid,
           verifyEmail: !callerDecidesVerification,
         });
+        if (credential.preserveExistingProfile === true) {
+          return;
+        }
         backend.updateUser(resolvedTargetUid, {
           displayName: credential.displayName ?? existing.displayName,
           email: credential.email ?? existing.email ?? undefined,
@@ -306,13 +316,18 @@ export async function resolveBlockedFederatedIdentity(
   let finalInit = baseInit;
   let clearPhotoUrl = false;
   if (beforeCreate !== undefined) {
+    const candidatePhotoUrl = resolvePhotoUrlForUid(
+      SandboxBackend.projectStoreOf(backend),
+      resolvedTargetUid,
+      credential.photoURL ?? null,
+    );
     const response = await beforeCreate({
       userRecord: {
         uid: resolvedTargetUid,
         email: credential.email ?? null,
         emailVerified: initialEmailVerified,
         displayName: credential.displayName ?? null,
-        photoURL: credential.photoURL ?? null,
+        photoURL: candidatePhotoUrl,
         phoneNumber: null,
         disabled: false,
         creationTime: createdAtIso,
@@ -322,7 +337,7 @@ export async function resolveBlockedFederatedIdentity(
             uid: resolvedTargetUid,
             email: credential.email ?? null,
             displayName: credential.displayName ?? null,
-            photoURL: credential.photoURL ?? null,
+            photoURL: candidatePhotoUrl,
             providerId: credential.providerId,
           },
         ],

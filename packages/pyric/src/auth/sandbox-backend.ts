@@ -66,13 +66,23 @@ import { defaultAvatarMint, type AvatarMint } from './sandbox/default-avatar.js'
 import { verifyPasswordSignIn } from './sandbox/password-sign-in.js';
 import { applyAdminUserUpdateFields, assertTenantPhoneAvailable } from './sandbox/admin-user-update.js';
 import { applyEmailChangeToUser, applyUserEmailUpdate, propagateRefreshedToken } from './sandbox/email-update.js';
+import { applyProviderEmailVerification } from './sandbox/gmail-account-overwrite.js';
+import {
+  creationProviderId,
+  mintsDefaultPhoto,
+  normalizeStoredPhotoUrl,
+  readStoredPhotoUrl,
+  recordStorePhotoOrigin,
+  refreshStoredPhoto,
+  resolvePhotoUrlForUid,
+} from './sandbox/photo-origin.js';
 import { SessionLedger } from './sandbox/session-ledger.js';
 import { buildClientUserInfoList } from './sandbox/user-info-projection.js';
 
 import { normalizeAuthState, type AuthState, type Sandbox } from 'pyric/sandbox';
 import {
-  absolutePhotoUrl, accountTokenClaims, assertNoReservedCustomClaims, emitSandboxEvent, getClock, idTokenAudience, makeServiceMutationEvent,
-  realmOrigin, providerVerifiesEmail, SANDBOX_PROJECT_ID, tokenClaimAccount, rulesTokenFromIdToken,
+  accountTokenClaims, assertNoReservedCustomClaims, emitSandboxEvent, getClock, idTokenAudience, makeServiceMutationEvent,
+  SANDBOX_PROJECT_ID, tokenClaimAccount, rulesTokenFromIdToken,
   ID_TOKEN_LIFETIME_MS, isPastIdTokenRefreshPoint, randomUuid, refreshRefusal,
 } from 'pyric/sandbox/internal';
 import type { AuthEventOperation } from './events.js';
@@ -336,12 +346,6 @@ export class SandboxBackend {
     claims: Record<string, unknown> | undefined;
   } | null = null;
 
-  /** Per-uid page origin a detached session's client signed in from. The
-   *  stored photo URL stays relative; token `picture`, admin records, and
-   *  `User.photoURL` resolve it against this origin, falling back to the
-   *  realm's own origin (a page or worker). Not persisted. */
-  private readonly photoOriginByUid = new Map<string, string>();
-
   /**
    * Per-uid instant (sandbox-clock epoch milliseconds) at which the identity
    * last authenticated: a sign-in, a re-authentication, or a session first
@@ -415,7 +419,8 @@ export class SandboxBackend {
    * decision, not project config — but the URL it returns IS persisted, so a
    * host must install its mint before any user record is created.
    */
-  private avatarMint: AvatarMint = defaultAvatarMint;
+  private avatarMint: AvatarMint | null = null;
+  private readonly isHostBackend: boolean;
 
   /**
    * Tenant the NEXT sign-in through this handle authenticates against, or
@@ -473,6 +478,7 @@ export class SandboxBackend {
     this.providerConfigSubs = projectStore.providerConfigSubscribers;
     this.sharedCounters = projectStore.counters;
     this.projectStore = projectStore;
+    this.isHostBackend = ownCleanup === undefined;
     this.sessions = new SessionLedger(this.authenticatedAtByUid, projectStore.sessionRecords);
     // Initialize cachedUser from the injected session host.
     this.cachedUser = this.buildUserFromState(session.currentUser);
@@ -678,14 +684,17 @@ export class SandboxBackend {
       ...init,
       customClaims,
     };
+    record.photoUrl = normalizeStoredPhotoUrl(this.projectStore, record.uid, record.photoUrl, false);
     const providerId = creationProviderId(record, signInProviderId);
     if (mintsDefaultPhoto(record, providerId)) {
-      record.photoUrl = this.avatarMint({
+      const mint = this.avatarMint ?? this.projectStore.defaultAvatarMint ?? defaultAvatarMint;
+      const mintedPhoto = mint({
         uid: record.uid,
         displayName: record.displayName,
         email: record.email,
         providerId,
       });
+      record.photoUrl = normalizeStoredPhotoUrl(this.projectStore, record.uid, mintedPhoto, false);
     }
     return record;
   }
@@ -834,6 +843,9 @@ export class SandboxBackend {
    */
   setAvatarMint(mint: AvatarMint): void {
     this.avatarMint = mint;
+    if (this.isHostBackend) {
+      this.projectStore.defaultAvatarMint = mint;
+    }
   }
 
   /**
@@ -1675,10 +1687,17 @@ export class SandboxBackend {
 
   setResolver(resolver: AuthFlowResolver | null): void {
     this.flow.setResolver(resolver);
+    if (this.isHostBackend) {
+      this.projectStore.hostFlowResolver = resolver;
+    }
   }
 
   getResolver(): AuthFlowResolver | null {
     return this.flow.getResolver();
+  }
+
+  static hostResolverOf(backend: SandboxBackend): AuthFlowResolver | null {
+    return backend.projectStore.hostFlowResolver;
   }
 
   setRedirectResult(result: UserCredential): void {
@@ -1722,7 +1741,7 @@ export class SandboxBackend {
       changed = true;
     } else {
       assertMatchingTenant(stored, this.tenantId);
-      if (refreshStoredPhoto(stored, identityPhotoUrl)) {
+      if (refreshStoredPhoto(this.projectStore, stored, identityPhotoUrl)) {
         changed = true;
       }
     }
@@ -1793,7 +1812,7 @@ export class SandboxBackend {
       if (byEmail) {
         this.assertUserEnabled(byEmail);
         stored = byEmail;
-        if (refreshStoredPhoto(stored, specPhotoUrl)) this.notifyUsersChanged();
+        if (refreshStoredPhoto(this.projectStore, stored, specPhotoUrl)) this.notifyUsersChanged();
       } else {
         stored = this.makeStored({
           uid: spec.uid ?? mintProviderUid(),
@@ -1806,6 +1825,7 @@ export class SandboxBackend {
         this.usersByUid.set(stored.uid, stored);
         this.usersByEmail.set(emailKey, stored);
         this.notifyUsersChanged();
+        this.emitAuthEvent('user_create', { path: stored.uid, auth: null, after: this.toRecord(stored) });
       }
     }
     if (!stored.providerUserInfo.some((p) => p.providerId === providerId)) {
@@ -1813,7 +1833,9 @@ export class SandboxBackend {
       this.notifyUsersChanged();
     }
     const callerKeepsFlag = 'uid' in req && req.verifyEmail === false;
-    if (!callerKeepsFlag && markProviderVerifiedEmail(stored, providerId)) this.notifyUsersChanged();
+    if (!callerKeepsFlag && applyProviderEmailVerification(stored, providerId, this.projectStore, this.now().getTime())) {
+      this.notifyUsersChanged();
+    }
     return {
       user: this.buildUserFromStored(stored),
       providerId,
@@ -1854,13 +1876,14 @@ export class SandboxBackend {
   /** Public snapshot of a stored user. Defensive copies — mutating a
    *  returned record never touches the DB. */
   private toRecord(u: StoredUser): AuthUserRecord {
-    return toAuthUserRecord(u, this.projectStore.tokensValidAfterMs.get(u.uid), cloneClaimData);
+    const base = toAuthUserRecord(u, this.projectStore.tokensValidAfterMs.get(u.uid), cloneClaimData);
+    return { ...base, photoUrl: readStoredPhotoUrl(this.projectStore, u) };
   }
 
   /** Every user in the DB (seeded, created, signed-in-via-provider,
    *  anonymous), as admin records. */
   listUsers(): AuthUserRecord[] {
-    return [...this.usersByUid.values()].map((u) => ({ ...this.toRecord(u), photoUrl: readPhotoUrl(u, this.photoOriginByUid) }));
+    return [...this.usersByUid.values()].map((u) => this.toRecord(u));
   }
 
   /** Sanitize an admin-supplied linked-provider list (create + update):
@@ -1964,7 +1987,7 @@ export class SandboxBackend {
     this.notifyUsersChanged();
     const created = this.toRecord(record);
     this.emitAuthEvent('user_create', { path: uid, auth: null, after: created });
-    return { ...this.toRecord(record), photoUrl: readPhotoUrl(record, this.photoOriginByUid) };
+    return created;
   }
 
   /** Admin user update. `undefined` fields untouched; `customClaims`
@@ -1986,7 +2009,7 @@ export class SandboxBackend {
       update,
       usersByUid: this.usersByUid,
       usersByEmail: this.usersByEmail,
-      photoOriginByUid: this.photoOriginByUid,
+      projectStore: this.projectStore,
     });
     if (update.password !== undefined) {
       stored.password = update.password;
@@ -2008,7 +2031,7 @@ export class SandboxBackend {
     this.notifyUsersChanged();
     const after = this.toRecord(stored);
     this.emitAuthEvent('user_update', { path: uid, auth: null, before, after });
-    return { ...this.toRecord(stored), photoUrl: readPhotoUrl(stored, this.photoOriginByUid) };
+    return after;
   }
 
   /** Admin user deletion. The active session (if it's this user) is
@@ -2031,7 +2054,7 @@ export class SandboxBackend {
     this.signInProviderByUid.delete(uid);
     this.customTokenClaimsByUid.delete(uid);
     this.blockingSessionClaimsByUid.delete(uid);
-    this.photoOriginByUid.delete(uid);
+    this.projectStore.photoOriginByUid.delete(uid);
     this.authenticatedAtByUid.delete(uid);
     this.notifyUsersChanged();
     this.emitAuthEvent('user_delete', { path: uid, auth: null, before });
@@ -2083,7 +2106,7 @@ export class SandboxBackend {
       // Carry the profile fields through so a rebuilt/restored user (session
       // restore, snapshot round-trip) keeps its photoURL / emailVerified /
       // phoneNumber. Additive: these were null/undefined before this landed.
-      photoURL: readPhotoUrl(stored, this.photoOriginByUid),
+      photoURL: readStoredPhotoUrl(this.projectStore, stored),
       emailVerified: stored.emailVerified,
       phoneNumber: stored.phoneNumber,
       providers: stored.providerUserInfo,
@@ -2141,6 +2164,11 @@ export class SandboxBackend {
    */
   mintDetachedSession(request: MintSessionRequest): MintedSession {
     const tenantId = normalizeTenantScope(request.tenantId);
+    if ('uid' in request) {
+      recordStorePhotoOrigin(this.projectStore, request.origin, request.uid);
+    } else {
+      recordStorePhotoOrigin(this.projectStore, request.origin);
+    }
     switch (request.kind) {
       case 'anonymous': {
         this.assertProviderEnabled('anonymous');
@@ -2284,14 +2312,14 @@ export class SandboxBackend {
     if (signInProvider !== 'custom') {
       this.customTokenClaimsByUid.delete(user.uid);
     }
-    if (origin !== undefined) this.photoOriginByUid.set(user.uid, origin);
+    recordStorePhotoOrigin(this.projectStore, origin, user.uid);
     if (authenticates) this.recordAuthentication(user.uid, user);
     this.sessions.adopt(user);
     const stored = this.usersByUid.get(user.uid);
     const claims = claimsOverride ?? SandboxBackend.getEffectiveClaims(this, user.uid);
     const sessionNow = this.now();
     const hasStoredUser = stored !== undefined;
-    if (hasStoredUser) (user as Mutable<User>).photoURL = readPhotoUrl(stored, this.photoOriginByUid);
+    if (hasStoredUser) this.applyStoredToUser(user, stored);
     if (hasStoredUser && authenticates) {
       const signInIso = sessionNow.toISOString();
       stored.lastLoginAt = signInIso;
@@ -2380,7 +2408,7 @@ export class SandboxBackend {
     const expirationSeconds = Math.floor(expires.getTime() / 1000);
     let claimAccount = null;
     if (stored !== undefined) {
-      claimAccount = { ...tokenClaimAccount(stored), photoUrl: readPhotoUrl(stored, this.photoOriginByUid) };
+      claimAccount = { ...tokenClaimAccount(stored), photoUrl: readStoredPhotoUrl(this.projectStore, stored) };
     }
     const fullClaims: Record<string, unknown> = {
       ...accountTokenClaims(uid, claimAccount, claims, signInProvider),
@@ -2606,11 +2634,18 @@ export class SandboxBackend {
     const before = stored ? this.toRecord(stored) : undefined;
     if (stored) {
       if (profile.displayName !== undefined) stored.displayName = profile.displayName;
-      if (profile.photoURL !== undefined) stored.photoUrl = profile.photoURL;
+      if (profile.photoURL !== undefined) {
+        stored.photoUrl = normalizeStoredPhotoUrl(this.projectStore, user.uid, profile.photoURL, true);
+      }
     }
-    this.applyProfileToUser(user, profile);
+    let resolvedPhoto: string | null | undefined;
+    if (profile.photoURL !== undefined) {
+      resolvedPhoto = resolvePhotoUrlForUid(this.projectStore, user.uid, profile.photoURL);
+    }
+    const resolvedProfile = { displayName: profile.displayName, photoURL: resolvedPhoto };
+    this.applyProfileToUser(user, resolvedProfile);
     if (this.cachedUser && this.cachedUser.uid === user.uid && this.cachedUser !== user) {
-      this.applyProfileToUser(this.cachedUser, profile);
+      this.applyProfileToUser(this.cachedUser, resolvedProfile);
     }
     this.notifyUsersChanged();
     this.emitAuthEvent('user_update', {
@@ -2618,10 +2653,7 @@ export class SandboxBackend {
       auth: { uid: user.uid },
       before,
       after: stored ? this.toRecord(stored) : undefined,
-      detail: {
-        displayName: profile.displayName,
-        photoURL: profile.photoURL,
-      },
+      detail: resolvedProfile,
     });
   }
 
@@ -2660,9 +2692,16 @@ export class SandboxBackend {
     }
     const before = this.toRecord(stored);
     if (profile.displayName !== undefined) stored.displayName = profile.displayName;
-    if (profile.photoURL !== undefined) stored.photoUrl = profile.photoURL;
+    if (profile.photoURL !== undefined) {
+      stored.photoUrl = normalizeStoredPhotoUrl(this.projectStore, uid, profile.photoURL, true);
+    }
+    let resolvedPhoto: string | null | undefined;
+    if (profile.photoURL !== undefined) {
+      resolvedPhoto = resolvePhotoUrlForUid(this.projectStore, uid, profile.photoURL);
+    }
+    const resolvedProfile = { displayName: profile.displayName, photoURL: resolvedPhoto };
     if (this.cachedUser && this.cachedUser.uid === uid) {
-      this.applyProfileToUser(this.cachedUser, profile);
+      this.applyProfileToUser(this.cachedUser, resolvedProfile);
     }
     this.notifyUsersChanged();
     const after = this.toRecord(stored);
@@ -2671,7 +2710,7 @@ export class SandboxBackend {
       auth: { uid },
       before,
       after,
-      detail: { displayName: profile.displayName, photoURL: profile.photoURL },
+      detail: resolvedProfile,
     });
     return after;
   }
@@ -2994,7 +3033,7 @@ export class SandboxBackend {
    *  object in place. */
   private applyStoredToUser(user: User, stored: StoredUser): void {
     const m = user as Mutable<User>;
-    const photoURL = readPhotoUrl(stored, this.photoOriginByUid);
+    const photoURL = readStoredPhotoUrl(this.projectStore, stored);
     m.email = stored.email;
     m.displayName = stored.displayName;
     m.photoURL = photoURL;
@@ -3096,85 +3135,6 @@ async function logoutIfInvalidated<T>(signOut: () => Promise<void>, call: () => 
     if (invalidated) await signOut();
     throw error;
   }
-}
-
-/**
- * Apply a provider sign-in's photo to an already-stored identity, reporting
- * whether the record changed.
- *
- * A provider sign-in refreshes the provider profile data it actually carries.
- * An identity that carries no photo leaves the stored one alone rather than
- * blanking it, mirroring Firebase: a provider refresh updates the fields the
- * provider supplied and never clears one it omitted.
- */
-/**
- * The provider a record is being created under: the provider a sign-in flow
- * names explicitly, otherwise the first provider already on the record. Null
- * when neither exists — an anonymous or provider-less record.
- */
-function creationProviderId(
-  record: StoredUser,
-  signInProviderId: string | null,
-): string | null {
-  if (signInProviderId !== null) return signInProviderId;
-  const firstLinked = record.providerUserInfo[0];
-  if (firstLinked === undefined) return null;
-  return firstLinked.providerId;
-}
-
-/**
- * Whether a freshly built record gets a default photo.
- *
- * Firebase populates `photoURL` only for federated identities: a real Google
- * or GitHub sign-in always returns one, while `password`, `phone`, email-link,
- * and anonymous users return null in production. Federated provider ids are
- * exactly the dotted ones (`google.com`, `github.com`, `oidc.acme`,
- * `saml.corp`); the first-party ids never contain a dot. Defaulting everyone
- * would trade this divergence for a new one.
- *
- * A photo the caller supplied always wins — the mint only fills a record that
- * would otherwise be photo-less.
- */
-function mintsDefaultPhoto(
-  record: StoredUser,
-  providerId: string | null,
-): providerId is string {
-  if (record.photoUrl !== null) return false;
-  if (record.isAnonymous) return false;
-  if (providerId === null) return false;
-  return providerId.includes('.');
-}
-
-/** A stored photo URL resolved against the uid's known page origin, or the
- *  realm's own origin when the uid has none. */
-function readPhotoUrl(stored: StoredUser, origins: ReadonlyMap<string, string>): string | null {
-  return absolutePhotoUrl(stored.photoUrl, origins.get(stored.uid) ?? realmOrigin());
-}
-
-function refreshStoredPhoto(stored: StoredUser, photoUrl: string | null): boolean {
-  if (photoUrl === null) return false;
-  if (stored.photoUrl === photoUrl) return false;
-  stored.photoUrl = photoUrl;
-  return true;
-}
-
-/**
- * Mark the stored email verified when `providerId` vouches for it (see
- * {@link providerVerifiesEmail}) and the record is that provider's identity
- * alone: no password and no other linked provider. An existing password or
- * other-provider account keeps its own flag, so a Google sign-in never turns
- * an unverified password into a verified token. Returns whether the record
- * changed.
- */
-function markProviderVerifiedEmail(stored: StoredUser, providerId: string): boolean {
-  const hasEmail = stored.email !== null;
-  const hasPassword = stored.password !== null;
-  const hasOtherProvider = stored.providerUserInfo.some((entry) => entry.providerId !== providerId);
-  const isProviderIdentityAlone = !hasPassword && !hasOtherProvider;
-  const needsMark = hasEmail && !stored.emailVerified && isProviderIdentityAlone && providerVerifiesEmail(providerId);
-  if (!needsMark) return false;
-  stored.emailVerified = true;
-  return true;
 }
 
 /** Provider UIDs are opaque Firebase identifiers, not encoded credentials. */

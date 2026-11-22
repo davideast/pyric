@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getAuth, signInWithPopup, GoogleAuthProvider } from "firebase/auth";
+import { getAuth, onAuthStateChanged, signInWithPopup, GoogleAuthProvider } from "firebase/auth";
 
 const app = initializeApp({
   apiKey: "demo",
@@ -56,13 +56,29 @@ function imageLoadsInBlobIframe(src) {
 }
 
 window.signIn = async () => {
-  const { user } = await signInWithPopup(auth, new GoogleAuthProvider());
-  const { claims } = await user.getIdTokenResult();
-  return {
-    uid: user.uid,
-    photoURL: user.photoURL,
-    picture: claims.picture ?? null,
-    topLoaded: await imageLoads(document, user.photoURL),
-    iframe: await imageLoadsInBlobIframe(user.photoURL),
-  };
+  let authStatePhotoURL = null;
+  let authStateProviderPhotoURL = null;
+  const unsubscribe = onAuthStateChanged(auth, (eventUser) => {
+    if (!eventUser) return;
+    authStatePhotoURL = eventUser.photoURL;
+    const firstProvider = eventUser.providerData[0];
+    authStateProviderPhotoURL = firstProvider ? firstProvider.photoURL : null;
+  });
+  try {
+    const { user } = await signInWithPopup(auth, new GoogleAuthProvider());
+    const { claims } = await user.getIdTokenResult();
+    const firstProvider = user.providerData[0];
+    return {
+      uid: user.uid,
+      photoURL: user.photoURL,
+      providerPhotoURL: firstProvider ? firstProvider.photoURL : null,
+      authStatePhotoURL,
+      authStateProviderPhotoURL,
+      picture: claims.picture ?? null,
+      topLoaded: await imageLoads(document, user.photoURL),
+      iframe: await imageLoadsInBlobIframe(user.photoURL),
+    };
+  } finally {
+    unsubscribe();
+  }
 };

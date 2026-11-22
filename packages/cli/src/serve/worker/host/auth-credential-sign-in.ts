@@ -6,6 +6,7 @@ import {
   hasBeforeSignInHook,
   isFederatedProviderId,
   noMockConfiguredError,
+  recordAuthPhotoOrigin,
   resolveBlockedEmailLinkIdentity,
   resolveBlockedFederatedIdentity,
   resolveBlockedOidcJwtIdentity,
@@ -98,6 +99,7 @@ export function signInWithCredentialPayload(
   scope: CredentialSignInScope,
   takeStaged: TakeStagedSignInResult,
 ): CredentialSignIn {
+  recordAuthPhotoOrigin(auth, scope.origin);
   const isEmailCredential = payload.providerId === EMAIL_PROVIDER_ID;
   if (isEmailCredential) return signInWithEmailCredential(auth, payload, scope);
   // In-page checks enablement before anything else, so a disabled provider is operation-not-allowed.
@@ -155,11 +157,15 @@ function signInWithOidcJwtPayload(
 /** Sign in as the staged identity: find or create its uid and link the provider, as `auth.acceptIdentity` does. */
 function signInAsStaged(auth: Auth, staged: ResolvedIdentity, scope: CredentialSignInScope): CredentialSignIn {
   const { photoURL, ...identity } = staged;
-  const { uid, isNewUser } = resolveOAuthCredentialUser(auth, {
-    ...identity,
-    photoURL: photoURL ?? undefined,
-    tenantId: scope.tenantId,
-  });
+  const { uid, isNewUser } = resolveOAuthCredentialUser(
+    auth,
+    {
+      ...identity,
+      photoURL: photoURL ?? undefined,
+      tenantId: scope.tenantId,
+    },
+    { preserveExistingProfile: true },
+  );
   const session = sandbox.mintSession(auth, { kind: 'provider', uid, providerId: staged.providerId, ...scope });
   return { session, providerId: staged.providerId, isNewUser };
 }
@@ -196,6 +202,7 @@ export async function signInWithBlockedCredentialPayload(
   scope: CredentialSignInScope,
   takeStaged: TakeStagedSignInResult,
 ): Promise<CredentialSignIn> {
+  recordAuthPhotoOrigin(auth, scope.origin);
   if (!hasBeforeCreateHook(auth) && !hasBeforeSignInHook(auth)) {
     return signInWithCredentialPayload(auth, payload, scope, takeStaged);
   }
@@ -252,6 +259,7 @@ export async function signInWithBlockedCredentialPayload(
         ...identity,
         photoURL: photoURL ?? undefined,
         tenantId: scope.tenantId,
+        preserveExistingProfile: true,
       },
       wireCredential !== undefined ? { credential: wireCredential } : undefined,
     );

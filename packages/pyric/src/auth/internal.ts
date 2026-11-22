@@ -36,7 +36,11 @@ export {
   type ResolvedOidcJwtIdentity,
 } from './sandbox/oidc-jwt-credential.js';
 export { noMockConfiguredError } from './sign-in.js';
-export { SERVED_SANDBOX_HOOK } from './sandbox/driver.js';
+export { recordAuthPhotoOrigin, SERVED_SANDBOX_HOOK } from './sandbox/driver.js';
+export {
+  absoluteProviderPhotoUrls,
+  portableAvatarPhotoUrl,
+} from '../sandbox/internal/photo-url.js';
 export {
   assertMatchingTenant,
   normalizeTenantScope,
