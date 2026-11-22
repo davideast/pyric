@@ -43,6 +43,15 @@ export interface FunctionsWorkerPeerOptions {
   sandboxId: string;
   cwd?: string;
   sessionToken?: string;
+  /**
+   * Optional test hook called before forwarding a `worker-op` frame into
+   * `handleMessage`. Returning `'drop'` skips forwarding so tests can close
+   * the peer socket mid-flight without replying.
+   */
+  onWorkerOp?: (
+    op: Extract<BridgeMessage, { type: 'worker-op' }>['op'],
+    controls: { close(): Promise<void> },
+  ) => 'drop' | void;
 }
 
 export async function createFunctionsWorkerHostCtx(
@@ -94,6 +103,12 @@ export async function connectFunctionsWorkerPeer(
     },
   };
 
+  const close = (): Promise<void> => new Promise<void>((resolveClosed) => {
+    if (ws.readyState === WebSocket.CLOSED) return resolveClosed();
+    ws.once('close', () => resolveClosed());
+    ws.close();
+  });
+
   await new Promise<void>((resolveConnected, rejectConnected) => {
     ws.once('open', () => ws.send(JSON.stringify({
       type: 'hello',
@@ -112,6 +127,7 @@ export async function connectFunctionsWorkerPeer(
       if (!isBridgeMessage(message)) return;
       if (message.type === 'hello-ack') resolveConnected();
       else if (message.type === 'worker-op') {
+        if (options.onWorkerOp?.(message.op, { close }) === 'drop') return;
         void handleMessage(options.ctx, port, {
           ...message.op,
           t: 'op',
@@ -134,11 +150,5 @@ export async function connectFunctionsWorkerPeer(
     ws.once('close', () => rejectConnected(new Error('worker peer closed before ready')));
   });
 
-  return {
-    close: () => new Promise<void>((resolveClosed) => {
-      if (ws.readyState === WebSocket.CLOSED) return resolveClosed();
-      ws.once('close', () => resolveClosed());
-      ws.close();
-    }),
-  };
+  return { close };
 }

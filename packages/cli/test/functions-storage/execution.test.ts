@@ -508,4 +508,71 @@ describe('startStorageTriggerExecution', () => {
 
     host.close();
   });
+
+  test('routes eventOptions failures to onDeliveryError without poisoning later deliveries or idle()', async () => {
+    const { onObjectFinalized } = storageFunctions;
+    const delivered: string[] = [];
+    const deliveryErrors: Array<{ exportName: string; error: unknown }> = [];
+    const clockError = new Error('no browser tab is connected to the sandbox');
+    let attempt = 0;
+
+    const delivery = new InMemoryStorageTriggerDelivery({
+      defaultBucket: 'demo-project.appspot.com',
+    });
+    const host = startStorageTriggerExecution({
+      exported: {
+        onUpload: onObjectFinalized({ bucket: 'demo-project.appspot.com' }, (event) => {
+          delivered.push(event.data.name);
+        }),
+      },
+      defaultBucket: 'demo-project.appspot.com',
+      delivery,
+      eventOptions: async (_projected, sequence) => {
+        attempt += 1;
+        await Promise.resolve();
+        if (attempt === 1) throw clockError;
+        return {
+          id: `recovered-${sequence}`,
+          time: '2026-11-21T16:00:00.000Z',
+          location: 'us-central1',
+        };
+      },
+      onDeliveryError(error, trigger) {
+        deliveryErrors.push({ exportName: trigger.exportName, error });
+      },
+    });
+    await host.ready;
+
+    const makeSnap = (fullPath: string, generation: string) => ({
+      fullPath,
+      bucket: 'demo-project.appspot.com',
+      generation,
+      metageneration: '1',
+      timeCreated: '2026-11-21T16:00:00.000Z',
+      updated: '2026-11-21T16:00:00.000Z',
+      size: 4,
+    });
+
+    delivery.emit({
+      op: 'object_put',
+      storeBucket: 'pyric-default',
+      bucketName: 'demo-project.appspot.com',
+      path: 'items/dropped.txt',
+      at: 0,
+      after: makeSnap('items/dropped.txt', '1'),
+    });
+    delivery.emit({
+      op: 'object_put',
+      storeBucket: 'pyric-default',
+      bucketName: 'demo-project.appspot.com',
+      path: 'items/recovered.txt',
+      at: 1000,
+      after: makeSnap('items/recovered.txt', '2'),
+    });
+    await host.idle();
+
+    expect(deliveryErrors).toEqual([{ exportName: 'onUpload', error: clockError }]);
+    expect(delivered).toEqual(['items/recovered.txt']);
+    host.close();
+  });
 });
