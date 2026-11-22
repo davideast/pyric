@@ -7,7 +7,10 @@
  */
 import { getAuth, sandbox as authSandbox } from 'pyric/auth';
 import { configureListenerAttribution } from 'pyric/sandbox/internal';
-import { installPyricRuntimeChip } from '../runtime/chip-install.js';
+import {
+  installPyricRuntimeChip,
+  type InstallPyricRuntimeChipOptions,
+} from '../runtime/chip-install.js';
 import { healthLiveStatus } from '../runtime/chip-live-status.js';
 import { projectRuntimeIdentity } from '../runtime/identity.js';
 import { createIndexConfigClient } from '../runtime/index-config-client.js';
@@ -113,7 +116,10 @@ if (typeof document !== 'undefined' && typeof window !== 'undefined') {
 
   const runtime = getPyricRuntimeStatus();
   const settledInit = initPayload.catch(() => null);
-  const pageFetch = window.fetch.bind(window);
+  let pageFetch: typeof fetch | undefined;
+  if (typeof window.fetch === 'function') {
+    pageFetch = window.fetch.bind(window);
+  }
   const rawLiveStatus = healthLiveStatus(document, restart =>
     runtime.reportHostRestarted(restart),
   );
@@ -123,13 +129,11 @@ if (typeof document !== 'undefined' && typeof window !== 'undefined') {
     return rawLiveStatus();
   };
 
-  installPyricRuntimeChip({
+  const chipOptions: InstallPyricRuntimeChipOptions = {
     runtime,
     document,
     listenerEvents: sandboxEventSource({ workerDb, sandbox }),
     liveStatus,
-    indexConfig: createIndexConfigClient(pageFetch, { init: settledInit }),
-    thresholdConfig: createThresholdConfigClient(pageFetch, { init: settledInit }),
     identity: {
       listUsers: async () => {
         if (workerAuth) {
@@ -185,7 +189,15 @@ if (typeof document !== 'undefined' && typeof window !== 'undefined') {
         return unsubActive;
       },
     },
-  });
+  };
+  if (pageFetch !== undefined) {
+    chipOptions.indexConfig = createIndexConfigClient(pageFetch, { init: settledInit });
+    const isHttpPage = /^https?:$/.test(window.location?.protocol ?? '');
+    if (isHttpPage) {
+      chipOptions.thresholdConfig = createThresholdConfigClient(pageFetch, { init: settledInit });
+    }
+  }
+  installPyricRuntimeChip(chipOptions);
 }
 
 export {};

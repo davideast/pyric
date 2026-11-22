@@ -5,28 +5,43 @@
 // `databaseURL` and maps `https://<projectId>.firebaseio.com` to the default
 // RTDB rules instead of refusing it as an unconfigured instance.
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { connect, createServer } from 'node:net';
 import { join } from 'node:path';
 import { scenario, sleep, type AppProcess } from '../driver.ts';
 import { get } from '../peer-client.ts';
 
-async function waitForHostReady(port: number, running: () => boolean): Promise<void> {
+async function waitForHostReady(
+  port: number,
+  appDir: string,
+  child: AppProcess,
+): Promise<void> {
+  const pointerPath = join(appDir, '.pyric', 'serve.json');
   const deadline = Date.now() + 60_000;
   for (;;) {
-    assert.ok(running(), 'pyric sandbox exited before serving /__pyric/init.json');
-    try {
-      const res = await get({
-        address: '127.0.0.1',
-        port,
-        path: '/__pyric/init.json',
-        host: `127.0.0.1:${port}`,
-      });
-      if (res.status === 200) return;
-    } catch {
-      // Host not listening yet.
+    assert.ok(
+      child.running,
+      `pyric sandbox exited before finishing startup:\n${child.output}`,
+    );
+    const hasBanner =
+      existsSync(pointerPath) && child.output.includes('PYRIC_SANDBOX=remote');
+    if (hasBanner) {
+      try {
+        const res = await get({
+          address: '127.0.0.1',
+          port,
+          path: '/__pyric/init.json',
+          host: `127.0.0.1:${port}`,
+        });
+        if (res.status === 200) return;
+      } catch {
+        // Host not listening yet.
+      }
     }
-    assert.ok(Date.now() < deadline, 'pyric sandbox did not serve /__pyric/init.json within 60s');
+    assert.ok(
+      Date.now() < deadline,
+      `pyric sandbox did not finish starting within 60s:\n${child.output}`,
+    );
     await sleep(200);
   }
 }
@@ -69,7 +84,7 @@ export default scenario(async (app) => {
       String(hostPort),
     ]);
     sandbox = child;
-    await waitForHostReady(hostPort, () => child.running);
+    await waitForHostReady(hostPort, app.dir, child);
   });
 
   let wsUpgrades = 0;
