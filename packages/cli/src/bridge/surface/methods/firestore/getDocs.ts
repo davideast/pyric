@@ -4,12 +4,12 @@
  * One SDK method covers both, so the record reaches two canonical operations
  * and the constraint list decides which: with no where clause the read is the
  * listing the audit log records as `list_firestore_documents`, and with one it
- * is `query_firestore_documents`.
+ * is `query_firestore_documents`. Every `orderBy` constraint (with its
+ * `direction`) is applied by the query engine before `limit`.
  */
 import { z } from 'zod';
 import {
   checkConstraints,
-  collectionRead,
   constraint,
   constraintsOf,
   RENAMES,
@@ -20,15 +20,45 @@ import {
   databaseArgument,
   firestoreDatabaseSelector,
 } from '../../firestore-database.js';
-import type { MethodRecord } from '../../method-types.js';
-import type { OperationResult } from '../../types.js';
+import type { Args, MethodRecord } from '../../method-types.js';
 
-/** Ordering descends by reversing the ascending result, which the data plane orders. */
-function applyDirection(result: OperationResult, direction: string | undefined): OperationResult {
-  if (direction !== 'desc' || !result.ok) return result;
-  const payload = result.data as { docs?: unknown[] } | undefined;
-  if (!payload?.docs) return result;
-  return { ...result, data: { ...payload, docs: [...payload.docs].reverse() } };
+interface OrderConstraintArg {
+  field: string;
+  direction?: 'asc' | 'desc';
+}
+
+function buildCollectionToolCall(args: Args): { tool: string; call: Args } {
+  const entries = constraintsOf(args);
+  const filters = entries
+    .filter((entry) => entry.type === 'where')
+    .map((entry) => ({ field: entry.field, op: entry.op, value: entry.value }));
+  const orders: OrderConstraintArg[] = entries
+    .filter((entry) => entry.type === 'orderBy')
+    .map((entry) => {
+      const clause: OrderConstraintArg = { field: String(entry.field) };
+      if (entry.direction === 'asc' || entry.direction === 'desc') {
+        clause.direction = entry.direction;
+      }
+      return clause;
+    });
+  const limits = entries
+    .filter((entry) => entry.type === 'limit')
+    .map((entry) => Number(entry.value));
+
+  const call: Args = { collection: args.path };
+  if (orders.length > 0) {
+    call.orderBy = orders;
+  }
+  if (limits.length === 1) {
+    call.limit = limits[0];
+  } else if (limits.length > 1) {
+    call.limits = limits;
+  }
+  if (filters.length > 0) {
+    call.where = filters;
+    return { tool: 'firestore_query_where', call };
+  }
+  return { tool: 'firestore_list_documents', call };
 }
 
 export default {
@@ -64,13 +94,8 @@ export default {
   validate: (args, { fail }) =>
     checkFirestoreDatabase(args, fail) ?? checkConstraints(args, fail),
   async handler(args, ctx) {
-    const read = collectionRead(args);
+    const built = buildCollectionToolCall(args);
     const selector = firestoreDatabaseSelector(args.database);
-    let tool = 'firestore_list_documents';
-    if (read.filtered) {
-      tool = 'firestore_query_where';
-    }
-    const rawResult = await callFirestoreSandboxTool(ctx, tool, read.call, selector);
-    return applyDirection(rawResult, read.direction);
+    return callFirestoreSandboxTool(ctx, built.tool, built.call, selector);
   },
 } satisfies MethodRecord;

@@ -147,6 +147,13 @@ describe('pyric <tool> <method>', () => {
     ]);
     expect(impersonated.code).toBe(0);
     expect(impersonated.stdout).toContain('Acting as alice');
+
+    const nextWhoami = await run('auth.whoami', ['auth', 'whoami', '--json']);
+    expect(nextWhoami.code).toBe(0);
+    expect(JSON.parse(nextWhoami.stdout).data.agent).toMatchObject({ mode: 'uid', uid: 'alice' });
+
+    const backToAdmin = await run('auth.actAsAdmin', ['auth', 'actAsAdmin']);
+    expect(backToAdmin.code).toBe(0);
   });
 
   it('prints the whole result as JSON on request', async () => {

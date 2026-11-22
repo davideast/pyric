@@ -1,12 +1,12 @@
 /**
- * Apply several Firestore writes in order.
+ * Commit several Firestore writes atomically as a batch.
  *
- * The data plane has no separate merge flag on a batched write, so a `set` that
- * asks to merge is sent as an `update`, which is the write with merge
- * semantics there.
+ * Every entry (`set`, `update`, `delete`, including `set` with `options.merge`
+ * or `options.mergeFields`) runs through `firestore_batch_write` on one
+ * `WriteBatch` commit, so a failure on any entry leaves no write behind.
  */
 import { z } from 'zod';
-import { deleteDoc, doc, setDoc, updateDoc, type SetOptions } from 'pyric/firestore';
+import { type SetOptions } from 'pyric/firestore';
 import {
   batchFieldValuesOf,
   checkBatch,
@@ -15,14 +15,11 @@ import {
   writeEntry,
 } from '../../arguments/firestore.js';
 import {
-  assertDeclaredFirestoreDatabase,
   callFirestoreSandboxTool,
   checkFirestoreDatabase,
   databaseArgument,
   firestoreDatabaseSelector,
-  onFirestoreDatabase,
 } from '../../firestore-database.js';
-import { firestoreFor } from '../../service-handles.js';
 import type { Args, MethodRecord } from '../../method-types.js';
 
 export default {
@@ -33,9 +30,9 @@ export default {
   effect: 'write',
   signature: 'writeBatch(writes[{type: set|update|delete, path, data?, options?}], database?)',
   description:
-    'Apply writes in order, stopping at the first failure (accepts setDoc/updateDoc sentinels).',
+    'Commit writes atomically as a batch; if any write fails, none are applied (accepts setDoc/updateDoc sentinels).',
   args: z.object({
-    writes: z.array(writeEntry).describe('The writes, applied in order.'),
+    writes: z.array(writeEntry).describe('The writes, committed atomically in order.'),
     database: databaseArgument,
   }),
   operation: 'batch_firestore_writes',
@@ -56,57 +53,24 @@ export default {
   async handler(args, ctx) {
     const writes = args.writes as Args[];
     const selector = firestoreDatabaseSelector(args.database);
-    const hasMergeFields = writes.some((write) => {
-      const options = (write.options ?? {}) as Args;
-      return write.type === 'set' && Array.isArray(options.mergeFields);
-    });
-    if (!hasMergeFields) {
-      const operations = writes.map((write, index) => {
-        const options = (write.options ?? {}) as Args;
-        const merged = write.type === 'set' && options.merge === true;
-        let op = write.type;
-        if (merged) {
-          op = 'update';
+    const operations = writes.map((write, index) => {
+      const entry: Args = { op: write.type, path: write.path };
+      if (write.data !== undefined) {
+        entry.data = batchFieldValuesOf(index, write);
+      }
+      if (write.type === 'set' && write.options !== undefined) {
+        const rawOptions = write.options as Args;
+        const hasMerge = typeof rawOptions.merge === 'boolean';
+        const hasMergeFields = Array.isArray(rawOptions.mergeFields);
+        if (hasMerge || hasMergeFields) {
+          const sdkOptions: SetOptions = {};
+          if (hasMerge) sdkOptions.merge = rawOptions.merge as boolean;
+          if (hasMergeFields) sdkOptions.mergeFields = rawOptions.mergeFields as string[];
+          entry.options = sdkOptions;
         }
-        const entry: Args = { op, path: write.path };
-        if (write.data !== undefined) entry.data = batchFieldValuesOf(index, write);
-        return entry;
-      });
-      return callFirestoreSandboxTool(ctx, 'firestore_batch_write', { operations }, selector);
-    }
-    if (writes.length === 0 || writes.length > 500) {
-      return {
-        ok: false,
-        summary: `firestore_batch_write: operations must be 1..500 (got ${writes.length}).`,
-      };
-    }
-    assertDeclaredFirestoreDatabase(ctx, selector);
-    const db = firestoreFor(ctx, selector);
-    for (const [index, write] of writes.entries()) {
-      const target = doc(db, String(write.path));
-      if (write.type === 'delete') {
-        await deleteDoc(target);
-        continue;
       }
-      const data = batchFieldValuesOf(index, write) as Record<string, unknown>;
-      if (write.type === 'update') {
-        await updateDoc(target, data);
-        continue;
-      }
-      const options = (write.options ?? {}) as Args;
-      const sdkOptions: SetOptions = {};
-      if (typeof options.merge === 'boolean') {
-        sdkOptions.merge = options.merge;
-      }
-      if (Array.isArray(options.mergeFields)) {
-        sdkOptions.mergeFields = options.mergeFields as string[];
-      }
-      await setDoc(target, data, sdkOptions);
-    }
-    return {
-      ok: true,
-      summary: onFirestoreDatabase(`Applied ${writes.length} write(s)`, selector),
-      data: { count: writes.length },
-    };
+      return entry;
+    });
+    return callFirestoreSandboxTool(ctx, 'firestore_batch_write', { operations }, selector);
   },
 } satisfies MethodRecord;
