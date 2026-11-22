@@ -14,6 +14,13 @@ function assertAiAppCheck(appCheck: unknown): void {
   const token = appCheck.token;
   const hasTokenShape = token === null || typeof token === 'string';
   requireShape(hasTokenShape, 'appCheck.token');
+  const runtime = appCheck.runtime;
+  if (runtime !== undefined) {
+    const validRuntime = runtime === 'browser' || runtime === 'server';
+    requireShape(validRuntime, 'appCheck.runtime');
+  }
+  requireOptionalString(appCheck.projectId, 'appCheck.projectId');
+  requireOptionalString(appCheck.appId, 'appCheck.appId');
 }
 
 /** Unary and streaming AI requests share the same adapter-owned wire fields. */

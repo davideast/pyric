@@ -23,13 +23,20 @@
  */
 export const AI_TERMINAL_TEXT_MAX = 512;
 
+/**
+ * Longest diagnostic hint line echoed into the terminal (`request_rejected`
+ * guidance such as the server App Check hint, which names `CustomProvider` and
+ * `firebase-admin`'s `getAppCheck().createToken(appId)` without truncation).
+ */
+export const AI_TERMINAL_HINT_MAX = 1024;
+
 /** Appended when text is cut, so a truncated line never reads as complete. */
 const TRUNCATION_MARKER = '\u2026';
 
-/** Cut text to {@link AI_TERMINAL_TEXT_MAX}, marking the cut. */
-export function capTerminalText(text: string): string {
-  if (text.length <= AI_TERMINAL_TEXT_MAX) return text;
-  return `${text.slice(0, AI_TERMINAL_TEXT_MAX)}${TRUNCATION_MARKER}`;
+/** Cut text to `maxLength` (defaults to {@link AI_TERMINAL_TEXT_MAX}), marking the cut. */
+export function capTerminalText(text: string, maxLength: number = AI_TERMINAL_TEXT_MAX): string {
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength)}${TRUNCATION_MARKER}`;
 }
 
 /** Control, bidi-override, and line-separator characters. A remote string
@@ -57,7 +64,7 @@ export function stripTerminalControls(text: string): string {
  * get dropped for the same reason `activity-warning.ts` drops them: the text
  * can originate from a remote model server, and the terminal is not a sandbox.
  */
-export function sanitizeForTerminal(text: string): string {
+export function sanitizeForTerminal(text: string, maxLength: number = AI_TERMINAL_TEXT_MAX): string {
   const flattened = text.replace(TERMINAL_UNSAFE_CHARS, ' ').replace(/\s+/g, ' ').trim();
-  return capTerminalText(flattened);
+  return capTerminalText(flattened, maxLength);
 }

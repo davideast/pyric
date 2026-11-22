@@ -62,6 +62,7 @@ import { installWorkerGuard } from './worker-guard.js';
 import { installChildProcessGuard, pinInheritedVariables } from './child-process-guard.js';
 import { installRemotePeerMark } from './remote-peer-mark.js';
 import { installProcessHealth, sandboxHost } from './process-health.js';
+import { liveAppDirs } from './live-package.js';
 import { remoteSandbox } from '../remote/index.js';
 import { isBypassedBridgeImport, resolveAiMode, type AiMode } from '../serve/firebase-module-swap.js';
 
@@ -206,21 +207,54 @@ function isExternalFileImporter(parentUrl: string | undefined): parentUrl is str
   return !parentUrl.startsWith(CLI_PACKAGE_ROOT_URL);
 }
 
+const MAX_APP_IMPORTER_URLS = 64;
+
+function recordExternalImporter(importers: string[], parentUrl: string | undefined): void {
+  if (!isExternalFileImporter(parentUrl)) {
+    return;
+  }
+  const existingIndex = importers.indexOf(parentUrl);
+  if (existingIndex !== -1) {
+    importers.splice(existingIndex, 1);
+  }
+  importers.push(parentUrl);
+  if (importers.length > MAX_APP_IMPORTER_URLS) {
+    importers.shift();
+  }
+}
+
 function resolveBypassedFromAppTree(
   specifier: string,
   context: SyncResolveContext,
   nextResolve: NextSyncResolve,
-  lastAppImporterUrl: string | undefined,
+  appImporterUrls: readonly string[],
 ): SyncResolveResult {
-  const candidates: string[] = [];
-  if (lastAppImporterUrl !== undefined) {
-    candidates.push(lastAppImporterUrl);
+  // Capture before trying candidate parentURLs: Node's customization_hooks
+  // mutates `context` in place whenever `nextResolve` receives a replacement.
+  const originalParentUrl = context.parentURL;
+  let originalConditions: unknown;
+  if (Array.isArray(context.conditions)) {
+    originalConditions = [...context.conditions];
+  } else if (context.conditions !== undefined) {
+    originalConditions = context.conditions;
   }
-  candidates.push(pathToFileURL(join(process.cwd(), 'package.json')).href);
+  const candidates: string[] = [];
+  const seen = new Set<string>();
+  const addCandidate = (url: string | undefined): void => {
+    if (url === undefined || seen.has(url)) return;
+    seen.add(url);
+    candidates.push(url);
+  };
+  for (let index = appImporterUrls.length - 1; index >= 0; index -= 1) {
+    addCandidate(appImporterUrls[index]);
+  }
+  for (const appDir of liveAppDirs(process.argv[1], process.cwd())) {
+    addCandidate(pathToFileURL(join(appDir, 'package.json')).href);
+  }
   for (const parentUrl of candidates) {
     const candidateContext: SyncResolveContext = { parentURL: parentUrl };
-    if (context.conditions !== undefined) {
-      candidateContext.conditions = context.conditions;
+    if (originalConditions !== undefined) {
+      candidateContext.conditions = originalConditions;
     }
     try {
       return nextResolve(specifier, candidateContext);
@@ -231,7 +265,14 @@ function resolveBypassedFromAppTree(
       // Try the next candidate before falling back to the bridge module's own parentURL.
     }
   }
-  return nextResolve(specifier, context);
+  const fallbackContext: SyncResolveContext = {};
+  if (originalParentUrl !== undefined) {
+    fallbackContext.parentURL = originalParentUrl;
+  }
+  if (originalConditions !== undefined) {
+    fallbackContext.conditions = originalConditions;
+  }
+  return nextResolve(specifier, fallbackContext);
 }
 
 /**
@@ -241,7 +282,7 @@ function resolveBypassedFromAppTree(
  * real package, so an unrelated package with such a name stays itself.
  */
 function createResolveFirebase(activatedSandbox: string, activatedAiMode: AiMode): SyncResolve {
-  let lastAppImporterUrl: string | undefined;
+  const appImporterUrls: string[] = [];
   return (specifier, context, nextResolve) => {
     const isEsmImport = isImportCondition(context.conditions);
     const mapOptions = {
@@ -249,12 +290,10 @@ function createResolveFirebase(activatedSandbox: string, activatedAiMode: AiMode
       aiMode: activatedAiMode,
       isEsmImport,
     };
-    const isClientBridgeBypass =
-      isEsmImport &&
-      (specifier === 'firebase/app' || specifier === 'firebase/app-check') &&
-      isBypassedBridgeImport(specifier, context.parentURL, activatedAiMode);
-    if (isClientBridgeBypass) {
-      return resolveBypassedFromAppTree(specifier, context, nextResolve, lastAppImporterUrl);
+    const isBridgeBypass =
+      isEsmImport && isBypassedBridgeImport(specifier, context.parentURL, activatedAiMode);
+    if (isBridgeBypass) {
+      return resolveBypassedFromAppTree(specifier, context, nextResolve, appImporterUrls);
     }
     const canonical = canonicalFirebaseSpecifier(specifier);
     if (canonical === null) {
@@ -262,16 +301,14 @@ function createResolveFirebase(activatedSandbox: string, activatedAiMode: AiMode
       if (mapped === null) {
         if (activatedAiMode === 'production' && specifier === 'firebase/ai') {
           if (isExternalFileImporter(context.parentURL)) {
-            lastAppImporterUrl = context.parentURL;
+            recordExternalImporter(appImporterUrls, context.parentURL);
           } else if (isEsmImport) {
-            return resolveBypassedFromAppTree(specifier, context, nextResolve, lastAppImporterUrl);
+            return resolveBypassedFromAppTree(specifier, context, nextResolve, appImporterUrls);
           }
         }
         return nextResolve(specifier, context);
       }
-      if (isExternalFileImporter(context.parentURL)) {
-        lastAppImporterUrl = context.parentURL;
-      }
+      recordExternalImporter(appImporterUrls, context.parentURL);
       return resolveMapped(mapped, context, nextResolve);
     }
     const renamed = nextResolve(specifier, context);
@@ -279,9 +316,7 @@ function createResolveFirebase(activatedSandbox: string, activatedAiMode: AiMode
     if (!isRealFirebasePackage) return renamed;
     const mapped = mapFirebaseSpecifier(canonical, context.parentURL, mapOptions);
     if (mapped === null) return renamed;
-    if (isExternalFileImporter(context.parentURL)) {
-      lastAppImporterUrl = context.parentURL;
-    }
+    recordExternalImporter(appImporterUrls, context.parentURL);
     return resolveMapped(mapped, context, nextResolve);
   };
 }

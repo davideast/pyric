@@ -155,6 +155,7 @@ describe('AppCheck service and createToken / verifyToken options', () => {
 
   it('dispatches verifyToken(..., { consume: true }) over RemoteSandbox.channel (#1297)', async () => {
     const remoteConsumed = new Set<string>();
+    const remoteNowMillis = Date.UTC(2026, 5, 1, 12, 0, 0);
     const dispatchedOps: Array<{ method: string; tokenId?: string }> = [];
     const remoteSandbox = {
       [REMOTE_SANDBOX]: true as const,
@@ -163,6 +164,9 @@ describe('AppCheck service and createToken / verifyToken options', () => {
       channel: {
         async op(payload: { method: string; tokenId?: string }) {
           dispatchedOps.push(payload);
+          if (payload.method === 'sandbox.clock') {
+            return { now: remoteNowMillis };
+          }
           if (payload.method === 'appCheck.consumeToken' && typeof payload.tokenId === 'string') {
             const alreadyConsumed = remoteConsumed.has(payload.tokenId);
             remoteConsumed.add(payload.tokenId);
@@ -191,8 +195,12 @@ describe('AppCheck service and createToken / verifyToken options', () => {
     expect(second.alreadyConsumed).toBe(true);
     expect('alreadyConsumed' in plain).toBe(false);
     expect(dispatchedOps).toEqual([
+      { method: 'sandbox.clock' },
+      { method: 'sandbox.clock' },
       { method: 'appCheck.consumeToken', tokenId: 'remote-jti-42' },
+      { method: 'sandbox.clock' },
       { method: 'appCheck.consumeToken', tokenId: 'remote-jti-42' },
+      { method: 'sandbox.clock' },
     ]);
   });
 

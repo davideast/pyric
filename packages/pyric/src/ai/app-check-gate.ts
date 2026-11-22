@@ -33,7 +33,7 @@
 import type { FirebaseApp } from '../app/types.js';
 import { appCheckActivationOf, appCheckTokenFor } from '../sandbox/internal/app-check-activation.js';
 import { APP_CHECK_PLACEHOLDER_TOKEN, checkAppCheckToken } from '../sandbox/internal/app-check-token.js';
-import type { AppCheckClaim, WireErrorEnvelope } from './broker/types.js';
+import type { AppCheckClaim, AppCheckRuntime, WireErrorEnvelope } from './broker/types.js';
 import { RequestHeadersFailure } from './errors.js';
 
 /** An enforced project's message for a refused request (capture `app-check-ai-gate-wire`), verbatim. */
@@ -46,9 +46,10 @@ const APP_CHECK_REQUIRED_STATUS = 'UNAUTHENTICATED';
 /**
  * The refusal sentence both hints open with. Enforcement is a per-project
  * setting in production, and the sandbox plays an enforced project (#1834).
- * Keep it short: the dev server cuts terminal text at 512 characters
- * (`AI_TERMINAL_TEXT_MAX` in the CLI's `ai-terminal-text.ts`), and
- * {@link APP_CHECK_HINT} must fit whole.
+ * Keep it short: the dev server cuts generic terminal text at 512 characters
+ * (`AI_TERMINAL_TEXT_MAX` in the CLI's `ai-terminal-text.ts`) and `hint` lines
+ * at 1024 characters (`AI_TERMINAL_HINT_MAX`), so both {@link APP_CHECK_HINT}
+ * and {@link APP_CHECK_SERVER_HINT} fit whole.
  */
 export const APP_CHECK_REFUSAL_NOTE =
   'The sandbox refuses AI Logic requests without an App Check token with a 401, like an enforced project. In production, enforcement is set per project; one that delayed it answers without a token until January 21, 2027.';
@@ -62,17 +63,30 @@ export const APP_CHECK_SERVER_HINT =
   `${APP_CHECK_REFUSAL_NOTE} This process has no document, so the reCAPTCHA providers throw here. For local development, set globalThis.FIREBASE_APPCHECK_DEBUG_TOKEN = true, then call initializeAppCheck(app, { provider: new CustomProvider({ getToken }) }) before getAI(app). The sandbox does not call getToken while the debug token is set. Without the debug token, getToken returns { token, expireTimeMillis: Date.now() + ttlMillis } from a token your server mints with firebase-admin's getAppCheck().createToken(appId). https://firebase.google.com/docs/ai-logic/app-check`;
 
 /**
- * The guidance for the realm the app runs in. A page has a `document`, and a
- * page's Web Worker, SharedWorker or service worker has `WorkerGlobalScope`:
- * both are browser realms. Anything else is a server process.
+ * The caller runtime for the realm running this code. A page has a `document`,
+ * and a page's Web Worker, SharedWorker or service worker has
+ * `WorkerGlobalScope`: both are browser realms (`'browser'`). Anything else is
+ * a server process (`'server'`).
  */
-function appCheckHintForThisRealm(): string {
+function appCheckRuntimeForThisRealm(): AppCheckRuntime {
   const scope = globalThis as { document?: unknown; WorkerGlobalScope?: unknown };
   const hasDocument = typeof scope.document !== 'undefined';
   const isWorkerRealm = typeof scope.WorkerGlobalScope !== 'undefined';
-  const isBrowserRealm = hasDocument || isWorkerRealm;
-  if (isBrowserRealm) return APP_CHECK_HINT;
-  return APP_CHECK_SERVER_HINT;
+  if (hasDocument || isWorkerRealm) return 'browser';
+  return 'server';
+}
+
+/** The refusal guidance string matching a caller's runtime (defaulting to the browser hint). */
+export function appCheckHintForRuntime(runtime: AppCheckRuntime | undefined): string {
+  if (runtime === 'server') return APP_CHECK_SERVER_HINT;
+  return APP_CHECK_HINT;
+}
+
+/**
+ * The guidance for the realm the app runs in.
+ */
+function appCheckHintForThisRealm(): string {
+  return appCheckHintForRuntime(appCheckRuntimeForThisRealm());
 }
 
 /** The refusal envelope an enforced project answered (capture `app-check-ai-gate-wire`). */
@@ -85,18 +99,46 @@ function expiresAfter(claims: Readonly<Record<string, unknown>>, nowMillis: numb
   return typeof exp === 'number' && exp * 1000 > nowMillis;
 }
 
+export interface AppCheckExpectedIdentity {
+  readonly projectId?: string;
+  readonly appId?: string;
+}
+
+function matchesExpectedIdentity(
+  claims: Readonly<Record<string, unknown>>,
+  expected: AppCheckExpectedIdentity | undefined,
+): boolean {
+  if (expected === undefined) return true;
+  if (typeof expected.projectId === 'string' && expected.projectId.length > 0) {
+    const targetAudience = `projects/${expected.projectId}`;
+    const hasAudience = Array.isArray(claims.aud) && claims.aud.includes(targetAudience);
+    if (!hasAudience) return false;
+  }
+  if (typeof expected.appId === 'string' && expected.appId.length > 0) {
+    if (claims.sub !== expected.appId) return false;
+  }
+  return true;
+}
+
 /**
  * Whether AI Logic would accept this token: one the sandbox signed (the web
- * mirror or `pyric-admin` minted it) that has not expired. A missing,
- * malformed, placeholder, tampered, or expired token is refused.
+ * mirror or `pyric-admin` minted it) that has not expired and, when `expected`
+ * is provided, matches the owning app's project audience (`aud`) and subject
+ * (`sub` === `appId`). A missing, malformed, placeholder, tampered, expired,
+ * or mismatched token is refused.
  */
-export async function admitsAppCheckToken(token: string | null, nowMillis: number = Date.now()): Promise<boolean> {
+export async function admitsAppCheckToken(
+  token: string | null,
+  nowMillis: number = Date.now(),
+  expected?: AppCheckExpectedIdentity,
+): Promise<boolean> {
   const isMissing = token === null || token === '';
   if (isMissing) return false;
   if (token === APP_CHECK_PLACEHOLDER_TOKEN) return false;
   const check = await checkAppCheckToken(token);
   if (!check.ok) return false;
-  return expiresAfter(check.claims, nowMillis);
+  if (!expiresAfter(check.claims, nowMillis)) return false;
+  return matchesExpectedIdentity(check.claims, expected);
 }
 
 /** Whether an error is this gate's refusal, as the broker throws it or the SDK error it becomes. */
@@ -143,6 +185,39 @@ async function tokenForRequest(app: FirebaseApp, limitedUse: boolean): Promise<s
   }
 }
 
+function snapshotAppIdentity(app: FirebaseApp): AppCheckExpectedIdentity {
+  try {
+    const options = app.options as { projectId?: unknown; appId?: unknown } | undefined;
+    const identity: { projectId?: string; appId?: string } = {};
+    if (typeof options?.projectId === 'string' && options.projectId.length > 0) {
+      identity.projectId = options.projectId;
+    }
+    if (typeof options?.appId === 'string' && options.appId.length > 0) {
+      identity.appId = options.appId;
+    }
+    return identity;
+  } catch (err) {
+    // A deleted app's `options` getter throws `app/app-deleted`; avoid throwing while constructing the attachment.
+    void err;
+    return {};
+  }
+}
+
+function buildClaim(
+  token: string | null,
+  runtime: AppCheckRuntime,
+  identity: AppCheckExpectedIdentity,
+): AppCheckClaim {
+  const claim: AppCheckClaim = { token, runtime };
+  if (identity.projectId !== undefined) {
+    claim.projectId = identity.projectId;
+  }
+  if (identity.appId !== undefined) {
+    claim.appId = identity.appId;
+  }
+  return claim;
+}
+
 /**
  * The attachment for a handle `getAI(app)` builds now. App Check is read once,
  * here: a handle built before `initializeAppCheck` never attaches a token.
@@ -152,14 +227,16 @@ async function tokenForRequest(app: FirebaseApp, limitedUse: boolean): Promise<s
  */
 export function appCheckAttachmentFor(app: FirebaseApp, limitedUse: boolean): AppCheckAttachment {
   const activeAtCreation = appCheckActivationOf(app) !== undefined;
+  const identity = snapshotAppIdentity(app);
   function buildAttachment(mode: boolean): AppCheckAttachment {
     return {
       claim: async () => {
+        const runtime = appCheckRuntimeForThisRealm();
         if (!activeAtCreation) {
-          return { token: null };
+          return buildClaim(null, runtime, identity);
         }
         const token = await tokenForRequest(app, mode);
-        return { token };
+        return buildClaim(token, runtime, identity);
       },
       warnRefused: () => warnOnce(app),
       withLimitedUse: (nextLimitedUse: boolean) => buildAttachment(nextLimitedUse),

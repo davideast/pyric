@@ -12,6 +12,9 @@ export type AiEngineConfigWire =
     }
   | { kind: 'gemini'; baseUrl?: string; apiKey?: string };
 
+/** Runtime hint identifying the caller that produced an AI App Check claim (#1736). */
+type AiAppCheckRuntime = 'browser' | 'server';
+
 /**
  * The App Check claim an AI request from an app-backed handle carries, as
  * production reads `X-Firebase-AppCheck`: a token, or `null` when the handle
@@ -21,4 +24,7 @@ export type AiEngineConfigWire =
  */
 export interface AiAppCheckWire {
   token: string | null;
+  runtime?: AiAppCheckRuntime;
+  projectId?: string;
+  appId?: string;
 }
