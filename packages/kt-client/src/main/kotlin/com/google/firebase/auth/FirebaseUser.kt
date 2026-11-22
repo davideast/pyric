@@ -145,7 +145,8 @@ class FirebaseUser internal constructor(
         val scope = CoroutineScope(Dispatchers.IO)
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
-                val res = BridgeAuthOperations.getIdTokenResult(auth.bridgeClient, forceRefresh)
+                val seqRes = BridgeAuthOperations.getIdTokenResultSequenced(auth.bridgeClient, forceRefresh)
+                val res = seqRes.data
                 val token = res["token"] as? String ?: ""
                 @Suppress("UNCHECKED_CAST")
                 val claims = res["claims"] as? Map<String, Any?> ?: emptyMap()
@@ -160,7 +161,7 @@ class FirebaseUser internal constructor(
                     signInProviderOverride = provider
                 }
                 customClaims = extractCustomClaims(claims)
-                auth.notifyTokenRefreshed(this@FirebaseUser)
+                auth.notifyTokenRefreshed(this@FirebaseUser, seqRes.wireSeq)
                 tcs.setResult(GetTokenResult(token, claims, exp, authTime, issuedAt, provider))
             } catch (e: Exception) {
                 val wrapped = auth.wrapException(e)
@@ -179,19 +180,20 @@ class FirebaseUser internal constructor(
         val scope = CoroutineScope(Dispatchers.IO)
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
-                val updated = BridgeAuthOperations.updateProfile(
+                val seqRes = BridgeAuthOperations.updateProfileSequenced(
                     auth.bridgeClient,
                     request.displayName,
                     request.photoUri?.toString(),
                     includeDisplayName = request.displayNameSet,
                     includePhotoURL = request.photoUriSet
                 )
+                val updated = seqRes.data
                 rawData = updated
                 @Suppress("UNCHECKED_CAST")
                 (updated["customClaims"] as? Map<String, Any?> ?: updated["claims"] as? Map<String, Any?>)?.let {
                     customClaims = extractCustomClaims(it)
                 }
-                auth.notifyUserUpdated(this@FirebaseUser)
+                auth.notifyUserUpdated(this@FirebaseUser, seqRes.wireSeq)
                 tcs.setResult(null)
             } catch (e: Exception) {
                 tcs.setException(auth.wrapException(e))
@@ -205,8 +207,13 @@ class FirebaseUser internal constructor(
         val scope = CoroutineScope(Dispatchers.IO)
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
-                val user = BridgeAuthOperations.reload(auth.bridgeClient, uid)
-                    ?: BridgeAuthOperations.getCurrentUser(auth.bridgeClient)
+                val reloaded = BridgeAuthOperations.reloadSequenced(auth.bridgeClient, uid)
+                val resolved = if (reloaded.data != null) {
+                    reloaded
+                } else {
+                    BridgeAuthOperations.getCurrentUserSequenced(auth.bridgeClient)
+                }
+                val user = resolved.data
                 if (user != null) {
                     rawData = user
                     @Suppress("UNCHECKED_CAST")
@@ -214,7 +221,7 @@ class FirebaseUser internal constructor(
                         customClaims = extractCustomClaims(it)
                     }
                 }
-                auth.notifyUserUpdated(this@FirebaseUser)
+                auth.notifyUserUpdated(this@FirebaseUser, resolved.wireSeq)
                 tcs.setResult(null)
             } catch (e: Exception) {
                 val wrapped = auth.wrapException(e)
@@ -230,8 +237,8 @@ class FirebaseUser internal constructor(
         val scope = CoroutineScope(Dispatchers.IO)
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
-                BridgeAuthOperations.deleteUser(auth.bridgeClient)
-                auth.clearCurrentUserAfterDelete(uid)
+                val wireSeq = BridgeAuthOperations.deleteUserSequenced(auth.bridgeClient)
+                auth.clearCurrentUserAfterDelete(uid, wireSeq)
                 tcs.setResult(null)
             } catch (e: Exception) {
                 val wrapped = auth.wrapException(e)
@@ -252,14 +259,14 @@ class FirebaseUser internal constructor(
         val scope = CoroutineScope(Dispatchers.IO)
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
-                val res = BridgeAuthOperations.linkWithCredential(
+                val seqRes = BridgeAuthOperations.linkWithCredentialSequenced(
                     auth.bridgeClient,
                     uid,
                     credential.toWireMap(),
                     tenantId
                 )
-                val enriched = auth.enrichSignInResponseIfNeeded(res)
-                tcs.setResult(applyCredentialOperationResult(enriched, credential.provider))
+                val enriched = auth.enrichSignInResponseIfNeeded(seqRes.data)
+                tcs.setResult(applyCredentialOperationResult(enriched, credential.provider, seqRes.wireSeq))
             } catch (e: Exception) {
                 val wrapped = auth.wrapException(e)
                 auth.clearCurrentUserIfInvalidated(wrapped, uid)
@@ -274,13 +281,13 @@ class FirebaseUser internal constructor(
         val scope = CoroutineScope(Dispatchers.IO)
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
-                val res = BridgeAuthOperations.reauthenticateWithCredential(
+                val seqRes = BridgeAuthOperations.reauthenticateWithCredentialSequenced(
                     auth.bridgeClient,
                     uid,
                     credential.toWireMap(),
                     tenantId
                 )
-                applyCredentialOperationResult(res, credential.provider)
+                applyCredentialOperationResult(seqRes.data, credential.provider, seqRes.wireSeq)
                 tcs.setResult(null)
             } catch (e: Exception) {
                 val wrapped = auth.wrapException(e)
@@ -296,14 +303,14 @@ class FirebaseUser internal constructor(
         val scope = CoroutineScope(Dispatchers.IO)
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
-                val res = BridgeAuthOperations.reauthenticateWithCredential(
+                val seqRes = BridgeAuthOperations.reauthenticateWithCredentialSequenced(
                     auth.bridgeClient,
                     uid,
                     credential.toWireMap(),
                     tenantId
                 )
-                val enriched = auth.enrichSignInResponseIfNeeded(res)
-                tcs.setResult(applyCredentialOperationResult(enriched, credential.provider))
+                val enriched = auth.enrichSignInResponseIfNeeded(seqRes.data)
+                tcs.setResult(applyCredentialOperationResult(enriched, credential.provider, seqRes.wireSeq))
             } catch (e: Exception) {
                 val wrapped = auth.wrapException(e)
                 auth.clearCurrentUserIfInvalidated(wrapped, uid)
@@ -319,13 +326,14 @@ class FirebaseUser internal constructor(
         val scope = CoroutineScope(Dispatchers.IO)
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
-                val res = BridgeAuthOperations.unlink(auth.bridgeClient, uid, provider, tenantId)
+                val seqRes = BridgeAuthOperations.unlinkSequenced(auth.bridgeClient, uid, provider, tenantId)
+                val res = seqRes.data
                 @Suppress("UNCHECKED_CAST")
                 val updated = (res["user"] as? Map<String, Any?>) ?: res
                 if (updated["uid"] is String) {
                     applyUpdatedUserMap(updated)
                 }
-                auth.notifyUserUpdated(this@FirebaseUser)
+                auth.notifyUserUpdated(this@FirebaseUser, seqRes.wireSeq)
                 tcs.setResult(AuthResult(this@FirebaseUser, null))
             } catch (e: Exception) {
                 val wrapped = auth.wrapException(e)
@@ -342,11 +350,12 @@ class FirebaseUser internal constructor(
         val scope = CoroutineScope(Dispatchers.IO)
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
-                val updated = BridgeAuthOperations.updatePassword(auth.bridgeClient, password)
+                val seqRes = BridgeAuthOperations.updatePasswordSequenced(auth.bridgeClient, password)
+                val updated = seqRes.data
                 if (updated["uid"] is String) {
                     applyUpdatedUserMap(updated)
                 }
-                auth.notifyUserUpdated(this@FirebaseUser)
+                auth.notifyUserUpdated(this@FirebaseUser, seqRes.wireSeq)
                 tcs.setResult(null)
             } catch (e: Exception) {
                 val wrapped = auth.wrapException(e)
@@ -363,11 +372,12 @@ class FirebaseUser internal constructor(
         val scope = CoroutineScope(Dispatchers.IO)
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
-                val updated = BridgeAuthOperations.updateEmail(auth.bridgeClient, email)
+                val seqRes = BridgeAuthOperations.updateEmailSequenced(auth.bridgeClient, email)
+                val updated = seqRes.data
                 if (updated["uid"] is String) {
                     applyUpdatedUserMap(updated)
                 }
-                auth.notifyUserUpdated(this@FirebaseUser)
+                auth.notifyUserUpdated(this@FirebaseUser, seqRes.wireSeq)
                 tcs.setResult(null)
             } catch (e: Exception) {
                 val wrapped = auth.wrapException(e)
@@ -380,7 +390,8 @@ class FirebaseUser internal constructor(
 
     private fun applyCredentialOperationResult(
         res: Map<String, Any?>,
-        fallbackProvider: String
+        fallbackProvider: String,
+        wireSeq: Long = 0L
     ): AuthResult {
         @Suppress("UNCHECKED_CAST")
         val userMap = (res["user"] as? Map<String, Any?>) ?: res
@@ -394,7 +405,7 @@ class FirebaseUser internal constructor(
         if (effectiveProvider.isNotBlank()) {
             signInProviderOverride = effectiveProvider
         }
-        auth.notifyUserUpdated(this)
+        auth.notifyUserUpdated(this, wireSeq)
         val isNew = (addInfo?.get("isNewUser") as? Boolean) ?: false
         return AuthResult(this, AdditionalUserInfo(explicitProviderId ?: fallbackProvider, isNew))
     }

@@ -56,39 +56,21 @@ class PyricBridgeClient(
     /** Callers waiting for the next scheduled attempt. */
     private var nextAttempt: CompletableDeferred<Unit>? = null
 
-    /**
-     * Test seam: how long an operation issued while the client is not attached is
-     * held before it fails. The deadline is fixed at 10 seconds (ADR-0019 decision
-     * 7); this is not a user setting.
-     */
+    /** Test seam: hold deadline (fixed at 10s per ADR-0019 decision 7). */
     internal var holdTimeoutMs: Long = BRIDGE_HOLD_TIMEOUT_MS
 
-    /**
-     * Test seams: how often an attached client pings, and how long a socket may
-     * stay silent before it counts as dropped. Both are fixed at 15 and 45 seconds
-     * (ADR-0019, amendment "clients send a heartbeat"); they are not user settings.
-     * A change applies from the next attach.
-     */
-    @Volatile
-    internal var heartbeatIntervalMs: Long = BRIDGE_HEARTBEAT_INTERVAL_MS
-    @Volatile
-    internal var livenessTimeoutMs: Long = BRIDGE_LIVENESS_TIMEOUT_MS
+    /** Test seams: ping interval (15s) and silence timeout (45s) per ADR-0019; applies on next attach. */
+    @Volatile internal var heartbeatIntervalMs: Long = BRIDGE_HEARTBEAT_INTERVAL_MS
+    @Volatile internal var livenessTimeoutMs: Long = BRIDGE_LIVENESS_TIMEOUT_MS
 
-    /**
-     * Runs on a re-attach to a replaced host, before subscriptions are re-sent. If
-     * it fails, the client continues signed out and the operations held across the
-     * re-attach fail without being sent.
-     */
-    @Volatile
-    var restoreAuth: BridgeAuthRestorer = {}
+    /** Runs on re-attach to a replaced host before subscriptions replay; failure fails held ops. */
+    @Volatile var restoreAuth: BridgeAuthRestorer = {}
 
     /** Resolves the active App Check token for requests on the owning FirebaseApp. */
-    @Volatile
-    internal var appCheckTokenProvider: (suspend () -> String?)? = null
+    @Volatile internal var appCheckTokenProvider: (suspend () -> String?)? = null
 
     /** The client session ID acknowledged by the bridge. */
-    @Volatile
-    var clientSessionId: String? = null
+    @Volatile var clientSessionId: String? = null
         private set
 
     private val _connectionStateFlow = MutableStateFlow(false)
@@ -127,6 +109,9 @@ class PyricBridgeClient(
     private val heldOperations = BridgeHeldOperations(clientScope)
     private val heartbeat = BridgeHeartbeat(clientScope)
     private val pingCounter = AtomicLong(0)
+    private val inboundWireSeq = AtomicLong(0)
+
+    internal fun currentInboundWireSeq(): Long = inboundWireSeq.get()
 
     private val canReopen: Boolean get() = directTransport == null
 
@@ -410,7 +395,14 @@ class PyricBridgeClient(
         params: Map<String, Any?>,
         actAs: Map<String, Any?>? = null,
         timeoutMs: Long? = null
-    ): Any? {
+    ): Any? = opSequenced(method, params, actAs, timeoutMs).value
+
+    internal suspend fun opSequenced(
+        method: String,
+        params: Map<String, Any?>,
+        actAs: Map<String, Any?>? = null,
+        timeoutMs: Long? = null
+    ): BridgeSequencedResult {
         if (isDisposed) throw disposedError()
         val resolvedParams = BridgeAppCheckAttachment.attachToOpParams(method, params, appCheckTokenProvider)
         val start = {
@@ -473,6 +465,18 @@ class PyricBridgeClient(
         )
     }
 
+    internal fun subscribeSequenced(target: Any): Flow<BridgeSequencedSnapshot> {
+        if (isDisposed) throw disposedError()
+        return subscriptionManager.subscribeSequenced(
+            target = target,
+            isAttached = { isConnected },
+            ensureConnected = ::ensureConnectedForSubscription,
+            keepsSubscriptionOnConnectFailure = { !isDisposed && canReopen && (hasEverAttached || retryInitialConnection) },
+            sendJson = ::sendRawJson,
+            jsonSerializer = JsonCodec::encodeToString
+        )
+    }
+
     private suspend fun ensureConnectedForSubscription() {
         val interrupted = synchronized(lock) { hasEverAttached && canReopen }
         // An interrupted client re-sends this subscription on its next attach.
@@ -480,9 +484,7 @@ class PyricBridgeClient(
         connect()
     }
 
-    suspend fun disconnect() {
-        disconnectInternal()
-    }
+    suspend fun disconnect() = disconnectInternal()
 
     fun terminate(): Task<Void?> {
         disconnectInternal()
@@ -550,13 +552,14 @@ class PyricBridgeClient(
             usesDirectTransport = directTransport != null,
             currentClientGeneration = { synchronized(lock) { generation } },
             isCurrentGeneration = ::isCurrent,
+            nextInboundWireSeq = inboundWireSeq::incrementAndGet,
             onFrameHeard = heartbeat::heard,
             sendAttach = ::sendAttach,
             sendRawJson = ::sendRawJson,
             onAttachAck = ::acceptAttachAck,
             onWorkerRes = operationDispatcher::handleWorkerRes,
-            onWorkerSnap = { msg ->
-                subscriptionManager.handleWorkerSnap(msg, ::sendRawJson, JsonCodec::encodeToString)
+            onWorkerSnap = { msg, seq ->
+                subscriptionManager.handleWorkerSnap(msg, ::sendRawJson, JsonCodec::encodeToString, seq)
             },
             onRemoteLens = { lens -> _remoteLensEvents.tryEmit(lens) },
             onConnectionLoss = ::handleConnectionLoss

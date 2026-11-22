@@ -15,6 +15,11 @@ import java.util.concurrent.atomic.AtomicLong
  */
 object BridgeSubscriptionGap
 
+internal data class BridgeSequencedSnapshot(
+    val value: Any?,
+    val wireSeq: Long
+)
+
 class BridgeSubscriptionManager(
     private val onDenial: ((FirebaseFirestoreException) -> Unit)? = null
 ) {
@@ -26,7 +31,8 @@ class BridgeSubscriptionManager(
         val subId: String,
         val channel: ProducerScope<Any?>,
         val payload: Map<String, Any?>,
-        val includeMetadataChanges: Boolean
+        val includeMetadataChanges: Boolean,
+        val sequenced: Boolean = false
     ) {
         @Volatile var hasValue: Boolean = false
         @Volatile var lastValue: Any? = null
@@ -68,6 +74,59 @@ class BridgeSubscriptionManager(
         keepsSubscriptionOnConnectFailure: () -> Boolean,
         sendJson: (String) -> Unit,
         jsonSerializer: (Any?) -> String
+    ): Flow<Any?> = openSubscription(
+        target = target,
+        actAs = actAs,
+        includeMetadataChanges = includeMetadataChanges,
+        listenSource = listenSource,
+        appCheckTokenProvider = appCheckTokenProvider,
+        sequenced = false,
+        isAttached = isAttached,
+        ensureConnected = ensureConnected,
+        keepsSubscriptionOnConnectFailure = keepsSubscriptionOnConnectFailure,
+        sendJson = sendJson,
+        jsonSerializer = jsonSerializer
+    )
+
+    internal fun subscribeSequenced(
+        target: Any,
+        isAttached: () -> Boolean,
+        ensureConnected: suspend () -> Unit,
+        keepsSubscriptionOnConnectFailure: () -> Boolean,
+        sendJson: (String) -> Unit,
+        jsonSerializer: (Any?) -> String
+    ): Flow<BridgeSequencedSnapshot> = kotlinx.coroutines.flow.flow {
+        openSubscription(
+            target = target,
+            actAs = null,
+            includeMetadataChanges = false,
+            listenSource = null,
+            appCheckTokenProvider = null,
+            sequenced = true,
+            isAttached = isAttached,
+            ensureConnected = ensureConnected,
+            keepsSubscriptionOnConnectFailure = keepsSubscriptionOnConnectFailure,
+            sendJson = sendJson,
+            jsonSerializer = jsonSerializer
+        ).collect { item ->
+            if (item is BridgeSequencedSnapshot) {
+                emit(item)
+            }
+        }
+    }
+
+    private fun openSubscription(
+        target: Any,
+        actAs: Map<String, Any?>?,
+        includeMetadataChanges: Boolean,
+        listenSource: String?,
+        appCheckTokenProvider: (suspend () -> String?)?,
+        sequenced: Boolean,
+        isAttached: () -> Boolean,
+        ensureConnected: suspend () -> Unit,
+        keepsSubscriptionOnConnectFailure: () -> Boolean,
+        sendJson: (String) -> Unit,
+        jsonSerializer: (Any?) -> String
     ): Flow<Any?> = callbackFlow {
         val subId = "rsub-${subCounter.incrementAndGet()}"
 
@@ -91,7 +150,7 @@ class BridgeSubscriptionManager(
             subPayload["appCheckToken"] = appCheckToken
         }
 
-        val record = ActiveSubscription(subId, this, subPayload, includeMetadataChanges)
+        val record = ActiveSubscription(subId, this, subPayload, includeMetadataChanges, sequenced)
         // Registered before the attach check, so an attach that completes in between sends it.
         activeSubs[subId] = record
 
@@ -148,7 +207,8 @@ class BridgeSubscriptionManager(
     fun handleWorkerSnap(
         msg: Map<String, Any?>,
         sendJson: (String) -> Unit,
-        jsonSerializer: (Any?) -> String
+        jsonSerializer: (Any?) -> String,
+        wireSeq: Long = 0L
     ) {
         val subId = msg["subId"] as? String ?: return
         val activeSub = activeSubs[subId] ?: return
@@ -193,7 +253,8 @@ class BridgeSubscriptionManager(
         }
         activeSub.hasValue = true
         activeSub.lastValue = value
-        activeSub.channel.trySend(value)
+        val emitted = if (activeSub.sequenced) BridgeSequencedSnapshot(value, wireSeq) else value
+        activeSub.channel.trySend(emitted)
     }
 
     /**

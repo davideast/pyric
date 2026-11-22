@@ -23,7 +23,7 @@ internal class HeldOperation(
     val deadlineAt: Long
 ) {
     /** Completes with the sent operation's result, or fails if it is never sent. */
-    val sent = CompletableDeferred<CompletableDeferred<Any?>>()
+    val sent = CompletableDeferred<CompletableDeferred<BridgeSequencedResult>>()
     var deadline: Job? = null
     /** Set when the caller was cancelled, so a refused send is not held again. */
     var withdrawn = false
@@ -95,7 +95,7 @@ internal class BridgeHeldOperations(private val scope: CoroutineScope) {
     }
 
     /** Waits for [entry] to be sent and answered. A cancelled caller's operation is never sent. */
-    suspend fun await(entry: HeldOperation): Any? {
+    suspend fun await(entry: HeldOperation): BridgeSequencedResult {
         val sentOperation = try {
             entry.sent.await()
         } catch (e: CancellationException) {
