@@ -13,7 +13,7 @@ export type Priority = string | number | null;
  *
  * Returns -1 / 0 / 1.
  */
-export function compareValues(a: JsonValue, b: JsonValue): number {
+function compareValues(a: JsonValue, b: JsonValue): number {
   const areEqual = a === b;
   if (areEqual) return 0;
   // null sorts first.
@@ -157,7 +157,8 @@ export function extractOrderValue(
       const segs = childPathSegments(o.path);
       let cur: JsonValue = value;
       for (const s of segs) {
-        const hasNoDescendant = cur === null || typeof cur !== 'object' || Array.isArray(cur);
+        const hasNoDescendant =
+          cur === null || typeof cur !== 'object' || Array.isArray(cur) || !Object.hasOwn(cur, s);
         if (hasNoDescendant) return null;
         cur = (cur as Record<string, JsonValue>)[s] ?? null;
       }

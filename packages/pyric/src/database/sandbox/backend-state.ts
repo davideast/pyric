@@ -74,6 +74,7 @@ export class BackendState {
   readonly mutations = new MutationHistory();
   readonly events: OperationEvents;
   readonly writeSubscribers = new Set<() => void>();
+  readonly resetListeners = new Set<() => void>();
   resetGeneration = 0;
   deferListenerFanOut = false;
   pinnedNow: number | null = null;
@@ -197,5 +198,20 @@ export class BackendState {
     for (const subscriber of this.writeSubscribers) {
       try { subscriber(); } catch { /* persistence scheduling is observational */ }
     }
+  }
+
+  bumpConnectionResetGeneration(): void {
+    this.resetGeneration += 1;
+  }
+
+  notifyConnectionResetListeners(): void {
+    for (const listener of [...this.resetListeners]) {
+      listener();
+    }
+  }
+
+  notifyConnectionReset(): void {
+    this.bumpConnectionResetGeneration();
+    this.notifyConnectionResetListeners();
   }
 }

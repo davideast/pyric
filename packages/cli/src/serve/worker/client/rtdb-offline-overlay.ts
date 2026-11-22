@@ -100,7 +100,7 @@ export function pathSegmentsOf(path: string): string[] {
   return normalizeRtdbPath(path).split('/').filter(Boolean);
 }
 
-export function joinChildPath(basePath: string, childKey: string): string {
+function joinChildPath(basePath: string, childKey: string): string {
   const normalized = normalizeRtdbPath(basePath);
   if (normalized === '/') {
     return `/${childKey}`;
@@ -176,14 +176,19 @@ function writeSegments(
       nextChild = structuredClone(val);
     }
   } else {
-    let childObj: { [key: string]: OverlayJson } = {};
+    let existing: OverlayJson | undefined;
     if (Object.hasOwn(parent, key)) {
-      const existing = parent[key];
-      if (existing !== undefined && isPlainRecord(existing)) {
-        childObj = existing;
-      }
+      existing = parent[key];
     }
-    nextChild = writeSegments(childObj, segs, idx + 1, val);
+    if (existing !== undefined && isPlainRecord(existing)) {
+      nextChild = writeSegments(existing, segs, idx + 1, val);
+    } else {
+      if (val === null) {
+        if (Object.keys(parent).length === 0) return null;
+        return parent;
+      }
+      nextChild = writeSegments({}, segs, idx + 1, val);
+    }
   }
   const out: { [key: string]: OverlayJson } = {};
   let count = 0;
@@ -212,11 +217,13 @@ export function treeWrite(root: OverlayJson, path: string, val: OverlayJson): Ov
     }
     return structuredClone(val);
   }
-  let baseObj: { [key: string]: OverlayJson } = {};
-  if (isPlainRecord(root)) {
-    baseObj = root;
+  if (!isPlainRecord(root)) {
+    if (val === null) {
+      return root;
+    }
+    return writeSegments({}, segs, 0, val);
   }
-  return writeSegments(baseObj, segs, 0, val);
+  return writeSegments(root, segs, 0, val);
 }
 
 export function normalizeWorkerSentinels(value: unknown): unknown {
