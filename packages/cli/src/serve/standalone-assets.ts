@@ -22,6 +22,7 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { touchBundleCacheDir } from './bundle-cache-evict.js';
+import type { AiMode } from './firebase-module-swap.js';
 import {
   STANDALONE_SERVE_MARKER,
   evictStandaloneServeCache,
@@ -184,12 +185,48 @@ function materialize(root: string, files: Record<string, string>, version: strin
 
 let sdkMemo: { entryRoot: string; outDir: string } | null = null;
 
+function standaloneProductionModeSetting(env: NodeJS.ProcessEnv): string {
+  if (env.PYRIC_AI_MODE === 'production') {
+    return 'PYRIC_AI_MODE=production';
+  }
+  return 'PYRIC_AI_PASSTHROUGH=1';
+}
+
+/**
+ * Refuse production AI mode on a standalone `pyric` binary (`#1531`).
+ *
+ * Standalone binaries serve prebuilt SDK shims embedded at compile time and
+ * have no runtime bundler to build `/__pyric/sdk/firebase-sdk-*.js` from the
+ * project's `firebase` install, so the `app-ai-passthrough` wrappers would 404.
+ */
+export function assertStandaloneSupportsAiMode(
+  aiMode: AiMode,
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  if (!isStandalone() || aiMode !== 'production') {
+    return;
+  }
+  const setting = standaloneProductionModeSetting(env);
+  const variable = setting.split('=', 1)[0] ?? 'PYRIC_AI_MODE';
+  throw new Error(
+    `pyric sandbox: production AI mode (${setting}) is not supported on the standalone pyric binary ` +
+      `because its SDK bundles are prebuilt without runtime bundling for this project's firebase package. ` +
+      `Use the npm @pyric/cli package (for example, \`npx @pyric/cli sandbox\`), or unset ${variable} ` +
+      `to answer firebase/ai from the Pyric sandbox.`,
+  );
+}
+
 /**
  * Materialize the embedded SDK + worker bundles under `~/.pyric/standalone-serve/<identity>/sdk`
  * and return it as the `outDir` the serve namespace serves `/__pyric/sdk/*` from. Stand-in for
  * `bundleSdk()` + `bundleWorker()` in the standalone build.
  */
-export async function materializeServeAssets(): Promise<{ outDir: string; cached: boolean }> {
+export async function materializeServeAssets(
+  options: { aiMode?: AiMode; env?: NodeJS.ProcessEnv } = {},
+): Promise<{ outDir: string; cached: boolean }> {
+  if (options.aiMode !== undefined) {
+    assertStandaloneSupportsAiMode(options.aiMode, options.env);
+  }
   const e = embedded();
   const cacheRoot = resolveStandaloneServeCacheRoot();
   const identity = standaloneIdentity(e);
