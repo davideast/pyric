@@ -57,17 +57,22 @@ const NO_SANDBOX_MESSAGE =
 
 /**
  * `PYRIC_SANDBOX` is set but the register didn't load, so route handlers
- * would import the real `firebase-admin` (#1625). The message names the three
- * ways that happens and how to start the server instead.
+ * would import the real `firebase-admin` (#1625, #1654). Next sets
+ * `NODE_ENV=development` before evaluating `next.config`, so the guard names
+ * each cause alongside its own fix rather than leading with one launch command.
  */
 const NO_REGISTER_MESSAGE =
   '[Pyric] PYRIC_SANDBOX is set, but @pyric/cli/register is not active in this process, ' +
   'so firebase-admin and firebase imports in route handlers would load the real SDKs.\n' +
-  'Start the development server with:\n' +
-  '  pyric sandbox -- next dev\n' +
-  'The register is missing when PYRIC_SANDBOX comes only from a .env file, when NODE_ENV=production makes the register refuse, ' +
-  'or when a package script sets its own NODE_OPTIONS. A script that needs its own options appends them: ' +
-  'NODE_OPTIONS="$NODE_OPTIONS --max-old-space-size=4096" next dev\n' +
+  'Next sets NODE_ENV=development before loading next.config, so check how this server was started:\n' +
+  '  - PYRIC_SANDBOX came from a .env file or shell export without the launcher: ' +
+  'put pyric sandbox in front of the command (`pyric sandbox -- next dev` or `pyric sandbox -- npm run dev`).\n' +
+  '  - NODE_ENV=production was set in the shell when starting `pyric sandbox -- next dev`, making the register refuse: ' +
+  'unset NODE_ENV (or set NODE_ENV=development) and run `pyric sandbox -- next dev`.\n' +
+  '  - A package script overwrites NODE_OPTIONS (for example `NODE_OPTIONS=--max-old-space-size=4096 next dev`), dropping the register: ' +
+  'put pyric sandbox in front of the npm script and append to the inherited value (`NODE_OPTIONS="$NODE_OPTIONS --max-old-space-size=4096" next dev`).\n' +
+  '  - Next was started under Bun (for example `bun --bun next dev`), which does not run Node module.registerHooks: ' +
+  'run the dev server under Node (`pyric sandbox -- next dev`).\n' +
   OPT_OUT;
 
 /**

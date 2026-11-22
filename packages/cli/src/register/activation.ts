@@ -10,7 +10,7 @@
  * importing this module never activates anything.
  */
 
-/** Set by the register once its hooks, guard and factory global are in place. */
+/** Set by the register once its hooks and factory global are in place. */
 const REGISTER_ACTIVE = Symbol.for('pyric.register.active');
 
 type MarkedGlobal = Record<symbol, unknown>;
@@ -18,6 +18,11 @@ type MarkedGlobal = Record<symbol, unknown>;
 /** Called by the register at the end of activation. */
 export function markRegisterActive(): void {
   (globalThis as unknown as MarkedGlobal)[REGISTER_ACTIVE] = true;
+}
+
+/** Clears the activation mark in this thread. */
+export function clearRegisterActive(): void {
+  delete (globalThis as unknown as MarkedGlobal)[REGISTER_ACTIVE];
 }
 
 /** Whether the register activated in this thread. */

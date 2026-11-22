@@ -1,17 +1,27 @@
 // #1443: the Next 15 side of `nextjs16-firebase-imports`. Next 15 runs webpack
 // by default and Turbopack with `--turbopack`; neither renames server
 // externals, and both must keep reaching the sandbox. See
-// `../nextjs-firebase-imports.ts` for the app and the safety preload. #1637:
-// the same app in production AI mode, on both bundlers, gets the Firebase
-// SDK's `firebase/ai`; see `../nextjs-production-ai.ts`.
+// `../nextjs-firebase-imports.ts` for the app and the safety preload. It also
+// checks that `withPyric` refuses to start Next when `PYRIC_SANDBOX` is set
+// without an active register (#1625, #1654). #1637: the same app in production
+// AI mode, on both bundlers, gets the Firebase SDK's `firebase/ai`; see
+// `../nextjs-production-ai.ts`.
 //
 // package.json matches `nextjs-template`'s, name included, so the runner
 // installs the two apps once.
-import { scenario } from '../driver.ts';
+import { scenario, type ExpectedCrash } from '../driver.ts';
 import { runFirebaseImports } from '../nextjs-firebase-imports.ts';
 import { productionAiCases } from '../nextjs-production-ai.ts';
+
+export const expectedCrashes: ExpectedCrash[] = [
+  {
+    message: /^Error: \[Pyric\] PYRIC_SANDBOX is set, but @pyric\/cli\/register is not active in this process/,
+    source: /^command \d+ \(next dev --port \d+ --hostname 127\.0\.0\.1\)$/,
+    reason: 'Next 15 lets the next.config withPyric refusal throw to Node when plain next dev reads PYRIC_SANDBOX from .env',
+  },
+];
 
 export default scenario((app) => runFirebaseImports(app, [
   { name: 'pyric sandbox -- next dev', nextFlags: [], hosted: false },
   { name: 'pyric sandbox -- next dev --turbopack', nextFlags: ['--turbopack'], hosted: false },
-], { extraCases: productionAiCases([[], ['--turbopack']]) }));
+], { refusals: true, extraCases: productionAiCases([[], ['--turbopack']]) }));

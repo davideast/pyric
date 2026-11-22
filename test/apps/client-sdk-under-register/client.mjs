@@ -228,6 +228,7 @@ await outcome("firestore.liveListenerIncrementCache", () =>
 await outcome("ai", async () => (await import("firebase/ai")).getAI(app));
 await outcome("messaging", async () => (await import("firebase/messaging")).getMessaging(app));
 await outcome("functions", async () => (await httpsCallable(getFunctions(app), "hello")({})).data);
+await outcome("installations", () => import("firebase/installations"));
 
 await outcome("deleteApp", () => deleteApp(app));
 console.log("client done");

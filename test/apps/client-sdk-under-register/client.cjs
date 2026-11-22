@@ -15,18 +15,20 @@ async function outcome(name, run) {
 }
 
 (async () => {
-  const options = process.argv[2] === "other-config"
-    ? { apiKey: "other", appId: "other", projectId: "demo-app" }
-    : {
-        apiKey: "demo",
-        appId: "demo",
-        projectId: "demo-app",
-        storageBucket: "demo-app.appspot.com",
-        databaseURL: "https://demo-app-default-rtdb.firebaseio.com",
-      };
+  let options = {
+    apiKey: "demo",
+    appId: "demo",
+    projectId: "demo-app",
+    storageBucket: "demo-app.appspot.com",
+    databaseURL: "https://demo-app-default-rtdb.firebaseio.com",
+  };
+  if (process.argv[2] === "other-config") {
+    options = { apiKey: "other", appId: "other", projectId: "demo-app" };
+  }
   const app = initializeApp(options);
   await outcome("cjs.database", () => set(ref(getDatabase(app), "server/cjs"), "from require"));
   await outcome("cjs.firestore", () => setDoc(doc(getFirestore(app), "server/cjs"), { from: "require" }));
+  await outcome("cjs.installations", () => require("firebase/installations"));
   // Let any late rejection surface before the process ends.
   await new Promise((resolve) => setTimeout(resolve, 500));
   process.exit(0);

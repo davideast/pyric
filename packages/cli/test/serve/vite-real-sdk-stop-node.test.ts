@@ -1,6 +1,6 @@
 /**
  * The real `firebase` and `firebase-admin` never load in the Vite dev server
- * process, and the browser gets the stop for what pyric doesn't serve (#1906).
+ * process, and the browser gets the stop for what pyric doesn't serve (#1906, #1623).
  *
  * From Node 24.16, `module.registerHooks` resolve hooks also run for
  * `require.resolve`, so the swap's own lookup of the installed file met
@@ -80,17 +80,6 @@ for (const specifier of specifiers) {
 process.stdout.write(JSON.stringify({ node: process.version, browser, outcomes, loaded }));
 `;
 
-/**
- * The register maps an unserved `firebase/*` subpath to the same subpath of
- * `pyric`, which doesn't export it, so Node refuses it there and the real
- * SDK never resolves.
- */
-function isUnmirroredUnderRegister(mode: 'plain' | 'register', outcome: NodeOutcome): boolean {
-  const isNotExported = outcome.result === 'ERR_PACKAGE_PATH_NOT_EXPORTED';
-  const isPyricPackage = /\/pyric\/package\.json/.test(outcome.message ?? '');
-  return mode === 'register' && outcome.specifier.startsWith('firebase/') && isNotExported && isPyricPackage;
-}
-
 function runChild(mode: 'plain' | 'register'): ChildReport {
   const preload = mode === 'register' ? ['--import', REGISTER] : [];
   const args = [...preload, '--input-type=module', '-e', CHILD, DIST, CLI_ROOT, mode, JSON.stringify(UNSERVED)];
@@ -111,7 +100,9 @@ describe.each(['plain', 'register'] as const)('the real SDK stop on this Node, %
 
   test('the swap gives the browser the stop for every unserved import', () => {
     const answers = Object.fromEntries(UNSERVED.map((specifier) => {
-      const { id, source } = report.browser[specifier]!;
+      const entry = report.browser[specifier];
+      const id = entry?.id ?? null;
+      const source = entry?.source ?? null;
       const isStop = id !== null && id.startsWith('\0pyric-stop:') && (source ?? '').includes('PYRIC_REAL_SDK_STOPPED');
       return [specifier, isStop ? 'stop' : `${report.node}: ${JSON.stringify(id)}`];
     }));
@@ -120,8 +111,7 @@ describe.each(['plain', 'register'] as const)('the real SDK stop on this Node, %
 
   test('every load in the process is served by pyric or stopped', () => {
     const unexpected = report.outcomes.filter((outcome) => {
-      const isServedOrStopped = outcome.result === 'loaded' || outcome.result === 'PYRIC_REAL_SDK_STOPPED';
-      return !isServedOrStopped && !isUnmirroredUnderRegister(mode, outcome);
+      return outcome.result !== 'loaded' && outcome.result !== 'PYRIC_REAL_SDK_STOPPED';
     });
     expect(unexpected).toEqual([]);
   });

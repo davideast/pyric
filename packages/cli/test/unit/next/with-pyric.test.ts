@@ -3,10 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { withPyric } from '../../../src/next/index.js';
-import { markRegisterActive } from '../../../src/register/activation.js';
-
-/** The register's activation mark (`src/register/activation.ts`). */
-const REGISTER_ACTIVE = Symbol.for('pyric.register.active');
+import { clearRegisterActive, markRegisterActive } from '../../../src/register/activation.js';
 
 async function resolveWith(
   config: any,
@@ -32,7 +29,7 @@ describe('withPyric Next.js configuration wrapper', () => {
   });
 
   afterEach(() => {
-    delete (globalThis as Record<symbol, unknown>)[REGISTER_ACTIVE];
+    clearRegisterActive();
     process.env.NODE_ENV = origNodeEnv;
     if (origPyricSandbox !== undefined) {
       process.env.PYRIC_SANDBOX = origPyricSandbox;
@@ -104,8 +101,8 @@ describe('withPyric Next.js configuration wrapper', () => {
     await expect(resolveWith({})).rejects.toThrow(/Next\.js development server started without active Pyric sandbox/);
   });
 
-  it('refuses when PYRIC_SANDBOX is set but the register is not active (#1625)', async () => {
-    delete (globalThis as Record<symbol, unknown>)[REGISTER_ACTIVE];
+  it('refuses when PYRIC_SANDBOX is set but the register is not active, naming each cause beside its own fix (#1625, #1654)', async () => {
+    clearRegisterActive();
     let message = '';
     try {
       await resolveWith({});
@@ -113,12 +110,19 @@ describe('withPyric Next.js configuration wrapper', () => {
       message = (error as Error).message;
     }
     expect(message).toContain('@pyric/cli/register is not active in this process');
+    expect(message).not.toContain('Start the development server with:');
+    expect(message).toContain('.env file');
+    expect(message).toContain('put pyric sandbox in front of the command');
     expect(message).toContain('pyric sandbox -- next dev');
-    expect(message).toContain('NODE_OPTIONS="$NODE_OPTIONS');
+    expect(message).toContain('NODE_ENV=production');
+    expect(message).toContain('unset NODE_ENV');
+    expect(message).toContain('put pyric sandbox in front of the npm script');
+    expect(message).toContain('NODE_OPTIONS="$NODE_OPTIONS --max-old-space-size=4096" next dev');
+    expect(message).toContain('bun --bun next dev');
   });
 
   it('starts without the register when { guard: false } is passed', async () => {
-    delete (globalThis as Record<symbol, unknown>)[REGISTER_ACTIVE];
+    clearRegisterActive();
     const res = await resolveWith({}, { guard: false }) as Record<string, any>;
     expect(res.serverExternalPackages).toContain('firebase');
   });

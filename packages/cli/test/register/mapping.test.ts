@@ -1,7 +1,8 @@
 /**
  * Unit coverage for the register seam's pure pieces: the specifier map
- * (firebase → pyric, with a register-only app adapter, non-Firebase untouched)
- * and the ESM-only exports walker behind the CJS require() fallback.
+ * (firebase -> pyric, with a register-only app adapter, non-Firebase and
+ * unserved firebase/* untouched) and the ESM-only exports walker behind the
+ * CJS require() fallback.
  */
 import { describe, it, expect } from 'bun:test';
 import { join } from 'node:path';
@@ -9,9 +10,21 @@ import { canonicalFirebaseSpecifier, mapFirebaseSpecifier } from '../../src/regi
 import { resolveEsmOnlySubpath } from '../../src/register/esm-exports.js';
 
 describe('mapFirebaseSpecifier', () => {
-  it('maps the bare package roots', () => {
+  it('maps firebase-admin root and leaves bare firebase and unserved firebase/* subpaths for swap-or-stop (#1623)', () => {
     expect(mapFirebaseSpecifier('firebase-admin')).toBe('pyric-admin');
-    expect(mapFirebaseSpecifier('firebase')).toBe('pyric');
+    expect(mapFirebaseSpecifier('firebase')).toBeNull();
+    const unserved = [
+      'firebase/installations',
+      'firebase/data-connect',
+      'firebase/firestore/pipelines',
+      'firebase/compat/app',
+      'firebase/sandbox',
+      'firebase/firestore/internal',
+    ];
+    for (const specifier of unserved) {
+      expect(mapFirebaseSpecifier(specifier), specifier).toBeNull();
+      expect(mapFirebaseSpecifier(specifier, undefined, { sandbox: 'remote' }), `remote ${specifier}`).toBeNull();
+    }
   });
 
   it('maps service subpaths and routes app through the register adapter', () => {
@@ -26,8 +39,9 @@ describe('mapFirebaseSpecifier', () => {
     expect(mapFirebaseSpecifier('firebase/crashlytics')).toBe('pyric/crashlytics');
   });
 
-  it('maps nested subpaths verbatim', () => {
+  it('maps nested served subpaths verbatim', () => {
     expect(mapFirebaseSpecifier('firebase/messaging/sw')).toBe('pyric/messaging/sw');
+    expect(mapFirebaseSpecifier('firebase/firestore/lite')).toBe('pyric/firestore/lite');
   });
 
   it('leaves non-Firebase specifiers untouched', () => {
