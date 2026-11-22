@@ -98,11 +98,11 @@ describe('service command hierarchy', () => {
     const result = await runDispatch(['firestore', 'rules', 'validate', rulesPath]);
 
     // The fixture's recursive wildcard allows signed-in reads and writes,
-    // a high-severity finding (SEC-5), so the command exits 2.
-    expect(result.code).toBe(2);
+    // a medium-severity warning (SEC-5), so the command exits 0.
+    expect(result.code).toBe(0);
     expect(result.stderr).toBe('');
     const findings = JSON.parse(result.stdout) as Array<{ code: string; severity: string }>;
-    expect(findings.map((finding) => [finding.code, finding.severity])).toContainEqual(['SEC-5', 'high']);
+    expect(findings.map((finding) => [finding.code, finding.severity])).toContainEqual(['SEC-5', 'medium']);
   });
 
   it('rejects Firestore rules that exceed compile limits in firestore rules validate (FS-CON-2)', async () => {

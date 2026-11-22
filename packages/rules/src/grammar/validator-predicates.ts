@@ -89,14 +89,26 @@ function isRequestAuth(e: Expression): boolean {
   return obj !== null && obj.type === 'identifier' && obj.name === 'request';
 }
 
-function isRequestAuthUid(e: Expression): boolean {
-  const obj = propTarget(e, 'uid');
-  return obj !== null && isRequestAuth(obj);
-}
+const STORAGE_PAYLOAD_FIELDS: ReadonlySet<string> = new Set(['size', 'contentType', 'metadata']);
 
 function isRequestResource(e: Expression): boolean {
   const reqObj = propTarget(e, 'resource');
   return reqObj !== null && reqObj.type === 'identifier' && reqObj.name === 'request';
+}
+
+function isStoragePayloadField(e: Expression): boolean {
+  if (e.type === 'memberAccess') {
+    return STORAGE_PAYLOAD_FIELDS.has(e.property) && isRequestResource(e.object);
+  }
+  if (
+    e.type === 'bracketAccess' &&
+    e.index.type === 'literal' &&
+    typeof e.index.value === 'string' &&
+    STORAGE_PAYLOAD_FIELDS.has(e.index.value)
+  ) {
+    return isRequestResource(e.object);
+  }
+  return false;
 }
 
 function isRequestResourceData(e: Expression): boolean {
@@ -120,21 +132,6 @@ function isAuthComparisonWithNull(e: Expression, op: '==' | '!='): boolean {
     (isRequestAuth(e.left) && isNullLiteral(e.right)) ||
     (isNullLiteral(e.left) && isRequestAuth(e.right))
   );
-}
-
-function isAuthUidComparisonWithPathVar(
-  e: Expression,
-  op: '==' | '!=',
-  pathVars: ReadonlySet<string>,
-): boolean {
-  if (e.type !== 'binaryOp' || e.op !== op) return false;
-  if (isRequestAuthUid(e.left) && e.right.type === 'identifier' && pathVars.has(e.right.name)) {
-    return true;
-  }
-  if (isRequestAuthUid(e.right) && e.left.type === 'identifier' && pathVars.has(e.left.name)) {
-    return true;
-  }
-  return false;
 }
 
 function substituteParameters(
@@ -290,17 +287,8 @@ function checkAuthAtom(expr: Expression): boolean | null {
   return null;
 }
 
-function checkPathUidAtom(expr: Expression, pathVars: ReadonlySet<string>): boolean | null {
-  if (expr.type === 'unaryOp' && expr.op === '!') {
-    if (isAuthUidComparisonWithPathVar(expr.operand, '!=', pathVars)) return true;
-    return false;
-  }
-  if (isAuthUidComparisonWithPathVar(expr, '==', pathVars)) return true;
-  return null;
-}
-
 function checkRequestDataAtom(expr: Expression, isStorage = false): boolean | null {
-  const targetPred = isStorage ? isRequestResource : isRequestResourceData;
+  const targetPred = isStorage ? isStoragePayloadField : isRequestResourceData;
   if (exprContains(expr, targetPred)) return true;
   return null;
 }
@@ -311,16 +299,6 @@ export function guardsAuthTransitive(
   fnScopes: ReadonlyMap<FunctionDef, ReadonlyMap<string, FunctionDef>>,
 ): boolean {
   return guardsConditionTransitive(expr, checkAuthAtom, fns, fnScopes);
-}
-
-export function guardsPathUidTransitive(
-  expr: Expression,
-  pathVars: ReadonlySet<string>,
-  fns: ReadonlyMap<string, FunctionDef>,
-  fnScopes: ReadonlyMap<FunctionDef, ReadonlyMap<string, FunctionDef>>,
-): boolean {
-  if (pathVars.size === 0) return false;
-  return guardsConditionTransitive(expr, (e) => checkPathUidAtom(e, pathVars), fns, fnScopes);
 }
 
 export function validatesRequestDataTransitive(

@@ -1,5 +1,5 @@
 import type {
-  FirestoreRules, MatchBlock, AllowRule, FunctionDef, Operation, PathSegment, ServiceBlock,
+  FirestoreRules, MatchBlock, FunctionDef, Operation, PathSegment, ServiceBlock,
 } from './FirestoreAST.js';
 import { countDocumentAccessCalls } from './document-access-count.js';
 import { compileLimitViolations } from './compile-limits.js';
@@ -19,7 +19,6 @@ import { resolveBundledModulesForAnalysis } from '../modules/resolver-browser.js
 import {
   foldConstants,
   guardsAuthTransitive,
-  guardsPathUidTransitive,
   referencesRequestDataAnyTransitive,
   referencesResourceDataAnyTransitive,
   validatesRequestDataTransitive,
@@ -133,19 +132,6 @@ export function validateFirestoreRules(
   return findings;
 }
 
-function collectPrefixWildcards(segments: readonly PathSegment[]): Set<string> {
-  const names = new Set<string>();
-  const finalSeg = segments[segments.length - 1];
-  const shadowedName = finalSeg?.type === 'recursive' ? finalSeg.name : undefined;
-  for (let i = 0; i < segments.length - 1; i++) {
-    const seg = segments[i];
-    if (seg !== undefined && seg.type === 'wildcard' && seg.name !== shadowedName) {
-      names.add(seg.name);
-    }
-  }
-  return names;
-}
-
 function walkMatch(
   match: MatchBlock,
   findings: ValidationFinding[],
@@ -170,7 +156,6 @@ function walkMatch(
   // ends in them. A root that does not apply to `(default)` resolves to null.
   const subtree = docSegments === null ? null : recursiveScope(docSegments);
   const recursiveSubtree = subtree?.kind === 'subtree' ? subtree : null;
-  const prefixWildcards = docSegments === null ? new Set<string>() : collectPrefixWildcards(docSegments);
   const pathStr = match.path.raw;
 
   // Merge scope: parent functions + this match's functions
@@ -189,6 +174,7 @@ function walkMatch(
     const isDataWrite = ops.some((op) => DATA_WRITE_OPS.has(op));
     const isLiteralTrue = cond.type === 'literal' && cond.value === true;
     const isLiteralFalse = cond.type === 'literal' && cond.value === false;
+    const hasAuthGuard = guardsAuthTransitive(cond, fnMap, fnScopes);
     const opStr = ops.join(', ');
 
     // SEC-1: Public write (only when the match path reaches documents/objects)
@@ -208,11 +194,10 @@ function walkMatch(
     }
 
     // SEC-5: A grant at a final recursive wildcard. Downgraded to medium
-    // (warning) when the recursive match sits under a path wildcard that the
-    // condition checks against `request.auth.uid` (#1518).
+    // (warning) when the condition requires authentication (#1518); an
+    // unauthenticated or open recursive wildcard stays high (error).
     if (recursiveSubtree && !isLiteralFalse) {
-      const scopedToOwner = guardsPathUidTransitive(cond, prefixWildcards, fnMap, fnScopes);
-      const sec5Severity = scopedToOwner ? 'medium' : 'high';
+      const sec5Severity = hasAuthGuard ? 'medium' : 'high';
       findings.push({
         code: 'SEC-5', severity: sec5Severity, path: pathStr, operation: opStr,
         message: `Recursive wildcard ${recursiveSubtree.fullPath} grants ${opStr} on ${recursiveSubtree.description} `
@@ -222,21 +207,24 @@ function walkMatch(
     }
 
     // SEC-3: No auth check on write (follows function calls transitively)
-    if (docSegments !== null && isWrite && !isLiteralTrue && !isLiteralFalse && !guardsAuthTransitive(cond, fnMap, fnScopes)) {
+    if (docSegments !== null && isWrite && !isLiteralTrue && !isLiteralFalse && !hasAuthGuard) {
       findings.push({
         code: 'SEC-3', severity: 'high', path: pathStr, operation: opStr,
         message: `Write rule (${opStr}) at ${pathStr} does not check request.auth`,
       });
     }
 
-    // SEC-6: Write without data validation (follows function calls transitively)
+    // SEC-6: Write without payload validation (follows function calls transitively).
+    // Downgraded to medium (warning) when the condition requires authentication (#1518);
+    // an unauthenticated write without payload validation stays high (error).
     if (docSegments !== null && isDataWrite && !isLiteralFalse && !validatesRequestDataTransitive(cond, fnMap, fnScopes, isStorage)) {
+      const sec6Severity = hasAuthGuard ? 'medium' : 'high';
       let sec6Message = `${opStr} at ${pathStr} does not validate request.resource.data -- any data shape accepted`;
       if (isStorage) {
-        sec6Message = `${opStr} at ${pathStr} does not validate request.resource -- any upload payload accepted`;
+        sec6Message = `${opStr} at ${pathStr} does not validate request.resource (size, contentType, or metadata) -- any upload payload accepted`;
       }
       findings.push({
-        code: 'SEC-6', severity: 'high', path: pathStr, operation: opStr,
+        code: 'SEC-6', severity: sec6Severity, path: pathStr, operation: opStr,
         message: sec6Message,
       });
     }
