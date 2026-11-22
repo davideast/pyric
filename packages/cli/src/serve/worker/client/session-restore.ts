@@ -45,11 +45,24 @@ export async function runSessionRestorePass(options: {
 export function replayResumedSubscriptions(options: {
   port: ClientPort;
   held: HeldMessages;
+  appConfig: Extract<InboundMessage, { t: 'appConfig' }> | undefined;
+  fromPriorHost: boolean;
   isResume: boolean;
+  restoredSession: boolean;
   needsMessagingRestore: boolean;
   postMessage: (message: InboundMessage) => void;
   replay: (message: InboundMessage) => void;
 }): void {
+  if (options.isResume && !options.restoredSession) {
+    // Same-host resume skips the full session restore pass, but an earlier
+    // socket may have closed before the host read its flushed `appConfig`
+    // (#1222). Resend `appConfig` ahead of resumed subscriptions and held ops
+    // unless `held` already carries a newer `appConfig` frame.
+    const configuration = options.appConfig;
+    if (configuration !== undefined && !options.held.holdsAppConfig()) {
+      options.postMessage(formatAppConfigMessage(configuration, options.fromPriorHost));
+    }
+  }
   if (options.isResume) {
     options.postMessage({ t: 'clock-subscribe' });
     restoreObservationSubscriptions(options.port, options.replay);

@@ -353,7 +353,8 @@ export function getHostedFirestore(
       if (isHeldSubscription) return;
       postMessage(message);
     };
-    if (needsSessionRestore) {
+    const restoredSession = needsSessionRestore;
+    if (restoredSession) {
       const completed = await runSessionRestorePass({
         port,
         appConfig,
@@ -378,7 +379,7 @@ export function getHostedFirestore(
     hostSilence = watchHostSilence(performance.now());
     clearTimeout(heartbeatTimer);
     scheduleHeartbeat(connection);
-    replayResumedSubscriptions({ port, held, isResume, needsMessagingRestore, postMessage, replay });
+    replayResumedSubscriptions({ port, held, appConfig, fromPriorHost, isResume, restoredSession, needsMessagingRestore, postMessage, replay });
     stopAnnouncingReads?.();
     if (answersReads) stopAnnouncingReads = announceTabReads(connectionId, frame => postFrame(connection, frame));
     notifyConnectionChange();
