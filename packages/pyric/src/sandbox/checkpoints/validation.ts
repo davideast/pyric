@@ -4,14 +4,23 @@ import { isMessagingSnapshot } from '../../messaging/broker/persistence.js';
 import { rulesSourceRejection } from '../../rules/internal/index.js';
 import { rtdbRulesSourceRejection } from '../../rules/internal/rtdb.js';
 import { base64ToBytes } from '../../storage/base64.js';
+import { DEFAULT_BUCKET } from '../../storage/persistence.js';
 import { normalizePath } from '../../storage/reference.js';
-import { compileStorageRules } from '@pyric/rules/internal/storage';
+import { compileStorageRules, rulesBucketName } from '@pyric/rules/internal/storage';
 import type { FullSandboxState, StorageObjectState } from '../full-state.js';
 import { seedUserSchema, storedMetadataSchema } from '../internal/state-schemas.js';
 import { decodeStateDocument } from '../internal/state-values.js';
 import { SandboxError } from '../types/errors.js';
 
 const storageFields = {
+  bucket: z
+    .string()
+    .min(1)
+    .refine(
+      bucket => bucket !== DEFAULT_BUCKET && rulesBucketName(bucket, bucket) === bucket,
+      'Expected a normalized non-default bucket name',
+    )
+    .optional(),
   path: z.string().min(1).refine(path => normalizePath(path) === path, 'Expected a canonical object path'),
   contentType: z.string().optional(),
   customMetadata: z.record(z.string()),
@@ -83,6 +92,8 @@ const stateFields = {
     database: z.object({ rules: z.record(z.unknown()) }).nullable(),
     databaseInstances: z.record(z.object({ rules: z.record(z.unknown()) }).nullable()).optional(),
     storage: z.string().nullable(),
+    storageBuckets: z.record(z.string()).optional(),
+    storageUndeployedPolicy: z.enum(['allow', 'deny']).optional(),
     storageCrossServiceIam: z.enum(['granted', 'denied']).optional(),
   }),
   messaging: z.unknown().refine(isMessagingSnapshot, 'Invalid Messaging snapshot').optional(),
@@ -149,6 +160,16 @@ export function assertCheckpointState(state: unknown): void {
       compileStorageRules(storageRules);
     } catch (error) {
       throw new SandboxError('invalid-argument', `Invalid checkpoint Storage rules: ${String(error)}`);
+    }
+  }
+  for (const [bucketName, bucketSource] of Object.entries(result.data.rules.storageBuckets ?? {})) {
+    try {
+      compileStorageRules(bucketSource);
+    } catch (error) {
+      throw new SandboxError(
+        'invalid-argument',
+        `Invalid checkpoint Storage rules for '${bucketName}': ${String(error)}`,
+      );
     }
   }
 }

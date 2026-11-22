@@ -22,6 +22,7 @@
  */
 import { createReadStream } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { answerAndClose } from '../../bridge/server/peer.js';
 import { timingSafeTokenMatch, getHeader } from '../server.js';
 import { STORAGE_ROUTE_PREFIX } from '../worker/protocol/storage.js';
 import type { PyricWriteRefusal } from './own-writes.js';
@@ -53,7 +54,7 @@ export interface UploadSessionView {
   uploadId?: string;
 }
 
-export interface UploadSessions {
+interface UploadSessions {
   get(sessionId: string): UploadSessionView | undefined;
   /** Begin the upload that holds the session's `size` bytes; resolves its upload id. */
   open(sessionId: string, size: number): Promise<string>;
@@ -91,8 +92,36 @@ function targetOf(pathname: string): Target | undefined {
   return { kind: 'object', bucket, path };
 }
 
-function refuse(res: ServerResponse, status: number, message: string, headers: Record<string, string> = {}): void {
-  res.writeHead(status, { 'content-type': 'text/plain; charset=utf-8', ...headers }).end(message);
+function refuse(
+  req: IncomingMessage,
+  res: ServerResponse,
+  status: number,
+  message: string,
+  headers: Record<string, string> = {},
+): void {
+  answerAndClose(req, res, status, { 'content-type': 'text/plain; charset=utf-8', ...headers }, message);
+}
+
+function hasUnreadRequestBody(req: IncomingMessage): boolean {
+  if (req.complete || req.readableEnded) return false;
+  const contentLength = getHeader(req, 'content-length');
+  const hasNonZeroLength = contentLength !== undefined && contentLength !== '0';
+  const hasTransferEncoding = getHeader(req, 'transfer-encoding') !== undefined;
+  return hasNonZeroLength || hasTransferEncoding;
+}
+
+function endOrCloseIfUnread(
+  req: IncomingMessage,
+  res: ServerResponse,
+  status: number,
+  headers: Record<string, string>,
+  body = '',
+): void {
+  if (hasUnreadRequestBody(req)) {
+    answerAndClose(req, res, status, headers, body);
+    return;
+  }
+  res.writeHead(status, headers).end(body);
 }
 
 /** `bytes=a-b`, `bytes=a-`, or `bytes=-n` over an object of `size` bytes. */
@@ -134,26 +163,26 @@ export function createStorageByteRoute(opts: StorageByteRouteOptions) {
 
   async function serveObject(req: IncomingMessage, res: ServerResponse, url: URL, bucket: string, path: string): Promise<void> {
     const reads = req.method === 'GET' || req.method === 'HEAD';
-    if (!reads) return refuse(res, 405, 'An object is read with GET.', { allow: 'GET, HEAD' });
+    if (!reads) return refuse(req, res, 405, 'An object is read with GET.', { allow: 'GET, HEAD' });
     const sdkAuthorized = presentsSdkHeader(req);
     const presented = url.searchParams.get('token') ?? undefined;
     if (!sdkAuthorized && !presented) {
-      return refuse(res, 403, 'This URL carries no token that grants this object.');
+      return refuse(req, res, 403, 'This URL carries no token that grants this object.');
     }
     const object = await opts.storage.objectFile(opts.bucketOf?.(bucket) ?? bucket, path);
     if (object === undefined) {
-      if (sdkAuthorized) return refuse(res, 404, 'No such object.');
-      return refuse(res, 403, 'This URL carries no token that grants this object.');
+      if (sdkAuthorized) return refuse(req, res, 404, 'No such object.');
+      return refuse(req, res, 403, 'This URL carries no token that grants this object.');
     }
     const rawTokens = object.metadata.downloadTokens ?? object.metadata.customMetadata?.firebaseStorageDownloadTokens ?? '';
     const downloadTokens = rawTokens.split(',').filter(token => token !== '');
     const byDownloadToken = downloadTokens.some(token => timingSafeTokenMatch(presented, token));
     const authorized = sdkAuthorized || byDownloadToken;
-    if (!authorized) return refuse(res, 403, 'This URL carries no token that grants this object.');
+    if (!authorized) return refuse(req, res, 403, 'This URL carries no token that grants this object.');
     // A client that checked read rules on one generation asks for exactly that one.
     const pinned = url.searchParams.get('generation');
     const changed = pinned !== null && pinned !== object.metadata.generation;
-    if (changed) return refuse(res, 412, 'The object changed since its rules were checked. Read its metadata and retry.');
+    if (changed) return refuse(req, res, 412, 'The object changed since its rules were checked. Read its metadata and retry.');
     const headers: Record<string, string> = {
       'content-type': object.mime || 'application/octet-stream',
       'accept-ranges': 'bytes',
@@ -163,7 +192,7 @@ export function createStorageByteRoute(opts: StorageByteRouteOptions) {
     if (disposition !== undefined) headers['content-disposition'] = disposition;
     const range = rangeOf(getHeader(req, 'range'), object.size);
     const unsatisfiable = range === 'unsatisfiable';
-    if (unsatisfiable) return refuse(res, 416, 'The range is past the end of the object.', { 'content-range': `bytes */${object.size}` });
+    if (unsatisfiable) return refuse(req, res, 416, 'The range is past the end of the object.', { 'content-range': `bytes */${object.size}` });
     const partial = range !== undefined;
     const start = partial ? range.start : 0;
     const end = partial ? range.end : object.size - 1;
@@ -182,6 +211,92 @@ export function createStorageByteRoute(opts: StorageByteRouteOptions) {
     stream.pipe(res);
   }
 
+  function streamUploadChunks(
+    req: IncomingMessage,
+    uploadId: string,
+    start: number,
+    initialProgress: UploadProgress,
+    expectedBytes?: number,
+  ): Promise<{ ok: true; latest: UploadProgress } | { ok: false; error: unknown }> {
+    return new Promise((resolve) => {
+      let offset = start;
+      let transferred = 0;
+      let latest = initialProgress;
+      let settled = false;
+      let ended = false;
+      let writing = false;
+
+      const cleanup = () => {
+        req.off('data', onData);
+        req.off('end', onEnd);
+        req.off('error', onError);
+      };
+
+      const fail = (error: unknown) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve({ ok: false, error });
+      };
+
+      const finishIfComplete = () => {
+        if (settled || writing || !ended) return;
+        settled = true;
+        cleanup();
+        if (expectedBytes !== undefined && transferred !== expectedBytes) {
+          resolve({
+            ok: false,
+            error: new Error(`Content-Range declares ${expectedBytes} bytes, received ${transferred}.`),
+          });
+          return;
+        }
+        resolve({ ok: true, latest });
+      };
+
+      const onData = (chunk: Buffer) => {
+        if (settled) return;
+        if (expectedBytes !== undefined && transferred + chunk.byteLength > expectedBytes) {
+          fail(new Error(`Content-Range declares ${expectedBytes} bytes, body exceeded that range.`));
+          return;
+        }
+        writing = true;
+        req.pause();
+        const view = new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+        opts.storage.appendUpload(uploadId, offset, view).then(
+          (nextProgress) => {
+            writing = false;
+            if (settled) return;
+            latest = nextProgress;
+            offset += chunk.byteLength;
+            transferred += chunk.byteLength;
+            if (ended) {
+              finishIfComplete();
+              return;
+            }
+            req.resume();
+          },
+          (error) => {
+            writing = false;
+            fail(error);
+          },
+        );
+      };
+
+      const onEnd = () => {
+        ended = true;
+        finishIfComplete();
+      };
+
+      const onError = (error: Error) => {
+        fail(error);
+      };
+
+      req.on('data', onData);
+      req.on('end', onEnd);
+      req.on('error', onError);
+    });
+  }
+
   /**
    * Append the request body to an upload from `start`, which must be what the
    * upload has received. Resolves the upload's progress after the body, or
@@ -198,81 +313,64 @@ export function createStorageByteRoute(opts: StorageByteRouteOptions) {
   ): Promise<UploadProgress | undefined> {
     const misplaced = start !== progress.received;
     if (misplaced) {
-      req.resume();
-      refuse(res, 409, `The upload has received ${progress.received} bytes; send from there.`, { ...headers, ...receivedRange(progress) });
+      refuse(req, res, 409, `The upload has received ${progress.received} bytes; send from there.`, { ...headers, ...receivedRange(progress) });
       return undefined;
     }
     if (expectedBytes !== undefined) {
       const contentLength = getHeader(req, 'content-length');
       if (contentLength !== undefined && Number(contentLength) !== expectedBytes) {
-        req.resume();
-        refuse(res, 400, `Content-Range declares ${expectedBytes} bytes, Content-Length declares ${contentLength}.`, headers);
+        refuse(req, res, 400, `Content-Range declares ${expectedBytes} bytes, Content-Length declares ${contentLength}.`, headers);
         return undefined;
       }
     }
-    let offset = start;
-    let transferred = 0;
-    let latest = progress;
-    try {
-      for await (const chunk of req as AsyncIterable<Buffer>) {
-        if (expectedBytes !== undefined && transferred + chunk.byteLength > expectedBytes) {
-          throw new Error(`Content-Range declares ${expectedBytes} bytes, body exceeded that range.`);
-        }
-        latest = await opts.storage.appendUpload(uploadId, offset, new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength));
-        offset += chunk.byteLength;
-        transferred += chunk.byteLength;
-      }
-      if (expectedBytes !== undefined && transferred !== expectedBytes) {
-        throw new Error(`Content-Range declares ${expectedBytes} bytes, received ${transferred}.`);
-      }
-    } catch (error) {
-      req.resume();
+    const streamed = await streamUploadChunks(req, uploadId, start, progress, expectedBytes);
+    if (!streamed.ok) {
+      const error = streamed.error;
       const conflict = error instanceof UploadOffsetError;
-      if (conflict) refuse(res, 409, error.message, { ...headers, ...receivedRange({ received: error.received, size: progress.size }) });
-      else refuse(res, 400, error instanceof Error ? error.message : String(error), headers);
+      if (conflict) {
+        refuse(req, res, 409, error.message, { ...headers, ...receivedRange({ received: error.received, size: progress.size }) });
+      } else {
+        const message = error instanceof Error ? error.message : String(error);
+        refuse(req, res, 400, message, headers);
+      }
       return undefined;
     }
-    return latest;
+    return streamed.latest;
   }
 
   async function receiveUpload(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
     if (opts.ownWriteRefusal !== undefined) {
-      req.resume();
       const refusal = opts.ownWriteRefusal({ action: 'storage.upload', writer: 'page' });
       const code = 'code' in refusal && typeof refusal.code === 'string' ? refusal.code : undefined;
       const body = code === undefined ? refusal.message : `${code}: ${refusal.message}`;
-      return refuse(res, 403, body);
+      return refuse(req, res, 403, body);
     }
     const uploadId = url.searchParams.get('upload_id') ?? '';
     const session = opts.sessions?.get(uploadId);
     const isSession = session !== undefined;
     if (isSession) return receiveSession(req, res, url, uploadId, session);
     const sends = req.method === 'PUT';
-    if (!sends) return refuse(res, 405, 'An upload sends its bytes with PUT.', { allow: 'PUT' });
+    if (!sends) return refuse(req, res, 405, 'An upload sends its bytes with PUT.', { allow: 'PUT' });
     const bound = opts.uploadToken(uploadId);
     const authorized = bound !== undefined && timingSafeTokenMatch(url.searchParams.get('upload_token') ?? undefined, bound);
     if (!authorized) {
-      req.resume();
-      return refuse(res, 403, 'This URL carries no token for this upload.');
+      return refuse(req, res, 403, 'This URL carries no token for this upload.');
     }
     const progress = await opts.storage.uploadProgress(uploadId);
     const unknownUpload = progress === undefined;
     if (unknownUpload) {
-      req.resume();
-      return refuse(res, 404, 'No such upload.');
+      return refuse(req, res, 404, 'No such upload.');
     }
     // `bytes a-b/total` sends bytes; `bytes */total` asks what the host holds.
     const contentRange = getHeader(req, 'content-range');
     const sending = contentRange === undefined ? { start: 0 } : /^bytes (\d+)-(\d+)\/(\d+|\*)$/.exec(contentRange.trim());
     const asking = contentRange !== undefined && /^bytes \*\/(\d+|\*)$/.test(contentRange.trim());
     if (asking) {
-      req.resume();
-      return reportProgress(res, progress);
+      return reportProgress(req, res, progress);
     }
     const unreadable = sending === null;
     if (unreadable) {
-      req.resume();
-      return refuse(res, 400, 'Content-Range must be "bytes a-b/total" or "bytes */total".');
+      return refuse(req, res, 400, 'Content-Range must be "bytes a-b/total" or "bytes */total".');
     }
     let start = 0;
     let expectedBytes: number | undefined;
@@ -282,58 +380,59 @@ export function createStorageByteRoute(opts: StorageByteRouteOptions) {
       const total = sending[3];
       const backwards = !Number.isSafeInteger(start) || !Number.isSafeInteger(end) || end < start;
       if (backwards) {
-        req.resume();
-        return refuse(res, 400, 'Content-Range end byte must be at least start byte.');
+        return refuse(req, res, 400, 'Content-Range end byte must be at least start byte.');
       }
       if (total !== '*' && Number(total) !== progress.size) {
-        req.resume();
-        return refuse(res, 400, `The upload expects ${progress.size} bytes; Content-Range names ${total}.`);
+        return refuse(req, res, 400, `The upload expects ${progress.size} bytes; Content-Range names ${total}.`);
       }
       if (end >= progress.size) {
-        req.resume();
-        return refuse(res, 400, `Content-Range end byte ${end} exceeds upload size ${progress.size}.`);
+        return refuse(req, res, 400, `Content-Range end byte ${end} exceeds upload size ${progress.size}.`);
       }
       expectedBytes = end - start + 1;
     }
     const latest = await appendBody(req, res, uploadId, start, progress, {}, expectedBytes);
     const refused = latest === undefined;
     if (refused) return;
-    return reportProgress(res, latest);
+    return reportProgress(req, res, latest);
   }
 
   /** CORS headers for the session's origin, when the request comes from it. */
   function corsFor(req: IncomingMessage, session: UploadSessionView): Record<string, string> {
     const origin = getHeader(req, 'origin');
-    const fromSessionOrigin = session.origin !== undefined && origin === session.origin;
+    const fromSessionOrigin = origin !== undefined && session.origin !== undefined && origin === session.origin;
     if (!fromSessionOrigin) return {};
-    return { 'access-control-allow-origin': origin!, 'access-control-expose-headers': 'range', vary: 'origin' };
+    return { 'access-control-allow-origin': origin, 'access-control-expose-headers': 'range', vary: 'origin' };
   }
 
   async function receiveSession(req: IncomingMessage, res: ServerResponse, url: URL, sessionId: string, session: UploadSessionView): Promise<void> {
+    const sessions = opts.sessions;
+    if (sessions === undefined) {
+      return refuse(req, res, 404, 'No such upload.');
+    }
     const authorized = timingSafeTokenMatch(url.searchParams.get('upload_token') ?? undefined, session.token);
     const cors = authorized ? corsFor(req, session) : {};
     const preflight = req.method === 'OPTIONS';
     if (preflight) {
-      req.resume();
       const allowed = Object.keys(cors).length > 0;
-      if (!allowed) return refuse(res, 403, 'This upload session does not answer requests from this origin.');
+      if (!allowed) return refuse(req, res, 403, 'This upload session does not answer requests from this origin.');
       const requested = getHeader(req, 'access-control-request-headers');
-      res.writeHead(204, {
+      const preflightHeaders: Record<string, string> = {
         ...cors,
         'access-control-allow-methods': 'PUT',
-        ...(requested !== undefined ? { 'access-control-allow-headers': requested } : {}),
         'access-control-max-age': '3600',
-      }).end();
+      };
+      if (requested !== undefined) {
+        preflightHeaders['access-control-allow-headers'] = requested;
+      }
+      endOrCloseIfUnread(req, res, 204, preflightHeaders);
       return;
     }
     const sends = req.method === 'PUT';
     if (!sends) {
-      req.resume();
-      return refuse(res, 405, 'An upload session takes its bytes with PUT.', { ...cors, allow: 'PUT, OPTIONS' });
+      return refuse(req, res, 405, 'An upload session takes its bytes with PUT.', { ...cors, allow: 'PUT, OPTIONS' });
     }
     if (!authorized) {
-      req.resume();
-      return refuse(res, 403, 'This URL carries no token for this upload.');
+      return refuse(req, res, 403, 'This URL carries no token for this upload.');
     }
     // No Content-Range sends the whole object; `bytes a-b/total` sends a
     // slice; `bytes */total` asks what the host holds.
@@ -342,16 +441,13 @@ export function createStorageByteRoute(opts: StorageByteRouteOptions) {
     const slice = contentRange === undefined ? undefined : /^bytes (\d+)-(\d+)\/(\d+|\*)$/.exec(contentRange);
     const unreadable = contentRange !== undefined && !asking && slice === null;
     if (unreadable) {
-      req.resume();
-      return refuse(res, 400, 'Content-Range must be "bytes a-b/total" or "bytes */total".', cors);
+      return refuse(req, res, 400, 'Content-Range must be "bytes a-b/total" or "bytes */total".', cors);
     }
     let uploadId = session.uploadId;
-    const opened = uploadId !== undefined;
     if (asking) {
-      req.resume();
-      const progress = opened ? await opts.storage.uploadProgress(uploadId!) : undefined;
+      const progress = uploadId !== undefined ? await opts.storage.uploadProgress(uploadId) : undefined;
       // Nothing received yet: Resume Incomplete with no Range.
-      return reportProgress(res, progress ?? { received: 0, size: Number.POSITIVE_INFINITY }, cors);
+      return reportProgress(req, res, progress ?? { received: 0, size: Number.POSITIVE_INFINITY }, cors);
     }
     const whole = slice === undefined || slice === null;
     const total = whole ? undefined : slice[3];
@@ -362,74 +458,79 @@ export function createStorageByteRoute(opts: StorageByteRouteOptions) {
       const sliceEnd = Number(slice[2]);
       const backwards = !Number.isSafeInteger(sliceStart) || !Number.isSafeInteger(sliceEnd) || sliceEnd < sliceStart;
       if (backwards) {
-        req.resume();
-        return refuse(res, 400, 'Content-Range end byte must be at least start byte.', cors);
+        return refuse(req, res, 400, 'Content-Range end byte must be at least start byte.', cors);
       }
       if (total !== undefined && total !== '*') {
         const parsedTotal = Number(total);
         if (!Number.isSafeInteger(parsedTotal) || sliceEnd >= parsedTotal) {
-          req.resume();
-          return refuse(res, 400, `Content-Range end byte ${sliceEnd} exceeds declared total ${total}.`, cors);
+          return refuse(req, res, 400, `Content-Range end byte ${sliceEnd} exceeds declared total ${total}.`, cors);
         }
       }
       expectedBytes = sliceEnd - sliceStart + 1;
     }
-    if (!opened) {
+    if (uploadId === undefined) {
       // The session's size: the whole body's length, or the total the first slice names.
       const declared = whole ? getHeader(req, 'content-length') : total;
       const size = declared === undefined || declared === '*' ? Number.NaN : Number(declared);
       const sized = Number.isSafeInteger(size) && size >= 0;
       if (!sized) {
-        req.resume();
-        const message = whole
-          ? 'Send the object in one PUT with Content-Length, or in Content-Range slices whose first one names the total size.'
-          : 'The first Content-Range of an upload session must name the total size ("bytes a-b/total"). This sandbox does not take an unknown total.';
-        return refuse(res, whole ? 411 : 400, message, cors);
+        let message = 'The first Content-Range of an upload session must name the total size ("bytes a-b/total"). This sandbox does not take an unknown total.';
+        if (whole) {
+          message = 'Send the object in one PUT with Content-Length, or in Content-Range slices whose first one names the total size.';
+        }
+        return refuse(req, res, whole ? 411 : 400, message, cors);
       }
       try {
-        uploadId = await opts.sessions!.open(sessionId, size);
+        uploadId = await sessions.open(sessionId, size);
       } catch (error) {
-        req.resume();
-        return refuse(res, 400, error instanceof Error ? error.message : String(error), cors);
+        return refuse(req, res, 400, error instanceof Error ? error.message : String(error), cors);
       }
     }
-    const progress = await opts.storage.uploadProgress(uploadId!);
+    const progress = await opts.storage.uploadProgress(uploadId);
     const lost = progress === undefined;
     if (lost) {
-      req.resume();
-      return refuse(res, 404, 'No such upload.', cors);
+      return refuse(req, res, 404, 'No such upload.', cors);
     }
     const contradicts = total !== undefined && total !== '*' && Number(total) !== progress.size;
     if (contradicts) {
-      req.resume();
-      return refuse(res, 400, `The upload session holds an object of ${progress.size} bytes; Content-Range names ${total}.`, cors);
+      return refuse(req, res, 400, `The upload session holds an object of ${progress.size} bytes; Content-Range names ${total}.`, cors);
     }
-    if (!whole && sliceStart + expectedBytes! > progress.size) {
-      req.resume();
-      return refuse(res, 400, `Content-Range end byte exceeds upload session size ${progress.size}.`, cors);
+    if (!whole && expectedBytes !== undefined && sliceStart + expectedBytes > progress.size) {
+      return refuse(req, res, 400, `Content-Range end byte exceeds upload session size ${progress.size}.`, cors);
     }
     const start = whole ? 0 : sliceStart;
-    const latest = await appendBody(req, res, uploadId!, start, progress, cors, expectedBytes);
+    const latest = await appendBody(req, res, uploadId, start, progress, cors, expectedBytes);
     const refused = latest === undefined;
     if (refused) return;
     const complete = latest.received === latest.size;
-    if (!complete) return reportProgress(res, latest, cors);
+    if (!complete) return reportProgress(req, res, latest, cors);
     try {
-      const metadata = await opts.sessions!.finish(sessionId);
+      const metadata = await sessions.finish(sessionId);
       res.writeHead(200, { ...cors, 'content-type': 'application/json' }).end(JSON.stringify(metadata));
     } catch (error) {
-      refuse(res, 500, error instanceof Error ? error.message : String(error), cors);
+      refuse(req, res, 500, error instanceof Error ? error.message : String(error), cors);
     }
   }
 
-  function reportProgress(res: ServerResponse, progress: UploadProgress, headers: Record<string, string> = {}): void {
+  function reportProgress(
+    req: IncomingMessage,
+    res: ServerResponse,
+    progress: UploadProgress,
+    headers: Record<string, string> = {},
+  ): void {
     const complete = progress.received === progress.size;
     if (complete) {
-      res.writeHead(200, { ...headers, 'content-type': 'application/json' }).end(JSON.stringify({ bytesReceived: progress.received, size: progress.size }));
+      endOrCloseIfUnread(
+        req,
+        res,
+        200,
+        { ...headers, 'content-type': 'application/json' },
+        JSON.stringify({ bytesReceived: progress.received, size: progress.size }),
+      );
       return;
     }
     // Resume Incomplete, as a resumable Cloud Storage upload answers.
-    res.writeHead(308, { ...headers, ...receivedRange(progress) }).end();
+    endOrCloseIfUnread(req, res, 308, { ...headers, ...receivedRange(progress) });
   }
 
   /** Whether `origin` may reach `url`: an upload session's URL, with its token, from the session's origin. */
@@ -449,8 +550,7 @@ export function createStorageByteRoute(opts: StorageByteRouteOptions) {
     const target = targetOf(url.pathname);
     const unknownPath = target === undefined;
     if (unknownPath) {
-      req.resume();
-      refuse(res, 404, 'Not a byte route path.');
+      refuse(req, res, 404, 'Not a byte route path.');
       return true;
     }
     if (target.kind === 'object') await serveObject(req, res, url, target.bucket, target.path);

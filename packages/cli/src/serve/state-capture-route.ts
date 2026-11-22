@@ -1,6 +1,6 @@
 import { createReadStream, statSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { collectBody } from '../bridge/server/peer.js';
+import { answerAndClose, collectBody, isBodyTooLarge } from '../bridge/server/peer.js';
 import { StateFileError, type StateSection, type StateStore } from './state-store.js';
 import {
   parseStateVersionHeader,
@@ -21,6 +21,7 @@ import {
  *  and drops to read-only (#2051). The firestore body is the sandbox
  *  persistence controller's own blob -- stored verbatim, never interpreted. */
 export const STATE_OBJECTS_PREFIX = '/__pyric/state/objects/';
+export const STATE_BODY_LIMIT_BYTES = 32 * 1024 * 1024;
 
 /**
  * GET /__pyric/state/objects/<sha256> -> the bytes a Storage reference in the
@@ -35,7 +36,7 @@ export function handleStateObject(
   const isRead = req.method === 'GET';
   const unsupportedMethod = !isRead;
   if (unsupportedMethod) {
-    res.writeHead(405, { allow: 'GET' }).end('method not allowed');
+    answerAndClose(req, res, 405, { allow: 'GET' }, 'method not allowed');
     return;
   }
   const sha256 = url.pathname.slice(STATE_OBJECTS_PREFIX.length);
@@ -66,6 +67,14 @@ function readExpectedStateVersion(
   const rawHeader = req.headers[STATE_VERSION_HEADER];
   const headerValue = Array.isArray(rawHeader) ? rawHeader[0] : rawHeader;
   return parseStateVersionHeader(headerValue);
+}
+
+function hasUnreadRequestBody(req: IncomingMessage): boolean {
+  if (req.complete || req.readableEnded) return false;
+  const contentLength = req.headers['content-length'];
+  const hasNonZeroLength = contentLength !== undefined && contentLength !== '0';
+  const hasTransferEncoding = req.headers['transfer-encoding'] !== undefined;
+  return hasNonZeroLength || hasTransferEncoding;
 }
 
 export async function handleState(
@@ -110,12 +119,20 @@ export async function handleState(
     }
     if (req.method === 'DELETE') {
       if (writerId) lock.release(writerId);
+      if (hasUnreadRequestBody(req)) {
+        answerAndClose(req, res, 204, {}, '');
+        return;
+      }
       res.writeHead(204).end();
       return;
     }
     const expectedVersion = readExpectedStateVersion(req);
     if (expectedVersion === 'invalid') {
-      res.writeHead(400, { 'content-type': 'text/plain' }).end(
+      answerAndClose(
+        req,
+        res,
+        400,
+        { 'content-type': 'text/plain' },
         `${STATE_VERSION_HEADER} must be a non-negative integer`,
       );
       return;
@@ -127,10 +144,14 @@ export async function handleState(
       if (writerId && lock.holder() === writerId) {
         lock.release(writerId);
       }
-      res.writeHead(409, {
-        'content-type': 'text/plain',
-        [STATE_VERSION_HEADER]: String(lock.version()),
-      }).end(
+      answerAndClose(
+        req,
+        res,
+        409,
+        {
+          'content-type': 'text/plain',
+          [STATE_VERSION_HEADER]: String(lock.version()),
+        },
         `saved state is at version ${lock.version()}, expected ${expectedVersion}`,
       );
       return true;
@@ -139,27 +160,34 @@ export async function handleState(
       if (refuseOutdatedVersion()) return;
       const claimed = lock.claim(effectiveWriter, Date.now(), expectedVersion);
       const status = claimed ? 204 : 423;
-      res.writeHead(status, {
-        [STATE_VERSION_HEADER]: String(lock.version()),
-      }).end();
+      const versionHeaders = { [STATE_VERSION_HEADER]: String(lock.version()) };
+      if (!claimed || hasUnreadRequestBody(req)) {
+        answerAndClose(req, res, status, versionHeaders, '');
+        return;
+      }
+      res.writeHead(status, versionHeaders).end();
       return;
     }
     if (req.method === 'POST') {
       if (section !== 'firestore' && section !== 'auth') {
-        res.writeHead(400).end('section must be firestore|auth');
+        answerAndClose(req, res, 400, { 'content-type': 'text/plain' }, 'section must be firestore|auth');
         return;
       }
       if (refuseOutdatedVersion()) return;
       if (!lock.claim(effectiveWriter, Date.now(), expectedVersion)) {
-        res.writeHead(423, {
-          'content-type': 'text/plain',
-          [STATE_VERSION_HEADER]: String(lock.version()),
-        }).end(
+        answerAndClose(
+          req,
+          res,
+          423,
+          {
+            'content-type': 'text/plain',
+            [STATE_VERSION_HEADER]: String(lock.version()),
+          },
           `another tab holds the persist writer lock (held by ${lock.holder()})`,
         );
         return;
       }
-      const body = await collectBody(req);
+      const body = await collectBody(req, STATE_BODY_LIMIT_BYTES);
       if (refuseOutdatedVersion()) return;
       if (!lock.claim(effectiveWriter, Date.now(), expectedVersion)) {
         res.writeHead(423, {
@@ -177,8 +205,12 @@ export async function handleState(
       }).end();
       return;
     }
-    res.writeHead(405, { allow: 'GET, PUT, POST, DELETE' }).end('method not allowed');
+    answerAndClose(req, res, 405, { allow: 'GET, PUT, POST, DELETE' }, 'method not allowed');
   } catch (e) {
+    if (isBodyTooLarge(e)) {
+      answerAndClose(req, res, 413, { 'content-type': 'text/plain' }, 'Payload Too Large');
+      return;
+    }
     const status = e instanceof StateFileError ? 409 : 400;
     res.writeHead(status, { 'content-type': 'text/plain' });
     const message = e instanceof Error ? e.message : String(e);
@@ -219,7 +251,7 @@ export async function handleCapture(
     return;
   }
   if (req.method !== 'POST') {
-    res.writeHead(405, { allow: 'GET, POST' }).end('method not allowed');
+    answerAndClose(req, res, 405, { allow: 'GET, POST' }, 'method not allowed');
     return;
   }
   try {

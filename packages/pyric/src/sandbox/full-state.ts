@@ -36,32 +36,9 @@ import { DOC_VALUE_ENCODING, type DocValueEncoding } from '../firestore/internal
 import { resetCrashlyticsBroker } from '../crashlytics/internal.js';
 import { getMessagingBroker } from '../messaging/internal.js';
 import { isMessagingSnapshot, type MessagingSnapshot } from '../messaging/broker/persistence.js';
-import {
-  ref,
-  uploadBytes,
-  type FirebaseStorage,
-} from '../storage/index.js';
-import {
-  DEFAULT_BUCKET,
-  base64ToBytes,
-  getAdminStorageSandbox,
-  getStorageCrossServiceIam,
-  getStorageRulesResolution,
-  getStorageService,
-  pruneStorageBucketRules,
-  replaceCrossServiceIam,
-  replaceStorageRules,
-  referenceStorageState,
-  resetStorageState,
-  restoreStorageReferences,
-  restoreStorageState,
-  snapshotStorageState,
-  type StorageStateRecord,
-} from '../storage/internal.js';
 import { SandboxImpl, getInternalEnv } from './internal/sandbox-impl.js';
 import { authAccountsFor } from 'pyric/sandbox/internal';
 import type { AuthAccountHistory } from './internal/auth-accounts.js';
-import { assertInlineStorageFits, base64DecodedLength, type InlineStorageDocument } from './internal/inline-storage-limit.js';
 import { databaseInstanceNamed } from './internal/instances.js';
 import {
   databaseEnvelopeWithRules,
@@ -70,54 +47,26 @@ import {
   stripDatabaseRules,
   type DatabaseRuleset,
 } from './internal/rtdb-envelope.js';
-import { readStorageCaches } from './internal/snapshot-codec.js';
+import {
+  applyStorageObjects,
+  applyStorageRulesState,
+  captureStorageObjects,
+  captureStorageRulesState,
+  holdsBytesInline,
+  inlineStorageBytes,
+  type StorageObjectState,
+} from './internal/storage-full-state.js';
 import { encodeStateDocument, decodeStateDocument } from './internal/state-values.js';
 import { getClock, type SandboxClockState } from './clock.js';
 import type { LocalSandbox } from './types/service.js';
 
-export type { DatabaseRuleset, MessagingSnapshot };
-
-/**
- * One Storage object, with everything a reader of it can observe. Its bytes are
- * either inline as base64, or named by SHA-256 in the backend that holds them:
- * a capture by reference writes the second form, and only a backend that keeps
- * content-addressed files can apply it.
- */
-export type StorageObjectState = StorageObjectFields & (
-  | {
-    /** The object's bytes, base64 encoded so the state stays JSON. */
-    contentBase64: string;
-  }
-  | {
-    /** The SHA-256 of the object's bytes, which the backend holds. */
-    sha256: string;
-    /** The number of bytes. */
-    size: number;
-  }
-);
-
-/** Whether a Storage entry carries its bytes inline. */
-export function holdsBytesInline(object: StorageObjectState): object is StorageObjectState & { contentBase64: string } {
-  return 'contentBase64' in object;
-}
+export type { DatabaseRuleset, MessagingSnapshot, StorageObjectState };
+export { holdsBytesInline, inlineStorageBytes };
 
 /** How a capture records Storage bytes. */
 export interface FullStateCaptureOptions {
   /** `inline` (the default) carries every object's bytes; `reference` names them by hash. */
   storage?: 'inline' | 'reference';
-}
-
-interface StorageObjectFields {
-  /** Full path within the bucket, for example `docs/hello.txt`. */
-  path: string;
-  /** Content type the object reports, absent when it carries none. */
-  contentType?: string;
-  /** The object's custom metadata. Always present, empty when it carries none. */
-  customMetadata: Record<string, string>;
-  /** Remaining persisted metadata; absent in legacy states that only kept upload fields. */
-  metadata?: Omit<StorageStateRecord['metadata'], 'fullPath' | 'contentType' | 'customMetadata'>;
-  /** The stored Blob's MIME type, which can differ from its object metadata. */
-  blobType?: string;
 }
 
 /** The auth account store: the users and the provider configuration over them. */
@@ -150,8 +99,12 @@ export interface SandboxRuleSources {
   database: DatabaseRuleset | null;
   /** Secondary Realtime Database rulesets by instance name; omitted when none are installed. */
   databaseInstances?: Record<string, DatabaseRuleset | null>;
-  /** Storage Security Rules source, or null when the sandbox runs without them. */
+  /** Storage Security Rules source for the unnamed default bucket, or null when none is installed. */
   storage: string | null;
+  /** Per-bucket Storage Security Rules sources by bucket name; omitted when none are deployed. */
+  storageBuckets?: Record<string, string>;
+  /** Undeployed Storage bucket policy when per-bucket rules mode is active; omitted otherwise. */
+  storageUndeployedPolicy?: 'allow' | 'deny';
   /** Cross-service IAM posture for Storage `firestore.get()` / `firestore.exists()`; omitted when `'granted'`. */
   storageCrossServiceIam?: 'granted' | 'denied';
 }
@@ -181,7 +134,7 @@ export interface FullSandboxState {
    * two can never disagree about which ruleset the state carries.
    */
   database: JsonValue;
-  /** Every Storage object in the default bucket, ordered by path. */
+  /** Every Storage object across the default and named buckets, ordered by bucket and path. */
   storage: StorageObjectState[];
   /** The auth account store. */
   auth: AuthAccountsState;
@@ -213,82 +166,6 @@ function authFor(sandbox: LocalSandbox): Auth {
 /** The default Realtime Database backend behind one sandbox. */
 function databaseBackendFor(sandbox: LocalSandbox): RtdbBackend {
   return getOrCreateBackend(sandbox);
-}
-
-/** The rules-bypass Storage handle onto one sandbox's default bucket. */
-function storageFor(sandbox: LocalSandbox): FirebaseStorage {
-  return getAdminStorageSandbox(sandbox);
-}
-
-/** Where an inline capture's Storage ends up, and what to use past its limit. */
-export const INLINE_CAPTURE_DOCUMENT: InlineStorageDocument = {
-  document: 'An inline state capture, which forks, branch files, and in-process checkpoints are written from,',
-  instead: 'Branches carry their Storage bytes inline in every sandbox, so delete or shrink objects until the total ' +
-    'fits before forking. On the Node host (`pyric sandbox --hosted`), checkpoints and `pyric snapshot` refer to ' +
-    'object bytes by hash and are not bound by this limit.',
-};
-
-/** The object bytes a set of Storage entries carries inline, counted without decoding them. */
-export function inlineStorageBytes(objects: readonly StorageObjectState[]): number {
-  let total = 0;
-  for (const object of objects) {
-    if (holdsBytesInline(object)) total += base64DecodedLength(object.contentBase64);
-  }
-  return total;
-}
-
-/** Refuse an inline capture whose listed objects exceed the inline limit, before reading their bytes. */
-async function assertInlineCaptureFits(storage: FirebaseStorage): Promise<void> {
-  const service = await getStorageService(storage);
-  let total = 0;
-  for (const listed of await service.backend.listByPrefix('')) total += listed.size;
-  assertInlineStorageFits(total, INLINE_CAPTURE_DOCUMENT);
-}
-
-/** Read every Storage object out of the bucket, with its bytes or with its hash. */
-async function captureStorage(storage: FirebaseStorage, mode: 'inline' | 'reference'): Promise<StorageObjectState[]> {
-  const byReference = mode === 'reference';
-  if (byReference) return captureStorageReferences(storage);
-  await assertInlineCaptureFits(storage);
-  const objects: StorageObjectState[] = [];
-  const records = await snapshotStorageState(storage);
-  records.sort((left, right) => compareText(left.metadata.fullPath, right.metadata.fullPath));
-  for (const record of records) {
-    const { fullPath, contentType, customMetadata, ...metadata } = record.metadata;
-    const object: StorageObjectState = {
-      path: fullPath,
-      contentBase64: record.dataBase64,
-      customMetadata: customMetadata !== undefined ? { ...customMetadata } : {},
-      metadata: structuredClone(metadata),
-      blobType: record.blobType,
-    };
-    const hasContentType = contentType !== undefined;
-    if (hasContentType) object.contentType = contentType;
-    objects.push(object);
-  }
-  // An overwrite after the listing can grow an object, so the bytes read are counted too.
-  assertInlineStorageFits(inlineStorageBytes(objects), INLINE_CAPTURE_DOCUMENT);
-  return objects;
-}
-
-/** Read every Storage object as a reference to the bytes its backend holds. */
-async function captureStorageReferences(storage: FirebaseStorage): Promise<StorageObjectState[]> {
-  const records = await referenceStorageState(storage);
-  records.sort((left, right) => compareText(left.metadata.fullPath, right.metadata.fullPath));
-  return records.map((record): StorageObjectState => {
-    const { fullPath, contentType, customMetadata, ...metadata } = record.metadata;
-    const object: StorageObjectState = {
-      path: fullPath,
-      sha256: record.sha256,
-      size: record.size,
-      customMetadata: customMetadata !== undefined ? { ...customMetadata } : {},
-      metadata: structuredClone(metadata),
-      blobType: record.blobType,
-    };
-    const hasContentType = contentType !== undefined;
-    if (hasContentType) object.contentType = contentType;
-    return object;
-  });
 }
 
 /** The auth account store: accounts, provider config, and the revocations and deletions over them. */
@@ -360,7 +237,6 @@ export async function captureFullState(sandbox: LocalSandbox, options: FullState
   const env = getInternalEnv(sandbox);
   const database = databaseBackendFor(sandbox);
   const auth = authFor(sandbox);
-  const storage = storageFor(sandbox);
 
   const secondaryDatabaseData: Record<string, JsonValue> = {};
   const secondaryDatabaseRules: Record<string, DatabaseRuleset | null> = {};
@@ -370,10 +246,14 @@ export async function captureFullState(sandbox: LocalSandbox, options: FullState
     const instRules = instBackend.getActiveRules();
     const isEnvelopeObj =
       instEnvelope !== null && typeof instEnvelope === 'object' && !Array.isArray(instEnvelope);
-    const hasData = isEnvelopeObj
-      ? !isEmptyRtdbTree((instEnvelope as Record<string, JsonValue>).data) ||
-        Object.keys(((instEnvelope as Record<string, JsonValue>).priorities ?? {}) as Record<string, unknown>).length > 0
-      : !isEmptyRtdbTree(instEnvelope);
+    let hasData: boolean;
+    if (isEnvelopeObj) {
+      const record = instEnvelope as Record<string, JsonValue>;
+      const rawPriorities = (record.priorities ?? {}) as Record<string, unknown>;
+      hasData = !isEmptyRtdbTree(record.data) || Object.keys(rawPriorities).length > 0;
+    } else {
+      hasData = !isEmptyRtdbTree(instEnvelope);
+    }
     if (hasData) secondaryDatabaseData[name] = instEnvelope;
     if (instRules !== null) secondaryDatabaseRules[name] = instRules;
   }
@@ -391,23 +271,31 @@ export async function captureFullState(sandbox: LocalSandbox, options: FullState
     } as unknown as JsonValue;
   }
 
-  const crossServiceIam = getStorageCrossServiceIam(sandbox);
+  const storageRules = captureStorageRulesState(sandbox);
   const rules: SandboxRuleSources = {
     firestore: env.getExplicitRules() ?? '',
     database: database.getActiveRules(),
-    ...(Object.keys(secondaryDatabaseRules).length > 0
-      ? { databaseInstances: secondaryDatabaseRules }
-      : {}),
-    storage: getStorageRulesResolution(storage)?.source ?? null,
-    ...(crossServiceIam === 'denied' ? { storageCrossServiceIam: 'denied' } : {}),
+    storage: storageRules.storage,
   };
+  if (Object.keys(secondaryDatabaseRules).length > 0) {
+    rules.databaseInstances = secondaryDatabaseRules;
+  }
+  if (storageRules.storageBuckets !== undefined) {
+    rules.storageBuckets = storageRules.storageBuckets;
+  }
+  if (storageRules.storageUndeployedPolicy !== undefined) {
+    rules.storageUndeployedPolicy = storageRules.storageUndeployedPolicy;
+  }
+  if (storageRules.storageCrossServiceIam !== undefined) {
+    rules.storageCrossServiceIam = storageRules.storageCrossServiceIam;
+  }
 
   const messaging = captureMessaging(sandbox);
   const fullState: FullSandboxState = {
     firestore: Object.fromEntries(Object.entries(env.snapshot()).map(([path, data]) => [path, encodeStateDocument(data)])),
     firestoreEncoding: DOC_VALUE_ENCODING,
     database: defaultDatabase,
-    storage: await captureStorage(storage, options.storage ?? 'inline'),
+    storage: await captureStorageObjects(sandbox, options.storage ?? 'inline'),
     auth: captureAuth(sandbox, auth),
     rules: structuredClone(rules),
     clock: getClock(sandbox).capture(),
@@ -489,79 +377,8 @@ function applyAuth(sandbox: LocalSandbox, accounts: AuthAccountsState): void {
   table?.forgetHistory();
   if (accounts.users.length > 0) authSandbox.seedUsers(auth, structuredClone(accounts.users));
   authSandbox.restoreProviderConfig(auth, { ...accounts.providers });
-  const carriesHistory = accounts.history !== undefined;
-  if (carriesHistory) table?.replayHistory(structuredClone(accounts.history!));
-}
-
-/** Replace the target's bucket with exactly the objects the state holds, wiping any non-default buckets. */
-async function applyStorage(
-  sandbox: LocalSandbox,
-  objects: readonly StorageObjectState[],
-): Promise<void> {
-  const caches = readStorageCaches();
-  for (const scopedKey of caches?.scopedServices.get(sandbox)?.keys() ?? []) {
-    if (scopedKey === DEFAULT_BUCKET) continue;
-    await resetStorageState(getAdminStorageSandbox(sandbox, { bucket: scopedKey }));
-  }
-  const storage = storageFor(sandbox);
-  await resetStorageState(storage);
-  for (const object of objects) {
-    const metadata = object.metadata;
-    const referenced = !holdsBytesInline(object);
-    if (referenced) {
-      const missingMetadata = metadata === undefined;
-      if (missingMetadata) throw new Error(`Storage object '${object.path}' is a reference without its metadata.`);
-      await restoreStorageReferences(storage, [{
-        sha256: object.sha256,
-        size: object.size,
-        blobType: object.blobType ?? object.contentType ?? '',
-        metadata: { ...metadata, fullPath: object.path, contentType: object.contentType,
-          customMetadata: { ...object.customMetadata } },
-      }]);
-      continue;
-    }
-    const hasStoredMetadata = metadata !== undefined;
-    if (hasStoredMetadata) {
-      await restoreStorageState(storage, [{
-        dataBase64: object.contentBase64,
-        blobType: object.blobType ?? object.contentType ?? '',
-        metadata: { ...metadata, fullPath: object.path, contentType: object.contentType,
-          customMetadata: { ...object.customMetadata } },
-      }]);
-      continue;
-    }
-    const settable: { contentType?: string; customMetadata?: Record<string, string> } = {
-      customMetadata: { ...object.customMetadata },
-    };
-    const hasContentType = object.contentType !== undefined;
-    if (hasContentType) settable.contentType = object.contentType;
-    await uploadBytes(ref(storage, object.path), base64ToBytes(object.contentBase64), settable);
-  }
-}
-
-/**
- * Whether a captured Storage ruleset is one a target can be given.
- *
- * A sandbox captured while Storage ran without rules carries null. There is no
- * source to install and no way to un-install one, so a null source means no
- * change. Both writers read this: the total replace below, and the delta a
- * branch promotion writes.
- */
-export function installsStorageRules(source: string | null): source is string {
-  return source !== null;
-}
-
-/** Install the Storage ruleset and cross-service IAM posture the state carries. */
-async function applyStorageRules(
-  sandbox: LocalSandbox,
-  source: string | null,
-  crossServiceIam: 'granted' | 'denied' | undefined,
-): Promise<void> {
-  pruneStorageBucketRules(sandbox, new Set());
-  await replaceStorageRules(sandbox, source);
-  const nextCrossServiceIam = crossServiceIam ?? 'granted';
-  if (nextCrossServiceIam !== getStorageCrossServiceIam(sandbox)) {
-    await replaceCrossServiceIam(sandbox, nextCrossServiceIam);
+  if (accounts.history !== undefined) {
+    table?.replayHistory(structuredClone(accounts.history));
   }
 }
 
@@ -588,6 +405,6 @@ export async function applyFullState(
   applyAuth(sandbox, state.auth);
   applyMessaging(sandbox, state.messaging);
   resetCrashlyticsBroker(sandbox);
-  await applyStorage(sandbox, state.storage);
-  await applyStorageRules(sandbox, state.rules.storage, state.rules.storageCrossServiceIam);
+  await applyStorageObjects(sandbox, state.storage);
+  await applyStorageRulesState(sandbox, state.rules);
 }

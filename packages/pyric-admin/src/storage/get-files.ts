@@ -10,6 +10,7 @@
  */
 import {
   apiResponseOf,
+  compareKeys,
   entryOf,
   listingPage,
   pageSizeOf,
@@ -146,7 +147,7 @@ export function pageNamesFound(query: GetFilesOptions): (name: string) => boolea
   let lastKey: string | undefined;
   return (name) => {
     const key = entryOf(name, query)?.key;
-    const listed = key !== undefined && (after === undefined || key > after);
+    const listed = key !== undefined && (after === undefined || compareKeys(key, after) > 0);
     const isNewEntry = listed && key !== lastKey;
     if (!isNewEntry) return false;
     lastKey = key;
