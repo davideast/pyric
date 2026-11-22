@@ -1,90 +1,11 @@
 /**
- * Storage rules — shared syntax, storage-specific evaluation.
+ * Storage rules -- shared syntax, storage-specific evaluation.
  *
  * Firebase Security Rules is ONE language across Firestore and Storage.
  * Parsing goes through the shared Ohm grammar
- * (`../../rules/grammar/FirestoreRules.ohm`), whose syntax layer is
- * service-agnostic; a converter in this module maps the shared AST into
- * the evaluator's internal shapes. What is genuinely storage-specific —
- * and why this module keeps its OWN evaluator — is the binding layer:
- * `request.resource.size` / `contentType`, `resource.metadata`, the GCS
- * object-identity fields, and the error-value semantics probed against
- * production Storage. Firestore's evaluator is instead shaped around
- * `resource.data` and document snapshots.
- *
- * Evaluation surface:
- *
- *   - `service firebase.storage { match … }` header
- *   - Nested `match` blocks with path segments:
- *       literal (`sessions`), parameter (`{sessionId}`), and
- *       multi-segment wildcard (`{allPaths=**}`)
- *   - `allow <verb>[, <verb>]* : if <expr>;` where verb is one of
- *     the coarse umbrellas (`read`, `write`) or the granular verbs
- *     (`get`, `list`, `create`, `update`, `delete`). `read` grants
- *     get + list; `write` grants create + update + delete; a granular
- *     grant covers only its own verb.
- *   - Expressions:
- *       literals: number (int + float), string (with escapes), boolean,
- *         null, list, map
- *       identifiers: `request`, `resource`, plus path parameters
- *       member access (`a.b`), index access (`a['b']`), slice (`a[x:y]`)
- *       unary: `!`, `-`
- *       binary: `&& || == != < > <= >= + - * / %`
- *       ternary `?:`, `in` (list and set membership, map keys), `is` (type test)
- *       parens
- *       user-defined function calls (`isOwner(uid)`)
- *       `request.time` and the resource time fields as Timestamp values,
- *         built also by `timestamp.date(y, m, d)` (UTC midnight) and
- *         `timestamp.value(epochMillis)`, with the timestamp accessors. The
- *         caller injects the time (3rd arg to `evaluateStorageRules`),
- *         defaulting to now.
- *       `duration.value(n, unit)`, `duration.time(h, m, s, ns)`, and
- *         `duration.abs(d)` as Duration values, so the freshness idiom
- *         `request.time < resource.timeCreated + duration.value(1, 'h')`
- *         evaluates.
- *       string methods: `matches(re)` (whole-string RE2-style match),
- *         `split(re)`, `lower()`, `upper()`, `trim()`, `replace(re, sub)`,
- *         and `toUtf8()` (see rules-string-methods.ts for the RE2-vs-JS
- *         handling)
- *       `hashing.md5/sha256/crc32/crc32c` and Bytes values
- *       List and Set methods (`toSet()`, `hasAll/hasAny/hasOnly`,
- *         `difference/union/intersection`) and `Map.diff()` with the
- *         MapDiff key sets
- *       custom-metadata access in both dotted (`resource.metadata.owner`)
- *         and bracket (`resource.metadata['owner']`) form — the metadata
- *         map is a plain string→string object, so both resolve identically
- *         and a missing key is `undefined` (falsy → deny).
- *   - `function name(params) { let …; return expr; }` declarations at
- *     global scope, service scope, or inside a `match` block (with
- *     optional `export`). Lexically scoped (visible
- *     within the declaring block and nested blocks; inner shadows
- *     outer), may call other functions, support `let` bindings, and are
- *     rejected at parse time past production's call depth limit. Any
- *     function-eval failure denies with a reason.
- *
- *   - The object-identity / time fields of `resource`: `name` (the FULL object
- *     path, GCS convention — not the client SDK's last-segment `name`),
- *     `bucket`, `timeCreated`, `updated`, `generation`, `metageneration`. They
- *     are sourced from the persisted object record (see `resourceFromStored`),
- *     which already carries every one of them. There is no `resource.timeUpdated`
- *     in the language; the update-time field is `updated`.
- *   - The fields of `request.resource` that production builds for a write:
- *     `name`, `bucket`, `size`, the settable content fields, `metadata`,
- *     `generation`, `metageneration`, and `etag` on an upload (see
- *     {@link StorageRequestResource} and `requestResourceFor`). It carries no
- *     `timeCreated` or `updated`.
- *
- * ERROR SEMANTICS (live-probed against the production Rules Test API — see
- * `RuleError`): reading a property that is ABSENT, or dereferencing a null,
- * yields an error VALUE that absorbs to DENY and SURVIVES NEGATION. Modeling
- * it as a plain `undefined` would false-allow `resource.name != 'x'` on an
- * object with no `name`; production denies it.
- *
- * Still out of scope: `md5Hash` and `crc32c` on both bindings, `etag` except
- * the upload's `null`, `storageClass` on `request.resource`, and the content-*
- * fields on `resource`. Unknown builtins deny with a reason rather
- * than false-allow. Hooks for adding more live at the obvious extension seams in
- * the parser + evaluator.
+ * (`../grammar/FirestoreRules.ohm`), whose syntax layer is
+ * service-agnostic; `rules-ast-converter.ts` maps the shared AST into
+ * the evaluator's internal shapes.
  */
 
 import { parseToASTOrError } from '../grammar/FirestoreParser.js';
@@ -93,58 +14,27 @@ import { compileLimitViolations, describeCompileLimitViolations } from '../gramm
 import { DUPLICATE_SERVICE_REASON, duplicateServiceRejection } from '../grammar/source-compile-limits.js';
 import { storageServiceBlock, topLevelMatches, withSingleService } from '../grammar/service-blocks.js';
 import {
-  completionPosition,
-  copyExpressionPosition,
-  expressionPosition,
-  setCompletionPosition,
-  setExpressionPosition,
-} from '../grammar/expression-positions.js';
-import {
   readAuthoredSourceMap,
   resolveAuthoredLoc,
-  type AuthoredSourceMap,
 } from '../modules/resolver-browser.js';
-import { re2PatternProblem } from '../simulator/re2-pattern-check.js';
-// RULES-B5 float model, shared with the Firestore simulator: a FLOAT value is
-// tagged with this wrapper while an INT is a bigint, or a bare integral JS
-// number from a host value (see `rules-int.ts`). The storage evaluator
-// adopts the same model so `1.0 is float`, truncating int division, and
-// int-vs-float promotion match production instead of JS numerics.
 import { RulesFloat } from '../simulator/wrappers/float.js';
-import { numericLiteralValue } from '../simulator/rules-int.js';
 import { Bytes } from '../simulator/wrappers/bytes.js';
 import type { RulesResourceLimit } from '../test/spec.js';
-import type {
-  FirestoreRules as SharedRules,
-  MatchBlock as SharedMatchBlock,
-  PathSegment as SharedPathSegment,
-  FunctionDef as SharedFunctionDef,
-  Expression as SharedExpression,
-} from '../grammar/FirestoreAST.js';
+import type { FirestoreRules as SharedRules } from '../grammar/FirestoreAST.js';
+import { convertFunction, convertMatch } from './rules-ast-converter.js';
+import { validateMatchRegexes } from './rules-regex-validation.js';
 
-// ═══════════════════════════════════════════════════════════════
+// ===============================================================
 // Public types
-// ═══════════════════════════════════════════════════════════════
+// ===============================================================
 
-/** Coarse permission umbrellas. `read` covers get + list; `write`
- *  covers create + update + delete. */
+/** Coarse permission umbrellas. `read` covers get + list; `write` covers create + update + delete. */
 export type StorageMethod = 'read' | 'write';
 
-/** Granular operation verbs. Production Storage maps each operation to
- *  exactly one of these:
- *    download / getMetadata      → get
- *    list                        → list
- *    upload, whether or not an
- *      object exists at the path → create
- *    updateMetadata              → update
- *    delete                      → delete
- *  On an upload over an existing object, `resource` is the stored object.
- */
+/** Granular operation verbs. */
 export type StorageVerb = 'get' | 'list' | 'create' | 'update' | 'delete';
 
-/** What a caller records as the request's operation. Callers pass the
- *  precise granular verb; the coarse forms remain accepted so the
- *  umbrella semantics are symmetric. */
+/** What a caller records as the request's operation. */
 export type StorageRequestMethod = StorageMethod | StorageVerb;
 
 /** A verb token that may appear in an `allow` clause. */
@@ -152,15 +42,16 @@ export type StorageGrantVerb = StorageMethod | StorageVerb;
 
 /**
  * Expand a coarse umbrella verb into its granular sub-verbs; a granular
- * verb expands to itself. This is the single definition of the
- * read→{get,list} / write→{create,update,delete} semantics, used by both
- * the request side and the grant side of matching.
+ * verb expands to itself.
  */
 export function expandVerb(verb: StorageGrantVerb | StorageRequestMethod): StorageVerb[] {
   switch (verb) {
-    case 'read': return ['get', 'list'];
-    case 'write': return ['create', 'update', 'delete'];
-    default: return [verb];
+    case 'read':
+      return ['get', 'list'];
+    case 'write':
+      return ['create', 'update', 'delete'];
+    default:
+      return [verb];
   }
 }
 
@@ -168,9 +59,6 @@ export function expandVerb(verb: StorageGrantVerb | StorageRequestMethod): Stora
 export interface StorageAuth {
   uid: string;
   token?: Record<string, unknown>;
-  /** Multi-tenant identity. The evaluator projects it into
-   *  `request.auth.token.firebase.tenant` through the sandbox context's
-   *  shared normalization, preserving any explicit nested value. */
   tenant?: string;
 }
 
@@ -180,34 +68,14 @@ export interface StorageRequest {
   method: StorageRequestMethod;
   /** Path of the object the request targets. */
   path: string;
-  /** Per-Firebase: on writes, `request.resource` describes the
-   *  about-to-write object. Omit for reads (the rules language
-   *  treats `request.resource` as unset there). */
   resource?: StorageRequestResource;
 }
 
-/**
- * The `request.resource` binding: the object a write would store.
- *
- * Production builds it without `timeCreated` or `updated`, so reading either
- * is an absent-property error that denies. `name` and `bucket` carry the same
- * object-name semantics as {@link StorageResource}. A settable field the
- * object does not carry is `null`, not absent. On an upload `generation`,
- * `metageneration`, and `etag` are `null`; on a metadata update
- * `generation` and `metageneration` are the stored object's values, with
- * `metageneration` not yet advanced. Only `size` is required so a caller can
- * build the binding for a rules check that reads nothing else.
- *
- * Production also carries `md5Hash` and `crc32c` on every write, `etag` and
- * `storageClass` on a metadata update, and `storageClass` (`null`) on an
- * upload. The sandbox does not model them, so they stay absent here and a
- * rule that reads one denies.
- */
+/** The `request.resource` binding: the object a write would store. */
 export interface StorageRequestResource {
   size: number;
   contentType?: string;
   metadata?: Record<string, string> | null;
-  /** Full object path within the bucket, e.g. `uploads/pic.png`. */
   name?: string;
   bucket?: string;
   contentDisposition?: string | null;
@@ -219,58 +87,23 @@ export interface StorageRequestResource {
   etag?: null;
 }
 
-/**
- * Existing-object bindings (for `resource.*`). `null` when no object exists
- * yet (creates).
- *
- * The object-identity/time fields carry GOOGLE CLOUD STORAGE semantics, not
- * the client SDK's `FullMetadata` semantics — the two disagree on `name`:
- *
- *   - rules `resource.name` is the object's FULL path within the bucket
- *     (`uploads/pic.png`), the GCS object-name convention. The client SDK's
- *     `FullMetadata.name` is the LAST path segment (`pic.png`). The adapter
- *     (`resourceFromStored`) therefore sources `name` from the persisted
- *     record's `fullPath`, NOT its `name`.
- *   - `timeCreated` / `updated` are ISO-8601 strings here (the persisted
- *     shape); the evaluator converts them to Timestamp values when it builds
- *     the binding, so they compare against `request.time` and against each
- *     other. Production types them as `timestamp` and rejects an int in their
- *     place ("Received: int < timestamp").
- *   - The update-time field is `updated`. There is NO `resource.timeUpdated`
- *     in the Storage rules language.
- *
- * A field left `undefined` reads as ABSENT, which production treats as an
- * evaluation error that denies (see {@link RuleError}).
- */
+/** Existing-object bindings (for `resource.*`). `null` when no object exists yet (creates). */
 export interface StorageResource {
   size: number;
   contentType?: string;
   metadata?: Record<string, string>;
-  /** Full object path within the bucket, e.g. `uploads/pic.png`. */
   name?: string;
-  /** Bucket the object lives in. */
   bucket?: string;
-  /** ISO-8601 creation time. */
   timeCreated?: string;
-  /** ISO-8601 time of the most recent content/metadata update. */
   updated?: string;
-  /** Content generation (production types it `int`). */
   generation?: number;
-  /** Metadata generation (production types it `int`). */
   metageneration?: number;
-  /** Base64-encoded MD5 digest. */
   md5Hash?: string;
-  /** Base64-encoded CRC32C checksum. */
   crc32c?: string;
-  /** HTTP entity tag. */
   etag?: string;
-  /** Content-Disposition header value. */
   contentDisposition?: string;
-  /** Content-Encoding header value. */
   contentEncoding?: string;
-  /** Content-Language header value. */
   contentLanguage?: string;
-  /** Cache-Control header value. */
   cacheControl?: string;
 }
 
@@ -281,87 +114,48 @@ export interface EvaluationInput {
 
 export interface EvaluationResult {
   allowed: boolean;
-  /** Human-readable explanation of why — used by Slice 8's
-   *  integration to populate `storage/unauthorized` error
-   *  messages. */
   reasons: string[];
-  /**
-   * Expressions the evaluation counted, in the unit of production's
-   * per-request limit of 1000 (the Firestore rules unit; see
-   * `TestResult.evaluatedExpressions` in pyric/rules). The count spans every
-   * allow rule and match block evaluated for the request.
-   */
   evaluatedExpressions: number;
-  /** Set when the request reached the 1000-expression limit, which denies
-   *  it with production's message. */
   resourceLimit?: RulesResourceLimit;
 }
 
 /**
  * Injected capability that lets a Storage rule read Firestore documents
- * (`firestore.get(path)` / `firestore.exists(path)`). Paths are relative
- * `collection/doc` strings after stripping `/databases/<db>/documents/`.
+ * (`firestore.get(path)` / `firestore.exists(path)`).
  */
 export interface FirestoreLookup {
-  /** The document's fields, or `null` when the document does not exist. */
   get(path: string): Record<string, unknown> | null;
-  /** Whether a document exists at `path`. */
   exists(path: string): boolean;
-  /** True for public `storageRules()` cases where plain maps stay plain maps. */
   readonly publicCases?: boolean;
 }
 
 /** Opaque parsed-rules handle returned by `parseStorageRules`. */
 export interface StorageRules {
   readonly _root: MatchBlock;
-  /** Parsed declaration used by Storage setup to select module lowering
-   * without inspecting comments or formatting in the raw source. */
   readonly _version: string;
 }
 
-// ═══════════════════════════════════════════════════════════════
+// ===============================================================
 // AST
-// ═══════════════════════════════════════════════════════════════
+// ===============================================================
 
 export interface MatchBlock {
   segments: PathSegment[];
   children: MatchBlock[];
   allows: AllowRule[];
-  /** User-defined functions declared directly in this block. */
   functions: FunctionDef[];
-  /** Functions visible to conditions/bodies declared in this block:
-   *  ancestor functions plus this block's, inner shadowing outer.
-   *  Resolved once by `resolveFunctions` after parsing. */
   visibleFuncs?: FunctionMap;
 }
 
-/** A user-defined `function name(params) { let …; return expr; }`. */
 export interface FunctionDef {
   name: string;
   params: string[];
   exported?: boolean;
-  /** `let` bindings evaluated in order before the return, each visible
-   *  to those after it and to the return expression. */
   lets: { name: string; value: Expr }[];
   body: Expr;
-  /** Set for a name brought in by an `import` declaration: the module
-   *  specifier. The syntax parses, but module resolution is not implemented,
-   *  so calling the function denies with a reason naming the import, not a
-   *  "Function not found error". A same-named locally-declared function
-   *  shadows the stub (stubs are registered first). */
   unresolvedImport?: string;
-  /** Lexical scope: the functions visible from this function's body
-   *  (its declaring block's `visibleFuncs`). Resolved after parsing so
-   *  a call's body uses declaration-site scope, not the caller's. */
   declScope?: FunctionMap;
-  /** Declaration scope level: `'global'` (above `service`), `'service'` (inside
-   *  `service firebase.storage` outside any `match`), or `'match'` (inside a
-   *  `match` block). Global functions cannot access `request`, `resource`, or
-   *  path wildcards; service functions can access `request` and `resource` but
-   *  not path wildcards; match functions can access `request`, `resource`, and
-   *  path wildcards captured by their declaring `match` or its ancestors. */
   scopeKind?: 'global' | 'service' | 'match';
-  /** Path wildcard names captured by the declaring `match` block and its ancestors. */
   declCaptures?: ReadonlySet<string>;
 }
 
@@ -382,13 +176,6 @@ export type BinaryOp =
   | '&&' | '||' | '==' | '!=' | '<' | '>' | '<=' | '>='
   | '+' | '-' | '*' | '/' | '%';
 
-/** Runtime twin of {@link BinaryOp} — the converter validates grammar
- *  operator strings against this set so a new operator fails the parse
- *  loudly rather than converting silently (see convertExpr's binaryOp case). */
-const BINARY_OPS: ReadonlySet<BinaryOp> = new Set([
-  '&&', '||', '==', '!=', '<', '>', '<=', '>=', '+', '-', '*', '/', '%',
-]);
-
 export type Expr =
   | { kind: 'literal'; value: bigint | RulesFloat | string | boolean | null | Bytes }
   | { kind: 'ident'; name: string }
@@ -403,190 +190,20 @@ export type Expr =
   | { kind: 'map'; entries: { key: Expr; value: Expr }[] }
   | { kind: 'binary'; op: BinaryOp; left: Expr; right: Expr }
   | { kind: 'call'; name: string; args: Expr[] }
-  /** A method / namespace call: `<target>.<method>(args)`. Covers
-   *  `string.matches(re)` (target is any string expr) and the timestamp
-   *  namespace constructors `timestamp.date(y,m,d)` / `timestamp.value(ms)`
-   *  (target is the bare `timestamp` identifier). */
   | { kind: 'methodcall'; target: Expr; method: string; args: Expr[] }
-  /** A Firestore path literal — the argument to `firestore.get()` /
-   *  `firestore.exists()`, e.g.
-   *  `/databases/(default)/documents/users/$(request.auth.uid)`. Segments
-   *  are either fixed text or `$(expr)` interpolations resolved at eval.
-   *  Only meaningful as a Firestore-lookup argument; evaluating one in any
-   *  other position denies (see `evalExpr`). */
   | { kind: 'path'; segments: PathArgSegment[] };
 
-/** One segment of a {@link Expr} `path` literal. */
 export type PathArgSegment =
   | { kind: 'literal'; value: string }
   | { kind: 'interp'; expr: Expr };
 
-// ═══════════════════════════════════════════════════════════════
-// Shared-grammar front end
-// ═══════════════════════════════════════════════════════════════
-//
-// Storage rules are parsed by the SAME Ohm grammar as Firestore rules
-// (Firebase Security Rules is one language; the grammar's serviceName
-// and Operation productions are service-agnostic). The functions below
-// convert the shared AST into this module's internal shapes, which the
-// evaluator consumes. The expression converter is exhaustive over the
-// shared Expression union, so a construct added to the grammar without
-// a storage mapping fails loudly at parse time instead of drifting
-// silently.
-
-/** The line an allow rule starts on: its own position, else its condition's. */
-function allowLine(allow: SharedMatchBlock['allows'][number]): number | undefined {
-  const ownLine = allow.loc?.line;
-  if (ownLine !== undefined) return ownLine;
-  return expressionPosition(allow.condition)?.line;
-}
-
-function remapConvertedPosition(node: object, sourceMap: AuthoredSourceMap): void {
-  if (sourceMap.size === 0) return;
-  const pos = expressionPosition(node);
-  const comp = completionPosition(node);
-  const hasDistinctCompletion = comp !== undefined && comp !== pos;
-  if (pos !== undefined) {
-    const mapped = resolveAuthoredLoc(sourceMap, pos.line, pos.column);
-    if (mapped !== undefined && mapped.line !== pos.line) {
-      setExpressionPosition(node, { line: mapped.line, column: pos.column });
-    }
-  }
-  if (hasDistinctCompletion) {
-    const mapped = resolveAuthoredLoc(sourceMap, comp.line, comp.column);
-    if (mapped !== undefined && mapped.line !== comp.line) {
-      setCompletionPosition(node, { line: mapped.line, column: comp.column });
-    }
-  }
-}
-
-function convertAllow(
-  allow: SharedMatchBlock['allows'][number],
-  sourceMap: AuthoredSourceMap,
-): AllowRule {
-  const rawLine = allowLine(allow);
-  const rule: AllowRule = { verbs: allow.operations, condition: convertExpr(allow.condition, sourceMap) };
-  if (rawLine !== undefined) {
-    rule.line = sourceMap.size > 0
-      ? (resolveAuthoredLoc(sourceMap, rawLine)?.line ?? rawLine)
-      : rawLine;
-  }
-  return rule;
-}
-
-function convertMatch(block: SharedMatchBlock, sourceMap: AuthoredSourceMap): MatchBlock {
-  return {
-    segments: block.path.segments.map(convertSegment),
-    children: block.children.map((child) => convertMatch(child, sourceMap)),
-    allows: block.allows.map((allow) => convertAllow(allow, sourceMap)),
-    functions: block.functions.map((fn) => convertFunction(fn, sourceMap)),
-  };
-}
-
-function convertSegment(seg: SharedPathSegment): PathSegment {
-  switch (seg.type) {
-    case 'literal': return { kind: 'literal', value: seg.value };
-    case 'wildcard': return { kind: 'param', name: seg.name };
-    case 'recursive': return { kind: 'wildcard', name: seg.name };
-  }
-}
-
-function convertFunction(fn: SharedFunctionDef, sourceMap: AuthoredSourceMap): FunctionDef {
-  return {
-    name: fn.name,
-    params: fn.parameters,
-    exported: fn.exported,
-    lets: fn.lets.map((l) => {
-      const binding = { name: l.name, value: convertExpr(l.value, sourceMap) };
-      copyExpressionPosition(l, binding);
-      remapConvertedPosition(binding, sourceMap);
-      return binding;
-    }),
-    body: convertExpr(fn.body, sourceMap),
-  };
-}
-
-/** The evaluator's node for a parsed expression, at the parsed node's source position. */
-function convertExpr(e: SharedExpression, sourceMap: AuthoredSourceMap): Expr {
-  const converted = convertExprNode(e, sourceMap);
-  copyExpressionPosition(e, converted);
-  remapConvertedPosition(converted, sourceMap);
-  return converted;
-}
-
-function convertExprNode(e: SharedExpression, sourceMap: AuthoredSourceMap): Expr {
-  switch (e.type) {
-    case 'literal':
-      // A numeric literal written with a decimal point is a FLOAT even when
-      // integral (`1.0`); a literal of digits is an int64 read from its
-      // source text, as in the simulator (`rules-int.ts`).
-      if (typeof e.value === 'number') return { kind: 'literal', value: numericLiteralValue(e.value, e.raw) };
-      // A bytes literal evaluates to the same Bytes value as `toUtf8()`.
-      if (e.value instanceof Uint8Array) return { kind: 'literal', value: new Bytes(e.value) };
-      return { kind: 'literal', value: e.value };
-    case 'identifier':
-      return { kind: 'ident', name: e.name };
-    case 'memberAccess':
-      return { kind: 'member', target: convertExpr(e.object, sourceMap), name: e.property };
-    case 'methodCall':
-      return { kind: 'methodcall', target: convertExpr(e.object, sourceMap), method: e.method, args: e.args.map((a) => convertExpr(a, sourceMap)) };
-    case 'bracketAccess':
-      return { kind: 'index', target: convertExpr(e.object, sourceMap), index: convertExpr(e.index, sourceMap) };
-    case 'sliceAccess':
-      return { kind: 'slice', target: convertExpr(e.object, sourceMap), start: convertExpr(e.start, sourceMap), end: convertExpr(e.end, sourceMap) };
-    case 'binaryOp':
-      // Operator strings are VALIDATED, not cast: the `never` backstop below
-      // only catches new Expression VARIANTS — a new operator on an existing
-      // variant would otherwise convert silently and fall off evalExpr's op
-      // switch to an undefined (silent deny), recreating the drift class the
-      // shared-grammar move exists to kill. Fail the parse loudly instead.
-      if (!BINARY_OPS.has(e.op as BinaryOp)) {
-        throw new SyntaxError(`Unsupported binary operator '${e.op}' in storage rules.`);
-      }
-      return { kind: 'binary', op: e.op as BinaryOp, left: convertExpr(e.left, sourceMap), right: convertExpr(e.right, sourceMap) };
-    case 'unaryOp':
-      if (e.op !== '!' && e.op !== '-') {
-        throw new SyntaxError(`Unsupported unary operator '${e.op}' in storage rules.`);
-      }
-      return { kind: 'unary', op: e.op, arg: convertExpr(e.operand, sourceMap) };
-    case 'ternary':
-      return { kind: 'ternary', cond: convertExpr(e.condition, sourceMap), then: convertExpr(e.consequent, sourceMap), else: convertExpr(e.alternate, sourceMap) };
-    case 'inExpr':
-      return { kind: 'in', element: convertExpr(e.element, sourceMap), collection: convertExpr(e.collection, sourceMap) };
-    case 'isExpr':
-      return { kind: 'is', value: convertExpr(e.value, sourceMap), typeName: e.typeName };
-    case 'listLiteral':
-      return { kind: 'list', elements: e.elements.map((el) => convertExpr(el, sourceMap)) };
-    case 'mapLiteral':
-      return { kind: 'map', entries: e.entries.map((en) => ({ key: convertExpr(en.key, sourceMap), value: convertExpr(en.value, sourceMap) })) };
-    case 'pathLiteral':
-      return {
-        kind: 'path',
-        segments: e.segments.map((seg): PathArgSegment =>
-          typeof seg === 'string'
-            ? { kind: 'literal', value: seg }
-            : { kind: 'interp', expr: convertExpr(seg, sourceMap) },
-        ),
-      };
-    case 'functionCall':
-      return { kind: 'call', name: e.name, args: e.args.map((a) => convertExpr(a, sourceMap)) };
-    default: {
-      // Exhaustiveness backstop: a NEW grammar construct with no storage
-      // mapping must fail the parse, never evaluate wrong.
-      const unhandled: never = e;
-      throw new SyntaxError(`Unsupported expression construct: ${JSON.stringify(unhandled)}`);
-    }
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════
+// ===============================================================
 // Public entry points
-// ═══════════════════════════════════════════════════════════════
+// ===============================================================
 
 /**
  * Parse a Storage rules source into an opaque handle. Throws
- * `SyntaxError` on malformed input. Used by Slice 8's
- * `getStorage(ctx, { rules })` to validate upfront.
+ * `SyntaxError` on malformed input.
  */
 export function parseStorageRules(source: string): StorageRules {
   const parsed = parseToASTOrError(source);
@@ -605,9 +222,6 @@ export function parseStorageRules(source: string): StorageRules {
   if (storageService !== undefined) {
     astForLimits = withSingleService(parsed.ast, storageService);
   }
-  // Production rejects a ruleset past its compile limits (call depth, `let`
-  // count, nesting) before evaluating any request. Regex patterns are checked
-  // below by validateMatchRegexes so low-level callers keep the exact message.
   const rawViolations = compileLimitViolations(astForLimits, { allowUnresolvedImports: true }).filter(
     (v) => v.code !== 'INVALID_REGEX_PATTERN',
   );
@@ -623,9 +237,6 @@ export function parseStorageRules(source: string): StorageRules {
     }
     throw new SyntaxError(`Storage rules do not compile: ${describeCompileLimitViolations(violations)}`);
   }
-  // When no `firebase.storage` / `cloud.storage` block is declared (e.g.
-  // `service cloud.firestore` or `service foo.bar`), `topLevelMatches` is `[]`,
-  // so the compiled handle denies every Storage request (`#95`).
   const importStubs: FunctionDef[] = (parsed.ast.imports ?? []).flatMap((imp) =>
     imp.functions.map((name): FunctionDef => ({
       name,
@@ -672,98 +283,6 @@ export function parseStorageRules(source: string): StorageRules {
   return { _root: root, _version: parsed.ast.version };
 }
 
-function validateExpressionRegexes(expression: Expr): void {
-  if (
-    expression.kind === 'methodcall' &&
-    expression.method === 'matches' &&
-    expression.args.length === 1
-  ) {
-    const arg = expression.args[0];
-    const problem = arg?.kind === 'literal' && typeof arg.value === 'string' ? re2PatternProblem(arg.value) : null;
-    if (problem !== null) throw new SyntaxError(`Storage rules do not compile: ${problem}`);
-  }
-  switch (expression.kind) {
-    case 'member':
-      validateExpressionRegexes(expression.target);
-      return;
-    case 'index':
-      validateExpressionRegexes(expression.target);
-      validateExpressionRegexes(expression.index);
-      return;
-    case 'slice':
-      validateExpressionRegexes(expression.target);
-      validateExpressionRegexes(expression.start);
-      validateExpressionRegexes(expression.end);
-      return;
-    case 'unary':
-      validateExpressionRegexes(expression.arg);
-      return;
-    case 'ternary':
-      validateExpressionRegexes(expression.cond);
-      validateExpressionRegexes(expression.then);
-      validateExpressionRegexes(expression.else);
-      return;
-    case 'in':
-      validateExpressionRegexes(expression.element);
-      validateExpressionRegexes(expression.collection);
-      return;
-    case 'is':
-      validateExpressionRegexes(expression.value);
-      return;
-    case 'list':
-      for (const value of expression.elements) validateExpressionRegexes(value);
-      return;
-    case 'map':
-      for (const { key, value } of expression.entries) {
-        validateExpressionRegexes(key);
-        validateExpressionRegexes(value);
-      }
-      return;
-    case 'binary':
-      validateExpressionRegexes(expression.left);
-      validateExpressionRegexes(expression.right);
-      return;
-    case 'call':
-      for (const value of expression.args) validateExpressionRegexes(value);
-      return;
-    case 'methodcall':
-      validateExpressionRegexes(expression.target);
-      for (const value of expression.args) validateExpressionRegexes(value);
-      return;
-    case 'path':
-      for (const segment of expression.segments) {
-        if (segment.kind === 'interp') validateExpressionRegexes(segment.expr);
-      }
-      return;
-    case 'ident':
-    case 'literal':
-      return;
-  }
-}
-
-function validateMatchRegexes(match: MatchBlock): void {
-  for (const { condition } of match.allows) {
-    if (condition) validateExpressionRegexes(condition);
-  }
-  for (const fn of match.functions) {
-    for (const binding of fn.lets) {
-      validateExpressionRegexes(binding.value);
-    }
-    validateExpressionRegexes(fn.body);
-  }
-  for (const child of match.children) {
-    validateMatchRegexes(child);
-  }
-}
-
-/**
- * Resolve each block's visible-function map and captured path wildcards
- * (lexical scoping): a block sees its ancestors' functions plus its own,
- * with an inner declaration shadowing an outer one of the same name. Each
- * function's body is bound to its declaring block's map and captured path
- * parameters so a call evaluates in declaration-site scope regardless of
- * where it is called from.
- */
 function resolveFunctions(
   block: MatchBlock,
   parent: FunctionMap,
