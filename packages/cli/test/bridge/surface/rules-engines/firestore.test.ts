@@ -68,8 +68,8 @@ describe('lint', () => {
     const result = await FIRESTORE_RULES.lint(ctx, undefined);
     // Per FS-LNT-1 and .agents/skills/firestore-rules-audit/SKILL.md,
     // FIRESTORE_RULES.lint runs validateFirestoreRules(ast) alongside lintFirestoreRules,
-    // surfacing high-severity SEC-5 (recursive wildcard) and SEC-6 (unvalidated write) as errors.
-    expect(result.ok).toBe(false);
+    // surfacing medium-severity SEC-5 (auth-guarded recursive wildcard) and SEC-6 (auth-guarded unvalidated write) as warnings.
+    expect(result.ok).toBe(true);
     expect(JSON.stringify(result.data)).toContain('SEC-5');
     expect(JSON.stringify(result.data)).toContain('SEC-6');
   });
