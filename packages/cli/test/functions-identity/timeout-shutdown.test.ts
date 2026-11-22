@@ -306,10 +306,17 @@ describe('Identity blocking timeoutSeconds enforcement, unsub cancellation, and 
     });
     await host.ready;
 
-    const pendingSignUp = createWorkerEmailUser(
+    // Attach the rejection handler immediately so unsub rejection during
+    // `host.close()` / `await host.idle()` cannot surface as an unhandled error.
+    const pendingSignUpOutcome: Promise<
+      { ok: true } | { ok: false; error: unknown }
+    > = createWorkerEmailUser(
       h.clientAuth,
       'unsub-victim@example.com',
       'password123',
+    ).then(
+      () => ({ ok: true as const }),
+      (error: unknown) => ({ ok: false as const, error }),
     );
     await entered;
 
@@ -318,12 +325,12 @@ describe('Identity blocking timeoutSeconds enforcement, unsub cancellation, and 
     await host.idle();
     expect(Date.now() - closeStart).toBeLessThan(1000);
 
+    const outcome = await pendingSignUpOutcome;
     let caught: (Error & { code?: string }) | undefined;
-    try {
-      await pendingSignUp;
-    } catch (err) {
-      caught = err as Error & { code?: string };
+    if (!outcome.ok && outcome.error instanceof Error) {
+      caught = outcome.error as Error & { code?: string };
     }
+    expect(outcome.ok).toBe(false);
     expect(caught?.code).toBe('auth/internal-error');
     expect(caught?.message).toContain('UNAVAILABLE');
     expect(authSandbox.listUsers(getSandboxAuth(h.sandbox))).toEqual([]);

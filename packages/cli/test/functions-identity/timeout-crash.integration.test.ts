@@ -337,23 +337,31 @@ describe('live child timeoutSeconds DEADLINE_EXCEEDED, uncaught error survival, 
     await doomedChild.ready;
 
     const session = await makeClientSession();
-    const midFlightSignUp = createUserWithEmailAndPassword(
+    // Attach the rejection handler immediately: once the child is killed, the
+    // host can deliver UNAVAILABLE over the socket before the child process
+    // `close` event resolves `doomedChild.exited`.
+    const midFlightSignUpOutcome: Promise<
+      { ok: true } | { ok: false; error: unknown }
+    > = createUserWithEmailAndPassword(
       session.auth,
       'crash-midflight@example.com',
       'password123',
+    ).then(
+      () => ({ ok: true as const }),
+      (error: unknown) => ({ ok: false as const, error }),
     );
     await waitForRtdbValue('crashLatch/entered');
 
     doomedChild.child.kill('SIGKILL');
-    await doomedChild.exited;
+    const [, outcome] = await Promise.all([doomedChild.exited, midFlightSignUpOutcome]);
     activeChild = undefined;
 
-    let disconnectErr: Error | undefined;
-    try {
-      await midFlightSignUp;
-    } catch (err) {
-      disconnectErr = err as Error;
+    let disconnectErr: (Error & { code?: string }) | undefined;
+    if (!outcome.ok && outcome.error instanceof Error) {
+      disconnectErr = outcome.error as Error & { code?: string };
     }
+    expect(outcome.ok).toBe(false);
+    expect(disconnectErr?.code).toBe('auth/internal-error');
     expect(disconnectErr?.message).toContain('UNAVAILABLE');
     expect(
       (await listUsers(session.auth)).some((u) => u.email === 'crash-midflight@example.com'),
