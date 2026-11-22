@@ -170,6 +170,13 @@ export default scenario(async (app) => {
     assert.match(result.output, /"code": "default-bucket-name-unknown"/, result.output);
   });
 
+  await app.step('a mistyped storageBucket script that runs first is denied without locking out the real default bucket (#1538)', async () => {
+    const { output } = await app.serverScript('mistyped.mjs', [], { env: attached, timeoutMs: 60_000 });
+    assert.match(output, /^mistyped storage\/unauthorized$/m, output);
+    // Allow the host's 5s config-release grace to clear the exited script's mistyped appOptions.
+    await sleep(5_250);
+  });
+
   await app.step('the page on the Node host gets each bucket its own rules', async () => {
     assert.deepEqual(await pageUploads(app, host, 'hosted', 'hosted/a.txt'), EXPECTED);
   });

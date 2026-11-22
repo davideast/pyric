@@ -5,8 +5,7 @@
  * while Security Rules checks and upload commits stay on the MessagePort /
  * WebSocket RPC channel.
  */
-import { FirebaseError } from 'pyric/app';
-import type { FullMetadata } from 'pyric/storage';
+import { StorageError, type FullMetadata } from 'pyric/storage';
 import {
   MAX_STORAGE_OBJECT_BYTES,
   storageObjectPath,
@@ -37,16 +36,68 @@ async function byteRouteHeaders(route: ByteRouteAccess): Promise<Record<string, 
   return headers;
 }
 
-function routeFailure(status: number, path: string): FirebaseError {
+function routeFailure(status: number, path: string): StorageError {
   const refused = status === 401 || status === 403;
   if (refused) {
-    return new FirebaseError('storage/unauthorized', `The host refused bytes for '${path}' (HTTP ${status}).`);
+    return new StorageError('unauthorized', `The host refused bytes for '${path}' (HTTP ${status}).`);
   }
   const missing = status === 404;
   if (missing) {
-    return new FirebaseError('storage/object-not-found', `Object '${path}' does not exist.`);
+    return new StorageError('object-not-found', `Object '${path}' does not exist.`);
   }
-  return new FirebaseError('storage/unknown', `The host's byte route answered HTTP ${status} for '${path}'.`);
+  return new StorageError('unknown', `The host's byte route answered HTTP ${status} for '${path}'.`);
+}
+
+/**
+ * Translate a network or stream failure on the HTTP byte route into a
+ * `StorageError` matching `@firebase/storage` (`FetchConnection.send` +
+ * `NetworkRequest` retry exhaustion -> `storage/retry-limit-exceeded`, or
+ * `storage/canceled` when aborted).
+ */
+function byteTransferFailure(error: unknown, signal?: AbortSignal): StorageError {
+  if (error instanceof StorageError) {
+    return error;
+  }
+  if (signal?.aborted === true) {
+    return new StorageError('canceled', 'User canceled the upload/download.');
+  }
+  return new StorageError(
+    'retry-limit-exceeded',
+    'Max retry time for operation exceeded, please try again.',
+  );
+}
+
+/**
+ * Rethrow an RPC error from a byte transfer step, converting an in-flight host
+ * socket drop (`unavailable` / `deadline-exceeded`) into `StorageError`
+ * (`storage/retry-limit-exceeded`) while preserving `storage/*` wire errors and
+ * pre-attachment hold-deadline errors.
+ */
+export function rethrowCutOffRpcFailure(error: unknown, transferStarted = false): never {
+  if (error instanceof StorageError) {
+    throw error;
+  }
+  let code: unknown;
+  if (typeof error === 'object' && error !== null && 'code' in error) {
+    code = (error as { code?: unknown }).code;
+  }
+  if (typeof code === 'string' && code.startsWith('storage/')) {
+    throw error;
+  }
+  let message = '';
+  if (error instanceof Error) {
+    message = error.message;
+  }
+  const isHoldTimeout = message.includes('was not restored within');
+  const isDroppedUnavailable = code === 'unavailable' && (!isHoldTimeout || transferStarted);
+  const isDeadlineExceeded = code === 'deadline-exceeded';
+  if (isDroppedUnavailable || isDeadlineExceeded) {
+    throw new StorageError(
+      'retry-limit-exceeded',
+      'Max retry time for operation exceeded, please try again.',
+    );
+  }
+  throw error;
 }
 
 function routeFetchOf(
@@ -68,18 +119,34 @@ export async function readOverRoute(
 ): Promise<{ bytes: Uint8Array; contentType?: string; size: number }> {
   const performFetch = routeFetchOf(route.fetch);
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const metadata = await fetchMetadataFromHost(reference);
+    let metadata: FullMetadata;
+    try {
+      metadata = await fetchMetadataFromHost(reference);
+    } catch (error) {
+      rethrowCutOffRpcFailure(error, false);
+    }
     const objectPath = storageObjectPath(metadata.bucket, reference.fullPath);
     const url = new URL(objectPath, route.baseUrl);
     url.searchParams.set('generation', metadata.generation);
-    const headers = await byteRouteHeaders(route);
-    const response = await performFetch(url, { headers });
+    let response: Response;
+    try {
+      const headers = await byteRouteHeaders(route);
+      response = await performFetch(url, { headers });
+    } catch (error) {
+      throw byteTransferFailure(error);
+    }
     const changed = response.status === 412;
     if (changed) continue;
     if (!response.ok) {
       throw routeFailure(response.status, reference.fullPath);
     }
-    const bytes = new Uint8Array(await response.arrayBuffer());
+    let payload: ArrayBuffer;
+    try {
+      payload = await response.arrayBuffer();
+    } catch (error) {
+      throw byteTransferFailure(error);
+    }
+    const bytes = new Uint8Array(payload);
     const headerType = response.headers.get('content-type');
     let contentType = metadata.contentType;
     if (headerType !== null) {
@@ -87,8 +154,8 @@ export async function readOverRoute(
     }
     return { bytes, contentType, size: bytes.byteLength };
   }
-  throw new FirebaseError(
-    'storage/retry-limit-exceeded',
+  throw new StorageError(
+    'retry-limit-exceeded',
     `Object '${reference.fullPath}' kept changing while it was read.`,
   );
 }
@@ -163,14 +230,19 @@ export async function beginRouteUpload(
   if (metadata !== undefined) {
     message.metadata = metadata as Record<string, unknown>;
   }
-  const begun = (await dataRpc(reference.port, message)) as {
-    uploadId: string;
-    uploadUrl?: string;
-  };
+  let begun: { uploadId: string; uploadUrl?: string };
+  try {
+    begun = (await dataRpc(reference.port, message)) as {
+      uploadId: string;
+      uploadUrl?: string;
+    };
+  } catch (error) {
+    rethrowCutOffRpcFailure(error, false);
+  }
   const uploadUrl = begun.uploadUrl;
   const unrouted = uploadUrl === undefined;
   if (unrouted) {
-    throw new FirebaseError('storage/unknown', 'The host began the upload without a byte route URL.');
+    throw new StorageError('unknown', 'The host began the upload without a byte route URL.');
   }
   const resolvedUrl = new URL(uploadUrl, route.baseUrl).href;
   return {
@@ -205,12 +277,17 @@ export async function sendRouteSlice(
 ): Promise<number> {
   const end = Math.min(offset + ROUTE_SLICE_BYTES, upload.size);
   const performFetch = routeFetchOf(upload.fetch);
-  const response = await performFetch(upload.url, {
-    method: 'PUT',
-    headers: { 'content-range': `bytes ${offset}-${end - 1}/${upload.size}` },
-    body: data.slice(offset, end),
-    signal,
-  });
+  let response: Response;
+  try {
+    response = await performFetch(upload.url, {
+      method: 'PUT',
+      headers: { 'content-range': `bytes ${offset}-${end - 1}/${upload.size}` },
+      body: data.slice(offset, end),
+      signal,
+    });
+  } catch (error) {
+    throw byteTransferFailure(error, signal);
+  }
   const accepted = response.status === 200 || response.status === 308 || response.status === 409;
   if (!accepted) {
     throw routeFailure(response.status, upload.reference.fullPath);
@@ -224,11 +301,16 @@ export async function routeUploadOffset(
   signal?: AbortSignal,
 ): Promise<number> {
   const performFetch = routeFetchOf(upload.fetch);
-  const response = await performFetch(upload.url, {
-    method: 'PUT',
-    headers: { 'content-range': `bytes */${upload.size}` },
-    signal,
-  });
+  let response: Response;
+  try {
+    response = await performFetch(upload.url, {
+      method: 'PUT',
+      headers: { 'content-range': `bytes */${upload.size}` },
+      signal,
+    });
+  } catch (error) {
+    throw byteTransferFailure(error, signal);
+  }
   const accepted = response.status === 200 || response.status === 308;
   if (!accepted) {
     throw routeFailure(response.status, upload.reference.fullPath);
@@ -291,7 +373,12 @@ export async function finishRouteUpload(
   if (rollback) {
     message.rollback = true;
   }
-  const reply = await dataRpc(upload.reference.port, message);
+  let reply: unknown;
+  try {
+    reply = await dataRpc(upload.reference.port, message);
+  } catch (error) {
+    rethrowCutOffRpcFailure(error, true);
+  }
   return committedFrom(upload.reference, reply);
 }
 

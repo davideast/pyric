@@ -1,5 +1,5 @@
 /**
- * `pyric/storage/internal` — host-only admin plane for the sandbox
+ * `pyric/storage/internal` -- host-only admin plane for the sandbox
  * storage backend.
  *
  * The public `pyric/storage` surface is deliberately rules-honest:
@@ -11,7 +11,7 @@
  * need a rules-BYPASS handle onto the SAME per-sandbox store.
  *
  * This subpath exists so that bypass never leaks onto the public
- * modular surface — mirroring how `pyric/sandbox/internal` carries
+ * modular surface -- mirroring how `pyric/sandbox/internal` carries
  * the sandbox's host-only seams.
  */
 
@@ -126,6 +126,7 @@ const SERVICE_CACHES_KEY = Symbol.for('pyric.storage.service-caches');
 interface MutableStorageBucketRuleCaches {
   bucketRules?: WeakMap<Sandbox, Map<string, unknown>>;
   defaultStoreNames?: WeakMap<Sandbox, string>;
+  claimedDefaultNames?: WeakMap<Sandbox, Set<string>>;
   undeployedPolicies?: WeakMap<Sandbox, string>;
 }
 
@@ -147,12 +148,29 @@ export function pruneStorageBucketRules(
       deployStorageBucketRules(sandbox, deployed, null);
     }
   }
+  const holder = globalThis as { [SERVICE_CACHES_KEY]?: MutableStorageBucketRuleCaches };
+  const caches = holder[SERVICE_CACHES_KEY];
   if (storageBucketsWithRules(sandbox).length === 0) {
-    const holder = globalThis as { [SERVICE_CACHES_KEY]?: MutableStorageBucketRuleCaches };
-    const caches = holder[SERVICE_CACHES_KEY];
     caches?.bucketRules?.delete(sandbox);
     caches?.defaultStoreNames?.delete(sandbox);
+    caches?.claimedDefaultNames?.delete(sandbox);
     caches?.undeployedPolicies?.delete(sandbox);
+    return;
+  }
+  const pinnedDefault = caches?.defaultStoreNames?.get(sandbox);
+  if (pinnedDefault !== undefined && !normalizedKeep.has(pinnedDefault)) {
+    caches?.defaultStoreNames?.delete(sandbox);
+  }
+  const claimed = caches?.claimedDefaultNames?.get(sandbox);
+  if (claimed !== undefined) {
+    for (const candidate of [...claimed]) {
+      if (!normalizedKeep.has(candidate)) {
+        claimed.delete(candidate);
+      }
+    }
+    if (claimed.size === 0) {
+      caches?.claimedDefaultNames?.delete(sandbox);
+    }
   }
 }
 

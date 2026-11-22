@@ -1,3 +1,4 @@
+import type { Sandbox } from 'pyric/sandbox';
 import type { FirebaseApp } from '../app/types.js';
 import { bindOperationContext } from 'pyric/sandbox/internal';
 import {
@@ -5,6 +6,7 @@ import {
   resolveClientApp,
 } from '../sandbox/internal/client-app.js';
 import { createStorageRetryHandle } from './handle-retry-times.js';
+import { claimDefaultStorageBucket } from './sandbox/bucket-rules.js';
 import { parseBucketSpec } from './sandbox/bucket-spec.js';
 import {
   getStorageSandbox,
@@ -15,6 +17,35 @@ import {
   type StorageOptions,
 } from './service.js';
 import type { EmulatorMockTokenOptions } from './types.js';
+
+function appBucketSpec(
+  app: FirebaseApp,
+  fallbackOptions: { readonly storageBucket?: string } | undefined,
+): string | undefined {
+  let rawBucket = fallbackOptions?.storageBucket;
+  try {
+    rawBucket = app.options?.storageBucket;
+  } catch {
+    // Deleted app: use options captured at attach time.
+  }
+  if (typeof rawBucket === 'string' && rawBucket !== '') {
+    return parseBucketSpec(rawBucket);
+  }
+  return undefined;
+}
+
+function claimDefaultAppBucket(sandbox: Sandbox): void {
+  let defaultApp: FirebaseApp;
+  try {
+    defaultApp = defaultClientApp() as FirebaseApp;
+  } catch {
+    // No [DEFAULT] app initialized yet; only the resolved app claims.
+    return;
+  }
+  const defaultRuntime = resolveClientApp(defaultApp);
+  if (defaultRuntime?.sandbox !== sandbox) return;
+  claimDefaultStorageBucket(sandbox, appBucketSpec(defaultApp, defaultRuntime.options));
+}
 
 /** Resolve the Firebase-shaped Storage service associated with an app. */
 export function getStorage(app?: FirebaseApp, bucketUrl?: string): AppFirebaseStorage {
@@ -31,19 +62,16 @@ export function getStorage(app?: FirebaseApp, bucketUrl?: string): AppFirebaseSt
 
   return runtime.service(cacheKey, () => {
     const { sandbox, session } = runtime;
-    let rawAppBucket = runtime.options?.storageBucket;
     let projectId = runtime.options?.projectId;
     try {
-      rawAppBucket = resolvedApp.options?.storageBucket;
       projectId = resolvedApp.options?.projectId;
     } catch {
       // Deleted app: use options captured at attach time.
     }
 
-    let parsedAppBucket: string | undefined;
-    if (typeof rawAppBucket === 'string' && rawAppBucket !== '') {
-      parsedAppBucket = parseBucketSpec(rawAppBucket);
-    }
+    const parsedAppBucket = appBucketSpec(resolvedApp, runtime.options);
+    claimDefaultAppBucket(sandbox);
+    claimDefaultStorageBucket(sandbox, parsedAppBucket);
 
     const sandboxOptions: StorageOptions = {};
     if (projectId) {

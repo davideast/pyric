@@ -27,6 +27,7 @@ import {
   byteRouteOf,
   finishRouteUpload,
   readOverRoute,
+  rethrowCutOffRpcFailure,
   rollBackUpload,
   routeUploadOffset,
   sendRouteSlice,
@@ -355,9 +356,14 @@ export async function getDownloadURL(reference: ClientStorageReference): Promise
   const routedUrl = await afterRouteSettles(reference, async (route, reservation) => {
     const routed = route !== undefined;
     if (!routed) return undefined;
-    const { path } = (await dataRpc(reference.port, {
-      t: 'op', id: nextId(), method: 'storage.getDownloadURL', path: reference.fullPath, ...bucketWire(reference),
-    }, reservation)) as { path: string };
+    let path: string;
+    try {
+      ({ path } = (await dataRpc(reference.port, {
+        t: 'op', id: nextId(), method: 'storage.getDownloadURL', path: reference.fullPath, ...bucketWire(reference),
+      }, reservation)) as { path: string });
+    } catch (error) {
+      rethrowCutOffRpcFailure(error, false);
+    }
     return new URL(path, route.baseUrl).href;
   });
   if (routedUrl !== undefined) return routedUrl;
