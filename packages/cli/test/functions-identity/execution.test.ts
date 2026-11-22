@@ -239,21 +239,28 @@ describe('Identity trigger execution host and worker auth-blocking broker', () =
     });
     await host.ready;
 
-    const signUpPromise = createUserWithEmailAndPassword(
+    // Attach the rejection handler immediately so disconnect rejection cannot
+    // race ahead of `await` and surface as an unhandled rejection.
+    const signUpOutcome: Promise<
+      { ok: true } | { ok: false; error: unknown }
+    > = createUserWithEmailAndPassword(
       h.clientAuth,
       'disconnect@example.com',
       'password123',
+    ).then(
+      () => ({ ok: true as const }),
+      (error: unknown) => ({ ok: false as const, error }),
     );
     await enteredPromise;
 
     cleanupPort(h.ctx, h.childHostPort);
 
+    const outcome = await signUpOutcome;
     let rejectedError: (Error & { code?: string }) | undefined;
-    try {
-      await signUpPromise;
-    } catch (err) {
-      rejectedError = err as Error & { code?: string };
+    if (!outcome.ok && outcome.error instanceof Error) {
+      rejectedError = outcome.error as Error & { code?: string };
     }
+    expect(outcome.ok).toBe(false);
     expect(rejectedError?.code).toBe('auth/internal-error');
     expect(rejectedError?.message).toContain('UNAVAILABLE');
     expect(authSandbox.listUsers(getAuth(h.sandbox))).toEqual([]);
