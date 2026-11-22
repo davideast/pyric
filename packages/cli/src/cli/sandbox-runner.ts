@@ -26,6 +26,8 @@ import {
   sanitizeEnvAssignmentValue,
 } from './sandbox-env-sanitizer.js';
 import { SHELL_OPERATORS } from './unsupported-runtime.js';
+import { startChildLifeline } from './sandbox-child-lifeline.js';
+import { writeStreamQuietly } from './sandbox-process-guard.js';
 
 export { formatShellCommand };
 import { boundedFetch } from '../bounded-request.js';
@@ -423,7 +425,8 @@ export function spawnSandboxChild(
         detached: process.platform !== 'win32',
       });
     } else {
-      child = spawn(command!, args, {
+      const execFile = command ?? '';
+      child = spawn(execFile, args, {
         cwd: opts.cwd,
         env,
         stdio: ['inherit', 'pipe', 'pipe'],
@@ -436,9 +439,10 @@ export function spawnSandboxChild(
     throw err;
   }
 
+  const lifeline = startChildLifeline(child.pid);
   const outTarget = opts.json ? process.stderr : process.stdout;
-  const out = createLinePrefixer('[dev] ', (line) => outTarget.write(line));
-  const err = createLinePrefixer('[dev] ', (line) => process.stderr.write(line));
+  const out = createLinePrefixer('[dev] ', (line) => writeStreamQuietly(outTarget, line));
+  const err = createLinePrefixer('[dev] ', (line) => writeStreamQuietly(process.stderr, line));
   child.stdout?.setEncoding('utf8');
   child.stderr?.setEncoding('utf8');
   child.stdout?.on('data', (chunk: string) => out.push(chunk));
@@ -446,18 +450,52 @@ export function spawnSandboxChild(
 
   let signalled = false;
   let forceTimer: ReturnType<typeof setTimeout> | null = null;
-  const killTree = (signal: NodeJS.Signals): void => {
-    if (process.platform !== 'win32' && child.pid !== undefined) {
-      process.kill(-child.pid, signal);
-    } else {
-      child.kill(signal);
+  const isExpectedKillErrno = (error: unknown): boolean => {
+    const code = (error as NodeJS.ErrnoException | null)?.code;
+    return code === 'ESRCH' || code === 'EPERM';
+  };
+  const killTree = (signal: NodeJS.Signals): boolean => {
+    try {
+      if (process.platform !== 'win32' && child.pid !== undefined) {
+        process.kill(-child.pid, signal);
+      } else {
+        child.kill(signal);
+      }
+      return true;
+    } catch (error) {
+      if (isExpectedKillErrno(error)) return false;
+      throw error;
     }
+  };
+  const isGroupAlive = (): boolean => {
+    if (process.platform === 'win32' || child.pid === undefined) return false;
+    try {
+      process.kill(-child.pid, 0);
+      return true;
+    } catch (error) {
+      if (isExpectedKillErrno(error)) return false;
+      throw error;
+    }
+  };
+  const reapSurvivingGroup = async (): Promise<void> => {
+    if (!isGroupAlive()) return;
+    killTree('SIGTERM');
+    const deadline = performance.now() + FORCE_KILL_AFTER_MS;
+    while (performance.now() < deadline) {
+      if (!isGroupAlive()) return;
+      await new Promise<void>((resolveTick) => {
+        const tick = setTimeout(resolveTick, 50);
+        tick.unref();
+      });
+    }
+    killTree('SIGKILL');
   };
 
   const exited = new Promise<number>((resolve) => {
     child.once('error', (e) => {
+      lifeline.disarm();
       shim.cleanup();
-      process.stderr.write(`pyric sandbox: failed to run \`${plan.label}\`: ${e.message}\n`);
+      writeStreamQuietly(process.stderr, `pyric sandbox: failed to run \`${plan.label}\`: ${e.message}\n`);
       const notFound = (e as NodeJS.ErrnoException).code === 'ENOENT';
       if (!notFound) {
         resolve(1);
@@ -467,19 +505,30 @@ export function spawnSandboxChild(
       // sandbox method, so a mistyped method lands here. Name the methods
       // instead of guessing one: several of them replace or wipe state.
       void sandboxMethodHint(command ?? '').then((hint) => {
-        if (hint !== null) process.stderr.write(hint);
+        if (hint !== null) writeStreamQuietly(process.stderr, hint);
         resolve(1);
       });
     });
     child.once('exit', (code, signal) => {
+      lifeline.disarm();
       shim.cleanup();
       out.flush();
       err.flush();
-      if (forceTimer) clearTimeout(forceTimer);
-      // User-initiated stop (Ctrl-C forwarded) is a clean shutdown → 0.
-      if (signalled) resolve(0);
-      else if (typeof code === 'number') resolve(code);
-      else resolve(signal ? 1 : 0);
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      if (forceTimer !== null) clearTimeout(forceTimer);
+      let exitStatus = 0;
+      // User-initiated stop (Ctrl-C forwarded) is a clean shutdown -> 0.
+      if (signalled) {
+        exitStatus = 0;
+      } else if (typeof code === 'number') {
+        exitStatus = code;
+      } else if (signal) {
+        exitStatus = 1;
+      }
+      void reapSurvivingGroup().finally(() => {
+        resolve(exitStatus);
+      });
     });
   });
 
@@ -487,17 +536,12 @@ export function spawnSandboxChild(
     exited,
     child,
     signal(sig: NodeJS.Signals): void {
-      if (child.exitCode !== null || signalled) return;
+      const alreadyExited = child.exitCode !== null || child.signalCode !== null;
+      if (alreadyExited || signalled) return;
       signalled = true;
-      try {
-        killTree(sig);
-      } catch {
-        return;
-      }
+      if (!killTree(sig)) return;
       forceTimer = setTimeout(() => {
-        try {
-          killTree('SIGKILL');
-        } catch {}
+        killTree('SIGKILL');
       }, FORCE_KILL_AFTER_MS);
       forceTimer.unref();
     },

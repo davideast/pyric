@@ -45,7 +45,7 @@ import { resolveAiMode } from '../serve/firebase-module-swap.js';
 import { formatActivityWarning } from '../serve/activity-warning.js';
 import {
   consoleServeLogger, getHeader, isAllowedOriginOnPorts, isForeignFetchSite,
-  requestSocketScheme, resolveHostingFile, startStaticServer, stderrServeLogger, type ServeHandle,
+  requestSocketScheme, resolveHostingFile, startStaticServer, type ServeHandle,
 } from '../serve/server.js';
 import { createBridgeMount } from '../serve/bridge-mount.js';
 import { writeOwnedSessionFile } from '../serve/local-session-token.js';
@@ -82,6 +82,14 @@ import {
   startBeaconWatchdog,
   type BeaconWatchdog,
 } from './sandbox-interlock.js';
+import {
+  ignoreShutdownError,
+  installOutputPipeGuard,
+  installServeProcessGuard,
+  installServeShutdownSignals,
+  runBoundedTeardown,
+  writeStreamQuietly,
+} from './sandbox-process-guard.js';
 import { checkSandboxChildLaunch } from './unsupported-runtime.js';
 import { scanForInlinedFirebase } from './inlined-sdk-scanner.js';
 import {
@@ -1047,43 +1055,7 @@ export function bridgeEnabledFor(
   return bridgeEnabledFromFlags(flags) || childPlan != null || functionsProject != null;
 }
 
-/**
- * Process-level last line of defense for the dev server: a single bad
- * request/WS interaction must never take `pyric sandbox` down. Node kills the
- * process on an unhandled rejection (default `--unhandled-rejections=throw`
- * since v15) and on any uncaught exception — and the serve process hosts
- * long-lived, browser-driven machinery (WS peers, SSE streams, file watchers,
- * MCP transports) where one missed error path is fatal. Route both to a LOUD
- * stderr log instead and keep serving.
- *
- * Installed by `runServe` once the server is up (startup errors still fail
- * fast). Returns the uninstaller. Exported for unit coverage.
- */
-export function installServeProcessGuard(
-  log: (message: string) => void,
-  proc: Pick<NodeJS.Process, 'on' | 'off'> = process,
-): () => void {
-  const describe = (reason: unknown): string =>
-    reason instanceof Error ? (reason.stack ?? reason.message) : String(reason);
-  const onRejection = (reason: unknown): void => {
-    log(
-      `  ✖ pyric sandbox: unhandled rejection. The server was kept alive. Please report this:\n` +
-        `    ${describe(reason).split('\n').join('\n    ')}`,
-    );
-  };
-  const onException = (err: unknown): void => {
-    log(
-      `  ✖ pyric sandbox: uncaught exception. The server was kept alive. Please report this:\n` +
-        `    ${describe(err).split('\n').join('\n    ')}`,
-    );
-  };
-  proc.on('unhandledRejection', onRejection);
-  proc.on('uncaughtException', onException);
-  return () => {
-    proc.off('unhandledRejection', onRejection);
-    proc.off('uncaughtException', onException);
-  };
-}
+export { installServeProcessGuard };
 
 function resolveServePort(flagPort: unknown, configPort?: number): number {
   if (typeof flagPort === 'string') return Number(flagPort);
@@ -1123,6 +1095,15 @@ export interface ServeRunHost {
 }
 
 export async function runServe(parsed: ParsedArgs, runHost: ServeRunHost = {}): Promise<number> {
+  const removeOutputPipeGuard = installOutputPipeGuard();
+  try {
+    return await runServeInner(parsed, runHost);
+  } finally {
+    removeOutputPipeGuard();
+  }
+}
+
+async function runServeInner(parsed: ParsedArgs, runHost: ServeRunHost): Promise<number> {
   checkSandboxChildLaunch(null);
   const cwd = process.cwd();
   let pyricConfig: PyricConfig = {};
@@ -1269,8 +1250,11 @@ export async function runServe(parsed: ParsedArgs, runHost: ServeRunHost = {}): 
       env: process.env,
     });
     const gatewayTrustProxy = parseTrustProxySetting(resolvedGatewayRemote.remoteAccess?.trustProxy);
-    let logger: Parameters<typeof startServe>[0]['logger'];
-    if (json) logger = stderrServeLogger();
+    const infoTarget = json ? process.stderr : process.stdout;
+    const logger: Parameters<typeof startServe>[0]['logger'] = {
+      info: (message) => writeStreamQuietly(infoTarget, `${message}\n`),
+      note: (message) => writeStreamQuietly(process.stderr, `${message}\n`),
+    };
     if (functionsProjectId !== null) {
       const served = json ? process.stderr : process.stdout;
       functionsGateway = createFunctionsHttpGateway({
@@ -1278,15 +1262,15 @@ export async function runServe(parsed: ParsedArgs, runHost: ServeRunHost = {}): 
         initial: { kind: 'starting' },
         rewrites: hostingRewrites(
           await readFirebaseJson(cwd).catch(() => null),
-          (warning) => process.stderr.write(`  ⚠ ${warning}\n`),
+          (warning) => writeStreamQuietly(process.stderr, `  \u26a0 ${warning}\n`),
         ),
         staticFileExists: (pathname) => runtime !== undefined && runtime.publicDir !== null && resolveHostingFile(runtime.publicDir, pathname) !== null,
         trustProxy: gatewayTrustProxy,
-        onWarning: (warning) => process.stderr.write(`  ⚠ ${warning}\n`),
+        onWarning: (warning) => writeStreamQuietly(process.stderr, `  \u26a0 ${warning}\n`),
         onServed: (record) => {
           const { failed, line } = servedLine(record);
-          if (failed) process.stderr.write(`✖ ${line}\n`);
-          else served.write(`✔ ${line}\n`);
+          if (failed) writeStreamQuietly(process.stderr, `\u2716 ${line}\n`);
+          else writeStreamQuietly(served, `\u2714 ${line}\n`);
         },
         plane: 'pyric-sandbox',
       });
@@ -1325,26 +1309,27 @@ export async function runServe(parsed: ParsedArgs, runHost: ServeRunHost = {}): 
   }
 
   // The server is up: from here on, no single bad request/WS/watcher error
-  // may kill the process — log loudly and keep serving (startup errors above
+  // may kill the process -- log loudly and keep serving (startup errors above
   // still fail fast).
-  installServeProcessGuard((m) => process.stderr.write(m + '\n'));
+  const uninstallProcessGuard = installServeProcessGuard((m) => writeStreamQuietly(process.stderr, `${m}\n`));
 
   // The agent contract: with --json, stdout carries exactly this one line
   // (the banner went to stderr). Readiness probe: GET /__pyric/init.json.
-  if (json) process.stdout.write(serveJsonLine(runtime) + '\n');
+  if (json) writeStreamQuietly(process.stdout, `${serveJsonLine(runtime)}\n`);
 
   // A host-only sandbox mounts no MCP bridge unless one is needed.
   // so a `pyric mcp-proxy` in an editor cannot attach. Nudge toward --bridge.
   const shouldSuggestBridge = !bridgeOn && usesHumanOutput;
   if (shouldSuggestBridge) {
-    process.stderr.write(
+    writeStreamQuietly(
+      process.stderr,
       '  tip  MCP? re-run with --bridge so an editor (Cursor / Claude / Antigravity) can attach via `pyric mcp-proxy`.\n',
     );
   }
 
   // Auto-open the served page (best-effort) so the browser-resident sandbox is
   // actually running. Suppressed in non-interactive paths (--json, --no-open,
-  // no TTY, CI) — see shouldAutoOpen. A failed open never fails serve.
+  // no TTY, CI) -- see shouldAutoOpen. A failed open never fails serve.
   const opened = shouldAutoOpen({
     json,
     noOpen: Boolean(parsed.flags.get('no-open')),
@@ -1369,14 +1354,11 @@ export async function runServe(parsed: ParsedArgs, runHost: ServeRunHost = {}): 
       crashRestartWait = null;
     }
   };
-  const { promise: signal, resolve: resolveSignal } = Promise.withResolvers<NodeJS.Signals>();
-  const onSigint = (): void => resolveSignal('SIGINT');
-  const onSigterm = (): void => resolveSignal('SIGTERM');
-  process.once('SIGINT', onSigint);
-  process.once('SIGTERM', onSigterm);
-  const removeSignalHandlers = (): void => {
-    process.off('SIGINT', onSigint);
-    process.off('SIGTERM', onSigterm);
+  const shutdownSignals = installServeShutdownSignals();
+  const { signal } = shutdownSignals;
+  const cleanupLifecycleListeners = (): void => {
+    shutdownSignals.dispose();
+    uninstallProcessGuard();
   };
   const waitOrSignal = async <T>(pending: Promise<T>): Promise<{ value: T } | { signal: NodeJS.Signals }> =>
     Promise.race([
@@ -1385,15 +1367,18 @@ export async function runServe(parsed: ParsedArgs, runHost: ServeRunHost = {}): 
     ]);
   const stopAfterSignal = async (): Promise<number> => {
     const output = json ? process.stderr : process.stdout;
-    output.write('\nShutting down...\n');
+    writeStreamQuietly(output, '\nShutting down...\n');
     beaconWatchdog?.stop();
     const activeChild = devChild;
-    const hasRunningChild = activeChild !== null && activeChild.child.exitCode === null;
+    const hasRunningChild =
+      activeChild !== null && activeChild.child.exitCode === null && activeChild.child.signalCode === null;
     if (hasRunningChild) activeChild.signal(await signal);
     resolveCrashRestartWait();
-    await functionsRuntime?.close().catch(() => undefined);
-    await runtime.handle.stop().catch(() => undefined);
-    removeSignalHandlers();
+    await runBoundedTeardown(async () => {
+      await functionsRuntime?.close().catch(ignoreShutdownError);
+      await runtime.handle.stop().catch(ignoreShutdownError);
+    });
+    cleanupLifecycleListeners();
     return 0;
   };
 
@@ -1401,7 +1386,7 @@ export async function runServe(parsed: ParsedArgs, runHost: ServeRunHost = {}): 
   const canStartFunctions = functionsProject !== null && hasFunctionsIdentity;
   if (canStartFunctions) {
     const info = json ? process.stderr : process.stdout;
-    info.write('• functions waiting for the browser tab to connect the sandbox…\n');
+    writeStreamQuietly(info, '\u2022 functions waiting for the browser tab to connect the sandbox\u2026\n');
     const serveUrl = runtime.handle.url;
     functionsGateway?.update(usesHostedSandbox ? { kind: 'starting' } : { kind: 'waiting-peer', serveUrl });
     const warnPrivateInvokers = createPrivateInvokerWarnings();
@@ -1420,7 +1405,7 @@ export async function runServe(parsed: ParsedArgs, runHost: ServeRunHost = {}): 
       if (isOutput) {
         const isStdout = event.stream === 'stdout';
         const output = isStdout ? info : process.stderr;
-        output.write(event.line);
+        writeStreamQuietly(output, event.line);
         return;
       }
       const isUnexpectedExit = event.type === 'unexpected-exit';
@@ -1437,25 +1422,29 @@ export async function runServe(parsed: ParsedArgs, runHost: ServeRunHost = {}): 
         } else {
           functionsGateway?.update({ kind: 'exited', code: event.code });
         }
-        process.stderr.write(`pyric sandbox: ${unexpectedExitLine(event.code, isRestarting)}\n`);
+        writeStreamQuietly(process.stderr, `pyric sandbox: ${unexpectedExitLine(event.code, isRestarting)}\n`);
         return;
       }
       if (event.type === 'unresponsive') {
         functionsGateway?.update({ kind: 'unresponsive' });
-        process.stderr.write(`✖ ${UNRESPONSIVE_LINE}\n`);
+        writeStreamQuietly(process.stderr, `\u2716 ${UNRESPONSIVE_LINE}\n`);
         return;
       }
       if (event.type === 'restarted') {
         functionsGateway?.update(stateAfterStart(event.result, serveUrl));
         resolveCrashRestartWait();
         const restarted = event.result.kind === 'ready';
-        if (restarted) info.write('↻ functions restarted\n');
-        else process.stderr.write(`✖ functions did not restart (${event.result.kind === 'failed' ? event.result.error.message : 'no sandbox peer'})\n`);
+        if (restarted) {
+          writeStreamQuietly(info, '\u21bb functions restarted\n');
+        } else {
+          const reason = event.result.kind === 'failed' ? event.result.error.message : 'no sandbox peer';
+          writeStreamQuietly(process.stderr, `\u2716 functions did not restart (${reason})\n`);
+        }
         return;
       }
       const childEvent = event.event;
       if (childEvent.type === 'uncaught-error') {
-        process.stderr.write(`✖ ${uncaughtErrorLine(childEvent.error)}\n`);
+        writeStreamQuietly(process.stderr, `\u2716 ${uncaughtErrorLine(childEvent.error)}\n`);
         return;
       }
       const isExecution = childEvent.type === 'execution';
@@ -1467,15 +1456,17 @@ export async function runServe(parsed: ParsedArgs, runHost: ServeRunHost = {}): 
         const paramsSuffix = hasParams ? ` (${params})` : '';
         const isFulfilled = childEvent.status === 'fulfilled';
         if (isFulfilled) {
-          info.write(`✔ function  ${childEvent.exportName} ← /${childEvent.ref}${paramsSuffix}\n`);
+          writeStreamQuietly(info, `\u2714 function  ${childEvent.exportName} \u2190 /${childEvent.ref}${paramsSuffix}\n`);
         } else {
-          process.stderr.write(
-            `✖ function  ${childEvent.exportName} ← /${childEvent.ref}${paramsSuffix}: ${childEvent.error.message}\n`,
+          writeStreamQuietly(
+            process.stderr,
+            `\u2716 function  ${childEvent.exportName} \u2190 /${childEvent.ref}${paramsSuffix}: ${childEvent.error.message}\n`,
           );
         }
       } else {
-        process.stderr.write(
-          `✖ functions delivery for ${childEvent.exportName}: ${childEvent.error.message}\n`,
+        writeStreamQuietly(
+          process.stderr,
+          `\u2716 functions delivery for ${childEvent.exportName}: ${childEvent.error.message}\n`,
         );
       }
     };
@@ -1502,15 +1493,18 @@ export async function runServe(parsed: ParsedArgs, runHost: ServeRunHost = {}): 
     const isMissingPeer = result.kind === 'no-peer';
     const failedStartup = result.kind === 'failed';
     if (isMissingPeer) {
-      process.stderr.write(
-        `  ⚠ functions not started — no browser tab connected after 30s. ` +
+      writeStreamQuietly(
+        process.stderr,
+        `  \u26a0 functions not started \u2014 no browser tab connected after 30s. ` +
           `Open ${runtime.handle.url} and restart pyric sandbox.\n`,
       );
     } else if (failedStartup) {
-      process.stderr.write(`${result.error.message}\n`);
-      await functionsRuntime.close();
-      await runtime.handle.stop();
-      removeSignalHandlers();
+      writeStreamQuietly(process.stderr, `${result.error.message}\n`);
+      await runBoundedTeardown(async () => {
+        await functionsRuntime?.close().catch(ignoreShutdownError);
+        await runtime.handle.stop().catch(ignoreShutdownError);
+      });
+      cleanupLifecycleListeners();
       return 2;
     } else {
       const ready = result.ready;
@@ -1518,19 +1512,23 @@ export async function runServe(parsed: ParsedArgs, runHost: ServeRunHost = {}): 
       const triggerSuffix = hasSingleTrigger ? '' : 's';
       const reportsTriggers = ready.triggerCount > 0 || ready.http === undefined;
       if (reportsTriggers) {
-        info.write(
-          `✔ functions ${ready.triggerCount} onValueCreated trigger${triggerSuffix} ` +
+        writeStreamQuietly(
+          info,
+          `\u2714 functions ${ready.triggerCount} onValueCreated trigger${triggerSuffix} ` +
             `from ${relative(cwd, functionsProject.entry)}\n`,
         );
       }
       if (ready.http) {
         const [heading, ...urls] = httpFunctionLines(ready.http, serveUrl, functionsProjectId ?? 'demo-project');
-        info.write(`✔ ${heading}\n${urls.map((line) => `${line}\n`).join('')}`);
-        for (const warning of warnPrivateInvokers(ready.http)) process.stderr.write(`  ⚠ ${warning}\n`);
+        writeStreamQuietly(info, `\u2714 ${heading}\n${urls.map((line) => `${line}\n`).join('')}`);
+        for (const warning of warnPrivateInvokers(ready.http)) {
+          writeStreamQuietly(process.stderr, `  \u26a0 ${warning}\n`);
+        }
       }
       for (const unsupported of ready.unsupportedTriggers) {
-        process.stderr.write(
-          `  ⚠ functions export ${unsupported.exportName} uses unsupported trigger ` +
+        writeStreamQuietly(
+          process.stderr,
+          `  \u26a0 functions export ${unsupported.exportName} uses unsupported trigger ` +
             `${unsupported.eventType}; it will not run in pyric sandbox.\n`,
         );
       }
@@ -1550,25 +1548,28 @@ export async function runServe(parsed: ParsedArgs, runHost: ServeRunHost = {}): 
     // when nothing was opened (CI/--no-open/--json): no tab is coming, and
     // stalling would only delay the honest failure.
     if (opened) {
-      info.write('• run      waiting for the browser tab to connect the sandbox…\n');
+      writeStreamQuietly(info, '\u2022 run      waiting for the browser tab to connect the sandbox\u2026\n');
       const connectedOutcome = await waitOrSignal(waitForSandboxPeer(runtime.handle.url));
       const interruptedConnection = 'signal' in connectedOutcome;
       if (interruptedConnection) return stopAfterSignal();
       const connected = connectedOutcome.value;
       const missingPeer = !connected;
       if (missingPeer) {
-        info.write(
-          `  ⚠ no browser tab connected after 30s — starting your command anyway; sandbox ops will fail until ${runtime.handle.url} is open.\n`,
+        writeStreamQuietly(
+          info,
+          `  \u26a0 no browser tab connected after 30s \u2014 starting your command anyway; sandbox ops will fail until ${runtime.handle.url} is open.\n`,
         );
       }
     } else if (needsBrowserConnectionNotice) {
-      info.write(
-        `  ⓘ Auto-open is disabled (--no-open/CI). The pyric sandbox is browser-resident: ` +
+      writeStreamQuietly(
+        info,
+        `  \u24d8 Auto-open is disabled (--no-open/CI). The pyric sandbox is browser-resident: ` +
           `open ${runtime.handle.url} to connect if your command performs Firebase operations.\n`,
       );
     }
-    info.write(
-      `✔ run      \`${plan.label}\` — firebase-admin/firebase imports are routed to the sandbox at ${runtime.handle.url}\n`,
+    writeStreamQuietly(
+      info,
+      `\u2714 run      \`${plan.label}\` \u2014 firebase-admin/firebase imports are routed to the sandbox at ${runtime.handle.url}\n`,
     );
     const childEnv = buildChildEnv(process.env, {
       serveUrl: runtime.handle.url,
@@ -1580,7 +1581,7 @@ export async function runServe(parsed: ParsedArgs, runHost: ServeRunHost = {}): 
     });
     // What we are handing the child, stated before it starts.
     const interlock = describeInterlock(childEnv, registerModuleUrl());
-    info.write(formatInterlockLine(interlock));
+    writeStreamQuietly(info, formatInterlockLine(interlock));
 
     devChild = spawnSandboxChild(plan, { cwd, json, env: childEnv });
     // A child still alive well after launch that never posted a beacon is very
@@ -1590,13 +1591,14 @@ export async function runServe(parsed: ParsedArgs, runHost: ServeRunHost = {}): 
       label: plan.label,
       beacon: interlock.beacon,
       sawBeacon: () => runtime.beaconCount() > beaconsAtSpawn,
-      isAlive: () => devChild !== null && devChild.child.exitCode === null,
-      warn: (line) => void process.stderr.write(`${line}\n`),
+      isAlive: () => devChild !== null && devChild.child.exitCode === null && devChild.child.signalCode === null,
+      warn: (line) => writeStreamQuietly(process.stderr, `${line}\n`),
     });
   } else if (usesHumanOutput && runHost.liveHost !== undefined) {
-    process.stdout.write(LIVE_HOST_CLIENTS);
+    writeStreamQuietly(process.stdout, LIVE_HOST_CLIENTS);
   } else if (usesHumanOutput) {
-    process.stdout.write(
+    writeStreamQuietly(
+      process.stdout,
       formatStartupEnvExport({
         serveUrl: runtime.handle.url,
         registerUrl: registerModuleUrl(),
@@ -1614,37 +1616,43 @@ export async function runServe(parsed: ParsedArgs, runHost: ServeRunHost = {}): 
       void (async () => {
         beaconWatchdog?.stop();
         resolveCrashRestartWait();
-        await functionsRuntime?.close().catch(() => undefined);
-        const activeChild = devChild;
-        const hasRunningChild = activeChild !== null && activeChild.child.exitCode === null;
-        if (hasRunningChild) {
-          activeChild.signal('SIGTERM');
-          await activeChild.exited.catch(() => undefined);
-        }
-        await runtime.handle.stop().catch(() => undefined);
-        removeSignalHandlers();
+        await runBoundedTeardown(async () => {
+          await functionsRuntime?.close().catch(ignoreShutdownError);
+          const activeChild = devChild;
+          const hasRunningChild =
+            activeChild !== null && activeChild.child.exitCode === null && activeChild.child.signalCode === null;
+          if (hasRunningChild) {
+            activeChild.signal('SIGTERM');
+          }
+          if (activeChild !== null) {
+            await activeChild.exited.catch(ignoreShutdownError);
+          }
+          await runtime.handle.stop().catch(ignoreShutdownError);
+        });
+        cleanupLifecycleListeners();
         resolveExit(code);
       })();
     };
-    const shutdown = (signal: NodeJS.Signals): void => {
+    const shutdown = (receivedSignal: NodeJS.Signals): void => {
       if (shuttingDown) return;
       shuttingDown = true;
       const output = json ? process.stderr : process.stdout;
-      output.write('\nShutting down...\n');
+      writeStreamQuietly(output, '\nShutting down...\n');
       resolveCrashRestartWait();
-      void functionsRuntime?.close();
+      void functionsRuntime?.close().catch(ignoreShutdownError);
       const activeChild = devChild;
-      const hasRunningChild = activeChild !== null && activeChild.child.exitCode === null;
+      const hasRunningChild =
+        activeChild !== null && activeChild.child.exitCode === null && activeChild.child.signalCode === null;
       if (hasRunningChild) {
         // Forward the signal; the child's exit (below) closes the host.
-        // (The terminal delivers Ctrl-C to the whole group too — the
+        // (The terminal delivers Ctrl-C to the whole group too -- the
         // forward makes non-TTY / programmatic signals behave the same.)
-        activeChild.signal(signal);
+        activeChild.signal(receivedSignal);
       } else {
         finish(0);
       }
     };
-    // Child exits → close the host and propagate its code (Ctrl-C → 0).
+    // Child exits -> close the host and propagate its code (Ctrl-C -> 0).
     const activeChild = devChild;
     const hasChild = activeChild !== null;
     if (hasChild) void activeChild.exited.then((code) => finish(code));
