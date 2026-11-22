@@ -1,5 +1,6 @@
 import type { AuthState } from 'pyric/sandbox';
 import { isReservedSegment, jsonValuesEqual, joinPath, pathSegments, type JsonValue } from './data-tree.js';
+import { scheduleCallbackErrorRethrow } from './exception-guard.js';
 import type { BackendState } from './backend-state.js';
 import type { ChildEventSnapshot, ChildListener, ChildParentSnapshot } from './listener-types.js';
 import type { PriorityRecord } from './priority-state.js';
@@ -407,5 +408,6 @@ export class ChildListeners {
       event: listener.event, result: 'error',
       error: { message: thrown instanceof Error ? thrown.message : String(thrown) }, detail,
     });
+    scheduleCallbackErrorRethrow(thrown);
   }
 }

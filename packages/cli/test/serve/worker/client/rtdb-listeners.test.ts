@@ -11,7 +11,7 @@
  * a write or a later read is answered, every snapshot an earlier call caused
  * has already reached the application's callbacks.
  */
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import {
   getDatabase,
   sandbox as databaseSandbox,
@@ -22,6 +22,31 @@ import {
 } from 'pyric/database';
 import * as client from '../../../../src/serve/worker/index.js';
 import { connectClient, until } from '../integration-support.js';
+
+function interceptExceptionGuardRethrows(): {
+  scheduled: Array<() => void>;
+  warnSpy: ReturnType<typeof spyOn>;
+  restore: () => void;
+} {
+  const scheduled: Array<() => void> = [];
+  const realSetTimeout = globalThis.setTimeout;
+  const timeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(((fn: (...args: unknown[]) => void, delay?: number, ...args: unknown[]) => {
+    if (fn.name === 'rtdbExceptionGuardRethrow') {
+      scheduled.push(() => fn(...args));
+      return 0 as unknown as ReturnType<typeof setTimeout>;
+    }
+    return realSetTimeout(fn, delay, ...args);
+  }) as typeof setTimeout);
+  const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+  return {
+    scheduled,
+    warnSpy,
+    restore: () => {
+      timeoutSpy.mockRestore();
+      warnSpy.mockRestore();
+    },
+  };
+}
 
 describe('RTDB worker listeners', () => {
   let restoreSW: () => void;
@@ -114,31 +139,51 @@ describe('RTDB worker listeners', () => {
     expect(seen).not.toContain('c');
 
     const deliveredDespiteThrow: string[] = [];
-    client.rtdbOnChildAdded(rows, (snapshot) => {
-      deliveredDespiteThrow.push(snapshot.key!);
-      throw new Error('listener failure');
-    }, { onlyOnce: true });
-    await until(() => deliveredDespiteThrow.length >= 3, 'throwing onlyOnce child_added batch');
-    expect(deliveredDespiteThrow).toEqual(['c', 'b', 'a']);
+    const guard = interceptExceptionGuardRethrows();
+    try {
+      client.rtdbOnChildAdded(rows, (snapshot) => {
+        deliveredDespiteThrow.push(snapshot.key ?? '');
+        throw new Error('listener failure');
+      }, { onlyOnce: true });
+      await until(() => deliveredDespiteThrow.length >= 3, 'throwing onlyOnce child_added batch');
+      expect(deliveredDespiteThrow).toEqual(['c', 'b', 'a']);
+      expect(guard.scheduled).toHaveLength(3);
+      for (const rethrow of guard.scheduled) {
+        expect(() => rethrow()).toThrow('listener failure');
+      }
+      expect(guard.warnSpy).toHaveBeenCalledTimes(3);
+    } finally {
+      guard.restore();
+    }
   });
 
-  it('isolates thrown value callbacks from sibling listeners', async () => {
+  it('isolates thrown value callbacks from sibling listeners and schedules async rethrow', async () => {
     const { db } = await connectClient();
     const target = client.rtdbRef(client.rtdbGetDatabase(db), 'value-callback-isolation');
     await client.rtdbSet(target, 0);
 
     const delivered: unknown[] = [];
-    const stopThrowing = client.rtdbOnValue(target, () => {
-      throw new Error('listener failure');
-    });
-    const stopControl = client.rtdbOnValue(target, (snapshot) => delivered.push(snapshot.val()));
-    await until(() => delivered.length >= 1, 'initial control value');
-    await client.rtdbSet(target, 1);
-    await until(() => delivered.length >= 2, 'control value after set');
+    const guard = interceptExceptionGuardRethrows();
+    try {
+      const stopThrowing = client.rtdbOnValue(target, () => {
+        throw new Error('listener failure');
+      });
+      const stopControl = client.rtdbOnValue(target, (snapshot) => delivered.push(snapshot.val()));
+      await until(() => delivered.length >= 1, 'initial control value');
+      await client.rtdbSet(target, 1);
+      await until(() => delivered.length >= 2, 'control value after set');
 
-    expect(delivered).toEqual([0, 1]);
-    stopThrowing();
-    stopControl();
+      expect(delivered).toEqual([0, 1]);
+      stopThrowing();
+      stopControl();
+      expect(guard.scheduled).toHaveLength(2);
+      for (const rethrow of guard.scheduled) {
+        expect(() => rethrow()).toThrow('listener failure');
+      }
+      expect(guard.warnSpy).toHaveBeenCalledTimes(2);
+    } finally {
+      guard.restore();
+    }
   });
 
   it('removes duplicate callbacks one registration at a time and scopes query off', async () => {

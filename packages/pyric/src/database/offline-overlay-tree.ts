@@ -17,6 +17,7 @@ import {
   pathSegments,
   type JsonValue,
 } from './sandbox/data-tree.js';
+import { runWithExceptionGuard } from './sandbox/exception-guard.js';
 import type { ChildEventSnapshot, ValueListenerSnapshot } from './sandbox/listener-types.js';
 import type { PriorityRecord } from './sandbox/priority-state.js';
 
@@ -143,7 +144,7 @@ export function stateFor(target: Target): TargetOfflineState {
   return created;
 }
 
-export function priorityAt(state: TargetOfflineState, target: Target, path: string): Priority {
+function priorityAt(state: TargetOfflineState, target: Target, path: string): Priority {
   const canonical = canonicalOfflinePath(path);
   if (state.overlayPriorities.has(canonical)) {
     const stored = state.overlayPriorities.get(canonical);
@@ -194,7 +195,7 @@ export function priorityStateForValue(
   return JSON.stringify(entries);
 }
 
-export function prioritiesSubtree(record: PriorityRecord, path: string): PriorityRecord {
+function prioritiesSubtree(record: PriorityRecord, path: string): PriorityRecord {
   const canonical = canonicalOfflinePath(path);
   const prefix = canonical === '/' ? '/' : `${canonical}/`;
   const out: PriorityRecord = {};
@@ -303,12 +304,12 @@ export function emitChildDiff(
     for (const prev of entry.rows) {
       if (!nextByKey.has(prev.key)) {
         const childPath = joinPath([...pathSegments(entry.path), prev.key]);
-        entry.deliver({
+        runWithExceptionGuard(() => entry.deliver({
           key: prev.key,
           val: prev.value,
           previousChildName: null,
           priorities: prioritiesSubtree(entry.priorities, childPath),
-        });
+        }));
       }
     }
   } else {
@@ -327,35 +328,35 @@ export function emitChildDiff(
       const prior = prevByKey.get(cur.key);
       const childPath = joinPath([...pathSegments(entry.path), cur.key]);
       if (entry.event === 'child_added' && prior === undefined) {
-        entry.deliver({
+        runWithExceptionGuard(() => entry.deliver({
           key: cur.key,
           val: cur.value,
           previousChildName: prevKey,
           priorities: priorityRecordBelow(state, target, childPath, cur.value),
-        });
+        }));
       } else if (
         entry.event === 'child_changed'
         && prior !== undefined
         && (!jsonValuesEqual(prior.value, cur.value) || prior.priority !== cur.priority)
       ) {
-        entry.deliver({
+        runWithExceptionGuard(() => entry.deliver({
           key: cur.key,
           val: cur.value,
           previousChildName: prevKey,
           priorities: priorityRecordBelow(state, target, childPath, cur.value),
-        });
+        }));
       } else if (entry.event === 'child_moved' && prior !== undefined) {
         let orderBy = null;
         if (entry.spec !== undefined) {
           orderBy = entry.spec.orderBy;
         }
         if (indexedOrderValueChanged(orderBy, cur.key, prior.value, prior.priority, cur.value, cur.priority)) {
-          entry.deliver({
+          runWithExceptionGuard(() => entry.deliver({
             key: cur.key,
             val: cur.value,
             previousChildName: prevKey,
             priorities: priorityRecordBelow(state, target, childPath, cur.value),
-          });
+          }));
         }
       }
     }
@@ -387,7 +388,7 @@ export function notifyLocalOverlayListeners(
     listener.deliveredOptimisticWhileOffline = true;
     listener.lastVal = cloneJson(snap.val);
     listener.lastPriorityState = prioState;
-    listener.deliver(snap);
+    runWithExceptionGuard(() => listener.deliver(snap));
   }
   for (const childListener of [...state.childListeners]) {
     if (!changedPaths.some((p) => pathsOverlap(p, childListener.path))) {

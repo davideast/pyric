@@ -1,6 +1,7 @@
 import type { SdkActivityHandle } from '../sandbox/internal/sdk-activity.js';
 import type { ListenerRegistry, ListenerRegistration } from './listener-registry.js';
 import { jsonValuesEqual, type JsonValue } from './sandbox/data-tree.js';
+import { runWithExceptionGuard } from './sandbox/exception-guard.js';
 import { targetOf } from './routing.js';
 import { isDefaultQuerySpec, queryIdentifier } from './query-shape.js';
 import {
@@ -62,11 +63,7 @@ export function observeConnectionMetadata(
     } else {
       snapshot = buildSandboxSnapFromRaw(target, reference, value);
     }
-    try {
-      callback(snapshot);
-    } catch {
-      // Match ordinary RTDB listener isolation.
-    }
+    runWithExceptionGuard(() => callback(snapshot));
   });
   if (stopped) stopObserving();
   return stop;
@@ -108,11 +105,9 @@ export function observeConnectionChildMetadata(
   const emit = (row: QueryRow, previousChildName: string | null): void => {
     const childRef = child(baseRef, row.key);
     const snap = buildSandboxSnapFromRaw(target, childRef, row.value);
-    try {
+    runWithExceptionGuard(() => {
       cb(snap, event === 'child_removed' ? null : previousChildName);
-    } catch {
-      // Match ordinary RTDB listener isolation.
-    }
+    });
   };
   stopObserving = target.connection.observeConnection((connected) => {
     if (stopped) return;

@@ -24,6 +24,7 @@ import {
 import type { Target } from './routing.js';
 import type { ClientTransactionHooks } from './sandbox/client-transaction.js';
 import { cloneJson, joinPath, jsonValuesEqual, pathSegments, type JsonValue } from './sandbox/data-tree.js';
+import { runWithExceptionGuard } from './sandbox/exception-guard.js';
 import type { ChildEventSnapshot, ValueListenerSnapshot } from './sandbox/listener-types.js';
 import {
   coerceArrays,
@@ -98,7 +99,7 @@ export function setClientOffline(target: Target, offline: boolean): void {
       listener.hasDelivered = true;
       listener.lastVal = cloneJson(candidate.val);
       listener.lastPriorityState = prioState;
-      listener.deliver(candidate);
+      runWithExceptionGuard(() => listener.deliver(candidate));
     }
   }
 

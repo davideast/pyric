@@ -5,6 +5,7 @@ import {
   logDatabaseWarning,
   normalizeNode,
   queryIdentifier,
+  scheduleCallbackErrorRethrow,
 } from 'pyric/database/internal';
 import { sameRtdbValue } from '../rtdb-value-equality.js';
 import {
@@ -383,8 +384,8 @@ export function rtdbOnValue(
     try {
       activity.delivered(snapshot);
       deliverWithRegions(activity.id, () => next(snapshot));
-    } catch {
-      // Firebase isolates listener exceptions from sibling deliveries.
+    } catch (error) {
+      scheduleCallbackErrorRethrow(error);
     } finally {
       // A delivery before the listener is registered stops it as it registers, below.
       if (isOnce) unsubscribe?.();
@@ -448,8 +449,8 @@ function onChildEvent(
           undefined,
           entry.exportValue ?? entry.value,
         ), previousChildName, initialBatch);
-      } catch {
-        // Firebase isolates listener exceptions from sibling deliveries.
+      } catch (error) {
+        scheduleCallbackErrorRethrow(error);
       }
     };
     if (!initialized) {
