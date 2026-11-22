@@ -1,6 +1,7 @@
 import { DOC_VALUE_ENCODING } from '../../firestore/internal/value-codec.js';
 import { encodeStateDocument } from '../internal/state-values.js';
 import { checksumDocs, pathToBucketId, type BucketRecord } from './chunk-format.js';
+import { cloneRawEntry } from './skipped-documents.js';
 
 type Document = Record<string, unknown>;
 
@@ -57,7 +58,7 @@ export class ChangedBuckets {
           const rawDocs = docs as Record<string, unknown>;
           for (const [path, rawDocument] of skipped) {
             if (!Object.hasOwn(rawDocs, path)) {
-              rawDocs[path] = structuredClone(rawDocument);
+              rawDocs[path] = cloneRawEntry(rawDocument);
             }
           }
         }

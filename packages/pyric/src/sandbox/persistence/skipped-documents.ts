@@ -1,7 +1,7 @@
 import { DOC_VALUE_ENCODING } from '../../firestore/internal/value-codec.js';
 import { checksumDocs, type BucketRecord } from './chunk-format.js';
 
-function cloneRawEntry(value: unknown): unknown {
+export function cloneRawEntry(value: unknown): unknown {
   try {
     return structuredClone(value);
   } catch {

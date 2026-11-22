@@ -46,16 +46,19 @@ export function createIndexConfigClient(
 
   function ensureInit(): Promise<void> {
     if (initPromise !== undefined) return initPromise;
-    initPromise = (async () => {
+    let isTerminal = false;
+    const attempt = (async () => {
       const stamped = stampedSessionToken();
       if (options.init !== undefined) {
         let provided: IndexInitSummary | null;
         try {
           provided = await options.init;
         } catch {
+          isTerminal = true;
           throw new Error('No local index configuration is connected.');
         }
         if (provided === null || provided.remotePeer === true) {
+          isTerminal = true;
           throw new Error('No local index configuration is connected.');
         }
         token = typeof provided.sessionToken === 'string' ? provided.sessionToken : stamped;
@@ -66,17 +69,29 @@ export function createIndexConfigClient(
         initRequest.headers = { 'x-pyric-session-token': stamped };
       }
       const response = await fetcher('/__pyric/init.json', initRequest);
+      if (response.status === 401 || response.status === 403) {
+        isTerminal = true;
+        throw new Error('No local index configuration is connected.');
+      }
       const isJson = response.headers.get('content-type')?.includes('application/json') === true;
       if (!response.ok || !isJson) {
         throw new Error('No local index configuration is connected.');
       }
       const init = (await response.json()) as IndexInitSummary;
       if (init.remotePeer === true) {
+        isTerminal = true;
         throw new Error('No local index configuration is connected.');
       }
       token = typeof init.sessionToken === 'string' ? init.sessionToken : stamped;
     })();
-    return initPromise;
+    initPromise = attempt;
+    void attempt.catch(() => {
+      // Allow manual retry after transient network/5xx errors; cache terminal refusals.
+      if (!isTerminal && initPromise === attempt) {
+        initPromise = undefined;
+      }
+    });
+    return attempt;
   }
 
   async function request(method: string, body?: unknown, service?: 'firestore' | 'rtdb') {
