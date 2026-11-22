@@ -9,7 +9,7 @@ import {
 import { sourceSizeViolation } from '../grammar/source-compile-limits.js';
 import type { LintWarning } from './linter.js';
 
-export function buildWarningLocation(opts: {
+function buildWarningLocation(opts: {
   functionName?: string;
   matchPath?: string;
   line?: number;
@@ -205,6 +205,22 @@ export function checkAdditionalCompileRejections(
             severity: 'error',
             message: violation.message,
             fix: `Rename or remove the duplicate declaration of '${violation.functionName ?? 'function'}' in ${violation.scope ?? 'this scope'}.`,
+          },
+          {
+            functionName: violation.functionName,
+            matchPath: violation.scope,
+            line: violation.line,
+          },
+        );
+        break;
+      case 'VARIABLE_REDEFINED':
+        pushWarning(
+          warnings,
+          {
+            rule: 'VARIABLE_REDEFINED',
+            severity: 'error',
+            message: violation.message,
+            fix: 'Give each parameter, let binding, and match path capture in the same scope a distinct name.',
           },
           {
             functionName: violation.functionName,

@@ -14,6 +14,8 @@ export default row({
   conformanceTests: [
     "packages/rules/test/storage/rules-oracle-conformance.test.ts",
     "packages/rules/test/storage/sandbox/rules-string-methods.test.ts",
+    "packages/rules/test/simulator/re2-classes-and-escapes.test.ts",
+    "packages/rules/test/grammar/regex-literal-surfaces.test.ts",
   ],
   constructs: ["storage.method.string.matches"],
 });

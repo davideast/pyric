@@ -14,7 +14,9 @@ export default row({
     "packages/pyric/test/rules/oracle-conformance.test.ts",
     "packages/rules/test/simulator/re2-space-and-trim.test.ts",
     "packages/rules/test/simulator/re2-dot-property-and-flags.test.ts",
+    "packages/rules/test/simulator/re2-classes-and-escapes.test.ts",
     "packages/rules/test/simulator/split-and-replace.test.ts",
+    "packages/rules/test/grammar/regex-literal-surfaces.test.ts",
   ],
   constructs: [
     "firestore.method.string.matches",

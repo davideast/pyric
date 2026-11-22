@@ -34,7 +34,7 @@ export function buildParseError(match: ohm.MatchResult, source: string, baseOffs
   return failureAt(source, offset, expected, message);
 }
 
-export function failureAt(source: string, offset: number, expected: string, message: string): ParseError {
+function failureAt(source: string, offset: number, expected: string, message: string): ParseError {
   let line = 1;
   let lastNewline = -1;
   for (let i = 0; i < offset && i < source.length; i++) {

@@ -8,7 +8,6 @@ import type { Expression, FirestoreRules, FunctionDef, MatchBlock } from './Fire
 import {
   CALL_DEPTH_LIMIT,
   buildCallGraph,
-  callDepthMessage,
   callDepthViolations,
   expressionChildren,
 } from './call-depth-limits.js';
@@ -19,7 +18,6 @@ import { allServiceBlocks, isStorageServiceName, topLevelMatches } from './servi
 import {
   NESTING_LEVEL_LIMIT,
   boundSourceNesting,
-  type ElidedSpan,
   type SourceNestingFailure,
 } from './source-nesting-bound.js';
 import { re2PatternProblem } from '../simulator/re2-pattern-check.js';
@@ -29,34 +27,45 @@ export {
   CALL_DEPTH_LIMIT,
   NESTING_LEVEL_LIMIT,
   boundSourceNesting,
-  callDepthMessage,
-  type ElidedSpan,
   type SourceNestingFailure,
 };
 
 /** Most `let` bindings one function may declare; 12 is rejected. */
 export const LET_LIMIT = 11;
 
-export const LET_LIMIT_MESSAGE =
+const LET_LIMIT_MESSAGE =
   'Maximum allowed variable count of 10 for a given function has been reached.';
 export const NESTING_MESSAGE = 'Expression is too complex to evaluate safely.';
 export const SLASH_STARTS_PATH_MESSAGE = "Missing 'match' keyword before path.";
-export const GLOB_MATCH_MESSAGE =
+const GLOB_MATCH_MESSAGE =
   'Invalid glob match expression. Only one glob match is permitted in a match declaration path.';
-export const DECREMENT_MESSAGE =
+const V1_MID_PATH_GLOB_MESSAGE =
+  'Invalid glob match expression. Glob matches are only permitted at the end of a path.';
+const DECREMENT_MESSAGE =
   'Increment (++) and decrement (--) operators are not supported.';
-export const MINUS_AFTER_MINUS_MESSAGE = "Unexpected '-'.";
+const MINUS_AFTER_MINUS_MESSAGE = "Unexpected '-'.";
 
 /** Production's message for a second definition of `name` in one scope. */
-export function duplicateFunctionMessage(name: string): string {
+function duplicateFunctionMessage(name: string): string {
   return `Function ${name} is already defined.`;
 }
 
-export type CompileLimitCode =
+/** Production's message for a duplicate parameter `name` on one function. */
+function duplicateParameterMessage(name: string): string {
+  return `Parameter ${name} is already defined.`;
+}
+
+/** Production's message for a variable or path capture `name` bound twice in one scope. */
+function duplicateVariableMessage(name: string): string {
+  return `Variable ${name} is already bound in the current scope.`;
+}
+
+type CompileLimitCode =
   | 'CALL_DEPTH'
   | 'LET_LIMIT'
   | 'NESTING_DEPTH'
   | 'FUNCTION_REDEFINED'
+  | 'VARIABLE_REDEFINED'
   | 'SLASH_STARTS_PATH'
   | 'GLOB_MATCH_COUNT'
   | 'UNSUPPORTED_RULES_VERSION'
@@ -122,7 +131,27 @@ export function compileLimitViolations(
       if (fn.returnLoc !== undefined) violation.column = fn.returnLoc.col;
       out.push(violation);
     }
+    const seenParams = new Set<string>();
+    for (const param of fn.parameters) {
+      if (seenParams.has(param)) {
+        pushViolation(out, 'VARIABLE_REDEFINED', duplicateParameterMessage(param), fn.loc?.line, fn.name);
+      } else {
+        seenParams.add(param);
+      }
+    }
+    const boundLocals = new Set<string>(seenParams);
     for (const binding of fn.lets) {
+      if (boundLocals.has(binding.name)) {
+        pushViolation(
+          out,
+          'VARIABLE_REDEFINED',
+          duplicateVariableMessage(binding.name),
+          binding.loc?.line ?? fn.loc?.line,
+          fn.name,
+        );
+      } else {
+        boundLocals.add(binding.name);
+      }
       pushNesting(out, binding.value, binding.loc?.line ?? fn.loc?.line, fn.name);
       pushExpressionViolations(out, binding.value, binding.loc?.line ?? fn.loc?.line, isFirestore, fn.name);
     }
@@ -144,15 +173,52 @@ export function compileLimitViolations(
   }
   out.push(...callDepthViolations(graph));
   out.push(...redefinedFunctions(ast, services));
+  const isVersion1 = ast.version === '1';
   for (const service of services) {
     for (const root of topLevelMatches(service)) {
-      out.push(...secondGlobMatches(root, 0));
+      out.push(...redefinedMatchCaptures(root));
+      out.push(...secondGlobMatches(root, 0, isVersion1));
     }
   }
   return out.sort((a, b) => (a.line ?? 0) - (b.line ?? 0));
 }
 
-function secondGlobMatches(match: MatchBlock, enclosing: number): CompileLimitViolation[] {
+function redefinedMatchCaptures(match: MatchBlock): CompileLimitViolation[] {
+  const out: CompileLimitViolation[] = [];
+  const seen = new Set<string>();
+  for (const segment of match.path.segments) {
+    if (segment.type === 'literal') continue;
+    if (seen.has(segment.name)) {
+      const violation: CompileLimitViolation = {
+        code: 'VARIABLE_REDEFINED',
+        message: duplicateVariableMessage(segment.name),
+        scope: match.path.raw,
+      };
+      if (match.loc !== undefined) violation.line = match.loc.line;
+      out.push(violation);
+    } else {
+      seen.add(segment.name);
+    }
+  }
+  for (const child of match.children) {
+    out.push(...redefinedMatchCaptures(child));
+  }
+  return out;
+}
+
+function hasMidPathGlob(match: MatchBlock): boolean {
+  const segments = match.path.segments;
+  for (let i = 0; i < segments.length - 1; i++) {
+    if (segments[i]!.type === 'recursive') return true;
+  }
+  return false;
+}
+
+function secondGlobMatches(
+  match: MatchBlock,
+  enclosing: number,
+  isVersion1 = false,
+): CompileLimitViolation[] {
   const own = match.path.segments.filter((segment) => segment.type === 'recursive').length;
   const out: CompileLimitViolation[] = [];
   if (own > 0 && enclosing + own > 1) {
@@ -162,8 +228,17 @@ function secondGlobMatches(match: MatchBlock, enclosing: number): CompileLimitVi
     };
     if (match.loc !== undefined) violation.line = match.loc.line;
     out.push(violation);
+  } else if (isVersion1 && hasMidPathGlob(match)) {
+    const violation: CompileLimitViolation = {
+      code: 'GLOB_MATCH_COUNT',
+      message: V1_MID_PATH_GLOB_MESSAGE,
+    };
+    if (match.loc !== undefined) violation.line = match.loc.line;
+    out.push(violation);
   }
-  for (const child of match.children) out.push(...secondGlobMatches(child, enclosing + own));
+  for (const child of match.children) {
+    out.push(...secondGlobMatches(child, enclosing + own, isVersion1));
+  }
   return out;
 }
 
@@ -254,7 +329,11 @@ function pushExpressionViolations(
     const message = isFirestore ? `${baseMessage}.` : baseMessage;
     pushViolation(out, 'INVALID_NUMBER_LITERAL', message, line, functionName);
   }
-  if (expr.type === 'methodCall' && expr.method === 'matches' && expr.args.length === 1) {
+  if (
+    expr.type === 'methodCall' &&
+    (expr.method === 'matches' || expr.method === 'split') &&
+    expr.args.length === 1
+  ) {
     const arg = expr.args[0];
     let problem: string | null = null;
     if (arg?.type === 'literal' && typeof arg.value === 'string') {

@@ -5,7 +5,7 @@ import { allServiceBlocks, isStorageServiceName, topLevelMatches } from './servi
 export const CALL_DEPTH_LIMIT = 21;
 
 /** Production's call depth message for a stack of {@link CALL_DEPTH_LIMIT} function names. */
-export function callDepthMessage(stack: readonly string[]): string {
+function callDepthMessage(stack: readonly string[]): string {
   return `Maximum allowed call depth of 20 is reached for [${stack.join('->')}] call stack.`;
 }
 

@@ -4,7 +4,7 @@ import type { Expr, MatchBlock } from './rules.js';
 function validateExpressionRegexes(expression: Expr): void {
   if (
     expression.kind === 'methodcall' &&
-    expression.method === 'matches' &&
+    (expression.method === 'matches' || expression.method === 'split') &&
     expression.args.length === 1
   ) {
     const arg = expression.args[0];

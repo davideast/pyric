@@ -25,9 +25,9 @@ service firebase.storage {
   };
 
   /** The regression this guards: JS `in` walks the prototype chain, so
-   *  `'toString' in map` would be TRUE → ALLOW; production maps expose own
+   *  `'toString' in map` would be TRUE -> ALLOW; production maps expose own
    *  keys only (pinned by rules-firestore-prototype-chain-keys). */
-  it('`in` on maps tests own keys only — prototype names are not keys', () => {
+  it('`in` on maps tests own keys only -- prototype names are not keys', () => {
     expect(verdict(`'toString' in request.resource.metadata`)).toBe(false);
     expect(verdict(`'constructor' in {'a': 1}`)).toBe(false);
     expect(verdict(`!('hasOwnProperty' in request.resource.metadata)`)).toBe(true);
@@ -35,7 +35,7 @@ service firebase.storage {
   });
 
   /** The regression this guards: JS division by zero yields Infinity, and
-   *  `Infinity > n` is TRUE → ALLOW; production errors (denies), while
+   *  `Infinity > n` is TRUE -> ALLOW; production errors (denies), while
    *  `error || true` still absorbs to allow. */
   it('division/modulo by zero errors and denies, absorbable by ||', () => {
     expect(verdict('request.resource.size / 0 > 5')).toBe(false);
@@ -79,8 +79,9 @@ service firebase.storage {
     expect(verdict(`request.resource.metadata['missing'] == 'x' || true`)).toBe(true);
   });
 
-  it('split() rejects RE2-unsupported constructs with a deny-reason', () => {
-    expect(verdict(`fileId.split('(?=x)').size() > 0`)).toBe(false);
+  it('split() rejects RE2-unsupported constructs at compile when literal and with a deny-reason when dynamic (#1334)', () => {
+    expect(() => verdict(`fileId.split('(?=x)').size() > 0`)).toThrow(/Invalid regular expression pattern/);
+    expect(verdict(`fileId.split('(?=' + 'x').size() > 0`)).toBe(false);
   });
 
   it('size() covers strings, lists, and map own-keys', () => {
@@ -113,7 +114,7 @@ service firebase.storage {
 
   /** The regression this guards: JS numbers carry no int/float distinction,
    *  so a value-typed `is` called `1.0` an int and int division produced
-   *  2.5 — production types by literal form and truncates int ÷ int
+   *  2.5 -- production types by literal form and truncates int / int
    *  (pinned by oracle:rules-storage-type-checks-is and
    *  oracle:rules-storage-float-modulo-unary-minus). */
   it('types numeric literals by form: 1.0 is float, 1 is int', () => {
@@ -138,7 +139,7 @@ service firebase.storage {
   });
 });
 
-describe('late-failure deny reasons name the construct (parse-time → request-time shift)', () => {
+describe('late-failure deny reasons name the construct (parse-time -> request-time shift)', () => {
   /** Constructs the shared grammar parses but the evaluator does not model
    *  fail at REQUEST time, not parse time. The deny reason must name the
    *  construct so the late failure is diagnosable from the reason trace. */

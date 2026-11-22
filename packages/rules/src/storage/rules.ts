@@ -201,11 +201,20 @@ export type PathArgSegment =
 // Public entry points
 // ===============================================================
 
+/** Options for `parseStorageRules`. */
+export interface ParseStorageRulesOptions {
+  /** Skip literal regex validation when inspecting a broken source (for example, in non-deploy tooling). */
+  allowInvalidRegex?: boolean;
+}
+
 /**
  * Parse a Storage rules source into an opaque handle. Throws
  * `SyntaxError` on malformed input.
  */
-export function parseStorageRules(source: string): StorageRules {
+export function parseStorageRules(
+  source: string,
+  options?: ParseStorageRulesOptions,
+): StorageRules {
   const parsed = parseToASTOrError(source);
   if (!parsed.ok) {
     throw new SyntaxError(
@@ -279,7 +288,9 @@ export function parseStorageRules(source: string): StorageRules {
   for (const child of root.children) {
     resolveFunctions(child, serviceScope, new Set());
   }
-  validateMatchRegexes(root);
+  if (!options?.allowInvalidRegex) {
+    validateMatchRegexes(root);
+  }
   return { _root: root, _version: parsed.ast.version };
 }
 

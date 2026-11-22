@@ -1,4 +1,4 @@
-// AUTO-GENERATED — do not edit by hand. Regenerate via:
+// AUTO-GENERATED -- do not edit by hand. Regenerate via:
 //   bun run inline-grammar (packages/rules)
 // Source: FirestoreRules.ohm
 
@@ -81,11 +81,15 @@ export const FIRESTORE_RULES_OHM_SOURCE = `FirestoreRules {
 
   matchPathSegment
     = "{" matchWildcard "}"    -- wildcard
-    | pathIdent                -- literal
+    | matchPathIdent           -- literal
 
   matchWildcard
-    = identStart identChar* "=" "**"  -- recursive
-    | identStart identChar*           -- single
+    = ident "=" "**"  -- recursive
+    | ident           -- single
+
+  matchPathIdent = (pathIdent | matchPathParen)+
+
+  matchPathParen = "(" pathIdent* ")"
 
   pathIdent = (letter | digit | "_" | "-" | ".")+
 
@@ -190,8 +194,10 @@ export const FIRESTORE_RULES_OHM_SOURCE = `FirestoreRules {
     | null
 
   number
-    = digit+ "." digit+  -- float
-    | digit+              -- int
+    = digit+ "." digit+ ~identChar  -- float
+    | digit+ "." ~identChar         -- trailingDot
+    | "." digit+ ~identChar         -- leadingDot
+    | digit+ ~identChar             -- int
 
   // String and bytes literals share one body rule and one escape rule. A raw
   // line feed or carriage return inside the quotes is a parse error, as in

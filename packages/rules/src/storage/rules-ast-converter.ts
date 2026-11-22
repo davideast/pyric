@@ -113,7 +113,7 @@ export function convertFunction(fn: SharedFunctionDef, sourceMap: AuthoredSource
 }
 
 /** The evaluator's node for a parsed expression, at the parsed node's source position. */
-export function convertExpr(e: SharedExpression, sourceMap: AuthoredSourceMap): Expr {
+function convertExpr(e: SharedExpression, sourceMap: AuthoredSourceMap): Expr {
   const converted = convertExprNode(e, sourceMap);
   copyExpressionPosition(e, converted);
   remapConvertedPosition(converted, sourceMap);

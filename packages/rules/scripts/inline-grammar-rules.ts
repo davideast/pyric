@@ -5,7 +5,7 @@
  *
  * Reads every `.ohm` file under src/ and writes a sibling
  * `<name>.ohm.generated.ts` that exports the source as a string. The
- * generated files are checked in — running this script after editing a
+ * generated files are checked in -- running this script after editing a
  * `.ohm` file is the same workflow as regenerating any other artifact
  * (e.g., a snapshot test). The header makes accidental hand-edits
  * obvious in code review.
@@ -38,7 +38,7 @@ function walk(dir: string): string[] {
 }
 
 function constName(file: string): string {
-  // FirestoreRules.ohm → FIRESTORE_RULES_OHM_SOURCE
+  // FirestoreRules.ohm -> FIRESTORE_RULES_OHM_SOURCE
   const name = basename(file, '.ohm')
     .replace(/([a-z])([A-Z])/g, '$1_$2')
     .toUpperCase();
@@ -60,7 +60,7 @@ for (const src of sources) {
     .replace(/`/g, '\\`')
     .replace(/\$\{/g, '\\${');
   const body =
-    `// AUTO-GENERATED — do not edit by hand. Regenerate via:\n` +
+    `// AUTO-GENERATED -- do not edit by hand. Regenerate via:\n` +
     `//   bun run inline-grammar (packages/rules)\n` +
     `// Source: ${basename(src)}\n` +
     `\n` +

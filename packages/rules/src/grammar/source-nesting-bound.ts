@@ -11,7 +11,7 @@ export interface SourceNestingFailure {
 }
 
 /** A closed bracket span whose interior was replaced to bound nesting depth. */
-export interface ElidedSpan {
+interface ElidedSpan {
   offset: number;
   text: string;
 }

@@ -33,7 +33,7 @@ export type { ParseError };
 // scripts/inline-grammar-rules.ts). This keeps the parser browser-safe -- no
 // fs / url / path imports -- while preserving the .ohm file as the
 // canonical edit surface.
-export const grammar = ohm.grammar(FIRESTORE_RULES_OHM_SOURCE);
+const grammar = ohm.grammar(FIRESTORE_RULES_OHM_SOURCE);
 
 export interface ParseResult {
   valid: boolean;
@@ -388,6 +388,12 @@ semantics.addOperation<any>('toAST', {
   number_float(_int, _dot, _frac) {
     return placedAt({ type: 'literal', value: parseFloat(this.sourceString), raw: this.sourceString }, this);
   },
+  number_trailingDot(_int, _dot) {
+    return placedAt({ type: 'literal', value: parseFloat(this.sourceString), raw: this.sourceString }, this);
+  },
+  number_leadingDot(_dot, _frac) {
+    return placedAt({ type: 'literal', value: parseFloat(this.sourceString), raw: this.sourceString }, this);
+  },
   number_int(_digits) {
     return placedAt({ type: 'literal', value: parseInt(this.sourceString, 10), raw: this.sourceString }, this);
   },
@@ -579,7 +585,9 @@ export function parseFunctions(input: string, sourceFile?: string): FunctionDef[
   const wrapped = `rules_version = '2';\nservice cloud.firestore {\n  match /databases/{db}/documents {\n${input}\n  }\n}`;
   const ast = parseToAST(wrapped);
   if (ast === null) return null;
-  const fns = ast.service.match.functions;
+  const root = ast.service.match;
+  if (root.allows.length > 0 || root.children.length > 0) return null;
+  const fns = root.functions;
   for (const fn of fns) {
     shiftFunctionLocs(fn, -3);
     if (sourceFile !== undefined) attachFunctionSourceFile(fn, sourceFile);

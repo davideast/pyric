@@ -293,7 +293,7 @@ export function spellRe2PropertyShorthand(source: string): string {
  * RE2's POSIX classes, each as code point ranges. They are ASCII only, as
  * RE2's are: `[[:alpha:]]` is `[A-Za-z]`.
  */
-const RE2_POSIX_CLASSES: Readonly<Record<string, ReadonlyArray<readonly [number, number]>>> = {
+export const RE2_POSIX_CLASSES: Readonly<Record<string, ReadonlyArray<readonly [number, number]>>> = {
   alnum: [[0x30, 0x39], [0x41, 0x5a], [0x61, 0x7a]],
   alpha: [[0x41, 0x5a], [0x61, 0x7a]],
   ascii: [[0x00, 0x7f]],

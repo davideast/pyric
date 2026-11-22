@@ -11,6 +11,9 @@ export default row({
   riskScore: 2,
   riskReasons: ["pyric refuses a ruleset production deploys"],
   oracleObservations: ["rules-storage-h1-in-is-precedence-deploy"],
-  conformanceTests: ["packages/rules/test/storage/rules-oracle-conformance.test.ts"],
+  conformanceTests: [
+    "packages/rules/test/storage/rules-oracle-conformance.test.ts",
+    "packages/rules/test/grammar/compile-acceptance.test.ts",
+  ],
   constructs: ["storage.operator.in", "storage.operator.is"],
 });
