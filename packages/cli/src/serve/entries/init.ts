@@ -1,52 +1,45 @@
 /**
- * `/__pyric/sdk/init.js` — the script tag `pyric dev` injects into every
+ * `/__pyric/sdk/init.js` -- the script tag `pyric dev` injects into every
  * served HTML page. Pulls the shared runtime and mounts the sign-in helper.
  * In worker mode the helper reads the worker user directory and owns UI state
  * only; in fallback mode it mints credentials via `createSignInCredential`
  * so OAuth users carry real provider metadata.
  */
-import {
-  getAuth,
-  sandbox as authSandbox,
-} from 'pyric/auth';
-import {
-  getAuth as getWorkerAuth,
-  listUsers,
-  setLens,
-} from '../worker/client.js';
-import {
-  switchAllAuthUsers,
-  signOutAllAuths,
-  commitCredentialToAllAuths,
-  getActiveAuthUser,
-  subscribeToActiveAuth,
-  registerActiveAuth,
-} from './active-auth.js';
-import { initPayload, logInitPayloadFailure } from './init-payload.js';
-import { sandbox } from './app-backend.js';
-import { installAvatarUpgrades } from './avatar-upgrade.js';
-import { useWorker, workerDb } from './worker-runtime.js';
-import { ServeAuthHelper, helperCustomClaims } from './auth-helper-core.js';
-import { installServeAuthResolver } from './auth-helper-runtime.js';
-import { mountAuthHelperDialog } from './auth-helper-dom.js';
+import { getAuth, sandbox as authSandbox } from 'pyric/auth';
 import { configureListenerAttribution } from 'pyric/sandbox/internal';
 import { installPyricRuntimeChip } from '../runtime/chip-install.js';
-import { sandboxEventSource } from '../runtime/listener-event-source.js';
-import { getPyricRuntimeStatus } from '../runtime/status.js';
+import { healthLiveStatus } from '../runtime/chip-live-status.js';
 import { projectRuntimeIdentity } from '../runtime/identity.js';
+import { createIndexConfigClient } from '../runtime/index-config-client.js';
+import { sandboxEventSource } from '../runtime/listener-event-source.js';
 import { pageLiveIdentity } from '../runtime/live-identity.js';
+import { getPyricRuntimeStatus } from '../runtime/status.js';
+import { createThresholdConfigClient } from '../runtime/threshold-config-client.js';
+import { getAuth as getWorkerAuth, listUsers, setLens } from '../worker/client.js';
+import {
+  commitCredentialToAllAuths,
+  getActiveAuthUser,
+  registerActiveAuth,
+  signOutAllAuths,
+  subscribeToActiveAuth,
+  switchAllAuthUsers,
+} from './active-auth.js';
+import { sandbox } from './app-backend.js';
+import { ServeAuthHelper, helperCustomClaims } from './auth-helper-core.js';
+import { mountAuthHelperDialog } from './auth-helper-dom.js';
+import { installServeAuthResolver } from './auth-helper-runtime.js';
+import { installAvatarUpgrades } from './avatar-upgrade.js';
+import { initPayload, logInitPayloadFailure } from './init-payload.js';
+import { useWorker, workerDb } from './worker-runtime.js';
 
-if (typeof document !== 'undefined' && typeof window !== 'undefined') {
-  // In live mode, follows the production user the app's own Auth signs in,
-  // in page memory only. Outside live mode no Auth reaches it.
-  pageLiveIdentity();
-  const localAuth = useWorker ? null : getAuth(sandbox);
-  const workerAuth = useWorker && workerDb ? getWorkerAuth(workerDb) : null;
-  if (workerAuth) registerActiveAuth(workerAuth);
-  if (localAuth) registerActiveAuth(localAuth);
-  const helper = workerAuth
-    ? new ServeAuthHelper({
-        list: async () => (await listUsers(workerAuth)).map((user) => ({
+function createPageAuthHelper(
+  workerAuth: ReturnType<typeof getWorkerAuth> | null,
+  localAuth: ReturnType<typeof getAuth> | null,
+): ServeAuthHelper {
+  if (workerAuth !== null) {
+    return new ServeAuthHelper({
+      list: async () =>
+        (await listUsers(workerAuth)).map(user => ({
           uid: user.uid,
           email: user.email,
           displayName: user.displayName,
@@ -58,31 +51,47 @@ if (typeof document !== 'undefined' && typeof window !== 'undefined') {
           providerUserInfo: user.providerUserInfo,
           customClaims: user.customClaims,
         })),
-      })
-    : new ServeAuthHelper(
-        {
-          list: () => authSandbox.listIdentities(localAuth!),
+    });
+  }
+  return new ServeAuthHelper(
+    {
+      list: () => {
+        if (localAuth === null) return [];
+        return authSandbox.listIdentities(localAuth);
+      },
+    },
+    request => {
+      const targetAuth = localAuth ?? getAuth(sandbox);
+      if (request.kind === 'pick') {
+        return authSandbox.createSignInCredential(targetAuth, {
+          providerId: request.providerId,
+          uid: request.identity.uid,
+        });
+      }
+      return authSandbox.createSignInCredential(targetAuth, {
+        providerId: request.providerId,
+        spec: {
+          email: request.spec.email,
+          displayName: request.spec.displayName,
+          // Boundary map: helper `photoURL` becomes the backend spec's
+          // `photoUrl`.
+          photoUrl: request.spec.photoURL,
+          customClaims: request.spec.customClaims,
         },
-        (request) => {
-          if (request.kind === 'pick') {
-            return authSandbox.createSignInCredential(localAuth!, {
-              providerId: request.providerId,
-              uid: request.identity.uid,
-            });
-          }
-          return authSandbox.createSignInCredential(localAuth!, {
-            providerId: request.providerId,
-            spec: {
-              email: request.spec.email,
-              displayName: request.spec.displayName,
-              // Boundary map: helper `photoURL` becomes the backend spec's
-              // `photoUrl`.
-              photoUrl: request.spec.photoURL,
-              customClaims: request.spec.customClaims,
-            },
-          });
-        },
-      );
+      });
+    },
+  );
+}
+
+if (typeof document !== 'undefined' && typeof window !== 'undefined') {
+  // In live mode, follows the production user the app's own Auth signs in,
+  // in page memory only. Outside live mode no Auth reaches it.
+  pageLiveIdentity();
+  const localAuth = useWorker ? null : getAuth(sandbox);
+  const workerAuth = useWorker && workerDb ? getWorkerAuth(workerDb) : null;
+  if (workerAuth) registerActiveAuth(workerAuth);
+  if (localAuth) registerActiveAuth(localAuth);
+  const helper = createPageAuthHelper(workerAuth, localAuth);
   const resolver = helper.resolver();
   installServeAuthResolver(resolver);
   if (localAuth) authSandbox.setAuthFlowResolver(localAuth, resolver);
@@ -94,17 +103,33 @@ if (typeof document !== 'undefined' && typeof window !== 'undefined') {
   // Not awaited: nothing below depends on the payload. A refused payload
   // reaches the app through the calls it makes, so here it is only logged.
   void initPayload.then(
-    (payload) => installAvatarUpgrades(payload?.avatarUpgrades === true),
+    payload => installAvatarUpgrades(payload?.avatarUpgrades === true),
     logInitPayloadFailure,
   );
   // A served page is a development host whatever the app's bundle says: the
   // template's served build is a Vite production build, which folds the
   // bundled-production check to true and would leave listener attribution off.
   configureListenerAttribution('on');
+
+  const runtime = getPyricRuntimeStatus();
+  const settledInit = initPayload.catch(() => null);
+  const pageFetch = window.fetch.bind(window);
+  const rawLiveStatus = healthLiveStatus(document, restart =>
+    runtime.reportHostRestarted(restart),
+  );
+  const liveStatus = async () => {
+    const payload = await settledInit;
+    if (payload === null || payload.remotePeer === true) return null;
+    return rawLiveStatus();
+  };
+
   installPyricRuntimeChip({
-    runtime: getPyricRuntimeStatus(),
+    runtime,
     document,
     listenerEvents: sandboxEventSource({ workerDb, sandbox }),
+    liveStatus,
+    indexConfig: createIndexConfigClient(pageFetch, { init: settledInit }),
+    thresholdConfig: createThresholdConfigClient(pageFetch, { init: settledInit }),
     identity: {
       listUsers: async () => {
         if (workerAuth) {
@@ -153,8 +178,8 @@ if (typeof document !== 'undefined' && typeof window !== 'undefined') {
         }
         return null;
       },
-      subscribeAuth: (listener) => {
-        const unsubActive = subscribeToActiveAuth((user) => {
+      subscribeAuth: listener => {
+        const unsubActive = subscribeToActiveAuth(user => {
           listener(projectRuntimeIdentity(user));
         });
         return unsubActive;

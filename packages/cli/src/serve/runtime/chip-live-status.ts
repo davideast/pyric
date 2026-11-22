@@ -4,7 +4,12 @@
  * (`pyric/sandbox/internal`).
  */
 import { readLiveHostStatus, type ReadLiveStatus } from 'pyric/sandbox/internal';
-import { hostRestartedSincePageLoad, pageBootHostInstanceId, type HostRestart, type PageBootGlobals } from './host-restart.js';
+import {
+  hostRestartedSincePageLoad,
+  pageBootHostInstanceId,
+  type HostRestart,
+  type PageBootGlobals,
+} from './host-restart.js';
 import { stampedSessionToken } from './hosted-target.js';
 
 /** The host boot id a `/__pyric/health` report names, if it names one. */
@@ -24,16 +29,27 @@ export function healthLiveStatus(
 ): ReadLiveStatus {
   let reportedHostRestart = false;
   return async () => {
-    const view = documentLike.defaultView as (Window & PageBootGlobals & { __PYRIC_WORKER_INIT__?: { sessionToken?: string } }) | null;
+    const view = documentLike.defaultView as
+      | (Window & PageBootGlobals & { __PYRIC_WORKER_INIT__?: { sessionToken?: string } })
+      | null;
     const fetchHealth = view?.fetch?.bind(view);
     if (fetchHealth === undefined) return null;
     const viewToken = view?.__PYRIC_WORKER_INIT__?.sessionToken;
-    const token = typeof viewToken === 'string' && viewToken.length > 0 ? viewToken : stampedSessionToken();
-    const response = await fetchHealth('/__pyric/health', {
-      cache: 'no-store',
-      ...(token !== undefined ? { headers: { 'x-pyric-session-token': token } } : {}),
-    });
-    if (!response.ok) throw new Error(`The host's health report answered ${response.status}.`);
+    const token =
+      typeof viewToken === 'string' && viewToken.length > 0 ? viewToken : stampedSessionToken();
+    const requestInit: RequestInit = { cache: 'no-store' };
+    if (token !== undefined) {
+      requestInit.headers = { 'x-pyric-session-token': token };
+    }
+    const response = await fetchHealth('/__pyric/health', requestInit);
+    if (response.status === 401 || response.status === 403) {
+      // A refused or non-loopback page is not connected to a live host (#2056);
+      // settle cleanly rather than throwing into the poller's retry loop.
+      return null;
+    }
+    if (!response.ok) {
+      throw new Error(`The host's health report answered ${response.status}.`);
+    }
     const payload: unknown = await response.json();
     const bootIds = {
       initialHostInstanceId: view === null ? undefined : pageBootHostInstanceId(view),
@@ -46,4 +62,3 @@ export function healthLiveStatus(
     return readLiveHostStatus(payload);
   };
 }
-

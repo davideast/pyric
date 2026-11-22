@@ -43,4 +43,19 @@ describe('the health report read', () => {
     await read();
     expect(restarts).toEqual([]);
   });
+
+  it('returns null instead of throwing on 401 or 403 so refused remote pages do not retry', async () => {
+    for (const status of [401, 403]) {
+      let calls = 0;
+      const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://10.203.0.1/' });
+      cleanups.push(() => dom.window.close());
+      dom.window.fetch = (async () => {
+        calls += 1;
+        return new Response('refused', { status });
+      }) as typeof fetch;
+      const read = healthLiveStatus(dom.window.document);
+      expect(await read()).toBeNull();
+      expect(calls).toBe(1);
+    }
+  });
 });

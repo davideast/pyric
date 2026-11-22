@@ -105,3 +105,24 @@ test('unconfigured service responses resolve to null and keep inspector findings
   inspector.dispose();
 });
 
+test('coalesces concurrent init checks and never requests /__pyric/indexes for a remotePeer page', async () => {
+  const urls: string[] = [];
+  const fetcher = async (input: string | URL | Request) => {
+    const url = String(input);
+    urls.push(url);
+    if (url.includes('/__pyric/init.json')) {
+      return new Response(JSON.stringify({ remotePeer: true }), {
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    return new Response('forbidden', { status: 403 });
+  };
+  const { createIndexConfigClient } = await import('../../../src/serve/runtime/index-config-client.js');
+  const client = createIndexConfigClient(fetcher as typeof fetch);
+  const inspector = createIndexInspector(client, () => {});
+  await inspector.refresh();
+  expect(urls).toEqual(['/__pyric/init.json']);
+  expect(inspector.finding(query).status).toBe('unavailable');
+  inspector.dispose();
+});
+

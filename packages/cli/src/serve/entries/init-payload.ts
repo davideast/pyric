@@ -1,5 +1,5 @@
 import './bundled-worker-init.js';
-import { recordDiagnostic } from '../runtime/diagnostics-client.js';
+import { recordDiagnostic, stopDiagnosticReporting } from '../runtime/diagnostics-client.js';
 import { stampedSessionToken } from '../runtime/hosted-target.js';
 import { pageListenerObservation } from '../runtime/listener-observation.js';
 import type { InitPayload } from '../init-payload.js';
@@ -103,21 +103,26 @@ async function requestInitPayload(): Promise<InitPayload> {
   recordDiagnostic({ phase: 'init-request' });
   const abortController = new AbortController();
   let status: number | undefined;
-  const deadline = requiresHostedSandbox
-    ? setTimeout(() => abortController.abort(new Error(
-      `/__pyric/init.json did not complete within ${HOSTED_INIT_TIMEOUT_MS} ms.`,
-    )), HOSTED_INIT_TIMEOUT_MS)
-    : undefined;
+  let deadline: ReturnType<typeof setTimeout> | undefined;
+  if (requiresHostedSandbox) {
+    deadline = setTimeout(() => {
+      abortController.abort(
+        new Error(`/__pyric/init.json did not complete within ${HOSTED_INIT_TIMEOUT_MS} ms.`),
+      );
+    }, HOSTED_INIT_TIMEOUT_MS);
+  }
   try {
     const fetchHost = nodeRuntimeOrigin()?.socketRealm.fetch ?? fetch;
     const token = stampedSessionToken();
-    const response = await fetchHost(await initPayloadUrl(), {
-      signal: abortController.signal,
-      ...(token !== undefined ? { headers: { 'x-pyric-session-token': token } } : {}),
-    });
+    const requestOptions: RequestInit = { signal: abortController.signal };
+    if (token !== undefined) {
+      requestOptions.headers = { 'x-pyric-session-token': token };
+    }
+    const response = await fetchHost(await initPayloadUrl(), requestOptions);
     status = response.status;
     const isTerminalRefusal = response.status === 401 || response.status === 403;
     if (isTerminalRefusal) {
+      stopDiagnosticReporting();
       const refusal = await readRefusalDetail(response);
       if (response.status === 401 && refusal.unlockPath !== undefined) {
         const nextQuery = encodeURIComponent(currentRelativeNextPath());
@@ -133,10 +138,17 @@ async function requestInitPayload(): Promise<InitPayload> {
       throw new InitIdentityError(`/__pyric/init.json refused the request (${response.status})${suffix}`);
     }
     const hasFailedResponse = !response.ok;
-    if (hasFailedResponse) throw new Error(`/__pyric/init.json → ${response.status}`);
+    if (hasFailedResponse) throw new Error(`/__pyric/init.json -> ${response.status}`);
     const payload: InitPayload = await response.json();
+    if (payload.remotePeer === true) {
+      stopDiagnosticReporting();
+    }
     const isRefusedRemotePage = declaresNodeHost && payload.remotePeer === true;
-    if (isRefusedRemotePage) throw new InitIdentityError('This Node host serves project data only to clients on its own machine, and this page was opened from another one.');
+    if (isRefusedRemotePage) {
+      throw new InitIdentityError(
+        'This Node host serves project data only to clients on its own machine, and this page was opened from another one.',
+      );
+    }
     warnIfInsecureBrowserContext();
     // A Node process names the off-host case itself, as a refusal (worker-runtime.ts).
     const isDifferentHost = declaresNodeHost && payload.hosted !== true;
@@ -203,10 +215,13 @@ function startedOnUse<T>(start: () => Promise<T>): Promise<T> {
   return lazy as unknown as Promise<T>;
 }
 
+function selectInitPayloadRequest(): Promise<InitPayload> {
+  if (isNodeRealm) return startedOnUse(requestInitPayloadWhenAvailable);
+  return requestInitPayloadWhenAvailable();
+}
+
 /** Shared by transport selection and page initialization without a module cycle. */
-export const initPayloadRequest: Promise<InitPayload> = isNodeRealm
-  ? startedOnUse(requestInitPayloadWhenAvailable)
-  : requestInitPayloadWhenAvailable();
+export const initPayloadRequest: Promise<InitPayload> = selectInitPayloadRequest();
 
 const readPayload = (): Promise<InitPayload | null> => initPayloadRequest.catch((error: unknown) => {
   if (requiresHostedSandbox) {

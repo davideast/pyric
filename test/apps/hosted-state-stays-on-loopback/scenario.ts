@@ -82,16 +82,60 @@ export default scenario(async (app) => {
     }
   });
 
-  await app.step('a page opened from another address loads, and its Firestore call says why it has no data', async () => {
+  await app.step('a page opened from another address loads, refuses in under 1s, and stops retrying (#2056)', async () => {
     // The driver's browser resolves only loopback names, so this one adds this machine's other address.
     const browser = await chromium.launch({ headless: true, args: [`--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1, EXCLUDE ${remote}`] });
     try {
       const page = await browser.newPage();
       await app.watchCrashes(page.context());
+      const pyricResponses: Array<{ url: string; status: number }> = [];
+      let webSocketsOpened = 0;
+      page.on('response', response => {
+        const url = response.url();
+        if (url.includes('/__pyric/') && !url.includes('/__pyric/sdk/')) {
+          pyricResponses.push({ url, status: response.status() });
+        }
+      });
+      page.on('websocket', () => {
+        webSocketsOpened += 1;
+      });
+
       await page.goto(`http://${remote}:${port}/remote-page.html`);
-      await page.waitForFunction(() => 'outcome' in window, undefined, { timeout: 30_000 });
-      const outcome = await page.evaluate(() => (window as unknown as { outcome: string }).outcome);
-      assert.match(outcome, /^refused: .*own machine/, outcome);
+      await page.waitForFunction(() => 'remoteReport' in window, undefined, { timeout: 10_000 });
+      const report = await page.evaluate(() =>
+        (window as unknown as {
+          remoteReport: {
+            first: { outcome: string; elapsedMs: number };
+            second: { outcome: string; elapsedMs: number };
+          };
+        }).remoteReport,
+      );
+      assert.match(report.first.outcome, /^refused: .*own machine/, report.first.outcome);
+      assert.match(report.second.outcome, /^refused: .*own machine/, report.second.outcome);
+      assert.ok(
+        report.first.elapsedMs < 1_000,
+        `first getDoc waited ${report.first.elapsedMs}ms instead of failing fast`,
+      );
+      assert.ok(
+        report.second.elapsedMs < 1_000,
+        `second getDoc waited ${report.second.elapsedMs}ms instead of failing fast`,
+      );
+
+      // Let any background poller or delayed timer settle and prove zero retries or 4xx noise.
+      const countAtRefusal = pyricResponses.length;
+      await sleep(1_500);
+      assert.equal(
+        pyricResponses.length,
+        countAtRefusal,
+        `page continued requesting host endpoints after refusal: ${JSON.stringify(pyricResponses)}`,
+      );
+      assert.equal(webSocketsOpened, 0, `expected 0 WebSockets, saw ${webSocketsOpened}`);
+      const errorResponses = pyricResponses.filter(entry => entry.status >= 400);
+      assert.deepEqual(
+        errorResponses,
+        [],
+        `unexpected refused HTTP probes from remote page: ${JSON.stringify(pyricResponses)}`,
+      );
     } finally {
       await browser.close();
     }
@@ -102,6 +146,8 @@ export default scenario(async (app) => {
     assert.equal(statSync(pointerPath).mode & 0o777, 0o600);
     const pointer = JSON.parse(readFileSync(pointerPath, 'utf8')) as { token?: string; mcpUrl?: string };
     assert.equal(typeof pointer.token, 'string');
+    const pointerToken = pointer.token;
+    assert.ok(typeof pointerToken === 'string');
     assert.ok(!pointer.mcpUrl?.includes('token='), `mcpUrl carried a query token: ${pointer.mcpUrl}`);
     const unauth = await get({ address: '127.0.0.1', port, path: '/__pyric/init.json', host });
     const unauthBody = JSON.parse(unauth.body) as { sessionToken?: unknown; rules?: unknown };
@@ -114,7 +160,7 @@ export default scenario(async (app) => {
       port,
       path: '/__pyric/init.json',
       host,
-      headers: { 'x-pyric-session-token': pointer.token! },
+      headers: { 'x-pyric-session-token': pointerToken },
     });
     const init = JSON.parse(answer.body) as { sessionToken?: unknown };
     assert.equal(typeof init.sessionToken, 'string', answer.body);
