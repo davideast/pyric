@@ -18,49 +18,11 @@ declare global {
   /** Set by `./runtime.ts` as its last top-level statement, once it has loaded. */
   // eslint-disable-next-line no-var
   var __PYRIC_PAGE_BACKEND_LOADED__: boolean | undefined;
-  /** Backend loads that already logged their one failure warning on this realm. */
-  // eslint-disable-next-line no-var
-  var __PYRIC_PAGE_BACKEND_WARNED__: WeakSet<Promise<unknown>> | undefined;
 }
 
 /** The load `pageBackendReady` waits on, and the settled promise it hands out for it. */
 let watched: { load: Promise<unknown>; ready: Promise<void> } | null = null;
 let settled = false;
-
-function warnOnce(load: Promise<unknown>, error: unknown): void {
-  const warned = (globalThis.__PYRIC_PAGE_BACKEND_WARNED__ ??= new WeakSet<Promise<unknown>>());
-  if (warned.has(load)) return;
-  warned.add(load);
-  console.warn(
-    '[pyric sandbox] the in-page backend did not load, so auth on this page does not save or restore its state:',
-    error,
-  );
-}
-
-function observePageBackend(load: Promise<unknown>): Promise<void> {
-  settled = false;
-  const ready = load.then(
-    () => { settled = true; },
-    (error: unknown) => {
-      settled = true;
-      warnOnce(load, error);
-    },
-  );
-  watched = { load, ready };
-  return ready;
-}
-
-/**
- * Publishes `load` as `globalThis.__PYRIC_PAGE_BACKEND__` and attaches its
- * rejection handler at once so a failed dynamic import never raises an
- * unhandled rejection on pages that do not import `firebase/auth` or before
- * `getAuth` runs (#3224).
- */
-export function startPageBackend(load: Promise<unknown>): Promise<unknown> {
-  globalThis.__PYRIC_PAGE_BACKEND__ = load;
-  void observePageBackend(load);
-  return load;
-}
 
 /**
  * Resolves once a pending in-page backend load settles; null when nothing is
@@ -74,9 +36,19 @@ export function pageBackendReady(): Promise<void> | null {
   const load = globalThis.__PYRIC_PAGE_BACKEND__;
   if (load === undefined) return null;
   if (watched?.load !== load) {
-    observePageBackend(load);
+    settled = false;
+    watched = {
+      load,
+      ready: load.then(
+        () => { settled = true; },
+        (error: unknown) => {
+          settled = true;
+          console.warn('[pyric sandbox] the in-page backend did not load, so auth on this page does not save or restore its state:', error);
+        },
+      ),
+    };
   }
-  return settled ? null : watched!.ready;
+  return settled ? null : watched.ready;
 }
 
 /** Run `task` once a pending load settles; at once when nothing is pending. */

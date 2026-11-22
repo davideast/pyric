@@ -10,10 +10,9 @@
  * of them loads `runtime.js` or encounters top-level await (#697).
  */
 import '../serve/entries/init.js';
-import { startPageBackend } from '../serve/entries/page-backend-wait.js';
 import { useWorker } from '../serve/entries/worker-runtime.js';
 
 const isBrowserPage = typeof document !== 'undefined';
-if (isBrowserPage && !useWorker && globalThis.__PYRIC_PAGE_BACKEND__ === undefined) {
-  startPageBackend(import('../serve/entries/runtime.js'));
+if (isBrowserPage && !useWorker) {
+  globalThis.__PYRIC_PAGE_BACKEND__ ??= import('../serve/entries/runtime.js');
 }

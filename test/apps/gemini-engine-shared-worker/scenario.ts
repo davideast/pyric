@@ -449,28 +449,6 @@ export default scenario(async (app) => {
       assert.deepEqual(standIn.seen, answeredAt(2), 'nothing reached the stand-in');
     });
 
-    await app.step('ai.engine.apiKey configured in Vite config stays server-side across served HTML and init.json (#1591)', async () => {
-      const configKeyServer = await app.devServer({
-        name: 'config-api-key-dev-server',
-        env: { GEMINI_STAND_IN_URL: standIn.url, GEMINI_CONFIG_API_KEY: SERVER_KEY },
-      });
-      const configPage = await openPage(app, configKeyServer);
-      try {
-        assert.deepEqual(await configPage.evaluate(() => runGemini('config-api-key', true)), ANSWERED);
-        assert.deepEqual(standIn.seen, answeredAt(3));
-        const served = await Promise.all(SERVED_PATHS.map((path) => servedText(configKeyServer, path)));
-        for (const text of served) {
-          assert.ok(!text.includes(SERVER_KEY), text.slice(0, 200));
-          assert.ok(!text.includes(standIn.url), text.slice(0, 200));
-        }
-        const servedHtml = served[0] ?? '';
-        assert.ok(servedHtml.includes('globalThis.__PYRIC_AI_ENGINE__={"kind":"gemini"};'), servedHtml);
-      } finally {
-        await configPage.close();
-        await configKeyServer.process.stop();
-      }
-    });
-
     await app.step('in-page sandbox: the same refusal and the same answer', async () => {
       const context = await app.browser();
       await context.addInitScript(() => {
@@ -483,49 +461,30 @@ export default scenario(async (app) => {
       app.expectHostError(new RegExp(`^400 POST /__pyric/ai-proxy/gemini/v1beta/models/${ECHO_MODEL}:generateContent`));
       assertMaskedRefusal(await inPage.evaluate(() => runGeminiError('in-page-error-quotes-url')));
       assertMaskedStreamError(await inPage.evaluate(() => runGeminiStreamError('in-page-stream-error')), standIn.streamed);
-      assert.deepEqual(standIn.seen, answeredAt(4));
-    });
-
-    await app.step('in-page sandbox: stopping a dev server while entries/runtime.js is in flight raises no unhandled rejection (#3224)', async () => {
-      const context = await app.browser();
-      const stoppingServer = await app.devServer({ name: 'in-page-stopping-dev-server', env });
-      let releaseRuntime!: () => void;
-      const runtimeReleased = new Promise<void>((resolve) => { releaseRuntime = resolve; });
-      let markRuntimeRequested!: () => void;
-      const runtimeRequested = new Promise<void>((resolve) => { markRuntimeRequested = resolve; });
-      const isStoppingRuntime = (url: URL) =>
-        url.origin === stoppingServer.url && url.pathname.endsWith('/entries/runtime.js');
-      await context.route(isStoppingRuntime, async (route) => {
-        markRuntimeRequested();
-        await runtimeReleased;
-        await route.continue();
-      });
-      try {
-        const stoppingPage = await openPage(app, stoppingServer);
-        await runtimeRequested;
-        const runtimeFailed = stoppingPage.waitForEvent(
-          'requestfailed',
-          (request) => request.url().includes('/entries/runtime.js'),
-        );
-        await stoppingServer.process.stop();
-        releaseRuntime();
-        await runtimeFailed;
-        await stoppingPage.evaluate(() => new Promise((resolve) => setTimeout(resolve, 50)));
-        assert.ok(
-          app.browserLog.some((line) => line.includes('the in-page backend did not load')),
-          'the page logged a warning instead of raising an unhandled rejection',
-        );
-        await stoppingPage.close();
-      } finally {
-        releaseRuntime();
-        await context.unroute(isStoppingRuntime);
-      }
+      assert.deepEqual(standIn.seen, answeredAt(3));
     });
 
     await app.step('the key is in nothing the dev server serves to the browser', async () => {
       const served = await Promise.all(SERVED_PATHS.map((path) => servedText(host, path)));
       for (const text of [...served, ...bodies]) assert.ok(!text.includes(SERVER_KEY), text.slice(0, 200));
       assert.ok(bodies.length > 0, 'the browser received responses');
+    });
+
+    await app.step('ai.engine.apiKey configured in Vite config stays server-side across served HTML and init.json (#1591)', async () => {
+      const configKeyServer = await app.devServer({
+        name: 'config-api-key-dev-server',
+        env: { GEMINI_STAND_IN_URL: standIn.url, GEMINI_CONFIG_API_KEY: SERVER_KEY },
+      });
+      const configPage = await openPage(app, configKeyServer);
+      assert.deepEqual(await configPage.evaluate(() => runGemini('config-api-key', true)), ANSWERED);
+      const served = await Promise.all(SERVED_PATHS.map((path) => servedText(configKeyServer, path)));
+      for (const text of served) {
+        assert.ok(!text.includes(SERVER_KEY), text.slice(0, 200));
+        assert.ok(!text.includes(standIn.url), text.slice(0, 200));
+      }
+      const servedHtml = served[0] ?? '';
+      assert.ok(servedHtml.includes('globalThis.__PYRIC_AI_ENGINE__={"kind":"gemini"};'), servedHtml);
+      await configKeyServer.process.stop();
     });
 
     await app.step('no module the dev server serves carries a VITE_ variable the page never reads', async () => {

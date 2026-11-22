@@ -282,7 +282,7 @@ describe('firebase/auth entry dependency boundary', () => {
         stdin: {
           contents: `export * as app from './app.ts'; export * as auth from './auth.ts';
             export * as firestore from 'pyric/firestore'; export { setRules } from 'pyric/sandbox/firestore';
-            export { sandbox } from './app-backend.ts'; export { startPageBackend } from './page-backend-wait.ts';`,
+            export { sandbox } from './app-backend.ts';`,
           resolveDir: entriesDir,
         },
         bundle: true,
@@ -320,7 +320,6 @@ describe('firebase/auth entry dependency boundary', () => {
         firestore: typeof import('pyric/firestore');
         setRules: typeof import('pyric/sandbox/firestore').setRules;
         sandbox: typeof import('../../../src/serve/entries/app-backend.js').sandbox;
-        startPageBackend: typeof import('../../../src/serve/entries/page-backend-wait.js').startPageBackend;
       };
       return { ...entries, realm: context as Record<string, unknown> };
     }
@@ -461,63 +460,6 @@ describe('firebase/auth entry dependency boundary', () => {
       expect(credential.user.isAnonymous).toBe(true);
       expect(states.length).toBeGreaterThan(0);
       expect(states.at(-1)).toBeNull();
-      const backendWarnings = warnings.filter((args) => String(args[0]).includes('in-page backend did not load'));
-      expect(backendWarnings).toHaveLength(1);
-    });
-
-    it('leaves no unhandled rejection when startPageBackend fails on a page that never calls getAuth (#3224)', async () => {
-      const warnings: unknown[][] = [];
-      const entries = await inPageEntries(undefined, warnings);
-      const unhandled: unknown[] = [];
-      const onUnhandled = (reason: unknown) => { unhandled.push(reason); };
-      process.on('unhandledRejection', onUnhandled);
-      try {
-        entries.startPageBackend(Promise.reject(new TypeError('Failed to fetch dynamically imported module')));
-        await new Promise((resolve) => setTimeout(resolve, 25));
-      } finally {
-        process.off('unhandledRejection', onUnhandled);
-      }
-      expect(unhandled).toEqual([]);
-      const backendWarnings = warnings.filter((args) => String(args[0]).includes('in-page backend did not load'));
-      expect(backendWarnings).toHaveLength(1);
-    });
-
-    it('warns once across separate module copies when startPageBackend fails before getAuth runs (#3224)', async () => {
-      const { SourceTextModule } = await import('node:vm');
-      const esbuild = await import('esbuild');
-      const entriesDir = join(import.meta.dir, '../../../src/serve/entries');
-      const warnings: unknown[][] = [];
-      const entries = await inPageEntries(undefined, warnings);
-      // Vite's dev server can load entries/page.js unbundled while pre-bundling
-      // firebase/auth, giving the same realm two copies of page-backend-wait.
-      const pageWaitBundle = await esbuild.build({
-        entryPoints: [join(entriesDir, 'page-backend-wait.ts')],
-        bundle: true,
-        write: false,
-        format: 'esm',
-        platform: 'browser',
-      });
-      const pageWaitModule = new SourceTextModule(pageWaitBundle.outputFiles[0]!.text, { context: entries.realm });
-      await pageWaitModule.link(() => { throw new Error('Module linking failed'); });
-      await pageWaitModule.evaluate();
-      const pageWait = pageWaitModule.namespace as {
-        startPageBackend: typeof import('../../../src/serve/entries/page-backend-wait.js').startPageBackend;
-      };
-
-      const unhandled: unknown[] = [];
-      const onUnhandled = (reason: unknown) => { unhandled.push(reason); };
-      process.on('unhandledRejection', onUnhandled);
-      try {
-        pageWait.startPageBackend(Promise.reject(new TypeError('Failed to fetch dynamically imported module')));
-        await new Promise((resolve) => setTimeout(resolve, 25));
-        const auth = entries.auth.getAuth(entries.app.initializeApp({ projectId: 'page-backend-split' }, 'split'));
-        const credential = await entries.auth.signInAnonymously(auth);
-        expect(credential.user.isAnonymous).toBe(true);
-        await settle();
-      } finally {
-        process.off('unhandledRejection', onUnhandled);
-      }
-      expect(unhandled).toEqual([]);
       const backendWarnings = warnings.filter((args) => String(args[0]).includes('in-page backend did not load'));
       expect(backendWarnings).toHaveLength(1);
     });

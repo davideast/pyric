@@ -15,13 +15,12 @@
  * so a page that also imports Firestore runs it once.
  */
 import './init.js';
-import { startPageBackend } from './page-backend-wait.js';
 import { useWorker } from './worker-runtime.js';
 
 // The worker path owns rules, seed and saved state in the worker, and loads
 // the runtime only from the entries that import it, as before.
 if (!useWorker) {
-  startPageBackend(import('./runtime.js'));
+  globalThis.__PYRIC_PAGE_BACKEND__ = import('./runtime.js');
 }
 
 export {};
