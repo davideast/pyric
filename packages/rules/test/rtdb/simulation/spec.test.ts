@@ -1,5 +1,8 @@
 import { describe, test, expect } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { rtdbRules, type RtdbTreeData } from '../../../src/index.js';
+import { END_ALREADY_SET, START_ALREADY_SET } from '../../../src/rtdb/data/query-validation.js';
 import {
   SimulateErrorCode,
   SimulationInputSchema,
@@ -174,13 +177,32 @@ describe('rtdbRules().simulate() with scalar root data', () => {
 });
 
 describe('simulationQueryProblem', () => {
-  test('rejects conflicting startAt or endAt with equalTo (QRY-3b)', () => {
+  // #1411: shared with query-validation.ts and pinned to the SDK conflict texts
+  // captured in observations/rtdb-modular/rtdb-modular-query-constraint-conflicts.json.
+  test('rejects conflicting startAt or endAt with equalTo using the shared SDK conflict texts (#1411)', () => {
+    const conflictsObs = JSON.parse(
+      readFileSync(
+        join(
+          import.meta.dir,
+          '../../../../conformance/observations/rtdb-modular/rtdb-modular-query-constraint-conflicts.json',
+        ),
+        'utf-8',
+      ),
+    ) as { behavior: Record<string, { errorMessage: string }> };
+
+    expect(START_ALREADY_SET.equalTo).toBe(conflictsObs.behavior.startAtThenEqualTo?.errorMessage);
+    expect(START_ALREADY_SET.equalTo).toBe(
+      'equalTo: Starting point was already set (by another call to startAt/startAfter or equalTo).',
+    );
+    expect(END_ALREADY_SET.equalTo).toBe(
+      'equalTo: Ending point was already set (by another call to endAt/endBefore or equalTo).',
+    );
     expect(
       simulationQueryProblem({ orderByChild: 'status', startAt: 'a', equalTo: 'b' }),
-    ).toBe('equalTo: Starting point was already set (by another call to startAt, startAfter, or equalTo).');
+    ).toBe(START_ALREADY_SET.equalTo);
     expect(
       simulationQueryProblem({ orderByChild: 'status', endAt: 'a', equalTo: 'b' }),
-    ).toBe('equalTo: Ending point was already set (by another call to endAt, endBefore, or equalTo).');
+    ).toBe(END_ALREADY_SET.equalTo);
   });
 
   test('rejects slash-only orderByChild (#1019)', () => {

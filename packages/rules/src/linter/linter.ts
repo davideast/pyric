@@ -12,7 +12,6 @@ import {
 } from '../grammar/compile-limits.js';
 import { countDocumentAccessCalls } from '../grammar/document-access-count.js';
 import { collectRulesetScopes } from '../grammar/function-scopes.js';
-import { recursiveScope } from '../grammar/recursive-scope.js';
 import {
   allServiceBlocks,
   isStorageServiceName,
@@ -55,8 +54,7 @@ import {
   checkRecursiveWildcardOpen,
   checkRequestTimePinned,
   checkRulesWeakened,
-  collectRecursiveScopes,
-  type RuleScope,
+  collectRootAwarePolicyTargets,
 } from './policy-warnings.js';
 import { checkServiceDeclarations } from './service-declarations.js';
 
@@ -125,7 +123,8 @@ export function lintFirestoreRules(source: string, options: LintOptions = {}): L
     const emittedResolutionKeys = new Set<string>();
     const combinedMetrics: RulesMetrics = sourceOnlyMetrics(source);
     for (let serviceIndex = 0; serviceIndex < servicesToAnalyze.length; serviceIndex++) {
-      const service = servicesToAnalyze[serviceIndex]!;
+      const service = servicesToAnalyze[serviceIndex];
+      if (service === undefined) continue;
       let svcTarget: 'cloud.firestore' | 'firebase.storage' = 'cloud.firestore';
       if (isStorageServiceName(service.name)) {
         svcTarget = 'firebase.storage';
@@ -282,15 +281,13 @@ function analyzeParsedRules(
 
   warnings.push(...checkHallucinations(serviceOnlyAst, { allowDebug: options.allowDebug }));
 
-  const recursiveScopes = new Map<AllowRule, RuleScope>();
-  for (const root of topLevelMatches(ast.service)) {
-    const rootScope = recursiveScope(root.path.segments);
-    if (rootScope) {
-      root.allows.forEach((rule, ruleIndex) => recursiveScopes.set(rule, { ...rootScope, ruleIndex }));
-    }
-    for (const child of root.children) collectRecursiveScopes(child, [], recursiveScopes);
-  }
-  checkPermissiveRules(allRules, recursiveScopes, warnings, isStorage);
+  const { applicableRules, recursiveScopes } = collectRootAwarePolicyTargets(
+    topLevelMatches(ast.service),
+    ast.version,
+    isStorage,
+    warnings,
+  );
+  checkPermissiveRules(applicableRules, recursiveScopes, warnings, isStorage);
   checkRecursiveWildcardOpen(recursiveScopes, warnings);
 
   if (options.testCases && options.testCases.length > 0) {

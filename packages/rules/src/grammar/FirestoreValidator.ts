@@ -3,9 +3,8 @@ import type {
 } from './FirestoreAST.js';
 import { countDocumentAccessCalls } from './document-access-count.js';
 import { compileLimitViolations } from './compile-limits.js';
-import { recursiveScope } from './recursive-scope.js';
+import { recursiveScope, resolveDocumentSegments } from './recursive-scope.js';
 import {
-  allServiceBlocks,
   isStorageServiceName,
   selectServicesToAnalyze,
   topLevelMatches,
@@ -20,6 +19,7 @@ import { resolveBundledModulesForAnalysis } from '../modules/resolver-browser.js
 import {
   foldConstants,
   guardsAuthTransitive,
+  guardsPathUidTransitive,
   referencesRequestDataAnyTransitive,
   referencesResourceDataAnyTransitive,
   validatesRequestDataTransitive,
@@ -126,11 +126,24 @@ export function validateFirestoreRules(
 
     // Walk all match blocks
     for (const rootMatch of rootMatches) {
-      walkMatch(rootMatch, findings, outerScope, fnScopes, null, isStorage);
+      walkMatch(rootMatch, findings, outerScope, fnScopes, null, isStorage, ast.version);
     }
   }
 
   return findings;
+}
+
+function collectPrefixWildcards(segments: readonly PathSegment[]): Set<string> {
+  const names = new Set<string>();
+  const finalSeg = segments[segments.length - 1];
+  const shadowedName = finalSeg?.type === 'recursive' ? finalSeg.name : undefined;
+  for (let i = 0; i < segments.length - 1; i++) {
+    const seg = segments[i];
+    if (seg !== undefined && seg.type === 'wildcard' && seg.name !== shadowedName) {
+      names.add(seg.name);
+    }
+  }
+  return names;
 }
 
 function walkMatch(
@@ -138,18 +151,26 @@ function walkMatch(
   findings: ValidationFinding[],
   scopeFunctions: FunctionDef[],
   fnScopes: ReadonlyMap<FunctionDef, ReadonlyMap<string, FunctionDef>>,
-  /** Full path segments of the enclosing blocks below the documents root;
-   *  null for the documents root itself. */
-  parentSegments: readonly PathSegment[] | null = null,
+  /** Full path segments from the service block down to the parent match block;
+   *  null for a top-level match block directly inside `service`. */
+  parentRawSegments: readonly PathSegment[] | null = null,
   isStorage = false,
+  rulesVersion = '2',
 ) {
-  const segments = parentSegments === null ? [] : [...parentSegments, ...match.path.segments];
+  let rawSegments: PathSegment[];
+  if (parentRawSegments === null) {
+    rawSegments = [...match.path.segments];
+  } else {
+    rawSegments = [...parentRawSegments, ...match.path.segments];
+  }
+  const docSegments = resolveDocumentSegments(rawSegments, rulesVersion, isStorage);
   // SEC-2 and SEC-5 concern a recursive wildcard in the last position, which
   // governs every document under its prefix. One followed by further
   // segments, the collection-group shape, governs only documents whose path
-  // ends in them.
-  const subtree = recursiveScope(segments);
+  // ends in them. A root that does not apply to `(default)` resolves to null.
+  const subtree = docSegments === null ? null : recursiveScope(docSegments);
   const recursiveSubtree = subtree?.kind === 'subtree' ? subtree : null;
+  const prefixWildcards = docSegments === null ? new Set<string>() : collectPrefixWildcards(docSegments);
   const pathStr = match.path.raw;
 
   // Merge scope: parent functions + this match's functions
@@ -170,8 +191,8 @@ function walkMatch(
     const isLiteralFalse = cond.type === 'literal' && cond.value === false;
     const opStr = ops.join(', ');
 
-    // SEC-1: Public write
-    if (isWrite && isLiteralTrue) {
+    // SEC-1: Public write (only when the match path reaches documents/objects)
+    if (isWrite && isLiteralTrue && docSegments !== null) {
       findings.push({
         code: 'SEC-1', severity: 'critical', path: pathStr, operation: opStr,
         message: `Public write at ${pathStr} -- anyone can ${opStr} without authentication`,
@@ -186,10 +207,14 @@ function walkMatch(
       });
     }
 
-    // SEC-5: A grant at a final recursive wildcard
+    // SEC-5: A grant at a final recursive wildcard. Downgraded to medium
+    // (warning) when the recursive match sits under a path wildcard that the
+    // condition checks against `request.auth.uid` (#1518).
     if (recursiveSubtree && !isLiteralFalse) {
+      const scopedToOwner = guardsPathUidTransitive(cond, prefixWildcards, fnMap, fnScopes);
+      const sec5Severity = scopedToOwner ? 'medium' : 'high';
       findings.push({
-        code: 'SEC-5', severity: 'high', path: pathStr, operation: opStr,
+        code: 'SEC-5', severity: sec5Severity, path: pathStr, operation: opStr,
         message: `Recursive wildcard ${recursiveSubtree.fullPath} grants ${opStr} on ${recursiveSubtree.description} `
           + 'when its condition holds; a request is allowed when any matching rule allows it, '
           + 'so a more specific rule cannot narrow this grant',
@@ -197,7 +222,7 @@ function walkMatch(
     }
 
     // SEC-3: No auth check on write (follows function calls transitively)
-    if (isWrite && !isLiteralTrue && !isLiteralFalse && !guardsAuthTransitive(cond, fnMap, fnScopes)) {
+    if (docSegments !== null && isWrite && !isLiteralTrue && !isLiteralFalse && !guardsAuthTransitive(cond, fnMap, fnScopes)) {
       findings.push({
         code: 'SEC-3', severity: 'high', path: pathStr, operation: opStr,
         message: `Write rule (${opStr}) at ${pathStr} does not check request.auth`,
@@ -205,7 +230,7 @@ function walkMatch(
     }
 
     // SEC-6: Write without data validation (follows function calls transitively)
-    if (isDataWrite && !isLiteralFalse && !validatesRequestDataTransitive(cond, fnMap, fnScopes, isStorage)) {
+    if (docSegments !== null && isDataWrite && !isLiteralFalse && !validatesRequestDataTransitive(cond, fnMap, fnScopes, isStorage)) {
       let sec6Message = `${opStr} at ${pathStr} does not validate request.resource.data -- any data shape accepted`;
       if (isStorage) {
         sec6Message = `${opStr} at ${pathStr} does not validate request.resource -- any upload payload accepted`;
@@ -254,7 +279,7 @@ function walkMatch(
 
     // QUA-1: Hardcoded true
     if (isLiteralTrue) {
-      const severity = isWrite ? 'critical' : 'low';
+      const severity = isWrite && docSegments !== null ? 'critical' : 'low';
       findings.push({
         code: 'QUA-1', severity, path: pathStr, operation: opStr,
         message: `Hardcoded 'true' at ${pathStr} for ${opStr}`,
@@ -299,7 +324,7 @@ function walkMatch(
 
   // Recurse into children
   for (const child of match.children) {
-    walkMatch(child, findings, localScope, fnScopes, segments, isStorage);
+    walkMatch(child, findings, localScope, fnScopes, rawSegments, isStorage, rulesVersion);
   }
 }
 

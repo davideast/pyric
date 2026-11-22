@@ -5,7 +5,7 @@ function boolLiteral(value: boolean): Expression {
   return { type: 'literal', value, raw: String(value) };
 }
 
-export function isLitBool(expr: Expression, value: boolean): boolean {
+function isLitBool(expr: Expression, value: boolean): boolean {
   return expr.type === 'literal' && expr.value === value;
 }
 
@@ -76,7 +76,7 @@ function functionExpressions(fn: FunctionDef): Expression[] {
   return [...fn.lets.map((l) => l.value), fn.body];
 }
 
-export function propTarget(expr: Expression, prop: string): Expression | null {
+function propTarget(expr: Expression, prop: string): Expression | null {
   if (expr.type === 'memberAccess' && expr.property === prop) return expr.object;
   if (expr.type === 'bracketAccess' && expr.index.type === 'literal' && expr.index.value === prop) {
     return expr.object;
@@ -84,9 +84,14 @@ export function propTarget(expr: Expression, prop: string): Expression | null {
   return null;
 }
 
-export function isRequestAuth(e: Expression): boolean {
+function isRequestAuth(e: Expression): boolean {
   const obj = propTarget(e, 'auth');
   return obj !== null && obj.type === 'identifier' && obj.name === 'request';
+}
+
+function isRequestAuthUid(e: Expression): boolean {
+  const obj = propTarget(e, 'uid');
+  return obj !== null && isRequestAuth(obj);
 }
 
 function isRequestResource(e: Expression): boolean {
@@ -117,7 +122,118 @@ function isAuthComparisonWithNull(e: Expression, op: '==' | '!='): boolean {
   );
 }
 
-export function guardsConditionTransitive(
+function isAuthUidComparisonWithPathVar(
+  e: Expression,
+  op: '==' | '!=',
+  pathVars: ReadonlySet<string>,
+): boolean {
+  if (e.type !== 'binaryOp' || e.op !== op) return false;
+  if (isRequestAuthUid(e.left) && e.right.type === 'identifier' && pathVars.has(e.right.name)) {
+    return true;
+  }
+  if (isRequestAuthUid(e.right) && e.left.type === 'identifier' && pathVars.has(e.left.name)) {
+    return true;
+  }
+  return false;
+}
+
+function substituteParameters(
+  expr: Expression,
+  bindings: ReadonlyMap<string, Expression>,
+): Expression {
+  if (bindings.size === 0) return expr;
+  switch (expr.type) {
+    case 'identifier':
+      return bindings.get(expr.name) ?? expr;
+    case 'binaryOp':
+      return {
+        ...expr,
+        left: substituteParameters(expr.left, bindings),
+        right: substituteParameters(expr.right, bindings),
+      };
+    case 'unaryOp':
+      return { ...expr, operand: substituteParameters(expr.operand, bindings) };
+    case 'ternary':
+      return {
+        ...expr,
+        condition: substituteParameters(expr.condition, bindings),
+        consequent: substituteParameters(expr.consequent, bindings),
+        alternate: substituteParameters(expr.alternate, bindings),
+      };
+    case 'methodCall':
+      return {
+        ...expr,
+        object: substituteParameters(expr.object, bindings),
+        args: expr.args.map((a) => substituteParameters(a, bindings)),
+      };
+    case 'functionCall':
+      return { ...expr, args: expr.args.map((a) => substituteParameters(a, bindings)) };
+    case 'bracketAccess':
+      return {
+        ...expr,
+        object: substituteParameters(expr.object, bindings),
+        index: substituteParameters(expr.index, bindings),
+      };
+    case 'sliceAccess':
+      return {
+        ...expr,
+        object: substituteParameters(expr.object, bindings),
+        start: substituteParameters(expr.start, bindings),
+        end: substituteParameters(expr.end, bindings),
+      };
+    case 'memberAccess':
+      return { ...expr, object: substituteParameters(expr.object, bindings) };
+    case 'inExpr':
+      return {
+        ...expr,
+        element: substituteParameters(expr.element, bindings),
+        collection: substituteParameters(expr.collection, bindings),
+      };
+    case 'isExpr':
+      return { ...expr, value: substituteParameters(expr.value, bindings) };
+    case 'listLiteral':
+      return { ...expr, elements: expr.elements.map((el) => substituteParameters(el, bindings)) };
+    case 'mapLiteral':
+      return {
+        ...expr,
+        entries: expr.entries.map((entry) => ({
+          key: substituteParameters(entry.key, bindings),
+          value: substituteParameters(entry.value, bindings),
+        })),
+      };
+    case 'pathLiteral':
+      return {
+        ...expr,
+        segments: expr.segments.map((seg) => {
+          if (typeof seg === 'string') return seg;
+          return substituteParameters(seg, bindings);
+        }),
+      };
+    default:
+      return expr;
+  }
+}
+
+function expandCalledFunction(fn: FunctionDef, callArgs: readonly Expression[]): Expression {
+  if (fn.parameters.length !== callArgs.length) {
+    return boolLiteral(false);
+  }
+  const expanded = expandFunctionBody(fn);
+  if (fn.parameters.length === 0) {
+    return expanded;
+  }
+  const bindings = new Map<string, Expression>();
+  for (let i = 0; i < fn.parameters.length; i++) {
+    const param = fn.parameters[i];
+    const arg = callArgs[i];
+    if (param !== undefined && arg !== undefined) {
+      bindings.set(param, arg);
+    }
+  }
+  return substituteParameters(expanded, bindings);
+}
+
+function guardsConditionTransitive(
   expr: Expression,
   checkAtom: (e: Expression) => boolean | null,
   fns: ReadonlyMap<string, FunctionDef>,
@@ -155,7 +271,8 @@ export function guardsConditionTransitive(
     const nextVisited = new Set(visited);
     nextVisited.add(fn);
     const calleeScope = fnScopes.get(fn) ?? fns;
-    if (guardsConditionTransitive(expandFunctionBody(fn), checkAtom, calleeScope, fnScopes, nextVisited)) {
+    const body = expandCalledFunction(fn, e.args);
+    if (guardsConditionTransitive(body, checkAtom, calleeScope, fnScopes, nextVisited)) {
       found = true;
     }
   });
@@ -173,6 +290,15 @@ function checkAuthAtom(expr: Expression): boolean | null {
   return null;
 }
 
+function checkPathUidAtom(expr: Expression, pathVars: ReadonlySet<string>): boolean | null {
+  if (expr.type === 'unaryOp' && expr.op === '!') {
+    if (isAuthUidComparisonWithPathVar(expr.operand, '!=', pathVars)) return true;
+    return false;
+  }
+  if (isAuthUidComparisonWithPathVar(expr, '==', pathVars)) return true;
+  return null;
+}
+
 function checkRequestDataAtom(expr: Expression, isStorage = false): boolean | null {
   const targetPred = isStorage ? isRequestResource : isRequestResourceData;
   if (exprContains(expr, targetPred)) return true;
@@ -185,6 +311,16 @@ export function guardsAuthTransitive(
   fnScopes: ReadonlyMap<FunctionDef, ReadonlyMap<string, FunctionDef>>,
 ): boolean {
   return guardsConditionTransitive(expr, checkAuthAtom, fns, fnScopes);
+}
+
+export function guardsPathUidTransitive(
+  expr: Expression,
+  pathVars: ReadonlySet<string>,
+  fns: ReadonlyMap<string, FunctionDef>,
+  fnScopes: ReadonlyMap<FunctionDef, ReadonlyMap<string, FunctionDef>>,
+): boolean {
+  if (pathVars.size === 0) return false;
+  return guardsConditionTransitive(expr, (e) => checkPathUidAtom(e, pathVars), fns, fnScopes);
 }
 
 export function validatesRequestDataTransitive(
