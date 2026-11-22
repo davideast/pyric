@@ -11,9 +11,12 @@
  *     reference field.
  * A value helper's value is sent in that form, so production reads the typed
  * value the simulator reads (FS2-CON-5). Bytes and vectors have no form the
- * Rules Test API reads as that type, so a case holding one is refused rather
- * than sent as something else. A plain map, including one with a `__type`
- * key, is sent as the map it is.
+ * Rules Test API reads as that type, and plain strings or maps matching one of
+ * the four shapes above cannot be sent as the plain string or map they are
+ * (#1450), so a case holding one is refused rather than sent as another type.
+ * Other plain strings (including ISO strings without an offset) and plain maps
+ * (including `{latitude, longitude}` with a third key, or one with a `__type`
+ * key) are sent as written.
  */
 import { Bytes } from '../simulator/wrappers/bytes.js';
 import { Duration } from '../simulator/wrappers/duration.js';
@@ -23,8 +26,10 @@ import { Reference } from '../simulator/wrappers/reference.js';
 import { Timestamp } from '../simulator/wrappers/timestamp.js';
 import { Vector } from '../simulator/wrappers/vector.js';
 import { RulesValue } from '../simulator/wrappers/base.js';
+import { isIsoInstant } from './case-refusals.js';
 
 const NANOS_PER_SECOND = 1_000_000_000n;
+const SNIFFED_DURATION_STRING = /^-?\d+(?:\.\d+)?s$/;
 
 function encodeReferenceWireForm(value: Reference): string {
   if (value.path.length > 0) {
@@ -40,7 +45,8 @@ function durationWireForm(value: Duration): string {
   const magnitude = isNegative ? -total : total;
   const whole = magnitude / NANOS_PER_SECOND;
   const fraction = (magnitude % NANOS_PER_SECOND).toString().padStart(9, '0');
-  return `${isNegative ? '-' : ''}${whole}.${fraction}s`;
+  const sign = isNegative ? '-' : '';
+  return `${sign}${whole}.${fraction}s`;
 }
 
 function isPlainMap(value: unknown): value is Record<string, unknown> {
@@ -56,6 +62,51 @@ function untransportable(kind: string, field: string): TypeError {
   );
 }
 
+function sniffedPlainValue(
+  field: string,
+  actual: string,
+  sniffedType: string,
+  helper: string,
+): TypeError {
+  return new TypeError(
+    `Case refused: ${field} is ${actual}, which the Rules Test API reads as a ${sniffedType} instead of a plain value. `
+    + `Use ${helper} for a ${sniffedType}, or test this plain value with simulate().`,
+  );
+}
+
+function encodePlainWireString(value: string, field: string): string {
+  if (value.startsWith('/')) {
+    throw sniffedPlainValue(
+      field,
+      `a string starting with "/" (${JSON.stringify(value)})`,
+      'path',
+      'reference(...)',
+    );
+  }
+  if (SNIFFED_DURATION_STRING.test(value)) {
+    throw sniffedPlainValue(
+      field,
+      `a seconds string (${JSON.stringify(value)})`,
+      'duration',
+      'duration(...)',
+    );
+  }
+  if (isIsoInstant(value)) {
+    throw sniffedPlainValue(
+      field,
+      `an ISO-8601 instant string (${JSON.stringify(value)})`,
+      'timestamp',
+      'timestamp(...)',
+    );
+  }
+  return value;
+}
+
+function isSniffedLatLngMap(value: Record<string, unknown>): boolean {
+  const keys = Object.keys(value);
+  return keys.length === 2 && Object.hasOwn(value, 'latitude') && Object.hasOwn(value, 'longitude');
+}
+
 function encodeRulesValue(value: RulesValue, field: string): unknown {
   if (value instanceof Timestamp) return value.toString();
   if (value instanceof LatLng) return { latitude: value.lat, longitude: value.lng };
@@ -69,14 +120,20 @@ function encodeRulesValue(value: RulesValue, field: string): unknown {
 
 /**
  * `value` in the form the Rules Test API reads. `field` names where it sits in
- * the case, such as `data.at`, for the refusal a value with no such form gets.
+ * the case, such as `data.at`, for the refusal a value with no faithful wire
+ * form gets.
  *
- * @throws {TypeError} for a bytes or vector value.
+ * @throws {TypeError} for a bytes or vector value, or a plain string or map the
+ *   Rules Test API sniffs as a typed value.
  */
 export function encodeWireValue(value: unknown, field: string): unknown {
   if (value instanceof RulesValue) return encodeRulesValue(value, field);
+  if (typeof value === 'string') return encodePlainWireString(value, field);
   if (Array.isArray(value)) return value.map((item, i) => encodeWireValue(item, `${field}[${i}]`));
   if (!isPlainMap(value)) return value;
+  if (isSniffedLatLngMap(value)) {
+    throw sniffedPlainValue(field, 'a {latitude, longitude} map', 'latlng', 'latlng(...)');
+  }
   const out: Record<string, unknown> = {};
   for (const [key, child] of Object.entries(value)) {
     Object.defineProperty(out, key, {

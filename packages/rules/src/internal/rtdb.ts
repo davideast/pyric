@@ -152,7 +152,16 @@ export type { JsonValue } from '../rtdb/data/json-value.js';
 export { inlinePriorities, normalizeNode, normalizeRuleWrite, writePriority } from '../rtdb/data/normalize.js';
 export { pathSegments } from '../rtdb/data/paths.js';
 export type { Bound, LimitKind, OrderBy, QuerySpec } from '../rtdb/data/query-spec.js';
-export { normalizeOptionalEndpointValue, validateCursorKey, validateLimit, validateOrderByChildPath, validateQuerySpec } from '../rtdb/data/query-validation.js';
+export {
+  END_ALREADY_SET,
+  START_ALREADY_SET,
+  normalizeOptionalEndpointValue,
+  validateCursorKey,
+  validateLimit,
+  validateOrderByChildPath,
+  validateQuerySpec,
+} from '../rtdb/data/query-validation.js';
+export type { EndEndpointKind, StartEndpointKind } from '../rtdb/data/query-validation.js';
 export { SDK_VERSION } from '../rtdb/data/sdk-version.js';
 export { isIncrementSentinel, isServerTimestampSentinel, resolveSentinels } from '../rtdb/data/sentinels.js';
 export type { IncrementSentinel, ServerTimestampSentinel } from '../rtdb/data/sentinels.js';

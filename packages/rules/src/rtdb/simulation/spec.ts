@@ -1,9 +1,14 @@
 import { z } from 'zod';
 import type { Bound, OrderBy } from '../data/query-spec.js';
-import { validateOrderByChildPath, validateQuerySpec } from '../data/query-validation.js';
+import {
+  END_ALREADY_SET,
+  START_ALREADY_SET,
+  validateOrderByChildPath,
+  validateQuerySpec,
+} from '../data/query-validation.js';
 import { thrownMessage } from './thrown-message.js';
 
-export const SimulationQuerySchema = z.object({
+const SimulationQuerySchema = z.object({
   orderByChild: z.string().nullable().optional(),
   orderByKey: z.boolean().nullable().optional(),
   orderByValue: z.boolean().nullable().optional(),
@@ -61,10 +66,10 @@ export function simulationQueryProblem(query: unknown): string | null {
   ].filter(Boolean).length;
   if (orderings > 1) return 'query names more than one of orderByChild, orderByKey and orderByValue.';
   if (q.equalTo !== undefined && q.startAt !== undefined) {
-    return 'equalTo: Starting point was already set (by another call to startAt, startAfter, or equalTo).';
+    return START_ALREADY_SET.equalTo;
   }
   if (q.equalTo !== undefined && q.endAt !== undefined) {
-    return 'equalTo: Ending point was already set (by another call to endAt, endBefore, or equalTo).';
+    return END_ALREADY_SET.equalTo;
   }
   if (q.limitToFirst != null && q.limitToLast != null) {
     return 'query names both limitToFirst and limitToLast.';
@@ -105,7 +110,7 @@ export const SimulationInputSchema = z.object({
    * The full set of paths written together in one atomic multi-path
    * `update()` (the `{ "/a/b": 1, "/c/d": 2 }` shape). When present, the
    * simulator projects EVERY listed path onto a single post-write tree and
-   * evaluates `path`'s rules against that shared projection — so a rule on
+   * evaluates `path`'s rules against that shared projection -- so a rule on
    * one written path sees `newData` reflecting its sibling paths in the
    * same update. Omit for single-path writes (the simulator then projects
    * only `path`/`newData`). Each path is absolute (root-relative).
@@ -166,7 +171,7 @@ export type RtdbRuleEvaluation = z.infer<typeof RtdbRuleEvaluationSchema>;
 
 export const SimulationResultSchema = z.object({
   allowed: z.boolean(),
-  /** True when this outcome is a simulator gap — an unparseable/unevaluable
+  /** True when this outcome is a simulator gap -- an unparseable/unevaluable
    *  rule expression the engine abstained on rather than genuinely denied.
    *  `allowed` is always `false` alongside this (abstain, never grant). */
   unsupported: z.boolean().optional(),

@@ -1,4 +1,5 @@
 import { RulesValue } from '../simulator/wrappers/base.js';
+import { rulesInt } from '../simulator/rules-int.js';
 import {
   bindPathSegments,
   requirePathBindMap,
@@ -92,15 +93,17 @@ export function pathValueSegments(value: RulesValue): string[] {
 /**
  * The segments one `$(v)` interpolation in a path literal contributes, or
  * `undefined` when `v` has no path form. Production decides by the value's
- * rules type, not its contents: a string or number is exactly one segment,
- * even when it holds a `/`, and a `path` value (a `{rest=**}` capture or
- * `path()`) splices in as its segments (captures
+ * rules type, not its contents: a string or rules int (`rulesInt`) is one
+ * segment, even when it holds a `/`, and a `path` value (a `{rest=**}`
+ * capture or `path()`) splices in as its segments (captures
  * `rules-storage-h1-lookup-interpolated-slash` and
- * `rules-storage-storage-lookup-path-interpolation`).
+ * `rules-storage-storage-lookup-path-interpolation`). Bare and wrapped floats
+ * both return `undefined` (#1815).
  */
 export function interpolationSegments(value: unknown): string[] | undefined {
   if (typeof value === 'string') return [value];
-  if (typeof value === 'number' || typeof value === 'bigint') return [String(value)];
+  const int = rulesInt(value);
+  if (int !== undefined) return [String(int)];
   if (isPathValue(value)) return pathValueSegments(value);
   return undefined;
 }

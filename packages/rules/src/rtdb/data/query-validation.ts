@@ -15,6 +15,22 @@ const KEY_SECOND_ARGUMENT_ERROR =
   'Query: When ordering by key, you may only pass one argument to startAt(), endAt(), or equalTo().';
 
 type EndpointName = Bound['kind'];
+export type StartEndpointKind = 'startAt' | 'startAfter' | 'equalTo';
+export type EndEndpointKind = 'endAt' | 'endBefore' | 'equalTo';
+
+// The SDK's texts, kept verbatim from capture rtdb-modular-query-constraint-conflicts:
+// startAt names `startBefore`, and endAt and endBefore say "Starting point" for an end point.
+export const START_ALREADY_SET: Readonly<Record<StartEndpointKind, string>> = {
+  startAt: 'startAt: Starting point was already set (by another call to startAt, startBefore or equalTo).',
+  startAfter: 'startAfter: Starting point was already set (by another call to startAt, startAfter, or equalTo).',
+  equalTo: 'equalTo: Starting point was already set (by another call to startAt/startAfter or equalTo).',
+};
+
+export const END_ALREADY_SET: Readonly<Record<EndEndpointKind, string>> = {
+  endAt: 'endAt: Starting point was already set (by another call to endAt, endBefore or equalTo).',
+  endBefore: 'endBefore: Starting point was already set (by another call to endAt, endBefore or equalTo).',
+  equalTo: 'equalTo: Ending point was already set (by another call to endAt/endBefore or equalTo).',
+};
 
 export function validateLimit(name: 'limitToFirst' | 'limitToLast', value: unknown): void {
   if (typeof value !== 'number' || value <= 0 || Math.floor(value) !== value) {
@@ -22,12 +38,16 @@ export function validateLimit(name: 'limitToFirst' | 'limitToLast', value: unkno
   }
 }
 
+function reservedOrderByReplacement(rendered: '$key' | '$priority' | '$value'): string {
+  if (rendered === '$key') return 'orderByKey';
+  if (rendered === '$priority') return 'orderByPriority';
+  return 'orderByValue';
+}
+
 export function validateOrderByChildPath(path: unknown): asserts path is string {
   const rendered = String(path);
   if (rendered === '$key' || rendered === '$priority' || rendered === '$value') {
-    const replacement = rendered === '$key'
-      ? 'orderByKey'
-      : rendered === '$priority' ? 'orderByPriority' : 'orderByValue';
+    const replacement = reservedOrderByReplacement(rendered);
     throw new Error(`orderByChild: "${rendered}" is invalid.  Use ${replacement}() instead.`);
   }
   if (typeof path !== 'string' || path.length === 0 || INVALID_PATH.test(path)) {
@@ -51,7 +71,10 @@ export function normalizeOptionalEndpointValue(
   name: EndpointName,
   value: unknown,
 ): unknown {
-  return value === undefined && (name === 'startAt' || name === 'endAt') ? null : value;
+  if (value === undefined && (name === 'startAt' || name === 'endAt')) {
+    return null;
+  }
+  return value;
 }
 
 function isServerValuePriority(value: unknown): boolean {

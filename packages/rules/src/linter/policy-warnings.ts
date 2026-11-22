@@ -1,5 +1,10 @@
 import type { AllowRule, FunctionDef, MatchBlock, PathSegment } from '../grammar/FirestoreAST.js';
-import { recursiveScope, type RecursiveScope } from '../grammar/recursive-scope.js';
+import {
+  recursiveScope,
+  renderPathSegments,
+  resolveDocumentSegments,
+  type RecursiveScope,
+} from '../grammar/recursive-scope.js';
 import type { TestCase } from '../test/spec.js';
 import {
   evalConstBool,
@@ -11,6 +16,13 @@ import type { LintWarning } from './linter.js';
 
 /** A recursive scope together with the rule's index in its match block. */
 export type RuleScope = RecursiveScope & { ruleIndex: number };
+
+/** A rule whose enclosing root match applies to documents or Storage objects. */
+export interface ScopedAllowRule {
+  rule: AllowRule;
+  path: string;
+  ruleIndex: number;
+}
 
 const WRITE_OPS: ReadonlySet<string> = new Set([
   'write',
@@ -29,8 +41,10 @@ export function checkRequestTimePinned(
   const emptyScope = new Map<string, FunctionDef>();
   const timeGatedRules = new Set<number>();
   for (let i = 0; i < rules.length; i++) {
-    const fnMap = ruleScopes.get(rules[i]!.rule) ?? emptyScope;
-    if (referencesRequestTime(rules[i]!.rule.condition, fnMap, new Set(), fnScopes)) {
+    const entry = rules[i];
+    if (entry === undefined) continue;
+    const fnMap = ruleScopes.get(entry.rule) ?? emptyScope;
+    if (referencesRequestTime(entry.rule.condition, fnMap, new Set(), fnScopes)) {
       timeGatedRules.add(i);
     }
   }
@@ -41,7 +55,8 @@ export function checkRequestTimePinned(
     const tcSegs = tcPath.split('/').filter(Boolean);
     if (ruleSegs.length !== tcSegs.length) return false;
     for (let i = 0; i < ruleSegs.length; i++) {
-      const rs = ruleSegs[i]!;
+      const rs = ruleSegs[i];
+      if (rs === undefined) return false;
       if (rs.startsWith('{') && rs.endsWith('}')) continue;
       if (rs !== tcSegs[i]) return false;
     }
@@ -51,14 +66,16 @@ export function checkRequestTimePinned(
   for (const tc of testCases) {
     if (tc.requestTime) continue;
     for (const ruleIdx of timeGatedRules) {
-      if (!pathMatches(rules[ruleIdx]!.path, tc.path)) continue;
+      const target = rules[ruleIdx];
+      if (target === undefined) continue;
+      if (!pathMatches(target.path, tc.path)) continue;
       warnings.push({
         rule: 'REQUEST_TIME_NOT_PINNED',
         severity: 'warning',
-        message: `Test case "${tc.description}" targets rule #${ruleIdx} (path '${rules[ruleIdx]!.path}') which reads request.time, but does not set requestTime. Result is non-deterministic across runs.`,
+        message: `Test case "${tc.description}" targets rule #${ruleIdx} (path '${target.path}') which reads request.time, but does not set requestTime. Result is non-deterministic across runs.`,
         location: {
           ruleIndex: ruleIdx,
-          matchPath: rules[ruleIdx]!.path,
+          matchPath: target.path,
           testCaseDescription: tc.description,
         },
         fix: 'Set requestTime on this TestCase to an ISO-8601 timestamp so the rule evaluates deterministically.',
@@ -68,13 +85,14 @@ export function checkRequestTimePinned(
 }
 
 export function checkPermissiveRules(
-  rules: { rule: AllowRule; path: string }[],
+  rules: readonly { rule: AllowRule; path: string; ruleIndex?: number }[],
   scopes: ReadonlyMap<AllowRule, RuleScope>,
   warnings: LintWarning[],
   isStorage = false,
 ): void {
   for (let i = 0; i < rules.length; i++) {
-    const r = rules[i]!;
+    const r = rules[i];
+    if (r === undefined) continue;
     if (evalConstBool(r.rule.condition) !== true) continue;
     const grantsWrite = r.rule.operations.some((op) => WRITE_OPS.has(op));
     if (!grantsWrite) continue;
@@ -86,33 +104,94 @@ export function checkPermissiveRules(
       fix =
         "Replace the always-true predicate with a request-shape check (e.g. request.auth != null && request.resource.size < 5 * 1024 * 1024 && request.resource.contentType.matches('image/.*')).";
     }
+    const ruleIndex = r.ruleIndex ?? i;
     warnings.push({
       rule: 'PERMISSIVE_RULE',
       severity: 'warning',
       message:
-        `allow ${ops} at ${r.path} resolves to a constant true predicate \u2014 ` +
+        `allow ${ops} at ${r.path} resolves to a constant true predicate -- ` +
         `this disables write security for ${scopeDescription}. If you reached ` +
-        `for \`if true\` to escape a denial you don't understand, narrow ` +
-        `the predicate to the specific request shape instead (auth identity, ` +
-        `affected fields via diff, status transitions).`,
-      location: { ruleIndex: i, matchPath: r.path },
+        'for `if true` to escape a denial you do not understand, narrow ' +
+        'the predicate to the specific request shape instead (auth identity, ' +
+        'affected fields via diff, status transitions).',
+      location: { ruleIndex, matchPath: r.path },
       fix,
     });
   }
 }
 
-export function collectRecursiveScopes(
-  match: MatchBlock,
-  prefix: readonly PathSegment[],
-  scopes: Map<AllowRule, RuleScope>,
-): Map<AllowRule, RuleScope> {
-  const segments = [...prefix, ...match.path.segments];
-  const scope = recursiveScope(segments);
-  if (scope) {
-    match.allows.forEach((rule, ruleIndex) => scopes.set(rule, { ...scope, ruleIndex }));
+const PROBE_DOCUMENT_TAIL: readonly PathSegment[] = [
+  { type: 'literal', value: '__collection__' },
+  { type: 'literal', value: '__document__' },
+];
+
+/**
+ * Resolve every top-level service `match` block against the service's root
+ * prefix (`/databases/(default)/documents` for Firestore, `/b/{bucket}/o` for
+ * Storage). Collects the rules and recursive scopes that reach real documents
+ * or objects, and emits `UNMATCHED_ROOT_PATH` when a Firestore root block
+ * matches no document of `(default)` (#1396).
+ */
+export function collectRootAwarePolicyTargets(
+  roots: readonly MatchBlock[],
+  rulesVersion: string,
+  isStorage: boolean,
+  warnings: LintWarning[],
+): {
+  applicableRules: ScopedAllowRule[];
+  recursiveScopes: Map<AllowRule, RuleScope>;
+} {
+  const applicableRules: ScopedAllowRule[] = [];
+  const recursiveScopes = new Map<AllowRule, RuleScope>();
+  let globalRuleIndex = 0;
+
+  for (const root of roots) {
+    let rootReachedDocuments =
+      resolveDocumentSegments([...root.path.segments, ...PROBE_DOCUMENT_TAIL], rulesVersion, isStorage) !== null;
+
+    const walk = (block: MatchBlock, rawPrefix: readonly PathSegment[]) => {
+      const rawSegs = [...rawPrefix, ...block.path.segments];
+      const docSegs = resolveDocumentSegments(rawSegs, rulesVersion, isStorage);
+      if (docSegs !== null) {
+        rootReachedDocuments = true;
+        const docPath = renderPathSegments(docSegs);
+        const recScope = recursiveScope(docSegs);
+        block.allows.forEach((rule, blockRuleIndex) => {
+          applicableRules.push({ rule, path: docPath, ruleIndex: globalRuleIndex });
+          if (recScope !== null) {
+            recursiveScopes.set(rule, { ...recScope, ruleIndex: blockRuleIndex });
+          }
+          globalRuleIndex++;
+        });
+      } else {
+        globalRuleIndex += block.allows.length;
+      }
+      for (const child of block.children) {
+        walk(child, rawSegs);
+      }
+    };
+
+    walk(root, []);
+
+    if (!isStorage && !rootReachedDocuments) {
+      const rootPath = renderPathSegments(root.path.segments) || '/';
+      const location: LintWarning['location'] = { matchPath: rootPath };
+      if (root.loc !== undefined) {
+        location.line = root.loc.line;
+      }
+      warnings.push({
+        rule: 'UNMATCHED_ROOT_PATH',
+        severity: 'warning',
+        message:
+          `Root match '${rootPath}' does not match '/databases/(default)/documents/...', ` +
+          'so production grants nothing under it.',
+        location,
+        fix: "Start Firestore rules under 'match /databases/{database}/documents { ... }' so match blocks apply to documents.",
+      });
+    }
   }
-  for (const child of match.children) collectRecursiveScopes(child, segments, scopes);
-  return scopes;
+
+  return { applicableRules, recursiveScopes };
 }
 
 export function checkRecursiveWildcardOpen(

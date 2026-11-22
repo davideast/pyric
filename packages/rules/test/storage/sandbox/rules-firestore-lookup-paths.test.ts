@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'bun:test';
+import { RulesFloat } from '../../../src/simulator/wrappers/float.js';
 import { parseStorageRules } from '../../../src/storage/rules.js';
 import { evaluateStorageRules } from '../../../src/storage/rules-evaluator.js';
+import { interpolationSegments } from '../../../src/storage/rules-path.js';
 
 // How an interpolated value becomes segments of a `firestore.get()` or
 // `firestore.exists()` document path. Production keeps a string as one
@@ -13,6 +15,9 @@ const docs: Record<string, Record<string, unknown>> = {
   'users/alice/private/x': { admin: true },
   'col/a': { on: true },
   'col/a/b/c': { on: true },
+  'num/2': { on: true },
+  'num/1.5': { on: true },
+  'seed/doc': { f: new RulesFloat(1.5), bareFloat: 1.5, n: 2 },
 };
 
 const lookup = {
@@ -20,18 +25,24 @@ const lookup = {
   exists: (path: string) => path in docs,
 };
 
-function upload(rulesBody: string, objectPath: string, metadata: Record<string, string> = {}): boolean {
+function upload(
+  rulesBody: string,
+  objectPath: string,
+  metadata: Record<string, string> = {},
+  token?: Record<string, unknown>,
+): boolean {
   const rules = parseStorageRules(`rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
     ${rulesBody}
   }
 }`);
+  const auth = token === undefined ? { uid: 'alice' } : { uid: 'alice', token };
   return evaluateStorageRules(
     rules,
     {
       request: {
-        auth: { uid: 'alice' },
+        auth,
         method: 'create',
         path: `b/pyric-default/o/${objectPath}`,
         resource: { size: 1, metadata },
@@ -143,5 +154,47 @@ describe('Storage rules lookup paths: a path literal built in a helper function'
       allow create: if firestore.exists(colDoc(rest));
     }`;
     expect(upload(viaRest, 'one/a/b/c')).toBe(true);
+  });
+});
+
+describe('Storage rules lookup paths: numeric interpolation types numbers via rulesInt (#1815)', () => {
+  it('interpolationSegments accepts safe-integer numbers and bigints, and rejects bare and wrapped floats', () => {
+    expect(interpolationSegments(2)).toEqual(['2']);
+    expect(interpolationSegments(2n)).toEqual(['2']);
+    expect(interpolationSegments(1.5)).toBeUndefined();
+    expect(interpolationSegments(new RulesFloat(1.5))).toBeUndefined();
+    expect(interpolationSegments(new RulesFloat(2))).toBeUndefined();
+    expect(interpolationSegments(2 ** 53)).toBeUndefined();
+    expect(interpolationSegments(Number.NaN)).toBeUndefined();
+    expect(interpolationSegments(Number.POSITIVE_INFINITY)).toBeUndefined();
+  });
+
+  it('bare float token claim, bare float doc field, wrapped float doc field, and float literal all fail closed alike', () => {
+    const byClaim = `match /claim/{file} {
+      allow create: if firestore.exists(/databases/(default)/documents/num/$(request.auth.token.v));
+    }`;
+    const notExistsByClaim = `match /claim/{file} {
+      allow create: if !firestore.exists(/databases/(default)/documents/num/$(request.auth.token.v));
+    }`;
+    const byLiteralFloat = `match /lit/{file} {
+      allow create: if firestore.exists(/databases/(default)/documents/num/$(1.5));
+    }`;
+    const byWrappedDocField = `match /doc/{file} {
+      allow create: if firestore.exists(/databases/(default)/documents/num/$(firestore.get(/databases/(default)/documents/seed/doc).data.f));
+    }`;
+    const byBareDocField = `match /doc/{file} {
+      allow create: if firestore.exists(/databases/(default)/documents/num/$(firestore.get(/databases/(default)/documents/seed/doc).data.bareFloat));
+    }`;
+    const byIntDocField = `match /doc/{file} {
+      allow create: if firestore.exists(/databases/(default)/documents/num/$(firestore.get(/databases/(default)/documents/seed/doc).data.n));
+    }`;
+
+    expect(upload(byClaim, 'claim/a.bin', {}, { v: 2 })).toBe(true);
+    expect(upload(byClaim, 'claim/a.bin', {}, { v: 1.5 })).toBe(false);
+    expect(upload(notExistsByClaim, 'claim/a.bin', {}, { v: 1.5 })).toBe(false);
+    expect(upload(byLiteralFloat, 'lit/a.bin')).toBe(false);
+    expect(upload(byWrappedDocField, 'doc/a.bin')).toBe(false);
+    expect(upload(byBareDocField, 'doc/a.bin')).toBe(false);
+    expect(upload(byIntDocField, 'doc/a.bin')).toBe(true);
   });
 });
