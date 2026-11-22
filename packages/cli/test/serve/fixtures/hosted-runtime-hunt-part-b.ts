@@ -298,12 +298,25 @@ service cloud.firestore {
       assert.equal(after.status, 'active');
       assert.equal(after.source, otherOnly);
       await expectRulesInForce('other/a', 'open/d');
-      // Promoted branch with a refused source reports status 'error' and keeps lastKnownGood.
-      const forked = await runtime.runMethod(
+      // #1456: sandbox.fork refuses candidateRules production would not load before saving the branch.
+      const refusedFork = await runtime.runMethod(
         { instanceId: runtime.instanceId, key: 'sandbox.fork', args: { branch: 'dup-rules', candidateRules: duplicateFirestore }, projectDir: dir, allowProduction: false },
         {},
       );
+      assert.equal(refusedFork.ok, false, JSON.stringify(refusedFork));
+      assert.equal(refusedFork.summary.startsWith(duplicateReason), true, JSON.stringify(refusedFork));
+      assert.equal(existsSync(join(dir, '.pyric', 'state', 'branches', 'dup-rules')), false);
+      assert.deepEqual(await activeRules(), after);
+      // Defense in depth (FS2-ENF-3b): promoting a pre-existing stored branch carrying a refused source reports status 'error' and keeps lastKnownGood.
+      const forked = await runtime.runMethod(
+        { instanceId: runtime.instanceId, key: 'sandbox.fork', args: { branch: 'dup-rules' }, projectDir: dir, allowProduction: false },
+        {},
+      );
       assert.equal(forked.ok, true, JSON.stringify(forked));
+      const storedRulesPath = join(dir, '.pyric', 'state', 'branches', 'dup-rules', 'state', 'rules.json');
+      const storedRules = JSON.parse(readFileSync(storedRulesPath, 'utf8'));
+      storedRules.firestore = duplicateFirestore;
+      writeFileSync(storedRulesPath, JSON.stringify(storedRules, null, 2));
       const promoted = await runtime.runMethod(
         { instanceId: runtime.instanceId, key: 'sandbox.promote', args: { branch: 'dup-rules', confirm: true }, projectDir: dir, allowProduction: false },
         {},
