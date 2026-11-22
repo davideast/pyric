@@ -111,15 +111,20 @@ databaseSandbox.setRules(db, { rules: { projects: { '.read': true } } });
 databaseSandbox.setData(db, { projects: { a: { budget: 5 }, b: { budget: 9 } } });
 
 const budgets = query(ref(db, 'projects'), orderByChild('budget'));
-await get(budgets);
-// Error: Index not defined, add ".indexOn": "budget", for path "/projects", to the rules
+try {
+  await get(budgets);
+} catch (error) {
+  console.log((error as Error).message);
+  // Index not defined, add ".indexOn": "budget", for path "/projects", to the rules
+}
 
 const smallest = query(ref(db, 'projects'), orderByChild('budget'), limitToFirst(1));
-onValue(smallest, (snapshot) => console.log(snapshot.val()));
+const unsubscribe = onValue(smallest, (snapshot) => console.log(snapshot.val()));
 // { a: { budget: 5 } }
 // @firebase/database: FIREBASE WARNING: Using an unspecified index. Your data will be
 // downloaded and filtered on the client. Consider adding ".indexOn": "budget" at
 // /projects to your security rules for better performance.
+unsubscribe();
 ```
 This matches production:
 
@@ -142,24 +147,25 @@ A listener that works while the equivalent `get()` rejects points to a missing i
 
 ## The other kind of denial bug
 
-A denial that should not happen is one failure mode. The quieter one is its opposite: an operation that should be denied and no longer is, because a rules edit removed a predicate somewhere. This usually happens while making a failing test pass.
+A denial that should not happen is one failure mode. The quieter one is its opposite: an operation that should be denied and no longer is, because a rules edit opened a grant too wide while making a failing test pass.
 
-Pyric catches it by diffing rulesets. Lint the candidate with the previously deployed source:
+Lint the edited source with `lint` from `pyric/rules` to flag unguarded grants, recursive wildcards, and unvalidated writes before shipping:
 ```ts
-import { lintFirestoreRules } from 'pyric/rules';
+import { lint } from 'pyric/rules';
 
-const result = lintFirestoreRules(newSource, { previousSource: oldSource });
-const weakened = result.warnings.filter((w) => w.rule === 'RULES_WEAKENED');
+const newSource = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}`;
+
+const errors = lint(newSource).filter((issue) => issue.severity === 'error');
+console.log(errors.map((issue) => issue.code));
 ```
-The linter normalizes every match path and diffs the predicates conjunct by conjunct. It reports three shapes of weakening:
-
-- a match block that had `allow` rules and is gone
-- an `allow` rule that was deleted
-- a dropped conjunct, for example `auth.uid == ownerId && status == 'open'` becoming only `auth.uid == ownerId`
-
-`RULES_WEAKENED` is a warning, not an error, because removing a predicate is sometimes a legitimate refactor. The signal is "a human should look at this," and in CI you decide whether that means a required ack or a hard block.
-
-One boundary stated plainly: the diff compares the predicates in `allow` statements, so weakening a helper function's body does not fire it. Your [test suite](./write-a-rules-test-suite.md) is the net for that shape.
+Structural lint catches rulesets that open paths globally; to catch subtle predicate removals on a specific path or helper function, keep explicit deny cases in your [test suite](./write-a-rules-test-suite.md) and [replay real traffic against the candidate rules](../ship/ship-to-production.md).
 
 ## Diagnose a denial through an agent
 

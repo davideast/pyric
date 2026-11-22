@@ -33,10 +33,7 @@ const NAME_CHECKED_PACKAGES = new Set(['pyric', 'pyric-admin']);
  * the guide is waiting on. An entry that no longer occurs fails the suite, so
  * the list only shrinks.
  */
-const UNRESOLVED_NAMES: Record<string, string> = {
-  'packages/site-docs/src/content/secure/read-a-denial.md: lintFirestoreRules from pyric/rules':
-    'The ruleset-diff lint (`previousSource`, RULES_WEAKENED) is reachable only through pyric/rules/internal; public `lint(source)` takes no previous source.',
-};
+const UNRESOLVED_NAMES: Record<string, string> = {};
 
 interface DocImport {
   file: string;

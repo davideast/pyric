@@ -17,7 +17,16 @@ Simulation tells you what a rule decides. Linting tells you what the production 
 
 Ask the simulator whether a specific request would be allowed. It runs in-process, no network, no project:
 ```ts
-import { firestoreRules } from 'pyric/rules';
+import { explainCase, firestoreRules } from 'pyric/rules';
+
+const source = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /notes/{noteId} {
+      allow read: if request.auth != null;
+    }
+  }
+}`;
 
 const result = firestoreRules(source).simulate([
   {
@@ -27,13 +36,17 @@ const result = firestoreRules(source).simulate([
     path: 'notes/n1',
   },
 ]);
+
+console.log(explainCase(result.cases[0]));
 ```
-Each result is `PASSED`, `FAILED`, or `UNSUPPORTED`, and each carries `debugMessages`, a trace naming the rule that decided:
+`simulate` returns `{ passed, failed, unsupported, cases }`. Each `CaseResult` in `result.cases` carries `decision` (`'ALLOW'`, `'DENY'`, or `'UNSUPPORTED'`), `passed`, `unsupported`, `notes`, `evaluatedExpressions`, and `trace` (each evaluated `allow` rule with its `ruleIndex`, `operations`, `matchPath`, `line`, `verdict`, and `conditionText`). `explainCase` renders that trace as text:
 ```
-Rule #0 (read) → deny
-Simulated: DENY
+PASS: unauthenticated read is denied
+  get notes/n1 (expected DENY, got DENY)
+  rules evaluated:
+    #0 (read) [/notes/{noteId}] (line 5) -> DENY: request.auth != null
 ```
-`UNSUPPORTED` means the simulator hit a feature it does not implement and abstained rather than guessed. Those cases can be routed to Google's own engine. See [write a rules test suite](./write-a-rules-test-suite.md).
+`UNSUPPORTED` (`caseResult.unsupported === true`, `caseResult.decision === 'UNSUPPORTED'`) means the simulator hit a feature it does not implement and abstained rather than guessed. Those cases can be routed to Google's own engine. See [write a rules test suite](./write-a-rules-test-suite.md).
 
 The same simulator is on the command line as `pyric rules simulate --service firestore --operation <op> --path <path>`, and it is what evaluates every operation inside your running sandbox.
 
@@ -91,7 +104,19 @@ A hallucinated method is always an error, because the named method literally doe
 ```ts
 import { storageRules } from 'pyric/rules';
 
-const rules = storageRules(source, { bucket: 'demo-app.appspot.com' });
+const storageSource = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /avatars/{uid}/{file} {
+      allow create: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.size < 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+  }
+}`;
+
+const rules = storageRules(storageSource, { bucket: 'demo-app.appspot.com' });
 
 const result = rules.simulate([
   {

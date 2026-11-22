@@ -8,6 +8,7 @@ import {
   simulateFirestoreCase,
   simulationDetail,
   unmatchedPathReason,
+  unsupportedReason,
   type SimulationRequest,
 } from '../rules-simulation.js';
 import { markLintFindings } from '../rules-verdict.js';
@@ -86,22 +87,38 @@ export const FIRESTORE_RULES: RulesEngine = {
     const outcome = await simulateFirestoreCase(ctx, caseFor(request));
     if (!outcome.result.ok) return operationFailure(outcome.result.summary, outcome.result.data);
     const detail = simulationDetail(outcome.result);
-    const decision = outcome.allowed ? 'ALLOW' : 'DENY';
+    let decision: 'ALLOW' | 'DENY' | 'UNSUPPORTED' = 'DENY';
+    if (outcome.unsupported) {
+      decision = 'UNSUPPORTED';
+    } else if (outcome.allowed) {
+      decision = 'ALLOW';
+    }
     const queryProof = detail?.queryProof as { verdict?: string } | undefined;
     let proofLabel = '';
     if (queryProof?.verdict !== undefined) {
       proofLabel = ` (queryProof: ${queryProof.verdict})`;
     }
+    let noteSuffix = '';
+    if (outcome.unsupported) {
+      const note = unsupportedReason(detail);
+      if (note !== null) {
+        noteSuffix = ` - ${note}`;
+      }
+    }
     const verdict = onFirestoreDatabase(
-      `${request.operation} ${request.path}: ${decision}${proofLabel}`,
+      `${request.operation} ${request.path}: ${decision}${proofLabel}${noteSuffix}`,
       selector,
     );
     const unmatched = unmatchedPathReason(detail);
     const data: Record<string, unknown> = {
+      decision,
       allowed: outcome.allowed,
       auth: outcome.auth,
       case: detail,
     };
+    if (outcome.unsupported) {
+      data.unsupported = true;
+    }
     if (selector !== undefined) {
       data.database = selector;
       data.ruleset = request.rules !== undefined ? 'draft' : `firestore (${selector})`;
@@ -109,11 +126,12 @@ export const FIRESTORE_RULES: RulesEngine = {
     if (queryProof !== undefined) {
       data.queryProof = queryProof;
     }
+    const ok = !outcome.unsupported;
     if (unmatched === null) {
-      return { ok: true, summary: verdict, data };
+      return { ok, summary: verdict, data };
     }
     data.pathForm = DOCUMENT_PATH_FORM;
-    return { ok: true, summary: `${unmatched} ${verdict}`, data };
+    return { ok, summary: `${unmatched} ${verdict}`, data };
   },
 
   async install(ctx, rules, targetDatabase) {
@@ -144,17 +162,47 @@ export async function explainFirestoreDenial(
   if (!outcome.result.ok) return operationFailure(outcome.result.summary, outcome.result.data);
   const detail = simulationDetail(outcome.result);
   const queryProof = detail?.queryProof as { verdict?: string } | undefined;
-  const verdict = outcome.allowed ? 'allowed' : 'denied';
   let proofSuffix = '';
   if (queryProof?.verdict !== undefined) {
     proofSuffix = ` (queryProof: ${queryProof.verdict})`;
   }
+  if (outcome.unsupported) {
+    let note = unsupportedReason(detail);
+    if (note === null) {
+      note = 'the simulator abstained on an unmodeled construct';
+    }
+    let unsupportedSummary = `pyric cannot decide this request: ${note}${proofSuffix}`;
+    if (selector !== undefined) {
+      unsupportedSummary = onFirestoreDatabase(unsupportedSummary, selector);
+    }
+    const unsupportedData: Record<string, unknown> = {
+      decision: 'UNSUPPORTED',
+      allowed: false,
+      unsupported: true,
+      auth: outcome.auth,
+      case: detail,
+    };
+    if (selector !== undefined) {
+      unsupportedData.database = selector;
+      unsupportedData.ruleset = request.rules !== undefined ? 'draft' : `firestore (${selector})`;
+    }
+    if (queryProof !== undefined) {
+      unsupportedData.queryProof = queryProof;
+    }
+    return {
+      ok: true,
+      summary: unsupportedSummary,
+      data: unsupportedData,
+    };
+  }
+  const verdict = outcome.allowed ? 'allowed' : 'denied';
   let summary = `${request.operation} ${request.path} is ${verdict} for this identity.${proofSuffix}`;
   if (selector !== undefined) {
     const rulesetLabel = request.rules !== undefined ? 'draft ruleset' : `active ruleset of ${selector}`;
     summary = `${request.operation} ${request.path} on ${selector} (${rulesetLabel}) is ${verdict} for this identity.${proofSuffix}`;
   }
   const data: Record<string, unknown> = {
+    decision: outcome.decision,
     allowed: outcome.allowed,
     auth: outcome.auth,
     case: detail,

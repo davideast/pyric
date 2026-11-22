@@ -89,7 +89,7 @@ pyric rules lint --service firestore
 You can then exercise the rule through the public API:
 ```ts
 import { readFileSync } from 'node:fs';
-import { firestoreRules } from 'pyric/rules';
+import { firestoreRules, serverTimestamp, timestamp } from 'pyric/rules';
 
 const source = readFileSync('firestore.rules', 'utf8');
 const result = firestoreRules(source).simulate([
@@ -104,20 +104,20 @@ const result = firestoreRules(source).simulate([
       authorId: 'alice',
       title: 'Old',
       body: 'Text',
-      updatedAt: '2026-07-16T12:00:00.000Z',
+      updatedAt: timestamp('2026-07-16T12:00:00.000Z'),
     },
     data: {
       authorId: 'alice',
       title: 'New',
       body: 'Text',
-      updatedAt: '2026-07-16T12:00:03.000Z',
+      updatedAt: serverTimestamp(),
     },
   },
 ]);
 
 if (result.failed > 0 || result.unsupported > 0) process.exit(1);
 ```
-Pin `requestTime` whenever a rule reads `request.time`, otherwise the test depends on the clock.
+Pin `requestTime` whenever a rule reads `request.time`, otherwise the test depends on the clock. Wrap stored timestamps with `timestamp(...)` and incoming server timestamps with `serverTimestamp()` so Rules timestamp arithmetic (`cooldownElapsed`) and `request.time` equality (`isServerTimestamp`) see Firestore `Timestamp` values rather than plain strings.
 
 ## Choose a module
 

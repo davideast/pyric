@@ -45,6 +45,9 @@ import {
 
 type StorageCandidateSource = string | { source: string };
 
+const LEGACY_STORAGE_RECORDING_NOTE =
+  'One or more denied Storage writes were rebuilt from an older recording without captured request.resource bindings and may differ from the request the rules evaluated.';
+
 function isInformational(divergence: VerifyDivergence): boolean {
   return divergence.kind === 'expected-drift';
 }
@@ -91,6 +94,7 @@ export async function verifyStorage(
 
   const divergences: VerifyDivergence[] = [];
   let checkedEvents = 0;
+  let usedLegacyDeniedWriteFallback = false;
   const consumedMutationIndices = new Set<number>();
   const defaultFirestoreFixture = filterFixtureForFirestoreDatabase(fixture, undefined);
   const currentFirestoreDocs: Record<string, Record<string, unknown>> = {
@@ -205,6 +209,21 @@ export async function verifyStorage(
 
     checkedEvents += 1;
 
+    let currentResource = null;
+    if (detailResource !== undefined) {
+      currentResource = detailResource;
+    } else if (existing) {
+      currentResource = resourceFromStored(existing);
+    }
+    if (
+      opEvent.result === 'deny' &&
+      detailRequestResource === undefined &&
+      (opEvent.method === 'create' ||
+        opEvent.method === 'write' ||
+        (opEvent.method === 'update' && currentResource !== null))
+    ) {
+      usedLegacyDeniedWriteFallback = true;
+    }
     const requestResource = buildStorageRequestResource(
       opEvent.method,
       objectPath,
@@ -214,10 +233,6 @@ export async function verifyStorage(
       detailRequestResource,
       detailResource,
     );
-    let currentResource = detailResource ?? null;
-    if (existing) {
-      currentResource = resourceFromStored(existing);
-    }
     const requestPayload = buildStorageVerifyRequest(
       opEvent.auth,
       opEvent.method,
@@ -267,14 +282,21 @@ export async function verifyStorage(
     checkedEvents,
     divergences,
   };
+  if (usedLegacyDeniedWriteFallback) {
+    sandbox.notes = [LEGACY_STORAGE_RECORDING_NOTE];
+  }
 
-  return {
+  const serviceResult: VerifyServiceResult = {
     service: 'storage',
     ok: divergences.every(isInformational),
     checkedEvents,
     divergences,
     engines: { sandbox },
   };
+  if (usedLegacyDeniedWriteFallback) {
+    serviceResult.notes = [LEGACY_STORAGE_RECORDING_NOTE];
+  }
+  return serviceResult;
 }
 
 function buildStorageRequestResource(
