@@ -49,22 +49,34 @@ window.abortAfterChunks = async (tag, stopAfter) => {
   return { seen, streamError, responseError };
 };
 
-window.abortBeforeHeaders = async (tag, abortAfterMs) => {
+const pendingSlow = new Map();
+
+window.startSlowHeaders = (tag) => {
   const model = makeModel(tag, "gemini-slow-headers");
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), abortAfterMs);
-  let error = null;
-  let chunks = 0;
-  try {
-    const result = await model.generateContentStream("slow", { signal: controller.signal });
-    for await (const _chunk of result.stream) {
-      chunks += 1;
+  const promise = (async () => {
+    let error = null;
+    let chunks = 0;
+    try {
+      const result = await model.generateContentStream("slow", { signal: controller.signal });
+      for await (const _chunk of result.stream) {
+        chunks += 1;
+      }
+      await result.response;
+    } catch (err) {
+      error = { name: err?.name ?? null, message: String(err?.message ?? err) };
     }
-    await result.response;
-  } catch (err) {
-    error = { name: err?.name ?? null, message: String(err?.message ?? err) };
-  } finally {
-    clearTimeout(timer);
+    return { chunks, error };
+  })();
+  pendingSlow.set(tag, { controller, promise });
+};
+
+window.abortSlowHeaders = async (tag) => {
+  const entry = pendingSlow.get(tag);
+  pendingSlow.delete(tag);
+  if (!entry) {
+    throw new Error(`No pending slow-headers stream for tag: ${tag}`);
   }
-  return { chunks, error };
+  entry.controller.abort();
+  return entry.promise;
 };

@@ -16,10 +16,9 @@ declare function abortAfterChunks(
   responseError: { name: string | null; message: string } | null;
 }>;
 
-declare function abortBeforeHeaders(
-  tag: string,
-  abortAfterMs: number,
-): Promise<{
+declare function startSlowHeaders(tag: string): void;
+
+declare function abortSlowHeaders(tag: string): Promise<{
   chunks: number;
   error: { name: string | null; message: string } | null;
 }>;
@@ -70,11 +69,32 @@ async function fetchRecords(standInUrl: string): Promise<StreamRecord[]> {
   return (await response.json()) as StreamRecord[];
 }
 
+async function waitForRecordArrival(
+  standInUrl: string,
+  index: number,
+  label: string,
+  timeoutMs = 10_000,
+): Promise<StreamRecord> {
+  const deadline = Date.now() + timeoutMs;
+  let last: StreamRecord[] = [];
+  for (;;) {
+    last = await fetchRecords(standInUrl);
+    const rec = last[index];
+    if (rec !== undefined) {
+      return rec;
+    }
+    if (Date.now() > deadline) {
+      throw new Error(`Timed out waiting for: ${label} (records=${JSON.stringify(last.slice(index))})`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  }
+}
+
 async function waitForRecord(
   standInUrl: string,
   index: number,
   label: string,
-  timeoutMs = 5000,
+  timeoutMs = 10_000,
 ): Promise<StreamRecord> {
   const deadline = Date.now() + timeoutMs;
   let last: StreamRecord[] = [];
@@ -121,9 +141,16 @@ async function verifyPlane(
   );
 
   const beforeEarly = (await fetchRecords(standInUrl)).length;
+  const earlyTag = `${plane}-early`;
+  await page.evaluate((tag: string) => startSlowHeaders(tag), earlyTag);
+  await waitForRecordArrival(
+    standInUrl,
+    beforeEarly,
+    `${plane} upstream request arrival before headers`,
+  );
   const early = await page.evaluate(
-    (tag: string) => abortBeforeHeaders(tag, 150),
-    `${plane}-early`,
+    (tag: string) => abortSlowHeaders(tag),
+    earlyTag,
   );
   assert.equal(early.chunks, 0, `${plane}: expected 0 chunks before headers`);
   assert.equal(early.error?.name, 'AbortError', `${plane}: early abort error: ${JSON.stringify(early)}`);

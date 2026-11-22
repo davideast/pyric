@@ -4,8 +4,8 @@
 import { createServer } from 'node:http';
 
 const TOTAL_CHUNKS = 40;
-const CHUNK_INTERVAL_MS = 100;
-const SLOW_HEADERS_DELAY_MS = 2000;
+const CHUNK_INTERVAL_MS = 150;
+const SLOW_HEADERS_DELAY_MS = 15000;
 const records = [];
 
 function makeChunkPayload(index) {
