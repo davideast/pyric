@@ -30,6 +30,7 @@ import {
   FIREBASE_PROJECT_SOURCES_TRIED, type FirebaseProjectResolution,
 } from '../cli/firebase-project.js';
 import { rtdbRulesSourceRejection } from 'pyric/rules/internal/rtdb';
+import { realPathWithin } from '../project-containment.js';
 import type { RtdbRulesJson } from './init-payload.js';
 import { parseRtdbRulesText } from '../rtdb/rules-json.js';
 
@@ -67,10 +68,27 @@ interface ProjectModulesResolution {
   moduleFiles: string[];
 }
 
+function isUnreadableRulesFileError(error: unknown): boolean {
+  if (error === null || typeof error !== 'object' || !('code' in error)) {
+    return false;
+  }
+  const code = (error as { code?: unknown }).code;
+  return (
+    code === 'ENOENT' ||
+    code === 'ENOTDIR' ||
+    code === 'EISDIR' ||
+    code === 'EACCES' ||
+    code === 'EPERM' ||
+    code === 'ELOOP' ||
+    code === 'ENAMETOOLONG'
+  );
+}
+
 /**
  * Resolve a modular source: the stdlib inlined, relative imports read from
  * beside `sourcePath`. The resolver names nested imports relative to the
- * source, so every file it asks for is under `sourcePath`'s directory.
+ * source, so every file it asks for must stay under `sourcePath`'s real
+ * directory (refusing `..` and symlinks that escape it).
  */
 export function resolveProjectModules(
   raw: string,
@@ -82,12 +100,17 @@ export function resolveProjectModules(
   const moduleFiles: string[] = [];
   const readProjectRulesFile = (base: string, moduleName: string): string | null => {
     const fileName = moduleName.endsWith('.rules') ? moduleName : `${moduleName}.rules`;
-    const file = join(base, fileName);
-    if (!moduleFiles.includes(file)) moduleFiles.push(file);
+    if (isAbsolute(fileName)) return null;
+    const contained = realPathWithin(base, fileName);
+    if (contained === null) return null;
+    if (!moduleFiles.includes(contained)) moduleFiles.push(contained);
     try {
-      return readFileSync(file, 'utf8');
-    } catch {
-      return null;
+      return readFileSync(contained, 'utf8');
+    } catch (error: unknown) {
+      if (isUnreadableRulesFileError(error)) {
+        return null;
+      }
+      throw error;
     }
   };
   const options = {

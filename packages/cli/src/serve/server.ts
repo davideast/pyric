@@ -14,7 +14,8 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { pipeline } from 'node:stream';
-import { extname, join, normalize, resolve, sep } from 'node:path';
+import { extname, isAbsolute, join, normalize, resolve, sep } from 'node:path';
+import { realPathWithin } from '../project-containment.js';
 import { formatUrlHost, stripHostBrackets } from './advertised-host.js';
 import { isHostingIgnoredPathname, isHostingIgnoredRealFile } from './hosting-ignore.js';
 import { configureLocalHttpKeepAlive } from './http-keepalive.js';
@@ -194,17 +195,24 @@ export function decodeStaticPathname(pathname: string): string | null {
 export function resolveStaticPath(publicDir: string, pathname: string): string | null {
   const decoded = decodeStaticPathname(pathname);
   if (decoded === null) return null;
+  const rawRelative = decoded.replace(/^[/\\]+/, '');
+  if (isAbsolute(rawRelative)) return null;
   const root = resolve(publicDir);
   const candidate = normalize(join(root, decoded));
   if (candidate !== root && !candidate.startsWith(root + sep)) return null; // traversal
-  return candidate;
+  const canonicalTarget = realPathWithin(root, rawRelative);
+  if (canonicalTarget === null) return null;
+  return canonicalTarget;
 }
 
 /** Resolve an existing static file inside `publicDir`. */
 export function resolveStaticFile(publicDir: string, pathname: string): string | null {
   let file = resolveStaticPath(publicDir, pathname);
   if (file === null) return null;
-  if (existsSync(file) && statSync(file).isDirectory()) file = join(file, 'index.html');
+  if (existsSync(file) && statSync(file).isDirectory()) {
+    file = join(file, 'index.html');
+    if (realPathWithin(publicDir, file) === null) return null;
+  }
   if (!existsSync(file) || !statSync(file).isFile()) return null;
   return file;
 }
