@@ -17,6 +17,7 @@
  * only `spawnDevChild` touches the process table.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
+import { withCanonicalRegisterNodeOptions } from '../register/child-process-guard.js';
 import { createLauncherShimDir, prependShimToPath } from './launcher-path-shim.js';
 import {
   PROTECTED_LAUNCHER_ENV_KEYS,
@@ -244,20 +245,21 @@ export interface ChildActivation {
 }
 
 /**
- * Child env: sets the activator and the beacon secret, and APPENDS the loader
- * to NODE_OPTIONS rather than replacing it (the user's own --inspect /
- * --max-old-space-size and so on must survive). `file:` URLs are
- * percent-encoded, so no quoting is needed even for paths with spaces.
+ * Child env: sets the activator and the beacon secret, and PREPENDS the
+ * canonical synchronous `--require` + `--import` register preload ahead of any
+ * existing `NODE_OPTIONS` (`--require`, `--import`, `--inspect`,
+ * `--max-old-space-size`, and so on) so user preloads never execute before
+ * swap-or-stop hooks are installed (#1588, #1619).
  */
 export function buildChildEnv(
   base: NodeJS.ProcessEnv,
   opts: ChildActivation,
 ): NodeJS.ProcessEnv {
-  const importFlag = `--import ${opts.registerUrl}`;
+  const existingNodeOptions = base.NODE_OPTIONS ?? '';
   const env: NodeJS.ProcessEnv = {
     ...base,
     PYRIC_SANDBOX: `remote:${opts.serveUrl}`,
-    NODE_OPTIONS: base.NODE_OPTIONS ? `${base.NODE_OPTIONS} ${importFlag}` : importFlag,
+    NODE_OPTIONS: withCanonicalRegisterNodeOptions(existingNodeOptions, opts.registerUrl),
   };
   if (opts.beaconToken !== undefined) env.PYRIC_BEACON_TOKEN = opts.beaconToken;
   delete env.PYRIC_SESSION_TOKEN;
@@ -293,8 +295,11 @@ export function buildChildEnv(
  */
 export function formatStartupEnvExport(opts: ChildActivation): string {
   const serveUrl = advertisedUrl(opts.serveUrl);
+  const canonicalNodeOptions = withCanonicalRegisterNodeOptions('', opts.registerUrl)
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"');
   const lines = ['export PYRIC_SANDBOX=remote'];
-  lines.push(`export NODE_OPTIONS="--import ${opts.registerUrl}"`);
+  lines.push(`export NODE_OPTIONS="${canonicalNodeOptions}"`);
   const width = Math.max(...lines.map((line) => line.length));
   const divider = '─'.repeat(width + 4);
   const body = lines.map((line) => `  ${line}\n`).join('');

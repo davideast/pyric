@@ -21,6 +21,7 @@ interface SandboxProbe {
   readonly sandboxEnv: string | null;
   readonly instanceEnv: string | null;
   readonly sessionEnv: string | null;
+  readonly guardAllowEnv?: string | null;
   readonly sandboxActive: boolean;
   readonly liveActive: boolean;
 }
@@ -28,6 +29,7 @@ interface SandboxProbe {
 interface ChildRun<T> {
   readonly status: number | null;
   readonly probe: T | null;
+  readonly stderr?: string;
   readonly hasConflictError?: boolean;
 }
 
@@ -150,6 +152,15 @@ export default scenario(async (app) => {
               readonly sandboxActive: boolean;
             }>;
           };
+          readonly bunChildGuard: {
+            readonly spawnSyncBun: string;
+            readonly execSyncBun: string;
+            readonly spawnAsyncBun: string;
+          };
+          readonly emptyGuardAllow: {
+            readonly syncCleared: ChildRun<SandboxProbe>;
+            readonly asyncCleared: ChildRun<SandboxProbe>;
+          };
         }>(run.output);
 
         const expectedSandbox: SandboxProbe = {
@@ -159,6 +170,7 @@ export default scenario(async (app) => {
           sandboxEnv: '1',
           instanceEnv: 'host-instance-1',
           sessionEnv: 'session-token-1',
+          guardAllowEnv: null,
           sandboxActive: true,
           liveActive: false,
         };
@@ -220,7 +232,75 @@ export default scenario(async (app) => {
           sessionEnv: 'session-token-1',
           sandboxActive: true,
         });
+
+        assert.deepEqual(outcome.bunChildGuard, {
+          spawnSyncBun: 'PYRIC_UNSUPPORTED_RUNTIME',
+          execSyncBun: 'PYRIC_UNSUPPORTED_RUNTIME',
+          spawnAsyncBun: 'PYRIC_UNSUPPORTED_RUNTIME',
+        });
+
+        const expectedClearedAllow: SandboxProbe = {
+          ...expectedSandbox,
+          guardAllowEnv: '',
+        };
+        for (const [label, child] of [
+          ['syncCleared', outcome.emptyGuardAllow.syncCleared],
+          ['asyncCleared', outcome.emptyGuardAllow.asyncCleared],
+        ] as const) {
+          assert.equal(child.status, 0, label);
+          assert.deepEqual(child.probe, expectedClearedAllow, label);
+          assert.equal(
+            (child.stderr ?? '').includes('PYRIC_GUARD_ALLOW'),
+            false,
+            `${label} stderr: ${child.stderr ?? ''}`,
+          );
+        }
       },
     );
   }
+
+  await app.step(
+    'syncs ESM spawnSync imported in an earlier preload before @pyric/cli/register activates (#1652)',
+    async () => {
+      const run = await app.command(
+        'node',
+        [
+          '--import',
+          './early-esm-spawner.mjs',
+          '--import',
+          '@pyric/cli/register',
+          'early-esm-spawner-driver.mjs',
+        ],
+        {
+          env: {
+            PYRIC_SANDBOX: '1',
+            PYRIC_SANDBOX_INSTANCE: 'host-instance-1',
+            PYRIC_SESSION_TOKEN: 'session-token-1',
+          },
+          timeoutMs: 60_000,
+        },
+      );
+      assert.equal(run.code, 0, run.output);
+      const line = run.output.split('\n').find((entry) => entry.startsWith('EARLY_ESM_OUTCOME '));
+      assert.ok(line !== undefined, run.output);
+      const parsed = JSON.parse(line.slice('EARLY_ESM_OUTCOME '.length)) as {
+        readonly status: number | null;
+        readonly parentActive: boolean;
+        readonly probe: SandboxProbe | null;
+      };
+      assert.equal(parsed.status, 0);
+      assert.equal(parsed.parentActive, true);
+      assert.deepEqual(parsed.probe, {
+        swapped: true,
+        adminError: null,
+        directStopCode: 'PYRIC_REAL_SDK_STOPPED',
+        sandboxEnv: '1',
+        instanceEnv: 'host-instance-1',
+        sessionEnv: 'session-token-1',
+        guardAllowEnv: null,
+        sandboxActive: true,
+        liveActive: false,
+      });
+    },
+  );
 });

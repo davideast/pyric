@@ -1,4 +1,4 @@
-import { spawn, spawnSync } from 'node:child_process';
+import { execSync, spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -25,6 +25,7 @@ function runChildSync(options) {
   return {
     status: result.status,
     probe: line ? JSON.parse(line.slice('PROBE '.length)) : null,
+    stderr: result.stderr || '',
     hasConflictError: (result.stderr || '').includes('@pyric/cli/register is already active'),
   };
 }
@@ -50,6 +51,7 @@ function runChildAsync(options) {
       done({
         status,
         probe: line ? JSON.parse(line.slice('PROBE '.length)) : null,
+        stderr,
         hasConflictError: stderr.includes('@pyric/cli/register is already active'),
       });
     });
@@ -137,4 +139,30 @@ const envPinning = {
   }),
 };
 
-console.log(`OUTCOME ${JSON.stringify({ foreignPreload, envPinning })}`);
+function catchCode(fn) {
+  try {
+    fn();
+    return 'did-not-throw';
+  } catch (error) {
+    return error?.code ?? error?.message ?? 'unknown-error';
+  }
+}
+
+const bunChildGuard = {
+  spawnSyncBun: catchCode(() => spawnSync('bun', [childProbe], { cwd: process.cwd(), encoding: 'utf8' })),
+  execSyncBun: catchCode(() => execSync('bun sandbox-probe-child.mjs', { cwd: process.cwd(), encoding: 'utf8' })),
+  spawnAsyncBun: catchCode(() => spawn('bun', [childProbe], { cwd: process.cwd() })),
+};
+
+process.env.PYRIC_GUARD_ALLOW = 'example.com';
+const emptyGuardAllow = {
+  syncCleared: runChildSync({
+    env: { PATH: process.env.PATH, PYRIC_GUARD_ALLOW: '' },
+  }),
+  asyncCleared: await runChildAsync({
+    env: { PATH: process.env.PATH, PYRIC_GUARD_ALLOW: '' },
+  }),
+};
+delete process.env.PYRIC_GUARD_ALLOW;
+
+console.log(`OUTCOME ${JSON.stringify({ foreignPreload, envPinning, bunChildGuard, emptyGuardAllow })}`);

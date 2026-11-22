@@ -397,7 +397,8 @@ describe('runServe host-only environment export', () => {
       const code = await runServe(parsed);
       expect(code).toBe(0);
       expect(stdout).toContain('export PYRIC_SANDBOX=remote\n');
-      expect(stdout).toContain('export NODE_OPTIONS="--import file://');
+      expect(stdout).toContain('export NODE_OPTIONS="--require ');
+      expect(stdout).toContain(' --import file://');
     } finally {
       process.stdout.write = origWrite;
       process.chdir(prevCwd);
