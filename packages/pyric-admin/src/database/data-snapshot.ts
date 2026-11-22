@@ -9,7 +9,7 @@ import {
   valueAtChildPath,
   type Priority,
 } from 'pyric/database/internal';
-import { joinPath, pathSegments } from './tree-store.js';
+import { joinPath, pathSegments, validateSnapshotChildPath } from './tree-store.js';
 import type { DataSnapshot, JsonValue, Reference } from './types.js';
 
 export interface SnapshotChildEntry {
@@ -165,7 +165,8 @@ export function buildSandboxSnap(
       return renderSnapshotNode(stored, exported, false);
     },
     child(p: string): DataSnapshot {
-      const childSegs = pathSegments(p);
+      const validated = validateSnapshotChildPath('DataSnapshot.child', p, true);
+      const childSegs = pathSegments(validated);
       const childVal = valueAtChildPath(stored, childSegs) as JsonValue;
       return buildSandboxSnap(
         refAt,
@@ -175,7 +176,8 @@ export function buildSandboxSnap(
       );
     },
     hasChild(p: string): boolean {
-      return snap.child(p).exists();
+      const validated = validateSnapshotChildPath('DataSnapshot.hasChild', p, false);
+      return snap.child(validated).exists();
     },
     hasChildren(): boolean {
       return children.length > 0;

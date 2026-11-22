@@ -61,6 +61,7 @@ import {
   generatePushId,
   joinPath,
   pathSegments,
+  validateAdminChildPath,
   validateAdminPriorityArg,
   validateValueArg,
   validateValuesArg,
@@ -362,7 +363,8 @@ function buildRemoteRef(
     },
 
     child(p: string): Reference {
-      return refAt(joinPath([...segs, ...pathSegments(p)]));
+      const validated = validateAdminChildPath(segs, p);
+      return refAt(joinPath([...segs, ...pathSegments(validated)]));
     },
 
     onDisconnect(): OnDisconnect {

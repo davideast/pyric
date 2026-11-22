@@ -66,6 +66,7 @@ import {
   joinPath,
   pathSegments,
   settled,
+  validateAdminChildPath,
   validateAdminPriorityArg,
   validateValueArg,
   validateValuesArg,
@@ -423,7 +424,8 @@ function buildSandboxRef(
     },
 
     child(p: string): Reference {
-      const absSegs = [...segs, ...pathSegments(p)];
+      const validated = validateAdminChildPath(segs, p);
+      const absSegs = [...segs, ...pathSegments(validated)];
       return refAt(joinPath(absSegs));
     },
 

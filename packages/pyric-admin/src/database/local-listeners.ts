@@ -368,6 +368,7 @@ export function onceLocalListener(
     let detach: (() => void) | undefined;
     let untrack: (() => void) | undefined;
     let isSettled = false;
+    let inSyncAttach = true;
     const cleanup = (): void => {
       const fn = detach;
       detach = undefined;
@@ -376,18 +377,38 @@ export function onceLocalListener(
       untrack = undefined;
       if (release !== undefined) release();
     };
+    const runDeferredIfSync = (action: () => void): void => {
+      if (inSyncAttach) {
+        queueMicrotask(action);
+      } else {
+        action();
+      }
+    };
     const failOnce = (err: Error): void => {
       if (isSettled) return;
       isSettled = true;
       cleanup();
-      if (failureCb !== undefined) {
-        try {
-          failureCb.call(boundContext, err);
-        } catch {
-          // Ignore secondary callback throw before rejecting with the read error.
+      runDeferredIfSync(() => {
+        if (failureCb !== undefined) {
+          try {
+            failureCb.call(boundContext, err);
+          } catch (secondaryErr) {
+            // Preserve the primary read error when a consumer failure callback throws.
+            void secondaryErr;
+          }
         }
-      }
-      reject(err);
+        reject(err);
+      });
+    };
+    const resolveOnce = (snap: DataSnapshot, prevKey: string | null): void => {
+      if (isSettled || target.lifecycle?.isDeleted === true) return;
+      isSettled = true;
+      cleanup();
+      runDeferredIfSync(() => {
+        if (target.lifecycle?.isDeleted === true) return;
+        deliverListenerSnapshot(eventType, successCb, boundContext, snap, prevKey);
+        resolve(snap);
+      });
     };
 
     try {
@@ -405,13 +426,7 @@ export function onceLocalListener(
         segs,
         spec,
         eventType,
-        (snap, prevKey) => {
-          if (isSettled || target.lifecycle?.isDeleted === true) return;
-          isSettled = true;
-          cleanup();
-          deliverListenerSnapshot(eventType, successCb, boundContext, snap, prevKey);
-          resolve(snap);
-        },
+        resolveOnce,
         failOnce,
       );
       if (isSettled || target.lifecycle?.isDeleted === true) {
@@ -423,6 +438,8 @@ export function onceLocalListener(
       }
     } catch (err) {
       failOnce(err as Error);
+    } finally {
+      inSyncAttach = false;
     }
   });
 }
