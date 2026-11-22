@@ -6,17 +6,15 @@
 import {
   errorPrefix,
   inlinePriorities,
-  normalizeNode,
   validatePriorityArg,
   validateUpdate,
   validateWrite,
-  withPriorities,
-  writePriority,
-  type InlinePriority,
   type Priority,
 } from 'pyric/database/internal';
 import type { AdminServiceLifecycle } from '../app/lifecycle.js';
 import type { JsonValue } from './types.js';
+
+const INTERNAL_ASSERT_PREFIX = 'Firebase Database (12.19.0) INTERNAL ASSERT FAILED: ';
 
 const UNSAFE_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor']);
 const INVALID_PATH_CHARS = /[.#$[\]\u0000-\u001F\u007F]/;
@@ -101,23 +99,175 @@ export function joinPath(segments: string[]): string {
   return '/' + segments.join('/');
 }
 
-function preserveNormalizedWithPriorities(value: unknown): JsonValue {
-  const normalized = normalizeNode(value);
-  if (normalized === null) {
+function isSentinelRecord(value: unknown): value is Record<string, JsonValue> {
+  return (
+    value !== null
+    && typeof value === 'object'
+    && !Array.isArray(value)
+    && Object.hasOwn(value, '.sv')
+  );
+}
+
+function assertValidServerValueObject(holder: Record<string, unknown>): void {
+  const sv = holder['.sv'];
+  if (typeof sv === 'string') {
+    if (sv !== 'timestamp') {
+      throw new Error(`${INTERNAL_ASSERT_PREFIX}Unexpected server value: ${sv}`);
+    }
+    return;
+  }
+  if (typeof sv === 'object') {
+    if (sv === null) {
+      throw new TypeError("Cannot read properties of null (reading 'hasOwnProperty')");
+    }
+    if (!Object.prototype.hasOwnProperty.call(sv, 'increment')) {
+      throw new Error(
+        `${INTERNAL_ASSERT_PREFIX}Unexpected server value: ${JSON.stringify(sv, null, 2)}`,
+      );
+    }
+    const delta = (sv as Record<string, unknown>)['increment'];
+    if (typeof delta !== 'number') {
+      throw new Error(`${INTERNAL_ASSERT_PREFIX}Unexpected increment value: ${String(delta)}`);
+    }
+    return;
+  }
+  throw new Error(
+    `${INTERNAL_ASSERT_PREFIX}Unexpected server value: ${JSON.stringify(holder, null, 2)}`,
+  );
+}
+
+/**
+ * Validate `.sv` server-value placeholders synchronously, matching upstream
+ * `@firebase/database` `resolveDeferredValue` checks after `validateFirebaseData`.
+ */
+export function assertValidServerValues(value: unknown): void {
+  if (value === null || value === undefined || typeof value !== 'object') {
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i += 1) {
+      if (i in value) {
+        assertValidServerValues(value[i]);
+      }
+    }
+    return;
+  }
+  const rec = value as Record<string, unknown>;
+  if (Object.hasOwn(rec, '.priority')) {
+    assertValidServerValues(rec['.priority']);
+  }
+  if (Object.hasOwn(rec, '.sv')) {
+    assertValidServerValueObject(rec);
+    return;
+  }
+  if (Object.hasOwn(rec, '.value')) {
+    assertValidServerValues(rec['.value']);
+    return;
+  }
+  for (const [key, child] of Object.entries(rec)) {
+    if (key === '.priority') {
+      continue;
+    }
+    assertValidServerValues(child);
+  }
+}
+
+function extractInlinePriorityEntry(
+  rec: Record<string, unknown>,
+): { hasExplicit: boolean; priority: JsonValue } {
+  if (!Object.hasOwn(rec, '.priority')) {
+    return { hasExplicit: false, priority: null };
+  }
+  const raw = rec['.priority'];
+  if (raw === null || typeof raw === 'string' || typeof raw === 'number') {
+    return { hasExplicit: true, priority: raw };
+  }
+  if (isSentinelRecord(raw)) {
+    return { hasExplicit: true, priority: structuredClone(raw) };
+  }
+  return { hasExplicit: false, priority: null };
+}
+
+/**
+ * Normalize a validated write payload into storable JSON while preserving both
+ * concrete (`string | number`) and deferred (`{ '.sv': ... }`) inline `.priority`
+ * metadata so backend sentinel resolution sees inline priority sentinels too.
+ */
+export function preserveNormalizedWithPriorities(
+  value: unknown,
+  retainExplicitNullPriority = false,
+): JsonValue {
+  if (value === null || value === undefined) {
     return null;
   }
-  const extracted = writePriority(value, null);
-  const entries: InlinePriority[] = [];
-  if (extracted.inline) {
-    entries.push({ segments: [], priority: extracted.priority });
+  if (typeof value !== 'object') {
+    return value as JsonValue;
   }
-  for (const nestedEntry of extracted.nested) {
-    entries.push(nestedEntry);
+  if (Array.isArray(value)) {
+    const record: Record<string, JsonValue> = {};
+    for (let i = 0; i < value.length; i += 1) {
+      if (i in value) {
+        const normItem = preserveNormalizedWithPriorities(value[i], false);
+        if (normItem !== null) {
+          record[String(i)] = normItem;
+        }
+      }
+    }
+    if (Object.keys(record).length === 0) {
+      return null;
+    }
+    return record;
   }
-  if (entries.length === 0) {
-    return normalized;
+
+  const rec = value as Record<string, unknown>;
+  const prio = extractInlinePriorityEntry(rec);
+  const shouldAttachPrio =
+    prio.priority !== null || (retainExplicitNullPriority && prio.hasExplicit);
+
+  if (Object.hasOwn(rec, '.sv')) {
+    const svLeaf: JsonValue = { '.sv': structuredClone(rec['.sv']) as JsonValue };
+    if (!shouldAttachPrio) {
+      return svLeaf;
+    }
+    return { '.value': svLeaf, '.priority': prio.priority };
   }
-  return withPriorities(normalized, entries);
+
+  if (Object.hasOwn(rec, '.value')) {
+    const inner = preserveNormalizedWithPriorities(rec['.value'], false);
+    if (inner === null) {
+      return null;
+    }
+    if (!shouldAttachPrio) {
+      return inner;
+    }
+    const isPlainChildMap =
+      typeof inner === 'object'
+      && !Array.isArray(inner)
+      && !Object.hasOwn(inner, '.sv')
+      && !Object.hasOwn(inner, '.value');
+    if (isPlainChildMap) {
+      return { ...(inner as Record<string, JsonValue>), '.priority': prio.priority };
+    }
+    return { '.value': inner, '.priority': prio.priority };
+  }
+
+  const out: Record<string, JsonValue> = {};
+  for (const [key, child] of Object.entries(rec)) {
+    if (key === '.priority') {
+      continue;
+    }
+    const normChild = preserveNormalizedWithPriorities(child, false);
+    if (normChild !== null) {
+      out[key] = normChild;
+    }
+  }
+  if (Object.keys(out).length === 0) {
+    return null;
+  }
+  if (shouldAttachPrio) {
+    out['.priority'] = prio.priority;
+  }
+  return out;
 }
 
 /** Validate and normalize a `set`, `push`, or `setWithPriority` value synchronously, preserving inline `.priority` metadata. */
@@ -128,7 +278,8 @@ export function validateValueArg(
 ): JsonValue {
   validateWrite(value, joinPath(segs), errorPrefix(fnName, 'value'));
   inlinePriorities(value);
-  return preserveNormalizedWithPriorities(value);
+  assertValidServerValues(value);
+  return preserveNormalizedWithPriorities(value, fnName === 'setWithPriority');
 }
 
 /** Validate a `setPriority` or `setWithPriority` priority argument synchronously. */
@@ -137,6 +288,7 @@ export function validateAdminPriorityArg(
   priority: unknown,
 ): Priority {
   validatePriorityArg(fnName, priority);
+  assertValidServerValues(priority);
   return priority as Priority;
 }
 
@@ -171,10 +323,11 @@ export function validateValuesArg(segs: string[], values: unknown): Record<strin
   const normalizedEntries: Array<[string, JsonValue]> = [];
   for (const [key, value] of entries) {
     inlinePriorities(value);
+    assertValidServerValues(value);
     if (isPriorityKey(key)) {
-      normalizedEntries.push([key, value as JsonValue]);
+      normalizedEntries.push([key, structuredClone(value) as JsonValue]);
     } else {
-      normalizedEntries.push([key, preserveNormalizedWithPriorities(value)]);
+      normalizedEntries.push([key, preserveNormalizedWithPriorities(value, false)]);
     }
   }
   return Object.fromEntries(normalizedEntries);
@@ -257,7 +410,7 @@ export function generatePushId(now: number = Date.now()): string {
   }
 
   for (let i = 0; i < 12; i++) {
-    id += PUSH_CHARS.charAt(lastRandChars[i]!);
+    id += PUSH_CHARS.charAt(lastRandChars[i] ?? 0);
   }
   return id;
 }

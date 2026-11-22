@@ -17,6 +17,7 @@ import {
   hasNonFiniteQueryLimit,
   isDefaultQuerySpec,
   loadsAllData,
+  validateWritablePath,
   type Priority,
   type QueryReadResult,
   type QuerySpec,
@@ -27,13 +28,13 @@ import {
   onAdminAppDeleted,
   type AdminServiceLifecycle,
 } from '../app/lifecycle.js';
+import { AdminPathCache, containsIncrementSentinel } from './admin-path-cache.js';
 import {
   localDatabaseRulesControls,
   type LocalRulesBackend,
 } from './admin-rules.js';
 import { authStateOfLens, type DatabaseAuthLens } from './auth-override.js';
 import {
-  AdminPathCache,
   runLocalAdminTransaction,
   type AdminTransactionOnComplete,
   type AdminTransactionUpdate,
@@ -121,6 +122,8 @@ interface LocalInstance {
   backend?: SharedRtdbBackend;
   /** The unscoped backend, for `getRules`/`setRules`, which stay admin operations. */
   rulesBackend?: SharedRtdbBackend;
+  lastSeenRules?: { rules: Record<string, unknown> } | null;
+  readonly isAdminLens: boolean;
   readonly cache: AdminPathCache;
   readonly lifecycle: AdminServiceLifecycle;
   readonly listeners: AdminListenerTable;
@@ -129,15 +132,36 @@ interface LocalInstance {
 
 const localInstancesByApp = new WeakMap<PyricAdminApp, Map<string, LocalInstance>>();
 const resetBackendsBySandbox = new WeakMap<Sandbox, Set<SharedRtdbBackend>>();
+const cachesByRulesBackend = new WeakMap<SharedRtdbBackend, Set<AdminPathCache>>();
+
+function registerCacheForRulesBackend(backend: SharedRtdbBackend, cache: AdminPathCache): void {
+  let tracked = cachesByRulesBackend.get(backend);
+  if (tracked === undefined) {
+    tracked = new Set<AdminPathCache>();
+    cachesByRulesBackend.set(backend, tracked);
+  }
+  tracked.add(cache);
+}
+
+function resetCachesForRulesBackend(backend: SharedRtdbBackend): void {
+  const tracked = cachesByRulesBackend.get(backend);
+  if (tracked === undefined) {
+    return;
+  }
+  for (const cache of tracked) {
+    cache.reset();
+  }
+}
 
 function registerBackendForReset(sandbox: Sandbox, backend: SharedRtdbBackend): void {
   let tracked = resetBackendsBySandbox.get(sandbox);
   if (tracked === undefined) {
-    tracked = new Set();
-    resetBackendsBySandbox.set(sandbox, tracked);
+    const initialized = new Set<SharedRtdbBackend>();
+    tracked = initialized;
+    resetBackendsBySandbox.set(sandbox, initialized);
     sandbox.onEvent((event) => {
       if (event.kind === 'session_boundary' && event.phase === 'reset') {
-        for (const registered of tracked!) {
+        for (const registered of initialized) {
           registered.resetTree(true);
         }
       }
@@ -157,7 +181,11 @@ function backendOf(db: ModularDatabase): SharedRtdbBackend & ClientRtdbBackend {
  * the client methods instead, so the rules judge every read and write as they
  * judge a client signed in as `auth` (`databaseAuthVariableOverride`).
  */
-function rulesScopedBackend(backend: SharedRtdbBackend & ClientRtdbBackend, auth: AuthState): SharedRtdbBackend {
+function rulesScopedBackend(
+  backend: SharedRtdbBackend & ClientRtdbBackend,
+  auth: AuthState,
+  cache: AdminPathCache,
+): SharedRtdbBackend {
   return {
     adminGet: (path) => backend.get(auth, path),
     adminGetQuery: (path, spec) => backend.getQuery(auth, path, spec),
@@ -166,8 +194,31 @@ function rulesScopedBackend(backend: SharedRtdbBackend & ClientRtdbBackend, auth
     adminSetPriority: (path, priority) => backend.setPriority(auth, path, priority),
     adminUpdate: (path, patch) => backend.update(auth, path, patch),
     adminRemove: (path) => backend.remove(auth, path),
-    adminOnValue: (path, cb, query) => backend.onValue(auth, path, cb, query),
-    adminOnChild: (event, path, cb, spec) => backend.onChild(auth, event, path, cb, spec),
+    adminOnValue: (path, cb, query) =>
+      backend.onValue(
+        auth,
+        path,
+        (snap) => {
+          if (query === undefined) {
+            cache.markWarm(path);
+          }
+          cb(snap);
+        },
+        query,
+      ),
+    adminOnChild: (event, path, cb, spec) =>
+      backend.onChild(
+        auth,
+        event,
+        path,
+        (snap) => {
+          if (spec === undefined) {
+            cache.markWarm(path);
+          }
+          cb(snap);
+        },
+        spec,
+      ),
     mintKey: () => backend.mintKey(),
     resetTree: (preserveRules) => backend.resetTree(preserveRules),
     getActiveRules: () => backend.getActiveRules(),
@@ -179,10 +230,12 @@ function resolveSharedHandle(
   sandbox: Sandbox,
   instance: DatabaseInstance | undefined,
   lens: DatabaseAuthLens,
+  cache: AdminPathCache,
 ): { adminDb: ModularDatabase; backend: SharedRtdbBackend; rulesBackend: SharedRtdbBackend } {
   const adminDb = getAdminDatabase(sandbox, instance?.url);
   const backend = backendOf(adminDb);
   registerBackendForReset(sandbox, backend);
+  registerCacheForRulesBackend(backend, cache);
   if (lens.mode === 'admin') {
     return { adminDb, backend, rulesBackend: backend };
   }
@@ -190,7 +243,7 @@ function resolveSharedHandle(
   // Its transactions and onDisconnect writes run through the rules too.
   const auth = authStateOfLens(lens);
   const clientDb = getModularDatabase(sandbox.withAuth(auth), instance?.url);
-  return { adminDb: clientDb, backend: rulesScopedBackend(backendOf(clientDb), auth), rulesBackend: backend };
+  return { adminDb: clientDb, backend: rulesScopedBackend(backendOf(clientDb), auth, cache), rulesBackend: backend };
 }
 
 function localInstances(app: PyricAdminApp): Map<string, LocalInstance> {
@@ -235,6 +288,7 @@ export function getLocalDatabase(
     });
     entry = {
       sandbox,
+      isAdminLens: lens.mode === 'admin',
       cache,
       lifecycle: createAdminServiceLifecycle(app),
       listeners: new AdminListenerTable(),
@@ -242,10 +296,11 @@ export function getLocalDatabase(
     instances.set(cacheKey, entry);
   }
   if (entry.backend === undefined || entry.adminDb === undefined || entry.rulesBackend === undefined) {
-    const resolved = resolveSharedHandle(sandbox, instance, lens);
+    const resolved = resolveSharedHandle(sandbox, instance, lens, entry.cache);
     entry.adminDb = resolved.adminDb;
     entry.backend = resolved.backend;
     entry.rulesBackend = resolved.rulesBackend;
+    entry.lastSeenRules = resolved.rulesBackend.getActiveRules();
   }
   const instanceState = entry as Required<LocalInstance>;
   return buildDatabaseShell(
@@ -254,7 +309,9 @@ export function getLocalDatabase(
     (handle, path, meta) => buildSandboxRef(instanceState, handle, path, meta),
     localDatabaseConnectionControls(instanceState.adminDb),
     instanceState.lifecycle,
-    localDatabaseRulesControls(instanceState.rulesBackend, instanceState.lifecycle),
+    localDatabaseRulesControls(instanceState.rulesBackend, instanceState.lifecycle, () => {
+      resetCachesForRulesBackend(instanceState.rulesBackend);
+    }),
   );
 }
 
@@ -264,7 +321,16 @@ function buildSandboxRef(
   path: string,
   urlMeta: DatabaseUrlMetadata,
 ): Reference {
-  const { adminDb, backend, cache, lifecycle, listeners } = instanceState;
+  const { adminDb, backend, cache, isAdminLens, lifecycle, listeners, rulesBackend } = instanceState;
+  const syncRulesFreshness = (): void => {
+    if (!isAdminLens) {
+      const currentRules = rulesBackend.getActiveRules();
+      if (currentRules !== instanceState.lastSeenRules) {
+        instanceState.lastSeenRules = currentRules;
+        cache.reset();
+      }
+    }
+  };
   const canonical = joinPath(pathSegments(path));
   const segs = pathSegments(canonical);
   let key: string | null = null;
@@ -303,19 +369,22 @@ function buildSandboxRef(
           return buildLocalQuerySnapshot(refAt, adminDb, canonical, segs, result.rows, loadsAllData(spec), result.val);
         }
         const val = backend.adminGet(canonical);
+        syncRulesFreshness();
         cache.markWarm(canonical);
         return buildSandboxSnap(refAt, canonical, val, exportedLocalValueAt(adminDb, segs, val));
       },
       once: (spec, eventType, successCb, failureCallbackOrContext, context) => {
         emitAdminDatabaseLog('once', canonical);
-        if (isDefaultQuerySpec(spec)) {
+        syncRulesFreshness();
+        if (isAdminLens && isDefaultQuerySpec(spec)) {
           cache.markWarm(canonical);
         }
         return onceLocalListener(listenTarget, spec, eventType, successCb, failureCallbackOrContext, context);
       },
       on: (spec, eventType, callback, cancelCallbackOrContext, context) => {
         emitAdminDatabaseLog('on', canonical);
-        if (isDefaultQuerySpec(spec)) {
+        syncRulesFreshness();
+        if (isAdminLens && isDefaultQuerySpec(spec)) {
           cache.markWarm(canonical);
         }
         return attachLocalListener(listenTarget, spec, eventType, callback, cancelCallbackOrContext, context);
@@ -343,16 +412,20 @@ function buildSandboxRef(
 
     set(value: unknown, onComplete?: (err: Error | null) => void): Promise<void> {
       validateCallbackArg('Reference.set', 'onComplete', onComplete, true);
+      validateWritablePath('set', canonical);
       const stored = validateValueArg('set', segs, value);
       emitAdminDatabaseLog('set', canonical);
       return settled(() => {
         lifecycle.assertActive();
         backend.adminSet(canonical, stored);
-        cache.markWarm(canonical);
+        if (isAdminLens && !containsIncrementSentinel(stored)) {
+          cache.markWarm(canonical);
+        }
       }, onComplete);
     },
 
     update(values: object, onComplete?: (err: Error | null) => void): Promise<void> {
+      validateWritablePath('Reference.update', canonical);
       validateCallbackArg('Reference.update', 'onComplete', onComplete, true);
       const patch = validateValuesArg(segs, values);
       emitAdminDatabaseLog('update', canonical);
@@ -360,10 +433,12 @@ function buildSandboxRef(
         lifecycle.assertActive();
         if (Object.keys(patch).length > 0) {
           backend.adminUpdate(canonical, patch);
-          for (const relKey of Object.keys(patch)) {
-            const relSegs = pathSegments(relKey);
-            if (relSegs[relSegs.length - 1] !== '.priority') {
-              cache.markWarm(joinPath([...segs, ...relSegs]));
+          if (isAdminLens) {
+            for (const [relKey, relVal] of Object.entries(patch)) {
+              const relSegs = pathSegments(relKey);
+              if (relSegs[relSegs.length - 1] !== '.priority' && !containsIncrementSentinel(relVal)) {
+                cache.markWarm(joinPath([...segs, ...relSegs]));
+              }
             }
           }
         }
@@ -372,16 +447,20 @@ function buildSandboxRef(
 
     remove(onComplete?: (err: Error | null) => void): Promise<void> {
       validateCallbackArg('Reference.remove', 'onComplete', onComplete, true);
+      validateWritablePath('remove', canonical);
       emitAdminDatabaseLog('remove', canonical);
       return settled(() => {
         lifecycle.assertActive();
         backend.adminRemove(canonical);
-        cache.markWarm(canonical);
+        if (isAdminLens) {
+          cache.markWarm(canonical);
+        }
       }, onComplete);
     },
 
     push(value?: unknown, onComplete?: (err: Error | null) => void): ThenableReference {
       validateCallbackArg('Reference.push', 'onComplete', onComplete, true);
+      validateWritablePath('push', canonical);
       let stored: JsonValue | undefined;
       if (value !== undefined) {
         stored = validateValueArg('push', segs, value);
@@ -400,7 +479,9 @@ function buildSandboxRef(
         if (stored !== undefined) {
           writeOutcome = settled(() => {
             backend.adminSet(activeChildPath, stored);
-            cache.markWarm(activeChildPath);
+            if (isAdminLens && !containsIncrementSentinel(stored)) {
+              cache.markWarm(activeChildPath);
+            }
           }, onComplete);
         } else {
           writeOutcome = settled(() => {}, onComplete);
@@ -437,6 +518,7 @@ function buildSandboxRef(
       onComplete?: AdminTransactionOnComplete,
       applyLocally?: boolean,
     ): Promise<{ committed: boolean; snapshot: DataSnapshot }> {
+      syncRulesFreshness();
       return runLocalAdminTransaction({
         adminDb,
         cache,
@@ -447,14 +529,16 @@ function buildSandboxRef(
         transactionUpdate,
         onComplete,
         applyLocally,
+        allowColdWarming: isAdminLens,
       });
     },
     setPriority(
       priority: string | number | null,
       onComplete?: (error: Error | null) => unknown,
     ): Promise<void> {
-      const validatedPriority = validateAdminPriorityArg('setPriority', priority);
       validateCallbackArg('Reference.setPriority', 'onComplete', onComplete, true);
+      validateWritablePath('setPriority', canonical);
+      const validatedPriority = validateAdminPriorityArg('setPriority', priority);
       emitAdminDatabaseLog('setPriority', canonical);
       return settled(
         () => {
@@ -472,15 +556,22 @@ function buildSandboxRef(
       newPriority: string | number | null,
       onComplete?: (error: Error | null) => unknown,
     ): Promise<void> {
+      validateCallbackArg('Reference.setWithPriority', 'onComplete', onComplete, true);
+      validateWritablePath('setWithPriority', canonical);
       const stored = validateValueArg('setWithPriority', segs, newVal);
       const validatedPriority = validateAdminPriorityArg('setWithPriority', newPriority);
-      validateCallbackArg('Reference.setWithPriority', 'onComplete', onComplete, true);
       emitAdminDatabaseLog('setWithPriority', canonical);
       return settled(
         () => {
           lifecycle.assertActive();
           backend.adminSetWithPriority(canonical, stored, validatedPriority);
-          cache.markWarm(canonical);
+          if (
+            isAdminLens &&
+            !containsIncrementSentinel(stored) &&
+            !containsIncrementSentinel(validatedPriority)
+          ) {
+            cache.markWarm(canonical);
+          }
         },
         onComplete as ((err: Error | null) => void) | undefined,
       );

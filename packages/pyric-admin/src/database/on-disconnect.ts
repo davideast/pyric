@@ -93,7 +93,19 @@ function validateDisconnectUpdateValues(
   values: unknown,
 ): Record<string, JsonValue> {
   validateWritablePath('OnDisconnect.update', canonical);
-  const entries = Object.entries(validateUpdate(values, canonical, 'OnDisconnect.update'));
+  let candidateValues = values;
+  if (Array.isArray(values)) {
+    const coerced: Record<string, unknown> = {};
+    for (let i = 0; i < values.length; i += 1) {
+      if (i in values) {
+        coerced[String(i)] = values[i];
+      } else {
+        coerced[String(i)] = null;
+      }
+    }
+    candidateValues = coerced;
+  }
+  const entries = Object.entries(validateUpdate(candidateValues, canonical, 'OnDisconnect.update'));
   for (const [, value] of entries) {
     inlinePriorities(value);
   }
@@ -118,6 +130,7 @@ export function buildLocalOnDisconnect(
   canonical: string,
   lifecycle?: AdminServiceLifecycle,
 ): OnDisconnect {
+  validateWritablePath('Reference.onDisconnect', canonical);
   const handle = modularOnDisconnect(modularRef(adminDb, canonical));
   return {
     cancel(onComplete?: DisconnectCompleteCallback): Promise<void> {
@@ -185,6 +198,7 @@ export function buildRemoteOnDisconnect(
   connection?: RemoteConnectionState,
   lifecycle?: AdminServiceLifecycle,
 ): OnDisconnect {
+  validateWritablePath('Reference.onDisconnect', canonical);
   const markQueued = (): void => {
     if (connection !== undefined) {
       connection.hasPendingDisconnects = true;
