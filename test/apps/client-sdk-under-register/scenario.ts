@@ -148,6 +148,16 @@ export default scenario(async (app) => {
     assert.equal(outcome(client, 'auth.createUser').ok, true, client);
     expectOk(client, 'database.ownPath', null);
     expectCode(client, 'database.otherPath', 'PERMISSION_DENIED');
+    const revokedTxn = outcome(client, 'database.revokedWarmCreateOnlyTxn');
+    assert.deepEqual(
+      revokedTxn,
+      { ok: false, code: null, message: 'permission_denied' },
+      `database.revokedWarmCreateOnlyTxn:\n${client}`,
+    );
+    expectOk(client, 'firestore.liveListenerIncrementCache', {
+      docs: [{ label: 'pinned', n: 2 }],
+      errorCode: 'permission-denied',
+    });
   });
 
   await app.step('a canceled upload leaves no object under rules that allow its create and deny every delete', () => {

@@ -328,6 +328,37 @@ for (const [planeName, createPlane] of PLANES) {
       });
       expect(partialTxn.committed).toBe(true);
       expect(partialTxn.snapshot.val()).toEqual({ a: 1, b: 2, c: 3 });
+
+      // (d) Warm pass-0 callback returning undefined re-evaluates when server state diverged from local mirror
+      const createOnlyDeletedPath = `${ctx.base}/mirror_create_only_deleted`;
+      const createOnlyDeletedRef = rtdb.ref(db, createOnlyDeletedPath);
+      await rtdb.set(createOnlyDeletedRef, { created: true });
+      await rtdb.remove(rtdb.ref(seeder.db, createOnlyDeletedPath));
+      const recreated = await rtdb.runTransaction(createOnlyDeletedRef, (cur) =>
+        cur === null ? { created: 'again' } : undefined,
+      );
+      expect(recreated.committed).toBe(true);
+      expect(recreated.snapshot.val()).toEqual({ created: 'again' });
+    });
+
+    it('re-runs warm create-only transaction against null and rejects permission_denied after read/write access is revoked (#3223)', async () => {
+      const ctx = await createPlane({
+        rules: {
+          users: {
+            $uid: {
+              '.read': 'auth != null && auth.uid === $uid',
+              '.write': 'auth != null && auth.uid === $uid',
+            },
+          },
+        },
+      });
+      const authed = await ctx.openAuthedClient('revoked-writer');
+      const ownRef = ctx.rtdb.ref(authed.db, `/users/${authed.uid}`);
+      await ctx.rtdb.set(ownRef, { stamped: ctx.rtdb.serverTimestamp() });
+      await client.signOut(client.getAuth(authed.db as unknown as client.ClientDb));
+      await expect(
+        ctx.rtdb.runTransaction(ownRef, (cur) => (cur === null ? { created: true } : undefined)),
+      ).rejects.toThrow('permission_denied');
     });
 
     it('#1472: rtdbConnectDatabaseEmulator updates instance URL so rtdbRefFromURL accepts localhost', async () => {

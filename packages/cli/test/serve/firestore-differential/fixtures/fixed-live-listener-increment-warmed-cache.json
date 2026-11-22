@@ -1,0 +1,31 @@
+{
+  "sequence": {
+    "seed": 652123,
+    "initialRules": 3,
+    "steps": [
+      { "op": "rules", "rules": 0 },
+      { "op": "listenDoc", "db": 0, "id": 0, "path": "items/i1" },
+      {
+        "op": "setDoc",
+        "db": 1,
+        "path": "items/i1",
+        "data": {
+          "$map": [
+            ["label", "pinned"],
+            ["n", { "$inc": 2 }]
+          ]
+        },
+        "mode": { "kind": "merge" }
+      },
+      { "op": "rules", "rules": 5 },
+      {
+        "op": "listenQuery",
+        "db": 0,
+        "id": 2,
+        "query": {
+          "source": { "kind": "collection", "path": "items" }
+        }
+      }
+    ]
+  }
+}

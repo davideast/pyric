@@ -21,6 +21,7 @@ import type { RawDocResult, ClientDocSnapshot } from './snapshots.js';
 import { createDocumentReference } from './firestore-reference.js';
 import { assertNoUndefinedInWorkerSentinels } from './firestore-sentinels.js';
 import {
+  captureWorkerFirestoreCacheEpoch,
   enqueueWorkerOfflineWrite,
   generateWorkerAutoId,
   isWorkerFirestoreOffline,
@@ -123,8 +124,9 @@ export async function setDoc<T = DocumentData>(
     if (isWorkerFirestoreOffline(ref.port)) {
       return enqueueWorkerOfflineWrite(ref.port, [mutation], sendOnline, dbId);
     }
+    const sinceEpoch = captureWorkerFirestoreCacheEpoch(ref.port, dbId);
     await sendOnline();
-    markWorkerCommittedWrite(ref.port, [mutation], dbId);
+    markWorkerCommittedWrite(ref.port, [mutation], dbId, sinceEpoch);
   });
 }
 
@@ -185,8 +187,9 @@ export function updateDoc(
     if (isWorkerFirestoreOffline(ref.port)) {
       return enqueueWorkerOfflineWrite(ref.port, [mutation], sendOnline, dbId);
     }
+    const sinceEpoch = captureWorkerFirestoreCacheEpoch(ref.port, dbId);
     await sendOnline();
-    markWorkerCommittedWrite(ref.port, [mutation], dbId);
+    markWorkerCommittedWrite(ref.port, [mutation], dbId, sinceEpoch);
   });
 }
 
@@ -207,8 +210,9 @@ export async function deleteDoc(ref: DocRefHandle): Promise<void> {
     if (isWorkerFirestoreOffline(ref.port)) {
       return enqueueWorkerOfflineWrite(ref.port, [mutation], sendOnline, dbId);
     }
+    const sinceEpoch = captureWorkerFirestoreCacheEpoch(ref.port, dbId);
     await sendOnline();
-    markWorkerCommittedWrite(ref.port, [mutation], dbId);
+    markWorkerCommittedWrite(ref.port, [mutation], dbId, sinceEpoch);
   });
 }
 
@@ -239,6 +243,7 @@ export async function addDoc(
       }, dbId);
       return createDocumentReference(coll.port, mintedPath, coll.converter, owner);
     }
+    const sinceEpoch = captureWorkerFirestoreCacheEpoch(coll.port, dbId);
     const result = await firestoreDataRpc(coll, {
       t: 'op',
       id: nextId(),
@@ -247,7 +252,7 @@ export async function addDoc(
       data: encodedData,
       valueEncoding: DOC_VALUE_ENCODING,
     }) as { id: string; path: string };
-    markWorkerCommittedWrite(coll.port, [{ kind: 'set', path: result.path, encodedData }], dbId);
+    markWorkerCommittedWrite(coll.port, [{ kind: 'set', path: result.path, encodedData }], dbId, sinceEpoch);
     return createDocumentReference(coll.port, result.path, coll.converter, owner);
   });
 }
@@ -352,8 +357,9 @@ export function writeBatch(db: ClientDb): ClientWriteBatch {
             await enqueueWorkerOfflineWrite(port, offlineMutations, sendOnline, dbId);
             return;
           }
+          const sinceEpoch = captureWorkerFirestoreCacheEpoch(port, dbId);
           await sendOnline();
-          markWorkerCommittedWrite(port, offlineMutations, dbId);
+          markWorkerCommittedWrite(port, offlineMutations, dbId, sinceEpoch);
         },
         () => ({
           documentWrites: writes.filter((write) => write.method !== 'delete').length,
@@ -517,6 +523,7 @@ export async function runTransaction<R>(
       if (stickyError) throw stickyError;
 
       try {
+        const sinceEpoch = captureWorkerFirestoreCacheEpoch(db.port, dbId);
         await firestoreDataRpc(db, {
           t: 'op',
           id: nextId(),
@@ -534,7 +541,7 @@ export async function runTransaction<R>(
             committedMutations.push({ kind: 'delete', path: w.path });
           }
         }
-        markWorkerCommittedWrite(db.port, committedMutations, dbId);
+        markWorkerCommittedWrite(db.port, committedMutations, dbId, sinceEpoch);
         return result;
       } catch (err) {
         const isErrorObject = err !== null && typeof err === 'object';

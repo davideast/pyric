@@ -193,4 +193,62 @@ service cloud.firestore {
 
     host.sandbox.dispose();
   });
+
+  it('does not double-apply increment() in warmed cache when an active listener already recorded the host snapshot (#3223)', async () => {
+    const host = await makeHostCtx();
+    setRules(host.sandbox, RULES);
+    const { db } = connectClientToHost(host, `worker://fs-live-inc-${Math.random()}`);
+
+    const docRef = client.doc(db, 'items/d1');
+    const liveSeen: Array<Record<string, unknown> | undefined> = [];
+    const unsubDoc = client.onSnapshot(docRef, (snap) => {
+      liveSeen.push(snap.data());
+    });
+    await sleep(20);
+
+    await client.setDoc(docRef, { label: 'pinned', n: client.increment(2) }, { merge: true });
+    await client.updateDoc(docRef, { n: client.increment(3) });
+    const batch = client.writeBatch(db);
+    batch.update(docRef, { n: client.increment(4) });
+    await batch.commit();
+    await client.runTransaction(db, async (tx) => {
+      await tx.get(docRef);
+      tx.update(docRef, { n: client.increment(1) });
+    });
+    await sleep(20);
+    expect(liveSeen.at(-1)).toEqual({ label: 'pinned', n: 10 });
+    unsubDoc();
+
+    setRules(
+      host.sandbox,
+      `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} { allow read, write: if false; }
+  }
+}`,
+    );
+
+    const queryEvents: Array<{ kind: 'snap'; docs: unknown[] } | { kind: 'err'; code: string }> = [];
+    await new Promise<void>((resolve) => {
+      const unsubQuery = client.onSnapshot(
+        client.collection(db, 'items'),
+        (snap) => {
+          queryEvents.push({ kind: 'snap', docs: snap.docs.map((d) => d.data()) });
+        },
+        (err) => {
+          queryEvents.push({ kind: 'err', code: err.code });
+          unsubQuery();
+          resolve();
+        },
+      );
+    });
+
+    expect(queryEvents).toEqual([
+      { kind: 'snap', docs: [{ label: 'pinned', n: 10 }] },
+      { kind: 'err', code: 'permission-denied' },
+    ]);
+
+    host.sandbox.dispose();
+  });
 });

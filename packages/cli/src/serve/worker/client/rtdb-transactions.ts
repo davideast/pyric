@@ -3,6 +3,7 @@ import { runSdkWrite } from 'pyric/sandbox/internal';
 import { validateWritablePath } from 'pyric/database/internal';
 import { beginWorkerDatabaseActivity } from './sdk-activity.js';
 import { nextId } from './core.js';
+import { sameRtdbValue } from '../rtdb-value-equality.js';
 import {
   beginWorkerColdTransaction,
   isWorkerPathWarm,
@@ -60,13 +61,19 @@ async function runWarmTransactionLoop<T>(
   transactionUpdate: (current: T | null) => T | undefined,
   options: RtdbTransactionOptions | undefined,
   startAttempt: number,
+  initialBefore?: RtdbDataSnapshot,
 ): Promise<RtdbTransactionResult> {
   for (let attempt = startAttempt; attempt < 25; attempt += 1) {
-    const rawBefore = await rtdbRpc(ref, {
-      t: 'op', id: nextId(), method: 'rtdb.get', path: ref.path, transaction: true,
-    });
-    recordWorkerOnlineGetWire(ref, undefined, rawBefore);
-    const before = hydrateRtdbSnapshot(ref, rawBefore);
+    let before: RtdbDataSnapshot;
+    if (attempt === startAttempt && initialBefore !== undefined) {
+      before = initialBefore;
+    } else {
+      const rawBefore = await rtdbRpc(ref, {
+        t: 'op', id: nextId(), method: 'rtdb.get', path: ref.path, transaction: true,
+      });
+      recordWorkerOnlineGetWire(ref, undefined, rawBefore);
+      before = hydrateRtdbSnapshot(ref, rawBefore);
+    }
     const expected = before.val() as T | null;
     let current: T | null = null;
     if (expected !== null) {
@@ -159,8 +166,13 @@ export function rtdbRunTransaction<T>(
                 t: 'op', id: nextId(), method: 'rtdb.get', path: ref.path, transaction: true,
               });
               recordWorkerOnlineGetWire(ref, undefined, rawAbort);
+              const abortSnap = hydrateRtdbSnapshot(ref, rawAbort);
+              if (sameRtdbValue(abortSnap.val(), expected0)) {
+                markWorkerPathsWarm(ref, [ref.path]);
+                return transactionResult(false, abortSnap);
+              }
               markWorkerPathsWarm(ref, [ref.path]);
-              return transactionResult(false, hydrateRtdbSnapshot(ref, rawAbort));
+              return runWarmTransactionLoop(ref, transactionUpdate, options, 1, abortSnap);
             }),
           );
         }
