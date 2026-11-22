@@ -20,6 +20,7 @@ import { CHUNK_FORMAT_VERSION, META_RECORD_ID, serializeToBuckets } from './chun
 import { hashSerialized, restoreSnapshot } from './restore.js';
 import { isRtdbRecordId, serializeRtdbServiceToRecords } from './rtdb-records.js';
 import { createSessionPersistence } from './session-persistence.js';
+import { SkippedDocuments } from './skipped-documents.js';
 import type { PersistenceBackend, SandboxPersistenceOptions } from './types.js';
 
 const DEFAULT_FLUSH_INTERVAL_MS = 250;
@@ -103,7 +104,15 @@ export async function attachPersistence(
   // first flush.
   const lastHashes = new Map<string, number>();
   const staleIds = new Set<string>();
-  const restored = await restoreSnapshot(sandbox, backend, options.key, lastHashes, staleIds);
+  const skippedDocuments = new SkippedDocuments();
+  const restored = await restoreSnapshot(
+    sandbox,
+    backend,
+    options.key,
+    lastHashes,
+    staleIds,
+    skippedDocuments,
+  );
   let preserveIncompatible = restored.preserveIncompatible;
   const pendingServices = new Map(Object.entries(restored.services ?? {}));
   const serviceSnapshots = new Map<string, unknown>();
@@ -133,6 +142,7 @@ export async function attachPersistence(
       () => localSandbox.getEnv().snapshot(),
       path => localSandbox.getEnv().getDocument(path),
       persistedBucketIds,
+      bucketId => skippedDocuments.entriesForBucket(bucketId),
     );
   }
 
@@ -199,6 +209,7 @@ export async function attachPersistence(
           { ...services, ...snap.services },
           getClock(sandbox).now(),
         );
+        skippedDocuments.applyToSerializedRecords(records);
         removed = [...lastHashes.keys()].filter(id => !records.has(id));
       }
       if (staleIds.size > 0) {
@@ -362,6 +373,7 @@ export async function attachPersistence(
     changedBuckets?.mark(path);
     const replacesState = path === null;
     if (replacesState) {
+      skippedDocuments.clear();
       serviceSnapshots.clear();
       pendingServices.clear();
       const rtdbRegistered = localSandbox.getServiceRegistry().has('rtdb');
@@ -373,10 +385,21 @@ export async function attachPersistence(
           }
         }
       }
+    } else {
+      skippedDocuments.forget(path);
     }
     scheduleFlush();
   });
   const unsubscribe = sandbox.onEvent((event) => {
+    const isAllowedFirestoreDelete =
+      event.kind === 'request' && event.result === 'allow' && event.method === 'delete';
+    if (event.kind === 'write' || isAllowedFirestoreDelete) {
+      const forgottenBucket = skippedDocuments.forget(event.path);
+      if (forgottenBucket !== undefined) {
+        changedBuckets?.mark(event.path);
+        scheduleFlush();
+      }
+    }
     if (isPersistableEvent(event)) scheduleFlush();
   });
 
@@ -412,6 +435,7 @@ export async function attachPersistence(
       // state (otherwise untouched buckets stay suppressed and are lost).
       lastHashes.clear();
       staleIds.clear();
+      skippedDocuments.clear();
       changedBuckets?.mark(null);
       if (localSandbox) {
         for (const svc of localSandbox.getServiceRegistry().values()) {

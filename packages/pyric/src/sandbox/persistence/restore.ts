@@ -2,6 +2,7 @@ import { SandboxImpl, getInternalEnv } from '../internal/sandbox-impl.js';
 import type { Sandbox } from '../types/service.js';
 import { deserializeFromBuckets, migrateV2ToRecords } from './chunk-format.js';
 import { skipIncompatibleFormat } from './incompatible.js';
+import type { SkippedDocuments } from './skipped-documents.js';
 import type { PersistenceBackend } from './types.js';
 
 /**
@@ -59,6 +60,7 @@ export async function restoreSnapshot(
   key: string,
   lastHashes: Map<string, number>,
   staleIds: Set<string>,
+  skippedDocuments?: SkippedDocuments,
 ): Promise<{ services: Record<string, unknown> | null; preserveIncompatible: boolean }> {
   let ids: string[];
   try {
@@ -111,7 +113,12 @@ export async function restoreSnapshot(
   // Seed the flush hash state from the persisted records, so the first flush
   // does not redundantly re-write the just-restored buckets.
   for (const [id, rec] of v3Records) lastHashes.set(id, hashRecord(rec));
-  const parsed = deserializeFromBuckets(v3Records, { skipInvalidDocuments: true });
+  const parsed = deserializeFromBuckets(v3Records, {
+    skipInvalidDocuments: true,
+    onSkippedDocument: (bucketId, path, rawDocument) => {
+      skippedDocuments?.remember(bucketId, path, rawDocument);
+    },
+  });
 
   // 1. Restore Firestore documents first. These are the structural data
   //    that services (auth) may depend on being present.
