@@ -1,5 +1,5 @@
 /**
- * `pyric/sandbox/internal` — adapter-only protocol surface.
+ * `pyric/sandbox/internal` - adapter-only protocol surface.
  *
  * Service adapter packages (`pyric-admin`, future `pyric/firestore`,
  * `pyric/auth`, etc.) consume this subpath to reach the underlying
@@ -8,7 +8,7 @@
  *
  * **Not part of the public API.** The shape is subject to change
  * without breaking-change semantics across `pyric/sandbox` versions.
- * External adapter authors shouldn't rely on this — when the protocol
+ * External adapter authors shouldn't rely on this - when the protocol
  * stabilizes (post-multi-service architecture) it'll be promoted.
  *
  * Documented in the design rationale section "Migration
@@ -31,7 +31,11 @@ export {
 } from './auth-lens.js';
 export { authAccountsFor, refreshRefusal, registerAuthAccounts, type AuthAccounts, type AuthAccountStanding, type RefreshRefusalCode } from './auth-accounts.js';
 export type { ToolContext, ToolHandler, ToolParameters, ToolResult } from './tool-handler.js';
-export { CHUNK_FORMAT_VERSION } from '../persistence/chunk-format.js';
+export {
+  CHUNK_FORMAT_VERSION,
+  checksumDocs,
+  pathToBucketId,
+} from '../persistence/chunk-format.js';
 export { decodeImportBundle, validatePersistenceEncoding } from '../persistence/import-bundle.js';
 export {
   deserializeRtdbRecords,
@@ -163,7 +167,7 @@ export {
 // Pyric Studio event-unification seam: the provenance-stamping emit
 // choke-point non-Firestore services (auth/storage/rtdb) call to land
 // activity on the unified `onEvent`/`history()` stream. Firestore rides
-// the env→sandbox fan-out and doesn't need this. `stampProvenance` is
+// the env->sandbox fan-out and doesn't need this. `stampProvenance` is
 // exported for callers that need to compute the stamped shape without
 // dispatching (e.g. branch/replay tooling). See the design rationale.
 // `makeServiceMutationEvent` builds the generic cross-service mutation
@@ -189,7 +193,7 @@ export {
 // FIRESTORE_ERROR_CODES, etc.). Anyone changing the moved files'
 // public exports automatically gets them propagated here.
 // local-environment exports BatchResult as its own outer shape;
-// local-state has a different (internal) BatchResult — alias the
+// local-state has a different (internal) BatchResult - alias the
 // local-state one to disambiguate. Same trick for DocumentData
 // (one canonical export from local-state; local-environment
 // re-exports it).
@@ -225,11 +229,11 @@ export { getSnapshotField, type SnapshotFieldPath } from '../../firestore/sandbo
 export { forEachDocument } from '../../firestore/sandbox/for-each-document.js';
 // Wire-encoder: produces Firestore JSON wire-format from sandbox
 // values. Used by the discover crawler's sandbox adapter (in
-// pyric/firestore/discover) to bridge LocalEnvironment ↔ the wire
+// pyric/firestore/discover) to bridge LocalEnvironment <-> the wire
 // decoder.
 export * from '../../firestore/sandbox/wire-encoder.js';
 
-// Pre-mortem H3 — the star re-exports above are NOT auditable by
+// Pre-mortem H3 - the star re-exports above are NOT auditable by
 // reading this file. If two of the re-exported modules introduce a
 // same-named symbol, `tsc --noEmit` fails loudly at build time (this
 // has happened: BatchResult / DocumentData collisions, both
@@ -330,6 +334,20 @@ export {
   type StorageRulesFile,
   type UnresolvedStorageRulesTarget,
 } from './storage-rules-config.js';
+export {
+  FIREBASE_PROJECT_FIXES,
+  FIREBASE_PROJECT_ROOT_MARKERS,
+  FIREBASE_PROJECT_SOURCES_TRIED,
+  describeFirebaseProject,
+  parseFirebaseToolsActiveProjects,
+  parsePyricConfigProject,
+  selectFirebaseProject,
+  type FirebaseProjectRc,
+  type FirebaseProjectResolution,
+  type FirebaseProjectSource,
+  type FirebaseToolsActiveLookup,
+  type SelectFirebaseProjectInput,
+} from './firebase-project.js';
 export {
   LAZY_DEFAULT_AMBIENT_APP,
   parsePyricSandbox,

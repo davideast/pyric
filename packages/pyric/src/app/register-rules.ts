@@ -7,22 +7,14 @@
  * refused writes one stderr line and keeps the default policy, deny; the
  * other services still load.
  *
- * Firestore rules resolve per database as `firebase deploy` resolves the object
- * or array `firestore` form (including `.firebaserc` deploy targets). Named
- * databases declared without a rules file stay locked, and invalid database ids
- * or unresolved deploy targets emit one stderr warning.
- *
- * Realtime Database rules resolve through the loader behind
- * `rtdbRules.fromFirebaseJson`, which resolves instances and deploy targets
- * as `firebase deploy` does, with the project from `.firebaserc`.
- *
- * Storage rules resolve per bucket through the shared `storageRulesConfig`,
- * with deploy targets mapped for `.firebaserc`'s default project. Each bucket
- * enforces its own file, and a bucket nothing deploys to is locked. A bucket
- * whose file cannot be read or is refused stays locked; the others load.
+ * Deploy targets across Firestore, Realtime Database, and Storage resolve
+ * against the same Firebase project selection (`PYRIC_PROJECT`, `pyric.json`,
+ * `firebase use` configstore, sole `.firebaserc` alias, else `.firebaserc`
+ * `projects.default`, #1454) via `selectFirebaseProject`.
  */
-import { existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import type { LocalSandbox } from 'pyric/sandbox';
 import {
   declareFirestoreDatabase,
@@ -42,6 +34,12 @@ import {
   unservedFirestoreDatabaseWarnings,
 } from 'pyric/sandbox/internal';
 import { loadFirebaseJsonRules } from '@pyric/rules/internal';
+import {
+  parseFirebaseToolsActiveProjects,
+  parsePyricConfigProject,
+  selectFirebaseProject,
+  type FirebaseToolsActiveLookup,
+} from '../sandbox/internal/firebase-project.js';
 
 interface RulesEntry {
   rules?: unknown;
@@ -53,11 +51,97 @@ interface FirebaseJson {
   storage?: unknown;
 }
 
+interface FirebaseRc {
+  projects?: Record<string, unknown>;
+  targets?: Record<
+    string,
+    { firestore?: Record<string, unknown>; storage?: Record<string, unknown> } | undefined
+  >;
+}
+
 const PREFIX = 'pyric/app/register';
 
 function report(file: string, error: unknown): void {
   const reason = error instanceof Error ? error.message : String(error);
   process.stderr.write(`${PREFIX}: could not load ${file}: ${reason}\n`);
+}
+
+function readFirebaseRc(projectDir: string): FirebaseRc | null {
+  const path = resolve(projectDir, '.firebaserc');
+  if (!existsSync(path)) return null;
+  return JSON.parse(readFileSync(path, 'utf8')) as FirebaseRc;
+}
+
+function configstorePath(env: NodeJS.ProcessEnv): string {
+  if (typeof env.XDG_CONFIG_HOME === 'string' && env.XDG_CONFIG_HOME.length > 0) {
+    return join(env.XDG_CONFIG_HOME, 'configstore', 'firebase-tools.json');
+  }
+  let home = homedir();
+  if (typeof env.HOME === 'string' && env.HOME.length > 0) {
+    home = env.HOME;
+  }
+  return join(home, '.config', 'configstore', 'firebase-tools.json');
+}
+
+function ancestorChain(start: string): string[] {
+  const chain: string[] = [];
+  let dir = start;
+  for (;;) {
+    chain.push(dir);
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return chain;
+}
+
+function isFilesystemError(error: unknown): boolean {
+  return error instanceof Error && 'code' in error;
+}
+
+function readActiveLookup(projectDir: string, env: NodeJS.ProcessEnv): FirebaseToolsActiveLookup | null {
+  const storePath = configstorePath(env);
+  if (!existsSync(storePath)) return null;
+  let raw: string;
+  try {
+    raw = readFileSync(storePath, 'utf8');
+  } catch (error) {
+    if (isFilesystemError(error)) return null;
+    throw error;
+  }
+  const activeProjects = parseFirebaseToolsActiveProjects(raw);
+  if (activeProjects === null) return null;
+  const resolvedStart = resolve(projectDir);
+  const chains: string[][] = [ancestorChain(resolvedStart)];
+  if (existsSync(projectDir)) {
+    try {
+      const realStart = realpathSync(projectDir);
+      if (realStart !== resolvedStart) chains.push(ancestorChain(realStart));
+    } catch (error) {
+      if (!isFilesystemError(error)) throw error;
+    }
+  }
+  return { activeProjects, ancestorChains: chains };
+}
+
+function readPyricConfigProject(projectDir: string): string | undefined {
+  const path = resolve(projectDir, 'pyric.json');
+  if (!existsSync(path)) return undefined;
+  try {
+    return parsePyricConfigProject(readFileSync(path, 'utf8'));
+  } catch (error) {
+    if (isFilesystemError(error)) return undefined;
+    throw error;
+  }
+}
+
+function resolveRegisterProject(projectDir: string, readRc: () => FirebaseRc | null): string | undefined {
+  return selectFirebaseProject({
+    envProject: process.env.PYRIC_PROJECT,
+    readConfigProject: () => readPyricConfigProject(projectDir),
+    readRc,
+    readActiveLookup: () => readActiveLookup(projectDir, process.env),
+  }).projectId;
 }
 
 /** Load every rules file `<projectDir>/firebase.json` declares into `sandbox`. */
@@ -71,13 +155,31 @@ export function loadProjectRules(sandbox: LocalSandbox, projectDir: string): voi
     report('firebase.json', error);
     return;
   }
-  loadFirestoreRules(sandbox, projectDir, config);
-  loadDatabaseRules(sandbox, projectDir, firebaseJsonPath, config);
-  loadStorageRules(sandbox, projectDir, config);
+  let cachedRc: FirebaseRc | null | undefined;
+  let rcError: unknown;
+  const readRcMemo = (): FirebaseRc | null => {
+    if (rcError !== undefined) throw rcError;
+    if (cachedRc === undefined) {
+      try {
+        cachedRc = readFirebaseRc(projectDir);
+      } catch (err) {
+        rcError = err;
+        throw err;
+      }
+    }
+    return cachedRc;
+  };
+  const projectId = resolveRegisterProject(projectDir, readRcMemo);
+  loadFirestoreRules(sandbox, projectDir, config, projectId, readRcMemo);
+  loadDatabaseRules(sandbox, projectDir, firebaseJsonPath, config, projectId);
+  loadStorageRules(sandbox, projectDir, config, projectId, readRcMemo);
 }
 
 /** The rules file a service entry names, read relative to the project, or null when it names none. */
-function readDeclaredRules(projectDir: string, entry: RulesEntry | undefined): { file: string; source: string } | null {
+function readDeclaredRules(
+  projectDir: string,
+  entry: RulesEntry | undefined,
+): { file: string; source: string } | null {
   const file = entry?.rules;
   if (typeof file !== 'string' || file === '') return null;
   const path = resolve(projectDir, file);
@@ -85,36 +187,28 @@ function readDeclaredRules(projectDir: string, entry: RulesEntry | undefined): {
   return { file, source: readFileSync(path, 'utf8') };
 }
 
-interface FirebaseRc {
-  projects?: { default?: unknown };
-  targets?: Record<string, { firestore?: Record<string, unknown>; storage?: Record<string, unknown> } | undefined>;
+function targetNames(
+  rc: FirebaseRc | null,
+  projectId: string | undefined,
+  service: 'firestore' | 'storage',
+  target: string,
+): unknown {
+  if (projectId === undefined) return undefined;
+  return rc?.targets?.[projectId]?.[service]?.[target];
 }
 
-function readFirebaseRc(projectDir: string): FirebaseRc | null {
-  const path = resolve(projectDir, '.firebaserc');
-  if (!existsSync(path)) return null;
-  return JSON.parse(readFileSync(path, 'utf8')) as FirebaseRc;
-}
-
-/** The names `.firebaserc` maps one deploy target of `service` to, for its default project. */
-function targetNames(rc: FirebaseRc | null, service: 'firestore' | 'storage', target: string): unknown {
-  const projectId = rc?.projects?.default;
-  return typeof projectId === 'string' ? rc?.targets?.[projectId]?.[service]?.[target] : undefined;
-}
-
-/** The databases `firebase.json` deploys Firestore rules to, with deploy targets mapped for `.firebaserc`'s default project. */
-function firestoreDatabases(projectDir: string, config: FirebaseJson): ReturnType<typeof firestoreRulesConfig> {
-  let rc: FirebaseRc | null | undefined;
-  const readRc = (): FirebaseRc | null => (rc ??= readFirebaseRc(projectDir));
-  return firestoreRulesConfig(config.firestore, {
-    targetDatabases: (target) => targetNames(readRc(), 'firestore', target),
-  });
-}
-
-function loadFirestoreRules(sandbox: LocalSandbox, projectDir: string, config: FirebaseJson): void {
+function loadFirestoreRules(
+  sandbox: LocalSandbox,
+  projectDir: string,
+  config: FirebaseJson,
+  projectId: string | undefined,
+  readRc: () => FirebaseRc | null,
+): void {
   let databases: ReturnType<typeof firestoreRulesConfig>;
   try {
-    databases = firestoreDatabases(projectDir, config);
+    databases = firestoreRulesConfig(config.firestore, {
+      targetDatabases: (target) => targetNames(readRc(), projectId, 'firestore', target),
+    });
   } catch (error) {
     report('firestore.rules', error);
     return;
@@ -122,8 +216,6 @@ function loadFirestoreRules(sandbox: LocalSandbox, projectDir: string, config: F
   for (const warning of unservedFirestoreDatabaseWarnings(databases)) {
     process.stderr.write(`${PREFIX}: ${warning}\n`);
   }
-  // Register only reads rules files explicitly named in firebase.json (`configured === true`),
-  // while declaring every valid named database entry (locked when rules are omitted).
   for (const entry of databases.databases) {
     if (!isValidFirestoreDatabaseConfigId(entry.database)) {
       continue;
@@ -159,11 +251,17 @@ function loadDatabaseRules(
   projectDir: string,
   firebaseJsonPath: string,
   config: FirebaseJson,
+  projectId: string | undefined,
 ): void {
-  const declaresNoDatabase = config.database === undefined && !existsSync(resolve(projectDir, DEFAULT_DATABASE_RULES_FILE));
+  const declaresNoDatabase =
+    config.database === undefined && !existsSync(resolve(projectDir, DEFAULT_DATABASE_RULES_FILE));
   if (declaresNoDatabase) return;
   try {
-    const loaded = loadFirebaseJsonRules(firebaseJsonPath);
+    const rtdbOpts: { projectId?: string } = {};
+    if (projectId !== undefined) {
+      rtdbOpts.projectId = projectId;
+    }
+    const loaded = loadFirebaseJsonRules(firebaseJsonPath, rtdbOpts);
     for (const file of loaded.files) {
       const rules = JSON.parse(toStrictRulesJson(file.text)) as { rules: Record<string, unknown> };
       const rejection = rtdbRulesSourceRejection(rules);
@@ -178,13 +276,18 @@ function loadDatabaseRules(
   }
 }
 
-function loadStorageRules(sandbox: LocalSandbox, projectDir: string, config: FirebaseJson): void {
-  // Only what firebase.json declares: register has never read an undeclared storage.rules.
+function loadStorageRules(
+  sandbox: LocalSandbox,
+  projectDir: string,
+  config: FirebaseJson,
+  projectId: string | undefined,
+  readRc: () => FirebaseRc | null,
+): void {
   if (config.storage === undefined) return;
   let resolved: ReturnType<typeof storageRulesConfig>;
   try {
     resolved = storageRulesConfig(config.storage, {
-      targetBuckets: (target) => targetNames(readFirebaseRc(projectDir), 'storage', target),
+      targetBuckets: (target) => targetNames(readRc(), projectId, 'storage', target),
     });
   } catch (error) {
     report('storage.rules', error);
@@ -200,7 +303,6 @@ function loadStorageRules(sandbox: LocalSandbox, projectDir: string, config: Fir
   if (defaultRules?.configured === true) {
     try {
       const declared = readDeclaredRules(projectDir, { rules: defaultRules.file });
-      // Storage honors rules only on the first open of the service, so it opens here.
       if (declared !== null) getStorageSandbox(sandbox, { rules: declared.source });
     } catch (error) {
       report('storage.rules', error);

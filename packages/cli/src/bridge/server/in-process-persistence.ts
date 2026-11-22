@@ -7,7 +7,7 @@
  * falls back to the local in-process sandbox after that host stops.
  */
 import { mkdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { decodeImportBundle } from 'pyric/sandbox/internal';
 import type { FirebaseStorage } from 'pyric/storage';
 import { claimProjectState } from '../../serve/hosted/project-ownership.js';
@@ -56,7 +56,10 @@ export function decodeInProcessSnapshot(path: string): ReturnType<typeof decodeI
   const raw = readFileSync(path, 'utf8');
   try {
     JSON.parse(raw);
-  } catch {
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) {
+      throw error;
+    }
     // Avoid quoting parser fragments that may contain private user data.
     throw new Error(
       `In-process state file at ${path} is not valid JSON. ` +
@@ -67,9 +70,11 @@ export function decodeInProcessSnapshot(path: string): ReturnType<typeof decodeI
     return decodeImportBundle(raw);
   } catch (error) {
     const detail = failureMessage(error);
+    const sourceDir = dirname(path);
     throw new Error(
       `In-process state file at ${path} is corrupt or unsupported (${detail}). ` +
-        'Inspect or delete it to continue; pyric will not overwrite it silently.',
+        `Run 'pyric sandbox salvage --source "${sourceDir}" --out <new-directory>' to recover readable records, ` +
+        'or inspect or delete it to continue; pyric will not overwrite it silently.',
     );
   }
 }

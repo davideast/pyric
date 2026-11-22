@@ -1,5 +1,5 @@
 /**
- * SharedWorker host — the message dispatcher + port cleanup.
+ * SharedWorker host - the message dispatcher + port cleanup.
  *
  * The top of the host: `handleMessage` opens the op's ambient-provenance
  * window and hands to `dispatchMessage`, which peels off the auth / AI /
@@ -9,7 +9,7 @@
  * disconnected port's per-subsystem state down.
  *
  * `handleOp` resolves the op's Firestore handle ONCE (the `db`/`lens`
- * preamble) — the eager lens/session resolution every op sees — then dispatches
+ * preamble) - the eager lens/session resolution every op sees - then dispatches
  * to the per-family `handle*Op` handlers. This is the single unit-testable seam:
  * tests build a real `HostCtx` over an in-memory sandbox and call
  * `handleMessage` directly with fake ports.
@@ -27,7 +27,7 @@ import {
   isMessagingSub,
   isPresenceSub,
 } from '../protocol.js';
-// The canonical agent tool dispatcher — reused on the worker so a bridged agent
+// The canonical agent tool dispatcher - reused on the worker so a bridged agent
 // executes against THIS sandbox (one backend for app + Studio + agent), instead
 // of a separate in-page sandbox.
 import { buildSandboxDispatcher } from '../../../bridge/client/dispatch.js';
@@ -76,7 +76,7 @@ import { bindCaller, callerFor, markPortConnection, setPortClientId, setPortTabI
 import { claimObservedPageTab, endObservedPort, handleObserve } from './observe.js';
 import { isFirestoreReadOp, handleFirestoreReadOp } from './firestore-reads.js';
 import { isFirestoreWriteOp, handleFirestoreWriteOp } from './firestore-writes.js';
-import { isRulesOp, handleRulesOp } from './rules.js';
+import { isRulesOp, handleRulesOp, syncFirestoreActiveRules } from './rules.js';
 import { handleClockOp, isClockOp, subscribeClock, unsubscribeClock } from './clock.js';
 import { isAdminFirestoreOp, handleAdminFirestoreOp } from './admin-firestore.js';
 import { isRtdbOp, handleRtdbOp, drainPortRtdbDisconnects, forgetPortRtdbConnection } from './rtdb.js';
@@ -91,14 +91,20 @@ import {
   handlePresenceUnsub,
   cleanupPortPresence,
 } from './presence.js';
-import { handleSub, handleRtdbSub, handleUnsub, dropPortSubscriptionIntents } from './subscriptions.js';
+import {
+  handleSub,
+  handleRtdbSub,
+  handleUnsub,
+  dropPortSubscriptionIntents,
+  restoreFirestoreSubscriptions,
+} from './subscriptions.js';
 import {
   handleUndeclaredFirestoreDatabaseOp,
   isUndeclaredRequestedDatabase,
 } from './firestore-databases.js';
 import { handleStorageSub } from './storage-subscriptions.js';
 
-// ─── Op orchestrator ────────────────────────────────────────────────────────
+// --- Op orchestrator ---------------------------------------------------------
 
 async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<void> {
   const isFsRead = isFirestoreReadOp(msg.method);
@@ -145,7 +151,7 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
   fail(port, msg.id, new Error(`Unknown method: ${String((msg as { method: unknown }).method)}`));
 }
 
-// ─── Main dispatch ────────────────────────────────────────────────────────
+// --- Main dispatch -----------------------------------------------------------
 
 /**
  * Agent tool-call dispatch. The bridge peer forwards `tool` messages so the
@@ -165,13 +171,17 @@ async function handleTool(ctx: HostCtx, port: PortLike, msg: ToolMessage): Promi
     // dispatcher applies it only where a tool has no identity argument of its
     // own; it is NOT the `lensDb` path `op` frames take.
     const result = await ctx.toolDispatch(msg.name, msg.args ?? {}, msg.actAs);
+    if (result.ok && msg.name === 'firestore_simulator_create') {
+      syncFirestoreActiveRules(ctx);
+      restoreFirestoreSubscriptions(ctx);
+    }
     // Pre-serialize via JSON BEFORE the structured-clone hop over the port. Read
     // results carry real firebase wrapper instances (Timestamp/GeoPoint/Bytes/
     // VectorValue) whose toJSON() produces the canonical agent-facing shapes.
     // structuredClone would strip those prototypes (losing toJSON) and post
     // mangled internals, and would throw DataCloneError on any non-cloneable
     // field. JSON.stringify here runs toJSON() while the instances are intact and
-    // yields a plain, clone-safe object — matching the in-page path, which
+    // yields a plain, clone-safe object - matching the in-page path, which
     // JSON-stringified at the bridge. A serialization error lands in the catch
     // below, never in postMessage.
     ok(port, msg.id, JSON.parse(JSON.stringify(result)));
@@ -222,9 +232,11 @@ export async function handleMessage(
     // Correlate their replies without retaining a remote session after settlement.
     const hasRemoteSession = ctx.remoteClientPorts?.has(clientSessionId) === true;
     const needsRemoteSession = msg.t !== 'tool' || hasRemoteSession;
-    targetPort = needsRemoteSession
-      ? getOrCreateRemoteClientPort(ctx, port, clientSessionId)
-      : new RemoteClientPort(port, clientSessionId);
+    if (needsRemoteSession) {
+      targetPort = getOrCreateRemoteClientPort(ctx, port, clientSessionId);
+    } else {
+      targetPort = new RemoteClientPort(port, clientSessionId);
+    }
     markPortConnection(ctx, targetPort, 'relay');
   }
 
@@ -280,8 +292,8 @@ export async function handleMessage(
     return;
   }
   // Op provenance, bound at dispatch by `opProvenance` (see its docs). Opened
-  // as the sandbox's SYNCHRONOUS ambient window so firestore/rtdb/auth emits —
-  // which run inside `dispatchMessage` before any await — pick it up. Storage
+  // as the sandbox's SYNCHRONOUS ambient window so firestore/rtdb/auth emits -
+  // which run inside `dispatchMessage` before any await - pick it up. Storage
   // ops emit AFTER async awaits, outside this window, so they thread the same
   // provenance EXPLICITLY instead (see `handleOp`'s storage cases). Without the
   // lens on admin ops, `verdictFor` mislabeled a rules BYPASS as ALLOW (the
@@ -292,17 +304,19 @@ export async function handleMessage(
   bindCaller(msg, callerFor(ctx, port, msg));
   const isRemoteRelay = msg.relaySource === 'remote'
     || Boolean(msg.clientSessionId);
-  const isOperation = msg.t === 'op';
-  const tracksFirestoreActivity = !isRemoteRelay && (isOperation
-    ? isFirestoreReadOp(msg.method)
-    : msg.t === 'sub'
-      && msg.target !== null
-      && typeof msg.target === 'object'
-      && '__ref' in msg.target);
-  const prov = opProvenance(
-    msg,
-    tracksFirestoreActivity ? activityJourneyId(ctx, targetPort) : undefined,
-  );
+  let isFirestoreTarget = false;
+  if (msg.t === 'op') {
+    isFirestoreTarget = isFirestoreReadOp(msg.method);
+  } else if (msg.t === 'sub') {
+    isFirestoreTarget =
+      msg.target !== null && typeof msg.target === 'object' && '__ref' in msg.target;
+  }
+  const tracksFirestoreActivity = !isRemoteRelay && isFirestoreTarget;
+  let journeyId: string | undefined;
+  if (tracksFirestoreActivity) {
+    journeyId = activityJourneyId(ctx, targetPort);
+  }
+  const prov = opProvenance(msg, journeyId);
   const runWithProvenance = ctx.sandbox.runWithProvenance;
   const hasProvenanceRunner = prov !== undefined && runWithProvenance !== undefined;
   if (hasProvenanceRunner) {
@@ -392,7 +406,7 @@ async function dispatchMessage(
     }
   } else if (isUnsubscribe) {
     // An unsub may target an auth sub, an event-stream sub, a presence sub, or
-    // a Firestore listener — try the cheap routing registries first, then fall
+    // a Firestore listener - try the cheap routing registries first, then fall
     // through to the Firestore listener teardown.
     const needsFirestoreUnsubscribe =
       !handleAuthUnsub(ctx, port, msg.subId) &&
@@ -439,7 +453,7 @@ export async function cleanupPortWithDisconnect(ctx: HostCtx, port: PortLike): P
   if (drainFailure !== undefined) throw drainFailure;
 }
 
-// ─── Port cleanup ─────────────────────────────────────────────────────────
+// --- Port cleanup ------------------------------------------------------------
 
 /**
  * Tear down all subscriptions for a disconnected port.
@@ -457,7 +471,7 @@ export function cleanupPort(ctx: HostCtx, port: PortLike): void {
       failures.push(error);
     }
   };
-  // Drop the port's auth subscriptions (routing entries — no real listener
+  // Drop the port's auth subscriptions (routing entries - no real listener
   // to tear down), its per-port session, and its retained subscription intents
   // (#754).
   attempt(() => { authSubsFor(ctx).delete(port); });
@@ -465,7 +479,7 @@ export function cleanupPort(ctx: HostCtx, port: PortLike): void {
   attempt(() => { dropPortSubscriptionIntents(ctx, port); });
 
   // Drop the port's event-stream subscriptions too (also routing entries off
-  // the single shared `sandbox.onEvent` subscription — nothing to unsubscribe,
+  // the single shared `sandbox.onEvent` subscription - nothing to unsubscribe,
   // just stop fanning out to a dead port).
   attempt(() => { eventSubsFor(ctx).delete(port); });
 

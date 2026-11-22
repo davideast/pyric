@@ -70,7 +70,8 @@ import {
   storageRulesTargets,
   type StorageRulesTarget,
 } from '../../serve/rules.js';
-import { readFirebaseRcSync, type FirebaseJson } from '../../cli/firebase-json.js';
+import type { FirebaseJson } from '../../cli/firebase-json.js';
+import { resolveFirebaseProject } from '../../cli/firebase-project.js';
 import { defaultFirestoreDatabase } from 'pyric/sandbox/internal';
 import { TargetRouter } from './target-router.js';
 import { formatMcpInstructions, resolveProjectIdentity } from './project-identity.js';
@@ -200,7 +201,7 @@ export function openPersistedServices(sandbox: LocalSandbox, cwd: string): Fireb
   getAuth(sandbox);
   getAdminDatabase(sandbox);
   const persistedStorage = readPersistedRulesState(cwd)?.storage;
-  const projectId = readFirebaseRcSync(cwd)?.projects?.default;
+  const projectId = resolveFirebaseProject({ projectDir: cwd }).projectId;
   const targetOpts: { projectId?: string } = {};
   if (projectId !== undefined) {
     targetOpts.projectId = projectId;
@@ -238,7 +239,7 @@ export function openPersistedServices(sandbox: LocalSandbox, cwd: string): Fireb
 
 /** Resolve the project's default Storage bucket name without a connected page. */
 export function inProcessDefaultBucketName(cwd: string): string | undefined {
-  const projectId = readFirebaseRcSync(cwd)?.projects?.default;
+  const projectId = resolveFirebaseProject({ projectDir: cwd }).projectId;
   if (projectId === undefined) return undefined;
   const { targets } = storageRulesTargets(cwd, readProjectFirebaseJson(cwd), { projectId });
   const named = targets.find((target) => target.bucket !== null && isDefaultBucketTarget(target, projectId));
@@ -283,7 +284,7 @@ interface PersistedRulesState {
 function readDiskFirestoreRules(cwd: string): string | null {
   try {
     const config = readProjectFirebaseJson(cwd);
-    const projectId = readFirebaseRcSync(cwd)?.projects?.default;
+    const projectId = resolveFirebaseProject({ projectDir: cwd }).projectId;
     const dbOpts: { projectId?: string } = {};
     if (projectId !== undefined) {
       dbOpts.projectId = projectId;
@@ -309,7 +310,7 @@ function readDiskFirestoreRules(cwd: string): string | null {
 function readDiskStorageRules(cwd: string): { default: string | null; buckets: Record<string, string | null> } {
   const buckets: Record<string, string | null> = {};
   try {
-    const projectId = readFirebaseRcSync(cwd)?.projects?.default;
+    const projectId = resolveFirebaseProject({ projectDir: cwd }).projectId;
     const targetOpts: { projectId?: string } = {};
     if (projectId !== undefined) {
       targetOpts.projectId = projectId;

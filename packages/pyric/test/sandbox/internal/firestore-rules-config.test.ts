@@ -35,24 +35,29 @@ describe('firestoreRulesConfig', () => {
     expect(unservedFirestoreDatabaseWarnings(config)).toEqual([]);
   });
 
-  test('an object with a named database and no rules declares it alongside the firestore.rules fallback for (default)', () => {
+  test('an object with a named database and no rules declares it with no rulesFile and adds no firestore.rules fallback (#1452)', () => {
     const config = firestoreRulesConfig({ database: 'reports' });
-    expect(defaultFirestoreDatabase(config)?.rulesFile).toBe('firestore.rules');
+    expect(defaultFirestoreDatabase(config)).toBeUndefined();
     expect(config.databases).toEqual([
-      { database: '(default)', rulesFile: 'firestore.rules', label: 'firebase.json', configured: false },
       { database: 'reports', label: 'firebase.json firestore', configured: false },
     ]);
   });
 
-  test('an object that names no rules keeps the firestore.rules fallback for (default)', () => {
+  test('an object that names no rules serves no Firestore rules file, as firebase-tools deploys none (#1452)', () => {
     const config = firestoreRulesConfig({ indexes: 'firestore.indexes.json' });
     expect(defaultFirestoreDatabase(config)).toEqual({
       database: '(default)',
-      rulesFile: 'firestore.rules',
       indexesFile: 'firestore.indexes.json',
-      label: 'firebase.json',
+      label: 'firebase.json firestore',
       configured: false,
     });
+    expect(firestoreRulesConfig({}).databases).toEqual([
+      {
+        database: '(default)',
+        label: 'firebase.json firestore',
+        configured: false,
+      },
+    ]);
   });
 
   test('array entries with database deploy to each database, in order', () => {

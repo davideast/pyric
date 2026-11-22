@@ -5,7 +5,7 @@
  * diagnostic tools + Firestore data viewer read from.
  *
  * Persistence: the workspace sandbox persists PER SESSION under
- * `pyric:sandbox:{sessionId}` (IndexedDB) — seeded data, AUTH USERS, and the
+ * `pyric:sandbox:{sessionId}` (IndexedDB) - seeded data, AUTH USERS, and the
  * signed-in session all survive a reload and come back when the user reopens
  * the session. Firestore + the auth user DB ride the durable snapshot; the
  * current user follows `setPersistence` semantics via per-session
@@ -32,6 +32,11 @@ import {
   type Firestore,
 } from 'pyric/firestore';
 import { setRules, snapshotDocuments } from 'pyric/sandbox/firestore';
+import {
+  rulesSourceRejection,
+  type CompileLimitViolation,
+  type RulesSourceRejection,
+} from 'pyric/rules/internal';
 import {
   getAuth,
   onAuthStateChanged,
@@ -71,12 +76,12 @@ export interface SandboxRunnerOptions {
    * Persistence wiring for the sandbox. When set, the runner enables
    * sandbox persistence at construction (restoring any prior snapshot for
    * `persistence.key`) and exposes the restore as `ready`. When omitted the
-   * sandbox is ephemeral — the pre-persistence behavior, kept for headless
+   * sandbox is ephemeral - the pre-persistence behavior, kept for headless
    * tests and sessionless pages.
    *
    * What persists: Firestore documents AND the auth user DB (both ride the
    * durable `Sandbox.snapshot()` services). The signed-in session restores
-   * too — the constructor injects per-session `sessionStorage` wrappers so
+   * too - the constructor injects per-session `sessionStorage` wrappers so
    * the current user survives reload (honoring `setPersistence`). Pass an
    * explicit `sessionStorage` to override the default browser wiring.
    */
@@ -84,7 +89,7 @@ export interface SandboxRunnerOptions {
 }
 
 /**
- * Wrap a browser Storage so every key is prefixed with `ns` — scopes the
+ * Wrap a browser Storage so every key is prefixed with `ns` - scopes the
  * auth session per playground session (each session's IndexedDB key is its
  * namespace) so switching sessions doesn't cross-wire who's signed in. The
  * library's session controller uses one fixed key; this makes it per-session.
@@ -98,6 +103,48 @@ function namespacedStorage(real: Storage, ns: string): WebStorageLike {
   };
 }
 
+function formatCompileLimitMessages(
+  violations: readonly CompileLimitViolation[],
+): DeployResult['messages'] {
+  return violations.map((violation) => {
+    const entry: DeployResult['messages'][number] = {
+      severity: 'error',
+      text: violation.message,
+    };
+    if (violation.line !== undefined) {
+      entry.line = violation.line;
+    }
+    if (violation.column !== undefined) {
+      entry.column = violation.column;
+    }
+    return entry;
+  });
+}
+
+function formatRejectionMessages(rejection: RulesSourceRejection): DeployResult['messages'] {
+  if (rejection.kind === 'parse') {
+    return [
+      {
+        severity: 'error',
+        text: `Firestore ${rejection.message}`,
+        line: rejection.line,
+        column: rejection.column,
+      },
+    ];
+  }
+  return formatCompileLimitMessages(rejection.violations);
+}
+
+function mapLintSeverity(raw: string): 'info' | 'warn' | 'error' {
+  if (raw === 'error') {
+    return 'error';
+  }
+  if (raw === 'warning') {
+    return 'warn';
+  }
+  return 'info';
+}
+
 /** Debounce for runner-scheduled flushes (admin writes). Matches the
  *  persistence controller's own default flush interval. */
 const ADMIN_FLUSH_DEBOUNCE_MS = 250;
@@ -108,32 +155,32 @@ export class SandboxRunner {
   /**
    * Resolves once persistence (when configured) has restored any prior
    * snapshot into the live sandbox. Mirrors `SessionsSandbox.ready`.
-   * Resolves immediately for an ephemeral runner. Never rejects —
+   * Resolves immediately for an ephemeral runner. Never rejects -
    * persistence failures are non-fatal (warn + proceed in-memory).
    */
   readonly ready: Promise<void>;
   /** Persistence key in effect, or `null` for an ephemeral runner.
    *  Exposed for tests and diagnostics. */
   readonly persistenceKey: string | null;
-  /** True once `enablePersistence` succeeded — gates runner-scheduled
+  /** True once `enablePersistence` succeeded - gates runner-scheduled
    *  flushes so a failed enable doesn't produce a warn per write. */
   private persistenceActive = false;
   private readonly flushDebounceMs: number;
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
 
-  // ── Cross-tab sync ─────────────────────────────────────────────────────
+  // -- Cross-tab sync --------------------------------------------------------
   //
   // WHY: two tabs open on the same playground session must see each other's
   // Firestore writes + sign-in/out in real time, mirroring production
   // Firebase's WebSocket-backed live updates. Two independent channels carry
   // two independent kinds of state:
   //
-  //   1. Firestore data  — `sandbox.enableTabSync()` (the library primitive).
+  //   1. Firestore data  - `sandbox.enableTabSync()` (the library primitive).
   //      The channel name includes `persistence.key` (which encodes the
-  //      session id) so only tabs on the SAME session sync — different
+  //      session id) so only tabs on the SAME session sync - different
   //      sessions use different channels and never cross-wire.
   //
-  //   2. Auth state      — `wireAuthTabSync()` (playground-local helper).
+  //   2. Auth state      - `wireAuthTabSync()` (playground-local helper).
   //      Same per-session scoping via a SECOND channel with the key in its
   //      name. See `tab-sync-wiring.ts` for the full protocol description.
   //
@@ -144,7 +191,7 @@ export class SandboxRunner {
   // Node / SSR / bun-test guard: both channels are created only when
   // `BroadcastChannel` is available in the global scope. The existing
   // node tests (which lack BroadcastChannel) therefore remain unaffected
-  // — no sandbox event subscribers are added, no channels are created.
+  // - no sandbox event subscribers are added, no channels are created.
   private disableFirestoreTabSync: (() => void) | null = null;
   private disableAuthTabSync: (() => void) | null = null;
   private firestoreTabSyncChannel: { close(): void } | null = null;
@@ -158,8 +205,8 @@ export class SandboxRunner {
     this.flushDebounceMs = persistence?.flushIntervalMs ?? ADMIN_FLUSH_DEBOUNCE_MS;
     // Default the session storage to per-session-namespaced browser storage so
     // the signed-in user survives reload (prod parity). Honors setPersistence:
-    // LOCAL→localStorage, SESSION→sessionStorage. Skipped server-side (tests)
-    // where window is absent — the user DB still persists, the session doesn't.
+    // LOCAL->localStorage, SESSION->sessionStorage. Skipped server-side (tests)
+    // where window is absent - the user DB still persists, the session doesn't.
     if (
       persistence &&
       !persistence.sessionStorage &&
@@ -183,28 +230,28 @@ export class SandboxRunner {
           // status surface for sandbox lifecycle, cf. `[sessions]`).
           const docs = Object.keys(snapshotDocuments(this.sandbox)).length;
           console.info(
-            `[sandbox] workspace persistence on '${persistence.key}' — restored ${docs} doc(s)`,
+            `[sandbox] workspace persistence on '${persistence.key}' - restored ${docs} doc(s)`,
           );
         })
         .catch((e) => {
           console.warn('[sandbox] workspace persistence failed to enable:', e);
         });
 
-      // ── Cross-tab sync (browser only) ────────────────────────────────
+      // -- Cross-tab sync (browser only) -------------------------------------
       //
       // Guard on BroadcastChannel presence so Node / SSR / bun tests
-      // (which lack BroadcastChannel) stay inert — no channels created,
+      // (which lack BroadcastChannel) stay inert - no channels created,
       // no subscribers added, existing tests unaffected.
       //
       // The channel names MUST embed `persistence.key` (which encodes
       // the session id): only tabs on the SAME session share a channel.
-      // Different sessions → different key → different channel name →
+      // Different sessions -> different key -> different channel name ->
       // zero cross-session bleed. This is the isolation guarantee.
       if (typeof BroadcastChannel !== 'undefined') {
-        // 1. Firestore data — delegated to the library primitive.
+        // 1. Firestore data - delegated to the library primitive.
         //    All tabs on this session broadcast their committed writes;
         //    receiving tabs apply them (re-evaluating read-rules for
-        //    each listener's own identity). Independent of persistence —
+        //    each listener's own identity). Independent of persistence -
         //    all tabs broadcast; the writer-lock tab still owns the
         //    persistence flush.
         const firestoreChannel = new BroadcastChannel(
@@ -215,7 +262,7 @@ export class SandboxRunner {
           channel: firestoreChannel,
         });
 
-        // 2. Auth state — bridged on a second per-session channel.
+        // 2. Auth state - bridged on a second per-session channel.
         //    `enableTabSync` carries Firestore write events only; auth
         //    sign-in / sign-out lives outside Firestore. The helper in
         //    `tab-sync-wiring.ts` uses a full-state protocol (user DB +
@@ -257,7 +304,7 @@ export class SandboxRunner {
    * never sees them. Every admin-path writer to the workspace sandbox
    * (the agent's `seed_firestore_data_as_admin` tool, the Firestore
    * tab's console-style edits) must go through THIS wrapper rather
-   * than `getSandbox().admin` — it delegates 1:1 and schedules a
+   * than `getSandbox().admin` - it delegates 1:1 and schedules a
    * debounced flush after each mutation. Reads pass straight through.
    */
   get admin(): LocalSandbox['admin'] {
@@ -288,7 +335,12 @@ export class SandboxRunner {
     this.flushTimer = setTimeout(() => {
       this.flushTimer = null;
       void this.ready
-        .then(() => (this.persistenceActive ? this.sandbox.flush() : undefined))
+        .then(() => {
+          if (!this.persistenceActive) {
+            return undefined;
+          }
+          return this.sandbox.flush();
+        })
         .catch((e) => {
           console.warn('[sandbox] persist flush failed:', e);
         });
@@ -298,17 +350,17 @@ export class SandboxRunner {
   /**
    * Reset the sandbox AND wipe its persisted blob. The order matters:
    *
-   *   1. await `ready` — if the initial restore is still in flight,
+   *   1. await `ready` - if the initial restore is still in flight,
    *      resetting first would let the restore re-hydrate stale docs
    *      into the post-reset env.
-   *   2. `sandbox.reset()` — wipes in-memory state (docs, identity,
+   *   2. `sandbox.reset()` - wipes in-memory state (docs, identity,
    *      event history).
-   *   3. `clearPersistence()` — cancels any pending controller flush
+   *   3. `clearPersistence()` - cancels any pending controller flush
    *      and deletes the persisted blob, so a reload after reset comes
    *      up empty instead of resurrecting pre-reset data.
    *
-   * The quarantined `…:corrupt` blob (if any) is intentionally NOT
-   * cleared — it's a forensic artifact, not live data.
+   * The quarantined `...:corrupt` blob (if any) is intentionally NOT
+   * cleared - it's a forensic artifact, not live data.
    */
   async reset(): Promise<void> {
     if (this.flushTimer) {
@@ -323,7 +375,7 @@ export class SandboxRunner {
   dispose(): void {
     // Tear down the sandbox so the persistence controller detaches its
     // event subscription, pending flush timer, and `beforeunload`
-    // listener. Disposal does NOT clear the persisted blob — that's
+    // listener. Disposal does NOT clear the persisted blob - that's
     // `reset()`'s job; a dispose on navigation must leave the data for
     // the next page load to restore.
     if (this.flushTimer) {
@@ -336,7 +388,7 @@ export class SandboxRunner {
     this.disableFirestoreTabSync = null;
     this.disableAuthTabSync?.();
     this.disableAuthTabSync = null;
-    // Close the BroadcastChannels — releases the OS handle and stops
+    // Close the BroadcastChannels - releases the OS handle and stops
     // any further message delivery to this tab. Channels are only
     // non-null when BroadcastChannel was available at construction time.
     this.firestoreTabSyncChannel?.close();
@@ -348,32 +400,25 @@ export class SandboxRunner {
 
   /**
    * Re-deploy just the rules. Existing documents are untouched so the
-   * user can iterate on a ruleset against the same working data. The
-   * lint result determines `ok` — error-severity warnings or a parse
-   * failure both block the swap.
+   * user can iterate on a ruleset against the same working data. Production's
+   * shared load check (`rulesSourceRejection`) determines `ok`, matching the
+   * SharedWorker runtime: sources production refuses leave the active ruleset
+   * in force and report `ok: false`, while installable sources report `ok: true`
+   * alongside any lint findings in `messages`.
    */
   deployRules(source: string): DeployResult {
     try {
+      const rejection = rulesSourceRejection(source);
+      if (rejection !== null) {
+        return { ok: false, messages: formatRejectionMessages(rejection) };
+      }
       const lint = setRules(this.sandbox, source);
       const messages: DeployResult['messages'] = [];
-      if (lint.parseError) {
-        const { line, column, expected, actual } = lint.parseError;
-        const got = actual ? JSON.stringify(actual.slice(0, 40)) : '<eof>';
-        messages.push({
-          severity: 'error',
-          text: `PARSE ERROR: expected ${expected}, got ${got}`,
-          line,
-          column,
-        });
-      }
       const warnings: Array<{ severity: string; message: string }> = lint.warnings;
       for (const w of warnings) {
-        const severity: 'info' | 'warn' | 'error' =
-          w.severity === 'error' ? 'error' : w.severity === 'warning' ? 'warn' : 'info';
-        messages.push({ severity, text: w.message });
+        messages.push({ severity: mapLintSeverity(w.severity), text: w.message });
       }
-      const ok = lint.parseError == null && !warnings.some((w) => w.severity === 'error');
-      return { ok, messages };
+      return { ok: true, messages };
     } catch (e) {
       return { ok: false, messages: [{ severity: 'error', text: describeError(e) }] };
     }
@@ -450,10 +495,10 @@ const PERSISTENCE_KEY_PREFIX = 'pyric:sandbox:';
  * param `useSessionRouting` reads. Read directly (rather than through
  * React state) because the runner constructs lazily from non-React
  * call sites (tools, hooks) and the param is synchronously available
- * from page load — the session bootstrap guarantees `/playground`
+ * from page load - the session bootstrap guarantees `/playground`
  * without a session id redirects to `/` before any sandbox use.
  *
- * `null` outside a browser (SSR, bun tests — including the headless
+ * `null` outside a browser (SSR, bun tests - including the headless
  * suite's partial `window` shim with no `location`) and on pages
  * without a session id: the runner stays ephemeral there.
  */
@@ -473,7 +518,7 @@ function workspaceSessionId(): string | null {
  * SWITCHING is always a full navigation (`window.location` from the
  * home page / routing redirects), so a switch tears down this module
  * and the next page constructs a fresh runner against the new
- * session's key — there is no in-page key swap to get wrong, and no
+ * session's key - there is no in-page key swap to get wrong, and no
  * cross-session bleed.
  */
 let runner: SandboxRunner | null = null;
@@ -481,11 +526,11 @@ let runner: SandboxRunner | null = null;
 export function getRunner(): SandboxRunner {
   if (!runner) {
     const sessionId = workspaceSessionId();
-    runner = new SandboxRunner(
-      sessionId
-        ? { persistence: { key: `${PERSISTENCE_KEY_PREFIX}${sessionId}` } }
-        : {},
-    );
+    const options: SandboxRunnerOptions = {};
+    if (sessionId !== null) {
+      options.persistence = { key: `${PERSISTENCE_KEY_PREFIX}${sessionId}` };
+    }
+    runner = new SandboxRunner(options);
   }
   return runner;
 }

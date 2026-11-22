@@ -18,7 +18,8 @@ import {
 } from 'pyric/sandbox/internal';
 
 import { resolveContainedRulesFile } from '../cli/contained-rules-file.js';
-import { readFirebaseRcSync, type FirebaseJson } from '../cli/firebase-json.js';
+import type { FirebaseJson } from '../cli/firebase-json.js';
+import { resolveFirebaseProject } from '../cli/firebase-project.js';
 import { firestoreDatabases, MODULAR_SOURCE } from '../serve/rules.js';
 import type { PyricVerifyFixture } from './fixture.js';
 import {
@@ -238,7 +239,13 @@ export async function resolveFirestoreCandidateRules(
   const unresolved = needed.filter((key) => !chosen.has(key));
   if (unresolved.length > 0) {
     const config = await readConfig();
-    const projectId = input.project ?? readFirebaseRcSync(input.cwd)?.projects?.default;
+    const projectInput: { projectDir: string; option?: string } = {
+      projectDir: input.cwd,
+    };
+    if (input.project !== undefined && input.project !== '') {
+      projectInput.option = input.project;
+    }
+    const projectId = resolveFirebaseProject(projectInput).projectId;
     const projectOpts: { projectId?: string } = {};
     if (projectId !== undefined) {
       projectOpts.projectId = projectId;
