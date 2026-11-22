@@ -20,6 +20,7 @@ import {
   type VitePendingDiagnosticsPolicy,
 } from '../../src/serve/vite-pending-diagnostics.js';
 import { pyric } from '../../src/serve/vite-plugin.js';
+import { resolveNodeExecutable } from './require-node-on-path.js';
 import { MockRes, type PyricMiddleware, type PyricReq } from './vite-plugin-harness.js';
 
 const VALID_REPORT = JSON.stringify({
@@ -289,8 +290,9 @@ describe('Vite pending diagnostics middleware during restart (#2098)', () => {
       "import { pyric } from '@pyric/cli/vite';\nexport default { plugins: [pyric({ hosted: true, ui: false })] };\n",
     );
 
+    const nodeBin = resolveNodeExecutable();
     const script = new URL('./fixtures/vite-restart-diagnostics-host.mjs', import.meta.url).pathname;
-    const result = spawnSync(process.env.PYRIC_TEST_NODE ?? 'node', [script, root], {
+    const result = spawnSync(nodeBin, [script, root], {
       encoding: 'utf8',
       timeout: 60_000,
     });

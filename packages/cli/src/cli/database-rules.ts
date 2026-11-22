@@ -1,5 +1,5 @@
 /**
- * `pyric database rules *` subcommands — local tooling for Realtime Database
+ * `pyric database rules *` subcommands - local tooling for Realtime Database
  * rules JSON.
  *
  * Linting and simulating a ruleset are `rules lint` and `rules simulate` on
@@ -21,12 +21,14 @@ import {
   type RtdbSecurityFinding,
 } from 'pyric/rules/internal/rtdb';
 import type { ParsedArgs } from './parse-args.js';
+import { formatPyricCommand, type PyricCommandPrefixOptions } from './command-hint.js';
 import { readFirebaseJson, singleDatabaseRulesFile, type FirebaseJson } from './firebase-json.js';
 import {
   loadRtdbRulesDocument,
   type LoadRtdbRulesDocumentResult,
 } from '../rtdb/load-rules-document.js';
 import { parseRtdbRulesText } from '../rtdb/rules-json.js';
+import { recordGeneratedRulesWrite } from '../serve/verify-hint.js';
 
 export interface DatabaseRulesDeps {
   readFile?: typeof readFile;
@@ -37,6 +39,7 @@ export interface DatabaseRulesDeps {
   cwd?: string;
   stdout?: { write(s: string): void };
   stderr?: { write(s: string): void };
+  commandPrefixOptions?: PyricCommandPrefixOptions;
 }
 
 function parseRulesJson(raw: string): CompiledRtdbRules {
@@ -164,7 +167,7 @@ export async function runDatabaseRulesValidate(
  *
  * Loads a user's RTDB constraints module (a file that calls
  * `defineRtdbRules(...)` from `pyric/rules`), compiles it via
- * `RtdbRulesDocument#toJSON()` — the same primitive RTDB deploy uses —
+ * `RtdbRulesDocument#toJSON()` - the same primitive RTDB deploy uses -
  * and writes the static `database.rules.json` shape to disk so it can
  * be inspected, diffed, and committed before deploying.
  *
@@ -233,9 +236,15 @@ export async function runDatabaseRulesGenerate(
       return 2;
     }
   }
+  const serialized = `${JSON.stringify(rulesJson, null, 2)}\n`;
   await mkdirFn(dirname(resolvedOut), { recursive: true });
-  await writeFileFn(resolvedOut, `${JSON.stringify(rulesJson, null, 2)}\n`, 'utf-8');
+  recordGeneratedRulesWrite(cwd, resolvedOut, serialized);
+  await writeFileFn(resolvedOut, serialized, 'utf-8');
 
-  out.write(`pyric database rules generate: wrote ${resolvedOut}\n  Test before deploy: pyric verify --service rtdb --rules rtdb=${outPath}\n`);
+  const verifyCmd = formatPyricCommand(
+    `verify --service rtdb --rules rtdb=${outPath}`,
+    deps.commandPrefixOptions,
+  );
+  out.write(`pyric database rules generate: wrote ${resolvedOut}\n  Test before deploy: ${verifyCmd}\n`);
   return 0;
 }

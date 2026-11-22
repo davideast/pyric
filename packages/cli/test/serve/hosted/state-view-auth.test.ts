@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { openHostedDatabase } from '../../../src/serve/hosted/persistence/database.js';
 import { createHostedStateView } from '../../../src/serve/hosted/persistence/state-view.js';
+import { resolveNodeExecutable } from '../require-node-on-path.js';
 
 type HostedDatabase = Awaited<ReturnType<typeof openHostedDatabase>>;
 
@@ -170,7 +171,8 @@ describe('createHostedStateView auth preservation', () => {
     ].join('\n');
     writeFileSync(scriptPath, script);
 
-    const result = spawnSync(process.env.PYRIC_TEST_NODE ?? 'node', [scriptPath, dir], {
+    const nodeBin = resolveNodeExecutable();
+    const result = spawnSync(nodeBin, [scriptPath, dir], {
       encoding: 'utf8',
       timeout: 15_000,
     });

@@ -1,5 +1,6 @@
 import { fork } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { resolveNodeExecutable } from './require-node-on-path.js';
 
 export interface ViteNodeHost {
   port: number;
@@ -15,9 +16,10 @@ export async function startViteNodeHost(
   root: string,
   requested: { port?: number; host?: string } = {},
 ): Promise<ViteNodeHost> {
+  const execPath = resolveNodeExecutable();
   const script = fileURLToPath(new URL('./fixtures/vite-node-host.mjs', import.meta.url));
   const child = fork(script, [root, String(requested.port ?? 0), requested.host ?? 'localhost'], {
-    execPath: process.env.PYRIC_TEST_NODE ?? 'node',
+    execPath,
     execArgv: [],
     silent: true,
   });

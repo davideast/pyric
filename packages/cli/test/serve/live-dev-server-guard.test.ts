@@ -22,6 +22,7 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { closedPort } from '../closed-port.js';
+import { resolveNodeExecutable } from './require-node-on-path.js';
 
 const cliDir = resolve(import.meta.dir, '../..');
 const repoRoot = resolve(cliDir, '../..');
@@ -146,7 +147,8 @@ afterAll(() => {
 
 describe('a live dev server process with pyricLive()', () => {
   it('lets a token request out unimpeded and refuses every production command on the host', () => {
-    const result = spawnSync('node', ['scenario.mjs'], {
+    const nodeBin = resolveNodeExecutable();
+    const result = spawnSync(nodeBin, ['scenario.mjs'], {
       cwd: projectDir,
       encoding: 'utf8',
       timeout: 60_000,

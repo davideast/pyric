@@ -10,6 +10,7 @@
  * directory, including one outside the tree pyric is installed in.
  */
 import type { ParsedArgs } from './parse-args.js';
+import { formatPyricCommand } from './command-hint.js';
 import {
   buildChildEnv,
   registerModuleUrl,
@@ -30,7 +31,7 @@ export interface RunInvocation {
   readonly waitMs: number;
 }
 
-export const RUN_USAGE = 'usage: pyric run [--sandbox <url>] [--wait[=<seconds>]] -- <command> [args...]\n';
+const RUN_USAGE = 'usage: pyric run [--sandbox <url>] [--wait[=<seconds>]] -- <command> [args...]\n';
 
 /** `--wait` without a value: the bound `pyric sandbox` gives its first-run race guard. */
 export const DEFAULT_WAIT_SECONDS = 30;
@@ -108,9 +109,10 @@ export function notAHostMessage(hostUrl: string, isVite: boolean, viteConfig: st
       `  Set pyric({ hosted: true }) in ${viteConfig}, restart Vite, then run this command again.\n`
     );
   }
+  const hostedCmd = formatPyricCommand('sandbox --hosted');
   return (
     `pyric run: ${hostUrl} answers, but it is not a sandbox host: /__pyric/health did not return a health reply.\n` +
-    `  Start a host with pyric sandbox --hosted, or for a Vite dev server set pyric({ hosted: true }) in ${viteConfig}.\n`
+    `  Start a host with ${hostedCmd}, or for a Vite dev server set pyric({ hosted: true }) in ${viteConfig}.\n`
   );
 }
 
@@ -150,10 +152,11 @@ export function hostRefusedMessage(hostUrl: string, detail: string): string {
   );
 }
 
-export function liveHostRefusalMessage(hostUrl: string): string {
+function liveHostRefusalMessage(hostUrl: string): string {
+  const hostedCmd = formatPyricCommand('sandbox --hosted');
   return (
     `pyric run: the host at ${hostUrl} is a live host, not a sandbox host, so it cannot run this command in sandbox mode.\n` +
-    '  Run the command with `npx pyric-live run -- ...` instead, or start a sandbox host with `pyric sandbox --hosted`.\n'
+    `  Run the command with \`npx pyric-live run -- ...\` instead, or start a sandbox host with \`${hostedCmd}\`.\n`
   );
 }
 

@@ -17,6 +17,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { discoverServe, probeHealth, readProjectPointer, selectExplicitHost } from '../../src/serve/discovery.js';
 import { closedPort } from '../closed-port.js';
+import { resolveNodeExecutable } from './require-node-on-path.js';
 
 const INSTANCE_ID = 'stalled-host-instance';
 
@@ -146,8 +147,9 @@ describe('a pointer that names no live host', () => {
   }, 20_000);
 
   it.if(process.platform === 'linux')('fails at once when the pointer pid was reused by a newer Node process (#1545)', async () => {
+    const nodeBin = resolveNodeExecutable();
     const port = await closedPort();
-    const reused = spawn('node', ['-e', 'setInterval(() => {}, 30000)'], { stdio: 'ignore' });
+    const reused = spawn(nodeBin, ['-e', 'setInterval(() => {}, 30000)'], { stdio: 'ignore' });
     children.push(reused);
     await new Promise((resolve) => setTimeout(resolve, 100));
     const pid = reused.pid ?? 0;

@@ -32,6 +32,7 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { resolveNodeExecutable } from '../require-node-on-path.js';
 import {
   firstMismatch,
   normalizeTrace,
@@ -117,10 +118,9 @@ export async function createPlaneRunner(
     const output = join(directory, `${id}.out.json`);
     writeFileSync(input, JSON.stringify(sequences));
 
-    const nodeBin = process.env.PYRIC_TEST_NODE ?? 'node';
     let command: string[];
     if (plane === 'hosted' || usesExternalRepo) {
-      command = [nodeBin, nodeRunner, plane, input, output];
+      command = [resolveNodeExecutable(), nodeRunner, plane, input, output];
     } else {
       command = [process.execPath, join(HERE, 'run-plane.ts'), plane, input, output];
     }

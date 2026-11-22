@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import { build } from 'esbuild';
 import { runtimeRealm } from './worker-runtime-realm.js';
+import { resolveNodeExecutable } from '../require-node-on-path.js';
 
 const entry = new URL('../../../src/serve/entries/worker-runtime.ts', import.meta.url).pathname;
 
@@ -192,9 +193,10 @@ test('an unstamped hosted define fallback without projectKey resolves via init.j
 // Full page SDK realms use node:vm SourceTextModule for entries/runtime.ts top-level await.
 // Run them under Node with --experimental-vm-modules (matching a5-service-worker-sdk-selection.test.ts).
 async function runPageSdkRefusalFixture(mode: 'remote-peer' | 'terminal-http'): Promise<void> {
+  const nodeBin = resolveNodeExecutable();
   const fixture = new URL('./fixtures/remote-peer-refusal.ts', import.meta.url).pathname;
   const child = Bun.spawn(
-    [process.env.PYRIC_TEST_NODE ?? 'node', '--experimental-strip-types', '--experimental-vm-modules', fixture, mode],
+    [nodeBin, '--experimental-strip-types', '--experimental-vm-modules', fixture, mode],
     { stdout: 'pipe', stderr: 'pipe' },
   );
   const deadline = setTimeout(() => child.kill(), 15_000);

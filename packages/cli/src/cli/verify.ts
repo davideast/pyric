@@ -31,6 +31,7 @@ import {
   type FlagValue,
   type ParsedArgs,
 } from './parse-args.js';
+import { formatPyricCommand } from './command-hint.js';
 import {
   flagStrings,
   resolveCandidateRules,
@@ -40,17 +41,16 @@ import {
 import {
   openStagingInstance,
   runVerifyStaging,
-  STAGING_RESTORE_RELATIVE_PATH,
   StagingAbortedError,
   stagingRunGuard,
   type VerifyCliDeps,
 } from './verify-staging-cli.js';
 
-export { STAGING_RESTORE_RELATIVE_PATH, type VerifyCliDeps };
+export type { VerifyCliDeps };
 
-export type Fixture = PyricVerifyFixture;
+type Fixture = PyricVerifyFixture;
 
-export interface FixtureResult {
+interface FixtureResult {
   name: string;
   description?: string;
   ok: boolean;
@@ -58,11 +58,11 @@ export interface FixtureResult {
   result: VerifyResult;
 }
 
-export function loadFixture(path: string): Fixture {
+function loadFixture(path: string): Fixture {
   return parseVerifyFixture(JSON.parse(readFileSync(path, 'utf8')));
 }
 
-export async function runFixture(
+async function runFixture(
   name: string,
   fixture: Fixture,
   rules: VerifyRulesInput,
@@ -81,19 +81,7 @@ export async function runFixture(
   return out;
 }
 
-export async function checkDirectory(
-  dir: string,
-  rules: VerifyRulesInput,
-  options: Omit<VerifyFixtureOptions, 'rules'> = {},
-): Promise<{ results: FixtureResult[]; allOk: boolean }> {
-  const files = readdirSync(dir).filter((f) => f.endsWith('.json')).sort();
-  const results = await Promise.all(
-    files.map((f) => runFixture(basename(f, '.json'), loadFixture(join(dir, f)), rules, options)),
-  );
-  return { results, allOk: results.every((r) => r.ok) };
-}
-
-export function formatResults(results: FixtureResult[]): string {
+function formatResults(results: FixtureResult[]): string {
   const lines: string[] = [];
   for (const result of results) {
     const desc = result.description ? ` - ${result.description}` : '';
@@ -196,9 +184,11 @@ export async function runVerify(parsed: ParsedArgs, deps: VerifyCliDeps = {}): P
     if (target) {
       process.stderr.write(`pyric verify: no such fixture or directory: ${inputPath}\n`);
     } else {
+      const sandboxCmd = formatPyricCommand('sandbox');
+      const verifyCmd = formatPyricCommand('verify');
       process.stderr.write(
         `pyric verify: no captured session at ${CAPTURE_RELATIVE_PATH}.\n` +
-          '  Run `pyric sandbox`, exercise your app, then `pyric verify`, or pass a fixture path.\n',
+          `  Run \`${sandboxCmd}\`, exercise your app, then \`${verifyCmd}\`, or pass a fixture path.\n`,
       );
     }
     if (isActiveCaptureTarget) {
@@ -399,9 +389,10 @@ function readPreservedPreviousCapture(cwd: string): PreservedPreviousCapture | n
 
 function formatPreservedPreviousCaptureHint(previous: PreservedPreviousCapture): string {
   const counts = formatCaptureEventCounts(previous.eventCount, previous.denialCount);
+  const verifyPrevious = formatPyricCommand(`verify ${previous.path}`);
   return (
     `  Previous session (${counts}) is preserved at ${previous.path}.\n` +
-    `  Run: pyric verify ${previous.path}\n`
+    `  Run: ${verifyPrevious}\n`
   );
 }
 

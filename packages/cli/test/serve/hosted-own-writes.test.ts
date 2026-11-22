@@ -17,6 +17,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { resolveNodeExecutable } from './require-node-on-path.js';
 
 const cliDist = resolve(import.meta.dir, '../../dist');
 const liveDist = resolve(import.meta.dir, '../../../live/dist');
@@ -115,9 +116,10 @@ describe('a Node host in live mode', () => {
     }
     const dir = mkdtempSync(join(tmpdir(), 'pyric-own-writes-scenario-'));
     try {
+      const nodeBin = resolveNodeExecutable();
       const file = join(dir, 'scenario.mjs');
       writeFileSync(file, SCENARIO);
-      const result = spawnSync('node', [file], { encoding: 'utf8', timeout: 60_000 });
+      const result = spawnSync(nodeBin, [file], { encoding: 'utf8', timeout: 60_000 });
       const line = result.stdout.split('\n').find((entry) => entry.startsWith('OUTCOME '));
       expect(line, `${result.stdout}\n${result.stderr}`).toBeDefined();
       const outcome = JSON.parse((line as string).slice('OUTCOME '.length)) as Record<string, Record<string, string | number>>;

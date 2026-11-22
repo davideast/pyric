@@ -19,6 +19,7 @@ import {
 import { replayRepro } from '../../../src/serve/repro/replay.js';
 import { handleMessage, type HostCtx, type PortLike } from '../../../src/serve/worker/host.js';
 import type { InboundMessage, OutboundMessage } from '../../../src/serve/worker/protocol.js';
+import { resolveNodeExecutable } from '../require-node-on-path.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, '../../../../..');
@@ -318,7 +319,8 @@ service cloud.firestore {
       'console.log(JSON.stringify({ start, end, delta: end - start }));',
     ].join('\n');
 
-    const result = spawnSync('node', ['--expose-gc', '--input-type=module', '-e', script], {
+    const nodeBin = resolveNodeExecutable();
+    const result = spawnSync(nodeBin, ['--expose-gc', '--input-type=module', '-e', script], {
       cwd: repoRoot,
       encoding: 'utf8',
       timeout: 30_000,

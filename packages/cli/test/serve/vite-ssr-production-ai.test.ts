@@ -8,6 +8,7 @@ import {
   createPrivateJobTmpDir,
   removePrivateJobTmpDir,
 } from '../../../../scripts/lib/private-job-tmpdir.ts';
+import { resolveNodeExecutable } from './require-node-on-path.js';
 
 const CLI_ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const VITE_PLUGIN_URL = new URL('../../dist/serve/vite-plugin.js', import.meta.url).href;
@@ -219,8 +220,9 @@ describe('Vite SSR in PYRIC_AI_MODE=production (#1907, #1735, #1630)', () => {
       NODE_OPTIONS: undefined,
       PYRIC_SANDBOX: undefined,
     };
+    const nodeBin = resolveNodeExecutable();
     const child = spawnSync(
-      process.env.PYRIC_TEST_NODE ?? 'node',
+      nodeBin,
       [
         '--input-type=module',
         '-e',

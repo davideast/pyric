@@ -29,6 +29,7 @@ import type { PlaneName } from './planes.js';
 import type { PlaneOutcome } from './run-plane.js';
 import type { Sequence } from './sequence.js';
 import { knownDivergence } from './known-divergences.js';
+import { resolveNodeExecutable } from '../require-node-on-path.js';
 
 /** Skip the mismatches `known-divergences.ts` lists; `--strict` reports them too. */
 let tolerateKnown = true;
@@ -96,7 +97,7 @@ export async function createPlaneRunner(
     writeFileSync(input, JSON.stringify(sequences));
     let command: string[];
     if (plane === 'node') {
-      command = [runnerEnv.PYRIC_TEST_NODE ?? 'node', nodeRunner, plane, input, output];
+      command = [resolveNodeExecutable(runnerEnv), nodeRunner, plane, input, output];
     } else {
       command = [process.execPath, join(HERE, 'run-plane.ts'), plane, input, output];
     }

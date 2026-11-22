@@ -12,6 +12,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { buildForNode } from '../../rtdb-differential/differential.js';
+import { resolveNodeExecutable } from '../../require-node-on-path.js';
 
 const CLI_ROOT = resolve(import.meta.dir, '../../../..');
 const PROBE = resolve(import.meta.dir, '../../rtdb-differential/sparse-array-probe.ts');
@@ -34,7 +35,7 @@ afterAll(() => {
 
 async function probe(plane: 'worker' | 'node'): Promise<unknown> {
   const command = plane === 'node'
-    ? [process.env.PYRIC_TEST_NODE ?? 'node', nodeProbe, plane]
+    ? [resolveNodeExecutable(), nodeProbe, plane]
     : [process.execPath, PROBE, plane];
   const child = Bun.spawn(command, { cwd: CLI_ROOT, stdout: 'pipe', stderr: 'pipe' });
   const [code, stdout, stderr] = await Promise.all([

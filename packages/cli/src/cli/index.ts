@@ -41,6 +41,7 @@
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { parseArgs, type FlagValue, type ParsedArgs } from './parse-args.js';
+import { formatPyricCommand } from './command-hint.js';
 import { cliVersion } from '../pkg-version.js';
 import { FIREBASE_TESTED_AGAINST } from '../version/compat-target.js';
 import { INITIAL_PARENT_PID, flushStandardStreamsBeforeExit } from './sandbox-process-guard.js';
@@ -288,7 +289,7 @@ async function runBridge(parsed: ParsedArgs): Promise<number> {
       `\nRegister with Claude Code:\n` +
       `  claude mcp add --transport http pyric ${handle.mcpUrl}${headerArg} --scope project\n` +
       `\nThis bridge serves the tools that run in this process. A browser page cannot attach to it;\n` +
-      `for an agent that drives the sandbox in a page, run \`pyric sandbox --bridge\`.\n` +
+      `for an agent that drives the sandbox in a page, run \`${formatPyricCommand('sandbox --bridge')}\`.\n` +
       `Set PYRIC_VERBOSE=1 for per-tool-call logs.\n` +
       `Press Ctrl-C to stop.\n`,
   );

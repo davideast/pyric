@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { resolveNodeExecutable } from '../../require-node-on-path.js';
 
 interface NodeScriptResult {
   status: number | null;
@@ -28,8 +29,7 @@ function collectChildProcess(child: ChildProcessWithoutNullStreams, timeoutMs: n
 export function runPlainNodeScript(projectDir: string, scriptName: string, source: string, timeoutMs = 45_000): Promise<NodeScriptResult> {
   const scriptPath = join(projectDir, scriptName);
   writeFileSync(scriptPath, source);
-  let nodeBin = 'node';
-  if (typeof process.env.PYRIC_TEST_NODE === 'string' && process.env.PYRIC_TEST_NODE.length > 0) nodeBin = process.env.PYRIC_TEST_NODE;
+  const nodeBin = resolveNodeExecutable();
   const child = spawn(nodeBin, [scriptPath], {
     cwd: projectDir,
     env: { ...process.env, NODE_ENV: undefined, PYRIC_SANDBOX: undefined, PYRIC_SANDBOX_FORCE: undefined, PYRIC_SANDBOX_INSTANCE: undefined } as NodeJS.ProcessEnv,

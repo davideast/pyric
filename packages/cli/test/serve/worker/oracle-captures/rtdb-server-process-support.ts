@@ -22,6 +22,7 @@ import { openStorageBackend } from '../../../../../pyric/src/storage/persistence
 import type { BridgeMessage } from '../../../../src/bridge/protocol.js';
 import { createRemoteSandboxCore, createRemoteSandboxHandle } from '../../../../src/remote/index.js';
 import { createHostedRuntime } from '../../../../src/serve/hosted/runtime.js';
+import { resolveNodeExecutable } from '../../require-node-on-path.js';
 
 const CLI_ROOT = resolve(import.meta.dir, '../../../..');
 const REPO_ROOT = resolve(CLI_ROOT, '../..');
@@ -416,7 +417,7 @@ export function runRegisteredNodeScript(
 ): Promise<NodeScriptResult> {
   const scriptPath = join(projectDir, scriptName);
   writeFileSync(scriptPath, source);
-  const nodeBin = process.env.PYRIC_TEST_NODE ?? 'node';
+  const nodeBin = resolveNodeExecutable();
   const child = spawn(nodeBin, ['--import', REGISTER_URL, scriptPath], {
     cwd: projectDir,
     env: {
@@ -444,7 +445,7 @@ export function spawnRegisteredNodeChild(
 } {
   const scriptPath = join(projectDir, scriptName);
   writeFileSync(scriptPath, source);
-  const nodeBin = process.env.PYRIC_TEST_NODE ?? 'node';
+  const nodeBin = resolveNodeExecutable();
   const child = spawn(nodeBin, ['--import', REGISTER_URL, scriptPath], {
     cwd: projectDir,
     env: {
@@ -477,7 +478,7 @@ export function runPlainNodeScript(
 ): Promise<NodeScriptResult> {
   const scriptPath = join(projectDir, scriptName);
   writeFileSync(scriptPath, source);
-  const nodeBin = process.env.PYRIC_TEST_NODE ?? 'node';
+  const nodeBin = resolveNodeExecutable();
   const child = spawn(nodeBin, [scriptPath], {
     cwd: projectDir,
     env: {

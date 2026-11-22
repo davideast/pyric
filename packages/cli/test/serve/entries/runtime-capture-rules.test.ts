@@ -3,12 +3,14 @@
  * Storage rules after hot-reload instead of stale boot payload rules.
  */
 import { describe, expect, it } from 'bun:test';
+import { resolveNodeExecutable } from '../require-node-on-path.js';
 
 describe('in-page runtime active-rules capture', () => {
   it('captures boot-time storageRules and updated active Firestore, RTDB, and Storage rules', async () => {
+    const nodeBin = resolveNodeExecutable();
     const fixture = new URL('./fixtures/runtime-capture-rules.ts', import.meta.url).pathname;
     const child = Bun.spawn(
-      [process.env.PYRIC_TEST_NODE ?? 'node', '--experimental-strip-types', '--experimental-vm-modules', fixture],
+      [nodeBin, '--experimental-strip-types', '--experimental-vm-modules', fixture],
       { stdout: 'pipe', stderr: 'pipe' },
     );
     const deadline = setTimeout(() => child.kill(), 20_000);

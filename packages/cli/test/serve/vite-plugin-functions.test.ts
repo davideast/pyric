@@ -21,6 +21,7 @@ import { discoverFunctionsProject } from '../../src/functions/project.js';
 import { pyric } from '../../src/serve/vite-plugin.js';
 import { connectRemoteSandbox, type RemoteSandbox } from '../../src/remote/index.js';
 import { connectFunctionsWorkerPeer, createFunctionsWorkerHostCtx } from '../functions-rtdb/worker-peer.js';
+import { resolveNodeExecutable } from './require-node-on-path.js';
 
 const cliRoot = resolve(import.meta.dir, '../..');
 const repoRoot = resolve(cliRoot, '../..');
@@ -93,6 +94,7 @@ afterEach(async () => {
 
 describe('pyric() Functions RTDB parity', () => {
   test('discovers a functions codebase and fires an onValueCreated trigger through the plugin', async () => {
+    resolveNodeExecutable();
     if (!existsSync(builtChild)) throw new Error(`build the CLI first: ${builtChild}`);
     // Warm the SharedWorker bundle so configureServer's bundleWorker is a cache hit.
     await withTimeout(
@@ -299,6 +301,7 @@ exports.makeUppercase = onValueCreated(
   }, 40_000);
 
   test('region/instance options flow to the child, and a save hot-reloads it (redeploy semantics)', async () => {
+    resolveNodeExecutable();
     if (!existsSync(builtChild)) throw new Error(`build the CLI first: ${builtChild}`);
     await withTimeout(
       bundleWorker({ outDir: join(homedir(), '.pyric', 'vite-worker', workerSourceHash()) }),
@@ -436,6 +439,7 @@ exports.echoMeta = onValueCreated(
   }, 120_000);
 
   test('functions: { watch: false } disables hot-reload', async () => {
+    resolveNodeExecutable();
     if (!existsSync(builtChild)) throw new Error(`build the CLI first: ${builtChild}`);
     await withTimeout(
       bundleWorker({ outDir: join(homedir(), '.pyric', 'vite-worker', workerSourceHash()) }),

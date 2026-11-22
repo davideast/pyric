@@ -16,6 +16,7 @@ import { createStorageByteRoute } from '../../src/serve/hosted/storage-byte-rout
 import { silentServeLogger, startStaticServer, type ServeHandle } from '../../src/serve/server.js';
 import { operationPersistence } from '../../src/serve/worker/operation-persistence.js';
 import type { InboundMessage, OpMessage } from '../../src/serve/worker/protocol.js';
+import { resolveNodeExecutable } from './require-node-on-path.js';
 
 const cliDist = resolve(import.meta.dir, '../../dist');
 const liveDist = resolve(import.meta.dir, '../../../live/dist');
@@ -200,9 +201,10 @@ describe('live host non-persisted write and byte-route upload refusal', () => {
     }
     const dir = mkdtempSync(join(tmpdir(), 'pyric-live-write-policy-test-'));
     try {
+      const nodeBin = resolveNodeExecutable();
       const file = join(dir, 'scenario.mjs');
       writeFileSync(file, SCENARIO);
-      const result = spawnSync('node', [file], { encoding: 'utf8', timeout: 60_000 });
+      const result = spawnSync(nodeBin, [file], { encoding: 'utf8', timeout: 60_000 });
       const line = result.stdout.split('\n').find((entry) => entry.startsWith('OUTCOME '));
       expect(line, `${result.stdout}\n${result.stderr}`).toBeDefined();
       const outcome = JSON.parse((line ?? '').slice('OUTCOME '.length)) as {

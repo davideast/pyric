@@ -25,6 +25,18 @@ const REMOVED_BRIDGE_FLAGS = [
 ] as const;
 
 describe('retained pyric command surface', () => {
+  it('prints the real package version in built pyric --help output (#1197)', () => {
+    const pkg = JSON.parse(readFileSync(join(PACKAGE_ROOT, 'package.json'), 'utf8')) as {
+      version: string;
+    };
+    const { code, stdout, stderr } = runCli(['--help']);
+
+    expect(code).toBe(0);
+    expect(stderr).toBe('');
+    expect(stdout.split('\n')[0]).toBe(`pyric ${pkg.version}`);
+    expect(stdout).not.toContain('pyric 0.0.0');
+  });
+
   it('advertises every local-development workflow through the CLI entry', () => {
     const { code, stdout, stderr } = runCli(['--help']);
 

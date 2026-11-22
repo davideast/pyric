@@ -12,6 +12,7 @@ import {
   removePrivateJobTmpDir,
 } from '../../../../scripts/lib/private-job-tmpdir.ts';
 import { functionsChildrenOf, isAlive } from '../functions-http/children.js';
+import { resolveNodeExecutable } from './require-node-on-path.js';
 
 const CLI_ROOT = resolve(import.meta.dir, '../..');
 const REPO_ROOT = resolve(CLI_ROOT, '../..');
@@ -75,6 +76,7 @@ interface LiveFunctionsPlane {
 }
 
 async function startLiveFunctionsPlane(): Promise<LiveFunctionsPlane> {
+  const nodeBin = resolveNodeExecutable();
   if (!existsSync(CLI_ENTRY)) {
     throw new Error(`Build @pyric/cli before running live-host Functions conformance: ${CLI_ENTRY}`);
   }
@@ -93,7 +95,7 @@ async function startLiveFunctionsPlane(): Promise<LiveFunctionsPlane> {
 
   let output = '';
   const command = spawn(
-    'node',
+    nodeBin,
     [
       CLI_ENTRY,
       'sandbox',

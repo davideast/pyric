@@ -13,6 +13,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { resolveNodeExecutable } from './require-node-on-path.js';
 import {
   isLiveSessionRoute,
   serveLiveSessionRoute,
@@ -327,9 +328,10 @@ describe('Live host observed-session-data & opt-in seeding end-to-end (Node sqli
     }
     const dir = mkdtempSync(join(tmpdir(), 'pyric-live-seed-runner-'));
     try {
+      const nodeBin = resolveNodeExecutable();
       const script = join(dir, 'scenario.mjs');
       writeFileSync(script, NODE_E2E_SCENARIO);
-      const result = spawnSync('node', [script], { encoding: 'utf8', timeout: 60_000 });
+      const result = spawnSync(nodeBin, [script], { encoding: 'utf8', timeout: 60_000 });
       if (result.status !== 0) {
         throw new Error(`Node scenario failed (${result.status}):\n${result.stderr}\n${result.stdout}`);
       }

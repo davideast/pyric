@@ -21,10 +21,11 @@ interface Repro {
 declare const repro: Repro;
 
 /**
- * What the host appends to the first rules reload of a session, and to no
- * later one. The text is `createVerifyHint` in packages/cli/src/serve/verify-hint.ts.
+ * What the host appends to the first user-initiated rules reload of a captured
+ * session, and to no later one. The text is `createVerifyHint` in
+ * packages/cli/src/serve/verify-hint.ts.
  */
-const VERIFY_HINT = '(run `pyric verify` to replay the captured session against these rules)';
+const VERIFY_HINT = '(run `npx pyric verify` to replay the captured session against these rules)';
 
 /** A whole `rtdb rules reloaded` line, its rules hash, and the output offset just past it. */
 interface Reload { line: string; hash: string; end: number }
@@ -183,31 +184,36 @@ export default scenario(async (app) => {
     assert.match(output, /Tip: After changing rules, run `pyric verify`/, output);
   });
 
-  let firstReload: Reload | undefined;
+  let generatedReload: Reload | undefined;
   await app.step('pyric database rules generate suggests verify, and the host reloads what it wrote', async () => {
     const mark = host.process.mark();
     assert.equal(hintCount(host.process.output), 0, `a rules reload before this step printed the verify hint:\n${reloadLines(host.process.output)}`);
     app.writeFile('database.rules.mjs', `export default { toJSON: () => ({ rules: { '.read': true } }) };`);
     const output = await pyric(app, ['database', 'rules', 'generate', '--config', 'database.rules.mjs']);
-    assert.match(output, /Test before deploy: pyric verify --service rtdb/, output);
-    // generate writes database.rules.json, the file the host watches, so this
-    // is the session's first hot reload and the one that carries the hint.
+    assert.match(output, /Test before deploy: npx pyric verify --service rtdb/, output);
+    // generate writes database.rules.json and stamps .pyric/generated-rules-stamp.json,
+    // so this tool-generated reload does not spend the user's verify hint (#1259).
     const reload = await nextReload(host.process, mark, undefined);
-    assert.ok(reload.line.includes(VERIFY_HINT), `the first reload has no verify hint (has verify-hint.ts changed?): ${reload.line}`);
-    firstReload = reload;
+    assert.ok(!reload.line.includes(VERIFY_HINT), `a generated reload spent the verify hint: ${reload.line}`);
+    generatedReload = reload;
   });
 
-  await app.step('hot-reloading rules prints the verify hint exactly once', async () => {
-    const edits = [{ rules: { '.read': true, '.write': true } }, { rules: { '.read': false, '.write': false } }];
-    let previous = firstReload?.hash;
-    for (const rules of edits) {
-      const mark = host.process.mark();
-      app.writeFile('database.rules.json', JSON.stringify(rules));
-      const reload = await nextReload(host.process, mark, previous);
-      assert.ok(!reload.line.includes(VERIFY_HINT), `a later reload repeated the verify hint: ${reload.line}`);
-      previous = reload.hash;
-    }
-    const later = host.process.output.slice(firstReload?.end ?? 0);
+  await app.step('hot-reloading rules prints the verify hint on the first user edit and not again', async () => {
+    const markFirst = host.process.mark();
+    app.writeFile('database.rules.json', JSON.stringify({ rules: { '.read': true, '.write': true } }));
+    const firstUserReload = await nextReload(host.process, markFirst, generatedReload?.hash);
+    assert.ok(
+      firstUserReload.line.includes(VERIFY_HINT),
+      `the first user reload has no verify hint (has verify-hint.ts changed?): ${firstUserReload.line}`,
+    );
+
+    const markSecond = host.process.mark();
+    app.writeFile('database.rules.json', JSON.stringify({ rules: { '.read': false, '.write': false } }));
+    const secondUserReload = await nextReload(host.process, markSecond, firstUserReload.hash);
+    assert.ok(!secondUserReload.line.includes(VERIFY_HINT), `a later reload repeated the verify hint: ${secondUserReload.line}`);
+
+    const later = host.process.output.slice(firstUserReload.end);
     assert.equal(hintCount(later), 0, `the verify hint was printed again:\n${reloadLines(later)}`);
+    assert.equal(hintCount(host.process.output), 1, `expected exactly one verify hint across the session:\n${reloadLines(host.process.output)}`);
   });
 });

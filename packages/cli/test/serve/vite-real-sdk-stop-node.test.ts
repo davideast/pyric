@@ -13,6 +13,7 @@
 import { describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { resolveNodeExecutable } from './require-node-on-path.js';
 
 const CLI_ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const DIST = new URL('../../dist/', import.meta.url).href;
@@ -83,9 +84,10 @@ process.stdout.write(JSON.stringify({ node: process.version, browser, outcomes, 
 function runChild(mode: 'plain' | 'register'): ChildReport {
   const preload = mode === 'register' ? ['--import', REGISTER] : [];
   const args = [...preload, '--input-type=module', '-e', CHILD, DIST, CLI_ROOT, mode, JSON.stringify(UNSERVED)];
+  const nodeBin = resolveNodeExecutable();
   const env: Record<string, string | undefined> = { ...process.env, NODE_OPTIONS: undefined, PYRIC_SANDBOX: undefined };
   if (mode === 'register') env.PYRIC_SANDBOX = 'local';
-  const result = spawnSync(process.env.PYRIC_TEST_NODE ?? 'node', args, {
+  const result = spawnSync(nodeBin, args, {
     cwd: CLI_ROOT,
     encoding: 'utf8',
     env,

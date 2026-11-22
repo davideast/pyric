@@ -12,6 +12,7 @@ import {
   type SyncResolve,
 } from '../../src/serve/vite-process-stop.js';
 import { suppliedRows } from '../../src/serve/vite-supplied-rows.js';
+import { resolveNodeExecutable } from './require-node-on-path.js';
 
 const vitePluginEntry = fileURLToPath(new URL('../../src/serve/vite-plugin.ts', import.meta.url));
 
@@ -256,7 +257,8 @@ describe('acquiring the stop hook', () => {
         'console.log(afterCode);',
         'process.exit(0);',
       ].join('\n');
-      const result = spawnSync('node', ['--input-type=module', '-e', probe], {
+      const nodeBin = resolveNodeExecutable();
+      const result = spawnSync(nodeBin, ['--input-type=module', '-e', probe], {
         cwd: wsRoot,
         env: { ...process.env, NODE_OPTIONS: undefined, PYRIC_SANDBOX: undefined },
         encoding: 'utf8',

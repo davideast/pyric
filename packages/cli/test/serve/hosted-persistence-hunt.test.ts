@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { resolveNodeExecutable } from './require-node-on-path.js';
 
 const NODE_FIXTURE_TIMEOUT_MS = 30_000;
 /**
@@ -15,6 +16,7 @@ const NODE_FIXTURE_TIMEOUT_MS = 30_000;
 const NODE_FIXTURE_TEST_TIMEOUT_MS = 45_000;
 
 async function runNodeHuntFixture(name: string, timeoutMs = NODE_FIXTURE_TIMEOUT_MS): Promise<string> {
+  const nodeBin = resolveNodeExecutable();
   const directory = mkdtempSync(join(tmpdir(), 'pyric-hosted-persistence-hunt-'));
   try {
     symlinkSync(new URL('../../../../node_modules', import.meta.url).pathname, join(directory, 'node_modules'), 'dir');
@@ -30,7 +32,7 @@ async function runNodeHuntFixture(name: string, timeoutMs = NODE_FIXTURE_TIMEOUT
       naming: 'scenario.mjs',
     });
     expect(build.success).toBe(true);
-    const result = spawnSync(process.env.PYRIC_TEST_NODE ?? 'node', [join(directory, 'scenario.mjs'), directory], {
+    const result = spawnSync(nodeBin, [join(directory, 'scenario.mjs'), directory], {
       encoding: 'utf8',
       timeout: timeoutMs,
     });

@@ -9,6 +9,7 @@
  */
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { formatPyricCommand } from './command-hint.js';
 
 const VITE_CONFIG_FILES = ['vite.config.ts', 'vite.config.mts', 'vite.config.js', 'vite.config.mjs', 'vite.config.cts', 'vite.config.cjs'];
 
@@ -28,8 +29,9 @@ export function missingPublicDirHint(publicDir: string, opts: { cwd: string; hos
   }
   const looksLikeBuildOutput = /(^|[\\/])(dist|build|out)$/.test(publicDir);
   if (!looksLikeBuildOutput) return '';
+  const sandboxCmd = formatPyricCommand('sandbox');
   return (
     `\n  No build yet? Run \`bun run dev\` for the live sandbox dev server, ` +
-    `or \`bun run build\` then \`pyric sandbox\` to preview the production build.`
+    `or \`bun run build\` then \`${sandboxCmd}\` to preview the production build.`
   );
 }

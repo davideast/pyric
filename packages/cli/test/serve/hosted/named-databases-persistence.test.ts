@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { resolveNodeExecutable } from '../require-node-on-path.js';
 
 const tempDirs: string[] = [];
 
@@ -20,6 +21,7 @@ afterEach(() => {
 });
 
 function runNodeSqliteScript(scriptLines: readonly string[]): string {
+  const nodeBin = resolveNodeExecutable();
   const dir = makeTempDir('pyric-named-db-sqlite-');
   symlinkSync(
     new URL('../../../../node_modules', import.meta.url).pathname,
@@ -28,7 +30,7 @@ function runNodeSqliteScript(scriptLines: readonly string[]): string {
   );
   const scriptPath = join(dir, 'check.mjs');
   writeFileSync(scriptPath, scriptLines.join('\n'));
-  const result = spawnSync(process.env.PYRIC_TEST_NODE ?? 'node', [scriptPath, dir], {
+  const result = spawnSync(nodeBin, [scriptPath, dir], {
     encoding: 'utf8',
     timeout: 30_000,
   });

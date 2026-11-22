@@ -7,6 +7,7 @@ import {
   configureLocalHttpKeepAlive,
 } from '../../src/serve/http-keepalive.js';
 import { silentServeLogger, startStaticServer, type ServeHandle } from '../../src/serve/server.js';
+import { resolveNodeExecutable } from './require-node-on-path.js';
 
 const handles: ServeHandle[] = [];
 
@@ -23,7 +24,7 @@ function resolveNodeBinary(): string {
   if (process.execPath.endsWith('node')) {
     return process.execPath;
   }
-  return 'node';
+  return resolveNodeExecutable();
 }
 
 function pooledGet(agent: Agent, port: number, path: string): Promise<{

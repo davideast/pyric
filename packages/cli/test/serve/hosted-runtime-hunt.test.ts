@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { resolveNodeExecutable } from './require-node-on-path.js';
 
 /**
  * Hosted SQLite persistence deliberately refuses in-process Bun execution
@@ -818,7 +819,8 @@ describe('hosted Node runtime & repro hunt regressions (SW-HST-1..10)', () => {
   });
 
   function runScenario(id: string): void {
-    const result = spawnSync(process.env.PYRIC_TEST_NODE ?? 'node', [scenarioPath, id], {
+    const nodeBin = resolveNodeExecutable();
+    const result = spawnSync(nodeBin, [scenarioPath, id], {
       encoding: 'utf8',
       timeout: 30_000,
     });

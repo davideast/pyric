@@ -288,7 +288,7 @@ USAGE
   pyric mcp [--project-dir DIR] [--in-process] [--attach]
   pyric sandbox salvage --source=DIR --out=NEW_DIR
   pyric sandbox seed-from-live --confirm [--replace] | --out=FILE
-  pyric snapshot [--out=DIR]
+  pyric snapshot [--out=FILE|DIR]
   pyric verify [fixture|dir] [--engine sandbox|rules-test-api|staging|both]
   pyric can-i-use <feature> [--json]
   pyric verify cases [fixture] [--service firestore] [--out FILE]
@@ -319,7 +319,7 @@ COMMANDS
   init [dir]                 Scaffold a Pyric project (web, static, node, or nextjs).
   vendor [dir]               Vendor pyric and @pyric/cli tarballs into an existing project.
   mcp                        Stdio MCP server (serves all ${toolEntries.length} tools; routes to Node host or in-process).
-  snapshot [--out=DIR]       Promote lived sandbox state to a committable seed directory.
+  snapshot [--out=FILE|DIR]  Promote lived sandbox state to a committable seed file or directory.
   verify [fixture|dir]       Replay a captured session against candidate rules.
   can-i-use <feature>        Check Pyric availability and conformance status for a Firebase feature.
   verify cases [fixture]     Derive Firestore Rules Test API cases from a captured fixture.

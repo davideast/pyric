@@ -10,6 +10,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { resolveNodeExecutable } from './require-node-on-path.js';
 import { warmViteWorkerBundle } from './vite-plugin-harness.js';
 
 beforeAll(async () => { await warmViteWorkerBundle(); }, 180_000);
@@ -55,8 +56,9 @@ interface RestartReport {
 }
 
 function runRestartHost(roots: string[], hosted: boolean): RestartReport {
+  const nodeBin = resolveNodeExecutable();
   const script = new URL('./fixtures/vite-restart-host.mjs', import.meta.url).pathname;
-  const result = spawnSync(process.env.PYRIC_TEST_NODE ?? 'node', [script, ...roots], {
+  const result = spawnSync(nodeBin, [script, ...roots], {
     encoding: 'utf8',
     timeout: 90_000,
     env: { ...process.env, PYRIC_RESTART_HOSTED: hosted ? '1' : '0' },
@@ -132,9 +134,10 @@ interface RemoteClientReport {
 }
 
 test('an API server on PYRIC_SANDBOX=remote:<url> keeps writing and listening after a config edit restarts the hosted Vite server', () => {
+  const nodeBin = resolveNodeExecutable();
   const app = writeProject('{ hosted: true }');
   const script = new URL('./fixtures/vite-restart-remote-client.mjs', import.meta.url).pathname;
-  const result = spawnSync(process.env.PYRIC_TEST_NODE ?? 'node', [script, app], { encoding: 'utf8', timeout: 90_000 });
+  const result = spawnSync(nodeBin, [script, app], { encoding: 'utf8', timeout: 90_000 });
   const exitedCleanly = result.status === 0;
   if (!exitedCleanly) throw new Error(`remote client fixture failed (${result.status}): ${result.stderr}`);
   const report = JSON.parse(result.stdout.trim().split('\n').at(-1) ?? '') as RemoteClientReport;

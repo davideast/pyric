@@ -126,6 +126,13 @@ import {
 } from '../serve/sandbox-session.js';
 import { resolveAvatarsConfig } from '../serve/avatars-config.js';
 import { createVerifyHint } from '../serve/verify-hint.js';
+import { SANDBOX_APP_ORIGIN_ENV } from '../remote/app-origin.js';
+import {
+  formatBridgeTipLine,
+  formatBrowserPersistNoticeLine,
+  resolvePlannedChildAppOrigin,
+} from './child-app-origin.js';
+import { formatPyricCommand } from './command-hint.js';
 import { missingPublicDirHint } from './public-dir-hint.js';
 
 interface HostingConfig {
@@ -770,7 +777,10 @@ async function startServeRuntime(opts: {
   // is the path the rules load from, watched whether or not it exists at
   // startup, so a rules file created later loads. On a live host each reload
   // line says it changed the sandbox only, with no `pyric verify` hint.
-  const getVerifyHint = createVerifyHint({ live: isLive });
+  const getVerifyHint = createVerifyHint({
+    live: isLive,
+    capturePath: session.summary.capturePath,
+  });
 
   const isWatchEnabled = opts.watch ?? true;
   if (isWatchEnabled) {
@@ -789,7 +799,11 @@ async function startServeRuntime(opts: {
           for (const changed of files) {
             void session.reloadFirestoreDatabaseRules(changed).then((results) => {
               rulesFiles.sync();
-              for (const line of formatFirestoreReloadNotes(results, getVerifyHint())) logger.note(line);
+              const hasReloaded = results.some((entry) => entry.result.kind === 'reloaded');
+              const hint = hasReloaded ? getVerifyHint('firestore', changed) : '';
+              for (const line of formatFirestoreReloadNotes(results, hint)) {
+                logger.note(line);
+              }
             });
           }
         }, 150);
@@ -826,7 +840,9 @@ async function startServeRuntime(opts: {
             void session.reloadDatabaseRules(changed).then((results) => {
               for (const { instance, file: source, result } of results) {
                 if (result.kind === 'reloaded') {
-                  logger.note(`  ↻ rtdb rules reloaded for ${instance} (hash ${result.rulesHash}) → ${result.clients} page(s)${getVerifyHint()}`);
+                  logger.note(
+                    `  \u21bb rtdb rules reloaded for ${instance} (hash ${result.rulesHash}) \u2192 ${result.clients} page(s)${getVerifyHint('database', changed)}`,
+                  );
                   if (result.fixtureCheck && result.fixtureCheck.ran > 0) {
                     for (const line of result.fixtureCheck.lines) logger.note(line);
                   }
@@ -875,7 +891,9 @@ async function startServeRuntime(opts: {
               for (const { bucket, target, file: source, result } of results) {
                 const named = storageBucketSuffix(bucket, target);
                 if (result.kind === 'reloaded') {
-                  logger.note(`  ↻ storage rules reloaded${named} (hash ${result.rulesHash}) → ${result.clients} page(s)${getVerifyHint()}`);
+                  logger.note(
+                    `  \u21bb storage rules reloaded${named} (hash ${result.rulesHash}) \u2192 ${result.clients} page(s)${getVerifyHint('storage', changed)}`,
+                  );
                 } else if (result.kind === 'rejected') {
                   logger.note(`  ⚠ storage rules NOT reloaded (last-good stays live): ${result.error.message}${named}`);
                 } else if (result.kind === 'removed') {
@@ -1000,13 +1018,7 @@ async function startServeRuntime(opts: {
   } else if (usesHostedSandbox) {
     logger.note('  ⓘ persist  data is held in Node memory and is lost when this process stops.');
   } else {
-    // Say the durability tier out loud: refresh behavior must never be a coin
-    // flip. Coverage detail (which services, worker vs in-page) lives in the
-    // persistence guide — this line names the tier and the upgrade path.
-    logger.note(
-      '  ⓘ persist  data lives in this browser (IndexedDB) — see docs/how-to/serve-persistence-and-multi-tab.md' +
-        '\n             for what survives refresh/restart; `--persist` adds a committable .pyric/state/state.json',
-    );
+    logger.note(formatBrowserPersistNoticeLine());
   }
   // (A fixture that primed the persist store is reported by the persist
   // line; a fixture ignored because lived state exists is intentionally
@@ -1017,7 +1029,8 @@ async function startServeRuntime(opts: {
   }
   const hasCapture = Boolean(session.summary.capturePath);
   if (hasCapture) {
-    logger.info(`✔ capture  session → ${session.summary.capturePath} (run \`pyric verify\` to replay it)`);
+    const verifyCmd = formatPyricCommand('verify');
+    logger.info(`\u2714 capture  session \u2192 ${session.summary.capturePath} (run \`${verifyCmd}\` to replay it)`);
   }
   if (isWatchEnabled) {
     const [firestoreRulesFile] = session.firestoreRulesFiles();
@@ -1335,14 +1348,10 @@ async function runServeInner(parsed: ParsedArgs, runHost: ServeRunHost): Promise
   // (the banner went to stderr). Readiness probe: GET /__pyric/init.json.
   if (json) writeStreamQuietly(process.stdout, `${serveJsonLine(runtime)}\n`);
 
-  // A host-only sandbox mounts no MCP bridge unless one is needed.
-  // so a `pyric mcp-proxy` in an editor cannot attach. Nudge toward --bridge.
-  const shouldSuggestBridge = !bridgeOn && usesHumanOutput;
+  // Suggest `--bridge` only when no MCP endpoint is mounted on this runtime.
+  const shouldSuggestBridge = runtime.mcpUrl === null && usesHumanOutput;
   if (shouldSuggestBridge) {
-    writeStreamQuietly(
-      process.stderr,
-      '  tip  MCP? re-run with --bridge so an editor (Cursor / Claude / Antigravity) can attach via `pyric mcp-proxy`.\n',
-    );
+    writeStreamQuietly(process.stderr, formatBridgeTipLine());
   }
 
   // Auto-open the served page (best-effort) so the browser-resident sandbox is
@@ -1514,7 +1523,7 @@ async function runServeInner(parsed: ParsedArgs, runHost: ServeRunHost): Promise
       writeStreamQuietly(
         process.stderr,
         `  \u26a0 functions not started \u2014 no browser tab connected after 30s. ` +
-          `Open ${runtime.handle.url} and restart pyric sandbox.\n`,
+          `Open ${runtime.handle.url} and restart ${formatPyricCommand('sandbox')}.\n`,
       );
     } else if (failedStartup) {
       writeStreamQuietly(process.stderr, `${result.error.message}\n`);
@@ -1560,6 +1569,8 @@ async function runServeInner(parsed: ParsedArgs, runHost: ServeRunHost): Promise
   const hasChildPlan = plan !== null;
   if (hasChildPlan) {
     const info = json ? process.stderr : process.stdout;
+    const childAppOrigin = resolvePlannedChildAppOrigin(plan.argv, cwd, process.env);
+    const browserTargetUrl = childAppOrigin ?? runtime.handle.url;
     // First-run race guard: we just opened the tab ourselves, so wait
     // (bounded) for it to register as the sandbox peer before the child's
     // first op can lose the race and die on the no-tab fail-fast. Skipped
@@ -1575,14 +1586,14 @@ async function runServeInner(parsed: ParsedArgs, runHost: ServeRunHost): Promise
       if (missingPeer) {
         writeStreamQuietly(
           info,
-          `  \u26a0 no browser tab connected after 30s \u2014 starting your command anyway; sandbox ops will fail until ${runtime.handle.url} is open.\n`,
+          `  \u26a0 no browser tab connected after 30s \u2014 starting your command anyway; sandbox ops will fail until ${browserTargetUrl} is open.\n`,
         );
       }
     } else if (needsBrowserConnectionNotice) {
       writeStreamQuietly(
         info,
         `  \u24d8 Auto-open is disabled (--no-open/CI). The pyric sandbox is browser-resident: ` +
-          `open ${runtime.handle.url} to connect if your command performs Firebase operations.\n`,
+          `open ${browserTargetUrl} to connect if your command performs Firebase operations.\n`,
       );
     }
     writeStreamQuietly(
@@ -1597,6 +1608,9 @@ async function runServeInner(parsed: ParsedArgs, runHost: ServeRunHost): Promise
       workerInit: runtime.workerInit,
       sessionToken: runtime.sessionToken,
     });
+    if (childAppOrigin !== undefined) {
+      childEnv[SANDBOX_APP_ORIGIN_ENV] = childAppOrigin;
+    }
     // What we are handing the child, stated before it starts.
     const interlock = describeInterlock(childEnv, registerModuleUrl());
     writeStreamQuietly(info, formatInterlockLine(interlock));

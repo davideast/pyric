@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { mergeConfig, type UserConfig } from 'vite';
 import { pyric } from '../../src/serve/vite-plugin.js';
 import { opaqueProjectKey } from '../../src/serve/project-key.js';
+import { resolveNodeExecutable } from './require-node-on-path.js';
 
 interface RemoteStampReport {
   failure?: string;
@@ -117,8 +118,9 @@ describe('Vite plugin', () => {
         '',
       ].join('\n'));
 
+      const nodeBin = resolveNodeExecutable();
       const script = new URL('./fixtures/vite-remote-stamp-check.mjs', import.meta.url).pathname;
-      const run = spawnSync(process.env.PYRIC_TEST_NODE ?? 'node', [script, root], {
+      const run = spawnSync(nodeBin, [script, root], {
         encoding: 'utf8',
         timeout: 60_000,
       });
