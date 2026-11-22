@@ -17,6 +17,7 @@ import {
 
 const cliRoot = resolve(import.meta.dir, '../..');
 const SHADOW_IMPORTER = pathToFileURL(join(cliRoot, 'src/register/app-bridge-shadow.ts')).href;
+const APP_CHECK_BRIDGE_IMPORTER = pathToFileURL(join(cliRoot, 'src/register/app-bridge-app-check.ts')).href;
 const ADMIN_BRIDGE_IMPORTER = pathToFileURL(join(cliRoot, 'src/register/app-bridge-admin-app-check.ts')).href;
 const APP_IMPORTER = 'file:///work/app/src/route.js';
 
@@ -208,11 +209,27 @@ describe('stopFor: the client SDK', () => {
     ).toBeNull();
   });
 
-  it("lets production AI mode load the firebase package's ai, app and app-check files from any importer, such as a server runner", () => {
+  it("lets production AI mode load the firebase package's ai entry from any importer, while stopping app and app-check files outside wrappers and the allowed chain (#1735)", () => {
     const vite = 'file:///work/app/node_modules/vite/dist/node/module-runner.js';
-    for (const url of [FIREBASE_AI_FILE, FIREBASE_APP_FILE, FIREBASE_APP_CHECK_FILE]) {
-      expect(stopFor(load({ url, aiMode: 'production', importer: vite }), noneAllowed())).toBeNull();
+    expect(stopFor(load({ url: FIREBASE_AI_FILE, aiMode: 'production', importer: vite }), noneAllowed())).toBeNull();
+    for (const url of [FIREBASE_APP_FILE, FIREBASE_APP_CHECK_FILE]) {
+      expect(stopFor(load({ specifier: url, url, aiMode: 'production' }), noneAllowed())).not.toBeNull();
+      expect(stopFor(load({ specifier: url, url, aiMode: 'production', importer: vite }), noneAllowed())).not.toBeNull();
+      expect(stopFor(load({ specifier: url, url, aiMode: 'production', importer: undefined }), noneAllowed())).not.toBeNull();
     }
+    expect(
+      stopFor(
+        load({ specifier: 'firebase/app-check', url: FIREBASE_APP_CHECK_FILE, importer: APP_CHECK_BRIDGE_IMPORTER, aiMode: 'production', isEsmImport: true }),
+        noneAllowed(),
+      ),
+    ).toBeNull();
+    const allowedFromAi = new Set([FIREBASE_AI_FILE]);
+    expect(stopFor(load({ url: FIREBASE_APP_FILE, importer: FIREBASE_AI_FILE, aiMode: 'production' }), allowedFromAi)).toBeNull();
+    expect(stopFor(load({ url: FIREBASE_APP_CHECK_FILE, importer: FIREBASE_AI_FILE, aiMode: 'production' }), allowedFromAi)).toBeNull();
+    expect(stopFor(load({ url: FIREBASE_FIRESTORE_FILE, importer: FIREBASE_AI_FILE, aiMode: 'production' }), allowedFromAi)).not.toBeNull();
+    // Even after the wrapper or chain allowed those files, app code importing them by absolute path still stops.
+    expect(stopFor(load({ specifier: FIREBASE_APP_FILE, url: FIREBASE_APP_FILE, aiMode: 'production' }), allowedFromAi)).not.toBeNull();
+    expect(stopFor(load({ specifier: FIREBASE_APP_CHECK_FILE, url: FIREBASE_APP_CHECK_FILE, aiMode: 'production' }), allowedFromAi)).not.toBeNull();
   });
 
   it('stops app code importing the @firebase/* packages firebase/ai needs, in production AI mode too (#1635)', () => {

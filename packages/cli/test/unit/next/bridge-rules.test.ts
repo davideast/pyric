@@ -172,7 +172,7 @@ describe('the bridge import loader resolves firebase from the project root', () 
         },
       }),
     );
-    for (const scoped of ['@firebase/ai', '@firebase/app', '@firebase/component']) {
+    for (const scoped of ['@firebase/ai', '@firebase/app', '@firebase/app-check', '@firebase/component']) {
       const pkgDir = join(project, 'node_modules', scoped);
       mkdirSync(join(pkgDir, 'dist', 'esm'), { recursive: true });
       writeFileSync(
@@ -189,6 +189,25 @@ describe('the bridge import loader resolves firebase from the project root', () 
     const rewrittenFirebaseAi = load(firebaseAiEntry, project);
     expect(rewrittenFirebaseAi).not.toContain("'@firebase/ai'");
     expect(rewrittenFirebaseAi).toContain('@firebase/ai/dist/esm/index.esm.js');
+
+    const firebaseAppEntry = join(project, 'node_modules', 'firebase', 'app', 'dist', 'esm', 'index.esm.js');
+    mkdirSync(dirname(firebaseAppEntry), { recursive: true });
+    writeFileSync(firebaseAppEntry, "import { registerVersion } from '@firebase/app';\nexport * from '@firebase/app';\n");
+    const rewrittenFirebaseApp = load(firebaseAppEntry, project);
+    expect(rewrittenFirebaseApp).not.toContain("'@firebase/app'");
+    expect(rewrittenFirebaseApp).toContain('@firebase/app/dist/esm/index.esm.js');
+
+    const firebaseAppCheckEntry = join(project, 'node_modules', 'firebase', 'app-check', 'dist', 'esm', 'index.esm.js');
+    mkdirSync(dirname(firebaseAppCheckEntry), { recursive: true });
+    writeFileSync(firebaseAppCheckEntry, "export * from '@firebase/app-check';\n");
+    const rewrittenFirebaseAppCheck = load(firebaseAppCheckEntry, project);
+    expect(rewrittenFirebaseAppCheck).not.toContain("'@firebase/app-check'");
+    expect(rewrittenFirebaseAppCheck).toContain('@firebase/app-check/dist/esm/index.esm.js');
+
+    const firebaseFirestoreEntry = join(project, 'node_modules', 'firebase', 'firestore', 'dist', 'esm', 'index.esm.js');
+    mkdirSync(dirname(firebaseFirestoreEntry), { recursive: true });
+    writeFileSync(firebaseFirestoreEntry, "export * from '@firebase/firestore';\n");
+    expect(load(firebaseFirestoreEntry, project)).toBe("export * from '@firebase/firestore';\n");
 
     const scopedAiEntry = join(project, 'node_modules', '@firebase', 'ai', 'dist', 'esm', 'index.esm.js');
     const rewrittenScopedAi = load(

@@ -101,6 +101,7 @@ export interface ViteSandboxGenerationInput {
   workerRuntime: ViteWorkerRuntime;
   options: ViteSandboxGenerationOptions;
   ai: ResolvedViteAiConfig;
+  ignoredGeminiKey?: boolean;
   sessionToken?: string;
 }
 
@@ -393,6 +394,7 @@ export async function createViteSandboxGeneration(
         engine: ai.engineWire,
         mode: ai.mode,
         proxyUpstream: ai.proxyUpstream,
+        ignoredGeminiKey: input.ignoredGeminiKey,
       }),
     );
 

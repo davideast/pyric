@@ -166,19 +166,31 @@ const PRODUCTION_AI_FIREBASE_FOLDERS: ReadonlySet<string> = new Set(
 );
 
 /**
- * Whether production AI mode lets a file of the real Firebase SDK load from
- * any importer: a `firebase` file under `ai/`, `app/` or `app-check/` (the
- * {@link REAL_SDK_ENTRIES}). A server runner, such as Vite's, imports those by
- * file URL. The `@firebase/*` packages they import are not among them: those
- * load only from an SDK file the register already allowed (`swap-or-stop.ts`),
- * so app code that imports them directly is stopped, as in sandbox mode
- * (#1635). Every other file of the client SDK is swapped or stopped too.
- * `pathInPackage` is the file's path inside its package.
+ * Whether a `firebase` package file lies under `ai/`, `app/` or `app-check/`
+ * (the {@link REAL_SDK_ENTRIES}). Used by bundler/chain rules that cover all
+ * three production AI client SDK folders (`next/bridge-imports.ts` and
+ * `swap-or-stop.ts`). Direct unbridged resolution (`choosesRealFirebase`) uses
+ * {@link isProductionAiEntryFile} so app code cannot load `app/` or
+ * `app-check/` directly by file path (#1735).
  */
 export function isProductionAiSdkFile(packageName: string, pathInPackage: () => string | null): boolean {
   if (packageName !== 'firebase') return false;
   const folder = pathInPackage()?.split('/')[0];
   return folder !== undefined && PRODUCTION_AI_FIREBASE_FOLDERS.has(folder);
+}
+
+/**
+ * Whether production AI mode lets a file of the real Firebase SDK load from
+ * any importer: only a `firebase` file under `ai/` (`firebase/ai`). Files under
+ * `app/` and `app-check/` load only from Pyric's shadow-app wrapper modules
+ * (`isBypassedBridgeImport`) or from a real SDK file the hook already allowed
+ * (#1735). The `@firebase/*` packages they import also load only from an
+ * already-allowed SDK file (`swap-or-stop.ts`, #1635).
+ */
+export function isProductionAiEntryFile(packageName: string, pathInPackage: () => string | null): boolean {
+  if (packageName !== 'firebase') return false;
+  const folder = pathInPackage()?.split('/')[0];
+  return folder === 'ai';
 }
 
 /**
@@ -229,16 +241,6 @@ function isPackageModule(importer: string | undefined, module: RegExp): boolean 
   if (importer === undefined) return false;
   const file = importerFile(importer);
   return PACKAGE_ROOTS.some((root) => file.startsWith(root) && module.test(file.slice(root.length)));
-}
-
-/**
- * Whether an importer is one of this package's own modules that wrap the
- * Firebase SDK's `firebase/app` or `firebase/app-check`. Those imports must
- * reach the SDK, never the swap. Anchored to this package, so an app file that
- * happens to be named `app-bridge.js` is still swapped.
- */
-export function isShadowAppImporter(importer: string | undefined): boolean {
-  return isPackageModule(importer, APP_BRIDGE_MODULE) || isPackageModule(importer, APP_CHECK_BRIDGE_MODULE);
 }
 
 /**

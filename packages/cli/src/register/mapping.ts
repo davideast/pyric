@@ -27,7 +27,7 @@
  */
 
 import { parsePyricSandbox } from 'pyric/sandbox/internal';
-import { isBypassedBridgeImport, isProductionAiSdkFile, resolveAiMode, type AiMode } from '../serve/firebase-module-swap.js';
+import { isBypassedBridgeImport, isProductionAiEntryFile, resolveAiMode, type AiMode } from '../serve/firebase-module-swap.js';
 
 const MAPPINGS: ReadonlyArray<readonly [from: string, to: string]> = [
   // firebase-admin first — `firebase-admin` must never match the bare
@@ -102,15 +102,15 @@ export interface RealFirebaseLoad {
  * Whether the swap table hands this client SDK load to the real SDK (ADR
  * 0022): one of pyric's shadow modules reaching the `firebase/app` or
  * `firebase/app-check` it wraps via ESM import, or, in production AI mode, the
- * files of `firebase/ai`, `firebase/app` and `firebase/app-check`
- * (`isProductionAiSdkFile`). The `@firebase/*` packages those import are
- * allowed only from a real SDK file the stop in `swap-or-stop.ts` already
- * allowed, never from app code (#1635).
+ * files of `firebase/ai` (`isProductionAiEntryFile`, #1735). Files under
+ * `firebase/app`, `firebase/app-check`, and `@firebase/*` are allowed from
+ * outside the wrappers only when imported by a real SDK file the stop in
+ * `swap-or-stop.ts` already allowed, never from app code (#1635, #1735).
  */
 export function choosesRealFirebase(load: RealFirebaseLoad): boolean {
   if (load.isEsmImport !== false && isBypassedBridgeImport(load.specifier, load.importer, load.aiMode)) return true;
   const isProductionMode = load.aiMode === 'production';
-  return isProductionMode && isProductionAiSdkFile(load.packageName, load.pathInPackage);
+  return isProductionMode && isProductionAiEntryFile(load.packageName, load.pathInPackage);
 }
 
 /**

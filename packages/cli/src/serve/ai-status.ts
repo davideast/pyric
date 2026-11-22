@@ -36,6 +36,8 @@ export interface AiStartupStatus {
   /** Configured OpenAI-compatible upstream (`ai.proxyUpstream`). Absent falls
    *  back to `PYRIC_AI_PROXY_UPSTREAM`, then the local-Ollama default. */
   proxyUpstream?: string;
+  /** Whether a non-blank `VITE_GEMINI_API_KEY` was found in Vite's loaded `.env` files. */
+  ignoredGeminiKey?: boolean;
 }
 
 /** Where the resolved proxy upstream came from, in the terminal's words. The
@@ -65,10 +67,11 @@ const IGNORED_GEMINI_KEY = 'VITE_GEMINI_API_KEY';
  * Pyric ignores, or `null`. People moving a key out of `VITE_GEMINI_API_KEY`
  * see from the banner why it no longer counts (#1659). Never the value.
  */
-function ignoredGeminiKeyNote(): string | null {
+function ignoredGeminiKeyNote(fromDotEnv?: boolean): string | null {
   if (hasGeminiStaticKey(undefined)) return null;
   const value = process.env[IGNORED_GEMINI_KEY];
-  const holdsKey = value !== undefined && value.trim() !== '';
+  const holdsShellKey = value !== undefined && value.trim() !== '';
+  const holdsKey = fromDotEnv === true || holdsShellKey;
   if (!holdsKey) return null;
   return `${IGNORED_GEMINI_KEY} is set and ignored, because Vite serves VITE_ variables to the browser by default; rename it to GEMINI_API_KEY`;
 }
@@ -91,7 +94,7 @@ function describeAiStatus(status: AiStartupStatus): { mark: string; body: string
     };
   }
   const engine = status.engine;
-  const ignoredKeyNote = ignoredGeminiKeyNote();
+  const ignoredKeyNote = ignoredGeminiKeyNote(status.ignoredGeminiKey);
   if (engine === undefined) {
     // Visible absence, the `• rules    no firestore.rules ...` idiom: AI
     // silence used to be indistinguishable from AI-not-wired-up. The page

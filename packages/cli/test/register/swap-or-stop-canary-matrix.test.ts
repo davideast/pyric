@@ -18,6 +18,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { build as viteBuild } from 'vite';
+import { resetAppRegistryForTests } from 'pyric/app/internal';
 import {
   checkSandboxChildLaunch,
   detectUnsupportedRuntime,
@@ -282,13 +283,20 @@ describe('Swap-or-Stop standing guard canary matrix', () => {
     const ssrEntry = path.join(root, 'src', 'entry-server.js');
     writeFileSync(ssrEntry, "import { initializeApp } from 'firebase/app';\nexport const init = initializeApp;\n");
 
-    const ssrBuilt = await viteBuild({
-      root,
-      mode: 'development',
-      logLevel: 'silent',
-      build: { ssr: ssrEntry, write: false },
-      plugins: [pyricVite()],
-    });
+    let ssrBuilt: Awaited<ReturnType<typeof viteBuild>>;
+    try {
+      ssrBuilt = await viteBuild({
+        root,
+        mode: 'development',
+        logLevel: 'silent',
+        build: { ssr: ssrEntry, write: false },
+        plugins: [pyricVite()],
+      });
+    } finally {
+      // SSR shim export introspection loads `@pyric/cli/register/client/app`
+      // in-process, which binds the server-process client refusal on `pyric/app`.
+      await resetAppRegistryForTests();
+    }
     let outputs: ReadonlyArray<object>;
     if (Array.isArray(ssrBuilt)) {
       outputs = ssrBuilt[0]!.output;

@@ -102,8 +102,16 @@ console.log('OUTCOME ' + JSON.stringify(outcome));
 const PROBE_PRODUCTION_AI = `const outcome = {};
 try {
   const { initializeApp } = await import('firebase/app');
+  const { CustomProvider, getToken, initializeAppCheck } = await import('firebase/app-check');
   const { getAI, GoogleAIBackend } = await import('firebase/ai');
   const app = initializeApp({ apiKey: 'demo-key', projectId: 'demo-stop', appId: '1:1:web:1' });
+  const appCheck = initializeAppCheck(app, {
+    provider: new CustomProvider({
+      getToken: async () => ({ token: 'prod-ai-token', expireTimeMillis: Date.now() + 60_000 }),
+    }),
+    isTokenAutoRefreshEnabled: false,
+  });
+  await getToken(appCheck);
   getAI(app, { backend: new GoogleAIBackend() });
   outcome.load = 'loaded';
 } catch (error) {
@@ -440,6 +448,34 @@ describe('@pyric/cli/register stops the real client SDK where the swap table did
     });
     expect([aliased.outcome.load, absolute.outcome.load], `${aliased.stderr}\n${absolute.stderr}`)
       .toEqual(['PYRIC_REAL_SDK_STOPPED', 'PYRIC_REAL_SDK_STOPPED']);
+  }, 30_000);
+
+  it('stops absolute-path app imports into firebase/app and firebase/app-check in production AI mode (#1735)', async () => {
+    const appEsm = await runProbe('probe.mjs', {
+      LOAD_SPECIFIER: pathToFileURL(join(realFirebaseDir, 'app/dist/index.mjs')).href,
+      PYRIC_AI_MODE: 'production',
+    });
+    const appCheckEsm = await runProbe('probe.mjs', {
+      LOAD_SPECIFIER: pathToFileURL(join(realFirebaseDir, 'app-check/dist/index.mjs')).href,
+      PYRIC_AI_MODE: 'production',
+    });
+    const appCjs = await runProbe('probe.cjs', {
+      LOAD_SPECIFIER: join(realFirebaseDir, 'app/dist/index.cjs.js'),
+      PYRIC_AI_MODE: 'production',
+    });
+    const appCheckCjs = await runProbe('probe.cjs', {
+      LOAD_SPECIFIER: join(realFirebaseDir, 'app-check/dist/index.cjs.js'),
+      PYRIC_AI_MODE: 'production',
+    });
+    expect(
+      [appEsm.outcome.load, appCheckEsm.outcome.load, appCjs.outcome.load, appCheckCjs.outcome.load],
+      `${appEsm.stderr}\n${appCheckEsm.stderr}\n${appCjs.stderr}\n${appCheckCjs.stderr}`,
+    ).toEqual([
+      'PYRIC_REAL_SDK_STOPPED',
+      'PYRIC_REAL_SDK_STOPPED',
+      'PYRIC_REAL_SDK_STOPPED',
+      'PYRIC_REAL_SDK_STOPPED',
+    ]);
   }, 30_000);
 
   it('loads the real firebase/ai and its shadow app in production AI mode', async () => {

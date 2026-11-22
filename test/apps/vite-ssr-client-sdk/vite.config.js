@@ -15,7 +15,7 @@ function ssrRoutes() {
           : server.ssrLoadModule(path);
       server.middlewares.use(async (req, res, next) => {
         const url = new URL(req.url, "http://localhost");
-        const action = url.pathname.match(/^\/ssr\/(run|run-ai|admin|local-admin|sdk-names|trapped)$/)?.[1];
+        const action = url.pathname.match(/^\/ssr\/(run|run-ai|app-check|admin|local-admin|sdk-names|trapped)$/)?.[1];
         if (!action) return next();
         try {
           const runner = url.searchParams.get("runner");
@@ -23,6 +23,8 @@ function ssrRoutes() {
           let body;
           if (action === "trapped") {
             body = globalThis[Symbol.for("scenario.trapped")] ?? null;
+          } else if (action === "app-check") {
+            body = await (await load(runner, "/src/ssr-app-check.js")).runProductionAppCheck(tag ?? runner ?? "default");
           } else if (action === "sdk-names") {
             body = { outcomes: (await load(runner, "/src/ssr-sdk-names.js")).outcomes };
           } else if (action === "local-admin") {

@@ -21,7 +21,6 @@ import { UNSUPPORTED_RUNTIME_CODE } from '../cli/unsupported-runtime.js';
 import { isLiveRegisterActive, isRegisterActive } from '../register/activation.js';
 import { canonicalFirebaseSpecifier } from '../register/mapping.js';
 import { requireRegisterHooks } from '../register/node-version-stop.js';
-import { packageNameOf } from '../register/package-identity.js';
 import { createStopReporter, isImportCondition, stopFor, suppliedRowsStopFor } from '../register/swap-or-stop.js';
 import { isBypassedBridgeImport, type AiMode } from './firebase-module-swap.js';
 import { suppliedRows, type SuppliedRows } from './vite-supplied-rows.js';
@@ -100,7 +99,9 @@ function resolveSandboxNodeLoad(
     isEsm &&
     (specifier === 'firebase/app' || specifier === 'firebase/app-check') &&
     isBypassedBridgeImport(specifier, context.parentURL, aiMode);
-  if (isClientBridgeBypass && lease.projectRoot !== undefined && lease.projectRoot !== '') {
+  const isProductionFirebaseAi = isEsm && aiMode === 'production' && specifier === 'firebase/ai';
+  const prefersProjectRoot = isClientBridgeBypass || isProductionFirebaseAi;
+  if (prefersProjectRoot && lease.projectRoot !== undefined && lease.projectRoot !== '') {
     const rootParentUrl = pathToFileURL(path.join(path.resolve(lease.projectRoot), 'package.json')).href;
     const rootContext: SyncResolveContext = { parentURL: rootParentUrl };
     if (context.conditions !== undefined) {
@@ -115,30 +116,11 @@ function resolveSandboxNodeLoad(
   return nextResolve(specifier, context);
 }
 
-/** The package the real `firebase/ai` entry re-exports. */
-const FIREBASE_AI_PACKAGE = '@firebase/ai';
-
-/**
- * Whether this is Vite importing the real `firebase/ai` entry's own package
- * in production AI mode. The plugin hands that entry to Vite, which runs it
- * in its module runner and imports its `@firebase/ai` natively, by file URL
- * from a file of the `vite` package, so `stopFor` sees Vite as the importer.
- * Only `@firebase/ai`, only in production AI mode, and only from Vite: the
- * runner's other `@firebase/*` loads, and an app file's own `@firebase/ai`,
- * still stop. `@firebase/ai`'s own imports pass as the imports of an allowed
- * SDK file.
- */
-function isViteFirebaseAiLoad(url: string, importer: string | undefined, aiMode: AiMode): boolean {
-  const isProductionMode = aiMode === 'production';
-  const isFromVite = importer !== undefined && packageNameOf(importer) === 'vite';
-  if (!isProductionMode || !isFromVite) return false;
-  return packageNameOf(url) === FIREBASE_AI_PACKAGE;
-}
-
 function evaluateSandboxLease(
   lease: SandboxStopLease,
   specifier: string,
-  context: SyncResolveContext,
+  importer: string | undefined,
+  isEsmImport: boolean,
   result: SyncResolveResult,
 ): SyncResolveResult {
   const aiMode = lease.getAiMode();
@@ -146,17 +128,14 @@ function evaluateSandboxLease(
     {
       specifier,
       canonical: canonicalFirebaseSpecifier(specifier),
-      importer: context.parentURL,
+      importer,
       url: result.url,
       aiMode,
+      isEsmImport,
     },
     lease.allowedUrls,
   );
   if (stop === null) return result;
-  if (isViteFirebaseAiLoad(result.url, context.parentURL, aiMode)) {
-    lease.allowedUrls.add(result.url);
-    return result;
-  }
   lease.report(stop);
   throw stop;
 }
@@ -164,14 +143,14 @@ function evaluateSandboxLease(
 function evaluateLiveLease(
   lease: LiveStopLease,
   specifier: string,
-  context: SyncResolveContext,
+  importer: string | undefined,
   result: SyncResolveResult,
 ): SyncResolveResult {
   const stopped = suppliedRowsStopFor(
     {
       specifier,
       canonical: canonicalFirebaseSpecifier(specifier),
-      importer: context.parentURL,
+      importer,
       url: result.url,
     },
     new Set(),
@@ -197,8 +176,10 @@ export function viteProcessStopHook(input: ViteProcessStopHookInput): SyncResolv
     allowedUrls: new Set<string>(),
   };
   return (specifier, context, nextResolve) => {
+    const importer = context.parentURL;
+    const isEsmImport = context.conditions === undefined || isImportCondition(context.conditions);
     const result = resolveSandboxNodeLoad(lease, specifier, context, nextResolve);
-    return evaluateSandboxLease(lease, specifier, context, result);
+    return evaluateSandboxLease(lease, specifier, importer, isEsmImport, result);
   };
 }
 
@@ -360,13 +341,15 @@ function ensureProcessStopState(
       if (registerActiveCheck()) return nextResolve(specifier, context);
       const active = state.leases.at(-1);
       if (active === undefined) return nextResolve(specifier, context);
+      const importer = context.parentURL;
+      const isEsmImport = context.conditions === undefined || isImportCondition(context.conditions);
       if (active.kind === 'live') {
         const liveResult = nextResolve(specifier, context);
         if (isLiveRegisterActive()) return liveResult;
-        return evaluateLiveLease(active, specifier, context, liveResult);
+        return evaluateLiveLease(active, specifier, importer, liveResult);
       }
       const sandboxResult = resolveSandboxNodeLoad(active, specifier, context, nextResolve);
-      return evaluateSandboxLease(active, specifier, context, sandboxResult);
+      return evaluateSandboxLease(active, specifier, importer, isEsmImport, sandboxResult);
     },
   });
   ensureWorkerGuard(state, input, registerActiveCheck);

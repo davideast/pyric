@@ -2,9 +2,11 @@ import { describe, expect, it } from 'bun:test';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { GEMINI_SERVER_KEYS } from 'pyric/ai/internal';
 import {
   browserAiEngineWire,
   engineConfigToWire,
+  hasIgnoredBrowserGeminiKey,
   loadViteAiEnv,
   refuseBrowserServedGeminiKey,
   resolveViteAiConfig,
@@ -236,5 +238,16 @@ describe('a Gemini key in VITE_GEMINI_API_KEY (#1632)', () => {
     } finally {
       if (before !== undefined) process.env.VITE_GEMINI_API_KEY = before;
     }
+  });
+
+  it('shares GEMINI_SERVER_KEYS with pyric/ai/internal and skips .env files when envDir is false (#1743)', () => {
+    expect(GEMINI_SERVER_KEYS).toEqual(['GEMINI_API_KEY', 'GOOGLE_GENAI_API_KEY']);
+    const root = mkdtempSync(path.join(tmpdir(), 'pyric-vite-ai-env-false-'));
+    writeFileSync(path.join(root, '.env'), `VITE_GEMINI_API_KEY=${FAKE_KEY}\nPYRIC_AI_MODEL=ignored-file-model\n`);
+    const loaded = loadViteAiEnv('development', root, false);
+    expect(loaded.PYRIC_AI_MODEL).toBe(process.env.PYRIC_AI_MODEL);
+    expect(hasIgnoredBrowserGeminiKey({ VITE_GEMINI_API_KEY: FAKE_KEY })).toBe(true);
+    expect(hasIgnoredBrowserGeminiKey({ VITE_GEMINI_API_KEY: '   ' })).toBe(false);
+    expect(hasIgnoredBrowserGeminiKey({})).toBe(false);
   });
 });

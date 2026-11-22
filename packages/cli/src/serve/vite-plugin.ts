@@ -512,6 +512,7 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
           workerRuntime,
           options: generationOptions,
           ai,
+          ignoredGeminiKey: pageRuntime.hasIgnoredGeminiKey(),
           sessionToken,
         };
         const generation = await createViteSandboxGeneration(generationInput);

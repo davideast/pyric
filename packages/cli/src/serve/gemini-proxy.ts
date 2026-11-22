@@ -21,6 +21,7 @@ import {
 } from 'pyric/ai/internal';
 import type { ServeLogger } from './server.js';
 import { fetchAiUpstream, readAiProxyBody, relayAiUpstream, type AiDiagnosticThrottle } from './ai-proxy.js';
+import { watchAiProxyClientDisconnect } from './ai-proxy-disconnect.js';
 import { GEMINI_PROXY_PATH } from './worker/ai-proxy-paths.js';
 import { serializeError, type AiEngineConfigWire } from './worker/protocol.js';
 
@@ -84,6 +85,7 @@ async function relayRedactedError(
   res: ServerResponse,
 ): Promise<void> {
   const text = redactUpstreamError(await upstream.text().catch(() => ''), credentials);
+  if (Boolean(res.destroyed) || res.writableEnded) return;
   const headers: Record<string, string> = { 'cache-control': 'no-store' };
   const contentType = upstream.headers.get('content-type');
   if (contentType) headers['content-type'] = contentType;
@@ -163,22 +165,44 @@ export function createGeminiProxy(
       );
       return;
     }
-    const body = await readAiProxyBody(req, res);
-    if (body === null) return;
-    let response: Response;
-    let credentials: string[];
+    const disconnect = watchAiProxyClientDisconnect(req, res);
     try {
-      ({ response, credentials } = await upstream.sendWithCredentials(call.resource, call.action, body));
-    } catch (error) {
-      const envelope = serializeError(error).aiEnvelope;
-      if (envelope === undefined) throw error;
-      sendEnvelope(res, envelope.error.code, envelope.error.message, envelope.error.status);
-      return;
+      const body = await readAiProxyBody(req, res);
+      if (body === null || disconnect.isDisconnected()) return;
+      let response: Response;
+      let credentials: string[];
+      try {
+        ({ response, credentials } = await upstream.sendWithCredentials(
+          call.resource,
+          call.action,
+          body,
+          disconnect.signal,
+        ));
+      } catch (error) {
+        if (disconnect.isDisconnected() || disconnect.signal.aborted) {
+          return;
+        }
+        const envelope = serializeError(error).aiEnvelope;
+        if (envelope === undefined) throw error;
+        sendEnvelope(res, envelope.error.code, envelope.error.message, envelope.error.status);
+        return;
+      }
+      if (disconnect.isDisconnected()) {
+        await response.body?.cancel().catch(() => {});
+        return;
+      }
+      if (response.ok) {
+        const masked = await maskedSuccess(response, call.action, credentials);
+        if (disconnect.isDisconnected()) {
+          await masked.body?.cancel().catch(() => {});
+          return;
+        }
+        await relayAiUpstream(masked, res);
+        return;
+      }
+      await relayRedactedError(response, credentials, res);
+    } finally {
+      disconnect.dispose();
     }
-    if (response.ok) {
-      await relayAiUpstream(await maskedSuccess(response, call.action, credentials), res);
-      return;
-    }
-    await relayRedactedError(response, credentials, res);
   };
 }
