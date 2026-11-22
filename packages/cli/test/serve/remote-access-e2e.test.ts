@@ -18,6 +18,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { deleteApp, initializeApp } from 'pyric/app';
+import { resetAppRegistryForTests } from 'pyric/app/internal';
 import { createUserWithEmailAndPassword, getAuth, signInAnonymously } from 'pyric/auth';
 import { initializeSandbox } from 'pyric/sandbox';
 import { randomUuid } from 'pyric/sandbox/internal';
@@ -589,11 +590,10 @@ describe('remote-access positive end-to-end matrix', () => {
         expect(typeof getMetadata).toBe('function');
       } finally {
         await deleteApp(storageApp);
+        await resetAppRegistryForTests();
       }
     } finally {
-      if (originalCryptoDescriptor !== undefined) {
-        Object.defineProperty(globalThis, 'crypto', originalCryptoDescriptor);
-      }
+      if (originalCryptoDescriptor !== undefined) Object.defineProperty(globalThis, 'crypto', originalCryptoDescriptor);
     }
   });
 });

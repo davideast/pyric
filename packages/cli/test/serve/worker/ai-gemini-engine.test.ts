@@ -8,6 +8,9 @@
  * network is a recorded `fetch`.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { delimiter, join } from 'node:path';
 import { handleMessage, type HostCtx, type PortLike } from '../../../src/serve/worker/host.js';
 import type { InboundMessage, OutboundMessage, ResMessage } from '../../../src/serve/worker/protocol.js';
 import { initializeSandbox } from 'pyric/sandbox';
@@ -198,11 +201,18 @@ describe('the gemini engine on the Node host', () => {
   it('ignores page-supplied baseUrl when server falls back to ADC (empty env keys) (#1599)', async () => {
     const prevGemini = process.env.GEMINI_API_KEY;
     const prevGoogle = process.env.GOOGLE_GENAI_API_KEY;
+    const prevPath = process.env.PATH;
+    const fakeAdcToken = 'synthetic-adc-token-1599';
+    const binDir = mkdtempSync(join(tmpdir(), 'pyric-adc-stub-1599-'));
+    const gcloudStub = join(binDir, 'gcloud');
+    writeFileSync(gcloudStub, `#!/bin/sh\nprintf '%s\\n' '${fakeAdcToken}'\n`);
+    chmodSync(gcloudStub, 0o755);
     delete process.env.GEMINI_API_KEY;
     delete process.env.GOOGLE_GENAI_API_KEY;
+    process.env.PATH = prevPath ? `${binDir}${delimiter}${prevPath}` : binDir;
     try {
       const ctx = ctxWith({ aiRunsInBrowser: false });
-      await sendOp(ctx, {
+      const res = await sendOp(ctx, {
         t: 'op',
         id: 'hosted-adc-1599',
         method: 'ai.countTokens',
@@ -210,14 +220,24 @@ describe('the gemini engine on the Node host', () => {
         request,
         engine: { kind: 'gemini', baseUrl: 'http://attacker.example/adc', apiKey: '   ' },
       });
-      for (const req of sent) {
-        expect(req.url).not.toContain('attacker.example');
-      }
+      expect(res.ok).toBe(true);
+      expect(sent).toHaveLength(1);
+      const sentReq = sent[0];
+      expect(sentReq?.url).toBe(
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:countTokens',
+      );
+      expect(sentReq?.url).not.toContain('attacker.example');
+      expect((sentReq?.headers as Record<string, string> | undefined)?.Authorization).toBe(
+        `Bearer ${fakeAdcToken}`,
+      );
     } finally {
+      if (prevPath === undefined) delete process.env.PATH;
+      else process.env.PATH = prevPath;
       if (prevGemini === undefined) delete process.env.GEMINI_API_KEY;
       else process.env.GEMINI_API_KEY = prevGemini;
       if (prevGoogle === undefined) delete process.env.GOOGLE_GENAI_API_KEY;
       else process.env.GOOGLE_GENAI_API_KEY = prevGoogle;
+      rmSync(binDir, { recursive: true, force: true });
     }
   });
 
