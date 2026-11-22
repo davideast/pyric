@@ -1,5 +1,5 @@
 import type {
-  FirestoreRules, MatchBlock, AllowRule, FunctionDef, Expression, Operation, PathSegment, ServiceBlock,
+  FirestoreRules, MatchBlock, AllowRule, FunctionDef, Operation, PathSegment, ServiceBlock,
 } from './FirestoreAST.js';
 import { countDocumentAccessCalls } from './document-access-count.js';
 import { compileLimitViolations } from './compile-limits.js';
@@ -12,11 +12,18 @@ import {
   withSingleService,
 } from './service-blocks.js';
 import {
-  collectRulesetScopes, expandFunctionBody, exprContains, exprDepth,
-  functionReferences, ruleReferences, walkExpr,
+  collectRulesetScopes, exprDepth,
+  functionReferences, ruleReferences,
   type NameReferences, type RulesetScopes,
 } from './function-scopes.js';
 import { resolveBundledModulesForAnalysis } from '../modules/resolver-browser.js';
+import {
+  foldConstants,
+  guardsAuthTransitive,
+  referencesRequestDataAnyTransitive,
+  referencesResourceDataAnyTransitive,
+  validatesRequestDataTransitive,
+} from './validator-predicates.js';
 
 export interface ValidationFinding {
   code: string;
@@ -39,7 +46,6 @@ export function validateFirestoreRules(
   inputAst: FirestoreRules,
   options?: ValidateRulesOptions,
 ): ValidationFinding[] {
-  const allServices = allServiceBlocks(inputAst);
   const selectedServices = selectServicesToAnalyze(inputAst, options?.targetService);
 
   if (selectedServices.length === 0) return [];
@@ -93,7 +99,9 @@ export function validateFirestoreRules(
 
   const findings: ValidationFinding[] = [];
   for (let serviceIndex = 0; serviceIndex < prepared.length; serviceIndex++) {
-    const { ast, scopes } = prepared[serviceIndex]!;
+    const entry = prepared[serviceIndex];
+    if (entry === undefined) continue;
+    const { ast, scopes } = entry;
     const isSecondaryService = serviceIndex > 0;
     const rootMatches = topLevelMatches(ast.service);
     const isStorage = isStorageServiceName(ast.service?.name);
@@ -146,7 +154,7 @@ function walkMatch(
 
   // Merge scope: parent functions + this match's functions
   const localScope = [...scopeFunctions, ...match.functions];
-  const fnMap = new Map(localScope.map(f => [f.name, f]));
+  const fnMap = new Map(localScope.map((f) => [f.name, f]));
 
   for (const allow of match.allows) {
     const ops = allow.operations;
@@ -155,9 +163,9 @@ function walkMatch(
     // the auth/data-reference walks, so tautological rules can't evade SEC-1/2/3
     // and QUA-1 by being written as a binaryOp instead of a bare `true`/`false`.
     const cond = foldConstants(allow.condition, fnMap, fnScopes);
-    const isWrite = ops.some(op => WRITE_OPS.has(op));
-    const isRead = ops.some(op => READ_OPS.has(op));
-    const isDataWrite = ops.some(op => DATA_WRITE_OPS.has(op));
+    const isWrite = ops.some((op) => WRITE_OPS.has(op));
+    const isRead = ops.some((op) => READ_OPS.has(op));
+    const isDataWrite = ops.some((op) => DATA_WRITE_OPS.has(op));
     const isLiteralTrue = cond.type === 'literal' && cond.value === true;
     const isLiteralFalse = cond.type === 'literal' && cond.value === false;
     const opStr = ops.join(', ');
@@ -166,7 +174,7 @@ function walkMatch(
     if (isWrite && isLiteralTrue) {
       findings.push({
         code: 'SEC-1', severity: 'critical', path: pathStr, operation: opStr,
-        message: `Public write at ${pathStr} — anyone can ${opStr} without authentication`,
+        message: `Public write at ${pathStr} -- anyone can ${opStr} without authentication`,
       });
     }
 
@@ -198,11 +206,13 @@ function walkMatch(
 
     // SEC-6: Write without data validation (follows function calls transitively)
     if (isDataWrite && !isLiteralFalse && !validatesRequestDataTransitive(cond, fnMap, fnScopes, isStorage)) {
+      let sec6Message = `${opStr} at ${pathStr} does not validate request.resource.data -- any data shape accepted`;
+      if (isStorage) {
+        sec6Message = `${opStr} at ${pathStr} does not validate request.resource -- any upload payload accepted`;
+      }
       findings.push({
         code: 'SEC-6', severity: 'high', path: pathStr, operation: opStr,
-        message: isStorage
-          ? `${opStr} at ${pathStr} does not validate request.resource — any upload payload accepted`
-          : `${opStr} at ${pathStr} does not validate request.resource.data — any data shape accepted`,
+        message: sec6Message,
       });
     }
 
@@ -230,17 +240,21 @@ function walkMatch(
     const maxDocReads = isStorage ? 2 : 10;
     const docReads = countDocumentAccessCalls(allow.condition, fnMap, new Set(), fnScopes, isStorage);
     if (docReads > maxDocReads) {
+      let sem3Message =
+        `Rule at ${pathStr} may perform ${docReads} document access calls (get/exists/getAfter/existsAfter), which exceeds the ${maxDocReads}-call budget`;
+      if (isStorage) {
+        sem3Message =
+          `Rule at ${pathStr} may perform ${docReads} document access calls (firestore.get/firestore.exists), which exceeds the ${maxDocReads}-call budget`;
+      }
       findings.push({
         code: 'SEM-3', severity: 'high', path: pathStr, operation: opStr,
-        message: isStorage
-          ? `Rule at ${pathStr} may perform ${docReads} document access calls (firestore.get/firestore.exists), which exceeds the ${maxDocReads}-call budget`
-          : `Rule at ${pathStr} may perform ${docReads} document access calls (get/exists/getAfter/existsAfter), which exceeds the ${maxDocReads}-call budget`,
+        message: sem3Message,
       });
     }
 
     // QUA-1: Hardcoded true
     if (isLiteralTrue) {
-      const severity = isWrite ? 'critical' as const : 'low' as const;
+      const severity = isWrite ? 'critical' : 'low';
       findings.push({
         code: 'QUA-1', severity, path: pathStr, operation: opStr,
         message: `Hardcoded 'true' at ${pathStr} for ${opStr}`,
@@ -251,7 +265,7 @@ function walkMatch(
     if (exprDepth(allow.condition) > 10) {
       findings.push({
         code: 'QUA-5', severity: 'low', path: pathStr, operation: opStr,
-        message: `Condition at ${pathStr} has depth ${exprDepth(allow.condition)} — consider splitting into functions`,
+        message: `Condition at ${pathStr} has depth ${exprDepth(allow.condition)} -- consider splitting into functions`,
       });
     }
   }
@@ -260,15 +274,15 @@ function walkMatch(
   if (match.allows.length === 0 && match.children.length === 0 && match.functions.length === 0) {
     findings.push({
       code: 'QUA-2', severity: 'low', path: pathStr,
-      message: `Match block at ${pathStr} is empty — no allows, children, or functions`,
+      message: `Match block at ${pathStr} is empty -- no allows, children, or functions`,
     });
   }
 
   // STR-1: Match without wildcard
-  if (match.path.segments.every(s => s.type === 'literal')) {
+  if (match.path.segments.every((s) => s.type === 'literal')) {
     findings.push({
       code: 'STR-1', severity: 'low', path: pathStr,
-      message: `Match at ${pathStr} has no wildcard — matches exactly one document`,
+      message: `Match at ${pathStr} has no wildcard -- matches exactly one document`,
     });
   }
 
@@ -279,7 +293,7 @@ function walkMatch(
   if (match.children.length > 0 && match.allows.length === 0 && !isRoot) {
     findings.push({
       code: 'STR-2', severity: 'medium', path: pathStr,
-      message: `Match at ${pathStr} has nested children but no allows — parent collection is locked`,
+      message: `Match at ${pathStr} has nested children but no allows -- parent collection is locked`,
     });
   }
 
@@ -299,7 +313,7 @@ function checkDefaultDeny(
 ) {
   const coversDeny = (block: MatchBlock, parentScope: readonly FunctionDef[]): boolean => {
     if (block.allows.length === 0) return false;
-    const blockFnMap = new Map([...parentScope, ...block.functions].map(f => [f.name, f]));
+    const blockFnMap = new Map([...parentScope, ...block.functions].map((f) => [f.name, f]));
     const deniedOps = new Set<Operation>();
     for (const a of block.allows) {
       const folded = foldConstants(a.condition, blockFnMap, fnScopes);
@@ -315,16 +329,16 @@ function checkDefaultDeny(
 
   const hasDefaultDeny = rootMatches.some((rootMatch) => {
     const rootScope = [...outerScope, ...rootMatch.functions];
+    const lastSeg = rootMatch.path.segments[rootMatch.path.segments.length - 1];
     const isRootWithTrailingRecursive =
       ((rootMatch.path.raw.includes('databases') && rootMatch.path.raw.includes('documents')) ||
         (rootMatch.path.raw.includes('/b/') && rootMatch.path.raw.includes('/o'))) &&
-      rootMatch.path.segments.length > 0 &&
-      rootMatch.path.segments[rootMatch.path.segments.length - 1]?.type === 'recursive';
+      lastSeg?.type === 'recursive';
     return (
       (isRootWithTrailingRecursive && coversDeny(rootMatch, outerScope)) ||
-      rootMatch.children.some(child => {
+      rootMatch.children.some((child) => {
         const isWholeDbWildcard =
-          child.path.segments.length === 1 && child.path.segments[0].type === 'recursive';
+          child.path.segments.length === 1 && child.path.segments[0]?.type === 'recursive';
         return isWholeDbWildcard && coversDeny(child, rootScope);
       })
     );
@@ -338,270 +352,7 @@ function checkDefaultDeny(
   }
 }
 
-// ---- Constant folding / simplification ----
-
-function boolLiteral(value: boolean): Expression {
-  return { type: 'literal', value, raw: String(value) };
-}
-
-function isLitBool(expr: Expression, value: boolean): boolean {
-  return expr.type === 'literal' && expr.value === value;
-}
-
-/**
- * Simplify semantically-constant conditions so the literal checks and the
- * auth/data-reference walks operate on the reduced form. Recurses into nested
- * nodes so `X || (Y || true)` folds to `true`. Non-constant subexpressions are
- * preserved intact so the downstream walks still see real auth/data references.
- */
-function foldConstants(
-  expr: Expression,
-  fns?: ReadonlyMap<string, FunctionDef>,
-  fnScopes?: ReadonlyMap<FunctionDef, ReadonlyMap<string, FunctionDef>>,
-  visited?: ReadonlySet<FunctionDef>,
-): Expression {
-  switch (expr.type) {
-    case 'binaryOp': {
-      const left = foldConstants(expr.left, fns, fnScopes, visited);
-      const right = foldConstants(expr.right, fns, fnScopes, visited);
-      if (expr.op === '||') {
-        // X || true / true || X -> true
-        if (isLitBool(left, true) || isLitBool(right, true)) return boolLiteral(true);
-        // X || false / false || X -> X
-        if (isLitBool(left, false)) return right;
-        if (isLitBool(right, false)) return left;
-      } else if (expr.op === '&&') {
-        // X && false / false && X -> false
-        if (isLitBool(left, false) || isLitBool(right, false)) return boolLiteral(false);
-        // X && true / true && X -> X
-        if (isLitBool(left, true)) return right;
-        if (isLitBool(right, true)) return left;
-      }
-      return { type: 'binaryOp', op: expr.op, left, right };
-    }
-    case 'unaryOp': {
-      const operand = foldConstants(expr.operand, fns, fnScopes, visited);
-      if (expr.op === '!' && operand.type === 'literal' && typeof operand.value === 'boolean') {
-        return boolLiteral(!operand.value);
-      }
-      return { type: 'unaryOp', op: expr.op, operand };
-    }
-    case 'ternary': {
-      const condition = foldConstants(expr.condition, fns, fnScopes, visited);
-      const consequent = foldConstants(expr.consequent, fns, fnScopes, visited);
-      const alternate = foldConstants(expr.alternate, fns, fnScopes, visited);
-      // Literal condition -> the taken branch
-      if (condition.type === 'literal' && typeof condition.value === 'boolean') {
-        return condition.value ? consequent : alternate;
-      }
-      return { type: 'ternary', condition, consequent, alternate };
-    }
-    case 'functionCall': {
-      if (expr.args.length !== 0 || !fns) return expr;
-      const fn = fns.get(expr.name);
-      if (!fn || fn.parameters.length !== 0 || visited?.has(fn)) return expr;
-      const nextVisited = new Set(visited);
-      nextVisited.add(fn);
-      const calleeScope = fnScopes?.get(fn) ?? fns;
-      const foldedBody = foldConstants(expandFunctionBody(fn), calleeScope, fnScopes, nextVisited);
-      if (foldedBody.type === 'literal' && foldedBody.value === false) {
-        return boolLiteral(false);
-      }
-      return expr;
-    }
-    default:
-      return expr;
-  }
-}
-
-// ---- Expression tree walkers ----
-
-/** Every expression a function evaluates: each let value, then the return expression. */
-function functionExpressions(fn: FunctionDef): Expression[] {
-  return [...fn.lets.map(l => l.value), fn.body];
-}
-
-function propTarget(expr: Expression, prop: string): Expression | null {
-  if (expr.type === 'memberAccess' && expr.property === prop) return expr.object;
-  if (expr.type === 'bracketAccess' && expr.index.type === 'literal' && expr.index.value === prop) {
-    return expr.object;
-  }
-  return null;
-}
-
-function isRequestAuth(e: Expression): boolean {
-  const obj = propTarget(e, 'auth');
-  return obj !== null && obj.type === 'identifier' && obj.name === 'request';
-}
-
-function isRequestResource(e: Expression): boolean {
-  const reqObj = propTarget(e, 'resource');
-  return reqObj !== null && reqObj.type === 'identifier' && reqObj.name === 'request';
-}
-
-function isRequestResourceData(e: Expression): boolean {
-  const resObj = propTarget(e, 'data');
-  if (!resObj) return false;
-  return isRequestResource(resObj);
-}
-
-function isResourceData(e: Expression): boolean {
-  const obj = propTarget(e, 'data');
-  return obj !== null && obj.type === 'identifier' && obj.name === 'resource';
-}
-
-function isNullLiteral(e: Expression): boolean {
-  return e.type === 'literal' && e.value === null;
-}
-
-function isAuthComparisonWithNull(e: Expression, op: '==' | '!='): boolean {
-  if (e.type !== 'binaryOp' || e.op !== op) return false;
-  return (
-    (isRequestAuth(e.left) && isNullLiteral(e.right)) ||
-    (isNullLiteral(e.left) && isRequestAuth(e.right))
-  );
-}
-
-function guardsConditionTransitive(
-  expr: Expression,
-  checkAtom: (e: Expression) => boolean | null,
-  fns: ReadonlyMap<string, FunctionDef>,
-  fnScopes: ReadonlyMap<FunctionDef, ReadonlyMap<string, FunctionDef>>,
-  visited = new Set<FunctionDef>(),
-): boolean {
-  if (expr.type === 'binaryOp' && expr.op === '||') {
-    return (
-      guardsConditionTransitive(expr.left, checkAtom, fns, fnScopes, visited) &&
-      guardsConditionTransitive(expr.right, checkAtom, fns, fnScopes, visited)
-    );
-  }
-  if (expr.type === 'binaryOp' && expr.op === '&&') {
-    return (
-      guardsConditionTransitive(expr.left, checkAtom, fns, fnScopes, visited) ||
-      guardsConditionTransitive(expr.right, checkAtom, fns, fnScopes, visited)
-    );
-  }
-  if (expr.type === 'ternary') {
-    const condGuards = guardsConditionTransitive(expr.condition, checkAtom, fns, fnScopes, visited);
-    const thenGuards = condGuards || guardsConditionTransitive(expr.consequent, checkAtom, fns, fnScopes, visited);
-    if (isLitBool(expr.alternate, false)) return thenGuards;
-    const elseGuards = guardsConditionTransitive(expr.alternate, checkAtom, fns, fnScopes, visited);
-    if (isLitBool(expr.consequent, false)) return elseGuards;
-    return thenGuards && elseGuards;
-  }
-  const atomResult = checkAtom(expr);
-  if (atomResult !== null) return atomResult;
-
-  let found = false;
-  walkExpr(expr, e => {
-    if (found || e.type !== 'functionCall') return;
-    const fn = fns.get(e.name);
-    if (!fn || visited.has(fn)) return;
-    const nextVisited = new Set(visited);
-    nextVisited.add(fn);
-    const calleeScope = fnScopes.get(fn) ?? fns;
-    if (guardsConditionTransitive(expandFunctionBody(fn), checkAtom, calleeScope, fnScopes, nextVisited)) {
-      found = true;
-    }
-  });
-  return found;
-}
-
-function checkAuthAtom(expr: Expression): boolean | null {
-  if (expr.type === 'unaryOp' && expr.op === '!') {
-    if (isAuthComparisonWithNull(expr.operand, '==')) return true;
-    if (isAuthComparisonWithNull(expr.operand, '!=')) return false;
-    return false;
-  }
-  if (isAuthComparisonWithNull(expr, '==')) return false;
-  if (exprContains(expr, isRequestAuth)) return true;
-  return null;
-}
-
-function checkRequestDataAtom(expr: Expression, isStorage = false): boolean | null {
-  if (exprContains(expr, isStorage ? isRequestResource : isRequestResourceData)) return true;
-  return null;
-}
-
-function guardsAuthTransitive(
-  expr: Expression,
-  fns: ReadonlyMap<string, FunctionDef>,
-  fnScopes: ReadonlyMap<FunctionDef, ReadonlyMap<string, FunctionDef>>,
-): boolean {
-  return guardsConditionTransitive(expr, checkAuthAtom, fns, fnScopes);
-}
-
-function validatesRequestDataTransitive(
-  expr: Expression,
-  fns: ReadonlyMap<string, FunctionDef>,
-  fnScopes: ReadonlyMap<FunctionDef, ReadonlyMap<string, FunctionDef>>,
-  isStorage = false,
-): boolean {
-  return guardsConditionTransitive(expr, e => checkRequestDataAtom(e, isStorage), fns, fnScopes);
-}
-
-function referencesExprAnyTransitive(
-  expr: Expression,
-  pred: (e: Expression) => boolean,
-  fns: ReadonlyMap<string, FunctionDef>,
-  fnScopes: ReadonlyMap<FunctionDef, ReadonlyMap<string, FunctionDef>>,
-  visited = new Set<FunctionDef>(),
-): boolean {
-  if (exprContains(expr, pred)) return true;
-  let found = false;
-  walkExpr(expr, e => {
-    if (found || e.type !== 'functionCall') return;
-    const fn = fns.get(e.name);
-    if (!fn || visited.has(fn)) return;
-    visited.add(fn);
-    const calleeScope = fnScopes.get(fn) ?? fns;
-    if (functionExpressions(fn).some(x => referencesExprAnyTransitive(x, pred, calleeScope, fnScopes, visited))) {
-      found = true;
-    }
-  });
-  return found;
-}
-
-function referencesRequestDataAnyTransitive(
-  expr: Expression,
-  fns: ReadonlyMap<string, FunctionDef>,
-  fnScopes: ReadonlyMap<FunctionDef, ReadonlyMap<string, FunctionDef>>,
-): boolean {
-  return referencesExprAnyTransitive(expr, isRequestResourceData, fns, fnScopes);
-}
-
-function referencesResourceDataAnyTransitive(
-  expr: Expression,
-  fns: ReadonlyMap<string, FunctionDef>,
-  fnScopes: ReadonlyMap<FunctionDef, ReadonlyMap<string, FunctionDef>>,
-): boolean {
-  return referencesExprAnyTransitive(expr, isResourceData, fns, fnScopes);
-}
-
 // ---- QUA-3: Duplicate functions ----
-//
-// Production REJECTS two declarations of one function name in the SAME
-// scope at compile time, so this is severity 'critical': the write gate
-// (`write/handler.ts`) blocks only critical validator findings, and
-// 'medium' folded to a mere warning that deployed anyway.
-//
-// A scope is one declaration list: the global list above `service`, the
-// list directly inside `service`, or one match block's own list. A nested
-// match block that redeclares a name from an enclosing scope SHADOWS it and
-// is legal: the simulator implements shadowing in
-// `simulator/match-resolution.ts`, and the production capture in
-// `conformance/rules-corpus/storage/function-scopes-and-shadowing.ts` pins
-// inner-shadows-outer as accepted. Flagging that would block a ruleset
-// production deploys.
-//
-// The code stays QUA-3 (already registered and asserted by consumers);
-// `DUPLICATE_FUNCTION` was considered and rejected, because the module
-// resolver already uses that name for its own error code
-// (`modules/resolver-core.ts`), and colliding would make mixed issue
-// lists ambiguous.
-//
-// Detection is the compile-limit module's FUNCTION_REDEFINED rejection, which
-// the Firestore simulator and the Storage parser also enforce at load.
 
 function checkDuplicateFunctions(
   ast: FirestoreRules,
@@ -619,16 +370,6 @@ function checkDuplicateFunctions(
 }
 
 // ---- SEM-4, SEM-5, QUA-4: name resolution ----
-//
-// Every rule condition and every function body resolves its names against
-// the scopes in effect where it is declared (`function-scopes.ts`), not
-// against every function in the ruleset. Production compiles an unresolved
-// function or variable name with a warning ("Invalid function name: s.",
-// "Invalid variable name: d.") and evaluating it is an error, so a rule
-// that reaches it denies: SEM-4 and SEM-5 are high. A function that no
-// resolved call reaches draws production's "Unused function: f." warning,
-// at any scope: QUA-4 is low. A call from an unused function still counts,
-// as it does in production.
 
 function checkNameResolution(
   scopes: RulesetScopes,
@@ -646,18 +387,21 @@ function checkNameResolution(
   ) => {
     for (const callee of refs.callees) called.add(callee);
     if (!emitFindings) return;
-    const op = operation === undefined ? {} : { operation };
     for (const name of refs.undefinedCalls) {
-      findings.push({
-        code: 'SEM-4', severity: 'high', path, ...op,
+      const finding: ValidationFinding = {
+        code: 'SEM-4', severity: 'high', path,
         message: `${subject} calls undefined function '${name}'`,
-      });
+      };
+      if (operation !== undefined) finding.operation = operation;
+      findings.push(finding);
     }
     for (const name of refs.unboundVariables) {
-      findings.push({
-        code: 'SEM-5', severity: 'high', path, ...op,
+      const finding: ValidationFinding = {
+        code: 'SEM-5', severity: 'high', path,
         message: `${subject} reads unbound variable '${name}'. No let binding, function parameter, path capture, or rules global has that name, so evaluating it is an error and the request is denied`,
-      });
+      };
+      if (operation !== undefined) finding.operation = operation;
+      findings.push(finding);
     }
   };
   for (const scoped of scopes.rules) {
@@ -682,16 +426,19 @@ function checkNameResolution(
 
 function checkOverlappingPaths(siblings: MatchBlock[], findings: ValidationFinding[]) {
   for (let i = 0; i < siblings.length; i++) {
+    const first = siblings[i];
+    if (first === undefined) continue;
     for (let j = i + 1; j < siblings.length; j++) {
-      if (pathsOverlap(siblings[i], siblings[j])) {
+      const second = siblings[j];
+      if (second === undefined) continue;
+      if (pathsOverlap(first, second)) {
         findings.push({
-          code: 'STR-3', severity: 'low', path: siblings[i].path.raw,
-          message: `Match paths '${siblings[i].path.raw}' and '${siblings[j].path.raw}' may overlap — the more permissive one wins`,
+          code: 'STR-3', severity: 'low', path: first.path.raw,
+          message: `Match paths '${first.path.raw}' and '${second.path.raw}' may overlap -- the more permissive one wins`,
         });
       }
     }
-    // Recurse into each sibling's children
-    checkOverlappingPaths(siblings[i].children, findings);
+    checkOverlappingPaths(first.children, findings);
   }
 }
 
@@ -699,11 +446,11 @@ function pathsOverlap(a: MatchBlock, b: MatchBlock): boolean {
   const segsA = a.path.segments;
   const segsB = b.path.segments;
   if (segsA.length !== segsB.length) return false;
-  // If one has a wildcard and the other has a literal at the same position, they overlap
   for (let i = 0; i < segsA.length; i++) {
-    const sa = segsA[i], sb = segsB[i];
+    const sa = segsA[i];
+    const sb = segsB[i];
+    if (sa === undefined || sb === undefined) return false;
     if (sa.type === 'literal' && sb.type === 'literal' && sa.value !== sb.value) return false;
-    // wildcard + literal at same position = overlap
     if ((sa.type === 'wildcard' || sa.type === 'recursive') && sb.type === 'literal') return true;
     if (sa.type === 'literal' && (sb.type === 'wildcard' || sb.type === 'recursive')) return true;
   }
