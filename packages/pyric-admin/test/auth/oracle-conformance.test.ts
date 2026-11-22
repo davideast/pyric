@@ -401,6 +401,7 @@ describe('oracle conformance (auth-admin)', () => {
       fetchedIsUserRecord: actualHandles.fetchedIsUserRecord,
       listedIsUserRecord: actualHandles.listedIsUserRecord,
       metadataIsUserMetadata: actualHandles.metadataIsUserMetadata,
+      metadataToJsonKeys: actualHandles.metadataToJsonKeys,
       providerInfoIsUserInfo: actualHandles.providerInfoIsUserInfo,
       providerInfoToJsonKeys: actualHandles.providerInfoToJsonKeys,
     }).toEqual({
@@ -410,15 +411,9 @@ describe('oracle conformance (auth-admin)', () => {
       fetchedIsUserRecord: expectedHandles.fetchedIsUserRecord,
       listedIsUserRecord: expectedHandles.listedIsUserRecord,
       metadataIsUserMetadata: expectedHandles.metadataIsUserMetadata,
+      metadataToJsonKeys: expectedHandles.metadataToJsonKeys,
       providerInfoIsUserInfo: expectedHandles.providerInfoIsUserInfo,
       providerInfoToJsonKeys: expectedHandles.providerInfoToJsonKeys,
-    });
-    expect({
-      pyric: actualHandles.metadataToJsonKeys,
-      production: expectedHandles.metadataToJsonKeys,
-    }).toEqual({
-      pyric: ['creationTime', 'lastSignInTime'],
-      production: ['creationTime', 'lastRefreshTime', 'lastSignInTime'],
     });
 
     const actualPresence = localActual.userRecordFieldPresence as Record<

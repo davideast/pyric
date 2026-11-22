@@ -294,13 +294,47 @@ export function toSandboxCreateRequest(props: CreateRequest): SandboxCreateUserR
   return req;
 }
 
+function parseTimestampMs(raw: string | null | undefined): number | null {
+  if (typeof raw !== 'string') {
+    return null;
+  }
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+  if (/^-?\d+$/.test(trimmed)) {
+    const numeric = Number(trimmed);
+    if (Number.isFinite(numeric)) {
+      return numeric;
+    }
+    return null;
+  }
+  const parsed = Date.parse(trimmed);
+  if (Number.isFinite(parsed)) {
+    return parsed;
+  }
+  return null;
+}
+
+function formatUtcTimestamp(raw: string | null | undefined): string | null {
+  const ms = parseTimestampMs(raw);
+  if (ms === null) {
+    return null;
+  }
+  const date = new Date(ms);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return date.toUTCString();
+}
+
 function formatTokensValidAfterTime(r: AuthUserRecord): string | undefined {
   let validAfterMs: number | undefined;
   if (typeof r.tokensValidAfterMs === 'number' && Number.isFinite(r.tokensValidAfterMs)) {
     validAfterMs = Math.floor(r.tokensValidAfterMs / 1000) * 1000;
   } else {
-    const parsedCreated = Date.parse(r.createdAt);
-    if (Number.isFinite(parsedCreated)) {
+    const parsedCreated = parseTimestampMs(r.createdAt);
+    if (parsedCreated !== null) {
       validAfterMs = Math.floor(parsedCreated / 1000) * 1000;
     }
   }
@@ -315,10 +349,23 @@ function formatTokensValidAfterTime(r: AuthUserRecord): string | undefined {
  * `UserRecord` instance.
  */
 export function fromAuthUserRecord(r: AuthUserRecord): UserRecord {
-  const lastSignInTime = r.lastLoginAt ?? '';
+  const formattedCreationTime = formatUtcTimestamp(r.createdAt);
+  let creationTime = r.createdAt;
+  if (formattedCreationTime !== null) {
+    creationTime = formattedCreationTime;
+  }
+  const lastSignInTime = formatUtcTimestamp(r.lastLoginAt);
+  let rawLastRefreshAt: string | null;
+  if (r.lastRefreshAt !== undefined) {
+    rawLastRefreshAt = r.lastRefreshAt;
+  } else {
+    rawLastRefreshAt = r.lastLoginAt;
+  }
+  const lastRefreshTime = formatUtcTimestamp(rawLastRefreshAt);
   const metadata = new UserMetadata({
-    creationTime: r.createdAt,
+    creationTime,
     lastSignInTime,
+    lastRefreshTime,
   });
   const providerData: UserInfo[] = r.providerUserInfo.map((p) => {
     let providerUid = r.uid;
@@ -342,6 +389,10 @@ export function fromAuthUserRecord(r: AuthUserRecord): UserRecord {
   }
   const email = r.email ?? undefined;
   const tokensValidAfterTime = formatTokensValidAfterTime(r);
+  let tenantId: string | null = null;
+  if (typeof r.tenantId === 'string' && r.tenantId.length > 0) {
+    tenantId = r.tenantId;
+  }
   return new UserRecord({
     uid: r.uid,
     email,
@@ -354,6 +405,6 @@ export function fromAuthUserRecord(r: AuthUserRecord): UserRecord {
     providerData,
     customClaims,
     tokensValidAfterTime,
-    tenantId: null,
+    tenantId,
   });
 }

@@ -178,6 +178,9 @@ export interface StoredUser {
   /** ISO timestamp of the most recent sign-in, or null if this
    *  identity never signed in. */
   lastLoginAt: string | null;
+  /** ISO timestamp of the most recent ID token issuance or refresh,
+   *  or null if this identity has never been active. */
+  lastRefreshAt?: string | null;
   /** Identity Platform tenant this identity last signed in under, or
    *  `null` for the project-level (untenanted) pool. Written from
    *  `Auth.tenantId` at sign-in and read back on session restore, so a
@@ -209,6 +212,8 @@ export interface AuthUserRecord {
   createdAt: string;
   /** ISO timestamp, or null if the identity never signed in. */
   lastLoginAt: string | null;
+  /** ISO timestamp of the most recent ID token refresh, or null if never active. */
+  lastRefreshAt?: string | null;
   /** Whole-second epoch milliseconds matching production `validSince` / `tokensValidAfterTime`. */
   tokensValidAfterMs?: number;
 }

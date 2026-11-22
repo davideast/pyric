@@ -18,7 +18,11 @@ export function toAuthUserRecord(
   } else {
     tokensValidAfterMs = revokedMs ?? createdSecMs;
   }
-  return {
+  let lastRefreshAt: string | null = u.lastLoginAt;
+  if (u.lastRefreshAt !== undefined) {
+    lastRefreshAt = u.lastRefreshAt;
+  }
+  const record: AuthUserRecord = {
     uid: u.uid,
     email: u.email,
     displayName: u.displayName,
@@ -32,6 +36,10 @@ export function toAuthUserRecord(
     tenantId: u.tenantId,
     createdAt: u.createdAt,
     lastLoginAt: u.lastLoginAt,
-    ...(tokensValidAfterMs !== undefined ? { tokensValidAfterMs } : {}),
+    lastRefreshAt,
   };
+  if (tokensValidAfterMs !== undefined) {
+    record.tokensValidAfterMs = tokensValidAfterMs;
+  }
+  return record;
 }

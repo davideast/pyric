@@ -92,10 +92,37 @@ describe('pyric-admin/auth validation and conversion', () => {
     expect(converted.providerData[0]?.providerId).toBe('password');
     expect(converted.tokensValidAfterTime).toBe('Thu, 01 Jan 2026 00:00:00 GMT');
     expect(converted.toJSON().tokensValidAfterTime).toBe('Thu, 01 Jan 2026 00:00:00 GMT');
+    expect(converted.metadata.creationTime).toBe('Thu, 01 Jan 2026 00:00:00 GMT');
+    expect(converted.metadata.lastSignInTime).toBeNull();
+    expect(converted.metadata.lastRefreshTime).toBeNull();
     expect(converted.metadata.toJSON()).toEqual({
-      creationTime: '2026-01-01T00:00:00.000Z',
-      lastSignInTime: '',
+      creationTime: 'Thu, 01 Jan 2026 00:00:00 GMT',
+      lastSignInTime: null,
+      lastRefreshTime: null,
     });
+
+    const signedIn = fromAuthUserRecord({
+      ...raw,
+      lastLoginAt: '2026-01-02T03:04:05.000Z',
+      lastRefreshAt: '2026-01-02T04:05:06.000Z',
+      tenantId: 'tenant-alpha',
+    });
+    expect(signedIn.tenantId).toBe('tenant-alpha');
+    expect(signedIn.metadata.creationTime).toBe('Thu, 01 Jan 2026 00:00:00 GMT');
+    expect(signedIn.metadata.lastSignInTime).toBe('Fri, 02 Jan 2026 03:04:05 GMT');
+    expect(signedIn.metadata.lastRefreshTime).toBe('Fri, 02 Jan 2026 04:05:06 GMT');
+    expect(signedIn.metadata.toJSON()).toEqual({
+      creationTime: 'Thu, 01 Jan 2026 00:00:00 GMT',
+      lastSignInTime: 'Fri, 02 Jan 2026 03:04:05 GMT',
+      lastRefreshTime: 'Fri, 02 Jan 2026 04:05:06 GMT',
+    });
+
+    const legacySignedIn = fromAuthUserRecord({
+      ...raw,
+      lastLoginAt: '2026-01-02T03:04:05.000Z',
+    });
+    expect(legacySignedIn.metadata.lastSignInTime).toBe('Fri, 02 Jan 2026 03:04:05 GMT');
+    expect(legacySignedIn.metadata.lastRefreshTime).toBe('Fri, 02 Jan 2026 03:04:05 GMT');
 
     const revoked = fromAuthUserRecord({
       ...raw,
