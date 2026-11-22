@@ -31,10 +31,11 @@ import { packAiEvidence, setAiEvidence, type AiEvidence } from 'pyric/ai/interna
 
 import { getAI, TARGET_SYMBOL, type AIOptions } from 'pyric/ai';
 
-import { serializeError, type OpMessage, type AiStreamSubMessage, type AiEngineConfigWire } from './protocol.js';
+import { serializeError, type OpMessage, type AiStreamSubMessage, type AiEngineConfigWire, type AiAppCheckWire, type InboundMessage } from './protocol.js';
 import { type HostCtx, type PortLike, type AiBrokerLike, post, ok, fail } from './host-context.js';
 import { AI_PROXY_PATH, browserGeminiEngine, hasNonBlankApiKey } from './ai-proxy-paths.js';
 import { resolveEffectiveAiAppCheck } from './host/app-check.js';
+import { callerFor, callerOf } from './host/caller.js';
 
 /** Is this op an AI op (routed here instead of handleOp)? */
 export function isAiOp(method: OpMessage['method']): boolean {
@@ -180,11 +181,41 @@ function ensureAiBroker(ctx: HostCtx, opEngine?: AiEngineConfigWire): AiBrokerLi
   return target.broker;
 }
 
+/**
+ * Fill in `runtime: 'server'` when a frame arrived from a remote Node host
+ * connection (`node` / `admin` / `relay`) without specifying a caller runtime,
+ * so the dev server terminal shows server App Check guidance rather than the
+ * browser `self.` hint (#1736).
+ */
+function withCallerAppCheckRuntime(
+  ctx: HostCtx,
+  port: PortLike,
+  msg: InboundMessage,
+  claim: AiAppCheckWire | undefined,
+): AiAppCheckWire | undefined {
+  if (claim === undefined) return undefined;
+  if (claim.runtime !== undefined) return claim;
+  const caller = callerOf(msg) ?? callerFor(ctx, port, msg);
+  const connection = ctx.portConnections?.get(port);
+  const isServerCaller =
+    caller.kind === 'node' ||
+    caller.kind === 'admin' ||
+    connection === 'node' ||
+    connection === 'relay';
+  if (!isServerCaller) return claim;
+  return { ...claim, runtime: 'server' };
+}
+
 /** Handle the unary AI ops. Requests/replies are plain Gemini-wire JSON. */
 export async function handleAiOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<void> {
   const aiMsg = msg as AiOpMessage;
   const attachedAppCheck = (msg as { appCheckToken?: string }).appCheckToken;
-  const effectiveAppCheck = resolveEffectiveAiAppCheck(aiMsg.appCheck, attachedAppCheck);
+  const effectiveAppCheck = withCallerAppCheckRuntime(
+    ctx,
+    port,
+    msg,
+    resolveEffectiveAiAppCheck(aiMsg.appCheck, attachedAppCheck),
+  );
   const observation = observeAiRequest(ctx, port, msg, aiMsg.method.slice(3), aiMsg.model);
   let identity: AiEvidence | undefined;
   try {
@@ -253,7 +284,12 @@ export function handleAiSub(ctx: HostCtx, port: PortLike, msg: AiStreamSubMessag
       identity = broker.observationIdentity?.(msg.model);
       observation.identity(identity);
       const attachedAppCheck = (msg as { appCheckToken?: string }).appCheckToken;
-      const effectiveAppCheck = resolveEffectiveAiAppCheck(msg.appCheck, attachedAppCheck);
+      const effectiveAppCheck = withCallerAppCheckRuntime(
+        ctx,
+        port,
+        msg,
+        resolveEffectiveAiAppCheck(msg.appCheck, attachedAppCheck),
+      );
       // The App Check gate answers before any chunk, as AI Logic answers 403 before a stream.
       await broker.admitAppCheck(msg.model, effectiveAppCheck);
       for await (const chunk of broker.streamGenerateContent(msg.request, msg.model, effectiveAppCheck)) {

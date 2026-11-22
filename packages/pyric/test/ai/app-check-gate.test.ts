@@ -468,7 +468,7 @@ describe('ai#sandbox-app-check-limited-use', () => {
     } as unknown as AnswerEngine;
     const model = getGenerativeModel(createTransportAI(newApp(), undefined, recording), { model: MODEL });
     await rejection(model.generateContent('ping'));
-    expect(claims).toEqual([{ token: null }]);
+    expect(claims).toEqual([{ token: null, runtime: 'server', projectId: OPTIONS.projectId, appId: OPTIONS.appId }]);
   });
 });
 

@@ -22,7 +22,9 @@ import {
   assertAppAlive,
   cachedOrMint,
   mintLimitedUse,
+  startInitialAutoRefresh,
   stateOf,
+  updateAutoRefreshEnabled,
   type AppCheckState,
   type AppCheckTokenResult,
   type TokenObserver,
@@ -72,14 +74,20 @@ export function initializeAppCheck(app: FirebaseApp | undefined, options: AppChe
       assertAppAlive(target);
       throw appCheckError('already-initialized', target.name);
     }
-    return handles.get(target)!;
+    const existingHandle = handles.get(target);
+    if (existingHandle !== undefined) return existingHandle;
+    const restored = new AppCheckHandle(target);
+    handles.set(target, restored);
+    return restored;
   }
-  activate(target, options.provider, options.isTokenAutoRefreshEnabled);
+  const state = activate(target, options.provider, options.isTokenAutoRefreshEnabled);
   const handle = new AppCheckHandle(target);
   handles.set(target, handle);
-  // Last, as upstream: a provider that throws here leaves the app initialized,
-  // so the same options then return this handle (see providers.ts).
+  // Call provider.initialize before starting auto-refresh, as upstream does:
+  // a provider that throws here leaves the app initialized without starting
+  // the token refresher (see providers.ts).
   options.provider.initialize();
+  startInitialAutoRefresh(target, state);
   return handle;
 }
 
@@ -99,7 +107,7 @@ export async function getLimitedUseToken(appCheck: AppCheck): Promise<AppCheckTo
 }
 
 export function setTokenAutoRefreshEnabled(appCheck: AppCheck, isTokenAutoRefreshEnabled: boolean): void {
-  activeState(appCheck).isTokenAutoRefreshEnabled = isTokenAutoRefreshEnabled;
+  updateAutoRefreshEnabled(activeState(appCheck), isTokenAutoRefreshEnabled);
 }
 
 function toObserver(
@@ -108,9 +116,25 @@ function toObserver(
   onCompletion?: () => void,
 ): TokenObserver {
   if (typeof onNextOrObserver === 'function') {
-    return { next: onNextOrObserver, error: onError, complete: onCompletion };
+    return { next: onNextOrObserver, error: onError, complete: onCompletion, kind: 'external' };
   }
-  return { next: onNextOrObserver.next ?? (() => {}), error: onNextOrObserver.error, complete: onNextOrObserver.complete };
+  let next: (result: AppCheckTokenResult) => void = () => {};
+  if (typeof onNextOrObserver.next === 'function') {
+    next = onNextOrObserver.next.bind(onNextOrObserver);
+  }
+  let error: ((error: Error) => void) | undefined;
+  if (typeof onNextOrObserver.error === 'function') {
+    error = onNextOrObserver.error.bind(onNextOrObserver);
+  } else if (typeof onError === 'function') {
+    error = onError;
+  }
+  let complete: (() => void) | undefined;
+  if (typeof onNextOrObserver.complete === 'function') {
+    complete = onNextOrObserver.complete.bind(onNextOrObserver);
+  } else if (typeof onCompletion === 'function') {
+    complete = onCompletion;
+  }
+  return { next, error, complete, kind: 'external' };
 }
 
 export function onTokenChanged(
@@ -119,5 +143,5 @@ export function onTokenChanged(
   onError?: (error: Error) => void,
   onCompletion?: () => void,
 ): Unsubscribe {
-  return addObserver(activeState(appCheck), toObserver(onNextOrObserver, onError, onCompletion));
+  return addObserver(appCheck.app, activeState(appCheck), toObserver(onNextOrObserver, onError, onCompletion));
 }

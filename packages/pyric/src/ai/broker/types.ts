@@ -131,6 +131,9 @@ export interface WireErrorEnvelope {
   };
 }
 
+/** Runtime kind used to choose the App Check refusal hint emitted onto the event stream. */
+export type AppCheckRuntime = 'browser' | 'server';
+
 /**
  * The App Check token a request from an app-backed handle carries, `null`
  * when the handle has none. Production reads it from `X-Firebase-AppCheck`.
@@ -138,6 +141,12 @@ export interface WireErrorEnvelope {
  */
 export interface AppCheckClaim {
   token: string | null;
+  /** Caller runtime (`'browser'` for pages/workers, `'server'` for Node/SSR processes). */
+  runtime?: AppCheckRuntime;
+  /** Owning app project id enforced against the token `aud` claim when present. */
+  projectId?: string;
+  /** Owning app id enforced against the token `sub` claim when present. */
+  appId?: string;
 }
 
 // ── The answer-engine seam (cdd-deltas #97, verbatim) ───────────────────────

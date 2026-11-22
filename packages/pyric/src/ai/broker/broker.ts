@@ -42,7 +42,7 @@ import { emitSandboxEvent, getClock, makeServiceMutationEvent } from 'pyric/sand
 import type { AiEventOperation } from '../events.js';
 
 import { describeResponseBlock } from '../blocked.js';
-import { APP_CHECK_HINT, admitsAppCheckToken, appCheckRequired } from '../app-check-gate.js';
+import { admitsAppCheckToken, appCheckHintForRuntime, appCheckRequired } from '../app-check-gate.js';
 import { retiredModel } from './retired-model.js';
 import { stripModelResourcePrefix } from './model-resource.js';
 import {
@@ -303,9 +303,12 @@ export class AiBroker {
   async admitAppCheck(model: string, appCheck: AppCheckClaim | undefined): Promise<void> {
     if (appCheck === undefined) return;
     const nowMillis = this.sandbox === undefined ? Date.now() : getClock(this.sandbox).now();
-    const admitted = await admitsAppCheckToken(appCheck.token, nowMillis);
+    const expected: { projectId?: string; appId?: string } = {};
+    if (appCheck.projectId !== undefined) expected.projectId = appCheck.projectId;
+    if (appCheck.appId !== undefined) expected.appId = appCheck.appId;
+    const admitted = await admitsAppCheckToken(appCheck.token, nowMillis, expected);
     if (admitted) return;
-    this.reject(model, appCheckRequired(), APP_CHECK_HINT);
+    this.reject(model, appCheckRequired(), appCheckHintForRuntime(appCheck.runtime));
   }
 
   async generateContent(

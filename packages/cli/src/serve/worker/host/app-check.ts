@@ -1,5 +1,6 @@
 import {
   consumeAppCheckToken,
+  getClock,
   mintAppCheckToken,
   type MintedAppCheckToken,
 } from 'pyric/sandbox/internal';
@@ -86,10 +87,13 @@ export async function handleAppCheckOp(
     const projectId = resolveProjectId(ctx, appCheckMsg.projectId);
     const appId = resolveAppId(ctx, appCheckMsg.appId);
 
+    const nowMillis = getClock(ctx.sandbox).now();
+
     if (appCheckMsg.method === 'appCheck.getLimitedUseToken') {
       const minted = await mintAppCheckToken(
         { appId, projectId, jti: randomUuid() },
         LIMITED_USE_TTL_SECONDS,
+        nowMillis,
       );
       ok(port, appCheckMsg.id, {
         token: minted.token,
@@ -101,7 +105,6 @@ export async function handleAppCheckOp(
     const cache = portTokenCache(ctx, port);
     const cacheKey = `${projectId}::${appId}`;
     const forceRefresh = appCheckMsg.forceRefresh === true;
-    const nowMillis = Date.now();
     if (!forceRefresh) {
       const cached = cache.get(cacheKey);
       if (cached !== undefined && cached.expireTimeMillis > nowMillis) {

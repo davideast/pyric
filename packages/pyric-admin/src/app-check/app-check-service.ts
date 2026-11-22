@@ -5,6 +5,7 @@ import { isRemoteSandbox } from 'pyric/sandbox';
 import {
   checkAppCheckToken,
   consumeAppCheckToken,
+  getClock,
   mintAppCheckToken,
   type AppCheckIdentity,
   type AppCheckTokenClaims,
@@ -123,7 +124,8 @@ export class AppCheck {
     if (options?.jti !== undefined) {
       identity.jti = options.jti;
     }
-    const minted = await mintAppCheckToken(identity, Math.round(requestedTtlMillis / 1000));
+    const nowMillis = await this.#sandboxNowMillis();
+    const minted = await mintAppCheckToken(identity, Math.round(requestedTtlMillis / 1000), nowMillis);
     return { token: minted.token, ttlMillis: Math.floor(requestedTtlMillis) };
   }
 
@@ -155,8 +157,9 @@ export class AppCheck {
       return this.#recordConsume(verified, appCheckToken, options);
     }
     if (!check.ok) throw new FirebaseAppCheckError('invalid-argument', MESSAGES.signature);
-    verifyNotBefore(check.claims.nbf);
-    verifyExpiry(check.claims.exp);
+    const nowMillis = await this.#sandboxNowMillis();
+    verifyNotBefore(check.claims.nbf, nowMillis);
+    verifyExpiry(check.claims.exp, nowMillis);
     const claims = check.claims as AppCheckTokenClaims;
     const result: VerifyAppCheckTokenResponse = {
       appId: claims.sub,
@@ -190,6 +193,21 @@ export class AppCheck {
     return { alreadyConsumed, appId: result.appId, token: result.token };
   }
 
+  async #sandboxNowMillis(): Promise<number> {
+    const sandbox = this.#app.sandbox;
+    if (isRemoteSandbox(sandbox)) {
+      const reply = (await sandbox.channel.op({ method: 'sandbox.clock' })) as { now?: unknown };
+      if (typeof reply?.now !== 'number' || !Number.isFinite(reply.now)) {
+        throw new FirebaseAppCheckError(
+          'unknown-error',
+          'Remote sandbox returned an invalid clock response for sandbox.clock.',
+        );
+      }
+      return reply.now;
+    }
+    return getClock(sandbox).now();
+  }
+
   #projectId(): string {
     const projectId = explicitProjectId(this.#app);
     if (!projectId) throw new FirebaseAppCheckError('invalid-credential', MESSAGES.noProject);
@@ -219,17 +237,17 @@ function verifyContent(
   if (claims.sub === '') throw new FirebaseAppCheckError('invalid-argument', MESSAGES.emptySub);
 }
 
-function verifyNotBefore(nbf: unknown): void {
+function verifyNotBefore(nbf: unknown, nowMillis: number): void {
   if (nbf === undefined) return;
-  const nowSeconds = Math.floor(Date.now() / 1000);
+  const nowSeconds = Math.floor(nowMillis / 1000);
   const active = typeof nbf === 'number' && nbf <= nowSeconds;
   if (!active) throw new FirebaseAppCheckError('invalid-argument', MESSAGES.signature);
 }
 
-function verifyExpiry(exp: unknown): void {
+function verifyExpiry(exp: unknown, nowMillis: number): void {
   if (exp === undefined) return;
   if (typeof exp !== 'number') throw new FirebaseAppCheckError('invalid-argument', MESSAGES.signature);
-  const nowSeconds = Math.floor(Date.now() / 1000);
+  const nowSeconds = Math.floor(nowMillis / 1000);
   if (nowSeconds >= exp) throw new FirebaseAppCheckError('app-check-token-expired', MESSAGES.expired);
 }
 

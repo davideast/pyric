@@ -14,7 +14,7 @@
  */
 import type { AiDiagnosticKind } from './ai-diagnostics-relay.js';
 import { redactUrl } from 'pyric/ai/internal';
-import { sanitizeForTerminal } from './ai-terminal-text.js';
+import { AI_TERMINAL_HINT_MAX, sanitizeForTerminal } from './ai-terminal-text.js';
 
 /** Loosely-typed mirror of the AI rejection payload POSTed by
  *  `ai-diagnostics-relay.ts` (the wire shape lives there). */
@@ -73,9 +73,9 @@ export interface AiModelSubstitutionPayload {
 export type AiDiagnosticPayload = AiRejectionPayload & AiBlockedPayload & AiModelSubstitutionPayload;
 
 /** A non-empty string field, sanitized, or `null` when the wire omitted it. */
-function readText(value: unknown): string | null {
+function readText(value: unknown, maxLength?: number): string | null {
   if (typeof value !== 'string' || value === '') return null;
-  return sanitizeForTerminal(redactUrl(value));
+  return sanitizeForTerminal(redactUrl(value), maxLength);
 }
 
 /** A raw (unsanitized) string field, for throttle keys that never print. */
@@ -151,7 +151,7 @@ export function formatAiRejectionBlock(payload: AiRejectionPayload, observed?: O
     if (code !== null) suffix = ` (${code})`;
     lines.push(`      ${label}${suffix}`);
   }
-  const hint = readText(payload.hint);
+  const hint = readText(payload.hint, AI_TERMINAL_HINT_MAX);
   if (hint !== null) lines.push(`      ${hint}`);
   lines.push(...fromLines(observed));
   return lines.join('\n');
@@ -230,7 +230,12 @@ const AI_TERMINAL_BLOCKS: { [K in AiDiagnosticKind]: AiTerminalBlock } = {
     printsOnce: false,
     format: formatAiRejectionBlock,
     throttleTarget: (payload) => `ai-rejection ${readRawText(payload.model, '')}`,
-    throttleReason: (payload) => readRawText(payload.message, 'request rejected'),
+    throttleReason: (payload) => {
+      const reason = readRawText(payload.message, 'request rejected');
+      const hint = readRawText(payload.hint, '');
+      if (hint === '') return reason;
+      return `${reason}\n${hint}`;
+    },
   },
   'ai-blocked': {
     printsOnce: false,

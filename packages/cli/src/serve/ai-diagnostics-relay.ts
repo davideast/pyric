@@ -1,5 +1,5 @@
 import type { SandboxEvent } from 'pyric/sandbox';
-import { capTerminalText } from './ai-terminal-text.js';
+import { AI_TERMINAL_HINT_MAX, capTerminalText } from './ai-terminal-text.js';
 
 /**
  * AI diagnostics relay: headless dev visibility for the three things the
@@ -124,10 +124,14 @@ export type AiDiagnosticRelayPayload =
  * megabyte in its `finishMessage` must not push a megabyte through the
  * fire-and-forget POST just to have the terminal cut it.
  */
-function detailText(detail: Record<string, unknown>, field: string): string | undefined {
+function detailText(
+  detail: Record<string, unknown>,
+  field: string,
+  maxLength?: number,
+): string | undefined {
   const value = detail[field];
   if (typeof value !== 'string') return undefined;
-  return capTerminalText(value);
+  return capTerminalText(value, maxLength);
 }
 
 /** The event's `path` when it names a model, or `undefined`. */
@@ -151,7 +155,7 @@ function toRejectionPayload(event: ServiceMutation): AiRejectionRelayPayload | n
   payload.engine = detailText(detail, 'engine');
   payload.status = detailText(detail, 'status');
   if (typeof detail.code === 'number') payload.code = detail.code;
-  const hint = detailText(detail, 'hint');
+  const hint = detailText(detail, 'hint', AI_TERMINAL_HINT_MAX);
   if (hint !== undefined) payload.hint = hint;
   return payload;
 }
