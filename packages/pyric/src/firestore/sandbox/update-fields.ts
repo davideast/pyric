@@ -341,6 +341,9 @@ function assertNoUndefined(
     for (const entry of value) assertNoUndefined(methodName, targetDoc, entry, undefined);
     return;
   }
+  if (typeof value === 'object' && value !== null && registeredReferenceQueryValue(value) !== undefined) {
+    return;
+  }
   if (isPlainObject(value)) {
     for (const [key, entry] of Object.entries(value)) {
       assertNoUndefined(methodName, targetDoc, entry, path === undefined ? undefined : [...path, key]);

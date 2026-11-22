@@ -55,6 +55,28 @@ export interface PendingStorageTargetRules {
   bucketsByProject: Record<string, string[]>;
 }
 
+/** The named Firestore databases a project declares in `firebase.json`, with each database's rules. */
+export interface FirestoreDatabasesRules {
+  /** Every valid named Firestore database `firebase.json` declares, whether or not it deploys rules. */
+  declared: string[];
+  /** Each declared named database's rules, keyed by database id; null when declared with no rules file. */
+  rules: Record<string, { rules: string; rulesHash: string } | null>;
+  /** Each configured database's rules file, relative to the project directory, for diagnostics. */
+  rulesFiles?: Record<string, string>;
+}
+
+/** A `firebase.json` Firestore deploy target the server could not map to databases at startup. */
+export interface PendingFirestoreTargetRules {
+  /** The deploy target name. */
+  target: string;
+  /** The target's prepared rules source; null when omitted or while its rules file does not exist. */
+  rules: string | null;
+  /** Hash of `rules` when non-null. */
+  rulesHash?: string | null;
+  /** The database ids `.firebaserc` maps the target to, by project id. */
+  databasesByProject: Record<string, string[]>;
+}
+
 /** Browser-safe wire contract served by `/__pyric/init.json`. */
 export interface InitPayload {
   /**
@@ -71,6 +93,10 @@ export interface InitPayload {
   sessionToken?: string;
   rules: string | null;
   rulesHash: string | null;
+  /** Named Firestore databases declared in `firebase.json` and each database's deployed rules. */
+  firestoreDatabases?: FirestoreDatabasesRules | null;
+  /** Firestore deploy targets no project resolved at startup; resolved once app config names a project. */
+  firestorePendingTargets?: PendingFirestoreTargetRules[];
   /** The default instance's Realtime Database rules, for consumers that serve one database. */
   databaseRules?: RtdbRulesJson | null;
   databaseRulesHash?: string | null;

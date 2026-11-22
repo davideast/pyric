@@ -7,9 +7,10 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initializeSandbox, type LocalSandbox } from 'pyric/sandbox';
-import { doc, getFirestore, setDoc } from 'pyric/firestore';
+import { doc, getDoc, getFirestore, setDoc } from 'pyric/firestore';
 import { getDatabase, ref, set } from 'pyric/database';
 import { getStorage, ref as storageRef, uploadString } from '../../src/storage/index.js';
+import { createAppForSandbox as createDistAppForSandbox } from 'pyric/app/internal';
 import { createAppForSandbox } from '../../src/app/internal.js';
 import { loadProjectRules } from '../../src/app/register-rules.js';
 
@@ -176,7 +177,7 @@ describe('loadProjectRules (pyric/app/register)', () => {
   });
 });
 
-// #1315: the array `firestore` form deploys its `(default)` entry to (default).
+// #1315, #1319: the array `firestore` form deploys each entry to its own database.
 describe('loadProjectRules (pyric/app/register) with a firestore array', () => {
   const DECOY_RULES = `rules_version = '2';
 service cloud.firestore {
@@ -196,28 +197,66 @@ service cloud.firestore {
     'firestore.rules': DECOY_RULES,
   };
 
-  it('applies the (default) entry, not the decoy firestore.rules', async () => {
-    const { sandbox } = load(project(arrayProject));
-    const db = getFirestore(sandbox.withAuth(null));
+  it('applies each array entry to its own database with no stderr warning', async () => {
+    const { sandbox, stderr } = load(project(arrayProject));
+    expect(stderr).toBe('');
+    const app = createDistAppForSandbox(sandbox, { projectId: 'rules-demo' }, `register-fs-${Math.random()}`);
+    const db = getFirestore(app);
     await setDoc(doc(db, 'open/a'), { ok: true });
     await expect(setDoc(doc(db, 'locked/x'), { ok: false })).rejects.toMatchObject({ code: 'permission-denied' });
+
+    const reports = getFirestore(app, 'reports');
+    await setDoc(doc(reports, 'locked/x'), { ok: true });
+
+    const undeclared = getFirestore(app, 'undeclared');
+    await expect(getDoc(doc(undeclared, 'open/a'))).rejects.toMatchObject({ code: 'unavailable' });
   });
 
-  it('warns on stderr that the named database is not served', () => {
-    const { stderr } = load(project(arrayProject));
-    expect(stderr).toBe(
-      'pyric/app/register: firebase.json deploys reports.rules to Firestore database "reports". Pyric serves only (default) for now, so getFirestore(app, "reports") reads and writes (default) under (default)\'s rules. See https://github.com/davideast/pyric/issues/1314.\n',
-    );
-  });
-
-  it('applies the (default) rules a .firebaserc deploy target maps', async () => {
+  it('declares a named database entry without a rules file as locked', async () => {
     const { sandbox, stderr } = load(project({
-      'firebase.json': { firestore: [{ target: 'main', rules: 'firestore.default.rules' }] },
-      '.firebaserc': { projects: { default: 'demo' }, targets: { demo: { firestore: { main: ['(default)'] } } } },
+      'firebase.json': {
+        firestore: [
+          { database: '(default)', rules: 'firestore.default.rules' },
+          { database: 'reports' },
+        ],
+      },
       'firestore.default.rules': FIRESTORE_RULES,
       'firestore.rules': DECOY_RULES,
     }));
     expect(stderr).toBe('');
-    await expect(setDoc(doc(getFirestore(sandbox.withAuth(null)), 'locked/x'), { ok: false })).rejects.toMatchObject({ code: 'permission-denied' });
+    const app = createDistAppForSandbox(sandbox, { projectId: 'rules-demo' }, `register-fs-${Math.random()}`);
+    await expect(setDoc(doc(getFirestore(app, 'reports'), 'open/a'), { ok: true })).rejects.toMatchObject({
+      code: 'permission-denied',
+    });
+  });
+
+  it('applies a .firebaserc deploy target mapped to multiple databases', async () => {
+    const { sandbox, stderr } = load(project({
+      'firebase.json': { firestore: [{ target: 'main', rules: 'firestore.default.rules' }] },
+      '.firebaserc': { projects: { default: 'demo' }, targets: { demo: { firestore: { main: ['(default)', 'reports'] } } } },
+      'firestore.default.rules': FIRESTORE_RULES,
+      'firestore.rules': DECOY_RULES,
+    }));
+    expect(stderr).toBe('');
+    const app = createDistAppForSandbox(sandbox, { projectId: 'demo' }, `register-fs-${Math.random()}`);
+    await expect(setDoc(doc(getFirestore(app), 'locked/x'), { ok: false })).rejects.toMatchObject({ code: 'permission-denied' });
+    await setDoc(doc(getFirestore(app, 'reports'), 'open/a'), { ok: true });
+    await expect(setDoc(doc(getFirestore(app, 'reports'), 'locked/x'), { ok: false })).rejects.toMatchObject({
+      code: 'permission-denied',
+    });
+  });
+
+  it('warns on stderr when firebase.json names an invalid database id', () => {
+    const { stderr } = load(project({
+      'firebase.json': {
+        firestore: [
+          { database: '(default)', rules: 'firestore.default.rules' },
+          { database: 'Bad_Id', rules: 'reports.rules' },
+        ],
+      },
+      'firestore.default.rules': FIRESTORE_RULES,
+      'reports.rules': DECOY_RULES,
+    }));
+    expect(stderr).toContain('Bad_Id');
   });
 });

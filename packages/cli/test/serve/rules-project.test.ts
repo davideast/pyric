@@ -14,8 +14,18 @@ import { join } from 'node:path';
 import { firestoreRules, serverTimestamp, type FirestoreCase } from 'pyric/rules';
 import { resolveModules } from 'pyric/rules/internal/node';
 import { firestoreRulesPath, loadProjectRules, prepareRulesSource, prepareStorageRulesSource } from '../../src/serve/rules.js';
+import { loadProjectFirestoreRules } from '../../src/serve/firestore-project-rules.js';
+import {
+  applyFirestoreRulesUpdate,
+  installServedFirestoreRules,
+  resolvePendingFirestoreTargets,
+} from '../../src/serve/firestore-rules-install.js';
+import { createSandboxSession } from '../../src/serve/sandbox-session.js';
 import { resolveViteRulesConfig } from '../../src/serve/vite-rules-source.js';
 import { withDefaultFirestoreRules } from '../../src/cli/firebase-json.js';
+import { initializeSandbox } from 'pyric/sandbox';
+import { doc, getFirestore, setDoc } from 'pyric/firestore';
+import { inspect } from 'pyric/sandbox/firestore';
 
 const PACKAGE_ROOT = join(import.meta.dir, '..', '..');
 const CLI_ENTRY = join(PACKAGE_ROOT, 'src', 'cli', 'index.ts');
@@ -98,15 +108,23 @@ describe('a multi-file rules project', () => {
 });
 
 /**
- * The array `firestore` form (#1315): the `(default)` entry's rules govern
- * `(default)`, a permissive `firestore.rules` the array does not name is not
- * served, and each named entry gets a warning.
+ * The array `firestore` form (#1315, #1319): each entry's rules govern its own
+ * database, a permissive `firestore.rules` the array does not name is not
+ * served, and `.firebaserc` targets + hot-reload work per database.
  */
 describe('a firebase.json that declares firestore as an array', () => {
   const DEFAULT_RULES = `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /locked/{id} { allow read: if true; allow write: if false; }
+  }
+}
+`;
+  const REPORTS_RULES = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /open/{id} { allow read, write: if true; }
+    match /locked/{id} { allow read, write: if true; }
   }
 }
 `;
@@ -128,41 +146,147 @@ service cloud.firestore {
   function arrayProject(): string {
     const dir = mkdtempSync(join(tmpdir(), 'pyric-firestore-array-'));
     writeFileSync(join(dir, 'firestore.default.rules'), DEFAULT_RULES);
-    writeFileSync(join(dir, 'reports.rules'), DECOY_RULES);
+    writeFileSync(join(dir, 'reports.rules'), REPORTS_RULES);
     writeFileSync(join(dir, 'firestore.rules'), DECOY_RULES);
     return dir;
   }
 
-  test('the dev server loads the (default) entry, not the decoy firestore.rules', async () => {
+  test('the dev server loads the (default) entry and each named database entry with no warning', async () => {
     const dir = arrayProject();
     const loaded = await loadProjectRules(dir, ARRAY_CONFIG);
     expect(loaded.sourcePath).toBe(join(dir, 'firestore.default.rules'));
     expect(loaded.rules).toBe(DEFAULT_RULES);
+    expect(loaded.warnings).toEqual([]);
+
+    const multi = await loadProjectFirestoreRules(dir, ARRAY_CONFIG);
+    expect(multi.warnings).toEqual([]);
+    expect(multi.targets.map((t) => t.database)).toEqual(['(default)', 'reports']);
+    expect(multi.databases.get('(default)')?.rules).toBe(DEFAULT_RULES);
+    expect(multi.databases.get('reports')?.rules).toBe(REPORTS_RULES);
   });
 
-  test('the dev server warns that the named database is not served', async () => {
-    const loaded = await loadProjectRules(arrayProject(), ARRAY_CONFIG);
-    expect(loaded.warnings).toEqual([
-      'firebase.json deploys reports.rules to Firestore database "reports". Pyric serves only (default) for now, so getFirestore(app, "reports") reads and writes (default) under (default)\'s rules. See https://github.com/davideast/pyric/issues/1314.',
-    ]);
-  });
-
-  test('an array with no (default) rules serves none, not the decoy', async () => {
+  test('an array with no (default) rules serves none on (default) and loads the named database', async () => {
     const dir = arrayProject();
     expect((await loadProjectRules(dir, REPORTS_ONLY)).rules).toBeNull();
     expect(firestoreRulesPath(dir, REPORTS_ONLY)).toBeNull();
+
+    const multi = await loadProjectFirestoreRules(dir, REPORTS_ONLY);
+    expect(multi.targets.map((t) => t.database)).toEqual(['reports']);
+    expect(multi.databases.get('reports')?.rules).toBe(REPORTS_RULES);
   });
 
-  test('a deploy target .firebaserc maps to (default) governs (default)', async () => {
+  test('a deploy target .firebaserc maps to multiple databases governs all of them', async () => {
     const dir = arrayProject();
     writeFileSync(join(dir, '.firebaserc'), JSON.stringify({
       projects: { default: 'demo' },
-      targets: { demo: { firestore: { main: ['(default)'] } } },
+      targets: { demo: { firestore: { main: ['(default)', 'reports'] } } },
     }));
     const config = { firestore: [{ target: 'main', rules: 'firestore.default.rules' }] };
     const loaded = await loadProjectRules(dir, config, { projectId: 'demo' });
     expect(loaded.sourcePath).toBe(join(dir, 'firestore.default.rules'));
     expect(loaded.warnings).toEqual([]);
+
+    const multi = await loadProjectFirestoreRules(dir, config, { projectId: 'demo' });
+    expect(multi.targets.map((t) => t.database)).toEqual(['(default)', 'reports']);
+  });
+
+  test('resolves an initially unresolved .firebaserc target once the app config names projectId', async () => {
+    const dir = arrayProject();
+    writeFileSync(join(dir, '.firebaserc'), JSON.stringify({
+      targets: { 'late-proj': { firestore: { analytics: ['reports', 'archive'] } } },
+    }));
+    const config = { firestore: [{ target: 'analytics', rules: 'reports.rules' }] };
+    const multi = await loadProjectFirestoreRules(dir, config);
+    expect(multi.targets).toEqual([]);
+    expect(multi.pending).toHaveLength(1);
+
+    const sandbox = initializeSandbox();
+    installServedFirestoreRules(sandbox, {
+      firestorePendingTargets: multi.pending.map((pending) => ({
+        target: pending.target,
+        rules: pending.rules,
+        rulesHash: pending.rulesHash,
+        databasesByProject: pending.databasesByProject,
+      })),
+    });
+    expect(() => inspect(sandbox, { databaseId: 'reports' })).toThrow();
+    resolvePendingFirestoreTargets(sandbox, 'late-proj');
+    expect(inspect(sandbox, { databaseId: 'reports' }).rules.source).toBe(REPORTS_RULES);
+    expect(inspect(sandbox, { databaseId: 'archive' }).rules.source).toBe(REPORTS_RULES);
+
+    const tightened = DEFAULT_RULES;
+    applyFirestoreRulesUpdate(sandbox, {
+      target: 'analytics',
+      rules: tightened,
+      rulesHash: 'tightened',
+      policy: 'deny',
+    });
+    expect(inspect(sandbox, { databaseId: 'reports' }).rules.source).toBe(tightened);
+    expect(inspect(sandbox, { databaseId: 'archive' }).rules.source).toBe(tightened);
+  });
+
+  test('resolves a rules-less .firebaserc target as open when permissive: true', async () => {
+    const sandbox = initializeSandbox();
+    installServedFirestoreRules(sandbox, {
+      permissive: true,
+      firestorePendingTargets: [
+        {
+          target: 'regional',
+          rules: null,
+          databasesByProject: { 'acme-prod': ['archive-eu'] },
+        },
+      ],
+    });
+    const notices = resolvePendingFirestoreTargets(sandbox, 'acme-prod');
+    expect(notices.some((line) => line.includes('are open (permissive mode)'))).toBe(true);
+    await setDoc(doc(getFirestore(sandbox.withAuth(null), 'archive-eu'), 'items/one'), { ok: true });
+    expect(inspect(sandbox, { databaseId: 'archive-eu' }).documents.totalCount).toBe(1);
+  });
+
+  test('hot-reloads every database sharing a modified rules file or imported module', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-firestore-reload-'));
+    writeFileSync(join(dir, 'shared.rules'), "export function canWrite() { return true; }\n");
+    const modularMain = [
+      "rules_version = '2+modules';",
+      "import { canWrite } from './shared';",
+      'service cloud.firestore {',
+      '  match /databases/{database}/documents {',
+      '    match /items/{id} { allow read, write: if canWrite(); }',
+      '  }',
+      '}',
+      '',
+    ].join('\n');
+    writeFileSync(join(dir, 'main.rules'), modularMain);
+    const deployed: Array<{ service: string; destination?: unknown; rules: string | null }> = [];
+    const session = await createSandboxSession({
+      projectDir: dir,
+      firebaseConfig: {
+        firestore: [
+          { database: '(default)', rules: 'main.rules' },
+          { database: 'reports', rules: 'main.rules' },
+        ],
+      },
+      sdk: { dir },
+      persistence: { fresh: true },
+      studio: false,
+      deployHostedRules: (service, rules, destination) => {
+        deployed.push({ service, destination, rules });
+      },
+    });
+    try {
+      expect(session.firestoreRulesFiles()).toContain(join(dir, 'main.rules'));
+      expect(session.firestoreRulesFiles()).toContain(join(dir, 'shared.rules'));
+
+      writeFileSync(join(dir, 'shared.rules'), "export function canWrite() { return false; }\n");
+      const reloaded = await session.reloadFirestoreDatabaseRules(join(dir, 'shared.rules'));
+      expect(reloaded.map((r) => r.database)).toEqual(['(default)', 'reports']);
+      expect(reloaded.every((r) => r.result.kind === 'reloaded')).toBe(true);
+      expect(deployed.map((d) => d.destination)).toEqual([undefined, 'reports']);
+      expect(deployed[0]?.rules).toContain('return false;');
+      expect(deployed[1]?.rules).toContain('return false;');
+    } finally {
+      await session.close();
+    }
   });
 
   test('a Vite rules override reaches (default) through a .firebaserc target, with no second entry', async () => {
@@ -178,11 +302,16 @@ service cloud.firestore {
     expect(loaded.warnings).toEqual([]);
   });
 
-  test('a pyric.config rules override replaces the (default) entry of an array', async () => {
+  test('a pyric.config rules override replaces the (default) entry of an array while preserving named entries', async () => {
     const dir = arrayProject();
     writeFileSync(join(dir, 'override.rules'), DEFAULT_RULES);
     const config = { firestore: withDefaultFirestoreRules(ARRAY_CONFIG.firestore, 'override.rules') };
     expect((await loadProjectRules(dir, config)).sourcePath).toBe(join(dir, 'override.rules'));
+    const multi = await loadProjectFirestoreRules(dir, config);
+    expect(multi.targets.map((t) => [t.database, multi.databases.get(t.database)?.sourcePath])).toEqual([
+      ['(default)', join(dir, 'override.rules')],
+      ['reports', join(dir, 'reports.rules')],
+    ]);
   });
 
   test('an entry with neither target nor database refuses to load, naming the entry', async () => {
@@ -199,9 +328,8 @@ service cloud.firestore {
 });
 
 /**
- * An object `firestore` that names a database other than `(default)`: pyric
- * enforced its rules on `(default)` before it modeled named databases, and it
- * keeps doing so, with a warning, until the named-database work (#1316 on).
+ * An object `firestore` that names a database other than `(default)` deploys
+ * its rules to that named database and leaves `(default)` undeployed (#1319).
  */
 describe('a firebase.json whose firestore object names a database', () => {
   const RULES = `rules_version = '2';
@@ -212,22 +340,28 @@ service cloud.firestore {
 }
 `;
 
-  test('the dev server serves the object rules on (default) and warns', async () => {
+  test('the dev server serves the object rules on the named database with no warning', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'pyric-firestore-object-'));
     writeFileSync(join(dir, 'r.rules'), RULES);
     const loaded = await loadProjectRules(dir, { firestore: { database: 'reports', rules: 'r.rules' } });
-    expect(loaded.sourcePath).toBe(join(dir, 'r.rules'));
-    expect(loaded.rules).toBe(RULES);
-    expect(loaded.warnings).toEqual([
-      'firebase.json deploys r.rules to Firestore database "reports". Pyric serves only (default) for now, so it enforces r.rules on (default), and getFirestore(app, "reports") reads and writes (default). See https://github.com/davideast/pyric/issues/1314.',
+    expect(loaded.sourcePath).toBeNull();
+    expect(loaded.rules).toBeNull();
+    expect(loaded.warnings).toEqual([]);
+
+    const multi = await loadProjectFirestoreRules(dir, { firestore: { database: 'reports', rules: 'r.rules' } });
+    expect(multi.warnings).toEqual([]);
+    expect(multi.targets.map((t) => [t.database, multi.databases.get(t.database)?.sourcePath])).toEqual([
+      ['reports', join(dir, 'r.rules')],
     ]);
   });
 
-  test('a Vite rules override on that object takes effect', async () => {
+  test('a Vite rules override on that object overrides (default) while preserving the named database', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'pyric-firestore-object-'));
     writeFileSync(join(dir, 'r.rules'), RULES);
     writeFileSync(join(dir, 'firestore.modules.rules'), RULES);
     const config = resolveViteRulesConfig(dir, undefined, { firestore: { database: 'reports', rules: 'r.rules' } });
     expect((await loadProjectRules(dir, config)).sourcePath).toBe(join(dir, 'firestore.modules.rules'));
+    const multi = await loadProjectFirestoreRules(dir, config);
+    expect(multi.targets.map((t) => t.database)).toEqual(['reports', '(default)']);
   });
 });

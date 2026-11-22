@@ -22,6 +22,7 @@ import { getApps } from 'pyric/app';
 import { seedDocuments, setRules, snapshotDocuments } from 'pyric/sandbox/firestore';
 import { rulesSourceRejection } from 'pyric/rules/internal';
 import { getDatabase } from 'pyric/database';
+import { installServedFirestoreRules } from '../firestore-rules-install.js';
 import { installServedStorageRules } from '../storage-rules-install.js';
 import { getAuth, sandbox as authOps, type SeedUser } from 'pyric/auth';
 import type { ConnectedBridge } from '../../bridge/client/bridge.js';
@@ -204,6 +205,12 @@ if (!useWorker) try {
     setRules(sandbox, payload.rules);
     diagnostics.rulesDeployed = true;
     diagnostics.rulesHash = payload.rulesHash;
+  }
+  for (const notice of installServedFirestoreRules(sandbox, payload)) {
+    console.info(`[pyric sandbox] ${notice}`);
+  }
+  if (Object.keys(payload.firestoreDatabases?.rules ?? {}).length > 0) {
+    diagnostics.rulesDeployed = true;
   }
   const databaseInstances = payload.databaseInstances ?? null;
   const defaultDbPolicy = payload.permissive ? 'allow' : 'deny';

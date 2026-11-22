@@ -148,7 +148,7 @@ describe('the in-process server resolving firebase.json', () => {
     return dir;
   }
 
-  it('loads the (default) entry of an array, not firestore.rules, and warns about the named one', () => {
+  it('loads every entry of an array into its own database with no warning', () => {
     const dir = arrayProject();
     try {
       const warnings: string[] = [];
@@ -158,8 +158,8 @@ describe('the in-process server resolving firebase.json', () => {
         refused: null,
       });
       expect(inspect(sandbox).rules.source).toBe(DEFAULT_RULES);
-      expect(warnings).toHaveLength(1);
-      expect(warnings[0]).toStartWith('firebase.json deploys reports.rules to Firestore database "reports".');
+      expect(inspect(sandbox, { databaseId: 'reports' }).rules.source).toBe(IN_FORCE);
+      expect(warnings).toEqual([]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

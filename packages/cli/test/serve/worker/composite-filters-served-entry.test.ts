@@ -52,8 +52,9 @@ function portPair(): { a: FakePort; b: FakePort } {
 
 async function makeHostCtx(): Promise<HostCtx> {
   const sandbox = initializeSandbox();
-  const { getFirestore: adm } = await import('pyric/sandbox/admin-firestore');
-  adm(sandbox.withAuth(null)).setRules(PERMISSIVE_RULES);
+  const { setRules } = await import('pyric/sandbox/firestore');
+  setRules(sandbox, PERMISSIVE_RULES);
+  setRules(sandbox, PERMISSIVE_RULES, 'reports');
   return { db: ipGetFirestore(sandbox), sandbox, instanceId: 'composite-served-entry', subs: new Map() };
 }
 
@@ -185,18 +186,28 @@ describe('composite or()/and() over the SharedWorker via the served firebase/fir
   });
 });
 
-// Production binds `getFirestore(app, databaseId)` to that named database. The
-// worker protocol carries no database id, so the served entry returns the
-// app's one handle and every id reads the (default) documents.
+// Production binds `getFirestore(app, databaseId)` to that named database, and
+// worker protocol v2 routes operations to the matching host database store.
 describe('getFirestore(app, databaseId) via the served firebase/firestore entry', () => {
-  it('resolves every database id to the (default) database', async () => {
-    const getFirestoreWithDatabaseId = fs.getFirestore as unknown as (
-      app: FirebaseApp,
-      databaseId: string,
-    ) => typeof db;
-    const reports = getFirestoreWithDatabaseId(fixtureApp, 'reports');
-    expect(reports).toBe(db);
-    const snap = await fs.getDocs(fs.collection(reports, 'items'));
-    expect((snap as { docs: Array<{ id: string }> }).docs.map((d) => d.id).sort()).toEqual(['a', 'b', 'c', 'd']);
+  it('binds a distinct handle per databaseId and isolates documents from (default)', async () => {
+    const reports = fs.getFirestore(fixtureApp, 'reports');
+    expect(reports).not.toBe(db);
+    expect(fs.getFirestore(fixtureApp, 'reports')).toBe(reports);
+    expect(fs.getFirestore(fixtureApp, '(default)')).toBe(db);
+
+    const initialReportsSnap = await fs.getDocs(fs.collection(reports, 'items'));
+    expect((initialReportsSnap as { docs: Array<{ id: string }> }).docs.map((d) => d.id)).toEqual([]);
+
+    await fs.setDoc(fs.doc(reports, 'items/r1'), { cat: 'r', n: 1 });
+    const afterReportsSnap = await fs.getDocs(fs.collection(reports, 'items'));
+    expect((afterReportsSnap as { docs: Array<{ id: string }> }).docs.map((d) => d.id)).toEqual(['r1']);
+
+    const defaultSnap = await fs.getDocs(fs.collection(db, 'items'));
+    expect((defaultSnap as { docs: Array<{ id: string }> }).docs.map((d) => d.id).sort()).toEqual([
+      'a',
+      'b',
+      'c',
+      'd',
+    ]);
   });
 });

@@ -2,6 +2,11 @@ import type { LocalSandbox } from 'pyric/sandbox';
 import { setRules } from 'pyric/sandbox/firestore';
 import { rulesSourceRejection } from 'pyric/rules/internal';
 import {
+  applyFirestoreRulesUpdate,
+  firestoreRulesUpdateNotice,
+  type FirestoreRulesUpdate,
+} from '../firestore-rules-install.js';
+import {
   applyStorageRulesUpdate,
   storageRulesUpdateNotice,
   type StorageRulesUpdate,
@@ -47,6 +52,21 @@ export function setupInPageRulesEvents(
       reportError(err);
       const detail = err instanceof Error ? err.message : String(err);
       console.error('[pyric sandbox] rules hot-reload failed:', detail);
+    }
+  });
+  events.addEventListener('firestore-rules-update', (e) => {
+    try {
+      const update = JSON.parse((e as MessageEvent).data as string) as FirestoreRulesUpdate;
+      applyFirestoreRulesUpdate(sandbox, update);
+      let hashSuffix = '';
+      if (update.rules !== null && typeof update.rulesHash === 'string') {
+        hashSuffix = ` (hash ${update.rulesHash})`;
+      }
+      console.info(`[pyric sandbox] ${firestoreRulesUpdateNotice(update)}${hashSuffix}`);
+    } catch (err) {
+      reportError(err);
+      const detail = err instanceof Error ? err.message : String(err);
+      console.error('[pyric sandbox] firestore rules hot-reload failed:', detail);
     }
   });
   events.addEventListener('rtdb-rules-update', (e) => {

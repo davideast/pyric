@@ -1,6 +1,6 @@
 /**
  * The Firestore databases a `firebase.json` deploys to, with the rules and
- * indexes files each one gets.
+ * indexes files each one gets (ADR-0021 Decision 6).
  *
  * Resolved as `firebase deploy` resolves them (`lib/firestore/fsConfig.js`
  * `getFirestoreConfig` in firebase-tools 15.24.0):
@@ -19,24 +19,15 @@
  * ruleset production keeps. This follows `database-rules-config.ts` for RTDB.
  *
  * Without a `firestore` key, or with an object that names no `rules`,
- * `firestore.rules` goes to `(default)` with `configured: false`, as pyric
- * has always read it (#1452 tracks whether it should). The array form gets no such fallback: a `firestore.rules`
- * the array does not name is not deployed, so it is not served.
+ * `firestore.rules` goes to `(default)` with `configured: false` (#1452). When
+ * an object names a non-`(default)` `database` and no `rules`, that database is
+ * also declared with no `rulesFile` so server-only Admin projects work with
+ * `{ "database": "reports" }`. The array form gets no `firestore.rules`
+ * fallback.
  *
- * Two pyric-only rules keep what pyric enforced before it modeled named
- * databases, so no project loses enforcement it had:
- *
- * - An object whose `database` names a database other than `(default)` is
- *   still served on `(default)` by {@link defaultFirestoreDatabase}, with a
- *   warning. The result still says which database the object deploys to.
- * - An array entry `{ pyricRulesOverride: file }`, which only pyric writes
- *   (for a Vite or `pyric.config` rules override), replaces the rules the
- *   `(default)` database resolves to, however the array reaches it.
- *
- * The result shape follows ADR-0021 decision 6, so the named-database work
- * reuses it unchanged. Pure: it reads no file. Errors are plain `Error`s whose
- * message names the `firebase.json` entry; callers prefix them with their own
- * context.
+ * An array entry `{ pyricRulesOverride: file }`, which only pyric writes (for a
+ * Vite or `pyric.config` rules override), replaces the rules `(default)`
+ * resolves to, however the configuration reaches it.
  */
 
 /** The id the SDK gives the default database. */
@@ -48,8 +39,28 @@ export const DEFAULT_FIRESTORE_RULES_FILE = 'firestore.rules';
 /** The key of the array entry pyric adds for a rules override; `firebase.json` never holds it. */
 export const FIRESTORE_RULES_OVERRIDE_KEY = 'pyricRulesOverride';
 
-/** The issue that tracks serving Firestore named databases. */
+/** The issue that tracks serving Firestore named databases (kept for back-compat). */
 export const FIRESTORE_NAMED_DATABASES_ISSUE = 'https://github.com/davideast/pyric/issues/1314';
+
+/** Production quota on declared Firestore databases per project, `(default)` included. */
+export const MAX_CONFIGURED_FIRESTORE_DATABASES = 100;
+
+const DATABASE_ID_RULE_RE = /^[a-z][a-z0-9-]{2,61}[a-z0-9]$/;
+const UUID_SHAPE_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** True when `id` is `(default)` or passes Firebase's named-database naming rules (ADR-0021 Decision 1). */
+export function isValidFirestoreDatabaseConfigId(id: string): boolean {
+  if (id === DEFAULT_FIRESTORE_DATABASE) {
+    return true;
+  }
+  if (!DATABASE_ID_RULE_RE.test(id)) {
+    return false;
+  }
+  if (UUID_SHAPE_RE.test(id)) {
+    return false;
+  }
+  return true;
+}
 
 /** The files `firebase.json` deploys to one Firestore database. */
 export interface FirestoreDatabaseConfig {
@@ -110,38 +121,90 @@ function nonEmptyString(value: unknown): value is string {
 }
 
 function asEntry(raw: unknown): FirestoreEntry {
-  return raw !== null && typeof raw === 'object' ? raw : {};
+  if (raw !== null && typeof raw === 'object') {
+    return raw as FirestoreEntry;
+  }
+  return {};
 }
 
 function normalizedDatabase(id: string): string {
-  return id === '' ? DEFAULT_FIRESTORE_DATABASE : id;
+  if (id === '') {
+    return DEFAULT_FIRESTORE_DATABASE;
+  }
+  return id;
 }
 
-function fallbackDefault(resolveFile: (file: string) => string, indexesFile?: string): FirestoreDatabaseConfig {
-  return {
+function fallbackDefault(
+  resolveFile: (file: string) => string,
+  indexesFile?: string,
+): FirestoreDatabaseConfig {
+  const entry: FirestoreDatabaseConfig = {
     database: DEFAULT_FIRESTORE_DATABASE,
     rulesFile: resolveFile(DEFAULT_FIRESTORE_RULES_FILE),
-    ...(indexesFile === undefined ? {} : { indexesFile }),
     label: 'firebase.json',
     configured: false,
   };
+  if (indexesFile !== undefined) {
+    entry.indexesFile = indexesFile;
+  }
+  return entry;
 }
 
-function entryFiles(entry: FirestoreEntry, resolveFile: (file: string) => string): Pick<FirestoreDatabaseConfig, 'rulesFile' | 'indexesFile'> {
-  return {
-    ...(nonEmptyString(entry.rules) ? { rulesFile: resolveFile(entry.rules) } : {}),
-    ...(nonEmptyString(entry.indexes) ? { indexesFile: resolveFile(entry.indexes) } : {}),
-  };
+function entryFiles(
+  entry: FirestoreEntry,
+  resolveFile: (file: string) => string,
+): Pick<FirestoreDatabaseConfig, 'rulesFile' | 'indexesFile'> {
+  const files: Pick<FirestoreDatabaseConfig, 'rulesFile' | 'indexesFile'> = {};
+  if (nonEmptyString(entry.rules)) {
+    files.rulesFile = resolveFile(entry.rules);
+  }
+  if (nonEmptyString(entry.indexes)) {
+    files.indexesFile = resolveFile(entry.indexes);
+  }
+  return files;
 }
 
-function objectConfig(entry: FirestoreEntry, resolveFile: (file: string) => string): FirestoreRulesConfig {
-  const database = nonEmptyString(entry.database) ? entry.database : DEFAULT_FIRESTORE_DATABASE;
+function objectConfig(
+  entry: FirestoreEntry,
+  resolveFile: (file: string) => string,
+): FirestoreRulesConfig {
+  let database = DEFAULT_FIRESTORE_DATABASE;
+  if (nonEmptyString(entry.database)) {
+    database = entry.database;
+  }
   const files = entryFiles(entry, resolveFile);
-  // An object that names no rules has always fallen back to firestore.rules, whatever its database.
-  const keepsTodaysFallback = files.rulesFile === undefined;
-  if (keepsTodaysFallback) return { form: 'object', databases: [fallbackDefault(resolveFile, files.indexesFile)], unresolved: [] };
-  const configured = files.rulesFile !== undefined;
-  return { form: 'object', databases: [{ database, ...files, label: 'firebase.json firestore', configured }], unresolved: [] };
+  if (files.rulesFile === undefined) {
+    if (database === DEFAULT_FIRESTORE_DATABASE) {
+      return {
+        form: 'object',
+        databases: [fallbackDefault(resolveFile, files.indexesFile)],
+        unresolved: [],
+      };
+    }
+    const namedDeclaration: FirestoreDatabaseConfig = {
+      database,
+      label: 'firebase.json firestore',
+      configured: false,
+    };
+    if (files.indexesFile !== undefined) {
+      namedDeclaration.indexesFile = files.indexesFile;
+    }
+    return {
+      form: 'object',
+      databases: [fallbackDefault(resolveFile), namedDeclaration],
+      unresolved: [],
+    };
+  }
+  const single: FirestoreDatabaseConfig = {
+    database,
+    rulesFile: files.rulesFile,
+    label: 'firebase.json firestore',
+    configured: true,
+  };
+  if (files.indexesFile !== undefined) {
+    single.indexesFile = files.indexesFile;
+  }
+  return { form: 'object', databases: [single], unresolved: [] };
 }
 
 function addDatabase(databases: FirestoreDatabaseConfig[], next: FirestoreDatabaseConfig): void {
@@ -150,7 +213,10 @@ function addDatabase(databases: FirestoreDatabaseConfig[], next: FirestoreDataba
     databases.push(next);
     return;
   }
-  const conflicts = existing.rulesFile !== undefined && next.rulesFile !== undefined && existing.rulesFile !== next.rulesFile;
+  const conflicts =
+    existing.rulesFile !== undefined &&
+    next.rulesFile !== undefined &&
+    existing.rulesFile !== next.rulesFile;
   if (conflicts) {
     throw new Error(
       `firebase.json deploys two rules files to Firestore database "${next.database}": ${existing.rulesFile} from ${existing.label} and ${next.rulesFile} from ${next.label}. The Firebase CLI deploys both, so the configuration does not determine which one production keeps. Deploy one rules file to each database.`,
@@ -164,7 +230,29 @@ function addDatabase(databases: FirestoreDatabaseConfig[], next: FirestoreDataba
 }
 
 function targetIds(mapped: unknown): string[] {
-  return Array.isArray(mapped) ? mapped.filter(nonEmptyString) : [];
+  if (!Array.isArray(mapped)) {
+    return [];
+  }
+  return mapped.filter(nonEmptyString);
+}
+
+function assertConfiguredDatabaseCap(databases: readonly FirestoreDatabaseConfig[]): void {
+  let validNamedCount = 0;
+  for (const entry of databases) {
+    if (entry.database === DEFAULT_FIRESTORE_DATABASE) {
+      continue;
+    }
+    if (isValidFirestoreDatabaseConfigId(entry.database)) {
+      validNamedCount += 1;
+    }
+  }
+  // `(default)` is always one of the project's databases alongside named databases.
+  const totalDatabases = 1 + validNamedCount;
+  if (totalDatabases > MAX_CONFIGURED_FIRESTORE_DATABASES) {
+    throw new Error(
+      `firebase.json declares ${String(totalDatabases)} Firestore databases (including (default)), exceeding the limit of ${String(MAX_CONFIGURED_FIRESTORE_DATABASES)} databases per project.`,
+    );
+  }
 }
 
 /** Resolve the `firestore` value of a `firebase.json` to the files each database gets. */
@@ -174,14 +262,20 @@ export function firestoreRulesConfig(
 ): FirestoreRulesConfig {
   const resolveFile = options.resolveFile ?? ((file: string) => file);
   const isAbsent = firestore === undefined || firestore === null || typeof firestore !== 'object';
-  if (isAbsent) return { form: 'absent', databases: [fallbackDefault(resolveFile)], unresolved: [] };
-  if (!Array.isArray(firestore)) return objectConfig(asEntry(firestore), resolveFile);
+  if (isAbsent) {
+    return { form: 'absent', databases: [fallbackDefault(resolveFile)], unresolved: [] };
+  }
+  if (!Array.isArray(firestore)) {
+    const resolvedObject = objectConfig(asEntry(firestore), resolveFile);
+    assertConfiguredDatabaseCap(resolvedObject.databases);
+    return resolvedObject;
+  }
 
   const databases: FirestoreDatabaseConfig[] = [];
   const unresolved: UnresolvedFirestoreTarget[] = [];
   let override: string | undefined;
   firestore.forEach((raw: unknown, index) => {
-    const label = `firebase.json firestore[${index}]`;
+    const label = `firebase.json firestore[${String(index)}]`;
     const entry = asEntry(raw);
     const overrideFile = entry[FIRESTORE_RULES_OVERRIDE_KEY];
     if (nonEmptyString(overrideFile)) {
@@ -193,7 +287,14 @@ export function firestoreRulesConfig(
     if (nonEmptyString(entry.target)) {
       ids = targetIds(options.targetDatabases?.(entry.target));
       if (ids.length === 0) {
-        unresolved.push({ target: entry.target, label, ...files });
+        const pending: UnresolvedFirestoreTarget = { target: entry.target, label };
+        if (files.rulesFile !== undefined) {
+          pending.rulesFile = files.rulesFile;
+        }
+        if (files.indexesFile !== undefined) {
+          pending.indexesFile = files.indexesFile;
+        }
+        unresolved.push(pending);
         return;
       }
     } else if (nonEmptyString(entry.database)) {
@@ -202,10 +303,24 @@ export function firestoreRulesConfig(
       throw new Error(`${label}: Must supply either "target" or "databaseId" in firestore config`);
     }
     for (const id of ids) {
-      addDatabase(databases, { database: normalizedDatabase(id), ...files, label, configured: files.rulesFile !== undefined });
+      const dbEntry: FirestoreDatabaseConfig = {
+        database: normalizedDatabase(id),
+        label,
+        configured: files.rulesFile !== undefined,
+      };
+      if (files.rulesFile !== undefined) {
+        dbEntry.rulesFile = files.rulesFile;
+      }
+      if (files.indexesFile !== undefined) {
+        dbEntry.indexesFile = files.indexesFile;
+      }
+      addDatabase(databases, dbEntry);
     }
   });
-  if (override !== undefined) applyOverride(databases, override);
+  if (override !== undefined) {
+    applyOverride(databases, override);
+  }
+  assertConfiguredDatabaseCap(databases);
   return { form: 'array', databases, unresolved };
 }
 
@@ -221,46 +336,54 @@ function applyOverride(databases: FirestoreDatabaseConfig[], rulesFile: string):
   existing.configured = true;
 }
 
-/** True for an object `firestore` that deploys to a named database, which pyric still serves on `(default)`. */
-function isObjectForNamedDatabase(config: FirestoreRulesConfig): boolean {
-  return config.form === 'object' && config.databases.length === 1 && config.databases[0]?.database !== DEFAULT_FIRESTORE_DATABASE;
-}
-
 /**
- * The entry whose rules pyric serves on `(default)`: the `(default)`
- * database's, or, for an object that names another database, that object's,
- * as pyric served it before it modeled named databases. Undefined when
- * `firebase.json` deploys nothing to `(default)`.
+ * The entry whose rules pyric serves on `(default)`. Undefined when
+ * `firebase.json` deploys nothing to `(default)` (for instance an array naming
+ * only named databases, or an object naming another database).
  */
-export function defaultFirestoreDatabase(config: FirestoreRulesConfig): FirestoreDatabaseConfig | undefined {
-  if (isObjectForNamedDatabase(config)) return config.databases[0];
+export function defaultFirestoreDatabase(
+  config: FirestoreRulesConfig,
+): FirestoreDatabaseConfig | undefined {
   return config.databases.find((entry) => entry.database === DEFAULT_FIRESTORE_DATABASE);
 }
 
+/** One warning per configured Firestore `database` value outside Firebase's naming rules. */
+export function invalidFirestoreDatabaseWarnings(
+  config: FirestoreRulesConfig,
+  displayFile: (file: string) => string = (file) => file,
+): string[] {
+  const warnings: string[] = [];
+  for (const entry of config.databases) {
+    if (isValidFirestoreDatabaseConfigId(entry.database)) {
+      continue;
+    }
+    let detail = `${entry.label} declares Firestore database "${entry.database}"`;
+    if (entry.rulesFile !== undefined) {
+      detail = `${entry.label} deploys ${displayFile(entry.rulesFile)} to Firestore database "${entry.database}"`;
+    }
+    warnings.push(
+      `${detail}, which is not a valid Firestore database id (must be 4-63 lowercase letters, digits, or hyphens, starting with a letter, ending with a letter or digit, and not a UUID), so pyric does not declare or serve it.`,
+    );
+  }
+  return warnings;
+}
+
 /**
- * One warning per `firebase.json` entry pyric does not serve yet: each named
- * database, and each deploy target `.firebaserc` did not resolve. `displayFile`
- * turns a resolved file back into the name the warning shows.
+ * Warnings for `firebase.json` Firestore entries that cannot be served:
+ * invalid database ids (never declared; requests answer as missing) and
+ * deploy targets `.firebaserc` did not resolve.
  */
 export function unservedFirestoreDatabaseWarnings(
   config: FirestoreRulesConfig,
   displayFile: (file: string) => string = (file) => file,
 ): string[] {
-  const objectEntry = isObjectForNamedDatabase(config) ? config.databases[0] : undefined;
-  if (objectEntry?.rulesFile !== undefined) {
-    const file = displayFile(objectEntry.rulesFile);
-    return [`firebase.json deploys ${file} to Firestore database "${objectEntry.database}". Pyric serves only (default) for now, so it enforces ${file} on (default), and getFirestore(app, "${objectEntry.database}") reads and writes (default). See ${FIRESTORE_NAMED_DATABASES_ISSUE}.`];
-  }
-  const named = config.databases.filter((entry) => entry.database !== DEFAULT_FIRESTORE_DATABASE);
-  const namedWarnings = named.map((entry) => {
-    const deploys = entry.rulesFile === undefined
-      ? `firebase.json declares Firestore database "${entry.database}".`
-      : `firebase.json deploys ${displayFile(entry.rulesFile)} to Firestore database "${entry.database}".`;
-    return `${deploys} Pyric serves only (default) for now, so getFirestore(app, "${entry.database}") reads and writes (default) under (default)'s rules. See ${FIRESTORE_NAMED_DATABASES_ISSUE}.`;
-  });
+  const invalidWarnings = invalidFirestoreDatabaseWarnings(config, displayFile);
   const targetWarnings = config.unresolved.map((entry) => {
-    const what = entry.rulesFile === undefined ? 'its files' : displayFile(entry.rulesFile);
-    return `${entry.label} deploys ${what} to deploy target "${entry.target}", which .firebaserc does not map for this project, so pyric does not serve it. Pyric serves only (default) for now. See ${FIRESTORE_NAMED_DATABASES_ISSUE}.`;
+    let what = 'its files';
+    if (entry.rulesFile !== undefined) {
+      what = displayFile(entry.rulesFile);
+    }
+    return `${entry.label} deploys ${what} to deploy target "${entry.target}", which .firebaserc does not map for this project, so pyric does not serve it.`;
   });
-  return [...namedWarnings, ...targetWarnings];
+  return [...invalidWarnings, ...targetWarnings];
 }

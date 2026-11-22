@@ -28,6 +28,7 @@ import { sandbox as rtdbSandbox } from 'pyric/database';
 import { sandbox as authSandbox } from 'pyric/auth';
 import { FirebaseError } from 'pyric/app';
 import { DEFAULT_BUCKET, installStorageBackend } from 'pyric/storage/internal';
+import { deployHostedFirestoreDestination } from '../firestore-rules-install.js';
 import { applyStorageRulesUpdate, storageRulesUpdateFor } from '../storage-rules-install.js';
 import {
   assertJsonSafeRelayValue,
@@ -702,6 +703,11 @@ export async function createHostedRuntime(
         return;
       }
       if (source === null) throw new Error('Firestore rules source is required.');
+      if (instance !== undefined) {
+        deployHostedFirestoreDestination(ctx, source, instance);
+        recorder?.note({ kind: 'rules', at: Date.now(), service, source });
+        return;
+      }
       const previousFirestoreRules = ctx.activeRules?.firestore ? structuredClone(ctx.activeRules.firestore) : undefined;
       const deployed = deployFirestoreRulesToHost(ctx, source);
       if (!deployed.ok) {
@@ -869,7 +875,11 @@ export async function createHostedRuntime(
         if (outcome.ok) {
           if (key === 'rules.set') {
             if (args.service === 'firestore' && typeof args.rules === 'string') {
-              deployFirestoreRulesToHost(ctx, args.rules);
+              let targetDb: string | undefined;
+              if (typeof args.database === 'string' && args.database !== '') {
+                targetDb = args.database;
+              }
+              deployFirestoreRulesToHost(ctx, args.rules, targetDb);
               restoreFirestoreSubscriptions(ctx);
               recorder?.note({ kind: 'rules', at: Date.now(), service: 'firestore', source: args.rules });
             } else if (args.service === 'database') {

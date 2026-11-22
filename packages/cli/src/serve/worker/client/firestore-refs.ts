@@ -14,6 +14,7 @@ import type {
   TargetDescriptor,
 } from '../protocol.js';
 import type { ClientDb, DocRefHandle, CollRefHandle, QueryHandle } from './handles.js';
+import { clientDatabaseIdOf } from './firestore-database.js';
 import { createCollectionReference, createDocumentReference } from './firestore-reference.js';
 import { bindWorkerHandleOwner, resolveWorkerParentOwner } from './firestore-lifecycle.js';
 import { FirebaseError } from 'pyric/app';
@@ -325,7 +326,10 @@ function isSnapshotCursor(item: RawConstraintItem): item is PendingSnapshotCurso
   return '__snapshotCursor' in item;
 }
 
-function resolveQueryConstraints(items: readonly RawConstraintItem[]): QueryConstraintDescriptor[] {
+function resolveQueryConstraints(
+  items: readonly RawConstraintItem[],
+  targetDatabaseId: string,
+): QueryConstraintDescriptor[] {
   const explicitOrders: Array<{ field: string; direction: 'asc' | 'desc' }> = [];
   const inequalityFields: string[] = [];
   for (const item of items) {
@@ -371,14 +375,14 @@ function resolveQueryConstraints(items: readonly RawConstraintItem[]): QueryCons
         fromSnapshot: true,
         valueEncoding: DOC_VALUE_ENCODING,
       };
-      validateResolvedQueryConstraint(builtCursor, ordersSeenSoFar);
+      validateResolvedQueryConstraint(builtCursor, ordersSeenSoFar, targetDatabaseId);
       resolved.push(builtCursor);
       continue;
     }
     if (item.kind === 'orderBy') {
       ordersSeenSoFar.push(canonicalConstraintFieldKey(item));
     }
-    validateResolvedQueryConstraint(item, allExplicitOrderFields);
+    validateResolvedQueryConstraint(item, allExplicitOrderFields, targetDatabaseId);
     resolved.push(item);
   }
   return resolved;
@@ -555,7 +559,7 @@ export function query(
     source: sourceDescriptor.__ref === 'query'
       ? (sourceDescriptor as QueryDescriptor).source
       : (sourceDescriptor as DocRef | CollRef | GroupRef),
-    constraints: resolveQueryConstraints(allItems),
+    constraints: resolveQueryConstraints(allItems, clientDatabaseIdOf(source) ?? '(default)'),
   };
   return createQueryHandle(source.port, descriptor, source.converter, allItems, owner);
 }

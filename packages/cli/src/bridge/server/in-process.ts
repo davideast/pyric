@@ -36,8 +36,8 @@ import { rememberUnloadedStorageRules } from '../surface/storage-rules.js';
 import {
   firestoreRulesInForce,
   loadFirestoreRules,
-  rememberRefusedFirestoreRules,
 } from '../surface/firestore-rules-load.js';
+import { loadInProcessFirestoreProjectRules } from '../../serve/firestore-project-rules.js';
 import { createLocalBridge, type LocalBridgeOptions } from './local-bridge.js';
 import {
   createEvalLogWriter,
@@ -49,7 +49,6 @@ import type { BridgeToolEvent } from './bridge.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { claimProjectState } from '../../serve/hosted/project-ownership.js';
 import {
-  firestoreDatabaseWarnings,
   firestoreDatabases,
   MODULAR_SOURCE,
   prepareStorageRulesSource,
@@ -202,45 +201,15 @@ export function loadProjectRules(
   onWarning: (message: string) => void = () => {},
 ): ProjectRulesLoad | null {
   const config = readProjectFirebaseJson(cwd);
-  const projectId = readFirebaseRcSync(cwd)?.projects?.default;
-  const databases = firestoreDatabases(cwd, config, projectId === undefined ? {} : { projectId });
-  for (const warning of firestoreDatabaseWarnings(cwd, databases)) onWarning(warning);
   const persistedFs = readPersistedRulesState(cwd)?.firestore;
-  const entry = defaultFirestoreDatabase(databases);
-  const path = entry?.rulesFile;
-  if (entry === undefined || path === undefined || !existsSync(path)) {
-    if (entry?.configured && path !== undefined) {
-      onWarning(`${entry.label} points Firestore rules at ${path}, but it does not exist.`);
-    }
-    if (persistedFs !== undefined && persistedFs.active !== '' && persistedFs.diskAtSave === null) {
-      return {
-        path: path ?? join(cwd, IN_PROCESS_STATE_RELATIVE),
-        refused: loadFirestoreRules(sandbox, persistedFs.active),
-      };
-    }
-    return null;
-  }
-  const raw = readFileSync(path, 'utf8');
-  let candidate = raw;
-  if (MODULAR_SOURCE.test(raw)) {
-    const resolved = resolveProjectModules(raw, path, path, 'cloud.firestore').result;
-    if (!resolved.success) {
-      rememberRefusedFirestoreRules(sandbox, raw);
-      return { path, refused: `Firestore rules module resolution failed: ${resolved.error.message}` };
-    }
-    candidate = resolved.data.resolved;
-  }
-  if (
-    rulesSourceRejection(candidate) === null &&
-    persistedFs !== undefined &&
-    persistedFs.active !== '' &&
-    persistedFs.diskAtSave === candidate
-  ) {
-    return { path, refused: loadFirestoreRules(sandbox, persistedFs.active) };
-  }
-  const refused = loadFirestoreRules(sandbox, candidate);
-  if (refused !== null && candidate !== raw) rememberRefusedFirestoreRules(sandbox, raw);
-  return { path, refused };
+  return loadInProcessFirestoreProjectRules(
+    sandbox,
+    cwd,
+    config,
+    persistedFs,
+    join(cwd, IN_PROCESS_STATE_RELATIVE),
+    onWarning,
+  );
 }
 
 /**

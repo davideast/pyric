@@ -32,6 +32,7 @@ import type { AppConfigMessage } from '../protocol.js';
 import type { HostCtx, PortLike } from '../host-context.js';
 import { resolvePendingDatabaseTargets } from './rules.js';
 import { adoptAppDefaultRtdbInstance } from './rtdb-instances.js';
+import { resolvePendingFirestoreTargets } from '../../firestore-rules-install.js';
 import { resolvePendingStorageTargets } from '../../storage-rules-install.js';
 
 /** Resolve the RTDB and Storage deploy targets no project resolved at server start with the app config's project. */
@@ -39,6 +40,7 @@ function resolvePendingTargets(ctx: HostCtx): void {
   resolvePendingDatabaseTargets(ctx);
   const projectId = ctx.appOptions?.projectId;
   if (typeof projectId !== 'string') return;
+  for (const notice of resolvePendingFirestoreTargets(ctx.sandbox, projectId)) console.info(`[pyric] ${notice}`);
   for (const notice of resolvePendingStorageTargets(ctx.sandbox, projectId)) console.info(`[pyric] ${notice}`);
 }
 

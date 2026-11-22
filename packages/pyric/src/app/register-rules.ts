@@ -7,10 +7,10 @@
  * refused writes one stderr line and keeps the default policy, deny; the
  * other services still load.
  *
- * Firestore rules are the `(default)` database's, resolved as `firebase
- * deploy` resolves the object or array `firestore` form. Each named database
- * and unresolved deploy target gets one stderr warning, since only
- * `(default)` is served.
+ * Firestore rules resolve per database as `firebase deploy` resolves the object
+ * or array `firestore` form (including `.firebaserc` deploy targets). Named
+ * databases declared without a rules file stay locked, and invalid database ids
+ * or unresolved deploy targets emit one stderr warning.
  *
  * Realtime Database rules resolve through the loader behind
  * `rtdbRules.fromFirebaseJson`, which resolves instances and deploy targets
@@ -24,7 +24,10 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { LocalSandbox } from 'pyric/sandbox';
-import { setRules as setFirestoreRules } from 'pyric/sandbox/firestore';
+import {
+  declareFirestoreDatabase,
+  setRules as setFirestoreRules,
+} from 'pyric/sandbox/firestore';
 import { setRules as setDatabaseRules, toStrictRulesJson } from 'pyric/sandbox/database';
 import { getDatabase } from 'pyric/database';
 import { getStorageSandbox } from 'pyric/storage';
@@ -32,8 +35,9 @@ import { deployStorageBucketRules, lockUndeployedStorageBuckets } from 'pyric/st
 import { rtdbRulesSourceRejection } from 'pyric/rules/internal/rtdb';
 import {
   DEFAULT_DATABASE_RULES_FILE,
-  defaultFirestoreDatabase,
+  DEFAULT_FIRESTORE_DATABASE,
   firestoreRulesConfig,
+  isValidFirestoreDatabaseConfigId,
   storageRulesConfig,
   unservedFirestoreDatabaseWarnings,
 } from 'pyric/sandbox/internal';
@@ -108,16 +112,45 @@ function firestoreDatabases(projectDir: string, config: FirebaseJson): ReturnTyp
 }
 
 function loadFirestoreRules(sandbox: LocalSandbox, projectDir: string, config: FirebaseJson): void {
+  let databases: ReturnType<typeof firestoreRulesConfig>;
   try {
-    const databases = firestoreDatabases(projectDir, config);
-    for (const warning of unservedFirestoreDatabaseWarnings(databases)) process.stderr.write(`${PREFIX}: ${warning}\n`);
-    // Only a file firebase.json names: register has never read an undeclared firestore.rules.
-    const entry = defaultFirestoreDatabase(databases);
-    const declaresRules = entry?.configured === true;
-    const declared = declaresRules ? readDeclaredRules(projectDir, { rules: entry.rulesFile }) : null;
-    if (declared !== null) setFirestoreRules(sandbox, declared.source);
+    databases = firestoreDatabases(projectDir, config);
   } catch (error) {
     report('firestore.rules', error);
+    return;
+  }
+  for (const warning of unservedFirestoreDatabaseWarnings(databases)) {
+    process.stderr.write(`${PREFIX}: ${warning}\n`);
+  }
+  // Register only reads rules files explicitly named in firebase.json (`configured === true`),
+  // while declaring every valid named database entry (locked when rules are omitted).
+  for (const entry of databases.databases) {
+    if (!isValidFirestoreDatabaseConfigId(entry.database)) {
+      continue;
+    }
+    const isDefault = entry.database === DEFAULT_FIRESTORE_DATABASE;
+    if (!isDefault) {
+      declareFirestoreDatabase(sandbox, entry.database, { locked: true });
+    }
+    if (!entry.configured || entry.rulesFile === undefined) {
+      continue;
+    }
+    try {
+      const declared = readDeclaredRules(projectDir, { rules: entry.rulesFile });
+      if (declared !== null) {
+        let targetDb: string | undefined;
+        if (!isDefault) {
+          targetDb = entry.database;
+        }
+        setFirestoreRules(sandbox, declared.source, targetDb);
+      }
+    } catch (error) {
+      let label = entry.rulesFile;
+      if (!isDefault) {
+        label = `${entry.rulesFile} for Firestore database "${entry.database}"`;
+      }
+      report(label, error);
+    }
   }
 }
 

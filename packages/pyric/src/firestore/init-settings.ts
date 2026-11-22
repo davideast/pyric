@@ -168,6 +168,31 @@ export function clearAppFirestoreSettings(app: object): void {
   appSharedHandles.delete(app);
 }
 
+export function clearAppFirestoreDatabaseSettings(
+  app: object,
+  databaseId?: string,
+  handle?: object,
+): void {
+  const map = appSettingsByDb.get(app);
+  if (map !== undefined) {
+    map.delete(normalizeDbKey(databaseId));
+    if (map.size === 0) {
+      appSettingsByDb.delete(app);
+    }
+  }
+  if (handle !== undefined) {
+    defaultSlotLockedHandles.delete(handle);
+    clearHandleCacheTier(handle);
+    const handles = appSharedHandles.get(app);
+    if (handles !== undefined) {
+      handles.delete(handle);
+      if (handles.size === 0) {
+        appSharedHandles.delete(app);
+      }
+    }
+  }
+}
+
 export function applySettingsCacheMode(
   handle: object,
   settings: FirestoreSettings | undefined,

@@ -16,21 +16,31 @@ import { createFlowTreatmentHost } from './flow-treatment-host.js';
 import type { GeminiProxyConfig } from './gemini-proxy.js';
 import { createHostedPersistence, formatStorageRepairs, type HostedPersistence } from './hosted/persistence.js';
 import { createIndexConfigStore } from './index-config-store.js';
-import type { DatabaseInstancesRules, InitPayload, RtdbRulesJson, RulesDestination } from './init-payload.js';
+import type {
+  DatabaseInstancesRules,
+  FirestoreDatabasesRules,
+  InitPayload,
+  RtdbRulesJson,
+  RulesDestination,
+} from './init-payload.js';
 import { createEventHub, createPyricNamespace } from './namespace.js';
 import { createRateCaptureStore } from './rate-capture-store.js';
+import {
+  formatUnresolvedFirestoreTargets,
+  loadProjectFirestoreRules,
+} from './firestore-project-rules.js';
 import {
   formatUnresolvedDatabaseTargets,
   formatUnresolvedStorageTargets,
   loadPendingStorageTarget,
   loadProjectDatabaseRules,
-  loadProjectRules,
   loadProjectStorageRules,
 } from './rules.js';
 import { loadSandboxSeedOption, SandboxSeedError } from './sandbox-seed-loader.js';
 import {
   createSessionRulesReloaders,
   type DatabaseRulesReloadResult,
+  type FirestoreRulesReloadResult,
   type RulesReloadResult,
   type StorageRulesReloadResult,
 } from './sandbox-session-rules-reload.js';
@@ -42,7 +52,6 @@ import { diskProjectStore, diskWorkspace } from './studio/index.js';
 import { createThresholdConfigStore } from './threshold-config-store.js';
 
 export { SandboxSeedError };
-export type { DatabaseRulesReloadResult, RulesReloadResult, StorageRulesReloadResult };
 
 export interface SandboxSessionOptions {
   boundHost?: string;
@@ -87,9 +96,11 @@ export interface SandboxSessionOptions {
   remoteAccess?: RemoteAccessOptions;
 }
 
-export interface SandboxSessionSummary {
+interface SandboxSessionSummary {
   rules: {
     firestore: { sourcePath: string | null; hash: string | null };
+    /** Each named Firestore database declared in `firebase.json`, with its loaded rules at startup. */
+    firestoreDatabases: Array<{ database: string; sourcePath: string | null; hash: string | null }>;
     /** Each Realtime Database instance whose rules loaded at startup. */
     database: Array<{ instance: string; sourcePath: string; hash: string }>;
     storage: { sourcePath: string | null; hash: string | null };
@@ -117,6 +128,8 @@ export interface SandboxSession {
   payload(): InitPayload;
   handle(req: IncomingMessage, res: ServerResponse, url: URL): boolean | Promise<boolean>;
   reloadFirestoreRules(): Promise<RulesReloadResult>;
+  /** Reload the Firestore rules of every database or deploy target bound to `file`. */
+  reloadFirestoreDatabaseRules(file: string): Promise<FirestoreRulesReloadResult[]>;
   /** Reload the rules of each database instance that deploys `file`. */
   reloadDatabaseRules(file: string): Promise<DatabaseRulesReloadResult[]>;
   /** Reload the Storage rules of each bucket that deploys `file`. */
@@ -163,13 +176,38 @@ export async function createSandboxSession(
   options: SandboxSessionOptions,
 ): Promise<SandboxSession> {
   // Preserve the established fail-fast order: Firestore, then RTDB, then Storage.
-  const firestore = await loadProjectRules(options.projectDir, options.firebaseConfig, options.project);
-  for (const warning of firestore.warnings) options.logger?.note(`  ⚠ ${warning}`);
+  const firestore = await loadProjectFirestoreRules(options.projectDir, options.firebaseConfig, options.project);
+  for (const warning of firestore.warnings) options.logger?.note(`  \u26a0 ${warning}`);
   const database = await loadProjectDatabaseRules(options.projectDir, options.firebaseConfig, options.project);
   const storage = await loadProjectStorageRules(options.projectDir, options.firebaseConfig, options.project);
   const defaultPolicy: 'allow' | 'deny' = options.permissive ? 'allow' : 'deny';
+  if (firestore.pending.length > 0) {
+    options.logger?.note(formatUnresolvedFirestoreTargets(firestore.pending, defaultPolicy));
+  }
   if (storage.pending.length > 0) {
     options.logger?.note(formatUnresolvedStorageTargets(storage.pending, defaultPolicy));
+  }
+
+  const liveFirestoreDatabases = new Map<string, { rules: string; rulesHash: string } | null>();
+  for (const dbId of firestore.declared) {
+    const loaded = firestore.databases.get(dbId);
+    if (loaded !== undefined && loaded.rules !== null && loaded.rulesHash !== null) {
+      liveFirestoreDatabases.set(dbId, { rules: loaded.rules, rulesHash: loaded.rulesHash });
+    } else {
+      liveFirestoreDatabases.set(dbId, null);
+    }
+  }
+  const livePendingFirestore = new Map<string, { rules: string; rulesHash: string; moduleFiles?: string[] } | null>();
+  for (const pendingTarget of firestore.pending) {
+    if (pendingTarget.rules !== null && pendingTarget.rulesHash !== null) {
+      livePendingFirestore.set(pendingTarget.target, {
+        rules: pendingTarget.rules,
+        rulesHash: pendingTarget.rulesHash,
+        moduleFiles: pendingTarget.moduleFiles,
+      });
+    } else {
+      livePendingFirestore.set(pendingTarget.target, null);
+    }
   }
 
   const liveStorageBuckets = new Map<string, { rules: string; rulesHash: string } | null>(
@@ -285,6 +323,30 @@ export async function createSandboxSession(
       return record;
     };
 
+    const firestoreDatabasesPayload = (): FirestoreDatabasesRules | undefined => {
+      if (firestore.declared.size === 0) {
+        return undefined;
+      }
+      const rulesRecord: Record<string, { rules: string; rulesHash: string } | null> = {};
+      for (const dbId of firestore.declared) {
+        rulesRecord[dbId] = liveFirestoreDatabases.get(dbId) ?? null;
+      }
+      const rulesFiles: Record<string, string> = {};
+      for (const target of firestore.targets) {
+        if (target.path !== undefined) {
+          rulesFiles[target.database] = relative(options.projectDir, target.path);
+        }
+      }
+      const out: FirestoreDatabasesRules = {
+        declared: [...firestore.declared],
+        rules: rulesRecord,
+      };
+      if (Object.keys(rulesFiles).length > 0) {
+        out.rulesFiles = rulesFiles;
+      }
+      return out;
+    };
+
     const payload = (): InitPayload => {
       const hasPersistedState = state?.exists() === true;
       const defaultDatabase = liveDatabase.get(database.defaultInstance) ?? null;
@@ -297,7 +359,17 @@ export async function createSandboxSession(
         const storedAuth = state.readSection('auth') as { users?: Record<string, unknown>[] } | null;
         authUsers = storedAuth?.users ?? null;
       }
-      return {
+      const fsDatabases = firestoreDatabasesPayload();
+      const fsPending = firestore.pending.map((target) => {
+        const current = livePendingFirestore.get(target.target);
+        return {
+          target: target.target,
+          rules: current?.rules ?? null,
+          rulesHash: current?.rulesHash ?? null,
+          databasesByProject: target.databasesByProject,
+        };
+      });
+      const built: InitPayload = {
         rules: live.rules,
         rulesHash: live.rulesHash,
         databaseRules: defaultDatabase?.rules ?? null,
@@ -328,6 +400,13 @@ export async function createSandboxSession(
         avatarUpgrades,
         permissive: Boolean(options.permissive),
       };
+      if (fsDatabases !== undefined) {
+        built.firestoreDatabases = fsDatabases;
+      }
+      if (fsPending.length > 0) {
+        built.firestorePendingTargets = fsPending;
+      }
+      return built;
     };
 
     const restoredCounts = restoredStateCounts(persisted);
@@ -344,6 +423,14 @@ export async function createSandboxSession(
     const summary: SandboxSessionSummary = {
       rules: {
         firestore: { sourcePath: firestore.sourcePath, hash: firestore.rulesHash },
+        firestoreDatabases: [...firestore.declared].map((dbId) => {
+          const loaded = firestore.databases.get(dbId);
+          return {
+            database: dbId,
+            sourcePath: loaded?.sourcePath ?? null,
+            hash: loaded?.rulesHash ?? null,
+          };
+        }),
         database: [...database.instances.values()].map((loaded) => ({
           instance: loaded.instance,
           sourcePath: loaded.sourcePath,
@@ -413,6 +500,8 @@ export async function createSandboxSession(
       events,
       live,
       firestore,
+      liveFirestoreDatabases,
+      livePendingFirestore,
       database,
       storage,
       liveDatabase,

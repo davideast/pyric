@@ -384,3 +384,32 @@ describe('Vite rules watching for Storage 2+modules imports', () => {
     stop?.();
   });
 });
+
+describe('Vite rules watching with named Firestore databases', () => {
+  test('reloads only the changed database file and logs the named database suffix', async () => {
+    const REPORTS = '/project/reports.rules';
+    const f = missingFilesFakes([]);
+    const reloadedFiles: string[] = [];
+    Object.assign(f.session, {
+      firestoreRulesFiles: () => [MAIN, REPORTS],
+      reloadFirestoreDatabaseRules: async (file: string) => {
+        reloadedFiles.push(file);
+        return [
+          {
+            database: 'reports',
+            file,
+            result: { kind: 'reloaded' as const, rulesHash: 'rh', clients: 1 },
+          },
+        ];
+      },
+    });
+    const stop = watchViteGenerationRules({ server: f.server, session: f.session });
+    expect(f.watched.has(REPORTS)).toBe(true);
+
+    f.watcher.emit('change', REPORTS);
+    await settle();
+    expect(reloadedFiles).toEqual([REPORTS]);
+    expect(f.logs.some((line) => line.includes('rules reloaded for database "reports" (rh)'))).toBe(true);
+    stop?.();
+  });
+});

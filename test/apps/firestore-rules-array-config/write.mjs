@@ -2,10 +2,12 @@
 // with the client SDK, as a script or a server-rendered route does, and logs
 // each outcome on one line: `<path> allowed` or `<path> denied: <code>`.
 import { initializeApp, deleteApp } from "firebase/app";
-import { getFirestore, doc, setDoc } from "firebase/firestore";
+import { getFirestore, doc, getDoc, setDoc } from "firebase/firestore";
 
 const app = initializeApp({ apiKey: "demo", appId: "demo", projectId: "demo-array-config" });
 const db = getFirestore(app);
+const reportsDb = getFirestore(app, "reports");
+const undeclaredDb = getFirestore(app, "undeclared");
 
 for (const path of ["open/a", "locked/x"]) {
   try {
@@ -14,5 +16,17 @@ for (const path of ["open/a", "locked/x"]) {
   } catch (error) {
     console.log(`${path} denied: ${error?.code ?? "error"}`);
   }
+}
+try {
+  await setDoc(doc(reportsDb, "locked/x"), { from: "server" });
+  console.log("reports:locked/x allowed");
+} catch (error) {
+  console.log(`reports:locked/x denied: ${error?.code ?? "error"}`);
+}
+try {
+  await getDoc(doc(undeclaredDb, "open/a"));
+  console.log("undeclared:open/a allowed");
+} catch (error) {
+  console.log(`undeclared:open/a denied: ${error?.code ?? "error"}`);
 }
 await deleteApp(app);

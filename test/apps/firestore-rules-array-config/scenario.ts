@@ -1,21 +1,21 @@
-// firebase.json declares `firestore` as an array (#1315): `(default)` deploys
-// firestore.default.rules, which denies writes to locked/, and a named
-// database `reports` deploys an allow-all file. A permissive firestore.rules
-// sits in the project directory as a decoy the array does not name. Before the
-// fix every plane read `config.firestore.rules`, undefined on an array, and
-// fell back to the decoy, so locked/x was writable everywhere.
+// firebase.json declares `firestore` as an array (#1315, #1319): `(default)`
+// deploys firestore.default.rules, which denies writes to locked/, and a named
+// database `reports` deploys reports.rules, which allows all writes. A
+// permissive firestore.rules sits in the project directory as a decoy the
+// array does not name.
 //
-// Every plane must enforce firestore.default.rules on (default): the
-// SharedWorker page, the Node host page, a `node --import @pyric/cli/register`
-// process, and `pyric rules simulate` with no host. The dev server warns that
-// `reports` is not served, and `pyric verify` finds firestore.default.rules
-// without `--rules`.
+// Every plane must enforce each database's own rules without warning that
+// named databases are unserved: the SharedWorker page, the Node host page
+// (including hot-reload of reports.rules), a `node --import @pyric/cli/register`
+// process, and `pyric rules simulate` with no host, while `pyric verify`
+// resolves firestore.default.rules without `--rules`.
 import assert from 'node:assert/strict';
 import { scenario, sleep, type App } from '../driver.ts';
 
-declare function tryWrite(path: string): Promise<string>;
+declare function tryWrite(path: string, databaseId?: string): Promise<string>;
+declare function tryRead(path: string, databaseId?: string): Promise<string>;
 
-const WARNING = 'firebase.json deploys reports.rules to Firestore database "reports". Pyric serves only (default) for now';
+const RETIRED_WARNING = 'Pyric serves only (default) for now';
 
 /** Run the installed `pyric` command from the app directory; returns its exit code and output. */
 async function pyric(app: App, args: string[]): Promise<{ code: number; output: string }> {
@@ -46,11 +46,20 @@ async function waitForCapture(app: App): Promise<void> {
   }
 }
 
-async function pageEnforcesDefaultRules(app: App, url: string): Promise<void> {
-  const page = await app.page(url);
-  await page.waitForFunction(() => 'tryWrite' in window, undefined, { timeout: 30_000 });
-  assert.equal(await page.evaluate(() => tryWrite('open/a')), 'allowed');
-  assert.match(await page.evaluate(() => tryWrite('locked/x')), /^denied: permission-denied/);
+async function waitForPageRuleEffect(
+  check: () => Promise<string>,
+  expectedPrefix: string,
+): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  let last = '';
+  for (;;) {
+    last = await check();
+    if (last.startsWith(expectedPrefix)) return;
+    if (Date.now() > deadline) {
+      throw new Error(`Expected "${expectedPrefix}" after hot-reload, got "${last}"`);
+    }
+    await sleep(150);
+  }
 }
 
 export default scenario(async (app) => {
@@ -61,37 +70,73 @@ export default scenario(async (app) => {
     assert.doesNotMatch(output, /"decision": "ALLOW"/, output);
   });
 
-  await app.step('a node --import @pyric/cli/register process is denied locked/x', async () => {
+  await app.step('a node --import @pyric/cli/register process enforces per-database rules with no warning', async () => {
     const { output } = await app.serverScript('write.mjs', [], { env: { PYRIC_SANDBOX: 'local' }, timeoutMs: 60_000 });
     assert.match(output, /^open\/a allowed$/m, output);
     assert.match(output, /^locked\/x denied: permission-denied$/m, output);
-    assert.ok(output.includes(WARNING), output);
+    assert.match(output, /^reports:locked\/x allowed$/m, output);
+    assert.match(output, /^undeclared:open\/a denied: unavailable$/m, output);
+    assert.ok(!output.includes(RETIRED_WARNING), output);
   });
 
-  await app.step('the SharedWorker page is denied locked/x, and the dev server warns about reports', async () => {
+  await app.step('the SharedWorker page enforces per-database rules and hot-reloads reports.rules', async () => {
+    const originalReportsRules = app.readFile('reports.rules');
     const host = await app.devServer({ name: 'SharedWorker dev server' });
-    await pageEnforcesDefaultRules(app, host.url);
-    assert.ok(host.process.output.includes(WARNING), host.process.output);
-    await host.process.stop();
+    try {
+      const page = await app.page(host.url);
+      await page.waitForFunction(() => 'tryWrite' in window, undefined, { timeout: 30_000 });
+      assert.equal(await page.evaluate(() => tryWrite('open/a')), 'allowed');
+      assert.match(await page.evaluate(() => tryWrite('locked/x')), /^denied: permission-denied/);
+      assert.equal(await page.evaluate(() => tryWrite('locked/x', 'reports')), 'allowed');
+      assert.match(await page.evaluate(() => tryRead('open/a', 'undeclared')), /^denied: unavailable/);
+      assert.ok(!host.process.output.includes(RETIRED_WARNING), host.process.output);
+
+      app.writeFile('reports.rules', app.readFile('firestore.default.rules'));
+      await waitForPageRuleEffect(
+        () => page.evaluate(() => tryWrite('locked/x', 'reports')),
+        'denied: permission-denied',
+      );
+    } finally {
+      app.writeFile('reports.rules', originalReportsRules);
+      await host.process.stop();
+    }
   });
 
-  await app.step('the Node host page is denied locked/x, and the dev server warns about reports', async () => {
+  await app.step('the Node host page enforces (default) and captures for pyric verify', async () => {
     const host = await app.devServer({ name: 'Node host dev server', env: { SCENARIO_HOSTED: '1' } });
-    await pageEnforcesDefaultRules(app, host.url);
-    assert.ok(host.process.output.includes(WARNING), host.process.output);
+    const page = await app.page(host.url);
+    await page.waitForFunction(() => 'tryWrite' in window, undefined, { timeout: 30_000 });
+    assert.equal(await page.evaluate(() => tryWrite('open/a')), 'allowed');
+    assert.match(await page.evaluate(() => tryWrite('locked/x')), /^denied: permission-denied/);
+    assert.ok(!host.process.output.includes(RETIRED_WARNING), host.process.output);
     await waitForCapture(app);
-  });
 
-  await app.step('pyric verify resolves firestore.default.rules without --rules', async () => {
     const clean = await pyric(app, ['verify', '--service', 'firestore']);
     assert.equal(clean.code, 0, clean.output);
     assert.match(clean.output, /all selected services replay cleanly/, clean.output);
 
-    // Opening locked/ in firestore.default.rules turns the denied write into
-    // a divergence, so verify read that file and not the decoy.
-    app.writeFile('firestore.default.rules', app.readFile('firestore.default.rules').replace('allow write: if false;', 'allow write: if true;'));
-    const opened = await pyric(app, ['verify', '--service', 'firestore']);
-    assert.equal(opened.code, 1, opened.output);
-    assert.match(opened.output, /now-allowed/, opened.output);
+    const originalDefaultRules = app.readFile('firestore.default.rules');
+    try {
+      app.writeFile('firestore.default.rules', originalDefaultRules.replace('allow write: if false;', 'allow write: if true;'));
+      const opened = await pyric(app, ['verify', '--service', 'firestore']);
+      assert.equal(opened.code, 1, opened.output);
+      assert.match(opened.output, /now-allowed/, opened.output);
+    } finally {
+      app.writeFile('firestore.default.rules', originalDefaultRules);
+    }
+
+    const originalReportsRules = app.readFile('reports.rules');
+    try {
+      assert.equal(await page.evaluate(() => tryWrite('locked/x', 'reports')), 'allowed');
+      assert.match(await page.evaluate(() => tryRead('open/a', 'undeclared')), /^denied: unavailable/);
+      app.writeFile('reports.rules', originalDefaultRules);
+      await waitForPageRuleEffect(
+        () => page.evaluate(() => tryWrite('locked/x', 'reports')),
+        'denied: permission-denied',
+      );
+    } finally {
+      app.writeFile('reports.rules', originalReportsRules);
+      await host.process.stop();
+    }
   });
 });

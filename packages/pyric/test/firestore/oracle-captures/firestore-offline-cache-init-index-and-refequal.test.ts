@@ -27,7 +27,7 @@ import {
   type FirestoreSettings,
   type LogLevel,
 } from 'pyric/firestore';
-import type { Behavior, Pin } from '../../../../conformance/src/capture/sdk-scenarios/replay-comparison.ts';
+import type { Behavior } from '../../../../conformance/src/capture/sdk-scenarios/replay-comparison.ts';
 import { expectReplay, load } from './support.ts';
 
 interface ObservedCallOutcome {
@@ -405,35 +405,6 @@ async function replayOfflineCacheInitInPage(): Promise<Behavior> {
   }
 }
 
-function buildNamedDbPins(production: Behavior): Pin[] {
-  const prodInit = production.initializeFirestoreHandles as Record<string, unknown>;
-  const prodRefEqual = production.refEqualChecks as Record<string, Record<string, unknown>>;
-  const namedSameOutcome = {
-    ...prodRefEqual.sameDocPathNamedVsDefaultDb,
-    result: true,
-  };
-  return [
-    {
-      key: 'initializeFirestoreHandles',
-      finding: 'MD1: getFirestore(app, databaseId) resolves every database id to the (default) handle',
-      production: prodInit,
-      pyric: {
-        ...prodInit,
-        namedDatabaseDistinctFromDefault: false,
-      },
-    },
-    {
-      key: 'refEqualChecks',
-      finding: 'MD1: getFirestore(app, databaseId) resolves every database id to the (default) handle',
-      production: prodRefEqual,
-      pyric: {
-        ...prodRefEqual,
-        sameDocPathNamedVsDefaultDb: namedSameOutcome,
-      },
-    },
-  ];
-}
-
 describe('firestore-offline-cache-init-index-and-refequal oracle capture (in-page pyric/firestore)', () => {
   it('replays cache tokens, initializeFirestore guards, index manager, setLogLevel, and refEqual (firestore#112, #115, #145, #146, #149, #157)', async () => {
     const production = load('firestore-offline-cache-init-index-and-refequal');
@@ -441,7 +412,6 @@ describe('firestore-offline-cache-init-index-and-refequal oracle capture (in-pag
     expectReplay({
       production,
       pyric,
-      pins: buildNamedDbPins(production),
     });
   });
 });
