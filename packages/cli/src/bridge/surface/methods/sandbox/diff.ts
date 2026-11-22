@@ -13,11 +13,16 @@
  * name with no checkpoint behind it is refused with the names that do have one
  * rather than compared against nothing.
  */
-import { diff, type BranchDivergence } from 'pyric/sandbox';
+import { captureNamedFirestoreState, type NamedFirestoreCapturedState } from 'pyric/firestore/internal';
+import type { BranchDivergence } from 'pyric/sandbox';
 import { loadBranch } from 'pyric/sandbox/branches/store';
 import { z } from 'zod';
 
 import { AGAINST_LIVE, branchName, refuseUnknownBranch } from '../../arguments/sandbox.js';
+import {
+  diffBranchWithNamedFirestore,
+  hydrateLoadedBranchNamedFirestore,
+} from '../../branch-firestore-databases.js';
 import { checkpointNames, readCheckpoint, type CheckpointPlace } from '../../checkpoints.js';
 import { operationFailure } from '../../context.js';
 import { failFor } from '../../method-validation.js';
@@ -48,9 +53,14 @@ export default {
     if (loaded === null) {
       return refuseUnknownBranch(ctx.projectDir, name, failFor('sandbox', 'diff'));
     }
+    hydrateLoadedBranchNamedFirestore(ctx.projectDir, name, loaded.branch);
     const against = args.against === undefined ? AGAINST_LIVE : String(args.against);
     if (against === AGAINST_LIVE) {
-      const divergences = await diff(loaded.branch, ctx.sandbox);
+      const divergences = await diffBranchWithNamedFirestore(
+        loaded.branch,
+        ctx.sandbox,
+        captureNamedFirestoreState(ctx.sandbox),
+      );
       loaded.branch.sandbox.dispose();
       return report(name, AGAINST_LIVE, divergences);
     }
@@ -60,7 +70,14 @@ export default {
       loaded.branch.sandbox.dispose();
       return refuseMissingCheckpoint(ctx, against);
     }
-    const divergences = await diff(loaded.branch, checkpoint.state);
+    const checkpointNamed = (
+      checkpoint.state as typeof checkpoint.state & { firestoreNamed?: NamedFirestoreCapturedState }
+    ).firestoreNamed;
+    const divergences = await diffBranchWithNamedFirestore(
+      loaded.branch,
+      checkpoint.state,
+      checkpointNamed,
+    );
     loaded.branch.sandbox.dispose();
     return report(name, against, divergences);
   },

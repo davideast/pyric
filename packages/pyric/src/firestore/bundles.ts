@@ -2,7 +2,6 @@
  * `pyric/firestore` -- offline bundle loading (`loadBundle`, `LoadBundleTask`)
  * and `namedQuery` hydration matching `firebase/firestore@12.19.0`.
  */
-import { getAdminFirestore as getChainableAdminFirestore } from 'pyric/sandbox/admin-firestore';
 import { FirebaseError } from '../sandbox/internal/firebase-error.js';
 import { clientStateFor } from './client-state.js';
 import { documentId } from './field-values.js';
@@ -22,7 +21,10 @@ import {
   decodeBundleBytes,
   type BundledFilterSpec,
   type BundledQuerySourceSpec,
+  type ParsedBundle,
 } from './sandbox/bundle-wire.js';
+import { getDatabaseChainableAdminFirestore } from './sandbox/named-compat-handle.js';
+import { normalizeFirestoreDatabaseId } from './sandbox/named-databases.js';
 import { targetOf } from './state.js';
 import { Firestore, type Firestore as FirestoreHandle, type Query } from './types.js';
 
@@ -147,6 +149,25 @@ export function assertBundleInputSupported(bundleData: unknown): asserts bundleD
   throw new FirebaseError('invalid-argument', 'Unsupported bundle data input.');
 }
 
+export function assertBundleMatchesDatabase(parsed: ParsedBundle, expectedDatabaseId: string): void {
+  for (const nq of parsed.namedQueries) {
+    if (nq.databaseId !== undefined && nq.databaseId !== expectedDatabaseId) {
+      throw new FirebaseError(
+        'invalid-argument',
+        `Tried to deserialize key from different database: ${nq.databaseId} vs ${expectedDatabaseId}`,
+      );
+    }
+  }
+  for (const docEntry of parsed.documents) {
+    if (docEntry.databaseId !== undefined && docEntry.databaseId !== expectedDatabaseId) {
+      throw new FirebaseError(
+        'invalid-argument',
+        `Tried to deserialize key from different database: ${docEntry.databaseId} vs ${expectedDatabaseId}`,
+      );
+    }
+  }
+}
+
 export function loadBundle(db: FirestoreHandle, bundleData: ReadableStream<Uint8Array> | ArrayBuffer | Uint8Array | string): LoadBundleTask {
   if (!(db instanceof Firestore)) throw new FirebaseError('invalid-argument', 'Expected first argument to loadBundle() to be a Firestore instance.');
   const target = targetOf(db);
@@ -154,12 +175,14 @@ export function loadBundle(db: FirestoreHandle, bundleData: ReadableStream<Uint8
   clientState.markStarted();
   assertBundleInputSupported(bundleData);
   const validatedData = bundleData;
+  const expectedDb = normalizeFirestoreDatabaseId(target.databaseId);
   return new LoadBundleTask(async (emit, complete, notifyError) => {
     await Promise.resolve();
     try {
       const parsed = decodeBundleBytes(await readBundleSourceBytes(validatedData));
+      assertBundleMatchesDatabase(parsed, expectedDb);
       emit({ taskState: 'Running', documentsLoaded: 0, totalDocuments: parsed.totalDocuments, bytesLoaded: 0, totalBytes: parsed.totalBytes });
-      const adminDb = getChainableAdminFirestore(target.sandbox.withAuth(null));
+      const adminDb = getDatabaseChainableAdminFirestore(target.sandbox.withAuth(null), target.databaseId);
       let queryMap = namedQueryRegistry.get(target as object);
       if (queryMap === undefined) { queryMap = new Map<string, Query>(); namedQueryRegistry.set(target as object, queryMap); }
       for (const nq of parsed.namedQueries) {

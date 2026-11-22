@@ -30,21 +30,24 @@ import { Badge } from '@pyric/ui/primitives';
 import { truncateVectorsForDisplay } from '@pyric/ui/firestore';
 import {
   explainDenial,
-  rtdbRuleLine,
+  firestoreRulesetLabel,
   queryProofFailure,
   denialSeverity,
   projectTraceSteps,
-  projectRtdbTrace,
   ruleVariables,
   type Denial,
   type DenialSeverity,
-  type RuleExplanation,
   type TraceStep,
-  type RtdbTraceRow,
   type RuleVariable,
 } from './model.js';
 import { isQueryProofUnsupported } from './query-proof.js';
-import { LazyRulesCodeEditor } from './LazyRulesCodeEditor.js';
+import {
+  resolveMarkedLine,
+  RulesField,
+  ServiceRuleDetail,
+} from './RulesDebugServiceDetails.js';
+
+export { resolveMarkedLine };
 
 const SEVERITY_DOT: Record<DenialSeverity, string> = {
   low: 'bg-severity-low',
@@ -139,6 +142,14 @@ function DenialList({
                     {d.service}
                   </span>
                 ) : null}
+                {d.database ? (
+                  <span
+                    data-denial-database={d.database}
+                    className="rounded border border-border px-1 font-mono text-[0.6rem] text-slate-gray"
+                  >
+                    {d.database}
+                  </span>
+                ) : null}
                 {d.origin === 'listener' ? (
                   <span className="text-[0.6rem] uppercase tracking-wide text-slate-gray">
                     watch
@@ -221,6 +232,14 @@ export function DenialDetail({
             {denial.service !== 'firestore' ? `${denial.service} · ` : ''}
             {denial.method} {denial.path}
           </span>
+          {denial.database ? (
+            <span
+              data-pyric-ui="denial-database-chip"
+              className="rounded border border-border bg-content-bg px-1.5 py-0.5 font-mono text-xs text-slate-gray"
+            >
+              {denial.database} ({firestoreRulesetLabel(denial.database)})
+            </span>
+          ) : null}
         </div>
         {advisoryLead === undefined ? null : (
           <p data-pyric-ui="denial-detail-advisory" className="mb-1 text-sm leading-relaxed text-soft-white">
@@ -245,12 +264,13 @@ export function DenialDetail({
         </p>
       ) : (
         <>
-          {/* Per-service rule detail, grounded in that service's mechanical
-              trace. For Firestore this includes the read-only "what happened"
-              view of the deployed ruleset with the deciding line marked. */}
-          <RuleDetail denial={denial} exp={exp} rulesSource={rulesSource} />
+          <ServiceRuleDetail
+            denial={denial}
+            exp={exp}
+            rulesSource={rulesSource}
+            renderTraceStep={(step) => <TraceStepRow step={step} />}
+          />
 
-          {/* Show the work: the deciding rule's sub-expression evaluation. */}
           <TraceWork denial={denial} />
         </>
       )}
@@ -262,146 +282,15 @@ export function DenialDetail({
   );
 }
 
-/** The service-specific slice of the detail: the exact rule node, in that
- *  engine's own terms, plus whatever extra structure that engine's mechanical
- *  tooling hands us (RTDB bindings/expression; Firestore/Storage trace lines). */
-function RuleDetail({
-  denial,
-  exp,
-  rulesSource,
-}: {
-  denial: Denial;
-  exp: RuleExplanation;
-  rulesSource?: string;
-}) {
-  const isRtdb = exp.engine === 'rtdb';
-  const isStorage = exp.engine === 'storage';
-  if (isRtdb) return <RtdbRuleDetail key={denial.id} denial={denial} exp={exp} rulesSource={rulesSource} />;
-  if (isStorage) return <StorageRuleDetail exp={exp} />;
-  return <FirestoreRuleDetail denial={denial} exp={exp} rulesSource={rulesSource} />;
-}
-
-function parsePyricSourceMapEntries(sourceText: string): Array<{
-  generatedLine: number;
-  authoredLine: number;
-  authoredCol: number;
-  authoredFile: string;
-}> | null {
-  const marker = '// @pyric-source-map:';
-  const markerIndex = sourceText.indexOf(marker);
-  const hasMarker = markerIndex !== -1;
-  if (!hasMarker) {
-    return null;
-  }
-  const jsonStart = markerIndex + marker.length;
-  const rawJson = sourceText.slice(jsonStart).trim();
-  try {
-    const parsed = JSON.parse(rawJson);
-    const isArrayPayload = Array.isArray(parsed);
-    if (isArrayPayload) {
-      return parsed;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-function stripPyricSourceMap(source: string): string {
-  const marker = '// @pyric-source-map:';
-  const markerIndex = source.indexOf(marker);
-  const hasMarker = markerIndex !== -1;
-  if (!hasMarker) {
-    return source;
-  }
-  return source.slice(0, markerIndex).trimEnd();
-}
-
-export function resolveMarkedLine(
-  rawSource: string | undefined,
-  authoredLine: number | undefined,
-): number | undefined {
-  const isSourceMissing = rawSource === undefined;
-  const isLineMissing = authoredLine === undefined;
-  if (isSourceMissing || isLineMissing) {
-    return authoredLine;
-  }
-  const sourceMapEntries = parsePyricSourceMapEntries(rawSource);
-  const hasSourceMap = sourceMapEntries !== null;
-  if (hasSourceMap) {
-    const matchingEntry = sourceMapEntries.find(
-      (entry) => entry.authoredLine === authoredLine,
-    );
-    const hasMatchingEntry = matchingEntry !== undefined;
-    if (hasMatchingEntry) {
-      return matchingEntry.generatedLine;
-    }
-  }
-  return authoredLine;
-}
-
-/** Firestore: the matched `Rule #N (ops)` node, the deployed ruleset shown
- *  read-only with the DECIDING line marked (✗ + remove tint on a deny; ✓ + add
- *  tint on an allow), and — when no source is available — the raw simulator
- *  trace lines. */
-function FirestoreRuleDetail({
-  denial,
-  exp,
-  rulesSource,
-}: {
-  denial: Denial;
-  exp: RuleExplanation;
-  rulesSource?: string;
-}) {
-  const failure = queryProofFailure(denial);
-  const rawLine = failure?.rule?.line ?? denial.evaluatedRule?.line;
-  const line = resolveMarkedLine(rulesSource, rawLine);
-  const cleanRulesSource = rulesSource !== undefined ? stripPyricSourceMap(rulesSource) : undefined;
-  const allowed = denial.result === 'allow';
-  const showSource = Boolean(cleanRulesSource && cleanRulesSource.trim().length > 0);
-  return (
-    <Field
-      label={
-        failure ? `query proof — ${exp.ruleNode}` : exp.implicitDeny || !exp.ruleNode
-          ? 'matched rule'
-          : `matched rule — ${exp.ruleNode}${rawLine ? ` · line ${rawLine}` : ''}`
-      }
-    >
-      {failure?.predicate ? (
-        <div className="mb-3 text-sm text-slate-gray">
-          <p>Unsupported predicate{failure.predicate.citation ? ` · ${failure.predicate.citation}` : ''}</p>
-          <pre className="overflow-auto font-mono text-xs">{failure.predicate.expression}</pre>
-        </div>
-      ) : null}
-      {showSource ? (
-        <LazyRulesCodeEditor
-          value={cleanRulesSource!}
-          readOnly
-          markLine={line}
-          markKind={allowed ? 'allow' : 'deny'}
-          minHeightRem={12}
-          ariaLabel={failure ? 'Deployed firestore.rules — the rule Pyric could not prove is marked' : `Deployed firestore.rules — the ${allowed ? 'allowing' : 'denying'} rule is marked`}
-        />
-      ) : (
-        <pre className="overflow-auto rounded-md border border-border bg-content-bg p-3 font-mono text-xs leading-relaxed text-slate-gray">
-          {[...(failure?.rule?.expression ? [failure.rule.expression] : []), ...exp.ruleLines, ...exp.otherLines].join('\n') || '(no trace)'}
-        </pre>
-      )}
-    </Field>
-  );
-}
-
-// ─── Show the work: sub-expression evaluation step-through ──────────────────
-
-/** The heart of the page: the denying rule's condition rendered as an
- *  evaluated tree — each sub-expression with its value, the false branch marked
- *  ✗, short-circuited operands greyed as skipped. Firestore-only (the simulator
- *  is the only engine that emits a sub-expression trace); absent otherwise. */
 function TraceWork({ denial }: { denial: Denial }) {
   const steps = projectTraceSteps(denial);
   if (steps.length === 0) return null;
+  let traceLabel = 'show the work \u2014 how the condition evaluated';
+  if (queryProofFailure(denial)) {
+    traceLabel = 'residual evaluation \u2014 separate from the static proof';
+  }
   return (
-    <Field label={queryProofFailure(denial) ? "residual evaluation — separate from the static proof" : "show the work — how the condition evaluated"}>
+    <RulesField label={traceLabel}>
       <div
         data-pyric-ui="rules-debug-trace"
         className="flex flex-col gap-0.5 overflow-auto rounded-md border border-border bg-content-bg p-3"
@@ -410,7 +299,7 @@ function TraceWork({ denial }: { denial: Denial }) {
           <TraceStepRow key={i} step={s} />
         ))}
       </div>
-    </Field>
+    </RulesField>
   );
 }
 
@@ -482,7 +371,7 @@ function formatValue(value: unknown): string {
 function VariablesInspector({ denial }: { denial: Denial }) {
   const vars = ruleVariables(denial);
   return (
-    <Field label="what the rule saw (request / resource)">
+    <RulesField label="what the rule saw (request / resource)">
       <div
         data-pyric-ui="rules-debug-variables"
         className="flex flex-col gap-2 rounded-md border border-border bg-content-bg p-3"
@@ -491,7 +380,7 @@ function VariablesInspector({ denial }: { denial: Denial }) {
           <VariableRow key={v.name} variable={v} />
         ))}
       </div>
-    </Field>
+    </RulesField>
   );
 }
 
@@ -546,196 +435,6 @@ function ValueTree({ value, depth = 0 }: { value: unknown; depth?: number }) {
           ))}
         </div>
       ) : null}
-    </div>
-  );
-}
-
-/** RTDB: WHICH node in the cascade denied (`.write` vs `.validate`, at which
- *  rule-tree path), its raw rule text, and the `$variable` bindings —
- *  `SimulateHandler`'s verdict, not a re-derivation. When `rulesSource` is
- *  present, mounts CodeMirror to highlight the deciding 1-indexed source line. */
-function RtdbRuleDetail({
-  denial,
-  exp,
-  rulesSource,
-}: {
-  denial: Denial;
-  exp: RuleExplanation;
-  rulesSource?: string;
-}) {
-  const decidingLine = rtdbRuleLine(denial, rulesSource);
-  const rows = projectRtdbTrace(denial, rulesSource);
-  // A clicked trace row moves the editor's mark to that rule; until then the
-  // mark stays on the rule that decided the operation.
-  const [selectedRow, setSelectedRow] = useState<number | null>(null);
-  const [showAllRows, setShowAllRows] = useState(false);
-  const visibleRows = showAllRows ? rows : rows.slice(0, TRACE_ROWS_SHOWN);
-  const selected = selectedRow === null ? undefined : rows[selectedRow];
-  // An UNSUPPORTED rule is neither an allow nor a deny, so selecting it marks no line.
-  let line = decidingLine;
-  if (selected) line = selected.verdict === 'UNSUPPORTED' ? undefined : selected.line;
-  const isAllowed = selected ? selected.verdict === 'ALLOW' : denial.result === 'allow';
-  const hasSource = rulesSource !== undefined && rulesSource.trim().length > 0;
-  let ruleNodeLabel: string;
-  if (exp.implicitDeny || !exp.ruleNode) {
-    ruleNodeLabel = 'rule node';
-  } else if (decidingLine !== undefined) {
-    ruleNodeLabel = `rule node: ${exp.ruleNode} · line ${decidingLine}`;
-  } else {
-    ruleNodeLabel = `rule node: ${exp.ruleNode}`;
-  }
-
-  let ariaLabelText: string;
-  if (isAllowed) {
-    ariaLabelText = 'Deployed database.rules.json, the allowing rule is marked';
-  } else {
-    ariaLabelText = 'Deployed database.rules.json, the denying rule is marked';
-  }
-
-  return (
-    <>
-      <Field label={ruleNodeLabel}>
-        {hasSource ? (
-          <div data-pyric-ui="rtdb-rule-source" data-marked-line={line}>
-            <LazyRulesCodeEditor
-              value={rulesSource}
-              readOnly
-              markLine={line}
-              markKind={isAllowed ? 'allow' : 'deny'}
-              minHeightRem={12}
-              ariaLabel={ariaLabelText}
-            />
-          </div>
-        ) : (
-          <code className="font-mono text-xs text-soft-white">
-            {exp.phase ? `.${exp.phase}` : '(no matching rule)'}
-            {denial.rules?.matchedPath ? ` at ${denial.rules.matchedPath}` : ''}
-          </code>
-        )}
-      </Field>
-      {rows.length > 0 ? (
-        <Field label="evaluated rules, root first">
-          <ul data-pyric-ui="rtdb-trace" className="flex flex-col gap-1">
-            {visibleRows.map((row, i) => (
-              <RtdbTraceRowItem
-                key={i}
-                row={row}
-                current={i === selectedRow}
-                onSelect={() => setSelectedRow(i)}
-              />
-            ))}
-          </ul>
-          {rows.length > visibleRows.length ? (
-            <button
-              type="button"
-              data-pyric-ui="rtdb-trace-show-all"
-              onClick={() => setShowAllRows(true)}
-              className="w-fit font-mono text-xs text-slate-gray hover:text-soft-white"
-            >
-              show all {rows.length} rules
-            </button>
-          ) : null}
-        </Field>
-      ) : null}
-      {!hasSource && exp.ruleExpression ? (
-        <Field label="rule expression">
-          <pre className="overflow-auto rounded-md border border-border bg-content-bg p-3 font-mono text-xs text-slate-gray">
-            {exp.ruleExpression}
-          </pre>
-        </Field>
-      ) : null}
-      {exp.bindings ? (
-        <Field label="$variable bindings">
-          <code className="font-mono text-xs text-soft-white">
-            {Object.entries(exp.bindings)
-              .map(([k, v]) => `${k.startsWith('$') ? k : `$${k}`} → ${v}`)
-              .join(', ')}
-          </code>
-        </Field>
-      ) : null}
-      {denial.rules?.reason ? (
-        <Field label="simulator reason">
-          <code className="font-mono text-xs text-slate-gray">{denial.rules.reason}</code>
-        </Field>
-      ) : null}
-    </>
-  );
-}
-
-/** The longest evaluation trace shown before "show all". A write to a deep path
- *  evaluates one rule per ancestor plus the validate walk. */
-const TRACE_ROWS_SHOWN = 20;
-
-/** One rule of the RTDB evaluation trace: where it sits (rule-tree path, kind,
- *  file line), then the same step row Firestore's expression trace uses for its
- *  expression and verdict, then the `$` bindings at the node. A click selects the
- *  row; the whole row is a pointer target, and the header button is its keyboard
- *  stop and selects on its own. */
-function RtdbTraceRowItem({
-  row,
-  current,
-  onSelect,
-}: {
-  row: RtdbTraceRow;
-  current: boolean;
-  onSelect: () => void;
-}) {
-  const bindings = Object.entries(row.bindings);
-  return (
-    <li
-      data-pyric-ui="rtdb-trace-row"
-      data-line={row.line}
-      aria-current={current ? 'true' : undefined}
-      onClick={onSelect}
-      className={`flex cursor-pointer flex-col gap-1 rounded-md border px-3 py-2 ${
-        current ? 'border-primary bg-primary/10' : 'border-border bg-content-bg hover:bg-sidebar-bg'
-      }`}
-    >
-      <button
-        type="button"
-        onClick={(event) => {
-          event.stopPropagation();
-          onSelect();
-        }}
-        className="flex w-fit items-baseline gap-2 font-mono text-xs text-slate-gray"
-      >
-        <span className="text-soft-white">{row.path}</span>
-        <span>.{row.kind}</span>
-        {row.line !== undefined ? <span>line {row.line}</span> : null}
-      </button>
-      <TraceStepRow step={row.step} />
-      {bindings.length > 0 ? (
-        <code className="font-mono text-xs text-slate-gray">
-          {bindings.map(([name, value]) => `${name} → ${value}`).join(', ')}
-        </code>
-      ) : null}
-    </li>
-  );
-}
-
-/** Storage: the `match` block + verb whose condition failed, and the raw
- *  free-text reasons `evaluateStorageRules` produced (no rule index/trace —
- *  the Storage engine doesn't build one; see `SPEC.md`). */
-function StorageRuleDetail({ exp }: { exp: RuleExplanation }) {
-  return (
-    <Field label={exp.implicitDeny ? 'matched rule' : 'matched rule (match block)'}>
-      {exp.ruleNode ? (
-        <code className="mb-2 block font-mono text-xs text-soft-white">{exp.ruleNode}</code>
-      ) : null}
-      <pre className="overflow-auto rounded-md border border-border bg-content-bg p-3 font-mono text-xs leading-relaxed text-slate-gray">
-        {[...exp.ruleLines, ...exp.otherLines].join('\n') || '(no trace)'}
-      </pre>
-    </Field>
-  );
-}
-
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="flex flex-col gap-1">
-      <span className="text-[0.65rem] font-semibold uppercase tracking-wider text-slate-gray">
-        {label}
-      </span>
-      {children}
     </div>
   );
 }

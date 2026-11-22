@@ -2,18 +2,18 @@
  * Candidate rules resolution (`--rules` overrides and `firebase.json` lookup)
  * across Firestore, Realtime Database, and Storage for `pyric verify`.
  */
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { bundleRulesSource } from 'pyric/rules/internal/usage';
-import { defaultFirestoreDatabase } from 'pyric/sandbox/internal';
-import { firestoreDatabases, MODULAR_SOURCE } from '../serve/rules.js';
+import {
+  firestoreDatabaseOfRulesKey,
+  isFirestoreDatabaseRulesKey,
+  resolveFirestoreCandidateRules,
+  type FirestoreRulesOverrides,
+} from '../verify/firestore-candidate-rules.js';
 import type {
   PyricVerifyFixture,
   VerifiableService,
   VerifyRulesInput,
 } from '../verify/index.js';
-import { resolveContainedRulesFile } from './contained-rules-file.js';
-import { readFirebaseJson, readFirebaseRcSync, type FirebaseJson } from './firebase-json.js';
+import { readFirebaseJson, type FirebaseJson } from './firebase-json.js';
 import type { FlagValue } from './parse-args.js';
 import {
   isRtdbInstanceRulesKey,
@@ -64,29 +64,17 @@ async function readFirebaseJsonOrNull(cwd: string): Promise<FirebaseJson | null>
   }
 }
 
-/** The rules file `firebase.json` names for the `(default)` Firestore database, from either `firestore` form. */
-function configuredFirestoreRules(
-  cwd: string,
-  config: FirebaseJson | null,
-  project: string | undefined,
-): string | undefined {
-  const projectId = project ?? readFirebaseRcSync(cwd)?.projects?.default;
-  const projectOpts: { projectId?: string } = {};
-  if (projectId !== undefined) {
-    projectOpts.projectId = projectId;
-  }
-  const databases = firestoreDatabases(cwd, config, projectOpts);
-  const entry = defaultFirestoreDatabase(databases);
-  if (entry?.configured === true) return entry.rulesFile;
-  return undefined;
-}
-
 function parseRulesOverrides(flag: FlagValue | undefined): {
-  firestore?: string;
+  firestore: FirestoreRulesOverrides;
   rtdb: RtdbRulesOverrides;
   storage: StorageRulesOverrides;
 } {
-  const out: { firestore?: string; rtdb: RtdbRulesOverrides; storage: StorageRulesOverrides } = {
+  const out: {
+    firestore: FirestoreRulesOverrides;
+    rtdb: RtdbRulesOverrides;
+    storage: StorageRulesOverrides;
+  } = {
+    firestore: { databases: [] },
     rtdb: { instances: [] },
     storage: { buckets: [] },
   };
@@ -94,11 +82,15 @@ function parseRulesOverrides(flag: FlagValue | undefined): {
     const eq = raw.indexOf('=');
     if (eq <= 0 || eq === raw.length - 1) {
       throw new Error(
-        '--rules must use service-qualified values like --rules rtdb=database.rules.json or --rules rtdb:<instance>=<path>.',
+        '--rules must use service-qualified values like --rules rtdb=database.rules.json or --rules firestore:<database>=<path>.',
       );
     }
     const key = raw.slice(0, eq);
     const path = raw.slice(eq + 1);
+    if (isFirestoreDatabaseRulesKey(key)) {
+      out.firestore.databases.push({ database: firestoreDatabaseOfRulesKey(key), path });
+      continue;
+    }
     if (isRtdbInstanceRulesKey(key)) {
       out.rtdb.instances.push({ instance: rtdbInstanceOfRulesKey(key), path });
       continue;
@@ -110,7 +102,7 @@ function parseRulesOverrides(flag: FlagValue | undefined): {
     const service = toVerifiableService(key);
     if (service === 'rtdb') out.rtdb.default = path;
     else if (service === 'storage') out.storage.default = path;
-    else out.firestore = path;
+    else out.firestore.default = path;
   }
   return out;
 }
@@ -129,41 +121,24 @@ export async function resolveCandidateRules(
   const rules: VerifyRulesInput = {};
   const paths: Record<string, string> = {};
   if (services.includes('firestore')) {
-    const rel = overrides.firestore ?? configuredFirestoreRules(cwd, await readConfig(), input.project);
-    if (!rel) {
-      throw new Error('missing candidate firestore rules. Pass --rules firestore=<path> or configure firebase.json.');
-    }
-    const checked = resolveContainedRulesFile({
-      projectRoot: cwd,
-      lexicalProjectRoot: cwd,
+    const firestoreInput: {
+      cwd: string;
+      fixtures: PyricVerifyFixture[];
+      overrides: FirestoreRulesOverrides;
+      readFirebaseJson: () => Promise<FirebaseJson | null>;
+      project?: string;
+    } = {
       cwd,
-      fileArg: rel,
-    });
-    if (!checked.ok) {
-      if (checked.kind === 'not-found') {
-        throw new Error(`rules file not found for firestore: ${resolve(cwd, rel)}`);
-      }
-      throw new Error(`invalid firestore rules path: ${checked.message}`);
+      fixtures: input.fixtures,
+      overrides: overrides.firestore,
+      readFirebaseJson: readConfig,
+    };
+    if (input.project) {
+      firestoreInput.project = input.project;
     }
-    const path = checked.resolvedPath;
-    paths.firestore = path;
-    const raw = readFileSync(checked.realFile, 'utf8');
-    if (MODULAR_SOURCE.test(raw)) {
-      try {
-        rules.firestore = bundleRulesSource(raw, {
-          filePath: checked.realFile,
-          rootDir: checked.realRoot,
-          sourceFile: path,
-          targetService: 'cloud.firestore',
-        });
-      } catch (err) {
-        let msg = String(err);
-        if (err instanceof Error) msg = err.message;
-        throw new Error(`firestore rules module resolution failed (${path}): ${msg}`);
-      }
-    } else {
-      rules.firestore = raw;
-    }
+    const firestore = await resolveFirestoreCandidateRules(firestoreInput);
+    Object.assign(rules, firestore.rules);
+    Object.assign(paths, firestore.paths);
   }
   if (services.includes('rtdb')) {
     const rtdbInput: {

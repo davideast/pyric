@@ -24,6 +24,13 @@ import {
 } from '../../arguments/assurance.js';
 import { runDerivedCases, type CaseVerdict } from '../../assurance-cases.js';
 import { operationFailure } from '../../context.js';
+import {
+  assertDeclaredFirestoreDatabase,
+  checkRulesFirestoreDatabase,
+  databaseArgument,
+  firestoreDatabaseSelector,
+  onFirestoreDatabase,
+} from '../../firestore-database.js';
 import { failFor } from '../../method-validation.js';
 import { activeFirestoreRules } from '../../rules-simulation.js';
 import type { MethodRecord } from '../../method-types.js';
@@ -74,7 +81,7 @@ export default {
   runsIn: 'bridge',
   sdkOrigin: 'pyric',
   effect: 'read',
-  signature: 'replaySession(sessionPath?, candidateRules?, service?: firestore|database)',
+  signature: 'replaySession(sessionPath?, candidateRules?, database?, service?: firestore|database)',
   description: 'Replay capture.',
   args: z.object({
     sessionPath: z
@@ -84,8 +91,14 @@ export default {
         `The recorded session to replay, relative to the project directory. Defaults to ${CAPTURE_RELATIVE_PATH}.`,
       ),
     candidateRules,
+    database: databaseArgument,
     service: replayService,
   }),
+  validate(args, { fail }) {
+    let targetService: unknown = args.service ?? 'firestore';
+    if (args.service === 'rtdb') targetService = 'database';
+    return checkRulesFirestoreDatabase(args, fail, targetService);
+  },
   operation: 'replay_assurance_session',
   renames: { session: 'sessionPath', fixture: 'sessionPath', rules: 'candidateRules' },
   example: { sessionPath: CAPTURE_RELATIVE_PATH },
@@ -100,17 +113,26 @@ export default {
     if ('refusal' in read) return read.refusal;
 
     const service = verifiableService(args.service as string | undefined);
+    const selector = service === 'firestore' ? firestoreDatabaseSelector(args.database) : undefined;
     let firestoreRules = '';
     let rulesInput: VerifyRulesInput;
     if (service === 'firestore') {
-      firestoreRules =
-        typeof args.candidateRules === 'string' ? args.candidateRules : activeFirestoreRules(ctx);
+      if (typeof args.candidateRules === 'string') {
+        firestoreRules = args.candidateRules;
+      } else {
+        assertDeclaredFirestoreDatabase(ctx, selector);
+        firestoreRules = activeFirestoreRules(ctx, selector);
+      }
       if (firestoreRules.length === 0) {
         return operationFailure(
           'No candidate rules were supplied and the sandbox is running none, so there is nothing to replay against.',
         );
       }
-      rulesInput = { firestore: firestoreRules };
+      if (selector === undefined) {
+        rulesInput = { firestore: firestoreRules };
+      } else {
+        rulesInput = { firestoreDatabases: { [selector]: firestoreRules } };
+      }
     } else {
       let rtdbRules: ReturnType<typeof getActiveRules> = null;
       if (typeof args.candidateRules === 'string') {
@@ -144,42 +166,50 @@ export default {
     const replayDivergences = replayed.services[service]?.divergences ?? [];
     const state = stateDivergences(service, replayDivergences);
     const redecided = replayDivergences.filter((divergence) => isReplayVerdict(service, divergence));
-    const decided =
-      service === 'firestore' ? runDerivedCases(read.fixture, firestoreRules) : { cases: [] };
+    let decided: ReturnType<typeof runDerivedCases> | { cases: CaseVerdict[] } = { cases: [] };
+    if (service === 'firestore') {
+      decided = runDerivedCases(read.fixture, firestoreRules, selector);
+    }
     if ('error' in decided) return operationFailure(decided.error);
     const verdicts = verdictDivergences(decided.cases);
     const verdictCount = verdicts.length + redecided.length;
     const divergences = [...verdicts, ...redecided, ...state];
+    const skippedDatabases = replayed.services[service]?.skippedDatabases ?? [];
     const skippedInstances = replayed.services[service]?.skippedInstances ?? [];
     const unevaluatedEvents = replayed.services[service]?.unevaluatedEvents ?? [];
     const notes = replayed.services[service]?.notes ?? [];
-    const found =
-      divergences.length === 0
-        ? `Replaying '${named}' under the candidate rules changed no recorded verdict.`
-        : `Replaying '${named}' under the candidate rules changed ${verdictCount} verdict(s) and left ${state.length} state divergence(s).`;
-    // The candidate rules are the default instance's; a named instance the
-    // session used is named rather than checked against them.
-    const skipped =
-      skippedInstances.length === 0
-        ? ''
-        : ` Not checked: the session also used database instance(s) ${skippedInstances.join(', ')}; run \`pyric verify --rules rtdb:<instance>=<path>\` to check them.`;
-    const unevaluated = notes.length === 0 ? '' : ` ${notes.join(' ')}`;
+    let baseSummary = `Replaying '${named}' under the candidate rules changed ${verdictCount} verdict(s) and left ${state.length} state divergence(s)`;
+    if (divergences.length === 0) {
+      baseSummary = `Replaying '${named}' under the candidate rules changed no recorded verdict`;
+    }
+    const found = `${onFirestoreDatabase(baseSummary, selector)}.`;
+    let skipped = '';
+    if (skippedDatabases.length > 0) {
+      skipped += ` Not checked: the session also used Firestore database(s) ${skippedDatabases.join(', ')}; pass database or run \`pyric verify --rules firestore:<database>=<path>\` to check them.`;
+    }
+    if (skippedInstances.length > 0) {
+      skipped += ` Not checked: the session also used database instance(s) ${skippedInstances.join(', ')}; run \`pyric verify --rules rtdb:<instance>=<path>\` to check them.`;
+    }
+    let unevaluated = '';
+    if (notes.length > 0) {
+      unevaluated = ` ${notes.join(' ')}`;
+    }
     const summary = found + skipped + unevaluated;
-    // The read succeeded whatever it found, so a replay that reports what
-    // breaks is not an error. What broke is in the data, and a caller that
-    // asks what breaks is asking for exactly that.
+    const data: Record<string, unknown> = {
+      sessionPath: named,
+      service,
+      checkedEvents: replayed.services[service]?.checkedEvents ?? 0,
+      divergences,
+    };
+    if (selector !== undefined) data.database = selector;
+    if (skippedDatabases.length > 0) data.skippedDatabases = skippedDatabases;
+    if (skippedInstances.length > 0) data.skippedInstances = skippedInstances;
+    if (unevaluatedEvents.length > 0) data.unevaluatedEvents = unevaluatedEvents;
+    if (notes.length > 0) data.notes = notes;
     return {
       ok: true,
       summary,
-      data: {
-        sessionPath: named,
-        service,
-        checkedEvents: replayed.services[service]?.checkedEvents ?? 0,
-        divergences,
-        ...(skippedInstances.length > 0 ? { skippedInstances } : {}),
-        ...(unevaluatedEvents.length > 0 ? { unevaluatedEvents } : {}),
-        ...(notes.length > 0 ? { notes } : {}),
-      },
+      data,
     };
   },
 } satisfies MethodRecord;

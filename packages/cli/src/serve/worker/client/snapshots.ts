@@ -10,6 +10,8 @@ import type {
 } from '../protocol.js';
 import { deserializeDocData } from '../protocol.js';
 import type { ClientPort, DocRefHandle } from './handles.js';
+import { clientDatabaseIdOf } from './firestore-database.js';
+import { ownerOfWorkerHandle } from './firestore-lifecycle.js';
 import { createDocumentReference } from './firestore-reference.js';
 import { FirebaseError } from 'pyric/app';
 import { decodeDocValue } from 'pyric/firestore/internal/value-codec';
@@ -40,9 +42,15 @@ import {
 // ─── Rehydration (class instance restoration) ─────────────────────────────
 
 /** Restore SDK scalar values and references bound to this snapshot's client port. */
-function rehydrateDocData(serialized: SerializedDocData, port: ClientPort): Record<string, unknown> {
+function rehydrateDocData(
+  serialized: SerializedDocData,
+  port: ClientPort,
+  owner?: object,
+  _databaseId?: string,
+): Record<string, unknown> {
   const references = {
-    create: (path: string, databaseId?: string) => createDocumentReference(port, path, null, undefined, databaseId),
+    create: (path: string, refDatabaseId?: string) =>
+      createDocumentReference(port, path, null, owner, refDatabaseId),
   };
   return deserializeDocData(serialized, references) as Record<string, unknown>;
 }
@@ -86,10 +94,15 @@ export function rawClientSnapshotForCursor(snapshot: object): RawCursorSnapshot 
   return rawCursorSnapshots.get(snapshot);
 }
 
-function mapDescriptorFilter(port: ClientPort, f: FilterConstraintDescriptor): BundledFilterSpec {
+function mapDescriptorFilter(
+  port: ClientPort,
+  f: FilterConstraintDescriptor,
+  owner?: object,
+): BundledFilterSpec {
   if (f.kind === 'where') {
     const references = {
-      create: (path: string, databaseId?: string) => createDocumentReference(port, path, null, undefined, databaseId),
+      create: (path: string, refDatabaseId?: string) =>
+        createDocumentReference(port, path, null, owner, refDatabaseId),
     };
     return {
       kind: 'where',
@@ -98,10 +111,14 @@ function mapDescriptorFilter(port: ClientPort, f: FilterConstraintDescriptor): B
       value: decodeDocValue(f.value, references, f.valueEncoding),
     };
   }
-  return { kind: f.kind, filters: f.filters.map((sub) => mapDescriptorFilter(port, sub)) };
+  return { kind: f.kind, filters: f.filters.map((sub) => mapDescriptorFilter(port, sub, owner)) };
 }
 
-function descriptorToQuerySourceSpec(port: ClientPort, desc?: TargetDescriptor): BundledQuerySourceSpec {
+function descriptorToQuerySourceSpec(
+  port: ClientPort,
+  desc?: TargetDescriptor,
+  owner?: object,
+): BundledQuerySourceSpec {
   if (desc === undefined) return { collectionPath: '', isCollectionGroup: false, filters: [], orders: [] };
   if (desc.__ref === 'collection') return { collectionPath: desc.path, isCollectionGroup: false, filters: [], orders: [] };
   if (desc.__ref === 'group') return { collectionPath: desc.collectionId, isCollectionGroup: true, filters: [], orders: [] };
@@ -119,7 +136,7 @@ function descriptorToQuerySourceSpec(port: ClientPort, desc?: TargetDescriptor):
   let limitCount: number | undefined;
   let limitType: 'FIRST' | 'LAST' | undefined;
   for (const c of desc.constraints) {
-    if (c.kind === 'where' || c.kind === 'and' || c.kind === 'or') filters.push(mapDescriptorFilter(port, c));
+    if (c.kind === 'where' || c.kind === 'and' || c.kind === 'or') filters.push(mapDescriptorFilter(port, c, owner));
     else if (c.kind === 'orderBy') orders.push({ fieldPath: c.field, direction: c.direction ?? 'asc' });
     else if (c.kind === 'limit') { limitCount = c.n; limitType = 'FIRST'; }
     else if (c.kind === 'limitToLast') { limitCount = c.n; limitType = 'LAST'; }
@@ -132,16 +149,22 @@ export function makeDocSnapshot<T = DocumentData>(
   port: ClientPort,
   reference?: DocRefHandle<T>,
   metadata: SnapshotMetadata = SETTLED_METADATA,
+  owner?: object,
+  databaseId?: string,
 ): ClientDocSnapshot<T> {
   const isMalformed = !isDocumentResult(raw);
   if (isMalformed) throw new FirebaseError('invalid-argument', 'The sandbox sent a malformed document result.');
   const serialized = raw.data;
+  const path = raw.path ?? raw.id;
+  const resolvedOwner = owner ?? (reference !== undefined ? ownerOfWorkerHandle(reference) : undefined);
+  const ref = reference ?? createDocumentReference<T>(port, path, null, resolvedOwner, databaseId);
+  const resolvedDb = databaseId ?? clientDatabaseIdOf(ref);
   // Production builds a new object on every read, so a caller that mutates
   // one result never changes the next (FP-13). The copy kept here is for
   // cursor bounds only and is never handed out.
   const freshData = (): Record<string, unknown> | undefined => {
     const hasData = raw.exists && serialized !== undefined;
-    if (hasData) return rehydrateDocData(serialized, port);
+    if (hasData) return rehydrateDocData(serialized, port, resolvedOwner, resolvedDb);
     return undefined;
   };
   const freshVariantData = (options?: SnapshotOptions): Record<string, unknown> | undefined => {
@@ -149,15 +172,13 @@ export function makeDocSnapshot<T = DocumentData>(
     if (!hasData) return undefined;
     const variants = raw.serverTimestampVariants;
     if (variants !== undefined && metadata.hasPendingWrites) {
-      if (options?.serverTimestamps === 'estimate') return rehydrateDocData(serialized, port);
-      if (options?.serverTimestamps === 'previous') return rehydrateDocData(variants.previous, port);
-      return rehydrateDocData(variants.none, port);
+      if (options?.serverTimestamps === 'estimate') return rehydrateDocData(serialized, port, resolvedOwner, resolvedDb);
+      if (options?.serverTimestamps === 'previous') return rehydrateDocData(variants.previous, port, resolvedOwner, resolvedDb);
+      return rehydrateDocData(variants.none, port, resolvedOwner, resolvedDb);
     }
-    return rehydrateDocData(serialized, port);
+    return rehydrateDocData(serialized, port, resolvedOwner, resolvedDb);
   };
   const data = freshData();
-  const path = raw.path ?? raw.id;
-  const ref = reference ?? createDocumentReference<T>(port, path);
   const read = (options?: SnapshotOptions): T | undefined => {
     const document = freshVariantData(options);
     const isMissing = document === undefined;
@@ -167,13 +188,13 @@ export function makeDocSnapshot<T = DocumentData>(
     if (hasConverter) {
       const snapshot: QueryDocumentSnapshot = {
         id: raw.id,
-        ref: createDocumentReference(port, path),
+        ref: createDocumentReference(port, path, null, resolvedOwner, resolvedDb),
         exists: () => true,
         metadata,
         data: (innerOptions?: SnapshotOptions) => freshVariantData(innerOptions) as DocumentData,
         get: (fieldPath, innerOptions?: SnapshotOptions) =>
           readField(freshVariantData(innerOptions), fieldPath),
-        toJSON: () => encodeDocumentSnapshotJson('pyric', path, true, document),
+        toJSON: () => encodeDocumentSnapshotJson('pyric', path, true, document, resolvedDb),
       };
       const resolvedOptions: SnapshotOptions = options ?? {};
       return (converter as FirestoreDataConverter<T>).fromFirestore(snapshot, resolvedOptions);
@@ -189,7 +210,7 @@ export function makeDocSnapshot<T = DocumentData>(
     data: read,
     // Production reads the stored field without the converter, as the in-page snapshot does.
     get: (fieldPath, options) => readField(freshVariantData(options), fieldPath),
-    toJSON: () => encodeDocumentSnapshotJson('pyric', path, raw.exists, freshData()),
+    toJSON: () => encodeDocumentSnapshotJson('pyric', path, raw.exists, freshData(), resolvedDb),
   };
   rawCursorSnapshots.set(docSnapshot, { id: raw.id, path, exists: raw.exists, data });
   return docSnapshot;
@@ -325,10 +346,13 @@ export function makeSnapshot(
   port: ClientPort,
   converter: FirestoreDataConverter<unknown> | null,
   baseline: QueryChangeBaseline,
+  owner?: object,
+  databaseId?: string,
+  sourceDescriptor?: TargetDescriptor,
 ): ClientDocSnapshot | ClientQuerySnapshot | null {
   const isQuery = isQueryResult(raw);
   if (isQuery) {
-    const snapshot = makeQuerySnapshot(raw, port, converter, baseline);
+    const snapshot = makeQuerySnapshot(raw, port, converter, baseline, sourceDescriptor, undefined, owner, databaseId);
     const sameMetadata = snapshot.metadata.hasPendingWrites === baseline.previousHasPendingWrites
       && snapshot.metadata.fromCache === baseline.previousFromCache;
     const isUnchanged = baseline.previous !== undefined
@@ -358,8 +382,10 @@ export function makeSnapshot(
     return makeDocSnapshot(
       raw,
       port,
-      createDocumentReference(port, raw.path ?? raw.id, converter),
+      createDocumentReference(port, raw.path ?? raw.id, converter, owner, databaseId),
       metadata,
+      owner,
+      databaseId,
     );
   }
   throw new FirebaseError('invalid-argument', 'The sandbox sent a malformed Firestore snapshot.');
@@ -377,20 +403,31 @@ export function makeQuerySnapshot(
   baseline: QueryChangeBaseline = { excludesMetadataChanges: false },
   sourceDescriptor?: TargetDescriptor,
   metadataOverride?: SnapshotMetadata,
+  owner?: object,
+  databaseId?: string,
 ): ClientQuerySnapshot {
   const isMalformed = !isQueryResult(raw);
   if (isMalformed) throw new FirebaseError('invalid-argument', 'The sandbox sent a malformed query result.');
   const metadata = metadataOverride ?? frameMetadata(raw);
+  let resolvedDb = databaseId;
+  if (resolvedDb === undefined && owner !== undefined) {
+    const ownerDb = (owner as { databaseId?: unknown }).databaseId;
+    if (typeof ownerDb === 'string' && ownerDb.length > 0 && ownerDb !== '(default)') {
+      resolvedDb = ownerDb;
+    }
+  }
   // Each document carries its own pending state: production marks only the
   // documents with a pending write, not every document in the snapshot (FP-5).
   const snapshotOf = (doc: RawDocResult) => makeDocSnapshot(
     doc,
     port,
-    createDocumentReference(port, doc.path ?? doc.id, converter),
+    createDocumentReference(port, doc.path ?? doc.id, converter, owner, resolvedDb),
     Object.freeze({
       fromCache: doc.fromCache === true || metadata.fromCache,
       hasPendingWrites: doc.hasPendingWrites === true,
     }),
+    owner,
+    resolvedDb,
   );
   // Online removed docs reflect the previously committed state before the
   // removing write; when `includeMetadataChanges` is false, `baseline.previous`
@@ -398,11 +435,13 @@ export function makeQuerySnapshot(
   const removedSnapshotOf = (doc: RawDocResult) => makeDocSnapshot(
     doc,
     port,
-    createDocumentReference(port, doc.path ?? doc.id, converter),
+    createDocumentReference(port, doc.path ?? doc.id, converter, owner, resolvedDb),
     Object.freeze({
       fromCache: doc.fromCache === true || metadata.fromCache,
       hasPendingWrites: metadata.fromCache ? doc.hasPendingWrites === true : false,
     }),
+    owner,
+    resolvedDb,
   );
   const docs = raw.docs.map(snapshotOf);
   const rows = raw.docs.map((doc) => ({ path: doc.path ?? doc.id, doc }));
@@ -437,8 +476,9 @@ export function makeQuerySnapshot(
     toJSON: () =>
       encodeQuerySnapshotJson(
         'pyric',
-        descriptorToQuerySourceSpec(port, sourceDescriptor),
+        descriptorToQuerySourceSpec(port, sourceDescriptor, owner),
         docs.map((d) => ({ path: d.ref.path, data: (d.data() as Record<string, unknown> | undefined) ?? {} })),
+        resolvedDb,
       ),
   };
 }

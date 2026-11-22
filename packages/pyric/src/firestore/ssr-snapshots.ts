@@ -4,14 +4,15 @@
  */
 import type { DocumentData } from 'pyric/sandbox/admin-firestore';
 import { FirebaseError } from '../sandbox/internal/firebase-error.js';
-import { buildModularQuery, loadBundle, namedQuery } from './bundles.js';
+import { assertBundleMatchesDatabase, buildModularQuery, loadBundle, namedQuery } from './bundles.js';
 import { clientStateFor } from './client-state.js';
+import type { ReferenceDecoder } from './internal/value-codec.js';
 import { onSnapshot, type SnapshotListenOptions, type SnapshotObserver } from './listeners.js';
-import { collection } from './refs.js';
-import { doc } from './refs.js';
+import { collection, doc } from './refs.js';
 import { getSnapshotField, type SnapshotFieldPath } from './sandbox/admin-compat/field-path.js';
 import { decodeBundleBytes, type BundledFilterSpec, type BundledQuerySourceSpec, type BundledWhereOp } from './sandbox/bundle-wire.js';
 import { forEachDocument } from './sandbox/for-each-document.js';
+import { normalizeFirestoreDatabaseId } from './sandbox/named-databases.js';
 import type { QueryFilter, QueryScope } from './sandbox/query-execution.js';
 import { computeDocumentChanges, createDocChanges, type QueryConstraintPlan } from './sandbox/snapshot-listeners.js';
 import { encodeDocumentSnapshotJson, encodeQuerySnapshotJson, type SerializedSnapshotEnvelope } from './sandbox/ssr-bundle-encoder.js';
@@ -55,7 +56,7 @@ function extractQuerySourceSpec(queryObj: object): BundledQuerySourceSpec {
 }
 
 export function buildDocSnapshotToJson(target: Target, path: string, existsFn: () => boolean, readDataFn: () => Record<string, unknown> | undefined): () => SerializedSnapshotEnvelope {
-  return () => encodeDocumentSnapshotJson(projectIdOfTarget(target), path, existsFn(), readDataFn());
+  return () => encodeDocumentSnapshotJson(projectIdOfTarget(target), path, existsFn(), readDataFn(), target.databaseId);
 }
 
 export function attachDocSnapshotToJson(snapshot: object, target: Target, path: string, existsFn: () => boolean, readDataFn: () => Record<string, unknown> | undefined): void {
@@ -66,7 +67,7 @@ export function buildQuerySnapshotToJson(snapshot: { docs?: ReadonlyArray<{ ref?
   return () => {
     const rawDocs = snapshot.docs ?? [];
     const docs = rawDocs.map((d) => ({ path: d.ref?.path ?? '', data: (d.data?.() as Record<string, unknown> | undefined) ?? {} }));
-    return encodeQuerySnapshotJson(projectIdOfTarget(target), extractQuerySourceSpec(queryObj), docs);
+    return encodeQuerySnapshotJson(projectIdOfTarget(target), extractQuerySourceSpec(queryObj), docs, target.databaseId);
   };
 }
 
@@ -86,6 +87,39 @@ export function parseValidatedSnapshotEnvelope(json: unknown, expectedKind: 'doc
   return rec as unknown as SerializedSnapshotEnvelope;
 }
 
+function createHydratedReferenceDecoder(db: FirestoreHandle, target: Target): ReferenceDecoder {
+  const projectId = projectIdOfTarget(target);
+  const currentDb = normalizeFirestoreDatabaseId(target.databaseId);
+  return {
+    create(path: string, refDatabaseId?: string) {
+      const normalizedRefDb = normalizeFirestoreDatabaseId(refDatabaseId);
+      if (refDatabaseId !== undefined && normalizedRefDb !== currentDb) {
+        console.warn(
+          `@firebase/firestore: Firestore (12.19.0): A document reference to ${path} refers to a different database (${projectId}/${normalizedRefDb}), which is not supported. It will be treated as a reference in the current database (${projectId}/${currentDb}) instead.`,
+        );
+      }
+      return doc(db, path);
+    },
+  };
+}
+
+function cloneHydratedValue(val: unknown): unknown {
+  if (val === null || typeof val !== 'object') return val;
+  if (Array.isArray(val)) return val.map(cloneHydratedValue);
+  const proto = Object.getPrototypeOf(val);
+  if (proto !== Object.prototype && proto !== null) return val;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(val as Record<string, unknown>)) {
+    Object.defineProperty(out, k, {
+      value: cloneHydratedValue(v),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  return out;
+}
+
 function buildHydratedDocSnapshot(
   db: FirestoreHandle,
   target: Target,
@@ -96,9 +130,11 @@ function buildHydratedDocSnapshot(
   readonly metadata: SnapshotMetadataInstance;
 } {
   const ref = doc(db, docPath);
-  const readData = (): DocumentData => finalizeSandboxData(structuredClone(data)) as DocumentData;
+  const references = createHydratedReferenceDecoder(db, target);
+  const readData = (): DocumentData =>
+    finalizeSandboxData(cloneHydratedValue(data) as DocumentData, references) as DocumentData;
   const readField = (fieldPath: SnapshotFieldPath): unknown => {
-    try { return finalizeSandboxValue(getSnapshotField(readData(), fieldPath)); } catch (err) {
+    try { return finalizeSandboxValue(getSnapshotField(readData(), fieldPath), references); } catch (err) {
       let reason = String(err);
       if (err instanceof Error) reason = err.message;
       throw new FirebaseError('invalid-argument', `Function DocumentSnapshot.get() called with invalid data. ${reason}`);
@@ -137,6 +173,7 @@ export function documentSnapshotFromJSON<AppModelType = DocumentData>(
   clientStateFor(target).markStarted();
   const env = parseValidatedSnapshotEnvelope(json, 'document');
   const parsed = decodeBundleBytes(new TextEncoder().encode(env.bundle));
+  assertBundleMatchesDatabase(parsed, normalizeFirestoreDatabaseId(target.databaseId));
   const first = parsed.documents[0];
   if (first === undefined || !first.exists || first.data === undefined) throw new Error('Bundled document snapshot contains no existing document.');
   const untypedSnap = buildHydratedDocSnapshot(db, target, first.docPath, first.data);
@@ -168,6 +205,7 @@ export function querySnapshotFromJSON<AppModelType = DocumentData>(
   clientStateFor(target).markStarted();
   const env = parseValidatedSnapshotEnvelope(json, 'query');
   const parsed = decodeBundleBytes(new TextEncoder().encode(env.bundle));
+  assertBundleMatchesDatabase(parsed, normalizeFirestoreDatabaseId(target.databaseId));
   const rawDocs = parsed.documents
     .filter((d) => d.exists && d.data !== undefined)
     .map((d) => buildHydratedDocSnapshot(db, target, d.docPath, d.data as Record<string, unknown>));

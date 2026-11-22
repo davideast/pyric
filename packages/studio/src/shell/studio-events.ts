@@ -16,6 +16,7 @@ import type {
   SandboxListenerEvent,
   SandboxOperationEvent,
 } from 'pyric/sandbox';
+import { DEFAULT_FIRESTORE_DATABASE } from 'pyric/firestore/internal';
 import { activeListeners, isOperationEvent, toOperationRecord } from 'pyric/sandbox';
 import { messagingRequestsLine, storageGsPath } from 'pyric/sandbox/internal';
 import type { StudioTrafficEvent } from '../features/traffic/verdict.js';
@@ -165,12 +166,19 @@ function toTrafficEvent(
     throw new Error('Studio traffic adapter received a non-operation event');
   }
   if (e.kind === 'request') {
-    return {
+    const rawDb = (e as { database?: unknown }).database;
+    const reqOut: StudioTrafficEvent = {
       ...e,
       operationContext: record.context,
       rulesDisposition: record.rules,
       queryProof: record.queryProof,
     } as StudioTrafficEvent;
+    if (typeof rawDb === 'string' && rawDb.length > 0 && rawDb !== DEFAULT_FIRESTORE_DATABASE) {
+      reqOut.database = rawDb;
+    } else {
+      delete reqOut.database;
+    }
+    return reqOut;
   }
   if (e.kind === 'listener') {
     let resultVal: 'allow' | 'deny' | 'unsupported' | 'error' | 'not-applicable' = 'error';
@@ -196,7 +204,7 @@ function toTrafficEvent(
         reasonsVal = errorObj.reasons;
       }
     }
-    return {
+    const listenerOut: StudioTrafficEvent = {
       kind: 'operation',
       service: e.service,
       id: e.id,
@@ -213,6 +221,15 @@ function toTrafficEvent(
       queryProof: record.queryProof,
       ...callerOf(e),
     };
+    const listenerDb = (e as { database?: unknown }).database;
+    if (
+      typeof listenerDb === 'string' &&
+      listenerDb.length > 0 &&
+      listenerDb !== DEFAULT_FIRESTORE_DATABASE
+    ) {
+      listenerOut.database = listenerDb;
+    }
+    return listenerOut;
   }
   let pathVal = '(service)';
   if (e.path !== undefined) {
@@ -253,6 +270,10 @@ function toTrafficEvent(
     queryProof: record.queryProof,
   };
   if (e.caller !== undefined) adapted.caller = e.caller;
+  const opDb = (e as { database?: unknown }).database;
+  if (typeof opDb === 'string' && opDb.length > 0 && opDb !== DEFAULT_FIRESTORE_DATABASE) {
+    adapted.database = opDb;
+  }
   if (e.instance !== undefined) adapted.instance = e.instance;
   if (e.production !== undefined) adapted.production = e.production;
   if (e.detail !== undefined) adapted.detail = e.detail;

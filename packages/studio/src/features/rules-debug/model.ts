@@ -13,6 +13,7 @@ import { isQueryProofUnsupported } from './query-proof.js';
  * without a browser (see `rules-debug.test.ts`).
  */
 
+import { DEFAULT_FIRESTORE_DATABASE } from 'pyric/firestore/internal';
 import type {
   AuthState,
   RequestEvent,
@@ -21,12 +22,26 @@ import type {
   SandboxOperationEvent,
 } from 'pyric/sandbox';
 import { toOperationRecord } from 'pyric/sandbox';
-import type { EvaluatedRuleInfo, ExprTraceEntry } from 'pyric/rules/internal';
-import { locateRtdbTrace } from 'pyric/rules/internal/rtdb';
-import type { RtdbRuleEvaluation } from 'pyric/rules/internal/rtdb';
+import type { EvaluatedRuleInfo } from 'pyric/rules/internal';
 import { explainRtdb, explainRtdbAllow } from './rtdb-explanation.js';
 
 export { rtdbRuleLine } from './rtdb-explanation.js';
+export {
+  projectRtdbTrace,
+  projectTraceSteps,
+  ruleVariables,
+  type RtdbTraceRow,
+  type RuleVariable,
+  type TraceStep,
+} from './trace-projection.js';
+
+/** Canonical display name of the Firestore ruleset for `database` (`firestore.rules` for `(default)`). */
+export function firestoreRulesetLabel(database?: string): string {
+  if (database === undefined || database === '' || database === DEFAULT_FIRESTORE_DATABASE) {
+    return 'firestore.rules';
+  }
+  return `firestore:${database} ruleset`;
+}
 
 type DeniedSandboxEvent = RequestEvent | SandboxOperationEvent | SandboxListenerEvent;
 
@@ -55,6 +70,8 @@ export interface Denial {
   method: RequestEvent['method'] | string;
   /** Service whose rules evaluated the operation. */
   service: 'firestore' | 'auth' | 'storage' | 'rtdb' | string;
+  /** Non-default Cloud Firestore database id when the request targeted a named database. */
+  database?: string;
   /** Full resource path (e.g. `notes/abc`). */
   path: string;
   /** The `request.auth` identity the rule evaluated under (`null` = anonymous). */
@@ -266,6 +283,10 @@ export function toDenial(e: DeniedSandboxEvent): Denial {
     unsupported: resultVal === 'unsupported',
   };
   if ('matchedRule' in e && e.matchedRule) d.matchedRule = e.matchedRule;
+  const rawDb = (e as { database?: unknown }).database;
+  if (typeof rawDb === 'string' && rawDb.length > 0 && rawDb !== DEFAULT_FIRESTORE_DATABASE) {
+    d.database = rawDb;
+  }
   if ('evaluatedRule' in e && e.evaluatedRule) d.evaluatedRule = e.evaluatedRule;
   if ('queryProof' in e && e.queryProof) d.queryProof = e.queryProof;
   if ('rules' in e && e.rules) d.rules = e.rules;
@@ -314,6 +335,8 @@ export type RulePhase = 'read' | 'write' | 'validate';
 export interface RuleExplanation {
   headline: string;
   engine: RuleEngine;
+  database?: string;
+  ruleset?: string;
   ruleNode?: string;
   ruleExpression?: string;
   phase?: RulePhase;
@@ -384,14 +407,22 @@ export function explainDenial(denial: Denial): RuleExplanation {
     if (engine === 'firestore' && denial.matchedRule) {
       const r = denial.matchedRule;
       const ruleNode = `Rule #${r.ruleIndex} (${r.operations.join(', ')})`;
-      return {
-        headline: `${ruleNode} allowed ${denial.method} on ${denial.path}.`,
+      let headline = `${ruleNode} allowed ${denial.method} on ${denial.path}.`;
+      const allowOut: RuleExplanation = {
+        headline,
         engine,
         ruleNode,
         ruleLines,
         otherLines,
         implicitDeny: false,
       };
+      if (denial.database !== undefined) {
+        const ruleset = firestoreRulesetLabel(denial.database);
+        allowOut.database = denial.database;
+        allowOut.ruleset = ruleset;
+        allowOut.headline = `${ruleNode} in ${ruleset} allowed ${denial.method} on ${denial.path} in database "${denial.database}".`;
+      }
+      return allowOut;
     }
     // Honesty guard: `result: 'allow'` with NO recorded rules evaluation at
     // all. Rules likely never ran (an admin-bypass op whose lens wasn't
@@ -440,14 +471,30 @@ function explainFirestore(
   const implicitDeny = !denial.matchedRule;
   let headline: string;
   let ruleNode: string | undefined;
+  let dbContext = '';
+  if (denial.database !== undefined) {
+    dbContext = ` in database "${denial.database}" (${firestoreRulesetLabel(denial.database)})`;
+  }
   if (implicitDeny) {
-    headline = `No rule allowed ${denial.method} on ${denial.path}: implicit deny (no matching \`allow\`).`;
+    headline = `No rule allowed ${denial.method} on ${denial.path}${dbContext}: implicit deny (no matching \`allow\`).`;
   } else {
     const r = denial.matchedRule!;
     ruleNode = `Rule #${r.ruleIndex} (${r.operations.join(', ')})`;
-    headline = `${ruleNode} denied ${denial.method} on ${denial.path}.`;
+    headline = `${ruleNode} denied ${denial.method} on ${denial.path}${dbContext}.`;
   }
-  return { headline, engine: 'firestore', ruleNode, ruleLines, otherLines, implicitDeny };
+  const out: RuleExplanation = {
+    headline,
+    engine: 'firestore',
+    ruleNode,
+    ruleLines,
+    otherLines,
+    implicitDeny,
+  };
+  if (denial.database !== undefined) {
+    out.database = denial.database;
+    out.ruleset = firestoreRulesetLabel(denial.database);
+  }
+  return out;
 }
 
 /** Storage: grounded in `evaluateStorageRules`' reasons — the `match` block whose
@@ -489,189 +536,4 @@ export function denialSeverity(denial: Denial): DenialSeverity {
   if (denial.origin === 'listener') return 'low';
   if (explainDenial(denial).implicitDeny) return 'medium';
   return 'high';
-}
-
-// ─── "Show the work": the sub-expression evaluation trace ───────────────────
-
-/**
- * One node of the denying rule's evaluation, projected from an
- * {@link ExprTraceEntry} for display. `outcome` classifies the evaluated value
- * so the UI can mark the branch that was false (the ✗) without re-deriving it:
- *   - `true` / `false`  the sub-expression evaluated to that boolean;
- *   - `skipped`         a `&&`/`||` operand short-circuited (not evaluated);
- *   - `error`           the sub-expression threw;
- *   - `unsupported`     the simulator could not evaluate it (RTDB trace rows);
- *                       `error` carries what it could not evaluate;
- *   - `value`           a non-boolean value (an operand feeding a comparison).
- * `depth` and `children` reconstruct the AST tree from the flat trace so the
- * view can indent operands under their operator. Pure — unit-tested.
- */
-export interface TraceStep {
-  source: string;
-  outcome: 'true' | 'false' | 'skipped' | 'error' | 'unsupported' | 'value';
-  value?: unknown;
-  error?: string;
-  /** Set when this node recorded a `let name = …` binding inside a function. */
-  letBinding?: string;
-  /** The enclosing user-defined function this node was inlined from, if any. */
-  inlinedFrom?: string;
-  depth: number;
-  children: TraceStep[];
-}
-
-function classifyOutcome(e: ExprTraceEntry): TraceStep['outcome'] {
-  if (e.skipped) return 'skipped';
-  if (e.error !== undefined) return 'error';
-  if (e.value === true) return 'true';
-  if (e.value === false) return 'false';
-  return 'value';
-}
-
-/**
- * Project a denying rule's flat {@link ExprTraceEntry} array into a tree of
- * {@link TraceStep}s (via each entry's `parent` index). Roots are the
- * top-level expressions of the condition. Returns `[]` when the denial carries
- * no expression trace (implicit deny, simulator-error deny, RTDB/Storage).
- */
-export function projectTraceSteps(denial: Denial): TraceStep[] {
-  const entries = denial.evaluatedRule?.expressionTrace;
-  if (!entries || entries.length === 0) return [];
-  const nodes: TraceStep[] = entries.map((e) => ({
-    source: e.source,
-    outcome: classifyOutcome(e),
-    ...(e.value !== undefined ? { value: e.value } : {}),
-    ...(e.error !== undefined ? { error: e.error } : {}),
-    ...(e.letBinding ? { letBinding: e.letBinding.name } : {}),
-    ...(e.inlinedFrom ? { inlinedFrom: e.inlinedFrom.name } : {}),
-    depth: 0,
-    children: [],
-  }));
-  const roots: TraceStep[] = [];
-  entries.forEach((e, i) => {
-    if (e.parent === null || e.parent === undefined || !nodes[e.parent]) {
-      roots.push(nodes[i]);
-    } else {
-      nodes[i].depth = nodes[e.parent].depth + 1;
-      nodes[e.parent].children.push(nodes[i]);
-    }
-  });
-  return roots;
-}
-
-// ─── RTDB evaluation trace ────────────────────────────────────────────────────
-
-/** How an RTDB rule verdict reads as a {@link TraceStep} outcome, so RTDB rows
- *  render with the same step component as Firestore's expression trace. */
-const RTDB_VERDICT_OUTCOME: Record<RtdbRuleEvaluation['verdict'], TraceStep['outcome']> = {
-  ALLOW: 'true',
-  DENY: 'false',
-  ERROR: 'error',
-  UNSUPPORTED: 'unsupported',
-};
-
-/** One rule the RTDB engine evaluated, in evaluation order. */
-export interface RtdbTraceRow {
-  /** The rule node's path in the ruleset, such as `/rooms/$roomId`. */
-  path: string;
-  kind: RtdbRuleEvaluation['kind'];
-  verdict: RtdbRuleEvaluation['verdict'];
-  /** The rule's expression and verdict as a Firestore-style trace step. */
-  step: TraceStep;
-  /** The `$` wildcards bound at this node. */
-  bindings: Record<string, string>;
-  /** 1-based line of the rule in `database.rules.json`. Absent when the source
-   *  is unavailable or does not contain the rule. */
-  line?: number;
-}
-
-/**
- * Project the RTDB evaluation trace carried on a denial's rules verdict into
- * one row per evaluated rule, root first. `rulesSource` is the text of
- * `database.rules.json`; with it each row names the line of its rule. Returns
- * `[]` for an event with no RTDB trace (another service, or an operation no rule
- * of the requested kind covers).
- */
-export function projectRtdbTrace(denial: Denial, rulesSource?: string): RtdbTraceRow[] {
-  const trace = denial.rules?.rtdbTrace;
-  if (!trace || trace.length === 0) return [];
-  const located: Array<RtdbRuleEvaluation & { line?: number }> =
-    rulesSource === undefined ? [...trace] : locateRtdbTrace(rulesSource, trace);
-  return located.map((entry) => {
-    const step: TraceStep = {
-      source: entry.conditionText,
-      outcome: RTDB_VERDICT_OUTCOME[entry.verdict],
-      ...(entry.verdict === 'ALLOW' || entry.verdict === 'DENY' ? { value: entry.verdict === 'ALLOW' } : {}),
-      ...(entry.message !== undefined ? { error: entry.message } : {}),
-      depth: 0,
-      children: [],
-    };
-    const row: RtdbTraceRow = {
-      path: entry.path,
-      kind: entry.kind,
-      verdict: entry.verdict,
-      step,
-      bindings: entry.pathVariableBindings,
-    };
-    if (entry.line !== undefined) row.line = entry.line;
-    return row;
-  });
-}
-
-// ─── "What the rule saw": inspectable request/resource variables ────────────
-
-/** A rules variable the UI can render as a read-only inspectable tree. When a
- *  value genuinely wasn't captured for a denial, `present` is false so the UI
- *  shows it as honestly absent rather than as an empty object. */
-export interface RuleVariable {
-  /** Dotted rules identifier, e.g. `request.auth`, `resource.data`. */
-  name: string;
-  present: boolean;
-  value: unknown;
-  /** One-line note shown when absent (why the rule didn't see it). */
-  absentNote?: string;
-}
-
-/**
- * The variables the denying rule evaluated against, in rules terms
- * (`request.auth`, `request.method`, `request.path`, `request.resource.data`,
- * `resource`), projected from the denial's captured context. Read-only — this
- * is what the rule SAW, not an editor. Absent values are reported honestly.
- */
-export function ruleVariables(denial: Denial): RuleVariable[] {
-  const vars: RuleVariable[] = [
-    {
-      name: 'request.auth',
-      present: denial.auth !== null,
-      value: denial.auth,
-      ...(denial.auth === null
-        ? { absentNote: 'request.auth was null — the request was unauthenticated.' }
-        : {}),
-    },
-    { name: 'request.method', present: true, value: denial.method },
-    { name: 'request.path', present: true, value: denial.path },
-  ];
-  const isRead = denial.method === 'get' || denial.method === 'list' || denial.method === 'listen';
-  vars.push({
-    name: 'request.resource.data',
-    present: denial.resourceData !== undefined,
-    value: denial.resourceData ?? null,
-    ...(denial.resourceData === undefined
-      ? {
-          absentNote: isRead
-            ? 'A read carries no proposed write, so request.resource.data is absent.'
-            : 'No proposed write payload was captured for this denial.',
-        }
-      : {}),
-  });
-  vars.push({
-    name: 'resource',
-    present: denial.resourceBefore !== undefined,
-    value: denial.resourceBefore
-      ? { data: denial.resourceBefore.data, exists: denial.resourceBefore.exists }
-      : null,
-    ...(denial.resourceBefore === undefined
-      ? { absentNote: 'The rule evaluated no existing document (e.g. a list/query, or the doc did not exist).' }
-      : {}),
-  });
-  return vars;
 }

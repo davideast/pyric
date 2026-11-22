@@ -129,7 +129,7 @@ export function formatResults(results: FixtureResult[]): string {
       }
       for (const group of groups) {
         for (const divergence of failingDivergences(group.divergences)) {
-          const resource = divergence.instance ?? divergence.bucket;
+          const resource = divergence.database ?? divergence.instance ?? divergence.bucket;
           const instance = resource === undefined ? '' : ` ${resource}`;
           lines.push(`    [${service.service}${instance}${group.label}] ${formatDivergence(divergence)}`);
         }

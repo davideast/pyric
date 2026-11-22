@@ -18,7 +18,11 @@ import {
   type TestResult,
 } from 'pyric/rules/internal';
 
-import { deriveRulesTestCases, type PyricVerifyFixture } from '../../verify/index.js';
+import {
+  deriveRulesTestCases,
+  filterFixtureForFirestoreDatabase,
+  type PyricVerifyFixture,
+} from '../../verify/index.js';
 
 /** A verdict, in the vocabulary the event log and the surface both use. */
 export type Verdict = 'allow' | 'deny' | 'unsupported';
@@ -74,8 +78,10 @@ function candidateVerdict(result: TestResult): Verdict {
 export function runDerivedCases(
   fixture: PyricVerifyFixture,
   rules: string,
+  database?: string,
 ): CaseRun | CaseRunFailure {
-  const derivation = deriveRulesTestCases(fixture, { service: 'firestore' });
+  const scoped = filterFixtureForFirestoreDatabase(fixture, database);
+  const derivation = deriveRulesTestCases(scoped, { service: 'firestore' });
   const unsupportedEvents = derivation.unsupportedEvents.map((event) => ({
     path: event.path,
     method: event.method,
@@ -91,7 +97,7 @@ export function runDerivedCases(
   }
 
   const simulated = new SimulateFirestoreRulesHandler().simulate(rules, derivation.testCases, {
-    getDoc: (docPath) => fixture.services.firestore?.state?.documents?.[docPath] ?? null,
+    getDoc: (docPath) => scoped.services.firestore?.state?.documents?.[docPath] ?? null,
   });
   if (!simulated.success) return { error: simulated.error.message };
 
@@ -107,7 +113,7 @@ export function runDerivedCases(
         notes.push(result.queryProof.reason);
       }
     }
-    cases.push({
+    const entry: CaseVerdict = {
       path: testCase.path,
       method: testCase.method,
       description: testCase.description,
@@ -115,8 +121,11 @@ export function runDerivedCases(
       candidate,
       agrees: recorded === candidate,
       notes,
-      ...(result.queryProof !== undefined ? { queryProof: result.queryProof } : {}),
-    });
+    };
+    if (result.queryProof !== undefined) {
+      entry.queryProof = result.queryProof;
+    }
+    cases.push(entry);
   }
   return {
     cases,

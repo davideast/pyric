@@ -7,11 +7,14 @@
  * Routed here by the host dispatcher. Never imports the dispatcher.
  */
 
-import type { SandboxSnapshot } from 'pyric/sandbox';
-import { setRules } from 'pyric/sandbox/firestore';
-import { sandbox as rtdbSandbox } from 'pyric/database';
+import type { Sandbox, SandboxSnapshot } from 'pyric/sandbox';
+import {
+  getDatabaseEnv,
+  isFirestoreDatabaseLockedByDefault,
+  listDeclaredFirestoreDatabases,
+} from 'pyric/firestore/internal';
 import { Path as RulesPath } from 'pyric/rules/internal';
-import { normalizeDatabaseRules, resetHostSandbox } from './rules.js';
+import { resetHostSandbox } from './rules.js';
 
 import type { OpMessage } from '../protocol.js';
 import { type HostCtx, type PortLike, ok, fail, bestEffortFlush } from '../host-context.js';
@@ -70,15 +73,55 @@ function encodeSnapshotValue(value: unknown): unknown {
   return value;
 }
 
-function encodeSandboxSnapshot(raw: SandboxSnapshot): SandboxSnapshot {
+interface EncodedHostSandboxSnapshot extends SandboxSnapshot {
+  firestoreDeclared?: string[];
+  firestoreDatabases?: Record<string, Record<string, Record<string, unknown>>>;
+  firestoreDatabaseRules?: Record<string, string>;
+  firestoreLocked?: string[];
+}
+
+function encodeSandboxSnapshot(raw: SandboxSnapshot, sandbox: Sandbox): EncodedHostSandboxSnapshot {
   const firestore: Record<string, Record<string, unknown>> = {};
   for (const [docPath, docData] of Object.entries(raw.firestore)) {
     firestore[docPath] = encodeSnapshotValue(docData) as Record<string, unknown>;
   }
-  const out: SandboxSnapshot = { firestore, services: raw.services };
+  const out: EncodedHostSandboxSnapshot = { firestore, services: raw.services };
   if (raw.firestoreRules !== undefined) out.firestoreRules = raw.firestoreRules;
   if (raw.firestoreWrappers !== undefined) out.firestoreWrappers = raw.firestoreWrappers;
   if (raw.firestoreUnescapedMaps !== undefined) out.firestoreUnescapedMaps = raw.firestoreUnescapedMaps;
+
+  const declared = listDeclaredFirestoreDatabases(sandbox);
+  if (declared.length > 0) {
+    out.firestoreDeclared = declared;
+    const firestoreDatabases: Record<string, Record<string, Record<string, unknown>>> = {};
+    const firestoreDatabaseRules: Record<string, string> = {};
+    const firestoreLocked: string[] = [];
+    let hasNamedRules = false;
+    for (const dbId of declared) {
+      const env = getDatabaseEnv(sandbox, dbId);
+      const rawDocs = env.snapshot();
+      const encodedDocs: Record<string, Record<string, unknown>> = {};
+      for (const [docPath, docData] of Object.entries(rawDocs)) {
+        encodedDocs[docPath] = encodeSnapshotValue(docData) as Record<string, unknown>;
+      }
+      firestoreDatabases[dbId] = encodedDocs;
+      const explicitRules = env.getExplicitRules();
+      if (explicitRules !== null && explicitRules.length > 0) {
+        firestoreDatabaseRules[dbId] = explicitRules;
+        hasNamedRules = true;
+      }
+      if (isFirestoreDatabaseLockedByDefault(sandbox, dbId)) {
+        firestoreLocked.push(dbId);
+      }
+    }
+    out.firestoreDatabases = firestoreDatabases;
+    if (hasNamedRules) {
+      out.firestoreDatabaseRules = firestoreDatabaseRules;
+    }
+    if (firestoreLocked.length > 0) {
+      out.firestoreLocked = firestoreLocked;
+    }
+  }
   return out;
 }
 
@@ -101,7 +144,7 @@ export async function handleStudioOp(
     case 'getSnapshot': {
       // Export the current sandbox snapshot (Pyric Studio rules re-run): Studio
       // forks it locally to test edited rules / re-issue as the user on a branch.
-      ok(port, msg.id, encodeSandboxSnapshot(ctx.sandbox.snapshot()));
+      ok(port, msg.id, encodeSandboxSnapshot(ctx.sandbox.snapshot(), ctx.sandbox));
       break;
     }
 

@@ -18,6 +18,7 @@ import {
   RENAMES,
   requestMethodsOf,
 } from '../../arguments/rules.js';
+import { checkRulesFirestoreDatabase, databaseArgument } from '../../firestore-database.js';
 import { explainDatabaseDenial } from '../../rules-engines/database-denial.js';
 import { explainFirestoreDenial } from '../../rules-engines/firestore.js';
 import { quoted } from '../../closest-name.js';
@@ -33,7 +34,7 @@ export default {
   runsIn: 'bridge',
   sdkOrigin: 'pyric',
   effect: 'read',
-  signature: `explainDenial(operation: ${REQUEST_METHODS.join('|')}, path, service?: ${EXPLAINED_SERVICES.join('|')}, uid?, data?, query?, rules?, source?, instance?)`,
+  signature: `explainDenial(operation: ${REQUEST_METHODS.join('|')}, path, service?: ${EXPLAINED_SERVICES.join('|')}, uid?, data?, query?, rules?, source?, database?, instance?)`,
   description: 'Trace why a request was denied, rule by rule.',
   args: z.object({
     operation: z
@@ -69,6 +70,7 @@ export default {
       .describe(
         'Database only: the text of the rules file the running ruleset was loaded from. It adds file lines to the trace when it parses to the running ruleset, and is otherwise ignored with a note. The running ruleset is still the one evaluated.',
       ),
+    database: databaseArgument,
     instance,
     query: query.optional(),
   }),
@@ -87,6 +89,8 @@ export default {
         'service',
       );
     }
+    const invalidDb = checkRulesFirestoreDatabase(args, fail, named);
+    if (invalidDb) return invalidDb;
     const invalidInstance = checkDatabaseInstance(args, fail, named);
     if (invalidInstance) return invalidInstance;
     // A Firestore explanation evaluates a draft `rules` like simulate does
@@ -133,6 +137,7 @@ export default {
       path: String(args.path),
     };
     if (args.uid !== undefined) request.uid = String(args.uid);
+    if (args.database !== undefined) request.database = String(args.database);
     if (args.data !== undefined) request.data = args.data as Record<string, unknown>;
     if (args.rules !== undefined) request.rules = String(args.rules);
     if (args.query !== undefined) request.query = args.query as Record<string, unknown>;

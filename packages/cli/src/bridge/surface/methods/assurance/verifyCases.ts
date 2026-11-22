@@ -17,6 +17,13 @@ import {
 } from '../../arguments/assurance.js';
 import { runDerivedCases } from '../../assurance-cases.js';
 import { operationFailure } from '../../context.js';
+import {
+  assertDeclaredFirestoreDatabase,
+  checkFirestoreDatabase,
+  databaseArgument,
+  firestoreDatabaseSelector,
+  onFirestoreDatabase,
+} from '../../firestore-database.js';
 import { failFor } from '../../method-validation.js';
 import { activeFirestoreRules } from '../../rules-simulation.js';
 import type { MethodRecord } from '../../method-types.js';
@@ -28,7 +35,7 @@ export default {
   runsIn: 'bridge',
   sdkOrigin: 'pyric',
   effect: 'read',
-  signature: 'verifyCases(fixture?, candidateRules?, service?: firestore)',
+  signature: 'verifyCases(fixture?, candidateRules?, database?, service?: firestore)',
   description: 'Check capture.',
   args: z.object({
     fixture: z
@@ -38,8 +45,12 @@ export default {
         `The capture the cases are derived from, relative to the project directory. Defaults to ${CAPTURE_RELATIVE_PATH}.`,
       ),
     candidateRules,
+    database: databaseArgument,
     service: caseService,
   }),
+  validate(args, { fail }) {
+    return checkFirestoreDatabase(args, fail);
+  },
   operation: 'verify_assurance_cases',
   renames: { sessionPath: 'fixture', session: 'fixture', rules: 'candidateRules' },
   example: { fixture: CAPTURE_RELATIVE_PATH },
@@ -53,15 +64,21 @@ export default {
     );
     if ('refusal' in read) return read.refusal;
 
-    const rules =
-      typeof args.candidateRules === 'string' ? args.candidateRules : activeFirestoreRules(ctx);
+    const selector = firestoreDatabaseSelector(args.database);
+    let rules: string;
+    if (typeof args.candidateRules === 'string') {
+      rules = args.candidateRules;
+    } else {
+      assertDeclaredFirestoreDatabase(ctx, selector);
+      rules = activeFirestoreRules(ctx, selector);
+    }
     if (rules.length === 0) {
       return operationFailure(
         'No candidate rules were supplied and the sandbox is running none, so there is nothing to decide the cases against.',
       );
     }
 
-    const run = runDerivedCases(read.fixture, rules);
+    const run = runDerivedCases(read.fixture, rules, selector);
     if ('error' in run) return operationFailure(run.error);
     if (run.cases.length === 0) {
       return operationFailure(
@@ -71,23 +88,24 @@ export default {
     }
 
     const failed = run.cases.filter((entry) => !entry.agrees);
-    const summary =
-      failed.length === 0
-        ? `All ${run.cases.length} case(s) from '${named}' reached the verdict the capture holds.`
-        : `${failed.length} of ${run.cases.length} case(s) from '${named}' changed verdict, starting with ${failed[0]!.method} ${failed[0]!.path}.`;
-    // The cases were decided, which is what the call is for. A case that
-    // changed verdict is the answer, not a failure of the call.
+    let baseSummary = `${failed.length} of ${run.cases.length} case(s) from '${named}' changed verdict, starting with ${failed[0]?.method} ${failed[0]?.path}`;
+    if (failed.length === 0) {
+      baseSummary = `All ${run.cases.length} case(s) from '${named}' reached the verdict the capture holds`;
+    }
+    const summary = `${onFirestoreDatabase(baseSummary, selector)}.`;
+    const data: Record<string, unknown> = {
+      fixture: named,
+      service: 'firestore',
+      agreed: run.agreed,
+      diverged: run.diverged,
+      cases: run.cases,
+      unsupportedEvents: run.unsupportedEvents,
+    };
+    if (selector !== undefined) data.database = selector;
     return {
       ok: true,
       summary,
-      data: {
-        fixture: named,
-        service: 'firestore',
-        agreed: run.agreed,
-        diverged: run.diverged,
-        cases: run.cases,
-        unsupportedEvents: run.unsupportedEvents,
-      },
+      data,
     };
   },
 } satisfies MethodRecord;

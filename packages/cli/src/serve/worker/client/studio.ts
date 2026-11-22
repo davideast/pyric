@@ -286,21 +286,48 @@ function decodeSnapshotValue(value: unknown): unknown {
   return out;
 }
 
+export interface WorkerSandboxSnapshot extends SandboxSnapshot {
+  firestoreDeclared?: string[];
+  firestoreDatabases?: Record<string, Record<string, Record<string, unknown>>>;
+  firestoreDatabaseRules?: Record<string, string>;
+  firestoreLocked?: string[];
+}
+
 /**
  * Export the current sandbox snapshot (Pyric Studio rules re-run). Studio forks
  * it locally to test a denied op against edited rules or re-issue it as the
  * attempting user, on a throwaway branch (no live mutation).
  */
-export async function getSnapshot(db: ClientDb): Promise<SandboxSnapshot> {
-  const raw = (await rpc(db.port, { t: 'op', id: nextId(), method: 'getSnapshot' })) as SandboxSnapshot;
+export async function getSnapshot(db: ClientDb): Promise<WorkerSandboxSnapshot> {
+  const raw = (await rpc(db.port, { t: 'op', id: nextId(), method: 'getSnapshot' })) as WorkerSandboxSnapshot;
   const firestore: Record<string, Record<string, unknown>> = {};
   for (const [docPath, docData] of Object.entries(raw.firestore ?? {})) {
     firestore[docPath] = decodeSnapshotValue(docData) as Record<string, unknown>;
   }
-  const out: SandboxSnapshot = { firestore, services: raw.services };
+  const out: WorkerSandboxSnapshot = { firestore, services: raw.services };
   if (raw.firestoreRules !== undefined) out.firestoreRules = raw.firestoreRules;
   if (raw.firestoreWrappers !== undefined) out.firestoreWrappers = raw.firestoreWrappers;
   if (raw.firestoreUnescapedMaps !== undefined) out.firestoreUnescapedMaps = raw.firestoreUnescapedMaps;
+  if (Array.isArray(raw.firestoreDeclared) && raw.firestoreDeclared.length > 0) {
+    out.firestoreDeclared = [...raw.firestoreDeclared];
+  }
+  if (raw.firestoreDatabases !== undefined) {
+    const decodedDbs: Record<string, Record<string, Record<string, unknown>>> = {};
+    for (const [dbId, docs] of Object.entries(raw.firestoreDatabases)) {
+      const decodedDocs: Record<string, Record<string, unknown>> = {};
+      for (const [docPath, docData] of Object.entries(docs ?? {})) {
+        decodedDocs[docPath] = decodeSnapshotValue(docData) as Record<string, unknown>;
+      }
+      decodedDbs[dbId] = decodedDocs;
+    }
+    out.firestoreDatabases = decodedDbs;
+  }
+  if (raw.firestoreDatabaseRules !== undefined) {
+    out.firestoreDatabaseRules = { ...raw.firestoreDatabaseRules };
+  }
+  if (Array.isArray(raw.firestoreLocked) && raw.firestoreLocked.length > 0) {
+    out.firestoreLocked = [...raw.firestoreLocked];
+  }
   return out;
 }
 

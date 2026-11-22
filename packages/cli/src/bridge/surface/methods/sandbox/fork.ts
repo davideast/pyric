@@ -11,11 +11,13 @@
  * names each service, so a branch can try a Storage or Realtime Database
  * ruleset without touching the other two.
  */
+import { captureNamedFirestoreState } from 'pyric/firestore/internal';
 import { captureFullState, fork, type BranchCandidateRules } from 'pyric/sandbox';
 import { saveBranch } from 'pyric/sandbox/branches/store';
 import { z } from 'zod';
 
 import { branchExists, branchName, candidateRules } from '../../arguments/sandbox.js';
+import { writeBranchNamedFirestore } from '../../branch-firestore-databases.js';
 import { operationFailure } from '../../context.js';
 import type { MethodRecord } from '../../method-types.js';
 
@@ -39,8 +41,10 @@ export default {
       );
     }
     const candidate = args.candidateRules as string | BranchCandidateRules | undefined;
+    const baseNamed = captureNamedFirestoreState(ctx.sandbox);
     const branch = await fork(await captureFullState(ctx.sandbox), candidate);
     const manifest = await saveBranch(ctx.projectDir, name, branch, { base: 'live' });
+    writeBranchNamedFirestore(ctx.projectDir, name, baseNamed, baseNamed);
     branch.sandbox.dispose();
     return {
       ok: true,

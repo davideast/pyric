@@ -57,11 +57,21 @@ export function TargetCell({ event }: { event: StudioTrafficEvent }) {
 /** The row's closing cell: the outcome pill, blank but still holding its track when there is none. */
 export function OutcomeCell({ event }: { event: StudioTrafficEvent }) {
   const outcome = rowOutcome(event);
-  if (outcome === null) return <span className="traffic__verdict traffic__verdict--blank" aria-hidden="true" />;
   return (
-    <span className="traffic__verdict" data-verdict={outcome.verdict}>
-      {outcome.label}
-    </span>
+    <>
+      {event.database ? (
+        <span className="traffic__database" data-firestore-database={event.database}>
+          {event.database}
+        </span>
+      ) : null}
+      {outcome === null ? (
+        <span className="traffic__verdict traffic__verdict--blank" aria-hidden="true" />
+      ) : (
+        <span className="traffic__verdict" data-verdict={outcome.verdict}>
+          {outcome.label}
+        </span>
+      )}
+    </>
   );
 }
 
@@ -110,9 +120,15 @@ function SandboxServedCell() {
 /** The per-row source and verdict cells (the verdict is blank for non-rule ops). */
 export function VerdictCell({ event }: { event: StudioTrafficEvent }) {
   const isLiveHost = useLiveHost() !== null;
+  const dbBadge = event.database ? (
+    <span className="traffic__database" data-firestore-database={event.database}>
+      {event.database}
+    </span>
+  ) : null;
   if (event.production !== undefined) {
     return (
       <>
+        {dbBadge}
         <SourceCell event={event} />
         {localDrift(event) === undefined ? null : <DriftMarker />}
         <ProductionCell production={event.production} />
@@ -123,6 +139,7 @@ export function VerdictCell({ event }: { event: StudioTrafficEvent }) {
   return (
     <>
       {isLiveHost ? <SandboxServedCell /> : null}
+      {dbBadge}
       <SourceCell event={event} />
       {v ? (
         <span className="traffic__verdict" data-verdict={v}>

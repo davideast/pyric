@@ -16,6 +16,10 @@ import { useMemo, type ReactNode } from 'react';
 import { ROUTES, type RouteId } from '../../shell/routes.js';
 import { hrefFor, pushPath } from '../../shell/router.js';
 import { useServeInit } from '../../shell/serve-init.js';
+import {
+  describeRuntimeFirestoreDatabases,
+  useStudioFirestoreDatabases,
+} from '../../shell/firestore-databases.js';
 import { instanceSlug } from '../../shell/instance-slug.js';
 import { setInlineCommandFocus } from '../../shell/command-k.js';
 import { useStudioDataSource } from '../../shell/studio-data.js';
@@ -67,6 +71,8 @@ function StatusStrip() {
   const seed = useDevSeed();
   const serve = useServeInit();
   const instanceId = useSandboxInstanceId();
+  const firestoreDatabases = useStudioFirestoreDatabases();
+  const firestoreDatabasesChip = describeRuntimeFirestoreDatabases(firestoreDatabases);
 
   const loading =
     serve.status === 'loading' || seed.status === 'pending';
@@ -127,6 +133,20 @@ function StatusStrip() {
       >
         <span className="studio-chip__dot" aria-hidden="true" />
         {instanceSlug(instanceId)}
+      </RouteLink>,
+    );
+  }
+
+  if (firestoreDatabasesChip !== null) {
+    chips.push(
+      <RouteLink
+        key="firestore-databases"
+        className="studio-chip"
+        target={{ tab: 'firestore' }}
+        title={firestoreDatabasesChip.title}
+      >
+        <span className="studio-chip__dot" aria-hidden="true" />
+        {firestoreDatabasesChip.label}
       </RouteLink>,
     );
   }

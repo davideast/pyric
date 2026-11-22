@@ -1,6 +1,7 @@
 /** Install a ruleset into the running sandbox. */
 import { z } from 'zod';
 import { checkDatabaseInstance, checkRulesCompile, instance, RENAMES, service, SERVICES } from '../../arguments/rules.js';
+import { checkRulesFirestoreDatabase, databaseArgument } from '../../firestore-database.js';
 import { rulesEngineFor } from '../../rules-engines/registry.js';
 import type { MethodRecord } from '../../method-types.js';
 
@@ -19,12 +20,13 @@ export default {
   runsIn: 'bridge',
   sdkOrigin: 'pyric',
   effect: 'write',
-  signature: `set(service: ${SERVICES.join('|')}, rules, instance?)`,
+  signature: `set(service: ${SERVICES.join('|')}, rules, database?, instance?)`,
   description:
     'Install a ruleset into the running sandbox. The rules must parse for the named service.',
   args: z.object({
     service,
     rules: z.string().describe('Rules source to install.'),
+    database: databaseArgument,
     instance,
   }),
   operation: {
@@ -33,9 +35,18 @@ export default {
   },
   renames: RENAMES,
   example: { service: 'firestore', rules: EXAMPLE_RULES },
-  validate: (args, { fail }) => checkDatabaseInstance(args, fail) ?? checkRulesCompile(args, fail),
+  validate: (args, { fail }) =>
+    checkRulesFirestoreDatabase(args, fail, undefined, true) ??
+    checkDatabaseInstance(args, fail) ??
+    checkRulesCompile(args, fail),
   async handler(args, ctx) {
-    const targetInstance = args.instance === undefined ? undefined : String(args.instance);
-    return rulesEngineFor(String(args.service)).install(ctx, String(args.rules), targetInstance);
+    const svc = String(args.service);
+    let targetSelector: string | undefined;
+    if (svc === 'firestore') {
+      if (args.database !== undefined) targetSelector = String(args.database);
+    } else if (args.instance !== undefined) {
+      targetSelector = String(args.instance);
+    }
+    return rulesEngineFor(svc).install(ctx, String(args.rules), targetSelector);
   },
 } satisfies MethodRecord;

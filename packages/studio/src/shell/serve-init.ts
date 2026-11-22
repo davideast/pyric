@@ -21,9 +21,23 @@ export interface ServeInitDatabaseInstances {
   rules?: Record<string, unknown | null>;
 }
 
+export interface ServeInitFirestoreDatabaseRule {
+  rules?: string | null;
+  rulesHash?: string | null;
+  configured?: boolean;
+}
+
+interface ServeInitFirestoreDatabases {
+  declared?: string[];
+  rules?: Record<string, ServeInitFirestoreDatabaseRule | string | null>;
+}
+
 export interface ServeInitPayload {
   rules?: string | null;
   rulesHash?: string | null;
+  firestoreDatabases?: ServeInitFirestoreDatabases | null;
+  firestoreDatabaseRules?: Record<string, ServeInitFirestoreDatabaseRule | string | null> | null;
+  firestoreDeclared?: string[] | null;
   databaseRulesHash?: string | null;
   databaseInstances?: ServeInitDatabaseInstances | null;
   bridgeUrl?: string | null;

@@ -104,7 +104,9 @@ export async function getWorkerInstanceId(db: ClientDb): Promise<string> {
     instanceId?: string;
     workerProtocol?: number;
   };
-  recordPeerWorkerProtocol(db.port, r.workerProtocol);
+  if (r.workerProtocol !== undefined) {
+    recordPeerWorkerProtocol(db.port, r.workerProtocol);
+  }
   return r.instanceId ?? '';
 }
 

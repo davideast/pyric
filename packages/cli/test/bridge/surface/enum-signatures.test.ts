@@ -158,8 +158,11 @@ function isOptional(schema: z.ZodTypeAny): boolean {
  * does not name the argument at all.
  */
 function markedOptional(signature: string, name: string): boolean | null {
-  const token = new RegExp(`(?:^|[^A-Za-z0-9_])${name}([^A-Za-z0-9_]|$)`);
-  const found = signature.match(token);
+  const openParen = signature.indexOf('(');
+  if (openParen < 0) return null;
+  const params = signature.slice(openParen);
+  const token = new RegExp(`(?:[(,{]|[,;|]\\s+)${name}([^A-Za-z0-9_]|$)`);
+  const found = params.match(token);
   if (found === null) return null;
   return found[1] === '?';
 }

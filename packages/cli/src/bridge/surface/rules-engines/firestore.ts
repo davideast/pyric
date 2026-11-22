@@ -1,5 +1,6 @@
 /** The Firestore rules engine behind the `rules` tool. */
 import { DOCUMENT_PATH_FORM, rulesSourceRejection, type RulesSourceRejection } from 'pyric/rules/internal';
+import { firestoreDatabaseSelector, onFirestoreDatabase } from '../firestore-database.js';
 import { installFirestoreRules } from '../firestore-rules-load.js';
 import { callSandboxTool, operationFailure } from '../context.js';
 import {
@@ -45,11 +46,10 @@ function caseFor(request: RulesRequest): SimulationRequest {
     path: request.path,
   };
   if (request.uid !== undefined) simulation.uid = request.uid;
-  // The method's validation has already refused a non-object value for this service.
   if (request.data !== undefined) simulation.data = request.data as SimulationRequest['data'];
   if (request.rules !== undefined) simulation.rules = request.rules;
+  if (request.database !== undefined) simulation.database = request.database;
   if (request.requestTime !== undefined) simulation.requestTime = request.requestTime;
-  // The method's validation has already refused a query on anything but a list.
   if (request.query !== undefined) simulation.query = request.query as SimulationRequest['query'];
   return simulation;
 }
@@ -58,41 +58,57 @@ export const FIRESTORE_RULES: RulesEngine = {
   requestMethods: ['get', 'list', 'create', 'update', 'delete'],
 
   compileFailure(source): RulesSourceProblem | null {
-    // Production rejects a ruleset that does not parse, or is past its
-    // compile limits, before it evaluates any request, as `firestoreRules()`
-    // does.
     return loadFailure(source);
   },
 
-  async lint(ctx, rules) {
-    const source = rules ?? activeFirestoreRules(ctx);
+  async lint(ctx, rules, targetDatabase) {
+    const selector = firestoreDatabaseSelector(targetDatabase);
+    const source = rules ?? activeFirestoreRules(ctx, selector);
     if (source.length === 0) {
       return operationFailure(NO_RULES_LOADED);
     }
-    // A source that does not parse has nothing further to lint. A
-    // compile-limit rejection is a lint finding, reported with its fix.
     const rejection = rulesSourceRejection(source);
     if (rejection?.kind === 'parse') {
       return markLintFindings(operationFailure(`Firestore ${rejection.message} ${REPARSE_FIX}`));
     }
-    return markLintFindings(await callSandboxTool(ctx, 'firestore_lint_rules', { source }));
+    const linted = await callSandboxTool(ctx, 'firestore_lint_rules', { source });
+    if (selector === undefined) {
+      return markLintFindings(linted);
+    }
+    return markLintFindings({
+      ...linted,
+      summary: onFirestoreDatabase(linted.summary, selector),
+    });
   },
 
   async simulate(ctx, request) {
+    const selector = firestoreDatabaseSelector(request.database);
     const outcome = await simulateFirestoreCase(ctx, caseFor(request));
     if (!outcome.result.ok) return operationFailure(outcome.result.summary, outcome.result.data);
     const detail = simulationDetail(outcome.result);
     const decision = outcome.allowed ? 'ALLOW' : 'DENY';
     const queryProof = detail?.queryProof as { verdict?: string } | undefined;
-    const proofLabel = queryProof?.verdict !== undefined ? ` (queryProof: ${queryProof.verdict})` : '';
-    const verdict = `${request.operation} ${request.path}: ${decision}${proofLabel}`;
+    let proofLabel = '';
+    if (queryProof?.verdict !== undefined) {
+      proofLabel = ` (queryProof: ${queryProof.verdict})`;
+    }
+    const verdict = onFirestoreDatabase(
+      `${request.operation} ${request.path}: ${decision}${proofLabel}`,
+      selector,
+    );
     const unmatched = unmatchedPathReason(detail);
     const data: Record<string, unknown> = {
       allowed: outcome.allowed,
       auth: outcome.auth,
       case: detail,
-      ...(queryProof !== undefined ? { queryProof } : {}),
     };
+    if (selector !== undefined) {
+      data.database = selector;
+      data.ruleset = request.rules !== undefined ? 'draft' : `firestore (${selector})`;
+    }
+    if (queryProof !== undefined) {
+      data.queryProof = queryProof;
+    }
     if (unmatched === null) {
       return { ok: true, summary: verdict, data };
     }
@@ -100,17 +116,21 @@ export const FIRESTORE_RULES: RulesEngine = {
     return { ok: true, summary: `${unmatched} ${verdict}`, data };
   },
 
-  async install(ctx, rules) {
+  async install(ctx, rules, targetDatabase) {
+    const selector = firestoreDatabaseSelector(targetDatabase);
     const failure = loadFailure(rules);
     if (failure !== null) {
       return operationFailure(`Firestore ${failure.body} ${failure.fix}`);
     }
-    const rejection = installFirestoreRules(ctx.sandbox, rules);
+    const rejection = installFirestoreRules(ctx.sandbox, rules, selector);
     if (rejection !== null) {
       const problem = problemFor(rejection);
       return operationFailure(`Firestore ${problem.body} ${problem.fix}`);
     }
-    return { ok: true, summary: 'Firestore rules installed.' };
+    if (selector === undefined) {
+      return { ok: true, summary: 'Firestore rules installed.' };
+    }
+    return { ok: true, summary: `Firestore rules installed on ${selector}.` };
   },
 };
 
@@ -119,20 +139,36 @@ export async function explainFirestoreDenial(
   ctx: Parameters<RulesEngine['simulate']>[0],
   request: RulesRequest,
 ) {
+  const selector = firestoreDatabaseSelector(request.database);
   const outcome = await simulateFirestoreCase(ctx, caseFor(request));
   if (!outcome.result.ok) return operationFailure(outcome.result.summary, outcome.result.data);
   const detail = simulationDetail(outcome.result);
   const queryProof = detail?.queryProof as { verdict?: string } | undefined;
   const verdict = outcome.allowed ? 'allowed' : 'denied';
-  const proofSuffix = queryProof?.verdict !== undefined ? ` (queryProof: ${queryProof.verdict})` : '';
+  let proofSuffix = '';
+  if (queryProof?.verdict !== undefined) {
+    proofSuffix = ` (queryProof: ${queryProof.verdict})`;
+  }
+  let summary = `${request.operation} ${request.path} is ${verdict} for this identity.${proofSuffix}`;
+  if (selector !== undefined) {
+    const rulesetLabel = request.rules !== undefined ? 'draft ruleset' : `active ruleset of ${selector}`;
+    summary = `${request.operation} ${request.path} on ${selector} (${rulesetLabel}) is ${verdict} for this identity.${proofSuffix}`;
+  }
+  const data: Record<string, unknown> = {
+    allowed: outcome.allowed,
+    auth: outcome.auth,
+    case: detail,
+  };
+  if (selector !== undefined) {
+    data.database = selector;
+    data.ruleset = request.rules !== undefined ? 'draft' : `firestore (${selector})`;
+  }
+  if (queryProof !== undefined) {
+    data.queryProof = queryProof;
+  }
   return {
     ok: true,
-    summary: `${request.operation} ${request.path} is ${verdict} for this identity.${proofSuffix}`,
-    data: {
-      allowed: outcome.allowed,
-      auth: outcome.auth,
-      case: detail,
-      ...(queryProof !== undefined ? { queryProof } : {}),
-    },
+    summary,
+    data,
   };
 }

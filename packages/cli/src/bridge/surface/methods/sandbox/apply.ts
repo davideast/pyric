@@ -7,7 +7,8 @@
  * session, because applying a session the caller did not name would change a
  * branch in a way nothing asked for.
  */
-import { apply, type SandboxEvent } from 'pyric/sandbox';
+import { captureNamedFirestoreState } from 'pyric/firestore/internal';
+import type { SandboxEvent } from 'pyric/sandbox';
 import { loadBranch, saveBranch } from 'pyric/sandbox/branches/store';
 import { z } from 'zod';
 
@@ -20,6 +21,11 @@ import {
   refuseUnknownBranch,
   projectPathWithin,
 } from '../../arguments/sandbox.js';
+import {
+  applyEventsWithNamedFirestore,
+  hydrateLoadedBranchNamedFirestore,
+  writeBranchNamedFirestore,
+} from '../../branch-firestore-databases.js';
 import { operationFailure } from '../../context.js';
 import { failFor } from '../../method-validation.js';
 import type { MethodRecord } from '../../method-types.js';
@@ -77,11 +83,14 @@ export default {
       loaded.branch.sandbox.dispose();
       return source.refusal;
     }
-    apply(loaded.branch, source.events);
+    const { baseNamed } = hydrateLoadedBranchNamedFirestore(ctx.projectDir, name, loaded.branch);
+    applyEventsWithNamedFirestore(loaded.branch, source.events);
+    const afterNamed = captureNamedFirestoreState(loaded.branch.sandbox);
     const manifest = await saveBranch(ctx.projectDir, name, loaded.branch, {
       base: loaded.manifest.base,
       created: loaded.manifest.created,
     });
+    writeBranchNamedFirestore(ctx.projectDir, name, baseNamed, afterNamed);
     loaded.branch.sandbox.dispose();
     return {
       ok: true,

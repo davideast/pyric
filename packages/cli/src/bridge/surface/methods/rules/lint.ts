@@ -1,6 +1,7 @@
 /** Check one service's ruleset for errors without evaluating a request. */
 import { z } from 'zod';
 import { checkDatabaseInstance, instance, RENAMES, service, SERVICES } from '../../arguments/rules.js';
+import { checkRulesFirestoreDatabase, databaseArgument } from '../../firestore-database.js';
 import { rulesEngineFor } from '../../rules-engines/registry.js';
 import type { MethodRecord } from '../../method-types.js';
 
@@ -10,7 +11,7 @@ export default {
   runsIn: 'bridge',
   sdkOrigin: 'pyric',
   effect: 'read',
-  signature: `lint(service: ${SERVICES.join('|')}, rules?, instance?)`,
+  signature: `lint(service: ${SERVICES.join('|')}, rules?, database?, instance?)`,
   description: 'Check a ruleset for errors without evaluating a request.',
   args: z.object({
     service,
@@ -18,6 +19,7 @@ export default {
       .string()
       .optional()
       .describe('Rules source to lint. Defaults to the rules the sandbox is running.'),
+    database: databaseArgument,
     instance,
   }),
   operation: {
@@ -26,10 +28,20 @@ export default {
   },
   renames: RENAMES,
   example: { service: 'firestore' },
-  validate: (args, { fail }) => checkDatabaseInstance(args, fail),
+  validate: (args, { fail }) =>
+    checkRulesFirestoreDatabase(args, fail) ?? checkDatabaseInstance(args, fail),
   async handler(args, ctx) {
-    const rules = args.rules === undefined ? undefined : String(args.rules);
-    const targetInstance = args.instance === undefined ? undefined : String(args.instance);
-    return rulesEngineFor(String(args.service)).lint(ctx, rules, targetInstance);
+    const svc = String(args.service);
+    let rules: string | undefined;
+    if (args.rules !== undefined) {
+      rules = String(args.rules);
+    }
+    let targetSelector: string | undefined;
+    if (svc === 'firestore') {
+      if (args.database !== undefined) targetSelector = String(args.database);
+    } else if (args.instance !== undefined) {
+      targetSelector = String(args.instance);
+    }
+    return rulesEngineFor(svc).lint(ctx, rules, targetSelector);
   },
 } satisfies MethodRecord;

@@ -38,7 +38,7 @@ export function TrafficRulesInspector({
   const ops = useStudioRuleEvaluations();
   const op = ops.find((d) => d.id === eventId);
   const targetService = op?.service ?? 'firestore';
-  const rulesSource = useStudioRulesSource(targetService);
+  const rulesSource = useStudioRulesSource(targetService, op?.database);
 
   if (!op) {
     return (

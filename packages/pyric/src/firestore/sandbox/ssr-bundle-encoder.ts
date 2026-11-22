@@ -4,12 +4,15 @@
  * `firestore/querySnapshot/1.0` bundle envelopes.
  */
 import { Bytes, GeoPoint, Timestamp } from '../field-values.js';
+import { refToTarget } from '../state.js';
+import { extractDuckReferenceDatabaseId } from './admin-reference-database.js';
 import {
   encodeBundleElements,
   type BundledFilterSpec,
   type BundledQuerySourceSpec,
   type BundledWhereOp,
 } from './bundle-wire.js';
+import { DEFAULT_FIRESTORE_DATABASE, normalizeFirestoreDatabaseId } from './named-databases.js';
 
 export interface SerializedSnapshotEnvelope {
   readonly type: 'firestore/documentSnapshot/1.0' | 'firestore/querySnapshot/1.0';
@@ -32,7 +35,11 @@ function nextBundleId(): string {
   return `pyricBundle${String(bundleCounter).padStart(9, '0')}`;
 }
 
-function encodeRestValue(val: unknown): Record<string, unknown> {
+function encodeRestValue(
+  val: unknown,
+  projectId = 'pyric',
+  databaseId: string = DEFAULT_FIRESTORE_DATABASE,
+): Record<string, unknown> {
   if (val === null || val === undefined) return { nullValue: null };
   if (typeof val === 'boolean') return { booleanValue: val };
   if (typeof val === 'string') return { stringValue: val };
@@ -43,47 +50,71 @@ function encodeRestValue(val: unknown): Record<string, unknown> {
   if (val instanceof Timestamp) return { timestampValue: val.toDate().toISOString() };
   if (val instanceof Bytes) return { bytesValue: val.toBase64() };
   if (val instanceof GeoPoint) return { geoPointValue: { latitude: val.latitude, longitude: val.longitude } };
-  if (Array.isArray(val)) return { arrayValue: { values: val.map(encodeRestValue) } };
+  if (Array.isArray(val)) {
+    return {
+      arrayValue: {
+        values: val.map((item) => encodeRestValue(item, projectId, databaseId)),
+      },
+    };
+  }
   if (typeof val === 'object') {
     const rec = val as Record<string, unknown>;
     if (typeof rec.path === 'string' && typeof rec.id === 'string') {
-      return { referenceValue: `projects/pyric/databases/(default)/documents/${rec.path}` };
+      const targetDb = refToTarget.get(val)?.databaseId;
+      const duckDb = extractDuckReferenceDatabaseId(rec);
+      const refDb = normalizeFirestoreDatabaseId(targetDb ?? duckDb ?? databaseId);
+      return { referenceValue: `projects/${projectId}/databases/${refDb}/documents/${rec.path}` };
     }
     const fields: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(rec)) {
-      if (v !== undefined) fields[k] = encodeRestValue(v);
+      if (v !== undefined) fields[k] = encodeRestValue(v, projectId, databaseId);
     }
     return { mapValue: { fields } };
   }
   return { stringValue: String(val) };
 }
 
-function encodeRestFields(data: Record<string, unknown>): Record<string, Record<string, unknown>> {
+function encodeRestFields(
+  data: Record<string, unknown>,
+  projectId: string,
+  databaseId: string,
+): Record<string, Record<string, unknown>> {
   const out: Record<string, Record<string, unknown>> = {};
   for (const [k, v] of Object.entries(data)) {
-    if (v !== undefined) out[k] = encodeRestValue(v);
+    if (v !== undefined) out[k] = encodeRestValue(v, projectId, databaseId);
   }
   return out;
 }
 
-function encodeStructuredFilter(filter: BundledFilterSpec): Record<string, unknown> {
+function encodeStructuredFilter(
+  filter: BundledFilterSpec,
+  projectId: string,
+  databaseId: string,
+): Record<string, unknown> {
   if (filter.kind === 'where') {
     return {
       fieldFilter: {
         field: { fieldPath: filter.fieldPath },
         op: WHERE_OP_TO_REST[filter.op] ?? 'EQUAL',
-        value: encodeRestValue(filter.value),
+        value: encodeRestValue(filter.value, projectId, databaseId),
       },
     };
   }
   let op = 'AND';
   if (filter.kind === 'or') op = 'OR';
-  return { compositeFilter: { op, filters: filter.filters.map(encodeStructuredFilter) } };
+  return {
+    compositeFilter: {
+      op,
+      filters: filter.filters.map((child) => encodeStructuredFilter(child, projectId, databaseId)),
+    },
+  };
 }
 
 function encodeStructuredQuery(
   rootParent: string,
   spec: BundledQuerySourceSpec,
+  projectId: string,
+  databaseId: string,
 ): { parent: string; structuredQuery: Record<string, unknown>; limitType?: 'FIRST' | 'LAST' } {
   const segments = spec.collectionPath.split('/').filter((s) => s.length > 0);
   let collectionId = spec.collectionPath;
@@ -96,9 +127,9 @@ function encodeStructuredQuery(
   if (spec.isCollectionGroup) fromEntry.allDescendants = true;
   const sq: Record<string, unknown> = { from: [fromEntry] };
   if (spec.filters.length === 1 && spec.filters[0] !== undefined) {
-    sq.where = encodeStructuredFilter(spec.filters[0]);
+    sq.where = encodeStructuredFilter(spec.filters[0], projectId, databaseId);
   } else if (spec.filters.length > 1) {
-    sq.where = encodeStructuredFilter({ kind: 'and', filters: spec.filters });
+    sq.where = encodeStructuredFilter({ kind: 'and', filters: spec.filters }, projectId, databaseId);
   }
   if (spec.orders.length > 0) {
     sq.orderBy = spec.orders.map((o) => {
@@ -121,14 +152,16 @@ export function encodeDocumentSnapshotJson(
   path: string,
   exists: boolean,
   data: Record<string, unknown> | undefined,
+  databaseId?: string,
 ): SerializedSnapshotEnvelope {
   if (!exists || data === undefined) {
     return { type: 'firestore/documentSnapshot/1.0', bundle: '', bundleSource: 'DocumentSnapshot', bundleName: path };
   }
-  const docName = `projects/${projectId}/databases/(default)/documents/${path}`;
+  const normalizedDb = normalizeFirestoreDatabaseId(databaseId);
+  const docName = `projects/${projectId}/databases/${normalizedDb}/documents/${path}`;
   const body = encodeBundleElements([
     { documentMetadata: { name: docName, readTime: SNAPSHOT_BUNDLE_TS, exists: true } },
-    { document: { name: docName, fields: encodeRestFields(data), updateTime: SNAPSHOT_BUNDLE_TS, createTime: SNAPSHOT_BUNDLE_TS } },
+    { document: { name: docName, fields: encodeRestFields(data, projectId, normalizedDb), updateTime: SNAPSHOT_BUNDLE_TS, createTime: SNAPSHOT_BUNDLE_TS } },
   ]);
   const totalBytes = new TextEncoder().encode(body).byteLength;
   const header = encodeBundleElements([
@@ -141,16 +174,18 @@ export function encodeQuerySnapshotJson(
   projectId: string,
   spec: BundledQuerySourceSpec,
   docs: ReadonlyArray<{ readonly path: string; readonly data: Record<string, unknown> }>,
+  databaseId?: string,
 ): SerializedSnapshotEnvelope {
   const bundleName = nextBundleId();
-  const rootParent = `projects/${projectId}/databases/(default)/documents`;
+  const normalizedDb = normalizeFirestoreDatabaseId(databaseId);
+  const rootParent = `projects/${projectId}/databases/${normalizedDb}/documents`;
   const bodyElements: unknown[] = [
-    { namedQuery: { name: bundleName, bundledQuery: encodeStructuredQuery(rootParent, spec), readTime: SNAPSHOT_BUNDLE_TS } },
+    { namedQuery: { name: bundleName, bundledQuery: encodeStructuredQuery(rootParent, spec, projectId, normalizedDb), readTime: SNAPSHOT_BUNDLE_TS } },
   ];
   for (const docEntry of docs) {
     const docName = `${rootParent}/${docEntry.path}`;
     bodyElements.push({ documentMetadata: { name: docName, readTime: SNAPSHOT_BUNDLE_TS, exists: true, queries: [bundleName] } });
-    bodyElements.push({ document: { name: docName, fields: encodeRestFields(docEntry.data), updateTime: SNAPSHOT_BUNDLE_TS, createTime: SNAPSHOT_BUNDLE_TS } });
+    bodyElements.push({ document: { name: docName, fields: encodeRestFields(docEntry.data, projectId, normalizedDb), updateTime: SNAPSHOT_BUNDLE_TS, createTime: SNAPSHOT_BUNDLE_TS } });
   }
   const body = encodeBundleElements(bodyElements);
   const totalBytes = new TextEncoder().encode(body).byteLength;

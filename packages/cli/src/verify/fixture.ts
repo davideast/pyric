@@ -1,8 +1,6 @@
 import {
   assertCompleteHistory,
-  encodeSnapshotMap,
   observedDeliveryOf,
-  rehydrateSnapshotDocument,
   resolveDatabaseInstance,
   type ObservedWriteValue,
 } from 'pyric/sandbox/internal';
@@ -18,6 +16,14 @@ import { getStorageSandbox } from 'pyric/storage';
 import { storageDeniedWrites, type RecordedStorageDeniedWrite } from 'pyric/storage/internal';
 import { isRtdbRulesJson } from '../rtdb/rules-json.js';
 import { formatWrongFileError } from './file-format.js';
+import {
+  assertFirestoreServiceRecord,
+  captureFirestoreDatabases,
+  encodeDefaultFirestoreSnapshot,
+  type VerifyFirestoreDatabaseCapture,
+} from './firestore-databases.js';
+
+export type { VerifyFirestoreDatabaseCapture };
 
 export const VERIFY_FIXTURE_SCHEMA = 'pyric.verify.fixture.v1' as const;
 
@@ -69,6 +75,8 @@ export interface PyricVerifyFixture {
     firestore?: {
       rules: VerifyFirestoreRulesBlock;
       state: { documents: Record<string, Record<string, unknown>> };
+      declared?: string[];
+      databases?: Record<string, VerifyFirestoreDatabaseCapture>;
     };
     rtdb?: {
       /** The default instance's rules and data. */
@@ -108,6 +116,8 @@ export interface BuildVerifyFixtureInput {
   sandbox: Pick<Sandbox, 'history' | 'snapshot'> & { currentUser?: unknown };
   description?: string;
   firestoreRules?: string | null;
+  firestoreDeclared?: string[];
+  firestoreDatabases?: Record<string, VerifyFirestoreDatabaseCapture>;
   rtdbRules?: { rules: Record<string, unknown> } | null;
   rtdbState?: unknown;
   rtdbDatabaseUrl?: string | null;
@@ -257,35 +267,35 @@ function sanitizeCapturedEvents(events: SandboxEvent[]): SandboxEvent[] {
 export function buildVerifyFixture(input: BuildVerifyFixtureInput): PyricVerifyFixture {
   const events = sanitizeCapturedEvents(input.sandbox.history());
   const snapshot = input.sandbox.snapshot();
-  const rawFirestoreDocuments = snapshot.firestore;
-  const firestoreDocuments: Record<string, Record<string, unknown>> = {};
-  for (const [docPath, docData] of Object.entries(rawFirestoreDocuments)) {
-    const hydratedDoc = rehydrateSnapshotDocument(
-      docData,
-      snapshot.firestoreWrappers?.[docPath],
-      snapshot.firestoreUnescapedMaps?.[docPath],
-    );
-    Object.defineProperty(firestoreDocuments, docPath, {
-      value: encodeSnapshotMap(hydratedDoc) as Record<string, unknown>,
-      enumerable: true,
-      writable: true,
-      configurable: true,
-    });
-  }
+  const firestoreDocuments = encodeDefaultFirestoreSnapshot(snapshot);
   const services: PyricVerifyFixture['services'] = {};
+
+  const capturedFirestoreDbs = captureFirestoreDatabases(input.sandbox);
+  const firestoreDeclared = input.firestoreDeclared ?? capturedFirestoreDbs.declared;
+  const firestoreDatabases = input.firestoreDatabases ?? capturedFirestoreDbs.databases;
+  const hasNamedFirestore =
+    firestoreDeclared.length > 0 || Object.keys(firestoreDatabases).length > 0;
 
   if (
     input.firestoreRules != null ||
     Object.keys(firestoreDocuments).length > 0 ||
+    hasNamedFirestore ||
     events.some((event) => eventService(event) === 'firestore')
   ) {
-    services.firestore = {
+    const firestoreEntry: NonNullable<PyricVerifyFixture['services']['firestore']> = {
       rules: {
         format: 'firestore.rules',
         source: input.firestoreRules ?? '',
       },
       state: { documents: firestoreDocuments },
     };
+    if (firestoreDeclared.length > 0) {
+      firestoreEntry.declared = [...firestoreDeclared];
+    }
+    if (Object.keys(firestoreDatabases).length > 0) {
+      firestoreEntry.databases = firestoreDatabases;
+    }
+    services.firestore = firestoreEntry;
   }
 
   const rawRtdbInstances = input.rtdbInstances ?? {};
@@ -410,7 +420,7 @@ export function parseVerifyFixture(value: unknown): PyricVerifyFixture {
 
   const hasFirestore = services.firestore !== undefined;
   if (hasFirestore) {
-    assertFirestoreService(services.firestore);
+    assertFirestoreServiceRecord(services.firestore);
   }
   const hasRtdb = services.rtdb !== undefined;
   if (hasRtdb) {
@@ -465,6 +475,8 @@ export function fixtureVerifiableServices(
   if (
     firestore &&
     (firestore.rules.source.trim().length > 0 ||
+      (firestore.declared !== undefined && firestore.declared.length > 0) ||
+      (firestore.databases !== undefined && Object.keys(firestore.databases).length > 0) ||
       fixture.events.some(isVerifiableFirestoreFixtureEvent) ||
       (!fixture.services.rtdb && !fixture.services.storage))
   ) {
@@ -473,16 +485,6 @@ export function fixtureVerifiableServices(
   if (fixture.services.rtdb) services.push('rtdb');
   if (fixture.services.storage) services.push('storage');
   return services;
-}
-
-function assertFirestoreService(value: unknown): void {
-  if (!isVerifyFixtureObject(value)) throw new Error('fixture.services.firestore must be an object.');
-  if (!isVerifyFixtureObject(value.rules) || value.rules.format !== 'firestore.rules' || typeof value.rules.source !== 'string') {
-    throw new Error('fixture.services.firestore.rules must contain firestore.rules source.');
-  }
-  if (!isVerifyFixtureObject(value.state) || !isVerifyFixtureObject(value.state.documents)) {
-    throw new Error('fixture.services.firestore.state.documents must be an object.');
-  }
 }
 
 function assertRtdbService(value: unknown): void {

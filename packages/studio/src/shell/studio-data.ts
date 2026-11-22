@@ -33,6 +33,7 @@ import { useIsSandboxWorkerAllowed, useSandboxWorkerLive } from './use-sandbox-w
 import type { WorkerLivePlane } from '../env.js';
 import {
   listDocumentsForBrowse,
+  scopeHandlesForDatabase,
   useStudioData,
   type StudioDataHandles,
   type StudioDataState,
@@ -71,32 +72,34 @@ function handlesFromSeed(seed: {
  * - dev-seed `error`   → error.
  * - dev-seed `disabled` (prod build) → fall through to the env-hydrated path.
  */
-export function useStudioDataSource(): StudioDataState {
+export function useStudioDataSource(databaseId?: string): StudioDataState {
   const seed = useDevSeed();
   const env = useEnvironment();
   const hostAnswered = useHostAnswered();
   const sandboxWorkerAllowed = useIsSandboxWorkerAllowed();
   const sandboxWorkerLive = useSandboxWorkerLive();
 
-  // Wait for `/__pyric/health` before consulting sandbox data sources in served
-  // mode, and keep sandbox worker RPCs off while attached to a live host.
   const isServedSandbox = seed.status === 'disabled' && sandboxWorkerAllowed;
-  const live = isServedSandbox ? sandboxWorkerLive : undefined;
+  let live: WorkerLivePlane | undefined;
+  if (isServedSandbox) {
+    live = sandboxWorkerLive;
+  }
 
-  // Env path always runs (rules of hooks); HTTP persistence hydrates only when
-  // served in sandbox mode without a SharedWorker plane.
   let backend: Parameters<typeof useStudioData>[0];
   const usesHttpPersistence = isServedSandbox && !live && env.status === 'ready';
   if (usesHttpPersistence) {
     backend = env.env.persistence;
   }
   const envData = useStudioData(backend, env.status);
-  const workerRoots = useWorkerRootCollections(live);
+  const workerRoots = useWorkerRootCollections(live, databaseId);
 
   return useMemo<StudioDataState>(() => {
     switch (seed.status) {
       case 'ready':
-        return { status: 'ready', handles: handlesFromSeed(seed.handles) };
+        return {
+          status: 'ready',
+          handles: scopeHandlesForDatabase(handlesFromSeed(seed.handles), databaseId),
+        };
       case 'pending':
         return { status: 'pending', handles: null };
       case 'error':
@@ -105,33 +108,41 @@ export function useStudioDataSource(): StudioDataState {
         if (!hostAnswered) {
           return { status: 'pending', handles: null };
         }
-        // Served sandbox mode: route Firestore/Auth/Storage to the live worker
-        // when a SharedWorker is reachable. On a live host (`live` gated off
-        // above), fall through to the inert in-page handles so shell chrome
-        // and Settings stay ready without issuing sandbox worker RPCs.
         if (live && envData.status === 'ready') {
-          const liveDb = live.db as unknown as StudioDataHandles['firestore'];
+          const targetWorkerDb = live.dbFor ? live.dbFor(databaseId) : live.db;
+          const liveDb = targetWorkerDb as unknown as StudioDataHandles['firestore'];
+          const scopedHandles: StudioDataHandles = {
+            ...envData.handles,
+            firestore: liveDb,
+            adminFirestore: liveDb,
+            auth: live.auth,
+            storage: live.storage,
+            listRootCollections: () => workerRoots,
+            listSubcollections: (docPath: string) => live.listSubcollections(docPath, databaseId),
+            listDocuments: (collectionPath: string) =>
+              live.listDocuments(collectionPath, databaseId),
+          };
+          if (databaseId !== undefined && databaseId !== '' && databaseId !== '(default)') {
+            scopedHandles.databaseId = databaseId;
+          }
           return {
             status: 'ready',
             firestoreApi: live.firestoreApi,
             authApi: live.authApi,
             storageApi: live.storageApi,
-            handles: {
-              ...envData.handles,
-              firestore: liveDb,
-              adminFirestore: liveDb,
-              auth: live.auth,
-              storage: live.storage,
-              listRootCollections: () => workerRoots,
-              listSubcollections: (docPath: string) => live.listSubcollections(docPath),
-              listDocuments: (collectionPath: string) => live.listDocuments(collectionPath),
-            },
+            handles: scopedHandles,
+          };
+        }
+        if (envData.status === 'ready') {
+          return {
+            ...envData,
+            handles: scopeHandlesForDatabase(envData.handles, databaseId),
           };
         }
         return envData;
       }
     }
-  }, [seed, hostAnswered, envData, live, workerRoots]);
+  }, [seed, hostAnswered, envData, live, workerRoots, databaseId]);
 }
 
 /**
@@ -141,7 +152,10 @@ export function useStudioDataSource(): StudioDataState {
  * batch of any length costs at most two), and aligns the worker's default lens with Studio's
  * admin default. Empty array when there is no live plane.
  */
-function useWorkerRootCollections(live: WorkerLivePlane | undefined): string[] {
+function useWorkerRootCollections(
+  live: WorkerLivePlane | undefined,
+  databaseId?: string,
+): string[] {
   const [roots, setRoots] = useState<readonly string[]>([]);
   useEffect(() => {
     if (!live) {
@@ -151,7 +165,7 @@ function useWorkerRootCollections(live: WorkerLivePlane | undefined): string[] {
     let alive = true;
     const refresh = () => {
       live
-        .listRootCollections()
+        .listRootCollections(databaseId)
         .then((ids) => {
           if (alive) setRoots(ids);
         })
@@ -159,8 +173,6 @@ function useWorkerRootCollections(live: WorkerLivePlane | undefined): string[] {
           /* best-effort: keep the last known list */
         });
     };
-    // Admin lens so browse + reads bypass rules (edit-anything), matching the
-    // dev-seed default (navigation.tsx defaults the lens to 'admin').
     try {
       live.setLens({ mode: 'admin' });
     } catch {
@@ -172,6 +184,6 @@ function useWorkerRootCollections(live: WorkerLivePlane | undefined): string[] {
       alive = false;
       unsub();
     };
-  }, [live]);
+  }, [live, databaseId]);
   return roots as string[];
 }

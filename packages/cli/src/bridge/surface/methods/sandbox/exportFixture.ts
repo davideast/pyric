@@ -24,7 +24,7 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'write',
   signature: 'exportFixture(path, excludePasswords?)',
-  description: 'Write a state fixture for seedFromFixture (for pyric verify, use .pyric/last-session.json).',
+  description: 'Write fixture for seedFromFixture (pyric verify uses .pyric/last-session.json).',
   args: z.object({
     path: z.string().describe('Where to write the fixture, inside the project directory.'),
     excludePasswords: z
@@ -56,7 +56,10 @@ export default {
     const excludePasswords = args.excludePasswords === true;
     const fixture = await buildFixture(ctx.sandbox, excludePasswords);
     writeFixtureFile(resolved.path, fixture);
-    const docs = Object.keys(fixture.firestore ?? {}).length;
+    let docs = Object.keys(fixture.firestore ?? {}).length;
+    for (const namedDocs of Object.values(fixture.firestoreDatabases ?? {})) {
+      docs += Object.keys(namedDocs ?? {}).length;
+    }
     const users = fixture.users?.length ?? 0;
     return {
       ok: true,

@@ -32,7 +32,7 @@ const NAMED_DATABASE_ID_PATTERN = /^[a-z][a-z0-9-]{2,61}[a-z0-9]$/;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-const LOCKED_FIRESTORE_RULES = [
+export const LOCKED_FIRESTORE_RULES = [
   "rules_version = '2';",
   'service cloud.firestore {',
   '  match /databases/{database}/documents {',
@@ -258,6 +258,16 @@ function applyInitialRules(env: LocalEnvironment, lockedByDefault: boolean): voi
   env.seed({ rules: LOCKED_FIRESTORE_RULES, documents: {}, explicitRules: false });
 }
 
+function resetEntryToDefaultPolicy(entry: NamedDatabaseEntry): void {
+  if (!entry.lockedByDefault) {
+    entry.env.resetToDefaultRules();
+    return;
+  }
+  const existingDocs = entry.env.snapshot();
+  entry.env.deployRules(LOCKED_FIRESTORE_RULES);
+  entry.env.seed({ rules: LOCKED_FIRESTORE_RULES, documents: existingDocs, explicitRules: false });
+}
+
 export function getOrCreateDatabaseRegistry(sandbox: Sandbox): SandboxDatabaseRegistry {
   getInternalEnv(sandbox);
   const existing = registries.get(sandbox);
@@ -366,9 +376,11 @@ export function declareFirestoreDatabase(
   const registry = getOrCreateDatabaseRegistry(sandbox);
   const existing = registry.entries.get(normalized);
   if (existing !== undefined && existing.declared) {
-    if (options?.locked !== undefined && !existing.env.hasExplicitRules()) {
+    if (options?.locked !== undefined) {
       existing.lockedByDefault = options.locked;
-      applyInitialRules(existing.env, options.locked);
+      if (!existing.env.hasExplicitRules()) {
+        resetEntryToDefaultPolicy(existing);
+      }
     }
     return;
   }

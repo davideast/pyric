@@ -23,6 +23,12 @@ import {
   type SnapshotStorageObject,
   type SnapshotUserRecord,
 } from 'pyric/sandbox/internal';
+import {
+  DEFAULT_FIRESTORE_DATABASE,
+  declareFirestoreDatabase,
+  isValidFirestoreDatabaseId,
+  restoreNamedFirestoreState,
+} from 'pyric/firestore/internal';
 import { getAdminStorageSandbox, replaceStorageRules } from 'pyric/storage/internal';
 import { getAuth, sandbox as authSandbox, type SeedUser } from 'pyric/auth';
 import { loadFirestoreRules } from './firestore-rules-load.js';
@@ -71,12 +77,17 @@ export type SandboxSeedDatabase =
 
 /** State to load into a sandbox. The harness's `EvalSeed` is an alias of this. */
 export interface SandboxSeed {
-  firestoreRules?: string;
+  firestoreRules?: string | Record<string, string>;
+  firestoreDatabaseRules?: Record<string, string>;
   databaseRules?: string;
   storageRules?: string;
   users?: SeedUserEntry[];
   /** Document path to document data. */
   firestore?: Record<string, Record<string, unknown>>;
+  /** Named Firestore database id to document map. */
+  firestoreDatabases?: Record<string, Record<string, Record<string, unknown>>>;
+  /** Declared named Firestore database ids (including empty ones). */
+  firestoreDeclared?: string[];
   /** Realtime Database tree or root value written at `/`. */
   database?: SandboxSeedDatabase;
   storage?: SeedStorageEntry[];
@@ -192,11 +203,37 @@ export async function applyRules(sandbox: LocalSandbox, seed: SandboxSeed): Prom
     if (refused !== null) refusals.push(refused);
   }
   const firestoreRules = seed.firestoreRules;
-  if (firestoreRules !== undefined) {
+  if (typeof firestoreRules === 'string') {
     const refused = loadFirestoreRules(sandbox, firestoreRules);
     if (refused !== null) refusals.push(refused);
+  } else if (firestoreRules !== undefined) {
+    applyPerDatabaseFirestoreRules(sandbox, firestoreRules, refusals);
+  }
+  const firestoreDatabaseRules = seed.firestoreDatabaseRules;
+  if (firestoreDatabaseRules !== undefined) {
+    applyPerDatabaseFirestoreRules(sandbox, firestoreDatabaseRules, refusals);
   }
   return refusals;
+}
+
+function applyPerDatabaseFirestoreRules(
+  sandbox: LocalSandbox,
+  rulesByDatabase: Record<string, string>,
+  refusals: string[],
+): void {
+  for (const [dbId, ruleSource] of Object.entries(rulesByDatabase)) {
+    if (dbId === DEFAULT_FIRESTORE_DATABASE) {
+      const refused = loadFirestoreRules(sandbox, ruleSource);
+      if (refused !== null) refusals.push(refused);
+      continue;
+    }
+    if (!isValidFirestoreDatabaseId(dbId)) {
+      throw new Error(`Invalid Firestore database id '${dbId}' in firestoreDatabaseRules.`);
+    }
+    declareFirestoreDatabase(sandbox, dbId);
+    const refused = loadFirestoreRules(sandbox, ruleSource, dbId);
+    if (refused !== null) refusals.push(refused);
+  }
 }
 
 /** Load the data a seed carries: users, documents, database tree, storage objects. */
@@ -237,4 +274,17 @@ export async function applyData(sandbox: LocalSandbox, seed: SandboxSeed): Promi
     storage,
   };
   await restoreSandboxSnapshot(sandbox, snapshot, { merge: true });
+  const hasNamedDeclared = Array.isArray(seed.firestoreDeclared) && seed.firestoreDeclared.length > 0;
+  const hasNamedDatabases =
+    seed.firestoreDatabases !== undefined && Object.keys(seed.firestoreDatabases).length > 0;
+  if (hasNamedDeclared || hasNamedDatabases) {
+    restoreNamedFirestoreState(
+      sandbox,
+      {
+        declared: seed.firestoreDeclared,
+        databases: seed.firestoreDatabases,
+      },
+      { merge: true },
+    );
+  }
 }

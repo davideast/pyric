@@ -14,7 +14,14 @@ import {
   RENAMES,
   writeEntry,
 } from '../../arguments/firestore.js';
-import { callSandboxTool } from '../../sandbox-context.js';
+import {
+  assertDeclaredFirestoreDatabase,
+  callFirestoreSandboxTool,
+  checkFirestoreDatabase,
+  databaseArgument,
+  firestoreDatabaseSelector,
+  onFirestoreDatabase,
+} from '../../firestore-database.js';
 import { firestoreFor } from '../../service-handles.js';
 import type { Args, MethodRecord } from '../../method-types.js';
 
@@ -24,11 +31,12 @@ export default {
   runsIn: 'sandbox',
   sdkOrigin: 'firebase-js',
   effect: 'write',
-  signature: 'writeBatch(writes[{type: set|update|delete, path, data?, options?}])',
+  signature: 'writeBatch(writes[{type: set|update|delete, path, data?, options?}], database?)',
   description:
     'Apply writes in order, stopping at the first failure (accepts setDoc/updateDoc sentinels).',
   args: z.object({
     writes: z.array(writeEntry).describe('The writes, applied in order.'),
+    database: databaseArgument,
   }),
   operation: 'batch_firestore_writes',
   renames: RENAMES,
@@ -39,12 +47,15 @@ export default {
     ],
   },
   validate(args, { fail }) {
+    const dbCheck = checkFirestoreDatabase(args, fail);
+    if (dbCheck !== null) return dbCheck;
     const shape = checkBatch(args, fail);
     if (shape !== null) return shape;
     return checkBatchFieldValues(args, fail);
   },
   async handler(args, ctx) {
     const writes = args.writes as Args[];
+    const selector = firestoreDatabaseSelector(args.database);
     const hasMergeFields = writes.some((write) => {
       const options = (write.options ?? {}) as Args;
       return write.type === 'set' && Array.isArray(options.mergeFields);
@@ -61,7 +72,7 @@ export default {
         if (write.data !== undefined) entry.data = batchFieldValuesOf(index, write);
         return entry;
       });
-      return callSandboxTool(ctx, 'firestore_batch_write', { operations });
+      return callFirestoreSandboxTool(ctx, 'firestore_batch_write', { operations }, selector);
     }
     if (writes.length === 0 || writes.length > 500) {
       return {
@@ -69,7 +80,8 @@ export default {
         summary: `firestore_batch_write: operations must be 1..500 (got ${writes.length}).`,
       };
     }
-    const db = firestoreFor(ctx);
+    assertDeclaredFirestoreDatabase(ctx, selector);
+    const db = firestoreFor(ctx, selector);
     for (const [index, write] of writes.entries()) {
       const target = doc(db, String(write.path));
       if (write.type === 'delete') {
@@ -93,7 +105,7 @@ export default {
     }
     return {
       ok: true,
-      summary: `Applied ${writes.length} write(s)`,
+      summary: onFirestoreDatabase(`Applied ${writes.length} write(s)`, selector),
       data: { count: writes.length },
     };
   },
