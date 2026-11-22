@@ -80,6 +80,31 @@ function compareNumbers(a: number, b: number): number {
   return compareOrder(a, b);
 }
 
+function compareBigIntToNumber(intVal: bigint, numVal: number): number {
+  if (Number.isNaN(numVal)) return 1;
+  if (numVal === Number.NEGATIVE_INFINITY) return 1;
+  if (numVal === Number.POSITIVE_INFINITY) return -1;
+  if (Number.isInteger(numVal)) {
+    return compareOrder(intVal, BigInt(numVal));
+  }
+  const floor = BigInt(Math.floor(numVal));
+  if (intVal <= floor) return -1;
+  return 1;
+}
+
+function compareNumericValues(a: number | bigint, b: number | bigint): number {
+  if (typeof a === 'bigint' && typeof b === 'bigint') {
+    return compareOrder(a, b);
+  }
+  if (typeof a === 'bigint') {
+    return compareBigIntToNumber(a, b as number);
+  }
+  if (typeof b === 'bigint') {
+    return -compareBigIntToNumber(b, a);
+  }
+  return compareNumbers(a, b);
+}
+
 function compareStrings(a: string, b: string): number {
   return compareUtf8Strings(a, b);
 }
@@ -175,7 +200,7 @@ export function compareValues(a: unknown, b: unknown): number {
       return -1;
     }
     case TypeRank.Number:
-      return compareNumbers(Number(a), Number(b));
+      return compareNumericValues(a as number | bigint, b as number | bigint);
     case TypeRank.String:
       return compareStrings(a as string, b as string);
     case TypeRank.Array:

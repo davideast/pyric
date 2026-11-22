@@ -65,7 +65,7 @@ function encodeSentinel(s: FieldValueSentinel): unknown {
     case 'serverTimestamp':
       return { __sentinel: 'serverTimestamp' };
     case 'increment':
-      return { __sentinel: 'increment', n: s.value };
+      return { __sentinel: 'increment', n: encodeValue(s.value) };
     case 'arrayUnion':
       return { __sentinel: 'arrayUnion', values: s.values.map(encodeValue) };
     case 'arrayRemove':
@@ -93,6 +93,9 @@ export function encodeValue(v: unknown): unknown {
     if (v === -Infinity) return { __type: 'number', value: '-Infinity' };
     if (Object.is(v, -0)) return { __type: 'number', value: '-0' };
     return v;
+  }
+  if (typeof v === 'bigint') {
+    return { __type: 'int64', value: v.toString() };
   }
   if (v === null || typeof v !== 'object') return v;
   if (isFieldValueSentinel(v)) return encodeSentinel(v);

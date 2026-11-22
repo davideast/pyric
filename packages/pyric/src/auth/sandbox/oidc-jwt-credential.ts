@@ -11,7 +11,7 @@
  * `auth/no-mock-configured`.
  */
 
-import { providerVerifiesEmail, utf8FromBase64url } from 'pyric/sandbox/internal';
+import { parseClaimJson, providerVerifiesEmail, utf8FromBase64url } from 'pyric/sandbox/internal';
 import { makeAuthError } from '../auth-errors.js';
 import { isFederatedProviderId } from '../providers.js';
 import type { CreateUserRequest, UpdateUserRequest } from '../sandbox-backend-types.js';
@@ -69,7 +69,7 @@ function decodeBase64JsonObject(segment: string): Record<string, unknown> | null
   }
   try {
     const decodedText = utf8FromBase64url(normalized);
-    const parsed: unknown = JSON.parse(decodedText);
+    const parsed: unknown = parseClaimJson(decodedText);
     if (!isPlainRecord(parsed)) {
       return null;
     }

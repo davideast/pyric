@@ -17,6 +17,7 @@ import { requireDocumentData } from './internal/document-data.js';
 import { generateAutoId } from './sandbox/auto-id.js';
 import type { OfflineMutation } from './sandbox/client-offline-overlay.js';
 import {
+  assertSupportedWriteData,
   normalizeMergeFields,
   parseUpdateArguments,
   updateFieldsData,
@@ -106,7 +107,9 @@ export async function setDoc<T = DocumentData>(
   return runSdkWrite(beginFirestoreActivity(target, ref, 'setDoc', 'operation'), async () => {
     const conv = converterOf(ref) as FirestoreDataConverter<T> | null | undefined;
     const rawPayload = applySetConverter(conv, data, options);
-    const payload = markUserWriteValue(requireDocumentData(rawPayload)) as DocumentData;
+    const checkedPayload = requireDocumentData(rawPayload);
+    assertSupportedWriteData('setDoc', ref.path, checkedPayload, { allowInt64: target.adminBypass === true });
+    const payload = markUserWriteValue(checkedPayload) as DocumentData;
     let mergeFields: string[] | undefined;
     if (options?.mergeFields !== undefined && options.merge !== true) {
       mergeFields = normalizeMergeFields(options.mergeFields);
@@ -156,8 +159,9 @@ export function updateDoc(
   ...valueAndMoreFieldsAndValues: unknown[]
 ): Promise<void> {
   const target = targetOf(ref);
-  const parsedFields = parseUpdateArguments('updateDoc', ref.path, dataOrField, valueAndMoreFieldsAndValues);
-  const args = parseChainUpdate('updateDoc', ref.path, dataOrField, valueAndMoreFieldsAndValues);
+  const validation = { allowInt64: target.adminBypass === true };
+  const parsedFields = parseUpdateArguments('updateDoc', ref.path, dataOrField, valueAndMoreFieldsAndValues, validation);
+  const args = parseChainUpdate('updateDoc', ref.path, dataOrField, valueAndMoreFieldsAndValues, validation);
   const offlineData = updateFieldsData(
     parsedFields.map((field) => ({ path: field.path, value: markUserWriteValue(field.value) })),
   );
@@ -196,7 +200,9 @@ export async function addDoc<T = DocumentData>(
     if (conv !== undefined && conv !== null) {
       rawPayload = (conv as FirestoreDataConverter<T>).toFirestore(data);
     }
-    const payload = markUserWriteValue(requireDocumentData(rawPayload)) as DocumentData;
+    const checkedPayload = requireDocumentData(rawPayload);
+    assertSupportedWriteData('addDoc', coll.path, checkedPayload, { allowInt64: target.adminBypass === true });
+    const payload = markUserWriteValue(checkedPayload) as DocumentData;
     const clientState = clientStateFor(target);
     clientState.syncMissingDatabaseOfflineState(target, coll.path);
     let ref: { id: string; path: string };

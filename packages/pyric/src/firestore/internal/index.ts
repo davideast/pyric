@@ -19,6 +19,7 @@ export { activityStructuralIdentity } from '../sandbox/activity-structural-ident
 
 // Served aliases preserve their existing backend path and public observation name.
 export { readDocumentAs, readQueryAs } from '../reads.js';
+export { readWireSnapshotData } from '../snapshots.js';
 export { atomicWriterCreate } from './atomic-create.js';
 export { markHandlePersistentCache } from '../cache-index-manager.js';
 export {

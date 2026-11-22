@@ -87,6 +87,9 @@ export function computeAggregate(
     if (typeof value === 'number') {
       sum += value;
       count++;
+    } else if (typeof value === 'bigint') {
+      sum += Number(value);
+      count++;
     }
   }
   if (field.kind === 'sum') return sum;

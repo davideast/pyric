@@ -288,6 +288,15 @@ function unwrapLegacyDocValue(encoded: unknown): unknown {
     if (encoded.value === 'NaN' || encoded.value === 'Infinity' || encoded.value === '-Infinity') return null;
     if (encoded.value === '-0') return 0;
   }
+  const isInt64Marker =
+    keys.length === 2
+    && Object.hasOwn(encoded, '__type')
+    && encoded.__type === 'int64'
+    && typeof encoded.value === 'string'
+    && /^-?\d+$/.test(encoded.value);
+  if (isInt64Marker) {
+    return Number(BigInt(encoded.value as string));
+  }
   const out: Record<string, unknown> = {};
   for (const [key, item] of Object.entries(encoded)) {
     Object.defineProperty(out, key, {

@@ -17,7 +17,7 @@
  * The digest is the rules engine's synchronous SHA-256, so an Auth ID token
  * can be minted inside a synchronous sign-in, as the token cache needs.
  */
-import { sha256 } from '@pyric/rules/internal';
+import { parseClaimJson, sha256, stringifyClaimJson } from '@pyric/rules/internal';
 import { decodeBase64url, encodeBase64url } from './base64url.js';
 
 const SIGNATURE_BLOCKS = 8;
@@ -50,7 +50,7 @@ export function utf8FromBase64url(text: string): string {
 
 /** A value's JSON as UTF-8 bytes in base64url, one JWT segment. */
 export function encodeJson(value: unknown): string {
-  return base64url(new TextEncoder().encode(JSON.stringify(value)));
+  return base64url(new TextEncoder().encode(stringifyClaimJson(value)));
 }
 
 /** The sandbox signature segment for a signing input (`<header>.<payload>`) under one token kind's key, computed synchronously. */
@@ -100,12 +100,16 @@ function isJsonObject(value: unknown): value is Record<string, unknown> {
 }
 
 function decodeSegments(segments: string[]): SandboxJwtParts | undefined {
+  const headerSegment = segments[0];
+  const claimsSegment = segments[1];
+  if (headerSegment === undefined || claimsSegment === undefined) return undefined;
   try {
-    const header: unknown = JSON.parse(latin1FromBase64url(segments[0]!));
-    const claims: unknown = JSON.parse(utf8FromBase64url(segments[1]!));
+    const header: unknown = JSON.parse(latin1FromBase64url(headerSegment));
+    const claims: unknown = parseClaimJson(utf8FromBase64url(claimsSegment));
     if (!isJsonObject(header) || !isJsonObject(claims)) return undefined;
     return { header, claims };
   } catch {
+    // Malformed JWT segments are reported as `{ ok: false, reason: 'malformed' }`.
     return undefined;
   }
 }

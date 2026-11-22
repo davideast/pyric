@@ -59,6 +59,12 @@ interface DocumentSnapshotEqualityState {
 }
 
 const documentSnapshotEquality = new WeakMap<object, DocumentSnapshotEqualityState>();
+const wireSnapshotDataReaders = new WeakMap<object, (options?: SnapshotOptions) => DocumentData | undefined>();
+
+export function readWireSnapshotData(snap: { data(options?: SnapshotOptions): DocumentData | undefined }, options?: SnapshotOptions): DocumentData | undefined {
+  const reader = wireSnapshotDataReaders.get(snap);
+  return reader !== undefined ? reader(options) : snap.data(options);
+}
 
 /** Return the converter-free snapshot state captured at read time. Cursor
  * constraints must derive bounds from this raw snapshot just as Firebase
@@ -223,7 +229,7 @@ export function recordQuerySnapshot(
     const rawDoc = rawDocumentSnapshotForCursor(doc as object);
     return {
       path: rawDoc.ref?.path ?? doc.ref?.path ?? '',
-      data: captureQueryOperand(rawDoc.data?.() ?? doc.data?.()),
+      data: captureQueryOperand(finalizeSandboxValue(rawDoc.data?.() ?? doc.data?.())),
     };
   };
   const docs = Object.freeze((raw.docs ?? []).map(captureDoc));
@@ -316,6 +322,7 @@ export function wrapSandboxDocSnap<T>(snap: object, target?: Target): DocumentSn
   if (hasTarget) {
     references = createSnapshotReferenceDecoder(target);
   }
+  wireSnapshotDataReaders.set(snap, (options?: SnapshotOptions) => finalizeSandboxData(original(options), references, true));
   Object.defineProperty(s, 'data', {
     value: (options?: SnapshotOptions) => finalizeSandboxData(original(options), references),
     configurable: true,

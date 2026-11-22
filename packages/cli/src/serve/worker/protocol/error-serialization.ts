@@ -104,12 +104,42 @@ function wireReproOf(repro: unknown): unknown {
   return { ...repro, testCase };
 }
 
+function sanitizeWireBigInts(value: unknown, seen = new WeakSet<object>()): unknown {
+  if (typeof value === 'bigint') return Number(value);
+  if (value === null || typeof value !== 'object') return value;
+  if (seen.has(value)) return value;
+  seen.add(value);
+  if (Array.isArray(value)) {
+    let changed = false;
+    const mapped = value.map((item) => {
+      const next = sanitizeWireBigInts(item, seen);
+      if (next !== item) changed = true;
+      return next;
+    });
+    return changed ? mapped : value;
+  }
+  if (!isPlainRecord(value)) return value;
+  let changed = false;
+  const out: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value)) {
+    const next = sanitizeWireBigInts(item, seen);
+    if (next !== item) changed = true;
+    Object.defineProperty(out, key, {
+      value: next,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  return changed ? out : value;
+}
+
 function wireDenialContextOf(denialContext: Record<string, unknown>): AnyDenialContext {
   const out: Record<string, unknown> = { ...denialContext };
   if ('auth' in denialContext) out.auth = wireAuthOf(denialContext.auth);
   if ('request' in denialContext) out.request = wireRequestOf(denialContext.request);
   if ('repro' in denialContext) out.repro = wireReproOf(denialContext.repro);
-  return out as unknown as AnyDenialContext;
+  return sanitizeWireBigInts(out) as unknown as AnyDenialContext;
 }
 
 function wireRemediationOf(remediation: string): string {
@@ -170,11 +200,11 @@ function serializeErrorValue(err: unknown): SerializedError {
     const extras: Partial<SerializedError> = {};
     if (isPlainRecord(e.denialContext)) extras.denialContext = wireDenialContextOf(e.denialContext);
     if (typeof e.remediation === 'string') extras.remediation = wireRemediationOf(e.remediation);
-    if (e.queryProof !== undefined) extras.queryProof = e.queryProof;
-    if (e.rule !== undefined) extras.rule = e.rule;
-    if (e.request !== undefined) extras.request = wireRequestOf(e.request);
-    if (e.resource !== undefined) extras.resource = e.resource;
-    if (e.query !== undefined) extras.query = e.query;
+    if (e.queryProof !== undefined) extras.queryProof = sanitizeWireBigInts(e.queryProof);
+    if (e.rule !== undefined) extras.rule = sanitizeWireBigInts(e.rule);
+    if (e.request !== undefined) extras.request = sanitizeWireBigInts(wireRequestOf(e.request));
+    if (e.resource !== undefined) extras.resource = sanitizeWireBigInts(e.resource);
+    if (e.query !== undefined) extras.query = sanitizeWireBigInts(e.query);
     if (typeof e.code === 'string' && typeof e.message === 'string') {
       return { code: e.code, message: wireMessage(e.message), ...extras };
     }

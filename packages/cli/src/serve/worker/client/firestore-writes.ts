@@ -19,7 +19,10 @@ import {
 } from './firestore-lifecycle.js';
 import type { RawDocResult, ClientDocSnapshot } from './snapshots.js';
 import { createDocumentReference } from './firestore-reference.js';
-import { assertNoUndefinedInWorkerSentinels } from './firestore-sentinels.js';
+import {
+  assertNoBigIntInWorkerWriteData,
+  assertNoUndefinedInWorkerSentinels,
+} from './firestore-sentinels.js';
 import { TransactionRetryBackoff } from './firestore-transaction-backoff.js';
 import {
   captureWorkerFirestoreCacheEpoch,
@@ -61,7 +64,8 @@ function captureSetOptions(
 
 /** Convert models before encoding; update payloads bypass model converters. */
 function convertSetData<T>(
-  ref: { converter: FirestoreDataConverter<unknown> | null },
+  methodName: string,
+  ref: { converter: FirestoreDataConverter<unknown> | null; descriptor: { path: string } },
   data: PartialWithFieldValue<T> | WithFieldValue<T>,
   options?: ClientSetOptions,
 ): DocumentData {
@@ -76,7 +80,9 @@ function convertSetData<T>(
       payload = converter.toFirestore(data as WithFieldValue<T>);
     }
   }
-  return requireDocumentData(payload);
+  const docData = requireDocumentData(payload);
+  assertNoBigIntInWorkerWriteData(methodName, ref.descriptor.path, docData);
+  return docData;
 }
 
 export function setDoc<T = DocumentData>(
@@ -102,7 +108,7 @@ export async function setDoc<T = DocumentData>(
   markWorkerHandleStarted(ref);
   return runSdkWrite(beginWorkerFirestoreActivity(ref, 'setDoc', 'operation'), async () => {
     const capturedOptions = captureSetOptions(options);
-    const payload = convertSetData(ref, data, options);
+    const payload = convertSetData('setDoc', ref, data, options);
     const encodedData = encodeDocValue(payload);
     const mutation: WorkerOfflineMutation = {
       kind: 'set',
@@ -224,7 +230,7 @@ export async function addDoc(
   assertWorkerFirestoreActive(coll);
   markWorkerHandleStarted(coll);
   return runSdkWrite(beginWorkerFirestoreActivity(coll, 'addDoc', 'operation'), async () => {
-    const payload = convertSetData(coll, data);
+    const payload = convertSetData('addDoc', coll, data);
     const encodedData = encodeDocValue(payload);
     const dbId = clientDatabaseIdOf(coll);
     const owner = ownerOfWorkerHandle(coll);
@@ -317,7 +323,7 @@ export function writeBatch(db: ClientDb): ClientWriteBatch {
       assertNotCommitted();
       assertSameBatchInstance(ref);
       const capturedOptions = captureSetOptions(options);
-      const payload = convertSetData(ref, data, options);
+      const payload = convertSetData('WriteBatch.set', ref, data, options);
       const encodedData = encodeDocValue(payload);
       writes.push({ method: 'set', path: ref.descriptor.path, data: encodedData, valueEncoding: DOC_VALUE_ENCODING, options: capturedOptions });
       offlineMutations.push({ kind: 'set', path: ref.descriptor.path, encodedData, options: capturedOptions });
@@ -494,7 +500,7 @@ export async function runTransaction<R>(
         ) {
           assertSameTxnInstance(ref);
           const capturedOptions = captureSetOptions(options);
-          const payload = convertSetData(ref, data, options);
+          const payload = convertSetData('Transaction.set', ref, data, options);
           hasWrites = true;
           writtenPaths.add(ref.descriptor.path);
           writes.push({ method: 'set', path: ref.descriptor.path, data: encodeDocValue(payload), valueEncoding: DOC_VALUE_ENCODING, options: capturedOptions });

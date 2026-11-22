@@ -1,3 +1,4 @@
+import { stringifyClaimJson } from '@pyric/rules/internal';
 import { getAuthLens } from '../sandbox/internal/auth-lens.js';
 import { FirebaseError } from '../sandbox/internal/firebase-error.js';
 import type { Target } from './state.js';
@@ -41,7 +42,7 @@ export class FirestoreClientState {
     const lens = getAuthLens();
     let key = 'app-session';
     if (lens !== undefined) {
-      key = JSON.stringify(lens);
+      key = stringifyClaimJson(lens);
     }
     let entry = this.overlaysByLens.get(key);
     if (entry === undefined) {

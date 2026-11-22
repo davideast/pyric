@@ -310,7 +310,7 @@ export { MembershipFailure, membership } from '../simulator/membership.js';
 export { inlineFunctionsInExpr, substituteIdentifiers } from '../simulator/query-proof-scope.js';
 export { re2PatternProblem } from '../simulator/re2-pattern-check.js';
 export { resolveRootBlockMatch } from '../simulator/root-match.js';
-export { IntFailure, hostNumber, intArithmetic, isRulesInt, negateInt, numericLiteralValue, orderNumbers, rulesFloatValue, rulesInt, rulesNumberAsDouble, typeClaimNumbers } from '../simulator/rules-int.js';
+export { INT64_MAX, INT64_MIN, IntFailure, hostNumber, intArithmetic, isRulesInt, negateInt, numericLiteralValue, orderNumbers, parseClaimJson, rulesFloatValue, rulesInt, rulesNumberAsDouble, stringifyClaimJson, typeClaimNumbers } from '../simulator/rules-int.js';
 export type { IntOperator, OrderingOperator } from '../simulator/rules-int.js';
 export { describeRulesType, isRulesMap, parseRe2Ast, re2FullMatch, re2SizeRefusal, replaceRe2 } from '../simulator/rules-type.js';
 export { sliceBoundsError } from '../simulator/slice-bounds.js';

@@ -40,6 +40,7 @@
  *   Mirrors `clones/.../model/transform_operation.ts`
  *   (`computeTransformOperationBaseValue`, `coercedFieldValuesArray`).
  */
+import { INT64_MAX, INT64_MIN, isHostIntNumber } from '@pyric/rules/internal';
 import {
   KEEP,
   DELETE_MARKER,
@@ -123,18 +124,47 @@ function readPrior(ctx: ResolveContext): unknown {
 
 // ═══ Converters ═══
 
+const MIN_SAFE_BIGINT = BigInt(Number.MIN_SAFE_INTEGER);
+const MAX_SAFE_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
+
+function clampInt64(value: bigint): bigint {
+  if (value > INT64_MAX) return INT64_MAX;
+  if (value < INT64_MIN) return INT64_MIN;
+  return value;
+}
+
+function normalizeInt64(value: bigint): number | bigint {
+  const clamped = clampInt64(value);
+  if (clamped >= MIN_SAFE_BIGINT && clamped <= MAX_SAFE_BIGINT) {
+    return Number(clamped);
+  }
+  return clamped;
+}
+
+function applyNumericIncrement(prior: unknown, delta: number): number | bigint {
+  if (typeof prior === 'bigint') {
+    if (isHostIntNumber(delta)) {
+      return normalizeInt64(prior + BigInt(delta));
+    }
+    return Number(prior) + delta;
+  }
+  if (typeof prior === 'number') {
+    if (isHostIntNumber(prior) && isHostIntNumber(delta)) {
+      return normalizeInt64(BigInt(prior) + BigInt(delta));
+    }
+    return prior + delta;
+  }
+  // FS-B11: Firestore overwrites a missing or non-numeric prior with the
+  // operand itself (preserving -0, NaN, and infinities as floats).
+  return delta;
+}
+
 export const incrementConverter: ValueConverter = {
   name: 'increment-sentinel',
   convert(value, ctx) {
     if (!isIncrement(value)) return KEEP;
     const prior = readPrior(ctx);
-    // FS-B11 — Firestore OVERWRITES a mismatched prior rather than throwing:
-    // `increment(n)` on a non-numeric (or absent) prior uses a base value of
-    // 0, so the result is just `n`. Mirrors
-    // `clones/.../model/transform_operation.ts`
-    // `computeTransformOperationBaseValue` (`isNumber(prev) ? prev : 0`).
-    const base = typeof prior === 'number' ? prior : 0;
-    return base + value.value;
+    return applyNumericIncrement(prior, value.value);
   },
 };
 

@@ -28,6 +28,27 @@ function toWireIsoTimestamp(value: string): string {
   return value;
 }
 
+function toWireClaimValue(value: unknown): unknown {
+  if (typeof value === 'bigint') return Number(value);
+  if (Array.isArray(value)) return value.map(toWireClaimValue);
+  if (value !== null && typeof value === 'object') {
+    const proto = Object.getPrototypeOf(value);
+    if (proto === Object.prototype || proto === null) {
+      const out: Record<string, unknown> = {};
+      for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+        Object.defineProperty(out, key, {
+          value: toWireClaimValue(item),
+          enumerable: true,
+          writable: true,
+          configurable: true,
+        });
+      }
+      return out;
+    }
+  }
+  return value;
+}
+
 /**
  * Serialize an `IdTokenResult` onto the multi-SDK bridge wire.
  * Native SDKs (Swift `ISO8601DateFormatter`, Flutter `DateTime.tryParse`,
@@ -45,7 +66,7 @@ export function serializeIdTokenResultForWire(result: {
 }): SerializedIdTokenResult {
   return {
     token: result.token,
-    claims: result.claims,
+    claims: toWireClaimValue(result.claims) as Record<string, unknown>,
     expirationTime: toWireIsoTimestamp(result.expirationTime),
     issuedAtTime: toWireIsoTimestamp(result.issuedAtTime),
     authTime: toWireIsoTimestamp(result.authTime),

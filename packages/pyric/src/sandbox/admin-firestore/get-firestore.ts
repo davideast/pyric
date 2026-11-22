@@ -5,6 +5,7 @@
  */
 
 import { isRemoteSandbox, type AuthLens, type AuthState, type SandboxContext } from 'pyric/sandbox';
+import { stringifyClaimJson } from '@pyric/rules/internal';
 import { wrapWithErrorTranslation } from './error-translation.js';
 import { buildFirestoreHandle } from './local-handle.js';
 import { createRemoteFirestore } from './remote/remote-firestore.js';
@@ -83,7 +84,7 @@ export function authStateForLens(actAs: Extract<AuthLens, { mode: 'as' }>): Auth
 export function lensCacheKey(actAs: Extract<AuthLens, { mode: 'as' }>): string {
   const parts = [actAs.uid];
   if (actAs.tenant !== undefined) parts.push(`tenant:${actAs.tenant}`);
-  if (actAs.token !== undefined) parts.push(JSON.stringify(actAs.token));
+  if (actAs.token !== undefined) parts.push(stringifyClaimJson(actAs.token));
   return parts.join(':');
 }
 

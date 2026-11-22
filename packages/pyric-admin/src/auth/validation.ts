@@ -4,7 +4,9 @@
 import {
   assertNoReservedCustomClaims,
   mintCustomToken,
+  parseClaimJson,
   SANDBOX_PROJECT_ID,
+  stringifyClaimJson,
 } from 'pyric/sandbox/internal';
 import type {
   AuthUserRecord,
@@ -78,8 +80,8 @@ export function normalizeCustomUserClaims(customUserClaims: object | null): Reco
   if (typeof customUserClaims !== 'object' || Array.isArray(customUserClaims)) {
     throw new FirebaseAuthError('argument-error', 'CustomUserClaims argument must be an object or null.');
   }
-  const serialized = JSON.stringify(customUserClaims);
-  const parsed = JSON.parse(serialized) as Record<string, unknown>;
+  const serialized = stringifyClaimJson(customUserClaims);
+  const parsed = parseClaimJson(serialized) as Record<string, unknown>;
   try {
     assertNoReservedCustomClaims(parsed);
   } catch (err) {
@@ -268,7 +270,7 @@ export function mintSandboxCustomToken(
 ): Promise<string> {
   let claims: Record<string, unknown> | undefined;
   if (developerClaims !== undefined) {
-    claims = JSON.parse(JSON.stringify(developerClaims)) as Record<string, unknown>;
+    claims = parseClaimJson(stringifyClaimJson(developerClaims)) as Record<string, unknown>;
   }
   return Promise.resolve(mintCustomToken({ uid, claims, projectId: idTokenProjectId(app), nowMs }));
 }

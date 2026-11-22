@@ -324,7 +324,14 @@ export function vectorValuesOf(value: unknown): number[] | null {
  * Phase 0-F; the formal COMPAT ✓ + oracle observation land with the
  * conformance phase (Phase 5b). Vector SEARCH (`findNearest`) is separate.
  */
-export function finalizeSandboxValue(value: unknown, references?: ReferenceDecoder): unknown {
+export function finalizeSandboxValue(
+  value: unknown,
+  references?: ReferenceDecoder,
+  preserveInt64 = false,
+): unknown {
+  if (typeof value === 'bigint') {
+    return preserveInt64 ? value : Number(value);
+  }
   const isReference = value instanceof RulesReference;
   if (isReference) return references?.create(value.path, value.databaseId) ?? value;
   const isBytes = value instanceof RulesBytes;
@@ -342,7 +349,7 @@ export function finalizeSandboxValue(value: unknown, references?: ReferenceDecod
   }
   const isArray = Array.isArray(value);
   if (isArray) {
-    return value.map((item) => finalizeSandboxValue(item, references));
+    return value.map((item) => finalizeSandboxValue(item, references, preserveInt64));
   }
   // Only walk plain objects (`{...}` literals + `Object.create(null)`).
   // Class instances we don't recognize pass through as identity so we
@@ -357,7 +364,7 @@ export function finalizeSandboxValue(value: unknown, references?: ReferenceDecod
       const out: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
         Object.defineProperty(out, k, {
-          value: finalizeSandboxValue(v, references),
+          value: finalizeSandboxValue(v, references, preserveInt64),
           enumerable: true,
           writable: true,
           configurable: true,
@@ -369,8 +376,12 @@ export function finalizeSandboxValue(value: unknown, references?: ReferenceDecod
   return value;
 }
 
-export function finalizeSandboxData(data: DocumentData | undefined, references?: ReferenceDecoder): DocumentData | undefined {
+export function finalizeSandboxData(
+  data: DocumentData | undefined,
+  references?: ReferenceDecoder,
+  preserveInt64 = false,
+): DocumentData | undefined {
   const isMissing = data === undefined;
   if (isMissing) return undefined;
-  return finalizeSandboxValue(data, references) as DocumentData;
+  return finalizeSandboxValue(data, references, preserveInt64) as DocumentData;
 }
