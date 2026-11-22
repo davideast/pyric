@@ -1,0 +1,39 @@
+{
+  "name": "ai-offline-mid-stream-error-handling",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Staged offline firebase/ai generateContentStream() behavior on 200 SSE streams carrying mid-stream JSON error envelopes (object and array-wrapped) and truncated trailing frames (#1753), awaiting live production wire capture.",
+  "observedAt": "2026-11-22T08:45:13.677Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "objectMidStreamError": {
+      "yieldedTexts": [
+        "alpha ",
+        "beta"
+      ],
+      "yieldedChunkCount": 2,
+      "aggregateText": "alpha beta",
+      "threw": null
+    },
+    "arrayMidStreamError": {
+      "yieldedTexts": [
+        "alpha ",
+        "beta"
+      ],
+      "yieldedChunkCount": 2,
+      "aggregateText": "alpha beta",
+      "threw": null
+    },
+    "trailingUnparsedFrame": {
+      "yieldedTexts": [],
+      "yieldedChunkCount": 0,
+      "aggregateText": null,
+      "threw": {
+        "isAIError": true,
+        "code": "parse-failed",
+        "name": "FirebaseError"
+      }
+    }
+  }
+}
