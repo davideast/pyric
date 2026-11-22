@@ -458,22 +458,7 @@ function isStoppedDirectSdkBySpec(
   specifier: TargetFirebaseSpecifier,
   isEsmImport: boolean,
 ): boolean {
-  if (aiMode !== 'production') return true;
-  if (
-    specifier === 'firebase/app' ||
-    specifier === 'firebase/app-check' ||
-    specifier === 'firebase/ai'
-  ) {
-    return false;
-  }
-  if (
-    isEsmImport &&
-    importerKind === 'admin-app-check-bridge' &&
-    (specifier === 'firebase-admin/app' || specifier === 'firebase-admin/app-check')
-  ) {
-    return false;
-  }
-  return true;
+  return !isAllowedRealSdkBySpec(aiMode, importerKind, specifier, isEsmImport);
 }
 
 /**

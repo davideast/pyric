@@ -342,6 +342,16 @@ export default scenario(async (app) => {
       env: { PYRIC_AI_MODE: 'production', NODE_OPTIONS: '--import ./egress-stand-in.mjs' },
     }));
 
+  await app.step('production AI mode: SSR firebase/app-check initializes and stops direct @firebase/ai or absolute SDK loads (#1630, #1907, #1735)', async () => {
+    for (const runner of ['legacy', 'environment']) {
+      const { outcomes } = await get(`${production.url}/ssr/app-check?runner=${runner}&tag=${runner}`);
+      expectOk(outcomes, 'appCheckToken', `ssr-token-${runner}`);
+      expectCode(outcomes, '@firebase/ai', 'PYRIC_REAL_SDK_STOPPED');
+      expectCode(outcomes, 'absFirebaseApp', 'PYRIC_REAL_SDK_STOPPED');
+      expectCode(outcomes, 'absFirebaseAppCheck', 'PYRIC_REAL_SDK_STOPPED');
+    }
+  });
+
   await app.step('production AI mode: SSR firebase/ai goes out, and only to Firebase AI Logic', async () => {
     const since = production.process.mark();
     const { outcomes } = await get(`${production.url}/ssr/run-ai?runner=legacy`);
@@ -350,6 +360,9 @@ export default scenario(async (app) => {
     const log = production.process.output.slice(since);
     const refused = [...log.matchAll(/\[egress stand-in\] refused fetch to (\S+)/g)].map((match) => match[1]!);
     assert.deepEqual(refused, ['firebasevertexai.googleapis.com'], `dev server log:\n${log}`);
+    const afterAi = await get(`${production.url}/ssr/app-check?runner=legacy&tag=after-ai`);
+    expectOk(afterAi.outcomes, 'appCheckToken', 'ssr-token-after-ai');
+    expectCode(afterAi.outcomes, '@firebase/ai', 'PYRIC_REAL_SDK_STOPPED');
   });
   await app.step('stop the production AI mode dev server', () => production.process.stop());
 

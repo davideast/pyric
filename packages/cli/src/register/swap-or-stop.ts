@@ -35,6 +35,7 @@ import {
   SDK_MODULES,
   isAdminBridgeFile,
   isBypassedBridgeImport,
+  isProductionAiSdkFile,
   isProductionAiSdkPackage,
   resolveAiMode,
   type AiMode,
@@ -109,13 +110,16 @@ function isFromAllowedSdkFile(load: ResolvedLoad, packageName: string, allowedUr
     nameResolver = load.nameOf;
   }
   const importerFamily = sdkFamilyOf(nameResolver(importer));
-  if (importerFamily === 'client') return isProductionAiSdkPackage(packageName);
-  const isAdminTarget = importerFamily === 'admin' && packageName === 'firebase-admin';
-  if (!isAdminTarget) return false;
   let pathOf = pathInPackageOf;
   if (load.pathInPackage !== undefined) {
     pathOf = load.pathInPackage;
   }
+  if (importerFamily === 'client') {
+    if (isProductionAiSdkPackage(packageName)) return true;
+    return isProductionAiSdkFile(packageName, () => pathOf(load.url, packageName));
+  }
+  const isAdminTarget = importerFamily === 'admin' && packageName === 'firebase-admin';
+  if (!isAdminTarget) return false;
   return isAdminBridgeFile(pathOf(load.url, packageName));
 }
 

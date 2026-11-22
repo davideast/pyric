@@ -6,6 +6,7 @@ import { workerInitPayload } from './runtime/hosted-target.js';
 import { SANDBOX_BUILD_META } from './sandbox-marker.js';
 import {
   browserAiEngineWire,
+  hasIgnoredBrowserGeminiKey,
   loadViteAiEnv,
   refuseBrowserServedGeminiKey,
   resolveViteAiConfig,
@@ -26,11 +27,22 @@ export interface VitePageRuntimeOptions {
   ai?: PyricAiOptions;
 }
 
+interface VitePageRuntimeResolvedInput {
+  mode?: string;
+  root?: string;
+  envDir?: string | false;
+  envPrefix?: string | string[];
+  define?: Record<string, unknown>;
+  command?: ResolvedConfig['command'];
+  isPreview?: boolean;
+}
+
 export interface VitePageRuntime {
   applies(env: ConfigEnv): boolean;
   config(config: UserConfig, env: ConfigEnv): UserConfig;
-  configResolved(resolved: Pick<ResolvedConfig, 'envPrefix'> & { define?: Record<string, unknown> }): void;
+  configResolved(resolved: VitePageRuntimeResolvedInput): void;
   ai(): ResolvedViteAiConfig;
+  hasIgnoredGeminiKey(): boolean;
   buildStart(emitFile: (chunk: { type: 'chunk'; id: string; name: string }) => string): void;
   generateBundle(getFileName: (referenceId: string) => string): void;
   transformModule(code: string, id: string): string | null;
@@ -87,12 +99,15 @@ export function createVitePageRuntime(input: {
   let initExt = extname(initEntry);
   if (initExt.length === 0) initExt = '.js';
   const bundledWorkerInitEntry = join(dirname(initEntry), `bundled-worker-init${initExt}`);
-  let resolvedAi = resolveViteAiConfig(options.ai, {});
+  let resolvedAi = resolveViteAiConfig(options.ai, process.env);
   let sandboxBuild = false;
   let initChunkRef: string | undefined;
   let initChunkFile: string | undefined;
-  /** The dev server's loaded env, kept for the key refusal once `envPrefix` is resolved. */
-  let devServerEnv: Record<string, string> | undefined;
+  let pendingMode = 'development';
+  let pendingRoot: string | undefined;
+  let pendingEnvDir: string | false | undefined;
+  let isDevServerMode = false;
+  let ignoredGeminiKey = hasIgnoredBrowserGeminiKey(process.env);
   /**
    * Vite skips `vite:define` transforms on dev client modules, injecting `define`
    * only through `/@vite/client`. Mirror the resolved worker-init define into
@@ -109,13 +124,13 @@ export function createVitePageRuntime(input: {
       const isBuild = env.command === 'build';
       const isSsrBuild = env.isSsrBuild === true || Boolean(config.build?.ssr);
       sandboxBuild = isBuild && !isSsrBuild;
-      const loadedEnv = loadViteAiEnv(env.mode, config.root, config.envDir);
-      // Only the dev server serves `import.meta.env` to pages. A build's
-      // output and `vite preview`, which serves it, never held the key. The
-      // same condition as `isDevServer` in `vite-plugin.ts`.
       const isDevServer = env.command === 'serve' && env.isPreview !== true;
-      devServerEnv = isDevServer ? loadedEnv : undefined;
-      resolvedAi = resolveViteAiConfig(options.ai, loadedEnv);
+      isDevServerMode = isDevServer;
+      pendingMode = env.mode;
+      pendingRoot = config.root;
+      pendingEnvDir = config.envDir;
+      resolvedAi = resolveViteAiConfig(options.ai, process.env);
+      ignoredGeminiKey = hasIgnoredBrowserGeminiKey(process.env);
       if (isBuild) return { build: { target: 'esnext' } };
       // Frameworks that render their own dev HTML (such as Astro) bypass
       // `transformIndexHtml`. Define a non-sensitive hosted marker in dev
@@ -139,9 +154,28 @@ export function createVitePageRuntime(input: {
       return {};
     },
     configResolved(resolved) {
-      // After every plugin's `config` hook, so this is the `envPrefix` Vite
-      // serves `import.meta.env` by (#1659).
-      if (devServerEnv === undefined) {
+      // Load `.env` files in `configResolved` so Pyric reads from the finalized
+      // `mode`, `root`, `envDir`, and `envPrefix` after every plugin's `config` hook (#1743).
+      let mode = pendingMode;
+      if (resolved.mode !== undefined) {
+        mode = resolved.mode;
+      }
+      let root = pendingRoot;
+      if (resolved.root !== undefined) {
+        root = resolved.root;
+      }
+      let envDir = pendingEnvDir;
+      if (resolved.envDir !== undefined) {
+        envDir = resolved.envDir;
+      }
+      let devServer = isDevServerMode;
+      if (resolved.command !== undefined) {
+        devServer = resolved.command === 'serve' && resolved.isPreview !== true;
+      }
+      const loadedEnv = loadViteAiEnv(mode, root, envDir);
+      resolvedAi = resolveViteAiConfig(options.ai, loadedEnv);
+      ignoredGeminiKey = hasIgnoredBrowserGeminiKey(loadedEnv);
+      if (!devServer) {
         devWorkerInitDefine = undefined;
         return;
       }
@@ -153,10 +187,13 @@ export function createVitePageRuntime(input: {
       } else {
         devWorkerInitDefine = undefined;
       }
-      refuseBrowserServedGeminiKey(devServerEnv, resolved.envPrefix);
+      refuseBrowserServedGeminiKey(loadedEnv, resolved.envPrefix);
     },
     ai() {
       return resolvedAi;
+    },
+    hasIgnoredGeminiKey() {
+      return ignoredGeminiKey;
     },
     buildStart(emitFile) {
       if (!sandboxBuild) return;

@@ -280,11 +280,11 @@ describe('server-rendered imports under vite dev (#1123)', () => {
     expect(await swap.resolvePluginId(fake, aliased('firebase/database'), userImporter)).toBe(context.entries.database);
   });
 
-  it('leaves the real firebase/ai to Vite on the server in production AI mode', async () => {
+  it('routes firebase/ai through the Node SSR loader in production AI mode (#1907)', async () => {
     const prodSwap = createViteModuleSwap(context, { getAiMode: () => 'production' });
     const fake = fakeContext(runnableSsr);
     expect(await prodSwap.resolvePluginId(fake, aliased('firebase/ai'), userImporter))
-      .toEqual({ id: '/node_modules/firebase/ai.js' });
+      .toBe('\0pyric-ssr-target:firebase/ai');
     expect(await prodSwap.resolvePluginId(fake, aliased('firebase/app'), userImporter))
       .toBe('\0pyric-ssr-target:@pyric/cli/register/client/app-bridge');
   });

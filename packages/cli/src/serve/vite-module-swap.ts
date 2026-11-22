@@ -346,7 +346,8 @@ export function createViteModuleSwap(
     const isPage = !isServerResolve(context, resolveOptions);
     const supplied = options?.supplied;
     if (supplied === undefined) {
-      if (!isPage) return routed;
+      const isExternalObject = routed !== null && typeof routed === 'object' && routed.external === true;
+      if (isExternalObject) return routed;
       return gateSandboxSdkFile(context, source, importer, resolveOptions, routed);
     }
     const isOpenOnPage = supplied.package() !== null && isPage;
@@ -388,6 +389,7 @@ export function createViteModuleSwap(
         aiMode: currentAiMode,
         runsInProcess: runsInProcess(environment),
         environmentName: envName,
+        isBuild: environment?.mode === 'build',
       });
     } else {
       routed = resolveId(original, importer);
@@ -398,6 +400,9 @@ export function createViteModuleSwap(
     if (isInstalledSdkImport) return context.resolve(original, importer, { ...resolveOptions, skipSelf: true });
     const stopId = stopIdFor(originalBare, importer);
     if (stopId !== null) return stopId;
+    if (isServer && environment?.mode === 'build') {
+      return { id: originalBare, external: true };
+    }
     return context.resolve(original, importer, { ...resolveOptions, skipSelf: true });
   }
 

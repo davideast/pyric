@@ -34,6 +34,7 @@ export {
   urlCredentials,
   type GeminiUpstreamOptions,
 } from './broker/index.js';
+export { GEMINI_SERVER_KEYS } from './broker/gemini-upstream.js';
 export {
   joinUpstreamUrl,
   normalizeUpstreamBaseUrl,

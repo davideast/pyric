@@ -177,6 +177,23 @@ describe('pyric dev AI startup status', () => {
       expect(formatAiStatusLine({ mode: 'production' })).not.toContain('VITE_GEMINI_API_KEY');
     });
 
+    it('names VITE_GEMINI_API_KEY from a Vite .env file without copying it into process.env (#1743)', () => {
+      expect(process.env.VITE_GEMINI_API_KEY).toBeUndefined();
+      const geminiNote = formatAiStatusNote({
+        engine: { kind: 'gemini' },
+        ignoredGeminiKey: true,
+      });
+      expect(geminiNote).toContain(
+        'gemini (no API key; VITE_GEMINI_API_KEY is set and ignored, because Vite serves VITE_ variables to the browser by default; rename it to GEMINI_API_KEY)',
+      );
+      const defaultNote = formatAiStatusNote({
+        hosted: true,
+        ignoredGeminiKey: true,
+      });
+      expect(defaultNote).toContain('VITE_GEMINI_API_KEY is set and ignored');
+      expect(process.env.VITE_GEMINI_API_KEY).toBeUndefined();
+    });
+
     it('sees a key that only a project .env holds once loadViteAiEnv has run (#950)', () => {
       const root = mkdtempSync(join(tmpdir(), 'pyric-ai-env-'));
       writeFileSync(join(root, '.env'), 'GEMINI_API_KEY=AIzaSyFromDotEnv\n');

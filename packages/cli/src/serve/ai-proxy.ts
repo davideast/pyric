@@ -21,6 +21,7 @@ import {
   urlCredentials,
 } from 'pyric/ai/internal';
 import { sanitizeForTerminal } from './ai-terminal-text.js';
+import { watchAiProxyClientDisconnect } from './ai-proxy-disconnect.js';
 import { HOSTED_METHOD_BODY_LIMIT } from './hosted/method-protocol.js';
 import { answerAndClose, collectRawBody, isBodyTooLarge } from '../bridge/server/peer.js';
 
@@ -334,6 +335,7 @@ export async function fetchAiUpstream(
 ): Promise<Response> {
   const isRequest = input instanceof Request;
   const target = isRequest ? input.url : String(input);
+  const callerSignal = isRequest ? input.signal : init?.signal;
   const { fetchInput, fetchInit, extraCredentials } = stripFetchUserinfo(input, init);
   const credentials = [...requestCredentials(input, init), ...extraCredentials];
   const startedAt = Date.now();
@@ -342,6 +344,9 @@ export async function fetchAiUpstream(
   try {
     upstream = await fetch(fetchInput, fetchInit);
   } catch (error) {
+    if (callerSignal?.aborted === true) {
+      throw error;
+    }
     note({ kind: 'unreachable', target, latencyMs: Date.now() - startedAt,
       cause: error instanceof Error ? error.message : String(error), credentials });
     throw error;
@@ -374,7 +379,7 @@ export async function fetchAiUpstream(
         if (done) controller.close();
         else controller.enqueue(value);
       } catch (error) {
-        if (cancelled) return;
+        if (cancelled || callerSignal?.aborted === true) return;
         note({ kind: 'stream-abort', target, latencyMs: Date.now() - startedAt,
           cause: error instanceof Error ? error.message : String(error), credentials });
         controller.error(error);
@@ -451,73 +456,93 @@ export async function handleAiProxy(
   const upstreamBase = resolveAiProxyUpstream(configuredUpstream).target;
   const suffix = url.pathname.slice(AI_PROXY_ROUTE.length);
   const target = joinUpstreamUrl(upstreamBase, suffix, url.search);
+  const disconnect = watchAiProxyClientDisconnect(req, res);
 
-  // The request body is a bounded JSON payload, read once; the RESPONSE streams.
-  const body = await readAiProxyBody(req, res);
-  if (body === null) return;
-
-  const headers: Record<string, string> = {};
-  for (const [key, value] of Object.entries(req.headers)) {
-    if (value === undefined) continue;
-    if (shouldStripUpstreamHeader(key)) continue;
-    headers[key] = Array.isArray(value) ? value.join(', ') : value;
-  }
-
-  const credentials = [
-    ...urlCredentials(upstreamBase),
-    ...requestCredentials(target, { headers }),
-  ];
-  let upstream: Response;
   try {
-    upstream = await fetchAiUpstream(target, { method: 'POST', headers, body }, throttle, logger);
-  } catch (e) {
-    const cause = e instanceof Error ? e.message : String(e);
-    // The 502 body quotes the same two strings the terminal block does, so it
-    // gets the same masking: the target carries the page's own query string,
-    // a fetch error routinely echoes the URL back, and it can quote a header.
-    res.writeHead(502, { 'content-type': 'text/plain' });
-    res.end(
-      `pyric dev ai-proxy: upstream ${redactUpstreamText(target, credentials)} unreachable: ${redactUpstreamText(cause, credentials)}\n` +
-        'Set PYRIC_AI_PROXY_UPSTREAM to an OpenAI-compatible base URL ' +
-        `(default ${AI_PROXY_DEFAULT_UPSTREAM}).`,
-    );
-    return;
-  }
+    // The request body is a bounded JSON payload, read once; the RESPONSE streams.
+    const body = await readAiProxyBody(req, res);
+    if (body === null || disconnect.isDisconnected()) return;
 
-  if (!upstream.ok) {
-    const rawError = await upstream.text().catch(() => '');
-    const redactedError = redactUpstreamError(rawError, credentials);
-    const responseHeaders: Record<string, string> = { 'cache-control': 'no-store' };
-    const contentType = upstream.headers.get('content-type');
-    if (contentType) responseHeaders['content-type'] = contentType;
-    res.writeHead(upstream.status, responseHeaders);
-    res.end(redactedError);
-    return;
-  }
+    const headers: Record<string, string> = {};
+    for (const [key, value] of Object.entries(req.headers)) {
+      if (value === undefined) continue;
+      if (shouldStripUpstreamHeader(key)) continue;
+      headers[key] = Array.isArray(value) ? value.join(', ') : value;
+    }
 
-  const contentType = upstream.headers.get('content-type')?.toLowerCase() ?? '';
-  if (contentType.includes('text/event-stream') && upstream.body !== null) {
-    const maskedUpstream = new Response(maskStreamErrors(upstream.body, credentials), {
-      status: upstream.status,
-      statusText: upstream.statusText,
-      headers: upstream.headers,
-    });
-    await relayAiUpstream(maskedUpstream, res);
-    return;
-  }
-  if (contentType.includes('application/json') && upstream.body !== null && credentials.length > 0) {
-    const rawBody = await upstream.text().catch(() => '');
-    const maskedBody = redactUpstreamSuccessBody(rawBody, credentials, { maskExactCredentials: false });
-    const maskedUpstream = new Response(maskedBody, {
-      status: upstream.status,
-      statusText: upstream.statusText,
-      headers: upstream.headers,
-    });
-    await relayAiUpstream(maskedUpstream, res);
-    return;
-  }
+    const credentials = [
+      ...urlCredentials(upstreamBase),
+      ...requestCredentials(target, { headers }),
+    ];
+    let upstream: Response;
+    try {
+      upstream = await fetchAiUpstream(
+        target,
+        { method: 'POST', headers, body, signal: disconnect.signal },
+        throttle,
+        logger,
+      );
+    } catch (e) {
+      if (disconnect.isDisconnected() || disconnect.signal.aborted) {
+        return;
+      }
+      const cause = e instanceof Error ? e.message : String(e);
+      // The 502 body quotes the same two strings the terminal block does, so it
+      // gets the same masking: the target carries the page's own query string,
+      // a fetch error routinely echoes the URL back, and it can quote a header.
+      res.writeHead(502, { 'content-type': 'text/plain' });
+      res.end(
+        `pyric dev ai-proxy: upstream ${redactUpstreamText(target, credentials)} unreachable: ${redactUpstreamText(cause, credentials)}\n` +
+          'Set PYRIC_AI_PROXY_UPSTREAM to an OpenAI-compatible base URL ' +
+          `(default ${AI_PROXY_DEFAULT_UPSTREAM}).`,
+      );
+      return;
+    }
 
-  await relayAiUpstream(upstream, res);
+    if (disconnect.isDisconnected()) {
+      await upstream.body?.cancel().catch(() => {});
+      return;
+    }
+
+    if (!upstream.ok) {
+      const rawError = await upstream.text().catch(() => '');
+      if (disconnect.isDisconnected()) return;
+      const redactedError = redactUpstreamError(rawError, credentials);
+      const responseHeaders: Record<string, string> = { 'cache-control': 'no-store' };
+      const contentType = upstream.headers.get('content-type');
+      if (contentType) responseHeaders['content-type'] = contentType;
+      res.writeHead(upstream.status, responseHeaders);
+      res.end(redactedError);
+      return;
+    }
+
+    const contentType = upstream.headers.get('content-type')?.toLowerCase() ?? '';
+    if (contentType.includes('text/event-stream') && upstream.body !== null) {
+      const maskedUpstream = new Response(maskStreamErrors(upstream.body, credentials), {
+        status: upstream.status,
+        statusText: upstream.statusText,
+        headers: upstream.headers,
+      });
+      await relayAiUpstream(maskedUpstream, res);
+      return;
+    }
+    if (contentType.includes('application/json') && upstream.body !== null && credentials.length > 0) {
+      const rawBody = await upstream.text().catch(() => '');
+      if (disconnect.isDisconnected()) return;
+      const maskedBody = redactUpstreamSuccessBody(rawBody, credentials, { maskExactCredentials: false });
+      const maskedUpstream = new Response(maskedBody, {
+        status: upstream.status,
+        statusText: upstream.statusText,
+        headers: upstream.headers,
+      });
+      await relayAiUpstream(maskedUpstream, res);
+      return;
+    }
+
+    await relayAiUpstream(upstream, res);
+  } finally {
+    disconnect.dispose();
+  }
 }
 
 /**
@@ -527,6 +552,10 @@ export async function handleAiProxy(
  * upstream generating.
  */
 export async function relayAiUpstream(upstream: Response, res: ServerResponse): Promise<void> {
+  if (Boolean(res.destroyed) || res.writableEnded) {
+    await upstream.body?.cancel().catch(() => {});
+    return;
+  }
   const responseHeaders: Record<string, string> = { 'cache-control': 'no-store' };
   const contentType = upstream.headers.get('content-type');
   if (contentType) responseHeaders['content-type'] = contentType;
@@ -538,17 +567,28 @@ export async function relayAiUpstream(upstream: Response, res: ServerResponse): 
   (res as ServerResponse & { flushHeaders?: () => void }).flushHeaders?.();
 
   const reader = upstream.body.getReader();
-  res.on('close', () => {
-    void reader.cancel().catch(() => {});
-  });
+  const onClose = (): void => {
+    if (!res.writableEnded) {
+      void reader.cancel().catch(() => {});
+    }
+  };
+  res.on('close', onClose);
   try {
+    if (Boolean(res.destroyed)) {
+      await reader.cancel().catch(() => {});
+      return;
+    }
     for (;;) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done || Boolean(res.destroyed)) break;
       res.write(value);
     }
   } catch {
     // fetchAiUpstream reports interrupted responses; the committed body is truncated.
+  } finally {
+    res.off('close', onClose);
   }
-  res.end();
+  if (!res.writableEnded && !Boolean(res.destroyed)) {
+    res.end();
+  }
 }

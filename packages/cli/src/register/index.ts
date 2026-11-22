@@ -235,12 +235,12 @@ function createResolveFirebase(activatedSandbox: string, activatedAiMode: AiMode
     if (canonical === null) {
       const mapped = mapFirebaseSpecifier(specifier, context.parentURL, mapOptions);
       if (mapped === null) {
-        if (
-          activatedAiMode === 'production' &&
-          specifier === 'firebase/ai' &&
-          isExternalFileImporter(context.parentURL)
-        ) {
-          lastAppImporterUrl = context.parentURL;
+        if (activatedAiMode === 'production' && specifier === 'firebase/ai') {
+          if (isExternalFileImporter(context.parentURL)) {
+            lastAppImporterUrl = context.parentURL;
+          } else if (isEsmImport) {
+            return resolveBypassedFromAppTree(specifier, context, nextResolve, lastAppImporterUrl);
+          }
         }
         return nextResolve(specifier, context);
       }
@@ -270,14 +270,18 @@ function withSwapOrStop(resolve: SyncResolve, activatedAiMode: AiMode): SyncReso
   const report = createStopReporter((line) => void process.stderr.write(line));
   const allowedUrls = new Set<string>();
   return (specifier, context, nextResolve) => {
+    // Capture caller context before resolve(): Node's customization_hooks
+    // mutates context in place when nextResolve receives a replacement parentURL.
+    const importer = context.parentURL;
+    const isEsmImport = isImportCondition(context.conditions);
     const result = resolve(specifier, context, nextResolve);
     const stop = stopFor({
       specifier,
       canonical: canonicalFirebaseSpecifier(specifier),
-      importer: context.parentURL,
+      importer,
       url: result.url,
       aiMode: activatedAiMode,
-      isEsmImport: isImportCondition(context.conditions),
+      isEsmImport,
     }, allowedUrls);
     if (stop === null) return result;
     report(stop);

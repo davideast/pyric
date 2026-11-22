@@ -72,15 +72,19 @@ describe('the stop hook in the Vite dev server process (ADR 0022)', () => {
     expect(load()).toEqual({ url: realFirebaseAi });
   });
 
-  it('lets production AI mode load @firebase/ai from Vite\'s module runner, and what it imports', () => {
-    // Vite inlines the real firebase/ai entry it passes through and imports
-    // that entry's own `@firebase/ai` natively, by file URL from its runner.
+  it('lets production AI mode load firebase/ai from Vite\'s module runner and @firebase/* from firebase/ai, while stopping direct @firebase/ai loads (#1907)', () => {
     const hook = viteProcessStopHook({ getAiMode: () => 'production', write: () => undefined });
     const fromRunner = { parentURL: viteModuleRunner };
-    expect(hook(realAiPackage, fromRunner, landsOn(realAiPackage))).toEqual({ url: realAiPackage });
+    expect(stopOf(() => hook('@firebase/ai', fromRunner, landsOn(realAiPackage))).code).toBe('PYRIC_REAL_SDK_STOPPED');
+    expect(stopOf(() => hook(realAiPackage, fromRunner, landsOn(realAiPackage))).code).toBe('PYRIC_REAL_SDK_STOPPED');
+    expect(hook(realFirebaseAi, fromRunner, landsOn(realFirebaseAi))).toEqual({ url: realFirebaseAi });
+    const fromFirebaseAi = { parentURL: realFirebaseAi };
+    expect(hook('@firebase/ai', fromFirebaseAi, landsOn(realAiPackage))).toEqual({ url: realAiPackage });
     const fromAi = { parentURL: realAiPackage };
     expect(hook('@firebase/app', fromAi, landsOn(realAppPackage))).toEqual({ url: realAppPackage });
     expect(hook('@firebase/component', fromAi, landsOn(realComponentPackage))).toEqual({ url: realComponentPackage });
+    // Even after firebase/ai loaded @firebase/ai, Vite's runner importing @firebase/ai for an SSR app module still stops.
+    expect(stopOf(() => hook('@firebase/ai', fromRunner, landsOn(realAiPackage))).code).toBe('PYRIC_REAL_SDK_STOPPED');
   });
 
   it('still stops the module runner\'s other real SDK loads', () => {

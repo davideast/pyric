@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'bun:test';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, extname, join } from 'node:path';
 import type { ConfigEnv } from 'vite';
 import { defaultSdkEntries } from '../../src/serve/bundler.js';
@@ -277,6 +279,52 @@ describe('Vite page runtime: a Gemini key Vite would serve to the browser (#1632
     withKeys({ VITE_GEMINI_API_KEY: FAKE_KEY }, () => {
       expect(() => startDevServer(undefined, { command: 'serve', mode: 'production', isPreview: true })).not.toThrow();
     });
+  });
+
+  it('loads AI .env files in configResolved from the resolved root, envDir, and mode (#1743)', () => {
+    const rawRoot = mkdtempSync(join(tmpdir(), 'pyric-vite-raw-root-'));
+    const resolvedRoot = mkdtempSync(join(tmpdir(), 'pyric-vite-resolved-root-'));
+    const savedGemini = process.env.GEMINI_API_KEY;
+    const savedViteGemini = process.env.VITE_GEMINI_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.VITE_GEMINI_API_KEY;
+    try {
+      writeFileSync(join(rawRoot, '.env'), 'PYRIC_AI_MODEL=wrong-raw-model\n');
+      mkdirSync(join(resolvedRoot, 'env-files'), { recursive: true });
+      writeFileSync(
+        join(resolvedRoot, 'env-files', '.env.staging'),
+        'PYRIC_AI_MODEL=resolved-staging-model\nVITE_GEMINI_API_KEY=AIzaFAKE-dotenv-1743\n',
+      );
+      const page = runtime();
+      // Raw config points at rawRoot/development, before another plugin's config hook updates root/envDir/mode/envPrefix.
+      page.config({ root: rawRoot }, { command: 'serve', mode: 'development' });
+      expect(page.ai().engineWire).toBeUndefined();
+      page.configResolved({
+        command: 'serve',
+        mode: 'staging',
+        root: resolvedRoot,
+        envDir: 'env-files',
+        envPrefix: 'APP_',
+      });
+      expect(page.ai()).toEqual({
+        mode: 'sandbox',
+        engineWire: {
+          kind: 'openai',
+          baseUrl: '/__pyric/ai-proxy',
+          model: 'resolved-staging-model',
+        },
+        proxyUpstream: undefined,
+      });
+      expect(page.hasIgnoredGeminiKey()).toBe(true);
+      expect(process.env.VITE_GEMINI_API_KEY).toBeUndefined();
+    } finally {
+      if (savedGemini === undefined) delete process.env.GEMINI_API_KEY;
+      else process.env.GEMINI_API_KEY = savedGemini;
+      if (savedViteGemini === undefined) delete process.env.VITE_GEMINI_API_KEY;
+      else process.env.VITE_GEMINI_API_KEY = savedViteGemini;
+      rmSync(rawRoot, { recursive: true, force: true });
+      rmSync(resolvedRoot, { recursive: true, force: true });
+    }
   });
 
   it('leaves a sandbox build alone', () => {

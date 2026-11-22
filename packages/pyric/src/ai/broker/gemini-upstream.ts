@@ -26,7 +26,8 @@ import {
  *  endpoint instead of keeping its own copy. */
 export const GEMINI_DEFAULT_BASE_URL = 'https://generativelanguage.googleapis.com';
 
-const KEY_VARIABLES = ['GEMINI_API_KEY', 'GOOGLE_GENAI_API_KEY'] as const;
+/** The server environment variables the gemini engine reads its API key from, in precedence order. */
+export const GEMINI_SERVER_KEYS = ['GEMINI_API_KEY', 'GOOGLE_GENAI_API_KEY'] as const;
 
 /** A variable from the runtime's environment, or undefined where there is
  *  none: a browser page or SharedWorker has no `process`. */
@@ -38,7 +39,7 @@ function readEnv(name: string): string | undefined {
 /** The explicit key, else the first key variable that is defined. */
 function configuredKey(explicitKey: string | undefined): string | undefined {
   if (explicitKey !== undefined) return explicitKey;
-  for (const name of KEY_VARIABLES) {
+  for (const name of GEMINI_SERVER_KEYS) {
     const value = readEnv(name);
     if (value !== undefined) return value;
   }

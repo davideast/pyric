@@ -79,6 +79,8 @@ export interface ServerRouteInput {
   runsInProcess: boolean;
   /** The environment's name, for the refusal. */
   environmentName: string;
+  /** Whether this server environment is building output rather than running in `vite dev`. */
+  isBuild?: boolean;
 }
 
 /** A routed module id, or null when the specifier keeps its own resolution (the real SDK). */
@@ -87,7 +89,10 @@ export function routeServerImport(input: ServerRouteInput): string | null {
   const runsElsewhere = !input.runsInProcess;
   if (runsElsewhere) return `${OUTSIDE_PREFIX}${input.environmentName}:${bareSpecifier}`;
   const target = mapFirebaseSpecifier(bareSpecifier, input.importer, { sandbox: 'remote', aiMode: input.aiMode });
-  return target === null ? null : `${TARGET_PREFIX}${target}`;
+  if (target !== null) return `${TARGET_PREFIX}${target}`;
+  const routesProductionAiToNode =
+    input.isBuild !== true && input.aiMode === 'production' && bareSpecifier === 'firebase/ai';
+  return routesProductionAiToNode ? `${TARGET_PREFIX}firebase/ai` : null;
 }
 
 function outsideModule(rest: string): string {
@@ -164,7 +169,7 @@ function exportedAs(name: string): string {
 }
 
 /** The shim for a routed target: the target's exports, loaded once per process. */
-export function targetShim(target: string, names: readonly string[]): string {
+function targetShim(target: string, names: readonly string[]): string {
   const bindings = names.map((name, index) => `const __pyric${index} = __pyricTarget[${JSON.stringify(name)}];`);
   const exported = names.map((name, index) => `__pyric${index} as ${exportedAs(name)}`);
   return [

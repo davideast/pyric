@@ -1,4 +1,5 @@
 import type { AIOptions } from 'pyric/ai';
+import { GEMINI_SERVER_KEYS } from 'pyric/ai/internal';
 import path from 'node:path';
 import { loadEnv } from 'vite';
 import type { AiEngineConfigWire } from './worker/protocol.js';
@@ -37,22 +38,33 @@ export function viteWorkerEpochSalt(
   return JSON.stringify({ projectKey, aiEngine: engineWire ?? null, aiMode: mode });
 }
 
-/** Load env using Vite's `envDir`-relative-to-root convention. */
+function copyProcessEnvStrings(): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, val] of Object.entries(process.env)) {
+    if (val !== undefined) {
+      out[key] = val;
+    }
+  }
+  return out;
+}
+
+/** Load env using Vite's `envDir`-relative-to-root convention (`false` disables `.env` files). */
 export function loadViteAiEnv(
   mode: string,
   root: string | undefined,
-  envDir: string | undefined,
+  envDir: string | false | undefined,
 ): Record<string, string> {
+  if (envDir === false) {
+    return copyProcessEnvStrings();
+  }
   const resolvedRoot = path.resolve(root ?? process.cwd());
   const resolvedEnvDir = envDir === undefined
     ? resolvedRoot
     : path.resolve(resolvedRoot, envDir);
   const loaded = loadEnv(mode, resolvedEnvDir, '');
   for (const [key, val] of Object.entries(loaded)) {
-    const isAuthKey =
-      key === 'GEMINI_API_KEY' ||
-      key === 'GOOGLE_GENAI_API_KEY' ||
-      key === 'PYRIC_API_KEY';
+    const isServerGeminiKey = (GEMINI_SERVER_KEYS as readonly string[]).includes(key);
+    const isAuthKey = isServerGeminiKey || key === 'PYRIC_API_KEY';
     if (isAuthKey && process.env[key] === undefined) {
       process.env[key] = val;
     }
@@ -60,10 +72,14 @@ export function loadViteAiEnv(
   return loaded;
 }
 
-/** The names the gemini engine reads its key from, in the order it reads them. */
-const GEMINI_SERVER_KEYS = ['GEMINI_API_KEY', 'GOOGLE_GENAI_API_KEY'] as const;
 /** The Gemini key name Vite serves to the browser under its default `envPrefix`. */
 const BROWSER_SERVED_GEMINI_KEY = 'VITE_GEMINI_API_KEY';
+
+/** Whether `env` carries a non-blank `VITE_GEMINI_API_KEY` (never returns the value). */
+export function hasIgnoredBrowserGeminiKey(env: Record<string, string | undefined>): boolean {
+  const value = env[BROWSER_SERVED_GEMINI_KEY];
+  return value !== undefined && value.trim() !== '';
+}
 /** Vite's `envPrefix` when the app sets none. */
 const DEFAULT_ENV_PREFIX = 'VITE_';
 
