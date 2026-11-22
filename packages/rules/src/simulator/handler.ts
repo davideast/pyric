@@ -170,8 +170,6 @@ export class SimulateFirestoreRulesHandler {
     let failed = 0;
     let unsupported = 0;
 
-    const rootBindings: Record<string, string> = { database: '(default)' };
-
     const publicCases = opts?.publicCases === true;
     const revive: CaseReviver = publicCases ? reviveCaseLiterals : reviveFirestoreNumbers;
     for (const tc of testCases) {
@@ -336,11 +334,10 @@ export class SimulateFirestoreRulesHandler {
           (message, position) => new ExpressionLimitError(message, position),
         );
         for (const match of matches) {
-          const pathVars = { ...rootBindings, ...match.pathVariables };
           const ctx = buildContext(
             evalTc,
             match.functions,
-            pathVars,
+            match.pathVariables,
             opts?.getDoc,
             opts?.batchProjection,
             lookupBudget,
@@ -348,7 +345,6 @@ export class SimulateFirestoreRulesHandler {
             revive,
             match.recursiveVariables,
             match.functionScopes,
-            rootBindings,
           );
 
           const blockPath = renderMatchBlockPath(match.block);

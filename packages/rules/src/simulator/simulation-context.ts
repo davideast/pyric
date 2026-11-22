@@ -105,7 +105,6 @@ export function buildContext(
   revive: CaseReviver = reviveFirestoreNumbers,
   recursiveVariables?: readonly string[],
   functionScopes?: ReadonlyMap<FunctionDef, FunctionScopeBindings>,
-  rootBindings?: Readonly<Record<string, string>>,
 ): SimulationContext {
   const fnMap = new Map<string, FunctionDef>();
   for (const fn of functions) fnMap.set(fn.name, fn);
@@ -234,11 +233,7 @@ export function buildContext(
   if (functionScopes && functionScopes.size > 0) {
     functionPathVariables = new Map();
     for (const [fn, fnScope] of functionScopes) {
-      let mergedVars = fnScope.pathVariables;
-      if (rootBindings) {
-        mergedVars = { ...rootBindings, ...fnScope.pathVariables };
-      }
-      functionPathVariables.set(fn, bindPathVariables(mergedVars, fnScope.recursiveVariables));
+      functionPathVariables.set(fn, bindPathVariables(fnScope.pathVariables, fnScope.recursiveVariables));
     }
   }
 

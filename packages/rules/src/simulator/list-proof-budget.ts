@@ -395,10 +395,10 @@ export function projectWorstCaseBudgetExpr(
         const token = budgetTokenForExpr(singleArg);
         const syntheticPath: Expression = {
           type: 'pathLiteral',
-          raw: `/databases/$(database)/documents/__pyric_budget_ref__/${token}`,
+          raw: `/databases/(default)/documents/__pyric_budget_ref__/${token}`,
           segments: [
             'databases',
-            { type: 'identifier', name: 'database' },
+            '(default)',
             'documents',
             '__pyric_budget_ref__',
             token,

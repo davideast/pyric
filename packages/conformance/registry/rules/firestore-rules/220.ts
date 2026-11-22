@@ -13,6 +13,7 @@ export default row({
   conformanceTests: [
     "packages/pyric/test/rules/oracle-conformance.test.ts",
     "packages/pyric/test/rules/simulator/root-own-allow.test.ts",
+    "packages/rules/test/simulator/root-recursive-own-allow.test.ts",
   ],
   constructs: ["firestore.rule-kind.match"],
 });

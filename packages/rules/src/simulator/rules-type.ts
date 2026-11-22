@@ -38,7 +38,7 @@ export function isRulesMap(value: unknown): value is Record<string, unknown> {
 export function describeRulesType(value: unknown): string {
   if (value === null) return 'null';
   if (value === undefined) return 'undefined';
-  if (value instanceof RulesValue) return value.typeName;
+  if (value instanceof RulesValue) return value.typeName === 'reference' ? 'path' : value.typeName;
   if (value instanceof FirestoreSet) return 'set';
   if (value instanceof MapDiff) return 'map_diff';
   if (typeof value === 'bigint') return 'int';
