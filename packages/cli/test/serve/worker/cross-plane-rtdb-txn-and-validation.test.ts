@@ -105,20 +105,23 @@ describe('Cross-plane RTDB transactions and update/onDisconnect validation', () 
       await served.set(servedRef, { count: 10 });
       sentFrames.length = 0;
 
-      await expect(ip.runTransaction(ipRef, () => NaN as unknown as object)).rejects.toThrow(
-        "transaction failed: Data returned contains NaN in property 'items.item-1'",
-      );
-      await expect(served.runTransaction(servedRef, () => NaN as unknown as object)).rejects.toThrow(
-        "transaction failed: Data returned contains NaN in property 'items.item-1'",
-      );
+      expect(
+        syncThrownMessage(() => ip.runTransaction(ipRef, () => NaN as unknown as object)),
+      ).toBe("transaction failed: Data returned contains NaN in property 'items.item-1'");
+      expect(
+        syncThrownMessage(() => served.runTransaction(servedRef, () => NaN as unknown as object)),
+      ).toBe("transaction failed: Data returned contains NaN in property 'items.item-1'");
+      expect(
+        syncThrownMessage(() => served.runTransaction(served.ref(servedDb, 'items/cold-1'), () => NaN as unknown as object)),
+      ).toBe("transaction failed: Data returned contains NaN in property 'items.cold-1'");
 
       const badFn = () => 1;
-      await expect(ip.runTransaction(ipRef, () => ({ fn: badFn }) as unknown as object)).rejects.toThrow(
-        "transaction failed: Data returned contains a function in property 'items.item-1.fn'",
-      );
-      await expect(served.runTransaction(servedRef, () => ({ fn: badFn }) as unknown as object)).rejects.toThrow(
-        "transaction failed: Data returned contains a function in property 'items.item-1.fn'",
-      );
+      expect(
+        syncThrownMessage(() => ip.runTransaction(ipRef, () => ({ fn: badFn }) as unknown as object)),
+      ).toBe("transaction failed: Data returned contains a function in property 'items.item-1.fn' with contents = () => 1");
+      expect(
+        syncThrownMessage(() => served.runTransaction(servedRef, () => ({ fn: badFn }) as unknown as object)),
+      ).toBe("transaction failed: Data returned contains a function in property 'items.item-1.fn' with contents = () => 1");
 
       expect(sentFrames.some((f) => f.t === 'op' && f.method === 'rtdb.transactionCommit')).toBe(false);
       expect((await ip.get(ipRef)).val()).toEqual({ count: 10 });

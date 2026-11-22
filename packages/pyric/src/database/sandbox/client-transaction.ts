@@ -1,11 +1,12 @@
 import type { AuthState, RtdbDenialContext } from 'pyric/sandbox';
+import { renderSnapshotVal } from '../snapshots.js';
 import type { BackendState } from './backend-state.js';
 import type { ChildListeners } from './child-listeners.js';
-import { cloneJson, joinPath, pathSegments, type JsonValue } from './data-tree.js';
+import { joinPath, pathSegments, type JsonValue } from './data-tree.js';
 import {
-  coerceArrays,
   normalizeWrite,
   TRANSACTION_ERROR_PREFIX,
+  validateTransactionCandidate,
   withPriorities,
   writePriority,
 } from './normalize.js';
@@ -87,6 +88,7 @@ function validateProposedCandidate(
   segments: readonly string[],
   proposed: JsonValue,
 ): void {
+  validateTransactionCandidate(proposed, path);
   const now = state.clock.now();
   const resolvedInput = resolveSentinels(proposed, now, null);
   let normPath = path;
@@ -138,6 +140,38 @@ function runUpdateWithHooks(
     return hooks.runUpdate(() => updateFn(input));
   }
   return updateFn(input);
+}
+
+function readWarmTransactionInput(
+  state: BackendState,
+  pendingWrites: PendingClientWrites,
+  auth: AuthState,
+  path: string,
+  isAdmin: boolean,
+): { visible: JsonValue; input: JsonValue } {
+  const snapshot = pendingWrites.readCommitted(() => {
+    const cur = state.tree.read(path);
+    const canRead = isAdmin || canReadAtPath(state, auth, path);
+    let prio: PriorityRecord = {};
+    if (canRead && cur !== null) {
+      prio = state.priorities.atOrBelow(path);
+    }
+    return { cur, canRead, prio };
+  });
+  let visible: JsonValue = null;
+  if (snapshot.canRead) {
+    visible = snapshot.cur;
+  }
+  let input: JsonValue = null;
+  if (visible !== null) {
+    input = renderSnapshotVal(path, visible, (p) => {
+      const canonical = joinPath(pathSegments(p));
+      if (!Object.hasOwn(snapshot.prio, canonical)) return null;
+      const stored = snapshot.prio[canonical];
+      return stored === undefined ? null : stored;
+    });
+  }
+  return { visible, input };
 }
 
 function abortTransactionOutcome(
@@ -328,110 +362,29 @@ function commitTransactionCandidate(
   );
 }
 
-export async function runClientTransactionAsync(
+async function continueWarmTransactionLoop(
   deps: AsyncClientTransactionDeps,
+  withProvenance: <T>(fn: () => T) => T,
   auth: AuthState,
   path: string,
+  segments: readonly string[],
+  key: string | null,
   updateFn: (current: JsonValue) => JsonValue | undefined,
-  options?: AsyncClientTransactionOptions,
+  applyLocally: boolean,
+  isAdmin: boolean,
+  hooks: ClientTransactionHooks | undefined,
+  startAttempt: number,
 ): Promise<ClientTransactionOutcome> {
   const { state, pendingWrites } = deps;
-  const withProvenance = state.events.captureProvenanceWindow();
-  const applyLocally = options?.applyLocally !== false;
-  const isAdmin = options?.admin === true;
-  const hooks = options?.hooks;
-  const segments = pathSegments(path);
-  let key: string | null = null;
-  if (segments.length > 0) {
-    const lastSeg = segments[segments.length - 1];
-    if (lastSeg !== undefined) {
-      key = lastSeg;
-    }
-  }
-
-  let startAttempt = 1;
-  if (options?.cold === true && !isAdmin && hooks !== undefined) {
-    startAttempt = 2;
-    const version0 = state.mutations.begin();
-    let proposed0: JsonValue | undefined;
-    let syncConflicted0 = false;
-    try {
-      proposed0 = runUpdateWithHooks(hooks, updateFn, null);
-      if (proposed0 !== undefined) {
-        validateProposedCandidate(state, path, segments, proposed0);
-      }
-      syncConflicted0 = state.mutations.conflictsSince(version0, path);
-    } catch (err) {
-      state.mutations.release(version0);
-      throw err;
-    }
-
-    if (proposed0 === undefined) {
-      state.mutations.release(version0);
-      return abortTransactionOutcome(deps, withProvenance, auth, path, key, null, false);
-    }
-
-    if (syncConflicted0) {
-      state.mutations.release(version0);
-      hooks.onWarm();
-    } else {
-      const sent = hooks.onSent();
-      let conflictedOnWire0 = false;
-      let callerVisibleNonNull = false;
-      try {
-        await Promise.resolve();
-        conflictedOnWire0 = state.mutations.conflictsSince(version0, path);
-        callerVisibleNonNull = pendingWrites.readCommitted(
-          () => state.tree.read(path) !== null && canReadAtPath(state, auth, path),
-        );
-      } finally {
-        sent.release();
-        state.mutations.release(version0);
-      }
-
-      if (!conflictedOnWire0 && !callerVisibleNonNull) {
-        hooks.onWarm();
-        return commitTransactionCandidate(
-          deps,
-          withProvenance,
-          auth,
-          path,
-          segments,
-          key,
-          proposed0,
-          applyLocally,
-          false,
-        );
-      }
-
-      if (sent.isAbortedBySet()) {
-        throw new Error('set');
-      }
-      hooks.onWarm();
-    }
-  }
-
   for (let attempts = startAttempt; attempts <= 25; attempts += 1) {
     const version = state.mutations.begin();
     let visible: JsonValue = null;
     let proposed: JsonValue | undefined;
     let syncConflicted = false;
     try {
-      const snapshot = pendingWrites.readCommitted(() => {
-        const cur = state.tree.read(path);
-        const canRead = isAdmin || canReadAtPath(state, auth, path);
-        return { cur, canRead };
-      });
-      if (snapshot.canRead) {
-        visible = snapshot.cur;
-      } else {
-        visible = null;
-      }
-      let input: JsonValue = null;
-      if (visible !== null) {
-        input = coerceArrays(cloneJson(visible)) as JsonValue;
-      }
-      proposed = runUpdateWithHooks(hooks, updateFn, input);
+      const readResult = readWarmTransactionInput(state, pendingWrites, auth, path, isAdmin);
+      visible = readResult.visible;
+      proposed = runUpdateWithHooks(hooks, updateFn, readResult.input);
       if (proposed !== undefined) {
         validateProposedCandidate(state, path, segments, proposed);
       }
@@ -478,4 +431,141 @@ export async function runClientTransactionAsync(
   }
 
   throw new Error('maxretry');
+}
+
+export function runClientTransactionAsync(
+  deps: AsyncClientTransactionDeps,
+  auth: AuthState,
+  path: string,
+  updateFn: (current: JsonValue) => JsonValue | undefined,
+  options?: AsyncClientTransactionOptions,
+): Promise<ClientTransactionOutcome> {
+  const { state, pendingWrites } = deps;
+  const withProvenance = state.events.captureProvenanceWindow();
+  const applyLocally = options?.applyLocally !== false;
+  const isAdmin = options?.admin === true;
+  const hooks = options?.hooks;
+  const segments = pathSegments(path);
+  let key: string | null = null;
+  if (segments.length > 0) {
+    const lastSeg = segments[segments.length - 1];
+    if (lastSeg !== undefined) {
+      key = lastSeg;
+    }
+  }
+
+  if (options?.cold === true && !isAdmin && hooks !== undefined) {
+    const version0 = state.mutations.begin();
+    let proposed0: JsonValue | undefined;
+    let syncConflicted0 = false;
+    try {
+      proposed0 = runUpdateWithHooks(hooks, updateFn, null);
+      if (proposed0 !== undefined) {
+        validateProposedCandidate(state, path, segments, proposed0);
+      }
+      syncConflicted0 = state.mutations.conflictsSince(version0, path);
+    } catch (err) {
+      state.mutations.release(version0);
+      throw err;
+    }
+
+    if (proposed0 === undefined) {
+      state.mutations.release(version0);
+      return Promise.resolve().then(() =>
+        abortTransactionOutcome(deps, withProvenance, auth, path, key, null, false),
+      );
+    }
+
+    if (syncConflicted0) {
+      state.mutations.release(version0);
+      hooks.onWarm();
+      return continueWarmTransactionLoop(
+        deps, withProvenance, auth, path, segments, key, updateFn, applyLocally, false, hooks, 2,
+      );
+    }
+
+    const candidate0 = proposed0;
+    const sent = hooks.onSent();
+    return (async (): Promise<ClientTransactionOutcome> => {
+      let conflictedOnWire0 = false;
+      let callerVisibleNonNull = false;
+      try {
+        await Promise.resolve();
+        conflictedOnWire0 = state.mutations.conflictsSince(version0, path);
+        callerVisibleNonNull = pendingWrites.readCommitted(
+          () => state.tree.read(path) !== null && canReadAtPath(state, auth, path),
+        );
+      } finally {
+        sent.release();
+        state.mutations.release(version0);
+      }
+
+      if (!conflictedOnWire0 && !callerVisibleNonNull) {
+        hooks.onWarm();
+        return commitTransactionCandidate(
+          deps, withProvenance, auth, path, segments, key, candidate0, applyLocally, false,
+        );
+      }
+
+      if (sent.isAbortedBySet()) {
+        throw new Error('set');
+      }
+      hooks.onWarm();
+      return continueWarmTransactionLoop(
+        deps, withProvenance, auth, path, segments, key, updateFn, applyLocally, false, hooks, 2,
+      );
+    })();
+  }
+
+  const version1 = state.mutations.begin();
+  let visible1: JsonValue = null;
+  let proposed1: JsonValue | undefined;
+  let syncConflicted1 = false;
+  try {
+    const readResult1 = readWarmTransactionInput(state, pendingWrites, auth, path, isAdmin);
+    visible1 = readResult1.visible;
+    proposed1 = runUpdateWithHooks(hooks, updateFn, readResult1.input);
+    if (proposed1 !== undefined) {
+      validateProposedCandidate(state, path, segments, proposed1);
+    }
+    syncConflicted1 = state.mutations.conflictsSince(version1, path);
+  } catch (err) {
+    state.mutations.release(version1);
+    throw err;
+  }
+
+  if (proposed1 === undefined) {
+    state.mutations.release(version1);
+    hooks?.onWarm();
+    return Promise.resolve().then(() =>
+      abortTransactionOutcome(deps, withProvenance, auth, path, key, visible1, isAdmin),
+    );
+  }
+
+  if (syncConflicted1) {
+    state.mutations.release(version1);
+    return continueWarmTransactionLoop(
+      deps, withProvenance, auth, path, segments, key, updateFn, applyLocally, isAdmin, hooks, 2,
+    );
+  }
+
+  const candidate1 = proposed1;
+  return (async (): Promise<ClientTransactionOutcome> => {
+    let conflictedOnWire1 = false;
+    try {
+      await Promise.resolve();
+      conflictedOnWire1 = state.mutations.conflictsSince(version1, path);
+    } finally {
+      state.mutations.release(version1);
+    }
+    if (conflictedOnWire1) {
+      return continueWarmTransactionLoop(
+        deps, withProvenance, auth, path, segments, key, updateFn, applyLocally, isAdmin, hooks, 2,
+      );
+    }
+    hooks?.onWarm();
+    return commitTransactionCandidate(
+      deps, withProvenance, auth, path, segments, key, candidate1, applyLocally, isAdmin,
+    );
+  })();
 }

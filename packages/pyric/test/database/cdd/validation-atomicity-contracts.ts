@@ -8,7 +8,14 @@ function setup() {
 }
 
 export async function assertM68WriteValidationMatrix(): Promise<void> {
-  const invalidValues = [undefined, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY];
+  const invalidValues: unknown[] = [
+    undefined,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    Number.NEGATIVE_INFINITY,
+    { '.sv': 'bogus' },
+    { '.sv': { increment: 'not-a-number' } },
+  ];
   const invalidKeys = ['bad.key', 'bad#key', 'bad$key', 'bad/key', 'bad[key', 'bad]key', 'bad\u0000key'];
   const operations = (value: unknown) => {
     const db = setup();
@@ -17,22 +24,17 @@ export async function assertM68WriteValidationMatrix(): Promise<void> {
       () => api.set(target, value),
       () => api.update(target, { child: value }),
     ];
-    const asynchronous: Array<() => Promise<unknown>> = [];
     if (value !== undefined) {
       synchronous.push(() => api.push(target, value));
-      asynchronous.push(() => api.runTransaction(target, () => value));
+      synchronous.push(() => api.runTransaction(target, () => value));
     }
-    return { synchronous, asynchronous };
+    return synchronous;
   };
   for (const value of invalidValues) {
-    const matrix = operations(value);
-    for (const operation of matrix.synchronous) expect(operation).toThrow(Error);
-    for (const operation of matrix.asynchronous) await expect(operation()).rejects.toBeInstanceOf(Error);
+    for (const operation of operations(value)) expect(operation).toThrow(Error);
   }
   for (const key of invalidKeys) {
-    const matrix = operations({ [key]: 1 });
-    for (const operation of matrix.synchronous) expect(operation).toThrow(Error);
-    for (const operation of matrix.asynchronous) await expect(operation()).rejects.toBeInstanceOf(Error);
+    for (const operation of operations({ [key]: 1 })) expect(operation).toThrow(Error);
   }
 }
 

@@ -12,6 +12,9 @@ const MAX_LEAF_BYTES = 10 * 1024 * 1024;
 const MAX_PATH_BYTES = 768;
 const MAX_PATH_DEPTH = 32;
 const PRIORITY_RULE = 'must be a valid Firebase priority (a string, finite number, server value, or null).';
+const ASSERT_FAILED_PREFIX = 'Firebase Database (${JSCORE_VERSION}) INTERNAL ASSERT FAILED: ';
+const INVALID_TRANSACTION_PRIORITY_ERROR =
+  `${ASSERT_FAILED_PREFIX}Invalid priority returned by transaction. Priority must be a valid string, finite number, server value, or null.`;
 
 /** Where in the written value a check is looking, as the SDK's `ValidationPath` tracks it. */
 interface ValidationPath {
@@ -56,12 +59,66 @@ function isValidKey(key: string): boolean {
  */
 function isServerValue(value: unknown): boolean {
   const isObject = typeof value === 'object' && value !== null;
-  return isObject && (Object.hasOwn(value, '.sv') || Object.hasOwn(value, '__rtdbSentinel'));
+  if (!isObject) return false;
+  if (Object.hasOwn(value, '.sv')) return true;
+  if (Object.hasOwn(value, '__rtdbSentinel')) {
+    return (value as { __rtdbSentinel?: unknown }).__rtdbSentinel === 'serverTimestamp';
+  }
+  return false;
 }
 
 function isValidPriority(priority: unknown): boolean {
   const isFiniteNumber = typeof priority === 'number' && Number.isFinite(priority);
   return priority === null || typeof priority === 'string' || isFiniteNumber || isServerValue(priority);
+}
+
+function assertValidServerValueEntry(container: Record<string, unknown>): void {
+  const op = container['.sv'];
+  if (typeof op === 'string') {
+    if (op !== 'timestamp') {
+      throw new Error(`${ASSERT_FAILED_PREFIX}Unexpected server value: ${op}`);
+    }
+    return;
+  }
+  if (typeof op === 'object') {
+    if (op === null) {
+      (op as unknown as { hasOwnProperty: (key: string) => boolean }).hasOwnProperty('increment');
+      return;
+    }
+    if (!Object.prototype.hasOwnProperty.call(op, 'increment')) {
+      throw new Error(`${ASSERT_FAILED_PREFIX}Unexpected server value: ${JSON.stringify(op, null, 2)}`);
+    }
+    const delta = (op as Record<string, unknown>).increment;
+    if (typeof delta !== 'number') {
+      throw new Error(`${ASSERT_FAILED_PREFIX}Unexpected increment value: ${String(delta)}`);
+    }
+    return;
+  }
+  throw new Error(`${ASSERT_FAILED_PREFIX}Unexpected server value: ${JSON.stringify(container, null, 2)}`);
+}
+
+function assertValidServerValues(value: unknown): void {
+  if (value === null || typeof value !== 'object') return;
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i += 1) {
+      if (i in value) assertValidServerValues(value[i]);
+    }
+    return;
+  }
+  const record = value as Record<string, unknown>;
+  if (Object.hasOwn(record, '__rtdbSentinel')) {
+    if (record.__rtdbSentinel !== 'serverTimestamp') {
+      throw new Error(`${ASSERT_FAILED_PREFIX}Unexpected server value: ${String(record.__rtdbSentinel)}`);
+    }
+    return;
+  }
+  if (Object.hasOwn(record, '.sv')) {
+    assertValidServerValueEntry(record);
+  }
+  for (const [key, child] of Object.entries(record)) {
+    if (key === '.sv') continue;
+    assertValidServerValues(child);
+  }
 }
 
 function describePath(path: ValidationPath): string {
@@ -153,11 +210,46 @@ function checkData(data: unknown, path: ValidationPath): void {
   if (isContainer) checkChildren(data, path);
 }
 
+function assertValidInlinePriorities(value: unknown, skipRoot = false): void {
+  if (value === null || typeof value !== 'object') return;
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i += 1) {
+      if (i in value) assertValidInlinePriorities(value[i], false);
+    }
+    return;
+  }
+  const record = value as Record<string, unknown>;
+  if (!skipRoot && Object.hasOwn(record, '.priority')) {
+    const prio = record['.priority'];
+    if (!isValidPriority(prio)) {
+      throw new Error(`${ASSERT_FAILED_PREFIX}Invalid priority type found: ${typeof prio}`);
+    }
+  }
+  for (const [key, child] of Object.entries(record)) {
+    if (key === '.priority' || key === '.sv' || key === '__rtdbSentinel') continue;
+    assertValidInlinePriorities(child, false);
+  }
+}
+
+interface RtdbValidationOptions {
+  readonly checkServerValues?: boolean;
+}
+
 /** `validateFirebaseDataArg`: `fnName` writes `value` at `path`; `optional` lets `undefined` through. */
-export function validateRtdbValue(fnName: string, value: unknown, path: string, optional = false): void {
+export function validateRtdbValue(
+  fnName: string,
+  value: unknown,
+  path: string,
+  optional = false,
+  options?: RtdbValidationOptions,
+): void {
   const isOmitted = optional && value === undefined;
   if (isOmitted) return;
   checkData(value, startPath(argumentPrefix(fnName, 'value'), pathSegments(path)));
+  assertValidInlinePriorities(value, false);
+  if (options?.checkServerValues !== false) {
+    assertValidServerValues(value);
+  }
 }
 
 const TRANSACTION_ERROR_PREFIX = 'transaction failed: Data returned ';
@@ -165,14 +257,34 @@ const TRANSACTION_ERROR_PREFIX = 'transaction failed: Data returned ';
 /** `validateFirebaseData` for the return value of `runTransaction`'s update callback. */
 export function validateRtdbTransactionValue(value: unknown, path: string): void {
   checkData(value, startPath(TRANSACTION_ERROR_PREFIX, pathSegments(path)));
+  if (
+    typeof value === 'object'
+    && value !== null
+    && !Array.isArray(value)
+    && Object.hasOwn(value, '.priority')
+  ) {
+    const ownPrio = (value as Record<string, unknown>)['.priority'];
+    if (!isValidPriority(ownPrio)) {
+      throw new Error(INVALID_TRANSACTION_PRIORITY_ERROR);
+    }
+  }
+  assertValidInlinePriorities(value, true);
+  assertValidServerValues(value);
 }
 
 /** `validatePriority`: a string, finite number, server value or null. */
-export function validateRtdbPriority(fnName: string, priority: unknown): void {
+export function validateRtdbPriority(
+  fnName: string,
+  priority: unknown,
+  options?: RtdbValidationOptions,
+): void {
   const prefix = argumentPrefix(fnName, 'priority');
   if (isInvalidJsonNumber(priority)) throw new Error(`${prefix}is ${String(priority)}, but ${PRIORITY_RULE}`);
   const isInvalid = !isValidPriority(priority);
   if (isInvalid) throw new Error(`${prefix}${PRIORITY_RULE}`);
+  if (options?.checkServerValues !== false) {
+    assertValidServerValues(priority);
+  }
 }
 
 /** The SDK's refusal of an update map that is not a plain object. */
@@ -189,7 +301,12 @@ function isUpdateMap(values: unknown): values is Record<string, unknown> {
  * object, each value is writable at its own path, and a `.priority` entry is
  * a valid priority. The key paths themselves are `validateUpdatePaths`'s.
  */
-export function validateRtdbUpdateValues(fnName: string, values: unknown, path: string): asserts values is Record<string, unknown> {
+export function validateRtdbUpdateValues(
+  fnName: string,
+  values: unknown,
+  path: string,
+  options?: RtdbValidationOptions,
+): asserts values is Record<string, unknown> {
   const isNotAMap = !isUpdateMap(values);
   if (isNotAMap) throw updateValuesShapeError(fnName);
   const prefix = argumentPrefix(fnName, 'values');
@@ -200,6 +317,16 @@ export function validateRtdbUpdateValues(fnName: string, values: unknown, path: 
     const isInvalidPriority = setsPriority && !isValidPriority(value);
     if (isInvalidPriority) {
       throw new Error(`${prefix}contains an invalid value for '/${keySegments.join('/')}', which ${PRIORITY_RULE}`);
+    }
+  }
+  for (const [key, value] of Object.entries(values)) {
+    const keySegments = pathSegments(key);
+    if (keySegments.at(-1) === '.priority') continue;
+    assertValidInlinePriorities(value, false);
+  }
+  if (options?.checkServerValues !== false) {
+    for (const value of Object.values(values)) {
+      assertValidServerValues(value);
     }
   }
 }

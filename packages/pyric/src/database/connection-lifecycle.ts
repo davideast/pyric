@@ -3,6 +3,7 @@ import { ref } from './references.js';
 import { authFor, isAdminFor, targetOf } from './routing.js';
 import type { RtdbBackend } from './sandbox/backend.js';
 import type { JsonValue } from './sandbox/data-tree.js';
+import { errorPrefix, validatePriorityArg, validateUpdate, validateWrite } from './sandbox/normalize.js';
 import { DisconnectOperationQueue, type DisconnectOperation } from './disconnect-operation-queue.js';
 import type { Database } from './types.js';
 
@@ -103,6 +104,20 @@ export class RtdbConnectionLifecycle {
   register(operation: DisconnectOperation): Promise<void> {
     this.synchronizeReset();
     try {
+      if (operation.kind === 'update') {
+        validateUpdate(operation.values, operation.path, 'OnDisconnect.update', {
+          checkServerValues: true,
+        });
+      } else if (operation.kind === 'set') {
+        validateWrite(operation.value, operation.path, errorPrefix('OnDisconnect.set', 'value'), {
+          checkServerValues: true,
+        });
+        if (operation.priority !== undefined) {
+          validatePriorityArg('OnDisconnect.setWithPriority', operation.priority, {
+            checkServerValues: true,
+          });
+        }
+      }
       const requiresRules = !this.isAdmin();
       if (requiresRules) {
         // Decided when registered, as production decides it, and recorded as

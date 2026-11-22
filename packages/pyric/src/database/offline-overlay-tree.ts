@@ -249,9 +249,11 @@ export function computeOverlayValueSnapshot(
     const result = evaluateQueryRead(raw, spec, (childKey) =>
       priorityAt(state, target, joinPath([...pathSegments(path), childKey])),
     );
-    return { val: result.val, exists: result.val !== null, key, rows: result.rows };
+    const priorities = priorityRecordBelow(state, target, path, result.val);
+    return { val: result.val, exists: result.val !== null, key, rows: result.rows, priorities };
   }
-  return { val: raw, exists: raw !== null, key };
+  const priorities = priorityRecordBelow(state, target, path, raw);
+  return { val: raw, exists: raw !== null, key, priorities };
 }
 
 export function computeOverlayChildRows(

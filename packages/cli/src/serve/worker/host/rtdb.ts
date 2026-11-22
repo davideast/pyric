@@ -1,11 +1,11 @@
 import { sdkActivity } from 'pyric/sandbox/internal';
 /**
- * SharedWorker host — RTDB modular ops (playground shared-runtime bridge).
+ * SharedWorker host -- RTDB modular ops (playground shared-runtime bridge).
  *
  * `rtdb.get/set/update/remove/push` run against the op's lens-resolved Database
  * handle (impersonation / admin / anon / port-session, via `lensRtdb`);
  * `rtdb.adminSnapshot` reads the whole tree through the rules-bypass admin
- * handle. Owns the RTDB server-sentinel reconstruction and the snapshot→wire
+ * handle. Owns the RTDB server-sentinel reconstruction and the snapshot->wire
  * shaping (`rtdbSnapToWire`, also used by the value-subscription handler).
  *
  * Routed here by the host dispatcher. Never imports the dispatcher.
@@ -291,7 +291,7 @@ export async function drainPortRtdbDisconnects(ctx: HostCtx, port: PortLike, ins
           kind: 'set',
           path: operation.path,
           value: resolveRtdbSentinels(operation.value),
-          priority: operation.priority,
+          priority: resolveRtdbSentinels(operation.priority) as typeof operation.priority,
         };
       } else {
         resolved = {
@@ -375,7 +375,8 @@ export async function handleRtdbOp(
     case 'rtdb.setPriority': {
       try {
         const db = lensRtdb(ctx, msg.actAs, port, msg.instance);
-        await rtdbSetPriority(rtdbRef(db, msg.path), msg.priority);
+        const priority = resolveRtdbSentinels(msg.priority) as typeof msg.priority;
+        await rtdbSetPriority(rtdbRef(db, msg.path), priority);
         await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
@@ -385,10 +386,11 @@ export async function handleRtdbOp(
     case 'rtdb.setWithPriority': {
       try {
         const db = lensRtdb(ctx, msg.actAs, port, msg.instance);
+        const priority = resolveRtdbSentinels(msg.priority) as typeof msg.priority;
         await rtdbSetWithPriority(
           rtdbRef(db, msg.path),
           resolveRtdbSentinels(msg.value) as never,
-          msg.priority,
+          priority,
         );
         await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, null);
@@ -450,8 +452,12 @@ export async function handleRtdbOp(
 
     case 'rtdb.onDisconnectSet': {
       try {
+        let priority = msg.priority;
+        if (priority !== undefined) {
+          priority = resolveRtdbSentinels(priority) as typeof msg.priority;
+        }
         await queueDisconnectOperation(ctx, port, {
-          kind: 'set', path: msg.path, value: resolveRtdbSentinels(msg.value), priority: msg.priority, actAs: msg.actAs, instance: msg.instance, connectionId: msg.connectionId,
+          kind: 'set', path: msg.path, value: resolveRtdbSentinels(msg.value), priority, actAs: msg.actAs, instance: msg.instance, connectionId: msg.connectionId,
         });
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
@@ -483,11 +489,11 @@ export async function handleRtdbOp(
         const scopeKey = portConnectionScopeKey(ctx, msg.instance, msg.connectionId);
         const queues = disconnectQueues.get(ctx)?.get(port);
         const existingQueue = queues?.get(scopeKey);
-        if (existingQueue !== undefined) {
+        if (queues !== undefined && existingQueue !== undefined) {
           existingQueue.cancel(msg.path);
           if (existingQueue.isEmpty) {
-            queues!.delete(scopeKey);
-            if (queues!.size === 0) {
+            queues.delete(scopeKey);
+            if (queues.size === 0) {
               disconnectQueues.get(ctx)?.delete(port);
               syncRtdbPortLease(ctx, port, false);
             }

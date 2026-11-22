@@ -8,7 +8,7 @@ import type { DataSnapshot, DatabaseReference } from './types.js';
 import { buildSandboxSnapFromRaw } from './snapshots.js';
 import { validateWritablePath } from './writable-path.js';
 
-// ─── Transactions (Tier 4) ───────────────────────────────────────────
+// --- Transactions (Tier 4) ---
 
 /**
  * Result of {@link runTransaction}. Matches `firebase/database`'s
@@ -16,9 +16,9 @@ import { validateWritablePath } from './writable-path.js';
  * idiomatically.
  *
  * `committed === false` when the update fn aborted by returning
- * `undefined`. The snapshot still resolves — it reflects the **pre-
+ * `undefined`. The snapshot still resolves -- it reflects the **pre-
  * transaction** value (oracle:
- * `rtdb-modular-runtransaction-abort-undefined.json` →
+ * `rtdb-modular-runtransaction-abort-undefined.json` ->
  * `afterValOnServer: 100` preserved).
  *
  * On rule denial the promise rejects with a plain `Error` whose
@@ -46,7 +46,7 @@ export interface TransactionOptions {
 }
 
 /**
- * `runTransaction(ref, transactionUpdate, options?)` — atomic
+ * `runTransaction(ref, transactionUpdate, options?)` -- atomic
  * read-modify-write.
  *
  * Contract (oracle-locked):
@@ -54,18 +54,18 @@ export interface TransactionOptions {
  *   1. `transactionUpdate` is called with the caller-visible value at
  *      `ref`'s path (`null` for an absent path or when `.read` rules
  *      deny the caller, NOT `undefined`); oracle:
- *      `rtdb-modular-runtransaction-current-value-arg.json` →
+ *      `rtdb-modular-runtransaction-current-value-arg.json` ->
  *      `missingFirstWasNull: true`.
  *   2. Returning `undefined` from the update fn ABORTS the transaction:
  *      resolves `{ committed: false, snapshot }` where the snapshot is
  *      the caller-visible pre-transaction value (`null` when `.read` is
  *      denied); oracle:
- *      `rtdb-modular-runtransaction-abort-undefined.json` → `committed:
+ *      `rtdb-modular-runtransaction-abort-undefined.json` -> `committed:
  *      false, snapVal: null`.
  *   3. Returning any defined value WRITES that value (rules-checked);
  *      resolves `{ committed: true, snapshot }` where `snapshot.val()`
  *      is the committed value; oracle:
- *      `rtdb-modular-runtransaction-success.json` → `committedNewValue:
+ *      `rtdb-modular-runtransaction-success.json` -> `committedNewValue:
  *      true` and
  *      `rtdb-modular-runtransaction-returns-committed-snapshot.json`.
  *   4. If rules deny the write, the promise REJECTS with a plain
@@ -75,15 +75,11 @@ export interface TransactionOptions {
  *      `rtdb-modular-runtransaction-on-rules-denied-path.json`.
  *
  * `options.applyLocally` (default `true`): when `false`, the
- * intermediate optimistic value is NOT fanned out to listeners — they
- * see only the committed value. In a single-client harness this is
- * usually invisible; we honor the flag for prod-parity. Oracle
- * observation `rtdb-modular-runtransaction-options-applylocally.json`
- * confirms both branches commit and end at the same value; the
- * intermediate-fire difference isn't observable from a single client.
+ * intermediate optimistic value is NOT fanned out to listeners -- they
+ * see only the committed value.
  *
- * A synchronous overlapping write during the update callback invalidates the
- * read and retries the callback. Writes to unrelated paths do not conflict.
+ * The initial attempt runs synchronously (`repoStartTransaction`), so an
+ * invalid return value throws synchronously (#1224).
  */
 export function runTransaction<T>(
   r: DatabaseReference,
@@ -96,21 +92,20 @@ export function runTransaction<T>(
   }
   const target = targetOf(r as unknown as object);
   const { cold, hooks } = createClientTransactionHooks(target, r._path);
-  return runSdkWrite(beginDatabaseActivity(r, 'runTransaction', 'operation'), async () => {
+  const activity = beginDatabaseActivity(r, 'runTransaction', 'operation');
+  let outcomePromise: Promise<TransactionResult>;
+  try {
     const admin = isAdminFor(target);
     if (!admin && isClientOffline(target)) {
       const applyLocally = options?.applyLocally !== false;
-      return runOfflineClientTransaction(
+      outcomePromise = runOfflineClientTransaction(
         target,
         r,
         transactionUpdate,
         applyLocally,
         hooks,
         (rawVal, priorities) =>
-          new TransactionResult(false, buildSandboxSnapFromRaw(target, r, rawVal, priorities)) as TransactionResult & {
-            committed: boolean;
-            snapshot: DataSnapshot;
-          },
+          new TransactionResult(false, buildSandboxSnapFromRaw(target, r, rawVal, priorities)),
         async (wrappedUpdate) => {
           const outcome = await target.backend.runClientTransactionAsync(
             authFor(target),
@@ -119,28 +114,30 @@ export function runTransaction<T>(
             { applyLocally: options?.applyLocally, admin: false, cold: false, hooks },
           );
           const snap = buildSandboxSnapFromRaw(target, r, outcome.val, outcome.priorities);
-          return new TransactionResult(outcome.committed, snap) as TransactionResult & {
-            committed: boolean;
-            snapshot: DataSnapshot;
-          };
+          return new TransactionResult(outcome.committed, snap);
         },
       );
+    } else {
+      outcomePromise = target.backend
+        .runClientTransactionAsync(
+          authFor(target),
+          r._path,
+          transactionUpdate as (current: JsonValue) => JsonValue | undefined,
+          {
+            applyLocally: options?.applyLocally,
+            admin,
+            cold,
+            hooks,
+          },
+        )
+        .then((result) => {
+          const snap = buildSandboxSnapFromRaw(target, r, result.val, result.priorities);
+          return new TransactionResult(result.committed, snap);
+        });
     }
-    const result = await target.backend.runClientTransactionAsync(
-      authFor(target),
-      r._path,
-      transactionUpdate as (current: JsonValue) => JsonValue | undefined,
-      {
-        applyLocally: options?.applyLocally,
-        admin,
-        cold,
-        hooks,
-      },
-    );
-    const snap = buildSandboxSnapFromRaw(target, r, result.val, result.priorities);
-    return new TransactionResult(result.committed, snap) as TransactionResult & {
-      committed: boolean;
-      snapshot: DataSnapshot;
-    };
-  });
+  } catch (error) {
+    activity.fail();
+    throw error;
+  }
+  return runSdkWrite(activity, () => outcomePromise);
 }

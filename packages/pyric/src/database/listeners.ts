@@ -5,7 +5,6 @@ import { beginDatabaseActivity } from './sdk-activity.js';
 import type { AuthState } from 'pyric/sandbox';
 import { ListenerRegistry, type ListenerRegistration } from './listener-registry.js';
 import type { ChildEventSnapshot, ValueListenerSnapshot } from './sandbox/listener-types.js';
-import type { JsonValue } from './sandbox/data-tree.js';
 import { runWithExceptionGuard } from './sandbox/exception-guard.js';
 import { authFor, isAdminFor, targetOf, type Target } from './routing.js';
 import { hasNonFiniteQueryLimit, isDefaultQuerySpec, isQuery, queryIdentifier } from './query-shape.js';
@@ -21,7 +20,7 @@ import {
   type ChildEvent,
 } from './info-listeners.js';
 
-// ─── Listeners (Tier 2) ──────────────────────────────────────────────
+// --- Listeners (Tier 2) ---
 
 /**
  * RTDB evaluates a listener with the Auth instance attached to its app. When
@@ -57,22 +56,27 @@ function subscribeWithLiveAuth(
 
   backendUnsubscribe = subscribe(authFor(target), stop, replaying);
   if (stopped) return stop;
-  sessionUnsubscribe = target.kind === 'sandbox-live'
-    ? target.onCurrentUserChanged?.(() => {
+  if (target.kind === 'sandbox-live') {
+    sessionUnsubscribe = target.onCurrentUserChanged?.(() => {
       if (stopped) return;
       backendUnsubscribe();
       replacing = true;
       try {
         backendUnsubscribe = subscribe(authFor(target), stop, replaying);
-      } catch {
+      } catch (err) {
         backendUnsubscribe = () => {};
         stop();
+        const isPermissionDenied =
+          err instanceof Error
+          && (err.message.includes('PERMISSION_DENIED')
+            || (err as { code?: unknown }).code === 'PERMISSION_DENIED');
+        if (!isPermissionDenied) throw err;
       } finally {
         replacing = false;
       }
-    })
-    : undefined;
-  release = target.kind === 'sandbox-live' ? target.own?.(stop) : undefined;
+    });
+    release = target.own?.(stop);
+  }
   return stop;
 }
 
@@ -253,7 +257,7 @@ function onValueInternal(
   const isMetadataRoot = reference._path === '/.info';
   const observesConnection = isMetadataRoot || isConnectionValue;
   if (observesConnection) return observeConnectionMetadata(listenerRegistry, r, cb, registryCallback, activity);
-  // Query branch — fire only when the windowed result changes.
+  // Query branch -- fire only when the windowed result changes.
   // Locked by oracle observation `rtdb-modular-onvalue-with-query.json`:
   // a write OUTSIDE the window does NOT re-fire the listener; a write
   // INSIDE or one that displaces a member DOES.
@@ -262,12 +266,15 @@ function onValueInternal(
     const q = r;
     const target = targetOf(q.ref);
     const scope = queryScope(q);
-    const deliver = (raw: { val: JsonValue; key: string | null; rows?: QueryRow[] }): void => {
-      const rows = raw.rows ?? [];
-      const snap = buildSandboxQuerySnap(target, q.ref, rows, loadsAllData(q._spec), raw.val);
+    const deliver = (raw: ValueListenerSnapshot): void => {
+      let rows: QueryRow[] = [];
+      if (raw.rows !== undefined) {
+        rows = raw.rows;
+      }
+      const snap = buildSandboxQuerySnap(target, q.ref, rows, loadsAllData(q._spec), raw.val, raw.priorities);
       cb(snap);
     };
-    // Admin (rules-bypass) listeners skip the read-rule gate entirely — the
+    // Admin (rules-bypass) listeners skip the read-rule gate entirely -- the
     // listen-plane sibling of `adminGet`/`adminSet` (#401). `admin` is set
     // only on server-minted `getAdminDatabase` handles, never anything a page
     // controls, so a page's `onValue` stays on the rule-gated path below.
@@ -275,8 +282,8 @@ function onValueInternal(
   }
   const ref0 = reference;
   const target = targetOf(ref0);
-  const wrapper = (raw: { val: JsonValue; key: string | null }): void => {
-    const snap = buildSandboxSnapFromRaw(target, ref0, raw.val);
+  const wrapper = (raw: ValueListenerSnapshot): void => {
+    const snap = buildSandboxSnapFromRaw(target, ref0, raw.val, raw.priorities);
     cb(snap);
   };
   return subscribeTrackedValue(target, ref0._path, undefined, undefined, wrapper, cancelCallback, listenOptions, registryCallback, activity);
@@ -348,12 +355,14 @@ function subscribeChild(
       return runAttach();
     } catch (error) { activity.fail(); throw error; }
   };
-  const cancelCallback = typeof cancelCallbackOrOptions === 'function'
-    ? cancelCallbackOrOptions
-    : undefined;
-  const listenOptions = typeof cancelCallbackOrOptions === 'function'
-    ? options
-    : cancelCallbackOrOptions;
+  let cancelCallback: ((error: Error) => void) | undefined;
+  let listenOptions: ListenOptions | undefined;
+  if (typeof cancelCallbackOrOptions === 'function') {
+    cancelCallback = cancelCallbackOrOptions;
+    listenOptions = options;
+  } else {
+    listenOptions = cancelCallbackOrOptions;
+  }
   if (!listenOptions?.onlyOnce) return attach(cb, cancelCallback);
 
   if (event === 'child_added') {
@@ -420,7 +429,7 @@ function cancelSubscriptions(
  * (a `query(ref, ...)` with `orderBy*` / `limitTo*`). For a query, the
  * child-event diff is computed against the ordered, windowed result rather
  * than the raw child
- * key-set — a child entering/leaving the window fires `child_added` /
+ * key-set -- a child entering/leaving the window fires `child_added` /
  * `child_removed`, an in-window value change fires `child_changed`. (Note
  * `child_moved` fires when the query's active ordered value changes.)
  */
@@ -492,12 +501,12 @@ function onChildEvent(
 }
 
 /**
- * `off(ref, eventType?, callback?)` — unsubscribe variant.
+ * `off(ref, eventType?, callback?)` -- unsubscribe variant.
  *
  * Semantics (locked by oracle observation
  * `packages/conformance/observations/rtdb-modular/rtdb-modular-off-stops-child-fires.json`):
  *
- *   - `off(ref)` (no eventType) removes ALL listeners at that ref —
+ *   - `off(ref)` (no eventType) removes ALL listeners at that ref --
  *     value + every child event variety.
  *   - `off(ref, 'value')` removes only `value` listeners.
  *   - `off(ref, 'child_added')` (or any child event type) removes only
@@ -506,7 +515,7 @@ function onChildEvent(
  *
  * The returned-unsubscribe pattern from `onValue` / `onChild*` is
  * functionally equivalent to `off(ref, eventType, cb)` for a specific
- * registration — both are supported.
+ * registration -- both are supported.
  */
 export function off(
   r: DatabaseReference | Query,

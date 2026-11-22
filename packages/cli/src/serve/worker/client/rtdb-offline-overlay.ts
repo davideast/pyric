@@ -5,6 +5,7 @@ import {
   executeQuery,
   loadsAllData,
   normalizeNode,
+  renderSnapshotVal,
   resolveSentinels,
   writePriority,
   type Priority,
@@ -41,16 +42,31 @@ export interface WorkerOfflineListener {
   deferredWire: RtdbWireSnapshot | undefined;
 }
 
+interface WorkerOnlineInFlightOp {
+  readonly path: string;
+  readonly overwritesSubtree: boolean;
+  readonly hasIncrement: boolean;
+}
+
+export interface WorkerOnlineInFlightEntry {
+  readonly ops: readonly WorkerOnlineInFlightOp[];
+  readonly apply: (scope: WorkerOfflineScope) => void;
+}
+
 export interface WorkerOfflineScope {
   offline: boolean;
+  wireEpoch: number;
   serverTree: OverlayJson;
   frozenTree: OverlayJson;
   overlayTree: OverlayJson;
+  readonly wireCoverageEpochs: Map<string, number>;
+  readonly authoritativePaths: Set<string>;
   readonly serverPriorities: Map<string, Priority>;
   readonly frozenPriorities: Map<string, Priority>;
   readonly overlayPriorities: Map<string, Priority>;
   readonly coveringWritePaths: Set<string>;
   readonly pendingOverlays: WorkerWriteOverlay[];
+  readonly onlineInFlightOverlays: WorkerOnlineInFlightEntry[];
   readonly queuedActions: WorkerQueuedAction[];
   readonly listeners: Set<WorkerOfflineListener>;
 }
@@ -80,14 +96,18 @@ export function scopeForWorker(handle: WorkerInstanceScopeRef): WorkerOfflineSco
   if (existing === undefined) {
     existing = {
       offline: false,
+      wireEpoch: 0,
       serverTree: null,
       frozenTree: null,
       overlayTree: null,
+      wireCoverageEpochs: new Map(),
+      authoritativePaths: new Set(),
       serverPriorities: new Map(),
       frozenPriorities: new Map(),
       overlayPriorities: new Map(),
       coveringWritePaths: new Set(),
       pendingOverlays: [],
+      onlineInFlightOverlays: [],
       queuedActions: [],
       listeners: new Set(),
     };
@@ -115,7 +135,7 @@ export function workerPathsOverlap(left: string, right: string): boolean {
   return left.startsWith(`${right}/`) || right.startsWith(`${left}/`);
 }
 
-function ancestorCovers(ancestor: string, targetPath: string): boolean {
+export function ancestorCovers(ancestor: string, targetPath: string): boolean {
   if (ancestor === '/' || ancestor === targetPath) {
     return true;
   }
@@ -244,6 +264,57 @@ export function normalizeWorkerSentinels(value: unknown): unknown {
   return out;
 }
 
+export function clearPrioritiesAtOrBelow(map: Map<string, Priority>, canonical: string): void {
+  for (const key of [...map.keys()]) {
+    if (ancestorCovers(canonical, key)) {
+      map.delete(key);
+    }
+  }
+}
+
+export function applySetToTreeAndPriorities(
+  tree: OverlayJson,
+  priorities: Map<string, Priority>,
+  path: string,
+  rawValue: unknown,
+  rawPriority: Priority,
+  hasPriority: boolean,
+  now: number,
+): OverlayJson {
+  const canonical = normalizeRtdbPath(path);
+  const currentRendered = coerceArrays(treeRead(tree, canonical) as never) as OverlayJson;
+  const resolvedInput = resolveSentinels(normalizeWorkerSentinels(rawValue), now, currentRendered as never);
+  const normalized = normalizeNode(resolvedInput) as OverlayJson;
+  let priorPrio: Priority = null;
+  if (hasPriority && priorities.has(canonical)) {
+    const got = priorities.get(canonical);
+    if (got !== undefined) {
+      priorPrio = got;
+    }
+  }
+  let basePrio: Priority = null;
+  if (hasPriority) {
+    basePrio = resolveSentinels(normalizeWorkerSentinels(rawPriority), now, priorPrio) as Priority;
+  }
+  const written = writePriority(resolvedInput, basePrio);
+  const nextTree = treeWrite(tree, canonical, normalized);
+  clearPrioritiesAtOrBelow(priorities, canonical);
+  if (normalized !== null) {
+    if (written.priority !== null) {
+      priorities.set(canonical, written.priority);
+    }
+    const baseSegs = pathSegmentsOf(canonical);
+    for (const entry of written.nested) {
+      if (entry.priority === null) continue;
+      const nestedPath = normalizeRtdbPath(`/${[...baseSegs, ...entry.segments].join('/')}`);
+      if (treeRead(nextTree, nestedPath) !== null) {
+        priorities.set(nestedPath, entry.priority);
+      }
+    }
+  }
+  return nextTree;
+}
+
 export function applyOverlaySetToScope(
   scope: WorkerOfflineScope,
   path: string,
@@ -252,28 +323,15 @@ export function applyOverlaySetToScope(
   hasPriority: boolean,
   now: number,
 ): void {
-  const canonical = normalizeRtdbPath(path);
-  const currentRendered = coerceArrays(treeRead(scope.overlayTree, canonical) as never) as OverlayJson;
-  const resolvedInput = resolveSentinels(normalizeWorkerSentinels(rawValue), now, currentRendered as never);
-  const normalized = normalizeNode(resolvedInput) as OverlayJson;
-  let basePrio: Priority = null;
-  if (hasPriority) {
-    let priorPrio: Priority = null;
-    if (scope.overlayPriorities.has(canonical)) {
-      const got = scope.overlayPriorities.get(canonical);
-      if (got !== undefined) {
-        priorPrio = got;
-      }
-    }
-    basePrio = resolveSentinels(normalizeWorkerSentinels(rawPriority), now, priorPrio) as Priority;
-  }
-  const written = writePriority(resolvedInput, basePrio);
-  scope.overlayTree = treeWrite(scope.overlayTree, canonical, normalized);
-  if (normalized === null) {
-    scope.overlayPriorities.set(canonical, null);
-  } else {
-    scope.overlayPriorities.set(canonical, written.priority);
-  }
+  scope.overlayTree = applySetToTreeAndPriorities(
+    scope.overlayTree,
+    scope.overlayPriorities,
+    path,
+    rawValue,
+    rawPriority,
+    hasPriority,
+    now,
+  );
 }
 
 export function rebuildWorkerOverlay(scope: WorkerOfflineScope): void {
@@ -382,14 +440,14 @@ export function buildWireFromOverlay(
     }
     const entries: RtdbWireEntry[] = result.rows.map((row) => ({
       key: row.key,
-      value: coerceArrays(row.value),
+      value: renderSnapshotVal(joinChildPath(canonical, row.key), row.value, (p) => overlayPriorityAt(scope, p)),
       priority: row.priority,
       exportValue: renderExportValue(scope, joinChildPath(canonical, row.key), row.value as OverlayJson, true),
     }));
     return {
       key,
       exists,
-      value: coerceArrays(result.val),
+      value: renderSnapshotVal(canonical, result.val, (p) => overlayPriorityAt(scope, p)),
       priority,
       exportValue: renderExportValue(scope, canonical, result.val as OverlayJson, unfiltered),
       entries,
@@ -404,18 +462,54 @@ export function buildWireFromOverlay(
   const ordered = executeQuery(rawNode as never, { orderBy: null, bounds: [], limit: null }, prioForChild);
   const entries: RtdbWireEntry[] = ordered.map((row) => ({
     key: row.key,
-    value: coerceArrays(row.value),
+    value: renderSnapshotVal(joinChildPath(canonical, row.key), row.value, (p) => overlayPriorityAt(scope, p)),
     priority: row.priority,
     exportValue: renderExportValue(scope, joinChildPath(canonical, row.key), row.value as OverlayJson, true),
   }));
   return {
     key,
     exists,
-    value: coerceArrays(rawNode as never),
+    value: renderSnapshotVal(canonical, rawNode as never, (p) => overlayPriorityAt(scope, p)),
     priority,
     exportValue: renderExportValue(scope, canonical, rawNode, true),
     entries,
   };
+}
+
+function ingestPrioritiesFromExportValue(
+  priorities: Map<string, Priority>,
+  nodePath: string,
+  normalized: OverlayJson,
+  exportVal: unknown,
+): void {
+  if (exportVal === null || typeof exportVal !== 'object') {
+    return;
+  }
+  if (Array.isArray(exportVal)) {
+    if (isPlainRecord(normalized)) {
+      for (const [childKey, childNorm] of Object.entries(normalized)) {
+        const idx = Number(childKey);
+        if (Number.isInteger(idx) && idx >= 0 && idx < exportVal.length) {
+          ingestPrioritiesFromExportValue(priorities, joinChildPath(nodePath, childKey), childNorm, exportVal[idx]);
+        }
+      }
+    }
+    return;
+  }
+  const record = exportVal as Record<string, unknown>;
+  if (Object.hasOwn(record, '.priority')) {
+    const prio = record['.priority'];
+    if (typeof prio === 'string' || typeof prio === 'number') {
+      priorities.set(nodePath, prio);
+    }
+  }
+  if (isPlainRecord(normalized)) {
+    for (const [childKey, childNorm] of Object.entries(normalized)) {
+      if (Object.hasOwn(record, childKey)) {
+        ingestPrioritiesFromExportValue(priorities, joinChildPath(nodePath, childKey), childNorm, record[childKey]);
+      }
+    }
+  }
 }
 
 export function recordServerWireOnScope(
@@ -423,6 +517,7 @@ export function recordServerWireOnScope(
   path: string,
   wire: unknown,
   query: RtdbQuerySpec | undefined,
+  retainAuthoritative = true,
 ): void {
   if (query !== undefined && !loadsAllData(normalizeWireQuery(query))) {
     return;
@@ -432,24 +527,30 @@ export function recordServerWireOnScope(
     return;
   }
   const canonical = normalizeRtdbPath(path);
+  scope.wireEpoch += 1;
+  scope.wireCoverageEpochs.set(canonical, scope.wireEpoch);
+  if (retainAuthoritative) {
+    scope.authoritativePaths.add(canonical);
+  }
   let rawVal: unknown = null;
   if (payload.value !== undefined) {
     rawVal = payload.value;
   }
   const normalized = normalizeNode(rawVal) as OverlayJson;
   scope.serverTree = treeWrite(scope.serverTree, canonical, normalized);
-  if (payload.priority !== undefined && payload.priority !== null) {
-    scope.serverPriorities.set(canonical, payload.priority);
-  } else {
-    scope.serverPriorities.delete(canonical);
-  }
-  if (payload.entries !== undefined) {
-    for (const entry of payload.entries) {
-      const childPath = joinChildPath(canonical, entry.key);
-      if (entry.priority !== undefined && entry.priority !== null) {
-        scope.serverPriorities.set(childPath, entry.priority);
-      } else {
-        scope.serverPriorities.delete(childPath);
+  clearPrioritiesAtOrBelow(scope.serverPriorities, canonical);
+  if (normalized !== null) {
+    if (payload.priority !== undefined && payload.priority !== null) {
+      scope.serverPriorities.set(canonical, payload.priority);
+    }
+    if (payload.exportValue !== undefined) {
+      ingestPrioritiesFromExportValue(scope.serverPriorities, canonical, normalized, payload.exportValue);
+    } else if (payload.entries !== undefined) {
+      for (const entry of payload.entries) {
+        const childPath = joinChildPath(canonical, entry.key);
+        if (entry.priority !== undefined && entry.priority !== null) {
+          scope.serverPriorities.set(childPath, entry.priority);
+        }
       }
     }
   }

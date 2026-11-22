@@ -1,10 +1,18 @@
 import type { AuthState, RtdbDenialContext } from 'pyric/sandbox';
 import type { BackendState } from './backend-state.js';
 import type { ChildListeners } from './child-listeners.js';
-import { cloneJson, joinPath, pathSegments, type JsonValue } from './data-tree.js';
-import { coerceArrays, normalizeWrite, TRANSACTION_ERROR_PREFIX, withPriorities, writePriority, type InlinePriority } from './normalize.js';
+import { joinPath, pathSegments, type JsonValue } from './data-tree.js';
+import {
+  normalizeWrite,
+  TRANSACTION_ERROR_PREFIX,
+  validateTransactionCandidate,
+  withPriorities,
+  writePriority,
+  type InlinePriority,
+} from './normalize.js';
 import { canonicalPath, denyResultFor, rtdbDenialContext } from './operation-events.js';
 import { validateNestedPriorities, validatePriority, type PriorityRecord } from './priority-state.js';
+import { renderSnapshotVal } from '../snapshots.js';
 import { withDenialContext } from './rules-eval.js';
 import { resolveSentinels } from './sentinels.js';
 import type { ValueListeners } from './value-listeners.js';
@@ -117,7 +125,13 @@ export class Transactions {
     const applyLocally = options?.applyLocally !== false;
     const isAdmin = options?.admin === true;
     const segments = pathSegments(path);
-    const key = segments.length === 0 ? null : segments[segments.length - 1]!;
+    let key: string | null = null;
+    if (segments.length > 0) {
+      const lastSeg = segments[segments.length - 1];
+      if (lastSeg !== undefined) {
+        key = lastSeg;
+      }
+    }
     let current: JsonValue = null;
     let visible: JsonValue = null;
     let readable = false;
@@ -130,7 +144,10 @@ export class Transactions {
       current = this.state.tree.read(path);
       readable = isAdmin || this.canRead(auth, path);
       visible = readable ? current : null;
-      const input = visible === null ? null : coerceArrays(cloneJson(visible)) as JsonValue;
+      let input: JsonValue = null;
+      if (visible !== null) {
+        input = renderSnapshotVal(path, visible, (p) => this.state.priorities.get(p));
+      }
       let conflicted = false;
       try {
         proposed = updateFn(input);
@@ -157,10 +174,15 @@ export class Transactions {
 
     const now = this.state.clock.now();
     const currentPriority = this.state.priorities.get(path);
+    let normPath = path;
+    if (path === '/') {
+      normPath = '';
+    }
+    validateTransactionCandidate(proposed, path);
     const resolvedInput = resolveSentinels(proposed, now, this.state.rulesSnapshotAt(path));
     const resolved = normalizeWrite(
       resolvedInput,
-      path === '/' ? '' : path,
+      normPath,
       TRANSACTION_ERROR_PREFIX,
     );
     const written = writePriority(resolvedInput, currentPriority);

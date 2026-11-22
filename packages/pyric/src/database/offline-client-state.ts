@@ -25,6 +25,7 @@ import type { Target } from './routing.js';
 import type { ClientTransactionHooks } from './sandbox/client-transaction.js';
 import { cloneJson, joinPath, jsonValuesEqual, pathSegments, type JsonValue } from './sandbox/data-tree.js';
 import { runWithExceptionGuard } from './sandbox/exception-guard.js';
+import { validateTransactionCandidate } from './sandbox/normalize.js';
 import type { ChildEventSnapshot, ValueListenerSnapshot } from './sandbox/listener-types.js';
 import {
   coerceArrays,
@@ -35,7 +36,11 @@ import {
 } from './sandbox/normalize.js';
 import { validateNestedPriorities, validatePriority, type PriorityRecord } from './sandbox/priority-state.js';
 import { resolveSentinels } from './sandbox/sentinels.js';
-import { buildSandboxQuerySnap, buildSandboxSnapFromRaw } from './snapshots.js';
+import {
+  buildSandboxQuerySnap,
+  buildSandboxSnapFromRaw,
+  renderSnapshotVal,
+} from './snapshots.js';
 import type { DataSnapshot, DatabaseReference, Query } from './types.js';
 
 export function isClientOffline(target: Target): boolean {
@@ -288,7 +293,14 @@ export function offlineClientGet(
         rows = snap.rows;
       }
       return Promise.resolve(
-        buildSandboxQuerySnap(target, query.ref, rows, loadsAllData(query._spec), snap.val),
+        buildSandboxQuerySnap(
+          target,
+          query.ref,
+          rows,
+          loadsAllData(query._spec),
+          snap.val,
+          snap.priorities,
+        ),
       );
     }
     const val = state.overlayTree.read(ref0._path);
@@ -489,7 +501,13 @@ export function runOfflineClientTransaction<T, R>(
   if (canServeOfflineGet(state, canonical)) {
     initialRaw = state.overlayTree.read(canonical);
     if (initialRaw !== null) {
-      initialInput = coerceArrays(cloneJson(initialRaw));
+      const prioRecord = priorityRecordBelow(state, target, canonical, initialRaw);
+      initialInput = renderSnapshotVal(canonical, initialRaw, (p) => {
+        const key = canonicalOfflinePath(p);
+        if (!Object.hasOwn(prioRecord, key)) return null;
+        const stored = prioRecord[key];
+        return stored === undefined ? null : stored;
+      });
     }
   }
   const proposed0 = hooks.runUpdate(() =>
@@ -499,6 +517,7 @@ export function runOfflineClientTransaction<T, R>(
     const priorities = priorityRecordBelow(state, target, canonical, initialRaw);
     return Promise.resolve().then(() => abortResult(initialRaw, priorities));
   }
+  validateTransactionCandidate(proposed0, canonical);
   const now = target.backend.persistenceBackendState().clock.now();
   const resolvedInput = resolveSentinels(proposed0, now, initialInput);
   let normPath = canonical;
