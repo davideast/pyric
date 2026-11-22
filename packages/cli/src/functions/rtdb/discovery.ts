@@ -1,4 +1,8 @@
-import { listFirebaseEndpoints, type FirebaseEndpoint } from '../endpoints.js';
+import {
+  classifyEndpointOmit,
+  listFirebaseEndpoints,
+  type FirebaseEndpoint,
+} from '../endpoints.js';
 import type { FunctionsTriggerFamily } from '../unsupported.js';
 import {
   normalizeRtdbReference,
@@ -81,14 +85,15 @@ function inspectWithAllowedEventTypes(
     if (!isRtdbValueEventType(eventType) || !allowedEventTypes.has(eventType)) {
       continue;
     }
-    if (endpoint?.omit === true) {
+    const omitState = classifyEndpointOmit(endpoint?.omit);
+    if (omitState === 'omitted') {
       unsupported.push({
         exportName,
         eventType: `${eventType} (omitted from emulation)`,
       });
       continue;
     }
-    if (endpoint?.omit !== undefined && endpoint.omit !== false) {
+    if (omitState === 'dynamic') {
       unsupported.push({
         exportName,
         eventType: `${eventType} (unsupported dynamic omit option)`,

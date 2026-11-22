@@ -2,11 +2,14 @@
  * Discovery and queue-name resolution for `firebase-functions/v2/tasks`
  * (`onTaskDispatched`) endpoints (`__endpoint.taskQueueTrigger`).
  */
-import { listFirebaseEndpoints, type FirebaseEndpoint } from '../endpoints.js';
+import {
+  classifyEndpointOmit,
+  listFirebaseEndpoints,
+  type FirebaseEndpoint,
+} from '../endpoints.js';
 import { DEFAULT_REGION } from '../http/discovery.js';
 import type { FunctionsTriggerFamily } from '../unsupported.js';
 import {
-  isResetValueObject,
   parseTaskEndpointRegions,
   parseTaskInvokerField,
   parseTaskTimeoutSeconds,
@@ -88,29 +91,26 @@ export function inspectTasksTriggers(
     const endpoint = callable.__endpoint;
     if (!endpoint || !isTaskQueueEndpoint(endpoint)) continue;
 
-    if (endpoint.platform === 'gcfv1') {
-      unsupported.push({
-        exportName,
-        eventType: 'task-queue (v1 taskQueue is not supported)',
-      });
-      continue;
-    }
-
-    if (endpoint.omit === true) {
+    const omitState = classifyEndpointOmit(endpoint.omit);
+    if (omitState === 'omitted') {
       unsupported.push({
         exportName,
         eventType: 'task-queue (omitted from emulation)',
       });
       continue;
     }
-    if (
-      endpoint.omit !== undefined &&
-      endpoint.omit !== false &&
-      !isResetValueObject(endpoint.omit)
-    ) {
+    if (omitState === 'dynamic') {
       unsupported.push({
         exportName,
         eventType: 'task-queue (unsupported dynamic omit option)',
+      });
+      continue;
+    }
+
+    if (endpoint.platform === 'gcfv1') {
+      unsupported.push({
+        exportName,
+        eventType: 'task-queue (v1 taskQueue is not supported)',
       });
       continue;
     }

@@ -33,6 +33,9 @@ const optionsModule = requireFromConformance(
 const paramsModule = requireFromConformance(
   'firebase-functions/params',
 ) as typeof import('firebase-functions/params');
+const v1Functions = requireFromConformance(
+  'firebase-functions/v1',
+) as typeof import('firebase-functions/v1');
 
 describe('firebase-functions/v2/identity trigger discovery', () => {
   test('reads blockingTrigger manifests in endpoints.ts and claims all 4 identity event types', () => {
@@ -239,5 +242,63 @@ describe('firebase-functions/v2/identity trigger discovery', () => {
         eventType: `${BEFORE_CREATE_EVENT_TYPE} (superseded by secondCreate)`,
       },
     ]);
+  });
+
+  test('reports unclaimed, malformed, and v1 blocking Auth triggers under their blocking event type instead of unknown (#1945)', () => {
+    const { beforeUserCreated, beforeUserSignedIn, beforeEmailSent, beforeSmsSent } =
+      identityFunctions;
+    const prevProject = process.env.GCLOUD_PROJECT;
+    process.env.GCLOUD_PROJECT = 'demo-project';
+    try {
+      const gate = beforeUserCreated(() => undefined);
+      const signInGate = beforeUserSignedIn(() => undefined);
+      const emailGate = beforeEmailSent(() => undefined);
+      const smsGate = beforeSmsSent(() => undefined);
+      const omittedGate = beforeUserCreated({ omit: true }, () => undefined);
+      const emptyEventBlocking = Object.assign(() => undefined, {
+        __endpoint: { blockingTrigger: { eventType: '' } },
+      });
+      const v1Gate = v1Functions.auth.user().beforeCreate(() => undefined);
+      const v1OmittedGate = v1Functions
+        .runWith({ omit: true } as never)
+        .auth.user()
+        .beforeCreate(() => undefined);
+
+      // When no blocking family claims the exports, findUnsupportedTriggers still names
+      // each blockingTrigger.eventType (and falls back to 'blocking', never 'unknown').
+      const unclaimed = findUnsupportedTriggers(
+        { gate, signInGate, emailGate, smsGate, omittedGate, emptyEventBlocking },
+        [rtdbValueTriggerFamily, storageTriggersFamily],
+      );
+      expect(unclaimed).toEqual([
+        { exportName: 'gate', eventType: BEFORE_CREATE_EVENT_TYPE },
+        { exportName: 'signInGate', eventType: BEFORE_SIGN_IN_EVENT_TYPE },
+        { exportName: 'emailGate', eventType: BEFORE_SEND_EMAIL_EVENT_TYPE },
+        { exportName: 'smsGate', eventType: BEFORE_SEND_SMS_EVENT_TYPE },
+        {
+          exportName: 'omittedGate',
+          eventType: `${BEFORE_CREATE_EVENT_TYPE} (omitted from emulation)`,
+        },
+        { exportName: 'emptyEventBlocking', eventType: 'blocking' },
+      ]);
+
+      // v1 auth.user().beforeCreate is refused with its blockingTrigger.eventType rather
+      // than silently invoked with a v2 AuthBlockingEvent signature, while omit wins first.
+      const withV1 = inspectIdentityTriggers({ v1Gate, v1OmittedGate });
+      expect(withV1.triggers).toEqual([]);
+      expect(withV1.unsupported).toEqual([
+        {
+          exportName: 'v1Gate',
+          eventType: `${BEFORE_CREATE_EVENT_TYPE} (v1 auth.user() blocking is not supported)`,
+        },
+        {
+          exportName: 'v1OmittedGate',
+          eventType: `${BEFORE_CREATE_EVENT_TYPE} (omitted from emulation)`,
+        },
+      ]);
+    } finally {
+      if (prevProject === undefined) delete process.env.GCLOUD_PROJECT;
+      else process.env.GCLOUD_PROJECT = prevProject;
+    }
   });
 });

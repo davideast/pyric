@@ -6,7 +6,11 @@
  * function (`lib/common/providers/https.js`), so the child HTTP server mounts
  * it unchanged alongside `onRequest` exports.
  */
-import { listFirebaseEndpoints, type FirebaseEndpoint } from '../endpoints.js';
+import {
+  classifyEndpointOmit,
+  listFirebaseEndpoints,
+  type FirebaseEndpoint,
+} from '../endpoints.js';
 import {
   DEFAULT_REGION,
   type DiscoveredOnRequest,
@@ -56,7 +60,7 @@ export function inspectOnCall(exported: Record<string, unknown>): DiscoveredOnRe
   for (const { exportName, callable } of listFirebaseEndpoints<HttpRequestHandler>(exported)) {
     const endpoint = callable.__endpoint;
     if (!endpoint || !isCallableEndpoint(endpoint)) continue;
-    if (endpoint.omit !== undefined && endpoint.omit !== false) continue;
+    if (classifyEndpointOmit(endpoint.omit) !== 'active') continue;
     if (isGenkitCallable(endpoint)) continue;
     discovered.push({
       exportName,
@@ -79,9 +83,10 @@ export const callableOnCallFamily: FunctionsTriggerFamily = {
     for (const { exportName, callable } of listFirebaseEndpoints<HttpRequestHandler>(exported)) {
       const endpoint = callable.__endpoint;
       if (!endpoint || !isCallableEndpoint(endpoint)) continue;
-      if (endpoint.omit === true) {
+      const omitState = classifyEndpointOmit(endpoint.omit);
+      if (omitState === 'omitted') {
         unsupported.push({ exportName, eventType: 'callable (omitted from emulation)' });
-      } else if (endpoint.omit !== undefined && endpoint.omit !== false) {
+      } else if (omitState === 'dynamic') {
         unsupported.push({ exportName, eventType: 'callable (unsupported dynamic omit option)' });
       } else if (isGenkitCallable(endpoint)) {
         unsupported.push({ exportName, eventType: 'callable (onCallGenkit is not supported)' });

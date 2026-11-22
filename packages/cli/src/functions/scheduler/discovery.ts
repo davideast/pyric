@@ -2,7 +2,12 @@
  * Discovery and manifest validation for `firebase-functions/v2/scheduler`
  * (`onSchedule`) endpoints (`__endpoint.scheduleTrigger`).
  */
-import { listFirebaseEndpoints, type FirebaseEndpoint } from '../endpoints.js';
+import {
+  classifyEndpointOmit,
+  isResetValueObject,
+  listFirebaseEndpoints,
+  type FirebaseEndpoint,
+} from '../endpoints.js';
 import { DEFAULT_REGION } from '../http/discovery.js';
 import type { FunctionsTriggerFamily } from '../unsupported.js';
 import {
@@ -59,17 +64,6 @@ interface RawScheduleTriggerManifest {
 export type RetryConfigValidationResult =
   | { ok: true; retryConfig: SchedulerRetryConfig }
   | { ok: false; kind: 'dynamic' | 'invalid'; reason: string };
-
-function isResetValueObject(value: unknown): boolean {
-  if (typeof value !== 'object' || value === null) return false;
-  const candidate = value as { toJSON?: unknown };
-  if (typeof candidate.toJSON !== 'function') return false;
-  try {
-    return (candidate.toJSON as () => unknown)() === null;
-  } catch {
-    return false;
-  }
-}
 
 export function isScheduleEndpoint(endpoint: FirebaseEndpoint): boolean {
   return typeof endpoint.scheduleTrigger === 'object' && endpoint.scheduleTrigger !== null;
@@ -281,29 +275,26 @@ export function inspectSchedulerTriggers(
     const endpoint = callable.__endpoint;
     if (!endpoint || !isScheduleEndpoint(endpoint)) continue;
 
-    if (endpoint.platform === 'gcfv1') {
-      unsupported.push({
-        exportName,
-        eventType: 'schedule (v1 pubsub.schedule is not supported)',
-      });
-      continue;
-    }
-
-    if (endpoint.omit === true) {
+    const omitState = classifyEndpointOmit(endpoint.omit);
+    if (omitState === 'omitted') {
       unsupported.push({
         exportName,
         eventType: 'schedule (omitted from emulation)',
       });
       continue;
     }
-    if (
-      endpoint.omit !== undefined &&
-      endpoint.omit !== false &&
-      !isResetValueObject(endpoint.omit)
-    ) {
+    if (omitState === 'dynamic') {
       unsupported.push({
         exportName,
         eventType: 'schedule (unsupported dynamic omit option)',
+      });
+      continue;
+    }
+
+    if (endpoint.platform === 'gcfv1') {
+      unsupported.push({
+        exportName,
+        eventType: 'schedule (v1 pubsub.schedule is not supported)',
       });
       continue;
     }

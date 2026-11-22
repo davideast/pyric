@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -16,13 +16,26 @@ const firebaseFunctionsPath = resolve(
   '../../../../conformance/node_modules/firebase-functions',
 );
 
+const tempDirs: string[] = [];
+
 function fixtureProject(): string {
-  return mkdtempSync(join(tmpdir(), 'pyric-functions-runtime-'));
+  const dir = mkdtempSync(join(tmpdir(), 'pyric-functions-runtime-'));
+  tempDirs.push(dir);
+  return dir;
 }
+
+afterEach(() => {
+  for (const dir of tempDirs.splice(0)) {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 function plantFunctionsSource(projectDir: string, source: string): void {
   mkdirSync(join(projectDir, 'functions/node_modules'), { recursive: true });
-  writeFileSync(join(projectDir, 'firebase.json'), JSON.stringify({ functions: { source: 'functions' } }));
+  writeFileSync(
+    join(projectDir, 'firebase.json'),
+    JSON.stringify({ functions: { source: 'functions' } }),
+  );
   writeFileSync(
     join(projectDir, 'functions/package.json'),
     JSON.stringify({ name: 'fixture-functions', private: true, main: 'index.js' }),
@@ -55,6 +68,7 @@ exports.turnedOff = onValueCreated({ ref: '/messages/{id}', omit: true }, () => 
     expect(discovered.triggers).toHaveLength(1);
     expect(discovered.triggers[0]).toMatchObject({
       exportName: 'makeUppercase',
+      eventType: 'google.firebase.database.ref.v1.created',
       reference: 'messages/{pushId}/original',
     });
     expect(discovered.unsupported).toEqual([
@@ -65,25 +79,95 @@ exports.turnedOff = onValueCreated({ ref: '/messages/{id}', omit: true }, () => 
     ]);
   });
 
-  test('reports non-created RTDB, Firestore, and Storage trigger exports as unsupported', async () => {
+  test('surfaces supported triggers across all sandbox families and reports unsupported exports with matching reasons (#1941)', async () => {
     const projectDir = fixtureProject();
-    plantFunctionsSource(
-      projectDir,
-      `const { onValueCreated, onValueUpdated, onValueDeleted } = require('firebase-functions/v2/database');
-const { onDocumentCreated } = require('firebase-functions/v2/firestore');
-exports.validCreate = onValueCreated('/messages/{id}', () => undefined);
-exports.onUpdated = onValueUpdated('/messages/{id}', () => undefined);
-exports.onDeleted = onValueDeleted('/messages/{id}', () => undefined);
-exports.onDocCreated = onDocumentCreated('messages/{id}', () => undefined);
-`,
-    );
-    const discovered = await discoverFunctionsTriggers(projectDir);
-    expect(discovered.triggers.map((t) => t.exportName)).toEqual(['validCreate']);
-    expect(discovered.unsupported.map((u) => u.exportName)).toEqual([
-      'onUpdated',
-      'onDeleted',
-      'onDocCreated',
-    ]);
+    const sandbox = initializeSandbox();
+    try {
+      plantFunctionsSource(
+        projectDir,
+        [
+          "const { onValueCreated, onValueUpdated } = require('firebase-functions/v2/database');",
+          "const { onDocumentCreated } = require('firebase-functions/v2/firestore');",
+          "const { onObjectFinalized } = require('firebase-functions/v2/storage');",
+          "const { onSchedule } = require('firebase-functions/v2/scheduler');",
+          "const { beforeUserCreated } = require('firebase-functions/v2/identity');",
+          "const { onMessagePublished } = require('firebase-functions/v2/pubsub');",
+          "const { onTaskDispatched } = require('firebase-functions/v2/tasks');",
+          "const { onRequest, onCall } = require('firebase-functions/v2/https');",
+          "const v1 = require('firebase-functions/v1');",
+          "exports.rtdbCreate = onValueCreated('/messages/{id}', () => undefined);",
+          "exports.rtdbUpdate = onValueUpdated('/messages/{id}', () => undefined);",
+          "exports.docCreated = onDocumentCreated('users/{uid}', () => undefined);",
+          'exports.objectFinalized = onObjectFinalized(() => undefined);',
+          "exports.nightlySchedule = onSchedule('every 5 minutes', () => undefined);",
+          'exports.authGate = beforeUserCreated(() => undefined);',
+          "exports.topicWorker = onMessagePublished('orders', () => undefined);",
+          'exports.taskWorker = onTaskDispatched(() => undefined);',
+          "exports.httpApi = onRequest((_req, res) => res.send('ok'));",
+          'exports.callableSave = onCall(() => ({ ok: true }));',
+          "exports.badDocPattern = onDocumentCreated('users', () => undefined);",
+          "exports.badCron = onSchedule('99 * * * *', () => undefined);",
+          'exports.omittedBlocking = beforeUserCreated({ omit: true }, () => undefined);',
+          "exports.legacyV1Firestore = v1.firestore.document('users/{uid}').onCreate(() => null);",
+        ].join('\n'),
+      );
+
+      const ctx = createSurfaceContext(sandbox, projectDir);
+      const listed = await listTriggersMethod.handler({}, ctx);
+      expect(listed.ok).toBe(true);
+      expect(listed.summary).toBe('10 trigger(s), 4 unsupported');
+
+      const data = listed.data as {
+        triggers: Array<Record<string, unknown>>;
+        unsupported: Array<{ exportName: string; eventType: string }>;
+      };
+      expect(data.triggers.map((t) => [t.exportName, t.eventType])).toEqual([
+        ['rtdbCreate', 'google.firebase.database.ref.v1.created'],
+        ['rtdbUpdate', 'google.firebase.database.ref.v1.updated'],
+        ['docCreated', 'google.cloud.firestore.document.v1.created'],
+        ['objectFinalized', 'google.cloud.storage.object.v1.finalized'],
+        ['nightlySchedule', 'schedule'],
+        ['authGate', 'providers/cloud.auth/eventTypes/user.beforeCreate'],
+        ['topicWorker', 'google.cloud.pubsub.topic.v1.messagePublished'],
+        ['taskWorker', 'task-queue'],
+        ['httpApi', 'https'],
+        ['callableSave', 'callable'],
+      ]);
+      expect(data.triggers[2]).toEqual({
+        exportName: 'docCreated',
+        eventType: 'google.cloud.firestore.document.v1.created',
+        document: 'users/{uid}',
+        database: '(default)',
+        namespace: '(default)',
+      });
+      expect(data.triggers[4]).toEqual({
+        exportName: 'nightlySchedule',
+        eventType: 'schedule',
+        schedule: 'every 5 minutes',
+        regions: ['us-central1'],
+      });
+      expect(data.unsupported).toEqual([
+        {
+          exportName: 'badDocPattern',
+          eventType:
+            'google.cloud.firestore.document.v1.created (unsupported document pattern: users)',
+        },
+        {
+          exportName: 'badCron',
+          eventType: "schedule (invalid schedule: value '99' out of range for minute field)",
+        },
+        {
+          exportName: 'omittedBlocking',
+          eventType: 'providers/cloud.auth/eventTypes/user.beforeCreate (omitted from emulation)',
+        },
+        {
+          exportName: 'legacyV1Firestore',
+          eventType: 'providers/cloud.firestore/eventTypes/document.create',
+        },
+      ]);
+    } finally {
+      sandbox.dispose();
+    }
   });
 
   test('recognizes supported https onRequest exports and reports omitted onRequest exports cleanly', async () => {
@@ -98,7 +182,10 @@ exports.omittedHttp = onRequest({ omit: true }, (_req, res) => res.send('skip'))
 `,
     );
     const discovered = await discoverFunctionsTriggers(projectDir);
-    expect(discovered.triggers.map((t) => t.exportName)).toEqual(['onCreated']);
+    expect(discovered.triggers.map((t) => [t.exportName, t.eventType])).toEqual([
+      ['onCreated', 'google.firebase.database.ref.v1.created'],
+      ['api', 'https'],
+    ]);
     expect(discovered.unsupported).toEqual([
       {
         exportName: 'omittedHttp',
@@ -119,7 +206,10 @@ exports.omittedCall = onCall({ omit: true }, () => ({ ok: false }));
 `,
     );
     const discovered = await discoverFunctionsTriggers(projectDir);
-    expect(discovered.triggers.map((t) => t.exportName)).toEqual(['onCreated']);
+    expect(discovered.triggers.map((t) => [t.exportName, t.eventType])).toEqual([
+      ['onCreated', 'google.firebase.database.ref.v1.created'],
+      ['saveItem', 'callable'],
+    ]);
     expect(discovered.unsupported).toEqual([
       {
         exportName: 'omittedCall',
@@ -139,9 +229,9 @@ exports.omittedCall = onCall({ omit: true }, () => ({ ok: false }));
           "const cfg = JSON.parse(process.env.FIREBASE_CONFIG || '{}');",
           "const defaultInstance = cfg.databaseURL ? new URL(cfg.databaseURL).hostname.split('.')[0] : 'unset';",
           "exports.onTaskCreated = onValueCreated({ ref: '/tasks/{taskId}', instance: defaultInstance }, (event) => ({",
-          "  instance: event.instance,",
-          "  gcloudProject: process.env.GCLOUD_PROJECT,",
-          "}));",
+          '  instance: event.instance,',
+          '  gcloudProject: process.env.GCLOUD_PROJECT,',
+          '}));',
         ].join('\n'),
       );
       writeFileSync(join(projectDir, 'pyric.json'), JSON.stringify({ project: 'org-alpha' }));
@@ -155,7 +245,8 @@ exports.omittedCall = onCall({ omit: true }, () => ({ ok: false }));
       const ctx = createSurfaceContext(sandbox, projectDir);
       const listed = await listTriggersMethod.handler({}, ctx);
       expect(listed.ok).toBe(true);
-      expect(listed.data.triggers[0]?.instance).toBe('org-alpha-default-rtdb');
+      const listedTriggers = (listed.data as { triggers: Array<{ instance?: string }> }).triggers;
+      expect(listedTriggers[0]?.instance).toBe('org-alpha-default-rtdb');
 
       const fired = await fireFunctionsTriggerIsolated(ctx, {
         triggerName: 'onTaskCreated',
@@ -175,7 +266,6 @@ exports.omittedCall = onCall({ omit: true }, () => ({ ok: false }));
       }
     } finally {
       sandbox.dispose();
-      rmSync(projectDir, { recursive: true, force: true });
     }
   });
 
@@ -192,7 +282,10 @@ exports.omittedCall = onCall({ omit: true }, () => ({ ok: false }));
           "exports.onEntryCreated = onValueCreated({ ref: '/entries/{entryId}', instance: defaultInstance }, (event) => event.instance);",
         ].join('\n'),
       );
-      writeFileSync(join(projectDir, '.firebaserc'), JSON.stringify({ projects: { default: 'org-alpha' } }));
+      writeFileSync(
+        join(projectDir, '.firebaserc'),
+        JSON.stringify({ projects: { default: 'org-alpha' } }),
+      );
       writeFileSync(
         join(projectDir, 'database.rules.json'),
         JSON.stringify({ rules: { '.read': true, '.write': true } }),
@@ -210,7 +303,8 @@ exports.omittedCall = onCall({ omit: true }, () => ({ ok: false }));
 
       const ctx = createSurfaceContext(sandbox, projectDir);
       const listed = await listTriggersMethod.handler({}, ctx);
-      expect(listed.data.triggers[0]?.instance).toBe('custom-rtdb');
+      const listedTriggers = (listed.data as { triggers: Array<{ instance?: string }> }).triggers;
+      expect(listedTriggers[0]?.instance).toBe('custom-rtdb');
 
       const fired = await fireFunctionsTriggerIsolated(ctx, {
         triggerName: 'onEntryCreated',
@@ -227,7 +321,6 @@ exports.omittedCall = onCall({ omit: true }, () => ({ ok: false }));
       }
     } finally {
       sandbox.dispose();
-      rmSync(projectDir, { recursive: true, force: true });
     }
   });
 });

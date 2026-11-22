@@ -21,10 +21,7 @@ import { fileURLToPath } from 'node:url';
 import { getClock } from 'pyric/sandbox';
 import { buildChildEnv, registerModuleUrl } from '../../cli/sandbox-runner.js';
 import { discoverFunctionsProject } from '../../functions/project.js';
-import type {
-  DiscoveredOnValueCreated,
-  UnsupportedOnValueCreated,
-} from '../../functions/rtdb/discovery.js';
+import type { UnsupportedOnValueCreated } from '../../functions/rtdb/discovery.js';
 import { buildFunctionsChildEnv, resolveChildDatabaseHost } from '../../functions/spawn.js';
 import { resolveProjectAndDefaultInstance } from './database-instance-project.js';
 import {
@@ -32,15 +29,20 @@ import {
   type FunctionsParentToChild,
   type FunctionsRunnerReply,
   type FunctionsRunnerRequest,
+  type SerializedListedTrigger,
   type SerializedTriggerDescriptor,
 } from './functions-child-runner.js';
 import { startEphemeralFunctionsHost, type EphemeralFunctionsHost } from './functions-ephemeral-host.js';
 import type { SurfaceContext } from './types.js';
 
+export type DiscoveredFunctionsTrigger = SerializedListedTrigger & {
+  callable: () => never;
+};
+
 export interface FunctionsDiscovery {
   /** Where this project's Functions source was looked for. */
   lookedAt: string;
-  triggers: DiscoveredOnValueCreated[];
+  triggers: DiscoveredFunctionsTrigger[];
   unsupported: UnsupportedOnValueCreated[];
 }
 
@@ -122,7 +124,7 @@ function buildIsolatedEnv(options: {
   return childEnv;
 }
 
-function toDiscoveredTrigger(descriptor: SerializedTriggerDescriptor): DiscoveredOnValueCreated {
+function toDiscoveredTrigger(descriptor: SerializedListedTrigger): DiscoveredFunctionsTrigger {
   return {
     ...descriptor,
     callable: () => {
@@ -133,7 +135,7 @@ function toDiscoveredTrigger(descriptor: SerializedTriggerDescriptor): Discovere
   };
 }
 
-/** Discover the RTDB triggers one project's Functions source defines, if it has one. */
+/** Discover the supported and unsupported triggers one project's Functions source defines. */
 export async function discoverFunctionsTriggers(
   projectDir: string,
   options: {

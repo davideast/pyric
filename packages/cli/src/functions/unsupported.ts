@@ -8,6 +8,7 @@
  * in the list the child passes, not another branch in a label chain.
  */
 import {
+  classifyEndpointOmit,
   endpointTriggerLabel,
   listFirebaseEndpoints,
   type FirebaseEndpoint,
@@ -36,7 +37,17 @@ export function findUnsupportedTriggers(
     if (!endpoint) continue;
     const claimed = families.some((family) => family.claims(endpoint));
     if (claimed) continue;
-    unsupported.push({ exportName, eventType: endpointTriggerLabel(endpoint) });
+    const label = endpointTriggerLabel(endpoint);
+    const omitState = classifyEndpointOmit(endpoint.omit);
+    if (omitState === 'omitted') {
+      unsupported.push({ exportName, eventType: `${label} (omitted from emulation)` });
+      continue;
+    }
+    if (omitState === 'dynamic') {
+      unsupported.push({ exportName, eventType: `${label} (unsupported dynamic omit option)` });
+      continue;
+    }
+    unsupported.push({ exportName, eventType: label });
   }
   return unsupported;
 }
