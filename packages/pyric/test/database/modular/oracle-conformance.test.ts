@@ -24,6 +24,7 @@ const obsGate = createObservationGate({
     join(import.meta.dir, 'database-instances-cdd.test.ts'),
     join(import.meta.dir, 'info-write-validation.test.ts'),
     join(import.meta.dir, 'listener-lifecycle-cdd.test.ts'),
+    join(import.meta.dir, 'listener-only-once-cdd.test.ts'),
     join(import.meta.dir, 'oracle-conformance-emulator-and-logging.test.ts'),
     join(import.meta.dir, 'oracle-conformance-listeners.test.ts'),
     join(import.meta.dir, 'oracle-conformance-offline.test.ts'),

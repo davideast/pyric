@@ -1,4 +1,4 @@
-import { expect, it } from 'bun:test';
+import { expect, it, spyOn } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import { getDatabase, ref, set, onValue, onChildAdded, off, sandbox as databaseSandbox } from '../../src/database/index.js';
 import { sdkActivity, type SdkActivityEvent } from '../../src/sandbox/internal/sdk-activity.js';
@@ -14,6 +14,18 @@ it('counts RTDB public callbacks, including the initial onlyOnce child batch and
   let children = 0;
   let values = 0;
   const callback = () => { ++values; };
+  const scheduled: Array<() => void> = [];
+  const realSetTimeout = globalThis.setTimeout;
+  const timeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
+    ((fn: (...args: unknown[]) => void, delay?: number, ...args: unknown[]) => {
+      if (fn.name === 'rtdbExceptionGuardRethrow') {
+        scheduled.push(() => fn(...args));
+        return 0 as unknown as ReturnType<typeof setTimeout>;
+      }
+      return realSetTimeout(fn, delay, ...args);
+    }) as typeof setTimeout,
+  );
+  const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
   try {
     unsubscribes.push(onChildAdded(target, () => {
       ++children;
@@ -22,6 +34,11 @@ it('counts RTDB public callbacks, including the initial onlyOnce child batch and
     await Promise.resolve();
     const childId = events.find(event => event.phase === 'start')!.record.id;
     expect(children).toBe(2);
+    expect(scheduled).toHaveLength(2);
+    for (const rethrow of scheduled) {
+      expect(() => rethrow()).toThrow('app callback');
+    }
+    expect(warnSpy).toHaveBeenCalledTimes(2);
     expect(events.filter(event => event.phase === 'delivery' && event.record.id === childId)).toHaveLength(2);
     expect(events.find(event => event.phase === 'end' && event.record.id === childId)?.record).toMatchObject({ status: 'closed', method: 'onChildAdded', deliveryCount: 2 });
     unsubscribes.push(onValue(target, callback), onValue(target, callback));
@@ -35,6 +52,8 @@ it('counts RTDB public callbacks, including the initial onlyOnce child batch and
     expect(counts).toEqual([1, 2]);
     expect(children).toBe(2);
   } finally {
+    timeoutSpy.mockRestore();
+    warnSpy.mockRestore();
     for (const unsubscribe of unsubscribes) unsubscribe();
     stop();
   }

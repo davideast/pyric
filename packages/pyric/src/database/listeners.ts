@@ -6,6 +6,7 @@ import type { AuthState } from 'pyric/sandbox';
 import { ListenerRegistry, type ListenerRegistration } from './listener-registry.js';
 import type { ChildEventSnapshot, ValueListenerSnapshot } from './sandbox/listener-types.js';
 import type { JsonValue } from './sandbox/data-tree.js';
+import { runWithExceptionGuard } from './sandbox/exception-guard.js';
 import { authFor, isAdminFor, targetOf, type Target } from './routing.js';
 import { hasNonFiniteQueryLimit, isDefaultQuerySpec, isQuery, queryIdentifier } from './query-shape.js';
 import { loadsAllData, type QueryRow } from './internal/query-projection.js';
@@ -264,11 +265,7 @@ function onValueInternal(
     const deliver = (raw: { val: JsonValue; key: string | null; rows?: QueryRow[] }): void => {
       const rows = raw.rows ?? [];
       const snap = buildSandboxQuerySnap(target, q.ref, rows, loadsAllData(q._spec), raw.val);
-      try {
-        cb(snap);
-      } catch {
-        // Listener throws are swallowed.
-      }
+      cb(snap);
     };
     // Admin (rules-bypass) listeners skip the read-rule gate entirely — the
     // listen-plane sibling of `adminGet`/`adminSet` (#401). `admin` is set
@@ -280,12 +277,7 @@ function onValueInternal(
   const target = targetOf(ref0);
   const wrapper = (raw: { val: JsonValue; key: string | null }): void => {
     const snap = buildSandboxSnapFromRaw(target, ref0, raw.val);
-    try {
-      cb(snap);
-    } catch {
-      // Listener throws are swallowed — match `firebase/database`'s
-      // behavior where one observer's exception doesn't block others.
-    }
+    cb(snap);
   };
   return subscribeTrackedValue(target, ref0._path, undefined, undefined, wrapper, cancelCallback, listenOptions, registryCallback, activity);
 }
@@ -387,12 +379,7 @@ function subscribeChild(
       // Firebase queues an existing child_added batch before its only-once
       // detach takes effect and delivers that batch in reverse key order.
       for (const [snap, previousChildName] of initial.reverse()) {
-        try {
-          cb(snap, previousChildName);
-        } catch {
-          // Listener exceptions are isolated; one child in the captured
-          // initial batch must not abort the remaining deliveries.
-        }
+        runWithExceptionGuard(() => cb(snap, previousChildName));
       }
     }
     return unsubscribe;
@@ -477,12 +464,7 @@ function onChildEvent(
     // child carries the priorities the tree no longer holds.
     const childRef = child(baseRef, raw.key);
     const snap = buildSandboxSnapFromRaw(target, childRef, raw.val, raw.priorities);
-    try {
-      cb(snap, event === 'child_removed' ? null : raw.previousChildName);
-    } catch {
-      // Listener throws are swallowed — match `firebase/database`'s
-      // behavior where one observer's exception doesn't block others.
-    }
+    cb(snap, event === 'child_removed' ? null : raw.previousChildName);
   };
   return registerTracked(target, baseRef._path, event, registryCallback, activity, scope, (unregister) => {
     if (target.admin === true) {

@@ -46,7 +46,7 @@ it('never broadcasts speculative updates to active listeners when security rules
 
   const observedValues: unknown[] = [];
   const unsub = values.onValue({ uid: 'admin' }, '/counter', (snap) => {
-    observedValues.push(snap.val());
+    observedValues.push(snap.val);
   });
   observedValues.length = 0;
 

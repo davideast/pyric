@@ -34,6 +34,7 @@ export {
   type QueryReadResult,
 } from './internal/query-projection.js';
 export { listenIndexWarning } from './listen-index-warning.js';
+export { scheduleCallbackErrorRethrow } from './sandbox/exception-guard.js';
 export { logDatabaseWarning } from './sandbox/query-index.js';
 export { heldDatabaseInstances } from './sandbox/backend-for.js';
 export { assertGettablePath } from './info-read.js';

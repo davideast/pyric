@@ -6,6 +6,7 @@ import {
   type ListenerAttribution,
 } from '../../sandbox/attribution/listener-owners.js';
 import { isReservedSegment, jsonValuesEqual, joinPath, pathSegments, type JsonValue } from './data-tree.js';
+import { scheduleCallbackErrorRethrow } from './exception-guard.js';
 import type { BackendState } from './backend-state.js';
 import type { ValueListener, ValueListenerSnapshot } from './listener-types.js';
 import { denyResultFor, rtdbDenialContext, rtdbRulesDetail } from './operation-events.js';
@@ -282,6 +283,7 @@ export class ValueListeners {
       event: 'value', result: 'error',
       error: { message: thrown instanceof Error ? thrown.message : String(thrown) }, detail,
     });
+    scheduleCallbackErrorRethrow(thrown);
   }
 
   private deliverInitial(
@@ -310,6 +312,7 @@ export class ValueListeners {
       event: 'value', result: 'error',
       error: { message: thrown instanceof Error ? thrown.message : String(thrown) }, detail,
     });
+    scheduleCallbackErrorRethrow(thrown);
   }
 }
 
