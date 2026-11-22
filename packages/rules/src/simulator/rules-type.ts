@@ -52,9 +52,8 @@ export function describeRulesType(value: unknown): string {
 // === Linear-time RE2 regex evaluation & Java Matcher replacement ===
 
 function isWordChar(chars: readonly string[], idx: number): boolean {
-  if (idx < 0 || idx >= chars.length) return false;
-  const ch = chars[idx]!;
-  if (ch.length !== 1) return false;
+  const ch = idx >= 0 && idx < chars.length ? chars[idx] : undefined;
+  if (ch === undefined || ch.length !== 1) return false;
   const code = ch.charCodeAt(0);
   return (
     (code >= 48 && code <= 57) ||
@@ -244,7 +243,8 @@ function parseRe2Pattern(pattern: string): ParsedRe2Pattern {
       else items.push(parseQuantified());
     }
     if (items.length === 0) return { kind: 'empty' };
-    if (items.length === 1) return items[0]!;
+    const single = items[0];
+    if (items.length === 1 && single !== undefined) return single;
     return { kind: 'seq', items };
   };
 
@@ -314,7 +314,7 @@ function parseRe2Pattern(pattern: string): ParsedRe2Pattern {
   };
 
   const parseAtom = (): RegexNode => {
-    const ch = pattern[pos]!;
+    const ch = pattern[pos] ?? '';
     if (ch === '(') {
       pos++;
       const savedI = ignoreCase;
@@ -392,7 +392,7 @@ function parseRe2Pattern(pattern: string): ParsedRe2Pattern {
     if (ch === '\\') {
       const start = pos;
       pos++;
-      const esc = pattern[pos]!;
+      const esc = pattern[pos] ?? '';
       if (esc === 'b') {
         pos++;
         return { kind: 'assert', check: (s, p) => isWordChar(s, p - 1) !== isWordChar(s, p) };
@@ -441,21 +441,23 @@ function parseRe2Pattern(pattern: string): ParsedRe2Pattern {
       }
       if (esc >= '0' && esc <= '7') {
         let octLen = 1;
-        if (pattern[pos + 1] !== undefined && pattern[pos + 1]! >= '0' && pattern[pos + 1]! <= '7') {
+        const oct1 = pattern[pos + 1];
+        if (oct1 !== undefined && oct1 >= '0' && oct1 <= '7') {
           octLen = 2;
-          if (esc <= '3' && pattern[pos + 2] !== undefined && pattern[pos + 2]! >= '0' && pattern[pos + 2]! <= '7') {
+          const oct2 = pattern[pos + 2];
+          if (esc <= '3' && oct2 !== undefined && oct2 >= '0' && oct2 <= '7') {
             octLen = 3;
           }
         }
         pos += octLen;
         return { kind: 'char', test: compileCharMatcher(pattern.slice(start, pos), ignoreCase) };
       }
-      const cp = pattern.codePointAt(pos)!;
+      const cp = pattern.codePointAt(pos) ?? 0;
       const lit = String.fromCodePoint(cp);
       pos += lit.length;
       return matchLiteralChar(lit, ignoreCase);
     }
-    const cp = pattern.codePointAt(pos)!;
+    const cp = pattern.codePointAt(pos) ?? 0;
     const fullCh = String.fromCodePoint(cp);
     pos += fullCh.length;
     return matchLiteralChar(fullCh, ignoreCase);
@@ -546,8 +548,10 @@ function expandRe2Replacement(
     }
     let group = Number(next);
     let end = i + 2;
-    while (end < template.length && template[end]! >= '0' && template[end]! <= '9') {
-      const longer = group * 10 + Number(template[end]);
+    while (end < template.length) {
+      const digit = template[end];
+      if (digit === undefined || digit < '0' || digit > '9') break;
+      const longer = group * 10 + Number(digit);
       if (longer > groupCount) break;
       group = longer;
       end += 1;

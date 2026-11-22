@@ -1,5 +1,4 @@
-import { assembleExpression } from '../grammar/FirestoreAssembler.js';
-import type { AllowRule, Expression, FunctionDef, MatchBlock } from '../grammar/FirestoreAST.js';
+import type { Expression, FunctionDef } from '../grammar/FirestoreAST.js';
 import {
   analyzeListRulePathInvariance,
   type ListRulePathAnalysis,
@@ -10,6 +9,18 @@ import {
   type FunctionScopeBindings,
 } from './match-resolution.js';
 import {
+  allocateBudgetLocalName,
+  attachOrBudgetStep,
+  budgetTokenForExpr,
+  collectReachableFunctionDefs,
+  getOrBudgetSteps,
+  hasAttachedBudgetSteps,
+  mapOrBudgetStepExpressions,
+  mentionsAnyIdentifier,
+  recordLocalCanonicalKey,
+  type OrBudgetStep,
+} from './or-budget-steps.js';
+import {
   callsResolveInOuterScope,
   inlineFunctionsInExpr,
   isProvablyDocIndependent,
@@ -17,34 +28,18 @@ import {
   substituteIdentifiers,
 } from './query-proof-scope.js';
 
-export type OrBudgetStep =
-  | {
-      readonly kind?: 'linear';
-      readonly operator: Expression;
-      readonly side: 'before' | 'after';
-      readonly branch: Expression;
-    }
-  | {
-      readonly kind: 'bind';
-      readonly operator: Expression;
-      readonly name: string;
-      readonly branch: Expression;
-      readonly isLet?: boolean;
-    }
-  | {
-      readonly kind: 'fork';
-      readonly operator: Expression;
-      readonly condition?: Expression;
-      readonly branches: readonly Expression[];
-    }
-  | {
-      readonly kind: 'variants';
-      readonly branches: readonly Expression[];
-    };
-
-export type ListBlockStep =
-  | { readonly kind: 'budget'; readonly rule: AllowRule; readonly index: number }
-  | { readonly kind: 'grant'; readonly rule: AllowRule; readonly index: number };
+export {
+  attachOrBudgetStep,
+  getListBlockSteps,
+  getOrBudgetStepExpressions,
+  getOrBudgetSteps,
+  isTrivialPureExpr,
+  isUnconditionallyEvaluatedInExpr,
+  mapOrBudgetStepExpressions,
+  setListBlockSteps,
+  type ListBlockStep,
+  type OrBudgetStep,
+} from './or-budget-steps.js';
 
 export interface WorstCaseBudgetOptions {
   readonly outerFunctions: ReadonlyMap<string, FunctionDef>;
@@ -54,267 +49,8 @@ export interface WorstCaseBudgetOptions {
   readonly checkResourceDependence?: boolean;
 }
 
-const orBudgetStepsMap = new WeakMap<Expression, readonly OrBudgetStep[]>();
-const listBlockStepsMap = new WeakMap<MatchBlock, readonly ListBlockStep[]>();
 const LOOKUP_BUILTINS = new Set(['get', 'exists', 'getAfter', 'existsAfter']);
 const EMPTY_STRING_SET: ReadonlySet<string> = new Set();
-const LOCAL_TOKEN_PATTERN = /__pyric_local_\d+__/g;
-const MAX_INLINE_CANONICAL_KEY_LEN = 256;
-const MAX_CANONICAL_CACHE_ENTRIES = 50_000;
-const localCanonicalKeyMap = new Map<string, string>();
-let nextBudgetLocalId = 0;
-
-function fnv1aHex(input: string, seed: bigint): string {
-  let h = seed;
-  for (let i = 0; i < input.length; i++) {
-    h ^= BigInt(input.charCodeAt(i));
-    h = BigInt.asUintN(64, h * 0x100000001b3n);
-  }
-  return h.toString(16).padStart(16, '0');
-}
-
-function compactCanonicalKey(raw: string): string {
-  if (raw.length <= MAX_INLINE_CANONICAL_KEY_LEN) return raw;
-  const h1 = fnv1aHex(raw, 0xcbf29ce484222325n);
-  const h2 = fnv1aHex(raw, 0x84222325cbf29ce4n);
-  return `#digest:${raw.length}:${h1}${h2}#`;
-}
-
-function canonicalKeyForExpr(expr: Expression): string {
-  if (expr.type === 'identifier') {
-    const mapped = localCanonicalKeyMap.get(expr.name);
-    if (mapped !== undefined) return mapped;
-  }
-  const raw = assembleExpression(expr);
-  const expanded = raw.replace(LOCAL_TOKEN_PATTERN, (match) => {
-    const mapped = localCanonicalKeyMap.get(match);
-    return mapped !== undefined ? `(${mapped})` : match;
-  });
-  return compactCanonicalKey(expanded);
-}
-
-function recordLocalCanonicalKey(localName: string, boundExpr: Expression): void {
-  if (localCanonicalKeyMap.size >= MAX_CANONICAL_CACHE_ENTRIES) {
-    localCanonicalKeyMap.clear();
-  }
-  localCanonicalKeyMap.set(localName, canonicalKeyForExpr(boundExpr));
-}
-
-export function attachOrBudgetStep(target: Expression, step: OrBudgetStep): Expression {
-  const existing = orBudgetStepsMap.get(target) ?? [];
-  const cloned: Expression = { ...target };
-  orBudgetStepsMap.set(cloned, [step, ...existing]);
-  return cloned;
-}
-
-export function getOrBudgetSteps(expr: Expression): readonly OrBudgetStep[] | undefined {
-  return orBudgetStepsMap.get(expr);
-}
-
-export function getOrBudgetStepExpressions(step: OrBudgetStep): readonly Expression[] {
-  if (step.kind === 'fork') {
-    return step.condition ? [step.condition, ...step.branches] : step.branches;
-  }
-  if (step.kind === 'variants') {
-    return step.branches;
-  }
-  return [step.branch];
-}
-
-export function mapOrBudgetStepExpressions(
-  step: OrBudgetStep,
-  mapExpr: (expr: Expression) => Expression,
-): OrBudgetStep {
-  if (step.kind === 'fork') {
-    return {
-      ...step,
-      ...(step.condition ? { condition: mapExpr(step.condition) } : {}),
-      branches: step.branches.map(mapExpr),
-    };
-  }
-  if (step.kind === 'variants') {
-    return {
-      ...step,
-      branches: step.branches.map(mapExpr),
-    };
-  }
-  return {
-    ...step,
-    branch: mapExpr(step.branch),
-  };
-}
-
-export function setListBlockSteps(block: MatchBlock, steps: readonly ListBlockStep[]): void {
-  listBlockStepsMap.set(block, steps);
-}
-
-export function getListBlockSteps(block: MatchBlock): readonly ListBlockStep[] | undefined {
-  return listBlockStepsMap.get(block);
-}
-
-/** Visit direct child expressions of `expr` (excluding string path segments). */
-export function forEachChildExpression(
-  expr: Expression,
-  visit: (child: Expression) => void,
-): void {
-  switch (expr.type) {
-    case 'literal':
-    case 'identifier':
-      return;
-    case 'memberAccess':
-      visit(expr.object);
-      return;
-    case 'bracketAccess':
-      visit(expr.object);
-      visit(expr.index);
-      return;
-    case 'sliceAccess':
-      visit(expr.object);
-      visit(expr.start);
-      visit(expr.end);
-      return;
-    case 'binaryOp':
-      visit(expr.left);
-      visit(expr.right);
-      return;
-    case 'unaryOp':
-      visit(expr.operand);
-      return;
-    case 'ternary':
-      visit(expr.condition);
-      visit(expr.consequent);
-      visit(expr.alternate);
-      return;
-    case 'inExpr':
-      visit(expr.element);
-      visit(expr.collection);
-      return;
-    case 'isExpr':
-      visit(expr.value);
-      return;
-    case 'listLiteral':
-      for (const el of expr.elements) visit(el);
-      return;
-    case 'mapLiteral':
-      for (const entry of expr.entries) {
-        visit(entry.key);
-        visit(entry.value);
-      }
-      return;
-    case 'pathLiteral':
-      for (const seg of expr.segments) {
-        if (typeof seg !== 'string') visit(seg);
-      }
-      return;
-    case 'methodCall':
-      visit(expr.object);
-      for (const arg of expr.args) visit(arg);
-      return;
-    case 'functionCall':
-      for (const arg of expr.args) visit(arg);
-      return;
-  }
-}
-
-/** True when `expr` is a single literal or identifier with no side effects or budget steps. */
-export function isTrivialPureExpr(expr: Expression): boolean {
-  if (getOrBudgetSteps(expr)?.length) return false;
-  return expr.type === 'literal' || expr.type === 'identifier';
-}
-
-/**
- * True when evaluating `expr` is guaranteed to evaluate identifier `name` at
- * least once regardless of runtime operand values (not behind the right arm of
- * `&&`/`||` or the branches of `ternary`).
- */
-export function isUnconditionallyEvaluatedInExpr(name: string, expr: Expression): boolean {
-  if (expr.type === 'identifier') return expr.name === name;
-  if (expr.type === 'literal') return false;
-  if (expr.type === 'binaryOp' && (expr.op === '&&' || expr.op === '||')) {
-    return isUnconditionallyEvaluatedInExpr(name, expr.left);
-  }
-  if (expr.type === 'ternary') {
-    return isUnconditionallyEvaluatedInExpr(name, expr.condition);
-  }
-  let found = false;
-  forEachChildExpression(expr, (child) => {
-    if (!found && isUnconditionallyEvaluatedInExpr(name, child)) {
-      found = true;
-    }
-  });
-  return found;
-}
-
-function hasAttachedBudgetSteps(expr: Expression): boolean {
-  const seen = new Set<Expression>();
-  const walk = (node: Expression): boolean => {
-    if (seen.has(node)) return false;
-    seen.add(node);
-    if (getOrBudgetSteps(node)?.length) return true;
-    let found = false;
-    forEachChildExpression(node, (child) => {
-      if (!found && walk(child)) found = true;
-    });
-    return found;
-  };
-  return walk(expr);
-}
-
-function collectReachableFunctionDefs(
-  expr: Expression,
-  currentFunctions: ReadonlyMap<string, FunctionDef>,
-  out: Set<FunctionDef>,
-  visiting: Set<FunctionDef> = new Set(),
-): void {
-  const steps = getOrBudgetSteps(expr);
-  if (steps) {
-    for (const step of steps) {
-      for (const sub of getOrBudgetStepExpressions(step)) {
-        collectReachableFunctionDefs(sub, currentFunctions, out, visiting);
-      }
-    }
-  }
-  forEachChildExpression(expr, (child) => {
-    collectReachableFunctionDefs(child, currentFunctions, out, visiting);
-  });
-  if (expr.type === 'functionCall') {
-    const fn = currentFunctions.get(expr.name);
-    if (!fn) return;
-    out.add(fn);
-    if (visiting.has(fn)) return;
-    visiting.add(fn);
-    const nextFunctions = getValidFunctionLexicalScope(fn, currentFunctions) ?? currentFunctions;
-    for (const b of fn.lets) {
-      collectReachableFunctionDefs(b.value, nextFunctions, out, visiting);
-    }
-    collectReachableFunctionDefs(fn.body, nextFunctions, out, visiting);
-    visiting.delete(fn);
-  }
-}
-
-function mentionsAnyIdentifier(expr: Expression, names: ReadonlySet<string>): boolean {
-  if (names.size === 0) return false;
-  let found = expr.type === 'identifier' && names.has(expr.name);
-  if (found) return true;
-  const steps = getOrBudgetSteps(expr);
-  if (steps) {
-    for (const step of steps) {
-      for (const sub of getOrBudgetStepExpressions(step)) {
-        if (mentionsAnyIdentifier(sub, names)) return true;
-      }
-    }
-  }
-  forEachChildExpression(expr, (child) => {
-    if (!found && mentionsAnyIdentifier(child, names)) {
-      found = true;
-    }
-  });
-  return found;
-}
-
-function budgetTokenForExpr(expr: Expression): string {
-  return `__pyric_budget_${encodeURIComponent(canonicalKeyForExpr(expr))}__`;
-}
 
 /**
  * Projects an unprovable rule condition or dropped `||` branch so that
@@ -386,9 +122,6 @@ export function projectWorstCaseBudgetExpr(
 
     const priorSteps = getOrBudgetSteps(node);
     if (priorSteps && priorSteps.length > 0) {
-      // Project prior steps in execution order first so any bound locals whose
-      // values become non-invariant (e.g. resource-dependent in stage 2) mark
-      // `nonInvariantLocals` before `stripped` is projected.
       const projectedSteps = priorSteps.map((step) => {
         if (
           step.kind === 'bind'
@@ -403,7 +136,10 @@ export function projectWorstCaseBudgetExpr(
       const stripped: Expression = { ...node };
       let projectedTarget = project(stripped, currentFunctions, currentCandidateVars, visiting);
       for (let i = projectedSteps.length - 1; i >= 0; i--) {
-        projectedTarget = attachOrBudgetStep(projectedTarget, projectedSteps[i]!);
+        const step = projectedSteps[i];
+        if (step !== undefined) {
+          projectedTarget = attachOrBudgetStep(projectedTarget, step);
+        }
       }
       return projectedTarget;
     }
@@ -420,17 +156,17 @@ export function projectWorstCaseBudgetExpr(
       return node;
     }
 
-    if (node.type === 'functionCall' && currentFunctions.has(node.name)) {
-      const fn = currentFunctions.get(node.name)!;
-      const fnScope = getFunctionScope(fn);
-      const nextFunctions = getValidFunctionLexicalScope(fn, currentFunctions);
+    const calledFn = node.type === 'functionCall' ? currentFunctions.get(node.name) : undefined;
+    if (node.type === 'functionCall' && calledFn !== undefined) {
+      const fnScope = getFunctionScope(calledFn);
+      const nextFunctions = getValidFunctionLexicalScope(calledFn, currentFunctions);
       if (
-        visiting.has(fn)
-        || fn.parameters.length !== node.args.length
+        visiting.has(calledFn)
+        || calledFn.parameters.length !== node.args.length
         || !nextFunctions
         || (!fnScope && ambiguousNames.has(node.name))
       ) {
-        requiredDefs.add(fn);
+        requiredDefs.add(calledFn);
         collectReachableFunctionDefs(node, currentFunctions, requiredDefs);
         return {
           ...node,
@@ -461,7 +197,7 @@ export function projectWorstCaseBudgetExpr(
       }
 
       if (crossScopeFailed) {
-        requiredDefs.add(fn);
+        requiredDefs.add(calledFn);
         collectReachableFunctionDefs(node, currentFunctions, requiredDefs);
         return {
           ...node,
@@ -469,14 +205,15 @@ export function projectWorstCaseBudgetExpr(
         };
       }
 
-      const bindings = lexicalCaptureLiteralBindings(fn, functionScopes);
+      const bindings = lexicalCaptureLiteralBindings(calledFn, functionScopes);
       const bindSteps: OrBudgetStep[] = [];
-      for (let i = 0; i < fn.parameters.length; i++) {
-        const paramName = fn.parameters[i]!;
-        const argExpr = expandedArgs[i]!;
+      for (let i = 0; i < calledFn.parameters.length; i++) {
+        const paramName = calledFn.parameters[i];
+        const argExpr = expandedArgs[i];
+        if (paramName === undefined || argExpr === undefined) continue;
         const argInvariant = checkInvariance(argExpr, currentFunctions, currentCandidateVars).invariant;
         const projectedArg = project(argExpr, currentFunctions, currentCandidateVars, visiting);
-        const localName = `__pyric_local_${++nextBudgetLocalId}__`;
+        const localName = allocateBudgetLocalName();
         recordLocalCanonicalKey(localName, argExpr);
         if (!argInvariant) {
           nonInvariantLocals.add(localName);
@@ -492,7 +229,7 @@ export function projectWorstCaseBudgetExpr(
       }
 
       let nextCandidateVars = currentCandidateVars;
-      const fnLexical = functionScopes?.get(fn);
+      const fnLexical = functionScopes?.get(calledFn);
       if (fnLexical && nextCandidateVars !== undefined) {
         nextCandidateVars = new Set([
           ...nextCandidateVars,
@@ -500,12 +237,12 @@ export function projectWorstCaseBudgetExpr(
         ]);
       }
 
-      const nextVisiting = new Set(visiting).add(fn);
-      for (const binding of fn.lets) {
+      const nextVisiting = new Set(visiting).add(calledFn);
+      for (const binding of calledFn.lets) {
         const boundLet = substituteIdentifiers(binding.value, bindings);
         const letInvariant = checkInvariance(boundLet, nextFunctions, nextCandidateVars).invariant;
         const projectedLet = project(boundLet, nextFunctions, nextCandidateVars, nextVisiting);
-        const localName = `__pyric_local_${++nextBudgetLocalId}__`;
+        const localName = allocateBudgetLocalName();
         recordLocalCanonicalKey(localName, boundLet);
         if (!letInvariant) {
           nonInvariantLocals.add(localName);
@@ -521,13 +258,16 @@ export function projectWorstCaseBudgetExpr(
       }
 
       let projectedBody = project(
-        substituteIdentifiers(fn.body, bindings),
+        substituteIdentifiers(calledFn.body, bindings),
         nextFunctions,
         nextCandidateVars,
         nextVisiting,
       );
       for (let i = bindSteps.length - 1; i >= 0; i--) {
-        projectedBody = attachOrBudgetStep(projectedBody, bindSteps[i]!);
+        const step = bindSteps[i];
+        if (step !== undefined) {
+          projectedBody = attachOrBudgetStep(projectedBody, step);
+        }
       }
       return projectedBody;
     }
@@ -549,9 +289,8 @@ export function projectWorstCaseBudgetExpr(
       }
       if (inner.type === 'unaryOp' && inner.op === '!') {
         const sub = project(inner.operand, currentFunctions, currentCandidateVars, visiting);
-        return sub === inner.operand
-          ? node
-          : { type: 'unaryOp', op: '!', operand: { type: 'unaryOp', op: '!', operand: sub } };
+        if (sub === inner.operand) return node;
+        return { type: 'unaryOp', op: '!', operand: { type: 'unaryOp', op: '!', operand: sub } };
       }
       if (inner.type === 'ternary') {
         return project(
@@ -599,22 +338,23 @@ export function projectWorstCaseBudgetExpr(
           },
         );
       }
-      return condition === node.condition && consequent === node.consequent && alternate === node.alternate
-        ? node
-        : { ...node, condition, consequent, alternate };
+      if (condition === node.condition && consequent === node.consequent && alternate === node.alternate) {
+        return node;
+      }
+      return { ...node, condition, consequent, alternate };
     }
 
+    const singleArg = node.type === 'functionCall' && node.args.length === 1 ? node.args[0] : undefined;
     if (
       node.type === 'functionCall'
       && !currentFunctions.has(node.name)
       && LOOKUP_BUILTINS.has(node.name)
-      && node.args.length === 1
+      && singleArg !== undefined
     ) {
-      const arg = node.args[0]!;
-      if (arg.type === 'pathLiteral') {
+      if (singleArg.type === 'pathLiteral') {
         const segSteps: Expression[] = [];
         let changed = false;
-        const segments = arg.segments.map((seg) => {
+        const segments = singleArg.segments.map((seg) => {
           if (typeof seg === 'string') return seg;
           const segInv = checkInvariance(seg, currentFunctions, currentCandidateVars);
           if (segInv.invariant) {
@@ -634,22 +374,25 @@ export function projectWorstCaseBudgetExpr(
         if (!changed) return node;
         let rewrittenCall: Expression = {
           ...node,
-          args: [{ ...arg, segments }],
+          args: [{ ...singleArg, segments }],
         };
         for (let i = segSteps.length - 1; i >= 0; i--) {
-          rewrittenCall = attachOrBudgetStep(rewrittenCall, {
-            operator: node,
-            side: 'before',
-            branch: segSteps[i]!,
-          });
+          const branch = segSteps[i];
+          if (branch !== undefined) {
+            rewrittenCall = attachOrBudgetStep(rewrittenCall, {
+              operator: node,
+              side: 'before',
+              branch,
+            });
+          }
         }
         return rewrittenCall;
       }
 
-      const argInv = checkInvariance(arg, currentFunctions, currentCandidateVars);
+      const argInv = checkInvariance(singleArg, currentFunctions, currentCandidateVars);
       if (!argInv.invariant) {
-        const projectedArg = project(arg, currentFunctions, currentCandidateVars, visiting);
-        const token = budgetTokenForExpr(arg);
+        const projectedArg = project(singleArg, currentFunctions, currentCandidateVars, visiting);
+        const token = budgetTokenForExpr(singleArg);
         const syntheticPath: Expression = {
           type: 'pathLiteral',
           raw: `/databases/$(database)/documents/__pyric_budget_ref__/${token}`,
@@ -693,9 +436,8 @@ export function projectWorstCaseBudgetExpr(
         const object = sub(node.object);
         const start = sub(node.start);
         const end = sub(node.end);
-        return object === node.object && start === node.start && end === node.end
-          ? node
-          : { ...node, object, start, end };
+        if (object === node.object && start === node.start && end === node.end) return node;
+        return { ...node, object, start, end };
       }
       case 'binaryOp': {
         const left = sub(node.left);
@@ -709,9 +451,8 @@ export function projectWorstCaseBudgetExpr(
       case 'inExpr': {
         const element = sub(node.element);
         const collection = sub(node.collection);
-        return element === node.element && collection === node.collection
-          ? node
-          : { ...node, element, collection };
+        if (element === node.element && collection === node.collection) return node;
+        return { ...node, element, collection };
       }
       case 'isExpr': {
         const value = sub(node.value);
@@ -726,12 +467,11 @@ export function projectWorstCaseBudgetExpr(
           key: sub(entry.key),
           value: sub(entry.value),
         }));
-        return entries.every(
-          (entry, idx) =>
-            entry.key === node.entries[idx]!.key && entry.value === node.entries[idx]!.value,
-        )
-          ? node
-          : { ...node, entries };
+        const unchanged = entries.every((entry, idx) => {
+          const orig = node.entries[idx];
+          return orig !== undefined && entry.key === orig.key && entry.value === orig.value;
+        });
+        return unchanged ? node : { ...node, entries };
       }
       case 'pathLiteral': {
         const segments = node.segments.map((seg) => (typeof seg === 'string' ? seg : sub(seg)));
@@ -740,9 +480,8 @@ export function projectWorstCaseBudgetExpr(
       case 'methodCall': {
         const object = sub(node.object);
         const args = node.args.map(sub);
-        return object === node.object && args.every((arg, idx) => arg === node.args[idx])
-          ? node
-          : { ...node, object, args };
+        const unchanged = object === node.object && args.every((arg, idx) => arg === node.args[idx]);
+        return unchanged ? node : { ...node, object, args };
       }
       case 'functionCall': {
         const fn = currentFunctions.get(node.name);

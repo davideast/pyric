@@ -3,83 +3,50 @@
  *
  * Local simulation of Firestore security rules evaluation.
  * Same interface as TestFirestoreRulesHandler but runs entirely
- * in-process — no deployment, no propagation wait, no side effects.
+ * in-process -- no deployment, no propagation wait, no side effects.
  *
  * Consumes TestCase[] and returns TestResult[] in the same format
  * as the Rules Test API.
  */
+import { normalizeAuthState } from '../auth/auth-state.js';
+import type { FirestoreRules, ImportDecl } from '../grammar/FirestoreAST.js';
+import { checkRulesSource } from '../grammar/source-compile-limits.js';
+import { readAuthoredSourceMap, type AuthoredSourceMap } from '../modules/resolver-core.js';
+import { requestTimeRefusal, safeErrorMessage, safeReadProp } from '../test/case-refusals.js';
+import { caseShapeRefusal } from '../test/case-shape.js';
 import type {
-  TestCase,
-  TestResult,
-  TestFirestoreRulesResult,
-  RuleEvaluation,
   PathResolutionEntry,
   PathResolutionTrace,
+  RuleEvaluation,
   RulesResourceLimit,
+  TestCase,
+  TestFirestoreRulesResult,
+  TestResult,
 } from '../test/spec.js';
-import type {
-  FirestoreRules,
-  MatchBlock,
-  AllowRule,
-  FunctionDef,
-  Expression,
-  ImportDecl,
-} from '../grammar/FirestoreAST.js';
-import { checkRulesSource } from '../grammar/source-compile-limits.js';
-import { assembleExpression } from '../grammar/FirestoreAssembler.js';
-import { readAuthoredSourceMap, resolveAuthoredLoc, type AuthoredSourceMap } from '../modules/resolver-core.js';
-import { AUTHORED_ROOT_SOURCE_FILE, findModuleErrorImportLine } from '../modules/resolver-browser.js';
-import { evaluate, requireBoolean, UnsupportedError, TraceRecorder, type SimulationContext } from './evaluator.js';
-
-import { Timestamp } from './wrappers/timestamp.js';
-import { Path } from './wrappers/path.js';
-import { DOCUMENT_LOOKUP_LIMIT, LookupBudget } from './lookup-budget.js';
-import { EXPRESSION_LIMIT, ExpressionBudget, describeExpressionLimit } from './expression-budget.js';
-import { ExpressionLimitError, ResourceLimitError } from './eval-error.js';
-import { projectAfterState } from './project-after-state.js';
-import { documentRelativePath } from './request-path.js';
-import { normalizeDocumentPath } from './document-lookups.js';
-import {
-  requestQuery,
-  resolveServerTimestamps,
-  reviveCaseLiterals,
-  reviveFirestoreNumbers,
-} from './firestore-values.js';
-import { typeClaimNumbers } from './rules-int.js';
-import { normalizeAuthState } from '../auth/auth-state.js';
-import { caseShapeRefusal } from '../test/case-shape.js';
-import { requestTimeRefusal, safeErrorMessage, safeReadProp } from '../test/case-refusals.js';
-export { SERVER_TIMESTAMP, resolveServerTimestamps, reviveFirestoreNumbers } from './firestore-values.js';
-import { collectRootMatches, noMatchNotes } from './root-match.js';
-import { getListBlockSteps, type ListBlockStep } from './list-proof-budget.js';
-import {
-  indexRulesetScopes,
-  renderMatchBlockPath,
-  type FunctionScopeBindings,
-  type MatchResult,
-} from './match-resolution.js';
+import { ExpressionLimitError } from './eval-error.js';
+import type { SimulationContext } from './evaluator.js';
+import { ExpressionBudget } from './expression-budget.js';
+import { reviveCaseLiterals, reviveFirestoreNumbers } from './firestore-values.js';
 import {
   listQueryToConstraints,
   proveListQuery,
   renderQueryRemediation,
   type ListQueryProofReport,
+  type QueryProofFailure,
 } from './list-query-proof.js';
+import { LookupBudget } from './lookup-budget.js';
+import { indexRulesetScopes, renderMatchBlockPath, type MatchResult } from './match-resolution.js';
+import { documentRelativePath } from './request-path.js';
+import { collectRootMatches, noMatchNotes } from './root-match.js';
+import { evaluateRules, type Decision } from './rule-block-evaluator.js';
+import { buildContext, type CaseReviver } from './simulation-context.js';
 
-type Decision = 'ALLOW' | 'DENY' | 'UNSUPPORTED';
-
-// ═══ Match block resolution ═══
+export { SERVER_TIMESTAMP } from './firestore-values.js';
 
 /**
  * Collects per-block resolution attempts as `resolveMatch` walks the
- * match-block tree. Optional — when absent, `resolveMatch` is unchanged.
- * The handler instantiates one per test case and attaches the resulting
- * `attempts` array to the corresponding `TestResult.pathResolution`.
- *
- * Records both successful matches (the winning block) and every block
- * the resolver considered and rejected. Used by `debug_firestore_rules`
- * to surface "near-miss" blocks in PATH_MISMATCH diagnoses — without
- * this trace, the agent would have to manually walk the rule AST to
- * figure out which block was closest to the failing path.
+ * match-block tree. The handler instantiates one per test case and attaches
+ * the resulting `attempts` array to `TestResult.pathResolution`.
  */
 class PathResolutionRecorder {
   readonly attempts: PathResolutionEntry[] = [];
@@ -88,573 +55,24 @@ class PathResolutionRecorder {
   }
 }
 
-// ═══ Operation mapping ═══
-
-function methodToOperations(method: string): string[] {
-  switch (method) {
-    case 'get': return ['get', 'read'];
-    case 'list': return ['list', 'read'];
-    case 'create': return ['create', 'write'];
-    case 'update': return ['update', 'write'];
-    case 'delete': return ['delete', 'write'];
-    default: return [method];
-  }
-}
-
-// ═══ Rule evaluation ═══
-
-/**
- * One match block's contribution to the request verdict. `resourceLimit`
- * carries a per-request resource limit (the document access budget or the
- * expression budget) that the block ran into: it is not this block's
- * private failure, so the caller stops evaluating siblings and denies the
- * whole request.
- */
-interface RuleBlockOutcome {
-  decision: Decision;
-  trace: RuleEvaluation[];
-  notes: string[];
-  resourceLimit?: RulesResourceLimit;
-}
-
-function describeResourceLimit(e: ResourceLimitError): RulesResourceLimit {
-  if (e instanceof ExpressionLimitError) {
-    return {
-      kind: 'expressions',
-      limit: EXPRESSION_LIMIT,
-      message: e.message,
-      ...(e.position === undefined ? {} : { line: e.position.line, column: e.position.column }),
-    };
-  }
-  return { kind: 'document-lookups', limit: DOCUMENT_LOOKUP_LIMIT, message: e.message };
-}
-
-/**
- * Evaluate all allow rules in a match block for a given operation.
- * Uses OR semantics — if any matching rule allows, access is granted.
- *
- * Decision logic:
- *   - any rule ALLOW → ALLOW (short-circuit)
- *   - else if any rule hit a per-request resource limit → DENY, and the
- *     caller stops: the limit ends the request, not just this block
- *   - else if any rule threw UnsupportedError → UNSUPPORTED (sim abstains)
- *   - else → DENY
- *
- * Real evaluation errors (EvalError, type mismatches) are *not* lifted to
- * UNSUPPORTED — they're caught and counted as deny, matching production's
- * "runtime errors deny the request" behavior.
- */
-function evaluateRules(
-  block: MatchBlock,
-  operation: string,
-  ctx: SimulationContext,
-  sourceMap?: AuthoredSourceMap,
-  authoredImports?: readonly ImportDecl[],
-): RuleBlockOutcome {
-  const ops = methodToOperations(operation);
-  const trace: RuleEvaluation[] = [];
-  const notes: string[] = [];
-
-  const listSteps = operation === 'list' ? getListBlockSteps(block) : undefined;
-  // Find allow rules that match this operation
-  const matchingRules: ListBlockStep[] = listSteps ? [...listSteps] : [];
-  if (!listSteps) {
-    for (let i = 0; i < block.allows.length; i++) {
-      const rule = block.allows[i]!;
-      const hasOp = rule.operations.some((op) => ops.includes(op));
-      if (hasOp) {
-        matchingRules.push({ kind: 'grant', rule, index: i });
-      }
-    }
-  }
-
-  const isNoRules = matchingRules.length === 0;
-  if (isNoRules) {
-    notes.push(`No allow rules found for operation '${operation}'`);
-    return { decision: 'DENY', trace, notes };
-  }
-
-  // Evaluate each matching rule (OR semantics). Each rule gets its own
-  // TraceRecorder so the per-rule expressionTrace stays isolated even
-  // when multiple rules evaluate before a verdict lands. We attach via
-  // mutation+restore on the shared ctx — cheaper than cloning ctx for
-  // every rule and keeps wrappers' identity (Timestamp etc.) stable
-  // across the loop.
-  let sawUnsupported = false;
-  const priorRecorder = ctx.trace;
-  // Each entry records the request's running expression count at the point
-  // its rule's evaluation ended.
-  const record = (entry: RuleEvaluation) => {
-    if (ctx.expressionBudget) entry.evaluatedExpressions = ctx.expressionBudget.evaluated;
-    trace.push(entry);
-  };
-  const abortOnResourceLimit = (err: ResourceLimitError, entry: RuleEvaluation): RuleBlockOutcome => {
-    entry.verdict = 'ERROR';
-    entry.message = err.message;
-    record(entry);
-    ctx.trace = priorRecorder;
-    const resourceLimit = describeResourceLimit(err);
-    if (sourceMap && sourceMap.size > 0 && resourceLimit.line !== undefined) {
-      const mapped = sourceMap.get(resourceLimit.line);
-      if (mapped !== undefined) {
-        if (mapped.authoredFile === AUTHORED_ROOT_SOURCE_FILE) {
-          resourceLimit.line = mapped.authoredLine;
-        } else if (authoredImports !== undefined) {
-          resourceLimit.line = findModuleErrorImportLine(authoredImports, `'${mapped.authoredFile}'`, 1);
-          delete resourceLimit.column;
-        }
-      }
-    }
-    // Production reports the expression limit at the expression the
-    // budget ran out on, so the note cites that position.
-    let position: { line: number; column: number } | undefined;
-    if (resourceLimit.line !== undefined && resourceLimit.column !== undefined) {
-      position = { line: resourceLimit.line, column: resourceLimit.column };
-    }
-    const cited = describeExpressionLimit(resourceLimit.message, position);
-    notes.push(
-      `Request denied by a rules resource limit: ${cited.endsWith('.') ? cited : `${cited}.`} `
-      + 'The limit is per request, so no other allow rule or match block was evaluated.',
-    );
-    return {
-      decision: 'DENY',
-      trace,
-      notes,
-      resourceLimit,
-    };
-  };
-  for (const { kind, rule, index } of matchingRules) {
-    if (kind === 'budget') {
-      ctx.trace = undefined;
-      try {
-        evaluate(rule.condition, ctx);
-      } catch (e) {
-        if (e instanceof ResourceLimitError) {
-          return abortOnResourceLimit(e, newEntry(rule, index, sourceMap));
-        }
-      }
-      continue;
-    }
-    const entry = newEntry(rule, index, sourceMap);
-    const recorder = new TraceRecorder();
-    ctx.trace = recorder;
-    try {
-      // The condition must be a bool: any other value is a type error, which
-      // the catch below records as this rule's ERROR verdict.
-      const isAllowed = requireBoolean(evaluate(rule.condition, ctx), rule.condition);
-      entry.expressionTrace = recorder.entries;
-      if (isAllowed) {
-        entry.verdict = 'ALLOW';
-        record(entry);
-        ctx.trace = priorRecorder;
-        return { decision: 'ALLOW', trace, notes };
-      }
-      entry.verdict = 'DENY';
-      record(entry);
-    } catch (e) {
-      entry.expressionTrace = recorder.entries;
-      // A per-request resource limit (the document access budget) is not a
-      // failure of THIS rule: production stops the whole request there, so
-      // no sibling allow rule and no other match block gets a chance to
-      // grant. Abandon the loop and report the limit up to the caller.
-      if (e instanceof ResourceLimitError) {
-        return abortOnResourceLimit(e, entry);
-      }
-      const isUnsupported = e instanceof UnsupportedError;
-      if (isUnsupported) {
-        sawUnsupported = true;
-        entry.verdict = 'UNSUPPORTED';
-        entry.message = (e as UnsupportedError).message;
-      } else {
-        entry.verdict = 'ERROR';
-        const isErrorInstance = e instanceof Error;
-        if (isErrorInstance) {
-          entry.message = (e as Error).message;
-        } else {
-          entry.message = String(e);
-        }
-      }
-      record(entry);
-    }
-  }
-  ctx.trace = priorRecorder;
-
-  // No rule allowed. If at least one rule abstained on a sim gap, escalate
-  // to UNSUPPORTED so the agent sees "sim couldn't decide" rather than a
-  // misleading DENY. If every failure was a real eval error, return DENY
-  // (production would also deny on runtime errors).
-  let finalDecision: Decision = 'DENY';
-  if (sawUnsupported) {
-    finalDecision = 'UNSUPPORTED';
-  }
-  return { decision: finalDecision, trace, notes };
-}
-
-function newEntry(rule: AllowRule, index: number, sourceMap?: AuthoredSourceMap): RuleEvaluation {
-  const condText = assembleExpression(rule.condition);
-  const entry: RuleEvaluation = {
-    ruleIndex: index,
-    operations: [...rule.operations],
-    verdict: 'DENY',
-    conditionText: condText,
-  };
-  const hasLoc = rule.loc !== undefined;
-  if (hasLoc) {
-    const loc = rule.loc!;
-    entry.line = loc.line;
-    entry.col = loc.col;
-    entry.column = loc.col;
-    const hasFile = loc.file !== undefined;
-    if (hasFile) {
-      entry.file = loc.file;
-      entry.citation = `${loc.file}:${loc.line}:${loc.col}`;
-    } else {
-      entry.file = 'firestore.rules';
-      entry.citation = `firestore.rules:${loc.line}:${loc.col}`;
-    }
-    const hasSourceMap = sourceMap !== undefined;
-    if (hasSourceMap) {
-      const authored = resolveAuthoredLoc(sourceMap!, loc.line, loc.col, loc.file, condText);
-      const hasAuthored = authored !== undefined;
-      if (hasAuthored) {
-        entry.line = authored!.line;
-        entry.col = authored!.col;
-        entry.column = authored!.col;
-        entry.file = authored!.file;
-        entry.citation = authored!.citation;
-        const hasExpr = authored!.expression !== undefined;
-        if (hasExpr) {
-          entry.conditionText = authored!.expression;
-        }
-      }
-    }
-  }
-  return entry;
-}
-
-// ═══ Build simulation context from TestCase ═══
-
-/** Reads a case's values into the simulator's value model. */
-type CaseReviver = (value: unknown) => unknown;
-
-function isPlainCaseObject(value: unknown): value is Record<string, unknown> {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
-  const proto = Object.getPrototypeOf(value);
-  return proto === Object.prototype || proto === null;
-}
-
-function resolveCaseServerTimestamps(
-  value: unknown,
-  serverTime: Timestamp,
-  wrapUnescapedAsEnvelope: boolean,
-): unknown {
-  if (Array.isArray(value)) {
-    return value.map((item) => resolveCaseServerTimestamps(item, serverTime, wrapUnescapedAsEnvelope));
-  }
-  if (value === null || typeof value !== 'object') return value;
-  const unescapedTag = Symbol.for('pyric.unescapedMap');
-  const isUnescaped = (value as Record<symbol, unknown>)[unescapedTag] === true;
-  const rec = value as Record<string, unknown>;
-  if (
-    !isUnescaped &&
-    (rec.__type === 'serverTimestamp' ||
-      rec._methodName === 'serverTimestamp' ||
-      rec._methodName === 'FieldValue.serverTimestamp')
-  ) {
-    return serverTime;
-  }
-  if (!isPlainCaseObject(value)) return value;
-  if (
-    !isUnescaped &&
-    wrapUnescapedAsEnvelope &&
-    Object.keys(rec).length === 2 &&
-    Object.hasOwn(rec, 'type') &&
-    rec.type === 'pyric/map/1.0' &&
-    isPlainCaseObject(rec.fields)
-  ) {
-    const fieldsOut: Record<string, unknown> = {};
-    for (const [fk, fv] of Object.entries(rec.fields)) {
-      Object.defineProperty(fieldsOut, fk, {
-        value: resolveCaseServerTimestamps(fv, serverTime, wrapUnescapedAsEnvelope),
-        enumerable: true,
-        writable: true,
-        configurable: true,
-      });
-    }
-    return { type: 'pyric/map/1.0', fields: fieldsOut };
-  }
-  const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(rec)) {
-    Object.defineProperty(out, k, {
-      value: resolveCaseServerTimestamps(v, serverTime, wrapUnescapedAsEnvelope),
-      enumerable: true,
-      writable: true,
-      configurable: true,
-    });
-  }
-  if (isUnescaped) {
-    if (wrapUnescapedAsEnvelope) return { type: 'pyric/map/1.0', fields: out };
-    Object.defineProperty(out, unescapedTag, { value: true });
-  }
-  return out;
-}
-
-function bindPathVariables(
-  pathVariables: Record<string, string>,
-  recursiveVariables?: readonly string[],
-): Record<string, string | Path> {
-  const recSet = new Set(recursiveVariables ?? []);
-  const boundPathVariables: Record<string, string | Path> = Object.create(null);
-  for (const [k, v] of Object.entries(pathVariables)) {
-    if (recSet.has(k)) {
-      boundPathVariables[k] = Path.fromString(v);
-    } else {
-      boundPathVariables[k] = v;
-    }
-  }
-  return boundPathVariables;
-}
-
-function buildContext(
-  tc: TestCase,
-  functions: FunctionDef[],
-  pathVariables: Record<string, string>,
-  getDoc?: SimulationContext['getDoc'],
-  batchProjection?: Map<string, Record<string, unknown> | null>,
-  lookupBudget?: LookupBudget,
-  expressionBudget?: ExpressionBudget,
-  revive: CaseReviver = reviveFirestoreNumbers,
-  recursiveVariables?: readonly string[],
-  functionScopes?: ReadonlyMap<FunctionDef, FunctionScopeBindings>,
-  rootBindings?: Readonly<Record<string, string>>,
-): SimulationContext {
-  const fnMap = new Map<string, FunctionDef>();
-  for (const fn of functions) fnMap.set(fn.name, fn);
-
-  // `get` and `exists` are separate Rules Test API functions with separate
-  // mocks (FS-CON-6): a get mock seeds get()'s document, an exists mock only
-  // answers exists(). Both key on the normalized document path, the form
-  // lookups resolve and `buildFunctionMock` sends to production, so mock
-  // order and path spelling do not change the verdict.
-  const mockDocs = new Map<string, Record<string, unknown>>();
-  const identitylessFunctionMocks = new Set<string>();
-  const existsMocks = new Map<string, boolean>();
-  for (const mock of tc.functionMocks ?? []) {
-    const mockPath = normalizeDocumentPath(mock.path);
-    if (mock.function === 'get' && typeof mock.result === 'object' && mock.result !== null) {
-      mockDocs.set(mockPath, revive(mock.result) as Record<string, unknown>);
-      identitylessFunctionMocks.add(mockPath);
-    } else if (mock.function === 'exists') {
-      existsMocks.set(mockPath, mock.result === true);
-    }
-  }
-
-  // request.time defaults to wallclock; tc.requestTime (Item 0.F) lets
-  // tests pin a deterministic value for date-gated rules. Item 1.3
-  // flipped the in-evaluator type from ISO string to Timestamp wrapper
-  // (REBUILD_PLAN Risk 1) — `tc.requestTime` stays an ISO string for
-  // backwards-compat with the prod Test API, parsed here. Intake has
-  // already refused one that is not an ISO-8601 instant with an offset.
-  const serverTime = tc.requestTime
-    ? Timestamp.fromIsoString(tc.requestTime)
-    : Timestamp.fromMillis(Date.now());
-
-  // Item 6: build the full document path for request.path / __name__.
-  // tc.path arrives as a relative path like "users/alice" or as the full
-  // resource name; both name one document, so both give the single spec
-  // form /databases/(default)/documents/<rel> (FS2-CON-1).
-  const relPath = documentRelativePath(tc.path);
-  const fullPathSegs = ['databases', '(default)', 'documents', ...relPath.split('/').filter(Boolean)];
-  // Pass pathVariables as bindings so `request.path.<name>` (where <name> is
-  // a wildcard from the matched rule, e.g. {uid}) returns the bound segment
-  // value instead of null. Without this, named-field access on request.path
-  // silently DENYs any rule that reads it.
-  const fullPath = new Path(fullPathSegs, pathVariables);
-  // NOTE: no document id is derived here. Production does not expose one on
-  // `resource` (see the `resource` construction below, RULES-B12) — the id a
-  // rule can legitimately read comes from the match-path wildcard (`/{id}`).
-
-  // Item 7 — project the after-state.
-  //
-  // If tc.writeMode is set (Item 0.D), run projectAfterState to derive both
-  // request.resource.data and what getAfter() returns. Otherwise preserve
-  // legacy behavior where tc.data IS the after-state for create/update,
-  // tc.resource for read methods, and null for delete. The legacy fallback
-  // keeps every existing test passing while letting new tests opt into
-  // proper merge semantics.
-  const payload = revive(tc.data ?? {}) as Record<string, unknown>;
-  const existing = tc.resource === undefined || tc.resource === null
-    ? null
-    : revive(tc.resource) as Record<string, unknown>;
-  let afterState: Record<string, unknown> | null;
-  let existsAfter: boolean;
-  if (batchProjection?.has(relPath)) {
-    const projectedTarget = batchProjection.get(relPath) ?? null;
-    if (projectedTarget !== null) {
-      afterState = revive(projectedTarget) as Record<string, unknown>;
-    } else {
-      afterState = null;
-    }
-    existsAfter = afterState !== null;
-  } else if (tc.writeMode) {
-    afterState = projectAfterState(tc.writeMode, existing, payload);
-    existsAfter = afterState !== null;
-  } else {
-    switch (tc.method) {
-      case 'create':
-      case 'update':
-        // RULES-B10: the prod-faithful update post-state is `existing` merged
-        // with the payload. That merge IS implemented and correct on the
-        // `writeMode: { kind: 'update' }` path above (`projectAfterState`),
-        // which agent-facing `simulate()` callers should use. The legacy
-        // no-writeMode default keeps `afterState = payload`: the sandbox
-        // LocalEnvironment path ALREADY pre-merges + pre-applies deleteField()
-        // and hands us the FULL post-write doc, so re-merging here would
-        // resurrect deleted keys (RULES-B10 step doc records this cross-track
-        // coupling — making merge the unconditional default needs a coordinated
-        // T2 change to have LocalEnvironment declare its writeMode).
-        afterState = payload;
-        existsAfter = true;
-        break;
-      case 'delete':
-        afterState = null;
-        existsAfter = false;
-        break;
-      case 'get':
-      case 'list':
-      default:
-        afterState = existing; // no write happens
-        existsAfter = existing !== null;
-        break;
-    }
-  }
-  const wrapUnescapedAsEnvelope = revive === reviveFirestoreNumbers;
-  const projectedAfter = afterState !== null
-    ? revive(resolveCaseServerTimestamps(afterState, serverTime, wrapUnescapedAsEnvelope)) as Record<string, unknown>
-    : null;
-
-  // request.resource is populated on create/update (from projectedAfter ?? {})
-  // and on get/list/delete only when the caller explicitly supplied `tc.data`
-  // (matching the Rules Test API wire format `if (tc.data) request.resource = { data }`).
-  // On normal get, list, and delete requests (no `tc.data`), `resource` is absent
-  // from `request` ("Property resource is undefined on object.").
-  let reqResource: { data: Record<string, unknown> } | undefined;
-  if (tc.method === 'create' || tc.method === 'update') {
-    reqResource = { data: projectedAfter ?? {} };
-  } else if (tc.data !== undefined) {
-    const revivedTcData = revive(
-      resolveCaseServerTimestamps(tc.data, serverTime, wrapUnescapedAsEnvelope),
-    ) as Record<string, unknown>;
-    reqResource = { data: revivedTcData };
-  }
-
-  const normalizedAuth = tc.auth ? normalizeAuthState(tc.auth) : null;
-  const request: SimulationContext['request'] = {
-    auth: normalizedAuth ? { uid: normalizedAuth.uid, token: typeClaimNumbers(normalizedAuth.token ?? {}) as Record<string, unknown> } : null,
-    method: tc.method,
-    path: fullPath,        // Item 6: Path wrapper, full /databases/.../documents/... form
-    ...(requestQuery(tc) ? { query: requestQuery(tc) } : {}),
-    time: serverTime,
-  } as SimulationContext['request'];
-  if (reqResource !== undefined) {
-    request.resource = reqResource;
-  }
-
-  const boundPathVariables = bindPathVariables(pathVariables, recursiveVariables);
-  let functionPathVariables: Map<FunctionDef, Record<string, string | Path>> | undefined;
-  if (functionScopes && functionScopes.size > 0) {
-    functionPathVariables = new Map();
-    for (const [fn, fnScope] of functionScopes) {
-      let mergedVars = fnScope.pathVariables;
-      if (rootBindings) {
-        mergedVars = { ...rootBindings, ...fnScope.pathVariables };
-      }
-      functionPathVariables.set(fn, bindPathVariables(mergedVars, fnScope.recursiveVariables));
-    }
-  }
-
-  const context: SimulationContext = {
-    request,
-    // `resource` is the PRE-WRITE stored document. When the request target does
-    // not exist, production makes `resource` a null error value — reading or
-    // comparing it then errors → DENY. Synthesizing a resource here (the
-    // previous behavior) was a FALSE-ALLOW for common ownership/existence
-    // idioms (`resource.data.owner == request.auth.uid`, `resource != null`).
-    //
-    // RULES-B12: for get/list/update/delete the resource carries `data` ONLY.
-    // Production builds `resource` from the stored document alone and does NOT
-    // derive an identity from the request path, so `resource.id` /
-    // `resource.__name__` are ABSENT and reading either errors:
-    //   "Property id is undefined on object."
-    //   "Property __name__ is undefined on object."
-    // → DENY (surviving negation, absorbed only by a determining `||`).
-    // Synthesizing `id`/`__name__` from tc.path made `resource.id == id` ALLOW
-    // where production DENIES — an OVER-PERMISSIVE divergence. Omitting the
-    // keys hands the evaluator's absent-key error path the same verdict prod
-    // gives. Note: `request.resource` (proposed data) is built separately above
-    // and is likewise `{ data }` only — `request.resource.id` errors in prod too.
-    resource: tc.method === 'create' || existing === null
-      ? null
-      : { data: revive(existing) as Record<string, unknown> },  // NOT resolved — resource is pre-write, no sentinels
-    mockDocuments: mockDocs,
-    identitylessFunctionMocks,
-    existsMocks,
-    getDoc,
-    pathVariables: boundPathVariables,
-    functions: fnMap,
-    database: '(default)',
-    // Item 7 — projected post-write state for the request target.
-    //   afterStatePath: full Path being written to (matches request.path)
-    //   afterState: post-write doc data, or null when deleted
-    //   existsAfter: false when method is delete (or projectAfterState → null)
-    afterStatePath: fullPath,
-    afterState: projectedAfter,
-    existsAfter,
-    // getafter-batch fix — shared batch/transaction projection, when the
-    // caller supplied one. Absent for single-op evaluation.
-    ...(batchProjection ? { batchProjection } : {}),
-    // Per-request document access budget (10 distinct lookups). The SAME
-    // instance is threaded into every match block's context for one test
-    // case, because production's budget spans overlapping match blocks and
-    // OR'd allow rules within one request evaluation. An absent budget and
-    // an `undefined` one mean the same thing here: no budget is enforced.
-    lookupBudget,
-    // Per-request expression budget (1000 expressions), shared the same way.
-    expressionBudget,
-  };
-  if (functionPathVariables !== undefined) {
-    context.functionPathVariables = functionPathVariables;
-  }
-  return context;
-}
-
-// ═══ Main handler ═══
-
 export interface SimulateOptions {
   getDoc?: SimulationContext['getDoc'];
   /**
-   * getafter-batch fix — shared post-commit projection for a batch or
-   * transaction. Keyed by normalized relative path (same shape as
-   * `getDoc`'s input); value is the post-write document, or `null` for
-   * a path the batch/transaction deletes. Every per-op simulate() call
-   * for the SAME batch/transaction passes the SAME map, built once by
-   * the caller (LocalEnvironment.batch()/transaction()) up front —
-   * mirrors how the RTDB rules projection covers a multi-path update
-   * in one shared tree. Omit for single-op evaluation.
+   * Shared post-commit projection for a batch or transaction. Keyed by
+   * normalized relative path; value is the post-write document, or `null`
+   * for a path the batch/transaction deletes. Omit for single-op evaluation.
    */
   batchProjection?: Map<string, Record<string, unknown> | null>;
   /**
    * The cases come from a caller of the public API (`simulate()`, the MCP
    * `firestore_simulate_rules` tool), not from pyric's own data plane. Each
    * case's shape is checked first, and one the Rules Test API would read as a
-   * different request is UNSUPPORTED with the reason (`caseShapeRefusal`). A
-   * plain map with a `__type` key reads as the map it is, as production reads
-   * it; only a value helper's value is a typed value (FS2-CON-5).
+   * different request is UNSUPPORTED with the reason (`caseShapeRefusal`).
    */
   publicCases?: boolean;
 }
 
-/** Why the simulator can't run `tc` as it stands, or `undefined`. */
+/** Why the simulator cannot run `tc` as it stands, or `undefined`. */
 function intakeRefusal(tc: TestCase, publicCases: boolean): string | undefined {
   if (publicCases) return caseShapeRefusal(tc);
   return requestTimeRefusal(tc.requestTime);
@@ -675,6 +93,23 @@ function refusedResult(tc: TestCase, reason: string): TestResult {
   };
 }
 
+function unprovableReportFromFailure(
+  failures: QueryProofFailure[],
+  primary: QueryProofFailure,
+): ListQueryProofReport {
+  const remediation = renderQueryRemediation(primary.residual);
+  return {
+    verdict: 'UNPROVABLE',
+    provable: false,
+    kind: primary.kind,
+    failures,
+    reason: primary.reason,
+    residual: primary.residual,
+    ...(remediation ? { remediation } : {}),
+    ...(primary.rule ? { rule: { ...primary.rule, verdict: 'deny' as const } } : {}),
+  };
+}
+
 export class SimulateFirestoreRulesHandler {
   /**
    * Simulate Firestore rules evaluation locally.
@@ -685,46 +120,35 @@ export class SimulateFirestoreRulesHandler {
     testCases: TestCase[],
     opts?: SimulateOptions,
   ): TestFirestoreRulesResult {
-    // Parse rules. Give the empty-input case a distinct, actionable
-    // error: agents that see a bare parse failure otherwise
-    // hex-dump the rules file looking for invisible characters before
-    // realizing the source string is just empty (see
-    // CLAUDE_DEBUG_SESSION.md).
     if (!source || source.trim().length === 0) {
       return {
         success: false,
         error: {
           code: 'PARSE_FAILED',
           message:
-            'Empty rules source — call setRules(sandbox, rules) from pyric/sandbox/firestore before operating, '
+            'Empty rules source \u2014 call setRules(sandbox, rules) from pyric/sandbox/firestore before operating, '
             + 'or initialize without rules to use the open-by-default ruleset. '
             + 'See pyric/sandbox docs.',
           recoverable: true,
         },
       };
     }
-    // Production rejects a ruleset that does not parse, or is past its
-    // compile limits (call depth, `let` count, nesting), before evaluating
-    // any request. The reason is the one every rules load path refuses with.
     const checked = checkRulesSource(source);
     if (!checked.ok) {
       return {
         success: false,
-        error: { code: 'PARSE_FAILED', message: `Firestore ${checked.rejection.message}`, recoverable: true },
+        error: {
+          code: 'PARSE_FAILED',
+          message: `Firestore ${checked.rejection.message}`,
+          recoverable: true,
+        },
       };
     }
     return this.simulateParsed(checked.ast, source, testCases, opts);
   }
 
   /**
-   * Evaluate test cases against an already parsed ruleset. Callers that
-   * evaluate the same deployed rules on every request hold the parsed AST
-   * and pass it here, so a request costs evaluation only, not a parse.
-   *
-   * `ast` is read, never mutated, so one AST can serve any number of
-   * requests. `source` is the deployed source the AST came from: rule
-   * locations resolve through the source map it carries, unless
-   * `opts.sourceMap` supplies that map already read.
+   * Evaluate test cases against an already parsed ruleset.
    */
   simulateParsed(
     ast: FirestoreRules,
@@ -746,356 +170,259 @@ export class SimulateFirestoreRulesHandler {
     let failed = 0;
     let unsupported = 0;
 
-    // The root match is compared with each request below
-    // (`collectRootMatches`), and its wildcard bindings reach every block it
-    // resolves. `database` stays seeded so a rule that hardcodes
-    // `$(database)` in a `get()` path still resolves under a root that names
-    // its wildcard `db` or `dbId`.
     const rootBindings: Record<string, string> = { database: '(default)' };
 
     const publicCases = opts?.publicCases === true;
     const revive: CaseReviver = publicCases ? reviveCaseLiterals : reviveFirestoreNumbers;
     for (const tc of testCases) {
       try {
-      // A case either engine would read as a different request, or one with
-      // an instant that is not ISO-8601 with an offset, is refused here
-      // rather than answered (FS2-CON-2, FS2-CON-3, FS2-CON-12).
-      const refusal = intakeRefusal(tc, publicCases);
-      if (refusal !== undefined) {
-        unsupported++;
-        results.push(refusedResult(tc, refusal));
-        continue;
-      }
-      // Resolve the match blocks for this path. The root match is compared
-      // with the request's full resource name first, and its children match
-      // what it leaves (FS2-ENF-1).
-      // Both the document-relative form and the full resource name the
-      // console shows mean the same request, so the full form is reduced
-      // before a block is resolved against it and every message about this
-      // case names the reduced form.
-      const requestPath = documentRelativePath(tc.path);
-      const pathSegments = requestPath.split('/').filter(Boolean);
-      const isListMethod = tc.method === 'list';
-      const isCollectionPath = pathSegments.length % 2 === 1;
+        const refusal = intakeRefusal(tc, publicCases);
+        if (refusal !== undefined) {
+          unsupported++;
+          results.push(refusedResult(tc, refusal));
+          continue;
+        }
 
-      // Static list-query provability (#371): for `list` cases, run
-      // `proveListQuery` and report the proof verdict separately from
-      // document-evaluation (`decision` / `state`).
-      let queryProof: ListQueryProofReport | undefined;
-      let evalAst = ast;
-      let evalTc = tc;
-      if (isListMethod && !opts?.skipQueryProof) {
-        const proofPath = pathSegments.length === 0
-          ? '__listPlaceholder__'
-          : (isCollectionPath ? `${requestPath}/__listPlaceholder__` : requestPath);
-        const constraints = listQueryToConstraints(tc.query);
-        const rawProof = proveListQuery(
-          ast,
-          proofPath,
-          tc.auth ? normalizeAuthState(tc.auth) : null,
-          constraints,
-          source,
-        );
-        if (rawProof.kind === 'no-rule') {
-          queryProof = {
-            verdict: 'NO_RULE',
-            provable: false,
-            kind: 'no-rule',
-            failures: [],
-          };
-        } else if (rawProof.kind === 'unprovable') {
-          const primary = rawProof.failures.find((f) => f.kind !== 'constraints-not-satisfied') ?? rawProof.failures[0]!;
-          const remediation = renderQueryRemediation(primary.residual);
-          queryProof = {
-            verdict: 'UNPROVABLE',
-            provable: false,
-            kind: primary.kind,
-            failures: rawProof.failures,
-            reason: primary.reason,
-            residual: primary.residual,
-            ...(remediation ? { remediation } : {}),
-            ...(primary.rule ? { rule: { ...primary.rule, verdict: 'deny' as const } } : {}),
-          };
-        } else {
-          // `rawProof.kind === 'provable'`. Run residual evaluation against
-          // `rawProof.evaluationAst` so per-request lookup/expression budgets
-          // and fallback-rule denials are reflected in `queryProof` as well.
-          const mergedResource =
-            tc.resource !== undefined
-              ? { ...rawProof.syntheticResource, ...tc.resource }
-              : rawProof.syntheticResource;
-          const residualCheck = this.simulateParsed(
-            rawProof.evaluationAst,
-            source,
-            [{ ...tc, path: proofPath, resource: mergedResource, expectation: 'ALLOW' }],
-            { ...opts, sourceMap, skipQueryProof: true },
-          );
-          const residualResult = residualCheck.success ? residualCheck.data.results[0] : undefined;
-          const hitResourceLimit = residualResult?.resourceLimit !== undefined;
-          const fallbackDenied =
-            rawProof.failures.length > 0 &&
-            residualResult !== undefined &&
-            residualResult.decision !== 'ALLOW';
+        const requestPath = documentRelativePath(tc.path);
+        const pathSegments = requestPath.split('/').filter(Boolean);
+        const isListMethod = tc.method === 'list';
+        const isCollectionPath = pathSegments.length % 2 === 1;
 
-          if (hitResourceLimit) {
-            const primary = rawProof.failures.find((f) => f.kind !== 'constraints-not-satisfied') ?? rawProof.failures[0];
-            const remediation = primary ? renderQueryRemediation(primary.residual) : undefined;
-            queryProof = {
-              verdict: 'UNPROVABLE',
-              provable: false,
-              kind: primary?.kind ?? 'unsupported-predicate',
-              failures: rawProof.failures,
-              reason: residualResult!.resourceLimit!.message,
-              residual: primary?.residual ?? { missing: [], mismatched: [], outOfScope: true },
-              ...(remediation ? { remediation } : {}),
-              ...(primary?.rule ? { rule: { ...primary.rule, verdict: 'deny' as const } } : {}),
-            };
-          } else if (fallbackDenied) {
-            const primary = rawProof.failures.find((f) => f.kind !== 'constraints-not-satisfied') ?? rawProof.failures[0]!;
-            const remediation = renderQueryRemediation(primary.residual);
-            queryProof = {
-              verdict: 'UNPROVABLE',
-              provable: false,
-              kind: primary.kind,
-              failures: rawProof.failures,
-              reason: primary.reason,
-              residual: primary.residual,
-              ...(remediation ? { remediation } : {}),
-              ...(primary.rule ? { rule: { ...primary.rule, verdict: 'deny' as const } } : {}),
-            };
+        let queryProof: ListQueryProofReport | undefined;
+        let evalAst = ast;
+        let evalTc = tc;
+        if (isListMethod && !opts?.skipQueryProof) {
+          let proofPath: string;
+          if (pathSegments.length === 0) {
+            proofPath = '__listPlaceholder__';
+          } else if (isCollectionPath) {
+            proofPath = `${requestPath}/__listPlaceholder__`;
           } else {
+            proofPath = requestPath;
+          }
+          const constraints = listQueryToConstraints(tc.query);
+          const rawProof = proveListQuery(
+            ast,
+            proofPath,
+            tc.auth ? normalizeAuthState(tc.auth) : null,
+            constraints,
+            source,
+          );
+          if (rawProof.kind === 'no-rule') {
             queryProof = {
-              verdict: 'PROVABLE',
-              provable: true,
-              kind: 'provable',
-              failures: rawProof.failures,
+              verdict: 'NO_RULE',
+              provable: false,
+              kind: 'no-rule',
+              failures: [],
             };
-          }
-          // On collection-level `list` cases or cases without a concrete mocked
-          // document, evaluate against the projected AST and synthetic resource
-          // so unprovable sibling rules cannot grant and budget steps execute.
-          if (isCollectionPath || tc.resource === undefined) {
-            evalAst = rawProof.evaluationAst;
-            evalTc = { ...tc, resource: mergedResource };
+          } else if (rawProof.kind === 'unprovable') {
+            const primary =
+              rawProof.failures.find((f) => f.kind !== 'constraints-not-satisfied')
+              ?? rawProof.failures[0];
+            if (primary !== undefined) {
+              queryProof = unprovableReportFromFailure(rawProof.failures, primary);
+            }
+          } else {
+            let mergedResource: Record<string, unknown> = rawProof.syntheticResource;
+            if (tc.resource !== undefined) {
+              mergedResource = { ...rawProof.syntheticResource, ...tc.resource };
+            }
+            const residualCheck = this.simulateParsed(
+              rawProof.evaluationAst,
+              source,
+              [{ ...tc, path: proofPath, resource: mergedResource, expectation: 'ALLOW' }],
+              { ...opts, sourceMap, skipQueryProof: true },
+            );
+            let residualResult: TestResult | undefined;
+            if (residualCheck.success) {
+              residualResult = residualCheck.data.results[0];
+            }
+            const hitLimit = residualResult?.resourceLimit;
+            const fallbackDenied =
+              rawProof.failures.length > 0 &&
+              residualResult !== undefined &&
+              residualResult.decision !== 'ALLOW';
+
+            if (hitLimit !== undefined) {
+              const primary =
+                rawProof.failures.find((f) => f.kind !== 'constraints-not-satisfied')
+                ?? rawProof.failures[0];
+              const remediation = primary ? renderQueryRemediation(primary.residual) : undefined;
+              queryProof = {
+                verdict: 'UNPROVABLE',
+                provable: false,
+                kind: primary?.kind ?? 'unsupported-predicate',
+                failures: rawProof.failures,
+                reason: hitLimit.message,
+                residual: primary?.residual ?? { missing: [], mismatched: [], outOfScope: true },
+                ...(remediation ? { remediation } : {}),
+                ...(primary?.rule ? { rule: { ...primary.rule, verdict: 'deny' as const } } : {}),
+              };
+            } else if (fallbackDenied) {
+              const primary =
+                rawProof.failures.find((f) => f.kind !== 'constraints-not-satisfied')
+                ?? rawProof.failures[0];
+              if (primary !== undefined) {
+                queryProof = unprovableReportFromFailure(rawProof.failures, primary);
+              }
+            } else {
+              queryProof = {
+                verdict: 'PROVABLE',
+                provable: true,
+                kind: 'provable',
+                failures: rawProof.failures,
+              };
+            }
+            if (isCollectionPath || tc.resource === undefined) {
+              evalAst = rawProof.evaluationAst;
+              evalTc = { ...tc, resource: mergedResource };
+            }
           }
         }
-      }
 
-      // Functions declared at GLOBAL scope (above `service`) and SERVICE
-      // scope (inside `service`, outside the documents match) seed the walk
-      // alongside the documents-match's own (#346). Declaration order
-      // global → service → match preserves inner-shadows-outer resolution,
-      // since a later same-named entry wins in the evaluation context.
-      const rootFunctions = [
-        ...(evalAst.functions ?? []),
-        ...(evalAst.service.functions ?? []),
-      ];
-      // Collect EVERY match block that resolves this path (not just the
-      // first). Production OR-combines allows across all overlapping
-      // blocks, so we must evaluate them all. Order is preserved in source
-      // order for deterministic, readable traces.
-      let matches: MatchResult[] = [];
-      // Fresh recorder per test case so each `TestResult.pathResolution`
-      // captures only its own resolution attempts.
-      const pathRecorder = new PathResolutionRecorder();
-      matches.push(...collectRootMatches(evalAst, requestPath, rootFunctions, pathRecorder));
-      // `list` targets a COLLECTION, but rules match blocks are document-
-      // level: real Firestore evaluates a query against the doc block with
-      // the document wildcard hypothetical (and `resource` undefined). When
-      // a collection path resolves no block directly, retry with a
-      // synthetic trailing document segment so `list menuItems` evaluates
-      // `match /menuItems/{id}` exactly like the emulator does. Doc-style
-      // list paths (`menuItems/any`) keep resolving on the first attempt,
-      // so existing call sites are unaffected. (RULES-LIST parity scenario.)
-      //
-      // A collection path (odd segment count) always widens, not only when
-      // nothing matched: a `{document=**}` block also matches the bare
-      // collection path, and evaluating only that block let a sibling
-      // recursive deny shadow `match /menuItems/{id}`'s list grant
-      // (FS-COV-6b). The widened path's blocks are the ones the document-path
-      // form `list menuItems/<id>` resolves, which production ORs (corpus
-      // `simcase-mock-and-path-fidelity`). When the widened path matches
-      // nothing, the direct matches stand.
-      //
-      // A document-style path (even segment count) is never widened: it
-      // already names a document of the queried collection, and one segment
-      // deeper reaches only blocks no document of that collection matches,
-      // such as a version 1 `{document=**}` under `/cities/{city}` for the
-      // sandbox's `cities/__listPlaceholder__` (#1428).
-      let syntheticListDoc = false;
-      const shouldWiden = isListMethod && isCollectionPath;
-      if (shouldWiden) {
-        const widened = [...pathSegments, '__hypothetical_doc__'];
-        const widenedMatches = collectRootMatches(evalAst, widened.join('/'), rootFunctions, pathRecorder);
-        const isWidenedNonZero = widenedMatches.length > 0;
-        if (isWidenedNonZero) {
-          matches = widenedMatches;
-          syntheticListDoc = true;
+        const rootFunctions = [
+          ...(evalAst.functions ?? []),
+          ...(evalAst.service.functions ?? []),
+        ];
+        let matches: MatchResult[] = [];
+        const pathRecorder = new PathResolutionRecorder();
+        matches.push(...collectRootMatches(evalAst, requestPath, rootFunctions, pathRecorder));
+
+        let syntheticListDoc = false;
+        if (isListMethod && isCollectionPath) {
+          const widened = [...pathSegments, '__hypothetical_doc__'];
+          const widenedMatches = collectRootMatches(
+            evalAst,
+            widened.join('/'),
+            rootFunctions,
+            pathRecorder,
+          );
+          if (widenedMatches.length > 0) {
+            matches = widenedMatches;
+            syntheticListDoc = true;
+          }
         }
-      }
-      const pathResolution: PathResolutionTrace = {
-        requestPath,
-        attempts: pathRecorder.attempts,
-      };
+        const pathResolution: PathResolutionTrace = {
+          requestPath,
+          attempts: pathRecorder.attempts,
+        };
 
-      const isNoMatches = matches.length === 0;
-      if (isNoMatches) {
-        // No match block at all → production default-DENY. Expectation
-        // 'DENY' agrees → PASSED; expectation 'ALLOW' disagrees → FAILED.
-        const state = tc.expectation === 'DENY' ? 'PASSED' : 'FAILED';
-        if (state === 'PASSED') passed++; else failed++;
+        if (matches.length === 0) {
+          const state = tc.expectation === 'DENY' ? 'PASSED' : 'FAILED';
+          if (state === 'PASSED') passed++; else failed++;
+          results.push({
+            description: tc.description,
+            expectation: tc.expectation,
+            state,
+            decision: 'DENY',
+            evaluatedExpressions: 0,
+            trace: [],
+            notes: noMatchNotes(evalAst, requestPath),
+            pathResolution,
+            ...(queryProof ? { queryProof } : {}),
+          });
+          continue;
+        }
+
+        let decision: Decision = 'DENY';
+        const trace: RuleEvaluation[] = [];
+        const notes: string[] = [];
+        let sawUnsupported = false;
+        let grantingBlockPath: string | undefined;
+        let resourceLimit: RulesResourceLimit | undefined;
+        let stoppedByLimit = false;
+        const lookupBudget = new LookupBudget();
+        const expressionBudget = new ExpressionBudget(
+          (message, position) => new ExpressionLimitError(message, position),
+        );
+        for (const match of matches) {
+          const pathVars = { ...rootBindings, ...match.pathVariables };
+          const ctx = buildContext(
+            evalTc,
+            match.functions,
+            pathVars,
+            opts?.getDoc,
+            opts?.batchProjection,
+            lookupBudget,
+            expressionBudget,
+            revive,
+            match.recursiveVariables,
+            match.functionScopes,
+            rootBindings,
+          );
+
+          const blockPath = renderMatchBlockPath(match.block);
+          const res = evaluateRules(match.block, tc.method, ctx, sourceMap, opts?.authoredImports);
+          for (const entry of res.trace) {
+            entry.matchPath = blockPath;
+          }
+          trace.push(...res.trace);
+          notes.push(...res.notes);
+
+          const hitBlockLimit = res.resourceLimit;
+          if (hitBlockLimit !== undefined) {
+            decision = 'DENY';
+            stoppedByLimit = true;
+            const earlierError = trace.slice(0, -1).find((t) => t.verdict === 'ERROR');
+            if (hitBlockLimit.kind === 'expressions' && earlierError) {
+              notes.push(
+                `The request reached the limit (${hitBlockLimit.message}) after an earlier allow rule raised an error; `
+                + `production reports that earlier error: ${earlierError.message ?? 'evaluation error'}`,
+              );
+            } else {
+              resourceLimit = hitBlockLimit;
+            }
+            break;
+          }
+          if (res.decision === 'ALLOW') {
+            decision = 'ALLOW';
+            grantingBlockPath = blockPath;
+            break;
+          }
+          if (res.decision === 'UNSUPPORTED') {
+            sawUnsupported = true;
+          }
+        }
+
+        if (decision !== 'ALLOW' && !stoppedByLimit && sawUnsupported) {
+          decision = 'UNSUPPORTED';
+        }
+        if (decision === 'ALLOW' && grantingBlockPath !== undefined) {
+          notes.push(`Allowed by match block '${grantingBlockPath}'`);
+        }
+        if (syntheticListDoc) {
+          notes.push(
+            `list on collection path '${tc.path}' evaluated against the document-level match block (document wildcard hypothetical, resource undefined) \u2014 emulator-faithful`,
+          );
+        }
+
+        let state: 'PASSED' | 'FAILED' | 'UNSUPPORTED';
+        if (decision === 'UNSUPPORTED') {
+          state = 'UNSUPPORTED';
+          unsupported++;
+        } else if (decision === tc.expectation) {
+          state = 'PASSED';
+          passed++;
+        } else {
+          state = 'FAILED';
+          failed++;
+        }
+
         results.push({
           description: tc.description,
           expectation: tc.expectation,
           state,
-          decision: 'DENY',
-          evaluatedExpressions: 0,
-          trace: [],
-          notes: noMatchNotes(evalAst, requestPath),
-          pathResolution,
+          decision,
+          evaluatedExpressions: expressionBudget.evaluated,
+          ...(resourceLimit ? { resourceLimit } : {}),
           ...(queryProof ? { queryProof } : {}),
+          trace,
+          notes,
+          pathResolution,
         });
-        continue;
-      }
-
-      // OR-combine every matching block. Production grants the request if
-      // ANY matching block's applicable allow evaluates true; there is no
-      // first-match-wins and no way for one block to revoke another's
-      // grant. So we evaluate each block independently and short-circuit on
-      // the first ALLOW. Each block builds its OWN context with its OWN
-      // wildcard bindings (each match carries the root-match wildcards
-      // like `db`/`database` so `$(name)` interpolation inside
-      // get()/exists() paths resolves; the block's own bindings override on
-      // collision). Every rule-evaluation entry is tagged with its block's
-      // path so a multi-block DENY trace stays unambiguous.
-      //
-      // Decision combine: ALLOW (any block) > UNSUPPORTED (any block
-      // abstained on a sim gap, and nothing granted) > DENY (default —
-      // nothing matched or nothing granted). ALLOW wins even over an
-      // UNSUPPORTED sibling: a definite grant is not weakened by a sim gap
-      // elsewhere. Only when NO block grants do we escalate to UNSUPPORTED,
-      // so the agent sees "sim couldn't decide" rather than a false DENY.
-      let decision: Decision = 'DENY';
-      const trace: RuleEvaluation[] = [];
-      const notes: string[] = [];
-      let sawUnsupported = false;
-      let grantingBlockPath: string | undefined;
-      let resourceLimit: RulesResourceLimit | undefined;
-      let stoppedByLimit = false;
-      // One lookup budget per test case (one request evaluation), shared
-      // across every matching block below and reset here between requests.
-      // Production's single-request budget is 10 distinct document
-      // accesses; transactions and batched writes additionally get a
-      // 20-access aggregate that is NOT modeled, because each per-op
-      // simulate() call in a batch (see WriteRuntime.buildBatchProjection)
-      // gets its own fresh per-op budget of 10.
-      const lookupBudget = new LookupBudget();
-      // One expression budget per request, shared the same way: production
-      // counts every allow rule and match block the request evaluates
-      // toward one limit of 1000.
-      const expressionBudget = new ExpressionBudget((message, position) => new ExpressionLimitError(message, position));
-      for (const match of matches) {
-        const pathVars = { ...rootBindings, ...match.pathVariables };
-        const ctx = buildContext(evalTc, match.functions, pathVars, opts?.getDoc, opts?.batchProjection, lookupBudget, expressionBudget, revive, match.recursiveVariables, match.functionScopes, rootBindings);
-
-        const blockPath = renderMatchBlockPath(match.block);
-        const res = evaluateRules(match.block, tc.method, ctx, sourceMap, opts?.authoredImports);
-        for (const entry of res.trace) {
-          entry.matchPath = blockPath;
-        }
-        trace.push(...res.trace);
-        notes.push(...res.notes);
-
-        // A per-request resource limit ends the request: production stops
-        // the whole evaluation, so a later match block cannot grant.
-        const isResourceLimit = res.resourceLimit !== undefined;
-        if (isResourceLimit) {
-          decision = 'DENY';
-          stoppedByLimit = true;
-          // Production goes on to a method's later allow rules after one
-          // raises an error, so the limit can be reached after that error.
-          // It then reports the earlier error, not the limit; the trace
-          // keeps the limit on the rule that reached it.
-          const earlierError = trace.slice(0, -1).find((t) => t.verdict === 'ERROR');
-          if (res.resourceLimit!.kind === 'expressions' && earlierError) {
-            notes.push(
-              `The request reached the limit (${res.resourceLimit!.message}) after an earlier allow rule raised an error; `
-              + `production reports that earlier error: ${earlierError.message ?? 'evaluation error'}`,
-            );
-          } else {
-            resourceLimit = res.resourceLimit;
-          }
-          break;
-        }
-        const isResAllow = res.decision === 'ALLOW';
-        if (isResAllow) {
-          decision = 'ALLOW';
-          grantingBlockPath = blockPath;
-          break;
-        }
-        const isUnsupported = res.decision === 'UNSUPPORTED';
-        if (isUnsupported) {
-          sawUnsupported = true;
-        }
-      }
-      // A resource limit is a definite production DENY, so it outranks an
-      // UNSUPPORTED abstention recorded by an earlier block.
-      const isEscalatable = decision !== 'ALLOW' && !stoppedByLimit;
-      if (isEscalatable) {
-        if (sawUnsupported) {
-          decision = 'UNSUPPORTED';
-        }
-      }
-      const isDecisionAllow = decision === 'ALLOW';
-      if (isDecisionAllow) {
-        const hasGrantingBlock = grantingBlockPath !== undefined;
-        if (hasGrantingBlock) {
-          notes.push(`Allowed by match block '${grantingBlockPath}'`);
-        }
-      }
-      const isSynthetic = syntheticListDoc === true;
-      if (isSynthetic) {
-        notes.push(
-          `list on collection path '${tc.path}' evaluated against the document-level match block (document wildcard hypothetical, resource undefined) — emulator-faithful`,
-        );
-      }
-
-
-      // Compare with expectation. UNSUPPORTED is its own terminal state —
-      // not PASSED (we didn't agree, we abstained) and not FAILED (the
-      // failure is on the simulator's side, not the rule's).
-      let state: 'PASSED' | 'FAILED' | 'UNSUPPORTED';
-      if (decision === 'UNSUPPORTED') {
-        state = 'UNSUPPORTED';
-        unsupported++;
-      } else if (decision === tc.expectation) {
-        state = 'PASSED';
-        passed++;
-      } else {
-        state = 'FAILED';
-        failed++;
-      }
-
-      results.push({
-        description: tc.description,
-        expectation: tc.expectation,
-        state,
-        decision,
-        evaluatedExpressions: expressionBudget.evaluated,
-        ...(resourceLimit ? { resourceLimit } : {}),
-        ...(queryProof ? { queryProof } : {}),
-        trace,
-        notes,
-        pathResolution,
-      });
       } catch (error) {
         unsupported++;
-        results.push(
-          refusedResult(
-            tc,
-            `Case refused: ${safeErrorMessage(error)}`,
-          ),
-        );
+        results.push(refusedResult(tc, `Case refused: ${safeErrorMessage(error)}`));
       }
     }
 
