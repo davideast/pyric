@@ -51,7 +51,7 @@ export interface MessagingBehaviorRowSeed {
   riskReasons?: string[];
   observations?: string[];
   tests?: string[];
-  flipped?: 'oracle-backed';
+  flipped?: 'oracle-backed' | 'diverged-oracle-backed';
   notes?: string;
   /**
    * Set for a class the sandbox will never model. Becomes the row's
@@ -179,12 +179,21 @@ export function bindMessagingBehaviorRow(
         riskScore: 0,
       });
     }
+    const surfacePlane = section.surface as MessagingSurfacePlane;
     if (seed.flipped === 'oracle-backed') {
       return section.row({
         ...base,
         status: 'conforms',
         automation: 'oracle-backed',
-        conformanceTests: [SUITE.messaging, ...tests],
+        conformanceTests: [SUITE[surfacePlane], ...tests],
+      });
+    }
+    if (seed.flipped === 'diverged-oracle-backed') {
+      return section.row({
+        ...base,
+        status: 'diverged-documented',
+        automation: 'oracle-backed',
+        conformanceTests: [SUITE[surfacePlane], ...tests],
       });
     }
     return section.row({

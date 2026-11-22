@@ -6,7 +6,8 @@ import type { RigManifestRecord } from './types.ts';
  * Chromium via Playwright against persistent Chrome profiles, and drives token
  * minting, foreground `onMessage`, service-worker `onBackgroundMessage`,
  * visibility routing, multi-device per-token/topic/multicast fan-out,
- * PushSubscription token rotation, and `deleteToken` while real messages are
+ * PushSubscription token rotation, offline store-and-forward TTL/collapse,
+ * and `deleteToken` while real messages are
  * pushed from the send plane. Structural facts are captured as `messaging-web-`
  * observations. Real push delivery arrives over the browser's live GCM channel,
  * which needs a headed browser and a person able to confirm the run - this rig
@@ -14,7 +15,7 @@ import type { RigManifestRecord } from './types.ts';
  */
 export const rig: RigManifestRecord = {
   description:
-    'Serves a real firebase/messaging app and drives HEADED Chromium (Playwright, persistent profile) through token minting, onMessage, onBackgroundMessage, visibility routing, multi-device per-token/topic/multicast fan-out, PushSubscription token rotation, and deleteToken against live push; captures structural facts as messaging-web- observations.',
+    'Serves a real firebase/messaging app and drives HEADED Chromium (Playwright, persistent profile) through token minting, onMessage, onBackgroundMessage, visibility routing, multi-device per-token/topic/multicast fan-out, PushSubscription token rotation, offline store-and-forward TTL/collapse, and deleteToken against live push; captures structural facts as messaging-web- observations.',
   script: 'packages/conformance/src/capture/messaging-web/harness.ts',
   observationPrefixes: ['messaging-web-'],
   automation: 'human-witnessed',

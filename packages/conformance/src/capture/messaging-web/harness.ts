@@ -17,6 +17,7 @@
  *   messaging-web-data-only-background      data-only + hidden: onBackgroundMessage
  *   messaging-web-multi-device-fanout       two persistent profiles -> per-token vs topic/multicast fan-out
  *   messaging-web-token-rotation            PushSubscription rotation -> new token + prior UNREGISTERED
+ *   messaging-web-offline-store-and-forward offline GCM restart -> store-and-forward, Topic collapse, short-TTL drop
  *   messaging-web-deletetoken-unregistered  deleteToken, send to old token -> UNREGISTERED/404 + silence
  *
  * Requires in env:
@@ -45,6 +46,7 @@ import {
   runMultiDeviceFanoutScenario,
   runTokenRotationScenario,
 } from './lifecycle-scenarios.ts';
+import { runOfflineStoreAndForwardScenario } from './offline-store-and-forward-scenario.ts';
 import { messagingWebProjectProblems } from './project-checks.ts';
 import {
   MESSAGING_WEB_SCENARIO_NAMES,
@@ -475,6 +477,16 @@ await scenario('token-rotation', async () => {
   });
   results.tokenRotation = rotation.result;
   activeToken = rotation.latestToken;
+});
+
+await scenario('offline-store-and-forward', async () => {
+  results.offlineStoreAndForward = await runOfflineStoreAndForwardScenario({
+    chromium,
+    channel,
+    origin: ORIGIN,
+    admin,
+    captures,
+  });
 });
 
 await scenario('deletetoken-unregistered', async () => {
