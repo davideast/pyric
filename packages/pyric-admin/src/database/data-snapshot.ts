@@ -96,7 +96,10 @@ function renderSnapshotNode(
   exportFormat: boolean,
 ): JsonValue {
   if (stored === null) return null;
-  const priority = exportFormat ? extractExportPriority(exported) : null;
+  let priority: Priority = null;
+  if (exportFormat) {
+    priority = extractExportPriority(exported);
+  }
   const record = toStoredChildRecord(stored);
   if (record === null) {
     if (priority === null) return stored;
@@ -113,6 +116,14 @@ function renderSnapshotNode(
     rendered['.priority'] = priority;
   }
   return rendered;
+}
+
+/**
+ * Renders `DataSnapshot#val()` with keys ordered by `(priority, nameCompare)`
+ * and eligible integer-keyed objects coerced to sparse SDK arrays.
+ */
+export function renderSnapshotVal(stored: JsonValue, exported: unknown): JsonValue {
+  return renderSnapshotNode(stored, exported, false);
 }
 
 function resolveForEachChildExport(
@@ -133,7 +144,13 @@ export function buildSandboxSnap(
   orderedEntries?: readonly SnapshotChildEntry[],
 ): DataSnapshot {
   const segs = pathSegments(path);
-  const key = segs.length === 0 ? null : segs[segs.length - 1]!;
+  let key: string | null = null;
+  if (segs.length > 0) {
+    const lastSeg = segs[segs.length - 1];
+    if (lastSeg !== undefined) {
+      key = lastSeg;
+    }
+  }
   const exists = stored !== null;
   const children: readonly SnapshotChildEntry[] =
     orderedEntries ?? defaultOrderedChildren(stored, exported);

@@ -273,12 +273,13 @@ describe.each(ARMS)('pyric-admin/database onDisconnect & goOffline/goOnline [$na
     const primary = getDatabase(app);
     const shard = getDatabaseWithUrl(shardUrl, app);
 
-    // Synchronous writable-path and payload checks.
-    const infoOd = primary.ref('.info/connected').onDisconnect();
-    expect(() => infoOd.set(true)).toThrow(/\.info/);
-    expect(() => infoOd.setWithPriority(true, 1)).toThrow(/\.info/);
-    expect(() => infoOd.update({ a: 1 })).toThrow(/\.info/);
-    expect(() => infoOd.remove()).toThrow(/\.info/);
+    // Synchronous writable-path and payload checks matching firebase-admin.
+    expect(() => primary.ref('.info/connected').onDisconnect()).toThrow(
+      "Reference.onDisconnect failed = Can't modify data under /.info/",
+    );
+    expect(() => primary.ref('.info').onDisconnect()).toThrow(
+      "Reference.onDisconnect failed = Can't modify data under /.info/",
+    );
 
     const badRef = primary.ref('validated/node');
     expect(() => badRef.onDisconnect().set(undefined)).toThrow(/undefined/);

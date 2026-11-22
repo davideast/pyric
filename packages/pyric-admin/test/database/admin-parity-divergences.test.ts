@@ -20,7 +20,7 @@ import {
   initializeApp,
   type PyricAdminApp,
 } from '../../src/app/index.js';
-import { AdminPathCache } from '../../src/database/admin-transaction.js';
+import { AdminPathCache } from '../../src/database/admin-path-cache.js';
 import {
   getDatabase,
   getDatabaseWithUrl,

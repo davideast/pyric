@@ -1,11 +1,23 @@
 import { afterEach, describe, expect, test } from 'bun:test';
+import {
+  deleteApp as deleteProdApp,
+  getApps as getProdApps,
+  initializeApp as initializeProdApp,
+} from 'firebase-admin/app';
+import {
+  getDatabase as getProdDatabase,
+  type Reference as ProdReference,
+} from 'firebase-admin/database';
 import { deleteApp, getApps, type PyricAdminApp } from '../../src/app/index.js';
-import { getDatabase, type Reference } from '../../src/database/index.js';
+import { getDatabase, type Database, type Reference } from '../../src/database/index.js';
 import * as modular from 'pyric/database';
 import { inProcessApp, sharedWorkerApp, sharedWorkerArm } from './arms.js';
 
+let prodSeq = 0;
+
 afterEach(async () => {
   await Promise.all(getApps().map((app) => deleteApp(app)));
+  await Promise.all(getProdApps().map((app) => deleteProdApp(app)));
 });
 
 const ARMS: Array<[string, () => PyricAdminApp]> = [
@@ -86,8 +98,12 @@ describe('both pyric-admin arms refuse the writes firebase-admin refuses (#1121)
         const error = syncError(() => refused.write(db.ref('node')));
 
         expect(error).toBeInstanceOf(Error);
-        if (typeof refused.message === 'string') expect(error!.message).toBe(refused.message);
-        else expect(error!.message).toMatch(refused.message);
+        const errMessage = error ? error.message : '';
+        if (typeof refused.message === 'string') {
+          expect(errMessage).toBe(refused.message);
+        } else {
+          expect(errMessage).toMatch(refused.message);
+        }
         expect((await db.ref('/').get()).val()).toStrictEqual({ node: 'before' });
       });
     }
@@ -146,6 +162,87 @@ describe('both pyric-admin arms refuse the writes firebase-admin refuses (#1121)
       await db.ref('node').set(['a', , 'c']);
       const val = (await db.ref('node').get()).val();
       expect({ arm, val }).toStrictEqual({ arm, val: Object.assign(new Array<string>(3), { 0: 'a', 2: 'c' }) });
+    }
+  });
+
+  test('#1224 & #1211: .info writes, invalid .sv sentinels, and undefined writes throw synchronously matching firebase-admin across both arms', async () => {
+    const prodApp = initializeProdApp(
+      { projectId: 'demo-refused-1224', databaseURL: 'https://demo-refused-1224-default-rtdb.firebaseio.com' },
+      `prod-refused-${++prodSeq}`,
+    );
+    const prodDb = getProdDatabase(prodApp);
+    prodDb.goOffline();
+
+    type AnyDb = { ref: (path?: string) => Reference | ProdReference };
+    const cases: ReadonlyArray<{ name: string; invoke: (db: AnyDb) => unknown }> = [
+      { name: 'info.set', invoke: (db) => db.ref('.info/connected').set(true) },
+      { name: 'info.rootSet', invoke: (db) => db.ref('.info').set({ x: 1 }) },
+      { name: 'info.update', invoke: (db) => db.ref('.info/x').update({ a: 1 }) },
+      { name: 'info.updateBadCbOrder', invoke: (db) => db.ref('.info/x').update({ a: 1 }, 'bad' as never) },
+      { name: 'info.remove', invoke: (db) => db.ref('.info/x').remove() },
+      { name: 'info.pushEmpty', invoke: (db) => db.ref('.info/x').push() },
+      { name: 'info.pushVal', invoke: (db) => db.ref('.info/x').push(1) },
+      { name: 'info.setPriority', invoke: (db) => db.ref('.info/x').setPriority(1, () => undefined) },
+      { name: 'info.setPriorityBadCbOrder', invoke: (db) => db.ref('.info/x').setPriority(Number.NaN, 'bad' as never) },
+      { name: 'info.setWithPriority', invoke: (db) => db.ref('.info/x').setWithPriority(1, 2) },
+      { name: 'info.setWithPriorityBadCbOrder', invoke: (db) => db.ref('.info/x').setWithPriority(undefined, Number.NaN, 'bad' as never) },
+      { name: 'info.transaction', invoke: (db) => db.ref('.info/x').transaction((cur) => cur) },
+      { name: 'info.onDisconnect', invoke: (db) => db.ref('.info/x').onDisconnect() },
+      { name: 'sv.bogusString', invoke: (db) => db.ref('node').set({ '.sv': 'bogus' }) },
+      { name: 'sv.emptyString', invoke: (db) => db.ref('node').set({ '.sv': '' }) },
+      { name: 'sv.number', invoke: (db) => db.ref('node').set({ '.sv': 123 }) },
+      { name: 'sv.boolean', invoke: (db) => db.ref('node').set({ '.sv': true }) },
+      { name: 'sv.null', invoke: (db) => db.ref('node').set({ '.sv': null }) },
+      { name: 'sv.undefined', invoke: (db) => db.ref('node').set({ '.sv': undefined }) },
+      { name: 'sv.emptyObj', invoke: (db) => db.ref('node').set({ '.sv': {} }) },
+      { name: 'sv.array', invoke: (db) => db.ref('node').set({ '.sv': [] }) },
+      { name: 'sv.unknownOpObj', invoke: (db) => db.ref('node').set({ '.sv': { foo: 1 } }) },
+      { name: 'sv.incrementString', invoke: (db) => db.ref('node').set({ '.sv': { increment: 'x' } }) },
+      { name: 'sv.incrementNull', invoke: (db) => db.ref('node').set({ '.sv': { increment: null } }) },
+      { name: 'sv.incrementNaN', invoke: (db) => db.ref('node').set({ '.sv': { increment: Number.NaN } }) },
+      { name: 'sv.nestedBogus', invoke: (db) => db.ref('node').set({ child: { '.sv': 'bogus' } }) },
+      { name: 'sv.inlinePriorityBogus', invoke: (db) => db.ref('node').set({ a: 1, '.priority': { '.sv': 'bogus' } }) },
+      { name: 'sv.updateValueBogus', invoke: (db) => db.ref('node').update({ a: { '.sv': 'bogus' } }) },
+      { name: 'sv.updatePriorityBogus', invoke: (db) => db.ref('node').update({ '.priority': { '.sv': 'bogus' } }) },
+      { name: 'sv.pushBogus', invoke: (db) => db.ref('node').push({ '.sv': 'bogus' }) },
+      { name: 'sv.setPriorityBogus', invoke: (db) => db.ref('node').setPriority({ '.sv': 'bogus' } as never, () => undefined) },
+      { name: 'sv.setWithPriorityBogus', invoke: (db) => db.ref('node').setWithPriority('v', { '.sv': 'bogus' } as never) },
+      { name: 'sv.transactionBogus', invoke: (db) => db.ref('node').transaction(() => ({ '.sv': 'bogus' })) },
+      { name: 'undef.setWithPriority', invoke: (db) => db.ref('node').setWithPriority(undefined, 1) },
+      { name: 'undef.setPriority', invoke: (db) => db.ref('node').setPriority(undefined as never, () => undefined) },
+    ];
+
+    const normalizeAssertMessage = (err: Error): string => {
+      if (err instanceof TypeError) {
+        return 'TypeError';
+      }
+      return err.message.replace(/^Firebase Database \([^)]+\) /, 'Firebase Database (<ver>) ');
+    };
+
+    for (const entry of cases) {
+      const prodErr = syncError(() => entry.invoke(prodDb as unknown as AnyDb));
+      expect(prodErr).toBeInstanceOf(Error);
+      let expectedNormalized = '';
+      if (prodErr !== null) {
+        expectedNormalized = normalizeAssertMessage(prodErr);
+      }
+
+      for (const [arm, makeApp] of ARMS) {
+        const db: Database = getDatabase(makeApp());
+        await db.ref('node').set({ intact: 1 });
+        const armErr = syncError(() => entry.invoke(db as unknown as AnyDb));
+        expect(armErr).toBeInstanceOf(Error);
+        let actualNormalized = '';
+        if (armErr !== null) {
+          actualNormalized = normalizeAssertMessage(armErr);
+        }
+        expect({ arm, case: entry.name, err: actualNormalized }).toEqual({
+          arm,
+          case: entry.name,
+          err: expectedNormalized,
+        });
+        expect((await db.ref('node').get()).val()).toEqual({ intact: 1 });
+      }
     }
   });
 });

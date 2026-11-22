@@ -63,7 +63,10 @@ export interface RemoteListenTarget {
   readonly observeConnection?: (next: (online: boolean) => void) => () => void;
   readonly waitConnectionBarrier?: () => Promise<void> | null;
   readonly onWireSnapshot?: (canonical: string, wire: RemoteWireSnapshot) => void;
-  readonly readWarmCachedValue?: (canonical: string) => { found: boolean; stored: JsonValue };
+  readonly onWireError?: (canonical: string) => void;
+  readonly readWarmCachedValue?: (
+    canonical: string,
+  ) => { found: boolean; stored: JsonValue; exported: JsonValue };
 }
 
 function isJsonRecord(candidate: JsonValue): candidate is { [key: string]: JsonValue } {
@@ -83,7 +86,13 @@ function buildInfoWireSnapshot(
     }
     raw = raw[seg] ?? null;
   }
-  const snapKey = segs.length === 0 ? null : segs[segs.length - 1]!;
+  let snapKey: string | null = null;
+  if (segs.length > 0) {
+    const lastSeg = segs[segs.length - 1];
+    if (lastSeg !== undefined) {
+      snapKey = lastSeg;
+    }
+  }
   if (!isDefaultQuerySpec(spec)) {
     const { val, rows } = evaluateQueryRead(raw, spec);
     const entries: RemoteWireEntry[] = rows.map((row) => ({
@@ -230,8 +239,9 @@ function deliverRemoteCallback(
     } else {
       (callback as SnapshotCallback).call(context, snap, prevKey);
     }
-  } catch {
+  } catch (callbackErr) {
     // Isolate user listener callback throws per Firebase RTDB observer contract.
+    void callbackErr;
   }
 }
 
@@ -306,6 +316,9 @@ export function onceRemoteListener(
     };
     const handleWireDelivery = (wire: RemoteWireSnapshot): void => {
       if (isSettled || isDeleted()) return;
+      if (isDefaultQuerySpec(spec)) {
+        target.onWireSnapshot?.(target.canonical, wire);
+      }
       if (differ !== null) {
         const deltas = differ.consume(wire);
         if (deltas.length === 0) return;
@@ -320,9 +333,6 @@ export function onceRemoteListener(
         );
         resolveOnce(childSnap, first.previousChildName);
         return;
-      }
-      if (isDefaultQuerySpec(spec)) {
-        target.onWireSnapshot?.(target.canonical, wire);
       }
       const snap = hydrateRemoteWireSnapshot(target.refAt, target.canonical, wire);
       resolveOnce(snap, null);
@@ -437,6 +447,9 @@ export function attachRemoteListener(
 
   const handleWireDelivery = (wire: RemoteWireSnapshot): void => {
     if (!entry.active) return;
+    if (isDefaultQuerySpec(spec)) {
+      target.onWireSnapshot?.(target.canonical, wire);
+    }
     if (differ !== null) {
       entry.initialDelivered = true;
       const deltas = differ.consume(wire);
@@ -454,7 +467,6 @@ export function attachRemoteListener(
       return;
     }
     if (isDefaultQuerySpec(spec)) {
-      target.onWireSnapshot?.(target.canonical, wire);
       const wireStored = normalizeNode(wire.value ?? null);
       const wireExport = (wire.exportValue ?? null) as JsonValue;
       const wireComparable: JsonValue = [wire.exists, wireStored, wireExport];
@@ -480,12 +492,12 @@ export function attachRemoteListener(
     if (cached.found) {
       hasDeliveredValue = true;
       entry.initialDelivered = true;
-      lastDeliveredValue = [cached.stored !== null, cached.stored, cached.stored];
+      lastDeliveredValue = [cached.stored !== null, cached.stored, cached.exported];
       const warmSnap = buildSandboxSnap(
         target.refAt,
         target.canonical,
         cached.stored,
-        cached.stored,
+        cached.exported,
       );
       deliverRemoteCallback('value', callback, normalizedContext, warmSnap, null);
     }
@@ -507,6 +519,7 @@ export function attachRemoteListener(
         },
         (err) => {
           erroredSynchronously = true;
+          target.onWireError?.(target.canonical);
           target.listeners.detachExact(entry);
           if (failureCb !== undefined) {
             failureCb.call(normalizedContext, err);

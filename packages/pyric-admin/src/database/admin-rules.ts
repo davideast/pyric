@@ -115,6 +115,7 @@ function parseAndValidateRulesSource(source: unknown): ValidatedRulesPayload {
 export function localDatabaseRulesControls(
   backend: LocalRulesBackend,
   lifecycle: AdminServiceLifecycle,
+  onRulesUpdated?: () => void,
 ): DatabaseRulesControls {
   return {
     async getRules(): Promise<string> {
@@ -153,6 +154,7 @@ export function localDatabaseRulesControls(
         rulesJson: backend.getActiveRules(),
         rawText: validated.rawText,
       });
+      onRulesUpdated?.();
     },
   };
 }
@@ -161,6 +163,7 @@ export function remoteDatabaseRulesControls(
   channel: RemoteSandboxChannel,
   instance: string | undefined,
   lifecycle: AdminServiceLifecycle,
+  onRulesUpdated?: () => void,
 ): DatabaseRulesControls {
   return {
     async getRules(): Promise<string> {
@@ -225,6 +228,7 @@ export function remoteDatabaseRulesControls(
         }
         throw securityRulesAccessError(reason);
       }
+      onRulesUpdated?.();
     },
   };
 }

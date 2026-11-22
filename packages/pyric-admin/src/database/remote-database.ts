@@ -14,7 +14,7 @@ import {
   emptySpec,
   hasNonFiniteQueryLimit,
   isDefaultQuerySpec,
-  normalizeNode,
+  validateWritablePath,
   type QuerySpec,
 } from 'pyric/database/internal';
 import type { PyricAdminApp } from '../app/index.js';
@@ -23,10 +23,10 @@ import {
   onAdminAppDeleted,
   type AdminServiceLifecycle,
 } from '../app/lifecycle.js';
+import { AdminPathCache } from './admin-path-cache.js';
 import { remoteDatabaseRulesControls } from './admin-rules.js';
 import type { DatabaseAuthLens } from './auth-override.js';
 import {
-  AdminPathCache,
   runRemoteAdminTransaction,
   type AdminTransactionOnComplete,
   type AdminTransactionUpdate,
@@ -90,6 +90,26 @@ interface RemoteDbState {
 }
 
 const remoteStatesByApp = new WeakMap<PyricAdminApp, Map<string, RemoteDbState>>();
+const cachesByRemoteChannel = new WeakMap<RemoteSandboxChannel, Set<AdminPathCache>>();
+
+function registerCacheForChannel(channel: RemoteSandboxChannel, cache: AdminPathCache): void {
+  let tracked = cachesByRemoteChannel.get(channel);
+  if (tracked === undefined) {
+    tracked = new Set<AdminPathCache>();
+    cachesByRemoteChannel.set(channel, tracked);
+  }
+  tracked.add(cache);
+}
+
+function resetCachesForChannel(channel: RemoteSandboxChannel): void {
+  const tracked = cachesByRemoteChannel.get(channel);
+  if (tracked === undefined) {
+    return;
+  }
+  for (const cache of tracked) {
+    cache.reset();
+  }
+}
 
 function remoteStatesForApp(app: PyricAdminApp): Map<string, RemoteDbState> {
   const existing = remoteStatesByApp.get(app);
@@ -120,11 +140,13 @@ export function getRemoteDatabase(
   const states = remoteStatesForApp(app);
   let state = states.get(cacheKey);
   if (state === undefined) {
+    const cache = new AdminPathCache();
+    registerCacheForChannel(sandbox.channel, cache);
     state = {
       channel: sandbox.channel,
       lens,
       instance: instance?.name,
-      cache: new AdminPathCache(),
+      cache,
       lifecycle: createAdminServiceLifecycle(app),
       listeners: new AdminListenerTable(),
       connection: createRemoteConnectionState(sandbox.channel),
@@ -137,7 +159,9 @@ export function getRemoteDatabase(
     (dbHandle, path, meta) => buildRemoteRef(state, dbHandle, path, meta),
     remoteDatabaseConnectionControls(state.channel, state.instance, state.connection),
     state.lifecycle,
-    remoteDatabaseRulesControls(state.channel, state.instance, state.lifecycle),
+    remoteDatabaseRulesControls(state.channel, state.instance, state.lifecycle, () => {
+      resetCachesForChannel(state.channel);
+    }),
   );
 }
 
@@ -158,6 +182,10 @@ function relayRtdbOp(state: RemoteDbState, op: RemoteRtdbOp): Promise<unknown> {
     return state.connection.channelBarrier.barrier.then(dispatch).catch(normalizeRelayedError);
   }
   return dispatch().catch(normalizeRelayedError);
+}
+
+function allowColdCacheWarming(state: RemoteDbState): boolean {
+  return state.lens.mode === 'admin';
 }
 
 function buildRemoteRef(
@@ -193,13 +221,17 @@ function buildRemoteRef(
       return null;
     },
     onWireSnapshot: (snapPath, wire) => {
-      state.cache.recordValue(snapPath, normalizeNode(wire.value ?? null));
+      state.cache.recordWireSnapshot(snapPath, wire);
+    },
+    onWireError: (snapPath) => {
+      state.cache.evictSubtree(snapPath);
     },
     readWarmCachedValue: (lookupPath) => {
       if (!state.cache.isWarm(lookupPath)) {
-        return { found: false, stored: null };
+        return { found: false, stored: null, exported: null };
       }
-      return { found: true, stored: state.cache.read(lookupPath) };
+      const cached = state.cache.readSnapshot(lookupPath);
+      return { found: true, stored: cached.stored, exported: cached.exported };
     },
   };
 
@@ -226,7 +258,7 @@ function buildRemoteRef(
         }
         const wire = (await relayRtdbOp(state, opPayload)) as RemoteWireSnapshot;
         if (isDefaultQuerySpec(spec)) {
-          state.cache.recordValue(canonical, normalizeNode(wire.value ?? null));
+          state.cache.recordWireSnapshot(canonical, wire);
         }
         return hydrateRemoteWireSnapshot(refAt, canonical, wire);
       },
@@ -261,25 +293,31 @@ function buildRemoteRef(
 
     set(value: unknown, onComplete?: (err: Error | null) => void): Promise<void> {
       validateCallbackArg('Reference.set', 'onComplete', onComplete, true);
+      validateWritablePath('set', canonical);
       const stored = validateValueArg('set', segs, value);
       emitAdminDatabaseLog('set', canonical);
       const deleted = assertActivePromise(state.lifecycle);
       if (deleted !== null) {
         return withOnComplete(deleted, onComplete);
       }
+      const epochBefore = state.cache.currentWireEpoch();
       return withOnComplete(
         relayRtdbOp(state, {
           method: 'rtdb.set',
           path: canonical,
           value: stored,
         }).then(() => {
-          state.cache.recordValue(canonical, normalizeNode(stored));
+          state.cache.recordSet(canonical, stored, undefined, {
+            sinceWireEpoch: epochBefore,
+            allowColdWarming: allowColdCacheWarming(state),
+          });
         }),
         onComplete,
       );
     },
 
     update(values: object, onComplete?: (err: Error | null) => void): Promise<void> {
+      validateWritablePath('Reference.update', canonical);
       validateCallbackArg('Reference.update', 'onComplete', onComplete, true);
       const patch = validateValuesArg(segs, values);
       emitAdminDatabaseLog('update', canonical);
@@ -287,6 +325,7 @@ function buildRemoteRef(
       if (deleted !== null) {
         return withOnComplete(deleted, onComplete);
       }
+      const epochBefore = state.cache.currentWireEpoch();
       return withOnComplete(
         relayRtdbOp(state, {
           method: 'rtdb.update',
@@ -294,7 +333,10 @@ function buildRemoteRef(
           values: patch,
         }).then(() => {
           if (Object.keys(patch).length > 0) {
-            state.cache.recordPatch(canonical, patch);
+            state.cache.recordPatch(canonical, patch, {
+              sinceWireEpoch: epochBefore,
+              allowColdWarming: allowColdCacheWarming(state),
+            });
           }
         }),
         onComplete,
@@ -303,17 +345,22 @@ function buildRemoteRef(
 
     remove(onComplete?: (err: Error | null) => void): Promise<void> {
       validateCallbackArg('Reference.remove', 'onComplete', onComplete, true);
+      validateWritablePath('remove', canonical);
       emitAdminDatabaseLog('remove', canonical);
       const deleted = assertActivePromise(state.lifecycle);
       if (deleted !== null) {
         return withOnComplete(deleted, onComplete);
       }
+      const epochBefore = state.cache.currentWireEpoch();
       return withOnComplete(
         relayRtdbOp(state, {
           method: 'rtdb.remove',
           path: canonical,
         }).then(() => {
-          state.cache.recordValue(canonical, null);
+          state.cache.recordSet(canonical, null, undefined, {
+            sinceWireEpoch: epochBefore,
+            allowColdWarming: allowColdCacheWarming(state),
+          });
         }),
         onComplete,
       );
@@ -321,6 +368,7 @@ function buildRemoteRef(
 
     push(value?: unknown, onComplete?: (err: Error | null) => void): ThenableReference {
       validateCallbackArg('Reference.push', 'onComplete', onComplete, true);
+      validateWritablePath('push', canonical);
       let stored: ReturnType<typeof validateValueArg> | undefined;
       if (value !== undefined) {
         stored = validateValueArg('push', segs, value);
@@ -336,13 +384,17 @@ function buildRemoteRef(
         write = Promise.resolve();
       } else {
         const childStored = stored;
+        const epochBefore = state.cache.currentWireEpoch();
         write = relayRtdbOp(state, {
           method: 'rtdb.push',
           path: canonical,
           key: id,
           value: childStored,
         }).then(() => {
-          state.cache.recordValue(childPath, normalizeNode(childStored));
+          state.cache.recordSet(childPath, childStored, undefined, {
+            sinceWireEpoch: epochBefore,
+            allowColdWarming: allowColdCacheWarming(state),
+          });
         });
       }
       const settledWrite = withOnComplete(write, onComplete);
@@ -390,14 +442,16 @@ function buildRemoteRef(
         transactionUpdate,
         onComplete,
         applyLocally,
+        allowColdWarming: allowColdCacheWarming(state),
       });
     },
     setPriority(
       priority: string | number | null,
       onComplete?: (error: Error | null) => unknown,
     ): Promise<void> {
-      const validatedPriority = validateAdminPriorityArg('setPriority', priority);
       validateCallbackArg('Reference.setPriority', 'onComplete', onComplete, true);
+      validateWritablePath('setPriority', canonical);
+      const validatedPriority = validateAdminPriorityArg('setPriority', priority);
       emitAdminDatabaseLog('setPriority', canonical);
       const completionCb = onComplete as ((err: Error | null) => void) | undefined;
       const deleted = assertActivePromise(state.lifecycle);
@@ -414,10 +468,15 @@ function buildRemoteRef(
             throw absentNodeSetPriorityError();
           }
         }
+        const epochBefore = state.cache.currentWireEpoch();
         await relayRtdbOp(state, {
           method: 'rtdb.setPriority',
           path: canonical,
           priority: validatedPriority,
+        });
+        state.cache.recordPriority(canonical, validatedPriority, {
+          sinceWireEpoch: epochBefore,
+          allowColdWarming: allowColdCacheWarming(state),
         });
       };
       return withOnComplete(runRemoteSetPriority(), completionCb);
@@ -427,15 +486,17 @@ function buildRemoteRef(
       newPriority: string | number | null,
       onComplete?: (error: Error | null) => unknown,
     ): Promise<void> {
+      validateCallbackArg('Reference.setWithPriority', 'onComplete', onComplete, true);
+      validateWritablePath('setWithPriority', canonical);
       const stored = validateValueArg('setWithPriority', segs, newVal);
       const validatedPriority = validateAdminPriorityArg('setWithPriority', newPriority);
-      validateCallbackArg('Reference.setWithPriority', 'onComplete', onComplete, true);
       emitAdminDatabaseLog('setWithPriority', canonical);
       const completionCb = onComplete as ((err: Error | null) => void) | undefined;
       const deleted = assertActivePromise(state.lifecycle);
       if (deleted !== null) {
         return withOnComplete(deleted, completionCb);
       }
+      const epochBefore = state.cache.currentWireEpoch();
       return withOnComplete(
         relayRtdbOp(state, {
           method: 'rtdb.setWithPriority',
@@ -443,7 +504,10 @@ function buildRemoteRef(
           value: stored,
           priority: validatedPriority,
         }).then(() => {
-          state.cache.recordValue(canonical, normalizeNode(stored));
+          state.cache.recordSet(canonical, stored, validatedPriority, {
+            sinceWireEpoch: epochBefore,
+            allowColdWarming: allowColdCacheWarming(state),
+          });
         }),
         completionCb,
       );
