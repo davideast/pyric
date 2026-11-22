@@ -13,7 +13,9 @@ import type { StorageService } from './running-service.js';
 import {
   addressesDefaultBucket,
   BUCKET_RULES,
-   DEFAULT_STORE_NAMES,
+  CLAIMED_DEFAULT_NAMES,
+  DEFAULT_STORAGE_BUCKET,
+  DEFAULT_STORE_NAMES,
   serviceCaches,
   targetOf,
   UNDEPLOYED_POLICIES,
@@ -81,13 +83,63 @@ export function deployStorageBucketRules(
   });
 }
 
-function pinnedDefaultName(target: SandboxTarget, name: string): string | null {
+/**
+ * Record an app's configured `storageBucket` in registration order so the first
+ * app with usable rules owns the default store, even if a second app runs an
+ * operation first (#1538).
+ */
+export function claimDefaultStorageBucket(
+  sandbox: Sandbox,
+  bucketName: string | undefined,
+): void {
+  if (bucketName === undefined || bucketName === '') return;
+  const normalized = rulesBucketName(bucketName, bucketName);
+  if (normalized === '' || normalized === DEFAULT_STORAGE_BUCKET) return;
+  let claimed = CLAIMED_DEFAULT_NAMES.get(sandbox);
+  if (claimed === undefined) {
+    claimed = new Set();
+    CLAIMED_DEFAULT_NAMES.set(sandbox, claimed);
+  }
+  claimed.add(normalized);
+}
+
+function hasUsableDefaultBucketRules(
+  sandbox: Sandbox,
+  service: StorageService,
+  name: string,
+): boolean {
+  const byBucket = BUCKET_RULES.get(sandbox);
+  if (byBucket === undefined) {
+    return service.rules !== null;
+  }
+  if (byBucket.has(name)) return true;
+  if (service.rules !== null) return true;
+  return UNDEPLOYED_POLICIES.get(sandbox) === 'allow';
+}
+
+function pinnedDefaultName(
+  service: StorageService,
+  target: SandboxTarget,
+  name: string,
+): string | null {
   const unnamedDefault = !addressesDefaultBucket(target) || target.bucketName === undefined;
   if (unnamedDefault) return null;
   const pinned = DEFAULT_STORE_NAMES.get(target.sandbox);
   if (pinned !== undefined) return pinned;
-  DEFAULT_STORE_NAMES.set(target.sandbox, name);
-  return name;
+  const claimed = CLAIMED_DEFAULT_NAMES.get(target.sandbox);
+  if (claimed !== undefined) {
+    for (const candidate of claimed) {
+      if (hasUsableDefaultBucketRules(target.sandbox, service, candidate)) {
+        DEFAULT_STORE_NAMES.set(target.sandbox, candidate);
+        return candidate;
+      }
+    }
+  }
+  if (hasUsableDefaultBucketRules(target.sandbox, service, name)) {
+    DEFAULT_STORE_NAMES.set(target.sandbox, name);
+    return name;
+  }
+  return null;
 }
 
 /**
@@ -108,7 +160,7 @@ export function storageRulesInForce(
     return { kind: 'none' };
   }
   const name = rulesBucketName(target.bucket, target.bucketName);
-  const pinned = pinnedDefaultName(target, name);
+  const pinned = pinnedDefaultName(service, target, name);
   if (pinned !== null && pinned !== name) {
     return { kind: 'second-default', bucket: name, defaultBucket: pinned };
   }
@@ -154,7 +206,16 @@ export function compiledStorageRulesForBucket(
   const byBucket = BUCKET_RULES.get(sandbox);
   const deployed = byBucket?.get(normalized);
   if (deployed !== undefined) return deployed.rules;
-  const pinnedDefault = DEFAULT_STORE_NAMES.get(sandbox);
+  let pinnedDefault = DEFAULT_STORE_NAMES.get(sandbox);
+  if (pinnedDefault === undefined) {
+    const claimed = CLAIMED_DEFAULT_NAMES.get(sandbox);
+    if (claimed !== undefined) {
+      for (const candidate of claimed) {
+        pinnedDefault = candidate;
+        break;
+      }
+    }
+  }
   if (pinnedDefault === normalized) return defaultRules;
   if (defaultBuckets.some((name) => rulesBucketName(name, name) === normalized)) {
     return defaultRules;

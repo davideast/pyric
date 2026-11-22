@@ -88,9 +88,41 @@ describe('storageRulesConfig', () => {
     ]);
   });
 
-  it('release.js releases to a bucket by its literal name, so a gs:// bucket name is refused', () => {
+  it('release.js releases to a bucket by its literal name, so a gs:// bucket name is refused case-insensitively (#1538)', () => {
     expect(() => storageRulesConfig([{ bucket: 'gs://media', rules: 'a.rules' }])).toThrow(
       'firebase.json storage[0] names bucket "gs://media", a gs:// URL.',
+    );
+    expect(() => storageRulesConfig([{ bucket: 'GS://media', rules: 'a.rules' }])).toThrow(
+      'firebase.json storage[0] names bucket "GS://media", a gs:// URL. firebase deploy releases to a bucket by that literal name. Write the bucket name without gs://, as "media".',
+    );
+    expect(() => storageRulesConfig([{ bucket: 'Gs://media/', rules: 'a.rules' }])).toThrow(
+      'Write the bucket name without gs://, as "media".',
+    );
+  });
+
+  it('prepare.js: an entry with no rules deploys nothing even when bucket uses gs:// (#1538)', () => {
+    expect(storageRulesConfig([{ bucket: 'gs://media' }])).toEqual({
+      defaultRules: null,
+      buckets: [],
+      unresolved: [],
+    });
+    expect(storageRulesConfig([{ bucket: 'GS://media' }])).toEqual({
+      defaultRules: null,
+      buckets: [],
+      unresolved: [],
+    });
+    expect(storageRulesConfig([{ target: 'uploads' }])).toEqual({
+      defaultRules: null,
+      buckets: [],
+      unresolved: [],
+    });
+    expect(storageRulesConfig({ target: 'main' })).toEqual({
+      defaultRules: null,
+      buckets: [],
+      unresolved: [],
+    });
+    expect(() => storageRulesConfig([{}])).toThrow(
+      'firebase.json storage[0] names neither "bucket" nor "target"',
     );
   });
 

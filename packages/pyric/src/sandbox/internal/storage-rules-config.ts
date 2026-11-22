@@ -91,7 +91,22 @@ function nonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value !== '';
 }
 
-/** The buckets one array entry deploys to, or the target it could not map. */
+function isGsBucketUrl(bucket: string): boolean {
+  return /^gs:\/\//i.test(bucket);
+}
+
+function hasBucketOrTarget(entry: StorageRulesEntry): boolean {
+  return nonEmptyString(entry.target) || nonEmptyString(entry.bucket);
+}
+
+function assertHasBucketOrTarget(entry: StorageRulesEntry, label: string): void {
+  if (hasBucketOrTarget(entry)) return;
+  throw new Error(
+    `${label} names neither "bucket" nor "target", so firebase deploy has no bucket to release its rules to. Add "bucket": "<bucket name>".`,
+  );
+}
+
+/** The buckets one array entry with `rules` deploys to, or empty when its target is unmapped. */
 function entryBuckets(
   entry: StorageRulesEntry,
   label: string,
@@ -99,15 +114,22 @@ function entryBuckets(
 ): readonly string[] {
   if (nonEmptyString(entry.target)) {
     const mapped = options.targetBuckets?.(entry.target);
-    return Array.isArray(mapped) ? mapped.filter(nonEmptyString) : [];
+    if (Array.isArray(mapped)) {
+      return mapped.filter(nonEmptyString);
+    }
+    return [];
   }
   if (nonEmptyString(entry.bucket)) {
-    if (entry.bucket.startsWith('gs://')) {
-      throw new Error(`${label} names bucket "${entry.bucket}", a gs:// URL. firebase deploy releases to a bucket by that literal name. Write the bucket name without gs://, as "${entry.bucket.slice('gs://'.length).replace(/\/$/, '')}".`);
+    if (isGsBucketUrl(entry.bucket)) {
+      const bareBucket = entry.bucket.slice('gs://'.length).replace(/\/$/, '');
+      throw new Error(
+        `${label} names bucket "${entry.bucket}", a gs:// URL. firebase deploy releases to a bucket by that literal name. Write the bucket name without gs://, as "${bareBucket}".`,
+      );
     }
     return [entry.bucket];
   }
-  throw new Error(`${label} names neither "bucket" nor "target", so firebase deploy has no bucket to release its rules to. Add "bucket": "<bucket name>".`);
+  assertHasBucketOrTarget(entry, label);
+  return [];
 }
 
 /** Add one bucket's deploy, refusing a second, different file for the same bucket. */
@@ -144,7 +166,10 @@ export function storageRulesConfig(
     };
   }
   if (!Array.isArray(storage)) {
-    const rules = typeof storage === 'object' ? (storage as StorageRulesEntry).rules : undefined;
+    let rules: unknown;
+    if (typeof storage === 'object') {
+      rules = (storage as StorageRulesEntry).rules;
+    }
     if (!nonEmptyString(rules)) return { defaultRules: null, buckets: [], unresolved: [] };
     const label = 'firebase.json storage.rules';
     return { defaultRules: { file: resolveFile(rules), label, configured: true }, buckets: [], unresolved: [] };
@@ -154,9 +179,13 @@ export function storageRulesConfig(
   const unresolved: UnresolvedStorageRulesTarget[] = [];
   storage.forEach((raw: unknown, index) => {
     const label = `firebase.json storage[${index}]`;
-    const entry: StorageRulesEntry = raw !== null && typeof raw === 'object' ? raw : {};
-    const names = entryBuckets(entry, label, options);
+    let entry: StorageRulesEntry = {};
+    if (raw !== null && typeof raw === 'object') {
+      entry = raw as StorageRulesEntry;
+    }
+    assertHasBucketOrTarget(entry, label);
     if (!nonEmptyString(entry.rules)) return;
+    const names = entryBuckets(entry, label, options);
     const file = resolveFile(entry.rules);
     const unmapped = names.length === 0 && nonEmptyString(entry.target);
     if (unmapped) {

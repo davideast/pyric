@@ -7,8 +7,14 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'bun:test';
 import { initializeSandbox, type LocalSandbox, type SandboxEvent, type SandboxOperationEvent } from 'pyric/sandbox';
-import { createAppForSandbox } from '../../src/app/internal.js';
+import { initializeApp } from '../../src/app/index.js';
+import {
+  bindAppRegistrySandbox,
+  createAppForSandbox,
+  resetAppRegistryForTests,
+} from '../../src/app/internal.js';
 import { getBytes, getMetadata, getStorage, ref, uploadBytes } from '../../src/storage/index.js';
+import { pruneStorageBucketRules } from '../../src/storage/internal.js';
 import {
   getStorageSandbox,
   lockUndeployedStorageBuckets,
@@ -169,6 +175,74 @@ describe('per-bucket Storage rules', () => {
     await expect(getBytes(ref(open, 'x.txt'))).rejects.toThrow('is a second default bucket in this sandbox, which already serves "strict-bucket"');
   });
 
+  it('pins the default store to the first app opened with usable rules even when the second app runs first (#1538)', async () => {
+    const sandbox = freshSandbox();
+    lockUndeployedStorageBuckets(sandbox);
+    await replaceStorageRules(sandbox, OPEN, { bucket: 'first-bucket' });
+    await replaceStorageRules(sandbox, OPEN, { bucket: 'second-bucket' });
+    const first = getStorage(createAppForSandbox(sandbox, { projectId: 'p', storageBucket: 'first-bucket' }, uniqueName('first')));
+    const second = getStorage(createAppForSandbox(sandbox, { projectId: 'p', storageBucket: 'second-bucket' }, uniqueName('second')));
+    await expect(uploadBytes(ref(second, 'x.txt'), BYTES)).rejects.toThrow(
+      'Storage bucket "second-bucket" is a second default bucket in this sandbox, which already serves "first-bucket"',
+    );
+    expect(await uploadOutcome(first, 'x.txt')).toBe('ok');
+  });
+
+  it('does not let a mistyped undeployed storageBucket lock out the deployed default bucket when run first (#1538)', async () => {
+    const sandbox = freshSandbox();
+    lockUndeployedStorageBuckets(sandbox);
+    await replaceStorageRules(sandbox, OPEN, { bucket: DEFAULT_BUCKET });
+    const mistyped = getStorage(createAppForSandbox(sandbox, { projectId: 'demo-app', storageBucket: 'mistyped-app.appspot.com' }, uniqueName('mistyped')));
+    await expect(uploadBytes(ref(mistyped, 'x.txt'), BYTES)).rejects.toThrow(
+      'Storage bucket "mistyped-app.appspot.com" has no rules deployed in firebase.json',
+    );
+    const correct = getStorage(createAppForSandbox(sandbox, { projectId: 'demo-app', storageBucket: DEFAULT_BUCKET }, uniqueName('correct')));
+    expect(await uploadOutcome(correct, 'x.txt')).toBe('ok');
+  });
+
+  it('pins [DEFAULT] app before a second sandbox app even when getStorage(secondApp) runs first (#1538)', async () => {
+    const sandbox = freshSandbox();
+    lockUndeployedStorageBuckets(sandbox);
+    await replaceStorageRules(sandbox, OPEN, { bucket: DEFAULT_BUCKET });
+    await replaceStorageRules(sandbox, OPEN, { bucket: 'named-bucket' });
+    await resetAppRegistryForTests();
+    try {
+      bindAppRegistrySandbox(sandbox);
+      const defaultApp = initializeApp({ projectId: 'demo-app', storageBucket: DEFAULT_BUCKET });
+      const namedApp = createAppForSandbox(
+        sandbox,
+        { projectId: 'demo-app', storageBucket: 'named-bucket' },
+        uniqueName('named'),
+      );
+      const namedStorage = getStorage(namedApp);
+      await expect(uploadBytes(ref(namedStorage, 'x.txt'), BYTES)).rejects.toThrow(
+        `Storage bucket "named-bucket" is a second default bucket in this sandbox, which already serves "${DEFAULT_BUCKET}"`,
+      );
+      expect(await uploadOutcome(getStorage(defaultApp), 'x.txt')).toBe('ok');
+    } finally {
+      await resetAppRegistryForTests();
+    }
+  });
+
+  it('pruneStorageBucketRules clears unkept default-store pins and claimed buckets under permissive policy (#1538)', async () => {
+    const sandbox = freshSandbox();
+    lockUndeployedStorageBuckets(sandbox, 'allow');
+    const dirtyApp = createAppForSandbox(
+      sandbox,
+      { projectId: 'demo-app', storageBucket: 'dirty-bucket' },
+      uniqueName('dirty'),
+    );
+    expect(await uploadOutcome(getStorage(dirtyApp), 'x.txt')).toBe('ok');
+    await replaceStorageRules(sandbox, OPEN, { bucket: DEFAULT_BUCKET });
+    pruneStorageBucketRules(sandbox, new Set([DEFAULT_BUCKET]));
+    const restoredApp = createAppForSandbox(
+      sandbox,
+      { projectId: 'demo-app', storageBucket: DEFAULT_BUCKET },
+      uniqueName('restored'),
+    );
+    expect(await uploadOutcome(getStorage(restoredApp), 'x.txt')).toBe('ok');
+  });
+
   describe('permissive mode (owner decision multi-resource-1)', () => {
     it('opens a bucket nothing deploys to, and the default bucket with no rules', async () => {
       const sandbox = freshSandbox();
@@ -208,7 +282,7 @@ describe('per-bucket Storage rules', () => {
         rulesDisposition: { kind: 'not-evaluated', reason: 'no-rules' },
         detail: { bucketName: 'other-bucket', defaultPolicy: 'allow' },
       });
-      expect(ops[0]!.rules).toBeUndefined();
+      expect(ops[0]?.rules).toBeUndefined();
     });
 
     it('a deny policy locks an undeployed bucket, as with no policy', async () => {

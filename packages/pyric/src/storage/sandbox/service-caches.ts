@@ -106,6 +106,7 @@ export interface StorageServiceCaches {
   readonly bareAdminHandles: WeakMap<Sandbox, Map<string, FirebaseStorage>>;
   bucketRules?: WeakMap<Sandbox, Map<string, BucketRules>>;
   defaultStoreNames?: WeakMap<Sandbox, string>;
+  claimedDefaultNames?: WeakMap<Sandbox, Set<string>>;
   undeployedPolicies?: WeakMap<Sandbox, StorageDefaultPolicy>;
 }
 
@@ -132,12 +133,16 @@ if (serviceCaches.bucketRules === undefined) {
 if (serviceCaches.defaultStoreNames === undefined) {
   serviceCaches.defaultStoreNames = new WeakMap();
 }
+if (serviceCaches.claimedDefaultNames === undefined) {
+  serviceCaches.claimedDefaultNames = new WeakMap();
+}
 if (serviceCaches.undeployedPolicies === undefined) {
   serviceCaches.undeployedPolicies = new WeakMap();
 }
 
 export const BUCKET_RULES = serviceCaches.bucketRules as WeakMap<Sandbox, Map<string, BucketRules>>;
 export const DEFAULT_STORE_NAMES = serviceCaches.defaultStoreNames as WeakMap<Sandbox, string>;
+export const CLAIMED_DEFAULT_NAMES = serviceCaches.claimedDefaultNames as WeakMap<Sandbox, Set<string>>;
 export const UNDEPLOYED_POLICIES = serviceCaches.undeployedPolicies as WeakMap<Sandbox, StorageDefaultPolicy>;
 
 /** Whether a handle addresses the app's default bucket store. */

@@ -14,6 +14,7 @@ import { dataRpc, nextId } from './core.js';
 import { reserveSend, type SendReservation } from './send-order.js';
 import {
   committedFrom,
+  rethrowCutOffRpcFailure,
   rollbackField,
   type CommittedUpload,
 } from './storage-byte-route.js';
@@ -57,9 +58,14 @@ export async function readStorageBytesAsFrames(
     const code = (err as { code?: string })?.code;
     const isTooLarge = code === 'payload-too-large';
     if (!isTooLarge) {
-      throw err;
+      rethrowCutOffRpcFailure(err, false);
     }
-    const meta = await getMetadata(reference);
+    let meta: Awaited<ReturnType<typeof getMetadata>>;
+    try {
+      meta = await getMetadata(reference);
+    } catch (metaErr) {
+      rethrowCutOffRpcFailure(metaErr, false);
+    }
     const byteParts: Uint8Array[] = [];
     let offset = 0;
     while (offset < meta.size) {
@@ -83,11 +89,16 @@ export async function readStorageBytesAsFrames(
       if (wireBucket.bucket !== undefined) {
         chunkRequest.bucket = wireBucket.bucket;
       }
-      const chunkRes = (await dataRpc(reference.port, chunkRequest)) as {
-        dataB64: string;
-        contentType?: string;
-        size: number;
-      };
+      let chunkRes: { dataB64: string; contentType?: string; size: number };
+      try {
+        chunkRes = (await dataRpc(reference.port, chunkRequest)) as {
+          dataB64: string;
+          contentType?: string;
+          size: number;
+        };
+      } catch (chunkErr) {
+        rethrowCutOffRpcFailure(chunkErr, true);
+      }
       byteParts.push(base64ToBytes(chunkRes.dataB64));
       offset += length;
     }
@@ -185,7 +196,13 @@ export async function uploadByteArray(
     }
     const storing = dataRpc(reference.port, putMessage, reservation);
     reservation?.release();
-    return committedFrom(reference, await storing);
+    let reply: unknown;
+    try {
+      reply = await storing;
+    } catch (err) {
+      rethrowCutOffRpcFailure(err, false);
+    }
+    return committedFrom(reference, reply);
   }
 
   const beginMessage: OpMessage & {
@@ -213,7 +230,12 @@ export async function uploadByteArray(
   }
   const beginning = dataRpc(reference.port, beginMessage, reservation);
   reservation?.release();
-  const beginRes = (await beginning) as { uploadId: string };
+  let beginRes: { uploadId: string };
+  try {
+    beginRes = (await beginning) as { uploadId: string };
+  } catch (err) {
+    rethrowCutOffRpcFailure(err, false);
+  }
 
   const uploadId = beginRes.uploadId;
   try {
@@ -259,6 +281,6 @@ export async function uploadByteArray(
     } catch {
       // Secondary abort best effort.
     }
-    throw err;
+    rethrowCutOffRpcFailure(err, true);
   }
 }

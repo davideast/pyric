@@ -101,7 +101,69 @@ describe('the in-page plane', () => {
     const metadata = await getMetadata(objectRef);
     expect(targetOf(storage).bucket).toBe('pyric-default');
     expect(objectRef.bucket).toBe(BUCKET);
+    expect(objectRef.toString()).toBe(`gs://${BUCKET}/wildcard/c.txt`);
+    expect(objectRef.parent?.bucket).toBe(BUCKET);
+    expect(objectRef.root.bucket).toBe(BUCKET);
+    expect(objectRef.root.toString()).toBe(`gs://${BUCKET}/`);
     expect(result.metadata.bucket).toBe(BUCKET);
     expect(metadata.bucket).toBe(BUCKET);
+  });
+
+  it('reports the configured storageBucket on PYRIC_SANDBOX=local project rules setup (#1519)', async () => {
+    const { mkdtempSync, rmSync, writeFileSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const { loadProjectRules } = await import('../../../src/app/register-rules.js');
+    const { listAll, updateMetadata, uploadBytesResumable } = await import(
+      '../../../src/storage/index.js'
+    );
+
+    const projectDir = mkdtempSync(join(tmpdir(), 'pyric-1519-local-'));
+    try {
+      const projectId = uniqueName('demo-app');
+      const scope = uniqueName('case1519');
+      writeFileSync(
+        join(projectDir, '.firebaserc'),
+        JSON.stringify({ projects: { default: projectId } }),
+      );
+      writeFileSync(
+        join(projectDir, 'firebase.json'),
+        JSON.stringify({ storage: { rules: 'storage.rules' } }),
+      );
+      writeFileSync(
+        join(projectDir, 'storage.rules'),
+        `rules_version = '2';\nservice firebase.storage {\n  match /b/${BUCKET}/o {\n    match /{allPaths=**} {\n      allow read, write: if true;\n    }\n  }\n}\n`,
+      );
+      const localSandbox = initializeSandbox({});
+      loadProjectRules(localSandbox, projectDir);
+      const localApp = createAppForSandbox(
+        localSandbox,
+        { projectId, storageBucket: BUCKET },
+        uniqueName('local-app'),
+      );
+      const localStorage = getStorage(localApp);
+      const fileRef = ref(localStorage, `${scope}/a.txt`);
+      expect(fileRef.bucket).toBe(BUCKET);
+      expect(fileRef.toString()).toBe(`gs://${BUCKET}/${scope}/a.txt`);
+
+      const uploaded = await uploadBytes(fileRef, new Uint8Array([1]));
+      expect(uploaded.metadata.bucket).toBe(BUCKET);
+      expect((await getMetadata(fileRef)).bucket).toBe(BUCKET);
+
+      const updated = await updateMetadata(fileRef, { contentLanguage: 'en' });
+      expect(updated.bucket).toBe(BUCKET);
+
+      const resumableRef = ref(localStorage, `${scope}/folder/b.txt`);
+      const task = uploadBytesResumable(resumableRef, new Uint8Array([2, 3]));
+      expect(task.snapshot.metadata.bucket).toBe(BUCKET);
+      const completed = await task;
+      expect(completed.metadata.bucket).toBe(BUCKET);
+
+      const listed = await listAll(ref(localStorage, scope));
+      expect(listed.items.map((item) => item.bucket)).toEqual([BUCKET]);
+      expect(listed.prefixes.map((prefix) => prefix.bucket)).toEqual([BUCKET]);
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+    }
   });
 });
