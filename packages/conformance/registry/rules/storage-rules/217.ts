@@ -11,6 +11,9 @@ export default row({
   riskScore: 2,
   riskReasons: ["pyric refuses a ruleset production deploys"],
   oracleObservations: ["rules-storage-storage-two-top-level-bucket-matches"],
-  conformanceTests: ["packages/rules/test/storage/rules-oracle-conformance.test.ts"],
+  conformanceTests: [
+    "packages/rules/test/storage/rules-oracle-conformance.test.ts",
+    "packages/rules/test/grammar/multiple-root-matches.test.ts",
+  ],
   constructs: ["storage.rule-kind.match"],
 });

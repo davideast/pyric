@@ -12,7 +12,6 @@ import type {
   FirestoreRules,
   ServiceBlock,
 } from '../grammar/FirestoreAST.js';
-import { RULES_BUILTIN_FUNCTIONS } from '../grammar/builtin-functions.js';
 import { topLevelMatches } from '../grammar/service-blocks.js';
 
 /**
@@ -29,7 +28,7 @@ import { topLevelMatches } from '../grammar/service-blocks.js';
  * while the operator matches. A parenthesized group on the right, as in
  * `a && (b && c)`, starts a separate chain.
  */
-export function maxChainDepth(expr: Expression, op: string): number {
+function maxChainDepth(expr: Expression, op: string): number {
   if (expr.type !== 'binaryOp' || expr.op !== op) return 0;
   let operands = 1;
   let node: Expression = expr;
@@ -122,65 +121,6 @@ export function extractFirstExpression(condition: Expression): Expression {
     return extractFirstExpression(condition.left);
   }
   return condition;
-}
-
-/**
- * Build a call graph: function name → list of functions it calls.
- * Includes both direct and let-binding calls.
- */
-export function buildCallGraph(functions: FunctionDef[]): Map<string, string[]> {
-  const graph = new Map<string, string[]>();
-  const fnNames = new Set(functions.map(f => f.name));
-
-  function collectCalls(expr: Expression): string[] {
-    const calls: string[] = [];
-    const walk = (e: Expression) => {
-      switch (e.type) {
-        case 'functionCall':
-          if (fnNames.has(e.name) && !RULES_BUILTIN_FUNCTIONS.has(e.name)) calls.push(e.name);
-          e.args.forEach(walk);
-          break;
-        case 'binaryOp': walk(e.left); walk(e.right); break;
-        case 'unaryOp': walk(e.operand); break;
-        case 'methodCall': walk(e.object); e.args.forEach(walk); break;
-        case 'memberAccess': walk(e.object); break;
-        case 'bracketAccess': walk(e.object); walk(e.index); break;
-        case 'ternary': walk(e.condition); walk(e.consequent); walk(e.alternate); break;
-        case 'inExpr': walk(e.element); walk(e.collection); break;
-        case 'isExpr': walk(e.value); break;
-        case 'listLiteral': e.elements.forEach(walk); break;
-        case 'mapLiteral': e.entries.forEach(en => { walk(en.key); walk(en.value); }); break;
-      }
-    };
-    walk(expr);
-    return [...new Set(calls)];
-  }
-
-  for (const fn of functions) {
-    const calls: string[] = [];
-    calls.push(...collectCalls(fn.body));
-    for (const binding of fn.lets) {
-      calls.push(...collectCalls(binding.value));
-    }
-    graph.set(fn.name, [...new Set(calls)]);
-  }
-
-  return graph;
-}
-
-/**
- * Find the maximum call chain depth from a starting point.
- */
-export function maxCallDepth(start: string, graph: Map<string, string[]>, visited = new Set<string>()): number {
-  if (visited.has(start)) return 0;
-  visited.add(start);
-  const callees = graph.get(start) || [];
-  if (callees.length === 0) return 1;
-  let max = 0;
-  for (const callee of callees) {
-    max = Math.max(max, maxCallDepth(callee, graph, new Set(visited)));
-  }
-  return 1 + max;
 }
 
 /**
@@ -286,8 +226,8 @@ export function functionContainsGet(
  * a rule that reads `request.time` produces non-deterministic outcomes
  * across CI runs unless the test pins `requestTime`.
  *
- * Matches both the dot form (`request.time`) — `memberAccess` whose
- * object is the identifier `request` and property is `time` — and the
+ * Matches both the dot form (`request.time`) -- `memberAccess` whose
+ * object is the identifier `request` and property is `time` -- and the
  * bracket form (`request['time']`).
  */
 export function referencesRequestTime(
@@ -394,6 +334,18 @@ function joinMatchPath(parentPath: string, childRaw: string): string {
   return `${left}${right}`;
 }
 
+function stripServiceRootPrefix(rawPath: string): string | null {
+  const firestoreRoot = /^\/?databases\/[^/]+\/documents(\/.*)?$/.exec(rawPath);
+  if (firestoreRoot !== null) {
+    return firestoreRoot[1] ?? '';
+  }
+  const storageRoot = /^\/?b\/[^/]+\/o(\/.*)?$/.exec(rawPath);
+  if (storageRoot !== null) {
+    return storageRoot[1] ?? '';
+  }
+  return null;
+}
+
 /**
  * Collect all allow rules from a match block and its children (recursive),
  * joining nested match paths relative to the documents root.
@@ -402,12 +354,14 @@ export function collectAllRules(
   match: MatchBlock,
   parentPath = '',
 ): { rule: AllowRule; path: string; matchFunctions: FunctionDef[] }[] {
-  const isDocumentsRoot =
-    (match.path.raw.includes('databases') && match.path.raw.includes('documents')) ||
-    (match.path.raw.includes('/b/') && match.path.raw.includes('/o')) ||
-    /^\/?b\/[^/]+\/o$/.test(match.path.raw);
   const currentPath = joinMatchPath(parentPath, match.path.raw);
-  const childPrefix = isDocumentsRoot && !parentPath ? '' : currentPath;
+  let childPrefix = currentPath;
+  if (!parentPath) {
+    const strippedRoot = stripServiceRootPrefix(match.path.raw);
+    if (strippedRoot !== null) {
+      childPrefix = strippedRoot;
+    }
+  }
   const results: { rule: AllowRule; path: string; matchFunctions: FunctionDef[] }[] = [];
   for (const rule of match.allows) {
     results.push({ rule, path: currentPath, matchFunctions: match.functions });

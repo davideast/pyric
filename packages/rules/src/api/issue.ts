@@ -1,5 +1,5 @@
 /**
- * The unified rules diagnostic — one shape for every issue a ruleset can
+ * The unified rules diagnostic -- one shape for every issue a ruleset can
  * carry, whatever stage produced it.
  *
  * Before this, three separate shapes described the same idea: the linter's
@@ -23,10 +23,10 @@ export type RuleIssueSeverity = 'error' | 'warning' | 'info';
 
 /**
  * The stage that produced the issue.
- *   - `parse`    — the source did not parse, or broke a production compile
- *                  limit; nothing downstream ran.
- *   - `validate` — a structural/security finding on a parsed ruleset.
- *   - `lint`     — a budget/quality/hallucination warning.
+ *   - `parse`    -- the source did not parse, or broke a production compile
+ *                   limit; nothing downstream ran.
+ *   - `validate` -- a structural/security finding on a parsed ruleset.
+ *   - `lint`     -- a budget/quality/hallucination warning.
  */
 export type RuleIssueOrigin = 'parse' | 'validate' | 'lint';
 
@@ -87,6 +87,7 @@ const COMPILE_LIMIT_LINT_CODES: ReadonlySet<string> = new Set([
   'INVALID_NUMBER_LITERAL',
   'DOUBLE_MINUS',
   'FUNCTION_REDEFINED',
+  'VARIABLE_REDEFINED',
   'DUPLICATE_SERVICE',
   'NOT_MODULE_SOURCE',
   'PARSE_FAILED',
@@ -114,8 +115,8 @@ export function lintWarningToIssue(warning: LintWarning): RuleIssue {
 }
 
 /** Validator severities are a four-level urgency scale; fold them onto the
- *  three-level `RuleIssue` scale (critical/high → error, medium → warning,
- *  low → info) so one list sorts sensibly. */
+ *  three-level `RuleIssue` scale (critical/high -> error, medium -> warning,
+ *  low -> info) so one list sorts sensibly. */
 export function validationFindingToIssue(finding: ValidationFinding): RuleIssue {
   const severity: RuleIssueSeverity =
     finding.severity === 'critical' || finding.severity === 'high'

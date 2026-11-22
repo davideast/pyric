@@ -11,6 +11,9 @@ export default row({
   riskScore: 1,
   riskReasons: ["pyric refuses a ruleset production deploys"],
   oracleObservations: ["rules-storage-h1-deploy-cloud-storage-service"],
-  conformanceTests: ["packages/rules/test/storage/rules-oracle-conformance.test.ts"],
+  conformanceTests: [
+    "packages/rules/test/storage/rules-oracle-conformance.test.ts",
+    "packages/rules/test/grammar/compile-acceptance.test.ts",
+  ],
   constructs: ["storage.rule-kind.match"],
 });

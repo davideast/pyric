@@ -1,4 +1,4 @@
-// AUTO-GENERATED — do not edit by hand. Regenerate via:
+// AUTO-GENERATED -- do not edit by hand. Regenerate via:
 //   bun run inline-grammar (packages/rules)
 // Source: RtdbExpr.ohm
 

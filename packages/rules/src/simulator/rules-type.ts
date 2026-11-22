@@ -1,3 +1,4 @@
+import { findInvalidRe2EscapeOrClass } from '../grammar/re2-escape-validation.js';
 import {
   findInvalidRe2CharClassRange,
   normalizeRe2ForJsRegExp,
@@ -6,6 +7,7 @@ import {
   spellRe2PosixClasses,
   spellRe2SpaceClasses,
 } from '../grammar/re2-pattern.js';
+import { re2CaseFoldOrbit } from './re2-case-fold.js';
 import {
   compileCharMatcher,
   spellRe2BellEscapes,
@@ -47,7 +49,7 @@ export function describeRulesType(value: unknown): string {
   return typeof value;
 }
 
-// ═══ Linear-time RE2 regex evaluation & Java Matcher replacement ═══
+// === Linear-time RE2 regex evaluation & Java Matcher replacement ===
 
 function isWordChar(chars: readonly string[], idx: number): boolean {
   if (idx < 0 || idx >= chars.length) return false;
@@ -143,7 +145,7 @@ export function re2FullMatch(pattern: string, subject: string): boolean {
  * Whether JavaScript compiles `pattern`, read as code units or, failing that,
  * as code points with RE2's property classes spelled for a `u` RegExp. A
  * class range over characters outside the Basic Multilingual Plane, such as
- * `[😀-😂]`, compiles only as code points; production compiles it (#1901,
+ * `[\u{1F600}-\u{1F602}]`, compiles only as code points; production compiles it (#1901,
  * capture `c9b-astral-range-matches`). Throws on a pattern
  * `normalizeRe2ForJsRegExp` refuses.
  */
@@ -151,8 +153,10 @@ export function re2PatternCompiles(pattern: string): boolean {
   return re2PatternCompileError(pattern) === null;
 }
 
-/** Why JavaScript refuses `pattern` both ways, as the code-unit RegExp's message, or null. */
+/** Why RE2 or JavaScript refuses `pattern`, or null. */
 function re2PatternCompileError(pattern: string): string | null {
+  const escapeError = findInvalidRe2EscapeOrClass(pattern);
+  if (escapeError !== null) return escapeError;
   const rangeError = findInvalidRe2CharClassRange(pattern);
   if (rangeError !== null) return rangeError;
   const normalized = spellRe2BellEscapes(normalizeRe2ForJsRegExp(pattern));
@@ -181,7 +185,7 @@ export function parseRe2Ast(pattern: string): RegexNode {
 }
 
 /** An RE2 pattern's tree and its capture groups. */
-export interface ParsedRe2Pattern {
+interface ParsedRe2Pattern {
   ast: RegexNode;
   groupCount: number;
   groupNames: ReadonlyMap<string, number>;
@@ -194,7 +198,11 @@ export interface ParsedRe2Pattern {
  * flag a repeat is lazy unless it has one. Capture `c1-re2-replace-split`
  * (`ug0`, `ug1`) shows production reads `(?U)` so (#1891).
  */
-export function parseRe2Pattern(pattern: string): ParsedRe2Pattern {
+function parseRe2Pattern(pattern: string): ParsedRe2Pattern {
+  const escapeError = findInvalidRe2EscapeOrClass(pattern);
+  if (escapeError !== null) {
+    throw new Error(`Invalid regex '${pattern}': ${escapeError}`);
+  }
   const rangeError = findInvalidRe2CharClassRange(pattern);
   if (rangeError !== null) {
     throw new Error(`Invalid regex '${pattern}': ${rangeError}`);
@@ -296,14 +304,11 @@ export function parseRe2Pattern(pattern: string): ParsedRe2Pattern {
 
   const matchLiteralChar = (target: string, caseInsensitive: boolean): RegexNode => {
     if (caseInsensitive) {
-      const lo = target.toLowerCase();
-      const up = target.toUpperCase();
-      const cp = target.codePointAt(0);
-      let re: RegExp | null = null;
-      if (cp !== undefined) {
-        re = new RegExp(`^\\u{${cp.toString(16)}}$`, 'iu');
+      const orbit = re2CaseFoldOrbit(target);
+      if (orbit.length === 1) {
+        return { kind: 'char', test: (c) => c === target };
       }
-      return { kind: 'char', test: (c) => c === lo || c === up || (re !== null && re.test(c)) };
+      return { kind: 'char', test: (c) => orbit.includes(c) };
     }
     return { kind: 'char', test: (c) => c === target };
   };
@@ -360,8 +365,7 @@ export function parseRe2Pattern(pattern: string): ParsedRe2Pattern {
         else pos += re2PosixClassAt(pattern, pos)?.length ?? 1;
       }
       if (pattern[pos] === ']') pos++;
-      const rawClass = normalizeRe2ForJsRegExp(pattern.slice(start, pos));
-      return { kind: 'char', test: compileCharMatcher(rawClass, ignoreCase) };
+      return { kind: 'char', test: compileCharMatcher(pattern.slice(start, pos), ignoreCase) };
     }
     if (ch === '^') {
       pos++;
@@ -405,7 +409,7 @@ export function parseRe2Pattern(pattern: string): ParsedRe2Pattern {
         pos++;
         return { kind: 'assert', check: (s, p) => p === s.length };
       }
-      if ((esc === 'x' || esc === 'u') && pattern[pos + 1] === '{') {
+      if (esc === 'x' && pattern[pos + 1] === '{') {
         const closeBrace = pattern.indexOf('}', pos + 2);
         const hex = pattern.slice(pos + 2, closeBrace);
         pos = closeBrace + 1;
@@ -435,17 +439,15 @@ export function parseRe2Pattern(pattern: string): ParsedRe2Pattern {
         pos += 3;
         return { kind: 'char', test: compileCharMatcher(pattern.slice(start, pos), ignoreCase) };
       }
-      if (esc === 'u') {
-        pos += 5;
-        return { kind: 'char', test: compileCharMatcher(pattern.slice(start, pos), ignoreCase) };
-      }
-      if (esc === 'c') {
-        pos += 2;
-        return { kind: 'char', test: compileCharMatcher(pattern.slice(start, pos), ignoreCase) };
-      }
       if (esc >= '0' && esc <= '7') {
-        const oct = /^[0-7]{1,3}/.exec(pattern.slice(pos))!;
-        pos += oct[0].length;
+        let octLen = 1;
+        if (pattern[pos + 1] !== undefined && pattern[pos + 1]! >= '0' && pattern[pos + 1]! <= '7') {
+          octLen = 2;
+          if (esc <= '3' && pattern[pos + 2] !== undefined && pattern[pos + 2]! >= '0' && pattern[pos + 2]! <= '7') {
+            octLen = 3;
+          }
+        }
+        pos += octLen;
         return { kind: 'char', test: compileCharMatcher(pattern.slice(start, pos), ignoreCase) };
       }
       const cp = pattern.codePointAt(pos)!;

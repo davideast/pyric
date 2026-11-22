@@ -139,8 +139,12 @@ describe('escapes and classes are not backreferences or lookarounds', () => {
     });
   }
 
-  test('a real backreference and a real lookahead still deny', () => {
-    for (const guard of ["'aa'.split('(a)\\\\1').size() > 0", "'ab'.replace('a(?=b)', '_') == '_b'"]) {
+  test('a real backreference and a real lookahead still refuse or deny (#1334)', () => {
+    expect(firestoreVerdict("'aa'.split('(a)\\\\1').size() > 0")).toBe('ERROR:PARSE_FAILED');
+    expect(() => parseStorageRules(storageSource("'aa'.split('(a)\\\\1').size() > 0"))).toThrow(
+      /Invalid regular expression pattern/,
+    );
+    for (const guard of ["'aa'.split('(' + 'a)\\\\1').size() > 0", "'ab'.replace('a(?=b)', '_') == '_b'"]) {
       expect(firestoreVerdict(guard)).toBe('DENY');
       expect(storageVerdict(guard)).toBe('DENY');
     }

@@ -3,33 +3,16 @@
  *
  * Analyzes rules source or AST for structural issues that cause
  * compilation failures (400) or runtime expression budget exhaustion (403).
- *
- * See test/firestore/linter/LINTER_SPEC.md for the full specification
- * and verified production thresholds.
  */
-import type { FirestoreRules, FunctionDef, Expression, AllowRule, MatchBlock, PathSegment } from '../grammar/FirestoreAST.js';
+import type { AllowRule, FirestoreRules, FunctionDef } from '../grammar/FirestoreAST.js';
 import { parseToASTOrError, type ParseError } from '../grammar/FirestoreParser.js';
-import { sourceSizeViolation } from '../grammar/source-compile-limits.js';
-import type { TestCase } from '../test/spec.js';
 import {
-  deepestChain,
-  expressionFingerprint,
-  extractFirstExpression,
-  buildCallGraph,
-  maxCallDepth,
-  countFunctionCallSites,
-  functionContainsGet,
-  referencesRequestTime,
-  collectDeclaredFunctions,
-  collectAllRules,
-  collectServiceRules,
-  evalConstBool,
-  serializeExpression,
-  extractConjuncts,
-} from './ast-utils.js';
-import { checkSyntaxHints, checkHallucinations } from './hallucinations.js';
+  compileLimitViolations,
+  type CompileLimitViolation,
+} from '../grammar/compile-limits.js';
 import { countDocumentAccessCalls } from '../grammar/document-access-count.js';
-import { recursiveScope, type RecursiveScope } from '../grammar/recursive-scope.js';
+import { collectRulesetScopes } from '../grammar/function-scopes.js';
+import { recursiveScope } from '../grammar/recursive-scope.js';
 import {
   allServiceBlocks,
   isStorageServiceName,
@@ -37,30 +20,47 @@ import {
   topLevelMatches,
   withSingleService,
 } from '../grammar/service-blocks.js';
-import { checkServiceDeclarations } from './service-declarations.js';
-import {
-  analyzeCallChains,
-  collectRulesetScopes,
-  functionReferences,
-  type RulesetScopes,
-} from '../grammar/function-scopes.js';
-import { EXPRESSION_LIMIT, estimateExpressionCosts, type RuleCostEstimate } from './expression-cost.js';
-import { ruleLibraryCalls } from './library-calls.js';
 import {
   resolveBundledModulesForAnalysis,
   resolveBundledModulesWithDiagnostics,
 } from '../modules/resolver-browser.js';
+import type { TestCase } from '../test/spec.js';
 import {
-  CALL_DEPTH_LIMIT,
-  LET_LIMIT,
-  NESTING_LEVEL_LIMIT,
-  NESTING_MESSAGE,
-  SLASH_STARTS_PATH_MESSAGE,
-  compileLimitViolations,
-  type CompileLimitViolation,
-} from '../grammar/compile-limits.js';
+  collectDeclaredFunctions,
+  collectServiceRules,
+  deepestChain,
+} from './ast-utils.js';
+import {
+  checkCallDepth,
+  checkExpressionBudget,
+  checkGetCount,
+  checkGetDuplication,
+  checkLibraryCalls,
+  checkMemberChainLength,
+  checkSharedGates,
+} from './budget-warnings.js';
+import {
+  checkAdditionalCompileRejections,
+  checkGlobMatchCount,
+  checkLetBindings,
+  checkNestingDepth,
+  checkSlashStartsPath,
+  checkSourceSize,
+  pushWarning,
+} from './compile-limit-warnings.js';
+import { estimateExpressionCosts } from './expression-cost.js';
+import { checkHallucinations, checkSyntaxHints } from './hallucinations.js';
+import {
+  checkPermissiveRules,
+  checkRecursiveWildcardOpen,
+  checkRequestTimePinned,
+  checkRulesWeakened,
+  collectRecursiveScopes,
+  type RuleScope,
+} from './policy-warnings.js';
+import { checkServiceDeclarations } from './service-declarations.js';
 
-// ═══ Types ═══
+// === Types ===
 
 export interface LintWarning {
   rule: string;
@@ -72,8 +72,6 @@ export interface LintWarning {
     ruleIndex?: number;
     matchPath?: string;
     line?: number;
-    /** Test-case description from `TestCase.description`. Set only by
-     *  rules that operate on the optional test suite (e.g. REQUEST_TIME_NOT_PINNED). */
     testCaseDescription?: string;
   };
   fix?: string;
@@ -95,920 +93,25 @@ export interface RulesMetrics {
 export interface LintResult {
   warnings: LintWarning[];
   metrics: RulesMetrics;
-  /**
-   * Structured parse failure when the source did not parse. When defined,
-   * `metrics` (except `sourceSize`) and `warnings` carry no signal —
-   * budget checks were skipped. Callers should branch on `parseError`
-   * before interpreting warnings or metrics.
-   *
-   * Why this isn't a new `severity` value: a parse failure means "this
-   * isn't a rule yet" rather than "this rule will fail at runtime", which
-   * is a categorically different question from anything `warnings`
-   * answers. Adding a new severity would force every consumer to handle
-   * a third branch they don't care about; a separate field lets old
-   * code keep working and gives new code a clean signal to check.
-   */
   parseError?: ParseError;
 }
 
-// ═══ Thresholds (from production verification) ═══
-
-const THRESHOLDS = {
-  // Production's compile limits, shared with the Firestore simulator and
-  // the Storage evaluator (grammar/compile-limits.ts).
-  LET_LIMIT,
-  CALL_DEPTH_WARN: 18,
-  CALL_DEPTH_LIMIT,
-  GET_COUNT_WARN: 5,
-  // Production allows EXACTLY 10 document access calls per request
-  // evaluation; the 11th fails (site-docs secure/firestore-rules-limits.md).
-  // Error fires strictly ABOVE this value, the same boundary as SEM-3 and
-  // the simulator's runtime LookupBudget.
-  GET_COUNT_ERROR: 10,
-};
-
-// ═══ Lint Rules ═══
-
-/** The load check's source size refusal, with production's message, so lint and load agree. */
-function checkSourceSize(source: string, warnings: LintWarning[]) {
-  const violation = sourceSizeViolation(source);
-  if (violation === null) return;
-  warnings.push({
-    rule: 'SOURCE_SIZE',
-    severity: 'error',
-    message: violation.message,
-    fix: 'Reduce string literals, remove comments, or split into smaller match blocks.',
-  });
-}
-
-function buildWarningLocation(opts: {
-  functionName?: string;
-  matchPath?: string;
-  line?: number;
-}): LintWarning['location'] | undefined {
-  const loc: NonNullable<LintWarning['location']> = {};
-  let hasField = false;
-  if (opts.functionName !== undefined) {
-    loc.functionName = opts.functionName;
-    hasField = true;
-  }
-  if (opts.matchPath !== undefined) {
-    loc.matchPath = opts.matchPath;
-    hasField = true;
-  }
-  if (opts.line !== undefined) {
-    loc.line = opts.line;
-    hasField = true;
-  }
-  if (!hasField) return undefined;
-  return loc;
-}
-
-function pushWarning(
-  warnings: LintWarning[],
-  base: Omit<LintWarning, 'location'>,
-  locationOpts?: { functionName?: string; matchPath?: string; line?: number },
-): void {
-  const warning: LintWarning = { ...base };
-  if (locationOpts !== undefined) {
-    const location = buildWarningLocation(locationOpts);
-    if (location !== undefined) warning.location = location;
-  }
-  warnings.push(warning);
-}
-
-function checkLetBindings(functions: FunctionDef[], warnings: LintWarning[]) {
-  for (const fn of functions) {
-    if (fn.lets.length > THRESHOLDS.LET_LIMIT) {
-      const line = (fn.returnLoc ?? fn.loc)?.line;
-      pushWarning(
-        warnings,
-        {
-          rule: 'LET_LIMIT',
-          severity: 'error',
-          message: `Function '${fn.name}' has ${fn.lets.length} let bindings. Limit is ${THRESHOLDS.LET_LIMIT}.`,
-          fix: 'Inline some let expressions into the return statement, or split the function.',
-        },
-        { functionName: fn.name, line },
-      );
-    }
-  }
-}
-
-/**
- * NESTING_DEPTH: production rejects a ruleset with an expression nested past
- * 99 levels ("Expression is too complex to evaluate safely."). The
- * count is the one the Firestore simulator and the Storage evaluator enforce
- * (grammar/compile-limits.ts); one warning per function or rule.
- *
- * A flat `&&` or `||` chain is one shape of this limit: each operator on its
- * left spine is a level, so a chain of 98 comparisons compiles and 99 is
- * rejected, while a chain of bare operands, one level shallower, reaches the
- * limit one operand later.
- */
-function checkNestingDepth(violations: readonly CompileLimitViolation[], warnings: LintWarning[]) {
-  const reported = new Set<string>();
-  for (const violation of violations) {
-    if (violation.code !== 'NESTING_DEPTH') continue;
-    const key = `${violation.functionName ?? ''}@${violation.line ?? ''}`;
-    if (reported.has(key)) continue;
-    reported.add(key);
-    let subject = 'An allow rule';
-    if (violation.functionName !== undefined) {
-      subject = `Function '${violation.functionName}'`;
-    } else if (violation.line !== undefined) {
-      subject = `The rule at line ${violation.line}`;
-    }
-    pushWarning(
-      warnings,
-      {
-        rule: 'NESTING_DEPTH',
-        severity: 'error',
-        message: `${subject} nests an expression deeper than ${NESTING_LEVEL_LIMIT} levels. Production rejects the ruleset: "${NESTING_MESSAGE}"`,
-        fix: 'Remove redundant parentheses, or move a nested group into its own function and call it.',
-      },
-      { functionName: violation.functionName, line: violation.line },
-    );
-  }
-}
-
-/**
- * SLASH_STARTS_PATH: production reads a `/` directly followed by a character
- * other than whitespace as the start of a path, not as division, and rejects
- * the ruleset with "Missing 'match' keyword before path." (`4/2`, `a/b`,
- * `x/(2)`), while `4 / 2` and `4/ 2` divide. The Firestore simulator and the
- * Storage evaluator refuse such a ruleset when it loads through the same
- * module (grammar/compile-limits.ts); one warning per slash.
- */
-function checkSlashStartsPath(violations: readonly CompileLimitViolation[], warnings: LintWarning[]) {
-  for (const violation of violations) {
-    if (violation.code !== 'SLASH_STARTS_PATH') continue;
-    let where = 'in an allow rule';
-    if (violation.functionName !== undefined) {
-      let lineSuffix = '';
-      if (violation.line !== undefined) {
-        lineSuffix = ` at line ${violation.line}`;
-      }
-      where = `in function '${violation.functionName}'${lineSuffix}`;
-    } else if (violation.line !== undefined) {
-      where = `in the rule at line ${violation.line}`;
-    }
-    pushWarning(
-      warnings,
-      {
-        rule: 'SLASH_STARTS_PATH',
-        severity: 'error',
-        message: `A '/' ${where} is directly followed by a character other than whitespace, which production reads as the start of a path. Production rejects the ruleset: "${SLASH_STARTS_PATH_MESSAGE}"`,
-        fix: "To divide, put whitespace after the '/': `a / b`.",
-      },
-      { functionName: violation.functionName, line: violation.line },
-    );
-  }
-}
-
-function checkGlobMatchCount(violations: readonly CompileLimitViolation[], warnings: LintWarning[]) {
-  for (const violation of violations) {
-    if (violation.code !== 'GLOB_MATCH_COUNT') continue;
-    pushWarning(
-      warnings,
-      {
-        rule: 'GLOB_MATCH_COUNT',
-        severity: 'error',
-        message: violation.message,
-        fix: 'Restructure match blocks so a path contains at most one recursive wildcard `{name=**}`.',
-      },
-      { matchPath: violation.scope, line: violation.line },
-    );
-  }
-}
-
-function checkAdditionalCompileRejections(
-  ast: FirestoreRules,
-  violations: readonly CompileLimitViolation[],
-  warnings: LintWarning[],
-) {
-  for (const violation of violations) {
-    switch (violation.code) {
-      case 'UNSUPPORTED_RULES_VERSION':
-        pushWarning(
-          warnings,
-          {
-            rule: 'UNSUPPORTED_RULES_VERSION',
-            severity: 'error',
-            message: violation.message,
-            fix: "Set rules_version to '1', '2', or '2+modules'.",
-          },
-          { line: violation.line },
-        );
-        break;
-      case 'UNRESOLVED_MODULES':
-        if (ast.version !== '2+modules') {
-          pushWarning(
-            warnings,
-            {
-              rule: 'UNRESOLVED_MODULES',
-              severity: 'error',
-              message: violation.message,
-              fix: "Set `rules_version = '2+modules';` or resolve module imports before compiling.",
-            },
-            { line: violation.line },
-          );
-        }
-        break;
-      case 'INVALID_REGEX_PATTERN':
-        pushWarning(
-          warnings,
-          {
-            rule: 'INVALID_REGEX_PATTERN',
-            severity: 'error',
-            message: violation.message,
-            fix: 'Rewrite the regular expression using RE2-compatible syntax (no lookahead, lookbehind, or backreferences).',
-          },
-          { functionName: violation.functionName, line: violation.line },
-        );
-        break;
-      case 'FUNCTION_REDEFINED':
-        pushWarning(
-          warnings,
-          {
-            rule: 'FUNCTION_REDEFINED',
-            severity: 'error',
-            message: violation.message,
-            fix: `Rename or remove the duplicate declaration of '${violation.functionName ?? 'function'}' in ${violation.scope ?? 'this scope'}.`,
-          },
-          {
-            functionName: violation.functionName,
-            matchPath: violation.scope,
-            line: violation.line,
-          },
-        );
-        break;
-      case 'DOUBLE_MINUS':
-        pushWarning(
-          warnings,
-          {
-            rule: 'DOUBLE_MINUS',
-            severity: 'error',
-            message: violation.message,
-            fix: "Remove the duplicate unary '-' or rewrite using '0 - x'.",
-          },
-          { functionName: violation.functionName, line: violation.line },
-        );
-        break;
-      case 'INVALID_NUMBER_LITERAL':
-        warnings.push({
-          rule: 'INVALID_NUMBER_LITERAL',
-          severity: 'error',
-          message: violation.message,
-          ...(violation.functionName !== undefined || violation.line !== undefined
-            ? {
-                location: {
-                  ...(violation.functionName !== undefined ? { functionName: violation.functionName } : {}),
-                  ...(violation.line !== undefined ? { line: violation.line } : {}),
-                },
-              }
-            : {}),
-          fix: 'Keep integer literals within signed 64-bit bounds (-9223372036854775808 to 9223372036854775807), or write a float literal.',
-        });
-        break;
-    }
-  }
-}
-
-/**
- * The member chain length at which production's Rules Test API failed: a
- * ruleset holding a 4,900-term chain (`request.auth.token.m.m...`) drew an
- * internal server error instead of compiling, while a 100-term chain
- * compiled (the `member-chain` probes in
- * `test/rules/linter/fixtures/compile-limits/captures.json`). The boundary
- * between the two is not measured.
- */
-const MEMBER_CHAIN_FAILED_TERMS = 4900;
-
-/**
- * MEMBER_CHAIN_LENGTH: a member access chain at least as long as the one
- * production failed to compile. Terms count the chain's root and each
- * `.field` read on it. The walk keeps its own stack, so a chain the parser
- * reads never exhausts the host stack here.
- */
-function checkMemberChainLength(ast: FirestoreRules, functions: readonly FunctionDef[], warnings: LintWarning[]) {
-  const roots: { expr: Expression; functionName?: string; line?: number }[] = [];
-  for (const fn of functions) {
-    for (const binding of fn.lets) roots.push({ expr: binding.value, functionName: fn.name });
-    roots.push({ expr: fn.body, functionName: fn.name });
-  }
-  for (const { rule } of collectServiceRules(ast.service)) {
-    roots.push({ expr: rule.condition, ...(rule.loc === undefined ? {} : { line: rule.loc.line }) });
-  }
-  for (const root of roots) {
-    let longest = 0;
-    const stack: Expression[] = [root.expr];
-    while (stack.length > 0) {
-      const expr = stack.pop()!;
-      let terms = 1;
-      let inner = expr;
-      while (inner.type === 'memberAccess') {
-        terms++;
-        inner = inner.object;
-      }
-      if (expr.type === 'memberAccess') longest = Math.max(longest, terms);
-      stack.push(...childExpressions(inner));
-    }
-    if (longest < MEMBER_CHAIN_FAILED_TERMS) continue;
-    const subject = root.functionName !== undefined
-      ? `Function '${root.functionName}'`
-      : root.line !== undefined ? `The rule at line ${root.line}` : 'An allow rule';
-    warnings.push({
-      rule: 'MEMBER_CHAIN_LENGTH',
-      severity: 'error',
-      message: `${subject} reads a member chain of ${longest} terms. The Rules Test API answered a ruleset holding a ${MEMBER_CHAIN_FAILED_TERMS.toLocaleString('en-US')}-term member chain with an internal error instead of compiling it.`,
-      ...(root.functionName !== undefined ? { location: { functionName: root.functionName } } : {}),
-      fix: 'Shorten the chain: bind a value partway along it to a `let` or a function parameter, and read the rest of the chain from that name.',
-    });
-  }
-}
-
-/** The operands, elements, arguments and receivers an expression evaluates. */
-function childExpressions(expr: Expression): Expression[] {
-  switch (expr.type) {
-    case 'literal':
-    case 'identifier':
-      return [];
-    case 'memberAccess': return [expr.object];
-    case 'methodCall': return [expr.object, ...expr.args];
-    case 'bracketAccess': return [expr.object, expr.index];
-    case 'sliceAccess': return [expr.object, expr.start, expr.end];
-    case 'binaryOp': return [expr.left, expr.right];
-    case 'unaryOp': return [expr.operand];
-    case 'ternary': return [expr.condition, expr.consequent, expr.alternate];
-    case 'inExpr': return [expr.element, expr.collection];
-    case 'isExpr': return [expr.value];
-    case 'listLiteral': return expr.elements;
-    case 'mapLiteral': return expr.entries.flatMap((e) => [e.key, e.value]);
-    case 'pathLiteral': return expr.segments.filter((s): s is Expression => typeof s !== 'string');
-    case 'functionCall': return expr.args;
-  }
-}
-
-function checkSharedGates(
-  rules: { rule: { condition: Expression; operations: string[] }; path: string }[],
-  warnings: LintWarning[],
-) {
-  // Group allow update rules by match path
-  const byPath = new Map<string, { index: number; gate: string; ops: string[] }[]>();
-  for (let i = 0; i < rules.length; i++) {
-    const r = rules[i];
-    // Only check update rules (most susceptible to budget issues)
-    if (!r.rule.operations.some(op => op === 'update' || op === 'write')) continue;
-    const gate = expressionFingerprint(extractFirstExpression(r.rule.condition));
-    const path = r.path;
-    if (!byPath.has(path)) byPath.set(path, []);
-    byPath.get(path)!.push({ index: i, gate, ops: r.rule.operations });
-  }
-
-  for (const [path, entries] of byPath) {
-    const gateGroups = new Map<string, number[]>();
-    for (const e of entries) {
-      if (!gateGroups.has(e.gate)) gateGroups.set(e.gate, []);
-      gateGroups.get(e.gate)!.push(e.index);
-    }
-    for (const [gate, indices] of gateGroups) {
-      if (indices.length >= 2) {
-        warnings.push({
-          rule: 'SHARED_GATE',
-          severity: 'warning',
-          message: `${indices.length} allow rules in '${path}' share the same gate expression. This may cause cross-rule budget exhaustion. Rules: ${indices.join(', ')}.`,
-          location: { matchPath: path },
-          fix: 'Assign unique moveType or discriminator values so each rule has a unique first expression.',
-        });
-      }
-    }
-  }
-}
-
-/**
- * EXPRESSION_BUDGET: production stops a request at 1000 evaluated
- * expressions and denies it, so a rule that grants only after an expensive
- * evaluation silently returns permission-denied. The estimate is the most
- * expensive evaluation path of a request the rule grants, including the
- * earlier rules for the same method that deny it first
- * (`expression-cost.ts`). It never fell below production on the measured
- * requests, so a rule under the limit here stayed under it there; a rule at
- * or over it can exceed the limit for some documents.
- */
-function checkExpressionBudget(estimates: RuleCostEstimate[], warnings: LintWarning[]) {
-  for (const estimate of estimates) {
-    if (estimate.grantCost === null || estimate.grantCost < EXPRESSION_LIMIT) continue;
-    warnings.push({
-      rule: 'EXPRESSION_BUDGET',
-      severity: 'warning',
-      message: `Rule #${estimate.ruleIndex} in '${estimate.blockPath}' can evaluate up to ~${estimate.grantCost} expressions for a request it grants, counting the earlier rules that deny it first. Production denies a request that reaches ${EXPRESSION_LIMIT}.`,
-      location: { ruleIndex: estimate.ruleIndex, matchPath: estimate.blockPath },
-      fix: 'Put a cheap discriminator first in each rule so earlier rules fail at their gate, split expensive checks so a request evaluates only the branch it needs, or move lookup work into documents.',
-    });
-  }
-}
-
-/**
- * EXPRESSION_LIBRARY_CALLS: for each allow rule that calls the standard
- * library, the three calls it spends most on, with the measured production
- * cost per call and the number of calls the rule makes. Informational: it
- * explains where a rule's expression budget goes, and EXPRESSION_BUDGET
- * decides whether the total is a problem.
- */
-function checkLibraryCalls(ast: FirestoreRules, warnings: LintWarning[]) {
-  for (const rule of ruleLibraryCalls(ast)) {
-    const top = rule.calls.slice(0, 3).map((c) => {
-      const range = c.cost.min === c.cost.max ? `${c.cost.max}` : `${c.cost.min} to ${c.cost.max}`;
-      const reads = c.reads > 0 ? `, ${c.reads} read${c.reads === 1 ? '' : 's'} per call` : '';
-      return `${c.name} (${c.module}): ${c.count} call${c.count === 1 ? '' : 's'}, ${range} expressions per call${reads}`;
-    });
-    warnings.push({
-      rule: 'EXPRESSION_LIBRARY_CALLS',
-      severity: 'info',
-      message: `Rule #${rule.ruleIndex} in '${rule.blockPath}' spends most on these library calls: ${top.join('; ')}. Calls are not memoized: each call pays again.`,
-      location: { ruleIndex: rule.ruleIndex, matchPath: rule.blockPath },
-    });
-  }
-}
-
-/**
- * CALL_DEPTH: production checks every call chain at compile time, including
- * one no rule calls (fixtures/compile-limits, shape call-depth-uncalled).
- * Each chain is reported once, at its root: a function no other function
- * calls. Calls resolve by declaration scope.
- */
-function checkCallDepth(scopes: RulesetScopes, warnings: LintWarning[]): Map<FunctionDef, number> {
-  const { depths, cyclic } = analyzeCallChains(scopes);
-  const calledByFunction = new Set<FunctionDef>();
-  for (const scoped of scopes.functions) {
-    for (const callee of functionReferences(scoped).callees) if (callee !== scoped.fn) calledByFunction.add(callee);
-  }
-  let reportedCycle = false;
-  for (const scoped of scopes.functions) {
-    if (cyclic.has(scoped.fn)) {
-      if (!reportedCycle) {
-        reportedCycle = true;
-        pushWarning(
-          warnings,
-          {
-            rule: 'CALL_DEPTH',
-            severity: 'error',
-            message: `Function '${scoped.fn.name}' is part of a recursive call cycle, exceeding the call depth limit of ${THRESHOLDS.CALL_DEPTH_LIMIT}.`,
-            fix: 'Remove recursion between helper functions; Firestore rules do not allow recursive calls.',
-          },
-          { functionName: scoped.fn.name, matchPath: scoped.label, line: scoped.fn.loc?.line },
-        );
-      }
-      continue;
-    }
-    if (calledByFunction.has(scoped.fn)) continue;
-    const depth = depths.get(scoped.fn) ?? 1;
-    if (depth < THRESHOLDS.CALL_DEPTH_WARN) continue;
-    const over = depth > THRESHOLDS.CALL_DEPTH_LIMIT;
-    let severity: LintWarning['severity'] = 'warning';
-    if (over) severity = 'error';
-    const base: Omit<LintWarning, 'location'> = {
-      rule: 'CALL_DEPTH',
-      severity,
-      message: `Function '${scoped.fn.name}' starts a function call chain of depth ${depth}. Limit is ${THRESHOLDS.CALL_DEPTH_LIMIT}.`,
-    };
-    if (over) {
-      base.fix = 'Inline intermediate functions to reduce call depth.';
-    }
-    pushWarning(warnings, base, {
-      functionName: scoped.fn.name,
-      matchPath: scoped.label,
-      line: scoped.fn.loc?.line,
-    });
-  }
-  return depths;
-}
-
-function checkGetCount(
-  rules: { rule: AllowRule }[],
-  ruleScopes: ReadonlyMap<AllowRule, ReadonlyMap<string, FunctionDef>>,
-  fnScopes: ReadonlyMap<FunctionDef, ReadonlyMap<string, FunctionDef>>,
-  warnings: LintWarning[],
-  isStorage = false,
-) {
-  const emptyScope = new Map<string, FunctionDef>();
-  const errorLimit = isStorage ? 2 : THRESHOLDS.GET_COUNT_ERROR;
-  const warnLimit = isStorage ? 2 : THRESHOLDS.GET_COUNT_WARN;
-  const callLabel = isStorage
-    ? 'firestore.get()/firestore.exists()'
-    : 'get()/exists()/getAfter()/existsAfter()';
-  for (let i = 0; i < rules.length; i++) {
-    const fnMap = ruleScopes.get(rules[i].rule) ?? emptyScope;
-    const count = countDocumentAccessCalls(rules[i].rule.condition, fnMap, new Set(), fnScopes, isStorage);
-    // Error only ABOVE the limit: production allows exactly 10 (or 2 in Storage)
-    // and fails the next, so a rule at the limit is legal (still worth the WARN).
-    if (count > errorLimit) {
-      warnings.push({
-        rule: 'GET_COUNT',
-        severity: 'error',
-        message: `Rule #${i} may invoke ${count} ${callLabel} calls. Limit is ${errorLimit}.`,
-        location: { ruleIndex: i },
-        fix: 'Cache get() results via a config() wrapper function. Same-path calls are cached by Firestore.',
-      });
-    } else if (count >= warnLimit) {
-      warnings.push({
-        rule: 'GET_COUNT',
-        severity: 'warning',
-        message: `Rule #${i} invokes ${count} ${callLabel} calls. Limit is ${errorLimit}.`,
-        location: { ruleIndex: i },
-      });
-    }
-  }
-}
-
-function checkGetDuplication(
-  rules: { rule: AllowRule }[],
-  ruleScopes: ReadonlyMap<AllowRule, ReadonlyMap<string, FunctionDef>>,
-  fnScopes: ReadonlyMap<FunctionDef, ReadonlyMap<string, FunctionDef>>,
-  warnings: LintWarning[],
-  isStorage = false,
-) {
-  const emptyScope = new Map<string, FunctionDef>();
-  for (let i = 0; i < rules.length; i++) {
-    const fnMap = ruleScopes.get(rules[i].rule) ?? emptyScope;
-    const fnNames = new Set(fnMap.keys());
-    const callCounts = countFunctionCallSites(rules[i].rule.condition, fnNames);
-    for (const [fnName, count] of callCounts) {
-      if (count >= 2 && functionContainsGet(fnName, fnMap, new Set(), fnScopes, new Set(), isStorage)) {
-        warnings.push({
-          rule: 'GET_DUPLICATION',
-          severity: 'warning',
-          message: `Function '${fnName}' (contains get/exists) is called ${count} times in rule #${i}. Cache the result with a let binding in a wrapper function to reduce get() calls from ${count} to 1.`,
-          location: { ruleIndex: i },
-          fix: `Create a wrapper: function verifyAll(ret) { let c = ${fnName}(); return verify1(ret, c) && verify2(ret, c) && ...; }`,
-        });
-      }
-    }
-  }
-}
-
-/**
- * REQUEST_TIME_NOT_PINNED — couples the static linter to the per-test data
- * (REBUILD_PLAN.md Item 0.F deferred follow-up). When a rule transitively
- * reads `request.time`, the rule's verdict depends on wallclock unless the
- * test pins `requestTime`. Pre-fix, date-gated rules failed
- * non-deterministically across CI runs and agents either gave up or
- * hardcoded today's date.
- *
- * Emits one warning per affected (rule, test case) pair so the agent gets
- * a precise checklist. Only fires when the caller passes a test suite —
- * source-only `lintFirestoreRules(source)` calls are unaffected.
- */
-function checkRequestTimePinned(
-  rules: { rule: AllowRule; path: string }[],
-  ruleScopes: ReadonlyMap<AllowRule, ReadonlyMap<string, FunctionDef>>,
-  fnScopes: ReadonlyMap<FunctionDef, ReadonlyMap<string, FunctionDef>>,
-  testCases: TestCase[],
-  warnings: LintWarning[],
-) {
-  const emptyScope = new Map<string, FunctionDef>();
-
-  // Find which rule indices reference request.time. Per-rule rather than
-  // per-source so a test case targeting an unrelated match block isn't
-  // wrongly flagged.
-  const timeGatedRules = new Set<number>();
-  for (let i = 0; i < rules.length; i++) {
-    const fnMap = ruleScopes.get(rules[i].rule) ?? emptyScope;
-    if (referencesRequestTime(rules[i].rule.condition, fnMap, new Set(), fnScopes)) {
-      timeGatedRules.add(i);
-    }
-  }
-  if (timeGatedRules.size === 0) return;
-
-  // Cheap match-path resolution: a test case at "users/alice" matches a
-  // rule whose match path is "users/{id}". Full path matching is the
-  // simulator/handler's job — here we just need a "could this rule fire
-  // for this test case?" estimate. Match by segment-count + literal-match.
-  function pathMatches(rulePath: string, tcPath: string): boolean {
-    const ruleSegs = rulePath.split('/').filter(Boolean);
-    const tcSegs = tcPath.split('/').filter(Boolean);
-    if (ruleSegs.length !== tcSegs.length) return false;
-    for (let i = 0; i < ruleSegs.length; i++) {
-      const rs = ruleSegs[i]!;
-      // Wildcard or recursive wildcard matches any segment.
-      if (rs.startsWith('{') && rs.endsWith('}')) continue;
-      if (rs !== tcSegs[i]) return false;
-    }
-    return true;
-  }
-
-  for (const tc of testCases) {
-    if (tc.requestTime) continue; // pinned — fine
-    for (const ruleIdx of timeGatedRules) {
-      if (!pathMatches(rules[ruleIdx]!.path, tc.path)) continue;
-      warnings.push({
-        rule: 'REQUEST_TIME_NOT_PINNED',
-        severity: 'warning',
-        message: `Test case "${tc.description}" targets rule #${ruleIdx} (path '${rules[ruleIdx]!.path}') which reads request.time, but does not set requestTime. Result is non-deterministic across runs.`,
-        location: { ruleIndex: ruleIdx, matchPath: rules[ruleIdx]!.path, testCaseDescription: tc.description },
-        fix: 'Set requestTime on this TestCase to an ISO-8601 timestamp so the rule evaluates deterministically.',
-      });
-    }
-  }
-}
-
-/**
- * PERMISSIVE_RULE — `allow ... if true` (or any condition that statically
- * resolves to the boolean literal `true`) disables security for the
- * matched paths. Empirically the most common agent failure mode: when a
- * targeted rule denies a write the agent doesn't understand, the easy
- * escape is to write the predicate true. That ships an open collection.
- *
- * Severity is `error` so `deployRules` refuses to swap the ruleset — the
- * agent has to fix the actual denial instead of widening the gate.
- *
- * Detection is deliberately conservative: we only fold `&&`/`||` over
- * boolean literals and recognize the literal `true`. We do NOT try to
- * prove `1 == 1` or follow function calls. A few false negatives are
- * acceptable; a single false positive on a legitimate rule would break
- * deploys.
- */
-const WRITE_OPS: ReadonlySet<string> = new Set([
-  'write', 'create', 'update', 'delete',
-]);
-
-function checkPermissiveRules(
-  rules: { rule: AllowRule; path: string }[],
-  scopes: ReadonlyMap<AllowRule, RuleScope>,
-  warnings: LintWarning[],
-  isStorage = false,
-) {
-  for (let i = 0; i < rules.length; i++) {
-    const r = rules[i]!;
-    if (evalConstBool(r.rule.condition) !== true) continue;
-    // `allow read: if true` is a legitimate "public read" pattern (e.g.
-    // a shared config doc). Only flag when the rule grants any write
-    // capability — that's where `if true` actually disables security.
-    const grantsWrite = r.rule.operations.some((op) => WRITE_OPS.has(op));
-    if (!grantsWrite) continue;
-    const ops = r.rule.operations.join(', ');
-    warnings.push({
-      rule: 'PERMISSIVE_RULE',
-      // Severity: warning, not error. Rationale: `allow write: if true`
-      // is the canonical dev/sandbox/quickstart pattern; classifying it
-      // as a hard error caused `sandbox.setRules(...)` to silently no-op
-      // and the scaffolded `pyric init` quickstart to break in confusing
-      // ways. The diagnostic itself stays so CI or a release workflow can
-      // enforce stricter policy. The dev-loop sandbox stays permissive.
-      severity: 'warning',
-      message:
-        `allow ${ops} at ${r.path} resolves to a constant true predicate — `
-        + `this disables write security for ${scopes.get(r.rule)?.description ?? 'the matched paths'}. If you reached `
-        + `for \`if true\` to escape a denial you don't understand, narrow `
-        + `the predicate to the specific request shape instead (auth identity, `
-        + `affected fields via diff, status transitions).`,
-      location: { ruleIndex: i, matchPath: r.path },
-      fix: isStorage
-        ? "Replace the always-true predicate with a request-shape check (e.g. request.auth != null && request.resource.size < 5 * 1024 * 1024 && request.resource.contentType.matches('image/.*'))."
-        : 'Replace the always-true predicate with a request-shape check (e.g. request.auth != null && request.resource.data.ownerId == request.auth.uid).',
-    });
-  }
-}
-
-/** A recursive scope together with the rule's index in its match block. */
-type RuleScope = RecursiveScope & { ruleIndex: number };
-
-/** The recursive scope of every allow rule whose full match path holds a
- *  recursive wildcard. */
-function collectRecursiveScopes(
-  match: MatchBlock,
-  prefix: readonly PathSegment[],
-  scopes: Map<AllowRule, RuleScope>,
-): Map<AllowRule, RuleScope> {
-  const segments = [...prefix, ...match.path.segments];
-  const scope = recursiveScope(segments);
-  if (scope) match.allows.forEach((rule, ruleIndex) => scopes.set(rule, { ...scope, ruleIndex }));
-  for (const child of match.children) collectRecursiveScopes(child, segments, scopes);
-  return scopes;
-}
-
-/**
- * RECURSIVE_WILDCARD_OPEN: an always-true allow on a recursive wildcard in
- * the last position of the full match path, such as
- * `match /{document=**} { allow read, write: if true; }`. That grants the
- * operation on every document under the prefix, and at the root on every
- * document in the database: the open-rules ruleset. Distinct from
- * PERMISSIVE_RULE so the agent gets a specifically named diagnostic.
- *
- * A recursive wildcard followed by further segments, as in the
- * collection-group shape `match /{path=**}/items/{id}`, governs only the
- * documents whose path ends in those segments, so it does not fire here; an
- * always-true write there is reported by PERMISSIVE_RULE like any other.
- * A recursive wildcard with a real predicate never fires.
- */
-function checkRecursiveWildcardOpen(
-  scopes: ReadonlyMap<AllowRule, RuleScope>,
-  warnings: LintWarning[],
-) {
-  for (const [rule, scope] of scopes) {
-    if (scope.kind !== 'subtree' || evalConstBool(rule.condition) !== true) continue;
-    warnings.push({
-      rule: 'RECURSIVE_WILDCARD_OPEN',
-      severity: 'error',
-      message:
-        `match ${scope.fullPath} allows ${rule.operations.join(', ')} on `
-        + `${scope.description} with an always-true condition.`,
-      location: { ruleIndex: scope.ruleIndex, matchPath: scope.fullPath },
-      fix: 'Narrow the match path to the collections that must be open, for example match /{path=**}/<collection>/{id} for one collection group, or replace `if true` with a real predicate (auth identity, ownership, role).',
-    });
-  }
-}
-
-/**
- * RULES_WEAKENED — when a previous ruleset is supplied, flag every
- * security predicate that the new ruleset has *removed*. Catches the
- * agent failure mode where a denial is silently escaped by deleting the
- * predicate (or whole rule, or whole match block) rather than fixing
- * the request.
- *
- * Severity is `warning` (not `error`) — there are legitimate reasons to
- * remove a predicate (refactor, dedupe), so this is advisory and does
- * not block deploys. The agent has to decide whether the removal is
- * intentional.
- *
- * Conjunct extraction: walk the predicate tree splitting on top-level
- * `&&` only. We do NOT descend into `||` branches — splitting an OR
- * would change semantics, so we treat the entire OR sub-tree as one
- * conjunct. Each conjunct is normalized to a canonical string and
- * compared as a set. Removed conjuncts → warnings; added/changed
- * conjuncts → silence (refinement is fine).
- */
-
-/** Normalize a path segment for cross-ruleset comparison. Wildcards
- *  compare equal regardless of their binding name. */
-function normalizePathSegment(seg: { type: string; name?: string; value?: string }): string {
-  if (seg.type === 'literal') return seg.value ?? '';
-  if (seg.type === 'wildcard') return '{*}';
-  if (seg.type === 'recursive') return '{**}';
-  return '';
-}
-
-/** Build the full normalized path from root to this match block by
- *  joining every ancestor's segments with '/'. */
-function buildMatchPathChain(segments: PathSegment[]): string {
-  return segments.map(normalizePathSegment).join('/');
-}
-
-/** Walk the AST and yield every match block with its full normalized
- *  path (concatenated from root). The leaf `MatchBlock.path.raw` only
- *  reflects the local segment, which collides across siblings. */
-function collectMatchBlocksWithPaths(
-  match: MatchBlock,
-  parentPath: string,
-): Array<{ block: MatchBlock; normalizedPath: string }> {
-  const localPath = buildMatchPathChain(match.path.segments);
-  const fullPath = parentPath ? `${parentPath}/${localPath}` : localPath;
-  const out: Array<{ block: MatchBlock; normalizedPath: string }> = [
-    { block: match, normalizedPath: fullPath },
-  ];
-  for (const child of match.children) {
-    out.push(...collectMatchBlocksWithPaths(child, fullPath));
-  }
-  return out;
-}
-
-function checkRulesWeakened(
-  currentMatches: readonly MatchBlock[],
-  previousMatches: readonly MatchBlock[],
-  warnings: LintWarning[],
-): void {
-  const currentBlocks = currentMatches.flatMap((m) => collectMatchBlocksWithPaths(m, ''));
-  const previousBlocks = previousMatches.flatMap((m) => collectMatchBlocksWithPaths(m, ''));
-
-  const currentByPath = new Map<string, MatchBlock>();
-  for (const { block, normalizedPath } of currentBlocks) {
-    // If duplicate paths exist (rare but possible with sibling literal
-    // matches reused), keep the first — comparing the first occurrence
-    // is sufficient for "did this path lose predicates?"
-    if (!currentByPath.has(normalizedPath)) currentByPath.set(normalizedPath, block);
-  }
-
-  for (const { block: prevBlock, normalizedPath } of previousBlocks) {
-    const curBlock = currentByPath.get(normalizedPath);
-    if (!curBlock) {
-      // Whole match block disappeared. Only emit when the previous
-      // block actually had allow rules — a parent shell with no allows
-      // disappearing tells the agent nothing.
-      if (prevBlock.allows.length > 0) {
-        warnings.push({
-          rule: 'RULES_WEAKENED',
-          severity: 'warning',
-          message: `Match block removed: ${normalizedPath}`,
-          location: { matchPath: normalizedPath },
-        });
-      }
-      continue;
-    }
-
-    // For each previous allow rule, find the corresponding current
-    // allow rule by op-set equality.
-    for (const prevAllow of prevBlock.allows) {
-      const opsKey = [...prevAllow.operations].sort().join(',');
-      const curAllow = curBlock.allows.find(
-        (a) => [...a.operations].sort().join(',') === opsKey,
-      );
-      const opsLabel = prevAllow.operations.join(', ');
-      if (!curAllow) {
-        warnings.push({
-          rule: 'RULES_WEAKENED',
-          severity: 'warning',
-          message: `Allow rule removed: ${normalizedPath} allow ${opsLabel}`,
-          location: { matchPath: normalizedPath },
-        });
-        continue;
-      }
-
-      // Diff the conjunct sets.
-      const prevConjuncts = extractConjuncts(prevAllow.condition).map(serializeExpression);
-      const curConjuncts = new Set(
-        extractConjuncts(curAllow.condition).map(serializeExpression),
-      );
-      for (const pc of prevConjuncts) {
-        if (!curConjuncts.has(pc)) {
-          warnings.push({
-            rule: 'RULES_WEAKENED',
-            severity: 'warning',
-            message: `Predicate removed from ${normalizedPath} allow ${opsLabel}: ${pc}`,
-            location: { matchPath: normalizedPath },
-          });
-        }
-      }
-    }
-  }
-}
-
-// ═══ Main Linter ═══
-
-/**
- * Optional inputs for `lintFirestoreRules` that activate test-suite-coupled
- * checks. Only `REQUEST_TIME_NOT_PINNED` reads from this surface today.
- */
 export interface LintOptions {
-  /**
-   * The test cases that will be run against this rules source. When
-   * supplied, the linter activates `REQUEST_TIME_NOT_PINNED`: rules that
-   * read `request.time` get a warning per test case that targets them
-   * without setting `requestTime`. Omit this arg to keep behavior
-   * source-only (the historical default).
-   */
   testCases?: TestCase[];
-  /**
-   * Source of the previously deployed ruleset. When supplied, the
-   * linter activates `RULES_WEAKENED`: any security predicate that
-   * existed in the previous ruleset but has been removed from the
-   * current one is reported. Designed to catch agents silently
-   * weakening rules to make a failing test pass. Silently skipped if
-   * the previous source fails to parse — a malformed prior should not
-   * block linting of a valid current ruleset.
-   */
   previousSource?: string;
-  /**
-   * Set to true ONLY when linting a scratch ruleset that will never be
-   * deployed and an unresolved `debug()` call should be tolerated.
-   * Production Firestore rejects a ruleset that calls `debug()` at compile
-   * time (`Function not found error: Name: [debug]`), so the linter rejects
-   * it by default, including when `testCases` is supplied. A ruleset that
-   * declares its own `function debug(...)` is never flagged, with or
-   * without this flag. This flag is an explicit caller choice; it is never
-   * inferred from other options.
-   */
   allowDebug?: boolean;
-  /** Optional service filter (`'all'` lints every service block in multi-service files). */
   targetService?: 'cloud.firestore' | 'firebase.storage' | 'all';
 }
 
 /**
- * Lint Firestore security rules.
- *
- * Contract: if the source doesn't parse, `parseError` is populated and
- * budget checks are skipped — `warnings` will be empty (or contain only
- * source-size which doesn't depend on parsing) and `metrics` fields other
- * than `sourceSize` are zeroed. Callers must check `parseError` first.
- *
- * Pass `options.testCases` to activate test-suite-coupled checks (e.g.
- * REQUEST_TIME_NOT_PINNED). When omitted, the linter behaves exactly as
- * it did before — back-compat with all existing callers.
+ * Lint Firestore or Storage security rules.
  */
 export function lintFirestoreRules(source: string, options: LintOptions = {}): LintResult {
   const warnings: LintWarning[] = [];
 
-  // Pre-parse syntax hints — run on raw source so they fire even when the
-  // rules fail to parse. Surface JS-isms (===, ?., ??, backtick strings)
-  // that would otherwise produce opaque parse errors.
   warnings.push(...checkSyntaxHints(source));
-
-  // Rule 1: Source size — runs even on unparseable source so a 300KB blob
-  // of garbage still surfaces the size error.
   checkSourceSize(source, warnings);
 
-  // Parse AST. On failure, return early with a structured parseError;
-  // budget checks intentionally do not run on partial ASTs.
   const parsed = parseToASTOrError(source);
   if (!parsed.ok) {
     return { warnings, metrics: sourceOnlyMetrics(source), parseError: parsed.error };
@@ -1023,9 +126,10 @@ export function lintFirestoreRules(source: string, options: LintOptions = {}): L
     const combinedMetrics: RulesMetrics = sourceOnlyMetrics(source);
     for (let serviceIndex = 0; serviceIndex < servicesToAnalyze.length; serviceIndex++) {
       const service = servicesToAnalyze[serviceIndex]!;
-      const svcTarget: 'cloud.firestore' | 'firebase.storage' = isStorageServiceName(service.name)
-        ? 'firebase.storage'
-        : 'cloud.firestore';
+      let svcTarget: 'cloud.firestore' | 'firebase.storage' = 'cloud.firestore';
+      if (isStorageServiceName(service.name)) {
+        svcTarget = 'firebase.storage';
+      }
       const { ast: astForAnalysis, resolutionError } = resolveBundledModulesWithDiagnostics(
         withSingleService(parsed.ast, service),
         source,
@@ -1054,7 +158,10 @@ export function lintFirestoreRules(source: string, options: LintOptions = {}): L
         serviceIndex > 0,
         svcTarget,
       );
-      const globalFnCount = serviceIndex > 0 ? (astForAnalysis.functions?.length ?? 0) : 0;
+      let globalFnCount = 0;
+      if (serviceIndex > 0) {
+        globalFnCount = astForAnalysis.functions?.length ?? 0;
+      }
       combinedMetrics.functionCount += Math.max(0, svcResult.metrics.functionCount - globalFnCount);
       combinedMetrics.allowRuleCount += svcResult.metrics.allowRuleCount;
       if (svcResult.metrics.maxChainDepth > combinedMetrics.maxChainDepth) {
@@ -1077,54 +184,53 @@ export function lintFirestoreRules(source: string, options: LintOptions = {}): L
     }
     return { warnings, metrics: combinedMetrics };
   } catch (error) {
-    // The checks walk each expression recursively, following the functions
-    // it calls. A chain the parser reads can still be deeper, through those
-    // calls, than the host stack allows; report it rather than throw.
     if (!(error instanceof RangeError)) throw error;
     warnings.push(expressionTooDeepWarning());
     return { warnings, metrics: sourceOnlyMetrics(source) };
   }
 }
 
-/** Metrics for a source the checks did not analyze: its size, every other count zero. */
 function sourceOnlyMetrics(source: string): RulesMetrics {
   return {
-    sourceSize: source.length, functionCount: 0, allowRuleCount: 0,
-    maxChainDepth: 0, maxChainOp: '', maxLetBindings: 0, maxLetBindingsFunction: '',
-    maxCallDepth: 0, maxEstimatedExpressions: 0, getCallCount: 0,
+    sourceSize: source.length,
+    functionCount: 0,
+    allowRuleCount: 0,
+    maxChainDepth: 0,
+    maxChainOp: '',
+    maxLetBindings: 0,
+    maxLetBindingsFunction: '',
+    maxCallDepth: 0,
+    maxEstimatedExpressions: 0,
+    getCallCount: 0,
   };
 }
 
-/**
- * EXPRESSION_TOO_DEEP: an expression chains or nests more terms, counting
- * the bodies of the functions it calls, than the linter's recursive checks
- * can walk on the host stack. This is a limit of the linter, not a
- * production claim: production's behavior for such an expression is not
- * measured. The checks that ran before the walk failed keep their findings.
- */
 function expressionTooDeepWarning(): LintWarning {
   return {
     rule: 'EXPRESSION_TOO_DEEP',
     severity: 'error',
     message:
-      'An expression chains or nests more terms, counting the bodies of the functions it calls, than the linter can analyze, '
-      + 'so the remaining checks did not run. This is a limit of the linter; production\'s limit for this expression is not measured.',
+      'An expression chains or nests more terms, counting the bodies of the functions it calls, than the linter can analyze, ' +
+      "so the remaining checks did not run. This is a limit of the linter; production's limit for this expression is not measured.",
     fix: 'Shorten the chain: bind a value partway along it to a `let` or a function parameter, and read the rest of the chain from that name.',
   };
 }
 
-/** The checks that read the parsed ruleset, and its metrics. */
+function defaultServiceTarget(ast: FirestoreRules): 'cloud.firestore' | 'firebase.storage' {
+  if (isStorageServiceName(ast.service?.name)) {
+    return 'firebase.storage';
+  }
+  return 'cloud.firestore';
+}
+
 function analyzeParsedRules(
   ast: FirestoreRules,
   source: string,
   options: LintOptions,
   warnings: LintWarning[],
   isSecondaryService = false,
-  svcTarget: 'cloud.firestore' | 'firebase.storage' = isStorageServiceName(ast.service?.name)
-    ? 'firebase.storage'
-    : 'cloud.firestore',
+  svcTarget: 'cloud.firestore' | 'firebase.storage' = defaultServiceTarget(ast),
 ): LintResult {
-  // Collect all functions and rules from the AST
   const isStorage = isStorageServiceName(ast.service?.name);
   const allFunctions = collectDeclaredFunctions(ast);
   const serviceOnlyAst: FirestoreRules = isSecondaryService ? { ...ast, functions: [] } : ast;
@@ -1132,22 +238,20 @@ function analyzeParsedRules(
   const allRules = collectServiceRules(ast.service);
   const scopes = collectRulesetScopes(ast);
   const fnScopes = new Map<FunctionDef, ReadonlyMap<string, FunctionDef>>(
-    scopes.functions.map(s => [s.fn, s.functions]),
+    scopes.functions.map((s) => [s.fn, s.functions]),
   );
   const ruleScopes = new Map<AllowRule, ReadonlyMap<string, FunctionDef>>(
-    scopes.rules.map(r => [r.rule, r.functions]),
+    scopes.rules.map((r) => [r.rule, r.functions]),
   );
 
-  // Rule 1.5: A member chain as long as one production failed to compile.
-  // First, and without recursion, so a chain too deep for the recursive
-  // checks below is still reported by length.
   checkMemberChainLength(serviceOnlyAst, ownFunctions, warnings);
 
-  // Rules 2 and 2b: Nesting depth, slash starts path, recursive glob count, and other compile rejections
   let violations: CompileLimitViolation[];
   if (isSecondaryService) {
     violations = compileLimitViolations(serviceOnlyAst, { allowUnresolvedImports: true }).filter(
-      (v) => v.code !== 'UNSUPPORTED_RULES_VERSION' && !(v.code === 'UNRESOLVED_MODULES' && v.functionName === undefined),
+      (v) =>
+        v.code !== 'UNSUPPORTED_RULES_VERSION' &&
+        !(v.code === 'UNRESOLVED_MODULES' && v.functionName === undefined),
     );
   } else {
     violations = compileLimitViolations(serviceOnlyAst);
@@ -1157,41 +261,27 @@ function analyzeParsedRules(
   checkGlobMatchCount(violations, warnings);
   checkAdditionalCompileRejections(ast, violations, warnings);
 
-  // Rule 3: Let bindings
   checkLetBindings(ownFunctions, warnings);
-
-  // Rule 4: Shared gates
   checkSharedGates(allRules, warnings);
 
-  // Rule 5: Expression budget
   const costEstimates = estimateExpressionCosts(ast);
   checkExpressionBudget(costEstimates.rules, warnings);
-
-  // Rule 5.5: The most expensive standard library calls in each rule
   checkLibraryCalls(ast, warnings);
 
-  // Rule 6: Call depth
-  const callDepthScopes = isSecondaryService
-    ? {
-        functions: scopes.functions.filter((s) => s.label !== 'global scope'),
-        rules: scopes.rules,
-      }
-    : scopes;
+  let callDepthScopes = scopes;
+  if (isSecondaryService) {
+    callDepthScopes = {
+      functions: scopes.functions.filter((s) => s.label !== 'global scope'),
+      rules: scopes.rules,
+    };
+  }
   const callDepths = checkCallDepth(callDepthScopes, warnings);
 
-  // Rule 7: Get count
   checkGetCount(allRules, ruleScopes, fnScopes, warnings, isStorage);
-
-  // Rule 8: Get duplication (same get()-containing function called multiple times)
   checkGetDuplication(allRules, ruleScopes, fnScopes, warnings, isStorage);
 
-  // Rule 9: Hallucinations, JS-style code that parses but fails at runtime.
   warnings.push(...checkHallucinations(serviceOnlyAst, { allowDebug: options.allowDebug }));
 
-  // Rule 9.5: Always-true predicates and recursive-wildcard open rules.
-  // Severity: error so deployRules refuses to swap. The agent's #1
-  // failure mode in the playground was escaping denials with `if true`.
-  // Paths are relative to the documents root, so its children start empty.
   const recursiveScopes = new Map<AllowRule, RuleScope>();
   for (const root of topLevelMatches(ast.service)) {
     const rootScope = recursiveScope(root.path.segments);
@@ -1203,23 +293,17 @@ function analyzeParsedRules(
   checkPermissiveRules(allRules, recursiveScopes, warnings, isStorage);
   checkRecursiveWildcardOpen(recursiveScopes, warnings);
 
-  // Rule 10: request.time without pinned TestCase.requestTime
-  // (Item 0.F deferred follow-up). Only fires when caller passes a test suite.
   if (options.testCases && options.testCases.length > 0) {
     checkRequestTimePinned(allRules, ruleScopes, fnScopes, options.testCases, warnings);
   }
 
-  // Rule 11: RULES_WEAKENED — diff against the previously deployed
-  // ruleset to catch silently-removed security predicates. Only runs
-  // when the caller supplies `previousSource` AND it parses cleanly.
-  // A malformed previous ruleset is silently skipped — the current
-  // ruleset is still valid and we don't want to fail open.
   if (options.previousSource) {
     const prev = parseToASTOrError(options.previousSource);
     if (prev.ok) {
-      const prevService = allServiceBlocks(prev.ast).find((s) =>
-        svcTarget === 'firebase.storage' ? isStorageServiceName(s.name) : s.name === svcTarget,
-      );
+      const prevService = allServiceBlocks(prev.ast).find((s) => {
+        if (svcTarget === 'firebase.storage') return isStorageServiceName(s.name);
+        return s.name === svcTarget;
+      });
       if (prevService) {
         const prevAst = resolveBundledModulesForAnalysis(
           withSingleService(prev.ast, prevService),
@@ -1231,7 +315,6 @@ function analyzeParsedRules(
     }
   }
 
-  // Compute metrics
   let maxChain = { depth: 0, op: '' };
   let maxLets = { count: 0, fn: '' };
   for (const fn of allFunctions) {
