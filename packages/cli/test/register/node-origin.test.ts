@@ -89,4 +89,23 @@ describe('the host boot a Node process reads before it reattaches', () => {
     const line = result.stdout.toString().trim().split('\n').find(text => text.startsWith('{'));
     expect(JSON.parse(line ?? '{}')).toEqual({ first: 'boot-1', second: 'boot-2', token: 'token-2', requests: 2 });
   });
+
+  it('re-reads init.json when the Node host url or Vite SSR server generation changes (#1145)', () => {
+    const fixture = resolve(import.meta.dir, 'fixtures/node-init-handover.ts');
+    const result = Bun.spawnSync([process.execPath, fixture], { env: { ...process.env, PYRIC_SANDBOX: '' } });
+    expect(result.exitCode, result.stderr.toString()).toBe(0);
+    const line = result.stdout.toString().trim().split('\n').find(text => text.startsWith('{'));
+    expect(JSON.parse(line ?? '{}')).toEqual({
+      firstHosted: false,
+      sameFirstInstance: true,
+      sharedWorkerRequests: 1,
+      secondInstance: 'hosted-boot-1',
+      secondToken: 'hosted-token-1',
+      cachedSecondInstance: 'hosted-boot-1',
+      thirdInstance: 'hosted-boot-2',
+      thirdToken: 'hosted-token-2',
+      fourthInstance: 'hosted-boot-3',
+      hostedRequests: 3,
+    });
+  });
 });

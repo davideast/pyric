@@ -18,7 +18,9 @@ const vitePluginEntry = fileURLToPath(new URL('../../src/serve/vite-plugin.ts', 
 const require = createRequire(import.meta.url);
 const realAdminApp = pathToFileURL(require.resolve('firebase-admin/app')).href;
 const realFirebaseAi = pathToFileURL(require.resolve('firebase/ai')).href;
+const realFirebaseDatabase = pathToFileURL(require.resolve('firebase/database')).href;
 const appFile = pathToFileURL('/app/node_modules/local-admin-lib/index.js').href;
+const clientLibFile = pathToFileURL('/app/node_modules/local-client-lib/index.js').href;
 /** Where Node resolves `specifier` from the file at `url`. */
 const resolvedFrom = (url: string, specifier: string): string =>
   pathToFileURL(createRequire(url).resolve(specifier)).href;
@@ -54,6 +56,27 @@ describe('the stop hook in the Vite dev server process (ADR 0022)', () => {
     expect(error.message).toContain(`found  ${realAdminApp}`);
     stopOf(stop);
     expect(lines).toEqual([`${error.message}\n`]);
+  });
+
+  it('stops an externalized third-party package that imports firebase/database, and stops missing unserved firebase/* subpaths (#1143)', () => {
+    const lines: string[] = [];
+    const hook = viteProcessStopHook({ getAiMode: () => 'sandbox', write: (line) => lines.push(line) });
+    const dbStop = () => hook('firebase/database', { parentURL: clientLibFile }, landsOn(realFirebaseDatabase));
+    const dbError = stopOf(dbStop);
+    expect(dbError.code).toBe('PYRIC_REAL_SDK_STOPPED');
+    expect(dbError.message).toContain('stopped loading the real firebase');
+    expect(dbError.message).toContain("import 'firebase/database'");
+    expect(dbError.message).toContain(`from   ${clientLibFile}`);
+
+    const missingNextResolve: Parameters<SyncResolve>[2] = () => {
+      throw Object.assign(new Error('Cannot find package firebase'), { code: 'ERR_MODULE_NOT_FOUND' });
+    };
+    const unservedError = stopOf(() =>
+      hook('firebase/nonexistent-subpath', { parentURL: clientLibFile }, missingNextResolve),
+    );
+    expect(unservedError.code).toBe('PYRIC_REAL_SDK_STOPPED');
+    expect(unservedError.message).toContain("stopped unserved Firebase import 'firebase/nonexistent-subpath'");
+    expect(lines).toHaveLength(2);
   });
 
   it('lets every other resolve through unchanged', () => {

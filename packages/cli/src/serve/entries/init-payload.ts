@@ -99,7 +99,7 @@ function warnIfInsecureBrowserContext(): void {
   }
 }
 
-async function requestInitPayload(): Promise<InitPayload> {
+async function requestInitPayload(resolvedUrl?: string): Promise<InitPayload> {
   recordDiagnostic({ phase: 'init-request' });
   const abortController = new AbortController();
   let status: number | undefined;
@@ -114,11 +114,12 @@ async function requestInitPayload(): Promise<InitPayload> {
   try {
     const fetchHost = nodeRuntimeOrigin()?.socketRealm.fetch ?? fetch;
     const token = stampedSessionToken();
+    const targetUrl = resolvedUrl ?? (await initPayloadUrl());
     const requestOptions: RequestInit = { signal: abortController.signal };
     if (token !== undefined) {
       requestOptions.headers = { 'x-pyric-session-token': token };
     }
-    const response = await fetchHost(await initPayloadUrl(), requestOptions);
+    const response = await fetchHost(targetUrl, requestOptions);
     status = response.status;
     const isTerminalRefusal = response.status === 401 || response.status === 403;
     if (isTerminalRefusal) {
@@ -170,10 +171,10 @@ async function requestInitPayload(): Promise<InitPayload> {
  * A hosted page can load while its host is unreachable, so an unavailable host is
  * retried with the transport's reconnect backoff. A different host or project is final.
  */
-async function requestInitPayloadWhenAvailable(): Promise<InitPayload> {
+async function requestInitPayloadWhenAvailable(resolvedUrl?: string): Promise<InitPayload> {
   for (let attempt = 0; ; attempt += 1) {
     try {
-      return await requestInitPayload();
+      return await requestInitPayload(resolvedUrl);
     } catch (error) {
       // A Node process fails its calls at once when the host is down, as the
       // Node remote client does before its first attach; a page waits for it.
@@ -186,28 +187,38 @@ async function requestInitPayloadWhenAvailable(): Promise<InitPayload> {
   }
 }
 
+const VITE_SSR_SERVER_EPOCH = Symbol.for('pyric.vite.ssrServerEpoch');
+
+function currentViteSsrEpoch(): number | undefined {
+  const reader = (globalThis as Record<symbol, unknown>)[VITE_SSR_SERVER_EPOCH];
+  if (typeof reader !== 'function') return undefined;
+  const value = (reader as () => unknown)();
+  return typeof value === 'number' ? value : undefined;
+}
+
+interface CachedNodeInitPayload {
+  readonly url: string;
+  readonly epoch: number | undefined;
+  readonly request: Promise<InitPayload>;
+}
+
+let cachedNodeInit: CachedNodeInitPayload | undefined;
+let nodeInitIsStale = false;
+let sessionTokenRequest: Promise<string | null> | undefined;
+let sessionTokenIsStale = false;
+
 /**
- * A promise whose work starts at its first use. A page reads `init.json` as it
- * loads; a Node process reads it at its first call, so importing an SDK opens
- * no connection and holds nothing, as the production SDK does (#1082). An
- * answer is kept; a failure is not, so a process started before its host
- * reads `init.json` again at its next call.
+ * A promise whose work starts when awaited. A page reads `init.json` as it
+ * loads; a Node process reads it at its first call (#1082), and re-reads it
+ * when the active host URL or Vite SSR server generation changes (#1145) or
+ * after a dropped connection invalidates it.
  */
-function startedOnUse<T>(start: () => Promise<T>): Promise<T> {
-  let started: Promise<T> | undefined;
-  const run = (): Promise<T> => {
-    if (started !== undefined) return started;
-    const attempt = start();
-    started = attempt;
-    attempt.catch(() => {
-      const isLatest = started === attempt;
-      if (isLatest) started = undefined;
-    });
-    return attempt;
-  };
+function lazyPromise<T>(run: () => Promise<T>): Promise<T> {
   const lazy = {
-    then: (onFulfilled?: ((value: T) => unknown) | null, onRejected?: ((reason: unknown) => unknown) | null) =>
-      run().then(onFulfilled, onRejected),
+    then: (
+      onFulfilled?: ((value: T) => unknown) | null,
+      onRejected?: ((reason: unknown) => unknown) | null,
+    ) => run().then(onFulfilled, onRejected),
     catch: (onRejected?: ((reason: unknown) => unknown) | null) => run().catch(onRejected),
     finally: (onFinally?: (() => void) | null) => run().finally(onFinally),
     [Symbol.toStringTag]: 'Promise',
@@ -215,8 +226,38 @@ function startedOnUse<T>(start: () => Promise<T>): Promise<T> {
   return lazy as unknown as Promise<T>;
 }
 
+async function requestNodeInitPayload(): Promise<InitPayload> {
+  const url = await initPayloadUrl();
+  const epoch = currentViteSsrEpoch();
+  const matchesCached =
+    !nodeInitIsStale &&
+    cachedNodeInit !== undefined &&
+    cachedNodeInit.url === url &&
+    cachedNodeInit.epoch === epoch;
+  if (matchesCached && cachedNodeInit !== undefined) {
+    return cachedNodeInit.request;
+  }
+  const changedTarget =
+    cachedNodeInit !== undefined &&
+    (cachedNodeInit.url !== url || cachedNodeInit.epoch !== epoch);
+  if (changedTarget) {
+    sessionTokenRequest = undefined;
+    sessionTokenIsStale = false;
+  }
+  nodeInitIsStale = false;
+  const attempt = requestInitPayloadWhenAvailable(url);
+  const entry: CachedNodeInitPayload = { url, epoch, request: attempt };
+  cachedNodeInit = entry;
+  attempt.catch(() => {
+    if (cachedNodeInit === entry) {
+      cachedNodeInit = undefined;
+    }
+  });
+  return attempt;
+}
+
 function selectInitPayloadRequest(): Promise<InitPayload> {
-  if (isNodeRealm) return startedOnUse(requestInitPayloadWhenAvailable);
+  if (isNodeRealm) return lazyPromise(requestNodeInitPayload);
   return requestInitPayloadWhenAvailable();
 }
 
@@ -232,7 +273,7 @@ const readPayload = (): Promise<InitPayload | null> => initPayloadRequest.catch(
   return null;
 });
 
-export const initPayload: Promise<InitPayload | null> = isNodeRealm ? startedOnUse(readPayload) : readPayload();
+export const initPayload: Promise<InitPayload | null> = isNodeRealm ? lazyPromise(readPayload) : readPayload();
 
 const loggedInitPayloadFailures = new WeakSet<object>();
 
@@ -250,14 +291,14 @@ export function logInitPayloadFailure(error: unknown): void {
   console.error('[pyric sandbox] init payload unavailable:', detail);
 }
 
-let sessionTokenRequest: Promise<string | null> | undefined;
-let sessionTokenIsStale = false;
-
 /**
  * The byte-route session token of the host this page is attached to. A failed
  * request is not remembered, and a restarted host's token replaces the old one.
  */
 export function currentSessionToken(): Promise<string | null> {
+  if (isNodeRealm && cachedNodeInit !== undefined && cachedNodeInit.epoch !== currentViteSsrEpoch()) {
+    sessionTokenRequest = undefined;
+  }
   const needsFreshPayload = sessionTokenIsStale;
   if (sessionTokenRequest === undefined || needsFreshPayload) {
     sessionTokenIsStale = false;
@@ -274,14 +315,21 @@ export function currentSessionToken(): Promise<string | null> {
   return sessionTokenRequest;
 }
 
-/** The host may have restarted; the next token read fetches `init.json` again. */
+/** The host may have restarted; the next token or Node init read fetches `init.json` again. */
 export function forgetSessionToken(): void {
   sessionTokenIsStale = true;
+  nodeInitIsStale = true;
 }
 
 /** Reads `init.json` from the host serving it now; the read also answers the next session-token read. */
 async function readHostPayload(): Promise<InitPayload> {
-  const payload = await requestInitPayload();
+  const url = await initPayloadUrl();
+  const epoch = currentViteSsrEpoch();
+  const payload = await requestInitPayload(url);
+  if (isNodeRealm) {
+    cachedNodeInit = { url, epoch, request: Promise.resolve(payload) };
+    nodeInitIsStale = false;
+  }
   sessionTokenRequest = Promise.resolve(payload.sessionToken ?? stampedSessionToken() ?? null);
   sessionTokenIsStale = false;
   return payload;

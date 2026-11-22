@@ -29,7 +29,7 @@
 // `@firebase/*` import and an npm alias of firebase-admin, so under
 // `pyric sandbox` each of those imports stops at load (#1756).
 import assert from 'node:assert/strict';
-import { cpSync } from 'node:fs';
+import { cpSync, mkdirSync } from 'node:fs';
 import { get as httpsGet } from 'node:https';
 import { join } from 'node:path';
 import { scenario, type App, type DevServer } from '../driver.ts';
@@ -143,7 +143,15 @@ async function externalizationShape(app: App, noExternal: 'firebase' | 'all', ru
     expectOk(outcomes, 'admin.database', { from: 'ssr' });
     expectOk(outcomes, 'admin.firestore', { from: 'ssr' });
   });
-  if (noExternal === 'all') await devSdkNamesStop(app, server, runner);
+  if (noExternal === 'all') {
+    await app.step('ssr.noExternal all: local-client-lib routes firebase/database to the hosted sandbox (#1143)', async () => {
+      const response = await fetch(`${server.url}/ssr/local-client?runner=${runner}&tag=noext-local-client`);
+      const body = await response.text();
+      assert.equal(response.status, 200, body);
+      assert.deepEqual(JSON.parse(body), { value: { from: 'local-client-lib' } }, body);
+    });
+    await devSdkNamesStop(app, server, runner);
+  }
   await app.step(`ssr.noExternal ${noExternal}: nothing reached production`, () => assertNoProductionTraffic(server, since));
   await app.step(`stop the ssr.noExternal ${noExternal} dev server`, () => server.process.stop());
 }
@@ -193,8 +201,10 @@ async function builtServerStops(app: App): Promise<void> {
 }
 
 export default scenario(async (app) => {
-  await app.step("copy the app's own local-admin-lib package into node_modules", () =>
-    cpSync(join(app.dir, 'local-admin-lib'), join(app.dir, 'node_modules', 'local-admin-lib'), { recursive: true }));
+  await app.step("copy the app's own local-admin-lib and local-client-lib packages into node_modules", () => {
+    cpSync(join(app.dir, 'local-admin-lib'), join(app.dir, 'node_modules', 'local-admin-lib'), { recursive: true });
+    cpSync(join(app.dir, 'local-client-lib'), join(app.dir, 'node_modules', 'local-client-lib'), { recursive: true });
+  });
   // What an alias install lays out: the package's files in the alias's
   // folder, its manifest still naming firebase-admin, its dependencies
   // hoisted beside it. Copied, so the app installs the same dependency set.
@@ -284,6 +294,25 @@ export default scenario(async (app) => {
     assert.deepEqual((await trappedHosts(host)).slice(before.length), [], 'trap.cjs recorded a connection');
   });
 
+  await app.step('an externalized package that imports firebase/database fails the SSR request with the stop error (#1143)', async () => {
+    const logSince = host.process.mark();
+    const before = await trappedHosts(host);
+    const response = await fetch(`${host.url}/ssr/local-client?runner=legacy`);
+    const body = await response.text();
+    assert.equal(response.status, 500, body);
+    assert.match(body, /stopped loading the real firebase\n {2}import 'firebase\/app'/, body);
+    await host.process.waitForLog(/code: PYRIC_REAL_SDK_STOPPED/, { since: logSince, timeoutMs: 10_000 });
+    assert.deepEqual((await trappedHosts(host)).slice(before.length), [], 'trap.cjs recorded a connection');
+  });
+
+  await app.step('a worker-thread SSR runner reaches the hosted sandbox for both client and firebase-admin (#1144)', async () => {
+    const { outcomes } = await get(`${host.url}/ssr/worker?tag=worker-http`);
+    expectOk(outcomes, 'worker.database', { from: 'worker-ssr' });
+    expectOk(outcomes, 'worker.firestore', { from: 'worker-ssr' });
+    expectOk(outcomes, 'worker.adminDatabase', { from: 'worker-ssr' });
+    expectOk(outcomes, 'worker.adminFirestore', { from: 'worker-ssr' });
+  });
+
   await app.step('a page that imports firebase/installations gets the stop error in Chromium', async () => {
     const page = await app.page(`${host.url}/installations.html`);
     await page.waitForFunction(() => 'installations' in window);
@@ -317,6 +346,11 @@ export default scenario(async (app) => {
     assert.equal(pointer.port, secure.port, JSON.stringify(pointer));
     assert.match(pointer.url, /^https:\/\//, JSON.stringify(pointer));
   });
+  await app.step('HTTPS: worker-thread SSR reaches the HTTPS host with pinned certificate trust (#1144)', async () => {
+    const { outcomes } = await get(`${secure.url}/ssr/worker?tag=worker-https`);
+    expectOk(outcomes, 'worker.database', { from: 'worker-ssr' });
+    expectOk(outcomes, 'worker.adminDatabase', { from: 'worker-ssr' });
+  });
   await app.step('HTTPS: nothing reached production', () => assertNoProductionTraffic(secure, secureSince));
   await app.step('stop the HTTPS dev server', () => secure.process.stop());
 
@@ -332,6 +366,9 @@ export default scenario(async (app) => {
       const admin = await runAdmin(worker, runner, 'someone', `worker-${runner}`);
       expectCode(admin.outcomes, 'admin.database', 'failed-precondition', /hosted: true/);
     }
+    const workerThread = await get(`${worker.url}/ssr/worker?tag=worker-sw`);
+    expectCode(workerThread.outcomes, 'worker.auth', 'failed-precondition', /hosted: true/);
+    expectCode(workerThread.outcomes, 'worker.adminDatabase', 'failed-precondition', /hosted: true/);
     assertNoProductionTraffic(worker, workerSince);
   });
   await app.step('stop the SharedWorker dev server', () => worker.process.stop());
@@ -358,7 +395,7 @@ export default scenario(async (app) => {
     assert.equal(outcomes.ai?.ok, false, `firebase/ai: ${JSON.stringify(outcomes)}`);
     await production.process.waitForLog(/\[egress stand-in\] refused fetch to /, { since, timeoutMs: 10_000 });
     const log = production.process.output.slice(since);
-    const refused = [...log.matchAll(/\[egress stand-in\] refused fetch to (\S+)/g)].map((match) => match[1]!);
+    const refused = [...log.matchAll(/\[egress stand-in\] refused fetch to (\S+)/g)].map((match) => match[1] ?? '');
     assert.deepEqual(refused, ['firebasevertexai.googleapis.com'], `dev server log:\n${log}`);
     const afterAi = await get(`${production.url}/ssr/app-check?runner=legacy&tag=after-ai`);
     expectOk(afterAi.outcomes, 'appCheckToken', 'ssr-token-after-ai');
@@ -372,6 +409,37 @@ export default scenario(async (app) => {
     assert.match(output, /^programmatic\.database \{"ok":true,"value":null\}$/m, output);
     assert.match(output, /^programmatic closed$/m, output);
     assert.ok(Date.now() - startedAt < 60_000, output);
+  });
+
+  await app.step('client SDK apps and worker-thread SSR follow later dev servers on new ports from an outside cwd (#1144, #1145)', async () => {
+    mkdirSync(join(app.dir, '..', 'outside-cwd'), { recursive: true });
+    const result = await app.command('node', [join(app.dir, 'multi-port.mjs')], {
+      cwd: '../outside-cwd',
+      timeoutMs: 90_000,
+    });
+    assert.equal(result.code, 0, result.output);
+    const line = result.output.split('\n').find((text) => text.startsWith('multi-port '));
+    assert.ok(line !== undefined, `multi-port printed no summary:\n${result.output}`);
+    const summary = JSON.parse(line.slice('multi-port '.length)) as {
+      ports: [number, number, number];
+      swAuthCode: string | null;
+      swWorkerAdminCode: string | null;
+      h1: Record<string, Outcome>;
+      h2: Record<string, Outcome>;
+    };
+    assert.equal(new Set(summary.ports).size, 3, JSON.stringify(summary));
+    assert.equal(summary.swAuthCode, 'failed-precondition', JSON.stringify(summary));
+    assert.equal(summary.swWorkerAdminCode, 'failed-precondition', JSON.stringify(summary));
+    expectOk(summary.h1, 'db', { from: 'ssr' });
+    expectOk(summary.h1, 'fs', { from: 'ssr' });
+    expectOk(summary.h1, 'st', 'ssr');
+    expectOk(summary.h1, 'workerAdminDb', { from: 'worker-ssr' });
+    expectOk(summary.h2, 'db', { from: 'ssr' });
+    expectOk(summary.h2, 'fs', { from: 'ssr' });
+    expectOk(summary.h2, 'st', 'ssr');
+    expectOk(summary.h2, 'adminDb', { from: 'ssr' });
+    expectOk(summary.h2, 'adminFs', { from: 'ssr' });
+    expectOk(summary.h2, 'workerAdminDb', { from: 'worker-ssr' });
   });
 
   await builtServerStops(app);

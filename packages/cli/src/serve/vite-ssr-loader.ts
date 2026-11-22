@@ -13,13 +13,16 @@
  * and this package's own subpaths resolve under any install layout.
  */
 
+import { ensureWorkerViteSsrActivation } from './vite-ssr-worker-activation.js';
+
 /** The targets the register mapping routes a server import to. Anything else is refused. */
 const ROUTED_TARGET =
   /^(?:@pyric\/cli\/register\/(?:client\/[a-z-]+|app-bridge-app-check)|firebase\/ai|pyric(?:-admin)?(?:\/[a-z-]+)*)$/;
 
 /** The routed module for `target`, as `mapFirebaseSpecifier` named it. */
-export function loadServerTarget(target: string): Promise<Record<string, unknown>> {
+export async function loadServerTarget(target: string): Promise<Record<string, unknown>> {
   const isRoutedTarget = ROUTED_TARGET.test(target);
-  if (!isRoutedTarget) return Promise.reject(new Error(`pyric: ${target} is not a routed server target`));
+  if (!isRoutedTarget) throw new Error(`pyric: ${target} is not a routed server target`);
+  await ensureWorkerViteSsrActivation();
   return import(target) as Promise<Record<string, unknown>>;
 }

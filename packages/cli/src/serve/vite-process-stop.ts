@@ -21,8 +21,16 @@ import { UNSUPPORTED_RUNTIME_CODE } from '../cli/unsupported-runtime.js';
 import { isLiveRegisterActive, isRegisterActive } from '../register/activation.js';
 import { canonicalFirebaseSpecifier } from '../register/mapping.js';
 import { requireRegisterHooks } from '../register/node-version-stop.js';
-import { createStopReporter, isImportCondition, stopFor, suppliedRowsStopFor } from '../register/swap-or-stop.js';
+import {
+  createStopReporter,
+  isImportCondition,
+  isUnservedFirebaseImport,
+  stopFor,
+  suppliedRowsStopFor,
+  unservedFirebaseSubpathStop,
+} from '../register/swap-or-stop.js';
 import { isBypassedBridgeImport, type AiMode } from './firebase-module-swap.js';
+import { installSyncWorkerViteSsrActivationIfActive } from './vite-ssr-worker-activation.js';
 import { suppliedRows, type SuppliedRows } from './vite-supplied-rows.js';
 import {
   installViteWorkerGuard,
@@ -116,6 +124,45 @@ function resolveSandboxNodeLoad(
   return nextResolve(specifier, context);
 }
 
+function errorCodeOf(err: unknown): string | undefined {
+  if (typeof err === 'object' && err !== null && 'code' in err && typeof err.code === 'string') {
+    return err.code;
+  }
+  return undefined;
+}
+
+function isMissingResolutionCode(code: string | undefined): boolean {
+  return (
+    code === 'ERR_MODULE_NOT_FOUND' ||
+    code === 'MODULE_NOT_FOUND' ||
+    code === 'ERR_PACKAGE_PATH_NOT_EXPORTED'
+  );
+}
+
+function resolveAndEvaluateSandboxLease(
+  lease: SandboxStopLease,
+  specifier: string,
+  context: SyncResolveContext,
+  nextResolve: (specifier: string, context?: SyncResolveContext) => SyncResolveResult,
+): SyncResolveResult {
+  const importer = context.parentURL;
+  const isEsmImport = context.conditions === undefined || isImportCondition(context.conditions);
+  const canonical = canonicalFirebaseSpecifier(specifier);
+  const effectiveSpecifier = canonical ?? specifier;
+  let result: SyncResolveResult;
+  try {
+    result = resolveSandboxNodeLoad(lease, specifier, context, nextResolve);
+  } catch (err) {
+    if (isMissingResolutionCode(errorCodeOf(err)) && isUnservedFirebaseImport(effectiveSpecifier)) {
+      const unservedStop = unservedFirebaseSubpathStop(specifier, importer, effectiveSpecifier);
+      lease.report(unservedStop);
+      throw unservedStop;
+    }
+    throw err;
+  }
+  return evaluateSandboxLease(lease, specifier, importer, isEsmImport, result);
+}
+
 function evaluateSandboxLease(
   lease: SandboxStopLease,
   specifier: string,
@@ -175,12 +222,8 @@ export function viteProcessStopHook(input: ViteProcessStopHookInput): SyncResolv
     report: createStopReporter(input.write),
     allowedUrls: new Set<string>(),
   };
-  return (specifier, context, nextResolve) => {
-    const importer = context.parentURL;
-    const isEsmImport = context.conditions === undefined || isImportCondition(context.conditions);
-    const result = resolveSandboxNodeLoad(lease, specifier, context, nextResolve);
-    return evaluateSandboxLease(lease, specifier, importer, isEsmImport, result);
-  };
+  return (specifier, context, nextResolve) =>
+    resolveAndEvaluateSandboxLease(lease, specifier, context, nextResolve);
 }
 
 export interface ViteProcessStopInput {
@@ -341,15 +384,13 @@ function ensureProcessStopState(
       if (registerActiveCheck()) return nextResolve(specifier, context);
       const active = state.leases.at(-1);
       if (active === undefined) return nextResolve(specifier, context);
-      const importer = context.parentURL;
-      const isEsmImport = context.conditions === undefined || isImportCondition(context.conditions);
       if (active.kind === 'live') {
+        const importer = context.parentURL;
         const liveResult = nextResolve(specifier, context);
         if (isLiveRegisterActive()) return liveResult;
         return evaluateLiveLease(active, specifier, importer, liveResult);
       }
-      const sandboxResult = resolveSandboxNodeLoad(active, specifier, context, nextResolve);
-      return evaluateSandboxLease(active, specifier, importer, isEsmImport, sandboxResult);
+      return resolveAndEvaluateSandboxLease(active, specifier, context, nextResolve);
     },
   });
   ensureWorkerGuard(state, input, registerActiveCheck);
@@ -438,6 +479,7 @@ function activateViteWorkerProcessStopIfNeeded(): void {
     acquireViteLiveProcessStop(suppliedRows((specifier) => workerLiveRefusal(specifier)));
     return;
   }
+  installSyncWorkerViteSsrActivationIfActive(process.env);
   acquireViteProcessStop({
     getAiMode: () => config.aiMode,
     projectRoot: config.projectRoot,

@@ -52,12 +52,19 @@ import {
   type RemoteSandboxChannel,
 } from '../remote/index.js';
 import { honorsCertificatePin, hostTrustFor, isTrustedOrigin } from '../remote/loopback-tls.js';
+import { inProcessSessionTokenForUrl } from './local-session-token.js';
 import { servesHttps } from './vite-https.js';
 import { VITE_SSR_ISSUE_URL } from './vite-ssr-routing.js';
+import {
+  clearMainViteSsrActivation,
+  publishMainViteSsrActivation,
+  type WorkerHostSnapshot,
+} from './vite-ssr-worker-activation.js';
 
 const LABEL = "the Vite dev server's server-rendered modules";
 
 interface ServerInForce {
+  readonly generationId: number;
   readonly server: ViteDevServer;
   readonly hosted: boolean;
   /** Its certificate's trust, read once it listens over HTTPS. */
@@ -218,6 +225,30 @@ export interface ViteSsrActivation {
  * `PYRIC_SANDBOX` already activates it (`pyric sandbox -- vite`), whose host
  * those modules then reach as any registered process's do.
  */
+async function currentWorkerSnapshot(): Promise<WorkerHostSnapshot> {
+  const current = inForce;
+  if (current === undefined) {
+    return { status: 'closed' };
+  }
+  const trust = await trustFor(current);
+  const url = await listeningBase(current.server);
+  if (inForce !== current && inForce !== undefined) {
+    return currentWorkerSnapshot();
+  }
+  if (inForce === undefined) {
+    return { status: 'closed' };
+  }
+  const sessionToken = inProcessSessionTokenForUrl(url);
+  return {
+    status: 'ready',
+    generationId: current.generationId,
+    hosted: current.hosted,
+    url,
+    trust: trust ?? undefined,
+    sessionToken,
+  };
+}
+
 export function attachViteSsrActivation(
   server: ViteDevServer,
   hosted: boolean,
@@ -226,7 +257,13 @@ export function attachViteSsrActivation(
 ): ViteSsrActivation {
   const isActivatedFromOutside = (env.PYRIC_SANDBOX ?? '').trim().length > 0;
   if (isActivatedFromOutside) return { close: () => {} };
-  const attached: ServerInForce = { server, hosted, honorsPin: runtime.honorsCertificatePin() };
+  const generationId = publishMainViteSsrActivation(hosted, currentWorkerSnapshot);
+  const attached: ServerInForce = {
+    generationId,
+    server,
+    hosted,
+    honorsPin: runtime.honorsCertificatePin(),
+  };
   const previous = inForce;
   inForce = attached;
   if (previous !== undefined && previous !== attached) {
@@ -241,6 +278,7 @@ export function attachViteSsrActivation(
       const isReplaced = inForce !== attached;
       if (isReplaced) return;
       inForce = undefined;
+      clearMainViteSsrActivation(attached.generationId);
       clearProcessActivation(activation);
     },
   };

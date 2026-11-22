@@ -1,6 +1,17 @@
+import { Worker } from "node:worker_threads";
 import basicSsl from "@vitejs/plugin-basic-ssl";
 import { pyric } from "@pyric/cli/vite";
 import { pyricViteExternals } from "@pyric/cli/bundler";
+
+function runWorkerSsr(tag) {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(new URL("./worker-ssr.mjs", import.meta.url), {
+      workerData: { tag },
+    });
+    worker.once("message", resolve);
+    worker.once("error", reject);
+  });
+}
 
 // A small SSR middleware, the shape a framework's dev SSR takes. `runner`
 // picks how the module loads: `ssrLoadModule` or the environment API runner.
@@ -15,7 +26,7 @@ function ssrRoutes() {
           : server.ssrLoadModule(path);
       server.middlewares.use(async (req, res, next) => {
         const url = new URL(req.url, "http://localhost");
-        const action = url.pathname.match(/^\/ssr\/(run|run-ai|app-check|admin|local-admin|sdk-names|trapped)$/)?.[1];
+        const action = url.pathname.match(/^\/ssr\/(run|run-ai|app-check|admin|local-admin|local-client|worker|sdk-names|trapped)$/)?.[1];
         if (!action) return next();
         try {
           const runner = url.searchParams.get("runner");
@@ -29,6 +40,10 @@ function ssrRoutes() {
             body = { outcomes: (await load(runner, "/src/ssr-sdk-names.js")).outcomes };
           } else if (action === "local-admin") {
             body = await (await load(runner, "/src/ssr-local-admin.js")).run();
+          } else if (action === "local-client") {
+            body = await (await load(runner, "/src/ssr-local-client.js")).run(tag ?? "local-client");
+          } else if (action === "worker") {
+            body = await runWorkerSsr(tag ?? "worker");
           } else if (action === "admin") {
             body = await (await load(runner, "/src/ssr-admin.js")).read(url.searchParams.get("uid"), tag);
           } else {
