@@ -10,8 +10,11 @@ import {
   REAL_SDK_STOPPED_CODE,
   createStopReporter,
   isImportCondition,
+  isUnservedFirebaseImport,
+  isUnservedFirebaseSubpath,
   stopFor,
   suppliedRowsStopFor,
+  unservedFirebaseSubpathStop,
   type ResolvedLoad,
 } from '../../src/register/swap-or-stop.js';
 
@@ -25,7 +28,10 @@ const APP_IMPORTER = 'file:///work/app/src/route.js';
 const PACKAGES: ReadonlyArray<readonly [segment: string, name: string]> = [
   ['/node_modules/firebase-admin/', 'firebase-admin'],
   ['/node_modules/admin/', 'firebase-admin'],
+  ['/vendor/firebase-admin/', 'firebase-admin'],
+  ['/linked-admin/', 'firebase-admin'],
   ['/node_modules/firebase/', 'firebase'],
+  ['/vendor/firebase/', 'firebase'],
   ['/node_modules/fb/', 'firebase'],
   ['/node_modules/@firebase/firestore/', '@firebase/firestore'],
   ['/node_modules/@firebase/ai/', '@firebase/ai'],
@@ -58,11 +64,14 @@ function noneAllowed(): Set<string> {
 }
 
 const ADMIN_FILE = 'file:///work/app/node_modules/firebase-admin/lib/app/index.js';
+const VENDOR_ADMIN_FILE = 'file:///work/app/vendor/firebase-admin/lib/app/index.js';
+const LINKED_ADMIN_FILE = 'file:///work/app/linked-admin/lib/app/index.js';
 const ADMIN_UTILS_FILE = 'file:///work/app/node_modules/firebase-admin/lib/utils/index.js';
 const FIREBASE_AI_FILE = 'file:///work/app/node_modules/firebase/ai/dist/index.mjs';
 const FIREBASE_APP_FILE = 'file:///work/app/node_modules/firebase/app/dist/index.mjs';
 const FIREBASE_APP_CHECK_FILE = 'file:///work/app/node_modules/firebase/app-check/dist/index.mjs';
 const FIREBASE_FIRESTORE_FILE = 'file:///work/app/node_modules/firebase/firestore/dist/index.mjs';
+const FIREBASE_INSTALLATIONS_FILE = 'file:///work/app/node_modules/firebase/installations/dist/index.mjs';
 const AT_FIRESTORE_FILE = 'file:///work/app/node_modules/@firebase/firestore/dist/index.node.mjs';
 const AT_AI_FILE = 'file:///work/app/node_modules/@firebase/ai/dist/index.node.mjs';
 const AT_APP_FILE = 'file:///work/app/node_modules/@firebase/app/dist/esm/index.esm.js';
@@ -74,16 +83,32 @@ describe('stopFor: firebase-admin', () => {
     const stop = stopFor(load({ specifier: '/work/app/node_modules/firebase-admin/lib/app/index.js', url: ADMIN_FILE }), noneAllowed());
     expect(stop).not.toBeNull();
     expect((stop as Error & { code: string }).code).toBe(REAL_SDK_STOPPED_CODE);
-    expect(stop!.message).toContain('stopped loading the real firebase-admin');
-    expect(stop!.message).toContain(`from   ${APP_IMPORTER}`);
-    expect(stop!.message).toContain(`found  ${ADMIN_FILE}`);
-    expect(stop!.message).toContain("'firebase-admin/app'");
-    expect(stop!.message).toContain('without @pyric/cli/register');
+    expect(stop?.message).toContain('stopped loading the real firebase-admin');
+    expect(stop?.message).toContain(`from   ${APP_IMPORTER}`);
+    expect(stop?.message).toContain(`found  ${ADMIN_FILE}`);
+    expect(stop?.message).toContain("'firebase-admin/app'");
+    expect(stop?.message).toContain('without @pyric/cli/register');
   });
 
   it('stops an npm alias, because the manifest names firebase-admin', () => {
     const stop = stopFor(load({ specifier: 'admin/app', url: 'file:///work/app/node_modules/admin/lib/app/index.js' }), noneAllowed());
     expect(stop?.message).toContain('stopped loading the real firebase-admin');
+  });
+
+  it('stops a vendored copy or preserved symlink outside node_modules (#1620)', () => {
+    const vendored = stopFor(load({ specifier: 'admin/app', url: VENDOR_ADMIN_FILE }), noneAllowed());
+    const linked = stopFor(load({ specifier: './linked-admin/lib/app/index.js', url: LINKED_ADMIN_FILE }), noneAllowed());
+    expect(vendored?.message).toContain('stopped loading the real firebase-admin');
+    expect(vendored?.message).toContain(`found  ${VENDOR_ADMIN_FILE}`);
+    expect(linked?.message).toContain('stopped loading the real firebase-admin');
+    expect(linked?.message).toContain(`found  ${LINKED_ADMIN_FILE}`);
+
+    const liveVendored = suppliedRowsStopFor(
+      load({ specifier: 'admin/app', url: VENDOR_ADMIN_FILE }),
+      noneAllowed(),
+      { isRowImport: false, isEsmImport: true },
+    );
+    expect((liveVendored as (Error & { code?: string }) | null)?.code).toBe(REAL_SDK_STOPPED_CODE);
   });
 
   it('stops firebase-admin in production AI mode too', () => {
@@ -131,7 +156,7 @@ describe('stopFor: firebase-admin', () => {
     expect(stopFor(fromApp('file:///work/app/node_modules/firebase-admin/package.json'), allowed)).toBeNull();
   });
 
-  it("lets Node 22 resolve an allowed CommonJS file again by its own path with no importer (#1707)", () => {
+  it('lets Node 22 resolve an allowed CommonJS file again by its own path with no importer (#1707)', () => {
     const allowed = new Set([ADMIN_FILE]);
     const reload = load({ specifier: '/work/app/node_modules/firebase-admin/lib/app/index.js', url: ADMIN_FILE, importer: undefined, aiMode: 'production' });
     expect(stopFor(reload, allowed)).toBeNull();
@@ -161,6 +186,42 @@ describe('stopFor: the client SDK', () => {
     const stop = stopFor(load({ specifier: 'firebase-a14c8a5423a75469/ai', url: FIREBASE_AI_FILE }), noneAllowed());
     expect(stop?.message).toContain('stopped loading the real firebase');
     expect(stop?.message).toContain("with the app's API key");
+  });
+
+  it('stops an unserved firebase/* subpath and names a served import instead of telling the caller to import by package name (#1623)', () => {
+    expect(isUnservedFirebaseSubpath('firebase/installations')).toBe(true);
+    expect(isUnservedFirebaseSubpath('firebase/firestore')).toBe(false);
+    expect(isUnservedFirebaseSubpath('firebase')).toBe(false);
+    expect(isUnservedFirebaseImport('firebase')).toBe(true);
+    expect(isUnservedFirebaseImport('firebase/installations')).toBe(true);
+    expect(isUnservedFirebaseImport('firebase/firestore')).toBe(false);
+
+    const stop = stopFor(
+      load({ specifier: 'firebase/installations', url: FIREBASE_INSTALLATIONS_FILE }),
+      noneAllowed(),
+    );
+    expect((stop as (Error & { code?: string }) | null)?.code).toBe(REAL_SDK_STOPPED_CODE);
+    expect(stop?.message).toContain("pyric serves no firebase/* import for 'firebase/installations'");
+    expect(stop?.message).toContain("'firebase/firestore'");
+    expect(stop?.message).not.toContain('import firebase by its package name');
+
+    const renamedStop = stopFor(
+      load({
+        specifier: 'firebase-a14c8a5423a75469/installations',
+        canonical: 'firebase/installations',
+        url: FIREBASE_INSTALLATIONS_FILE,
+      }),
+      noneAllowed(),
+    );
+    expect(renamedStop?.message).toContain("pyric serves no firebase/* import for 'firebase/installations'");
+
+    const missingTargetStop = unservedFirebaseSubpathStop('firebase/data-connect', APP_IMPORTER);
+    expect((missingTargetStop as Error & { code?: string }).code).toBe(REAL_SDK_STOPPED_CODE);
+    expect(missingTargetStop.message).toContain("pyric serves no firebase/* import for 'firebase/data-connect'");
+
+    const bareFirebaseStop = unservedFirebaseSubpathStop('firebase', APP_IMPORTER);
+    expect((bareFirebaseStop as Error & { code?: string }).code).toBe(REAL_SDK_STOPPED_CODE);
+    expect(bareFirebaseStop.message).toContain("import firebase by its package name (for example 'firebase/firestore')");
   });
 
   it('stops @firebase/* imported by app code, and names the firebase/* import to use', () => {
@@ -327,18 +388,38 @@ describe('suppliedRowsStopFor: @firebase/ai under live rows', () => {
 });
 
 describe('stopFor: everything else', () => {
-  it('leaves files outside node_modules alone without reading a manifest', () => {
+  it('checks manifest identity for file URLs outside node_modules and leaves non-Firebase app files alone (#1620)', () => {
     const read: string[] = [];
-    const result = stopFor(load({ url: 'file:///work/app/src/lib.js', nameOf: (url) => { read.push(url); return 'app'; } }), noneAllowed());
-    expect({ result, read }).toEqual({ result: null, read: [] });
+    const result = stopFor(
+      load({
+        url: 'file:///work/app/src/lib.js',
+        nameOf: (url) => {
+          read.push(url);
+          return 'app';
+        },
+      }),
+      noneAllowed(),
+    );
+    expect({ result, read }).toEqual({ result: null, read: ['file:///work/app/src/lib.js'] });
   });
 
   it('leaves packages that only contain "firebase" in their name alone', () => {
     expect(stopFor(load({ url: 'file:///work/app/node_modules/firebase-functions/lib/v2/index.js' }), noneAllowed())).toBeNull();
   });
 
-  it('leaves built-ins and other non-file URLs alone', () => {
-    expect(stopFor(load({ url: 'node:fs' }), noneAllowed())).toBeNull();
+  it('leaves built-ins and other non-file URLs alone without reading a manifest', () => {
+    const read: string[] = [];
+    const result = stopFor(
+      load({
+        url: 'node:fs',
+        nameOf: (url) => {
+          read.push(url);
+          return 'firebase-admin';
+        },
+      }),
+      noneAllowed(),
+    );
+    expect({ result, read }).toEqual({ result: null, read: [] });
   });
 });
 
@@ -346,9 +427,12 @@ describe('createStopReporter', () => {
   it('writes each stopped file once', () => {
     const lines: string[] = [];
     const report = createStopReporter((line) => lines.push(line));
-    const stop = stopFor(load({ url: ADMIN_FILE }), noneAllowed())!;
-    report(stop);
-    report(stop);
+    const stop = stopFor(load({ url: ADMIN_FILE }), noneAllowed());
+    expect(stop).not.toBeNull();
+    if (stop !== null) {
+      report(stop);
+      report(stop);
+    }
     expect(lines).toHaveLength(1);
     expect(lines[0]).toContain('code: PYRIC_REAL_SDK_STOPPED');
   });

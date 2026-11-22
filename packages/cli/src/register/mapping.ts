@@ -1,23 +1,26 @@
 /**
  * The specifier map behind `@pyric/cli/register`: unmodified Firebase
- * imports resolve to their pyric mirrors. Most subpaths map 1:1
- * (`firebase-admin/app` → `pyric-admin/app`, `firebase/firestore` →
- * `pyric/firestore`, …). `firebase/app` maps to the Node register adapter,
+ * imports resolve to their pyric mirrors. Served `firebase/*` subpaths
+ * (`SDK_MODULES`) and `firebase-admin` / `firebase-admin/*` map 1:1
+ * (`firebase-admin/app` -> `pyric-admin/app`, `firebase/firestore` ->
+ * `pyric/firestore`, ...). `firebase/app` maps to the Node register adapter,
  * which translates FirebaseOptions into the process sandbox before entering
- * the strict `pyric/app` mirror.
+ * the strict `pyric/app` mirror. Unserved `firebase/*` subpaths and bare
+ * `firebase` return `null` so the swap-or-stop hook stops them with
+ * `PYRIC_REAL_SDK_STOPPED` (#1623).
  *
  * Under a remote activation (`PYRIC_SANDBOX=remote`, `remote:<url>`, `1` or
  * `true`) the client SDKs that reach the Node host map to its Node client
  * instead (#1082): `firebase/app`, `firebase/database`, `firebase/firestore`,
- * `firebase/auth` and `firebase/storage` resolve to
- * `@pyric/cli/register/client/*`. The other client subpaths keep their pyric
- * mirrors, which refuse there because the app registry has no sandbox.
+ * `firebase/auth`, `firebase/storage`, and `firebase/functions` resolve to
+ * `@pyric/cli/register/client/*`. The other served client subpaths keep their
+ * pyric mirrors, which refuse there because the app registry has no sandbox.
  *
  * Pure apart from reading the environment -- the resolution hook (index.ts)
  * calls this and the unit suite exercises it directly. Deliberately
- * narrow: only the two package roots match. `@firebase/*` internals,
- * `firebase-functions`, and anything merely *containing* "firebase" pass
- * through untouched.
+ * narrow: only `firebase-admin` and served `firebase/*` entries match.
+ * `@firebase/*` internals, `firebase-functions`, and anything merely
+ * containing "firebase" pass through untouched.
  *
  * Next 16's Turbopack renames server externals (#1443): it links
  * `.next/node_modules/firebase-admin-<16 hex>` to the installed package and
@@ -27,14 +30,15 @@
  */
 
 import { parsePyricSandbox } from 'pyric/sandbox/internal';
-import { isBypassedBridgeImport, isProductionAiEntryFile, resolveAiMode, type AiMode } from '../serve/firebase-module-swap.js';
+import {
+  SDK_MODULES,
+  isBypassedBridgeImport,
+  isProductionAiEntryFile,
+  resolveAiMode,
+  type AiMode,
+} from '../serve/firebase-module-swap.js';
 
-const MAPPINGS: ReadonlyArray<readonly [from: string, to: string]> = [
-  // firebase-admin first — `firebase-admin` must never match the bare
-  // `firebase` root (it can't today, but the order documents the intent).
-  ['firebase-admin', 'pyric-admin'],
-  ['firebase', 'pyric'],
-];
+const SERVED_CLIENT_SPECIFIERS: ReadonlySet<string> = new Set(SDK_MODULES);
 
 /** Client SDK subpaths the Node host client serves under a remote activation. */
 const NODE_HOST_CLIENT_SUBPATHS = new Set(['database', 'firestore', 'auth', 'storage', 'functions']);
@@ -51,7 +55,9 @@ export interface MapFirebaseOptions {
 }
 
 function appTarget(isRemote: boolean, isProductionMode: boolean): string {
-  if (isRemote) return isProductionMode ? `${NODE_HOST_CLIENT}/app-bridge` : `${NODE_HOST_CLIENT}/app`;
+  if (isRemote) {
+    return isProductionMode ? `${NODE_HOST_CLIENT}/app-bridge` : `${NODE_HOST_CLIENT}/app`;
+  }
   return isProductionMode ? '@pyric/cli/register/app-bridge' : 'pyric/app/register';
 }
 
@@ -74,7 +80,7 @@ const RENAMED_FIREBASE = /^(firebase-admin|firebase)-[0-9a-f]{16}(\/.+)?$/;
 
 /**
  * The canonical name of a Turbopack-renamed Firebase import
- * (`firebase-admin-<hash>/app` → `firebase-admin/app`), or `null` when the
+ * (`firebase-admin-<hash>/app` -> `firebase-admin/app`), or `null` when the
  * specifier isn't one. The name alone proves nothing: the caller confirms the
  * import resolved into the package of that name before mapping it.
  */
@@ -115,7 +121,8 @@ export function choosesRealFirebase(load: RealFirebaseLoad): boolean {
 
 /**
  * Map a Firebase specifier to its pyric mirror, or return `null` when the
- * specifier is not a Firebase package (leave it for the default resolver).
+ * specifier is not a served Firebase target (leaving it for the default
+ * resolver and swap-or-stop).
  */
 export function mapFirebaseSpecifier(
   specifier: string,
@@ -149,16 +156,14 @@ export function mapFirebaseSpecifier(
     return hostClient;
   }
 
-  for (const [from, to] of MAPPINGS) {
-    const isExactMatch = specifier === from;
-    if (isExactMatch) {
-      return to;
-    }
-    const isSubpathMatch = specifier.startsWith(`${from}/`);
-    if (isSubpathMatch) {
-      const subpath = specifier.slice(from.length);
-      return to + subpath;
-    }
+  if (specifier === 'firebase-admin') {
+    return 'pyric-admin';
+  }
+  if (specifier.startsWith('firebase-admin/')) {
+    return `pyric-admin${specifier.slice('firebase-admin'.length)}`;
+  }
+  if (SERVED_CLIENT_SPECIFIERS.has(specifier)) {
+    return `pyric${specifier.slice('firebase'.length)}`;
   }
   return null;
 }

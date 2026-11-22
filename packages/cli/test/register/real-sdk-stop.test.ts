@@ -13,7 +13,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { createServer, type AddressInfo, type Server } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -175,7 +175,6 @@ console.log('OUTCOME ' + JSON.stringify(outcome));
  */
 const PROBE_FORGE_TWO_STEPS = `${LOAD_OBSERVER}
 import { createRequire } from 'node:module';
-import { join } from 'node:path';
 const outcome = {};
 async function step(name, run) {
   try {
@@ -292,7 +291,7 @@ function runProbe(script: string, env: Record<string, string>, nodeFlags: readon
 }
 
 function stopLines(stderr: string): string[] {
-  return stderr.split('\n').filter((line) => line.includes('stopped loading the real'));
+  return stderr.split('\n').filter((line) => line.includes('stopped loading the real') || line.includes('stopped unserved Firebase import'));
 }
 
 beforeAll(async () => {
@@ -302,9 +301,14 @@ beforeAll(async () => {
   fixtureDir = mkdtempSync(join(tmpdir(), 'pyric-real-sdk-stop-'));
   const nm = join(fixtureDir, 'node_modules');
   mkdirSync(join(nm, '@firebase'), { recursive: true });
-  // An npm alias ("admin": "npm:firebase-admin@13") and a link under another name.
+  mkdirSync(join(fixtureDir, 'vendor'), { recursive: true });
+  // An npm alias ("admin": "npm:firebase-admin@13") and a link under another name inside node_modules.
   symlinkSync(realAdminDir, join(nm, 'admin'));
   symlinkSync(realAdminDir, join(nm, 'linked-admin'));
+  // #1620: a vendored copy outside node_modules and a symlink outside node_modules.
+  cpSync(realAdminDir, join(fixtureDir, 'vendor', 'firebase-admin'), { recursive: true });
+  symlinkSync('../vendor/firebase-admin', join(nm, 'vendor-admin'));
+  symlinkSync(join(fixtureDir, 'vendor', 'firebase-admin'), join(fixtureDir, 'outer-linked-admin'));
   symlinkSync(realFirebaseDir, join(nm, 'firebase'));
   // An npm alias of the client SDK ("fb": "npm:firebase@12").
   symlinkSync(realFirebaseDir, join(nm, 'fb'));
@@ -351,6 +355,24 @@ describe('@pyric/cli/register stops the real firebase-admin (child process)', ()
     const plain = await runProbe('probe.mjs', { LOAD_SPECIFIER: 'linked-admin/app' });
     const preserved = await runProbe('probe.mjs', { LOAD_SPECIFIER: 'linked-admin/app' }, ['--preserve-symlinks']);
     expect([plain.outcome.load, preserved.outcome.load]).toEqual(['PYRIC_REAL_SDK_STOPPED', 'PYRIC_REAL_SDK_STOPPED']);
+  }, 30_000);
+
+  it('stops a vendored copy outside node_modules and an outer symlink under --preserve-symlinks (#1620)', async () => {
+    const vendoredEsm = await runProbe('probe.mjs', { LOAD_SPECIFIER: 'vendor-admin/app' });
+    const vendoredCjs = await runProbe('probe.cjs', { LOAD_SPECIFIER: 'vendor-admin/app' });
+    const outerPreserved = await runProbe(
+      'probe.mjs',
+      { LOAD_SPECIFIER: './outer-linked-admin/lib/app/index.js' },
+      ['--preserve-symlinks'],
+    );
+    expect([vendoredEsm.outcome.load, vendoredCjs.outcome.load, outerPreserved.outcome.load]).toEqual([
+      'PYRIC_REAL_SDK_STOPPED',
+      'PYRIC_REAL_SDK_STOPPED',
+      'PYRIC_REAL_SDK_STOPPED',
+    ]);
+    expect(vendoredEsm.stderr).toContain('/vendor/firebase-admin/lib/esm/app/index.js');
+    expect(vendoredCjs.stderr).toContain('/vendor/firebase-admin/lib/app/index.js');
+    expect(outerPreserved.stderr).toContain('/outer-linked-admin/lib/app/index.js');
   }, 30_000);
 
   it('still stops and logs a deprecation notice when legacy PYRIC_GUARD=off is set', async () => {
@@ -432,6 +454,34 @@ describe('@pyric/cli/register stops the real client SDK where the swap table did
     const res = await runProbe('probe.mjs', { LOAD_SPECIFIER: '@firebase/firestore' });
     expect(res.outcome).toEqual({ load: 'PYRIC_REAL_SDK_STOPPED', escaped: [] });
     expect(res.stderr).toContain("import 'firebase/firestore' instead of '@firebase/firestore'");
+  }, 30_000);
+
+  it('stops bare firebase and every unserved firebase/* subpath via import and require with PYRIC_REAL_SDK_STOPPED and fixFor text (#1623)', async () => {
+    const unserved = [
+      'firebase/installations',
+      'firebase/data-connect',
+      'firebase/firestore/pipelines',
+      'firebase/compat/app',
+      'firebase/nonexistent',
+    ];
+    for (const specifier of unserved) {
+      const esm = await runProbe('probe.mjs', { LOAD_SPECIFIER: specifier });
+      const cjs = await runProbe('probe.cjs', { LOAD_SPECIFIER: specifier });
+      expect([esm.outcome.load, cjs.outcome.load], `${specifier}\n${esm.stderr}\n${cjs.stderr}`).toEqual([
+        'PYRIC_REAL_SDK_STOPPED',
+        'PYRIC_REAL_SDK_STOPPED',
+      ]);
+      expect(esm.stderr, specifier).toContain(`pyric serves no firebase/* import for '${specifier}'`);
+      expect(cjs.stderr, specifier).toContain(`pyric serves no firebase/* import for '${specifier}'`);
+    }
+    const bareEsm = await runProbe('probe.mjs', { LOAD_SPECIFIER: 'firebase' });
+    const bareCjs = await runProbe('probe.cjs', { LOAD_SPECIFIER: 'firebase' });
+    expect([bareEsm.outcome.load, bareCjs.outcome.load], `firebase\n${bareEsm.stderr}\n${bareCjs.stderr}`).toEqual([
+      'PYRIC_REAL_SDK_STOPPED',
+      'PYRIC_REAL_SDK_STOPPED',
+    ]);
+    expect(bareEsm.stderr).toContain("import firebase by its package name (for example 'firebase/firestore')");
+    expect(bareCjs.stderr).toContain("import firebase by its package name (for example 'firebase/firestore')");
   }, 30_000);
 
   it('still maps firebase/firestore to the sandbox, so nothing stops', async () => {

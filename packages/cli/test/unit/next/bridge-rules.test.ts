@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { withPyric } from '../../../src/next/index.js';
-import { markRegisterActive } from '../../../src/register/activation.js';
+import { clearRegisterActive, markRegisterActive } from '../../../src/register/activation.js';
 import {
   BRIDGE_IMPORT_LOADER,
   PRODUCTION_AI_SDK_FILE_PATTERN,
@@ -21,7 +21,6 @@ import bridgeImportLoader from '../../../src/next/bridge-import-loader.js';
 
 type Config = Record<string, any>;
 
-const REGISTER_ACTIVE = Symbol.for('pyric.register.active');
 const SAVED = ['PYRIC_SANDBOX', 'PYRIC_AI_MODE', 'PYRIC_AI_PASSTHROUGH'] as const;
 const temp = mkdtempSync(join(tmpdir(), 'pyric-1637-bridge-'));
 
@@ -65,7 +64,7 @@ describe('withPyric bridge import rules', () => {
       if (saved[key] === undefined) delete process.env[key];
       else process.env[key] = saved[key];
     }
-    delete (globalThis as Record<symbol, unknown>)[REGISTER_ACTIVE];
+    clearRegisterActive();
   });
 
   it('leaves turbopack.rules and the webpack module section untouched in sandbox mode', async () => {
@@ -119,14 +118,16 @@ describe('the bridge import loader resolves firebase from the project root', () 
       const loaded = load(wrapper, web);
       const target = loaded.match(new RegExp(`from '([^']+/${specifier.slice('firebase/'.length)}/web\\.js)'`))?.[1];
       expect(target, loaded.slice(0, 400)).toBeDefined();
-      expect(fileURLToPath(new URL(target!, pathToFileURL(wrapper)))).toBe(join(web, 'node_modules', 'firebase', specifier.slice('firebase/'.length), 'web.js'));
+      expect(fileURLToPath(new URL(target ?? '', pathToFileURL(wrapper)))).toBe(join(web, 'node_modules', 'firebase', specifier.slice('firebase/'.length), 'web.js'));
     }
   });
 
   it('throws a named error naming the directory it searched when no firebase resolves', () => {
     const project = join(temp, 'no-firebase', 'apps', 'web');
     mkdirSync(project, { recursive: true });
-    const [wrapper] = wrappers[0]!;
+    const first = wrappers[0];
+    expect(first).toBeDefined();
+    const wrapper = first?.[0] ?? '';
     expect(() => load(wrapper, project)).toThrow(PyricNextBridgeError);
     expect(() => load(wrapper, project)).toThrow(project);
   });
@@ -134,19 +135,19 @@ describe('the bridge import loader resolves firebase from the project root', () 
   it('throws a named error when firebase exports no browser entry for a wrapper import', () => {
     const project = join(temp, 'no-app-check');
     fakeFirebase(project, 'x', false);
-    const appCheck = wrappers.find(([, specifier]) => specifier === 'firebase/app-check')![0];
+    const appCheck = wrappers.find(([, specifier]) => specifier === 'firebase/app-check')?.[0] ?? '';
     expect(() => load(appCheck, project)).toThrow(PyricNextBridgeError);
   });
 
   it('throws when the bundler gives no project root', () => {
-    const [wrapper] = wrappers[0]!;
+    const wrapper = wrappers[0]?.[0] ?? '';
     expect(() => load(wrapper, undefined)).toThrow(PyricNextBridgeError);
   });
 
   it('throws for a named wrapper whose import it cannot rewrite', () => {
     const project = join(temp, 'rewrite-miss');
     fakeFirebase(project, 'x');
-    const [wrapper] = wrappers[0]!;
+    const wrapper = wrappers[0]?.[0] ?? '';
     expect(() => load(wrapper, project, "const realApp = require('firebase/app');\n")).toThrow(PyricNextBridgeError);
   });
 
@@ -218,7 +219,7 @@ describe('the bridge import loader resolves firebase from the project root', () 
     expect(rewrittenScopedAi).not.toContain("'@firebase/app'");
     expect(rewrittenScopedAi).not.toContain("'@firebase/component'");
     const specifiers = [...rewrittenScopedAi.matchAll(/from '([^']+)'/g)].map((match) =>
-      resolve(dirname(scopedAiEntry), match[1]!),
+      resolve(dirname(scopedAiEntry), match[1] ?? ''),
     );
     expect(specifiers).toEqual([
       join(project, 'node_modules', '@firebase', 'app', 'dist', 'esm', 'index.esm.js'),

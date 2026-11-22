@@ -4,10 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { findEdgeRuntimeFiles } from '../../../src/next/edge-runtime.js';
 import { withPyric } from '../../../src/next/index.js';
-import { markRegisterActive } from '../../../src/register/activation.js';
-
-/** The register's activation mark (`src/register/activation.ts`). */
-const REGISTER_ACTIVE = Symbol.for('pyric.register.active');
+import { clearRegisterActive, markRegisterActive } from '../../../src/register/activation.js';
 
 describe('Edge runtime detection', () => {
   let root: string;
@@ -23,7 +20,7 @@ describe('Edge runtime detection', () => {
   });
 
   afterEach(() => {
-    delete (globalThis as Record<symbol, unknown>)[REGISTER_ACTIVE];
+    clearRegisterActive();
     rmSync(root, { recursive: true, force: true });
   });
 
@@ -438,7 +435,7 @@ describe('withPyric Edge runtime stop (PYRIC_EDGE_RUNTIME_UNSUPPORTED)', () => {
     else process.env.PYRIC_SANDBOX = savedSandbox;
     if (savedAllowEdge === undefined) delete process.env.PYRIC_ALLOW_UNSWAPPED_EDGE;
     else process.env.PYRIC_ALLOW_UNSWAPPED_EDGE = savedAllowEdge;
-    delete (globalThis as Record<symbol, unknown>)[REGISTER_ACTIVE];
+    clearRegisterActive();
   });
 
   it('throws PYRIC_EDGE_RUNTIME_UNSUPPORTED in the development server phase and names the Edge file', async () => {
@@ -450,10 +447,10 @@ describe('withPyric Edge runtime stop (PYRIC_EDGE_RUNTIME_UNSUPPORTED)', () => {
       caught = err as Error & { code?: string };
     }
     expect(caught).toBeDefined();
-    expect(caught!.code).toBe('PYRIC_EDGE_RUNTIME_UNSUPPORTED');
-    expect(caught!.message).toContain('app/api/ping/route.ts');
-    expect(caught!.message).toContain("export const runtime = 'nodejs'");
-    expect(caught!.message).toContain('PYRIC_ALLOW_UNSWAPPED_EDGE=1');
+    expect(caught?.code).toBe('PYRIC_EDGE_RUNTIME_UNSUPPORTED');
+    expect(caught?.message).toContain('app/api/ping/route.ts');
+    expect(caught?.message).toContain("export const runtime = 'nodejs'");
+    expect(caught?.message).toContain('PYRIC_ALLOW_UNSWAPPED_EDGE=1');
     expect(warnings).toEqual([]);
   });
 

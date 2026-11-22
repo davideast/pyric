@@ -160,16 +160,28 @@ export default scenario(async (app) => {
     });
   });
 
-  await app.step('services with no path to the host refuse with failed-precondition, and an unconfigured callable answers not-found', () => {
+  await app.step('services with no path to the host refuse with failed-precondition, an unconfigured callable answers not-found, and an unserved firebase/* subpath stops', () => {
     expectCode(client, 'ai', 'failed-precondition', UNSUPPORTED);
     expectCode(client, 'messaging', 'failed-precondition', UNSUPPORTED);
     expectCode(client, 'functions', 'functions/not-found');
+    expectCode(
+      client,
+      'installations',
+      'PYRIC_REAL_SDK_STOPPED',
+      /pyric serves no firebase\/\* import for 'firebase\/installations'.*firebase\/firestore/s,
+    );
   });
 
   await app.step('firebase-admin on the host reads what the client SDKs wrote, and the onDisconnect ran', async () => {
     const { output: cjs } = await app.serverScript('client.cjs', [], { env });
     expectOk(cjs, 'cjs.database', null);
     expectOk(cjs, 'cjs.firestore', null);
+    expectCode(
+      cjs,
+      'cjs.installations',
+      'PYRIC_REAL_SDK_STOPPED',
+      /pyric serves no firebase\/\* import for 'firebase\/installations'.*firebase\/firestore/s,
+    );
     const { output } = await app.serverScript('admin.mjs', [], { env });
     expectOk(output, 'admin.database', 'from client sdk');
     expectOk(output, 'admin.firestore', { from: 'client sdk' });
@@ -285,6 +297,7 @@ export default scenario(async (app) => {
     const stale = `PYRIC_SANDBOX=remote:${host.url} is stale`;
     const notices = movers.names.output.split('\n').filter((line) => line.includes(stale));
     assert.equal(notices.length, 1, movers.names.output);
-    assert.ok(notices[0]!.includes(`:${moved.port}`), movers.names.output);
+    const firstNotice = notices[0];
+    assert.ok(firstNotice !== undefined && firstNotice.includes(`:${moved.port}`), movers.names.output);
   });
 });

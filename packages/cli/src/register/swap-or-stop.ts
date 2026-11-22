@@ -1,16 +1,17 @@
 /**
- * Swap or stop (ADR 0022): under the register, `firebase` and `firebase-admin`
- * imports resolve to the sandbox. When a resolve lands in the real SDK anyway,
- * through an absolute path, an npm alias, a link under another name, or a
- * direct `@firebase/*` import, the import stops before the file loads. The
- * real SDK never runs, so it never reaches production with this machine's
- * credentials.
+ * Swap or stop (ADR 0022, ADR 0023): under the register, `firebase` and
+ * `firebase-admin` imports resolve to the sandbox. When a resolve lands in the
+ * real SDK anyway -- through an absolute path, an npm alias, a vendored copy, a
+ * link under another name (inside or outside `node_modules`, including under
+ * `--preserve-symlinks`), an unserved `firebase/*` subpath, or a direct
+ * `@firebase/*` import -- the import stops before the file loads. The real SDK
+ * never runs, so it never reaches production with this machine's credentials.
  *
  * The package is named by the resolved file's own `package.json`
- * (`package-identity.ts`), never by its folder. Only files under a
- * `node_modules` directory are checked: every installed SDK lives under one,
- * including the pnpm and bun stores, and the check stays off the resolve path
- * for everything else.
+ * (`package-identity.ts`), never by its folder. Every `file:` URL is checked,
+ * with manifest lookups cached once per directory in `package-identity.ts`, so
+ * vendored copies and links outside `node_modules` are caught alongside
+ * standard `node_modules`, pnpm, and bun installs (#1620).
  *
  * The real SDK is allowed only where the swap table chooses it
  * (`choosesRealFirebase` in `mapping.ts`), or when an SDK file this hook
@@ -50,6 +51,7 @@ const LOG_PREFIX = '@pyric/cli/register';
 /** The live register reports its stops under its own name. */
 const LIVE_LOG_PREFIX = '@pyric/live/register';
 const REPORT_URL = 'https://github.com/davideast/pyric/issues/new';
+const SERVED_FIREBASE_SPECIFIERS: ReadonlySet<string> = new Set(SDK_MODULES);
 
 /** One resolve the register finished: what was asked, by whom, and where it landed. */
 export interface ResolvedLoad {
@@ -86,8 +88,18 @@ export function isFirebaseSdkName(name: string | null): boolean {
   return sdkFamilyOf(name) !== null;
 }
 
-function isInstalledFile(url: string): boolean {
-  return url.startsWith('file:') && url.includes('/node_modules/');
+function isFileUrl(url: string): boolean {
+  return url.startsWith('file:');
+}
+
+/** Whether `specifier` is a `firebase/*` subpath that Pyric does not serve (#1623). */
+export function isUnservedFirebaseSubpath(specifier: string): boolean {
+  return specifier.startsWith('firebase/') && !SERVED_FIREBASE_SPECIFIERS.has(specifier);
+}
+
+/** Whether `specifier` is bare `firebase` or an unserved `firebase/*` subpath (#1623). */
+export function isUnservedFirebaseImport(specifier: string): boolean {
+  return specifier === 'firebase' || isUnservedFirebaseSubpath(specifier);
 }
 
 /**
@@ -145,14 +157,16 @@ function isAllowedRealLoad(load: ResolvedLoad, packageName: string, family: SdkF
 /** The served `firebase/*` import that stands for a `@firebase/*` package, when pyric serves one. */
 function servedImportFor(packageName: string): string | null {
   const candidate = `firebase/${packageName.slice('@firebase/'.length)}`;
-  const isServed = (SDK_MODULES as readonly string[]).includes(candidate);
-  return isServed ? candidate : null;
+  return SERVED_FIREBASE_SPECIFIERS.has(candidate) ? candidate : null;
 }
 
 /** The import an app writes in place of the one that stopped. */
-function fixFor(family: SdkFamily, packageName: string): string {
+function fixFor(family: SdkFamily, packageName: string, specifier: string): string {
   if (family === 'admin') {
     return "import firebase-admin by its package name (for example 'firebase-admin/app'), so the register routes it to the sandbox";
+  }
+  if (isUnservedFirebaseSubpath(specifier)) {
+    return `pyric serves no firebase/* import for '${specifier}', so import a served one (for example 'firebase/firestore'), or move this code out of the sandboxed process`;
   }
   if (packageName === 'firebase') {
     return "import firebase by its package name (for example 'firebase/firestore'), so the register routes it to the sandbox";
@@ -165,27 +179,54 @@ function fixFor(family: SdkFamily, packageName: string): string {
 }
 
 function stopMessage(load: ResolvedLoad, family: SdkFamily, packageName: string): string {
-  const consequence = family === 'admin'
-    ? "so it would have run with this machine's Google credentials"
-    : "so it would have reached production with the app's API key";
+  let consequence = "so it would have reached production with the app's API key";
+  if (family === 'admin') {
+    consequence = "so it would have run with this machine's Google credentials";
+  }
+  const canonicalSpecifier = load.canonical ?? load.specifier;
   return [
     `${LOG_PREFIX}: stopped loading the real ${packageName}`,
     `  import '${load.specifier}'`,
     `  from   ${load.importer ?? 'the entry point'}`,
     `  found  ${load.url}`,
     `Under pyric, ${packageName} resolves to the sandbox. This import didn't, ${consequence}.`,
-    `Fix: ${fixFor(family, packageName)}. To run the real SDK, start this process without @pyric/cli/register.`,
+    `Fix: ${fixFor(family, packageName, canonicalSpecifier)}. To run the real SDK, start this process without @pyric/cli/register.`,
     `If pyric should have routed this import, report it: ${REPORT_URL}`,
     `code: ${REAL_SDK_STOPPED_CODE}`,
   ].join('\n');
 }
 
+/**
+ * The stop error for bare `firebase` or an unserved `firebase/*` subpath when
+ * the `firebase` package is not installed in the caller's dependency tree or
+ * does not export that entry, so every unserved Firebase import under the
+ * register rejects with `PYRIC_REAL_SDK_STOPPED` (#1623).
+ */
+export function unservedFirebaseSubpathStop(
+  specifier: string,
+  importer: string | undefined,
+  canonicalSpecifier: string = specifier,
+): Error {
+  const message = [
+    `${LOG_PREFIX}: stopped unserved Firebase import '${specifier}'`,
+    `  import '${specifier}'`,
+    `  from   ${importer ?? 'the entry point'}`,
+    `Under pyric, served firebase/* imports resolve to the sandbox, and '${specifier}' is not served.`,
+    `Fix: ${fixFor('client', 'firebase', canonicalSpecifier)}. To run the real SDK, start this process without @pyric/cli/register.`,
+    `If pyric should have routed this import, report it: ${REPORT_URL}`,
+    `code: ${REAL_SDK_STOPPED_CODE}`,
+  ].join('\n');
+  const error = new Error(message);
+  return Object.assign(error, { code: REAL_SDK_STOPPED_CODE, specifier });
+}
+
 /** The stop's message under live rows: only a row module's own import loads the installed SDK. */
 function liveStopMessage(load: ResolvedLoad, family: SdkFamily, packageName: string): string {
   const isUnservedRequire = isNode22Require(load);
-  const cause = isUnservedRequire
-    ? `CommonJS require() on Node ${process.versions.node} can't be served under live mode, so this load skipped @pyric/live's rows and pyric would not see its calls.`
-    : "In live mode, the installed SDK loads only through @pyric/live's rows. This import didn't, so pyric would not see its calls.";
+  let cause = "In live mode, the installed SDK loads only through @pyric/live's rows. This import didn't, so pyric would not see its calls.";
+  if (isUnservedRequire) {
+    cause = `CommonJS require() on Node ${process.versions.node} can't be served under live mode, so this load skipped @pyric/live's rows and pyric would not see its calls.`;
+  }
   return [
     `${LIVE_LOG_PREFIX}: stopped loading the real ${packageName}`,
     `  import '${load.specifier}'`,
@@ -244,7 +285,7 @@ function isCjsReloadOfAllowedFile(load: ResolvedLoad, allowedUrls: ReadonlySet<s
  * load joins it.
  */
 export function stopFor(load: ResolvedLoad, allowedUrls: Set<string>): Error | null {
-  if (!isInstalledFile(load.url)) return null;
+  if (!isFileUrl(load.url)) return null;
   const packageName = (load.nameOf ?? packageNameOf)(load.url);
   const family = sdkFamilyOf(packageName);
   if (family === null || packageName === null) return null;
@@ -315,7 +356,7 @@ export interface SuppliedRowsGrant {
 /**
  * Whether `load` is the entry of the passed-through specifier it names: a
  * file of the `firebase` package under that specifier's own folder
- * (`firebase/functions` → `functions/dist/`), as the page plane checks it.
+ * (`firebase/functions` -> `functions/dist/`), as the page plane checks it.
  */
 function isPassThroughEntry(load: ResolvedLoad): boolean {
   const folder = `${load.specifier.slice('firebase/'.length)}/dist/`;
@@ -365,17 +406,19 @@ const LIVE_HOST_SERVER_SDKS: Readonly<Record<string, ServerSdkStop>> = {
   },
   '@google-cloud/storage': {
     reaches: "Cloud Storage's JSON API, which pyric neither observes nor can tell from the Admin SDK's own calls",
-    fix: "import firebase/storage, which live mode serves to a Node process, or firebase-admin/storage, which it observes",
+    fix: 'import firebase/storage, which live mode serves to a Node process, or firebase-admin/storage, which it observes',
   },
 };
 
-function isLiveHostServerSdk(packageName: string | null): packageName is string {
-  return packageName !== null && Object.hasOwn(LIVE_HOST_SERVER_SDKS, packageName);
+function findLiveHostServerSdkStop(packageName: string | null): ServerSdkStop | null {
+  if (packageName === null || !Object.hasOwn(LIVE_HOST_SERVER_SDKS, packageName)) {
+    return null;
+  }
+  return LIVE_HOST_SERVER_SDKS[packageName] ?? null;
 }
 
 /** The stop's message for a server SDK under live rows: it would reach production unobserved. */
-function serverSdkStopMessage(load: ResolvedLoad, packageName: string): string {
-  const stop = LIVE_HOST_SERVER_SDKS[packageName]!;
+function serverSdkStopMessage(load: ResolvedLoad, packageName: string, stop: ServerSdkStop): string {
   return [
     `${LIVE_LOG_PREFIX}: stopped loading ${packageName}`,
     `  import '${load.specifier}'`,
@@ -388,8 +431,8 @@ function serverSdkStopMessage(load: ResolvedLoad, packageName: string): string {
   ].join('\n');
 }
 
-function serverSdkStop(load: ResolvedLoad, packageName: string): Error {
-  const error = new Error(serverSdkStopMessage(load, packageName));
+function serverSdkStop(load: ResolvedLoad, packageName: string, stop: ServerSdkStop): Error {
+  const error = new Error(serverSdkStopMessage(load, packageName, stop));
   return Object.assign(error, { code: REAL_SDK_STOPPED_CODE, url: load.url, specifier: load.specifier });
 }
 
@@ -405,13 +448,16 @@ function serverSdkStop(load: ResolvedLoad, packageName: string): Error {
  * part: live rows replace the swap.
  */
 export function suppliedRowsStopFor(load: ResolvedLoad, allowedUrls: Set<string>, grant: SuppliedRowsGrant): Error | null {
-  if (!isInstalledFile(load.url)) return null;
+  if (!isFileUrl(load.url)) return null;
   // The Admin SDK passes through as a whole: its tree loads what it needs, unobserved.
   if (grant.isFromAdminTree === true) return null;
   const packageName = (load.nameOf ?? packageNameOf)(load.url);
   const isAdminEntry = grant.isAdminImport === true && packageName === 'firebase-admin';
   if (isAdminEntry) return null;
-  if (isLiveHostServerSdk(packageName)) return serverSdkStop(load, packageName);
+  const serverStop = findLiveHostServerSdkStop(packageName);
+  if (serverStop !== null && packageName !== null) {
+    return serverSdkStop(load, packageName, serverStop);
+  }
   const family = sdkFamilyOf(packageName);
   if (family === null || packageName === null) return null;
   if (isCjsReloadOfAllowedFile(load, allowedUrls)) return null;

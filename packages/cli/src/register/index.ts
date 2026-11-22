@@ -1,27 +1,28 @@
 /**
- * `@pyric/cli/register` — the Node substitution seam (adoption layer 2).
+ * `@pyric/cli/register` -- the Node substitution seam (adoption layer 2).
  *
  * Loaded via `node --import @pyric/cli/register` (which `pyric sandbox`
  * injects through NODE_OPTIONS), it makes the user's UNCHANGED `firebase-admin`
- * and `firebase` imports resolve to `pyric-admin` and `pyric`, every subpath 1:1,
+ * and served `firebase/*` imports resolve to `pyric-admin` and `pyric`,
  * and installs the sandbox-factory global that `pyric-admin`'s ambient
  * `initializeApp()` consumes.
  *
  * ACTIVATOR, NOT LOCATOR (adoption-experience design): activation is purely
- * the `PYRIC_SANDBOX` env var injected at invocation — never file presence,
+ * the `PYRIC_SANDBOX` env var injected at invocation -- never file presence,
  * never app code. Without it this module is INERT (import it freely; nothing
  * happens). Under `NODE_ENV=production` it REFUSES with one stderr line
  * unless `PYRIC_SANDBOX_FORCE=1`. On activation it logs one stderr line.
  *
  * Hooks API: `module.registerHooks` (sync, Node >= 22.15) intercepts BOTH
- * `require()` and `import`. On older Node versions without `module.registerHooks`,
- * activation throws `PYRIC_UNSUPPORTED_NODE_VERSION` rather than running with
- * unswapped CommonJS `require('firebase-admin')` (ADR 0023).
+ * `require()` and `import`. Non-Node runtimes (`bun --preload`, `deno`) throw
+ * `PYRIC_UNSUPPORTED_RUNTIME`, and older Node versions without
+ * `module.registerHooks` throw `PYRIC_UNSUPPORTED_NODE_VERSION` rather than
+ * running with unswapped imports (ADR 0023, #1624).
  *
  * Swap or stop (ADR 0022, ADR 0023, `./swap-or-stop.js`): an import that
  * resolves into the real `firebase-admin`, or into the real client SDK where
- * the swap table didn't choose it, throws `PYRIC_REAL_SDK_STOPPED` before the
- * file loads.
+ * the swap table didn't choose it (including unserved `firebase/*` subpaths),
+ * throws `PYRIC_REAL_SDK_STOPPED` before the file loads.
  *
  * On activation it wraps `worker_threads.Worker` (`./worker-guard.js`) so
  * every worker thread loads this module as well, including those Node starts
@@ -46,10 +47,16 @@ import { pathToFileURL } from 'node:url';
 import { canonicalFirebaseSpecifier, mapFirebaseSpecifier } from './mapping.js';
 import { resolvesIntoPackage } from './package-identity.js';
 import { isLiveRegisterActive, isRegisterActive, markRegisterActive } from './activation.js';
-import { createStopReporter, isImportCondition, stopFor } from './swap-or-stop.js';
+import {
+  createStopReporter,
+  isImportCondition,
+  isUnservedFirebaseImport,
+  stopFor,
+  unservedFirebaseSubpathStop,
+} from './swap-or-stop.js';
 import { resolveEsmOnlySubpath } from './esm-exports.js';
 import { warnDeprecatedGuardEnvOnce } from './deprecated-guard-env.js';
-import { requireRegisterHooks } from './node-version-stop.js';
+import { requireNodeRuntime, requireRegisterHooks } from './node-version-stop.js';
 import { emitBeacon } from './beacon.js';
 import { installWorkerGuard } from './worker-guard.js';
 import { installChildProcessGuard, pinInheritedVariables } from './child-process-guard.js';
@@ -88,8 +95,23 @@ const moduleApi = Module as unknown as {
   findPackageJSON?: (specifier: string, base: string | URL) => string | undefined;
 };
 
+function errorCodeOf(err: unknown): string | undefined {
+  if (typeof err === 'object' && err !== null && 'code' in err && typeof err.code === 'string') {
+    return err.code;
+  }
+  return undefined;
+}
+
+function isMissingResolutionCode(code: string | undefined): boolean {
+  return (
+    code === 'ERR_MODULE_NOT_FOUND' ||
+    code === 'MODULE_NOT_FOUND' ||
+    code === 'ERR_PACKAGE_PATH_NOT_EXPORTED'
+  );
+}
+
 /**
- * CJS→ESM seam: a rewritten `require()` fails against the pyric mirrors'
+ * CJS->ESM seam: a rewritten `require()` fails against the pyric mirrors'
  * `import`-condition-only exports (the CJS resolver ignores hook-supplied
  * condition overrides), even though `require(esm)` can load them fine.
  * Locate the package from this installed CLI and resolve the subpath under
@@ -106,12 +128,10 @@ function resolveEsmOnlyForRequire(mapped: string): string | null {
   const subpath = slash === -1 ? '.' : `.${mapped.slice(slash)}`;
   let pkgJsonPath: string | undefined;
   try {
-    pkgJsonPath = moduleApi.findPackageJSON(
-      pkgName,
-      import.meta.url,
-    );
-  } catch {
-    return null;
+    pkgJsonPath = moduleApi.findPackageJSON(pkgName, import.meta.url);
+  } catch (err) {
+    if (err instanceof Error) return null;
+    throw err;
   }
   if (!pkgJsonPath) return null;
   try {
@@ -119,8 +139,9 @@ function resolveEsmOnlyForRequire(mapped: string): string | null {
     const target = resolveEsmOnlySubpath(pkg.exports, subpath);
     if (!target) return null;
     return pathToFileURL(join(dirname(pkgJsonPath), target)).href;
-  } catch {
-    return null;
+  } catch (err) {
+    if (err instanceof Error) return null;
+    throw err;
   }
 }
 
@@ -133,9 +154,9 @@ function resolveMapped(mapped: string, context: SyncResolveContext, nextResolve:
   } catch (err) {
     // CJS `require('firebase-admin/app')` resolves under the `require`
     // condition, but the pyric mirrors are ESM-only. Resolve the file
-    // under import conditions ourselves — require(esm) (Node ≥ 22.12)
+    // under import conditions ourselves -- require(esm) (Node >= 22.12)
     // loads it fine once given the URL.
-    const code = (err as { code?: string }).code;
+    const code = errorCodeOf(err);
     if (code === 'ERR_PACKAGE_PATH_NOT_EXPORTED' || code === 'MODULE_NOT_FOUND') {
       const url = resolveEsmOnlyForRequire(mapped);
       if (url) return { url, shortCircuit: true };
@@ -161,10 +182,11 @@ function buildPinnedSandboxEnv(
   activatedAiMode: AiMode,
   env: NodeJS.ProcessEnv,
 ): Record<string, string> {
+  const passThrough = activatedAiMode === 'production' && env.PYRIC_AI_PASSTHROUGH === '1';
   const pinned: Record<string, string> = {
     PYRIC_SANDBOX: activatedSandbox,
     PYRIC_AI_MODE: activatedAiMode,
-    PYRIC_AI_PASSTHROUGH: activatedAiMode === 'production' && env.PYRIC_AI_PASSTHROUGH === '1' ? '1' : '',
+    PYRIC_AI_PASSTHROUGH: passThrough ? '1' : '',
   };
   for (const key of PINNED_SANDBOX_OPTIONAL_KEYS) {
     const value = env[key];
@@ -202,7 +224,10 @@ function resolveBypassedFromAppTree(
     }
     try {
       return nextResolve(specifier, candidateContext);
-    } catch {
+    } catch (err) {
+      if (!isMissingResolutionCode(errorCodeOf(err))) {
+        throw err;
+      }
       // Try the next candidate before falling back to the bridge module's own parentURL.
     }
   }
@@ -274,10 +299,22 @@ function withSwapOrStop(resolve: SyncResolve, activatedAiMode: AiMode): SyncReso
     // mutates context in place when nextResolve receives a replacement parentURL.
     const importer = context.parentURL;
     const isEsmImport = isImportCondition(context.conditions);
-    const result = resolve(specifier, context, nextResolve);
+    const canonical = canonicalFirebaseSpecifier(specifier);
+    const effectiveSpecifier = canonical ?? specifier;
+    let result: SyncResolveResult;
+    try {
+      result = resolve(specifier, context, nextResolve);
+    } catch (err) {
+      if (isMissingResolutionCode(errorCodeOf(err)) && isUnservedFirebaseImport(effectiveSpecifier)) {
+        const unservedStop = unservedFirebaseSubpathStop(specifier, importer, effectiveSpecifier);
+        report(unservedStop);
+        throw unservedStop;
+      }
+      throw err;
+    }
     const stop = stopFor({
       specifier,
-      canonical: canonicalFirebaseSpecifier(specifier),
+      canonical,
       importer,
       url: result.url,
       aiMode: activatedAiMode,
@@ -290,12 +327,21 @@ function withSwapOrStop(resolve: SyncResolve, activatedAiMode: AiMode): SyncReso
 }
 
 function activate(activatedSandbox: string): void {
+  const writeStderr = (line: string): void => {
+    process.stderr.write(line);
+  };
   warnDeprecatedGuardEnvOnce(process.env);
+  requireNodeRuntime(
+    '@pyric/cli/register',
+    process.versions,
+    (globalThis as { Deno?: unknown }).Deno,
+    writeStderr,
+  );
   const registerHooks = requireRegisterHooks(
     moduleApi.registerHooks?.bind(Module),
     '@pyric/cli/register',
     process.versions.node,
-    (line) => void process.stderr.write(line),
+    writeStderr,
   );
   const activatedInstance = process.env.PYRIC_SANDBOX_INSTANCE;
   const activatedAiMode = resolveAiMode(undefined, process.env);
@@ -367,7 +413,7 @@ function installAppCheckVerifier(activatedAiMode: AiMode): void {
 }
 
 /** Whether this process's firebase-admin/firebase imports are being rewritten
- *  to the pyric sandbox — true only when `PYRIC_SANDBOX` was set (and not
+ *  to the pyric sandbox -- true only when `PYRIC_SANDBOX` was set (and not
  *  refused by the production guard) at the moment this module loaded. */
 export let active = false;
 
@@ -384,7 +430,7 @@ if (activatedSandbox) {
     );
   } else if (process.env.NODE_ENV === 'production' && process.env.PYRIC_SANDBOX_FORCE !== '1') {
     process.stderr.write(
-      '@pyric/cli/register: refusing to activate under NODE_ENV=production — ' +
+      '@pyric/cli/register: refusing to activate under NODE_ENV=production -- ' +
         'firebase-admin/firebase imports are NOT rewritten. ' +
         'Set PYRIC_SANDBOX_FORCE=1 to override (dev/CI only).\n',
     );
@@ -394,4 +440,4 @@ if (activatedSandbox) {
     markRegisterActive();
   }
 }
-// No PYRIC_SANDBOX → inert by design: importing this module rewrites nothing.
+// No PYRIC_SANDBOX -> inert by design: importing this module rewrites nothing.
