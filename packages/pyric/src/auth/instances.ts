@@ -26,6 +26,7 @@ import {
   type AuthProjectStore,
 } from './sandbox/project-store.js';
 import { signOut } from './sign-in.js';
+import { onAuthStateChanged } from './user-lifecycle.js';
 import { targetOf, type SandboxTarget, type Target } from './target.js';
 import { TARGET_SYMBOL, type AppAuth, type Auth, type User } from './types.js';
 
@@ -246,14 +247,51 @@ function isSandbox(target: Sandbox | FirebaseApp): target is Sandbox {
   );
 }
 
+function waitForAuthStateReady(handle: Auth): Promise<void> {
+  return new Promise((resolve, reject) => {
+    try {
+      const target = targetOf(handle);
+      if (target.backend.getCurrentUser() !== null) {
+        resolve();
+        return;
+      }
+      let settled = false;
+      let unsubscribe: (() => void) | undefined;
+      unsubscribe = onAuthStateChanged(handle, {
+        next: () => {
+          settled = true;
+          unsubscribe?.();
+          resolve();
+        },
+        error: (err) => {
+          settled = true;
+          unsubscribe?.();
+          reject(err);
+        },
+      });
+      if (settled) {
+        unsubscribe();
+      }
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
 function makeAuthHandle(target: Target, app?: FirebaseApp): Auth {
-  const handle = {
+  const base: Record<string, unknown> = {
     [TARGET_SYMBOL]: target,
-    ...(app ? { app } : {}),
-    signOut(): Promise<void> {
-      return signOut(handle as Auth);
+    authStateReady(): Promise<void> {
+      return waitForAuthStateReady(handle);
     },
-  } as Auth;
+    signOut(): Promise<void> {
+      return signOut(handle);
+    },
+  };
+  if (app !== undefined) {
+    base.app = app;
+  }
+  const handle = base as unknown as Auth;
   Object.defineProperty(handle, 'currentUser', {
     enumerable: true,
     get(): User | null {

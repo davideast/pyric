@@ -347,6 +347,56 @@ describe('firebase/auth entry dependency boundary', () => {
       expect((states.at(-1) as { email?: string } | undefined)?.email).toBe('wait@example.com');
     });
 
+    it('resolves auth.authStateReady() only after the in-page backend loads and restores any saved session (#1540)', async () => {
+      const localStorage = memoryStorage();
+      const seeded = await inPageEntries(Promise.resolve(), [], {
+        __PYRIC_PAGE_BACKEND_LOADED__: true,
+        localStorage,
+        sessionStorage: memoryStorage(),
+      });
+      const config = { projectId: 'page-backend-ready', apiKey: 'k', appId: 'x' };
+      const originAuth = seeded.auth.getAuth(seeded.app.initializeApp(config, 'origin'));
+      const { user } = await seeded.auth.createUserWithEmailAndPassword(
+        originAuth,
+        'ready@example.com',
+        'secret-pw',
+      );
+      await settle();
+
+      const savedKey = [...localStorage.items.keys()].find((key) => key.endsWith(':origin'));
+      if (savedKey === undefined) {
+        throw new Error('expected saved session key');
+      }
+      const savedValue = localStorage.getItem(savedKey);
+      if (savedValue === null) {
+        throw new Error('expected saved session value');
+      }
+      localStorage.setItem(savedKey.replace(/:origin$/, ':reloaded'), savedValue);
+
+      // Simulate a pending backend load on the same realm: stage a fresh promise on the realm.
+      const pendingBackend = deferred();
+      seeded.realm.__PYRIC_PAGE_BACKEND_LOADED__ = false;
+      seeded.realm.__PYRIC_PAGE_BACKEND__ = pendingBackend.promise;
+
+      const reloadedApp = seeded.app.initializeApp(config, 'reloaded');
+      const reloadedAuth = seeded.auth.getAuth(reloadedApp);
+      const originalReadyFn = reloadedAuth.authStateReady;
+      expect(seeded.auth.getAuth(reloadedApp).authStateReady).toBe(originalReadyFn);
+      let readySettled = false;
+      const readyPromise = reloadedAuth.authStateReady().then(() => {
+        readySettled = true;
+      });
+      await settle();
+      expect(readySettled).toBe(false);
+      expect(reloadedAuth.currentUser).toBeNull();
+
+      pendingBackend.resolve();
+      await readyPromise;
+      expect(readySettled).toBe(true);
+      expect(reloadedAuth.currentUser?.uid).toBe(user.uid);
+      expect(reloadedAuth.currentUser?.email).toBe('ready@example.com');
+    });
+
     it('never calls a listener removed before the backend loads', async () => {
       const backend = deferred();
       const entries = await inPageEntries(backend.promise, []);

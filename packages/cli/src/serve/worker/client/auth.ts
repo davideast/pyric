@@ -100,6 +100,7 @@ export interface ClientAuth {
    *  evaluate the port's operations with
    *  `request.auth.token.firebase.tenant` set to it. */
   tenantId: string | null;
+  authStateReady(): Promise<void>;
   signOut(): Promise<void>;
 }
 
@@ -189,6 +190,9 @@ export function getAuth(source: ClientDb | string | URL, name?: string): ClientA
     set tenantId(val: string | null) {
       _tenantId = val;
       void rpc(port, { t: 'op', id: nextId(), method: 'auth.setTenantId', tenantId: val });
+    },
+    authStateReady() {
+      return waitForClientAuthStateReady(auth);
     },
     signOut() {
       return signOut(auth);
@@ -343,6 +347,31 @@ export type ClientAuthObserver =
       error?: (err: Error) => void;
       complete?: () => void;
     };
+
+function waitForClientAuthStateReady(auth: ClientAuth): Promise<void> {
+  if (auth.currentUser !== null || isDisconnectedPort(auth.port)) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let unsubscribe: Unsubscribe | undefined;
+    unsubscribe = onAuthStateChanged(auth, {
+      next: () => {
+        settled = true;
+        unsubscribe?.();
+        resolve();
+      },
+      error: (err) => {
+        settled = true;
+        unsubscribe?.();
+        reject(err);
+      },
+    });
+    if (settled) {
+      unsubscribe();
+    }
+  });
+}
 
 export function onAuthStateChanged(
   auth: ClientAuth,

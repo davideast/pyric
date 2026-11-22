@@ -40,9 +40,10 @@ import type { Auth, User, UserCredential } from './types.js';
  * sandbox has no key to verify it with.
  *
  * Anything else throws `auth/invalid-custom-token`, as production answers
- * a token it cannot verify (#2009): the unsigned JSON `{uid, claims}` shape
- * and its base64url form, a JWT for another audience or none, and a
- * custom-token-audience JWT the sandbox did not sign. ORACLE-BACKED
+ * a token it cannot verify (#2009, #1850): the unsigned JSON `{uid, claims}`
+ * shape and its base64url form, a sandbox ID token (whose `aud` names the
+ * project rather than Identity Toolkit), a JWT for another audience or none,
+ * and a custom-token-audience JWT the sandbox did not sign. ORACLE-BACKED
  * (`auth-signinwithcustomtoken-invalid` captured exactly that code from
  * prod for both a malformed token and the empty string).
  *

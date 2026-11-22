@@ -12,7 +12,12 @@ export async function linkWithCredential(user: ClientUser, credential: AuthCrede
     credential: credentialWireOf(credential),
   }) as SerializedUserCredential;
   syncClientUserFromWire(port, user, raw.user);
-  return { ...raw, user };
+  return {
+    user,
+    providerId: raw.providerId,
+    operationType: raw.operationType,
+    _additionalUserInfo: raw.additionalUserInfo,
+  };
 }
 
 export async function unlink(user: ClientUser, providerId: string): Promise<ClientUser> {

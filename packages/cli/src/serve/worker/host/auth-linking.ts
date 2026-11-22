@@ -1,9 +1,16 @@
 import { FirebaseError } from 'pyric/app';
-import { linkWithCredential, unlink, sandbox, type Auth, type MintedSession } from 'pyric/auth';
+import {
+  getAdditionalUserInfo,
+  linkWithCredential,
+  unlink,
+  sandbox,
+  type Auth,
+  type MintedSession,
+} from 'pyric/auth';
 import { sessionKeyOf } from 'pyric/auth/internal';
 import type { OpMessage } from '../protocol.js';
 import { credentialFromWirePayload } from './auth-credential-sign-in.js';
-import { requireMatchingPortSession } from './auth-session-seeder.js';
+import { markAnonymousUpgradeSession, requireMatchingPortSession } from './auth-session-seeder.js';
 
 type LinkingOperation = Extract<OpMessage, { method: 'auth.linkWithCredential' | 'auth.unlink' }>;
 
@@ -19,10 +26,14 @@ export async function linkSessionProvider(
     const credential = credentialFromWirePayload(message.credential);
     const isInvalid = credential === null;
     if (isInvalid) throw new FirebaseError('auth/invalid-credential', 'The linking credential is invalid.');
-    await linkWithCredential(session.user, credential);
-    return sandbox.mintSession(auth, {
+    const linkResult = await linkWithCredential(session.user, credential);
+    const nextSession = sandbox.mintSession(auth, {
       kind: 'provider', uid: message.uid, tenantId: message.tenantId, providerId: credential.providerId,
     });
+    if (getAdditionalUserInfo(linkResult)?.isNewUser === true) {
+      markAnonymousUpgradeSession(nextSession);
+    }
+    return nextSession;
   }
   await unlink(session.user, message.providerId);
   // The unlinked session continues with the sign-in time it had (#1950).

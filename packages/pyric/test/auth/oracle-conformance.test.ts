@@ -742,7 +742,7 @@ describe('oracle conformance (auth)', () => {
     expect(obs.noSuchProviderCode).toBe('auth/no-such-provider');
   });
 
-  it('auth-additional-user-info-shape (KNOWN DIVERGENCE, #1699)', async () => {
+  it('auth-additional-user-info-shape', async () => {
     type Info = { isNewUser: boolean; providerId: string | null; profile: unknown };
     const obs = load('auth-additional-user-info-shape.json') as {
       anonymous: Info;
@@ -753,34 +753,34 @@ describe('oracle conformance (auth)', () => {
     const cred = await signInAnonymously(auth);
     const info = getAdditionalUserInfo(cred);
     // Prod: { isNewUser: true, providerId: null, profile: {} }. Note
-    // providerId is NULL, not 'anonymous' — anonymous is not a federated
+    // providerId is NULL, not 'anonymous' -- anonymous is not a federated
     // provider. A mirror that reported 'anonymous' would break any consumer
     // branching on providerId.
-    expect(info!.isNewUser).toBe(obs.anonymous.isNewUser);
-    expect(info!.providerId).toBe(obs.anonymous.providerId);
-    expect(info!.profile).toEqual(obs.anonymous.profile as Record<string, unknown>);
+    expect(info?.isNewUser).toBe(obs.anonymous.isNewUser);
+    expect(info?.providerId).toBe(obs.anonymous.providerId);
+    expect(info?.profile).toEqual(obs.anonymous.profile as Record<string, unknown>);
     await signOut(auth);
 
     // Email create and returning sign-in: production's getAdditionalUserInfo
     // reports providerId 'password' (from the token's sign-in provider), while
-    // UserCredential.providerId stays null (AUTH-B2). The sandbox reports null
-    // here (#1699). Both sides are pinned so neither drifts unnoticed; when
-    // #1699 lands, assert the sandbox against obs.*.providerId instead.
-    expect(obs.createUser.providerId).toBe('password');
-    expect(obs.signInExisting.providerId).toBe('password');
+    // UserCredential.providerId stays null (AUTH-B2, #1699).
     const email = 'additional-info@example.com';
-    const created = getAdditionalUserInfo(await createUserWithEmailAndPassword(auth, email, 'oracle-pw-123'));
-    expect(created!.isNewUser).toBe(obs.createUser.isNewUser);
-    expect(created!.providerId).toBeNull();
-    expect(created!.profile).toEqual(obs.createUser.profile as Record<string, unknown>);
+    const createdCred = await createUserWithEmailAndPassword(auth, email, 'oracle-pw-123');
+    expect(createdCred.providerId).toBeNull();
+    const created = getAdditionalUserInfo(createdCred);
+    expect(created?.isNewUser).toBe(obs.createUser.isNewUser);
+    expect(created?.providerId).toBe(obs.createUser.providerId);
+    expect(created?.profile).toEqual(obs.createUser.profile as Record<string, unknown>);
     await signOut(auth);
-    const returning = getAdditionalUserInfo(await signInWithEmailAndPassword(auth, email, 'oracle-pw-123'));
-    expect(returning!.isNewUser).toBe(obs.signInExisting.isNewUser);
-    expect(returning!.providerId).toBeNull();
-    expect(returning!.profile).toEqual(obs.signInExisting.profile as Record<string, unknown>);
+    const returningCred = await signInWithEmailAndPassword(auth, email, 'oracle-pw-123');
+    expect(returningCred.providerId).toBeNull();
+    const returning = getAdditionalUserInfo(returningCred);
+    expect(returning?.isNewUser).toBe(obs.signInExisting.isNewUser);
+    expect(returning?.providerId).toBe(obs.signInExisting.providerId);
+    expect(returning?.profile).toEqual(obs.signInExisting.profile as Record<string, unknown>);
   });
 
-  it('auth-verifybeforeupdateemail-shape (KNOWN DIVERGENCE, #1693)', async () => {
+  it('auth-verifybeforeupdateemail-shape', async () => {
     const obs = load('auth-verifybeforeupdateemail-shape.json') as {
       resolved: boolean;
       emailUnchangedUntilLinkClicked: boolean;
@@ -788,18 +788,15 @@ describe('oracle conformance (auth)', () => {
     };
     const auth = freshAuth();
     const email = 'vbue@example.com';
-    await createUserWithEmailAndPassword(auth, email, 'oracle-pw-123');
-    await expect(verifyBeforeUpdateEmail(auth.currentUser!, 'vbue-next@example.com')).resolves.toBeUndefined();
+    const created = await createUserWithEmailAndPassword(auth, email, 'oracle-pw-123');
+    await expect(verifyBeforeUpdateEmail(created.user, 'vbue-next@example.com')).resolves.toBeUndefined();
     expect(obs.resolved).toBe(true);
-    expect(auth.currentUser!.email === email).toBe(obs.emailUnchangedUntilLinkClicked);
-    // A malformed new address: production answers auth/invalid-new-email, the
-    // sandbox answers auth/invalid-email (#1693). Both sides are pinned; when
-    // #1693 lands, assert the sandbox against obs.malformedTargetCode.
+    expect(auth.currentUser?.email === email).toBe(obs.emailUnchangedUntilLinkClicked);
     expect(obs.malformedTargetCode).toBe('auth/invalid-new-email');
-    await expectCode(verifyBeforeUpdateEmail(auth.currentUser!, 'not-an-email'), 'auth/invalid-email');
+    await expectCode(verifyBeforeUpdateEmail(created.user, 'not-an-email'), obs.malformedTargetCode);
   });
 
-  it('auth-link-email-credential-to-anonymous (KNOWN DIVERGENCE, #1698)', async () => {
+  it('auth-link-email-credential-to-anonymous', async () => {
     const obs = load('auth-link-email-credential-to-anonymous.json') as {
       operationType: string;
       credentialProviderId: string | null;
@@ -817,17 +814,11 @@ describe('oracle conformance (auth)', () => {
     expect(linked.providerId).toBe(obs.credentialProviderId);
     expect(linked.user.uid === anon.user.uid).toBe(obs.uidPreserved);
     expect(linked.user.isAnonymous).toBe(obs.isAnonymousAfterLink);
-    expect(linked.user.providerData.map((p) => p.providerId)).toEqual(obs.providerIds);
+    expect((linked.user.providerData ?? []).map((p) => p.providerId)).toEqual(obs.providerIds);
     expect(auth.currentUser === linked.user).toBe(obs.isCurrentUser);
-    // Production reports the upgraded account as a new user with providerId
-    // 'password'; the sandbox reports isNewUser false and providerId null
-    // (#1698). Both sides are pinned; when #1698 lands, assert the sandbox
-    // against obs.additionalUserInfo*.
-    expect(obs.additionalUserInfoIsNewUser).toBe(true);
-    expect(obs.additionalUserInfoProviderId).toBe('password');
     const info = getAdditionalUserInfo(linked);
-    expect(info!.isNewUser).toBe(false);
-    expect(info!.providerId).toBeNull();
+    expect(info?.isNewUser).toBe(obs.additionalUserInfoIsNewUser);
+    expect(info?.providerId).toBe(obs.additionalUserInfoProviderId);
   });
 
   it('auth-link-conflicts', async () => {

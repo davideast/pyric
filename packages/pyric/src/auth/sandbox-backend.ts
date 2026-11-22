@@ -2378,21 +2378,14 @@ export class SandboxBackend {
     const authTimeSeconds = Math.floor(authenticatedAt.getTime() / 1000);
     const issuedAtSeconds = Math.floor(issuedAt.getTime() / 1000);
     const expirationSeconds = Math.floor(expires.getTime() / 1000);
+    let claimAccount = null;
+    if (stored !== undefined) {
+      claimAccount = { ...tokenClaimAccount(stored), photoUrl: readPhotoUrl(stored, this.photoOriginByUid) };
+    }
     const fullClaims: Record<string, unknown> = {
-      sub: uid,
-      aud,
-      iss,
-      auth_time: authTimeSeconds,
-      iat: issuedAtSeconds,
-      exp: expirationSeconds,
-      // Custom claims, the account's standard claims over them, and the
-      // reserved `firebase` namespace last (custom claims cannot shadow it).
-      ...accountTokenClaims(
-        uid,
-        stored ? { ...tokenClaimAccount(stored), photoUrl: readPhotoUrl(stored, this.photoOriginByUid) } : null,
-        claims,
-        signInProvider,
-      ),
+      ...accountTokenClaims(uid, claimAccount, claims, signInProvider),
+      // Registered claims last so a restored recordless session cannot shadow fresh timestamps (#1515).
+      sub: uid, aud, iss, auth_time: authTimeSeconds, iat: issuedAtSeconds, exp: expirationSeconds,
     };
     const identity = normalizeAuthState({ uid, tenant: tenantId ?? undefined, token: fullClaims });
     const tokenClaims = identity?.token ?? fullClaims;

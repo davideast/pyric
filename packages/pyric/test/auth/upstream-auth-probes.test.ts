@@ -8,8 +8,8 @@
  *   A3. `updateProfile` survives signOut → signIn (#62 promotion)
  *   A6. `beforeAuthStateChanged` gates `signInWithCustomToken` (#76)
  *
- * ProviderId on password credentials stays `null` (AUTH-B2 / oracle), not
- * upstream's `'password'` — this suite locks the claimed isNewUser matrix.
+ * `UserCredential.providerId` on password credentials stays `null` (AUTH-B2),
+ * while `getAdditionalUserInfo().providerId` reports `'password'` (#1699).
  */
 import { describe, expect, it } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
@@ -29,23 +29,25 @@ import {
 import { mintCustomTokenFor } from '../../src/auth/internal.js';
 
 describe('A1 getAdditionalUserInfo (upstream auth probes)', () => {
-  it('createUserWithEmailAndPassword → isNewUser true', async () => {
+  it('createUserWithEmailAndPassword -> isNewUser true, providerId password', async () => {
     const auth = getAuth(initializeSandbox());
     const cred = await createUserWithEmailAndPassword(auth, 'new@example.com', 'password123');
-    const info = getAdditionalUserInfo(cred)!;
-    expect(info.isNewUser).toBe(true);
-    expect(info.providerId).toBeNull();
-    expect(info.profile).toEqual({});
+    expect(cred.providerId).toBeNull();
+    const info = getAdditionalUserInfo(cred);
+    expect(info?.isNewUser).toBe(true);
+    expect(info?.providerId).toBe('password');
+    expect(info?.profile).toEqual({});
   });
 
-  it('signInWithEmailAndPassword → isNewUser false', async () => {
+  it('signInWithEmailAndPassword -> isNewUser false, providerId password', async () => {
     const auth = getAuth(initializeSandbox());
     await createUserWithEmailAndPassword(auth, 'back@example.com', 'password123');
     await signOut(auth);
     const cred = await signInWithEmailAndPassword(auth, 'back@example.com', 'password123');
-    const info = getAdditionalUserInfo(cred)!;
-    expect(info.isNewUser).toBe(false);
-    expect(info.providerId).toBeNull();
+    expect(cred.providerId).toBeNull();
+    const info = getAdditionalUserInfo(cred);
+    expect(info?.isNewUser).toBe(false);
+    expect(info?.providerId).toBe('password');
   });
 
   it('first custom-token sign-in → isNewUser true; return → false', async () => {
