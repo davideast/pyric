@@ -253,10 +253,56 @@ describe('guardChildEnv', () => {
     );
   });
 
-  it('keeps a PYRIC_ variable the caller set, and fills one set empty', () => {
-    const env = guardChildEnv({ PYRIC_AI_MODE: 'production', PYRIC_SANDBOX: '' }, PARENT, REGISTER_URL);
+  it('keeps a PYRIC_ variable the caller set, fills PYRIC_SANDBOX when empty, and preserves an explicit empty PYRIC_GUARD_ALLOW (#1652)', () => {
+    const parentWithAllow = { ...PARENT, PYRIC_GUARD_ALLOW: 'example.com' };
+    const env = guardChildEnv(
+      { PYRIC_AI_MODE: 'production', PYRIC_SANDBOX: '', PYRIC_GUARD_ALLOW: '' },
+      parentWithAllow,
+      REGISTER_URL,
+    );
     expect(env.PYRIC_AI_MODE).toBe('production');
     expect(env.PYRIC_SANDBOX).toBe('remote:http://127.0.0.1:4000');
+    expect(env.PYRIC_GUARD_ALLOW).toBe('');
+
+    const inheritedAllow = guardChildEnv({ PATH: '/usr/bin' }, parentWithAllow, REGISTER_URL);
+    expect(inheritedAllow.PYRIC_GUARD_ALLOW).toBe('example.com');
+
+    const pairs = guardEnvPairs(['PATH=/usr/bin', 'PYRIC_GUARD_ALLOW='], parentWithAllow, REGISTER_URL);
+    expect(pairs).toContain('PYRIC_GUARD_ALLOW=');
+    expect(pairs).not.toContain('PYRIC_GUARD_ALLOW=example.com');
+  });
+
+  it('unfolds Next 15 merged --import and --require values in NODE_OPTIONS (#1470)', () => {
+    const userImport = 'file:///app/user-preload.mjs';
+    const userRequire = '/app/safety-preload.cjs';
+    const spacedUserImport = '/app/my dir/user-preload.mjs';
+
+    const foldedSpaceImport = `--require=${REGISTER_PATH} --import="${REGISTER_URL} ${userImport}" --enable-source-maps`;
+    expect(loadsRegister(foldedSpaceImport, REGISTER_URL)).toBe(true);
+    expect(withCanonicalRegisterNodeOptions(foldedSpaceImport, REGISTER_URL)).toBe(
+      `${CANONICAL} --import ${userImport} --enable-source-maps`,
+    );
+
+    const foldedEqualsImport = `--require=${REGISTER_PATH} --import="${userImport} ${REGISTER_URL}"`;
+    expect(loadsRegister(foldedEqualsImport, REGISTER_URL)).toBe(true);
+    expect(withCanonicalRegisterNodeOptions(foldedEqualsImport, REGISTER_URL)).toBe(
+      `${CANONICAL} --import ${userImport}`,
+    );
+
+    const foldedSpacedImport = `--import="${REGISTER_URL} ${spacedUserImport}"`;
+    expect(withCanonicalRegisterNodeOptions(foldedSpacedImport, REGISTER_URL)).toBe(
+      `${CANONICAL} --import "${spacedUserImport}"`,
+    );
+
+    const foldedRequire = `--require="${REGISTER_PATH} ${userRequire}" --import=${REGISTER_URL}`;
+    expect(withCanonicalRegisterNodeOptions(foldedRequire, REGISTER_URL)).toBe(
+      `${CANONICAL} --require ${userRequire}`,
+    );
+
+    const foldedReverseRequire = `--require="${userRequire} ${REGISTER_PATH}"`;
+    expect(withCanonicalRegisterNodeOptions(foldedReverseRequire, REGISTER_URL)).toBe(
+      `${CANONICAL} --require ${userRequire}`,
+    );
   });
 
   it('copies no other parent variable and never changes the caller env', () => {
@@ -416,6 +462,38 @@ describe('installChildProcessGuard', () => {
     ];
     expect(spawnCall[1].envPairs).toContain(`NODE_OPTIONS=${LIVE_REQUIRE}`);
     expect(syncCall[3].env.NODE_OPTIONS).toBe(LIVE_REQUIRE);
+  });
+
+  it('refuses bun, bunx, and deno child processes with PYRIC_UNSUPPORTED_RUNTIME (#1652)', () => {
+    const { calls, module } = standIn();
+    installChildProcessGuard(REGISTER_URL, module);
+    const expectUnsupported = (fn: () => void): void => {
+      let caught: (Error & { code?: string }) | undefined;
+      try {
+        fn();
+      } catch (error) {
+        caught = error as Error & { code?: string };
+      }
+      expect(caught?.code).toBe('PYRIC_UNSUPPORTED_RUNTIME');
+      expect(caught?.message).toContain('@pyric/cli/register: stopped before starting');
+    };
+
+    expectUnsupported(() => {
+      new module.ChildProcess().spawn({ file: '/usr/local/bin/bun', args: ['my-proc', 'probe.mjs'], envPairs: [] });
+    });
+    expectUnsupported(() => {
+      new module.ChildProcess().spawn({ file: '/bin/sh', args: ['/bin/sh', '-c', 'bun probe.mjs'], envPairs: [] });
+    });
+    expectUnsupported(() => {
+      (module.spawnSync as (cmd: string, args: string[]) => void)('bun', ['probe.mjs']);
+    });
+    expectUnsupported(() => {
+      (module.execFileSync as (cmd: string, args: string[]) => void)('bunx', ['tsx', 'probe.ts']);
+    });
+    expectUnsupported(() => {
+      (module.execSync as (cmd: string) => void)('deno run probe.ts');
+    });
+    expect(calls).toEqual([]);
   });
 
   describe('with the register marks set', () => {

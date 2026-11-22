@@ -27,6 +27,7 @@ console.log(
     sandboxEnv: process.env.PYRIC_SANDBOX ?? null,
     instanceEnv: process.env.PYRIC_SANDBOX_INSTANCE ?? null,
     sessionEnv: process.env.PYRIC_SESSION_TOKEN ?? null,
+    guardAllowEnv: process.env.PYRIC_GUARD_ALLOW ?? null,
     sandboxActive: globalThis[Symbol.for('pyric.register.active')] === true,
     liveActive: globalThis[Symbol.for('pyric.register.live.active')] === true,
   })}`,

@@ -135,7 +135,7 @@ describe('resolveSandboxChild precedence', () => {
     expect(plan).toEqual({ argv: ['next', 'dev', '--port', '3000'], label: 'next dev --port 3000' });
   });
 
-  it('no explicit command and no config command → host-only (null)', () => {
+  it('no explicit command and no config command -> host-only (null)', () => {
     expect(resolveSandboxChild(base)).toBeNull();
   });
 
@@ -165,7 +165,7 @@ describe('resolveSandboxChild precedence', () => {
 });
 
 describe('buildChildEnv', () => {
-  it('sets the activator and appends --import to an existing NODE_OPTIONS', () => {
+  it('sets the activator and prepends canonical register preloads ahead of an existing NODE_OPTIONS', () => {
     const env = buildChildEnv(
       { NODE_OPTIONS: '--max-old-space-size=4096', PATH: '/bin' },
       {
@@ -177,7 +177,9 @@ describe('buildChildEnv', () => {
     expect(env.PYRIC_SANDBOX).toBe('remote:http://localhost:5000');
     expect(env.PYRIC_SANDBOX_INSTANCE).toBeUndefined();
     expect(env.PYRIC_BEACON_TOKEN).toBe('launch-secret');
-    expect(env.NODE_OPTIONS).toBe('--max-old-space-size=4096 --import file:///x/register/index.js');
+    expect(env.NODE_OPTIONS).toBe(
+      '--require /x/register/index.js --import file:///x/register/index.js --max-old-space-size=4096',
+    );
     expect(env.PATH).toBe('/bin');
   });
 
@@ -186,7 +188,7 @@ describe('buildChildEnv', () => {
       {},
       { serveUrl: 'http://h:1', registerUrl: 'file:///r.js', beaconToken: 't' },
     );
-    expect(env.NODE_OPTIONS).toBe('--import file:///r.js');
+    expect(env.NODE_OPTIONS).toBe('--require /r.js --import file:///r.js');
   });
 
   it('pins the host identity beside the url it injects', () => {
@@ -530,7 +532,7 @@ describe('formatStartupEnvExport', () => {
     expect(output).not.toContain('PYRIC_BEACON_TOKEN');
     expect(output).toContain('Automatic interception confirmation requires launching the command through pyric.');
     expect(output).toContain(
-      'export NODE_OPTIONS="--import file:///usr/local/pyric/dist/register/index.js"',
+      'export NODE_OPTIONS="--require /usr/local/pyric/dist/register/index.js --import file:///usr/local/pyric/dist/register/index.js"',
     );
     expect(output).toContain('To run external commands against this sandbox');
   });

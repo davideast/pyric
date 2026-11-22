@@ -21,6 +21,11 @@
  * adds no force.
  */
 import Module, { createRequire } from 'node:module';
+import {
+  UNSUPPORTED_RUNTIME_CODE,
+  detectUnsupportedRuntime,
+  formatUnsupportedRuntimeStop,
+} from '../cli/unsupported-runtime.js';
 import { isLiveRegisterActive, isRegisterActive } from './activation.js';
 import { withCanonicalRegisterNodeOptions } from './preload-tokens.js';
 
@@ -76,16 +81,27 @@ export function clearPinnedInheritedVariables(): void {
   pinnedVariables.clear();
 }
 
+function lacksInheritedValue(name: string, currentValue: string | undefined): boolean {
+  if (currentValue === undefined) return true;
+  // An explicit empty `PYRIC_GUARD_ALLOW` clears any inherited parent value (#1652).
+  if (name === 'PYRIC_GUARD_ALLOW') return false;
+  return currentValue === '';
+}
+
 /**
  * `env` with each `PYRIC_*` variable `parentEnv` has and `env` lacks copied
- * in. A variable `env` already sets keeps its value. Returns a new object and
- * never changes `env`. The worker guard uses it too (#1621).
+ * in. A variable `env` already sets keeps its value, including an explicit
+ * empty `PYRIC_GUARD_ALLOW`. Returns a new object and never changes `env`.
+ * The worker guard uses it too (#1621).
  */
-export function withSandboxVariables(env: Env, parentEnv: Env): Env {
+function withSandboxVariables(env: Env, parentEnv: Env): Env {
   const guarded: Env = { ...env };
   for (const [name, value] of Object.entries(parentEnv)) {
-    const lacksIt = guarded[name] === undefined || guarded[name] === '';
-    if (SANDBOX_VARIABLE.test(name) && value !== undefined && lacksIt) guarded[name] = value;
+    const shouldCopy =
+      SANDBOX_VARIABLE.test(name) && value !== undefined && lacksInheritedValue(name, guarded[name]);
+    if (shouldCopy) {
+      guarded[name] = value;
+    }
   }
   return guarded;
 }
@@ -245,6 +261,60 @@ export function guardSpawnOptions(
   };
 }
 
+function registerCommandLabel(registerUrl: string): string {
+  const isLive = /(?:^|[\\/])(?:@pyric[\\/]live|packages[\\/]live)[\\/]/.test(registerUrl);
+  return isLive ? '@pyric/live/register' : '@pyric/cli/register';
+}
+
+function assertSupportedChildRuntime(argv: readonly string[] | null, registerUrl: string): void {
+  if (argv === null || argv.length === 0) return;
+  const runtime = detectUnsupportedRuntime(argv);
+  if (runtime === null) return;
+  const message = formatUnsupportedRuntimeStop(runtime, argv.join(' '), registerCommandLabel(registerUrl));
+  const error = new Error(message) as Error & { code: string };
+  error.code = UNSUPPORTED_RUNTIME_CODE;
+  throw error;
+}
+
+function spawnArgvFromOptions(options: unknown): string[] | null {
+  if (!isOptions(options)) return null;
+  const rawFile = (options as { file?: unknown }).file;
+  const rawArgs = (options as { args?: unknown }).args;
+  if (Array.isArray(rawArgs) && rawArgs.length > 0) {
+    const stringArgs = rawArgs.filter((entry): entry is string => typeof entry === 'string');
+    if (stringArgs.length === 0) return null;
+    if (typeof rawFile === 'string' && rawFile.length > 0) {
+      return [rawFile, ...stringArgs.slice(1)];
+    }
+    return stringArgs;
+  }
+  if (typeof rawFile === 'string' && rawFile.length > 0) {
+    return [rawFile];
+  }
+  return null;
+}
+
+function syncCallArgv(takesArgs: boolean, args: readonly unknown[]): string[] | null {
+  const first = args[0];
+  if (typeof first !== 'string' || first.length === 0) return null;
+  if (!takesArgs) {
+    return ['sh', '-c', first];
+  }
+  const index = optionsIndex(true, args);
+  let childArgs: string[] = [];
+  if (index === 2 && Array.isArray(args[1])) {
+    childArgs = args[1].filter((entry): entry is string => typeof entry === 'string');
+  }
+  const rawOptions = args[index];
+  const shellOption = isOptions(rawOptions) ? (rawOptions as { shell?: unknown }).shell : undefined;
+  if (Boolean(shellOption)) {
+    const shellBinary = typeof shellOption === 'string' && shellOption.length > 0 ? shellOption : 'sh';
+    const script = childArgs.length > 0 ? [first, ...childArgs].join(' ') : first;
+    return [shellBinary, '-c', script];
+  }
+  return [first, ...childArgs];
+}
+
 function guardAsyncSpawn(
   target: ChildProcessModule,
   registerUrl: string,
@@ -255,6 +325,7 @@ function guardAsyncSpawn(
   if (typeof original !== 'function' || isGuarded(original)) return;
   const spawnOriginal = original as AnyFunction;
   prototype.spawn = markGuarded(function (this: unknown, ...args: unknown[]) {
+    assertSupportedChildRuntime(spawnArgvFromOptions(args[0]), registerUrl);
     args[0] = guardSpawnOptions(args[0], registerUrl, syncRegisterUrl);
     return spawnOriginal.apply(this, args);
   }, spawnOriginal);
@@ -271,6 +342,7 @@ function guardSyncExport(
   const takesArgs = name !== 'execSync';
   const syncOriginal = original as AnyFunction;
   target[name] = markGuarded(function (this: unknown, ...args: unknown[]) {
+    assertSupportedChildRuntime(syncCallArgv(takesArgs, args), registerUrl);
     return syncOriginal.apply(
       this,
       guardSyncArguments(takesArgs, args, process.env, registerUrl, syncRegisterUrl),

@@ -10,7 +10,7 @@
  * the active register installs its hooks before caller preloads or hoisted
  * declarations in eval workers can run.
  */
-import { realpathSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isSameLocalFile } from './package-identity.js';
@@ -32,11 +32,40 @@ interface ParsedPreload {
   readonly consumed: 1 | 2;
 }
 
+function isFilesystemLookupError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | null)?.code;
+  return (
+    code === 'ENOENT' ||
+    code === 'EACCES' ||
+    code === 'ELOOP' ||
+    code === 'ENOTDIR' ||
+    code === 'EINVAL' ||
+    code === 'EPERM'
+  );
+}
+
 function tryRealpath(filePath: string): string {
   try {
     return realpathSync(filePath);
-  } catch {
-    return filePath;
+  } catch (error) {
+    if (isFilesystemLookupError(error)) return filePath;
+    throw error;
+  }
+}
+
+function safeFilePathFromUrl(url: string): string | null {
+  if (!url.startsWith('file:')) return null;
+  try {
+    return fileURLToPath(url);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException | null)?.code;
+    const isInvalidFileUrl =
+      error instanceof TypeError ||
+      code === 'ERR_INVALID_URL_SCHEME' ||
+      code === 'ERR_INVALID_FILE_URL_PATH' ||
+      code === 'ERR_INVALID_FILE_URL_HOST';
+    if (isInvalidFileUrl) return null;
+    throw error;
   }
 }
 
@@ -71,12 +100,8 @@ function matchesSingleRegisterUrl(specifier: string, registerUrl: string): boole
   if (specifier === registerUrl || specifier === ownBareRegisterName(registerUrl)) return true;
   if (isSameLocalFile(specifier, registerUrl)) return true;
   if (!registerUrl.startsWith('file:') || !isFilesystemPathSpecifier(specifier)) return false;
-  let registerFile: string;
-  try {
-    registerFile = fileURLToPath(registerUrl);
-  } catch {
-    return false;
-  }
+  const registerFile = safeFilePathFromUrl(registerUrl);
+  if (registerFile === null) return false;
   const candidateFile = resolve(specifier);
   if (candidateFile === registerFile) return true;
   return tryRealpath(candidateFile) === tryRealpath(registerFile);
@@ -114,11 +139,68 @@ function syncPreloadPath(registerUrl: string, syncRegisterUrl?: string): string 
   if (!candidate.startsWith('file:')) return null;
   // `@pyric/live/dist/register.js` uses top-level await and cannot be loaded via `--require`.
   if (isLiveRegisterRef(candidate) && !candidate.includes('register-eval-worker')) return null;
-  try {
-    return fileURLToPath(candidate);
-  } catch {
-    return null;
+  return safeFilePathFromUrl(candidate);
+}
+
+function ownFoldCandidates(registerUrl: string, syncRegisterUrl?: string): string[] {
+  const candidates = new Set<string>([registerUrl, ownBareRegisterName(registerUrl)]);
+  const syncPath = syncPreloadPath(registerUrl, syncRegisterUrl);
+  if (syncPath !== null) candidates.add(syncPath);
+  const directPath = safeFilePathFromUrl(registerUrl);
+  if (directPath !== null) candidates.add(directPath);
+  if (syncRegisterUrl !== undefined && syncRegisterUrl.length > 0) {
+    candidates.add(syncRegisterUrl);
+    const altPath = safeFilePathFromUrl(syncRegisterUrl);
+    if (altPath !== null) candidates.add(altPath);
   }
+  return [...candidates].filter((entry) => entry.length > 0).sort((a, b) => b.length - a.length);
+}
+
+/**
+ * Unfolds a single preload target produced when Next 15 (`parseNodeArgs` +
+ * `formatNodeOptions`) merges two `--import` or `--require` flags in
+ * `NODE_OPTIONS` into one space-separated value (#1470).
+ */
+function unfoldOwnRegisterTarget(
+  target: string,
+  registerUrl: string,
+  syncRegisterUrl?: string,
+): { readonly strippedOwn: boolean; readonly remainder: string | null } {
+  if (matchesRegisterSpecifier(target, registerUrl, syncRegisterUrl)) {
+    return { strippedOwn: true, remainder: null };
+  }
+  if (!target.includes(' ') || existsSync(target)) {
+    return { strippedOwn: false, remainder: target };
+  }
+  const candidates = ownFoldCandidates(registerUrl, syncRegisterUrl);
+  let remaining = target;
+  let strippedOwn = false;
+  let changed = true;
+  while (changed && remaining.length > 0) {
+    changed = false;
+    if (matchesRegisterSpecifier(remaining, registerUrl, syncRegisterUrl)) {
+      return { strippedOwn: true, remainder: null };
+    }
+    for (const candidate of candidates) {
+      const prefix = `${candidate} `;
+      const suffix = ` ${candidate}`;
+      if (remaining.startsWith(prefix)) {
+        remaining = remaining.slice(prefix.length).trimStart();
+        strippedOwn = true;
+        changed = true;
+        break;
+      }
+      if (remaining.endsWith(suffix)) {
+        remaining = remaining.slice(0, remaining.length - suffix.length).trimEnd();
+        strippedOwn = true;
+        changed = true;
+        break;
+      }
+    }
+  }
+  if (!strippedOwn) return { strippedOwn: false, remainder: target };
+  if (remaining.length === 0) return { strippedOwn: true, remainder: null };
+  return { strippedOwn: true, remainder: remaining };
 }
 
 function attachedPreloadSpecifier(token: string): { kind: 'require' | 'import'; target: string } | null {
@@ -223,8 +305,9 @@ export function loadsRegister(
   registerUrl: string,
   syncRegisterUrl?: string,
 ): boolean {
-  return matchesNodeOptionPreload(nodeOptions, (specifier) =>
-    matchesRegisterSpecifier(specifier, registerUrl, syncRegisterUrl),
+  return matchesNodeOptionPreload(
+    nodeOptions,
+    (specifier) => unfoldOwnRegisterTarget(specifier, registerUrl, syncRegisterUrl).strippedOwn,
   );
 }
 
@@ -355,7 +438,8 @@ function canonicalPreloadTokens(
 function stripOwnRegisterPreloads(
   items: ReadonlyArray<{ readonly value: unknown; readonly raw: unknown }>,
   registerUrl: string,
-  syncRegisterUrl?: string,
+  syncRegisterUrl: string | undefined,
+  quoteForNodeOptions: boolean,
 ): unknown[] {
   const rest: unknown[] = [];
   for (let i = 0; i < items.length; i++) {
@@ -369,11 +453,19 @@ function stripOwnRegisterPreloads(
       break;
     }
     const parsed = parsePreloadAtItems(items, i);
-    if (parsed !== null && matchesRegisterSpecifier(parsed.target, registerUrl, syncRegisterUrl)) {
-      i += parsed.consumed - 1;
-      continue;
-    }
     if (parsed !== null) {
+      const unfolded = unfoldOwnRegisterTarget(parsed.target, registerUrl, syncRegisterUrl);
+      if (unfolded.strippedOwn) {
+        if (unfolded.remainder !== null) {
+          let formattedRemainder = unfolded.remainder;
+          if (quoteForNodeOptions) {
+            formattedRemainder = formatNodeOptionValue(unfolded.remainder);
+          }
+          rest.push(`--${parsed.kind}`, formattedRemainder);
+        }
+        i += parsed.consumed - 1;
+        continue;
+      }
       rest.push(item.raw);
       if (parsed.consumed === 2) {
         const nextItem = items[i + 1];
@@ -391,7 +483,7 @@ function stripOwnRegisterPreloads(
  * Ensure `nodeOptions` loads the active register via its canonical synchronous
  * `--require` preload (plus `--import` when `syncRegisterUrl` equals
  * `registerUrl`) at the very front, ahead of any caller or foreign preload and
- * ahead of `--`, deduplicating any existing own-register preloads.
+ * ahead of `--`, deduplicating any existing or Next-folded own-register preloads.
  */
 export function withCanonicalRegisterNodeOptions(
   nodeOptions: string,
@@ -401,7 +493,7 @@ export function withCanonicalRegisterNodeOptions(
   const canonical = canonicalPreloadTokens(registerUrl, syncRegisterUrl, true);
   const words = tokenizeNodeOptions(nodeOptions);
   if (words.length === 0) return canonical.join(' ');
-  const rest = stripOwnRegisterPreloads(words, registerUrl, syncRegisterUrl) as string[];
+  const rest = stripOwnRegisterPreloads(words, registerUrl, syncRegisterUrl, true) as string[];
   return [...canonical, ...rest].join(' ');
 }
 
@@ -418,6 +510,6 @@ export function withCanonicalRegisterExecArgv(
 ): unknown[] {
   const canonical = canonicalPreloadTokens(registerUrl, syncRegisterUrl, false);
   const items = execArgv.map((entry) => ({ value: entry, raw: entry }));
-  const rest = stripOwnRegisterPreloads(items, registerUrl, syncRegisterUrl);
+  const rest = stripOwnRegisterPreloads(items, registerUrl, syncRegisterUrl, false);
   return [...canonical, ...rest];
 }
