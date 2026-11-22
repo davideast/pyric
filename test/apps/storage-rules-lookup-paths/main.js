@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getStorage, ref, uploadBytes } from "firebase/storage";
+import { getBytes, getStorage, ref, uploadBytes } from "firebase/storage";
 
 const app = initializeApp({
   apiKey: "demo",
@@ -13,5 +13,12 @@ const storage = getStorage(app);
 window.upload = (path, customMetadata) =>
   uploadBytes(ref(storage, path), new Uint8Array([1]), { customMetadata }).then(
     () => "ok",
+    (error) => error.code,
+  );
+
+/** Read `path` through `getBytes`, returning `ok:<byteLength>` or the error code. */
+window.readBytes = (path) =>
+  getBytes(ref(storage, path)).then(
+    (buf) => `ok:${buf.byteLength}`,
     (error) => error.code,
   );

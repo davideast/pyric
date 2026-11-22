@@ -32,6 +32,7 @@ import {
 import {
   DEFAULT_BUCKET,
   bindStorageOperationContext,
+  computeStorageEtag,
   copyObject,
   defineOwnMetadataKey,
   getAdminStorageSandbox,
@@ -559,10 +560,12 @@ export async function handleStorageOp(
         const unminted = token === undefined;
         if (unminted) {
           token = randomUuid();
+          const nextMetageneration = String(Number(stored.metageneration) + 1);
           await service.backend.putMetadata(r.fullPath, {
             ...stored,
             downloadTokens: token,
-            metageneration: String(Number(stored.metageneration) + 1),
+            metageneration: nextMetageneration,
+            etag: computeStorageEtag(stored.generation, nextMetageneration),
             updated: new Date(getClock(ctx.sandbox).now()).toISOString(),
           }, target.bucket);
         }

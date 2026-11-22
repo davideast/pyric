@@ -92,6 +92,8 @@ export interface SnapshotStorageObject {
   readonly updated?: string;
   readonly downloadTokens?: string;
   readonly md5Hash?: string;
+  readonly crc32c?: string;
+  readonly etag?: string;
   readonly customMetadata?: Readonly<Record<string, string>>;
 }
 
@@ -325,6 +327,8 @@ async function captureStorageBuckets(
         updated?: string;
         downloadTokens?: string;
         md5Hash?: string;
+        crc32c?: string;
+        etag?: string;
         customMetadata?: Record<string, string>;
       } = {
         path,
@@ -362,6 +366,12 @@ async function captureStorageBuckets(
       }
       if (stored.metadata.md5Hash !== undefined) {
         record.md5Hash = stored.metadata.md5Hash;
+      }
+      if (stored.metadata.crc32c !== undefined) {
+        record.crc32c = stored.metadata.crc32c;
+      }
+      if (stored.metadata.etag !== undefined) {
+        record.etag = stored.metadata.etag;
       }
       const custom = extractCustomMetadata(stored.metadata.customMetadata);
       if (custom !== undefined) {

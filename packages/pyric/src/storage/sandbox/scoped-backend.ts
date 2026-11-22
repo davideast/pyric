@@ -26,8 +26,11 @@ export class ScopedStorageBackend implements StorageBackend {
   async put(path: string, blob: Blob, metadata: StoredMetadata, issue?: GenerationIssuer): Promise<StoredObject | undefined> {
     const meta = withBucket(metadata, this.bucket);
     const replaced = await this.underlying.put(path, blob, meta, issue);
-    // The underlying backend sets the generation it issued on its copy.
+    // The underlying backend sets the generation and finalized etag on its copy.
     metadata.generation = meta.generation;
+    if (meta.etag !== undefined) {
+      metadata.etag = meta.etag;
+    }
     return replaced;
   }
 

@@ -127,6 +127,10 @@ export interface StoredMetadata {
   downloadTokens?: string;
   /** Base64-encoded MD5 hash of the content. Populated on upload. */
   md5Hash?: string;
+  /** Base64-encoded 4-byte big-endian Castagnoli CRC32C of the content. Populated on upload. */
+  crc32c?: string;
+  /** Sandbox synthetic version tag derived from `(generation, metageneration)`. */
+  etag?: string;
 }
 
 /** An object's bytes and metadata, both from the same write. */

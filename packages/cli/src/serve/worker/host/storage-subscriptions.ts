@@ -61,6 +61,7 @@ interface StorageMutationObjectWire {
   downloadTokens?: string;
   md5Hash?: string;
   crc32c: string;
+  etag?: string;
 }
 
 export type StorageSubscriptionSnapWire =
@@ -135,6 +136,10 @@ async function resolveStoredCrc32c(
   allowBlobRead: boolean,
 ): Promise<string> {
   const key = crcCacheKey(storeBucket, metadata.fullPath, metadata.generation);
+  if (typeof metadata.crc32c === 'string' && metadata.crc32c.length > 0) {
+    rememberCrc32c(ctx, key, metadata.crc32c);
+    return metadata.crc32c;
+  }
   const cached = crcCacheFor(ctx).get(key);
   if (cached !== undefined) return cached;
   if (metadata.size === 0) {
@@ -184,6 +189,7 @@ function toWireObject(
   }
   if (stored.downloadTokens !== undefined) out.downloadTokens = stored.downloadTokens;
   if (stored.md5Hash !== undefined) out.md5Hash = stored.md5Hash;
+  if (stored.etag !== undefined) out.etag = stored.etag;
   return out;
 }
 

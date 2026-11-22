@@ -36,6 +36,8 @@ import {
 } from "pyric/storage";
 import {
   arrayBufferToBase64,
+  computeCrc32cBase64,
+  computeMd5Base64,
   deployStorageBucketRules,
   generationIssuer,
   getAdminStorageSandbox,
@@ -711,6 +713,8 @@ export async function createRuntime(
             object.contentType && object.contentType.length > 0
               ? object.contentType
               : "application/octet-stream",
+          md5Hash: computeMd5Base64(bytes),
+          crc32c: computeCrc32cBase64(bytes),
         };
         if (object.cacheControl !== undefined) {
           stored.cacheControl = object.cacheControl;

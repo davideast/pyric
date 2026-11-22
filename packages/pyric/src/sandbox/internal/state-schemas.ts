@@ -70,6 +70,8 @@ const storageMetadataFields = {
   customMetadata: customMetadataSchema.optional(),
   downloadTokens: z.string().optional(),
   md5Hash: z.string().optional(),
+  crc32c: z.string().optional(),
+  etag: z.string().optional(),
 } satisfies Record<keyof StoredMetadata, z.ZodType<unknown>>;
 
 /** Shared account file shape used by checkpoints and host state. */

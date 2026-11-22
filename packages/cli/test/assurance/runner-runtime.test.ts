@@ -3,9 +3,11 @@ import { describe, expect, it } from "bun:test";
 import { getAuth, sandbox as authSandbox } from "pyric/auth";
 import { Reference as RulesReference, Timestamp as RulesTimestamp } from "pyric/rules/internal";
 import { initializeSandbox } from "pyric/sandbox";
+import { getBytes, ref as storageRef } from "pyric/storage";
 import { ASSURANCE_TARGET_SCHEMA, type LocalFirebaseTarget } from "../../src/assurance/types.js";
 import {
   acquireActor,
+  createRuntime,
   normalizeFirestoreDocuments,
   seedAuth,
   targetHash,
@@ -173,5 +175,52 @@ describe("assurance runner-runtime", () => {
         | undefined
     )?.identities;
     expect(identities?.["github.com"]).toBeDefined();
+  });
+
+  it("populates md5Hash, crc32c, and etag on rich-metadata seeded Storage objects (#1342)", async () => {
+    const target: LocalFirebaseTarget = {
+      schema: ASSURANCE_TARGET_SCHEMA,
+      network: "forbid",
+      rules: {
+        storage: `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /rich/six.bin {
+      allow get: if resource.md5Hash == 'asHla8ePAxBZvnvoVFIsTA=='
+        && resource.crc32c == 'T037qw=='
+        && resource.etag is string
+        && resource.etag != ''
+        && resource.cacheControl == 'no-cache'
+        && resource.contentDisposition == 'inline'
+        && resource.contentEncoding == 'gzip'
+        && resource.contentLanguage == 'en';
+    }
+  }
+}`,
+      },
+      state: {
+        storage: [
+          {
+            path: "rich/six.bin",
+            dataBase64: "AQIDBAUG",
+            contentType: "application/octet-stream",
+            cacheControl: "no-cache",
+            contentDisposition: "inline",
+            contentEncoding: "gzip",
+            contentLanguage: "en",
+          },
+        ],
+      },
+    };
+    const actor = acquireActor(initializeSandbox(), target, {
+      id: "anon",
+      acquisition: { kind: "anonymous-request" },
+    });
+    const runtime = await createRuntime("camp-1342", "probe-1342", "control", target, actor, "storage");
+    if (!runtime.storage) {
+      throw new Error("Expected storage runtime");
+    }
+    const bytes = new Uint8Array(await getBytes(storageRef(runtime.storage, "rich/six.bin")));
+    expect(Array.from(bytes)).toEqual([1, 2, 3, 4, 5, 6]);
   });
 });

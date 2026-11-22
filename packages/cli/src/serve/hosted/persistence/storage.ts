@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { openAsBlob } from 'node:fs';
 import { FirebaseError } from 'pyric/app';
-import { assertPriorAt, attachPrecomputedMd5, higherGeneration, raisedMark, type GenerationIssuer, type StorageBackend, type StorageReferenceRecord, type StoredMetadata, type StoredObject } from 'pyric/storage/internal';
+import { assertPriorAt, attachPrecomputedDigests, computeStorageEtag, higherGeneration, raisedMark, type GenerationIssuer, type StorageBackend, type StorageReferenceRecord, type StoredMetadata, type StoredObject } from 'pyric/storage/internal';
 import { storedMetadataSchema } from 'pyric/sandbox/internal';
 import { MAX_STORAGE_OBJECT_BYTES, storageQuotaExceeded } from '../../worker/protocol/storage.js';
 import type { BlobStore, StagedFile, StoredBytes } from './blob-store.js';
@@ -128,7 +128,12 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit, o
     commit(() => {
       const mark = markOf(metadata.bucket, path);
       const issues = issue !== undefined;
-      if (issues) metadata.generation = issue(higherGeneration(currentGeneration(metadata.bucket, path), mark));
+      if (issues) {
+        metadata.generation = issue(higherGeneration(currentGeneration(metadata.bucket, path), mark));
+        metadata.etag = computeStorageEtag(metadata.generation, metadata.metageneration);
+      } else if (metadata.etag === undefined) {
+        metadata.etag = computeStorageEtag(metadata.generation, metadata.metageneration);
+      }
       put().run(metadata.bucket, path, JSON.stringify(metadata), mime, stored.sha256, stored.size);
       raiseMarkStmt().run(metadata.bucket, path, raisedMark(mark, metadata.generation));
     });
@@ -162,18 +167,18 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit, o
     return upload;
   }
 
-  /** Returns the generation the write stored. */
-  function adoptUpload(path: string, upload: Upload, mime: string, value: StoredMetadata, issue?: GenerationIssuer): string {
+  /** Returns the generation and etag the write stored. */
+  function adoptUpload(path: string, upload: Upload, mime: string, value: StoredMetadata, issue?: GenerationIssuer): { generation: string; etag: string | undefined } {
     const metadata = storedMetadataSchema.parse(value);
     const mismatchedObject = metadata.fullPath !== path || metadata.size !== upload.size;
     if (mismatchedObject) throw new Error('Storage metadata does not match its object.');
     const stored = objects.adopt(upload.file);
     writeRow(path, metadata, mime, stored, issue);
-    return metadata.generation;
+    return { generation: metadata.generation, etag: metadata.etag };
   }
 
-  /** Returns the generation the write stored. */
-  function putBytes(path: string, bytes: Uint8Array, mime: string, value: StoredMetadata, issue?: GenerationIssuer): string {
+  /** Returns the generation and etag the write stored. */
+  function putBytes(path: string, bytes: Uint8Array, mime: string, value: StoredMetadata, issue?: GenerationIssuer): { generation: string; etag: string | undefined } {
     const tooLarge = bytes.byteLength > MAX_STORAGE_OBJECT_BYTES;
     if (tooLarge) throw storageQuotaExceeded(bytes.byteLength, 'Storage object');
     const metadata = storedMetadataSchema.parse(value);
@@ -181,7 +186,7 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit, o
     if (mismatchedObject) throw new Error('Storage metadata does not match its object.');
     const stored = objects.write(bytes);
     writeRow(path, metadata, mime, stored, issue);
-    return metadata.generation;
+    return { generation: metadata.generation, etag: metadata.etag };
   }
 
   function putFile(path: string, source: string, stored: StoredBytes, mime: string, value: StoredMetadata): void {
@@ -256,14 +261,18 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit, o
         if (finishesUpload) {
           return enqueue(async () => {
             const replaced = await objectAt(bucket, path);
-            value.generation = adoptUpload(path, upload, blob.type, value, issue);
+            const committed = adoptUpload(path, upload, blob.type, value, issue);
+            value.generation = committed.generation;
+            if (committed.etag !== undefined) value.etag = committed.etag;
             return replaced;
           });
         }
         return enqueue(async () => {
           const bytes = new Uint8Array(await blob.arrayBuffer());
           const replaced = await objectAt(bucket, path);
-          value.generation = putBytes(path, bytes, blob.type, value, issue);
+          const committed = putBytes(path, bytes, blob.type, value, issue);
+          value.generation = committed.generation;
+          if (committed.etag !== undefined) value.etag = committed.etag;
           return replaced;
         });
       },
@@ -367,7 +376,7 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit, o
           }
           const sealed = upload.file.seal();
           const blob = await openAsBlob(upload.file.path, { type: upload.contentType });
-          attachPrecomputedMd5(blob, sealed.md5Base64);
+          attachPrecomputedDigests(blob, { md5Hash: sealed.md5Base64, crc32c: sealed.crc32cBase64 });
           finishedUploads.set(blob, upload);
           return blob;
         });

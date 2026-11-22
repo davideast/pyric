@@ -1,6 +1,7 @@
 import { createHash, randomUUID, type Hash } from 'node:crypto';
 import { closeSync, copyFileSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, readSync, renameSync, rmSync, statSync, utimesSync, writeSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { createCrc32cHasher, type Crc32cHasher } from 'pyric/storage/internal';
 
 const SHA256_HEX = /^[0-9a-f]{64}$/;
 const SHARD = /^[0-9a-f]{2}$/;
@@ -45,9 +46,10 @@ export interface StoredBytes {
   size: number;
 }
 
-/** A sealed staged upload's SHA-256 hex digest, size, and base64 MD5 digest. */
+/** A sealed staged upload's SHA-256 hex digest, size, and base64 MD5 + CRC32C digests. */
 export interface SealedStagedBytes extends StoredBytes {
   md5Base64: string;
+  crc32cBase64: string;
 }
 
 /** An upload in progress: one file its parts append to, hashed as they arrive. */
@@ -169,6 +171,7 @@ export function createBlobStore(directory: string): BlobStore {
     closeSync(openSync(path, 'wx'));
     let hash: Hash | undefined = createHash('sha256');
     let md5: Hash | undefined = createHash('md5');
+    let crc32c: Crc32cHasher | undefined = createCrc32cHasher();
     let sealedAs: SealedStagedBytes | undefined;
     let received = 0;
     return {
@@ -177,21 +180,30 @@ export function createBlobStore(directory: string): BlobStore {
       append(bytes) {
         const current = hash;
         const currentMd5 = md5;
-        const sealed = current === undefined || currentMd5 === undefined;
+        const currentCrc = crc32c;
+        const sealed = current === undefined || currentMd5 === undefined || currentCrc === undefined;
         if (sealed) throw new Error('A sealed staged file cannot be appended to.');
         const descriptor = openSync(path, 'a');
         try { appendTo(descriptor, bytes); } finally { closeSync(descriptor); }
         current.update(bytes);
         currentMd5.update(bytes);
+        currentCrc.update(bytes);
         received += bytes.byteLength;
       },
       seal() {
         const current = hash;
         const currentMd5 = md5;
-        if (current !== undefined && currentMd5 !== undefined) {
-          sealedAs = { sha256: current.digest('hex'), size: received, md5Base64: currentMd5.digest('base64') };
+        const currentCrc = crc32c;
+        if (current !== undefined && currentMd5 !== undefined && currentCrc !== undefined) {
+          sealedAs = {
+            sha256: current.digest('hex'),
+            size: received,
+            md5Base64: currentMd5.digest('base64'),
+            crc32cBase64: currentCrc.digestBase64(),
+          };
           hash = undefined;
           md5 = undefined;
+          crc32c = undefined;
         }
         if (sealedAs === undefined) {
           throw new Error('Staged file failed to seal.');

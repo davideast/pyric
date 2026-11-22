@@ -2,6 +2,7 @@
  * IndexedDB-backed StorageBackend implementation for browser and fake-indexeddb runtimes.
  */
 
+import { computeStorageEtag } from '../digests.js';
 import { higherGeneration, raisedMark, type GenerationIssuer } from '../generation.js';
 import { prefixKeyRange } from '../idb-prefix-range.js';
 import {
@@ -86,6 +87,9 @@ export class IndexedDbStorageBackend implements StorageBackend {
       try {
         if (issue !== undefined) {
           metadata.generation = issue(higherGeneration(replaced.object()?.metadata.generation, mark));
+          metadata.etag = computeStorageEtag(metadata.generation, metadata.metageneration);
+        } else if (metadata.etag === undefined) {
+          metadata.etag = computeStorageEtag(metadata.generation, metadata.metageneration);
         }
         tx.objectStore(BLOBS_STORE).put(blob, key);
         tx.objectStore(METADATA_STORE).put(metadata, key);
