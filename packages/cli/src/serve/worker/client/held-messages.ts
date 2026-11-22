@@ -109,6 +109,8 @@ export interface HeldMessages {
    * attach, or fail when the client closes.
    */
   holdAgain(messages: InboundMessage[]): void;
+  /** True while an `appConfig` frame is still held waiting to be flushed. */
+  holdsAppConfig(): boolean;
   /** True while the operation with this correlation id has not been sent. */
   holdsRequest(id: string): boolean;
   /** True for a restore frame of a subscription that is itself still held. */
@@ -165,6 +167,9 @@ export function createHeldMessages(port: ClientPort): HeldMessages {
     },
     holdAgain(messages) {
       held.unshift(...messages.map(message => ({ message })));
+    },
+    holdsAppConfig() {
+      return held.some(entry => entry.message.t === 'appConfig');
     },
     holdsRequest(id) {
       return held.some(entry => requestId(entry.message) === id);

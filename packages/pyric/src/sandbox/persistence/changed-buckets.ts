@@ -1,6 +1,7 @@
 import { DOC_VALUE_ENCODING } from '../../firestore/internal/value-codec.js';
 import { encodeStateDocument } from '../internal/state-values.js';
 import { checksumDocs, pathToBucketId, type BucketRecord } from './chunk-format.js';
+import { cloneRawEntry } from './skipped-documents.js';
 
 type Document = Record<string, unknown>;
 
@@ -14,6 +15,7 @@ export class ChangedBuckets {
     private readonly snapshot: () => Record<string, Document>,
     private readonly read: (path: string) => Document | null,
     persistedIds: Iterable<string>,
+    private readonly skippedForBucket?: (bucketId: string) => ReadonlyMap<string, unknown> | undefined,
   ) {
     this.dirty = new Set(persistedIds);
   }
@@ -51,7 +53,16 @@ export class ChangedBuckets {
           if (deleted) members.delete(path);
           else docs[path] = encodeStateDocument(document);
         }
-        const empty = members.size === 0;
+        const skipped = this.skippedForBucket?.(id);
+        if (skipped !== undefined) {
+          const rawDocs = docs as Record<string, unknown>;
+          for (const [path, rawDocument] of skipped) {
+            if (!Object.hasOwn(rawDocs, path)) {
+              rawDocs[path] = cloneRawEntry(rawDocument);
+            }
+          }
+        }
+        const empty = members.size === 0 && Object.keys(docs).length === 0;
         if (empty) { this.paths.delete(id); removed.push(id); }
         else records.set(id, { docs, encoding: DOC_VALUE_ENCODING, checksum: checksumDocs(docs) });
       }

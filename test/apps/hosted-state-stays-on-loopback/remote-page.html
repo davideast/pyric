@@ -5,10 +5,26 @@
   import { doc, getDoc, getFirestore } from 'firebase/firestore';
 
   const app = initializeApp({ projectId: 'demo-state-loopback', apiKey: 'demo', appId: 'demo' });
-  try {
-    const snapshot = await getDoc(doc(getFirestore(app), 'private/doc'));
-    window.outcome = `read: ${JSON.stringify(snapshot.data() ?? null)}`;
-  } catch (error) {
-    window.outcome = `refused: ${error.message}`;
+  const db = getFirestore(app);
+
+  async function timedRead() {
+    const start = performance.now();
+    try {
+      const snapshot = await getDoc(doc(db, 'private/doc'));
+      return {
+        outcome: `read: ${JSON.stringify(snapshot.data() ?? null)}`,
+        elapsedMs: performance.now() - start,
+      };
+    } catch (error) {
+      return {
+        outcome: `refused: ${error.message}`,
+        elapsedMs: performance.now() - start,
+      };
+    }
   }
+
+  const first = await timedRead();
+  const second = await timedRead();
+  window.remoteReport = { first, second };
+  window.outcome = first.outcome;
 </script>

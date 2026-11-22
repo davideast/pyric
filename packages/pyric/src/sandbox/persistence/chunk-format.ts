@@ -119,7 +119,7 @@ export function serializeToBuckets(
 }
 
 /** Tag for a v3 record bundle (a single committable JSON of all records). */
-export const V3_BUNDLE_FORMAT = 'pyric-v3-records';
+const V3_BUNDLE_FORMAT = 'pyric-v3-records';
 
 /**
  * Bundle v3 records into one committable JSON string, for single-blob stores
@@ -181,7 +181,10 @@ export function migrateV2ToRecords(
  *  [recordId, record] pairs). Rehydrates wrapper types from their markers. */
 export function deserializeFromBuckets(
   records: Iterable<[string, unknown]>,
-  options: { skipInvalidDocuments?: boolean } = {},
+  options: {
+    skipInvalidDocuments?: boolean;
+    onSkippedDocument?: (bucketId: string, path: string, rawDocument: unknown) => void;
+  } = {},
 ): { firestore: Record<string, Record<string, unknown>>; services: Record<string, unknown> } {
   const allEntries = Array.isArray(records) ? records : [...records];
   const firestore: Record<string, Record<string, unknown>> = {};
@@ -219,6 +222,7 @@ export function deserializeFromBuckets(
       } catch (error) {
         const mustReject = options.skipInvalidDocuments !== true;
         if (mustReject) throw error;
+        options.onSkippedDocument?.(id, path, data);
         console.warn(`[sandbox/persistence] skipping unreadable Firestore document '${path}' in bucket '${id}':`, error);
       }
     }

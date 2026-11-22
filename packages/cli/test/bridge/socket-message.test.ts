@@ -5,9 +5,9 @@
  * with it. A frame that would push the socket past
  * `MAX_QUEUED_OPERATION_BYTES` fails only the operation it belongs to: an
  * outbound request goes back to its local requester, an outbound response is
- * replaced by a small error carrying the same correlation id. A frame with no
- * request behind it (a pushed subscription event) still closes the socket with
- * 1013, because a reader that is not draining pushed frames cannot be helped.
+ * replaced by a small error carrying the same correlation id. Pushed
+ * observation batches queue per consumer instead of closing the socket (#1385),
+ * while an unrecoverable pushed data snapshot still closes with 1013.
  */
 
 import { describe, it, expect } from 'bun:test';
@@ -94,7 +94,7 @@ function oversizedEvents(): SandboxEvent[] {
   }));
 }
 
-describe('sendBridgeMessage — output backlog', () => {
+describe('sendBridgeMessage -- output backlog', () => {
   it('replaces an over-backlog correlated response with a small error for the same id', () => {
     const socket = fakeSocket(MAX_QUEUED_OPERATION_BYTES - HEADROOM);
     sendBridgeMessage(asWebSocket(socket), {
@@ -240,7 +240,7 @@ describe('sendBridgeMessage — output backlog', () => {
     expect(socket.bufferedAmount - started).toBeLessThanOrEqual(MAX_PENDING_OPERATIONS * 4096);
   });
 
-  it('closes an over-backlog pushed observation batch with 1013', () => {
+  it('queues a pushed observation batch on a backlogged socket instead of closing with 1013', async () => {
     const socket = fakeSocket(MAX_QUEUED_OPERATION_BYTES - HEADROOM);
     sendBridgeMessage(asWebSocket(socket), {
       type: 'worker-message-result',
@@ -254,8 +254,12 @@ describe('sendBridgeMessage — output backlog', () => {
     });
 
     expect(socket.sent).toEqual([]);
-    expect(socket.closes).toHaveLength(1);
-    expect(socket.closes[0]?.code).toBe(1013);
+    expect(socket.closes).toEqual([]);
+
+    socket.stalledBytes = 0;
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(socket.closes).toEqual([]);
+    expect(socket.sent).toHaveLength(1);
   });
 
   it('closes an over-backlog pushed snapshot with 1013', () => {
@@ -347,7 +351,7 @@ function connectSizedPeer(bridge: ReturnType<typeof createBridge>): void {
   );
 }
 
-describe('backlogged connection — one response fails alone', () => {
+describe('backlogged connection -- one response fails alone', () => {
   it('fails only the over-backlog response while concurrent operations finish', async () => {
     const bridge = createBridge({ version: 'test' });
     connectSizedPeer(bridge);

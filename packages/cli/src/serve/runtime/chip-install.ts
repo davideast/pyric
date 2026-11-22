@@ -1,17 +1,23 @@
+import { listenerAttributionEnabled, type ReadLiveStatus } from 'pyric/sandbox/internal';
 import {
   mountPyricRuntimeChip,
   type PyricRuntimeChip,
   type PyricRuntimeChipOptions,
 } from './chip.js';
 import { readPyricRuntimeChipConfig } from './chip-config.js';
-import type { PyricRuntimeStatus } from './status.js';
 import type { RuntimeIdentityBindings } from './identity.js';
-import { listenerAttributionEnabled } from 'pyric/sandbox/internal';
-import { createListenerMode } from './listener-mode.js';
+import type { IndexConfigClient } from './index-config-client.js';
 import type { SandboxEventSource } from './listener-event-source.js';
-import { installReactCommitSource, type ReactCommitSource } from './react-commit-source.js';
-import { createListenerObservation, pageListenerObservation, type ListenerObservation } from './listener-observation.js';
+import { createListenerMode } from './listener-mode.js';
+import {
+  createListenerObservation,
+  pageListenerObservation,
+  type ListenerObservation,
+} from './listener-observation.js';
 import type { OverlayTheme } from './overlay-theme.js';
+import { installReactCommitSource, type ReactCommitSource } from './react-commit-source.js';
+import type { PyricRuntimeStatus } from './status.js';
+import type { ThresholdConfigClient } from './threshold-config-client.js';
 
 export interface InstallPyricRuntimeChipOptions {
   runtime: PyricRuntimeStatus;
@@ -19,6 +25,9 @@ export interface InstallPyricRuntimeChipOptions {
   identity?: Partial<RuntimeIdentityBindings>;
   /** The page's sandbox event source. Omitted leaves the Listeners mode out. */
   listenerEvents?: SandboxEventSource | null;
+  liveStatus?: ReadLiveStatus;
+  indexConfig?: IndexConfigClient | null;
+  thresholdConfig?: ThresholdConfigClient | null;
   /**
    * React's commits, for the Listeners mode's Flow painting. Install this from
    * the page's own init script, before the application's script runs: React
@@ -41,7 +50,9 @@ export function installPyricRuntimeChip(
   options: InstallPyricRuntimeChipOptions,
 ): PyricRuntimeChip | null {
   const config = readPyricRuntimeChipConfig(options.document);
-  const existing = options.document.querySelector('[data-pyric-runtime-chip-host], pyric-runtime-chip');
+  const existing = options.document.querySelector(
+    '[data-pyric-runtime-chip-host], pyric-runtime-chip',
+  );
   const skipsMount = config === null || existing !== null;
   if (skipsMount) return null;
   const chipOptions: PyricRuntimeChipOptions = {
@@ -50,6 +61,9 @@ export function installPyricRuntimeChip(
     initiallyOpen: config.initiallyOpen,
     identity: options.identity,
   };
+  if (options.liveStatus !== undefined) chipOptions.liveStatus = options.liveStatus;
+  if (options.indexConfig !== undefined) chipOptions.indexConfig = options.indexConfig;
+  if (options.thresholdConfig !== undefined) chipOptions.thresholdConfig = options.thresholdConfig;
   const studioEnabled = config.studioEnabled;
   const hidesStudio = !studioEnabled;
   if (hidesStudio) chipOptions.studioUrl = null;
@@ -60,30 +74,36 @@ export function installPyricRuntimeChip(
     // Traffic folds the same stream the Listeners mode does, from its own
     // subscription, so neither fold has to know the other exists.
     chipOptions.sandboxEvents = events;
-    const studioUrl = studioEnabled
-      ? options.runtime.getSnapshot().manifest.studioUrl
-      : null;
+    const studioUrl = studioEnabled ? options.runtime.getSnapshot().manifest.studioUrl : null;
     // SDK initialization normally starts observation first. Direct chip users
     // start it here, before mounting or constructing the listener mode.
     const injectedCommits = options.commits;
     const hasInjectedCommits = injectedCommits !== undefined;
-    if (hasInjectedCommits) observation = createListenerObservation(options.document, injectedCommits);
-    else observation = pageListenerObservation(options.document);
-    const commits = observation?.commits ?? installReactCommitSource(options.document.defaultView);
-    chipOptions.listeners = (onChange) => createListenerMode({
-      document: options.document,
-      subscribeEvents: events,
-      attributionEnabled: listenerAttributionEnabled,
-      studioUrl,
-      commits,
-      observation: observation ?? undefined,
-      overlayTheme: options.overlayTheme ?? null,
-      onChange,
-    });
+    if (hasInjectedCommits) {
+      observation = createListenerObservation(options.document, injectedCommits);
+    } else {
+      observation = pageListenerObservation(options.document);
+    }
+    const commits =
+      observation?.commits ?? installReactCommitSource(options.document.defaultView);
+    chipOptions.listeners = onChange =>
+      createListenerMode({
+        document: options.document,
+        subscribeEvents: events,
+        attributionEnabled: listenerAttributionEnabled,
+        studioUrl,
+        commits,
+        observation: observation ?? undefined,
+        overlayTheme: options.overlayTheme ?? null,
+        onChange,
+      });
   }
   const mount = options.mount ?? mountPyricRuntimeChip;
   const chip = mount(chipOptions);
   const dispose = chip.dispose.bind(chip);
-  chip.dispose = () => { dispose(); observation?.dispose(); };
+  chip.dispose = () => {
+    dispose();
+    observation?.dispose();
+  };
   return chip;
 }

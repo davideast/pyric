@@ -1,80 +1,29 @@
 /**
- * Persistence controller — wires a `PersistenceBackend` into a
+ * Persistence controller -- wires a `PersistenceBackend` into a
  * `SandboxImpl`. Owns the debounced auto-flush, the `beforeunload`
  * safety flush, and the restore-on-attach pass.
  *
- * Conceptually orthogonal to the sandbox: the sandbox doesn't know
+ * Conceptually orthogonal to the sandbox: the sandbox does not know
  * persistence exists until `enablePersistence` constructs a controller
  * and hands it the live sandbox. Disposing the controller detaches
  * every side effect and leaves the sandbox unchanged.
  */
 
-import { ChangedBuckets } from './changed-buckets.js';
-import { CHUNK_FORMAT_VERSION, META_RECORD_ID } from './chunk-format.js';
-import { skipIncompatibleFormat } from './incompatible.js';
+import { getClock } from '../clock.js';
+import { SandboxImpl } from '../internal/sandbox-impl.js';
 import type { SandboxEvent } from '../types/events.js';
 import type { PersistableService } from '../types/persistence.js';
 import type { Sandbox } from '../types/service.js';
-import { SandboxImpl, getInternalEnv } from '../internal/sandbox-impl.js';
-import { getClock } from '../clock.js';
 import { createIndexedDBBackend, createMemoryBackend } from './backends.js';
-import {
-  serializeToBuckets,
-  deserializeFromBuckets,
-  migrateV2ToRecords,
-} from './chunk-format.js';
+import { ChangedBuckets } from './changed-buckets.js';
+import { CHUNK_FORMAT_VERSION, META_RECORD_ID, serializeToBuckets } from './chunk-format.js';
+import { hashSerialized, restoreSnapshot } from './restore.js';
 import { isRtdbRecordId, serializeRtdbServiceToRecords } from './rtdb-records.js';
+import { createSessionPersistence } from './session-persistence.js';
+import { SkippedDocuments } from './skipped-documents.js';
 import type { PersistenceBackend, SandboxPersistenceOptions } from './types.js';
 
 const DEFAULT_FLUSH_INTERVAL_MS = 250;
-
-/**
- * Storage key for the persisted auth session uid. One key used across
- * both `local` and `session` stores — the controller reads both (mode-
- * agnostic load) and writes only one (based on the current mode). This
- * mirrors how `pyric dev`'s `SessionStore` worked before the session
- * logic moved here.
- *
- * Prefixed `pyric:sandbox:` so it's immediately grepable and doesn't
- * collide with serve's `pyric:serve:` entries or app-level keys.
- */
-const SESSION_STORAGE_KEY = 'pyric:sandbox:auth-session';
-
-/** A signed-in session as web storage keeps it: its uid, the slot it came from, and its session key when saved with one. */
-interface StoredSession {
-  uid: string;
-  mode: 'LOCAL' | 'SESSION';
-  sessionKey?: string;
-}
-
-function sessionStorageKey(serviceName: string): string {
-  return serviceName === 'auth' || serviceName === 'auth-session:[DEFAULT]'
-    ? SESSION_STORAGE_KEY
-    : `${SESSION_STORAGE_KEY}:${encodeURIComponent(serviceName)}`;
-}
-
-/**
- * Stable 32-bit FNV-1a content hash of a bucket record, for detecting which
- * buckets changed between flushes. A genuinely changed record almost never
- * hashes equal to its prior content; in the astronomically rare event of a
- * collision the bucket simply re-persists on its next change. Bucket key order
- * is stable across flushes (snapshot iteration order), so an UNCHANGED bucket
- * always hashes identically.
- */
-function hashSerialized(s: string): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619) >>> 0;
-  }
-  return h;
-}
-
-function hashRecord(record: unknown): number {
-  const s = JSON.stringify(record);
-  if (s === undefined) return 0;
-  return hashSerialized(s);
-}
 
 /** Detect a storage-quota-exceeded error across environments (the DOMException
  *  name in browsers, a message fallback elsewhere). */
@@ -98,6 +47,20 @@ function pickBackend(options: SandboxPersistenceOptions): PersistenceBackend {
   return createIndexedDBBackend();
 }
 
+/**
+ * Which SandboxEvents move us toward a "dirty" state worth flushing?
+ *
+ * Writes (`kind: 'write'`) are the obvious ones. We also flush on
+ * `session_boundary` so a `reset()` snapshots the now-empty env -- the
+ * persisted state then matches the in-memory state instead of holding
+ * stale pre-reset data.
+ *
+ * Read/listener events do not change state and do not trigger a flush.
+ */
+function isPersistableEvent(event: SandboxEvent): boolean {
+  return event.kind === 'write' || event.kind === 'session_boundary';
+}
+
 export interface PersistenceController {
   readonly options: Readonly<SandboxPersistenceOptions>;
   /** Force a flush of the current sandbox state to the backend. */
@@ -118,9 +81,9 @@ export interface PersistenceController {
  * sandbox AFTER this call returns (the user calls `enablePersistence`
  * then later `getAuth(sandbox)` which triggers `registerPersistableService`).
  * We handle this in two parts:
- *   1. `restore()` returns the raw `services` blob map so the controller
- *      can apply it to late-arriving services.
- *   2. `setServiceRegistrationHook` fires on each registration — we
+ *   1. `restoreSnapshot()` returns the raw `services` blob map so the
+ *      controller can apply it to late-arriving services.
+ *   2. `setServiceRegistrationHook` fires on each registration -- we
  *      immediately apply the saved blob data (if any) AND subscribe the
  *      service's change notifier for future flushes.
  */
@@ -136,14 +99,20 @@ export async function attachPersistence(
   const backend = pickBackend(options);
 
   // Content hash of each persisted bucket, so a flush writes only the buckets
-  // whose content actually changed. restore() seeds it from the records it reads,
-  // so the just-restored state is not redundantly re-written on the first flush.
+  // whose content actually changed. restoreSnapshot() seeds it from the records
+  // it reads, so the just-restored state is not redundantly re-written on the
+  // first flush.
   const lastHashes = new Map<string, number>();
   const staleIds = new Set<string>();
-  // `restore()` returns the raw services blob — the controller keeps this
-  // so late-registering services can still receive their saved state even
-  // though they weren't in the registry when `restore()` ran.
-  const restored = await restore(sandbox, backend, options.key, lastHashes, staleIds);
+  const skippedDocuments = new SkippedDocuments();
+  const restored = await restoreSnapshot(
+    sandbox,
+    backend,
+    options.key,
+    lastHashes,
+    staleIds,
+    skippedDocuments,
+  );
   let preserveIncompatible = restored.preserveIncompatible;
   const pendingServices = new Map(Object.entries(restored.services ?? {}));
   const serviceSnapshots = new Map<string, unknown>();
@@ -152,8 +121,7 @@ export async function attachPersistence(
   let disposed = false;
 
   // Track unsubscribers for service change-notification hooks so we can
-  // clean up in dispose(). Keyed by service name (not strictly needed,
-  // but makes debugging easier).
+  // clean up in dispose(). Keyed by service name.
   const serviceUnsubs = new Map<string, () => void>();
 
   const localSandbox = sandbox instanceof SandboxImpl ? sandbox : null;
@@ -165,17 +133,28 @@ export async function attachPersistence(
     }
     return false;
   };
-  const changedBuckets = localSandbox ? new ChangedBuckets(
-    () => localSandbox.getEnv().snapshot(),
-    path => localSandbox.getEnv().getDocument(path),
-    [...lastHashes.keys()].filter(id => id !== META_RECORD_ID && !isPartitionedServiceRecord(id)),
-  ) : null;
+  let changedBuckets: ChangedBuckets | null = null;
+  if (localSandbox !== null) {
+    const persistedBucketIds = [...lastHashes.keys()].filter(
+      id => id !== META_RECORD_ID && !isPartitionedServiceRecord(id),
+    );
+    changedBuckets = new ChangedBuckets(
+      () => localSandbox.getEnv().snapshot(),
+      path => localSandbox.getEnv().getDocument(path),
+      persistedBucketIds,
+      bucketId => skippedDocuments.entriesForBucket(bucketId),
+    );
+  }
 
   // Prepare immutable records before awaiting the backend; later mutations stay dirty.
   const realFlush = async (): Promise<void> => {
     if (disposed || preserveIncompatible) return;
     const prepared = changedBuckets?.prepare();
-    const servicePrepared: Array<{ records: Map<string, unknown>; removed: string[]; retry(): void }> = [];
+    const servicePrepared: Array<{
+      records: Map<string, unknown>;
+      removed: string[];
+      retry(): void;
+    }> = [];
     try {
       const services = { ...Object.fromEntries(pendingServices) };
       if (localSandbox) {
@@ -187,9 +166,10 @@ export async function attachPersistence(
       let removed: string[];
       const usesChangedBuckets = prepared !== undefined && localSandbox !== null;
       if (usesChangedBuckets) {
-        // When `restore()` reconstructed `services.rtdb` from `rtdb:*` records before
-        // lazy `getDatabase(sandbox)` registered the RTDB service, keep `rtdb` out of
-        // `meta.services` (emitting `rtdb:*` records only if none are tracked yet).
+        // When `restoreSnapshot()` reconstructed `services.rtdb` from `rtdb:*`
+        // records before lazy `getDatabase(sandbox)` registered the RTDB service,
+        // keep `rtdb` out of `meta.services` (emitting `rtdb:*` records only if
+        // none are tracked yet).
         if ('rtdb' in services) {
           const pendingRtdb = services.rtdb;
           delete services.rtdb;
@@ -217,10 +197,19 @@ export async function attachPersistence(
           for (const [id, rec] of svcPrep.records) records.set(id, rec);
           removed.push(...svcPrep.removed);
         }
-        records.set(META_RECORD_ID, { version: CHUNK_FORMAT_VERSION, savedAt: getClock(sandbox).now(), services });
+        records.set(META_RECORD_ID, {
+          version: CHUNK_FORMAT_VERSION,
+          savedAt: getClock(sandbox).now(),
+          services,
+        });
       } else {
         const snap = sandbox.snapshot();
-        records = serializeToBuckets(snap.firestore, { ...services, ...snap.services }, getClock(sandbox).now());
+        records = serializeToBuckets(
+          snap.firestore,
+          { ...services, ...snap.services },
+          getClock(sandbox).now(),
+        );
+        skippedDocuments.applyToSerializedRecords(records);
         removed = [...lastHashes.keys()].filter(id => !records.has(id));
       }
       if (staleIds.size > 0) {
@@ -319,7 +308,7 @@ export async function attachPersistence(
   /**
    * Wire up a service's optional change-notification hook. When a
    * service provides `subscribe`, we call it here so auth-user edits
-   * trigger a debounced flush — not only the next Firestore write.
+   * trigger a debounced flush -- not only the next Firestore write.
    */
   const attachServiceSubscription = (name: string, hooks: PersistableService): void => {
     if (!hooks.subscribe || serviceUnsubs.has(name)) return;
@@ -330,98 +319,7 @@ export async function attachPersistence(
     serviceUnsubs.set(name, unsub);
   };
 
-  // ─── Session persistence setup ─────────────────────────────────────
-  // Each registered session provider owns a distinct web-storage key. This
-  // keeps named Firebase app sessions independent while their service state
-  // remains in one shared sandbox persistence blob.
-  const sessionUnsubs = new Map<string, () => void>();
-  const pendingSessions = new Map<string, StoredSession>();
-
-  const saveSession = (
-    name: string,
-    sessionHooks: NonNullable<PersistableService['session']>,
-  ): void => {
-    if (!options.sessionStorage) return;
-    const { local, session } = options.sessionStorage;
-    const key = sessionStorageKey(name);
-    const uid = sessionHooks.currentUid();
-    const mode = sessionHooks.mode();
-    if (uid === null || mode === 'NONE') {
-      local.removeItem(key);
-      session.removeItem(key);
-      return;
-    }
-    const sessionKey = sessionHooks.sessionKey?.();
-    const payload = JSON.stringify(sessionKey === undefined ? { uid } : { uid, sessionKey });
-    if (mode === 'LOCAL') {
-      session.removeItem(key);
-      local.setItem(key, payload);
-    } else {
-      local.removeItem(key);
-      session.setItem(key, payload);
-    }
-  };
-
-  const loadStoredSession = (
-    name: string,
-  ): StoredSession | null => {
-    if (!options.sessionStorage) return null;
-    const key = sessionStorageKey(name);
-    for (const [mode, store] of [
-      ['LOCAL', options.sessionStorage.local],
-      ['SESSION', options.sessionStorage.session],
-    ] as const) {
-      const raw = store.getItem(key);
-      if (!raw) continue;
-      try {
-        const parsed = JSON.parse(raw) as { uid?: unknown; sessionKey?: unknown };
-        if (typeof parsed?.uid !== 'string') continue;
-        const sessionKey = typeof parsed.sessionKey === 'string' ? parsed.sessionKey : undefined;
-        return { uid: parsed.uid, mode, sessionKey };
-      } catch {
-        store.removeItem(key);
-      }
-    }
-    return null;
-  };
-
-  const clearStoredSession = (name: string): void => {
-    if (!options.sessionStorage) return;
-    const key = sessionStorageKey(name);
-    options.sessionStorage.local.removeItem(key);
-    options.sessionStorage.session.removeItem(key);
-  };
-
-  const tryRestoreSession = (
-    name: string,
-    stored: StoredSession,
-    hooks: PersistableService,
-  ): void => {
-    if (!hooks.session) return;
-    try {
-      hooks.session.restore(stored.uid, stored.mode, stored.sessionKey);
-      pendingSessions.delete(name);
-    } catch (error) {
-      console.warn(
-        `[sandbox/persistence] session restore for uid '${stored.uid}' failed — clearing stored session:`,
-        error,
-      );
-      clearStoredSession(name);
-      pendingSessions.delete(name);
-    }
-  };
-
-  const attachSessionSubscription = (name: string, hooks: PersistableService): void => {
-    if (!options.sessionStorage || !hooks.session || sessionUnsubs.has(name)) return;
-    const sessionHooks = hooks.session;
-    sessionUnsubs.set(name, sessionHooks.subscribe(() => saveSession(name, sessionHooks)));
-  };
-
-  const restoreSessionForService = (name: string, hooks: PersistableService): void => {
-    if (!hooks.session) return;
-    const stored = pendingSessions.get(name) ?? loadStoredSession(name);
-    if (stored) tryRestoreSession(name, stored, hooks);
-  };
+  const sessions = createSessionPersistence(options.sessionStorage);
 
   const ownsServiceRegistry = sandbox instanceof SandboxImpl;
   if (ownsServiceRegistry) {
@@ -432,11 +330,11 @@ export async function attachPersistence(
         hooks.records.init?.([...lastHashes.keys()].filter(id => id.startsWith(prefix)));
       }
       attachServiceSubscription(name, hooks);
-      restoreSessionForService(name, hooks);
+      sessions.restoreSessionForService(name, hooks);
       // Restore before subscribing: restore(mode, uid) can emit session
       // changes, and a fresh Auth backend defaults to LOCAL. Subscribing first
       // would rewrite a stored SESSION uid into localStorage mid-restore.
-      attachSessionSubscription(name, hooks);
+      sessions.attachSessionSubscription(name, hooks);
     }
     sandbox.setServiceRegistrationHook((name, hooks) => {
       serviceSnapshots.delete(name);
@@ -453,21 +351,17 @@ export async function attachPersistence(
         const prefix = hooks.records.prefix;
         hooks.records.init?.([...lastHashes.keys()].filter(id => id.startsWith(prefix)));
       }
-      const stored = loadStoredSession(name);
-      const hasStoredSession = stored !== null;
-      if (hasStoredSession) pendingSessions.set(name, stored);
-      restoreSessionForService(name, hooks);
+      sessions.loadAndRememberPending(name);
+      sessions.restoreSessionForService(name, hooks);
       attachServiceSubscription(name, hooks);
-      attachSessionSubscription(name, hooks);
+      sessions.attachSessionSubscription(name, hooks);
       scheduleFlush();
     });
     sandbox.setServiceUnregistrationHook((name) => {
       serviceSnapshots.delete(name);
       serviceUnsubs.get(name)?.();
       serviceUnsubs.delete(name);
-      sessionUnsubs.get(name)?.();
-      sessionUnsubs.delete(name);
-      pendingSessions.delete(name);
+      sessions.unregisterService(name);
       // Keep the web-storage uid: deleting and recreating a FirebaseApp does
       // not mean signing that app name out. A replacement registration may
       // restore it through the normal late-registration path.
@@ -479,6 +373,7 @@ export async function attachPersistence(
     changedBuckets?.mark(path);
     const replacesState = path === null;
     if (replacesState) {
+      skippedDocuments.clear();
       serviceSnapshots.clear();
       pendingServices.clear();
       const rtdbRegistered = localSandbox.getServiceRegistry().has('rtdb');
@@ -490,22 +385,33 @@ export async function attachPersistence(
           }
         }
       }
+    } else {
+      skippedDocuments.forget(path);
     }
     scheduleFlush();
   });
   const unsubscribe = sandbox.onEvent((event) => {
+    const isAllowedFirestoreDelete =
+      event.kind === 'request' && event.result === 'allow' && event.method === 'delete';
+    if (event.kind === 'write' || isAllowedFirestoreDelete) {
+      const forgottenBucket = skippedDocuments.forget(event.path);
+      if (forgottenBucket !== undefined) {
+        changedBuckets?.mark(event.path);
+        scheduleFlush();
+      }
+    }
     if (isPersistableEvent(event)) scheduleFlush();
   });
 
   const beforeUnload = (): void => {
-    // Run synchronously on `beforeunload` — the page is leaving and we
-    // can't await an async backend write. Memory backend is sync; the
-    // IndexedDB backend won't finish in time, but kicking the request
+    // Run synchronously on `beforeunload` -- the page is leaving and we
+    // cannot await an async backend write. Memory backend is sync; the
+    // IndexedDB backend will not finish in time, but kicking the request
     // off gives it a chance to land in the IndexedDB write queue
     // before tab close. Best-effort; the debounced auto-flush is the
     // primary safety net.
     void flushNow().catch(() => {
-      /* swallow — page is leaving */
+      // Page is leaving; best-effort flush errors cannot be recovered here.
     });
   };
 
@@ -529,6 +435,7 @@ export async function attachPersistence(
       // state (otherwise untouched buckets stay suppressed and are lost).
       lastHashes.clear();
       staleIds.clear();
+      skippedDocuments.clear();
       changedBuckets?.mark(null);
       if (localSandbox) {
         for (const svc of localSandbox.getServiceRegistry().values()) {
@@ -545,13 +452,9 @@ export async function attachPersistence(
       }
       unsubscribe();
       unsubscribeDocuments?.();
-      // Detach service change-notification subscriptions.
       for (const unsub of serviceUnsubs.values()) unsub();
       serviceUnsubs.clear();
-      // Detach session-change subscriptions.
-      for (const unsub of sessionUnsubs.values()) unsub();
-      sessionUnsubs.clear();
-      // Detach the late-registration hook.
+      sessions.dispose();
       if (sandbox instanceof SandboxImpl) {
         sandbox.setServiceRegistrationHook(null);
         sandbox.setServiceUnregistrationHook(null);
@@ -561,142 +464,4 @@ export async function attachPersistence(
       }
     },
   };
-}
-
-/**
- * Read the persisted blob for `key` and hydrate every document into
- * the sandbox via the admin write surface, then restore any registered
- * service state from the `services` map.
- *
- * Returns the raw `services` blob map (or `null` if no blob existed)
- * so the controller can apply it to services that register AFTER this
- * call returns (the late-registration case).
- *
- * Restore order: Firestore first, then services. Auth users need to
- * land after Firestore is ready, not before — matches the natural
- * initialization order.
- *
- * Incompatible newer or malformed formats are quarantined to `<key>:corrupt`
- * when the backend supports distinct keys, or left untouched with flushing
- * paused until an explicit `clear()` when quarantining is not possible.
- *
- * Listeners attached to the sandbox before restore will see each
- * hydrated doc as a fresh notification — intentional. The natural
- * place to call `enablePersistence` is right after `initializeSandbox`,
- * before any listeners attach, so this rarely matters in practice.
- *
- * Each service restore is wrapped in try/catch — a failing service
- * restore must not abort Firestore restore (the core data is more
- * critical). A warning is logged but the sandbox stays usable.
- */
-async function restore(
-  sandbox: Sandbox,
-  backend: PersistenceBackend,
-  key: string,
-  lastHashes: Map<string, number>,
-  staleIds: Set<string>,
-): Promise<{ services: Record<string, unknown> | null; preserveIncompatible: boolean }> {
-  let ids: string[];
-  try {
-    ids = await backend.listRecords(key);
-  } catch (e) {
-    console.warn('[sandbox/persistence] backend list failed:', e);
-    return { services: null, preserveIncompatible: false };
-  }
-  if (ids.length === 0) return { services: null, preserveIncompatible: false };
-  const records: [string, unknown][] = [];
-  for (const id of ids) {
-    try {
-      const rec = await backend.getRecord(key, id);
-      if (rec !== null) records.push([id, rec]);
-    } catch (e) {
-      console.warn(`[sandbox/persistence] failed to read persisted record '${id}':`, e);
-    }
-  }
-  // C4 migrate-on-open: a legacy v2 record is the old single JSON blob (a
-  // string); v3 records are objects. Convert any v2 blob to v3 buckets in place,
-  // then delete the legacy record so the next open is pure v3.
-  const v3Records: [string, unknown][] = [];
-  const legacyIds: string[] = [];
-  let migrated: Map<string, unknown> | null = null;
-  for (const [id, rec] of records) {
-    if (typeof rec === 'string') {
-      const m = migrateV2ToRecords(rec);
-      if (m) {
-        legacyIds.push(id);
-        migrated = m;
-      }
-      // a string that is not a recognizable v2 blob is unrecognized: skip it.
-    } else {
-      v3Records.push([id, rec]);
-    }
-  }
-  if (migrated) {
-    try {
-      await backend.putRecords(key, migrated);
-      if (legacyIds.length > 0) await backend.deleteRecords(key, legacyIds);
-    } catch (e) {
-      console.warn('[sandbox/persistence] v2 migration write failed:', e);
-    }
-    for (const [id, rec] of migrated) v3Records.push([id, rec]);
-  }
-  const formatOutcome = await skipIncompatibleFormat(backend, key, v3Records, staleIds);
-  if (formatOutcome !== 'compatible') {
-    return { services: null, preserveIncompatible: formatOutcome === 'preserved' };
-  }
-  // Seed the flush hash state from the persisted records, so the first flush
-  // does not redundantly re-write the just-restored buckets.
-  for (const [id, rec] of v3Records) lastHashes.set(id, hashRecord(rec));
-  const parsed = deserializeFromBuckets(v3Records, { skipInvalidDocuments: true });
-
-  // 1. Restore Firestore documents first. These are the structural data
-  //    that services (auth) may depend on being present.
-  //    Written through the quiet environment path: a restore is not a session
-  //    action, so it must not add admin write events to `history()`.
-  const isLocalSandbox = sandbox instanceof SandboxImpl;
-  for (const [path, data] of Object.entries(parsed.firestore)) {
-    if (isLocalSandbox) getInternalEnv(sandbox).adminSetDocument(path, data);
-    else sandbox.admin.setDocument(path, data);
-  }
-
-  // 2. Restore registered service state. Only services that are BOTH in
-  //    the blob AND currently registered are restored here. Services not
-  //    yet registered (late registration: enablePersistence before getAuth)
-  //    receive their data when they register via the hook installed by
-  //    attachPersistence. Each service restore is isolated so a broken
-  //    service doesn't kill the entire restore.
-  if (sandbox instanceof SandboxImpl) {
-    const registry = sandbox.getServiceRegistry();
-    for (const [name, data] of Object.entries(parsed.services)) {
-      const svc = registry.get(name);
-      if (!svc) continue; // not yet registered; will be applied via late-restore hook
-      try {
-        svc.restore(data);
-      } catch (e) {
-        console.warn(
-          `[sandbox/persistence] service '${name}' restore failed — ` +
-            `Firestore state is intact; auth users may need to be re-created:`,
-          e,
-        );
-      }
-    }
-  }
-
-  // Return the services blob so the controller can apply it to services
-  // that register after this call (the late-registration case).
-  return { services: parsed.services, preserveIncompatible: false };
-}
-
-/**
- * Which SandboxEvents move us toward a "dirty" state worth flushing?
- *
- * Writes (`kind: 'write'`) are the obvious ones. We also flush on
- * `session_boundary` so a `reset()` snapshots the now-empty env — the
- * persisted state then matches the in-memory state instead of holding
- * stale pre-reset data.
- *
- * Read/listener events do not change state and don't trigger a flush.
- */
-function isPersistableEvent(event: SandboxEvent): boolean {
-  return event.kind === 'write' || event.kind === 'session_boundary';
 }

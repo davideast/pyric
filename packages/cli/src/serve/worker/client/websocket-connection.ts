@@ -1,25 +1,25 @@
-import type { DiagnosticEvent } from '../../runtime/diagnostics-report.js';
-import { recordDiagnostic } from '../../runtime/diagnostics-client.js';
-import { hostRestartedSincePageLoad, type HostRestart } from '../../runtime/host-restart.js';
-import { hasValidAttachFields } from '../../../bridge/attach-validation.js';
-import { DOC_VALUE_ENCODING_CAPABILITY, isBridgeMessage, MAX_BRIDGE_FRAME_BYTES, STORAGE_BYTE_ROUTE_CAPABILITY, WORKER_PORT_CAPABILITY, WORKER_SESSION_EXPIRED_CLOSE_CODE, WORKER_SESSION_RETENTION_MS, type BridgeMessage } from '../../../bridge/protocol.js';
 import { FirebaseError } from 'pyric/app';
-import { BROWSER_FRAME_LIMIT_CLOSE_CODE, BRIDGE_FRAME_LIMIT_MESSAGE, encodeBridgeMessage } from '../../../bridge/frame-output.js';
-import type { InboundMessage, OutboundMessage } from '../protocol.js';
+import { encodeBridgeMessage } from '../../../bridge/frame-output.js';
+import { DOC_VALUE_ENCODING_CAPABILITY, WORKER_SESSION_EXPIRED_CLOSE_CODE, WORKER_SESSION_RETENTION_MS, type BridgeMessage } from '../../../bridge/protocol.js';
+import { recordDiagnostic } from '../../runtime/diagnostics-client.js';
+import type { DiagnosticEvent } from '../../runtime/diagnostics-report.js';
+import type { HostRestart } from '../../runtime/host-restart.js';
 import { SERVICE_WORKER_TAB_ID } from '../host/caller.js';
+import type { InboundMessage, OutboundMessage } from '../protocol.js';
 import { isServiceWorkerRealm } from '../service-worker-channel.js';
-import { hasValidOutboundEnvelope, hasValidReplyOutcome } from '../outbound-validation.js';
-import { _pending, failInFlightStreams, forgetOnDisconnectCalls, nextId, rawRpc, rejectPendingRequests, restoreAuthSubscriptions, restoreObservationSubscriptions, restoreMessagingSubscriptions, wirePort } from './core.js';
+import { classifyAttachAckSession, validateAttachAckTransport } from './attach-ack.js';
+import { _pending, failInFlightStreams, forgetOnDisconnectCalls, nextId, rejectPendingRequests, wirePort } from './core.js';
 import { endFailedPort } from './disconnect.js';
-import { httpOriginOf } from './http-origin.js';
 import type { ClientDb, ClientPort } from './handles.js';
 import { createHeldMessages } from './held-messages.js';
 import { watchHostSilence } from './host-silence.js';
+import { httpOriginOf } from './http-origin.js';
 import { settleInFlightAtDrop } from './in-flight-at-drop.js';
-import { closeSendOrder, waitsToSend } from './send-order.js';
-import { announceTabReads, answerTabCall } from './tab-reads.js';
+import { extractPersistenceError, parseInboundBridgeFrame } from './inbound-bridge-frame.js';
 import { setPortHostUrl } from './protocol-version.js';
-
+import { closeSendOrder, waitsToSend } from './send-order.js';
+import { replayResumedSubscriptions, runSessionRestorePass } from './session-restore.js';
+import { announceTabReads, answerTabCall } from './tab-reads.js';
 
 const CONNECTION_LOST = 'The hosted sandbox connection was lost. Requests already sent may have completed; check state before retrying.';
 const CONNECTION_CLOSED = 'The hosted sandbox connection is closed.';
@@ -42,8 +42,6 @@ function resolveConnectionPlatform(
   if (targetPlatform !== undefined) return targetPlatform;
   return browserPlatform();
 }
-
-const utf8 = new TextEncoder();
 
 export type HostedConnectionState = 'connecting' | 'restoring' | 'attached' | 'interrupted' | 'closed';
 
@@ -70,36 +68,39 @@ export interface HostedSocketRealm {
 }
 
 /** Own one app's physical connections while retaining its logical SDK port. */
-export function getHostedFirestore(target: {
-  url: string;
-  projectKey: string;
-  retryInitialConnection?: boolean;
-  onConnection?: (state: HostedConnectionState) => void;
-  onError?: (error: FirebaseError) => void;
-  /** Called once, in a page only, when attach-ack names a later host boot than `initialHostInstanceId`. */
-  onHostRestarted?: (restart: HostRestart) => void;
-  /** The page's session token, which authorizes its own reads on the host's byte route. */
-  sessionToken?: () => Promise<string | null>;
-  /** Present outside a page; see {@link HostedSocketRealm}. */
-  realm?: HostedSocketRealm;
-  /** Identifies Studio's own UI tab so the host never lists it as an app client or routes tab reads to it. */
-  platform?: 'studio';
-  /** Host boot identity baked into the served HTML / module at compile time. */
-  initialHostInstanceId?: string;
-  /**
-   * Reads the boot id of the host now serving the url, before a reattach. A
-   * Node process passes it: it reads init.json again, so after a host restart
-   * it presents the new boot and the host holds its config as verified. A page
-   * passes nothing and presents the boot it was served by (#1153).
-   */
-  currentHostInstanceId?: () => Promise<string | undefined>;
-  /**
-   * Resolves the socket url again before a reattach. A Node process passes it:
-   * a host that stopped may come back on another port, which its
-   * `.pyric/serve.json` names. A page passes nothing and redials its own origin.
-   */
-  currentUrl?: () => Promise<string>;
-}, existingPort?: ClientPort): ClientDb {
+export function getHostedFirestore(
+  target: {
+    url: string;
+    projectKey: string;
+    retryInitialConnection?: boolean;
+    onConnection?: (state: HostedConnectionState) => void;
+    onError?: (error: FirebaseError) => void;
+    /** Called once, in a page only, when attach-ack names a later host boot than `initialHostInstanceId`. */
+    onHostRestarted?: (restart: HostRestart) => void;
+    /** The page's session token, which authorizes its own reads on the host's byte route. */
+    sessionToken?: () => Promise<string | null>;
+    /** Present outside a page; see {@link HostedSocketRealm}. */
+    realm?: HostedSocketRealm;
+    /** Identifies Studio's own UI tab so the host never lists it as an app client or routes tab reads to it. */
+    platform?: 'studio';
+    /** Host boot identity baked into the served HTML / module at compile time. */
+    initialHostInstanceId?: string;
+    /**
+     * Reads the boot id of the host now serving the url, before a reattach. A
+     * Node process passes it: it reads init.json again, so after a host restart
+     * it presents the new boot and the host holds its config as verified. A page
+     * passes nothing and presents the boot it was served by (#1153).
+     */
+    currentHostInstanceId?: () => Promise<string | undefined>;
+    /**
+     * Resolves the socket url again before a reattach. A Node process passes it:
+     * a host that stopped may come back on another port, which its
+     * `.pyric/serve.json` names. A page passes nothing and redials its own origin.
+     */
+    currentUrl?: () => Promise<string>;
+  },
+  existingPort?: ClientPort,
+): ClientDb {
   const connectionId = `socket-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   /** The url the next socket dials; a reattach may resolve it again. */
   let socketUrl = target.url;
@@ -123,7 +124,8 @@ export function getHostedFirestore(target: {
   let heartbeatTimer: ReturnType<typeof setTimeout> | undefined;
   let hostSilence = watchHostSilence(0);
   const realm = target.realm;
-  const isPageRealm = realm === undefined && target.platform !== 'studio' && !isServiceWorkerRealm();
+  const isPageRealm =
+    realm === undefined && target.platform !== 'studio' && !isServiceWorkerRealm();
   /** A page tab announces the live reads it answers (`tab-reads.ts`); a Node process or service worker does not. */
   const answersReads = isPageRealm;
   let stopAnnouncingReads: (() => void) | undefined;
@@ -131,7 +133,9 @@ export function getHostedFirestore(target: {
   // or the connection ends without one; Storage waits on it before choosing.
   let byteRouteKnown = false;
   let resolveByteRoute: () => void = () => {};
-  const byteRouteSettled = new Promise<void>(resolve => { resolveByteRoute = resolve; });
+  const byteRouteSettled = new Promise<void>(resolve => {
+    resolveByteRoute = resolve;
+  });
   const settleByteRoute = (): void => {
     byteRouteKnown = true;
     resolveByteRoute();
@@ -162,7 +166,8 @@ export function getHostedFirestore(target: {
       }
       const isDetached = !isAttached;
       if (isDetached) {
-        const isSettledOperation = (message.t === 'op' || message.t === 'tool') && !_pending.has(message.id);
+        const isSettledOperation =
+          (message.t === 'op' || message.t === 'tool') && !_pending.has(message.id);
         if (isSettledOperation) return;
         encodeRequest({ type: 'worker-message', message });
         held.hold(message);
@@ -189,7 +194,9 @@ export function getHostedFirestore(target: {
           listener(connected);
         }
       });
-      return () => { connectionListeners.delete(listener); };
+      return () => {
+        connectionListeners.delete(listener);
+      };
     },
     close() {
       closePort(new FirebaseError('unavailable', CONNECTION_CLOSED));
@@ -223,7 +230,9 @@ export function getHostedFirestore(target: {
     socket = undefined;
     const canNotifyHost = closingSocket?.readyState === WebSocket.OPEN;
     try {
-      if (canNotifyHost) send(closingSocket, { type: 'worker-message', message: { t: 'disconnect', id: nextId() } });
+      if (canNotifyHost) {
+        send(closingSocket, { type: 'worker-message', message: { t: 'disconnect', id: nextId() } });
+      }
     } catch {
       // A socket may close before the final notification can be sent.
     }
@@ -310,23 +319,25 @@ export function getHostedFirestore(target: {
   }
 
   function scheduleHeartbeat(connection: WebSocket): void {
-    heartbeatTimer = armed(setTimeout(() => {
-      const isStaleConnection = !isCurrent(connection);
-      if (isStaleConnection) return;
-      const hasLostLiveness = hostSilence.hasGoneSilent(performance.now());
-      if (hasLostLiveness) {
-        interruptConnection(connection);
-        return;
-      }
-      try {
-        send(connection, { type: 'ping', id: nextId() });
-        hostSilence.pinged(performance.now());
-      } catch {
-        interruptConnection(connection);
-        return;
-      }
-      scheduleHeartbeat(connection);
-    }, hostSilence.nextBeatIn(performance.now())));
+    heartbeatTimer = armed(
+      setTimeout(() => {
+        const isStaleConnection = !isCurrent(connection);
+        if (isStaleConnection) return;
+        const hasLostLiveness = hostSilence.hasGoneSilent(performance.now());
+        if (hasLostLiveness) {
+          interruptConnection(connection);
+          return;
+        }
+        try {
+          send(connection, { type: 'ping', id: nextId() });
+          hostSilence.pinged(performance.now());
+        } catch {
+          interruptConnection(connection);
+          return;
+        }
+        scheduleHeartbeat(connection);
+      }, hostSilence.nextBeatIn(performance.now())),
+    );
   }
 
   async function finishAttachment(connection: WebSocket, isResume: boolean): Promise<void> {
@@ -342,20 +353,22 @@ export function getHostedFirestore(target: {
       if (isHeldSubscription) return;
       postMessage(message);
     };
-    if (needsSessionRestore) {
-      state = 'restoring';
-      report(state);
-      target.onConnection?.(state);
-      const configuration = appConfig;
-      const hasConfiguration = configuration !== undefined;
-      if (hasConfiguration) {
-        postMessage(fromPriorHost ? { ...configuration, fromPriorHost: true } : configuration);
-      }
-      await port.restoreAuth?.(message => rawRpc(port, message, postMessage));
-      const isStaleConnection = !isCurrent(connection);
-      if (isStaleConnection) return;
-      restoreAuthSubscriptions(port, replay);
-      port.restoreObservedListeners?.(message => rawRpc(port, message, postMessage));
+    const restoredSession = needsSessionRestore;
+    if (restoredSession) {
+      const completed = await runSessionRestorePass({
+        port,
+        appConfig,
+        fromPriorHost,
+        postMessage,
+        replay,
+        isCurrentConnection: () => isCurrent(connection),
+        onRestoringState: nextState => {
+          state = nextState;
+          report(state);
+          target.onConnection?.(state);
+        },
+      });
+      if (!completed) return;
       needsSessionRestore = false;
     }
     clearTimeout(attachDeadline);
@@ -366,13 +379,7 @@ export function getHostedFirestore(target: {
     hostSilence = watchHostSilence(performance.now());
     clearTimeout(heartbeatTimer);
     scheduleHeartbeat(connection);
-    if (isResume) {
-      postMessage({ t: 'clock-subscribe' });
-      restoreObservationSubscriptions(port, replay);
-    }
-    if (needsMessagingRestore) restoreMessagingSubscriptions(port, replay);
-    // Held messages follow the whole restore, in the order the app issued them.
-    held.flush(postMessage);
+    replayResumedSubscriptions({ port, held, appConfig, fromPriorHost, isResume, restoredSession, needsMessagingRestore, postMessage, replay });
     stopAnnouncingReads?.();
     if (answersReads) stopAnnouncingReads = announceTabReads(connectionId, frame => postFrame(connection, frame));
     notifyConnectionChange();
@@ -397,7 +404,9 @@ export function getHostedFirestore(target: {
     report('connecting');
     const connectionState = hasEverAttached ? 'interrupted' : 'connecting';
     target.onConnection?.(connectionState);
-    const retentionExpired = interruptedAt !== undefined && performance.now() - interruptedAt >= WORKER_SESSION_RETENTION_MS;
+    const retentionExpired =
+      interruptedAt !== undefined &&
+      performance.now() - interruptedAt >= WORKER_SESSION_RETENTION_MS;
     if (retentionExpired) resumeToken = undefined;
     const requestsFreshSession = resumeToken === undefined;
     const resolveUrl = target.currentUrl;
@@ -416,17 +425,27 @@ export function getHostedFirestore(target: {
 
   function openSocket(requestsFreshSession: boolean): void {
     let connection: WebSocket;
-    try { connection = realm ? realm.createSocket(socketUrl) : new WebSocket(socketUrl); }
-    catch (error) { report('socket-error'); throw error; }
+    try {
+      if (realm !== undefined) {
+        connection = realm.createSocket(socketUrl);
+      } else {
+        connection = new WebSocket(socketUrl);
+      }
+    } catch (error) {
+      report('socket-error');
+      throw error;
+    }
     socket = connection;
-    attachDeadline = armed(setTimeout(() => {
-      const isStaleConnection = !isCurrent(connection);
-      if (isStaleConnection) return;
-      report('timeout');
-      const shouldRetry = hasEverAttached || target.retryInitialConnection === true;
-      if (shouldRetry) interruptConnection(connection);
-      else failConnection('Timed out connecting to the hosted sandbox.');
-    }, 5_000));
+    attachDeadline = armed(
+      setTimeout(() => {
+        const isStaleConnection = !isCurrent(connection);
+        if (isStaleConnection) return;
+        report('timeout');
+        const shouldRetry = hasEverAttached || target.retryInitialConnection === true;
+        if (shouldRetry) interruptConnection(connection);
+        else failConnection('Timed out connecting to the hosted sandbox.');
+      }, 5_000),
+    );
 
     connection.addEventListener('error', () => {
       const isActiveConnection = isCurrent(connection);
@@ -451,84 +470,58 @@ export function getHostedFirestore(target: {
     connection.addEventListener('message', (event: MessageEvent<string>) => {
       const isStaleConnection = !isCurrent(connection);
       if (isStaleConnection) return;
-      const exceedsFrameLimit = utf8.encode(event.data).byteLength > MAX_BRIDGE_FRAME_BYTES;
-      if (exceedsFrameLimit) {
-        connection.close(BROWSER_FRAME_LIMIT_CLOSE_CODE, BRIDGE_FRAME_LIMIT_MESSAGE);
-        failConnection(BRIDGE_FRAME_LIMIT_MESSAGE);
+      const parsedFrame = parseInboundBridgeFrame(event.data);
+      if (!parsedFrame.ok) {
+        if (parsedFrame.closeCode !== undefined) {
+          connection.close(parsedFrame.closeCode, parsedFrame.closeReason);
+        }
+        failConnection(parsedFrame.error);
         return;
       }
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(event.data);
-      } catch {
-        failConnection('The hosted sandbox sent invalid JSON. Requests already sent may have completed; check state before retrying.');
-        return;
-      }
-      const message = parsed;
-      const isUnrecognizedFrame = !isBridgeMessage(message);
-      if (isUnrecognizedFrame) {
-        failConnection('The hosted sandbox sent an invalid message. Requests already sent may have completed; check state before retrying.');
-        return;
-      }
+      const message = parsedFrame.message;
       hostSilence.heard(performance.now());
       switch (message.type) {
         case 'attach-ack': {
-          const isUnsupportedProtocol = message.protocol !== 1;
-          if (isUnsupportedProtocol) {
-            failConnection('The hosted sandbox uses an unsupported bridge protocol. Expected version 1.');
-            return;
-          }
-          const capabilities = message.capabilities;
-          const hasCapabilityList = Array.isArray(capabilities);
-          const hasNamedCapabilities = hasCapabilityList && capabilities.every(capability => typeof capability === 'string');
-          const supportsWorkerPorts = hasNamedCapabilities && capabilities.includes(WORKER_PORT_CAPABILITY);
-          const isIncompatibleHost = !supportsWorkerPorts;
-          if (isIncompatibleHost) {
-            failConnection('The selected host does not support browser worker ports. Upgrade @pyric/cli, restart with --hosted, and reload this page.');
+          const transport = validateAttachAckTransport(message);
+          if (!transport.ok) {
+            failConnection(transport.error);
             return;
           }
           // Storage bytes move over the host's HTTP byte route when it offers one.
-          const offersByteRoute = capabilities.includes(STORAGE_BYTE_ROUTE_CAPABILITY);
           const sessionToken = target.sessionToken;
-          const usesByteRoute = offersByteRoute && sessionToken !== undefined;
-          if (usesByteRoute) port.byteRoute = { baseUrl: httpOriginOf(socketUrl), sessionToken, fetch: realm?.fetch };
-          else delete port.byteRoute;
+          const usesByteRoute = transport.offersByteRoute && sessionToken !== undefined;
+          if (usesByteRoute) {
+            port.byteRoute = { baseUrl: httpOriginOf(socketUrl), sessionToken, fetch: realm?.fetch };
+          } else {
+            delete port.byteRoute;
+          }
           settleByteRoute();
           realm?.attached?.(message);
-          const isDifferentProject = message.projectKey !== target.projectKey;
-          if (isDifferentProject) {
-            failConnection('The selected hosted sandbox belongs to a different project.');
-            return;
-          }
-          const hasMalformedAttachment = !hasValidAttachFields(message);
-          if (hasMalformedAttachment) {
-            failConnection('The hosted sandbox sent a malformed attachment acknowledgment.');
-            return;
-          }
-          const isResume = hasEverAttached;
-          const hasHostIdentity = typeof message.hostInstanceId === 'string' && message.hostInstanceId.length > 0;
-          const changedHost = isResume && hostInstanceId !== undefined && hasHostIdentity && message.hostInstanceId !== hostInstanceId;
-          const presentedThisHost = hasHostIdentity && message.hostInstanceId === presentedHostInstanceId;
-          if (changedHost && !presentedThisHost) fromPriorHost = true;
-          // Only a page runs a bundle its host served; a Node process or service worker has no stale tab to reload.
-          const bootIds = { initialHostInstanceId: target.initialHostInstanceId, currentHostInstanceId: message.hostInstanceId };
-          if (isPageRealm && !reportedHostRestart && hostRestartedSincePageLoad(bootIds)) {
+          const session = classifyAttachAckSession(message, {
+            projectKey: target.projectKey,
+            hasEverAttached,
+            hostInstanceId,
+            presentedHostInstanceId,
+            fromPriorHost,
+            isPageRealm,
+            reportedHostRestart,
+            initialHostInstanceId: target.initialHostInstanceId,
+            requestsFreshSession,
+            resumeToken,
+          });
+          fromPriorHost = session.fromPriorHost;
+          if (session.hostRestart !== undefined) {
             reportedHostRestart = true;
-            target.onHostRestarted?.(bootIds);
+            target.onHostRestarted?.(session.hostRestart);
           }
-          const attemptsResume = isResume && !requestsFreshSession;
-          const receivedDifferentGrant = message.resumeToken !== resumeToken;
-          const changedSessionUnexpectedly = attemptsResume && receivedDifferentGrant && !changedHost;
-          if (changedSessionUnexpectedly) {
-            failConnection('The hosted session could not be resumed.');
+          if (!session.ok) {
+            failConnection(session.error);
             return;
           }
-          const hasResumeToken = typeof message.resumeToken === 'string' && message.resumeToken.length > 0;
-          resumeToken = hasResumeToken ? message.resumeToken : undefined;
-          hostInstanceId = hasHostIdentity ? message.hostInstanceId : undefined;
-          const restoresSession = isResume && (changedHost || requestsFreshSession);
-          if (restoresSession) needsSessionRestore = true;
-          void finishAttachment(connection, isResume).catch(() => {
+          resumeToken = session.resumeToken;
+          hostInstanceId = session.hostInstanceId;
+          if (session.restoresSession) needsSessionRestore = true;
+          void finishAttachment(connection, session.isResume).catch(() => {
             const isCurrentConnection = isCurrent(connection);
             if (isCurrentConnection) failConnection('Could not restore the hosted app session.');
           });
@@ -536,12 +529,8 @@ export function getHostedFirestore(target: {
         }
         case 'worker-message-result': {
           const response = message.message;
-          const isResponse = hasValidOutboundEnvelope(response) && response.t === 'res';
-          const hasError = isResponse && hasValidReplyOutcome(response) && response.ok === false;
-          if (hasError) {
-            const isPersistenceFailure = response.error.code === 'committed-but-not-durable' || response.error.code === 'persistence-unhealthy';
-            if (isPersistenceFailure) target.onError?.(new FirebaseError(response.error.code, response.error.message));
-          }
+          const persistenceError = extractPersistenceError(response);
+          if (persistenceError !== undefined) target.onError?.(persistenceError);
           deliver(response);
           return;
         }
@@ -556,7 +545,8 @@ export function getHostedFirestore(target: {
       if (isStaleConnection) return;
       report('socket-close', event.code);
       clearTimeout(attachDeadline);
-      const hasExpiredSession = hasEverAttached && event.code === WORKER_SESSION_EXPIRED_CLOSE_CODE;
+      const hasExpiredSession =
+        hasEverAttached && event.code === WORKER_SESSION_EXPIRED_CLOSE_CODE;
       if (hasExpiredSession) resumeToken = undefined;
       const permitsRetry = hasEverAttached || target.retryInitialConnection === true;
       const canResume = permitsRetry && event.code !== 1008;
