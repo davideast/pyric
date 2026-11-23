@@ -1,0 +1,303 @@
+{
+  "name": "messaging-send-transport-retry-backoff",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase-admin/messaging send() and sendEach() transport retry and backoff: defaultRetryConfig (maxRetries 4 on HTTP 503 and ECONNRESET/ETIMEDOUT, non-retry on HTTP 500/429/ECONNREFUSED, Retry-After header override and 60s maxDelayInMillis cap, exponential backoff [0, 1000, 2000, 4000]ms), HTTP/2 vs enableLegacyHttpTransport() HTTP/1.1 batch parity, and live FCM dryRun transport verification.",
+  "observedAt": "2026-11-23T15:22:56.383Z",
+  "adminSdkVersion": "13.10.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "defaultRetryConfig": {
+      "http1": {
+        "maxRetries": 4,
+        "statusCodes": [
+          503
+        ],
+        "ioErrorCodes": [
+          "ECONNRESET",
+          "ETIMEDOUT"
+        ],
+        "backOffFactor": 0.5,
+        "maxDelayInMillis": 60000
+      },
+      "http2": {
+        "maxRetries": 4,
+        "statusCodes": [
+          503
+        ],
+        "ioErrorCodes": [
+          "ECONNRESET",
+          "ETIMEDOUT"
+        ],
+        "backOffFactor": 0.5,
+        "maxDelayInMillis": 60000
+      },
+      "configsEqual": true
+    },
+    "http1Send": {
+      "transient503TwiceThen200": {
+        "attempts": 3,
+        "delaysMs": [
+          0,
+          1000
+        ],
+        "nameFacts": {
+          "matchesProjectsMessagesFormat": true,
+          "projectSegmentMatchesProject": true
+        }
+      },
+      "retryAfterHeaderSeconds3Then200": {
+        "attempts": 2,
+        "delaysMs": [
+          3000
+        ],
+        "nameFacts": {
+          "matchesProjectsMessagesFormat": true,
+          "projectSegmentMatchesProject": true
+        }
+      },
+      "retryAfterExceedsMaxDelay120s": {
+        "attempts": 1,
+        "delaysMs": [],
+        "outcome": {
+          "threw": true,
+          "code": "messaging/server-unavailable",
+          "message": "The service is currently unavailable.",
+          "isFirebaseMessagingError": true,
+          "name": "Error"
+        }
+      },
+      "exhausted503FiveAttempts": {
+        "attempts": 5,
+        "delaysMs": [
+          0,
+          1000,
+          2000,
+          4000
+        ],
+        "outcome": {
+          "threw": true,
+          "code": "messaging/server-unavailable",
+          "message": "The service is currently unavailable.",
+          "isFirebaseMessagingError": true,
+          "name": "Error"
+        }
+      },
+      "http500InternalNotRetried": {
+        "attempts": 1,
+        "delaysMs": [],
+        "outcome": {
+          "threw": true,
+          "code": "messaging/internal-error",
+          "message": "Internal error encountered.",
+          "isFirebaseMessagingError": true,
+          "name": "Error"
+        }
+      },
+      "http429QuotaExceededNotRetried": {
+        "attempts": 1,
+        "delaysMs": [],
+        "outcome": {
+          "threw": true,
+          "code": "messaging/message-rate-exceeded",
+          "message": "Quota exceeded for quota metric.",
+          "isFirebaseMessagingError": true,
+          "name": "Error"
+        }
+      },
+      "econnresetOnceThen200": {
+        "attempts": 2,
+        "delaysMs": [
+          0
+        ],
+        "nameFacts": {
+          "matchesProjectsMessagesFormat": true,
+          "projectSegmentMatchesProject": true
+        }
+      },
+      "etimedoutExhaustedFiveAttempts": {
+        "attempts": 5,
+        "delaysMs": [
+          0,
+          1000,
+          2000,
+          4000
+        ],
+        "outcome": {
+          "threw": true,
+          "code": "app/network-timeout",
+          "message": "Error while making request: transport fault ETIMEDOUT.",
+          "isFirebaseMessagingError": false,
+          "name": "Error"
+        }
+      },
+      "econnrefusedNotRetried": {
+        "attempts": 1,
+        "delaysMs": [],
+        "outcome": {
+          "threw": true,
+          "code": "app/network-error",
+          "message": "Error while making request: transport fault ECONNREFUSED. Error code: ECONNREFUSED",
+          "isFirebaseMessagingError": false,
+          "name": "Error"
+        }
+      }
+    },
+    "batchSendEach": {
+      "defaultHttp2": {
+        "http1Requests": 0,
+        "http2Requests": 7,
+        "delaysMs": [
+          0,
+          0,
+          1000,
+          2000,
+          4000
+        ],
+        "batch": {
+          "successCount": 1,
+          "failureCount": 1,
+          "responseCount": 2,
+          "responses": [
+            {
+              "index": 0,
+              "success": true,
+              "hasMessageId": true,
+              "nameFacts": {
+                "matchesProjectsMessagesFormat": true,
+                "projectSegmentMatchesProject": true
+              },
+              "hasError": false,
+              "error": null
+            },
+            {
+              "index": 1,
+              "success": false,
+              "hasMessageId": false,
+              "nameFacts": null,
+              "hasError": true,
+              "error": {
+                "code": "messaging/server-unavailable",
+                "message": "The service is currently unavailable.",
+                "isFirebaseMessagingError": true,
+                "name": "Error"
+              }
+            }
+          ]
+        }
+      },
+      "legacyHttp1": {
+        "http1Requests": 7,
+        "http2Requests": 0,
+        "delaysMs": [
+          0,
+          0,
+          1000,
+          2000,
+          4000
+        ],
+        "batch": {
+          "successCount": 1,
+          "failureCount": 1,
+          "responseCount": 2,
+          "responses": [
+            {
+              "index": 0,
+              "success": true,
+              "hasMessageId": true,
+              "nameFacts": {
+                "matchesProjectsMessagesFormat": true,
+                "projectSegmentMatchesProject": true
+              },
+              "hasError": false,
+              "error": null
+            },
+            {
+              "index": 1,
+              "success": false,
+              "hasMessageId": false,
+              "nameFacts": null,
+              "hasError": true,
+              "error": {
+                "code": "messaging/server-unavailable",
+                "message": "The service is currently unavailable.",
+                "isFirebaseMessagingError": true,
+                "name": "Error"
+              }
+            }
+          ]
+        }
+      },
+      "batchOutcomesMatch": true
+    },
+    "liveTransportDryRun": {
+      "sendAccepted": {
+        "matchesProjectsMessagesFormat": true,
+        "projectSegmentMatchesProject": true
+      },
+      "http2SendEachDryRun": {
+        "successCount": 1,
+        "failureCount": 1,
+        "responseCount": 2,
+        "responses": [
+          {
+            "index": 0,
+            "success": true,
+            "hasMessageId": true,
+            "nameFacts": {
+              "matchesProjectsMessagesFormat": true,
+              "projectSegmentMatchesProject": true
+            },
+            "hasError": false,
+            "error": null
+          },
+          {
+            "index": 1,
+            "success": false,
+            "hasMessageId": false,
+            "nameFacts": null,
+            "hasError": true,
+            "error": {
+              "code": "messaging/invalid-argument",
+              "message": "The registration token is not a valid FCM registration token",
+              "isFirebaseMessagingError": true,
+              "name": "Error"
+            }
+          }
+        ]
+      },
+      "legacyHttp1SendEachDryRun": {
+        "successCount": 1,
+        "failureCount": 1,
+        "responseCount": 2,
+        "responses": [
+          {
+            "index": 0,
+            "success": true,
+            "hasMessageId": true,
+            "nameFacts": {
+              "matchesProjectsMessagesFormat": true,
+              "projectSegmentMatchesProject": true
+            },
+            "hasError": false,
+            "error": null
+          },
+          {
+            "index": 1,
+            "success": false,
+            "hasMessageId": false,
+            "nameFacts": null,
+            "hasError": true,
+            "error": {
+              "code": "messaging/invalid-argument",
+              "message": "The registration token is not a valid FCM registration token",
+              "isFirebaseMessagingError": true,
+              "name": "Error"
+            }
+          }
+        ]
+      },
+      "liveHttp2MatchesLegacyHttp1": true
+    }
+  }
+}
