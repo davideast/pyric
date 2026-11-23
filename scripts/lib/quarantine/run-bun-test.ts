@@ -1,15 +1,18 @@
 // Runs `bun test`. With quarantine on (`--quarantine`, source.ts), it adds a JUnit report
 // beside the usual console output and lets the quarantine verdict decide the
-// exit code; otherwise it is plain `bun test`. Each run gets its own private
-// TMPDIR under ~/.cache/pyric-tmp/<suite> removed on finish.
+// exit code; otherwise it runs `bun test` without forgiving quarantined tests,
+// while still enforcing JUnit and summary integrity so a test file that crashes
+// or exits before registering tests can never pass (#1207). Each run gets its
+// own private TMPDIR under ~/.cache/pyric-tmp/<suite> removed on finish.
 
 import { spawn, type StdioOptions } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, unlinkSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { createPrivateJobTmpDir, removePrivateJobTmpDir } from '../private-job-tmpdir.ts';
 import { REPO_ROOT, todayUtc, type LoadedEntry } from './entries.ts';
 import { consoleTotals, parseJunit } from './junit.ts';
 import { publish } from './report.ts';
+import { expectedSuiteFiles, suiteIntegrityProblem } from './run-bun-test-integrity.ts';
 import { runEntries } from './source.ts';
 import { honouredEntries } from './validate.ts';
 import { decide, type RunEvidence, type Verdict } from './verdict.ts';
@@ -50,24 +53,40 @@ function childEnvWithPrivateTmp(jobTmpDir: string): NodeJS.ProcessEnv {
   };
 }
 
+function forwardingStdio(captureStdout: boolean): StdioOptions {
+  if (captureStdout) {
+    return ['inherit', 'pipe', 'pipe'];
+  }
+  return ['inherit', 'inherit', 'pipe'];
+}
+
 function runForwarding(
   cwd: string,
   args: string[],
   jobTmpDir: string,
   forward: (chunk: string) => void,
+  captureStdout: boolean,
 ): Promise<Finished> {
   return new Promise((resolvePromise, reject) => {
     const child = spawn('bun', args, {
       cwd,
       env: childEnvWithPrivateTmp(jobTmpDir),
-      stdio: ['inherit', 'inherit', 'pipe'],
+      stdio: forwardingStdio(captureStdout),
     });
     let tail = '';
-    child.stderr.setEncoding('utf8');
-    child.stderr.on('data', (chunk: string) => {
-      forward(chunk);
-      tail = (tail + chunk).slice(-TAIL_BYTES);
-    });
+    if (captureStdout && child.stdout) {
+      child.stdout.setEncoding('utf8');
+      child.stdout.on('data', (chunk: string) => {
+        forward(chunk);
+      });
+    }
+    if (child.stderr) {
+      child.stderr.setEncoding('utf8');
+      child.stderr.on('data', (chunk: string) => {
+        forward(chunk);
+        tail = (tail + chunk).slice(-TAIL_BYTES);
+      });
+    }
     child.on('error', reject);
     child.on('close', (code) => resolvePromise({ exitCode: code, stderrTail: tail }));
   });
@@ -87,36 +106,65 @@ function readResults(junitFile: string, cwd: string): RunEvidence['results'] {
   }
 }
 
-/** Plain bun test writes straight to the job log, unless a test captures it. */
-function plainStdio(forward: BunTestRun['forward']): StdioOptions {
-  if (forward === undefined) return 'inherit';
-  return ['inherit', 'pipe', 'pipe'];
+function stderrWriter(forwardOption: BunTestRun['forward']): (chunk: string) => void {
+  if (forwardOption !== undefined) {
+    return forwardOption;
+  }
+  return (chunk: string) => {
+    process.stderr.write(chunk);
+  };
+}
+
+let junitSeq = 0;
+
+function unlinkIfPresent(filePath: string): void {
+  try {
+    if (existsSync(filePath)) {
+      unlinkSync(filePath);
+    }
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw err;
+    }
+  }
 }
 
 async function runPlain(run: BunTestRun): Promise<number> {
+  const expected = expectedSuiteFiles(run.cwd, run.args);
   const jobTmpDir = createPrivateJobTmpDir(run.suite);
+  const junitBase = process.env.RUNNER_TEMP ?? jobTmpDir;
+  junitSeq += 1;
+  const junitFile = join(junitBase, `pyric-junit-${process.pid}-${junitSeq}.xml`);
   try {
-    return await new Promise<number>((resolvePromise, reject) => {
-      const forward = run.forward;
-      const child = spawn('bun', ['test', ...run.args], {
-        cwd: run.cwd,
-        env: childEnvWithPrivateTmp(jobTmpDir),
-        stdio: plainStdio(forward),
-      });
-      if (forward) {
-        child.stdout?.setEncoding('utf8').on('data', forward);
-        child.stderr?.setEncoding('utf8').on('data', forward);
-      }
-      child.on('error', reject);
-      child.on('close', (code) => resolvePromise(code ?? 1));
+    const args = ['test', '--reporter=junit', `--reporter-outfile=${junitFile}`, ...run.args];
+    const forward = stderrWriter(run.forward);
+    const finished = await runForwarding(run.cwd, args, jobTmpDir, forward, run.forward !== undefined);
+    if (finished.exitCode !== 0) {
+      return finished.exitCode ?? 1;
+    }
+    const results = readResults(junitFile, run.cwd);
+    const totals = consoleTotals(finished.stderrTail);
+    const problem = suiteIntegrityProblem({
+      cwd: run.cwd,
+      exitCode: finished.exitCode,
+      stderrTail: finished.stderrTail,
+      results,
+      totals,
+      expected,
     });
+    if (problem !== undefined) {
+      forward(`\n[bun-test] ${problem}\n`);
+      return 1;
+    }
+    return 0;
   } finally {
+    unlinkIfPresent(junitFile);
     removePrivateJobTmpDir(jobTmpDir);
   }
 }
 
 /** Runs the suite and returns the exit code it should end with. Unless
- *  quarantine is on (`--quarantine`, source.ts), it is plain `bun test`. */
+ *  quarantine is on (`--quarantine`, source.ts), no failure is forgiven. */
 export async function runBunTest(run: BunTestRun): Promise<number> {
   if (!run.quarantine) return runPlain(run);
   return (await runBunTestVerdict(run)).exitCode;
@@ -124,19 +172,15 @@ export async function runBunTest(run: BunTestRun): Promise<number> {
 
 /** Runs the suite with a JUnit report and returns its quarantine verdict. */
 export async function runBunTestVerdict(run: BunTestRun): Promise<Verdict> {
+  const expected = expectedSuiteFiles(run.cwd, run.args);
   const jobTmpDir = createPrivateJobTmpDir(run.suite);
   const junitBase = process.env.RUNNER_TEMP ?? jobTmpDir;
-  const junitDir = mkdtempSync(join(junitBase, 'quarantine-'));
+  junitSeq += 1;
+  const junitFile = join(junitBase, `pyric-junit-${process.pid}-${junitSeq}.xml`);
   try {
-    const junitFile = join(junitDir, 'junit.xml');
     const args = ['test', '--reporter=junit', `--reporter-outfile=${junitFile}`, ...run.args];
-    let forward = (chunk: string) => {
-      process.stderr.write(chunk);
-    };
-    if (run.forward !== undefined) {
-      forward = run.forward;
-    }
-    const finished = await runForwarding(run.cwd, args, jobTmpDir, forward);
+    const forward = stderrWriter(run.forward);
+    const finished = await runForwarding(run.cwd, args, jobTmpDir, forward, run.forward !== undefined);
     const evidence: RunEvidence = {
       exitCode: finished.exitCode,
       results: readResults(junitFile, run.cwd),
@@ -154,11 +198,32 @@ export async function runBunTestVerdict(run: BunTestRun): Promise<Verdict> {
     if (today === undefined) {
       today = todayUtc();
     }
-    const verdict = decide(evidence, entries, today);
+    let verdict = decide(evidence, entries, today);
+    const problem = suiteIntegrityProblem({
+      cwd: run.cwd,
+      exitCode: finished.exitCode,
+      stderrTail: finished.stderrTail,
+      results: evidence.results,
+      totals: evidence.totals,
+      expected,
+    });
+    if (problem !== undefined && verdict.exitCode === 0) {
+      let failureCode = 1;
+      if (finished.exitCode !== null && finished.exitCode !== 0) {
+        failureCode = finished.exitCode;
+      }
+      verdict = {
+        ...verdict,
+        exitCode: failureCode,
+        forgiven: false,
+        reason: problem,
+      };
+      forward(`\n[quarantine] ${problem}\n`);
+    }
     publish(run.suite, verdict, effectiveEnv);
     return verdict;
   } finally {
-    rmSync(junitDir, { recursive: true, force: true });
+    unlinkIfPresent(junitFile);
     removePrivateJobTmpDir(jobTmpDir);
   }
 }

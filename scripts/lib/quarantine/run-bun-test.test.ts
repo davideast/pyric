@@ -3,9 +3,10 @@
 // with. No browser and no network.
 
 import { afterAll, describe, expect, test } from 'bun:test';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
-import { join, relative } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { dirname, join, relative } from 'node:path';
+import { createPrivateJobTmpDir, removePrivateJobTmpDir } from '../private-job-tmpdir.ts';
 import { REPO_ROOT, addDays, entryFileName, type LoadedEntry } from './entries.ts';
 import { runBunTest, runBunTestVerdict } from './run-bun-test.ts';
 
@@ -13,15 +14,27 @@ const TODAY = '2026-10-29';
 const dirs: string[] = [];
 
 afterAll(() => {
-  for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
+  for (const dir of dirs) removePrivateJobTmpDir(dir);
 });
 
 function suite(files: Record<string, string>): { cwd: string; id: (file: string, name?: string) => string } {
-  const cwd = mkdtempSync(join(tmpdir(), 'quarantine-suite-'));
+  const cwd = createPrivateJobTmpDir('quarantine-suite');
   dirs.push(cwd);
-  for (const [name, text] of Object.entries(files)) writeFileSync(join(cwd, name), text);
+  for (const [name, text] of Object.entries(files)) {
+    const filePath = join(cwd, name);
+    mkdirSync(dirname(filePath), { recursive: true });
+    writeFileSync(filePath, text);
+  }
   const base = relative(REPO_ROOT, cwd);
-  return { cwd, id: (file, name) => (name === undefined ? `${base}/${file}` : `${base}/${file} > ${name}`) };
+  return {
+    cwd,
+    id: (file, name) => {
+      if (name === undefined) {
+        return `${base}/${file}`;
+      }
+      return `${base}/${file} > ${name}`;
+    },
+  };
 }
 
 function entry(test: string, expires: string = addDays(TODAY, 14)): LoadedEntry {
@@ -169,13 +182,15 @@ describe('the quarantine runner on real bun test runs', () => {
     expect(flagged.exitCode).toBe(0);
   });
 
-  test('a passing run exits 0 and removes its temporary JUnit directory', async () => {
-    const runnerTemp = mkdtempSync(join(tmpdir(), 'quarantine-runner-temp-'));
-    dirs.push(runnerTemp);
+  test('a passing run exits 0 and removes its temporary JUnit file', async () => {
+    const runnerTempRoot = createPrivateJobTmpDir('quarantine-runner-temp');
+    dirs.push(runnerTempRoot);
+    const runnerTemp = join(runnerTempRoot, 'runner-temp');
+    mkdirSync(runnerTemp, { recursive: true });
     const savedRunnerTemp = process.env.RUNNER_TEMP;
     process.env.RUNNER_TEMP = runnerTemp;
     try {
-      const run = suite({ 'pass.test.ts': 'import { test } from \'bun:test\';\ntest(\'ok\', () => {});\n' });
+      const run = suite({ 'pass.test.ts': "import { test } from 'bun:test';\ntest('ok', () => {});\n" });
       expect(await exitCode(run.cwd, [])).toBe(0);
       expect(readdirSync(runnerTemp)).toEqual([]);
     } finally {
@@ -188,15 +203,16 @@ describe('the quarantine runner on real bun test runs', () => {
   });
 
   test('isolates child bun test TMPDIR under ~/.cache/pyric-tmp/<suite> and removes it on exit', async () => {
-    const recordPath = join(mkdtempSync(join(tmpdir(), 'quarantine-tmp-check-')), 'observed.json');
-    dirs.push(join(recordPath, '..'));
+    const recordDir = createPrivateJobTmpDir('quarantine-tmp-check');
+    dirs.push(recordDir);
+    const recordPath = join(recordDir, 'observed.json');
     const probeTest = [
       "import { mkdtempSync, writeFileSync } from 'node:fs';",
       "import { tmpdir } from 'node:os';",
       "import { join } from 'node:path';",
       "import { test } from 'bun:test';",
       "test('records tmpdir', () => {",
-      "  const observedTmp = tmpdir();",
+      '  const observedTmp = tmpdir();',
       "  const sub = mkdtempSync(join(observedTmp, 'inner-'));",
       `  writeFileSync(${JSON.stringify(recordPath)}, JSON.stringify({ observedTmp, sub }));`,
       '});',
@@ -222,5 +238,126 @@ describe('the quarantine runner on real bun test runs', () => {
     expect(parsed.observedTmp.startsWith(join(homedir(), '.cache', 'pyric-tmp', ''))).toBe(true);
     expect(existsSync(parsed.observedTmp)).toBe(false);
     expect(existsSync(parsed.sub)).toBe(false);
+  });
+
+  test('fails when a *.test.* file crashes or exits before registering any test, with or without --quarantine (#1207)', async () => {
+    const passing = "import { expect, test } from 'bun:test';\ntest('ok', () => { expect(1).toBe(1); });\n";
+    const asyncCrashBeforeRegister = "setTimeout(() => { throw new Error('crash before registering'); }, 0);\n";
+    const run = suite({ 'z_ok.test.ts': passing, 'a_crash.test.ts': asyncCrashBeforeRegister });
+    const plainLogs: string[] = [];
+    expect(
+      await runBunTest({
+        cwd: run.cwd,
+        args: ['./'],
+        suite: 'plain-crash',
+        entries: [],
+        today: TODAY,
+        forward: (c) => plainLogs.push(c),
+        env: {},
+        quarantine: false,
+      }),
+    ).toBe(1);
+    expect(plainLogs.join('')).toContain('a_crash.test.ts');
+
+    const verdict = await runBunTestVerdict({
+      cwd: run.cwd,
+      args: ['./'],
+      suite: 'quarantine-crash',
+      entries: [],
+      today: TODAY,
+      forward: () => {},
+      env: {},
+      quarantine: true,
+    });
+    expect(verdict.exitCode).toBe(1);
+    expect(verdict.forgiven).toBe(false);
+    expect(verdict.reason).toContain('a_crash.test.ts');
+
+    const withQuarantinedFlake = suite({
+      'flaky.test.ts': FLAKY,
+      'a_crash.test.ts': asyncCrashBeforeRegister,
+    });
+    expect(
+      await exitCode(withQuarantinedFlake.cwd, [
+        entry(withQuarantinedFlake.id('flaky.test.ts', 'flaky > fails')),
+      ]),
+    ).toBe(1);
+  });
+
+  test('fails when a test file calls process.exit(0) before all files run, with or without --quarantine (#1207)', async () => {
+    const earlyExit = 'process.exit(0);\n';
+    const passing = "import { test } from 'bun:test';\ntest('never reached', () => {});\n";
+    const run = suite({ 'a_exit.test.ts': earlyExit, 'z_ok.test.ts': passing });
+    expect(
+      await runBunTest({
+        cwd: run.cwd,
+        args: ['./'],
+        suite: 'plain-early-exit',
+        entries: [],
+        today: TODAY,
+        forward: () => {},
+        env: {},
+        quarantine: false,
+      }),
+    ).toBe(1);
+    const verdict = await runBunTestVerdict({
+      cwd: run.cwd,
+      args: ['./'],
+      suite: 'quarantine-early-exit',
+      entries: [],
+      today: TODAY,
+      forward: () => {},
+      env: {},
+      quarantine: true,
+    });
+    expect(verdict.exitCode).toBe(1);
+    expect(verdict.forgiven).toBe(false);
+  });
+
+  test('allows non-test *.spec.ts contract files alongside passing *.test.ts suites (#1207)', async () => {
+    const run = suite({
+      'src/atoms.spec.ts': 'export const ATOM_SPECS = { auth: "auth != null" };\n',
+      'test/atoms.test.ts': "import { expect, test } from 'bun:test';\ntest('ok', () => { expect(1).toBe(1); });\n",
+    });
+    expect(
+      await runBunTest({
+        cwd: run.cwd,
+        args: ['./'],
+        suite: 'spec-contract',
+        entries: [],
+        today: TODAY,
+        forward: () => {},
+        env: {},
+        quarantine: false,
+      }),
+    ).toBe(0);
+    expect(await exitCode(run.cwd, [])).toBe(0);
+  });
+
+  test('handles test files that call process.chdir() in beforeAll, where bun JUnit emits absolute file paths (#1207)', async () => {
+    const chdirDir = createPrivateJobTmpDir('quarantine-chdir-target');
+    dirs.push(chdirDir);
+    const chdirTest = [
+      "import { afterAll, beforeAll, expect, test } from 'bun:test';",
+      'const orig = process.cwd();',
+      `beforeAll(() => process.chdir(${JSON.stringify(chdirDir)}));`,
+      'afterAll(() => process.chdir(orig));',
+      "test('runs from another directory', () => { expect(process.cwd()).not.toBe(orig); });",
+      '',
+    ].join('\n');
+    const run = suite({ 'test/chdir.test.ts': chdirTest });
+    expect(
+      await runBunTest({
+        cwd: run.cwd,
+        args: ['./test/chdir.test.ts'],
+        suite: 'chdir-plain',
+        entries: [],
+        today: TODAY,
+        forward: () => {},
+        env: {},
+        quarantine: false,
+      }),
+    ).toBe(0);
+    expect(await exitCode(run.cwd, [])).toBe(0);
   });
 });

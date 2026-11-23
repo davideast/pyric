@@ -141,80 +141,32 @@ export class IndexedDbStorageBackend implements StorageBackend {
   async getBlob(path: string, bucket?: string): Promise<Blob | undefined> {
     const tx = this.transaction(BLOBS_STORE, 'readonly');
     const store = tx.objectStore(BLOBS_STORE);
-    if (bucket) {
-      return awaitRequest<Blob | undefined>(store.get(toStorageKey(bucket, path)));
-    }
-    const targetBucket = this._defaultBucket ?? DEFAULT_BUCKET;
-    const direct = await awaitRequest<Blob | undefined>(store.get(toStorageKey(targetBucket, path)));
-    if (direct !== undefined) return direct;
-    if (targetBucket !== DEFAULT_BUCKET) {
-      const def = await awaitRequest<Blob | undefined>(store.get(toStorageKey(DEFAULT_BUCKET, path)));
-      if (def !== undefined) return def;
-    }
-    return new Promise((resolve, reject) => {
-      const req = store.openCursor();
-      req.addEventListener('success', () => {
-        const cursor = req.result;
-        if (!cursor) {
-          resolve(undefined);
-          return;
-        }
-        const key = String(cursor.key);
-        const parsed = parseStorageKey(key);
-        if (parsed && parsed.path === path) {
-          resolve(cursor.value as Blob);
-          return;
-        }
-        cursor.continue();
-      });
-      req.addEventListener('error', () => reject(req.error));
-    });
+    return withCompletedTransaction(tx, () =>
+      readStoreEntry<Blob>(store, path, bucket, this._defaultBucket),
+    );
   }
 
   async getMetadata(path: string, bucket?: string): Promise<StoredMetadata | undefined> {
     const tx = this.transaction(METADATA_STORE, 'readonly');
     const store = tx.objectStore(METADATA_STORE);
-    if (bucket) {
-      return awaitRequest<StoredMetadata | undefined>(store.get(toStorageKey(bucket, path)));
-    }
-    const targetBucket = this._defaultBucket ?? DEFAULT_BUCKET;
-    const direct = await awaitRequest<StoredMetadata | undefined>(store.get(toStorageKey(targetBucket, path)));
-    if (direct !== undefined) return direct;
-    if (targetBucket !== DEFAULT_BUCKET) {
-      const def = await awaitRequest<StoredMetadata | undefined>(store.get(toStorageKey(DEFAULT_BUCKET, path)));
-      if (def !== undefined) return def;
-    }
-    return new Promise((resolve, reject) => {
-      const req = store.openCursor();
-      req.addEventListener('success', () => {
-        const cursor = req.result;
-        if (!cursor) {
-          resolve(undefined);
-          return;
-        }
-        const key = String(cursor.key);
-        const parsed = parseStorageKey(key);
-        if (parsed && parsed.path === path) {
-          resolve(cursor.value as StoredMetadata);
-          return;
-        }
-        cursor.continue();
-      });
-      req.addEventListener('error', () => reject(req.error));
-    });
+    return withCompletedTransaction(tx, () =>
+      readStoreEntry<StoredMetadata>(store, path, bucket, this._defaultBucket),
+    );
   }
 
   async getObject(path: string, bucket?: string): Promise<StoredObject | undefined> {
     const key = toStorageKey(bucket ?? this._defaultBucket ?? DEFAULT_BUCKET, path);
     // One transaction over both stores reads both halves of the same write.
     const tx = this.transaction([BLOBS_STORE, METADATA_STORE], 'readonly');
-    const [blob, metadata] = await Promise.all([
-      awaitRequest<Blob | undefined>(tx.objectStore(BLOBS_STORE).get(key)),
-      awaitRequest<StoredMetadata | undefined>(tx.objectStore(METADATA_STORE).get(key)),
-    ]);
-    const missingObject = blob === undefined || metadata === undefined;
-    if (missingObject) return undefined;
-    return { blob, metadata };
+    return withCompletedTransaction(tx, async () => {
+      const [blob, metadata] = await Promise.all([
+        awaitRequest<Blob | undefined>(tx.objectStore(BLOBS_STORE).get(key)),
+        awaitRequest<StoredMetadata | undefined>(tx.objectStore(METADATA_STORE).get(key)),
+      ]);
+      const missingObject = blob === undefined || metadata === undefined;
+      if (missingObject) return undefined;
+      return { blob, metadata };
+    });
   }
 
   async putMetadata(path: string, metadata: StoredMetadata, bucket?: string): Promise<void> {
@@ -240,8 +192,8 @@ export class IndexedDbStorageBackend implements StorageBackend {
     const tx = this.transaction(METADATA_STORE, 'readonly');
     const keyPrefix = `${targetBucket}/${prefix}`;
     const range = prefixKeyRange(keyPrefix);
-    return awaitRequest<StoredMetadata[]>(
-      tx.objectStore(METADATA_STORE).getAll(range),
+    return withCompletedTransaction(tx, () =>
+      awaitRequest<StoredMetadata[]>(tx.objectStore(METADATA_STORE).getAll(range)),
     );
   }
 
@@ -351,6 +303,50 @@ function readObject(tx: IDBTransaction, key: string): { object(): StoredObject |
       return { blob: found, metadata: stored };
     },
   };
+}
+
+async function readStoreEntry<T>(
+  store: IDBObjectStore,
+  path: string,
+  bucket: string | undefined,
+  defaultBucket: string | undefined,
+): Promise<T | undefined> {
+  if (bucket) {
+    return awaitRequest<T | undefined>(store.get(toStorageKey(bucket, path)));
+  }
+  const targetBucket = defaultBucket ?? DEFAULT_BUCKET;
+  const direct = await awaitRequest<T | undefined>(store.get(toStorageKey(targetBucket, path)));
+  if (direct !== undefined) return direct;
+  if (targetBucket !== DEFAULT_BUCKET) {
+    const def = await awaitRequest<T | undefined>(store.get(toStorageKey(DEFAULT_BUCKET, path)));
+    if (def !== undefined) return def;
+  }
+  return new Promise((resolve, reject) => {
+    const req = store.openCursor();
+    req.addEventListener('success', () => {
+      const cursor = req.result;
+      if (!cursor) {
+        resolve(undefined);
+        return;
+      }
+      const key = String(cursor.key);
+      const parsed = parseStorageKey(key);
+      if (parsed && parsed.path === path) {
+        resolve(cursor.value as T);
+        return;
+      }
+      cursor.continue();
+    });
+    req.addEventListener('error', () => reject(req.error));
+  });
+}
+
+async function withCompletedTransaction<T>(tx: IDBTransaction, run: () => Promise<T>): Promise<T> {
+  const completed = awaitTransaction(tx);
+  void completed.catch((_abortError: unknown) => undefined);
+  const value = await run();
+  await completed;
+  return value;
 }
 
 function awaitRequest<T>(req: IDBRequest<T>): Promise<T> {
