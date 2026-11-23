@@ -50,6 +50,53 @@ const PRODUCTION_ANSWERS = [
 /** The refusal text a client service with no path to the host carries. */
 const NO_PATH = /does not reach the sandbox host from a server process/;
 
+/** Process state surface needed to diagnose an SSR HTTP connection failure (#1605). */
+export interface ServerProcessView {
+  readonly running: boolean;
+  readonly exited: Promise<number | null>;
+  readonly output: string;
+}
+
+/**
+ * Wraps a failed SSR HTTP request with whether the dev server process is still
+ * running or exited (for example under memory pressure) and its log tail (#1605).
+ */
+export async function formatServerRequestFailure(
+  url: string,
+  proc: ServerProcessView,
+  cause: Error,
+): Promise<Error> {
+  let state = 'still running';
+  if (!proc.running) {
+    const code = await proc.exited;
+    state = `exited with code ${String(code)}`;
+  }
+  const tail = proc.output.trimEnd().split('\n').slice(-20).join('\n');
+  const logSection = tail === '' ? '(no server output)' : tail;
+  return new Error(
+    `SSR request to ${url} failed (${cause.message}); dev server process ${state}. Last server output:\n${logSection}`,
+    { cause },
+  );
+}
+
+/** Runs `send(url)` against `server` and enriches any transport error with `server.process` state. */
+export async function requestDevServer(
+  server: { readonly url: string; readonly process: ServerProcessView },
+  path: string,
+  send: (url: string) => Promise<{ status: number; body: string }> = fetchText,
+): Promise<{ url: string; status: number; body: string }> {
+  const url = `${server.url}${path}`;
+  try {
+    const result = await send(url);
+    return { url, status: result.status, body: result.body };
+  } catch (error) {
+    if (error instanceof Error) {
+      throw await formatServerRequestFailure(url, server.process, error);
+    }
+    throw error;
+  }
+}
+
 /** A GET to the HTTPS dev server. Its certificate is self-signed, so this test's own request skips verifying it. */
 function getOverHttps(url: string): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
@@ -64,24 +111,24 @@ function getOverHttps(url: string): Promise<{ status: number; body: string }> {
   });
 }
 
-async function getText(url: string): Promise<{ status: number; body: string }> {
+async function fetchText(url: string): Promise<{ status: number; body: string }> {
   const isHttps = url.startsWith('https:');
   if (isHttps) return getOverHttps(url);
   const response = await fetch(url);
   return { status: response.status, body: await response.text() };
 }
 
-async function get(url: string): Promise<Run> {
-  const { status, body } = await getText(url);
+async function get(server: DevServer, path: string): Promise<Run> {
+  const { url, status, body } = await requestDevServer(server, path);
   assert.equal(status, 200, `${url}: ${body}`);
   return JSON.parse(body) as Run;
 }
 
 const runSsr = (server: DevServer, runner: string, tag: string) =>
-  get(`${server.url}/ssr/run?runner=${runner}&tag=${tag}`);
+  get(server, `/ssr/run?runner=${runner}&tag=${tag}`);
 
 const runAdmin = (server: DevServer, runner: string, uid: string, tag: string) =>
-  get(`${server.url}/ssr/admin?runner=${runner}&uid=${uid}&tag=${tag}`);
+  get(server, `/ssr/admin?runner=${runner}&uid=${uid}&tag=${tag}`);
 
 function expectOk(outcomes: Outcomes, name: string, value: unknown): void {
   assert.deepEqual(outcomes[name], { ok: true, value }, `${name}: ${JSON.stringify(outcomes, null, 2)}`);
@@ -118,8 +165,8 @@ function assertRunsAsUser(run: Run, tag: string): string {
 
 /** The hosts trap.cjs sent to its closed port in the dev server process. */
 async function trappedHosts(server: DevServer): Promise<string[]> {
-  const response = await fetch(`${server.url}/ssr/trapped`);
-  const trapped = JSON.parse(await response.text()) as string[] | null;
+  const { body } = await requestDevServer(server, '/ssr/trapped');
+  const trapped = JSON.parse(body) as string[] | null;
   assert.ok(Array.isArray(trapped), 'trap.cjs did not load in the dev server');
   return trapped;
 }
@@ -145,9 +192,8 @@ async function externalizationShape(app: App, noExternal: 'firebase' | 'all', ru
   });
   if (noExternal === 'all') {
     await app.step('ssr.noExternal all: local-client-lib routes firebase/database to the hosted sandbox (#1143)', async () => {
-      const response = await fetch(`${server.url}/ssr/local-client?runner=${runner}&tag=noext-local-client`);
-      const body = await response.text();
-      assert.equal(response.status, 200, body);
+      const { status, body } = await requestDevServer(server, `/ssr/local-client?runner=${runner}&tag=noext-local-client`);
+      assert.equal(status, 200, body);
       assert.deepEqual(JSON.parse(body), { value: { from: 'local-client-lib' } }, body);
     });
     await devSdkNamesStop(app, server, runner);
@@ -169,7 +215,7 @@ const SDK_NAMES = ['@firebase/app', '@firebase/firestore', `${ADMIN_ALIAS}/app`]
  */
 async function devSdkNamesStop(app: App, server: DevServer, runner: string): Promise<void> {
   await app.step('ssr.noExternal all: each server-rendered import of a Firebase SDK name stops at load', async () => {
-    const { outcomes } = await get(`${server.url}/ssr/sdk-names?runner=${runner}`);
+    const { outcomes } = await get(server, `/ssr/sdk-names?runner=${runner}`);
     for (const name of SDK_NAMES) expectCode(outcomes, name, 'PYRIC_REAL_SDK_STOPPED');
   });
 }
@@ -230,10 +276,12 @@ export default scenario(async (app) => {
   // storage bucket is the one refused, and the dev server log says so.
   const writeFromPage = async (variant: string): Promise<Outcome> => {
     const page = await app.page(`${host.url}/measurement.html?variant=${variant}`);
-    await page.waitForFunction(() => 'measured' in window);
-    const result = await page.evaluate(() => (window as unknown as { measured: { write(): Promise<Outcome> } }).measured.write());
-    await page.close();
-    return result;
+    try {
+      await page.waitForFunction(() => 'measured' in window);
+      return await page.evaluate(() => (window as unknown as { measured: { write(): Promise<Outcome> } }).measured.write());
+    } finally {
+      await page.close();
+    }
   };
 
   await app.step('a page whose config adds measurementId is accepted alongside SSR', async () => {
@@ -256,11 +304,17 @@ export default scenario(async (app) => {
     assert.equal(afterUid, uid, 'the SSR session survives both pages');
   });
 
+  // Close the browser page before stopping `host` so an orphan tab does not keep
+  // polling the stopped port during later `ssr.noExternal` runs (#1605).
   await app.step('the browser still writes and reads through the sandbox', async () => {
     const page = await app.page(host.url);
-    await page.waitForFunction(() => 'repro' in window);
-    const read = await page.evaluate(() => repro.writeAndRead('browser'));
-    assert.deepEqual(read, { rtdb: { from: 'browser' }, firestore: { from: 'browser' } });
+    try {
+      await page.waitForFunction(() => 'repro' in window);
+      const read = await page.evaluate(() => repro.writeAndRead('browser'));
+      assert.deepEqual(read, { rtdb: { from: 'browser' }, firestore: { from: 'browser' } });
+    } finally {
+      await page.close();
+    }
   });
 
   await app.step('SSR firebase-admin reads past the rules, through both loaders', async () => {
@@ -286,9 +340,8 @@ export default scenario(async (app) => {
   await app.step('an externalized package that imports firebase-admin/app fails the SSR request with the stop error', async () => {
     const logSince = host.process.mark();
     const before = await trappedHosts(host);
-    const response = await fetch(`${host.url}/ssr/local-admin?runner=legacy`);
-    const body = await response.text();
-    assert.equal(response.status, 500, body);
+    const { status, body } = await requestDevServer(host, '/ssr/local-admin?runner=legacy');
+    assert.equal(status, 500, body);
     assert.match(body, /stopped loading the real firebase-admin\n {2}import 'firebase-admin\/app'/, body);
     await host.process.waitForLog(/code: PYRIC_REAL_SDK_STOPPED/, { since: logSince, timeoutMs: 10_000 });
     assert.deepEqual((await trappedHosts(host)).slice(before.length), [], 'trap.cjs recorded a connection');
@@ -297,16 +350,15 @@ export default scenario(async (app) => {
   await app.step('an externalized package that imports firebase/database fails the SSR request with the stop error (#1143)', async () => {
     const logSince = host.process.mark();
     const before = await trappedHosts(host);
-    const response = await fetch(`${host.url}/ssr/local-client?runner=legacy`);
-    const body = await response.text();
-    assert.equal(response.status, 500, body);
+    const { status, body } = await requestDevServer(host, '/ssr/local-client?runner=legacy');
+    assert.equal(status, 500, body);
     assert.match(body, /stopped loading the real firebase\n {2}import 'firebase\/app'/, body);
     await host.process.waitForLog(/code: PYRIC_REAL_SDK_STOPPED/, { since: logSince, timeoutMs: 10_000 });
     assert.deepEqual((await trappedHosts(host)).slice(before.length), [], 'trap.cjs recorded a connection');
   });
 
   await app.step('a worker-thread SSR runner reaches the hosted sandbox for both client and firebase-admin (#1144)', async () => {
-    const { outcomes } = await get(`${host.url}/ssr/worker?tag=worker-http`);
+    const { outcomes } = await get(host, '/ssr/worker?tag=worker-http');
     expectOk(outcomes, 'worker.database', { from: 'worker-ssr' });
     expectOk(outcomes, 'worker.firestore', { from: 'worker-ssr' });
     expectOk(outcomes, 'worker.adminDatabase', { from: 'worker-ssr' });
@@ -315,9 +367,13 @@ export default scenario(async (app) => {
 
   await app.step('a page that imports firebase/installations gets the stop error in Chromium', async () => {
     const page = await app.page(`${host.url}/installations.html`);
-    await page.waitForFunction(() => 'installations' in window);
-    const result = await page.evaluate(() => (window as unknown as { installations: Outcome }).installations);
-    await page.close();
+    let result: Outcome;
+    try {
+      await page.waitForFunction(() => 'installations' in window);
+      result = await page.evaluate(() => (window as unknown as { installations: Outcome }).installations);
+    } finally {
+      await page.close();
+    }
     assert.equal(result.ok, false, JSON.stringify(result));
     if (result.ok) return;
     assert.equal(result.code, 'PYRIC_REAL_SDK_STOPPED', JSON.stringify(result));
@@ -347,7 +403,7 @@ export default scenario(async (app) => {
     assert.match(pointer.url, /^https:\/\//, JSON.stringify(pointer));
   });
   await app.step('HTTPS: worker-thread SSR reaches the HTTPS host with pinned certificate trust (#1144)', async () => {
-    const { outcomes } = await get(`${secure.url}/ssr/worker?tag=worker-https`);
+    const { outcomes } = await get(secure, '/ssr/worker?tag=worker-https');
     expectOk(outcomes, 'worker.database', { from: 'worker-ssr' });
     expectOk(outcomes, 'worker.adminDatabase', { from: 'worker-ssr' });
   });
@@ -366,7 +422,7 @@ export default scenario(async (app) => {
       const admin = await runAdmin(worker, runner, 'someone', `worker-${runner}`);
       expectCode(admin.outcomes, 'admin.database', 'failed-precondition', /hosted: true/);
     }
-    const workerThread = await get(`${worker.url}/ssr/worker?tag=worker-sw`);
+    const workerThread = await get(worker, '/ssr/worker?tag=worker-sw');
     expectCode(workerThread.outcomes, 'worker.auth', 'failed-precondition', /hosted: true/);
     expectCode(workerThread.outcomes, 'worker.adminDatabase', 'failed-precondition', /hosted: true/);
     assertNoProductionTraffic(worker, workerSince);
@@ -381,7 +437,7 @@ export default scenario(async (app) => {
 
   await app.step('production AI mode: SSR firebase/app-check initializes and stops direct @firebase/ai or absolute SDK loads (#1630, #1907, #1735)', async () => {
     for (const runner of ['legacy', 'environment']) {
-      const { outcomes } = await get(`${production.url}/ssr/app-check?runner=${runner}&tag=${runner}`);
+      const { outcomes } = await get(production, `/ssr/app-check?runner=${runner}&tag=${runner}`);
       expectOk(outcomes, 'appCheckToken', `ssr-token-${runner}`);
       expectCode(outcomes, '@firebase/ai', 'PYRIC_REAL_SDK_STOPPED');
       expectCode(outcomes, 'absFirebaseApp', 'PYRIC_REAL_SDK_STOPPED');
@@ -391,13 +447,13 @@ export default scenario(async (app) => {
 
   await app.step('production AI mode: SSR firebase/ai goes out, and only to Firebase AI Logic', async () => {
     const since = production.process.mark();
-    const { outcomes } = await get(`${production.url}/ssr/run-ai?runner=legacy`);
+    const { outcomes } = await get(production, '/ssr/run-ai?runner=legacy');
     assert.equal(outcomes.ai?.ok, false, `firebase/ai: ${JSON.stringify(outcomes)}`);
     await production.process.waitForLog(/\[egress stand-in\] refused fetch to /, { since, timeoutMs: 10_000 });
     const log = production.process.output.slice(since);
     const refused = [...log.matchAll(/\[egress stand-in\] refused fetch to (\S+)/g)].map((match) => match[1] ?? '');
     assert.deepEqual(refused, ['firebasevertexai.googleapis.com'], `dev server log:\n${log}`);
-    const afterAi = await get(`${production.url}/ssr/app-check?runner=legacy&tag=after-ai`);
+    const afterAi = await get(production, '/ssr/app-check?runner=legacy&tag=after-ai');
     expectOk(afterAi.outcomes, 'appCheckToken', 'ssr-token-after-ai');
     expectCode(afterAi.outcomes, '@firebase/ai', 'PYRIC_REAL_SDK_STOPPED');
   });
