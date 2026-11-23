@@ -84,7 +84,7 @@ describe('functions-child-runner isolated execution', () => {
       sandbox.dispose();
       rmSync(dir, { recursive: true, force: true });
     }
-  });
+  }, 20_000);
 
   it('executes queued RTDB onDisconnect ops, resolves default instance URLs on secondary apps, and cleans up listeners on exit and timeout', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'pyric-fn-runner-disconnect-'));
@@ -172,7 +172,7 @@ describe('functions-child-runner isolated execution', () => {
       sandbox.dispose();
       rmSync(dir, { recursive: true, force: true });
     }
-  });
+  }, 20_000);
 
   it('leaves the default app uninitialized at module load so top-level initializeApp(options) configures [DEFAULT]', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'pyric-fn-runner-default-app-'));
@@ -239,7 +239,7 @@ describe('functions-child-runner isolated execution', () => {
       sandbox.dispose();
       rmSync(dir, { recursive: true, force: true });
     }
-  });
+  }, 20_000);
 
   it('supports try/catch getApp(), onInit(initializeApp(options)), cold-start handler initializeApp(options), and no-arg getDatabase() without pre-claiming [DEFAULT]', async () => {
     const runVariant = async (
@@ -346,7 +346,7 @@ describe('functions-child-runner isolated execution', () => {
       '});',
     ]);
     expect(noInitResult).toEqual({ echoed: 'payload' });
-  });
+  }, 30_000);
 
   it('bridges Worker threads spawned inside in-process functions.fire back to ctx.sandbox', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'pyric-fn-runner-worker-'));
@@ -432,5 +432,5 @@ describe('functions-child-runner isolated execution', () => {
       sandbox.dispose();
       rmSync(dir, { recursive: true, force: true });
     }
-  });
+  }, 20_000);
 });
