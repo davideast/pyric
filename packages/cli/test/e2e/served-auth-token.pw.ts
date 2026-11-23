@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test } from '@playwright/test';
 import { createServer, type ViteDevServer } from 'vite';
+import { allocateFreeVitePort } from '../serve/free-vite-port.ts';
 import { mintCustomToken } from 'pyric/sandbox/internal';
 import { pyric } from '../../dist/vite.js';
 
@@ -60,7 +61,7 @@ for (const hosted of [false, true]) {
       }`);
       server = await createServer({ root, configFile: false, logLevel: 'silent',
         plugins: [pyric({ hosted, capture: false, ui: false })],
-        server: { host: '127.0.0.1', port: 0, fs: { allow: [root, cliDir] } },
+        server: { host: '127.0.0.1', port: await allocateFreeVitePort(), fs: { allow: [root, cliDir] } },
       });
       await server.listen();
       const url = server.resolvedUrls?.local[0];

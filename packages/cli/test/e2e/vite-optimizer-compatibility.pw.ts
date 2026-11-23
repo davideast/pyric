@@ -11,14 +11,16 @@ const cliRoot = fileURLToPath(new URL('../../', import.meta.url));
 const sdkImports = SDK_MODULES.map((name, index) => `import * as sdk${index} from ${JSON.stringify(name)};`).join('\n');
 const sdkNamespaces = `[${SDK_MODULES.map((_, index) => `sdk${index}`).join(',')}]`;
 const serverSource = `
+import { createServer as createNetServer } from 'node:net';
 import { createServer } from 'vite';
+const freePort = await new Promise((res, rej) => { const s = createNetServer(); s.once('error', rej); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => res(p)); }); });
 import { pyric } from '@pyric/cli/vite';
 const server = await createServer({
   root: process.cwd(), configFile: false,
   plugins: [pyric({ hosted: process.argv[2] === 'Node', seed: 'seed.json', ui: false, capture: false, runtimeChip: false })],
   cacheDir: 'node_modules/.vite-' + process.argv[2],
   optimizeDeps: { include: ['sandbox-reader'] },
-  server: { host: '127.0.0.1', port: 0, fs: { allow: [process.cwd(), ${JSON.stringify(cliRoot)}] } },
+  server: { host: '127.0.0.1', port: freePort, fs: { allow: [process.cwd(), ${JSON.stringify(cliRoot)}] } },
 });
 await server.listen();
 process.send(server.resolvedUrls.local[0]);

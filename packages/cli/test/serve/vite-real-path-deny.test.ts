@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer, type InlineConfig, type Plugin, type ViteDevServer } from 'vite';
 import { attachViteRealPathDeny } from '../../src/serve/vite-real-path-deny.js';
+import { allocateFreeVitePort } from './free-vite-port.ts';
 
 const servers: ViteDevServer[] = [];
 const tempDirs: string[] = [];
@@ -48,12 +49,13 @@ function project(): string {
 }
 
 async function serve(root: string, plugins: Plugin[], config: InlineConfig = {}): Promise<string> {
+  const port = await allocateFreeVitePort();
   const server = await createServer({
     ...config,
     root,
     configFile: false,
     logLevel: 'silent',
-    server: { host: '127.0.0.1', port: 0, strictPort: false, ws: false },
+    server: { host: '127.0.0.1', port, strictPort: false, ws: false },
     optimizeDeps: { noDiscovery: true, include: [] },
     plugins,
   });

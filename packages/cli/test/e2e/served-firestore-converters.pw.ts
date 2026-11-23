@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import { createServer, type ViteDevServer } from 'vite';
+import { allocateFreeVitePort } from '../serve/free-vite-port.ts';
 import { pyric } from '../../dist/vite.js';
 
 const app = `
@@ -77,7 +78,7 @@ for (const hosted of [false, true]) {
       writeFileSync(join(root, 'firestore.rules'), rules);
       server = await createServer({ root, configFile: false, logLevel: 'silent',
         plugins: [pyric({ hosted, capture: false, ui: false })],
-        server: { host: '127.0.0.1', port: 0 },
+        server: { host: '127.0.0.1', port: await allocateFreeVitePort() },
       });
       await server.listen();
       const url = server.resolvedUrls?.local[0];

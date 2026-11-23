@@ -21,6 +21,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
 import { createLogger, createServer, type PluginOption, type ViteDevServer } from 'vite';
+import { allocateFreeVitePort } from '../serve/free-vite-port.ts';
 import { inProcessSessionTokenForUrl } from '../../src/serve/local-session-token.js';
 
 const cliDir = fileURLToPath(new URL('../../', import.meta.url));
@@ -139,7 +140,7 @@ test('a live page reports its Firestore and Auth calls to the Node host as produ
     server = await createServer({
       root, configFile: false, customLogger: logger,
       plugins: [pyricLive({ capture: false, ui: false, runtimeChip: { initiallyOpen: true } }) as PluginOption],
-      server: { host: '127.0.0.1', port: 0, fs: { allow: [root, cliDir] } },
+      server: { host: '127.0.0.1', port: await allocateFreeVitePort(), fs: { allow: [root, cliDir] } },
     });
     await server.listen();
     const url = server.resolvedUrls?.local[0];
@@ -200,7 +201,7 @@ test('the chip header stays one line, with a long project id and several imports
     server = await createServer({
       root, configFile: false, customLogger: createLogger('silent'),
       plugins: [pyricLive({ capture: false, passThrough, runtimeChip: { initiallyOpen: true } }) as PluginOption],
-      server: { host: '127.0.0.1', port: 0, fs: { allow: [root, cliDir] } },
+      server: { host: '127.0.0.1', port: await allocateFreeVitePort(), fs: { allow: [root, cliDir] } },
     });
     await server.listen();
     const url = server.resolvedUrls?.local[0];

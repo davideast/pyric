@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { expect, test } from '@playwright/test';
 import { createServer, type ViteDevServer } from 'vite';
+import { allocateFreeVitePort } from '../serve/free-vite-port.ts';
 import { pyric } from '../../dist/vite.js';
 
 const cliDir = fileURLToPath(new URL('../../', import.meta.url));
@@ -36,7 +37,7 @@ test('the service CLI takes the Auth message a Node-hosted page issued', async (
     writeFileSync(join(root, 'main.js'), app);
     server = await createServer({ root, configFile: false, logLevel: 'silent',
       plugins: [pyric({ hosted: true, capture: false, ui: false })],
-      server: { host: '127.0.0.1', port: 0, fs: { allow: [root, cliDir] } },
+      server: { host: '127.0.0.1', port: await allocateFreeVitePort(), fs: { allow: [root, cliDir] } },
     });
     await server.listen();
     const url = server.resolvedUrls?.local[0];

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { createServer, type ViteDevServer } from 'vite';
+import { allocateFreeVitePort } from '../serve/free-vite-port.ts';
 import { pyric } from '../../dist/vite.js';
 
 /**
@@ -90,7 +91,7 @@ async function startApp(kind: AppKind, hosted: boolean): Promise<{ url: string; 
   try {
     server = await createServer({ root, configFile: false, logLevel: 'silent',
       plugins: [pyric({ hosted, capture: false, ui: false, seed: 'seed.json' })],
-      server: { host: '127.0.0.1', port: 0 },
+      server: { host: '127.0.0.1', port: await allocateFreeVitePort() },
     });
     await server.listen();
   } catch (error) {

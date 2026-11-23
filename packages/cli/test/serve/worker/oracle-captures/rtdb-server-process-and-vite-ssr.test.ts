@@ -443,6 +443,7 @@ export async function readAcrossRules(ssrUid) {
 
     const sharedWorkerScript = `
 import { writeFileSync } from 'node:fs';
+import { createServer as createNetServer } from 'node:net';
 import { join } from 'node:path';
 import { createServer } from 'vite';
 import { pyric } from '@pyric/cli/vite';
@@ -450,13 +451,14 @@ import { pyric } from '@pyric/cli/vite';
 writeFileSync(join(process.cwd(), 'ssr-client.mjs'), ${JSON.stringify(ssrClientModule)});
 writeFileSync(join(process.cwd(), 'ssr-admin.mjs'), ${JSON.stringify(ssrAdminModule)});
 
+const swPort = await new Promise((res, rej) => { const s = createNetServer(); s.once('error', rej); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => res(p)); }); });
 const swServer = await createServer({
   appType: 'custom',
   configFile: false,
   logLevel: 'silent',
   root: process.cwd(),
   plugins: [pyric({ hosted: false, ui: false, capture: false, project: 'demo-oracle' })],
-  server: { port: 0, host: '127.0.0.1' },
+  server: { port: swPort, host: '127.0.0.1' },
   optimizeDeps: { noDiscovery: true },
 });
 await swServer.listen();
@@ -504,6 +506,7 @@ console.log('VITE_SW_REFUSAL ' + JSON.stringify({ rs2Refusal, rs3Refusal }));
 
     const hostedScript = `
 import { writeFileSync } from 'node:fs';
+import { createServer as createNetServer } from 'node:net';
 import { join } from 'node:path';
 import { createServer } from 'vite';
 import { pyric } from '@pyric/cli/vite';
@@ -512,6 +515,7 @@ writeFileSync(join(process.cwd(), 'ssr-client.mjs'), ${JSON.stringify(ssrClientM
 writeFileSync(join(process.cwd(), 'ssr-second.mjs'), 'export { readSharedSession } from "./ssr-client.mjs";\\n');
 writeFileSync(join(process.cwd(), 'ssr-admin.mjs'), ${JSON.stringify(ssrAdminModule)});
 
+const hostedPort = await new Promise((res, rej) => { const s = createNetServer(); s.once('error', rej); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => res(p)); }); });
 const hostedServer = await createServer({
   appType: 'custom',
   configFile: false,
@@ -519,7 +523,7 @@ const hostedServer = await createServer({
   root: process.cwd(),
   ssr: { noExternal: ['firebase'] },
   plugins: [pyric({ hosted: true, ui: false, capture: false, project: 'demo-oracle' })],
-  server: { port: 0, host: '127.0.0.1' },
+  server: { port: hostedPort, host: '127.0.0.1' },
   optimizeDeps: { noDiscovery: true },
 });
 await hostedServer.listen();

@@ -4,13 +4,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'vite';
 import { createPyricNamespace } from '../../src/serve/namespace.js';
+import { allocateFreeVitePort } from '../serve/free-vite-port.ts';
 
 test('missing Studio assets show an actionable error instead of the host app', async ({ page }) => {
   const root = mkdtempSync(join(tmpdir(), 'studio-navigation-'));
   writeFileSync(join(root, 'index.html'), '<html><body><h1>Host application</h1><a href="/__pyric/ui/">Studio</a></body></html>');
   const namespace = createPyricNamespace({ sdkDir: root, initPayload: () => ({ rules: null, rulesHash: null, bridgeUrl: null }), studio: {} });
   const server = await createServer({
-    root, configFile: false, server: { host: '127.0.0.1', port: 0 },
+    root, configFile: false, server: { host: '127.0.0.1', port: await allocateFreeVitePort() },
     plugins: [{ name: 'studio-navigation-fixture', configureServer(vite) {
       vite.middlewares.use((req, res, next) => {
         Promise.resolve(namespace(req, res, new URL(req.url!, 'http://localhost')))
