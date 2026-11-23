@@ -18,11 +18,8 @@ import {
   TempDirTracker,
   accessJson,
 } from './lib/publish-test-harness.ts';
-import {
-  checkRulesTarball,
-  isNodeBuiltinSpecifier,
-  verifyBrowserBundlesHaveNoNodeBuiltins,
-} from './lib/rules-release-gate.ts';
+import { listTests } from './ci/test-shard.ts';
+import { checkRulesTarball, ISOLATED_RULES_FILES, isNodeBuiltinSpecifier, planRulesProofJobs, verifyBrowserBundlesHaveNoNodeBuiltins } from './lib/rules-release-gate.ts';
 
 const root = REPO_ROOT;
 const tracker = new TempDirTracker();
@@ -367,6 +364,14 @@ describe('@pyric/rules standalone release path (--package rules, #1521)', () => 
     writeFileSync(join(pkgDir, 'dist/index.js'), "import { readFileSync } from 'node:fs';\nexport { readFileSync };\n");
     const violations = await verifyBrowserBundlesHaveNoNodeBuiltins(fakeWork, pkgDir);
     expect(violations.some((v) => v.includes("imports Node built-in 'node:fs'"))).toBe(true);
+  });
+
+  test('planRulesProofJobs isolates heavy property files without dropping or duplicating any rules test', () => {
+    const rulesJobs = planRulesProofJobs(root).filter((j) => j.runsBunTest && j.name.startsWith('rules '));
+    const plannedFiles = rulesJobs.flatMap((j) => j.args.slice(1));
+    expect(plannedFiles.slice(0, ISOLATED_RULES_FILES.length)).toEqual([...ISOLATED_RULES_FILES]);
+    expect(rulesJobs.slice(0, ISOLATED_RULES_FILES.length).every((j) => j.expectedFiles === 1)).toBe(true);
+    expect([...plannedFiles].sort()).toEqual([...listTests('packages/rules')].sort());
   });
 
   test('prepare-release.sh --package rules bumps only packages/rules and opens a rules-v PR', () => {
