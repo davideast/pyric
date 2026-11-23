@@ -9,10 +9,18 @@ import { getAppCheck } from "firebase-admin/app-check";
 const token = process.argv[2];
 if (!token) throw new Error("usage: node admin-server.mjs <app-check-token>");
 
-const app = initializeApp({ credential: cert("./service-account.json") });
+const credential = cert("./service-account.json");
+const app = initializeApp({ credential });
 try {
   const verified = await getAppCheck().verifyToken(token);
-  const result = { ok: true, appId: verified.appId, aud: verified.token.aud, options: app.options };
+  const result = {
+    ok: true,
+    appId: verified.appId,
+    aud: verified.token.aud,
+    sameCredential: app.options.credential === credential,
+    hasProjectId: "projectId" in app.options,
+    options: app.options,
+  };
   console.log(`verify ${JSON.stringify(result)}`);
 } catch (error) {
   console.log(`verify ${JSON.stringify({ ok: false, code: error.code, message: error.message })}`);

@@ -1,5 +1,5 @@
 /**
- * `pyric-admin/app` — sandbox-only admin app registry.
+ * `pyric-admin/app` -- sandbox-only admin app registry.
  *
  * Production selection happens before this module loads: activated Node
  * processes resolve `firebase-admin/app` here, while inactive applications
@@ -36,17 +36,22 @@ export interface SandboxAdminApp {
   readonly options: AdminAppOptions;
 }
 
-/** The app options the sandbox reads: `databaseURL` selects the app's RTDB instance, `projectId` names its default instance, `storageBucket` names its default Storage bucket, and `databaseAuthVariableOverride` downscopes its RTDB access to the rules (`pyric-admin/database`). */
+/** The app options kept on `app.options`, matching firebase-admin's `AppOptions` (`credential` is preserved or synthesized via `applicationDefault()`, `databaseURL` selects the RTDB instance, `projectId` names its default instance, `storageBucket` names its default Storage bucket, and `databaseAuthVariableOverride` downscopes RTDB access to the rules). */
 export interface AdminAppOptions {
-  readonly databaseURL?: string;
-  readonly storageBucket?: string;
-  readonly projectId?: string;
+  readonly credential?: object;
   /** As firebase-admin keeps it: `null` acts as an unauthenticated client, an object as that `auth`; left out, the app has admin access. */
   readonly databaseAuthVariableOverride?: object | null;
+  readonly databaseURL?: string;
+  readonly serviceAccountId?: string;
+  readonly storageBucket?: string;
+  readonly projectId?: string;
+  readonly httpAgent?: unknown;
 }
 
 export type PyricAdminApp = SandboxAdminApp;
 export type InitializeAdminAppConfig = { sandbox: Sandbox } & AdminAppOptions;
+
+const CREDENTIAL_BRAND = Symbol.for('pyric.admin.credential');
 
 /**
  * Link-compatible mirror of `firebase-admin/app`'s `applicationDefault(httpAgent?)`.
@@ -56,7 +61,7 @@ export type InitializeAdminAppConfig = { sandbox: Sandbox } & AdminAppOptions;
  * reading host production credentials.
  */
 export function applicationDefault(_httpAgent?: unknown): object {
-  return { [Symbol.for('pyric.admin.credential')]: 'applicationDefault' };
+  return { [CREDENTIAL_BRAND]: 'applicationDefault' };
 }
 
 /**
@@ -70,7 +75,7 @@ export function applicationDefault(_httpAgent?: unknown): object {
  * credential without one, and never throws, so apps run without a key on disk.
  */
 export function cert(serviceAccountPathOrObject: unknown): object {
-  const credential = { [Symbol.for('pyric.admin.credential')]: 'cert' };
+  const credential = { [CREDENTIAL_BRAND]: 'cert' };
   keepCredentialProjectId(credential, serviceAccountPathOrObject);
   return credential;
 }
@@ -81,7 +86,7 @@ export function cert(serviceAccountPathOrObject: unknown): object {
  * in Pyric reads a refresh token, so the argument isn't kept.
  */
 export function refreshToken(_refreshTokenPathOrObject: unknown): object {
-  return { [Symbol.for('pyric.admin.credential')]: 'refreshToken' };
+  return { [CREDENTIAL_BRAND]: 'refreshToken' };
 }
 
 /** Local error with the observable firebase-admin app-error shape. */
@@ -102,15 +107,66 @@ class FirebaseAppError extends Error {
 // the same default app and sandbox handle.
 const APP_REGISTRY = Symbol.for('pyric.admin.app.registry');
 const AMBIENT_APPS = Symbol.for('pyric.admin.app.ambientApps');
+const APP_STORED_OPTIONS = Symbol.for('pyric.admin.app.storedOptions');
 interface GlobalAppRegistry {
   [APP_REGISTRY]?: Map<string, PyricAdminApp>;
   [AMBIENT_APPS]?: WeakSet<PyricAdminApp>;
   [IMPLICIT_DEFAULT_APPS]?: WeakSet<PyricAdminApp>;
+  [APP_STORED_OPTIONS]?: WeakMap<SandboxAdminApp, AdminAppOptions>;
 }
 const globalRegistry = globalThis as GlobalAppRegistry;
 const appRegistry = globalRegistry[APP_REGISTRY] ??= new Map<string, PyricAdminApp>();
 const ambientApps = globalRegistry[AMBIENT_APPS] ??= new WeakSet<PyricAdminApp>();
 const implicitDefaultApps = globalRegistry[IMPLICIT_DEFAULT_APPS] ??= new WeakSet<PyricAdminApp>();
+const storedAppOptions = globalRegistry[APP_STORED_OPTIONS] ??= new WeakMap<SandboxAdminApp, AdminAppOptions>();
+
+function cloneValueForOptions(value: unknown): unknown {
+  if (typeof value !== 'object' || value === null) {
+    return value;
+  }
+  if (CREDENTIAL_BRAND in value) {
+    return value;
+  }
+  if (value instanceof Date) {
+    return new Date(value.getTime());
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => cloneValueForOptions(item));
+  }
+  if (value.constructor !== Object) {
+    return value;
+  }
+  const copy: Record<string, unknown> = {};
+  for (const key of Object.keys(value)) {
+    const propValue = (value as Record<string, unknown>)[key];
+    if (propValue !== undefined) {
+      copy[key] = cloneValueForOptions(propValue);
+    }
+  }
+  return copy;
+}
+
+function createSandboxAdminApp(
+  name: string,
+  sandbox: Sandbox,
+  initialOptions: AdminAppOptions,
+): SandboxAdminApp {
+  const app: SandboxAdminApp = {
+    [ADMIN_APP_TARGET]: 'sandbox',
+    sandbox,
+    name,
+    get options(): AdminAppOptions {
+      assertAdminAppActive(app);
+      const current = storedAppOptions.get(app);
+      if (current === undefined) {
+        return {};
+      }
+      return cloneValueForOptions(current) as AdminAppOptions;
+    },
+  };
+  storedAppOptions.set(app, cloneValueForOptions(initialOptions) as AdminAppOptions);
+  return app;
+}
 
 function validateAppName(name: unknown): asserts name is string {
   if (typeof name !== 'string' || name === '') {
@@ -151,7 +207,8 @@ export function initializeApp(
         if (implicitDefaultApps.has(existing)) {
           implicitDefaultApps.delete(existing);
           if (config !== undefined) {
-            (existing as { options: AdminAppOptions }).options = ambientAppOptions(config);
+            const upgradedOptions = ambientAppOptions(config, name);
+            storedAppOptions.set(existing, cloneValueForOptions(upgradedOptions) as AdminAppOptions);
             keepAppCredentialProjectId(existing, config);
           }
         }
@@ -159,7 +216,7 @@ export function initializeApp(
       }
       throw alreadyExists(name, 'invalid-app-options');
     }
-    const app = initializeAmbientApp(name, ambientAppOptions(config));
+    const app = initializeAmbientApp(name, ambientAppOptions(config, name));
     keepAppCredentialProjectId(app, config);
     appRegistry.set(name, app);
     ambientApps.add(app);
@@ -173,12 +230,7 @@ export function initializeApp(
     throw alreadyExists(name, errorCode);
   }
 
-  const app: SandboxAdminApp = {
-    [ADMIN_APP_TARGET]: 'sandbox',
-    sandbox: config.sandbox,
-    name,
-    options: appOptionsFrom(config),
-  };
+  const app = createSandboxAdminApp(name, config.sandbox, appOptionsFrom(config, name));
   keepAppCredentialProjectId(app, config);
   appRegistry.set(name, app);
   return app;
@@ -222,10 +274,13 @@ function initializeAmbientApp(name: string, options: AdminAppOptions): PyricAdmi
   const isEnvUnset = env === undefined || env.trim() === '';
   // A host running in this process (the Vite plugin's dev server) activates
   // it without the variable; see `installProcessActivation`.
-  const activation = isEnvUnset ? processActivation() : undefined;
+  let activation = undefined;
+  if (isEnvUnset) {
+    activation = processActivation();
+  }
   if (activation !== undefined) {
     process.stderr.write(`pyric: firebase-admin routed to sandbox (${activation.label})\n`);
-    return { [ADMIN_APP_TARGET]: 'sandbox', sandbox: activation.adminSandbox(), name, options };
+    return createSandboxAdminApp(name, activation.adminSandbox(), options);
   }
   if (env === undefined || isEnvUnset) {
     throw new Error(
@@ -238,7 +293,7 @@ function initializeAmbientApp(name: string, options: AdminAppOptions): PyricAdmi
   const opts = parsePyricSandboxEnv(env);
   if (process.env.NODE_ENV === 'production' && process.env.PYRIC_SANDBOX_FORCE !== '1') {
     throw new Error(
-      'pyric-admin: PYRIC_SANDBOX is set but NODE_ENV is "production" — ' +
+      'pyric-admin: PYRIC_SANDBOX is set but NODE_ENV is "production" -- ' +
         'refusing to route firebase-admin to a development sandbox. ' +
         'Unset PYRIC_SANDBOX in production, or set PYRIC_SANDBOX_FORCE=1 ' +
         'if this routing is intentional.',
@@ -257,17 +312,21 @@ function initializeAmbientApp(name: string, options: AdminAppOptions): PyricAdmi
   }
 
   const sandbox = factory(opts);
-  process.stderr.write(
-    `pyric: firebase-admin routed to sandbox${opts.url !== undefined ? ` at ${opts.url}` : ''}\n`,
-  );
-  return { [ADMIN_APP_TARGET]: 'sandbox', sandbox, name, options };
+  let urlSuffix = '';
+  if (opts.url !== undefined) {
+    urlSuffix = ` at ${opts.url}`;
+  }
+  process.stderr.write(`pyric: firebase-admin routed to sandbox${urlSuffix}\n`);
+  return createSandboxAdminApp(name, sandbox, options);
 }
 
 function parsePyricSandboxEnv(env: string): RemoteSandboxFactoryOptions {
   const activation = parsePyricSandbox(env);
   if (activation.mode === 'remote') {
-    const hasUrl = activation.url !== undefined;
-    return hasUrl ? { url: activation.url } : {};
+    if (activation.url !== undefined) {
+      return { url: activation.url };
+    }
+    return {};
   }
   const isEmptyUrl = activation.mode === 'invalid' && activation.reason === 'empty-url';
   if (isEmptyUrl) {
@@ -284,26 +343,87 @@ function parsePyricSandboxEnv(env: string): RemoteSandboxFactoryOptions {
 }
 
 function isSandboxConfig(config: unknown): config is { sandbox: Sandbox } {
-  return typeof config === 'object' && config !== null && 'sandbox' in config;
+  return typeof config === 'object' && config !== null && !Array.isArray(config) && 'sandbox' in config;
 }
 
 export function isSandboxAdminApp(app: PyricAdminApp): app is SandboxAdminApp {
   return app[ADMIN_APP_TARGET] === 'sandbox';
 }
 
-/** The `databaseURL`, `projectId` and `storageBucket` string options of an initialization config, and its `databaseAuthVariableOverride`. */
-function appOptionsFrom(config: object | undefined): AdminAppOptions {
-  if (config === undefined) return {};
-  const { databaseURL, projectId, storageBucket, databaseAuthVariableOverride } = config as Record<string, unknown>;
-  return {
-    ...(typeof databaseURL === 'string' ? { databaseURL } : {}),
-    ...(typeof storageBucket === 'string' && storageBucket !== '' ? { storageBucket } : {}),
-    ...(typeof projectId === 'string' ? { projectId } : {}),
-    // Kept as given, as firebase-admin keeps it; the database validates it on first use.
-    ...(databaseAuthVariableOverride !== undefined
-      ? { databaseAuthVariableOverride: databaseAuthVariableOverride as object | null }
-      : {}),
-  };
+function isNonNullOptionsObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isValidAdminCredential(value: unknown): value is object {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  if (CREDENTIAL_BRAND in value) {
+    return true;
+  }
+  const getAccessToken = (value as { getAccessToken?: unknown }).getAccessToken;
+  return typeof getAccessToken === 'function';
+}
+
+function resolveCredentialOption(config: Record<string, unknown>, name: string): object {
+  if (!('credential' in config)) {
+    return applicationDefault(config.httpAgent);
+  }
+  const candidate = config.credential;
+  if (!isValidAdminCredential(candidate)) {
+    throw new FirebaseAppError(
+      'invalid-app-options',
+      'Invalid Firebase app options passed as the first argument to initializeApp() for the ' +
+        `app named "${name}". The "credential" property must be an object which implements ` +
+        'the Credential interface.',
+    );
+  }
+  return candidate;
+}
+
+/** Assembles `AdminAppOptions` explicitly, keeping `credential` as firebase-admin's `FirebaseApp` does. */
+function appOptionsFrom(config: unknown, name: string): AdminAppOptions {
+  if (config === undefined) {
+    return { credential: applicationDefault() };
+  }
+  if (!isNonNullOptionsObject(config)) {
+    throw new FirebaseAppError(
+      'invalid-app-options',
+      'Invalid Firebase app options passed as the first argument to initializeApp() for the ' +
+        `app named "${name}". Options must be a non-null object.`,
+    );
+  }
+  const credential = resolveCredentialOption(config, name);
+  const assembled: {
+    credential: object;
+    databaseAuthVariableOverride?: object | null;
+    databaseURL?: string;
+    serviceAccountId?: string;
+    storageBucket?: string;
+    projectId?: string;
+    httpAgent?: unknown;
+  } = { credential };
+
+  if (typeof config.databaseURL === 'string') {
+    assembled.databaseURL = config.databaseURL;
+  }
+  if (typeof config.storageBucket === 'string' && config.storageBucket !== '') {
+    assembled.storageBucket = config.storageBucket;
+  }
+  if (typeof config.projectId === 'string') {
+    assembled.projectId = config.projectId;
+  }
+  if (typeof config.serviceAccountId === 'string') {
+    assembled.serviceAccountId = config.serviceAccountId;
+  }
+  if (config.httpAgent !== undefined) {
+    assembled.httpAgent = config.httpAgent;
+  }
+  // Kept as given, as firebase-admin keeps it; the database validates it on first use.
+  if (config.databaseAuthVariableOverride !== undefined) {
+    assembled.databaseAuthVariableOverride = config.databaseAuthVariableOverride as object | null;
+  }
+  return assembled;
 }
 
 /**
@@ -311,12 +431,21 @@ function appOptionsFrom(config: object | undefined): AdminAppOptions {
  * does, a call without options reads `FIREBASE_CONFIG`: a JSON object, or the
  * path of a file that holds one. The Functions runtime sets it.
  */
-function ambientAppOptions(config: object | undefined): AdminAppOptions {
-  if (config !== undefined) return appOptionsFrom(config);
+function ambientAppOptions(config: unknown, name: string): AdminAppOptions {
+  if (config !== undefined) {
+    return appOptionsFrom(config, name);
+  }
   const raw = process.env.FIREBASE_CONFIG;
-  if (raw === undefined || raw.trim() === '') return {};
-  const text = raw.trim().startsWith('{') ? raw : readFileSync(raw, 'utf8');
+  if (raw === undefined || raw.trim() === '') {
+    return { credential: applicationDefault() };
+  }
+  let text = raw;
+  if (!raw.trim().startsWith('{')) {
+    text = readFileSync(raw, 'utf8');
+  }
   const parsed: unknown = JSON.parse(text);
-  const isObject = typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed);
-  return isObject ? appOptionsFrom(parsed) : {};
+  if (isNonNullOptionsObject(parsed)) {
+    return appOptionsFrom(parsed, name);
+  }
+  return { credential: applicationDefault() };
 }
