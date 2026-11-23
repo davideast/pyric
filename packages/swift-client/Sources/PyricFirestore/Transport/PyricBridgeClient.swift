@@ -80,6 +80,8 @@ public actor PyricBridgeClient {
     private var reconnectAttempt = 0
     private var reconnectTask: Task<Void, Never>?
     private var attachDeadlineTask: Task<Void, Never>?
+    /// Callers waiting for the attempt in progress.
+    private var attemptWaiters: [CheckedContinuation<Void, Error>] = []
     /// Callers waiting for the next scheduled attempt.
     private var nextAttemptWaiters: [CheckedContinuation<Void, Error>] = []
     private var authRestorer: BridgeAuthRestorer?
@@ -87,7 +89,7 @@ public actor PyricBridgeClient {
     private var opCounter: Int = 0
     private var subCounter: Int = 0
 
-    private var connectTask: Task<Void, Error>?
+    private var attemptTask: Task<Void, Never>?
     private var receiveTask: Task<Void, Never>?
     private var handshakeContinuation: CheckedContinuation<Bool, Error>?
 
@@ -212,6 +214,11 @@ public actor PyricBridgeClient {
         heldOps.count
     }
 
+    /// Test-only: callers waiting for the current connect attempt to settle.
+    var attemptWaiterCount: Int {
+        attemptWaiters.count
+    }
+
     /// Runs on a re-attach to a replaced host, before subscriptions are re-sent.
     public func setAuthRestorer(_ restorer: BridgeAuthRestorer?) {
         authRestorer = restorer
@@ -259,8 +266,11 @@ public actor PyricBridgeClient {
         if isDisposed {
             throw PyricBridgeError.unavailable("PyricBridgeClient has been disposed.")
         }
-        if let existing = connectTask {
-            return try await existing.value
+        if attemptTask != nil {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                attemptWaiters.append(continuation)
+            }
+            return
         }
         if reconnectTask != nil {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
@@ -268,29 +278,20 @@ public actor PyricBridgeClient {
             }
             return
         }
-        try await startAttempt().value
+        startAttempt()
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            attemptWaiters.append(continuation)
+        }
     }
 
-    private func startAttempt() -> Task<Void, Error> {
+    private func startAttempt() {
         connectionGeneration += 1
         let generation = connectionGeneration
         if !hasEverAttached { setState(.connecting) }
-        let task = Task { [weak self] in
-            guard let self else { throw PyricBridgeError.unavailable("Client was deallocated.") }
-            try await self.runAttempt(generation: generation)
-        }
-        connectTask = task
-        let waiters = nextAttemptWaiters
+        attemptWaiters.append(contentsOf: nextAttemptWaiters)
         nextAttemptWaiters.removeAll()
-        if !waiters.isEmpty {
-            Task {
-                do {
-                    try await task.value
-                    for waiter in waiters { waiter.resume() }
-                } catch {
-                    for waiter in waiters { waiter.resume(throwing: error) }
-                }
-            }
+        attemptTask = Task { [weak self] in
+            await self?.runAttempt(generation: generation)
         }
         attachDeadlineTask?.cancel()
         let activeClock = clock
@@ -300,7 +301,18 @@ public actor PyricBridgeClient {
             guard !Task.isCancelled else { return }
             await self?.attachDeadlinePassed(generation: generation)
         }
-        return task
+    }
+
+    private func takeAttemptWaiters() -> [CheckedContinuation<Void, Error>] {
+        let waiters = attemptWaiters
+        attemptWaiters.removeAll()
+        return waiters
+    }
+
+    private func failAttemptWaiters(_ error: Error) {
+        for waiter in takeAttemptWaiters() {
+            waiter.resume(throwing: error)
+        }
     }
 
     private func failNextAttemptWaiters(_ error: Error) {
@@ -322,9 +334,13 @@ public actor PyricBridgeClient {
         generation == connectionGeneration && !isDisposed
     }
 
-    private func runAttempt(generation: Int) async throws {
+    private func runAttempt(generation: Int) async {
+        guard isCurrent(generation) else { return }
         do {
-            let restoresAuth = try await openAndAttach(generation: generation)
+            guard let restoresAuth = try await openAndAttach(generation: generation),
+                  isCurrent(generation) else {
+                return
+            }
             if restoresAuth, let restorer = authRestorer {
                 var restoreFailed = false
                 do {
@@ -339,9 +355,7 @@ public actor PyricBridgeClient {
                     // The Auth observers report the host's state when the restore fails.
                     restoreFailed = true
                 }
-                guard isCurrent(generation) else {
-                    throw PyricBridgeError.unavailable(connectionLostMessage)
-                }
+                guard isCurrent(generation) else { return }
                 needsAuthRestore = false
                 // A held operation must run as the user the app had when it issued it.
                 if restoreFailed {
@@ -355,12 +369,13 @@ public actor PyricBridgeClient {
             if isCurrent(generation) {
                 handleConnectionLoss(generation: generation, error: failure, closeCode: nil)
             }
-            throw failure
         }
     }
 
-    /// Opens a transport, sends `attach`, and returns whether Auth must be restored.
-    private func openAndAttach(generation: Int) async throws -> Bool {
+    /// Opens a transport, sends `attach`, and returns whether Auth must be
+    /// restored, or `nil` if the attempt ended before attaching.
+    private func openAndAttach(generation: Int) async throws -> Bool? {
+        guard isCurrent(generation) else { return nil }
         let request = Self.makeWebSocketRequest(url: endpoint, headers: headers)
         let opened: any WebSocketTransport
         if let fixedTransport {
@@ -372,7 +387,7 @@ public actor PyricBridgeClient {
         }
         guard isCurrent(generation) else {
             if fixedTransport == nil { await opened.close(closeCode: 1000, reason: "Superseded") }
-            throw PyricBridgeError.unavailable(connectionLostMessage)
+            return nil
         }
         transport = opened
         lastFrameAt = clock.now()
@@ -384,24 +399,34 @@ public actor PyricBridgeClient {
         return try await withCheckedThrowingContinuation { continuation in
             self.handshakeContinuation = continuation
             let attachFrame = AttachFrame(clientSessionId: clientSessionId)
-            Task {
-                do {
-                    try await self.sendRaw(attachFrame)
-                } catch {
-                    self.handleConnectionLoss(
-                        generation: generation,
-                        error: PyricBridgeError.unavailable("Failed to send attach frame: \(error)"),
-                        closeCode: nil
-                    )
-                }
+            Task { [weak self] in
+                await self?.sendAttach(generation: generation, frame: attachFrame)
             }
         }
     }
 
+    private func sendAttach(generation: Int, frame: AttachFrame) async {
+        guard isCurrent(generation) else { return }
+        do {
+            try await sendRaw(frame)
+        } catch {
+            handleConnectionLoss(
+                generation: generation,
+                error: PyricBridgeError.unavailable("Failed to send attach frame: \(error)"),
+                closeCode: nil
+            )
+        }
+    }
+
     private func finishAttach(generation: Int) async {
+        guard isCurrent(generation) else { return }
         attachDeadlineTask?.cancel()
         attachDeadlineTask = nil
-        connectTask = nil
+        attemptTask = nil
+        let waiters = takeAttemptWaiters()
+        defer {
+            for waiter in waiters { waiter.resume() }
+        }
         hasEverAttached = true
         reconnectAttempt = 0
         let restored = activeSubs
@@ -416,6 +441,7 @@ public actor PyricBridgeClient {
         startHeartbeat(generation: generation)
         for (subId, sub) in restored.sorted(by: { $0.key < $1.key }) {
             // A listener cancelled while an earlier frame was being sent is not re-sent.
+            guard isCurrent(generation) else { break }
             guard activeSubs[subId] != nil else { continue }
             try? await sendRaw(WorkerSubFrame(subId: subId, sub: sub.payload))
         }
@@ -438,8 +464,10 @@ public actor PyricBridgeClient {
         let permitsRetry = canReopen
             && (hasEverAttached || retryInitialConnection)
             && closeCode != policyCloseCode
+        let wasAttached = connectionState == .attached
         connectionGeneration += 1
-        connectTask = nil
+        attemptTask?.cancel()
+        attemptTask = nil
         isConnected = false
         drainingHeldOps = false
         socketRefusing = false
@@ -454,15 +482,19 @@ public actor PyricBridgeClient {
 
         guard permitsRetry else {
             setState(.closed)
+            failAttemptWaiters(error)
             failPendingOperations(code: error.code, message: error.message)
             failHeldOperations(code: error.code, message: error.message)
             failSubscriptions(code: error.code, message: error.message)
             failNextAttemptWaiters(error)
+            if canReopen, let closing {
+                Task { await closing.close(closeCode: 1000, reason: "Connection closed") }
+            }
             return
         }
 
-        let wasAttached = connectionState == .attached
         setState(.interrupted)
+        failAttemptWaiters(error)
         settlePendingOperationsAtDrop()
         if wasAttached { reportGap() }
         if let closing {
@@ -485,9 +517,8 @@ public actor PyricBridgeClient {
 
     private func reconnectTimerFired() {
         reconnectTask = nil
-        guard !isDisposed, connectTask == nil, !isConnected else { return }
-        let attempt = startAttempt()
-        Task { _ = try? await attempt.value }
+        guard !isDisposed, attemptTask == nil, !isConnected else { return }
+        startAttempt()
     }
 
     // ─── Heartbeat ───────────────────────────────────────────────────────────
@@ -988,10 +1019,9 @@ public actor PyricBridgeClient {
     /// Starts an attempt only when none is in progress or scheduled, so holding
     /// never starts one ahead of the schedule.
     private func startAttemptIfIdle() {
-        let attemptPending = connectTask != nil || reconnectTask != nil
+        let attemptPending = attemptTask != nil || reconnectTask != nil
         guard !attemptPending, !isConnected else { return }
-        let attempt = startAttempt()
-        Task { _ = try? await attempt.value }
+        startAttempt()
     }
 
     private func holdDeadlinePassed(id: String) {
@@ -1451,7 +1481,8 @@ public actor PyricBridgeClient {
         drainingHeldOps = false
         socketRefusing = false
         connectionGeneration += 1
-        connectTask = nil
+        attemptTask?.cancel()
+        attemptTask = nil
         reconnectTask?.cancel()
         reconnectTask = nil
         attachDeadlineTask?.cancel()
@@ -1459,12 +1490,14 @@ public actor PyricBridgeClient {
         stopHeartbeat()
         authRestorer = nil
         setState(.closed)
-        failNextAttemptWaiters(PyricBridgeError.unavailable("PyricBridgeClient disconnected."))
+        let disconnectError = PyricBridgeError.unavailable("PyricBridgeClient disconnected.")
+        failAttemptWaiters(disconnectError)
+        failNextAttemptWaiters(disconnectError)
 
-        failPendingOperations(code: .unavailable, message: "PyricBridgeClient disconnected.")
-        failHeldOperations(code: .unavailable, message: "PyricBridgeClient disconnected.")
-        failSubscriptions(code: .unavailable, message: "PyricBridgeClient disconnected.")
-        resumeHandshake(returning: .failure(PyricBridgeError.unavailable("PyricBridgeClient disconnected.")))
+        failPendingOperations(code: .unavailable, message: disconnectError.message)
+        failHeldOperations(code: .unavailable, message: disconnectError.message)
+        failSubscriptions(code: .unavailable, message: disconnectError.message)
+        resumeHandshake(returning: .failure(disconnectError))
 
         for cont in remoteLensContinuations.values { cont.finish() }
         remoteLensContinuations.removeAll()
