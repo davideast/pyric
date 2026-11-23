@@ -437,8 +437,7 @@ export function projectWorkerOfflineDoc(
       const isMergeAll = m.options?.merge === true;
       const mergeFields = m.options?.mergeFields;
       const isMerge = isMergeAll || mergeFields !== undefined;
-      let priorForSet: Record<string, unknown> | null = null;
-      if (isMerge) priorForSet = current;
+      const priorForSet = current;
       let tsPaths: Array<readonly string[]> = [];
       let resolved = resolveEncodedSentinels(incoming, priorForSet, [], nowSeconds, tsPaths, isMerge) as Record<string, unknown>;
       if (isMergeAll) {

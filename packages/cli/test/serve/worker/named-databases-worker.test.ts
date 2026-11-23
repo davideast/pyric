@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'bun:test';
 import { createIndexedDBBackend, createMemoryBackend, initializeSandbox } from 'pyric/sandbox';
 import { getFirestore as getSandboxFirestore } from 'pyric/firestore';
-import { isFirestoreDatabaseDeclared, snapshotDocuments } from 'pyric/sandbox/firestore';
+import { isFirestoreDatabaseDeclared, setRules as setSandboxRules, snapshotDocuments } from 'pyric/sandbox/firestore';
 import type { InitPayload } from '../../../src/serve/namespace.js';
 import {
   WORKER_PROTOCOL_VERSION,
@@ -14,15 +14,21 @@ import {
   disableNetwork,
   doc,
   enableNetwork,
+  endAt,
+  endBefore,
   getCountFromServer,
   getDoc,
   getDocs,
   onSnapshot,
+  orderBy,
+  query,
   requestDatabaseId,
   resetAll,
   runTransaction,
   setDoc,
   setRules,
+  startAfter,
+  startAt,
   terminate,
   wirePort,
   withDatabaseId,
@@ -427,5 +433,52 @@ describe('SharedWorker buildWorkerCtx multi-database IndexedDB and --persist dur
     expect(snapshotDocuments(ctx4.sandbox)).toEqual({ 'docs/one': { plane: 'default' } });
     expect(snapshotDocuments(ctx4.sandbox, 'reports')).toEqual({ 'docs/one': { plane: 'reports' } });
     ctx4.sandbox.dispose();
+  });
+
+  it('supports snapshot cursors on named databases and preserves listener send order across initial protocol negotiation (#3286)', async () => {
+    const ctx = makeHostCtx();
+    setSandboxRules(ctx.sandbox, OPEN_RULES);
+    setSandboxRules(ctx.sandbox, OPEN_RULES, 'reports');
+    const sentFrames: InboundMessage[] = [];
+    const defaultDb = createLoopbackClient(ctx, { intercept: (f) => sentFrames.push(f) });
+    const reportsDb = withDatabaseId(defaultDb, 'reports');
+
+    // First operation on this port is a named-database listener immediately
+    // followed by a default-database read; `sub` must reach the host ahead of
+    // `getDoc` despite async protocol negotiation.
+    const watched: boolean[] = [];
+    const unsub = onSnapshot(doc(reportsDb, 'items/watched'), (snap) => {
+      watched.push(snap.exists());
+    });
+    await getDoc(doc(defaultDb, 'items/barrier'));
+    unsub();
+
+    expect(watched).toEqual([false]);
+    const subIdx = sentFrames.findIndex((f) => f.t === 'sub' && f.databaseId === 'reports');
+    const barrierIdx = sentFrames.findIndex(
+      (f) => f.t === 'op' && f.method === 'getDoc' && f.path === 'items/barrier',
+    );
+    expect(subIdx).toBeGreaterThanOrEqual(0);
+    expect(barrierIdx).toBeGreaterThan(subIdx);
+
+    // Snapshot cursors (`startAt`, `startAfter`, `endAt`, `endBefore`) on a named database.
+    await setDoc(doc(reportsDb, 'items/a'), { rank: 1 });
+    await setDoc(doc(reportsDb, 'items/b'), { rank: 2 });
+    await setDoc(doc(reportsDb, 'items/c'), { rank: 3 });
+
+    const snapA = await getDoc(doc(reportsDb, 'items/a'));
+    const snapC = await getDoc(doc(reportsDb, 'items/c'));
+
+    const afterA = await getDocs(
+      query(collection(reportsDb, 'items'), orderBy('rank', 'asc'), startAfter(snapA), endBefore(snapC)),
+    );
+    expect(afterA.docs.map((d) => d.id)).toEqual(['b']);
+
+    const inclusive = await getDocs(
+      query(collection(reportsDb, 'items'), orderBy('rank', 'asc'), startAt(snapA), endAt(snapC)),
+    );
+    expect(inclusive.docs.map((d) => d.id)).toEqual(['a', 'b', 'c']);
+
+    ctx.sandbox.dispose();
   });
 });

@@ -1,0 +1,70 @@
+{
+  "sequence": {
+    "seed": 653189,
+    "initialRules": 0,
+    "steps": [
+      {
+        "op": "setDoc",
+        "db": 0,
+        "path": "rooms/r2/items/i3",
+        "data": {
+          "$map": [
+            ["label", ""],
+            ["n", 7],
+            [
+              "meta",
+              {
+                "$map": [
+                  ["note", "urgent"],
+                  ["stamped", { "$ts": [1650000000, 0] }],
+                  ["count", 3]
+                ]
+              }
+            ],
+            ["flag", true],
+            ["tags", { "$array": ["beta", "gamma"] }]
+          ]
+        },
+        "mode": { "kind": "replace" }
+      },
+      {
+        "op": "runTransaction",
+        "db": 0,
+        "paths": ["rooms/r2/items/i3", "rooms/r1/items/i2"],
+        "script": "setThenUpdate",
+        "auxData": {
+          "$map": [
+            ["label", "archived"],
+            ["tags", { "$remove": ["delta", 1] }],
+            ["n", { "$inc": 4 }],
+            ["flag", false],
+            [
+              "meta",
+              {
+                "$map": [
+                  ["note", "beta"],
+                  ["stamped", { "$ts": [1650000000, 0] }],
+                  ["count", 7]
+                ]
+              }
+            ]
+          ]
+        },
+        "auxUpdates": [
+          { "field": "meta.count", "value": true },
+          { "field": "type", "value": 3 }
+        ]
+      },
+      { "op": "rules", "rules": 2 },
+      {
+        "op": "listenQuery",
+        "db": 0,
+        "id": 0,
+        "query": {
+          "source": { "kind": "collectionGroup", "collectionId": "items" },
+          "limit": 2
+        }
+      }
+    ]
+  }
+}

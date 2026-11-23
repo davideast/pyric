@@ -251,4 +251,86 @@ service cloud.firestore {
 
     host.sandbox.dispose();
   });
+
+  it('evaluates non-merge setDoc field transforms against the prior document in offline and warmed caches (#3286)', async () => {
+    const host = await makeHostCtx();
+    setRules(host.sandbox, RULES);
+    const { db } = connectClientToHost(host, `worker://fs-replace-xform-${Math.random()}`);
+
+    const docRef = client.doc(db, 'items/replace-xform');
+    await client.setDoc(docRef, {
+      tags: ['beta', 'gamma'],
+      n: 7,
+      stamped: new Timestamp(1_650_000_000, 0),
+      stale: 'removed-by-replace',
+    });
+
+    await client.disableNetwork(db);
+    const pendingWrite = client.setDoc(docRef, {
+      label: 'archived',
+      tags: client.arrayRemove('gamma', 'absent'),
+      added: client.arrayUnion('delta'),
+      n: client.increment(5),
+      stamped: client.serverTimestamp(),
+    });
+
+    const cachedPending = await client.getDoc(docRef);
+    expect(cachedPending.metadata.fromCache).toBe(true);
+    expect(cachedPending.metadata.hasPendingWrites).toBe(true);
+    expect(cachedPending.data()).toEqual({
+      label: 'archived',
+      tags: ['beta'],
+      added: ['delta'],
+      n: 12,
+      stamped: null,
+    });
+    expect(
+      (cachedPending.data({ serverTimestamps: 'previous' }) as { stamped?: unknown })?.stamped,
+    ).toEqual(new Timestamp(1_650_000_000, 0));
+
+    await client.enableNetwork(db);
+    await pendingWrite;
+
+    setRules(
+      host.sandbox,
+      `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} { allow read, write: if false; }
+  }
+}`,
+    );
+
+    const warmedEvents: Array<{ kind: 'snap'; docs: unknown[] } | { kind: 'err'; code: string }> = [];
+    await new Promise<void>((resolve) => {
+      const unsub = client.onSnapshot(
+        client.collection(db, 'items'),
+        (snap) => {
+          warmedEvents.push({
+            kind: 'snap',
+            docs: snap.docs.map((d) => {
+              const raw = { ...(d.data() as Record<string, unknown>) };
+              delete raw.stamped;
+              return raw;
+            }),
+          });
+        },
+        (err) => {
+          warmedEvents.push({ kind: 'err', code: err.code });
+          unsub();
+          resolve();
+        },
+      );
+    });
+
+    expect(warmedEvents).toEqual([
+      {
+        kind: 'snap',
+        docs: [{ label: 'archived', tags: ['beta'], added: ['delta'], n: 12 }],
+      },
+      { kind: 'err', code: 'permission-denied' },
+    ]);
+
+    host.sandbox.dispose();
+  });
 });
