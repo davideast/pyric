@@ -1,6 +1,6 @@
 /**
  * SharedWorker protocol codecs, transaction read-set canonicalization, and
- * inbound validation regression suite (issue #1124 — PR Stream 5).
+ * inbound validation regression suite (issue #1124 -- PR Stream 5).
  *
  * Covers:
  *   - SW-PRO-1a/b: `getSnapshot` host encoding + client rehydration preserves
@@ -141,7 +141,8 @@ service cloud.firestore {
         literalNumMarker: { __type: 'number', value: 'NaN' },
       });
       // Inject rules-only Duration & Path wrappers via admin plane so every wrapper type is exercised.
-      const existing = sandbox.admin.getDocument('items/one')!;
+      const existing = sandbox.admin.getDocument('items/one');
+      if (existing === null) throw new Error('Expected items/one to exist');
       sandbox.admin.setDocument('items/one', {
         ...existing,
         dur: new RulesDuration(12, 0),
@@ -176,7 +177,8 @@ service cloud.firestore {
 
       const branch = await forkFromSavedState(workerSnap, PERMISSIVE_RULES);
       const branchDb = getSandboxFirestore(branch.sandbox);
-      const readBack = (await sGetDoc(sDoc(branchDb, 'items/one'))).data()!;
+      const readBack = (await sGetDoc(sDoc(branchDb, 'items/one'))).data();
+      if (readBack === undefined) throw new Error('Expected items/one branch data');
       expect(readBack.ts).toBeInstanceOf(Timestamp);
       expect(readBack.raw).toBeInstanceOf(Bytes);
       expect(Array.from((readBack.raw as Bytes).toUint8Array())).toEqual([1, 2, 3]);
@@ -187,6 +189,43 @@ service cloud.firestore {
     } finally {
       close();
     }
+  });
+
+  it('rehydrates foreign-instance RulesValue wrappers when cli and studio resolve distinct pyric builds (#2016)', async () => {
+    class ForeignRulesValue {}
+    const makeForeign = (typeName: string, fields: Record<string, unknown>): unknown =>
+      Object.assign(new ForeignRulesValue(), { typeName, ...fields });
+
+    const foreignDoc: Record<string, unknown> = {
+      ts: makeForeign('timestamp', { seconds: 1700000000, nanos: 0 }),
+      raw: makeForeign('bytes', { data: new Uint8Array([1, 2, 3]) }),
+      loc: makeForeign('latlng', { lat: 37.7749, lng: -122.4194 }),
+      ref: makeForeign('reference', { path: 'users/alice' }),
+      embedding: makeForeign('vector', { value: [0.25, 0.5, 0.75] }),
+      dur: makeForeign('duration', { seconds: 12, nanos: 0 }),
+      route: makeForeign('path', { segments: ['users', 'alice'], bindings: { uid: 'alice' } }),
+    };
+
+    const sandbox = createSandboxRoot();
+    sandbox.admin.setDocument('items/one', foreignDoc);
+    const snap = sandbox.snapshot();
+    expect(snap.firestoreWrappers?.['items/one']?.length).toBe(7);
+
+    const crossBuildSnap = {
+      ...snap,
+      firestore: { 'items/one': foreignDoc },
+    };
+    const denial = {
+      id: 'ev-foreign-1',
+      at: Date.now(),
+      service: 'firestore' as const,
+      method: 'get' as const,
+      path: 'items/one',
+      auth: null,
+    };
+
+    const inProcessRerun = (await rerunAgainstRules(crossBuildSnap, denial, TYPED_RULES, crossBuildSnap)).result.outcome;
+    expect(inProcessRerun).toBe('allow');
   });
 });
 

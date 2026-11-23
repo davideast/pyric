@@ -30,7 +30,7 @@ export interface FunctionsWorkerHostOptions {
    */
   databaseRules?: { rules: Record<string, unknown> };
   /** Optional Firestore ruleset deployed on the worker's sandbox before any
-   *  relayed op — deployed synchronously through the LOCAL arm exactly as a
+   *  relayed op -- deployed synchronously through the LOCAL arm exactly as a
    *  served page would. Lets a test prove that a functions child's admin
    *  (rules-bypass) write lands against a ruleset that would DENY an
    *  anonymous/client-lens caller (#394). */
@@ -69,20 +69,26 @@ export async function createFunctionsWorkerHostCtx(
 export async function connectFunctionsWorkerPeer(
   options: FunctionsWorkerPeerOptions,
 ): Promise<{ close(): Promise<void> }> {
-  const token =
-    options.sessionToken ?? resolveSessionTokenForTarget({ url: options.url, cwd: options.cwd });
-  const ws = new WebSocket(
-    options.url,
-    token !== undefined ? { headers: { 'x-pyric-session-token': token } } : undefined,
-  );
+  let token = options.sessionToken;
+  if (token === undefined) {
+    token = resolveSessionTokenForTarget({ url: options.url, cwd: options.cwd });
+  }
+  let wsOptions: { headers: Record<string, string> } | undefined;
+  if (token !== undefined) {
+    wsOptions = { headers: { 'x-pyric-session-token': token } };
+  }
+  const ws = new WebSocket(options.url, wsOptions);
   const port: PortLike = {
     postMessage(raw: unknown) {
       if (ws.readyState !== WebSocket.OPEN) return;
       const message = raw as OutboundMessage;
       if (message.t === 'res') {
-        const response: BridgeMessage = message.ok
-          ? { type: 'worker-res', id: message.id, ok: true, value: message.value }
-          : { type: 'worker-res', id: message.id, ok: false, error: message.error };
+        let response: BridgeMessage;
+        if (message.ok) {
+          response = { type: 'worker-res', id: message.id, ok: true, value: message.value };
+        } else {
+          response = { type: 'worker-res', id: message.id, ok: false, error: message.error };
+        }
         ws.send(JSON.stringify(response));
       } else if (message.t === 'snap') {
         ws.send(JSON.stringify({
@@ -106,7 +112,8 @@ export async function connectFunctionsWorkerPeer(
       let message: unknown;
       try {
         message = JSON.parse(raw.toString());
-      } catch {
+      } catch (error: unknown) {
+        void error;
         return;
       }
       if (!isBridgeMessage(message)) return;
@@ -134,11 +141,42 @@ export async function connectFunctionsWorkerPeer(
     ws.once('close', () => rejectConnected(new Error('worker peer closed before ready')));
   });
 
+  const WORKER_PEER_CLOSE_GRACE_MS = 250;
   return {
     close: () => new Promise<void>((resolveClosed) => {
-      if (ws.readyState === WebSocket.CLOSED) return resolveClosed();
-      ws.once('close', () => resolveClosed());
-      ws.close();
+      if (ws.readyState === WebSocket.CLOSED) {
+        resolveClosed();
+        return;
+      }
+      let settled = false;
+      const finishClose = (): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(forceCloseTimer);
+        resolveClosed();
+      };
+      // Bound the WebSocket close handshake so a busy or closing dev server
+      // never stalls test `afterEach` hooks on `ws`'s 30 s `_closeTimer` (#1076).
+      const forceCloseTimer = setTimeout(() => {
+        try {
+          ws.terminate();
+        } catch (error: unknown) {
+          void error;
+        }
+        finishClose();
+      }, WORKER_PEER_CLOSE_GRACE_MS);
+      forceCloseTimer.unref();
+      ws.once('close', finishClose);
+      if (ws.readyState === WebSocket.CONNECTING) {
+        ws.terminate();
+        return;
+      }
+      try {
+        ws.close();
+      } catch (error: unknown) {
+        void error;
+        ws.terminate();
+      }
     }),
   };
 }

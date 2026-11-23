@@ -1,4 +1,4 @@
-/** Sign-in helper core (plan step 2.1) — drives the REAL pyric auth SDK
+/** Sign-in helper core (plan step 2.1) -- drives the REAL pyric auth SDK
  *  end-to-end, no DOM (the <dialog> shell is browser-gate territory). */
 import { describe, expect, it } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
@@ -53,7 +53,7 @@ function wire() {
   const sandbox = initializeSandbox();
   const auth = getAuth(sandbox);
   // Mirror the REAL served worker-mode wiring (entries/auth.ts): the
-  // page-local sandbox the helper drives is a UI vehicle — its provider gate
+  // page-local sandbox the helper drives is a UI vehicle -- its provider gate
   // is delegated to the worker authority, so the picker opens for providers
   // the page's own defaults (password/anonymous only) would otherwise veto.
   // Enforcement in served mode happens at the worker's `auth.acceptIdentity`
@@ -216,7 +216,7 @@ describe('ServeAuthHelper', () => {
 
   it('non-delegated (in-page fallback): a disabled google.com popup throws operation-not-allowed', async () => {
     // The served NON-worker leg keeps local gating with the documented
-    // sandbox defaults (everything enabled) — an explicit disable still bites.
+    // sandbox defaults (everything enabled) -- an explicit disable still bites.
     const sandbox = initializeSandbox();
     const auth = getAuth(sandbox);
     authSandbox.setAuthProviderConfig(auth, 'google.com', false);
@@ -227,7 +227,7 @@ describe('ServeAuthHelper', () => {
     expect(helper.snapshot().request).toBeNull(); // gate fires before the picker opens
   });
 
-  it('add → popup resolves, signs in, claims land in the token', async () => {
+  it('add -> popup resolves, signs in, claims land in the token', async () => {
     const { auth, helper, sandbox } = wire();
     const p = signInWithPopup(auth, new GoogleAuthProvider());
     expect(helper.snapshot().request?.providerId).toBe('google.com');
@@ -237,14 +237,15 @@ describe('ServeAuthHelper', () => {
     expect(cred.providerId).toBe('google.com');
     expect(auth.currentUser?.uid).toBe(cred.user.uid);
     expectGoogleProviderMetadata(cred.user);
-    expectGoogleProviderMetadata(auth.currentUser!);
+    if (auth.currentUser === null) throw new Error('expected currentUser');
+    expectGoogleProviderMetadata(auth.currentUser);
     const token = await cred.user.getIdTokenResult();
     expect(token.claims.role).toBe('admin');
     expect(token.signInProvider).toBe('google.com');
     expect(
       (token.claims as { firebase?: { sign_in_provider?: string } }).firebase?.sign_in_provider,
     ).toBe('google.com');
-    // seeded → claims visible to rules via the sandbox user DB
+    // seeded -> claims visible to rules via the sandbox user DB
     const ids = authSandbox.listIdentities(auth);
     const created = ids.find((i) => i.email === 'new@example.com');
     expect(created?.customClaims).toEqual({ role: 'admin' });
@@ -273,12 +274,15 @@ describe('ServeAuthHelper', () => {
     helper.add({ email: 'a@example.com' });
     await p1;
     const p2 = signInWithPopup(auth, new GoogleAuthProvider());
-    const uid = helper.snapshot().identities.find((i) => i.email === 'a@example.com')!.uid;
+    const found = helper.snapshot().identities.find((i) => i.email === 'a@example.com');
+    if (found === undefined) throw new Error('expected created identity in picker');
+    const uid = found.uid;
     helper.pick(uid);
     const cred = await p2;
     expect(cred.user.email).toBe('a@example.com');
     expectGoogleProviderMetadata(cred.user);
-    expectGoogleProviderMetadata(auth.currentUser!);
+    if (auth.currentUser === null) throw new Error('expected currentUser');
+    expectGoogleProviderMetadata(auth.currentUser);
     expect((await cred.user.getIdTokenResult()).signInProvider).toBe('google.com');
     expect(authSandbox.listIdentities(auth).find((i) => i.uid === uid)?.providerId).toBe(
       'google.com',
@@ -299,10 +303,13 @@ describe('ServeAuthHelper', () => {
     helper.add({ email: 'redir@example.com' });
     await p;
     const result = await getRedirectResult(auth);
-    expect(result?.user.email).toBe('redir@example.com');
-    expectGoogleProviderMetadata(result!.user);
-    expectGoogleProviderMetadata(auth.currentUser!);
-    expect((await result!.user.getIdTokenResult()).signInProvider).toBe('google.com');
+    if (result === null || auth.currentUser === null) {
+      throw new Error('expected redirect result and currentUser');
+    }
+    expect(result.user.email).toBe('redir@example.com');
+    expectGoogleProviderMetadata(result.user);
+    expectGoogleProviderMetadata(auth.currentUser);
+    expect((await result.user.getIdTokenResult()).signInProvider).toBe('google.com');
     expect(
       authSandbox.listIdentities(auth).find((i) => i.email === 'redir@example.com')?.providerId,
     ).toBe('google.com');
@@ -420,5 +427,57 @@ describe('ServeAuthHelper', () => {
     expect(helper.snapshot().identities.map((entry) => entry.uid)).toEqual(['email-user']);
     helper.cancel();
     await expect(githubPopup).rejects.toMatchObject({ code: 'auth/popup-closed-by-user' });
+  });
+
+  it('ignores stale async directory.list() rejections and out-of-order resolutions across popups (#1578)', async () => {
+    const deferreds: Array<{
+      resolve: (value: HelperIdentity[]) => void;
+      reject: (reason: unknown) => void;
+    }> = [];
+    const helper = new ServeAuthHelper({
+      list: () =>
+        new Promise<HelperIdentity[]>((resolve, reject) => {
+          deferreds.push({ resolve, reject });
+        }),
+    });
+
+    // Call 0 was started by the constructor before any popup existed.
+    expect(deferreds.length).toBe(1);
+
+    const popup1 = helper.resolver().openPopup({
+      providerId: 'google.com',
+      authType: 'link',
+    });
+    expect(deferreds.length).toBe(2);
+
+    // A stale rejection from constructor boot must NOT reject popup1.
+    deferreds[0]?.reject(new Error('stale boot worker list error'));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(helper.snapshot().request).not.toBeNull();
+
+    // Fresh popup1 list resolves with an existing identity; if another stale read
+    // existed, out-of-order resolution must not clobber newer identities either.
+    deferreds[1]?.resolve([
+      {
+        uid: 'u-fresh',
+        email: 'fresh@example.com',
+        displayName: 'Fresh',
+        customClaims: { tier: 'gold' },
+      },
+    ]);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(helper.snapshot().identities.map((i) => i.uid)).toEqual(['u-fresh']);
+
+    helper.add({ email: 'provider@example.com' });
+    const linked = await popup1;
+    expect(linked.user.email).toBe('provider@example.com');
+
+    // Conversely, an active popup's own directory failure still rejects that popup.
+    const popup2 = helper.resolver().openPopup({
+      providerId: 'google.com',
+      authType: 'link',
+    });
+    deferreds[2]?.reject(new Error('active list failure'));
+    await expect(popup2).rejects.toThrow('active list failure');
   });
 });

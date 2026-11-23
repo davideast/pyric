@@ -237,13 +237,21 @@ export function ignoreShutdownError(error: unknown): void {
 }
 
 /**
+ * Default teardown deadline for `pyric sandbox` signal shutdown (#1543).
+ * Must exceed `STOP_DEADLINE_MS` (2,000 ms) + WebSocket close fallback (500 ms)
+ * while leaving >= 1,000 ms headroom for `flushStandardStreamsBeforeExit`
+ * (500 ms) inside callers' 5,000 ms `SIGTERM` exit budget.
+ */
+export const DEFAULT_TEARDOWN_DEADLINE_MS = 3_500;
+
+/**
  * Run `teardown()` bounded by an unref'd `deadlineMs` timer so a wedged socket
  * or close callback cannot keep `pyric sandbox` alive indefinitely after a
  * shutdown signal.
  */
 export async function runBoundedTeardown(
   teardown: () => Promise<void>,
-  deadlineMs = 5_000,
+  deadlineMs = DEFAULT_TEARDOWN_DEADLINE_MS,
 ): Promise<void> {
   let deadlineTimer: ReturnType<typeof setTimeout> | null = null;
   const deadlinePromise = new Promise<void>((resolveDeadline) => {

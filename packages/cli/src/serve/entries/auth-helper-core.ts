@@ -20,7 +20,7 @@ import { idTokenAudience, mintIdToken, randomUuid, SANDBOX_PROJECT_ID } from 'py
 export interface NewIdentitySpec {
   email: string;
   displayName?: string;
-  /** Profile photo for the new identity. Omitted by the picker's own form —
+  /** Profile photo for the new identity. Omitted by the picker's own form --
    *  a programmatic caller supplies one so it reaches the stored record. */
   photoURL?: string;
   /** Parsed custom claims (the emulator's `customAttributes`). */
@@ -51,7 +51,7 @@ export interface HelperIdentityDirectory {
 
 /**
  * Mint a Firebase-shaped credential for a picker pick/add. The default mint
- * builds a bare helper User (worker path → discarded by `acceptIdentity`).
+ * builds a bare helper User (worker path -> discarded by `acceptIdentity`).
  * The in-page fallback injects `sandbox.createSignInCredential`.
  */
 export type HelperCredentialMint = (
@@ -78,22 +78,24 @@ export class ServeAuthHelper {
   private cached: HelperSnapshot | null = null;
   private identities: HelperIdentity[] = [];
   private readonly mint: HelperCredentialMint;
+  private refreshGeneration = 0;
 
   constructor(
     private readonly directory: HelperIdentityDirectory,
     mint?: HelperCredentialMint,
   ) {
     this.mint = mint ?? ((request) => this.defaultMint(request));
-    this.refreshIdentities();
+    this.refreshIdentities(null);
   }
 
   resolver(): AuthFlowResolver {
     const open = (req: AuthFlowRequest): Promise<UserCredential> =>
       new Promise<UserCredential>((resolve, reject) => {
         if (this.pending) this.cancel();
-        this.pending = { req, resolve, reject };
+        const pending: Pending = { req, resolve, reject };
+        this.pending = pending;
         this.emit();
-        this.refreshIdentities();
+        this.refreshIdentities(pending);
       });
     return { openPopup: open, openRedirect: open };
   }
@@ -131,27 +133,34 @@ export class ServeAuthHelper {
     for (const listener of this.listeners) listener();
   }
 
-  private refreshIdentities(): void {
+  private refreshIdentities(owner: Pending | null): void {
+    const generation = ++this.refreshGeneration;
     try {
       const listed = this.directory.list();
       if (listed instanceof Promise) {
         void listed.then(
           (identities) => {
+            if (generation !== this.refreshGeneration) return;
             this.identities = identities;
             this.emit();
           },
-          (error) => {
-            const pending = this.take();
-            pending?.reject(error);
+          (error: unknown) => {
+            if (generation !== this.refreshGeneration) return;
+            if (owner !== null && this.pending === owner) {
+              const active = this.take();
+              active?.reject(error);
+            }
           },
         );
       } else {
         this.identities = listed;
         this.emit();
       }
-    } catch (error) {
-      const pending = this.take();
-      pending?.reject(error);
+    } catch (error: unknown) {
+      if (owner !== null && this.pending === owner) {
+        const active = this.take();
+        active?.reject(error);
+      }
     }
   }
 
@@ -175,7 +184,13 @@ export class ServeAuthHelper {
     const pending = this.take();
     if (!pending) return;
     // A same-email add resolves to the existing identity, so its claims apply.
-    const customClaims = this.findIdentityByEmail(spec.email)?.customClaims ?? spec.customClaims ?? {};
+    const existingIdentity = this.findIdentityByEmail(spec.email);
+    let customClaims: Record<string, unknown> = {};
+    if (existingIdentity !== undefined) {
+      customClaims = existingIdentity.customClaims;
+    } else if (spec.customClaims !== undefined) {
+      customClaims = spec.customClaims;
+    }
     void Promise.resolve(
       this.mint({ kind: 'add', spec, providerId: pending.req.providerId }),
     ).then((credential) => resolveWithClaims(pending, credential, customClaims), pending.reject);
@@ -195,6 +210,7 @@ export class ServeAuthHelper {
   private take(): Pending | null {
     const pending = this.pending;
     this.pending = null;
+    this.refreshGeneration += 1;
     this.emit();
     return pending;
   }
@@ -208,7 +224,7 @@ export class ServeAuthHelper {
       return bareCredential(request.identity, request.providerId);
     }
     // Same-email add resolves to the existing identity (Google-style account
-    // reuse) — mirrors `createSignInCredential`'s in-page policy, and keeps a
+    // reuse) -- mirrors `createSignInCredential`'s in-page policy, and keeps a
     // repeated add idempotent instead of seeding a second account whose email
     // mapping orphans the first.
     const existing = this.findIdentityByEmail(request.spec.email);
@@ -297,7 +313,7 @@ function mintProviderUid(): string {
   return `provider-${randomUuid()}`;
 }
 
-/** Bare helper User — worker path discards this in favor of `acceptIdentity`. */
+/** Bare helper User -- worker path discards this in favor of `acceptIdentity`. */
 function bareCredential(identity: HelperIdentity, providerId: string): UserCredential {
   const issuedAtSeconds = Math.floor(Date.now() / 1000);
   const issuedAtTime = new Date(issuedAtSeconds * 1000).toUTCString();
