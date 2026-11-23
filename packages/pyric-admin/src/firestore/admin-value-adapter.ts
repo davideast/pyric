@@ -4,6 +4,7 @@
  * JSON-wire remote sandboxes.
  */
 
+import { defineDeferredMembers } from 'pyric/app/internal';
 import type {
   CollectionReference,
   DocumentData,
@@ -138,12 +139,21 @@ const SYNTHETIC_QUERY_PROPS: ReadonlySet<PropertyKey> = new Set([
   'firestore',
   'isEqual',
   'offset',
+  'onSnapshot',
   'select',
   'startAfter',
   'startAt',
   'stream',
   'withConverter',
 ]);
+
+const collectionGroupDeferredStubs: Record<string, unknown> = {};
+defineDeferredMembers(
+  collectionGroupDeferredStubs,
+  'pyric-admin/firestore',
+  'CollectionGroup',
+  { sync: ['getPartitions'] },
+);
 
 const SYNTHETIC_COL_EXTRA_PROPS: ReadonlySet<PropertyKey> = new Set([
   'listDocuments',
@@ -159,10 +169,14 @@ function wrapQuery(
 ): Query {
   const proxy: Query = new Proxy(rawQuery, {
     has(t, prop) {
+      if (meta.isCollectionGroupRoot === true && prop === 'getPartitions') return true;
       if (SYNTHETIC_QUERY_PROPS.has(prop)) return true;
       return Reflect.has(t, prop);
     },
     get(t, prop, receiver) {
+      if (meta.isCollectionGroupRoot === true && prop === 'getPartitions') {
+        return collectionGroupDeferredStubs.getPartitions;
+      }
       if (prop === 'onSnapshot') {
         const underlying = Reflect.get(t, prop, t);
         if (typeof underlying === 'function') {
@@ -192,19 +206,17 @@ function wrapQuery(
     getOwnPropertyDescriptor(t, prop) {
       const own = Reflect.getOwnPropertyDescriptor(t, prop);
       if (own !== undefined) return own;
+      if (meta.isCollectionGroupRoot === true && prop === 'getPartitions') {
+        return {
+          value: collectionGroupDeferredStubs.getPartitions,
+          writable: true,
+          enumerable: false,
+          configurable: true,
+        };
+      }
       if (SYNTHETIC_QUERY_PROPS.has(prop)) {
         return {
-          value: resolveWrappedQueryProperty(
-            t,
-            proxy,
-            prop,
-            rawDb,
-            rootDb,
-            docRefOnRoot,
-            wrapQuery,
-            meta,
-            converter,
-          ),
+          value: Reflect.get(proxy, prop, proxy),
           writable: true,
           enumerable: false,
           configurable: true,

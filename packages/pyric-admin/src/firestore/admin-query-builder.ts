@@ -4,6 +4,7 @@
  * bounds) with `replayOnRoot` tracking and numeric gRPC error translation.
  */
 
+import { SandboxError } from 'pyric/sandbox';
 import type {
   DocumentSnapshot,
   Filter as CompatFilter,
@@ -30,6 +31,7 @@ import {
 import {
   normalizeCompositeFilter,
   normalizeLegacyQueryOperand,
+  serializeCursorOperandForSignature,
   unwrapCursorSnapshotForAdmin,
   validateAdminLimitInteger,
   validateAndNormalizeOrderByArgs,
@@ -92,21 +94,44 @@ export function resolveWrappedQueryProperty(
       return (...args: unknown[]) =>
         runWithAdminErrorsSync(appBacked, () => {
           if (isAdminFilterInstance(args[0])) {
+            if (meta.hasCursorBound === true) {
+              throw new SandboxError(
+                'invalid-argument',
+                'Cannot specify a where() filter after calling startAt(), startAfter(), endBefore() or endAt().',
+              );
+            }
             const filterArg = args[0];
             const compiled = compileAdminFilter(filterArg, meta, rootDb);
+            if (compiled === null) {
+              const emptyMeta: AdminQueryMetadata = {
+                ...meta,
+                isCollectionGroupRoot: false,
+                replayOnRoot: chainReplay(meta, (q) =>
+                  (q as unknown as { where(f: unknown): Query }).where(filterArg),
+                ),
+              };
+              return wrapQuery(target, rawDb, rootDb, emptyMeta, converter);
+            }
             const nextMeta: AdminQueryMetadata = {
               ...meta,
+              isCollectionGroupRoot: false,
               signature: [...meta.signature, `filter:${JSON.stringify(compiled)}`],
               replayOnRoot: chainReplay(meta, (q) =>
                 (q as unknown as { where(f: unknown): Query }).where(filterArg),
               ),
             };
-            if (compiled === null) return wrapQuery(target, rawDb, rootDb, nextMeta, converter);
             return wrapQuery(target.applyFilter(compiled), rawDb, rootDb, nextMeta, converter);
           }
           const normalized = validateAndNormalizeWhereArgs(args[0], args[1], args[2], meta, rootDb);
+          if (meta.hasCursorBound === true) {
+            throw new SandboxError(
+              'invalid-argument',
+              'Cannot specify a where() filter after calling startAt(), startAfter(), endBefore() or endAt().',
+            );
+          }
           const nextMeta: AdminQueryMetadata = {
             ...meta,
+            isCollectionGroupRoot: false,
             signature: [
               ...meta.signature,
               `where:${String(normalized.field)}:${normalized.op}:${JSON.stringify(normalized.value)}`,
@@ -129,6 +154,7 @@ export function resolveWrappedQueryProperty(
           const norm = normalizeCompositeFilter(filter, rootDb);
           const nextMeta: AdminQueryMetadata = {
             ...meta,
+            isCollectionGroupRoot: false,
             signature: [...meta.signature, `apply:${JSON.stringify(norm)}`],
             replayOnRoot: chainReplay(meta, (q) => q.applyFilter(filter)),
           };
@@ -138,9 +164,20 @@ export function resolveWrappedQueryProperty(
       return (field: SnapshotFieldPath, direction?: unknown) =>
         runWithAdminErrorsSync(appBacked, () => {
           const normalized = validateAndNormalizeOrderByArgs(field, direction);
+          if (meta.hasCursorBound === true) {
+            throw new SandboxError(
+              'invalid-argument',
+              'Cannot specify an orderBy() constraint after calling startAt(), startAfter(), endBefore() or endAt().',
+            );
+          }
           const nextMeta: AdminQueryMetadata = {
             ...meta,
-            signature: [...meta.signature, `order:${String(normalized.field)}:${normalized.direction}`],
+            isCollectionGroupRoot: false,
+            signature: [
+              ...meta.signature,
+              `order:${normalized.segments.join('.')}:${normalized.direction}`,
+            ],
+            orderByFields: [...meta.orderByFields, normalized.segments],
             hasExplicitOrderBy: true,
             replayOnRoot: chainReplay(meta, (q) => q.orderBy(field, normalized.direction)),
           };
@@ -162,7 +199,7 @@ export function resolveWrappedQueryProperty(
           }
           const nextMeta: AdminQueryMetadata = {
             ...meta,
-            signature: [...meta.signature, `limit:${String(parsed)}`],
+            isCollectionGroupRoot: false,
             pendingLimitType: 'first',
             limitCount: parsed,
             replayOnRoot: chainReplay(meta, (q) => q.limit(parsed)),
@@ -173,26 +210,34 @@ export function resolveWrappedQueryProperty(
       return (n: number) =>
         runWithAdminErrorsSync(appBacked, () => {
           const parsed = validateAdminLimitInteger('limitToLast', n);
+          let targetLimit = parsed;
+          if (meta.offsetCount !== undefined && meta.offsetCount > 0) {
+            targetLimit = meta.offsetCount + parsed;
+          }
           const nextMeta: AdminQueryMetadata = {
             ...meta,
-            signature: [...meta.signature, `limitToLast:${String(parsed)}`],
+            isCollectionGroupRoot: false,
             pendingLimitType: 'last',
             limitCount: parsed,
             replayOnRoot: chainReplay(meta, (q) => q.limitToLast(parsed)),
           };
-          return wrapQuery(target.limitToLast(parsed), rawDb, rootDb, nextMeta, converter);
+          return wrapQuery(target.limitToLast(targetLimit), rawDb, rootDb, nextMeta, converter);
         });
     case 'offset':
       return (n: number) =>
         runWithAdminErrorsSync(appBacked, () => {
           const parsed = validateAdminOffsetInteger(n);
           let nextTarget = target;
-          if (parsed > 0 && meta.pendingLimitType === 'first' && meta.limitCount !== undefined) {
-            nextTarget = target.limit(parsed + meta.limitCount);
+          if (parsed >= 0 && meta.limitCount !== undefined) {
+            if (meta.pendingLimitType === 'first') {
+              nextTarget = target.limit(parsed + meta.limitCount);
+            } else if (meta.pendingLimitType === 'last') {
+              nextTarget = target.limitToLast(parsed + meta.limitCount);
+            }
           }
           const nextMeta: AdminQueryMetadata = {
             ...meta,
-            signature: [...meta.signature, `offset:${String(parsed)}`],
+            isCollectionGroupRoot: false,
             offsetCount: parsed,
             replayOnRoot: chainReplay(meta, (q) =>
               (q as unknown as { offset(k: number): Query }).offset(parsed),
@@ -206,7 +251,7 @@ export function resolveWrappedQueryProperty(
           const selectedFields = parseSelectFieldPaths(fields);
           const nextMeta: AdminQueryMetadata = {
             ...meta,
-            signature: [...meta.signature, `select:${JSON.stringify(selectedFields)}`],
+            isCollectionGroupRoot: false,
             selectedFields,
             replayOnRoot: chainReplay(meta, (q) =>
               (q as unknown as { select(...f: unknown[]): Query }).select(...fields),
@@ -225,15 +270,31 @@ export function resolveWrappedQueryProperty(
     case 'endBefore':
       return (...args: unknown[]) =>
         runWithAdminErrorsSync(appBacked, () => {
-          const nextTarget = applyAdminCursorArgs(target, prop, args, rootDb);
-          const nextMeta: AdminQueryMetadata = {
-            ...meta,
-            signature: [...meta.signature, `${prop}:${String(args.length)}`],
-            replayOnRoot: chainReplay(meta, (q) =>
-              (q as unknown as Record<typeof prop, (...a: unknown[]) => Query>)[prop](...args),
-            ),
-          };
-          return wrapQuery(nextTarget, rawDb, rootDb, nextMeta, converter);
+          const applied = applyAdminCursorArgs(target, prop, args, meta, rootDb);
+          const isStart = prop === 'startAt' || prop === 'startAfter';
+          let nextMeta: AdminQueryMetadata;
+          if (isStart) {
+            nextMeta = {
+              ...meta,
+              isCollectionGroupRoot: false,
+              hasCursorBound: true,
+              startSignature: applied.cursorSignature,
+              replayOnRoot: chainReplay(meta, (q) =>
+                (q as unknown as Record<typeof prop, (...a: unknown[]) => Query>)[prop](...args),
+              ),
+            };
+          } else {
+            nextMeta = {
+              ...meta,
+              isCollectionGroupRoot: false,
+              hasCursorBound: true,
+              endSignature: applied.cursorSignature,
+              replayOnRoot: chainReplay(meta, (q) =>
+                (q as unknown as Record<typeof prop, (...a: unknown[]) => Query>)[prop](...args),
+              ),
+            };
+          }
+          return wrapQuery(applied.nextTarget, rawDb, rootDb, nextMeta, converter);
         });
     case 'startCursor':
       return (values: unknown[], inclusive: boolean, fromSnapshot?: boolean) =>
@@ -248,6 +309,8 @@ export function resolveWrappedQueryProperty(
             rootDb,
             {
               ...meta,
+              isCollectionGroupRoot: false,
+              startSignature: `rawVals:${String(inclusive)}:${values.map(serializeCursorOperandForSignature).join('|')}`,
               replayOnRoot: chainReplay(meta, (q) =>
                 q.startCursor(values, inclusive, fromSnapshot),
               ),
@@ -268,6 +331,8 @@ export function resolveWrappedQueryProperty(
             rootDb,
             {
               ...meta,
+              isCollectionGroupRoot: false,
+              endSignature: `rawVals:${String(inclusive)}:${values.map(serializeCursorOperandForSignature).join('|')}`,
               replayOnRoot: chainReplay(meta, (q) =>
                 q.endCursor(values, inclusive, fromSnapshot),
               ),
@@ -284,6 +349,8 @@ export function resolveWrappedQueryProperty(
             rootDb,
             {
               ...meta,
+              isCollectionGroupRoot: false,
+              startSignature: `rawSnap:${String(inclusive)}:${snapshot.ref?.path ?? snapshot.id}`,
               replayOnRoot: chainReplay(meta, (q) =>
                 q.startCursorFromSnapshot(snapshot, inclusive),
               ),
@@ -300,6 +367,8 @@ export function resolveWrappedQueryProperty(
             rootDb,
             {
               ...meta,
+              isCollectionGroupRoot: false,
+              endSignature: `rawSnap:${String(inclusive)}:${snapshot.ref?.path ?? snapshot.id}`,
               replayOnRoot: chainReplay(meta, (q) =>
                 q.endCursorFromSnapshot(snapshot, inclusive),
               ),

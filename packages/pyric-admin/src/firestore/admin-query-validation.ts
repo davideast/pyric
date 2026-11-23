@@ -23,6 +23,8 @@ import {
   isPlainMap,
   unwrapAdminObject,
 } from './admin-handle-registry.js';
+import { isAdminGeoPoint } from './admin-geopoint.js';
+import { isAdminVectorValue } from './admin-vector-and-errors.js';
 import {
   assertAdminDocumentReference,
   UNESCAPED_MAP_TAG,
@@ -37,11 +39,16 @@ type AdminQuerySource =
 export interface AdminQueryMetadata {
   readonly source: AdminQuerySource;
   readonly signature: readonly string[];
+  readonly orderByFields: ReadonlyArray<readonly string[]>;
   readonly hasExplicitOrderBy: boolean;
+  readonly hasCursorBound?: boolean;
   readonly pendingLimitType: 'none' | 'first' | 'last';
   readonly offsetCount?: number;
   readonly limitCount?: number;
   readonly selectedFields?: ReadonlyArray<readonly string[]>;
+  readonly startSignature?: string;
+  readonly endSignature?: string;
+  readonly isCollectionGroupRoot?: boolean;
   readonly replayOnRoot?: (db: SandboxFirestore) => Query;
 }
 
@@ -64,6 +71,7 @@ export function initialCollectionQueryMeta(path: string): AdminQueryMetadata {
   return {
     source: { kind: 'collection', path },
     signature: [`col:${path}`],
+    orderByFields: [],
     hasExplicitOrderBy: false,
     pendingLimitType: 'none',
     replayOnRoot: (db) => db.collection(path),
@@ -74,8 +82,10 @@ export function initialCollectionGroupQueryMeta(collectionId: string): AdminQuer
   return {
     source: { kind: 'group', collectionId },
     signature: [`group:${collectionId}`],
+    orderByFields: [],
     hasExplicitOrderBy: false,
     pendingLimitType: 'none',
+    isCollectionGroupRoot: true,
     replayOnRoot: (db) => db.collectionGroup(collectionId),
   };
 }
@@ -270,6 +280,70 @@ function validateDocumentIdBoundary(
   );
 }
 
+export function resolveDocumentIdCursorString(
+  val: unknown,
+  source: AdminQuerySource,
+  rootDb: SandboxFirestore,
+): string {
+  const validated = validateDocumentIdBoundary(val, source, rootDb);
+  if (typeof validated === 'string') {
+    return validated;
+  }
+  const refPath =
+    val !== null && typeof val === 'object' ? registeredAdminReferencePath(val) : undefined;
+  if (refPath === undefined) {
+    throw new SandboxError(
+      'invalid-argument',
+      `The corresponding value for FieldPath.documentId() must be a string or a DocumentReference, but was "${String(val)}".`,
+    );
+  }
+  if (source.kind === 'group') {
+    return refPath;
+  }
+  const refSegs = refPath.split('/');
+  return refSegs[refSegs.length - 1] ?? refPath;
+}
+
+export function serializeCursorOperandForSignature(value: unknown): string {
+  if (value === null) return 'null';
+  if (typeof value === 'number') {
+    if (Number.isNaN(value)) return 'num:NaN';
+    return `num:${String(value)}`;
+  }
+  if (typeof value === 'string') return `str:${JSON.stringify(value)}`;
+  if (typeof value === 'boolean') return `bool:${String(value)}`;
+  if (typeof value !== 'object') return `prim:${String(value)}`;
+  const refPath = registeredAdminReferencePath(value);
+  if (refPath !== undefined) return `ref:${refPath}`;
+  if (isAdminGeoPoint(value)) {
+    return `geo:${String(value.latitude)},${String(value.longitude)}`;
+  }
+  if (isAdminVectorValue(value)) {
+    return `vec:${JSON.stringify(value.toArray())}`;
+  }
+  if (value instanceof Uint8Array) {
+    return `bytes:${Array.from(value).join(',')}`;
+  }
+  const tsCandidate = value as { seconds?: unknown; nanoseconds?: unknown; toMillis?: unknown };
+  if (
+    typeof tsCandidate.seconds === 'number' &&
+    typeof tsCandidate.nanoseconds === 'number' &&
+    typeof tsCandidate.toMillis === 'function'
+  ) {
+    return `ts:${String(tsCandidate.seconds)}:${String(tsCandidate.nanoseconds)}`;
+  }
+  if (Array.isArray(value)) {
+    return `arr:[${value.map(serializeCursorOperandForSignature).join(',')}]`;
+  }
+  if (isPlainMap(value)) {
+    const entries = Object.keys(value)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${serializeCursorOperandForSignature(value[k])}`);
+    return `map:{${entries.join(',')}}`;
+  }
+  return `obj:${JSON.stringify(value)}`;
+}
+
 export function validateAndNormalizeWhereArgs(
   field: unknown,
   rawOp: unknown,
@@ -400,17 +474,17 @@ export function validateAndNormalizeWhereArgs(
 export function validateAndNormalizeOrderByArgs(
   field: unknown,
   directionStr: unknown,
-): { field: SnapshotFieldPath; direction: OrderDirection } {
+): { field: SnapshotFieldPath; segments: readonly string[]; direction: OrderDirection } {
   const fieldSegs = validateStringOrFieldPath('fieldPath', field);
   const normalizedField = toNormalizedQueryField(field, fieldSegs);
 
   if (directionStr === undefined) {
-    return { field: normalizedField, direction: 'asc' };
+    return { field: normalizedField, segments: fieldSegs, direction: 'asc' };
   }
   if (typeof directionStr === 'string') {
     const lower = directionStr.toLowerCase();
     if (lower === 'asc' || lower === 'desc') {
-      return { field: normalizedField, direction: lower };
+      return { field: normalizedField, segments: fieldSegs, direction: lower };
     }
   }
   throw new SandboxError(

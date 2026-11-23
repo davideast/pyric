@@ -28,6 +28,7 @@ export default row({
   conformanceTests: [
     'packages/pyric-admin/test/firestore/oracle-conformance.test.ts',
     'packages/pyric-admin/test/firestore/writeresult-filter-cursors-getall.test.ts',
+    'packages/pyric-admin/test/firestore/admin-query-builder.test.ts',
     'packages/pyric-admin/test/firestore/field-path-queries.test.ts',
     'packages/pyric-admin/test/firestore/firestore/onSnapshot.test.ts',
     'packages/pyric-admin/test/remote/remote-firestore.test.ts',

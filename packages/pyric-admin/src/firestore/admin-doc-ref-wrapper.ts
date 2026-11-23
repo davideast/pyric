@@ -66,6 +66,7 @@ const SYNTHETIC_DOC_REF_PROPS = new Set<PropertyKey>([
   'formattedName',
   'isEqual',
   'listCollections',
+  'onSnapshot',
   'withConverter',
 ]);
 

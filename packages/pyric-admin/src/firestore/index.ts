@@ -84,6 +84,24 @@ import {
   registerBypassExistenceReader,
   WriteResult,
 } from './admin-write-result-preconditions.js';
+import type {
+  AdminAggregateQuery,
+  AdminAggregateQuerySnapshot,
+  AdminCollectionGroup,
+  AdminCollectionReference,
+  AdminDocumentReference,
+  AdminDocumentSnapshot,
+  AdminExplainMetrics,
+  AdminExplainResults,
+  AdminFindNearestOptions,
+  AdminFirestore,
+  AdminQuery,
+  AdminQueryDocumentSnapshot,
+  AdminQuerySnapshot,
+  AdminVectorDistanceMeasure,
+  AdminVectorQuery,
+  FirestoreDataConverter,
+} from './admin-query-types.js';
 
 export {
   AggregateField,
@@ -95,7 +113,25 @@ export {
   setLogFunction,
   WriteResult,
 };
-export type { AdminFirestoreSettings as Settings };
+export type {
+  AdminAggregateQuery,
+  AdminAggregateQuerySnapshot,
+  AdminCollectionGroup,
+  AdminCollectionReference,
+  AdminDocumentReference,
+  AdminDocumentSnapshot,
+  AdminExplainMetrics,
+  AdminExplainResults,
+  AdminFindNearestOptions,
+  AdminFirestore,
+  AdminFirestoreSettings as Settings,
+  AdminQuery,
+  AdminQueryDocumentSnapshot,
+  AdminQuerySnapshot,
+  AdminVectorDistanceMeasure,
+  AdminVectorQuery,
+  FirestoreDataConverter,
+};
 
 function wrapRootHandle(
   db: SandboxFirestore,
@@ -182,7 +218,7 @@ export function initializeFirestore(
   app: PyricAdminApp,
   settings?: AdminFirestoreSettings,
   databaseId?: string,
-): SandboxFirestore {
+): AdminFirestore {
   assertAdminAppActive(app);
   const normalizedDbId = resolveOptionalAdminDatabaseId(databaseId);
   const byDb = getOrCreateAppDbMap(app);
@@ -200,7 +236,7 @@ export function initializeFirestore(
     if (settings !== undefined) {
       applyAdminFirestoreSettings(existing, settings, true);
     }
-    return existing;
+    return existing as AdminFirestore;
   }
   const wrapped = buildAppFirestoreInstance(app, normalizedDbId);
   if (settings !== undefined) {
@@ -208,7 +244,7 @@ export function initializeFirestore(
   }
   byDb.set(normalizedDbId, wrapped);
   settingsByDb.set(normalizedDbId, requestedPreferRest);
-  return wrapped;
+  return wrapped as AdminFirestore;
 }
 
 /**
@@ -244,20 +280,20 @@ function adminAppToContext(app: PyricAdminApp): SandboxContext {
  *   - `getFirestore()` -- resolves the default app to the rules-BYPASS admin
  *     lens; throws `app/no-app` when nothing is initialized.
  */
-export function getFirestore(ctx: SandboxContext, databaseId?: string): SandboxFirestore;
-export function getFirestore(app?: PyricAdminApp, databaseId?: string): SandboxFirestore;
-export function getFirestore(databaseId: string): SandboxFirestore;
+export function getFirestore(ctx: SandboxContext, databaseId?: string): AdminFirestore;
+export function getFirestore(app?: PyricAdminApp, databaseId?: string): AdminFirestore;
+export function getFirestore(databaseId: string): AdminFirestore;
 export function getFirestore(
   target?: SandboxContext | PyricAdminApp | string,
   databaseId?: string,
-): SandboxFirestore;
+): AdminFirestore;
 export function getFirestore(
   this: unknown,
   target?: SandboxContext | PyricAdminApp | string,
   databaseId?: string,
-): SandboxFirestore {
+): AdminFirestore {
   if (target === undefined) {
-    return getAppFirestore(getDefaultServiceApp(), databaseId);
+    return getAppFirestore(getDefaultServiceApp(), databaseId) as AdminFirestore;
   }
   if (typeof target === 'string') {
     if (isCalledFromLegacyRootAdminNamespace(this)) {
@@ -265,10 +301,10 @@ export function getFirestore(
         'pyric-admin/firestore: expected a PyricAdminApp from initializeApp() (or omit the argument for the default app).',
       );
     }
-    return getAppFirestore(getDefaultServiceApp(), target);
+    return getAppFirestore(getDefaultServiceApp(), target) as AdminFirestore;
   }
   if (typeof target === 'object' && target !== null && ADMIN_APP_TARGET in target) {
-    return getAppFirestore(target as PyricAdminApp, databaseId);
+    return getAppFirestore(target as PyricAdminApp, databaseId) as AdminFirestore;
   }
   if (target instanceof SandboxContextImpl) {
     const normalizedDbId = resolveOptionalAdminDatabaseId(databaseId);
@@ -279,7 +315,7 @@ export function getFirestore(
     }
     const cached = byDb.get(normalizedDbId);
     if (cached !== undefined) {
-      return cached;
+      return cached as AdminFirestore;
     }
     const scopedCtx = createDatabaseScopedContext(target, normalizedDbId);
     const rawDb = baseGetFirestore(scopedCtx);
@@ -299,19 +335,19 @@ export function getFirestore(
       target.sandbox,
     );
     byDb.set(normalizedDbId, wrapped);
-    return wrapped;
+    return wrapped as AdminFirestore;
   }
   throw new TypeError(
     'pyric-admin/firestore: expected a PyricAdminApp from initializeApp() or a SandboxContext (or omit the argument for the default app).',
   );
 }
 
-export function getAdminFirestore(ctx: SandboxContext, databaseId?: string): SandboxFirestore;
-export function getAdminFirestore(sandbox: Sandbox, databaseId?: string): SandboxFirestore;
+export function getAdminFirestore(ctx: SandboxContext, databaseId?: string): AdminFirestore;
+export function getAdminFirestore(sandbox: Sandbox, databaseId?: string): AdminFirestore;
 export function getAdminFirestore(
   target: SandboxContext | Sandbox,
   databaseId?: string,
-): SandboxFirestore {
+): AdminFirestore {
   const normalizedDbId = resolveOptionalAdminDatabaseId(databaseId);
   let originalSb: Sandbox;
   let scopedSb: Sandbox;
@@ -334,7 +370,7 @@ export function getAdminFirestore(
     undefined,
     normalizedDbId,
     originalSb,
-  );
+  ) as AdminFirestore;
 }
 
 export { adminOnSnapshot as onSnapshot };

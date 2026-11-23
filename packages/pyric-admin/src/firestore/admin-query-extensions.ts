@@ -6,11 +6,13 @@
 import { Readable } from 'node:stream';
 import { SandboxError } from 'pyric/sandbox';
 import type {
+  AggregateSpec,
   DocumentData,
   QueryDocumentSnapshot,
   QuerySnapshot,
 } from 'pyric/sandbox/admin-compat';
 import { isPlainMap } from './admin-handle-registry.js';
+import type { AdminQueryMetadata } from './admin-query-validation.js';
 import { validateStringOrFieldPath } from './admin-write-validation.js';
 
 export function validateAdminOffsetInteger(value: unknown): number {
@@ -62,12 +64,75 @@ export function projectDataByFieldPaths(
   return result;
 }
 
+export function sliceQueryDocsForOffsetAndLimit<TDoc>(
+  docs: readonly TDoc[],
+  meta: AdminQueryMetadata,
+): readonly TDoc[] | undefined {
+  if (meta.offsetCount === undefined || meta.offsetCount <= 0) {
+    return undefined;
+  }
+  if (meta.pendingLimitType === 'last') {
+    const keepCount = Math.max(0, docs.length - meta.offsetCount);
+    return docs.slice(0, keepCount);
+  }
+  const afterOffset = docs.slice(meta.offsetCount);
+  if (meta.pendingLimitType === 'first' && meta.limitCount !== undefined) {
+    return afterOffset.slice(0, meta.limitCount);
+  }
+  return afterOffset;
+}
+
+export function computePostOffsetAggregates(
+  docs: readonly QueryDocumentSnapshot[],
+  spec: AggregateSpec,
+): Record<string, number | null> {
+  const out: Record<string, number | null> = {};
+  for (const [alias, entry] of Object.entries(spec)) {
+    if (entry.kind === 'count') {
+      out[alias] = docs.length;
+      continue;
+    }
+    const segments = entry.path ?? validateStringOrFieldPath(alias, entry.field);
+    let sum = 0;
+    let numericCount = 0;
+    let sawNaN = false;
+    for (const doc of docs) {
+      const resolved = readProjectedNested(doc.data(), segments);
+      if (!resolved.found || typeof resolved.value !== 'number') {
+        continue;
+      }
+      numericCount += 1;
+      if (Number.isNaN(resolved.value)) {
+        sawNaN = true;
+      } else {
+        sum += resolved.value;
+      }
+    }
+    if (entry.kind === 'sum') {
+      if (sawNaN) {
+        out[alias] = Number.NaN;
+      } else {
+        out[alias] = sum;
+      }
+    } else if (numericCount === 0) {
+      out[alias] = null;
+    } else if (sawNaN) {
+      out[alias] = Number.NaN;
+    } else {
+      out[alias] = sum / numericCount;
+    }
+  }
+  return out;
+}
+
 export function createQueryStream(
   pendingLimitType: 'none' | 'first' | 'last',
   fetchSnapshot: () => Promise<QuerySnapshot>,
 ): Readable {
   if (pendingLimitType === 'last') {
-    throw new Error('Results for limitToLast queries cannot be streamed via the stream() API.');
+    throw new Error(
+      'Query results for queries that include limitToLast() constraints cannot be streamed. Use Query.get() instead.',
+    );
   }
   async function* generateDocs(): AsyncGenerator<QueryDocumentSnapshot> {
     const snap = await fetchSnapshot();
