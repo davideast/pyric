@@ -1,0 +1,233 @@
+{
+  "name": "rules-storage-h1-lookup-float-interpolation",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"h1-lookup-float-interpolation\" (STORAGE-H1-LOOKUP-FLOAT). Whether $(expr) inside a Storage firestore.get() or firestore.exists() path accepts or refuses a float custom auth claim and a float Firestore document field (#1815).",
+  "observedAt": "2026-11-23T15:23:03.642Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "4bdd95cfe2e3e75313d2f13273eb30d8748b73ecb17a48c6ca83cf85175a2f9d"
+  },
+  "behavior": {
+    "claim get: float auth claim 1.5 in firestore.get path": "ALLOW",
+    "claim get control: int auth claim 7 in firestore.get path": "ALLOW",
+    "claim exists: float auth claim 1.5 in firestore.exists path": "ALLOW",
+    "claim exists control: int auth claim 7 in firestore.exists path": "ALLOW",
+    "field get: float document field 1.5 in firestore.get path": "ALLOW",
+    "field get control: int document field 7 in firestore.get path": "ALLOW",
+    "field exists: float document field 1.5 in firestore.exists path": "ALLOW",
+    "field exists control: int document field 7 in firestore.exists path": "ALLOW"
+  },
+  "diagnostics": {
+    "claim get: float auth claim 1.5 in firestore.get path": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.get",
+            "args": [
+              "/databases/%28default%29/documents/items/1.5"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 24,
+              "currentOffset": 122,
+              "endOffset": 130
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "claim get control: int auth claim 7 in firestore.get path": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.get",
+            "args": [
+              "/databases/%28default%29/documents/items/7"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 24,
+              "currentOffset": 122,
+              "endOffset": 130
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "claim exists: float auth claim 1.5 in firestore.exists path": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/items/1.5"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 8,
+              "column": 24,
+              "currentOffset": 274,
+              "endOffset": 282
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "claim exists control: int auth claim 7 in firestore.exists path": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/items/7"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 8,
+              "column": 24,
+              "currentOffset": 274,
+              "endOffset": 282
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "field get: float document field 1.5 in firestore.get path": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.get",
+            "args": [
+              "/databases/%28default%29/documents/cfg/main"
+            ]
+          },
+          {
+            "function": "firestore.get",
+            "args": [
+              "/databases/%28default%29/documents/items/1.5"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 11,
+              "column": 24,
+              "currentOffset": 410,
+              "endOffset": 418
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "field get control: int document field 7 in firestore.get path": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.get",
+            "args": [
+              "/databases/%28default%29/documents/cfg/main"
+            ]
+          },
+          {
+            "function": "firestore.get",
+            "args": [
+              "/databases/%28default%29/documents/items/7"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 11,
+              "column": 24,
+              "currentOffset": 410,
+              "endOffset": 418
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "field exists: float document field 1.5 in firestore.exists path": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.get",
+            "args": [
+              "/databases/%28default%29/documents/cfg/main"
+            ]
+          },
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/items/1.5"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 14,
+              "column": 24,
+              "currentOffset": 603,
+              "endOffset": 611
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "field exists control: int document field 7 in firestore.exists path": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.get",
+            "args": [
+              "/databases/%28default%29/documents/cfg/main"
+            ]
+          },
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/items/7"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 14,
+              "column": 24,
+              "currentOffset": 603,
+              "endOffset": 611
+            },
+            "value": true
+          }
+        ]
+      }
+    }
+  }
+}
