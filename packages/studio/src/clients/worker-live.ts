@@ -179,7 +179,7 @@ export interface WorkerLivePlane {
   /** F2 data browse: enumerate subcollection ids under a document path. */
   listSubcollections(docPath: string, databaseId?: string): Promise<string[]>;
   /** F2 data browse: phantom-inclusive document listing for a collection path
-   *  (`phantom: true` = a "missing" parent — descendants but no stored doc). */
+   *  (`phantom: true` = a "missing" parent -- descendants but no stored doc). */
   listDocuments(
     collectionPath: string,
     databaseId?: string,
@@ -192,7 +192,7 @@ export interface WorkerLivePlane {
   updateRtdbValue(path: string, values: Record<string, unknown>): Promise<void>;
   /** RTDB browse: delete a node with the admin lens. */
   deleteRtdbValue(path: string): Promise<void>;
-  /** RTDB viewer: live value subscription at a path with the admin lens —
+  /** RTDB viewer: live value subscription at a path with the admin lens --
    *  `next` fires with the subtree's plain JSON value on subscribe and after
    *  every write. Returns the unsubscribe. */
   subscribeRtdbValue(
@@ -227,12 +227,12 @@ export interface WorkerLivePlane {
    *  on a throwaway branch (no live mutation). */
   getSnapshot(): Promise<SandboxSnapshot>;
   /** Sandbox-owned full reset (issue #359): `sandbox.resetAll()` on the worker
-   *  — Firestore env + signed-in session + EVERY registered persistable
+   *  -- Firestore env + signed-in session + EVERY registered persistable
    *  service (auth users, RTDB tree, storage objects). Resolves once the
    *  worker acks (all services finished clearing). */
   resetAll(): Promise<{ errors: string[] }>;
   /** Stable per-SharedWorker instance id, so the UI can tell WHICH sandbox
-   *  instance this is — the same `localhost:<port>` in a different browser
+   *  instance this is -- the same `localhost:<port>` in a different browser
    *  profile is a separate instance. Studio renders a human-friendly slug. */
   instanceId(): Promise<string>;
   /** Phase 2 (transfer): export the full sandbox state as a portable bundle
@@ -269,21 +269,30 @@ export const DEFAULT_WORKER_URL = '/__pyric/sdk/worker.js';
  * Build a {@link LiveEventFeed} over the worker client's event channel.
  *
  * `subscribeEvents` delivers the initial `history()` as the FIRST batch, then
- * one live event per subsequent batch.
- *
- * WHY THE HISTORY IS DELIVERED TO SUBSCRIBERS, NOT JUST BUFFERED:
- * The worker subscription is opened lazily on the FIRST `subscribe()` and its
- * history batch arrives ASYNCHRONOUSLY (a port round-trip). A consumer like
- * `useActionDigest` reads `feed.history()` synchronously (empty at that instant)
- * THEN subscribes, so if history were only buffered for a later `history()`
- * call, the backlog would be silently dropped. Instead we fan the history batch
- * out to the live subscribers too (each event once), so an early subscriber
- * still receives the full backlog. We also keep `historySnapshot` updated for a
- * late `history()` reader (mirrors `sandbox.history()` growing).
- *
- * One worker subscription backs any number of feed subscribers: opened on first
- * subscribe, torn down when the last unsubscribes.
+ * one live event per subsequent batch. Because the worker round-trip is async,
+ * an early subscriber reads an empty `feed.history()` before subscribing, so
+ * the history batch is fanned out to live subscribers as well as stored in
+ * `history` for late `history()` readers. One worker subscription backs all
+ * subscribers, opening on first subscribe and closing on last unsubscribe.
  */
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  if (typeof value !== 'object' || value === null) return false;
+  return 'then' in value && typeof value.then === 'function';
+}
+
+function deliverFeedEvent(cb: (event: SandboxEvent) => void, event: SandboxEvent): void {
+  try {
+    const result: unknown = cb(event);
+    if (isPromiseLike(result)) {
+      void Promise.resolve(result).catch((rejection: unknown) => {
+        console.error('pyric: Uncaught rejection in Studio event feed subscriber:', rejection);
+      });
+    }
+  } catch (error: unknown) {
+    console.error('pyric: Uncaught Error in Studio event feed subscriber:', error);
+  }
+}
+
 export function workerEventFeed(db: ClientDb): LiveEventFeed {
   // The running snapshot of events seen so far (history + live), kept so a late
   // `feed.history()` call returns the backlog.
@@ -301,17 +310,20 @@ export function workerEventFeed(db: ClientDb): LiveEventFeed {
       // snapshot); subsequent batches are live (append). Either way each
       // event folds through the session rule: a reset `session_boundary`
       // drops everything before it (see `events/fold.ts`) so the running
-      // snapshot mirrors the worker's now-cleared `history()` — pre-fix it
+      // snapshot mirrors the worker's now-cleared `history()` -- pre-fix it
       // kept the wiped session's traffic forever (issue #359 extension).
       if (isHistoryBatch) history.clear();
       for (const event of events) {
         if (isSessionResetBoundary(event)) history.clear();
         history.append(event);
       }
-      // Fan EVERY event (history backlog included) out to subscribers, so an
-      // early subscriber that read an empty `history()` still gets the backlog.
+      // Fan EVERY event (history backlog included) out to subscribers with
+      // per-subscriber isolation so one throwing observer cannot abort delivery.
       for (const event of events) {
-        for (const cb of subscribers) cb(event);
+        for (const cb of [...subscribers]) {
+          if (!subscribers.has(cb)) continue;
+          deliverFeedEvent(cb, event);
+        }
       }
     });
   }
@@ -408,7 +420,7 @@ export function connectWorkerLive(
   if (hasNoTransport) return null;
   // Studio declares itself the issuer of every op THIS bundle's worker
   // client constructs (data viewers, typeahead index, seed actions) so the
-  // traffic stream can attribute — and filter — Studio-driven ops. The
+  // traffic stream can attribute -- and filter -- Studio-driven ops. The
   // served app runs its own bundle instance and stays untagged; bridge
   // relays forward verbatim (see @pyric/cli serve/worker client).
   setOpIssuer('studio');
@@ -537,7 +549,7 @@ export function connectWorkerLive(
     // The worker auth admin ops as an AuthApi bundle (cast to the in-process
     // signatures). `subscribeUsers` rides the event feed, FILTERED to auth
     // service mutations (user create/update/delete/clear, sign-ins, provider
-    // links) — a Firestore write must not fire a `listUsers` RPC.
+    // links) -- a Firestore write must not fire a `listUsers` RPC.
     authApi: {
       listUsers: coalesceReads(() => workerListUsers(authHandle)),
       subscribeUsers: (_auth: unknown, cb: () => void) =>
@@ -551,7 +563,7 @@ export function connectWorkerLive(
       deleteUser: (_auth: unknown, uid: string) => workerAdminDeleteUser(authHandle, uid),
       clearUsers: () => workerAdminClearUsers(authHandle),
       // Sign-in provider config: rides the same shared event feed, filtered
-      // to the ONE op that can change it (`provider_config_update`) — an
+      // to the ONE op that can change it (`provider_config_update`) -- an
       // unrelated sandbox event must not fire a `getProviderConfig` RPC.
       getAuthProviderConfig: () => workerGetProviderConfig(authHandle),
       setAuthProviderConfig: (_auth: unknown, providerId: string, enabled: boolean) =>
@@ -563,7 +575,7 @@ export function connectWorkerLive(
     } as unknown as AuthApi,
     storage: workerGetStorage(db) as unknown as FirebaseStorage,
     // The worker storage ops as a StorageApi bundle. `uploadBytes` is the
-    // base64 `storage.putBytes` MessagePort op — capped at 8 MiB per payload
+    // base64 `storage.putBytes` MessagePort op -- capped at 8 MiB per payload
     // on both ends; an over-cap upload fails that file's task with the typed
     // too-large error (the rest of a batch proceeds).
     storageApi: {
