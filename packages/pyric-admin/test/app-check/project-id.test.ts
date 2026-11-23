@@ -155,9 +155,29 @@ describe('app-check admin project id from a cert credential', () => {
     expect(ownValues).not.toContain(SERVICE_ACCOUNT.client_email);
   });
 
-  it('does not copy the credential project id into app.options, as firebase-admin does not', () => {
-    const appCheck = appWith({ credential: cert(SERVICE_ACCOUNT) });
-    expect(appCheck.app.options).toEqual({});
+  it('keeps credential in app.options without copying the credential project id, as firebase-admin does', () => {
+    const credential = cert(SERVICE_ACCOUNT);
+    const appCheck = appWith({ credential });
+    expect(appCheck.app.options.projectId).toBeUndefined();
+    expect('projectId' in appCheck.app.options).toBe(false);
+    expect(appCheck.app.options.credential).toBe(credential);
+    expect(JSON.stringify(appCheck.app.options)).toBe('{"credential":{}}');
+  });
+
+  it('does not fall through to project_id when projectId is a truthy non-string, matching copyAttr', async () => {
+    const credential = cert({ projectId: 123, project_id: 'demo-snake' });
+    const refused = await rejection(() => appWith({ credential }).createToken(APP_ID));
+    expect(refused?.code).toBe('app-check/unknown-error');
+  });
+
+  it('falls through from an empty-string projectId to project_id, matching copyAttr', async () => {
+    const appCheck = appWith({ credential: cert({ projectId: '', project_id: 'demo-snake' }) });
+    expect(await mintedAudience(appCheck)).toContain('projects/demo-snake');
+  });
+
+  it('falls through to the cert credential when options.projectId is not a non-empty string', async () => {
+    const appCheck = appWith({ projectId: 123, credential: cert(SERVICE_ACCOUNT) });
+    expect(await mintedAudience(appCheck)).toContain('projects/demo-cert');
   });
 });
 

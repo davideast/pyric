@@ -52,8 +52,9 @@ const RECAPTCHA_CHECKS = {
 
 function loggedJson(output: string, label: string): unknown {
   const line = output.match(new RegExp(`^${label} (.*)$`, 'm'));
-  assert.ok(line, output);
-  return JSON.parse(line[1]!);
+  const payload = line?.[1];
+  assert.ok(payload !== undefined, output);
+  return JSON.parse(payload);
 }
 
 /** An enforced project's refusal (capture `app-check-ai-gate-wire`, #1300). */
@@ -274,19 +275,33 @@ export default scenario(async (app) => {
     assert.deepEqual(external, []);
   });
 
-  await app.step('a server initialized with only cert(serviceAccount) verifies the page token', async () => {
+  const adminVerify = await app.step('a server initialized with only cert(serviceAccount) verifies the page token', async () => {
     const token = await page.evaluate(() => (window as unknown as { appCheckToken: string }).appCheckToken);
     const { output } = await app.serverScript('admin-server.mjs', [token], {
       env: { PYRIC_SANDBOX: `remote:${host.url}` },
       timeoutMs: 30_000,
     });
     const line = output.match(/^verify (.*)$/m);
-    assert.ok(line, `no verify line in:\n${output}`);
-    assert.deepEqual(JSON.parse(line[1]), {
-      ok: true,
-      appId: '1:123456789012:web:abcdef0123456789',
-      aud: ['projects/123456789012', 'projects/my-real-project'],
-      options: {},
-    });
+    const payload = line?.[1];
+    assert.ok(payload !== undefined, `no verify line in:\n${output}`);
+    const parsed = JSON.parse(payload) as {
+      ok: boolean;
+      appId: string;
+      aud: string[];
+      sameCredential: boolean;
+      hasProjectId: boolean;
+      options: Record<string, unknown>;
+    };
+    assert.equal(parsed.ok, true);
+    assert.equal(parsed.appId, '1:123456789012:web:abcdef0123456789');
+    assert.deepEqual(parsed.aud, ['projects/123456789012', 'projects/my-real-project']);
+    return parsed;
+  });
+
+  await app.step('the server app keeps credential in app.options without copying projectId', () => {
+    assert.equal(adminVerify.sameCredential, true);
+    assert.equal(adminVerify.hasProjectId, false);
+    assert.equal(adminVerify.options.projectId, undefined);
+    assert.deepEqual(adminVerify.options, { credential: {} });
   });
 });

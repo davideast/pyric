@@ -17,25 +17,44 @@ const APP_CREDENTIAL_PROJECT_ID = Symbol.for('pyric.admin.app.credentialProjectI
 type WithProjectId = { [CREDENTIAL_PROJECT_ID]?: unknown; [APP_CREDENTIAL_PROJECT_ID]?: unknown };
 
 function nonEmptyString(value: unknown): string | undefined {
-  return typeof value === 'string' && value !== '' ? value : undefined;
+  if (typeof value === 'string' && value !== '') {
+    return value;
+  }
+  return undefined;
 }
 
 /** firebase-admin's `ServiceAccount.fromPath`, except that a file it cannot read or parse yields no object. */
 function readServiceAccountFile(path: string): unknown {
   try {
     return JSON.parse(readFileSync(path, 'utf8'));
-  } catch {
-    return undefined;
+  } catch (error) {
+    if (error instanceof Error) {
+      return undefined;
+    }
+    throw error;
   }
+}
+
+/** Selects `projectId || project_id` before type validation, matching firebase-admin's `copyAttr`. */
+function selectServiceAccountProjectField(account: Record<string, unknown>): unknown {
+  const camelCaseProjectId = account.projectId;
+  if (Boolean(camelCaseProjectId)) {
+    return camelCaseProjectId;
+  }
+  return account.project_id;
 }
 
 /** The project id of a service account object or file path: `projectId`, then `project_id`, as firebase-admin's `copyAttr` reads it. */
 function serviceAccountProjectId(serviceAccountPathOrObject: unknown): string | undefined {
-  const isPath = typeof serviceAccountPathOrObject === 'string';
-  const account = isPath ? readServiceAccountFile(serviceAccountPathOrObject) : serviceAccountPathOrObject;
-  if (typeof account !== 'object' || account === null) return undefined;
-  const { projectId, project_id: projectIdSnake } = account as Record<string, unknown>;
-  return nonEmptyString(projectId) ?? nonEmptyString(projectIdSnake);
+  let account: unknown = serviceAccountPathOrObject;
+  if (typeof serviceAccountPathOrObject === 'string') {
+    account = readServiceAccountFile(serviceAccountPathOrObject);
+  }
+  if (typeof account !== 'object' || account === null) {
+    return undefined;
+  }
+  const rawProjectId = selectServiceAccountProjectField(account as Record<string, unknown>);
+  return nonEmptyString(rawProjectId);
 }
 
 function defineHidden(target: object, key: symbol, value: string): void {
@@ -58,10 +77,27 @@ export function keepAppCredentialProjectId(app: object, config: unknown): void {
 }
 
 /** firebase-admin's `getExplicitProjectId` for a sandbox admin app. */
-export function explicitProjectId(app: { readonly options: { readonly projectId?: string } }): string | undefined {
-  return (
-    nonEmptyString(app.options.projectId) ??
-    nonEmptyString((app as WithProjectId)[APP_CREDENTIAL_PROJECT_ID]) ??
-    nonEmptyString(process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT)
-  );
+export function explicitProjectId(app: {
+  readonly options: { readonly projectId?: string; readonly credential?: object };
+}): string | undefined {
+  const optionProjectId = nonEmptyString(app.options.projectId);
+  if (optionProjectId !== undefined) {
+    return optionProjectId;
+  }
+  const credential = app.options.credential;
+  if (typeof credential === 'object' && credential !== null) {
+    const credentialProjectId = nonEmptyString((credential as WithProjectId)[CREDENTIAL_PROJECT_ID]);
+    if (credentialProjectId !== undefined) {
+      return credentialProjectId;
+    }
+  }
+  const appCredentialProjectId = nonEmptyString((app as WithProjectId)[APP_CREDENTIAL_PROJECT_ID]);
+  if (appCredentialProjectId !== undefined) {
+    return appCredentialProjectId;
+  }
+  const googleCloudProject = nonEmptyString(process.env.GOOGLE_CLOUD_PROJECT);
+  if (googleCloudProject !== undefined) {
+    return googleCloudProject;
+  }
+  return nonEmptyString(process.env.GCLOUD_PROJECT);
 }
