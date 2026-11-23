@@ -23,6 +23,9 @@ describe('naming each failure with its file', () => {
   });
 
   test('a failure before any file header, and a node --test failure, are kept as printed', () => {
-    expect(failuresWithFiles('(fail) setup [1.00ms]\n✖ a node test (2ms)\n')).toEqual(['(fail) setup [1.00ms]', '✖ a node test (2ms)']);
+    expect(failuresWithFiles('(fail) setup [1.00ms]\n\u2716 a node test (2ms)\n')).toEqual([
+      '(fail) setup [1.00ms]',
+      '\u2716 a node test (2ms)',
+    ]);
   });
 });

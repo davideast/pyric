@@ -61,10 +61,17 @@ describe('the test-all plan', () => {
     expect(jobs.map((job) => job.runsBunTest)).toEqual([true, false, false, true]);
   });
 
-  test('the serial plan knows how many files a sharded package\'s whole suite runs', () => {
+  test('the serial plan knows how many files every bun test job runs (#1207)', () => {
     const jobs = planJobs(serialChain, { root, shards: 1 });
     const cli = jobs.find((job) => job.args.join(' ') === 'test --cwd packages/cli');
     expect(cli?.expectedFiles).toBe(listTests(shardedPackages.cli).length);
+    const admin = jobs.find((job) => job.args.join(' ') === 'test --cwd packages/pyric-admin');
+    expect(admin?.expectedFiles).toBe(bunDiscoveredTests(join(root, 'packages/pyric-admin')).length);
+    const scriptsJob = jobs.find((job) => job.name === 'scripts');
+    expect(scriptsJob?.expectedFiles).toBe((scriptsJob?.args.length ?? 1) - 1);
+    for (const job of jobs.filter((each) => each.runsBunTest)) {
+      expect(job.expectedFiles).toBeGreaterThan(0);
+    }
   });
 
   test('a chain the runner cannot run without a shell is refused, and an option with a value is not', () => {
