@@ -53,6 +53,7 @@ export function markAllNamedFirestoreDirty(sandbox: Sandbox): void {
     entry.persistedBuckets.clear();
     entry.dirtyAll = true;
     entry.dirtyBuckets.clear();
+    entry.dirtyPaths.clear();
     entry.generation += 1;
   }
 }
@@ -228,6 +229,7 @@ export function prepareNamedFirestorePersistence(sandbox: Sandbox): NamedFiresto
       if (entry.generation === capturedGen) {
         entry.dirtyAll = false;
         entry.dirtyBuckets.clear();
+        entry.dirtyPaths.clear();
       }
     });
   }
@@ -260,6 +262,23 @@ export function restoreNamedFirestorePersistence(
   databases: ReadonlyMap<string, Iterable<[string, unknown]>>,
 ): void {
   const registry = getOrCreateDatabaseRegistry(sandbox);
+  const preDirtyByDb = new Map<
+    string,
+    { dirtyAll: boolean; dirtyBuckets: Set<string>; dirtyPaths: Set<string> }
+  >();
+  for (const [existingId, existingEntry] of registry.entries) {
+    if (
+      existingEntry.dirtyAll ||
+      existingEntry.dirtyBuckets.size > 0 ||
+      existingEntry.dirtyPaths.size > 0
+    ) {
+      preDirtyByDb.set(existingId, {
+        dirtyAll: existingEntry.dirtyAll,
+        dirtyBuckets: new Set(existingEntry.dirtyBuckets),
+        dirtyPaths: new Set(existingEntry.dirtyPaths),
+      });
+    }
+  }
   const validDeclared: string[] = [];
   for (const rawId of declared) {
     const normalized = assertValidFirestoreDatabaseDeclaration(rawId);
@@ -274,19 +293,46 @@ export function restoreNamedFirestorePersistence(
     const entry = registry.entries.get(dbId);
     if (entry === undefined) continue;
     const rawRecords = databases.get(dbId);
-    const recordList = rawRecords === undefined ? [] : [...rawRecords];
+    const recordList: Array<[string, unknown]> = [];
+    if (rawRecords !== undefined) {
+      for (const pair of rawRecords) {
+        recordList.push(pair);
+      }
+    }
     const persistedBuckets = new Set<string>();
     for (const [recordId] of recordList) {
       if (VALID_HEX_BUCKET.test(recordId)) {
         persistedBuckets.add(recordId);
       }
     }
+    const preDirty = preDirtyByDb.get(dbId);
     const docs = parseNamedFirestoreBundleRecords(recordList, { skipInvalidDocuments: true });
     for (const [docPath, docData] of Object.entries(docs)) {
-      entry.env.adminSetDocument(docPath, docData);
+      const supersededByLiveWrite =
+        preDirty !== undefined &&
+        (preDirty.dirtyAll ||
+          preDirty.dirtyPaths.has(docPath) ||
+          (preDirty.dirtyPaths.size === 0 &&
+            preDirty.dirtyBuckets.has(pathToBucketId(docPath))));
+      if (!supersededByLiveWrite && entry.env.getDocument(docPath) === null) {
+        entry.env.adminSetDocument(docPath, docData);
+      }
     }
     entry.persistedBuckets = persistedBuckets;
-    entry.dirtyAll = false;
-    entry.dirtyBuckets.clear();
+    if (preDirty !== undefined) {
+      entry.dirtyAll = preDirty.dirtyAll;
+      entry.dirtyBuckets.clear();
+      for (const bucketId of preDirty.dirtyBuckets) {
+        entry.dirtyBuckets.add(bucketId);
+      }
+      entry.dirtyPaths.clear();
+      for (const docPath of preDirty.dirtyPaths) {
+        entry.dirtyPaths.add(docPath);
+      }
+    } else {
+      entry.dirtyAll = false;
+      entry.dirtyBuckets.clear();
+      entry.dirtyPaths.clear();
+    }
   }
 }

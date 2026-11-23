@@ -269,4 +269,45 @@ describe('Hosted SQLite schema v7 and multi-database persistence (#1318)', () =>
 
     expect(output).toBe('VIEW_VALIDATE_SALVAGE_OK');
   });
+
+  it('cancels the bound 50ms named-database auto-flush timer on clearPersistence() (#3294)', () => {
+    const persistenceDist = new URL('../../../dist/serve/hosted/persistence/', import.meta.url).href;
+    const pyricFirestoreInternalUrl = new URL('../../../../pyric/dist/firestore/internal/index.js', import.meta.url).href;
+    const pyricSandboxInternalUrl = new URL('../../../../pyric/dist/sandbox/internal/index.js', import.meta.url).href;
+
+    const output = runNodeSqliteScript([
+      `import assert from 'node:assert/strict';`,
+      `import { mock } from 'node:test';`,
+      `import { openHostedDatabase } from '${persistenceDist}database.js';`,
+      `import { declareFirestoreDatabase, getDatabaseAdmin } from '${pyricFirestoreInternalUrl}';`,
+      `import { createSandboxRoot } from '${pyricSandboxInternalUrl}';`,
+      `const root = process.argv[2];`,
+      `const stateDir = root + '/clear-timer-state';`,
+      `const db = await openHostedDatabase(stateDir);`,
+      `db.activate();`,
+      `const sandbox = createSandboxRoot();`,
+      `await sandbox.enablePersistence({ key: 'hosted', injectedBackend: db.records, flushIntervalMs: 10000 });`,
+      `db.bindSandbox(sandbox, 'hosted');`,
+      `declareFirestoreDatabase(sandbox, 'reports');`,
+      `getDatabaseAdmin(sandbox, 'reports').setDocument('docs/one', { v: 1 });`,
+      `await sandbox.flush();`,
+      `assert.equal(db.hasAnyRecords('hosted'), true);`,
+      `mock.timers.enable({ apis: ['setTimeout'] });`,
+      `try {`,
+      `  getDatabaseAdmin(sandbox, 'reports').setDocument('docs/two', { v: 2 });`,
+      `  await sandbox.clearPersistence();`,
+      `  assert.equal(db.hasAnyRecords('hosted'), false);`,
+      `  mock.timers.tick(200);`,
+      `  for (let i = 0; i < 10; i += 1) await Promise.resolve();`,
+      `  assert.equal(db.hasAnyRecords('hosted'), false);`,
+      `} finally {`,
+      `  mock.timers.reset();`,
+      `  sandbox.dispose();`,
+      `  db.close();`,
+      `}`,
+      `console.log('HOSTED_TIMER_CANCELLED_OK');`,
+    ]);
+
+    expect(output).toBe('HOSTED_TIMER_CANCELLED_OK');
+  });
 });

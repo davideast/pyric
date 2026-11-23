@@ -139,6 +139,7 @@ interface NamedDatabaseEntry {
   unsubs: Array<() => void>;
   dirtyAll: boolean;
   dirtyBuckets: Set<string>;
+  dirtyPaths: Set<string>;
   persistedBuckets: Set<string>;
   generation: number;
 }
@@ -185,32 +186,31 @@ function attachNamedEnv(
   entry.unsubs.push(
     entry.env.onStateChange((path) => {
       entry.generation += 1;
-      if (path === null) entry.dirtyAll = true;
-      else entry.dirtyBuckets.add(pathToBucketId(path));
+      if (path === null) {
+        entry.dirtyAll = true;
+        entry.dirtyPaths.clear();
+      } else {
+        entry.dirtyBuckets.add(pathToBucketId(path));
+        entry.dirtyPaths.add(path);
+      }
       notifyPersistenceChange(registry);
     }),
   );
   entry.unsubs.push(
-    entry.env.onRequest((event) => emitSandboxEvent(sandbox, stampDatabaseOnEvent(event, entry.id))),
+    entry.env.onRequest((event) => {
+      if (event.result === 'allow' && event.method === 'delete') {
+        entry.generation += 1;
+        entry.dirtyBuckets.add(pathToBucketId(event.path));
+        entry.dirtyPaths.add(event.path);
+        notifyPersistenceChange(registry);
+      }
+      emitSandboxEvent(sandbox, stampDatabaseOnEvent(event, entry.id));
+    }),
   );
-  entry.unsubs.push(
-    entry.env.onWrite((event) => emitSandboxEvent(sandbox, stampDatabaseOnEvent(event, entry.id))),
-  );
-  entry.unsubs.push(
-    entry.env.onSnapshotDelivery((event) =>
-      emitSandboxEvent(sandbox, stampDatabaseOnEvent(event, entry.id)),
-    ),
-  );
-  entry.unsubs.push(
-    entry.env.onSnapshotSuppressed((event) =>
-      emitSandboxEvent(sandbox, stampDatabaseOnEvent(event, entry.id)),
-    ),
-  );
-  entry.unsubs.push(
-    entry.env.onListenerLifecycle((event) =>
-      emitSandboxEvent(sandbox, stampDatabaseOnEvent(event, entry.id)),
-    ),
-  );
+  entry.unsubs.push(entry.env.onWrite((event) => emitSandboxEvent(sandbox, stampDatabaseOnEvent(event, entry.id))));
+  entry.unsubs.push(entry.env.onSnapshotDelivery((event) => emitSandboxEvent(sandbox, stampDatabaseOnEvent(event, entry.id))));
+  entry.unsubs.push(entry.env.onSnapshotSuppressed((event) => emitSandboxEvent(sandbox, stampDatabaseOnEvent(event, entry.id))));
+  entry.unsubs.push(entry.env.onListenerLifecycle((event) => emitSandboxEvent(sandbox, stampDatabaseOnEvent(event, entry.id))));
   entry.unsubs.push(
     entry.env.onSnapshotError((err, target, listenerId) => {
       let targetShape: ListenerLifecycleEvent['target'];
@@ -304,6 +304,7 @@ export function getOrCreateDatabaseRegistry(sandbox: Sandbox): SandboxDatabaseRe
         entry.generation += 1;
         entry.dirtyAll = true;
         entry.dirtyBuckets.clear();
+        entry.dirtyPaths.clear();
       }
       notifyPersistenceChange(registry);
       return;
@@ -348,8 +349,9 @@ function ensureNamedEntry(
     declared: false,
     lockedByDefault,
     unsubs: [],
-    dirtyAll: true,
+    dirtyAll: false,
     dirtyBuckets: new Set(),
+    dirtyPaths: new Set(),
     persistedBuckets: new Set(),
     generation: 1,
   };
@@ -391,9 +393,10 @@ export function declareFirestoreDatabase(
       `Cannot declare Firestore database "${normalized}": a project supports at most ${MAX_FIRESTORE_DATABASES} databases including "(default)".`,
     );
   }
+  const wasMissing = existing === undefined;
   const entry = ensureNamedEntry(sandbox, registry, normalized, options?.locked === true);
   entry.declared = true;
-  if (options?.locked !== undefined && !entry.env.hasExplicitRules()) {
+  if (!wasMissing && options?.locked !== undefined && !entry.env.hasExplicitRules()) {
     entry.lockedByDefault = options.locked;
     applyInitialRules(entry.env, options.locked);
   }
@@ -564,7 +567,16 @@ export function getDatabaseAdmin(
     listDocuments: (prefix: string) => sanitizeAdminListedDocuments(entry.env.listDocuments(prefix)),
     setDocument: (path: string, data: Record<string, unknown>) =>
       recordedAdminSet(entry.env, path, data),
-    deleteDocument: (path: string) => recordedAdminDelete(entry.env, path),
+    deleteDocument: (path: string) => {
+      const res = recordedAdminDelete(entry.env, path);
+      if (!res.deleted) {
+        entry.generation += 1;
+        entry.dirtyBuckets.add(pathToBucketId(path));
+        entry.dirtyPaths.add(path);
+        notifyPersistenceChange(registry);
+      }
+      return res;
+    },
   };
 }
 

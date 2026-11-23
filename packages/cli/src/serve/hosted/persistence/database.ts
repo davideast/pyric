@@ -211,6 +211,7 @@ export async function openHostedDatabase(directory: string, options: { readOnly?
     const boundSandboxes = new Map<string, Sandbox>();
     const boundUnsubs = new Set<() => void>();
     const boundTimers = new Set<ReturnType<typeof setTimeout>>();
+    const boundTimersByKey = new Map<string, ReturnType<typeof setTimeout>>();
 
     function encodeChangedEntries(
       changed: ReadonlyMap<string, unknown>,
@@ -328,6 +329,12 @@ export async function openHostedDatabase(directory: string, options: { readOnly?
         commits.commit(() => { clear.run(baseKey); });
         return;
       }
+      const pendingTimer = boundTimersByKey.get(baseKey);
+      if (pendingTimer !== undefined) {
+        clearTimeout(pendingTimer);
+        boundTimers.delete(pendingTimer);
+        boundTimersByKey.delete(baseKey);
+      }
       const prefix = firestoreRecordSpacePrefix(baseKey);
       commits.commit(() => {
         clear.run(baseKey);
@@ -388,16 +395,18 @@ export async function openHostedDatabase(directory: string, options: { readOnly?
           dbRecords.set(dbId, readAllRecords(firestoreRecordSpaceKey(baseKey, dbId)));
         }
         restoreNamedFirestorePersistence(sandbox, declared, dbRecords);
-        let timer: ReturnType<typeof setTimeout> | null = null;
         const unsub = onNamedFirestorePersistenceChange(sandbox, () => {
-          if (closed || readOnly || timer !== null) return;
-          timer = setTimeout(() => {
-            if (timer !== null) boundTimers.delete(timer);
-            timer = null;
+          if (closed || readOnly || boundTimersByKey.has(baseKey)) return;
+          const timer = setTimeout(() => {
+            boundTimers.delete(timer);
+            if (boundTimersByKey.get(baseKey) === timer) {
+              boundTimersByKey.delete(baseKey);
+            }
             if (closed || readOnly) return;
             void sandbox.flush().catch(() => {});
           }, 50);
           boundTimers.add(timer);
+          boundTimersByKey.set(baseKey, timer);
         });
         boundUnsubs.add(unsub);
       },
@@ -435,6 +444,7 @@ export async function openHostedDatabase(directory: string, options: { readOnly?
         boundUnsubs.clear();
         for (const timer of boundTimers) clearTimeout(timer);
         boundTimers.clear();
+        boundTimersByKey.clear();
         boundSandboxes.clear();
         connection.close();
       },

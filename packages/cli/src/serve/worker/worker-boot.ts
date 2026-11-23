@@ -167,7 +167,7 @@ export async function buildWorkerCtx(bootEnv: WorkerBootEnv): Promise<HostCtx> {
 
   if (hasPayload) {
     applyServeInit(ctx, payload, env);
-    setupServerAuthFlush(ctx, payload, env);
+    setupServerAuthFlush(ctx, payload, env, durable);
   }
 
   const makeEventSource = env.makeEventSource;

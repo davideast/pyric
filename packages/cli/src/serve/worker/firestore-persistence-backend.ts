@@ -23,6 +23,7 @@ export interface MirrorablePersistenceBackend extends PersistenceBackend {
   deleteRecordsWithoutMirror?(key: string, recordIds: readonly string[]): Promise<void>;
   clearWithoutMirror?(key: string): Promise<void>;
   flushMirror?(baseKey: string, knownNamedIds?: Iterable<string>): Promise<void>;
+  onClear?(listener: () => Promise<void> | void): () => void;
 }
 
 async function discoverIndexedDbNamedKeys(baseKey: string): Promise<string[]> {
@@ -57,6 +58,7 @@ export function createWorkerFirestorePersistenceBinding(
 ): WorkerFirestorePersistenceBinding {
   const knownNamedIds = new Set<string>();
   let disposed = false;
+  let restoringHydratedState = false;
   let autoFlushTimer: ReturnType<typeof setTimeout> | null = null;
 
   const putNoMirror = async (key: string, records: ReadonlyMap<string, unknown>): Promise<void> => {
@@ -148,7 +150,7 @@ export function createWorkerFirestorePersistenceBinding(
   };
 
   const unsubNamedChanges = onNamedFirestorePersistenceChange(sandbox, () => {
-    if (disposed || autoFlushTimer !== null) return;
+    if (disposed || restoringHydratedState || autoFlushTimer !== null) return;
     autoFlushTimer = setTimeout(() => {
       autoFlushTimer = null;
       if (disposed) return;
@@ -194,6 +196,10 @@ export function createWorkerFirestorePersistenceBinding(
       if (key !== baseKey) {
         await underlying.clear(key);
         return;
+      }
+      if (autoFlushTimer !== null) {
+        clearTimeout(autoFlushTimer);
+        autoFlushTimer = null;
       }
       const keysToClear = new Set<string>();
       for (const dbId of knownNamedIds) {
@@ -246,7 +252,12 @@ export function createWorkerFirestorePersistenceBinding(
         knownNamedIds.add(parsedId);
       }
     }
-    restoreNamedFirestorePersistence(sandbox, declared, dbRecords);
+    restoringHydratedState = true;
+    try {
+      restoreNamedFirestorePersistence(sandbox, declared, dbRecords);
+    } finally {
+      restoringHydratedState = false;
+    }
   }
 
   return { backend, hydrate, dispose };
