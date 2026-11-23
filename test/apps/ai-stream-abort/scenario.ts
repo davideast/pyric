@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { join } from 'node:path';
 import { scenario, type App, type DevServer } from '../driver.ts';
+import { standInNodeCommand } from './stand-in-runtime.ts';
 
 declare function abortAfterChunks(
   tag: string,
@@ -36,7 +37,7 @@ interface StreamRecord {
 
 async function startNodeStandIn(app: App): Promise<{ url: string; child: ChildProcess }> {
   const scriptPath = join(app.dir, 'stand-in.mjs');
-  const child = spawn(process.execPath.endsWith('bun') ? 'node' : process.execPath, [scriptPath], {
+  const child = spawn(standInNodeCommand(), [scriptPath], {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let stdout = '';
