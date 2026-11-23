@@ -279,7 +279,7 @@ for (const [planeLabel, createHarness] of SERVED_RTDB_PLANES) {
         } finally {
           await deleteAdminApp(adminApp);
         }
-      });
+      }, 20_000);
     }
   });
 }
