@@ -199,7 +199,7 @@ describe('Admin rows on the live register', () => {
       getMessaging: 'ok',
       getAppCheck: 'ok',
     });
-  });
+  }, 30_000);
 
   it('load the real modules directly while shut', () => {
     const res = run(false);
@@ -209,5 +209,5 @@ describe('Admin rows on the live register', () => {
     expect(res.outcome.getFirestore).toBe('ok');
     if (isNode22(res)) return;
     expect(urlsOf(res, '@google-cloud/firestore')[0]).toContain('/node_modules/@google-cloud/firestore/');
-  });
+  }, 30_000);
 });

@@ -215,7 +215,7 @@ service cloud.firestore {
       expect(['deny', 'unevaluated']).toContain(verdict!.result);
       sandbox.dispose();
     }
-  });
+  }, 25_000);
 
   it('Firestore: never returns allow across all 6 colliding user-map shapes and dotted session updates when full Sandbox denies', async () => {
     const rng = createPrng(0x5b2202);

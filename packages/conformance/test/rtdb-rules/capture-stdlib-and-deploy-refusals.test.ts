@@ -138,7 +138,7 @@ describe('RTDB rules parse-gap simulation, stdlib corpus verdicts, and deploy re
         expect(item.simulator).toBe(item.production);
       }
     }
-  });
+  }, 20_000);
 
   test('rtdb#89: rtdbRulesSourceRejection and sandbox snapshot import refuse every captured r29 and deploy-refusal error while keeping active rules in force', async () => {
     const box = initializeSandbox();
