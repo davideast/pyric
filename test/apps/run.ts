@@ -68,7 +68,8 @@ import { AppRun, launchScenarioBrowser, StepFailure, type ExpectedCrash, type Sc
 import { checkExpectedCrashes, describeVerdict, isFailing } from './crash-watch.ts';
 import { currentPlatform, DependencyStore, readPackedPackages, STORE_FORMAT } from './dependency-store.ts';
 import { pruneDependencyStore, pruneScenarioNpmCache } from './dependency-store-evict.ts';
-import { npmInstall, packWorkspace, prepareApp, runCommand, runTimedCommand, tarballsIn, type CommandResult, type Tarballs } from './install.ts';
+import { NESTED_SCENARIO_TIMEOUT_MS, npmInstall, packWorkspace, prepareApp, runCommand, runTimedCommand, tarballsIn, type CommandResult, type Tarballs } from './install.ts';
+import { NESTED_PROJECTS } from './nested-projects.ts';
 import { SharedBrowser } from './shared-browser.ts';
 import { SharedInstalls } from './shared-installs.ts';
 import { takeHeavyRunSlot } from '../../scripts/lib/heavy-run-slots.ts';
@@ -132,7 +133,14 @@ interface AppResult {
 
 function describeError(error: unknown): string {
   const cause = error instanceof StepFailure ? error.reason : error;
-  return cause instanceof Error ? (cause.stack ?? cause.message) : String(cause);
+  if (cause instanceof Error) return cause.stack ?? cause.message;
+  return String(cause);
+}
+
+function failedStep(ok: boolean, failure: unknown, fallbackStep: string): string | undefined {
+  if (ok) return undefined;
+  if (failure instanceof StepFailure) return failure.step;
+  return fallbackStep;
 }
 
 function tail(text: string, lines: number): string {
@@ -194,7 +202,9 @@ async function runApp(name: string, context: {
     if (problems.length > 0) throw new StepFailure('load scenario', new Error(problems.join('\n')));
     expectedCrashes = module.expectedCrashes ?? [];
     inScenario = true;
-    await withTimeout(module.default(run), module.timeoutMs ?? APP_TIMEOUT_MS, run);
+    const hasNestedProject = NESTED_PROJECTS.some((project) => project.app === name);
+    const defaultTimeoutMs = hasNestedProject ? NESTED_SCENARIO_TIMEOUT_MS : APP_TIMEOUT_MS;
+    await withTimeout(module.default(run), module.timeoutMs ?? defaultTimeoutMs, run);
     inScenario = false;
     const hostErrors = run.unexpectedHostErrors();
     if (hostErrors.length > 0) {
@@ -242,7 +252,7 @@ async function runApp(name: string, context: {
     ok,
     seconds: (performance.now() - started) / 1000,
     installSeconds,
-    step: ok ? undefined : failure instanceof StepFailure ? failure.step : run.currentStep,
+    step: failedStep(ok, failure, run.currentStep),
     inScenario: !ok && inScenario,
     error: ok ? undefined : describeError(failure),
     cleanupFailures,
@@ -262,14 +272,21 @@ function saveLogs(result: AppResult): string {
   return dir;
 }
 
+const HEAVY_DIVIDER = '\u2501\u2501\u2501';
+const LIGHT_DIVIDER = '\u2500\u2500\u2500';
+const CROSS_MARK = '\u2717';
+const CHECK_MARK = '\u2713';
+const BULLET_TRIANGLE = '\u25b8';
+const CRUMB_SEPARATOR = '\u203a';
+
 function report(result: AppResult, dir: string): string {
   const lines = [
     '',
-    `━━━ ✗ ${result.name}: step "${result.step}" failed ━━━`,
+    `${HEAVY_DIVIDER} ${CROSS_MARK} ${result.name}: step "${result.step}" failed ${HEAVY_DIVIDER}`,
     result.error ?? '',
   ];
   for (const log of result.logs) {
-    lines.push('', `─── ${result.name} › ${log.name} ───`, tail(log.text, LOG_TAIL_LINES) || '(no output)');
+    lines.push('', `${LIGHT_DIVIDER} ${result.name} ${CRUMB_SEPARATOR} ${log.name} ${LIGHT_DIVIDER}`, tail(log.text, LOG_TAIL_LINES) || '(no output)');
   }
   lines.push('', `Full logs: ${dir}`);
   return lines.join('\n');
@@ -281,7 +298,7 @@ function installAlone(npmCache: string, offline: boolean): (cwd: string) => Prom
     const output = '[runner] this app installs alone, outside the dependency store, and PYRIC_APPS_OFFLINE=1 installs nothing from the registry\n';
     return async () => ({ code: 1, output });
   }
-  return (cwd) => npmInstall(npmCache, (args) => runCommand('npm', args, { cwd }));
+  return (cwd) => npmInstall(npmCache, (args) => runCommand('npm', args, { cwd }), undefined, { report: (line) => console.log(line) });
 }
 
 /** The dependency store for this run's tarballs, where PYRIC_APPS_DEPS_STORE points. */
@@ -290,7 +307,8 @@ async function openStore(tarballs: Tarballs, npmCache: string, offline: boolean)
   pruneDependencyStore(dir, STORE_FORMAT);
   const npmVersion = await runCommand('npm', ['--version'], { cwd: root });
   if (npmVersion.code !== 0) throw new Error(`npm --version exited with code ${npmVersion.code}:\n${npmVersion.output}`);
-  console.log(`▸ dependency store ${dir}${offline ? ' (offline: a set it does not hold fails)' : ''}`);
+  const offlineSuffix = offline ? ' (offline: a set it does not hold fails)' : '';
+  console.log(`${BULLET_TRIANGLE} dependency store ${dir}${offlineSuffix}`);
   return new DependencyStore({
     dir,
     offline,
@@ -298,6 +316,7 @@ async function openStore(tarballs: Tarballs, npmCache: string, offline: boolean)
     platform: currentPlatform(npmVersion.output),
     npmCache,
     runNpm: (args, { cwd, timeoutMs }) => runTimedCommand('npm', args, { cwd, timeoutMs }),
+    report: (line) => console.log(line),
   });
 }
 
@@ -307,7 +326,9 @@ async function pool<T, R>(items: T[], size: number, work: (item: T) => Promise<R
   const workers = Array.from({ length: Math.min(size, items.length) }, async () => {
     while (next < items.length) {
       const index = next++;
-      results[index] = await work(items[index]!);
+      const item = items[index];
+      if (item === undefined) continue;
+      results[index] = await work(item);
     }
   });
   await Promise.all(workers);
@@ -362,9 +383,10 @@ async function main(): Promise<void> {
   let tarballs: Tarballs;
   if (options.packages) {
     tarballs = tarballsIn(root, resolve(options.packages));
-    console.log(`▸ installing packages from ${resolve(options.packages)}`);
+    console.log(`${BULLET_TRIANGLE} installing packages from ${resolve(options.packages)}`);
   } else {
-    console.log(`▸ packing the workspace${options.build ? ' (with a build)' : ' (current build)'}`);
+    const buildMode = options.build ? ' (with a build)' : ' (current build)';
+    console.log(`${BULLET_TRIANGLE} packing the workspace${buildMode}`);
     tarballs = await packWorkspace(root, options.build);
   }
   const npmCache = process.env.PYRIC_APPS_NPM_CACHE ?? join(homedir(), '.cache', 'pyric-app-scenarios-npm');
@@ -421,7 +443,8 @@ async function main(): Promise<void> {
 
   const jobs = options.jobs ?? defaultJobs(machine, process.env);
   const load = `${(machine.load / machine.threads).toFixed(2)} busy per thread`;
-  console.log(`▸ running ${names.length} app${names.length === 1 ? '' : 's'}, ${jobs} at a time (${load}), longest first`);
+  const appNoun = names.length === 1 ? 'app' : 'apps';
+  console.log(`${BULLET_TRIANGLE} running ${names.length} ${appNoun}, ${jobs} at a time (${load}), longest first`);
   let results: AppResult[];
   let installsFailure: string | undefined;
   try {
@@ -430,7 +453,8 @@ async function main(): Promise<void> {
       const dir = saveLogs(result);
       // Recorded as each app finishes, so a run that stops early keeps the times it has.
       recordDurations(durationsFile, [{ name: result.name, ok: result.ok, scenarioSeconds: result.seconds - result.installSeconds }], available);
-      console.log(result.ok ? `✓ ${name} (${result.seconds.toFixed(1)}s)` : report(result, dir));
+      const outcomeLine = result.ok ? `${CHECK_MARK} ${name} (${result.seconds.toFixed(1)}s)` : report(result, dir);
+      console.log(outcomeLine);
       for (const cleanupFailure of result.cleanupFailures) console.log(`  warning: ${name}: cleanup failed: ${cleanupFailure}`);
       return result;
     });

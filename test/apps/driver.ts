@@ -64,6 +64,32 @@ export {
 };
 
 const AUTO_PORT_BIND_ATTEMPTS = 3;
+const DEFAULT_INSTALL_CLOSE_WAIT_MS = 30_000;
+
+/**
+ * Waits for `child` to exit within `ms`, clearing the timeout timer as soon as
+ * the child exits so a short command under a long cap never holds the caller's
+ * event loop open (#1658).
+ */
+function exitsWithin(child: AppProcess, ms: number): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<boolean>((resolve) => {
+    timer = setTimeout(() => resolve(false), ms);
+  });
+  return Promise.race([child.exited.then(() => true), timeout]).finally(() => {
+    clearTimeout(timer);
+  });
+}
+
+function settlesWithin(promise: Promise<unknown>, ms: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, ms);
+  });
+  return Promise.race([promise.then(() => undefined), timeout]).finally(() => {
+    clearTimeout(timer);
+  });
+}
 
 function numberedServerName(prefix: string, count: number, customName?: string): string {
   if (customName !== undefined) return customName;
@@ -111,6 +137,8 @@ export class AppRun implements App {
   private context: BrowserContext | undefined;
   private serverCount = 0;
   private scriptCount = 0;
+  private closed = false;
+  private readonly pendingInstalls = new Set<Promise<unknown>>();
   private readonly blackholes: BlackholedPort[] = [];
   /** Uncaught errors and crashes in the app's pages, workers, and processes (crash-watch.ts). */
   readonly crashWatch = new CrashWatch(() => this.currentStep);
@@ -255,7 +283,7 @@ export class AppRun implements App {
   async pyric(args: string[], options: { env?: Record<string, string>; timeoutMs?: number } = {}): Promise<ScriptResult> {
     const child = this.startPyric(args, options);
     const timeoutMs = options.timeoutMs ?? 60_000;
-    const finished = await Promise.race([child.exited.then(() => true), sleep(timeoutMs).then(() => false)]);
+    const finished = await exitsWithin(child, timeoutMs);
     if (!finished) {
       await child.stop();
       throw new Error(`pyric ${args.join(' ')} did not exit within ${timeoutMs / 1000}s:\n${child.output}`);
@@ -308,7 +336,7 @@ export class AppRun implements App {
     );
     this.processes.push(child);
     const timeoutMs = options.timeoutMs ?? 60_000;
-    const finished = await Promise.race([child.exited.then(() => true), sleep(timeoutMs).then(() => false)]);
+    const finished = await exitsWithin(child, timeoutMs);
     if (!finished) {
       await child.stop();
       return { code: null, output: child.output, timedOut: true, timeoutMs };
@@ -321,13 +349,16 @@ export class AppRun implements App {
    * package.json. A warm of its entry that hangs is stopped and tried once
    * more (#1476); the warm builds in a directory of its own, so nothing is
    * left to reset, and its output, with the processes npm was running and
-   * the end of npm's debug log, is printed at once.
+   * the end of npm's debug log, is printed at once. Tracked in
+   * `pendingInstalls` so `close()` prevents a post-timeout retry and waits for
+   * an active tree copy to settle before directory teardown (#2137).
    */
   async installProject(path: string): Promise<ScriptResult> {
     if (nestedProject(this.name, path) === undefined) {
       throw new Error(`${this.name} installs the nested project ${path}, which ${NESTED_PROJECTS_FILE} does not declare. Nested installs come from the dependency store, keyed before the run: add { app: '${this.name}', path: '${path}', manifest } to that list.`);
     }
     if (!this.packages) throw new Error('installProject needs the packed packages; the runner passes them');
+    if (this.closed) throw new Error(`${this.name} closed before installing ${path}`);
     const { tarballs, store, attemptMs = NESTED_INSTALL_ATTEMPT_MS } = this.packages;
     const report = this.packages.report ?? ((line: string) => console.log(line));
     const projectDir = join(this.dir, path);
@@ -335,6 +366,7 @@ export class AppRun implements App {
     const what = `${this.name}: install of ${path} from the dependency store`;
     let source = '';
     const attempt = async (): Promise<TimedResult> => {
+      if (this.closed) return { code: null, output: `[runner] ${this.name} closed before installing ${path}\n`, timedOut: true };
       const result = await store.provide(projectDir, `${this.name}, nested project ${path}`, { warmAttemptMs: attemptMs });
       source = result.source;
       const timedOut = result.timedOut === true;
@@ -343,7 +375,19 @@ export class AppRun implements App {
       if (timedOut) report(`[runner] ${what} stopped after ${attemptMs / 1000} s\n${result.output.trimEnd()}`);
       return { code: result.code, output: result.output, timedOut };
     };
-    const result = await retryOnceOnTimeout(attempt, { what, reset: async () => {}, report });
+    const running = retryOnceOnTimeout(attempt, {
+      what,
+      reset: async () => {},
+      report,
+      shouldRetry: () => !this.closed,
+    });
+    this.pendingInstalls.add(running);
+    let result: TimedResult;
+    try {
+      result = await running;
+    } finally {
+      this.pendingInstalls.delete(running);
+    }
     report(`[runner] nested project ${path} for ${this.name}: ${source}`);
     if (result.timedOut) throw new Error(`the install of ${path} timed out on both attempts:\n${result.output}`);
     if (result.code !== 0) throw new Error(`the install of ${path} failed with exit ${result.code}:\n${result.output}`);
@@ -367,7 +411,7 @@ export class AppRun implements App {
     );
     this.processes.push(child);
     const timeoutMs = options.timeoutMs ?? 60_000;
-    const finished = await Promise.race([child.exited.then(() => true), sleep(timeoutMs).then(() => false)]);
+    const finished = await exitsWithin(child, timeoutMs);
     if (!finished) {
       await child.stop();
       throw new Error(`${script} did not exit within ${timeoutMs / 1000}s:\n${child.output}`);
@@ -468,8 +512,13 @@ export class AppRun implements App {
   }
 
   async close(): Promise<void> {
+    this.closed = true;
     await this.context?.close().catch((error) => { void error; });
     await Promise.all(this.processes.map((child) => child.stop()));
+    if (this.pendingInstalls.size > 0) {
+      const waitMs = this.packages?.closeWaitMs ?? DEFAULT_INSTALL_CLOSE_WAIT_MS;
+      await settlesWithin(Promise.allSettled([...this.pendingInstalls]), waitMs);
+    }
     for (const hole of this.blackholes) hole.close();
   }
 }

@@ -12,6 +12,7 @@ import {
   debugLogTail,
   isTransientNetworkFailure,
   NESTED_INSTALL_ATTEMPT_MS,
+  NESTED_SCENARIO_TIMEOUT_MS,
   npmInstall,
   npmInstallArgs,
   retryOnceOnTimeout,
@@ -47,13 +48,14 @@ describe('the retry after stale npm metadata', () => {
     expect(shouldRetryOnline({ code: 0, output: 'mentions code ETARGET in a warning\n' })).toBe(false);
   });
 
-  test('npmInstall retries once with --prefer-online and says so in the output', async () => {
+  test('npmInstall retries once with --prefer-online and reports the retry (#1485)', async () => {
     const calls: string[][] = [];
+    const reported: string[] = [];
     const results: CommandResult[] = [{ code: 1, output: ETARGET_OUTPUT }, { code: 0, output: 'added 205 packages\n' }];
     const result = await npmInstall('/cache', async (args) => {
       calls.push(args);
       return results.shift() ?? { code: 1, output: 'called too often' };
-    });
+    }, undefined, { report: (line) => reported.push(line) });
     expect(calls).toEqual([npmInstallArgs('/cache'), npmInstallArgs('/cache', 'online')]);
     expect(calls[1]).toContain('--prefer-online');
     expect(calls[1]).not.toContain('--prefer-offline');
@@ -61,16 +63,18 @@ describe('the retry after stale npm metadata', () => {
     expect(result.output).toContain(ETARGET_OUTPUT);
     expect(result.output).toContain('retrying once with --prefer-online');
     expect(result.output).toContain('added 205 packages');
+    expect(reported).toHaveLength(1);
+    expect(reported[0]).toMatch(/^\[runner\] retried npm install with --prefer-online after stale cached metadata \(exit 1\), \d+\.\d s$/);
   });
 
-  test('npmInstall does not retry a failure that stale metadata does not explain', async () => {
+  test('npmInstall does not retry or report a failure that stale metadata does not explain', async () => {
     let calls = 0;
+    const reported: string[] = [];
     const result = await npmInstall('/cache', async () => {
       calls += 1;
       return { code: 1, output: 'npm error code E404\n' };
-    });
-    expect(calls).toBe(1);
-    expect(result.code).toBe(1);
+    }, undefined, { report: (line) => reported.push(line) });
+    expect({ calls, code: result.code, reported }).toEqual({ calls: 1, code: 1, reported: [] });
   });
 });
 
@@ -102,15 +106,8 @@ describe('the bounded retry after a transient npm network failure', () => {
   });
 
   test('recognizes dropped sockets and 5xx registry failures, not bad dependencies or timeouts', () => {
-    for (const output of [
-      'npm error code ECONNRESET\n',
-      'npm error errno ETIMEDOUT\n',
-      'npm error code EAI_AGAIN\n',
-      'npm error code E503\n',
-      'npm error network request failed, reason: socket hang up\n',
-    ]) {
-      expect(isTransientNetworkFailure({ code: 1, output })).toBe(true);
-    }
+    const transient = ['npm error code ECONNRESET\n', 'npm error errno ETIMEDOUT\n', 'npm error code EAI_AGAIN\n', 'npm error code E503\n', 'npm error network request failed, reason: socket hang up\n'];
+    for (const output of transient) expect(isTransientNetworkFailure({ code: 1, output })).toBe(true);
     expect(isTransientNetworkFailure({ code: 1, output: 'npm error code E404\n404 Not Found\n' })).toBe(false);
     expect(isTransientNetworkFailure({ code: 1, output: ETARGET_OUTPUT })).toBe(false);
     expect(isTransientNetworkFailure({ code: 1, output: 'npm error code ERESOLVE\n' })).toBe(false);
@@ -118,21 +115,21 @@ describe('the bounded retry after a transient npm network failure', () => {
     expect(isTransientNetworkFailure({ code: null, output: 'npm error code ECONNRESET\n', timedOut: true })).toBe(false);
   });
 
-  test('npmInstall retries once on ECONNRESET, stops after two attempts, and never retries E404', async () => {
-    const recovered: CommandResult[] = [
-      { code: 1, output: 'npm error code ECONNRESET\n' },
-      { code: 0, output: 'added 1 package\n' },
-    ];
+  test('npmInstall retries once on ECONNRESET, reports the retry (#1485), stops after two attempts, and never retries E404', async () => {
+    const recovered: CommandResult[] = [{ code: 1, output: 'npm error code ECONNRESET\n' }, { code: 0, output: 'added 1 package\n' }];
+    const reported: string[] = [];
     let calls = 0;
     const ok = await npmInstall('/cache', async () => {
       calls += 1;
       return recovered.shift() ?? { code: 1, output: 'called too often' };
-    }, undefined, { networkRetryDelayMs: 0 });
+    }, undefined, { networkRetryDelayMs: 0, report: (line) => reported.push(line) });
     expect(calls).toBe(2);
     expect(ok.code).toBe(0);
     expect(ok.output).toContain('npm error code ECONNRESET');
     expect(ok.output).toContain('infrastructure retry: npm install hit a transient network error');
     expect(ok.output).toContain('added 1 package');
+    expect(reported).toHaveLength(1);
+    expect(reported[0]).toMatch(/^\[runner\] infrastructure retry: retried npm install after transient network error \(exit 1\), \d+\.\d s$/);
 
     let persistentCalls = 0;
     const failed = await npmInstall('/cache', async () => {
@@ -289,6 +286,9 @@ describe('the infrastructure retry of a nested install that hangs (#1476)', () =
     const fetchTimeout = Number(args.find((arg) => arg.startsWith('--fetch-timeout='))?.split('=')[1]);
     expect(fetchTimeout).toBeGreaterThan(0);
     expect(fetchTimeout).toBeLessThan(NESTED_INSTALL_ATTEMPT_MS);
+    expect(NESTED_INSTALL_ATTEMPT_MS).toBe(180_000);
+    expect(NESTED_SCENARIO_TIMEOUT_MS).toBe(450_000);
+    expect(2 * NESTED_INSTALL_ATTEMPT_MS).toBeLessThan(NESTED_SCENARIO_TIMEOUT_MS);
     expect(npmInstallArgs('/cache').some((arg) => arg.startsWith('--logs-dir'))).toBe(false);
   });
 
@@ -394,6 +394,7 @@ describe('one install per dependency set', () => {
 
   test('apps with the same set install once, even when they ask at the same time, and each gets the tree', async () => {
     const installs: string[] = [];
+    const reported: string[] = [];
     const shared = new SharedInstalls(tempDir(), async (cwd) => {
       installs.push(cwd);
       await new Promise((resolve) => setTimeout(resolve, 10));
@@ -401,10 +402,12 @@ describe('one install per dependency set', () => {
       writeFileSync(join(cwd, 'node_modules/vite/package.json'), '{"name":"vite"}');
       writeFileSync(join(cwd, 'package-lock.json'), '{"lockfileVersion":3}');
       return { code: 0, output: 'added 1 package\n' };
-    });
+    }, { report: (line) => reported.push(line) });
     const apps = ['one', 'two', 'three'].map((name) => appDir(name, { vite: '7.3.2' }));
     const results = await Promise.all(apps.map((dir) => shared.install(dir)));
     expect(installs).toHaveLength(1);
+    expect(reported).toHaveLength(1);
+    expect(reported[0]).toMatch(/^\[runner\] dependency set [0-9a-f]{16}: installed in place, \d+\.\d s$/);
     for (const [index, dir] of apps.entries()) {
       expect(results[index]?.code).toBe(0);
       expect(existsSync(join(dir, 'node_modules/vite/package.json'))).toBe(true);
@@ -448,17 +451,21 @@ describe('one install per dependency set', () => {
     }
   });
 
-  test('a set\'s install that fails once and then succeeds serves every app', async () => {
+  test('a set\'s install that fails once and then succeeds serves every app and reports the retry (#1485)', async () => {
     let attempts = 0;
+    const reported: string[] = [];
     const shared = new SharedInstalls(tempDir(), async (cwd) => {
       attempts += 1;
       if (attempts === 1) return { code: 1, output: 'npm error code ECONNRESET\n' };
       mkdirSync(join(cwd, 'node_modules'), { recursive: true });
       return { code: 0, output: 'added 1 package\n' };
-    });
+    }, { report: (line) => reported.push(line) });
     const results = await Promise.all([appDir('a', { vite: '7.3.2' }), appDir('b', { vite: '7.3.2' })].map((dir) => shared.install(dir)));
     expect(attempts).toBe(2);
     expect(results.map((result) => result.code)).toEqual([0, 0]);
+    expect(reported).toHaveLength(2);
+    expect(reported[0]).toMatch(/^\[runner\] retried the shared install for [0-9a-f]{16} after exit 1, \d+\.\d s$/);
+    expect(reported[1]).toMatch(/^\[runner\] dependency set [0-9a-f]{16}: installed in place, \d+\.\d s$/);
   });
 
   test('a copy that fails keeps the shared install\'s npm output in the app\'s log', async () => {
@@ -496,15 +503,7 @@ describe('consistent single-retry bounds across npmInstall, DependencyStore, and
 
   function makeStore(runNpm: RunNpm): DependencyStore {
     const base = tempDir();
-    return new DependencyStore({
-      dir: join(base, 'deps'),
-      offline: false,
-      packed: PACKED,
-      platform: PLATFORM,
-      npmCache: join(base, 'npm-cache'),
-      runNpm,
-      networkRetryDelayMs: 0,
-    });
+    return new DependencyStore({ dir: join(base, 'deps'), offline: false, packed: PACKED, platform: PLATFORM, npmCache: join(base, 'npm-cache'), runNpm, networkRetryDelayMs: 0 });
   }
 
   test('npmInstall shares one network retry budget across --prefer-offline and --prefer-online', async () => {

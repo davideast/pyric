@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { copyTree, type StartCopyWorker } from './copy-tree.ts';
+import { SharedInstalls } from './shared-installs.ts';
 
 const dirs: string[] = [];
 function tempDir(): string {
@@ -131,5 +132,49 @@ describe('settling a copy from its worker', () => {
     const missing = join(tempDir(), 'no-such-tree');
     await expect(copyTree(missing, to(), { report })).rejects.toThrow(/copying .*no-such-tree to .* failed: .*ENOENT/);
     expect(reported).toEqual([]);
+  });
+
+  test('SharedInstalls recovers when the first copy worker exits 0 early, and reports the retry (#2189, #2560, #2620)', async () => {
+    const appDir = join(tempDir(), 'app');
+    mkdirSync(appDir, { recursive: true });
+    writeFileSync(join(appDir, 'package.json'), JSON.stringify({ private: true, dependencies: { vite: '7.3.2' } }));
+    const exitsEarly: StartCopyWorker = (source, dest, resultFile) => {
+      mkdirSync(join(dest, 'partial-from-exit-0'), { recursive: true });
+      return scriptedWorker([['exit', 0]])(source, dest, resultFile);
+    };
+    const realWorker: StartCopyWorker = (source, dest, resultFile) =>
+      new Worker(new URL('./copy-tree-worker.ts', import.meta.url), { workerData: { from: source, to: dest, resultFile } });
+    const { startWorker, started } = inTurn([exitsEarly, realWorker]);
+    const { report, reported } = lines();
+    const shared = new SharedInstalls(tempDir(), async (cwd) => {
+      mkdirSync(join(cwd, 'node_modules/vite'), { recursive: true });
+      writeFileSync(join(cwd, 'node_modules/vite/package.json'), '{"name":"vite"}\n');
+      writeFileSync(join(cwd, 'package-lock.json'), '{"lockfileVersion":3}\n');
+      return { code: 0, output: 'added 1 package\n' };
+    }, { report, startCopyWorker: startWorker });
+    const result = await shared.install(appDir, 'rtdb-legacy-default-url');
+    expect(result.code).toBe(0);
+    expect(started()).toBe(2);
+    expect(readFileSync(join(appDir, 'node_modules/vite/package.json'), 'utf8')).toBe('{"name":"vite"}\n');
+    expect(readFileSync(join(appDir, 'package-lock.json'), 'utf8')).toBe('{"lockfileVersion":3}\n');
+    expect(existsSync(join(appDir, 'node_modules/partial-from-exit-0'))).toBe(false);
+    expect(reported).toHaveLength(2);
+    expect(reported[0]).toMatch(/^\[runner\] dependency set [0-9a-f]{16} for rtdb-legacy-default-url: installed in place, \d+\.\d s$/);
+    expect(reported[1]).toBe(`[runner] infrastructure retry: the copy worker for ${join(appDir, 'node_modules')} exited with code 0 before it finished; copying once more`);
+  });
+
+  test('SharedInstalls fails with the shared npm log if both copy workers exit 0 without a result (#2189)', async () => {
+    const appDir = join(tempDir(), 'app');
+    mkdirSync(appDir, { recursive: true });
+    writeFileSync(join(appDir, 'package.json'), JSON.stringify({ private: true, dependencies: { vite: '7.3.2' } }));
+    const { startWorker, started } = inTurn([scriptedWorker([['exit', 0]])]);
+    const shared = new SharedInstalls(tempDir(), async (cwd) => {
+      mkdirSync(join(cwd, 'node_modules'), { recursive: true });
+      return { code: 0, output: 'added 205 packages\n' };
+    }, { startCopyWorker: startWorker });
+    const result = await shared.install(appDir, 'live-mode-rtdb');
+    expect({ code: result.code, started: started() }).toEqual({ code: 1, started: 2 });
+    expect(result.output).toContain('added 205 packages');
+    expect(result.output).toContain('the copy worker exited with code 0 before it finished, on each of 2 attempts');
   });
 });

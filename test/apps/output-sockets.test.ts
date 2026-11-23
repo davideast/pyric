@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { childOutputSockets, describeOutputSockets, isExitWithoutClose, parseUnixPeers, parseUnixQueues } from './output-sockets.ts';
+import { childOutputSockets, describeOutputSockets, isExitWithoutClose, parseUnixPeers, parseUnixQueues, readSsTable, SS_MAX_BUFFER_BYTES } from './output-sockets.ts';
 import type { ExitSource } from './unreaped-exit.ts';
 
 const onLinux = process.platform === 'linux';
@@ -57,6 +57,23 @@ describe('the child\'s output sockets (#1797)', () => {
   test('only exits recorded without `close` get the line', () => {
     const sources: ExitSource[] = ['close', 'held-pipes', 'lost-close', 'unreaped'];
     expect(sources.filter(isExitWithoutClose)).toEqual(['lost-close', 'unreaped']);
+  });
+
+  test('readSsTable gives ss a buffer well above 1 MiB and turns exec failures into undefined', () => {
+    expect(SS_MAX_BUFFER_BYTES).toBeGreaterThanOrEqual(32 * 1024 * 1024);
+    let passedBuffer = 0;
+    const fillerRow = 'u_str ESTAB 0      0                      * 10               * 11';
+    const filler = Array.from({ length: 20_000 }, () => fillerRow).join('\n');
+    const largeTable = `${SS_TABLE}\n${filler}\nu_str ESTAB 0      0                      * 9001             * 9002\n`;
+    expect(largeTable.length).toBeGreaterThan(1024 * 1024);
+    const table = readSsTable((maxBuffer) => {
+      passedBuffer = maxBuffer;
+      return largeTable;
+    });
+    expect(passedBuffer).toBe(SS_MAX_BUFFER_BYTES);
+    expect(table).toBe(largeTable);
+    expect(parseUnixPeers(table ?? '').get(9002)).toBe(9001);
+    expect(readSsTable(() => { throw new Error('ENOBUFS'); })).toBeUndefined();
   });
 });
 

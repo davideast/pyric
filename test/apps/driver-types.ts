@@ -22,6 +22,8 @@ export interface NestedInstalls {
   attemptMs?: number;
   /** Where the `[runner]` lines go; the run's output by default. */
   report?: (line: string) => void;
+  /** How long `close()` waits for an in-flight `installProject` to finish before teardown; 30 s by default. */
+  closeWaitMs?: number;
 }
 
 export interface DevServer {

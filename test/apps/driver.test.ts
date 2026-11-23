@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { DependencyStore } from './dependency-store.ts';
 import { AppProcess, AppRun, DEFAULT_PROCESS_TIMING, type ProcessTiming, type SpawnChild } from './driver.ts';
 import { runTimedCommand } from './install.ts';
+import { SS_MAX_BUFFER_BYTES } from './output-sockets.ts';
 import { freePort, isAddressInUseOutput, portIssuer, probePort, USER_PORT_MAX, USER_PORT_MIN, type PortIssuer } from './ports.ts';
 
 /** A child that never gets a pid, so the driver sends it no signal. */
@@ -27,7 +28,8 @@ function scriptedSpawner(script: Array<(child: ChildProcess) => void>): { spawnC
   let count = 0;
   const spawnChild: SpawnChild = () => {
     const child = standIn();
-    const act = script[count] ?? script[script.length - 1]!;
+    const act = script[count] ?? script[script.length - 1];
+    if (!act) throw new Error('scriptedSpawner requires at least one action');
     count += 1;
     queueMicrotask(() => act(child));
     return child;
@@ -69,7 +71,7 @@ describe('spawn retry', () => {
 
   test('an EBADF after the child wrote output does not retry', async () => {
     const wroteThenFailed = (child: ChildProcess) => {
-      child.stdout!.emit('data', 'listening\n');
+      child.stdout?.emit('data', 'listening\n');
       child.emit('error', spawnError('EBADF'));
     };
     const { spawnChild, spawned } = scriptedSpawner([wroteThenFailed, closesWith(0)]);
@@ -89,8 +91,9 @@ describe('spawn retry', () => {
     const child = appProcess(spawnChild);
     await Promise.resolve();
     await Promise.resolve();
-    first!.emit('close', 1, null);
-    first!.stdout!.emit('data', 'late\n');
+    if (!first) throw new Error('expected first child');
+    first.emit('close', 1, null);
+    first.stdout?.emit('data', 'late\n');
     expect(child.running).toBe(true);
     expect(child.output).not.toContain('late');
   });
@@ -98,15 +101,8 @@ describe('spawn retry', () => {
 
 describe('stop', () => {
   test('a child that never closes after SIGKILL is recorded as gone', async () => {
-    // The group's shell and sleep die, but a sleep in its own session keeps
-    // the stdout pipe open, so the child exits and never emits `close`.
-    const child = new AppProcess(
-      'pipe holder',
-      'sh',
-      ['-c', `setsid sh -c 'echo $$; exec sleep 30' & exec sleep 30`],
-      '.',
-      { PATH: process.env.PATH },
-    );
+    // The group's shell and sleep die, but a sleep in its own session keeps stdout open.
+    const child = new AppProcess('pipe holder', 'sh', ['-c', `setsid sh -c 'echo $$; exec sleep 30' & exec sleep 30`], '.', { PATH: process.env.PATH });
     const match = await child.waitForLog(/^(\d+)$/m, { timeoutMs: 5_000 });
     const holder = Number(match[1]);
     try {
@@ -115,7 +111,7 @@ describe('stop', () => {
       expect(await child.exited).toBeNull();
       expect(child.output).toContain('[driver] pipe holder did not close within 0.2s of SIGKILL; the driver records it as gone');
     } finally {
-      try { process.kill(holder, 'SIGKILL'); } catch { /* already gone */ }
+      try { process.kill(holder, 'SIGKILL'); } catch (error) { if (!(error instanceof Error)) throw error; }
     }
   });
 
@@ -132,7 +128,8 @@ describe('stop', () => {
 function scriptedProbe(script: number[]): { probe: () => Promise<number>; probes: () => number } {
   let count = 0;
   const probe = async (): Promise<number> => {
-    const port = script[count] ?? script[script.length - 1]!;
+    const port = script[count] ?? script[script.length - 1];
+    if (port === undefined) throw new Error('scriptedProbe requires at least one port');
     count += 1;
     return port;
   };
@@ -172,9 +169,7 @@ describe('allowances that match nothing', () => {
     const app = run();
     app.expectHostError(/^403 POST \/__pyric\/diagnostics$/);
     app.noteErrorResponse(404, 'GET', 'http://127.0.0.1:5173/missing.png');
-    expect(app.unexpectedHostErrors()).toEqual([
-      'expectHostError(/^403 POST \\/__pyric\\/diagnostics$/) matched no error response from a /__pyric/ route; remove it or fix its pattern',
-    ]);
+    expect(app.unexpectedHostErrors()).toEqual(['expectHostError(/^403 POST \\/__pyric\\/diagnostics$/) matched no error response from a /__pyric/ route; remove it or fix its pattern']);
   });
 
   test('a pattern that matched an error passes, and an error no pattern matched still fails', () => {
@@ -209,9 +204,7 @@ describe('allowances that match nothing', () => {
   test('an expectLeftoverProcess pattern no leftover matched fails the app', () => {
     const app = run();
     app.expectLeftoverProcess(/^esbuild$/);
-    expect(app.unexpectedLeftoverProcesses()).toEqual([
-      'expectLeftoverProcess(/^esbuild$/) matched no leftover process; remove it or fix its pattern',
-    ]);
+    expect(app.unexpectedLeftoverProcesses()).toEqual(['expectLeftoverProcess(/^esbuild$/) matched no leftover process; remove it or fix its pattern']);
   });
 });
 
@@ -242,19 +235,13 @@ describe('app ports', () => {
 
   test('probePort() chooses non-ephemeral loopback ports and skips occupied candidates (#2832)', async () => {
     const sampled = [await probePort(), await probePort(), await probePort()];
-    for (const port of sampled) {
-      expect(port).toBeGreaterThanOrEqual(USER_PORT_MIN);
-      expect(port).toBeLessThanOrEqual(USER_PORT_MAX);
-    }
+    for (const port of sampled) expect(port >= USER_PORT_MIN && port <= USER_PORT_MAX).toBe(true);
     expect(new Set(sampled).size).toBe(3);
 
     const occupied = await probePort();
     const open = await probePort();
     const holder = createNetServer();
-    await new Promise<void>((resolve, reject) => {
-      holder.once('error', reject);
-      holder.listen(occupied, '127.0.0.1', () => resolve());
-    });
+    await new Promise<void>((resolve, reject) => { holder.once('error', reject); holder.listen(occupied, '127.0.0.1', () => resolve()); });
     try {
       expect(await probePort([occupied, open])).toBe(open);
     } finally {
@@ -269,38 +256,28 @@ describe('app ports', () => {
     const busyPort = await probePort();
     const livePort = await probePort();
     const responder = createHttpServer((request, response) => {
-      const path = request.url ?? '/';
-      if (path === '/__pyric/init.json') {
-        response.writeHead(200, { 'content-type': 'application/json' }).end('{}');
-        return;
-      }
+      if ((request.url ?? '/') === '/__pyric/init.json') return void response.writeHead(200, { 'content-type': 'application/json' }).end('{}');
       response.writeHead(200, { 'content-type': 'text/html' }).end('<!doctype html><title>ok</title>');
     });
-    await new Promise<void>((resolve, reject) => {
-      responder.once('error', reject);
-      responder.listen(livePort, '127.0.0.1', () => resolve());
-    });
+    await new Promise<void>((resolve, reject) => { responder.once('error', reject); responder.listen(livePort, '127.0.0.1', () => resolve()); });
     try {
       const spawnedPorts: number[] = [];
+      const emitBusy = (child: ChildProcess, port: number) => queueMicrotask(() => {
+        child.stderr?.emit('data', `Error: Port ${port} is already in use\n`);
+        child.emit('close', 1, null);
+      });
       const spawnServer: SpawnChild = (_command, args) => {
-        const portIndex = args.indexOf('--port');
-        const port = Number(args[portIndex + 1]);
+        const port = Number(args[args.indexOf('--port') + 1]);
         spawnedPorts.push(port);
         const child = standIn();
-        if (port === busyPort) {
-          queueMicrotask(() => {
-            child.stderr?.emit('data', `Error: Port ${port} is already in use\n`);
-            child.emit('close', 1, null);
-          });
-        }
+        if (port === busyPort) emitBusy(child, port);
         return child;
       };
       const noBrowser = () => Promise.reject(new Error('no browser in this test'));
       const { probe } = scriptedProbe([busyPort, livePort]);
       const app = new AppRun('stand-in', '.', '.', noBrowser, undefined, portIssuer(probe), DEFAULT_PROCESS_TIMING, spawnServer);
       const server = await app.devServer();
-      expect(server.port).toBe(livePort);
-      expect(spawnedPorts).toEqual([busyPort, livePort]);
+      expect([server.port, ...spawnedPorts]).toEqual([livePort, busyPort, livePort]);
       expect(app.processes.map((proc) => proc.name)).toEqual(['dev server']);
       expect(app.crashVerdict([]).unexpected).toEqual([]);
 
@@ -309,10 +286,7 @@ describe('app ports', () => {
         const port = Number(args[args.indexOf('--port') + 1]);
         fixedPorts.push(port);
         const child = standIn();
-        queueMicrotask(() => {
-          child.stderr?.emit('data', `Error: Port ${port} is already in use\n`);
-          child.emit('close', 1, null);
-        });
+        emitBusy(child, port);
         return child;
       });
       await expect(fixedApp.devServer({ port: busyPort })).rejects.toThrow(`dev server exited (code 1) before it served http://127.0.0.1:${busyPort}`);
@@ -325,13 +299,7 @@ describe('app ports', () => {
   });
 });
 
-/**
- * A stand-in npm: every call writes a debug log to its --logs-dir and leaves
- * a file in node_modules. The calls listed in `hangs` (1-based) then start a
- * child, print its pid, and wait on it, as npm waits on an install script,
- * until stopped; the others write a lockfile and exit 0. A call that finds an
- * earlier call's node_modules says so in `leftovers`.
- */
+/** Stand-in npm: writes a debug log + node_modules marker; calls in `hangs` (1-based) spawn sleep 31 and wait. */
 function fakeNpm(dir: string, hangs: number[]): string {
   const script = join(dir, 'fake-npm.sh');
   writeFileSync(script, `#!/bin/bash
@@ -357,16 +325,13 @@ function isRunningSleep(pid: number): boolean {
   if (process.platform !== 'linux') return true;
   try {
     return /^(?:\/\S+\/)?sleep\0/.test(readFileSync(`/proc/${pid}/cmdline`, 'utf8'));
-  } catch {
+  } catch (error) {
+    if (!(error instanceof Error)) throw error;
     return true;
   }
 }
 
-/**
- * Resolves once `fakeNpm` either closes (a passing call) or has written its
- * debug log and started `sleep 31` (a hanging call), so a runner stalled in
- * disk I/O during child startup cannot burn the 1 s attempt limit (#2853).
- */
+/** Resolves once `fakeNpm` closes or has written its debug log and started `sleep 31` (#2853). */
 function waitUntilHanging(child: ChildProcess): Promise<void> {
   return new Promise((resolve) => {
     let done = false;
@@ -389,13 +354,8 @@ function waitUntilHanging(child: ChildProcess): Promise<void> {
       const match = /^hanging (\d+)\n/m.exec(seen);
       if (!match || poll !== undefined) return;
       const sleepPid = Number(match[1]);
-      if (isRunningSleep(sleepPid)) {
-        finish();
-        return;
-      }
-      poll = setInterval(() => {
-        if (isRunningSleep(sleepPid)) finish();
-      }, 10);
+      if (isRunningSleep(sleepPid)) return finish();
+      poll = setInterval(() => { if (isRunningSleep(sleepPid)) finish(); }, 10);
       poll.unref();
     };
     child.stdout?.on('data', onData);
@@ -411,22 +371,11 @@ function installRun(hangs: number[], app = 'create-pyric-chat-app-check') {
   writeFileSync(join(work, 'app', 'my-chat', 'package.json'), '{"name":"my-chat","private":true}\n');
   const lines: string[] = [];
   const npm = fakeNpm(work, hangs);
-  const store = new DependencyStore({
-    dir: join(work, 'deps'),
-    offline: false,
-    packed: [],
-    platform: { nodeMajor: '24', npm: '11.13.0', os: 'linux', arch: 'x64' },
-    npmCache: join(work, 'cache'),
-    runNpm: (args, { cwd, timeoutMs }) => runTimedCommand(npm, args, {
-      cwd,
-      env: { PATH: process.env.PATH },
-      timeoutMs,
-      startTimeoutAfter: waitUntilHanging,
-    }),
-  });
+  const runNpm = (args: string[], { cwd, timeoutMs }: { cwd: string; timeoutMs: number }) =>
+    runTimedCommand(npm, args, { cwd, env: { PATH: process.env.PATH }, timeoutMs, startTimeoutAfter: waitUntilHanging });
+  const store = new DependencyStore({ dir: join(work, 'deps'), offline: false, packed: [], platform: { nodeMajor: '24', npm: '11.13.0', os: 'linux', arch: 'x64' }, npmCache: join(work, 'cache'), runNpm });
   const noBrowser = () => Promise.reject(new Error('no browser in this test'));
-  const nested = { tarballs: new Map(), store, attemptMs: 1_000, report: (line: string) => lines.push(line) };
-  const run = new AppRun(app, join(work, 'app'), join(work, 'home'), noBrowser, nested);
+  const run = new AppRun(app, join(work, 'app'), join(work, 'home'), noBrowser, { tarballs: new Map(), store, attemptMs: 1_000, report: (line: string) => lines.push(line) });
   const read = (name: string) => (existsSync(join(work, name)) ? readFileSync(join(work, name), 'utf8') : '');
   return { run, lines, read, work, done: () => rmSync(work, { recursive: true, force: true }) };
 }
@@ -502,6 +451,67 @@ describe('installProject when npm hangs (#1476)', () => {
       done();
     }
   }, 20_000);
+
+  test('closing the app during an in-flight attempt waits for it to settle and skips the retry (#2137)', async () => {
+    const work = mkdtempSync(join(tmpdir(), 'pyric-close-install-'));
+    mkdirSync(join(work, 'app', 'my-chat'), { recursive: true });
+    writeFileSync(join(work, 'app', 'my-chat', 'package.json'), '{"name":"my-chat","private":true}\n');
+    const lines: string[] = [];
+    let calls = 0;
+    let settled = false;
+    let finishFirst: () => void = () => {};
+    const provide = async () => {
+      calls += 1;
+      await new Promise<void>((resolve) => { finishFirst = resolve; });
+      settled = true;
+      return { code: null, output: 'attempt 1 stopped\n', source: 'timed out', timedOut: true };
+    };
+    const noBrowser = () => Promise.reject(new Error('no browser in this test'));
+    const run = new AppRun('create-pyric-chat-app-check', join(work, 'app'), join(work, 'home'), noBrowser, { tarballs: new Map(), store: { provide }, attemptMs: 1_000, report: (line) => lines.push(line) });
+    try {
+      const installing = run.installProject('my-chat').then(() => undefined, (error: Error) => error);
+      await Promise.resolve();
+      let closed = false;
+      const closing = run.close().then(() => { closed = true; });
+      await Promise.resolve();
+      expect(closed).toBe(false);
+      finishFirst();
+      await closing;
+      expect(settled).toBe(true);
+      const failure = await installing;
+      expect(calls).toBe(1);
+      expect(failure?.message).toContain('timed out');
+      expect(lines.some((line) => line.includes('1 attempt (app closed before retry)'))).toBe(true);
+    } finally {
+      rmSync(work, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('command timers (#1658)', () => {
+  test('command(), pyric(), and serverScript() clear their timeout timers so the process exits right away', async () => {
+    const work = mkdtempSync(join(tmpdir(), 'pyric-cmd-timer-'));
+    mkdirSync(join(work, 'app/node_modules/@pyric/cli/dist/cli'), { recursive: true });
+    writeFileSync(join(work, 'app/node_modules/@pyric/cli/package.json'), '{"name":"@pyric/cli","type":"module","exports":{"./register":"./register.js"}}\n');
+    writeFileSync(join(work, 'app/node_modules/@pyric/cli/register.js'), 'export {};\n');
+    writeFileSync(join(work, 'app/node_modules/@pyric/cli/dist/cli/index.js'), 'console.log("pyric-ok");\n');
+    writeFileSync(join(work, 'app/ok.mjs'), 'console.log("script-ok");\n');
+    const driverUrl = new URL('./driver.ts', import.meta.url).href;
+    const inline = `import { AppRun } from ${JSON.stringify(driverUrl)};
+const app = new AppRun('timer-check', ${JSON.stringify(join(work, 'app'))}, ${JSON.stringify(join(work, 'home'))}, () => Promise.reject(new Error('unused')));
+await app.command('true', [], { timeoutMs: 30_000 });
+await app.pyric(['--version'], { timeoutMs: 30_000 });
+await app.serverScript('ok.mjs', [], { timeoutMs: 30_000 });`;
+    try {
+      const started = performance.now();
+      const result = await runTimedCommand(process.execPath, ['-e', inline], { cwd: '.', env: { PATH: process.env.PATH }, timeoutMs: 15_000 });
+      const elapsedMs = performance.now() - started;
+      expect({ code: result.code, timedOut: result.timedOut }).toEqual({ code: 0, timedOut: false });
+      expect(elapsedMs).toBeLessThan(15_000);
+    } finally {
+      rmSync(work, { recursive: true, force: true });
+    }
+  }, 20_000);
 });
 
 /** The inode of the socket process `pid` writes descriptor `fd` to. */
@@ -516,7 +526,7 @@ function socketOf(pid: number | undefined, fd: number): number {
  * kernel's own record of the other end, read while both ends are open.
  */
 function peerOf(inode: number): number {
-  const rows = execFileSync('ss', ['-xan'], { encoding: 'utf8' }).split('\n').map((line) => line.trim().split(/\s+/));
+  const rows = execFileSync('ss', ['-xan'], { encoding: 'utf8', maxBuffer: SS_MAX_BUFFER_BYTES }).split('\n').map((line) => line.trim().split(/\s+/));
   const row = rows.find((fields) => Number(fields[7]) === inode);
   if (row === undefined) throw new Error(`ss lists no socket whose peer is ${inode}`);
   return Number(row[5]);
@@ -529,17 +539,8 @@ const runnerEndsOf = (pid: number | undefined) => [peerOf(socketOf(pid, 1)), pee
 const GATED = 'read _;';
 
 /**
- * A spawner whose children never report `close`, as when the runner loses
- * it (#1274). After each spawn, before the driver looks for the child's
- * sockets, it starts a neighbor with output sockets of its own: sockets the
- * runner opened after the spawn. It notes the runner's end of each socket
- * from the kernel's peer record, read on its own, apart from the driver's.
- *
- * The kernel keeps that record only while both ends are open, so the child
- * and the neighbor each start with `GATED` and wait on stdin. The spawner
- * ends their stdin on the next turn, after its lookups and after the
- * driver has read the child's sockets in this one. A stalled runner then
- * only delays them, however long it stalls (#2225).
+ * Spawner whose children omit `close` (#1274) and run alongside a neighbor process
+ * with its own sockets, gated on stdin until `/proc` and `ss -xan` are sampled (#2225).
  */
 function losingCloseWithNeighbor(): { spawnChild: SpawnChild; childEnds: number[]; neighborEnds: number[]; neighborOutput: Promise<string> } {
   const childEnds: number[] = [];
