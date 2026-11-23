@@ -3,6 +3,15 @@
 // disconnects both before headers are sent and mid-stream without runtime shim quirks.
 import { createServer } from 'node:http';
 
+const bunVersion = process.versions?.bun;
+const runsUnderBun = typeof bunVersion === 'string' && bunVersion.length > 0;
+if (runsUnderBun) {
+  process.stderr.write(
+    `stand-in.mjs requires Node.js so ServerResponse 'close' observes raw TCP disconnects; got Bun ${bunVersion}.\n`,
+  );
+  process.exit(1);
+}
+
 const TOTAL_CHUNKS = 40;
 const CHUNK_INTERVAL_MS = 150;
 const SLOW_HEADERS_DELAY_MS = 15000;
