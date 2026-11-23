@@ -36,10 +36,46 @@ const TICKS_AFTER_RESTART = 30;
 /** The line the Node remote client logs when the host drops its connection. */
 const DROP_WARNING = /^pyric: remote sandbox connection closed/m;
 
-interface Tick { n: number; issuedAt: number; settledAt: number; ok: boolean; code?: string | null; message?: string }
+export interface Tick {
+  n: number;
+  issuedAt: number;
+  settledAt: number;
+  ok: boolean;
+  code?: string | null;
+  message?: string;
+}
+
+export function parseTicks(output: string): Tick[] {
+  const ticks: Tick[] = [];
+  for (const match of output.matchAll(/^tick (.*)$/gm)) {
+    const payload = match[1];
+    if (payload === undefined) continue;
+    ticks.push(JSON.parse(payload) as Tick);
+  }
+  return ticks;
+}
 
 function ticksOf(writer: AppProcess): Tick[] {
-  return [...writer.output.matchAll(/^tick (.*)$/gm)].map((line) => JSON.parse(line[1]!) as Tick);
+  return parseTicks(writer.output);
+}
+
+/**
+ * Waits up to `timeoutMs` for `exited` and always clears its deadline timer so
+ * a fast exit does not leave an un-cleared timer behind (#1268).
+ */
+export async function waitForProcessExit(
+  exited: Promise<number | null>,
+  timeoutMs: number,
+): Promise<number | null | 'timeout'> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<'timeout'>((resolve) => {
+    timer = setTimeout(() => resolve('timeout'), timeoutMs);
+  });
+  try {
+    return await Promise.race([exited, deadline]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }
 
 async function untilSettled(writer: AppProcess, count: number, limitMs: number): Promise<void> {
@@ -82,43 +118,81 @@ function processState(pid: number | undefined): string {
     const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
     return stat.slice(stat.lastIndexOf(')') + 2).split(' ')[0] ?? 'unreadable';
   } catch (error) {
-    return `unreadable (${(error as Error).message})`;
+    if (error instanceof Error) return `unreadable (${error.message})`;
+    throw error;
   }
 }
 
+export interface StallDiagnosisInput {
+  writerRunning: boolean;
+  writerPid: number | undefined;
+  writerState: string;
+  loggedTicks: readonly Tick[];
+  restartedAt: number;
+  readStoredTicks: () => Promise<readonly number[]>;
+}
+
 /**
- * What a stall looked like (#1268): whether the writer process still runs, and
- * which ticks the host stored after the restart. Stored ticks the writer never
- * logged mean its writes reached the host and its output was lost; none mean
- * its writes stopped reaching the host.
+ * Formats what a post-restart stall looked like (#1268): whether the writer
+ * process still runs, and which ticks the host stored after the restart.
+ * Stored ticks the writer never logged mean its writes reached the host and
+ * its output was lost; none mean its writes stopped reaching the host.
  */
-async function stallDiagnosis(app: App, url: string, writer: AppProcess, restartedAt: number): Promise<string> {
-  const logged = ticksOf(writer);
-  const lastBeforeRestart = Math.max(-1, ...logged.filter((tick) => tick.issuedAt <= restartedAt).map((tick) => tick.n));
-  const loggedAfter = logged.filter((tick) => tick.n > lastBeforeRestart).map((tick) => tick.n);
+export async function formatStallDiagnosis(input: StallDiagnosisInput): Promise<string> {
+  const beforeRestart = input.loggedTicks.filter((tick) => tick.issuedAt <= input.restartedAt).map((tick) => tick.n);
+  const lastBeforeRestart = Math.max(-1, ...beforeRestart);
+  const loggedAfter = input.loggedTicks.filter((tick) => tick.n > lastBeforeRestart).map((tick) => tick.n);
   let storedAfter: string;
   try {
-    const stored = await storedTicks(app, url, 20_000);
+    const stored = await input.readStoredTicks();
     storedAfter = JSON.stringify(stored.filter((n) => n > lastBeforeRestart));
   } catch (error) {
-    storedAfter = `could not be read: ${(error as Error).message.split('\n')[0]}`;
+    if (error instanceof Error) {
+      const firstLine = error.message.split('\n')[0] ?? error.message;
+      storedAfter = `could not be read: ${firstLine}`;
+    } else {
+      throw error;
+    }
   }
+  const runStatus = input.writerRunning ? 'running' : 'exited';
   return [
-    `[#1268 diagnosis] writer process: ${writer.running ? 'running' : 'exited'}, pid ${writer.pid}, state ${processState(writer.pid)}`,
+    `[#1268 diagnosis] writer process: ${runStatus}, pid ${String(input.writerPid)}, state ${input.writerState}`,
     `[#1268 diagnosis] last tick issued before the restart and logged: ${lastBeforeRestart}`,
     `[#1268 diagnosis] ticks after it the writer logged: ${JSON.stringify(loggedAfter)}`,
     `[#1268 diagnosis] ticks after it the host stored: ${storedAfter}`,
   ].join('\n');
 }
 
+async function stallDiagnosis(app: App, url: string, writer: AppProcess, restartedAt: number): Promise<string> {
+  return formatStallDiagnosis({
+    writerRunning: writer.running,
+    writerPid: writer.pid,
+    writerState: processState(writer.pid),
+    loggedTicks: ticksOf(writer),
+    restartedAt,
+    readStoredTicks: () => storedTicks(app, url, 20_000),
+  });
+}
+
 async function storedTicks(app: App, url: string, timeoutMs?: number): Promise<number[]> {
   const { output } = await app.serverScript('ticks.mjs', [], { env: { PYRIC_SANDBOX: `remote:${url}` }, timeoutMs });
   const line = output.match(/^ticks (.*)$/m);
-  assert.ok(line, `ticks.mjs printed no ticks:\n${output}`);
-  return JSON.parse(line[1]!) as number[];
+  const payload = line?.[1];
+  assert.ok(payload !== undefined, `ticks.mjs printed no ticks:\n${output}`);
+  return JSON.parse(payload) as number[];
 }
 
-function summarize(ticks: Tick[], stored: number[], editedAt: number, restartedAt: number): string {
+function formatFailureWindow(failed: readonly Tick[], editedAt: number): string {
+  const first = failed[0];
+  const last = failed.at(-1);
+  if (first === undefined || last === undefined) return 'none';
+  const relative = (at: number) => `${at - editedAt} ms`;
+  const minSettled = Math.min(...failed.map((tick) => tick.settledAt));
+  const maxSettled = Math.max(...failed.map((tick) => tick.settledAt));
+  return `issued ${relative(first.issuedAt)} to ${relative(last.issuedAt)}, settled ${relative(minSettled)} to ${relative(maxSettled)}`;
+}
+
+export function summarize(ticks: Tick[], stored: number[], editedAt: number, restartedAt: number): string {
   const failed = ticks.filter((tick) => !tick.ok);
   const codes = new Map<string, number>();
   for (const tick of failed) {
@@ -126,9 +200,7 @@ function summarize(ticks: Tick[], stored: number[], editedAt: number, restartedA
     codes.set(key, (codes.get(key) ?? 0) + 1);
   }
   const relative = (at: number) => `${at - editedAt} ms`;
-  const window = failed.length === 0
-    ? 'none'
-    : `issued ${relative(failed[0]!.issuedAt)} to ${relative(failed.at(-1)!.issuedAt)}, settled ${relative(Math.min(...failed.map((t) => t.settledAt)))} to ${relative(Math.max(...failed.map((t) => t.settledAt)))}`;
+  const window = formatFailureWindow(failed, editedAt);
   const lastFailure = failed.at(-1)?.n ?? -1;
   const recovered = ticks.some((tick) => tick.ok && tick.n > lastFailure);
   const storedSet = new Set(stored);
@@ -150,24 +222,30 @@ export default scenario(async (app) => {
   const host = await app.step('start the hosted dev server', () => app.devServer());
 
   const writer = await app.step(`start the writer; ${STEADY_TICKS} writes resolve`, async () => {
-    const writer = app.serverProcess('writer.mjs', [String(MAX_TICKS)], { env: { PYRIC_SANDBOX: `remote:${host.url}` } });
-    await untilSettled(writer, STEADY_TICKS, 30_000);
-    return writer;
+    const proc = app.serverProcess('writer.mjs', [String(MAX_TICKS)], { env: { PYRIC_SANDBOX: `remote:${host.url}` } });
+    await untilSettled(proc, STEADY_TICKS, 30_000);
+    return proc;
   });
 
   const holder = await app.step('start a client SDK process; its first write resolves', async () => {
-    const holder = app.serverProcess('holder.mjs', [], { env: { PYRIC_SANDBOX: `remote:${host.url}` } });
-    await holder.waitForLog(/^holder 0 \{"ok":true\}$/m, { timeoutMs: 30_000 });
-    return holder;
+    const proc = app.serverProcess('holder.mjs', [], { env: { PYRIC_SANDBOX: `remote:${host.url}` } });
+    await proc.waitForLog(/^holder 0 \{"ok":true\}$/m, { timeoutMs: 30_000 });
+    return proc;
   });
 
   const editedAt = Date.now();
   const restartedAt = await app.step('edit vite.config.js; Vite restarts the server', () => restartByConfigEdit(app, host));
 
-  await app.step('the writer sees the connection drop', () =>
-    writer.waitForLog(DROP_WARNING, { timeoutMs: 30_000 }).catch(() => {
-      assert.fail(`the writer never logged a dropped connection, so the restart did not happen during its writes:\n${writer.output}`);
-    }));
+  await app.step('the writer sees the connection drop', async () => {
+    try {
+      await writer.waitForLog(DROP_WARNING, { timeoutMs: 30_000 });
+    } catch (error) {
+      if (error instanceof Error) {
+        assert.fail(`the writer never logged a dropped connection, so the restart did not happen during its writes:\n${writer.output}`);
+      }
+      throw error;
+    }
+  });
 
   await app.step(`the writer issues ${TICKS_AFTER_RESTART} writes after the restart, then stops`, async () => {
     await untilIssuedAfter(writer, restartedAt, TICKS_AFTER_RESTART, 60_000, () => stallDiagnosis(app, host.url, writer, restartedAt));
@@ -175,7 +253,7 @@ export default scenario(async (app) => {
   });
 
   const exitCode = await app.step('the writer finishes its writes and exits', async () => {
-    const code = await Promise.race([writer.exited, sleep(90_000).then(() => 'timeout' as const)]);
+    const code = await waitForProcessExit(writer.exited, 90_000);
     assert.notEqual(code, 'timeout', `the writer did not exit within 90s:\n${writer.output}`);
     return code;
   });
@@ -214,13 +292,16 @@ export default scenario(async (app) => {
 
   await app.step('a page whose config names another storage bucket is refused', async () => {
     const page = await app.page(`${host.url}/conflict.html`);
-    await page.waitForFunction(() => 'conflict' in window);
-    const result = await page.evaluate(() =>
-      (window as unknown as { conflict: { write(): Promise<{ ok: boolean; code?: string; message?: string }> } }).conflict.write());
-    assert.equal(result.ok, false, JSON.stringify(result));
-    assert.equal(result.code, 'app/multiple-configs-not-supported', JSON.stringify(result));
-    assert.match(result.message ?? '', /differs on: storageBucket/);
-    await page.close();
+    try {
+      await page.waitForFunction(() => 'conflict' in window);
+      const result = await page.evaluate(() =>
+        (window as unknown as { conflict: { write(): Promise<{ ok: boolean; code?: string; message?: string }> } }).conflict.write());
+      assert.equal(result.ok, false, JSON.stringify(result));
+      assert.equal(result.code, 'app/multiple-configs-not-supported', JSON.stringify(result));
+      assert.match(result.message ?? '', /differs on: storageBucket/);
+    } finally {
+      await page.close();
+    }
   });
 
   await app.step('the client SDK process keeps writing after that page loaded', async () => {

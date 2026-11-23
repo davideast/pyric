@@ -20,6 +20,7 @@ import {
   type TemplateEvidence,
 } from './fresh-install-checks.ts';
 import './fresh-install-audit.test.ts';
+import './fresh-install-dialog.test.ts';
 
 const REGISTRY: EgressEntry = { method: 'CONNECT', host: 'registry.npmjs.org', port: 443, allowed: true };
 

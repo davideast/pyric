@@ -55,13 +55,19 @@ import {
   type StepRecord,
   type TemplateEvidence,
 } from './fresh-install-checks.ts';
+import { playwrightDialogDriver, signInThroughSandboxDialog } from './fresh-install-dialog.ts';
 
 function readJsonLines<T>(path: string): T[] {
   if (!existsSync(path)) return [];
   return readFileSync(path, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line) as T);
 }
 
-// ─── Step log ──────────────────────────────────────────────────────────
+function errorText(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
+
+// --- Step log ---
 
 /** A process as steps.jsonl names it: its command line, without the `$ `. */
 function commandLabel(child: AppProcess): string {
@@ -92,7 +98,7 @@ class RecordedAppRun extends AppRun {
   }
 }
 
-// ─── Template flows ────────────────────────────────────────────────────
+// --- Template flows ---
 
 /** Selectors of the posts page the web, static and nextjs templates share in shape. */
 interface PostsPage {
@@ -166,19 +172,18 @@ function readChip(): string {
   return 'Ready';
 }
 
-async function chipState(page: Page, run: TemplateRun): Promise<string> {
-  const timeout = run.chip === 'expected' ? FLOW_TIMEOUT_MS : 10_000;
-  await page.waitForSelector('[data-pyric-runtime-chip-host]', { state: 'attached', timeout }).catch(() => undefined);
-  return page.evaluate(readChip);
+function isPlaywrightTimeoutError(error: unknown): boolean {
+  return error instanceof Error && (error.name === 'TimeoutError' || error.message.includes('Timeout'));
 }
 
-async function signInThroughDialog(page: Page, trigger: string): Promise<void> {
-  await page.click(trigger);
-  const dialog = page.locator('dialog[data-pyric-auth][open]');
-  await dialog.waitFor({ state: 'visible', timeout: 30_000 });
-  await dialog.locator('input[type="email"]').fill('ada@example.com');
-  await dialog.locator('input[placeholder="Display name (optional)"]').fill('Ada');
-  await dialog.locator('button.submit').click();
+async function chipState(page: Page, run: TemplateRun): Promise<string> {
+  const timeout = run.chip === 'expected' ? FLOW_TIMEOUT_MS : 10_000;
+  try {
+    await page.waitForSelector('[data-pyric-runtime-chip-host]', { state: 'attached', timeout });
+  } catch (error) {
+    if (!isPlaywrightTimeoutError(error)) throw error;
+  }
+  return page.evaluate(readChip);
 }
 
 /** Runs in the page: whether `#auth-status` matches `pattern`. */
@@ -207,10 +212,8 @@ async function drivePosts(page: Page, run: TemplateRun, selectors: PostsPage): P
     await run.app.step(`${serverStatus.selector} shows the server route answered`, () =>
       page.waitForFunction(startsWith, serverStatus, { timeout: FLOW_TIMEOUT_MS }));
   }
-  await run.app.step('sign in through the sandbox Google dialog', async () => {
-    await signInThroughDialog(page, selectors.signIn);
-    await status('^Signed in as ');
-  });
+  await run.app.step('sign in through the sandbox Google dialog', () =>
+    signInThroughSandboxDialog(playwrightDialogDriver(page, () => status('^Signed in as ')), selectors.signIn));
   await run.app.step('write one post', async () => {
     await page.fill(selectors.title, title);
     await page.click(selectors.submit);
@@ -243,7 +246,7 @@ async function driveChat(page: Page, run: TemplateRun): Promise<void> {
   run.chipStates.push(await chipState(page, run));
 }
 
-// ─── One template ──────────────────────────────────────────────────────
+// --- One template ---
 
 interface TemplateRun {
   name: TemplateName;
@@ -265,7 +268,11 @@ async function watchContext(context: BrowserContext, log: string[]): Promise<voi
     addEventListener('unhandledrejection', (event) => {
       const { reason } = event as PromiseRejectionEvent;
       const stack = (reason as { stack?: unknown } | null | undefined)?.stack;
-      console.error(`${rejection} ${typeof stack === 'string' ? stack : String(reason)}`);
+      let detail = String(reason);
+      if (typeof stack === 'string') {
+        detail = stack;
+      }
+      console.error(`${rejection} ${detail}`);
     });
     for (const name of ['Worker', 'SharedWorker'] as const) {
       const Original = globalThis[name] as (new (...args: unknown[]) => EventTarget) | undefined;
@@ -306,8 +313,9 @@ async function answersOk(url: string): Promise<boolean> {
     const response = await fetch(url, { signal: AbortSignal.timeout(30_000) });
     await response.arrayBuffer();
     return response.ok;
-  } catch {
-    return false;
+  } catch (error) {
+    if (error instanceof Error) return false;
+    throw error;
   }
 }
 
@@ -369,7 +377,7 @@ async function auditApp(run: TemplateRun, env: Record<string, string>): Promise<
     try {
       return await run.app.command('npm', ['audit', '--json'], { env, cwd: run.project, timeoutMs: 300_000 });
     } catch (error) {
-      return { code: null, output: '', error: error instanceof Error ? error.message : String(error) };
+      return { code: null, output: '', error: errorText(error) };
     }
   });
 }
@@ -389,7 +397,13 @@ async function saveLogs(run: TemplateRun, home: string, dir: string): Promise<vo
   mkdirSync(dir, { recursive: true });
   run.app.processes.forEach((child, index) => writeFileSync(join(dir, `${index + 1}-process.log`), child.header + child.output));
   writeFileSync(join(dir, 'browser.log'), run.app.browserLog.join('\n'));
-  await run.context?.tracing.stop({ path: join(dir, 'trace.zip') }).catch(() => undefined);
+  if (run.context !== undefined) {
+    try {
+      await run.context.tracing.stop({ path: join(dir, 'trace.zip') });
+    } catch (error) {
+      if (!(error instanceof Error)) throw error;
+    }
+  }
   const npmLogs = join(home, '.npm', '_logs');
   if (existsSync(npmLogs)) cpSync(npmLogs, join(dir, 'npm-logs'), { recursive: true });
 }
@@ -400,15 +414,15 @@ async function evidenceFor(name: TemplateName, options: RunOptions, browser: Bro
   mkdirSync(home, { recursive: true });
   const app = new RecordedAppRun(name, options.workDir, home, () => Promise.resolve(browser), options.stepsFile);
   const flow = FLOWS[name];
-  // A script template has no page, so no chip is expected.
-  const run: TemplateRun = { name, app, project: `${name}-app`, chipStates: [], chip: flow.kind === 'page' ? flow.dev.chip : 'not expected' };
+  const chip = flow.kind === 'page' ? flow.dev.chip : 'not expected';
+  const run: TemplateRun = { name, app, project: `${name}-app`, chipStates: [], chip };
   let failedStep: TemplateEvidence['failedStep'];
   try {
     await runTemplate(run, options);
   } catch (error) {
     const step = error instanceof StepFailure ? error.step : app.currentStep;
     const reason = error instanceof StepFailure ? error.reason : error;
-    failedStep = { step, reason: reason instanceof Error ? reason.message : String(reason) };
+    failedStep = { step, reason: errorText(reason) };
   }
   await saveLogs(run, home, join(options.out, name));
   await app.close();
@@ -427,7 +441,7 @@ async function evidenceFor(name: TemplateName, options: RunOptions, browser: Bro
   };
 }
 
-// ─── Entry points ──────────────────────────────────────────────────────
+// --- Entry points ---
 
 interface RunOptions {
   tag: string;
@@ -448,8 +462,12 @@ function templatesFrom(list: string | undefined): TemplateName[] {
   const names = list.split(',').filter(Boolean);
   const unknown = names.filter((name) => !(TEMPLATE_NAMES as readonly string[]).includes(name));
   if (unknown.length > 0) throw new Error(`unknown template ${unknown.join(', ')} (create-pyric offers ${TEMPLATE_NAMES.join(', ')})`);
-  // Each template runs once: a repeat would scaffold into the directory the first one made.
   return [...new Set(names)] as TemplateName[];
+}
+
+function listeningPort(address: ReturnType<Awaited<ReturnType<typeof startEgressProxy>>['address']>): number {
+  if (typeof address === 'object' && address !== null) return address.port;
+  return 0;
 }
 
 async function run(args: string[]): Promise<number> {
@@ -459,9 +477,12 @@ async function run(args: string[]): Promise<number> {
   const inProcess: EgressEntry[] = [];
   const externalProxy = flag(args, 'proxy');
   const egressLog = flag(args, 'egress-log');
-  const proxy = externalProxy === undefined ? await startEgressProxy(0, (entry) => inProcess.push(entry)) : undefined;
-  const address = proxy?.address();
-  const proxyUrl = externalProxy ?? `http://127.0.0.1:${typeof address === 'object' && address ? address.port : 0}`;
+  let proxy: Awaited<ReturnType<typeof startEgressProxy>> | undefined;
+  let proxyUrl = externalProxy;
+  if (proxyUrl === undefined) {
+    proxy = await startEgressProxy(0, (entry) => inProcess.push(entry));
+    proxyUrl = `http://127.0.0.1:${listeningPort(proxy.address())}`;
+  }
   const stepsFile = join(out, 'steps.jsonl');
   writeFileSync(stepsFile, '');
   const options: RunOptions = { tag: flag(args, 'tag') ?? 'exp', templates: templatesFrom(flag(args, 'templates')), out, workDir, proxyUrl, stepsFile };
@@ -476,7 +497,10 @@ async function run(args: string[]): Promise<number> {
   await browser.close();
   proxy?.close();
 
-  const egress = egressLog === undefined ? inProcess : readJsonLines<EgressEntry>(egressLog);
+  let egress = inProcess;
+  if (egressLog !== undefined) {
+    egress = readJsonLines<EgressEntry>(egressLog);
+  }
   writeFileSync(join(out, 'egress.jsonl'), egress.map((entry) => JSON.stringify(entry)).join('\n'));
   const evidence = { templates, egress, steps: readJsonLines<StepRecord>(stepsFile) };
   const { failing, allowed } = crashFindings(evidence);
@@ -497,6 +521,11 @@ async function serveProxy(args: string[]): Promise<number> {
   return new Promise(() => {});
 }
 
+function readOptionalUtf8(path: string): string {
+  if (!existsSync(path)) return '';
+  return readFileSync(path, 'utf8');
+}
+
 /** Names the step of each firewall reject, prints it and adds it to findings.txt; exits 1 on any. */
 async function attributeRejects(args: string[]): Promise<number> {
   const steps = flag(args, 'steps');
@@ -505,7 +534,7 @@ async function attributeRejects(args: string[]): Promise<number> {
   if (steps === undefined || log === undefined || findingsFile === undefined) {
     throw new Error('usage: fresh-install.ts rejects --steps <steps.jsonl> --log <firewall-rejects.log> --findings <findings.txt>');
   }
-  const text = existsSync(log) ? readFileSync(log, 'utf8') : '';
+  const text = readOptionalUtf8(log);
   const { failing, allowed } = firewallFindings(parseFirewallRejects(text), readJsonLines<StepRecord>(steps), await resolveAllowanceNames());
   const lines = [...failing, ...allowed];
   for (const line of lines) console.error(`[fresh-install] ${line}`);
@@ -513,22 +542,41 @@ async function attributeRejects(args: string[]): Promise<number> {
   return failing.length === 0 ? 0 : 1;
 }
 
+async function lookupAddresses(name: string): Promise<string[]> {
+  try {
+    const entries = await lookup(name, { all: true });
+    return entries.map((entry) => entry.address);
+  } catch (error) {
+    if (error instanceof Error && 'code' in error) return [];
+    throw error;
+  }
+}
+
 /** Every address each allowance's `resolvesTo` name has now, both families; none when it does not resolve. */
 async function resolveAllowanceNames(): Promise<Map<string, string[]>> {
-  const names = [...new Set(ALLOWANCES.flatMap((allowance) => (allowance.resolvesTo === undefined ? [] : [allowance.resolvesTo])))];
+  const names = [...new Set(ALLOWANCES.flatMap((allowance) => {
+    if (allowance.resolvesTo === undefined) return [];
+    return [allowance.resolvesTo];
+  }))];
   const resolved = new Map<string, string[]>();
   for (const name of names) {
-    const addresses = await lookup(name, { all: true }).catch(() => []);
-    resolved.set(name, addresses.map((entry) => entry.address));
-    console.log(`[fresh-install] ${name} resolves to ${resolved.get(name)!.join(', ') || 'nothing'}`);
+    const addresses = await lookupAddresses(name);
+    resolved.set(name, addresses);
+    console.log(`[fresh-install] ${name} resolves to ${addresses.join(', ') || 'nothing'}`);
   }
   return resolved;
+}
+
+function resolveCommand(command: string | undefined, commands: Record<string, (args: string[]) => Promise<number>>): ((args: string[]) => Promise<number>) | undefined {
+  if (command === undefined) return undefined;
+  if (!Object.hasOwn(commands, command)) return undefined;
+  return commands[command];
 }
 
 if (import.meta.main) {
   const [command, ...rest] = process.argv.slice(2);
   const commands: Record<string, (args: string[]) => Promise<number>> = { run, proxy: serveProxy, rejects: attributeRejects };
-  const entry = command !== undefined && Object.hasOwn(commands, command) ? commands[command] : undefined;
+  const entry = resolveCommand(command, commands);
   if (entry === undefined) {
     console.error('usage: fresh-install.ts run [flags] | proxy --port <port> --log <file> | rejects --steps <file> --log <file> --findings <file>');
     process.exit(2);

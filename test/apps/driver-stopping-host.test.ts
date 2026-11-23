@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Browser } from '@playwright/test';
 import { AppRun, launchScenarioBrowser } from './driver.ts';
+import './scenario-diagnostics.test.ts';
 
 /** Stands in for `node_modules/vite/bin/vite.js`: the driver starts it with `--port <n>`. */
 const STAND_IN_HOST = `
