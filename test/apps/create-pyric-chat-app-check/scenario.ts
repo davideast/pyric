@@ -33,6 +33,11 @@ function debugExchangeToken(): string {
   return [part({ alg: 'RS256', kid: 'scenario', typ: 'JWT' }), part({ sub: 'chat-template', provider: 'debug' }), 'c2lnbmF0dXJl'].join('.');
 }
 
+// Sized from #2137 measurements (83.3 s cold --no-audit, 107.9 s cold --audit,
+// 142.6-157.5 s concurrent slow-registry CI warms): fits two 180 s attempts
+// plus teardown and the scenario's own ~30 s runtime.
+export const timeoutMs = 450_000;
+
 export default scenario(async (app) => {
   const earlierFile = join(OBSERVATIONS, '..', '..', 'earlier-captures', 'ai-logic-refusal-unenforced.json');
   const gate = (JSON.parse(readFileSync(earlierFile, 'utf8')) as EarlierCaptures).captures['app-check-ai-gate-wire'].noHeader;

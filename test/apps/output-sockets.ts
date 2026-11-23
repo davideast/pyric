@@ -45,10 +45,13 @@ export type ReadPeers = () => Map<number, number> | undefined;
 
 const hasProcFds = process.platform === 'linux' && existsSync('/proc/self/fd');
 
+export const SS_MAX_BUFFER_BYTES = 32 * 1024 * 1024;
+
 const readProcLink: ReadLink = (path) => {
   try {
     return readlinkSync(path);
-  } catch {
+  } catch (error) {
+    if (!(error instanceof Error)) throw error;
     return undefined;
   }
 };
@@ -97,10 +100,16 @@ export function parseUnixPeers(table: string): Map<number, number> {
   return new Map(parseUnixRows(table).filter(hasPeer).map((row) => [row.peer, row.inode]));
 }
 
-function readSsTable(): string | undefined {
+type ExecSs = (maxBuffer: number) => string;
+
+const defaultExecSs: ExecSs = (maxBuffer) =>
+  execFileSync('ss', ['-xan'], { encoding: 'utf8', timeout: 2000, maxBuffer, stdio: ['ignore', 'pipe', 'ignore'] });
+
+export function readSsTable(execSs: ExecSs = defaultExecSs): string | undefined {
   try {
-    return execFileSync('ss', ['-xan'], { encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] });
-  } catch {
+    return execSs(SS_MAX_BUFFER_BYTES);
+  } catch (error) {
+    if (!(error instanceof Error)) throw error;
     return undefined;
   }
 }
@@ -184,6 +193,9 @@ export function describeOutputSockets(
     const bytes = queues.get(socket.inode);
     return bytes === undefined ? { kind: 'unlisted' } : { kind: 'queued', bytes };
   });
-  const parts = sockets.map((socket, index) => `${socket.stream} ${describeState(states[index]!)} (socket ${socket.inode}, the runner's end)`);
+  const parts = sockets.map((socket, index) => {
+    const state = states[index] ?? { kind: 'unlisted' };
+    return `${socket.stream} ${describeState(state)} (socket ${socket.inode}, the runner's end)`;
+  });
   return `\n[driver] ${name}'s output sockets: ${parts.join(', ')}; ${explain(states)} (#1797)\n`;
 }

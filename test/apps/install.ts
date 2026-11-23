@@ -289,13 +289,19 @@ export function isTransientNetworkFailure(result: CommandResult & { timedOut?: b
   return TRANSIENT_NETWORK_CODE.test(result.output) || TRANSIENT_NETWORK_MESSAGE.test(result.output);
 }
 
-export interface NpmInstallOptions {
+interface NpmInstallOptions {
   /** Pause before retrying a transient network failure; tests pass 0. */
   networkRetryDelayMs?: number;
+  /** Gets one `[runner]` line when an install retries (#1485); `console.log` by default. */
+  report?: (line: string) => void;
 }
 
 interface NetworkRetryBudget {
   remaining: number;
+}
+
+function tenthedSecondsSince(started: number): string {
+  return ((performance.now() - started) / 1000).toFixed(1);
 }
 
 async function runWithNetworkRetry<R extends CommandResult & { timedOut?: boolean }>(
@@ -303,11 +309,14 @@ async function runWithNetworkRetry<R extends CommandResult & { timedOut?: boolea
   run: (args: string[]) => Promise<R>,
   delayMs: number,
   budget: NetworkRetryBudget,
+  report: (line: string) => void,
 ): Promise<R> {
+  const attemptStarted = performance.now();
   const first = await run(args);
   const canRetry = budget.remaining > 0 && isTransientNetworkFailure(first);
   if (!canRetry) return first;
   budget.remaining -= 1;
+  report(`[runner] infrastructure retry: retried npm install after transient network error (exit ${first.code}), ${tenthedSecondsSince(attemptStarted)} s`);
   const note = '\n[runner] infrastructure retry: npm install hit a transient network error; retrying once\n';
   if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
   const second = await run(args);
@@ -332,23 +341,37 @@ export async function npmInstall<R extends CommandResult & { timedOut?: boolean 
   options: NpmInstallOptions = {},
 ): Promise<R> {
   const delayMs = options.networkRetryDelayMs ?? DEFAULT_NETWORK_RETRY_DELAY_MS;
+  const report = options.report ?? ((line: string) => console.log(line));
   const budget: NetworkRetryBudget = { remaining: 1 };
-  const first = await runWithNetworkRetry(npmInstallArgs(npmCache, 'offline', logsDir), run, delayMs, budget);
+  const offlineStarted = performance.now();
+  const first = await runWithNetworkRetry(npmInstallArgs(npmCache, 'offline', logsDir), run, delayMs, budget, report);
   if (!shouldRetryOnline(first)) return withRetryPolicy(first);
+  report(`[runner] retried npm install with --prefer-online after stale cached metadata (exit ${first.code}), ${tenthedSecondsSince(offlineStarted)} s`);
   const note = '\n[runner] npm install failed on stale cached metadata; retrying once with --prefer-online\n';
-  const second = await runWithNetworkRetry(npmInstallArgs(npmCache, 'online', logsDir), run, delayMs, budget);
+  const second = await runWithNetworkRetry(npmInstallArgs(npmCache, 'online', logsDir), run, delayMs, budget, report);
   return withRetryPolicy({ ...second, output: `${first.output}${note}${second.output}` });
 }
 
 /**
- * How long one nested `npm install` (`app.installProject`) gets before the
- * runner calls it hung. On CI a passing one took 52 to 71 s; a hung one never
- * finished in 240 s (#1476). The app's 300 s limit covers its whole scenario,
- * so two hung attempts (220 s), their stops (up to 10 s each) and the
- * node_modules removal leave about 50 s for the scenario's other steps, and a
- * second hang still ends as an install error, not the app's timeout.
+ * How long one nested `npm install` (`app.installProject`) warm attempt gets
+ * before the runner calls it hung (#1476, #2137). Measured on a 4-thread host,
+ * the chat template took 65.3 s warm (`--no-audit`), 75.2 s warm (`--audit`),
+ * 83.3 s cold (`--no-audit`), and 107.9 s cold (`--audit`); under 4-way CI
+ * shard concurrency on a slow registry (run 42105313959 attempt 1), legitimate
+ * warms took 142.6 to 157.5 s while 110 s killed `my-chat` mid-extraction.
+ * 180 s lets slow-registry warms finish on attempt 1 and gives `--fetch-timeout`
+ * (60 s) two stalled-request timeouts in npm's debug log before stopping.
  */
-export const NESTED_INSTALL_ATTEMPT_MS = 110_000;
+export const NESTED_INSTALL_ATTEMPT_MS = 180_000;
+
+/**
+ * Default scenario limit for apps that declare a nested install (`NESTED_PROJECTS`
+ * in `nested-projects.ts`): two hung 180 s warm attempts plus up to 15 s each
+ * to stop and clean up (390 s) still leave 60 s for the scenario's own steps
+ * (26 to 39 s measured on the chat scenarios), so a double hang settles inside
+ * `installProject` with both npm debug logs instead of hitting the app cap.
+ */
+export const NESTED_SCENARIO_TIMEOUT_MS = 450_000;
 
 export interface TimedResult extends CommandResult {
   /** True when the runner stopped the command at its time limit. */
@@ -371,12 +394,16 @@ function secondsSince(started: number): number {
  */
 export async function retryOnceOnTimeout(
   attempt: () => Promise<TimedResult>,
-  options: { what: string; reset: () => Promise<void>; report: (line: string) => void },
+  options: { what: string; reset: () => Promise<void>; report: (line: string) => void; shouldRetry?: () => boolean },
 ): Promise<TimedResult> {
   const started = performance.now();
   const first = await attempt();
   if (!first.timedOut) {
     options.report(`[runner] ${options.what} ${outcome(first)} in ${secondsSince(started)} s, 1 attempt`);
+    return first;
+  }
+  if (options.shouldRetry && !options.shouldRetry()) {
+    options.report(`[runner] ${options.what} timed out in ${secondsSince(started)} s, 1 attempt (app closed before retry)`);
     return first;
   }
   options.report(`[runner] infrastructure retry: ${options.what} timed out after ${secondsSince(started)} s; trying it once more`);

@@ -9,7 +9,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { copyFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
-import { copyTree } from './copy-tree.ts';
+import { copyTree, type StartCopyWorker } from './copy-tree.ts';
 import { isTransientNetworkFailure, type CommandResult } from './install.ts';
 
 /**
@@ -137,8 +137,10 @@ export type InstallSet = (dir: string, app?: string) => Promise<SetInstallResult
 export interface SharedInstallsOptions {
   /** How a set's tree is made. Without it, `installIn` runs in the set's directory. */
   installSet?: InstallSet;
-  /** Gets one `[runner]` line per set: its key, its source and its seconds. */
+  /** Gets one `[runner]` line per set (and one per retry, #1485): its key, its source and its seconds. */
   report?: (line: string) => void;
+  /** Starts the worker that copies a set's `node_modules` into each app; tests pass a stand-in (#2189). */
+  startCopyWorker?: StartCopyWorker;
 }
 
 interface SetInstall {
@@ -156,10 +158,12 @@ export class SharedInstalls {
   private readonly sets = new Map<string, SetInstall>();
   private readonly installSetIn: InstallSet;
   private readonly report: (line: string) => void;
+  private readonly startCopyWorker: StartCopyWorker | undefined;
 
   constructor(private readonly baseDir: string, private readonly installIn: InstallIn, options: SharedInstallsOptions = {}) {
     this.installSetIn = options.installSet ?? ((dir) => this.installIn(dir));
     this.report = options.report ?? (() => {});
+    this.startCopyWorker = options.startCopyWorker;
   }
 
   /**
@@ -180,7 +184,10 @@ export class SharedInstalls {
     const header = `[runner] shared install ${key}, ${made}\n`;
     if (shared.code !== 0) return { code: shared.code, output: `${header}${shared.output}` };
     try {
-      await copyTree(join(set.dir, 'node_modules'), join(projectDir, 'node_modules'), { report: this.report });
+      await copyTree(join(set.dir, 'node_modules'), join(projectDir, 'node_modules'), {
+        startWorker: this.startCopyWorker,
+        report: this.report,
+      });
       const lockfile = join(set.dir, 'package-lock.json');
       if (existsSync(lockfile)) await copyFile(lockfile, join(projectDir, 'package-lock.json'));
     } catch (error) {
@@ -190,14 +197,17 @@ export class SharedInstalls {
     return { code: 0, output: `${header}${shared.output}` };
   }
 
-  private async installSet(dir: string, app: string | undefined): Promise<SetInstallResult> {
+  private async installSet(key: string, dir: string, app: string | undefined): Promise<SetInstallResult> {
     let output = '';
     for (let attempt = 1; attempt <= SET_INSTALL_ATTEMPTS; attempt++) {
+      const attemptStarted = performance.now();
       const result = await this.installSetIn(dir, app);
       output += result.output;
       if (result.code === 0) return { ...result, output };
       const isFinal = attempt === SET_INSTALL_ATTEMPTS || !canRetrySetInstall(result);
       if (isFinal) return { ...result, output };
+      const attemptSeconds = ((performance.now() - attemptStarted) / 1000).toFixed(1);
+      this.report(`[runner] retried the shared install for ${key} after exit ${result.code}, ${attemptSeconds} s`);
       output += `\n[runner] the shared install failed (exit ${result.code}); trying it once more\n`;
     }
     return { code: 1, output };
@@ -206,7 +216,7 @@ export class SharedInstalls {
   /** The set's install, and its one `[runner]` line once it settles. */
   private async reportedSet(key: string, dir: string, app: string | undefined): Promise<CommandResult> {
     const started = performance.now();
-    const result = await this.installSet(dir, app);
+    const result = await this.installSet(key, dir, app);
     const seconds = ((performance.now() - started) / 1000).toFixed(1);
     const source = result.source ?? 'installed in place';
     const outcome = result.code === 0 ? source : `${source}, failed with exit ${result.code}`;

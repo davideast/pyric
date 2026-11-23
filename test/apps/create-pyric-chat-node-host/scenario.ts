@@ -42,6 +42,11 @@ async function replyFinishes(page: Page): Promise<void> {
   assert.deepEqual(alerts, [], 'the composer shows an error after sending');
 }
 
+// Sized from #2137 measurements (83.3 s cold --no-audit, 107.9 s cold --audit,
+// 142.6-157.5 s concurrent slow-registry CI warms): fits two 180 s attempts
+// plus teardown and the scenario's own ~30 s runtime.
+export const timeoutMs = 450_000;
+
 export default scenario(async (app) => {
   await scaffoldChatTemplate(app);
 
