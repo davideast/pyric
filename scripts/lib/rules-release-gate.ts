@@ -26,8 +26,10 @@ import { undeclaredDeclarationImports } from './check-declaration-deps.mjs';
 import { takeHeavyRunSlot } from './heavy-run-slots.ts';
 import { createPrivateJobTmpDir, removePrivateJobTmpDir } from './private-job-tmpdir.ts';
 import { addCounts, emptyCounts, formatCounts } from './test-all/counts.ts';
-import { planJobs, type TestJob } from './test-all/plan.ts';
+import { ISOLATED_RULES_FILES, planJobs, type TestJob } from './test-all/plan.ts';
 import { runJobs, type JobResult } from './test-all/run-jobs.ts';
+
+export { ISOLATED_RULES_FILES };
 import { spawnJob, stopRunningJobs } from './test-all/spawn-job.ts';
 import { summaryProblem } from './test-all/summary-check.ts';
 
@@ -100,25 +102,6 @@ function logPathFor(logDir: string, job: TestJob): string {
 const CONFORMANCE_SUITE_STEP = 'bun test --cwd packages/conformance';
 const RULES_SHARD_COUNT = 6;
 
-/**
- * Long property/fuzz files in `packages/rules` whose explicit per-test budgets
- * (20s-120s) sit close to single-core wall time on 2.20GHz virtualized Linux
- * vCPUs when retained JSC heap from earlier shard files adds GC sweep time.
- * Running each in its own single-file `bun test` process keeps every file,
- * test, and timeout unchanged while starting each heavy suite with a clean heap.
- */
-export const ISOLATED_RULES_FILES = [
-  './test/generators/game-rules-limits.test.ts',
-  './test/grammar/source-segments.test.ts',
-  './test/rtdb/adversarial-challenger.test.ts',
-  './test/rtdb/grammar/canonical.test.ts',
-  './test/rtdb/grammar/linter.test.ts',
-  './test/rtdb/grammar/regex-dialect.test.ts',
-  './test/rtdb/rules-diff.test.ts',
-] as const;
-
-const ISOLATED_RULES_SET = new Set<string>(ISOLATED_RULES_FILES);
-
 function isBuildOrTypecheckStep(command: string): boolean {
   return command.endsWith(' typecheck') || command.endsWith(' build');
 }
@@ -127,42 +110,10 @@ export function planRulesProofJobs(repoRoot = REPO_ROOT): TestJob[] {
   const nonConformanceTestSteps = RULES_ONLY_PROOF.filter(
     (cmd) => !isBuildOrTypecheckStep(cmd) && cmd !== CONFORMANCE_SUITE_STEP,
   );
-  const rawJobs = planJobs(nonConformanceTestSteps.join(' && '), {
+  return planJobs(nonConformanceTestSteps.join(' && '), {
     root: repoRoot,
     shards: RULES_SHARD_COUNT,
   });
-  const isolated: TestJob[] = [];
-  const sharded: TestJob[] = [];
-  for (const job of rawJobs) {
-    if (!job.runsBunTest || !job.name.startsWith('rules ')) {
-      sharded.push(job);
-      continue;
-    }
-    const kept: string[] = [];
-    for (const arg of job.args.slice(1)) {
-      if (ISOLATED_RULES_SET.has(arg)) {
-        isolated.push({
-          name: `rules ${arg.replace(/^\.\/test\//, '')}`,
-          command: job.command,
-          args: ['test', arg],
-          cwd: job.cwd,
-          runsBunTest: true,
-          expectedFiles: 1,
-        });
-      } else {
-        kept.push(arg);
-      }
-    }
-    if (kept.length > 0) {
-      sharded.push({
-        ...job,
-        args: ['test', ...kept],
-        expectedFiles: kept.length,
-      });
-    }
-  }
-  isolated.sort((a, b) => (a.args[1] ?? '').localeCompare(b.args[1] ?? ''));
-  return [...isolated, ...sharded];
 }
 
 async function runJobBatch(

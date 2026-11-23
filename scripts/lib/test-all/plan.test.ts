@@ -3,7 +3,8 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { listTests, shardedPackages } from '../../ci/test-shard.ts';
-import { planJobs, readSerialChain, splitChain } from './plan.ts';
+import { ISOLATED_RULES_FILES as RELEASE_ISOLATED_RULES_FILES, planRulesProofJobs } from '../rules-release-gate.ts';
+import { ISOLATED_RULES_FILES, planJobs, readSerialChain, splitChain } from './plan.ts';
 
 const root = fileURLToPath(new URL('../../..', import.meta.url));
 const serialChain = readSerialChain(root, (path) => readFileSync(path, 'utf8'));
@@ -29,12 +30,25 @@ describe('the test-all plan', () => {
   });
 
   test('the parallel plan runs each sharded suite as shards whose files are exactly the suite', () => {
+    expect(ISOLATED_RULES_FILES).toBe(RELEASE_ISOLATED_RULES_FILES);
     const jobs = planJobs(serialChain, { root, shards: 6 });
     for (const [name, packageRoot] of Object.entries(shardedPackages)) {
       const shards = jobs.filter((job) => job.cwd === packageRoot);
-      expect(shards.map((job) => job.name)).toEqual([1, 2, 3, 4, 5, 6].map((index) => `${name} ${index}/6`));
+      if (name === 'rules') {
+        const expectedIsolatedNames = ISOLATED_RULES_FILES.map((file) => `rules ${file.replace(/^\.\/test\//, '')}`);
+        expect(shards.slice(0, ISOLATED_RULES_FILES.length).map((job) => job.name)).toEqual(expectedIsolatedNames);
+        expect(shards.slice(0, ISOLATED_RULES_FILES.length).every((job) => job.expectedFiles === 1)).toBe(true);
+        expect(shards.slice(ISOLATED_RULES_FILES.length).map((job) => job.name)).toEqual(
+          [1, 2, 3, 4, 5, 6].map((index) => `rules ${index}/6`),
+        );
+        const proofRulesJobs = planRulesProofJobs(root).filter((job) => job.cwd === packageRoot);
+        expect(shards).toEqual(proofRulesJobs);
+      } else {
+        expect(shards.map((job) => job.name)).toEqual([1, 2, 3, 4, 5, 6].map((index) => `${name} ${index}/6`));
+      }
       const files = shards.flatMap((job) => job.args.slice(1));
-      expect(files.sort()).toEqual(listTests(packageRoot));
+      expect(new Set(files).size).toBe(files.length);
+      expect([...files].sort()).toEqual(listTests(packageRoot));
       expect(shards.every((job) => job.command === 'bun' && job.args[0] === 'test' && job.runsBunTest)).toBe(true);
       expect(shards.map((job) => job.expectedFiles)).toEqual(shards.map((job) => job.args.length - 1));
     }

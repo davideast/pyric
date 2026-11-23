@@ -95,3 +95,37 @@ describe('a bun test job that ends before its summary', () => {
     expect(readFileSync(log, 'utf8')).not.toContain('Ran ');
   });
 });
+
+describe('PYRIC_TEST_JOBS environment fallback when --jobs= is unset', () => {
+  test('uses PYRIC_TEST_JOBS when --jobs is omitted, lets --jobs override it, and rejects invalid values', () => {
+    const root = checkout('bun test a.test.ts && bun test b.test.ts', {
+      'a.test.ts': "import { test } from 'bun:test';\ntest('a', () => {});\n",
+      'b.test.ts': "import { test } from 'bun:test';\ntest('b', () => {});\n",
+    });
+    const envOne = spawnSync('bun', [testAll, `--root=${root}`], {
+      cwd: root,
+      env: { ...envFor(root), PYRIC_TEST_JOBS: '1' },
+      encoding: 'utf8',
+    });
+    expect(envOne.status).toBe(0);
+    expect(envOne.stdout).toContain('2 jobs, 1 at a time');
+
+    const flagWins = spawnSync('bun', [testAll, `--root=${root}`, '--jobs=2'], {
+      cwd: root,
+      env: { ...envFor(root), PYRIC_TEST_JOBS: 'not-a-number' },
+      encoding: 'utf8',
+    });
+    expect(flagWins.status).toBe(0);
+    expect(flagWins.stdout).toContain('2 jobs, 2 at a time');
+
+    for (const invalid of ['0', '-2', 'abc']) {
+      const bad = spawnSync('bun', [testAll, `--root=${root}`], {
+        cwd: root,
+        env: { ...envFor(root), PYRIC_TEST_JOBS: invalid },
+        encoding: 'utf8',
+      });
+      expect(bad.status).not.toBe(0);
+      expect(bad.stderr).toContain('PYRIC_TEST_JOBS takes a whole number of at least 1');
+    }
+  });
+});
