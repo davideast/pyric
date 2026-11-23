@@ -6,520 +6,62 @@
  * the scenario starts is recorded, so a failure report can name the step and
  * show each log.
  */
-import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { get as httpsGet } from 'node:https';
+import { spawn } from 'node:child_process';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { chromium, type Browser, type BrowserContext, type LaunchOptions, type Page } from '@playwright/test';
+import type { Browser, BrowserContext, Page } from '@playwright/test';
 import { blackholedPort, type BlackholedPort } from '../../packages/cli/test/blackholed-port.ts';
-import { retainBrowserChildren } from './browser-children.ts';
-import type { DependencyStore } from './dependency-store.ts';
-import { NESTED_INSTALL_ATTEMPT_MS, pinPyricPackages, retryOnceOnTimeout, type Tarballs, type TimedResult } from './install.ts';
+import {
+  AppProcess,
+  DEFAULT_PROCESS_TIMING,
+  sleep,
+  type LogWaitOptions,
+  type ProcessTiming,
+  type SpawnChild,
+  type StopGrace,
+} from './app-process.ts';
+import { answers, guardContext, launchScenarioBrowser, LOCAL_ONLY_RESOLVER_RULES } from './driver-browser.ts';
+import {
+  scenario,
+  type App,
+  type DevServer,
+  type DevServerOptions,
+  type ExpectedCrash,
+  type NestedInstalls,
+  type Scenario,
+  type ScriptResult,
+} from './driver-types.ts';
+import { NESTED_INSTALL_ATTEMPT_MS, pinPyricPackages, retryOnceOnTimeout, type TimedResult } from './install.ts';
 import { NESTED_PROJECTS_FILE, nestedProject } from './nested-projects.ts';
 import { freePort, isAddressInUseOutput, runPorts, type PortIssuer } from './ports.ts';
-import {
-  DEFAULT_EXIT_TIMING,
-  describeProcState,
-  endGroup,
-  watchChildExit,
-  type ExitTiming,
-  type LiveProcess,
-} from './unreaped-exit.ts';
-import {
-  collectDescendantGroups,
-  endProcessGroups,
-  hasLiveGroupProcesses,
-  killProcessGroupsNow,
-  trackGroupOnRunnerExit,
-  untrackGroupsOnRunnerExit,
-} from './process-reaper.ts';
-import { childOutputSockets, describeOutputSockets, isExitWithoutClose } from './output-sockets.ts';
-import { CrashWatch, type CrashVerdict, type ExpectedCrash, type WatchedProcess } from './crash-watch.ts';
-import { firstLine, HostErrors, LOCAL_HOSTS, responseTimes, STOPPING_HOST_NOTE } from './host-errors.ts';
+import { CrashWatch, type CrashVerdict, type WatchedProcess } from './crash-watch.ts';
+import { firstLine, HostErrors, responseTimes, STOPPING_HOST_NOTE } from './host-errors.ts';
+import { sessionHeaders, sessionToken } from './session-token.ts';
+import { StepFailure } from './step-failure.ts';
 
-export type { ExpectedCrash } from './crash-watch.ts';
-
-/**
- * How `installProject` installs a nested project: from the run's dependency
- * store, with the run's tarballs. Tests pass a store over a stand-in npm, a
- * short limit, and their own report.
- */
-export interface NestedInstalls {
-  tarballs: Tarballs;
-  store: Pick<DependencyStore, 'provide'>;
-  /** How long one warm of the project's store entry gets; NESTED_INSTALL_ATTEMPT_MS by default. */
-  attemptMs?: number;
-  /** Where the `[runner]` lines go; the run's output by default. */
-  report?: (line: string) => void;
-}
-
-export interface LogWaitOptions {
-  /** Only output after this offset (from `mark()`) counts. Default: all output. */
-  since?: number;
-  timeoutMs?: number;
-}
-
-/** Starts a child process. `AppProcess` takes one so its tests can start a stand-in. */
-export type SpawnChild = (command: string, args: string[], options: SpawnOptions) => ChildProcess;
-
-/** How long `stop()` waits after SIGTERM, and then after SIGKILL, for the child to close. */
-export interface StopGrace {
-  termMs: number;
-  killMs: number;
-}
-
-const DEFAULT_STOP_GRACE: StopGrace = { termMs: 5_000, killMs: 5_000 };
-
-/** The waits an `AppProcess` uses. Tests pass short ones; the runner uses the defaults. */
-export interface ProcessTiming {
-  exit: ExitTiming;
-  /** The grace `stop()` uses when it is given none. */
-  stop: StopGrace;
-}
-
-export const DEFAULT_PROCESS_TIMING: ProcessTiming = { exit: DEFAULT_EXIT_TIMING, stop: DEFAULT_STOP_GRACE };
-
-function killGroupIgnoringGone(group: number, signal: NodeJS.Signals): void {
-  try {
-    process.kill(group, signal);
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code !== 'ESRCH' && code !== 'EPERM') throw error;
-  }
-}
-
-/** One child process of the app, with its interleaved stdout and stderr. */
-export class AppProcess {
-  readonly exited: Promise<number | null>;
-  private child: ChildProcess;
-  private settle!: (code: number | null) => void;
-  /** The command line, shown at the top of the saved log. */
-  readonly header: string;
-  private text = '';
-  private exitCode: number | null | undefined;
-  private isPaused = false;
-  private spawnAttempts = 0;
-  private childWrote = false;
-  private stopWatchingExit: () => void = () => {};
-  private readonly subgroups = new Set<number>();
-  /**
-   * Set when the child's exit was counted without its `close` (#1274): a
-   * process it started may still be in its group, holding its pipes.
-   */
-  private exitedEarly = false;
-  /** Processes this child started that outlived it, holding its pipes (#1274). */
-  readonly leftoverProcesses: LiveProcess[] = [];
-  /**
-   * Set for a process the scenario starts to run until it stops it, such as a
-   * dev server, and not for a command it runs to exit. Such a process that
-   * exits on its own with a non-zero code fails the app (crash-watch.ts).
-   */
-  runsUntilStopped = false;
-  /** When `stop()` first found the process running, so its exit was the driver's doing. */
-  stopRequestedAt: number | undefined;
-  /** When the driver saw the process gone. */
-  exitedAt: number | undefined;
-
-  constructor(
-    readonly name: string,
-    private readonly command: string,
-    private readonly args: string[],
-    private readonly cwd: string,
-    private readonly env: NodeJS.ProcessEnv,
-    private readonly spawnChild: SpawnChild = spawn,
-    private readonly timing: ProcessTiming = DEFAULT_PROCESS_TIMING,
-  ) {
-    const pyricEnv = Object.entries(env).filter(([key]) => key.startsWith('PYRIC_')).map(([key, value]) => `${key}=${value} `);
-    this.header = `$ ${pyricEnv.join('')}${[command, ...args].join(' ')}\n`;
-    this.exited = new Promise((resolve) => { this.settle = resolve; });
-    this.child = this.start();
-  }
-
-  private start(): ChildProcess {
-    this.spawnAttempts += 1;
-    const child = this.spawnChild(this.command, this.args, { cwd: this.cwd, env: this.env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
-    if (this.spawnChild === spawn && child.pid !== undefined) {
-      trackGroupOnRunnerExit(child.pid);
-    }
-    const outputSockets = childOutputSockets(child.pid);
-    const isCurrent = () => child === this.child;
-    const record = (chunk: unknown) => {
-      if (!isCurrent()) return;
-      this.childWrote = true;
-      this.text += String(chunk);
-    };
-    child.stdout?.on('data', record);
-    child.stderr?.on('data', record);
-    child.on('error', (error: NodeJS.ErrnoException) => {
-      if (!isCurrent()) return;
-      if (this.retriesSpawn(error)) {
-        this.text += `\n[driver] could not start ${this.command}: ${error.message}; the child wrote no output, so the driver starts it once more\n`;
-        this.abandon(child);
-        this.child = this.start();
-        return;
-      }
-      this.text += `\n[driver] could not start ${this.command}: ${error.message}\n`;
-      this.finish(null);
-    });
-    child.on('close', (_code, signal) => {
-      if (isCurrent() && signal) this.text += `\n[driver] exited on ${signal}\n`;
-    });
-    // `close` waits for the output pipes too, and Bun can miss an exit (#1274):
-    // watchChildExit also counts an exit whose pipes stay held, and a zombie.
-    this.stopWatchingExit();
-    this.stopWatchingExit = watchChildExit(child, this.name, (exit) => {
-      if (!isCurrent()) return;
-      this.captureSubgroups();
-      this.text += exit.note;
-      // Without `close`, output can go missing: say whether the kernel still holds it (#1797).
-      if (isExitWithoutClose(exit.source)) this.text += describeOutputSockets(this.name, outputSockets);
-      if (exit.source !== 'close') this.exitedEarly = true;
-      this.leftoverProcesses.push(...exit.leftovers);
-      this.finish(exit.code);
-      if (exit.source === 'close' && child.pid !== undefined) {
-        const allGroups = new Set<number>([child.pid, ...this.subgroups]);
-        if (!hasLiveGroupProcesses(allGroups)) {
-          this.untrackFromReaper();
-        }
-      }
-    }, this.timing.exit);
-    return child;
-  }
-
-  /**
-   * Under concurrency, Bun's spawn sometimes fails with `EBADF ... epoll_ctl`
-   * before the child runs (#997). That failure, before any output, gets one
-   * more spawn. Any other error, or a second failure, fails as before.
-   */
-  private retriesSpawn(error: NodeJS.ErrnoException): boolean {
-    const isBadDescriptor = error.code === 'EBADF';
-    const isFirstAttempt = this.spawnAttempts === 1;
-    return isBadDescriptor && isFirstAttempt && !this.childWrote;
-  }
-
-  /** Ends a child whose spawn failed, in case it got a process before the error. */
-  private abandon(child: ChildProcess): void {
-    if (child.pid === undefined) return;
-    killGroupIgnoringGone(-child.pid, 'SIGKILL');
-    if (this.spawnChild === spawn) {
-      untrackGroupsOnRunnerExit([child.pid]);
-    }
-  }
-
-  /** Records any detached child process groups currently reachable under this process. */
-  snapshotSubgroups(): void {
-    this.captureSubgroups();
-  }
-
-  private captureSubgroups(): void {
-    const pid = this.child.pid;
-    if (this.spawnChild !== spawn || pid === undefined) return;
-    const beforeSize = this.subgroups.size;
-    collectDescendantGroups(pid, this.subgroups);
-    if (this.subgroups.size > beforeSize) {
-      for (const subgroup of this.subgroups) {
-        trackGroupOnRunnerExit(subgroup);
-      }
-    }
-  }
-
-  private untrackFromReaper(): void {
-    const pid = this.child.pid;
-    if (this.spawnChild !== spawn || pid === undefined) return;
-    untrackGroupsOnRunnerExit([pid, ...this.subgroups]);
-  }
-
-  private finish(code: number | null): void {
-    if (!this.running) return;
-    this.stopWatchingExit();
-    this.exitCode = code;
-    this.exitedAt = Date.now();
-    this.settle(code);
-  }
-
-  get output(): string {
-    return this.text;
-  }
-
-  /** The child's pid, which also numbers its process group (it is spawned detached). */
-  get pid(): number | undefined {
-    return this.child.pid;
-  }
-
-  get running(): boolean {
-    return this.exitCode === undefined;
-  }
-
-  /** The non-zero code a process started to run until stopped exited with before anything stopped it. */
-  get earlyExitCode(): number | undefined {
-    const exitedOnItsOwn = this.runsUntilStopped && this.stopRequestedAt === undefined;
-    const failed = typeof this.exitCode === 'number' && this.exitCode !== 0;
-    return exitedOnItsOwn && failed ? this.exitCode as number : undefined;
-  }
-
-  /** The current end of the output, for `waitForLog({ since })`. */
-  mark(): number {
-    return this.text.length;
-  }
-
-  async waitForLog(pattern: RegExp, options: LogWaitOptions = {}): Promise<RegExpMatchArray> {
-    const deadline = Date.now() + (options.timeoutMs ?? 30_000);
-    for (;;) {
-      const match = this.text.slice(options.since ?? 0).match(pattern);
-      if (match) {
-        this.snapshotSubgroups();
-        return match;
-      }
-      if (!this.running) throw new Error(`${this.name} exited before logging ${pattern}`);
-      if (Date.now() > deadline) throw new Error(`${this.name} did not log ${pattern} in time`);
-      await sleep(100);
-    }
-  }
-
-  /** Whether `pause()` stopped the process and `resume()` has not continued it. */
-  get paused(): boolean {
-    return this.isPaused;
-  }
-
-  /**
-   * Stops the process group with SIGSTOP. The kernel keeps its sockets open,
-   * so a peer sees no close and no frames: a half-open connection, as from a
-   * process held at a debugger breakpoint or an app the OS suspended.
-   * `stop()` and the run's teardown resume a paused process before ending it.
-   */
-  pause(): void {
-    this.signalGroup('SIGSTOP');
-    this.isPaused = true;
-  }
-
-  /** Continues a paused process group with SIGCONT. */
-  resume(): void {
-    if (!this.isPaused) return;
-    this.signalGroup('SIGCONT');
-    this.isPaused = false;
-  }
-
-  private signalGroup(signal: NodeJS.Signals): void {
-    const pid = this.child.pid;
-    const canSignal = this.running && pid !== undefined;
-    if (!canSignal) throw new Error(`${this.name} is not running`);
-    process.kill(-pid, signal);
-  }
-
-  /**
-   * Ends the process group: SIGTERM, then SIGKILL after `grace.termMs`. A
-   * child that has still not closed `grace.killMs` later, such as one whose
-   * pipes a process outside the group holds open, is recorded as gone, so
-   * `exited` settles and nothing waits on it past that.
-   */
-  async stop(grace: StopGrace = this.timing.stop): Promise<void> {
-    if (this.child.pid === undefined) return;
-    this.captureSubgroups();
-    if (this.running) this.stopRequestedAt ??= Date.now();
-    if (!this.running) {
-      await this.stopLeftoverGroup(grace);
-      await endProcessGroups(this.subgroups, grace.termMs);
-      this.untrackFromReaper();
-      return;
-    }
-    const group = -this.child.pid;
-    // A stopped process holds SIGTERM until it is continued.
-    if (this.isPaused) {
-      killGroupIgnoringGone(group, 'SIGCONT');
-      this.isPaused = false;
-    }
-    killGroupIgnoringGone(group, 'SIGTERM');
-    if (await this.closesWithin(grace.termMs)) {
-      this.captureSubgroups();
-      // The leader went; a member that ignores SIGTERM may hold its pipes.
-      if (this.exitedEarly) killGroupIgnoringGone(group, 'SIGKILL');
-      await endProcessGroups(this.subgroups, grace.termMs);
-      this.untrackFromReaper();
-      return;
-    }
-    this.captureSubgroups();
-    killGroupIgnoringGone(group, 'SIGKILL');
-    if (await this.closesWithin(grace.killMs)) {
-      await endProcessGroups(this.subgroups, Math.min(grace.termMs, grace.killMs));
-      this.untrackFromReaper();
-      return;
-    }
-    this.text += `\n[driver] ${this.name} did not close within ${grace.killMs / 1000}s of SIGKILL; the driver records it as gone${describeProcState(this.child.pid)}\n`;
-    this.finish(null);
-    killProcessGroupsNow(this.subgroups);
-    this.untrackFromReaper();
-  }
-
-  /**
-   * End what is left of the group of a child whose exit counted without its
-   * `close`: SIGTERM, then SIGKILL. The signals reach only members of that
-   * process group.
-   */
-  private async stopLeftoverGroup(grace: StopGrace): Promise<void> {
-    const pid = this.child.pid;
-    if (!this.exitedEarly || pid === undefined) return;
-    await endGroup(pid, grace.termMs);
-  }
-
-  private closesWithin(ms: number): Promise<boolean> {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const timeout = new Promise<boolean>((resolve) => { timer = setTimeout(() => resolve(false), ms); });
-    return Promise.race([this.exited.then(() => true), timeout]).finally(() => clearTimeout(timer));
-  }
-}
-
-export interface DevServer {
-  /** `http://127.0.0.1:<port>` (`https://` for an HTTPS server), no trailing slash. */
-  url: string;
-  port: number;
-  process: AppProcess;
-}
-
-export interface DevServerOptions {
-  env?: Record<string, string>;
-  name?: string;
-  port?: number;
-  /** Relative to the app directory: runs the dev server of a project the scenario created there. */
-  cwd?: string;
-  /** The app's config serves HTTPS in this run, so the url and readiness probe use https. */
-  https?: boolean;
-}
-
-export interface ScriptResult {
-  code: number | null;
-  output: string;
-}
-
-export interface App {
-  readonly name: string;
-  /** The installed project directory. */
-  readonly dir: string;
-  /** Runs one named step. A failure inside it is reported with this name. */
-  step<T>(name: string, run: () => Promise<T> | T): Promise<T>;
-  /**
-   * Starts the app's Vite dev server (`vite` from the app's node_modules) on a
-   * free port, or on `port` when given, and waits until it serves the page and
-   * `/__pyric/init.json`. The port is passed on the command line, which
-   * overrides the config file. Passing the port of a server the scenario
-   * stopped brings a host back on the URL its pages already use. `cwd`
-   * (relative to the app directory) runs the dev server of a project the
-   * scenario created there, such as one `create-pyric` scaffolded.
-   */
-  devServer(options?: DevServerOptions): Promise<DevServer>;
-  /**
-   * Starts the installed `pyric sandbox` (no Vite: the import-map plane) on a
-   * free port, or on `port` when given, from the app directory, and waits
-   * until it serves the page and `/__pyric/init.json`. It serves the
-   * directory `firebase.json`'s `hosting.public` names and runs no command.
-   */
-  sandboxServer(options?: { env?: Record<string, string>; name?: string; port?: number }): Promise<DevServer>;
-  /** Runs `node --import @pyric/cli/register <script> ...args` to exit. Throws on a non-zero exit. */
-  serverScript(script: string, args?: string[], options?: { env?: Record<string, string>; timeoutMs?: number }): Promise<ScriptResult>;
-  /**
-   * Starts `node --import @pyric/cli/register <script> ...args` and returns at
-   * once, without waiting for it to exit. The process runs until the scenario
-   * stops it or the run ends; the run's teardown resumes it if it is paused.
-   */
-  serverProcess(script: string, args?: string[], options?: { env?: Record<string, string> }): AppProcess;
-  /**
-   * Runs the installed `pyric` command (`@pyric/cli`'s bin, under node) with
-   * `args` to exit, from the app directory. Unlike `serverScript`, a non-zero
-   * exit is returned rather than thrown, so a scenario can assert a refusal.
-   */
-  pyric(args: string[], options?: { env?: Record<string, string>; timeoutMs?: number }): Promise<ScriptResult>;
-  /**
-   * Starts the installed `pyric` command with `args` and returns at once, as
-   * `serverProcess` does, for a command that runs until stopped, such as
-   * `pyric sandbox -- next dev`.
-   */
-  pyricProcess(args: string[], options?: { env?: Record<string, string> }): AppProcess;
-  /**
-   * Runs `command` with `args` to exit from `cwd` (relative to the app
-   * directory; the app directory when omitted), with the app's environment.
-   * A non-zero exit is returned rather than thrown. For the commands a user
-   * types, such as `node node_modules/create-pyric/dist/bin.js` or `npm run dev`.
-   */
-  command(command: string, args: string[], options?: { cwd?: string; env?: Record<string, string>; timeoutMs?: number }): Promise<ScriptResult>;
-  /**
-   * Starts `command` with `args` from `cwd` (relative to the app directory)
-   * with the app's environment and returns at once, as `serverProcess` does,
-   * for a command that runs until stopped, such as `node node_modules/.bin/pyric-live`.
-   */
-  commandProcess(command: string, args: string[], options?: { cwd?: string; env?: Record<string, string> }): AppProcess;
-  /**
-   * Installs a project the scenario created inside the app directory, such
-   * as one `create-pyric` scaffolded: its Pyric dependencies point at the
-   * packed tarballs, as the app's own do, and its tree comes from the
-   * dependency store. `path` must be declared in test/apps/nested-projects.ts.
-   * Throws on a failed install.
-   */
-  installProject(path: string): Promise<ScriptResult>;
-  /**
-   * The browser context for this app. Requests and page WebSockets to hosts
-   * other than 127.0.0.1 and localhost are blocked and logged unless a route
-   * (`route` or `routeWebSocket`) answers them.
-   */
-  browser(): Promise<BrowserContext>;
-  /** Opens `url` in a new page of the app's browser context. */
-  page(url: string): Promise<Page>;
-  /**
-   * Watches a browser context the scenario made itself, in a browser it
-   * launched, for crashes, as `browser()` does for its own (crash-watch.ts).
-   */
-  watchCrashes(context: BrowserContext): Promise<void>;
-  readFile(path: string): string;
-  writeFile(path: string, text: string): void;
-  /** A free TCP port on 127.0.0.1. */
-  freePort(): Promise<number>;
-  /**
-   * A port on 127.0.0.1 whose connects never complete and never refuse, as a
-   * closed port behaves under WSL mirrored networking. Held until the run ends.
-   */
-  blackholedPort(): Promise<number>;
-  /** Every page's console lines, page errors, error responses, and blocked external connections so far, in order. */
-  readonly browserLog: readonly string[];
-  /**
-   * Declares that a page request to a `/__pyric/` route may answer with an
-   * error status, such as a download URL with the wrong token. Any other error
-   * a `/__pyric/` route answers to a page fails the app after its scenario,
-   * and so does a pattern that matched no error, unless `mayNotHappen` says
-   * why the error comes only in some runs, such as one a race decides. An
-   * answer a `devServer()` or `sandboxServer()` host gives after the scenario
-   * stopped it does not count (host-errors.ts).
-   */
-  expectHostError(pattern: RegExp, options?: { mayNotHappen?: string }): void;
-  /**
-   * Counts an error response to a page the scenario opened in a browser it
-   * launched itself, as `page()` counts its own: one from a `/__pyric/`
-   * route fails the app unless `expectHostError` allows it. `body`, when
-   * given, is the response text; its first line goes in the failure.
-   */
-  noteErrorResponse(status: number, method: string, url: string, body?: string): void;
-  /**
-   * Declares that a process an app process starts may outlive it, holding its
-   * output pipes, such as a daemon the scenario starts on purpose. `pattern`
-   * matches the leftover's command name. Any other leftover fails the app
-   * after its scenario (#1274), and so does a pattern that matched no leftover.
-   */
-  expectLeftoverProcess(pattern: RegExp): void;
-}
-
-export type Scenario = (app: App) => Promise<void>;
-
-/** Declares an app's scenario. The default export of `scenario.ts`. */
-export function scenario(run: Scenario): Scenario {
-  return run;
-}
-
-export class StepFailure extends Error {
-  constructor(readonly step: string, readonly reason: unknown) {
-    super(`step "${step}" failed: ${reason instanceof Error ? reason.message : String(reason)}`);
-  }
-}
-
-export function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+export {
+  AppProcess,
+  DEFAULT_PROCESS_TIMING,
+  guardContext,
+  launchScenarioBrowser,
+  LOCAL_ONLY_RESOLVER_RULES,
+  scenario,
+  sessionHeaders,
+  sessionToken,
+  sleep,
+  StepFailure,
+  type App,
+  type DevServer,
+  type DevServerOptions,
+  type ExpectedCrash,
+  type LogWaitOptions,
+  type NestedInstalls,
+  type ProcessTiming,
+  type Scenario,
+  type ScriptResult,
+  type SpawnChild,
+  type StopGrace,
+};
 
 const AUTO_PORT_BIND_ATTEMPTS = 3;
 
@@ -556,88 +98,6 @@ function appEnvironment(home: string, extra: Record<string, string> = {}): NodeJ
     NO_COLOR: '1',
     ...extra,
   };
-}
-
-/**
- * Whether an HTTPS dev server answers 2xx at `url`. Its certificate is
- * self-signed, so this one readiness probe, made by the test, skips verifying it.
- */
-function answersOverHttps(url: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    const request = httpsGet(url, { rejectUnauthorized: false, timeout: 2_000 }, (response) => {
-      response.resume();
-      const status = response.statusCode ?? 0;
-      response.on('end', () => resolve(status >= 200 && status < 300));
-    });
-    request.on('timeout', () => request.destroy());
-    request.on('error', () => resolve(false));
-  });
-}
-
-async function answers(url: string): Promise<boolean> {
-  const isHttps = url.startsWith('https:');
-  if (isHttps) return answersOverHttps(url);
-  try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(2_000) });
-    await response.arrayBuffer();
-    return response.ok;
-  } catch {
-    return false;
-  }
-}
-
-// At load, not at launch: a scenario can also call chromium.launch itself.
-retainBrowserChildren();
-
-/**
- * Chromium's resolver rules for scenario pages: every name and address but
- * the local ones fails to resolve. The routes in `browser()` block and log;
- * these rules stop what no route sees, such as a WebSocket a worker opens,
- * before it leaves the machine (#1606).
- */
-export const LOCAL_ONLY_RESOLVER_RULES = [
-  'MAP * ~NOTFOUND',
-  ...[...LOCAL_HOSTS].map((host) => `EXCLUDE ${host.replace(/^\[(.*)\]$/, '$1')}`),
-].join(', ');
-
-/**
- * Launches the Chromium that every scenario's pages run in, headless, with
- * the local-only resolver rules added to any `args` in `options`. A scenario
- * that needs its own browser, such as one with the back-forward cache
- * enabled, launches it here and guards its contexts with `guardContext`.
- */
-export function launchScenarioBrowser(options: LaunchOptions = {}): Promise<Browser> {
-  const args = [...(options.args ?? []), `--host-resolver-rules=${LOCAL_ONLY_RESOLVER_RULES}`];
-  return chromium.launch({ headless: true, ...options, args });
-}
-
-const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-/**
- * A WebSocket URL to any host but the local ones. It is a RegExp, not a
- * function, so Playwright connects a local socket in the page itself instead
- * of relaying each of its frames through the driver.
- */
-const EXTERNAL_WEBSOCKET = new RegExp(`^wss?://(?!(?:${[...LOCAL_HOSTS].map(escapeRegExp).join('|')})(?::\\d+)?/)`);
-
-/**
- * Blocks and logs to `log` every request and page WebSocket from `context`
- * to a host other than the local ones. Register it before a scenario's own
- * routes: the first route registered runs last, so those answer first.
- */
-export async function guardContext(context: BrowserContext, log: string[]): Promise<void> {
-  await context.route(() => true, async (route) => {
-    const url = new URL(route.request().url());
-    const isLocal = LOCAL_HOSTS.has(url.hostname) || url.protocol === 'data:' || url.protocol === 'blob:';
-    if (isLocal) return route.continue();
-    log.push(`[blocked external request] ${route.request().method()} ${url.href}`);
-    return route.abort('blockedbyclient');
-  });
-  // `route` never sees a WebSocket. The page sees the connection close without opening.
-  await context.routeWebSocket(EXTERNAL_WEBSOCKET, async (socket) => {
-    log.push(`[blocked external WebSocket] ${socket.url()}`);
-    await socket.close({ code: 1008, reason: 'blocked by the app scenario driver' });
-  });
 }
 
 /** One run of one app: the state behind the `App` a scenario receives. */
@@ -741,7 +201,8 @@ export class AppRun implements App {
   /** Waits until a host process serves `/` and `/__pyric/init.json` on `port`, over https when `https`. */
   private async servedHost(name: string, port: number, child: AppProcess, https = false): Promise<DevServer> {
     this.hostErrors.servedBy(port, child);
-    const url = `${https ? 'https' : 'http'}://127.0.0.1:${port}`;
+    const scheme = https ? 'https' : 'http';
+    const url = `${scheme}://127.0.0.1:${port}`;
     const deadline = Date.now() + 90_000;
     for (;;) {
       if (!child.running) throw new Error(`${name} exited (code ${await child.exited}) before it served ${url}`);
@@ -1007,39 +468,8 @@ export class AppRun implements App {
   }
 
   async close(): Promise<void> {
-    await this.context?.close().catch(() => {});
+    await this.context?.close().catch((error) => { void error; });
     await Promise.all(this.processes.map((child) => child.stop()));
     for (const hole of this.blackholes) hole.close();
   }
-}
-
-/**
- * Reads the per-boot session capability token from `.pyric/serve.json` or
- * `.pyric/session.json` in `app.dir` (or a nested `web/` or `rules/` folder),
- * matching `url`'s port first when `url` is provided.
- */
-export function sessionToken(app: Pick<App, 'dir'>, url?: string): string {
-  const targetPort = url !== undefined ? Number(new URL(url).port) : undefined;
-  let fallback: string | undefined;
-  for (const sub of ['', 'web', 'rules']) {
-    for (const name of ['serve.json', 'session.json']) {
-      const candidate = sub ? join(app.dir, sub, '.pyric', name) : join(app.dir, '.pyric', name);
-      if (!existsSync(candidate)) continue;
-      try {
-        const parsed = JSON.parse(readFileSync(candidate, 'utf8')) as { port?: number; token?: string; sessionToken?: string };
-        const token = parsed.token ?? parsed.sessionToken;
-        if (typeof token !== 'string' || token.length === 0) continue;
-        if (targetPort !== undefined && parsed.port === targetPort) return token;
-        fallback ??= token;
-      } catch {
-        // Ignore a pointer being rewritten mid-restart.
-      }
-    }
-  }
-  if (fallback !== undefined) return fallback;
-  throw new Error(`No .pyric session capability token found for ${url ?? app.dir}`);
-}
-
-export function sessionHeaders(app: Pick<App, 'dir'>, url?: string): Record<string, string> {
-  return { 'x-pyric-session-token': sessionToken(app, url) };
 }
