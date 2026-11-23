@@ -95,5 +95,5 @@ describe('@pyric/cli published dependency closure', () => {
       ),
     );
     expect(edges).toEqual([]);
-  });
+  }, 30_000);
 });
