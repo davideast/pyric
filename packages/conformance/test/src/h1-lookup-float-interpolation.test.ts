@@ -67,8 +67,8 @@ describe('h1-lookup-float-interpolation staged Storage rules-corpus probe (#1815
     expect(scenario.cases).toHaveLength(8);
   });
 
-  it('evaluates offline against pyric today: DENY on float claims and fields, ALLOW on integer controls', () => {
-    if (!scenario) throw new Error('missing scenario h1-lookup-float-interpolation');
+  it('evaluates offline against pyric: ALLOW on all 8 captured float and integer lookup cases', () => {
+    if (scenario === undefined) throw new Error('missing scenario h1-lookup-float-interpolation');
     const parsed = parseStorageRules(scenario.rules);
     const verdicts: Record<string, 'ALLOW' | 'DENY'> = {};
     for (const tc of scenario.cases) {
@@ -81,13 +81,13 @@ describe('h1-lookup-float-interpolation staged Storage rules-corpus probe (#1815
     }
 
     expect(verdicts).toEqual({
-      'claim get: float auth claim 1.5 in firestore.get path': 'DENY',
+      'claim get: float auth claim 1.5 in firestore.get path': 'ALLOW',
       'claim get control: int auth claim 7 in firestore.get path': 'ALLOW',
-      'claim exists: float auth claim 1.5 in firestore.exists path': 'DENY',
+      'claim exists: float auth claim 1.5 in firestore.exists path': 'ALLOW',
       'claim exists control: int auth claim 7 in firestore.exists path': 'ALLOW',
-      'field get: float document field 1.5 in firestore.get path': 'DENY',
+      'field get: float document field 1.5 in firestore.get path': 'ALLOW',
       'field get control: int document field 7 in firestore.get path': 'ALLOW',
-      'field exists: float document field 1.5 in firestore.exists path': 'DENY',
+      'field exists: float document field 1.5 in firestore.exists path': 'ALLOW',
       'field exists control: int document field 7 in firestore.exists path': 'ALLOW',
     });
   });
