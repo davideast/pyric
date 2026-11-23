@@ -1,4 +1,5 @@
 import { initializeApp } from "firebase/app";
+import { initializeAppCheck, ReCaptchaV3Provider } from "firebase/app-check";
 import { getAuth } from "firebase/auth";
 import * as fs from "firebase/firestore";
 import * as rt from "firebase/database";
@@ -8,8 +9,23 @@ import {
   uploadBytes,
   getDownloadURL,
 } from "firebase/storage";
-import { firebaseConfig } from "./firebase-config";
+import { firebaseConfig, recaptchaSiteKey } from "./firebase-config";
+
 const app = initializeApp(firebaseConfig);
+const hasBrowserDocument = typeof document !== "undefined";
+if (hasBrowserDocument) {
+  if (import.meta.env.DEV) {
+    const scope = self as unknown as {
+      FIREBASE_APPCHECK_DEBUG_TOKEN?: boolean | string;
+    };
+    scope.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+  }
+  initializeAppCheck(app, {
+    provider: new ReCaptchaV3Provider(recaptchaSiteKey),
+    isTokenAutoRefreshEnabled: true,
+  });
+}
+
 export const auth = getAuth(app),
   db = fs.getFirestore(app),
   rtdb = rt.getDatabase(app);
@@ -54,6 +70,16 @@ export type Message = {
   attachment?: string;
   fileName?: string;
 };
+type NewMessageRecord = {
+  author: string;
+  authorName: string;
+  text: string;
+  parent: string;
+  created: number;
+  reactions: number;
+  attachment?: string;
+  fileName?: string;
+};
 export function listenMessages(
   channel: string,
   next: (messages: Message[]) => void,
@@ -68,7 +94,13 @@ export function listenMessages(
         ),
       );
     },
-    (error) => fail(error instanceof Error ? error : new Error(String(error))),
+    (error) => {
+      if (error instanceof Error) {
+        fail(error);
+        return;
+      }
+      fail(new Error(String(error)));
+    },
   );
 }
 export function listenRealtime(
@@ -77,16 +109,16 @@ export function listenRealtime(
 ) {
   return rt.onValue(rt.ref(rtdb, location), (snapshot) => {
     const value = snapshot.val();
-    next(
-      value && typeof value === "object" && !Array.isArray(value)
-        ? Object.fromEntries(
-            Object.entries(value).filter(
-              (entry): entry is [string, string] =>
-                typeof entry[1] === "string",
-            ),
-          )
-        : {},
+    const isPlainRecord =
+      Boolean(value) && typeof value === "object" && !Array.isArray(value);
+    if (!isPlainRecord) {
+      next({});
+      return;
+    }
+    const stringEntries = Object.entries(value).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string",
     );
+    next(Object.fromEntries(stringEntries));
   });
 }
 export async function send(
@@ -96,24 +128,33 @@ export async function send(
   parent = "",
   file?: File,
 ) {
-  let attachment: string | undefined;
+  let uploadedAttachment: { url: string; fileName: string } | undefined;
   if (file) {
     const uploaded = await uploadBytes(
       fileRef(storage, `workspace/${crypto.randomUUID()}/${file.name}`),
       file,
     );
-    attachment = await getDownloadURL(uploaded.ref);
+    const url = await getDownloadURL(uploaded.ref);
+    uploadedAttachment = { url, fileName: file.name };
   }
-  const value = {
+  let resolvedAuthorName = "Teammate";
+  if (auth.currentUser?.displayName) {
+    resolvedAuthorName = auth.currentUser.displayName;
+  } else if (auth.currentUser?.email) {
+    resolvedAuthorName = auth.currentUser.email;
+  }
+  const value: NewMessageRecord = {
     author,
-    authorName:
-      auth.currentUser?.displayName ?? auth.currentUser?.email ?? "Teammate",
+    authorName: resolvedAuthorName,
     text,
     parent,
     created: Date.now(),
     reactions: 0,
-    ...(attachment ? { attachment, fileName: file!.name } : {}),
   };
+  if (uploadedAttachment) {
+    value.attachment = uploadedAttachment.url;
+    value.fileName = uploadedAttachment.fileName;
+  }
   const messageId = crypto.randomUUID();
   await fs.setDoc(fs.doc(db, `${path(channel)}/${messageId}`), value);
   // The message remains sent if a secondary notification request fails.
@@ -133,8 +174,13 @@ export const reactTo = (channel: string, message: Message) =>
   });
 export const presence = (uid: string, value: string) =>
   rt.set(rt.ref(rtdb, `presence/${uid}`), value);
-export const typing = (channel: string, uid: string, value: boolean) =>
-  rt.set(rt.ref(rtdb, `typing/${channel}/${uid}`), value ? "typing" : "");
+export const typing = (channel: string, uid: string, value: boolean) => {
+  let status = "";
+  if (value) {
+    status = "typing";
+  }
+  return rt.set(rt.ref(rtdb, `typing/${channel}/${uid}`), status);
+};
 export async function searchMessages(term: string) {
   const results = await Promise.all(
     channels.map(async (channel) => {
@@ -161,7 +207,11 @@ export function connectPresence(uid: string) {
   void rt.onDisconnect(location).set("offline");
   void rt.set(location, "online");
   return () => {
-    if (auth.currentUser?.uid === uid)
-      void rt.set(location, "offline").catch(() => {});
+    if (auth.currentUser?.uid === uid) {
+      void rt.set(location, "offline").catch((error) => {
+        // Sign-out may revoke write access before presence teardown completes.
+        void error;
+      });
+    }
   };
 }
