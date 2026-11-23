@@ -23,8 +23,58 @@ export interface DurablePersistenceEnv {
 }
 
 const WORKER_WRITER_ID = 'pyric-shared-worker';
+const CLEAR_MIRROR_DRAIN_MS = 2_000;
 
 const stateSection = (name: 'firestore' | 'auth'): string => `/__pyric/state?section=${name}`;
+
+async function awaitBoundedDrain(prior: Promise<void>): Promise<void> {
+  let drainTimer: ReturnType<typeof setTimeout> | null = null;
+  const deadline = new Promise<void>((resolveDeadline) => {
+    drainTimer = setTimeout(() => {
+      resolveDeadline();
+    }, CLEAR_MIRROR_DRAIN_MS);
+    if (typeof drainTimer === 'object' && drainTimer !== null && 'unref' in drainTimer) {
+      drainTimer.unref();
+    }
+  });
+  await Promise.race([prior, deadline]);
+  if (drainTimer !== null) {
+    clearTimeout(drainTimer);
+  }
+}
+
+async function postBestEffortNull(
+  env: DurablePersistenceEnv,
+  url: string,
+  headers: Record<string, string>,
+): Promise<void> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const deadline = new Promise<void>((resolveDeadline) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      resolveDeadline();
+    }, CLEAR_MIRROR_DRAIN_MS);
+    if (typeof timer === 'object' && timer !== null && 'unref' in timer) {
+      timer.unref();
+    }
+  });
+  const request = env
+    .fetch(url, {
+      method: 'POST',
+      headers,
+      body: 'null',
+      signal: controller.signal,
+    })
+    .then(
+      () => {},
+      () => {},
+    );
+  await Promise.race([request, deadline]);
+  if (timer !== null) {
+    clearTimeout(timer);
+  }
+}
 
 function basePersistenceKeyOf(key: string): string {
   const idx = key.indexOf('/firestore/');
@@ -113,6 +163,10 @@ export function createWorkerDurableBackend(
   if (!persist && fixtureRecords === null) return idb;
 
   const trackedNamedIds = new Set<string>();
+  const clearListeners = new Set<() => Promise<void> | void>();
+  let clearEpoch = 0;
+  let mirrorAbort: AbortController | null = null;
+  let mirrorChain: Promise<void> = Promise.resolve();
   const authHeaders: Record<string, string> = {};
   if (payload.sessionToken) {
     authHeaders['x-pyric-session-token'] = payload.sessionToken;
@@ -166,57 +220,81 @@ export function createWorkerDurableBackend(
 
   const mirror = async (baseKey: string, extraNamedIds?: Iterable<string>): Promise<void> => {
     if (!persist) return;
-    try {
-      if (extraNamedIds !== undefined) {
-        for (const id of extraNamedIds) trackedNamedIds.add(id);
-      }
-      const ids = await idb.listRecords(baseKey);
-      const all = new Map<string, unknown>();
-      for (const id of ids) {
-        const record = await idb.getRecord(baseKey, id);
-        if (record != null) all.set(id, record);
-      }
+    const epochAtEntry = clearEpoch;
+    const step = mirrorChain.then(async () => {
+      if (epochAtEntry !== clearEpoch) return;
+      const controller = new AbortController();
+      mirrorAbort = controller;
       try {
-        for (const declaredId of readFirestoreDeclaredFromMeta(all.get('meta'))) {
-          trackedNamedIds.add(declaredId);
+        if (extraNamedIds !== undefined) {
+          for (const id of extraNamedIds) trackedNamedIds.add(id);
+        }
+        const ids = await idb.listRecords(baseKey);
+        if (epochAtEntry !== clearEpoch) return;
+        const all = new Map<string, unknown>();
+        for (const id of ids) {
+          const record = await idb.getRecord(baseKey, id);
+          if (record != null) all.set(id, record);
+        }
+        try {
+          for (const declaredId of readFirestoreDeclaredFromMeta(all.get('meta'))) {
+            trackedNamedIds.add(declaredId);
+          }
+        } catch {
+          // Ignore malformed meta during best-effort mirror.
+        }
+        const firestoreDatabases: Record<string, Record<string, unknown>> = {};
+        for (const dbId of [...trackedNamedIds].sort()) {
+          const dbKey = firestoreRecordSpaceKey(baseKey, dbId);
+          const dbRecordIds = await idb.listRecords(dbKey);
+          if (dbRecordIds.length === 0) continue;
+          const dbMap: Record<string, unknown> = {};
+          for (const recId of dbRecordIds) {
+            const rec = await idb.getRecord(dbKey, recId);
+            if (rec != null) dbMap[recId] = rec;
+          }
+          if (Object.keys(dbMap).length > 0) {
+            firestoreDatabases[dbId] = dbMap;
+          }
+        }
+        if (epochAtEntry !== clearEpoch || controller.signal.aborted) return;
+        let body = bundleRecords(all);
+        if (Object.keys(firestoreDatabases).length > 0) {
+          const parsed = JSON.parse(body) as Record<string, unknown>;
+          parsed.firestoreDatabases = firestoreDatabases;
+          body = JSON.stringify(parsed);
+        }
+        const res = await env.fetch(stateSection('firestore'), {
+          method: 'POST',
+          headers: writerHeaders,
+          body,
+          signal: controller.signal,
+        });
+        if (res.status === 423) {
+          console.warn('[pyric worker] --persist: server file is held by another writer; export skipped.');
         }
       } catch {
-        // Ignore malformed meta during best-effort mirror.
-      }
-      const firestoreDatabases: Record<string, Record<string, unknown>> = {};
-      for (const dbId of [...trackedNamedIds].sort()) {
-        const dbKey = firestoreRecordSpaceKey(baseKey, dbId);
-        const dbRecordIds = await idb.listRecords(dbKey);
-        if (dbRecordIds.length === 0) continue;
-        const dbMap: Record<string, unknown> = {};
-        for (const recId of dbRecordIds) {
-          const rec = await idb.getRecord(dbKey, recId);
-          if (rec != null) dbMap[recId] = rec;
-        }
-        if (Object.keys(dbMap).length > 0) {
-          firestoreDatabases[dbId] = dbMap;
+        /* export sink offline or aborted by clear; local IDB is unaffected. */
+      } finally {
+        if (mirrorAbort === controller) {
+          mirrorAbort = null;
         }
       }
-      let body = bundleRecords(all);
-      if (Object.keys(firestoreDatabases).length > 0) {
-        const parsed = JSON.parse(body) as Record<string, unknown>;
-        parsed.firestoreDatabases = firestoreDatabases;
-        body = JSON.stringify(parsed);
-      }
-      const res = await env.fetch(stateSection('firestore'), {
-        method: 'POST',
-        headers: writerHeaders,
-        body,
-      });
-      if (res.status === 423) {
-        console.warn('[pyric worker] --persist: server file is held by another writer; export skipped.');
-      }
-    } catch {
-      /* export sink offline; local IDB is unaffected. */
-    }
+    });
+    mirrorChain = step.then(
+      () => {},
+      () => {},
+    );
+    await step;
   };
 
   return {
+    onClear(listener) {
+      clearListeners.add(listener);
+      return () => {
+        clearListeners.delete(listener);
+      };
+    },
     async getRecord(key, recordId) {
       await primeOnce(key);
       return idb.getRecord(key, recordId);
@@ -254,19 +332,35 @@ export function createWorkerDurableBackend(
       await mirror(basePersistenceKeyOf(key));
     },
     async clear(key) {
-      await idb.clear(key);
-      if (key !== basePersistenceKeyOf(key)) return;
-      trackedNamedIds.clear();
-      if (!persist) return;
-      try {
-        await env.fetch(stateSection('firestore'), {
-          method: 'POST',
-          headers: writerHeaders,
-          body: 'null',
-        });
-      } catch {
-        /* export sink offline; local IDB is unaffected. */
+      const isBaseKey = key === basePersistenceKeyOf(key);
+      if (isBaseKey) {
+        clearEpoch += 1;
+        if (mirrorAbort !== null) {
+          mirrorAbort.abort();
+          mirrorAbort = null;
+        }
       }
+      await idb.clear(key);
+      if (!isBaseKey) return;
+      trackedNamedIds.clear();
+      const listenerTasks: Array<Promise<void>> = [];
+      for (const onCleared of clearListeners) {
+        listenerTasks.push(Promise.resolve(onCleared()));
+      }
+      if (!persist) {
+        await Promise.all(listenerTasks);
+        return;
+      }
+      const priorMirror = mirrorChain;
+      const clearStep = (async (): Promise<void> => {
+        await awaitBoundedDrain(priorMirror);
+        await postBestEffortNull(env, stateSection('firestore'), writerHeaders);
+      })();
+      mirrorChain = clearStep.then(
+        () => {},
+        () => {},
+      );
+      await Promise.all([...listenerTasks, clearStep]);
     },
   };
 }
@@ -276,35 +370,95 @@ export function setupServerAuthFlush(
   ctx: HostCtx,
   payload: InitPayload,
   env: DurablePersistenceEnv,
+  durable?: MirrorablePersistenceBackend,
 ): () => void {
   if (!payload.persist) return () => {};
   const auth = ensureAuth(ctx);
   const debounceMs = env.captureDebounceMs ?? 400;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let clearEpoch = 0;
+  let authAbort: AbortController | null = null;
+  let authChain: Promise<void> = Promise.resolve();
+  const flushHeaders: Record<string, string> = {
+    'content-type': 'application/json',
+    'x-pyric-writer': WORKER_WRITER_ID,
+  };
+  if (payload.sessionToken) {
+    flushHeaders['x-pyric-session-token'] = payload.sessionToken;
+  }
 
-  const flush = (): void => {
-    const body = JSON.stringify({ users: authOps.exportUsers(auth) });
-    const flushHeaders: Record<string, string> = {
-      'content-type': 'application/json',
-      'x-pyric-writer': WORKER_WRITER_ID,
-    };
-    if (payload.sessionToken) {
-      flushHeaders['x-pyric-session-token'] = payload.sessionToken;
-    }
-    env.fetch(stateSection('auth'), {
-      method: 'POST',
-      headers: flushHeaders,
-      body,
-    }).catch(() => {});
+  const flush = (scheduledEpoch: number): void => {
+    if (scheduledEpoch !== clearEpoch) return;
+    const step = authChain.then(async () => {
+      if (scheduledEpoch !== clearEpoch) return;
+      const body = JSON.stringify({ users: authOps.exportUsers(auth) });
+      const controller = new AbortController();
+      authAbort = controller;
+      try {
+        await env.fetch(stateSection('auth'), {
+          method: 'POST',
+          headers: flushHeaders,
+          body,
+          signal: controller.signal,
+        });
+      } catch {
+        /* export sink offline or aborted by clear. */
+      } finally {
+        if (authAbort === controller) {
+          authAbort = null;
+        }
+      }
+    });
+    authChain = step.then(
+      () => {},
+      () => {},
+    );
   };
 
   const unsubscribe = authOps.subscribeUsers(auth, () => {
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(flush, debounceMs);
+    if (timer !== null) clearTimeout(timer);
+    const epoch = clearEpoch;
+    timer = setTimeout(() => {
+      timer = null;
+      flush(epoch);
+    }, debounceMs);
   });
 
+  let unsubClear: (() => void) | undefined;
+  if (durable?.onClear !== undefined) {
+    unsubClear = durable.onClear(async () => {
+      clearEpoch += 1;
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      if (authAbort !== null) {
+        authAbort.abort();
+        authAbort = null;
+      }
+      const priorAuth = authChain;
+      const clearAuthStep = (async (): Promise<void> => {
+        await awaitBoundedDrain(priorAuth);
+        await postBestEffortNull(env, stateSection('auth'), flushHeaders);
+      })();
+      authChain = clearAuthStep.then(
+        () => {},
+        () => {},
+      );
+      await clearAuthStep;
+    });
+  }
+
   return () => {
-    if (timer) clearTimeout(timer);
+    if (timer !== null) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    if (authAbort !== null) {
+      authAbort.abort();
+      authAbort = null;
+    }
+    unsubClear?.();
     unsubscribe();
   };
 }

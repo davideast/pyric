@@ -54,6 +54,8 @@ export async function setupInPagePersistence(
   let claimsWriterRole = false;
   let writerGranted = false;
   let heartbeat: ReturnType<typeof setInterval> | null = null;
+  let authFlushTimer: ReturnType<typeof setTimeout> | null = null;
+  let authClearEpoch = 0;
   let inFlight: Promise<void> | null = null;
 
   const buildWriterHeaders = (): Record<string, string> => {
@@ -153,6 +155,11 @@ export async function setupInPagePersistence(
         });
       },
       async clear() {
+        authClearEpoch += 1;
+        if (authFlushTimer !== null) {
+          clearTimeout(authFlushTimer);
+          authFlushTimer = null;
+        }
         if (readOnly || !claimsWriterRole) return;
         await runSerialized(async () => {
           if (readOnly || !claimsWriterRole) return;
@@ -167,6 +174,19 @@ export async function setupInPagePersistence(
           }
           if (res.ok) {
             recordVersionFromResponse(res);
+            markWriterGranted();
+          }
+          const authRes = await fetch(section('auth'), {
+            method: 'POST',
+            headers: buildWriterHeaders(),
+            body: 'null',
+          });
+          if (isWriterRefusalStatus(authRes.status)) {
+            lostWriterLock();
+            return;
+          }
+          if (authRes.ok) {
+            recordVersionFromResponse(authRes);
             markWriterGranted();
           }
         });
@@ -234,13 +254,15 @@ export async function setupInPagePersistence(
   }
 
   const auth = getAuth(sandbox);
-  let authFlushTimer: ReturnType<typeof setTimeout> | null = null;
   authOps.subscribeUsers(auth, () => {
     if (readOnly || !claimsWriterRole) return;
     if (authFlushTimer !== null) clearTimeout(authFlushTimer);
+    const scheduledEpoch = authClearEpoch;
     authFlushTimer = setTimeout(() => {
+      authFlushTimer = null;
+      if (scheduledEpoch !== authClearEpoch) return;
       void runSerialized(async () => {
-        if (readOnly || !claimsWriterRole) return;
+        if (readOnly || !claimsWriterRole || scheduledEpoch !== authClearEpoch) return;
         try {
           const res = await fetch(section('auth'), {
             method: 'POST',

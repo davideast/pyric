@@ -24,6 +24,7 @@ import { SkippedDocuments } from './skipped-documents.js';
 import type { PersistenceBackend, SandboxPersistenceOptions } from './types.js';
 
 const DEFAULT_FLUSH_INTERVAL_MS = 250;
+const CLEAR_FLUSH_DRAIN_MS = 2_000;
 
 /** Detect a storage-quota-exceeded error across environments (the DOMException
  *  name in browsers, a message fallback elsewhere). */
@@ -118,6 +119,7 @@ export async function attachPersistence(
   const serviceSnapshots = new Map<string, unknown>();
 
   let pendingFlush: ReturnType<typeof setTimeout> | null = null;
+  let clearEpoch = 0;
   let disposed = false;
 
   // Track unsubscribers for service change-notification hooks so we can
@@ -147,8 +149,8 @@ export async function attachPersistence(
   }
 
   // Prepare immutable records before awaiting the backend; later mutations stay dirty.
-  const realFlush = async (): Promise<void> => {
-    if (disposed || preserveIncompatible) return;
+  const realFlush = async (flushEpoch: number): Promise<void> => {
+    if (disposed || preserveIncompatible || flushEpoch !== clearEpoch) return;
     const prepared = changedBuckets?.prepare();
     const servicePrepared: Array<{
       records: Map<string, unknown>;
@@ -234,6 +236,11 @@ export async function attachPersistence(
           if (serialized !== undefined) serializedChanged.set(id, serialized);
         }
       }
+      if (flushEpoch !== clearEpoch) {
+        prepared?.retry();
+        for (const svcPrep of servicePrepared) svcPrep.retry();
+        return;
+      }
       const applyChanges = backend.applyChanges;
       const commitsAtomically = applyChanges !== undefined;
       if (commitsAtomically) {
@@ -241,8 +248,18 @@ export async function attachPersistence(
       } else {
         const hasChanges = changed.size > 0;
         if (hasChanges) await backend.putRecords(options.key, changed);
+        if (flushEpoch !== clearEpoch) {
+          prepared?.retry();
+          for (const svcPrep of servicePrepared) svcPrep.retry();
+          return;
+        }
         const hasRemovals = removed.length > 0;
         if (hasRemovals) await backend.deleteRecords(options.key, removed);
+      }
+      if (flushEpoch !== clearEpoch) {
+        prepared?.retry();
+        for (const svcPrep of servicePrepared) svcPrep.retry();
+        return;
       }
       staleIds.clear();
       for (const id of removed) lastHashes.delete(id);
@@ -254,22 +271,32 @@ export async function attachPersistence(
     }
   };
 
-  // Serialize flushes on a single chain so two never overlap, and coalesce
-  // concurrent callers onto one queued flush behind any in-flight flush.
-  let flushChain: Promise<void> = Promise.resolve();
+  // Serialize flushes and clears on a single chain so they never overlap, and
+  // coalesce concurrent flush callers onto one queued flush per epoch.
+  let opChain: Promise<void> = Promise.resolve();
   let queuedFlush: Promise<void> | null = null;
+  let queuedFlushEpoch = -1;
   const flushNow = (): Promise<void> => {
-    if (pendingFlush) {
+    if (pendingFlush !== null) {
       clearTimeout(pendingFlush);
       pendingFlush = null;
     }
-    if (queuedFlush !== null) return queuedFlush;
-    const next = flushChain.then(() => {
-      queuedFlush = null;
-      return realFlush();
+    if (queuedFlush !== null && queuedFlushEpoch === clearEpoch) {
+      return queuedFlush;
+    }
+    const scheduledEpoch = clearEpoch;
+    const next = opChain.then(() => {
+      if (queuedFlush === next) {
+        queuedFlush = null;
+      }
+      return realFlush(scheduledEpoch);
     });
     queuedFlush = next;
-    flushChain = next.then(() => {}, () => {});
+    queuedFlushEpoch = scheduledEpoch;
+    opChain = next.then(
+      () => {},
+      () => {},
+    );
     return next;
   };
 
@@ -424,24 +451,50 @@ export async function attachPersistence(
     options,
     flush: flushNow,
     async clear() {
-      if (pendingFlush) {
+      if (pendingFlush !== null) {
         clearTimeout(pendingFlush);
         pendingFlush = null;
       }
-      await backend.clear(options.key);
-      preserveIncompatible = false;
-      // Reset the diff baseline: the backend is now empty, so the next flush
-      // must treat every bucket as changed and re-persist the full in-memory
-      // state (otherwise untouched buckets stay suppressed and are lost).
-      lastHashes.clear();
-      staleIds.clear();
-      skippedDocuments.clear();
-      changedBuckets?.mark(null);
-      if (localSandbox) {
-        for (const svc of localSandbox.getServiceRegistry().values()) {
-          svc.records?.markAll?.();
+      clearEpoch += 1;
+      queuedFlush = null;
+      queuedFlushEpoch = -1;
+
+      const priorOps = opChain;
+      const clearOp = (async (): Promise<void> => {
+        let drainTimer: ReturnType<typeof setTimeout> | null = null;
+        const drainDeadline = new Promise<void>((resolveDeadline) => {
+          drainTimer = setTimeout(() => {
+            resolveDeadline();
+          }, CLEAR_FLUSH_DRAIN_MS);
+          if (typeof drainTimer === 'object' && drainTimer !== null && 'unref' in drainTimer) {
+            drainTimer.unref();
+          }
+        });
+        await Promise.race([priorOps, drainDeadline]);
+        if (drainTimer !== null) {
+          clearTimeout(drainTimer);
         }
-      }
+        await backend.clear(options.key);
+        preserveIncompatible = false;
+        // Reset the diff baseline: the backend is now empty, so the next flush
+        // must treat every bucket as changed and re-persist the full in-memory
+        // state (otherwise untouched buckets stay suppressed and are lost).
+        lastHashes.clear();
+        staleIds.clear();
+        skippedDocuments.clear();
+        changedBuckets?.mark(null);
+        if (localSandbox) {
+          for (const svc of localSandbox.getServiceRegistry().values()) {
+            svc.records?.markAll?.();
+          }
+        }
+      })();
+
+      opChain = clearOp.then(
+        () => {},
+        () => {},
+      );
+      await clearOp;
     },
     dispose() {
       if (disposed) return;

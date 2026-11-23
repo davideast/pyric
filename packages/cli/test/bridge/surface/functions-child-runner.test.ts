@@ -4,20 +4,58 @@
  * synthetic RTDB `onValueCreated` triggers with `GOOGLE_APPLICATION_CREDENTIALS`
  * stripped and `pyric-admin` bridged back to the caller's sandbox.
  */
-import { describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import {
+  createPrivateJobTmpDir,
+  removePrivateJobTmpDir,
+} from '../../../../../scripts/lib/private-job-tmpdir.ts';
 import { initializeSandbox } from 'pyric/sandbox';
 import { get as getRtdb, ref as rtdbRef } from 'pyric/database';
 import { doc as firestoreDoc, getDoc, getFirestore } from 'pyric/firestore';
-import { createSurfaceContext } from '../../../src/bridge/surface/index.js';
+import { createSurfaceContext, type SurfaceContext } from '../../../src/bridge/surface/index.js';
 import {
   discoverFunctionsTriggers,
   fireFunctionsTriggerIsolated,
 } from '../../../src/bridge/surface/functions-runtime.js';
 import { FUNCTIONS_RUNNER_CHILD_ENV } from '../../../src/bridge/surface/functions-child-runner.js';
 import { databaseFor } from '../../../src/bridge/surface/service-handles.js';
+
+let activeTestAbort = new AbortController();
+let trackedFires: Array<Promise<unknown>> = [];
+
+beforeEach(() => {
+  activeTestAbort = new AbortController();
+  trackedFires = [];
+});
+
+afterEach(async () => {
+  activeTestAbort.abort(new Error('test boundary ended'));
+  if (trackedFires.length > 0) {
+    await Promise.allSettled(trackedFires);
+    trackedFires = [];
+  }
+});
+
+function fireTracked(
+  ctx: SurfaceContext,
+  input: Parameters<typeof fireFunctionsTriggerIsolated>[1],
+): ReturnType<typeof fireFunctionsTriggerIsolated> {
+  let effectiveSignal = activeTestAbort.signal;
+  if (input.signal !== undefined) {
+    effectiveSignal = AbortSignal.any([activeTestAbort.signal, input.signal]);
+  }
+  const promise = fireFunctionsTriggerIsolated(ctx, {
+    ...input,
+    signal: effectiveSignal,
+  });
+  // Attach a no-op rejection observer on the tracked list so a test timeout
+  // aborting an abandoned call in afterEach never emits an unhandled rejection.
+  trackedFires.push(promise.then(() => undefined, () => undefined));
+  return promise;
+}
 
 describe('functions-child-runner isolated execution', () => {
   it('discovers and executes RTDB triggers in a Swap-or-Stop child bridged over IPC', async () => {
@@ -59,7 +97,7 @@ describe('functions-child-runner isolated execution', () => {
 
       const ctx = createSurfaceContext(sandbox, dir);
       const firedParams: Record<string, string>[] = [];
-      const outcome = await fireFunctionsTriggerIsolated(ctx, {
+      const outcome = await fireTracked(ctx, {
         triggerName: 'onNoteCreated',
         path: 'notes/n1',
         ref: 'notes/n1',
@@ -140,7 +178,7 @@ describe('functions-child-runner isolated execution', () => {
     const sandbox = initializeSandbox();
     try {
       const ctx = createSurfaceContext(sandbox, dir);
-      const outcome = await fireFunctionsTriggerIsolated(ctx, {
+      const outcome = await fireTracked(ctx, {
         triggerName: 'onSessionOpened',
         path: 'sessions/s1',
         ref: 'sessions/s1',
@@ -156,7 +194,7 @@ describe('functions-child-runner isolated execution', () => {
       const presenceSnap = await getRtdb(rtdbRef(db, 'presence/s1'));
       expect(presenceSnap.val()).toBe('disconnected');
 
-      const slowOutcome = await fireFunctionsTriggerIsolated(ctx, {
+      const slowOutcome = await fireTracked(ctx, {
         triggerName: 'onSlowSession',
         path: 'slow/s2',
         ref: 'slow/s2',
@@ -216,7 +254,7 @@ describe('functions-child-runner isolated execution', () => {
       expect(discovered.triggers.map((t) => t.exportName)).toEqual(['onItemCreated']);
 
       const ctx = createSurfaceContext(sandbox, dir);
-      const outcome = await fireFunctionsTriggerIsolated(ctx, {
+      const outcome = await fireTracked(ctx, {
         triggerName: 'onItemCreated',
         path: 'items/i1',
         ref: 'items/i1',
@@ -264,7 +302,7 @@ describe('functions-child-runner isolated execution', () => {
       const sandbox = initializeSandbox();
       try {
         const ctx = createSurfaceContext(sandbox, dir);
-        const outcome = await fireFunctionsTriggerIsolated(ctx, {
+        const outcome = await fireTracked(ctx, {
           triggerName: 'onItemCreated',
           path: 'items/i1',
           ref: 'items/i1',
@@ -411,7 +449,7 @@ describe('functions-child-runner isolated execution', () => {
     const sandbox = initializeSandbox();
     try {
       const ctx = createSurfaceContext(sandbox, dir);
-      const outcome = await fireFunctionsTriggerIsolated(ctx, {
+      const outcome = await fireTracked(ctx, {
         triggerName: 'onJobCreated',
         path: 'jobs/j1',
         ref: 'jobs/j1',
@@ -431,6 +469,69 @@ describe('functions-child-runner isolated execution', () => {
     } finally {
       sandbox.dispose();
       rmSync(dir, { recursive: true, force: true });
+    }
+  }, 20_000);
+
+  it('terminates the spawned child and closes ephemeralHost cleanly when aborted via AbortSignal', async () => {
+    const dir = createPrivateJobTmpDir('fn-runner-abort');
+    const fnDir = join(dir, 'functions');
+    mkdirSync(fnDir, { recursive: true });
+    symlinkSync(
+      resolve(import.meta.dir, '../../../../conformance/node_modules'),
+      join(fnDir, 'node_modules'),
+      'dir',
+    );
+    writeFileSync(join(dir, '.firebaserc'), JSON.stringify({ projects: { default: 'demo-proj' } }));
+    writeFileSync(join(dir, 'firebase.json'), JSON.stringify({ functions: { source: 'functions' } }));
+    writeFileSync(
+      join(fnDir, 'package.json'),
+      JSON.stringify({ name: 'demo-abort-fn', type: 'module', main: 'index.mjs' }),
+    );
+    writeFileSync(
+      join(fnDir, 'index.mjs'),
+      [
+        "import { onValueCreated } from 'firebase-functions/v2/database';",
+        "import { getApps, initializeApp } from 'firebase-admin/app';",
+        "export const onHungSession = onValueCreated('/hung/{sessionId}', async (event) => {",
+        '  const primary = getApps()[0] ?? initializeApp();',
+        '  await primary.sandbox.channel.op({',
+        "    method: 'rtdb.onDisconnectSet',",
+        "    path: '/presence/' + event.params.sessionId,",
+        "    value: 'aborted-disconnected',",
+        "    actAs: { mode: 'admin' },",
+        '  });',
+        '  await new Promise(() => {});',
+        '});',
+      ].join('\n'),
+    );
+
+    const sandbox = initializeSandbox();
+    try {
+      const ctx = createSurfaceContext(sandbox, dir);
+      const abortController = new AbortController();
+      let resolveFired: () => void = () => {};
+      const fired = new Promise<void>((res) => {
+        resolveFired = res;
+      });
+
+      const pendingFire = fireTracked(ctx, {
+        triggerName: 'onHungSession',
+        path: 'hung/s-abort',
+        ref: 'hung/s-abort',
+        value: { active: true },
+        timeoutMs: 60_000,
+        signal: abortController.signal,
+        onFiring() {
+          resolveFired();
+        },
+      });
+
+      await fired;
+      abortController.abort(new Error('caller-cancelled-trigger'));
+      await expect(pendingFire).rejects.toThrow('caller-cancelled-trigger');
+    } finally {
+      sandbox.dispose();
+      removePrivateJobTmpDir(dir);
     }
   }, 20_000);
 });

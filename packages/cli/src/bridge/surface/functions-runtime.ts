@@ -240,9 +240,18 @@ export async function fireFunctionsTriggerIsolated(
     ref: string;
     value: unknown;
     timeoutMs: number;
+    signal?: AbortSignal;
     onFiring(trigger: SerializedTriggerDescriptor, params: Record<string, string>): void;
   },
 ): Promise<IsolatedFireOutcome> {
+  const toAbortError = (): Error => {
+    const reason: unknown = input.signal?.reason;
+    if (reason instanceof Error) return reason;
+    return new Error('Functions trigger execution aborted');
+  };
+  if (input.signal?.aborted) {
+    throw toAbortError();
+  }
   const project = discoverFunctionsProject(ctx.projectDir);
   if (project === null) return { kind: 'not-found' };
 
@@ -256,6 +265,10 @@ export async function fireFunctionsTriggerIsolated(
   if (activeHost === undefined) {
     ephemeralHost = await startEphemeralFunctionsHost(ctx.sandbox, { projectId, defaultInstance });
     activeHost = ephemeralHost;
+  }
+  if (input.signal?.aborted) {
+    await ephemeralHost?.close();
+    throw toAbortError();
   }
   const env = buildIsolatedEnv({
     entry: project.entry,
@@ -308,6 +321,7 @@ export async function fireFunctionsTriggerIsolated(
     const bootTimer = setTimeout(() => {
       if (settled) return;
       settled = true;
+      cleanupTimers();
       child.kill('SIGKILL');
       void waitForTeardown(500).finally(() => {
         rejectPromise(new Error(`Functions child failed to start within ${BOOT_DEADLINE_MS}ms`));
@@ -315,10 +329,31 @@ export async function fireFunctionsTriggerIsolated(
     }, BOOT_DEADLINE_MS);
     bootTimer.unref();
 
+    const onAbort = (): void => {
+      if (settled) return;
+      settled = true;
+      cleanupTimers();
+      child.kill('SIGKILL');
+      void waitForTeardown(500).finally(() => {
+        rejectPromise(toAbortError());
+      });
+    };
+
     const cleanupTimers = (): void => {
       clearTimeout(bootTimer);
       if (executionTimer !== undefined) clearTimeout(executionTimer);
+      if (input.signal !== undefined) {
+        input.signal.removeEventListener('abort', onAbort);
+      }
     };
+
+    if (input.signal !== undefined) {
+      if (input.signal.aborted) {
+        onAbort();
+        return;
+      }
+      input.signal.addEventListener('abort', onAbort, { once: true });
+    }
 
     child.on('message', (raw: unknown) => {
       if (settled || typeof raw !== 'object' || raw === null) return;
@@ -348,6 +383,7 @@ export async function fireFunctionsTriggerIsolated(
         executionTimer = setTimeout(() => {
           if (settled) return;
           settled = true;
+          cleanupTimers();
           const durationMs = performance.now() - startedMonotonic;
           child.kill('SIGKILL');
           void waitForTeardown(500).finally(() =>
