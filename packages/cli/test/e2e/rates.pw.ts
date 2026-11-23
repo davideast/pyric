@@ -68,8 +68,9 @@ for (const runtime of ['inpage', 'worker']) {
     await page.locator('[data-listen]').click();
     await expect(page.locator('[data-rate-listeners]')).toHaveText('0');
     const delivered = await method.locator('[data-period-results]').textContent();
+    expect(delivered).not.toBeNull();
     await page.locator('[data-write]').click();
-    await expect(method.locator('[data-period-results]')).toHaveText(delivered!);
+    await expect(method.locator('[data-period-results]')).toHaveText(delivered ?? '');
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(page.locator('[data-rate-detail]')).toBeVisible();
     expect(await page.locator('[data-rate-detail]').evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
@@ -105,5 +106,62 @@ for (const runtime of ['inpage', 'worker']) {
     const row = page.locator('[data-rate-method=getDoc]');
     await expect(row.locator('[data-period-calls]')).toHaveText('151');
     expect(await calls(page, 'firestore', 'getDoc')).toBe(151);
+  });
+
+  test(`${runtime}: paused selection includes trailing denied call, RTDB listen shows one row, and updates do not replay pyric-enter`, async ({ page }) => {
+    test.setTimeout(60_000);
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await page.setViewportSize({ width: 1500, height: 1050 });
+    await page.goto(`${server.url}/?runtime=${runtime}`);
+    await expect(page.locator('[data-read=document]')).toBeVisible();
+
+    // Let initial mount entrance animation finish before counting subsequent publications (#600).
+    await page.waitForTimeout(250);
+    await page.evaluate(() => {
+      const host = document.querySelector('[data-pyric-runtime-chip-host]');
+      const win = window as typeof window & { __pyricEnterStarts?: number };
+      win.__pyricEnterStarts = 0;
+      host?.shadowRoot?.addEventListener(
+        'animationstart',
+        (event) => {
+          if ((event as AnimationEvent).animationName === 'pyric-enter') {
+            win.__pyricEnterStarts = (win.__pyricEnterStarts ?? 0) + 1;
+          }
+        },
+        true,
+      );
+    });
+
+    // 150 reads in a burst, then a denied getDoc within the burst run (#1077).
+    await page.locator('[data-read=document]').evaluate((button) => {
+      for (let index = 0; index < 150; index += 1) (button as HTMLButtonElement).click();
+    });
+    await expect.poll(() => calls(page, 'firestore', 'getDoc')).toBe(150);
+    await page.locator('[data-denied]').click();
+    await expect.poll(() => calls(page, 'firestore', 'getDoc')).toBe(151);
+
+    // One RTDB listen on an unindexed query (#1078): one call in Rates and one row in Traffic.
+    await page.locator('[data-database-index-listen]').click();
+    await expect(page.locator('[data-database-index-listen]')).toHaveText('Stop database query');
+    await page.locator('[data-database-index-listen]').click();
+    await expect(page.locator('[data-database-index-listen]')).toHaveText('Listen to database projects');
+    expect(await calls(page, 'rtdb', 'onValue')).toBe(1);
+
+    await page.getByRole('tab', { name: 'Traffic', exact: true }).click();
+    const listenRows = page.locator('[data-request-row][data-traffic-row-call="rtdb.listen"]');
+    await expect(listenRows).toHaveCount(1);
+    await expect(listenRows.first().getByLabel('Index missing from config')).toBeVisible();
+
+    // Wait >= 2s idle so opening Firestore in Rates pauses on the latest active run (#1077).
+    await page.waitForTimeout(2400);
+    await page.locator('[data-traffic-display=rates]').click();
+    await page.locator('[data-inspect-rates=firestore]').click();
+    await expect(page.locator('[data-history-toggle]')).toHaveAttribute('aria-checked', 'false');
+    await page.getByRole('button', { name: 'More actions', exact: true }).click();
+    await page.locator('[data-rate-measurements]').click();
+    await expect(page.locator('[data-rate-method=getDoc] [data-period-calls]')).toHaveText('151');
+
+    // Zero additional pyric-enter animations fired across the entire burst of updates (#600).
+    expect(await page.evaluate(() => (window as typeof window & { __pyricEnterStarts?: number }).__pyricEnterStarts)).toBe(0);
   });
 }

@@ -4,7 +4,7 @@ import type { PyricRuntimeManifest } from './manifest.js';
 import { readPyricRuntimeManifest } from './manifest.js';
 import { hostRestartWarning, type HostRestart } from './host-restart.js';
 
-export type PyricRuntimeMode = 'starting' | 'shared-worker' | 'in-page' | 'hosted';
+type PyricRuntimeMode = 'starting' | 'shared-worker' | 'in-page' | 'hosted';
 export type PyricRuntimeErrorSource = 'sandbox' | 'worker' | 'runtime';
 
 export interface PyricRuntimeError {
@@ -19,7 +19,7 @@ export interface PyricRuntimeError {
   path?: string;
 }
 
-export interface PyricRuntimeSnapshot {
+interface PyricRuntimeSnapshot {
   manifest: PyricRuntimeManifest;
   mode: PyricRuntimeMode;
   servedEpoch: string | null;
@@ -110,7 +110,14 @@ function isListenerErroredEvent(event: SandboxEvent): boolean {
   return isListenerErroredKind && hasErrorPayload;
 }
 
+function isCompanionRtdbDenialListenerEvent(event: SandboxEvent): boolean {
+  const isRtdbListener = event.kind === 'listener' && event.service === 'rtdb';
+  const isDeniedPhase = 'phase' in event && event.phase === 'errored' && 'result' in event && event.result === 'deny';
+  return isRtdbListener && isDeniedPhase;
+}
+
 function isListenerPhaseErroredEvent(event: SandboxEvent): boolean {
+  if (isCompanionRtdbDenialListenerEvent(event)) return false;
   const isListenerKind = event.kind === 'listener';
   const isErroredPhase = 'phase' in event && event.phase === 'errored';
   const hasErrorPayload = 'error' in event && Boolean(event.error);
@@ -269,21 +276,28 @@ export function createPyricRuntimeStatus(
     },
     setWorker({ mode, runningEpoch = null }) {
       const servedEpoch = manifest.worker.servedEpoch;
+      const updateAvailable = Boolean(
+        mode === 'shared-worker'
+        && servedEpoch
+        && runningEpoch
+        && runningEpoch !== 'dev'
+        && servedEpoch !== runningEpoch,
+      );
+      const isUnchanged = snapshot.mode === mode
+        && snapshot.runningEpoch === runningEpoch
+        && snapshot.updateAvailable === updateAvailable
+        && snapshot.updatingWorker === false;
+      if (isUnchanged) return;
       publish({
         ...snapshot,
         mode,
         runningEpoch,
-        updateAvailable: Boolean(
-          mode === 'shared-worker'
-          && servedEpoch
-          && runningEpoch
-          && runningEpoch !== 'dev'
-          && servedEpoch !== runningEpoch,
-        ),
+        updateAvailable,
         updatingWorker: false,
       });
     },
     setHostedConnection(hostedConnection) {
+      if (snapshot.hostedConnection === hostedConnection) return;
       publish({ ...snapshot, hostedConnection });
     },
     reportHostRestarted(restart) {
@@ -321,6 +335,8 @@ export function createPyricRuntimeStatus(
       }
     },
     clearErrors() {
+      const alreadyEmpty = snapshot.errors.length === 0 && errorIds.size === 0;
+      if (alreadyEmpty) return;
       errorIds.clear();
       publish({ ...snapshot, errors: [] });
     },

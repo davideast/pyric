@@ -7,7 +7,7 @@ import type { AiRequestObservation, CallerSource } from 'pyric/sandbox/internal'
  * Security Rules said about it.
  *
  * No new protocol operation is needed for this. The page already delivers every
- * sandbox event to the chip — the same stream the Listeners mode folds — and
+ * sandbox event to the chip -- the same stream the Listeners mode folds -- and
  * each request, service operation, and listener attach in it already carries a
  * canonical Rules disposition. This module projects that stream into the one
  * row shape Traffic draws and keeps a bounded tail of it, so a long-running
@@ -77,9 +77,9 @@ export interface ChipRequest {
   local?: LocalVerdict;
 }
 
-export type LocalVerdict = NonNullable<ObservedProduction['local']>;
+type LocalVerdict = NonNullable<ObservedProduction['local']>;
 /** A local verdict that disagrees with production's: the local answer and the rule that decided it. */
-export type LocalDrift = Extract<LocalVerdict, { result: 'allow' | 'deny' }>;
+type LocalDrift = Extract<LocalVerdict, { result: 'allow' | 'deny' }>;
 
 /** The local verdict on `production` when it disagrees with production's answer. */
 function localDriftOf(production: ObservedProduction): LocalDrift | undefined {
@@ -155,7 +155,7 @@ function requestIdentity(event: SandboxEvent, verdict: ChipRequest['verdict']): 
 }
 
 /** Shared retention ceiling; the view pages independently. */
-export const TRAFFIC_TAIL = OBSERVATION_HISTORY_LIMITS.maxEvents;
+const TRAFFIC_TAIL = OBSERVATION_HISTORY_LIMITS.maxEvents;
 
 /** How long a failure stays the reason the panel opens on Traffic. */
 export const RECENT_FAILURE_MS = 60_000;
@@ -174,7 +174,7 @@ export function isPermissionDeniedCode(code: string | undefined): boolean {
  *
  * A listener attach is a request: it is read once at the server and can be
  * denied like any other. The canonical projection covers the request and
- * operation families, so the attach phase is what this module adds itself — in
+ * operation families, so the attach phase is what this module adds itself -- in
  * both the canonical `listener` shape and Firestore's older `listener_attach`
  * one, because a served page can be emitting either.
  */
@@ -272,7 +272,21 @@ export function hostAiRequests(requests: readonly ChipRequest[]): AiRequestObser
   return requests.flatMap(request => request.aiRequest === undefined ? [] : [request.aiRequest]);
 }
 
+/**
+ * RTDB emits both a canonical `listen` operation (carrying rules and query)
+ * and a `listener` lifecycle event for one SDK subscription call. Keep the
+ * operation row and skip the companion attach or rules-denial lifecycle row;
+ * non-denial callback errors (`result: 'error'`) have no companion operation.
+ */
+function isCompanionRtdbListenerEvent(event: SandboxEvent): boolean {
+  const isRtdbListener = event.kind === 'listener' && event.service === 'rtdb';
+  if (!isRtdbListener) return false;
+  if (event.phase === 'attach') return true;
+  return event.phase === 'errored' && event.result === 'deny';
+}
+
 function projectRequest(event: SandboxEvent): ChipRequest | null {
+  if (isCompanionRtdbListenerEvent(event)) return null;
   const record = toOperationRecord(event);
   const observed = observedRequest(event, record?.rules);
   if (observed !== null) return observed;
@@ -330,16 +344,21 @@ function projectRequest(event: SandboxEvent): ChipRequest | null {
   }
   if (event.kind === 'listener_attach' || event.kind === 'listener_errored') {
     const failed = event.kind === 'listener_errored';
+    let verdict: ChipRequest['verdict'] = 'ok';
+    let identityVerdict: ChipRequest['verdict'] = 'ok';
+    if (failed) {
+      const denied = isPermissionDeniedCode(event.error?.code);
+      verdict = denied ? 'denied' : 'error';
+      if (denied) identityVerdict = 'denied';
+    }
     return {
       id: event.id,
       at: event.at,
       service: 'firestore',
       method: 'listen',
       path: event.target.kind === 'doc' ? event.target.path : event.target.collection,
-      verdict: failed
-        ? isPermissionDeniedCode(event.error?.code) ? 'denied' : 'error'
-        : 'ok',
-      identity: requestIdentity(event, failed && isPermissionDeniedCode(event.error?.code) ? 'denied' : 'ok'),
+      verdict,
+      identity: requestIdentity(event, identityVerdict),
     };
   }
   return null;

@@ -59,6 +59,83 @@ describe('Pyric runtime status', () => {
     expect(seen).toEqual([false, true]);
   });
 
+  it('suppresses no-op publications for clearErrors, setWorker, and setHostedConnection', () => {
+    const runtime = createPyricRuntimeStatus(manifest);
+    let publications = 0;
+    const unsubscribe = runtime.subscribe(() => {
+      publications += 1;
+    });
+    expect(publications).toBe(1);
+
+    runtime.clearErrors();
+    expect(publications).toBe(1);
+
+    runtime.setWorker({ mode: 'shared-worker', runningEpoch: 'running-1' });
+    expect(publications).toBe(2);
+    runtime.setWorker({ mode: 'shared-worker', runningEpoch: 'running-1' });
+    expect(publications).toBe(2);
+
+    runtime.setHostedConnection('attached');
+    expect(publications).toBe(3);
+    runtime.setHostedConnection('attached');
+    expect(publications).toBe(3);
+
+    runtime.reportError('boom', 'runtime');
+    expect(publications).toBe(4);
+    runtime.clearErrors();
+    expect(publications).toBe(5);
+    runtime.clearErrors();
+    expect(publications).toBe(5);
+
+    unsubscribe();
+  });
+
+  it('skips the companion RTDB rules-denial listener error while keeping runtime callback errors', () => {
+    const runtime = createPyricRuntimeStatus(manifest);
+    runtime.recordSandboxEvents([
+      {
+        kind: 'operation',
+        id: 'rtdb-op-deny-1',
+        at: 500,
+        service: 'rtdb',
+        method: 'listen',
+        path: '/secret',
+        auth: null,
+        origin: 'listener',
+        result: 'deny',
+      },
+      {
+        kind: 'listener',
+        id: 'rtdb-listener-deny-1',
+        at: 500,
+        service: 'rtdb',
+        phase: 'errored',
+        listenerId: 'rtdb-listener-1',
+        target: { kind: 'value', path: '/secret' },
+        auth: null,
+        result: 'deny',
+        error: { code: 'PERMISSION_DENIED', message: 'PERMISSION_DENIED: Permission denied' },
+      },
+      {
+        kind: 'listener',
+        id: 'rtdb-listener-crash-1',
+        at: 505,
+        service: 'rtdb',
+        phase: 'errored',
+        listenerId: 'rtdb-listener-2',
+        target: { kind: 'value', path: '/public' },
+        auth: null,
+        result: 'error',
+        error: { message: 'callback threw' },
+      },
+    ]);
+
+    expect(runtime.getSnapshot().errors.map((entry) => entry.id)).toEqual([
+      'rtdb-op-deny-1',
+      'rtdb-listener-crash-1',
+    ]);
+  });
+
   it('normalizes and deduplicates sandbox runtime-error events', () => {
     const runtime = createPyricRuntimeStatus(manifest);
     const event = {

@@ -47,6 +47,17 @@ function pointsFor(methods: readonly SdkMethodRate[], from: number, to: number, 
   });
 }
 function active(point: Counts) { return (point.completed ?? 0) > 0 || (point.failures ?? 0) > 0 || (point.unknownUsage ?? 0) > 0 || (point.requests ?? 0) > 0 || (point.inputTokens ?? 0) > 0 || (point.outputTokens ?? 0) > 0 || (point.estimatedTokens ?? 0) > 0 || keys.some(key => point[key] > 0) || (point.uploadedBytes ?? 0) > 0 || (point.downloadedBytes ?? 0) > 0; }
+function hasSdkCalls(methods: readonly SdkMethodRate[], second: number): boolean {
+  for (const method of methods) {
+    for (const bucket of method.buckets) {
+      if (bucket.second === second && bucket.calls > 0) return true;
+    }
+  }
+  return false;
+}
+function isActiveSecond(point: Counts & { second: number }, methods: readonly SdkMethodRate[]): boolean {
+  return active(point) || hasSdkCalls(methods, point.second);
+}
 
 /** Selection owns an immutable capture, so live events cannot move its evidence. */
 export function createRateHistory(serviceName = 'rtdb') {
@@ -106,11 +117,21 @@ export function createRateHistory(serviceName = 'rtdb') {
     interval = undefined;
     if (latest) {
       const points = view(snapshot)?.points ?? [];
-      const used = points.filter(active);
+      let methods: readonly SdkMethodRate[] = [];
+      if (captured) {
+        methods = source?.history?.methods ?? source?.methods ?? [];
+      } else if (source) {
+        methods = source.methods;
+      }
+      const used = points.filter(point => isActiveSecond(point, methods));
       const last = used.at(-1);
       if (last) {
         let first = last.second;
-        for (let i = used.length - 2; i >= 0 && first - used[i]!.second <= 2; i--) first = used[i]!.second;
+        for (let i = used.length - 2; i >= 0; i--) {
+          const previous = used[i];
+          if (!previous || first - previous.second > 2) break;
+          first = previous.second;
+        }
         if (serviceName === 'ai') {
           // AI calls may be separated by thought/model latency; keep the whole displayed window.
           first = points[0]?.second ?? first;
@@ -169,7 +190,11 @@ export function createRateHistory(serviceName = 'rtdb') {
       viewport = undefined; captured = undefined; interval = undefined;
       const service = snapshot.services.find(service => service.service === serviceName);
       const history = service?.history;
-      const last = history ? pointsFor(history.methods, history.endSecond - 59, history.endSecond, service, true).filter(active).at(-1) : undefined;
+      let last: (Counts & { second: number }) | undefined;
+      if (service && history) {
+        const recentPoints = pointsFor(history.methods, history.endSecond - 59, history.endSecond, service, true);
+        last = recentPoints.filter(point => isActiveSecond(point, history.methods)).at(-1);
+      }
       if (last && Math.floor(snapshot.monotonicAt / 1000) - last.second >= 2) pause(snapshot, true);
     },
     pause: (snapshot: SdkRateSnapshot) => { if (imported) return; incident = undefined; manual = true; pause(snapshot); },
@@ -219,7 +244,7 @@ function incidentContext(frame: HistoryFrame): string {
   const key = incidentKey(frame);
   if (!incident || !key) return '';
   const fact = (label: string, value: string) => `<dt>${label}</dt><dd>${value}</dd>`;
-  return `<div class="rows history-incident"><strong>${incident.label} exceeded your limit</strong><p>${labels[key]} stayed above your ${number(incident.limit)}/s limit for at least ${incident.sustainedSeconds} seconds.</p><dl>${fact('Recorded volume', `${number(frame.totals[key] ?? 0)} ${incident.label.toLowerCase()} in ${frame.duration} seconds`)}${fact('Limit', `${number(incident.limit)}/s`)}${fact('Peak', `${number(incident.peak)}/s (${number(incident.peak / incident.limit)}× limit)`)}${fact('Time above limit', `${incident.aboveSeconds} seconds`)}${fact('Elapsed time', `${incident.to - incident.from + 1} seconds`)}</dl></div>`;
+  return `<div class="rows history-incident"><strong>${incident.label} exceeded your limit</strong><p>${labels[key]} stayed above your ${number(incident.limit)}/s limit for at least ${incident.sustainedSeconds} seconds.</p><dl>${fact('Recorded volume', `${number(frame.totals[key] ?? 0)} ${incident.label.toLowerCase()} in ${frame.duration} seconds`)}${fact('Limit', `${number(incident.limit)}/s`)}${fact('Peak', `${number(incident.peak)}/s (${number(incident.peak / incident.limit)}\u00d7 limit)`)}${fact('Time above limit', `${incident.aboveSeconds} seconds`)}${fact('Elapsed time', `${incident.to - incident.from + 1} seconds`)}</dl></div>`;
 }
 function bytes(value: number): string {
   const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
