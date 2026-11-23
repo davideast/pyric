@@ -18,9 +18,11 @@ import { listTests, partition, shardedPackages, slowFiles } from '../../ci/test-
 export const ISOLATED_RULES_FILES = [
   './test/generators/game-rules-limits.test.ts',
   './test/grammar/source-segments.test.ts',
+  './test/linter/linter.test.ts',
   './test/rtdb/adversarial-challenger.test.ts',
   './test/rtdb/grammar/canonical.test.ts',
   './test/rtdb/grammar/linter.test.ts',
+  './test/rtdb/grammar/logical-chains.test.ts',
   './test/rtdb/grammar/regex-dialect.test.ts',
   './test/rtdb/rules-diff.test.ts',
 ] as const;

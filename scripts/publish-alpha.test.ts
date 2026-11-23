@@ -361,6 +361,7 @@ describe('@pyric/rules standalone release path (--package rules, #1521)', () => 
     const plannedFiles = rulesJobs.flatMap((j) => j.args.slice(1));
     expect(plannedFiles.slice(0, ISOLATED_RULES_FILES.length)).toEqual([...ISOLATED_RULES_FILES]);
     expect(rulesJobs.slice(0, ISOLATED_RULES_FILES.length).every((j) => j.expectedFiles === 1)).toBe(true);
+    expect(new Set(plannedFiles).size).toBe(plannedFiles.length);
     expect([...plannedFiles].sort()).toEqual([...listTests('packages/rules')].sort());
   });
 

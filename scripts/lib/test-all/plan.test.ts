@@ -35,6 +35,8 @@ describe('the test-all plan', () => {
     for (const [name, packageRoot] of Object.entries(shardedPackages)) {
       const shards = jobs.filter((job) => job.cwd === packageRoot);
       if (name === 'rules') {
+        expect(ISOLATED_RULES_FILES).toContain('./test/linter/linter.test.ts');
+        expect(ISOLATED_RULES_FILES).toContain('./test/rtdb/grammar/logical-chains.test.ts');
         const expectedIsolatedNames = ISOLATED_RULES_FILES.map((file) => `rules ${file.replace(/^\.\/test\//, '')}`);
         expect(shards.slice(0, ISOLATED_RULES_FILES.length).map((job) => job.name)).toEqual(expectedIsolatedNames);
         expect(shards.slice(0, ISOLATED_RULES_FILES.length).every((job) => job.expectedFiles === 1)).toBe(true);
@@ -43,6 +45,9 @@ describe('the test-all plan', () => {
         );
         const proofRulesJobs = planRulesProofJobs(root).filter((job) => job.cwd === packageRoot);
         expect(shards).toEqual(proofRulesJobs);
+        const proofFiles = proofRulesJobs.flatMap((job) => job.args.slice(1));
+        expect(new Set(proofFiles).size).toBe(proofFiles.length);
+        expect([...proofFiles].sort()).toEqual(bunDiscoveredTests(packageRoot));
       } else {
         expect(shards.map((job) => job.name)).toEqual([1, 2, 3, 4, 5, 6].map((index) => `${name} ${index}/6`));
       }
