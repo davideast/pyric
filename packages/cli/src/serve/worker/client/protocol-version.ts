@@ -9,8 +9,9 @@
  */
 import { FirebaseError } from 'pyric/app';
 import { WORKER_PROTOCOL_VERSION } from '../protocol.js';
-import { nextId, rpcWithTimeout } from './core.js';
+import { isDisconnectedPort, nextId, rpcWithTimeout } from './core.js';
 import type { ClientPort } from './handles.js';
+import { reserveSend, type SendReservation } from './send-order.js';
 
 declare const __PYRIC_WORKER_VERSION__: string | undefined;
 
@@ -42,13 +43,21 @@ export function recordPeerWorkerProtocol(port: ClientPort, version: number | und
   resolvedProtocolByPort.set(port, resolved);
 }
 
-async function probePeerWorkerProtocol(port: ClientPort): Promise<number> {
+export function getKnownPeerWorkerProtocol(port: ClientPort): number | undefined {
+  return resolvedProtocolByPort.get(port);
+}
+
+async function probePeerWorkerProtocol(
+  port: ClientPort,
+  reservation: SendReservation,
+): Promise<number> {
   try {
     const reply = (await rpcWithTimeout(
       port,
       { t: 'op', id: nextId(), method: 'getRuntimeEpoch' },
       VERSION_PROBE_TIMEOUT_MS,
       'Timed out waiting for Pyric worker protocol handshake.',
+      reservation,
     )) as { workerProtocol?: unknown } | null;
     const wp = reply?.workerProtocol;
     if (typeof wp === 'number' && Number.isFinite(wp)) {
@@ -56,6 +65,9 @@ async function probePeerWorkerProtocol(port: ClientPort): Promise<number> {
     }
     return 1;
   } catch (err) {
+    if (isDisconnectedPort(port)) {
+      throw err;
+    }
     const message = err instanceof Error ? err.message : String(err);
     if (message.includes('Unknown method: getRuntimeEpoch')) {
       try {
@@ -64,12 +76,16 @@ async function probePeerWorkerProtocol(port: ClientPort): Promise<number> {
           { t: 'op', id: nextId(), method: 'getVersion' },
           VERSION_PROBE_TIMEOUT_MS,
           'Timed out waiting for Pyric worker version handshake.',
+          reservation,
         )) as { workerProtocol?: unknown } | null;
         const wp = fallback?.workerProtocol;
         if (typeof wp === 'number' && Number.isFinite(wp)) {
           return wp;
         }
-      } catch {
+      } catch (fallbackErr) {
+        if (isDisconnectedPort(port)) {
+          throw fallbackErr;
+        }
         return 1;
       }
     }
@@ -86,11 +102,16 @@ function getPeerWorkerProtocol(port: ClientPort): Promise<number> {
   if (existingProbe !== undefined) {
     return existingProbe;
   }
-  const probe = probePeerWorkerProtocol(port).then((version) => {
-    resolvedProtocolByPort.set(port, version);
-    inFlightProbeByPort.delete(port);
-    return version;
-  });
+  const probeReservation = reserveSend(port);
+  const probe = probePeerWorkerProtocol(port, probeReservation)
+    .then((version) => {
+      resolvedProtocolByPort.set(port, version);
+      return version;
+    })
+    .finally(() => {
+      inFlightProbeByPort.delete(port);
+      probeReservation.release();
+    });
   inFlightProbeByPort.set(port, probe);
   return probe;
 }
@@ -112,6 +133,13 @@ function protocolOneDatabaseIdError(hostUrl: string, databaseId: string): Fireba
     `pyric: the host at ${hostUrl} speaks worker protocol 1, which has no Firestore database ids. ` +
       `Restart it with @pyric/cli ${cliVersionLabel()} or later to use getFirestore(app, "${databaseId}").`,
   );
+}
+
+export function protocolOneDatabaseIdErrorForPort(
+  port: ClientPort,
+  databaseId: string,
+): FirebaseError {
+  return protocolOneDatabaseIdError(getPortHostUrl(port), databaseId);
 }
 
 export async function ensurePeerSupportsDatabaseId(

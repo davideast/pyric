@@ -1,0 +1,54 @@
+{
+  "sequence": {
+    "seed": 653063,
+    "initialRules": 4,
+    "steps": [
+      {
+        "op": "setDoc",
+        "db": 2,
+        "path": "orgs/o1/docs/d1",
+        "data": {
+          "$map": [
+            ["extra", { "$geo": [0, 139.6917] }],
+            ["flag", true],
+            ["n", 7],
+            ["label", "active"],
+            [
+              "meta",
+              {
+                "$map": [
+                  ["note", "delta"],
+                  ["stamped", { "$serverTs": true }],
+                  ["count", 1]
+                ]
+              }
+            ],
+            ["tags", { "$inc": 2 }]
+          ]
+        },
+        "mode": { "kind": "merge" }
+      },
+      {
+        "op": "getDocs",
+        "db": 2,
+        "query": {
+          "source": { "kind": "collection", "path": "orgs/o1/docs" },
+          "filter": { "kind": "where", "field": "n", "op": "==", "value": null },
+          "orderBy": [{ "field": "meta.count", "dir": "asc" }],
+          "startAfter": { "mode": "docSnap", "path": "orgs/o1/docs/d1" },
+          "endAt": { "mode": "values", "values": [8] }
+        }
+      },
+      {
+        "op": "listenQuery",
+        "db": 2,
+        "id": 0,
+        "query": {
+          "source": { "kind": "collection", "path": "orgs/o1/docs" },
+          "orderBy": [{ "field": "n", "dir": "asc" }],
+          "startAt": { "mode": "docSnap", "path": "orgs/o1/docs/d1" }
+        }
+      }
+    ]
+  }
+}

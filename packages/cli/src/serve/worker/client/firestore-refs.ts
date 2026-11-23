@@ -365,7 +365,14 @@ function resolveQueryConstraints(
       const snapData = snapshot.data;
       const values = normalizedOrders.map((order) => {
         if (order.field === KEY_FIELD) {
-          return { __type: 'reference', path: snapshot.path };
+          let refPath = snapshot.path;
+          if (targetDatabaseId !== '(default)') {
+            refPath =
+              snapshot.path.length > 0
+                ? `databases/${targetDatabaseId}/documents/${snapshot.path}`
+                : `databases/${targetDatabaseId}/documents`;
+          }
+          return { __type: 'reference', path: refPath };
         }
         return encodeDocValue(readSnapshotField(snapData, order.field));
       });

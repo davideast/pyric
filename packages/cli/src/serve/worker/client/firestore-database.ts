@@ -2,8 +2,9 @@
  * Client-side Firestore `databaseId` handle binding, RPC stamping, and
  * subscription gating over SharedWorker and Node-hosted ports.
  */
-import type { InboundMessage } from '../protocol.js';
+import { WORKER_PROTOCOL_VERSION, type InboundMessage } from '../protocol.js';
 import {
+  _snapSubs,
   closeSubscription,
   dataRpc,
   openSnapshotSubscription,
@@ -18,7 +19,12 @@ import type {
   DocRefHandle,
   QueryHandle,
 } from './handles.js';
-import { ensurePeerSupportsDatabaseId } from './protocol-version.js';
+import {
+  ensurePeerSupportsDatabaseId,
+  getKnownPeerWorkerProtocol,
+  protocolOneDatabaseIdErrorForPort,
+} from './protocol-version.js';
+import { reserveSend } from './send-order.js';
 
 type FirestoreWorkerTarget = ClientDb | DocRefHandle<unknown> | CollRefHandle<unknown> | QueryHandle<unknown>;
 
@@ -55,8 +61,21 @@ export async function firestoreDataRpc(
   if (databaseId === undefined) {
     return dataRpc(target.port, msg);
   }
-  await ensurePeerSupportsDatabaseId(target.port, databaseId);
-  return dataRpc(target.port, { ...msg, databaseId } as InboundMessage & { t: 'op' });
+  const known = getKnownPeerWorkerProtocol(target.port);
+  if (known !== undefined) {
+    if (known < WORKER_PROTOCOL_VERSION) {
+      throw protocolOneDatabaseIdErrorForPort(target.port, databaseId);
+    }
+    return dataRpc(target.port, { ...msg, databaseId } as InboundMessage & { t: 'op' });
+  }
+  const handshake = ensurePeerSupportsDatabaseId(target.port, databaseId);
+  const reservation = reserveSend(target.port);
+  try {
+    await handshake;
+    return dataRpc(target.port, { ...msg, databaseId } as InboundMessage & { t: 'op' }, reservation);
+  } finally {
+    reservation.release();
+  }
 }
 
 export async function firestoreControlRpc(
@@ -67,8 +86,21 @@ export async function firestoreControlRpc(
   if (databaseId === undefined) {
     return rpc(db.port, msg);
   }
-  await ensurePeerSupportsDatabaseId(db.port, databaseId);
-  return rpc(db.port, { ...msg, databaseId } as InboundMessage & { t: 'op' });
+  const known = getKnownPeerWorkerProtocol(db.port);
+  if (known !== undefined) {
+    if (known < WORKER_PROTOCOL_VERSION) {
+      throw protocolOneDatabaseIdErrorForPort(db.port, databaseId);
+    }
+    return rpc(db.port, { ...msg, databaseId } as InboundMessage & { t: 'op' });
+  }
+  const handshake = ensurePeerSupportsDatabaseId(db.port, databaseId);
+  const reservation = reserveSend(db.port);
+  try {
+    await handshake;
+    return rpc(db.port, { ...msg, databaseId } as InboundMessage & { t: 'op' }, reservation);
+  } finally {
+    reservation.release();
+  }
 }
 
 export function openFirestoreSnapshotSubscription(
@@ -82,16 +114,41 @@ export function openFirestoreSnapshotSubscription(
   if (databaseId === undefined) {
     return openSnapshotSubscription(port, subId, subscription, message);
   }
-  const registered = registerSnapshotSubscription(port, subId, subscription);
-  if (registered === undefined) return false;
-  void ensurePeerSupportsDatabaseId(port, databaseId).then(
-    () => {
-      registered.send({ ...message, databaseId } as InboundMessage);
-    },
-    (err) => {
+  const known = getKnownPeerWorkerProtocol(port);
+  if (known !== undefined) {
+    if (known >= WORKER_PROTOCOL_VERSION) {
+      return openSnapshotSubscription(port, subId, subscription, {
+        ...message,
+        databaseId,
+      } as InboundMessage);
+    }
+    const registered = registerSnapshotSubscription(port, subId, subscription);
+    if (registered === undefined) return false;
+    const err = protocolOneDatabaseIdErrorForPort(port, databaseId);
+    queueMicrotask(() => {
+      if (!_snapSubs.has(subId)) return;
       closeSubscription(port, subId);
       subscription.error?.(err);
-    },
-  );
+    });
+    return true;
+  }
+  const registered = registerSnapshotSubscription(port, subId, subscription);
+  if (registered === undefined) return false;
+  const handshake = ensurePeerSupportsDatabaseId(port, databaseId);
+  const reservation = reserveSend(port);
+  void handshake
+    .then(
+      () => {
+        registered.send({ ...message, databaseId } as InboundMessage, reservation);
+      },
+      (err) => {
+        if (!_snapSubs.has(subId)) return;
+        closeSubscription(port, subId);
+        subscription.error?.(err);
+      },
+    )
+    .finally(() => {
+      reservation.release();
+    });
   return true;
 }

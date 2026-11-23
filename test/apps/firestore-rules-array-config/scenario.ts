@@ -14,6 +14,11 @@ import { scenario, sleep, type App } from '../driver.ts';
 
 declare function tryWrite(path: string, databaseId?: string): Promise<string>;
 declare function tryRead(path: string, databaseId?: string): Promise<string>;
+declare function verifyNamedDbAndCacheParity(): Promise<{
+  initialListenerEvents: number;
+  cursorIds: string[];
+  cachedData: Record<string, unknown> | undefined;
+}>;
 
 const RETIRED_WARNING = 'Pyric serves only (default) for now';
 
@@ -89,6 +94,11 @@ export default scenario(async (app) => {
       assert.match(await page.evaluate(() => tryWrite('locked/x')), /^denied: permission-denied/);
       assert.equal(await page.evaluate(() => tryWrite('locked/x', 'reports')), 'allowed');
       assert.match(await page.evaluate(() => tryRead('open/a', 'undeclared')), /^denied: unavailable/);
+      assert.deepEqual(await page.evaluate(() => verifyNamedDbAndCacheParity()), {
+        initialListenerEvents: 1,
+        cursorIds: ['c2'],
+        cachedData: { tags: ['keep'], count: 5 },
+      });
       assert.ok(!host.process.output.includes(RETIRED_WARNING), host.process.output);
 
       app.writeFile('reports.rules', app.readFile('firestore.default.rules'));
@@ -129,6 +139,11 @@ export default scenario(async (app) => {
     try {
       assert.equal(await page.evaluate(() => tryWrite('locked/x', 'reports')), 'allowed');
       assert.match(await page.evaluate(() => tryRead('open/a', 'undeclared')), /^denied: unavailable/);
+      assert.deepEqual(await page.evaluate(() => verifyNamedDbAndCacheParity()), {
+        initialListenerEvents: 1,
+        cursorIds: ['c2'],
+        cachedData: { tags: ['keep'], count: 5 },
+      });
       app.writeFile('reports.rules', originalDefaultRules);
       await waitForPageRuleEffect(
         () => page.evaluate(() => tryWrite('locked/x', 'reports')),

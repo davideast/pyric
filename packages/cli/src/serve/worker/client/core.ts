@@ -907,6 +907,7 @@ export function rpcWithTimeout(
   msg: InboundMessage,
   timeoutMs: number,
   timeoutMessage: string,
+  reservation?: SendReservation,
 ): Promise<unknown> {
   const id = (msg as { id: string }).id;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -917,7 +918,7 @@ export function rpcWithTimeout(
       reject(new Error(timeoutMessage));
     }, timeoutMs);
   });
-  return Promise.race([rpc(port, msg), timeout]).finally(() => {
+  return Promise.race([rpc(port, msg, reservation), timeout]).finally(() => {
     const hasTimer = timer !== undefined;
     if (hasTimer) clearTimeout(timer);
   });

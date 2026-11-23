@@ -1,0 +1,19 @@
+{
+  "sequence": {
+    "seed": 653369,
+    "initialRules": 3,
+    "steps": [
+      { "op": "listenDoc", "db": 2, "id": 0, "path": "metrics/m1" },
+      { "op": "unlisten", "id": 0 },
+      {
+        "op": "listenQuery",
+        "db": 2,
+        "id": 1,
+        "query": {
+          "source": { "kind": "collection", "path": "users" }
+        }
+      },
+      { "op": "unlisten", "id": 1 }
+    ]
+  }
+}
