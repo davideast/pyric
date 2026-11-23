@@ -397,7 +397,7 @@ test('captures sessionData across real gRPC reads, listeners, writes, add, getAl
       name: 'Firestore.runTransaction',
       path: undefined,
       outcome: 'rejected',
-      session: undefined,
+      session: { uncommitted: true },
     },
     {
       name: 'DocumentReference.delete',

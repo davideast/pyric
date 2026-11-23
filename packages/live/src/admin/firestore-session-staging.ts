@@ -12,14 +12,19 @@ import { DeltaOps, querySnapshotChanges } from '../firestore-session-capture.js'
 import { isValidDocPath, normalizeDocPath, type SessionCopyResult } from '../firestore-session-values.js';
 import { isPlainObject } from '../json-copy.js';
 import type { SessionBudget } from '../session-budget.js';
-import type { ObservedFirestoreSessionOp, ObservedSessionDelta } from '../session-data.js';
+import {
+  PROVEN_UNCOMMITTED_SYMBOL,
+  type ObservedFirestoreSessionOp,
+  type ObservedSessionDelta,
+} from '../session-data.js';
+import { fieldMaskStringsOf } from './firestore-session-projection.js';
 import {
   adminCreateDocOp,
   adminDocFields,
   adminSetDocOp,
   adminUpdateDocOp,
 } from './firestore-session-values.js';
-import { keepShape } from './patch.js';
+import { isAdminMethodGated, keepShape } from './patch.js';
 
 const BATCH_PATCHED = Symbol.for('pyric.live.admin.firestore.batchSessionPatched');
 const TX_PATCHED = Symbol.for('pyric.live.admin.firestore.txSessionPatched');
@@ -30,12 +35,16 @@ type WriteMethodName = 'create' | 'set' | 'update' | 'delete';
 export interface AdminGetAllCall {
   readonly kind: 'admin-get-all';
   readonly hasFieldMask: boolean;
+  readonly fieldMask?: readonly string[];
   readonly docRefs: readonly unknown[];
 }
 
 export interface AdminTransactionSession {
   readonly kind: 'admin-tx-session';
   currentAttempt: DeltaOps | undefined;
+  enteredAttempt: boolean;
+  ambiguousCommit: boolean;
+  [PROVEN_UNCOMMITTED_SYMBOL](): boolean;
 }
 
 const defaultConverters = new WeakMap<object, unknown>();
@@ -43,6 +52,9 @@ const batchCollectors = new WeakMap<object, DeltaOps>();
 const txOwnedBatches = new WeakSet<object>();
 const txSessionsByCallback = new WeakMap<Function, AdminTransactionSession>();
 const txAttempts = new WeakMap<object, DeltaOps>();
+const txAttemptSessions = new WeakMap<object, AdminTransactionSession>();
+const fullyTrackedTxPrototypes = new WeakSet<object>();
+const patchedTxCommitMethods = new WeakSet<Function>();
 
 function ownerFirestoreOf(target: unknown): object | undefined {
   if (!isObject(target)) return undefined;
@@ -93,7 +105,7 @@ export function hasAdminCustomConverter(target: unknown): boolean {
   return converter !== defaultConverter;
 }
 
-function rawProjectionOf(target: unknown): unknown {
+export function rawProjectionOf(target: unknown): unknown {
   if (!isObject(target)) return undefined;
   if (isObject(target._queryOptions)) return target._queryOptions.projection;
   if (isObject(target.query) && isObject(target.query._queryOptions)) {
@@ -139,8 +151,24 @@ export function parseAdminGetAllCall(args: readonly unknown[]): AdminGetAllCall 
   if (args.length === 0) return { kind: 'admin-get-all', hasFieldMask: false, docRefs: [] };
   const last = args[args.length - 1];
   if (isPlainObject(last)) {
-    const hasFieldMask = Reflect.get(last, 'fieldMask') !== undefined;
-    return { kind: 'admin-get-all', hasFieldMask, docRefs: args.slice(0, -1) };
+    const rawMask = Reflect.get(last, 'fieldMask');
+    const hasFieldMask = rawMask !== undefined;
+    if (!hasFieldMask) {
+      return { kind: 'admin-get-all', hasFieldMask: false, docRefs: args.slice(0, -1) };
+    }
+    const fieldMask = fieldMaskStringsOf(rawMask);
+    const parsed: {
+      kind: 'admin-get-all';
+      hasFieldMask: true;
+      fieldMask?: readonly string[];
+      docRefs: readonly unknown[];
+    } = {
+      kind: 'admin-get-all',
+      hasFieldMask: true,
+      docRefs: args.slice(0, -1),
+    };
+    if (fieldMask !== undefined) parsed.fieldMask = fieldMask;
+    return parsed;
   }
   return { kind: 'admin-get-all', hasFieldMask: false, docRefs: [...args] };
 }
@@ -168,14 +196,18 @@ function addAdminDocSnapshot(
   fallbackPath?: string,
   sourceRef?: unknown,
 ): boolean {
+  let path: string | undefined;
+  if (isObject(docSnap)) path = docSnapPathOf(docSnap, fallbackPath);
+  else if (isValidDocPath(fallbackPath)) path = normalizeDocPath(fallbackPath);
   if (isUnsupportedAdminDocSnapshot(docSnap, sourceRef)) {
     collector.skip('unsupported');
+    collector.invalidate(path);
     return true;
   }
   const snapObj = docSnap as object;
-  const path = docSnapPathOf(snapObj, fallbackPath);
   if (path === undefined) {
     collector.skip('unsupported');
+    collector.invalidate(undefined);
     return true;
   }
   if (!adminSnapshotExists(snapObj)) {
@@ -184,13 +216,17 @@ function addAdminDocSnapshot(
   const dataFn: unknown = Reflect.get(snapObj, 'data');
   if (typeof dataFn !== 'function') {
     collector.skip('unsupported');
+    collector.invalidate(path);
     return true;
   }
-  return collector.add((budget) => {
-    const fields = adminDocFields(Reflect.apply(dataFn, snapObj, []), budget);
-    if (!fields.ok) return fields;
-    return { ok: true, value: { kind: 'set', path, data: fields.value } };
-  });
+  return collector.add(
+    (budget) => {
+      const fields = adminDocFields(Reflect.apply(dataFn, snapObj, []), budget);
+      if (!fields.ok) return fields;
+      return { ok: true, value: { kind: 'set', path, data: fields.value } };
+    },
+    { path },
+  );
 }
 
 export function addAdminQuerySnapshot(
@@ -200,6 +236,7 @@ export function addAdminQuerySnapshot(
 ): void {
   if (hasAdminCustomConverter(snap) || hasAdminQueryProjection(snap)) {
     collector.skip('unsupported');
+    collector.invalidate(undefined);
     return;
   }
   let changes: ReturnType<typeof querySnapshotChanges>;
@@ -210,8 +247,12 @@ export function addAdminQuerySnapshot(
       if (item.kind === 'removed') {
         let path: string | undefined;
         if (isObject(item.doc)) path = docSnapPathOf(item.doc);
-        if (path === undefined) collector.skip('unsupported');
-        else collector.add(() => ({ ok: true, value: { kind: 'invalidate', path } }));
+        if (path === undefined) {
+          collector.skip('unsupported');
+          collector.invalidate(undefined);
+        } else {
+          collector.add(() => ({ ok: true, value: { kind: 'invalidate', path } }));
+        }
         continue;
       }
       addAdminDocSnapshot(collector, item.doc);
@@ -219,7 +260,11 @@ export function addAdminQuerySnapshot(
     return;
   }
   const documents: unknown = Reflect.get(snap, 'docs');
-  if (!Array.isArray(documents)) return;
+  if (!Array.isArray(documents)) {
+    collector.skip('unsupported');
+    collector.invalidate(undefined);
+    return;
+  }
   addAdminSnapshotBatch(collector, documents);
 }
 
@@ -247,14 +292,16 @@ function recordStagedWrite(collector: DeltaOps, method: WriteMethodName, args: r
   collector.add((budget) => stagedWriteOp(method, args, budget));
 }
 
-function patchMethod(prototype: object, name: string, wrap: (real: AnyMethod) => AnyMethod): void {
+function patchMethod(prototype: object, name: string, wrap: (real: AnyMethod) => AnyMethod): AnyMethod | undefined {
   const descriptor = Object.getOwnPropertyDescriptor(prototype, name);
   const real = descriptor?.value as unknown;
-  if (typeof real !== 'function') return;
+  if (typeof real !== 'function') return undefined;
+  const wrapped = keepShape(wrap(real as AnyMethod), real as AnyMethod);
   Object.defineProperty(prototype, name, {
     ...descriptor,
-    value: keepShape(wrap(real as AnyMethod), real as AnyMethod),
+    value: wrapped,
   });
+  return wrapped;
 }
 
 /** Reads the staged delta for a `WriteBatch` when `commit()` begins. */
@@ -265,7 +312,15 @@ export function commitAdminBatchDelta(batch: unknown): ObservedSessionDelta | un
 
 /** Registers a transaction session keyed to the callback passed to `runTransaction`. */
 export function beginAdminTransactionSession(callback: unknown): AdminTransactionSession {
-  const session: AdminTransactionSession = { kind: 'admin-tx-session', currentAttempt: undefined };
+  const session: AdminTransactionSession = {
+    kind: 'admin-tx-session',
+    currentAttempt: undefined,
+    enteredAttempt: false,
+    ambiguousCommit: false,
+    [PROVEN_UNCOMMITTED_SYMBOL]() {
+      return this.enteredAttempt && !this.ambiguousCommit;
+    },
+  };
   if (typeof callback === 'function') txSessionsByCallback.set(callback, session);
   return session;
 }
@@ -338,25 +393,78 @@ function sessionOfCallback(callback: unknown): AdminTransactionSession | undefin
   return txSessionsByCallback.get(callback);
 }
 
+function isExpectedWriteBatch(batch: unknown): batch is object {
+  return isObject(batch) && typeof Reflect.get(batch, 'isEmpty') === 'boolean';
+}
+
+function hasIntactTxCommitWrapper(tx: object): boolean {
+  if (Object.hasOwn(tx, 'commit')) return false;
+  const proto: unknown = Object.getPrototypeOf(tx);
+  if (!isObject(proto) || !fullyTrackedTxPrototypes.has(proto)) return false;
+  const commitProp = Object.getOwnPropertyDescriptor(proto, 'commit');
+  const commitFn: unknown = commitProp?.value;
+  if (typeof commitFn !== 'function') return false;
+  return patchedTxCommitMethods.has(commitFn) || isAdminMethodGated(commitFn);
+}
+
 /**
  * Patches `Transaction.prototype` once so each `runTransactionOnce` attempt gets
  * an isolated collector whose reads and staged writes emit only if the outer
- * `Firestore.runTransaction` commits `ok`.
+ * `Firestore.runTransaction` commits `ok`, and tracks whether any attempt
+ * entered `commit()` with non-empty or reshaped internals so pre-commit aborts
+ * fail closed whenever SDK internals differ.
  */
 export function patchAdminFirestoreTransaction(prototype: object | undefined): void {
   if (prototype === undefined || Object.hasOwn(prototype, TX_PATCHED)) return;
 
-  patchMethod(prototype, 'runTransactionOnce', (real) => function trackedAttempt(this: unknown, ...args: unknown[]): unknown {
-    const session = sessionOfCallback(args[0]);
-    if (session !== undefined && isObject(this)) {
-      const innerBatch = this._writeBatch;
-      if (isObject(innerBatch)) txOwnedBatches.add(innerBatch);
-      const attempt = new DeltaOps();
-      session.currentAttempt = attempt;
-      txAttempts.set(this, attempt);
+  const wrappedCommit = patchMethod(prototype, 'commit', (real) => function trackedTxCommit(this: unknown, ...args: unknown[]): unknown {
+    if (isObject(this)) {
+      const session = txAttemptSessions.get(this);
+      if (session !== undefined) {
+        try {
+          const batch: unknown = Reflect.get(this, '_writeBatch');
+          const provenNoOpCommit =
+            isExpectedWriteBatch(batch) &&
+            Reflect.get(batch, 'isEmpty') === true &&
+            Reflect.get(this, '_transactionIdPromise') === undefined;
+          if (!provenNoOpCommit) session.ambiguousCommit = true;
+        } catch {
+          session.ambiguousCommit = true;
+        }
+      }
     }
     return Reflect.apply(real, this, args);
   });
+
+  const wrappedRunOnce = patchMethod(prototype, 'runTransactionOnce', (real) => function trackedAttempt(this: unknown, ...args: unknown[]): unknown {
+    const session = sessionOfCallback(args[0]);
+    if (session !== undefined) {
+      if (!isObject(this)) {
+        session.ambiguousCommit = true;
+      } else {
+        try {
+          txAttemptSessions.set(this, session);
+          const innerBatch: unknown = Reflect.get(this, '_writeBatch');
+          if (isObject(innerBatch)) txOwnedBatches.add(innerBatch);
+          if (!hasIntactTxCommitWrapper(this) || !isExpectedWriteBatch(innerBatch)) {
+            session.ambiguousCommit = true;
+          }
+          const attempt = new DeltaOps();
+          session.currentAttempt = attempt;
+          txAttempts.set(this, attempt);
+          session.enteredAttempt = true;
+        } catch {
+          session.ambiguousCommit = true;
+        }
+      }
+    }
+    return Reflect.apply(real, this, args);
+  });
+
+  if (wrappedCommit !== undefined && wrappedRunOnce !== undefined) {
+    patchedTxCommitMethods.add(wrappedCommit);
+    fullyTrackedTxPrototypes.add(prototype);
+  }
 
   patchMethod(prototype, 'get', (real) => function trackedTxGet(this: unknown, ...args: unknown[]): unknown {
     const pending = Reflect.apply(real, this, args);

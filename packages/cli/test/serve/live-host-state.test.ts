@@ -450,19 +450,40 @@ describe('the live host state\'s observed session data', () => {
     );
     expect(live.sessionData.getFirestoreDoc('spaces/s1')).toEqual({ status: 'unobserved' });
 
-    // N3: Skipped Query.get (e.g. Query.select projection) invalidates collection docs and absent tombstones.
+    // N3 (#3283): Projected Query.get reconciles returned docs individually (purging contradicted `spaces/s1`
+    // and clearing `'absent'` on returned `spaces/missing` while keeping unreturned `spaces/kept`), and falls
+    // back to collection-wide invalidation when `truncated > 0`.
     live.sessionData.apply({
-      firestore: [{ kind: 'set', path: 'spaces/s1', data: { members: ['u-1'] } }],
+      firestore: [
+        { kind: 'set', path: 'spaces/s1', data: { members: ['u-1'] } },
+        { kind: 'set', path: 'spaces/kept', data: { members: ['u-0'] } },
+      ],
     });
     sendThroughValidation(
       live,
       'projected-query-read',
       { service: 'firestore', method: 'Query.get', sdk: 'admin', path: 'spaces' },
-      { skipped: { unsupported: 1 } },
+      {
+        firestore: [
+          { kind: 'projection', path: 'spaces/s1', fields: ['members'], data: { members: ['u-2'] } },
+          { kind: 'projection', path: 'spaces/missing', fields: ['members'], data: { members: ['u-3'] } },
+        ],
+        skipped: { unsupported: 1 },
+      },
     );
     expect(live.sessionData.getFirestoreDoc('spaces/s1')).toEqual({ status: 'unobserved' });
     expect(live.sessionData.getFirestoreDoc('spaces/missing')).toEqual({ status: 'unobserved' });
     expect(live.sessionData.snapshot().firestore['spaces/s1']).toBeUndefined();
+    expect(live.sessionData.snapshot().firestore['spaces/kept']).toEqual({ members: ['u-0'] });
+
+    sendThroughValidation(
+      live,
+      'truncated-query-read',
+      { service: 'firestore', method: 'Query.get', sdk: 'admin', path: 'spaces' },
+      { skipped: { unsupported: 1, truncated: 1 } },
+    );
+    expect(live.sessionData.getFirestoreDoc('spaces/kept')).toEqual({ status: 'unobserved' });
+    expect(live.sessionData.snapshot().firestore['spaces/kept']).toBeUndefined();
 
     // N5: Malformed delivery delta rejected by readObservedSessionDelta still invalidates `call.path`.
     live.sessionData.apply({

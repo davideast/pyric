@@ -9,11 +9,16 @@
  * mutation roles from `observedMethod` and `rtdbRulesMethod`. Any unknown
  * Firestore or RTDB method defaults fail-closed to `'scoped-mutation'`.
  */
-import { observedMethod, rtdbRulesMethod } from 'pyric/sandbox/internal';
+import { normalizeDocumentPath } from 'pyric/rules/internal';
+import { isFirestoreDocumentPath, observedMethod, rtdbRulesMethod } from 'pyric/sandbox/internal';
 import type { ObservedCall } from 'pyric/sandbox';
 import type { SessionDeltaSkipReason } from './delta-validation.js';
 import type { ObservedSessionDataStore } from './store.js';
-import type { ObservedSessionDelta, ObservedSessionSource } from './wire.js';
+import type {
+  ObservedSessionDelta,
+  ObservedSessionSkipCounts,
+  ObservedSessionSource,
+} from './wire.js';
 
 export type SessionCallRole = 'passive' | 'read' | 'scoped-mutation' | 'unscoped-mutation';
 
@@ -156,7 +161,7 @@ function sessionSourceOf(call: ObservedCall): ObservedSessionSource {
 }
 
 /** Invalidates authoritative coverage for a call's target path, collection, or whole service. */
-export function invalidateSessionCallTarget(
+function invalidateSessionCallTarget(
   sessionData: ObservedSessionDataStore,
   call: ObservedCall,
   role: SessionCallRole,
@@ -187,6 +192,16 @@ export interface AcceptedSessionObservation {
   readonly sessionDataSkip?: SessionDeltaSkipReason;
 }
 
+function shouldInvalidateSkippedReadTarget(
+  call: ObservedCall,
+  skipped: ObservedSessionSkipCounts,
+): boolean {
+  if (call.service !== 'firestore') return true;
+  if ((skipped.truncated ?? 0) > 0) return true;
+  if (call.path === undefined) return false;
+  return isFirestoreDocumentPath(normalizeDocumentPath(call.path));
+}
+
 /** Applies an accepted observed call's session delta or fail-closed invalidation to `store`. */
 export function applyAcceptedSessionCall(
   store: ObservedSessionDataStore,
@@ -200,6 +215,9 @@ export function applyAcceptedSessionCall(
   const isMutation = role === 'scoped-mutation' || role === 'unscoped-mutation';
   if (call.outcome.status !== 'ok') {
     store.recordSkip({ failed: 1 });
+    if (isMutation && entry.sessionDataSkip === undefined && entry.sessionData?.uncommitted === true) {
+      return;
+    }
     if (isMutation) {
       const isRulesDenial =
         call.outcome.code !== undefined && DEFINITIVE_RULES_DENIALS.has(call.outcome.code);
@@ -214,7 +232,10 @@ export function applyAcceptedSessionCall(
   }
   const source = sessionSourceOf(call);
   if (!isMutation) {
-    if (entry.sessionData?.skipped !== undefined) {
+    if (
+      entry.sessionData?.skipped !== undefined &&
+      shouldInvalidateSkippedReadTarget(call, entry.sessionData.skipped)
+    ) {
       invalidateSessionCallTarget(store, call, role, projectHint);
     }
     if (entry.sessionData !== undefined) {

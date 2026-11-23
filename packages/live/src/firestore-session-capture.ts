@@ -140,7 +140,10 @@ export class DeltaOps {
   }
 
   /** Copies one op with what the delta has left; false once the delta is cut off. */
-  add(copy: (budget: SessionBudget) => SessionCopyResult<ObservedFirestoreSessionOp>): boolean {
+  add(
+    copy: (budget: SessionBudget) => SessionCopyResult<ObservedFirestoreSessionOp>,
+    onSkipInvalidate?: { readonly path: string | undefined },
+  ): boolean {
     const cap = Math.min(MAX_SESSION_ITEM_BYTES, this.budget.left);
     const itemBudget: SessionBudget = { left: cap };
     const op = copy(itemBudget);
@@ -155,7 +158,41 @@ export class DeltaOps {
       return false;
     }
     this.skip(op.reason);
+    if (onSkipInvalidate !== undefined) this.invalidate(onSkipInvalidate.path);
     return true;
+  }
+
+  /** Copies projected fields for one returned document, invalidating `path` if the snapshot cannot be copied. */
+  addProjection(
+    path: string,
+    fields: readonly string[],
+    copy: (budget: SessionBudget) => SessionCopyResult<Record<string, unknown>>,
+  ): void {
+    if (this.refusesMore()) return;
+    const cap = Math.min(MAX_SESSION_ITEM_BYTES, this.budget.left);
+    const itemBudget: SessionBudget = { left: cap };
+    const copied = copy(itemBudget);
+    this.budget.left -= Math.max(0, cap - Math.max(0, itemBudget.left));
+    if (copied.ok) {
+      this.ops.push({ kind: 'projection', path, fields, data: copied.value });
+      return;
+    }
+    if (copied.reason === 'oversized' && cap < MAX_SESSION_ITEM_BYTES) {
+      this.truncated += 1;
+      this.isCutOff = true;
+      return;
+    }
+    this.invalidate(path);
+  }
+
+  /** Invalidates `path` when an individual returned document cannot be represented in full; counts `truncated` if un-pathed or cut off. */
+  invalidate(path: string | undefined): void {
+    if (path === undefined) {
+      this.truncated += 1;
+      return;
+    }
+    if (this.refusesMore()) return;
+    this.ops.push({ kind: 'invalidate', path });
   }
 
   /** Counts one document left out. */
@@ -176,37 +213,80 @@ export interface QueryDocumentChange {
 
 /** Sets one query document into the delta; false once the delta is cut off. */
 function addQueryDocument(ops: DeltaOps, docSnap: unknown): boolean {
-  if (!isObject(docSnap) || hasSnapshotConverter(docSnap)) {
+  if (!isObject(docSnap)) {
     ops.skip('unsupported');
+    ops.invalidate(undefined);
     return true;
   }
   const path = docSnapPath(docSnap);
-  if (hasUnconfirmedMetadata(docSnap)) {
-    if (path !== undefined) {
-      return ops.add(() => ({ ok: true, value: { kind: 'invalidate', path } }));
-    }
+  if (hasSnapshotConverter(docSnap)) {
+    ops.skip('unsupported');
+    ops.invalidate(path);
     return true;
+  }
+  if (hasUnconfirmedMetadata(docSnap)) {
+    if (path === undefined) {
+      ops.invalidate(undefined);
+      return true;
+    }
+    return ops.add(() => ({ ok: true, value: { kind: 'invalidate', path } }));
   }
   const dataFn: unknown = Reflect.get(docSnap, 'data');
   if (typeof dataFn !== 'function' || path === undefined) {
     ops.skip('unsupported');
+    ops.invalidate(path);
     return true;
   }
-  return ops.add((budget) => {
-    const fields = sessionDocFields(Reflect.apply(dataFn, docSnap, []), budget);
-    if (!fields.ok) return fields;
-    return { ok: true, value: { kind: 'set', path, data: fields.value } };
-  });
+  return ops.add(
+    (budget) => {
+      const fields = sessionDocFields(Reflect.apply(dataFn, docSnap, []), budget);
+      if (!fields.ok) return fields;
+      return { ok: true, value: { kind: 'set', path, data: fields.value } };
+    },
+    { path },
+  );
+}
+
+/** Invalidates returned documents by `ref.path` without calling `data()` on a converted query snapshot. */
+function convertedQuerySkipDelta(snap: unknown): ObservedSessionDelta {
+  const ops = new DeltaOps();
+  ops.skip('unsupported');
+  if (!isObject(snap)) {
+    ops.invalidate(undefined);
+    return ops.delta() ?? skipDeltaOf('unsupported');
+  }
+  const changes = querySnapshotChanges(snap);
+  if (changes !== undefined) {
+    for (const item of changes) {
+      let path: string | undefined;
+      if (isObject(item.doc)) path = docSnapPath(item.doc);
+      ops.invalidate(path);
+    }
+    return ops.delta() ?? skipDeltaOf('unsupported');
+  }
+  const docs: unknown = Reflect.get(snap, 'docs');
+  if (!Array.isArray(docs)) {
+    ops.invalidate(undefined);
+    return ops.delta() ?? skipDeltaOf('unsupported');
+  }
+  for (const docSnap of docs) {
+    let path: string | undefined;
+    if (isObject(docSnap)) path = docSnapPath(docSnap);
+    ops.invalidate(path);
+  }
+  return ops.delta() ?? skipDeltaOf('unsupported');
 }
 
 function addRemovedQueryDocument(ops: DeltaOps, docSnap: unknown): boolean {
   if (!isObject(docSnap)) {
     ops.skip('unsupported');
+    ops.invalidate(undefined);
     return true;
   }
   const path = docSnapPath(docSnap);
   if (path === undefined) {
     ops.skip('unsupported');
+    ops.invalidate(undefined);
     return true;
   }
   return ops.add(() => ({ ok: true, value: { kind: 'invalidate', path } }));
@@ -233,7 +313,7 @@ export function querySnapshotChanges(snap: object): QueryDocumentChange[] | unde
 
 /** The delta of a query snapshot: its changes for a listener, else its `docs`. */
 function querySnapshotDelta(snap: object, useChanges: boolean): ObservedSessionDelta | undefined {
-  if (hasSnapshotConverter(snap)) return skipDeltaOf('unsupported');
+  if (hasSnapshotConverter(snap)) return convertedQuerySkipDelta(snap);
   let changes: ReturnType<typeof querySnapshotChanges>;
   if (useChanges) changes = querySnapshotChanges(snap);
   if (changes !== undefined) {
@@ -251,7 +331,12 @@ function querySnapshotDelta(snap: object, useChanges: boolean): ObservedSessionD
     return ops.delta();
   }
   const documents: unknown = Reflect.get(snap, 'docs');
-  if (!Array.isArray(documents)) return undefined;
+  if (!Array.isArray(documents)) {
+    const ops = new DeltaOps();
+    ops.skip('unsupported');
+    ops.invalidate(undefined);
+    return ops.delta();
+  }
   const ops = new DeltaOps();
   for (const docSnap of documents) {
     if (ops.refusesMore()) break;
@@ -332,11 +417,19 @@ function documentReadResult(site: ObservedSite, value: object): ResultReading {
  */
 export function firestoreResult(site: ObservedSite, value: unknown): ResultReading {
   if (hasConverter(site.subject)) {
-    const readsData = site.name === 'addDoc' || SESSION_DOCUMENT_READS.has(site.name) || SESSION_QUERY_READS.has(site.name);
+    if (SESSION_QUERY_READS.has(site.name) && site.name !== 'getDocsFromCache') {
+      return { sessionData: convertedQuerySkipDelta(value) };
+    }
+    const readsData = site.name === 'addDoc' || SESSION_DOCUMENT_READS.has(site.name);
     if (readsData) return { sessionData: skipDeltaOf('unsupported') };
     return {};
   }
-  if (!isObject(value)) return {};
+  if (!isObject(value)) {
+    if (SESSION_QUERY_READS.has(site.name) && site.name !== 'getDocsFromCache') {
+      return { sessionData: convertedQuerySkipDelta(value) };
+    }
+    return {};
+  }
   if (site.name === 'addDoc') {
     const sessionData = addedDocumentDelta(site, value);
     if (sessionData === undefined) return {};
@@ -358,8 +451,16 @@ export function firestoreResult(site: ObservedSite, value: unknown): ResultReadi
  * invokes user `withConverter` functions.
  */
 export function firestoreDelivery(site: ObservedSite, value: unknown): ObservedSessionDelta | undefined {
-  if (hasConverter(site.subject) || !isObject(value) || hasSnapshotConverter(value)) {
-    return skipDeltaOf('unsupported');
+  if (!isObject(value)) {
+    if (isValidDocPath(site.path)) return skipDeltaOf('unsupported');
+    return convertedQuerySkipDelta(value);
+  }
+  if (hasConverter(site.subject) || hasSnapshotConverter(value)) {
+    const docPath = docSnapPath(value, site.path);
+    if (docPath !== undefined) {
+      return { firestore: [{ kind: 'invalidate', path: docPath }], skipped: { unsupported: 1 } };
+    }
+    return convertedQuerySkipDelta(value);
   }
   const existsFn: unknown = Reflect.get(value, 'exists');
   const dataFn: unknown = Reflect.get(value, 'data');

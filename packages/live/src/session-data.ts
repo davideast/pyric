@@ -64,6 +64,21 @@ export interface SessionDeltaParts {
 
 const RECORD_SESSION_DATA = new WeakMap<LiveCallRecord, ObservedSessionDelta>();
 
+/** Marks a call subject that can positively prove no write RPC reached the server on rejection. */
+export const PROVEN_UNCOMMITTED_SYMBOL = Symbol.for('pyric.live.provenUncommitted');
+
+/** True only when `subject` carries an explicit `[PROVEN_UNCOMMITTED_SYMBOL]()` witness returning `true`. */
+export function isProvenUncommittedSubject(subject: unknown): boolean {
+  if (typeof subject !== 'object' || subject === null) return false;
+  try {
+    const check: unknown = Reflect.get(subject, PROVEN_UNCOMMITTED_SYMBOL);
+    if (typeof check !== 'function') return false;
+    return Reflect.apply(check, subject, []) === true;
+  } catch {
+    return false;
+  }
+}
+
 /** Skip counts with each zero count left out, or undefined when all are zero. */
 export function skipCountsOf(oversized: number, unsupported: number, truncated: number): ObservedSessionSkipCounts | undefined {
   if (oversized === 0 && unsupported === 0 && truncated === 0) return undefined;
@@ -113,6 +128,7 @@ function mergeSkipCounts(
 function hasAnyOps(delta: ObservedSessionDelta | undefined): delta is ObservedSessionDelta {
   if (delta === undefined) return false;
   return (
+    delta.uncommitted === true ||
     (delta.firestore?.length ?? 0) > 0 ||
     (delta.rtdb?.length ?? 0) > 0 ||
     (delta.storage?.length ?? 0) > 0 ||
@@ -141,15 +157,20 @@ export function finishWithLease(lease: CallLifecycleLease | undefined, fn: () =>
   }
 }
 
-/** Attaches resolved or listener-delivered session data onto `record` without failing the observer. */
+/** Attaches resolved, listener-delivered, or proven-uncommitted rejected session data onto `record` without failing the observer. */
 export function attachOutcomeSessionData<
   S extends {
+    readonly subject?: unknown;
     readonly sessionData?: ObservedSessionDelta;
     readonly deliveryOf?: (site: S, value: unknown) => ObservedSessionDelta | undefined;
   },
 >(record: LiveCallRecord, site: S, outcome: LiveCallOutcome, value?: unknown): void {
   if (outcome === 'resolved') {
     attachSessionData(record, site.sessionData);
+    return;
+  }
+  if ((outcome === 'rejected' || outcome === 'threw') && isProvenUncommittedSubject(site.subject)) {
+    attachSessionData(record, { uncommitted: true });
     return;
   }
   if (outcome === 'delivered' && site.deliveryOf !== undefined) {

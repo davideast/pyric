@@ -267,6 +267,20 @@ function readFirestoreUpdate(raw: Record<string, unknown>, label: string, path: 
   return op;
 }
 
+/** Field paths selected by a projection or field mask (`[]` when only `__name__` was projected). */
+function readProjectionFields(raw: unknown, label: string): string[] {
+  if (!Array.isArray(raw) || raw.length > MAX_DELETE_FIELDS) {
+    throw unsupported(`Invalid ${label}: expected an array of up to ${MAX_DELETE_FIELDS} field paths.`);
+  }
+  return raw.map((entry, idx) => {
+    if (typeof entry !== 'string' || entry.length === 0 || entry.length > 512) {
+      throw unsupported(`Invalid ${label}[${idx}]: expected non-empty field path.`);
+    }
+    if (isBadFieldPath(entry)) throw unsupported(`Invalid ${label}[${idx}]: invalid field path '${entry}'.`);
+    return entry;
+  });
+}
+
 function readFirestoreOp(raw: unknown, index: number): ObservedFirestoreSessionOp {
   const label = `sessionData.firestore[${index}]`;
   if (!isPlainObject(raw)) throw unsupported(`Invalid ${label}: expected object.`);
@@ -276,13 +290,20 @@ function readFirestoreOp(raw: unknown, index: number): ObservedFirestoreSessionO
       return { kind: 'delete', path };
     case 'invalidate':
       return { kind: 'invalidate', path };
+    case 'projection':
+      return {
+        kind: 'projection',
+        path,
+        fields: readProjectionFields(raw.fields, `${label}.fields`),
+        data: readFirestoreData(raw, label),
+      };
     case 'set':
       return readFirestoreSet(raw, label, path);
     case 'update':
       return readFirestoreUpdate(raw, label, path);
     default:
       throw unsupported(
-        `Invalid ${label}.kind: expected 'set', 'update', 'delete', or 'invalidate'.`,
+        `Invalid ${label}.kind: expected 'set', 'update', 'delete', 'invalidate', or 'projection'.`,
       );
   }
 }
@@ -382,11 +403,28 @@ function readOps<T>(raw: unknown, service: string, opsSoFar: number, read: (entr
 export function readObservedSessionDelta(raw: unknown): ObservedSessionDelta {
   if (!isPlainObject(raw)) throw unsupported('Invalid sessionData: expected plain object.');
   for (const key of Object.keys(raw)) {
-    const isKnown = key === 'firestore' || key === 'rtdb' || key === 'storage' || key === 'skipped';
+    const isKnown =
+      key === 'firestore' ||
+      key === 'rtdb' ||
+      key === 'storage' ||
+      key === 'skipped' ||
+      key === 'uncommitted';
     if (!isKnown) throw unsupported(`Invalid sessionData.${key}: unexpected field.`);
   }
   if (byteLengthOf(raw) > MAX_SESSION_DELTA_BYTES) {
     throw oversized(`Invalid sessionData: payload is larger than ${MAX_SESSION_DELTA_BYTES} bytes.`);
+  }
+  const uncommitted = readOptionalBoolean(raw.uncommitted, 'sessionData.uncommitted');
+  if (uncommitted === true) {
+    const hasOtherFields =
+      raw.firestore !== undefined ||
+      raw.rtdb !== undefined ||
+      raw.storage !== undefined ||
+      raw.skipped !== undefined;
+    if (hasOtherFields) {
+      throw unsupported('Invalid sessionData.uncommitted: uncommitted delta cannot carry ops or skip counts.');
+    }
+    return { uncommitted: true };
   }
   const delta: {
     firestore?: ObservedFirestoreSessionOp[];

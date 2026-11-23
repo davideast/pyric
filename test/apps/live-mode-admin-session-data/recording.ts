@@ -395,6 +395,18 @@ export function buildRecording(format: string): Record<string, unknown> {
         [{ updateTime: COMMIT_TIME }],
         { transaction: TRANSACTION },
       ),
+      commitExchange(
+        'set-ord-projected-stale',
+        [
+          {
+            update: {
+              name: `${DOCUMENTS}/orders/ord-projected-stale`,
+              fields: { status: { stringValue: 'queued' }, total: { integerValue: '50' } },
+            },
+          },
+        ],
+        [{ updateTime: COMMIT_TIME }],
+      ),
       {
         kind: 'admin-firestore',
         id: 'query-orders-projected',
@@ -413,6 +425,15 @@ export function buildRecording(format: string): Record<string, unknown> {
               fields: { status: { stringValue: 'fulfilled' } },
               createTime: '2026-11-01T08:00:00.000001Z',
               updateTime: '2026-11-01T08:00:04.000001Z',
+            },
+            readTime: READ_TIME,
+          },
+          {
+            document: {
+              name: `${DOCUMENTS}/orders/ord-projected-stale`,
+              fields: { status: { stringValue: 'cancelled' } },
+              createTime: '2026-11-01T08:00:00.000001Z',
+              updateTime: '2026-11-01T08:00:05.000001Z',
             },
             readTime: READ_TIME,
           },
