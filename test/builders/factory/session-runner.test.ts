@@ -46,6 +46,12 @@ describe('childDirectoryUnder', () => {
     expect(childDirectoryUnder('/h/me', '/h/me/.cache/pyric-tmp/run-4812')).toBe('.cache');
     expect(childDirectoryUnder('/h/me', '/tmp/fr-abc')).toBeUndefined();
   });
+
+  test('keeps >= 2x inventory timeout margin over cold-disk CI walks (#1826)', () => {
+    const observedColdDiskMaxMs = 233_304;
+    expect(INVENTORY_TIMEOUT_MS).toBeGreaterThanOrEqual(observedColdDiskMaxMs * 2);
+    expect(SANDBOX_TEST_TIMEOUT_MS).toBe(INVENTORY_TIMEOUT_MS + 60_000);
+  });
 });
 
 describe('sessionPaths', () => {

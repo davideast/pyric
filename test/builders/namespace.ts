@@ -120,8 +120,11 @@ function isExecutable(path: string): boolean {
   try {
     accessSync(path, constants.X_OK);
     return true;
-  } catch {
-    return false;
+  } catch (err) {
+    if (err instanceof Error && 'code' in err) {
+      return false;
+    }
+    throw err;
   }
 }
 
@@ -298,12 +301,13 @@ function mountOverlays(pid: number, dirs: readonly string[]): void {
 
 /**
  * How long the inventory may take. A CI runner's first walk lists about
- * 112,000 directories from a cold disk at about 1,000 a second, and listing
- * them in parallel took as long. Passing tests that include it took about
- * 124 s; failed runs were cut off at the old 120 s limit, so the upper bound
- * isn't known. Later walks take 2 s.
+ * 112,000 directories from a cold disk at 500 to 1,000 a second, and listing
+ * them in parallel took as long. Cold-disk `factory-unit` runs on ubuntu-24.04
+ * took 184.2 s (run 45073524000) and 233.3 s (run 44390306872), leaving only
+ * 6.7 s of margin under 240 s; 480 s gives >= 2x margin over observed cold-disk
+ * runtime (#1826). Later walks with a warm dentry cache take ~2 s.
  */
-export const INVENTORY_TIMEOUT_MS = 240_000;
+export const INVENTORY_TIMEOUT_MS = 480_000;
 
 /** Fails closed unless `sandbox-inventory.ts` finds nothing inside the sandbox. */
 function assertInventory(pid: number, ownDirs: readonly string[]): void {
@@ -334,8 +338,11 @@ export function startTimeOf(pid: number): string | null {
   try {
     const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
     return stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19] ?? null;
-  } catch {
-    return null;
+  } catch (err) {
+    if (err instanceof Error && 'code' in err) {
+      return null;
+    }
+    throw err;
   }
 }
 
@@ -366,7 +373,7 @@ export async function awaitSandboxExit(child: ChildProcess, exited: Promise<void
   if (await exitWithin(timing.exitMs)) return 'exited';
   if (!exitedUnseen()) child.kill('SIGKILL');
   if (await exitWithin(timing.killMs)) return 'exited';
-  console.error(`▸ the sandbox (bwrap pid ${pid}) did not exit within ${(timing.exitMs + timing.killMs) / 1000}s of its stop, even after SIGKILL; the run is invalid`);
+  console.error(`\u25b8 the sandbox (bwrap pid ${pid}) did not exit within ${(timing.exitMs + timing.killMs) / 1000}s of its stop, even after SIGKILL; the run is invalid`);
   return 'still-running';
 }
 
