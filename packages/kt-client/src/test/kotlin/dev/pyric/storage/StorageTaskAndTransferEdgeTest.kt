@@ -16,6 +16,10 @@ import com.google.firebase.storage.UploadTask
 import dev.pyric.bridge.InMemoryBridgeTransport
 import dev.pyric.bridge.PyricBridgeClient
 import dev.pyric.codecs.JsonCodec
+import com.google.android.gms.tasks.Tasks
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.tasks.await as coroutinesAwait
 import com.google.android.gms.tasks.await as gmsAwait
@@ -31,9 +35,13 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import java.util.concurrent.CancellationException
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 
 class StorageTaskAndTransferEdgeTest {
 
@@ -285,6 +293,375 @@ class StorageTaskAndTransferEdgeTest {
         acStorage.getReference("guarded/item.txt").putBytes("ok".toByteArray(Charsets.UTF_8)).coroutinesAwait()
         val putOp = harness.recordedOps.first { it["method"] == "storage.putBytes" }
         assertEquals("mock-app-check-jwt", putOp["appCheckToken"])
+    }
+
+    @Test
+    fun awaitWaitsBehindInFlightOnCompleteListenerAndDeferredListeners(): Unit = runBlocking {
+        // Gate the worker inside the initial OnCompleteListener dispatch across all three await APIs
+        // (kotlinx.coroutines.tasks.await, com.google.android.gms.tasks.await, Tasks.await).
+        for (mode in listOf("coroutines", "gms", "tasks")) {
+            val enteredComplete = CountDownLatch(1)
+            val releaseComplete = CountDownLatch(1)
+            val completedFinished = AtomicBoolean(false)
+            val asyncExecSawComplete = AtomicBoolean(false)
+            val asyncExecDone = CountDownLatch(1)
+            val asyncExecutor = Executors.newSingleThreadExecutor { r ->
+                Thread(r, "complete-check-$mode").apply { isDaemon = true }
+            }
+            val lateOrder = CopyOnWriteArrayList<String>()
+            val gated = GatedStorageBridge("gated-app-$mode")
+            try {
+                val task = gated.storage.getReference("uploads/gated-$mode.bin")
+                    .putBytes(ByteArray(16) { 0x11 })
+                task.addOnCompleteListener(asyncExecutor) { done ->
+                    asyncExecSawComplete.set(done.isComplete && done.isSuccessful)
+                    asyncExecDone.countDown()
+                }
+                task.addOnCompleteListener { done ->
+                    assertTrue(done.isComplete, "mode=$mode callback saw isComplete=false")
+                    // Re-entrant listener and await from the settling thread must not deadlock.
+                    val reentrantFlag = AtomicBoolean(false)
+                    done.addOnCompleteListener { reentrantFlag.set(it.isSuccessful) }
+                    assertTrue(reentrantFlag.get(), "mode=$mode reentrant listener did not run")
+                    assertEquals(16L, Tasks.await(done).bytesTransferred)
+                    enteredComplete.countDown()
+                    assertTrue(releaseComplete.await(5, TimeUnit.SECONDS))
+                    completedFinished.set(true)
+                    lateOrder.add("initial-complete")
+                }
+
+                gated.respondOk("uploads/gated-$mode.bin", size = 16)
+                assertTrue(enteredComplete.await(5, TimeUnit.SECONDS))
+                // An already-dispatched async executor listener must observe isComplete == true
+                // even while the worker is still blocked in a sibling OnCompleteListener.
+                assertTrue(asyncExecDone.await(5, TimeUnit.SECONDS))
+                assertTrue(asyncExecSawComplete.get(), "mode=$mode async executor saw isComplete=false")
+
+                // Pre-complete listeners (progress/success) registered during COMPLETE dispatch
+                // replay immediately once pre-complete settlement has finished, while late
+                // OnCompleteListeners queue FIFO behind the in-flight OnCompleteListener and
+                // before any subsequent await().
+                task.addOnProgressListener { lateOrder.add("late-progress") }
+                task.addOnSuccessListener { lateOrder.add("late-success") }
+                assertEquals(
+                    listOf("late-progress", "late-success"),
+                    lateOrder.toList(),
+                    "mode=$mode late progress/success should replay immediately once pre-complete finished"
+                )
+                task.addOnCompleteListener { lateOrder.add("late-complete") }
+
+                val waiterEntered = CountDownLatch(1)
+                val waiterReturned = CompletableDeferred<Pair<Boolean, Boolean>>()
+                val waiter = async(Dispatchers.Default) {
+                    waiterEntered.countDown()
+                    val snap = when (mode) {
+                        "coroutines" -> task.coroutinesAwait()
+                        "gms" -> task.gmsAwait()
+                        else -> Tasks.await(task)
+                    }
+                    assertEquals(16L, snap.bytesTransferred)
+                    lateOrder.add("await-returned")
+                    waiterReturned.complete(completedFinished.get() to task.isComplete)
+                }
+
+                assertTrue(waiterEntered.await(5, TimeUnit.SECONDS))
+                val jumpedAhead = kotlinx.coroutines.withTimeoutOrNull(40) { waiterReturned.await() } != null
+                releaseComplete.countDown()
+                waiter.await()
+
+                val (sawCompleted, sawIsComplete) = waiterReturned.await()
+                assertFalse(jumpedAhead, "mode=$mode await() returned before earlier OnCompleteListener finished")
+                assertTrue(sawCompleted, "mode=$mode await() resumed with completedFinished=false")
+                assertTrue(sawIsComplete, "mode=$mode task.isComplete was false after await()")
+                assertEquals(
+                    listOf("late-progress", "late-success", "initial-complete", "late-complete", "await-returned"),
+                    lateOrder.toList(),
+                    "mode=$mode listener delivery order"
+                )
+            } finally {
+                releaseComplete.countDown()
+                gated.close()
+                asyncExecutor.shutdownNow()
+            }
+        }
+    }
+
+    @Test
+    fun awaitWaitsBehindDeferredOnCompleteListenerQueuedDuringPreComplete(): Unit = runBlocking {
+        for (mode in listOf("coroutines", "gms", "tasks")) {
+            val enteredSuccess = CountDownLatch(1)
+            val releaseSuccess = CountDownLatch(1)
+            val enteredDeferredComplete = CountDownLatch(1)
+            val releaseDeferredComplete = CountDownLatch(1)
+            val deferredCompleteFinished = AtomicBoolean(false)
+            val gated = GatedStorageBridge("deferred-complete-app-$mode")
+            try {
+                val task = gated.storage.getReference("uploads/deferred-complete-$mode.bin")
+                    .putBytes(ByteArray(8) { 0x22 })
+                task.addOnSuccessListener {
+                    enteredSuccess.countDown()
+                    assertTrue(releaseSuccess.await(5, TimeUnit.SECONDS))
+                }
+                gated.respondOk("uploads/deferred-complete-$mode.bin", size = 8)
+                assertTrue(enteredSuccess.await(5, TimeUnit.SECONDS))
+
+                // Register OnCompleteListener while settlingThread is inside PRE_COMPLETE (deferred).
+                task.addOnCompleteListener {
+                    enteredDeferredComplete.countDown()
+                    assertTrue(releaseDeferredComplete.await(5, TimeUnit.SECONDS))
+                    deferredCompleteFinished.set(true)
+                }
+                releaseSuccess.countDown()
+                assertTrue(enteredDeferredComplete.await(5, TimeUnit.SECONDS))
+
+                val waiterEntered = CountDownLatch(1)
+                val seenFinished = CompletableDeferred<Boolean>()
+                val waiter = async(Dispatchers.Default) {
+                    waiterEntered.countDown()
+                    when (mode) {
+                        "coroutines" -> task.coroutinesAwait()
+                        "gms" -> task.gmsAwait()
+                        else -> Tasks.await(task)
+                    }
+                    seenFinished.complete(deferredCompleteFinished.get())
+                }
+                assertTrue(waiterEntered.await(5, TimeUnit.SECONDS))
+                val jumpedAhead = kotlinx.coroutines.withTimeoutOrNull(40) { seenFinished.await() } != null
+                releaseDeferredComplete.countDown()
+                waiter.await()
+
+                assertFalse(jumpedAhead, "mode=$mode await() jumped ahead of deferred OnCompleteListener")
+                assertTrue(
+                    seenFinished.await(),
+                    "mode=$mode deferred OnCompleteListener had not finished before await() returned"
+                )
+            } finally {
+                releaseSuccess.countDown()
+                releaseDeferredComplete.countDown()
+                gated.close()
+            }
+        }
+    }
+
+    @Test
+    fun uploadTaskExecutorListenersRemainConsistentAcrossRepeatedRaces(): Unit = runBlocking {
+        val ref = storage.getReference("uploads/stress-listeners.bin")
+        val payload = ByteArray(64) { 0x2A }
+        repeat(400) { round ->
+            val directExecCount = AtomicInteger(0)
+            val executor = Executor { runnable ->
+                directExecCount.incrementAndGet()
+                runnable.run()
+            }
+            val task = ref.putBytes(payload)
+            val completedFlag = AtomicBoolean(false)
+            val succeededBytes = AtomicInteger(0)
+            val removable = OnProgressListener<UploadTask.TaskSnapshot> { _ -> }
+
+            task.addOnProgressListener(executor, removable)
+            task.removeOnProgressListener(removable)
+            task.addOnSuccessListener(executor) { snap ->
+                succeededBytes.set(snap.bytesTransferred.toInt())
+            }
+            task.addOnCompleteListener(executor) { completed ->
+                completedFlag.set(completed.isSuccessful)
+            }
+
+            val snap = when (round % 3) {
+                0 -> task.coroutinesAwait()
+                1 -> task.gmsAwait()
+                else -> Tasks.await(task)
+            }
+            assertEquals(64L, snap.bytesTransferred, "round=$round")
+            assertTrue(completedFlag.get(), "round=$round completedFlag was false after await")
+            assertEquals(64, succeededBytes.get(), "round=$round succeededBytes")
+            assertTrue(directExecCount.get() >= 3, "round=$round directExecCount=${directExecCount.get()}")
+            assertTrue(task.isComplete, "round=$round isComplete")
+            assertFalse(task.isInProgress, "round=$round isInProgress")
+            assertFalse(task.isPaused, "round=$round isPaused")
+        }
+    }
+
+    @Test
+    fun failureAndCancelTerminalDispatchesReleaseSettlingAndOrderAwaitBehindOnComplete(): Unit = runBlocking {
+        // 1. Failure path: gate inside OnCompleteListener during tryCompleteFailure.
+        val failGate = GatedStorageBridge("fail-complete-gate-app")
+        val enteredFailComplete = CountDownLatch(1)
+        val releaseFailComplete = CountDownLatch(1)
+        val failCompleteFinished = AtomicBoolean(false)
+        try {
+            val failTask = failGate.storage.getReference("uploads/fail-gate.bin").putBytes(byteArrayOf(1, 2, 3))
+            failTask.addOnCompleteListener { done ->
+                assertFalse(done.isSuccessful)
+                assertTrue(done.isComplete)
+                enteredFailComplete.countDown()
+                assertTrue(releaseFailComplete.await(5, TimeUnit.SECONDS))
+                failCompleteFinished.set(true)
+            }
+            failGate.respondError("storage/unauthorized", "denied")
+            assertTrue(enteredFailComplete.await(5, TimeUnit.SECONDS))
+
+            val waiterEntered = CountDownLatch(1)
+            val awaitSawFinished = CompletableDeferred<Boolean>()
+            val waiter = async(Dispatchers.Default) {
+                waiterEntered.countDown()
+                val ex = assertThrows<StorageException> { failTask.coroutinesAwait() }
+                assertEquals(StorageException.ERROR_NOT_AUTHORIZED, ex.errorCode)
+                awaitSawFinished.complete(failCompleteFinished.get())
+            }
+            assertTrue(waiterEntered.await(5, TimeUnit.SECONDS))
+            val jumped = kotlinx.coroutines.withTimeoutOrNull(40) { awaitSawFinished.await() } != null
+            releaseFailComplete.countDown()
+            waiter.await()
+            assertFalse(jumped, "failure coroutinesAwait() jumped ahead of OnCompleteListener")
+            assertTrue(awaitSawFinished.await())
+        } finally {
+            releaseFailComplete.countDown()
+            failGate.close()
+        }
+
+        // 2. Cancel path: gate inside OnCompleteListener during concurrent cancel().
+        val cancelGate = GatedStorageBridge("cancel-gate-app")
+        val enteredCancelComplete = CountDownLatch(1)
+        val releaseCancelComplete = CountDownLatch(1)
+        val cancelCompleteFinished = AtomicBoolean(false)
+        try {
+            val cancelTask = cancelGate.storage.getReference("uploads/cancel-gate.bin").putBytes(byteArrayOf(7, 8))
+            cancelTask.addOnCompleteListener { done ->
+                assertTrue(done.isCanceled)
+                assertTrue(done.isComplete)
+                enteredCancelComplete.countDown()
+                assertTrue(releaseCancelComplete.await(5, TimeUnit.SECONDS))
+                cancelCompleteFinished.set(true)
+            }
+            val cancelJob = async(Dispatchers.IO) {
+                assertTrue(cancelTask.cancel())
+            }
+            assertTrue(enteredCancelComplete.await(5, TimeUnit.SECONDS))
+            val waiterEntered = CountDownLatch(1)
+            val cancelWaiterSawFinished = CompletableDeferred<Boolean>()
+            val cancelWaiter = async(Dispatchers.Default) {
+                waiterEntered.countDown()
+                val ex = assertThrows<StorageException> { cancelTask.gmsAwait() }
+                assertEquals(StorageException.ERROR_CANCELED, ex.errorCode)
+                cancelWaiterSawFinished.complete(cancelCompleteFinished.get())
+            }
+            assertTrue(waiterEntered.await(5, TimeUnit.SECONDS))
+            val jumpedCancel = kotlinx.coroutines.withTimeoutOrNull(40) { cancelWaiterSawFinished.await() } != null
+            releaseCancelComplete.countDown()
+            cancelJob.await()
+            cancelWaiter.await()
+            assertFalse(jumpedCancel, "cancel gmsAwait() jumped ahead of OnCompleteListener")
+            assertTrue(cancelWaiterSawFinished.await())
+        } finally {
+            releaseCancelComplete.countDown()
+            cancelGate.close()
+        }
+
+        // 3. Rejecting Executor inside OnCompleteListener must not strand settlingThread.
+        val rejectGate = GatedStorageBridge("cancel-reject-app")
+        try {
+            val task = rejectGate.storage.getReference("uploads/cancel-reject.bin").putBytes(byteArrayOf(4, 5))
+            val rejectingExecutor = Executor { throw java.util.concurrent.RejectedExecutionException("boom") }
+            task.addOnCompleteListener(rejectingExecutor) { }
+            assertThrows<java.util.concurrent.RejectedExecutionException> {
+                task.cancel()
+            }
+            val otherThreadCheck = async(Dispatchers.Default) {
+                kotlinx.coroutines.withTimeout(5_000) {
+                    assertTrue(task.isCanceled)
+                    assertTrue(task.isComplete)
+                    val err = assertThrows<StorageException> { task.coroutinesAwait() }
+                    assertEquals(StorageException.ERROR_CANCELED, err.errorCode)
+                    val gmsErr = assertThrows<StorageException> { task.gmsAwait() }
+                    assertEquals(StorageException.ERROR_CANCELED, gmsErr.errorCode)
+                }
+            }
+            otherThreadCheck.await()
+        } finally {
+            rejectGate.close()
+        }
+    }
+}
+
+private class GatedStorageBridge(appName: String) {
+    private val transport = InMemoryBridgeTransport()
+    private val opId = AtomicReference<String?>()
+    private val opArrived = CountDownLatch(1)
+    private val client: PyricBridgeClient
+    val storage: FirebaseStorage
+
+    init {
+        transport.onServerReceive { raw ->
+            val frame = JsonCodec.decodeMap(raw)
+            when (frame["type"]) {
+                "attach" -> transport.sendToClient(
+                    JsonCodec.encodeToString(
+                        mapOf(
+                            "type" to "attach-ack",
+                            "protocol" to 1,
+                            "clientSessionId" to (frame["clientSessionId"] ?: appName),
+                            "peerConnected" to true
+                        )
+                    )
+                )
+                "worker-op" -> {
+                    opId.set(frame["id"] as String)
+                    opArrived.countDown()
+                }
+            }
+        }
+        client = PyricBridgeClient(transport)
+        val app = FirebaseApp.initializeApp(
+            appName,
+            FirebaseOptions.Builder()
+                .setProjectId("edge-proj")
+                .setApiKey("edge-key")
+                .setApplicationId("1:777:android:$appName")
+                .setStorageBucket("edge-proj.appspot.com")
+                .build()
+        )
+        storage = FirebaseStorage.getInstance(app, client)
+    }
+
+    fun respondOk(fullPath: String, size: Int) {
+        assertTrue(opArrived.await(5, TimeUnit.SECONDS))
+        transport.sendToClient(
+            JsonCodec.encodeToString(
+                mapOf(
+                    "type" to "worker-res",
+                    "id" to opId.get()!!,
+                    "ok" to true,
+                    "value" to mapOf(
+                        "bucket" to "edge-proj.appspot.com",
+                        "fullPath" to fullPath,
+                        "name" to fullPath.substringAfterLast('/'),
+                        "size" to size,
+                        "generation" to "1",
+                        "metageneration" to "1",
+                        "contentType" to "application/octet-stream"
+                    )
+                )
+            )
+        )
+    }
+
+    fun respondError(code: String, message: String) {
+        assertTrue(opArrived.await(5, TimeUnit.SECONDS))
+        transport.sendToClient(
+            JsonCodec.encodeToString(
+                mapOf(
+                    "type" to "worker-res",
+                    "id" to opId.get()!!,
+                    "ok" to false,
+                    "error" to mapOf("code" to code, "message" to message)
+                )
+            )
+        )
+    }
+
+    fun close() {
+        client.terminate()
     }
 }
 
