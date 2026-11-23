@@ -85,7 +85,7 @@ export default scenario(async (app) => {
   await app.step('a page opened from another address loads, refuses in under 1s, and stops retrying (#2056)', async () => {
     // The driver's browser resolves only loopback names, so this one adds this machine's other address.
     const browser = await chromium.launch({ headless: true, args: [`--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1, EXCLUDE ${remote}`] });
-    try {
+    async function verifyRemotePage(initDelayMs: number): Promise<void> {
       const page = await browser.newPage();
       await app.watchCrashes(page.context());
       const pyricResponses: Array<{ url: string; status: number }> = [];
@@ -99,43 +99,64 @@ export default scenario(async (app) => {
       page.on('websocket', () => {
         webSocketsOpened += 1;
       });
+      if (initDelayMs > 0) {
+        await page.route('**/__pyric/init.json', async route => {
+          await sleep(initDelayMs);
+          try {
+            await route.continue();
+          } catch {
+            // Page closed before the delayed route continued.
+          }
+        });
+      }
 
-      await page.goto(`http://${remote}:${port}/remote-page.html`);
-      await page.waitForFunction(() => 'remoteReport' in window, undefined, { timeout: 10_000 });
-      const report = await page.evaluate(() =>
-        (window as unknown as {
-          remoteReport: {
-            first: { outcome: string; elapsedMs: number };
-            second: { outcome: string; elapsedMs: number };
-          };
-        }).remoteReport,
-      );
-      assert.match(report.first.outcome, /^refused: .*own machine/, report.first.outcome);
-      assert.match(report.second.outcome, /^refused: .*own machine/, report.second.outcome);
-      assert.ok(
-        report.first.elapsedMs < 1_000,
-        `first getDoc waited ${report.first.elapsedMs}ms instead of failing fast`,
-      );
-      assert.ok(
-        report.second.elapsedMs < 1_000,
-        `second getDoc waited ${report.second.elapsedMs}ms instead of failing fast`,
-      );
+      try {
+        await page.goto(`http://${remote}:${port}/remote-page.html`);
+        await page.waitForFunction(() => 'remoteReport' in window, undefined, { timeout: 10_000 });
+        const report = await page.evaluate(() =>
+          (window as unknown as {
+            remoteReport: {
+              first: { outcome: string; elapsedMs: number };
+              second: { outcome: string; elapsedMs: number };
+            };
+          }).remoteReport,
+        );
+        assert.match(report.first.outcome, /^refused: .*own machine/, report.first.outcome);
+        assert.match(report.second.outcome, /^refused: .*own machine/, report.second.outcome);
+        const firstBudgetMs = 1_000 + initDelayMs;
+        assert.ok(
+          report.first.elapsedMs < firstBudgetMs,
+          `first getDoc waited ${report.first.elapsedMs}ms instead of failing fast (budget ${firstBudgetMs}ms)`,
+        );
+        assert.ok(
+          report.second.elapsedMs < 1_000,
+          `second getDoc waited ${report.second.elapsedMs}ms instead of failing fast`,
+        );
 
-      // Let any background poller or delayed timer settle and prove zero retries or 4xx noise.
-      const countAtRefusal = pyricResponses.length;
-      await sleep(1_500);
-      assert.equal(
-        pyricResponses.length,
-        countAtRefusal,
-        `page continued requesting host endpoints after refusal: ${JSON.stringify(pyricResponses)}`,
-      );
-      assert.equal(webSocketsOpened, 0, `expected 0 WebSockets, saw ${webSocketsOpened}`);
-      const errorResponses = pyricResponses.filter(entry => entry.status >= 400);
-      assert.deepEqual(
-        errorResponses,
-        [],
-        `unexpected refused HTTP probes from remote page: ${JSON.stringify(pyricResponses)}`,
-      );
+        // Let any background poller or delayed timer settle and prove zero retries or 4xx noise.
+        const countAtRefusal = pyricResponses.length;
+        await sleep(1_500);
+        assert.equal(
+          pyricResponses.length,
+          countAtRefusal,
+          `page continued requesting host endpoints after refusal: ${JSON.stringify(pyricResponses)}`,
+        );
+        assert.equal(webSocketsOpened, 0, `expected 0 WebSockets, saw ${webSocketsOpened}`);
+        const errorResponses = pyricResponses.filter(entry => entry.status >= 400);
+        assert.deepEqual(
+          errorResponses,
+          [],
+          `unexpected refused HTTP probes from remote page (initDelayMs=${initDelayMs}): ${JSON.stringify(pyricResponses)}`,
+        );
+      } finally {
+        await page.close();
+      }
+    }
+    try {
+      await verifyRemotePage(0);
+      // Delay /__pyric/init.json past the 100ms diagnostics flush debounce so any premature
+      // /__pyric/diagnostics POST before init settles reproduces deterministically (#3264).
+      await verifyRemotePage(250);
     } finally {
       await browser.close();
     }

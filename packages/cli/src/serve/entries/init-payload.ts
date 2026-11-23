@@ -1,5 +1,10 @@
 import './bundled-worker-init.js';
-import { recordDiagnostic, stopDiagnosticReporting } from '../runtime/diagnostics-client.js';
+import {
+  deferDiagnosticReporting,
+  recordDiagnostic,
+  resumeDiagnosticReporting,
+  stopDiagnosticReporting,
+} from '../runtime/diagnostics-client.js';
 import { stampedSessionToken } from '../runtime/hosted-target.js';
 import { pageListenerObservation } from '../runtime/listener-observation.js';
 import type { InitPayload } from '../init-payload.js';
@@ -99,7 +104,18 @@ function warnIfInsecureBrowserContext(): void {
   }
 }
 
+/**
+ * True once `/__pyric/init.json` has returned a non-refused, local-peer
+ * payload in this browser realm. Until then, HTTP diagnostic flushes stay
+ * deferred so a slow init round-trip cannot race the 100ms flush timer and
+ * POST `/__pyric/diagnostics` from a refused or remote peer (#3264).
+ */
+let diagnosticReportingConfirmed = false;
+
 async function requestInitPayload(resolvedUrl?: string): Promise<InitPayload> {
+  if (!isNodeRealm && !diagnosticReportingConfirmed) {
+    deferDiagnosticReporting();
+  }
   recordDiagnostic({ phase: 'init-request' });
   const abortController = new AbortController();
   let status: number | undefined;
@@ -143,6 +159,9 @@ async function requestInitPayload(resolvedUrl?: string): Promise<InitPayload> {
     const payload: InitPayload = await response.json();
     if (payload.remotePeer === true) {
       stopDiagnosticReporting();
+    } else if (!isNodeRealm) {
+      diagnosticReportingConfirmed = true;
+      resumeDiagnosticReporting();
     }
     const isRefusedRemotePage = declaresNodeHost && payload.remotePeer === true;
     if (isRefusedRemotePage) {

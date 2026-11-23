@@ -26,6 +26,7 @@ describe('init entry dependency boundary', () => {
 const ENTRIES = join(import.meta.dir, '../../../src/serve/entries');
 const INIT_ENTRY = join(ENTRIES, 'init.ts');
 const INIT_PAYLOAD = join(ENTRIES, 'init-payload.ts');
+const DIAGNOSTICS_CLIENT = join(import.meta.dir, '../../../src/serve/runtime/diagnostics-client.ts');
 
 /**
  * What `init.ts` and `init-payload.ts` import, other than each other, answers
@@ -59,7 +60,9 @@ export const sandboxEventSource = () => ({});
 export const getPyricRuntimeStatus = () => ({});
 export const projectRuntimeIdentity = (user) => user;
 export const pageLiveIdentity = () => ({ current: () => null, recent: () => [], subscribe: () => noop, dispose: noop });
+export const deferDiagnosticReporting = noop;
 export const recordDiagnostic = noop;
+export const resumeDiagnosticReporting = noop;
 export const stopDiagnosticReporting = noop;
 export const stampedSessionToken = () => undefined;
 export const pageListenerObservation = noop;
@@ -77,11 +80,16 @@ import { initPayload, logInitPayloadFailure } from ${JSON.stringify(INIT_PAYLOAD
 initPayload.then(() => {}, logInitPayloadFailure);
 `;
 
-function isServedModule(path: string): boolean {
-  return path === './init-payload.js' || path === INIT_ENTRY || path === INIT_PAYLOAD;
+function isServedModule(path: string, realDiagnostics: boolean): boolean {
+  if (path === './init-payload.js' || path === INIT_ENTRY || path === INIT_PAYLOAD) return true;
+  if (realDiagnostics && (path === '../runtime/diagnostics-client.js' || path === DIAGNOSTICS_CLIENT)) {
+    return true;
+  }
+  return false;
 }
 
-async function bundlePage(): Promise<string> {
+async function bundlePage(options: { realDiagnostics?: boolean } = {}): Promise<string> {
+  const realDiagnostics = options.realDiagnostics === true;
   const result = await Bun.build({
     entrypoints: ['page-entry'],
     format: 'iife',
@@ -92,7 +100,7 @@ async function bundlePage(): Promise<string> {
         build.onResolve({ filter: /^page-entry$/ }, () => ({ path: 'page-entry', namespace: 'page' }));
         build.onLoad({ filter: /.*/, namespace: 'page' }, () => ({ contents: PAGE, loader: 'js' }));
         build.onResolve({ filter: /.*/ }, (args) => {
-          if (isServedModule(args.path)) return undefined;
+          if (isServedModule(args.path, realDiagnostics)) return undefined;
           const isStoodIn = args.importer === INIT_ENTRY || args.importer === INIT_PAYLOAD;
           if (!isStoodIn) return undefined;
           return { path: args.path, namespace: 'standin' };
@@ -207,6 +215,95 @@ describe('init entry payload refusal (#2052)', () => {
       const line = logged[0]?.join(' ') ?? '';
       expect(line).toContain(testCase.expected);
       if (testCase.forbidden !== undefined) expect(line).not.toContain(testCase.forbidden);
+    }
+  });
+
+  it('defers /__pyric/diagnostics while slow /__pyric/init.json is in flight (#3264)', async () => {
+    const code = await bundlePage({ realDiagnostics: true });
+    const prevLocation = Object.getOwnPropertyDescriptor(globalThis, 'location');
+    const prevFetch = Object.getOwnPropertyDescriptor(globalThis, 'fetch');
+    const stateSymbol = Symbol.for('pyric.diagnostics.reportingState');
+    const globals = globalThis as Record<symbol, unknown> & { __pyricDiagnostics?: unknown };
+
+    async function runSlowInit(
+      origin: string,
+      respondInit: () => Response,
+    ): Promise<{ requests: string[]; diagnosticPhases: string[][] }> {
+      delete globals.__pyricDiagnostics;
+      delete globals[stateSymbol];
+      const requests: string[] = [];
+      const diagnosticPhases: string[][] = [];
+      const fakeLocation = new URL(`${origin}/remote-page.html`);
+      Object.defineProperty(globalThis, 'location', {
+        value: fakeLocation,
+        configurable: true,
+        writable: true,
+      });
+      const fakeFetch = (async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        requests.push(url);
+        if (url.includes('/__pyric/init.json')) {
+          await new Promise(resolve => setTimeout(resolve, 160));
+          return respondInit();
+        }
+        if (url.includes('/__pyric/diagnostics') && typeof init?.body === 'string') {
+          const parsed = JSON.parse(init.body) as { events: Array<{ phase: string }> };
+          diagnosticPhases.push(parsed.events.map(event => event.phase));
+          return new Response(null, { status: 204 });
+        }
+        return new Response('forbidden', { status: 403 });
+      }) as typeof fetch;
+      Object.defineProperty(globalThis, 'fetch', {
+        value: fakeFetch,
+        configurable: true,
+        writable: true,
+      });
+      const hostMeta = { getAttribute: (name: string) => (name === 'content' ? 'node' : null) };
+      const document = {
+        querySelector: (selector: string) =>
+          selector.includes('pyric-sandbox-host') ? hostMeta : null,
+      };
+      const silentConsole = { ...console, error: () => {}, warn: () => {} };
+      new Function('document', 'window', 'console', 'fetch', code)(
+        document,
+        {},
+        silentConsole,
+        fakeFetch,
+      );
+      // Wait past init (160ms) + diagnostics debounce (100ms).
+      await new Promise(resolve => setTimeout(resolve, 340));
+      return { requests, diagnosticPhases };
+    }
+
+    try {
+      const remotePeer = await runSlowInit('http://10.203.0.1:5000', () =>
+        Response.json({ remotePeer: true }),
+      );
+      expect(remotePeer.requests.filter(url => url.includes('/__pyric/diagnostics'))).toEqual([]);
+
+      const forbidden = await runSlowInit('http://10.203.0.1:5000', () =>
+        new Response('forbidden', { status: 403 }),
+      );
+      expect(forbidden.requests.filter(url => url.includes('/__pyric/diagnostics'))).toEqual([]);
+
+      const local = await runSlowInit('http://127.0.0.1:5000', () =>
+        Response.json({ hosted: true, projectKey: null }),
+      );
+      expect(local.requests.filter(url => url.includes('/__pyric/diagnostics'))).toHaveLength(1);
+      expect(local.diagnosticPhases).toEqual([['init-request', 'init-ready']]);
+    } finally {
+      delete globals.__pyricDiagnostics;
+      delete globals[stateSymbol];
+      if (prevLocation !== undefined) {
+        Object.defineProperty(globalThis, 'location', prevLocation);
+      } else {
+        delete (globalThis as { location?: unknown }).location;
+      }
+      if (prevFetch !== undefined) {
+        Object.defineProperty(globalThis, 'fetch', prevFetch);
+      } else {
+        delete (globalThis as { fetch?: unknown }).fetch;
+      }
     }
   });
 });
