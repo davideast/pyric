@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { functionsHttpRows } from '@pyric/conformance/functions-http-fixture';
+import { createPrivateInvokerWarnings } from '../src/functions/http/report.js';
 
 /**
  * Docs claims about production behavior, held against production captures.
@@ -16,6 +18,7 @@ const docs = (page: string) => readFileSync(join(repoRoot, 'packages/site-docs/s
 const json = <T>(path: string) => JSON.parse(readFileSync(join(repoRoot, path), 'utf8')) as T;
 
 interface UploadAttempt { threw: boolean; code: string | null; status: number | null }
+interface GateRefusal { httpStatus: number; errorStatus: string; messageText: string }
 
 describe('docs claims pinned against production captures', () => {
   test('DT-H1-11: cloud-storage.md names storage/unauthorized for a signed-out upload, matching production', () => {
@@ -45,5 +48,93 @@ describe('docs claims pinned against production captures', () => {
     expect(bound('and-chain-calls')).toMatchObject({ largestPass: 99, smallestFail: 100 });
     // Comparisons: 98 compile, 99 fail, as the page says.
     expect(bound('and-chain')).toMatchObject({ largestPass: 98, smallestFail: 99 });
+  });
+
+  test('#1882: AI Logic App Check docs describe the enforced 401 and cite the enforced capture', () => {
+    const gateWire = json<{
+      observedAt: string;
+      behavior: {
+        appCheckEnforcementModeAtCapture: string;
+        noHeader: GateRefusal;
+        streamGenerateContentNoHeader: GateRefusal;
+        countTokensNoHeader: GateRefusal;
+      };
+    }>('packages/conformance/observations/app-check/app-check-ai-gate-wire.json');
+
+    expect(gateWire.observedAt.startsWith('2026-11-03')).toBe(true);
+    expect(gateWire.behavior.appCheckEnforcementModeAtCapture).toBe('ENFORCED');
+    for (const entry of [
+      gateWire.behavior.noHeader,
+      gateWire.behavior.streamGenerateContentNoHeader,
+      gateWire.behavior.countTokensNoHeader,
+    ]) {
+      expect(entry).toMatchObject({
+        httpStatus: 401,
+        errorStatus: 'UNAUTHENTICATED',
+        messageText: 'Firebase App Check token is invalid.',
+      });
+    }
+
+    const aiLogicPage = docs('build/ai-logic.md');
+    expect(aiLogicPage).toContain('Pyric refuses an AI Logic request without an App Check token with a 401');
+    expect(aiLogicPage).toContain('UNAUTHENTICATED');
+    expect(aiLogicPage).toContain('Firebase App Check token is invalid.');
+    expect(aiLogicPage).toContain('2026-11-03');
+    expect(aiLogicPage).toContain('app-check-ai-gate-wire');
+    expect(aiLogicPage).toContain('gets the same 401 as a request with no token');
+    expect(aiLogicPage).not.toContain('without an App Check token with a 403');
+    expect(aiLogicPage).not.toContain('with a 403 error');
+    expect(aiLogicPage).not.toContain('what a project that enforces it answers is not yet known');
+    expect(aiLogicPage).not.toContain('gets the same 403 as a request with no token');
+
+    const tutorialPage = docs('tutorial.md');
+    expect(tutorialPage).toContain('Pyric refuses AI Logic requests without an App Check token with a 401');
+    expect(tutorialPage).toContain('UNAUTHENTICATED');
+    expect(tutorialPage).toContain('Firebase App Check token is invalid.');
+    expect(tutorialPage).toContain('2026-11-03');
+    expect(tutorialPage).toContain('app-check-ai-gate-wire');
+    expect(tutorialPage).not.toContain('without an App Check token with a 403');
+  });
+
+  test('#1991: realtime-database.md and functions-http#15 match the private-invoker startup warning', () => {
+    const warnings = createPrivateInvokerWarnings()({
+      port: 0,
+      token: 'test-token',
+      functions: [
+        {
+          exportName: 'lockedFn',
+          regions: ['us-central1'],
+          platform: 'gcfv2',
+          privateInvoker: true,
+          timeoutSeconds: null,
+        },
+      ],
+    });
+    expect(warnings).toHaveLength(1);
+    const startupWarning = warnings[0] ?? '';
+
+    const invokerClause = "sets an invoker other than 'public', such as invoker: 'private' or a service account";
+    const prodRefusalClause = 'production refuses unauthenticated calls with 403';
+    const servedCallersClause = "serves it without authentication to the app's own pages and to callers that are not browser pages, such as curl or server code";
+
+    expect(startupWarning).toContain(invokerClause);
+    expect(startupWarning).toContain(prodRefusalClause);
+    expect(startupWarning).toContain(servedCallersClause);
+
+    const rtdbPagePlain = docs('build/realtime-database.md').replaceAll('`', '');
+    expect(rtdbPagePlain).toContain(invokerClause);
+    expect(rtdbPagePlain).toContain(prodRefusalClause);
+    expect(rtdbPagePlain).toContain(servedCallersClause);
+    expect(rtdbPagePlain).not.toContain("A function that sets invoker: 'private' runs without authentication");
+    expect(rtdbPagePlain).not.toContain('callers that send no Origin');
+
+    const row15 = functionsHttpRows.find((row) => row.id === 'functions-http#15');
+    if (!row15) {
+      throw new Error('functions-http#15 row is missing');
+    }
+    expect(row15.behavior).toContain(invokerClause);
+    expect(row15.behavior).toContain(prodRefusalClause);
+    expect(row15.behavior).toContain(servedCallersClause);
+    expect(row15.behavior).not.toContain("call to an invoker: 'private' function");
   });
 });
