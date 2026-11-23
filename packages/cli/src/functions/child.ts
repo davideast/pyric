@@ -105,8 +105,9 @@ function resolveGlobalTimeoutSeconds(entry: string): number | undefined {
   let functionsMain: string;
   try {
     functionsMain = createRequire(entry).resolve('firebase-functions');
-  } catch {
+  } catch (error: unknown) {
     // Synthetic test fixtures without a `firebase-functions` install have no global options.
+    void error;
     return undefined;
   }
   const libDir = dirname(dirname(functionsMain));
@@ -122,8 +123,9 @@ function resolveGlobalTimeoutSeconds(entry: string): number | undefined {
     if (typeof rawTimeout === 'number' && Number.isFinite(rawTimeout) && rawTimeout > 0) {
       return rawTimeout;
     }
-  } catch {
+  } catch (error: unknown) {
     // Optional inspection fallback when `v2/options.js` layout differs.
+    void error;
   }
   return undefined;
 }
@@ -238,7 +240,7 @@ async function runFunctionsChild(): Promise<void> {
   const exitSoon = (deadlineMs: number): void => {
     if (exiting) return;
     exiting = true;
-    setTimeout(() => process.exit(process.exitCode ?? 0), deadlineMs);
+    setTimeout(() => process.exit(process.exitCode ?? 0), deadlineMs).unref();
     void close().catch(() => undefined).finally(() => process.exit(process.exitCode ?? 0));
   };
   const hostLost = (): void => exitSoon(HOST_LOST_DEADLINE_MS);
@@ -255,11 +257,21 @@ async function runFunctionsChild(): Promise<void> {
     if (raw.type === 'stop') {
       if (stopRequested) return;
       stopRequested = true;
-      void shutdown().catch((error) => {
-        send({ type: 'fatal', error: serializeError(error) });
-        process.exitCode = 1;
-        disconnectFromHost();
-      });
+      // Bound IPC stop before the host's 2 s SIGKILL timer fires, matching
+      // SIGINT/SIGTERM and ensuring open sockets or wedged handlers cannot
+      // hold the child past shutdown (#1543).
+      setTimeout(() => process.exit(process.exitCode ?? 0), HOST_LOST_DEADLINE_MS).unref();
+      void shutdown()
+        .catch((error: unknown) => {
+          send({ type: 'fatal', error: serializeError(error) });
+          process.exitCode = 1;
+          disconnectFromHost();
+        })
+        .finally(() => {
+          if (!process.connected) {
+            process.exit(process.exitCode ?? 0);
+          }
+        });
       return;
     }
     if (raw.type === 'trigger-scheduled') {

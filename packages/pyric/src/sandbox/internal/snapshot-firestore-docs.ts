@@ -73,7 +73,7 @@ export function reviveStructuredClonedRulesValue(record: Record<string, unknown>
       return undefined;
     case 'path':
       if (Array.isArray(record.segments)) {
-        return new RulesPath(record.segments as string[], clonePathBindings(record.bindings));
+        return new RulesPath([...(record.segments as string[])], clonePathBindings(record.bindings));
       }
       return undefined;
     case 'vector':
@@ -94,7 +94,7 @@ function reviveJsonSnapshotMarker(record: Record<string, unknown>): unknown | un
   }
   if (typeof record.__type === 'string') {
     if (record.__type === 'path' && Array.isArray(record.segments)) {
-      return new RulesPath(record.segments as string[], clonePathBindings(record.bindings));
+      return new RulesPath([...(record.segments as string[])], clonePathBindings(record.bindings));
     }
     if (
       record.__type === 'timestamp' ||
@@ -146,7 +146,14 @@ export function snapshotFirestoreState(
       if (Array.isArray(node)) {
         return node.map((item, idx) => cloneNode(item, [...currentPath, idx]));
       }
-      if (!isPlainSnapshotMap(node)) return node;
+      if (!isPlainSnapshotMap(node)) {
+        const revived = reviveStructuredClonedRulesValue(node as Record<string, unknown>);
+        if (revived instanceof RulesValue) {
+          docWrappers.push([...currentPath]);
+          return revived;
+        }
+        return node;
+      }
       const proto = Object.getPrototypeOf(node);
       const copy: Record<string, unknown> = proto === null ? Object.create(null) : {};
       for (const key of Object.keys(node)) {
@@ -216,7 +223,11 @@ export function rehydrateSnapshotDocument(
     if (Array.isArray(value)) {
       return value.map((item, idx) => walk(item, [...currentPath, idx]));
     }
-    if (!isPlainSnapshotMap(value)) return value;
+    if (!isPlainSnapshotMap(value)) {
+      const revived = reviveStructuredClonedRulesValue(value as Record<string, unknown>);
+      if (revived !== undefined) return revived;
+      return value;
+    }
 
     const pathKey = JSON.stringify(currentPath);
     const knownUnescaped =

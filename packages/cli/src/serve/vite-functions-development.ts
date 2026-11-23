@@ -23,6 +23,7 @@ import type { HostingRewrite } from '../functions/http/rewrites.js';
 import { formatUrlHost } from './advertised-host.js';
 import type { TrustProxyPolicy } from './guard-policy.js';
 import type { BridgeMount } from './bridge-mount.js';
+import { watchFunctionsSourceDirectory, type FunctionsSourceWatch } from './functions-source-watch.js';
 
 type ConnectHandler = (req: IncomingMessage, res: ServerResponse, next: (error?: unknown) => void) => void;
 
@@ -77,17 +78,21 @@ function reportEvent(
   }
   if (event.type === 'starting') return;
   if (event.type === 'unresponsive') {
-    logger.error(`  ✖ [pyric] ${UNRESPONSIVE_LINE}`);
+    logger.error(`  \u2716 [pyric] ${UNRESPONSIVE_LINE}`);
     return;
   }
   if (event.type === 'restarted') {
-    if (event.result.kind === 'ready') logger.info('  ↻ [pyric] functions restarted');
-    else logger.error(`  ✖ [pyric] functions did not restart (${event.result.kind === 'failed' ? event.result.error.message : 'no sandbox peer'})`);
+    if (event.result.kind === 'ready') {
+      logger.info('  \u21bb [pyric] functions restarted');
+    } else {
+      const reason = event.result.kind === 'failed' ? event.result.error.message : 'no sandbox peer';
+      logger.error(`  \u2716 [pyric] functions did not restart (${reason})`);
+    }
     return;
   }
   const childEvent = event.event;
   if (childEvent.type === 'uncaught-error') {
-    logger.error(`  ✖ [pyric] ${uncaughtErrorLine(childEvent.error)}`);
+    logger.error(`  \u2716 [pyric] ${uncaughtErrorLine(childEvent.error)}`);
     return;
   }
   if (childEvent.type === 'execution') {
@@ -96,15 +101,15 @@ function reportEvent(
       .join(', ');
     const suffix = params ? ` (${params})` : '';
     if (childEvent.status === 'fulfilled') {
-      logger.info(`  ✔ [pyric] function ${childEvent.exportName} ← /${childEvent.ref}${suffix}`);
+      logger.info(`  \u2714 [pyric] function ${childEvent.exportName} \u2190 /${childEvent.ref}${suffix}`);
     } else {
       logger.error(
-        `  ✖ [pyric] function ${childEvent.exportName} ← /${childEvent.ref}${suffix}: ${childEvent.error.message}`,
+        `  \u2716 [pyric] function ${childEvent.exportName} \u2190 /${childEvent.ref}${suffix}: ${childEvent.error.message}`,
       );
     }
   } else {
     logger.error(
-      `  ✖ [pyric] functions delivery for ${childEvent.exportName}: ${childEvent.error.message}`,
+      `  \u2716 [pyric] functions delivery for ${childEvent.exportName}: ${childEvent.error.message}`,
     );
   }
 }
@@ -118,42 +123,51 @@ function reportResult(
 ): void {
   const { logger, project, cwd } = options;
   if (result.kind === 'no-peer') {
-    logger.warn(
-      mode === 'reload'
-        ? `  ✖ [pyric] functions not restarted — no sandbox peer connected. ` +
-            `Startup will retry when a sandbox peer connects, or on the next save.`
-        : `  ⚠ [pyric] functions not started — no browser tab connected after 30s. ` +
-            `Open ${serveUrl}; startup will retry when a sandbox peer connects.`,
-    );
+    if (mode === 'reload') {
+      logger.warn(
+        '  \u2716 [pyric] functions not restarted \u2014 no sandbox peer connected. ' +
+          'Startup will retry when a sandbox peer connects, or on the next save.',
+      );
+    } else {
+      logger.warn(
+        `  \u26a0 [pyric] functions not started \u2014 no browser tab connected after 30s. ` +
+          `Open ${serveUrl}; startup will retry when a sandbox peer connects.`,
+      );
+    }
     return;
   }
   if (result.kind === 'failed') {
-    logger.error(
-      mode === 'reload'
-        ? `  ✖ [pyric] functions failed to reload: ${result.error.message}\n` +
-            `  ✖ [pyric] functions are down until the next good save.`
-        : `  ✖ [pyric] functions failed to start: ${result.error.message}`,
-    );
+    if (mode === 'reload') {
+      logger.error(
+        `  \u2716 [pyric] functions failed to reload: ${result.error.message}\n` +
+          '  \u2716 [pyric] functions are down until the next good save.',
+      );
+    } else {
+      logger.error(`  \u2716 [pyric] functions failed to start: ${result.error.message}`);
+    }
     return;
   }
   const ready = result.ready;
   const reportsTriggers = mode === 'reload' || ready.triggerCount > 0 || ready.http === undefined;
   if (reportsTriggers) {
-    logger.info(
-      mode === 'reload'
-        ? `  ↻ [pyric] functions reloaded (${ready.triggerCount} trigger${ready.triggerCount === 1 ? '' : 's'})`
-        : `  ✔ [pyric] functions ${ready.triggerCount} onValueCreated ` +
-            `trigger${ready.triggerCount === 1 ? '' : 's'} from ${path.relative(cwd, project.entry)}`,
-    );
+    const suffix = ready.triggerCount === 1 ? '' : 's';
+    if (mode === 'reload') {
+      logger.info(`  \u21bb [pyric] functions reloaded (${ready.triggerCount} trigger${suffix})`);
+    } else {
+      logger.info(
+        `  \u2714 [pyric] functions ${ready.triggerCount} onValueCreated ` +
+          `trigger${suffix} from ${path.relative(cwd, project.entry)}`,
+      );
+    }
   }
   if (ready.http) {
     const [heading, ...urls] = httpFunctionLines(ready.http, serveUrl, options.projectId);
-    logger.info(`  ✔ [pyric] ${heading}\n${urls.join('\n')}`);
-    for (const warning of warnPrivateInvokers(ready.http)) logger.warn(`  ⚠ [pyric] ${warning}`);
+    logger.info(`  \u2714 [pyric] ${heading}\n${urls.join('\n')}`);
+    for (const warning of warnPrivateInvokers(ready.http)) logger.warn(`  \u26a0 [pyric] ${warning}`);
   }
   for (const unsupported of ready.unsupportedTriggers) {
     logger.warn(
-      `  ⚠ [pyric] functions export ${unsupported.exportName} uses unsupported trigger ` +
+      `  \u26a0 [pyric] functions export ${unsupported.exportName} uses unsupported trigger ` +
         `${unsupported.eventType}; it will not run.`,
     );
   }
@@ -187,20 +201,27 @@ export function attachViteFunctionsDevelopment(
     }
   };
   const warnPrivateInvokers = createPrivateInvokerWarnings();
-  const gateway: FunctionsHttpGateway = createFunctionsHttpGateway({
+  const gatewayOptions: Parameters<typeof createFunctionsHttpGateway>[0] = {
     projectId: options.projectId,
     initial: { kind: 'starting' },
-    ...(options.rewrites ? { rewrites: options.rewrites } : {}),
-    ...(options.staticFileExists ? { staticFileExists: options.staticFileExists } : {}),
-    ...(options.trustProxy !== undefined ? { trustProxy: options.trustProxy } : {}),
-    onWarning: (warning) => options.logger.warn(`  ⚠ [pyric] ${warning}`),
+    onWarning: (warning) => options.logger.warn(`  \u26a0 [pyric] ${warning}`),
     onServed: (record) => {
       const { failed, line } = servedLine(record);
-      if (failed) options.logger.error(`  ✖ [pyric] ${line}`);
-      else options.logger.info(`  ✔ [pyric] ${line}`);
+      if (failed) options.logger.error(`  \u2716 [pyric] ${line}`);
+      else options.logger.info(`  \u2714 [pyric] ${line}`);
     },
     plane: 'vite',
-  });
+  };
+  if (options.rewrites !== undefined) {
+    gatewayOptions.rewrites = options.rewrites;
+  }
+  if (options.staticFileExists !== undefined) {
+    gatewayOptions.staticFileExists = options.staticFileExists;
+  }
+  if (options.trustProxy !== undefined) {
+    gatewayOptions.trustProxy = options.trustProxy;
+  }
+  const gateway: FunctionsHttpGateway = createFunctionsHttpGateway(gatewayOptions);
   options.middlewares.use((req, res, next) => {
     if (closed || !options.isAllowedRequest(req)) {
       next();
@@ -243,7 +264,13 @@ export function attachViteFunctionsDevelopment(
   const onListening = (): void => {
     const url = serveUrl();
     if (!url || closed || runtime) return;
-    runtime = runtimeFactory({
+    let functionsLocation = 'us-central1';
+    if (options.region !== undefined) {
+      functionsLocation = options.region;
+    } else if (options.baseEnv.PYRIC_FUNCTIONS_RTDB_REGION !== undefined) {
+      functionsLocation = options.baseEnv.PYRIC_FUNCTIONS_RTDB_REGION;
+    }
+    const runtimeOptions: Parameters<typeof createFunctionsDevelopmentRuntime>[0] = {
       sourceDir: project.sourceDir,
       entry: project.entry,
       baseEnv: options.baseEnv,
@@ -252,7 +279,7 @@ export function attachViteFunctionsDevelopment(
       hostInstanceId: bridge.instanceId,
       sessionToken: bridge.sessionToken,
       instance: options.instance ?? `${options.projectId}-default-rtdb`,
-      location: options.region ?? options.baseEnv.PYRIC_FUNCTIONS_RTDB_REGION ?? 'us-central1',
+      location: functionsLocation,
       projectId: options.projectId,
       readiness: createInProcessFunctionsPeerReadiness(bridge.sandboxConnected),
       onEvent: (event) => {
@@ -283,8 +310,11 @@ export function attachViteFunctionsDevelopment(
         }
         reportEvent(options.logger, event);
       },
-      ...(options.childModuleUrl === undefined ? {} : { childModuleUrl: options.childModuleUrl }),
-    });
+    };
+    if (options.childModuleUrl !== undefined) {
+      runtimeOptions.childModuleUrl = options.childModuleUrl;
+    }
+    runtime = runtimeFactory(runtimeOptions);
     gateway.update({ kind: 'waiting-peer', serveUrl: url });
     startFunctions();
   };
@@ -317,11 +347,13 @@ export function attachViteFunctionsDevelopment(
 
   if ((httpServer as unknown as { listening?: boolean }).listening) onListening();
   else httpServer.once('listening', onListening);
+  let sourceWatch: FunctionsSourceWatch | null = null;
   if (options.watch !== false) {
     watcher.add(project.sourceDir);
     watcher.on('change', onFunctionsFsEvent);
     watcher.on('add', onFunctionsFsEvent);
     watcher.on('unlink', onFunctionsFsEvent);
+    sourceWatch = watchFunctionsSourceDirectory(project.sourceDir, onFunctionsFsEvent);
   }
 
   return {
@@ -335,6 +367,8 @@ export function attachViteFunctionsDevelopment(
         reconnectQueued = false;
         if (reloadDebounce) clearTimeout(reloadDebounce);
         httpServer.removeListener('listening', onListening);
+        sourceWatch?.close();
+        sourceWatch = null;
         if (options.watch !== false) {
           watcher.off('change', onFunctionsFsEvent);
           watcher.off('add', onFunctionsFsEvent);

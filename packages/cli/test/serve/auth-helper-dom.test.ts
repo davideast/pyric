@@ -42,20 +42,23 @@ describe('mountAuthHelperDialog keyboard & autofill event isolation', () => {
       });
       await new Promise((r) => setTimeout(r, 10));
 
-      const emailInput = dom.window.document.querySelector('dialog[data-pyric-auth] input[type="email"]');
-      expect(emailInput).not.toBeNull();
+      const emailInput = dom.window.document.querySelector<HTMLInputElement>(
+        'dialog[data-pyric-auth] input[type="email"]',
+      );
+      if (emailInput === null) throw new Error('expected email input');
 
       // 1. Chrome Autofill dispatches a base Event('keydown', { bubbles: true }) where ev.code is undefined.
-      emailInput!.dispatchEvent(new dom.window.Event('keydown', { bubbles: true }));
+      emailInput.dispatchEvent(new dom.window.Event('keydown', { bubbles: true }));
       // 2. Regular keyboard typing inside the dialog.
-      emailInput!.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'a', code: 'KeyA', bubbles: true }));
+      emailInput.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'a', code: 'KeyA', bubbles: true }));
 
       expect(leakedEvents).toBe(0);
 
       // Submitting the form inside the dialog still resolves sign-in normally.
-      (emailInput as HTMLInputElement).value = 'dceast@gmail.com';
+      emailInput.value = 'dceast@gmail.com';
       const form = dom.window.document.querySelector('dialog[data-pyric-auth] form');
-      form!.dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }));
+      if (form === null) throw new Error('expected auth dialog form');
+      form.dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }));
 
       const settled = await pending;
       expect(settled.user.email).toBe('dceast@gmail.com');
@@ -117,9 +120,9 @@ describe('mountAuthHelperDialog keeps the form across emits', () => {
 
       const doc = dom.window.document;
       const email = doc.querySelector<HTMLInputElement>('dialog[data-pyric-auth] input[type="email"]');
-      expect(email).not.toBeNull();
-      email!.focus();
-      email!.value = 'erin@example.com';
+      if (email === null) throw new Error('expected email input');
+      email.focus();
+      email.value = 'erin@example.com';
       expect(doc.activeElement).toBe(email);
 
       releaseList([
@@ -134,11 +137,78 @@ describe('mountAuthHelperDialog keeps the form across emits', () => {
       expect(buttons[0]?.textContent).toBe('Ada (ada@example.com)');
       const after = doc.querySelector<HTMLInputElement>('dialog[data-pyric-auth] input[type="email"]');
       expect(after).toBe(email);
-      expect(after!.value).toBe('erin@example.com');
+      expect(after?.value).toBe('erin@example.com');
       expect(doc.activeElement).toBe(email);
 
       helper.cancel();
-      await pending.catch(() => undefined);
+      await pending.catch((error: unknown) => { void error; });
+    } finally {
+      globalThis.document = prevDocument;
+      dom.window.close();
+    }
+  });
+
+  it('preserves button.submit and resolves linkWithPopup when async listUsers settles between fill and click (#1578)', async () => {
+    const dom = new JSDOM('<!doctype html><html><head></head><body></body></html>');
+    const prevDocument = globalThis.document;
+    globalThis.document = dom.window.document as unknown as Document;
+    const DialogProto = dom.window.HTMLElement.prototype as unknown as {
+      open?: boolean;
+      showModal?: () => void;
+      close?: () => void;
+    };
+    DialogProto.showModal = function showModal(this: { open?: boolean }) {
+      this.open = true;
+    };
+    DialogProto.close = function close(this: { open?: boolean }) {
+      this.open = false;
+    };
+
+    try {
+      let releaseOpenList: (identities: ListedIdentity[]) => void = () => {};
+      let reads = 0;
+      const helper = new ServeAuthHelper({
+        list: () => {
+          reads += 1;
+          if (reads === 1) return Promise.resolve([]);
+          return new Promise<ListedIdentity[]>((resolve) => {
+            releaseOpenList = resolve;
+          });
+        },
+      });
+      await new Promise((r) => setTimeout(r, 0));
+
+      mountAuthHelperDialog(helper);
+      const pending = helper.resolver().openPopup({
+        providerId: 'google.com',
+        authType: 'link',
+      });
+
+      const doc = dom.window.document;
+      const dialog = doc.querySelector<HTMLDialogElement>('dialog[data-pyric-auth]');
+      const email = doc.querySelector<HTMLInputElement>('dialog[data-pyric-auth] input[type="email"]');
+      const submitBefore = doc.querySelector<HTMLButtonElement>('dialog[data-pyric-auth] button.submit');
+      if (dialog === null || email === null || submitBefore === null) {
+        throw new Error('expected open auth dialog elements');
+      }
+
+      email.value = 'provider@example.com';
+
+      // SharedWorker `listUsers(workerAuth)` resolves right before `submit.click()`.
+      releaseOpenList([
+        { uid: 'anonymous-orig', email: null, displayName: null, isAnonymous: true, customClaims: {} },
+      ]);
+      await new Promise((r) => setTimeout(r, 0));
+
+      const submitAfter = doc.querySelector<HTMLButtonElement>('dialog[data-pyric-auth] button.submit');
+      expect(submitAfter).toBe(submitBefore);
+      expect(submitBefore.isConnected).toBe(true);
+
+      submitBefore.click();
+      const credential = await pending;
+      expect(credential.user.email).toBe('provider@example.com');
+      expect(credential.providerId).toBe('google.com');
+      expect(dialog.open).toBe(false);
     } finally {
       globalThis.document = prevDocument;
       dom.window.close();

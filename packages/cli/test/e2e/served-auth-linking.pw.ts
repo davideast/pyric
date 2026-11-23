@@ -86,6 +86,7 @@ for (const hosted of [false, true]) {
       const dialog = page.locator('dialog[data-pyric-auth][open]');
       await expect(dialog).toBeVisible();
       await dialog.locator('input[type="email"]').fill('provider@example.com');
+      await expect(dialog.locator('input[type="email"]')).toHaveValue('provider@example.com');
       await dialog.locator('button.submit').click();
       await expect(page.locator('#status')).toHaveText('Success');
       const linked = await page.evaluate(() => Reflect.get(window, 'linkProbe'));

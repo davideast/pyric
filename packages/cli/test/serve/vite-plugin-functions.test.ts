@@ -1,5 +1,5 @@
 /**
- * Vite-plugin parity for RTDB-triggered Cloud Functions — the same slice
+ * Vite-plugin parity for RTDB-triggered Cloud Functions -- the same slice
  * `pyric dev` runs (`onValueCreated`), now reachable under `pyric()`.
  *
  * Mirrors `test/functions-rtdb/dev.e2e.test.ts`, but drives the plugin instead
@@ -7,25 +7,25 @@
  * the browser SharedWorker (so the plugin sees a connected sandbox and spawns
  * the Functions child), and an observer RemoteSandbox writes RTDB + reads the
  * trigger's effect back. The Functions child runs the UNCHANGED functions
- * module in an isolated node process, exactly as `pyric dev` does — so this
+ * module in an isolated node process, exactly as `pyric dev` does -- so this
  * needs the built package (dist child + register loader), like `dev.e2e`.
  */
 import 'fake-indexeddb/auto';
 import { afterEach, describe, expect, test } from 'bun:test';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { ViteDevServer } from 'vite';
-import { bundleWorker, workerSourceHash } from '../../src/serve/bundler.js';
 import { discoverFunctionsProject } from '../../src/functions/project.js';
 import { pyric } from '../../src/serve/vite-plugin.js';
 import { connectRemoteSandbox, type RemoteSandbox } from '../../src/remote/index.js';
 import { connectFunctionsWorkerPeer, createFunctionsWorkerHostCtx } from '../functions-rtdb/worker-peer.js';
+import { trackTempDirs } from '../use-temp-dirs.js';
 import { resolveNodeExecutable } from './require-node-on-path.js';
 
 const cliRoot = resolve(import.meta.dir, '../..');
 const repoRoot = resolve(cliRoot, '../..');
 const builtChild = join(cliRoot, 'dist/functions/child.js');
+const tempDirs = trackTempDirs('pyric-vite-functions-');
 
 let server: ViteDevServer | undefined;
 let peer: { close(): Promise<void> } | undefined;
@@ -33,7 +33,7 @@ let observer: RemoteSandbox | undefined;
 
 /** A real ephemeral port. Vite treats `port: 0` as "unset" and defaults to
  *  5173, so any dev server already on 5173 (another project's `vite dev`)
- *  wedges these tests — observed in the field. Bind-and-release instead. */
+ *  wedges these tests -- observed in the field. Bind-and-release instead. */
 async function freePort(): Promise<number> {
   const { createServer: createNetServer } = await import('node:net');
   return new Promise((resolvePort, reject) => {
@@ -86,24 +86,19 @@ function portOf(dev: ViteDevServer): number {
 afterEach(async () => {
   observer?.close();
   observer = undefined;
-  await peer?.close().catch(() => {});
+  await peer?.close().catch((error: unknown) => { void error; });
   peer = undefined;
-  await server?.close().catch(() => {});
+  await server?.close().catch((error: unknown) => { void error; });
   server = undefined;
+  tempDirs.cleanupTempDirs();
 });
 
 describe('pyric() Functions RTDB parity', () => {
   test('discovers a functions codebase and fires an onValueCreated trigger through the plugin', async () => {
     resolveNodeExecutable();
     if (!existsSync(builtChild)) throw new Error(`build the CLI first: ${builtChild}`);
-    // Warm the SharedWorker bundle so configureServer's bundleWorker is a cache hit.
-    await withTimeout(
-      bundleWorker({ outDir: join(homedir(), '.pyric', 'vite-worker', workerSourceHash()) }),
-      180_000,
-      'bundleWorker',
-    );
 
-    const cwd = mkdtempSync(join(tmpdir(), 'pyric-vite-functions-'));
+    const cwd = tempDirs.makeTempDir('pyric-vite-functions-');
     mkdirSync(join(cwd, 'public'));
     mkdirSync(join(cwd, 'functions/node_modules'), { recursive: true });
     writeFileSync(join(cwd, 'public/index.html'), '<!doctype html><body>fixture</body>');
@@ -168,18 +163,19 @@ exports.makeUppercase = onValueCreated(
     expect(pointer.project).toBe('demo-project');
 
     // The worker-relay peer is the sandbox source of truth (the SharedWorker in
-    // a real browser). Connecting it flips sandboxConnected → the plugin spawns
+    // a real browser). Connecting it flips sandboxConnected -> the plugin spawns
     // the Functions child.
     peer = await withTimeout(connectWorkerPeer(`${base.replace(/^http/, 'ws')}/__pyric/sandbox`), 10_000, 'peer');
-    observer = await withTimeout(connectRemoteSandbox({ url: base }), 10_000, 'observer');
+    const obs = await withTimeout(connectRemoteSandbox({ url: base }), 10_000, 'observer');
+    observer = obs;
 
-    // The child must reach "ready" (baseline subscribed) before the create — a
+    // The child must reach "ready" (baseline subscribed) before the create -- a
     // write observed before baseline is folded into the baseline, not a create.
     await waitFor(() => logs.some((l) => l.includes('onValueCreated')) ? true : null, 20_000);
 
-    await observer.rtdb.set('messages/id/original', 'hello');
+    await obs.rtdb.set('messages/id/original', 'hello');
     const upper = await waitFor(
-      async () => (await observer!.rtdb.get('messages/id/uppercase')) === 'HELLO' ? true : null,
+      async () => (await obs.rtdb.get('messages/id/uppercase')) === 'HELLO' ? true : null,
       15_000,
     );
     expect(upper).toBe(true);
@@ -190,8 +186,8 @@ exports.makeUppercase = onValueCreated(
 
     // Topology pin (functions block present, NO explicit `bridge` option): the
     // functions-forced bridge mount must not flip the page onto the in-page
-    // sandbox. The served page stays on the SharedWorker path — worker version
-    // meta, no `__PYRIC_FORCE_INPAGE__` — and the init payload carries the
+    // sandbox. The served page stays on the SharedWorker path -- worker version
+    // meta, no `__PYRIC_FORCE_INPAGE__` -- and the init payload carries the
     // bridge WS URL the worker-path peer relays agent/functions traffic through.
     const html = await server.transformIndexHtml(
       '/index.html',
@@ -210,7 +206,7 @@ exports.makeUppercase = onValueCreated(
   }, 60_000);
 
   test('with no functions config, nothing mounts (no bridge pointer, no functions child)', async () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'pyric-vite-nofunctions-'));
+    const cwd = tempDirs.makeTempDir('pyric-vite-nofunctions-');
     mkdirSync(join(cwd, 'public'));
     writeFileSync(join(cwd, 'public/index.html'), '<!doctype html><body>fixture</body>');
     writeFileSync(join(cwd, '.firebaserc'), JSON.stringify({ projects: { default: 'demo-project' } }));
@@ -245,17 +241,17 @@ exports.makeUppercase = onValueCreated(
       'createServer',
     );
     await withTimeout(server.listen(), 15_000, 'listen');
-    // Give any (erroneous) after-listen mount a beat to write its pointer.
-    await new Promise((r) => setTimeout(r, 300));
+    const indexRes = await fetch(`http://127.0.0.1:${portOf(server)}/index.html`);
+    expect(indexRes.status).toBe(200);
 
-    // No functions + no bridge ⇒ no bridge mount ⇒ no serve.json pointer and no
+    // No functions + no bridge => no bridge mount => no serve.json pointer and no
     // functions banner. The bridge pointer is the observable "something mounted".
     expect(existsSync(join(cwd, '.pyric', 'serve.json'))).toBe(false);
     expect(logs.some((l) => l.includes('onValueCreated'))).toBe(false);
   }, 40_000);
 
   test('functions: false suppresses discovery, the child, and the functions-forced bridge mount', async () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'pyric-vite-functions-off-'));
+    const cwd = tempDirs.makeTempDir('pyric-vite-functions-off-');
     mkdirSync(join(cwd, 'public'));
     writeFileSync(join(cwd, 'public/index.html'), '<!doctype html><body>fixture</body>');
     writeFileSync(join(cwd, '.firebaserc'), JSON.stringify({ projects: { default: 'demo-project' } }));
@@ -292,7 +288,8 @@ exports.makeUppercase = onValueCreated(
       'createServer',
     );
     await withTimeout(server.listen(), 15_000, 'listen');
-    await new Promise((r) => setTimeout(r, 300));
+    const indexRes = await fetch(`http://127.0.0.1:${portOf(server)}/index.html`);
+    expect(indexRes.status).toBe(200);
 
     // No bridge mount was forced on functions' behalf: no serve.json pointer,
     // and no functions banner ever logged.
@@ -303,13 +300,8 @@ exports.makeUppercase = onValueCreated(
   test('region/instance options flow to the child, and a save hot-reloads it (redeploy semantics)', async () => {
     resolveNodeExecutable();
     if (!existsSync(builtChild)) throw new Error(`build the CLI first: ${builtChild}`);
-    await withTimeout(
-      bundleWorker({ outDir: join(homedir(), '.pyric', 'vite-worker', workerSourceHash()) }),
-      180_000,
-      'bundleWorker',
-    );
 
-    const cwd = mkdtempSync(join(tmpdir(), 'pyric-vite-functions-reload-'));
+    const cwd = tempDirs.makeTempDir('pyric-vite-functions-reload-');
     mkdirSync(join(cwd, 'public'));
     mkdirSync(join(cwd, 'functions/node_modules'), { recursive: true });
     writeFileSync(join(cwd, 'public/index.html'), '<!doctype html><body>fixture</body>');
@@ -323,7 +315,7 @@ exports.makeUppercase = onValueCreated(
       JSON.stringify({ name: 'vite-functions-reload', private: true, type: 'commonjs', main: 'index.cjs' }),
     );
     const entry = join(cwd, 'functions/index.cjs');
-    // v1 echoes the event's instance + location back into the tree — the only
+    // v1 echoes the event's instance + location back into the tree -- the only
     // observable spot the plugin's `functions: { region, instance }` reaches.
     writeFileSync(
       entry,
@@ -374,13 +366,14 @@ exports.echoMeta = onValueCreated(
     const port = portOf(server);
     const base = `http://127.0.0.1:${port}`;
     peer = await withTimeout(connectWorkerPeer(`${base.replace(/^http/, 'ws')}/__pyric/sandbox`), 10_000, 'peer');
-    observer = await withTimeout(connectRemoteSandbox({ url: base }), 10_000, 'observer');
+    const obs = await withTimeout(connectRemoteSandbox({ url: base }), 10_000, 'observer');
+    observer = obs;
     await waitFor(() => logs.some((l) => l.includes('onValueCreated')) ? true : null, 20_000, logs);
 
     // Option flow: the trigger observes the plugin-configured instance/region.
-    await observer.rtdb.set('messages/m1/original', 'x');
+    await obs.rtdb.set('messages/m1/original', 'x');
     await waitFor(
-      async () => (await observer!.rtdb.get('messages/m1/meta')) === 'custom-instance|europe-west1' ? true : null,
+      async () => (await obs.rtdb.get('messages/m1/meta')) === 'custom-instance|europe-west1' ? true : null,
       15_000,
       logs,
     );
@@ -398,18 +391,24 @@ exports.echoMeta = onValueCreated(
     );
     writeFileSync(entry, readFileSync(entry)); // second save inside the debounce window
     await waitFor(() => (reloadCount() >= 1 ? true : null), 20_000, logs);
-    await new Promise((r) => setTimeout(r, 700)); // past any second debounce
     expect(reloadCount()).toBe(1);
     expect(logs.some((l) => l.includes('functions reloaded (1 trigger)'))).toBe(true);
 
     // The NEW module serves post-reload writes (redeploy semantics: m1's data
-    // is the new child's baseline and did not re-fire).
-    await observer.rtdb.set('messages/m2/original', 'y');
+    // is the new child's baseline and did not re-fire). Completing the m2
+    // execution round-trip confirms no second reload was queued.
+    await obs.rtdb.set('messages/m2/original', 'y');
     await waitFor(
-      async () => (await observer!.rtdb.get('messages/m2/meta')) === 'v2:y' ? true : null,
+      async () => (await obs.rtdb.get('messages/m2/meta')) === 'v2:y' ? true : null,
       15_000,
       logs,
     );
+    await waitFor(
+      () => logs.some((l) => l.includes('echoMeta') && l.includes('m2')) ? true : null,
+      10_000,
+      logs,
+    );
+    expect(reloadCount()).toBe(1);
 
     // Broken save: the old child is gone, so functions go DOWN (no last-good).
     writeFileSync(entry, `throw new Error('boom');\n`);
@@ -430,9 +429,10 @@ exports.echoMeta = onValueCreated(
 `,
     );
     await waitFor(() => (reloadCount() >= 2 ? true : null), 20_000, logs);
-    await observer.rtdb.set('messages/m3/original', 'z');
+    expect(reloadCount()).toBe(2);
+    await obs.rtdb.set('messages/m3/original', 'z');
     await waitFor(
-      async () => (await observer!.rtdb.get('messages/m3/meta')) === 'v3:z' ? true : null,
+      async () => (await obs.rtdb.get('messages/m3/meta')) === 'v3:z' ? true : null,
       15_000,
       logs,
     );
@@ -441,13 +441,8 @@ exports.echoMeta = onValueCreated(
   test('functions: { watch: false } disables hot-reload', async () => {
     resolveNodeExecutable();
     if (!existsSync(builtChild)) throw new Error(`build the CLI first: ${builtChild}`);
-    await withTimeout(
-      bundleWorker({ outDir: join(homedir(), '.pyric', 'vite-worker', workerSourceHash()) }),
-      180_000,
-      'bundleWorker',
-    );
 
-    const cwd = mkdtempSync(join(tmpdir(), 'pyric-vite-functions-nowatch-'));
+    const cwd = tempDirs.makeTempDir('pyric-vite-functions-nowatch-');
     mkdirSync(join(cwd, 'public'));
     mkdirSync(join(cwd, 'functions/node_modules'), { recursive: true });
     writeFileSync(join(cwd, 'public/index.html'), '<!doctype html><body>fixture</body>');
@@ -464,7 +459,10 @@ exports.echoMeta = onValueCreated(
     writeFileSync(
       entry,
       `const { onValueCreated } = require('firebase-functions/v2/database');
-exports.noop = onValueCreated('/messages/{pushId}/original', () => {});
+exports.onMsg = onValueCreated(
+  '/messages/{pushId}/original',
+  event => event.data.ref.parent.child('seen').set('v1:' + event.data.val()),
+);
 `,
     );
     symlinkSync(
@@ -501,14 +499,29 @@ exports.noop = onValueCreated('/messages/{pushId}/original', () => {});
     const port = portOf(server);
     const base = `http://127.0.0.1:${port}`;
     peer = await withTimeout(connectWorkerPeer(`${base.replace(/^http/, 'ws')}/__pyric/sandbox`), 10_000, 'peer');
+    const obs = await withTimeout(connectRemoteSandbox({ url: base }), 10_000, 'observer');
+    observer = obs;
     await waitFor(() => logs.some((l) => l.includes('onValueCreated')) ? true : null, 20_000);
 
-    // A save must NOT restart the child. Write the file AND drive the watcher
-    // directly (belt and braces against fs-event latency), then give a full
-    // debounce-plus-respawn window to elapse.
-    writeFileSync(entry, readFileSync(entry));
+    // A save must NOT restart the child: overwrite with v2, emit a watcher
+    // change directly, and verify a subsequent RTDB write is still handled by v1.
+    writeFileSync(
+      entry,
+      `const { onValueCreated } = require('firebase-functions/v2/database');
+exports.onMsg = onValueCreated(
+  '/messages/{pushId}/original',
+  event => event.data.ref.parent.child('seen').set('v2:' + event.data.val()),
+);
+`,
+    );
     server.watcher.emit('change', entry);
-    await new Promise((r) => setTimeout(r, 1_200));
+    await obs.rtdb.set('messages/m1/original', 'check');
+    await waitFor(
+      async () => (await obs.rtdb.get('messages/m1/seen')) === 'v1:check' ? true : null,
+      15_000,
+      logs,
+    );
+    await waitFor(() => logs.some((l) => l.includes('onMsg')) ? true : null, 10_000, logs);
     expect(logs.filter((l) => l.includes('functions reloaded')).length).toBe(0);
     expect(logs.filter((l) => l.includes('onValueCreated')).length).toBe(1);
   }, 60_000);
