@@ -91,7 +91,7 @@ A `hosting.rewrites` entry whose destination is a function sends matching paths 
 
 Each request prints one line with the function, the path, the status, and how long it took.
 
-A function that sets `invoker: 'private'` runs without authentication, where production refuses an unauthenticated call with 403. Pyric warns once when it starts. It answers your app's own pages and callers that send no `Origin`, such as curl or server code, and refuses a call from any other site's page with 403.
+A function that sets an invoker other than `'public'`, such as `invoker: 'private'` or a service account, runs without authentication: production refuses unauthenticated calls with 403, and Pyric warns once when it starts. Pyric serves it without authentication to the app's own pages and to callers that are not browser pages, such as curl or server code, and refuses a call from any other browser page with 403.
 
 Under `pyric sandbox`, functions start once a browser tab connects to the sandbox. With `--hosted` they start with no tab open, as a deployed function does.
 

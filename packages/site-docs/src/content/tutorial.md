@@ -76,7 +76,7 @@ Add the Vite plugin to an existing Firebase application:
 npm install --save-dev @pyric/cli
 ```
 
-Keep the Firebase imports in the application. Pyric refuses AI Logic requests without an App Check token with a 403. Firebase enforces App Check for AI Logic from November 2, 2026, and a project can delay enforcement up to January 21, 2027. `getAI` reads App Check when it starts, so initialize App Check first:
+Keep the Firebase imports in the application. Pyric refuses AI Logic requests without an App Check token with a 401 `UNAUTHENTICATED` (`"Firebase App Check token is invalid."`), matching an enforced Firebase project (`app-check-ai-gate-wire`, captured 2026-11-03). Firebase enforces App Check for AI Logic from November 2, 2026, and a project can delay enforcement up to January 21, 2027. `getAI` reads App Check when it starts, so initialize App Check first:
 
 ```ts
 import { getAI } from 'firebase/ai';
