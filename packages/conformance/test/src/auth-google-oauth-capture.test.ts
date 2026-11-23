@@ -1,10 +1,17 @@
+import { EventEmitter } from 'node:events';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'bun:test';
 import { rig as authGoogleOAuthRig } from '../../rigs/auth-google-oauth.ts';
 import { loadRigManifests } from '../../rigs/load.ts';
+import {
+  extractRejectedEmail,
+  extractResolvedEmail,
+} from '../../src/capture/auth-google-oauth/app/main.ts';
 import { startGoogleOAuthPopupBridge } from '../../src/capture/auth-google-oauth/browser-bridge.ts';
+import { runInteractiveCaptureWithSignalCleanup } from '../../src/capture/auth-google-oauth/harness.ts';
+import { AUTH_GOOGLE_OAUTH_OBSERVATION_NAME } from '../../src/capture/auth-google-oauth/observation-writer.ts';
 import {
   runGoogleOAuthCollisionCapture,
   type GooglePopupDriver,
@@ -224,7 +231,8 @@ describe('auth-google-oauth neutral capture & CI exclusion (#1814 Requirements 5
     try {
       const htmlResp = await fetch(`${bridge.url}/`);
       expect(htmlResp.status).toBe(200);
-      expect(await htmlResp.text()).toContain('Google OAuth Unverified-Account Capture');
+      const htmlText = await htmlResp.text();
+      expect(htmlText).toContain('Google OAuth Unverified-Account Capture');
 
       const jsResp = await fetch(`${bridge.url}/main.js`);
       expect(jsResp.status).toBe(200);
@@ -234,7 +242,7 @@ describe('auth-google-oauth neutral capture & CI exclusion (#1814 Requirements 5
       const forbiddenResp = await fetch(`${bridge.url}/api/next-step`);
       expect(forbiddenResp.status).toBe(403);
 
-      const tokenMatch = /"([0-9a-f]{48})"/.exec(jsText);
+      const tokenMatch = /"sessionToken":"([0-9a-f]{48})"/.exec(htmlText);
       const token = tokenMatch?.[1] ?? '';
       expect(token.length).toBe(48);
 
@@ -278,5 +286,114 @@ describe('auth-google-oauth neutral capture & CI exclusion (#1814 Requirements 5
     } finally {
       await bridge.close();
     }
+  });
+
+  test('SIGINT during interactive popup wait closes loopback bridge, deletes seeded user, and verifies getUser(uid) is gone', async () => {
+    const tmpDir = createPrivateJobTmpDir('oauth-sig');
+    const bridge = await startGoogleOAuthPopupBridge({
+      webConfig: {
+        apiKey: 'fake-api-key',
+        authDomain: 'demo.firebaseapp.com',
+        projectId: 'demo-project',
+      },
+      port: 0,
+      openBrowser: false,
+      log: () => {},
+    });
+    try {
+      const env = createFakeAuthEnvironment();
+      const signals = new EventEmitter();
+      const recordedExitCodes: number[] = [];
+
+      const htmlText = await (await fetch(`${bridge.url}/`)).text();
+      const tokenMatch = /"sessionToken":"([0-9a-f]{48})"/.exec(htmlText);
+      const token = tokenMatch?.[1] ?? '';
+      expect(token.length).toBe(48);
+
+      const sessionPromise = runInteractiveCaptureWithSignalCleanup({
+        bridge,
+        signalTarget: signals,
+        setExitCode: (code) => {
+          recordedExitCodes.push(code);
+        },
+        postFinishDelayMs: 0,
+        runCapture: () =>
+          runGoogleOAuthCollisionCapture({
+            gmailEmail: 'throwaway@gmail.com',
+            nonGmailEmail: 'throwaway@example.org',
+            obsDir: tmpDir,
+            fbSdkVersion: '12.19.0',
+            adminSdkVersion: '13.10.0',
+            projectAllowDuplicateEmails: false,
+            adminAuth: env.adminAuth,
+            passwordDriver: env.passwordDriver,
+            popupDriver: bridge.popupDriver,
+            log: () => {},
+          }),
+      });
+
+      for (;;) {
+        const pollResp = await fetch(`${bridge.url}/api/next-step`, {
+          headers: { 'x-pyric-oauth-token': token },
+        });
+        const pollBody = (await pollResp.json()) as { state?: string };
+        if (pollBody.state === 'ready') {
+          break;
+        }
+        await new Promise((resolvePromise) => setTimeout(resolvePromise, 10));
+      }
+
+      expect(env.usersByUid.has('run-created-uid-1')).toBe(true);
+      signals.emit('SIGINT');
+
+      await expect(sessionPromise).rejects.toThrow(/Popup bridge closed before step completed/);
+      expect(recordedExitCodes).toEqual([130]);
+      expect(env.deletedUids).toEqual(['run-created-uid-1']);
+      expect(env.usersByUid.size).toBe(0);
+      expect(existsSync(join(tmpDir, `${AUTH_GOOGLE_OAUTH_OBSERVATION_NAME}.json`))).toBe(false);
+      expect(signals.listenerCount('SIGINT')).toBe(0);
+      expect(signals.listenerCount('SIGTERM')).toBe(0);
+    } finally {
+      await bridge.close();
+      removePrivateJobTmpDir(tmpDir);
+    }
+  });
+
+  test('browser popup email extractors handle customData, _tokenResponse, and JWT payload fallbacks', () => {
+    const fakePayload = Buffer.from(JSON.stringify({ email: 'jwt-fallback@example.org' }))
+      .toString('base64')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/g, '');
+    const fakeJwt = `eyJhbGciOiJub25lIn0.${fakePayload}.c2ln`;
+
+    expect(extractResolvedEmail('direct@gmail.com', [], null, null)).toBe('direct@gmail.com');
+    expect(extractResolvedEmail(null, [null, 'provider@gmail.com'], null, null)).toBe(
+      'provider@gmail.com',
+    );
+    expect(extractResolvedEmail(null, [], 'profile@example.org', null)).toBe('profile@example.org');
+    expect(extractResolvedEmail(null, [], null, fakeJwt)).toBe('jwt-fallback@example.org');
+
+    expect(
+      extractRejectedEmail({
+        code: 'auth/account-exists-with-different-credential',
+        customData: { email: 'collision@example.org' },
+      }),
+    ).toEqual({
+      email: 'collision@example.org',
+      errorCode: 'auth/account-exists-with-different-credential',
+      credentialPresent: false,
+    });
+
+    expect(
+      extractRejectedEmail({
+        code: 'auth/account-exists-with-different-credential',
+        customData: { _tokenResponse: { email: 'token-resp@example.org' } },
+      }),
+    ).toEqual({
+      email: 'token-resp@example.org',
+      errorCode: 'auth/account-exists-with-different-credential',
+      credentialPresent: false,
+    });
   });
 });

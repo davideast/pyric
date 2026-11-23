@@ -17,7 +17,7 @@ Verify these four settings on the dedicated oracle Firebase project before runni
 
 Never pass a personal or primary Google account. Prepare two dedicated throwaway Google accounts that do **not** have existing unmarked user records in the oracle Firebase project:
 
-1. **Throwaway `@gmail.com` account (`--gmail`):** A disposable consumer Google account ending in `@gmail.com` (for example, `pyric.oracle.throwaway@gmail.com`).
+1. **Throwaway `@gmail.com` account (`--gmail`):** A disposable consumer Google account ending in `@gmail.com` (for example, `pyricoraclethrowaway@gmail.com`). Pass the exact canonical `@gmail.com` address Google returns on sign-in (without extra dot-alias or `+tag` variations), because the rig enforces exact case-insensitive string equality between `--gmail` and the signed-in Google account email.
 2. **Throwaway non-`@gmail.com` Google account (`--non-gmail`):** Either:
    - a dedicated test account on a Google Workspace / Cloud Identity domain you control (for example, `pyric-oracle-test@example.org`), or
    - a consumer Google Account registered with a non-Gmail address via *"Use my current email address instead"* on a domain you control.
@@ -28,7 +28,7 @@ Never pass a personal or primary Google account. Prepare two dedicated throwaway
 - Both `--gmail` and `--non-gmail` must be passed explicitly on the CLI; there are no defaults.
 - Pre-flight calls `admin.auth().getUserByEmail(...)` on both addresses and **aborts immediately before modifying anything** if either email already exists in the project without the custom claim `{ pyricOracleGoogleOAuthTest: true }`.
 - Startup sweep deletes **only** orphaned users carrying `{ pyricOracleGoogleOAuthTest: true }` from an earlier interrupted run.
-- `finally` cleanup deletes **only** UIDs created in this run and verifies each deletion via `admin.auth().getUser(uid)` (`auth/user-not-found`).
+- `finally` cleanup deletes **only** UIDs created in this run and verifies each deletion via `admin.auth().getUser(uid)` (`auth/user-not-found`); pressing `Ctrl+C` (`SIGINT` / `SIGTERM`) during a popup wait closes the local bridge and runs the same verified cleanup before exiting.
 
 ## 3. Exact Command to Run
 

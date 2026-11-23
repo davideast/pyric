@@ -11,6 +11,8 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 export const AUTH_GOOGLE_OAUTH_OBSERVATION_NAME = 'auth-google-oauth-unverified-collision';
+export const AUTH_GOOGLE_OAUTH_OBSERVATION_DESCRIPTION =
+  'Production google.com OAuth popup sign-in collision against run-scoped unverified password accounts (@gmail.com and non-@gmail.com), recording sanitized booleans, provider IDs, and error codes (#1814).';
 
 export interface SanitizedGoogleCollisionCaseBehavior {
   readonly seededBaselinePasswordSignInSucceeded: boolean;
@@ -151,6 +153,28 @@ export function sanitizeProviderIdList(rawIds: readonly unknown[]): string[] {
   return cleaned.sort();
 }
 
+function assertCleanMetadataString(
+  val: string,
+  fieldLabel: string,
+  forbiddenNeedles: readonly string[],
+): void {
+  const lowerVal = val.toLowerCase();
+  for (const needle of forbiddenNeedles) {
+    if (needle.length > 0 && lowerVal.includes(needle)) {
+      throw new Error(`Observation sanitizer blocked sensitive value in '${fieldLabel}'.`);
+    }
+  }
+  if (val.includes('@')) {
+    throw new Error(`Observation sanitizer blocked '@' in '${fieldLabel}'.`);
+  }
+  if (URL_SCHEME_PATTERN.test(val)) {
+    throw new Error(`Observation sanitizer blocked URL in '${fieldLabel}'.`);
+  }
+  if (JWT_LIKE_PATTERN.test(val)) {
+    throw new Error(`Observation sanitizer blocked token-shaped string in '${fieldLabel}'.`);
+  }
+}
+
 function assertCleanBehaviorValue(
   value: unknown,
   path: string,
@@ -160,12 +184,6 @@ function assertCleanBehaviorValue(
     return;
   }
   if (typeof value === 'string') {
-    const lower = value.toLowerCase();
-    for (const needle of forbiddenNeedles) {
-      if (needle.length > 0 && lower.includes(needle)) {
-        throw new Error(`Observation sanitizer blocked sensitive runtime value at '${path}'.`);
-      }
-    }
     if (value.includes('@')) {
       throw new Error(`Observation sanitizer blocked email-shaped string at '${path}'.`);
     }
@@ -175,7 +193,16 @@ function assertCleanBehaviorValue(
     if (JWT_LIKE_PATTERN.test(value) || value.length > 64) {
       throw new Error(`Observation sanitizer blocked token/UID-shaped string at '${path}'.`);
     }
-    if (!isAllowedAuthErrorCode(value) && !isAllowedProviderId(value)) {
+    if (CANONICAL_PROVIDER_IDS.has(value) || isAllowedAuthErrorCode(value)) {
+      return;
+    }
+    const lower = value.toLowerCase();
+    for (const needle of forbiddenNeedles) {
+      if (needle.length > 0 && lower.includes(needle)) {
+        throw new Error(`Observation sanitizer blocked sensitive runtime value at '${path}'.`);
+      }
+    }
+    if (!CUSTOM_PROVIDER_PREFIX_PATTERN.test(value)) {
       throw new Error(
         `Observation sanitizer blocked non-allowlisted string '${value}' at '${path}' (only booleans, provider ids, and auth/* error codes are permitted).`,
       );
@@ -221,27 +248,27 @@ export function assertNoSensitiveFieldsInObservation(
     }
   }
 
+  if (root.name !== AUTH_GOOGLE_OAUTH_OBSERVATION_NAME) {
+    throw new Error(
+      `Observation 'name' must equal '${AUTH_GOOGLE_OAUTH_OBSERVATION_NAME}'.`,
+    );
+  }
+  if (root.description !== AUTH_GOOGLE_OAUTH_OBSERVATION_DESCRIPTION) {
+    throw new Error(
+      'Observation sanitizer blocked non-canonical top-level description string.',
+    );
+  }
+
   const normalizedNeedles = sensitiveRuntimeValues
     .map((item) => item.trim().toLowerCase())
     .filter((item) => item.length >= 3);
 
-  for (const topKey of ['name', 'matrixRow', 'description', 'observedAt', 'fbSdkVersion', 'adminSdkVersion']) {
+  for (const topKey of ['matrixRow', 'observedAt', 'fbSdkVersion', 'adminSdkVersion']) {
     const val = root[topKey];
     if (typeof val !== 'string') {
       throw new Error(`Observation missing required string field '${topKey}'.`);
     }
-    const lowerVal = val.toLowerCase();
-    for (const needle of normalizedNeedles) {
-      if (lowerVal.includes(needle)) {
-        throw new Error(`Observation sanitizer blocked sensitive value in top-level '${topKey}'.`);
-      }
-    }
-    if (topKey !== 'description' && val.includes('@')) {
-      throw new Error(`Observation sanitizer blocked '@' in top-level '${topKey}'.`);
-    }
-    if (URL_SCHEME_PATTERN.test(val)) {
-      throw new Error(`Observation sanitizer blocked URL in top-level '${topKey}'.`);
-    }
+    assertCleanMetadataString(val, topKey, normalizedNeedles);
   }
 
   if (!Array.isArray(root.rowIds)) {
@@ -252,6 +279,7 @@ export function assertNoSensitiveFieldsInObservation(
     if (typeof rowId !== 'string') {
       throw new Error(`Observation 'rowIds[${i}]' must be a string.`);
     }
+    assertCleanMetadataString(rowId, `rowIds[${i}]`, normalizedNeedles);
   }
 
   if (typeof root.behavior !== 'object' || root.behavior === null || Array.isArray(root.behavior)) {
@@ -285,8 +313,7 @@ function buildAuthGoogleOAuthObservation(
     name: AUTH_GOOGLE_OAUTH_OBSERVATION_NAME,
     matrixRow: '',
     rowIds,
-    description:
-      'Production google.com OAuth popup sign-in collision against run-scoped unverified password accounts (@gmail.com and non-@gmail.com), recording sanitized booleans, provider IDs, and error codes (#1814).',
+    description: AUTH_GOOGLE_OAUTH_OBSERVATION_DESCRIPTION,
     observedAt,
     fbSdkVersion: options.fbSdkVersion,
     adminSdkVersion: options.adminSdkVersion,

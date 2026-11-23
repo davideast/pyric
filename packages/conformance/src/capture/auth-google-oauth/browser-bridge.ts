@@ -30,7 +30,7 @@ interface PendingPopupStep {
   reject(err: Error): void;
 }
 
-function renderIndexHtml(): string {
+function renderIndexHtml(bootstrapJson: string): string {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -53,6 +53,7 @@ function renderIndexHtml(): string {
     <div id="step-detail" class="mono" style="margin-top: 8px;"></div>
     <button id="run-step" disabled>Waiting...</button>
   </div>
+  <script id="pyric-oauth-bootstrap" type="application/json">${bootstrapJson}</script>
   <script type="module" src="/main.js"></script>
 </body>
 </html>`;
@@ -104,6 +105,33 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
+let cachedMainJsPromise: Promise<string> | null = null;
+
+async function bundlePopupClientJs(): Promise<string> {
+  if (cachedMainJsPromise === null) {
+    cachedMainJsPromise = (async () => {
+      const built = await Bun.build({
+        entrypoints: [join(HERE, 'app', 'main.ts')],
+        target: 'browser',
+        format: 'esm',
+      });
+      if (!built.success || built.outputs.length === 0) {
+        cachedMainJsPromise = null;
+        throw new Error(
+          `Failed to bundle browser popup app: ${built.logs.map(String).join('\n')}`,
+        );
+      }
+      const firstOutput = built.outputs[0];
+      if (!firstOutput) {
+        cachedMainJsPromise = null;
+        throw new Error('Browser popup bundle produced zero outputs.');
+      }
+      return firstOutput.text();
+    })();
+  }
+  return cachedMainJsPromise;
+}
+
 export async function startGoogleOAuthPopupBridge(options: {
   readonly webConfig: Record<string, string>;
   readonly port: number;
@@ -112,28 +140,17 @@ export async function startGoogleOAuthPopupBridge(options: {
 }): Promise<PopupBridgeSession> {
   const log = options.log ?? ((msg: string) => console.log(msg));
   const sessionToken = randomBytes(24).toString('hex');
-
-  const built = await Bun.build({
-    entrypoints: [join(HERE, 'app', 'main.ts')],
-    define: {
-      __FIREBASE_CONFIG__: JSON.stringify(options.webConfig),
-      __SESSION_TOKEN__: JSON.stringify(sessionToken),
-    },
-    target: 'browser',
-    format: 'esm',
-  });
-  if (!built.success || built.outputs.length === 0) {
-    throw new Error(`Failed to bundle browser popup app: ${built.logs.map(String).join('\n')}`);
-  }
-  const firstOutput = built.outputs[0];
-  if (!firstOutput) {
-    throw new Error('Browser popup bundle produced zero outputs.');
-  }
-  const mainJs = await firstOutput.text();
-  const indexHtml = renderIndexHtml();
+  const mainJs = await bundlePopupClientJs();
+  const bootstrapJson = JSON.stringify({
+    webConfig: options.webConfig,
+    sessionToken,
+  }).replace(/</g, '\\u003c');
+  const indexHtml = renderIndexHtml(bootstrapJson);
 
   let activeStep: PendingPopupStep | null = null;
   let terminalMessage: string | null = null;
+  let closed = false;
+  let closePromise: Promise<void> | null = null;
 
   const server = createServer(async (req, res) => {
     const urlPath = (req.url ?? '/').split('?')[0] ?? '/';
@@ -214,6 +231,9 @@ export async function startGoogleOAuthPopupBridge(options: {
 
   const popupDriver: GooglePopupDriver = {
     runGooglePopup({ step, expectedEmail }): Promise<GooglePopupStepResult> {
+      if (closed) {
+        return Promise.reject(new Error('Popup bridge closed before step started.'));
+      }
       log(`[auth-google-oauth] step '${step}': sign in with ${expectedEmail} at ${url}`);
       return new Promise<GooglePopupStepResult>((resolvePromise, rejectPromise) => {
         activeStep = {
@@ -231,17 +251,25 @@ export async function startGoogleOAuthPopupBridge(options: {
     popupDriver,
     finish(message: string): void {
       terminalMessage = message;
-      activeStep = null;
+      if (activeStep !== null) {
+        const pending = activeStep;
+        activeStep = null;
+        pending.reject(new Error(`Popup bridge finished before step completed: ${message}`));
+      }
     },
-    async close(): Promise<void> {
+    close(): Promise<void> {
+      closed = true;
       if (activeStep !== null) {
         const pending = activeStep;
         activeStep = null;
         pending.reject(new Error('Popup bridge closed before step completed.'));
       }
-      await new Promise<void>((resolvePromise) => {
-        server.close(() => resolvePromise());
-      });
+      if (closePromise === null) {
+        closePromise = new Promise<void>((resolvePromise) => {
+          server.close(() => resolvePromise());
+        });
+      }
+      return closePromise;
     },
   };
 }

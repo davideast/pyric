@@ -29,7 +29,7 @@ import {
 } from '../../oracle-credential.ts';
 import { assertWebConfigProject, webConfigFromEnv, type OracleWebConfig } from '../../oracle-run-setup.ts';
 import { resolvedAdminVersion, resolvedFirebaseVersion } from '../../package-version.ts';
-import { startGoogleOAuthPopupBridge } from './browser-bridge.ts';
+import { startGoogleOAuthPopupBridge, type PopupBridgeSession } from './browser-bridge.ts';
 import { missingExplicitEmailFlags, parseAuthGoogleOAuthCliArgs } from './cli-args.ts';
 import { sanitizeAuthErrorCode } from './observation-writer.ts';
 import {
@@ -45,32 +45,70 @@ const SCRIPT_REL = 'packages/conformance/src/capture/auth-google-oauth/harness.t
 const CLOUD_SCOPE =
   'https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/firebase.readonly';
 
-const rawArgs = process.argv.slice(2);
-const strippedArgs = requireCaptureMode({
-  label: 'auth-google-oauth',
-  scriptPath: SCRIPT_REL,
-  argv: rawArgs,
-  extraFlags: '--gmail=<throwaway@gmail.com> --non-gmail=<throwaway@custom-domain>',
-  summary:
-    'would run two human-witnessed Google OAuth popup sign-ins against run-scoped unverified accounts (@gmail.com and non-@gmail.com) and write sanitized collision facts.',
-  missingCredentials: () => {
-    const missing: string[] = [];
-    const emailFlags = missingExplicitEmailFlags(rawArgs);
-    if (emailFlags) {
-      missing.push(emailFlags);
-    }
-    if (!oracleCredentialConfigured(process.env)) {
-      missing.push('PYRIC_ORACLE_PROJECT_ID or PYRIC_ORACLE_SA_PATH');
-    }
-    if (missing.length === 0) {
-      return null;
-    }
-    return missing.join(', ');
-  },
-});
+export interface SignalTarget {
+  on(event: 'SIGINT' | 'SIGTERM', listener: () => void): unknown;
+  off(event: 'SIGINT' | 'SIGTERM', listener: () => void): unknown;
+}
 
-const cli = parseAuthGoogleOAuthCliArgs(strippedArgs);
-const sa = await loadOracleServiceAccount();
+export async function runInteractiveCaptureWithSignalCleanup(options: {
+  readonly bridge: PopupBridgeSession;
+  readonly runCapture: () => Promise<unknown>;
+  readonly postFinishDelayMs?: number;
+  readonly signalTarget?: SignalTarget;
+  readonly setExitCode?: (code: number) => void;
+}): Promise<void> {
+  const signalTarget = options.signalTarget ?? process;
+  const setExitCode =
+    options.setExitCode ??
+    ((code: number): void => {
+      process.exitCode = code;
+    });
+  const postFinishDelayMs = options.postFinishDelayMs ?? 400;
+
+  let interruptedBySignal: 'SIGINT' | 'SIGTERM' | null = null;
+  const onSigInt = (): void => {
+    if (interruptedBySignal !== null) {
+      return;
+    }
+    interruptedBySignal = 'SIGINT';
+    setExitCode(130);
+    void options.bridge.close();
+  };
+  const onSigTerm = (): void => {
+    if (interruptedBySignal !== null) {
+      return;
+    }
+    interruptedBySignal = 'SIGTERM';
+    setExitCode(143);
+    void options.bridge.close();
+  };
+
+  signalTarget.on('SIGINT', onSigInt);
+  signalTarget.on('SIGTERM', onSigTerm);
+
+  try {
+    await options.runCapture();
+    if (interruptedBySignal !== null) {
+      throw new Error(`Capture interrupted by ${interruptedBySignal}.`);
+    }
+    options.bridge.finish(
+      'Capture complete and test users cleaned up. You may close this browser tab.',
+    );
+    if (postFinishDelayMs > 0) {
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, postFinishDelayMs));
+    }
+  } catch (err: unknown) {
+    if (interruptedBySignal === null) {
+      setExitCode(1);
+      options.bridge.finish('Capture aborted; any test users created in this run were cleaned up.');
+    }
+    throw err;
+  } finally {
+    signalTarget.off('SIGINT', onSigInt);
+    signalTarget.off('SIGTERM', onSigTerm);
+    await options.bridge.close();
+  }
+}
 
 async function fetchOracleWebConfig(account: OracleServiceAccount): Promise<OracleWebConfig> {
   const fromEnv = webConfigFromEnv(process.env);
@@ -143,115 +181,152 @@ function isUserNotFoundError(err: unknown): boolean {
   );
 }
 
-const webConfig = await fetchOracleWebConfig(sa);
-const allowDuplicateEmails = await fetchAllowDuplicateEmails(sa);
-
-const runTag = `${Date.now().toString(36)}`;
-const adminApp = initializeAdminApp(oracleAppOptions(sa), `auth-google-oauth-admin-${runTag}`);
-const clientApp = initializeClientApp(webConfig, `auth-google-oauth-client-${runTag}`);
-const adminAuthSdk = getAdminAuth(adminApp);
-const clientAuthSdk = getClientAuth(clientApp);
-await setPersistence(clientAuthSdk, inMemoryPersistence);
-
-const adminDriver: AdminAuthDriver = {
-  async getUserByEmail(email) {
-    try {
-      return toUserSnapshot(await adminAuthSdk.getUserByEmail(email));
-    } catch (err: unknown) {
-      if (isUserNotFoundError(err)) {
+async function runCliMain(): Promise<void> {
+  const rawArgs = process.argv.slice(2);
+  const strippedArgs = requireCaptureMode({
+    label: 'auth-google-oauth',
+    scriptPath: SCRIPT_REL,
+    argv: rawArgs,
+    extraFlags: '--gmail=<throwaway@gmail.com> --non-gmail=<throwaway@custom-domain>',
+    summary:
+      'would run two human-witnessed Google OAuth popup sign-ins against run-scoped unverified accounts (@gmail.com and non-@gmail.com) and write sanitized collision facts.',
+    missingCredentials: () => {
+      const missing: string[] = [];
+      const emailFlags = missingExplicitEmailFlags(rawArgs);
+      if (emailFlags) {
+        missing.push(emailFlags);
+      }
+      if (!oracleCredentialConfigured(process.env)) {
+        missing.push('PYRIC_ORACLE_PROJECT_ID or PYRIC_ORACLE_SA_PATH');
+      }
+      if (missing.length === 0) {
         return null;
       }
-      throw err;
-    }
-  },
-  async getUser(uid) {
-    try {
-      return toUserSnapshot(await adminAuthSdk.getUser(uid));
-    } catch (err: unknown) {
-      if (isUserNotFoundError(err)) {
-        return null;
-      }
-      throw err;
-    }
-  },
-  async listUsers(maxResults, pageToken) {
-    const res = await adminAuthSdk.listUsers(maxResults, pageToken);
-    return {
-      users: res.users.map(toUserSnapshot),
-      pageToken: res.pageToken,
-    };
-  },
-  async createUser(input) {
-    return toUserSnapshot(await adminAuthSdk.createUser(input));
-  },
-  async setCustomUserClaims(uid, claims) {
-    await adminAuthSdk.setCustomUserClaims(uid, claims);
-  },
-  async deleteUser(uid) {
-    await adminAuthSdk.deleteUser(uid);
-  },
-};
+      return missing.join(', ');
+    },
+  });
 
-const passwordDriver: PasswordAuthDriver = {
-  async signInWithPassword(email, password) {
-    try {
-      const cred = await signInWithEmailAndPassword(clientAuthSdk, email, password);
-      const snapshot = {
-        ok: true as const,
-        uid: cred.user.uid,
-        emailVerified: cred.user.emailVerified,
-        providerIds: cred.user.providerData.map((p) => p.providerId),
-      };
-      await signOut(clientAuthSdk);
-      return snapshot;
-    } catch (err: unknown) {
+  const cli = parseAuthGoogleOAuthCliArgs(strippedArgs);
+  const sa = await loadOracleServiceAccount();
+  const webConfig = await fetchOracleWebConfig(sa);
+  const allowDuplicateEmails = await fetchAllowDuplicateEmails(sa);
+
+  const runTag = `${Date.now().toString(36)}`;
+  const adminApp = initializeAdminApp(oracleAppOptions(sa), `auth-google-oauth-admin-${runTag}`);
+  const clientApp = initializeClientApp(webConfig, `auth-google-oauth-client-${runTag}`);
+  const adminAuthSdk = getAdminAuth(adminApp);
+  const clientAuthSdk = getClientAuth(clientApp);
+  await setPersistence(clientAuthSdk, inMemoryPersistence);
+
+  const adminDriver: AdminAuthDriver = {
+    async getUserByEmail(email) {
+      try {
+        return toUserSnapshot(await adminAuthSdk.getUserByEmail(email));
+      } catch (err: unknown) {
+        if (isUserNotFoundError(err)) {
+          return null;
+        }
+        throw err;
+      }
+    },
+    async getUser(uid) {
+      try {
+        return toUserSnapshot(await adminAuthSdk.getUser(uid));
+      } catch (err: unknown) {
+        if (isUserNotFoundError(err)) {
+          return null;
+        }
+        throw err;
+      }
+    },
+    async listUsers(maxResults, pageToken) {
+      const res = await adminAuthSdk.listUsers(maxResults, pageToken);
       return {
-        ok: false as const,
-        errorCode: sanitizeAuthErrorCode(err),
+        users: res.users.map(toUserSnapshot),
+        pageToken: res.pageToken,
       };
-    }
-  },
-};
+    },
+    async createUser(input) {
+      return toUserSnapshot(await adminAuthSdk.createUser(input));
+    },
+    async setCustomUserClaims(uid, claims) {
+      await adminAuthSdk.setCustomUserClaims(uid, claims);
+    },
+    async deleteUser(uid) {
+      await adminAuthSdk.deleteUser(uid);
+    },
+  };
 
-const webConfigRecord: Record<string, string> = {
-  apiKey: webConfig.apiKey,
-  authDomain: webConfig.authDomain,
-  projectId: webConfig.projectId,
-};
-if (webConfig.appId) {
-  webConfigRecord.appId = webConfig.appId;
+  const passwordDriver: PasswordAuthDriver = {
+    async signInWithPassword(email, password) {
+      try {
+        const cred = await signInWithEmailAndPassword(clientAuthSdk, email, password);
+        const snapshot = {
+          ok: true as const,
+          uid: cred.user.uid,
+          emailVerified: cred.user.emailVerified,
+          providerIds: cred.user.providerData.map((p) => p.providerId),
+        };
+        await signOut(clientAuthSdk);
+        return snapshot;
+      } catch (err: unknown) {
+        return {
+          ok: false as const,
+          errorCode: sanitizeAuthErrorCode(err),
+        };
+      }
+    },
+  };
+
+  const webConfigRecord: Record<string, string> = {
+    apiKey: webConfig.apiKey,
+    authDomain: webConfig.authDomain,
+    projectId: webConfig.projectId,
+  };
+  if (webConfig.appId) {
+    webConfigRecord.appId = webConfig.appId;
+  }
+
+  const bridge = await startGoogleOAuthPopupBridge({
+    webConfig: webConfigRecord,
+    port: cli.port,
+    openBrowser: cli.openBrowser,
+  });
+
+  try {
+    await runInteractiveCaptureWithSignalCleanup({
+      bridge,
+      runCapture: () =>
+        runGoogleOAuthCollisionCapture({
+          gmailEmail: cli.gmailEmail,
+          nonGmailEmail: cli.nonGmailEmail,
+          obsDir: OBS_DIR,
+          fbSdkVersion: resolvedFirebaseVersion(),
+          adminSdkVersion: resolvedAdminVersion(),
+          projectAllowDuplicateEmails: allowDuplicateEmails,
+          adminAuth: adminDriver,
+          passwordDriver,
+          popupDriver: bridge.popupDriver,
+          extraSensitiveValues: [sa.project_id, webConfig.apiKey, webConfig.appId ?? ''],
+        }),
+    });
+  } finally {
+    await deleteClientApp(clientApp).catch(() => {});
+    await deleteAdminApp(adminApp).catch(() => {});
+  }
 }
 
-const bridge = await startGoogleOAuthPopupBridge({
-  webConfig: webConfigRecord,
-  port: cli.port,
-  openBrowser: cli.openBrowser,
-});
-
-try {
-  await runGoogleOAuthCollisionCapture({
-    gmailEmail: cli.gmailEmail,
-    nonGmailEmail: cli.nonGmailEmail,
-    obsDir: OBS_DIR,
-    fbSdkVersion: resolvedFirebaseVersion(),
-    adminSdkVersion: resolvedAdminVersion(),
-    projectAllowDuplicateEmails: allowDuplicateEmails,
-    adminAuth: adminDriver,
-    passwordDriver,
-    popupDriver: bridge.popupDriver,
-    extraSensitiveValues: [
-      sa.project_id,
-      webConfig.apiKey,
-      webConfig.appId ?? '',
-    ],
-  });
-  bridge.finish('Capture complete and test users cleaned up. You may close this browser tab.');
-  await new Promise((resolvePromise) => setTimeout(resolvePromise, 400));
-} catch (err: unknown) {
-  bridge.finish('Capture aborted; any test users created in this run were cleaned up.');
-  throw err;
-} finally {
-  await bridge.close();
-  await deleteClientApp(clientApp).catch(() => {});
-  await deleteAdminApp(adminApp).catch(() => {});
+if (import.meta.main) {
+  try {
+    await runCliMain();
+  } catch (err: unknown) {
+    let message = String(err);
+    if (err instanceof Error) {
+      message = err.stack ?? err.message;
+    }
+    console.error(message);
+    if (!process.exitCode || process.exitCode === 0) {
+      process.exitCode = 1;
+    }
+  }
 }

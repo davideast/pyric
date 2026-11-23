@@ -17,12 +17,22 @@ import {
   signOut,
 } from 'firebase/auth';
 
-declare const __FIREBASE_CONFIG__: Record<string, string>;
-declare const __SESSION_TOKEN__: string;
+interface BootstrapPayload {
+  readonly webConfig: Record<string, string>;
+  readonly sessionToken: string;
+}
 
 interface StepDescriptor {
   readonly step: 'gmail' | 'non-gmail';
   readonly expectedEmail: string;
+}
+
+function readBootstrapPayload(): BootstrapPayload {
+  const el = document.getElementById('pyric-oauth-bootstrap');
+  if (!el?.textContent) {
+    throw new Error('Missing #pyric-oauth-bootstrap configuration element.');
+  }
+  return JSON.parse(el.textContent) as BootstrapPayload;
 }
 
 function decodeJwtEmail(jwt: string | null | undefined): string | null {
@@ -49,7 +59,7 @@ function decodeJwtEmail(jwt: string | null | undefined): string | null {
   return null;
 }
 
-function extractResolvedEmail(
+export function extractResolvedEmail(
   userEmail: string | null,
   providerEmails: readonly (string | null)[],
   profileEmail: unknown,
@@ -69,7 +79,7 @@ function extractResolvedEmail(
   return decodeJwtEmail(idToken);
 }
 
-function extractRejectedEmail(err: unknown): {
+export function extractRejectedEmail(err: unknown): {
   email: string | null;
   errorCode: string;
   credentialPresent: boolean;
@@ -109,145 +119,152 @@ function extractRejectedEmail(err: unknown): {
   return { email, errorCode, credentialPresent };
 }
 
-const app = initializeApp(__FIREBASE_CONFIG__);
-const auth = getAuth(app);
-await setPersistence(auth, inMemoryPersistence);
+async function bootPopupClientPage(): Promise<void> {
+  const bootstrap = readBootstrapPayload();
+  const app = initializeApp(bootstrap.webConfig);
+  const auth = getAuth(app);
+  await setPersistence(auth, inMemoryPersistence);
 
-const statusEl = document.getElementById('status');
-const buttonEl = document.getElementById('run-step') as HTMLButtonElement | null;
-const detailEl = document.getElementById('step-detail');
+  const statusEl = document.getElementById('status');
+  const buttonEl = document.getElementById('run-step') as HTMLButtonElement | null;
+  const detailEl = document.getElementById('step-detail');
 
-function setBanner(text: string): void {
-  if (statusEl) {
-    statusEl.textContent = text;
-  }
-}
-
-let currentStep: StepDescriptor | null = null;
-
-async function pollNextStep(): Promise<void> {
-  for (;;) {
-    const resp = await fetch('/api/next-step', {
-      headers: { 'x-pyric-oauth-token': __SESSION_TOKEN__ },
-    });
-    const body = (await resp.json()) as
-      | { state: 'waiting' }
-      | { state: 'done'; message: string }
-      | { state: 'ready'; step: 'gmail' | 'non-gmail'; expectedEmail: string };
-
-    if (body.state === 'done') {
-      currentStep = null;
-      if (buttonEl) {
-        buttonEl.disabled = true;
-      }
-      if (detailEl) {
-        detailEl.textContent = '';
-      }
-      setBanner(body.message);
-      return;
+  function setBanner(text: string): void {
+    if (statusEl) {
+      statusEl.textContent = text;
     }
+  }
 
-    if (body.state === 'ready') {
-      currentStep = { step: body.step, expectedEmail: body.expectedEmail };
-      if (detailEl) {
-        detailEl.textContent = `Target account: ${body.expectedEmail}`;
-      }
-      if (buttonEl) {
-        buttonEl.disabled = false;
-        let stepNum = '2';
-        let stepLabel = '2 (non-@gmail.com)';
-        if (body.step === 'gmail') {
-          stepNum = '1';
-          stepLabel = '1 (@gmail.com)';
+  let currentStep: StepDescriptor | null = null;
+
+  async function pollNextStep(): Promise<void> {
+    for (;;) {
+      const resp = await fetch('/api/next-step', {
+        headers: { 'x-pyric-oauth-token': bootstrap.sessionToken },
+      });
+      const body = (await resp.json()) as
+        | { state: 'waiting' }
+        | { state: 'done'; message: string }
+        | { state: 'ready'; step: 'gmail' | 'non-gmail'; expectedEmail: string };
+
+      if (body.state === 'done') {
+        currentStep = null;
+        if (buttonEl) {
+          buttonEl.disabled = true;
         }
-        buttonEl.textContent = `Step ${stepNum}: Sign in with Google (${body.step})`;
-        setBanner(`Ready for Step ${stepLabel}. Click the button below.`);
-      } else {
-        setBanner('Ready for Google sign-in step.');
+        if (detailEl) {
+          detailEl.textContent = '';
+        }
+        setBanner(body.message);
+        return;
       }
+
+      if (body.state === 'ready') {
+        currentStep = { step: body.step, expectedEmail: body.expectedEmail };
+        if (detailEl) {
+          detailEl.textContent = `Target account: ${body.expectedEmail}`;
+        }
+        if (buttonEl) {
+          buttonEl.disabled = false;
+          let stepNum = '2';
+          let stepLabel = '2 (non-@gmail.com)';
+          if (body.step === 'gmail') {
+            stepNum = '1';
+            stepLabel = '1 (@gmail.com)';
+          }
+          buttonEl.textContent = `Step ${stepNum}: Sign in with Google (${body.step})`;
+          setBanner(`Ready for Step ${stepLabel}. Click the button below.`);
+        } else {
+          setBanner('Ready for Google sign-in step.');
+        }
+        return;
+      }
+
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, 250));
+    }
+  }
+
+  buttonEl?.addEventListener('click', async () => {
+    if (!currentStep || !buttonEl) {
       return;
     }
+    const active = currentStep;
+    buttonEl.disabled = true;
+    setBanner(`Opening Google sign-in popup for ${active.expectedEmail}...`);
 
-    await new Promise((resolvePromise) => setTimeout(resolvePromise, 250));
-  }
+    const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({
+      login_hint: active.expectedEmail,
+      prompt: 'select_account',
+    });
+
+    let payload: Record<string, unknown>;
+    try {
+      const cred = await signInWithPopup(auth, provider);
+      const idTokenResult = await cred.user.getIdTokenResult();
+      const oauthCred = GoogleAuthProvider.credentialFromResult(cred);
+      const additional = getAdditionalUserInfo(cred);
+      const profileEmail = (additional?.profile as { email?: unknown } | null | undefined)?.email;
+      const observedEmail = extractResolvedEmail(
+        cred.user.email,
+        cred.user.providerData.map((p) => p.email),
+        profileEmail,
+        oauthCred?.idToken,
+      );
+
+      const sensitiveValues: string[] = [cred.user.uid];
+      if (cred.user.displayName) {
+        sensitiveValues.push(cred.user.displayName);
+      }
+      if (cred.user.photoURL) {
+        sensitiveValues.push(cred.user.photoURL);
+      }
+
+      payload = {
+        step: active.step,
+        result: {
+          outcome: 'resolved',
+          observedEmail,
+          resolvedUid: cred.user.uid,
+          userEmailVerified: cred.user.emailVerified,
+          userProviderIds: cred.user.providerData.map((p) => p.providerId),
+          tokenEmailVerifiedClaim: idTokenResult.claims.email_verified === true,
+          tokenSignInProvider: idTokenResult.signInProvider ?? null,
+          credentialFromResultPresent: oauthCred !== null,
+          sensitiveValues,
+        },
+      };
+    } catch (err: unknown) {
+      const extracted = extractRejectedEmail(err);
+      payload = {
+        step: active.step,
+        result: {
+          outcome: 'rejected',
+          observedEmail: extracted.email,
+          errorCode: extracted.errorCode,
+          credentialFromErrorPresent: extracted.credentialPresent,
+        },
+      };
+    } finally {
+      await signOut(auth).catch(() => {});
+    }
+
+    await fetch('/api/step-result', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-pyric-oauth-token': bootstrap.sessionToken,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    setBanner('Step submitted to local capture harness; waiting for next step...');
+    await pollNextStep();
+  });
+
+  await pollNextStep();
 }
 
-buttonEl?.addEventListener('click', async () => {
-  if (!currentStep || !buttonEl) {
-    return;
-  }
-  const active = currentStep;
-  buttonEl.disabled = true;
-  setBanner(`Opening Google sign-in popup for ${active.expectedEmail}...`);
-
-  const provider = new GoogleAuthProvider();
-  provider.setCustomParameters({
-    login_hint: active.expectedEmail,
-    prompt: 'select_account',
-  });
-
-  let payload: Record<string, unknown>;
-  try {
-    const cred = await signInWithPopup(auth, provider);
-    const idTokenResult = await cred.user.getIdTokenResult();
-    const oauthCred = GoogleAuthProvider.credentialFromResult(cred);
-    const additional = getAdditionalUserInfo(cred);
-    const profileEmail = (additional?.profile as { email?: unknown } | null | undefined)?.email;
-    const observedEmail = extractResolvedEmail(
-      cred.user.email,
-      cred.user.providerData.map((p) => p.email),
-      profileEmail,
-      oauthCred?.idToken,
-    );
-
-    const sensitiveValues: string[] = [cred.user.uid];
-    if (cred.user.displayName) {
-      sensitiveValues.push(cred.user.displayName);
-    }
-    if (cred.user.photoURL) {
-      sensitiveValues.push(cred.user.photoURL);
-    }
-
-    payload = {
-      step: active.step,
-      result: {
-        outcome: 'resolved',
-        observedEmail,
-        resolvedUid: cred.user.uid,
-        userEmailVerified: cred.user.emailVerified,
-        userProviderIds: cred.user.providerData.map((p) => p.providerId),
-        tokenEmailVerifiedClaim: idTokenResult.claims.email_verified === true,
-        tokenSignInProvider: idTokenResult.signInProvider ?? null,
-        credentialFromResultPresent: oauthCred !== null,
-        sensitiveValues,
-      },
-    };
-  } catch (err: unknown) {
-    const extracted = extractRejectedEmail(err);
-    payload = {
-      step: active.step,
-      result: {
-        outcome: 'rejected',
-        observedEmail: extracted.email,
-        errorCode: extracted.errorCode,
-        credentialFromErrorPresent: extracted.credentialPresent,
-      },
-    };
-  } finally {
-    await signOut(auth).catch(() => {});
-  }
-
-  await fetch('/api/step-result', {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-pyric-oauth-token': __SESSION_TOKEN__,
-    },
-    body: JSON.stringify(payload),
-  });
-
-  setBanner('Step submitted to local capture harness; waiting for next step...');
-  await pollNextStep();
-});
-
-void pollNextStep();
+if (typeof document !== 'undefined') {
+  void bootPopupClientPage();
+}

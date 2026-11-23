@@ -6,6 +6,7 @@ import {
   parseAuthGoogleOAuthCliArgs,
 } from '../../src/capture/auth-google-oauth/cli-args.ts';
 import {
+  AUTH_GOOGLE_OAUTH_OBSERVATION_DESCRIPTION,
   AUTH_GOOGLE_OAUTH_OBSERVATION_NAME,
   assertNoSensitiveFieldsInObservation,
   writeAuthGoogleOAuthObservation,
@@ -268,7 +269,7 @@ describe('auth-google-oauth safety & PII guards (#1814 Requirements 1-4)', () =>
       name: AUTH_GOOGLE_OAUTH_OBSERVATION_NAME,
       matrixRow: '',
       rowIds: [],
-      description: 'Sanitized capture.',
+      description: AUTH_GOOGLE_OAUTH_OBSERVATION_DESCRIPTION,
       observedAt: '2026-11-23T00:00:00.000Z',
       fbSdkVersion: '12.19.0',
       adminSdkVersion: '13.10.0',
@@ -281,10 +282,23 @@ describe('auth-google-oauth safety & PII guards (#1814 Requirements 1-4)', () =>
         'throwaway@example.org',
         'uid-secret-12345',
         'Ada Lovelace',
+        'Google',
+        'Auth',
+        'OAuth',
+        'Account',
+        'Password',
+        'Gmail',
         'https://lh3.googleusercontent.com/a/photo',
         'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.c2lnbmF0dXJl',
       ]),
     ).not.toThrow();
+
+    expect(() =>
+      assertNoSensitiveFieldsInObservation({
+        ...validEnvelope,
+        description: 'Custom description leaking throwaway@gmail.com',
+      }),
+    ).toThrow(/non-canonical top-level description/);
 
     for (const forbiddenKey of [
       'email',
@@ -334,6 +348,26 @@ describe('auth-google-oauth safety & PII guards (#1814 Requirements 1-4)', () =>
 
     const tmpDir = createPrivateJobTmpDir('oauth-obs');
     try {
+      const okWithOverlappingDisplayNames = writeAuthGoogleOAuthObservation({
+        obsDir: tmpDir,
+        fbSdkVersion: '12.19.0',
+        adminSdkVersion: '13.10.0',
+        behavior: cleanBehavior,
+        sensitiveRuntimeValues: [
+          'Google',
+          'Auth',
+          'OAuth',
+          'Account',
+          'Password',
+          'Gmail',
+          'Run',
+          'Sign',
+          'Code',
+          'secret-oracle-proj-42',
+        ],
+      });
+      expect(existsSync(okWithOverlappingDisplayNames.filePath)).toBe(true);
+
       expect(() =>
         writeAuthGoogleOAuthObservation({
           obsDir: tmpDir,
@@ -343,12 +377,46 @@ describe('auth-google-oauth safety & PII guards (#1814 Requirements 1-4)', () =>
             ...cleanBehavior,
             gmailUnverifiedAccountCollision: {
               ...cleanBehavior.gmailUnverifiedAccountCollision,
-              popupErrorCode: 'leak@gmail.com',
+              resolvedUserProviderIds: ['oidc.secret-oracle-proj-42'],
             },
           },
+          sensitiveRuntimeValues: ['secret-oracle-proj-42'],
         }),
-      ).toThrow();
-      expect(existsSync(join(tmpDir, `${AUTH_GOOGLE_OAUTH_OBSERVATION_NAME}.json`))).toBe(false);
+      ).toThrow(/sensitive runtime value/);
+
+      expect(() =>
+        writeAuthGoogleOAuthObservation({
+          obsDir: tmpDir,
+          fbSdkVersion: '12.19.0',
+          adminSdkVersion: '13.10.0',
+          rowIds: ['auth-secret-oracle-proj-42'],
+          behavior: cleanBehavior,
+          sensitiveRuntimeValues: ['secret-oracle-proj-42'],
+        }),
+      ).toThrow(/rowIds\[0\]/);
+
+      const leakDir = createPrivateJobTmpDir('oauth-leak');
+      try {
+        expect(() =>
+          writeAuthGoogleOAuthObservation({
+            obsDir: leakDir,
+            fbSdkVersion: '12.19.0',
+            adminSdkVersion: '13.10.0',
+            behavior: {
+              ...cleanBehavior,
+              gmailUnverifiedAccountCollision: {
+                ...cleanBehavior.gmailUnverifiedAccountCollision,
+                popupErrorCode: 'leak@gmail.com',
+              },
+            },
+          }),
+        ).toThrow();
+        expect(existsSync(join(leakDir, `${AUTH_GOOGLE_OAUTH_OBSERVATION_NAME}.json`))).toBe(
+          false,
+        );
+      } finally {
+        removePrivateJobTmpDir(leakDir);
+      }
     } finally {
       removePrivateJobTmpDir(tmpDir);
     }
