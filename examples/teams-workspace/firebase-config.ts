@@ -1,3 +1,18 @@
+export function resolveRecaptchaSiteKey(
+  configuredSiteKey: string | undefined,
+): string {
+  const hasConfiguredSiteKey =
+    typeof configuredSiteKey === "string" && configuredSiteKey.trim() !== "";
+  if (hasConfiguredSiteKey) {
+    return configuredSiteKey.trim();
+  }
+  return "your-recaptcha-v3-site-key";
+}
+
+export const recaptchaSiteKey = resolveRecaptchaSiteKey(
+  import.meta.env.VITE_FIREBASE_RECAPTCHA_SITE_KEY,
+);
+
 export const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID ?? "1:100000000000:web:orbitdemo",
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,

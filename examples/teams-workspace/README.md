@@ -57,9 +57,9 @@ Open the Pyric chip to inspect data, requests, usage and incidents. Its identity
 
 ## Production
 
-`bun run --cwd examples/teams-workspace build` uses real Firebase imports. Configure `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_DATABASE_URL`, and `VITE_FIREBASE_STORAGE_BUCKET` before a real deployment. The checked-in values are local demo placeholders; no production project is configured.
+`bun run --cwd examples/teams-workspace build` uses real Firebase imports. Configure `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_DATABASE_URL`, `VITE_FIREBASE_STORAGE_BUCKET`, and `VITE_FIREBASE_RECAPTCHA_SITE_KEY` before a real deployment. The checked-in values are local demo placeholders; no production project is configured.
 
-Production assistant requests use real Firebase AI Logic and Gemini, not the development Ollama route. The Firebase project must be set up for Firebase AI Logic with the Google AI backend before the assistant can work in production.
+Production assistant requests use real Firebase AI Logic and Gemini, not the development Ollama route. The Firebase project must be set up for Firebase AI Logic with the Google AI backend and App Check (reCAPTCHA v3) before the assistant can work in production.
 
 ## Tailscale
 
@@ -96,7 +96,7 @@ TEAMS_HOSTED=1 bun run --cwd examples/teams-workspace dev
 
 1. Open http://127.0.0.1:5217 in two **separate browser profiles**.
 2. Sign in as `alice@orbit.example` in one and `david@orbit.example` in the other (password `orbit-demo`).
-3. In both profiles, choose **Notifications → Enable notifications** and allow browser notifications.
+3. In both profiles, choose **Notifications -> Enable notifications** and allow browser notifications.
 4. As David, send `@alice please review this` in a channel. Alice gets a mention in her Notifications panel; David does not. Select it to open that channel.
 5. Hide all Alice windows, keeping David visible, and send another mention. Alice's real Service Worker receives it and requests an OS notification. OS/browser notification settings must also allow the banner.
 6. Reload Alice's page: notifications re-enable automatically. Sign out, sign in as Marcus, and enable notifications. New `@alice` mentions must not appear in Marcus's panel; `@marcus` mentions must.
@@ -135,7 +135,7 @@ through Pyric or FCM.
 1. Reload Orbit in regular Chrome on your phone at the Tailscale HTTPS address.
 2. Sign in, open **Notifications**, and enable notifications if needed.
 3. Tap **Test device notification**. The status should say **Browser accepted the
-   notification. Check your device’s notifications.** A rejection is shown in the
+   notification. Check your device's notifications.** A rejection is shown in the
    panel and the button remains available for retry.
 4. Check Android's notification shade for **Orbit device notification test**.
    Record separately whether a heads-up banner appeared: Android notification
