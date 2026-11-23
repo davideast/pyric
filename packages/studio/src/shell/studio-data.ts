@@ -24,7 +24,8 @@
  * states, and `studio-rules-source.ts` for the deployed rules text.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useSyncExternalStore } from 'react';
+import { DEFAULT_FIRESTORE_DATABASE } from 'pyric/firestore/internal';
 import { getInternalEnv } from 'pyric/sandbox/internal';
 import { useDevSeed } from '../dev/DevSeedProvider.js';
 import { useEnvironment } from './environment.js';
@@ -67,10 +68,10 @@ function handlesFromSeed(seed: {
 /**
  * The resolved Studio data handles, dev-seed first.
  *
- * - dev-seed `ready`   → live handles built from the seeded sandbox.
- * - dev-seed `pending` → pending (seeding the in-page fixture).
- * - dev-seed `error`   → error.
- * - dev-seed `disabled` (prod build) → fall through to the env-hydrated path.
+ * - dev-seed `ready`   -> live handles built from the seeded sandbox.
+ * - dev-seed `pending` -> pending (seeding the in-page fixture).
+ * - dev-seed `error`   -> error.
+ * - dev-seed `disabled` (prod build) -> fall through to the env-hydrated path.
  */
 export function useStudioDataSource(databaseId?: string): StudioDataState {
   const seed = useDevSeed();
@@ -145,45 +146,189 @@ export function useStudioDataSource(databaseId?: string): StudioDataState {
   }, [seed, hostAnswered, envData, live, workerRoots, databaseId]);
 }
 
+const EMPTY_ROOT_COLLECTIONS: string[] = [];
+
+interface RootCollectionsStore {
+  getSnapshot(): string[];
+  subscribe(listener: () => void): () => void;
+}
+
+const rootStoresByPlane = new WeakMap<WorkerLivePlane, Map<string, RootCollectionsStore>>();
+
+function normalizeDatabaseKey(databaseId: string | undefined): string {
+  if (databaseId === undefined || databaseId === '' || databaseId === DEFAULT_FIRESTORE_DATABASE) {
+    return DEFAULT_FIRESTORE_DATABASE;
+  }
+  return databaseId;
+}
+
+function sameStringArray(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) return false;
+  for (let i = 0; i < left.length; i += 1) {
+    if (left[i] !== right[i]) return false;
+  }
+  return true;
+}
+
+function alignAdminLens(live: WorkerLivePlane): void {
+  try {
+    live.setLens({ mode: 'admin' });
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      return;
+    }
+    throw error;
+  }
+}
+
+function createRootCollectionsStore(
+  live: WorkerLivePlane,
+  databaseId: string | undefined,
+): RootCollectionsStore {
+  let roots: string[] = EMPTY_ROOT_COLLECTIONS;
+  const listeners = new Set<() => void>();
+  let feedUnsub: (() => void) | null = null;
+  let generation = 0;
+  let inFlight = false;
+  let rerunRequested = false;
+
+  const notifyListeners = (): void => {
+    for (const listener of [...listeners]) {
+      if (listeners.has(listener)) {
+        listener();
+      }
+    }
+  };
+
+  const runFetch = (runGeneration: number): void => {
+    inFlight = true;
+    live
+      .listRootCollections(databaseId)
+      .then(
+        (ids) => {
+          if (runGeneration !== generation || listeners.size === 0) return;
+          const next = [...ids];
+          if (!sameStringArray(roots, next)) {
+            roots = next;
+            notifyListeners();
+          }
+        },
+        (error: unknown) => {
+          // Best-effort: retain the last known collection list across transient port errors.
+          if (error instanceof Error) {
+            return;
+          }
+        },
+      )
+      .finally(() => {
+        if (runGeneration !== generation) return;
+        inFlight = false;
+        if (rerunRequested && listeners.size > 0) {
+          rerunRequested = false;
+          runFetch(runGeneration);
+        }
+      });
+  };
+
+  const requestRefresh = (runGeneration: number): void => {
+    if (runGeneration !== generation || listeners.size === 0) return;
+    if (inFlight) {
+      rerunRequested = true;
+      return;
+    }
+    runFetch(runGeneration);
+  };
+
+  return {
+    getSnapshot: () => roots,
+    subscribe: (listener) => {
+      const wasEmpty = listeners.size === 0;
+      listeners.add(listener);
+      if (wasEmpty) {
+        generation += 1;
+        const activeGeneration = generation;
+        inFlight = false;
+        rerunRequested = false;
+        alignAdminLens(live);
+        requestRefresh(activeGeneration);
+        feedUnsub = live.feed.subscribe(() => {
+          requestRefresh(activeGeneration);
+        });
+      }
+      return () => {
+        const removed = listeners.delete(listener);
+        if (removed && listeners.size === 0) {
+          generation += 1;
+          inFlight = false;
+          rerunRequested = false;
+          roots = EMPTY_ROOT_COLLECTIONS;
+          if (feedUnsub !== null) {
+            feedUnsub();
+            feedUnsub = null;
+          }
+        }
+      };
+    },
+  };
+}
+
+function getRootCollectionsStore(
+  live: WorkerLivePlane,
+  databaseId: string | undefined,
+): RootCollectionsStore {
+  let byDb = rootStoresByPlane.get(live);
+  if (byDb === undefined) {
+    byDb = new Map<string, RootCollectionsStore>();
+    rootStoresByPlane.set(live, byDb);
+  }
+  const key = normalizeDatabaseKey(databaseId);
+  const existing = byDb.get(key);
+  if (existing !== undefined) {
+    return existing;
+  }
+  const scopedDbId = key === DEFAULT_FIRESTORE_DATABASE ? undefined : key;
+  const created = createRootCollectionsStore(live, scopedDbId);
+  byDb.set(key, created);
+  return created;
+}
+
+function noopSubscribe(): () => void {
+  return () => {};
+}
+
+function getEmptyRootCollections(): string[] {
+  return EMPTY_ROOT_COLLECTIONS;
+}
+
 /**
- * Reactive cache of the live worker's root collection ids. Fetches on mount and
- * refetches on every worker event (so a write that materialises a new
- * collection shows up live; the plane coalesces the requests, so a history
- * batch of any length costs at most two), and aligns the worker's default lens with Studio's
- * admin default. Empty array when there is no live plane.
+ * Shared reactive cache of the live worker's root collection ids, deduplicated
+ * per `(live, databaseId)` across all `useStudioDataSource` consumers so N
+ * surfaces share one `live.feed` subscription and one refresh loop.
  */
 function useWorkerRootCollections(
   live: WorkerLivePlane | undefined,
   databaseId?: string,
 ): string[] {
-  const [roots, setRoots] = useState<readonly string[]>([]);
-  useEffect(() => {
-    if (!live) {
-      setRoots([]);
-      return;
+  const store = useMemo(() => {
+    if (live === undefined) {
+      return null;
     }
-    let alive = true;
-    const refresh = () => {
-      live
-        .listRootCollections(databaseId)
-        .then((ids) => {
-          if (alive) setRoots(ids);
-        })
-        .catch(() => {
-          /* best-effort: keep the last known list */
-        });
-    };
-    try {
-      live.setLens({ mode: 'admin' });
-    } catch {
-      /* best-effort */
-    }
-    refresh();
-    const unsub = live.feed.subscribe(() => refresh());
-    return () => {
-      alive = false;
-      unsub();
-    };
+    return getRootCollectionsStore(live, databaseId);
   }, [live, databaseId]);
-  return roots as string[];
+  const subscribe = useCallback(
+    (listener: () => void) => {
+      if (store === null) {
+        return noopSubscribe();
+      }
+      return store.subscribe(listener);
+    },
+    [store],
+  );
+  const getSnapshot = useCallback(() => {
+    if (store === null) {
+      return EMPTY_ROOT_COLLECTIONS;
+    }
+    return store.getSnapshot();
+  }, [store]);
+  return useSyncExternalStore(subscribe, getSnapshot, getEmptyRootCollections);
 }
