@@ -24,6 +24,7 @@ export default row({
   conformanceTests: [
     'packages/pyric-admin/test/firestore/oracle-conformance.test.ts',
     'packages/pyric-admin/test/firestore/admin-vector-and-errors.test.ts',
+    'packages/pyric-admin/test/firestore/admin-query-builder.test.ts',
     'packages/pyric-admin/test/firestore/admin-query-extensions.test.ts',
     'packages/pyric-admin/test/firestore/admin-vector-query.test.ts',
     'packages/pyric-admin/test/firestore/admin-converter-and-discovery.test.ts',

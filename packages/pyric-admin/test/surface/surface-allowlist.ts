@@ -43,7 +43,7 @@ const ERROR_CLASS =
   'error class; sandbox errors carry the upstream code and message but are not instances of it, so it is not exported';
 
 export const ALLOWLIST: readonly AllowlistGroup[] = [
-  // ─── firebase-admin (root namespace) ───────────────────────────────────
+  // --- firebase-admin (root namespace) -----------------------------------
   {
     entry: '.',
     owner: '(exports)',
@@ -80,7 +80,7 @@ export const ALLOWLIST: readonly AllowlistGroup[] = [
     reason: 'generated Firestore RPC clients for direct API calls; the sandbox has no RPC endpoint',
   },
 
-  // ─── firebase-admin/app ────────────────────────────────────────────────
+  // --- firebase-admin/app ------------------------------------------------
   { entry: 'app', owner: '(exports)', members: ['AppErrorCodes', 'FirebaseAppError'], reason: ERROR_CLASS },
   {
     entry: 'app',
@@ -89,7 +89,7 @@ export const ALLOWLIST: readonly AllowlistGroup[] = [
     reason: 'version string; the sandbox does not claim a firebase-admin version',
   },
 
-  // ─── firebase-admin/auth ───────────────────────────────────────────────
+  // --- firebase-admin/auth -----------------------------------------------
   {
     entry: 'auth',
     owner: '(exports)',
@@ -112,7 +112,7 @@ export const ALLOWLIST: readonly AllowlistGroup[] = [
     reason: 'user record fields the sandbox auth store does not model (MFA enrollment, password hashes)',
   },
 
-  // ─── firebase-admin/firestore ──────────────────────────────────────────
+  // --- firebase-admin/firestore ------------------------------------------
   {
     entry: 'firestore',
     owner: '(exports)',
@@ -147,29 +147,8 @@ export const ALLOWLIST: readonly AllowlistGroup[] = [
     members: ['databaseId'],
     reason: 'property; the sandbox handle does not carry a database id',
   },
-  {
-    entry: 'firestore',
-    owner: 'CollectionReference',
-    members: ['onSnapshot'],
-    reason:
-      'reference and query members past the modeled read and write path; not yet stubbed on the local and remote reference builders',
-  },
-  {
-    entry: 'firestore',
-    owner: 'DocumentReference',
-    members: ['onSnapshot'],
-    reason:
-      'reference and query members past the modeled read and write path; not yet stubbed on the local and remote reference builders',
-  },
-  {
-    entry: 'firestore',
-    owner: 'Query',
-    members: ['onSnapshot'],
-    reason:
-      'reference and query members past the modeled read and write path; not yet stubbed on the local and remote reference builders',
-  },
 
-  // ─── firebase-admin/storage ────────────────────────────────────────────
+  // --- firebase-admin/storage --------------------------------------------
   { entry: 'storage', owner: '(exports)', members: ['Storage'], reason: CLASS_EXPORT },
   {
     entry: 'storage',

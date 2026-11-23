@@ -30,6 +30,7 @@ import {
   createQueryExplainStream,
   createQueryStream,
   executeQueryExplain,
+  sliceQueryDocsForOffsetAndLimit,
 } from './admin-query-extensions.js';
 import {
   assertQueryExecutable,
@@ -69,15 +70,7 @@ async function executeWrappedQueryGet(
     }
   }
   const snap = await liveTarget.get(opts);
-  let docsOverride: readonly QueryDocumentSnapshot[] | undefined;
-  if (meta.offsetCount !== undefined && meta.offsetCount > 0) {
-    const sliced = snap.docs.slice(meta.offsetCount);
-    if (meta.pendingLimitType === 'first' && meta.limitCount !== undefined) {
-      docsOverride = sliced.slice(0, meta.limitCount);
-    } else {
-      docsOverride = sliced;
-    }
-  }
+  const docsOverride = sliceQueryDocsForOffsetAndLimit(snap.docs, meta);
   return wrapQuerySnapshot(snap, rootDb, docRefOnRoot, {
     queryHandle: receiverQuery,
     docsOverride,

@@ -130,12 +130,29 @@ const PROBES: readonly Probe[] = [
 
   { entry: 'firestore', owner: 'Firestore', path: ['getFirestore'], make: fs },
   { entry: 'firestore', owner: 'CollectionReference', path: ['getFirestore', 'collection'], make: (arm) => fs(arm).collection('surface') },
+  { entry: 'firestore', owner: 'CollectionGroup', path: ['getFirestore', 'collectionGroup'], make: (arm) => fs(arm).collectionGroup('surface') },
   { entry: 'firestore', owner: 'DocumentReference', path: ['getFirestore', 'doc'], make: (arm) => fs(arm).doc('surface/doc') },
   {
     entry: 'firestore',
     owner: 'Query',
     path: ['getFirestore', 'collection', 'where'],
     make: (arm) => fs(arm).collection('surface').where('a', '==', 1),
+  },
+  {
+    entry: 'firestore',
+    owner: 'AggregateQuery',
+    path: ['getFirestore', 'collection', 'count'],
+    make: (arm) => (fs(arm).collection('surface') as unknown as { count(): unknown }).count(),
+  },
+  {
+    entry: 'firestore',
+    owner: 'AggregateQuerySnapshot',
+    path: ['getFirestore', 'collection', 'count', { awaited: 'get' }],
+    make: (arm) =>
+      (fs(arm).collection('surface') as unknown as { count(): { get(): Promise<unknown> } })
+        .count()
+        .get(),
+    localOnly: true,
   },
   {
     entry: 'firestore',
@@ -227,7 +244,7 @@ const MIRRORED_MODULES: Record<(typeof MIRRORED_ENTRIES)[number], Module> = {
 
 const TOP_LEVEL = '(exports)';
 
-// ─── State of one name ──────────────────────────────────────────────────
+// --- State of one name --------------------------------------------------
 
 type State = 'implemented' | 'deferred' | 'allowlisted' | 'missing';
 
@@ -258,7 +275,7 @@ for (const group of ALLOWLIST) {
   }
 }
 
-// ─── Arms ───────────────────────────────────────────────────────────────
+// --- Arms ---------------------------------------------------------------
 
 /** A channel no peer answers. The probes only construct handles, and the
  *  local-only probes are the ones that read data. */
@@ -287,7 +304,7 @@ afterAll(async () => {
   await Promise.all(arms.map((arm) => appEntry.deleteApp(arm.app)));
 });
 
-// ─── The check ──────────────────────────────────────────────────────────
+// --- The check ----------------------------------------------------------
 
 const upstream = loadUpstreamSurface([...MIRRORED_ENTRIES, ...DEFERRED_ENTRIES]);
 
@@ -369,7 +386,10 @@ describe(`pyric-admin surface against firebase-admin ${firebaseAdminVersion()}`,
           let result: unknown;
           let thrown: unknown;
           try {
-            result = target[name]!();
+            const memberFn = target[name];
+            if (typeof memberFn === 'function') {
+              result = memberFn.call(target);
+            }
           } catch (error) {
             thrown = error;
           }

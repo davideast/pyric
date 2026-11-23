@@ -97,20 +97,20 @@ export function isAdminQueryEqual(self: object, other: unknown): boolean {
   if (typeof other !== 'object' || other === null || !adminQueryBrand.has(other)) {
     return false;
   }
-  if (adminCollectionRefBrand.has(self) !== adminCollectionRefBrand.has(other)) {
-    const selfMeta = adminQueryMetadata.get(self);
-    const otherMeta = adminQueryMetadata.get(other);
-    if (selfMeta?.signature.length !== otherMeta?.signature.length) {
-      return false;
-    }
-  }
   const selfMeta = adminQueryMetadata.get(self);
   const otherMeta = adminQueryMetadata.get(other);
   if (selfMeta === undefined || otherMeta === undefined) return false;
   return (
     adminToRootDb.get(self) === adminToRootDb.get(other) &&
     adminHandleConverter.get(self) === adminHandleConverter.get(other) &&
-    JSON.stringify(selfMeta.signature) === JSON.stringify(otherMeta.signature)
+    JSON.stringify(selfMeta.signature) === JSON.stringify(otherMeta.signature) &&
+    selfMeta.pendingLimitType === otherMeta.pendingLimitType &&
+    selfMeta.limitCount === otherMeta.limitCount &&
+    selfMeta.offsetCount === otherMeta.offsetCount &&
+    JSON.stringify(selfMeta.selectedFields ?? null) ===
+      JSON.stringify(otherMeta.selectedFields ?? null) &&
+    (selfMeta.startSignature ?? '') === (otherMeta.startSignature ?? '') &&
+    (selfMeta.endSignature ?? '') === (otherMeta.endSignature ?? '')
   );
 }
 

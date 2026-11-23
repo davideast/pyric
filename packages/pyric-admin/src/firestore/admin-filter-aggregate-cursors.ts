@@ -30,10 +30,17 @@ import {
 import {
   assertQueryExecutable,
   normalizeLegacyQueryOperand,
+  resolveDocumentIdCursorString,
+  serializeCursorOperandForSignature,
   unwrapCursorSnapshotForAdmin,
   validateAndNormalizeWhereArgs,
   type AdminQueryMetadata,
 } from './admin-query-validation.js';
+import {
+  computePostOffsetAggregates,
+  sliceQueryDocsForOffsetAndLimit,
+} from './admin-query-extensions.js';
+import { isAdminQueryEqual } from './admin-reference-and-snapshot-equality.js';
 import { nextAdminTimestamp } from './admin-write-result-preconditions.js';
 import { compareFieldSegments } from './admin-set-and-precondition-validation.js';
 import {
@@ -222,6 +229,23 @@ function normalizeSingleAggregateEntry(alias: string, rawEntry: unknown): Compat
   );
 }
 
+const adminAggregateSpecSignature = new WeakMap<object, string>();
+
+function serializeAggregateSpec(spec: AggregateSpec): string {
+  return Object.keys(spec)
+    .sort()
+    .map((alias) => {
+      const entry = spec[alias];
+      if (entry === undefined || entry.kind === 'count') {
+        return `${JSON.stringify(alias)}:count`;
+      }
+      const fieldKey =
+        entry.path !== undefined ? entry.path.join('.') : String(entry.field);
+      return `${JSON.stringify(alias)}:${entry.kind}:${fieldKey}`;
+    })
+    .join('|');
+}
+
 export function buildAdminAggregateQuery(
   target: Query,
   receiverQuery: Query,
@@ -244,12 +268,19 @@ export function buildAdminAggregateQuery(
     }
     return specOut;
   });
+  const specSignature = serializeAggregateSpec(normalizedSpec);
   const aggQuery: Record<string, unknown> = {
     query: receiverQuery,
     get() {
       return runWithAdminErrorsAsync(appBacked, async () => {
         assertAdminRootDatabaseDeclared(rootDb);
         assertQueryExecutable(meta);
+        if (meta.offsetCount !== undefined && meta.offsetCount < 0) {
+          throw new SandboxError(
+            'invalid-argument',
+            'Value for argument "offset" must be non-negative.',
+          );
+        }
         const aliasCount = Object.keys(normalizedSpec).length;
         if (aliasCount < 1 || aliasCount > 5) {
           throw new SandboxError(
@@ -267,8 +298,27 @@ export function buildAdminAggregateQuery(
             liveTarget = rawDb.collectionGroup(meta.source.collectionId);
           }
         }
-        const rawSnap = await liveTarget.aggregate(normalizedSpec);
-        const computed = rawSnap.data();
+        let computed: Record<string, number | null>;
+        const activeOffset = meta.offsetCount ?? 0;
+        const allCountOnly = Object.values(normalizedSpec).every(
+          (entry) => entry.kind === 'count',
+        );
+        if (activeOffset <= 0) {
+          const rawSnap = await liveTarget.aggregate(normalizedSpec);
+          computed = rawSnap.data();
+        } else if (allCountOnly) {
+          const rawSnap = await liveTarget.aggregate(normalizedSpec);
+          const rawData = rawSnap.data();
+          computed = {};
+          for (const alias of Object.keys(normalizedSpec)) {
+            const preOffsetCount = Number(rawData[alias] ?? 0);
+            computed[alias] = Math.max(0, preOffsetCount - activeOffset);
+          }
+        } else {
+          const snap = await liveTarget.get();
+          const sliced = sliceQueryDocsForOffsetAndLimit(snap.docs, meta) ?? snap.docs;
+          computed = computePostOffsetAggregates(sliced, normalizedSpec);
+        }
         const readTime = nextAdminTimestamp(rawDb);
         return {
           query: receiverQuery,
@@ -278,16 +328,19 @@ export function buildAdminAggregateQuery(
             if (typeof other !== 'object' || other === null) {
               return false;
             }
-            const otherDataFn = (other as { data?: unknown }).data;
-            if (typeof otherDataFn !== 'function') {
+            const otherCand = other as { query?: unknown; data?: unknown };
+            if (!isAdminQueryEqual(receiverQuery, otherCand.query)) {
               return false;
             }
-            const otherData = (otherDataFn as () => Record<string, unknown>).call(other);
+            if (typeof otherCand.data !== 'function') {
+              return false;
+            }
+            const otherData = (otherCand.data as () => Record<string, unknown>).call(other);
             const keys = Object.keys(computed);
             if (keys.length !== Object.keys(otherData).length) {
               return false;
             }
-            return keys.every((key) => computed[key] === otherData[key]);
+            return keys.every((key) => Object.is(computed[key], otherData[key]));
           },
         };
       });
@@ -299,9 +352,16 @@ export function buildAdminAggregateQuery(
       if (typeof other !== 'object' || other === null) {
         return false;
       }
-      return (other as { query?: unknown }).query === receiverQuery;
+      if (!adminAggregateSpecSignature.has(other)) {
+        return false;
+      }
+      if (adminAggregateSpecSignature.get(other) !== specSignature) {
+        return false;
+      }
+      return isAdminQueryEqual(receiverQuery, (other as { query?: unknown }).query);
     },
   };
+  adminAggregateSpecSignature.set(aggQuery, specSignature);
   defineDeferredMembers(aggQuery, 'pyric-admin/firestore', 'AggregateQuery', {
     async: ['explain'],
   });
@@ -331,8 +391,9 @@ export function applyAdminCursorArgs(
   target: Query,
   methodName: 'startAt' | 'startAfter' | 'endAt' | 'endBefore',
   args: readonly unknown[],
+  meta: AdminQueryMetadata,
   rootDb: SandboxFirestore,
-): Query {
+): { readonly nextTarget: Query; readonly cursorSignature: string } {
   if (args.length === 0) {
     throw new SandboxError(
       'invalid-argument',
@@ -343,14 +404,36 @@ export function applyAdminCursorArgs(
   const isStart = methodName === 'startAt' || methodName === 'startAfter';
 
   if (args.length === 1 && isCursorDocumentSnapshot(args[0])) {
-    const unwrappedSnap = unwrapCursorSnapshotForAdmin(args[0], rootDb);
+    const snap = args[0];
+    const unwrappedSnap = unwrapCursorSnapshotForAdmin(snap, rootDb);
+    let nextTarget: Query;
     if (isStart) {
-      return target.startCursorFromSnapshot(unwrappedSnap, inclusive);
+      nextTarget = target.startCursorFromSnapshot(unwrappedSnap, inclusive);
+    } else {
+      nextTarget = target.endCursorFromSnapshot(unwrappedSnap, inclusive);
     }
-    return target.endCursorFromSnapshot(unwrappedSnap, inclusive);
+    const snapPath = typeof snap.ref?.path === 'string' ? snap.ref.path : snap.id;
+    const cursorSignature = `snap:${String(inclusive)}:${snapPath}:${serializeCursorOperandForSignature(snap.data() ?? null)}`;
+    return { nextTarget, cursorSignature };
   }
 
+  if (args.length > meta.orderByFields.length) {
+    throw new SandboxError(
+      'invalid-argument',
+      'Too many cursor values specified. The specified values must match the orderBy() constraints of the query.',
+    );
+  }
+
+  const signatureParts: string[] = [];
   const normalizedValues = args.map((entry, idx) => {
+    const orderField = meta.orderByFields[idx];
+    const isDocIdOrder =
+      orderField !== undefined && orderField.length === 1 && orderField[0] === '__name__';
+    if (isDocIdOrder) {
+      const cursorStr = resolveDocumentIdCursorString(entry, meta.source, rootDb);
+      signatureParts.push(`docId:${cursorStr}`);
+      return cursorStr;
+    }
     const validated = validateAndNormalizeFirestoreValue(entry, {
       arg: idx,
       allowDeletes: 'none',
@@ -361,11 +444,13 @@ export function applyAdminCursorArgs(
       inArray: false,
       directArrayElement: false,
     });
+    signatureParts.push(serializeCursorOperandForSignature(validated));
     return normalizeLegacyQueryOperand(validated, rootDb);
   });
 
+  const cursorSignature = `vals:${String(inclusive)}:${signatureParts.join('|')}`;
   if (isStart) {
-    return target.startCursor(normalizedValues, inclusive);
+    return { nextTarget: target.startCursor(normalizedValues, inclusive), cursorSignature };
   }
-  return target.endCursor(normalizedValues, inclusive);
+  return { nextTarget: target.endCursor(normalizedValues, inclusive), cursorSignature };
 }

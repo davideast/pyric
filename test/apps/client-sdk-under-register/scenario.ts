@@ -208,6 +208,50 @@ export default scenario(async (app) => {
     expectOk(output, 'admin.cjs', 'from require');
   });
 
+  await app.step('firebase-admin Query count, select, cursors, offset, stream, and listDocuments match production shapes on the host', async () => {
+    const { output } = await app.serverScript('admin-query.mjs', [], { env });
+    expectOk(output, 'admin.query.count', {
+      data: { count: 3 },
+      readTimeIsNumber: true,
+      queryMatches: true,
+      selfEqual: true,
+    });
+    expectOk(output, 'admin.query.select', {
+      size: 3,
+      empty: false,
+      hasReadTime: true,
+      docs: [
+        { id: 'a', exists: true, data: { label: 'alpha' }, secret: null },
+        { id: 'b', exists: true, data: { label: 'beta' }, secret: null },
+        { id: 'c', exists: true, data: { label: 'gamma' }, secret: null },
+      ],
+    });
+    expectOk(output, 'admin.query.cursor', {
+      size: 1,
+      empty: false,
+      ids: ['b'],
+      firstData: { rank: 20, label: 'beta', secret: 's2' },
+      hasDocTimestamps: true,
+    });
+    expectOk(output, 'admin.query.offset', {
+      size: 2,
+      ids: ['b', 'c'],
+      offsetCount: { count: 2 },
+    });
+    expectOk(output, 'admin.query.stream', {
+      isReadable: true,
+      eventIds: ['a', 'b', 'c'],
+      asyncIterIds: ['a', 'b', 'c'],
+      allSnapsHaveRefAndReadTime: true,
+    });
+    expectOk(output, 'admin.query.discoveryAndDeferred', {
+      listedIds: ['a', 'b', 'c', 'phantom'],
+      existsById: { a: true, b: true, c: true, phantom: false },
+      convertedBeta: 'BETA:20',
+      deferredName: 'PyricDeferredApiError',
+    });
+  });
+
   await app.step('the page on the host reads what the server process wrote, and aggregates over it', async () => {
     const page = await app.page(host.url);
     await page.waitForFunction(() => 'readBack' in window);
