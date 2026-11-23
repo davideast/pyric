@@ -54,6 +54,12 @@ export type ObservedFirestoreSessionOp =
   | {
       readonly kind: 'invalidate';
       readonly path: string;
+    }
+  | {
+      readonly kind: 'projection';
+      readonly path: string;
+      readonly fields: readonly string[];
+      readonly data: Record<string, unknown>;
     };
 
 export type ObservedRtdbSessionOp =
@@ -91,6 +97,8 @@ export interface ObservedSessionDelta {
   readonly rtdb?: readonly ObservedRtdbSessionOp[];
   readonly storage?: readonly ObservedStorageSessionOp[];
   readonly skipped?: ObservedSessionSkipCounts;
+  /** True on a rejected mutation when the SDK proved no write request was dispatched to the server. */
+  readonly uncommitted?: boolean;
 }
 
 export interface ObservedSessionSkipStats {

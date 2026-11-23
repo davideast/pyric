@@ -40,7 +40,7 @@ export function isEscapedPlainMap(
  * shapes recognized by `@pyric/ui` and `rehydrateFirestoreDocData`, so map
  * merges treat it as an atomic leaf rather than a nested map.
  */
-export function isSerializedFirestoreLeafObject(value: Record<string, unknown>): boolean {
+function isSerializedFirestoreLeafObject(value: Record<string, unknown>): boolean {
   const keys = Object.keys(value);
   if (
     (keys.length === 2 || (keys.length === 3 && value.type === 'firestore/timestamp/1.0')) &&
@@ -196,5 +196,66 @@ export function deleteDottedField(target: Record<string, unknown>, fieldPath: st
   const parts = fieldPath.split('.');
   if (parts.length === 0) return;
   deleteDottedSegments(target, parts, 0);
+}
+
+type FieldLookup = { readonly found: true; readonly value: unknown } | { readonly found: false };
+
+function readDottedSegments(
+  cursor: Record<string, unknown>,
+  parts: readonly string[],
+  index: number,
+): FieldLookup {
+  let unwrapped = cursor;
+  if (isEscapedPlainMap(cursor)) unwrapped = cursor.fields;
+  const seg = parts[index];
+  if (seg === undefined || FORBIDDEN_KEYS.has(seg)) return { found: false };
+  if (!Object.prototype.hasOwnProperty.call(unwrapped, seg)) return { found: false };
+  const current = unwrapped[seg];
+  if (index === parts.length - 1) return { found: true, value: current };
+  if (!isPlainObject(current) || isSerializedFirestoreLeafObject(current)) return { found: false };
+  return readDottedSegments(current, parts, index + 1);
+}
+
+function valuesStructurallyEqual(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false;
+    for (let i = 0; i < left.length; i++) {
+      if (!valuesStructurallyEqual(left[i], right[i])) return false;
+    }
+    return true;
+  }
+  if (!isPlainObject(left) || !isPlainObject(right)) return false;
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) return false;
+  for (const key of leftKeys) {
+    if (!Object.prototype.hasOwnProperty.call(right, key)) return false;
+    if (!valuesStructurallyEqual(left[key], right[key])) return false;
+  }
+  return true;
+}
+
+/**
+ * True when any field named in `fields` differs between `storedDoc` and
+ * `projectedData` (including presence vs absence when a field was added or
+ * deleted on the server).
+ */
+export function projectionContradictsStoredDoc(
+  storedDoc: Record<string, unknown>,
+  fields: readonly string[],
+  projectedData: Record<string, unknown>,
+): boolean {
+  for (const fieldPath of fields) {
+    const parts = fieldPath.split('.');
+    if (parts.length === 0) return true;
+    const storedLookup = readDottedSegments(storedDoc, parts, 0);
+    const projectedLookup = readDottedSegments(projectedData, parts, 0);
+    if (storedLookup.found !== projectedLookup.found) return true;
+    if (storedLookup.found && projectedLookup.found) {
+      if (!valuesStructurallyEqual(storedLookup.value, projectedLookup.value)) return true;
+    }
+  }
+  return false;
 }
 

@@ -15,7 +15,13 @@ import {
   type ObservedRtdbLookup,
 } from './coverage.js';
 import { MAX_SINGLE_ITEM_BYTES } from './delta-validation.js';
-import { deepMergeFirestoreMap, deleteDottedField, isEscapedPlainMap, setDottedField } from './firestore-fields.js';
+import {
+  deepMergeFirestoreMap,
+  deleteDottedField,
+  isEscapedPlainMap,
+  projectionContradictsStoredDoc,
+  setDottedField,
+} from './firestore-fields.js';
 import { byteLengthOf } from './json-values.js';
 import { canonicalRtdbPath, rtdbPathSegments, setRtdbAtSegments, toRtdbMockData } from './rtdb-tree.js';
 import { createObservedStorageCatalog } from './storage-catalog.js';
@@ -183,6 +189,22 @@ export function createObservedSessionDataStore(
       firestoreBytes = Math.max(0, firestoreBytes - existing.bytes);
       return true;
     }
+    if (op.kind === 'projection') {
+      const existing = docs.get(normPath);
+      if (existing === undefined) {
+        const wasAbsent = coverage.lookupFirestoreDoc(normPath, undefined).status === 'absent';
+        if (!wasAbsent) return false;
+        coverage.invalidateFirestoreDoc(normPath);
+        return true;
+      }
+      if (!projectionContradictsStoredDoc(existing.data, op.fields, op.data)) {
+        return false;
+      }
+      coverage.invalidateFirestoreDoc(normPath);
+      docs.delete(normPath);
+      firestoreBytes = Math.max(0, firestoreBytes - existing.bytes);
+      return true;
+    }
     if (op.kind === 'delete') {
       coverage.recordFirestoreDelete(normPath);
       const existing = docs.get(normPath);
@@ -336,7 +358,12 @@ export function createObservedSessionDataStore(
   }
 
   function hasSessionOps(delta: ObservedSessionDelta): boolean {
-    if (delta.firestore !== undefined && delta.firestore.length > 0) return true;
+    if (
+      delta.firestore !== undefined &&
+      delta.firestore.some((op) => op.kind === 'set' || op.kind === 'update' || op.kind === 'delete')
+    ) {
+      return true;
+    }
     if (delta.rtdb !== undefined && delta.rtdb.length > 0) return true;
     return delta.storage !== undefined && delta.storage.length > 0;
   }

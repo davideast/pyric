@@ -325,4 +325,179 @@ describe('observed-session call-policy', () => {
     );
     expect(store.snapshot().storage).toBeUndefined();
   });
+
+  it('preserves unrelated docs on projected/masked Firestore reads while purging contradicted returned docs and single-doc skipped reads, and skips store purge only on proven-uncommitted failed transactions (#3283)', () => {
+    const store = createObservedSessionDataStore({ projectId: 'demo' });
+    store.apply(
+      {
+        firestore: [
+          { kind: 'set', path: 'orders/ord-1', data: { status: 'fulfilled', total: 42 } },
+          { kind: 'set', path: 'orders/ord-2', data: { status: 'shipped', total: 80 } },
+          { kind: 'set', path: 'orders/ord-changed', data: { status: 'queued', total: 10 } },
+          { kind: 'set', path: 'orders/ord-oversized', data: { status: 'ready', total: 5 } },
+        ],
+      },
+      'demo',
+      'admin',
+    );
+
+    // 1. Projected `Query.get` (`path: 'orders'`): keeps `ord-1` (matching projection) and `ord-2` (unrelated),
+    //    but purges `ord-changed` because the server returned `status: 'cancelled'`.
+    applyAcceptedSessionCall(
+      store,
+      {
+        call: makeCall({
+          service: 'firestore',
+          sdk: 'admin',
+          method: 'Query.get',
+          path: 'orders',
+        }),
+        sessionData: {
+          firestore: [
+            { kind: 'projection', path: 'orders/ord-1', fields: ['status'], data: { status: 'fulfilled' } },
+            { kind: 'projection', path: 'orders/ord-changed', fields: ['status'], data: { status: 'cancelled' } },
+          ],
+          skipped: { unsupported: 1 },
+        },
+      },
+      'demo',
+    );
+    expect(store.snapshot().firestore['orders/ord-1']).toEqual({ status: 'fulfilled', total: 42 });
+    expect(store.snapshot().firestore['orders/ord-2']).toEqual({ status: 'shipped', total: 80 });
+    expect(store.snapshot().firestore['orders/ord-changed']).toBeUndefined();
+    expect(store.getFirestoreDoc('orders/ord-changed')).toEqual({ status: 'unobserved' });
+    expect(store.snapshot().skips?.unsupported).toBe(1);
+
+    // 2. Masked `Firestore.getAll` (`path: undefined`): does not wipe the store; reconciles returned docs.
+    applyAcceptedSessionCall(
+      store,
+      {
+        call: makeCall({
+          service: 'firestore',
+          sdk: 'admin',
+          method: 'Firestore.getAll',
+        }),
+        sessionData: {
+          firestore: [
+            { kind: 'projection', path: 'orders/ord-2', fields: ['status'], data: { status: 'returned' } },
+          ],
+          skipped: { unsupported: 1 },
+        },
+      },
+      'demo',
+    );
+    expect(store.snapshot().firestore['orders/ord-1']).toEqual({ status: 'fulfilled', total: 42 });
+    expect(store.snapshot().firestore['orders/ord-2']).toBeUndefined();
+    expect(store.snapshot().skips?.unsupported).toBe(2);
+
+    // 3. Single-document skipped read (`DocumentReference.get` on `orders/ord-oversized`) still purges that doc.
+    applyAcceptedSessionCall(
+      store,
+      {
+        call: makeCall({
+          service: 'firestore',
+          sdk: 'admin',
+          method: 'DocumentReference.get',
+          path: 'orders/ord-oversized',
+        }),
+        sessionData: { skipped: { oversized: 1 } },
+      },
+      'demo',
+    );
+    expect(store.snapshot().firestore['orders/ord-oversized']).toBeUndefined();
+    expect(store.snapshot().firestore['orders/ord-1']).toEqual({ status: 'fulfilled', total: 42 });
+
+    // 4. Proven-uncommitted `Firestore.runTransaction` rejection counts `failed: 1` without purging docs.
+    applyAcceptedSessionCall(
+      store,
+      {
+        call: makeCall({
+          service: 'firestore',
+          sdk: 'admin',
+          method: 'Firestore.runTransaction',
+          outcome: { status: 'error', code: 'Error' },
+        }),
+        sessionData: { uncommitted: true },
+      },
+      'demo',
+    );
+    expect(store.snapshot().firestore['orders/ord-1']).toEqual({ status: 'fulfilled', total: 42 });
+    expect(store.snapshot().skips?.failed).toBe(1);
+
+    // 5. Truncated (`> 250` docs or `> 512 KiB`) collection or `getAll` reads purge cached entries beyond the
+    //    delta cap (`ord-251`) before applying the captured prefix, while keeping unrelated collections (`users/u-1`).
+    store.apply(
+      {
+        firestore: [
+          { kind: 'set', path: 'orders/ord-251', data: { status: 'stale-before-cut-off', total: 99 } },
+          { kind: 'set', path: 'users/u-1', data: { name: 'Ada' } },
+        ],
+      },
+      'demo',
+      'admin',
+    );
+    applyAcceptedSessionCall(
+      store,
+      {
+        call: makeCall({
+          service: 'firestore',
+          sdk: 'admin',
+          method: 'Query.get',
+          path: 'orders',
+        }),
+        sessionData: {
+          firestore: [
+            { kind: 'projection', path: 'orders/ord-1', fields: ['status'], data: { status: 'fulfilled' } },
+          ],
+          skipped: { unsupported: 1, truncated: 1 },
+        },
+      },
+      'demo',
+    );
+    expect(store.snapshot().firestore['orders/ord-251']).toBeUndefined();
+    expect(store.snapshot().firestore['users/u-1']).toEqual({ name: 'Ada' });
+    expect(store.snapshot().skips?.truncated).toBe(1);
+
+    // Plain `Query.get` cut off at the 250-doc / 512 KiB cap also purges stale `#251+` while applying captured `set` ops.
+    store.apply(
+      { firestore: [{ kind: 'set', path: 'orders/ord-252', data: { status: 'stale-tail' } }] },
+      'demo',
+      'admin',
+    );
+    applyAcceptedSessionCall(
+      store,
+      {
+        call: makeCall({
+          service: 'firestore',
+          sdk: 'admin',
+          method: 'Query.get',
+          path: 'orders',
+        }),
+        sessionData: {
+          firestore: [{ kind: 'set', path: 'orders/ord-1', data: { status: 'fresh', total: 50 } }],
+          skipped: { truncated: 1 },
+        },
+      },
+      'demo',
+    );
+    expect(store.snapshot().firestore['orders/ord-252']).toBeUndefined();
+    expect(store.snapshot().firestore['orders/ord-1']).toEqual({ status: 'fresh', total: 50 });
+    expect(store.snapshot().firestore['users/u-1']).toEqual({ name: 'Ada' });
+
+    // 6. Malformed/rejected delta (`sessionDataSkip`) or ambiguous `Firestore.runTransaction` rejection still purges fail-closed.
+    applyAcceptedSessionCall(
+      store,
+      {
+        call: makeCall({
+          service: 'firestore',
+          sdk: 'admin',
+          method: 'Firestore.runTransaction',
+          outcome: { status: 'error', code: 'unavailable' },
+        }),
+      },
+      'demo',
+    );
+    expect(store.snapshot().firestore).toEqual({});
+    expect(store.snapshot().skips?.failed).toBe(2);
+  });
 });

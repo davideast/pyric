@@ -242,9 +242,12 @@ export function pageObserver(send: ObservedCallSend, now: () => number = Date.no
   return (record) => {
     const call = observedCallOf(record, now());
     if (call === null) return undefined;
-    if (call.outcome.status === 'ok') {
-      const sessionData = sessionDataOf(record);
-      if (sessionData !== undefined) return send(call, sessionData);
+    const sessionData = sessionDataOf(record);
+    if (
+      sessionData !== undefined &&
+      (call.outcome.status === 'ok' || sessionData.uncommitted === true)
+    ) {
+      return send(call, sessionData);
     }
     return send(call);
   };

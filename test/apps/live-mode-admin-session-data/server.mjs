@@ -47,6 +47,7 @@ const ordTemp = orders.doc("ord-temp");
 const ordBatch = orders.doc("ord-batch");
 const ordStale = orders.doc("ord-stale");
 const ordMissing = orders.doc("ord-missing");
+const ordProjectedStale = orders.doc("ord-projected-stale");
 
 let addedId = "";
 let pushedKey = "";
@@ -124,9 +125,12 @@ await step("firestore.tx-commit", () =>
     });
   }),
 );
+await step("firestore.set-projected-stale", () =>
+  ordProjectedStale.set({ status: "queued", total: 50 }),
+);
 await step("firestore.select", async () => {
   const snap = await orders.select("status").get();
-  check(snap.size === 1, "expected 1 projected order");
+  check(snap.size === 2, "expected 2 projected orders");
 });
 await step("firestore.tx-rollback", () =>
   db.runTransaction(async (tx) => {

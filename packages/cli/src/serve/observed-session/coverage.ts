@@ -47,7 +47,7 @@ export interface ObservedSessionCoverage {
   recordFirestoreDelete(path: string): void;
   recordFirestoreWrite(
     path: string,
-    op: Exclude<ObservedFirestoreSessionOp, { kind: 'delete' | 'invalidate' }>,
+    op: Extract<ObservedFirestoreSessionOp, { kind: 'set' | 'update' }>,
     wrote: boolean,
   ): void;
   evictFirestoreDoc(path: string): void;

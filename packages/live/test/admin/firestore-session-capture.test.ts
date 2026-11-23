@@ -234,34 +234,78 @@ describe('admin/firestore-session-capture', () => {
       },
     });
 
-    const maskedCtx = adminFirestoreSessionContext('Firestore.getAll', [refA, { fieldMask: ['ok'] }], {}, undefined);
-    expect(adminFirestoreResult(makeFakeSite('Firestore.getAll', maskedCtx), [makeDocSnap('items/a', { ok: true })])).toEqual({
-      sessionData: { skipped: { unsupported: 1 } },
+    const maskedCtx = adminFirestoreSessionContext('Firestore.getAll', [refA, refMissing, { fieldMask: ['ok'] }], {}, undefined);
+    expect(
+      adminFirestoreResult(makeFakeSite('Firestore.getAll', maskedCtx), [
+        makeDocSnap('items/a', { ok: true }),
+        makeDocSnap('items/missing', undefined),
+      ]),
+    ).toEqual({
+      sessionData: {
+        firestore: [
+          { kind: 'projection', path: 'items/a', fields: ['ok'], data: { ok: true } },
+          { kind: 'delete', path: 'items/missing' },
+        ],
+        skipped: { unsupported: 1 },
+      },
     });
 
     const emptyMaskCtx = adminFirestoreSessionContext('Firestore.getAll', [refA, { fieldMask: [] }], {}, undefined);
     expect(adminFirestoreResult(makeFakeSite('Firestore.getAll', emptyMaskCtx), [makeDocSnap('items/a', {})])).toEqual({
-      sessionData: { skipped: { unsupported: 1 } },
+      sessionData: {
+        firestore: [{ kind: 'projection', path: 'items/a', fields: [], data: {} }],
+        skipped: { unsupported: 1 },
+      },
+    });
+
+    // Literal-dot FieldPath segment in `fieldMask` cannot be represented as a dotted string -> invalidates returned doc fail-closed.
+    const dotSegmentMaskCtx = adminFirestoreSessionContext(
+      'Firestore.getAll',
+      [refA, { fieldMask: [new sdk.FieldPath('a.b', 'c')] }],
+      {},
+      undefined,
+    );
+    expect(
+      adminFirestoreResult(makeFakeSite('Firestore.getAll', dotSegmentMaskCtx), [makeDocSnap('items/a', { 'a.b': { c: 1 } })]),
+    ).toEqual({
+      sessionData: {
+        firestore: [{ kind: 'invalidate', path: 'items/a' }],
+        skipped: { unsupported: 1 },
+      },
     });
   });
 
-  test('skips Query.select() projections on Query.get and Query.onSnapshot so partial fields never overwrite whole documents', async () => {
+  test('reconciles Query.select() projections on Query.get and Query.onSnapshot without overwriting whole documents, purging docs whose server value changed (#3283)', async () => {
     const db = new sdk.Firestore({ projectId: 'demo-select-projection' });
     try {
       const projectedQuery = db.collection('items').select('title');
       const emptyProjectedQuery = db.collection('items').select();
+      const dotSegmentQuery = db.collection('items').select(new sdk.FieldPath('a.b', 'c') as unknown as string);
       const partialSnap = {
-        size: 1,
+        size: 2,
         query: projectedQuery,
-        docs: [makeDocSnap('items/a', { title: 'Only projected' })],
-        docChanges: () => [{ type: 'added', doc: makeDocSnap('items/a', { title: 'Only projected' }) }],
+        docs: [
+          makeDocSnap('items/unchanged', { title: 'Original' }),
+          makeDocSnap('items/changed', { title: 'Updated on server' }),
+        ],
+        docChanges: () => [
+          { type: 'added', doc: makeDocSnap('items/unchanged', { title: 'Original' }) },
+          { type: 'modified', doc: makeDocSnap('items/changed', { title: 'Updated on server' }) },
+          { type: 'removed', doc: makeDocSnap('items/left-window', { title: 'Gone' }) },
+        ],
       };
 
       expect(
         adminFirestoreResult(makeFakeSite('Query.get', { subject: projectedQuery, path: 'items' }), partialSnap),
       ).toEqual({
-        billedDocuments: 1,
-        sessionData: { skipped: { unsupported: 1 } },
+        billedDocuments: 2,
+        sessionData: {
+          firestore: [
+            { kind: 'projection', path: 'items/unchanged', fields: ['title'], data: { title: 'Original' } },
+            { kind: 'projection', path: 'items/changed', fields: ['title'], data: { title: 'Updated on server' } },
+          ],
+          skipped: { unsupported: 1 },
+        },
       });
 
       expect(
@@ -272,19 +316,95 @@ describe('admin/firestore-session-capture', () => {
         }),
       ).toEqual({
         billedDocuments: 1,
-        sessionData: { skipped: { unsupported: 1 } },
+        sessionData: {
+          firestore: [{ kind: 'projection', path: 'items/a', fields: [], data: {} }],
+          skipped: { unsupported: 1 },
+        },
+      });
+
+      expect(
+        adminFirestoreResult(makeFakeSite('Query.get', { subject: dotSegmentQuery, path: 'items' }), {
+          size: 1,
+          query: dotSegmentQuery,
+          docs: [makeDocSnap('items/a', { 'a.b': { c: 1 } })],
+        }),
+      ).toEqual({
+        billedDocuments: 1,
+        sessionData: {
+          firestore: [{ kind: 'invalidate', path: 'items/a' }],
+          skipped: { unsupported: 1 },
+        },
       });
 
       expect(
         adminFirestoreDelivery(makeFakeSite('Query.onSnapshot', { subject: projectedQuery, path: 'items' }), partialSnap),
       ).toEqual({
+        firestore: [
+          { kind: 'projection', path: 'items/unchanged', fields: ['title'], data: { title: 'Original' } },
+          { kind: 'projection', path: 'items/changed', fields: ['title'], data: { title: 'Updated on server' } },
+          { kind: 'invalidate', path: 'items/left-window' },
+        ],
         skipped: { unsupported: 1 },
       });
 
       expect(
         adminFirestoreDelivery(makeFakeSite('Query.onSnapshot', { path: 'items' }), partialSnap),
       ).toEqual({
+        firestore: [
+          { kind: 'projection', path: 'items/unchanged', fields: ['title'], data: { title: 'Original' } },
+          { kind: 'projection', path: 'items/changed', fields: ['title'], data: { title: 'Updated on server' } },
+          { kind: 'invalidate', path: 'items/left-window' },
+        ],
         skipped: { unsupported: 1 },
+      });
+
+      // Empty projected result (`docs: []`) records `unsupported: 1` with zero `truncated` so unrelated cached docs stay intact.
+      expect(
+        adminFirestoreResult(makeFakeSite('Query.get', { subject: projectedQuery, path: 'items' }), {
+          size: 0,
+          query: projectedQuery,
+          docs: [],
+        }),
+      ).toEqual({
+        billedDocuments: 1,
+        sessionData: { skipped: { unsupported: 1 } },
+      });
+
+      // > 250 returned docs on a projected `Query.select()` emits 250 `projection` ops AND `truncated: 2` so doc #251+ triggers collection fallback.
+      const overCapDocs = Array.from({ length: 252 }, (_, idx) => makeDocSnap(`items/d-${idx}`, { title: `T${idx}` }));
+      const overCapResult = adminFirestoreResult(makeFakeSite('Query.get', { subject: projectedQuery, path: 'items' }), {
+        size: overCapDocs.length,
+        query: projectedQuery,
+        docs: overCapDocs,
+      });
+      expect(overCapResult.sessionData?.firestore).toHaveLength(250);
+      expect(overCapResult.sessionData?.skipped).toEqual({ unsupported: 1, truncated: 2 });
+
+      // Unenumerable snapshot containers (`docs` non-array, non-array `getAll` snapshots, or pathless doc item) record `truncated: 1`.
+      expect(
+        adminFirestoreResult(makeFakeSite('Query.get', { subject: projectedQuery, path: 'items' }), {
+          size: 1,
+          query: projectedQuery,
+          docs: null,
+        }).sessionData,
+      ).toEqual({ skipped: { unsupported: 1, truncated: 1 } });
+
+      expect(
+        adminFirestoreResult(makeFakeSite('Query.get', { subject: projectedQuery, path: 'items' }), {
+          size: 1,
+          query: projectedQuery,
+          docs: [{ exists: true, data: () => ({ title: 'No ref path' }) }],
+        }).sessionData,
+      ).toEqual({ skipped: { unsupported: 1, truncated: 1 } });
+
+      const maskedGetAllCtx = adminFirestoreSessionContext(
+        'Firestore.getAll',
+        [db.doc('items/a'), { fieldMask: ['title'] }],
+        {},
+        undefined,
+      );
+      expect(adminFirestoreResult(makeFakeSite('Firestore.getAll', maskedGetAllCtx), 'not-an-array').sessionData).toEqual({
+        skipped: { unsupported: 1, truncated: 1 },
       });
     } finally {
       await db.terminate();

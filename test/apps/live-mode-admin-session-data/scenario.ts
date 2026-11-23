@@ -220,6 +220,7 @@ export default scenario(async (app) => {
         'firestore.query': 'ok',
         'firestore.onSnapshot': 'ok',
         'firestore.tx-commit': 'ok',
+        'firestore.set-projected-stale': 'ok',
         'firestore.select': 'ok',
         'firestore.tx-rollback': 'abort-tx',
         'rtdb.set': 'ok',
@@ -297,6 +298,7 @@ export default scenario(async (app) => {
       assert.equal('orders/ord-temp' in snapshot.firestore, false);
       assert.equal('orders/ord-missing' in snapshot.firestore, false);
       assert.equal('orders/ord-stale' in snapshot.firestore, false);
+      assert.equal('orders/ord-projected-stale' in snapshot.firestore, false);
 
       assert.deepEqual(snapshot.rtdb[INSTANCE], {
         queues: {
@@ -350,9 +352,10 @@ export default scenario(async (app) => {
 
       const rtdbStudio = await app.page(`${host.url}/__pyric/ui/rtdb/queues/q-1`);
       await rtdbStudio.locator('[data-live-observed-badge]').waitFor({ timeout: 30_000 });
-      assert.equal(
-        await rtdbStudio.locator('[data-live-observed-badge]').textContent(),
-        'Observed · Admin · Partial · Read-only',
+      await eventually(
+        async () => (await rtdbStudio.locator('[data-live-observed-badge]').textContent()) ?? '',
+        (badge) => badge === 'Observed \u00b7 Admin \u00b7 Partial \u00b7 Read-only',
+        'Observed Admin badge in Studio RTDB view',
       );
       await eventually(
         async () => (await rtdbStudio.locator('[data-pyric-ui="rtdb-tree"]').textContent()) ?? '',

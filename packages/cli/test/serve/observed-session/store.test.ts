@@ -355,4 +355,103 @@ describe('createObservedSessionDataStore', () => {
     snap = store.snapshot();
     expect(snap.storage).toBeUndefined();
   });
+
+  it('reconciles Firestore projection ops: preserves matching docs and unrelated docs, purges contradicted docs, and clears contradicted absence (#3283)', () => {
+    const store = createObservedSessionDataStore({ projectId: 'demo' });
+
+    // A projection op on an empty store contributes no document data and leaves `sources` unset.
+    store.apply(
+      readObservedSessionDelta({
+        firestore: [{ kind: 'projection', path: 'orders/unseen', fields: ['status'], data: { status: 'open' } }],
+        skipped: { unsupported: 1 },
+      }),
+      'demo',
+      'admin',
+    );
+    expect(store.snapshot().firestore).toEqual({});
+    expect(store.snapshot().sources).toBeUndefined();
+    expect(store.snapshot().skips?.unsupported).toBe(1);
+
+    // Seed observed documents (including nested & escaped-map fields) and a known-absent document.
+    store.apply(
+      {
+        firestore: [
+          {
+            kind: 'set',
+            path: 'orders/ord-match',
+            data: {
+              status: 'fulfilled',
+              total: 42,
+              meta: { type: 'pyric/map/1.0', fields: { seconds: 100, nanos: 0, tier: 'gold' } },
+            },
+          },
+          { kind: 'set', path: 'orders/ord-stale-val', data: { status: 'fulfilled', total: 80 } },
+          { kind: 'set', path: 'orders/ord-stale-deleted-field', data: { status: 'fulfilled', total: 15 } },
+          { kind: 'set', path: 'orders/ord-stale-added-field', data: { total: 25 } },
+          { kind: 'set', path: 'orders/ord-unrelated', data: { status: 'shipped', total: 99 } },
+          { kind: 'delete', path: 'orders/ord-was-absent' },
+        ],
+      },
+      'demo',
+      'admin',
+    );
+    expect(store.getFirestoreDoc('orders/ord-was-absent')).toEqual({ status: 'absent' });
+
+    // Matching projections keep `ord-match` and `ord-unrelated` intact; contradicted projections purge only contradicted docs.
+    store.apply(
+      readObservedSessionDelta({
+        firestore: [
+          {
+            kind: 'projection',
+            path: 'orders/ord-match',
+            fields: ['status', 'meta.tier'],
+            data: { status: 'fulfilled', meta: { tier: 'gold' } },
+          },
+          {
+            kind: 'projection',
+            path: 'orders/ord-stale-val',
+            fields: ['status'],
+            data: { status: 'cancelled' },
+          },
+          {
+            kind: 'projection',
+            path: 'orders/ord-stale-deleted-field',
+            fields: ['status'],
+            data: {},
+          },
+          {
+            kind: 'projection',
+            path: 'orders/ord-stale-added-field',
+            fields: ['status'],
+            data: { status: 'created' },
+          },
+          {
+            kind: 'projection',
+            path: 'orders/ord-was-absent',
+            fields: [],
+            data: {},
+          },
+        ],
+        skipped: { unsupported: 1 },
+      }),
+      'demo',
+      'admin',
+    );
+
+    const snap = store.snapshot();
+    expect(snap.firestore['orders/ord-match']).toEqual({
+      status: 'fulfilled',
+      total: 42,
+      meta: { type: 'pyric/map/1.0', fields: { seconds: 100, nanos: 0, tier: 'gold' } },
+    });
+    expect(snap.firestore['orders/ord-unrelated']).toEqual({ status: 'shipped', total: 99 });
+    expect(snap.firestore['orders/ord-stale-val']).toBeUndefined();
+    expect(snap.firestore['orders/ord-stale-deleted-field']).toBeUndefined();
+    expect(snap.firestore['orders/ord-stale-added-field']).toBeUndefined();
+    expect(store.getFirestoreDoc('orders/ord-match').status).toBe('complete');
+    expect(store.getFirestoreDoc('orders/ord-stale-val')).toEqual({ status: 'unobserved' });
+    expect(store.getFirestoreDoc('orders/ord-stale-deleted-field')).toEqual({ status: 'unobserved' });
+    expect(store.getFirestoreDoc('orders/ord-stale-added-field')).toEqual({ status: 'unobserved' });
+    expect(store.getFirestoreDoc('orders/ord-was-absent')).toEqual({ status: 'unobserved' });
+  });
 });
