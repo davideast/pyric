@@ -3,9 +3,10 @@
 This guide publishes `@pyric/rules` (on its independent `0.x` version line) and
 the six lockstep Pyric packages (`pyric`, `pyric-admin`, `create-pyric`,
 `@pyric/cli`, `@pyric/ui`, and `@pyric/live`) from reviewed, merged commits on
-`main`. Use the repository scripts for every version bump, verification, pack,
-and publish operation. Do not edit package versions or run `npm publish`
-directly.
+`main` (or from an earlier `main` commit pinned by tag or SHA via `--base <ref>`
+when `main` has moved ahead). Use the repository scripts for every version bump,
+verification, pack, and publish operation. Do not edit package versions or run
+`npm publish` directly.
 
 Run every command from the repository root.
 
@@ -254,7 +255,9 @@ Review the pull request and verify that all required CI release gates are green 
 
 The `ci-packaging` label is automatically applied by `scripts/prepare-release.sh` to trigger these packaging and release gates on the release pull request. Pushes to `main` also unconditionally run the packaging gate. All required checks must be green on the exact release commit before publishing.
 
-Merge the pull request; do not publish from the release branch.
+Merge the pull request into its target base branch (`main` for a tip release, or
+`release-base/<tag>` when `--base <ref>` was used); never publish from an
+unmerged `release/*` head branch.
 
 If the script refuses a dirty working tree, preserve or finish that work before
 trying again. Do not bypass the cleanliness check.
@@ -371,6 +374,133 @@ git push origin "v${RELEASE_VERSION}"
 
 This tag is the recovery point for a release branch or hotfix while `main`
 continues to move.
+
+## Releasing from a pinned commit when `main` has moved on (`--base <ref>`)
+
+When `main` has advanced past a known-good commit (for example an annotated pin
+tag such as `rc/0.1.0-alpha.36` or a commit SHA merged to `main`), cutting a
+release PR directly against `--base main` would test and merge unreleased `main`
+commits. Pass `--base <ref>` to `scripts/prepare-release.sh` instead:
+
+```bash
+PIN_REF=rc/0.1.0-alpha.36
+RULES_VERSION=0.1.0
+RELEASE_VERSION=0.1.0-alpha.36
+```
+
+### P1. Publish `@pyric/rules` from the pin first (when needed)
+
+- **Already at `$RULES_VERSION` on `$PIN_REF` and not on npm yet (such as initial `0.1.0`):**
+  publish directly from a clean detached checkout of `$PIN_REF` with `node_modules`
+  matched to the pinned lockfile, and tag `$PIN_REF`:
+  ```bash
+  git fetch origin --tags
+  git switch --detach "$PIN_REF"
+  bun install --frozen-lockfile
+  git status --short                    # must print nothing
+  node scripts/lib/check-publish-version.mjs --package rules "$RULES_VERSION" "$PWD"
+  PYRIC_PUBLISH_SCOPE_WRITE=@pyric bun run release:preflight --package rules "$RULES_VERSION"
+  PYRIC_PUBLISH_SCOPE_WRITE=@pyric bash scripts/publish-alpha.sh --package rules "$RULES_VERSION"
+  git tag "rules-v${RULES_VERSION}" && git push origin "rules-v${RULES_VERSION}"
+  ```
+- **Requires a `@pyric/rules` version bump on `$PIN_REF` (such as `0.1.1`):**
+  from current `main` (`git switch main && git pull --ff-only origin main`), run
+  `bash scripts/prepare-release.sh --package rules --base "$PIN_REF" "$RULES_VERSION"`,
+  update `packages/rules/CHANGELOG.md` for `$RULES_VERSION` on `release/rules-v${RULES_VERSION}`
+  if it was not already updated at `$PIN_REF`, complete **P2-P4** below for
+  `release-base/rules-v${RULES_VERSION}` / `rules-v${RULES_VERSION}` (so
+  `rules-v${RULES_VERSION}` is in `main`'s ancestry), then set
+  `PIN_REF="rules-v${RULES_VERSION}"` for the lockstep cut in **P2**.
+
+### P2. Author the pinned-base bump PR (`release-base/*` <- `release/*`)
+
+Always invoke `scripts/prepare-release.sh` from a clean `main` checkout (especially
+after **P1**'s detached checkout, since historical pins predating `--base` carry an
+older `scripts/prepare-release.sh`):
+
+```bash
+git switch main
+git pull --ff-only origin main
+git status --short                    # must print nothing
+bash scripts/prepare-release.sh --base "$PIN_REF" "$RELEASE_VERSION"
+```
+
+- **Where the bump commit lives:** `prepare-release.sh` verifies `$PIN_REF` is
+  an ancestor of `origin/main` (refusing unmerged commits), branches
+  `release/v<version>` from `$PIN_REF`, bumps the manifests and refreshes
+  `bun.lock`, runs `check-publish-version.mjs` against that pinned tree (so
+  post-pin edits to `packages/rules` on `main` do not fail the drift check),
+  commits `release: v<version>`, pushes `release-base/v<version>` at `$PIN_REF`,
+  pushes `release/v<version>`, and opens the PR **against `--base release-base/v<version>`**
+  with `--label ci-packaging`.
+- **What CI proves it:** Because the PR targets `release-base/v<version>` rather
+  than `main`, GitHub's `pull_request` merge ref (`refs/pull/<n>/merge`) contains
+  only `$PIN_REF` plus the version bump, with zero newer `main` commits. `Build & Test`
+  and `ci-packaging` (`packaging`, `install-matrix`, `standalone`,
+  `release-contract`, `deletion-guard`, library/CLI/UI suites, and conformance
+  gates) run against `CI_BASE_SHA = $PIN_REF`.
+- **Merging the cut:** Do **not** add `merge-queue` (which stages PRs targeting
+  `main` only). Once `CI / required` is green and reviewed, merge the PR into
+  `release-base/v<version>`:
+  ```bash
+  gh pr merge <PR_NUMBER> --merge
+  ```
+
+### P3. Preflight, publish, tag the merged pinned commit, and remove `release-base/*`
+
+Check out the exact merged commit on `origin/release-base/v<version>` (`proven-stamp.mjs`
+verifies `HEAD` SHA and a clean tree regardless of branch name):
+
+```bash
+git fetch origin "release-base/v${RELEASE_VERSION}"
+git switch --detach "origin/release-base/v${RELEASE_VERSION}"
+bun install --frozen-lockfile
+git status --short                    # must print nothing
+node scripts/lib/check-publish-version.mjs "$RELEASE_VERSION" "$PWD"
+
+# Add PYRIC_PUBLISH_TAG=exp for exp cuts, and PYRIC_PUBLISH_SCOPE_WRITE=@pyric if creating a new @pyric/* package:
+bun run release:preflight "$RELEASE_VERSION"
+bash scripts/publish-alpha.sh "$RELEASE_VERSION"
+
+for package_name in pyric pyric-admin create-pyric @pyric/cli @pyric/ui @pyric/live; do
+  npm view "${package_name}@${RELEASE_VERSION}" version
+  npm dist-tag ls "$package_name"
+done
+
+git tag "v${RELEASE_VERSION}"
+git push origin "v${RELEASE_VERSION}"
+git push origin --delete "release-base/v${RELEASE_VERSION}"
+```
+
+### P4. Sync the version bump and tag ancestry back to `main` (without publishing `main`)
+
+Merge the published tag `v<version>` into a branch off `origin/main` and land it
+through normal PR review and `merge-queue`:
+
+```bash
+git fetch origin main --tags
+git switch -c "sync/v${RELEASE_VERSION}" origin/main
+git merge --no-commit "v${RELEASE_VERSION}" || {
+  # If main also changed dependencies, regenerate bun.lock for the merged manifests:
+  git checkout --ours bun.lock
+  bun install
+  git add bun.lock
+}
+git commit -m "chore(release): sync v${RELEASE_VERSION} version bump to main"
+git push -u origin "sync/v${RELEASE_VERSION}"
+gh pr create --base main --head "sync/v${RELEASE_VERSION}" \
+  --title "chore(release): sync v${RELEASE_VERSION} version bump to main" \
+  --body "Merges tag \`v${RELEASE_VERSION}\` back into \`main\` so \`main\` carries the bumped manifest versions and \`v${RELEASE_VERSION}\` tag ancestry without publishing post-pin \`main\` commits."
+```
+
+Why `git merge v<version>` rather than `git cherry-pick`:
+- `v<version>` becomes an ancestor of `main`, so the next `prepare-release.sh`
+  run's `git describe --tags --abbrev=0 --match "v*"` resolves `v<version>` and
+  emits `v<version>..BASE` containing **only** the commits that landed on `main`
+  after `$PIN_REF` (with zero duplicate pre-pin changelog entries).
+- No GitHub Actions workflow runs `npm publish` on push or merge to `main`, so
+  landing `sync/v<version>` updates `main` without publishing unreleased `main`
+  work.
 
 ## 6. Deploy the documentation site when required
 

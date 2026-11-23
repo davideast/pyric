@@ -4,19 +4,9 @@ import { chmodSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from '
 import { join } from 'node:path';
 import { pinPyricPackages, tarballsIn } from '../test/apps/install.ts';
 import {
-  ALL_READ_WRITE,
-  FIVE_EXISTING,
-  NPM_PACK_STUB,
-  PUBLISHED_NAMES,
-  publishForReal,
-  REAL_NODE,
-  realStampRepo,
-  REPO_ROOT,
-  runPack,
-  runPublish,
-  staleOutDir,
-  TempDirTracker,
-  accessJson,
+  accessJson, advanceMainPastHistoricalPin, ALL_READ_WRITE, FIVE_EXISTING, NPM_PACK_STUB,
+  PUBLISHED_NAMES, publishForReal, REAL_NODE, realStampRepo, REPO_ROOT, runPack, runPublish,
+  setupPrepareReleaseRepo, staleOutDir, stampAndPublishDetached, TempDirTracker,
 } from './lib/publish-test-harness.ts';
 import { listTests } from './ci/test-shard.ts';
 import { checkRulesTarball, ISOLATED_RULES_FILES, isNodeBuiltinSpecifier, planRulesProofJobs, verifyBrowserBundlesHaveNoNodeBuiltins } from './lib/rules-release-gate.ts';
@@ -375,65 +365,91 @@ describe('@pyric/rules standalone release path (--package rules, #1521)', () => 
   });
 
   test('prepare-release.sh --package rules bumps only packages/rules and opens a rules-v PR', () => {
-    const base = tracker.create('prep-rules');
-    const remote = join(base, 'origin.git');
-    const clone = join(base, 'work');
-    const bin = join(base, 'bin');
-    const ghLog = join(base, 'gh.log');
-    mkdirSync(bin, { recursive: true });
-
-    spawnSync('git', ['init', '-q', '--bare', '-b', 'main', remote], { encoding: 'utf8' });
-    spawnSync('git', ['clone', '-q', remote, clone], { encoding: 'utf8' });
-    const git = (...args: string[]) => {
-      const r = spawnSync('git', ['-c', 'user.email=t@example.test', '-c', 'user.name=t', ...args], {
-        cwd: clone,
-        encoding: 'utf8',
-      });
-      if (r.status !== 0) throw new Error(r.stderr);
-      return r.stdout.trim();
-    };
-    git('config', 'user.email', 't@example.test');
-    git('config', 'user.name', 't');
-
-    mkdirSync(join(clone, 'scripts/lib'), { recursive: true });
-    writeFileSync(join(clone, 'scripts/prepare-release.sh'), readFileSync(join(root, 'scripts/prepare-release.sh')));
-    writeFileSync(join(clone, 'scripts/lib/check-publish-version.mjs'), readFileSync(join(root, 'scripts/lib/check-publish-version.mjs')));
-    writeFileSync(join(clone, 'package.json'), JSON.stringify({ name: 'test-mono', private: true, workspaces: ['packages/*'] }, null, 2));
-    mkdirSync(join(clone, 'packages/rules'), { recursive: true });
-    writeFileSync(join(clone, 'packages/rules/package.json'), `${JSON.stringify({ name: '@pyric/rules', version: '0.1.0' }, null, 2)}\n`);
-    for (const [dir, name] of [['pyric', 'pyric'], ['pyric-admin', 'pyric-admin'], ['create-pyric', 'create-pyric'], ['cli', '@pyric/cli'], ['ui', '@pyric/ui'], ['live', '@pyric/live']]) {
-      mkdirSync(join(clone, 'packages', dir ?? ''), { recursive: true });
-      writeFileSync(join(clone, 'packages', dir ?? '', 'package.json'), `${JSON.stringify({ name, version: '0.1.0-alpha.35' }, null, 2)}\n`);
-    }
-    writeFileSync(join(clone, 'bun.lock'), '# lock\n');
-    git('add', '-A');
-    git('commit', '-q', '-m', 'feat(rules): initial engine');
-    git('push', '-q', '-u', 'origin', 'main');
-
-    writeFileSync(join(bin, 'bun'), '#!/bin/bash\nexit 0\n');
-    writeFileSync(join(bin, 'gh'), `#!/bin/bash\necho "gh $*" >> "${ghLog}"\n`);
-    chmodSync(join(bin, 'bun'), 0o755);
-    chmodSync(join(bin, 'gh'), 0o755);
-
-    const run = spawnSync('/bin/bash', ['scripts/prepare-release.sh', '--package', 'rules', '0.1.1'], {
-      cwd: clone,
-      encoding: 'utf8',
-      env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
-    });
+    const fx = setupPrepareReleaseRepo(tracker, 'prep-rules');
+    const run = fx.runPrepare(['--package', 'rules', '0.1.1']);
     expect(run.status).toBe(0);
-    expect(git('rev-parse', '--abbrev-ref', 'HEAD')).toBe('release/rules-v0.1.1');
-    expect(git('log', '-n', '1', '--format=%s')).toBe('release: rules-v0.1.1');
-    expect((JSON.parse(readFileSync(join(clone, 'packages/rules/package.json'), 'utf8')) as { version: string }).version).toBe('0.1.1');
-    expect((JSON.parse(readFileSync(join(clone, 'packages/pyric/package.json'), 'utf8')) as { version: string }).version).toBe('0.1.0-alpha.35');
-    expect(readFileSync(ghLog, 'utf8')).toContain('--head release/rules-v0.1.1 --title release: rules-v0.1.1');
-    expect(readFileSync(ghLog, 'utf8')).toContain('--label ci-packaging');
+    expect(fx.git('rev-parse', '--abbrev-ref', 'HEAD')).toBe('release/rules-v0.1.1');
+    expect(fx.git('log', '-n', '1', '--format=%s')).toBe('release: rules-v0.1.1');
+    expect((JSON.parse(readFileSync(join(fx.clone, 'packages/rules/package.json'), 'utf8')) as { version: string }).version).toBe('0.1.1');
+    expect((JSON.parse(readFileSync(join(fx.clone, 'packages/pyric/package.json'), 'utf8')) as { version: string }).version).toBe('0.1.0-alpha.35');
+    expect(readFileSync(fx.ghLog, 'utf8')).toContain('gh pr create --base main --head release/rules-v0.1.1 --title release: rules-v0.1.1');
+    expect(readFileSync(fx.ghLog, 'utf8')).toContain('--label ci-packaging');
 
-    const badPrep = spawnSync('/bin/bash', ['scripts/prepare-release.sh', '0.1.2', '--package', 'rules'], { cwd: clone, encoding: 'utf8' });
+    const badPrep = fx.runPrepare(['0.1.2', '--package', 'rules']);
     expect(badPrep.status).toBe(2);
-    expect((JSON.parse(readFileSync(join(clone, 'packages/pyric/package.json'), 'utf8')) as { version: string }).version).toBe('0.1.0-alpha.35');
+    expect(fx.runPrepare(['--base', '', '0.1.2']).status).toBe(2);
+    expect((JSON.parse(readFileSync(join(fx.clone, 'packages/pyric/package.json'), 'utf8')) as { version: string }).version).toBe('0.1.0-alpha.35');
     const badPub = spawnSync('/bin/bash', [join(root, 'scripts/publish-alpha.sh'), '0.1.0', '--package', 'rules'], { cwd: root, encoding: 'utf8' });
     expect(badPub.status).toBe(2);
   }, 15_000);
+
+  test('prepare-release.sh --base <ref> cuts rules or pyric from a pinned commit, publishes cleanly, and back-syncs tag ancestry to main', () => {
+    const fx = setupPrepareReleaseRepo(tracker, 'prep-pinned-base', { legacyInitialPrepare: true });
+    const pinSha = fx.git('rev-parse', 'HEAD');
+    fx.git('tag', '-a', 'rc/0.1.0-alpha.36', '-m', 'pin rc', pinSha);
+    fx.git('push', '-q', 'origin', 'rc/0.1.0-alpha.36');
+    advanceMainPastHistoricalPin(fx, pinSha);
+
+    // P1->P2 guard: detached historical pin lacks --base; switching back to main runs current prepare-release.sh cleanly across checkout.
+    fx.git('checkout', '-q', '--detach', 'rc/0.1.0-alpha.36');
+    expect(fx.runPrepare(['--base', 'rc/0.1.0-alpha.36', '0.1.0-alpha.36']).status).toBe(2);
+    fx.git('checkout', '-q', 'main');
+
+    // Non-ancestor --base must fail closed without pushing any release-base/* branch.
+    fx.git('checkout', '-q', '-b', 'unmerged-side', pinSha);
+    writeFileSync(join(fx.clone, 'side.txt'), 'unmerged\n');
+    fx.git('add', 'side.txt');
+    fx.git('commit', '-q', '-m', 'feat: unmerged commit');
+    const sideSha = fx.git('rev-parse', 'HEAD');
+    fx.git('checkout', '-q', 'main');
+    const rejected = fx.runPrepare(['--base', sideSha, '0.1.0-alpha.36']);
+    expect(rejected.status).toBe(1);
+    expect(rejected.stderr).toContain('is not an ancestor of origin/main');
+    expect(spawnSync('git', ['--git-dir', fx.remote, 'rev-parse', '--verify', 'refs/heads/release-base/v0.1.0-alpha.36']).status).not.toBe(0);
+
+    // 1) --package rules --base historical-pin resolves an unfetched remote branch via FETCH_HEAD and keeps CHANGELOG + frozen-lockfile checklist.
+    const rulesCut = fx.runPrepare(['--package', 'rules', '--base', 'historical-pin', '0.1.1']);
+    expect(rulesCut.status).toBe(0);
+    expect(fx.git('rev-parse', 'HEAD^1')).toBe(pinSha);
+    expect(spawnSync('git', ['--git-dir', fx.remote, 'rev-parse', 'refs/heads/release-base/rules-v0.1.1'], { encoding: 'utf8' }).stdout.trim()).toBe(pinSha);
+    expect(readFileSync(fx.ghLog, 'utf8')).toContain('gh pr create --base release-base/rules-v0.1.1 --head release/rules-v0.1.1');
+    expect(readFileSync(join(fx.prBodiesDir, 'body-0.md'), 'utf8')).toContain('packages/rules/CHANGELOG.md');
+
+    // 2) Lockstep --base=rc/0.1.0-alpha.36 cuts 0.1.0-alpha.36 on pinSha, proves proven-stamp + detached publish, and back-syncs to main.
+    fx.git('checkout', '-q', 'main');
+    const pyricCut = fx.runPrepare(['--base=rc/0.1.0-alpha.36', '0.1.0-alpha.36']);
+    expect(pyricCut.status).toBe(0);
+    expect(fx.git('rev-parse', 'HEAD^1')).toBe(pinSha);
+    expect(readdirSync(join(fx.clone, 'packages/pyric'))).not.toContain('unreleased.txt');
+    const prBody0 = readFileSync(join(fx.prBodiesDir, 'body-1.md'), 'utf8');
+    expect(prBody0).not.toContain('post-pin unreleased main feature');
+    expect(prBody0).toContain('origin/release-base/v0.1.0-alpha.36 && bun install --frozen-lockfile');
+
+    // Merge release/v0.1.0-alpha.36 into release-base/v0.1.0-alpha.36 as GitHub PR merge does, detach, stamp, and run publish-alpha.sh.
+    fx.git('fetch', '-q', 'origin', 'release-base/v0.1.0-alpha.36');
+    fx.git('checkout', '-q', '-B', 'release-base/v0.1.0-alpha.36', 'origin/release-base/v0.1.0-alpha.36');
+    fx.git('merge', '-q', '--no-ff', 'release/v0.1.0-alpha.36', '-m', 'Merge pull request #1 from release/v0.1.0-alpha.36');
+    fx.git('push', '-q', 'origin', 'release-base/v0.1.0-alpha.36');
+    fx.git('checkout', '-q', '--detach', 'origin/release-base/v0.1.0-alpha.36');
+    const publishedSha = fx.git('rev-parse', 'HEAD');
+    const pub = stampAndPublishDetached(fx, '0.1.0-alpha.36');
+    expect(pub.status).toBe(0);
+    expect(readFileSync(fx.ghLog, 'utf8')).toContain('npm dist-tag add pyric@0.1.0-alpha.36 exp');
+
+    // Tag publishedSha, back-merge v0.1.0-alpha.36 into main, then cut 0.1.0-alpha.37 from main: changelog must list only post-pin commit.
+    fx.git('tag', 'v0.1.0-alpha.36', publishedSha);
+    fx.git('push', '-q', 'origin', 'v0.1.0-alpha.36');
+    fx.git('checkout', '-q', 'main');
+    fx.git('merge', '-q', '--no-ff', 'v0.1.0-alpha.36', '-m', 'chore(release): sync v0.1.0-alpha.36 version bump to main');
+    fx.git('push', '-q', 'origin', 'main');
+
+    const nextCut = fx.runPrepare(['0.1.0-alpha.37'], { PUBLISHED_ON_NPM: '' });
+    expect(nextCut.status).toBe(0);
+    const nextBody = readFileSync(join(fx.prBodiesDir, 'body-2.md'), 'utf8');
+    expect(nextBody).toContain('## Changes since v0.1.0-alpha.36');
+    expect(nextBody).toContain('post-pin unreleased main feature');
+    expect(nextBody).not.toContain('initial engine');
+  }, 20_000);
 });
 
 describe('the proven-tarball stamp', () => {
@@ -496,21 +512,11 @@ describe('publish access is checked for every package before any gate or upload 
     expect(newRefused.result.stderr).toContain('PYRIC_PUBLISH_SCOPE_WRITE=@pyric');
     expect(newRefused.commands).not.toContain('bun run test');
 
-    const newAck = publishForReal(realStampRepo(tracker), {
-      ACCESS_JSON: FIVE_EXISTING,
-      NEW_PACKAGES: '@pyric/live',
-      PYRIC_PUBLISH_SCOPE_WRITE: '@pyric',
-    });
+    const newAck = publishForReal(realStampRepo(tracker), { ACCESS_JSON: FIVE_EXISTING, NEW_PACKAGES: '@pyric/live', PYRIC_PUBLISH_SCOPE_WRITE: '@pyric' });
     expect(newAck.result.status).toBe(0);
     expect(newAck.uploads).toEqual(PACKED_UPLOADS);
 
-    expect(
-      publishForReal(realStampRepo(tracker), {
-        ACCESS_JSON: FIVE_EXISTING,
-        NEW_PACKAGES: '@pyric/live',
-        PYRIC_PUBLISH_SCOPE_WRITE: '@other',
-      }).result.status,
-    ).toBe(1);
+    expect(publishForReal(realStampRepo(tracker), { ACCESS_JSON: FIVE_EXISTING, NEW_PACKAGES: '@pyric/live', PYRIC_PUBLISH_SCOPE_WRITE: '@other' }).result.status).toBe(1);
 
     const readOnly = JSON.stringify({ ...JSON.parse(ALL_READ_WRITE), 'pyric-admin': 'read-only' });
     expect(publishForReal(realStampRepo(tracker), { ACCESS_JSON: readOnly, PYRIC_PUBLISH_SCOPE_WRITE: '@pyric' }).result.status).toBe(1);
@@ -518,28 +524,14 @@ describe('publish access is checked for every package before any gate or upload 
     const missingUi = accessJson(PUBLISHED_NAMES.filter((name) => name !== '@pyric/ui'));
     expect(publishForReal(realStampRepo(tracker), { ACCESS_JSON: missingUi }).result.status).toBe(1);
 
-    const collabOk = publishForReal(realStampRepo(tracker), {
-      LISTING_FAILS: '1',
-      COLLABORATORS_JSON: JSON.stringify({ releaser: 'read-write', someone: 'read-only' }),
-    });
+    const collabOk = publishForReal(realStampRepo(tracker), { LISTING_FAILS: '1', COLLABORATORS_JSON: JSON.stringify({ releaser: 'read-write', someone: 'read-only' }) });
     expect(collabOk.result.status).toBe(0);
     expect(collabOk.commands).toContain('npm access list collaborators @pyric/live --json');
 
     expect(publishForReal(realStampRepo(tracker), { LISTING_FAILS: '1', COLLABORATORS_FAIL: '1' }).result.status).toBe(1);
-    expect(
-      publishForReal(realStampRepo(tracker), {
-        LISTING_FAILS: '1',
-        COLLABORATORS_JSON: JSON.stringify({ releaser: 'read-only' }),
-      }).result.status,
-    ).toBe(1);
+    expect(publishForReal(realStampRepo(tracker), { LISTING_FAILS: '1', COLLABORATORS_JSON: JSON.stringify({ releaser: 'read-only' }) }).result.status).toBe(1);
     expect(publishForReal(realStampRepo(tracker), { ACCESS_JSON: 'null' }).result.stderr).not.toContain('TypeError');
-    expect(
-      publishForReal(realStampRepo(tracker), {
-        ACCESS_JSON: FIVE_EXISTING,
-        VIEW_FAILS: '@pyric/live',
-        PYRIC_PUBLISH_SCOPE_WRITE: '@pyric',
-      }).result.status,
-    ).toBe(1);
+    expect(publishForReal(realStampRepo(tracker), { ACCESS_JSON: FIVE_EXISTING, VIEW_FAILS: '@pyric/live', PYRIC_PUBLISH_SCOPE_WRITE: '@pyric' }).result.status).toBe(1);
 
     for (const options of [{}, { dryRun: true }, { skip: true }]) {
       const { result, commands } = runPublish(tracker, options);

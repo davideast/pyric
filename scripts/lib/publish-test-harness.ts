@@ -290,3 +290,146 @@ fi`,
   const uploads = commands.filter((line) => line.startsWith('uploaded '));
   return { result, uploads, commands };
 }
+
+export interface PrepareReleaseFixture {
+  remote: string;
+  clone: string;
+  bin: string;
+  ghLog: string;
+  prBodiesDir: string;
+  git: (...args: string[]) => string;
+  runPrepare: (args: string[], extraEnv?: Record<string, string>) => ReturnType<typeof spawnSync>;
+}
+
+export function setupPrepareReleaseRepo(
+  tracker: TempDirTracker,
+  prefix = 'prep-repo',
+  options: { legacyInitialPrepare?: boolean } = {},
+): PrepareReleaseFixture {
+  const base = tracker.create(prefix);
+  const remote = join(base, 'origin.git');
+  const clone = join(base, 'work');
+  const bin = join(base, 'bin');
+  const ghLog = join(base, 'gh.log');
+  const prBodiesDir = join(base, 'pr-bodies');
+  mkdirSync(bin, { recursive: true });
+  mkdirSync(prBodiesDir, { recursive: true });
+
+  spawnSync('git', ['init', '-q', '--bare', '-b', 'main', remote], { encoding: 'utf8' });
+  spawnSync('git', ['clone', '-q', remote, clone], { encoding: 'utf8' });
+  const git = (...args: string[]) => {
+    const r = spawnSync('git', ['-c', 'user.email=t@example.test', '-c', 'user.name=t', ...args], {
+      cwd: clone,
+      encoding: 'utf8',
+    });
+    if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`);
+    return r.stdout.trim();
+  };
+  git('config', 'user.email', 't@example.test');
+  git('config', 'user.name', 't');
+
+  mkdirSync(join(clone, 'scripts/lib'), { recursive: true });
+  for (const rel of [
+    'scripts/prepare-release.sh',
+    'scripts/publish-alpha.sh',
+    'scripts/lib/check-publish-access.mjs',
+    'scripts/lib/check-publish-version.mjs',
+    'scripts/lib/proven-stamp.mjs',
+  ]) {
+    writeFileSync(join(clone, rel), readFileSync(join(REPO_ROOT, rel)));
+    if (rel.endsWith('.sh')) chmodSync(join(clone, rel), 0o755);
+  }
+  if (options.legacyInitialPrepare) {
+    writeFileSync(join(clone, 'scripts/prepare-release.sh'), '#!/usr/bin/env bash\necho "prepare-release: unknown flag $1" >&2\nexit 2\n');
+    chmodSync(join(clone, 'scripts/prepare-release.sh'), 0o755);
+  }
+  writeFileSync(join(clone, 'scripts/release-smoke.sh'), '#!/usr/bin/env bash\nexit 0\n');
+  chmodSync(join(clone, 'scripts/release-smoke.sh'), 0o755);
+  writeFileSync(join(clone, '.gitignore'), 'dist/\n');
+  writeFileSync(join(clone, 'package.json'), JSON.stringify({ name: 'test-mono', private: true, workspaces: ['packages/*'] }, null, 2));
+  mkdirSync(join(clone, 'packages/rules'), { recursive: true });
+  writeFileSync(join(clone, 'packages/rules/package.json'), `${JSON.stringify({ name: '@pyric/rules', version: '0.1.0' }, null, 2)}\n`);
+  for (const [dir, name] of [['pyric', 'pyric'], ['pyric-admin', 'pyric-admin'], ['create-pyric', 'create-pyric'], ['cli', '@pyric/cli'], ['ui', '@pyric/ui'], ['live', '@pyric/live']]) {
+    mkdirSync(join(clone, 'packages', dir ?? ''), { recursive: true });
+    writeFileSync(join(clone, 'packages', dir ?? '', 'package.json'), `${JSON.stringify({ name, version: '0.1.0-alpha.35' }, null, 2)}\n`);
+  }
+  writeFileSync(join(clone, 'bun.lock'), '# lock\n');
+  git('add', '-A');
+  git('commit', '-q', '-m', 'feat(rules): initial engine');
+  git('push', '-q', '-u', 'origin', 'main');
+
+  writeFileSync(join(bin, 'bun'), '#!/bin/bash\nexit 0\n');
+  writeFileSync(
+    join(bin, 'gh'),
+    `#!/bin/bash
+echo "gh $*" >> "${ghLog}"
+prev=""
+for a in "$@"; do
+  if [ "$prev" = "--body-file" ] && [ -f "$a" ]; then
+    idx=$(ls -1 "${prBodiesDir}" | wc -l | tr -d ' ')
+    cp "$a" "${prBodiesDir}/body-$idx.md"
+  fi
+  prev="$a"
+done
+`,
+  );
+  writeFileSync(
+    join(bin, 'npm'),
+    `#!/bin/bash
+if [ "$1" = "whoami" ]; then echo "test-releaser"; exit 0; fi
+if [ "$1 $2 $3" = "access list packages" ]; then printf '%s\\n' '${ALL_READ_WRITE}'; exit 0; fi
+if [ "$1" = "view" ]; then
+  case " \${PUBLISHED_ON_NPM:-} " in
+    *" $2 "*) echo "$2"; exit 0 ;;
+  esac
+  echo "npm error code E404" >&2
+  echo "npm error 404 Not Found - GET https://registry.npmjs.org/$2" >&2
+  exit 1
+fi
+if [ "$1" = "publish" ] || [ "$1" = "dist-tag" ]; then
+  echo "npm $*" >> "${ghLog}"
+  exit 0
+fi
+exit 0
+`,
+  );
+  for (const tool of ['bun', 'gh', 'npm']) chmodSync(join(bin, tool), 0o755);
+
+  const runPrepare = (args: string[], extraEnv: Record<string, string> = {}) =>
+    spawnSync('/bin/bash', ['scripts/prepare-release.sh', ...args], {
+      cwd: clone,
+      encoding: 'utf8',
+      env: { ...envWithoutReleaseSettings(), ...extraEnv, PATH: `${bin}:${process.env.PATH}` },
+    });
+
+  return { remote, clone, bin, ghLog, prBodiesDir, git, runPrepare };
+}
+
+export function advanceMainPastHistoricalPin(fx: PrepareReleaseFixture, pinSha: string): void {
+  spawnSync('git', ['--git-dir', fx.remote, 'update-ref', 'refs/heads/historical-pin', pinSha], { encoding: 'utf8' });
+  writeFileSync(join(fx.clone, 'scripts/prepare-release.sh'), readFileSync(join(REPO_ROOT, 'scripts/prepare-release.sh')));
+  chmodSync(join(fx.clone, 'scripts/prepare-release.sh'), 0o755);
+  writeFileSync(join(fx.clone, 'packages/pyric/unreleased.txt'), 'unreleased main work\n');
+  writeFileSync(join(fx.clone, 'packages/rules/unreleased-rules.txt'), 'unreleased rules work\n');
+  fx.git('add', '-A');
+  fx.git('commit', '-q', '-m', 'feat(pyric): post-pin unreleased main feature');
+  fx.git('push', '-q', 'origin', 'main');
+}
+
+export function stampAndPublishDetached(fx: PrepareReleaseFixture, version: string): ReturnType<typeof spawnSync> {
+  const head = fx.git('rev-parse', 'HEAD');
+  const pkgDir = join(fx.clone, 'dist/packages');
+  mkdirSync(pkgDir, { recursive: true });
+  const names = ['pyric', 'pyric-admin', 'create-pyric', 'pyric-cli', 'pyric-ui', 'pyric-live'];
+  for (const n of names) writeFileSync(join(pkgDir, `${n}-${version}.tgz`), `tgz-${n}`);
+  writeFileSync(join(pkgDir, 'manifest.json'), '{"packages":[]}\n');
+  const rec = spawnSync(REAL_NODE, ['scripts/lib/proven-stamp.mjs', 'record', pkgDir, fx.clone, head, 'true'], { cwd: fx.clone, encoding: 'utf8' });
+  if (rec.status !== 0) throw new Error(`record failed: ${rec.stderr}`);
+  const wr = spawnSync(REAL_NODE, ['scripts/lib/proven-stamp.mjs', 'write', pkgDir, version, fx.clone, ...names], { cwd: fx.clone, encoding: 'utf8' });
+  if (wr.status !== 0) throw new Error(`write failed: ${wr.stderr}`);
+  return spawnSync('/bin/bash', ['scripts/publish-alpha.sh', version], {
+    cwd: fx.clone,
+    encoding: 'utf8',
+    env: { ...envWithoutReleaseSettings(), PATH: `${fx.bin}:${process.env.PATH}`, PYRIC_PUBLISH_SKIP_GATES: '1', PYRIC_PUBLISH_TAG: 'exp' },
+  });
+}
