@@ -35,6 +35,7 @@ import {
   buildSwiftLiveHostTests,
   collectProcessEnv,
   formatSubprocessFailure,
+  probeSwiftLiveToolchain,
   runManagedSubprocess,
 } from './swift-live-host-subprocess.ts';
 
@@ -149,17 +150,11 @@ function buildMultiShardDatabaseRules(): Record<string, { rules: Record<string, 
   return rulesByInstance;
 }
 
-function requiresLiveSwift(env: NodeJS.ProcessEnv): boolean {
-  return env.PYRIC_REQUIRE_SWIFT_LIVE === '1';
+const SWIFT_TOOLCHAIN = probeSwiftLiveToolchain();
+const SKIPS_SWIFT_SUBPROCESS = SWIFT_TOOLCHAIN.skip;
+if (SWIFT_TOOLCHAIN.skip && SWIFT_TOOLCHAIN.skipReason !== null) {
+  console.warn(`[native-swift-conformance] skipping PyricLiveHostTests: ${SWIFT_TOOLCHAIN.skipReason}`);
 }
-
-function shouldSkipLiveSwiftRun(swiftBinary: string | null, env: NodeJS.ProcessEnv): boolean {
-  if (requiresLiveSwift(env)) return false;
-  return swiftBinary === null;
-}
-
-const DETECTED_SWIFT_BINARY = Bun.which('swift');
-const SKIPS_SWIFT_SUBPROCESS = shouldSkipLiveSwiftRun(DETECTED_SWIFT_BINARY, process.env);
 
 interface LoopbackSwiftBridgeHost {
   readonly port: number;
@@ -519,7 +514,7 @@ describe('Swift native SDK live-host conformance', () => {
   test.skipIf(SKIPS_SWIFT_SUBPROCESS)(
     'PyricLiveHostTests pass against the live loopback Pyric bridge host',
     async () => {
-      const swiftBinary = Bun.which('swift');
+      const swiftBinary = SWIFT_TOOLCHAIN.swiftBinary;
       if (swiftBinary === null) {
         throw new Error('PYRIC_REQUIRE_SWIFT_LIVE=1 is set, but `swift` was not found in PATH.');
       }

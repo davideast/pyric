@@ -8,7 +8,7 @@
 // not stop the run: every command runs and the failures are reported at the end.
 // `--jobs=<n>` sets the count and keeps the shards, even at one.
 //
-//   bun scripts/test-all.ts [--serial] [--jobs=<n>] [--shards=<n>] [--root=<dir>]
+//   [PYRIC_TEST_JOBS=<n>] bun scripts/test-all.ts [--serial] [--jobs=<n>] [--shards=<n>] [--root=<dir>]
 //
 // Each job's output is saved to test-results/test-all/<job>.log. The run ends
 // with the total test counts, so a parallel run can be checked against a
@@ -63,10 +63,18 @@ function parseOptions(args: readonly string[]): Options {
   return options;
 }
 
-/** How many jobs run at once: one under --serial, the --jobs count, or what the machine has room for. */
-function concurrencyFor(options: Options, machine: MachineLoad): number {
+/** Explicit job count from `--jobs=<n>`, falling back to `PYRIC_TEST_JOBS` when `--jobs=` is unset. */
+function resolveExplicitJobs(options: Options, env: NodeJS.ProcessEnv): number | undefined {
+  if (options.jobs !== undefined) return options.jobs;
+  const fromEnv = env.PYRIC_TEST_JOBS?.trim();
+  if (fromEnv === undefined || fromEnv === '') return undefined;
+  return positiveInteger(fromEnv, 'PYRIC_TEST_JOBS');
+}
+
+/** How many jobs run at once: one under --serial, the explicit job count, or what the machine has room for. */
+function concurrencyFor(options: Options, explicitJobs: number | undefined, machine: MachineLoad): number {
   if (options.serial) return 1;
-  return options.jobs ?? chooseConcurrency(machine);
+  return explicitJobs ?? chooseConcurrency(machine);
 }
 
 function logPathFor(logDir: string, job: TestJob): string {
@@ -108,11 +116,12 @@ function warmUpJob(root: string): TestJob {
 
 async function main(): Promise<number> {
   const options = parseOptions(process.argv.slice(2));
+  const explicitJobs = resolveExplicitJobs(options, process.env);
   const logDir = join(options.root, 'test-results', 'test-all');
   await takeHeavyRunSlot();
   const machine = await sampleMachineLoad();
-  const concurrency = concurrencyFor(options, machine);
-  const isChosenSerial = options.jobs === undefined && concurrency === 1;
+  const concurrency = concurrencyFor(options, explicitJobs, machine);
+  const isChosenSerial = explicitJobs === undefined && concurrency === 1;
   const isSerial = options.serial || isChosenSerial;
   const chain = readSerialChain(options.root, (path) => readFileSync(path, 'utf8'));
   const jobs = planJobs(chain, { root: options.root, shards: isSerial ? 1 : options.shards });

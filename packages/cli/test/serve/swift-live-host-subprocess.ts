@@ -8,7 +8,7 @@
  * terminates the full POSIX process group on timeout so child compiler/test
  * workers cannot outlive the parent test.
  */
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { join } from 'node:path';
 
 export const SWIFT_LIVE_HOST_SCRATCH_SUBPATH = join('.build', 'live-host');
@@ -325,4 +325,84 @@ export async function waitForProcessExit(pid: number, maxWaitMs = 1_000): Promis
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 25));
   }
   return !isProcessAlive(pid);
+}
+
+export interface SwiftVersionProbeOutput {
+  readonly status: number | null;
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly errorMessage?: string;
+}
+
+export interface SwiftLiveToolchainProbe {
+  readonly skip: boolean;
+  readonly swiftBinary: string | null;
+  readonly skipReason: string | null;
+}
+
+export interface ProbeSwiftLiveToolchainOptions {
+  readonly env?: NodeJS.ProcessEnv;
+  readonly whichSwift?: () => string | null;
+  readonly runVersionProbe?: (swiftBinary: string, env: NodeJS.ProcessEnv) => SwiftVersionProbeOutput;
+}
+
+function defaultRunVersionProbe(swiftBinary: string, env: NodeJS.ProcessEnv): SwiftVersionProbeOutput {
+  const probe = spawnSync(swiftBinary, ['test', '--version'], { encoding: 'utf8', env });
+  let errorMessage: string | undefined;
+  if (probe.error !== undefined) {
+    errorMessage = probe.error.message;
+  }
+  return {
+    status: probe.status,
+    stdout: probe.stdout ?? '',
+    stderr: probe.stderr ?? '',
+    errorMessage,
+  };
+}
+
+function firstProbeDiagnosticLine(probe: SwiftVersionProbeOutput): string {
+  const combined = `${probe.stderr}\n${probe.stdout}\n${probe.errorMessage ?? ''}`;
+  for (const rawLine of combined.split('\n')) {
+    const trimmed = rawLine.trim();
+    if (trimmed.length > 0) {
+      return trimmed;
+    }
+  }
+  return 'non-zero exit';
+}
+
+export function probeSwiftLiveToolchain(
+  options: ProbeSwiftLiveToolchainOptions = {},
+): SwiftLiveToolchainProbe {
+  const env = options.env ?? process.env;
+  const requireLive = env.PYRIC_REQUIRE_SWIFT_LIVE === '1';
+  if (!requireLive && env.CI === 'true') {
+    return {
+      skip: true,
+      swiftBinary: null,
+      skipReason: 'CI=true without PYRIC_REQUIRE_SWIFT_LIVE=1 (covered by dedicated Swift CI job)',
+    };
+  }
+  const whichSwift = options.whichSwift ?? (() => Bun.which('swift'));
+  const found = whichSwift();
+  if (found === null) {
+    if (requireLive) {
+      return { skip: false, swiftBinary: null, skipReason: null };
+    }
+    return { skip: true, swiftBinary: null, skipReason: 'swift binary not found in PATH' };
+  }
+  const runProbe = options.runVersionProbe ?? defaultRunVersionProbe;
+  const probe = runProbe(found, env);
+  if (probe.errorMessage === undefined && probe.status === 0) {
+    return { skip: false, swiftBinary: found, skipReason: null };
+  }
+  if (requireLive) {
+    return { skip: false, swiftBinary: found, skipReason: null };
+  }
+  const detail = firstProbeDiagnosticLine(probe);
+  return {
+    skip: true,
+    swiftBinary: null,
+    skipReason: `swift test --version exited ${String(probe.status)}: ${detail}`,
+  };
 }

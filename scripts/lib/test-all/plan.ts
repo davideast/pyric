@@ -6,7 +6,26 @@
 
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
-import { listTests, partition, shardedPackages } from '../../ci/test-shard.ts';
+import { listTests, partition, shardedPackages, slowFiles } from '../../ci/test-shard.ts';
+
+/**
+ * Long property/fuzz files in `packages/rules` whose explicit per-test budgets
+ * (20s-120s) sit close to single-core wall time on 2.20GHz virtualized Linux
+ * vCPUs when retained JSC heap from earlier shard files adds GC sweep time.
+ * Shared by `test-all` and `rules-release-gate` so each runs in its own
+ * single-file `bun test` process without dropping or duplicating any test.
+ */
+export const ISOLATED_RULES_FILES = [
+  './test/generators/game-rules-limits.test.ts',
+  './test/grammar/source-segments.test.ts',
+  './test/rtdb/adversarial-challenger.test.ts',
+  './test/rtdb/grammar/canonical.test.ts',
+  './test/rtdb/grammar/linter.test.ts',
+  './test/rtdb/grammar/regex-dialect.test.ts',
+  './test/rtdb/rules-diff.test.ts',
+] as const;
+
+const ISOLATED_RULES_SET = new Set<string>(ISOLATED_RULES_FILES);
 
 /** One process `test-all` runs: a command, its arguments, and where it runs. */
 export interface TestJob {
@@ -163,8 +182,38 @@ function shardedPackageOf(argv: readonly string[]): keyof typeof shardedPackages
 function shardJobs(name: keyof typeof shardedPackages, total: number): TestJob[] {
   const packageRoot = shardedPackages[name];
   const files = listTests(packageRoot);
+  if (name === 'rules') {
+    const fileSet = new Set<string>(files);
+    const isolatedJobs: TestJob[] = [];
+    for (const file of ISOLATED_RULES_FILES) {
+      if (!fileSet.has(file)) continue;
+      isolatedJobs.push({
+        name: `rules ${file.replace(/^\.\/test\//, '')}`,
+        command: 'bun',
+        args: ['test', file],
+        cwd: packageRoot,
+        runsBunTest: true,
+        expectedFiles: 1,
+      });
+    }
+    const remaining = files.filter((file) => !ISOLATED_RULES_SET.has(file));
+    const shardedJobs: TestJob[] = [];
+    for (let offset = 0; offset < total; offset += 1) {
+      const shard = partition(remaining, offset + 1, total, slowFiles.rules);
+      if (shard.length === 0) continue;
+      shardedJobs.push({
+        name: `rules ${offset + 1}/${total}`,
+        command: 'bun',
+        args: ['test', ...shard],
+        cwd: packageRoot,
+        runsBunTest: true,
+        expectedFiles: shard.length,
+      });
+    }
+    return [...isolatedJobs, ...shardedJobs];
+  }
   return Array.from({ length: total }, (_, offset) => {
-    const shard = partition(files, offset + 1, total);
+    const shard = partition(files, offset + 1, total, slowFiles[name]);
     return {
       name: `${name} ${offset + 1}/${total}`,
       command: 'bun',

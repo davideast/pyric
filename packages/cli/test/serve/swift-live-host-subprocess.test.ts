@@ -4,6 +4,7 @@ import {
   buildSwiftLiveHostTests,
   collectProcessEnv,
   formatSubprocessFailure,
+  probeSwiftLiveToolchain,
   runManagedSubprocess,
   waitForProcessExit,
   type ManagedSubprocessResult,
@@ -133,5 +134,54 @@ describe('swift-live-host-subprocess', () => {
     expect(compileCalls).toBe(1);
     expect(failedCompile.attempt).toBe(1);
     expect(failedCompile.result.exitCode).toBe(1);
+  });
+
+  test('probeSwiftLiveToolchain skips broken or missing swift with visible reason off CI and fails closed under PYRIC_REQUIRE_SWIFT_LIVE=1', () => {
+    const runnable = probeSwiftLiveToolchain({
+      env: {},
+      whichSwift: () => '/usr/local/bin/swift',
+      runVersionProbe: () => ({ status: 0, stdout: 'Swift Package Manager - Swift 6.4.2\n', stderr: '' }),
+    });
+    expect(runnable).toEqual({ skip: false, swiftBinary: '/usr/local/bin/swift', skipReason: null });
+
+    const brokenLocal = probeSwiftLiveToolchain({
+      env: {},
+      whichSwift: () => '/opt/swift/bin/swift',
+      runVersionProbe: () => ({
+        status: 127,
+        stdout: '',
+        stderr: '/opt/swift/bin/swift-build: error while loading shared libraries: libxml2.so.2: cannot open shared object file\n',
+      }),
+    });
+    expect(brokenLocal.skip).toBe(true);
+    expect(brokenLocal.swiftBinary).toBeNull();
+    expect(brokenLocal.skipReason).toContain('swift test --version exited 127:');
+    expect(brokenLocal.skipReason).toContain('libxml2.so.2');
+
+    const missingLocal = probeSwiftLiveToolchain({
+      env: {},
+      whichSwift: () => null,
+    });
+    expect(missingLocal).toEqual({ skip: true, swiftBinary: null, skipReason: 'swift binary not found in PATH' });
+
+    const genericCi = probeSwiftLiveToolchain({
+      env: { CI: 'true' },
+      whichSwift: () => '/usr/local/bin/swift',
+    });
+    expect(genericCi.skip).toBe(true);
+    expect(genericCi.skipReason).toContain('CI=true without PYRIC_REQUIRE_SWIFT_LIVE=1');
+
+    const requiredBroken = probeSwiftLiveToolchain({
+      env: { CI: 'true', PYRIC_REQUIRE_SWIFT_LIVE: '1' },
+      whichSwift: () => '/opt/swift/bin/swift',
+      runVersionProbe: () => ({ status: 127, stdout: '', stderr: 'missing libxml2.so.2\n' }),
+    });
+    expect(requiredBroken).toEqual({ skip: false, swiftBinary: '/opt/swift/bin/swift', skipReason: null });
+
+    const requiredMissing = probeSwiftLiveToolchain({
+      env: { PYRIC_REQUIRE_SWIFT_LIVE: '1' },
+      whichSwift: () => null,
+    });
+    expect(requiredMissing).toEqual({ skip: false, swiftBinary: null, skipReason: null });
   });
 });
