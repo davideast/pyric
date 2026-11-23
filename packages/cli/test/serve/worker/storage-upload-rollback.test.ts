@@ -350,7 +350,7 @@ describe('the rollback deletes only that client\'s own commit', () => {
   });
 });
 
-// ─── The worker client's resumable task ─────────────────────────────────────
+// --- The worker client's resumable task -------------------------------------
 
 /** The issue's rules for a client with no user: the create is allowed, every delete denied. */
 const OPEN_CREATE_ONLY_RULES = `rules_version = '2';
@@ -451,7 +451,7 @@ describe('a canceled worker upload under rules that allow its create and deny it
   });
 });
 
-// ─── A canceled upload over an existing object (#1159) ──────────────────────
+// --- A canceled upload over an existing object (#1159) ----------------------
 
 const V1_METADATA = { contentType: 'text/plain', customMetadata: { version: 'one' } };
 
@@ -522,5 +522,25 @@ describe('a canceled worker upload over an existing object keeps the earlier obj
     expect(task.cancel()).toBe(true);
     await expect(Promise.resolve(task)).rejects.toMatchObject({ code: 'storage/canceled' });
     expect(await read('uploads/new.png')).toBeUndefined();
+  });
+
+  it('does not hang delete or restore when a second host port polls during a paused commit (#1168)', async () => {
+    const { storage, storageClient, read } = await connectWorkerClient();
+    const fresh = storageClient.ref(storage, 'uploads/second-port-new.png');
+    const freshTask = storageClient.uploadBytesResumable(fresh, new TextEncoder().encode('paused-new'));
+    expect(freshTask.pause()).toBe(true);
+    await untilReads(() => read('uploads/second-port-new.png'), 'paused-new');
+    expect(freshTask.cancel()).toBe(true);
+    await expect(Promise.resolve(freshTask)).rejects.toMatchObject({ code: 'storage/canceled' });
+    expect(await read('uploads/second-port-new.png')).toBeUndefined();
+
+    const replaced = storageClient.ref(storage, 'uploads/second-port-v1.png');
+    await storageClient.uploadBytes(replaced, new TextEncoder().encode('v1'), V1_METADATA);
+    const replaceTask = storageClient.uploadBytesResumable(replaced, new TextEncoder().encode('v2-paused'));
+    expect(replaceTask.pause()).toBe(true);
+    await untilReads(() => read('uploads/second-port-v1.png'), 'v2-paused');
+    expect(replaceTask.cancel()).toBe(true);
+    await expect(Promise.resolve(replaceTask)).rejects.toMatchObject({ code: 'storage/canceled' });
+    expect(await read('uploads/second-port-v1.png')).toBe('v1');
   });
 });

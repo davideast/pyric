@@ -60,7 +60,8 @@ describe('IndexedDB persistence', () => {
 
     const got = await db.getBlob('sessions/s1.json');
     expect(got).toBeDefined();
-    expect(await got!.text()).toBe('{"session":1}');
+    if (!got) throw new Error('expected stored blob');
+    expect(await got.text()).toBe('{"session":1}');
     db.close();
   });
 
@@ -106,7 +107,8 @@ describe('IndexedDB persistence', () => {
     );
 
     const blob = await db.getBlob('sessions/s1.json');
-    expect(await blob!.text()).toBe('new');
+    if (!blob) throw new Error('expected replaced blob');
+    expect(await blob.text()).toBe('new');
     const md = await db.getMetadata('sessions/s1.json');
     expect(md?.generation).toBe('2');
     db.close();
@@ -126,7 +128,8 @@ describe('IndexedDB persistence', () => {
     );
 
     const blob = await db.getBlob('sessions/s1.json');
-    expect(await blob!.text()).toBe('original-payload');
+    if (!blob) throw new Error('expected existing blob');
+    expect(await blob.text()).toBe('original-payload');
     const md = await db.getMetadata('sessions/s1.json');
     expect(md?.metageneration).toBe('2');
     expect(md?.customMetadata).toEqual({ tag: 'review' });
@@ -195,7 +198,8 @@ describe('IndexedDB persistence', () => {
 
     const reopened = await openStorageBackend(name);
     const blob = await reopened.getBlob('sessions/s1.json');
-    expect(await blob!.text()).toBe('{"persisted":true}');
+    if (!blob) throw new Error('expected persisted blob');
+    expect(await blob.text()).toBe('{"persisted":true}');
     const md = await reopened.getMetadata('sessions/s1.json');
     expect(md?.customMetadata).toEqual({ tag: 'durable' });
     reopened.close();
@@ -220,7 +224,8 @@ describe('IndexedDB persistence', () => {
       db.getMetadata('sessions/s1.json'),
     ]);
     expect(blob).toBeDefined();
-    expect(await blob!.text()).toBe('atomic');
+    if (!blob) throw new Error('expected atomic blob');
+    expect(await blob.text()).toBe('atomic');
     expect(md?.size).toBe(6);
     expect(md?.customMetadata).toEqual({ atomic: 'yes' });
     db.close();
@@ -232,6 +237,66 @@ describe('IndexedDB persistence', () => {
     await db.delete('nope/missing.json');
     expect(await db.getBlob('nope/missing.json')).toBeUndefined();
     db.close();
+  });
+
+  it('awaits readonly IDBTransaction completion so a subsequent delete inside expect().rejects never hangs (#1168)', async () => {
+    const { IndexedDbStorageBackend, openDatabase } = await import(
+      '../../src/storage/sandbox/indexeddb-backend.js'
+    );
+    const rawDb = await openDatabase(uniqueDbName('readonly-tx-complete'));
+    let openReadonlyTransactions = 0;
+    const origTransaction = rawDb.transaction.bind(rawDb);
+    rawDb.transaction = ((stores: string | string[], mode?: IDBTransactionMode) => {
+      const tx = origTransaction(stores, mode);
+      if (mode === 'readonly') {
+        openReadonlyTransactions += 1;
+        tx.addEventListener('complete', () => {
+          openReadonlyTransactions -= 1;
+        });
+      }
+      return tx;
+    }) as typeof rawDb.transaction;
+
+    const backend = new IndexedDbStorageBackend(rawDb);
+    const payload = new Blob(['held-bytes'], { type: 'text/plain' });
+    await backend.put('uploads/held.txt', payload, makeMetadata({
+      fullPath: 'uploads/held.txt',
+      name: 'held.txt',
+      size: payload.size,
+      generation: '7',
+    }));
+
+    expect(await backend.getMetadata('uploads/held.txt')).toBeDefined();
+    expect(openReadonlyTransactions).toBe(0);
+
+    const blob = await backend.getBlob('uploads/held.txt');
+    expect(openReadonlyTransactions).toBe(0);
+    expect(blob).toBeDefined();
+    if (blob) {
+      await blob.arrayBuffer();
+    }
+
+    expect(await backend.getObject('uploads/held.txt')).toBeDefined();
+    expect(openReadonlyTransactions).toBe(0);
+
+    expect((await backend.listByPrefix('uploads/')).length).toBe(1);
+    expect(openReadonlyTransactions).toBe(0);
+
+    const canceledAfterDelete = (async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      await backend.delete('uploads/held.txt');
+      throw Object.assign(new Error('storage/canceled'), { code: 'storage/canceled' });
+    })();
+
+    const polledMeta = await backend.getMetadata('uploads/held.txt');
+    expect(polledMeta?.generation).toBe('7');
+    const polledBlob = await backend.getBlob('uploads/held.txt');
+    if (polledBlob) {
+      await polledBlob.arrayBuffer();
+    }
+    await expect(canceledAfterDelete).rejects.toMatchObject({ code: 'storage/canceled' });
+    expect(await backend.getMetadata('uploads/held.txt')).toBeUndefined();
+    backend.close();
   });
 });
 
