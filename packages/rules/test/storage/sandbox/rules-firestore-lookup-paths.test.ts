@@ -16,8 +16,24 @@ const docs: Record<string, Record<string, unknown>> = {
   'col/a': { on: true },
   'col/a/b/c': { on: true },
   'num/2': { on: true },
+  'num/2.0': { on: true },
+  'num/0': { on: true },
+  'num/0.0': { on: true },
+  'num/-0.0': { on: true },
   'num/1.5': { on: true },
-  'seed/doc': { f: new RulesFloat(1.5), bareFloat: 1.5, n: 2 },
+  'num/0.0005': { on: true },
+  'num/5.0E-4': { on: true },
+  'num/10000000.5': { on: true },
+  'num/1.00000005E7': { on: true },
+  'num/NaN': { on: true },
+  'num/Infinity': { on: true },
+  'seed/doc': {
+    f: new RulesFloat(1.5),
+    bareFloat: 1.5,
+    intFloat: new RulesFloat(2),
+    smallFloat: 0.0005,
+    n: 2,
+  },
 };
 
 const lookup = {
@@ -157,44 +173,112 @@ describe('Storage rules lookup paths: a path literal built in a helper function'
   });
 });
 
-describe('Storage rules lookup paths: numeric interpolation types numbers via rulesInt (#1815)', () => {
-  it('interpolationSegments accepts safe-integer numbers and bigints, and rejects bare and wrapped floats', () => {
+describe('Storage rules lookup paths: numeric interpolation formats proven decimal floats and fails closed on unproven float forms (#1815)', () => {
+  it('interpolationSegments accepts safe ints, bigints, and non-integral floats in [1e-3, 1e7)', () => {
     expect(interpolationSegments(2)).toEqual(['2']);
     expect(interpolationSegments(2n)).toEqual(['2']);
-    expect(interpolationSegments(1.5)).toBeUndefined();
-    expect(interpolationSegments(new RulesFloat(1.5))).toBeUndefined();
-    expect(interpolationSegments(new RulesFloat(2))).toBeUndefined();
-    expect(interpolationSegments(2 ** 53)).toBeUndefined();
-    expect(interpolationSegments(Number.NaN)).toBeUndefined();
-    expect(interpolationSegments(Number.POSITIVE_INFINITY)).toBeUndefined();
+    expect(interpolationSegments(0)).toEqual(['0']);
+    expect(interpolationSegments(1.5)).toEqual(['1.5']);
+    expect(interpolationSegments(new RulesFloat(1.5))).toEqual(['1.5']);
+    expect(interpolationSegments(-1.5)).toEqual(['-1.5']);
+    expect(interpolationSegments(new RulesFloat(-1.5))).toEqual(['-1.5']);
+    expect(interpolationSegments(0.001)).toEqual(['0.001']);
+    expect(interpolationSegments(new RulesFloat(9999999.5))).toEqual(['9999999.5']);
   });
 
-  it('bare float token claim, bare float doc field, wrapped float doc field, and float literal all fail closed alike', () => {
-    const byClaim = `match /claim/{file} {
+  it('interpolationSegments fails closed on integral floats, scientific-range magnitudes, -0, NaN, and infinities', () => {
+    expect(interpolationSegments(new RulesFloat(2))).toBeUndefined();
+    expect(interpolationSegments(new RulesFloat(0))).toBeUndefined();
+    expect(interpolationSegments(-0)).toBeUndefined();
+    expect(interpolationSegments(new RulesFloat(-0))).toBeUndefined();
+    expect(interpolationSegments(2 ** 53)).toBeUndefined();
+    expect(interpolationSegments(new RulesFloat(2 ** 53))).toBeUndefined();
+    expect(interpolationSegments(0.0005)).toBeUndefined();
+    expect(interpolationSegments(new RulesFloat(0.0005))).toBeUndefined();
+    expect(interpolationSegments(1e-7)).toBeUndefined();
+    expect(interpolationSegments(new RulesFloat(1e-7))).toBeUndefined();
+    expect(interpolationSegments(10000000.5)).toBeUndefined();
+    expect(interpolationSegments(new RulesFloat(10000000.5))).toBeUndefined();
+    expect(interpolationSegments(1e21)).toBeUndefined();
+    expect(interpolationSegments(new RulesFloat(1e21))).toBeUndefined();
+    expect(interpolationSegments(Number.NaN)).toBeUndefined();
+    expect(interpolationSegments(new RulesFloat(Number.NaN))).toBeUndefined();
+    expect(interpolationSegments(Number.POSITIVE_INFINITY)).toBeUndefined();
+    expect(interpolationSegments(Number.NEGATIVE_INFINITY)).toBeUndefined();
+    expect(interpolationSegments(new RulesFloat(Number.POSITIVE_INFINITY))).toBeUndefined();
+    expect(interpolationSegments(new RulesFloat(Number.NEGATIVE_INFINITY))).toBeUndefined();
+  });
+
+  it('resolves 1.5 across bare claims and document fields in get and exists while failing closed on unproven float forms', () => {
+    const getByClaim = `match /claim/{file} {
+      allow create: if firestore.get(/databases/(default)/documents/num/$(request.auth.token.v)).data.on == true;
+    }`;
+    const existsByClaim = `match /claim/{file} {
       allow create: if firestore.exists(/databases/(default)/documents/num/$(request.auth.token.v));
     }`;
     const notExistsByClaim = `match /claim/{file} {
       allow create: if !firestore.exists(/databases/(default)/documents/num/$(request.auth.token.v));
     }`;
-    const byLiteralFloat = `match /lit/{file} {
-      allow create: if firestore.exists(/databases/(default)/documents/num/$(1.5));
+    const getByWrappedDocField = `match /doc/{file} {
+      allow create: if firestore.get(/databases/(default)/documents/num/$(firestore.get(/databases/(default)/documents/seed/doc).data.f)).data.on == true;
     }`;
-    const byWrappedDocField = `match /doc/{file} {
+    const existsByWrappedDocField = `match /doc/{file} {
       allow create: if firestore.exists(/databases/(default)/documents/num/$(firestore.get(/databases/(default)/documents/seed/doc).data.f));
     }`;
-    const byBareDocField = `match /doc/{file} {
+    const existsByBareDocField = `match /doc/{file} {
       allow create: if firestore.exists(/databases/(default)/documents/num/$(firestore.get(/databases/(default)/documents/seed/doc).data.bareFloat));
     }`;
-    const byIntDocField = `match /doc/{file} {
+    const existsByIntDocField = `match /doc/{file} {
       allow create: if firestore.exists(/databases/(default)/documents/num/$(firestore.get(/databases/(default)/documents/seed/doc).data.n));
     }`;
+    const existsByLiteralFloat = `match /lit/{file} {
+      allow create: if firestore.exists(/databases/(default)/documents/num/$(1.5));
+    }`;
+    const notExistsIntegralFloatLiteral = `match /lit/{file} {
+      allow create: if !firestore.exists(/databases/(default)/documents/num/$(2.0));
+    }`;
+    const existsIntegralFloatLiteral = `match /lit/{file} {
+      allow create: if firestore.exists(/databases/(default)/documents/num/$(2.0));
+    }`;
+    const existsNegativeZeroLiteral = `match /lit/{file} {
+      allow create: if firestore.exists(/databases/(default)/documents/num/$(-0.0));
+    }`;
+    const existsIntegralFloatDocField = `match /doc/{file} {
+      allow create: if firestore.exists(/databases/(default)/documents/num/$(firestore.get(/databases/(default)/documents/seed/doc).data.intFloat));
+    }`;
+    const existsSmallFloatDocField = `match /doc/{file} {
+      allow create: if firestore.exists(/databases/(default)/documents/num/$(firestore.get(/databases/(default)/documents/seed/doc).data.smallFloat));
+    }`;
+    const existsNanCast = `match /lit/{file} {
+      allow create: if firestore.exists(/databases/(default)/documents/num/$(float('NaN')));
+    }`;
+    const existsInfinityCast = `match /lit/{file} {
+      allow create: if firestore.exists(/databases/(default)/documents/num/$(float('Infinity')));
+    }`;
 
-    expect(upload(byClaim, 'claim/a.bin', {}, { v: 2 })).toBe(true);
-    expect(upload(byClaim, 'claim/a.bin', {}, { v: 1.5 })).toBe(false);
-    expect(upload(notExistsByClaim, 'claim/a.bin', {}, { v: 1.5 })).toBe(false);
-    expect(upload(byLiteralFloat, 'lit/a.bin')).toBe(false);
-    expect(upload(byWrappedDocField, 'doc/a.bin')).toBe(false);
-    expect(upload(byBareDocField, 'doc/a.bin')).toBe(false);
-    expect(upload(byIntDocField, 'doc/a.bin')).toBe(true);
+    expect(upload(getByClaim, 'claim/a.bin', {}, { v: 2 })).toBe(true);
+    expect(upload(getByClaim, 'claim/a.bin', {}, { v: 1.5 })).toBe(true);
+    expect(upload(existsByClaim, 'claim/a.bin', {}, { v: 1.5 })).toBe(true);
+    expect(upload(existsByClaim, 'claim/a.bin', {}, { v: 2.5 })).toBe(false);
+    expect(upload(notExistsByClaim, 'claim/a.bin', {}, { v: 2.5 })).toBe(true);
+    expect(upload(getByWrappedDocField, 'doc/a.bin')).toBe(true);
+    expect(upload(existsByWrappedDocField, 'doc/a.bin')).toBe(true);
+    expect(upload(existsByBareDocField, 'doc/a.bin')).toBe(true);
+    expect(upload(existsByIntDocField, 'doc/a.bin')).toBe(true);
+    expect(upload(existsByLiteralFloat, 'lit/a.bin')).toBe(true);
+
+    // Unproven float forms error and deny even when candidate segment docs exist,
+    // and under `!firestore.exists(...)` as well.
+    expect(upload(existsByClaim, 'claim/a.bin', {}, { v: 0.0005 })).toBe(false);
+    expect(upload(notExistsByClaim, 'claim/a.bin', {}, { v: 0.0005 })).toBe(false);
+    expect(upload(existsByClaim, 'claim/a.bin', {}, { v: 10000000.5 })).toBe(false);
+    expect(upload(notExistsByClaim, 'claim/a.bin', {}, { v: 10000000.5 })).toBe(false);
+    expect(upload(existsIntegralFloatLiteral, 'lit/a.bin')).toBe(false);
+    expect(upload(notExistsIntegralFloatLiteral, 'lit/a.bin')).toBe(false);
+    expect(upload(existsNegativeZeroLiteral, 'lit/a.bin')).toBe(false);
+    expect(upload(existsIntegralFloatDocField, 'doc/a.bin')).toBe(false);
+    expect(upload(existsSmallFloatDocField, 'doc/a.bin')).toBe(false);
+    expect(upload(existsNanCast, 'lit/a.bin')).toBe(false);
+    expect(upload(existsInfinityCast, 'lit/a.bin')).toBe(false);
   });
 });

@@ -1,5 +1,5 @@
 import { RulesValue } from '../simulator/wrappers/base.js';
-import { rulesInt } from '../simulator/rules-int.js';
+import { rulesFloatValue, rulesInt } from '../simulator/rules-int.js';
 import {
   bindPathSegments,
   requirePathBindMap,
@@ -90,20 +90,39 @@ export function pathValueSegments(value: RulesValue): string[] {
   return String(value).split('/').filter(Boolean);
 }
 
+function nonIntegralPlainDecimalFloat(value: unknown): string | undefined {
+  const float = rulesFloatValue(value);
+  if (float === undefined) return undefined;
+  const isFiniteFloat = Number.isFinite(float);
+  if (isFiniteFloat === false) return undefined;
+  if (Object.is(float, -0)) return undefined;
+  if (Number.isInteger(float)) return undefined;
+  const magnitude = Math.abs(float);
+  if (magnitude < 1e-3 || magnitude >= 1e7) return undefined;
+  return String(float);
+}
+
 /**
  * The segments one `$(v)` interpolation in a path literal contributes, or
- * `undefined` when `v` has no path form. Production decides by the value's
- * rules type, not its contents: a string or rules int (`rulesInt`) is one
- * segment, even when it holds a `/`, and a `path` value (a `{rest=**}`
- * capture or `path()`) splices in as its segments (captures
- * `rules-storage-h1-lookup-interpolated-slash` and
- * `rules-storage-storage-lookup-path-interpolation`). Bare and wrapped floats
- * both return `undefined` (#1815).
+ * `undefined` when `v` has no proven path form. Production decides by the
+ * value's rules type, not its contents: a string, a rules int (`rulesInt`),
+ * or a finite non-integral float in `[1e-3, 1e7)` (where Java
+ * `Double.toString` and JavaScript `String` render identical plain decimal
+ * digits, as captured for `1.5` across auth claims and document fields in
+ * `rules-storage-h1-lookup-float-interpolation`) is one segment, and a `path`
+ * value (a `{rest=**}` capture or `path()`) splices in as its segments
+ * (captures `rules-storage-h1-lookup-interpolated-slash` and
+ * `rules-storage-storage-lookup-path-interpolation`). Unproven float forms
+ * (integral floats such as `2.0` or `>= 2^53`, magnitudes outside
+ * `[1e-3, 1e7)`, `-0`, `NaN`, and `+-Infinity`) return `undefined` (#1815).
  */
 export function interpolationSegments(value: unknown): string[] | undefined {
   if (typeof value === 'string') return [value];
+  if (Object.is(value, -0)) return undefined;
   const int = rulesInt(value);
   if (int !== undefined) return [String(int)];
+  const float = nonIntegralPlainDecimalFloat(value);
+  if (float !== undefined) return [float];
   if (isPathValue(value)) return pathValueSegments(value);
   return undefined;
 }
