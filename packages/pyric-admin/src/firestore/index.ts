@@ -85,6 +85,11 @@ import {
   WriteResult,
 } from './admin-write-result-preconditions.js';
 import type {
+  AdminBulkWriter,
+  BulkWriterError,
+  BulkWriterOptions,
+} from './admin-bulk-writer.js';
+import type {
   AdminAggregateQuery,
   AdminAggregateQuerySnapshot,
   AdminCollectionGroup,
@@ -116,6 +121,7 @@ export {
 export type {
   AdminAggregateQuery,
   AdminAggregateQuerySnapshot,
+  AdminBulkWriter as BulkWriter,
   AdminCollectionGroup,
   AdminCollectionReference,
   AdminDocumentReference,
@@ -130,6 +136,8 @@ export type {
   AdminQuerySnapshot,
   AdminVectorDistanceMeasure,
   AdminVectorQuery,
+  BulkWriterError,
+  BulkWriterOptions,
   FirestoreDataConverter,
 };
 

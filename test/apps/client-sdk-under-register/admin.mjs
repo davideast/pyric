@@ -32,6 +32,58 @@ async function outcome(name, run) {
 if (process.argv[2] === "seed") {
   await outcome("admin.seed.database", () => getDatabase(app).ref("server/fromAdmin").set("from admin"));
   await outcome("admin.seed.firestore", () => getFirestore(app).doc("server/fromAdmin").set({ from: "admin" }));
+  await outcome("admin.seed.bulkWriter", async () => {
+    const fs = getFirestore(app);
+    const bw = fs.bulkWriter({ throttling: false });
+    const seenPaths = [];
+    bw.onWriteResult((ref, res) => {
+      if (typeof res?.writeTime?.seconds === "number") {
+        seenPaths.push(ref.path);
+      }
+    });
+    const docRef = fs.doc("adminBulkWriter/fromBulkWriter");
+    const pCreate = bw.create(docRef, { seededBy: "bulkWriter", step: 1 });
+    const pUpdate = bw.update(docRef, { step: 2 });
+    await bw.flush();
+    const [createRes, updateRes] = await Promise.all([pCreate, pUpdate]);
+    let duplicateErrorShape = null;
+    try {
+      await bw.create(docRef, { seededBy: "duplicate" });
+    } catch (dupErr) {
+      duplicateErrorShape = {
+        isError: dupErr instanceof Error,
+        code: dupErr?.code ?? null,
+        path: dupErr?.documentRef?.path ?? null,
+        operationType: dupErr?.operationType ?? null,
+        failedAttempts: dupErr?.failedAttempts ?? null,
+      };
+    }
+    const closeFirst = bw.close();
+    const closeSecond = bw.close();
+    await closeFirst;
+    let postCloseFlushThrewSync = false;
+    try {
+      bw.flush();
+    } catch (flushError) {
+      if (
+        flushError instanceof Error &&
+        flushError.message === "BulkWriter has already been closed."
+      ) {
+        postCloseFlushThrewSync = true;
+      } else {
+        throw flushError;
+      }
+    }
+    return {
+      seenPaths,
+      hasWriteTimes:
+        typeof createRes?.writeTime?.seconds === "number" &&
+        typeof updateRes?.writeTime?.seconds === "number",
+      duplicateErrorShape,
+      closeIdempotent: closeFirst === closeSecond,
+      postCloseFlushThrewSync,
+    };
+  });
 } else {
   const db = getDatabase(app);
   const auth = getAuth(app);
@@ -39,6 +91,7 @@ if (process.argv[2] === "seed") {
   const missingErr = await auth.getUser("missing-node-uid").catch((err) => err);
   await outcome("admin.database", async () => (await db.ref("server/client").get()).val());
   await outcome("admin.firestore", async () => (await getFirestore(app).doc("server/client").get()).data() ?? null);
+  await outcome("admin.bulkWriter", async () => (await getFirestore(app).doc("adminBulkWriter/fromBulkWriter").get()).data() ?? null);
   await outcome("admin.auth", async () => user?.email ?? null);
   await outcome("admin.auth.exports", async () => ({
     authInstance: auth instanceof Auth && auth instanceof BaseAuth,

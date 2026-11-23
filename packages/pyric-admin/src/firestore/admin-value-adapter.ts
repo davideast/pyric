@@ -17,7 +17,11 @@ import type { Sandbox } from 'pyric/sandbox';
 import type { SandboxFirestore, Unsubscribe } from 'pyric/sandbox/admin-firestore';
 import { wrapWriteBatch } from './admin-batch-transaction.js';
 import { executeAdminRunTransaction } from './admin-transaction.js';
-import { createAdminBulkWriter, type AdminBulkWriter } from './admin-bulk-writer.js';
+import {
+  createAdminBulkWriter,
+  type AdminBulkWriter,
+  type BulkWriterOptions,
+} from './admin-bulk-writer.js';
 import { createAdminBundleBuilder } from './admin-bundle-builder.js';
 import {
   adminCollectionListDocuments,
@@ -439,7 +443,7 @@ export function wrapAdminFirestoreHandle(
               adminRecursiveDelete(proxy, t, adminRawDbSandbox.get(t), ref, bw),
             );
         case 'bulkWriter':
-          return () => createAdminBulkWriter(proxy);
+          return (options?: BulkWriterOptions) => createAdminBulkWriter(proxy, options);
         case 'bundle':
           return (bundleId?: string) => {
             let projectId = 'pyric-sandbox';

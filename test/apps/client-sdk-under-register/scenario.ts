@@ -77,7 +77,7 @@ export default scenario(async (app) => {
     expectOk(early.output, 'after.firestore', { at: 'after' });
   });
 
-  await app.step('firebase-admin seeds the host', async () => {
+  const adminSeedOutput = await app.step('firebase-admin seeds the host', async () => {
     const { output } = await app.serverScript('admin.mjs', ['seed'], { env });
     expectOk(output, 'admin.seed.database', null);
     const firestoreSeed = outcome(output, 'admin.seed.firestore');
@@ -91,6 +91,25 @@ export default scenario(async (app) => {
       assert.equal(typeof result?.writeTime?.seconds, 'number', output);
       assert.equal(typeof result?.writeTime?.nanoseconds, 'number', output);
     }
+    return output;
+  });
+
+  await app.step('firebase-admin bulkWriter seeds a document on the host and reads it back', async () => {
+    expectOk(adminSeedOutput, 'admin.seed.bulkWriter', {
+      seenPaths: ['adminBulkWriter/fromBulkWriter', 'adminBulkWriter/fromBulkWriter'],
+      hasWriteTimes: true,
+      duplicateErrorShape: {
+        isError: true,
+        code: 6,
+        path: 'adminBulkWriter/fromBulkWriter',
+        operationType: 'create',
+        failedAttempts: 1,
+      },
+      closeIdempotent: true,
+      postCloseFlushThrewSync: true,
+    });
+    const { output } = await app.serverScript('admin.mjs', [], { env });
+    expectOk(output, 'admin.bulkWriter', { seededBy: 'bulkWriter', step: 2 });
   });
 
   const client = await app.step('the client SDKs run in a registered server process and it exits on its own', async () => {

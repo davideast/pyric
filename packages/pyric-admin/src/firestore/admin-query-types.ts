@@ -31,7 +31,10 @@ import type {
   SnapshotObserver,
   Unsubscribe,
 } from 'pyric/sandbox/admin-firestore';
-import type { AdminBulkWriter } from './admin-bulk-writer.js';
+import type {
+  AdminBulkWriter,
+  BulkWriterOptions,
+} from './admin-bulk-writer.js';
 import type { AdminFirestoreDataConverter } from './admin-converter-and-discovery.js';
 import type { AggregateField, Filter } from './admin-filter-aggregate-cursors.js';
 import type { AdminFirestoreSettings } from './admin-settings-lifecycle.js';
@@ -264,7 +267,7 @@ export interface AdminFirestore
     ref: CompatDocumentReference | CompatCollectionReference,
     bulkWriter?: AdminBulkWriter,
   ): Promise<void>;
-  bulkWriter(): AdminBulkWriter;
+  bulkWriter(options?: BulkWriterOptions): AdminBulkWriter;
   bundle(bundleId?: string): unknown;
 }
 
