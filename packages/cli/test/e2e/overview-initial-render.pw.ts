@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import { createServer, type ViteDevServer, type Plugin } from 'vite';
+import { allocateFreeVitePort } from '../serve/free-vite-port.ts';
 import { pyric } from '../../dist/vite.js';
 
 const studioRequire = createRequire(new URL('../../../studio/package.json', import.meta.url));
@@ -72,7 +73,7 @@ for (const hosted of [false, true]) {
       } } }));
       server = await createServer({ root, configFile: false, logLevel: 'silent',
         plugins: [pyric({ hosted, capture: false, ui: false, seed: 'seed.json' }), holdChipMount()],
-        server: { host: '127.0.0.1', port: 0 },
+        server: { host: '127.0.0.1', port: await allocateFreeVitePort() },
       });
       await server.listen();
       const url = server.resolvedUrls?.local[0];

@@ -16,6 +16,7 @@ import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createServer, type ViteDevServer } from 'vite';
 import { pyric } from '../../src/serve/vite-plugin.js';
+import { allocateFreeVitePort } from './free-vite-port.ts';
 import { attachViteSdkRequestGate } from '../../src/serve/vite-sdk-file-gate.js';
 
 const servers: ViteDevServer[] = [];
@@ -91,11 +92,12 @@ function createFixtureWithInstalledSdk(): { root: string; firebaseAppFile: strin
 describe('Vite SDK HTTP request gate', () => {
   it('stops canonical, non-canonical, and standard WHATWG fetch(//@fs...) requests for real Firebase SDK files in pyric()', async () => {
     const { root, firebaseAppFile, scopedSdkFile } = createFixtureWithInstalledSdk();
+    const port = await allocateFreeVitePort();
     const server = await createServer({
       root,
       configFile: false,
       logLevel: 'silent',
-      server: { host: '127.0.0.1', port: 0, strictPort: false, ws: false },
+      server: { host: '127.0.0.1', port, strictPort: false, ws: false },
       optimizeDeps: { noDiscovery: true, include: [] },
       plugins: [pyric({ ui: false, project: 'demo-project' })],
     });

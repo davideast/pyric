@@ -20,6 +20,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test } from '@playwright/test';
 import { createServer, type PluginOption, type ViteDevServer } from 'vite';
+import { allocateFreeVitePort } from '../serve/free-vite-port.ts';
 import { inProcessSessionTokenForUrl } from '../../src/serve/local-session-token.js';
 
 const cliDir = fileURLToPath(new URL('../../', import.meta.url));
@@ -139,7 +140,7 @@ async function liveProject(port: number, extra: Record<string, unknown> = {}): P
     server = await createServer({
       root, configFile: false, logLevel: 'silent',
       plugins: [pyricLive({ capture: false, ui: false, ...extra }) as PluginOption],
-      server: { host: '127.0.0.1', port: 0, fs: { allow: [root, cliDir] } },
+      server: { host: '127.0.0.1', port: await allocateFreeVitePort(), fs: { allow: [root, cliDir] } },
       // Pre-bundled at startup, as Vite would discover it, so the page never reloads mid-test.
       optimizeDeps: { include: ['evil'] },
     });

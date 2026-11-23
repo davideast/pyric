@@ -19,6 +19,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test } from '@playwright/test';
 import { createLogger, createServer, type PluginOption, type ViteDevServer } from 'vite';
+import { allocateFreeVitePort } from '../serve/free-vite-port.ts';
 import {
   createPrivateJobTmpDir,
   removePrivateJobTmpDir,
@@ -122,7 +123,7 @@ test('a module service worker under live mode reports its Firestore read to the 
     server = await createServer({
       root, configFile: false, customLogger: logger,
       plugins: [pyricLive({ capture: false, ui: false, runtimeChip: { initiallyOpen: true } }) as PluginOption],
-      server: { host: '127.0.0.1', port: 0, fs: { allow: [root, cliDir, liveDir, firebaseDir] } },
+      server: { host: '127.0.0.1', port: await allocateFreeVitePort(), fs: { allow: [root, cliDir, liveDir, firebaseDir] } },
     });
     await server.listen();
     const url = server.resolvedUrls?.local[0];

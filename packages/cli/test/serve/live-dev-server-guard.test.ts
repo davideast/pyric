@@ -40,10 +40,15 @@ import { pathToFileURL } from 'node:url';
 import { createServer } from 'vite';
 const root = process.cwd();
 const { pyricLive } = await import(pathToFileURL(createRequire(join(root, 'package.json')).resolve('@pyric/live/vite')).href);
+const freePort = await new Promise((res, rej) => {
+  const s = net.createServer();
+  s.once('error', rej);
+  s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => res(p)); });
+});
 const server = await createServer({
   root, configFile: false, logLevel: 'silent',
   plugins: [pyricLive({ capture: false, ui: false })],
-  server: { host: '127.0.0.1', port: 0 },
+  server: { host: '127.0.0.1', port: freePort },
 });
 await server.listen();
 const base = server.resolvedUrls.local[0].replace(/\\/$/, '');

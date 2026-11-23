@@ -16,6 +16,7 @@ import type { ViteDevServer } from 'vite';
 import { resetAppRegistryForTests } from 'pyric/app/internal';
 import { bundleWorker, defaultSdkEntries, workerSourceHash } from '../../src/serve/bundler.js';
 import { pyric } from '../../src/serve/vite-plugin.js';
+import { allocateFreeVitePort } from './free-vite-port.ts';
 
 const cliRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const workspaceRoot = resolve(cliRoot, '../..');
@@ -54,13 +55,14 @@ beforeAll(async () => {
   await bundleWorker({ outDir: join(homedir(), '.pyric', 'vite-worker', workerSourceHash()) });
   fixtureRoot = createFixture();
   const { createServer } = await import('vite');
+  const port = await allocateFreeVitePort();
   server = await createServer({
     appType: 'custom',
     configFile: false,
     logLevel: 'silent',
     root: fixtureRoot,
     plugins: [pyric({ ui: false })],
-    server: { port: 0, host: '127.0.0.1' },
+    server: { port, host: '127.0.0.1' },
     optimizeDeps: { noDiscovery: true },
   });
   await server.listen();

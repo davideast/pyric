@@ -516,14 +516,16 @@ describe('Vite and Node PYRIC_AI_MODE=production cross-tree Firebase deduplicati
     writeFileSync(
       hostedProbe,
       [
+        'import { createServer as createNetServer } from "node:net";',
         `import { createServer } from ${JSON.stringify(vitePkgUrl)};`,
         `import { pyric } from ${JSON.stringify(viteEntryUrl)};`,
+        'const freePort = await new Promise((res, rej) => { const s = createNetServer(); s.once("error", rej); s.listen(0, "127.0.0.1", () => { const p = s.address().port; s.close(() => res(p)); }); });',
         `const server = await createServer({`,
         `  root: ${JSON.stringify(fixture.appRoot)},`,
         '  configFile: false,',
         '  envFile: false,',
         '  logLevel: "silent",',
-        '  server: { host: "127.0.0.1", port: 0, strictPort: false, ws: false },',
+        '  server: { host: "127.0.0.1", port: freePort, strictPort: false, ws: false },',
         '  optimizeDeps: { noDiscovery: true, include: [] },',
         '  plugins: [pyric({ ui: false, hosted: true, functions: false, project: "demo-project", ai: { mode: "production" } })],',
         '});',

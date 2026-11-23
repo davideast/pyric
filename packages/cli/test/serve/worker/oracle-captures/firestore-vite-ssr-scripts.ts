@@ -117,10 +117,11 @@ export async function readAcrossRules() {
 }
 `;
   const sharedWorkerScript = `
-import { writeFileSync } from 'node:fs'; import { join } from 'node:path'; import { createServer } from 'vite'; import { pyric } from '@pyric/cli/vite';
+import { writeFileSync } from 'node:fs'; import { createServer as createNetServer } from 'node:net'; import { join } from 'node:path'; import { createServer } from 'vite'; import { pyric } from '@pyric/cli/vite';
 writeFileSync(join(process.cwd(), 'ssr-client.mjs'), ${JSON.stringify(ssrClientModule)});
 writeFileSync(join(process.cwd(), 'ssr-admin.mjs'), ${JSON.stringify(ssrAdminModule)});
-const swServer = await createServer({ appType: 'custom', configFile: false, logLevel: 'silent', root: process.cwd(), plugins: [pyric({ hosted: false, ui: false, capture: false, project: 'demo-oracle' })], server: { port: 0, host: '127.0.0.1' }, optimizeDeps: { noDiscovery: true } });
+const swPort = await new Promise((res, rej) => { const s = createNetServer(); s.once('error', rej); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => res(p)); }); });
+const swServer = await createServer({ appType: 'custom', configFile: false, logLevel: 'silent', root: process.cwd(), plugins: [pyric({ hosted: false, ui: false, capture: false, project: 'demo-oracle' })], server: { port: swPort, host: '127.0.0.1' }, optimizeDeps: { noDiscovery: true } });
 await swServer.listen();
 function extractRefusal(err) { let code = null; let message = String(err); if (err && typeof err === 'object') { if (typeof err.code === 'string') code = err.code; if (typeof err.message === 'string') message = err.message; } return { code, message }; }
 let rs2Refusal = { code: null, message: '' }; try { const swClient = await swServer.ssrLoadModule('/ssr-client.mjs'); await swClient.readSharedSession(); } catch (err) { rs2Refusal = extractRefusal(err); }
@@ -129,11 +130,12 @@ await swServer.close();
 console.log('VITE_SW_REFUSAL ' + JSON.stringify({ rs2Refusal, rs3Refusal }));
 `;
   const hostedScript = `
-import { writeFileSync } from 'node:fs'; import { join } from 'node:path'; import { createServer } from 'vite'; import { pyric } from '@pyric/cli/vite';
+import { writeFileSync } from 'node:fs'; import { createServer as createNetServer } from 'node:net'; import { join } from 'node:path'; import { createServer } from 'vite'; import { pyric } from '@pyric/cli/vite';
 writeFileSync(join(process.cwd(), 'ssr-client.mjs'), ${JSON.stringify(ssrClientModule)});
 writeFileSync(join(process.cwd(), 'ssr-second.mjs'), 'export { readSharedSession } from "./ssr-client.mjs";\\n');
 writeFileSync(join(process.cwd(), 'ssr-admin.mjs'), ${JSON.stringify(ssrAdminModule)});
-const hostedServer = await createServer({ appType: 'custom', configFile: false, logLevel: 'silent', root: process.cwd(), ssr: { noExternal: ['firebase'] }, plugins: [pyric({ hosted: true, ui: false, capture: false, project: 'demo-oracle' })], server: { port: 0, host: '127.0.0.1' }, optimizeDeps: { noDiscovery: true } });
+const hostedPort = await new Promise((res, rej) => { const s = createNetServer(); s.once('error', rej); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => res(p)); }); });
+const hostedServer = await createServer({ appType: 'custom', configFile: false, logLevel: 'silent', root: process.cwd(), ssr: { noExternal: ['firebase'] }, plugins: [pyric({ hosted: true, ui: false, capture: false, project: 'demo-oracle' })], server: { port: hostedPort, host: '127.0.0.1' }, optimizeDeps: { noDiscovery: true } });
 await hostedServer.listen();
 const adminMod = await hostedServer.ssrLoadModule('/ssr-admin.mjs'); const tokens = await adminMod.prepareFixture();
 const clientMod = await hostedServer.ssrLoadModule('/ssr-client.mjs'); const verdicts = await clientMod.runSsrRulesProbe(tokens);
