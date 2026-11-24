@@ -5,6 +5,7 @@ import type { FirebaseApp } from '../app/types.js';
 import { FirebaseError } from '../sandbox/internal/firebase-error.js';
 import type {
   CrashlyticsAttributes,
+  CrashlyticsOptions,
   PlainCrashlyticsValue,
 } from './types.js';
 
@@ -97,8 +98,8 @@ export function normalizeThrownError(error: unknown): {
     if (typeof error.name === 'string' && error.name.length > 0) {
       resolvedName = error.name;
     }
-    let resolvedStack: string | null = null;
-    if (typeof error.stack === 'string') {
+    let resolvedStack = 'No stack trace available';
+    if (typeof error.stack === 'string' && error.stack.length > 0) {
       resolvedStack = error.stack;
     }
     const errRecord = error as unknown as Record<string, unknown>;
@@ -137,16 +138,6 @@ export function normalizeThrownError(error: unknown): {
     if (typeof obj.name === 'string' && obj.name.length > 0) {
       objName = obj.name;
     }
-    let objMessage: string;
-    if (typeof obj.message === 'string') {
-      objMessage = obj.message;
-    } else {
-      try {
-        objMessage = JSON.stringify(error);
-      } catch {
-        objMessage = String(error);
-      }
-    }
     let objStack: string | null = null;
     if (typeof obj.stack === 'string') {
       objStack = obj.stack;
@@ -155,9 +146,18 @@ export function normalizeThrownError(error: unknown): {
     if (typeof obj.code === 'string') {
       objCode = obj.code;
     }
+    if (typeof obj.message === 'string') {
+      return {
+        name: objName,
+        message: obj.message,
+        stack: objStack,
+        code: objCode,
+        cause: null,
+      };
+    }
     return {
       name: objName,
-      message: objMessage,
+      message: 'Unknown error type: object',
       stack: objStack,
       code: objCode,
       cause: null,
@@ -165,11 +165,85 @@ export function normalizeThrownError(error: unknown): {
   }
   return {
     name: 'Error',
-    message: String(error),
+    message: `Unknown error type: ${typeof error}`,
     stack: null,
     code: null,
     cause: null,
   };
+}
+
+function deepEqualEnumerable(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) {
+    return true;
+  }
+  if (typeof left !== 'object' || left === null || typeof right !== 'object' || right === null) {
+    return false;
+  }
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) {
+      return false;
+    }
+    for (let index = 0; index < left.length; index += 1) {
+      if (!deepEqualEnumerable(left[index], right[index])) {
+        return false;
+      }
+    }
+    return true;
+  }
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) {
+    return false;
+  }
+  const leftRecord = left as Record<string, unknown>;
+  const rightRecord = right as Record<string, unknown>;
+  for (const key of leftKeys) {
+    if (!Object.prototype.hasOwnProperty.call(rightRecord, key)) {
+      return false;
+    }
+    if (!deepEqualEnumerable(leftRecord[key], rightRecord[key])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function cloneEnumerableValue(value: unknown): unknown {
+  if (value === null || typeof value !== 'object') {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => cloneEnumerableValue(item));
+  }
+  const cloned: Record<string, unknown> = {};
+  const record = value as Record<string, unknown>;
+  for (const key of Object.keys(record)) {
+    cloned[key] = cloneEnumerableValue(record[key]);
+  }
+  return cloned;
+}
+
+/** Captures an immutable snapshot of enumerable `CrashlyticsOptions` fields at initialization time. */
+export function snapshotCrashlyticsOptions(
+  options: CrashlyticsOptions | undefined,
+): Record<string, unknown> {
+  if (options === undefined) {
+    return {};
+  }
+  return cloneEnumerableValue(options) as Record<string, unknown>;
+}
+
+/**
+ * Compares `CrashlyticsOptions` using the same enumerable deep-equality rule as
+ * `@firebase/crashlytics` (`deepEqual(options || {}, provider.getOptions())`).
+ */
+export function areCrashlyticsOptionsEqual(
+  left: CrashlyticsOptions | Record<string, unknown> | undefined,
+  right: CrashlyticsOptions | Record<string, unknown> | undefined,
+): boolean {
+  const normalizedLeft = left ?? {};
+  const normalizedRight = right ?? {};
+  return deepEqualEnumerable(normalizedLeft, normalizedRight);
 }
 
 export function appKeyOf(app: FirebaseApp): string {

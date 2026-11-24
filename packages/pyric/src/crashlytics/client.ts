@@ -15,9 +15,18 @@ import type { Sandbox, SandboxContext } from '../sandbox/index.js';
 import { SandboxContextImpl } from '../sandbox/index.js';
 import { getCrashlyticsBroker, MAX_CRASHLYTICS_LOGS } from './broker.js';
 import {
+  attachPageLifecycleListeners,
+  attachUnhandledErrorListeners,
+  markErrorAsLogged,
+  pushBoundedBreadcrumb,
+  type BrowserCrashlyticsHooks,
+} from './browser-listeners.js';
+import {
   appKeyOf,
+  areCrashlyticsOptionsEqual,
   normalizeCrashlyticsAttributes,
   normalizeThrownError,
+  snapshotCrashlyticsOptions,
   validateCrashlyticsEndpointUrl,
 } from './normalize.js';
 import type {
@@ -33,6 +42,7 @@ import type {
 } from './types.js';
 
 export {
+  areCrashlyticsOptionsEqual,
   normalizeCrashlyticsAttributes,
   normalizeThrownError,
   validateCrashlyticsEndpointUrl,
@@ -53,6 +63,7 @@ interface CrashlyticsInstanceState {
   readonly appId: string;
   readonly region: string;
   readonly appVersion: string | null;
+  readonly configuredOptions: Record<string, unknown>;
   readonly baseAttributes: Record<string, PlainCrashlyticsValue>;
   readonly breadcrumbsEnabled: boolean;
   readonly breadcrumbsBuffer: CrashlyticsBreadcrumb[];
@@ -87,23 +98,13 @@ function isSandbox(value: unknown): value is Sandbox {
 }
 
 function isBreadcrumbsFeature(feature: unknown): boolean {
-  return (
-    typeof feature === 'object' &&
-    feature !== null &&
-    BREADCRUMBS_FEATURE_TAG in feature
-  );
-}
-
-interface GlobalWindowEventTarget {
-  addEventListener?: (type: string, listener: (event: unknown) => void) => void;
-  removeEventListener?: (type: string, listener: (event: unknown) => void) => void;
-  location?: { pathname?: string; hash?: string };
-}
-
-interface GlobalDocumentEventTarget {
-  addEventListener?: (type: string, listener: () => void) => void;
-  removeEventListener?: (type: string, listener: () => void) => void;
-  visibilityState?: string;
+  if (typeof feature !== 'object' || feature === null) {
+    return false;
+  }
+  if (BREADCRUMBS_FEATURE_TAG in feature) {
+    return true;
+  }
+  return (feature as { name?: unknown }).name === 'breadcrumbs';
 }
 
 function appendBreadcrumb(
@@ -118,117 +119,10 @@ function appendBreadcrumb(
   if (attributes !== undefined && Object.keys(attributes).length > 0) {
     crumb.attributes = attributes;
   }
-  state.breadcrumbsBuffer.push(crumb);
-  while (state.breadcrumbsBuffer.length > MAX_CRASHLYTICS_LOGS) {
-    state.breadcrumbsBuffer.shift();
-  }
+  pushBoundedBreadcrumb(state.breadcrumbsBuffer, crumb, MAX_CRASHLYTICS_LOGS);
 }
 
-function attachUnhandledErrorListeners(handle: InternalCrashlyticsHandle): () => void {
-  const win = (globalThis as { window?: GlobalWindowEventTarget }).window;
-  if (
-    win === undefined ||
-    typeof win.addEventListener !== 'function' ||
-    typeof win.removeEventListener !== 'function'
-  ) {
-    return () => {};
-  }
-
-  const onWindowError = (event: unknown): void => {
-    const state = handle[CRASHLYTICS_HANDLE_TAG];
-    if (state.deleted) {
-      return;
-    }
-    let extracted: unknown = event;
-    if (typeof event === 'object' && event !== null) {
-      const rec = event as Record<string, unknown>;
-      if ('error' in rec && rec.error !== undefined) {
-        extracted = rec.error;
-      } else if (typeof rec.message === 'string') {
-        extracted = new Error(rec.message);
-      }
-    }
-    enqueueRecordError(state, extracted, undefined, true);
-  };
-
-  const onUnhandledRejection = (event: unknown): void => {
-    const state = handle[CRASHLYTICS_HANDLE_TAG];
-    if (state.deleted) {
-      return;
-    }
-    let reason: unknown = event;
-    if (typeof event === 'object' && event !== null && 'reason' in event) {
-      reason = (event as { reason?: unknown }).reason;
-    }
-    enqueueRecordError(state, reason, undefined, true);
-  };
-
-  win.addEventListener('error', onWindowError);
-  win.addEventListener('unhandledrejection', onUnhandledRejection);
-  return () => {
-    win.removeEventListener?.('error', onWindowError);
-    win.removeEventListener?.('unhandledrejection', onUnhandledRejection);
-  };
-}
-
-function attachAutoBreadcrumbListeners(handle: InternalCrashlyticsHandle): () => void {
-  const cleanups: Array<() => void> = [];
-  const win = (globalThis as { window?: GlobalWindowEventTarget }).window;
-  if (
-    win !== undefined &&
-    typeof win.addEventListener === 'function' &&
-    typeof win.removeEventListener === 'function'
-  ) {
-    const onNavigation = (): void => {
-      const state = handle[CRASHLYTICS_HANDLE_TAG];
-      if (state.deleted) {
-        return;
-      }
-      const pathname = win.location?.pathname ?? '/';
-      appendBreadcrumb(state, `navigation:${pathname}`, {
-        source: 'navigation',
-        path: pathname,
-      });
-    };
-    win.addEventListener('popstate', onNavigation);
-    win.addEventListener('hashchange', onNavigation);
-    cleanups.push(() => {
-      win.removeEventListener?.('popstate', onNavigation);
-      win.removeEventListener?.('hashchange', onNavigation);
-    });
-  }
-
-  const doc = (globalThis as { document?: GlobalDocumentEventTarget }).document;
-  if (
-    doc !== undefined &&
-    typeof doc.addEventListener === 'function' &&
-    typeof doc.removeEventListener === 'function'
-  ) {
-    const onVisibility = (): void => {
-      const state = handle[CRASHLYTICS_HANDLE_TAG];
-      if (state.deleted) {
-        return;
-      }
-      const vis = doc.visibilityState ?? 'unknown';
-      appendBreadcrumb(state, `visibility:${vis}`, {
-        source: 'visibilitychange',
-        visibilityState: vis,
-      });
-    };
-    doc.addEventListener('visibilitychange', onVisibility);
-    cleanups.push(() => {
-      doc.removeEventListener?.('visibilitychange', onVisibility);
-    });
-  }
-
-  return () => {
-    for (const fn of cleanups) {
-      fn();
-    }
-  };
-}
-
-function requireActiveState(crashlytics: Crashlytics, callerName: string): CrashlyticsInstanceState {
+function requireCrashlyticsState(crashlytics: Crashlytics, callerName: string): CrashlyticsInstanceState {
   if (
     typeof crashlytics !== 'object' ||
     crashlytics === null ||
@@ -239,14 +133,22 @@ function requireActiveState(crashlytics: Crashlytics, callerName: string): Crash
       `Crashlytics: First argument to ${callerName}() must be a Crashlytics instance from getCrashlytics().`,
     );
   }
-  const state = (crashlytics as InternalCrashlyticsHandle)[CRASHLYTICS_HANDLE_TAG];
-  if (state.deleted) {
-    throw new FirebaseError(
-      'app/app-deleted',
-      `Firebase: Firebase App named '${state.app.name}' already deleted (app/app-deleted).`,
-    );
+  return (crashlytics as InternalCrashlyticsHandle)[CRASHLYTICS_HANDLE_TAG];
+}
+
+/**
+ * Verifies that repeat `getCrashlytics(app, options)` calls pass options matching
+ * the initial `CrashlyticsOptions`, throwing the same error as `@firebase/crashlytics`
+ * when they differ.
+ */
+export function assertMatchingCrashlyticsOptions(
+  crashlytics: Crashlytics,
+  options?: CrashlyticsOptions,
+): void {
+  const state = requireCrashlyticsState(crashlytics, 'getCrashlytics');
+  if (!areCrashlyticsOptionsEqual(options, state.configuredOptions)) {
+    throw new Error('getCrashlytics() cannot be called with different options');
   }
-  return state;
 }
 
 function trackPending(state: CrashlyticsInstanceState, work: Promise<void>): void {
@@ -283,16 +185,20 @@ function enqueueRecordError(
     ...normalizeCrashlyticsAttributes(attributes),
   };
   const timestampMs = state.now();
-  const breadcrumbsSnapshot = state.breadcrumbsBuffer.map((crumb) => {
-    const copy: CrashlyticsBreadcrumb = {
-      message: crumb.message,
-      timestampMs: crumb.timestampMs,
-    };
-    if (crumb.attributes !== undefined) {
-      copy.attributes = { ...crumb.attributes };
-    }
-    return copy;
-  });
+  let breadcrumbsSnapshot: CrashlyticsBreadcrumb[] = [];
+  if (state.breadcrumbsEnabled) {
+    breadcrumbsSnapshot = state.breadcrumbsBuffer.map((crumb) => {
+      const copy: CrashlyticsBreadcrumb = {
+        message: crumb.message,
+        timestampMs: crumb.timestampMs,
+      };
+      if (crumb.attributes !== undefined) {
+        copy.attributes = { ...crumb.attributes };
+      }
+      return copy;
+    });
+    state.breadcrumbsBuffer.length = 0;
+  }
 
   const payload: CrashlyticsRecordErrorInput = {
     appId: state.appId,
@@ -316,7 +222,14 @@ function enqueueRecordError(
  * Enables Crashlytics breadcrumb collection when passed in `CrashlyticsOptions.features`.
  */
 export function breadcrumbs(): CrashlyticsFeature {
-  return Object.freeze({ [BREADCRUMBS_FEATURE_TAG]: true });
+  const feature: Record<string, unknown> = { name: 'breadcrumbs' };
+  Object.defineProperty(feature, BREADCRUMBS_FEATURE_TAG, {
+    value: true,
+    enumerable: false,
+    configurable: false,
+    writable: false,
+  });
+  return Object.freeze(feature);
 }
 
 /**
@@ -340,14 +253,15 @@ export function createTransportCrashlytics(
   if (typeof options?.appVersion === 'string' && options.appVersion.length > 0) {
     appVersion = options.appVersion;
   }
-  const breadcrumbsEnabled = Array.isArray(options?.features)
-    && options.features.some(isBreadcrumbsFeature);
+  const breadcrumbsEnabled =
+    Array.isArray(options?.features) && options.features.some(isBreadcrumbsFeature);
 
   const state: CrashlyticsInstanceState = {
     app,
     appId,
     region,
     appVersion,
+    configuredOptions: snapshotCrashlyticsOptions(options),
     baseAttributes: normalizeCrashlyticsAttributes(options?.customAttributes),
     breadcrumbsEnabled,
     breadcrumbsBuffer: [],
@@ -362,20 +276,32 @@ export function createTransportCrashlytics(
     [CRASHLYTICS_HANDLE_TAG]: state,
   };
 
+  const hooks: BrowserCrashlyticsHooks = {
+    isDeleted: () => state.deleted,
+    breadcrumbsEnabled,
+    appendBreadcrumb: (message, attrs) => {
+      appendBreadcrumb(state, message, attrs);
+    },
+    recordUnhandledError: (error) => {
+      enqueueRecordError(state, error, undefined, true);
+    },
+    flushOnHide: () => {
+      void flush(handle);
+    },
+  };
+
   let detachUnhandled = (): void => {};
   if (options?.captureUnhandledErrors !== false) {
-    detachUnhandled = attachUnhandledErrorListeners(handle);
+    detachUnhandled = attachUnhandledErrorListeners(hooks);
   }
-  let detachBreadcrumbs = (): void => {};
-  if (breadcrumbsEnabled) {
-    detachBreadcrumbs = attachAutoBreadcrumbListeners(handle);
-  }
+  const detachLifecycle = attachPageLifecycleListeners(hooks);
 
   if (registerCleanup !== undefined) {
     registerCleanup(() => {
       state.deleted = true;
+      state.breadcrumbsBuffer.length = 0;
       detachUnhandled();
-      detachBreadcrumbs();
+      detachLifecycle();
     });
   }
 
@@ -389,7 +315,13 @@ export function registerCrashlyticsTransport(
   crashlytics: Crashlytics,
   transport: CrashlyticsClientTransport,
 ): void {
-  const state = requireActiveState(crashlytics, 'registerCrashlyticsTransport');
+  const state = requireCrashlyticsState(crashlytics, 'registerCrashlyticsTransport');
+  if (state.deleted) {
+    throw new FirebaseError(
+      'app/app-deleted',
+      `Firebase: Firebase App named '${state.app.name}' already deleted (app/app-deleted).`,
+    );
+  }
   state.transport = transport;
 }
 
@@ -405,9 +337,15 @@ export function getCrashlytics(
 
   const target = app ?? (defaultClientApp() as FirebaseApp);
   if (isSandbox(target) || isSandboxContext(target)) {
-    const sandbox = isSandboxContext(target) ? target.sandbox : target;
+    let sandbox: Sandbox;
+    if (isSandboxContext(target)) {
+      sandbox = target.sandbox;
+    } else {
+      sandbox = target;
+    }
     const existingBySandbox = handlesBySandbox.get(sandbox);
     if (existingBySandbox !== undefined && !existingBySandbox[CRASHLYTICS_HANDLE_TAG].deleted) {
+      assertMatchingCrashlyticsOptions(existingBySandbox, options);
       return existingBySandbox;
     }
     const syntheticApp: FirebaseApp = {
@@ -435,6 +373,7 @@ export function getCrashlytics(
 
   const existing = handlesByApp.get(clientApp);
   if (existing !== undefined && !existing[CRASHLYTICS_HANDLE_TAG].deleted) {
+    assertMatchingCrashlyticsOptions(existing, options);
     return existing;
   }
 
@@ -463,7 +402,10 @@ export function log(
   message: string,
   attributes?: Attributes,
 ): void {
-  const state = requireActiveState(crashlytics, 'log');
+  const state = requireCrashlyticsState(crashlytics, 'log');
+  if (state.deleted) {
+    return;
+  }
   const mergedAttributes: Record<string, PlainCrashlyticsValue> = {
     ...state.baseAttributes,
     ...normalizeCrashlyticsAttributes(attributes),
@@ -471,11 +413,13 @@ export function log(
   const timestampMs = state.now();
   const hasAttrs = Object.keys(mergedAttributes).length > 0;
 
-  let crumbAttributes: Record<string, PlainCrashlyticsValue> | undefined;
-  if (hasAttrs) {
-    crumbAttributes = mergedAttributes;
+  if (state.breadcrumbsEnabled) {
+    let crumbAttributes: Record<string, PlainCrashlyticsValue> | undefined;
+    if (hasAttrs) {
+      crumbAttributes = mergedAttributes;
+    }
+    appendBreadcrumb(state, message, crumbAttributes);
   }
-  appendBreadcrumb(state, message, crumbAttributes);
 
   const logInput: CrashlyticsLogInput = {
     appId: state.appId,
@@ -496,7 +440,11 @@ export function recordError(
   error: unknown,
   attributes?: Attributes,
 ): void {
-  const state = requireActiveState(crashlytics, 'recordError');
+  const state = requireCrashlyticsState(crashlytics, 'recordError');
+  if (state.deleted) {
+    return;
+  }
+  markErrorAsLogged(error);
   enqueueRecordError(state, error, attributes, false);
 }
 
@@ -504,7 +452,10 @@ export function recordError(
  * Immediately flushes all enqueued Crashlytics logs and error reports.
  */
 export async function flush(crashlytics: Crashlytics): Promise<void> {
-  const state = requireActiveState(crashlytics, 'flush');
+  const state = requireCrashlyticsState(crashlytics, 'flush');
+  if (state.deleted) {
+    return;
+  }
   while (state.pendingWork.size > 0) {
     await Promise.all([...state.pendingWork]);
   }
