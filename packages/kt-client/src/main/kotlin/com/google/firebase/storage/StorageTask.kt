@@ -6,6 +6,7 @@ import com.google.android.gms.tasks.OnFailureListener
 import com.google.android.gms.tasks.OnSuccessListener
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import java.util.ArrayDeque
 import java.util.concurrent.Executor
 
 /**
@@ -33,17 +34,32 @@ abstract class StorageTask<TResult : StorageTask.ProvideError> internal construc
     protected val stateLock = Any()
     private val listeners = StorageTaskListeners<TResult>(stateLock)
 
+    private enum class TerminalDispatchPhase {
+        NONE,
+        PRE_COMPLETE,
+        COMPLETE,
+        SETTLED
+    }
+
     private var internalState: StorageTaskInternalState = StorageTaskInternalState.IN_PROGRESS
     private var terminalResult: TResult? = null
     private var terminalException: Exception? = null
     private var resumeGate: CompletableDeferred<Unit>? = null
+    private var terminalPhase: TerminalDispatchPhase = TerminalDispatchPhase.NONE
     private var settlingThread: Thread? = null
-    private val deferredPreCompleteReplays = ArrayList<() -> Unit>()
-    private val deferredCompleteReplays = ArrayList<() -> Unit>()
+    private val deferredPreCompleteReplays = ArrayDeque<() -> Unit>()
+    private val deferredCompleteReplays = ArrayDeque<() -> Unit>()
 
     abstract val snapshot: TResult
 
     override fun isComplete(): Boolean =
+        synchronized(stateLock) {
+            internalState.isTerminal &&
+                (terminalPhase != TerminalDispatchPhase.PRE_COMPLETE ||
+                    settlingThread === Thread.currentThread())
+        }
+
+    internal override fun isTerminalDispatchComplete(): Boolean =
         synchronized(stateLock) {
             internalState.isTerminal &&
                 (settlingThread == null || settlingThread === Thread.currentThread())
@@ -145,6 +161,7 @@ abstract class StorageTask<TResult : StorageTask.ProvideError> internal construc
             onCanceledTransitionLocked(cancelError)
             backgroundRollback = tryDeferCancelForRollbackLocked(cancelError)
             internalState = StorageTaskInternalState.CANCELED
+            terminalPhase = TerminalDispatchPhase.PRE_COMPLETE
             settlingThread = Thread.currentThread()
             dispatches = listeners.prepareTerminalFailureDispatchLocked(
                 task = this,
@@ -152,13 +169,16 @@ abstract class StorageTask<TResult : StorageTask.ProvideError> internal construc
                 canceled = true
             )
         }
-        gateToCancel?.completeExceptionally(CancellationException("StorageTask canceled"))
-        if (backgroundRollback != null) {
-            backgroundRollback.invoke()
-        } else {
-            onCanceledCleanup()
+        try {
+            gateToCancel?.completeExceptionally(CancellationException("StorageTask canceled"))
+            if (backgroundRollback != null) {
+                backgroundRollback.invoke()
+            } else {
+                onCanceledCleanup()
+            }
+        } finally {
+            runTwoPhaseTerminalDispatch(dispatches)
         }
-        runTwoPhaseTerminalDispatch(dispatches)
         return true
     }
 
@@ -202,6 +222,7 @@ abstract class StorageTask<TResult : StorageTask.ProvideError> internal construc
             } else {
                 internalState = StorageTaskInternalState.SUCCESS
                 terminalResult = finalSnapshot
+                terminalPhase = TerminalDispatchPhase.PRE_COMPLETE
                 settlingThread = Thread.currentThread()
                 onSuccessTransitionLocked(finalSnapshot)
                 listeners.prepareTerminalSuccessDispatchLocked(this, finalSnapshot)
@@ -222,6 +243,7 @@ abstract class StorageTask<TResult : StorageTask.ProvideError> internal construc
             } else {
                 internalState = StorageTaskInternalState.FAILURE
                 terminalException = error
+                terminalPhase = TerminalDispatchPhase.PRE_COMPLETE
                 settlingThread = Thread.currentThread()
                 gateToFail = resumeGate
                 resumeGate = null
@@ -236,36 +258,69 @@ abstract class StorageTask<TResult : StorageTask.ProvideError> internal construc
         if (dispatches == null) {
             return false
         }
-        gateToFail?.completeExceptionally(error)
-        runTwoPhaseTerminalDispatch(dispatches)
+        try {
+            gateToFail?.completeExceptionally(error)
+        } finally {
+            runTwoPhaseTerminalDispatch(dispatches)
+        }
         return true
     }
 
     private fun runTwoPhaseTerminalDispatch(dispatches: Pair<() -> Unit, () -> Unit>) {
-        onTaskDeactivated()
-        dispatches.first()
-        // Drain pre-complete replays (progress/paused/success/failure/canceled) while
-        // settlingThread is still active so external callers awaiting isComplete/await()
-        // never return before callbacks registered prior to completion have finished.
-        while (true) {
-            val preBatch = synchronized(stateLock) {
-                if (deferredPreCompleteReplays.isEmpty()) {
-                    settlingThread = null
-                    null
-                } else {
-                    ArrayList(deferredPreCompleteReplays).also { deferredPreCompleteReplays.clear() }
-                }
-            } ?: break
-            for (replay in preBatch) {
+        val runner = Thread.currentThread()
+        try {
+            onTaskDeactivated()
+            dispatches.first()
+            // Drain pre-complete replays (progress/paused/success/failure/canceled) while
+            // still in PRE_COMPLETE so they finish before any OnCompleteListener executes or
+            // isComplete returns true to external threads.
+            while (true) {
+                val replay = synchronized(stateLock) {
+                    val next = deferredPreCompleteReplays.pollFirst()
+                    if (next == null) {
+                        terminalPhase = TerminalDispatchPhase.COMPLETE
+                    }
+                    next
+                } ?: break
                 replay()
             }
-        }
-        dispatches.second()
-        val completeBatch = synchronized(stateLock) {
-            ArrayList(deferredCompleteReplays).also { deferredCompleteReplays.clear() }
-        }
-        for (replay in completeBatch) {
-            replay()
+            // Keep settlingThread set across dispatches.second() and deferred OnCompleteListener
+            // replays so concurrent addOnCompleteListener / await() callers queue behind earlier
+            // OnCompleteListeners in FIFO order rather than jumping ahead of them.
+            dispatches.second()
+            while (true) {
+                val replay = synchronized(stateLock) {
+                    val next = deferredCompleteReplays.pollFirst()
+                    if (next == null) {
+                        terminalPhase = TerminalDispatchPhase.SETTLED
+                        settlingThread = null
+                    }
+                    next
+                } ?: break
+                replay()
+            }
+        } finally {
+            val orphaned = synchronized(stateLock) {
+                if (settlingThread === runner) {
+                    terminalPhase = TerminalDispatchPhase.SETTLED
+                    settlingThread = null
+                    val remaining = ArrayList<() -> Unit>(
+                        deferredPreCompleteReplays.size + deferredCompleteReplays.size
+                    )
+                    while (true) {
+                        remaining.add(deferredPreCompleteReplays.pollFirst() ?: break)
+                    }
+                    while (true) {
+                        remaining.add(deferredCompleteReplays.pollFirst() ?: break)
+                    }
+                    remaining
+                } else {
+                    emptyList()
+                }
+            }
+            for (replay in orphaned) {
+                runCatching { replay() }
+            }
         }
     }
 
@@ -276,12 +331,17 @@ abstract class StorageTask<TResult : StorageTask.ProvideError> internal construc
         val immediate = synchronized(stateLock) {
             val replay = blockLocked()
             if (replay != null && settlingThread != null && settlingThread !== Thread.currentThread()) {
-                if (isCompleteCallback) {
-                    deferredCompleteReplays.add(replay)
-                } else {
-                    deferredPreCompleteReplays.add(replay)
+                when {
+                    isCompleteCallback -> {
+                        deferredCompleteReplays.addLast(replay)
+                        null
+                    }
+                    terminalPhase == TerminalDispatchPhase.PRE_COMPLETE -> {
+                        deferredPreCompleteReplays.addLast(replay)
+                        null
+                    }
+                    else -> replay
                 }
-                null
             } else {
                 replay
             }

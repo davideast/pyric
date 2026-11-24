@@ -22,6 +22,7 @@ abstract class Task<TResult> {
     abstract fun isComplete(): Boolean
     abstract fun isSuccessful(): Boolean
     abstract fun isCanceled(): Boolean
+    internal open fun isTerminalDispatchComplete(): Boolean = isComplete()
     abstract fun getResult(): TResult
     abstract fun <X : Throwable> getResult(exceptionType: Class<X>): TResult
     abstract fun getException(): Exception?

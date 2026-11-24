@@ -6,7 +6,7 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 suspend fun <T> Task<T>.await(): T {
-    if (isComplete) {
+    if (isTerminalDispatchComplete()) {
         val e = exception
         if (e != null) throw e
         if (isCanceled) throw CancellationException("Task $this was cancelled normally.")

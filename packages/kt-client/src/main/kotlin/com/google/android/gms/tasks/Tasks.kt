@@ -31,7 +31,7 @@ object Tasks {
 
     @JvmStatic
     fun <T> await(task: Task<T>): T {
-        if (task.isComplete) {
+        if (task.isTerminalDispatchComplete()) {
             return unwrapCompleted(task)
         }
         val latch = CountDownLatch(1)
@@ -42,7 +42,7 @@ object Tasks {
 
     @JvmStatic
     fun <T> await(task: Task<T>, timeout: Long, unit: TimeUnit): T {
-        if (task.isComplete) {
+        if (task.isTerminalDispatchComplete()) {
             return unwrapCompleted(task)
         }
         val latch = CountDownLatch(1)
