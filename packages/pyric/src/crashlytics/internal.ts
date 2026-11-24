@@ -15,6 +15,8 @@ export {
 } from './broker.js';
 
 export {
+  areCrashlyticsOptionsEqual,
+  assertMatchingCrashlyticsOptions,
   createTransportCrashlytics,
   normalizeCrashlyticsAttributes,
   normalizeThrownError,

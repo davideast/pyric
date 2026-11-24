@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { deleteApp, getApps, initializeApp } from '../../src/app/index.js';
-import { resetAppRegistryForTests } from '../../src/app/internal.js';
+import { bindAppRegistrySandbox, resetAppRegistryForTests } from '../../src/app/internal.js';
 import {
   breadcrumbs,
   flush,
@@ -8,7 +8,11 @@ import {
   log,
   recordError,
 } from '../../src/crashlytics/index.js';
-import { getCrashlyticsBroker } from '../../src/crashlytics/internal.js';
+import {
+  areCrashlyticsOptionsEqual,
+  assertMatchingCrashlyticsOptions,
+  getCrashlyticsBroker,
+} from '../../src/crashlytics/internal.js';
 import { applyFullState, captureFullState, initializeSandbox } from '../../src/sandbox/index.js';
 
 afterEach(async () => {
@@ -20,11 +24,16 @@ afterEach(async () => {
 });
 
 describe('pyric/crashlytics Web SDK mirror and shared CrashlyticsBroker', () => {
-  test('returns per-app singleton, merges customAttributes, records logs/breadcrumbs, and flushes reports', async () => {
-    const app = initializeApp({
+  test('enforces per-app option equality, buffers and clears breadcrumbs on error, and flushes reports', async () => {
+    const sharedConfig = {
       projectId: 'demo-crashlytics-web',
       appId: '1:100000000000:web:crashlyticsdemo01',
-    });
+    };
+    const app = initializeApp(sharedConfig);
+    const feature = breadcrumbs();
+    expect(Object.keys(feature)).toEqual(['name']);
+    expect((feature as { name?: string }).name).toBe('breadcrumbs');
+
     const crashlytics = getCrashlytics(app, {
       appVersion: '2.4.1',
       region: 'us-central1',
@@ -33,10 +42,35 @@ describe('pyric/crashlytics Web SDK mirror and shared CrashlyticsBroker', () => 
         tier: 'pro',
         tags: ['checkout', 'web'],
       },
-      features: [breadcrumbs()],
+      features: [feature],
     });
     expect(crashlytics.app).toBe(app);
-    expect(getCrashlytics(app)).toBe(crashlytics);
+    expect(
+      getCrashlytics(app, {
+        appVersion: '2.4.1',
+        region: 'us-central1',
+        customAttributes: {
+          tier: 'pro',
+          env: 'staging',
+          tags: ['checkout', 'web'],
+        },
+        features: [breadcrumbs()],
+      }),
+    ).toBe(crashlytics);
+    expect(() => getCrashlytics(app)).toThrow(
+      'getCrashlytics() cannot be called with different options',
+    );
+    expect(() => getCrashlytics(app, { appVersion: '9.9.9' })).toThrow(
+      'getCrashlytics() cannot be called with different options',
+    );
+    expect(() => assertMatchingCrashlyticsOptions(crashlytics, { appVersion: '9.9.9' })).toThrow(
+      'getCrashlytics() cannot be called with different options',
+    );
+    expect(areCrashlyticsOptionsEqual(undefined, {})).toBe(true);
+
+    const defaultOptsApp = initializeApp(sharedConfig, 'default-opts-app');
+    const defaultHandle = getCrashlytics(defaultOptsApp);
+    expect(getCrashlytics(defaultOptsApp, {})).toBe(defaultHandle);
 
     log(crashlytics, 'checkout-started', { step: 1 });
     log(crashlytics, 'payment-submitted', { env: 'override-log', retry: false });
@@ -49,22 +83,51 @@ describe('pyric/crashlytics Web SDK mirror and shared CrashlyticsBroker', () => 
       tier: 'enterprise',
       attempt: 2,
     });
-
+    log(crashlytics, 'retry-scheduled', { step: 2 });
+    recordError(crashlytics, 'plain-string-failure');
+    recordError(crashlytics, { status: 503 });
+    recordError(crashlytics, 404);
     await flush(crashlytics);
 
     const secondarySandbox = initializeSandbox();
     try {
+      const withCrumbsSandbox = initializeSandbox();
+      try {
+        const crumbsHandle = getCrashlytics(withCrumbsSandbox, {
+          appVersion: '2.0.0',
+          features: [breadcrumbs()],
+        });
+        log(crumbsHandle, 'step-a');
+        log(crumbsHandle, 'step-b');
+        recordError(crumbsHandle, new Error('first-error'));
+        log(crumbsHandle, 'step-c');
+        recordError(crumbsHandle, new Error('second-error'));
+        await flush(crumbsHandle);
+
+        const crumbsState = getCrashlyticsBroker(withCrumbsSandbox).getState('default');
+        expect(crumbsState.reports).toHaveLength(2);
+        expect(crumbsState.reports[0]?.breadcrumbs.map((b) => b.message)).toEqual([
+          'step-a',
+          'step-b',
+        ]);
+        expect(crumbsState.reports[1]?.breadcrumbs.map((b) => b.message)).toEqual(['step-c']);
+      } finally {
+        withCrumbsSandbox.dispose();
+      }
+
       const directCrashlytics = getCrashlytics(secondarySandbox, {
         appVersion: '1.0.0',
         customAttributes: { service: 'cart', retries: 0 },
       });
       log(directCrashlytics, 'item-added', { sku: 'widget-9' });
       recordError(directCrashlytics, checkoutErr, { retries: 3 });
+      recordError(directCrashlytics, { code: 'RAW_OBJ' });
+      recordError(directCrashlytics, 7);
 
       const broker = getCrashlyticsBroker(secondarySandbox);
       const beforeFlush = broker.getState('default');
       expect(beforeFlush.logs).toHaveLength(1);
-      expect(beforeFlush.reports).toHaveLength(1);
+      expect(beforeFlush.reports).toHaveLength(3);
       expect(beforeFlush.reports[0]?.flushed).toBe(false);
 
       await flush(directCrashlytics);
@@ -80,8 +143,9 @@ describe('pyric/crashlytics Web SDK mirror and shared CrashlyticsBroker', () => 
         service: 'cart',
         retries: 3,
       });
-      expect(afterFlush.reports[0]?.breadcrumbs).toHaveLength(1);
-      expect(afterFlush.reports[0]?.breadcrumbs[0]?.message).toBe('item-added');
+      expect(afterFlush.reports[0]?.breadcrumbs).toEqual([]);
+      expect(afterFlush.reports[1]?.message).toBe('Unknown error type: object');
+      expect(afterFlush.reports[2]?.message).toBe('Unknown error type: number');
     } finally {
       secondarySandbox.dispose();
     }
@@ -122,7 +186,7 @@ describe('pyric/crashlytics Web SDK mirror and shared CrashlyticsBroker', () => 
     }
   });
 
-  test('captures browser unhandled errors and navigation/visibility breadcrumbs, detaching on deleteApp', async () => {
+  test('deduplicates rethrown errors, auto-flushes on hidden/pagehide, and detaches cleanly on deleteApp', async () => {
     const windowListeners = new Map<string, Set<(ev: unknown) => void>>();
     const docListeners = new Map<string, Set<() => void>>();
 
@@ -141,7 +205,7 @@ describe('pyric/crashlytics Web SDK mirror and shared CrashlyticsBroker', () => 
       },
     };
     const fakeDocument = {
-      visibilityState: 'hidden',
+      visibilityState: 'visible',
       addEventListener(type: string, fn: () => void) {
         let bucket = docListeners.get(type);
         if (bucket === undefined) {
@@ -161,10 +225,12 @@ describe('pyric/crashlytics Web SDK mirror and shared CrashlyticsBroker', () => 
     globals.window = fakeWindow;
     globals.document = fakeDocument;
 
-    const sandbox = initializeSandbox();
+    const appSandbox = initializeSandbox();
+    bindAppRegistrySandbox(appSandbox);
     try {
+      const appId = '1:200:web:win01';
       const app = initializeApp(
-        { projectId: 'demo-window-events', appId: '1:200:web:win01' },
+        { projectId: 'demo-window-events', appId },
         'win-app',
       );
       const crashlytics = getCrashlytics(app, {
@@ -177,21 +243,54 @@ describe('pyric/crashlytics Web SDK mirror and shared CrashlyticsBroker', () => 
       for (const listener of docListeners.get('visibilitychange') ?? []) {
         listener();
       }
+
+      const caughtAndRethrown = new TypeError('caught-by-boundary-then-rethrown');
+      recordError(crashlytics, caughtAndRethrown);
+      for (const listener of windowListeners.get('error') ?? []) {
+        listener({ error: caughtAndRethrown });
+      }
+
       for (const listener of windowListeners.get('error') ?? []) {
         listener({ error: new TypeError('uncaught-render-type-error') });
       }
       for (const listener of windowListeners.get('unhandledrejection') ?? []) {
         listener({ reason: 'async-promise-rejected' });
       }
-      await flush(crashlytics);
+
+      fakeDocument.visibilityState = 'hidden';
+      for (const listener of docListeners.get('visibilitychange') ?? []) {
+        listener();
+      }
+      await new Promise((resolveTick) => setTimeout(resolveTick, 10));
+
+      const broker = getCrashlyticsBroker(appSandbox);
+      const stateBeforeDelete = broker.getState(appId);
+      expect(stateBeforeDelete.reports).toHaveLength(3);
+      expect(stateBeforeDelete.reports.every((r) => r.flushed)).toBe(true);
+      expect(stateBeforeDelete.reports.map((r) => r.message)).toEqual([
+        'caught-by-boundary-then-rethrown',
+        'uncaught-render-type-error',
+        'async-promise-rejected',
+      ]);
+      expect(stateBeforeDelete.reports[0]?.breadcrumbs.map((b) => b.message)).toEqual([
+        'navigation:/checkout',
+        'visibility:visible',
+      ]);
 
       await deleteApp(app);
       expect(windowListeners.get('error')?.size ?? 0).toBe(0);
       expect(windowListeners.get('unhandledrejection')?.size ?? 0).toBe(0);
       expect(windowListeners.get('popstate')?.size ?? 0).toBe(0);
+      expect(windowListeners.get('pagehide')?.size ?? 0).toBe(0);
       expect(docListeners.get('visibilitychange')?.size ?? 0).toBe(0);
 
-      expect(() => recordError(crashlytics, new Error('after-delete'))).toThrow(/app\/app-deleted/);
+      expect(() => getCrashlytics(app)).toThrow(/app\/app-deleted/);
+
+      log(crashlytics, 'ignored-after-delete');
+      recordError(crashlytics, new Error('ignored-after-delete'));
+      await flush(crashlytics);
+      expect(broker.getState(appId).reports).toHaveLength(3);
+      expect(broker.getState(appId).logs).toHaveLength(0);
     } finally {
       if (prevWindow === undefined) {
         delete globals.window;
@@ -203,7 +302,7 @@ describe('pyric/crashlytics Web SDK mirror and shared CrashlyticsBroker', () => 
       } else {
         globals.document = prevDocument;
       }
-      sandbox.dispose();
+      appSandbox.dispose();
     }
   });
 
