@@ -30,6 +30,13 @@ const liveCliDist = join(liveDir, 'dist/cli.js');
 const liveRunDist = join(liveDir, 'dist/run.js');
 const requireFromRepo = createRequire(join(repoRoot, 'package.json'));
 const realFirebaseDir = realpathSync(dirname(requireFromRepo.resolve('firebase/package.json')));
+const { freePort: freeLoopbackPort, USER_PORT_MAX, USER_PORT_MIN } = (await import(
+  new URL('../../../test/apps/ports.ts', import.meta.url).href
+)) as {
+  freePort: () => Promise<number>;
+  USER_PORT_MIN: number;
+  USER_PORT_MAX: number;
+};
 
 describe('parseLiveRunInvocation', () => {
   test('runs the command after -- against the loopback host --host names', () => {
@@ -331,12 +338,109 @@ describe('pyric-live run host probing, waiting, refusals, and end-to-end child e
     return dir;
   }
 
-  async function freeLoopbackPort(): Promise<number> {
-    const srv = createNetServer();
-    await new Promise<void>((done) => srv.listen(0, '127.0.0.1', () => done()));
-    const port = (srv.address() as AddressInfo).port;
-    await new Promise<void>((done) => srv.close(() => done()));
-    return port;
+  async function stopChild(proc: ChildProcess): Promise<void> {
+    if (proc.exitCode !== null || proc.signalCode !== null) return;
+    const exited = new Promise<void>((done) => proc.once('exit', () => done()));
+    proc.kill('SIGTERM');
+    const killTimer = setTimeout(() => {
+      if (proc.exitCode === null && proc.signalCode === null) proc.kill('SIGKILL');
+    }, 3_000);
+    killTimer.unref();
+    await exited;
+    clearTimeout(killTimer);
+  }
+
+  async function runAgainstSpawnedHost(options: {
+    dir: string;
+    hostArgs: (port: number) => string[];
+    runChildArgv: string[];
+    nextPort?: () => Promise<number>;
+    waitSeconds?: number;
+    maxAttempts?: number;
+  }): Promise<{
+    port: number;
+    hostUrl: string;
+    attempts: number;
+    runCode: number | null;
+    runOut: string;
+    runErr: string;
+    hostOut: string;
+  }> {
+    const nextPort = options.nextPort ?? freeLoopbackPort;
+    const waitSeconds = options.waitSeconds ?? 30;
+    const maxAttempts = options.maxAttempts ?? 3;
+
+    for (let attempt = 1; ; attempt += 1) {
+      const port = await nextPort();
+      const hostUrl = `http://127.0.0.1:${port}`;
+      const scanNotice = `port ${port} is in use`;
+
+      const hostProc = spawn('node', options.hostArgs(port), {
+        cwd: options.dir,
+        env: { PATH: process.env.PATH, HOME: options.dir },
+      });
+      childProcesses.push(hostProc);
+
+      const runner = spawn(
+        'node',
+        [liveCliDist, 'run', '--host', hostUrl, `--wait=${waitSeconds}`, '--', ...options.runChildArgv],
+        {
+          cwd: options.dir,
+          env: { PATH: process.env.PATH, HOME: options.dir },
+        },
+      );
+      childProcesses.push(runner);
+
+      let hostOut = '';
+      let runOut = '';
+      let runErr = '';
+      let scannedPastPort = false;
+      let resolveScanCollision!: () => void;
+      const scanCollision = new Promise<'scanned'>((resolve) => {
+        resolveScanCollision = () => resolve('scanned');
+      });
+
+      hostProc.stdout?.on('data', (c: Buffer) => {
+        hostOut += c.toString();
+      });
+      hostProc.stderr?.on('data', (c: Buffer) => {
+        hostOut += c.toString();
+        if (!scannedPastPort && hostOut.includes(scanNotice)) {
+          scannedPastPort = true;
+          resolveScanCollision();
+        }
+      });
+      runner.stdout?.on('data', (c: Buffer) => {
+        runOut += c.toString();
+      });
+      runner.stderr?.on('data', (c: Buffer) => {
+        runErr += c.toString();
+      });
+
+      const runnerExit = new Promise<{ kind: 'exited'; code: number | null }>((done) =>
+        runner.once('exit', (code) => done({ kind: 'exited', code })),
+      );
+      const outcome =
+        attempt < maxAttempts
+          ? await Promise.race([runnerExit, scanCollision.then((kind) => ({ kind }))])
+          : await runnerExit;
+
+      if (outcome.kind === 'scanned') {
+        await Promise.all([stopChild(runner), stopChild(hostProc)]);
+        continue;
+      }
+
+      await stopChild(hostProc);
+      return {
+        port,
+        hostUrl,
+        attempts: attempt,
+        runCode: outcome.code,
+        runOut,
+        runErr,
+        hostOut,
+      };
+    }
   }
 
   function createEmptyProjectsWorkspace(): string {
@@ -868,29 +972,93 @@ setInterval(() => {}, 1000);
     }
   }, 30_000);
 
+  test('allocates non-ephemeral loopback ports and retries immediately if a host scans past a busy port (#3309)', async () => {
+    const sampled = [await freeLoopbackPort(), await freeLoopbackPort(), await freeLoopbackPort()];
+    for (const port of sampled) {
+      expect(port).toBeGreaterThanOrEqual(USER_PORT_MIN);
+      expect(port).toBeLessThanOrEqual(USER_PORT_MAX);
+    }
+    expect(new Set(sampled).size).toBe(3);
+
+    const dir = createEmptyProjectsWorkspace();
+    const [collidedPort, readyPort] = [await freeLoopbackPort(), await freeLoopbackPort()];
+    const fakeHostScript = join(dir, 'fake-live-host.mjs');
+    writeFileSync(
+      fakeHostScript,
+      `import { createServer } from 'node:http';
+import { mkdirSync, writeFileSync } from 'node:fs';
+const port = Number(process.argv[2]);
+const collidedPort = Number(process.argv[3]);
+if (port === collidedPort) {
+  process.stderr.write('  ! port ' + port + ' is in use - trying ' + (port + 1) + '\\n');
+  setInterval(() => {}, 1000);
+} else {
+  const token = 'retry-live-token';
+  const server = createServer((req, res) => {
+    if (req.url === '/__pyric/health' && req.headers['x-pyric-session-token'] === token) {
+      res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
+        status: 'ok',
+        mode: 'sandbox',
+        project: 'acme-live',
+        version: '0.1.0',
+        instanceId: 'retry-live-host',
+        sandboxConnected: true,
+        live: {
+          projectId: 'acme-live',
+          configProjectId: 'acme-live',
+          configSource: 'option',
+          appProjectIds: [],
+          billed: { reads: 0, writes: 0, deliveries: 0 },
+        },
+      }));
+      return;
+    }
+    res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
+      status: 'ok',
+      mode: 'sandbox',
+      instanceId: 'retry-live-host',
+      sandboxConnected: true,
+    }));
+  });
+  server.listen(port, '127.0.0.1', () => {
+    mkdirSync('.pyric', { recursive: true });
+    writeFileSync('.pyric/serve.json', JSON.stringify({
+      port,
+      url: 'http://127.0.0.1:' + port,
+      mcpUrl: 'http://127.0.0.1:' + port + '/__pyric/mcp',
+      pid: process.pid,
+      instanceId: 'retry-live-host',
+      token,
+    }), { mode: 0o600 });
+  });
+  process.on('SIGTERM', () => server.close(() => process.exit(0)));
+}
+`,
+    );
+
+    const queue = [collidedPort, readyPort];
+    const started = Date.now();
+    const res = await runAgainstSpawnedHost({
+      dir,
+      nextPort: async () => queue.shift()!,
+      hostArgs: (port) => [fakeHostScript, String(port), String(collidedPort)],
+      runChildArgv: ['node', '-e', "console.log('RETRY_OK ' + process.env.PYRIC_PROJECT)"],
+      waitSeconds: 60,
+    });
+    expect(res.attempts).toBe(2);
+    expect(res.port).toBe(readyPort);
+    expect(res.runCode, res.runErr).toBe(0);
+    expect(res.runOut).toContain('RETRY_OK acme-live');
+    expect(Date.now() - started).toBeLessThan(25_000);
+  }, 45_000);
+
   test('keeps pyric-live [options] host mode unchanged and attaches pyric-live run --wait to a real pyric-live --project host', async () => {
     const dir = createEmptyProjectsWorkspace();
-    const port = await freeLoopbackPort();
-    const hostUrl = `http://127.0.0.1:${port}`;
 
     const sink = createNetServer((socket) => socket.destroy());
     netServers.push(sink);
     await new Promise<void>((done) => sink.listen(0, '127.0.0.1', () => done()));
     const sinkPort = (sink.address() as AddressInfo).port;
-
-    const hostProc = spawn(
-      'node',
-      [liveCliDist, '--no-open', '--host', '127.0.0.1', '--port', String(port), '--project', 'acme-live'],
-      { cwd: dir, env: { PATH: process.env.PATH, HOME: dir } },
-    );
-    childProcesses.push(hostProc);
-    let hostOut = '';
-    hostProc.stdout?.on('data', (c: Buffer) => {
-      hostOut += c.toString();
-    });
-    hostProc.stderr?.on('data', (c: Buffer) => {
-      hostOut += c.toString();
-    });
 
     const script = join(dir, 'against-real-host.mjs');
     writeFileSync(
@@ -908,23 +1076,12 @@ process.exit(0);
 `,
     );
 
-    const runner = spawn('node', [liveCliDist, 'run', '--host', hostUrl, '--wait=30', '--', 'node', script], {
-      cwd: dir,
-      env: { PATH: process.env.PATH, HOME: dir },
+    const { hostUrl, runCode, runOut, runErr, hostOut } = await runAgainstSpawnedHost({
+      dir,
+      hostArgs: (port) => [liveCliDist, '--no-open', '--host', '127.0.0.1', '--port', String(port), '--project', 'acme-live'],
+      runChildArgv: ['node', script],
+      waitSeconds: 30,
     });
-    childProcesses.push(runner);
-    let runOut = '';
-    let runErr = '';
-    runner.stdout?.on('data', (c: Buffer) => {
-      runOut += c.toString();
-    });
-    runner.stderr?.on('data', (c: Buffer) => {
-      runErr += c.toString();
-    });
-
-    const runCode = await new Promise<number | null>((done) => runner.once('exit', (code) => done(code)));
-    hostProc.kill('SIGTERM');
-    await new Promise<void>((done) => hostProc.once('exit', () => done()));
 
     expect(runCode, `runErr:\n${runErr}\nhostOut:\n${hostOut}`).toBe(0);
     expect(hostOut).toContain('pyric-live: live mode for the Firebase project acme-live.');
