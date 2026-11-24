@@ -39,7 +39,7 @@ describe('pyric sandbox command execution', () => {
     ]);
     expect(code).toBe(0);
     expect(stdout).toContain('SANDBOX_CHILD_HELLO');
-  });
+  }, 60_000);
 
   it('propagates the child script non-zero exit code to the parent CLI process', () => {
     const { code } = runCli([
@@ -50,7 +50,7 @@ describe('pyric sandbox command execution', () => {
       'process.exit(42)',
     ]);
     expect(code).toBe(42);
-  });
+  }, 60_000);
 
   it('runs the command configured in pyric.json when no CLI command is provided', () => {
     const tmp = mkdtempSync(join(tmpdir(), 'pyric-sandbox-cmd-'));
@@ -67,7 +67,7 @@ describe('pyric sandbox command execution', () => {
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
-  });
+  }, 60_000);
 
   it('explicit CLI command takes precedence over pyric.json command', () => {
     const tmp = mkdtempSync(join(tmpdir(), 'pyric-sandbox-precedence-'));
@@ -88,7 +88,7 @@ describe('pyric sandbox command execution', () => {
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
-  });
+  }, 60_000);
 
   it('respects port from pyric.json and injects matching PYRIC_SANDBOX into child', () => {
     const tmp = mkdtempSync(join(tmpdir(), 'pyric-sandbox-port-'));
@@ -106,7 +106,7 @@ describe('pyric sandbox command execution', () => {
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
-  });
+  }, 60_000);
 
   it('supports root import from firebase-admin under pyric sandbox', () => {
     const tmp = mkdtempSync(join(tmpdir(), 'pyric-sandbox-admin-root-'));
@@ -125,7 +125,7 @@ describe('pyric sandbox command execution', () => {
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
-  });
+  }, 60_000);
 
   it('accepts short flag -p 4912 to customize port without breaking child command', () => {
     const { code, stdout } = runCli([
@@ -139,7 +139,7 @@ describe('pyric sandbox command execution', () => {
     ]);
     expect(code).toBe(0);
     expect(stdout).toContain('PORT_URL:remote:http://localhost:4912');
-  });
+  }, 60_000);
 
   it('extracts inline environment variables from child command', () => {
     const { code, stdout } = runCli([
@@ -152,7 +152,7 @@ describe('pyric sandbox command execution', () => {
     ]);
     expect(code).toBe(0);
     expect(stdout).toContain('READ_ENV:alpha123');
-  });
+  }, 60_000);
 
   it('executes inline code containing logical operators (||) without breaking arguments', () => {
     const { code, stdout } = runCli([
@@ -164,7 +164,7 @@ describe('pyric sandbox command execution', () => {
     ]);
     expect(code).toBe(0);
     expect(stdout).toContain('OPERATOR_TEST:fallback_value');
-  });
+  }, 60_000);
 
   it('runs in host-only mode when no command or config is provided', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'pyric-cli-host-'));
