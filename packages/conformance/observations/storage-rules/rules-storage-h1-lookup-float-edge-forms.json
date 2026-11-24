@@ -1,0 +1,818 @@
+{
+  "name": "rules-storage-h1-lookup-float-edge-forms",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"h1-lookup-float-edge-forms\" (STORAGE-H1-LOOKUP-FLOAT-EDGE-FORMS). Whether Storage lookup-path $(expr) interpolation accepts or refuses integral floats, scientific-notation magnitudes, 2^53, negative zero, NaN, infinities, negative floats, float literals/casts, and helper-built path literals (#1815).",
+  "observedAt": "2026-11-24T18:09:35.947Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "e9e93f779b88610a07c75487a7b8c8c403707431a7c3c1eaa898b388a547a17e"
+  },
+  "behavior": {
+    "control: int auth claim 7 in firestore.exists path": "ALLOW",
+    "literal 1.5: $(1.5) in firestore.exists path": "ALLOW",
+    "cast 1.5: $(float('1.5')) in firestore.exists path": "ALLOW",
+    "helper path literal: float auth claim 1.5 via helper path literal in firestore.get": "ALLOW",
+    "negative float claim: auth claim -1.5 in firestore.exists path": "ALLOW",
+    "negative float field: document field -1.5 in firestore.exists path": "ALLOW",
+    "integral float 2.0 as 2.0: $(2.0) mocked at items/2.0": "ALLOW",
+    "integral float 2.0 as 2: $(2.0) mocked at items/2": "DENY",
+    "integral float(2) as 2.0: $(float(2)) mocked at items/2.0": "ALLOW",
+    "integral float(2) as 2: $(float(2)) mocked at items/2": "DENY",
+    "2^53 claim plain: auth claim 9007199254740992 mocked at items/9007199254740992": "ALLOW",
+    "2^53 claim scientific: auth claim 9007199254740992 mocked at items/9.007199254740992E15": "DENY",
+    "2^53 field plain: document field 9007199254740992 mocked at items/9007199254740992": "ALLOW",
+    "2^53 field scientific: document field 9007199254740992 mocked at items/9.007199254740992E15": "DENY",
+    "small claim 0.0005 scientific: auth claim 0.0005 mocked at items/5.0E-4": "ALLOW",
+    "small claim 0.0005 plain: auth claim 0.0005 mocked at items/0.0005": "DENY",
+    "small field 0.0005 scientific: document field 0.0005 mocked at items/5.0E-4": "ALLOW",
+    "small field 0.0005 plain: document field 0.0005 mocked at items/0.0005": "DENY",
+    "exponent cast 1e-7: $(float('1e-7')) mocked at Java and JS exponent/plain forms": "ALLOW",
+    "large claim 10000000.5 scientific: auth claim 10000000.5 mocked at items/1.00000005E7": "ALLOW",
+    "large claim 10000000.5 plain: auth claim 10000000.5 mocked at items/10000000.5": "DENY",
+    "large field 10000000.5 scientific: document field 10000000.5 mocked at items/1.00000005E7": "ALLOW",
+    "large field 10000000.5 plain: document field 10000000.5 mocked at items/10000000.5": "DENY",
+    "large claim 1e21: auth claim 1e21 mocked at Java and JS exponent forms": "ALLOW",
+    "negative zero literal as -0.0: $(-0.0) mocked at items/-0.0": "ALLOW",
+    "negative zero literal as 0.0 or 0: $(-0.0) mocked at items/0.0 and items/0": "DENY",
+    "negative zero product: $(-1.0 * 0.0) mocked at items/-0.0, items/0.0, and items/0": "ALLOW",
+    "nan cast: $(float('NaN')) mocked at items/NaN": "ALLOW",
+    "nan division: $(0.0 / 0.0) mocked at items/NaN": "ALLOW",
+    "infinity cast: $(float('Infinity')) mocked at items/Infinity": "ALLOW",
+    "neg infinity cast: $(float('-Infinity')) mocked at items/-Infinity": "ALLOW",
+    "infinity division: $(1.0 / 0.0) mocked at items/Infinity": "ALLOW"
+  },
+  "diagnostics": {
+    "control: int auth claim 7 in firestore.exists path": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/items/7"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 8,
+              "column": 24,
+              "currentOffset": 213,
+              "endOffset": 221
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "literal 1.5: $(1.5) in firestore.exists path": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/items/1.5"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 17,
+              "column": 24,
+              "currentOffset": 651,
+              "endOffset": 659
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "cast 1.5: $(float('1.5')) in firestore.exists path": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/items/1.5"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 20,
+              "column": 24,
+              "currentOffset": 774,
+              "endOffset": 782
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "helper path literal: float auth claim 1.5 via helper path literal in firestore.get": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.get",
+            "args": [
+              "/databases/%28default%29/documents/items/1.5"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 11,
+              "column": 24,
+              "currentOffset": 350,
+              "endOffset": 358
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "negative float claim: auth claim -1.5 in firestore.exists path": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/items/-1.5"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 8,
+              "column": 24,
+              "currentOffset": 213,
+              "endOffset": 221
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "negative float field: document field -1.5 in firestore.exists path": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.get",
+            "args": [
+              "/databases/%28default%29/documents/cfg/main"
+            ]
+          },
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/items/-1.5"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 14,
+              "column": 24,
+              "currentOffset": 471,
+              "endOffset": 479
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "integral float 2.0 as 2.0: $(2.0) mocked at items/2.0": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/items/2.0"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 23,
+              "column": 24,
+              "currentOffset": 905,
+              "endOffset": 913
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "integral float 2.0 as 2: $(2.0) mocked at items/2": {
+      "notes": [
+        "Error: storage.rules line [23], column [34]. Service call error. Function: [firestore.exists], Argument: [path_value {\n  segments {\n    simple: \"databases\"\n  }\n  segments {\n    simple: \"(default)\"\n  }\n  segments {\n    simple: \"documents\"\n  }\n  segments {\n    simple: \"items\"\n  }\n  segments {\n    simple: \"2.0\"\n  }\n}\n]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 23,
+          "column": 34,
+          "currentOffset": 915,
+          "endOffset": 920
+        },
+        "functionCalls": [
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/items/2.0"
+            ]
+          }
+        ]
+      }
+    },
+    "integral float(2) as 2.0: $(float(2)) mocked at items/2.0": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/items/2.0"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 26,
+              "column": 24,
+              "currentOffset": 1027,
+              "endOffset": 1035
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "integral float(2) as 2: $(float(2)) mocked at items/2": {
+      "notes": [
+        "Error: storage.rules line [26], column [34]. Service call error. Function: [firestore.exists], Argument: [path_value {\n  segments {\n    simple: \"databases\"\n  }\n  segments {\n    simple: \"(default)\"\n  }\n  segments {\n    simple: \"documents\"\n  }\n  segments {\n    simple: \"items\"\n  }\n  segments {\n    simple: \"2.0\"\n  }\n}\n]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 26,
+          "column": 34,
+          "currentOffset": 1037,
+          "endOffset": 1042
+        },
+        "functionCalls": [
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/items/2.0"
+            ]
+          }
+        ]
+      }
+    },
+    "2^53 claim plain: auth claim 9007199254740992 mocked at items/9007199254740992": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/items/9007199254740992"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 8,
+              "column": 24,
+              "currentOffset": 213,
+              "endOffset": 221
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "2^53 claim scientific: auth claim 9007199254740992 mocked at items/9.007199254740992E15": {
+      "notes": [
+        "Error: storage.rules line [8], column [34]. Service call error. Function: [firestore.exists], Argument: [path_value {\n  segments {\n    simple: \"databases\"\n  }\n  segments {\n    simple: \"(default)\"\n  }\n  segments {\n    simple: \"documents\"\n  }\n  segments {\n    simple: \"items\"\n  }\n  segments {\n    simple: \"9007199254740992\"\n  }\n}\n]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 8,
+          "column": 34,
+          "currentOffset": 223,
+          "endOffset": 228
+        },
+        "functionCalls": [
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/items/9007199254740992"
+            ]
+          }
+        ]
+      }
+    },
+    "2^53 field plain: document field 9007199254740992 mocked at items/9007199254740992": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.get",
+            "args": [
+              "/databases/%28default%29/documents/cfg/main"
+            ]
+          },
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/items/9007199254740992"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 14,
+              "column": 24,
+              "currentOffset": 471,
+              "endOffset": 479
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "2^53 field scientific: document field 9007199254740992 mocked at items/9.007199254740992E15": {
+      "notes": [
+        "Error: storage.rules line [14], column [34]. Service call error. Function: [firestore.exists], Argument: [path_value {\n  segments {\n    simple: \"databases\"\n  }\n  segments {\n    simple: \"(default)\"\n  }\n  segments {\n    simple: \"documents\"\n  }\n  segments {\n    simple: \"items\"\n  }\n  segments {\n    simple: \"9007199254740992\"\n  }\n}\n]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 14,
+          "column": 34,
+          "currentOffset": 481,
+          "endOffset": 486
+        },
+        "functionCalls": [
+          {
+            "function": "firestore.get",
+            "args": [
+              "/databases/%28default%29/documents/cfg/main"
+            ]
+          },
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/items/9007199254740992"
+            ]
+          }
+        ]
+      }
+    },
+    "small claim 0.0005 scientific: auth claim 0.0005 mocked at items/5.0E-4": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/items/5.0E-4"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 8,
+              "column": 24,
+              "currentOffset": 213,
+              "endOffset": 221
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "small claim 0.0005 plain: auth claim 0.0005 mocked at items/0.0005": {
+      "notes": [
+        "Error: storage.rules line [8], column [34]. Service call error. Function: [firestore.exists], Argument: [path_value {\n  segments {\n    simple: \"databases\"\n  }\n  segments {\n    simple: \"(default)\"\n  }\n  segments {\n    simple: \"documents\"\n  }\n  segments {\n    simple: \"items\"\n  }\n  segments {\n    simple: \"5.0E-4\"\n  }\n}\n]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 8,
+          "column": 34,
+          "currentOffset": 223,
+          "endOffset": 228
+        },
+        "functionCalls": [
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/items/5.0E-4"
+            ]
+          }
+        ]
+      }
+    },
+    "small field 0.0005 scientific: document field 0.0005 mocked at items/5.0E-4": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.get",
+            "args": [
+              "/databases/%28default%29/documents/cfg/main"
+            ]
+          },
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/items/5.0E-4"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 14,
+              "column": 24,
+              "currentOffset": 471,
+              "endOffset": 479
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "small field 0.0005 plain: document field 0.0005 mocked at items/0.0005": {
+      "notes": [
+        "Error: storage.rules line [14], column [34]. Service call error. Function: [firestore.exists], Argument: [path_value {\n  segments {\n    simple: \"databases\"\n  }\n  segments {\n    simple: \"(default)\"\n  }\n  segments {\n    simple: \"documents\"\n  }\n  segments {\n    simple: \"items\"\n  }\n  segments {\n    simple: \"5.0E-4\"\n  }\n}\n]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 14,
+          "column": 34,
+          "currentOffset": 481,
+          "endOffset": 486
+        },
+        "functionCalls": [
+          {
+            "function": "firestore.get",
+            "args": [
+              "/databases/%28default%29/documents/cfg/main"
+            ]
+          },
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/items/5.0E-4"
+            ]
+          }
+        ]
+      }
+    },
+    "exponent cast 1e-7: $(float('1e-7')) mocked at Java and JS exponent/plain forms": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/items/1.0E-7"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 29,
+              "column": 24,
+              "currentOffset": 1157,
+              "endOffset": 1165
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "large claim 10000000.5 scientific: auth claim 10000000.5 mocked at items/1.00000005E7": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/items/1.00000005E7"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 8,
+              "column": 24,
+              "currentOffset": 213,
+              "endOffset": 221
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "large claim 10000000.5 plain: auth claim 10000000.5 mocked at items/10000000.5": {
+      "notes": [
+        "Error: storage.rules line [8], column [34]. Service call error. Function: [firestore.exists], Argument: [path_value {\n  segments {\n    simple: \"databases\"\n  }\n  segments {\n    simple: \"(default)\"\n  }\n  segments {\n    simple: \"documents\"\n  }\n  segments {\n    simple: \"items\"\n  }\n  segments {\n    simple: \"1.00000005E7\"\n  }\n}\n]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 8,
+          "column": 34,
+          "currentOffset": 223,
+          "endOffset": 228
+        },
+        "functionCalls": [
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/items/1.00000005E7"
+            ]
+          }
+        ]
+      }
+    },
+    "large field 10000000.5 scientific: document field 10000000.5 mocked at items/1.00000005E7": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.get",
+            "args": [
+              "/databases/%28default%29/documents/cfg/main"
+            ]
+          },
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/items/1.00000005E7"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 14,
+              "column": 24,
+              "currentOffset": 471,
+              "endOffset": 479
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "large field 10000000.5 plain: document field 10000000.5 mocked at items/10000000.5": {
+      "notes": [
+        "Error: storage.rules line [14], column [34]. Service call error. Function: [firestore.exists], Argument: [path_value {\n  segments {\n    simple: \"databases\"\n  }\n  segments {\n    simple: \"(default)\"\n  }\n  segments {\n    simple: \"documents\"\n  }\n  segments {\n    simple: \"items\"\n  }\n  segments {\n    simple: \"1.00000005E7\"\n  }\n}\n]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 14,
+          "column": 34,
+          "currentOffset": 481,
+          "endOffset": 486
+        },
+        "functionCalls": [
+          {
+            "function": "firestore.get",
+            "args": [
+              "/databases/%28default%29/documents/cfg/main"
+            ]
+          },
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/items/1.00000005E7"
+            ]
+          }
+        ]
+      }
+    },
+    "large claim 1e21: auth claim 1e21 mocked at Java and JS exponent forms": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/items/1.0E21"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 8,
+              "column": 24,
+              "currentOffset": 213,
+              "endOffset": 221
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "negative zero literal as -0.0: $(-0.0) mocked at items/-0.0": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/items/-0.0"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 32,
+              "column": 24,
+              "currentOffset": 1291,
+              "endOffset": 1299
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "negative zero literal as 0.0 or 0: $(-0.0) mocked at items/0.0 and items/0": {
+      "notes": [
+        "Error: storage.rules line [32], column [34]. Service call error. Function: [firestore.exists], Argument: [path_value {\n  segments {\n    simple: \"databases\"\n  }\n  segments {\n    simple: \"(default)\"\n  }\n  segments {\n    simple: \"documents\"\n  }\n  segments {\n    simple: \"items\"\n  }\n  segments {\n    simple: \"-0.0\"\n  }\n}\n]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 32,
+          "column": 34,
+          "currentOffset": 1301,
+          "endOffset": 1306
+        },
+        "functionCalls": [
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/items/-0.0"
+            ]
+          }
+        ]
+      }
+    },
+    "negative zero product: $(-1.0 * 0.0) mocked at items/-0.0, items/0.0, and items/0": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/items/-0.0"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 35,
+              "column": 24,
+              "currentOffset": 1420,
+              "endOffset": 1428
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "nan cast: $(float('NaN')) mocked at items/NaN": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/items/NaN"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 38,
+              "column": 24,
+              "currentOffset": 1547,
+              "endOffset": 1555
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "nan division: $(0.0 / 0.0) mocked at items/NaN": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/items/NaN"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 41,
+              "column": 24,
+              "currentOffset": 1679,
+              "endOffset": 1687
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "infinity cast: $(float('Infinity')) mocked at items/Infinity": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/items/Infinity"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 44,
+              "column": 24,
+              "currentOffset": 1805,
+              "endOffset": 1813
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "neg infinity cast: $(float('-Infinity')) mocked at items/-Infinity": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/items/-Infinity"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 47,
+              "column": 24,
+              "currentOffset": 1942,
+              "endOffset": 1950
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "infinity division: $(1.0 / 0.0) mocked at items/Infinity": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.exists",
+            "args": [
+              "/databases/%28default%29/documents/items/Infinity"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 50,
+              "column": 24,
+              "currentOffset": 2080,
+              "endOffset": 2088
+            },
+            "value": true
+          }
+        ]
+      }
+    }
+  }
+}
