@@ -37,6 +37,14 @@ describe('required CI result', () => {
     const nativeSteps = nativeJob.slice(nativeJob.indexOf('\n    steps:'));
     expect(nativeSteps).not.toContain('continue-on-error: true');
     expect(nativeSteps).toContain('bun test packages/cli/test/serve/native-kotlin-conformance.test.ts');
+    expect(nativeSteps).toContain('bun test packages/cli/test/serve/native-swift*conformance.test.ts');
+    const swiftSuites = [...new Bun.Glob('packages/cli/test/serve/native-swift*conformance.test.ts').scanSync({ cwd: resolve(import.meta.dir, '../..') })].sort();
+    expect(swiftSuites).toEqual(expect.arrayContaining([
+      'packages/cli/test/serve/native-swift-conformance.test.ts',
+      'packages/cli/test/serve/native-swift-messaging-conformance.test.ts',
+      'packages/cli/test/serve/native-swift-storage-conformance.test.ts',
+    ]));
+    expect(swiftSuites.length).toBeGreaterThanOrEqual(7);
   });
 
   test('accepts skipped jobs only when their check set did not select them', () => {

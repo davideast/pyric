@@ -1387,7 +1387,7 @@ jobs:
       - name: Run Swift live-host conformance
         if: matrix.sdk == 'swift'
         env: { PYRIC_REQUIRE_SWIFT_LIVE: '1' }
-        run: bun test packages/cli/test/serve/native-swift-conformance.test.ts
+        run: bun test packages/cli/test/serve/native-swift*conformance.test.ts
 
   required:
     name: CI / required
