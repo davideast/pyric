@@ -153,11 +153,24 @@ git commit -m "$COMMIT_TITLE"
 # Changelog: everything since the previous release tag on the selected line
 # (fall back to the previous version-bump commit when no tag exists yet).
 PREV_TAG="$(git describe --tags --abbrev=0 --match "${TAG_PREFIX}*" "$BASE" 2>/dev/null || true)"
+PREV_REF=""
 if [ -n "$PREV_TAG" ]; then
+  PREV_REF="$PREV_TAG"
   RANGE="${PREV_TAG}..${BASE}"
 else
   PREV_BUMP="$(git log "$BASE" --format='%H' --grep "^release: ${TAG_PREFIX}" -n 1 || true)"
-  RANGE="${PREV_BUMP:+${PREV_BUMP}..}${BASE}"
+  if [ -n "$PREV_BUMP" ]; then
+    PREV_REF="$PREV_BUMP"
+    RANGE="${PREV_BUMP}..${BASE}"
+  else
+    RANGE="${BASE}"
+  fi
+fi
+
+if [ -n "$PREV_REF" ]; then
+  HISTORY_URL="https://github.com/davideast/pyric/compare/${PREV_REF}...${BASE}"
+else
+  HISTORY_URL="https://github.com/davideast/pyric/commits/${BASE}"
 fi
 
 SHORT_BASE="${BASE:0:9}"
@@ -167,7 +180,10 @@ if [ "$PINNED_BASE" -eq 1 ]; then
 fi
 
 BODY_FILE="$(mktemp)"
-trap 'rm -f "${BODY_FILE:-}"' EXIT
+HEADER_FILE="$(mktemp)"
+LOG_FILE="$(mktemp)"
+FOOTER_FILE="$(mktemp)"
+trap 'rm -f "${BODY_FILE:-}" "${HEADER_FILE:-}" "${LOG_FILE:-}" "${FOOTER_FILE:-}"' EXIT
 if [ "$PACKAGE_TARGET" = "rules" ]; then
   {
     if [ "$PINNED_BASE" -eq 1 ]; then
@@ -177,9 +193,9 @@ if [ "$PACKAGE_TARGET" = "rules" ]; then
     fi
     echo
     echo "## Changes in \`packages/rules\` since ${PREV_TAG:-the previous rules release}"
-    echo
-    git log "$RANGE" --no-merges --format='- %s (%h)' -- packages/rules
-    echo
+  } > "$HEADER_FILE"
+  git log "$RANGE" --no-merges --format='- %s (%h)' -- packages/rules > "$LOG_FILE"
+  {
     echo "## After merging"
     echo
     if [ "$PINNED_BASE" -eq 1 ]; then
@@ -192,7 +208,7 @@ if [ "$PACKAGE_TARGET" = "rules" ]; then
       echo "- [ ] \`git push origin --delete ${PR_BASE}\` after pushing \`${TAG_NAME}\`"
       echo "- [ ] Back-sync \`${TAG_NAME}\` into \`main\` without publishing \`main\` (see \`docs/publishing.md\` pinned-commit section)"
     fi
-  } > "$BODY_FILE"
+  } > "$FOOTER_FILE"
 else
   {
     if [ "$PINNED_BASE" -eq 1 ]; then
@@ -202,9 +218,9 @@ else
     fi
     echo
     echo "## Changes since ${PREV_TAG:-the previous release}"
-    echo
-    git log "$RANGE" --no-merges --format='- %s (%h)'
-    echo
+  } > "$HEADER_FILE"
+  git log "$RANGE" --no-merges --format='- %s (%h)' > "$LOG_FILE"
+  {
     echo "## After merging"
     echo
     if [ "$PINNED_BASE" -eq 1 ]; then
@@ -219,15 +235,51 @@ else
     else
       echo '- [ ] Site deploy (`bash scripts/deploy-site.sh`) if the site should track the release'
     fi
-  } > "$BODY_FILE"
+  } > "$FOOTER_FILE"
 fi
+
+# GitHub enforces a hard 65,536-character ceiling on PR bodies. Cap safely below
+# that limit on whole commit-bullet boundaries while keeping header + checklist.
+HEADER_FILE="$HEADER_FILE" LOG_FILE="$LOG_FILE" FOOTER_FILE="$FOOTER_FILE" BODY_FILE="$BODY_FILE" HISTORY_URL="$HISTORY_URL" node -e '
+const fs = require("node:fs");
+const maxChars = 60000;
+const measure = (s) => Math.max(s.length, Buffer.byteLength(s, "utf8"));
+const header = fs.readFileSync(process.env.HEADER_FILE, "utf8").trimEnd();
+const rawLog = fs.readFileSync(process.env.LOG_FILE, "utf8").trimEnd();
+const footer = fs.readFileSync(process.env.FOOTER_FILE, "utf8").trimEnd();
+const historyUrl = process.env.HISTORY_URL;
+const bullets = rawLog.length === 0 ? [] : rawLog.split("\n");
+const fullMiddle = bullets.length === 0 ? "" : `${bullets.join("\n")}\n\n`;
+const fullBody = `${header}\n\n${fullMiddle}${footer}\n`;
+if (measure(fullBody) <= maxChars) {
+  fs.writeFileSync(process.env.BODY_FILE, fullBody);
+  process.exit(0);
+}
+const topNote = `Full diff (${bullets.length} non-merge commits): ${historyUrl}`;
+const buildTruncated = (kept) => {
+  const omitted = bullets.length - kept.length;
+  const noun = omitted === 1 ? "commit" : "commits";
+  const tailNote = `_(${omitted} earlier ${noun} omitted to stay within GitHub\x27s 65,536-character PR body limit; see ${historyUrl} for the full diff.)_`;
+  const keptBlock = kept.length === 0 ? "" : `${kept.join("\n")}\n\n`;
+  return `${header}\n\n${topNote}\n\n${keptBlock}${tailNote}\n\n${footer}\n`;
+};
+let budget = maxChars - measure(buildTruncated([])) - 2;
+const kept = [];
+for (const line of bullets) {
+  const cost = measure(line) + 1;
+  if (cost > budget) break;
+  kept.push(line);
+  budget -= cost;
+}
+fs.writeFileSync(process.env.BODY_FILE, buildTruncated(kept));
+'
 
 if [ "$PINNED_BASE" -eq 1 ]; then
   git push origin "${BASE}:refs/heads/${PR_BASE}"
 fi
 git push -u origin "$BRANCH"
 gh pr create --base "$PR_BASE" --head "$BRANCH" --title "$COMMIT_TITLE" --body-file "$BODY_FILE" --label ci-packaging
-rm -f "$BODY_FILE"
+rm -f "$BODY_FILE" "$HEADER_FILE" "$LOG_FILE" "$FOOTER_FILE"
 
 echo ""
 echo "Release PR opened against ${PR_BASE}. Merge it to mark the cut, then publish and tag (checklist in the PR body)."
