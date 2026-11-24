@@ -47,7 +47,8 @@ export {
   type LoadBundleTaskProgress,
 } from '../bundles.js';
 export { documentId } from '../field-values.js';
-export { parseValidatedSnapshotEnvelope, wrapInitialCachedSnapshotArgs } from '../ssr-snapshots.js';
+export { parseValidatedSnapshotEnvelope } from '../ssr-snapshots.js';
+export { wrapInitialCachedSnapshotArgs } from '../snapshot-resume.js';
 export {
   executeQuery,
   type QueryCursor,

@@ -10,6 +10,7 @@ import {
   isFirestoreDatabaseDeclared,
   logMissingFirestoreDatabaseNoticeOnce,
 } from './sandbox/named-databases.js';
+import type { Timestamp } from './timestamp.js';
 
 interface PendingWrite<T = unknown> {
   readonly paths: ReadonlySet<string>;
@@ -24,6 +25,18 @@ export interface ClientManagedListener {
   deliverOffline(changedPaths?: ReadonlySet<string>): void;
 }
 
+function compareTimestamps(left: Timestamp, right: Timestamp): number {
+  if (left.seconds !== right.seconds) {
+    if (left.seconds < right.seconds) return -1;
+    return 1;
+  }
+  if (left.nanoseconds !== right.nanoseconds) {
+    if (left.nanoseconds < right.nanoseconds) return -1;
+    return 1;
+  }
+  return 0;
+}
+
 /** Per-Firestore-service client lifecycle layered over the shared sandbox store. */
 export class FirestoreClientState {
   private started = false;
@@ -33,6 +46,8 @@ export class FirestoreClientState {
   private readonly pending = new Set<PendingWrite>();
   private readonly cachedPaths = new Set<string>();
   private readonly cachedQueries = new WeakSet<object>();
+  private readonly bundleCreateTimes = new Map<string, Timestamp>();
+  private readonly bundledDocVersions = new Map<string, Timestamp>();
   private readonly syncObservers = new Set<() => void>();
   private readonly managedListeners = new Set<ClientManagedListener>();
   private syncScheduled = false;
@@ -162,6 +177,7 @@ export class FirestoreClientState {
 
     const recordCommittedCache = (): void => {
       for (const p of paths) {
+        this.bundledDocVersions.delete(p);
         if (isLastMutationDelete(p)) {
           this.cachedPaths.delete(p);
           this.overlay.markDeletedPath(p);
@@ -236,9 +252,34 @@ export class FirestoreClientState {
     }
   }
 
-  cacheBundledPath(path: string, exists: boolean): void {
+  hasNewerOrEqualBundle(bundleId: string, createTime: Timestamp | undefined): boolean {
+    if (createTime === undefined) return false;
+    const cached = this.bundleCreateTimes.get(bundleId);
+    if (cached === undefined) return false;
+    return compareTimestamps(cached, createTime) >= 0;
+  }
+
+  recordLoadedBundle(bundleId: string, createTime: Timestamp | undefined): void {
+    if (createTime !== undefined) {
+      this.bundleCreateTimes.set(bundleId, createTime);
+    }
+  }
+
+  shouldApplyBundledDocument(path: string, updateTime: Timestamp | undefined): boolean {
+    const existing = this.bundledDocVersions.get(path);
+    if (existing === undefined || updateTime === undefined) return true;
+    const cmp = compareTimestamps(updateTime, existing);
+    if (cmp > 0) return true;
+    if (cmp === 0 && this.overlay.hasPendingPath(path)) return true;
+    return false;
+  }
+
+  cacheBundledPath(path: string, exists: boolean, updateTime?: Timestamp): void {
     this.started = true;
     this.cachedPaths.add(path);
+    if (updateTime !== undefined) {
+      this.bundledDocVersions.set(path, updateTime);
+    }
     if (exists) {
       this.overlay.markWarmPath(path, this.readAdminDoc);
     } else {

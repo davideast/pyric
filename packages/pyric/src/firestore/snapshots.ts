@@ -1,19 +1,14 @@
 /**
- * `pyric/firestore` — shared sandbox snapshot rehydration.
+ * `pyric/firestore` -- shared sandbox snapshot rehydration.
  *
- * The read-path snapshot helpers used by BOTH `reads` (`getDoc` /
- * `getDocs`) and `listeners` (`onSnapshot`): value finalization wrappers,
- * ref tagging, and the `.exists` property→method normalization that makes
- * sandbox snapshots match Firebase's modular-SDK shape.
- *
- * Package-internal — the barrel re-exports none of these; the public
- * snapshot TYPES live in `types.ts`.
+ * Read-path snapshot helpers used by `reads` (`getDoc` / `getDocs`),
+ * `listeners` (`onSnapshot`), and `ssr-snapshots`: value finalization wrappers,
+ * ref tagging, `.exists` property-to-method normalization, and equality state.
  */
 
 import type { AdminDocumentSnapshot as ChainDocSnap, DocumentData, SnapshotFieldPath } from 'pyric/sandbox/admin-firestore';
 import { FirebaseError } from 'pyric/app';
 import { getSnapshotField } from './sandbox/admin-compat/field-path.js';
-
 import {
   tag,
   TARGET_SYMBOL,
@@ -44,11 +39,7 @@ import {
   capturedQueryOperandsEqual,
   type CapturedQueryOperand,
 } from './sandbox/query-operand-equality.js';
-import type {
-  DocumentSnapshot,
-  QueryDocumentSnapshot,
-  FirestoreDataConverter,
-} from './types.js';
+import type { DocumentSnapshot, QueryDocumentSnapshot, FirestoreDataConverter } from './types.js';
 
 interface DocumentSnapshotEqualityState {
   readonly target: Target;
@@ -61,18 +52,20 @@ interface DocumentSnapshotEqualityState {
 const documentSnapshotEquality = new WeakMap<object, DocumentSnapshotEqualityState>();
 const wireSnapshotDataReaders = new WeakMap<object, (options?: SnapshotOptions) => DocumentData | undefined>();
 
-export function readWireSnapshotData(snap: { data(options?: SnapshotOptions): DocumentData | undefined }, options?: SnapshotOptions): DocumentData | undefined {
+export function readWireSnapshotData(
+  snap: { data(options?: SnapshotOptions): DocumentData | undefined },
+  options?: SnapshotOptions,
+): DocumentData | undefined {
   const reader = wireSnapshotDataReaders.get(snap);
-  return reader !== undefined ? reader(options) : snap.data(options);
+  if (reader !== undefined) return reader(options);
+  return snap.data(options);
 }
 
-/** Return the converter-free snapshot state captured at read time. Cursor
- * constraints must derive bounds from this raw snapshot just as Firebase
- * does; observing a converted snapshot's public `.data()` would invoke
- * consumer code and could change the bound on each sandbox-live rebuild. */
+/** Return the converter-free snapshot state captured at read time. */
 export function rawDocumentSnapshotForCursor(snapshot: object): ChainDocSnap {
-  return documentSnapshotEquality.get(snapshot)?.raw
-    ?? snapshot as unknown as ChainDocSnap;
+  const recorded = documentSnapshotEquality.get(snapshot);
+  if (recorded !== undefined) return recorded.raw;
+  return snapshot as unknown as ChainDocSnap;
 }
 
 interface QuerySnapshotDocEqualityState {
@@ -112,19 +105,14 @@ function recordDocumentSnapshot(
   converter: FirestoreDataConverter<unknown> | null,
   kind: 'document' | 'query-child',
 ): void {
-  documentSnapshotEquality.set(snapshot, {
-    target,
-    path: raw.ref.path,
-    kind,
-    converter,
-    raw,
-  });
+  documentSnapshotEquality.set(snapshot, { target, path: raw.ref.path, kind, converter, raw });
 }
 
 function snapshotExists(snapshot: ChainDocSnap): boolean {
-  return typeof snapshot.exists === 'function'
-    ? (snapshot.exists as () => boolean)()
-    : snapshot.exists === true;
+  if (typeof snapshot.exists === 'function') {
+    return (snapshot.exists as () => boolean)();
+  }
+  return snapshot.exists === true;
 }
 
 /** Compare tagged snapshots without invoking consumer converters. */
@@ -133,10 +121,9 @@ export function taggedSnapshotsEqual(left: object, right: object): boolean {
   const a = documentSnapshotEquality.get(left);
   const b = documentSnapshotEquality.get(right);
   if (!a || !b) return querySnapshotsEqual(left, right);
-  if (a.target !== b.target
-    || a.path !== b.path
-    || a.kind !== b.kind
-    || a.converter !== b.converter) return false;
+  if (a.target !== b.target || a.path !== b.path || a.kind !== b.kind || a.converter !== b.converter) {
+    return false;
+  }
   const aExists = snapshotExists(a.raw);
   const bExists = snapshotExists(b.raw);
   if (aExists !== bExists) return false;
@@ -151,23 +138,30 @@ function querySnapshotsEqual(left: object, right: object): boolean {
   if (a.source !== b.source) return false;
   if (!queryObjectsEqual(a.query, b.query)) return false;
   if (a.source === 'read' && a.readPhase !== b.readPhase) return false;
-  if (a.metadata.fromCache !== b.metadata.fromCache
-    || a.metadata.hasPendingWrites !== b.metadata.hasPendingWrites) return false;
+  if (a.metadata.fromCache !== b.metadata.fromCache || a.metadata.hasPendingWrites !== b.metadata.hasPendingWrites) {
+    return false;
+  }
   if (!querySnapshotDocsEqual(a.docs, b.docs) || a.changes.length !== b.changes.length) return false;
   return a.changes.every((change, index) => {
-    const other = b.changes[index]!;
-    return change.type === other.type
-      && change.oldIndex === other.oldIndex
-      && change.newIndex === other.newIndex
-      && change.path === other.path
-      && capturedQueryOperandsEqual(change.data, other.data);
+    const other = b.changes[index];
+    if (other === undefined) return false;
+    return (
+      change.type === other.type &&
+      change.oldIndex === other.oldIndex &&
+      change.newIndex === other.newIndex &&
+      change.path === other.path &&
+      capturedQueryOperandsEqual(change.data, other.data)
+    );
   });
 }
 
 function queryObjectsEqual(left: object, right: object): boolean {
   const leftQuery = underlyingOf(left) as { isStructurallyEqual?: (other: unknown) => boolean };
   const rightQuery = underlyingOf(right);
-  return leftQuery.isStructurallyEqual?.(rightQuery) ?? leftQuery === rightQuery;
+  if (typeof leftQuery.isStructurallyEqual === 'function') {
+    return leftQuery.isStructurallyEqual(rightQuery);
+  }
+  return leftQuery === rightQuery;
 }
 
 function readPhase(
@@ -177,19 +171,20 @@ function readPhase(
   metadata: { readonly fromCache: boolean; readonly hasPendingWrites: boolean },
 ): 'initial' | 'settled' {
   const targetKey = target as object;
-  const seen = (readQueriesByTarget.get(targetKey) ?? []).filter((candidate) =>
-    candidate.query.deref() !== undefined);
-  const state = seen.find((candidate) => {
-    const candidateQuery = candidate.query.deref();
-    return candidateQuery !== undefined && queryObjectsEqual(candidateQuery, query);
+  const seen = (readQueriesByTarget.get(targetKey) ?? []).filter((c) => c.query.deref() !== undefined);
+  const state = seen.find((c) => {
+    const q = c.query.deref();
+    return q !== undefined && queryObjectsEqual(q, query);
   });
   if (state !== undefined) {
-    const sameState = querySnapshotDocsEqual(state.docs, docs)
-      && state.metadata.fromCache === metadata.fromCache
-      && state.metadata.hasPendingWrites === metadata.hasPendingWrites;
+    const same =
+      querySnapshotDocsEqual(state.docs, docs) &&
+      state.metadata.fromCache === metadata.fromCache &&
+      state.metadata.hasPendingWrites === metadata.hasPendingWrites;
     state.docs = docs;
     state.metadata = metadata;
-    return sameState ? 'settled' : 'initial';
+    if (same) return 'settled';
+    return 'initial';
   }
   seen.push({ query: new WeakRef(query), docs, metadata });
   readQueriesByTarget.set(targetKey, seen);
@@ -200,14 +195,17 @@ function querySnapshotDocsEqual(
   left: readonly QuerySnapshotDocEqualityState[],
   right: readonly QuerySnapshotDocEqualityState[],
 ): boolean {
-  return left.length === right.length && left.every((doc, index) => {
-    const other = right[index]!;
-    return doc.path === other.path && capturedQueryOperandsEqual(doc.data, other.data);
-  });
+  return (
+    left.length === right.length &&
+    left.every((docItem, index) => {
+      const other = right[index];
+      if (other === undefined) return false;
+      return docItem.path === other.path && capturedQueryOperandsEqual(docItem.data, other.data);
+    })
+  );
 }
 
-/** Record the immutable equality state Firebase associates with a query
- * snapshot. `rawSnapshot` keeps converter callbacks out of equality. */
+/** Record the immutable equality state Firebase associates with a query snapshot. */
 export function recordQuerySnapshot(
   snapshot: object,
   rawSnapshot: object,
@@ -225,45 +223,45 @@ export function recordQuerySnapshot(
       doc?: { ref?: { path?: string }; data?: () => unknown };
     }>;
   };
-  const captureDoc = (doc: { ref?: { path?: string }; data?: () => unknown }) => {
-    const rawDoc = rawDocumentSnapshotForCursor(doc as object);
-    return {
-      path: rawDoc.ref?.path ?? doc.ref?.path ?? '',
-      data: captureQueryOperand(finalizeSandboxValue(rawDoc.data?.() ?? doc.data?.())),
-    };
+  const captureDoc = (docItem: { ref?: { path?: string }; data?: () => unknown }) => {
+    const rawDoc = rawDocumentSnapshotForCursor(docItem as object);
+    let rawPath = '';
+    if (typeof rawDoc.ref?.path === 'string') rawPath = rawDoc.ref.path;
+    else if (typeof docItem.ref?.path === 'string') rawPath = docItem.ref.path;
+    let rawValue = docItem.data?.();
+    if (typeof rawDoc.data === 'function') rawValue = rawDoc.data();
+    return { path: rawPath, data: captureQueryOperand(finalizeSandboxValue(rawValue)) };
   };
   const docs = Object.freeze((raw.docs ?? []).map(captureDoc));
-  const changes = Object.freeze((raw.docChanges?.() ?? []).map((change) => ({
-    ...captureDoc(change.doc ?? {}),
-    type: change.type ?? '',
-    oldIndex: change.oldIndex ?? -1,
-    newIndex: change.newIndex ?? -1,
-  })));
+  const changes = Object.freeze(
+    (raw.docChanges?.() ?? []).map((change) => ({
+      ...captureDoc(change.doc ?? {}),
+      type: change.type ?? '',
+      oldIndex: change.oldIndex ?? -1,
+      newIndex: change.newIndex ?? -1,
+    })),
+  );
   const metadata = Object.freeze({
     fromCache: raw.metadata?.fromCache === true,
     hasPendingWrites: raw.metadata?.hasPendingWrites === true,
   });
-  querySnapshotEquality.set(snapshot, {
-    target,
-    query,
-    converter: converterOf(query) ?? null,
-    source,
-    ...(source === 'read' ? { readPhase: readPhase(target, query, docs, metadata) } : {}),
-    metadata,
-    docs,
-    changes,
-  });
+  const stateEntry: {
+    target: Target;
+    query: object;
+    converter: FirestoreDataConverter<unknown> | null;
+    source: 'read' | 'listener';
+    readPhase?: 'initial' | 'settled';
+    metadata: { readonly fromCache: boolean; readonly hasPendingWrites: boolean };
+    docs: readonly QuerySnapshotDocEqualityState[];
+    changes: readonly QuerySnapshotChangeEqualityState[];
+  } = { target, query, converter: converterOf(query) ?? null, source, metadata, docs, changes };
+  if (source === 'read') stateEntry.readPhase = readPhase(target, query, docs, metadata);
+  querySnapshotEquality.set(snapshot, stateEntry);
   if (typeof (snapshot as { toJSON?: unknown }).toJSON !== 'function') {
     attachQuerySnapshotToJson(snapshot, target, query);
   }
 }
 
-/**
- * Wrap a raw sandbox `DocumentSnapshot` so `.data()` runs the final
- * value translation (rules wrappers → `firebase/firestore` types).
- * Other surface (id / ref / exists) passes through unchanged so
- * `tagSnapshotRefs` still operates on the original snap object.
- */
 function readSnapshotField(
   data: DocumentData | undefined,
   fieldPath: SnapshotFieldPath,
@@ -272,8 +270,12 @@ function readSnapshotField(
   try {
     return finalizeSandboxValue(getSnapshotField(data, fieldPath), references);
   } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    throw new FirebaseError('invalid-argument', `Function DocumentSnapshot.get() called with invalid data. ${reason}`);
+    let reason = String(error);
+    if (error instanceof Error) reason = error.message;
+    throw new FirebaseError(
+      'invalid-argument',
+      `Function DocumentSnapshot.get() called with invalid data. ${reason}`,
+    );
   }
 }
 
@@ -288,13 +290,11 @@ function mergedSnapshotMetadata(snap: object, target: Target, path: string): Sna
 }
 
 function normalizeSnapshotDatabaseId(raw: string | undefined): string | undefined {
-  if (typeof raw === 'string' && raw.length > 0 && raw !== '(default)') {
-    return raw;
-  }
+  if (typeof raw === 'string' && raw.length > 0 && raw !== '(default)') return raw;
   return undefined;
 }
 
-function createSnapshotReferenceDecoder(target: Target): ReferenceDecoder {
+export function createSnapshotReferenceDecoder(target: Target): ReferenceDecoder {
   return {
     create: (path, databaseId) => {
       const normalizedDbId = normalizeSnapshotDatabaseId(databaseId);
@@ -319,10 +319,10 @@ export function wrapSandboxDocSnap<T>(snap: object, target?: Target): DocumentSn
   const original = s.data.bind(snap);
   const hasTarget = target !== undefined;
   let references: ReferenceDecoder | undefined;
-  if (hasTarget) {
-    references = createSnapshotReferenceDecoder(target);
-  }
-  wireSnapshotDataReaders.set(snap, (options?: SnapshotOptions) => finalizeSandboxData(original(options), references, true));
+  if (hasTarget) references = createSnapshotReferenceDecoder(target);
+  wireSnapshotDataReaders.set(snap, (options?: SnapshotOptions) =>
+    finalizeSandboxData(original(options), references, true),
+  );
   Object.defineProperty(s, 'data', {
     value: (options?: SnapshotOptions) => finalizeSandboxData(original(options), references),
     configurable: true,
@@ -336,8 +336,7 @@ export function wrapSandboxDocSnap<T>(snap: object, target?: Target): DocumentSn
   });
   if (hasTarget) {
     const path = s.ref?.path;
-    const hasPath = path !== undefined && path.length > 0;
-    if (hasPath) {
+    if (path !== undefined && path.length > 0) {
       Object.defineProperty(s, 'metadata', {
         value: mergedSnapshotMetadata(s, target, path),
         configurable: true,
@@ -347,10 +346,6 @@ export function wrapSandboxDocSnap<T>(snap: object, target?: Target): DocumentSn
   return snap as DocumentSnapshot<T> & { exists(): boolean };
 }
 
-/**
- * Wrap a plain sandbox `DocumentSnapshot` so `.data()` runs the
- * converter's `fromFirestore`. Identity / `exists` pass through.
- */
 export function applyConverterToDocSnap<AppModel>(
   snap: ChainDocSnap,
   conv: FirestoreDataConverter<AppModel>,
@@ -362,11 +357,8 @@ export function applyConverterToDocSnap<AppModel>(
   const references = createSnapshotReferenceDecoder(target);
   const snapWithOptions = snap as { data: (options?: SnapshotOptions) => DocumentData | undefined };
   const readRawField = (fieldPath: SnapshotFieldPath, options?: SnapshotOptions): unknown => {
-    const isMissing = !snapshotExists(snap);
     let rawData: DocumentData | undefined;
-    if (!isMissing) {
-      rawData = snapWithOptions.data(options);
-    }
+    if (snapshotExists(snap)) rawData = snapWithOptions.data(options);
     return readSnapshotField(rawData, fieldPath, references);
   };
   const mergedMeta = mergedSnapshotMetadata(snap, target, snap.ref.path);
@@ -380,49 +372,33 @@ export function applyConverterToDocSnap<AppModel>(
     exists: () => snapshotExists(snap),
     metadata: mergedMeta,
     data: (options?: SnapshotOptions) => {
-      const isMissing = !snapshotExists(snap);
-      if (isMissing) return undefined;
-      if (snapWithOptions.data(options) === undefined) return undefined;
+      if (!snapshotExists(snap) || snapWithOptions.data(options) === undefined) return undefined;
+      const currentMeta = (wrapped as { metadata: SnapshotMetadataInstance }).metadata;
       const queryDocSnap: QueryDocumentSnapshot = {
         id: snap.id,
         ref: rawReference,
         exists: () => true,
-        metadata: mergedMeta,
+        metadata: currentMeta,
         data: (innerOptions?: SnapshotOptions) =>
           finalizeSandboxData(snapWithOptions.data(innerOptions), references) as DocumentData,
         get: readRawField,
-        toJSON: buildDocSnapshotToJson(target, snap.ref.path, () => true, () => readRawDataObject()),
+        toJSON: buildDocSnapshotToJson(target, snap.ref.path, () => true, () => readRawDataObject(), () =>
+          Boolean(currentMeta.hasPendingWrites),
+        ),
       };
-      const resolvedOptions: SnapshotOptions = options ?? {};
-      return conv.fromFirestore(queryDocSnap, resolvedOptions);
+      return conv.fromFirestore(queryDocSnap, options ?? {});
     },
     get: readRawField,
-    toJSON: buildDocSnapshotToJson(target, snap.ref.path, () => snapshotExists(snap), () => readRawDataObject()),
+    toJSON: () => ({}),
   };
+  attachDocSnapshotToJson(wrapped, target, snap.ref.path, () => snapshotExists(snap), () => readRawDataObject());
   tag(wrapped, target);
   tag(snap.ref as object, target);
   wireSnapshotRefToUnderlying(snap.ref, target);
-  recordDocumentSnapshot(
-    wrapped,
-    snap,
-    target,
-    conv as FirestoreDataConverter<unknown>,
-    kind,
-  );
+  recordDocumentSnapshot(wrapped, snap, target, conv as FirestoreDataConverter<unknown>, kind);
   return wrapped;
 }
 
-/**
- * Run a converter over a snapshot a listener is about to deliver, in place.
- *
- * The sandbox builds one snapshot object per document and hands that same
- * object to both `docs` and `docChanges()`, so converting the object covers
- * both views. `data()` is re-read through the converter and `ref` gains the
- * converter, matching what the read path returns.
- *
- * Call after {@link wrapSandboxDocSnap}: the captured accessor already yields
- * finalized values, which is what `fromFirestore` expects to receive.
- */
 export function applyConverterToDeliveredSnap(
   snapshot: object,
   conv: FirestoreDataConverter<unknown>,
@@ -452,8 +428,7 @@ export function applyConverterToDeliveredSnap(
   Object.defineProperty(s, 'data', {
     value: (options?: SnapshotOptions) => {
       const raw = readRaw(options);
-      const isMissing = raw === undefined;
-      if (isMissing) return undefined;
+      if (raw === undefined) return undefined;
       const mergedMeta = mergedSnapshotMetadata(s, target, path);
       const queryDocSnap: QueryDocumentSnapshot = {
         id: s.id,
@@ -462,24 +437,26 @@ export function applyConverterToDeliveredSnap(
         metadata: mergedMeta,
         data: (innerOptions?: SnapshotOptions) => readRaw(innerOptions) as DocumentData,
         get: readRawField,
-        toJSON: buildDocSnapshotToJson(target, path, () => true, () => readRaw() as Record<string, unknown>),
+        toJSON: buildDocSnapshotToJson(target, path, () => true, () => readRaw() as Record<string, unknown>, () =>
+          Boolean(mergedMeta.hasPendingWrites),
+        ),
       };
-      const resolvedOptions: SnapshotOptions = options ?? {};
-      return conv.fromFirestore(queryDocSnap, resolvedOptions);
+      return conv.fromFirestore(queryDocSnap, options ?? {});
     },
     configurable: true,
     writable: true,
   });
-  // Equality compares the stored representation, never the consumer model, so
-  // the recorded raw view keeps the pre-converter accessor.
+  attachDocSnapshotToJson(
+    snapshot,
+    target,
+    path,
+    () => snapshotExists(s as unknown as ChainDocSnap),
+    () => readRaw() as Record<string, unknown> | undefined,
+  );
   const rawView = { ref: { path }, exists: s.exists, data: readRaw } as unknown as ChainDocSnap;
   recordDocumentSnapshot(snapshot, rawView, target, conv, kind);
 }
 
-/**
- * Walk a snapshot, tag ref-shaped fields in `refToTarget`, normalize `.exists`
- * to method form (`if (snap.exists())`), and install `.toJSON()` when absent.
- */
 export function tagSnapshotRefs(snap: unknown, target: Target): unknown {
   if (!snap || typeof snap !== 'object') return snap;
   tag(snap, target);
@@ -499,7 +476,12 @@ export function tagSnapshotRefs(snap: unknown, target: Target): unknown {
     wireSnapshotRefToUnderlying(s.ref, target);
   }
   normalizeExists(s);
-  const tagChildDoc = (docItem?: { ref?: { id?: string; path?: string }; exists?: boolean | (() => boolean); data?: () => Record<string, unknown>; toJSON?: unknown }) => {
+  const tagChildDoc = (docItem?: {
+    ref?: { id?: string; path?: string };
+    exists?: boolean | (() => boolean);
+    data?: () => Record<string, unknown>;
+    toJSON?: unknown;
+  }) => {
     if (!docItem) return;
     tag(docItem as object, target);
     recordDocumentSnapshot(docItem as object, docItem as unknown as ChainDocSnap, target, null, 'query-child');
@@ -528,72 +510,30 @@ export function tagSnapshotRefs(snap: unknown, target: Target): unknown {
   return snap;
 }
 
-/**
- * Snapshot `.ref` objects from the sandbox carry only `{ id, path }`
- * — no `.onSnapshot`, `.get`, `.set`, etc. — so a follow-up
- * `onSnapshot(snap.ref)` would crash with "ref.onSnapshot is not a
- * function." Bind the snapshot ref to a full chainable doc ref via
- * `refToUnderlying`; `underlyingOf(snap.ref)` then returns the real
- * ref the chainable adapter exposes its op methods on. No-op for refs that
- * already have a registered underlying.
- */
-function wireSnapshotRefToUnderlying(
-  snapRef: { path?: string },
-  target: Target,
-): void {
+function wireSnapshotRefToUnderlying(snapRef: { path?: string }, target: Target): void {
   if (typeof snapRef.path !== 'string' || snapRef.path.length === 0) return;
   const path = snapRef.path;
   try {
-    // Build a concrete chainable doc to back the snap-ref via
-    // `refToUnderlying`. For sandbox-live, also record a rebuild
-    // closure so subsequent ops on the snap ref re-resolve against
-    // the *current* `sandbox.currentUser` (rather than re-using the
-    // listener-time auth that was frozen into the chainable).
     const existing = refToUnderlying.get(snapRef as object);
-    const full = existing ?? sandboxDb(target).doc(path) as unknown as object;
+    const full = existing ?? (sandboxDb(target).doc(path) as unknown as object);
     if (existing === undefined) refToUnderlying.set(snapRef as object, full);
     registerReferenceQueryValue(snapRef as object, path, target, full);
     decorateUntypedSnapshotRef(snapRef, path, target);
     if (target.kind === 'sandbox-live') {
-      sandboxLiveRebuild.set(
-        full,
-        (fresh) => fresh.doc(path) as unknown as object,
-      );
+      sandboxLiveRebuild.set(full, (fresh) => fresh.doc(path) as unknown as object);
     }
-  } catch {
-    // path → doc resolution can throw if the path is malformed
-    // (odd segment count, etc.). Best-effort — leave the snap ref
-    // pointing at itself; the next op call will surface a clear
-    // "ref.onSnapshot is not a function" instead of mangling state.
+  } catch (err) {
+    void err;
   }
 }
 
-/**
- * If `obj.exists` is a boolean property, replace it with a function
- * that returns that value — so consumer code can do `snap.exists()`
- * uniformly across the sandbox + Firebase backends. Idempotent: if
- * `exists` is already a function, leave it alone.
- *
- * `configurable: true` so a later normalize (over a re-yielded
- * snapshot from the same listener) can re-install cleanly.
- */
-function normalizeExists(obj: {
-  exists?: boolean | (() => boolean);
-}): void {
+function normalizeExists(obj: { exists?: boolean | (() => boolean) }): void {
   const current = obj.exists;
   if (typeof current === 'function') return;
   const value = current === true;
   try {
-    Object.defineProperty(obj, 'exists', {
-      value: () => value,
-      writable: true,
-      configurable: true,
-      enumerable: true,
-    });
-  } catch {
-    // Some snapshot impls might freeze the object. Best-effort —
-    // a frozen snap already provides the property reading the user
-    // can do `if (snap.exists)` against; the call-site failure is
-    // surfaced via the error boundary.
+    Object.defineProperty(obj, 'exists', { value: () => value, writable: true, configurable: true, enumerable: true });
+  } catch (err) {
+    void err;
   }
 }

@@ -1,4 +1,5 @@
 import { FirebaseError } from '../sandbox/internal/firebase-error.js';
+import { isPlainObject } from './plain-object.js';
 
 interface JsonFieldSchema {
   readonly typeString: 'string' | 'number' | 'boolean' | 'object';
@@ -6,10 +7,6 @@ interface JsonFieldSchema {
 }
 
 export type JsonObjectSchema = Readonly<Record<string, JsonFieldSchema>>;
-
-function isPlainJsonRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
 
 /**
  * Validates a serialized Firestore value JSON object against the SDK's schema
@@ -20,7 +17,7 @@ export function validateFirestoreJson(
   json: unknown,
   schema: JsonObjectSchema,
 ): Record<string, unknown> {
-  if (!isPlainJsonRecord(json)) {
+  if (!isPlainObject(json)) {
     throw new FirebaseError('invalid-argument', 'JSON must be an object');
   }
   for (const key of Object.keys(schema)) {

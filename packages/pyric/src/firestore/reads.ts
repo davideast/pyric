@@ -1,5 +1,5 @@
 /**
- * `pyric/firestore` — document + query reads.
+ * `pyric/firestore` -- document + query reads.
  *
  * `getDoc` / `getDocs`: resolve the chainable ref under current auth, apply
  * any converter, and hand back a snapshot rehydrated to the modular-SDK
@@ -26,7 +26,7 @@ import {
   tagSnapshotRefs,
   recordQuerySnapshot,
 } from './snapshots.js';
-import { buildQuerySnapshotToJson } from './ssr-snapshots.js';
+import { attachQuerySnapshotToJson } from './ssr-snapshots.js';
 import type {
   DocumentReference,
   DocumentSnapshot,
@@ -46,12 +46,18 @@ export function getDoc<T = DocumentData>(ref: DocumentReference<T>): Promise<Doc
 }
 
 /** Keep served aliases on the same backend path while preserving their public name. */
-export async function readDocumentAs<T = DocumentData>(ref: DocumentReference<T>, method: string): Promise<DocumentSnapshot<T>> {
+export async function readDocumentAs<T = DocumentData>(
+  ref: DocumentReference<T>,
+  method: string,
+): Promise<DocumentSnapshot<T>> {
   return readDocument(ref, beginFirestoreActivity(targetOf(ref), ref, method, 'operation'));
 }
 
 /** Shared executor; the public caller supplies its own activity identity. */
-export async function readDocument<T = DocumentData>(ref: DocumentReference<T>, activity: SdkActivityHandle): Promise<DocumentSnapshot<T>> {
+export async function readDocument<T = DocumentData>(
+  ref: DocumentReference<T>,
+  activity: SdkActivityHandle,
+): Promise<DocumentSnapshot<T>> {
   const target = targetOf(ref);
   const client = clientStateFor(target);
   const missingDb = client.syncMissingDatabaseOfflineState(target, ref.path);
@@ -63,12 +69,15 @@ export async function readDocument<T = DocumentData>(ref: DocumentReference<T>, 
         const offlineSnap = client.overlay.buildOfflineDocSnapshot(ref.path);
         client.cachePath(ref.path);
         if (conv) {
-          return finishSdkRead(activity, applyConverterToDocSnap(
-            offlineSnap as unknown as ChainDocSnap,
-            conv as FirestoreDataConverter<T>,
-            target,
-            'document',
-          ));
+          return finishSdkRead(
+            activity,
+            applyConverterToDocSnap(
+              offlineSnap as unknown as ChainDocSnap,
+              conv as FirestoreDataConverter<T>,
+              target,
+              'document',
+            ),
+          );
         }
         tagSnapshotRefs(offlineSnap, target);
         return finishSdkRead(activity, wrapSandboxDocSnap<T>(offlineSnap as object, target));
@@ -80,12 +89,15 @@ export async function readDocument<T = DocumentData>(ref: DocumentReference<T>, 
     const snap = await withFirestoreFirebaseError(() => chainDocFor(target, ref).get());
     client.cachePath(ref.path);
     if (conv) {
-      return finishSdkRead(activity, applyConverterToDocSnap(
-        snap as unknown as ChainDocSnap,
-        conv as FirestoreDataConverter<T>,
-        target,
-        'document',
-      ));
+      return finishSdkRead(
+        activity,
+        applyConverterToDocSnap(
+          snap as unknown as ChainDocSnap,
+          conv as FirestoreDataConverter<T>,
+          target,
+          'document',
+        ),
+      );
     }
     tagSnapshotRefs(snap, target);
     return finishSdkRead(activity, wrapSandboxDocSnap<T>(snap as object, target));
@@ -100,12 +112,18 @@ export function getDocs<T = DocumentData>(query: Query<T>): Promise<QuerySnapsho
 }
 
 /** Keep served aliases on the same backend path while preserving their public name. */
-export async function readQueryAs<T = DocumentData>(query: Query<T>, method: string): Promise<QuerySnapshot<T>> {
+export async function readQueryAs<T = DocumentData>(
+  query: Query<T>,
+  method: string,
+): Promise<QuerySnapshot<T>> {
   return readQuery(query, beginFirestoreActivity(targetOf(query), query, method, 'operation'));
 }
 
 /** Shared executor; the public caller supplies its own activity identity. */
-export async function readQuery<T = DocumentData>(query: Query<T>, activity: SdkActivityHandle): Promise<QuerySnapshot<T>> {
+export async function readQuery<T = DocumentData>(
+  query: Query<T>,
+  activity: SdkActivityHandle,
+): Promise<QuerySnapshot<T>> {
   const target = targetOf(query);
   const client = clientStateFor(target);
   const missingDb = client.syncMissingDatabaseOfflineState(target);
@@ -122,7 +140,7 @@ export async function readQuery<T = DocumentData>(query: Query<T>, activity: Sdk
         rawDocs.map((doc) => ({ path: doc.ref.path })),
         rawDocs,
         () => false,
-        () => rawDocs[0]!,
+        () => rawDocs[0] as typeof rawDocs[number],
       );
       Object.defineProperty(snap, 'docChanges', {
         value: createDocChanges(rawChanges, false),
@@ -147,16 +165,20 @@ export async function readQuery<T = DocumentData>(query: Query<T>, activity: Sdk
         () => false,
         () => wrappedDocs[0] as QueryDocumentSnapshot<T>,
       );
-      const wrapped = tag({
-        query,
-        size: wrappedDocs.length,
-        empty: wrappedDocs.length === 0,
-        docs: wrappedDocs,
-        forEach: forEachDocument(wrappedDocs),
-        docChanges: createDocChanges(changes, false),
-        metadata: client.querySnapshotMetadata(),
-        toJSON: buildQuerySnapshotToJson({ docs: wrappedDocs }, target, query as object),
-      }, target);
+      const wrapped = tag(
+        {
+          query,
+          size: wrappedDocs.length,
+          empty: wrappedDocs.length === 0,
+          docs: wrappedDocs,
+          forEach: forEachDocument(wrappedDocs),
+          docChanges: createDocChanges(changes, false),
+          metadata: client.querySnapshotMetadata(),
+          toJSON: () => ({}),
+        },
+        target,
+      );
+      attachQuerySnapshotToJson(wrapped, target, query as object);
       for (const document of wrappedDocs) client.cachePath(document.ref.path);
       recordQuerySnapshot(wrapped, snap as object, target, query as object, 'read');
       return finishSdkRead(activity, wrapped);

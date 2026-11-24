@@ -1,40 +1,7 @@
 /**
- * `pyric/firestore` — modular Web-SDK Firestore adapter for the Pyric
- * sandbox.
+ * `pyric/firestore` -- modular Web-SDK Firestore adapter for the Pyric sandbox.
  *
- * Mirrors `firebase/firestore`'s tree-shakable free-function shape
- * (`getDoc`, `setDoc`, `addDoc`, `query`, `where`, `orderBy`, `limit`,
- * `onSnapshot`, `runTransaction`, …). Every operation routes to the
- * no-network sandbox. Production selection happens before this module loads:
- * package resolution leaves `firebase/firestore` unchanged when inactive.
- *
- * This module is a re-export barrel over the per-family modules in this
- * directory — it holds no implementation. The families mirror the
- * symmetric `@pyric/cli` worker client split:
- *   - `state`             the TARGET_SYMBOL brand + routing/converter
- *                         WeakMaps + tag/resolve helpers + value finalizers
- *   - `types`             public handle / reference / query / snapshot /
- *                         converter / batch / transaction types
- *   - `snapshots`         sandbox snapshot rehydration (reads + listeners)
- *   - `instances`         getFirestore / getAdminFirestore / actingAs +
- *                         emulator connect
- *   - `equality`          refEqual / queryEqual / snapshotEqual
- *   - `persistence`       offline / persistence / network + cache-init +
- *                         get-from-server/cache + logLevel + snapshots-sync
- *   - `refs`              doc / collection / collectionGroup / withConverter
- *   - `reads`             getDoc / getDocs
- *   - `writes`            setDoc / updateDoc / deleteDoc / addDoc
- *   - `query-constraints` query + where/or/and/orderBy/limit + cursors
- *   - `aggregates`        count / sum / average + getCount/AggregateFromServer
- *   - `listeners`         onSnapshot
- *   - `transactions`      runTransaction / writeBatch
- *   - `field-values`      sentinels + scalar type re-exports
- *   - `tools`             tool factories
- *
- * The barrel IS the published `pyric/firestore` subpath surface. Each family
- * module exports only its public symbols, so `export *` re-exports exactly
- * the published set; `state`'s package-internal helpers stay off the surface
- * (only its `TARGET_SYMBOL` brand is re-exported).
+ * Re-export barrel over the per-family modules in this directory.
  */
 
 export { TARGET_SYMBOL } from './state.js';
@@ -80,7 +47,7 @@ export { getDoc, getDocs } from './reads.js';
 export * from './writes.js';
 export * from './query-constraints.js';
 export * from './aggregates.js';
-export * from './listeners.js';
+export { onSnapshot, type SnapshotListenOptions, type SnapshotObserver } from './listeners.js';
 export * from './transactions.js';
 export * from './field-values.js';
 export {
@@ -92,12 +59,11 @@ export {
 } from './bundles.js';
 export {
   documentSnapshotFromJSON,
-  onSnapshotResume,
   querySnapshotFromJSON,
   type ListenSource,
   type SnapshotOptions,
 } from './ssr-snapshots.js';
-// ─── Tool factories (Slice 10) ────────────────────────────────────────
+export { onSnapshotResume } from './snapshot-resume.js';
 export { createFirestoreDataTools, createFirestoreInspectTools } from './tools.js';
 export type {
   FirestoreDataToolDeps,
