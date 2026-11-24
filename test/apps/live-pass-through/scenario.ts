@@ -102,18 +102,27 @@ async function eventually<T>(read: () => Promise<T>, check: (value: T) => boolea
   }
 }
 
-export const expectedCrashes: ExpectedCrash[] = [
+const crashes: ExpectedCrash[] = [
   {
     message: /^Error: @pyric\/live: firebase\/(functions|remote-config) \((Cloud Functions|Remote Config)\) is refused in live mode\. .*passThrough/s,
     source: /^page http:\/\/127\.0\.0\.1:\d+\/ \(at http:\/\/127\.0\.0\.1:\d+\/@id\/__x00__pyric-stop:refused:page:firebase\/(functions|remote-config):\d+\)$/,
     reason: 'the step that starts the dev server without passThrough loads a page that imports both, and the first refusal throws at module evaluation',
   },
-  ...(ADMIN_ROWS_ON ? [] : [{
+  {
+    message: /^Error: @pyric\/live: firebase\/firestore \(Cloud Firestore\) is refused in live mode: it resolved outside firebase\/firestore's own entry/s,
+    source: /^page http:\/\/127\.0\.0\.1:\d+\/aliased-row\.html \(at http:\/\/127\.0\.0\.1:\d+\/@id\/__x00__pyric-stop:refused:page-file:.*:\d+\)$/,
+    reason: 'the step that redirects firebase/firestore to firebase/firestore/lite loads aliased-row.html, and the row entry gate refuses the aliased SDK file at module evaluation',
+  },
+];
+if (!ADMIN_ROWS_ON) {
+  crashes.push({
     message: /^Error: @pyric\/live: firebase-admin\/app \(the Admin SDK\) is refused in live mode\. @pyric\/live observes firebase-admin on Node 23 or later/,
     source: /^command \d+ \(node --import @pyric\/live\/register admin-server\.mjs\)$/,
     reason: 'on Node 22, whose require() skips the hooks, the Admin rows stay shut and the server job is refused its import',
-  }]),
-];
+  });
+}
+
+export const expectedCrashes: readonly ExpectedCrash[] = crashes;
 
 export default scenario(async (app) => {
   const host = await app.step('start vite dev with pyricLive({ passThrough }): the start line names each passed-through service', async () => {
@@ -207,10 +216,105 @@ export default scenario(async (app) => {
       (line) => line !== null,
       'the page throws the refusal',
     );
-    assert.match(refusal!, /firebase\/(functions|remote-config) \((Cloud Functions|Remote Config)\) is refused in live mode/);
+    if (refusal === null) throw new Error('expected page refusal');
+    assert.match(refusal, /firebase\/(functions|remote-config) \((Cloud Functions|Remote Config)\) is refused in live mode/);
     assert.notEqual(await opened.locator('#status').textContent(), 'Ready');
     await opened.close();
     await refusing.process.stop();
+  });
+
+  await app.step("an alias redirecting firebase/firestore to firebase/firestore/lite is refused on both a Vite page and a registered Node process (#2302)", async () => {
+    app.writeFile(
+      'aliased-row.html',
+      [
+        '<!doctype html>',
+        '<html>',
+        '  <head><meta charset="utf-8"><title>Aliased Row</title></head>',
+        '  <body>',
+        '    <output id="status">Starting</output>',
+        '    <script type="module" src="/aliased-row.js"></script>',
+        '  </body>',
+        '</html>',
+        '',
+      ].join('\n'),
+    );
+    app.writeFile(
+      'aliased-row.js',
+      [
+        'import { initializeApp } from "firebase/app";',
+        'import * as firestore from "firebase/firestore";',
+        'const app = initializeApp({',
+        '  apiKey: "demo-api-key",',
+        '  authDomain: "demo-live-pass-through.firebaseapp.com",',
+        '  projectId: "demo-live-pass-through",',
+        '  appId: "1:123456789012:web:0a1b2c3d4e5f6071",',
+        '});',
+        'firestore.getFirestore(app);',
+        'const mode = "onSnapshot" in firestore ? "Full" : "Lite";',
+        'document.querySelector("#status").textContent = mode;',
+        '',
+      ].join('\n'),
+    );
+    const logStart = app.browserLog.length;
+    const aliased = await app.devServer({ env: { REDIRECT_FIRESTORE_ROW: '1' } });
+    const opened = await app.page(`${aliased.url}/aliased-row.html`);
+    const pageRefusal = await eventually(
+      async () =>
+        app.browserLog
+          .slice(logStart)
+          .find((line) => line.includes("resolved outside firebase/firestore's own entry")) ?? null,
+      (line) => line !== null,
+      'aliased live row page throws named refusal',
+      15_000,
+    );
+    if (pageRefusal === null) throw new Error('expected aliased row page refusal');
+    assert.match(pageRefusal, /firebase\/firestore \(Cloud Firestore\) is refused in live mode: it resolved outside firebase\/firestore's own entry/);
+    assert.equal(await opened.locator('#status').textContent(), 'Starting');
+    await opened.close();
+    await aliased.process.stop();
+
+    app.writeFile('.firebaserc', `${JSON.stringify({ projects: { default: 'demo-live-pass-through' } })}\n`);
+    app.writeFile(
+      'redirect-firestore-row.mjs',
+      [
+        'import Module from "node:module";',
+        'Module.registerHooks({',
+        '  resolve(specifier, context, nextResolve) {',
+        '    if (specifier === "firebase/firestore") {',
+        '      return nextResolve("firebase/firestore/lite", context);',
+        '    }',
+        '    return nextResolve(specifier, context);',
+        '  },',
+        '});',
+        '',
+      ].join('\n'),
+    );
+    app.writeFile(
+      'aliased-row-node.mjs',
+      [
+        'const outcome = {};',
+        'try {',
+        '  const mod = await import("firebase/firestore");',
+        '  outcome.code = "loaded";',
+        '  outcome.mode = "onSnapshot" in mod ? "Full" : "Lite";',
+        '} catch (error) {',
+        '  outcome.code = error && typeof error === "object" && "code" in error ? String(error.code) : "threw";',
+        '  outcome.message = error instanceof Error ? error.message : String(error);',
+        '}',
+        'console.log("OUTCOME " + JSON.stringify(outcome));',
+        '',
+      ].join('\n'),
+    );
+    const nodeRun = await app.command(
+      'node',
+      ['--import', './redirect-firestore-row.mjs', '--import', '@pyric/live/register', 'aliased-row-node.mjs'],
+      { timeoutMs: 60_000 },
+    );
+    assert.equal(nodeRun.code, 0, nodeRun.output);
+    const nodeOutcome = jobOutcome(nodeRun.output);
+    assert.equal(nodeOutcome.code, 'PYRIC_REAL_SDK_STOPPED', nodeRun.output);
+    assert.match(nodeOutcome.message ?? '', /@pyric\/live's firebase\/firestore row loads only firebase\/firestore's own entry in firebase/);
+    assert.match(nodeOutcome.message ?? '', /firestore\/lite\/dist\//);
   });
 
   await app.step('a list naming a served import, such as firebase/database, firebase/ai, firebase/storage, firebase/messaging or firebase-admin, or a firebase-admin subpath stops the dev server at start', async () => {
