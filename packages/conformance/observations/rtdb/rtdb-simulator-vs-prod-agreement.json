@@ -5,7 +5,7 @@
     "rtdb#71"
   ],
   "description": "Simulator-vs-prod allow/deny agreement audit — deploy N rules to live RTDB, run M ops per rule against prod and through the in-process engine, report per-op agreement / disagreement. Lists every divergence so the matrix can call them out.",
-  "observedAt": "2026-11-18T07:21:36.647Z",
+  "observedAt": "2026-11-23T06:16:09.354Z",
   "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
@@ -203,7 +203,7 @@
         "prodAllowed": false,
         "prodCode": "PERMISSION_DENIED",
         "simAllowed": false,
-        "simReason": "Validation rule evaluated to false",
+        "simReason": "Validation rule at '/r4-validate-structure/entry' evaluated to false",
         "simErrorCode": null,
         "agree": true
       },
