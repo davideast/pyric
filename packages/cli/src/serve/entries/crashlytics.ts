@@ -12,12 +12,18 @@ import type {
 import { FirebaseError, getApp, type FirebaseApp } from 'pyric/app';
 import { isSandboxAppDeleted, registerAppCleanup } from 'pyric/app/internal';
 import {
+  assertMatchingCrashlyticsOptions,
   createTransportCrashlytics,
   validateCrashlyticsEndpointUrl,
 } from 'pyric/crashlytics/internal';
 import { createWorkerCrashlyticsTransport } from '../worker/client/crashlytics.js';
 import { workerClientForApp } from './app-client.js';
-import { rememberServedBreadcrumbs } from './crashlytics-framework-runtime.js';
+import {
+  deleteServedWorkerCrashlytics,
+  getServedWorkerCrashlytics,
+  rememberServedBreadcrumbs,
+  setServedWorkerCrashlytics,
+} from './crashlytics-framework-runtime.js';
 import { useWorker } from './worker-runtime.js';
 
 export type {
@@ -29,8 +35,6 @@ export type {
   CrashlyticsFeature,
   CrashlyticsOptions,
 };
-
-const workerCrashlyticsByApp = new WeakMap<FirebaseApp, Crashlytics>();
 
 function resolveAppKey(app: FirebaseApp): string {
   const configuredAppId = app.options.appId;
@@ -64,8 +68,9 @@ export function getCrashlytics(
       `Firebase: Firebase App named '${resolved.name}' already deleted (app/app-deleted).`,
     );
   }
-  const existing = workerCrashlyticsByApp.get(resolved);
+  const existing = getServedWorkerCrashlytics(resolved);
   if (existing !== undefined) {
+    assertMatchingCrashlyticsOptions(existing, options);
     return existing;
   }
   const clientDb = workerClientForApp(resolved);
@@ -77,11 +82,11 @@ export function getCrashlytics(
     options,
     (cleanup) => {
       registerAppCleanup(resolved, () => {
-        workerCrashlyticsByApp.delete(resolved);
+        deleteServedWorkerCrashlytics(resolved);
         cleanup();
       });
     },
   );
-  workerCrashlyticsByApp.set(resolved, handle);
+  setServedWorkerCrashlytics(resolved, handle);
   return handle;
 }

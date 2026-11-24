@@ -9,8 +9,21 @@ import { getRawPath } from 'pyric/crashlytics/angular';
 const APP_SCREEN_ID_ATTR = 'app.screen.id';
 const VIEW_BOUNDARY_MESSAGE = 'Navigation event';
 
+const servedWorkerCrashlyticsByApp = new WeakMap<FirebaseApp, Crashlytics>();
 const servedBreadcrumbsByApp = new WeakSet<FirebaseApp>();
 const servedLastPatternByApp = new WeakMap<FirebaseApp, string>();
+
+export function getServedWorkerCrashlytics(app: FirebaseApp): Crashlytics | undefined {
+  return servedWorkerCrashlyticsByApp.get(app);
+}
+
+export function setServedWorkerCrashlytics(app: FirebaseApp, handle: Crashlytics): void {
+  servedWorkerCrashlyticsByApp.set(app, handle);
+}
+
+export function deleteServedWorkerCrashlytics(app: FirebaseApp): void {
+  servedWorkerCrashlyticsByApp.delete(app);
+}
 
 function isBreadcrumbsPlugin(feature: unknown): boolean {
   if (typeof feature !== 'object' || feature === null) {
