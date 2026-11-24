@@ -478,42 +478,27 @@ describe('suppliedRowsStopFor: live row entry gate (#2302)', () => {
       writeFileSync(join(workDir, 'package.json'), JSON.stringify({ name: 'row-alias-app', type: 'module' }));
       writeFileSync(join(workDir, '.firebaserc'), JSON.stringify({ projects: { default: 'demo-row-alias' } }));
       const preload = join(workDir, 'preload.mjs');
-      writeFileSync(
-        preload,
-        [
-          "import Module from 'node:module';",
-          'const loaded = [];',
-          "globalThis[Symbol.for('row.alias.loaded')] = loaded;",
-          'Module.registerHooks({',
-          "  resolve(specifier, context, nextResolve) {",
-          "    if (specifier === 'firebase/firestore') return nextResolve('firebase/firestore/lite', context);",
-          '    return nextResolve(specifier, context);',
-          '  },',
-          '  load(url, context, nextLoad) {',
-          '    loaded.push(url);',
-          '    return nextLoad(url, context);',
-          '  },',
-          '});',
-          '',
-        ].join('\n'),
-      );
+      writeFileSync(preload, [
+        "import Module from 'node:module';",
+        'const loaded = [];',
+        "globalThis[Symbol.for('row.alias.loaded')] = loaded;",
+        'Module.registerHooks({',
+        "  resolve(specifier, context, nextResolve) {",
+        "    if (specifier === 'firebase/firestore') return nextResolve('firebase/firestore/lite', context);",
+        '    return nextResolve(specifier, context);',
+        '  },',
+        '  load(url, context, nextLoad) { loaded.push(url); return nextLoad(url, context); },',
+        '});',
+      ].join('\n'));
       const entry = join(workDir, 'entry.mjs');
-      writeFileSync(
-        entry,
-        [
-          'let code = "loaded";',
-          'let message = "";',
-          "try { await import('firebase/firestore'); } catch (err) { code = err?.code ?? 'threw'; message = String(err?.message ?? err); }",
-          "const sdkFiles = globalThis[Symbol.for('row.alias.loaded')].filter((u) => /\\/node_modules\\/(firebase|@firebase\\/[^/]+)\\//.test(u));",
-          "console.log('OUTCOME ' + JSON.stringify({ code, message, sdkFiles }));",
-          '',
-        ].join('\n'),
-      );
+      writeFileSync(entry, [
+        'let code = "loaded", message = "";',
+        "try { await import('firebase/firestore'); } catch (err) { code = err?.code ?? 'threw'; message = String(err?.message ?? err); }",
+        "const sdkFiles = globalThis[Symbol.for('row.alias.loaded')].filter((u) => /\\/node_modules\\/(firebase|@firebase\\/[^/]+)\\//.test(u));",
+        "console.log('OUTCOME ' + JSON.stringify({ code, message, sdkFiles }));",
+      ].join('\n'));
       const result = spawnSync('node', ['--import', pathToFileURL(preload).href, '--import', '@pyric/live/register', entry], {
-        cwd: workDir,
-        encoding: 'utf8',
-        timeout: 30_000,
-        env: { PATH: process.env.PATH, HOME: workDir },
+        cwd: workDir, encoding: 'utf8', timeout: 30_000, env: { PATH: process.env.PATH, HOME: workDir },
       });
       expect(result.status, result.stderr).toBe(0);
       const line = result.stdout.split('\n').find((text) => text.startsWith('OUTCOME ')) ?? 'OUTCOME {}';
