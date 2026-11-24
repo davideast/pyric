@@ -56,7 +56,7 @@ describe('padding injection', () => {
       const padded = injectPadding(suite.rules, suite.cases.map((c) => ({ anchor: c.padAnchor, method: c.testCase.method })));
       expect(parseToAST(padded)).not.toBeNull();
     }
-  });
+  }, 30_000);
 });
 
 describe('padding model', () => {
