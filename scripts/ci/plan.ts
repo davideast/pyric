@@ -2,6 +2,7 @@
 import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
+import { NESTED_PROJECTS } from '../../test/apps/nested-projects.ts';
 import { discoverScenarios, type Scenario } from '../../test/apps/shard-plan.ts';
 import {
   requiresPackagingProof,
@@ -198,13 +199,35 @@ export const SMOKE_SCENARIOS: readonly string[] = [
   'nextjs16-firebase-imports',
 ];
 
+/** Every app scenario that scaffolds a create-pyric template: the nested
+ *  template installs declared in test/apps/nested-projects.ts plus
+ *  nextjs-template, which scaffolds `--template nextjs` over its own root (#2062). */
+export const CREATE_PYRIC_TEMPLATE_SCENARIOS: readonly string[] = [
+  ...new Set([
+    ...NESTED_PROJECTS.flatMap((project) => {
+      if ('template' in project.manifest) {
+        return [project.app];
+      }
+      return [];
+    }),
+    'nextjs-template',
+  ]),
+].sort();
+
 /** Extra scenarios tied to specific subsystems beyond the general smoke set.
+ *  - `CREATE_PYRIC_TEMPLATE_SCENARIOS` exercises every scenario that scaffolds
+ *    a `create-pyric` template (and turns on `app-scenarios`, including the
+ *    harness unit tests in `test/apps/dependency-store.test.ts`).
  *  - `remote-sandbox-discovery` exercises `pyric` CLI subcommand dispatch/guards
  *    and `PYRIC_SANDBOX=remote` discovery/fallback paths directly.
  *  - `storage-per-bucket-rules` and `rtdb-verify-reads-and-denials` exercise
  *    multi-service session capture, rules preservation, reset/restore, and
  *    `pyric verify` replay across Storage and RTDB. */
 const TARGETED_SCENARIO_INPUTS: ReadonlyArray<{ patterns: readonly RegExp[]; apps: readonly string[] }> = [
+  {
+    patterns: [/^packages\/create-pyric\//],
+    apps: CREATE_PYRIC_TEMPLATE_SCENARIOS,
+  },
   {
     patterns: [/^packages\/cli\/src\/(cli|remote)\//],
     apps: ['remote-sandbox-discovery'],

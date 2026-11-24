@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
+  DOCS_CONTENT_READER_TESTS,
   requiresPackagingProof,
   RULES_DATA_READERS_OUTSIDE_PACKAGES,
   RULES_ONLY_PROOF,
@@ -11,6 +12,7 @@ import {
   type CheckSetInput,
   type PrCheckSet,
 } from './check-set.ts';
+import { runDocsContentTests } from './docs-tests.ts';
 
 const changed = (path: string, previousPath?: string): ChangedPath => ({ path, previousPath });
 
@@ -255,5 +257,80 @@ describe('rules-only shadow selection', () => {
         .some((line) => !isComment(line) && (namesRulesData.test(line) || joinsRulesObservations.test(line))))
       .sort();
     expect(readers).toEqual([...RULES_DATA_READERS_OUTSIDE_PACKAGES].sort());
+  });
+});
+
+function isDocsContentReaderSource(source: string): boolean {
+  const isComment = (line: string): boolean => /^\s*(\/\/|\*|\/\*)/.test(line);
+  const namesDocsContent = /site-docs\/src\/content|['"`]site-docs['"`]\s*,\s*['"`]src['"`]\s*,\s*['"`]content['"`]/;
+  const readsFilesystem = /\b(readFileSync|readdirSync|readFile|readdir|Bun\.file|Glob)\b/;
+  const nonCommentLines = source.split('\n').filter((line) => !isComment(line));
+  const referencesDocsContent = nonCommentLines.some((line) => namesDocsContent.test(line));
+  if (!referencesDocsContent) {
+    return false;
+  }
+  return nonCommentLines.some((line) => readsFilesystem.test(line));
+}
+
+describe('docs-only content reader tests (#2111)', () => {
+  test('every test in the repository that reads site-docs/src/content is in DOCS_CONTENT_READER_TESTS', () => {
+    const root = resolve(import.meta.dir, '../..');
+    for (const file of DOCS_CONTENT_READER_TESTS) {
+      expect(existsSync(resolve(root, file))).toBe(true);
+    }
+    expect(DOCS_CONTENT_READER_TESTS).toContain('packages/cli/test/docs-production-claims.test.ts');
+    expect(DOCS_CONTENT_READER_TESTS).toContain('packages/rules/test/modules/docs-examples.test.ts');
+    expect(DOCS_CONTENT_READER_TESTS).toContain('packages/rules/test/stdlib-modules.test.ts');
+
+    const globs = [
+      'packages/*/test/**/*.test.{ts,mjs}',
+      'scripts/**/*.test.{ts,mjs}',
+      'test/**/*.test.{ts,mjs}',
+    ];
+    const candidates = new Set<string>();
+    for (const pattern of globs) {
+      for (const file of new Bun.Glob(pattern).scanSync({ cwd: root })) {
+        if (file === 'scripts/ci/check-set.test.ts') continue;
+        if (file.split('/').includes('node_modules')) continue;
+        candidates.add(file);
+      }
+    }
+    const readers = [...candidates]
+      .filter((file) => isDocsContentReaderSource(readFileSync(resolve(root, file), 'utf8')))
+      .sort();
+    expect(readers).toEqual([...DOCS_CONTENT_READER_TESTS].sort());
+  });
+
+  test('completeness detector catches repo-rooted, relative, and segmented paths while ignoring comments and pure string tables', () => {
+    expect(isDocsContentReaderSource(
+      "import { readFileSync } from 'node:fs';\nreadFileSync('packages/site-docs/src/content/build/cloud-storage.md', 'utf8');",
+    )).toBe(true);
+    expect(isDocsContentReaderSource(
+      "import { readFileSync } from 'node:fs';\nconst p = join(dir, '../../../site-docs/src/content/secure/guide.md');",
+    )).toBe(true);
+    expect(isDocsContentReaderSource(
+      "import { readdirSync } from 'node:fs';\nreaddirSync(join(root, 'site-docs', 'src', 'content'));",
+    )).toBe(true);
+    expect(isDocsContentReaderSource(
+      "// See packages/site-docs/src/content/build/cloud-storage.md\nreadFileSync('other.txt', 'utf8');",
+    )).toBe(false);
+    expect(isDocsContentReaderSource(
+      "expect(isInsideBoundary('packages/site-docs/src/content/secure/simulate-and-lint.md')).toBe(false);",
+    )).toBe(false);
+  });
+
+  test('runDocsContentTests invokes every docs-content reader test and propagates failure exit codes', async () => {
+    const calls: Array<{ args: string[]; suite: string }> = [];
+    const code = await runDocsContentTests(async (options) => {
+      calls.push({ args: options.args, suite: options.suite });
+      return 1;
+    });
+    expect(code).toBe(1);
+    expect(calls).toEqual([
+      {
+        args: [...DOCS_CONTENT_READER_TESTS],
+        suite: 'docs-tests',
+      },
+    ]);
   });
 });
