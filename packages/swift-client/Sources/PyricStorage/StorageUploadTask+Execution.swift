@@ -357,12 +357,28 @@ extension StorageUploadTask {
                 )
             }
             let attrs = try FileManager.default.attributesOfItem(atPath: fileURL.path)
-            let size = (attrs[.size] as? NSNumber)?.int64Value ?? 0
-            return (max(0, size), StorageMimeTypeResolver.inferContentType(for: fileURL))
+            let size = Self.fileByteSize(from: attrs)
+            return (size, StorageMimeTypeResolver.inferContentType(for: fileURL))
         }
     }
 
-    private func readSourceSlice(offset: Int64, length: Int) throws -> Data {
+    package static func fileByteSize(from attrs: [FileAttributeKey: Any]) -> Int64 {
+        if let number = attrs[.size] as? NSNumber {
+            return max(0, number.int64Value)
+        }
+        if let int64Val = attrs[.size] as? Int64 {
+            return max(0, int64Val)
+        }
+        if let intVal = attrs[.size] as? Int {
+            return max(0, Int64(intVal))
+        }
+        if let uint64Val = attrs[.size] as? UInt64 {
+            return Int64(clamping: uint64Val)
+        }
+        return 0
+    }
+
+    package func readSourceSlice(offset: Int64, length: Int) throws -> Data {
         guard length > 0 else { return Data() }
         switch source {
         case .data(let bytes):
@@ -374,7 +390,16 @@ extension StorageUploadTask {
             let handle = try FileHandle(forReadingFrom: fileURL)
             defer { try? handle.close() }
             try handle.seek(toOffset: UInt64(offset))
-            return try handle.read(upToCount: length) ?? Data()
+            var assembled = Data()
+            assembled.reserveCapacity(length)
+            while assembled.count < length {
+                let remaining = length - assembled.count
+                guard let chunk = try handle.read(upToCount: remaining), !chunk.isEmpty else {
+                    break
+                }
+                assembled.append(chunk)
+            }
+            return assembled
         }
     }
 

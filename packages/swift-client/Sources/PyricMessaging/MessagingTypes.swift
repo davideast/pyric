@@ -318,14 +318,18 @@ public struct AcceptedMessagingSend: Sendable, Equatable {
         self.validateOnly = validateOnly
     }
 
-    package static func fromWire(_ raw: AnySendable) throws -> AcceptedMessagingSend {
+    package static func fromWire(
+        _ raw: AnySendable,
+        projectID: String? = nil
+    ) throws -> AcceptedMessagingSend {
         guard let dict = raw.dictionaryValue else {
             throw MessagingError(
                 code: .unknown,
                 message: "messaging.send response from Pyric bridge was not an object."
             )
         }
-        let name = dict["name"]?.stringValue ?? ""
+        let rawName = dict["name"]?.stringValue ?? ""
+        let name = Self.normalizeReceiptName(rawName, projectID: projectID)
         let messageID = dict["messageId"]?.stringValue ?? ""
         let target = dict["target"]?.dictionaryValue ?? [:]
         let validateOnly = dict["validateOnly"]?.boolValue ?? false
@@ -335,6 +339,20 @@ public struct AcceptedMessagingSend: Sendable, Equatable {
             target: target,
             validateOnly: validateOnly
         )
+    }
+
+    private static func normalizeReceiptName(_ rawName: String, projectID: String?) -> String {
+        guard let trimmedProjectID = projectID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmedProjectID.isEmpty,
+              rawName.hasPrefix("projects/") else {
+            return rawName
+        }
+        let afterProjects = rawName.dropFirst("projects/".count)
+        guard let messagesRange = afterProjects.range(of: "/messages/") else {
+            return rawName
+        }
+        let suffix = afterProjects[messagesRange.lowerBound...]
+        return "projects/\(trimmedProjectID)\(suffix)"
     }
 }
 

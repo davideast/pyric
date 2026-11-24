@@ -300,6 +300,7 @@ struct PyricMessagingUnitTests {
             )
         )
         #expect(!acceptedTopic.messageID.isEmpty)
+        #expect(acceptedTopic.name == "projects/demo-unit-messaging/messages/\(acceptedTopic.messageID)")
         #expect(acceptedTopic.validateOnly == false)
 
         let fgMsg = try #require(await fgIterator.next())
@@ -336,6 +337,7 @@ struct PyricMessagingUnitTests {
             validateOnly: true
         )
         #expect(dryRun.validateOnly == true)
+        #expect(dryRun.name == "projects/demo-unit-messaging/messages/\(dryRun.messageID)")
 
         let deliveredBg = try await messaging.deliver(
             data: ["bgKey": "bgVal"],
@@ -376,5 +378,39 @@ struct PyricMessagingUnitTests {
         }
         await disabledMessaging.disconnect()
         await disabledApp.delete()
+    }
+
+    @Test("sendBrokerMessage normalizes broker receipt project segment from FirebaseOptions.projectID")
+    func sendBrokerMessageReceiptProjectIDNormalization() async throws {
+        let projectlessApp = FirebaseApp(
+            name: "unit-projectless-\(UUID().uuidString)",
+            options: FirebaseOptions(projectID: nil, apiKey: "k", googleAppID: "1:1:ios:none"),
+            environment: [:]
+        )
+        let channel = MockMessagingBridgeChannel()
+        let messaging = Messaging.messaging(app: projectlessApp, transport: channel)
+        let token = try await messaging.token()
+        let fallbackReceipt = try await messaging.sendBrokerMessage(
+            MessagingBrokerMessage(token: token, data: ["probe": "fallback"])
+        )
+        #expect(fallbackReceipt.name == "projects/mock-project/messages/\(fallbackReceipt.messageID)")
+
+        let blankApp = FirebaseApp(
+            name: "unit-blank-project-\(UUID().uuidString)",
+            options: FirebaseOptions(projectID: "   ", apiKey: "k", googleAppID: "1:1:ios:blank"),
+            environment: [:]
+        )
+        let blankChannel = MockMessagingBridgeChannel()
+        let blankMessaging = Messaging.messaging(app: blankApp, transport: blankChannel)
+        let blankToken = try await blankMessaging.token()
+        let blankReceipt = try await blankMessaging.sendBrokerMessage(
+            MessagingBrokerMessage(token: blankToken, data: ["probe": "blank"])
+        )
+        #expect(blankReceipt.name == "projects/mock-project/messages/\(blankReceipt.messageID)")
+
+        await messaging.disconnect()
+        await blankMessaging.disconnect()
+        await projectlessApp.delete()
+        await blankApp.delete()
     }
 }

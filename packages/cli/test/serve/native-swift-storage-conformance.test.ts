@@ -1,5 +1,4 @@
 import { describe, expect, test } from 'bun:test';
-import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import { writeFileSync } from 'node:fs';
@@ -26,7 +25,7 @@ import {
 import { createHostedRuntime } from '../../src/serve/hosted/runtime.js';
 import {
   SWIFT_LIVE_HOST_SCRATCH_SUBPATH, SWIFT_LIVE_HOST_TEST_TIMEOUT_MS, SWIFT_TEST_TIMEOUT_MS,
-  buildSwiftLiveHostTests, collectProcessEnv, formatSubprocessFailure, runManagedSubprocess,
+  buildSwiftLiveHostTests, collectProcessEnv, formatSubprocessFailure, probeSwiftLiveToolchain, runManagedSubprocess,
 } from './swift-live-host-subprocess.ts';
 
 const REPO_ROOT = resolve(import.meta.dir, '../../../..');
@@ -416,23 +415,12 @@ async function startLiveSwiftStorageBridgeHost() {
   };
 }
 
-function detectRunnableSwiftBinary(): string | null {
-  const swiftBin = Bun.which('swift');
-  if (swiftBin === null) {
-    return null;
-  }
-  const probe = spawnSync(swiftBin, ['test', '--version'], { encoding: 'utf8' });
-  if (probe.error !== undefined || probe.status !== 0) {
-    return null;
-  }
-  return swiftBin;
+const SWIFT_TOOLCHAIN = probeSwiftLiveToolchain();
+const shouldSkipSwiftSubprocess = SWIFT_TOOLCHAIN.skip;
+const detectedSwiftBinary = SWIFT_TOOLCHAIN.swiftBinary;
+if (SWIFT_TOOLCHAIN.skip && SWIFT_TOOLCHAIN.skipReason !== null) {
+  console.warn(`[native-swift-storage-conformance] skipping PyricStorageTests: ${SWIFT_TOOLCHAIN.skipReason}`);
 }
-
-const requireSwiftLive = process.env.PYRIC_REQUIRE_SWIFT_LIVE === '1';
-const isGenericCiShard = process.env.CI === 'true' && !requireSwiftLive;
-const detectedSwiftBinary = detectRunnableSwiftBinary();
-const shouldSkipSwiftSubprocess =
-  !requireSwiftLive && (isGenericCiShard || detectedSwiftBinary === null);
 
 describe('native Swift Cloud Storage live-host conformance', () => {
   test('enforces Storage Rules, byte-route upload/download, and downloadURL over WebSocket + HTTP', async () => {

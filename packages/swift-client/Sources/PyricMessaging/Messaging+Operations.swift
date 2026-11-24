@@ -312,7 +312,7 @@ extension Messaging {
             params["validateOnly"] = .bool(true)
         }
         let raw = try await runBridgeOp(method: "messaging.send", params: params)
-        return try AcceptedMessagingSend.fromWire(raw)
+        return try AcceptedMessagingSend.fromWire(raw, projectID: app.options.projectID)
     }
 
     /// Acknowledges a `RemoteMessagingMessage` received on an active subscription (`messaging.acknowledge`).

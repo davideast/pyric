@@ -197,25 +197,45 @@ extension BridgeStorageTransport {
         body: Data?,
         timeout: TimeInterval
     ) async throws -> HTTPOutcome {
+        let effectiveTimeout = max(5.0, timeout)
         var request = URLRequest(url: url)
         request.httpMethod = method
-        request.timeoutInterval = max(5.0, timeout)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.timeoutInterval = effectiveTimeout
+        var hasAcceptEncoding = false
         for (key, value) in headers {
+            if key.caseInsensitiveCompare("Accept-Encoding") == .orderedSame {
+                hasAcceptEncoding = true
+            }
             request.setValue(value, forHTTPHeaderField: key)
+        }
+        if !hasAcceptEncoding {
+            request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
         }
         request.httpBody = body
 
-        let taskBox = DataTaskBox()
+        let raceState = HTTPRequestRaceState()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                let dataTask = URLSession.shared.dataTask(with: request) { data, response, error in
+                let config = URLSessionConfiguration.ephemeral
+                config.urlCache = nil
+                config.requestCachePolicy = .reloadIgnoringLocalCacheData
+                config.httpShouldUsePipelining = false
+                config.timeoutIntervalForRequest = effectiveTimeout
+                config.timeoutIntervalForResource = effectiveTimeout
+                let session = URLSession(configuration: config)
+
+                let dataTask = session.dataTask(with: request) { data, response, error in
+                    session.finishTasksAndInvalidate()
                     if let error {
-                        continuation.resume(throwing: StorageErrorCode.from(error))
+                        raceState.finish(with: .failure(StorageErrorCode.from(error)))
                         return
                     }
                     guard let http = response as? HTTPURLResponse else {
-                        continuation.resume(
-                            throwing: StorageErrorCode(code: .unknown, message: "Non-HTTP response from Storage byte route.")
+                        raceState.finish(
+                            with: .failure(
+                                StorageErrorCode(code: .unknown, message: "Non-HTTP response from Storage byte route.")
+                            )
                         )
                         return
                     }
@@ -224,48 +244,101 @@ extension BridgeStorageTransport {
                         let key = String(describing: rawKey).lowercased()
                         loweredHeaders[key] = String(describing: rawVal)
                     }
-                    continuation.resume(
-                        returning: HTTPOutcome(
-                            statusCode: http.statusCode,
-                            headers: loweredHeaders,
-                            body: data ?? Data()
+                    raceState.finish(
+                        with: .success(
+                            HTTPOutcome(
+                                statusCode: http.statusCode,
+                                headers: loweredHeaders,
+                                body: data ?? Data()
+                            )
                         )
                     )
                 }
-                taskBox.install(dataTask)
+                raceState.install(continuation: continuation, task: dataTask, session: session)
             }
         } onCancel: {
-            taskBox.cancel()
-        }
-    }
-}
-
-private final class DataTaskBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var cancelled = false
-    private var task: URLSessionDataTask?
-
-    func install(_ nextTask: URLSessionDataTask) {
-        let shouldCancelImmediately: Bool = {
-            lock.lock()
-            defer { lock.unlock() }
-            task = nextTask
-            return cancelled
-        }()
-        if shouldCancelImmediately {
-            nextTask.cancel()
-        } else {
-            nextTask.resume()
+            raceState.cancelFromCaller()
         }
     }
 
-    func cancel() {
-        let current: URLSessionDataTask? = {
-            lock.lock()
-            defer { lock.unlock() }
-            cancelled = true
-            return task
-        }()
-        current?.cancel()
+    private final class HTTPRequestRaceState: @unchecked Sendable {
+        private let lock = NSLock()
+        private var continuation: CheckedContinuation<HTTPOutcome, any Error>?
+        private var task: URLSessionDataTask?
+        private var session: URLSession?
+        private var settled = false
+        private var callerCancelled = false
+
+        func install(
+            continuation: CheckedContinuation<HTTPOutcome, any Error>,
+            task: URLSessionDataTask,
+            session: URLSession
+        ) {
+            let shouldCancelImmediately: Bool = {
+                lock.lock()
+                defer { lock.unlock() }
+                if callerCancelled {
+                    settled = true
+                    return true
+                }
+                self.continuation = continuation
+                self.task = task
+                self.session = session
+                return settled
+            }()
+            if shouldCancelImmediately {
+                task.cancel()
+                session.invalidateAndCancel()
+                continuation.resume(throwing: StorageErrorCode.cancelled)
+            } else {
+                task.resume()
+            }
+        }
+
+        func cancelFromCaller() {
+            let pending: (CheckedContinuation<HTTPOutcome, any Error>?, URLSessionDataTask?, URLSession?) = {
+                lock.lock()
+                defer { lock.unlock() }
+                callerCancelled = true
+                if settled {
+                    return (nil, nil, nil)
+                }
+                guard let cont = continuation else {
+                    return (nil, task, session)
+                }
+                settled = true
+                let currentTask = task
+                let currentSession = session
+                continuation = nil
+                task = nil
+                session = nil
+                return (cont, currentTask, currentSession)
+            }()
+            pending.1?.cancel()
+            pending.2?.invalidateAndCancel()
+            pending.0?.resume(throwing: StorageErrorCode.cancelled)
+        }
+
+        func finish(with result: Result<HTTPOutcome, StorageErrorCode>) {
+            let cont: CheckedContinuation<HTTPOutcome, any Error>? = {
+                lock.lock()
+                defer { lock.unlock() }
+                if settled {
+                    return nil
+                }
+                settled = true
+                let current = continuation
+                continuation = nil
+                task = nil
+                session = nil
+                return current
+            }()
+            switch result {
+            case .success(let outcome):
+                cont?.resume(returning: outcome)
+            case .failure(let error):
+                cont?.resume(throwing: error)
+            }
+        }
     }
 }

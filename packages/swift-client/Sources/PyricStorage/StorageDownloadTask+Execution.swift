@@ -413,7 +413,7 @@ extension StorageDownloadTask {
                 guard await gate.waitUntilRunnable() else { return }
 
                 if case .file(let destURL, _) = target, let readyStagingURL = stagingURL {
-                    try? stagingHandle?.close()
+                    try stagingHandle?.close()
                     stagingHandle = nil
                     if FileManager.default.fileExists(atPath: destURL.path) {
                         try FileManager.default.removeItem(at: destURL)
