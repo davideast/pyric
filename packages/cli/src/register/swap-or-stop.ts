@@ -234,10 +234,13 @@ export function unservedFirebaseSubpathStop(
 }
 
 /** The stop's message under live rows: only a row module's own import loads the installed SDK. */
-function liveStopMessage(load: ResolvedLoad, family: SdkFamily, packageName: string): string {
+function liveStopMessage(load: ResolvedLoad, family: SdkFamily, packageName: string, isRowImport: boolean): string {
   const isUnservedRequire = isNode22Require(load);
   let cause = "In live mode, the installed SDK loads only through @pyric/live's rows. This import didn't, so pyric would not see its calls.";
-  if (isUnservedRequire) {
+  if (isRowImport) {
+    cause = `@pyric/live's ${load.specifier} row loads only ${load.specifier}'s own entry in firebase. ` +
+      'This import resolved outside that entry, so its calls would skip the row and go unobserved.';
+  } else if (isUnservedRequire) {
     cause = `CommonJS require() on Node ${process.versions.node} can't be served under live mode, so this load skipped @pyric/live's rows and pyric would not see its calls.`;
   }
   return [
@@ -246,7 +249,7 @@ function liveStopMessage(load: ResolvedLoad, family: SdkFamily, packageName: str
     `  from   ${load.importer ?? 'the entry point'}`,
     `  found  ${load.url}`,
     cause,
-    `Fix: ${liveStopFix(family, isUnservedRequire)}. To run the real SDK unobserved, start this process without @pyric/live/register.`,
+    `Fix: ${liveStopFix(family, isUnservedRequire, isRowImport, load.specifier)}. To run the real SDK unobserved, start this process without @pyric/live/register.`,
     `code: ${REAL_SDK_STOPPED_CODE}`,
   ].join('\n');
 }
@@ -266,7 +269,10 @@ function isNode22Require(load: ResolvedLoad): boolean {
 /** `firebase/app, firebase/auth, ... or firebase/database`: one import per live row. */
 const LIVE_ROW_IMPORTS = joinedList([...INSTALLED_SDK_SPECIFIERS], 'or');
 
-function liveStopFix(family: SdkFamily, isUnservedRequire: boolean): string {
+function liveStopFix(family: SdkFamily, isUnservedRequire: boolean, isRowImport: boolean, specifier: string): string {
+  if (isRowImport) {
+    return `remove any alias or redirect on '${specifier}', so its live row loads ${specifier}'s own entry in firebase`;
+  }
   if (family === 'admin') {
     // Node 22's require() skips the hooks, so the Admin rows stay shut there and live mode refuses firebase-admin.
     const servesAdmin = Number(process.versions.node.split('.')[0]) >= 23;
@@ -366,29 +372,40 @@ export interface SuppliedRowsGrant {
   readonly isFromAdminTree?: boolean;
 }
 
+const FIREBASE_SPECIFIER_PREFIX = 'firebase/';
+
 /**
- * Whether `load` is the entry of the passed-through specifier it names: a
- * file of the `firebase` package under that specifier's own folder
- * (`firebase/functions` -> `functions/dist/`), as the page plane checks it.
+ * Whether `load` is the entry of the `firebase/*` specifier it names: a file
+ * of the `firebase` package under that specifier's own folder
+ * (`firebase/firestore` -> `firestore/dist/`, `firebase/messaging/sw` ->
+ * `messaging/sw/dist/`), so an alias cannot redirect a live row or a
+ * passed-through import to another entry (#2302).
  */
-function isPassThroughEntry(load: ResolvedLoad): boolean {
-  const folder = `${load.specifier.slice('firebase/'.length)}/dist/`;
-  return (load.pathInPackage ?? pathInPackageOf)(load.url, 'firebase')?.startsWith(folder) ?? false;
+function isFirebaseSpecifierEntry(load: ResolvedLoad): boolean {
+  if (!load.specifier.startsWith(FIREBASE_SPECIFIER_PREFIX)) return false;
+  const subpath = load.specifier.slice(FIREBASE_SPECIFIER_PREFIX.length);
+  if (subpath.length === 0) return false;
+  const folder = `${subpath}/dist/`;
+  const resolvePath = load.pathInPackage ?? pathInPackageOf;
+  const relativePath = resolvePath(load.url, 'firebase');
+  if (relativePath === null) return false;
+  const escapesFolder = relativePath.startsWith('../') || relativePath.includes('/../');
+  return !escapesFolder && relativePath.startsWith(folder);
 }
 
 /**
  * Whether a load under live rows may reach the installed client SDK: an ESM
- * import, either a row module's own import of `firebase/*`, the app's import
- * of a passed-through entry, an ESM wrapper shim (`?iitm=true`) re-importing
- * the exact allowed file it wraps, or an allowed client SDK file's import of a
- * package the live rows' entries or a passed-through one load. A
- * `createRequire` call can name any file as its importer, but it resolves
- * with the `require` condition, so it never passes.
+ * import, either a row module's own import of `firebase/*`'s own entry, the
+ * app's import of a passed-through entry, an ESM wrapper shim (`?iitm=true`)
+ * re-importing the exact allowed file it wraps, or an allowed client SDK
+ * file's import of a package the live rows' entries or a passed-through one
+ * load. A `createRequire` call can name any file as its importer, but it
+ * resolves with the `require` condition, so it never passes.
  */
 function isAllowedLiveRowLoad(load: ResolvedLoad, packageName: string, allowedUrls: ReadonlySet<string>, grant: SuppliedRowsGrant): boolean {
   if (!grant.isEsmImport) return false;
-  if (grant.isRowImport) return packageName === 'firebase';
-  if (grant.isPassThroughImport === true) return packageName === 'firebase' && isPassThroughEntry(load);
+  const isDirectSpecifierImport = grant.isRowImport || grant.isPassThroughImport === true;
+  if (isDirectSpecifierImport) return packageName === 'firebase' && isFirebaseSpecifierEntry(load);
   const importer = load.importer;
   const isFromAllowedFile =
     importer !== undefined && (allowedUrls.has(importer) || allowedUrls.has(canonicalFileUrl(importer)));
@@ -479,7 +496,7 @@ export function suppliedRowsStopFor(load: ResolvedLoad, allowedUrls: Set<string>
     allowedUrls.add(canonicalFileUrl(load.url));
     return null;
   }
-  const error = new Error(liveStopMessage(load, family, packageName));
+  const error = new Error(liveStopMessage(load, family, packageName, grant.isRowImport));
   return Object.assign(error, { code: REAL_SDK_STOPPED_CODE, url: load.url, specifier: load.specifier });
 }
 

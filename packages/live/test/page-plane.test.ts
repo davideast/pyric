@@ -360,4 +360,125 @@ describe('the refusal of a served specifier with no live row', () => {
       rmSync(root, { recursive: true, force: true });
     }
   }, 60_000);
+
+  test('refuses an aliased live row entry in pyricLive() before loading the redirected SDK file (#2302)', async () => {
+    const { spawnSync } = await import('node:child_process');
+    const { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } = await import('node:fs');
+    const { createRequire } = await import('node:module');
+    const { tmpdir } = await import('node:os');
+    const { dirname, join, resolve } = await import('node:path');
+    const { pathToFileURL } = await import('node:url');
+
+    const repoRoot = resolve(import.meta.dir, '../../..');
+    const liveRequire = createRequire(join(repoRoot, 'packages/live/package.json'));
+    const cliRequire = createRequire(join(repoRoot, 'packages/cli/package.json'));
+    const viteDir = dirname(liveRequire.resolve('vite/package.json'));
+    const viteEntryUrl = pathToFileURL(join(viteDir, 'dist/node/index.js')).href;
+    const liveViteUrl = pathToFileURL(join(repoRoot, 'packages/live/dist/vite.js')).href;
+    const installedPkg = cliRequire.resolve('firebase/package.json');
+    const installedDir = dirname(installedPkg);
+    const liteEsm = realpathSync(join(installedDir, 'firestore/lite/dist/esm/index.esm.js'));
+    const fbRequire = createRequire(installedPkg);
+    const atFirebaseDir = dirname(dirname(fbRequire.resolve('@firebase/app/package.json')));
+
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'pyric-live-alias-')));
+    try {
+      mkdirSync(join(root, 'node_modules'), { recursive: true });
+      symlinkSync(installedDir, join(root, 'node_modules', 'firebase'));
+      symlinkSync(atFirebaseDir, join(root, 'node_modules', '@firebase'));
+      writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'items-app', type: 'module' }));
+      writeFileSync(join(root, 'index.html'), '<!doctype html><html><body>ok</body></html>');
+      writeFileSync(join(root, 'entry.js'), "import { getFirestore } from 'firebase/firestore';\nexport { getFirestore };\n");
+      writeFileSync(join(root, '.firebaserc'), JSON.stringify({ projects: { default: 'demo-project' } }));
+
+      const probePath = join(root, 'probe-live-alias.mjs');
+      writeFileSync(
+        probePath,
+        [
+          `const { createServer } = await import(${JSON.stringify(viteEntryUrl)});`,
+          `const { pyricLive } = await import(${JSON.stringify(liveViteUrl)});`,
+          `const root = ${JSON.stringify(root)};`,
+          `const liteEsm = ${JSON.stringify(liteEsm)};`,
+          "const { createServer: createNetServer } = await import('node:net');",
+          'const nextPort = () => new Promise((res, rej) => { const s = createNetServer(); s.once("error", rej); s.listen(0, "127.0.0.1", () => { const p = s.address().port; s.close(() => res(p)); }); });',
+          'const checkServer = async (extraConfig) => {',
+          '  const port = await nextPort();',
+          '  const server = await createServer({',
+          '    root, configFile: false, logLevel: "silent",',
+          '    server: { host: "127.0.0.1", port, strictPort: false, ws: false },',
+          '    optimizeDeps: { noDiscovery: true, include: [] },',
+          '    ...extraConfig,',
+          '  });',
+          '  try {',
+          '    await server.listen();',
+          '    const address = server.httpServer?.address();',
+          '    if (!address || typeof address === "string") throw new Error("no port");',
+          '    const base = `http://127.0.0.1:${address.port}`;',
+          '    const entryBody = await (await fetch(`${base}/entry.js`)).text();',
+          '    const firstImport = /from\\s+("(?:\\\\.|[^"\\\\])*")/.exec(entryBody);',
+          '    if (!firstImport) throw new Error(`no import in entry: ${entryBody}`);',
+          '    const firstUrl = JSON.parse(firstImport[1]);',
+          '    const firstBody = await (await fetch(`${base}${encodeURI(firstUrl)}`)).text();',
+          '    if (firstBody.startsWith("throw Object.assign(new Error(")) {',
+          '      return { stage: "entry", body: firstBody };',
+          '    }',
+          '    const realImport = /import\\s+\\*\\s+as\\s+__pyricReal\\s+from\\s+("(?:\\\\.|[^"\\\\])*")/.exec(firstBody);',
+          '    if (!realImport) throw new Error(`no __pyricReal import in row: ${firstBody}`);',
+          '    const realUrl = JSON.parse(realImport[1]);',
+          '    const targetBody = await (await fetch(`${base}${encodeURI(realUrl)}`)).text();',
+          '    return { stage: "row", body: targetBody };',
+          '  } finally {',
+          '    await server.close();',
+          '  }',
+          '};',
+          'const configAlias = await checkServer({',
+          '  resolve: { alias: { "firebase/firestore": "firebase/firestore/lite" } },',
+          '  plugins: [pyricLive({ project: "demo-project" })],',
+          '});',
+          'const pluginAlias = await checkServer({',
+          '  plugins: [',
+          '    pyricLive({ project: "demo-project" }),',
+          '    {',
+          '      name: "redirect-firestore-lite",',
+          '      enforce: "pre",',
+          '      resolveId(source) {',
+          '        if (source === "firebase/firestore") return liteEsm;',
+          '        return null;',
+          '      },',
+          '    },',
+          '  ],',
+          '});',
+          'console.log(JSON.stringify({ configAlias, pluginAlias }));',
+          'process.exit(0);',
+        ].join('\n'),
+      );
+
+      const run = spawnSync(process.env.PYRIC_TEST_NODE ?? 'node', [probePath], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        timeout: 60_000,
+      });
+      if (run.status !== 0) {
+        throw new Error(`live alias probe failed (${String(run.status)}): ${run.stderr}`);
+      }
+      const lastLine = run.stdout.trim().split('\n').pop() ?? '{}';
+      const { configAlias, pluginAlias } = JSON.parse(lastLine) as {
+        configAlias: { stage: string; body: string };
+        pluginAlias: { stage: string; body: string };
+      };
+
+      expect(configAlias.body).not.toContain('@firebase/firestore/lite');
+      expect(configAlias.body).not.toContain('firestore/lite/dist/');
+
+      expect(pluginAlias.stage).toBe('row');
+      expect(pluginAlias.body.startsWith('throw Object.assign(new Error(')).toBe(true);
+      expect(pluginAlias.body).toContain('PYRIC_LIVE_REFUSED');
+      expect(pluginAlias.body).toContain(
+        "firebase/firestore (Cloud Firestore) is refused in live mode: it resolved outside firebase/firestore's own entry",
+      );
+      expect(pluginAlias.body).not.toContain('@firebase/firestore/lite');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 60_000);
 });

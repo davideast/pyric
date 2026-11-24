@@ -33,12 +33,16 @@ export const LIVE_REFUSED = 'PYRIC_LIVE_REFUSED';
 const SERVICE_NAMES: Readonly<Record<string, string>> = {
   'firebase/ai': 'Firebase AI Logic',
   'firebase/analytics': 'Analytics',
+  'firebase/app': 'Firebase App',
+  'firebase/app-check': 'App Check',
+  'firebase/auth': 'Authentication',
   'firebase/crashlytics': 'Crashlytics',
   'firebase/crashlytics/angular': 'Crashlytics',
   'firebase/crashlytics/next-navigation': 'Crashlytics',
   'firebase/crashlytics/react': 'Crashlytics',
   'firebase/crashlytics/react-router': 'Crashlytics',
   'firebase/database': 'Realtime Database',
+  'firebase/firestore': 'Cloud Firestore',
   'firebase/firestore/lite': 'Firestore Lite',
   'firebase/functions': 'Cloud Functions',
   'firebase/messaging': 'Cloud Messaging',
@@ -50,7 +54,7 @@ const SERVICE_NAMES: Readonly<Record<string, string>> = {
 
 const SDK_PACKAGE_PREFIX = '@firebase/';
 
-/** `@firebase/firestore` → `firebase/firestore`, the import an app writes for that package. */
+/** `@firebase/firestore` -> `firebase/firestore`, the import an app writes for that package. */
 function packageImportOf(specifier: string): string | null {
   if (!specifier.startsWith(SDK_PACKAGE_PREFIX)) return null;
   const packageName = specifier.slice(SDK_PACKAGE_PREFIX.length).split('/')[0];
@@ -194,7 +198,7 @@ function namedList(specifiers: readonly string[]): string {
 }
 
 /** The option that would let each of `specifiers` load: `pyricLive({ passThrough: ['firebase/functions'] })`. */
-export function passThroughOptionFor(specifiers: readonly string[]): string {
+function passThroughOptionFor(specifiers: readonly string[]): string {
   return `pyricLive({ passThrough: [${specifiers.map((specifier) => `'${specifier}'`).join(', ')}] })`;
 }
 
@@ -223,10 +227,20 @@ export function withPassThroughHint(error: Error, specifier: string): Error {
  */
 export function liveRefusal(specifier: string, plane: SuppliedRowsPlane): Error {
   const service = serviceOf(specifier);
+  const isRedirectedRow = plane !== 'server' && SERVED_IMPORTS.has(specifier);
+  if (isRedirectedRow) {
+    return refused(`@pyric/live: ${specifier} (${service}) is refused in live mode: ` +
+      `it resolved outside ${specifier}'s own entry in your installed Firebase SDK, such as through an alias to another entry, ` +
+      "so its calls would skip @pyric/live's row and go unobserved. " +
+      `Remove the alias or redirect on ${specifier}, or run the app without @pyric/live to use the sandbox.`);
+  }
   const isNodeAdmin = plane === 'node' && service === 'the Admin SDK';
-  const where = isNodeAdmin ? (adminRowsNodeProblem() ?? ADMIN_SERVED) : SERVED_ON[plane];
+  let where = SERVED_ON[plane];
+  if (isNodeAdmin) {
+    where = adminRowsNodeProblem() ?? ADMIN_SERVED;
+  }
   return refused(`@pyric/live: ${specifier} (${service}) is refused in live mode. ${where} ` +
-    `It is not served from the Pyric sandbox either, so production and sandbox services never share one app. ` +
+    'It is not served from the Pyric sandbox either, so production and sandbox services never share one app. ' +
     'Remove the import, or run the app without @pyric/live to use the sandbox.');
 }
 
@@ -401,7 +415,7 @@ export function liveAdminAppUnreadable(className: string): Error & { readonly co
 }
 
 /** pyric's own code for an ID token from the other mode, beside firebase-admin's `auth/argument-error`. */
-export const MODE_MISMATCH = 'PYRIC_MODE_MISMATCH' as const;
+const MODE_MISMATCH = 'PYRIC_MODE_MISMATCH' as const;
 
 /** The mode-mismatch error, shaped as firebase-admin's own Auth errors: a `code`, and an `errorInfo` holding it. */
 export type LiveModeMismatch = Error & { readonly code: string; readonly pyricCode: typeof MODE_MISMATCH; readonly errorInfo: { code: string; message: string } };

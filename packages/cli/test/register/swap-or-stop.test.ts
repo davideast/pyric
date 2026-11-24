@@ -399,6 +399,121 @@ describe('suppliedRowsStopFor: @firebase/ai under live rows', () => {
   });
 });
 
+describe('suppliedRowsStopFor: live row entry gate (#2302)', () => {
+  const rowGrant = { isRowImport: true, isEsmImport: true };
+
+  it("lets each live row load only its own firebase/<subpath>/dist/ entry", () => {
+    const validEntries: ReadonlyArray<readonly [specifier: string, path: string]> = [
+      ['firebase/app', 'app/dist/index.mjs'],
+      ['firebase/auth', 'auth/dist/esm/index.esm.js'],
+      ['firebase/firestore', 'firestore/dist/index.mjs'],
+      ['firebase/app-check', 'app-check/dist/index.mjs'],
+      ['firebase/database', 'database/dist/index.mjs'],
+      ['firebase/ai', 'ai/dist/index.mjs'],
+      ['firebase/storage', 'storage/dist/index.mjs'],
+      ['firebase/messaging', 'messaging/dist/index.mjs'],
+      ['firebase/messaging/sw', 'messaging/sw/dist/index.mjs'],
+    ];
+    for (const [specifier, entryPath] of validEntries) {
+      const allowed = noneAllowed();
+      const url = `file:///work/app/node_modules/firebase/${entryPath}`;
+      const rowLoad = load({ specifier, url, importer: `pyric-live-row:${specifier}` });
+      expect(suppliedRowsStopFor(rowLoad, allowed, rowGrant)).toBeNull();
+      expect(allowed.has(url)).toBe(true);
+    }
+  });
+
+  it('stops a live row redirected to another firebase entry, naming the row specifier, the resolved file and the fix', () => {
+    const redirectedEntries: ReadonlyArray<readonly [specifier: string, path: string]> = [
+      ['firebase/firestore', 'firestore/lite/dist/index.mjs'],
+      ['firebase/firestore', 'firestore/lite/dist/esm/index.esm.js'],
+      ['firebase/firestore', 'firestore/pipelines/dist/index.mjs'],
+      ['firebase/firestore', 'firebase-firestore.js'],
+      ['firebase/firestore', 'firestore/dist/../../firestore/lite/dist/index.mjs'],
+      ['firebase/messaging', 'messaging/sw/dist/index.mjs'],
+      ['firebase/messaging/sw', 'messaging/dist/index.mjs'],
+      ['firebase/auth', 'auth/cordova/dist/index.mjs'],
+      ['firebase', 'firestore/dist/index.mjs'],
+      ['firebase/', 'firestore/dist/index.mjs'],
+      ['custom-firestore-alias', 'firestore/dist/index.mjs'],
+    ];
+    for (const [specifier, entryPath] of redirectedEntries) {
+      const allowed = noneAllowed();
+      const url = `file:///work/app/node_modules/firebase/${entryPath}`;
+      const rowLoad = load({ specifier, url, importer: `pyric-live-row:${specifier}` });
+      const stop = suppliedRowsStopFor(rowLoad, allowed, rowGrant) as (Error & { code?: string }) | null;
+      expect(stop).not.toBeNull();
+      expect(stop?.code).toBe(REAL_SDK_STOPPED_CODE);
+      expect(allowed.size).toBe(0);
+    }
+
+    const liteUrl = 'file:///work/app/node_modules/firebase/firestore/lite/dist/index.mjs';
+    const liteStop = suppliedRowsStopFor(
+      load({ specifier: 'firebase/firestore', url: liteUrl, importer: 'pyric-live-row:firebase/firestore' }),
+      noneAllowed(),
+      rowGrant,
+    );
+    expect(liteStop?.message).toContain(`found  ${liteUrl}`);
+    expect(liteStop?.message).toContain("@pyric/live's firebase/firestore row loads only firebase/firestore's own entry in firebase.");
+    expect(liteStop?.message).toContain("remove any alias or redirect on 'firebase/firestore'");
+  });
+
+  it('stops an aliased live row in a node --import @pyric/live/register subprocess before any SDK file loads', async () => {
+    const { spawnSync } = await import('node:child_process');
+    const { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } = await import('node:fs');
+    const { createRequire } = await import('node:module');
+    const { tmpdir } = await import('node:os');
+    const { dirname } = await import('node:path');
+
+    const repoRoot = resolve(cliRoot, '../..');
+    const liveDir = join(repoRoot, 'packages/live');
+    const requireFromRepo = createRequire(join(repoRoot, 'package.json'));
+    const realFirebaseDir = realpathSync(dirname(requireFromRepo.resolve('firebase/package.json')));
+    const workDir = realpathSync(mkdtempSync(join(tmpdir(), 'pyric-live-row-alias-')));
+    try {
+      mkdirSync(join(workDir, 'node_modules/@pyric'), { recursive: true });
+      symlinkSync(cliRoot, join(workDir, 'node_modules/@pyric/cli'));
+      symlinkSync(liveDir, join(workDir, 'node_modules/@pyric/live'));
+      symlinkSync(realFirebaseDir, join(workDir, 'node_modules/firebase'));
+      writeFileSync(join(workDir, 'package.json'), JSON.stringify({ name: 'row-alias-app', type: 'module' }));
+      writeFileSync(join(workDir, '.firebaserc'), JSON.stringify({ projects: { default: 'demo-row-alias' } }));
+      const preload = join(workDir, 'preload.mjs');
+      writeFileSync(preload, [
+        "import Module from 'node:module';",
+        'const loaded = [];',
+        "globalThis[Symbol.for('row.alias.loaded')] = loaded;",
+        'Module.registerHooks({',
+        "  resolve(specifier, context, nextResolve) {",
+        "    if (specifier === 'firebase/firestore') return nextResolve('firebase/firestore/lite', context);",
+        '    return nextResolve(specifier, context);',
+        '  },',
+        '  load(url, context, nextLoad) { loaded.push(url); return nextLoad(url, context); },',
+        '});',
+      ].join('\n'));
+      const entry = join(workDir, 'entry.mjs');
+      writeFileSync(entry, [
+        'let code = "loaded", message = "";',
+        "try { await import('firebase/firestore'); } catch (err) { code = err?.code ?? 'threw'; message = String(err?.message ?? err); }",
+        "const sdkFiles = globalThis[Symbol.for('row.alias.loaded')].filter((u) => /\\/node_modules\\/(firebase|@firebase\\/[^/]+)\\//.test(u));",
+        "console.log('OUTCOME ' + JSON.stringify({ code, message, sdkFiles }));",
+      ].join('\n'));
+      const result = spawnSync('node', ['--import', pathToFileURL(preload).href, '--import', '@pyric/live/register', entry], {
+        cwd: workDir, encoding: 'utf8', timeout: 30_000, env: { PATH: process.env.PATH, HOME: workDir },
+      });
+      expect(result.status, result.stderr).toBe(0);
+      const line = result.stdout.split('\n').find((text) => text.startsWith('OUTCOME ')) ?? 'OUTCOME {}';
+      const outcome = JSON.parse(line.slice('OUTCOME '.length)) as { code?: string; message?: string; sdkFiles?: string[] };
+      const firestoreFiles = (outcome.sdkFiles ?? []).filter((url) => url.includes('firestore'));
+      expect(outcome.code).toBe(REAL_SDK_STOPPED_CODE);
+      expect(firestoreFiles).toEqual([]);
+      expect(outcome.message).toContain("@pyric/live's firebase/firestore row loads only firebase/firestore's own entry in firebase.");
+      expect(outcome.message).toContain('firestore/lite/dist/');
+    } finally {
+      rmSync(workDir, { recursive: true, force: true });
+    }
+  }, 60_000);
+});
+
 describe('stopFor: everything else', () => {
   it('checks manifest identity for file URLs outside node_modules and leaves non-Firebase app files alone (#1620)', () => {
     const read: string[] = [];

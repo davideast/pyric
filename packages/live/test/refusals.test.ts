@@ -161,5 +161,32 @@ describe('the refusals follow the live rows', () => {
       );
       expect(PASS_THROUGH_CANDIDATES).not.toContain(row);
     }
+    expect(PASS_THROUGH_CANDIDATES).not.toContain('firebase/firestore/lite');
+    expect(PASS_THROUGH_CANDIDATES).toEqual(
+      expect.arrayContaining([
+        'firebase/analytics',
+        'firebase/crashlytics',
+        'firebase/functions',
+        'firebase/performance',
+        'firebase/remote-config',
+      ]),
+    );
+  });
+
+  test('a live row whose specifier resolved outside its own entry names why on page and node, while keeping the server refusal (#2302)', () => {
+    for (const row of rows) {
+      for (const client of ['page', 'node'] as const) {
+        const error = liveRefusal(row, client) as Error & { code?: string };
+        expect(error.code).toBe(LIVE_REFUSED);
+        expect(error.message).toContain(`@pyric/live: ${row} (`);
+        expect(error.message).not.toContain(`(${row})`);
+        expect(error.message).toContain(`resolved outside ${row}'s own entry in your installed Firebase SDK`);
+        expect(error.message).toContain(`Remove the alias or redirect on ${row}`);
+      }
+      expect(liveRefusal(row, 'server').message).toContain(
+        'Live mode serves Firebase to pages only; server code the dev server runs gets no Firebase module yet.',
+      );
+    }
+    expect(liveRefusal('firebase/firestore', 'page').message).toContain('firebase/firestore (Cloud Firestore)');
   });
 });
