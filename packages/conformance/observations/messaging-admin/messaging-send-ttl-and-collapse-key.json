@@ -1,0 +1,193 @@
+{
+  "name": "messaging-send-ttl-and-collapse-key",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "FCM v1 messages:send store-and-forward TTL and collapse-key intake across android (ttl 0ms, 1.5s fractional, 2419200000ms four-week boundary, >2419200s wire response, collapseKey), webpush (headers.TTL 0, 2419200, >2419200 wire response, headers.Topic), and apns (apns-expiration 0, apns-collapse-id and >64-byte wire response).",
+  "observedAt": "2026-11-23T15:23:02.915Z",
+  "adminSdkVersion": "13.10.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "androidZeroTtlAndCollapseKey": {
+      "realSend": {
+        "matchesProjectsMessagesFormat": true,
+        "projectSegmentMatchesProject": true
+      },
+      "dryRunSend": {
+        "matchesProjectsMessagesFormat": true,
+        "projectSegmentMatchesProject": true
+      },
+      "dryRunSameShapeAsReal": true
+    },
+    "androidFourWeekMaxTtl": {
+      "realSend": {
+        "matchesProjectsMessagesFormat": true,
+        "projectSegmentMatchesProject": true
+      },
+      "dryRunSend": {
+        "matchesProjectsMessagesFormat": true,
+        "projectSegmentMatchesProject": true
+      },
+      "dryRunSameShapeAsReal": true
+    },
+    "androidSubsecondTtl": {
+      "realSend": {
+        "matchesProjectsMessagesFormat": true,
+        "projectSegmentMatchesProject": true
+      },
+      "dryRunSend": {
+        "matchesProjectsMessagesFormat": true,
+        "projectSegmentMatchesProject": true
+      },
+      "dryRunSameShapeAsReal": true
+    },
+    "androidOverFourWeekTtlClient": {
+      "threw": true,
+      "code": "messaging/invalid-argument",
+      "message": "TTL [2419201] must not exceed the maximum of 4 weeks.",
+      "isFirebaseMessagingError": true,
+      "name": "Error"
+    },
+    "androidOverFourWeekTtlWire": {
+      "dryRunStatus": 400,
+      "dryRunAccepted": false,
+      "realSendStatus": 400,
+      "realSendAccepted": false,
+      "dryRunMatchesRealSend": true,
+      "dryRunError": {
+        "code": 400,
+        "message": "TTL [2419201] must not exceed the maximum of 4 weeks.",
+        "status": "INVALID_ARGUMENT",
+        "details": [
+          {
+            "@type": "type.googleapis.com/google.rpc.BadRequest",
+            "fieldViolations": [
+              {
+                "field": "message.android.TTL",
+                "description": "TTL [2419201] must not exceed the maximum of 4 weeks."
+              }
+            ]
+          },
+          {
+            "@type": "type.googleapis.com/google.firebase.fcm.v1.FcmError",
+            "errorCode": "INVALID_ARGUMENT"
+          }
+        ]
+      },
+      "realSendError": {
+        "code": 400,
+        "message": "TTL [2419201] must not exceed the maximum of 4 weeks.",
+        "status": "INVALID_ARGUMENT",
+        "details": [
+          {
+            "@type": "type.googleapis.com/google.rpc.BadRequest",
+            "fieldViolations": [
+              {
+                "field": "message.android.TTL",
+                "description": "TTL [2419201] must not exceed the maximum of 4 weeks."
+              }
+            ]
+          },
+          {
+            "@type": "type.googleapis.com/google.firebase.fcm.v1.FcmError",
+            "errorCode": "INVALID_ARGUMENT"
+          }
+        ]
+      }
+    },
+    "webpushZeroTtlAndTopic": {
+      "realSend": {
+        "matchesProjectsMessagesFormat": true,
+        "projectSegmentMatchesProject": true
+      },
+      "dryRunSend": {
+        "matchesProjectsMessagesFormat": true,
+        "projectSegmentMatchesProject": true
+      },
+      "dryRunSameShapeAsReal": true
+    },
+    "webpushFourWeekMaxTtl": {
+      "realSend": {
+        "matchesProjectsMessagesFormat": true,
+        "projectSegmentMatchesProject": true
+      },
+      "dryRunSend": {
+        "matchesProjectsMessagesFormat": true,
+        "projectSegmentMatchesProject": true
+      },
+      "dryRunSameShapeAsReal": true
+    },
+    "webpushOverFourWeekTtlWire": {
+      "dryRunStatus": 200,
+      "dryRunAccepted": true,
+      "realSendStatus": 200,
+      "realSendAccepted": true,
+      "dryRunMatchesRealSend": true,
+      "dryRunName": {
+        "matchesProjectsMessagesFormat": true,
+        "projectSegmentMatchesProject": true
+      },
+      "realSendName": {
+        "matchesProjectsMessagesFormat": true,
+        "projectSegmentMatchesProject": true
+      }
+    },
+    "apnsZeroExpirationAndCollapseId": {
+      "realSend": {
+        "matchesProjectsMessagesFormat": true,
+        "projectSegmentMatchesProject": true
+      },
+      "dryRunSend": {
+        "matchesProjectsMessagesFormat": true,
+        "projectSegmentMatchesProject": true
+      },
+      "dryRunSameShapeAsReal": true
+    },
+    "apnsOver64ByteCollapseIdWire": {
+      "dryRunStatus": 400,
+      "dryRunAccepted": false,
+      "realSendStatus": 400,
+      "realSendAccepted": false,
+      "dryRunMatchesRealSend": true,
+      "dryRunError": {
+        "code": 400,
+        "message": "The length of [apns-collapse-id] header must not exceed [64] bytes.",
+        "status": "INVALID_ARGUMENT",
+        "details": [
+          {
+            "@type": "type.googleapis.com/google.rpc.BadRequest",
+            "fieldViolations": [
+              {
+                "field": "message.apns.headers.apns-collapse-id",
+                "description": "The length of [apns-collapse-id] header must not exceed [64] bytes."
+              }
+            ]
+          },
+          {
+            "@type": "type.googleapis.com/google.firebase.fcm.v1.FcmError",
+            "errorCode": "INVALID_ARGUMENT"
+          }
+        ]
+      },
+      "realSendError": {
+        "code": 400,
+        "message": "The length of [apns-collapse-id] header must not exceed [64] bytes.",
+        "status": "INVALID_ARGUMENT",
+        "details": [
+          {
+            "@type": "type.googleapis.com/google.rpc.BadRequest",
+            "fieldViolations": [
+              {
+                "field": "message.apns.headers.apns-collapse-id",
+                "description": "The length of [apns-collapse-id] header must not exceed [64] bytes."
+              }
+            ]
+          },
+          {
+            "@type": "type.googleapis.com/google.firebase.fcm.v1.FcmError",
+            "errorCode": "INVALID_ARGUMENT"
+          }
+        ]
+      }
+    }
+  }
+}
