@@ -13,18 +13,14 @@ import { checkRulesTarball, ISOLATED_RULES_FILES, isNodeBuiltinSpecifier, planRu
 
 const root = REPO_ROOT;
 const tracker = new TempDirTracker();
-afterEach(() => {
-  tracker.cleanup();
-});
+afterEach(() => tracker.cleanup());
 
 const PACK = 'bash scripts/pack-packages.sh';
 const PACKAGING_GATE = 'bash scripts/packaging-test.sh --packages dist/packages';
 const UPLOADED = 'pyric pyric-admin create-pyric pyric-cli pyric-ui pyric-live';
 const STAMP_WRITE = `node ${join(root, 'scripts/lib/proven-stamp.mjs')} write ${join(root, 'dist/packages')} 0.1.0-alpha.9 ${root} ${UPLOADED}`;
 const STAMP_VERIFY = `node ${join(root, 'scripts/lib/proven-stamp.mjs')} verify ${join(root, 'dist/packages')} 0.1.0-alpha.9 ${root} ${UPLOADED}`;
-const PACKED_UPLOADS = ['pyric', 'pyric-admin', 'create-pyric', 'pyric-cli', 'pyric-ui', 'pyric-live'].map(
-  (name) => `uploaded ${name}-0.1.0-alpha.9.tgz packed ${name}`,
-);
+const PACKED_UPLOADS = ['pyric', 'pyric-admin', 'create-pyric', 'pyric-cli', 'pyric-ui', 'pyric-live'].map((name) => `uploaded ${name}-0.1.0-alpha.9.tgz packed ${name}`);
 
 describe('alpha publish safety contract', () => {
   test('proves the tree before the first irreversible publish', () => {
@@ -50,10 +46,7 @@ describe('alpha publish safety contract', () => {
     const packedDrift = commands.findIndex((command) => command.includes('check-publish-version.mjs --packed'));
     expect(packedDrift).toBeGreaterThan(pack);
     const rebuildsOrRepacks = commands.slice(pack + 1).filter(
-      (command) =>
-        command.startsWith('bash scripts/build.sh') ||
-        command.startsWith('npm pack') ||
-        command === 'bun run build',
+      (c) => c.startsWith('bash scripts/build.sh') || c.startsWith('npm pack') || c === 'bun run build',
     );
     expect(rebuildsOrRepacks).toEqual([]);
   });
@@ -112,9 +105,7 @@ describe('alpha publish safety contract', () => {
     }
     writeFileSync(join(packages, 'manifest.json'), JSON.stringify({ packages: [] }));
     const result = spawnSync('/bin/bash', [join(root, 'scripts/packaging-test.sh'), '--packages', packages], {
-      cwd: root,
-      encoding: 'utf8',
-      env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, COMMAND_LOG: log, TMPDIR: work },
+      cwd: root, encoding: 'utf8', env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, COMMAND_LOG: log, TMPDIR: work },
     });
     expect(result.status).toBe(1);
     expect(result.stdout).toContain(`build and pack skipped: testing the tarballs in ${packages}`);
@@ -139,12 +130,8 @@ describe('alpha publish safety contract', () => {
   test('the generated release checklists require preflight before publishing and open PRs with ci-packaging', () => {
     const script = readFileSync(join(root, 'scripts/prepare-release.sh'), 'utf8');
     const checklist = script.slice(script.indexOf('BODY_FILE='));
-    expect(checklist.indexOf('bun run release:preflight --package rules')).toBeLessThan(
-      checklist.indexOf('bash scripts/publish-alpha.sh --package rules'),
-    );
-    expect(checklist.lastIndexOf('bun run release:preflight')).toBeLessThan(
-      checklist.lastIndexOf('bash scripts/publish-alpha.sh'),
-    );
+    expect(checklist.indexOf('bun run release:preflight --package rules')).toBeLessThan(checklist.indexOf('bash scripts/publish-alpha.sh --package rules'));
+    expect(checklist.lastIndexOf('bun run release:preflight')).toBeLessThan(checklist.lastIndexOf('bash scripts/publish-alpha.sh'));
     expect(checklist).not.toContain('OTP-capable');
     expect(script).toContain('gh pr create');
     expect(script).toContain('--label ci-packaging');
@@ -188,10 +175,7 @@ describe('alpha publish safety contract', () => {
     const latestRun = runPublish(tracker, { skip: true });
     expect(latestRun.result.status).toBe(0);
     const liveTags = latestRun.commands.filter((c) => c.startsWith('npm dist-tag add @pyric/live@0.1.0-alpha.9 '));
-    expect(liveTags).toEqual([
-      'npm dist-tag add @pyric/live@0.1.0-alpha.9 latest',
-      'npm dist-tag add @pyric/live@0.1.0-alpha.9 alpha',
-    ]);
+    expect(liveTags).toEqual(['npm dist-tag add @pyric/live@0.1.0-alpha.9 latest', 'npm dist-tag add @pyric/live@0.1.0-alpha.9 alpha']);
     expect(latestRun.commands.some((c) => c.endsWith(' fb12.13'))).toBe(true);
 
     const custom = runPublish(tracker, { skip: true, publishTag: 'exp', npmRegistry: 'http://127.0.0.1:4873/' });
@@ -230,20 +214,13 @@ describe('@pyric/rules standalone release path (--package rules, #1521)', () => 
     expect(uploads[0]).toContain('/pyric-rules-0.1.0.tgz --tag latest --access public');
     expect(commands).not.toContain('bun run test');
     expect(commands).not.toContain('bun run compat:check');
-    expect(commands.filter((c) => c.startsWith('npm dist-tag add '))).toEqual([
-      'npm dist-tag add @pyric/rules@0.1.0 latest',
-    ]);
+    expect(commands.filter((c) => c.startsWith('npm dist-tag add '))).toEqual(['npm dist-tag add @pyric/rules@0.1.0 latest']);
     expect(result.stdout).toContain('git tag rules-v0.1.0 && git push origin rules-v0.1.0');
   });
 
   test('accepts --dry-run both before and after --package rules (for bun run release:preflight --package rules)', () => {
     for (const dryRunAfterPackage of [false, true]) {
-      const { result, commands } = runPublish(tracker, {
-        packageTarget: 'rules',
-        dryRun: true,
-        dryRunAfterPackage,
-        version: '0.1.0',
-      });
+      const { result, commands } = runPublish(tracker, { packageTarget: 'rules', dryRun: true, dryRunAfterPackage, version: '0.1.0' });
       expect(result.status).toBe(0);
       expect(commands).toContain('npm whoami --registry=https://registry.npmjs.org/');
       const uploads = commands.filter((c) => c.startsWith('npm publish '));
@@ -271,28 +248,18 @@ describe('@pyric/rules standalone release path (--package rules, #1521)', () => 
     expect(skipped.commands).toContain(RULES_STAMP_VERIFY);
     expect(skipped.commands).not.toContain(RULES_PROOF);
     expect(skipped.commands).not.toContain(RULES_PACK);
-    expect(skipped.commands.filter((c) => c.startsWith('npm dist-tag add '))).toEqual([
-      'npm dist-tag add @pyric/rules@0.1.0 exp',
-    ]);
+    expect(skipped.commands.filter((c) => c.startsWith('npm dist-tag add '))).toEqual(['npm dist-tag add @pyric/rules@0.1.0 exp']);
   });
 
   test('real stamp + access check refuses a brand-new @pyric/rules until PYRIC_PUBLISH_SCOPE_WRITE=@pyric is set', () => {
     const repo = realStampRepo(tracker);
-    const refused = publishForReal(
-      repo,
-      { ACCESS_JSON: ALL_READ_WRITE, NEW_PACKAGES: '@pyric/rules' },
-      { packageTarget: 'rules', version: '0.1.0' },
-    );
+    const refused = publishForReal(repo, { ACCESS_JSON: ALL_READ_WRITE, NEW_PACKAGES: '@pyric/rules' }, { packageTarget: 'rules', version: '0.1.0' });
     expect(refused.result.status).toBe(1);
     expect(refused.result.stderr).toContain('@pyric/rules');
     expect(refused.result.stderr).toContain('PYRIC_PUBLISH_SCOPE_WRITE=@pyric');
     expect(refused.uploads).toEqual([]);
 
-    const allowed = publishForReal(
-      repo,
-      { ACCESS_JSON: ALL_READ_WRITE, NEW_PACKAGES: '@pyric/rules', PYRIC_PUBLISH_SCOPE_WRITE: '@pyric' },
-      { packageTarget: 'rules', version: '0.1.0' },
-    );
+    const allowed = publishForReal(repo, { ACCESS_JSON: ALL_READ_WRITE, NEW_PACKAGES: '@pyric/rules', PYRIC_PUBLISH_SCOPE_WRITE: '@pyric' }, { packageTarget: 'rules', version: '0.1.0' });
     expect(allowed.result.status).toBe(0);
     expect(allowed.uploads).toEqual(['uploaded pyric-rules-0.1.0.tgz packed pyric-rules']);
   }, 15_000);
@@ -335,18 +302,10 @@ describe('@pyric/rules standalone release path (--package rules, #1521)', () => 
     const fakeWork = tracker.create('browser-gate');
     const pkgDir = join(fakeWork, 'node_modules/@pyric/rules');
     mkdirSync(join(pkgDir, 'dist/internal'), { recursive: true });
-    writeFileSync(
-      join(pkgDir, 'package.json'),
-      JSON.stringify({
-        name: '@pyric/rules',
-        version: '0.1.0',
-        type: 'module',
-        exports: {
-          '.': { import: './dist/index.js' },
-          './internal/node': { import: './dist/internal/node.js' },
-        },
-      }),
-    );
+    writeFileSync(join(pkgDir, 'package.json'), JSON.stringify({
+      name: '@pyric/rules', version: '0.1.0', type: 'module',
+      exports: { '.': { import: './dist/index.js' }, './internal/node': { import: './dist/internal/node.js' } },
+    }));
     writeFileSync(join(pkgDir, 'dist/internal/node.js'), "import { readFileSync } from 'node:fs';\nexport { readFileSync };\n");
     writeFileSync(join(pkgDir, 'dist/index.js'), 'export const ok = 1;\n');
     expect(await verifyBrowserBundlesHaveNoNodeBuiltins(fakeWork, pkgDir)).toEqual([]);
@@ -450,6 +409,62 @@ describe('@pyric/rules standalone release path (--package rules, #1521)', () => 
     expect(nextBody).toContain('## Changes since v0.1.0-alpha.36');
     expect(nextBody).toContain('post-pin unreleased main feature');
     expect(nextBody).not.toContain('initial engine');
+  }, 20_000);
+
+  test('prepare-release.sh caps oversized changelogs safely below 65,536 chars for rules and pyric', () => {
+    const parseOmittedCount = (body: string): number => {
+      const match = /_\((\d+) earlier commits omitted/.exec(body);
+      if (!match || !match[1]) return 0;
+      return Number(match[1]);
+    };
+    const fx = setupPrepareReleaseRepo(tracker, 'prep-body-cap');
+    fx.git('tag', 'v0.1.0-alpha.35');
+    fx.git('push', '-q', 'origin', 'v0.1.0-alpha.35');
+    const chunks: string[] = [];
+    for (let i = 1; i <= 650; i += 1) {
+      const msg = `feat(rules): synthetic release commit ${String(i).padStart(3, '0')} exercising GitHub pull request body truncation safely below 65536 chars`;
+      const data = `seed-${i}\n`;
+      chunks.push('commit refs/heads/main\n', `committer t <t@example.test> ${1_700_000_000 + i} +0000\n`, `data ${Buffer.byteLength(msg)}\n${msg}\n`);
+      if (i === 1) chunks.push('from refs/heads/main^0\n');
+      chunks.push(`M 100644 inline packages/rules/seed.txt\ndata ${Buffer.byteLength(data)}\n${data}\n`);
+    }
+    expect(spawnSync('git', ['fast-import', '--quiet'], { cwd: fx.clone, input: chunks.join(''), encoding: 'utf8' }).status).toBe(0);
+    fx.git('reset', '--hard', 'main');
+    fx.git('push', '-q', 'origin', 'main');
+    const tipSha = fx.git('rev-parse', 'HEAD');
+    const pinSha = fx.git('rev-parse', 'HEAD~1');
+    fx.git('tag', 'rc/0.1.1', pinSha);
+    fx.git('push', '-q', 'origin', 'rc/0.1.1');
+    expect(fx.git('log', 'v0.1.0-alpha.35..HEAD', '--format=- %s (%h)').length).toBeGreaterThan(65_536);
+
+    // 1) --package rules --base with no prior rules-v* tag or bump: exercises pinned-base + commits/<sha> fallback + truncation.
+    expect(fx.runPrepare(['--package', 'rules', '--base', 'rc/0.1.1', '0.1.1']).status).toBe(0);
+    const rulesBody = readFileSync(join(fx.prBodiesDir, 'body-0.md'), 'utf8');
+    expect(rulesBody.length).toBeLessThan(65_536);
+    expect(Buffer.byteLength(rulesBody, 'utf8')).toBeLessThan(65_536);
+    expect(rulesBody).toContain('Pinned-base release cut for `@pyric/rules@0.1.1`');
+    expect(rulesBody).toContain(`Full diff (650 non-merge commits): https://github.com/davideast/pyric/commits/${pinSha}`);
+    expect(rulesBody).not.toContain('/compare/...');
+    expect(rulesBody).toContain('origin/release-base/rules-v0.1.1 && bun install --frozen-lockfile');
+    const rulesBullets = rulesBody.split('\n').filter((line) => line.startsWith('- feat('));
+    const rulesOmitted = parseOmittedCount(rulesBody);
+    expect(rulesBullets.every((line) => /^- feat\(rules\): .+ \([0-9a-f]+\)$/.test(line))).toBe(true);
+    expect(rulesBullets.length + rulesOmitted).toBe(650);
+    expect(rulesOmitted).toBeGreaterThan(100);
+
+    // 2) Lockstep pyric since v0.1.0-alpha.35: exercises compare/<prev>...<base> URL + newest-first whole-line truncation.
+    fx.git('checkout', '-q', 'main');
+    expect(fx.runPrepare(['0.1.0-alpha.36']).status).toBe(0);
+    const pyricBody = readFileSync(join(fx.prBodiesDir, 'body-1.md'), 'utf8');
+    expect(pyricBody.length).toBeLessThan(65_536);
+    expect(Buffer.byteLength(pyricBody, 'utf8')).toBeLessThan(65_536);
+    expect(pyricBody).toContain(`Full diff (650 non-merge commits): https://github.com/davideast/pyric/compare/v0.1.0-alpha.35...${tipSha}`);
+    expect(pyricBody).toContain('- feat(rules): synthetic release commit 650 ');
+    expect(pyricBody).toContain('- [ ] Site deploy (`bash scripts/deploy-site.sh`)');
+    const pyricBullets = pyricBody.split('\n').filter((line) => line.startsWith('- feat('));
+    const pyricOmitted = parseOmittedCount(pyricBody);
+    expect(pyricBullets.every((line) => /^- feat\(rules\): synthetic release commit \d{3} .+ \([0-9a-f]+\)$/.test(line))).toBe(true);
+    expect(pyricBullets.length + pyricOmitted).toBe(650);
   }, 20_000);
 });
 
@@ -569,16 +584,11 @@ describe('a pack that fails or is interrupted leaves no tarball behind', () => {
       writeFileSync(join(bin, 'bash'), '#!/bin/bash\nexec sleep 30\n');
       chmodSync(join(bin, 'bash'), 0o755);
       const pack = spawn('/bin/bash', [join(root, 'scripts/pack-packages.sh'), '--out', out], {
-        cwd: root,
-        detached: true,
-        stdio: 'ignore',
-        env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+        cwd: root, detached: true, stdio: 'ignore', env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
       });
       await new Promise((resolvePromise) => setTimeout(resolvePromise, 1500));
       process.kill(-(pack.pid ?? 0), signal);
-      const code = await new Promise<number | null>((resolvePromise) =>
-        pack.once('close', (exitCode) => resolvePromise(exitCode)),
-      );
+      const code = await new Promise<number | null>((resolvePromise) => pack.once('close', (exitCode) => resolvePromise(exitCode)));
       expect(code).not.toBe(0);
       expect(readdirSync(out).sort()).toEqual(['notes.txt']);
     }, 15_000);
