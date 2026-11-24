@@ -1,5 +1,5 @@
 /**
- * `pyric/firestore` — snapshot listeners.
+ * `pyric/firestore` -- snapshot listeners.
  *
  * `onSnapshot` plus the sandbox listener plumbing: resolving the listenable
  * under current auth, threading the follows-current-user marker, tagging +
@@ -30,15 +30,18 @@ import {
   type SandboxTarget,
   type SandboxLiveTarget,
 } from './state.js';
-import { wrapSandboxDocSnap, tagSnapshotRefs, recordQuerySnapshot, applyConverterToDeliveredSnap } from './snapshots.js';
+import {
+  wrapSandboxDocSnap,
+  tagSnapshotRefs,
+  recordQuerySnapshot,
+  applyConverterToDeliveredSnap,
+} from './snapshots.js';
 import { createSnapshotMetadata } from './snapshot-metadata.js';
 import type {
   DocumentReference,
   Query,
   Unsubscribe,
 } from './types.js';
-
-// ─── Snapshot listeners ───────────────────────────────────────────────
 
 export interface SnapshotListenOptions extends RecordedListenerOwners {
   includeMetadataChanges?: boolean;
@@ -61,15 +64,26 @@ export interface SnapshotObserver<T> {
 export function onSnapshot<T extends DocumentReference | Query>(
   ref: T,
   observerOrNext: SnapshotObserver<unknown> | ((snap: unknown) => void),
-  errorOrNothing?: ((error: unknown) => void),
+  errorOrNothing?: (error: unknown) => void,
 ): Unsubscribe;
 export function onSnapshot<T extends DocumentReference | Query>(
   ref: T,
   options: SnapshotListenOptions,
   observerOrNext: SnapshotObserver<unknown> | ((snap: unknown) => void),
-  errorOrNothing?: ((error: unknown) => void),
+  errorOrNothing?: (error: unknown) => void,
 ): Unsubscribe;
 export function onSnapshot(
+  ref: DocumentReference | Query,
+  arg2: SnapshotListenOptions | SnapshotObserver<unknown> | ((snap: unknown) => void),
+  arg3?: SnapshotObserver<unknown> | ((snap: unknown) => void) | ((error: unknown) => void),
+  arg4?: (error: unknown) => void,
+): Unsubscribe {
+  return listenAs('onSnapshot', ref, arg2, arg3, arg4);
+}
+
+/** Package-internal listener entry preserving the public method name in SDK activity. */
+export function listenAs(
+  method: 'onSnapshot' | 'onSnapshotResume',
   ref: DocumentReference | Query,
   arg2: SnapshotListenOptions | SnapshotObserver<unknown> | ((snap: unknown) => void),
   arg3?: SnapshotObserver<unknown> | ((snap: unknown) => void) | ((error: unknown) => void),
@@ -87,7 +101,7 @@ export function onSnapshot(
   if (typeof arg2 === 'object' && arg2 !== null && !isPartialObserver(arg2)) {
     attribution = arg2 as SnapshotListenOptions;
   }
-  const activity = beginFirestoreActivity(target, ref, 'onSnapshot', 'subscription', attribution);
+  const activity = beginFirestoreActivity(target, ref, method, 'subscription', attribution);
   let stopped = false;
   let errored = false;
   const hooks: ListenerHooks = {
@@ -127,8 +141,16 @@ export function onSnapshot(
       deliverSnap: parsed.deliverNext,
       deliverError: parsed.deliverError,
     });
-  } catch (error) { activity.fail(); throw error; }
-  if (!target.own) return () => { activity.close(); unsubscribe(); };
+  } catch (error) {
+    activity.fail();
+    throw error;
+  }
+  if (!target.own) {
+    return () => {
+      activity.close();
+      unsubscribe();
+    };
+  }
   const stop = (): void => {
     if (stopped) return;
     stopped = true;
@@ -154,18 +176,6 @@ export function onSnapshot(
   };
 }
 
-/**
- * Pick the chainable object whose `.onSnapshot` we attach to. For
- * `sandbox`, this is just the underlying held chainable (existing
- * behavior). For `sandbox-live`, this is a fresh chainable rebuilt
- * against the current `sandbox.currentUser` — the listener captures
- * that identity as its initial auth. Unlike before, the live listener
- * then FOLLOWS `currentUser`: a later sign-out / sign-in re-evaluates
- * it under the new identity (wired via `FOLLOWS_CURRENT_USER` →
- * `LocalEnvironment.reevaluateLiveListeners`), so an auth-gated
- * listener loses access on sign-out without the caller having to
- * unsubscribe — matching production's listener re-establishment.
- */
 function resolveSandboxListenable(
   target: SandboxTarget | SandboxLiveTarget,
   ref: DocumentReference | Query,
@@ -183,19 +193,6 @@ function resolveSandboxListenable(
   return rebuild(sandboxDb(target)) as unknown as { onSnapshot: (...args: unknown[]) => Unsubscribe };
 }
 
-/**
- * Wrap the `next` callback in an `onSnapshot(…)` call so every ref the
- * snapshot carries is tagged into `refToTarget` before delivery. Returns
- * the rewritten arg tuple ready to forward to the underlying chainable
- * adapter.
- */
-/**
- * FS-B14 — `true` when `obj` is a partial `onSnapshot` observer (an object
- * carrying at least one of `next` / `error` / `complete` as a function).
- * Mirrors `isPartialObserver` in `clones/.../api/observer.ts`. Used to keep
- * an `{ error: fn }` / `{ complete: fn }` observer from being misrouted as a
- * `SnapshotListenOptions` object.
- */
 function isPartialObserver(obj: unknown): boolean {
   if (typeof obj !== 'object' || obj === null) return false;
   const o = obj as Record<string, unknown>;
@@ -282,41 +279,28 @@ function extractConsumerHandlers(
   };
 }
 
-/**
- * Stamp the internal `FOLLOWS_CURRENT_USER` marker onto the options
- * object of a forwarded `onSnapshot` arg tuple, so the chainable adapter
- * can set `addSnapshotListener`'s `followsCurrentUser` flag. Only applies
- * to `sandbox-live` targets; frozen-ctx listeners keep their pinned identity.
- *
- * `args` is the post-`tagSandboxSnapshotArgs` tuple, which is one of:
- *   - `[options, next|observer, error?]` — options-first form
- *   - `[next|observer, error?]`          — callback-first form
- *   - `[observer]`                       — observer-only form
- *
- * For the options-first form we clone the options and add the symbol.
- * For the other forms we PREPEND a fresh options object carrying only
- * the symbol — safe because the chainable adapter's normalizer
- * discriminates `(options, …)` from `(callback, …)` by inspecting the
- * first arg, and a marker-only object has no `next`/`error`/`complete`
- * handler so it reads as options.
- */
 function markSandboxLiveSnapshotArgs(args: unknown[], target: Target): unknown[] {
   if (target.kind !== 'sandbox-live') return args;
   const first = args[0];
   const firstIsOptions =
     typeof first === 'object' && first !== null && !isPartialObserver(first);
   if (firstIsOptions) {
-    const opts = {
+    const opts: Record<PropertyKey, unknown> = {
       ...(first as Record<PropertyKey, unknown>),
       [FOLLOWS_CURRENT_USER]: true,
-      ...(target.authScope ? { [AUTH_SESSION_SCOPE]: target.authScope } : {}),
     };
+    if (target.authScope !== undefined) {
+      opts[AUTH_SESSION_SCOPE] = target.authScope;
+    }
     return [opts, ...args.slice(1)];
   }
-  return [{
+  const markerOnly: Record<PropertyKey, unknown> = {
     [FOLLOWS_CURRENT_USER]: true,
-    ...(target.authScope ? { [AUTH_SESSION_SCOPE]: target.authScope } : {}),
-  }, ...args];
+  };
+  if (target.authScope !== undefined) {
+    markerOnly[AUTH_SESSION_SCOPE] = target.authScope;
+  }
+  return [markerOnly, ...args];
 }
 
 function finalizeSandboxSnapshot(snap: unknown, target: Target, source: object): unknown {
@@ -360,15 +344,6 @@ function finalizeSandboxSnapshot(snap: unknown, target: Target, source: object):
   return snap;
 }
 
-/**
- * Default error handler for a sandbox `onSnapshot` listener whose caller
- * supplied none. Mirrors the Firebase Web SDK, which logs an uncaught listener
- * error to the console rather than swallowing it — WITHOUT this, a denied
- * listener (a rules change, or a sign-out that revokes read access) fails
- * INVISIBLY: the last snapshot stays on screen and the app gets no signal that
- * its read was rejected. (Prod listeners go through the real SDK, which applies
- * its own default; this only fires on the sandbox path.)
- */
 function defaultSnapshotErrorHandler(error: unknown): void {
   // eslint-disable-next-line no-console
   console.error('pyric/firestore: Uncaught Error in snapshot listener:', error);
@@ -400,7 +375,7 @@ function wrapError(
   activity: SdkActivityHandle,
   onError?: () => void,
 ): (error: unknown) => void {
-  return error => {
+  return (error) => {
     onError?.();
     activity.fail();
     callback(toFirestoreFirebaseError(error));
