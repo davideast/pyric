@@ -893,14 +893,204 @@ struct BridgeReconnectTests {
     func attachTimeoutFailsTheAttempt() async throws {
         let bridge = FakeReconnectBridge()
         bridge.autoAck = false
+        let clock = TestBridgeClock()
         let client = makeReconnectingClient(bridge, attachTimeout: 0.05)
+        await client.setClockForTesting(clock)
+
+        let connectTask = Task { try await client.connect() }
+        try await until {
+            bridge.ofType("attach").count == 1
+                && clock.sleeperCount == 1
+                && clock.nextWakeMilliseconds == 50
+        }
+        let socket = bridge.current
+        clock.advance(by: 0.05)
+
         do {
-            try await client.connect()
+            try await connectTask.value
             Issue.record("expected a timeout")
         } catch let error as PyricBridgeError {
             #expect(error.code == .unavailable)
             #expect(error.message.contains("Timed out"))
         }
+        #expect(await client.connectionState == .closed)
+        try await until { !socket.isOpen }
         await client.disconnect()
+    }
+
+    @Test("An attach timeout while opening the transport fails immediately with a timeout and closes the late socket")
+    func attachTimeoutWhileOpeningTransportFailsWithTimeout() async throws {
+        let bridge = FakeReconnectBridge()
+        bridge.autoAck = false
+        let clock = TestBridgeClock()
+        let enteredFactory = Collected<Bool>()
+        let openedSockets = Collected<FakeReconnectSocket>()
+        let gate = TransportOpenGate()
+
+        let client = PyricBridgeClient(
+            retryInitialConnection: false,
+            reconnectDelay: { _ in 0 },
+            attachTimeout: 0.05,
+            transportFactory: { request in
+                enteredFactory.append(true)
+                await gate.wait()
+                let transport = try await bridge.connect(request)
+                if let socket = transport as? FakeReconnectSocket {
+                    openedSockets.append(socket)
+                }
+                return transport
+            }
+        )
+        await client.setClockForTesting(clock)
+
+        let connectTask = Task { try await client.connect() }
+        try await until {
+            let waiters = await client.attemptWaiterCount
+            return enteredFactory.count == 1
+                && waiters == 1
+                && clock.sleeperCount == 1
+                && clock.nextWakeMilliseconds == 50
+        }
+
+        // Expire the attach deadline before transportFactory returns.
+        clock.advance(by: 0.05)
+
+        do {
+            try await connectTask.value
+            Issue.record("expected a timeout")
+        } catch let error as PyricBridgeError {
+            #expect(error.code == .unavailable)
+            #expect(error.message.contains("Timed out"))
+        }
+        #expect(await client.connectionState == .closed)
+        #expect(await client.isConnected == false)
+
+        // Releasing the late transport closes the superseded socket without attaching.
+        gate.open()
+        try await until { openedSockets.count == 1 }
+        try await until { !openedSockets.all[0].isOpen }
+        #expect(bridge.ofType("attach").isEmpty)
+        #expect(await client.connectionState == .closed)
+        #expect(await client.isConnected == false)
+        await client.disconnect()
+    }
+
+    @Test("An attach timeout during Auth restore fails connect() with a timeout and retries the restore on reconnect")
+    func attachTimeoutDuringAuthRestoreFailsWithTimeoutAndRetriesRestore() async throws {
+        let bridge = FakeReconnectBridge()
+        let clock = TestBridgeClock()
+        let client = makeReconnectingClient(bridge, retryDelay: 0.02, attachTimeout: 0.05)
+        await client.setClockForTesting(clock)
+        await client.setAuthRestorer { op in
+            _ = try await op("auth.restorePortSession", ["uid": .string("u1"), "tenantId": .null])
+        }
+
+        try await client.connect()
+        bridge.hostInstanceId = "host-b"
+        bridge.current.drop()
+        try await until {
+            await client.connectionState == .interrupted
+                && clock.sleeperCount == 1
+                && clock.nextWakeMilliseconds == 20
+        }
+        clock.advance(by: 0.02)
+
+        try await until { bridge.ops(named: "auth.restorePortSession").count == 1 }
+        let joinedConnect = Task { try await client.connect() }
+        try await until {
+            await client.attemptWaiterCount == 1 && clock.nextWakeMilliseconds == 50
+        }
+        clock.advance(by: 0.05)
+
+        do {
+            try await joinedConnect.value
+            Issue.record("expected a timeout")
+        } catch let error as PyricBridgeError {
+            #expect(error.code == .unavailable)
+            #expect(error.message.contains("Timed out"))
+        }
+
+        try await until { clock.sleeperCount == 1 && clock.nextWakeMilliseconds == 20 }
+        clock.advance(by: 0.02)
+        try await until { bridge.ops(named: "auth.restorePortSession").count == 2 }
+        bridge.answer(bridge.ops(named: "auth.restorePortSession")[1], value: ["uid": "u1"])
+        try await until { await client.isConnected }
+        await client.disconnect()
+    }
+
+    @Test("disconnect() while opening the transport fails connect() immediately and closes the late socket")
+    func disconnectWhileOpeningTransportFailsWithDisconnected() async throws {
+        let bridge = FakeReconnectBridge()
+        let enteredFactory = Collected<Bool>()
+        let openedSockets = Collected<FakeReconnectSocket>()
+        let gate = TransportOpenGate()
+
+        let client = PyricBridgeClient(
+            retryInitialConnection: false,
+            reconnectDelay: { _ in 0 },
+            attachTimeout: 5,
+            transportFactory: { request in
+                enteredFactory.append(true)
+                await gate.wait()
+                let transport = try await bridge.connect(request)
+                if let socket = transport as? FakeReconnectSocket {
+                    openedSockets.append(socket)
+                }
+                return transport
+            }
+        )
+
+        let connectTask = Task { try await client.connect() }
+        try await until {
+            let waiters = await client.attemptWaiterCount
+            return enteredFactory.count == 1 && waiters == 1
+        }
+
+        await client.disconnect()
+
+        do {
+            try await connectTask.value
+            Issue.record("expected disconnect error")
+        } catch let error as PyricBridgeError {
+            #expect(error.code == .unavailable)
+            #expect(error.message == "PyricBridgeClient disconnected.")
+        }
+
+        gate.open()
+        try await until { openedSockets.count == 1 }
+        try await until { !openedSockets.all[0].isOpen }
+        #expect(bridge.ofType("attach").isEmpty)
+        #expect(await client.isDisposed == true)
+        #expect(await client.isConnected == false)
+    }
+}
+
+private final class TransportOpenGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var opened = false
+
+    func wait() async {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            if opened {
+                lock.unlock()
+                continuation.resume()
+                return
+            }
+            waiters.append(continuation)
+            lock.unlock()
+        }
+    }
+
+    func open() {
+        lock.lock()
+        opened = true
+        let pending = waiters
+        waiters.removeAll()
+        lock.unlock()
+        for waiter in pending {
+            waiter.resume()
+        }
     }
 }
