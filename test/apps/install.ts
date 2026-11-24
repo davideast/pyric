@@ -259,6 +259,9 @@ export function npmOfflineInstallArgs(npmCache: string, registry: string): strin
 /** npm's codes for a version range the cached package listing has no match for. */
 const STALE_METADATA = /\bcode (ETARGET|ENOVERSIONS)\b/;
 
+/** An npm package slot in package-lock.json (`node_modules/pkg` or `.../node_modules/@scope/pkg`). */
+const INSTALLED_PACKAGE_PATH = /(?:^|\/)node_modules\/(?:@[^/]+\/)?[^/]+$/;
+
 /** npm's codes and transport messages for a dropped or unavailable registry connection. */
 const TRANSIENT_NETWORK_CODE = /\b(?:code|errno) (?:ECONNRESET|ETIMEDOUT|ESOCKETTIMEDOUT|ERR_SOCKET_TIMEOUT|EAI_AGAIN|ECONNREFUSED|EPIPE|E500|E502|E503|E504)\b/;
 const TRANSIENT_NETWORK_MESSAGE = /\b(?:socket hang up|Client network socket disconnected|network socket disconnected|ECONNRESET|ESOCKETTIMEDOUT|ERR_SOCKET_TIMEOUT|EAI_AGAIN)\b/;
@@ -277,6 +280,68 @@ export function shouldRetryOnline(result: CommandResult): boolean {
 }
 
 /**
+ * Package paths in `package-lock.json` where npm failed to resolve an optional
+ * dependency's manifest (for example, ETARGET on `@rollup/rollup-linux-x64-gnu`
+ * when `--prefer-offline` reads a newer parent packument alongside an older
+ * cached optional packument). npm swallows resolution errors on optional
+ * dependencies, exits 0, and writes a versionless `{ optional: true }` stub
+ * instead of installing the platform package (#3331).
+ */
+export function unresolvedOptionalPackages(lockfileText: string): string[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(lockfileText);
+  } catch {
+    return [];
+  }
+  if (typeof parsed !== 'object' || parsed === null) return [];
+  const packages = (parsed as { packages?: unknown }).packages;
+  if (typeof packages !== 'object' || packages === null || Array.isArray(packages)) return [];
+  const unresolved: string[] = [];
+  for (const [pkgPath, raw] of Object.entries(packages as Record<string, unknown>)) {
+    if (!INSTALLED_PACKAGE_PATH.test(pkgPath)) continue;
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) continue;
+    const entry = raw as Record<string, unknown>;
+    if (entry.link === true || entry.inBundle === true) continue;
+    const isOptional = entry.optional === true || entry.devOptional === true;
+    const hasVersion = typeof entry.version === 'string' && entry.version.length > 0;
+    if (isOptional && !hasVersion) unresolved.push(pkgPath);
+  }
+  return unresolved.sort();
+}
+
+function readUnresolvedOptionalIn(cwd: string): string[] {
+  const lockPath = join(cwd, 'package-lock.json');
+  if (!existsSync(lockPath)) return [];
+  try {
+    return unresolvedOptionalPackages(readFileSync(lockPath, 'utf8'));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Removes versionless `{ optional: true }` stubs from npm's lockfiles before
+ * retrying with `--prefer-online`. Leaving a versionless stub in place makes
+ * npm fail with `Invalid Version:` on the retry, whereas deleting the whole
+ * lockfile drops `resolved` and `integrity` from already-extracted packages.
+ */
+function stripUnresolvedOptionalLockEntries(cwd: string, unresolvedPaths: readonly string[]): void {
+  for (const relativePath of ['package-lock.json', join('node_modules', '.package-lock.json')]) {
+    const filePath = join(cwd, relativePath);
+    if (!existsSync(filePath)) continue;
+    try {
+      const parsed = JSON.parse(readFileSync(filePath, 'utf8')) as { packages?: Record<string, unknown> };
+      if (typeof parsed.packages !== 'object' || parsed.packages === null) continue;
+      for (const pkgPath of unresolvedPaths) delete parsed.packages[pkgPath];
+      writeFileSync(filePath, `${JSON.stringify(parsed, null, 2)}\n`);
+    } catch {
+      // Best-effort lockfile repair before the online retry.
+    }
+  }
+}
+
+/**
  * Whether a failed install was interrupted by a transient registry or socket
  * error (such as ECONNRESET or 503). Timed-out installs are not matched here
  * because their caller owns timeout retries, and bad dependencies (E404,
@@ -290,6 +355,8 @@ export function isTransientNetworkFailure(result: CommandResult & { timedOut?: b
 }
 
 interface NpmInstallOptions {
+  /** Project directory being installed, used to check generated lockfiles for omitted optional metadata. */
+  cwd?: string;
   /** Pause before retrying a transient network failure; tests pass 0. */
   networkRetryDelayMs?: number;
   /** Gets one `[runner]` line when an install retries (#1485); `console.log` by default. */
@@ -330,9 +397,11 @@ function withRetryPolicy<R extends CommandResult & { timedOut?: boolean }>(resul
 
 /**
  * Run `npm install` offline first, then once more with `--prefer-online` when
- * stale metadata failed it, sharing one bounded retry across both phases for
- * transient network errors. A non-timeout failure is marked `retryable: false`
- * so callers do not stack a second retry on top of this one.
+ * stale metadata either failed it (ETARGET/ENOVERSIONS) or silently left an
+ * optional dependency unresolved in the generated lockfile (#3331), sharing one
+ * bounded retry across both phases for transient network errors. A non-timeout
+ * failure is marked `retryable: false` so callers do not stack a second retry
+ * on top of this one.
  */
 export async function npmInstall<R extends CommandResult & { timedOut?: boolean }>(
   npmCache: string,
@@ -342,12 +411,27 @@ export async function npmInstall<R extends CommandResult & { timedOut?: boolean 
 ): Promise<R> {
   const delayMs = options.networkRetryDelayMs ?? DEFAULT_NETWORK_RETRY_DELAY_MS;
   const report = options.report ?? ((line: string) => console.log(line));
+  const cwd = options.cwd;
+  const hadLockfile = cwd !== undefined && existsSync(join(cwd, 'package-lock.json'));
   const budget: NetworkRetryBudget = { remaining: 1 };
   const offlineStarted = performance.now();
   const first = await runWithNetworkRetry(npmInstallArgs(npmCache, 'offline', logsDir), run, delayMs, budget, report);
-  if (!shouldRetryOnline(first)) return withRetryPolicy(first);
-  report(`[runner] retried npm install with --prefer-online after stale cached metadata (exit ${first.code}), ${tenthedSecondsSince(offlineStarted)} s`);
-  const note = '\n[runner] npm install failed on stale cached metadata; retrying once with --prefer-online\n';
+  const failedStaleMetadata = shouldRetryOnline(first);
+  let unresolvedOptional: string[] = [];
+  if (!failedStaleMetadata && first.code === 0 && !hadLockfile && cwd !== undefined) {
+    unresolvedOptional = readUnresolvedOptionalIn(cwd);
+  }
+  if (!failedStaleMetadata && unresolvedOptional.length === 0) return withRetryPolicy(first);
+  let note: string;
+  if (unresolvedOptional.length > 0 && cwd !== undefined) {
+    stripUnresolvedOptionalLockEntries(cwd, unresolvedOptional);
+    const summary = unresolvedOptional.join(', ');
+    report(`[runner] retried npm install with --prefer-online after stale cached metadata (unresolved optional ${summary}), ${tenthedSecondsSince(offlineStarted)} s`);
+    note = `\n[runner] npm install omitted unresolved optional dependencies (${summary}) from cached metadata; retrying once with --prefer-online\n`;
+  } else {
+    report(`[runner] retried npm install with --prefer-online after stale cached metadata (exit ${first.code}), ${tenthedSecondsSince(offlineStarted)} s`);
+    note = '\n[runner] npm install failed on stale cached metadata; retrying once with --prefer-online\n';
+  }
   const second = await runWithNetworkRetry(npmInstallArgs(npmCache, 'online', logsDir), run, delayMs, budget, report);
   return withRetryPolicy({ ...second, output: `${first.output}${note}${second.output}` });
 }

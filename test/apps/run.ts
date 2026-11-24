@@ -298,7 +298,7 @@ function installAlone(npmCache: string, offline: boolean): (cwd: string) => Prom
     const output = '[runner] this app installs alone, outside the dependency store, and PYRIC_APPS_OFFLINE=1 installs nothing from the registry\n';
     return async () => ({ code: 1, output });
   }
-  return (cwd) => npmInstall(npmCache, (args) => runCommand('npm', args, { cwd }), undefined, { report: (line) => console.log(line) });
+  return (cwd) => npmInstall(npmCache, (args) => runCommand('npm', args, { cwd }), undefined, { cwd, report: (line) => console.log(line) });
 }
 
 /** The dependency store for this run's tarballs, where PYRIC_APPS_DEPS_STORE points. */

@@ -19,6 +19,7 @@ import {
   runCommand,
   runTimedCommand,
   shouldRetryOnline,
+  unresolvedOptionalPackages,
   type CommandResult,
   type TimedResult,
 } from './install.ts';
@@ -76,11 +77,99 @@ describe('the retry after stale npm metadata', () => {
     }, undefined, { report: (line) => reported.push(line) });
     expect({ calls, code: result.code, reported }).toEqual({ calls: 1, code: 1, reported: [] });
   });
+
+  test('unresolvedOptionalPackages finds versionless optional package slots and ignores resolved, linked, bundled, and in-package entries (#3331)', () => {
+    const lock = JSON.stringify({
+      lockfileVersion: 3,
+      packages: {
+        '': { name: 'app', optionalDependencies: { 'opt-root': '2.0.0' } },
+        'stubs/empty-native-optional': { private: true },
+        'node_modules/just-bash/stubs/empty-native-optional': { optional: true },
+        'node_modules/@mongodb-js/zstd': { resolved: 'node_modules/just-bash/stubs/empty-native-optional', link: true },
+        'node_modules/bundled-opt': { optional: true, inBundle: true },
+        'node_modules/@rollup/rollup-darwin-arm64': { version: '4.68.8', optional: true, os: ['darwin'], cpu: ['arm64'] },
+        'node_modules/rollup/node_modules/@rollup/rollup-linux-x64-gnu': { dev: true, optional: true },
+        'node_modules/opt-root': { devOptional: true },
+      },
+    });
+    expect(unresolvedOptionalPackages(lock)).toEqual([
+      'node_modules/opt-root',
+      'node_modules/rollup/node_modules/@rollup/rollup-linux-x64-gnu',
+    ]);
+    expect(unresolvedOptionalPackages('not json')).toEqual([]);
+  });
+
+  test('npmInstall strips versionless optional stubs and retries once with --prefer-online when --prefer-offline exits 0 (#3331)', async () => {
+    const cwd = join(tempDir(), 'app');
+    mkdirSync(join(cwd, 'node_modules'), { recursive: true });
+    const calls: string[][] = [];
+    const reported: string[] = [];
+    const stubPath = 'node_modules/rollup/node_modules/@rollup/rollup-linux-x64-gnu';
+    const initialLock = {
+      lockfileVersion: 3,
+      packages: {
+        '': { name: 'app' },
+        'node_modules/rollup': {
+          version: '4.68.8',
+          resolved: 'https://registry.example/rollup-4.68.8.tgz',
+          integrity: 'sha512-rollup',
+          optionalDependencies: { '@rollup/rollup-linux-x64-gnu': '4.68.8' },
+        },
+        [stubPath]: { dev: true, optional: true },
+      },
+    };
+    const result = await npmInstall('/cache', async (args) => {
+      calls.push(args);
+      if (calls.length === 1) {
+        writeFileSync(join(cwd, 'package-lock.json'), `${JSON.stringify(initialLock, null, 2)}\n`);
+        writeFileSync(join(cwd, 'node_modules', '.package-lock.json'), `${JSON.stringify(initialLock, null, 2)}\n`);
+        return { code: 0, output: 'added 12 packages\n' };
+      }
+      const repairedRoot = JSON.parse(readFileSync(join(cwd, 'package-lock.json'), 'utf8')) as { packages: Record<string, unknown> };
+      const repairedHidden = JSON.parse(readFileSync(join(cwd, 'node_modules', '.package-lock.json'), 'utf8')) as { packages: Record<string, unknown> };
+      expect(stubPath in repairedRoot.packages).toBe(false);
+      expect(stubPath in repairedHidden.packages).toBe(false);
+      expect(repairedRoot.packages['node_modules/rollup']).toEqual(initialLock.packages['node_modules/rollup']);
+      repairedRoot.packages['node_modules/@rollup/rollup-linux-x64-gnu'] = {
+        version: '4.68.8',
+        resolved: 'https://registry.example/rollup-linux-x64-gnu-4.68.8.tgz',
+        integrity: 'sha512-native',
+        dev: true,
+        optional: true,
+      };
+      writeFileSync(join(cwd, 'package-lock.json'), `${JSON.stringify(repairedRoot, null, 2)}\n`);
+      return { code: 0, output: 'added 1 package\n' };
+    }, undefined, { cwd, report: (line) => reported.push(line) });
+
+    expect(calls).toEqual([npmInstallArgs('/cache'), npmInstallArgs('/cache', 'online')]);
+    expect(result.code).toBe(0);
+    expect(result.output).toContain('added 12 packages');
+    expect(result.output).toContain(`omitted unresolved optional dependencies (${stubPath})`);
+    expect(result.output).toContain('added 1 package');
+    expect(reported).toHaveLength(1);
+    expect(reported[0]).toMatch(
+      /^\[runner\] retried npm install with --prefer-online after stale cached metadata \(unresolved optional node_modules\/rollup\/node_modules\/@rollup\/rollup-linux-x64-gnu\), \d+\.\d s$/,
+    );
+
+    // Pre-existing lockfiles owned by the caller are never modified or retried.
+    const lockedDir = join(tempDir(), 'locked-app');
+    mkdirSync(lockedDir, { recursive: true });
+    const preExisting = `${JSON.stringify(initialLock, null, 2)}\n`;
+    writeFileSync(join(lockedDir, 'package-lock.json'), preExisting);
+    let lockedCalls = 0;
+    const lockedResult = await npmInstall('/cache', async () => {
+      lockedCalls += 1;
+      return { code: 0, output: 'up to date\n' };
+    }, undefined, { cwd: lockedDir });
+    expect(lockedCalls).toBe(1);
+    expect(lockedResult.code).toBe(0);
+    expect(readFileSync(join(lockedDir, 'package-lock.json'), 'utf8')).toBe(preExisting);
+  });
 });
 
 /** Builds a minimal gzipped ustar tarball holding `package/package.json` for a local stand-in registry. */
-function minimalTarball(name: string, version: string): Buffer {
-  const body = Buffer.from(`${JSON.stringify({ name, version })}\n`, 'utf8');
+function minimalTarball(name: string, version: string, extraFields: Record<string, unknown> = {}): Buffer {
+  const body = Buffer.from(`${JSON.stringify({ name, version, ...extraFields })}\n`, 'utf8');
   const header = Buffer.alloc(512);
   header.write('package/package.json', 0, 'utf8');
   header.write('0000644\0', 100, 'ascii');
@@ -212,6 +301,132 @@ describe('the bounded retry after a transient npm network failure', () => {
     expect(badResult.code).toBe(1);
     expect(badResult.output).toContain('E404');
   }, 30_000);
+
+  test('real npm over DependencyStore recovers when a stale cached optional packument omits the version a newer parent requires (#3331)', async () => {
+    const optV1 = minimalTarball('opt-bin', '1.0.0');
+    const optV2 = minimalTarball('opt-bin', '2.0.0');
+    const parentV2 = minimalTarball('parent-pkg', '2.0.0', { optionalDependencies: { 'opt-bin': '2.0.0' } });
+    const pyricTgz = minimalTarball('pyric', '0.1.0-alpha.1');
+    const sha512 = (bytes: Buffer) => `sha512-${createHash('sha512').update(bytes).digest('base64')}`;
+    let publishOptV2 = false;
+
+    const server = createServer((req, res) => {
+      const port = (server.address() as AddressInfo).port;
+      const baseUrl = `http://127.0.0.1:${port}`;
+      if (req.url === '/opt-bin') {
+        const versions: Record<string, unknown> = {
+          '1.0.0': {
+            name: 'opt-bin',
+            version: '1.0.0',
+            dist: { tarball: `${baseUrl}/opt-bin-1.0.0.tgz`, integrity: sha512(optV1) },
+          },
+        };
+        if (publishOptV2) {
+          versions['2.0.0'] = {
+            name: 'opt-bin',
+            version: '2.0.0',
+            dist: { tarball: `${baseUrl}/opt-bin-2.0.0.tgz`, integrity: sha512(optV2) },
+          };
+        }
+        res
+          .writeHead(200, { 'content-type': 'application/json', etag: `"opt-${publishOptV2}"` })
+          .end(JSON.stringify({ name: 'opt-bin', 'dist-tags': { latest: publishOptV2 ? '2.0.0' : '1.0.0' }, versions }));
+        return;
+      }
+      if (req.url === '/parent-pkg') {
+        res
+          .writeHead(200, { 'content-type': 'application/json', etag: '"parent-2"' })
+          .end(JSON.stringify({
+            name: 'parent-pkg',
+            'dist-tags': { latest: '2.0.0' },
+            versions: {
+              '2.0.0': {
+                name: 'parent-pkg',
+                version: '2.0.0',
+                optionalDependencies: { 'opt-bin': '2.0.0' },
+                dist: { tarball: `${baseUrl}/parent-pkg-2.0.0.tgz`, integrity: sha512(parentV2) },
+              },
+            },
+          }));
+        return;
+      }
+      if (req.url === '/opt-bin-1.0.0.tgz') return void res.writeHead(200, { 'content-type': 'application/octet-stream' }).end(optV1);
+      if (req.url === '/opt-bin-2.0.0.tgz') return void res.writeHead(200, { 'content-type': 'application/octet-stream' }).end(optV2);
+      if (req.url === '/parent-pkg-2.0.0.tgz') return void res.writeHead(200, { 'content-type': 'application/octet-stream' }).end(parentV2);
+      res.writeHead(404, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'Not found' }));
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const registry = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
+    const base = tempDir();
+    const sharedNpmCache = join(base, 'npm-cache');
+    const seedDir = join(base, 'seed');
+    mkdirSync(seedDir, { recursive: true });
+    writeFileSync(join(seedDir, 'package.json'), JSON.stringify({ name: 'seed', private: true, dependencies: { 'opt-bin': '1.0.0' } }));
+    const seeded = await runCommand('npm', ['install', '--no-audit', '--no-fund', '--prefer-offline', `--registry=${registry}`, '--cache', sharedNpmCache], { cwd: seedDir });
+    expect(seeded.code).toBe(0);
+
+    // `opt-bin@2.0.0` is published after `opt-bin` was cached at 1.0.0, while `parent-pkg@2.0.0` is fetched fresh.
+    publishOptV2 = true;
+    const pyricFile = join(base, 'pyric-0.1.0-alpha.1.tgz');
+    writeFileSync(pyricFile, pyricTgz);
+    const reported: string[] = [];
+    const npmCalls: string[][] = [];
+    const store = new DependencyStore({
+      dir: join(base, 'deps'),
+      offline: false,
+      packed: [{
+        name: 'pyric',
+        file: pyricFile,
+        integrity: sha512(pyricTgz),
+        manifest: { name: 'pyric', version: '0.1.0-alpha.1' },
+        files: new Map([['package.json', JSON.stringify({ name: 'pyric', version: '0.1.0-alpha.1' }).length + 1]]),
+      }],
+      platform: { nodeMajor: '22', npm: '10.9.0', os: 'linux', arch: 'x64' },
+      npmCache: sharedNpmCache,
+      runNpm: (args, { cwd, timeoutMs }) => {
+        npmCalls.push(args);
+        const isOffline = args.includes('--offline');
+        const extra = isOffline ? [] : [`--registry=${registry}`];
+        return runTimedCommand('npm', [...args, ...extra], { cwd, timeoutMs });
+      },
+      networkRetryDelayMs: 0,
+      report: (line) => reported.push(line),
+    });
+
+    const projectDir = join(base, 'app');
+    mkdirSync(projectDir, { recursive: true });
+    writeFileSync(
+      join(projectDir, 'package.json'),
+      `${JSON.stringify({
+        name: 'app',
+        private: true,
+        dependencies: { 'parent-pkg': '^2.0.0', pyric: `file:${pyricFile}` },
+        overrides: { pyric: `file:${pyricFile}` },
+      }, null, 2)}\n`,
+    );
+
+    const provided = await store.provide(projectDir, 'demo-app');
+    expect(provided.code).toBe(0);
+    expect(npmCalls.some((args) => args.includes('--prefer-offline'))).toBe(true);
+    expect(npmCalls.some((args) => args.includes('--prefer-online'))).toBe(true);
+    expect(reported.some((line) => line.includes('unresolved optional node_modules/parent-pkg/node_modules/opt-bin'))).toBe(true);
+
+    const optManifest = JSON.parse(readFileSync(join(projectDir, 'node_modules/opt-bin/package.json'), 'utf8')) as { version: string };
+    expect(optManifest.version).toBe('2.0.0');
+    const lockText = readFileSync(join(projectDir, 'package-lock.json'), 'utf8');
+    expect(unresolvedOptionalPackages(lockText)).toEqual([]);
+    const lock = JSON.parse(lockText) as { packages: Record<string, { version?: string; resolved?: string; integrity?: string }> };
+    expect(lock.packages['node_modules/opt-bin']).toMatchObject({
+      version: '2.0.0',
+      integrity: sha512(optV2),
+    });
+    expect(lock.packages['node_modules/parent-pkg']).toMatchObject({
+      version: '2.0.0',
+      integrity: sha512(parentV2),
+    });
+  }, 60_000);
 });
 
 describe('the infrastructure retry of a nested install that hangs (#1476)', () => {

@@ -81,7 +81,7 @@ export async function installApp(
     if (next === 'fail') throw new Error(`npm install inside the sandbox failed (exit ${inside.code}):\n${inside.output}`);
     if (next === 'refuse-cold-cache') throw new ColdCacheRefused('the npm cache lacks a package this app needs, and installing outside the sandbox is forbidden');
     say('the npm cache is cold for this app: npm install --ignore-scripts outside the sandbox, under the recorder');
-    const outside = await npmInstall(npmCache, (args) => run('npm', [...args, IGNORE_SCRIPTS]));
+    const outside = await npmInstall(npmCache, (args) => run('npm', [...args, IGNORE_SCRIPTS]), undefined, { cwd: dirs.app });
     writeFileSync(join(dirs.logs, '00-npm-install-outside.log'), outside.output);
     if (outside.code !== 0) throw new Error(`npm install failed (exit ${outside.code}):\n${outside.output}`);
   } finally {
