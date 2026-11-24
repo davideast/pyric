@@ -479,7 +479,9 @@ describe('the workflow', () => {
     expect(recaptureStep?.env?.SCRIPT).toBe('${{ matrix.script }}');
     expect(recaptureStep?.env?.PYRIC_ORACLE_PROJECT_ID).toBe('digame-mas');
     expect(recaptureStep?.env?.PYRIC_ORACLE_RTDB_URL).toContain('PYRIC_ORACLE_RTDB_URL');
-    expect(stepRunning(stepsOf('credentialed'), 'packages/pyric build')?.if).toContain("matrix.rig == 'oracle-run'");
+    const pyricBuildIf = stepRunning(stepsOf('credentialed'), 'packages/pyric build')?.if;
+    expect(pyricBuildIf).toContain("matrix.rig == 'oracle-run'");
+    expect(pyricBuildIf).toContain("matrix.rig == 'sdk-probes'");
     expect(stepRunning(stepsOf('unattended'), 'client-storage-probes.ts --write')).toBeDefined();
     expect(LEGS.find((leg) => !leg.credentialed)?.rig).toBe('unattended');
   });
