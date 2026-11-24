@@ -1,0 +1,10 @@
+{
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@pyric/cli": "*",
+    "firebase": "13.4.0",
+    "pyric": "*",
+    "vite": "7.3.2"
+  }
+}
