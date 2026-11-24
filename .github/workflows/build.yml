@@ -1012,6 +1012,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+      - run: bun install --frozen-lockfile --filter '!@pyric/playground'
       - run: bun test scripts/publish-alpha.test.ts scripts/lib/proven-stamp.test.ts
 
   conformance-gates:
