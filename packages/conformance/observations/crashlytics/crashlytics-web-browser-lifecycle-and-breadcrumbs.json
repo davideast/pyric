@@ -1,0 +1,192 @@
+{
+  "name": "crashlytics-web-browser-lifecycle-and-breadcrumbs",
+  "matrixRow": "crashlytics#unhandled-window-errors-and-deleted-app-guard",
+  "rowIds": [
+    "crashlytics#log-and-breadcrumbs-feature",
+    "crashlytics#browser-navigation-and-visibility-breadcrumbs",
+    "crashlytics#record-error-and-attribute-precedence",
+    "crashlytics#unhandled-window-errors-and-deleted-app-guard"
+  ],
+  "description": "Offline @firebase/crashlytics@0.2.0 (firebase@13.4.0) browser-bundle capture of session-id creation, breadcrumbs() on-error buffering and post-error clearing, window error and unhandledrejection listeners with ALREADY_LOGGED_FLAG deduplication, visibilitychange/pagehide auto-flush, captureUnhandledErrors: false opt-out, and deleteApp() listener teardown plus shut-down handle no-op vs fresh app/app-deleted.",
+  "observedAt": "2026-11-24T19:58:22.778Z",
+  "fbSdkVersion": "13.4.0",
+  "crashlyticsSdkVersion": "0.2.0",
+  "behavior": {
+    "sessionIdStored": true,
+    "listenersWhenActive": {
+      "load": 2,
+      "pagehide": 2,
+      "visibilitychange": 1,
+      "error": 1,
+      "unhandledrejection": 1
+    },
+    "requestCountBeforeError": 0,
+    "firstBatchScopeNames": [
+      "session-logger",
+      "custom-logger",
+      "visibility-logger",
+      "error-logger"
+    ],
+    "clearsBreadcrumbsAfterRecordError": true,
+    "deduplicatesAlreadyLoggedUnhandledError": true,
+    "autoFlushesOnVisibilityHidden": true,
+    "shutDownHandleNoOpsAfterDeleteApp": true,
+    "firstErrorBatch": [
+      {
+        "url": "https://clienttelemetry.googleapis.com/v1/logs",
+        "method": "POST",
+        "headers": {
+          "content-type": "application/json",
+          "x-goog-api-key": "probe-key-browser"
+        },
+        "keepalive": true,
+        "resourceAttributes": {
+          "service.name": "firebase_telemetry_service",
+          "gcp.project_id": "demo-browser-lifecycle",
+          "gcp.firebase.app_id": "1:300:web:browser01"
+        },
+        "scopes": [
+          {
+            "scopeName": "session-logger",
+            "records": [
+              {
+                "severityNumber": 5,
+                "body": "Session created",
+                "attributes": {
+                  "surface": "checkout",
+                  "app.build_id": "3.1.0",
+                  "session.id": "<uuid>"
+                }
+              }
+            ]
+          },
+          {
+            "scopeName": "custom-logger",
+            "records": [
+              {
+                "severityNumber": 9,
+                "body": "crumb-one",
+                "attributes": {
+                  "step": 1,
+                  "surface": "checkout",
+                  "app.build_id": "3.1.0",
+                  "session.id": "<uuid>"
+                }
+              }
+            ]
+          },
+          {
+            "scopeName": "visibility-logger",
+            "records": [
+              {
+                "severityNumber": 9,
+                "body": "Foreground lifecycle event",
+                "attributes": {
+                  "surface": "checkout",
+                  "app.build_id": "3.1.0",
+                  "session.id": "<uuid>"
+                }
+              }
+            ]
+          },
+          {
+            "scopeName": "error-logger",
+            "records": [
+              {
+                "severityNumber": 17,
+                "body": "caught-and-rethrown-error",
+                "attributes": {
+                  "exception.type": "Error",
+                  "exception.stacktrace": "Error: caught-and-rethrown-error\n    at <stack>",
+                  "exception.message": "caught-and-rethrown-error",
+                  "handled": true,
+                  "surface": "checkout",
+                  "app.build_id": "3.1.0",
+                  "session.id": "<uuid>"
+                }
+              },
+              {
+                "severityNumber": 17,
+                "body": "unhandled-rejection-boom",
+                "attributes": {
+                  "exception.type": "RangeError",
+                  "exception.stacktrace": "RangeError: unhandled-rejection-boom\n    at <stack>",
+                  "exception.message": "unhandled-rejection-boom",
+                  "surface": "checkout",
+                  "app.build_id": "3.1.0",
+                  "session.id": "<uuid>"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "secondErrorAutoFlushedBatch": [
+      {
+        "url": "https://clienttelemetry.googleapis.com/v1/logs",
+        "method": "POST",
+        "headers": {
+          "content-type": "application/json",
+          "x-goog-api-key": "probe-key-browser"
+        },
+        "keepalive": true,
+        "resourceAttributes": {
+          "service.name": "firebase_telemetry_service",
+          "gcp.project_id": "demo-browser-lifecycle",
+          "gcp.firebase.app_id": "1:300:web:browser01"
+        },
+        "scopes": [
+          {
+            "scopeName": "custom-logger",
+            "records": [
+              {
+                "severityNumber": 9,
+                "body": "crumb-after-first-error",
+                "attributes": {
+                  "step": 2,
+                  "surface": "checkout",
+                  "app.build_id": "3.1.0",
+                  "session.id": "<uuid>"
+                }
+              }
+            ]
+          },
+          {
+            "scopeName": "error-logger",
+            "records": [
+              {
+                "severityNumber": 17,
+                "body": "second-distinct-error",
+                "attributes": {
+                  "exception.type": "Error",
+                  "exception.stacktrace": "Error: second-distinct-error\n    at <stack>",
+                  "exception.message": "second-distinct-error",
+                  "surface": "checkout",
+                  "app.build_id": "3.1.0",
+                  "session.id": "<uuid>"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "listenersAfterDelete": {
+      "load": 0,
+      "pagehide": 0,
+      "visibilitychange": 0,
+      "error": 0,
+      "unhandledrejection": 0
+    },
+    "requestCountOnShutDownHandle": 0,
+    "getCrashlyticsOnFreshDeletedCode": "app/app-deleted",
+    "listenersWhenUnhandledDisabled": {
+      "load": 0,
+      "pagehide": 1,
+      "visibilitychange": 1,
+      "error": 0,
+      "unhandledrejection": 0
+    }
+  }
+}

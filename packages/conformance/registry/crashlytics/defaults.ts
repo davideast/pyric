@@ -1,11 +1,24 @@
 import type { AuthoredRowRecord, RowSection } from '../section-rows.ts';
-import type { CompatStatus } from '../types.ts';
+import type {
+  Automation,
+  CompatStatus,
+  OracleConformanceCheck,
+} from '../types.ts';
 
 export const CONFORMANCE_SUITE =
   'packages/pyric/test/crashlytics/crashlytics.test.ts';
 
 export const LIVE_HOST_CONFORMANCE_TEST =
   'packages/cli/test/serve/crashlytics-bridge.test.ts';
+
+export const LIVE_WEB_CONFORMANCE_TEST =
+  'packages/cli/test/serve/crashlytics-web-conformance.test.ts';
+
+export const LIVE_HOSTED_BROWSER_E2E_TEST =
+  'packages/cli/test/e2e/hosted/crashlytics-hosted.pw.ts';
+
+export const ORACLE_REPLAY_TEST =
+  'packages/conformance/test/src/capture/crashlytics-web/oracle-replay.test.ts';
 
 export interface WebCrashlyticsRowSeed {
   order?: number;
@@ -15,6 +28,9 @@ export interface WebCrashlyticsRowSeed {
   evidence?: string;
   status?: CompatStatus;
   statusNote?: string;
+  automation?: Automation;
+  oracleObservations?: string[];
+  conformanceChecks?: OracleConformanceCheck[];
   tests?: string[];
   hostConformanceTests?: string[];
   rowRef?: never;
@@ -42,6 +58,19 @@ function resolveWebCrashlyticsStatusNote(
   return undefined;
 }
 
+function resolveWebCrashlyticsAutomation(
+  automation: Automation | undefined,
+  oracleObservations: readonly string[],
+): Automation {
+  if (automation !== undefined) {
+    return automation;
+  }
+  if (oracleObservations.length > 0) {
+    return 'oracle-backed';
+  }
+  return 'unit-backed';
+}
+
 function resolveWebCrashlyticsTests(tests: readonly string[] | undefined): string[] {
   if (tests === undefined || tests.length === 0) {
     return [CONFORMANCE_SUITE];
@@ -53,7 +82,7 @@ function formatHostEvidence(hostTests: readonly string[] | undefined): string {
   if (hostTests === undefined || hostTests.length === 0) {
     return '';
   }
-  return ` Live host: \`${hostTests.join('\`, \`')}\`.`;
+  return ` Live host: \`${hostTests.join('`, `')}\`.`;
 }
 
 export function bindWebCrashlyticsRow(
@@ -75,6 +104,11 @@ export function bindWebCrashlyticsRow(
         seed.status,
         seed.statusNote,
       );
+      const oracleObservations = [...new Set(seed.oracleObservations ?? [])];
+      const resolvedAutomation = resolveWebCrashlyticsAutomation(
+        seed.automation,
+        oracleObservations,
+      );
       const conformanceTests = resolveWebCrashlyticsTests(seed.tests);
       let primarySuite = CONFORMANCE_SUITE;
       const firstSuite = conformanceTests[0];
@@ -94,7 +128,9 @@ export function bindWebCrashlyticsRow(
         featureKeys: seed.featureKeys,
         status: resolvedStatus,
         statusNote: resolvedStatusNote,
-        automation: 'unit-backed',
+        automation: resolvedAutomation,
+        oracleObservations,
+        conformanceChecks: seed.conformanceChecks,
         conformanceTests,
         hostConformanceTests: seed.hostConformanceTests,
         risk: [],

@@ -1,0 +1,153 @@
+{
+  "name": "crashlytics-web-otlp-endpoints-and-attributes",
+  "matrixRow": "crashlytics#record-error-and-attribute-precedence",
+  "rowIds": [
+    "crashlytics#local-broker-and-shared-worker-routing",
+    "crashlytics#log-and-breadcrumbs-feature",
+    "crashlytics#record-error-and-attribute-precedence",
+    "crashlytics#flush-and-state-inspection",
+    "crashlytics#endpoint-url-loopback-guard"
+  ],
+  "description": "Offline @firebase/crashlytics@0.2.0 (firebase@13.4.0) browser-bundle OTLP ExportLogsServiceRequest capture with stubbed fetch (zero network egress) across global, regional, and loopback custom endpointUrl configurations, verifying appVersion, customAttributes precedence, registerGlobalLoggerProvider, direct custom-logger batching without breadcrumbs(), and Error/string/non-Error formatting.",
+  "observedAt": "2026-11-24T19:58:22.778Z",
+  "fbSdkVersion": "13.4.0",
+  "crashlyticsSdkVersion": "0.2.0",
+  "behavior": {
+    "defaultLeavesGlobalProviderUnchanged": true,
+    "globalProviderRegistered": true,
+    "globalEndpointUrl": "https://clienttelemetry.googleapis.com/v1/logs",
+    "regionalEndpointUrl": "https://clienttelemetry.europe-west1.rep.googleapis.com/v1/logs",
+    "customEndpointNormalizedUrl": "http://127.0.0.1:4318/v1/logs",
+    "globalRequests": [
+      {
+        "url": "https://clienttelemetry.googleapis.com/v1/logs",
+        "method": "POST",
+        "headers": {
+          "content-type": "application/json",
+          "x-goog-api-key": "probe-key-global"
+        },
+        "keepalive": true,
+        "resourceAttributes": {
+          "service.name": "firebase_telemetry_service",
+          "gcp.project_id": "demo-otlp-global",
+          "gcp.firebase.app_id": "1:200:web:globalotlp"
+        },
+        "scopes": [
+          {
+            "scopeName": "custom-logger",
+            "records": [
+              {
+                "severityNumber": 9,
+                "body": "global-log-entry",
+                "attributes": {
+                  "tier": "override-log",
+                  "tags": [
+                    "alpha",
+                    "beta"
+                  ],
+                  "env": "dev",
+                  "app.build_id": "unset"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "regionalRequests": [
+      {
+        "url": "https://clienttelemetry.europe-west1.rep.googleapis.com/v1/logs",
+        "method": "POST",
+        "headers": {
+          "content-type": "application/json",
+          "x-goog-api-key": "probe-key-regional"
+        },
+        "keepalive": true,
+        "resourceAttributes": {
+          "service.name": "firebase_telemetry_service",
+          "gcp.project_id": "demo-otlp-regional",
+          "gcp.firebase.app_id": "1:200:web:regionalotlp",
+          "cloud.region": "europe-west1"
+        },
+        "scopes": [
+          {
+            "scopeName": "error-logger",
+            "records": [
+              {
+                "severityNumber": 17,
+                "body": "regional-type-failure",
+                "attributes": {
+                  "exception.type": "TypeError",
+                  "exception.stacktrace": "No stack trace available",
+                  "exception.message": "regional-type-failure",
+                  "shared": "from-call",
+                  "attempt": 3,
+                  "env": "prod",
+                  "app.build_id": "2.4.1"
+                }
+              },
+              {
+                "severityNumber": 17,
+                "body": "plain-string-error",
+                "attributes": {
+                  "env": "prod",
+                  "shared": "from-options",
+                  "app.build_id": "2.4.1"
+                }
+              },
+              {
+                "severityNumber": 17,
+                "body": "Unknown error type: object",
+                "attributes": {
+                  "env": "prod",
+                  "shared": "from-options",
+                  "app.build_id": "2.4.1"
+                }
+              },
+              {
+                "severityNumber": 17,
+                "body": "Unknown error type: number",
+                "attributes": {
+                  "env": "prod",
+                  "shared": "from-options",
+                  "app.build_id": "2.4.1"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "customEndpointRequests": [
+      {
+        "url": "http://127.0.0.1:4318/v1/logs",
+        "method": "POST",
+        "headers": {
+          "content-type": "application/json",
+          "x-goog-api-key": "probe-key-custom"
+        },
+        "keepalive": true,
+        "resourceAttributes": {
+          "service.name": "firebase_telemetry_service",
+          "gcp.project_id": "demo-otlp-custom",
+          "gcp.firebase.app_id": "1:200:web:customotlp",
+          "cloud.region": "us-east1"
+        },
+        "scopes": [
+          {
+            "scopeName": "external-otel-scope",
+            "records": [
+              {
+                "severityNumber": 0,
+                "body": "emitted-through-global-provider",
+                "attributes": {
+                  "app.build_id": "5.0.0"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
