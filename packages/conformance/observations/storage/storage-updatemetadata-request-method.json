@@ -1,0 +1,71 @@
+{
+  "name": "storage-updatemetadata-request-method",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase/storage metadata-only updateMetadata(ref, patch) security-rules request.method binding (#1884): records production ALLOW/DENY verdicts on the same seeded object under allow write gated by request.method == \"create\" versus request.method == \"update\", alongside granular allow create versus allow update.",
+  "observedAt": "2026-11-23T15:23:22.175Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "deniedControl": {
+      "createClient": {
+        "verdict": "DENY",
+        "threw": true,
+        "code": "storage/unauthorized"
+      },
+      "updateClient": {
+        "verdict": "DENY",
+        "threw": true,
+        "code": "storage/unauthorized"
+      }
+    },
+    "sameObjectRequestMethod": {
+      "initialSize": 5,
+      "initialCustomMetadata": {
+        "stage": "seed"
+      },
+      "whenMethodEqualsCreate": {
+        "verdict": "DENY",
+        "threw": true,
+        "code": "storage/unauthorized"
+      },
+      "afterCreateArmCustomMetadata": {
+        "stage": "seed"
+      },
+      "afterCreateArmMetagenerationChanged": false,
+      "whenMethodEqualsUpdate": {
+        "verdict": "ALLOW",
+        "threw": false,
+        "code": null
+      },
+      "afterUpdateArmCustomMetadata": {
+        "stage": "update-arm"
+      },
+      "afterUpdateArmMetagenerationChanged": true
+    },
+    "sameObjectGranularVerb": {
+      "initialSize": 5,
+      "initialCustomMetadata": {
+        "stage": "seed"
+      },
+      "allowCreateVerb": {
+        "verdict": "DENY",
+        "threw": true,
+        "code": "storage/unauthorized"
+      },
+      "afterAllowCreateVerbCustomMetadata": {
+        "stage": "seed"
+      },
+      "afterAllowCreateVerbMetagenerationChanged": false,
+      "allowUpdateVerb": {
+        "verdict": "ALLOW",
+        "threw": false,
+        "code": null
+      },
+      "afterAllowUpdateVerbCustomMetadata": {
+        "stage": "update-verb"
+      },
+      "afterAllowUpdateVerbMetagenerationChanged": true
+    }
+  }
+}
