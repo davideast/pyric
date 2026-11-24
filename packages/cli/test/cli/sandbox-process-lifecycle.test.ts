@@ -15,6 +15,11 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
+  freePort as freeLoopbackPort,
+  USER_PORT_MAX,
+  USER_PORT_MIN,
+} from '../../../../test/apps/ports.ts';
+import {
   readLinuxProcessStartTime,
   startChildLifeline,
 } from '../../src/cli/sandbox-child-lifeline.js';
@@ -125,18 +130,6 @@ async function waitUntilGone(pid: number, timeoutMs: number): Promise<{ gone: bo
   return { gone: !isRunning(pid), cpuTicks: Math.max(0, lastTicks - startTicks) };
 }
 
-async function freeLoopbackPort(): Promise<number> {
-  return await new Promise<number>((resolvePort, rejectPort) => {
-    const srv = createServer();
-    srv.once('error', rejectPort);
-    srv.listen(0, '127.0.0.1', () => {
-      const address = srv.address();
-      const port = typeof address === 'object' && address !== null ? address.port : 0;
-      srv.close(() => resolvePort(port));
-    });
-  });
-}
-
 async function canBindPort(port: number): Promise<boolean> {
   return await new Promise<boolean>((resolveBind) => {
     const srv = createServer();
@@ -169,6 +162,163 @@ async function waitForHttpOk(url: string, timeoutMs: number): Promise<boolean> {
     await Bun.sleep(60);
   }
   return false;
+}
+
+interface CapturedOutput {
+  readOutput(): string;
+  detach(): void;
+}
+
+function captureProcessOutput(proc: ChildProcess): CapturedOutput {
+  let output = '';
+  const onData = (chunk: Buffer | string): void => {
+    output += typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+  };
+  proc.stdout?.on('data', onData);
+  proc.stderr?.on('data', onData);
+  return {
+    readOutput: () => output,
+    detach(): void {
+      proc.stdout?.off('data', onData);
+      proc.stderr?.off('data', onData);
+    },
+  };
+}
+
+function hasPortBindCollision(output: string, hostPort: number): boolean {
+  return output.includes(`port ${hostPort} is in use`) || output.includes('EADDRINUSE');
+}
+
+type EndpointReadyOutcome =
+  | { status: 'ready' }
+  | { status: 'port-collision'; output: string }
+  | { status: 'exited'; exitCode: number | null; signalCode: NodeJS.Signals | null; output: string }
+  | { status: 'timeout'; output: string };
+
+async function waitForEndpointReady(
+  url: string,
+  options: {
+    timeoutMs: number;
+    hostPort: number;
+    pidFiles?: readonly string[];
+    proc?: ChildProcess;
+    readOutput?: () => string;
+  },
+): Promise<EndpointReadyOutcome> {
+  const readOutput = options.readOutput ?? (() => '');
+  const pidFiles = options.pidFiles ?? [];
+  const deadline = Date.now() + options.timeoutMs;
+  while (Date.now() < deadline) {
+    const currentOutput = readOutput();
+    if (hasPortBindCollision(currentOutput, options.hostPort)) {
+      return { status: 'port-collision', output: currentOutput };
+    }
+    if (options.proc !== undefined && (options.proc.exitCode !== null || options.proc.signalCode !== null)) {
+      await Bun.sleep(25);
+      const finalOutput = readOutput();
+      if (hasPortBindCollision(finalOutput, options.hostPort)) {
+        return { status: 'port-collision', output: finalOutput };
+      }
+      return {
+        status: 'exited',
+        exitCode: options.proc.exitCode,
+        signalCode: options.proc.signalCode,
+        output: finalOutput,
+      };
+    }
+    if (pidFiles.every((filePath) => existsSync(filePath))) {
+      try {
+        const res = await fetch(url, { signal: AbortSignal.timeout(400) });
+        await res.arrayBuffer();
+        if (res.ok) {
+          const afterOkOutput = readOutput();
+          if (hasPortBindCollision(afterOkOutput, options.hostPort)) {
+            return { status: 'port-collision', output: afterOkOutput };
+          }
+          return { status: 'ready' };
+        }
+      } catch (error) {
+        if (!(error instanceof Error)) throw error;
+      }
+    }
+    await Bun.sleep(50);
+  }
+  const timeoutOutput = readOutput();
+  if (hasPortBindCollision(timeoutOutput, options.hostPort)) {
+    return { status: 'port-collision', output: timeoutOutput };
+  }
+  return { status: 'timeout', output: timeoutOutput };
+}
+
+function readOptionalPidFile(filePath: string): number | undefined {
+  if (!existsSync(filePath)) return undefined;
+  try {
+    const parsed = Number(readFileSync(filePath, 'utf8').trim());
+    return Number.isInteger(parsed) && parsed > 1 ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function startEndpointWithPortRetry<T>(options: {
+  maxAttempts?: number;
+  timeoutMs?: number;
+  nextPort?: () => Promise<number>;
+  launch: (
+    attempt: number,
+    nextPort: () => Promise<number>,
+  ) => Promise<{
+    url: string;
+    hostPort: number;
+    proc: ChildProcess;
+    output: CapturedOutput;
+    pidFiles?: readonly string[];
+    extraCleanupPids?: () => readonly (number | undefined)[];
+    state: T;
+  }>;
+}): Promise<{ state: T; proc: ChildProcess; output: CapturedOutput; hostPort: number; attempts: number }> {
+  const maxAttempts = options.maxAttempts ?? 3;
+  const timeoutMs = options.timeoutMs ?? 30_000;
+  const nextPort = options.nextPort ?? freeLoopbackPort;
+  for (let attempt = 1; ; attempt += 1) {
+    const launched = await options.launch(attempt, nextPort);
+    if (launched.proc.pid !== undefined) trackedPids.add(launched.proc.pid);
+    const outcome = await waitForEndpointReady(launched.url, {
+      timeoutMs,
+      hostPort: launched.hostPort,
+      pidFiles: launched.pidFiles,
+      proc: launched.proc,
+      readOutput: launched.output.readOutput,
+    });
+    if (outcome.status === 'ready') {
+      return {
+        state: launched.state,
+        proc: launched.proc,
+        output: launched.output,
+        hostPort: launched.hostPort,
+        attempts: attempt,
+      };
+    }
+    launched.output.detach();
+    const cleanupPids = [launched.proc.pid, ...(launched.extraCleanupPids?.() ?? [])];
+    for (const pid of cleanupPids) {
+      forceKillPidAndGroup(pid);
+      if (pid !== undefined) {
+        await waitUntilGone(pid, 1_500);
+        trackedPids.delete(pid);
+      }
+    }
+    if (outcome.status === 'port-collision' && attempt < maxAttempts) {
+      continue;
+    }
+    throw new Error(
+      `sandbox endpoint ${launched.url} failed (${outcome.status}, attempt ${attempt}/${maxAttempts})` +
+        (outcome.status === 'exited'
+          ? ` [exit=${String(outcome.exitCode)} signal=${String(outcome.signalCode)}]`
+          : '') +
+        `:\n${outcome.output}`,
+    );
+  }
 }
 
 function fakeStream(options: {
@@ -343,6 +493,144 @@ describe('sandbox-process-guard unit', () => {
     }
     expect(await waitForPortFree(heldPort, 500)).toBe(true);
   });
+
+  it('allocates unique non-ephemeral loopback ports and retries immediately on port-bind collisions (#3323)', async () => {
+    const issued = new Set<number>();
+    for (let i = 0; i < 8; i += 1) {
+      const port = await freeLoopbackPort();
+      expect(Number.isInteger(port)).toBe(true);
+      expect(port).toBeGreaterThanOrEqual(USER_PORT_MIN);
+      expect(port).toBeLessThanOrEqual(USER_PORT_MAX);
+      expect(port).toBeLessThan(32_768);
+      expect(issued.has(port)).toBe(false);
+      issued.add(port);
+    }
+
+    const dir = makeTempDir('pyric-proc-3323-unit-');
+    const collidedPort = await freeLoopbackPort();
+    const readyPort = await freeLoopbackPort();
+    const holder = createServer();
+    await new Promise<void>((r) => holder.listen(collidedPort, '127.0.0.1', () => r()));
+    try {
+      const queue = [collidedPort, readyPort];
+      const startedAt = Date.now();
+      const started = await startEndpointWithPortRetry({
+        timeoutMs: 15_000,
+        nextPort: async () => queue.shift()!,
+        launch: async (attempt, nextPort) => {
+          const port = await nextPort();
+          const pidFile = join(dir, `child-${attempt}.pid`);
+          const script = join(dir, `child-${attempt}.mjs`);
+          writeFileSync(
+            script,
+            [
+              "import { createServer } from 'node:http';",
+              "import { renameSync, writeFileSync } from 'node:fs';",
+              `createServer((_req, res) => res.end('ok')).listen(${port}, '127.0.0.1', () => {`,
+              `  writeFileSync(${JSON.stringify(`${pidFile}.tmp`)}, String(process.pid));`,
+              `  renameSync(${JSON.stringify(`${pidFile}.tmp`)}, ${JSON.stringify(pidFile)});`,
+              '});',
+            ].join('\n'),
+          );
+          const proc = spawn('node', [script], {
+            cwd: dir,
+            stdio: ['ignore', 'pipe', 'pipe'],
+            detached: true,
+          });
+          return {
+            url: `http://127.0.0.1:${port}/`,
+            hostPort: port,
+            proc,
+            output: captureProcessOutput(proc),
+            pidFiles: [pidFile],
+            state: { port, pidFile },
+          };
+        },
+      });
+      expect(started.attempts).toBe(2);
+      expect(started.state.port).toBe(readyPort);
+      expect(Date.now() - startedAt).toBeLessThan(8_000);
+      started.output.detach();
+      forceKillPidAndGroup(started.proc.pid);
+      if (started.proc.pid !== undefined) {
+        await waitUntilGone(started.proc.pid, 1_500);
+      }
+    } finally {
+      await new Promise<void>((r) => holder.close(() => r()));
+    }
+
+    const scanPort = await freeLoopbackPort();
+    const cleanPort = await freeLoopbackPort();
+    const scanQueue = [scanPort, cleanPort];
+    const scanResult = await startEndpointWithPortRetry({
+      timeoutMs: 15_000,
+      nextPort: async () => scanQueue.shift()!,
+      launch: async (attempt, nextPort) => {
+        const port = await nextPort();
+        const pidFile = join(dir, `scan-${attempt}.pid`);
+        const script = join(dir, `scan-${attempt}.mjs`);
+        writeFileSync(
+          script,
+          port === scanPort
+            ? [
+                `process.stderr.write('  ! port ${port} is in use - trying ${port + 1}\\n');`,
+                'setInterval(() => {}, 1000);',
+              ].join('\n')
+            : [
+                "import { createServer } from 'node:http';",
+                "import { renameSync, writeFileSync } from 'node:fs';",
+                `createServer((_req, res) => res.end('ok')).listen(${port}, '127.0.0.1', () => {`,
+                `  writeFileSync(${JSON.stringify(`${pidFile}.tmp`)}, String(process.pid));`,
+                `  renameSync(${JSON.stringify(`${pidFile}.tmp`)}, ${JSON.stringify(pidFile)});`,
+                '});',
+              ].join('\n'),
+        );
+        const proc = spawn('node', [script], {
+          cwd: dir,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          detached: true,
+        });
+        return {
+          url: `http://127.0.0.1:${port}/`,
+          hostPort: port,
+          proc,
+          output: captureProcessOutput(proc),
+          pidFiles: [pidFile],
+          state: { port },
+        };
+      },
+    });
+    expect(scanResult.attempts).toBe(2);
+    expect(scanResult.state.port).toBe(cleanPort);
+    scanResult.output.detach();
+    forceKillPidAndGroup(scanResult.proc.pid);
+    if (scanResult.proc.pid !== undefined) {
+      await waitUntilGone(scanResult.proc.pid, 1_500);
+    }
+
+    const crashPort = await freeLoopbackPort();
+    const crashStart = Date.now();
+    await expect(
+      startEndpointWithPortRetry({
+        timeoutMs: 15_000,
+        launch: async () => {
+          const proc = spawn('node', ['-e', "console.error('synthetic child fatal'); process.exit(2);"], {
+            cwd: dir,
+            stdio: ['ignore', 'pipe', 'pipe'],
+            detached: true,
+          });
+          return {
+            url: `http://127.0.0.1:${crashPort}/`,
+            hostPort: crashPort,
+            proc,
+            output: captureProcessOutput(proc),
+            state: null,
+          };
+        },
+      }),
+    ).rejects.toThrow(/synthetic child fatal/);
+    expect(Date.now() - crashStart).toBeLessThan(8_000);
+  });
 });
 
 posixOnly('sandbox-child-lifeline unit', () => {
@@ -367,34 +655,53 @@ posixOnly('sandbox-child-lifeline unit', () => {
 linuxOnly('pyric sandbox subprocess lifecycle (#1775, #1677, #1551, #1195)', () => {
   it('SIGKILL to pyric sandbox stops its child server and grandchild worker and frees the port (#1775)', async () => {
     if (!existsSync(cliEntry)) throw new Error(`build @pyric/cli first: ${cliEntry}`);
-    const dir = makeTempDir('pyric-proc-1775-');
-    const hostPort = await freeLoopbackPort();
-    const appPort = await freeLoopbackPort();
-    const pidsFile = join(dir, 'pids.json');
-    writeFileSync(
-      join(dir, 'server.mjs'),
-      [
-        "import { createServer } from 'node:http';",
-        "import { spawn } from 'node:child_process';",
-        "import { writeFileSync } from 'node:fs';",
-        "const worker = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });",
-        "const srv = createServer((_req, res) => res.end('ok'));",
-        `srv.listen(${appPort}, '127.0.0.1', () => {`,
-        `  writeFileSync(${JSON.stringify(pidsFile)}, JSON.stringify({ childPid: process.pid, workerPid: worker.pid }));`,
-        '});',
-      ].join('\n'),
-    );
+    const started = await startEndpointWithPortRetry({
+      launch: async (attempt, nextPort) => {
+        const dir = makeTempDir(`pyric-proc-1775-${attempt}-`);
+        const hostPort = await nextPort();
+        const appPort = await nextPort();
+        const pidsFile = join(dir, 'pids.json');
+        writeFileSync(
+          join(dir, 'server.mjs'),
+          [
+            "import { createServer } from 'node:http';",
+            "import { spawn } from 'node:child_process';",
+            "import { renameSync, writeFileSync } from 'node:fs';",
+            "const worker = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });",
+            "const srv = createServer((_req, res) => res.end('ok'));",
+            `srv.listen(${appPort}, '127.0.0.1', () => {`,
+            `  writeFileSync(${JSON.stringify(`${pidsFile}.tmp`)}, JSON.stringify({ childPid: process.pid, workerPid: worker.pid }));`,
+            `  renameSync(${JSON.stringify(`${pidsFile}.tmp`)}, ${JSON.stringify(pidsFile)});`,
+            '});',
+          ].join('\n'),
+        );
 
-    const cli: ChildProcess = spawn(
-      'node',
-      [cliEntry, 'sandbox', '--hosted', '--no-open', '--no-ui', '--host', '127.0.0.1', '--port', String(hostPort), '--', 'node', 'server.mjs'],
-      { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], detached: true },
-    );
-    if (cli.pid !== undefined) trackedPids.add(cli.pid);
-    cli.stdout?.on('data', () => {});
-    cli.stderr?.on('data', () => {});
-
-    expect(await waitForHttpOk(`http://127.0.0.1:${appPort}/`, 20_000)).toBe(true);
+        const cli = spawn(
+          'node',
+          [cliEntry, 'sandbox', '--hosted', '--no-open', '--no-ui', '--host', '127.0.0.1', '--port', String(hostPort), '--', 'node', 'server.mjs'],
+          { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], detached: true },
+        );
+        return {
+          url: `http://127.0.0.1:${appPort}/`,
+          hostPort,
+          proc: cli,
+          output: captureProcessOutput(cli),
+          pidFiles: [pidsFile],
+          extraCleanupPids: () => {
+            if (!existsSync(pidsFile)) return [];
+            try {
+              const parsed = JSON.parse(readFileSync(pidsFile, 'utf8')) as { childPid?: number; workerPid?: number };
+              return [parsed.childPid, parsed.workerPid];
+            } catch {
+              return [];
+            }
+          },
+          state: { appPort, pidsFile },
+        };
+      },
+    });
+    const { appPort, pidsFile } = started.state;
+    const hostPort = started.hostPort;
     const { childPid, workerPid } = JSON.parse(readFileSync(pidsFile, 'utf8')) as {
       childPid: number;
       workerPid: number;
@@ -402,7 +709,7 @@ linuxOnly('pyric sandbox subprocess lifecycle (#1775, #1677, #1551, #1195)', () 
     trackedPids.add(childPid);
     trackedPids.add(workerPid);
 
-    process.kill(cli.pid ?? 0, 'SIGKILL');
+    process.kill(started.proc.pid ?? 0, 'SIGKILL');
     const childOutcome = await waitUntilGone(childPid, 4_000);
     const workerOutcome = await waitUntilGone(workerPid, 4_000);
     expect(childOutcome.gone).toBe(true);
@@ -414,17 +721,29 @@ linuxOnly('pyric sandbox subprocess lifecycle (#1775, #1677, #1551, #1195)', () 
   it('honors SIGINT and SIGTERM without CPU spin after stdout and stderr pipes close (#1195)', async () => {
     if (!existsSync(cliEntry)) throw new Error(`build @pyric/cli first: ${cliEntry}`);
     for (const signalName of ['SIGINT', 'SIGTERM'] as const) {
-      const dir = makeTempDir(`pyric-proc-1195-${signalName}-`);
-      const hostPort = await freeLoopbackPort();
-      const cli = spawn(
-        'node',
-        [cliEntry, 'sandbox', '--hosted', '--no-open', '--no-ui', '--host', '127.0.0.1', '--port', String(hostPort)],
-        { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], detached: true },
-      );
+      const started = await startEndpointWithPortRetry({
+        launch: async (attempt, nextPort) => {
+          const dir = makeTempDir(`pyric-proc-1195-${signalName}-${attempt}-`);
+          const hostPort = await nextPort();
+          const cli = spawn(
+            'node',
+            [cliEntry, 'sandbox', '--hosted', '--no-open', '--no-ui', '--host', '127.0.0.1', '--port', String(hostPort)],
+            { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], detached: true },
+          );
+          return {
+            url: `http://127.0.0.1:${hostPort}/__pyric/health`,
+            hostPort,
+            proc: cli,
+            output: captureProcessOutput(cli),
+            state: null,
+          };
+        },
+      });
+      const cli = started.proc;
       const pid = cli.pid ?? 0;
-      trackedPids.add(pid);
+      const hostPort = started.hostPort;
 
-      expect(await waitForHttpOk(`http://127.0.0.1:${hostPort}/__pyric/health`, 20_000)).toBe(true);
+      started.output.detach();
       cli.stdout?.destroy();
       cli.stderr?.destroy();
       // Trigger additional host log writes while both output pipes are closed.
@@ -437,41 +756,55 @@ linuxOnly('pyric sandbox subprocess lifecycle (#1775, #1677, #1551, #1195)', () 
       expect(outcome.cpuTicks / CLOCK_TICKS_PER_SECOND).toBeLessThan(0.75);
       expect(await waitForPortFree(hostPort, 1_500)).toBe(true);
     }
-  }, 45_000);
+  }, 60_000);
 
   it('exits cleanly without spinning when its child process is killed even after output pipes close (#1677)', async () => {
     if (!existsSync(cliEntry)) throw new Error(`build @pyric/cli first: ${cliEntry}`);
-    const dir = makeTempDir('pyric-proc-1677-');
-    const hostPort = await freeLoopbackPort();
-    const appPort = await freeLoopbackPort();
-    const childPidFile = join(dir, 'child.pid');
-    writeFileSync(
-      join(dir, 'server.mjs'),
-      [
-        "import { createServer } from 'node:http';",
-        "import { writeFileSync } from 'node:fs';",
-        "process.on('SIGTERM', () => {",
-        "  console.log('child exiting on SIGTERM');",
-        '  process.exit(0);',
-        '});',
-        "createServer((_req, res) => res.end('ok')).listen(" + String(appPort) + ", '127.0.0.1', () => {",
-        `  writeFileSync(${JSON.stringify(childPidFile)}, String(process.pid));`,
-        '});',
-      ].join('\n'),
-    );
+    const started = await startEndpointWithPortRetry({
+      launch: async (attempt, nextPort) => {
+        const dir = makeTempDir(`pyric-proc-1677-${attempt}-`);
+        const hostPort = await nextPort();
+        const appPort = await nextPort();
+        const childPidFile = join(dir, 'child.pid');
+        writeFileSync(
+          join(dir, 'server.mjs'),
+          [
+            "import { createServer } from 'node:http';",
+            "import { renameSync, writeFileSync } from 'node:fs';",
+            "process.on('SIGTERM', () => {",
+            "  console.log('child exiting on SIGTERM');",
+            '  process.exit(0);',
+            '});',
+            "createServer((_req, res) => res.end('ok')).listen(" + String(appPort) + ", '127.0.0.1', () => {",
+            `  writeFileSync(${JSON.stringify(`${childPidFile}.tmp`)}, String(process.pid));`,
+            `  renameSync(${JSON.stringify(`${childPidFile}.tmp`)}, ${JSON.stringify(childPidFile)});`,
+            '});',
+          ].join('\n'),
+        );
 
-    const cli = spawn(
-      'node',
-      [cliEntry, 'sandbox', '--no-open', '--no-ui', '--host', '127.0.0.1', '--port', String(hostPort), '--', 'node', 'server.mjs'],
-      { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], detached: true },
-    );
+        const cli = spawn(
+          'node',
+          [cliEntry, 'sandbox', '--no-open', '--no-ui', '--host', '127.0.0.1', '--port', String(hostPort), '--', 'node', 'server.mjs'],
+          { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], detached: true },
+        );
+        return {
+          url: `http://127.0.0.1:${appPort}/`,
+          hostPort,
+          proc: cli,
+          output: captureProcessOutput(cli),
+          pidFiles: [childPidFile],
+          extraCleanupPids: () => [readOptionalPidFile(childPidFile)],
+          state: { appPort, childPidFile },
+        };
+      },
+    });
+    const cli = started.proc;
     const hostPid = cli.pid ?? 0;
-    trackedPids.add(hostPid);
-
-    expect(await waitForHttpOk(`http://127.0.0.1:${appPort}/`, 20_000)).toBe(true);
+    const { appPort, childPidFile } = started.state;
     const childPid = Number(readFileSync(childPidFile, 'utf8').trim());
     trackedPids.add(childPid);
 
+    started.output.detach();
     cli.stdout?.destroy();
     cli.stderr?.destroy();
     await Bun.sleep(150);
@@ -480,45 +813,63 @@ linuxOnly('pyric sandbox subprocess lifecycle (#1775, #1677, #1551, #1195)', () 
     const outcome = await waitUntilGone(hostPid, 4_000);
     expect(outcome.gone).toBe(true);
     expect(outcome.cpuTicks / CLOCK_TICKS_PER_SECOND).toBeLessThan(0.75);
+    expect(await waitForPortFree(started.hostPort, 1_500)).toBe(true);
+    expect(await waitForPortFree(appPort, 1_500)).toBe(true);
   }, 45_000);
 
   it('shuts down when orphaned by parent death and honors SIGTERM (#1551)', async () => {
     if (!existsSync(cliEntry)) throw new Error(`build @pyric/cli first: ${cliEntry}`);
-    const dir = makeTempDir('pyric-proc-1551-');
-    const hostPort = await freeLoopbackPort();
-    const appPort = await freeLoopbackPort();
-    const sandboxPidFile = join(dir, 'sandbox.pid');
-    const childPidFile = join(dir, 'child.pid');
-    writeFileSync(
-      join(dir, 'server.mjs'),
-      [
-        "import { createServer } from 'node:http';",
-        "import { writeFileSync } from 'node:fs';",
-        "createServer((_req, res) => res.end('ok')).listen(" + String(appPort) + ", '127.0.0.1', () => {",
-        `  writeFileSync(${JSON.stringify(childPidFile)}, String(process.pid));`,
-        '});',
-      ].join('\n'),
-    );
-    writeFileSync(
-      join(dir, 'launcher.mjs'),
-      [
-        "import { spawn } from 'node:child_process';",
-        "import { writeFileSync } from 'node:fs';",
-        `const p = spawn(process.execPath, [${JSON.stringify(cliEntry)}, 'sandbox', '--hosted', '--no-open', '--no-ui', '--host', '127.0.0.1', '--port', ${JSON.stringify(String(hostPort))}, '--', 'node', 'server.mjs'], { cwd: ${JSON.stringify(dir)}, stdio: ['ignore', 'pipe', 'pipe'], detached: true });`,
-        `writeFileSync(${JSON.stringify(sandboxPidFile)}, String(p.pid));`,
-        'setInterval(() => {}, 1000);',
-      ].join('\n'),
-    );
+    const started = await startEndpointWithPortRetry({
+      launch: async (attempt, nextPort) => {
+        const dir = makeTempDir(`pyric-proc-1551-${attempt}-`);
+        const hostPort = await nextPort();
+        const appPort = await nextPort();
+        const sandboxPidFile = join(dir, 'sandbox.pid');
+        const childPidFile = join(dir, 'child.pid');
+        writeFileSync(
+          join(dir, 'server.mjs'),
+          [
+            "import { createServer } from 'node:http';",
+            "import { renameSync, writeFileSync } from 'node:fs';",
+            "createServer((_req, res) => res.end('ok')).listen(" + String(appPort) + ", '127.0.0.1', () => {",
+            `  writeFileSync(${JSON.stringify(`${childPidFile}.tmp`)}, String(process.pid));`,
+            `  renameSync(${JSON.stringify(`${childPidFile}.tmp`)}, ${JSON.stringify(childPidFile)});`,
+            '});',
+          ].join('\n'),
+        );
+        writeFileSync(
+          join(dir, 'launcher.mjs'),
+          [
+            "import { spawn } from 'node:child_process';",
+            "import { renameSync, writeFileSync } from 'node:fs';",
+            `const p = spawn(process.execPath, [${JSON.stringify(cliEntry)}, 'sandbox', '--hosted', '--no-open', '--no-ui', '--host', '127.0.0.1', '--port', ${JSON.stringify(String(hostPort))}, '--', 'node', 'server.mjs'], { cwd: ${JSON.stringify(dir)}, stdio: ['ignore', 'pipe', 'pipe'], detached: true });`,
+            "p.stdout?.on('data', (c) => process.stdout.write(c));",
+            "p.stderr?.on('data', (c) => process.stderr.write(c));",
+            `writeFileSync(${JSON.stringify(`${sandboxPidFile}.tmp`)}, String(p.pid));`,
+            `renameSync(${JSON.stringify(`${sandboxPidFile}.tmp`)}, ${JSON.stringify(sandboxPidFile)});`,
+            'setInterval(() => {}, 1000);',
+          ].join('\n'),
+        );
 
-    const launcher = spawn('node', [join(dir, 'launcher.mjs')], {
-      cwd: dir,
-      stdio: 'ignore',
-      detached: true,
+        const launcher = spawn('node', [join(dir, 'launcher.mjs')], {
+          cwd: dir,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          detached: true,
+        });
+        return {
+          url: `http://127.0.0.1:${appPort}/`,
+          hostPort,
+          proc: launcher,
+          output: captureProcessOutput(launcher),
+          pidFiles: [sandboxPidFile, childPidFile],
+          extraCleanupPids: () => [readOptionalPidFile(sandboxPidFile), readOptionalPidFile(childPidFile)],
+          state: { appPort, sandboxPidFile, childPidFile },
+        };
+      },
     });
-    const launcherPid = launcher.pid ?? 0;
-    trackedPids.add(launcherPid);
-
-    expect(await waitForHttpOk(`http://127.0.0.1:${appPort}/`, 20_000)).toBe(true);
+    const launcherPid = started.proc.pid ?? 0;
+    const { appPort, sandboxPidFile, childPidFile } = started.state;
+    const hostPort = started.hostPort;
     const sandboxPid = Number(readFileSync(sandboxPidFile, 'utf8').trim());
     const childPid = Number(readFileSync(childPidFile, 'utf8').trim());
     trackedPids.add(sandboxPid);
@@ -536,42 +887,60 @@ linuxOnly('pyric sandbox subprocess lifecycle (#1775, #1677, #1551, #1195)', () 
 
   it('reaps a SIGTERM-ignoring grandchild in the child process group when the wrapper exits early', async () => {
     if (!existsSync(cliEntry)) throw new Error(`build @pyric/cli first: ${cliEntry}`);
-    const dir = makeTempDir('pyric-proc-grandchild-');
-    const hostPort = await freeLoopbackPort();
-    const appPort = await freeLoopbackPort();
-    const pidsFile = join(dir, 'pids.json');
-    writeFileSync(
-      join(dir, 'grandchild.mjs'),
-      [
-        "process.on('SIGTERM', () => {});",
-        'setInterval(() => {}, 1000);',
-      ].join('\n'),
-    );
-    writeFileSync(
-      join(dir, 'wrapper.mjs'),
-      [
-        "import { createServer } from 'node:http';",
-        "import { spawn } from 'node:child_process';",
-        "import { writeFileSync } from 'node:fs';",
-        "const grand = spawn(process.execPath, ['grandchild.mjs'], { stdio: 'ignore' });",
-        "process.on('SIGTERM', () => process.exit(0));",
-        `createServer((_req, res) => res.end('ok')).listen(${appPort}, '127.0.0.1', () => {`,
-        `  writeFileSync(${JSON.stringify(pidsFile)}, JSON.stringify({ wrapperPid: process.pid, grandPid: grand.pid }));`,
-        '});',
-      ].join('\n'),
-    );
+    const started = await startEndpointWithPortRetry({
+      launch: async (attempt, nextPort) => {
+        const dir = makeTempDir(`pyric-proc-grandchild-${attempt}-`);
+        const hostPort = await nextPort();
+        const appPort = await nextPort();
+        const pidsFile = join(dir, 'pids.json');
+        writeFileSync(
+          join(dir, 'grandchild.mjs'),
+          [
+            "process.on('SIGTERM', () => {});",
+            'setInterval(() => {}, 1000);',
+          ].join('\n'),
+        );
+        writeFileSync(
+          join(dir, 'wrapper.mjs'),
+          [
+            "import { createServer } from 'node:http';",
+            "import { spawn } from 'node:child_process';",
+            "import { renameSync, writeFileSync } from 'node:fs';",
+            "const grand = spawn(process.execPath, ['grandchild.mjs'], { stdio: 'ignore' });",
+            "process.on('SIGTERM', () => process.exit(0));",
+            `createServer((_req, res) => res.end('ok')).listen(${appPort}, '127.0.0.1', () => {`,
+            `  writeFileSync(${JSON.stringify(`${pidsFile}.tmp`)}, JSON.stringify({ wrapperPid: process.pid, grandPid: grand.pid }));`,
+            `  renameSync(${JSON.stringify(`${pidsFile}.tmp`)}, ${JSON.stringify(pidsFile)});`,
+            '});',
+          ].join('\n'),
+        );
 
-    const cli = spawn(
-      'node',
-      [cliEntry, 'sandbox', '--no-open', '--no-ui', '--host', '127.0.0.1', '--port', String(hostPort), '--', 'node', 'wrapper.mjs'],
-      { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], detached: true },
-    );
-    const hostPid = cli.pid ?? 0;
-    trackedPids.add(hostPid);
-    cli.stdout?.on('data', () => {});
-    cli.stderr?.on('data', () => {});
-
-    expect(await waitForHttpOk(`http://127.0.0.1:${appPort}/`, 20_000)).toBe(true);
+        const cli = spawn(
+          'node',
+          [cliEntry, 'sandbox', '--no-open', '--no-ui', '--host', '127.0.0.1', '--port', String(hostPort), '--', 'node', 'wrapper.mjs'],
+          { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], detached: true },
+        );
+        return {
+          url: `http://127.0.0.1:${appPort}/`,
+          hostPort,
+          proc: cli,
+          output: captureProcessOutput(cli),
+          pidFiles: [pidsFile],
+          extraCleanupPids: () => {
+            if (!existsSync(pidsFile)) return [];
+            try {
+              const parsed = JSON.parse(readFileSync(pidsFile, 'utf8')) as { wrapperPid?: number; grandPid?: number };
+              return [parsed.wrapperPid, parsed.grandPid];
+            } catch {
+              return [];
+            }
+          },
+          state: { pidsFile },
+        };
+      },
+    });
+    const hostPid = started.proc.pid ?? 0;
+    const { pidsFile } = started.state;
     const { wrapperPid, grandPid } = JSON.parse(readFileSync(pidsFile, 'utf8')) as {
       wrapperPid: number;
       grandPid: number;
