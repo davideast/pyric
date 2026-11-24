@@ -1,0 +1,23 @@
+{
+  "name": "crashlytics-web-instance-and-options",
+  "matrixRow": "crashlytics#get-crashlytics-and-module-swap",
+  "rowIds": [
+    "crashlytics#get-crashlytics-and-module-swap"
+  ],
+  "description": "Offline @firebase/crashlytics@0.2.0 (firebase@13.4.0) browser-bundle capture of getCrashlytics(app, options) per-app singleton caching, breadcrumbs() feature descriptor shape ({ name: \"breadcrumbs\" }), and strict repeat-call option equality enforcement.",
+  "observedAt": "2026-11-24T19:58:22.778Z",
+  "fbSdkVersion": "13.4.0",
+  "crashlyticsSdkVersion": "0.2.0",
+  "behavior": {
+    "breadcrumbFeatureKeys": [
+      "name"
+    ],
+    "breadcrumbFeatureName": "breadcrumbs",
+    "defaultSameEmpty": true,
+    "defaultSameOmitted": true,
+    "namedSameOptions": true,
+    "distinctAppsIsolated": true,
+    "omittedAfterOptionsError": "getCrashlytics() cannot be called with different options",
+    "mismatchedOptionsError": "getCrashlytics() cannot be called with different options"
+  }
+}

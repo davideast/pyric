@@ -351,16 +351,44 @@ export function validateCompatibilityRegistry(input: ValidationInput): string[] 
       }
     }
 
-    const manifestsIncludingPending = manifests.map((m) => ({
-      id: m.id,
-      observationPrefixes: [...m.observationPrefixes, ...(m.pendingPrefixes ?? [])],
-    }));
+    const isolatedCaptureOwners: ReadonlyArray<{
+      id: string;
+      script: string;
+      observationPrefixes: string[];
+    }> = [
+      {
+        id: 'crashlytics-web-offline',
+        script: 'packages/conformance/src/capture/crashlytics-web/probes.ts',
+        observationPrefixes: ['crashlytics-web-'],
+      },
+    ];
+    for (const isolatedOwner of isolatedCaptureOwners) {
+      if (!existsSync(join(REPO_ROOT, isolatedOwner.script))) {
+        problems.push(`isolated capture '${isolatedOwner.id}': script '${isolatedOwner.script}' is missing`);
+      }
+      for (const prefix of isolatedOwner.observationPrefixes) {
+        if (!descriptorPrefixes.has(prefix)) {
+          problems.push(
+            `isolated capture '${isolatedOwner.id}': observation prefix '${prefix}' is not a recognized surface contract prefix (surfaces/*.json)`,
+          );
+        }
+      }
+    }
+
+    const manifestsIncludingPending = [
+      ...manifests.map((m) => ({
+        id: m.id,
+        observationPrefixes: [...m.observationPrefixes, ...(m.pendingPrefixes ?? [])],
+      })),
+      ...isolatedCaptureOwners,
+    ];
+    const activeManifestsAndIsolated = [...manifests, ...isolatedCaptureOwners];
 
     for (const obs of input.observations) {
       if (probeDeclaredOwnerByFile.has(obs.file)) {
         continue;
       }
-      let ownerPool: { id: string; observationPrefixes: string[] }[] = manifests;
+      let ownerPool: { id: string; observationPrefixes: string[] }[] = activeManifestsAndIsolated;
       if (isUnlinkedStagedObservation(obs.name, obs.rowIds, pendingRowLinkObservations)) {
         ownerPool = manifestsIncludingPending;
       }
