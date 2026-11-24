@@ -9,7 +9,6 @@
  * `swift test --filter PyricMessagingTests` against the live `MessagingBroker`.
  */
 import { describe, expect, test } from 'bun:test';
-import { spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
 import type { AddressInfo, Socket } from 'node:net';
@@ -35,6 +34,7 @@ import {
   buildSwiftLiveHostTests,
   collectProcessEnv,
   formatSubprocessFailure,
+  probeSwiftLiveToolchain,
   runManagedSubprocess,
 } from './swift-live-host-subprocess.ts';
 
@@ -297,23 +297,12 @@ async function openAttachedSwiftMessagingSocket(
   };
 }
 
-function detectRunnableSwiftBinary(): string | null {
-  const swiftBin = Bun.which('swift');
-  if (swiftBin === null) {
-    return null;
-  }
-  const probe = spawnSync(swiftBin, ['test', '--version'], { encoding: 'utf8' });
-  if (probe.error !== undefined || probe.status !== 0) {
-    return null;
-  }
-  return swiftBin;
+const SWIFT_TOOLCHAIN = probeSwiftLiveToolchain();
+const shouldSkipSwiftSubprocess = SWIFT_TOOLCHAIN.skip;
+const detectedSwiftBinary = SWIFT_TOOLCHAIN.swiftBinary;
+if (SWIFT_TOOLCHAIN.skip && SWIFT_TOOLCHAIN.skipReason !== null) {
+  console.warn(`[native-swift-messaging-conformance] skipping PyricMessagingTests: ${SWIFT_TOOLCHAIN.skipReason}`);
 }
-
-const requireSwiftLive = process.env.PYRIC_REQUIRE_SWIFT_LIVE === '1';
-const isGenericCiShard = process.env.CI === 'true' && !requireSwiftLive;
-const detectedSwiftBinary = detectRunnableSwiftBinary();
-const shouldSkipSwiftSubprocess =
-  !requireSwiftLive && (isGenericCiShard || detectedSwiftBinary === null);
 
 describe('native Swift Cloud Messaging live-host conformance', () => {
   test('serves token, topic, condition, visibility, deliver, multi-recipient, and disabled gates over WebSocket', async () => {

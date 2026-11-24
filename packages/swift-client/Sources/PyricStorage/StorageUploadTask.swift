@@ -46,9 +46,8 @@ open class StorageUploadTask: StorageObservableTask, StorageTaskManagement, @unc
             initialSize = Int64(bytes.count)
         case .file(let fileURL):
             if fileURL.isFileURL,
-               let attrs = try? FileManager.default.attributesOfItem(atPath: fileURL.path),
-               let fileSize = attrs[.size] as? NSNumber {
-                initialSize = fileSize.int64Value
+               let attrs = try? FileManager.default.attributesOfItem(atPath: fileURL.path) {
+                initialSize = Self.fileByteSize(from: attrs)
             } else {
                 initialSize = 0
             }

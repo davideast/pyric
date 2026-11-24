@@ -419,4 +419,52 @@ struct StorageUnitTests {
 
         await bridge.disconnect()
     }
+
+    @Test("File size coercion, full-slice file reads, and isolated HTTP cancellation settle cleanly")
+    func fileSliceReadsSizeCoercionAndHTTPCancellation() async throws {
+        #expect(StorageUploadTask.fileByteSize(from: [.size: NSNumber(value: 600_000)]) == 600_000)
+        #expect(StorageUploadTask.fileByteSize(from: [.size: Int64(262_144)]) == 262_144)
+        #expect(StorageUploadTask.fileByteSize(from: [.size: Int(4096)]) == 4096)
+        #expect(StorageUploadTask.fileByteSize(from: [.size: UInt64(8192)]) == 8192)
+        #expect(StorageUploadTask.fileByteSize(from: [.size: Int64(-5)]) == 0)
+
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pyric-storage-unit-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let fileURL = tempDir.appendingPathComponent("payload.bin")
+        var expected = Data(count: 600_000)
+        for idx in 0..<expected.count {
+            expected[idx] = UInt8((idx * 17 + 5) & 0xFF)
+        }
+        try expected.write(to: fileURL)
+
+        let app = FirebaseApp(name: "slice-app", options: FirebaseOptions(projectID: "p", storageBucket: "b"))
+        let storage = Storage(app: app, storageBucket: "b", isNamedBucket: false, configuredDefaultBucket: "b")
+        let task = StorageUploadTask(reference: storage.reference(withPath: "f.bin"), source: .file(fileURL), metadata: nil, completion: nil)
+        let firstChunk = try task.readSourceSlice(offset: 0, length: 262_144)
+        let secondChunk = try task.readSourceSlice(offset: 262_144, length: 262_144)
+        let finalChunk = try task.readSourceSlice(offset: 524_288, length: 262_144)
+        #expect(firstChunk == expected.subdata(in: 0..<262_144))
+        #expect(secondChunk == expected.subdata(in: 262_144..<524_288))
+        #expect(finalChunk == expected.subdata(in: 524_288..<600_000))
+
+        let cancelledTask = Task {
+            try await BridgeStorageTransport.performHTTPRequest(
+                url: URL(string: "http://127.0.0.1:9/__pyric/cancelled-probe")!,
+                method: "GET",
+                headers: [:],
+                body: nil,
+                timeout: 30.0
+            )
+        }
+        cancelledTask.cancel()
+        do {
+            _ = try await cancelledTask.value
+        } catch {
+            let mapped = StorageErrorCode.from(error)
+            #expect(mapped == .cancelled || mapped == .unknown)
+        }
+    }
 }
