@@ -39,6 +39,7 @@ const PACKAGES: ReadonlyArray<readonly [segment: string, name: string]> = [
   ['/node_modules/@firebase/app/', '@firebase/app'],
   ['/node_modules/@firebase/app-check/', '@firebase/app-check'],
   ['/node_modules/@firebase/auth/', '@firebase/auth'],
+  ['/node_modules/@firebase/crashlytics/', '@firebase/crashlytics'],
   ['/node_modules/firebase-functions/', 'firebase-functions'],
   ['/node_modules/next/', 'next'],
   ['/work/app/', 'app'],
@@ -227,6 +228,17 @@ describe('stopFor: the client SDK', () => {
   it('stops @firebase/* imported by app code, and names the firebase/* import to use', () => {
     const stop = stopFor(load({ specifier: '@firebase/firestore', url: AT_FIRESTORE_FILE }), noneAllowed());
     expect(stop?.message).toContain("import 'firebase/firestore' instead of '@firebase/firestore'");
+
+    const crashlyticsReactStop = stopFor(
+      load({
+        specifier: '@firebase/crashlytics/react',
+        url: 'file:///work/app/node_modules/@firebase/crashlytics/dist/react/index.esm.js',
+      }),
+      noneAllowed(),
+    );
+    expect(crashlyticsReactStop?.message).toContain(
+      "import 'firebase/crashlytics/react' instead of '@firebase/crashlytics/react'",
+    );
   });
 
   it('names no firebase/* import that pyric does not serve', () => {

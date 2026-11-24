@@ -70,9 +70,10 @@ describe('@pyric/live publishes', () => {
     expect(manifest.dependencies?.['@pyric/cli']).toBe('workspace:*');
   });
 
-  test('with firebase as a peer in the range the start check refuses outside', () => {
-    expect(manifest.peerDependencies?.firebase).toBe(SUPPORTED_FIREBASE_RANGE);
-    expect(contract.peerDependencies.firebase).toBe(SUPPORTED_FIREBASE_RANGE);
+  test('with firebase as a >=12 peer while start checks enforce the runtime range', () => {
+    expect(manifest.peerDependencies?.firebase).toBe('>=12');
+    expect(contract.peerDependencies.firebase).toBe('>=12');
+    expect(SUPPORTED_FIREBASE_RANGE).toBe('^12.12.0');
     expect(manifest.dependencies?.firebase).toBeUndefined();
   });
 
@@ -96,7 +97,7 @@ describe('the packed release check', () => {
     const check = await liveReleaseProblems();
     const exports = { ...manifest.exports };
     delete exports['./register'];
-    const problems = check({ ...manifest, exports, peerDependencies: { ...manifest.peerDependencies, firebase: '>=12' } }, PACKED_FILES, contract);
+    const problems = check({ ...manifest, exports, peerDependencies: { ...manifest.peerDependencies, firebase: '^11.0.0' } }, PACKED_FILES, contract);
     expect(problems.some((problem) => problem.startsWith('exports are '))).toBe(true);
     expect(problems.some((problem) => problem.startsWith('peerDependencies are '))).toBe(true);
   });

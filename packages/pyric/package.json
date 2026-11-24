@@ -120,6 +120,22 @@
       "types": "./dist/crashlytics/index.d.ts",
       "import": "./dist/crashlytics/index.js"
     },
+    "./crashlytics/react": {
+      "types": "./dist/crashlytics/react.d.ts",
+      "import": "./dist/crashlytics/react.js"
+    },
+    "./crashlytics/next-navigation": {
+      "types": "./dist/crashlytics/next-navigation.d.ts",
+      "import": "./dist/crashlytics/next-navigation.js"
+    },
+    "./crashlytics/react-router": {
+      "types": "./dist/crashlytics/react-router.d.ts",
+      "import": "./dist/crashlytics/react-router.js"
+    },
+    "./crashlytics/angular": {
+      "types": "./dist/crashlytics/angular.d.ts",
+      "import": "./dist/crashlytics/angular.js"
+    },
     "./crashlytics/internal": {
       "types": "./dist/crashlytics/internal.d.ts",
       "import": "./dist/crashlytics/internal.js"

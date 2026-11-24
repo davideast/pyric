@@ -17,6 +17,7 @@ import {
 } from 'pyric/crashlytics/internal';
 import { createWorkerCrashlyticsTransport } from '../worker/client/crashlytics.js';
 import { workerClientForApp } from './app-client.js';
+import { rememberServedBreadcrumbs } from './crashlytics-framework-runtime.js';
 import { useWorker } from './worker-runtime.js';
 
 export type {
@@ -53,6 +54,7 @@ export function getCrashlytics(
 ): Crashlytics {
   validateCrashlyticsEndpointUrl(options?.endpointUrl);
   const resolved = app ?? getApp();
+  rememberServedBreadcrumbs(resolved, options);
   if (!useWorker) {
     return inPage.getCrashlytics(resolved, options);
   }
