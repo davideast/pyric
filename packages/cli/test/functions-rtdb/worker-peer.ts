@@ -43,6 +43,15 @@ export interface FunctionsWorkerPeerOptions {
   sandboxId: string;
   cwd?: string;
   sessionToken?: string;
+  /**
+   * Optional test hook called before forwarding a `worker-op` frame into
+   * `handleMessage`. Returning `'drop'` skips forwarding so tests can close
+   * the peer socket mid-flight without replying.
+   */
+  onWorkerOp?: (
+    op: Extract<BridgeMessage, { type: 'worker-op' }>['op'],
+    controls: { close(): Promise<void> },
+  ) => 'drop' | void;
 }
 
 export async function createFunctionsWorkerHostCtx(
@@ -100,6 +109,43 @@ export async function connectFunctionsWorkerPeer(
     },
   };
 
+  const WORKER_PEER_CLOSE_GRACE_MS = 250;
+  const close = (): Promise<void> => new Promise<void>((resolveClosed) => {
+    if (ws.readyState === WebSocket.CLOSED) {
+      resolveClosed();
+      return;
+    }
+    let settled = false;
+    const finishClose = (): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(forceCloseTimer);
+      resolveClosed();
+    };
+    // Bound the WebSocket close handshake so a busy or closing dev server
+    // never stalls test `afterEach` hooks on `ws`'s 30 s `_closeTimer` (#1076).
+    const forceCloseTimer = setTimeout(() => {
+      try {
+        ws.terminate();
+      } catch (error: unknown) {
+        void error;
+      }
+      finishClose();
+    }, WORKER_PEER_CLOSE_GRACE_MS);
+    forceCloseTimer.unref();
+    ws.once('close', finishClose);
+    if (ws.readyState === WebSocket.CONNECTING) {
+      ws.terminate();
+      return;
+    }
+    try {
+      ws.close();
+    } catch (error: unknown) {
+      void error;
+      ws.terminate();
+    }
+  });
+
   await new Promise<void>((resolveConnected, rejectConnected) => {
     ws.once('open', () => ws.send(JSON.stringify({
       type: 'hello',
@@ -119,6 +165,7 @@ export async function connectFunctionsWorkerPeer(
       if (!isBridgeMessage(message)) return;
       if (message.type === 'hello-ack') resolveConnected();
       else if (message.type === 'worker-op') {
+        if (options.onWorkerOp?.(message.op, { close }) === 'drop') return;
         void handleMessage(options.ctx, port, {
           ...message.op,
           t: 'op',
@@ -141,42 +188,5 @@ export async function connectFunctionsWorkerPeer(
     ws.once('close', () => rejectConnected(new Error('worker peer closed before ready')));
   });
 
-  const WORKER_PEER_CLOSE_GRACE_MS = 250;
-  return {
-    close: () => new Promise<void>((resolveClosed) => {
-      if (ws.readyState === WebSocket.CLOSED) {
-        resolveClosed();
-        return;
-      }
-      let settled = false;
-      const finishClose = (): void => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(forceCloseTimer);
-        resolveClosed();
-      };
-      // Bound the WebSocket close handshake so a busy or closing dev server
-      // never stalls test `afterEach` hooks on `ws`'s 30 s `_closeTimer` (#1076).
-      const forceCloseTimer = setTimeout(() => {
-        try {
-          ws.terminate();
-        } catch (error: unknown) {
-          void error;
-        }
-        finishClose();
-      }, WORKER_PEER_CLOSE_GRACE_MS);
-      forceCloseTimer.unref();
-      ws.once('close', finishClose);
-      if (ws.readyState === WebSocket.CONNECTING) {
-        ws.terminate();
-        return;
-      }
-      try {
-        ws.close();
-      } catch (error: unknown) {
-        void error;
-        ws.terminate();
-      }
-    }),
-  };
+  return { close };
 }

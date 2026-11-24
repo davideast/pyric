@@ -284,25 +284,32 @@ export function startStorageTriggerExecution(
               );
               if (rolledBackCommits.has(commitKey)) return;
             }
-            const baseOptions = await options.eventOptions(projected, deliverySequence, trigger);
-            let objectSnapshot = projected.object;
-            if (
-              projected.eventType === DELETED_EVENT_TYPE &&
-              (objectSnapshot.timeDeleted === undefined || objectSnapshot.timeDeleted.length === 0)
-            ) {
-              objectSnapshot = {
-                ...objectSnapshot,
-                timeDeleted: baseOptions.time,
-              };
+            try {
+              const baseOptions = await options.eventOptions(projected, deliverySequence, trigger);
+              if (closed) return;
+              let objectSnapshot = projected.object;
+              if (
+                projected.eventType === DELETED_EVENT_TYPE &&
+                (objectSnapshot.timeDeleted === undefined || objectSnapshot.timeDeleted.length === 0)
+              ) {
+                objectSnapshot = {
+                  ...objectSnapshot,
+                  timeDeleted: baseOptions.time,
+                };
+              }
+              const result = await executeStorageTrigger(trigger, objectSnapshot, {
+                id: baseOptions.id,
+                time: baseOptions.time,
+                location: baseOptions.location,
+                eventType: projected.eventType,
+                bucket: projected.bucket,
+              });
+              options.onExecution?.(result, trigger, projected);
+            } catch (error) {
+              if (!closed) {
+                options.onDeliveryError?.(error, trigger);
+              }
             }
-            const result = await executeStorageTrigger(trigger, objectSnapshot, {
-              id: baseOptions.id,
-              time: baseOptions.time,
-              location: baseOptions.location,
-              eventType: projected.eventType,
-              bucket: projected.bucket,
-            });
-            options.onExecution?.(result, trigger, projected);
           });
         }
       }

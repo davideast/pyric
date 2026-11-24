@@ -207,4 +207,37 @@ describe('startFirestoreTriggerExecution', () => {
     ]);
     host.close();
   });
+
+  test('skips handler execution and suppresses delivery errors when closed while envelopeOptions is pending', async () => {
+    const delivered: string[] = [];
+    const errors: unknown[] = [];
+    let rejectEnvelope!: (error: Error) => void;
+    const pendingEnvelope = new Promise<never>((_, reject) => {
+      rejectEnvelope = reject;
+    });
+
+    const onCreated = firestoreFunctions.onDocumentCreated('items/{id}', (ev) => {
+      delivered.push(ev.params.id);
+    });
+    const delivery = new InMemoryFirestoreTriggerDelivery();
+    const host = startFirestoreTriggerExecution({
+      exported: { onCreated },
+      delivery,
+      envelopeOptions: () => pendingEnvelope,
+      onDeliveryError(err) {
+        errors.push(err);
+      },
+    });
+    await host.ready;
+
+    delivery.emitCreate({ document: 'items/it-closed', fields: { qty: 1 } });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    host.close();
+    rejectEnvelope(new Error('no browser tab is connected to the sandbox'));
+    await host.idle();
+
+    expect(delivered).toEqual([]);
+    expect(errors).toEqual([]);
+  });
 });

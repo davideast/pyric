@@ -145,4 +145,84 @@ describe('startOnValueCreatedExecution', () => {
     expect(times).toEqual([pinned]);
     host.close();
   });
+
+  test('routes eventOptions failures to onDeliveryError without poisoning later deliveries or idle()', async () => {
+    const { onValueCreated } = databaseFunctions;
+    const delivered: string[] = [];
+    const deliveryErrors: Array<{ exportName: string; error: unknown }> = [];
+    const clockError = new Error('no browser tab is connected to the sandbox');
+    let attempt = 0;
+
+    const created = onValueCreated('/items/{itemId}', (event) => {
+      delivered.push(event.params.itemId);
+    });
+    const delivery = new InMemoryRtdbTriggerDelivery();
+    delivery.seed('/items', null);
+
+    const host = startOnValueCreatedExecution({
+      exported: { created },
+      delivery,
+      eventOptions: async (_projection, sequence) => {
+        attempt += 1;
+        await Promise.resolve();
+        if (attempt === 1) throw clockError;
+        return {
+          id: `recovered-${sequence}`,
+          time: '2026-07-13T20:00:00.000Z',
+          instance: 'demo-project-default-rtdb',
+          location: 'us-central1',
+          databaseHost: 'firebasedatabase.app',
+        };
+      },
+      onDeliveryError(error, trigger) {
+        deliveryErrors.push({ exportName: trigger.exportName, error });
+      },
+    });
+    await host.ready;
+
+    delivery.emit('/items', { dropped: 1 });
+    delivery.emit('/items', { dropped: 1, recovered: 2 });
+    await host.idle();
+
+    expect(deliveryErrors).toEqual([{ exportName: 'created', error: clockError }]);
+    expect(delivered).toEqual(['recovered']);
+    host.close();
+  });
+
+  test('skips queued and in-flight envelope deliveries once closed', async () => {
+    const { onValueCreated } = databaseFunctions;
+    const delivered: string[] = [];
+    const deliveryErrors: unknown[] = [];
+    let rejectEnvelope!: (error: Error) => void;
+    const pendingEnvelope = new Promise<never>((_, reject) => {
+      rejectEnvelope = reject;
+    });
+
+    const created = onValueCreated('/items/{itemId}', (event) => {
+      delivered.push(event.params.itemId);
+    });
+    const delivery = new InMemoryRtdbTriggerDelivery();
+    delivery.seed('/items', null);
+
+    const host = startOnValueCreatedExecution({
+      exported: { created },
+      delivery,
+      eventOptions: () => pendingEnvelope,
+      onDeliveryError(error) {
+        deliveryErrors.push(error);
+      },
+    });
+    await host.ready;
+
+    delivery.emit('/items', { one: 1 });
+    delivery.emit('/items', { one: 1, two: 2 });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    host.close();
+    rejectEnvelope(new Error('no browser tab is connected to the sandbox'));
+    await host.idle();
+
+    expect(delivered).toEqual([]);
+    expect(deliveryErrors).toEqual([]);
+  });
 });
