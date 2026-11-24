@@ -3,10 +3,9 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { JSDOM } from 'jsdom';
 import { deleteApp, initializeApp } from 'pyric/app';
 import { bindAppRegistrySandbox, resetAppRegistryForTests } from 'pyric/app/internal';
-import { breadcrumbs, flush, log, recordError } from 'pyric/crashlytics';
+import { breadcrumbs, flush, getCrashlytics, log, recordError } from 'pyric/crashlytics';
 import { createTransportCrashlytics } from 'pyric/crashlytics/internal';
 import { createMemoryBackend, initializeSandbox, type LocalSandbox } from 'pyric/sandbox';
-import { getCrashlytics as getServedCrashlytics } from '../../src/serve/entries/crashlytics.js';
 import { createWorkerCrashlyticsTransport } from '../../src/serve/worker/client/crashlytics.js';
 import {
   APP_ID,
@@ -125,7 +124,7 @@ describe('Crashlytics web live HostedRuntime and DOM conformance', () => {
 
       let freshDeletedCode: string | null = null;
       try {
-        getServedCrashlytics(app);
+        getCrashlytics(app);
       } catch (err) {
         freshDeletedCode = (err as { code?: string }).code ?? null;
       }
@@ -220,52 +219,82 @@ describe('Crashlytics web live HostedRuntime and DOM conformance', () => {
     }
   });
 
-  test('enforces loopback and local-path endpointUrl in served getCrashlytics and synchronously refuses external telemetry URLs', () => {
-    activeSandbox = initializeSandbox();
-    bindAppRegistrySandbox(activeSandbox);
+  test('enforces loopback and local-path endpointUrl in served getCrashlytics and synchronously refuses external telemetry URLs', async () => {
+    const childScript = `
+      import { deleteApp, initializeApp } from 'pyric/app';
+      import { bindAppRegistrySandbox } from 'pyric/app/internal';
+      import { initializeSandbox } from 'pyric/sandbox';
+      import { getCrashlytics as getServedCrashlytics } from './packages/cli/src/serve/entries/crashlytics.js';
 
-    const loopbackIpv4 = initializeApp(SHARED_CONFIG, 'loopback-v4');
-    expect(
-      getServedCrashlytics(loopbackIpv4, {
-        endpointUrl: 'http://127.0.0.1:4318/v1/logs',
-      }).app,
-    ).toBe(loopbackIpv4);
+      const sb = initializeSandbox();
+      bindAppRegistrySandbox(sb);
+      const cfg = ${JSON.stringify(SHARED_CONFIG)};
 
-    const loopbackHost = initializeApp(SHARED_CONFIG, 'loopback-localhost');
-    expect(
-      getServedCrashlytics(loopbackHost, {
-        endpointUrl: 'http://localhost:9000/otlp',
-      }).app,
-    ).toBe(loopbackHost);
+      const accepted = [
+        'http://127.0.0.1:4318/v1/logs',
+        'http://localhost:9000/otlp',
+        'http://[::1]:8080/logs',
+        '/__pyric/crashlytics',
+      ].map((url, idx) => {
+        const app = initializeApp(cfg, 'ok-' + idx);
+        return getServedCrashlytics(app, { endpointUrl: url }).app === app;
+      });
 
-    const loopbackIpv6 = initializeApp(SHARED_CONFIG, 'loopback-v6');
-    expect(
-      getServedCrashlytics(loopbackIpv6, {
-        endpointUrl: 'http://[::1]:8080/logs',
-      }).app,
-    ).toBe(loopbackIpv6);
+      const rejected = [
+        'https://clienttelemetry.googleapis.com/v1/logs',
+        'https://clienttelemetry.europe-west1.rep.googleapis.com/v1/logs',
+        '',
+      ].map((url, idx) => {
+        const app = initializeApp(cfg, 'bad-' + idx);
+        try {
+          getServedCrashlytics(app, { endpointUrl: url });
+          return null;
+        } catch (err) {
+          if (err && typeof err === 'object' && 'code' in err) {
+            return err.code;
+          }
+          return null;
+        }
+      });
 
-    const relativeLocal = initializeApp(SHARED_CONFIG, 'relative-local');
-    expect(
-      getServedCrashlytics(relativeLocal, {
-        endpointUrl: '/__pyric/crashlytics',
-      }).app,
-    ).toBe(relativeLocal);
-
-    for (const rejectedUrl of [
-      'https://clienttelemetry.googleapis.com/v1/logs',
-      'https://clienttelemetry.europe-west1.rep.googleapis.com/v1/logs',
-      '',
-    ]) {
-      const rejectedApp = initializeApp(SHARED_CONFIG, `rejected-${rejectedUrl.length}`);
-      let code: string | null = null;
+      const deletedApp = initializeApp(cfg, 'served-deleted');
+      await deleteApp(deletedApp);
+      let deletedCode = null;
       try {
-        getServedCrashlytics(rejectedApp, { endpointUrl: rejectedUrl });
+        getServedCrashlytics(deletedApp);
       } catch (err) {
-        code = (err as { code?: string }).code ?? null;
+        if (err && typeof err === 'object' && 'code' in err) {
+          deletedCode = err.code;
+        }
       }
-      expect(code).toBe('crashlytics/invalid-endpoint');
-    }
+
+      sb.dispose();
+      console.log(JSON.stringify({ accepted, rejected, deletedCode }));
+    `;
+
+    const proc = Bun.spawn([process.execPath, '-e', childScript], {
+      cwd: REPO_ROOT,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const [stdout, stderr, exitCode] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ]);
+    expect(exitCode, stderr).toBe(0);
+    const parsed = JSON.parse(stdout.trim()) as {
+      accepted: boolean[];
+      rejected: Array<string | null>;
+      deletedCode: string | null;
+    };
+    expect(parsed.accepted).toEqual([true, true, true, true]);
+    expect(parsed.rejected).toEqual([
+      'crashlytics/invalid-endpoint',
+      'crashlytics/invalid-endpoint',
+      'crashlytics/invalid-endpoint',
+    ]);
+    expect(parsed.deletedCode).toBe('app/app-deleted');
   });
 
   test('persists Crashlytics state across HostedRuntime restarts and resets cleanly on sandbox.restore and sandbox.reset', async () => {
