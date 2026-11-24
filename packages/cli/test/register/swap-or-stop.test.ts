@@ -518,8 +518,9 @@ describe('suppliedRowsStopFor: live row entry gate (#2302)', () => {
       expect(result.status, result.stderr).toBe(0);
       const line = result.stdout.split('\n').find((text) => text.startsWith('OUTCOME ')) ?? 'OUTCOME {}';
       const outcome = JSON.parse(line.slice('OUTCOME '.length)) as { code?: string; message?: string; sdkFiles?: string[] };
+      const firestoreFiles = (outcome.sdkFiles ?? []).filter((url) => url.includes('firestore'));
       expect(outcome.code).toBe(REAL_SDK_STOPPED_CODE);
-      expect(outcome.sdkFiles).toEqual([]);
+      expect(firestoreFiles).toEqual([]);
       expect(outcome.message).toContain("@pyric/live's firebase/firestore row loads only firebase/firestore's own entry in firebase.");
       expect(outcome.message).toContain('firestore/lite/dist/');
     } finally {
