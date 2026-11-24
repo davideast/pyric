@@ -52,7 +52,7 @@
     "@pyric/cli": "workspace:*"
   },
   "peerDependencies": {
-    "firebase": "^12.12.0",
+    "firebase": ">=12",
     "vite": "^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0"
   },
   "peerDependenciesMeta": {

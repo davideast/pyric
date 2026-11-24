@@ -154,8 +154,14 @@ function isAllowedRealLoad(load: ResolvedLoad, packageName: string, family: SdkF
   });
 }
 
-/** The served `firebase/*` import that stands for a `@firebase/*` package, when pyric serves one. */
-function servedImportFor(packageName: string): string | null {
+/** The served `firebase/*` import that stands for a `@firebase/*` package (or subpath), when pyric serves one. */
+function servedImportFor(packageName: string, specifier: string): string | null {
+  if (specifier.startsWith(`${packageName}/`)) {
+    const subpathCandidate = `firebase/${specifier.slice('@firebase/'.length)}`;
+    if (SERVED_FIREBASE_SPECIFIERS.has(subpathCandidate)) {
+      return subpathCandidate;
+    }
+  }
   const candidate = `firebase/${packageName.slice('@firebase/'.length)}`;
   return SERVED_FIREBASE_SPECIFIERS.has(candidate) ? candidate : null;
 }
@@ -171,11 +177,18 @@ function fixFor(family: SdkFamily, packageName: string, specifier: string): stri
   if (packageName === 'firebase') {
     return "import firebase by its package name (for example 'firebase/firestore'), so the register routes it to the sandbox";
   }
-  const served = servedImportFor(packageName);
+  const served = servedImportFor(packageName, specifier);
   if (served === null) {
     return `pyric serves no firebase/* import for '${packageName}', so import a served one (for example 'firebase/firestore'), or move this code out of the sandboxed process`;
   }
-  return `import '${served}' instead of '${packageName}', so the register routes it to the sandbox`;
+  let replacedSpecifier = packageName;
+  if (
+    specifier.startsWith(`${packageName}/`) &&
+    SERVED_FIREBASE_SPECIFIERS.has(`firebase/${specifier.slice('@firebase/'.length)}`)
+  ) {
+    replacedSpecifier = specifier;
+  }
+  return `import '${served}' instead of '${replacedSpecifier}', so the register routes it to the sandbox`;
 }
 
 function stopMessage(load: ResolvedLoad, family: SdkFamily, packageName: string): string {

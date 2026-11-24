@@ -246,15 +246,25 @@ async function openAttachedSocket(wsUrl: string, sessionId: string) {
 }
 
 describe('Crashlytics module swap and live HostedRuntime WebSocket bridge', () => {
-  test('maps firebase/crashlytics across register, Next.js aliases, import map, and SDK bundler entries', () => {
-    expect(mapFirebaseSpecifier('firebase/crashlytics')).toBe('pyric/crashlytics');
-    expect(swappedFirebaseEntries('sandbox').get('firebase/crashlytics')).toBe('crashlytics');
-    expect(swappedFirebaseEntries('production').get('firebase/crashlytics')).toBe('crashlytics');
-    expect(sdkImportMap('sandbox')['firebase/crashlytics']).toBe('/__pyric/sdk/crashlytics.js');
-    expect(getClientAliases('sandbox')['firebase/crashlytics']).toBe(
-      '@pyric/cli/next/internal/crashlytics',
-    );
-    expect(defaultSdkEntries().crashlytics).toBeDefined();
+  test('maps firebase/crashlytics and all four framework subpaths across register, Next.js aliases, import map, and SDK bundler entries', () => {
+    const cases: ReadonlyArray<readonly [specifier: string, pyricSubpath: string, entryKey: string]> = [
+      ['firebase/crashlytics', 'pyric/crashlytics', 'crashlytics'],
+      ['firebase/crashlytics/angular', 'pyric/crashlytics/angular', 'crashlytics-angular'],
+      ['firebase/crashlytics/next-navigation', 'pyric/crashlytics/next-navigation', 'crashlytics-next-navigation'],
+      ['firebase/crashlytics/react', 'pyric/crashlytics/react', 'crashlytics-react'],
+      ['firebase/crashlytics/react-router', 'pyric/crashlytics/react-router', 'crashlytics-react-router'],
+    ];
+    const entries = defaultSdkEntries();
+    for (const [specifier, pyricSubpath, entryKey] of cases) {
+      expect(mapFirebaseSpecifier(specifier)).toBe(pyricSubpath);
+      expect(swappedFirebaseEntries('sandbox').get(specifier as never)).toBe(entryKey);
+      expect(swappedFirebaseEntries('production').get(specifier as never)).toBe(entryKey);
+      expect(sdkImportMap('sandbox')[specifier]).toBe(`/__pyric/sdk/${entryKey}.js`);
+      expect(getClientAliases('sandbox')[specifier]).toBe(
+        `@pyric/cli/next/internal/${entryKey}`,
+      );
+      expect(entries[entryKey]).toBeDefined();
+    }
   });
 
   test('streams Web getCrashlytics -> log -> recordError -> flush and native 10-op wire lifecycle over HostedRuntime', async () => {

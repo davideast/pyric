@@ -42,6 +42,10 @@ describe('mapFirebaseSpecifier', () => {
   it('maps nested served subpaths verbatim', () => {
     expect(mapFirebaseSpecifier('firebase/messaging/sw')).toBe('pyric/messaging/sw');
     expect(mapFirebaseSpecifier('firebase/firestore/lite')).toBe('pyric/firestore/lite');
+    expect(mapFirebaseSpecifier('firebase/crashlytics/react')).toBe('pyric/crashlytics/react');
+    expect(mapFirebaseSpecifier('firebase/crashlytics/next-navigation')).toBe('pyric/crashlytics/next-navigation');
+    expect(mapFirebaseSpecifier('firebase/crashlytics/react-router')).toBe('pyric/crashlytics/react-router');
+    expect(mapFirebaseSpecifier('firebase/crashlytics/angular')).toBe('pyric/crashlytics/angular');
   });
 
   it('leaves non-Firebase specifiers untouched', () => {

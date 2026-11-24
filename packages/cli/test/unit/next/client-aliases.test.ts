@@ -75,7 +75,7 @@ describe('client aliases', () => {
     ]);
   });
 
-  it('sends firebase/crashlytics to the Crashlytics mirror', async () => {
+  it('sends firebase/crashlytics and its framework subpaths to the Crashlytics mirrors', async () => {
     const aliases = getClientAliases();
     expect(aliases['firebase/crashlytics']).toBe('@pyric/cli/next/internal/crashlytics');
     const target = aliases['firebase/crashlytics'];
@@ -84,6 +84,18 @@ describe('client aliases', () => {
     expect(Object.keys(mod).sort()).toEqual([
       'breadcrumbs', 'flush', 'getCrashlytics', 'log', 'recordError',
     ]);
+
+    const frameworkCases: ReadonlyArray<readonly [specifier: string, internalTarget: string, expectedExports: readonly string[]]> = [
+      ['firebase/crashlytics/react', '@pyric/cli/next/internal/crashlytics-react', ['FirebaseCrashlytics']],
+      ['firebase/crashlytics/next-navigation', '@pyric/cli/next/internal/crashlytics-next-navigation', ['CrashlyticsRoutes', 'getParameterizedRoute']],
+      ['firebase/crashlytics/react-router', '@pyric/cli/next/internal/crashlytics-react-router', ['CrashlyticsRoutes']],
+      ['firebase/crashlytics/angular', '@pyric/cli/next/internal/crashlytics-angular', ['FirebaseErrorHandler', 'getRawPath', 'getSafeRoutePath', 'provideCrashlytics', 'setupCrashlyticsRoutes']],
+    ];
+    for (const [specifier, internalTarget, expectedExports] of frameworkCases) {
+      expect(aliases[specifier]).toBe(internalTarget);
+      const subMod = (await import(internalTarget)) as Record<string, unknown>;
+      expect(Object.keys(subMod).sort()).toEqual([...expectedExports]);
+    }
   });
 
   it('aliases no @firebase/* package', () => {
@@ -117,6 +129,10 @@ describe('client aliases', () => {
       expect(sandboxStops.has('firebase/firestore/pipelines')).toBe(true);
       expect(sandboxStops.has('@firebase/auth/web-extension')).toBe(true);
       expect(sandboxStops.has('@firebase/messaging/sw')).toBe(true);
+      expect(sandboxStops.has('@firebase/crashlytics/react')).toBe(true);
+      expect(sandboxStops.has('@firebase/crashlytics/next-navigation')).toBe(true);
+      expect(sandboxStops.has('@firebase/crashlytics/react-router')).toBe(true);
+      expect(sandboxStops.has('@firebase/crashlytics/angular')).toBe(true);
       expect(sandboxStops.has('aliased-firebase')).toBe(true);
       expect(sandboxStops.has('aliased-firebase/firestore')).toBe(true);
 

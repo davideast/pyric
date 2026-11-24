@@ -233,6 +233,18 @@
     "./next/internal/crashlytics": {
       "import": "./dist/serve/entries/crashlytics.js"
     },
+    "./next/internal/crashlytics-angular": {
+      "import": "./dist/serve/entries/crashlytics-angular.js"
+    },
+    "./next/internal/crashlytics-next-navigation": {
+      "import": "./dist/serve/entries/crashlytics-next-navigation.js"
+    },
+    "./next/internal/crashlytics-react": {
+      "import": "./dist/serve/entries/crashlytics-react.js"
+    },
+    "./next/internal/crashlytics-react-router": {
+      "import": "./dist/serve/entries/crashlytics-react-router.js"
+    },
     "./next/internal/firestore": {
       "import": "./dist/serve/entries/firestore.js"
     },
