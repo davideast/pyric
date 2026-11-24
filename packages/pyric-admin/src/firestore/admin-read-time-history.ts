@@ -21,12 +21,16 @@ import {
   type SnapshotFieldPath,
   type Transaction,
 } from 'pyric/sandbox/admin-compat';
-import { adminRawDbSandbox, isPlainMap } from './admin-handle-registry.js';
+import { adminRawDbBypassDb, adminRawDbSandbox, isPlainMap } from './admin-handle-registry.js';
 import { assertSameDatabaseTarget } from './admin-named-databases.js';
 import { wrapDocSnapshot, wrapQuerySnapshot, type DocRefBuilder } from './admin-snapshot-adapter.js';
 import { parseTransactionGetAllArgs, projectDocSnapshotFields } from './admin-transaction-getall.js';
 import { assertQueryExecutable, type AdminQueryMetadata } from './admin-query-validation.js';
-import { resolveExistingDocTimestamps } from './admin-write-result-preconditions.js';
+import {
+  computeDocDataFingerprint,
+  resolveExistingDocTimestamps,
+  stampRemoteDocFingerprint,
+} from './admin-write-result-preconditions.js';
 
 interface HistoricalDocEntry {
   readonly atNanos: bigint;
@@ -168,11 +172,12 @@ export async function capturePreWriteBaselines(
     return;
   }
 
+  const stateReaderDb = adminRawDbBypassDb.get(rawDb) ?? rawDb;
   for (const path of docPaths) {
     if (store.byPath.has(path)) {
       continue;
     }
-    const rawSnap = await rawDb.doc(path).get();
+    const rawSnap = await stateReaderDb.doc(path).get();
     if (rawSnap.exists) {
       const wrapped = wrapDocSnapshot(rawSnap, rootDb, docRefOnRoot);
       const times = resolveExistingDocTimestamps(rawDb, path);
@@ -230,6 +235,7 @@ export async function recordPostWriteVersions(
     return;
   }
 
+  const stateReaderDb = adminRawDbBypassDb.get(rawDb) ?? rawDb;
   for (const op of ops) {
     let list = store.byPath.get(op.path);
     if (list === undefined) {
@@ -239,10 +245,11 @@ export async function recordPostWriteVersions(
     if (op.kind === 'delete') {
       list.push({ atNanos, exists: false });
     } else {
-      const rawSnap = await rawDb.doc(op.path).get();
+      const rawSnap = await stateReaderDb.doc(op.path).get();
       if (!rawSnap.exists) {
         list.push({ atNanos, exists: false });
       } else {
+        stampRemoteDocFingerprint(rawDb, op.path, computeDocDataFingerprint(rawSnap.data()));
         const wrapped = wrapDocSnapshot(rawSnap, rootDb, docRefOnRoot);
         const times = resolveExistingDocTimestamps(rawDb, op.path);
         list.push({

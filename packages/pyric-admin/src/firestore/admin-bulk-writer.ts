@@ -12,6 +12,7 @@ import type {
   SetOptions,
 } from 'pyric/sandbox/admin-compat';
 import type { SandboxFirestore } from 'pyric/sandbox/admin-firestore';
+import type { AdminDocumentReference, Precondition } from './admin-query-types.js';
 import {
   runWithAdminErrorsAsync,
   runWithAdminErrorsSync,
@@ -40,6 +41,8 @@ export interface BulkWriterOptions {
   readonly throttling?: boolean | BulkWriterThrottlingOptions;
 }
 
+export type BulkWriterDocumentRef = AdminDocumentReference<any> | DocumentReference;
+
 /**
  * The error surfaced to `onWriteError` and rejected by failed `BulkWriter`
  * operation promises, matching `@google-cloud/firestore`'s `BulkWriterError`.
@@ -47,44 +50,58 @@ export interface BulkWriterOptions {
 export class BulkWriterError extends Error {
   readonly code: number;
   override readonly message: string;
-  readonly documentRef: DocumentReference;
+  readonly documentRef: AdminDocumentReference<DocumentData>;
   readonly operationType: BulkWriterOperationType;
   readonly failedAttempts: number;
 
   constructor(
     code: number,
     message: string,
-    documentRef: DocumentReference,
+    documentRef: BulkWriterDocumentRef,
     operationType: BulkWriterOperationType,
     failedAttempts: number,
   ) {
     super(message);
     this.code = code;
     this.message = message;
-    this.documentRef = documentRef;
+    this.documentRef = documentRef as AdminDocumentReference<DocumentData>;
     this.operationType = operationType;
     this.failedAttempts = failedAttempts;
   }
 }
 
 export interface AdminBulkWriter {
-  create(documentRef: DocumentReference, data: DocumentData): Promise<WriteResult>;
-  set(
-    documentRef: DocumentReference,
-    data: DocumentData,
+  create<T = DocumentData>(
+    documentRef: AdminDocumentReference<T> | DocumentReference,
+    data: T,
+  ): Promise<WriteResult>;
+  set<T = DocumentData>(
+    documentRef: AdminDocumentReference<T> | DocumentReference,
+    data: Partial<T>,
+    options: SetOptions,
+  ): Promise<WriteResult>;
+  set<T = DocumentData>(
+    documentRef: AdminDocumentReference<T> | DocumentReference,
+    data: T,
     options?: SetOptions,
   ): Promise<WriteResult>;
   update(
-    documentRef: DocumentReference,
-    dataOrField: unknown,
-    ...moreFieldsAndPrecondition: unknown[]
+    documentRef: BulkWriterDocumentRef,
+    data: DocumentData,
+    precondition?: Precondition & OperationOptions,
+  ): Promise<WriteResult>;
+  update(
+    documentRef: BulkWriterDocumentRef,
+    field: unknown,
+    value: unknown,
+    ...moreFieldsOrPrecondition: unknown[]
   ): Promise<WriteResult>;
   delete(
-    documentRef: DocumentReference,
-    precondition?: OperationOptions,
+    documentRef: BulkWriterDocumentRef,
+    precondition?: Precondition & OperationOptions,
   ): Promise<WriteResult>;
   onWriteResult(
-    callback: (documentRef: DocumentReference, result: WriteResult) => void,
+    callback: (documentRef: AdminDocumentReference<DocumentData>, result: WriteResult) => void,
   ): void;
   onWriteError(shouldRetryCallback: (error: BulkWriterError) => boolean): void;
   flush(): Promise<void>;
@@ -159,7 +176,7 @@ function isDefaultRetryableBulkWriterError(error: BulkWriterError): boolean {
 
 function toBulkWriterError(
   err: unknown,
-  documentRef: DocumentReference,
+  documentRef: BulkWriterDocumentRef,
   operationType: BulkWriterOperationType,
   failedAttempts: number,
 ): BulkWriterError {
@@ -194,7 +211,7 @@ export function createAdminBulkWriter(
   let lastOp: Promise<void> = Promise.resolve();
   let closePromise: Promise<void> | null = null;
   let onResultCallback:
-    | ((documentRef: DocumentReference, result: WriteResult) => void)
+    | ((documentRef: AdminDocumentReference<DocumentData>, result: WriteResult) => void)
     | null = null;
   let errorHandler: (error: BulkWriterError) => boolean =
     isDefaultRetryableBulkWriterError;
@@ -206,7 +223,7 @@ export function createAdminBulkWriter(
   }
 
   function enqueueWrite(
-    documentRef: DocumentReference,
+    documentRef: BulkWriterDocumentRef,
     operationType: BulkWriterOperationType,
     runOnce: () => Promise<WriteResult>,
   ): Promise<WriteResult> {
@@ -248,7 +265,7 @@ export function createAdminBulkWriter(
           continue;
         }
         if (onResultCallback !== null) {
-          onResultCallback(documentRef, result);
+          onResultCallback(documentRef as AdminDocumentReference<DocumentData>, result);
         }
         return result;
       }
@@ -268,22 +285,26 @@ export function createAdminBulkWriter(
       return enqueueWrite(
         documentRef,
         'create',
-        () => documentRef.create(data) as unknown as Promise<WriteResult>,
+        () => (documentRef as DocumentReference).create(data as DocumentData) as unknown as Promise<WriteResult>,
       );
     },
-    set(documentRef, data, setOptions) {
+    set(documentRef: BulkWriterDocumentRef, data: unknown, setOptions?: SetOptions) {
       return enqueueWrite(
         documentRef,
         'set',
-        () => documentRef.set(data, setOptions) as unknown as Promise<WriteResult>,
+        () =>
+          (documentRef as DocumentReference).set(
+            data as DocumentData,
+            setOptions,
+          ) as unknown as Promise<WriteResult>,
       );
     },
-    update(documentRef, dataOrField, ...rest) {
+    update(documentRef: BulkWriterDocumentRef, dataOrField: unknown, ...rest: unknown[]) {
       return enqueueWrite(
         documentRef,
         'update',
         () =>
-          (documentRef.update as unknown as (...args: unknown[]) => Promise<WriteResult>)(
+          ((documentRef as DocumentReference).update as unknown as (...args: unknown[]) => Promise<WriteResult>)(
             dataOrField,
             ...rest,
           ),
@@ -293,7 +314,10 @@ export function createAdminBulkWriter(
       return enqueueWrite(
         documentRef,
         'delete',
-        () => documentRef.delete(precondition) as unknown as Promise<WriteResult>,
+        () =>
+          (documentRef as DocumentReference).delete(
+            precondition as OperationOptions | undefined,
+          ) as unknown as Promise<WriteResult>,
       );
     },
     onWriteResult(callback) {

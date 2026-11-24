@@ -8,6 +8,7 @@ import type { SandboxFirestore } from 'pyric/sandbox/admin-firestore';
 export const adminToUnderlying = new WeakMap<object, object>();
 export const adminToRootDb = new WeakMap<object, SandboxFirestore>();
 export const adminRawDbSandbox = new WeakMap<object, Sandbox>();
+export const adminRawDbBypassDb = new WeakMap<SandboxFirestore, SandboxFirestore>();
 export const adminRawDbProjectId = new WeakMap<object, string>();
 export const adminRawDbDatabaseId = new WeakMap<object, string>();
 export const adminRootDbProjectId = new WeakMap<object, string>();

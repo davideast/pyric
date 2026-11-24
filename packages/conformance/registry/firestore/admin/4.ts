@@ -21,6 +21,7 @@ export default row({
   conformanceTests: [
     'packages/pyric-admin/test/firestore/oracle-conformance.test.ts',
     'packages/pyric-admin/test/firestore/writeresult-filter-cursors-getall.test.ts',
+    'packages/pyric-admin/test/firestore/write-result-preconditions-query-validation.test.ts',
     'packages/pyric-admin/test/firestore/firestore/sandbox-ops.test.ts',
     'packages/pyric-admin/test/firestore/firestore/deletedoc-missing.test.ts',
     'packages/pyric-admin/test/firestore/firestore/error-translation.test.ts',
