@@ -176,8 +176,15 @@ export function validateAndNormalizeSetCall(
   return { data: normalizedData, options: outOptions };
 }
 
+function formatPreconditionArgPrefix(arg: string | number): string {
+  if (typeof arg === 'number') {
+    return `Element at index ${String(arg)}`;
+  }
+  return `Value for argument "${arg}"`;
+}
+
 export function validatePreconditionObject(
-  argName: string,
+  argName: string | number,
   precondition: unknown,
   forbidExistsFalse = false,
 ): OperationOptions | undefined {
@@ -187,6 +194,7 @@ export function validatePreconditionObject(
   if (typeof precondition !== 'object' || precondition === null) {
     throw new SandboxError('invalid-argument', 'Input is not an object.');
   }
+  const prefix = formatPreconditionArgPrefix(argName);
   const record = precondition as Record<string, unknown>;
   const existsVal = record.exists;
   const lastUpdateVal = record.lastUpdateTime;
@@ -194,26 +202,26 @@ export function validatePreconditionObject(
     if (typeof existsVal !== 'boolean') {
       throw new SandboxError(
         'invalid-argument',
-        `Value for argument "${argName}" is not a valid precondition. "exists" is not a boolean.`,
+        `${prefix} is not a valid precondition. "exists" is not a boolean.'`,
       );
     }
     if (forbidExistsFalse && existsVal === false) {
       throw new SandboxError(
         'invalid-argument',
-        `Value for argument "${argName}" is not a valid precondition. "exists" is not allowed to have the value false (allowed values: true)`,
+        `${prefix} is not a valid precondition. "exists" is not allowed to have the value false (allowed values: true)`,
       );
     }
   }
   if (lastUpdateVal !== undefined && !(lastUpdateVal instanceof CompatTimestamp)) {
     throw new SandboxError(
       'invalid-argument',
-      `Value for argument "${argName}" is not a valid precondition. "lastUpdateTime" is not a Firestore Timestamp.`,
+      `${prefix} is not a valid precondition. "lastUpdateTime" is not a Firestore Timestamp.`,
     );
   }
   if (existsVal !== undefined && lastUpdateVal !== undefined) {
     throw new SandboxError(
       'invalid-argument',
-      `Value for argument "${argName}" is not a valid precondition. Input specifies more than one precondition.`,
+      `${prefix} is not a valid precondition. Input specifies more than one precondition.`,
     );
   }
   if ('auth' in record) {

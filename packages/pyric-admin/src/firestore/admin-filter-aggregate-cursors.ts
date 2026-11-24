@@ -71,7 +71,6 @@ export class Filter {
   }
 
   static where(fieldPath: SnapshotFieldPath, opStr: WhereFilterOp, value: unknown): Filter {
-    runWithAdminErrorsSync(true, () => validateStringOrFieldPath('fieldPath', fieldPath));
     return new Filter({ kind: 'where', fieldPath, opStr, value });
   }
 

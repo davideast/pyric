@@ -51,13 +51,20 @@ function assertNoConflictingFieldPaths(paths: ReadonlyArray<readonly string[]>):
 }
 
 function requireUpdatePrecondition(
-  argLabel: string,
+  argLabel: string | number,
   precondition: unknown,
 ): OperationOptions | undefined {
   if (typeof precondition !== 'object' || precondition === null) {
     throw new SandboxError('invalid-argument', `${UPDATE_LEADING_ERROR} Input is not an object.`);
   }
-  return validatePreconditionObject(argLabel, precondition, true);
+  try {
+    return validatePreconditionObject(argLabel, precondition, true);
+  } catch (err) {
+    if (err instanceof SandboxError) {
+      throw new SandboxError(err.code, `${UPDATE_LEADING_ERROR} ${err.message}`);
+    }
+    throw err;
+  }
 }
 
 export function validateAndNormalizeUpdateArgs(
@@ -81,7 +88,7 @@ export function validateAndNormalizeUpdateArgs(
 
     for (let i = 0; i < args.length; i += 2) {
       if (i === args.length - 1) {
-        trailingOptions = requireUpdatePrecondition(String(i + 1), args[i]);
+        trailingOptions = requireUpdatePrecondition(i + 1, args[i]);
         if (i === 0) {
           outArgs.push(args[0]);
         }

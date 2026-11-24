@@ -4,6 +4,7 @@
  * `pyric-admin/firestore`.
  */
 
+import { isRemoteSandbox } from 'pyric/sandbox';
 import {
   Bytes as InternalBytes,
   LatLng as InternalLatLng,
@@ -37,6 +38,7 @@ import {
 } from './admin-grpc-errors.js';
 import {
   adminDocSnapshotBrand,
+  adminRawDbSandbox,
   adminToRootDb,
   adminToUnderlying,
   isAppBackedRoot,
@@ -48,6 +50,7 @@ import { isAdminDocSnapshotEqual } from './admin-reference-and-snapshot-equality
 import { prepareAdminSnapshotSubscription } from './admin-snapshot-named-db.js';
 import { tryDecodeAdminVectorFromWire } from './admin-vector-and-errors.js';
 import {
+  computeDocDataFingerprint,
   nextAdminTimestamp,
   resolveExistingDocTimestamps,
 } from './admin-write-result-preconditions.js';
@@ -67,25 +70,11 @@ export interface QuerySnapWrapOptions<TDoc> {
   readonly converter?: AdminFirestoreDataConverter;
 }
 
-const SYNTHETIC_DOC_SNAP_PROPS = new Set<PropertyKey>([
-  'createTime',
-  'updateTime',
-  'readTime',
-  'isEqual',
-]);
-
-const SYNTHETIC_QUERY_SNAP_PROPS = new Set<PropertyKey>([
-  'readTime',
-  'query',
-  'isEqual',
-]);
+const SYNTHETIC_DOC_SNAP_PROPS = new Set<PropertyKey>(['createTime', 'updateTime', 'readTime', 'isEqual']);
+const SYNTHETIC_QUERY_SNAP_PROPS = new Set<PropertyKey>(['readTime', 'query', 'isEqual']);
 
 function resolveRawDbFromRoot(rootDb: SandboxFirestore): SandboxFirestore {
-  const raw = adminToUnderlying.get(rootDb) as SandboxFirestore | undefined;
-  if (raw !== undefined) {
-    return raw;
-  }
-  return rootDb;
+  return (adminToUnderlying.get(rootDb) as SandboxFirestore | undefined) ?? rootDb;
 }
 
 function finalizeReadValue(
@@ -157,7 +146,12 @@ function wrapDocSnapshotLike<
   let createTime: ReturnType<typeof nextAdminTimestamp> | undefined;
   let updateTime: ReturnType<typeof nextAdminTimestamp> | undefined;
   if (existsFlag && docPath.length > 0) {
-    const resolved = resolveExistingDocTimestamps(rawDb, docPath);
+    const sb = adminRawDbSandbox.get(rawDb);
+    let remoteFp: string | undefined;
+    if (sb !== undefined && isRemoteSandbox(sb)) {
+      remoteFp = computeDocDataFingerprint(rawSnap.data());
+    }
+    const resolved = resolveExistingDocTimestamps(rawDb, docPath, remoteFp);
     createTime = resolved.createTime;
     updateTime = resolved.updateTime;
   }

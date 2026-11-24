@@ -142,18 +142,29 @@ export function normalizeLegacyQueryOperand(
   return unwrapQueryOperandReferences(value, rootDb);
 }
 
-export function normalizeCompositeFilter(filter: Filter, rootDb: SandboxFirestore): Filter {
+export function normalizeCompositeFilter(
+  filter: Filter,
+  meta: AdminQueryMetadata,
+  rootDb: SandboxFirestore,
+): Filter {
   if (filter.kind === 'where') {
+    const normalized = validateAndNormalizeWhereArgs(
+      filter.field,
+      filter.op,
+      filter.value,
+      meta,
+      rootDb,
+    );
     return {
       kind: 'where',
-      field: filter.field,
-      op: filter.op,
-      value: unwrapQueryOperandReferences(filter.value, rootDb),
+      field: normalized.field,
+      op: normalized.op,
+      value: normalized.value,
     };
   }
   return {
     kind: filter.kind,
-    filters: filter.filters.map((child) => normalizeCompositeFilter(child, rootDb)),
+    filters: filter.filters.map((child) => normalizeCompositeFilter(child, meta, rootDb)),
   };
 }
 

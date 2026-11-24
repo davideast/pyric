@@ -41,6 +41,27 @@ import type { AdminFirestoreSettings } from './admin-settings-lifecycle.js';
 import type { AdminVectorValue } from './admin-vector-and-errors.js';
 import type { WriteResult } from './admin-write-result-preconditions.js';
 
+export interface Precondition {
+  readonly exists?: boolean;
+  readonly lastUpdateTime?: Timestamp;
+}
+
+export interface ReadOptions {
+  readonly fieldMask?: ReadonlyArray<string | SnapshotFieldPath>;
+}
+
+export interface ReadOnlyTransactionOptions {
+  readonly readOnly: true;
+  readonly readTime?: Timestamp;
+}
+
+export interface ReadWriteTransactionOptions {
+  readonly readOnly?: false;
+  readonly maxAttempts?: number;
+}
+
+type AdminPreconditionOptions = Precondition & OperationOptions;
+
 export interface AdminAggregateQuerySnapshot {
   readonly query: AdminQuery;
   readonly readTime: Timestamp;
@@ -225,13 +246,13 @@ export interface AdminDocumentReference<T = DocumentData>
   create(data: T, opts?: OperationOptions): Promise<WriteResult>;
   set(data: Partial<T>, options: SetOptions): Promise<WriteResult>;
   set(data: T, options?: SetOptions): Promise<WriteResult>;
-  update(data: DocumentData, precondition?: OperationOptions): Promise<WriteResult>;
+  update(data: DocumentData, precondition?: AdminPreconditionOptions): Promise<WriteResult>;
   update(
     field: string | SnapshotFieldPath,
     value: unknown,
     ...moreFieldsOrPrecondition: unknown[]
   ): Promise<WriteResult>;
-  delete(opts?: OperationOptions): Promise<WriteResult>;
+  delete(precondition?: AdminPreconditionOptions): Promise<WriteResult>;
   listCollections(): Promise<AdminCollectionReference[]>;
   onSnapshot(
     onNext: (snapshot: LiveDocumentSnapshot) => void,
@@ -252,19 +273,148 @@ export interface AdminDocumentReference<T = DocumentData>
   withConverter<U>(converter: AdminFirestoreDataConverter<U>): AdminDocumentReference<U>;
 }
 
+type AnyAdminDocRef<T = DocumentData> = AdminDocumentReference<T> | CompatDocumentReference;
+type AnyAdminQuery<T = DocumentData> =
+  | AdminQuery<T>
+  | AdminCollectionReference<T>
+  | CompatQuery
+  | CompatCollectionReference;
+
+export interface AdminWriteBatch {
+  create<T = DocumentData>(documentRef: AnyAdminDocRef<T>, data: T): AdminWriteBatch;
+  set<T = DocumentData>(
+    documentRef: AnyAdminDocRef<T>,
+    data: Partial<T>,
+    options: SetOptions,
+  ): AdminWriteBatch;
+  set<T = DocumentData>(
+    documentRef: AnyAdminDocRef<T>,
+    data: T,
+    options?: SetOptions,
+  ): AdminWriteBatch;
+  update(
+    documentRef: AnyAdminDocRef<any>,
+    data: DocumentData,
+    precondition?: AdminPreconditionOptions,
+  ): AdminWriteBatch;
+  update(
+    documentRef: AnyAdminDocRef<any>,
+    field: string | SnapshotFieldPath,
+    value: unknown,
+    ...moreFieldsOrPrecondition: unknown[]
+  ): AdminWriteBatch;
+  delete(
+    documentRef: AnyAdminDocRef<any>,
+    precondition?: AdminPreconditionOptions,
+  ): AdminWriteBatch;
+  commit(opts?: OperationOptions): Promise<WriteResult[]>;
+}
+
+export interface AdminTransaction {
+  get(query: AdminAggregateQuery): Promise<AdminAggregateQuerySnapshot>;
+  get<T = DocumentData>(query: AdminQuery<T>): Promise<AdminQuerySnapshot<T>>;
+  get<T = DocumentData>(documentRef: AdminDocumentReference<T>): Promise<AdminDocumentSnapshot<T>>;
+  get(refOrQuery: CompatDocumentReference | CompatQuery): Promise<AdminDocumentSnapshot | AdminQuerySnapshot>;
+  getAll<T = DocumentData>(
+    ...documentRefsOrReadOptions: Array<AnyAdminDocRef<T> | ReadOptions>
+  ): Promise<Array<AdminDocumentSnapshot<T>>>;
+  create<T = DocumentData>(documentRef: AnyAdminDocRef<T>, data: T): AdminTransaction;
+  set<T = DocumentData>(
+    documentRef: AnyAdminDocRef<T>,
+    data: Partial<T>,
+    options: SetOptions,
+  ): AdminTransaction;
+  set<T = DocumentData>(
+    documentRef: AnyAdminDocRef<T>,
+    data: T,
+    options?: SetOptions,
+  ): AdminTransaction;
+  update(
+    documentRef: AnyAdminDocRef<any>,
+    data: DocumentData,
+    precondition?: AdminPreconditionOptions,
+  ): AdminTransaction;
+  update(
+    documentRef: AnyAdminDocRef<any>,
+    field: string | SnapshotFieldPath,
+    value: unknown,
+    ...moreFieldsOrPrecondition: unknown[]
+  ): AdminTransaction;
+  delete(
+    documentRef: AnyAdminDocRef<any>,
+    precondition?: AdminPreconditionOptions,
+  ): AdminTransaction;
+}
+
+export interface AdminOnSnapshot {
+  (
+    reference: AnyAdminDocRef<any>,
+    observer: SnapshotObserver<LiveDocumentSnapshot>,
+  ): Unsubscribe;
+  (
+    reference: AnyAdminDocRef<any>,
+    options: SnapshotListenOptions,
+    observer: SnapshotObserver<LiveDocumentSnapshot>,
+  ): Unsubscribe;
+  (
+    reference: AnyAdminDocRef<any>,
+    onNext: (snapshot: LiveDocumentSnapshot) => void,
+    onError?: (error: unknown) => void,
+    onCompletion?: () => void,
+  ): Unsubscribe;
+  (
+    reference: AnyAdminDocRef<any>,
+    options: SnapshotListenOptions,
+    onNext: (snapshot: LiveDocumentSnapshot) => void,
+    onError?: (error: unknown) => void,
+    onCompletion?: () => void,
+  ): Unsubscribe;
+  (
+    reference: AnyAdminQuery<any>,
+    observer: SnapshotObserver<LiveQuerySnapshot>,
+  ): Unsubscribe;
+  (
+    reference: AnyAdminQuery<any>,
+    options: SnapshotListenOptions,
+    observer: SnapshotObserver<LiveQuerySnapshot>,
+  ): Unsubscribe;
+  (
+    reference: AnyAdminQuery<any>,
+    onNext: (snapshot: LiveQuerySnapshot) => void,
+    onError?: (error: unknown) => void,
+    onCompletion?: () => void,
+  ): Unsubscribe;
+  (
+    reference: AnyAdminQuery<any>,
+    options: SnapshotListenOptions,
+    onNext: (snapshot: LiveQuerySnapshot) => void,
+    onError?: (error: unknown) => void,
+    onCompletion?: () => void,
+  ): Unsubscribe;
+}
+
 export interface AdminFirestore
-  extends Omit<SandboxFirestore, 'collection' | 'doc' | 'collectionGroup'> {
-  collection(path: string): AdminCollectionReference<DocumentData> & CompatCollectionReference;
-  doc(path: string): AdminDocumentReference<DocumentData> & CompatDocumentReference;
-  collectionGroup(collectionId: string): AdminCollectionGroup<DocumentData> & CompatQuery;
+  extends Omit<
+    SandboxFirestore,
+    'collection' | 'doc' | 'collectionGroup' | 'batch' | 'runTransaction'
+  > {
+  collection(path: string): AdminCollectionReference<DocumentData>;
+  doc(path: string): AdminDocumentReference<DocumentData>;
+  collectionGroup(collectionId: string): AdminCollectionGroup<DocumentData>;
+  batch(): AdminWriteBatch;
+  runTransaction<R>(
+    updateFunction: (transaction: AdminTransaction) => Promise<R>,
+    transactionOptions?: (ReadWriteTransactionOptions | ReadOnlyTransactionOptions) &
+      OperationOptions,
+  ): Promise<R>;
   settings(settings: AdminFirestoreSettings): void;
   terminate(): Promise<void>;
-  getAll(
-    ...documentRefsOrReadOptions: Array<CompatDocumentReference | { readonly fieldMask?: ReadonlyArray<string | SnapshotFieldPath> }>
-  ): Promise<Array<AdminDocumentSnapshot<DocumentData>>>;
+  getAll<T = DocumentData>(
+    ...documentRefsOrReadOptions: Array<AnyAdminDocRef<T> | ReadOptions>
+  ): Promise<Array<AdminDocumentSnapshot<T>>>;
   listCollections(): Promise<AdminCollectionReference[]>;
   recursiveDelete(
-    ref: CompatDocumentReference | CompatCollectionReference,
+    ref: AnyAdminDocRef<any> | AdminCollectionReference<any> | CompatCollectionReference,
     bulkWriter?: AdminBulkWriter,
   ): Promise<void>;
   bulkWriter(options?: BulkWriterOptions): AdminBulkWriter;

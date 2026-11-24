@@ -33,17 +33,44 @@
  * `firebase-admin/*` -> `pyric-admin/*` swap in the trusted functions child
  * imports this. See {@link getFirestore}.
  */
-export * from 'pyric/sandbox/admin-firestore';
+export {
+  FieldPath,
+  SandboxError,
+  Timestamp,
+  type AggregateSpec,
+  type AuthState,
+  type DocChangesOptions,
+  type DocumentChange,
+  type DocumentChangeType,
+  type DocumentData,
+  type DocumentSnapshot,
+  type FieldValueSentinel,
+  type LintResult,
+  type LintWarning,
+  type OrderDirection,
+  type QueryDocumentSnapshot,
+  type QuerySnapshot,
+  type RulesMetrics,
+  type Sandbox,
+  type SandboxContext,
+  type SetOptions,
+  type SnapshotFieldPath,
+  type SnapshotListenOptions,
+  type SnapshotMetadata,
+  type SnapshotObserver,
+  type Unsubscribe,
+  type WhereFilterOp,
+} from 'pyric/sandbox/admin-firestore';
+export type { OperationOptions } from 'pyric/sandbox/admin-compat';
 
 import {
   getFirestore as baseGetFirestore,
   getAdminFirestore as baseGetAdminFirestore,
-  type SandboxFirestore,
+  type SandboxFirestore as BaseSandboxFirestore,
 } from 'pyric/sandbox/admin-firestore';
 import {
   isRemoteSandbox,
   SandboxContextImpl,
-  SandboxError,
   type Sandbox,
   type SandboxContext,
 } from 'pyric/sandbox';
@@ -61,6 +88,7 @@ import { GeoPoint } from './admin-geopoint.js';
 import { GrpcStatus, setLogFunction } from './admin-grpc-log.js';
 import { createAdminGrpcError } from './admin-grpc-errors.js';
 import {
+  adminRawDbBypassDb,
   adminRawDbDatabaseId,
   adminRawDbProjectId,
   adminRawDbSandbox,
@@ -81,7 +109,8 @@ import {
 } from './admin-settings-lifecycle.js';
 import { FirebaseFirestoreError } from './admin-vector-and-errors.js';
 import {
-  registerBypassExistenceReader,
+  computeDocDataFingerprint,
+  registerBypassSnapshotReader,
   WriteResult,
 } from './admin-write-result-preconditions.js';
 import type {
@@ -100,12 +129,19 @@ import type {
   AdminExplainResults,
   AdminFindNearestOptions,
   AdminFirestore,
+  AdminOnSnapshot,
   AdminQuery,
   AdminQueryDocumentSnapshot,
   AdminQuerySnapshot,
+  AdminTransaction,
   AdminVectorDistanceMeasure,
   AdminVectorQuery,
+  AdminWriteBatch,
   FirestoreDataConverter,
+  Precondition,
+  ReadOnlyTransactionOptions,
+  ReadOptions,
+  ReadWriteTransactionOptions,
 } from './admin-query-types.js';
 
 export {
@@ -120,35 +156,51 @@ export {
 };
 export type {
   AdminAggregateQuery,
+  AdminAggregateQuery as AggregateQuery,
   AdminAggregateQuerySnapshot,
+  AdminAggregateQuerySnapshot as AggregateQuerySnapshot,
   AdminBulkWriter as BulkWriter,
   AdminCollectionGroup,
+  AdminCollectionGroup as CollectionGroup,
   AdminCollectionReference,
+  AdminCollectionReference as CollectionReference,
   AdminDocumentReference,
+  AdminDocumentReference as DocumentReference,
   AdminDocumentSnapshot,
   AdminExplainMetrics,
   AdminExplainResults,
   AdminFindNearestOptions,
   AdminFirestore,
+  AdminFirestore as Firestore,
+  AdminFirestore as SandboxFirestore,
   AdminFirestoreSettings as Settings,
   AdminQuery,
+  AdminQuery as Query,
   AdminQueryDocumentSnapshot,
   AdminQuerySnapshot,
+  AdminTransaction,
+  AdminTransaction as Transaction,
   AdminVectorDistanceMeasure,
   AdminVectorQuery,
+  AdminWriteBatch,
+  AdminWriteBatch as WriteBatch,
   BulkWriterError,
   BulkWriterOptions,
   FirestoreDataConverter,
+  Precondition,
+  ReadOnlyTransactionOptions,
+  ReadOptions,
+  ReadWriteTransactionOptions,
 };
 
 function wrapRootHandle(
-  db: SandboxFirestore,
+  db: BaseSandboxFirestore,
   sandbox: Sandbox | undefined,
   appBacked = false,
   projectId?: string,
   databaseId = DEFAULT_ADMIN_DATABASE_ID,
   originalSandbox?: Sandbox,
-): SandboxFirestore {
+): BaseSandboxFirestore {
   if (sandbox !== undefined) {
     adminRawDbSandbox.set(db, sandbox);
   }
@@ -167,14 +219,14 @@ function wrapRootHandle(
   return wrapped;
 }
 
-const appFirestoreCache = new WeakMap<PyricAdminApp, Map<string, SandboxFirestore>>();
+const appFirestoreCache = new WeakMap<PyricAdminApp, Map<string, BaseSandboxFirestore>>();
 const appFirestoreInitPreferRest = new WeakMap<PyricAdminApp, Map<string, boolean | undefined>>();
-const ctxNamedFirestoreCache = new WeakMap<SandboxContext, Map<string, SandboxFirestore>>();
+const ctxNamedFirestoreCache = new WeakMap<SandboxContext, Map<string, BaseSandboxFirestore>>();
 
-function getOrCreateAppDbMap(app: PyricAdminApp): Map<string, SandboxFirestore> {
+function getOrCreateAppDbMap(app: PyricAdminApp): Map<string, BaseSandboxFirestore> {
   let byDb = appFirestoreCache.get(app);
   if (byDb === undefined) {
-    byDb = new Map<string, SandboxFirestore>();
+    byDb = new Map<string, BaseSandboxFirestore>();
     appFirestoreCache.set(app, byDb);
   }
   return byDb;
@@ -192,7 +244,7 @@ function getOrCreateAppSettingsMap(app: PyricAdminApp): Map<string, boolean | un
 function buildAppFirestoreInstance(
   app: PyricAdminApp,
   normalizedDbId: string,
-): SandboxFirestore {
+): BaseSandboxFirestore {
   const ctx = adminAppToContext(app);
   let projectId = 'pyric-sandbox';
   if (typeof app.options?.projectId === 'string' && app.options.projectId.length > 0) {
@@ -210,7 +262,7 @@ function buildAppFirestoreInstance(
   );
 }
 
-function getAppFirestore(app: PyricAdminApp, databaseId?: unknown): SandboxFirestore {
+function getAppFirestore(app: PyricAdminApp, databaseId?: unknown): BaseSandboxFirestore {
   assertAdminAppActive(app);
   const normalizedDbId = resolveOptionalAdminDatabaseId(databaseId);
   const byDb = getOrCreateAppDbMap(app);
@@ -233,26 +285,26 @@ export function initializeFirestore(
   const settingsByDb = getOrCreateAppSettingsMap(app);
   const requestedPreferRest = settings?.preferRest;
   const existing = byDb.get(normalizedDbId);
-  if (existing !== undefined) {
-    const initialPreferRest = settingsByDb.get(normalizedDbId);
-    if (requestedPreferRest !== initialPreferRest) {
-      throw createAdminGrpcError(
-        GrpcStatus.FAILED_PRECONDITION as number,
-        'initializeFirestore() has already been called with different options. To avoid this error, call initializeFirestore() with the same options as when it was originally called, or call getFirestore() to return the already initialized instance.',
-      );
+    if (existing !== undefined) {
+      const initialPreferRest = settingsByDb.get(normalizedDbId);
+      if (requestedPreferRest !== initialPreferRest) {
+        throw createAdminGrpcError(
+          GrpcStatus.FAILED_PRECONDITION as number,
+          'initializeFirestore() has already been called with different options. To avoid this error, call initializeFirestore() with the same options as when it was originally called, or call getFirestore() to return the already initialized instance.',
+        );
+      }
+      if (settings !== undefined) {
+        applyAdminFirestoreSettings(existing, settings, true);
+      }
+      return existing as unknown as AdminFirestore;
     }
+    const wrapped = buildAppFirestoreInstance(app, normalizedDbId);
     if (settings !== undefined) {
-      applyAdminFirestoreSettings(existing, settings, true);
+      applyAdminFirestoreSettings(wrapped, settings, true);
     }
-    return existing as AdminFirestore;
-  }
-  const wrapped = buildAppFirestoreInstance(app, normalizedDbId);
-  if (settings !== undefined) {
-    applyAdminFirestoreSettings(wrapped, settings, true);
-  }
-  byDb.set(normalizedDbId, wrapped);
-  settingsByDb.set(normalizedDbId, requestedPreferRest);
-  return wrapped as AdminFirestore;
+    byDb.set(normalizedDbId, wrapped);
+    settingsByDb.set(normalizedDbId, requestedPreferRest);
+    return wrapped as unknown as AdminFirestore;
 }
 
 /**
@@ -301,7 +353,7 @@ export function getFirestore(
   databaseId?: string,
 ): AdminFirestore {
   if (target === undefined) {
-    return getAppFirestore(getDefaultServiceApp(), databaseId) as AdminFirestore;
+    return getAppFirestore(getDefaultServiceApp(), databaseId) as unknown as AdminFirestore;
   }
   if (typeof target === 'string') {
     if (isCalledFromLegacyRootAdminNamespace(this)) {
@@ -309,31 +361,24 @@ export function getFirestore(
         'pyric-admin/firestore: expected a PyricAdminApp from initializeApp() (or omit the argument for the default app).',
       );
     }
-    return getAppFirestore(getDefaultServiceApp(), target) as AdminFirestore;
+    return getAppFirestore(getDefaultServiceApp(), target) as unknown as AdminFirestore;
   }
   if (typeof target === 'object' && target !== null && ADMIN_APP_TARGET in target) {
-    return getAppFirestore(target as PyricAdminApp, databaseId) as AdminFirestore;
+    return getAppFirestore(target as PyricAdminApp, databaseId) as unknown as AdminFirestore;
   }
   if (target instanceof SandboxContextImpl) {
     const normalizedDbId = resolveOptionalAdminDatabaseId(databaseId);
     let byDb = ctxNamedFirestoreCache.get(target);
     if (byDb === undefined) {
-      byDb = new Map<string, SandboxFirestore>();
+      byDb = new Map<string, BaseSandboxFirestore>();
       ctxNamedFirestoreCache.set(target, byDb);
     }
     const cached = byDb.get(normalizedDbId);
     if (cached !== undefined) {
-      return cached as AdminFirestore;
+      return cached as unknown as AdminFirestore;
     }
     const scopedCtx = createDatabaseScopedContext(target, normalizedDbId);
     const rawDb = baseGetFirestore(scopedCtx);
-    if (!isRemoteSandbox(scopedCtx.sandbox)) {
-      const bypassDb = baseGetAdminFirestore(scopedCtx.sandbox);
-      registerBypassExistenceReader(
-        rawDb,
-        async (docPath) => (await bypassDb.doc(docPath).get()).exists,
-      );
-    }
     const wrapped = wrapRootHandle(
       rawDb,
       scopedCtx.sandbox,
@@ -342,8 +387,19 @@ export function getFirestore(
       normalizedDbId,
       target.sandbox,
     );
+    if (isRemoteSandbox(scopedCtx.sandbox)) {
+      const bypassDb = baseGetAdminFirestore(scopedCtx);
+      adminRawDbBypassDb.set(rawDb, bypassDb);
+      registerBypassSnapshotReader(rawDb, async (docPath) => {
+        const snap = await bypassDb.doc(docPath).get();
+        return {
+          exists: snap.exists,
+          fingerprint: snap.exists ? computeDocDataFingerprint(snap.data()) : undefined,
+        };
+      });
+    }
     byDb.set(normalizedDbId, wrapped);
-    return wrapped as AdminFirestore;
+    return wrapped as unknown as AdminFirestore;
   }
   throw new TypeError(
     'pyric-admin/firestore: expected a PyricAdminApp from initializeApp() or a SandboxContext (or omit the argument for the default app).',
@@ -378,7 +434,7 @@ export function getAdminFirestore(
     undefined,
     normalizedDbId,
     originalSb,
-  ) as AdminFirestore;
+  ) as unknown as AdminFirestore;
 }
 
-export { adminOnSnapshot as onSnapshot };
+export const onSnapshot: AdminOnSnapshot = adminOnSnapshot as AdminOnSnapshot;

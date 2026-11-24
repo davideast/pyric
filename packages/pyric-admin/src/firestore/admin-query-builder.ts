@@ -31,6 +31,7 @@ import {
 import {
   normalizeCompositeFilter,
   normalizeLegacyQueryOperand,
+  resolveDocumentIdCursorString,
   serializeCursorOperandForSignature,
   unwrapCursorSnapshotForAdmin,
   validateAdminLimitInteger,
@@ -122,13 +123,13 @@ export function resolveWrappedQueryProperty(
             };
             return wrapQuery(target.applyFilter(compiled), rawDb, rootDb, nextMeta, converter);
           }
-          const normalized = validateAndNormalizeWhereArgs(args[0], args[1], args[2], meta, rootDb);
           if (meta.hasCursorBound === true) {
             throw new SandboxError(
               'invalid-argument',
               'Cannot specify a where() filter after calling startAt(), startAfter(), endBefore() or endAt().',
             );
           }
+          const normalized = validateAndNormalizeWhereArgs(args[0], args[1], args[2], meta, rootDb);
           const nextMeta: AdminQueryMetadata = {
             ...meta,
             isCollectionGroupRoot: false,
@@ -151,7 +152,7 @@ export function resolveWrappedQueryProperty(
     case 'applyFilter':
       return (filter: CompatFilter) =>
         runWithAdminErrorsSync(appBacked, () => {
-          const norm = normalizeCompositeFilter(filter, rootDb);
+          const norm = normalizeCompositeFilter(filter, meta, rootDb);
           const nextMeta: AdminQueryMetadata = {
             ...meta,
             isCollectionGroupRoot: false,
@@ -301,7 +302,18 @@ export function resolveWrappedQueryProperty(
         runWithAdminErrorsSync(appBacked, () =>
           wrapQuery(
             target.startCursor(
-              values.map((item) => normalizeLegacyQueryOperand(item, rootDb)),
+              values.map((item, idx) => {
+                const orderField = meta.orderByFields[idx];
+                const isDocIdOrder =
+                  !fromSnapshot &&
+                  orderField !== undefined &&
+                  orderField.length === 1 &&
+                  orderField[0] === '__name__';
+                if (isDocIdOrder) {
+                  return resolveDocumentIdCursorString(item, meta.source, rootDb);
+                }
+                return normalizeLegacyQueryOperand(item, rootDb);
+              }),
               inclusive,
               fromSnapshot,
             ),
@@ -323,7 +335,18 @@ export function resolveWrappedQueryProperty(
         runWithAdminErrorsSync(appBacked, () =>
           wrapQuery(
             target.endCursor(
-              values.map((item) => normalizeLegacyQueryOperand(item, rootDb)),
+              values.map((item, idx) => {
+                const orderField = meta.orderByFields[idx];
+                const isDocIdOrder =
+                  !fromSnapshot &&
+                  orderField !== undefined &&
+                  orderField.length === 1 &&
+                  orderField[0] === '__name__';
+                if (isDocIdOrder) {
+                  return resolveDocumentIdCursorString(item, meta.source, rootDb);
+                }
+                return normalizeLegacyQueryOperand(item, rootDb);
+              }),
               inclusive,
               fromSnapshot,
             ),

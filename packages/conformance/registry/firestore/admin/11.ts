@@ -21,6 +21,7 @@ export default row({
   oracleObservations: ['firestore-admin-snapshot-and-reference-metadata'],
   conformanceTests: [
     'packages/pyric-admin/test/firestore/oracle-conformance.test.ts',
+    'packages/pyric-admin/test/firestore/write-result-preconditions-query-validation.test.ts',
     'packages/pyric-admin/test/firestore/admin-reference-and-snapshot-equality.test.ts',
     'packages/pyric-admin/test/firestore/admin-vector-and-errors.test.ts',
     'packages/pyric-admin/test/firestore/admin-doc-ref-wrapper.test.ts',

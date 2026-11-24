@@ -18,7 +18,8 @@ import {
   type SetOptions,
   type Transaction,
 } from 'pyric/sandbox/admin-compat';
-import { SandboxError, type Sandbox } from 'pyric/sandbox';
+import { isRemoteSandbox, SandboxError, type Sandbox } from 'pyric/sandbox';
+import { RetryableTransactionConflictError } from 'pyric/sandbox/internal';
 import type { SandboxFirestore } from 'pyric/sandbox/admin-firestore';
 import {
   runWithAdminErrorsAsync,
@@ -27,6 +28,7 @@ import {
 import {
   adminDocumentRefBrand,
   adminQueryBrand,
+  adminRawDbSandbox,
   adminToRootDb,
   adminToUnderlying,
   isAppBackedRoot,
@@ -61,12 +63,13 @@ import {
 } from './admin-transaction-getall.js';
 import { validateAndNormalizeUpdateArgs } from './admin-update-validation.js';
 import {
-  assertSingleWritePrecondition,
+  assertBatchPreconditions,
   extractParsedPrecondition,
   extractUpdateTrailingPrecondition,
+  readDocPreconditionState,
   recordTransactionAdminMutations,
-  verifyPreconditionState,
-  type ParsedAdminPrecondition,
+  type BatchOperationCheckItem,
+  type InitialPreconditionSnapshot,
 } from './admin-write-result-preconditions.js';
 import {
   assertAdminDocumentReference,
@@ -77,6 +80,7 @@ import {
 const READ_ONLY_WRITE_ERROR = 'Firestore read-only transactions cannot execute writes.';
 const TX_READ_AFTER_WRITE_CLIENT_MESSAGE =
   'Firestore transactions require all reads to be executed before all writes.';
+const REMOTE_TX_CONFLICT_MARKER = Symbol('pyric.admin.firestore.remoteTxConflict');
 
 function translateAdminTransactionError(err: unknown): never {
   if (
@@ -122,12 +126,8 @@ function wrapTransaction(
   let hasQueuedWrites = false;
   let firstCrossDbWriteTarget: object | null = null;
   const appBacked = isAppBackedRoot(rootDb);
-  const txReadExists = new Map<string, boolean>();
-  const pendingPreconditions: Array<{
-    readonly path: string;
-    readonly method: 'update' | 'delete';
-    readonly precondition: ParsedAdminPrecondition;
-  }> = [];
+  const txReadSnapshots = new Map<string, InitialPreconditionSnapshot>();
+  const queuedOps: BatchOperationCheckItem[] = [];
   const mutations: Array<{ readonly path: string; readonly kind: 'write' | 'delete' }> = [];
 
   function assertWritable(): void {
@@ -155,7 +155,19 @@ function wrapTransaction(
                   unwrappedQuery = unwrapAdminObject(meta.replayOnRoot(rootDb));
                 }
                 const snap = await t.get(unwrappedQuery);
-                return wrapQuerySnapshot(snap, rootDb, docRefOnRoot);
+                const wrappedQuerySnap = wrapQuerySnapshot(snap, rootDb, docRefOnRoot);
+                for (const docSnap of wrappedQuerySnap.docs) {
+                  if (!txReadSnapshots.has(docSnap.ref.path)) {
+                    const docUpdateTime = Reflect.get(docSnap, 'updateTime', docSnap) as
+                      | CompatTimestamp
+                      | undefined;
+                    txReadSnapshots.set(docSnap.ref.path, {
+                      exists: true,
+                      updateTime: docUpdateTime,
+                    });
+                  }
+                }
+                return wrappedQuerySnap;
               }
               if (isAdminDocRefTarget(refOrQuery)) {
                 assertSameDatabaseTarget(rootDb, refOrQuery);
@@ -164,8 +176,17 @@ function wrapTransaction(
                   unwrappedRef = unwrapAdminObject(rootDb.doc(refOrQuery.path));
                 }
                 const snap = await t.get(unwrappedRef);
-                txReadExists.set(unwrappedRef.path, snap.exists);
-                return wrapDocSnapshot(snap, rootDb, docRefOnRoot);
+                const wrappedSnap = wrapDocSnapshot(snap, rootDb, docRefOnRoot);
+                if (!txReadSnapshots.has(unwrappedRef.path)) {
+                  const snapUpdateTime = Reflect.get(wrappedSnap, 'updateTime', wrappedSnap) as
+                    | CompatTimestamp
+                    | undefined;
+                  txReadSnapshots.set(unwrappedRef.path, {
+                    exists: snap.exists,
+                    updateTime: snapUpdateTime,
+                  });
+                }
+                return wrappedSnap;
               }
               throw new SandboxError(
                 'invalid-argument',
@@ -189,8 +210,16 @@ function wrapTransaction(
                   unwrappedRef = unwrapAdminObject(rootDb.doc(ref.path));
                 }
                 const snap = await t.get(unwrappedRef);
-                txReadExists.set(unwrappedRef.path, snap.exists);
                 const wrapped = wrapDocSnapshot(snap, rootDb, docRefOnRoot);
+                if (!txReadSnapshots.has(unwrappedRef.path)) {
+                  const snapUpdateTime = Reflect.get(wrapped, 'updateTime', wrapped) as
+                    | CompatTimestamp
+                    | undefined;
+                  txReadSnapshots.set(unwrappedRef.path, {
+                    exists: snap.exists,
+                    updateTime: snapUpdateTime,
+                  });
+                }
                 if (parsed.fieldMask !== undefined) {
                   results.push(projectDocSnapshotFields(wrapped, parsed.fieldMask));
                 } else {
@@ -220,6 +249,7 @@ function wrapTransaction(
               }
               const unwrappedRef = unwrapAdminObject(ref);
               t.create(unwrappedRef, normalized);
+              queuedOps.push({ kind: 'create', ref: unwrappedRef });
               mutations.push({ path: unwrappedRef.path, kind: 'write' });
               return proxy;
             });
@@ -243,6 +273,7 @@ function wrapTransaction(
               }
               const unwrappedRef = unwrapAdminObject(ref);
               t.set(unwrappedRef, validated.data, validated.options);
+              queuedOps.push({ kind: 'set', ref: unwrappedRef });
               mutations.push({ path: unwrappedRef.path, kind: 'write' });
               return proxy;
             });
@@ -272,17 +303,11 @@ function wrapTransaction(
               }
               const precondition = extractUpdateTrailingPrecondition(rawUpdateArgs);
               const unwrappedRef = unwrapAdminObject(ref);
-              if (precondition !== undefined) {
-                pendingPreconditions.push({
-                  path: unwrappedRef.path,
-                  method: 'update',
-                  precondition,
-                });
-              }
               (t.update as (r: DocumentReference, ...a: unknown[]) => Transaction)(
                 unwrappedRef,
                 ...normalizedArgs,
               );
+              queuedOps.push({ kind: 'update', ref: unwrappedRef, precondition });
               mutations.push({ path: unwrappedRef.path, kind: 'write' });
               return proxy;
             });
@@ -301,14 +326,8 @@ function wrapTransaction(
               }
               const precondition = extractParsedPrecondition(rest[0]);
               const unwrappedRef = unwrapAdminObject(ref);
-              if (precondition !== undefined) {
-                pendingPreconditions.push({
-                  path: unwrappedRef.path,
-                  method: 'delete',
-                  precondition,
-                });
-              }
               t.delete(unwrappedRef);
+              queuedOps.push({ kind: 'delete', ref: unwrappedRef, precondition });
               mutations.push({ path: unwrappedRef.path, kind: 'delete' });
               return proxy;
             });
@@ -350,12 +369,26 @@ function wrapTransaction(
       }
     },
     async verifyPreconditions(): Promise<void> {
-      for (const item of pendingPreconditions) {
-        const cachedExists = txReadExists.get(item.path);
-        if (cachedExists !== undefined) {
-          verifyPreconditionState(rawDb, item.path, item.method, item.precondition, cachedExists);
-        } else {
-          await assertSingleWritePrecondition(rawDb, item.path, item.method, item.precondition);
+      await assertBatchPreconditions(rawDb, queuedOps, txReadSnapshots);
+      if (txReadSnapshots.size === 0 || queuedOps.length === 0) {
+        return;
+      }
+      const sb = adminRawDbSandbox.get(rawDb);
+      const remote = sb !== undefined && isRemoteSandbox(sb);
+      for (const [docPath, readSnap] of txReadSnapshots.entries()) {
+        const live = await readDocPreconditionState(rawDb, docPath);
+        const existenceChanged = live.exists !== readSnap.exists;
+        const updateTimeChanged =
+          live.exists &&
+          readSnap.updateTime !== undefined &&
+          (live.updateTime === undefined || !live.updateTime.isEqual(readSnap.updateTime));
+        if (existenceChanged || updateTimeChanged) {
+          if (remote) {
+            const err = new Error('Remote transaction read snapshot became stale.');
+            Object.defineProperty(err, REMOTE_TX_CONFLICT_MARKER, { value: true });
+            throw err;
+          }
+          throw new RetryableTransactionConflictError();
         }
       }
     },
@@ -487,48 +520,65 @@ export function executeAdminRunTransaction<R>(
 
   return runWithAdminErrorsAsync(appBacked, async () => {
     assertAdminRootDatabaseDeclared(rootDb);
-    try {
-      const result = await rawDb.runTransaction(async (rawTx) => {
-        const attempt = wrapTransaction(
-          rawTx,
-          rawDb,
-          rootDb,
-          parsedOpts.readOnly,
-          docRefOnRoot,
-        );
-        const returned = callback(attempt.tx);
-        if (!isThenable(returned)) {
-          throw new SandboxError(
-            'invalid-argument',
-            'You must return a Promise in your transaction()-callback.',
+    const maxOuterAttempts = parsedOpts.forwarded?.maxAttempts ?? 5;
+    for (let outerAttempt = 0; outerAttempt < maxOuterAttempts; outerAttempt += 1) {
+      try {
+        const result = await rawDb.runTransaction(async (rawTx) => {
+          const attempt = wrapTransaction(
+            rawTx,
+            rawDb,
+            rootDb,
+            parsedOpts.readOnly,
+            docRefOnRoot,
+          );
+          const returned = callback(attempt.tx);
+          if (!isThenable(returned)) {
+            throw new SandboxError(
+              'invalid-argument',
+              'You must return a Promise in your transaction()-callback.',
+            );
+          }
+          const value = await returned;
+          attempt.assertQueuedWritesSameDatabase();
+          await attempt.verifyPreconditions();
+          await capturePreWriteBaselines(
+            rawDb,
+            rootDb,
+            docRefOnRoot,
+            attempt.mutations.map((m) => m.path),
+          );
+          committedAttemptMutations = attempt.mutations;
+          return value;
+        }, parsedOpts.forwarded);
+
+        const commitTime = recordTransactionAdminMutations(rawDb, committedAttemptMutations);
+        if (commitTime !== undefined) {
+          await recordPostWriteVersions(
+            rawDb,
+            rootDb,
+            docRefOnRoot,
+            committedAttemptMutations,
+            commitTime,
           );
         }
-        const value = await returned;
-        attempt.assertQueuedWritesSameDatabase();
-        await attempt.verifyPreconditions();
-        await capturePreWriteBaselines(
-          rawDb,
-          rootDb,
-          docRefOnRoot,
-          attempt.mutations.map((m) => m.path),
-        );
-        committedAttemptMutations = attempt.mutations;
-        return value;
-      }, parsedOpts.forwarded);
-
-      const commitTime = recordTransactionAdminMutations(rawDb, committedAttemptMutations);
-      if (commitTime !== undefined) {
-        await recordPostWriteVersions(
-          rawDb,
-          rootDb,
-          docRefOnRoot,
-          committedAttemptMutations,
-          commitTime,
-        );
+        return result;
+      } catch (err) {
+        if (
+          err !== null &&
+          typeof err === 'object' &&
+          (err as Record<symbol, unknown>)[REMOTE_TX_CONFLICT_MARKER] === true
+        ) {
+          if (outerAttempt + 1 < maxOuterAttempts) {
+            continue;
+          }
+          throw new SandboxError(
+            'aborted',
+            `Transaction failed after ${String(maxOuterAttempts)} attempts due to repeated conflicts.`,
+          );
+        }
+        return translateAdminTransactionError(err);
       }
-      return result;
-    } catch (err) {
-      return translateAdminTransactionError(err);
     }
+    throw new SandboxError('aborted', 'Transaction failed after maximum attempts.');
   });
 }
