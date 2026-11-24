@@ -1,9 +1,16 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { discoverScenarios, type Scenario } from '../../test/apps/shard-plan.ts';
+import {
+  discoverPlannedApps,
+  discoverScenarios,
+  planShards,
+  selectPlannedApps,
+  type Scenario,
+} from '../../test/apps/shard-plan.ts';
 import {
   appSelectionFile,
+  CREATE_PYRIC_TEMPLATE_SCENARIOS,
   determineFirestoreDifferential,
   determinePackaging,
   determineReleaseProof,
@@ -122,6 +129,60 @@ describe('app scenario selection', () => {
       name: 'remote-sandbox-discovery',
       slow: false,
     });
+  });
+
+  test('a change under packages/create-pyric/ selects the template scenarios and the scenario harness unit tests (#2062)', () => {
+    const root = resolve(import.meta.dir, '../..');
+    const real = discoverScenarios(root);
+    const expectedFast = [
+      'create-pyric-chat-app-check',
+      'create-pyric-chat-node-host',
+      'create-pyric-node-template',
+      'create-pyric-web-env',
+      'nextjs-template',
+      'run-names-hosted-for-in-page-vite',
+    ];
+
+    for (const path of [
+      'packages/create-pyric/templates/chat/package.json',
+      'packages/create-pyric/templates/chat/src/App.tsx',
+      'packages/create-pyric/src/templates.ts',
+      'packages/create-pyric/src/bin.ts',
+    ]) {
+      const selection = selectAppScenarios({
+        event: 'pull_request',
+        labels: [],
+        paths: [{ path }],
+        body: 'No runtime path.',
+        scenarios: real,
+      });
+      expect(selection).toEqual({ kind: 'some', apps: expectedFast });
+      if (selection.kind !== 'some') {
+        throw new Error('expected targeted template scenario selection');
+      }
+      const shardPlan = planShards(
+        selectPlannedApps(discoverPlannedApps(root), selection.apps),
+        {},
+        { scope: 'selected' },
+      );
+      expect(shardPlan.apps).toEqual(expectedFast);
+      expect(shardPlan.shards.filter((shard) => shard.runnerTests)).toHaveLength(1);
+    }
+
+    const workflowText = readFileSync(resolve(root, '.github/workflows/build.yml'), 'utf8');
+    expect(workflowText).toContain('test/apps/dependency-store.test.ts');
+
+    const chatHelperUsers = new Set<string>();
+    const segmentedBin = /['"]create-pyric['"]\s*,\s*['"]dist['"]\s*,\s*['"]bin\.js['"]/;
+    for (const { name } of real) {
+      const scenarioSource = readFileSync(resolve(root, 'test/apps', name, 'scenario.ts'), 'utf8');
+      const scaffoldsDirectly = scenarioSource.includes('create-pyric/dist/bin.js') || segmentedBin.test(scenarioSource);
+      const usesChatHelper = scenarioSource.includes('../chat-template.ts') || scenarioSource.includes('../chat-template.js');
+      if (scaffoldsDirectly || usesChatHelper) {
+        chatHelperUsers.add(name);
+      }
+    }
+    expect([...chatHelperUsers].sort()).toEqual([...CREATE_PYRIC_TEMPLATE_SCENARIOS].sort());
   });
 
   test('a change to session-capture, verify, rules-host, or reset/restore paths selects multi-service verify scenarios', () => {

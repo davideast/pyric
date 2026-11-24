@@ -29,6 +29,18 @@ function isDocMarkdown(path: string): boolean {
   return AUTHORED_DOC_MARKDOWN.test(path) || INTERNAL_REPO_DOCS.has(path);
 }
 
+/** Every test that reads authored docs markdown under packages/site-docs/src/content/.
+ *  Pinned complete by scripts/ci/check-set.test.ts and run on `docs-only` pull
+ *  requests by scripts/ci/docs-tests.ts (#2111). */
+export const DOCS_CONTENT_READER_TESTS: readonly string[] = [
+  'packages/cli/test/docs-imports.test.ts',
+  'packages/cli/test/docs-production-claims.test.ts',
+  'packages/cli/test/rules-docs-examples.test.ts',
+  'packages/cli/test/tool-name-drift.test.ts',
+  'packages/rules/test/modules/docs-examples.test.ts',
+  'packages/rules/test/stdlib-modules.test.ts',
+];
+
 /** Changes that invalidate what the packaging gate proves: the scaffolder's
  *  own output, a published package's manifest (its name, exports, or files),
  *  the CLI bin and command parsing that packed-cli-smoke.mjs exercises, and

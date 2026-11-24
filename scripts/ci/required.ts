@@ -24,7 +24,7 @@ interface RequiredInput {
 const CHECK_SET_JOBS: Record<PrCheckSet, readonly string[]> = {
   full: ['build-packages', 'build-and-test', 'library-tests', 'conformance-suite', 'browser-conformance', 'conformance-gates', 'native-conformance'],
   'release-only': ['release-contract'],
-  'docs-only': [],
+  'docs-only': ['docs-tests'],
 };
 
 const PACK_JOB = 'pack-packages';

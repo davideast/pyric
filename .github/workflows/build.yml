@@ -258,15 +258,12 @@ jobs:
         with:
           bun-version: ${{ env.BUN_VERSION }}
 
-      # Bun re-downloads every dependency from the registry without this;
-      # persisting its install cache lets `bun install` reuse prior downloads.
       - name: Cache Bun dependencies
         uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
           key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-bun-
+          restore-keys: ${{ runner.os }}-bun-
 
       - name: Install
         run: bun install --frozen-lockfile --filter '!@pyric/playground'
@@ -291,15 +288,12 @@ jobs:
         with:
           bun-version: ${{ env.BUN_VERSION }}
 
-      # Bun re-downloads every dependency from the registry without this;
-      # persisting its install cache lets `bun install` reuse prior downloads.
       - name: Cache Bun dependencies
         uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
           key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-bun-
+          restore-keys: ${{ runner.os }}-bun-
 
       - name: Install
         # Playground carries Firebase deployment tooling for local demos. None
@@ -431,15 +425,12 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      # Bun re-downloads every dependency from the registry without this;
-      # persisting its install cache lets `bun install` reuse prior downloads.
       - name: Cache Bun dependencies
         uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
           key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-bun-
+          restore-keys: ${{ runner.os }}-bun-
 
       - name: Install
         run: bun install --frozen-lockfile --filter '!@pyric/playground'
@@ -498,15 +489,12 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      # Bun re-downloads every dependency from the registry without this;
-      # persisting its install cache lets `bun install` reuse prior downloads.
       - name: Cache Bun dependencies
         uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
           key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-bun-
+          restore-keys: ${{ runner.os }}-bun-
 
       - name: Install
         run: bun install --frozen-lockfile --filter '!@pyric/playground'
@@ -857,15 +845,12 @@ jobs:
         with:
           bun-version: ${{ env.BUN_VERSION }}
 
-      # Bun re-downloads every dependency from the registry without this;
-      # persisting its install cache lets `bun install` reuse prior downloads.
       - name: Cache Bun dependencies
         uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
           key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-bun-
+          restore-keys: ${{ runner.os }}-bun-
       - name: Install
         run: bun install --frozen-lockfile --filter '!@pyric/playground'
       - uses: ./.github/actions/restore-dist
@@ -919,15 +904,12 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      # Bun re-downloads every dependency from the registry without this;
-      # persisting its install cache lets `bun install` reuse prior downloads.
       - name: Cache Bun dependencies
         uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
           key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-bun-
+          restore-keys: ${{ runner.os }}-bun-
 
       - name: Install
         run: bun install --frozen-lockfile --filter '!@pyric/playground'
@@ -1015,6 +997,30 @@ jobs:
       - run: bun install --frozen-lockfile --filter '!@pyric/playground'
       - run: bun test scripts/publish-alpha.test.ts scripts/lib/proven-stamp.test.ts
 
+  docs-tests:
+    name: Docs content tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: plan
+    if: needs.plan.outputs.check-set == 'docs-only'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - name: Cache Bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+      - run: bun install --frozen-lockfile --filter '!@pyric/playground'
+      - uses: ./.github/actions/restore-dist
+        with:
+          flavor: packages
+      - name: Run docs content reader tests
+        run: bun scripts/ci/docs-tests.ts
+
   conformance-gates:
     name: Conformance gates
     runs-on: ubuntu-latest
@@ -1031,15 +1037,12 @@ jobs:
         with:
           bun-version: ${{ env.BUN_VERSION }}
 
-      # Bun re-downloads every dependency from the registry without this;
-      # persisting its install cache lets `bun install` reuse prior downloads.
       - name: Cache Bun dependencies
         uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
           key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-bun-
+          restore-keys: ${{ runner.os }}-bun-
       - name: Install
         run: bun install --frozen-lockfile --filter '!@pyric/playground'
       - name: Configure job-local surface census cache
@@ -1124,15 +1127,12 @@ jobs:
         with:
           bun-version: ${{ env.BUN_VERSION }}
 
-      # Bun re-downloads every dependency from the registry without this;
-      # persisting its install cache lets `bun install` reuse prior downloads.
       - name: Cache Bun dependencies
         uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
           key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-bun-
+          restore-keys: ${{ runner.os }}-bun-
 
       - uses: actions/setup-node@v4
         with:
@@ -1203,15 +1203,12 @@ jobs:
         with:
           bun-version: ${{ env.BUN_VERSION }}
 
-      # Bun re-downloads every dependency from the registry without this;
-      # persisting its install cache lets `bun install` reuse prior downloads.
       - name: Cache Bun dependencies
         uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
           key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-bun-
+          restore-keys: ${{ runner.os }}-bun-
 
       - uses: actions/setup-node@v4
         with:
@@ -1270,15 +1267,12 @@ jobs:
         with:
           bun-version: ${{ env.BUN_VERSION }}
 
-      # Bun re-downloads every dependency from the registry without this;
-      # persisting its install cache lets `bun install` reuse prior downloads.
       - name: Cache Bun dependencies
         uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
           key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-bun-
+          restore-keys: ${{ runner.os }}-bun-
 
       - uses: actions/setup-node@v4
         with:
@@ -1400,7 +1394,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     if: always()
-    needs: [plan, deletion-guard, build-packages, pack-packages, build-and-test, library-tests, conformance-suite, browser-conformance, conformance-gates, native-conformance, release-contract, packaging, install-matrix, standalone, rtdb-differential, firestore-differential, app-scenarios, node-24-stop]
+    needs: [plan, deletion-guard, build-packages, pack-packages, build-and-test, library-tests, conformance-suite, browser-conformance, conformance-gates, native-conformance, release-contract, docs-tests, packaging, install-matrix, standalone, rtdb-differential, firestore-differential, app-scenarios, node-24-stop]
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2

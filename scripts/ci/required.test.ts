@@ -229,11 +229,11 @@ describe('required CI result', () => {
     }
     expect(requiredFailures({
       checkSet: 'docs-only', requirePackaging: false, requireDeletionGuard: true,
-      results: { 'deletion-guard': 'success' },
+      results: { 'deletion-guard': 'success', 'docs-tests': 'success' },
     })).toEqual([]);
     expect(requiredFailures({
       checkSet: 'docs-only', requirePackaging: false, requireDeletionGuard: false,
-      results: { 'deletion-guard': 'skipped' },
+      results: { 'deletion-guard': 'skipped', 'docs-tests': 'success' },
     })).toEqual([]);
   });
 
@@ -266,12 +266,32 @@ describe('required CI result', () => {
     })).toEqual([]);
   });
 
-  test('does not require a build for authored-documentation-only changes', () => {
+  test('requires docs-tests on docs-only changes so a broken docs pin fails CI without requiring full suite jobs (#2111)', () => {
+    expect(requiredFailures({
+      checkSet: 'docs-only',
+      requirePackaging: false,
+      results: { 'docs-tests': 'success' },
+    })).toEqual([]);
+    expect(requiredFailures({
+      checkSet: 'docs-only',
+      requirePackaging: false,
+      results: { 'docs-tests': 'failure' },
+    })).toEqual(['docs-tests: failure']);
     expect(requiredFailures({
       checkSet: 'docs-only',
       requirePackaging: false,
       results: {},
-    })).toEqual([]);
+    })).toEqual(['docs-tests: missing']);
+
+    const workflow = parsedWorkflow();
+    const needsOfRequired = [workflow.jobs.required?.needs ?? []].flat();
+    expect(needsOfRequired).toContain('docs-tests');
+    const docsJob = workflow.jobs['docs-tests'] as { if?: string; steps?: Step[] } | undefined;
+    expect(docsJob?.if).toBe("needs.plan.outputs.check-set == 'docs-only'");
+    const restoreStep = docsJob?.steps?.find((step) => step.uses === './.github/actions/restore-dist');
+    expect(restoreStep?.with?.flavor).toBe('packages');
+    const testStep = docsJob?.steps?.find((step) => step.run?.includes('scripts/ci/docs-tests.ts'));
+    expect(testStep?.run).toBe('bun scripts/ci/docs-tests.ts');
   });
 
   test('requires every packaging consumer (incl. the standalone smoke) when the packaging policy is active', () => {
