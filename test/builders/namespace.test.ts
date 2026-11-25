@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { connectEvent, plainAddress } from './recorder/catch-all-log.mjs';
 import { nxdomainFor, parseQuestion, queryEvent } from './recorder/dns-log.mjs';
-import { awaitSandboxExit, DROP_CAPABILITIES, startTimeOf, enterArgs, NamespaceUnavailable, overlayScript, ownDirs, sandboxArgs, startEgressNamespace } from './namespace.ts';
+import { awaitSandboxExit, deduplicateDirs, DROP_CAPABILITIES, enterArgs, INVENTORY_TIMEOUT_MS, MASKED_USR_DIRS, maskedUsrDirs, NamespaceUnavailable, overlayScript, ownDirs, sandboxArgs, startEgressNamespace, startTimeOf, systemBinds, toolchainDirs } from './namespace.ts';
 
 /** A DNS query for `name`, type A, recursion desired. */
 function query(name: string, id = 0x1234): Buffer {
@@ -35,13 +35,13 @@ describe('dns-log.mjs', () => {
     if (question === null) throw new Error('no question');
     const answer = nxdomainFor(message, question);
     expect(answer.readUInt16BE(0)).toBe(0xbeef);
-    expect(answer[2]! & 0x80).toBe(0x80);
-    expect(answer[3]! & 0x0f).toBe(3);
+    expect((answer[2] ?? 0) & 0x80).toBe(0x80);
+    expect((answer[3] ?? 0) & 0x0f).toBe(3);
     expect([answer.readUInt16BE(4), answer.readUInt16BE(6), answer.readUInt16BE(8), answer.readUInt16BE(10)]).toEqual([1, 0, 0, 0]);
     expect(answer.subarray(12)).toEqual(message.subarray(12, question.end));
   });
 
-  test('records a query with the host’s classification', () => {
+  test("records a query with the host's classification", () => {
     expect(queryEvent({ name: 'oauth2.googleapis.com', type: 'AAAA' }, new Date(0))).toMatchObject({
       layer: 'namespace',
       kind: 'dns',
@@ -94,8 +94,9 @@ describe('sandboxArgs', () => {
     expect(args.slice(-3)).toEqual(['--bind', layout.runRoot, layout.runRoot]);
   });
 
-  test('gives the sandbox a fresh /dev, /proc, /tmp and /run, and no /mnt or host root', () => {
-    expect(mounted('--tmpfs')).toEqual(['/tmp', '/run']);
+  test('gives the sandbox a fresh /dev, /proc, /tmp and /run, masks /usr/local and /usr/src, and mounts no /mnt or host root', () => {
+    const expectedTmpfs = [...maskedUsrDirs(), '/tmp', '/run'];
+    expect(mounted('--tmpfs')).toEqual(expectedTmpfs);
     expect(mounted('--dev')).toEqual(['/dev']);
     expect(mounted('--proc')).toEqual(['/proc']);
     expect(args.some((arg) => arg === '/mnt' || arg.startsWith('/mnt/') || arg.startsWith('/run/'))).toBe(false);
@@ -103,10 +104,93 @@ describe('sandboxArgs', () => {
     expect(destinations('--bind')).not.toContain('/');
   });
 
-  test('uses the run’s own resolv.conf and hosts', () => {
+  test("uses the run's own resolv.conf and hosts", () => {
     const resolvIndex = args.indexOf('/etc/resolv.conf');
     expect(args[resolvIndex - 1]).toBe(layout.resolvConf);
     expect(args[args.indexOf('/etc/hosts') - 1]).toBe(layout.hosts);
+  });
+
+  test('deduplicates nested read-only binds and masks plain /usr/local and /usr/src directories after /usr (#1826)', () => {
+    expect(deduplicateDirs(['/a/b/c', '/a/b', '/x', '/a/b'])).toEqual(['/x', '/a/b']);
+    const sys = systemBinds({
+      isPlainDir: (dir) => dir === '/usr/local',
+      unlistableLibDirs: () => ['/usr/lib/root-only-daemon'],
+    });
+    const usrIdx = sys.indexOf('/usr');
+    expect(usrIdx).toBeGreaterThanOrEqual(0);
+    const localIdx = sys.indexOf('/usr/local');
+    expect(localIdx).toBeGreaterThan(usrIdx);
+    expect(sys[localIdx - 1]).toBe('--tmpfs');
+    expect(sys).not.toContain('/usr/src');
+    const daemonIdx = sys.indexOf('/usr/lib/root-only-daemon');
+    expect(daemonIdx).toBeGreaterThan(usrIdx);
+    expect(sys[daemonIdx - 1]).toBe('--tmpfs');
+    for (const masked of MASKED_USR_DIRS.filter((dir) => maskedUsrDirs().includes(dir))) {
+      expect(systemBinds().indexOf(masked)).toBeGreaterThan(usrIdx);
+    }
+  });
+});
+
+describe('toolchainDirs', () => {
+  test('skips /usr/bin toolchains and binds hostedtoolcache, /usr/local/bin, and symlinked PATH prefixes without binding /usr/local or HOME', () => {
+    expect(
+      toolchainDirs({
+        which: (tool) => (tool === 'node' ? '/usr/bin/node' : undefined),
+        realpath: (path) => path,
+        isDirectory: () => true,
+        home: '/home/dev',
+      }),
+    ).toEqual([]);
+
+    expect(
+      toolchainDirs({
+        which: (tool) => {
+          if (tool === 'node') return '/opt/hostedtoolcache/node/24.0.0/x64/bin/node';
+          return '/home/runner/.bun/bin/bun';
+        },
+        realpath: (path) => path,
+        isDirectory: () => true,
+        home: '/home/runner',
+      }),
+    ).toEqual(['/home/runner/.bun/bin', '/opt/hostedtoolcache/node/24.0.0/x64']);
+
+    expect(
+      toolchainDirs({
+        which: (tool) => (tool === 'node' ? '/usr/local/bin/node' : undefined),
+        realpath: (path) => path,
+        isDirectory: (path) => path === '/usr/local/bin' || path === '/usr/local/lib/node_modules',
+        home: '/home/dev',
+      }),
+    ).toEqual(['/usr/local/bin', '/usr/local/lib/node_modules']);
+
+    expect(
+      toolchainDirs({
+        which: (tool) => (tool === 'node' ? '/home/dev/bin/node' : undefined),
+        realpath: (path) => path,
+        isDirectory: () => true,
+        home: '/home/dev',
+      }),
+    ).toEqual(['/home/dev/bin']);
+
+    expect(
+      toolchainDirs({
+        which: (tool) => {
+          if (tool === 'node') return '/usr/local/homes/dev/.local/bin/node';
+          return '/usr/local/homes/dev/.local/bin/bun';
+        },
+        realpath: (path) => {
+          if (path.endsWith('/node')) return '/usr/local/homes/dev/.local/opt/node-v24/bin/node';
+          if (path.endsWith('/bun')) return '/usr/local/homes/dev/.local/opt/bun-v1/bun';
+          return path;
+        },
+        isDirectory: () => true,
+        home: '/usr/local/homes/dev',
+      }),
+    ).toEqual([
+      '/usr/local/homes/dev/.local/bin',
+      '/usr/local/homes/dev/.local/opt/bun-v1',
+      '/usr/local/homes/dev/.local/opt/node-v24',
+    ]);
   });
 });
 
@@ -138,10 +222,10 @@ describe('enterArgs', () => {
 
 /**
  * The sandbox test starts a real sandbox, whose inventory walks every bound
- * directory (about 45,000). With a cold file cache, as after a restart, that
- * takes longer than bun's default 5 s.
+ * directory. Align the test limit to `INVENTORY_TIMEOUT_MS + 60_000` so an
+ * inventory failure reports its own message (#1826).
  */
-const SANDBOX_TEST_TIMEOUT_MS = 120_000;
+const SANDBOX_TEST_TIMEOUT_MS = INVENTORY_TIMEOUT_MS + 60_000;
 
 describe('startEgressNamespace', () => {
   test('refuses, rather than running without the block, when the tools are missing', async () => {
@@ -160,7 +244,7 @@ describe('startEgressNamespace', () => {
     const networkLog = join(root, 'network.jsonl');
     // Links a sandbox could have planted: the harness writes nothing through them.
     const decoy = join(mkdtempSync(join(tmpdir(), 'builders-decoy-')), 'host-file');
-    writeFileSync(decoy, 'the host’s own file');
+    writeFileSync(decoy, "the host's own file");
     for (const name of ['hosts', 'resolv.conf']) symlinkSync(decoy, join(root, name));
     const namespace = await startEgressNamespace({ networkLog, runRoot: root });
     const run = (command: string, args: string[]) => {
@@ -180,7 +264,7 @@ describe('startEgressNamespace', () => {
 
       expect(run('getent', ['hosts', 'canary-probe.invalid']).status).not.toBe(0);
       expect(run('cat', ['/etc/resolv.conf']).stdout).toContain('nameserver 127.0.0.1');
-      expect(readFileSync(decoy, 'utf8')).toBe('the host’s own file');
+      expect(readFileSync(decoy, 'utf8')).toBe("the host's own file");
 
       const connect = run('node', ['-e', "require('node:net').connect(80, '192.0.2.1').on('error', (e) => console.log(e.code)).on('close', () => console.log('closed'))"]);
       expect(connect.stdout.trim().split('\n')[0]).toBe('ECONNRESET');
@@ -192,7 +276,7 @@ describe('startEgressNamespace', () => {
     expect(events.filter((event) => event.kind === 'connect')).toEqual([expect.objectContaining({ via: 'catch-all', address: '192.0.2.1', port: 80 })]);
   }, SANDBOX_TEST_TIMEOUT_MS);
 
-  test('shows a run the harness’s own files and packages and none of the repo’s, even to cat through a shell', async () => {
+  test("shows a run the harness's own files and packages and none of the repo's, even to cat through a shell", async () => {
     const repo = resolve(import.meta.dir, '../..');
     const source = join(repo, 'packages', 'pyric', 'src');
     const sourceFile = join(source, readdirSync(source).find((name) => name.endsWith('.ts')) ?? 'index.ts');
