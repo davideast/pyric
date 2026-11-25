@@ -24,7 +24,7 @@ import {
 } from './server-app-tokens.js';
 import { recordServerAppCheckToken } from '../sandbox/internal/app-check-activation.js';
 import { FirebaseError } from '../sandbox/internal/firebase-error.js';
-import { initializeSandbox } from '../sandbox/index.js';
+import { getClock, initializeSandbox } from '../sandbox/index.js';
 import { firebaseOptionsEqual } from './options.js';
 
 const DEFAULT_APP_NAME = '[DEFAULT]';
@@ -356,11 +356,15 @@ export function initializeServerApp(
 
   const { refusal, sandbox } = ensureBackendForOptions(optionsSnapshot);
 
+  let tokenNowMs = Date.now();
+  if (sandbox !== undefined) {
+    tokenNowMs = getClock(sandbox).now();
+  }
   if (serverSettings.authIdToken) {
-    validateServerTokenTTL(serverSettings.authIdToken, 'authIdToken');
+    validateServerTokenTTL(serverSettings.authIdToken, 'authIdToken', tokenNowMs);
   }
   if (serverSettings.appCheckToken) {
-    validateServerTokenTTL(serverSettings.appCheckToken, 'appCheckToken');
+    validateServerTokenTTL(serverSettings.appCheckToken, 'appCheckToken', tokenNowMs);
   }
 
   const storedSettings: FirebaseServerAppSettings = {
