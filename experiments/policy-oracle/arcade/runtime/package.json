@@ -1,0 +1,10 @@
+{
+  "name": "arcade-policy-replay",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@pyric/rules": "file:../vendor/pyric-rules-0.1.0.tgz",
+    "ohm-js": "file:../vendor/ohm-js-17.5.0.tgz",
+    "zod": "file:../vendor/zod-3.25.76.tgz"
+  }
+}

@@ -1,0 +1,5 @@
+rules_version = '2+modules';
+
+export function ticTacToeTurn() {
+  return request.resource.data.moveCount == resource.data.moveCount + 1;
+}

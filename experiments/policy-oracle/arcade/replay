@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")"
+node --input-type=module -e 'import {verifyInputs} from "./corpus.mjs"; verifyInputs()'
+npm ci --prefix runtime --offline --ignore-scripts --no-audit --no-fund --cache .npm-cache >/dev/null
+exec node runtime/replay.mjs "$@"

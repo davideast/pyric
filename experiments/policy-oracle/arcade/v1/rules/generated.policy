@@ -1,0 +1,5 @@
+transition ticTacToeTurn {
+  require nextMove {
+    return after.moveCount == before.moveCount + 1;
+  }
+}

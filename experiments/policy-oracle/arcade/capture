@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")"
+node --input-type=module -e 'import {verifyInputs} from "./corpus.mjs"; verifyInputs()'
+if [[ ! -d live/node_modules/firebase ]]; then
+  npm ci --prefix live --ignore-scripts --no-audit --no-fund --cache .npm-cache
+fi
+exec node live/capture.mjs "$@"

@@ -1,0 +1,240 @@
+{
+  "version": 1,
+  "claims": [
+    {
+      "id": "relative-plus-one",
+      "control": "stock",
+      "generated": "generated",
+      "delta": 1
+    },
+    {
+      "id": "relative-plus-two",
+      "control": "hand2",
+      "generated": "plus2",
+      "delta": 2
+    }
+  ],
+  "target": {
+    "project": "digame-mas",
+    "database": "arcade-counter-261125-5cbab1e4",
+    "uid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+    "closedRuleset": "projects/digame-mas/rulesets/9df02e6e-6f71-4dcf-9786-aec7eb444982",
+    "sdk": "12.19.0"
+  },
+  "pins": {
+    "compiler": "d386b3596a6cc0288dfdd14f18996059d6bce60d",
+    "arcadeStock": "66e14d4f4b0aeab22c05db8d748704dde053d2e5",
+    "arcadeIntegration": "4c5dacfa32d8448c964399b867f3ffd3bbd250ad"
+  },
+  "bindings": {
+    "before.moveCount": "resource.data.moveCount",
+    "after.moveCount": "request.resource.data.moveCount"
+  },
+  "files": {
+    "vendor/ohm-js-17.5.0.tgz": "233d11842ac70dff9d0a9db7dacb6d370d00073ea879d2ad4202d2ee2acabd61",
+    "vendor/pyric-rules-0.1.0.tgz": "67087040f9e1206c54660563a27329d4b5db22102229af8f11b8ccb68ea87743",
+    "vendor/zod-3.25.76.tgz": "9e1f1a05f0dd0c1dab64ee91ceb9bf55cd44d35368c70edda80a2fdc70a88377",
+    "v1/rules/closed.rules": "27c604999402b1f2a08d44ceed3b8ac67355e85c6a8261a0c74a1fed85ac922d",
+    "v1/rules/generated-module.rules": "39f126a00b966887b3ca88275471b93d3e1759b675fb105a1f5ac75f5d971768",
+    "v1/rules/generated.policy": "708a36136b84bf2508bac4c2101dc96e4928a7e5153c54174dadd4427337bda3",
+    "v1/rules/generated.rules": "b46da6fde674e109b525c1545ae40ebdcddd2ada44be7f621cd44d5c1478b17b",
+    "v1/rules/hand2.rules": "a16252aff8ed6d8685b027f537250cd0019cef1d0125384f636e29d317421277",
+    "v1/rules/plus2-module.rules": "814aa76bab1825b86375d26d2a20f1183315b9959dee14022958e9faac446f24",
+    "v1/rules/plus2.policy": "55868ba1d6ef458cbbe9b6feb3e3b091ed570d6f3209b9785000f4123d3b43d9",
+    "v1/rules/plus2.rules": "4d97b0c7be76b1c840cf590a7bca5ef136e5a04e0d7a419a0f03aa05fb7b61c5",
+    "v1/rules/stock.rules": "59b6e23b4727912311ffd45dcba50d4bcb69fe9ed79c6627584e385c338e422b"
+  },
+  "seeds": {
+    "zero": {
+      "history": [],
+      "move": "c0r0",
+      "before": {
+        "host": "HOST",
+        "guest": "GUEST",
+        "currentTurn": "host",
+        "status": "playing",
+        "winner": "",
+        "moveCount": 0,
+        "lastMove": "",
+        "board": {
+          "c0r0": "",
+          "c1r0": "",
+          "c2r0": "",
+          "c0r1": "",
+          "c1r1": "",
+          "c2r1": "",
+          "c0r2": "",
+          "c1r2": "",
+          "c2r2": ""
+        },
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1735689600,
+          "nanoseconds": 0
+        }
+      }
+    },
+    "four": {
+      "history": [
+        "c0r0",
+        "c1r1",
+        "c2r1",
+        "c1r0"
+      ],
+      "move": "c0r2",
+      "before": {
+        "host": "HOST",
+        "guest": "GUEST",
+        "currentTurn": "host",
+        "status": "playing",
+        "winner": "",
+        "moveCount": 4,
+        "lastMove": "c1r0",
+        "board": {
+          "c0r0": "host",
+          "c1r0": "guest",
+          "c2r0": "",
+          "c0r1": "",
+          "c1r1": "guest",
+          "c2r1": "host",
+          "c0r2": "",
+          "c1r2": "",
+          "c2r2": ""
+        },
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1735689600,
+          "nanoseconds": 0
+        }
+      }
+    }
+  },
+  "cases": [
+    {
+      "id": "zero/stock/normal",
+      "role": "host",
+      "count": 1,
+      "predicted": "ALLOW"
+    },
+    {
+      "id": "zero/stock/skipped",
+      "role": "host",
+      "count": 2,
+      "predicted": "DENY"
+    },
+    {
+      "id": "zero/stock/out-of-turn",
+      "role": "guest",
+      "count": 1,
+      "predicted": "DENY"
+    },
+    {
+      "id": "zero/generated/normal",
+      "role": "host",
+      "count": 1,
+      "predicted": "ALLOW"
+    },
+    {
+      "id": "zero/generated/skipped",
+      "role": "host",
+      "count": 2,
+      "predicted": "DENY"
+    },
+    {
+      "id": "zero/generated/out-of-turn",
+      "role": "guest",
+      "count": 1,
+      "predicted": "DENY"
+    },
+    {
+      "id": "zero/plus2/normal",
+      "role": "host",
+      "count": 1,
+      "predicted": "DENY"
+    },
+    {
+      "id": "zero/plus2/skipped",
+      "role": "host",
+      "count": 2,
+      "predicted": "ALLOW"
+    },
+    {
+      "id": "zero/plus2/out-of-turn",
+      "role": "guest",
+      "count": 2,
+      "predicted": "DENY"
+    },
+    {
+      "id": "four/stock/relative",
+      "role": "host",
+      "count": 5,
+      "predicted": "ALLOW"
+    },
+    {
+      "id": "four/stock/constant",
+      "role": "host",
+      "count": 1,
+      "predicted": "DENY"
+    },
+    {
+      "id": "four/stock/out-of-turn",
+      "role": "guest",
+      "count": 5,
+      "predicted": "DENY"
+    },
+    {
+      "id": "four/generated/relative",
+      "role": "host",
+      "count": 5,
+      "predicted": "ALLOW"
+    },
+    {
+      "id": "four/generated/constant",
+      "role": "host",
+      "count": 1,
+      "predicted": "DENY"
+    },
+    {
+      "id": "four/generated/out-of-turn",
+      "role": "guest",
+      "count": 5,
+      "predicted": "DENY"
+    },
+    {
+      "id": "four/hand2/relative",
+      "role": "host",
+      "count": 6,
+      "predicted": "ALLOW"
+    },
+    {
+      "id": "four/hand2/constant",
+      "role": "host",
+      "count": 2,
+      "predicted": "DENY"
+    },
+    {
+      "id": "four/hand2/out-of-turn",
+      "role": "guest",
+      "count": 6,
+      "predicted": "DENY"
+    },
+    {
+      "id": "four/plus2/relative",
+      "role": "host",
+      "count": 6,
+      "predicted": "ALLOW"
+    },
+    {
+      "id": "four/plus2/constant",
+      "role": "host",
+      "count": 2,
+      "predicted": "DENY"
+    },
+    {
+      "id": "four/plus2/out-of-turn",
+      "role": "guest",
+      "count": 6,
+      "predicted": "DENY"
+    }
+  ]
+}
