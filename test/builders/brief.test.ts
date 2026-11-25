@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseBrief, readBriefs, readBriefsDir, renderBrief } from './brief.ts';
+import { briefPackageProblems } from './brief-packages.ts';
 
 const FIXTURE = join(import.meta.dir, 'fixtures', 'briefs', 'brief-1.json');
 const fixture = () => JSON.parse(readFileSync(FIXTURE, 'utf8')) as Record<string, unknown>;
@@ -75,6 +76,44 @@ describe('readBriefs', () => {
     writeFileSync(join(twice, 'b.json'), readFileSync(FIXTURE));
     expect(readBriefs(twice).errors).toEqual(['two briefs share an id: fake-1, fake-1']);
   });
+  test('refuses a brief whose features require packages the starter lacks, such as firebase-functions for onValueCreated (#1767)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'builders-briefs-pkg-'));
+    const r14 = {
+      ...fixture(),
+      id: 'r1-4',
+      features: ['Realtime Database', 'onValueCreated trigger updating presence'],
+    };
+    writeFileSync(join(dir, 'r1-4.json'), JSON.stringify(r14));
+    const read = readBriefsDir(dir);
+    expect(read.briefs).toEqual([]);
+    expect(read.errors).toHaveLength(1);
+    expect(read.errors[0]).toContain('requires package "firebase-functions"');
+    expect(read.errors[0]).toContain('starter "vite" does not install');
+
+    const starters = mkdtempSync(join(tmpdir(), 'builders-starters-'));
+    mkdirSync(join(starters, 'vite'), { recursive: true });
+    writeFileSync(
+      join(starters, 'vite', 'package.json'),
+      JSON.stringify({ dependencies: { firebase: '13.4.0', 'firebase-functions': '6.0.0', vite: '7.3.2' } }),
+    );
+    const parsed = parseBrief(r14);
+    if (!parsed.ok) throw new Error(parsed.errors.join('\n'));
+    expect(briefPackageProblems(parsed.value, starters)).toEqual([]);
+    expect(readBriefsDir(dir, { startersDir: starters }).errors).toEqual([]);
+  });
+
+  test('refuses explicit unbundled packages or React/Next features on a starter that lacks them', () => {
+    const parsed = parseBrief({
+      ...fixture(),
+      id: 'r1-5',
+      framework: 'node-server',
+      features: ['React server rendering', '@google-cloud/pubsub'],
+    });
+    if (!parsed.ok) throw new Error(parsed.errors.join('\n'));
+    const problems = briefPackageProblems(parsed.value);
+    expect(problems.some((problem) => problem.includes('"react"'))).toBe(true);
+    expect(problems.some((problem) => problem.includes('"@google-cloud/pubsub"'))).toBe(true);
+  });
 });
 
 describe('readBriefsDir', () => {
@@ -86,7 +125,7 @@ describe('readBriefsDir', () => {
 });
 
 describe('renderBrief', () => {
-  test('lays the brief out as the template does, with the run’s model and cap', () => {
+  test("lays the brief out as the template does, with the run's model and cap", () => {
     const parsed = parseBrief(fixture());
     if (!parsed.ok) throw new Error(parsed.errors.join('\n'));
     const text = renderBrief(parsed.value, { model: 'claude-haiku-test', maxBudgetUsd: 2 });

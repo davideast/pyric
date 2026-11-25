@@ -44,12 +44,50 @@ describe('summarize', () => {
     expect(summarize(fixtureLines()).orphanVerifications).toEqual(['r1/x-9', 'r2/r1-1-sonnet']);
   });
 
-  test('takes a run’s builder cost from what the forwarder metered', () => {
+  test("takes a run's builder cost from what the forwarder metered", () => {
     const [first] = fixtureLines().filter((line): line is BuilderMeasurement => line.kind === 'builder');
     if (first === undefined) throw new Error('the fixture has no builder line');
     const another = { ...first, run: 'r1-8-haiku', meteredCostUsd: 4 };
     expect(builderCost(another)).toBe(4);
     expect(summarize([first, another]).models[0]?.costPerBuilderRun).toBe(2.5);
+  });
+
+  test('counts confirmed toolingBug findings while defaulting legacy verification lines to 0 (#1767)', () => {
+    const path = join(mkdtempSync(join(tmpdir(), 'builders-measure-tooling-')), 'measurements.jsonl');
+    const builderLine: BuilderMeasurement = {
+      kind: 'builder',
+      run: 'r1-3-sonnet',
+      round: 'r1',
+      brief: 'r1-3',
+      model: 'sonnet',
+      maxBudgetUsd: 3,
+      meteredCostUsd: 1.5,
+      tokens: { input: 10, output: 20, cacheCreation: 0, cacheRead: 0 },
+      wallMs: 1000,
+    };
+    appendMeasurement(path, builderLine);
+    appendMeasurement(path, {
+      kind: 'verification',
+      round: 'r1',
+      run: 'r1-3-sonnet',
+      model: 'opus',
+      costUsd: 0.5,
+      tokens: { input: 5, output: 5, cacheCreation: 0, cacheRead: 0 },
+      verdicts: {
+        confirmed: { pyricDiffers: 1, misleadingDocs: 0, unclearError: 0, toolingBug: 1 },
+        duplicate: 0,
+        needsCapture: 0,
+        unconfirmed: 0,
+        builderBug: 0,
+        invalid: 0,
+      },
+    });
+    const { lines, errors } = readMeasurements(path);
+    expect(errors).toEqual([]);
+    const summary = summarize(lines);
+    expect(summary.models[0]?.confirmedNewFindings).toBe(2);
+    expect(summary.models[0]?.confirmedNewFindingsPerApp).toBe(2);
+    expect(summary.models[0]?.costPerConfirmedNewFinding).toBe(1);
   });
 
   test('chooses no nightly model before any confirmed finding, and leaves unjudged figures empty', () => {
