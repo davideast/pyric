@@ -1,0 +1,16 @@
+{
+  "description": "Two distinct anonymous sign-ins write under /users/$uid and a child_added listener reads /users; every plane mints the same per-sequence anonymous UIDs so lexicographical child key order and previous-child pointers agree.",
+  "sequence": {
+    "seed": 658002,
+    "instances": 2,
+    "initialRules": [3, 2],
+    "steps": [
+      { "op": "signInAnonymously" },
+      { "op": "set", "db": 1, "path": "users/$me", "value": { "$inc": 5 } },
+      { "op": "signOut" },
+      { "op": "signInAnonymously" },
+      { "op": "set", "db": 1, "path": "users/$me", "value": 94 },
+      { "op": "listen", "db": 1, "id": 0, "path": "users", "event": "child_added" }
+    ]
+  }
+}

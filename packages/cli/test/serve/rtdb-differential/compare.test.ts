@@ -34,3 +34,33 @@ describe('push-key placeholders', () => {
     expect(firstMismatch({ sandbox: normalize(steady), node: normalize(steppedBack) })).toBeNull();
   });
 });
+
+describe('anonymous uid placeholders', () => {
+  test('keep first-minted indices when signInAnonymously returns an existing anonymous session', () => {
+    const uid0 = 'anonymous-f0000000-0000-4000-8000-000000000000';
+    const uid1 = 'anonymous-10000000-0000-4000-8000-000000000001';
+    const trace: Trace = {
+      seed: 658002,
+      steps: [{ ok: uid0 }, { ok: uid1 }, { ok: uid1 }],
+      events: {
+        'L0 child_added db1 /users': [
+          { key: uid1, value: 94, previous: null },
+          { key: uid0, value: 5, previous: uid1 },
+        ],
+      },
+      data: [{ users: { [uid0]: 5, [uid1]: 94 } }],
+      anonymous: [uid0, uid1, uid1],
+      pushed: [],
+    };
+    const normalized = normalize(trace);
+    expect(normalized.steps).toEqual([
+      { ok: '<anonymous0>' },
+      { ok: '<anonymous1>' },
+      { ok: '<anonymous1>' },
+    ]);
+    expect(normalized.events['L0 child_added db1 /users']).toEqual([
+      { key: '<anonymous1>', value: 94, previous: null },
+      { key: '<anonymous0>', value: 5, previous: '<anonymous1>' },
+    ]);
+  });
+});
