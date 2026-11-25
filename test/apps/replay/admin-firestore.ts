@@ -78,11 +78,19 @@ export class AdminFirestore {
   }
 
   private take(rpc: AdminFirestoreRpc, request: JsonObject): AdminFirestoreExchange | null {
+    const normalizedRequest = normalizeRequestForRpc(rpc, request);
     const candidates = this.state.recordings
       .flatMap((recording) => recording.exchanges)
       .filter((exchange): exchange is AdminFirestoreExchange => exchange.kind === 'admin-firestore' && exchange.rpc === rpc)
       .map((exchange) => ({ exchange, picked: new Map<string, string>() }))
-      .filter(({ exchange, picked }) => matchesRequest(exchange.request, request, this.state.autoIds, picked));
+      .filter(({ exchange, picked }) =>
+        matchesRequest(
+          normalizeRequestForRpc(rpc, exchange.request),
+          normalizedRequest,
+          this.state.autoIds,
+          picked,
+        ),
+      );
     const chosen = candidates.find(({ exchange }) => !this.used.has(exchange.id)) ?? candidates.at(-1) ?? null;
     if (!chosen) return null;
     this.used.add(chosen.exchange.id);
@@ -101,6 +109,51 @@ export class AdminFirestore {
 
 /** A document id the Admin SDK picks: 20 characters of its `autoId` alphabet. */
 const AUTO_ID = /^[A-Za-z0-9]{20}$/;
+
+const IMPLICIT_NAME_ORDER: JsonObject = {
+  field: { fieldPath: '__name__' },
+  direction: 'ASCENDING',
+};
+
+function hasNameOrderBy(orderBy: readonly Json[]): boolean {
+  for (const entry of orderBy) {
+    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) continue;
+    const field = entry.field;
+    if (typeof field !== 'object' || field === null || Array.isArray(field)) continue;
+    if (field.fieldPath === '__name__') return true;
+  }
+  return false;
+}
+
+/**
+ * Aligns Admin `Listen` `structuredQuery` shapes across `@google-cloud/firestore`
+ * v7 (`firebase-admin` v13, which omits an implicit `__name__` order) and v9
+ * (`firebase-admin` v14, which always appends `__name__ ASCENDING` when no
+ * `__name__` tie-breaker is already present).
+ */
+function withCanonicalListenOrderBy(shape: JsonObject): JsonObject {
+  const query = shape.query;
+  if (typeof query !== 'object' || query === null || Array.isArray(query)) return shape;
+  const structured = query.structuredQuery;
+  if (typeof structured !== 'object' || structured === null || Array.isArray(structured)) return shape;
+  const existing = Array.isArray(structured.orderBy) ? structured.orderBy : [];
+  if (hasNameOrderBy(existing)) return shape;
+  return {
+    ...shape,
+    query: {
+      ...query,
+      structuredQuery: {
+        ...structured,
+        orderBy: [...existing, IMPLICIT_NAME_ORDER],
+      },
+    },
+  };
+}
+
+function normalizeRequestForRpc(rpc: AdminFirestoreRpc, shape: JsonObject): JsonObject {
+  if (rpc !== 'Listen') return shape;
+  return withCanonicalListenOrderBy(shape);
+}
 
 /**
  * Whether a request value matches a recorded one, as `matches` does, where an

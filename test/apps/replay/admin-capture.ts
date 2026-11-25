@@ -199,52 +199,7 @@ function listenExchange(call: GrpcCall, named: Set<string>, commits: Array<{ id:
     batch.messages.push(firestoreAnswer(response.message, named) as JsonObject);
   }
   const addTarget = firestoreRequest(call.requests[0]!.addTarget as JsonObject) as JsonObject;
-  return {
-    kind: 'admin-firestore',
-    id: firestoreId(call),
-    rpc: 'Listen',
-    request: withCanonicalListenOrderBy(targetShape(addTarget)),
-    batches,
-  };
-}
-
-const IMPLICIT_NAME_ORDER: JsonObject = {
-  field: { fieldPath: '__name__' },
-  direction: 'ASCENDING',
-};
-
-function hasNameOrderBy(orderBy: readonly Json[]): boolean {
-  for (const entry of orderBy) {
-    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) continue;
-    const field = entry.field;
-    if (typeof field !== 'object' || field === null || Array.isArray(field)) continue;
-    if (field.fieldPath === '__name__') return true;
-  }
-  return false;
-}
-
-/**
- * Aligns a v13-captured Listen `structuredQuery` with `@google-cloud/firestore`
- * v9 (`firebase-admin` v14), which always appends `__name__ ASCENDING` when no
- * `__name__` tie-breaker is already present.
- */
-function withCanonicalListenOrderBy(shape: JsonObject): JsonObject {
-  const query = shape.query;
-  if (typeof query !== 'object' || query === null || Array.isArray(query)) return shape;
-  const structured = query.structuredQuery;
-  if (typeof structured !== 'object' || structured === null || Array.isArray(structured)) return shape;
-  const existing = Array.isArray(structured.orderBy) ? structured.orderBy : [];
-  if (hasNameOrderBy(existing)) return shape;
-  return {
-    ...shape,
-    query: {
-      ...query,
-      structuredQuery: {
-        ...structured,
-        orderBy: [...existing, IMPLICIT_NAME_ORDER],
-      },
-    },
-  };
+  return { kind: 'admin-firestore', id: firestoreId(call), rpc: 'Listen', request: targetShape(addTarget), batches };
 }
 
 /** A request as the replay decodes one: integers as strings, and a transaction the server issued. */
