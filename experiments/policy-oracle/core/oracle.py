@@ -351,6 +351,8 @@ def main():
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--replay", action="store_true", help="execute local probes using a prepared runtime")
     mode.add_argument("--all", action="store_true", help="prepare runtime, score frozen Arcade and all probes")
+    mode.add_argument("--candidate-package", type=Path, metavar="RULES.tgz",
+                      help="score a packed @pyric/rules against the fixed offline evidence")
     mode.add_argument("--snapshot", action="store_true", help="print a baseline of reviewed record hashes")
     parser.add_argument("--baseline", type=Path, help="reject deletion or modification of released inputs")
     parser.add_argument("--trusted-captures", type=Path,
@@ -368,6 +370,15 @@ def main():
         report, snapshot = inspect(root, sources)
         for name, expected in sources.released.items():
             require(snapshot["pins"].get(name) == expected, f"missing or altered released record: {name}")
+        if args.candidate_package:
+            sys.dont_write_bytecode = True
+            from candidate import frozen_arcade, score_package
+            comparison = score_package(root, report, snapshot, args.candidate_package)
+            after, after_snapshot = inspect(root, sources)
+            require(after == report and after_snapshot == snapshot, "inputs changed during candidate scoring")
+            frozen_arcade(root)  # Revalidate the separately frozen receipts and their ledger.
+            print(json.dumps(comparison, indent=2, sort_keys=True))
+            return int(any(row["outcome"] not in ("match", "pending") for row in comparison["cases"]))
         if args.snapshot:
             require(not any("awaitingUpstreamReceipt" in probe for c in report["claims"].values()
                             for probe in c["probes"].values()),
