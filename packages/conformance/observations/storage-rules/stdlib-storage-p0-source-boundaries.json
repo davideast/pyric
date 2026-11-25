@@ -3,8 +3,8 @@
   "matrixRow": "",
   "rowIds": [],
   "description": "Paired Firestore/Storage Rules Test API source-boundary probe: ordinary v2, import syntax under v2 and 2+modules, multi-file linking, and file-order permutations.",
-  "observedAt": "2026-10-30T09:19:44.782Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:47:08.188Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "firestore: single-v2-baseline": "ALLOW",
