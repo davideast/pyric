@@ -1,4 +1,5 @@
 {
   "description": "The R63 RTDB rules decide descendant writes using the stored and proposed trees at the matched rule. Replay covers deep writes, an ownership change, a leaf delete, creates and a multi-path update. The production receipt records the seven operation decisions. Stored-tree readbacks and the deployed rules digest are unavailable.",
-  "authority": "rtdb-production"
+  "authority": "rtdb-production",
+  "witness": "imported-production-verdict"
 }
