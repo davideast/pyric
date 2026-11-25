@@ -119,7 +119,7 @@ describe('judgeCanary', () => {
     expect(failedChecks(observations)).toEqual(['node: fetch to Cloud Firestore']);
   });
 
-  test('judges each Node plant by its own events, not another plant’s to the same host', () => {
+  test("judges each Node plant by its own events, not another plant's to the same host", () => {
     const observations = passing();
     observations.record = withoutOwnEvents(observations.record, SOCKET_METADATA);
     expect(failedChecks(observations)).toEqual([`node: ${SOCKET_METADATA}`]);
@@ -189,13 +189,13 @@ describe('judgeCanary', () => {
     expect(failedChecks(observations)).toEqual(['unhooked: Bun fetch to the metadata server']);
   });
 
-  test('fails when a hooked layer’s lookup reached the sandbox resolver', () => {
+  test("fails when a hooked layer's lookup reached the sandbox resolver", () => {
     const observations = passing();
     observations.record.push(resolverQuery('firestore.googleapis.com'));
     expect(failedChecks(observations)).toEqual(['sandbox: only the unhooked plants reached the resolver']);
   });
 
-  test('fails when a hooked layer’s connection reached the catch-all listener', () => {
+  test("fails when a hooked layer's connection reached the catch-all listener", () => {
     const observations = passing();
     observations.record.push(catchAll('142.250.0.1', 443));
     expect(failedChecks(observations)).toEqual(['sandbox: only the unhooked plants reached the catch-all listener']);
@@ -212,6 +212,12 @@ describe('judgeCanary', () => {
     const observations = passing();
     observations.record.push(tcp('142.250.0.1:443', '142.250.0.1'));
     expect(failedChecks(observations)).toEqual(['browser: no TCP socket left loopback']);
+  });
+
+  test('fails when the sandbox was still running after SIGKILL', () => {
+    const observations = passing();
+    observations.sandbox = 'still-running';
+    expect(failedChecks(observations)).toEqual(['sandbox: stopped cleanly']);
   });
 });
 
