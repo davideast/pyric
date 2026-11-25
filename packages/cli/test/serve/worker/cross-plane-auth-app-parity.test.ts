@@ -11,7 +11,7 @@ import { handleMessage, type PortLike } from '../../../src/serve/worker/host.js'
 import { setDatabaseRules } from '../../../src/serve/worker/host/rules.js';
 import type { InboundMessage, OutboundMessage } from '../../../src/serve/worker/protocol.js';
 import { OPEN_STORAGE_RULES } from './permissive-services.js';
-import { type FakePort, makeHostCtx, portPair, sleep } from './integration-support.js';
+import { type FakePort, makeHostCtx, portPair, sleep, until } from './integration-support.js';
 
 let seq = 0;
 function nextAppName(prefix: string): string {
@@ -126,7 +126,16 @@ describe('Cross-plane Auth, App lifecycle, and multi-instance parity', () => {
       const unsubIpTok = ipAuth.onIdTokenChanged(pAuth, ipTokenObs);
 
       try {
-        await sleep(15);
+        await until(
+          () =>
+            servedStateFn.length >= 1 &&
+            servedStateObs.events.length >= 1 &&
+            servedTokenObs.events.length >= 1 &&
+            ipStateFn.length >= 1 &&
+            ipStateObs.events.length >= 1 &&
+            ipTokenObs.events.length >= 1,
+          'initial auth/token observer delivery across planes',
+        );
         expect(servedStateFn).toEqual([null]);
         expect(servedStateObs.events).toEqual(['state:null']);
         expect(servedTokenObs.events).toEqual(['token:null']);
@@ -136,7 +145,16 @@ describe('Cross-plane Auth, App lifecycle, and multi-instance parity', () => {
 
         const sCred = await servedAuth.signInAnonymously(sAuth);
         const pCred = await ipAuth.signInAnonymously(pAuth);
-        await sleep(15);
+        await until(
+          () =>
+            servedStateFn.length >= 2 &&
+            servedStateObs.events.length >= 2 &&
+            servedTokenObs.events.length >= 2 &&
+            ipStateFn.length >= 2 &&
+            ipStateObs.events.length >= 2 &&
+            ipTokenObs.events.length >= 2,
+          'signInAnonymously observer delivery across planes',
+        );
 
         expect(servedStateFn).toEqual([null, sCred.user.uid]);
         expect(servedStateObs.events).toEqual(['state:null', `state:${sCred.user.uid}`]);
@@ -148,6 +166,10 @@ describe('Cross-plane Auth, App lifecycle, and multi-instance parity', () => {
         // Forced token refresh fires onIdTokenChanged observer objects without re-firing onAuthStateChanged.
         await sCred.user.getIdToken(true);
         await pCred.user.getIdToken(true);
+        await until(
+          () => servedTokenObs.events.length >= 3 && ipTokenObs.events.length >= 3,
+          'forced getIdToken(true) observer delivery across planes',
+        );
         await sleep(15);
 
         expect(servedStateObs.events).toEqual(['state:null', `state:${sCred.user.uid}`]);
