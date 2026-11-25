@@ -7,7 +7,14 @@
  * still lack a worker protocol fail loudly. In in-page fallback mode, the entry
  * delegates to `pyric/storage` against the page sandbox.
  */
-import { observeStorageOperation, parseBucketSpec } from 'pyric/storage/internal';
+import {
+  DEFAULT_STORAGE_BUCKET,
+  noticeUndeployedStorageBucket,
+  observeStorageOperation,
+  parseBucketSpec,
+  rulesBucketName,
+  targetOf,
+} from 'pyric/storage/internal';
 import * as ip from 'pyric/storage';
 import {
   getStorage as pyricGetStorage,
@@ -53,7 +60,15 @@ export function getStorage(app?: FirebaseApp, bucketUrl?: string): FirebaseStora
         console.info(`[pyric sandbox] ${notice}`);
       }
     }
-    return pyricGetStorage(resolved, bucketUrl);
+    const inPageHandle = pyricGetStorage(resolved, bucketUrl);
+    const inPageTarget = targetOf(inPageHandle);
+    if (inPageTarget.bucket !== DEFAULT_STORAGE_BUCKET) {
+      noticeUndeployedStorageBucket(
+        pageSandbox,
+        rulesBucketName(inPageTarget.bucket, inPageTarget.bucketName),
+      );
+    }
+    return inPageHandle;
   }
   let parsedBucketUrl: string | undefined;
   let cacheKey = '[DEFAULT]';
@@ -108,7 +123,7 @@ export const StorageError = ip.StorageError;
 
 // pyric replaces the Firebase emulator; connectStorageEmulator is a
 // no-op. Served apps are already talking to the pyric sandbox (or the
-// SharedWorker's shared store), which IS the local emulator — pointing
+// SharedWorker's shared store), which IS the local emulator -- pointing
 // it at a `firebase-tools` emulator host would be a step backward, not
 // forward, so the call is logged and swallowed rather than forwarded.
 export function connectStorageEmulator(
