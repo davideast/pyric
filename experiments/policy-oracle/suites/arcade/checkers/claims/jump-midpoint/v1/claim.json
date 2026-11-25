@@ -1,0 +1,5 @@
+{
+  "description": "A Checkers single-jump update with an otherwise valid move must name the square halfway between its endpoints as the captured square.",
+  "authority": "firestore-sdk",
+  "witness": "authenticated-write-readback"
+}

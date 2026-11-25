@@ -1,0 +1,191 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // @pyric/storage-request-resource-fields/replay
+    match /replay/canary.bin { allow create: if true; }
+    match /replay/stored/{file} { allow create, get: if true; }
+    match /replay/stored-seed/{file} { allow get: if true; }
+    match /replay/stored-update/client/encoding-identity.txt { allow create: if true; allow update: if request.resource.contentEncoding == 'identity'; }
+    match /replay/stored-update/client/encoding-null.txt { allow create: if true; allow update: if request.resource.contentEncoding == null; }
+    match /replay/stored-update/client/disposition-default.txt { allow create: if true; allow update: if request.resource.contentDisposition == "inline; filename*=utf-8''disposition-default.txt"; }
+    match /replay/stored-update/client/disposition-null.txt { allow create: if true; allow update: if request.resource.contentDisposition == null; }
+    match /replay/stored-update/gcs/encoding-identity.txt { allow create: if true; allow update: if request.resource.contentEncoding == 'identity'; }
+    match /replay/stored-update/gcs/encoding-null.txt { allow create: if true; allow update: if request.resource.contentEncoding == null; }
+    match /replay/stored-update/gcs/disposition-default.txt { allow create: if true; allow update: if request.resource.contentDisposition == "inline; filename*=utf-8''disposition-default.txt"; }
+    match /replay/stored-update/gcs/disposition-null.txt { allow create: if true; allow update: if request.resource.contentDisposition == null; }
+    match /replay/create/present-name.bin { allow create: if request.resource.name == request.resource.name; }
+    match /replay/create/present-bucket.bin { allow create: if request.resource.bucket == request.resource.bucket; }
+    match /replay/create/present-generation.bin { allow create: if request.resource.generation == request.resource.generation; }
+    match /replay/create/present-metageneration.bin { allow create: if request.resource.metageneration == request.resource.metageneration; }
+    match /replay/create/present-size.bin { allow create: if request.resource.size == request.resource.size; }
+    match /replay/create/present-timeCreated.bin { allow create: if request.resource.timeCreated == request.resource.timeCreated; }
+    match /replay/create/present-updated.bin { allow create: if request.resource.updated == request.resource.updated; }
+    match /replay/create/present-md5Hash.bin { allow create: if request.resource.md5Hash == request.resource.md5Hash; }
+    match /replay/create/present-crc32c.bin { allow create: if request.resource.crc32c == request.resource.crc32c; }
+    match /replay/create/present-etag.bin { allow create: if request.resource.etag == request.resource.etag; }
+    match /replay/create/present-contentDisposition.bin { allow create: if request.resource.contentDisposition == request.resource.contentDisposition; }
+    match /replay/create/present-contentEncoding.bin { allow create: if request.resource.contentEncoding == request.resource.contentEncoding; }
+    match /replay/create/present-contentLanguage.bin { allow create: if request.resource.contentLanguage == request.resource.contentLanguage; }
+    match /replay/create/present-contentType.bin { allow create: if request.resource.contentType == request.resource.contentType; }
+    match /replay/create/present-metadata.bin { allow create: if request.resource.metadata == request.resource.metadata; }
+    match /replay/create/name-object-path.bin { allow create: if request.resource.name == "replay/create/name-object-path.bin"; }
+    match /replay/create/name-string.bin { allow create: if request.resource.name is string; }
+    match /replay/create/bucket-match.bin { allow create: if request.resource.bucket == bucket; }
+    match /replay/create/content-type-set.bin { allow create: if request.resource.contentType == 'text/plain'; }
+    match /replay/create/content-disposition-set.bin { allow create: if request.resource.contentDisposition == 'inline'; }
+    match /replay/create/content-encoding-set.bin { allow create: if request.resource.contentEncoding == 'identity'; }
+    match /replay/create/content-language-set.bin { allow create: if request.resource.contentLanguage == 'en'; }
+    match /replay/create/metadata-set.bin { allow create: if request.resource.metadata == {'probe': 'value'}; }
+    match /replay/create/time-created-timestamp.bin { allow create: if request.resource.timeCreated is timestamp; }
+    match /replay/create/updated-timestamp.bin { allow create: if request.resource.updated is timestamp; }
+    match /replay/create/generation-int.bin { allow create: if request.resource.generation is int; }
+    match /replay/create/metageneration-int.bin { allow create: if request.resource.metageneration is int; }
+    match /replay/create/md5-string.bin { allow create: if request.resource.md5Hash is string; }
+    match /replay/create/etag-string.bin { allow create: if request.resource.etag is string; }
+    match /replay/create/crc32c-string.bin { allow create: if request.resource.crc32c is string; }
+    match /replay/create/size-int.bin { allow create: if request.resource.size is int; }
+    match /replay/create/cache-control-set.bin { allow create: if request.resource.cacheControl == 'no-cache'; }
+    match /replay/create/storage-class-null.bin { allow create: if request.resource.storageClass == null; }
+    match /replay/create/storage-class-standard.bin { allow create: if request.resource.storageClass == 'STANDARD'; }
+    match /replay/create/time-created-key.bin { allow create: if 'timeCreated' in request.resource; }
+    match /replay/create/updated-key.bin { allow create: if 'updated' in request.resource; }
+    match /replay/create/name-key.bin { allow create: if 'name' in request.resource; }
+    match /replay/create/keys-size-13.bin { allow create: if request.resource.keys().size() == 13; }
+    match /replay/create/keys-size-14.bin { allow create: if request.resource.keys().size() == 14; }
+    match /replay/create/keys-size-15.bin { allow create: if request.resource.keys().size() == 15; }
+    match /replay/create/keys-size-16.bin { allow create: if request.resource.keys().size() == 16; }
+    match /replay/create/keys-size-17.bin { allow create: if request.resource.keys().size() == 17; }
+    match /replay/create/keys-size-18.bin { allow create: if request.resource.keys().size() == 18; }
+    match /replay/create/keys-size-over-18.bin { allow create: if request.resource.keys().size() > 18; }
+    match /replay/create/extra-key-cacheControl.bin { allow create: if 'cacheControl' in request.resource; }
+    match /replay/create/extra-key-storageClass.bin { allow create: if 'storageClass' in request.resource; }
+    match /replay/create/extra-key-customTime.bin { allow create: if 'customTime' in request.resource; }
+    match /replay/create/extra-key-componentCount.bin { allow create: if 'componentCount' in request.resource; }
+    match /replay/create/extra-key-id.bin { allow create: if 'id' in request.resource; }
+    match /replay/create/extra-key-kind.bin { allow create: if 'kind' in request.resource; }
+    match /replay/create/extra-key-path.bin { allow create: if 'path' in request.resource; }
+    match /replay/create/extra-key-contentMD5.bin { allow create: if 'contentMD5' in request.resource; }
+    match /replay/create/keys-documented-13.bin { allow create: if request.resource.keys().hasAll(["name","bucket","generation","metageneration","size","md5Hash","crc32c","etag","contentDisposition","contentEncoding","contentLanguage","contentType","metadata"]); }
+    match /replay/create/size-bytes.bin { allow create: if request.resource.size == 5; }
+    match /replay/create/metageneration-one.bin { allow create: if request.resource.metageneration == 1; }
+    match /replay/create/time-created-request-time.bin { allow create: if request.resource.timeCreated == request.time; }
+    match /replay/create/updated-time-created.bin { allow create: if request.resource.updated == request.resource.timeCreated; }
+    match /replay/create/generation-null.bin { allow create: if request.resource.generation == null; }
+    match /replay/create/metageneration-null.bin { allow create: if request.resource.metageneration == null; }
+    match /replay/create/etag-null.bin { allow create: if request.resource.etag == null; }
+    match /replay/create/unset-present-contentDisposition.bin { allow create: if request.resource.contentDisposition == request.resource.contentDisposition; }
+    match /replay/create/unset-present-contentEncoding.bin { allow create: if request.resource.contentEncoding == request.resource.contentEncoding; }
+    match /replay/create/unset-present-contentLanguage.bin { allow create: if request.resource.contentLanguage == request.resource.contentLanguage; }
+    match /replay/create/unset-present-cacheControl.bin { allow create: if request.resource.cacheControl == request.resource.cacheControl; }
+    match /replay/create/unset-present-metadata.bin { allow create: if request.resource.metadata == request.resource.metadata; }
+    match /replay/create/unset-null-contentDisposition.bin { allow create: if request.resource.contentDisposition == null; }
+    match /replay/create/unset-null-contentEncoding.bin { allow create: if request.resource.contentEncoding == null; }
+    match /replay/create/unset-null-contentLanguage.bin { allow create: if request.resource.contentLanguage == null; }
+    match /replay/create/unset-null-cacheControl.bin { allow create: if request.resource.cacheControl == null; }
+    match /replay/create/unset-null-metadata.bin { allow create: if request.resource.metadata == null; }
+    match /replay/create/unset-empty-contentDisposition.bin { allow create: if request.resource.contentDisposition == ''; }
+    match /replay/create/unset-empty-contentEncoding.bin { allow create: if request.resource.contentEncoding == ''; }
+    match /replay/create/unset-empty-contentLanguage.bin { allow create: if request.resource.contentLanguage == ''; }
+    match /replay/create/unset-empty-cacheControl.bin { allow create: if request.resource.cacheControl == ''; }
+    match /replay/create/unset-empty-metadata.bin { allow create: if request.resource.metadata == {}; }
+    match /replay/create/unset-identity-contentEncoding.bin { allow create: if request.resource.contentEncoding == 'identity'; }
+    match /replay/create/unset-filename-contentDisposition.bin { allow create: if request.resource.contentDisposition == "inline; filename*=utf-8''unset-filename-contentDisposition.bin"; }
+    match /replay/create/unset-inline-contentDisposition.bin { allow create: if request.resource.contentDisposition.matches('inline.*'); }
+    match /replay/update/present-name.bin { allow update: if request.resource.name == request.resource.name; }
+    match /replay/update/present-bucket.bin { allow update: if request.resource.bucket == request.resource.bucket; }
+    match /replay/update/present-generation.bin { allow update: if request.resource.generation == request.resource.generation; }
+    match /replay/update/present-metageneration.bin { allow update: if request.resource.metageneration == request.resource.metageneration; }
+    match /replay/update/present-size.bin { allow update: if request.resource.size == request.resource.size; }
+    match /replay/update/present-timeCreated.bin { allow update: if request.resource.timeCreated == request.resource.timeCreated; }
+    match /replay/update/present-updated.bin { allow update: if request.resource.updated == request.resource.updated; }
+    match /replay/update/present-md5Hash.bin { allow update: if request.resource.md5Hash == request.resource.md5Hash; }
+    match /replay/update/present-crc32c.bin { allow update: if request.resource.crc32c == request.resource.crc32c; }
+    match /replay/update/present-etag.bin { allow update: if request.resource.etag == request.resource.etag; }
+    match /replay/update/present-contentDisposition.bin { allow update: if request.resource.contentDisposition == request.resource.contentDisposition; }
+    match /replay/update/present-contentEncoding.bin { allow update: if request.resource.contentEncoding == request.resource.contentEncoding; }
+    match /replay/update/present-contentLanguage.bin { allow update: if request.resource.contentLanguage == request.resource.contentLanguage; }
+    match /replay/update/present-contentType.bin { allow update: if request.resource.contentType == request.resource.contentType; }
+    match /replay/update/present-metadata.bin { allow update: if request.resource.metadata == request.resource.metadata; }
+    match /replay/update/name-object-path.bin { allow update: if request.resource.name == "replay/update/name-object-path.bin"; }
+    match /replay/update/name-string.bin { allow update: if request.resource.name is string; }
+    match /replay/update/bucket-match.bin { allow update: if request.resource.bucket == bucket; }
+    match /replay/update/content-type-set.bin { allow update: if request.resource.contentType == 'text/plain'; }
+    match /replay/update/content-disposition-set.bin { allow update: if request.resource.contentDisposition == 'inline'; }
+    match /replay/update/content-encoding-set.bin { allow update: if request.resource.contentEncoding == 'identity'; }
+    match /replay/update/content-language-set.bin { allow update: if request.resource.contentLanguage == 'en'; }
+    match /replay/update/metadata-set.bin { allow update: if request.resource.metadata == {'probe': 'value'}; }
+    match /replay/update/time-created-timestamp.bin { allow update: if request.resource.timeCreated is timestamp; }
+    match /replay/update/updated-timestamp.bin { allow update: if request.resource.updated is timestamp; }
+    match /replay/update/generation-int.bin { allow update: if request.resource.generation is int; }
+    match /replay/update/metageneration-int.bin { allow update: if request.resource.metageneration is int; }
+    match /replay/update/md5-string.bin { allow update: if request.resource.md5Hash is string; }
+    match /replay/update/etag-string.bin { allow update: if request.resource.etag is string; }
+    match /replay/update/crc32c-string.bin { allow update: if request.resource.crc32c is string; }
+    match /replay/update/size-int.bin { allow update: if request.resource.size is int; }
+    match /replay/update/cache-control-set.bin { allow update: if request.resource.cacheControl == 'no-cache'; }
+    match /replay/update/storage-class-null.bin { allow update: if request.resource.storageClass == null; }
+    match /replay/update/storage-class-standard.bin { allow update: if request.resource.storageClass == 'STANDARD'; }
+    match /replay/update/time-created-key.bin { allow update: if 'timeCreated' in request.resource; }
+    match /replay/update/updated-key.bin { allow update: if 'updated' in request.resource; }
+    match /replay/update/name-key.bin { allow update: if 'name' in request.resource; }
+    match /replay/update/keys-size-13.bin { allow update: if request.resource.keys().size() == 13; }
+    match /replay/update/keys-size-14.bin { allow update: if request.resource.keys().size() == 14; }
+    match /replay/update/keys-size-15.bin { allow update: if request.resource.keys().size() == 15; }
+    match /replay/update/keys-size-16.bin { allow update: if request.resource.keys().size() == 16; }
+    match /replay/update/keys-size-17.bin { allow update: if request.resource.keys().size() == 17; }
+    match /replay/update/keys-size-18.bin { allow update: if request.resource.keys().size() == 18; }
+    match /replay/update/keys-size-over-18.bin { allow update: if request.resource.keys().size() > 18; }
+    match /replay/update/extra-key-cacheControl.bin { allow update: if 'cacheControl' in request.resource; }
+    match /replay/update/extra-key-storageClass.bin { allow update: if 'storageClass' in request.resource; }
+    match /replay/update/extra-key-customTime.bin { allow update: if 'customTime' in request.resource; }
+    match /replay/update/extra-key-componentCount.bin { allow update: if 'componentCount' in request.resource; }
+    match /replay/update/extra-key-id.bin { allow update: if 'id' in request.resource; }
+    match /replay/update/extra-key-kind.bin { allow update: if 'kind' in request.resource; }
+    match /replay/update/extra-key-path.bin { allow update: if 'path' in request.resource; }
+    match /replay/update/extra-key-contentMD5.bin { allow update: if 'contentMD5' in request.resource; }
+    match /replay/update/keys-documented-13.bin { allow update: if request.resource.keys().hasAll(["name","bucket","generation","metageneration","size","md5Hash","crc32c","etag","contentDisposition","contentEncoding","contentLanguage","contentType","metadata"]); }
+    match /replay/update/size-unchanged.bin { allow update: if request.resource.size == resource.size; }
+    match /replay/update/generation-unchanged.bin { allow update: if request.resource.generation == resource.generation; }
+    match /replay/update/metageneration-unchanged.bin { allow update: if request.resource.metageneration == resource.metageneration; }
+    match /replay/update/metageneration-next.bin { allow update: if request.resource.metageneration == resource.metageneration + 1; }
+    match /replay/update/time-created-unchanged.bin { allow update: if request.resource.timeCreated == resource.timeCreated; }
+    match /replay/update/updated-unchanged.bin { allow update: if request.resource.updated == resource.updated; }
+    match /replay/update/updated-request-time.bin { allow update: if request.resource.updated == request.time; }
+    match /replay/update/md5-unchanged.bin { allow update: if request.resource.md5Hash == resource.md5Hash; }
+    match /replay/update/crc32c-unchanged.bin { allow update: if request.resource.crc32c == resource.crc32c; }
+    match /replay/update/etag-unchanged.bin { allow update: if request.resource.etag == resource.etag; }
+    match /replay/update/partial-content-type-kept.bin { allow update: if request.resource.contentType == resource.contentType; }
+    match /replay/update/partial-content-disposition-null.bin { allow update: if request.resource.contentDisposition == null; }
+    match /replay/overwrite/present-name.bin { allow write: if request.resource.name == request.resource.name; }
+    match /replay/overwrite/present-bucket.bin { allow write: if request.resource.bucket == request.resource.bucket; }
+    match /replay/overwrite/present-generation.bin { allow write: if request.resource.generation == request.resource.generation; }
+    match /replay/overwrite/present-metageneration.bin { allow write: if request.resource.metageneration == request.resource.metageneration; }
+    match /replay/overwrite/present-size.bin { allow write: if request.resource.size == request.resource.size; }
+    match /replay/overwrite/present-timeCreated.bin { allow write: if request.resource.timeCreated == request.resource.timeCreated; }
+    match /replay/overwrite/present-updated.bin { allow write: if request.resource.updated == request.resource.updated; }
+    match /replay/overwrite/present-md5Hash.bin { allow write: if request.resource.md5Hash == request.resource.md5Hash; }
+    match /replay/overwrite/present-crc32c.bin { allow write: if request.resource.crc32c == request.resource.crc32c; }
+    match /replay/overwrite/present-etag.bin { allow write: if request.resource.etag == request.resource.etag; }
+    match /replay/overwrite/present-contentDisposition.bin { allow write: if request.resource.contentDisposition == request.resource.contentDisposition; }
+    match /replay/overwrite/present-contentEncoding.bin { allow write: if request.resource.contentEncoding == request.resource.contentEncoding; }
+    match /replay/overwrite/present-contentLanguage.bin { allow write: if request.resource.contentLanguage == request.resource.contentLanguage; }
+    match /replay/overwrite/present-contentType.bin { allow write: if request.resource.contentType == request.resource.contentType; }
+    match /replay/overwrite/present-metadata.bin { allow write: if request.resource.metadata == request.resource.metadata; }
+    match /replay/overwrite/name-object-path.bin { allow write: if request.resource.name == "replay/overwrite/name-object-path.bin"; }
+    match /replay/overwrite/size-bytes.bin { allow write: if request.resource.size == 6; }
+    match /replay/overwrite/generation-null.bin { allow write: if request.resource.generation == null; }
+    match /replay/overwrite/metageneration-null.bin { allow write: if request.resource.metageneration == null; }
+    match /replay/overwrite/etag-null.bin { allow write: if request.resource.etag == null; }
+    match /replay/overwrite/md5-changed.bin { allow write: if request.resource.md5Hash != resource.md5Hash; }
+    match /replay/overwrite/keys-size-15.bin { allow write: if request.resource.keys().size() == 15; }
+    match /replay/overwrite/unset-identity-contentEncoding.bin { allow write: if request.resource.contentEncoding == 'identity'; }
+    match /replay/overwrite/unset-filename-contentDisposition.bin { allow write: if request.resource.contentDisposition == "inline; filename*=utf-8''unset-filename-contentDisposition.bin"; }
+    match /replay/overwrite/unset-null-contentLanguage.bin { allow write: if request.resource.contentLanguage == null; }
+    match /replay/overwrite/unset-null-cacheControl.bin { allow write: if request.resource.cacheControl == null; }
+    match /replay/overwrite/unset-null-metadata.bin { allow write: if request.resource.metadata == null; }
+    match /replay/overwrite/verb-create.bin { allow create: if true; }
+    match /replay/overwrite/verb-update.bin { allow update: if true; }
+    match /replay/overwrite/resource-existing.bin { allow write: if resource.size == 5; }
+    match /replay/overwrite/create-stored-and-new-size.bin { allow create: if resource.size == 5 && request.resource.size == 6; }
+  }
+}

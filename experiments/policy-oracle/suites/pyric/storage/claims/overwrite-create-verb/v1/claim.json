@@ -1,0 +1,5 @@
+{
+  "description": "A replacement byte upload takes the Storage create rule with both old and new sizes available. A fresh upload and a metadata-only update provide size and operation controls. The production receipt records HTTP verdicts for these paths. Its stored metadata readbacks belong to separate objects.",
+  "authority": "storage-production",
+  "witness": "imported-production-verdict"
+}

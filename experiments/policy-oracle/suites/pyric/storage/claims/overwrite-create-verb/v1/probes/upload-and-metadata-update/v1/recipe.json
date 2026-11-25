@@ -1,0 +1,31 @@
+{
+  "source": {
+    "repo": "davideast/pyric",
+    "revision": "a7ade6a700252908d1be93b19938a4b78ad0fe65",
+    "path": "packages/conformance/observations/storage-rules/stdlib-realstorage-request-resource-fields.json"
+  },
+  "cases": [
+    "fresh-upload",
+    "metadata-update",
+    "overwrite-create",
+    "overwrite-update",
+    "overwrite-sizes"
+  ],
+  "pins": {
+    "replay.mjs": "c97339d0696b5e78daa31ed4b532b644d52879e681a45bd279eda72abc6f9886",
+    "storage.rules": "617c8c65d46661df42e9cde4c825deb46c3b0d1e41d756a24204f4f50049b6d0",
+    "operations.json": "76030014747a4c012484b07d65c2aba8897b0824c56a53198f3ec841146b0248",
+    "@oracle/arcade/vendor/pyric-rules-0.1.0.tgz": "67087040f9e1206c54660563a27329d4b5db22102229af8f11b8ccb68ea87743",
+    "@oracle/arcade/vendor/ohm-js-17.5.0.tgz": "233d11842ac70dff9d0a9db7dacb6d370d00073ea879d2ad4202d2ee2acabd61",
+    "@oracle/arcade/vendor/zod-3.25.76.tgz": "9e1f1a05f0dd0c1dab64ee91ceb9bf55cd44d35368c70edda80a2fdc70a88377",
+    "@oracle/arcade/runtime/package.json": "b894cdd1e6ffdfc86391b037d3d43152d8f1b5d1c6180f9c89e18793aabc1471",
+    "@oracle/arcade/runtime/package-lock.json": "cece3476406a7e713047d21cf3c641d816fd38d1a55decd5006f96c20bb09e1d"
+  },
+  "replay": "replay.mjs",
+  "inputOrigins": {
+    "storage.rules": "packages/conformance/src/storage-request-resource-probes.ts, requestResourceRules('replay') in an otherwise empty Storage service. The receipt contains the complete injected probe block with the original prefix anonymized.",
+    "operations.json": "packages/conformance/src/storage-request-resource-probes.ts supplies probeWrite, probePath, and the seed payload. packages/conformance/src/run-storage-request-resource-fields.ts seeds update and overwrite targets through the GCS media upload before rule activation."
+  },
+  "mutation": "Classify replacement uploads as metadata updates based on the presence of an existing object. Preserve the same stored and incoming sizes, rules and operations.",
+  "scope": "The capture used unauthenticated Firebase Storage HTTP multipart uploads and metadata patches. The receipt reports an SDK version as metadata. The offline evaluator receives the stored size, incoming size and posted fields that the selected rules read. Only the five operation decisions are scored. The receipt has no individual stored-object readbacks for these decision paths."
+}

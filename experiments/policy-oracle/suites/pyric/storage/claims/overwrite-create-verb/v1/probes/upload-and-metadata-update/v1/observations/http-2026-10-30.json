@@ -1,0 +1,23 @@
+{
+  "authority": "storage-production",
+  "inputDigest": "883c0ec29e48b6cbd91059a79c238c529452a8e5a40ff14a49ece98923924f79",
+  "results": {
+    "fresh-upload": "ALLOW",
+    "metadata-update": "ALLOW",
+    "overwrite-create": "ALLOW",
+    "overwrite-update": "DENY",
+    "overwrite-sizes": "ALLOW"
+  },
+  "evidence": {
+    "path": "receipt.json",
+    "sha256": "3f540091eb44fc84181277664f1ebd0bd012dbe01332e81003d86fdf64a197cc",
+    "sourceBlob": "c208913e2d3371ae596828ff5f3b3deb119ced2c",
+    "pointers": {
+      "fresh-upload": "/behavior/create/size-bytes",
+      "metadata-update": "/behavior/update/size-unchanged",
+      "overwrite-create": "/behavior/overwrite/verb-create",
+      "overwrite-update": "/behavior/overwrite/verb-update",
+      "overwrite-sizes": "/behavior/overwrite/create-stored-and-new-size"
+    }
+  }
+}
