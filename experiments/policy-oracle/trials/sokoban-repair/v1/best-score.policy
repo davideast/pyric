@@ -1,0 +1,8 @@
+transition betterScore {
+  require bestSolve {
+    return before.moves is number && (
+      after.moves < before.moves ||
+      (after.moves == before.moves && before.pushes is number && after.pushes < before.pushes)
+    );
+  }
+}

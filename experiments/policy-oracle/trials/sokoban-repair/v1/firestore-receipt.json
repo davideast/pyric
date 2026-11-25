@@ -1,0 +1,494 @@
+{
+  "mode": "sokoban",
+  "runId": "7dbe0365-4f08-4219-9ddb-55b5dff20187",
+  "rulesSha256": "8dadfb730f16f1feb3d2474f27c468e0aa1a6324227cac6353edf45f2fd4182b",
+  "fixtureSha256": "d9b62cebfd3f398ef0c45eccfaa4726646ab99acbcd40b557e1ae3b04b2bf7a1",
+  "rows": {
+    "pushes-9": {
+      "tag": "sokoban",
+      "runId": "7dbe0365-4f08-4219-9ddb-55b5dff20187",
+      "caseId": "pushes-9",
+      "operation": "set",
+      "path": "sokoban/1/scores/beXtn6DaPSVFnJI2uqi0aLhCxJd2",
+      "sdkVersion": "12.19.0",
+      "endpoint": "firestore.googleapis.com",
+      "project": "digame-mas",
+      "database": "arcade-counter-261125-5cbab1e4",
+      "actor": {
+        "uid": "beXtn6DaPSVFnJI2uqi0aLhCxJd2",
+        "audience": "digame-mas",
+        "issuer": "https://securetoken.google.com/digame-mas",
+        "provider": "anonymous"
+      },
+      "reader": {
+        "uid": "JqthdAMSULXsMobOuSozqrJRzZW2",
+        "audience": "digame-mas",
+        "issuer": "https://securetoken.google.com/digame-mas",
+        "provider": "anonymous"
+      },
+      "seedDocument": {
+        "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/sokoban/1/scores/beXtn6DaPSVFnJI2uqi0aLhCxJd2",
+        "fields": {
+          "moves": {
+            "integerValue": "40"
+          },
+          "uid": {
+            "stringValue": "beXtn6DaPSVFnJI2uqi0aLhCxJd2"
+          },
+          "pushes": {
+            "integerValue": "10"
+          },
+          "createdAt": {
+            "timestampValue": "2026-11-24T16:30:00Z"
+          },
+          "level": {
+            "stringValue": "1"
+          },
+          "solve": {
+            "stringValue": "ProbeOldSolve0000001"
+          },
+          "object": {
+            "stringValue": "sokoban/beXtn6DaPSVFnJI2uqi0aLhCxJd2/1/ProbeOldSolve0000001-40-10.txt"
+          }
+        },
+        "createTime": "2026-11-25T23:23:56.128216Z",
+        "updateTime": "2026-11-25T23:23:56.128216Z"
+      },
+      "beforeDocument": {
+        "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/sokoban/1/scores/beXtn6DaPSVFnJI2uqi0aLhCxJd2",
+        "fields": {
+          "solve": {
+            "stringValue": "ProbeOldSolve0000001"
+          },
+          "uid": {
+            "stringValue": "beXtn6DaPSVFnJI2uqi0aLhCxJd2"
+          },
+          "moves": {
+            "integerValue": "40"
+          },
+          "createdAt": {
+            "timestampValue": "2026-11-24T16:30:00Z"
+          },
+          "pushes": {
+            "integerValue": "10"
+          },
+          "level": {
+            "stringValue": "1"
+          },
+          "object": {
+            "stringValue": "sokoban/beXtn6DaPSVFnJI2uqi0aLhCxJd2/1/ProbeOldSolve0000001-40-10.txt"
+          }
+        },
+        "createTime": "2026-11-25T23:23:56.128216Z",
+        "updateTime": "2026-11-25T23:23:56.128216Z"
+      },
+      "before": {
+        "decision": "ALLOW",
+        "code": "ok",
+        "fromCache": false,
+        "hasPendingWrites": false,
+        "data": {
+          "level": "1",
+          "object": "sokoban/beXtn6DaPSVFnJI2uqi0aLhCxJd2/1/ProbeOldSolve0000001-40-10.txt",
+          "createdAt": {
+            "type": "firestore/timestamp/1.0",
+            "seconds": 1795537800,
+            "nanoseconds": 0
+          },
+          "moves": 40,
+          "uid": "beXtn6DaPSVFnJI2uqi0aLhCxJd2",
+          "solve": "ProbeOldSolve0000001",
+          "pushes": 10
+        }
+      },
+      "proposal": {
+        "uid": "beXtn6DaPSVFnJI2uqi0aLhCxJd2",
+        "level": "1",
+        "moves": 40,
+        "pushes": 9,
+        "solve": "ProbeNewSolve0000001",
+        "object": "sokoban/beXtn6DaPSVFnJI2uqi0aLhCxJd2/1/ProbeNewSolve0000001-40-9.txt",
+        "createdAt": "$serverTimestamp"
+      },
+      "attemptedAt": "2026-11-25T23:23:56.641Z",
+      "deploymentBefore": {
+        "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+        "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+        "rulesetName": "projects/digame-mas/rulesets/004ce50d-da75-4d51-8efa-95bd3fdf998b",
+        "rulesSha256": "8dadfb730f16f1feb3d2474f27c468e0aa1a6324227cac6353edf45f2fd4182b",
+        "lockRunId": "7dbe0365-4f08-4219-9ddb-55b5dff20187",
+        "lockVersion": "2026-11-25T23:23:13.839733Z",
+        "releaseUpdateTime": "2026-11-25T23:23:23.993840Z",
+        "verifiedAt": "2026-11-25T23:23:56.224Z",
+        "propagationReceiptSha256": "d954653a2b2ed11002b3e77c3f836ac798163822fb99b984737f301a70e27499"
+      },
+      "decision": "ALLOW",
+      "code": "ok",
+      "stored": {
+        "decision": "ALLOW",
+        "code": "ok",
+        "fromCache": false,
+        "hasPendingWrites": false,
+        "data": {
+          "level": "1",
+          "object": "sokoban/beXtn6DaPSVFnJI2uqi0aLhCxJd2/1/ProbeNewSolve0000001-40-9.txt",
+          "pushes": 9,
+          "createdAt": {
+            "type": "firestore/timestamp/1.0",
+            "seconds": 1795649037,
+            "nanoseconds": 703000000
+          },
+          "moves": 40,
+          "solve": "ProbeNewSolve0000001",
+          "uid": "beXtn6DaPSVFnJI2uqi0aLhCxJd2"
+        }
+      },
+      "readAttempts": [
+        {
+          "number": 1,
+          "attemptedAt": "2026-11-25T23:23:58.272Z",
+          "readAt": "2026-11-25T23:23:58.392Z",
+          "proof": {
+            "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+            "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+            "rulesetName": "projects/digame-mas/rulesets/004ce50d-da75-4d51-8efa-95bd3fdf998b",
+            "rulesSha256": "8dadfb730f16f1feb3d2474f27c468e0aa1a6324227cac6353edf45f2fd4182b",
+            "lockRunId": "7dbe0365-4f08-4219-9ddb-55b5dff20187",
+            "lockVersion": "2026-11-25T23:23:13.839733Z",
+            "releaseUpdateTime": "2026-11-25T23:23:23.993840Z",
+            "verifiedAt": "2026-11-25T23:23:58.272Z",
+            "propagationReceiptSha256": "d954653a2b2ed11002b3e77c3f836ac798163822fb99b984737f301a70e27499"
+          },
+          "decision": "ALLOW",
+          "code": "ok",
+          "fromCache": false,
+          "hasPendingWrites": false,
+          "data": {
+            "level": "1",
+            "object": "sokoban/beXtn6DaPSVFnJI2uqi0aLhCxJd2/1/ProbeNewSolve0000001-40-9.txt",
+            "pushes": 9,
+            "createdAt": {
+              "type": "firestore/timestamp/1.0",
+              "seconds": 1795649037,
+              "nanoseconds": 703000000
+            },
+            "moves": 40,
+            "solve": "ProbeNewSolve0000001",
+            "uid": "beXtn6DaPSVFnJI2uqi0aLhCxJd2"
+          }
+        }
+      ],
+      "firstAfterDocument": {
+        "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/sokoban/1/scores/beXtn6DaPSVFnJI2uqi0aLhCxJd2",
+        "fields": {
+          "pushes": {
+            "integerValue": "9"
+          },
+          "object": {
+            "stringValue": "sokoban/beXtn6DaPSVFnJI2uqi0aLhCxJd2/1/ProbeNewSolve0000001-40-9.txt"
+          },
+          "createdAt": {
+            "timestampValue": "2026-11-25T23:23:57.703Z"
+          },
+          "level": {
+            "stringValue": "1"
+          },
+          "moves": {
+            "integerValue": "40"
+          },
+          "solve": {
+            "stringValue": "ProbeNewSolve0000001"
+          },
+          "uid": {
+            "stringValue": "beXtn6DaPSVFnJI2uqi0aLhCxJd2"
+          }
+        },
+        "createTime": "2026-11-25T23:23:56.128216Z",
+        "updateTime": "2026-11-25T23:23:57.734880Z"
+      },
+      "readAt": "2026-11-25T23:23:58.395Z",
+      "afterDocument": {
+        "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/sokoban/1/scores/beXtn6DaPSVFnJI2uqi0aLhCxJd2",
+        "fields": {
+          "uid": {
+            "stringValue": "beXtn6DaPSVFnJI2uqi0aLhCxJd2"
+          },
+          "moves": {
+            "integerValue": "40"
+          },
+          "solve": {
+            "stringValue": "ProbeNewSolve0000001"
+          },
+          "level": {
+            "stringValue": "1"
+          },
+          "object": {
+            "stringValue": "sokoban/beXtn6DaPSVFnJI2uqi0aLhCxJd2/1/ProbeNewSolve0000001-40-9.txt"
+          },
+          "pushes": {
+            "integerValue": "9"
+          },
+          "createdAt": {
+            "timestampValue": "2026-11-25T23:23:57.703Z"
+          }
+        },
+        "createTime": "2026-11-25T23:23:56.128216Z",
+        "updateTime": "2026-11-25T23:23:57.734880Z"
+      },
+      "deploymentAfter": {
+        "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+        "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+        "rulesetName": "projects/digame-mas/rulesets/004ce50d-da75-4d51-8efa-95bd3fdf998b",
+        "rulesSha256": "8dadfb730f16f1feb3d2474f27c468e0aa1a6324227cac6353edf45f2fd4182b",
+        "lockRunId": "7dbe0365-4f08-4219-9ddb-55b5dff20187",
+        "lockVersion": "2026-11-25T23:23:13.839733Z",
+        "releaseUpdateTime": "2026-11-25T23:23:23.993840Z",
+        "verifiedAt": "2026-11-25T23:23:58.838Z",
+        "propagationReceiptSha256": "d954653a2b2ed11002b3e77c3f836ac798163822fb99b984737f301a70e27499"
+      }
+    },
+    "pushes-10": {
+      "tag": "sokoban",
+      "runId": "7dbe0365-4f08-4219-9ddb-55b5dff20187",
+      "caseId": "pushes-10",
+      "operation": "set",
+      "path": "sokoban/1/scores/QGQqvVf4uXQZoRUMcy0vwiuCT3j2",
+      "sdkVersion": "12.19.0",
+      "endpoint": "firestore.googleapis.com",
+      "project": "digame-mas",
+      "database": "arcade-counter-261125-5cbab1e4",
+      "actor": {
+        "uid": "QGQqvVf4uXQZoRUMcy0vwiuCT3j2",
+        "audience": "digame-mas",
+        "issuer": "https://securetoken.google.com/digame-mas",
+        "provider": "anonymous"
+      },
+      "reader": {
+        "uid": "JqthdAMSULXsMobOuSozqrJRzZW2",
+        "audience": "digame-mas",
+        "issuer": "https://securetoken.google.com/digame-mas",
+        "provider": "anonymous"
+      },
+      "seedDocument": {
+        "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/sokoban/1/scores/QGQqvVf4uXQZoRUMcy0vwiuCT3j2",
+        "fields": {
+          "moves": {
+            "integerValue": "40"
+          },
+          "solve": {
+            "stringValue": "ProbeOldSolve0000001"
+          },
+          "pushes": {
+            "integerValue": "10"
+          },
+          "level": {
+            "stringValue": "1"
+          },
+          "uid": {
+            "stringValue": "QGQqvVf4uXQZoRUMcy0vwiuCT3j2"
+          },
+          "object": {
+            "stringValue": "sokoban/QGQqvVf4uXQZoRUMcy0vwiuCT3j2/1/ProbeOldSolve0000001-40-10.txt"
+          },
+          "createdAt": {
+            "timestampValue": "2026-11-24T16:30:00Z"
+          }
+        },
+        "createTime": "2026-11-25T23:23:59.160802Z",
+        "updateTime": "2026-11-25T23:23:59.160802Z"
+      },
+      "beforeDocument": {
+        "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/sokoban/1/scores/QGQqvVf4uXQZoRUMcy0vwiuCT3j2",
+        "fields": {
+          "createdAt": {
+            "timestampValue": "2026-11-24T16:30:00Z"
+          },
+          "object": {
+            "stringValue": "sokoban/QGQqvVf4uXQZoRUMcy0vwiuCT3j2/1/ProbeOldSolve0000001-40-10.txt"
+          },
+          "pushes": {
+            "integerValue": "10"
+          },
+          "solve": {
+            "stringValue": "ProbeOldSolve0000001"
+          },
+          "uid": {
+            "stringValue": "QGQqvVf4uXQZoRUMcy0vwiuCT3j2"
+          },
+          "moves": {
+            "integerValue": "40"
+          },
+          "level": {
+            "stringValue": "1"
+          }
+        },
+        "createTime": "2026-11-25T23:23:59.160802Z",
+        "updateTime": "2026-11-25T23:23:59.160802Z"
+      },
+      "before": {
+        "decision": "ALLOW",
+        "code": "ok",
+        "fromCache": false,
+        "hasPendingWrites": false,
+        "data": {
+          "object": "sokoban/QGQqvVf4uXQZoRUMcy0vwiuCT3j2/1/ProbeOldSolve0000001-40-10.txt",
+          "level": "1",
+          "createdAt": {
+            "type": "firestore/timestamp/1.0",
+            "seconds": 1795537800,
+            "nanoseconds": 0
+          },
+          "pushes": 10,
+          "uid": "QGQqvVf4uXQZoRUMcy0vwiuCT3j2",
+          "moves": 40,
+          "solve": "ProbeOldSolve0000001"
+        }
+      },
+      "proposal": {
+        "uid": "QGQqvVf4uXQZoRUMcy0vwiuCT3j2",
+        "level": "1",
+        "moves": 40,
+        "pushes": 10,
+        "solve": "ProbeNewSolve0000001",
+        "object": "sokoban/QGQqvVf4uXQZoRUMcy0vwiuCT3j2/1/ProbeNewSolve0000001-40-10.txt",
+        "createdAt": "$serverTimestamp"
+      },
+      "attemptedAt": "2026-11-25T23:23:59.431Z",
+      "deploymentBefore": {
+        "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+        "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+        "rulesetName": "projects/digame-mas/rulesets/004ce50d-da75-4d51-8efa-95bd3fdf998b",
+        "rulesSha256": "8dadfb730f16f1feb3d2474f27c468e0aa1a6324227cac6353edf45f2fd4182b",
+        "lockRunId": "7dbe0365-4f08-4219-9ddb-55b5dff20187",
+        "lockVersion": "2026-11-25T23:23:13.839733Z",
+        "releaseUpdateTime": "2026-11-25T23:23:23.993840Z",
+        "verifiedAt": "2026-11-25T23:23:59.251Z",
+        "propagationReceiptSha256": "d954653a2b2ed11002b3e77c3f836ac798163822fb99b984737f301a70e27499"
+      },
+      "decision": "DENY",
+      "code": "permission-denied",
+      "stored": {
+        "decision": "ALLOW",
+        "code": "ok",
+        "fromCache": false,
+        "hasPendingWrites": false,
+        "data": {
+          "object": "sokoban/QGQqvVf4uXQZoRUMcy0vwiuCT3j2/1/ProbeOldSolve0000001-40-10.txt",
+          "level": "1",
+          "createdAt": {
+            "type": "firestore/timestamp/1.0",
+            "seconds": 1795537800,
+            "nanoseconds": 0
+          },
+          "pushes": 10,
+          "uid": "QGQqvVf4uXQZoRUMcy0vwiuCT3j2",
+          "moves": 40,
+          "solve": "ProbeOldSolve0000001"
+        }
+      },
+      "readAttempts": [
+        {
+          "number": 1,
+          "attemptedAt": "2026-11-25T23:24:00.134Z",
+          "readAt": "2026-11-25T23:24:00.200Z",
+          "proof": {
+            "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+            "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+            "rulesetName": "projects/digame-mas/rulesets/004ce50d-da75-4d51-8efa-95bd3fdf998b",
+            "rulesSha256": "8dadfb730f16f1feb3d2474f27c468e0aa1a6324227cac6353edf45f2fd4182b",
+            "lockRunId": "7dbe0365-4f08-4219-9ddb-55b5dff20187",
+            "lockVersion": "2026-11-25T23:23:13.839733Z",
+            "releaseUpdateTime": "2026-11-25T23:23:23.993840Z",
+            "verifiedAt": "2026-11-25T23:24:00.134Z",
+            "propagationReceiptSha256": "d954653a2b2ed11002b3e77c3f836ac798163822fb99b984737f301a70e27499"
+          },
+          "decision": "ALLOW",
+          "code": "ok",
+          "fromCache": false,
+          "hasPendingWrites": false,
+          "data": {
+            "object": "sokoban/QGQqvVf4uXQZoRUMcy0vwiuCT3j2/1/ProbeOldSolve0000001-40-10.txt",
+            "level": "1",
+            "createdAt": {
+              "type": "firestore/timestamp/1.0",
+              "seconds": 1795537800,
+              "nanoseconds": 0
+            },
+            "pushes": 10,
+            "uid": "QGQqvVf4uXQZoRUMcy0vwiuCT3j2",
+            "moves": 40,
+            "solve": "ProbeOldSolve0000001"
+          }
+        }
+      ],
+      "firstAfterDocument": {
+        "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/sokoban/1/scores/QGQqvVf4uXQZoRUMcy0vwiuCT3j2",
+        "fields": {
+          "pushes": {
+            "integerValue": "10"
+          },
+          "createdAt": {
+            "timestampValue": "2026-11-24T16:30:00Z"
+          },
+          "uid": {
+            "stringValue": "QGQqvVf4uXQZoRUMcy0vwiuCT3j2"
+          },
+          "object": {
+            "stringValue": "sokoban/QGQqvVf4uXQZoRUMcy0vwiuCT3j2/1/ProbeOldSolve0000001-40-10.txt"
+          },
+          "level": {
+            "stringValue": "1"
+          },
+          "moves": {
+            "integerValue": "40"
+          },
+          "solve": {
+            "stringValue": "ProbeOldSolve0000001"
+          }
+        },
+        "createTime": "2026-11-25T23:23:59.160802Z",
+        "updateTime": "2026-11-25T23:23:59.160802Z"
+      },
+      "readAt": "2026-11-25T23:24:00.203Z",
+      "afterDocument": {
+        "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/sokoban/1/scores/QGQqvVf4uXQZoRUMcy0vwiuCT3j2",
+        "fields": {
+          "moves": {
+            "integerValue": "40"
+          },
+          "solve": {
+            "stringValue": "ProbeOldSolve0000001"
+          },
+          "createdAt": {
+            "timestampValue": "2026-11-24T16:30:00Z"
+          },
+          "level": {
+            "stringValue": "1"
+          },
+          "object": {
+            "stringValue": "sokoban/QGQqvVf4uXQZoRUMcy0vwiuCT3j2/1/ProbeOldSolve0000001-40-10.txt"
+          },
+          "pushes": {
+            "integerValue": "10"
+          },
+          "uid": {
+            "stringValue": "QGQqvVf4uXQZoRUMcy0vwiuCT3j2"
+          }
+        },
+        "createTime": "2026-11-25T23:23:59.160802Z",
+        "updateTime": "2026-11-25T23:23:59.160802Z"
+      },
+      "deploymentAfter": {
+        "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+        "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+        "rulesetName": "projects/digame-mas/rulesets/004ce50d-da75-4d51-8efa-95bd3fdf998b",
+        "rulesSha256": "8dadfb730f16f1feb3d2474f27c468e0aa1a6324227cac6353edf45f2fd4182b",
+        "lockRunId": "7dbe0365-4f08-4219-9ddb-55b5dff20187",
+        "lockVersion": "2026-11-25T23:23:13.839733Z",
+        "releaseUpdateTime": "2026-11-25T23:23:23.993840Z",
+        "verifiedAt": "2026-11-25T23:24:00.633Z",
+        "propagationReceiptSha256": "d954653a2b2ed11002b3e77c3f836ac798163822fb99b984737f301a70e27499"
+      }
+    }
+  }
+}

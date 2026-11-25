@@ -1,0 +1,788 @@
+{
+  "mode": "floor",
+  "runId": "d0a3ea94-a554-4f7b-b2dd-a26147ada79c",
+  "rulesSha256": "f1f70803ee1a488e17e87a2003c6232476c618f420459f95a1e2b134bd8bad63",
+  "fixtureSha256": "c03bb6c42907cc4877ebb8d641806a9ce1ecb97affb0601ae4917127f63847a2",
+  "rows": {
+    "boost-44ms": {
+      "tag": "floor",
+      "runId": "d0a3ea94-a554-4f7b-b2dd-a26147ada79c",
+      "caseId": "boost-44ms",
+      "operation": "update",
+      "path": "steps/oracle-d0a3ea94-a554-4f7b-b2dd-a26147ada79c-40f0408d-eb89-4fd5-833e-7c4fd8a8c7aa",
+      "sdkVersion": "12.19.0",
+      "endpoint": "firestore.googleapis.com",
+      "project": "digame-mas",
+      "database": "arcade-counter-261125-5cbab1e4",
+      "actor": {
+        "uid": "FaXqsjHJZ7W9ki7Vc9BRGsf6XX12",
+        "audience": "digame-mas",
+        "issuer": "https://securetoken.google.com/digame-mas",
+        "provider": "anonymous"
+      },
+      "reader": {
+        "uid": "qOqhJERLjBW5zlMsNfPU5qRnx612",
+        "audience": "digame-mas",
+        "issuer": "https://securetoken.google.com/digame-mas",
+        "provider": "anonymous"
+      },
+      "seedDocument": {
+        "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/steps/oracle-d0a3ea94-a554-4f7b-b2dd-a26147ada79c-40f0408d-eb89-4fd5-833e-7c4fd8a8c7aa",
+        "fields": {
+          "remaining": {
+            "integerValue": "0"
+          },
+          "reader": {
+            "stringValue": "qOqhJERLjBW5zlMsNfPU5qRnx612"
+          },
+          "before": {
+            "mapValue": {
+              "fields": {
+                "remaining": {
+                  "integerValue": "0"
+                }
+              }
+            }
+          },
+          "writer": {
+            "stringValue": "FaXqsjHJZ7W9ki7Vc9BRGsf6XX12"
+          },
+          "step": {
+            "mapValue": {
+              "fields": {
+                "landing": {
+                  "mapValue": {
+                    "fields": {
+                      "width": {
+                        "integerValue": "58"
+                      },
+                      "id": {
+                        "integerValue": "2"
+                      },
+                      "broken": {
+                        "booleanValue": false
+                      },
+                      "y": {
+                        "integerValue": "133"
+                      },
+                      "kind": {
+                        "stringValue": "boost"
+                      },
+                      "x": {
+                        "integerValue": "160"
+                      }
+                    }
+                  }
+                },
+                "restart": {
+                  "booleanValue": false
+                },
+                "h": {
+                  "doubleValue": 0.004166666666666667
+                }
+              }
+            }
+          }
+        },
+        "createTime": "2026-11-25T23:24:49.584733Z",
+        "updateTime": "2026-11-25T23:24:49.584733Z"
+      },
+      "beforeDocument": {
+        "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/steps/oracle-d0a3ea94-a554-4f7b-b2dd-a26147ada79c-40f0408d-eb89-4fd5-833e-7c4fd8a8c7aa",
+        "fields": {
+          "step": {
+            "mapValue": {
+              "fields": {
+                "h": {
+                  "doubleValue": 0.004166666666666667
+                },
+                "restart": {
+                  "booleanValue": false
+                },
+                "landing": {
+                  "mapValue": {
+                    "fields": {
+                      "x": {
+                        "integerValue": "160"
+                      },
+                      "id": {
+                        "integerValue": "2"
+                      },
+                      "width": {
+                        "integerValue": "58"
+                      },
+                      "y": {
+                        "integerValue": "133"
+                      },
+                      "broken": {
+                        "booleanValue": false
+                      },
+                      "kind": {
+                        "stringValue": "boost"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "reader": {
+            "stringValue": "qOqhJERLjBW5zlMsNfPU5qRnx612"
+          },
+          "writer": {
+            "stringValue": "FaXqsjHJZ7W9ki7Vc9BRGsf6XX12"
+          },
+          "remaining": {
+            "integerValue": "0"
+          },
+          "before": {
+            "mapValue": {
+              "fields": {
+                "remaining": {
+                  "integerValue": "0"
+                }
+              }
+            }
+          }
+        },
+        "createTime": "2026-11-25T23:24:49.584733Z",
+        "updateTime": "2026-11-25T23:24:49.584733Z"
+      },
+      "before": {
+        "decision": "ALLOW",
+        "code": "ok",
+        "fromCache": false,
+        "hasPendingWrites": false,
+        "data": {
+          "reader": "qOqhJERLjBW5zlMsNfPU5qRnx612",
+          "step": {
+            "h": 0.004166666666666667,
+            "landing": {
+              "broken": false,
+              "x": 160,
+              "y": 133,
+              "id": 2,
+              "kind": "boost",
+              "width": 58
+            },
+            "restart": false
+          },
+          "writer": "FaXqsjHJZ7W9ki7Vc9BRGsf6XX12",
+          "before": {
+            "remaining": 0
+          },
+          "remaining": 0
+        }
+      },
+      "proposal": {
+        "remaining": 0.044
+      },
+      "attemptedAt": "2026-11-25T23:24:49.869Z",
+      "deploymentBefore": {
+        "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+        "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+        "rulesetName": "projects/digame-mas/rulesets/4d497770-c277-43a7-a918-6190f71b06d7",
+        "rulesSha256": "f1f70803ee1a488e17e87a2003c6232476c618f420459f95a1e2b134bd8bad63",
+        "lockRunId": "d0a3ea94-a554-4f7b-b2dd-a26147ada79c",
+        "lockVersion": "2026-11-25T23:24:31.952004Z",
+        "releaseUpdateTime": "2026-11-25T23:24:37.986278Z",
+        "verifiedAt": "2026-11-25T23:24:49.715Z",
+        "propagationReceiptSha256": "ff5d49c37e741ca8b4ed10ed69fe5dea24466c0c28e742e75543fc4063fff4ed"
+      },
+      "decision": "ALLOW",
+      "code": "ok",
+      "stored": {
+        "decision": "ALLOW",
+        "code": "ok",
+        "fromCache": false,
+        "hasPendingWrites": false,
+        "data": {
+          "step": {
+            "landing": {
+              "id": 2,
+              "y": 133,
+              "x": 160,
+              "width": 58,
+              "broken": false,
+              "kind": "boost"
+            },
+            "h": 0.004166666666666667,
+            "restart": false
+          },
+          "reader": "qOqhJERLjBW5zlMsNfPU5qRnx612",
+          "remaining": 0.044,
+          "writer": "FaXqsjHJZ7W9ki7Vc9BRGsf6XX12",
+          "before": {
+            "remaining": 0
+          }
+        }
+      },
+      "readAttempts": [
+        {
+          "number": 1,
+          "attemptedAt": "2026-11-25T23:24:50.268Z",
+          "readAt": "2026-11-25T23:24:50.347Z",
+          "proof": {
+            "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+            "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+            "rulesetName": "projects/digame-mas/rulesets/4d497770-c277-43a7-a918-6190f71b06d7",
+            "rulesSha256": "f1f70803ee1a488e17e87a2003c6232476c618f420459f95a1e2b134bd8bad63",
+            "lockRunId": "d0a3ea94-a554-4f7b-b2dd-a26147ada79c",
+            "lockVersion": "2026-11-25T23:24:31.952004Z",
+            "releaseUpdateTime": "2026-11-25T23:24:37.986278Z",
+            "verifiedAt": "2026-11-25T23:24:50.268Z",
+            "propagationReceiptSha256": "ff5d49c37e741ca8b4ed10ed69fe5dea24466c0c28e742e75543fc4063fff4ed"
+          },
+          "decision": "ALLOW",
+          "code": "ok",
+          "fromCache": false,
+          "hasPendingWrites": false,
+          "data": {
+            "step": {
+              "landing": {
+                "id": 2,
+                "y": 133,
+                "x": 160,
+                "width": 58,
+                "broken": false,
+                "kind": "boost"
+              },
+              "h": 0.004166666666666667,
+              "restart": false
+            },
+            "reader": "qOqhJERLjBW5zlMsNfPU5qRnx612",
+            "remaining": 0.044,
+            "writer": "FaXqsjHJZ7W9ki7Vc9BRGsf6XX12",
+            "before": {
+              "remaining": 0
+            }
+          }
+        }
+      ],
+      "firstAfterDocument": {
+        "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/steps/oracle-d0a3ea94-a554-4f7b-b2dd-a26147ada79c-40f0408d-eb89-4fd5-833e-7c4fd8a8c7aa",
+        "fields": {
+          "step": {
+            "mapValue": {
+              "fields": {
+                "h": {
+                  "doubleValue": 0.004166666666666667
+                },
+                "restart": {
+                  "booleanValue": false
+                },
+                "landing": {
+                  "mapValue": {
+                    "fields": {
+                      "kind": {
+                        "stringValue": "boost"
+                      },
+                      "id": {
+                        "integerValue": "2"
+                      },
+                      "y": {
+                        "integerValue": "133"
+                      },
+                      "width": {
+                        "integerValue": "58"
+                      },
+                      "x": {
+                        "integerValue": "160"
+                      },
+                      "broken": {
+                        "booleanValue": false
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "reader": {
+            "stringValue": "qOqhJERLjBW5zlMsNfPU5qRnx612"
+          },
+          "writer": {
+            "stringValue": "FaXqsjHJZ7W9ki7Vc9BRGsf6XX12"
+          },
+          "before": {
+            "mapValue": {
+              "fields": {
+                "remaining": {
+                  "integerValue": "0"
+                }
+              }
+            }
+          },
+          "remaining": {
+            "doubleValue": 0.044
+          }
+        },
+        "createTime": "2026-11-25T23:24:49.584733Z",
+        "updateTime": "2026-11-25T23:24:49.753293Z"
+      },
+      "readAt": "2026-11-25T23:24:50.356Z",
+      "afterDocument": {
+        "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/steps/oracle-d0a3ea94-a554-4f7b-b2dd-a26147ada79c-40f0408d-eb89-4fd5-833e-7c4fd8a8c7aa",
+        "fields": {
+          "step": {
+            "mapValue": {
+              "fields": {
+                "h": {
+                  "doubleValue": 0.004166666666666667
+                },
+                "landing": {
+                  "mapValue": {
+                    "fields": {
+                      "x": {
+                        "integerValue": "160"
+                      },
+                      "width": {
+                        "integerValue": "58"
+                      },
+                      "y": {
+                        "integerValue": "133"
+                      },
+                      "id": {
+                        "integerValue": "2"
+                      },
+                      "kind": {
+                        "stringValue": "boost"
+                      },
+                      "broken": {
+                        "booleanValue": false
+                      }
+                    }
+                  }
+                },
+                "restart": {
+                  "booleanValue": false
+                }
+              }
+            }
+          },
+          "reader": {
+            "stringValue": "qOqhJERLjBW5zlMsNfPU5qRnx612"
+          },
+          "remaining": {
+            "doubleValue": 0.044
+          },
+          "before": {
+            "mapValue": {
+              "fields": {
+                "remaining": {
+                  "integerValue": "0"
+                }
+              }
+            }
+          },
+          "writer": {
+            "stringValue": "FaXqsjHJZ7W9ki7Vc9BRGsf6XX12"
+          }
+        },
+        "createTime": "2026-11-25T23:24:49.584733Z",
+        "updateTime": "2026-11-25T23:24:49.753293Z"
+      },
+      "deploymentAfter": {
+        "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+        "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+        "rulesetName": "projects/digame-mas/rulesets/4d497770-c277-43a7-a918-6190f71b06d7",
+        "rulesSha256": "f1f70803ee1a488e17e87a2003c6232476c618f420459f95a1e2b134bd8bad63",
+        "lockRunId": "d0a3ea94-a554-4f7b-b2dd-a26147ada79c",
+        "lockVersion": "2026-11-25T23:24:31.952004Z",
+        "releaseUpdateTime": "2026-11-25T23:24:37.986278Z",
+        "verifiedAt": "2026-11-25T23:24:50.705Z",
+        "propagationReceiptSha256": "ff5d49c37e741ca8b4ed10ed69fe5dea24466c0c28e742e75543fc4063fff4ed"
+      }
+    },
+    "boost-60ms": {
+      "tag": "floor",
+      "runId": "d0a3ea94-a554-4f7b-b2dd-a26147ada79c",
+      "caseId": "boost-60ms",
+      "operation": "update",
+      "path": "steps/oracle-d0a3ea94-a554-4f7b-b2dd-a26147ada79c-7600ebf1-7084-43ed-8c71-26d9bd17a6dd",
+      "sdkVersion": "12.19.0",
+      "endpoint": "firestore.googleapis.com",
+      "project": "digame-mas",
+      "database": "arcade-counter-261125-5cbab1e4",
+      "actor": {
+        "uid": "FaXqsjHJZ7W9ki7Vc9BRGsf6XX12",
+        "audience": "digame-mas",
+        "issuer": "https://securetoken.google.com/digame-mas",
+        "provider": "anonymous"
+      },
+      "reader": {
+        "uid": "qOqhJERLjBW5zlMsNfPU5qRnx612",
+        "audience": "digame-mas",
+        "issuer": "https://securetoken.google.com/digame-mas",
+        "provider": "anonymous"
+      },
+      "seedDocument": {
+        "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/steps/oracle-d0a3ea94-a554-4f7b-b2dd-a26147ada79c-7600ebf1-7084-43ed-8c71-26d9bd17a6dd",
+        "fields": {
+          "remaining": {
+            "integerValue": "0"
+          },
+          "writer": {
+            "stringValue": "FaXqsjHJZ7W9ki7Vc9BRGsf6XX12"
+          },
+          "step": {
+            "mapValue": {
+              "fields": {
+                "h": {
+                  "doubleValue": 0.004166666666666667
+                },
+                "restart": {
+                  "booleanValue": false
+                },
+                "landing": {
+                  "mapValue": {
+                    "fields": {
+                      "width": {
+                        "integerValue": "58"
+                      },
+                      "x": {
+                        "integerValue": "160"
+                      },
+                      "kind": {
+                        "stringValue": "boost"
+                      },
+                      "y": {
+                        "integerValue": "133"
+                      },
+                      "id": {
+                        "integerValue": "2"
+                      },
+                      "broken": {
+                        "booleanValue": false
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "before": {
+            "mapValue": {
+              "fields": {
+                "remaining": {
+                  "integerValue": "0"
+                }
+              }
+            }
+          },
+          "reader": {
+            "stringValue": "qOqhJERLjBW5zlMsNfPU5qRnx612"
+          }
+        },
+        "createTime": "2026-11-25T23:24:50.902133Z",
+        "updateTime": "2026-11-25T23:24:50.902133Z"
+      },
+      "beforeDocument": {
+        "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/steps/oracle-d0a3ea94-a554-4f7b-b2dd-a26147ada79c-7600ebf1-7084-43ed-8c71-26d9bd17a6dd",
+        "fields": {
+          "writer": {
+            "stringValue": "FaXqsjHJZ7W9ki7Vc9BRGsf6XX12"
+          },
+          "before": {
+            "mapValue": {
+              "fields": {
+                "remaining": {
+                  "integerValue": "0"
+                }
+              }
+            }
+          },
+          "reader": {
+            "stringValue": "qOqhJERLjBW5zlMsNfPU5qRnx612"
+          },
+          "step": {
+            "mapValue": {
+              "fields": {
+                "restart": {
+                  "booleanValue": false
+                },
+                "landing": {
+                  "mapValue": {
+                    "fields": {
+                      "width": {
+                        "integerValue": "58"
+                      },
+                      "x": {
+                        "integerValue": "160"
+                      },
+                      "id": {
+                        "integerValue": "2"
+                      },
+                      "y": {
+                        "integerValue": "133"
+                      },
+                      "broken": {
+                        "booleanValue": false
+                      },
+                      "kind": {
+                        "stringValue": "boost"
+                      }
+                    }
+                  }
+                },
+                "h": {
+                  "doubleValue": 0.004166666666666667
+                }
+              }
+            }
+          },
+          "remaining": {
+            "integerValue": "0"
+          }
+        },
+        "createTime": "2026-11-25T23:24:50.902133Z",
+        "updateTime": "2026-11-25T23:24:50.902133Z"
+      },
+      "before": {
+        "decision": "ALLOW",
+        "code": "ok",
+        "fromCache": false,
+        "hasPendingWrites": false,
+        "data": {
+          "before": {
+            "remaining": 0
+          },
+          "writer": "FaXqsjHJZ7W9ki7Vc9BRGsf6XX12",
+          "remaining": 0,
+          "reader": "qOqhJERLjBW5zlMsNfPU5qRnx612",
+          "step": {
+            "landing": {
+              "x": 160,
+              "broken": false,
+              "kind": "boost",
+              "y": 133,
+              "id": 2,
+              "width": 58
+            },
+            "h": 0.004166666666666667,
+            "restart": false
+          }
+        }
+      },
+      "proposal": {
+        "remaining": 0.06
+      },
+      "attemptedAt": "2026-11-25T23:24:51.223Z",
+      "deploymentBefore": {
+        "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+        "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+        "rulesetName": "projects/digame-mas/rulesets/4d497770-c277-43a7-a918-6190f71b06d7",
+        "rulesSha256": "f1f70803ee1a488e17e87a2003c6232476c618f420459f95a1e2b134bd8bad63",
+        "lockRunId": "d0a3ea94-a554-4f7b-b2dd-a26147ada79c",
+        "lockVersion": "2026-11-25T23:24:31.952004Z",
+        "releaseUpdateTime": "2026-11-25T23:24:37.986278Z",
+        "verifiedAt": "2026-11-25T23:24:51.044Z",
+        "propagationReceiptSha256": "ff5d49c37e741ca8b4ed10ed69fe5dea24466c0c28e742e75543fc4063fff4ed"
+      },
+      "decision": "DENY",
+      "code": "permission-denied",
+      "stored": {
+        "decision": "ALLOW",
+        "code": "ok",
+        "fromCache": false,
+        "hasPendingWrites": false,
+        "data": {
+          "before": {
+            "remaining": 0
+          },
+          "writer": "FaXqsjHJZ7W9ki7Vc9BRGsf6XX12",
+          "remaining": 0,
+          "reader": "qOqhJERLjBW5zlMsNfPU5qRnx612",
+          "step": {
+            "landing": {
+              "x": 160,
+              "broken": false,
+              "kind": "boost",
+              "y": 133,
+              "id": 2,
+              "width": 58
+            },
+            "h": 0.004166666666666667,
+            "restart": false
+          }
+        }
+      },
+      "readAttempts": [
+        {
+          "number": 1,
+          "attemptedAt": "2026-11-25T23:24:51.582Z",
+          "readAt": "2026-11-25T23:24:51.617Z",
+          "proof": {
+            "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+            "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+            "rulesetName": "projects/digame-mas/rulesets/4d497770-c277-43a7-a918-6190f71b06d7",
+            "rulesSha256": "f1f70803ee1a488e17e87a2003c6232476c618f420459f95a1e2b134bd8bad63",
+            "lockRunId": "d0a3ea94-a554-4f7b-b2dd-a26147ada79c",
+            "lockVersion": "2026-11-25T23:24:31.952004Z",
+            "releaseUpdateTime": "2026-11-25T23:24:37.986278Z",
+            "verifiedAt": "2026-11-25T23:24:51.582Z",
+            "propagationReceiptSha256": "ff5d49c37e741ca8b4ed10ed69fe5dea24466c0c28e742e75543fc4063fff4ed"
+          },
+          "decision": "ALLOW",
+          "code": "ok",
+          "fromCache": false,
+          "hasPendingWrites": false,
+          "data": {
+            "before": {
+              "remaining": 0
+            },
+            "writer": "FaXqsjHJZ7W9ki7Vc9BRGsf6XX12",
+            "remaining": 0,
+            "reader": "qOqhJERLjBW5zlMsNfPU5qRnx612",
+            "step": {
+              "landing": {
+                "x": 160,
+                "broken": false,
+                "kind": "boost",
+                "y": 133,
+                "id": 2,
+                "width": 58
+              },
+              "h": 0.004166666666666667,
+              "restart": false
+            }
+          }
+        }
+      ],
+      "firstAfterDocument": {
+        "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/steps/oracle-d0a3ea94-a554-4f7b-b2dd-a26147ada79c-7600ebf1-7084-43ed-8c71-26d9bd17a6dd",
+        "fields": {
+          "reader": {
+            "stringValue": "qOqhJERLjBW5zlMsNfPU5qRnx612"
+          },
+          "writer": {
+            "stringValue": "FaXqsjHJZ7W9ki7Vc9BRGsf6XX12"
+          },
+          "remaining": {
+            "integerValue": "0"
+          },
+          "step": {
+            "mapValue": {
+              "fields": {
+                "h": {
+                  "doubleValue": 0.004166666666666667
+                },
+                "restart": {
+                  "booleanValue": false
+                },
+                "landing": {
+                  "mapValue": {
+                    "fields": {
+                      "width": {
+                        "integerValue": "58"
+                      },
+                      "x": {
+                        "integerValue": "160"
+                      },
+                      "broken": {
+                        "booleanValue": false
+                      },
+                      "y": {
+                        "integerValue": "133"
+                      },
+                      "id": {
+                        "integerValue": "2"
+                      },
+                      "kind": {
+                        "stringValue": "boost"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "before": {
+            "mapValue": {
+              "fields": {
+                "remaining": {
+                  "integerValue": "0"
+                }
+              }
+            }
+          }
+        },
+        "createTime": "2026-11-25T23:24:50.902133Z",
+        "updateTime": "2026-11-25T23:24:50.902133Z"
+      },
+      "readAt": "2026-11-25T23:24:51.621Z",
+      "afterDocument": {
+        "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/steps/oracle-d0a3ea94-a554-4f7b-b2dd-a26147ada79c-7600ebf1-7084-43ed-8c71-26d9bd17a6dd",
+        "fields": {
+          "step": {
+            "mapValue": {
+              "fields": {
+                "restart": {
+                  "booleanValue": false
+                },
+                "landing": {
+                  "mapValue": {
+                    "fields": {
+                      "kind": {
+                        "stringValue": "boost"
+                      },
+                      "id": {
+                        "integerValue": "2"
+                      },
+                      "broken": {
+                        "booleanValue": false
+                      },
+                      "y": {
+                        "integerValue": "133"
+                      },
+                      "x": {
+                        "integerValue": "160"
+                      },
+                      "width": {
+                        "integerValue": "58"
+                      }
+                    }
+                  }
+                },
+                "h": {
+                  "doubleValue": 0.004166666666666667
+                }
+              }
+            }
+          },
+          "writer": {
+            "stringValue": "FaXqsjHJZ7W9ki7Vc9BRGsf6XX12"
+          },
+          "reader": {
+            "stringValue": "qOqhJERLjBW5zlMsNfPU5qRnx612"
+          },
+          "before": {
+            "mapValue": {
+              "fields": {
+                "remaining": {
+                  "integerValue": "0"
+                }
+              }
+            }
+          },
+          "remaining": {
+            "integerValue": "0"
+          }
+        },
+        "createTime": "2026-11-25T23:24:50.902133Z",
+        "updateTime": "2026-11-25T23:24:50.902133Z"
+      },
+      "deploymentAfter": {
+        "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+        "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+        "rulesetName": "projects/digame-mas/rulesets/4d497770-c277-43a7-a918-6190f71b06d7",
+        "rulesSha256": "f1f70803ee1a488e17e87a2003c6232476c618f420459f95a1e2b134bd8bad63",
+        "lockRunId": "d0a3ea94-a554-4f7b-b2dd-a26147ada79c",
+        "lockVersion": "2026-11-25T23:24:31.952004Z",
+        "releaseUpdateTime": "2026-11-25T23:24:37.986278Z",
+        "verifiedAt": "2026-11-25T23:24:51.999Z",
+        "propagationReceiptSha256": "ff5d49c37e741ca8b4ed10ed69fe5dea24466c0c28e742e75543fc4063fff4ed"
+      }
+    }
+  }
+}

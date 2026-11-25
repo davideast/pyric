@@ -1,0 +1,24 @@
+use extension derive;
+
+transition platformStep {
+  derive {
+    let compressing = before.remaining > 0;
+    let boost = input.landing != null && input.landing.kind == 'boost';
+    let left = before.remaining > input.h ? before.remaining - input.h : 0;
+    let remaining = input.restart ? 0 : compressing ? left : boost ? 0.044 : 0;
+    let launch = compressing && remaining == 0;
+    let released = input.restart || input.rescued || launch;
+    let support = released ? null : compressing ? before.support :
+      input.landing != null ? (boost || !input.buffered ? input.landing.id : null) :
+      input.swept ? null : before.support;
+    return {
+      'landed': input.landing != null ? input.landing.id : null,
+      'support': support, 'remaining': remaining,
+      'event': input.restart ? 'none' : launch ? 'boost-launch' : boost ? 'boost-compress' : 'none'
+    };
+  }
+  require landingPlatform { return after.landed == derived.landed; }
+  require supportingPlatform { return after.support == derived.support; }
+  require compressionTimer { return after.remaining == derived.remaining; }
+  require boostEvent { return after.event == derived.event; }
+}

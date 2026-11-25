@@ -1,0 +1,24 @@
+{
+  "sokoban": {
+    "runId": "7dbe0365-4f08-4219-9ddb-55b5dff20187",
+    "receipt": "cb725e715a4034e15ec7b95516c80a0e0999528e3e320cf925d27079e873d68a",
+    "bundle": "sokoban-repair/v1/repaired.rules",
+    "fixture": "../suites/arcade/sokoban/claims/push-tiebreak/v1/probes/equal-moves/v1/fixture.json",
+    "localReceipt": "sokoban-repair/v1/firestore-receipt.json",
+    "decisions": {
+      "pushes-9": "ALLOW",
+      "pushes-10": "DENY"
+    }
+  },
+  "floor": {
+    "runId": "d0a3ea94-a554-4f7b-b2dd-a26147ada79c",
+    "receipt": "23fa55dafbbf8c57a0a8c2cfa1585940e008dee2c462e278927f5cd4718b6d4d",
+    "bundle": "floor-boost/v1/artifacts/timer.rules",
+    "fixture": "floor-boost/v1/artifacts/fixture.json",
+    "localReceipt": "floor-boost/v1/firestore-receipt.json",
+    "decisions": {
+      "boost-44ms": "ALLOW",
+      "boost-60ms": "DENY"
+    }
+  }
+}

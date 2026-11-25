@@ -1,5 +1,7 @@
 # Replaying the policy oracle
 
+[Production results and replay commands for the Arcade, Sokoban repair and Floor boost trials](trials/RESULTS.md)
+
 The [pilot results](PILOT.md) list the observed decisions, pending captures and merge-order verification.
 
 Run these commands from the Pyric worktree containing this experiment. The default command inventories claims and verifies their input hashes and evidence. The complete replay needs Python 3, Bun, Node 22+, npm and the Linux tools used by the archived replay. It uses local package tarballs and runs without Firebase credentials.

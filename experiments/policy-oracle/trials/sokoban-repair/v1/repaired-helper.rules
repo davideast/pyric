@@ -1,0 +1,5 @@
+rules_version = '2+modules';
+
+export function betterScore() {
+  return resource.data.moves is number && (request.resource.data.moves < resource.data.moves || request.resource.data.moves == resource.data.moves && resource.data.pushes is number && request.resource.data.pushes < resource.data.pushes);
+}

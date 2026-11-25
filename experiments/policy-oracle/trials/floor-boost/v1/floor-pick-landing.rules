@@ -1,0 +1,14 @@
+function pickLanding(best, stone, sweep) {
+  let drop = sweep.y0 - sweep.y1;
+  let raw = drop > 0.000001 ? (sweep.y0 - stone.y) * 1.0 / drop : 0;
+  let t = raw < 0 ? 0 : raw > 1 ? 1 : raw;
+  let bestRaw = best != null && drop > 0.000001 ? (sweep.y0 - best.y) * 1.0 / drop : 0;
+  let bestT = bestRaw < 0 ? 0 : bestRaw > 1 ? 1 : bestRaw;
+  let dx = sweep.x0 + (sweep.x1 - sweep.x0) * t - stone.x;
+  let rim = sweep.vy < -110 && sweep.y0 > stone.y + 1.5 ? 4.5 : 0;
+  let half = stone.width / 2.0 + 10.25 + rim;
+  let crosses = sweep.vy <= 0 && !stone.broken && stone.y >= sweep.lava - 2 &&
+    sweep.y0 >= stone.y - 1.5 && sweep.y1 <= stone.y + 0.25 && dx >= -half && dx <= half;
+  let earlier = best == null || t < bestT || (t - bestT < 0.0001 && stone.y > best.y);
+  return crosses && earlier ? stone : best;
+}

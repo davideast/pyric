@@ -1,0 +1,163 @@
+{
+  "sourceCommit": "59737d2f544e213cecaebf8e9677cf95f39eaa60",
+  "seed": 7,
+  "tick": 304,
+  "h": 0.004166666666666667,
+  "before": {
+    "x": 159.8046110811903,
+    "y": 133.4732638888889,
+    "vx": 41,
+    "vy": -339.9583333333329,
+    "support": null,
+    "remaining": 0,
+    "flight": false
+  },
+  "sweep": {
+    "x0": 159.8046110811903,
+    "y0": 133.4732638888889,
+    "x1": 159.95495830341252,
+    "y1": 132.01579861111114,
+    "vy": -349.79166666666623,
+    "lava": -29.916666666666593,
+    "buffered": false
+  },
+  "stones": [
+    {
+      "id": 0,
+      "kind": "hearth",
+      "x": 153,
+      "y": 0,
+      "width": 128,
+      "broken": false
+    },
+    {
+      "id": 1,
+      "kind": "solid",
+      "x": 99,
+      "y": 60,
+      "width": 68,
+      "broken": false
+    },
+    {
+      "id": 2,
+      "kind": "boost",
+      "x": 160,
+      "y": 133,
+      "width": 58,
+      "broken": false
+    },
+    {
+      "id": 3,
+      "kind": "crumble",
+      "x": 237,
+      "y": 193,
+      "width": 72,
+      "broken": false
+    },
+    {
+      "id": 4,
+      "kind": "shuttle",
+      "x": 197.08257907546013,
+      "y": 253,
+      "width": 64,
+      "broken": false
+    },
+    {
+      "id": 5,
+      "kind": "solid",
+      "x": 133,
+      "y": 315,
+      "width": 68,
+      "broken": false
+    },
+    {
+      "id": 6,
+      "kind": "solid",
+      "x": 177,
+      "y": 376,
+      "width": 68,
+      "broken": false
+    },
+    {
+      "id": 7,
+      "kind": "crumble",
+      "x": 111,
+      "y": 434,
+      "width": 72,
+      "broken": false
+    },
+    {
+      "id": 8,
+      "kind": "solid",
+      "x": 182,
+      "y": 491,
+      "width": 70,
+      "broken": false
+    },
+    {
+      "id": 9,
+      "kind": "solid",
+      "x": 243,
+      "y": 559,
+      "width": 71,
+      "broken": false
+    },
+    {
+      "id": 10,
+      "kind": "checkpoint",
+      "x": 153,
+      "y": 623,
+      "width": 278,
+      "broken": false
+    },
+    {
+      "id": 11,
+      "kind": "crumble",
+      "x": 96,
+      "y": 683,
+      "width": 72,
+      "broken": false
+    },
+    {
+      "id": 12,
+      "kind": "solid",
+      "x": 210,
+      "y": 679,
+      "width": 54,
+      "broken": false
+    },
+    {
+      "id": 13,
+      "kind": "solid",
+      "x": 153,
+      "y": 744,
+      "width": 66,
+      "broken": false
+    },
+    {
+      "id": 14,
+      "kind": "solid",
+      "x": 205,
+      "y": 811,
+      "width": 69,
+      "broken": false
+    },
+    {
+      "id": 15,
+      "kind": "shuttle",
+      "x": 208.54079603120755,
+      "y": 876,
+      "width": 64,
+      "broken": false
+    }
+  ],
+  "observed": {
+    "x": 159.95495830341252,
+    "y": 133,
+    "vx": 36.083333333333336,
+    "vy": 0,
+    "support": 2,
+    "remaining": 0.044,
+    "flight": false
+  }
+}

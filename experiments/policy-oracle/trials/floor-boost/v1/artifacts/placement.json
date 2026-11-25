@@ -1,0 +1,181 @@
+{
+  "seed": 7,
+  "tick": 304,
+  "platformsExamined": 16,
+  "winner": {
+    "id": 2,
+    "kind": "boost",
+    "x": 160,
+    "y": 133,
+    "width": 58,
+    "broken": false
+  },
+  "derived": {
+    "landed": 2,
+    "support": 2,
+    "remaining": {
+      "__type": "float",
+      "value": 0.044
+    },
+    "event": "boost-compress"
+  },
+  "requirements": [
+    {
+      "requirement": "landingPlatform",
+      "location": "20:3",
+      "source": "after.landed == derived.landed",
+      "features": [
+        "Rules expressions",
+        "derive",
+        "==",
+        "conditional",
+        "!="
+      ],
+      "inputs": [
+        "after.landed",
+        "input.landing",
+        "input.landing.id"
+      ],
+      "origins": {
+        "input.landing": "before"
+      },
+      "bindings": {
+        "input.landing": "resource.data.step.landing"
+      },
+      "target": "Firestore",
+      "enforcement": "standalone only",
+      "reason": "Missing binding: after.landed, input.landing.id"
+    },
+    {
+      "requirement": "supportingPlatform",
+      "location": "21:3",
+      "source": "after.support == derived.support",
+      "features": [
+        "Rules expressions",
+        "derive",
+        "==",
+        "conditional",
+        "||",
+        "&&",
+        ">",
+        "-",
+        "!=",
+        "!"
+      ],
+      "inputs": [
+        "after.support",
+        "input.restart",
+        "input.rescued",
+        "before.remaining",
+        "input.h",
+        "input.landing",
+        "input.landing.kind",
+        "before.support",
+        "input.buffered",
+        "input.landing.id",
+        "input.swept"
+      ],
+      "origins": {
+        "input.restart": "before",
+        "before.remaining": "before",
+        "input.h": "before",
+        "input.landing": "before",
+        "input.landing.kind": "before"
+      },
+      "bindings": {
+        "input.restart": "resource.data.step.restart",
+        "before.remaining": "resource.data.before.remaining",
+        "input.h": "resource.data.step.h",
+        "input.landing": "resource.data.step.landing",
+        "input.landing.kind": "resource.data.step.landing.kind"
+      },
+      "target": "Firestore",
+      "enforcement": "standalone only",
+      "reason": "Missing binding: after.support, input.rescued, before.support, input.buffered, input.landing.id, input.swept"
+    },
+    {
+      "requirement": "compressionTimer",
+      "location": "22:3",
+      "source": "after.remaining == derived.remaining",
+      "features": [
+        "Rules expressions",
+        "derive",
+        "==",
+        "conditional",
+        ">",
+        "-",
+        "&&",
+        "!="
+      ],
+      "inputs": [
+        "after.remaining",
+        "input.restart",
+        "before.remaining",
+        "input.h",
+        "input.landing",
+        "input.landing.kind"
+      ],
+      "origins": {
+        "after.remaining": "after",
+        "input.restart": "before",
+        "before.remaining": "before",
+        "input.h": "before",
+        "input.landing": "before",
+        "input.landing.kind": "before"
+      },
+      "bindings": {
+        "after.remaining": "request.resource.data.remaining",
+        "input.restart": "resource.data.step.restart",
+        "before.remaining": "resource.data.before.remaining",
+        "input.h": "resource.data.step.h",
+        "input.landing": "resource.data.step.landing",
+        "input.landing.kind": "resource.data.step.landing.kind"
+      },
+      "target": "Firestore",
+      "enforcement": "standalone and database",
+      "reason": "All reads bound at this placement",
+      "predicate": "request.resource.data.remaining == (resource.data.step.restart ? 0 : resource.data.before.remaining > 0 ? resource.data.before.remaining > resource.data.step.h ? resource.data.before.remaining - resource.data.step.h : 0 : resource.data.step.landing != null && resource.data.step.landing.kind == 'boost' ? 0.044 : 0)",
+      "completeReason": "Unverified derive outputs: landed, support, event"
+    },
+    {
+      "requirement": "boostEvent",
+      "location": "23:3",
+      "source": "after.event == derived.event",
+      "features": [
+        "Rules expressions",
+        "derive",
+        "==",
+        "conditional",
+        "&&",
+        ">",
+        "-",
+        "!="
+      ],
+      "inputs": [
+        "after.event",
+        "input.restart",
+        "before.remaining",
+        "input.h",
+        "input.landing",
+        "input.landing.kind"
+      ],
+      "origins": {
+        "input.restart": "before",
+        "before.remaining": "before",
+        "input.h": "before",
+        "input.landing": "before",
+        "input.landing.kind": "before"
+      },
+      "bindings": {
+        "input.restart": "resource.data.step.restart",
+        "before.remaining": "resource.data.before.remaining",
+        "input.h": "resource.data.step.h",
+        "input.landing": "resource.data.step.landing",
+        "input.landing.kind": "resource.data.step.landing.kind"
+      },
+      "target": "Firestore",
+      "enforcement": "standalone only",
+      "reason": "Missing binding: after.event"
+    }
+  ]
+}

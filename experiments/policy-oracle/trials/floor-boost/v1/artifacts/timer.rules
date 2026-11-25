@@ -1,0 +1,11 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /steps/{id} {
+      allow get: if request.auth != null && request.auth.uid in [resource.data.writer, resource.data.reader];
+      allow update: if request.auth != null && request.auth.uid == resource.data.writer
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['remaining'])
+        && (request.resource.data.remaining == (resource.data.step.restart ? 0 : resource.data.before.remaining > 0 ? resource.data.before.remaining > resource.data.step.h ? resource.data.before.remaining - resource.data.step.h : 0 : resource.data.step.landing != null && resource.data.step.landing.kind == 'boost' ? 0.044 : 0));
+    }
+  }
+}

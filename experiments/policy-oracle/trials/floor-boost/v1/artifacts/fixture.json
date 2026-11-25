@@ -1,0 +1,38 @@
+{
+  "collection": "steps",
+  "before": {
+    "writer": "$actor",
+    "reader": "$reader",
+    "before": {
+      "remaining": 0
+    },
+    "step": {
+      "h": 0.004166666666666667,
+      "restart": false,
+      "landing": {
+        "id": 2,
+        "kind": "boost",
+        "x": 160,
+        "y": 133,
+        "width": 58,
+        "broken": false
+      }
+    },
+    "remaining": 0
+  },
+  "cases": [
+    {
+      "id": "boost-44ms",
+      "update": {
+        "remaining": 0.044
+      }
+    },
+    {
+      "id": "boost-60ms",
+      "update": {
+        "remaining": 0.06
+      }
+    }
+  ],
+  "positiveControl": "boost-44ms"
+}

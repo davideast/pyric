@@ -1,0 +1,536 @@
+{
+  "cases": [
+    {
+      "id": "c01",
+      "category": "moves down, pushes up",
+      "expected": "ALLOW",
+      "path": "sokoban/1/scores/lark2",
+      "actor": "lark2",
+      "requestTime": "2026-01-18T14:08:05.321Z",
+      "before": {
+        "uid": "lark2",
+        "level": "1",
+        "moves": 51,
+        "pushes": 8,
+        "solve": "1cfc665d76ea5c832fc9",
+        "object": "sokoban/lark2/1/1cfc665d76ea5c832fc9-51-8.txt",
+        "createdAt": "2026-01-17T13:10:01.500Z"
+      },
+      "proposal": {
+        "uid": "lark2",
+        "level": "1",
+        "moves": 50,
+        "pushes": 14,
+        "solve": "725f5681e33227649a16",
+        "object": "sokoban/lark2/1/725f5681e33227649a16-50-14.txt",
+        "createdAt": "$serverTimestamp"
+      },
+      "beforeRoute": "1-51-8",
+      "proposalRoute": "1-50-14"
+    },
+    {
+      "id": "c02",
+      "category": "moves down, pushes fixed",
+      "expected": "ALLOW",
+      "path": "sokoban/3/scores/moss5",
+      "actor": "moss5",
+      "requestTime": "2026-01-18T14:08:05.321Z",
+      "before": {
+        "uid": "moss5",
+        "level": "3",
+        "moves": 59,
+        "pushes": 13,
+        "solve": "8ffd8094939abd5b2e7a",
+        "object": "sokoban/moss5/3/8ffd8094939abd5b2e7a-59-13.txt",
+        "createdAt": "2026-01-17T13:10:01.500Z"
+      },
+      "proposal": {
+        "uid": "moss5",
+        "level": "3",
+        "moves": 41,
+        "pushes": 13,
+        "solve": "54ce8230e7d2c1817ee7",
+        "object": "sokoban/moss5/3/54ce8230e7d2c1817ee7-41-13.txt",
+        "createdAt": "$serverTimestamp"
+      },
+      "beforeRoute": "3-59-13",
+      "proposalRoute": "3-41-13"
+    },
+    {
+      "id": "c03",
+      "category": "moves down, pushes down",
+      "expected": "ALLOW",
+      "path": "sokoban/4/scores/wren7",
+      "actor": "wren7",
+      "requestTime": "2026-01-18T14:08:05.321Z",
+      "before": {
+        "uid": "wren7",
+        "level": "4",
+        "moves": 51,
+        "pushes": 11,
+        "solve": "43c5c24122cdf18fb0ce",
+        "object": "sokoban/wren7/4/43c5c24122cdf18fb0ce-51-11.txt",
+        "createdAt": "2026-01-17T13:10:01.500Z"
+      },
+      "proposal": {
+        "uid": "wren7",
+        "level": "4",
+        "moves": 23,
+        "pushes": 7,
+        "solve": "7a47f77b931324578591",
+        "object": "sokoban/wren7/4/7a47f77b931324578591-23-7.txt",
+        "createdAt": "$serverTimestamp"
+      },
+      "beforeRoute": "4-51-11",
+      "proposalRoute": "4-23-7"
+    },
+    {
+      "id": "c04",
+      "category": "moves fixed, pushes down",
+      "expected": "ALLOW",
+      "path": "sokoban/3/scores/lark2",
+      "actor": "lark2",
+      "requestTime": "2026-01-18T14:08:05.321Z",
+      "before": {
+        "uid": "lark2",
+        "level": "3",
+        "moves": 53,
+        "pushes": 15,
+        "solve": "76040264f2ec18c5a3ff",
+        "object": "sokoban/lark2/3/76040264f2ec18c5a3ff-53-15.txt",
+        "createdAt": "2026-01-17T13:10:01.500Z"
+      },
+      "proposal": {
+        "uid": "lark2",
+        "level": "3",
+        "moves": 53,
+        "pushes": 13,
+        "solve": "b01fcc90807af2e3c92c",
+        "object": "sokoban/lark2/3/b01fcc90807af2e3c92c-53-13.txt",
+        "createdAt": "$serverTimestamp"
+      },
+      "beforeRoute": "3-53-15",
+      "proposalRoute": "3-53-13"
+    },
+    {
+      "id": "c05",
+      "category": "moves fixed, pushes fixed",
+      "expected": "DENY",
+      "path": "sokoban/4/scores/moss5",
+      "actor": "moss5",
+      "requestTime": "2026-01-18T14:08:05.321Z",
+      "before": {
+        "uid": "moss5",
+        "level": "4",
+        "moves": 37,
+        "pushes": 11,
+        "solve": "c4826d8e38edb873daba",
+        "object": "sokoban/moss5/4/c4826d8e38edb873daba-37-11.txt",
+        "createdAt": "2026-01-17T13:10:01.500Z"
+      },
+      "proposal": {
+        "uid": "moss5",
+        "level": "4",
+        "moves": 37,
+        "pushes": 11,
+        "solve": "8c733236c631029a9ba2",
+        "object": "sokoban/moss5/4/8c733236c631029a9ba2-37-11.txt",
+        "createdAt": "$serverTimestamp"
+      },
+      "beforeRoute": "4-37-11",
+      "proposalRoute": "4-37-11"
+    },
+    {
+      "id": "c06",
+      "category": "moves fixed, pushes up",
+      "expected": "DENY",
+      "path": "sokoban/1/scores/wren7",
+      "actor": "wren7",
+      "requestTime": "2026-01-18T14:08:05.321Z",
+      "before": {
+        "uid": "wren7",
+        "level": "1",
+        "moves": 39,
+        "pushes": 8,
+        "solve": "2fd2b29bba4cf3af0ca9",
+        "object": "sokoban/wren7/1/2fd2b29bba4cf3af0ca9-39-8.txt",
+        "createdAt": "2026-01-17T13:10:01.500Z"
+      },
+      "proposal": {
+        "uid": "wren7",
+        "level": "1",
+        "moves": 39,
+        "pushes": 10,
+        "solve": "cb3d389f538272923e99",
+        "object": "sokoban/wren7/1/cb3d389f538272923e99-39-10.txt",
+        "createdAt": "$serverTimestamp"
+      },
+      "beforeRoute": "1-39-8",
+      "proposalRoute": "1-39-10"
+    },
+    {
+      "id": "c07",
+      "category": "moves up, pushes down",
+      "expected": "DENY",
+      "path": "sokoban/1/scores/lark2",
+      "actor": "lark2",
+      "requestTime": "2026-01-18T14:08:05.321Z",
+      "before": {
+        "uid": "lark2",
+        "level": "1",
+        "moves": 50,
+        "pushes": 14,
+        "solve": "ff9b47d69eabaf79468c",
+        "object": "sokoban/lark2/1/ff9b47d69eabaf79468c-50-14.txt",
+        "createdAt": "2026-01-17T13:10:01.500Z"
+      },
+      "proposal": {
+        "uid": "lark2",
+        "level": "1",
+        "moves": 51,
+        "pushes": 8,
+        "solve": "d927ce391a48b1d9b84d",
+        "object": "sokoban/lark2/1/d927ce391a48b1d9b84d-51-8.txt",
+        "createdAt": "$serverTimestamp"
+      },
+      "beforeRoute": "1-50-14",
+      "proposalRoute": "1-51-8"
+    },
+    {
+      "id": "c08",
+      "category": "moves up, pushes fixed",
+      "expected": "DENY",
+      "path": "sokoban/7/scores/moss5",
+      "actor": "moss5",
+      "requestTime": "2026-01-18T14:08:05.321Z",
+      "before": {
+        "uid": "moss5",
+        "level": "7",
+        "moves": 26,
+        "pushes": 6,
+        "solve": "143427c823466abce57c",
+        "object": "sokoban/moss5/7/143427c823466abce57c-26-6.txt",
+        "createdAt": "2026-01-17T13:10:01.500Z"
+      },
+      "proposal": {
+        "uid": "moss5",
+        "level": "7",
+        "moves": 32,
+        "pushes": 6,
+        "solve": "cce8546436e9a7decac2",
+        "object": "sokoban/moss5/7/cce8546436e9a7decac2-32-6.txt",
+        "createdAt": "$serverTimestamp"
+      },
+      "beforeRoute": "7-26-6",
+      "proposalRoute": "7-32-6"
+    },
+    {
+      "id": "c09",
+      "category": "moves up, pushes up",
+      "expected": "DENY",
+      "path": "sokoban/2/scores/wren7",
+      "actor": "wren7",
+      "requestTime": "2026-01-18T14:08:05.321Z",
+      "before": {
+        "uid": "wren7",
+        "level": "2",
+        "moves": 16,
+        "pushes": 3,
+        "solve": "6b9b58fa2dd55e82f615",
+        "object": "sokoban/wren7/2/6b9b58fa2dd55e82f615-16-3.txt",
+        "createdAt": "2026-01-17T13:10:01.500Z"
+      },
+      "proposal": {
+        "uid": "wren7",
+        "level": "2",
+        "moves": 30,
+        "pushes": 9,
+        "solve": "78678f299439b96b8af3",
+        "object": "sokoban/wren7/2/78678f299439b96b8af3-30-9.txt",
+        "createdAt": "$serverTimestamp"
+      },
+      "beforeRoute": "2-16-3",
+      "proposalRoute": "2-30-9"
+    },
+    {
+      "id": "c10",
+      "category": "moves fixed, pushes down",
+      "expected": "ALLOW",
+      "path": "sokoban/2/scores/lark2",
+      "actor": "lark2",
+      "requestTime": "2026-01-18T14:08:05.321Z",
+      "before": {
+        "uid": "lark2",
+        "level": "2",
+        "moves": 2000,
+        "pushes": 9,
+        "solve": "5c04c8037279cd79625d",
+        "object": "sokoban/lark2/2/5c04c8037279cd79625d-2000-9.txt",
+        "createdAt": "2026-01-17T13:10:01.500Z"
+      },
+      "proposal": {
+        "uid": "lark2",
+        "level": "2",
+        "moves": 2000,
+        "pushes": 3,
+        "solve": "7a0ef30554003f20629a",
+        "object": "sokoban/lark2/2/7a0ef30554003f20629a-2000-3.txt",
+        "createdAt": "$serverTimestamp"
+      },
+      "beforeRoute": "2-2000-9",
+      "proposalRoute": "2-2000-3"
+    },
+    {
+      "id": "c11",
+      "category": "moves up, pushes down",
+      "expected": "DENY",
+      "path": "sokoban/3/scores/moss5",
+      "actor": "moss5",
+      "requestTime": "2026-01-18T14:08:05.321Z",
+      "before": {
+        "uid": "moss5",
+        "level": "3",
+        "moves": 43,
+        "pushes": 15,
+        "solve": "f89a22bfb29fd00f559f",
+        "object": "sokoban/moss5/3/f89a22bfb29fd00f559f-43-15.txt",
+        "createdAt": "2026-01-17T13:10:01.500Z"
+      },
+      "proposal": {
+        "uid": "moss5",
+        "level": "3",
+        "moves": 45,
+        "pushes": 13,
+        "solve": "52b75b5af15f1a3c5703",
+        "object": "sokoban/moss5/3/52b75b5af15f1a3c5703-45-13.txt",
+        "createdAt": "$serverTimestamp"
+      },
+      "beforeRoute": "3-43-15",
+      "proposalRoute": "3-45-13"
+    },
+    {
+      "id": "c12",
+      "category": "moves down, pushes up",
+      "expected": "ALLOW",
+      "path": "sokoban/4/scores/wren7",
+      "actor": "wren7",
+      "requestTime": "2026-01-18T14:08:05.321Z",
+      "before": {
+        "uid": "wren7",
+        "level": "4",
+        "moves": 45,
+        "pushes": 7,
+        "solve": "81cbab2a34282a31c681",
+        "object": "sokoban/wren7/4/81cbab2a34282a31c681-45-7.txt",
+        "createdAt": "2026-01-17T13:10:01.500Z"
+      },
+      "proposal": {
+        "uid": "wren7",
+        "level": "4",
+        "moves": 37,
+        "pushes": 11,
+        "solve": "e2653f2c9f58c5b46e8b",
+        "object": "sokoban/wren7/4/e2653f2c9f58c5b46e8b-37-11.txt",
+        "createdAt": "$serverTimestamp"
+      },
+      "beforeRoute": "4-45-7",
+      "proposalRoute": "4-37-11"
+    },
+    {
+      "id": "c13",
+      "category": "moves down, pushes fixed",
+      "expected": "ALLOW",
+      "path": "sokoban/5/scores/lark2",
+      "actor": "lark2",
+      "requestTime": "2026-01-18T14:08:05.321Z",
+      "before": {
+        "uid": "lark2",
+        "level": "5",
+        "moves": 31,
+        "pushes": 8,
+        "solve": "fcab71be0986eebfcbe6",
+        "object": "sokoban/lark2/5/fcab71be0986eebfcbe6-31-8.txt",
+        "createdAt": "2026-01-17T13:10:01.500Z"
+      },
+      "proposal": {
+        "uid": "lark2",
+        "level": "5",
+        "moves": 25,
+        "pushes": 8,
+        "solve": "a5fef915d4b46321b6d4",
+        "object": "sokoban/lark2/5/a5fef915d4b46321b6d4-25-8.txt",
+        "createdAt": "$serverTimestamp"
+      },
+      "beforeRoute": "5-31-8",
+      "proposalRoute": "5-25-8"
+    },
+    {
+      "id": "c14",
+      "category": "moves fixed, pushes fixed",
+      "expected": "DENY",
+      "path": "sokoban/7/scores/moss5",
+      "actor": "moss5",
+      "requestTime": "2026-01-18T14:08:05.321Z",
+      "before": {
+        "uid": "moss5",
+        "level": "7",
+        "moves": 32,
+        "pushes": 6,
+        "solve": "d1c2e3427ab98b245b0b",
+        "object": "sokoban/moss5/7/d1c2e3427ab98b245b0b-32-6.txt",
+        "createdAt": "2026-01-17T13:10:01.500Z"
+      },
+      "proposal": {
+        "uid": "moss5",
+        "level": "7",
+        "moves": 32,
+        "pushes": 6,
+        "solve": "d1c2e3427ab98b245b0b",
+        "object": "sokoban/moss5/7/d1c2e3427ab98b245b0b-32-6.txt",
+        "createdAt": "$serverTimestamp"
+      },
+      "beforeRoute": "7-32-6",
+      "proposalRoute": "7-32-6"
+    },
+    {
+      "id": "c15",
+      "category": "document unchanged after server transform",
+      "expected": "DENY",
+      "path": "sokoban/2/scores/wren7",
+      "actor": "wren7",
+      "requestTime": "2026-01-18T14:08:05.321Z",
+      "before": {
+        "uid": "wren7",
+        "level": "2",
+        "moves": 30,
+        "pushes": 5,
+        "solve": "8f32d08fed1d241b8adc",
+        "object": "sokoban/wren7/2/8f32d08fed1d241b8adc-30-5.txt",
+        "createdAt": "2026-01-18T14:08:05.321Z"
+      },
+      "proposal": {
+        "uid": "wren7",
+        "level": "2",
+        "moves": 30,
+        "pushes": 5,
+        "solve": "8f32d08fed1d241b8adc",
+        "object": "sokoban/wren7/2/8f32d08fed1d241b8adc-30-5.txt",
+        "createdAt": "$serverTimestamp"
+      },
+      "beforeRoute": "2-30-5",
+      "proposalRoute": "2-30-5"
+    },
+    {
+      "id": "c16",
+      "category": "signed-in non-owner",
+      "expected": "DENY",
+      "path": "sokoban/1/scores/lark2",
+      "actor": "teal9",
+      "requestTime": "2026-01-18T14:08:05.321Z",
+      "before": {
+        "uid": "lark2",
+        "level": "1",
+        "moves": 51,
+        "pushes": 8,
+        "solve": "034ed16701d22cdff435",
+        "object": "sokoban/lark2/1/034ed16701d22cdff435-51-8.txt",
+        "createdAt": "2026-01-17T13:10:01.500Z"
+      },
+      "proposal": {
+        "uid": "lark2",
+        "level": "1",
+        "moves": 50,
+        "pushes": 14,
+        "solve": "a96e70637853ecfaefed",
+        "object": "sokoban/lark2/1/a96e70637853ecfaefed-50-14.txt",
+        "createdAt": "$serverTimestamp"
+      },
+      "beforeRoute": "1-51-8",
+      "proposalRoute": "1-50-14"
+    },
+    {
+      "id": "c17",
+      "category": "anonymous",
+      "expected": "DENY",
+      "path": "sokoban/3/scores/moss5",
+      "actor": null,
+      "requestTime": "2026-01-18T14:08:05.321Z",
+      "before": {
+        "uid": "moss5",
+        "level": "3",
+        "moves": 53,
+        "pushes": 15,
+        "solve": "197ec5cb660e7253f466",
+        "object": "sokoban/moss5/3/197ec5cb660e7253f466-53-15.txt",
+        "createdAt": "2026-01-17T13:10:01.500Z"
+      },
+      "proposal": {
+        "uid": "moss5",
+        "level": "3",
+        "moves": 53,
+        "pushes": 13,
+        "solve": "d817b273e67f9faf06db",
+        "object": "sokoban/moss5/3/d817b273e67f9faf06db-53-13.txt",
+        "createdAt": "$serverTimestamp"
+      },
+      "beforeRoute": "3-53-15",
+      "proposalRoute": "3-53-13"
+    },
+    {
+      "id": "c18",
+      "category": "proposal uid differs from owner",
+      "expected": "DENY",
+      "path": "sokoban/4/scores/wren7",
+      "actor": "wren7",
+      "requestTime": "2026-01-18T14:08:05.321Z",
+      "before": {
+        "uid": "wren7",
+        "level": "4",
+        "moves": 43,
+        "pushes": 11,
+        "solve": "36538d47f871de043835",
+        "object": "sokoban/wren7/4/36538d47f871de043835-43-11.txt",
+        "createdAt": "2026-01-17T13:10:01.500Z"
+      },
+      "proposal": {
+        "uid": "fir11",
+        "level": "4",
+        "moves": 23,
+        "pushes": 7,
+        "solve": "43319626083ff235650a",
+        "object": "sokoban/fir11/4/43319626083ff235650a-23-7.txt",
+        "createdAt": "$serverTimestamp"
+      },
+      "beforeRoute": "4-43-11",
+      "proposalRoute": "4-23-7"
+    },
+    {
+      "id": "c19",
+      "category": "proposal level differs from path",
+      "expected": "DENY",
+      "path": "sokoban/1/scores/lark2",
+      "actor": "lark2",
+      "requestTime": "2026-01-18T14:08:05.321Z",
+      "before": {
+        "uid": "lark2",
+        "level": "1",
+        "moves": 51,
+        "pushes": 8,
+        "solve": "972acfd8a970d8e6a073",
+        "object": "sokoban/lark2/1/972acfd8a970d8e6a073-51-8.txt",
+        "createdAt": "2026-01-17T13:10:01.500Z"
+      },
+      "proposal": {
+        "uid": "lark2",
+        "level": "4",
+        "moves": 23,
+        "pushes": 7,
+        "solve": "6c13d5ae3fa987311075",
+        "object": "sokoban/lark2/4/6c13d5ae3fa987311075-23-7.txt",
+        "createdAt": "$serverTimestamp"
+      },
+      "beforeRoute": "1-51-8",
+      "proposalRoute": "4-23-7"
+    }
+  ]
+}

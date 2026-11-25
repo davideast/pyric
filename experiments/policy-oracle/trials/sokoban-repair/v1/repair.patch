@@ -1,0 +1,38 @@
+diff --git a/packages/rules/src/policy/firestore.ts b/packages/rules/src/policy/firestore.ts
+index a237789..a646ee7 100644
+--- a/packages/rules/src/policy/firestore.ts
++++ b/packages/rules/src/policy/firestore.ts
+@@ -93,13 +93,7 @@ export function lowerFirestore(expr: Expression, projections: Map<string, Expres
+       case 'unaryOp': features.add(node.op); return { ...node, operand: lower(node.operand) };
+       case 'binaryOp': {
+         features.add(node.op);
+-        const left = lower(node.left);
+-        const right = lower(node.right);
+-        if (node.op === '<') {
+-          const unit: Expression = { type: 'literal', value: 1, raw: '1' };
+-          return { ...node, left: { type: 'binaryOp', op: '+', left, right: unit }, right };
+-        }
+-        return { ...node, left, right };
++        return { ...node, left: lower(node.left), right: lower(node.right) };
+       }
+       case 'isExpr': features.add('is ' + node.typeName); return { ...node, value: lower(node.value) };
+       case 'inExpr': features.add('in'); return { ...node, element: lower(node.element), collection: lower(node.collection) };
+diff --git a/packages/rules/test/api/policy-firestore-comparison.test.ts b/packages/rules/test/api/policy-firestore-comparison.test.ts
+new file mode 100644
+index 0000000..3b4e80c
+--- /dev/null
++++ b/packages/rules/test/api/policy-firestore-comparison.test.ts
+@@ -0,0 +1,13 @@
++import { expect, test } from 'bun:test';
++import { compilePolicy } from '../../src/policy/index.js';
++
++test('Firestore lowering preserves the operands of strict less-than', () => {
++  const policy = compilePolicy(`transition decrease {
++    require smaller { return after.value < before.value; }
++  }`);
++  const [requirement] = policy.firestore({
++    'after.value': 'request.resource.data.value',
++    'before.value': 'resource.data.value',
++  });
++  expect(requirement.predicate).toBe('request.resource.data.value < resource.data.value');
++});

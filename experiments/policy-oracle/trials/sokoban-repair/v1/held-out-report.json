@@ -1,0 +1,872 @@
+{
+  "scope": "Local held-out evaluation of complete Firestore rules governing score updates, using board-valid solve histories. No backend, network, Storage or SDK write is executed.",
+  "blind": {
+    "freezeUtc": "2026-11-25T23:12:14Z",
+    "manifest": "sealed/SHA256SUMS",
+    "sha256": "4d5c0cdc493980046103b1e6c15fadd1a2e748259e7a1bed6cb1963de4685ebf",
+    "stockCorroboratedUtc": "2026-11-25T23:12:09Z",
+    "initialCandidateCommit": "b95cdfce9f61c402b639c4db0f1e114df944c0ff",
+    "lockedCandidateCommit": "3e40dd5e6a30f75fbf67a41d8ae694f53b71e6fd",
+    "lockedUtc": "2026-11-25T23:17:27Z",
+    "candidateScoringCompleteUtc": "2026-11-25T23:18:06Z",
+    "procedure": "Independent verifier specified scores, labels and runtime fixtures, checked native game routes and stock rules, then sent the SHA-256 manifest digest before accessing either submission. Scoring started after the author lock and used the unmodified sealed files. The verifier gave the author neither the fixture path nor hidden feedback during the repair. The separation was procedural on a shared filesystem."
+  },
+  "sources": {
+    "arcade": {
+      "commit": "66e14d4f4b0aeab22c05db8d748704dde053d2e5",
+      "semanticContract": "games/sokoban/src/logic.ts#improves",
+      "movesAndPushes": "games/sokoban/src/logic.ts#verifyEntry and games/sokoban/src/sokoban.ts#replay",
+      "pathAndActorContract": "games/sokoban/sokoban.rules#sokobanScore",
+      "completeStock": "app/firestore.rules"
+    },
+    "oracle": {
+      "commit": "f22a2ed7be26e9fdafefd3b197501632e656a268",
+      "package": "experiments/policy-oracle/arcade/vendor/pyric-rules-0.1.0.tgz",
+      "sha256": "67087040f9e1206c54660563a27329d4b5db22102229af8f11b8ccb68ea87743",
+      "completeStock": "experiments/policy-oracle/arcade/v1/rules/stock.rules",
+      "stockSha256": "59b6e23b4727912311ffd45dcba50d4bcb69fe9ed79c6627584e385c338e422b"
+    },
+    "expectedLabels": "Verifier-specified from strict lexicographic semantics, owner access and document path identity, then checked by the pinned native client predicate and complete stock rules. The packed engine receives one constant placeholder expectation for every case and returns its absolute decision.",
+    "solutionEvidence": "Each distinct route in sealed/routes.json replays from the native level start to a solved position with the claimed number of moves and pushes, including both 2,000-move routes. Native verification checks object paths, counts, document/path ownership and expected comparison for each before/proposal pair. Ownership and level controls intentionally vary the relationship between an otherwise valid score document and its request."
+  },
+  "nativeVerification": {
+    "result": "passed",
+    "rows": 19,
+    "distinctReplayedSolutions": 24
+  },
+  "summary": {
+    "stock": {
+      "passes": 19,
+      "total": 19,
+      "falseAllows": 0,
+      "falseDenials": 0,
+      "sha256": "59b6e23b4727912311ffd45dcba50d4bcb69fe9ed79c6627584e385c338e422b"
+    },
+    "baseline": {
+      "passes": 18,
+      "total": 19,
+      "falseAllows": 0,
+      "falseDenials": 1,
+      "sha256": "824c199e3a5c9f59325e4e1c3cc014e8b2ca39260890eb3b563632856726ffe5"
+    },
+    "lock-1": {
+      "passes": 19,
+      "total": 19,
+      "falseAllows": 0,
+      "falseDenials": 0,
+      "sha256": "8dadfb730f16f1feb3d2474f27c468e0aa1a6324227cac6353edf45f2fd4182b"
+    }
+  },
+  "priorPasses": {
+    "preserved": 18,
+    "broken": [],
+    "repaired": [
+      "c01"
+    ]
+  },
+  "cases": [
+    {
+      "id": "c01",
+      "category": "moves down, pushes up",
+      "path": "sokoban/1/scores/lark2",
+      "before": [
+        51,
+        8
+      ],
+      "proposal": [
+        50,
+        14
+      ],
+      "expected": "ALLOW",
+      "stock": "ALLOW",
+      "baseline": "DENY",
+      "baselineOutcome": "falseDenial",
+      "locked": "ALLOW",
+      "lockedOutcome": "pass"
+    },
+    {
+      "id": "c02",
+      "category": "moves down, pushes fixed",
+      "path": "sokoban/3/scores/moss5",
+      "before": [
+        59,
+        13
+      ],
+      "proposal": [
+        41,
+        13
+      ],
+      "expected": "ALLOW",
+      "stock": "ALLOW",
+      "baseline": "ALLOW",
+      "baselineOutcome": "pass",
+      "locked": "ALLOW",
+      "lockedOutcome": "pass"
+    },
+    {
+      "id": "c03",
+      "category": "moves down, pushes down",
+      "path": "sokoban/4/scores/wren7",
+      "before": [
+        51,
+        11
+      ],
+      "proposal": [
+        23,
+        7
+      ],
+      "expected": "ALLOW",
+      "stock": "ALLOW",
+      "baseline": "ALLOW",
+      "baselineOutcome": "pass",
+      "locked": "ALLOW",
+      "lockedOutcome": "pass"
+    },
+    {
+      "id": "c04",
+      "category": "moves fixed, pushes down",
+      "path": "sokoban/3/scores/lark2",
+      "before": [
+        53,
+        15
+      ],
+      "proposal": [
+        53,
+        13
+      ],
+      "expected": "ALLOW",
+      "stock": "ALLOW",
+      "baseline": "ALLOW",
+      "baselineOutcome": "pass",
+      "locked": "ALLOW",
+      "lockedOutcome": "pass"
+    },
+    {
+      "id": "c05",
+      "category": "moves fixed, pushes fixed",
+      "path": "sokoban/4/scores/moss5",
+      "before": [
+        37,
+        11
+      ],
+      "proposal": [
+        37,
+        11
+      ],
+      "expected": "DENY",
+      "stock": "DENY",
+      "baseline": "DENY",
+      "baselineOutcome": "pass",
+      "locked": "DENY",
+      "lockedOutcome": "pass"
+    },
+    {
+      "id": "c06",
+      "category": "moves fixed, pushes up",
+      "path": "sokoban/1/scores/wren7",
+      "before": [
+        39,
+        8
+      ],
+      "proposal": [
+        39,
+        10
+      ],
+      "expected": "DENY",
+      "stock": "DENY",
+      "baseline": "DENY",
+      "baselineOutcome": "pass",
+      "locked": "DENY",
+      "lockedOutcome": "pass"
+    },
+    {
+      "id": "c07",
+      "category": "moves up, pushes down",
+      "path": "sokoban/1/scores/lark2",
+      "before": [
+        50,
+        14
+      ],
+      "proposal": [
+        51,
+        8
+      ],
+      "expected": "DENY",
+      "stock": "DENY",
+      "baseline": "DENY",
+      "baselineOutcome": "pass",
+      "locked": "DENY",
+      "lockedOutcome": "pass"
+    },
+    {
+      "id": "c08",
+      "category": "moves up, pushes fixed",
+      "path": "sokoban/7/scores/moss5",
+      "before": [
+        26,
+        6
+      ],
+      "proposal": [
+        32,
+        6
+      ],
+      "expected": "DENY",
+      "stock": "DENY",
+      "baseline": "DENY",
+      "baselineOutcome": "pass",
+      "locked": "DENY",
+      "lockedOutcome": "pass"
+    },
+    {
+      "id": "c09",
+      "category": "moves up, pushes up",
+      "path": "sokoban/2/scores/wren7",
+      "before": [
+        16,
+        3
+      ],
+      "proposal": [
+        30,
+        9
+      ],
+      "expected": "DENY",
+      "stock": "DENY",
+      "baseline": "DENY",
+      "baselineOutcome": "pass",
+      "locked": "DENY",
+      "lockedOutcome": "pass"
+    },
+    {
+      "id": "c10",
+      "category": "moves fixed, pushes down",
+      "path": "sokoban/2/scores/lark2",
+      "before": [
+        2000,
+        9
+      ],
+      "proposal": [
+        2000,
+        3
+      ],
+      "expected": "ALLOW",
+      "stock": "ALLOW",
+      "baseline": "ALLOW",
+      "baselineOutcome": "pass",
+      "locked": "ALLOW",
+      "lockedOutcome": "pass"
+    },
+    {
+      "id": "c11",
+      "category": "moves up, pushes down",
+      "path": "sokoban/3/scores/moss5",
+      "before": [
+        43,
+        15
+      ],
+      "proposal": [
+        45,
+        13
+      ],
+      "expected": "DENY",
+      "stock": "DENY",
+      "baseline": "DENY",
+      "baselineOutcome": "pass",
+      "locked": "DENY",
+      "lockedOutcome": "pass"
+    },
+    {
+      "id": "c12",
+      "category": "moves down, pushes up",
+      "path": "sokoban/4/scores/wren7",
+      "before": [
+        45,
+        7
+      ],
+      "proposal": [
+        37,
+        11
+      ],
+      "expected": "ALLOW",
+      "stock": "ALLOW",
+      "baseline": "ALLOW",
+      "baselineOutcome": "pass",
+      "locked": "ALLOW",
+      "lockedOutcome": "pass"
+    },
+    {
+      "id": "c13",
+      "category": "moves down, pushes fixed",
+      "path": "sokoban/5/scores/lark2",
+      "before": [
+        31,
+        8
+      ],
+      "proposal": [
+        25,
+        8
+      ],
+      "expected": "ALLOW",
+      "stock": "ALLOW",
+      "baseline": "ALLOW",
+      "baselineOutcome": "pass",
+      "locked": "ALLOW",
+      "lockedOutcome": "pass"
+    },
+    {
+      "id": "c14",
+      "category": "moves fixed, pushes fixed",
+      "path": "sokoban/7/scores/moss5",
+      "before": [
+        32,
+        6
+      ],
+      "proposal": [
+        32,
+        6
+      ],
+      "expected": "DENY",
+      "stock": "DENY",
+      "baseline": "DENY",
+      "baselineOutcome": "pass",
+      "locked": "DENY",
+      "lockedOutcome": "pass"
+    },
+    {
+      "id": "c15",
+      "category": "document unchanged after server transform",
+      "path": "sokoban/2/scores/wren7",
+      "before": [
+        30,
+        5
+      ],
+      "proposal": [
+        30,
+        5
+      ],
+      "expected": "DENY",
+      "stock": "DENY",
+      "baseline": "DENY",
+      "baselineOutcome": "pass",
+      "locked": "DENY",
+      "lockedOutcome": "pass"
+    },
+    {
+      "id": "c16",
+      "category": "signed-in non-owner",
+      "path": "sokoban/1/scores/lark2",
+      "before": [
+        51,
+        8
+      ],
+      "proposal": [
+        50,
+        14
+      ],
+      "expected": "DENY",
+      "stock": "DENY",
+      "baseline": "DENY",
+      "baselineOutcome": "pass",
+      "locked": "DENY",
+      "lockedOutcome": "pass"
+    },
+    {
+      "id": "c17",
+      "category": "anonymous",
+      "path": "sokoban/3/scores/moss5",
+      "before": [
+        53,
+        15
+      ],
+      "proposal": [
+        53,
+        13
+      ],
+      "expected": "DENY",
+      "stock": "DENY",
+      "baseline": "DENY",
+      "baselineOutcome": "pass",
+      "locked": "DENY",
+      "lockedOutcome": "pass"
+    },
+    {
+      "id": "c18",
+      "category": "proposal uid differs from owner",
+      "path": "sokoban/4/scores/wren7",
+      "before": [
+        43,
+        11
+      ],
+      "proposal": [
+        23,
+        7
+      ],
+      "expected": "DENY",
+      "stock": "DENY",
+      "baseline": "DENY",
+      "baselineOutcome": "pass",
+      "locked": "DENY",
+      "lockedOutcome": "pass"
+    },
+    {
+      "id": "c19",
+      "category": "proposal level differs from path",
+      "path": "sokoban/1/scores/lark2",
+      "before": [
+        51,
+        8
+      ],
+      "proposal": [
+        23,
+        7
+      ],
+      "expected": "DENY",
+      "stock": "DENY",
+      "baseline": "DENY",
+      "baselineOutcome": "pass",
+      "locked": "DENY",
+      "lockedOutcome": "pass"
+    }
+  ],
+  "scorerOutput": {
+    "stock": {
+      "sha256": "59b6e23b4727912311ffd45dcba50d4bcb69fe9ed79c6627584e385c338e422b",
+      "total": 19,
+      "passes": 19,
+      "falseAllows": [],
+      "falseDenials": [],
+      "results": [
+        {
+          "id": "c01",
+          "category": "moves down, pushes up",
+          "expected": "ALLOW",
+          "decision": "ALLOW",
+          "outcome": "pass"
+        },
+        {
+          "id": "c02",
+          "category": "moves down, pushes fixed",
+          "expected": "ALLOW",
+          "decision": "ALLOW",
+          "outcome": "pass"
+        },
+        {
+          "id": "c03",
+          "category": "moves down, pushes down",
+          "expected": "ALLOW",
+          "decision": "ALLOW",
+          "outcome": "pass"
+        },
+        {
+          "id": "c04",
+          "category": "moves fixed, pushes down",
+          "expected": "ALLOW",
+          "decision": "ALLOW",
+          "outcome": "pass"
+        },
+        {
+          "id": "c05",
+          "category": "moves fixed, pushes fixed",
+          "expected": "DENY",
+          "decision": "DENY",
+          "outcome": "pass"
+        },
+        {
+          "id": "c06",
+          "category": "moves fixed, pushes up",
+          "expected": "DENY",
+          "decision": "DENY",
+          "outcome": "pass"
+        },
+        {
+          "id": "c07",
+          "category": "moves up, pushes down",
+          "expected": "DENY",
+          "decision": "DENY",
+          "outcome": "pass"
+        },
+        {
+          "id": "c08",
+          "category": "moves up, pushes fixed",
+          "expected": "DENY",
+          "decision": "DENY",
+          "outcome": "pass"
+        },
+        {
+          "id": "c09",
+          "category": "moves up, pushes up",
+          "expected": "DENY",
+          "decision": "DENY",
+          "outcome": "pass"
+        },
+        {
+          "id": "c10",
+          "category": "moves fixed, pushes down",
+          "expected": "ALLOW",
+          "decision": "ALLOW",
+          "outcome": "pass"
+        },
+        {
+          "id": "c11",
+          "category": "moves up, pushes down",
+          "expected": "DENY",
+          "decision": "DENY",
+          "outcome": "pass"
+        },
+        {
+          "id": "c12",
+          "category": "moves down, pushes up",
+          "expected": "ALLOW",
+          "decision": "ALLOW",
+          "outcome": "pass"
+        },
+        {
+          "id": "c13",
+          "category": "moves down, pushes fixed",
+          "expected": "ALLOW",
+          "decision": "ALLOW",
+          "outcome": "pass"
+        },
+        {
+          "id": "c14",
+          "category": "moves fixed, pushes fixed",
+          "expected": "DENY",
+          "decision": "DENY",
+          "outcome": "pass"
+        },
+        {
+          "id": "c15",
+          "category": "document unchanged after server transform",
+          "expected": "DENY",
+          "decision": "DENY",
+          "outcome": "pass"
+        },
+        {
+          "id": "c16",
+          "category": "signed-in non-owner",
+          "expected": "DENY",
+          "decision": "DENY",
+          "outcome": "pass"
+        },
+        {
+          "id": "c17",
+          "category": "anonymous",
+          "expected": "DENY",
+          "decision": "DENY",
+          "outcome": "pass"
+        },
+        {
+          "id": "c18",
+          "category": "proposal uid differs from owner",
+          "expected": "DENY",
+          "decision": "DENY",
+          "outcome": "pass"
+        },
+        {
+          "id": "c19",
+          "category": "proposal level differs from path",
+          "expected": "DENY",
+          "decision": "DENY",
+          "outcome": "pass"
+        }
+      ]
+    },
+    "revisions": [
+      {
+        "sha256": "824c199e3a5c9f59325e4e1c3cc014e8b2ca39260890eb3b563632856726ffe5",
+        "total": 19,
+        "passes": 18,
+        "falseAllows": [],
+        "falseDenials": [
+          "c01"
+        ],
+        "results": [
+          {
+            "id": "c01",
+            "category": "moves down, pushes up",
+            "expected": "ALLOW",
+            "decision": "DENY",
+            "outcome": "falseDenial"
+          },
+          {
+            "id": "c02",
+            "category": "moves down, pushes fixed",
+            "expected": "ALLOW",
+            "decision": "ALLOW",
+            "outcome": "pass"
+          },
+          {
+            "id": "c03",
+            "category": "moves down, pushes down",
+            "expected": "ALLOW",
+            "decision": "ALLOW",
+            "outcome": "pass"
+          },
+          {
+            "id": "c04",
+            "category": "moves fixed, pushes down",
+            "expected": "ALLOW",
+            "decision": "ALLOW",
+            "outcome": "pass"
+          },
+          {
+            "id": "c05",
+            "category": "moves fixed, pushes fixed",
+            "expected": "DENY",
+            "decision": "DENY",
+            "outcome": "pass"
+          },
+          {
+            "id": "c06",
+            "category": "moves fixed, pushes up",
+            "expected": "DENY",
+            "decision": "DENY",
+            "outcome": "pass"
+          },
+          {
+            "id": "c07",
+            "category": "moves up, pushes down",
+            "expected": "DENY",
+            "decision": "DENY",
+            "outcome": "pass"
+          },
+          {
+            "id": "c08",
+            "category": "moves up, pushes fixed",
+            "expected": "DENY",
+            "decision": "DENY",
+            "outcome": "pass"
+          },
+          {
+            "id": "c09",
+            "category": "moves up, pushes up",
+            "expected": "DENY",
+            "decision": "DENY",
+            "outcome": "pass"
+          },
+          {
+            "id": "c10",
+            "category": "moves fixed, pushes down",
+            "expected": "ALLOW",
+            "decision": "ALLOW",
+            "outcome": "pass"
+          },
+          {
+            "id": "c11",
+            "category": "moves up, pushes down",
+            "expected": "DENY",
+            "decision": "DENY",
+            "outcome": "pass"
+          },
+          {
+            "id": "c12",
+            "category": "moves down, pushes up",
+            "expected": "ALLOW",
+            "decision": "ALLOW",
+            "outcome": "pass"
+          },
+          {
+            "id": "c13",
+            "category": "moves down, pushes fixed",
+            "expected": "ALLOW",
+            "decision": "ALLOW",
+            "outcome": "pass"
+          },
+          {
+            "id": "c14",
+            "category": "moves fixed, pushes fixed",
+            "expected": "DENY",
+            "decision": "DENY",
+            "outcome": "pass"
+          },
+          {
+            "id": "c15",
+            "category": "document unchanged after server transform",
+            "expected": "DENY",
+            "decision": "DENY",
+            "outcome": "pass"
+          },
+          {
+            "id": "c16",
+            "category": "signed-in non-owner",
+            "expected": "DENY",
+            "decision": "DENY",
+            "outcome": "pass"
+          },
+          {
+            "id": "c17",
+            "category": "anonymous",
+            "expected": "DENY",
+            "decision": "DENY",
+            "outcome": "pass"
+          },
+          {
+            "id": "c18",
+            "category": "proposal uid differs from owner",
+            "expected": "DENY",
+            "decision": "DENY",
+            "outcome": "pass"
+          },
+          {
+            "id": "c19",
+            "category": "proposal level differs from path",
+            "expected": "DENY",
+            "decision": "DENY",
+            "outcome": "pass"
+          }
+        ]
+      },
+      {
+        "sha256": "8dadfb730f16f1feb3d2474f27c468e0aa1a6324227cac6353edf45f2fd4182b",
+        "total": 19,
+        "passes": 19,
+        "falseAllows": [],
+        "falseDenials": [],
+        "results": [
+          {
+            "id": "c01",
+            "category": "moves down, pushes up",
+            "expected": "ALLOW",
+            "decision": "ALLOW",
+            "outcome": "pass"
+          },
+          {
+            "id": "c02",
+            "category": "moves down, pushes fixed",
+            "expected": "ALLOW",
+            "decision": "ALLOW",
+            "outcome": "pass"
+          },
+          {
+            "id": "c03",
+            "category": "moves down, pushes down",
+            "expected": "ALLOW",
+            "decision": "ALLOW",
+            "outcome": "pass"
+          },
+          {
+            "id": "c04",
+            "category": "moves fixed, pushes down",
+            "expected": "ALLOW",
+            "decision": "ALLOW",
+            "outcome": "pass"
+          },
+          {
+            "id": "c05",
+            "category": "moves fixed, pushes fixed",
+            "expected": "DENY",
+            "decision": "DENY",
+            "outcome": "pass"
+          },
+          {
+            "id": "c06",
+            "category": "moves fixed, pushes up",
+            "expected": "DENY",
+            "decision": "DENY",
+            "outcome": "pass"
+          },
+          {
+            "id": "c07",
+            "category": "moves up, pushes down",
+            "expected": "DENY",
+            "decision": "DENY",
+            "outcome": "pass"
+          },
+          {
+            "id": "c08",
+            "category": "moves up, pushes fixed",
+            "expected": "DENY",
+            "decision": "DENY",
+            "outcome": "pass"
+          },
+          {
+            "id": "c09",
+            "category": "moves up, pushes up",
+            "expected": "DENY",
+            "decision": "DENY",
+            "outcome": "pass"
+          },
+          {
+            "id": "c10",
+            "category": "moves fixed, pushes down",
+            "expected": "ALLOW",
+            "decision": "ALLOW",
+            "outcome": "pass"
+          },
+          {
+            "id": "c11",
+            "category": "moves up, pushes down",
+            "expected": "DENY",
+            "decision": "DENY",
+            "outcome": "pass"
+          },
+          {
+            "id": "c12",
+            "category": "moves down, pushes up",
+            "expected": "ALLOW",
+            "decision": "ALLOW",
+            "outcome": "pass"
+          },
+          {
+            "id": "c13",
+            "category": "moves down, pushes fixed",
+            "expected": "ALLOW",
+            "decision": "ALLOW",
+            "outcome": "pass"
+          },
+          {
+            "id": "c14",
+            "category": "moves fixed, pushes fixed",
+            "expected": "DENY",
+            "decision": "DENY",
+            "outcome": "pass"
+          },
+          {
+            "id": "c15",
+            "category": "document unchanged after server transform",
+            "expected": "DENY",
+            "decision": "DENY",
+            "outcome": "pass"
+          },
+          {
+            "id": "c16",
+            "category": "signed-in non-owner",
+            "expected": "DENY",
+            "decision": "DENY",
+            "outcome": "pass"
+          },
+          {
+            "id": "c17",
+            "category": "anonymous",
+            "expected": "DENY",
+            "decision": "DENY",
+            "outcome": "pass"
+          },
+          {
+            "id": "c18",
+            "category": "proposal uid differs from owner",
+            "expected": "DENY",
+            "decision": "DENY",
+            "outcome": "pass"
+          },
+          {
+            "id": "c19",
+            "category": "proposal level differs from path",
+            "expected": "DENY",
+            "decision": "DENY",
+            "outcome": "pass"
+          }
+        ]
+      }
+    ],
+    "comparisons": [
+      {
+        "from": "824c199e3a5c9f59325e4e1c3cc014e8b2ca39260890eb3b563632856726ffe5",
+        "to": "8dadfb730f16f1feb3d2474f27c468e0aa1a6324227cac6353edf45f2fd4182b",
+        "previousPassesBroken": [],
+        "previousFailuresRepaired": [
+          "c01"
+        ]
+      }
+    ]
+  }
+}
