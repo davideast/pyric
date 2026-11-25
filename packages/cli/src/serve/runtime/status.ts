@@ -3,6 +3,7 @@ import type { SandboxEvent } from 'pyric/sandbox';
 import type { PyricRuntimeManifest } from './manifest.js';
 import { readPyricRuntimeManifest } from './manifest.js';
 import { hostRestartWarning, type HostRestart } from './host-restart.js';
+import type { SharedWorkerFallbackInfo } from './shared-worker-fallback.js';
 
 type PyricRuntimeMode = 'starting' | 'shared-worker' | 'in-page' | 'hosted';
 export type PyricRuntimeErrorSource = 'sandbox' | 'worker' | 'runtime';
@@ -27,6 +28,7 @@ interface PyricRuntimeSnapshot {
   updateAvailable: boolean;
   updatingWorker: boolean;
   errors: readonly PyricRuntimeError[];
+  inPageFallback?: SharedWorkerFallbackInfo | null;
   hostedConnection?: HostedConnectionState;
   persistenceUnhealthy?: boolean;
   /** The host restarted since this page loaded, so the tab runs a stale bundle. */
@@ -36,7 +38,11 @@ interface PyricRuntimeSnapshot {
 export interface PyricRuntimeStatus {
   getSnapshot(): PyricRuntimeSnapshot;
   subscribe(listener: (snapshot: PyricRuntimeSnapshot) => void): () => void;
-  setWorker(input: { mode: Exclude<PyricRuntimeMode, 'starting'>; runningEpoch?: string | null }): void;
+  setWorker(input: {
+    mode: Exclude<PyricRuntimeMode, 'starting'>;
+    runningEpoch?: string | null;
+    inPageFallback?: SharedWorkerFallbackInfo | null;
+  }): void;
   setHostedConnection(state: HostedConnectionState): void;
   /** Marks the tab stale and warns in the console, once per page. */
   reportHostRestarted(restart: HostRestart): void;
@@ -64,25 +70,29 @@ export function normalizePyricRuntimeError(
   id = `runtime-error-${++nextErrorId}`,
 ): PyricRuntimeError {
   if (value instanceof Error) {
-    return {
+    const normalized: PyricRuntimeError = {
       id,
       source,
       at,
       message: value.message,
-      ...(errorCode(value) ? { code: errorCode(value) } : {}),
-      ...(value.stack ? { stack: value.stack } : {}),
     };
+    const code = errorCode(value);
+    if (code) normalized.code = code;
+    if (value.stack) normalized.stack = value.stack;
+    return normalized;
   }
   if (typeof value === 'string') return { id, source, at, message: value };
   if (value && typeof value === 'object') {
     const message = (value as { message?: unknown }).message;
-    return {
+    const normalized: PyricRuntimeError = {
       id,
       source,
       at,
       message: typeof message === 'string' ? message : String(value),
-      ...(errorCode(value) ? { code: errorCode(value) } : {}),
     };
+    const code = errorCode(value);
+    if (code) normalized.code = code;
+    return normalized;
   }
   return { id, source, at, message: String(value) };
 }
@@ -135,10 +145,10 @@ function isAiRejectedEvent(event: SandboxEvent): boolean {
 function observationGapError(event: SandboxEvent): PyricRuntimeError | null {
   const isObservationGap = event.kind === 'observation_gap';
   if (isObservationGap) {
-    const historyWasEvicted = event.reason === 'history-limit';
-    const message = historyWasEvicted
-      ? 'Older sandbox activity was evicted from the bounded observation history.'
-      : 'Sandbox activity is incomplete because an observation batch exceeded the 12 MiB size limit.';
+    let message = 'Sandbox activity is incomplete because an observation batch exceeded the 12 MiB size limit.';
+    if (event.reason === 'history-limit') {
+      message = 'Older sandbox activity was evicted from the bounded observation history.';
+    }
     return {
       id: event.id, source: 'worker', at: event.at,
       code: 'resource-exhausted', method: 'observation-delivery',
@@ -156,16 +166,17 @@ function sandboxError(event: SandboxEvent): PyricRuntimeError | null {
     const targetMethod = hasMethodProperty ? event.method : 'unknown';
     const hasErrorPayload = 'error' in event && Boolean(event.error);
     const errorPayload = hasErrorPayload ? (event as { error: { code?: string; message: string } }).error : undefined;
-    return {
+    const error: PyricRuntimeError = {
       id: event.id,
       source: 'sandbox',
       at: event.at,
       service: event.service,
       method: targetMethod,
-      ...(targetPath ? { path: targetPath } : {}),
-      ...(errorPayload?.code ? { code: errorPayload.code } : {}),
       message: errorPayload?.message ? errorPayload.message : 'Sandbox runtime error',
     };
+    if (targetPath) error.path = targetPath;
+    if (errorPayload?.code) error.code = errorPayload.code;
+    return error;
   }
   if (isAiRejectedEvent(event)) {
     const detail = 'detail' in event ? (event.detail as Record<string, unknown> | undefined) : undefined;
@@ -186,29 +197,35 @@ function sandboxError(event: SandboxEvent): PyricRuntimeError | null {
   }
   if (isListenerErroredEvent(event)) {
     const errorPayload = (event as { error: { code?: string; message: string } }).error;
-    return {
+    const error: PyricRuntimeError = {
       id: event.id,
       source: 'sandbox',
       at: event.at,
       service: 'firestore',
       method: 'listener',
-      ...('target' in event && event.target && 'path' in event.target ? { path: event.target.path } : {}),
-      code: errorPayload.code,
       message: errorPayload.message,
     };
+    if ('target' in event && event.target && 'path' in event.target) {
+      error.path = event.target.path;
+    }
+    if (errorPayload.code) error.code = errorPayload.code;
+    return error;
   }
   if (isListenerPhaseErroredEvent(event)) {
     const errorPayload = (event as { error: { code?: string; message: string } }).error;
-    return {
+    const error: PyricRuntimeError = {
       id: event.id,
       source: 'sandbox',
       at: event.at,
       service: event.service,
       method: 'listener',
-      ...('target' in event && event.target && 'path' in event.target ? { path: event.target.path } : {}),
-      ...(errorPayload.code ? { code: errorPayload.code } : {}),
       message: errorPayload.message,
     };
+    if ('target' in event && event.target && 'path' in event.target) {
+      error.path = event.target.path;
+    }
+    if (errorPayload.code) error.code = errorPayload.code;
+    return error;
   }
   if (isDeniedOperationEvent(event)) {
     const hasPathProperty = 'path' in event && typeof event.path === 'string';
@@ -229,6 +246,20 @@ function sandboxError(event: SandboxEvent): PyricRuntimeError | null {
   return null;
 }
 
+function sameFallback(
+  left: SharedWorkerFallbackInfo | null | undefined,
+  right: SharedWorkerFallbackInfo | null | undefined,
+): boolean {
+  const normalizedLeft = left ?? null;
+  const normalizedRight = right ?? null;
+  if (normalizedLeft === normalizedRight) return true;
+  if (normalizedLeft === null || normalizedRight === null) return false;
+  return (
+    normalizedLeft.reason === normalizedRight.reason
+    && normalizedLeft.tabSyncAvailable === normalizedRight.tabSyncAvailable
+  );
+}
+
 /** Observable, bounded status model shared by the runtime and injected UI. */
 export function createPyricRuntimeStatus(
   manifest: PyricRuntimeManifest,
@@ -245,6 +276,7 @@ export function createPyricRuntimeStatus(
     updateAvailable: false,
     updatingWorker: false,
     errors: [],
+    inPageFallback: null,
   };
   let workerUpdater: (() => Promise<void>) | null = null;
 
@@ -274,7 +306,7 @@ export function createPyricRuntimeStatus(
       listener(snapshot);
       return () => listeners.delete(listener);
     },
-    setWorker({ mode, runningEpoch = null }) {
+    setWorker({ mode, runningEpoch = null, inPageFallback }) {
       const servedEpoch = manifest.worker.servedEpoch;
       const updateAvailable = Boolean(
         mode === 'shared-worker'
@@ -283,10 +315,16 @@ export function createPyricRuntimeStatus(
         && runningEpoch !== 'dev'
         && servedEpoch !== runningEpoch,
       );
+      let nextFallback: SharedWorkerFallbackInfo | null = null;
+      if (mode === 'in-page') {
+        const currentFallback = snapshot.inPageFallback ?? null;
+        nextFallback = inPageFallback === undefined ? currentFallback : inPageFallback;
+      }
       const isUnchanged = snapshot.mode === mode
         && snapshot.runningEpoch === runningEpoch
         && snapshot.updateAvailable === updateAvailable
-        && snapshot.updatingWorker === false;
+        && snapshot.updatingWorker === false
+        && sameFallback(snapshot.inPageFallback, nextFallback);
       if (isUnchanged) return;
       publish({
         ...snapshot,
@@ -294,6 +332,7 @@ export function createPyricRuntimeStatus(
         runningEpoch,
         updateAvailable,
         updatingWorker: false,
+        inPageFallback: nextFallback,
       });
     },
     setHostedConnection(hostedConnection) {

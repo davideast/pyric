@@ -1,17 +1,18 @@
 /**
- * Settings — global configuration and sandbox maintenance (shell spec N2).
+ * Settings -- global configuration and sandbox maintenance (shell spec N2).
  *
  * The Sandbox card teaches VISUALLY, not with prose: its first row shows what
- * the sandbox IS right now (instance + live inventory + persistence — the
+ * the sandbox IS right now (instance + live inventory + persistence -- the
  * counts come from the same resource index the Home typeahead builds, no new
  * counting ops), and each action carries a one-line consequence plus a small
- * directional glyph (state→file, file→state, fork, loop-back). Reset shows
+ * directional glyph (state->file, file->state, fork, loop-back). Reset shows
  * its cost by restating the live inventory in an inline two-step confirm (no
  * modal). Saved states list under the actions; their empty state is the teacher.
  */
 
 import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import './settings.css';
+import { useEnvironment } from '../../shell/environment.js';
 import { instanceSlug } from '../../shell/instance-slug.js';
 import { useLiveHost } from '../../shell/live-status.js';
 import { useServeInit } from '../../shell/serve-init.js';
@@ -25,8 +26,9 @@ import { useStudioReset } from '../../shell/studio-writes.js';
 import { useResourceIndex } from '../home/useResourceIndex.js';
 import { countInventory, inventoryLine } from './sandbox-inventory.js';
 import { LiveSandboxNotice } from './LiveSandboxNotice.js';
+import { SharedWorkerFallbackNotice } from './SharedWorkerFallbackNotice.js';
 
-// ─── Action glyphs: simple line SVGs, one weight, currentColor ──────────────
+// --- Action glyphs: simple line SVGs, one weight, currentColor --------------
 
 function glyphProps() {
   return {
@@ -42,7 +44,7 @@ function glyphProps() {
   };
 }
 
-/** State → file: arrow leaving into a tray. */
+/** State -> file: arrow leaving into a tray. */
 function GlyphExport() {
   return (
     <svg {...glyphProps()}>
@@ -53,7 +55,7 @@ function GlyphExport() {
   );
 }
 
-/** File → state: arrow rising from the tray into the box. */
+/** File -> state: arrow rising from the tray into the box. */
 function GlyphImport() {
   return (
     <svg {...glyphProps()}>
@@ -87,7 +89,7 @@ function GlyphReset() {
   );
 }
 
-// ─── One action tile: name + consequence caption + directional glyph ────────
+// --- One action tile: name + consequence caption + directional glyph --------
 
 function ActionTile({
   glyph,
@@ -121,9 +123,10 @@ function ActionTile({
   );
 }
 
-// ─── The surface ─────────────────────────────────────────────────────────────
+// --- The surface ------------------------------------------------------------
 
 export function SettingsSurface() {
+  const env = useEnvironment();
   const reset = useStudioReset();
   const exportState = useStudioExport();
   const importState = useStudioImport();
@@ -138,7 +141,7 @@ export function SettingsSurface() {
   const [namingState, setNamingState] = useState(false);
   const [stateName, setStateName] = useState('');
 
-  // The live inventory — the same index the Home typeahead builds (no new
+  // The live inventory -- the same index the Home typeahead builds (no new
   // backend ops). One build on mount is enough for a settings visit; `ensure`
   // rebuilds every call now (see `useResourceIndex`), but its identity is
   // stable across a build's lifetime, so this effect fires once on mount and
@@ -149,12 +152,11 @@ export function SettingsSurface() {
   const counts = countInventory(index.entries);
   const inventory = inventoryLine(counts);
 
-  const persistence =
-    serve.status === 'ready'
-      ? serve.payload.persist
-        ? 'persisted to disk'
-        : 'ephemeral'
-      : 'in-page · resets on reload';
+  let persistence = 'in-page \u00b7 resets on reload';
+  if (serve.status === 'ready') {
+    persistence = serve.payload.persist ? 'persisted to disk' : 'ephemeral';
+  }
+  const workerDown = serve.status === 'ready' && env.status === 'ready' && !env.env.live;
 
   const onExport = async () => {
     const bundle = await exportState();
@@ -218,9 +220,18 @@ export function SettingsSurface() {
     await savedStates.remove(name);
   };
 
+  const importLabel = importing ? 'Importing\u2026' : 'Import';
+  const resetLabel = resetting ? 'Resetting\u2026' : 'Reset session';
+  let resetConfirmCopy = 'This erases everything in this sandbox.';
+  if (counts && inventory !== 'empty \u2014 no data yet') {
+    resetConfirmCopy = `This erases ${inventory}.`;
+  }
+  const hasSavedStates = savedStates.names.length > 0;
+
   return (
     <section className="studio-surface studio-settings" aria-labelledby="settings-title">
       <LiveSandboxNotice projectId={liveHost?.projectId ?? null} />
+      <SharedWorkerFallbackNotice workerDown={workerDown} />
       <div className="studio-surface__intro">
         <p className="studio-surface__eyebrow">Settings</p>
         <h1 id="settings-title" className="studio-surface__title">
@@ -238,7 +249,7 @@ export function SettingsSurface() {
             Sandbox
           </h2>
 
-          {/* Row 1 — what the sandbox IS right now. Every action below
+          {/* Row 1 -- what the sandbox IS right now. Every action below
               visibly operates on this. */}
           <div className="studio-sandbox__live" aria-label="Sandbox contents">
             <span className="studio-sandbox__instance mono">{slug || 'local'}</span>
@@ -255,7 +266,7 @@ export function SettingsSurface() {
             />
             <ActionTile
               glyph={<GlyphImport />}
-              name={importing ? 'Importing…' : 'Import'}
+              name={importLabel}
               caption="A chosen file replaces everything here."
               disabled={importing}
               onClick={() => fileRef.current?.click()}
@@ -268,7 +279,7 @@ export function SettingsSurface() {
             />
             <ActionTile
               glyph={<GlyphReset />}
-              name={resetting ? 'Resetting…' : 'Reset session'}
+              name={resetLabel}
               caption="Everything returns to the seeded start."
               disabled={resetting}
               danger
@@ -284,7 +295,7 @@ export function SettingsSurface() {
           />
 
           {/* Transient: name the saved state inline (no prompt dialog). */}
-          {namingState ? (
+          {namingState && (
             <form
               className="studio-sandbox__name-row"
               onSubmit={(e) => {
@@ -321,16 +332,14 @@ export function SettingsSurface() {
                 Cancel
               </button>
             </form>
-          ) : null}
+          )}
 
-          {/* Transient: reset confirms inline, restating the live inventory —
+          {/* Transient: reset confirms inline, restating the live inventory --
               the cost made concrete. */}
-          {confirmingReset ? (
+          {confirmingReset && (
             <div className="studio-sandbox__confirm" role="alert">
               <span className="studio-sandbox__confirm-copy">
-                {counts && inventory !== 'empty — no data yet'
-                  ? `This erases ${inventory}.`
-                  : 'This erases everything in this sandbox.'}
+                {resetConfirmCopy}
               </span>
               <span className="studio-sandbox__confirm-actions">
                 <button
@@ -349,11 +358,11 @@ export function SettingsSurface() {
                 </button>
               </span>
             </div>
-          ) : null}
+          )}
 
           {/* Secondary tier: saved states. The empty state teaches what
               "Save state" is for. */}
-          {savedStates.names.length > 0 ? (
+          {hasSavedStates && (
             <div className="studio-settings__saved-states">
               {savedStates.names.map((name) => (
                 <div key={name} className="studio-settings__saved-state">
@@ -369,7 +378,8 @@ export function SettingsSurface() {
                 </div>
               ))}
             </div>
-          ) : (
+          )}
+          {!hasSavedStates && (
             <p className="studio-sandbox__saved-states-empty">
               No saved states yet. Save state keeps this exact sandbox to come back to.
             </p>
