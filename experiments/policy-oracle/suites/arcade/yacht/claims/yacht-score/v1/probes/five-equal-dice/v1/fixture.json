@@ -1,0 +1,171 @@
+{
+  "operation": "transaction-update",
+  "path": "yacht/$match",
+  "requestTime": "2026-11-24T16:35:00.123Z",
+  "before": {
+    "host": "$actor",
+    "players": [
+      "$actor",
+      "$reader"
+    ],
+    "status": "playing",
+    "turn": 0,
+    "rolls": 1,
+    "commit": "",
+    "keep": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ],
+    "nonces": {
+      "0": "",
+      "1": "F00102030405060708090A0B0C0D0E0F"
+    },
+    "salt": "00000000000000000000000000000416",
+    "dice": [
+      4,
+      4,
+      4,
+      4,
+      4
+    ],
+    "scores": {
+      "s0": {
+        "ones": -1,
+        "twos": -1,
+        "threes": -1,
+        "fours": -1,
+        "fives": -1,
+        "sixes": -1,
+        "fullHouse": -1,
+        "fourKind": -1,
+        "littleStraight": -1,
+        "bigStraight": -1,
+        "choice": 12,
+        "yacht": -1
+      },
+      "s1": {
+        "ones": 4,
+        "twos": -1,
+        "threes": -1,
+        "fours": -1,
+        "fives": -1,
+        "sixes": -1,
+        "fullHouse": -1,
+        "fourKind": -1,
+        "littleStraight": -1,
+        "bigStraight": -1,
+        "choice": -1,
+        "yacht": -1
+      }
+    },
+    "totals": [
+      12,
+      4
+    ],
+    "lastAction": "reveal",
+    "lastSeat": 1,
+    "lastCategory": "ones",
+    "moveCount": 2,
+    "winner": -1,
+    "createdAt": "2026-11-24T16:30:00.000Z"
+  },
+  "cases": [
+    {
+      "id": "score-50",
+      "expected": "ALLOW",
+      "data": {
+        "scores": {
+          "s0": {
+            "ones": -1,
+            "twos": -1,
+            "threes": -1,
+            "fours": -1,
+            "fives": -1,
+            "sixes": -1,
+            "fullHouse": -1,
+            "fourKind": -1,
+            "littleStraight": -1,
+            "bigStraight": -1,
+            "choice": 12,
+            "yacht": 50
+          },
+          "s1": {
+            "ones": 4,
+            "twos": -1,
+            "threes": -1,
+            "fours": -1,
+            "fives": -1,
+            "sixes": -1,
+            "fullHouse": -1,
+            "fourKind": -1,
+            "littleStraight": -1,
+            "bigStraight": -1,
+            "choice": -1,
+            "yacht": -1
+          }
+        },
+        "totals": [
+          62,
+          4
+        ],
+        "turn": 1,
+        "rolls": 0,
+        "moveCount": 3,
+        "lastCategory": "yacht",
+        "lastAction": "score",
+        "status": "playing",
+        "winner": -1
+      }
+    },
+    {
+      "id": "score-49",
+      "expected": "DENY",
+      "data": {
+        "scores": {
+          "s0": {
+            "ones": -1,
+            "twos": -1,
+            "threes": -1,
+            "fours": -1,
+            "fives": -1,
+            "sixes": -1,
+            "fullHouse": -1,
+            "fourKind": -1,
+            "littleStraight": -1,
+            "bigStraight": -1,
+            "choice": 12,
+            "yacht": 49
+          },
+          "s1": {
+            "ones": 4,
+            "twos": -1,
+            "threes": -1,
+            "fours": -1,
+            "fives": -1,
+            "sixes": -1,
+            "fullHouse": -1,
+            "fourKind": -1,
+            "littleStraight": -1,
+            "bigStraight": -1,
+            "choice": -1,
+            "yacht": -1
+          }
+        },
+        "totals": [
+          61,
+          4
+        ],
+        "turn": 1,
+        "rolls": 0,
+        "moveCount": 3,
+        "lastCategory": "yacht",
+        "lastAction": "score",
+        "status": "playing",
+        "winner": -1
+      }
+    }
+  ]
+}

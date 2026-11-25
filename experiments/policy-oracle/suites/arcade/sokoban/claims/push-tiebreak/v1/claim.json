@@ -1,0 +1,5 @@
+{
+  "description": "A valid Sokoban best-score update with the same move count replaces the player's stored score only when its push count is lower.",
+  "authority": "firestore-sdk",
+  "witness": "authenticated-write-readback"
+}
