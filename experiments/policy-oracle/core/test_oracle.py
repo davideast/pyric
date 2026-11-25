@@ -196,6 +196,30 @@ class OracleTest(unittest.TestCase):
         self.write(self.probe / "recipe.json", self.recipe)
         self.assertIn("stale input pin", self.invoke("--replay", status=1))
 
+    def test_complete_candidate_receipt_stays_pending_until_independent_capture_matches(self):
+        witness = "authenticated-write-readback"
+        verifier = "adapters/arcade-sdk/v1/verify.mjs"
+        code = b'console.log(JSON.stringify({edge:"ALLOW"}))'
+        verifier_path = self.root / verifier
+        verifier_path.parent.mkdir(parents=True)
+        verifier_path.write_bytes(code)
+        self.write(self.claim / "claim.json", {"description":"score", "authority":"firestore-sdk", "witness":witness})
+        self.recipe["verifyEvidence"] = "@oracle/" + verifier
+        self.recipe["pins"]["@oracle/" + verifier] = digest(code)
+        self.write(self.probe / "recipe.json", self.recipe)
+        path, observation = self.observe("submitted", "ALLOW")
+        observation["authority"] = "firestore-sdk"
+        self.write(path, observation)
+        pending = self.invoke()["claims"][CLAIM]["probes"]["bound/v1"]
+        self.assertEqual(pending["status"], "pending")
+        self.assertEqual(pending["awaitingControllerReceipt"], ["submitted"])
+        with tempfile.TemporaryDirectory() as archive:
+            trusted = Path(archive) / (observation["evidence"]["sha256"] + ".json")
+            trusted.write_text("unrelated bytes")
+            self.assertIn("controller receipt does not match", self.invoke("--trusted-captures", archive, status=1))
+            trusted.write_bytes((self.probe / observation["evidence"]["path"]).read_bytes())
+            self.assertEqual(self.invoke("--trusted-captures", archive)["claims"][CLAIM]["status"], "evidenced")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -148,7 +148,7 @@ def check_import(raw, document, recipe, authority, evidence):
             "imported verdict must select the production data plane")
 
 
-def observed_values(root, path, authority, witness, input_digest, recipe):
+def observed_values(root, path, authority, witness, input_digest, recipe, trusted_captures):
     cases = recipe["cases"]
     observation = load(path)
     require(observation["authority"] == authority, f"ineligible authority: {path}")
@@ -171,7 +171,16 @@ def observed_values(root, path, authority, witness, input_digest, recipe):
     for case in cases:
         literal = pointer_value(document, evidence["pointers"][case])
         require(canonical(literal) == canonical(results[case]), f"raw evidence disagrees: {path} {case}")
-    return results
+    # Capture programs and test doubles can produce the same well-formed JSON. Only a
+    # separately retained controller receipt can admit a new SDK write as evidence.
+    admitted = True
+    if witness == "authenticated-write-readback":
+        retained = trusted_captures / (evidence["sha256"] + ".json") if trusted_captures else None
+        admitted = retained is not None and retained.exists()
+        if admitted:
+            require(not retained.is_symlink() and retained.read_bytes() == raw,
+                    f"capture controller receipt does not match: {retained}")
+    return results, admitted
 
 
 def run_json(command, directory, root):
@@ -186,7 +195,7 @@ def run_json(command, directory, root):
     return parse(process.stdout)
 
 
-def inspect_probe(root, version, claim_file, authority, witness, replay, pins):
+def inspect_probe(root, version, claim_file, authority, witness, replay, pins, trusted_captures):
     recipe_file = version / "recipe.json"
     recipe = load(recipe_file)
     source = recipe["source"]
@@ -203,11 +212,18 @@ def inspect_probe(root, version, claim_file, authority, witness, replay, pins):
     input_digest = sha(claim_file.read_bytes() + b"\0" + recipe_file.read_bytes())
     pins[str(recipe_file.relative_to(root))] = sha(recipe_file.read_bytes())
     observations = {}
+    awaiting = []
     for receipt in records(version / "observations"):
-        observations[receipt.stem] = observed_values(root, receipt, authority, witness, input_digest, recipe)
+        results, admitted = observed_values(root, receipt, authority, witness, input_digest, recipe, trusted_captures)
+        if admitted:
+            observations[receipt.stem] = results
+        else:
+            awaiting.append(receipt.stem)
         pins[str(receipt.relative_to(root))] = sha(receipt.read_bytes())
     distinct = {canonical(value) for value in observations.values()}
     report = {"cases": cases, "observations": list(observations), "status": "pending"}
+    if awaiting:
+        report["awaitingControllerReceipt"] = awaiting
     if len(distinct) > 1:
         return {**report, "status": "disputed", "answers": observations}
     if observations:
@@ -227,7 +243,7 @@ def inspect_probe(root, version, claim_file, authority, witness, replay, pins):
     return report
 
 
-def inspect(root, replay=False):
+def inspect(root, replay=False, trusted_captures=None):
     claims = {}
     pins = {}
     for claim_id, path in claim_dirs(root):
@@ -249,7 +265,7 @@ def inspect(root, replay=False):
         for probe in directories(path / "probes"):
             for version in directories(probe, VERSION):
                 probes[f"{probe.name}/{version.name}"] = inspect_probe(
-                    root, version, claim_file, authority, witness, replay, pins)
+                    root, version, claim_file, authority, witness, replay, pins, trusted_captures)
         require(set(obligations.values()) <= probes.keys(), f"missing required probe: {claim_id}")
         states = {probes[key]["status"] for key in obligations.values()}
         status = next(state for state in ("disputed", "diverged", "pending", "evidenced", "conforms")
@@ -294,25 +310,34 @@ def main():
     mode.add_argument("--all", action="store_true", help="prepare runtime, score frozen Arcade and all probes")
     mode.add_argument("--snapshot", action="store_true", help="print a baseline of reviewed record hashes")
     parser.add_argument("--baseline", type=Path, help="reject deletion or modification of released inputs")
+    parser.add_argument("--trusted-captures", type=Path,
+                        help="independent capture-controller directory of <receipt-sha256>.json files")
     args = parser.parse_args()
     root = args.root.resolve()
     try:
-        report, snapshot = inspect(root)
-        if args.baseline:
-            check_baseline(args.baseline, snapshot)
+        trusted = args.trusted_captures.resolve() if args.trusted_captures else None
+        if trusted:
+            require(trusted.is_dir() and not trusted.is_relative_to(root),
+                    "trusted controller archive must be a separate existing directory outside the oracle")
+        report, snapshot = inspect(root, trusted_captures=trusted)
+        baseline = args.baseline
+        if baseline is None and root == DEFAULT_ROOT and not args.snapshot:
+            baseline = root / "baselines/pilot-v1.json"
+        if baseline is not None:
+            check_baseline(baseline, snapshot)
         if args.all:
             archived = archive_results(root)
             # The stock bootstrap owns this same lock during npm ci and its scoring run.
             with (root / "arcade/.npm-cache/replay.lock").open("rb") as lock:
                 fcntl.flock(lock, fcntl.LOCK_SH)
-                report, scored_inputs = inspect(root, replay=True)
+                report, scored_inputs = inspect(root, replay=True, trusted_captures=trusted)
                 require(scored_inputs == snapshot, "inputs changed during replay")
             report["archive"] = archived
         elif args.replay:
-            report, scored_inputs = inspect(root, replay=True)
+            report, scored_inputs = inspect(root, replay=True, trusted_captures=trusted)
             require(scored_inputs == snapshot, "inputs changed during replay")
         if args.all or args.replay:
-            _, after = inspect(root)
+            _, after = inspect(root, trusted_captures=trusted)
             require(after == snapshot, "inputs changed during replay")
         print(json.dumps(snapshot if args.snapshot else report, indent=2, sort_keys=True))
         if any(p["status"] in ("diverged", "disputed") for claim in report["claims"].values()

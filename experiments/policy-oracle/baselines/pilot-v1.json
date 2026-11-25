@@ -1,0 +1,24 @@
+{
+  "pins": {
+    "suites/arcade/sokoban/claims/push-tiebreak/v1/claim.json": "2558dc16b25fe518e43253be20098c435abea27e011e41bf198a4d1343d620bf",
+    "suites/arcade/sokoban/claims/push-tiebreak/v1/obligations/equal-moves.json": "6cc88c94b3afa711d363f2e5bf91f060fb576eebb257f359819979b824a232c1",
+    "suites/arcade/sokoban/claims/push-tiebreak/v1/probes/equal-moves/v1/recipe.json": "226aee213a9856dec3f68b2a535fc8e7926b45a7e057acb581e0bd7b5438942f",
+    "suites/arcade/yacht/claims/yacht-score/v1/claim.json": "30d1bdbd291ea7d9f62bc727557fea9e5221fcca43a5e16c98ad57c2ae10c637",
+    "suites/arcade/yacht/claims/yacht-score/v1/obligations/five-equal-dice.json": "2c0485f8093c36b62cfcff33d1d9345d7ab5d4944bd1291f204e2c355af90930",
+    "suites/arcade/yacht/claims/yacht-score/v1/probes/five-equal-dice/v1/recipe.json": "a4a8f2f2ac3284b82afcfdaa959187662ff2f13800d77a018de94487dbfc5179",
+    "suites/pyric/firestore/claims/atomic-sibling-merge/v1/claim.json": "2ad60ea5b65a62dfba2147d8bdb6794e4dfa917d81a8bd06341ee5ab9ef8461c",
+    "suites/pyric/firestore/claims/atomic-sibling-merge/v1/obligations/authenticated-batch.json": "ad1ef5ea231013db80824823cfeedb0569c9513739c3451191f62d775091ae5e",
+    "suites/pyric/firestore/claims/atomic-sibling-merge/v1/probes/authenticated-batch/v1/observations/sdk-2026-11-19.json": "ecba76acba8d786f996dd9cba3e112a462f9568d8f330de1a2258037fc630e2a",
+    "suites/pyric/firestore/claims/atomic-sibling-merge/v1/probes/authenticated-batch/v1/recipe.json": "b092edcd8c5f56ad7d5eddd1e2a2a945681746cb6163e259e7bdb7aae2cd14b9",
+    "suites/pyric/rtdb/claims/ancestor-write/v1/claim.json": "522c13fe3c73862d6e3f14bd07d706c7467d7e1b73746272b40108ac35acdba1",
+    "suites/pyric/rtdb/claims/ancestor-write/v1/obligations/descendant-operations.json": "d331b409a3b19731c6c25249b9cf785a936ec1897174ffefae0380fe3e1749fb",
+    "suites/pyric/rtdb/claims/ancestor-write/v1/probes/descendant-operations/v1/observations/sdk-2026-11-07.json": "00a8f3ae1d364dd978ecfaeed8adabe94539ef1eb1a23484347f857db4b14491",
+    "suites/pyric/rtdb/claims/ancestor-write/v1/probes/descendant-operations/v1/recipe.json": "2ded56278f257e978ed85000c12cffa910ee4026fd676d72b6fd373d84188d0b",
+    "suites/satisfy/tally-slate/claims/ordered-fold/v1/claim.json": "e5da76c1a899c0055079b083e10c1b2abe20758d850f3a2d314d6d7018dd4240",
+    "suites/satisfy/tally-slate/claims/ordered-fold/v1/obligations/ordered-turns.json": "0cb62381ae3a3704c684adb09ee3d865235416043170025989405b687588d44e",
+    "suites/satisfy/tally-slate/claims/ordered-fold/v1/probes/native-turns/v1/observations/stock-model.json": "76d1896e0b3a61cb2ac8a07c6dcf00e4ea6657e346079718e2c937810fd10895",
+    "suites/satisfy/tally-slate/claims/ordered-fold/v1/probes/native-turns/v1/observations/stock-turn-parser.json": "a3178d1c3b57177828b4f11a0e2ed8cba493ba42d5c6aff204bac2507268dec9",
+    "suites/satisfy/tally-slate/claims/ordered-fold/v1/probes/native-turns/v1/recipe.json": "7cdb23f5d76c57bac724a84aee8a1bc434dc78058862cd91026d6f3dea96c28b"
+  },
+  "version": 1
+}
