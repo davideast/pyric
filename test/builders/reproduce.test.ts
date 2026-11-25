@@ -2,13 +2,19 @@
 // `still-running`): the try must be marked `invalid`, stopping further tries,
 // even when the phase script appeared to reproduce or threw beforehand (#1788).
 import { afterEach, describe, expect, test } from 'bun:test';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { createPrivateJobTmpDir, removePrivateJobTmpDir } from '../../scripts/lib/private-job-tmpdir.ts';
 import type { EgressNamespace, SandboxStop } from './namespace.ts';
 import type { CheckedRepro } from './reproduce-check.ts';
 import type { ReproduceOptions } from './reproduce-options.ts';
 import { REPRO_LOG, REPRO_PHASE_LOG, runReproduce, type TryRecord } from './reproduce.ts';
+
+const ALLOWLISTED_TEST_ENV = {
+  PYRIC_TEST_TMP_ROOT: join(homedir(), '.cache', 'pyric-ut-reproduce'),
+};
+const createdRoots: string[] = [];
 
 const SAVED_ENV = {
   PYRIC_BUILDERS_DIR: process.env.PYRIC_BUILDERS_DIR,
@@ -31,6 +37,12 @@ afterEach(() => {
   restoreVar('PYRIC_BUILDERS_DATA_DIR');
   restoreVar('PYRIC_HEAVY_RUN_DIR');
   restoreVar('PYRIC_HEAVY_RUN_SLOT');
+  while (createdRoots.length > 0) {
+    const dir = createdRoots.pop();
+    if (dir !== undefined) {
+      removePrivateJobTmpDir(dir, ALLOWLISTED_TEST_ENV);
+    }
+  }
 });
 
 interface Fixture {
@@ -40,7 +52,8 @@ interface Fixture {
 }
 
 function createFixture(): Fixture {
-  const root = mkdtempSync(join(tmpdir(), 'builders-reproduce-stop-'));
+  const root = createPrivateJobTmpDir('repro-stop', ALLOWLISTED_TEST_ENV);
+  createdRoots.push(root);
   process.env.PYRIC_BUILDERS_DIR = join(root, 'scratch');
   process.env.PYRIC_BUILDERS_DATA_DIR = join(root, 'data');
   process.env.PYRIC_HEAVY_RUN_DIR = join(root, 'slots');
@@ -137,6 +150,8 @@ describe('runReproduce when the sandbox stop returns still-running', () => {
     expect(kept.repro.tries[0]?.sandboxLeftRunning).toBe(true);
     expect(kept.repro.tries[0]?.reason).toContain('still running after SIGKILL');
     expect(existsSync(join(kept.dir, 'try-1', 'logs', REPRO_LOG))).toBe(false);
+    // A still-running try's scratch directory is never deleted while its sandbox runs.
+    expect(existsSync(kept.repro.tries[0]?.scratch ?? '')).toBe(true);
 
     const exited = createFixture();
     const control = await runReproduce(exited.options, {
@@ -149,7 +164,11 @@ describe('runReproduce when the sandbox stop returns still-running', () => {
       },
     });
     expect(control).toBe('reproduced');
-    expect(readKeptRepro(exited.root).repro.tries[0]?.sandboxLeftRunning).toBe(false);
+    const exitedKept = readKeptRepro(exited.root);
+    expect(exitedKept.repro.tries[0]?.sandboxLeftRunning).toBe(false);
+    // Once logs and network.jsonl are copied into dataDir, the exited try's scratch is removed (#1767).
+    expect(existsSync(exitedKept.repro.tries[0]?.scratch ?? '')).toBe(false);
+    expect(readFileSync(join(exitedKept.dir, 'try-1', 'logs', REPRO_LOG), 'utf8')).toBe('Error: boom\n');
   });
 
   test('never touches a symlink planted in the scratch directory when stop returns still-running', async () => {

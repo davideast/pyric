@@ -30,6 +30,7 @@ import { sha256File } from './provenance.ts';
 import { browserEvents, readNetLog } from './recorder/chromium-netlog.ts';
 import { appendBrowserEvents, readNetworkRecord } from './recorder/network-record.ts';
 import { layOutReproApp } from './repro-app.ts';
+import { removeReproTryScratch, stampReproTryMarker } from './repro-scratch.ts';
 import { judgeTry, reproResult, type ReproResult, type TryEvidence, type TryJudgment, type TryOutcome } from './repro-verdict.ts';
 import { checkReproduce, type CheckedRepro } from './reproduce-check.ts';
 import type { ReproduceOptions } from './reproduce-options.ts';
@@ -159,6 +160,7 @@ async function runTry(context: ReproContext, attempt: number): Promise<TryRecord
   const { options, checked } = context;
   const dirs = builderRunDirsAt(reproTryRoot(options.round, options.run, checked.target.slug, context.stamp, attempt));
   createRunDirs(dirs.root);
+  stampReproTryMarker(dirs.root);
   say(`try ${attempt} of ${MAX_TRIES}: starting its sandbox in ${dirs.root}`);
   const readOnly = [playwrightBrowsersPath(), checked.packagesDir];
   const startNamespace = context.deps.startNamespace ?? startEgressNamespace;
@@ -212,7 +214,8 @@ function keep(context: ReproContext, tries: readonly TryRecord[], startedAt: Dat
   const script = `script${extname(options.script)}`;
   copyFileSync(options.script, join(dataDir, script));
   // A copy that follows no link; the try had no token to redact. A scratch
-  // directory whose sandbox is still running is left untouched.
+  // directory whose sandbox is still running is left untouched; finished tries
+  // are removed once their logs and network record are kept (#1767).
   for (const entry of tries) {
     const dirs = builderRunDirsAt(entry.scratch);
     const kept = join(dataDir, `try-${entry.attempt}`);
@@ -220,6 +223,7 @@ function keep(context: ReproContext, tries: readonly TryRecord[], startedAt: Dat
     if (!entry.sandboxLeftRunning) {
       copyRedacted(dirs.networkLog, join(kept, 'network.jsonl'), undefined);
       copyRedacted(dirs.logs, join(kept, 'logs'), undefined);
+      removeReproTryScratch(entry.scratch);
     }
   }
   const { target } = checked;

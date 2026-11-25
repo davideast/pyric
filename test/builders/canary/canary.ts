@@ -92,11 +92,18 @@ function printVerdict(verdict: CanaryVerdict, dirs: RunDirs): void {
   }
 }
 
-/** The package directories `scripts/pack-packages.sh` packs, read from its `PACKAGES=(...)` list. */
+/** The package directories `scripts/pack-packages.sh` packs, read across its `PACKAGES=(...)` lists. */
 export function packedPackageDirs(repoRoot: string): string[] {
   const script = readFileSync(join(repoRoot, 'scripts', 'pack-packages.sh'), 'utf8');
-  const list = /^PACKAGES=\(([^)]*)\)/m.exec(script)?.[1] ?? '';
-  return [...list.matchAll(/"([^"]+)"/g)].map((match) => match[1] ?? '').filter((dir) => dir !== '');
+  const dirs = new Set<string>();
+  for (const block of script.matchAll(/^\s*PACKAGES=\(([^)]*)\)/gm)) {
+    const body = block[1] ?? '';
+    for (const quoted of body.matchAll(/"([^"]+)"/g)) {
+      const dir = quoted[1] ?? '';
+      if (dir !== '') dirs.add(dir);
+    }
+  }
+  return [...dirs];
 }
 
 /** Why the canary can't start in this checkout, said before anything runs. */
