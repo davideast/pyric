@@ -41,9 +41,9 @@
  * it did.
  */
 import Module from 'node:module';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { canonicalFirebaseSpecifier, mapFirebaseSpecifier } from './mapping.js';
 import { resolvesIntoPackage } from './package-identity.js';
 import { isLiveRegisterActive, isRegisterActive, markRegisterActive } from './activation.js';
@@ -287,8 +287,11 @@ function resolveBypassedFromAppTree(
  * given first, and maps by its canonical name only when that landed in the
  * real package, so an unrelated package with such a name stays itself.
  */
-function createResolveFirebase(activatedSandbox: string, activatedAiMode: AiMode): SyncResolve {
-  const appImporterUrls: string[] = [];
+function createResolveFirebase(
+  activatedSandbox: string,
+  activatedAiMode: AiMode,
+  appImporterUrls: string[],
+): SyncResolve {
   return (specifier, context, nextResolve) => {
     const isEsmImport = isImportCondition(context.conditions);
     const mapOptions = {
@@ -407,8 +410,12 @@ function activate(activatedSandbox: string): void {
     host: sandboxHost(activatedSandbox),
   }));
 
+  const appImporterUrls: string[] = [];
   registerHooks({
-    resolve: withSwapOrStop(createResolveFirebase(activatedSandbox, activatedAiMode), activatedAiMode),
+    resolve: withSwapOrStop(
+      createResolveFirebase(activatedSandbox, activatedAiMode, appImporterUrls),
+      activatedAiMode,
+    ),
   });
 
   // The factory global -- exact contract shared with pyric-admin's ambient
@@ -419,7 +426,7 @@ function activate(activatedSandbox: string): void {
   (globalThis as Record<symbol, unknown>)[SANDBOX_FACTORY] = (opts?: { url?: string }) =>
     remoteSandbox({ configuredUrl: opts?.url, instanceId: activatedInstance });
 
-  installAppCheckVerifier(activatedAiMode);
+  installAppCheckVerifier(activatedAiMode, appImporterUrls);
 
   process.stderr.write(
     `@pyric/cli/register: active. firebase-admin/firebase imports now resolve to the ` +
@@ -437,6 +444,57 @@ function activate(activatedSandbox: string): void {
   });
 }
 
+function findRealAdminManifestFromDir(startDir: string): string | null {
+  let dir = startDir;
+  for (;;) {
+    const candidate = join(dir, 'node_modules', 'firebase-admin', 'package.json');
+    if (existsSync(candidate)) {
+      try {
+        return realpathSync(candidate);
+      } catch (err) {
+        if (err instanceof Error) return candidate;
+        throw err;
+      }
+    }
+    const parent = dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
+function findAdminJoseUrl(appImporterUrls: readonly string[]): string | null {
+  const dirs: string[] = [];
+  const seen = new Set<string>();
+  const addDir = (dir: string): void => {
+    if (seen.has(dir)) return;
+    seen.add(dir);
+    dirs.push(dir);
+  };
+  for (let index = appImporterUrls.length - 1; index >= 0; index -= 1) {
+    const importerUrl = appImporterUrls[index];
+    if (importerUrl !== undefined && importerUrl.startsWith('file:')) {
+      addDir(dirname(fileURLToPath(importerUrl)));
+    }
+  }
+  for (const appDir of liveAppDirs(process.argv[1], process.cwd())) {
+    addDir(appDir);
+  }
+  addDir(dirname(fileURLToPath(import.meta.url)));
+  for (const dir of dirs) {
+    const adminManifest = findRealAdminManifestFromDir(dir);
+    if (adminManifest === null) continue;
+    try {
+      const jwksEntry = Module.createRequire(adminManifest).resolve('jwks-rsa');
+      const joseEntry = Module.createRequire(jwksEntry).resolve('jose');
+      return pathToFileURL(joseEntry).href;
+    } catch (err) {
+      if (err instanceof Error) return null;
+      throw err;
+    }
+  }
+  return null;
+}
+
 /**
  * Production AI mode only: the page's App Check tokens come from Firebase, so
  * pyric-admin's mirror hands them to firebase-admin's own verifier (#1552).
@@ -444,10 +502,26 @@ function activate(activatedSandbox: string): void {
  * server that never verifies one never loads firebase-admin. In sandbox AI
  * mode nothing is installed, and the mirror refuses such a token with a
  * message that says why.
+ *
+ * Pre-warms `jose` asynchronously before `firebase-admin/app-check` loads
+ * `jwks-rsa` via `require()`, avoiding Node 22.15's `ERR_VM_MODULE_LINK_FAILURE`
+ * when a `registerHooks({ load })` observer is also active in the process.
  */
-function installAppCheckVerifier(activatedAiMode: AiMode): void {
+function installAppCheckVerifier(activatedAiMode: AiMode, appImporterUrls: readonly string[]): void {
   if (activatedAiMode !== 'production') return;
+  let joseWarmed = false;
   (globalThis as Record<symbol, unknown>)[APP_CHECK_FIREBASE_VERIFIER] = async (token: string, projectId: string) => {
+    if (!joseWarmed) {
+      const joseUrl = findAdminJoseUrl(appImporterUrls);
+      if (joseUrl !== null) {
+        try {
+          await import(joseUrl);
+          joseWarmed = true;
+        } catch (err) {
+          if (!(err instanceof Error)) throw err;
+        }
+      }
+    }
     const bridge = await import('./app-bridge-admin-app-check.js');
     return bridge.verifyFirebaseAppCheckToken(token, projectId);
   };

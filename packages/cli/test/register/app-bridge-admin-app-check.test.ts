@@ -170,9 +170,10 @@ import { registerHooks } from 'node:module';
 
 const loadedUrls = [];
 registerHooks({
-  load(url, context, nextLoad) {
-    loadedUrls.push(url);
-    return nextLoad(url, context);
+  resolve(specifier, context, nextResolve) {
+    const resolved = nextResolve(specifier, context);
+    loadedUrls.push(resolved.url);
+    return resolved;
   },
 });
 

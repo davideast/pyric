@@ -126,7 +126,7 @@ function fixedTime(seconds: number): string {
   return new Date(Date.UTC(2026, 10, 1, 8, 0, seconds)).toISOString().replace(/\.\d{3}Z$/, '.000001Z');
 }
 
-// ─── Firestore ────────────────────────────────────────────────────────────
+// --- Firestore ----------------------------------------------------------
 
 const GRPC_STATUS: Record<number, string> = { 1: 'CANCELLED', 3: 'INVALID_ARGUMENT', 5: 'NOT_FOUND', 6: 'ALREADY_EXISTS', 7: 'PERMISSION_DENIED', 9: 'FAILED_PRECONDITION', 10: 'ABORTED' };
 const PLACEHOLDER_OF: Record<string, string> = { 'commit-time': 'commitTime', 'read-time': 'readTime', 'resume-token': 'resumeToken' };
@@ -199,7 +199,52 @@ function listenExchange(call: GrpcCall, named: Set<string>, commits: Array<{ id:
     batch.messages.push(firestoreAnswer(response.message, named) as JsonObject);
   }
   const addTarget = firestoreRequest(call.requests[0]!.addTarget as JsonObject) as JsonObject;
-  return { kind: 'admin-firestore', id: firestoreId(call), rpc: 'Listen', request: targetShape(addTarget), batches };
+  return {
+    kind: 'admin-firestore',
+    id: firestoreId(call),
+    rpc: 'Listen',
+    request: withCanonicalListenOrderBy(targetShape(addTarget)),
+    batches,
+  };
+}
+
+const IMPLICIT_NAME_ORDER: JsonObject = {
+  field: { fieldPath: '__name__' },
+  direction: 'ASCENDING',
+};
+
+function hasNameOrderBy(orderBy: readonly Json[]): boolean {
+  for (const entry of orderBy) {
+    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) continue;
+    const field = entry.field;
+    if (typeof field !== 'object' || field === null || Array.isArray(field)) continue;
+    if (field.fieldPath === '__name__') return true;
+  }
+  return false;
+}
+
+/**
+ * Aligns a v13-captured Listen `structuredQuery` with `@google-cloud/firestore`
+ * v9 (`firebase-admin` v14), which always appends `__name__ ASCENDING` when no
+ * `__name__` tie-breaker is already present.
+ */
+function withCanonicalListenOrderBy(shape: JsonObject): JsonObject {
+  const query = shape.query;
+  if (typeof query !== 'object' || query === null || Array.isArray(query)) return shape;
+  const structured = query.structuredQuery;
+  if (typeof structured !== 'object' || structured === null || Array.isArray(structured)) return shape;
+  const existing = Array.isArray(structured.orderBy) ? structured.orderBy : [];
+  if (hasNameOrderBy(existing)) return shape;
+  return {
+    ...shape,
+    query: {
+      ...query,
+      structuredQuery: {
+        ...structured,
+        orderBy: [...existing, IMPLICIT_NAME_ORDER],
+      },
+    },
+  };
 }
 
 /** A request as the replay decodes one: integers as strings, and a transaction the server issued. */
@@ -229,7 +274,7 @@ function mapJson(value: Json, convert: (item: Json, key: string) => Json | undef
   return Object.fromEntries(entries.filter((entry): entry is readonly [string, Json] => entry[1] !== undefined));
 }
 
-// ─── Auth ─────────────────────────────────────────────────────────────────
+// --- Auth ---------------------------------------------------------------
 
 const PAST_SECONDS = 1_793_520_000;
 const FUTURE_SECONDS = 4_102_444_800;
@@ -297,7 +342,7 @@ function authAnswer(value: Json, times: AuthTimes, key = ''): Json {
   return mapJson(value, (item, itemKey) => authAnswer(item, times, itemKey));
 }
 
-// ─── Storage ──────────────────────────────────────────────────────────────
+// --- Storage ------------------------------------------------------------
 
 function storageExchange(call: HttpCall): AdminStorageExchange {
   return {
@@ -376,7 +421,7 @@ function storageAnswer(body: HttpBody): Json {
   return null;
 }
 
-// ─── RTDB ─────────────────────────────────────────────────────────────────
+// --- RTDB ---------------------------------------------------------------
 
 /** Requests the replay answers itself (`rtdb.ts`): unlisten and stats. */
 const SERVER_ANSWERED = new Set(['n', 's']);

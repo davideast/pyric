@@ -333,9 +333,10 @@ describe('#1563: app-bridge-admin-app-check resolves firebase-admin from server 
         import { registerHooks } from 'node:module';
         const loaded = [];
         registerHooks({
-          load(url, context, nextLoad) {
-            loaded.push(url);
-            return nextLoad(url, context);
+          resolve(specifier, context, nextResolve) {
+            const resolved = nextResolve(specifier, context);
+            loaded.push(resolved.url);
+            return resolved;
           },
         });
         const { initializeApp } = await import('firebase-admin/app');
