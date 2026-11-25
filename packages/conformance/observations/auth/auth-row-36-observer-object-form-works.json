@@ -5,8 +5,8 @@
     "auth#36"
   ],
   "description": "Observer object form ({next, error, complete}) works alongside the function form. Register one observer as a NextFn and another as {next}; trigger a transition; verify both fire.",
-  "observedAt": "2026-11-18T07:20:41.247Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:50:21.211Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "initialFn": 1,

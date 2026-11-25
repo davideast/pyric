@@ -5,8 +5,8 @@
     "firestore#57"
   ],
   "description": "and(...) composite — every sub-filter must match. Seeds 4 docs with overlapping conditions and queries with and(where(x,==,1), where(y,==,2)); only the doc matching ALL sub-filters should come back.",
-  "observedAt": "2026-10-30T10:46:49.487Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:49:53.263Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "seeded": 4,

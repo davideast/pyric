@@ -5,8 +5,8 @@
     "auth#32"
   ],
   "description": "Returned Unsubscribe removes the observer; subsequent state changes do NOT fire it. Subscribe, do one transition (to confirm the listener is wired), unsubscribe, then do further transitions and verify no further fires.",
-  "observedAt": "2026-11-18T07:20:38.115Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:50:18.055Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "initialFires": 1,

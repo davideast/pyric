@@ -7,8 +7,8 @@
     "storage#52"
   ],
   "description": "Upload, deleteObject, then getDownloadURL on the deleted ref — observe the error code (expected: storage/object-not-found).",
-  "observedAt": "2026-11-18T07:20:44.839Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:50:25.393Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "uploadOk": true,

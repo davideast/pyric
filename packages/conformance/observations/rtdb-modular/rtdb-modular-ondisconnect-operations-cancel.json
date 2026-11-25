@@ -7,8 +7,8 @@
     "rtdb-modular#VR3"
   ],
   "description": "Queued set, update, remove, setWithPriority, cancellation scope, and overlapping parent/child registrations.",
-  "observedAt": "2026-10-30T10:44:58.659Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:48:23.191Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "repeatCount": 2,

@@ -5,8 +5,8 @@
     "firestore#116"
   ],
   "description": "Client-side nested-array validation distinguishes in/not-in candidate lists from ordinary and array-membership operands.",
-  "observedAt": "2026-10-30T10:45:44.971Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:49:07.601Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "nestedArrayRejected": true,

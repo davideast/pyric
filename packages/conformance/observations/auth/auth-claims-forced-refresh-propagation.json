@@ -5,8 +5,8 @@
     "auth#75"
   ],
   "description": "Admin-set custom claims reach an active session on the next FORCED token refresh, not the unforced read.",
-  "observedAt": "2026-10-30T16:10:24.968Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:57:18.035Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "updateOk": true,

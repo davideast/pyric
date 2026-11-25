@@ -5,8 +5,8 @@
     "auth#25"
   ],
   "description": "signOut sets currentUser to null synchronously after the returned promise resolves — read auth.currentUser BEFORE any await/microtask runs after `await signOut(auth)`.",
-  "observedAt": "2026-11-18T07:20:17.678Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:49:57.260Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "uidBefore": {

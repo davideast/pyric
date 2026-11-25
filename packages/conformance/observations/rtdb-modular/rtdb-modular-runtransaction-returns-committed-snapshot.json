@@ -5,8 +5,8 @@
     "rtdb-modular#162"
   ],
   "description": "runTransaction success — the resolved value is `{ committed: boolean, snapshot: DataSnapshot }`. Lock the resolved snapshot.val() against the actual committed value (not the seed value, not the update-fn return value). Pin the shape (`committed` is a boolean primitive, `snapshot` is an object that responds to .val()/.exists()/.key).",
-  "observedAt": "2026-10-30T16:55:48.057Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:50:58.039Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "threw": false,

@@ -5,8 +5,8 @@
     "auth#156"
   ],
   "description": "sendEmailVerification — the accept/reject shape. An ANONYMOUS user has no email to verify. A real email/password user IS a valid target. NOTE: the oracle project gates outbound-email operations at the project level, so `projectBlocksOutboundEmail` records whether what we observed is the API contract or this project's configuration answering first. Either way, the fact the flow turns on — that SENDING does not verify; only clicking the mailed link does — is not probeable from a client at all.",
-  "observedAt": "2026-10-30T12:08:37.542Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:51:28.653Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "anonymousUserCode": "auth/missing-email",

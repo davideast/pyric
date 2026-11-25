@@ -5,8 +5,8 @@
     "auth#31"
   ],
   "description": "onAuthStateChanged dedup — subscribe then immediately (same tick) trigger a sign-in; matrix claims 1 fire (new value), not 2 (initial-null replay + new). Probe counts fires after enough time for both to settle.",
-  "observedAt": "2026-11-18T07:20:19.675Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:49:59.259Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "totalFires": 2,

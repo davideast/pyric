@@ -5,8 +5,8 @@
     "storage#41"
   ],
   "description": "uploadString with an unknown format string — error code prod throws; base64url is a valid upstream format that Pyric currently rejects.",
-  "observedAt": "2026-10-30T15:57:54.810Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:57:19.203Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "unknownCode": "storage/unknown",

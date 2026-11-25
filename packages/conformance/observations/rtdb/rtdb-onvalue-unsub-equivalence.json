@@ -5,8 +5,8 @@
     "rtdb-modular#141"
   ],
   "description": "onValue unsubscribe equivalence — register an `onValue(ref, cb)` and capture its return value. Then call BOTH `unsub()` AND `off(ref, 'value', cb)` against fresh registrations; verify each form stops the listener on its own.",
-  "observedAt": "2026-10-30T16:56:05.591Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:51:11.156Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "initialFiresA": 1,

@@ -6,8 +6,8 @@
     "rtdb-modular#VR3"
   ],
   "description": "Registration denial and execution-time rules re-evaluation, each paired with a successful normal-write control.",
-  "observedAt": "2026-10-30T10:45:33.701Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:48:56.984Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "repeatCount": 2,

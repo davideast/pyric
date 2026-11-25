@@ -5,8 +5,8 @@
     "rtdb#71"
   ],
   "description": "Simulator-vs-prod allow/deny agreement audit — deploy N rules to live RTDB, run M ops per rule against prod and through the in-process engine, report per-op agreement / disagreement. Lists every divergence so the matrix can call them out.",
-  "observedAt": "2026-11-23T06:16:09.354Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:51:24.555Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "totalOps": 29,

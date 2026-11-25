@@ -5,8 +5,8 @@
     "firestore#4"
   ],
   "description": "getFirestore() with no argument and no default Firebase App initialized — locks the FirebaseError code prod throws.",
-  "observedAt": "2026-10-30T10:46:11.442Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:49:28.563Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "threw": true,

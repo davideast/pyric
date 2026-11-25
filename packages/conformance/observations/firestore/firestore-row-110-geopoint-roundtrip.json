@@ -5,8 +5,8 @@
     "firestore#110"
   ],
   "description": "GeoPoint round-trip through setDoc / getDoc. Probe: write { loc: new GeoPoint(37.7749, -122.4194) }, then read back — verify the field is an instance of GeoPoint with the same latitude / longitude (no destructuring to a plain object).",
-  "observedAt": "2026-10-30T10:46:46.732Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:49:51.941Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "exists": true,

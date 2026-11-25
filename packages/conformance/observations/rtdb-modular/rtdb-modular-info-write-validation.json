@@ -5,8 +5,8 @@
     "rtdb-modular#M95"
   ],
   "description": "Every write API pointed at a location under `/.info`: set, setWithPriority, setPriority, remove, push, runTransaction, update on a `.info` reference and with a `.info/` key from the root, and each onDisconnect write, recording whether the client throws synchronously, rejects, or resolves, and the message. A get() of `.info/connected` is recorded alongside.",
-  "observedAt": "2026-10-30T10:43:42.902Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:47:14.144Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "repeatCount": 2,

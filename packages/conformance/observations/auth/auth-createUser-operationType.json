@@ -6,8 +6,8 @@
     "auth#13"
   ],
   "description": "createUserWithEmailAndPassword returns UserCredential with operationType: \"signIn\" (NOT \"register\") per matrix claim — empirically lock the value prod actually emits.",
-  "observedAt": "2026-11-18T07:19:49.573Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:49:25.865Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "operationType": "signIn",

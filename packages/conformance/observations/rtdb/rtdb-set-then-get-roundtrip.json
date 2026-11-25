@@ -9,8 +9,8 @@
     "rtdb-modular#114"
   ],
   "description": "Write a JSON value with set(), read back with get(), verify the round-trip. Locks the basic admin/user-mode write + read contract against the live service.",
-  "observedAt": "2026-10-30T16:54:51.853Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:50:30.932Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "threw": false,

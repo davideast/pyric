@@ -5,8 +5,8 @@
     "auth#162"
   ],
   "description": "unlink — removing a linked provider from a user. Locks the returned User shape (providerData shrinks) and the code for unlinking a provider that was never linked (auth/no-such-provider).",
-  "observedAt": "2026-11-18T07:21:46.859Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:51:34.385Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "setupCode": null,

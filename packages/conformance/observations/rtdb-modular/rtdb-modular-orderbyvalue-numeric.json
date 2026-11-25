@@ -7,8 +7,8 @@
     "rtdb-modular#M51"
   ],
   "description": "query(ref, orderByValue(), limitToFirst(3)) over primitive numeric children — observe first 3 by ascending value.",
-  "observedAt": "2026-11-18T07:21:09.143Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:50:52.572Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "threw": true,

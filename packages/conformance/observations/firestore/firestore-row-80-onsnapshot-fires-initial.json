@@ -5,8 +5,8 @@
     "firestore#80"
   ],
   "description": "onSnapshot(docRef, cb) fires the initial snapshot microtask-deferred — not synchronously. Probes whether the first fire arrives during the registering call (synchronous), in the next microtask (queueMicrotask boundary), or after a macrotask (setTimeout(0) boundary).",
-  "observedAt": "2026-10-30T10:46:12.579Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:49:29.552Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "fireCount": 1,

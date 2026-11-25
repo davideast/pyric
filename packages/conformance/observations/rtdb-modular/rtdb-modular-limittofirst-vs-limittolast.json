@@ -8,8 +8,8 @@
     "rtdb-modular#M55"
   ],
   "description": "Compare limitToFirst(2) vs limitToLast(2) on the same orderByChild query — observe which children land in each window.",
-  "observedAt": "2026-10-30T16:55:37.964Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:50:53.205Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "threw": false,

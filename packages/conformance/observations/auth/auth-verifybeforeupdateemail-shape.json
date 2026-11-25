@@ -5,8 +5,8 @@
     "auth#157"
   ],
   "description": "verifyBeforeUpdateEmail — the client-observable contract: does the call change the email immediately, or only after the mailed link is clicked? The un-clicked half is the whole point of the API and is exactly what a sandbox must model deliberately. Records `projectBlocksOutboundEmail` when this project's configuration answers before the API contract does.",
-  "observedAt": "2026-11-18T07:21:42.526Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:51:29.816Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "createUserCode": null,

@@ -6,8 +6,8 @@
     "rtdb-modular#M37b"
   ],
   "description": "runTransaction update fn — what shape does `current` arrive as when the path does not exist? Locks the null-vs-undefined question for empty paths AND records the existing-value shape for a seeded path so the sandbox round-trips the right type.",
-  "observedAt": "2026-10-30T16:55:45.378Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:50:56.824Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "threw": false,

@@ -5,8 +5,8 @@
     "auth#22"
   ],
   "description": "createUserWithEmailAndPassword called twice with the same email — locks the FirebaseError code prod emits for the duplicate-registration path.",
-  "observedAt": "2026-11-18T07:19:50.554Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:49:26.809Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "threw": true,

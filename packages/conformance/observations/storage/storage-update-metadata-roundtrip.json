@@ -5,8 +5,8 @@
     "storage#90"
   ],
   "description": "uploadBytes, then updateMetadata({customMetadata: {k: \"v\"}}), then getMetadata — verify the customMetadata survived and metageneration bumped.",
-  "observedAt": "2026-11-18T07:20:48.121Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:50:28.694Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "uploadOk": true,
