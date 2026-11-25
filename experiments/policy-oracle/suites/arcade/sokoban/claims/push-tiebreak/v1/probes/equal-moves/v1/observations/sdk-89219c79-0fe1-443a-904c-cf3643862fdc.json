@@ -1,0 +1,16 @@
+{
+  "authority": "firestore-sdk",
+  "inputDigest": "add2e74e9c7b706e6feb2691ffc615d7090010428d122a2aaad6d1e779d5f29b",
+  "results": {
+    "pushes-9": "ALLOW",
+    "pushes-10": "DENY"
+  },
+  "evidence": {
+    "path": "raw/d14689efb5704940e3bb42c6280f17e05c41dd36b3884c2c9c4fb48566f99abf.json",
+    "sha256": "d14689efb5704940e3bb42c6280f17e05c41dd36b3884c2c9c4fb48566f99abf",
+    "pointers": {
+      "pushes-9": "/rows/pushes-9/decision",
+      "pushes-10": "/rows/pushes-10/decision"
+    }
+  }
+}

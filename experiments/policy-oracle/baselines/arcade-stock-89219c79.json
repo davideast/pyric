@@ -1,0 +1,8 @@
+{
+  "pins": {
+    "suites/arcade/checkers/claims/jump-midpoint/v1/probes/single-jump/v1/observations/sdk-89219c79-0fe1-443a-904c-cf3643862fdc.json": "1cebf7284f364ffff4defc44b8181a50d031954a0e79ff6cc6d8934367f347a5",
+    "suites/arcade/sokoban/claims/push-tiebreak/v1/probes/equal-moves/v1/observations/sdk-89219c79-0fe1-443a-904c-cf3643862fdc.json": "e3c460d65ed1655f8b6234517a93e58c24aa6e863b54fe52e11a5f3c84ab8ec9",
+    "suites/arcade/yacht/claims/yacht-score/v1/probes/five-equal-dice/v1/observations/sdk-89219c79-0fe1-443a-904c-cf3643862fdc.json": "ff1d01d09415d2701cbe7ae39dc28f88ee510bb84146d3bea1ede6727d37ab2b"
+  },
+  "version": 1
+}

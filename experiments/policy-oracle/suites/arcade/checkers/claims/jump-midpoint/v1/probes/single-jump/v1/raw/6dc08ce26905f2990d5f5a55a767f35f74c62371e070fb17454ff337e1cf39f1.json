@@ -1,0 +1,2400 @@
+{
+  "rows": {
+    "capture-f4": {
+      "runId": "89219c79-0fe1-443a-904c-cf3643862fdc",
+      "caseId": "capture-f4",
+      "operation": "transaction-update",
+      "path": "checkers/oracle-89219c79-0fe1-443a-904c-cf3643862fdc-capture-f4",
+      "actor": {
+        "uid": "hNKqO5XiKKdksNReMFyXsIoKg792",
+        "audience": "digame-mas",
+        "issuer": "https://securetoken.google.com/digame-mas",
+        "provider": "anonymous"
+      },
+      "reader": {
+        "uid": "qE088HYTF7fqC72tqkgFxu9UNu13",
+        "audience": "digame-mas",
+        "issuer": "https://securetoken.google.com/digame-mas",
+        "provider": "anonymous"
+      },
+      "expected": "ALLOW",
+      "before": {
+        "data": {
+          "moveCount": 6,
+          "host": "hNKqO5XiKKdksNReMFyXsIoKg792",
+          "winner": "",
+          "lastMove": {
+            "captures": [
+              "g5"
+            ],
+            "path": [
+              "h6",
+              "f4"
+            ]
+          },
+          "currentTurn": "host",
+          "guest": "qE088HYTF7fqC72tqkgFxu9UNu13",
+          "board": {
+            "g5": "",
+            "g3": "d",
+            "c7": "l",
+            "e5": "",
+            "f8": "l",
+            "h6": "",
+            "c5": "",
+            "d2": "d",
+            "a7": "l",
+            "c1": "d",
+            "b6": "",
+            "h8": "l",
+            "d8": "l",
+            "h4": "",
+            "b2": "d",
+            "h2": "d",
+            "g7": "l",
+            "e3": "",
+            "f2": "d",
+            "f6": "l",
+            "d6": "l",
+            "b4": "d",
+            "c3": "",
+            "e7": "l",
+            "a3": "d",
+            "g1": "d",
+            "a5": "",
+            "e1": "d",
+            "d4": "l",
+            "b8": "l",
+            "f4": "l",
+            "a1": "d"
+          },
+          "prevBoard": {
+            "b4": "d",
+            "d6": "l",
+            "c3": "",
+            "a5": "",
+            "e7": "l",
+            "g1": "d",
+            "a3": "d",
+            "d4": "l",
+            "b8": "l",
+            "e1": "d",
+            "a1": "d",
+            "f4": "",
+            "g5": "d",
+            "h6": "l",
+            "f8": "l",
+            "e5": "",
+            "c7": "l",
+            "g3": "d",
+            "a7": "l",
+            "c5": "",
+            "d2": "d",
+            "b6": "",
+            "c1": "d",
+            "d8": "l",
+            "h8": "l",
+            "h2": "d",
+            "b2": "d",
+            "h4": "",
+            "f6": "l",
+            "f2": "d",
+            "e3": "",
+            "g7": "l"
+          },
+          "status": "playing",
+          "createdAt": {
+            "type": "firestore/timestamp/1.0",
+            "seconds": 1795537800,
+            "nanoseconds": 0
+          }
+        },
+        "metadata": {
+          "fromCache": false,
+          "hasPendingWrites": false
+        }
+      },
+      "proposal": {
+        "board": {
+          "b8": "l",
+          "d8": "l",
+          "f8": "l",
+          "h8": "l",
+          "a7": "l",
+          "c7": "l",
+          "e7": "l",
+          "g7": "l",
+          "b6": "",
+          "d6": "l",
+          "f6": "l",
+          "h6": "",
+          "a5": "",
+          "c5": "",
+          "e5": "d",
+          "g5": "",
+          "b4": "d",
+          "d4": "l",
+          "f4": "",
+          "h4": "",
+          "a3": "d",
+          "c3": "",
+          "e3": "",
+          "g3": "",
+          "b2": "d",
+          "d2": "d",
+          "f2": "d",
+          "h2": "d",
+          "a1": "d",
+          "c1": "d",
+          "e1": "d",
+          "g1": "d"
+        },
+        "prevBoard": {
+          "b8": "l",
+          "d8": "l",
+          "f8": "l",
+          "h8": "l",
+          "a7": "l",
+          "c7": "l",
+          "e7": "l",
+          "g7": "l",
+          "b6": "",
+          "d6": "l",
+          "f6": "l",
+          "h6": "",
+          "a5": "",
+          "c5": "",
+          "e5": "",
+          "g5": "",
+          "b4": "d",
+          "d4": "l",
+          "f4": "l",
+          "h4": "",
+          "a3": "d",
+          "c3": "",
+          "e3": "",
+          "g3": "d",
+          "b2": "d",
+          "d2": "d",
+          "f2": "d",
+          "h2": "d",
+          "a1": "d",
+          "c1": "d",
+          "e1": "d",
+          "g1": "d"
+        },
+        "lastMove": {
+          "path": [
+            "g3",
+            "e5"
+          ],
+          "captures": [
+            "f4"
+          ]
+        },
+        "currentTurn": "guest",
+        "moveCount": 7,
+        "status": "playing",
+        "winner": ""
+      },
+      "seedDocument": {
+        "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/checkers/oracle-89219c79-0fe1-443a-904c-cf3643862fdc-capture-f4",
+        "fields": {
+          "lastMove": {
+            "mapValue": {
+              "fields": {
+                "path": {
+                  "arrayValue": {
+                    "values": [
+                      {
+                        "stringValue": "h6"
+                      },
+                      {
+                        "stringValue": "f4"
+                      }
+                    ]
+                  }
+                },
+                "captures": {
+                  "arrayValue": {
+                    "values": [
+                      {
+                        "stringValue": "g5"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "status": {
+            "stringValue": "playing"
+          },
+          "board": {
+            "mapValue": {
+              "fields": {
+                "e1": {
+                  "stringValue": "d"
+                },
+                "e5": {
+                  "stringValue": ""
+                },
+                "a1": {
+                  "stringValue": "d"
+                },
+                "e7": {
+                  "stringValue": "l"
+                },
+                "h6": {
+                  "stringValue": ""
+                },
+                "g1": {
+                  "stringValue": "d"
+                },
+                "e3": {
+                  "stringValue": ""
+                },
+                "f4": {
+                  "stringValue": "l"
+                },
+                "b4": {
+                  "stringValue": "d"
+                },
+                "c1": {
+                  "stringValue": "d"
+                },
+                "d6": {
+                  "stringValue": "l"
+                },
+                "f6": {
+                  "stringValue": "l"
+                },
+                "c7": {
+                  "stringValue": "l"
+                },
+                "a7": {
+                  "stringValue": "l"
+                },
+                "a5": {
+                  "stringValue": ""
+                },
+                "f8": {
+                  "stringValue": "l"
+                },
+                "c3": {
+                  "stringValue": ""
+                },
+                "b6": {
+                  "stringValue": ""
+                },
+                "g3": {
+                  "stringValue": "d"
+                },
+                "c5": {
+                  "stringValue": ""
+                },
+                "b2": {
+                  "stringValue": "d"
+                },
+                "b8": {
+                  "stringValue": "l"
+                },
+                "g5": {
+                  "stringValue": ""
+                },
+                "h2": {
+                  "stringValue": "d"
+                },
+                "d4": {
+                  "stringValue": "l"
+                },
+                "a3": {
+                  "stringValue": "d"
+                },
+                "d8": {
+                  "stringValue": "l"
+                },
+                "h4": {
+                  "stringValue": ""
+                },
+                "h8": {
+                  "stringValue": "l"
+                },
+                "f2": {
+                  "stringValue": "d"
+                },
+                "g7": {
+                  "stringValue": "l"
+                },
+                "d2": {
+                  "stringValue": "d"
+                }
+              }
+            }
+          },
+          "guest": {
+            "stringValue": "qE088HYTF7fqC72tqkgFxu9UNu13"
+          },
+          "prevBoard": {
+            "mapValue": {
+              "fields": {
+                "e1": {
+                  "stringValue": "d"
+                },
+                "e5": {
+                  "stringValue": ""
+                },
+                "a1": {
+                  "stringValue": "d"
+                },
+                "g1": {
+                  "stringValue": "d"
+                },
+                "e3": {
+                  "stringValue": ""
+                },
+                "f4": {
+                  "stringValue": ""
+                },
+                "e7": {
+                  "stringValue": "l"
+                },
+                "h6": {
+                  "stringValue": "l"
+                },
+                "b4": {
+                  "stringValue": "d"
+                },
+                "f6": {
+                  "stringValue": "l"
+                },
+                "c7": {
+                  "stringValue": "l"
+                },
+                "a7": {
+                  "stringValue": "l"
+                },
+                "f8": {
+                  "stringValue": "l"
+                },
+                "a5": {
+                  "stringValue": ""
+                },
+                "c1": {
+                  "stringValue": "d"
+                },
+                "d6": {
+                  "stringValue": "l"
+                },
+                "b6": {
+                  "stringValue": ""
+                },
+                "g3": {
+                  "stringValue": "d"
+                },
+                "c3": {
+                  "stringValue": ""
+                },
+                "c5": {
+                  "stringValue": ""
+                },
+                "b2": {
+                  "stringValue": "d"
+                },
+                "b8": {
+                  "stringValue": "l"
+                },
+                "g5": {
+                  "stringValue": "d"
+                },
+                "h2": {
+                  "stringValue": "d"
+                },
+                "d8": {
+                  "stringValue": "l"
+                },
+                "h4": {
+                  "stringValue": ""
+                },
+                "h8": {
+                  "stringValue": "l"
+                },
+                "f2": {
+                  "stringValue": "d"
+                },
+                "g7": {
+                  "stringValue": "l"
+                },
+                "d4": {
+                  "stringValue": "l"
+                },
+                "a3": {
+                  "stringValue": "d"
+                },
+                "d2": {
+                  "stringValue": "d"
+                }
+              }
+            }
+          },
+          "host": {
+            "stringValue": "hNKqO5XiKKdksNReMFyXsIoKg792"
+          },
+          "currentTurn": {
+            "stringValue": "host"
+          },
+          "winner": {
+            "stringValue": ""
+          },
+          "createdAt": {
+            "timestampValue": "2026-11-24T16:30:00Z"
+          },
+          "moveCount": {
+            "integerValue": "6"
+          }
+        },
+        "createTime": "2026-11-25T23:15:59.915750Z",
+        "updateTime": "2026-11-25T23:15:59.915750Z"
+      },
+      "beforeDocument": {
+        "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/checkers/oracle-89219c79-0fe1-443a-904c-cf3643862fdc-capture-f4",
+        "fields": {
+          "prevBoard": {
+            "mapValue": {
+              "fields": {
+                "h8": {
+                  "stringValue": "l"
+                },
+                "h6": {
+                  "stringValue": "l"
+                },
+                "d2": {
+                  "stringValue": "d"
+                },
+                "a3": {
+                  "stringValue": "d"
+                },
+                "d6": {
+                  "stringValue": "l"
+                },
+                "h4": {
+                  "stringValue": ""
+                },
+                "b4": {
+                  "stringValue": "d"
+                },
+                "g3": {
+                  "stringValue": "d"
+                },
+                "e5": {
+                  "stringValue": ""
+                },
+                "d8": {
+                  "stringValue": "l"
+                },
+                "f8": {
+                  "stringValue": "l"
+                },
+                "b6": {
+                  "stringValue": ""
+                },
+                "g5": {
+                  "stringValue": "d"
+                },
+                "a5": {
+                  "stringValue": ""
+                },
+                "e3": {
+                  "stringValue": ""
+                },
+                "c7": {
+                  "stringValue": "l"
+                },
+                "g1": {
+                  "stringValue": "d"
+                },
+                "a7": {
+                  "stringValue": "l"
+                },
+                "f2": {
+                  "stringValue": "d"
+                },
+                "c3": {
+                  "stringValue": ""
+                },
+                "d4": {
+                  "stringValue": "l"
+                },
+                "f6": {
+                  "stringValue": "l"
+                },
+                "e1": {
+                  "stringValue": "d"
+                },
+                "g7": {
+                  "stringValue": "l"
+                },
+                "b8": {
+                  "stringValue": "l"
+                },
+                "a1": {
+                  "stringValue": "d"
+                },
+                "h2": {
+                  "stringValue": "d"
+                },
+                "c1": {
+                  "stringValue": "d"
+                },
+                "c5": {
+                  "stringValue": ""
+                },
+                "e7": {
+                  "stringValue": "l"
+                },
+                "f4": {
+                  "stringValue": ""
+                },
+                "b2": {
+                  "stringValue": "d"
+                }
+              }
+            }
+          },
+          "currentTurn": {
+            "stringValue": "host"
+          },
+          "moveCount": {
+            "integerValue": "6"
+          },
+          "host": {
+            "stringValue": "hNKqO5XiKKdksNReMFyXsIoKg792"
+          },
+          "board": {
+            "mapValue": {
+              "fields": {
+                "a5": {
+                  "stringValue": ""
+                },
+                "g5": {
+                  "stringValue": ""
+                },
+                "b6": {
+                  "stringValue": ""
+                },
+                "a7": {
+                  "stringValue": "l"
+                },
+                "g1": {
+                  "stringValue": "d"
+                },
+                "c7": {
+                  "stringValue": "l"
+                },
+                "e3": {
+                  "stringValue": ""
+                },
+                "b4": {
+                  "stringValue": "d"
+                },
+                "h4": {
+                  "stringValue": ""
+                },
+                "d6": {
+                  "stringValue": "l"
+                },
+                "a3": {
+                  "stringValue": "d"
+                },
+                "h8": {
+                  "stringValue": "l"
+                },
+                "h6": {
+                  "stringValue": ""
+                },
+                "d2": {
+                  "stringValue": "d"
+                },
+                "f8": {
+                  "stringValue": "l"
+                },
+                "d8": {
+                  "stringValue": "l"
+                },
+                "e5": {
+                  "stringValue": ""
+                },
+                "g3": {
+                  "stringValue": "d"
+                },
+                "c1": {
+                  "stringValue": "d"
+                },
+                "c5": {
+                  "stringValue": ""
+                },
+                "b2": {
+                  "stringValue": "d"
+                },
+                "e7": {
+                  "stringValue": "l"
+                },
+                "f4": {
+                  "stringValue": "l"
+                },
+                "e1": {
+                  "stringValue": "d"
+                },
+                "f6": {
+                  "stringValue": "l"
+                },
+                "c3": {
+                  "stringValue": ""
+                },
+                "d4": {
+                  "stringValue": "l"
+                },
+                "f2": {
+                  "stringValue": "d"
+                },
+                "h2": {
+                  "stringValue": "d"
+                },
+                "b8": {
+                  "stringValue": "l"
+                },
+                "a1": {
+                  "stringValue": "d"
+                },
+                "g7": {
+                  "stringValue": "l"
+                }
+              }
+            }
+          },
+          "winner": {
+            "stringValue": ""
+          },
+          "lastMove": {
+            "mapValue": {
+              "fields": {
+                "captures": {
+                  "arrayValue": {
+                    "values": [
+                      {
+                        "stringValue": "g5"
+                      }
+                    ]
+                  }
+                },
+                "path": {
+                  "arrayValue": {
+                    "values": [
+                      {
+                        "stringValue": "h6"
+                      },
+                      {
+                        "stringValue": "f4"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "createdAt": {
+            "timestampValue": "2026-11-24T16:30:00Z"
+          },
+          "status": {
+            "stringValue": "playing"
+          },
+          "guest": {
+            "stringValue": "qE088HYTF7fqC72tqkgFxu9UNu13"
+          }
+        },
+        "createTime": "2026-11-25T23:15:59.915750Z",
+        "updateTime": "2026-11-25T23:15:59.915750Z"
+      },
+      "beforeVersion": "2026-11-25T23:15:59.915750Z",
+      "deploymentBefore": {
+        "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+        "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+        "rulesetName": "projects/digame-mas/rulesets/4fcad884-67cc-484a-9ea1-95c7e7220f85",
+        "rulesSha256": "59b6e23b4727912311ffd45dcba50d4bcb69fe9ed79c6627584e385c338e422b",
+        "lockRunId": "89219c79-0fe1-443a-904c-cf3643862fdc",
+        "lockVersion": "2026-11-25T23:15:07.077447Z",
+        "releaseUpdateTime": "2026-11-25T23:15:16.782101Z",
+        "verifiedAt": "2026-11-25T23:16:00.000Z",
+        "propagationReceiptSha256": "5c57289d215938c98b62ec666c11994516d31bf5cd76d4ed4f336796899d8a57",
+        "phase": "before"
+      },
+      "fixtureSha256": "1820caf39652008a50649b81cded3884ffb11877e404474bee22603161817acd",
+      "recipeSha256": "518f90de5967916eaaeeb9b7779936a0a7a5e863a1806965e92ae17d1fb6e33d",
+      "project": "digame-mas",
+      "database": "arcade-counter-261125-5cbab1e4",
+      "sdkVersion": "12.19.0",
+      "endpoint": "firestore.googleapis.com",
+      "attemptedAt": "2026-11-25T23:16:00.152Z",
+      "writeSubmitted": true,
+      "transactionRead": {
+        "host": "hNKqO5XiKKdksNReMFyXsIoKg792",
+        "guest": "qE088HYTF7fqC72tqkgFxu9UNu13",
+        "currentTurn": "host",
+        "status": "playing",
+        "winner": "",
+        "moveCount": 6,
+        "board": {
+          "b8": "l",
+          "d8": "l",
+          "f8": "l",
+          "h8": "l",
+          "a7": "l",
+          "c7": "l",
+          "e7": "l",
+          "g7": "l",
+          "b6": "",
+          "d6": "l",
+          "f6": "l",
+          "h6": "",
+          "a5": "",
+          "c5": "",
+          "e5": "",
+          "g5": "",
+          "b4": "d",
+          "d4": "l",
+          "f4": "l",
+          "h4": "",
+          "a3": "d",
+          "c3": "",
+          "e3": "",
+          "g3": "d",
+          "b2": "d",
+          "d2": "d",
+          "f2": "d",
+          "h2": "d",
+          "a1": "d",
+          "c1": "d",
+          "e1": "d",
+          "g1": "d"
+        },
+        "prevBoard": {
+          "b8": "l",
+          "d8": "l",
+          "f8": "l",
+          "h8": "l",
+          "a7": "l",
+          "c7": "l",
+          "e7": "l",
+          "g7": "l",
+          "b6": "",
+          "d6": "l",
+          "f6": "l",
+          "h6": "l",
+          "a5": "",
+          "c5": "",
+          "e5": "",
+          "g5": "d",
+          "b4": "d",
+          "d4": "l",
+          "f4": "",
+          "h4": "",
+          "a3": "d",
+          "c3": "",
+          "e3": "",
+          "g3": "d",
+          "b2": "d",
+          "d2": "d",
+          "f2": "d",
+          "h2": "d",
+          "a1": "d",
+          "c1": "d",
+          "e1": "d",
+          "g1": "d"
+        },
+        "lastMove": {
+          "path": [
+            "h6",
+            "f4"
+          ],
+          "captures": [
+            "g5"
+          ]
+        },
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1795537800,
+          "nanoseconds": 0
+        }
+      },
+      "decision": "ALLOW",
+      "code": "ok",
+      "stored": {
+        "data": {
+          "currentTurn": "guest",
+          "winner": "",
+          "guest": "qE088HYTF7fqC72tqkgFxu9UNu13",
+          "board": {
+            "a7": "l",
+            "c5": "",
+            "d2": "d",
+            "c7": "l",
+            "g3": "",
+            "h6": "",
+            "e5": "d",
+            "f8": "l",
+            "g5": "",
+            "g7": "l",
+            "f6": "l",
+            "f2": "d",
+            "e3": "",
+            "h4": "",
+            "h2": "d",
+            "b2": "d",
+            "h8": "l",
+            "d8": "l",
+            "c1": "d",
+            "b6": "",
+            "c3": "",
+            "b4": "d",
+            "d6": "l",
+            "f4": "",
+            "a1": "d",
+            "d4": "l",
+            "b8": "l",
+            "e1": "d",
+            "a5": "",
+            "a3": "d",
+            "g1": "d",
+            "e7": "l"
+          },
+          "host": "hNKqO5XiKKdksNReMFyXsIoKg792",
+          "moveCount": 7,
+          "lastMove": {
+            "path": [
+              "g3",
+              "e5"
+            ],
+            "captures": [
+              "f4"
+            ]
+          },
+          "prevBoard": {
+            "h8": "l",
+            "d8": "l",
+            "c1": "d",
+            "b6": "",
+            "g7": "l",
+            "f2": "d",
+            "e3": "",
+            "f6": "l",
+            "h4": "",
+            "b2": "d",
+            "h2": "d",
+            "g5": "",
+            "c5": "",
+            "d2": "d",
+            "a7": "l",
+            "g3": "d",
+            "c7": "l",
+            "e5": "",
+            "f8": "l",
+            "h6": "",
+            "e1": "d",
+            "d4": "l",
+            "b8": "l",
+            "g1": "d",
+            "a3": "d",
+            "e7": "l",
+            "a5": "",
+            "f4": "l",
+            "a1": "d",
+            "c3": "",
+            "d6": "l",
+            "b4": "d"
+          },
+          "status": "playing",
+          "createdAt": {
+            "type": "firestore/timestamp/1.0",
+            "seconds": 1795537800,
+            "nanoseconds": 0
+          }
+        },
+        "metadata": {
+          "fromCache": false,
+          "hasPendingWrites": false
+        }
+      },
+      "readAt": "2026-11-25T23:16:00.406Z",
+      "afterDocument": {
+        "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/checkers/oracle-89219c79-0fe1-443a-904c-cf3643862fdc-capture-f4",
+        "fields": {
+          "createdAt": {
+            "timestampValue": "2026-11-24T16:30:00Z"
+          },
+          "guest": {
+            "stringValue": "qE088HYTF7fqC72tqkgFxu9UNu13"
+          },
+          "board": {
+            "mapValue": {
+              "fields": {
+                "c7": {
+                  "stringValue": "l"
+                },
+                "b8": {
+                  "stringValue": "l"
+                },
+                "e7": {
+                  "stringValue": "l"
+                },
+                "a5": {
+                  "stringValue": ""
+                },
+                "d2": {
+                  "stringValue": "d"
+                },
+                "h4": {
+                  "stringValue": ""
+                },
+                "h8": {
+                  "stringValue": "l"
+                },
+                "c1": {
+                  "stringValue": "d"
+                },
+                "e1": {
+                  "stringValue": "d"
+                },
+                "b4": {
+                  "stringValue": "d"
+                },
+                "c3": {
+                  "stringValue": ""
+                },
+                "e5": {
+                  "stringValue": "d"
+                },
+                "f6": {
+                  "stringValue": "l"
+                },
+                "d8": {
+                  "stringValue": "l"
+                },
+                "a1": {
+                  "stringValue": "d"
+                },
+                "d4": {
+                  "stringValue": "l"
+                },
+                "f4": {
+                  "stringValue": ""
+                },
+                "g1": {
+                  "stringValue": "d"
+                },
+                "g5": {
+                  "stringValue": ""
+                },
+                "a3": {
+                  "stringValue": "d"
+                },
+                "g7": {
+                  "stringValue": "l"
+                },
+                "b6": {
+                  "stringValue": ""
+                },
+                "g3": {
+                  "stringValue": ""
+                },
+                "h2": {
+                  "stringValue": "d"
+                },
+                "f2": {
+                  "stringValue": "d"
+                },
+                "e3": {
+                  "stringValue": ""
+                },
+                "a7": {
+                  "stringValue": "l"
+                },
+                "h6": {
+                  "stringValue": ""
+                },
+                "f8": {
+                  "stringValue": "l"
+                },
+                "c5": {
+                  "stringValue": ""
+                },
+                "b2": {
+                  "stringValue": "d"
+                },
+                "d6": {
+                  "stringValue": "l"
+                }
+              }
+            }
+          },
+          "prevBoard": {
+            "mapValue": {
+              "fields": {
+                "c1": {
+                  "stringValue": "d"
+                },
+                "h8": {
+                  "stringValue": "l"
+                },
+                "h4": {
+                  "stringValue": ""
+                },
+                "e7": {
+                  "stringValue": "l"
+                },
+                "a5": {
+                  "stringValue": ""
+                },
+                "d2": {
+                  "stringValue": "d"
+                },
+                "b8": {
+                  "stringValue": "l"
+                },
+                "c7": {
+                  "stringValue": "l"
+                },
+                "f4": {
+                  "stringValue": "l"
+                },
+                "d4": {
+                  "stringValue": "l"
+                },
+                "d8": {
+                  "stringValue": "l"
+                },
+                "a1": {
+                  "stringValue": "d"
+                },
+                "c3": {
+                  "stringValue": ""
+                },
+                "e5": {
+                  "stringValue": ""
+                },
+                "b4": {
+                  "stringValue": "d"
+                },
+                "f6": {
+                  "stringValue": "l"
+                },
+                "e1": {
+                  "stringValue": "d"
+                },
+                "g3": {
+                  "stringValue": "d"
+                },
+                "b6": {
+                  "stringValue": ""
+                },
+                "g7": {
+                  "stringValue": "l"
+                },
+                "g5": {
+                  "stringValue": ""
+                },
+                "a3": {
+                  "stringValue": "d"
+                },
+                "g1": {
+                  "stringValue": "d"
+                },
+                "b2": {
+                  "stringValue": "d"
+                },
+                "d6": {
+                  "stringValue": "l"
+                },
+                "c5": {
+                  "stringValue": ""
+                },
+                "f8": {
+                  "stringValue": "l"
+                },
+                "h6": {
+                  "stringValue": ""
+                },
+                "e3": {
+                  "stringValue": ""
+                },
+                "a7": {
+                  "stringValue": "l"
+                },
+                "h2": {
+                  "stringValue": "d"
+                },
+                "f2": {
+                  "stringValue": "d"
+                }
+              }
+            }
+          },
+          "winner": {
+            "stringValue": ""
+          },
+          "host": {
+            "stringValue": "hNKqO5XiKKdksNReMFyXsIoKg792"
+          },
+          "status": {
+            "stringValue": "playing"
+          },
+          "lastMove": {
+            "mapValue": {
+              "fields": {
+                "captures": {
+                  "arrayValue": {
+                    "values": [
+                      {
+                        "stringValue": "f4"
+                      }
+                    ]
+                  }
+                },
+                "path": {
+                  "arrayValue": {
+                    "values": [
+                      {
+                        "stringValue": "g3"
+                      },
+                      {
+                        "stringValue": "e5"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "moveCount": {
+            "integerValue": "7"
+          },
+          "currentTurn": {
+            "stringValue": "guest"
+          }
+        },
+        "createTime": "2026-11-25T23:15:59.915750Z",
+        "updateTime": "2026-11-25T23:16:00.201383Z"
+      },
+      "afterVersion": "2026-11-25T23:16:00.201383Z",
+      "deploymentAfter": {
+        "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+        "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+        "rulesetName": "projects/digame-mas/rulesets/4fcad884-67cc-484a-9ea1-95c7e7220f85",
+        "rulesSha256": "59b6e23b4727912311ffd45dcba50d4bcb69fe9ed79c6627584e385c338e422b",
+        "lockRunId": "89219c79-0fe1-443a-904c-cf3643862fdc",
+        "lockVersion": "2026-11-25T23:15:07.077447Z",
+        "releaseUpdateTime": "2026-11-25T23:15:16.782101Z",
+        "verifiedAt": "2026-11-25T23:16:00.747Z",
+        "propagationReceiptSha256": "5c57289d215938c98b62ec666c11994516d31bf5cd76d4ed4f336796899d8a57",
+        "phase": "after"
+      }
+    },
+    "capture-d4": {
+      "runId": "89219c79-0fe1-443a-904c-cf3643862fdc",
+      "caseId": "capture-d4",
+      "operation": "transaction-update",
+      "path": "checkers/oracle-89219c79-0fe1-443a-904c-cf3643862fdc-capture-d4",
+      "actor": {
+        "uid": "hNKqO5XiKKdksNReMFyXsIoKg792",
+        "audience": "digame-mas",
+        "issuer": "https://securetoken.google.com/digame-mas",
+        "provider": "anonymous"
+      },
+      "reader": {
+        "uid": "qE088HYTF7fqC72tqkgFxu9UNu13",
+        "audience": "digame-mas",
+        "issuer": "https://securetoken.google.com/digame-mas",
+        "provider": "anonymous"
+      },
+      "expected": "DENY",
+      "before": {
+        "data": {
+          "winner": "",
+          "board": {
+            "g3": "d",
+            "c7": "l",
+            "h6": "",
+            "f8": "l",
+            "e5": "",
+            "a7": "l",
+            "c5": "",
+            "d2": "d",
+            "g5": "",
+            "h4": "",
+            "h2": "d",
+            "b2": "d",
+            "g7": "l",
+            "f6": "l",
+            "f2": "d",
+            "e3": "",
+            "c1": "d",
+            "b6": "",
+            "h8": "l",
+            "d8": "l",
+            "b4": "d",
+            "d6": "l",
+            "c3": "",
+            "a1": "d",
+            "f4": "l",
+            "a5": "",
+            "e7": "l",
+            "g1": "d",
+            "a3": "d",
+            "d4": "l",
+            "b8": "l",
+            "e1": "d"
+          },
+          "guest": "qE088HYTF7fqC72tqkgFxu9UNu13",
+          "currentTurn": "host",
+          "moveCount": 6,
+          "lastMove": {
+            "captures": [
+              "g5"
+            ],
+            "path": [
+              "h6",
+              "f4"
+            ]
+          },
+          "host": "hNKqO5XiKKdksNReMFyXsIoKg792",
+          "status": "playing",
+          "prevBoard": {
+            "d4": "l",
+            "b8": "l",
+            "e1": "d",
+            "a5": "",
+            "e7": "l",
+            "g1": "d",
+            "a3": "d",
+            "a1": "d",
+            "f4": "",
+            "c3": "",
+            "b4": "d",
+            "d6": "l",
+            "d8": "l",
+            "h8": "l",
+            "b6": "",
+            "c1": "d",
+            "f6": "l",
+            "e3": "",
+            "f2": "d",
+            "g7": "l",
+            "h2": "d",
+            "b2": "d",
+            "h4": "",
+            "g5": "d",
+            "a7": "l",
+            "c5": "",
+            "d2": "d",
+            "h6": "l",
+            "f8": "l",
+            "e5": "",
+            "g3": "d",
+            "c7": "l"
+          },
+          "createdAt": {
+            "type": "firestore/timestamp/1.0",
+            "seconds": 1795537800,
+            "nanoseconds": 0
+          }
+        },
+        "metadata": {
+          "fromCache": false,
+          "hasPendingWrites": false
+        }
+      },
+      "proposal": {
+        "board": {
+          "b8": "l",
+          "d8": "l",
+          "f8": "l",
+          "h8": "l",
+          "a7": "l",
+          "c7": "l",
+          "e7": "l",
+          "g7": "l",
+          "b6": "",
+          "d6": "l",
+          "f6": "l",
+          "h6": "",
+          "a5": "",
+          "c5": "",
+          "e5": "d",
+          "g5": "",
+          "b4": "d",
+          "d4": "",
+          "f4": "l",
+          "h4": "",
+          "a3": "d",
+          "c3": "",
+          "e3": "",
+          "g3": "",
+          "b2": "d",
+          "d2": "d",
+          "f2": "d",
+          "h2": "d",
+          "a1": "d",
+          "c1": "d",
+          "e1": "d",
+          "g1": "d"
+        },
+        "prevBoard": {
+          "b8": "l",
+          "d8": "l",
+          "f8": "l",
+          "h8": "l",
+          "a7": "l",
+          "c7": "l",
+          "e7": "l",
+          "g7": "l",
+          "b6": "",
+          "d6": "l",
+          "f6": "l",
+          "h6": "",
+          "a5": "",
+          "c5": "",
+          "e5": "",
+          "g5": "",
+          "b4": "d",
+          "d4": "l",
+          "f4": "l",
+          "h4": "",
+          "a3": "d",
+          "c3": "",
+          "e3": "",
+          "g3": "d",
+          "b2": "d",
+          "d2": "d",
+          "f2": "d",
+          "h2": "d",
+          "a1": "d",
+          "c1": "d",
+          "e1": "d",
+          "g1": "d"
+        },
+        "lastMove": {
+          "path": [
+            "g3",
+            "e5"
+          ],
+          "captures": [
+            "d4"
+          ]
+        },
+        "currentTurn": "guest",
+        "moveCount": 7,
+        "status": "playing",
+        "winner": ""
+      },
+      "seedDocument": {
+        "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/checkers/oracle-89219c79-0fe1-443a-904c-cf3643862fdc-capture-d4",
+        "fields": {
+          "prevBoard": {
+            "mapValue": {
+              "fields": {
+                "c7": {
+                  "stringValue": "l"
+                },
+                "g7": {
+                  "stringValue": "l"
+                },
+                "b4": {
+                  "stringValue": "d"
+                },
+                "h4": {
+                  "stringValue": ""
+                },
+                "d2": {
+                  "stringValue": "d"
+                },
+                "a7": {
+                  "stringValue": "l"
+                },
+                "c5": {
+                  "stringValue": ""
+                },
+                "c3": {
+                  "stringValue": ""
+                },
+                "g3": {
+                  "stringValue": "d"
+                },
+                "e1": {
+                  "stringValue": "d"
+                },
+                "d6": {
+                  "stringValue": "l"
+                },
+                "g1": {
+                  "stringValue": "d"
+                },
+                "a1": {
+                  "stringValue": "d"
+                },
+                "g5": {
+                  "stringValue": "d"
+                },
+                "f2": {
+                  "stringValue": "d"
+                },
+                "a3": {
+                  "stringValue": "d"
+                },
+                "e5": {
+                  "stringValue": ""
+                },
+                "b6": {
+                  "stringValue": ""
+                },
+                "d8": {
+                  "stringValue": "l"
+                },
+                "e3": {
+                  "stringValue": ""
+                },
+                "a5": {
+                  "stringValue": ""
+                },
+                "d4": {
+                  "stringValue": "l"
+                },
+                "f4": {
+                  "stringValue": ""
+                },
+                "f8": {
+                  "stringValue": "l"
+                },
+                "b8": {
+                  "stringValue": "l"
+                },
+                "h6": {
+                  "stringValue": "l"
+                },
+                "f6": {
+                  "stringValue": "l"
+                },
+                "h8": {
+                  "stringValue": "l"
+                },
+                "e7": {
+                  "stringValue": "l"
+                },
+                "b2": {
+                  "stringValue": "d"
+                },
+                "c1": {
+                  "stringValue": "d"
+                },
+                "h2": {
+                  "stringValue": "d"
+                }
+              }
+            }
+          },
+          "createdAt": {
+            "timestampValue": "2026-11-24T16:30:00Z"
+          },
+          "status": {
+            "stringValue": "playing"
+          },
+          "currentTurn": {
+            "stringValue": "host"
+          },
+          "moveCount": {
+            "integerValue": "6"
+          },
+          "host": {
+            "stringValue": "hNKqO5XiKKdksNReMFyXsIoKg792"
+          },
+          "guest": {
+            "stringValue": "qE088HYTF7fqC72tqkgFxu9UNu13"
+          },
+          "winner": {
+            "stringValue": ""
+          },
+          "board": {
+            "mapValue": {
+              "fields": {
+                "d8": {
+                  "stringValue": "l"
+                },
+                "b6": {
+                  "stringValue": ""
+                },
+                "a5": {
+                  "stringValue": ""
+                },
+                "e3": {
+                  "stringValue": ""
+                },
+                "d4": {
+                  "stringValue": "l"
+                },
+                "f4": {
+                  "stringValue": "l"
+                },
+                "f8": {
+                  "stringValue": "l"
+                },
+                "h6": {
+                  "stringValue": ""
+                },
+                "b8": {
+                  "stringValue": "l"
+                },
+                "f6": {
+                  "stringValue": "l"
+                },
+                "h8": {
+                  "stringValue": "l"
+                },
+                "e7": {
+                  "stringValue": "l"
+                },
+                "h2": {
+                  "stringValue": "d"
+                },
+                "b2": {
+                  "stringValue": "d"
+                },
+                "c1": {
+                  "stringValue": "d"
+                },
+                "g7": {
+                  "stringValue": "l"
+                },
+                "c7": {
+                  "stringValue": "l"
+                },
+                "d2": {
+                  "stringValue": "d"
+                },
+                "a7": {
+                  "stringValue": "l"
+                },
+                "b4": {
+                  "stringValue": "d"
+                },
+                "h4": {
+                  "stringValue": ""
+                },
+                "c3": {
+                  "stringValue": ""
+                },
+                "c5": {
+                  "stringValue": ""
+                },
+                "e1": {
+                  "stringValue": "d"
+                },
+                "g3": {
+                  "stringValue": "d"
+                },
+                "a3": {
+                  "stringValue": "d"
+                },
+                "f2": {
+                  "stringValue": "d"
+                },
+                "g5": {
+                  "stringValue": ""
+                },
+                "a1": {
+                  "stringValue": "d"
+                },
+                "g1": {
+                  "stringValue": "d"
+                },
+                "d6": {
+                  "stringValue": "l"
+                },
+                "e5": {
+                  "stringValue": ""
+                }
+              }
+            }
+          },
+          "lastMove": {
+            "mapValue": {
+              "fields": {
+                "captures": {
+                  "arrayValue": {
+                    "values": [
+                      {
+                        "stringValue": "g5"
+                      }
+                    ]
+                  }
+                },
+                "path": {
+                  "arrayValue": {
+                    "values": [
+                      {
+                        "stringValue": "h6"
+                      },
+                      {
+                        "stringValue": "f4"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "createTime": "2026-11-25T23:16:01.069667Z",
+        "updateTime": "2026-11-25T23:16:01.069667Z"
+      },
+      "beforeDocument": {
+        "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/checkers/oracle-89219c79-0fe1-443a-904c-cf3643862fdc-capture-d4",
+        "fields": {
+          "currentTurn": {
+            "stringValue": "host"
+          },
+          "createdAt": {
+            "timestampValue": "2026-11-24T16:30:00Z"
+          },
+          "status": {
+            "stringValue": "playing"
+          },
+          "host": {
+            "stringValue": "hNKqO5XiKKdksNReMFyXsIoKg792"
+          },
+          "guest": {
+            "stringValue": "qE088HYTF7fqC72tqkgFxu9UNu13"
+          },
+          "winner": {
+            "stringValue": ""
+          },
+          "lastMove": {
+            "mapValue": {
+              "fields": {
+                "captures": {
+                  "arrayValue": {
+                    "values": [
+                      {
+                        "stringValue": "g5"
+                      }
+                    ]
+                  }
+                },
+                "path": {
+                  "arrayValue": {
+                    "values": [
+                      {
+                        "stringValue": "h6"
+                      },
+                      {
+                        "stringValue": "f4"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "moveCount": {
+            "integerValue": "6"
+          },
+          "prevBoard": {
+            "mapValue": {
+              "fields": {
+                "d8": {
+                  "stringValue": "l"
+                },
+                "f8": {
+                  "stringValue": "l"
+                },
+                "e5": {
+                  "stringValue": ""
+                },
+                "e1": {
+                  "stringValue": "d"
+                },
+                "a5": {
+                  "stringValue": ""
+                },
+                "d4": {
+                  "stringValue": "l"
+                },
+                "a3": {
+                  "stringValue": "d"
+                },
+                "e7": {
+                  "stringValue": "l"
+                },
+                "g7": {
+                  "stringValue": "l"
+                },
+                "b4": {
+                  "stringValue": "d"
+                },
+                "h4": {
+                  "stringValue": ""
+                },
+                "g5": {
+                  "stringValue": "d"
+                },
+                "g3": {
+                  "stringValue": "d"
+                },
+                "f4": {
+                  "stringValue": ""
+                },
+                "c5": {
+                  "stringValue": ""
+                },
+                "a1": {
+                  "stringValue": "d"
+                },
+                "a7": {
+                  "stringValue": "l"
+                },
+                "h2": {
+                  "stringValue": "d"
+                },
+                "e3": {
+                  "stringValue": ""
+                },
+                "c3": {
+                  "stringValue": ""
+                },
+                "b2": {
+                  "stringValue": "d"
+                },
+                "h6": {
+                  "stringValue": "l"
+                },
+                "h8": {
+                  "stringValue": "l"
+                },
+                "c1": {
+                  "stringValue": "d"
+                },
+                "d2": {
+                  "stringValue": "d"
+                },
+                "c7": {
+                  "stringValue": "l"
+                },
+                "b8": {
+                  "stringValue": "l"
+                },
+                "d6": {
+                  "stringValue": "l"
+                },
+                "f2": {
+                  "stringValue": "d"
+                },
+                "f6": {
+                  "stringValue": "l"
+                },
+                "b6": {
+                  "stringValue": ""
+                },
+                "g1": {
+                  "stringValue": "d"
+                }
+              }
+            }
+          },
+          "board": {
+            "mapValue": {
+              "fields": {
+                "b2": {
+                  "stringValue": "d"
+                },
+                "c3": {
+                  "stringValue": ""
+                },
+                "h2": {
+                  "stringValue": "d"
+                },
+                "e3": {
+                  "stringValue": ""
+                },
+                "a7": {
+                  "stringValue": "l"
+                },
+                "a1": {
+                  "stringValue": "d"
+                },
+                "c5": {
+                  "stringValue": ""
+                },
+                "f4": {
+                  "stringValue": "l"
+                },
+                "g3": {
+                  "stringValue": "d"
+                },
+                "g5": {
+                  "stringValue": ""
+                },
+                "h4": {
+                  "stringValue": ""
+                },
+                "b4": {
+                  "stringValue": "d"
+                },
+                "g7": {
+                  "stringValue": "l"
+                },
+                "e7": {
+                  "stringValue": "l"
+                },
+                "a3": {
+                  "stringValue": "d"
+                },
+                "d4": {
+                  "stringValue": "l"
+                },
+                "a5": {
+                  "stringValue": ""
+                },
+                "e1": {
+                  "stringValue": "d"
+                },
+                "f8": {
+                  "stringValue": "l"
+                },
+                "e5": {
+                  "stringValue": ""
+                },
+                "d8": {
+                  "stringValue": "l"
+                },
+                "g1": {
+                  "stringValue": "d"
+                },
+                "b6": {
+                  "stringValue": ""
+                },
+                "f6": {
+                  "stringValue": "l"
+                },
+                "f2": {
+                  "stringValue": "d"
+                },
+                "d6": {
+                  "stringValue": "l"
+                },
+                "b8": {
+                  "stringValue": "l"
+                },
+                "c7": {
+                  "stringValue": "l"
+                },
+                "d2": {
+                  "stringValue": "d"
+                },
+                "c1": {
+                  "stringValue": "d"
+                },
+                "h8": {
+                  "stringValue": "l"
+                },
+                "h6": {
+                  "stringValue": ""
+                }
+              }
+            }
+          }
+        },
+        "createTime": "2026-11-25T23:16:01.069667Z",
+        "updateTime": "2026-11-25T23:16:01.069667Z"
+      },
+      "beforeVersion": "2026-11-25T23:16:01.069667Z",
+      "deploymentBefore": {
+        "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+        "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+        "rulesetName": "projects/digame-mas/rulesets/4fcad884-67cc-484a-9ea1-95c7e7220f85",
+        "rulesSha256": "59b6e23b4727912311ffd45dcba50d4bcb69fe9ed79c6627584e385c338e422b",
+        "lockRunId": "89219c79-0fe1-443a-904c-cf3643862fdc",
+        "lockVersion": "2026-11-25T23:15:07.077447Z",
+        "releaseUpdateTime": "2026-11-25T23:15:16.782101Z",
+        "verifiedAt": "2026-11-25T23:16:01.140Z",
+        "propagationReceiptSha256": "5c57289d215938c98b62ec666c11994516d31bf5cd76d4ed4f336796899d8a57",
+        "phase": "before"
+      },
+      "fixtureSha256": "1820caf39652008a50649b81cded3884ffb11877e404474bee22603161817acd",
+      "recipeSha256": "518f90de5967916eaaeeb9b7779936a0a7a5e863a1806965e92ae17d1fb6e33d",
+      "project": "digame-mas",
+      "database": "arcade-counter-261125-5cbab1e4",
+      "sdkVersion": "12.19.0",
+      "endpoint": "firestore.googleapis.com",
+      "attemptedAt": "2026-11-25T23:16:01.323Z",
+      "writeSubmitted": true,
+      "transactionRead": {
+        "host": "hNKqO5XiKKdksNReMFyXsIoKg792",
+        "guest": "qE088HYTF7fqC72tqkgFxu9UNu13",
+        "currentTurn": "host",
+        "status": "playing",
+        "winner": "",
+        "moveCount": 6,
+        "board": {
+          "b8": "l",
+          "d8": "l",
+          "f8": "l",
+          "h8": "l",
+          "a7": "l",
+          "c7": "l",
+          "e7": "l",
+          "g7": "l",
+          "b6": "",
+          "d6": "l",
+          "f6": "l",
+          "h6": "",
+          "a5": "",
+          "c5": "",
+          "e5": "",
+          "g5": "",
+          "b4": "d",
+          "d4": "l",
+          "f4": "l",
+          "h4": "",
+          "a3": "d",
+          "c3": "",
+          "e3": "",
+          "g3": "d",
+          "b2": "d",
+          "d2": "d",
+          "f2": "d",
+          "h2": "d",
+          "a1": "d",
+          "c1": "d",
+          "e1": "d",
+          "g1": "d"
+        },
+        "prevBoard": {
+          "b8": "l",
+          "d8": "l",
+          "f8": "l",
+          "h8": "l",
+          "a7": "l",
+          "c7": "l",
+          "e7": "l",
+          "g7": "l",
+          "b6": "",
+          "d6": "l",
+          "f6": "l",
+          "h6": "l",
+          "a5": "",
+          "c5": "",
+          "e5": "",
+          "g5": "d",
+          "b4": "d",
+          "d4": "l",
+          "f4": "",
+          "h4": "",
+          "a3": "d",
+          "c3": "",
+          "e3": "",
+          "g3": "d",
+          "b2": "d",
+          "d2": "d",
+          "f2": "d",
+          "h2": "d",
+          "a1": "d",
+          "c1": "d",
+          "e1": "d",
+          "g1": "d"
+        },
+        "lastMove": {
+          "path": [
+            "h6",
+            "f4"
+          ],
+          "captures": [
+            "g5"
+          ]
+        },
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1795537800,
+          "nanoseconds": 0
+        }
+      },
+      "code": "permission-denied",
+      "decision": "DENY",
+      "stored": {
+        "data": {
+          "winner": "",
+          "board": {
+            "g3": "d",
+            "c7": "l",
+            "h6": "",
+            "f8": "l",
+            "e5": "",
+            "a7": "l",
+            "c5": "",
+            "d2": "d",
+            "g5": "",
+            "h4": "",
+            "h2": "d",
+            "b2": "d",
+            "g7": "l",
+            "f6": "l",
+            "f2": "d",
+            "e3": "",
+            "c1": "d",
+            "b6": "",
+            "h8": "l",
+            "d8": "l",
+            "b4": "d",
+            "d6": "l",
+            "c3": "",
+            "a1": "d",
+            "f4": "l",
+            "a5": "",
+            "e7": "l",
+            "g1": "d",
+            "a3": "d",
+            "d4": "l",
+            "b8": "l",
+            "e1": "d"
+          },
+          "guest": "qE088HYTF7fqC72tqkgFxu9UNu13",
+          "currentTurn": "host",
+          "moveCount": 6,
+          "lastMove": {
+            "captures": [
+              "g5"
+            ],
+            "path": [
+              "h6",
+              "f4"
+            ]
+          },
+          "host": "hNKqO5XiKKdksNReMFyXsIoKg792",
+          "status": "playing",
+          "prevBoard": {
+            "d4": "l",
+            "b8": "l",
+            "e1": "d",
+            "a5": "",
+            "e7": "l",
+            "g1": "d",
+            "a3": "d",
+            "a1": "d",
+            "f4": "",
+            "c3": "",
+            "b4": "d",
+            "d6": "l",
+            "d8": "l",
+            "h8": "l",
+            "b6": "",
+            "c1": "d",
+            "f6": "l",
+            "e3": "",
+            "f2": "d",
+            "g7": "l",
+            "h2": "d",
+            "b2": "d",
+            "h4": "",
+            "g5": "d",
+            "a7": "l",
+            "c5": "",
+            "d2": "d",
+            "h6": "l",
+            "f8": "l",
+            "e5": "",
+            "g3": "d",
+            "c7": "l"
+          },
+          "createdAt": {
+            "type": "firestore/timestamp/1.0",
+            "seconds": 1795537800,
+            "nanoseconds": 0
+          }
+        },
+        "metadata": {
+          "fromCache": false,
+          "hasPendingWrites": false
+        }
+      },
+      "readAt": "2026-11-25T23:16:01.468Z",
+      "afterDocument": {
+        "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/checkers/oracle-89219c79-0fe1-443a-904c-cf3643862fdc-capture-d4",
+        "fields": {
+          "guest": {
+            "stringValue": "qE088HYTF7fqC72tqkgFxu9UNu13"
+          },
+          "status": {
+            "stringValue": "playing"
+          },
+          "createdAt": {
+            "timestampValue": "2026-11-24T16:30:00Z"
+          },
+          "lastMove": {
+            "mapValue": {
+              "fields": {
+                "path": {
+                  "arrayValue": {
+                    "values": [
+                      {
+                        "stringValue": "h6"
+                      },
+                      {
+                        "stringValue": "f4"
+                      }
+                    ]
+                  }
+                },
+                "captures": {
+                  "arrayValue": {
+                    "values": [
+                      {
+                        "stringValue": "g5"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "currentTurn": {
+            "stringValue": "host"
+          },
+          "host": {
+            "stringValue": "hNKqO5XiKKdksNReMFyXsIoKg792"
+          },
+          "winner": {
+            "stringValue": ""
+          },
+          "moveCount": {
+            "integerValue": "6"
+          },
+          "board": {
+            "mapValue": {
+              "fields": {
+                "a3": {
+                  "stringValue": "d"
+                },
+                "h6": {
+                  "stringValue": ""
+                },
+                "d2": {
+                  "stringValue": "d"
+                },
+                "h8": {
+                  "stringValue": "l"
+                },
+                "b4": {
+                  "stringValue": "d"
+                },
+                "h4": {
+                  "stringValue": ""
+                },
+                "d6": {
+                  "stringValue": "l"
+                },
+                "e5": {
+                  "stringValue": ""
+                },
+                "g3": {
+                  "stringValue": "d"
+                },
+                "d8": {
+                  "stringValue": "l"
+                },
+                "f8": {
+                  "stringValue": "l"
+                },
+                "b6": {
+                  "stringValue": ""
+                },
+                "a5": {
+                  "stringValue": ""
+                },
+                "g5": {
+                  "stringValue": ""
+                },
+                "c7": {
+                  "stringValue": "l"
+                },
+                "e3": {
+                  "stringValue": ""
+                },
+                "a7": {
+                  "stringValue": "l"
+                },
+                "g1": {
+                  "stringValue": "d"
+                },
+                "f2": {
+                  "stringValue": "d"
+                },
+                "f6": {
+                  "stringValue": "l"
+                },
+                "e1": {
+                  "stringValue": "d"
+                },
+                "d4": {
+                  "stringValue": "l"
+                },
+                "c3": {
+                  "stringValue": ""
+                },
+                "g7": {
+                  "stringValue": "l"
+                },
+                "h2": {
+                  "stringValue": "d"
+                },
+                "a1": {
+                  "stringValue": "d"
+                },
+                "b8": {
+                  "stringValue": "l"
+                },
+                "c5": {
+                  "stringValue": ""
+                },
+                "c1": {
+                  "stringValue": "d"
+                },
+                "f4": {
+                  "stringValue": "l"
+                },
+                "e7": {
+                  "stringValue": "l"
+                },
+                "b2": {
+                  "stringValue": "d"
+                }
+              }
+            }
+          },
+          "prevBoard": {
+            "mapValue": {
+              "fields": {
+                "c1": {
+                  "stringValue": "d"
+                },
+                "c5": {
+                  "stringValue": ""
+                },
+                "e7": {
+                  "stringValue": "l"
+                },
+                "f4": {
+                  "stringValue": ""
+                },
+                "b2": {
+                  "stringValue": "d"
+                },
+                "f2": {
+                  "stringValue": "d"
+                },
+                "c3": {
+                  "stringValue": ""
+                },
+                "d4": {
+                  "stringValue": "l"
+                },
+                "e1": {
+                  "stringValue": "d"
+                },
+                "f6": {
+                  "stringValue": "l"
+                },
+                "g7": {
+                  "stringValue": "l"
+                },
+                "b8": {
+                  "stringValue": "l"
+                },
+                "a1": {
+                  "stringValue": "d"
+                },
+                "h2": {
+                  "stringValue": "d"
+                },
+                "b6": {
+                  "stringValue": ""
+                },
+                "a5": {
+                  "stringValue": ""
+                },
+                "g5": {
+                  "stringValue": "d"
+                },
+                "c7": {
+                  "stringValue": "l"
+                },
+                "e3": {
+                  "stringValue": ""
+                },
+                "g1": {
+                  "stringValue": "d"
+                },
+                "a7": {
+                  "stringValue": "l"
+                },
+                "h8": {
+                  "stringValue": "l"
+                },
+                "d2": {
+                  "stringValue": "d"
+                },
+                "h6": {
+                  "stringValue": "l"
+                },
+                "a3": {
+                  "stringValue": "d"
+                },
+                "d6": {
+                  "stringValue": "l"
+                },
+                "h4": {
+                  "stringValue": ""
+                },
+                "b4": {
+                  "stringValue": "d"
+                },
+                "e5": {
+                  "stringValue": ""
+                },
+                "g3": {
+                  "stringValue": "d"
+                },
+                "f8": {
+                  "stringValue": "l"
+                },
+                "d8": {
+                  "stringValue": "l"
+                }
+              }
+            }
+          }
+        },
+        "createTime": "2026-11-25T23:16:01.069667Z",
+        "updateTime": "2026-11-25T23:16:01.069667Z"
+      },
+      "afterVersion": "2026-11-25T23:16:01.069667Z",
+      "deploymentAfter": {
+        "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+        "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+        "rulesetName": "projects/digame-mas/rulesets/4fcad884-67cc-484a-9ea1-95c7e7220f85",
+        "rulesSha256": "59b6e23b4727912311ffd45dcba50d4bcb69fe9ed79c6627584e385c338e422b",
+        "lockRunId": "89219c79-0fe1-443a-904c-cf3643862fdc",
+        "lockVersion": "2026-11-25T23:15:07.077447Z",
+        "releaseUpdateTime": "2026-11-25T23:15:16.782101Z",
+        "verifiedAt": "2026-11-25T23:16:01.830Z",
+        "propagationReceiptSha256": "5c57289d215938c98b62ec666c11994516d31bf5cd76d4ed4f336796899d8a57",
+        "phase": "after"
+      }
+    }
+  }
+}
