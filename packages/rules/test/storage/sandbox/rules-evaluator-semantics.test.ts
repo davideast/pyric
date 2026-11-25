@@ -9,6 +9,10 @@ import {
   probePath,
   requestResourceRules,
 } from '../../../../conformance/src/storage-request-resource-probes.ts';
+import {
+  updateMetadataMethodOracleTarget,
+  updateMetadataMethodPaths,
+} from '../../../../conformance/probes/storage/storage-updatemetadata-request-method.ts';
 
 // Storage evaluator semantics that production and the Firestore engine
 // share: unknown methods are absorbable errors, a coarse request binds each
@@ -32,6 +36,42 @@ function overwriteVerdicts(): Record<string, 'ALLOW' | 'DENY'> {
     import.meta.dir, '..', '..', '..', '..', 'conformance', 'observations', 'storage-rules', `${OBSERVATION_NAME}.json`,
   );
   return JSON.parse(readFileSync(file, 'utf8')).behavior.overwrite;
+}
+
+interface UpdateMethodVerdicts {
+  deniedControl: {
+    createClient: { verdict: 'ALLOW' | 'DENY' };
+    updateClient: { verdict: 'ALLOW' | 'DENY' };
+  };
+  sameObjectRequestMethod: {
+    whenMethodEqualsCreate: { verdict: 'ALLOW' | 'DENY' };
+    whenMethodEqualsUpdate: { verdict: 'ALLOW' | 'DENY' };
+  };
+  sameObjectGranularVerb: {
+    allowCreateVerb: { verdict: 'ALLOW' | 'DENY' };
+    allowUpdateVerb: { verdict: 'ALLOW' | 'DENY' };
+  };
+}
+
+/** Production's verdicts for metadata-only updates over a stored object (#1884). */
+function updateMetadataVerdicts(): UpdateMethodVerdicts {
+  const file = join(
+    import.meta.dir,
+    '..',
+    '..',
+    '..',
+    '..',
+    'conformance',
+    'observations',
+    'storage',
+    'storage-updatemetadata-request-method.json',
+  );
+  return (JSON.parse(readFileSync(file, 'utf8')) as { behavior: UpdateMethodVerdicts }).behavior;
+}
+
+function decisionOf(allowed: boolean): 'ALLOW' | 'DENY' {
+  if (allowed) return 'ALLOW';
+  return 'DENY';
 }
 
 function evaluate(verb: string, cond: string, method: StorageRequestMethod = 'get') {
@@ -147,9 +187,75 @@ service firebase.storage {
         },
         resource: { size: 5 },
       });
-      expect(r.allowed ? 'ALLOW' : 'DENY').toBe(overwriteVerdicts()[id]!);
+      expect(decisionOf(r.allowed)).toBe(overwriteVerdicts()[id]);
     },
   );
+
+  // `storage-updatemetadata-request-method` deploys these rules to a real bucket
+  // and runs metadata-only `updateMetadata` over a seeded 5-byte object (#1884):
+  // production binds `update` (`whenMethodEqualsUpdate: ALLOW`, `whenMethodEqualsCreate: DENY`),
+  // while a coarse `write` with a payload over the same stored object binds `create`.
+  it('matches production updateMetadata verdicts on granular update and binds create on coarse write over the same stored object (#1884)', () => {
+    const uids = {
+      seedUid: 'pyric-seed-client',
+      updateMethodUid: 'pyric-update-method-client',
+      createMethodUid: 'pyric-create-method-client',
+    };
+    const runId = 'evaluator_1884';
+    const bucket = 'demo-pyric.appspot.com';
+    const paths = updateMetadataMethodPaths(runId);
+    const rules = parseStorageRules(
+      updateMetadataMethodOracleTarget(bucket, runId, uids).freshRules,
+    );
+    const captured = updateMetadataVerdicts();
+    const stored = { size: 5, contentType: 'text/plain', metadata: { stage: 'seed' } };
+    const incoming = { size: 5, contentType: 'text/plain', metadata: { stage: 'next' } };
+
+    const check = (method: StorageRequestMethod, objectPath: string, uid: string) =>
+      decisionOf(
+        evaluateStorageRules(rules, {
+          request: {
+            auth: { uid },
+            method,
+            path: `b/${bucket}/o/${objectPath}`,
+            resource: incoming,
+          },
+          resource: stored,
+        }).allowed,
+      );
+
+    expect(check('update', paths.deniedControlPath, uids.createMethodUid)).toBe(
+      captured.deniedControl.createClient.verdict,
+    );
+    expect(check('update', paths.deniedControlPath, uids.updateMethodUid)).toBe(
+      captured.deniedControl.updateClient.verdict,
+    );
+    expect(check('update', paths.targetPath, uids.createMethodUid)).toBe(
+      captured.sameObjectRequestMethod.whenMethodEqualsCreate.verdict,
+    );
+    expect(check('update', paths.targetPath, uids.updateMethodUid)).toBe(
+      captured.sameObjectRequestMethod.whenMethodEqualsUpdate.verdict,
+    );
+    expect(check('update', paths.granularPath, uids.createMethodUid)).toBe(
+      captured.sameObjectGranularVerb.allowCreateVerb.verdict,
+    );
+    expect(check('update', paths.granularPath, uids.updateMethodUid)).toBe(
+      captured.sameObjectGranularVerb.allowUpdateVerb.verdict,
+    );
+
+    expect(check('write', paths.targetPath, uids.updateMethodUid)).toBe(
+      overwriteVerdicts()['verb-update'],
+    );
+    expect(check('write', paths.targetPath, uids.createMethodUid)).toBe(
+      overwriteVerdicts()['verb-create'],
+    );
+    expect(check('write', paths.granularPath, uids.updateMethodUid)).toBe(
+      overwriteVerdicts()['verb-update'],
+    );
+    expect(check('write', paths.granularPath, uids.createMethodUid)).toBe(
+      overwriteVerdicts()['verb-create'],
+    );
+  });
 
   it('applies only the grants for the verb a coarse write binds', () => {
     const rules = rulesFor('delete', 'true');
