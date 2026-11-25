@@ -1,0 +1,64 @@
+{
+  "name": "rules-firestore-atomic-batch-sibling-merge",
+  "matrixRow": "firestore-rules#190",
+  "rowIds": [
+    "firestore-rules#190"
+  ],
+  "description": "An authenticated Web SDK batch against temporarily deployed production rules updates one field of a seeded companion document and creates a document whose rule reads both the updated field and an untouched pre-existing field through getAfter(). The same create alone is the DENY control, and a batch that updates both fields of a second companion is the ALLOW control. The hosted Rules Test API limitation is retained separately in diagnostics.",
+  "observedAt": "2026-11-19T17:57:37.010Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "72821aa8ab3c0cb8bfedd3c46587cdb6f82f38682e17215e909bc46a7deb7fdc"
+  },
+  "behavior": {
+    "getAfter reflects merged pre-existing fields alongside batch updates ALLOW": "ALLOW"
+  },
+  "diagnostics": {
+    "productionDatabase": {
+      "siblingMergeBatch": "ALLOW",
+      "siblingMergeSoloPrimary": "DENY",
+      "siblingMergeFullBatch": "ALLOW"
+    },
+    "hostedTestApiLimitation": {
+      "getAfter reflects merged pre-existing fields alongside batch updates ALLOW": {
+        "notes": [
+          "Error: firestore.rules line [6], column [24]. Function not found error: Name: [getAfter]."
+        ],
+        "api": {
+          "errorPosition": {
+            "fileName": "firestore.rules",
+            "line": 6,
+            "column": 24,
+            "currentOffset": 187,
+            "endOffset": 194
+          },
+          "functionCalls": [
+            {
+              "function": "getAfter",
+              "args": [
+                "/databases/%28default%29/documents/config/state"
+              ]
+            },
+            {
+              "function": "getAfter",
+              "args": [
+                "/databases/%28default%29/documents/config/state"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  "lifecycle": {
+    "originalRulesetName": "projects/digame-mas/rulesets/e6d4348c-24df-4dbd-9bb0-9b5a78a712cc",
+    "probeRulesetName": "projects/digame-mas/rulesets/decba9bd-b9cc-4c5e-914d-2feeaa0fc274",
+    "restoredOriginalRelease": true
+  },
+  "deployedRulesDigest": {
+    "algorithm": "sha256",
+    "value": "0e69fb6004183aff9d52a8efd6295ee026929d8505ef099a2bf061c98c0badeb"
+  }
+}

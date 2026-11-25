@@ -1,0 +1,32 @@
+{
+  "source": {
+    "repo": "https://github.com/davideast/satisfy.md",
+    "revision": "f8c555be49482ebb10f9a6a438270c7e83fa8d1f",
+    "path": "registry/satisfy/create-tally-slate.ts"
+  },
+  "cases": [
+    "strike-erase-propose-89",
+    "strike-erase-propose-90",
+    "erase-strike-propose-89",
+    "erase-strike-propose-90",
+    "erase-all-strike-propose-0",
+    "erase-all-strike-propose-1",
+    "strike-erase-all-propose-0",
+    "strike-erase-all-propose-1",
+    "400-strikes-propose-89",
+    "400-strikes-propose-90"
+  ],
+  "pins": {
+    "capture-native.mjs": "a85b3fd4a4b2ac75a9cf2a9cc057bf71748a3902131d4963b57973ddaa835fd0",
+    "fixtures/sources.json": "b7a373587bee1385bd0a0d2610e9ca1be363ed22c93b9abfa118d30fe9aa9963",
+    "fixtures/strike-turn.policy": "21991717b94b89615656d2e5442b5c6d6aec7323d7c21b1b43a6ed03688f0c35",
+    "fixtures/turns.json": "4743b093f1a78f786e7bc8ad33ab1bf1de6e0b16f7dd3ae00d2eac1a46f658bd",
+    "replay.mjs": "425249ec51e973040dd42c9b5ab851b2e92020708410884770a47ac037706b3b",
+    "@oracle/arcade/runtime/package.json": "b894cdd1e6ffdfc86391b037d3d43152d8f1b5d1c6180f9c89e18793aabc1471",
+    "@oracle/arcade/runtime/package-lock.json": "cece3476406a7e713047d21cf3c641d816fd38d1a55decd5006f96c20bb09e1d",
+    "@oracle/arcade/vendor/ohm-js-17.5.0.tgz": "233d11842ac70dff9d0a9db7dacb6d370d00073ea879d2ad4202d2ee2acabd61",
+    "@oracle/arcade/vendor/pyric-rules-0.1.0.tgz": "67087040f9e1206c54660563a27329d4b5db22102229af8f11b8ccb68ea87743",
+    "@oracle/arcade/vendor/zod-3.25.76.tgz": "9e1f1a05f0dd0c1dab64ee91ceb9bf55cd44d35368c70edda80a2fdc70a88377"
+  },
+  "replay": "replay.mjs"
+}

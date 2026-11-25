@@ -1,0 +1,32 @@
+{
+  "authority": "native-model",
+  "inputDigest": "717adcde53ac5dbee0247f4f103b615f09e2a4077ceb25234bc77f28c56a99f2",
+  "results": {
+    "strike-erase-propose-89": true,
+    "strike-erase-propose-90": false,
+    "erase-strike-propose-89": false,
+    "erase-strike-propose-90": true,
+    "erase-all-strike-propose-0": false,
+    "erase-all-strike-propose-1": true,
+    "strike-erase-all-propose-0": true,
+    "strike-erase-all-propose-1": false,
+    "400-strikes-propose-89": false,
+    "400-strikes-propose-90": true
+  },
+  "evidence": {
+    "path": "evidence/stock-model.json",
+    "sha256": "896a18fe2c196f064a2fc621920276fa944ef28f29c2a90db32557aa001bb206",
+    "pointers": {
+      "strike-erase-propose-89": "/results/strike-erase-propose-89",
+      "strike-erase-propose-90": "/results/strike-erase-propose-90",
+      "erase-strike-propose-89": "/results/erase-strike-propose-89",
+      "erase-strike-propose-90": "/results/erase-strike-propose-90",
+      "erase-all-strike-propose-0": "/results/erase-all-strike-propose-0",
+      "erase-all-strike-propose-1": "/results/erase-all-strike-propose-1",
+      "strike-erase-all-propose-0": "/results/strike-erase-all-propose-0",
+      "strike-erase-all-propose-1": "/results/strike-erase-all-propose-1",
+      "400-strikes-propose-89": "/results/400-strikes-propose-89",
+      "400-strikes-propose-90": "/results/400-strikes-propose-90"
+    }
+  }
+}

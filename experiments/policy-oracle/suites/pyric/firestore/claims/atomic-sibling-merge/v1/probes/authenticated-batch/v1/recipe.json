@@ -1,0 +1,29 @@
+{
+  "source": {
+    "repo": "davideast/pyric",
+    "revision": "a7ade6a700252908d1be93b19938a4b78ad0fe65",
+    "path": "packages/conformance/observations/firestore-rules/rules-firestore-atomic-batch-sibling-merge.json"
+  },
+  "cases": [
+    "solo-primary",
+    "partial-batch",
+    "full-batch"
+  ],
+  "pins": {
+    "replay.mjs": "6f916d9a4b6bf6b8a432ae33742c033174c32ef26894792d3ae488db3cb992e5",
+    "plan.json": "2031ed99638d72ca13ddd974ef9225c6b8df1b55865cc91ce0fcb83bf53f5210",
+    "firestore.rules": "4fae341db1e4bdd13112b25eefc81b5b657f4e8ae1dc830c2db05efdc79fbe53",
+    "@oracle/arcade/vendor/pyric-rules-0.1.0.tgz": "67087040f9e1206c54660563a27329d4b5db22102229af8f11b8ccb68ea87743",
+    "@oracle/arcade/vendor/ohm-js-17.5.0.tgz": "233d11842ac70dff9d0a9db7dacb6d370d00073ea879d2ad4202d2ee2acabd61",
+    "@oracle/arcade/vendor/zod-3.25.76.tgz": "9e1f1a05f0dd0c1dab64ee91ceb9bf55cd44d35368c70edda80a2fdc70a88377",
+    "@oracle/arcade/runtime/package.json": "b894cdd1e6ffdfc86391b037d3d43152d8f1b5d1c6180f9c89e18793aabc1471",
+    "@oracle/arcade/runtime/package-lock.json": "cece3476406a7e713047d21cf3c641d816fd38d1a55decd5006f96c20bb09e1d"
+  },
+  "replay": "replay.mjs",
+  "inputOrigins": {
+    "plan.json": "packages/conformance/src/firestore-real-sibling-merge.ts, siblingMergeProbePlan('local-replay')",
+    "firestore.rules": "packages/conformance/src/firestore-real-rules.ts, injectFirestoreProbeRules(BASE_RULES, 'local-replay') with BASE_RULES from packages/conformance/test/src/firestore-real-sibling-merge.test.ts"
+  },
+  "mutation": "Use the update payload alone as the shared post-write document, dropping any untouched sibling. Keep the requests, stored input and evaluator fixed.",
+  "scope": "Production comparisons use the three authenticated SDK decisions in diagnostics.productionDatabase. The hosted Rules Test API diagnostic records its inability to evaluate getAfter(). The deployed source hash identifies the capture. The replay reconstructs the full injected block under a synthetic run ID and empty base ruleset."
+}

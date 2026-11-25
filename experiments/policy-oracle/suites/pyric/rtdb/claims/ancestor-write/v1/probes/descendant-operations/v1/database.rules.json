@@ -1,0 +1,16 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "r63-ancestor-write-data-newdata": {
+      "msgs": {
+        "$m": {
+          ".write": "auth != null && (!data.exists() ? newData.child('speaker').child('uid').val() == auth.uid : data.child('speaker').child('uid').val() == auth.uid)",
+          "content": {
+            ".write": "auth != null && data.parent().child('speaker/uid').val() == auth.uid"
+          }
+        }
+      }
+    }
+  }
+}

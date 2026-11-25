@@ -1,0 +1,59 @@
+{
+  "provenance": {
+    "repo": "https://github.com/davideast/satisfy.md",
+    "revision": "f8c555be49482ebb10f9a6a438270c7e83fa8d1f",
+    "entryPoint": "playground/src/demos/tally-slate/moves.ts",
+    "runtime": "Bun 1.4.5",
+    "dependencies": {
+      "zod": "4.6.7"
+    }
+  },
+  "transcripts": {
+    "strike-then-erase-at-cap": {
+      "accepted": true,
+      "moveCount": 2,
+      "tally": 89
+    },
+    "erase-then-strike-at-cap": {
+      "accepted": true,
+      "moveCount": 2,
+      "tally": 90
+    },
+    "erase-all-then-strike": {
+      "accepted": true,
+      "moveCount": 2,
+      "tally": 1
+    },
+    "strike-then-erase-all": {
+      "accepted": true,
+      "moveCount": 2,
+      "tally": 0
+    },
+    "400-strikes": {
+      "accepted": true,
+      "moveCount": 400,
+      "tally": 90
+    },
+    "401-strikes": {
+      "accepted": false,
+      "issues": [
+        {
+          "path": "moves",
+          "message": "Too big: expected array to have <=400 items"
+        }
+      ]
+    }
+  },
+  "results": {
+    "strike-erase-propose-89": true,
+    "strike-erase-propose-90": false,
+    "erase-strike-propose-89": false,
+    "erase-strike-propose-90": true,
+    "erase-all-strike-propose-0": false,
+    "erase-all-strike-propose-1": true,
+    "strike-erase-all-propose-0": true,
+    "strike-erase-all-propose-1": false,
+    "400-strikes-propose-89": false,
+    "400-strikes-propose-90": true
+  }
+}

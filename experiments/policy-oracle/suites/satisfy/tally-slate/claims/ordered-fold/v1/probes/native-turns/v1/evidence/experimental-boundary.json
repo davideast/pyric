@@ -1,0 +1,11 @@
+{
+  "400-strikes": {
+    "ok": true
+  },
+  "401-strikes": {
+    "ok": false,
+    "requirement": "tallyMatches",
+    "location": "8:3",
+    "reason": "Collection exceeds declared limit 400"
+  }
+}

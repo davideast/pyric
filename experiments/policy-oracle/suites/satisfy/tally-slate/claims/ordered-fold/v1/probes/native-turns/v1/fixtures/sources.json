@@ -1,0 +1,33 @@
+{
+  "native": {
+    "repo": "https://github.com/davideast/satisfy.md",
+    "revision": "f8c555be49482ebb10f9a6a438270c7e83fa8d1f",
+    "path": "registry/satisfy/create-tally-slate.ts",
+    "turnParser": "playground/src/demos/tally-slate/moves.ts",
+    "parserZod": "4.6.7",
+    "files": {
+      "registry/satisfy/create-tally-slate.ts": "ff7fa3c098b4e5284fc0c4b78377a004291ec21245802882a90e56e3aa68e779",
+      "playground/src/demos/tally-slate/moves.ts": "37ce8c357308206d27d593547499a244c408a0fa7fc13aaecafcb4657b0d2ae8",
+      "registry/satisfy/tally-slate-audio.ts": "82f49825edae2955e42cd7af5ca01d9588b1ac0603fc35cfe9c05abc939ba1d0",
+      "registry/satisfy/lib/physics.ts": "1cc554b64a3ba4a672fb3e86b7a790640416a92e57938a1fc2de244ff97e763d",
+      "registry/satisfy/lib/theme.ts": "91df37a41757141fa1d8931ed6bd12ed79aef58574d08ef690cf81f7a1764299",
+      "registry/satisfy/lib/sound.ts": "48041ab4966b558b723f7a2f184da48847adae027ab734800c53a6c9ab9eb17e",
+      "registry/satisfy/lib/synth.ts": "969a48b12b7b43b420eacb8c08bee9ccc885926267f7423aeca6fa47b0d78b37",
+      "registry/satisfy/lib/audio-unlock.ts": "95bab2455c860152f099dadcbfecdecd64202b8e34381d22b021e6a67cf4e64e",
+      "playground/src/agent-play/catalog.ts": "c0b3ad1573b0b82b3bb4a8aac0781668309482b8e9b451f36feadc32b94052d4",
+      "playground/src/agent-play/shapes.ts": "7f903acc7a3a77e366efb8129e45e8cd9df3b0b9cba4adc6ebed304f9a4506ad",
+      "rules/agent-play-limits.ts": "1e3f66c9b807d58cdf53999b35a12b220e682ab87665dee38febb16b7d8ddb8e",
+      "package-lock.json": "8c9092ef4f2e55b546e05fc25602555bbe6cc4f0169c1d01177db49991253f8a"
+    }
+  },
+  "policy": {
+    "repo": "https://github.com/davideast/satisfy.md",
+    "revision": "10ee7ffe4264cb5960a8bb21ffb99fbe675e157e",
+    "path": "rules/strike-turn.policy",
+    "compilerOptionsSource": "rules/strike-policy.ts",
+    "compilerOptionsSha256": "5c42485bdffd91ed88d914981bd77aa4277a4f5bc89c7f41ec51ba3fc137a605",
+    "expressionLimit": 16384,
+    "compilerRepo": "https://github.com/davideast/pyric",
+    "compilerRevision": "d386b3596a6cc0288dfdd14f18996059d6bce60d"
+  }
+}

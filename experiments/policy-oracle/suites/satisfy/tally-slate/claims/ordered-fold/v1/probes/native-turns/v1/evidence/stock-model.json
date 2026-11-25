@@ -1,0 +1,336 @@
+{
+  "provenance": {
+    "repo": "https://github.com/davideast/satisfy.md",
+    "revision": "f8c555be49482ebb10f9a6a438270c7e83fa8d1f",
+    "entryPoint": "registry/satisfy/create-tally-slate.ts",
+    "runtime": "Bun 1.4.5"
+  },
+  "transcripts": {
+    "strike-then-erase-at-cap": {
+      "initialTally": 90,
+      "cap": 90,
+      "moveCount": 2,
+      "finalTally": 89,
+      "checkpoints": [
+        {
+          "tally": 90,
+          "events": [
+            {
+              "type": "full",
+              "value": 90,
+              "played": false
+            }
+          ]
+        },
+        {
+          "tally": 89,
+          "events": [
+            {
+              "type": "erase",
+              "value": 89,
+              "removed": 1,
+              "all": false,
+              "played": false
+            }
+          ]
+        }
+      ],
+      "proposals": {
+        "strike-erase-propose-89": 89,
+        "strike-erase-propose-90": 90
+      }
+    },
+    "erase-then-strike-at-cap": {
+      "initialTally": 90,
+      "cap": 90,
+      "moveCount": 2,
+      "finalTally": 90,
+      "checkpoints": [
+        {
+          "tally": 89,
+          "events": [
+            {
+              "type": "erase",
+              "value": 89,
+              "removed": 1,
+              "all": false,
+              "played": false
+            }
+          ]
+        },
+        {
+          "tally": 90,
+          "events": [
+            {
+              "type": "streak",
+              "value": 90,
+              "gate": 2,
+              "streakTotal": 18,
+              "strength": 0.65,
+              "played": false
+            },
+            {
+              "type": "block",
+              "value": 90,
+              "blockTotal": 6,
+              "strength": 0.65,
+              "played": false
+            }
+          ]
+        }
+      ],
+      "proposals": {
+        "erase-strike-propose-89": 89,
+        "erase-strike-propose-90": 90
+      }
+    },
+    "erase-all-then-strike": {
+      "initialTally": 73,
+      "cap": 90,
+      "moveCount": 2,
+      "finalTally": 1,
+      "checkpoints": [
+        {
+          "tally": 0,
+          "events": [
+            {
+              "type": "erase",
+              "value": 0,
+              "removed": 73,
+              "all": true,
+              "played": false
+            }
+          ]
+        },
+        {
+          "tally": 1,
+          "events": [
+            {
+              "type": "single",
+              "value": 1,
+              "gate": 0,
+              "slot": 0,
+              "strength": 0.65,
+              "played": false
+            }
+          ]
+        }
+      ],
+      "proposals": {
+        "erase-all-strike-propose-0": 0,
+        "erase-all-strike-propose-1": 1
+      }
+    },
+    "strike-then-erase-all": {
+      "initialTally": 73,
+      "cap": 90,
+      "moveCount": 2,
+      "finalTally": 0,
+      "checkpoints": [
+        {
+          "tally": 74,
+          "events": [
+            {
+              "type": "single",
+              "value": 74,
+              "gate": 2,
+              "slot": 3,
+              "strength": 0.65,
+              "played": false
+            }
+          ]
+        },
+        {
+          "tally": 0,
+          "events": [
+            {
+              "type": "erase",
+              "value": 0,
+              "removed": 74,
+              "all": true,
+              "played": false
+            }
+          ]
+        }
+      ],
+      "proposals": {
+        "strike-erase-all-propose-0": 0,
+        "strike-erase-all-propose-1": 1
+      }
+    },
+    "400-strikes": {
+      "initialTally": 0,
+      "cap": 90,
+      "moveCount": 400,
+      "finalTally": 90,
+      "checkpoints": [
+        {
+          "moveNumber": 1,
+          "tally": 1,
+          "events": [
+            {
+              "type": "single",
+              "value": 1,
+              "gate": 0,
+              "slot": 0,
+              "strength": 0.65,
+              "played": false
+            }
+          ]
+        },
+        {
+          "moveNumber": 89,
+          "tally": 89,
+          "events": [
+            {
+              "type": "single",
+              "value": 89,
+              "gate": 2,
+              "slot": 3,
+              "strength": 0.65,
+              "played": false
+            }
+          ]
+        },
+        {
+          "moveNumber": 90,
+          "tally": 90,
+          "events": [
+            {
+              "type": "streak",
+              "value": 90,
+              "gate": 2,
+              "streakTotal": 18,
+              "strength": 0.65,
+              "played": false
+            },
+            {
+              "type": "block",
+              "value": 90,
+              "blockTotal": 6,
+              "strength": 0.65,
+              "played": false
+            }
+          ]
+        },
+        {
+          "moveNumber": 91,
+          "tally": 90,
+          "events": [
+            {
+              "type": "full",
+              "value": 90,
+              "played": false
+            }
+          ]
+        },
+        {
+          "moveNumber": 400,
+          "tally": 90,
+          "events": [
+            {
+              "type": "full",
+              "value": 90,
+              "played": false
+            }
+          ]
+        }
+      ],
+      "proposals": {
+        "400-strikes-propose-89": 89,
+        "400-strikes-propose-90": 90
+      }
+    },
+    "401-strikes": {
+      "initialTally": 0,
+      "cap": 90,
+      "moveCount": 401,
+      "finalTally": 90,
+      "checkpoints": [
+        {
+          "moveNumber": 1,
+          "tally": 1,
+          "events": [
+            {
+              "type": "single",
+              "value": 1,
+              "gate": 0,
+              "slot": 0,
+              "strength": 0.65,
+              "played": false
+            }
+          ]
+        },
+        {
+          "moveNumber": 89,
+          "tally": 89,
+          "events": [
+            {
+              "type": "single",
+              "value": 89,
+              "gate": 2,
+              "slot": 3,
+              "strength": 0.65,
+              "played": false
+            }
+          ]
+        },
+        {
+          "moveNumber": 90,
+          "tally": 90,
+          "events": [
+            {
+              "type": "streak",
+              "value": 90,
+              "gate": 2,
+              "streakTotal": 18,
+              "strength": 0.65,
+              "played": false
+            },
+            {
+              "type": "block",
+              "value": 90,
+              "blockTotal": 6,
+              "strength": 0.65,
+              "played": false
+            }
+          ]
+        },
+        {
+          "moveNumber": 91,
+          "tally": 90,
+          "events": [
+            {
+              "type": "full",
+              "value": 90,
+              "played": false
+            }
+          ]
+        },
+        {
+          "moveNumber": 401,
+          "tally": 90,
+          "events": [
+            {
+              "type": "full",
+              "value": 90,
+              "played": false
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "results": {
+    "strike-erase-propose-89": true,
+    "strike-erase-propose-90": false,
+    "erase-strike-propose-89": false,
+    "erase-strike-propose-90": true,
+    "erase-all-strike-propose-0": false,
+    "erase-all-strike-propose-1": true,
+    "strike-erase-all-propose-0": true,
+    "strike-erase-all-propose-1": false,
+    "400-strikes-propose-89": false,
+    "400-strikes-propose-90": true
+  }
+}

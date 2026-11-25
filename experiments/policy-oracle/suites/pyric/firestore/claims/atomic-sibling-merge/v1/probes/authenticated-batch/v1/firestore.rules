@@ -1,0 +1,52 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /__pyric_firestore_cdd/local-replay/cases/{caseId} {
+      allow read, write: if request.auth != null
+        && caseId in ['retry', 'exhausted'];
+    }
+    match /__pyric_firestore_cdd/local-replay/browser/{document=**} {
+      allow read, write: if request.auth != null;
+    }
+    match /{path=**}/cdd_items_local-replay/{id} {
+      allow read, write: if request.auth != null;
+    }
+    match /__pyric_firestore_cdd/local-replay/users/{uid}/cdd_other_local-replay/{id} {
+      allow read, write: if request.auth != null;
+    }
+    match /__pyric_firestore_cdd/local-replay/rules_get_after/{caseId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && caseId == 'target_allow'
+        && getAfter(request.path).data.x == request.resource.data.x;
+      allow create: if request.auth != null
+        && caseId == 'exists_create'
+        && existsAfter(request.path);
+      allow delete: if request.auth != null
+        && caseId == 'exists_delete'
+        && !existsAfter(request.path);
+      allow create: if request.auth != null
+        && caseId == 'exists_unrelated'
+        && existsAfter(/databases/$(database)/documents/__pyric_firestore_cdd/local-replay/rules_get_after/companion);
+      allow create: if request.auth != null
+        && caseId == 'wrong_exists_create'
+        && !existsAfter(request.path);
+      allow create, update: if request.auth != null
+        && caseId == 'primary'
+        && getAfter(/databases/$(database)/documents/__pyric_firestore_cdd/local-replay/rules_get_after/companion).data.count
+          == get(/databases/$(database)/documents/__pyric_firestore_cdd/local-replay/rules_get_after/companion).data.count + 1;
+      allow create, update: if request.auth != null && caseId == 'companion';
+      allow create: if request.auth != null
+        && (caseId == 'sibling_merge_primary' || caseId == 'sibling_merge_solo')
+        && getAfter(/databases/$(database)/documents/__pyric_firestore_cdd/local-replay/rules_get_after/sibling_merge_companion).data.role == 'admin'
+        && getAfter(/databases/$(database)/documents/__pyric_firestore_cdd/local-replay/rules_get_after/sibling_merge_companion).data.modified == true;
+      allow create: if request.auth != null
+        && caseId == 'sibling_merge_full_primary'
+        && getAfter(/databases/$(database)/documents/__pyric_firestore_cdd/local-replay/rules_get_after/sibling_merge_full_companion).data.role == 'admin'
+        && getAfter(/databases/$(database)/documents/__pyric_firestore_cdd/local-replay/rules_get_after/sibling_merge_full_companion).data.modified == true;
+      allow update: if request.auth != null
+        && (caseId == 'sibling_merge_companion' || caseId == 'sibling_merge_full_companion');
+    }
+
+  }
+}

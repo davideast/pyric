@@ -1,0 +1,26 @@
+{
+  "authority": "rtdb-production",
+  "inputDigest": "7d51b6697236e8c10d7eb79b1231ac22a50d5af9289054977af216e2c5e063aa",
+  "results": {
+    "owner-deep-write": "ALLOW",
+    "nonowner-deep-write": "DENY",
+    "nonowner-speaker-change": "DENY",
+    "owner-leaf-delete": "ALLOW",
+    "owner-create": "ALLOW",
+    "deep-create": "DENY",
+    "multi-path-update": "DENY"
+  },
+  "evidence": {
+    "path": "receipt.json",
+    "sha256": "6cb0b7234df18fe58418cd028cb0e431641ad4e30133be1578c7c2bc1edd8c36",
+    "pointers": {
+      "owner-deep-write": "/behavior/owner deep-writes content (newData at $m is merged: speaker kept)",
+      "nonowner-deep-write": "/behavior/non-owner deep-writes content",
+      "nonowner-speaker-change": "/behavior/non-owner rewrites speaker~1uid to self (data at $m is pre-write)",
+      "owner-leaf-delete": "/behavior/owner leaf-deletes content text",
+      "owner-create": "/behavior/create with own speaker (data absent, newData merged)",
+      "deep-create": "/behavior/create deep content only under a new id (newData at $m lacks speaker)",
+      "multi-path-update": "/behavior/multi-path update touching m1~1content from ~1msgs"
+    }
+  }
+}

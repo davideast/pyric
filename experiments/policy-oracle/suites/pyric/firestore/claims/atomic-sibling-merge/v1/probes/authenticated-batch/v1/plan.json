@@ -1,0 +1,52 @@
+{
+  "seed": {
+    "__pyric_firestore_cdd/local-replay/rules_get_after/sibling_merge_companion": {
+      "role": "admin",
+      "modified": false
+    },
+    "__pyric_firestore_cdd/local-replay/rules_get_after/sibling_merge_full_companion": {
+      "role": "viewer",
+      "modified": false
+    }
+  },
+  "soloPrimary": {
+    "method": "set",
+    "path": "__pyric_firestore_cdd/local-replay/rules_get_after/sibling_merge_solo",
+    "data": {
+      "action": "update_config"
+    }
+  },
+  "batch": [
+    {
+      "method": "update",
+      "path": "__pyric_firestore_cdd/local-replay/rules_get_after/sibling_merge_companion",
+      "data": {
+        "modified": true
+      }
+    },
+    {
+      "method": "set",
+      "path": "__pyric_firestore_cdd/local-replay/rules_get_after/sibling_merge_primary",
+      "data": {
+        "action": "update_config"
+      }
+    }
+  ],
+  "fullBatch": [
+    {
+      "method": "update",
+      "path": "__pyric_firestore_cdd/local-replay/rules_get_after/sibling_merge_full_companion",
+      "data": {
+        "role": "admin",
+        "modified": true
+      }
+    },
+    {
+      "method": "set",
+      "path": "__pyric_firestore_cdd/local-replay/rules_get_after/sibling_merge_full_primary",
+      "data": {
+        "action": "update_config"
+      }
+    }
+  ]
+}

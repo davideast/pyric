@@ -1,0 +1,18 @@
+{
+  "authority": "firestore-sdk",
+  "inputDigest": "72ce36b9b1a5ea033c12afe1eb7c6d27cb8a54631bb691c5a21775d1208f9b62",
+  "results": {
+    "solo-primary": "DENY",
+    "partial-batch": "ALLOW",
+    "full-batch": "ALLOW"
+  },
+  "evidence": {
+    "path": "receipt.json",
+    "sha256": "6e9aad2dc111c93ed04d894c3a59319d83422b91c0b111a8f98544dd0bcf84b9",
+    "pointers": {
+      "solo-primary": "/diagnostics/productionDatabase/siblingMergeSoloPrimary",
+      "partial-batch": "/diagnostics/productionDatabase/siblingMergeBatch",
+      "full-batch": "/diagnostics/productionDatabase/siblingMergeFullBatch"
+    }
+  }
+}
