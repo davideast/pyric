@@ -6,8 +6,8 @@
     "storage-rules#99"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"auth-non-null-read-guard\" (STORAGE-AUTH-NON-NULL-READ). Pins that allow read: if request.auth != null under match /sessions/{id} grants signed-in get/list requests and denies anonymous get/list requests.",
-  "observedAt": "2026-11-18T00:42:59.859Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:46:49.027Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

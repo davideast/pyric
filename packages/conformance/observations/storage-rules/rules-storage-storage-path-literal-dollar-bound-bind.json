@@ -5,8 +5,8 @@
     "storage-rules#225"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"storage-path-literal-dollar-bound-bind\" (Path literal bound $(x) interpolation with bind()). Pins whether (/a/$(x)).bind({'x': '1'}) substitutes the match wildcard x ('orig') at literal evaluation or rebinds $(x) to '1'.",
-  "observedAt": "2026-11-17T03:33:06.817Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:46:52.116Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

@@ -3,8 +3,8 @@
   "matrixRow": "",
   "rowIds": [],
   "description": "Storage Rules Test API verdicts for corpus scenario \"h1-lookup-float-interpolation\" (STORAGE-H1-LOOKUP-FLOAT). Whether $(expr) inside a Storage firestore.get() or firestore.exists() path accepts or refuses a float custom auth claim and a float Firestore document field (#1815).",
-  "observedAt": "2026-11-23T15:23:03.642Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:46:50.235Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

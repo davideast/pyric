@@ -5,8 +5,8 @@
     "storage-rules#221"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"st3-wildcard-shadows-global\" (ST3-WILDCARD-SHADOWS-GLOBAL). A path wildcard named request or resource shadows the global of the same name inside its block.",
-  "observedAt": "2026-11-16T06:12:09.756Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:46:51.541Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

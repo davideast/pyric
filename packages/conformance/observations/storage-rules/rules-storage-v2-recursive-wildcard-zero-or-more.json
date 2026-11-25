@@ -5,8 +5,8 @@
     "storage-rules#102"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"v2-recursive-wildcard-zero-or-more\" (STORAGE-V2-RECURSIVE-WILDCARD-ZERO-OR-MORE). Pins that rules_version 2 recursive wildcard {allPaths=**} matches zero, one, and multiple remaining path segments.",
-  "observedAt": "2026-11-18T00:43:03.721Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:46:52.767Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

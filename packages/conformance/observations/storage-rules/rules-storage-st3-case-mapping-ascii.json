@@ -5,8 +5,8 @@
     "storage-rules#220"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"st3-case-mapping-ascii\" (ST3-CASE-ASCII). lower() and upper() map the ASCII letters A-Z and a-z only; every other letter keeps its case.",
-  "observedAt": "2026-11-16T06:12:09.431Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:46:51.494Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

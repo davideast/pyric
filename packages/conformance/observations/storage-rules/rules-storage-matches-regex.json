@@ -5,8 +5,8 @@
     "storage-rules#113"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"matches-regex\" (STORAGE-MATCHES). string.matches() whole-string anchoring: a partial match denies. (RE2-inexpressible patterns are rejected at ruleset compile time by production, so they are covered by evaluator unit tests, not oracle capture.)",
-  "observedAt": "2026-10-30T09:18:55.758Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:46:50.732Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

@@ -5,8 +5,8 @@
     "storage-rules#119"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"ternary-and-error-absorption\" (Coverage: ternary ?:, error-in-condition, || absorption). Ternary must select by condition; an erroring condition denies even with identical branches; error || true absorbs to allow — mirrors captured Firestore engine truth.",
-  "observedAt": "2026-10-30T09:18:57.989Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:46:52.317Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
