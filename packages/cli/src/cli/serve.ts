@@ -12,10 +12,19 @@
  */
 import { randomBytes } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { join, relative, resolve } from 'node:path';
+import { relative } from 'node:path';
 import { existsSync } from 'node:fs';
 import type { ParsedArgs } from './parse-args.js';
-import { readFirebaseJson, readFirebaseRc, withDefaultFirestoreRules, type FirebaseJson } from './firebase-json.js';
+import {
+  extractHosting,
+  hostingNoStaticSiteLine,
+  readFirebaseJson,
+  readFirebaseRc,
+  resolveHostingSite,
+  wantsSpaRewrite,
+  withDefaultFirestoreRules,
+  type FirebaseJson,
+} from './firebase-json.js';
 import { resolveFirebaseProject, type FirebaseProjectResolution } from './firebase-project.js';
 import { bundleSdk, bundleWorker, defaultSdkEntries, planProjectFirebase, resolveSiteUiDir } from '../serve/bundler.js';
 import {
@@ -133,37 +142,8 @@ import {
   resolvePlannedChildAppOrigin,
 } from './child-app-origin.js';
 import { formatPyricCommand } from './command-hint.js';
-import { missingPublicDirHint } from './public-dir-hint.js';
 
-interface HostingConfig {
-  public?: string;
-  rewrites?: Array<{ source?: string; destination?: string }>;
-}
-
-/** Extract the single hosting config `pyric sandbox` supports. Arrays
- *  (multi-site) take the first entry with a warning — multi-site is out of
- *  scope (plan section 6). */
-export function extractHosting(config: FirebaseJson | null): HostingConfig | null {
-  const h = config?.hosting;
-  if (!h || typeof h !== 'object') return null;
-  if (Array.isArray(h)) return (h[0] as HostingConfig) ?? null;
-  return h as HostingConfig;
-}
-
-/** The directory `hosting.public` names, or `null` when there is no `hosting`
- *  block: production has no Hosting site then, so pyric serves no static
- *  files (#1779). A block without `public` uses production's default,
- *  `public`. */
-function hostingPublicDir(cwd: string, hosting: HostingConfig | null): string | null {
-  if (hosting === null) return null;
-  return resolve(cwd, hosting.public ?? 'public');
-}
-
-/** The startup line for a project that serves no static site. */
-function hostingOffLine(hasFirebaseJson: boolean): string {
-  if (!hasFirebaseJson) return '• hosting  Off: no firebase.json. Add one with hosting.public to serve a site.';
-  return '• hosting  Off: firebase.json has no hosting block. Add hosting.public to serve a site.';
-}
+export { extractHosting, wantsSpaRewrite };
 
 /**
  * The startup line for Storage buckets firebase.json deploys no rules to. A
@@ -182,17 +162,10 @@ export function undeployedStorageLine(hasNoStorageRules: boolean, policy: 'allow
     : '• rules    any other Storage bucket denies every client operation until firebase.json deploys rules to it';
 }
 
-/** firebase.json's SPA idiom: a `**` rewrite to /index.html. */
-export function wantsSpaRewrite(hosting: HostingConfig | null): boolean {
-  return (hosting?.rewrites ?? []).some(
-    (r) => r.source === '**' && r.destination === '/index.html',
-  );
-}
-
 
 export interface ServeRuntime {
   handle: ServeHandle;
-  /** `hosting.public`, resolved; `null` when firebase.json has no `hosting` block. */
+  /** `hosting.public`, resolved; `null` when no `hosting.public` directory is configured. */
   publicDir: string | null;
   payload: () => InitPayload;
   /** HTTP MCP endpoint when `--bridge` is on; null otherwise. */
@@ -422,14 +395,11 @@ async function startServeRuntime(opts: {
   const hostingConfig = config?.hosting;
   const hasMultipleHostingSites = Array.isArray(hostingConfig) && hostingConfig.length > 1;
   if (hasMultipleHostingSites) {
-    logger.note('  ⚠ multiple hosting sites configured. pyric sandbox serves the first entry only');
+    logger.note('  \u26a0 multiple hosting sites configured. pyric sandbox serves the first entry only');
   }
-  const publicDir = hostingPublicDir(opts.cwd, hosting);
-  const isPublicDirectoryMissing = publicDir !== null && !existsSync(publicDir);
-  if (isPublicDirectoryMissing) {
-    const hint = missingPublicDirHint(publicDir, { cwd: opts.cwd, hosted: opts.hosted === true });
-    throw new Error(`pyric sandbox: hosting.public directory does not exist: ${publicDir}${hint}`);
-  }
+  const hostingSite = resolveHostingSite(opts.cwd, hosting, { hosted: opts.hosted === true });
+  const publicDir = hostingSite.publicDir;
+  const publicDirLabel = hostingSite.publicLabel ?? 'hosting.public';
 
   // The import map can only remap BARE `firebase/*` specifiers. A plain bundler
   // build (`vite build`) inlines the real SDK into the app chunk, leaving
@@ -443,7 +413,7 @@ async function startServeRuntime(opts: {
   if (needsSdkScan) {
     const scanWarnings: string[] = [];
     const inlined = scanForInlinedFirebase(publicDir, {
-      publicDirLabel: hosting?.public ?? 'public',
+      publicDirLabel,
       onWarning: (line) => {
         scanWarnings.push(line);
       },
@@ -920,9 +890,9 @@ async function startServeRuntime(opts: {
   logger.info(`=== Serving from '${opts.cwd}'...`);
   logger.info('');
   if (publicDir === null) {
-    logger.info(hostingOffLine(hasFirebaseJson));
+    logger.info(hostingNoStaticSiteLine(hasFirebaseJson, hosting !== null));
   } else {
-    logger.info(`✔ hosting  Serving files from: ${hosting?.public ?? 'public'}`);
+    logger.info(`\u2714 hosting  Serving files from: ${publicDirLabel}`);
   }
   logger.info(`✔ hosting  Local server: ${handle.url}`);
   const usedCachedBundle = bundle.cached;
