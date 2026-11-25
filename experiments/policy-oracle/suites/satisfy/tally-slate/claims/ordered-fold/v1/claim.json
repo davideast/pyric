@@ -1,0 +1,4 @@
+{
+  "description": "Tally Slate's strike and erase moves determine the final tally in sequence, including saturation at the cap and erase-all resets.",
+  "authority": "native-model"
+}

@@ -1,0 +1,20 @@
+use extension bounded;
+transition appendTallyMoves {
+  require headAdvances {
+    return before.head is int && before.head >= 0 && before.head <= 9007199254740991
+      && after.head is int && after.head >= 0 && after.head <= 9007199254740991
+      && after.head == before.head + 1;
+  }
+  require tallyMatches {
+    let expected = bounded.fold(input.moves, before.tally, (value, m) =>
+      value == null ? null :
+      m.kind == 'strike' ? (value < 90 ? value + 1 : 90) :
+      m.kind == 'erase' ? (('all' in m && m.all) ? 0 : (value > 0 ? value - 1 : 0)) :
+      null, 400);
+    return before.tally is int && before.tally >= 0 && before.tally <= 90
+      && input.length > 0 && after.tally is int && after.tally == expected;
+  }
+  require sessionPreserved {
+    return before.fixed == after.fixed;
+  }
+}
