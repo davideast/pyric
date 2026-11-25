@@ -14,11 +14,13 @@
  * in place.
  */
 import type { Sandbox } from 'pyric/sandbox';
-import { getStorageSandbox } from 'pyric/storage';
+import { getStorageSandbox, type StorageOptions } from 'pyric/storage';
 import {
   deployStorageBucketRules,
   lockUndeployedStorageBuckets,
   replaceStorageRules,
+  setStorageDefaultPolicy,
+  type StorageDefaultPolicy,
 } from 'pyric/storage/internal';
 import type { InitPayload, PendingStorageTargetRules, RulesDestination } from './init-payload.js';
 
@@ -35,15 +37,13 @@ export interface StorageRulesUpdate {
   target?: string;
 }
 
-/** What a bucket with no rules deployed answers: `allow` in permissive mode, else `deny`. */
-export type StorageDefaultPolicy = 'allow' | 'deny';
-
 /** Each sandbox's default policy, kept for the notices of targets resolved after install. */
 const policyBySandbox = new WeakMap<Sandbox, StorageDefaultPolicy>();
 
 /** What a bucket with no rules does under `policy`, as a notice says it. */
 function undeployedBucketAccess(policy: StorageDefaultPolicy | undefined): string {
-  return policy === 'allow' ? 'are open (permissive mode)' : 'are locked';
+  if (policy === 'allow') return 'are open (permissive mode)';
+  return 'are locked';
 }
 
 /** A pending deploy target's rules, and the buckets it deploys to once resolved. */
@@ -67,11 +67,19 @@ export function installServedStorageRules(
   sandbox: Sandbox,
   payload: Pick<InitPayload, 'storageRules' | 'storageBucketRules' | 'storagePendingTargets' | 'projectKey' | 'permissive'>,
 ): string[] {
-  getStorageSandbox(sandbox, {
-    ...(payload.storageRules ? { rules: payload.storageRules } : {}),
-    ...(payload.projectKey ? { projectId: payload.projectKey } : {}),
-  });
-  const policy: StorageDefaultPolicy = payload.permissive === true ? 'allow' : 'deny';
+  let policy: StorageDefaultPolicy = 'deny';
+  if (payload.permissive === true) {
+    policy = 'allow';
+  }
+  const storageOptions: StorageOptions = {};
+  if (payload.storageRules) {
+    storageOptions.rules = payload.storageRules;
+  }
+  if (payload.projectKey) {
+    storageOptions.projectId = payload.projectKey;
+  }
+  getStorageSandbox(sandbox, storageOptions);
+  void setStorageDefaultPolicy(sandbox, policy);
   policyBySandbox.set(sandbox, policy);
   lockUndeployedStorageBuckets(sandbox, policy);
   for (const [bucket, deployed] of Object.entries(payload.storageBucketRules ?? {})) {
