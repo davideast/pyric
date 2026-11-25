@@ -439,14 +439,16 @@ export function connectBridge(
       send({ type: 'worker-res', id: req.id, clientSessionId: req.clientSessionId, ok: true, value });
     } catch (err) {
       const denialContext = (err as { denialContext?: unknown }).denialContext;
+      const envelope = (err as { envelope?: unknown }).envelope;
+      const aiEnvelope = (err as { aiEnvelope?: unknown }).aiEnvelope;
       const isError = err instanceof Error;
       const error: NonNullable<WorkerResFrame['error']> = {
         code: (err as { code?: string }).code ?? 'unknown',
         message: isError ? err.message : String(err),
       };
-      // Structured denial context stays JSON-safe across the relay.
-      const hasDenialContext = denialContext !== undefined;
-      if (hasDenialContext) error.denialContext = denialContext;
+      if (denialContext !== undefined) error.denialContext = denialContext;
+      if (envelope !== undefined) error.envelope = envelope;
+      if (aiEnvelope !== undefined) error.aiEnvelope = aiEnvelope;
       send({
         type: 'worker-res',
         id: req.id,
@@ -492,13 +494,16 @@ export function connectBridge(
       // Synchronous establishment failure — relay it via the worker host's
       // snap-error convention so the far side's subscribe can reject.
       const denialContext = (err as { denialContext?: unknown }).denialContext;
+      const envelope = (err as { envelope?: unknown }).envelope;
+      const aiEnvelope = (err as { aiEnvelope?: unknown }).aiEnvelope;
       const isError = err instanceof Error;
       const error: NonNullable<WorkerResFrame['error']> = {
         code: (err as { code?: string }).code ?? 'unknown',
         message: isError ? err.message : String(err),
       };
-      const hasDenialContext = denialContext !== undefined;
-      if (hasDenialContext) error.denialContext = denialContext;
+      if (denialContext !== undefined) error.denialContext = denialContext;
+      if (envelope !== undefined) error.envelope = envelope;
+      if (aiEnvelope !== undefined) error.aiEnvelope = aiEnvelope;
       send({
         type: 'worker-snap',
         subId: req.subId,

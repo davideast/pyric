@@ -274,6 +274,160 @@ Map<String, dynamic> scriptedAiEngineWire() {
           'chunks': <String>['Parallel ', 'stream ', 'intact!'],
         },
       },
+      <String, dynamic>{
+        'match': 'FLUTTER_AI_ERR_INVALID_KEY_DETAIL',
+        'respond': <String, dynamic>{
+          'error': <String, dynamic>{
+            'code': 400,
+            'message': 'Request credential rejected.',
+            'status': 'INVALID_ARGUMENT',
+            'details': <Map<String, dynamic>>[
+              <String, dynamic>{
+                '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+                'reason': 'API_KEY_INVALID',
+                'domain': 'googleapis.com',
+              },
+            ],
+          },
+        },
+      },
+      <String, dynamic>{
+        'match': 'FLUTTER_AI_ERR_INVALID_KEY_MSG',
+        'respond': <String, dynamic>{
+          'error': <String, dynamic>{
+            'code': 400,
+            'message': 'API key not valid. Please pass a valid API key.',
+            'status': 'INVALID_ARGUMENT',
+          },
+        },
+      },
+      <String, dynamic>{
+        'match': 'FLUTTER_AI_ERR_DISABLED_DETAIL',
+        'respond': <String, dynamic>{
+          'error': <String, dynamic>{
+            'code': 403,
+            'message': 'Project service check failed.',
+            'status': 'PERMISSION_DENIED',
+            'details': <Map<String, dynamic>>[
+              <String, dynamic>{
+                '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+                'reason': 'SERVICE_DISABLED',
+                'domain': 'googleapis.com',
+              },
+            ],
+          },
+        },
+      },
+      <String, dynamic>{
+        'match': 'FLUTTER_AI_ERR_DISABLED_MSG',
+        'respond': <String, dynamic>{
+          'error': <String, dynamic>{
+            'code': 403,
+            'message': 'Firebase AI Logic API has not been used in project demo.',
+            'status': 'PERMISSION_DENIED',
+          },
+        },
+      },
+      <String, dynamic>{
+        'match': 'FLUTTER_AI_ERR_LOCATION_DETAIL',
+        'respond': <String, dynamic>{
+          'error': <String, dynamic>{
+            'code': 400,
+            'message': 'Precondition check failed.',
+            'status': 'FAILED_PRECONDITION',
+            'details': <Map<String, dynamic>>[
+              <String, dynamic>{
+                '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+                'reason': 'USER_LOCATION_NOT_SUPPORTED',
+                'domain': 'googleapis.com',
+              },
+            ],
+          },
+        },
+      },
+      <String, dynamic>{
+        'match': 'FLUTTER_AI_ERR_LOCATION_MSG',
+        'respond': <String, dynamic>{
+          'error': <String, dynamic>{
+            'code': 400,
+            'message': 'User location is not supported for the API use.',
+            'status': 'FAILED_PRECONDITION',
+          },
+        },
+      },
+      <String, dynamic>{
+        'match': 'FLUTTER_AI_ERR_DEADLINE_WIRE',
+        'respond': <String, dynamic>{
+          'error': <String, dynamic>{
+            'code': 504,
+            'message': 'Deadline expired before operation could complete.',
+            'status': 'DEADLINE_EXCEEDED',
+          },
+        },
+      },
+      <String, dynamic>{
+        'match': 'FLUTTER_AI_STREAM_ERR_LOCATION_DETAIL',
+        'respond': <String, dynamic>{
+          'error': <String, dynamic>{
+            'code': 400,
+            'message': 'Precondition check failed.',
+            'status': 'FAILED_PRECONDITION',
+            'details': <Map<String, dynamic>>[
+              <String, dynamic>{
+                '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+                'reason': 'USER_LOCATION_NOT_SUPPORTED',
+                'domain': 'googleapis.com',
+              },
+            ],
+          },
+        },
+      },
+      <String, dynamic>{
+        'match': 'FLUTTER_AI_STREAM_ERR_QUOTA',
+        'respond': <String, dynamic>{
+          'error': <String, dynamic>{
+            'code': 429,
+            'message': 'Stream quota exhausted for model gemini-2.5-flash.',
+            'status': 'RESOURCE_EXHAUSTED',
+          },
+        },
+      },
+      <String, dynamic>{
+        'match': 'FLUTTER_AI_STREAM_SAFETY_BLOCK',
+        'respond': <String, dynamic>{
+          'candidates': <Map<String, dynamic>>[
+            <String, dynamic>{
+              'index': 0,
+              'finishReason': 'SAFETY',
+              'finishMessage': 'Stream blocked by safety filter.',
+            },
+          ],
+        },
+      },
+      <String, dynamic>{
+        'match': 'FLUTTER_AI_STREAM_RECITATION_BLOCK',
+        'respond': <String, dynamic>{
+          'candidates': <Map<String, dynamic>>[
+            <String, dynamic>{
+              'index': 0,
+              'finishReason': 'RECITATION',
+              'finishMessage': 'Stream blocked due to recitation.',
+            },
+          ],
+        },
+      },
+      <String, dynamic>{
+        'match': 'FLUTTER_AI_APPCHECK_STREAM_STD',
+        'respond': <String, dynamic>{
+          'chunks': <String>['Standard ', 'stream ', 'verified.'],
+        },
+      },
+      <String, dynamic>{
+        'match': 'FLUTTER_AI_APPCHECK_STREAM_LIM',
+        'respond': <String, dynamic>{
+          'chunks': <String>['Limited ', 'stream ', 'verified.'],
+        },
+      },
     ],
   };
 }

@@ -288,12 +288,18 @@ function workerOpError(
   message: string,
   denialContext?: unknown,
   envelope?: unknown,
-): Error & { code: string; denialContext?: unknown; envelope?: unknown } {
-  return Object.assign(new Error(message), {
-    code,
-    ...(denialContext !== undefined ? { denialContext } : {}),
-    ...(envelope !== undefined ? { envelope } : {}),
-  });
+  aiEnvelope?: unknown,
+): Error & { code: string; denialContext?: unknown; envelope?: unknown; aiEnvelope?: unknown } {
+  const err: Error & {
+    code: string;
+    denialContext?: unknown;
+    envelope?: unknown;
+    aiEnvelope?: unknown;
+  } = Object.assign(new Error(message), { code });
+  if (denialContext !== undefined) err.denialContext = denialContext;
+  if (envelope !== undefined) err.envelope = envelope;
+  if (aiEnvelope !== undefined) err.aiEnvelope = aiEnvelope;
+  return err;
 }
 
 export function createBridge(opts: BridgeOptions): Bridge {
@@ -683,6 +689,7 @@ export function createBridge(opts: BridgeOptions): Bridge {
               res.error?.message ?? 'unknown sandbox error',
               res.error?.denialContext,
               res.error?.envelope,
+              res.error?.aiEnvelope,
             ),
           );
         }
