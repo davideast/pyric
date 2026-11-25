@@ -377,4 +377,116 @@ exports.second = onValueCreated({ ref: '/second/{id}', instance: 'second-rtdb' }
     });
     expect(await child.stop()).toBe(0);
   }, 15_000);
+
+  test('reports a delivery-error instead of an uncaught exception when the peer disconnects during sandbox.clock and keeps serving after reconnect', async () => {
+    const localProjectDir = join(fixtureDir, 'peer-drop-project');
+    mkdirSync(join(localProjectDir, 'public'), { recursive: true });
+    writeFileSync(join(localProjectDir, 'public/index.html'), '<!doctype html><body>peer-drop</body>');
+    writeFileSync(
+      join(localProjectDir, 'firebase.json'),
+      JSON.stringify({ hosting: { public: 'public' } }),
+    );
+    const localRuntime = await startServe({
+      cwd: localProjectDir,
+      port: 0,
+      cacheRoot: join(localProjectDir, '.cache'),
+      logger: silentServeLogger(),
+      bridge: true,
+      disableAuditLog: true,
+    });
+    const ctx = await createFunctionsWorkerHostCtx({
+      persistenceKeyPrefix: 'functions-child-peer-drop',
+      instanceId: 'functions-child-peer-drop-test',
+    });
+    let droppedOnce = false;
+    let localPeer: { close(): Promise<void> } | undefined = await connectFunctionsWorkerPeer({
+      url: `ws://127.0.0.1:${localRuntime.handle.port}/__pyric/sandbox`,
+      ctx,
+      sandboxId: 'functions-child-peer-drop-1',
+      cwd: localProjectDir,
+      sessionToken: localRuntime.sessionToken,
+      onWorkerOp(op, controls) {
+        if (op.method === 'sandbox.clock' && !droppedOnce) {
+          droppedOnce = true;
+          void controls.close();
+          return 'drop';
+        }
+        return undefined;
+      },
+    });
+    let localObserver: RemoteSandbox | undefined = await connectRemoteSandbox({
+      url: localRuntime.handle.url,
+      cwd: localProjectDir,
+      sessionToken: localRuntime.sessionToken,
+    });
+    const events: FunctionsChildEvent[] = [];
+    const localChild = spawnFunctionsChild({
+      cwd: join(fixtureDir, 'functions'),
+      entry: join(fixtureDir, 'functions/index.js'),
+      childModuleUrl: pathToFileURL(childModule),
+      env: buildChildEnv(process.env, {
+        serveUrl: localRuntime.handle.url,
+        registerUrl: registerModuleUrl(),
+        instanceId: localRuntime.instanceId,
+        sessionToken: localRuntime.sessionToken,
+      }),
+      instance: 'demo-project-default-rtdb',
+      projectId: 'demo-project',
+      location: 'us-central1',
+      onEvent: (event) => events.push(event),
+    });
+
+    try {
+      expect((await localChild.ready).triggerCount).toBe(2);
+
+      // Write triggers makeUppercase -> child requests sandbox.clock -> peer closes mid-flight.
+      await localObserver.rtdb.set('messages/dropped/original', 'before-close');
+      const deliveryDeadline = Date.now() + 5_000;
+      while (
+        !events.some((event) => event.type === 'delivery-error' || event.type === 'uncaught-error') &&
+        Date.now() < deliveryDeadline
+      ) {
+        await new Promise((resolveSleep) => setTimeout(resolveSleep, 20));
+      }
+
+      expect(events.filter((event) => event.type === 'uncaught-error')).toEqual([]);
+      const deliveryErrors = events.filter((event) => event.type === 'delivery-error');
+      expect(deliveryErrors.length).toBeGreaterThanOrEqual(1);
+      expect(deliveryErrors[0]?.error.message).toContain('no browser tab is connected to the sandbox');
+
+      // Reconnect a fresh peer on the same sandbox and confirm subsequent RTDB triggers still run.
+      localObserver.close();
+      localObserver = undefined;
+      ctx.subs.clear();
+      localPeer = await connectFunctionsWorkerPeer({
+        url: `ws://127.0.0.1:${localRuntime.handle.port}/__pyric/sandbox`,
+        ctx,
+        sandboxId: 'functions-child-peer-drop-2',
+        cwd: localProjectDir,
+        sessionToken: localRuntime.sessionToken,
+      });
+      localObserver = await connectRemoteSandbox({
+        url: localRuntime.handle.url,
+        cwd: localProjectDir,
+        sessionToken: localRuntime.sessionToken,
+      });
+
+      await localObserver.rtdb.set('messages/recovered/original', 'after-reconnect');
+      const recoverDeadline = Date.now() + 5_000;
+      while (
+        (await localObserver.rtdb.get('messages/recovered/uppercase')) !== 'AFTER-RECONNECT' &&
+        Date.now() < recoverDeadline
+      ) {
+        await new Promise((resolveSleep) => setTimeout(resolveSleep, 20));
+      }
+      expect(await localObserver.rtdb.get('messages/recovered/uppercase')).toBe('AFTER-RECONNECT');
+      expect(events.filter((event) => event.type === 'uncaught-error')).toEqual([]);
+      expect(await localChild.stop()).toBe(0);
+    } finally {
+      await localChild.stop().catch(() => undefined);
+      localObserver?.close();
+      await localPeer?.close().catch(() => undefined);
+      await localRuntime.handle.stop();
+    }
+  }, 20_000);
 });

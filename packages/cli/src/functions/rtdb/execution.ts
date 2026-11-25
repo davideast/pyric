@@ -110,12 +110,25 @@ function startExecutionForTriggers(
           for (const projection of projections) {
             const deliverySequence = ++sequence;
             tail = tail.then(async () => {
-              const result = await executeRtdbValueTrigger(
-                trigger,
-                projection,
-                await options.eventOptions(projection, deliverySequence, trigger),
-              );
-              options.onExecution?.(result, trigger, projection);
+              if (closed) return;
+              try {
+                const eventOptions = await options.eventOptions(
+                  projection,
+                  deliverySequence,
+                  trigger,
+                );
+                if (closed) return;
+                const result = await executeRtdbValueTrigger(
+                  trigger,
+                  projection,
+                  eventOptions,
+                );
+                options.onExecution?.(result, trigger, projection);
+              } catch (error) {
+                if (!closed) {
+                  options.onDeliveryError?.(error, trigger);
+                }
+              }
             });
           }
         },

@@ -140,6 +140,7 @@ export function startFirestoreTriggerExecution(
                   deliverySequence,
                   trigger,
                 );
+                if (closed) return;
                 const eventInput: FirestoreEventBuildInput = {
                   id: envelope.id,
                   time: envelope.time,
@@ -157,7 +158,9 @@ export function startFirestoreTriggerExecution(
                 const result = await executeFirestoreTrigger(trigger, eventInput);
                 options.onExecution?.(result, trigger, matched);
               } catch (error) {
-                options.onDeliveryError?.(error, trigger);
+                if (!closed) {
+                  options.onDeliveryError?.(error, trigger);
+                }
               }
             });
           }
