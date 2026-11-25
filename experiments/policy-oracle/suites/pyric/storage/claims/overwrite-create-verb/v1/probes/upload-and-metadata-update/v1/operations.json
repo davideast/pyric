@@ -1,0 +1,100 @@
+{
+  "bucket": "digame-mas.appspot.com",
+  "seed": {
+    "bytes": [
+      112,
+      121,
+      114,
+      105,
+      99
+    ],
+    "contentType": "application/octet-stream"
+  },
+  "cases": {
+    "fresh-upload": {
+      "path": "replay/create/size-bytes.bin",
+      "seeded": false,
+      "kind": "upload",
+      "fields": {
+        "contentType": "text/plain",
+        "contentDisposition": "inline",
+        "contentEncoding": "identity",
+        "contentLanguage": "en",
+        "cacheControl": "no-cache",
+        "metadata": {
+          "probe": "value"
+        }
+      },
+      "bytes": [
+        112,
+        121,
+        114,
+        105,
+        99
+      ]
+    },
+    "metadata-update": {
+      "path": "replay/update/size-unchanged.bin",
+      "seeded": true,
+      "kind": "metadataUpdate",
+      "fields": {
+        "contentType": "text/plain",
+        "contentDisposition": "inline",
+        "contentEncoding": "identity",
+        "contentLanguage": "en",
+        "cacheControl": "no-cache",
+        "metadata": {
+          "probe": "value"
+        }
+      }
+    },
+    "overwrite-create": {
+      "path": "replay/overwrite/verb-create.bin",
+      "seeded": true,
+      "kind": "upload",
+      "fields": {
+        "contentType": "text/plain"
+      },
+      "bytes": [
+        114,
+        117,
+        108,
+        101,
+        115,
+        33
+      ]
+    },
+    "overwrite-update": {
+      "path": "replay/overwrite/verb-update.bin",
+      "seeded": true,
+      "kind": "upload",
+      "fields": {
+        "contentType": "text/plain"
+      },
+      "bytes": [
+        114,
+        117,
+        108,
+        101,
+        115,
+        33
+      ]
+    },
+    "overwrite-sizes": {
+      "path": "replay/overwrite/create-stored-and-new-size.bin",
+      "seeded": true,
+      "kind": "upload",
+      "fields": {
+        "contentType": "text/plain"
+      },
+      "bytes": [
+        114,
+        117,
+        108,
+        101,
+        115,
+        33
+      ]
+    }
+  }
+}
