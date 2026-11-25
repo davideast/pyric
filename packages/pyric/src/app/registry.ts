@@ -1,11 +1,28 @@
-/** Firebase-compatible client app registry backed by one local sandbox. */
-import type { FirebaseApp, FirebaseAppSettings, FirebaseOptions } from './types.js';
+/** Firebase-compatible client and server app registries backed by one local sandbox. */
+import type {
+  FirebaseApp,
+  FirebaseAppSettings,
+  FirebaseOptions,
+  FirebaseServerApp,
+  FirebaseServerAppSettings,
+} from './types.js';
 import {
   attachRefusedSandboxApp,
   attachSandboxApp,
+  createAppSession,
   installDefaultAppResolver,
   markSandboxAppDeleted,
 } from './runtime.js';
+import {
+  authStateFromServerIdToken,
+  computeServerAppName,
+  defaultAppOptionsFromEnvironment,
+  isBrowserWindowEnvironment,
+  isFirebaseAppObject,
+  isFirebaseServerAppSettingsObject,
+  validateServerTokenTTL,
+} from './server-app-tokens.js';
+import { recordServerAppCheckToken } from '../sandbox/internal/app-check-activation.js';
 import { FirebaseError } from '../sandbox/internal/firebase-error.js';
 import { initializeSandbox } from '../sandbox/index.js';
 import { firebaseOptionsEqual } from './options.js';
@@ -18,9 +35,18 @@ interface RegistryEntry {
   settings: Required<Pick<FirebaseAppSettings, 'name' | 'automaticDataCollectionEnabled'>>;
 }
 
+interface ServerRegistryEntry {
+  app: FirebaseServerApp;
+  incRefCount(derefTarget: object | undefined): void;
+  decRefCount(): number;
+}
+
 const appRegistry = new Map<string, RegistryEntry>();
+const serverAppRegistry = new Map<string, ServerRegistryEntry>();
 const deletedApps = new WeakSet<FirebaseApp>();
+const deletedServerApps = new WeakSet<FirebaseApp>();
 const appNames = new WeakMap<FirebaseApp, string>();
+const serverAppNames = new WeakMap<FirebaseApp, string>();
 let backendOptions: FirebaseOptions | undefined;
 let backendSandbox: ReturnType<typeof initializeSandbox> | undefined;
 let ownsBackendSandbox = false;
@@ -58,10 +84,6 @@ function noAppError(name: string): FirebaseError {
   return appError('no-app', `No Firebase App '${name}' has been created - call initializeApp() first`);
 }
 
-/**
- * firebase/app 12.19.0 names the mismatched parameter and embeds both values,
- * each serialized with JSON.stringify, in the duplicate-app message.
- */
 function duplicateAppError(
   name: string,
   mismatchedParam: 'options' | 'config',
@@ -79,8 +101,26 @@ function appDeletedError(name: string): FirebaseError {
   return appError('app-deleted', `Firebase App named '${name}' already deleted`);
 }
 
+function serverAppDeletedError(): FirebaseError {
+  return appError('server-app-deleted', 'Firebase Server App has been deleted');
+}
+
 function noOptionsError(): FirebaseError {
   return appError('no-options', 'Need to provide options, when not being deployed to hosting via source.');
+}
+
+function invalidServerAppEnvironmentError(): FirebaseError {
+  return appError(
+    'invalid-server-app-environment',
+    'FirebaseServerApp is not for use in browser environments.',
+  );
+}
+
+function finalizationRegistryNotSupportedError(): FirebaseError {
+  return appError(
+    'finalization-registry-not-supported',
+    'FirebaseServerApp deleteOnDeref field defined but the JS runtime does not support FinalizationRegistry.',
+  );
 }
 
 function multipleConfigsError(): FirebaseError {
@@ -131,6 +171,61 @@ function createFirebaseApp(
   return app;
 }
 
+function createFirebaseServerApp(
+  name: string,
+  options: FirebaseOptions,
+  automaticDataCollectionEnabled: boolean,
+  settings: FirebaseServerAppSettings,
+): FirebaseServerApp {
+  let automatic = automaticDataCollectionEnabled;
+  let app: FirebaseServerApp;
+  const assertAlive = (): void => {
+    if (deletedServerApps.has(app)) throw serverAppDeletedError();
+  };
+  app = Object.defineProperties({}, {
+    name: {
+      enumerable: true,
+      get() {
+        assertAlive();
+        return name;
+      },
+    },
+    options: {
+      enumerable: true,
+      get() {
+        assertAlive();
+        return options;
+      },
+    },
+    automaticDataCollectionEnabled: {
+      enumerable: true,
+      get() {
+        assertAlive();
+        return automatic;
+      },
+      set(value: boolean) {
+        assertAlive();
+        automatic = value;
+      },
+    },
+    settings: {
+      enumerable: true,
+      get() {
+        assertAlive();
+        return settings;
+      },
+    },
+    toJSON: {
+      enumerable: false,
+      value() {
+        return undefined;
+      },
+    },
+  }) as FirebaseServerApp;
+  serverAppNames.set(app, name);
+  return app;
+}
+
 function cloneValue<T>(value: T): T {
   if (Array.isArray(value)) return value.map(cloneValue) as T;
   if (value && typeof value === 'object') {
@@ -141,7 +236,9 @@ function cloneValue<T>(value: T): T {
   return value;
 }
 
-function normalizeSettings(raw: string | FirebaseAppSettings | undefined): Required<Pick<FirebaseAppSettings, 'name' | 'automaticDataCollectionEnabled'>> {
+function normalizeSettings(
+  raw: string | FirebaseAppSettings | undefined,
+): Required<Pick<FirebaseAppSettings, 'name' | 'automaticDataCollectionEnabled'>> {
   const settings = typeof raw === 'string' ? { name: raw } : raw ?? {};
   const name = settings.name ?? DEFAULT_APP_NAME;
   if (typeof name !== 'string' || name.length === 0) {
@@ -153,24 +250,9 @@ function normalizeSettings(raw: string | FirebaseAppSettings | undefined): Requi
   };
 }
 
-export function initializeApp(
-  options?: FirebaseOptions,
-  rawSettings?: string | FirebaseAppSettings,
-): FirebaseApp {
-  if (options === undefined) throw noOptionsError();
-  const settings = normalizeSettings(rawSettings);
-  const optionsSnapshot = cloneValue(options);
-  const existing = appRegistry.get(settings.name);
-  if (existing) {
-    if (!firebaseOptionsEqual(existing.options, optionsSnapshot)) {
-      throw duplicateAppError(settings.name, 'options', existing.options, optionsSnapshot);
-    }
-    if (!firebaseOptionsEqual(existing.settings, settings)) {
-      throw duplicateAppError(settings.name, 'config', existing.settings, settings);
-    }
-    return existing.app;
-  }
-
+function ensureBackendForOptions(
+  optionsSnapshot: FirebaseOptions,
+): { refusal: (() => Error) | undefined; sandbox: ReturnType<typeof initializeSandbox> | undefined } {
   const refusal = backendRefusal;
   const isRefused = refusal !== undefined;
   if (backendOptions === undefined) {
@@ -182,24 +264,172 @@ export function initializeApp(
   } else if (!firebaseOptionsEqual(backendOptions, optionsSnapshot)) {
     throw multipleConfigsError();
   }
+  return { refusal, sandbox: backendSandbox };
+}
 
+export function initializeApp(
+  options?: FirebaseOptions,
+  rawSettings?: string | FirebaseAppSettings,
+): FirebaseApp {
+  const resolvedOptions = options ?? defaultAppOptionsFromEnvironment();
+  if (resolvedOptions === undefined) throw noOptionsError();
+  const settings = normalizeSettings(rawSettings);
+  const optionsSnapshot = cloneValue(resolvedOptions);
+  const existing = appRegistry.get(settings.name);
+  if (existing) {
+    if (!firebaseOptionsEqual(existing.options, optionsSnapshot)) {
+      throw duplicateAppError(settings.name, 'options', existing.options, optionsSnapshot);
+    }
+    if (!firebaseOptionsEqual(existing.settings, settings)) {
+      throw duplicateAppError(settings.name, 'config', existing.settings, settings);
+    }
+    return existing.app;
+  }
+
+  const { refusal, sandbox } = ensureBackendForOptions(optionsSnapshot);
   const app = createFirebaseApp(
     settings.name,
     cloneValue(optionsSnapshot),
     settings.automaticDataCollectionEnabled,
   );
-  if (isRefused) {
+  if (refusal !== undefined) {
     attachRefusedSandboxApp(app, refusal);
-  } else {
+  } else if (sandbox !== undefined) {
     // The default app is the sandbox's ambient client session. Named apps get
     // independent sessions while sharing the same data/user-store backend.
-    attachSandboxApp(
-      app,
-      backendSandbox!,
-      settings.name === DEFAULT_APP_NAME ? backendSandbox! : undefined,
-    );
+    const defaultSession = settings.name === DEFAULT_APP_NAME ? sandbox : undefined;
+    attachSandboxApp(app, sandbox, defaultSession);
   }
   appRegistry.set(settings.name, { app, options: optionsSnapshot, settings });
+  return app;
+}
+
+export function initializeServerApp(
+  options: FirebaseOptions | FirebaseApp | undefined,
+  config?: FirebaseServerAppSettings,
+): FirebaseServerApp;
+export function initializeServerApp(
+  config?: FirebaseServerAppSettings,
+): FirebaseServerApp;
+export function initializeServerApp(
+  optionsOrConfig?: FirebaseOptions | FirebaseApp | FirebaseServerAppSettings,
+  rawServerConfig?: FirebaseServerAppSettings,
+): FirebaseServerApp {
+  if (isBrowserWindowEnvironment()) {
+    throw invalidServerAppEnvironmentError();
+  }
+  let rawOptions: FirebaseOptions | undefined;
+  let serverSettings: FirebaseServerAppSettings = rawServerConfig ? { ...rawServerConfig } : {};
+  if (optionsOrConfig !== undefined && optionsOrConfig !== null) {
+    if (isFirebaseAppObject(optionsOrConfig)) {
+      rawOptions = optionsOrConfig.options;
+    } else if (isFirebaseServerAppSettingsObject(optionsOrConfig)) {
+      serverSettings = { ...optionsOrConfig };
+    } else {
+      rawOptions = optionsOrConfig;
+    }
+  }
+
+  let automaticDataCollection = true;
+  if (serverSettings.automaticDataCollectionEnabled !== undefined) {
+    automaticDataCollection = serverSettings.automaticDataCollectionEnabled;
+  }
+  serverSettings.automaticDataCollectionEnabled = automaticDataCollection;
+
+  const resolvedOptions = rawOptions ?? defaultAppOptionsFromEnvironment();
+  if (!resolvedOptions) {
+    throw noOptionsError();
+  }
+
+  const releaseOnDeref = serverSettings.releaseOnDeref;
+  if (releaseOnDeref !== undefined && typeof FinalizationRegistry === 'undefined') {
+    throw finalizationRegistryNotSupportedError();
+  }
+
+  const optionsSnapshot = cloneValue(resolvedOptions);
+  const nameString = computeServerAppName(optionsSnapshot, serverSettings);
+  const existing = serverAppRegistry.get(nameString);
+  if (existing !== undefined) {
+    existing.incRefCount(releaseOnDeref);
+    return existing.app;
+  }
+
+  const { refusal, sandbox } = ensureBackendForOptions(optionsSnapshot);
+
+  if (serverSettings.authIdToken) {
+    validateServerTokenTTL(serverSettings.authIdToken, 'authIdToken');
+  }
+  if (serverSettings.appCheckToken) {
+    validateServerTokenTTL(serverSettings.appCheckToken, 'appCheckToken');
+  }
+
+  const storedSettings: FirebaseServerAppSettings = {
+    ...serverSettings,
+    automaticDataCollectionEnabled: automaticDataCollection,
+    releaseOnDeref: undefined,
+  };
+  if (rawServerConfig && typeof rawServerConfig === 'object' && 'releaseOnDeref' in rawServerConfig) {
+    rawServerConfig.releaseOnDeref = undefined;
+  } else if (
+    optionsOrConfig &&
+    typeof optionsOrConfig === 'object' &&
+    isFirebaseServerAppSettingsObject(optionsOrConfig) &&
+    'releaseOnDeref' in optionsOrConfig
+  ) {
+    optionsOrConfig.releaseOnDeref = undefined;
+  }
+
+  const app = createFirebaseServerApp(
+    nameString,
+    cloneValue(optionsSnapshot),
+    automaticDataCollection,
+    storedSettings,
+  );
+
+  if (typeof storedSettings.appCheckToken === 'string' && storedSettings.appCheckToken.length > 0) {
+    recordServerAppCheckToken(app, storedSettings.appCheckToken);
+  }
+
+  if (refusal !== undefined) {
+    attachRefusedSandboxApp(app, refusal, serverAppDeletedError);
+  } else if (sandbox !== undefined) {
+    let initialUser = null;
+    if (typeof storedSettings.authIdToken === 'string' && storedSettings.authIdToken.length > 0) {
+      initialUser = authStateFromServerIdToken(
+        storedSettings.authIdToken,
+        optionsSnapshot.projectId,
+        sandbox,
+      );
+    }
+    attachSandboxApp(app, sandbox, createAppSession(initialUser), serverAppDeletedError);
+  }
+
+  let refCount = 0;
+  let finalizer: FinalizationRegistry<FirebaseServerApp> | null = null;
+  if (typeof FinalizationRegistry !== 'undefined') {
+    finalizer = new FinalizationRegistry((targetApp) => {
+      if (deletedServerApps.has(targetApp)) return;
+      void deleteApp(targetApp);
+    });
+  }
+
+  const entry: ServerRegistryEntry = {
+    app,
+    incRefCount(derefTarget) {
+      if (deletedServerApps.has(app)) return;
+      refCount += 1;
+      if (derefTarget !== undefined && finalizer !== null) {
+        finalizer.register(derefTarget, app);
+      }
+    },
+    decRefCount() {
+      if (deletedServerApps.has(app)) return 0;
+      refCount -= 1;
+      return refCount;
+    },
+  };
+  entry.incRefCount(releaseOnDeref);
+  serverAppRegistry.set(nameString, entry);
   return app;
 }
 
@@ -214,8 +444,23 @@ export function getApps(): FirebaseApp[] {
 }
 
 export async function deleteApp(app: FirebaseApp): Promise<void> {
+  if (deletedServerApps.has(app)) throw serverAppDeletedError();
+  if (deletedApps.has(app)) {
+    const knownName = appNames.get(app) ?? app.name;
+    throw appDeletedError(knownName);
+  }
+  const serverName = serverAppNames.get(app);
+  if (serverName !== undefined) {
+    const serverEntry = serverAppRegistry.get(serverName);
+    if (serverEntry?.app === app) {
+      if (serverEntry.decRefCount() > 0) return;
+      serverAppRegistry.delete(serverName);
+    }
+    deletedServerApps.add(app);
+    await markSandboxAppDeleted(app);
+    return;
+  }
   const name = appNames.get(app) ?? app.name;
-  if (deletedApps.has(app)) throw appDeletedError(name);
   const entry = appRegistry.get(name);
   if (entry?.app === app) appRegistry.delete(name);
   deletedApps.add(app);
@@ -224,8 +469,15 @@ export async function deleteApp(app: FirebaseApp): Promise<void> {
 
 /** Test-only module reset; deliberately absent from the public app barrel. */
 export async function resetAppRegistryForTests(): Promise<void> {
-  await Promise.all([...appRegistry.values()].map(({ app }) => markSandboxAppDeleted(app)));
+  await Promise.all([
+    ...[...appRegistry.values()].map(({ app }) => markSandboxAppDeleted(app)),
+    ...[...serverAppRegistry.values()].map(({ app }) => {
+      deletedServerApps.add(app);
+      return markSandboxAppDeleted(app);
+    }),
+  ]);
   appRegistry.clear();
+  serverAppRegistry.clear();
   if (ownsBackendSandbox) {
     backendSandbox?.dispose();
   }

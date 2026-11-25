@@ -56,7 +56,7 @@ exports[`runtime classifications have a reviewable snapshot 1`] = `
     "getApp": "supported",
     "getApps": "supported",
     "initializeApp": "supported",
-    "initializeServerApp": "imports-only",
+    "initializeServerApp": "supported",
     "onLog": "supported",
     "registerVersion": "supported",
     "setLogLevel": "supported",

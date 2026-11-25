@@ -11,7 +11,7 @@ beforeAll(async () => {
 describe('Firebase public-surface census', () => {
   const expectedCounts = {
     ai: { runtime: [45, 39, 0], types: [159, 159] },
-    app: { runtime: [10, 9, 14], types: [6, 6] },
+    app: { runtime: [10, 10, 14], types: [6, 6] },
     // pyric/app-check is a deferred stub: every name resolves and throws, so the
     // census credits all 8 runtime names. Coverage is off in surfaces/app-check.json.
     'app-check': { runtime: [8, 8, 0], types: [11, 11] },
@@ -60,13 +60,13 @@ describe('Firebase public-surface census', () => {
     }
   });
 
-  it('measures firebase/app as 9 of 10 public runtime exports', async () => {
+  it('measures firebase/app as 10 of 10 public runtime exports', async () => {
     const app = census.find((surface) => surface.surface === 'app');
     expect(app).toBeDefined();
     if (!app) throw new Error('expected app surface');
     expect(app.runtime.upstreamCount).toBe(10);
-    expect(app.runtime.mapped).toHaveLength(9);
-    expect(app.runtime.dispositioned.map(({ symbol }) => symbol)).toEqual(['initializeServerApp']);
+    expect(app.runtime.mapped).toHaveLength(10);
+    expect(app.runtime.dispositioned.map(({ symbol }) => symbol)).toEqual([]);
     expect(app.runtime.unmapped).toEqual([]);
   });
 

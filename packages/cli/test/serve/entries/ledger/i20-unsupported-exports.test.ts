@@ -1,7 +1,6 @@
 import { expect, test } from 'bun:test';
 
 const cases = [
-  ['app', 'initializeServerApp'],
   ['auth', 'linkWithPhoneNumber'],
   ['firestore', 'queryEqual'],
   ['storage', 'getStream'],
