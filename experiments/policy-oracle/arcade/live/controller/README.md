@@ -20,3 +20,14 @@ python3 experiments/policy-oracle/core/oracle.py --trusted-captures "$archive"
 ```
 
 The import preserves the observed verdict when it differs from a fixture prediction. The raw records include synthetic UIDs and test game state. The journal stores selected identity claims. Credentials and web app configuration stay in process memory.
+
+## Candidate captures
+
+After locking the reviewed candidate and its digest, run one command per complete bundle. Each command owns a separate lease and restores the deny-all release. The candidate receipts identify the candidate digest and contain the signed operation, readbacks and server versions for each case.
+
+```sh
+node experiments/policy-oracle/arcade/live/controller/candidate.mjs sokoban "$archive" "$bundle" "$bundle_sha256"
+node experiments/policy-oracle/arcade/live/controller/candidate.mjs floor "$archive" "$bundle" "$bundle_sha256" "$floor_recipe" "$recipe_sha256"
+```
+
+Sokoban uses the frozen two score writes and two independent owners. Its propagation controls require the stock tic-tac-toe rules in the complete candidate bundle. Floor uses the supplied pinned `steps` fixture with the two timer proposals. Its controls send the known-valid update as the writer and as the reader on separate seeded documents. The scored observations use fresh documents and the named writer. Each invocation prints the receipt digest after cleanup.
