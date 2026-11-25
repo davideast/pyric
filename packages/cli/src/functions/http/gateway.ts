@@ -12,9 +12,11 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { posix } from 'node:path';
+import { getClock, type LocalSandbox } from 'pyric/sandbox';
 import type { FunctionsChildHttpReady } from '../child-protocol.js';
 import { maxHttpBodyBytes } from './child-server.js';
 import { DEFAULT_REGION, type HttpFunctionInfo } from './discovery.js';
+import { emitHttpExecutionEvent } from './host-events.js';
 import { refuseForeignOrigin, type AppOriginCheck } from './private-origin.js';
 import { proxyToChild, writeProxyBadGateway, type ProxyTarget } from './proxy.js';
 import { captureInboundRequestBody } from './request-body-buffer.js';
@@ -69,6 +71,8 @@ export interface FunctionsHttpGatewayOptions {
   hostingRewriteTimeoutSeconds?: number;
   /** Optional proxy trust policy forwarded to `proxyToChild` for `x-forwarded-proto`. */
   trustProxy?: TrustProxyPolicy;
+  /** Optional Node-hosted sandbox receiving `execution_finished` events for served `onRequest` calls (#1768). */
+  sandbox?: LocalSandbox | (() => LocalSandbox | null | undefined);
   plane: FunctionsPlane;
 }
 
@@ -347,7 +351,24 @@ export function createFunctionsHttpGateway(options: FunctionsHttpGatewayOptions)
           'x-original-url': rawUrl,
         };
       }
+      const resolveGatewaySandbox = (): LocalSandbox | null => {
+        if (typeof options.sandbox === 'function') {
+          return options.sandbox() ?? null;
+        }
+        return options.sandbox ?? null;
+      };
       const startedAt = Date.now();
+      let sandboxStartedAt: number | undefined;
+      if (resolved.fn.kind !== 'callable') {
+        const activeSandbox = resolveGatewaySandbox();
+        if (activeSandbox !== null) {
+          try {
+            sandboxStartedAt = getClock(activeSandbox).now();
+          } catch {
+            // Best-effort clock read; falls back to wall-clock duration offset.
+          }
+        }
+      }
       const timeout = requestTimeout(resolved.fn, resolved, options.hostingRewriteTimeoutSeconds);
       const buildTarget = (activeHttp: FunctionsChildHttpReady, deferRefused: boolean): ProxyTarget => {
         const proxyTarget: ProxyTarget = {
@@ -396,6 +417,12 @@ export function createFunctionsHttpGateway(options: FunctionsHttpGatewayOptions)
           record.kind = 'callable';
         }
         options.onServed?.(record);
+        if (resolved.fn.kind !== 'callable') {
+          const targetSandbox = resolveGatewaySandbox();
+          if (targetSandbox !== null) {
+            emitHttpExecutionEvent(targetSandbox, record, sandboxStartedAt);
+          }
+        }
       }
       return true;
     },
