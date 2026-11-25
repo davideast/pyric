@@ -16,7 +16,7 @@ describe('Firebase public-surface census', () => {
     // census credits all 8 runtime names. Coverage is off in surfaces/app-check.json.
     'app-check': { runtime: [8, 8, 0], types: [11, 11] },
     auth: { runtime: [85, 71, 0], types: [64, 64] },
-    firestore: { runtime: [113, 104, 15], types: [86, 86] },
+    firestore: { runtime: [113, 106, 15], types: [86, 86] },
     functions: { runtime: [5, 5, 0], types: [9, 9] },
     database: { runtime: [44, 44, 10], types: [15, 15] },
     storage: { runtime: [18, 16, 9], types: [17, 17] },
