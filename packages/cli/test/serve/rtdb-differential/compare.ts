@@ -48,7 +48,8 @@ export interface NormalTrace {
 }
 
 export function normalize(trace: Trace): NormalTrace {
-  const anonymousNames = new Map(trace.anonymous.map((uid, index) => [uid, `<anonymous${index}>`]));
+  const distinctAnonymous = [...new Set(trace.anonymous)];
+  const anonymousNames = new Map(distinctAnonymous.map((uid, index) => [uid, `<anonymous${index}>`]));
   const withoutUids = (input: string): string => {
     let out = input;
     for (const [uid, name] of anonymousNames) out = out.split(uid).join(name);

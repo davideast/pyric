@@ -8,6 +8,7 @@
  * in-page sandbox, and the served entries for the SharedWorker and Node hosts.
  */
 import { mintCustomToken } from 'pyric/sandbox/internal';
+import { prng } from './generator.js';
 import {
   INSTANCE_URLS,
   PROJECT_ID,
@@ -134,9 +135,44 @@ function transactionUpdate(
   }
 }
 
+const ANON_UUID_SEED_MIX = 0x51a9e33d;
+
+function seededUuidV4(rng: () => number): ReturnType<Crypto['randomUUID']> {
+  const bytes = new Uint8Array(16);
+  for (let i = 0; i < 16; i++) bytes[i] = Math.floor(rng() * 256);
+  bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x40;
+  bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0'));
+  return `${hex.slice(0, 4).join('')}-${hex.slice(4, 6).join('')}-${hex.slice(6, 8).join('')}-${hex.slice(8, 10).join('')}-${hex.slice(10, 16).join('')}`;
+}
+
+/**
+ * Scope a per-sequence deterministic `crypto.randomUUID` around `signInAnonymously`
+ * so all three planes mint the same pseudo-random anonymous UIDs and sort multiple
+ * `/users/$uid` keys identically in child listeners and key-ordered queries.
+ */
+async function withSeededRandomUuid<T>(
+  nextUuid: () => ReturnType<Crypto['randomUUID']>,
+  fn: () => Promise<T>,
+): Promise<T> {
+  let target = Object.getPrototypeOf(globalThis.crypto) as Crypto;
+  if (Object.prototype.hasOwnProperty.call(globalThis.crypto, 'randomUUID')) {
+    target = globalThis.crypto;
+  }
+  const original = target.randomUUID;
+  target.randomUUID = nextUuid;
+  try {
+    return await fn();
+  } finally {
+    target.randomUUID = original;
+  }
+}
+
 export async function runSequence(sequence: Sequence, session: PlaneSession): Promise<Trace> {
   const { database, auth: authModule, app } = session;
   const auth = authModule.getAuth(app);
+  const nextAnonUuid = () => seededUuidV4(uuidRng);
+  const uuidRng = prng((sequence.seed ^ ANON_UUID_SEED_MIX) >>> 0);
   const handles: unknown[] = [];
   for (let i = 0; i < sequence.instances; i++) {
     const url = INSTANCE_URLS[i];
@@ -246,7 +282,10 @@ export async function runSequence(sequence: Sequence, session: PlaneSession): Pr
         return uid;
       }
       case 'signInAnonymously': {
-        const credential = await authModule.signInAnonymously(auth);
+        const credential = await withSeededRandomUuid<{ user: { uid: string } }>(
+          nextAnonUuid,
+          () => authModule.signInAnonymously(auth),
+        );
         uid = credential.user.uid;
         anonymous.push(credential.user.uid);
         return uid;
