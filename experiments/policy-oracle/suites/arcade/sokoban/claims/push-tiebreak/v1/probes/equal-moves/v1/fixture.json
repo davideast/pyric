@@ -1,0 +1,42 @@
+{
+  "operation": "set",
+  "path": "sokoban/1/scores/$actor",
+  "requestTime": "2026-11-24T16:35:00.123Z",
+  "before": {
+    "uid": "$actor",
+    "level": "1",
+    "moves": 40,
+    "pushes": 10,
+    "solve": "ProbeOldSolve0000001",
+    "object": "sokoban/$actor/1/ProbeOldSolve0000001-40-10.txt",
+    "createdAt": "2026-11-24T16:30:00.000Z"
+  },
+  "cases": [
+    {
+      "id": "pushes-9",
+      "expected": "ALLOW",
+      "data": {
+        "uid": "$actor",
+        "level": "1",
+        "moves": 40,
+        "pushes": 9,
+        "solve": "ProbeNewSolve0000001",
+        "object": "sokoban/$actor/1/ProbeNewSolve0000001-40-9.txt",
+        "createdAt": "$serverTimestamp"
+      }
+    },
+    {
+      "id": "pushes-10",
+      "expected": "DENY",
+      "data": {
+        "uid": "$actor",
+        "level": "1",
+        "moves": 40,
+        "pushes": 10,
+        "solve": "ProbeNewSolve0000001",
+        "object": "sokoban/$actor/1/ProbeNewSolve0000001-40-10.txt",
+        "createdAt": "$serverTimestamp"
+      }
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+{
+  "description": "An eligible Yacht turn with five equal dice awards exactly 50 to its unused Yacht category and adds 50 to the acting seat's total.",
+  "authority": "firestore-sdk",
+  "witness": "authenticated-write-readback"
+}
