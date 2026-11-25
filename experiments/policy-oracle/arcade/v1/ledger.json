@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "manifestSha256": "6f1a1d54e86d67d6848bee3389c84a5d34cfd2ee367cb21dd209dc9f5ecba93a",
+  "observations": {
+    "zero": {
+      "normalizedSha256": "fa80f1d1b3ca939e17185727ffcd3b4bd2aedce2b23bb21bff97a91a5dd04ec8",
+      "rawSha256": "60eb41bf431943c938ae14d466ae77b5d08ee8b7406d09b05988b486161d1a83"
+    },
+    "four": {
+      "normalizedSha256": "da4156f5b46238cca496f0136916f47a9cbb731edb27c7e4ebce5784be31b367",
+      "rawSha256": "56489a7812ccef8be337004ce959b910db740c5922123f7ae19b856c7fcb6db8"
+    }
+  },
+  "incompleteAttempt": {
+    "normalizedSha256": "6a74a0f1c27ec0983497266fd2b77b03622f93d6061290ab96be2701f7bc9338",
+    "rawSha256": "c827fd544cca0dd8047ac8a64013564b60570d73ba742824a3d359d22329071f"
+  },
+  "bundlerSha256": "e27fc7d79802dc238ed8513f6653182cf15c962b79291c98b3a742b55accd675",
+  "moduleTreeSha256": "4a7cfeef2806a46aa8c7353a5401ead5e21a71557e9b437a3ff9af2852811989"
+}

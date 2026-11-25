@@ -1,0 +1,1059 @@
+{
+  "batch": "four",
+  "manifestSha256": "6f1a1d54e86d67d6848bee3389c84a5d34cfd2ee367cb21dd209dc9f5ecba93a",
+  "rawSha256": "56489a7812ccef8be337004ce959b910db740c5922123f7ae19b856c7fcb6db8",
+  "sdk": "12.19.0",
+  "observedAt": "2026-11-25T21:57:34.455Z",
+  "rules": {
+    "stock": "59b6e23b4727912311ffd45dcba50d4bcb69fe9ed79c6627584e385c338e422b",
+    "generated": "b46da6fde674e109b525c1545ae40ebdcddd2ada44be7f621cd44d5c1478b17b",
+    "hand2": "a16252aff8ed6d8685b027f537250cd0019cef1d0125384f636e29d317421277",
+    "plus2": "4d97b0c7be76b1c840cf590a7bca5ef136e5a04e0d7a419a0f03aa05fb7b61c5"
+  },
+  "cases": [
+    {
+      "id": "four/stock/relative",
+      "role": "host",
+      "decision": "ALLOW",
+      "code": "ok",
+      "before": {
+        "moveCount": 4,
+        "host": "HOST",
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1735689600,
+          "nanoseconds": 0
+        },
+        "board": {
+          "c1r1": "guest",
+          "c0r2": "",
+          "c1r0": "guest",
+          "c2r2": "",
+          "c0r0": "host",
+          "c2r1": "host",
+          "c0r1": "",
+          "c2r0": "",
+          "c1r2": ""
+        },
+        "guest": "GUEST",
+        "currentTurn": "host",
+        "lastMove": "c1r0",
+        "winner": "",
+        "status": "playing"
+      },
+      "proposal": {
+        "host": "HOST",
+        "guest": "GUEST",
+        "currentTurn": "guest",
+        "status": "playing",
+        "winner": "",
+        "moveCount": 5,
+        "lastMove": "c0r2",
+        "board": {
+          "c0r0": "host",
+          "c1r0": "guest",
+          "c2r0": "",
+          "c0r1": "",
+          "c1r1": "guest",
+          "c2r1": "host",
+          "c0r2": "host",
+          "c1r2": "",
+          "c2r2": ""
+        },
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1735689600,
+          "nanoseconds": 0
+        }
+      },
+      "stored": {
+        "currentTurn": "guest",
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1735689600,
+          "nanoseconds": 0
+        },
+        "guest": "GUEST",
+        "host": "HOST",
+        "lastMove": "c0r2",
+        "moveCount": 5,
+        "winner": "",
+        "board": {
+          "c0r0": "host",
+          "c2r2": "",
+          "c1r0": "guest",
+          "c0r2": "host",
+          "c1r1": "guest",
+          "c1r2": "",
+          "c0r1": "",
+          "c2r0": "",
+          "c2r1": "host"
+        },
+        "status": "playing"
+      },
+      "metadata": {
+        "fromCache": false,
+        "hasPendingWrites": false,
+        "beforeVersion": "2026-11-25T21:52:16.877622Z",
+        "afterVersion": "2026-11-25T21:53:31.567078Z"
+      }
+    },
+    {
+      "id": "four/stock/constant",
+      "role": "host",
+      "decision": "DENY",
+      "code": "permission-denied",
+      "before": {
+        "moveCount": 4,
+        "board": {
+          "c0r2": "",
+          "c1r1": "guest",
+          "c2r2": "",
+          "c1r0": "guest",
+          "c0r0": "host",
+          "c0r1": "",
+          "c2r0": "",
+          "c2r1": "host",
+          "c1r2": ""
+        },
+        "host": "HOST",
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1735689600,
+          "nanoseconds": 0
+        },
+        "winner": "",
+        "status": "playing",
+        "guest": "GUEST",
+        "currentTurn": "host",
+        "lastMove": "c1r0"
+      },
+      "proposal": {
+        "host": "HOST",
+        "guest": "GUEST",
+        "currentTurn": "guest",
+        "status": "playing",
+        "winner": "",
+        "moveCount": 1,
+        "lastMove": "c0r2",
+        "board": {
+          "c0r0": "host",
+          "c1r0": "guest",
+          "c2r0": "",
+          "c0r1": "",
+          "c1r1": "guest",
+          "c2r1": "host",
+          "c0r2": "host",
+          "c1r2": "",
+          "c2r2": ""
+        },
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1735689600,
+          "nanoseconds": 0
+        }
+      },
+      "stored": {
+        "moveCount": 4,
+        "board": {
+          "c0r2": "",
+          "c1r1": "guest",
+          "c2r2": "",
+          "c1r0": "guest",
+          "c0r0": "host",
+          "c0r1": "",
+          "c2r0": "",
+          "c2r1": "host",
+          "c1r2": ""
+        },
+        "host": "HOST",
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1735689600,
+          "nanoseconds": 0
+        },
+        "winner": "",
+        "status": "playing",
+        "guest": "GUEST",
+        "currentTurn": "host",
+        "lastMove": "c1r0"
+      },
+      "metadata": {
+        "fromCache": false,
+        "hasPendingWrites": false,
+        "beforeVersion": "2026-11-25T21:52:16.939939Z",
+        "afterVersion": "2026-11-25T21:52:16.939939Z"
+      }
+    },
+    {
+      "id": "four/stock/out-of-turn",
+      "role": "guest",
+      "decision": "DENY",
+      "code": "permission-denied",
+      "before": {
+        "status": "playing",
+        "winner": "",
+        "lastMove": "c1r0",
+        "guest": "GUEST",
+        "host": "HOST",
+        "currentTurn": "host",
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1735689600,
+          "nanoseconds": 0
+        },
+        "board": {
+          "c1r0": "guest",
+          "c2r2": "",
+          "c1r1": "guest",
+          "c0r2": "",
+          "c0r0": "host",
+          "c1r2": "",
+          "c0r1": "",
+          "c2r0": "",
+          "c2r1": "host"
+        },
+        "moveCount": 4
+      },
+      "proposal": {
+        "host": "HOST",
+        "guest": "GUEST",
+        "currentTurn": "guest",
+        "status": "playing",
+        "winner": "",
+        "moveCount": 5,
+        "lastMove": "c0r2",
+        "board": {
+          "c0r0": "host",
+          "c1r0": "guest",
+          "c2r0": "",
+          "c0r1": "",
+          "c1r1": "guest",
+          "c2r1": "host",
+          "c0r2": "host",
+          "c1r2": "",
+          "c2r2": ""
+        },
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1735689600,
+          "nanoseconds": 0
+        }
+      },
+      "stored": {
+        "status": "playing",
+        "winner": "",
+        "lastMove": "c1r0",
+        "guest": "GUEST",
+        "host": "HOST",
+        "currentTurn": "host",
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1735689600,
+          "nanoseconds": 0
+        },
+        "board": {
+          "c1r0": "guest",
+          "c2r2": "",
+          "c1r1": "guest",
+          "c0r2": "",
+          "c0r0": "host",
+          "c1r2": "",
+          "c0r1": "",
+          "c2r0": "",
+          "c2r1": "host"
+        },
+        "moveCount": 4
+      },
+      "metadata": {
+        "fromCache": false,
+        "hasPendingWrites": false,
+        "beforeVersion": "2026-11-25T21:52:17.010823Z",
+        "afterVersion": "2026-11-25T21:52:17.010823Z"
+      }
+    },
+    {
+      "id": "four/generated/relative",
+      "role": "host",
+      "decision": "ALLOW",
+      "code": "ok",
+      "before": {
+        "board": {
+          "c0r0": "host",
+          "c2r1": "host",
+          "c1r1": "guest",
+          "c2r2": "",
+          "c0r1": "",
+          "c1r2": "",
+          "c2r0": "",
+          "c1r0": "guest",
+          "c0r2": ""
+        },
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1735689600,
+          "nanoseconds": 0
+        },
+        "host": "HOST",
+        "guest": "GUEST",
+        "moveCount": 4,
+        "winner": "",
+        "lastMove": "c1r0",
+        "status": "playing",
+        "currentTurn": "host"
+      },
+      "proposal": {
+        "host": "HOST",
+        "guest": "GUEST",
+        "currentTurn": "guest",
+        "status": "playing",
+        "winner": "",
+        "moveCount": 5,
+        "lastMove": "c0r2",
+        "board": {
+          "c0r0": "host",
+          "c1r0": "guest",
+          "c2r0": "",
+          "c0r1": "",
+          "c1r1": "guest",
+          "c2r1": "host",
+          "c0r2": "host",
+          "c1r2": "",
+          "c2r2": ""
+        },
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1735689600,
+          "nanoseconds": 0
+        }
+      },
+      "stored": {
+        "winner": "",
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1735689600,
+          "nanoseconds": 0
+        },
+        "moveCount": 5,
+        "currentTurn": "guest",
+        "lastMove": "c0r2",
+        "guest": "GUEST",
+        "status": "playing",
+        "host": "HOST",
+        "board": {
+          "c2r2": "",
+          "c1r1": "guest",
+          "c2r1": "host",
+          "c0r0": "host",
+          "c0r1": "",
+          "c0r2": "host",
+          "c1r0": "guest",
+          "c2r0": "",
+          "c1r2": ""
+        }
+      },
+      "metadata": {
+        "fromCache": false,
+        "hasPendingWrites": false,
+        "beforeVersion": "2026-11-25T21:52:17.071414Z",
+        "afterVersion": "2026-11-25T21:54:53.752196Z"
+      }
+    },
+    {
+      "id": "four/generated/constant",
+      "role": "host",
+      "decision": "DENY",
+      "code": "permission-denied",
+      "before": {
+        "board": {
+          "c0r2": "",
+          "c1r2": "",
+          "c2r0": "",
+          "c1r0": "guest",
+          "c0r1": "",
+          "c2r1": "host",
+          "c1r1": "guest",
+          "c2r2": "",
+          "c0r0": "host"
+        },
+        "host": "HOST",
+        "lastMove": "c1r0",
+        "winner": "",
+        "guest": "GUEST",
+        "moveCount": 4,
+        "currentTurn": "host",
+        "status": "playing",
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1735689600,
+          "nanoseconds": 0
+        }
+      },
+      "proposal": {
+        "host": "HOST",
+        "guest": "GUEST",
+        "currentTurn": "guest",
+        "status": "playing",
+        "winner": "",
+        "moveCount": 1,
+        "lastMove": "c0r2",
+        "board": {
+          "c0r0": "host",
+          "c1r0": "guest",
+          "c2r0": "",
+          "c0r1": "",
+          "c1r1": "guest",
+          "c2r1": "host",
+          "c0r2": "host",
+          "c1r2": "",
+          "c2r2": ""
+        },
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1735689600,
+          "nanoseconds": 0
+        }
+      },
+      "stored": {
+        "board": {
+          "c0r2": "",
+          "c1r2": "",
+          "c2r0": "",
+          "c1r0": "guest",
+          "c0r1": "",
+          "c2r1": "host",
+          "c1r1": "guest",
+          "c2r2": "",
+          "c0r0": "host"
+        },
+        "host": "HOST",
+        "lastMove": "c1r0",
+        "winner": "",
+        "guest": "GUEST",
+        "moveCount": 4,
+        "currentTurn": "host",
+        "status": "playing",
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1735689600,
+          "nanoseconds": 0
+        }
+      },
+      "metadata": {
+        "fromCache": false,
+        "hasPendingWrites": false,
+        "beforeVersion": "2026-11-25T21:52:17.127224Z",
+        "afterVersion": "2026-11-25T21:52:17.127224Z"
+      }
+    },
+    {
+      "id": "four/generated/out-of-turn",
+      "role": "guest",
+      "decision": "DENY",
+      "code": "permission-denied",
+      "before": {
+        "lastMove": "c1r0",
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1735689600,
+          "nanoseconds": 0
+        },
+        "winner": "",
+        "host": "HOST",
+        "moveCount": 4,
+        "board": {
+          "c0r2": "",
+          "c1r2": "",
+          "c2r0": "",
+          "c1r0": "guest",
+          "c0r1": "",
+          "c2r1": "host",
+          "c2r2": "",
+          "c1r1": "guest",
+          "c0r0": "host"
+        },
+        "currentTurn": "host",
+        "guest": "GUEST",
+        "status": "playing"
+      },
+      "proposal": {
+        "host": "HOST",
+        "guest": "GUEST",
+        "currentTurn": "guest",
+        "status": "playing",
+        "winner": "",
+        "moveCount": 5,
+        "lastMove": "c0r2",
+        "board": {
+          "c0r0": "host",
+          "c1r0": "guest",
+          "c2r0": "",
+          "c0r1": "",
+          "c1r1": "guest",
+          "c2r1": "host",
+          "c0r2": "host",
+          "c1r2": "",
+          "c2r2": ""
+        },
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1735689600,
+          "nanoseconds": 0
+        }
+      },
+      "stored": {
+        "lastMove": "c1r0",
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1735689600,
+          "nanoseconds": 0
+        },
+        "winner": "",
+        "host": "HOST",
+        "moveCount": 4,
+        "board": {
+          "c0r2": "",
+          "c1r2": "",
+          "c2r0": "",
+          "c1r0": "guest",
+          "c0r1": "",
+          "c2r1": "host",
+          "c2r2": "",
+          "c1r1": "guest",
+          "c0r0": "host"
+        },
+        "currentTurn": "host",
+        "guest": "GUEST",
+        "status": "playing"
+      },
+      "metadata": {
+        "fromCache": false,
+        "hasPendingWrites": false,
+        "beforeVersion": "2026-11-25T21:52:17.186055Z",
+        "afterVersion": "2026-11-25T21:52:17.186055Z"
+      }
+    },
+    {
+      "id": "four/hand2/relative",
+      "role": "host",
+      "decision": "ALLOW",
+      "code": "ok",
+      "before": {
+        "moveCount": 4,
+        "winner": "",
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1735689600,
+          "nanoseconds": 0
+        },
+        "lastMove": "c1r0",
+        "guest": "GUEST",
+        "status": "playing",
+        "currentTurn": "host",
+        "board": {
+          "c2r1": "host",
+          "c0r0": "host",
+          "c2r2": "",
+          "c2r0": "",
+          "c0r1": "",
+          "c0r2": "",
+          "c1r0": "guest",
+          "c1r1": "guest",
+          "c1r2": ""
+        },
+        "host": "HOST"
+      },
+      "proposal": {
+        "host": "HOST",
+        "guest": "GUEST",
+        "currentTurn": "guest",
+        "status": "playing",
+        "winner": "",
+        "moveCount": 6,
+        "lastMove": "c0r2",
+        "board": {
+          "c0r0": "host",
+          "c1r0": "guest",
+          "c2r0": "",
+          "c0r1": "",
+          "c1r1": "guest",
+          "c2r1": "host",
+          "c0r2": "host",
+          "c1r2": "",
+          "c2r2": ""
+        },
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1735689600,
+          "nanoseconds": 0
+        }
+      },
+      "stored": {
+        "status": "playing",
+        "lastMove": "c0r2",
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1735689600,
+          "nanoseconds": 0
+        },
+        "host": "HOST",
+        "guest": "GUEST",
+        "winner": "",
+        "currentTurn": "guest",
+        "moveCount": 6,
+        "board": {
+          "c2r2": "",
+          "c0r1": "",
+          "c2r0": "",
+          "c0r0": "host",
+          "c2r1": "host",
+          "c1r2": "",
+          "c1r1": "guest",
+          "c1r0": "guest",
+          "c0r2": "host"
+        }
+      },
+      "metadata": {
+        "fromCache": false,
+        "hasPendingWrites": false,
+        "beforeVersion": "2026-11-25T21:52:17.240034Z",
+        "afterVersion": "2026-11-25T21:56:08.770559Z"
+      }
+    },
+    {
+      "id": "four/hand2/constant",
+      "role": "host",
+      "decision": "DENY",
+      "code": "permission-denied",
+      "before": {
+        "board": {
+          "c1r2": "",
+          "c1r1": "guest",
+          "c1r0": "guest",
+          "c0r2": "",
+          "c2r0": "",
+          "c0r1": "",
+          "c2r2": "",
+          "c0r0": "host",
+          "c2r1": "host"
+        },
+        "lastMove": "c1r0",
+        "host": "HOST",
+        "guest": "GUEST",
+        "status": "playing",
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1735689600,
+          "nanoseconds": 0
+        },
+        "currentTurn": "host",
+        "winner": "",
+        "moveCount": 4
+      },
+      "proposal": {
+        "host": "HOST",
+        "guest": "GUEST",
+        "currentTurn": "guest",
+        "status": "playing",
+        "winner": "",
+        "moveCount": 2,
+        "lastMove": "c0r2",
+        "board": {
+          "c0r0": "host",
+          "c1r0": "guest",
+          "c2r0": "",
+          "c0r1": "",
+          "c1r1": "guest",
+          "c2r1": "host",
+          "c0r2": "host",
+          "c1r2": "",
+          "c2r2": ""
+        },
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1735689600,
+          "nanoseconds": 0
+        }
+      },
+      "stored": {
+        "board": {
+          "c1r2": "",
+          "c1r1": "guest",
+          "c1r0": "guest",
+          "c0r2": "",
+          "c2r0": "",
+          "c0r1": "",
+          "c2r2": "",
+          "c0r0": "host",
+          "c2r1": "host"
+        },
+        "lastMove": "c1r0",
+        "host": "HOST",
+        "guest": "GUEST",
+        "status": "playing",
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1735689600,
+          "nanoseconds": 0
+        },
+        "currentTurn": "host",
+        "winner": "",
+        "moveCount": 4
+      },
+      "metadata": {
+        "fromCache": false,
+        "hasPendingWrites": false,
+        "beforeVersion": "2026-11-25T21:52:17.295501Z",
+        "afterVersion": "2026-11-25T21:52:17.295501Z"
+      }
+    },
+    {
+      "id": "four/hand2/out-of-turn",
+      "role": "guest",
+      "decision": "DENY",
+      "code": "permission-denied",
+      "before": {
+        "lastMove": "c1r0",
+        "winner": "",
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1735689600,
+          "nanoseconds": 0
+        },
+        "host": "HOST",
+        "currentTurn": "host",
+        "moveCount": 4,
+        "status": "playing",
+        "board": {
+          "c2r1": "host",
+          "c0r0": "host",
+          "c0r1": "",
+          "c2r0": "",
+          "c2r2": "",
+          "c1r1": "guest",
+          "c0r2": "",
+          "c1r0": "guest",
+          "c1r2": ""
+        },
+        "guest": "GUEST"
+      },
+      "proposal": {
+        "host": "HOST",
+        "guest": "GUEST",
+        "currentTurn": "guest",
+        "status": "playing",
+        "winner": "",
+        "moveCount": 6,
+        "lastMove": "c0r2",
+        "board": {
+          "c0r0": "host",
+          "c1r0": "guest",
+          "c2r0": "",
+          "c0r1": "",
+          "c1r1": "guest",
+          "c2r1": "host",
+          "c0r2": "host",
+          "c1r2": "",
+          "c2r2": ""
+        },
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1735689600,
+          "nanoseconds": 0
+        }
+      },
+      "stored": {
+        "lastMove": "c1r0",
+        "winner": "",
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1735689600,
+          "nanoseconds": 0
+        },
+        "host": "HOST",
+        "currentTurn": "host",
+        "moveCount": 4,
+        "status": "playing",
+        "board": {
+          "c2r1": "host",
+          "c0r0": "host",
+          "c0r1": "",
+          "c2r0": "",
+          "c2r2": "",
+          "c1r1": "guest",
+          "c0r2": "",
+          "c1r0": "guest",
+          "c1r2": ""
+        },
+        "guest": "GUEST"
+      },
+      "metadata": {
+        "fromCache": false,
+        "hasPendingWrites": false,
+        "beforeVersion": "2026-11-25T21:52:17.353539Z",
+        "afterVersion": "2026-11-25T21:52:17.353539Z"
+      }
+    },
+    {
+      "id": "four/plus2/relative",
+      "role": "host",
+      "decision": "ALLOW",
+      "code": "ok",
+      "before": {
+        "winner": "",
+        "currentTurn": "host",
+        "lastMove": "c1r0",
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1735689600,
+          "nanoseconds": 0
+        },
+        "status": "playing",
+        "guest": "GUEST",
+        "host": "HOST",
+        "moveCount": 4,
+        "board": {
+          "c1r1": "guest",
+          "c2r0": "",
+          "c2r2": "",
+          "c1r0": "guest",
+          "c2r1": "host",
+          "c1r2": "",
+          "c0r2": "",
+          "c0r0": "host",
+          "c0r1": ""
+        }
+      },
+      "proposal": {
+        "host": "HOST",
+        "guest": "GUEST",
+        "currentTurn": "guest",
+        "status": "playing",
+        "winner": "",
+        "moveCount": 6,
+        "lastMove": "c0r2",
+        "board": {
+          "c0r0": "host",
+          "c1r0": "guest",
+          "c2r0": "",
+          "c0r1": "",
+          "c1r1": "guest",
+          "c2r1": "host",
+          "c0r2": "host",
+          "c1r2": "",
+          "c2r2": ""
+        },
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1735689600,
+          "nanoseconds": 0
+        }
+      },
+      "stored": {
+        "status": "playing",
+        "lastMove": "c0r2",
+        "guest": "GUEST",
+        "board": {
+          "c0r2": "host",
+          "c0r0": "host",
+          "c1r2": "",
+          "c2r1": "host",
+          "c0r1": "",
+          "c2r0": "",
+          "c1r1": "guest",
+          "c1r0": "guest",
+          "c2r2": ""
+        },
+        "moveCount": 6,
+        "winner": "",
+        "currentTurn": "guest",
+        "host": "HOST",
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1735689600,
+          "nanoseconds": 0
+        }
+      },
+      "metadata": {
+        "fromCache": false,
+        "hasPendingWrites": false,
+        "beforeVersion": "2026-11-25T21:52:17.408179Z",
+        "afterVersion": "2026-11-25T21:57:32.413326Z"
+      }
+    },
+    {
+      "id": "four/plus2/constant",
+      "role": "host",
+      "decision": "DENY",
+      "code": "permission-denied",
+      "before": {
+        "board": {
+          "c1r1": "guest",
+          "c2r0": "",
+          "c2r2": "",
+          "c1r0": "guest",
+          "c2r1": "host",
+          "c1r2": "",
+          "c0r2": "",
+          "c0r0": "host",
+          "c0r1": ""
+        },
+        "currentTurn": "host",
+        "host": "HOST",
+        "guest": "GUEST",
+        "moveCount": 4,
+        "status": "playing",
+        "lastMove": "c1r0",
+        "winner": "",
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1735689600,
+          "nanoseconds": 0
+        }
+      },
+      "proposal": {
+        "host": "HOST",
+        "guest": "GUEST",
+        "currentTurn": "guest",
+        "status": "playing",
+        "winner": "",
+        "moveCount": 2,
+        "lastMove": "c0r2",
+        "board": {
+          "c0r0": "host",
+          "c1r0": "guest",
+          "c2r0": "",
+          "c0r1": "",
+          "c1r1": "guest",
+          "c2r1": "host",
+          "c0r2": "host",
+          "c1r2": "",
+          "c2r2": ""
+        },
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1735689600,
+          "nanoseconds": 0
+        }
+      },
+      "stored": {
+        "board": {
+          "c1r1": "guest",
+          "c2r0": "",
+          "c2r2": "",
+          "c1r0": "guest",
+          "c2r1": "host",
+          "c1r2": "",
+          "c0r2": "",
+          "c0r0": "host",
+          "c0r1": ""
+        },
+        "currentTurn": "host",
+        "host": "HOST",
+        "guest": "GUEST",
+        "moveCount": 4,
+        "status": "playing",
+        "lastMove": "c1r0",
+        "winner": "",
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1735689600,
+          "nanoseconds": 0
+        }
+      },
+      "metadata": {
+        "fromCache": false,
+        "hasPendingWrites": false,
+        "beforeVersion": "2026-11-25T21:52:17.458734Z",
+        "afterVersion": "2026-11-25T21:52:17.458734Z"
+      }
+    },
+    {
+      "id": "four/plus2/out-of-turn",
+      "role": "guest",
+      "decision": "DENY",
+      "code": "permission-denied",
+      "before": {
+        "status": "playing",
+        "guest": "GUEST",
+        "lastMove": "c1r0",
+        "winner": "",
+        "board": {
+          "c0r1": "",
+          "c1r2": "",
+          "c0r2": "",
+          "c0r0": "host",
+          "c2r1": "host",
+          "c1r0": "guest",
+          "c2r2": "",
+          "c1r1": "guest",
+          "c2r0": ""
+        },
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1735689600,
+          "nanoseconds": 0
+        },
+        "host": "HOST",
+        "currentTurn": "host",
+        "moveCount": 4
+      },
+      "proposal": {
+        "host": "HOST",
+        "guest": "GUEST",
+        "currentTurn": "guest",
+        "status": "playing",
+        "winner": "",
+        "moveCount": 6,
+        "lastMove": "c0r2",
+        "board": {
+          "c0r0": "host",
+          "c1r0": "guest",
+          "c2r0": "",
+          "c0r1": "",
+          "c1r1": "guest",
+          "c2r1": "host",
+          "c0r2": "host",
+          "c1r2": "",
+          "c2r2": ""
+        },
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1735689600,
+          "nanoseconds": 0
+        }
+      },
+      "stored": {
+        "status": "playing",
+        "guest": "GUEST",
+        "lastMove": "c1r0",
+        "winner": "",
+        "board": {
+          "c0r1": "",
+          "c1r2": "",
+          "c0r2": "",
+          "c0r0": "host",
+          "c2r1": "host",
+          "c1r0": "guest",
+          "c2r2": "",
+          "c1r1": "guest",
+          "c2r0": ""
+        },
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1735689600,
+          "nanoseconds": 0
+        },
+        "host": "HOST",
+        "currentTurn": "host",
+        "moveCount": 4
+      },
+      "metadata": {
+        "fromCache": false,
+        "hasPendingWrites": false,
+        "beforeVersion": "2026-11-25T21:52:17.496766Z",
+        "afterVersion": "2026-11-25T21:52:17.496766Z"
+      }
+    }
+  ]
+}

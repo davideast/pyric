@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")"
+mkdir -p .npm-cache
+exec 9>.npm-cache/replay.lock
+flock 9
 node --input-type=module -e 'import {verifyInputs} from "./corpus.mjs"; verifyInputs()'
 npm ci --prefix runtime --offline --ignore-scripts --no-audit --no-fund --cache .npm-cache >/dev/null
+printf '%s\n' 'e27fc7d79802dc238ed8513f6653182cf15c962b79291c98b3a742b55accd675  vendor/arcade-bundler.tgz' | sha256sum --check --status
+mkdir -p runtime/node_modules/arcade-bundler
+tar --warning=no-unknown-keyword -xzf vendor/arcade-bundler.tgz --strip-components=1 -C runtime/node_modules/arcade-bundler
 exec node runtime/replay.mjs "$@"
