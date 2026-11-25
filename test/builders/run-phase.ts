@@ -58,7 +58,7 @@ export const PHASE_STEPS_LOG = 'run-phase-steps.log';
 let stepsLog: string | undefined;
 
 function step(line: string): void {
-  console.log(`▸ ${line}`);
+  console.log(`\u25b8 ${line}`);
   if (stepsLog !== undefined) appendFileSync(stepsLog, `${new Date().toISOString()} ${line}\n`);
 }
 
@@ -76,9 +76,15 @@ async function runBuilder(app: AppRun, phase: Phase, env: Record<string, string>
     const run = await app.command(phase.command, phase.args, { env, timeoutMs: phase.wallClockMs });
     return { result: { code: run.code, timedOut: false, error: null, wallMs: Date.now() - started }, output: run.output };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    let message = String(error);
+    if (error instanceof Error) {
+      message = error.message;
+    }
     const timedOut = isStoppedAtLimit(message);
-    const failure = timedOut ? null : message.split('\n')[0] ?? message;
+    let failure: string | null = null;
+    if (!timedOut) {
+      failure = message.split('\n')[0] ?? message;
+    }
     return { result: { code: null, timedOut, error: failure, wallMs: Date.now() - started }, output: message };
   }
 }
@@ -90,16 +96,25 @@ async function startChannel(phase: Phase, dirs: BuilderRunDirs): Promise<{ bridg
   return { bridge, env: channelEnvironment(bridge.port) };
 }
 
-async function runPhase(dirs: BuilderRunDirs): Promise<void> {
+export interface RunPhaseDeps {
+  startBrowser?: typeof startBrowserServer;
+}
+
+export async function runPhase(dirs: BuilderRunDirs, deps: RunPhaseDeps = {}): Promise<void> {
   const phase = phaseSchema.parse(JSON.parse(readFileSync(dirs.phase, 'utf8')));
   const app = new AppRun('builder', dirs.app, dirs.home, noDriverBrowser);
+  const launchBrowserServer = deps.startBrowser ?? startBrowserServer;
   let bridge: Listening | undefined;
   let browser: BrowserServer | undefined;
   try {
-    step(phase.modelChannel ? 'starting the model channel bridge and the harness browser' : 'starting the harness browser, with no model channel');
+    if (phase.modelChannel) {
+      step('starting the model channel bridge and the harness browser');
+    } else {
+      step('starting the harness browser, with no model channel');
+    }
     const channel = await startChannel(phase, dirs);
     bridge = channel.bridge;
-    browser = await startBrowserServer({ netLogPath: dirs.netLog, networkLog: dirs.networkLog, home: dirs.home });
+    browser = await launchBrowserServer({ netLogPath: dirs.netLog, networkLog: dirs.networkLog, home: dirs.home });
     const env = { ...recorderEnvironment(dirs.networkLog), ...phase.env, ...channel.env, [BROWSER_WS_ENV]: browser.wsEndpoint, [PLAYWRIGHT_CLIENT_ENV]: playwrightClient() };
     step(`command: ${phase.command}, for at most ${phase.wallClockMs / 60_000} minutes`);
     const { result, output } = await runBuilder(app, phase, env);
@@ -123,8 +138,4 @@ if (import.meta.main) {
   stepsLog = join(dirs.logs, PHASE_STEPS_LOG);
   step(inventoryLine(assertInsideSandbox(root, 'start a builder or a reproduction')));
   await runPhase(dirs);
-  // AppRun's command races the builder against a sleep of its whole
-  // wall-clock cap and never clears that timer, which would hold this
-  // process open for the rest of the cap. Everything is stopped by now.
-  process.exit(0);
 }
