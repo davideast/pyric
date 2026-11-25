@@ -97,10 +97,16 @@ export function checkPermissiveRules(
     const grantsWrite = r.rule.operations.some((op) => WRITE_OPS.has(op));
     if (!grantsWrite) continue;
     const ops = r.rule.operations.join(', ');
-    const scopeDescription = scopes.get(r.rule)?.description ?? 'the matched paths';
+    let defaultScopeDescription = 'the matched paths';
+    if (isStorage) {
+      defaultScopeDescription = 'the matched objects';
+    }
+    const scopeDescription = scopes.get(r.rule)?.description ?? defaultScopeDescription;
+    let shapeExamples = 'auth identity, affected fields via diff, status transitions';
     let fix =
       'Replace the always-true predicate with a request-shape check (e.g. request.auth != null && request.resource.data.ownerId == request.auth.uid).';
     if (isStorage) {
+      shapeExamples = 'auth identity, request.resource.size, contentType, metadata';
       fix =
         "Replace the always-true predicate with a request-shape check (e.g. request.auth != null && request.resource.size < 5 * 1024 * 1024 && request.resource.contentType.matches('image/.*')).";
     }
@@ -112,8 +118,7 @@ export function checkPermissiveRules(
         `allow ${ops} at ${r.path} resolves to a constant true predicate -- ` +
         `this disables write security for ${scopeDescription}. If you reached ` +
         'for `if true` to escape a denial you do not understand, narrow ' +
-        'the predicate to the specific request shape instead (auth identity, ' +
-        'affected fields via diff, status transitions).',
+        `the predicate to the specific request shape instead (${shapeExamples}).`,
       location: { ruleIndex, matchPath: r.path },
       fix,
     });
@@ -155,7 +160,7 @@ export function collectRootAwarePolicyTargets(
       if (docSegs !== null) {
         rootReachedDocuments = true;
         const docPath = renderPathSegments(docSegs);
-        const recScope = recursiveScope(docSegs);
+        const recScope = recursiveScope(docSegs, isStorage);
         block.allows.forEach((rule, blockRuleIndex) => {
           applicableRules.push({ rule, path: docPath, ruleIndex: globalRuleIndex });
           if (recScope !== null) {
@@ -197,7 +202,14 @@ export function collectRootAwarePolicyTargets(
 export function checkRecursiveWildcardOpen(
   scopes: ReadonlyMap<AllowRule, RuleScope>,
   warnings: LintWarning[],
+  isStorage = false,
 ): void {
+  let fix =
+    'Narrow the match path to the collections that must be open, for example match /{path=**}/<collection>/{id} for one collection group, or replace `if true` with a real predicate (auth identity, ownership, role).';
+  if (isStorage) {
+    fix =
+      'Narrow the match path to the object prefix that must be open, for example match /public/{allPaths=**}, or replace `if true` with a real predicate (auth identity, ownership, request.resource metadata).';
+  }
   for (const [rule, scope] of scopes) {
     if (scope.kind !== 'subtree' || evalConstBool(rule.condition) !== true) continue;
     warnings.push({
@@ -207,7 +219,7 @@ export function checkRecursiveWildcardOpen(
         `match ${scope.fullPath} allows ${rule.operations.join(', ')} on ` +
         `${scope.description} with an always-true condition.`,
       location: { ruleIndex: scope.ruleIndex, matchPath: scope.fullPath },
-      fix: 'Narrow the match path to the collections that must be open, for example match /{path=**}/<collection>/{id} for one collection group, or replace `if true` with a real predicate (auth identity, ownership, role).',
+      fix,
     });
   }
 }

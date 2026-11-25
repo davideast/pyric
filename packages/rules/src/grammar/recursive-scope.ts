@@ -77,15 +77,23 @@ export function resolveDocumentSegments(
   return matchServicePrefix(fullSegments, prefix, recursiveWildcardMinimum(rulesVersion));
 }
 
-/** The scope of a full match path below the documents root, or null when it holds no recursive wildcard. */
-export function recursiveScope(segments: readonly PathSegment[]): RecursiveScope | null {
+/** The scope of a full match path below the documents or objects root, or null when it holds no recursive wildcard. */
+export function recursiveScope(
+  segments: readonly PathSegment[],
+  isStorage = false,
+): RecursiveScope | null {
   const index = segments.findIndex((segment) => segment.type === 'recursive');
   if (index === -1) return null;
   const fullPath = renderPathSegments(segments);
   const prefix = renderPathSegments(segments.slice(0, index));
   const trailing = segments.slice(index + 1);
   if (trailing.length === 0) {
-    const description = prefix ? `every document under ${prefix}` : 'every document in the database';
+    let description: string;
+    if (isStorage) {
+      description = prefix ? `every object under ${prefix}` : 'every object in the bucket';
+    } else {
+      description = prefix ? `every document under ${prefix}` : 'every document in the database';
+    }
     return {
       kind: 'subtree',
       fullPath,
@@ -93,6 +101,13 @@ export function recursiveScope(segments: readonly PathSegment[]): RecursiveScope
     };
   }
   const under = prefix ? ` under ${prefix}` : '';
+  if (isStorage) {
+    return {
+      kind: 'suffix',
+      fullPath,
+      description: `every object whose path ends in ${renderPathSegments(trailing)}${under}`,
+    };
+  }
   const [collection, document] = trailing;
   let description = `every document whose path ends in ${renderPathSegments(trailing)}${under}`;
   if (trailing.length === 2 && collection?.type === 'literal' && document?.type === 'wildcard') {

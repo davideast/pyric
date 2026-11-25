@@ -105,7 +105,7 @@ service firebase.storage {
     const recursiveOpen = linted.warnings.find((w) => w.rule === 'RECURSIVE_WILDCARD_OPEN');
     expect(recursiveOpen?.severity).toBe('error');
     expect(recursiveOpen?.message).toBe(
-      'match /public/{allPaths=**} allows read, write on every document under /public with an always-true condition.',
+      'match /public/{allPaths=**} allows read, write on every object under /public with an always-true condition.',
     );
   });
 });
