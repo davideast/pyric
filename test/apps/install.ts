@@ -4,7 +4,7 @@
  * Pyric packages come from packed tarballs, never from workspace sources.
  */
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
-import { cpSync, existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { DEFAULT_EXIT_TIMING, describeGroupProcesses, endGroup, watchChildExit, type ExitTiming } from './unreaped-exit.ts';
 import { childOutputSockets, describeOutputSockets, isExitWithoutClose } from './output-sockets.ts';
@@ -262,6 +262,9 @@ const STALE_METADATA = /\bcode (ETARGET|ENOVERSIONS)\b/;
 /** An npm package slot in package-lock.json (`node_modules/pkg` or `.../node_modules/@scope/pkg`). */
 const INSTALLED_PACKAGE_PATH = /(?:^|\/)node_modules\/(?:@[^/]+\/)?[^/]+$/;
 
+/** An exact semver specifier (for example `4.68.8`) that an older hoisted optional package cannot satisfy. */
+const EXACT_SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+
 /** npm's codes and transport messages for a dropped or unavailable registry connection. */
 const TRANSIENT_NETWORK_CODE = /\b(?:code|errno) (?:ECONNRESET|ETIMEDOUT|ESOCKETTIMEDOUT|ERR_SOCKET_TIMEOUT|EAI_AGAIN|ECONNREFUSED|EPIPE|E500|E502|E503|E504)\b/;
 const TRANSIENT_NETWORK_MESSAGE = /\b(?:socket hang up|Client network socket disconnected|network socket disconnected|ECONNRESET|ESOCKETTIMEDOUT|ERR_SOCKET_TIMEOUT|EAI_AGAIN)\b/;
@@ -279,13 +282,41 @@ export function shouldRetryOnline(result: CommandResult): boolean {
   return isFailure && STALE_METADATA.test(result.output);
 }
 
+function isResolvedOptionalMatch(raw: unknown, declaredSpec: unknown): boolean {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return false;
+  const entry = raw as Record<string, unknown>;
+  if (entry.link === true || entry.inBundle === true) return true;
+  if (typeof entry.version !== 'string' || entry.version.length === 0) return false;
+  if (typeof declaredSpec === 'string' && EXACT_SEMVER.test(declaredSpec)) {
+    return entry.version === declaredSpec;
+  }
+  return true;
+}
+
+function hasResolvedOptionalAncestor(
+  packages: Record<string, unknown>,
+  parentPath: string,
+  depName: string,
+  declaredSpec: unknown,
+): boolean {
+  let cursor = parentPath;
+  while (true) {
+    const candidate = cursor.length === 0 ? `node_modules/${depName}` : `${cursor}/node_modules/${depName}`;
+    if (isResolvedOptionalMatch(packages[candidate], declaredSpec)) return true;
+    if (cursor.length === 0) return false;
+    const idx = cursor.lastIndexOf('/node_modules/');
+    cursor = idx === -1 ? '' : cursor.slice(0, idx);
+  }
+}
+
 /**
  * Package paths in `package-lock.json` where npm failed to resolve an optional
  * dependency's manifest (for example, ETARGET on `@rollup/rollup-linux-x64-gnu`
  * when `--prefer-offline` reads a newer parent packument alongside an older
  * cached optional packument). npm swallows resolution errors on optional
- * dependencies, exits 0, and writes a versionless `{ optional: true }` stub
- * instead of installing the platform package (#3331).
+ * dependencies and exits 0: npm 11 writes a versionless `{ optional: true }`
+ * stub, while npm 10 omits the slot from `packages` altogether even though
+ * platform-mismatched optional packages still receive resolved entries (#3331).
  */
 export function unresolvedOptionalPackages(lockfileText: string): string[] {
   let parsed: unknown;
@@ -295,19 +326,29 @@ export function unresolvedOptionalPackages(lockfileText: string): string[] {
     return [];
   }
   if (typeof parsed !== 'object' || parsed === null) return [];
-  const packages = (parsed as { packages?: unknown }).packages;
-  if (typeof packages !== 'object' || packages === null || Array.isArray(packages)) return [];
-  const unresolved: string[] = [];
-  for (const [pkgPath, raw] of Object.entries(packages as Record<string, unknown>)) {
-    if (!INSTALLED_PACKAGE_PATH.test(pkgPath)) continue;
+  const rawPackages = (parsed as { packages?: unknown }).packages;
+  if (typeof rawPackages !== 'object' || rawPackages === null || Array.isArray(rawPackages)) return [];
+  const packages = rawPackages as Record<string, unknown>;
+  const unresolved = new Set<string>();
+  for (const [pkgPath, raw] of Object.entries(packages)) {
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) continue;
     const entry = raw as Record<string, unknown>;
     if (entry.link === true || entry.inBundle === true) continue;
-    const isOptional = entry.optional === true || entry.devOptional === true;
-    const hasVersion = typeof entry.version === 'string' && entry.version.length > 0;
-    if (isOptional && !hasVersion) unresolved.push(pkgPath);
+    if (INSTALLED_PACKAGE_PATH.test(pkgPath)) {
+      const isOptional = entry.optional === true || entry.devOptional === true;
+      const hasVersion = typeof entry.version === 'string' && entry.version.length > 0;
+      if (isOptional && !hasVersion) unresolved.add(pkgPath);
+    }
+    const optionalDeps = entry.optionalDependencies;
+    if (typeof optionalDeps !== 'object' || optionalDeps === null || Array.isArray(optionalDeps)) continue;
+    if (pkgPath.length > 0 && !INSTALLED_PACKAGE_PATH.test(pkgPath)) continue;
+    for (const [depName, spec] of Object.entries(optionalDeps as Record<string, unknown>)) {
+      if (hasResolvedOptionalAncestor(packages, pkgPath, depName, spec)) continue;
+      const slot = pkgPath.length === 0 ? `node_modules/${depName}` : `${pkgPath}/node_modules/${depName}`;
+      unresolved.add(slot);
+    }
   }
-  return unresolved.sort();
+  return [...unresolved].sort();
 }
 
 function readUnresolvedOptionalIn(cwd: string): string[] {
@@ -413,6 +454,7 @@ export async function npmInstall<R extends CommandResult & { timedOut?: boolean 
   const report = options.report ?? ((line: string) => console.log(line));
   const cwd = options.cwd;
   const hadLockfile = cwd !== undefined && existsSync(join(cwd, 'package-lock.json'));
+  const hadNodeModules = cwd !== undefined && existsSync(join(cwd, 'node_modules'));
   const budget: NetworkRetryBudget = { remaining: 1 };
   const offlineStarted = performance.now();
   const first = await runWithNetworkRetry(npmInstallArgs(npmCache, 'offline', logsDir), run, delayMs, budget, report);
@@ -424,7 +466,16 @@ export async function npmInstall<R extends CommandResult & { timedOut?: boolean 
   if (!failedStaleMetadata && unresolvedOptional.length === 0) return withRetryPolicy(first);
   let note: string;
   if (unresolvedOptional.length > 0 && cwd !== undefined) {
-    stripUnresolvedOptionalLockEntries(cwd, unresolvedOptional);
+    if (!hadNodeModules) {
+      // Fresh install: removing the generated lockfile and node_modules forces
+      // both npm 10 (which omits unresolved optional slots) and npm 11 (which
+      // writes versionless stubs) to re-resolve them online while keeping full
+      // resolved/integrity metadata from the shared cache.
+      rmSync(join(cwd, 'package-lock.json'), { force: true });
+      rmSync(join(cwd, 'node_modules'), { recursive: true, force: true });
+    } else {
+      stripUnresolvedOptionalLockEntries(cwd, unresolvedOptional);
+    }
     const summary = unresolvedOptional.join(', ');
     report(`[runner] retried npm install with --prefer-online after stale cached metadata (unresolved optional ${summary}), ${tenthedSecondsSince(offlineStarted)} s`);
     note = `\n[runner] npm install omitted unresolved optional dependencies (${summary}) from cached metadata; retrying once with --prefer-online\n`;

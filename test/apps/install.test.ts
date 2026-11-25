@@ -96,6 +96,36 @@ describe('the retry after stale npm metadata', () => {
       'node_modules/opt-root',
       'node_modules/rollup/node_modules/@rollup/rollup-linux-x64-gnu',
     ]);
+    // npm 10 omits unresolved optional dependencies from `packages` altogether while still
+    // recording platform-mismatched optional dependencies with their resolved version.
+    const npm10OmittedLock = JSON.stringify({
+      lockfileVersion: 3,
+      packages: {
+        '': { name: 'app', dependencies: { rollup: '^4.68.8' } },
+        'node_modules/rollup': {
+          version: '4.68.8',
+          optionalDependencies: {
+            '@rollup/rollup-darwin-arm64': '4.68.8',
+            '@rollup/rollup-linux-x64-gnu': '4.68.8',
+            'hoisted-stale-opt': '2.0.0',
+          },
+        },
+        'node_modules/@rollup/rollup-darwin-arm64': {
+          version: '4.68.8',
+          optional: true,
+          os: ['darwin'],
+          cpu: ['arm64'],
+        },
+        'node_modules/hoisted-stale-opt': {
+          version: '1.0.0',
+          optional: true,
+        },
+      },
+    });
+    expect(unresolvedOptionalPackages(npm10OmittedLock)).toEqual([
+      'node_modules/rollup/node_modules/@rollup/rollup-linux-x64-gnu',
+      'node_modules/rollup/node_modules/hoisted-stale-opt',
+    ]);
     expect(unresolvedOptionalPackages('not json')).toEqual([]);
   });
 
