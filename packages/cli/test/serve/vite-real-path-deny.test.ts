@@ -209,9 +209,45 @@ describe('Vite real-path guard', () => {
 
   it('still serves ordinary files', async () => {
     const root = project();
+    writeFileSync(join(root, '.gitignore'), 'dist\n');
     const base = await serve(root, [guardPlugin(root)]);
     expect((await fetch(`${base}/src/main.js`)).status).toBe(200);
+    expect((await fetch(`${base}/.gitignore`)).status).toBe(200);
     expect((await fetch(`${base}/`)).status).toBe(200);
+  });
+
+  it('refuses .git, .npmrc, .yarnrc, private-key and service-account files directly or via symlinks', async () => {
+    const root = project();
+    mkdirSync(join(root, '.git'), { recursive: true });
+    writeFileSync(join(root, '.git', 'config'), '[core]\n\tbare = false\n');
+    writeFileSync(join(root, '.npmrc'), '//registry.example.test/:_authToken=secret\n');
+    writeFileSync(join(root, '.yarnrc.yml'), 'npmAuthToken: secret\n');
+    writeFileSync(join(root, 'tls.pem'), 'PRIVATE_PEM');
+    writeFileSync(join(root, 'tls.key'), 'PRIVATE_KEY');
+    writeFileSync(join(root, 'prod-service-account.json'), '{"private_key":"secret"}');
+    symlinkSync(join(root, '.git', 'config'), join(root, 'git-config-link'));
+    symlinkSync(join(root, '.npmrc'), join(root, 'npmrc-link'));
+    symlinkSync(join(root, 'prod-service-account.json'), join(root, 'sa-link.json'));
+
+    const base = await serve(root, [guardPlugin(root)]);
+    const targets = [
+      '/.git/config',
+      '/git-config-link',
+      '/.npmrc',
+      '/npmrc-link',
+      '/.yarnrc.yml',
+      '/tls.pem',
+      '/tls.key',
+      '/prod-service-account.json',
+      '/sa-link.json',
+    ];
+    for (const target of targets) {
+      const res = await fetch(`${base}${target}`);
+      expect(res.status, `Vite real-path guard for ${target}`).toBe(403);
+      const body = await res.text();
+      expect(body).not.toContain('secret');
+      expect(body).not.toContain('PRIVATE_');
+    }
   });
 
   it('refuses non-canonical /@fs/ paths (dot segments, repeated slashes, encoded variants) and standard WHATWG fetch(//@fs...)', async () => {
