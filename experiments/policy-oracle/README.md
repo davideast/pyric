@@ -18,13 +18,13 @@ Give the author a single directory in `suites/<family>/<subject>/claims/<claim>/
 
 | File | Contents |
 |---|---|
-| `claim.json` | A description and an eligible authority, currently `native-model`, `firestore-sdk` or `rtdb-production`. Cloud claims also declare a `witness` contract. |
+| `claim.json` | A description and an eligible authority, currently `native-model`, `firestore-sdk`, `rtdb-production` or `storage-production`. Cloud claims also declare a `witness` contract. |
 | `obligations/<id>.json` | A required local probe version, for example `{"probe":"at-cap/v1"}`. |
 | `probes/<id>/v1/recipe.json` | The upstream repo, full revision and path under `source`, unique case names under `cases`, and the local replay filename under `replay`. The `pins` object maps the runner, its inputs and dependencies to SHA-256 digests. Use `@oracle/` paths for dependencies shared under this directory. |
 | `probes/<id>/v1/observations/<run>.json` | An eligible `authority`, an `inputDigest`, and one observed result under `results` for every case. `evidence` gives the relative raw record path, its SHA-256 and one JSON Pointer per case under `pointers`. |
 | Probe files | The raw observation or fixture, any adapter, and a replay program. The program runs with Bun in the probe directory and receives the oracle directory as `ORACLE_ROOT`. Its single JSON output has `candidate` and `mutant` maps keyed by exactly the declared case names. |
 
-The two imported cloud verdicts use `witness: imported-production-verdict`. The receipt carries the source Git blob ID, and each normalized answer selects a production verdict from the upstream record. The Firestore import reads the deployed database decisions under `diagnostics.productionDatabase`. The RTDB import reads its recorded operations under `behavior`. The checked-in source names the exact upstream revision and path used for independent review. Neither imported receipt records full post-write state.
+Imported cloud verdicts use `witness: imported-production-verdict`. The receipt carries the source Git blob ID, and each normalized answer selects a production verdict from the upstream record. The Firestore import reads the deployed database decisions under `diagnostics.productionDatabase`. The RTDB import reads its recorded operations under `behavior`. A new import remains pending until `--upstream-pyric /path/to/reviewed/pyric` resolves the declared revision and path to the exact Git blob. A released observation can then replay without the upstream checkout. The Firestore batch and RTDB receipts cover verdicts without full post-write state. The Storage import checks for a recorded bucket and real stored objects.
 
 Arcade game writes use `witness: authenticated-write-readback`, with the pinned shared verifier identified by `recipe.verifyEvidence`. The oracle executes that offline verifier before admitting a receipt. It requires the complete authenticated operation and the corresponding before/after server reads. After that check, the claim stays pending until the operator supplies the trusted capture controller's independently retained bytes with `--trusted-captures /path/to/controller/archive`. The controller archives the original JSON under `<sha256>.json` outside the candidate worktree. The operator must verify its provenance before admitting it. The oracle compares bytes and lists otherwise complete submissions under `awaitingControllerReceipt`. This also keeps realistic test doubles out of live coverage.
 
@@ -33,8 +33,8 @@ Compute `inputDigest` by hashing the original bytes of `claim.json`, one zero by
 ## Freezing a reviewed release
 
 ```sh
-python3 experiments/policy-oracle/core/oracle.py --snapshot > /tmp/reviewed-oracle.json
+python3 experiments/policy-oracle/core/oracle.py --upstream-pyric . --snapshot > /tmp/reviewed-oracle.json
 python3 experiments/policy-oracle/core/oracle.py --all --baseline /tmp/reviewed-oracle.json
 ```
 
-The regular commands check the [pilot baseline](baselines/pilot-v1.json) automatically. Take any replacement snapshot from a reviewed tree. A baseline pins every claim, obligation, recipe and observation in that release. A comparison allows additions and fails if an existing record changes or disappears. CI can supply a baseline from a protected revision. Keep snapshots for named releases, so routine probe authors never edit a shared manifest. The separate frozen Arcade archive keeps its own release hashes. [Parallel ownership and deployment scope](../../docs/conformance/policy-oracle-parallel-authorship.md)
+The regular commands check the released inventories under [baselines](baselines/) automatically, including the initial pilot. A later release can add a snapshot without rewriting its predecessors. Take any replacement snapshot from a reviewed tree. A baseline pins every claim, obligation, recipe and observation in that release. A comparison allows additions and fails if an existing record changes or disappears. CI can supply a baseline from a protected revision. Keep snapshots for named releases, so routine probe authors never edit a shared manifest. The separate frozen Arcade archive keeps its own release hashes. [Parallel ownership and deployment scope](../../docs/conformance/policy-oracle-parallel-authorship.md)

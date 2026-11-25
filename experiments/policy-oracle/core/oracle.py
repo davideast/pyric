@@ -8,6 +8,7 @@ import os
 import re
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 DEFAULT_ROOT = Path(__file__).resolve().parents[1]
@@ -17,9 +18,17 @@ WITNESSES = {
     "native-model": {"native-trace"},
     "firestore-sdk": {"imported-production-verdict", "authenticated-write-readback"},
     "rtdb-production": {"imported-production-verdict"},
+    "storage-production": {"imported-production-verdict"},
 }
 ARCADE_VERIFIER = "@oracle/adapters/arcade-sdk/v1/verify.mjs"
 ARCHIVE_IDS = {f"arcade/tictactoe/relative-plus-{n}/v1" for n in ("one", "two")}
+
+
+@dataclass(frozen=True)
+class EvidenceSources:
+    released: dict
+    controller: Path | None
+    upstream_pyric: Path | None
 
 
 def require(condition, message):
@@ -133,8 +142,8 @@ def exact_cases(values, cases, where):
 
 
 def check_import(raw, document, recipe, authority, evidence):
-    # These two imported profiles preserve exact values in the upstream production receipts.
-    service = "firestore-rules" if authority == "firestore-sdk" else "rtdb-rules"
+    service = {"firestore-sdk":"firestore-rules", "rtdb-production":"rtdb-rules",
+               "storage-production":"storage-rules"}[authority]
     source = recipe["source"]
     require(source["repo"] == "davideast/pyric" and
             source["path"] == f"packages/conformance/observations/{service}/{document.get('name')}.json",
@@ -143,12 +152,15 @@ def check_import(raw, document, recipe, authority, evidence):
                 for key in ("projectId", "fbSdkVersion", "observedAt")), "incomplete imported production receipt")
     blob = hashlib.sha1(f"blob {len(raw)}\0".encode() + raw).hexdigest()
     require(evidence.get("sourceBlob") == blob, "imported receipt differs from its reviewed upstream blob")
+    if authority == "storage-production":
+        require(isinstance(document.get("bucket"), str) and document["bucket"]
+                and document.get("storedObjects"), "missing real-object Storage capture metadata")
     prefix = "/diagnostics/productionDatabase/" if authority == "firestore-sdk" else "/behavior/"
     require(all(ptr.startswith(prefix) for ptr in evidence["pointers"].values()),
             "imported verdict must select the production data plane")
 
 
-def observed_values(root, path, authority, witness, input_digest, recipe, trusted_captures):
+def observed_values(root, path, authority, witness, input_digest, recipe, sources):
     cases = recipe["cases"]
     observation = load(path)
     require(observation["authority"] == authority, f"ineligible authority: {path}")
@@ -174,8 +186,18 @@ def observed_values(root, path, authority, witness, input_digest, recipe, truste
     # Capture programs and test doubles can produce the same well-formed JSON. Only a
     # separately retained controller receipt can admit a new SDK write as evidence.
     admitted = True
+    if witness == "imported-production-verdict":
+        admitted = sources.released.get(str(path.relative_to(root))) == sha(path.read_bytes())
+        if sources.upstream_pyric is not None:
+            source = recipe["source"]
+            object_name = source["revision"] + ":" + source["path"]
+            upstream = subprocess.run(["git", "-C", sources.upstream_pyric, "rev-parse", "--verify", object_name],
+                                      text=True, capture_output=True)
+            require(upstream.returncode == 0 and upstream.stdout.strip() == evidence["sourceBlob"],
+                    f"upstream commit does not contain the supplied receipt: {object_name}")
+            admitted = True
     if witness == "authenticated-write-readback":
-        retained = trusted_captures / (evidence["sha256"] + ".json") if trusted_captures else None
+        retained = sources.controller / (evidence["sha256"] + ".json") if sources.controller else None
         admitted = retained is not None and retained.exists()
         if admitted:
             require(not retained.is_symlink() and retained.read_bytes() == raw,
@@ -195,7 +217,7 @@ def run_json(command, directory, root):
     return parse(process.stdout)
 
 
-def inspect_probe(root, version, claim_file, authority, witness, replay, pins, trusted_captures):
+def inspect_probe(root, version, claim_file, authority, witness, replay, pins, sources):
     recipe_file = version / "recipe.json"
     recipe = load(recipe_file)
     source = recipe["source"]
@@ -214,7 +236,7 @@ def inspect_probe(root, version, claim_file, authority, witness, replay, pins, t
     observations = {}
     awaiting = []
     for receipt in records(version / "observations"):
-        results, admitted = observed_values(root, receipt, authority, witness, input_digest, recipe, trusted_captures)
+        results, admitted = observed_values(root, receipt, authority, witness, input_digest, recipe, sources)
         if admitted:
             observations[receipt.stem] = results
         else:
@@ -223,7 +245,7 @@ def inspect_probe(root, version, claim_file, authority, witness, replay, pins, t
     distinct = {canonical(value) for value in observations.values()}
     report = {"cases": cases, "observations": list(observations), "status": "pending"}
     if awaiting:
-        report["awaitingControllerReceipt"] = awaiting
+        report["awaitingControllerReceipt" if witness == "authenticated-write-readback" else "awaitingUpstreamReceipt"] = awaiting
     if len(distinct) > 1:
         return {**report, "status": "disputed", "answers": observations}
     if observations:
@@ -243,7 +265,7 @@ def inspect_probe(root, version, claim_file, authority, witness, replay, pins, t
     return report
 
 
-def inspect(root, replay=False, trusted_captures=None):
+def inspect(root, sources, replay=False):
     claims = {}
     pins = {}
     for claim_id, path in claim_dirs(root):
@@ -265,7 +287,7 @@ def inspect(root, replay=False, trusted_captures=None):
         for probe in directories(path / "probes"):
             for version in directories(probe, VERSION):
                 probes[f"{probe.name}/{version.name}"] = inspect_probe(
-                    root, version, claim_file, authority, witness, replay, pins, trusted_captures)
+                    root, version, claim_file, authority, witness, replay, pins, sources)
         require(set(obligations.values()) <= probes.keys(), f"missing required probe: {claim_id}")
         states = {probes[key]["status"] for key in obligations.values()}
         status = next(state for state in ("disputed", "diverged", "pending", "evidenced", "conforms")
@@ -294,12 +316,33 @@ def archive_results(root):
             "falseDenials": result["mutationFalseDenials"]}
 
 
-def check_baseline(path, snapshot):
-    baseline = load(path)
-    require(baseline["version"] == 1 and isinstance(baseline["pins"], dict) and baseline["pins"],
-            f"invalid baseline: {path}")
-    for name, expected in baseline["pins"].items():
-        require(snapshot["pins"].get(name) == expected, f"missing or altered released record: {name}")
+def released_pins(root, explicit):
+    if explicit:
+        paths = [explicit]
+    elif root == DEFAULT_ROOT:
+        paths = list(records(root / "baselines"))
+        require(root / "baselines/pilot-v1.json" in paths, "missing pilot baseline")
+    else:
+        paths = []
+    released = {}
+    for path in paths:
+        baseline = load(path)
+        require(baseline["version"] == 1 and isinstance(baseline["pins"], dict) and baseline["pins"],
+                f"invalid baseline: {path}")
+        for name, expected in baseline["pins"].items():
+            require(released.setdefault(name, expected) == expected, f"incompatible baselines: {name}")
+    return released
+
+
+def checkout_boundary(root):
+    probe = subprocess.run(["git", "-C", root, "rev-parse", "--show-toplevel"],
+                           text=True, capture_output=True)
+    if probe.returncode == 0:
+        return Path(probe.stdout.strip()).resolve()
+    # git archive exports preserve the experiments/policy-oracle layout without .git.
+    if root.name == "policy-oracle" and root.parent.name == "experiments":
+        return root.parent.parent
+    return root
 
 
 def main():
@@ -312,32 +355,36 @@ def main():
     parser.add_argument("--baseline", type=Path, help="reject deletion or modification of released inputs")
     parser.add_argument("--trusted-captures", type=Path,
                         help="independent capture-controller directory of <receipt-sha256>.json files")
+    parser.add_argument("--upstream-pyric", type=Path,
+                        help="trusted upstream Git checkout to verify imported receipts before a new release")
     args = parser.parse_args()
     root = args.root.resolve()
     try:
         trusted = args.trusted_captures.resolve() if args.trusted_captures else None
         if trusted:
-            require(trusted.is_dir() and not trusted.is_relative_to(root),
-                    "trusted controller archive must be a separate existing directory outside the oracle")
-        report, snapshot = inspect(root, trusted_captures=trusted)
-        baseline = args.baseline
-        if baseline is None and root == DEFAULT_ROOT and not args.snapshot:
-            baseline = root / "baselines/pilot-v1.json"
-        if baseline is not None:
-            check_baseline(baseline, snapshot)
+            require(trusted.is_dir() and not trusted.is_relative_to(checkout_boundary(root)),
+                    "trusted controller archive must be a separate existing directory outside the candidate worktree")
+        sources = EvidenceSources(released_pins(root, args.baseline), trusted, args.upstream_pyric)
+        report, snapshot = inspect(root, sources)
+        for name, expected in sources.released.items():
+            require(snapshot["pins"].get(name) == expected, f"missing or altered released record: {name}")
+        if args.snapshot:
+            require(not any("awaitingUpstreamReceipt" in probe for c in report["claims"].values()
+                            for probe in c["probes"].values()),
+                    "verify new imported receipts against --upstream-pyric before freezing")
         if args.all:
             archived = archive_results(root)
             # The stock bootstrap owns this same lock during npm ci and its scoring run.
             with (root / "arcade/.npm-cache/replay.lock").open("rb") as lock:
                 fcntl.flock(lock, fcntl.LOCK_SH)
-                report, scored_inputs = inspect(root, replay=True, trusted_captures=trusted)
+                report, scored_inputs = inspect(root, sources, replay=True)
                 require(scored_inputs == snapshot, "inputs changed during replay")
             report["archive"] = archived
         elif args.replay:
-            report, scored_inputs = inspect(root, replay=True, trusted_captures=trusted)
+            report, scored_inputs = inspect(root, sources, replay=True)
             require(scored_inputs == snapshot, "inputs changed during replay")
         if args.all or args.replay:
-            _, after = inspect(root, trusted_captures=trusted)
+            _, after = inspect(root, sources)
             require(after == snapshot, "inputs changed during replay")
         print(json.dumps(snapshot if args.snapshot else report, indent=2, sort_keys=True))
         if any(p["status"] in ("diverged", "disputed") for claim in report["claims"].values()

@@ -220,6 +220,53 @@ class OracleTest(unittest.TestCase):
             trusted.write_bytes((self.probe / observation["evidence"]["path"]).read_bytes())
             self.assertEqual(self.invoke("--trusted-captures", archive)["claims"][CLAIM]["status"], "evidenced")
 
+    def test_controller_archive_must_be_outside_the_whole_worktree(self):
+        subprocess.run(["git", "init", "-q", self.root], check=True)
+        oracle = self.root / "experiments/policy-oracle"
+        oracle.mkdir(parents=True)
+        (self.root / "suites").rename(oracle / "suites")
+        wrong_archive = self.root / "controller-records"
+        wrong_archive.mkdir()
+        self.root = oracle
+        self.assertIn("outside the candidate worktree",
+                      self.invoke("--trusted-captures", wrong_archive, status=1))
+
+    def test_imported_receipt_requires_its_reviewed_record_or_original_git_object(self):
+        source = Path("packages/conformance/observations/rtdb-rules/example.json")
+        raw = {"name":"example", "projectId":"fixture", "fbSdkVersion":"1", "observedAt":"today",
+               "behavior":{"edge":"DENY"}}
+        with tempfile.TemporaryDirectory() as upstream:
+            repo = Path(upstream)
+            self.write(repo / source, raw)
+            subprocess.run(["git", "init", "-q", repo], check=True)
+            subprocess.run(["git", "-C", repo, "add", str(source)], check=True)
+            subprocess.run(["git", "-C", repo, "-c", "user.name=Fixture", "-c", "user.email=test@localhost",
+                            "-c", "commit.gpgsign=false", "commit", "-qm", "Independent receipt"], check=True)
+            revision = subprocess.check_output(["git", "-C", repo, "rev-parse", "HEAD"], text=True).strip()
+            self.recipe["source"] = {"repo":"davideast/pyric", "path": str(source), "revision":revision}
+            self.write(self.probe / "recipe.json", self.recipe)
+            self.write(self.claim / "claim.json", {"description":"RTDB verdict", "authority":"rtdb-production",
+                                                  "witness":"imported-production-verdict"})
+            path, obs = self.observe("first", "DENY")
+            raw_path = self.probe / obs["evidence"]["path"]
+            self.write(raw_path, raw)
+            obs["authority"] = "rtdb-production"
+            obs["evidence"].update({"pointers":{"edge":"/behavior/edge"}, "sha256":digest(raw_path.read_bytes()),
+                                    "sourceBlob":subprocess.check_output(["git","hash-object",raw_path],text=True).strip()})
+            self.write(path, obs)
+            self.assertEqual(self.invoke()["claims"][CLAIM]["status"], "pending")
+            self.assertIn("upstream-pyric", self.invoke("--snapshot",status=1))
+            self.assertEqual(self.invoke("--upstream-pyric",repo)["claims"][CLAIM]["status"], "evidenced")
+            reviewed = self.root / "release.json"
+            self.write(reviewed, self.invoke("--upstream-pyric",repo,"--snapshot"))
+            self.assertEqual(self.invoke("--baseline",reviewed)["claims"][CLAIM]["status"],"evidenced")
+            raw["projectId"] = "different"
+            self.write(raw_path, raw)
+            obs["evidence"].update({"sha256":digest(raw_path.read_bytes()),
+                                    "sourceBlob":subprocess.check_output(["git","hash-object",raw_path],text=True).strip()})
+            self.write(path, obs)
+            self.assertIn("upstream commit", self.invoke("--upstream-pyric",repo,status=1))
+
 
 if __name__ == "__main__":
     unittest.main()

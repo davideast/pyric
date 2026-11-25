@@ -77,4 +77,3 @@ At `a7ade6a70`, the Firestore, RTDB and Storage corpora have respectively **60, 
 ### Reproducing the inventory
 
 Use `git ls-tree -r <rev>` in each repo. In Arcade, enumerate `games/*/src/rules.test.ts`, then follow the Firestore, Storage and RTDB entry points and imports. In satisfy.md, compare path/blob pairs ending in `.policy` at the six named refs, and inspect main's RTDB assembly separately. In Pyric, count immediate `.ts` scenario files beneath each engine excluding `index`, `load` and `types`, then join exact scenario IDs to observation filenames. Count the two direct test roots by `.test.ts` and the rules artifacts by suffix and blob ID. Embedded policies, bench fixtures, examples and composed artifacts inform the assignments. A source count alone earns no conformance credit.
-
