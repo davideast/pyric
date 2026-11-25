@@ -183,6 +183,19 @@ class OracleTest(unittest.TestCase):
         self.write(self.probe / "recipe.json", self.recipe)
         self.assertIn("local replay", self.invoke(status=1))
 
+    def test_discovered_claim_cannot_reuse_frozen_arcade_id(self):
+        destination = self.root / "suites/arcade/tictactoe/claims/relative-plus-one/v1"
+        shutil.copytree(self.claim, destination)
+        self.assertIn("duplicate archived claim ID", self.invoke(status=1))
+
+    def test_runner_changing_last_input_is_detected(self):
+        runner = self.probe / "replay.mjs"
+        runner.write_text("await Bun.write('replay.mjs','changed');"
+                          "console.log(JSON.stringify({candidate:{edge:1},mutant:{edge:0}}))")
+        self.recipe["pins"]["replay.mjs"] = digest(runner.read_bytes())
+        self.write(self.probe / "recipe.json", self.recipe)
+        self.assertIn("stale input pin", self.invoke("--replay", status=1))
+
 
 if __name__ == "__main__":
     unittest.main()
