@@ -5,8 +5,8 @@
     "auth-admin#3a"
   ],
   "description": "firebase-admin/auth verifyIdToken rejection modes and error codes across non-string input, empty string, malformed JWT, missing kid, non-RS256 alg, wrong project audience, wrong issuer, and tampered RSA signature on a real Firebase ID token.",
-  "observedAt": "2026-11-18T07:58:23.908Z",
-  "adminSdkVersion": "13.10.0",
+  "observedAt": "2026-11-25T16:48:13.597Z",
+  "adminSdkVersion": "14.5.1",
   "projectId": "digame-mas",
   "behavior": {
     "nonStringToken": {
