@@ -1,21 +1,9 @@
 /**
  * Hallucination lint rules.
  *
- * Catches JavaScript-style code that compiles in Firestore rules
- * (because CEL is dynamically typed) but fails at runtime with an
- * opaque `permission-denied` error.
- *
- * These rules are mechanical AST checks against a known-bad set of
- * method names, globals, and context paths. The CEL spec doesn't
- * change often and Firestore's runtime stdlib is small, so the
- * known-bad lists are stable.
- *
- * All rules in this module emit `error` severity by default — a true
- * positive is always a true positive (the named method or global
- * literally does not exist), so blocking deploy is correct behavior.
- * The exceptions are LENGTH_PROPERTY and METHOD_MISSING_PARENS, which
- * could theoretically collide with user-chosen field names; those emit
- * `warning` severity.
+ * Catches JavaScript-style code that compiles in Firestore and Storage rules
+ * (because CEL is dynamically typed) but fails at runtime with an evaluation
+ * error (`permission-denied`).
  */
 import type {
   FirestoreRules,
@@ -26,187 +14,28 @@ import { isStorageServiceName, topLevelMatches } from '../grammar/service-blocks
 import type { LintWarning } from './linter.js';
 import { stripCommentsAndStrings } from './ast-utils.js';
 import {
+  BOOL_TOKEN_CLAIMS,
+  HALLUCINATED_GLOBALS,
+  HALLUCINATED_METHODS,
+  KNOWN_BUILTIN_METHODS,
+  SYNTAX_HINTS,
+  WRONG_CONTEXT_PATHS,
+} from './hallucination-catalog.js';
+import {
   emitPathInterpolationWarnings,
   markBoundLetPathLiteralsInAst,
   markPathLiteralRoles,
 } from './path-interpolation.js';
 
-// ─── Known-bad sets ───────────────────────────────────────────────────
-
 /**
- * JavaScript array/string methods that don't exist on any CEL type
- * used in Firestore rules (List, Map, String, Set, Timestamp, Path).
- *
- * The map value is a hint shown to the user — what to use instead, or
- * why no equivalent exists.
- */
-const HALLUCINATED_METHODS: Record<string, string> = {
-  // Array methods
-  where:       'No equivalent in rules — restructure logic instead of filtering a list',
-  filter:      'No equivalent in rules — restructure logic instead of filtering a list',
-  find:        'No equivalent in rules',
-  findIndex:   'No equivalent in rules',
-  map:         'No equivalent in rules — lists are not transformable',
-  reduce:      'No equivalent in rules',
-  forEach:     'No equivalent in rules',
-  every:       'Use `list.hasAll([...])` for "all elements present"',
-  some:        'Use `list.hasAny([...])` for "any element present"',
-  includes:    'Use `x in list` instead of `list.includes(x)`',
-  indexOf:     'No equivalent in rules',
-  push:        'Lists are immutable in rules',
-  pop:         'Lists are immutable in rules',
-  shift:       'Lists are immutable in rules',
-  unshift:     'Lists are immutable in rules',
-  splice:      'Lists are immutable in rules',
-  slice:       'No equivalent in rules',
-  sort:        'Lists are immutable in rules',
-  reverse:     'Lists are immutable in rules',
-  flat:        'No equivalent in rules',
-  flatMap:     'No equivalent in rules',
-  // String methods
-  toLowerCase: 'Use `.lower()` instead of `.toLowerCase()`',
-  toUpperCase: 'Use `.upper()` instead of `.toUpperCase()`',
-  charAt:      'No equivalent in rules — use `.split("")` and index',
-  charCodeAt:  'No equivalent in rules',
-  substring:   'No `.substring()` — use `.split()` and reassembly',
-  substr:      'No `.substr()` — use `.split()` and reassembly',
-  padStart:    'No equivalent in rules',
-  padEnd:      'No equivalent in rules',
-  trimStart:   'Use `.trim()` (trims both ends)',
-  trimEnd:     'Use `.trim()` (trims both ends)',
-  // Conversion
-  toString:    'Use the `string(x)` cast instead of `.toString()`',
-};
-
-/**
- * JavaScript globals or constructors that don't exist as identifiers in
- * Firestore rules. CEL has no module system and a tiny global namespace
- * (just `request`, `resource`, custom functions, and a handful of
- * built-in casts: `string`, `int`, `float`, `timestamp`).
- */
-const HALLUCINATED_GLOBALS: Record<string, string> = {
-  Object:     'No `Object` in rules — use `data.keys()` / `data.values()` directly',
-  Array:      'No `Array` in rules — test list type with `x is list`',
-  JSON:       'No `JSON` in rules — rules cannot parse or serialize JSON',
-  Math:       'No `Math` in rules — inline arithmetic or ternaries',
-  Date:       'No `Date` in rules — use `request.time` (a Timestamp)',
-  String:     'Use lowercase `string(x)` for casting',
-  Number:     'Use lowercase `int(x)` or `float(x)` for casting',
-  Boolean:    'Use direct comparison or validation instead of boolean casting',
-  bool:       'No `bool()` cast in rules — boolean casting is not supported in production Firestore rules.',
-  parseInt:   'Use `int(x)` instead',
-  parseFloat: 'Use `float(x)` instead',
-  isNaN:      'No equivalent in rules',
-  isFinite:   'No equivalent in rules',
-  Promise:    'Rules are synchronous — no Promise support',
-  undefined:  '`undefined` does not exist in rules — use `null`',
-};
-
-/**
- * The math-namespace functions production Firestore actually compiles.
- * Notably ABSENT: `isInfinite`. Reference docs list it, but production
- * rejects it at compile (`Function not found error: Name: [math.isInfinite]`).
+ * The math-namespace functions production actually compiles.
  * Exported so the stdlib-modules drift test can assert the documented
  * catalog never re-grows a name this validator rejects.
  */
 export const VALID_MATH_METHODS = new Set(['abs', 'ceil', 'floor', 'round', 'sqrt', 'pow', 'isNaN']);
 
-
-/**
- * Wrong properties accessed on the well-known top-level rule objects.
- * Detection is unambiguous because `request` and `resource` are reserved
- * identifiers in the rules language — there's no way the user has
- * shadowed them.
- */
-interface WrongPath {
-  receiver: string;
-  property: string;
-  suggestion: string;
-  storageSuggestion?: string;
-  storageOnly?: boolean;
-}
-const WRONG_CONTEXT_PATHS: WrongPath[] = [
-  { receiver: 'request',  property: 'data',
-    suggestion: 'Use `request.resource.data` (the incoming write payload)',
-    storageSuggestion: 'Use `request.resource` (e.g. `request.resource.size`, `request.resource.contentType`, or `request.resource.metadata`)' },
-  { receiver: 'request',  property: 'uid',
-    suggestion: 'Use `request.auth.uid`' },
-  { receiver: 'request',  property: 'token',
-    suggestion: 'Use `request.auth.token`' },
-  { receiver: 'request',  property: 'user',
-    suggestion: 'Use `request.auth` (or `request.auth.uid` for the user id)' },
-  { receiver: 'request.auth', property: 'id',
-    suggestion: 'Use `request.auth.uid`' },
-  { receiver: 'resource', property: 'path',
-    suggestion: '`resource.path` is not available — bind path captures in the match pattern' },
-  { receiver: 'resource', property: 'exists',
-    suggestion: 'Use `resource != null` (or `exists()` for cross-document checks)',
-    storageSuggestion: 'Use `resource != null` (or `firestore.exists()` for cross-service document checks)' },
-  { receiver: 'resource', property: 'id',
-    suggestion: '`resource.id` is not available — capture the document id with `/{docId}` in the match path' },
-  { receiver: 'resource', property: 'data',
-    suggestion: '`resource.data` does not exist in Storage rules — use `resource.size`, `resource.contentType`, or `resource.metadata`',
-    storageOnly: true },
-  { receiver: 'request.resource', property: 'data',
-    suggestion: '`request.resource.data` does not exist in Storage rules — use `request.resource.size`, `request.resource.contentType`, or `request.resource.metadata`',
-    storageOnly: true },
-  { receiver: 'resource', property: 'timeUpdated',
-    suggestion: 'Use `resource.updated` instead of `resource.timeUpdated`',
-    storageOnly: true },
-  { receiver: 'request.resource', property: 'timeUpdated',
-    suggestion: 'Use `request.resource.updated` instead of `request.resource.timeUpdated`',
-    storageOnly: true },
-];
-
-/**
- * Auth-token claims that are typed BOOL in production. Comparing one
- * against a STRING literal compiles fine (CEL is dynamically typed) but
- * the comparison is cross-type, so `== "true"` is always false and
- * `!= "true"` is always true, and the latter silently opens the rule.
- * WRONG_CONTEXT_PATHS can't express this: it matches `receiver.property`
- * at depth 2, while token claims live at `request.auth.token.<claim>`
- * and the bug is in the *comparison*, not the path itself.
- *
- * Only claims verifiably typed bool belong here. `email_verified` is the
- * documented one (`request.auth.token.email_verified: bool`).
- * `firebase.sign_in_provider` is a string, so it is deliberately NOT listed.
- */
-const BOOL_TOKEN_CLAIMS = new Set(['email_verified']);
-
-/**
- * Built-in CEL methods that, when accessed without parentheses, are
- * almost certainly a missing-call mistake. Restricted to a small
- * high-confidence set; some method names (e.g. `keys`, `values`) could
- * collide with user field names, so these emit `warning` severity.
- */
-const KNOWN_BUILTIN_METHODS = new Set([
-  'size', 'keys', 'values', 'lower', 'upper', 'trim',
-  'hasAll', 'hasAny', 'hasOnly', 'toSet', 'toUtf8',
-]);
-
-// ─── Pre-parse syntactic hints ────────────────────────────────────────
-
-/**
- * Operators and syntax forms that don't exist in CEL but commonly appear
- * in agent-written rules. Detected via regex on the source so they fire
- * even when the file fails to parse — most of these are syntax errors,
- * but the underlying parse error message ("expected )") buries the
- * actual cause.
- */
-const SYNTAX_HINTS: Array<{ pattern: RegExp; message: string }> = [
-  { pattern: /===/,
-    message: 'Strict equality `===` is not supported in Firestore rules — use `==`.' },
-  { pattern: /!==/,
-    message: 'Strict inequality `!==` is not supported in Firestore rules — use `!=`.' },
-  { pattern: /\?\./,
-    message: 'Optional chaining `?.` is not supported — use `\'field\' in obj && obj.field`.' },
-  { pattern: /\?\?/,
-    message: 'Nullish coalescing `??` is not supported — use a ternary `cond ? a : b`.' },
-  { pattern: /=>/,
-    message: 'Arrow functions `=>` are not supported — define functions with `function name() { return ...; }`.' },
-  { pattern: /`[^`]*`/,
-    message: 'Backtick strings are not supported — use single or double quoted strings with `+` for concatenation.' },
-];
+export const DEBUG_UNAVAILABLE_MESSAGE =
+  "`debug()` is not available in production: it compiles, but every call is a 'Function not found' error at runtime. `|| true` absorbs it; on its own it denies.";
 
 /**
  * Pre-parse syntactic check. Strips comments and string literal contents,
@@ -228,7 +57,7 @@ export function checkSyntaxHints(source: string): LintWarning[] {
   return warnings;
 }
 
-// ─── AST walking ──────────────────────────────────────────────────────
+// --- AST walking ---
 
 interface Loc {
   matchPath?: string;
@@ -243,11 +72,6 @@ type ExprVisitor = (
   localVars: ReadonlySet<string>,
 ) => void;
 
-/**
- * Visit every expression in the match tree, carrying the set of
- * user-defined function names and local variables/captures visible where the
- * expression sits.
- */
 function walkAllExpressions(
   match: MatchBlock,
   inheritedScope: ReadonlySet<string>,
@@ -271,7 +95,9 @@ function walkAllExpressions(
     walkExpr(fn.body, loc, scope, fnVars, visit);
   }
   for (let i = 0; i < match.allows.length; i++) {
-    walkExpr(match.allows[i].condition, { matchPath: path, ruleIndex: i }, scope, matchVars, visit);
+    const allow = match.allows[i];
+    if (allow === undefined) continue;
+    walkExpr(allow.condition, { matchPath: path, ruleIndex: i }, scope, matchVars, visit);
   }
   for (const child of match.children) walkAllExpressions(child, scope, matchVars, visit);
 }
@@ -285,30 +111,63 @@ function walkExpr(
 ) {
   visit(expr, loc, scope, localVars);
   switch (expr.type) {
-    case 'binaryOp': walkExpr(expr.left, loc, scope, localVars, visit); walkExpr(expr.right, loc, scope, localVars, visit); break;
-    case 'unaryOp': walkExpr(expr.operand, loc, scope, localVars, visit); break;
-    case 'methodCall': walkExpr(expr.object, loc, scope, localVars, visit); expr.args.forEach(a => walkExpr(a, loc, scope, localVars, visit)); break;
-    case 'memberAccess': walkExpr(expr.object, loc, scope, localVars, visit); break;
-    case 'bracketAccess': walkExpr(expr.object, loc, scope, localVars, visit); walkExpr(expr.index, loc, scope, localVars, visit); break;
-    case 'sliceAccess': walkExpr(expr.object, loc, scope, localVars, visit); walkExpr(expr.start, loc, scope, localVars, visit); walkExpr(expr.end, loc, scope, localVars, visit); break;
-    case 'ternary': walkExpr(expr.condition, loc, scope, localVars, visit); walkExpr(expr.consequent, loc, scope, localVars, visit); walkExpr(expr.alternate, loc, scope, localVars, visit); break;
-    case 'inExpr': walkExpr(expr.element, loc, scope, localVars, visit); walkExpr(expr.collection, loc, scope, localVars, visit); break;
-    case 'isExpr': walkExpr(expr.value, loc, scope, localVars, visit); break;
-    case 'listLiteral': expr.elements.forEach(e => walkExpr(e, loc, scope, localVars, visit)); break;
-    case 'mapLiteral': expr.entries.forEach(en => { walkExpr(en.key, loc, scope, localVars, visit); walkExpr(en.value, loc, scope, localVars, visit); }); break;
-    case 'functionCall': expr.args.forEach(a => walkExpr(a, loc, scope, localVars, visit)); break;
-    case 'pathLiteral': expr.segments.forEach(s => { if (typeof s !== 'string') walkExpr(s, loc, scope, localVars, visit); }); break;
+    case 'binaryOp':
+      walkExpr(expr.left, loc, scope, localVars, visit);
+      walkExpr(expr.right, loc, scope, localVars, visit);
+      break;
+    case 'unaryOp':
+      walkExpr(expr.operand, loc, scope, localVars, visit);
+      break;
+    case 'methodCall':
+      walkExpr(expr.object, loc, scope, localVars, visit);
+      expr.args.forEach((a) => walkExpr(a, loc, scope, localVars, visit));
+      break;
+    case 'memberAccess':
+      walkExpr(expr.object, loc, scope, localVars, visit);
+      break;
+    case 'bracketAccess':
+      walkExpr(expr.object, loc, scope, localVars, visit);
+      walkExpr(expr.index, loc, scope, localVars, visit);
+      break;
+    case 'sliceAccess':
+      walkExpr(expr.object, loc, scope, localVars, visit);
+      walkExpr(expr.start, loc, scope, localVars, visit);
+      walkExpr(expr.end, loc, scope, localVars, visit);
+      break;
+    case 'ternary':
+      walkExpr(expr.condition, loc, scope, localVars, visit);
+      walkExpr(expr.consequent, loc, scope, localVars, visit);
+      walkExpr(expr.alternate, loc, scope, localVars, visit);
+      break;
+    case 'inExpr':
+      walkExpr(expr.element, loc, scope, localVars, visit);
+      walkExpr(expr.collection, loc, scope, localVars, visit);
+      break;
+    case 'isExpr':
+      walkExpr(expr.value, loc, scope, localVars, visit);
+      break;
+    case 'listLiteral':
+      expr.elements.forEach((e) => walkExpr(e, loc, scope, localVars, visit));
+      break;
+    case 'mapLiteral':
+      expr.entries.forEach((en) => {
+        walkExpr(en.key, loc, scope, localVars, visit);
+        walkExpr(en.value, loc, scope, localVars, visit);
+      });
+      break;
+    case 'functionCall':
+      expr.args.forEach((a) => walkExpr(a, loc, scope, localVars, visit));
+      break;
+    case 'pathLiteral':
+      expr.segments.forEach((s) => {
+        if (typeof s !== 'string') walkExpr(s, loc, scope, localVars, visit);
+      });
+      break;
   }
 }
 
 // --- Post-parse hallucination check ---
 
-/**
- * A `debug(...)` call that resolves to NOTHING. Production has no built-in
- * `debug`, but a ruleset is free to declare `function debug(v) { ... }`, and
- * that call resolves and evaluates like any other user function, so only an
- * unresolved call is a finding.
- */
 function isUnresolvedDebugCall(
   expr: Expression,
   scope: ReadonlySet<string>,
@@ -331,7 +190,8 @@ function isUnsupportedMathMethodCall(expr: Expression): boolean {
 function isBareMapMembershipCall(expr: Expression): boolean {
   if (expr.type !== 'methodCall') return false;
   if (expr.method !== 'hasAll' && expr.method !== 'hasAny' && expr.method !== 'hasOnly') return false;
-  const isKnownMap = expr.object.type === 'mapLiteral' ||
+  const isKnownMap =
+    expr.object.type === 'mapLiteral' ||
     (expr.object.type === 'memberAccess' && expr.object.property === 'data');
   return isKnownMap;
 }
@@ -369,33 +229,31 @@ function isWrongContextPath(
   if (!recv) return undefined;
   const prop = expr.property;
   const match = WRONG_CONTEXT_PATHS.find(
-    p => p.receiver === recv && p.property === prop && (!p.storageOnly || isStorage),
+    (p) => p.receiver === recv && p.property === prop && (!p.storageOnly || isStorage),
   );
   if (!match) return undefined;
+  let suggestion = match.suggestion;
+  if (isStorage && match.storageSuggestion !== undefined) {
+    suggestion = match.storageSuggestion;
+  }
   return {
     path: `${recv}.${prop}`,
-    suggestion: isStorage && match.storageSuggestion ? match.storageSuggestion : match.suggestion,
+    suggestion,
   };
 }
 
-/** Is `expr` a member access spelling exactly `request.auth.token.<claim>`
- *  for a claim in BOOL_TOKEN_CLAIMS? */
 function boolTokenClaimName(expr: Expression): string | undefined {
   if (expr.type !== 'memberAccess' || !BOOL_TOKEN_CLAIMS.has(expr.property)) return undefined;
   const token = expr.object;
   if (token.type !== 'memberAccess' || token.property !== 'token') return undefined;
   const auth = token.object;
   if (auth.type !== 'memberAccess' || auth.property !== 'auth') return undefined;
-  return auth.object.type === 'identifier' && auth.object.name === 'request'
-    ? expr.property
-    : undefined;
+  if (auth.object.type === 'identifier' && auth.object.name === 'request') {
+    return expr.property;
+  }
+  return undefined;
 }
 
-/**
- * `request.auth.token.email_verified == "true"` (or `!=`, either operand
- * order). The claim is a bool; a string literal can never equal it, so the
- * comparison is a constant: `==` always denies, `!=` always allows.
- */
 function boolTokenClaimStringComparison(
   expr: Expression,
 ): { claim: string; op: string; literal: string } | undefined {
@@ -438,6 +296,10 @@ export function checkHallucinations(ast: FirestoreRules, options: { allowDebug?:
   const warnings: LintWarning[] = [];
   const seen = new Set<string>();
   const isStorage = isStorageServiceName(ast.service?.name);
+  let rulesLabel = 'Firestore';
+  if (isStorage) {
+    rulesLabel = 'Storage';
+  }
 
   function emit(rule: string, key: string, loc: Loc, w: LintWarning) {
     const dedup = `${rule}|${key}|${loc.matchPath || ''}|${loc.functionName || ''}|${loc.ruleIndex ?? ''}`;
@@ -446,8 +308,6 @@ export function checkHallucinations(ast: FirestoreRules, options: { allowDebug?:
     warnings.push(w);
   }
 
-  // Functions declared above `service` and directly inside it are visible
-  // everywhere below, so they seed the scope the walk carries down.
   const globalScope = new Set<string>();
   for (const imp of ast.imports ?? []) {
     const names = imp.functions ?? (imp as { names?: string[] }).names ?? [];
@@ -466,10 +326,7 @@ export function checkHallucinations(ast: FirestoreRules, options: { allowDebug?:
       emit('HALLUCINATED_GLOBAL', 'debug', loc, {
         rule: 'HALLUCINATED_GLOBAL',
         severity: 'error',
-        message:
-          '`debug()` is not a Firestore rules function and no function named `debug` is declared in scope. '
-          + 'Production rejects the whole ruleset at compile time with '
-          + '`Function not found error: Name: [debug]`, so nothing in the file deploys.',
+        message: DEBUG_UNAVAILABLE_MESSAGE,
         location: loc,
         fix: 'Remove the debug() call and evaluate the inner expression directly.',
       });
@@ -477,12 +334,13 @@ export function checkHallucinations(ast: FirestoreRules, options: { allowDebug?:
 
     if (isHallucinatedMethodCall(expr)) {
       if (expr.type === 'methodCall') {
+        const hint = HALLUCINATED_METHODS[expr.method] ?? '';
         emit('HALLUCINATED_METHOD', expr.method, loc, {
           rule: 'HALLUCINATED_METHOD',
           severity: 'error',
-          message: `\`.${expr.method}()\` does not exist in Firestore rules. ${HALLUCINATED_METHODS[expr.method]}`,
+          message: `\`.${expr.method}()\` does not exist in ${rulesLabel} rules. ${hint}`,
           location: loc,
-          fix: HALLUCINATED_METHODS[expr.method],
+          fix: hint,
         });
       }
     }
@@ -492,7 +350,7 @@ export function checkHallucinations(ast: FirestoreRules, options: { allowDebug?:
         emit('HALLUCINATED_METHOD', `math.${expr.method}`, loc, {
           rule: 'HALLUCINATED_METHOD',
           severity: 'error',
-          message: `\`math.${expr.method}()\` does not exist in production Firestore security rules.`,
+          message: `\`math.${expr.method}()\` does not exist in production ${rulesLabel} security rules.`,
           location: loc,
           fix: 'Use supported math namespace functions: abs, ceil, floor, round, sqrt, pow, isNaN.',
         });
@@ -504,7 +362,7 @@ export function checkHallucinations(ast: FirestoreRules, options: { allowDebug?:
         emit('HALLUCINATED_METHOD', `map.${expr.method}`, loc, {
           rule: 'HALLUCINATED_METHOD',
           severity: 'error',
-          message: `\`.${expr.method}()\` cannot be called directly on a map in Firestore rules — call it on \`.keys()\` instead.`,
+          message: `\`.${expr.method}()\` cannot be called directly on a map in ${rulesLabel} rules -- call it on \`.keys()\` instead.`,
           location: loc,
           fix: `Insert \`.keys()\`: e.g. \`data.keys().${expr.method}(...)\`.`,
         });
@@ -514,36 +372,39 @@ export function checkHallucinations(ast: FirestoreRules, options: { allowDebug?:
     if (isHallucinatedGlobalMethodCall(expr, localVars)) {
       if (expr.type === 'methodCall' && expr.object.type === 'identifier') {
         const name = expr.object.name;
+        const hint = HALLUCINATED_GLOBALS[name] ?? '';
         emit('HALLUCINATED_GLOBAL', `${name}.${expr.method}`, loc, {
           rule: 'HALLUCINATED_GLOBAL',
           severity: 'error',
-          message: `\`${name}.${expr.method}()\` does not exist in Firestore rules. ${HALLUCINATED_GLOBALS[name]}`,
+          message: `\`${name}.${expr.method}()\` does not exist in ${rulesLabel} rules. ${hint}`,
           location: loc,
-          fix: HALLUCINATED_GLOBALS[name],
+          fix: hint,
         });
       }
     }
 
     if (isHallucinatedGlobalFunctionCall(expr, scope)) {
       if (expr.type === 'functionCall') {
+        const hint = HALLUCINATED_GLOBALS[expr.name] ?? '';
         emit('HALLUCINATED_GLOBAL', expr.name, loc, {
           rule: 'HALLUCINATED_GLOBAL',
           severity: 'error',
-          message: `\`${expr.name}()\` does not exist in Firestore rules. ${HALLUCINATED_GLOBALS[expr.name]}`,
+          message: `\`${expr.name}()\` does not exist in ${rulesLabel} rules. ${hint}`,
           location: loc,
-          fix: HALLUCINATED_GLOBALS[expr.name],
+          fix: hint,
         });
       }
     }
 
     if (isHallucinatedGlobalIdentifier(expr, localVars)) {
       if (expr.type === 'identifier') {
+        const hint = HALLUCINATED_GLOBALS[expr.name] ?? '';
         emit('HALLUCINATED_GLOBAL', `ref:${expr.name}`, loc, {
           rule: 'HALLUCINATED_GLOBAL',
           severity: 'error',
-          message: `\`${expr.name}\` is not a Firestore rules identifier. ${HALLUCINATED_GLOBALS[expr.name]}`,
+          message: `\`${expr.name}\` is not a ${rulesLabel} rules identifier. ${hint}`,
           location: loc,
-          fix: HALLUCINATED_GLOBALS[expr.name],
+          fix: hint,
         });
       }
     }
@@ -553,7 +414,7 @@ export function checkHallucinations(ast: FirestoreRules, options: { allowDebug?:
       emit('WRONG_CONTEXT_PATH', wrongContextMatch.path, loc, {
         rule: 'WRONG_CONTEXT_PATH',
         severity: 'error',
-        message: `\`${wrongContextMatch.path}\` is not a valid ${isStorage ? 'Storage' : 'Firestore'} rules path. ${wrongContextMatch.suggestion}`,
+        message: `\`${wrongContextMatch.path}\` is not a valid ${rulesLabel} rules path. ${wrongContextMatch.suggestion}`,
         location: loc,
         fix: wrongContextMatch.suggestion,
       });
@@ -562,15 +423,23 @@ export function checkHallucinations(ast: FirestoreRules, options: { allowDebug?:
     const boolClaim = boolTokenClaimStringComparison(expr);
     if (boolClaim) {
       const { claim, op, literal } = boolClaim;
+      let outcomeDesc = 'true (rule silently allows)';
+      if (op === '==') {
+        outcomeDesc = 'false (rule always denies)';
+      }
+      let targetBool = 'true';
+      if (literal === 'false') {
+        targetBool = 'false';
+      }
       emit('BOOL_TOKEN_CLAIM', `${claim}|${op}|${literal}`, loc, {
         rule: 'BOOL_TOKEN_CLAIM',
         severity: 'error',
         message:
           `\`request.auth.token.${claim}\` is a bool, but it is compared against the string ` +
-          `"${literal}", a cross-type comparison that is always ${op === '==' ? 'false (rule always denies)' : 'true (rule silently allows)'}. ` +
+          `"${literal}", a cross-type comparison that is always ${outcomeDesc}. ` +
           `Compare against the boolean literal instead: \`request.auth.token.${claim} ${op} true\`.`,
         location: loc,
-        fix: `Drop the quotes: \`request.auth.token.${claim} ${op} ${literal === 'false' ? 'false' : 'true'}\`.`,
+        fix: `Drop the quotes: \`request.auth.token.${claim} ${op} ${targetBool}\`.`,
       });
     }
 
@@ -578,7 +447,7 @@ export function checkHallucinations(ast: FirestoreRules, options: { allowDebug?:
       emit('LENGTH_PROPERTY', '', loc, {
         rule: 'LENGTH_PROPERTY',
         severity: 'error',
-        message: '`.length` is not a valid property in Firestore rules — use `.size()` (a method, with parentheses).',
+        message: `\`.length\` is not a valid property in ${rulesLabel} rules -- use \`.size()\` (a method, with parentheses).`,
         location: loc,
         fix: 'Replace `.length` with `.size()`.',
       });

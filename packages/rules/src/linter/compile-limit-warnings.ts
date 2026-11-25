@@ -152,10 +152,14 @@ export function checkGlobMatchCount(
   }
 }
 
+export const UNRESOLVED_MODULES_LINT_MESSAGE =
+  'This source imports modules. Resolve them (`pyric rules resolve` or `resolveModules`) before it compiles; lint checked the file alone.';
+
 export function checkAdditionalCompileRejections(
   ast: FirestoreRules,
   violations: readonly CompileLimitViolation[],
   warnings: LintWarning[],
+  hasResolutionError = false,
 ): void {
   for (const violation of violations) {
     switch (violation.code) {
@@ -180,6 +184,17 @@ export function checkAdditionalCompileRejections(
               severity: 'error',
               message: violation.message,
               fix: "Set `rules_version = '2+modules';` or resolve module imports before compiling.",
+            },
+            { line: violation.line },
+          );
+        } else if (!hasResolutionError && (ast.imports?.length ?? 0) > 0) {
+          pushWarning(
+            warnings,
+            {
+              rule: 'UNRESOLVED_MODULES',
+              severity: 'warning',
+              message: UNRESOLVED_MODULES_LINT_MESSAGE,
+              fix: 'Resolve module imports with `pyric rules resolve` or `resolveModules` before compiling.',
             },
             { line: violation.line },
           );

@@ -20,6 +20,7 @@ import {
   withSingleService,
 } from '../grammar/service-blocks.js';
 import {
+  isLocalRelativeModuleSpecifier,
   resolveBundledModulesForAnalysis,
   resolveBundledModulesWithDiagnostics,
 } from '../modules/resolver-browser.js';
@@ -39,6 +40,7 @@ import {
   checkSharedGates,
 } from './budget-warnings.js';
 import {
+  UNRESOLVED_MODULES_LINT_MESSAGE,
   checkAdditionalCompileRejections,
   checkGlobMatchCount,
   checkLetBindings,
@@ -117,6 +119,23 @@ export function lintFirestoreRules(source: string, options: LintOptions = {}): L
   warnings.push(...checkServiceDeclarations(parsed.ast, options.targetService));
   const servicesToAnalyze = selectServicesToAnalyze(parsed.ast, options.targetService);
   if (servicesToAnalyze.length === 0) {
+    if (parsed.ast.version === '2+modules') {
+      const firstRelative = parsed.ast.imports.find((imp) =>
+        isLocalRelativeModuleSpecifier(imp.module),
+      );
+      if (firstRelative !== undefined) {
+        pushWarning(
+          warnings,
+          {
+            rule: 'UNRESOLVED_MODULES',
+            severity: 'warning',
+            message: UNRESOLVED_MODULES_LINT_MESSAGE,
+            fix: 'Resolve module imports with `pyric rules resolve` or `resolveModules` before compiling.',
+          },
+          { line: firstRelative.loc?.line ?? parsed.ast.loc?.line ?? 1 },
+        );
+      }
+    }
     return { warnings, metrics: sourceOnlyMetrics(source) };
   }
   try {
@@ -156,6 +175,7 @@ export function lintFirestoreRules(source: string, options: LintOptions = {}): L
         warnings,
         serviceIndex > 0,
         svcTarget,
+        resolutionError !== undefined,
       );
       let globalFnCount = 0;
       if (serviceIndex > 0) {
@@ -229,6 +249,7 @@ function analyzeParsedRules(
   warnings: LintWarning[],
   isSecondaryService = false,
   svcTarget: 'cloud.firestore' | 'firebase.storage' = defaultServiceTarget(ast),
+  hasResolutionError = false,
 ): LintResult {
   const isStorage = isStorageServiceName(ast.service?.name);
   const allFunctions = collectDeclaredFunctions(ast);
@@ -258,7 +279,7 @@ function analyzeParsedRules(
   checkNestingDepth(violations, warnings);
   checkSlashStartsPath(violations, warnings);
   checkGlobMatchCount(violations, warnings);
-  checkAdditionalCompileRejections(ast, violations, warnings);
+  checkAdditionalCompileRejections(ast, violations, warnings, hasResolutionError);
 
   checkLetBindings(ownFunctions, warnings);
   checkSharedGates(allRules, warnings);
@@ -288,7 +309,7 @@ function analyzeParsedRules(
     warnings,
   );
   checkPermissiveRules(applicableRules, recursiveScopes, warnings, isStorage);
-  checkRecursiveWildcardOpen(recursiveScopes, warnings);
+  checkRecursiveWildcardOpen(recursiveScopes, warnings, isStorage);
 
   if (options.testCases && options.testCases.length > 0) {
     checkRequestTimePinned(allRules, ruleScopes, fnScopes, options.testCases, warnings);

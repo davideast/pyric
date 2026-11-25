@@ -1,5 +1,6 @@
 import type { Expression, FunctionDef } from './FirestoreAST.js';
 import { expandFunctionBody, exprContains, walkExpr } from './function-scopes.js';
+import { canEvaluateTrueUnderNullAuth } from './null-auth-eval.js';
 
 function boolLiteral(value: boolean): Expression {
   return { type: 'literal', value, raw: String(value) };
@@ -122,18 +123,6 @@ function isResourceData(e: Expression): boolean {
   return obj !== null && obj.type === 'identifier' && obj.name === 'resource';
 }
 
-function isNullLiteral(e: Expression): boolean {
-  return e.type === 'literal' && e.value === null;
-}
-
-function isAuthComparisonWithNull(e: Expression, op: '==' | '!='): boolean {
-  if (e.type !== 'binaryOp' || e.op !== op) return false;
-  return (
-    (isRequestAuth(e.left) && isNullLiteral(e.right)) ||
-    (isNullLiteral(e.left) && isRequestAuth(e.right))
-  );
-}
-
 function substituteParameters(
   expr: Expression,
   bindings: ReadonlyMap<string, Expression>,
@@ -251,7 +240,8 @@ function guardsConditionTransitive(
   }
   if (expr.type === 'ternary') {
     const condGuards = guardsConditionTransitive(expr.condition, checkAtom, fns, fnScopes, visited);
-    const thenGuards = condGuards || guardsConditionTransitive(expr.consequent, checkAtom, fns, fnScopes, visited);
+    const thenGuards =
+      condGuards || guardsConditionTransitive(expr.consequent, checkAtom, fns, fnScopes, visited);
     if (isLitBool(expr.alternate, false)) return thenGuards;
     const elseGuards = guardsConditionTransitive(expr.alternate, checkAtom, fns, fnScopes, visited);
     if (isLitBool(expr.consequent, false)) return elseGuards;
@@ -276,19 +266,11 @@ function guardsConditionTransitive(
   return found;
 }
 
-function checkAuthAtom(expr: Expression): boolean | null {
-  if (expr.type === 'unaryOp' && expr.op === '!') {
-    if (isAuthComparisonWithNull(expr.operand, '==')) return true;
-    if (isAuthComparisonWithNull(expr.operand, '!=')) return false;
-    return false;
-  }
-  if (isAuthComparisonWithNull(expr, '==')) return false;
-  if (exprContains(expr, isRequestAuth)) return true;
-  return null;
-}
-
 function checkRequestDataAtom(expr: Expression, isStorage = false): boolean | null {
-  const targetPred = isStorage ? isStoragePayloadField : isRequestResourceData;
+  let targetPred = isRequestResourceData;
+  if (isStorage) {
+    targetPred = isStoragePayloadField;
+  }
   if (exprContains(expr, targetPred)) return true;
   return null;
 }
@@ -298,7 +280,10 @@ export function guardsAuthTransitive(
   fns: ReadonlyMap<string, FunctionDef>,
   fnScopes: ReadonlyMap<FunctionDef, ReadonlyMap<string, FunctionDef>>,
 ): boolean {
-  return guardsConditionTransitive(expr, checkAuthAtom, fns, fnScopes);
+  if (!referencesExprAnyTransitive(expr, isRequestAuth, fns, fnScopes)) {
+    return false;
+  }
+  return !canEvaluateTrueUnderNullAuth(expr, fns, fnScopes);
 }
 
 export function validatesRequestDataTransitive(
@@ -332,11 +317,116 @@ function referencesExprAnyTransitive(
   return found;
 }
 
+function isRequestMethodExpr(e: Expression): boolean {
+  const obj = propTarget(e, 'method');
+  return obj !== null && obj.type === 'identifier' && obj.name === 'request';
+}
+
+function isWriteMethodGuard(cond: Expression): boolean {
+  if (cond.type === 'binaryOp' && cond.op === '==') {
+    const checkSide = (a: Expression, b: Expression) =>
+      isRequestMethodExpr(a) && b.type === 'literal' && (b.value === 'create' || b.value === 'update');
+    return checkSide(cond.left, cond.right) || checkSide(cond.right, cond.left);
+  }
+  if (cond.type === 'inExpr' && isRequestMethodExpr(cond.element) && cond.collection.type === 'listLiteral') {
+    return cond.collection.elements.every(
+      (el) => el.type === 'literal' && (el.value === 'create' || el.value === 'update'),
+    );
+  }
+  return false;
+}
+
+function referencesStorageRequestResourceOnRead(
+  expr: Expression,
+  fns: ReadonlyMap<string, FunctionDef>,
+  fnScopes: ReadonlyMap<FunctionDef, ReadonlyMap<string, FunctionDef>>,
+  visited = new Set<FunctionDef>(),
+): boolean {
+  if (isRequestResource(expr)) return true;
+  switch (expr.type) {
+    case 'ternary':
+      if (isWriteMethodGuard(expr.condition)) {
+        return referencesStorageRequestResourceOnRead(expr.alternate, fns, fnScopes, visited);
+      }
+      return (
+        referencesStorageRequestResourceOnRead(expr.condition, fns, fnScopes, visited) ||
+        referencesStorageRequestResourceOnRead(expr.consequent, fns, fnScopes, visited) ||
+        referencesStorageRequestResourceOnRead(expr.alternate, fns, fnScopes, visited)
+      );
+    case 'binaryOp':
+      if (expr.op === '&&' && isWriteMethodGuard(expr.left)) {
+        return false;
+      }
+      return (
+        referencesStorageRequestResourceOnRead(expr.left, fns, fnScopes, visited) ||
+        referencesStorageRequestResourceOnRead(expr.right, fns, fnScopes, visited)
+      );
+    case 'unaryOp':
+      return referencesStorageRequestResourceOnRead(expr.operand, fns, fnScopes, visited);
+    case 'memberAccess':
+      return referencesStorageRequestResourceOnRead(expr.object, fns, fnScopes, visited);
+    case 'bracketAccess':
+      return (
+        referencesStorageRequestResourceOnRead(expr.object, fns, fnScopes, visited) ||
+        referencesStorageRequestResourceOnRead(expr.index, fns, fnScopes, visited)
+      );
+    case 'sliceAccess':
+      return (
+        referencesStorageRequestResourceOnRead(expr.object, fns, fnScopes, visited) ||
+        referencesStorageRequestResourceOnRead(expr.start, fns, fnScopes, visited) ||
+        referencesStorageRequestResourceOnRead(expr.end, fns, fnScopes, visited)
+      );
+    case 'methodCall':
+      return (
+        referencesStorageRequestResourceOnRead(expr.object, fns, fnScopes, visited) ||
+        expr.args.some((a) => referencesStorageRequestResourceOnRead(a, fns, fnScopes, visited))
+      );
+    case 'inExpr':
+      return (
+        referencesStorageRequestResourceOnRead(expr.element, fns, fnScopes, visited) ||
+        referencesStorageRequestResourceOnRead(expr.collection, fns, fnScopes, visited)
+      );
+    case 'isExpr':
+      return referencesStorageRequestResourceOnRead(expr.value, fns, fnScopes, visited);
+    case 'listLiteral':
+      return expr.elements.some((el) => referencesStorageRequestResourceOnRead(el, fns, fnScopes, visited));
+    case 'mapLiteral':
+      return expr.entries.some(
+        (en) =>
+          referencesStorageRequestResourceOnRead(en.key, fns, fnScopes, visited) ||
+          referencesStorageRequestResourceOnRead(en.value, fns, fnScopes, visited),
+      );
+    case 'pathLiteral':
+      return expr.segments.some(
+        (s) => typeof s !== 'string' && referencesStorageRequestResourceOnRead(s, fns, fnScopes, visited),
+      );
+    case 'functionCall': {
+      if (expr.args.some((a) => referencesStorageRequestResourceOnRead(a, fns, fnScopes, visited))) {
+        return true;
+      }
+      const fn = fns.get(expr.name);
+      if (!fn || visited.has(fn)) return false;
+      const nextVisited = new Set(visited);
+      nextVisited.add(fn);
+      const calleeScope = fnScopes.get(fn) ?? fns;
+      return functionExpressions(fn).some((x) =>
+        referencesStorageRequestResourceOnRead(x, calleeScope, fnScopes, nextVisited),
+      );
+    }
+    default:
+      return false;
+  }
+}
+
 export function referencesRequestDataAnyTransitive(
   expr: Expression,
   fns: ReadonlyMap<string, FunctionDef>,
   fnScopes: ReadonlyMap<FunctionDef, ReadonlyMap<string, FunctionDef>>,
+  isStorage = false,
 ): boolean {
+  if (isStorage) {
+    return referencesStorageRequestResourceOnRead(expr, fns, fnScopes);
+  }
   return referencesExprAnyTransitive(expr, isRequestResourceData, fns, fnScopes);
 }
 

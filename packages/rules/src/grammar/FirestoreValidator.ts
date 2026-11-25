@@ -110,7 +110,7 @@ export function validateFirestoreRules(
     );
 
     // SEC-4: Check for default deny
-    checkDefaultDeny(rootMatches, findings, outerScope, fnScopes);
+    checkDefaultDeny(rootMatches, findings, outerScope, fnScopes, isStorage);
 
     // QUA-3: Duplicate function names in one scope
     checkDuplicateFunctions(ast, findings, isSecondaryService);
@@ -154,7 +154,7 @@ function walkMatch(
   // governs every document under its prefix. One followed by further
   // segments, the collection-group shape, governs only documents whose path
   // ends in them. A root that does not apply to `(default)` resolves to null.
-  const subtree = docSegments === null ? null : recursiveScope(docSegments);
+  const subtree = docSegments === null ? null : recursiveScope(docSegments, isStorage);
   const recursiveSubtree = subtree?.kind === 'subtree' ? subtree : null;
   const pathStr = match.path.raw;
 
@@ -166,15 +166,16 @@ function walkMatch(
     const ops = allow.operations;
     // Fold semantically-constant conditions (e.g. `X || true`, `X && false`,
     // `!true`, ternaries with literal conditions) before the literal checks and
-    // the auth/data-reference walks, so tautological rules can't evade SEC-1/2/3
+    // the data-reference walks, so tautological rules can't evade SEC-1/2
     // and QUA-1 by being written as a binaryOp instead of a bare `true`/`false`.
     const cond = foldConstants(allow.condition, fnMap, fnScopes);
     const isWrite = ops.some((op) => WRITE_OPS.has(op));
     const isRead = ops.some((op) => READ_OPS.has(op));
     const isDataWrite = ops.some((op) => DATA_WRITE_OPS.has(op));
+    const isAuthorLiteralTrue = allow.condition.type === 'literal' && allow.condition.value === true;
     const isLiteralTrue = cond.type === 'literal' && cond.value === true;
     const isLiteralFalse = cond.type === 'literal' && cond.value === false;
-    const hasAuthGuard = guardsAuthTransitive(cond, fnMap, fnScopes);
+    const hasAuthGuard = guardsAuthTransitive(allow.condition, fnMap, fnScopes);
     const opStr = ops.join(', ');
 
     // SEC-1: Public write (only when the match path reaches documents/objects)
@@ -207,7 +208,7 @@ function walkMatch(
     }
 
     // SEC-3: No auth check on write (follows function calls transitively)
-    if (docSegments !== null && isWrite && !isLiteralTrue && !isLiteralFalse && !hasAuthGuard) {
+    if (docSegments !== null && isWrite && !isAuthorLiteralTrue && !isLiteralFalse && !hasAuthGuard) {
       findings.push({
         code: 'SEC-3', severity: 'high', path: pathStr, operation: opStr,
         message: `Write rule (${opStr}) at ${pathStr} does not check request.auth`,
@@ -229,20 +230,28 @@ function walkMatch(
       });
     }
 
-    // SEM-1: request.resource.data in read rule (use unfolded condition so short-circuit folding does not hide dead reads)
-    if (isRead && referencesRequestDataAnyTransitive(allow.condition, fnMap, fnScopes)) {
+    // SEM-1: request.resource(.data) in read rule (use unfolded condition so short-circuit folding does not hide dead reads)
+    if (isRead && referencesRequestDataAnyTransitive(allow.condition, fnMap, fnScopes, isStorage)) {
+      let sem1Message = `Read rule at ${pathStr} references request.resource.data which is not available on reads`;
+      if (isStorage) {
+        sem1Message = `Read rule at ${pathStr} references request.resource which is not available on reads`;
+      }
       findings.push({
         code: 'SEM-1', severity: 'high', path: pathStr, operation: opStr,
-        message: `Read rule at ${pathStr} references request.resource.data which is not available on reads`,
+        message: sem1Message,
       });
     }
 
     // SEM-2: resource.data in create/write rule
     const includesCreate = ops.includes('create') || ops.includes('write');
     if (includesCreate && !ops.includes('update') && referencesResourceDataAnyTransitive(allow.condition, fnMap, fnScopes)) {
+      let sem2Message = `Create rule at ${pathStr} references resource.data but document doesn't exist yet on create`;
+      if (isStorage) {
+        sem2Message = `Create rule at ${pathStr} references resource.data but object doesn't exist yet on create`;
+      }
       findings.push({
         code: 'SEM-2', severity: 'high', path: pathStr, operation: opStr,
-        message: `Create rule at ${pathStr} references resource.data but document doesn't exist yet on create`,
+        message: sem2Message,
       });
     }
 
@@ -293,9 +302,13 @@ function walkMatch(
 
   // STR-1: Match without wildcard
   if (match.path.segments.every((s) => s.type === 'literal')) {
+    let str1Message = `Match at ${pathStr} has no wildcard -- matches exactly one document`;
+    if (isStorage) {
+      str1Message = `Match at ${pathStr} has no wildcard -- matches exactly one object`;
+    }
     findings.push({
       code: 'STR-1', severity: 'low', path: pathStr,
-      message: `Match at ${pathStr} has no wildcard -- matches exactly one document`,
+      message: str1Message,
     });
   }
 
@@ -304,9 +317,13 @@ function walkMatch(
     (match.path.raw.includes('databases') && match.path.raw.includes('documents')) ||
     (match.path.raw.includes('/b/') && match.path.raw.includes('/o'));
   if (match.children.length > 0 && match.allows.length === 0 && !isRoot) {
+    let str2Message = `Match at ${pathStr} has nested children but no allows -- parent collection is locked`;
+    if (isStorage) {
+      str2Message = `Match at ${pathStr} has nested children but no allows -- parent path is locked`;
+    }
     findings.push({
       code: 'STR-2', severity: 'medium', path: pathStr,
-      message: `Match at ${pathStr} has nested children but no allows -- parent collection is locked`,
+      message: str2Message,
     });
   }
 
@@ -323,6 +340,7 @@ function checkDefaultDeny(
   findings: ValidationFinding[],
   outerScope: readonly FunctionDef[] = [],
   fnScopes?: ReadonlyMap<FunctionDef, ReadonlyMap<string, FunctionDef>>,
+  isStorage = false,
 ) {
   const coversDeny = (block: MatchBlock, parentScope: readonly FunctionDef[]): boolean => {
     if (block.allows.length === 0) return false;
@@ -358,9 +376,13 @@ function checkDefaultDeny(
   });
 
   if (!hasDefaultDeny) {
+    let sec4Message = 'No default deny rule (match /{document=**} { allow read, write: if false; })';
+    if (isStorage) {
+      sec4Message = 'No default deny rule (match /{allPaths=**} { allow read, write: if false; })';
+    }
     findings.push({
       code: 'SEC-4', severity: 'medium', path: '/',
-      message: 'No default deny rule (match /{document=**} { allow read, write: if false; })',
+      message: sec4Message,
     });
   }
 }
