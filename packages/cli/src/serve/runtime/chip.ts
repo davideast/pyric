@@ -91,6 +91,11 @@ import {
   type ChipView,
 } from './chip-markup.js';
 import { PYRIC_PANEL_BASE_STYLES, PYRIC_PANEL_TOKENS } from './panel-styles.js';
+import {
+  unlockSessionHeaderLinkHtml,
+  unlockSessionRowHtml,
+  unlockSessionSectionHtml,
+} from './chip-unlock.js';
 import type { SandboxEventSource } from './listener-event-source.js';
 import {
   getLens as defaultGetLens,
@@ -257,7 +262,7 @@ ${PYRIC_PANEL_BASE_STYLES}
   .traffic-row .s2 { grid-column: 1 / -1; grid-row: 3; white-space: normal; overflow-wrap: anywhere; }
   .traffic-row .s2:empty { display: none; }
   .traffic-row[aria-expanded="true"] .c2 { white-space: normal; overflow-wrap: anywhere; }
-  [data-chip-view="sandbox"] .s1 { white-space: normal; overflow-wrap: anywhere; }
+  [data-chip-view="sandbox"] .s1, [data-unlock-required-row] .s1 { white-space: normal; overflow-wrap: anywhere; }
   .traffic-row .slot { grid-column: 3; grid-row: 1; align-self: start; }
   .activity-detail { display: grid; grid-template-columns: 0 minmax(0, 1fr) 0; grid-template-rows: 0 auto 0; gap: var(--record-inset); border-top: 1px solid var(--pyric-border-soft); }
   .activity-detail-content { grid-column: 2; grid-row: 2; display: grid; gap: var(--space-2); font-size: 11px; }
@@ -841,6 +846,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       missingIndex: (trafficFeed?.requests() ?? []).some(requestMissingIndex) || (dataView?.outlines() ?? []).some(outline => missingIndex(outline.activity?.indexQuery)),
       duplicateListener: (dataView?.outlines() ?? []).some((outline) => outline.incident?.pattern === 'duplicate-listener'),
       hostBundleStale: snapshot.hostBundleStale === true,
+      unlockRequired: typeof snapshot.unlockUrl === 'string' && snapshot.unlockUrl.length > 0,
       updatePending: snapshot.updateAvailable,
     };
   };
@@ -1141,7 +1147,11 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const switches = `<div class="rows">${scopeSwitch}${switchRowHtml('data-traffic-denied', 'Denied or failed', trafficFilter === 'denied')}${switchRowHtml('data-request-pause', 'Auto-update', !updatesPaused)}</div>`;
     const serviceSelect = `<select data-request-service aria-label="Request service">${['', 'ai', 'firestore', 'rtdb', 'storage', 'auth'].map(service => `<option value="${service}" ${service === requestService ? 'selected' : ''}>${service ? serviceLabel(service) : 'All services'}</option>`).join('')}</select>`;
     const scopeSelect = hasScopeSelect ? scopeSelectHtml('data-traffic-from', trafficScope, liveScopeOptions(), trafficScopeChoice, escapeAttribute) : '';
-    const controls = `<div class="request-controls ${hasScopeSelect ? 'two' : 'single'}">${serviceSelect}${scopeSelect}</div>${switches}`;
+    let unlockBanner = '';
+    if (snapshot.unlockUrl) {
+      unlockBanner = unlockSessionSectionHtml(snapshot.unlockUrl);
+    }
+    const controls = `${unlockBanner}<div class="request-controls ${hasScopeSelect ? 'two' : 'single'}">${serviceSelect}${scopeSelect}</div>${switches}`;
     const older = browsing.length > shown.length ? '<div class="history-context request-pagination"><button type="button" class="btn" data-request-older>Load older</button></div>' : '';
     const omitted = trafficFeed?.omittedCount() ?? 0;
     const retention = omitted ? `<div class="history-context"><p class="hint request-retention">Older history discarded (${omitted} events). Retention is limited by age and memory.</p></div>` : '';
@@ -1192,6 +1202,10 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const rows = [...modelRows, workerRow];
     const showsStaleBundle = isHosted && snapshot.hostBundleStale === true;
     if (showsStaleBundle) rows.unshift(staleBundleRowHtml());
+    if (snapshot.unlockUrl) {
+      const unlockRow = unlockSessionRowHtml(snapshot.unlockUrl);
+      if (unlockRow !== '') rows.unshift(unlockRow);
+    }
     const supportsListeners = options.listeners !== undefined;
     const listenerHint = supportsListeners ? "Edit the overlay's custom properties" : 'Listener overlays are unavailable on this page';
     const theme = rowHtml({ c1: 'Theme', s1: 'Colors and outlines for listeners', slot: buttonHtml(`data-open-overlay-theme${supportsListeners ? '' : ' disabled'}`, 'Edit', listenerHint), attributes: 'data-theme-row' });
@@ -1209,7 +1223,15 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     if (tab === 'listeners') return options.listeners && dataView ? dataView.view() : { body: emptyHtml('Data unavailable', 'This page has no listener event source. Connect the sandbox to inspect subscriptions.'), bar: barHtml([]) };
     if (tab === 'traffic') return trafficViewHtml();
     const live = liveStatusPoller.current();
-    if (live !== null) return liveViewHtml(live, { selfClientId: profileClientId(), now: Date.now(), supportsListeners: options.listeners !== undefined, hostBundleStale: snapshot.hostBundleStale === true });
+    if (live !== null) {
+      return liveViewHtml(live, {
+        selfClientId: profileClientId(),
+        now: Date.now(),
+        supportsListeners: options.listeners !== undefined,
+        hostBundleStale: snapshot.hostBundleStale === true,
+        unlockUrl: snapshot.unlockUrl ?? null,
+      });
+    }
     return sandboxViewHtml();
   };
 
@@ -1261,6 +1283,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       'data-identity-query',
       'data-collapse',
       'data-expand',
+      'data-unlock-session',
       'data-open-studio',
       'data-chip-tab',
       'data-sign-out',
@@ -1323,9 +1346,11 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     // On a live host the sandbox tab is the Live tab: the host's facts, not the sandbox's.
     const tabLabel = (candidate: ChipTab): string => (liveStatus !== null && candidate === 'sandbox' ? LIVE_TAB_LABEL : CHIP_TAB_LABELS[candidate]);
     const tabsHtml = CHIP_TABS.map((candidate) => {
-      const tone = candidate !== problem
-        ? ''
-        : current.failedRecently || current.duplicateListener ? ' problem' : ' pending';
+      let tone = '';
+      if (candidate === problem) {
+        const isProblemTone = current.failedRecently || current.duplicateListener || current.unlockRequired === true;
+        tone = isProblemTone ? ' problem' : ' pending';
+      }
       return `<button class="tab${tone}" type="button" role="tab" id="pyric-tab-${candidate}" data-chip-tab="${candidate}" tabindex="${candidate === tab ? 0 : -1}" aria-selected="${candidate === tab}" aria-controls="pyric-view">${tabLabel(candidate)}</button>`;
     }).join('');
 
@@ -1344,13 +1369,17 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       ? `<span class="btn" data-open-studio aria-disabled="true" title="Pyric Studio is disabled">Studio${iconHtml('external')}</span>`
       : `<a class="btn" data-open-studio href="${escapeAttribute(studioHref)}" target="_blank" rel="noopener noreferrer" title="Open this view in Studio">Studio${iconHtml('external')}</a>`;
 
+    let unlockHeaderHtml = '';
+    if (snapshot.unlockUrl) {
+      unlockHeaderHtml = unlockSessionHeaderLinkHtml(snapshot.unlockUrl);
+    }
     if (open) installChipFonts(documentLike);
     const built = open ? viewHtml(activeUid, isAdmin) : { body: '', bar: '' };
     const markup = open
       ? `<section class="panel" role="dialog" aria-label="pyric"><div class="panel-column">
         <header class="panel-header">
           <span class="brand"><span class="panel-name">pyric</span>${liveLabelHtml(liveStatus, escapeAttribute)}</span>
-          <span class="actions">${studioHtml}<button class="btn icon-button" type="button" data-collapse title="Minimize pyric" aria-label="Minimize pyric">${iconHtml('minimize')}<span class="sr-only">Close</span></button></span>
+          <span class="actions">${unlockHeaderHtml}${studioHtml}<button class="btn icon-button" type="button" data-collapse title="Minimize pyric" aria-label="Minimize pyric">${iconHtml('minimize')}<span class="sr-only">Close</span></button></span>
         </header>
         <div class="tabs" role="tablist" aria-label="pyric views">${tabsHtml}</div>
         <div class="view" id="pyric-view" role="tabpanel" data-chip-view="${tab}" aria-labelledby="pyric-tab-${tab}"><div class="view-content">${built.body}</div></div>
@@ -1358,7 +1387,32 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       </div></section>`
       : `<button class="chip${chipTone}${liveStatus === null ? '' : ' live'}" type="button" data-expand aria-label="Open pyric" aria-expanded="false"${chipTitle ? ` title="${chipTitle}"` : ''}>pyric${liveLabelHtml(liveStatus, escapeAttribute)}</button>`;
 
-    const announcement = `${errorCount === 0 ? 'No runtime errors' : `${errorCount} runtime ${errorCount === 1 ? 'error' : 'errors'}`}.${current.missingIndex ? ' A query is missing an index in local configuration.' : ''}${current.rateThreshold ? ' Activity exceeded a threshold. Open Traffic to review.' : ''}${current.hostBundleStale ? ' Host restarted. Reload this page to load the updated bundle and rules.' : ''}${open ? ` ${tabLabel(tab)}.` : ''}${identityNotice === '' ? '' : ` ${identityNotice}`}`;
+    let errorSummary = 'No runtime errors';
+    if (errorCount === 1) {
+      errorSummary = '1 runtime error';
+    } else if (errorCount > 1) {
+      errorSummary = `${errorCount} runtime errors`;
+    }
+    const announcementParts = [`${errorSummary}.`];
+    if (current.unlockRequired) {
+      announcementParts.push('Session unlock required. Open Unlock to pair this browser.');
+    }
+    if (current.missingIndex) {
+      announcementParts.push('A query is missing an index in local configuration.');
+    }
+    if (current.rateThreshold) {
+      announcementParts.push('Activity exceeded a threshold. Open Traffic to review.');
+    }
+    if (current.hostBundleStale) {
+      announcementParts.push('Host restarted. Reload this page to load the updated bundle and rules.');
+    }
+    if (open) {
+      announcementParts.push(`${tabLabel(tab)}.`);
+    }
+    if (identityNotice !== '') {
+      announcementParts.push(identityNotice);
+    }
+    const announcement = announcementParts.join(' ');
     if (announcer.textContent !== announcement) announcer.textContent = announcement;
     // A view edited outside render (a refreshed rate cell, a copied-response
     // icon) is rebuilt from state even when the markup matches.

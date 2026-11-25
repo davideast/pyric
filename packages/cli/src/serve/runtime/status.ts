@@ -3,6 +3,7 @@ import type { SandboxEvent } from 'pyric/sandbox';
 import type { PyricRuntimeManifest } from './manifest.js';
 import { readPyricRuntimeManifest } from './manifest.js';
 import { hostRestartWarning, type HostRestart } from './host-restart.js';
+import { sanitizeUnlockUrl } from './chip-unlock.js';
 import type { SharedWorkerFallbackInfo } from './shared-worker-fallback.js';
 
 type PyricRuntimeMode = 'starting' | 'shared-worker' | 'in-page' | 'hosted';
@@ -33,6 +34,8 @@ interface PyricRuntimeSnapshot {
   persistenceUnhealthy?: boolean;
   /** The host restarted since this page loaded, so the tab runs a stale bundle. */
   hostBundleStale?: boolean;
+  /** Validated `/__pyric/unlock` URL when remote browser session pairing is required. */
+  unlockUrl?: string | null;
 }
 
 export interface PyricRuntimeStatus {
@@ -46,6 +49,8 @@ export interface PyricRuntimeStatus {
   setHostedConnection(state: HostedConnectionState): void;
   /** Marks the tab stale and warns in the console, once per page. */
   reportHostRestarted(restart: HostRestart): void;
+  /** Records that the browser must pair at `/__pyric/unlock` before sandbox access works. */
+  reportUnlockRequired(unlockUrl: string): void;
   setWorkerUpdater(update: (() => Promise<void>) | null): void;
   updateWorker(): Promise<void>;
   reportError(error: unknown, source: PyricRuntimeErrorSource): void;
@@ -344,6 +349,11 @@ export function createPyricRuntimeStatus(
       if (snapshot.hostBundleStale === true) return;
       console.warn(hostRestartWarning(restart));
       publish({ ...snapshot, hostBundleStale: true });
+    },
+    reportUnlockRequired(unlockUrl) {
+      const safeUrl = sanitizeUnlockUrl(unlockUrl);
+      if (safeUrl === null || snapshot.unlockUrl === safeUrl) return;
+      publish({ ...snapshot, unlockUrl: safeUrl });
     },
     setWorkerUpdater(update) {
       workerUpdater = update;

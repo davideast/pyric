@@ -20,6 +20,7 @@ import {
   currentSessionToken,
   forgetSessionToken,
   initPayload,
+  initPayloadRequest,
   logInitPayloadFailure,
 } from './init-payload.js';
 import type { WorkerInitPayload } from '../init-payload.js';
@@ -31,6 +32,7 @@ import {
   PYRIC_WORKER_URL,
 } from '../runtime/manifest.js';
 import { getPyricRuntimeStatus } from '../runtime/status.js';
+import { extractUnlockUrl } from '../runtime/chip-unlock.js';
 import { pageBootHostInstanceId } from '../runtime/host-restart.js';
 import { pageLiveIdentity } from '../runtime/live-identity.js';
 import { connectRuntimeWorker } from '../runtime/worker-connection.js';
@@ -363,7 +365,13 @@ if (isNodeRealm) {
     );
   }
   initialize(pagePayload ?? null);
+  void initPayloadRequest.catch((error) => {
+    const unlockUrl = extractUnlockUrl(error);
+    if (unlockUrl !== null) runtimeStatus.reportUnlockRequired(unlockUrl);
+  });
   void initPayload.then(reportPersistenceHealth, (error) => {
+    const unlockUrl = extractUnlockUrl(error);
+    if (unlockUrl !== null) runtimeStatus.reportUnlockRequired(unlockUrl);
     runtimeStatus.reportError(error, 'runtime');
     logInitPayloadFailure(error);
   });

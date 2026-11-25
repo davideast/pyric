@@ -20,11 +20,11 @@ import {
 } from './host-pattern.js';
 import {
   getHeader,
-  hasPresentedSessionToken,
   isAllowedHost,
   isAllowedOriginOnPorts,
   isAllowedSessionToken,
   isForeignFetchSite,
+  presentedSessionTokenKind,
   requestSocketScheme,
 } from './loopback-guard.js';
 import {
@@ -554,10 +554,9 @@ export function evaluateGuard(
       surface !== 'unlock');
 
   if (surface !== 'sdk' && surface !== 'unlock' && requiresTokenForSurface && !authenticated) {
-    const presented = hasPresentedSessionToken(req, options?.url);
-    const unlockRequired =
-      isRemoteRequest && policy.remoteAccessEnabled && policy.browserUnlock && !presented;
-    if (presented) {
+    const presentedKind = presentedSessionTokenKind(req, options?.url);
+    const canBrowserUnlock = isRemoteRequest && policy.remoteAccessEnabled && policy.browserUnlock;
+    if (presentedKind === 'header') {
       return reject(
         401,
         'invalid-session-token',
@@ -565,11 +564,18 @@ export function evaluateGuard(
         false,
       );
     }
+    if (presentedKind === 'cookie') {
+      let message = 'pyric: invalid session capability token or cookie.';
+      if (canBrowserUnlock) {
+        message = 'pyric: session cookie is no longer valid. Open /__pyric/unlock to pair this browser.';
+      }
+      return reject(401, 'invalid-session-token', message, canBrowserUnlock);
+    }
     let message = 'pyric: session token required (x-pyric-session-token header or __pyric_session cookie).';
-    if (unlockRequired) {
+    if (canBrowserUnlock) {
       message = 'pyric: session unlock required. Open /__pyric/unlock to pair this browser.';
     }
-    return reject(401, 'missing-session-token', message, unlockRequired);
+    return reject(401, 'missing-session-token', message, canBrowserUnlock);
   }
 
   return {
