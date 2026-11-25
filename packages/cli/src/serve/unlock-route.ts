@@ -1,17 +1,19 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { answerAndClose } from '../bridge/server/peer.js';
 import {
-  effectiveRequestScheme,
   isAdmittedPeer,
   parseAllowPeersSetting,
   parseTrustProxySetting,
   type RemoteAccessOptions,
 } from './guard-policy.js';
 import {
+  resolveRequestHostContext,
+  type ForwardedProxyPolicy,
+} from './forwarded-proxy.js';
+import {
   appendSetCookieHeader,
   formatSessionCookie,
   getHeader,
-  isAllowedHost,
   isSameOrigin,
   sessionCookieNameForPort,
   timingSafeTokenMatch,
@@ -265,8 +267,7 @@ async function readBoundedJsonBody(req: IncomingMessage): Promise<unknown> {
 
 function checkSameOriginPost(
   req: IncomingMessage,
-  boundHost: string,
-  trustProxy: ReturnType<typeof parseTrustProxySetting>,
+  policy: ForwardedProxyPolicy,
 ): { ok: true; scheme: 'http:' | 'https:' } | { ok: false; message: string } {
   const secFetchSite = getHeader(req, 'sec-fetch-site')?.trim().toLowerCase();
   if (secFetchSite !== undefined && secFetchSite !== 'same-origin') {
@@ -279,9 +280,12 @@ function checkSameOriginPost(
   if (origin === undefined || origin.trim() === '' || origin.trim().toLowerCase() === 'null') {
     return { ok: false, message: 'Missing or null Origin header on POST request.' };
   }
-  const effectiveScheme = effectiveRequestScheme(req, trustProxy) ?? 'http:';
-  const hostHeader = getHeader(req, 'host');
-  if (!isSameOrigin(origin, hostHeader, boundHost, effectiveScheme)) {
+  const hostCtx = resolveRequestHostContext(req, policy);
+  if (!hostCtx.ok) {
+    return { ok: false, message: 'Cross-origin or mismatched-scheme POST request refused.' };
+  }
+  const effectiveScheme = hostCtx.effectiveScheme ?? 'http:';
+  if (!isSameOrigin(origin, hostCtx.effectiveHost, policy.boundHost, effectiveScheme)) {
     return { ok: false, message: 'Cross-origin or mismatched-scheme POST request refused.' };
   }
   return { ok: true, scheme: effectiveScheme };
@@ -314,6 +318,13 @@ export function createUnlockHandler(
 ): (req: IncomingMessage, res: ServerResponse, url: URL) => Promise<boolean> {
   const allowPeers = parseAllowPeersSetting(options.remoteAccess.allowPeers);
   const trustProxy = parseTrustProxySetting(options.remoteAccess.trustProxy);
+  const proxyPolicy: ForwardedProxyPolicy = {
+    boundHost: options.boundHost,
+    allowedHosts: options.allowedHosts,
+    allowPeers,
+    trustProxy,
+    remoteAccessEnabled: true,
+  };
   const maxFailures = options.rateLimit?.maxFailures ?? DEFAULT_MAX_FAILURES;
   const windowMs = options.rateLimit?.windowMs ?? DEFAULT_WINDOW_MS;
   const now = options.rateLimit?.now ?? Date.now;
@@ -370,7 +381,8 @@ export function createUnlockHandler(
       });
       return false;
     }
-    if (!isAllowedHost(req.headers.host, options.boundHost, options.allowedHosts)) {
+    const hostCtx = resolveRequestHostContext(req, proxyPolicy);
+    if (!hostCtx.ok) {
       writeJson(res, 403, {
         error: 'disallowed_host',
         message: 'Refused unlock request for an unconfigured Host header.',
@@ -424,7 +436,7 @@ export function createUnlockHandler(
         return true;
       }
 
-      const originCheck = checkSameOriginPost(req, options.boundHost, trustProxy);
+      const originCheck = checkSameOriginPost(req, proxyPolicy);
       if (!originCheck.ok) {
         writeJson(res, 403, { error: 'cross_origin_refused', message: originCheck.message });
         return true;
@@ -553,7 +565,7 @@ export function createUnlockHandler(
         res.end(JSON.stringify({ error: 'method_not_allowed' }));
         return true;
       }
-      const originCheck = checkSameOriginPost(req, options.boundHost, trustProxy);
+      const originCheck = checkSameOriginPost(req, proxyPolicy);
       if (!originCheck.ok) {
         writeJson(res, 403, { error: 'cross_origin_refused', message: originCheck.message });
         return true;
