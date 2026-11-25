@@ -5,8 +5,8 @@
     "storage-admin#7"
   ],
   "description": "firebase-admin Bucket.getFiles({ prefix, delimiter, maxResults, pageToken, autoPaginate }): observes verbatim prefix matching, delimiter prefix roll-up, [files, nextQuery, apiResponse] tuple shape, and pageToken pagination.",
-  "observedAt": "2026-11-18T04:27:28.584Z",
-  "adminSdkVersion": "13.10.0",
+  "observedAt": "2026-11-25T16:46:57.184Z",
+  "adminSdkVersion": "14.5.1",
   "behavior": {
     "partialFolderPrefix": {
       "relativeNames": [
