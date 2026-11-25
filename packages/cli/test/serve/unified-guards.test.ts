@@ -277,6 +277,40 @@ describe('unified remote-access guards across server routes', () => {
       unlockPath: '/__pyric/unlock',
     });
 
+    // A stale browser session cookie from an earlier boot also returns 401 unlock_required.
+    const staleCookieInit = await rawRequest({
+      port: server.port,
+      path: '/__pyric/init.json',
+      headers: {
+        Host: 'box.tailnet.ts.net:8443',
+        Origin: 'https://box.tailnet.ts.net:8443',
+        'x-forwarded-proto': 'https',
+        Cookie: `__pyric_session_${server.port}=stale-boot-token`,
+      },
+    });
+    expect(staleCookieInit.status).toBe(401);
+    expect(JSON.parse(staleCookieInit.body)).toMatchObject({
+      error: 'unlock_required',
+      reason: 'invalid-session-token',
+      unlockPath: '/__pyric/unlock',
+    });
+
+    // An explicit wrong session header still returns 401 without unlock_required.
+    const wrongHeaderInit = await rawRequest({
+      port: server.port,
+      path: '/__pyric/init.json',
+      headers: {
+        Host: 'box.tailnet.ts.net:8443',
+        Origin: 'https://box.tailnet.ts.net:8443',
+        'x-forwarded-proto': 'https',
+        'x-pyric-session-token': 'wrong-header-token',
+      },
+    });
+    expect(wrongHeaderInit.status).toBe(401);
+    const wrongHeaderBody = JSON.parse(wrongHeaderInit.body) as Record<string, unknown>;
+    expect(wrongHeaderBody.error).not.toBe('unlock_required');
+    expect(wrongHeaderBody.reason).toBe('invalid-session-token');
+
     // Authenticated init.json behind TLS proxy emits cookie with ; Secure.
     const authedInit = await rawRequest({
       port: server.port,
