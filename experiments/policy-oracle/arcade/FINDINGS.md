@@ -174,3 +174,7 @@ The predictions were frozen at commit `1afc29689`. Normalization verifies role i
 | Generated +2 deployed rules | `4d97b0c7be76b1c840cf590a7bca5ef136e5a04e0d7a419a0f03aa05fb7b61c5` |
 
 The final production read with the original deny-all release returned permission-denied. The two temporary users were deleted. Synthetic documents are retained on the dedicated trial database.
+
+## Independent replay checks
+
+A fresh local Git clone ran the replay with an empty environment except for the executable search path and an unreachable npm registry. It reproduced the development checkout's JSON score byte-for-byte, SHA-256 `3b890c205d352418ecb10f33f353629e26b6cab6f7e789f6605592e1015d5391`. Feeding the deliberately wrong +1 and +2 modules through the external candidate option returned exit code 1, with 2/2 evidenced claims, 0/2 conforming claims and 13/21 matching decisions. All nine negative checks for the evidence verifier passed.
