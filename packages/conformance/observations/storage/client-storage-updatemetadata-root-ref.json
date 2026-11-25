@@ -5,8 +5,8 @@
     "storage#88"
   ],
   "description": "firebase/storage updateMetadata(ref(storage), patch) on the root reference: observes client-side invalid-root-operation preflight with zero network requests.",
-  "observedAt": "2026-11-18T05:05:39.129Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:46:40.686Z",
+  "fbSdkVersion": "13.4.0",
   "behavior": {
     "rootFullPath": "",
     "rootName": "",

@@ -5,8 +5,8 @@
     "storage#61"
   ],
   "description": "firebase/storage getBlob(ref(storage)) on the root reference: observes the browser bundle client-side root preflight (throws FirebaseError storage/invalid-root-operation with zero network requests) alongside the Node bundle environment guard.",
-  "observedAt": "2026-11-17T21:29:50.487Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:46:40.678Z",
+  "fbSdkVersion": "13.4.0",
   "behavior": {
     "browserRootRef": {
       "rootFullPath": "",

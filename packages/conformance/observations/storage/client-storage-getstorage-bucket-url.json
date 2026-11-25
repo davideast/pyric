@@ -5,8 +5,8 @@
     "storage#11"
   ],
   "description": "Pure offline firebase/storage getStorage(app, bucketUrl?) handle caching per bucketUrl spelling, ref().bucket and toString() resolution, synchronous storage/invalid-default-bucket validation on URLs with object paths, and unconfigured storageBucket ref() behavior with zero network calls.",
-  "observedAt": "2026-11-19T00:21:22.295Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:46:40.682Z",
+  "fbSdkVersion": "13.4.0",
   "behavior": {
     "fetchCalls": 0,
     "configuredHandles": {

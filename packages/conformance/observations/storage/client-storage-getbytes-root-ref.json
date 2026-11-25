@@ -1,10 +1,12 @@
 {
   "name": "client-storage-getbytes-root-ref",
   "matrixRow": "storage#57",
-  "rowIds": ["storage#57"],
+  "rowIds": [
+    "storage#57"
+  ],
   "description": "firebase/storage getBytes(ref(storage)) on the root reference: observes client-side invalid-root-operation preflight with zero network requests.",
-  "observedAt": "2026-11-18T07:35:44.652Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:46:40.679Z",
+  "fbSdkVersion": "13.4.0",
   "behavior": {
     "rootFullPath": "",
     "rootName": "",

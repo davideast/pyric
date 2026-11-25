@@ -7,8 +7,8 @@
     "storage#17"
   ],
   "description": "firebase/storage ref(storage, path) slash normalization: observes stripping leading slashes, stripping trailing slashes, collapsing repeated internal slashes, and normalizing all-slash inputs to root.",
-  "observedAt": "2026-11-17T23:55:21.328Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:46:40.685Z",
+  "fbSdkVersion": "13.4.0",
   "behavior": {
     "singleLeadingSlash": {
       "bucket": "buckets-default",

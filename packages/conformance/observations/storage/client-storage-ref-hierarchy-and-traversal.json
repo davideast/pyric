@@ -7,8 +7,8 @@
     "storage#20"
   ],
   "description": "firebase/storage ref(parent, child), parent chain traversal, and root accessor across depths: observes relative path joining, step-by-step parent stripping down to null at root, and root returning the bucket root from every depth.",
-  "observedAt": "2026-11-17T23:55:20.834Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:46:40.683Z",
+  "fbSdkVersion": "13.4.0",
   "behavior": {
     "childFromRoot": {
       "bucket": "buckets-default",
