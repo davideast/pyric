@@ -31,6 +31,7 @@ import {
   relayWorkerOp,
   relayWorkerSub,
   relayWorkerDisconnect,
+  subscribeEvents,
 } from '../worker/client.js';
 import { useWorker, workerDb, useHosted } from './worker-runtime.js';
 import { initPayload, initPayloadRequest, logInitPayloadFailure } from './init-payload.js';
@@ -42,7 +43,10 @@ import { setupInPageRulesEvents } from './in-page-rules-events.js';
 import { toPageOriginWsUrl } from './bridge-url.js';
 import { buildLiveSessionCaptureFixture } from '../session-capture-fixture.js';
 import { avatarMintForPayload } from '../assets/avatar-url.js';
-import { setupFirebaseActivityGuard } from '../activity-guard.js';
+import {
+  setupFirebaseActivityGuard,
+  setupStreamedFirebaseActivityGuard,
+} from '../activity-guard.js';
 import { getPyricRuntimeStatus } from '../runtime/status.js';
 export { sandbox } from './app-backend.js';
 import { sandbox } from './app-backend.js';
@@ -399,6 +403,15 @@ if (!useWorker && bridgeUrlFromPayload && !persistFromPayload) {
     } catch (e) {
       logInitPayloadFailure(e);
       return;
+    }
+    const hostedActivityToken = payload?.activityToken ?? null;
+    const hostedDb = workerDb;
+    if (useHosted && hostedDb !== null && hostedActivityToken) {
+      setupStreamedFirebaseActivityGuard(
+        (callback) => subscribeEvents(hostedDb, callback),
+        fetch,
+        hostedActivityToken,
+      );
     }
     try {
       const url = payload?.bridgeUrl ?? null;
