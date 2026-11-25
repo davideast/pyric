@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -138,6 +139,49 @@ class OracleTest(unittest.TestCase):
         result = self.invoke()
         self.assertEqual(list(result["claims"]), [CLAIM])
         self.assertEqual(result["claims"][CLAIM]["probes"]["bound/v1"]["observations"], ["first", "second"])
+
+    def duplicate_probe(self):
+        other = self.probe.parents[1] / "second/v1"
+        shutil.copytree(self.probe, other)
+        self.write(self.claim / "obligations/second.json", {"probe": "second/v1"})
+        return other
+
+    def test_mixed_divergence_and_pending_keeps_diagnostics(self):
+        self.duplicate_probe()
+        self.observe("different", 0)
+        output = self.invoke("--replay", status=1)
+        self.assertIn('"status": "diverged"', output)
+        self.assertIn('"status": "pending"', output)
+
+    def test_one_probe_cannot_hide_another_mutation_that_survives(self):
+        other = self.duplicate_probe()
+        self.observe("first", 1)
+        self.probe = other
+        runner = self.probe / "replay.mjs"
+        runner.write_text("console.log(JSON.stringify({candidate:{edge:1},mutant:{edge:1}}))")
+        self.recipe["pins"]["replay.mjs"] = digest(runner.read_bytes())
+        self.write(self.probe / "recipe.json", self.recipe)
+        self.observe("second", 1)
+        self.assertIn('"mutationDetected": false', self.invoke("--replay", status=1))
+
+    def test_cloud_verdict_requires_explicit_witness_contract(self):
+        self.write(self.claim / "claim.json", {"description":"Yacht score", "authority":"firestore-sdk"})
+        self.assertIn("witness", self.invoke(status=1))
+
+    def test_imported_cloud_receipt_cannot_be_a_local_score(self):
+        self.write(self.claim / "claim.json", {"description":"Batch", "authority":"firestore-sdk",
+                                              "witness":"imported-production-verdict"})
+        path, obs = self.observe("local", 1)
+        obs["authority"] = "firestore-sdk"
+        self.write(path, obs)
+        self.assertIn("imported", self.invoke(status=1))
+
+    def test_shared_input_cannot_stand_in_for_local_replay(self):
+        self.recipe["replay"] = "@oracle/good.mjs"
+        (self.root / "good.mjs").write_text("reviewed")
+        self.recipe["pins"] = {"@oracle/good.mjs":digest(b"reviewed")}
+        self.write(self.probe / "recipe.json", self.recipe)
+        self.assertIn("local replay", self.invoke(status=1))
 
 
 if __name__ == "__main__":

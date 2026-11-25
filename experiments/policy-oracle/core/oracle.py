@@ -13,7 +13,13 @@ from pathlib import Path
 DEFAULT_ROOT = Path(__file__).resolve().parents[1]
 SLUG = r"[a-z0-9]+(?:-[a-z0-9]+)*"
 VERSION = r"v[1-9][0-9]*"
-AUTHORITIES = {"native-model", "firestore-sdk", "rtdb-production"}
+WITNESSES = {
+    "native-model": {"native-trace"},
+    "firestore-sdk": {"imported-production-verdict", "authenticated-write-readback"},
+    "rtdb-production": {"imported-production-verdict"},
+}
+ARCADE_VERIFIER = "@oracle/adapters/arcade-sdk/v1/verify.mjs"
+ARCHIVE_IDS = {f"arcade/tictactoe/relative-plus-{n}/v1" for n in ("one", "two")}
 
 
 def require(condition, message):
@@ -95,6 +101,8 @@ def safe_file(directory, name):
 
 
 def pin_files(root, probe, recipe):
+    require(isinstance(recipe["replay"], str) and not recipe["replay"].startswith("@oracle/"),
+            f"expected a pinned local replay: {probe}")
     pins = recipe["pins"]
     require(isinstance(pins, dict) and recipe["replay"] in pins, f"unpinned replay: {probe}")
     for name, target in pins.items():
@@ -124,7 +132,24 @@ def exact_cases(values, cases, where):
     require(isinstance(values, dict) and set(values) == set(cases), f"case set mismatch: {where}")
 
 
-def observed_values(path, authority, input_digest, cases):
+def check_import(raw, document, recipe, authority, evidence):
+    # These two imported profiles preserve exact values in the upstream production receipts.
+    service = "firestore-rules" if authority == "firestore-sdk" else "rtdb-rules"
+    source = recipe["source"]
+    require(source["repo"] == "davideast/pyric" and
+            source["path"] == f"packages/conformance/observations/{service}/{document.get('name')}.json",
+            "imported production receipt does not identify its upstream observation")
+    require(all(isinstance(document.get(key), str) and document[key]
+                for key in ("projectId", "fbSdkVersion", "observedAt")), "incomplete imported production receipt")
+    blob = hashlib.sha1(f"blob {len(raw)}\0".encode() + raw).hexdigest()
+    require(evidence.get("sourceBlob") == blob, "imported receipt differs from its reviewed upstream blob")
+    prefix = "/diagnostics/productionDatabase/" if authority == "firestore-sdk" else "/behavior/"
+    require(all(ptr.startswith(prefix) for ptr in evidence["pointers"].values()),
+            "imported verdict must select the production data plane")
+
+
+def observed_values(root, path, authority, witness, input_digest, recipe):
+    cases = recipe["cases"]
     observation = load(path)
     require(observation["authority"] == authority, f"ineligible authority: {path}")
     require(observation["inputDigest"] == input_digest, f"stale observation inputs: {path}")
@@ -136,6 +161,13 @@ def observed_values(path, authority, input_digest, cases):
     raw = raw_path.read_bytes()
     require(sha(raw) == evidence["sha256"], f"stale raw evidence: {raw_path}")
     document = parse(raw)
+    if witness == "imported-production-verdict":
+        require(isinstance(document, dict), f"invalid imported receipt: {raw_path}")
+        check_import(raw, document, recipe, authority, evidence)
+    if witness == "authenticated-write-readback":
+        verifier = safe_file(root, ARCADE_VERIFIER.removeprefix("@oracle/"))
+        decoded = run_json(["bun", str(verifier), str(path.parent.parent), str(raw_path)], path.parent.parent, root)
+        require(canonical(decoded) == canonical(results), f"verified readbacks disagree: {path}")
     for case in cases:
         literal = pointer_value(document, evidence["pointers"][case])
         require(canonical(literal) == canonical(results[case]), f"raw evidence disagrees: {path} {case}")
@@ -143,13 +175,18 @@ def observed_values(path, authority, input_digest, cases):
 
 
 def run_json(command, directory, root):
-    process = subprocess.run(command, cwd=directory, capture_output=True, text=True,
-                             env={**os.environ, "ORACLE_ROOT": str(root)})
+    timeout = int(os.environ.get("ORACLE_REPLAY_TIMEOUT_SECONDS", "300"))
+    require(timeout > 0, "replay timeout must be positive")
+    try:
+        process = subprocess.run(command, cwd=directory, capture_output=True, text=True, timeout=timeout,
+                                 env={**os.environ, "ORACLE_ROOT": str(root)})
+    except subprocess.TimeoutExpired as error:
+        raise ValueError(f"replay infrastructure timed out in {directory}; check machine load") from error
     require(process.returncode == 0, f"replay failed: {directory}\n{process.stderr or process.stdout}")
     return parse(process.stdout)
 
 
-def inspect_probe(root, version, claim_file, authority, replay, pins):
+def inspect_probe(root, version, claim_file, authority, witness, replay, pins):
     recipe_file = version / "recipe.json"
     recipe = load(recipe_file)
     source = recipe["source"]
@@ -160,11 +197,14 @@ def inspect_probe(root, version, claim_file, authority, replay, pins):
     require(isinstance(cases, list) and cases and all(isinstance(c, str) and c for c in cases)
             and len(set(cases)) == len(cases), f"duplicate or invalid case IDs: {recipe_file}")
     runner = pin_files(root, version, recipe)
+    if witness == "authenticated-write-readback":
+        require(recipe.get("verifyEvidence") == ARCADE_VERIFIER and ARCADE_VERIFIER in recipe["pins"],
+                f"missing reviewed SDK write/readback verifier: {recipe_file}")
     input_digest = sha(claim_file.read_bytes() + b"\0" + recipe_file.read_bytes())
     pins[str(recipe_file.relative_to(root))] = sha(recipe_file.read_bytes())
     observations = {}
     for receipt in records(version / "observations"):
-        observations[receipt.stem] = observed_values(receipt, authority, input_digest, cases)
+        observations[receipt.stem] = observed_values(root, receipt, authority, witness, input_digest, recipe)
         pins[str(receipt.relative_to(root))] = sha(receipt.read_bytes())
     distinct = {canonical(value) for value in observations.values()}
     report = {"cases": cases, "observations": list(observations), "status": "pending"}
@@ -182,6 +222,7 @@ def inspect_probe(root, version, claim_file, authority, replay, pins):
             for side in ("candidate", "mutant"):
                 report[f"{side}Misses"] = [case for case in cases
                                            if canonical(expected[case]) != canonical(output[side][case])]
+            report["mutationDetected"] = bool(report["mutantMisses"])
             report["status"] = "diverged" if report["candidateMisses"] else "conforms"
     return report
 
@@ -190,10 +231,13 @@ def inspect(root, replay=False):
     claims = {}
     pins = {}
     for claim_id, path in claim_dirs(root):
+        require(claim_id not in ARCHIVE_IDS, f"duplicate archived claim ID: {claim_id}")
         claim_file = path / "claim.json"
         spec = load(claim_file)
         authority = spec["authority"]
-        require(authority in AUTHORITIES and isinstance(spec["description"], str) and spec["description"],
+        witness = spec.get("witness", "native-trace")
+        require(authority in WITNESSES and witness in WITNESSES[authority], f"ineligible witness: {claim_id}")
+        require(isinstance(spec["description"], str) and spec["description"],
                 f"invalid claim: {claim_id}")
         pins[str(claim_file.relative_to(root))] = sha(claim_file.read_bytes())
         obligations = {}
@@ -205,15 +249,17 @@ def inspect(root, replay=False):
         for probe in directories(path / "probes"):
             for version in directories(probe, VERSION):
                 probes[f"{probe.name}/{version.name}"] = inspect_probe(
-                    root, version, claim_file, authority, replay, pins)
+                    root, version, claim_file, authority, witness, replay, pins)
         require(set(obligations.values()) <= probes.keys(), f"missing required probe: {claim_id}")
         states = {probes[key]["status"] for key in obligations.values()}
         status = next(state for state in ("disputed", "diverged", "pending", "evidenced", "conforms")
                       if state in states)
-        claims[claim_id] = {"authority": authority, "status": status, "obligations": obligations,
+        claims[claim_id] = {"authority": authority, "witness": witness, "status": status, "obligations": obligations,
                             "probes": probes}
-        if status in ("conforms", "diverged"):
-            claims[claim_id]["mutationDetected"] = any(probes[key]["mutantMisses"] for key in obligations.values())
+        scored = [probes[key]["mutationDetected"] for key in obligations.values()
+                  if "mutationDetected" in probes[key]]
+        if scored:
+            claims[claim_id]["mutationDetected"] = all(scored)
     require(claims, "no claims discovered")
     return {"claims": claims}, {"version": 1, "pins": pins}
 
@@ -225,7 +271,9 @@ def archive_results(root):
             result["evidenceCoverage"] == result["conformance"] == [2, 2] and
             result["mutationFalseAllows"] == result["mutationFalseDenials"] == 4,
             "frozen Arcade baseline changed")
-    return {"claims": [f"arcade/tictactoe/{row['id']}/v1" for row in result["claims"]],
+    ids = [f"arcade/tictactoe/{row['id']}/v1" for row in result["claims"]]
+    require(len(ids) == 2 and set(ids) == ARCHIVE_IDS, "unexpected archived claim IDs")
+    return {"claims": ids,
             "decisions": result["correctDecisions"], "falseAllows": result["mutationFalseAllows"],
             "falseDenials": result["mutationFalseDenials"]}
 
@@ -263,11 +311,15 @@ def main():
         elif args.replay:
             report, scored_inputs = inspect(root, replay=True)
             require(scored_inputs == snapshot, "inputs changed during replay")
+        if args.all or args.replay:
+            _, after = inspect(root)
+            require(after == snapshot, "inputs changed during replay")
         print(json.dumps(snapshot if args.snapshot else report, indent=2, sort_keys=True))
         if any(p["status"] in ("diverged", "disputed") for claim in report["claims"].values()
                for p in claim["probes"].values()):
             return 1
-        if any(claim.get("mutationDetected") is False for claim in report["claims"].values()):
+        if any(claim["probes"][key].get("mutationDetected") is False for claim in report["claims"].values()
+               for key in claim["obligations"].values()):
             return 1
     except (OSError, ValueError, KeyError, TypeError, IndexError) as error:
         sys.exit(f"oracle: {error}")
