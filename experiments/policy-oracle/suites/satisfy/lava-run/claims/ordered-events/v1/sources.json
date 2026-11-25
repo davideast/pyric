@@ -1,0 +1,24 @@
+{
+  "native": {
+    "repo": "https://github.com/davideast/satisfy.md",
+    "revision": "1924736bd425fa2447ea6449ecf44ef4fcaf9e36",
+    "model": "registry/satisfy/lava-run-model.ts",
+    "files": {
+      "registry/satisfy/lava-run-model.ts": "6e8b4bc1c108eaec7dd15da80b49214bf9731844fdc26bcb7c6d7c7fedd7b641",
+      "registry/satisfy/lava-run-art.ts": "2455a55a90f6e1ad43c55e2c36483099e6f9835cb044f41fa32d5e62e8d92453",
+      "registry/satisfy/lib/physics.ts": "88c76b6ab29785c8009ed1cac5bd76cfe2616195d722e40c36f3c4f16cca30e5",
+      "registry/satisfy/lib/theme.ts": "91df37a41757141fa1d8931ed6bd12ed79aef58574d08ef690cf81f7a1764299",
+      "experiments/policy-transitions/ordered-events/verified.json": "b9d644ea5e96dd44b913b486baa8cadba7bd0856ccc6bdee3c8bf977456045e6",
+      "experiments/policy-transitions/ordered-events/pickup-stomps.json": "8c30761672b5f3154015c137f42b0c57e98d814a219dd90c0780e68d053cc95b",
+      "experiments/policy-transitions/ordered-events/side-lava.json": "4d3e227b63846cb65e88da1bb8eb550f5f42a5396cad072aaab6049b956b19cf"
+    }
+  },
+  "policy": {
+    "repo": "https://github.com/davideast/satisfy.md",
+    "revision": "1924736bd425fa2447ea6449ecf44ef4fcaf9e36",
+    "path": "rules/runner-ordered-events.policy",
+    "sha256": "e415e684defc9c2eb3e0c0156627b43b24436b68e4a3f25a17580bed225ab7ab",
+    "archivedCompilerRevision": "c25752aaf9f138ac93ed18962f8a467ec6507a38",
+    "replayCompilerRevision": "d386b3596a6cc0288dfdd14f18996059d6bce60d"
+  }
+}

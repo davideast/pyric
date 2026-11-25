@@ -1,0 +1,16 @@
+{
+  "authority": "native-model",
+  "inputDigest": "f4f29dede4e53256f6196efa42da763f6c69af1c64afc31a1f77072e2e365818",
+  "results": {
+    "both-stomps": true,
+    "second-stomp-omitted": false
+  },
+  "evidence": {
+    "path": "evidence/fresh-native.json",
+    "sha256": "2fbcb7f8a93a686c5d78ac615c07f83752fe405a4b9782c66f77ae4b6a5699bd",
+    "pointers": {
+      "both-stomps": "/results/both-stomps",
+      "second-stomp-omitted": "/results/second-stomp-omitted"
+    }
+  }
+}

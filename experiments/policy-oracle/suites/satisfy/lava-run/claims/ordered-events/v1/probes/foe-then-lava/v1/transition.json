@@ -1,0 +1,83 @@
+{
+  "before": {
+    "shield": true,
+    "combo": 7,
+    "recovery": 0
+  },
+  "input": {
+    "x": 4856.511829243603,
+    "y": 1.030532240846732,
+    "prevX": 4855.374682326657,
+    "prevY": 4.280532240846732,
+    "h": 0.004166666666666667,
+    "vy": -780,
+    "held": false,
+    "descending": true,
+    "diving": false,
+    "landed": false,
+    "impact": 0,
+    "gems": [],
+    "foes": [
+      {
+        "id": 13,
+        "x": 4441.5,
+        "y": 97.48108907856128,
+        "vx": 0,
+        "hopper": true,
+        "active": true
+      },
+      {
+        "id": 15,
+        "x": 4875,
+        "y": 3.685152789979817,
+        "vx": 0,
+        "hopper": true,
+        "active": true
+      },
+      {
+        "id": 16,
+        "x": 5054.288666666618,
+        "y": 88,
+        "vx": -62.559999999999995,
+        "hopper": false,
+        "active": true
+      },
+      {
+        "id": 17,
+        "x": 5674,
+        "y": -14,
+        "vx": 0,
+        "hopper": true,
+        "active": true
+      }
+    ]
+  },
+  "after": {
+    "y": 1.030532240846732,
+    "vy": 285,
+    "shield": false,
+    "immune": true,
+    "combo": 7,
+    "alive": false,
+    "recovery": 0.85,
+    "bounces": 0,
+    "events": [
+      {
+        "type": "foe-contact",
+        "foe": 15,
+        "stomp": false,
+        "immune": false
+      },
+      {
+        "type": "shield-break"
+      },
+      {
+        "type": "lava-contact"
+      },
+      {
+        "type": "defeat",
+        "cause": "lava"
+      }
+    ]
+  }
+}
