@@ -377,7 +377,9 @@ export async function handleAiProxy(
     res.writeHead(405, { allow: 'POST' }).end('method not allowed');
     return;
   }
-  const validatedPath = validateAiProxyPathSuffix(req.url, url.pathname, AI_PROXY_ROUTE);
+  const rawRequestUrl =
+    (req as IncomingMessage & { originalUrl?: string }).originalUrl ?? req.url;
+  const validatedPath = validateAiProxyPathSuffix(rawRequestUrl, url.pathname, AI_PROXY_ROUTE);
   if (!validatedPath.ok) {
     sendAiProxyRefusal(req, res, validatedPath.status, validatedPath.message);
     return;

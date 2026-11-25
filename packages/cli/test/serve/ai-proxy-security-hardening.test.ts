@@ -9,7 +9,7 @@ import {
 import { connect, type AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fetchAiUpstream } from '../../src/serve/ai-proxy.js';
+import { fetchAiUpstream, handleAiProxy } from '../../src/serve/ai-proxy.js';
 import { validateAiProxyPathSuffix } from '../../src/serve/ai-proxy-upstream-policy.js';
 import { createPyricNamespace } from '../../src/serve/namespace.js';
 import { silentServeLogger, startStaticServer, type ServeHandle } from '../../src/serve/server.js';
@@ -299,6 +299,43 @@ describe('ai-proxy upstream path-suffix validation and allowlist', () => {
       `/v1/responses?key=${QUERY_SECRET}`,
       `/v1/v1/chat/completions?key=${QUERY_SECRET}`,
     ]);
+  });
+
+  it('reads req.originalUrl when Connect/Vite middleware strips the /__pyric mount prefix from req.url', async () => {
+    const upstreamHits: string[] = [];
+    const upstream = await listenLoopback((req, res) => {
+      upstreamHits.push(req.url ?? '');
+      res.writeHead(200, { 'content-type': 'application/json' }).end('{"ok":true}');
+    });
+    const upstreamUrl = `http://127.0.0.1:${upstream.port}/v1`;
+    const throttle = { shouldPrint: () => false };
+
+    // Simulate Connect/Vite `server.middlewares.use('/__pyric', ...)` stripping the mount prefix from req.url
+    // while retaining the unstripped raw request target in req.originalUrl.
+    const mounted = await listenLoopback((req, res) => {
+      const mountedReq = req as typeof req & { originalUrl?: string };
+      const rawUrl = mountedReq.url ?? '/';
+      mountedReq.originalUrl = rawUrl;
+      mountedReq.url = rawUrl.replace(/^\/__pyric(?=\/|$)/, '') || '/';
+      const parsed = new URL(rawUrl, `http://${req.headers.host ?? '127.0.0.1'}`);
+      void handleAiProxy(upstreamUrl, throttle, mountedReq, res, parsed);
+    });
+
+    // Positive: Connect/Vite strips '/__pyric' from req.url while keeping full path in req.originalUrl.
+    const okRes = await rawTcpPost({
+      port: mounted.port,
+      rawPath: '/__pyric/ai-proxy/chat/completions',
+    });
+    expect(okRes.status).toBe(200);
+    expect(upstreamHits).toEqual(['/v1/chat/completions']);
+
+    // Negative: raw traversal inside req.originalUrl is still rejected with 400 even when URL normalizes it.
+    const badRes = await rawTcpPost({
+      port: mounted.port,
+      rawPath: '/__pyric/ai-proxy/chat/completions/%2e%2e/completions',
+    });
+    expect(badRes.status).toBe(400);
+    expect(upstreamHits).toEqual(['/v1/chat/completions']);
   });
 });
 
