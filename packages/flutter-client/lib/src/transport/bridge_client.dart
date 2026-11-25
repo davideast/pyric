@@ -835,7 +835,8 @@ class PyricBridgeClient {
       final code = errorMap['code'] as String? ?? 'unknown';
       final message = errorMap['message'] as String? ?? 'unknown sandbox error';
       final denialContext = errorMap['denialContext'];
-      final envelope = errorMap['envelope'];
+      dynamic envelope = errorMap['aiEnvelope'];
+      envelope ??= errorMap['envelope'];
 
       final exception = PyricBridgeException(
         code: code,
@@ -878,11 +879,14 @@ class PyricBridgeClient {
       final code = errMap['code'] as String? ?? 'permission-denied';
       final message = errMap['message'] as String? ?? 'Subscription error';
       final denialContext = errMap['denialContext'];
+      dynamic envelope = errMap['aiEnvelope'];
+      envelope ??= errMap['envelope'];
 
       final exception = PyricBridgeException(
         code: code,
         message: message,
         denialContext: denialContext,
+        envelope: envelope,
       );
       if (denialContext != null ||
           code.toLowerCase().contains('permission') ||

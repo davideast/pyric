@@ -451,6 +451,58 @@ void main() {
       await sub.cancel();
       await client.disconnect();
     });
+
+    test('preserves aiEnvelope across worker-res and worker-snap __error frames', () async {
+      final client = createClient();
+      final connectFuture = client.connect();
+      await Future<void>.delayed(Duration.zero);
+      mockChannel.toClientController.add(jsonEncode({'type': 'attach-ack', 'peerConnected': true}));
+      await connectFuture;
+
+      final opFuture = client.op('ai.generateContent', {'model': 'models/gemini-2.5-flash'});
+      await Future<void>.delayed(Duration.zero);
+      final reqId = sentMessages.last['id'] as String;
+      final wireAiEnvelope = {
+        'error': {
+          'code': 400,
+          'message': 'Precondition check failed.',
+          'status': 'FAILED_PRECONDITION',
+          'details': [
+            {'@type': 'type.googleapis.com/google.rpc.ErrorInfo', 'reason': 'USER_LOCATION_NOT_SUPPORTED'},
+          ],
+        },
+      };
+
+      mockChannel.toClientController.add(jsonEncode({
+        'type': 'worker-res',
+        'id': reqId,
+        'ok': false,
+        'error': {'code': 'ai/FAILED_PRECONDITION', 'message': 'Precondition check failed.', 'aiEnvelope': wireAiEnvelope},
+      }));
+      await expectLater(
+        opFuture,
+        throwsA(isA<PyricBridgeException>().having((e) => e.envelope, 'envelope', equals(wireAiEnvelope))),
+      );
+
+      dynamic streamError;
+      final sub = client
+          .subscribeRaw({'target': {'service': 'ai', 'op': 'streamGenerateContent'}})
+          .listen((_) {}, onError: (err) => streamError = err);
+      await Future<void>.delayed(Duration.zero);
+      final subId = sentMessages.last['subId'] as String;
+      mockChannel.toClientController.add(jsonEncode({
+        'type': 'worker-snap',
+        'subId': subId,
+        'value': {
+          '__error': {'code': 'ai/FAILED_PRECONDITION', 'message': 'Precondition check failed.', 'aiEnvelope': wireAiEnvelope},
+        },
+      }));
+      await Future<void>.delayed(Duration.zero);
+      expect((streamError as PyricBridgeException).envelope, equals(wireAiEnvelope));
+
+      await sub.cancel();
+      await client.disconnect();
+    });
   });
 
   group('PyricBridgeClient: Teardown & Lifecycle', () {

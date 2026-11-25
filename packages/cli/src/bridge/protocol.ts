@@ -347,6 +347,7 @@ export interface WorkerResFrame {
     message: string;
     denialContext?: unknown;
     envelope?: unknown;
+    aiEnvelope?: unknown;
   };
 }
 

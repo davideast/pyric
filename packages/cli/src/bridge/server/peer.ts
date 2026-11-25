@@ -357,12 +357,21 @@ export function createConsumerSession(
         const opPayload = stampWorkerOpPayload(msg.op, docValueEncoding);
         bridge.dispatchWorkerOp(opPayload, opSessionId, socketIdentity).then(
           (value) => send({ type: 'worker-res', id: msg.id, clientSessionId: opSessionId, ok: true, value }),
-          (err: Error & { code?: string; denialContext?: unknown; envelope?: unknown }) => {
+          (
+            err: Error & {
+              code?: string;
+              denialContext?: unknown;
+              envelope?: unknown;
+              aiEnvelope?: unknown;
+            },
+          ) => {
             const error: WorkerResFrame['error'] = { code: err.code ?? 'unknown', message: err.message };
             const hasDenialContext = err.denialContext !== undefined;
             if (hasDenialContext) error.denialContext = err.denialContext;
             const hasEnvelope = err.envelope !== undefined;
             if (hasEnvelope) error.envelope = err.envelope;
+            const hasAiEnvelope = err.aiEnvelope !== undefined;
+            if (hasAiEnvelope) error.aiEnvelope = err.aiEnvelope;
             send({
               type: 'worker-res',
               id: msg.id,
