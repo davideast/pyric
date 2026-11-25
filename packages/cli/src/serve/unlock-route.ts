@@ -18,6 +18,7 @@ import {
   sessionCookieNameForPort,
   timingSafeTokenMatch,
 } from './loopback-guard.js';
+import { renderUnlockHtml } from './unlock-page.js';
 
 export const UNLOCK_PATH = '/__pyric/unlock';
 export const LOGOUT_PATH = '/__pyric/logout';
@@ -124,124 +125,6 @@ function writeJson(
     ...extraHeaders,
   });
   res.end(JSON.stringify(body));
-}
-
-function escapeInlineJson(value: unknown): string {
-  return JSON.stringify(value)
-    .replace(/</g, '\\u003c')
-    .replace(/>/g, '\\u003e')
-    .replace(/&/g, '\\u0026');
-}
-
-function renderUnlockHtml(nextPath: string): string {
-  const safeNextJson = escapeInlineJson(nextPath);
-  return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="referrer" content="no-referrer">
-<title>Unlock Pyric session</title>
-<style>
-  :root { color-scheme: light dark; font-family: system-ui, -apple-system, sans-serif; }
-  body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 1.5rem; background: Canvas; color: CanvasText; }
-  main { width: 100%; max-width: 28rem; border: 1px solid color-mix(in srgb, CanvasText 18%, transparent); border-radius: 12px; padding: 1.5rem; box-sizing: border-box; }
-  h1 { margin: 0 0 0.5rem; font-size: 1.25rem; }
-  p { margin: 0 0 1rem; line-height: 1.45; font-size: 0.92rem; opacity: 0.85; }
-  label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.35rem; }
-  input { width: 100%; box-sizing: border-box; padding: 0.6rem 0.7rem; border-radius: 8px; border: 1px solid color-mix(in srgb, CanvasText 28%, transparent); font: inherit; font-family: ui-monospace, monospace; }
-  button { margin-top: 0.9rem; width: 100%; padding: 0.65rem 1rem; border-radius: 8px; border: 0; font: inherit; font-weight: 600; cursor: pointer; background: Highlight; color: HighlightText; }
-  .msg { margin-top: 0.9rem; font-size: 0.85rem; min-height: 1.2rem; }
-  .warn { margin: 0 0 1rem; padding: 0.6rem 0.75rem; border-radius: 8px; border: 1px solid color-mix(in srgb, CanvasText 25%, transparent); font-size: 0.82rem; display: none; }
-  code { font-family: ui-monospace, monospace; font-size: 0.85em; }
-</style>
-</head>
-<body>
-<main>
-  <h1>Unlock Pyric session</h1>
-  <p>Paste the per-boot session token printed in the server terminal to set the HttpOnly cookie for this browser on <code id="host"></code>.</p>
-  <div id="http-warn" class="warn">Warning: this origin is plain HTTP (not a secure browser context). Cookies travel in cleartext and ServiceWorker APIs are disabled; prefer HTTPS or an SSH tunnel.</div>
-  <form id="unlock-form" autocomplete="off">
-    <label for="token">Session token</label>
-    <input id="token" name="token" type="password" autocomplete="off" spellcheck="false" required placeholder="Paste token from terminal">
-    <button id="submit" type="submit">Unlock session</button>
-  </form>
-  <p id="dest" style="margin-top:0.75rem;font-size:0.8rem;"></p>
-  <div id="status" class="msg" role="status" aria-live="polite"></div>
-</main>
-<script>
-(() => {
-  const nextPath = ${safeNextJson};
-  const hostEl = document.getElementById('host');
-  const destEl = document.getElementById('dest');
-  const statusEl = document.getElementById('status');
-  const warnEl = document.getElementById('http-warn');
-  const form = document.getElementById('unlock-form');
-  const input = document.getElementById('token');
-  const submitBtn = document.getElementById('submit');
-  if (hostEl) hostEl.textContent = location.host;
-  if (destEl) destEl.textContent = 'After unlocking, redirect to: ' + nextPath;
-  if (warnEl && window.isSecureContext === false) warnEl.style.display = 'block';
-
-  function setStatus(text) {
-    if (statusEl) statusEl.textContent = text;
-  }
-
-  async function submitToken(token) {
-    if (!token) {
-      setStatus('Enter the session token printed in the terminal.');
-      return;
-    }
-    if (submitBtn) submitBtn.disabled = true;
-    setStatus('Unlocking...');
-    try {
-      const response = await fetch('/__pyric/unlock', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, next: nextPath }),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (response.ok && payload && payload.ok === true) {
-        const target = typeof payload.next === 'string' && payload.next.startsWith('/') ? payload.next : '/';
-        setStatus('Unlocked. Redirecting...');
-        location.replace(target);
-        return;
-      }
-      if (response.status === 429) {
-        const retryAfter = response.headers.get('retry-after') || '60';
-        setStatus('Too many attempts. Wait ' + retryAfter + 's and retry.');
-      } else {
-        setStatus((payload && payload.message) ? String(payload.message) : 'Unlock failed (' + response.status + ').');
-      }
-    } catch {
-      setStatus('Network error contacting /__pyric/unlock.');
-    } finally {
-      if (submitBtn) submitBtn.disabled = false;
-    }
-  }
-
-  if (form) {
-    form.addEventListener('submit', (event) => {
-      event.preventDefault();
-      void submitToken(input ? input.value.trim() : '');
-    });
-  }
-
-  const rawHash = location.hash;
-  if (rawHash && rawHash.length > 1) {
-    const hashParams = new URLSearchParams(rawHash.slice(1));
-    const fragmentCode = hashParams.get('code');
-    history.replaceState(null, '', location.pathname + location.search);
-    if (fragmentCode && fragmentCode.trim().length > 0) {
-      void submitToken(fragmentCode.trim());
-    }
-  }
-})();
-</script>
-</body>
-</html>
-`;
 }
 
 async function readBoundedJsonBody(req: IncomingMessage): Promise<unknown> {
