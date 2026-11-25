@@ -1,6 +1,10 @@
 import { INSPECT_PARAM } from './inspect-selection.js';
 
-export type TrafficTab = 'timeline' | 'billable' | 'rules' | 'listeners';
+export type TrafficTab = 'timeline' | 'billable' | 'subscriptions' | 'rules' | 'listeners';
+
+export interface TrafficTabOptions {
+  readonly subscriptionsObserved?: boolean;
+}
 
 const TRAFFIC_FOCUS_QUERY_KEYS = [INSPECT_PARAM, 'listener', 'target'] as const;
 
@@ -11,10 +15,41 @@ export const TRAFFIC_TABS: ReadonlyArray<{ id: TrafficTab; label: string }> = [
   { id: 'listeners', label: 'Listeners' },
 ];
 
-/** Resolve a `?view=` value, preserving links to the removed subscriptions view. */
-export function trafficTabForView(view: string | undefined): TrafficTab {
+const TRAFFIC_TABS_WITH_SUBSCRIPTIONS: ReadonlyArray<{ id: TrafficTab; label: string }> = [
+  { id: 'timeline', label: 'Timeline' },
+  { id: 'billable', label: 'Billable metrics' },
+  { id: 'subscriptions', label: 'Subscriptions' },
+  { id: 'rules', label: 'Rules' },
+  { id: 'listeners', label: 'Listeners' },
+];
+
+/**
+ * Visible Traffic tabs. Subscriptions is exposed only when both listener and
+ * connection lifecycle series are observed (#284).
+ */
+export function trafficTabsFor(
+  options?: TrafficTabOptions,
+): ReadonlyArray<{ id: TrafficTab; label: string }> {
+  if (options?.subscriptionsObserved === true) {
+    return TRAFFIC_TABS_WITH_SUBSCRIPTIONS;
+  }
+  return TRAFFIC_TABS;
+}
+
+/**
+ * Resolve a `?view=` value. Routes `subscriptions` to its view when both
+ * subscription series are observed, and redirects to `rules` when gated.
+ */
+export function trafficTabForView(
+  view: string | undefined,
+  options?: TrafficTabOptions,
+): TrafficTab {
   if (view === 'billable') return 'billable';
-  if (view === 'rules' || view === 'subscriptions') return 'rules';
+  if (view === 'subscriptions') {
+    if (options?.subscriptionsObserved === true) return 'subscriptions';
+    return 'rules';
+  }
+  if (view === 'rules') return 'rules';
   if (view === 'listeners') return 'listeners';
   return 'timeline';
 }
