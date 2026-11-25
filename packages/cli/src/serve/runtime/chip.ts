@@ -83,11 +83,14 @@ import {
   emptyHtml,
   escapeAttribute,
   iconHtml,
+  introHtml,
   pluralize,
   rowHtml,
   sectionHtml,
+  verdictHtml,
   type ChipView,
 } from './chip-markup.js';
+import { PYRIC_PANEL_BASE_STYLES, PYRIC_PANEL_TOKENS } from './panel-styles.js';
 import type { SandboxEventSource } from './listener-event-source.js';
 import {
   getLens as defaultGetLens,
@@ -166,56 +169,20 @@ function configuredAiRoute(): string {
 const styles = `
   :host {
     all: initial;
-    --pyric-bg: #1b1d23;
-    --pyric-content: #15171c;
-    --pyric-border: #3a3e49;
-    --pyric-border-soft: #2d303a;
-    --pyric-text: #edf0f5;
-    --pyric-muted: #a4acbb;
-    --pyric-accent: #b4c7ff;
-    --pyric-warning: #e6c79c;
-    --pyric-error: #f0a0a0;
-    --space-1: 4px;
-    --space-2: 8px;
-    --space-3: 12px;
-    --space-4: 16px;
-    --space-6: 20px;
-    --record-inset: calc(var(--space-3) + 1px);
-    --content-inset: calc(var(--space-4) + var(--record-inset));
+${PYRIC_PANEL_TOKENS}
     position: fixed;
     right: max(16px, env(safe-area-inset-right));
     bottom: max(16px, env(safe-area-inset-bottom));
     z-index: 2147483000;
-    color: var(--pyric-text);
-    font-family: "Pyric Geist", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    font-size: 13px;
-    line-height: 1.5;
-    font-synthesis: none;
-    color-scheme: dark;
   }
-  *, *::before, *::after { box-sizing: border-box; }
-  button, a, input { all: unset; box-sizing: border-box; font: inherit; }
-  button, a { -webkit-tap-highlight-color: transparent; }
-  :focus-visible { outline: 2px solid var(--pyric-accent); outline-offset: -2px; }
-  .announcer, .sr-only { height: 1px; overflow: hidden; position: absolute; width: 1px; clip-path: inset(50%); white-space: nowrap; }
-  .mono { font-family: "Pyric Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; font-variant-numeric: tabular-nums; }
-  .icon { width: 16px; height: 16px; flex: none; }
+${PYRIC_PANEL_BASE_STYLES}
   .chip { display: flex; align-items: center; justify-content: center; width: 72px; height: 32px; border: 1px solid var(--pyric-border); border-radius: 16px; background: var(--pyric-bg); color: var(--pyric-text); cursor: pointer; font-size: 12px; font-weight: 600; box-shadow: 0 8px 24px #0005; }
   .chip:hover { background: #292d36; }
   .chip.error { border-color: var(--pyric-error); }
   .chip.warning { border-color: var(--pyric-warning); }
   .chip.live { width: auto; gap: var(--space-2); padding: 0 var(--space-3); }
-  .live-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--pyric-muted); font-weight: 600; font-size: 12px; }
-
-  /* Zero-size outer tracks turn gaps into insets. The shell, section frames,
-     and records all use this same construction, with no additive spacing. */
-  .panel { display: grid; width: 440px; height: 568px; max-width: calc(100vw - 32px); max-height: calc(100dvh - 32px); background: var(--pyric-bg); border: 1px solid var(--pyric-border); border-radius: 12px; box-shadow: 0 18px 60px #0007; overflow: hidden; }
+  .panel { height: 568px; max-height: calc(100dvh - 32px); }
   .panel-column { display: grid; grid-template-rows: 64px 44px minmax(0, 1fr) auto; min-width: 0; min-height: 0; }
-  .panel-header, .bar { display: grid; grid-template-columns: 0 minmax(0, 1fr) auto 0; align-items: center; column-gap: var(--content-inset); overflow: hidden; scrollbar-gutter: stable; scrollbar-width: thin; }
-  .brand { display: flex; align-items: center; column-gap: var(--space-2); grid-column: 2; min-width: 0; }
-  .panel-name { font-size: 16px; font-weight: 650; letter-spacing: -.02em; }
-  .panel-header > .actions { grid-column: 3; }
-  .actions { display: flex; align-items: center; gap: var(--space-2); justify-content: flex-end; }
   .tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-block: 1px solid var(--pyric-border-soft); background: var(--pyric-content); }
   .tab { display: grid; place-items: center; cursor: pointer; color: var(--pyric-muted); font-size: 12px; font-weight: 550; border-bottom: 2px solid transparent; }
   .tab + .tab { border-left: 1px solid var(--pyric-border-soft); }
@@ -225,29 +192,6 @@ const styles = `
   .tab.problem[aria-selected="true"] { border-bottom-color: var(--pyric-error); }
   .tab.pending { color: var(--pyric-warning); }
   .tab.pending[aria-selected="true"] { border-bottom-color: var(--pyric-warning); }
-
-  /* The scrollbar owns a separate gutter. Records stop before it even on
-     systems with overlay scrollbars; the footer never participates in scroll. */
-  .view { display: grid; grid-template-columns: 0 minmax(0, 1fr) 0; column-gap: var(--space-4); min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; scrollbar-width: thin; scrollbar-color: #555c6b transparent; overscroll-behavior: contain; }
-  .view::-webkit-scrollbar { width: 8px; }
-  .view::-webkit-scrollbar-thumb { background: #555c6b; border-radius: 4px; }
-  .view-content { grid-column: 2; display: flex; flex-direction: column; gap: var(--space-6); min-width: 0; }
-  .view-content::before, .view-content::after { content: ''; flex: 0 0 0; }
-  .section { display: flex; flex-direction: column; gap: var(--space-3); }
-  .section-heading, .intro-rail, .pagination { display: grid; grid-template-columns: 0 minmax(0, 1fr) 0; column-gap: var(--record-inset); }
-  .section-line, .pagination-line { grid-column: 2; display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); min-height: 20px; }
-  .intro-rail > .intro { grid-column: 2; }
-  .section-title { font-size: 13px; font-weight: 600; }
-  .section-meta, .hint { color: var(--pyric-muted); font-size: 11px; }
-  .intro { display: flex; flex-direction: column; gap: var(--space-1); }
-  .intro .section-title { font-size: 15px; }
-  .rows { display: flex; flex-direction: column; border: 1px solid var(--pyric-border-soft); border-radius: 8px; background: var(--pyric-content); }
-  .rows:empty { display: none; }
-  .row { display: grid; grid-template-columns: 0 minmax(0, 1fr) 0; grid-template-rows: 0 auto 0; column-gap: var(--space-3); row-gap: var(--space-3); text-align: left; width: 100%; }
-  .row + .row, .identity-record + .identity-record { border-top: 1px solid var(--pyric-border-soft); }
-  .row:first-child { border-start-start-radius: 7px; border-start-end-radius: 7px; }
-  .row:last-child { border-end-start-radius: 7px; border-end-end-radius: 7px; }
-  .row-content { grid-column: 2; grid-row: 2; display: grid; align-items: center; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 88px; column-gap: var(--space-3); row-gap: var(--space-1); min-width: 0; }
   button.row { color: inherit; cursor: pointer; }
   button.row:hover { background: #252b37; }
   button.row[aria-pressed="true"] { background: #2a3348; box-shadow: inset 0 0 0 1px #788fbd; }
@@ -282,24 +226,7 @@ const styles = `
   .slot .verdict { width: 80px; min-width: 80px; }
   .row.problem .slot, .row.problem .c1 { color: var(--pyric-error); }
   .row.pending .slot, .row.pending .c1 { color: var(--pyric-warning); }
-  .btn { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); width: 88px; height: 32px; flex: 0 0 88px; border: 1px solid #454b59; border-radius: 6px; background: #282d37; color: #dbe1ed; cursor: pointer; font-size: 11px; font-weight: 550; line-height: 16px; text-decoration: none; white-space: nowrap; }
-  .btn:hover:not(:disabled):not([aria-disabled="true"]) { background: #343d4d; border-color: #76839b; color: #fff; }
-  .btn:disabled, .btn[aria-disabled="true"] { cursor: not-allowed; opacity: .5; }
-  .btn[aria-pressed="true"] { background: #35435e; border-color: #829ac9; color: #dce6ff; }
-  .btn.icon-button { width: 32px; flex-basis: 32px; background: transparent; }
   [data-open-studio] { background: transparent; border-color: var(--pyric-border-soft); }
-  .bar { min-height: 64px; border-top: 1px solid var(--pyric-border-soft); background: var(--pyric-content); }
-  .bar-hint { grid-column: 2; color: var(--pyric-muted); font-size: 11px; }
-  .bar > .actions { grid-column: 3; }
-  .bar.no-hint { grid-template-columns: 0 minmax(0, 1fr) 0; }
-  .bar.no-hint > .actions { grid-column: 2; }
-  .bar.no-hint .bar-hint { display: none; }
-  .field { display: grid; grid-template-columns: 0 16px minmax(0, 1fr) 0; gap: var(--space-3); align-items: center; height: 36px; flex: none; border: 1px solid #454b59; border-radius: 6px; background: var(--pyric-content); color: var(--pyric-muted); }
-  .field > .icon { grid-column: 2; }
-  .field input { grid-column: 3; width: 100%; min-width: 0; color: var(--pyric-text); font-size: 12px; }
-  .field input::placeholder { color: var(--pyric-muted); opacity: 1; }
-  .field:focus-within { outline: 2px solid var(--pyric-accent); outline-offset: -2px; }
-  .field input:focus-visible { outline: none; }
   .has-leading .row-content { grid-template-columns: 36px minmax(0, 1fr) 88px; }
   .has-leading .c1.wide, .has-leading .s1.wide { grid-column: 2; }
   .leading { grid-column: 1; grid-row: 1 / 3; display: grid; place-items: center; }
@@ -384,10 +311,6 @@ const styles = `
   .request-controls select { appearance: none; padding-inline: var(--space-3) 28px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='m4 6 4 4 4-4' fill='none' stroke='%23a4acbb' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right var(--space-2) center; background-size: 16px; }
   .request-pagination .btn { width: auto; padding-inline: var(--space-3); justify-self: start; }
   .request-retention { margin: 0; }
-  .sandbox-ai-facts { grid-column: 2; grid-row: 2; display: grid; gap: var(--space-3); min-width: 0; margin: 0; }
-  .sandbox-ai-facts > div { display: grid; grid-template-columns: 88px minmax(0, 1fr); align-items: baseline; gap: var(--space-3); }
-  .sandbox-ai-facts dt { color: var(--pyric-muted); font-size: 11px; }
-  .sandbox-ai-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; font-family: "Pyric Geist Mono", ui-monospace, monospace; font-size: 12px; }
 
   .listener-toolbar .icon-button { grid-column: 3; }
   .listener-toolbar-notice { grid-column: 1 / -1; display: flex; align-items: center; gap: var(--space-2); }
@@ -406,14 +329,6 @@ const styles = `
   .switch-row .slot { justify-content: flex-end; }
   .switch-row:not(.sub) .slot { grid-row: 1; }
   .switch-row:not(.sub) .row-content { grid-template-rows: 20px; }
-  .verdict { --verdict-border: #705b62; display: grid; grid-template-columns: 24px minmax(0, 1fr) 8px; align-items: center; box-sizing: border-box; width: 80px; min-width: 80px; height: 24px; border: 1px solid var(--verdict-border); border-radius: 4px; background: #2c282e; color: #d2c6ca; font-size: 11px; font-weight: 500; line-height: 16px; white-space: nowrap; }
-  .verdict-icon { display: grid; place-items: center; height: 100%; border-right: 1px solid var(--verdict-border); color: #d6a7ae; }
-  .verdict-label { text-align: right; }
-  .verdict .icon { width: 12px; height: 12px; }
-  .verdict.ok { --verdict-border: #586b60; background: #252e2c; color: #c4d2cb; }
-  .verdict.ok .verdict-icon { color: #a4c7b5; }
-  .verdict.bypassed { --verdict-border: #5d6478; background: #272a33; color: #c9cedb; }
-  .verdict.bypassed .verdict-icon { color: #aab4cc; }
   .traffic-source { color: var(--pyric-text); }
   .traffic-production { color: var(--pyric-accent); font-weight: 600; }
   .traffic-drift { display: inline-grid; place-items: center; margin-right: 4px; vertical-align: -2px; color: var(--pyric-warning); }
@@ -459,10 +374,6 @@ function switchRowHtml(attributes: string, label: string, checked: boolean, desc
 function segmentedHtml(label: string, segments: readonly { attributes: string; label: string; selected: boolean }[]): string {
   const buttons = segments.map(segment => `<button type="button" role="tab" class="segment" aria-selected="${segment.selected}" ${segment.attributes}>${escapeAttribute(segment.label)}</button>`);
   return `<div class="segmented" role="tablist" aria-label="${escapeAttribute(label)}">${buttons.join('')}</div>`;
-}
-
-function introHtml(title: string, hint: string, detail = ''): string {
-  return `<div class="intro-rail"><div class="intro"><span class="section-title">${escapeAttribute(title)}</span><span class="hint">${escapeAttribute(hint)}</span>${detail}</div></div>`;
 }
 
 /** Traffic is a bounded recent feed; the identity directory has searchable pages. */
@@ -573,9 +484,17 @@ function productionReasonHtml(request: ChipRequest, fact: (label: string, value:
 function trafficBadgeHtml(verdict: ChipRequest['verdict'], indexMissing: boolean, bypassed = false, production = false, productionIndex = false): string {
   if (production) {
     const badge = productionIndex ? PRODUCTION_INDEX_BADGE : PRODUCTION_BADGES[verdict];
-    return `<span class="verdict ${badge.tone}" data-verdict-production="${badge.outcome}" title="${badge.title}" aria-label="${badge.title}"><span class="verdict-icon">${iconHtml(badge.icon)}</span><span class="verdict-label">${badge.label}</span></span>`;
+    return verdictHtml({
+      label: badge.label,
+      icon: badge.icon,
+      tone: badge.tone,
+      title: badge.title,
+      attributes: `data-verdict-production="${badge.outcome}"`,
+    });
   }
-  if (bypassed) return `<span class="verdict bypassed" title="${BYPASSED_TITLE}" aria-label="${BYPASSED_TITLE}"><span class="verdict-icon">${iconHtml('check')}</span><span class="verdict-label">Bypassed</span></span>`;
+  if (bypassed) {
+    return verdictHtml({ label: 'Bypassed', icon: 'check', tone: 'bypassed', title: BYPASSED_TITLE });
+  }
   const badges = {
     ok: { label: 'Allowed', icon: 'check', tone: 'ok', title: 'Succeeded' },
     denied: { label: 'Denied', icon: 'unavailable', tone: '', title: 'Denied' },
@@ -585,7 +504,7 @@ function trafficBadgeHtml(verdict: ChipRequest['verdict'], indexMissing: boolean
   const badge = indexMissing && verdict !== 'denied'
     ? { label: 'Index', icon: 'warning', tone: 'index-warning', title: 'Index missing from config' }
     : badges[verdict];
-  return `<span class="verdict ${badge.tone}" title="${badge.title}" aria-label="${badge.title}"><span class="verdict-icon">${iconHtml(badge.icon)}</span><span class="verdict-label">${badge.label}</span></span>`;
+  return verdictHtml(badge);
 }
 
 const LIVE_TITLE = 'Live mode: rows marked Production went to your real Firebase project. Rows marked Sandbox were served by the local sandbox.';
