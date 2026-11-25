@@ -7,7 +7,7 @@ export default row({
   featureKeys: ['getAI'],
   api: 'getAI(target)',
   behavior:
-    'With no options the backend defaults to `GoogleAIBackend`, `backendType` is `GOOGLE_AI`, and the AI handle location is the empty string',
+    'With no options the backend defaults to `GoogleAIBackend` and `backendType` is `GOOGLE_AI`',
   automation: 'oracle-backed',
   evidence:
     'Capture `ai-offline-init-backends-and-model-guards` replayed across in-process (`init-backends-oracle.test.ts`), worker-host (`ai-init-backends.test.ts`), and served SharedWorker/Node-host (`test/apps/ai-sandbox-contents-roles`) planes.',
@@ -23,7 +23,7 @@ export default row({
       observation: 'ai-offline-init-backends-and-model-guards',
       expect: { fetchCalls: 0 },
       probe: PROBE,
-      guards: 'Default getAI(app) constructs a GoogleAIBackend handle with backendType GOOGLE_AI and empty location.',
+      guards: 'Default getAI(app) constructs a GoogleAIBackend handle with backendType GOOGLE_AI.',
     },
   ],
 });

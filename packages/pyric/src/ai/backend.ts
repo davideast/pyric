@@ -1,28 +1,23 @@
 /**
- * Backend configuration classes for `pyric/ai`, mirroring `@firebase/ai`:
+ * Backend configuration classes for `pyric/ai`, mirroring `@firebase/ai@3.1.0`:
  * an abstract {@link Backend} carrying `backendType`, with
- * {@link GoogleAIBackend} (the default) and {@link VertexAIBackend} (location
- * defaults to `us-central1`).
+ * {@link GoogleAIBackend} as the default backend.
  *
  * In the sandbox mirror the backend is a pure configuration marker; the
  * broker answers in-process either way. Production imports load Firebase's
  * own backend classes before this package enters the graph.
  */
 
-const DEFAULT_LOCATION = 'us-central1';
-
 /** Identifies which backend service the SDK communicates with. */
 export const BackendType = {
   AGENT_PLATFORM: 'AGENT_PLATFORM',
-  VERTEX_AI: 'VERTEX_AI',
   GOOGLE_AI: 'GOOGLE_AI',
 } as const;
 export type BackendType = (typeof BackendType)[keyof typeof BackendType];
 
 /**
  * Abstract base class representing the configuration for an AI service
- * backend. Do not instantiate directly -- use {@link GoogleAIBackend} or
- * {@link VertexAIBackend}.
+ * backend. Do not instantiate directly -- use {@link GoogleAIBackend}.
  */
 export abstract class Backend {
   readonly backendType: BackendType;
@@ -36,15 +31,5 @@ export abstract class Backend {
 export class GoogleAIBackend extends Backend {
   constructor() {
     super(BackendType.GOOGLE_AI);
-  }
-}
-
-/** Configuration class for the Vertex AI Gemini API backend. */
-export class VertexAIBackend extends Backend {
-  readonly location: string;
-
-  constructor(location: string = DEFAULT_LOCATION) {
-    super(BackendType.VERTEX_AI);
-    this.location = location || DEFAULT_LOCATION;
   }
 }

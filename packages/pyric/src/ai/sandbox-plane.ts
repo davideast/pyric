@@ -26,6 +26,7 @@ import type {
 } from './broker/index.js';
 import { toAIError } from './errors.js';
 import { isAppCheckRefusal } from './app-check-gate.js';
+import { cleanRequestForWire } from './request-helpers.js';
 import {
   aggregateResponses,
   createEnhancedContentResponse,
@@ -170,7 +171,11 @@ function createRequestAbortScope(singleRequestOptions?: SingleRequestOptions): R
  * values, and clones so later caller mutations never reach the broker.
  */
 function normalizeRequest<T>(request: T): T {
-  return JSON.parse(JSON.stringify(request)) as T;
+  let wireSafe: unknown = request;
+  if (request !== null && typeof request === 'object') {
+    wireSafe = cleanRequestForWire(request as Record<string, unknown>);
+  }
+  return JSON.parse(JSON.stringify(wireSafe)) as T;
 }
 
 
@@ -215,7 +220,7 @@ function closeIteratorSafely(iterator: AsyncIterator<WireResponse>): void {
   if (typeof iterator.return !== 'function') return;
   try {
     void Promise.resolve(iterator.return()).catch(() => undefined);
-  } catch {
+  } catch (_err) {
     // Best-effort cleanup if the iterator throws synchronously on return().
   }
 }

@@ -22,7 +22,7 @@ export default row({
       observation: 'ai-offline-init-backends-and-model-guards',
       expect: { fetchCalls: 0 },
       probe: PROBE,
-      guards: 'Repeat getAI calls share handles per (app, backend, location) while separating GoogleAI, VertexAI locations, and distinct apps.',
+      guards: 'Repeat getAI calls share handles per (app, backend) while separating distinct apps and backends.',
     },
   ],
 });

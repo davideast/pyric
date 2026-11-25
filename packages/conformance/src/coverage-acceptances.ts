@@ -7,7 +7,7 @@ import type { Surface } from '../registry/index.ts';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_REPO_ROOT = join(HERE, '..', '..', '..');
 
-/** Where a change adds `<row-id>.md` or `<surface>.surface.md` to accept a deliberate demotion. */
+/** Where a change adds `<row-id>.md`, `<surface>.surface.md`, or `<surface>.breadth.md` to accept a deliberate shift. */
 export const ACCEPTANCES_DIR = 'packages/conformance/coverage-acceptances';
 
 interface NamespaceBaseline {
@@ -41,12 +41,16 @@ export interface CoverageBaseline {
  * sets `rowId` and excuses that single row's demotion or removal. A surface-scoped file
  * (`<surface>.surface.md` or `<surface>.surface.<pr-or-issue>.md`) sets `surface` and
  * excuses `conforms -> unverified` demotions within that surface when at least one row
- * in that surface underwent such a demotion.
+ * in that surface underwent such a demotion. A breadth-scoped file (`<surface>.breadth.md`
+ * or `<surface>.breadth.<pr-or-issue>.md`) sets `breadthSurface` and excuses a public
+ * runtime/type breadth percentage drop caused solely by an upstream SDK denominator shift
+ * when zero still-existing mapped exports were dropped.
  * Only files the change adds count (`loadAddedAcceptances`).
  */
 export interface CoverageAcceptance {
   rowId?: string;
   surface?: string;
+  breadthSurface?: string;
   /** Repo-relative path, as the change added it. */
   path: string;
   text: string;
@@ -54,6 +58,7 @@ export interface CoverageAcceptance {
 
 const ROW_ACCEPTANCE_NAME = /^([A-Za-z0-9._-]+#[A-Za-z0-9._-]+?)(?:\.\d+)?\.md$/;
 const SURFACE_ACCEPTANCE_NAME = /^([A-Za-z0-9_-]+)\.surface(?:\.\d+)?\.md$/;
+const BREADTH_ACCEPTANCE_NAME = /^([A-Za-z0-9_-]+)\.breadth(?:\.\d+)?\.md$/;
 const ISSUE_REFERENCE = /#\d+|https:\/\/github\.com\/[^\s/]+\/[^\s/]+\/issues\/\d+/;
 const CONFORMING_DEMOTION = new Set(['bug', 'diverged-documented', 'unverified', 'unsupported']);
 
@@ -80,7 +85,18 @@ export function parseAcceptance(path: string, text: string): CoverageAcceptance 
     validateAcceptanceBody(path, text);
     return { surface: surfaceMatch[1], path, text };
   }
-  throw new Error(`${path} is not named <row-id>.md or <row-id>.<pr-or-issue>.md (or <surface>.surface.md)`);
+  const breadthMatch = BREADTH_ACCEPTANCE_NAME.exec(fileName);
+  if (breadthMatch) {
+    const breadthSurface = breadthMatch[1];
+    if (breadthSurface === 'overall') {
+      throw new Error(`${path} cannot target overall directly: name each constituent mirror surface instead`);
+    }
+    validateAcceptanceBody(path, text);
+    return { breadthSurface, path, text };
+  }
+  throw new Error(
+    `${path} is not named <row-id>.md or <row-id>.<pr-or-issue>.md (or <surface>.surface.md / <surface>.breadth.md)`,
+  );
 }
 
 /** The acceptance files HEAD adds relative to `baseCommit`. An edit or a rename target that already existed does not count. */
@@ -127,19 +143,88 @@ function rowRegressions(base: CoverageBaseline, head: CoverageBaseline): Map<str
   return regressed;
 }
 
-function surfaceRegressions(base: CoverageBaseline, head: CoverageBaseline): string[] {
+function preservesExistingMappedExports(from: NamespaceBaseline, to: NamespaceBaseline): boolean {
+  const maxUpstreamRemovals = Math.max(0, from.denominator - to.denominator);
+  return to.mapped >= from.mapped - maxUpstreamRemovals;
+}
+
+function isDenominatorOnlyBreadthShift(
+  from: SurfaceCoverageBaseline,
+  to: SurfaceCoverageBaseline,
+): boolean {
+  const pctDropped = to.runtime.pct < from.runtime.pct || to.types.pct < from.types.pct;
+  if (!pctDropped) return false;
+  return (
+    preservesExistingMappedExports(from.runtime, to.runtime) &&
+    preservesExistingMappedExports(from.types, to.types)
+  );
+}
+
+function surfaceRegressions(
+  base: CoverageBaseline,
+  head: CoverageBaseline,
+  acceptedBreadthSurfaces: ReadonlySet<string>,
+): { problems: string[]; excusedBreadthSurfaces: Set<string> } {
   const problems: string[] = [];
+  const excusedBreadthSurfaces = new Set<string>();
   const dropped = (label: string, from: SurfaceCoverageBaseline, to: SurfaceCoverageBaseline): void => {
-    if (to.runtime.pct < from.runtime.pct) problems.push(`${label}: public runtime surface dropped ${from.runtime.pct}% -> ${to.runtime.pct}%`);
-    if (to.types.pct < from.types.pct) problems.push(`${label}: public type surface dropped ${from.types.pct}% -> ${to.types.pct}%`);
+    if (to.runtime.pct < from.runtime.pct) {
+      problems.push(`${label}: public runtime surface dropped ${from.runtime.pct}% -> ${to.runtime.pct}%`);
+    }
+    if (to.types.pct < from.types.pct) {
+      problems.push(`${label}: public type surface dropped ${from.types.pct}% -> ${to.types.pct}%`);
+    }
   };
+
+  let unexcusedServicePctDrop = false;
+  let mirrorServiceLostMappedExport = false;
+  let totalUpstreamRuntimeRemovals = 0;
+  let totalUpstreamTypeRemovals = 0;
+
   const baseServices = new Map(base.services.map((s) => [s.surface, s]));
   for (const s of head.services) {
     const baseSurface = baseServices.get(s.surface)?.surfaceCoverage;
-    if (baseSurface && s.surfaceCoverage) dropped(s.surface, baseSurface, s.surfaceCoverage);
+    if (!baseSurface || !s.surfaceCoverage) continue;
+    const keepsRuntime = preservesExistingMappedExports(baseSurface.runtime, s.surfaceCoverage.runtime);
+    const keepsTypes = preservesExistingMappedExports(baseSurface.types, s.surfaceCoverage.types);
+    if (!keepsRuntime || !keepsTypes) {
+      mirrorServiceLostMappedExport = true;
+    } else {
+      totalUpstreamRuntimeRemovals += Math.max(0, baseSurface.runtime.denominator - s.surfaceCoverage.runtime.denominator);
+      totalUpstreamTypeRemovals += Math.max(0, baseSurface.types.denominator - s.surfaceCoverage.types.denominator);
+    }
+    const pctDropped =
+      s.surfaceCoverage.runtime.pct < baseSurface.runtime.pct ||
+      s.surfaceCoverage.types.pct < baseSurface.types.pct;
+    if (!pctDropped) continue;
+    if (acceptedBreadthSurfaces.has(s.surface) && isDenominatorOnlyBreadthShift(baseSurface, s.surfaceCoverage)) {
+      excusedBreadthSurfaces.add(s.surface);
+    } else {
+      unexcusedServicePctDrop = true;
+      dropped(s.surface, baseSurface, s.surfaceCoverage);
+    }
   }
-  dropped('overall', base.overall.surfaceCoverage, head.overall.surfaceCoverage);
-  return problems;
+
+  const overallFrom = base.overall.surfaceCoverage;
+  const overallTo = head.overall.surfaceCoverage;
+  const overallPctDropped =
+    overallTo.runtime.pct < overallFrom.runtime.pct ||
+    overallTo.types.pct < overallFrom.types.pct;
+  if (overallPctDropped) {
+    const overallKeepsRuntime = overallTo.runtime.mapped >= overallFrom.runtime.mapped - totalUpstreamRuntimeRemovals;
+    const overallKeepsTypes = overallTo.types.mapped >= overallFrom.types.mapped - totalUpstreamTypeRemovals;
+    const overallExcused =
+      excusedBreadthSurfaces.size > 0 &&
+      !unexcusedServicePctDrop &&
+      !mirrorServiceLostMappedExport &&
+      overallKeepsRuntime &&
+      overallKeepsTypes;
+    if (!overallExcused) {
+      dropped('overall', overallFrom, overallTo);
+    }
+  }
+
+  return { problems, excusedBreadthSurfaces };
 }
 
 function entryPathRegressions(base: CoverageBaseline, head: CoverageBaseline): string[] {
@@ -162,15 +247,17 @@ export function findRegressions(
   head: CoverageBaseline,
   acceptances: readonly CoverageAcceptance[],
 ): string[] {
-  const problems = surfaceRegressions(base, head);
-  const regressedRows = rowRegressions(base, head);
-
   const acceptedRows = new Set<string>();
   const acceptedSurfaces = new Set<string>();
+  const acceptedBreadthSurfaces = new Set<string>();
   for (const acceptance of acceptances) {
     if (acceptance.rowId !== undefined) acceptedRows.add(acceptance.rowId);
     if (acceptance.surface !== undefined) acceptedSurfaces.add(acceptance.surface);
+    if (acceptance.breadthSurface !== undefined) acceptedBreadthSurfaces.add(acceptance.breadthSurface);
   }
+
+  const { problems, excusedBreadthSurfaces } = surfaceRegressions(base, head, acceptedBreadthSurfaces);
+  const regressedRows = rowRegressions(base, head);
 
   const demotedCountBySurface = new Map<string, number>();
   for (const [id, reg] of regressedRows) {
@@ -191,6 +278,11 @@ export function findRegressions(
     if (acceptance.surface !== undefined && (demotedCountBySurface.get(acceptance.surface) ?? 0) === 0) {
       problems.push(
         `${acceptance.path} names surface '${acceptance.surface}', which had no 'conforms' -> 'unverified' demotions against the base report`,
+      );
+    }
+    if (acceptance.breadthSurface !== undefined && !excusedBreadthSurfaces.has(acceptance.breadthSurface)) {
+      problems.push(
+        `${acceptance.path} names surface '${acceptance.breadthSurface}', which had no upstream-denominator breadth drop against the base report`,
       );
     }
   }

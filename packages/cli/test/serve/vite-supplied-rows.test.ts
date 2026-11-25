@@ -56,13 +56,19 @@ function openSwap() {
 }
 
 let imports = 0;
+let thrownModulesDir: string | undefined;
 
-/** The error a module throws when it loads. Each import gets its own URL: bun keeps a module per URL across test files. */
+/** The error a module throws when it loads. Written to a file URL so large stop modules never exceed Bun's data-URI path limit. */
 async function thrownBy(source: string | null): Promise<Error & { code?: string }> {
   expect(source).not.toBeNull();
-  const unique = `${source as string}\n// supplied-rows ${++imports}\n`;
+  if (thrownModulesDir === undefined) {
+    thrownModulesDir = realpathSync(mkdtempSync(join(tmpdir(), 'pyric-supplied-thrown-')));
+    scratch.push(thrownModulesDir);
+  }
+  const file = join(thrownModulesDir, `stop-${++imports}.mjs`);
+  writeFileSync(file, `${source as string}\n`);
   try {
-    await import(`data:text/javascript;base64,${Buffer.from(unique).toString('base64')}`);
+    await import(pathToFileURL(file).href);
   } catch (error) {
     return error as Error & { code?: string };
   }

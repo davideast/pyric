@@ -326,7 +326,7 @@ process.exit(0);
     const run = started('node', [liveBin(root), '--no-open'], root, { HOME: root });
     const finished = await run.exited;
     expect(finished.code).toBe(1);
-    expect(finished.output).toContain('pyric-live: Live mode did not start. @pyric/live needs firebase ^12.12.0. This project has firebase 11.10.0 installed.');
+    expect(finished.output).toContain('pyric-live: Live mode did not start. @pyric/live needs firebase ^12.12.0 || ^13.0.0. This project has firebase 11.10.0 installed.');
   });
 
   test('refuses to start with two copies of @firebase/app, naming the path of each', async () => {

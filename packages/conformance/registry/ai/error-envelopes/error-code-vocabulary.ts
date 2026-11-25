@@ -6,7 +6,7 @@ export default row({
   order: 80,
   featureKeys: ['AIErrorCode'],
   api: 'AIErrorCode',
-  behavior: '`AIErrorCode` exposes the 14 documented codes, from `error` through `unsupported`',
+  behavior: '`AIErrorCode` exposes the 15 documented codes, from `already-initialized` through `unsupported`',
   automation: 'oracle-backed',
   evidence:
     'Capture `ai-offline-chat-roles-errors-and-abort` replayed across in-process (`chat-errors-abort-oracle.test.ts`), worker-host (`ai-chat-errors-abort.test.ts`), and served SharedWorker/Node-host (`test/apps/ai-sandbox-contents-roles`) planes.',
@@ -22,7 +22,7 @@ export default row({
       observation: 'ai-offline-chat-roles-errors-and-abort',
       expect: { fetchCalls: 0 },
       probe: PROBE,
-      guards: 'AIErrorCode exposes all 14 standardized error code strings.',
+      guards: 'AIErrorCode exposes all 15 standardized error code strings.',
     },
   ],
 });

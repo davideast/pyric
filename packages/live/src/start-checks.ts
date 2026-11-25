@@ -19,11 +19,12 @@
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-/** The `firebase` versions live mode supports: the range pyric tests against. */
-export const SUPPORTED_FIREBASE_RANGE = '^12.12.0';
+/** The `firebase` versions live mode supports: majors 12 (>=12.12.0) and 13. */
+export const SUPPORTED_FIREBASE_RANGE = '^12.12.0 || ^13.0.0';
 
-const SUPPORTED_MAJOR = 12;
-const LOWEST_MINOR = 12;
+const SUPPORTED_FIREBASE_12_MAJOR = 12;
+const LOWEST_FIREBASE_12_MINOR = 12;
+const SUPPORTED_FIREBASE_13_MAJOR = 13;
 const RELEASE_VERSION = /^(\d+)\.(\d+)\.(\d+)$/;
 
 /** The `@firebase/*` packages a live row loads, each of which resolves its own `@firebase/app`. */
@@ -48,14 +49,17 @@ export function isSupportedFirebaseVersion(version: string): boolean {
   if (parts === null) return false;
   const major = Number(parts[1]);
   const minor = Number(parts[2]);
-  return major === SUPPORTED_MAJOR && minor >= LOWEST_MINOR;
+  if (major === SUPPORTED_FIREBASE_12_MAJOR) {
+    return minor >= LOWEST_FIREBASE_12_MINOR;
+  }
+  return major === SUPPORTED_FIREBASE_13_MAJOR;
 }
 
 function readVersion(packageJson: string): string | null {
   try {
     const parsed = JSON.parse(readFileSync(packageJson, 'utf8')) as { version?: unknown };
     return typeof parsed.version === 'string' ? parsed.version : null;
-  } catch {
+  } catch (_err) {
     return null;
   }
 }
@@ -104,7 +108,7 @@ export function installedFirebaseVersion(projectRoot: string): string | null {
 function isDirectory(path: string): boolean {
   try {
     return statSync(path).isDirectory();
-  } catch {
+  } catch (_err) {
     return false;
   }
 }
@@ -112,7 +116,7 @@ function isDirectory(path: string): boolean {
 function entriesOf(dir: string): string[] {
   try {
     return readdirSync(dir);
-  } catch {
+  } catch (_err) {
     return [];
   }
 }
@@ -188,7 +192,7 @@ export function firebaseAppCopies(projectRoot: string): string[] {
 }
 
 const NOT_STARTED = 'Live mode did not start.';
-const INSTALL = `Install a supported version with: npm install firebase@${SUPPORTED_FIREBASE_RANGE}`;
+const INSTALL = `Install a supported version with: npm install "firebase@${SUPPORTED_FIREBASE_RANGE}"`;
 
 /** The no-firebase refusal's line: the folders it looked from, and where to start. */
 function noFirebaseLine(searched: readonly string[]): string {

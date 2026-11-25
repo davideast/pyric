@@ -7,7 +7,7 @@
  *   - `formatNewContent`: a string or Part[] becomes one `user` turn, or one
  *     `function` turn when every part is a functionResponse (mixing throws
  *     `invalid-content`, same as upstream).
- *   - `formatSystemInstruction`: string | Part | Content → Content with role
+ *   - `formatSystemInstruction`: string | Part | Content -> Content with role
  *     `system`.
  *   - `formatGenerateContentInput`: the entry point request union.
  *   - `validateChatHistory`: the upstream role/part/ordering validation run
@@ -19,15 +19,85 @@ import { POSSIBLE_ROLES, type Role } from './enums.js';
 
 /** A single content part (structural; upstream `Part` union member shape). */
 export interface PartShape {
+  type?: string;
   text?: string;
   inlineData?: { mimeType: string; data: string };
   fileData?: { mimeType: string; fileUri: string };
   functionCall?: { name: string; args: Record<string, unknown>; id?: string };
-  functionResponse?: { name: string; response: Record<string, unknown>; id?: string };
+  functionResponse?: { name: string; response: Record<string, unknown>; id?: string; parts?: PartShape[] };
   thought?: boolean;
   thoughtSignature?: string;
+  speechMetadata?: { speaker?: string; style?: string };
+  videoMetadata?: { startOffset: string; endOffset: string };
   executableCode?: unknown;
   codeExecutionResult?: unknown;
+}
+
+export function assignPartType(part: PartShape): PartShape {
+  if ('type' in part && typeof part.type === 'string' && part.type.length > 0) {
+    return part;
+  }
+  if (part.text !== undefined) {
+    return { type: 'text', ...part };
+  }
+  if (part.inlineData !== undefined) {
+    return { type: 'inlineData', ...part };
+  }
+  if (part.functionCall !== undefined) {
+    return { type: 'functionCall', ...part };
+  }
+  if (part.functionResponse !== undefined) {
+    return { type: 'functionResponse', ...part };
+  }
+  if (part.fileData !== undefined) {
+    return { type: 'fileData', ...part };
+  }
+  if (part.executableCode !== undefined) {
+    return { type: 'executableCode', ...part };
+  }
+  if (part.codeExecutionResult !== undefined) {
+    return { type: 'codeExecutionResult', ...part };
+  }
+  return part;
+}
+
+function stripPartType(part: PartShape): PartShape {
+  let wirePart: PartShape = part;
+  if ('type' in part) {
+    const { type: _type, ...rest } = part;
+    wirePart = rest;
+  }
+  if (wirePart.functionResponse && Array.isArray(wirePart.functionResponse.parts)) {
+    wirePart = {
+      ...wirePart,
+      functionResponse: {
+        ...wirePart.functionResponse,
+        parts: wirePart.functionResponse.parts.map(stripPartType),
+      },
+    };
+  }
+  return wirePart;
+}
+
+export function cleanRequestForWire(request: Record<string, unknown>): Record<string, unknown> {
+  const cleaned: Record<string, unknown> = { ...request };
+  if (Array.isArray(request.contents)) {
+    cleaned.contents = (request.contents as ContentShape[]).map((content) => {
+      if (!Array.isArray(content.parts)) return content;
+      return {
+        ...content,
+        parts: content.parts.map(stripPartType),
+      };
+    });
+  }
+  const sys = request.systemInstruction as { role?: string; parts?: PartShape[] } | undefined;
+  if (sys && typeof sys === 'object' && Array.isArray(sys.parts)) {
+    cleaned.systemInstruction = {
+      ...sys,
+      parts: sys.parts.map(stripPartType),
+    };
+  }
+  return cleaned;
 }
 
 /** Content: a role plus its parts. */
@@ -134,7 +204,7 @@ export function formatGenerateContentInput(
   return formattedRequest;
 }
 
-// ── Chat history validation (upstream chat-session-helpers) ────────────────
+// -- Chat history validation (upstream chat-session-helpers) ----------------
 
 const VALID_PART_FIELDS = [
   'text',
@@ -143,12 +213,25 @@ const VALID_PART_FIELDS = [
   'functionResponse',
   'thought',
   'thoughtSignature',
+  'fileData',
+  'executableCode',
+  'codeExecutionResult',
+] as const;
+
+const PART_VALUE_KEYS = [
+  'text',
+  'inlineData',
+  'functionCall',
+  'functionResponse',
+  'fileData',
+  'executableCode',
+  'codeExecutionResult',
 ] as const;
 
 const VALID_PARTS_PER_ROLE: Record<Role, string[]> = {
-  user: ['text', 'inlineData'],
+  user: ['text', 'inlineData', 'fileData'],
   function: ['functionResponse'],
-  model: ['text', 'functionCall', 'thought', 'thoughtSignature'],
+  model: ['text', 'functionCall', 'thought', 'thoughtSignature', 'executableCode', 'codeExecutionResult'],
   // System instructions shouldn't be in history anyway.
   system: ['text'],
 };
@@ -188,13 +271,25 @@ export function validateChatHistory(history: ContentShape[]): void {
     const countFields: Record<string, number> = {};
     for (const field of VALID_PART_FIELDS) countFields[field] = 0;
     for (const part of parts) {
-      for (const field of VALID_PART_FIELDS) {
-        if (field in part) countFields[field]! += 1;
+      if (typeof part.type === 'string' && part.type in countFields) {
+        countFields[part.type] = (countFields[part.type] ?? 0) + 1;
+      } else {
+        for (const field of PART_VALUE_KEYS) {
+          if (field in part) {
+            countFields[field] = (countFields[field] ?? 0) + 1;
+          }
+        }
+      }
+      if ('thought' in part && part.thought) {
+        countFields.thought = (countFields.thought ?? 0) + 1;
+      }
+      if ('thoughtSignature' in part && part.thoughtSignature) {
+        countFields.thoughtSignature = (countFields.thoughtSignature ?? 0) + 1;
       }
     }
     const validParts = VALID_PARTS_PER_ROLE[role as Role];
     for (const field of VALID_PART_FIELDS) {
-      if (!validParts.includes(field) && countFields[field]! > 0) {
+      if (!validParts.includes(field) && (countFields[field] ?? 0) > 0) {
         throw new AIError(
           AIErrorCode.INVALID_CONTENT,
           `Content with role '${role}' can't contain '${field}' part`,

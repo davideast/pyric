@@ -14,6 +14,7 @@ interface FunctionCallValueLike {
 }
 
 interface ContentPartLike {
+  type?: string;
   text?: unknown;
   functionCall?: FunctionCallValueLike;
   functionResponse?: {

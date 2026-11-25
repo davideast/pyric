@@ -1,6 +1,6 @@
 /**
  * Single source of truth for the Firebase version pyric is conformance-
- * tested against — the number `pyric --version` prints alongside
+ * tested against -- the number `pyric --version` prints alongside
  * @pyric/cli' own version, and the number `scripts/publish-alpha.sh`
  * reads to derive the `fb<major>.<minor>` dist-tag it moves on a green
  * `compat:check` (see
@@ -14,4 +14,4 @@
  * the source of truth for this value and this constant should read
  * from it instead of being hand-set.
  */
-export const FIREBASE_TESTED_AGAINST = '12.19.0';
+export const FIREBASE_TESTED_AGAINST = '13.4.0';

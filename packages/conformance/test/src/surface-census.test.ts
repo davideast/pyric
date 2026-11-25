@@ -10,13 +10,13 @@ beforeAll(async () => {
 
 describe('Firebase public-surface census', () => {
   const expectedCounts = {
-    ai: { runtime: [48, 41, 0], types: [159, 159] },
-    app: { runtime: [10, 9, 13], types: [6, 6] },
+    ai: { runtime: [45, 38, 0], types: [159, 159] },
+    app: { runtime: [10, 9, 14], types: [6, 6] },
     // pyric/app-check is a deferred stub: every name resolves and throws, so the
     // census credits all 8 runtime names. Coverage is off in surfaces/app-check.json.
     'app-check': { runtime: [8, 8, 0], types: [11, 11] },
     auth: { runtime: [85, 71, 0], types: [64, 64] },
-    firestore: { runtime: [106, 104, 15], types: [78, 78] },
+    firestore: { runtime: [113, 104, 15], types: [86, 86] },
     functions: { runtime: [5, 5, 0], types: [9, 9] },
     database: { runtime: [44, 44, 10], types: [15, 15] },
     storage: { runtime: [18, 16, 9], types: [17, 17] },
@@ -63,14 +63,16 @@ describe('Firebase public-surface census', () => {
   it('measures firebase/app as 9 of 10 public runtime exports', async () => {
     const app = census.find((surface) => surface.surface === 'app');
     expect(app).toBeDefined();
-    expect(app!.runtime.upstreamCount).toBe(10);
-    expect(app!.runtime.mapped).toHaveLength(9);
-    expect(app!.runtime.dispositioned.map(({ symbol }) => symbol)).toEqual(['initializeServerApp']);
-    expect(app!.runtime.unmapped).toEqual([]);
+    if (!app) throw new Error('expected app surface');
+    expect(app.runtime.upstreamCount).toBe(10);
+    expect(app.runtime.mapped).toHaveLength(9);
+    expect(app.runtime.dispositioned.map(({ symbol }) => symbol)).toEqual(['initializeServerApp']);
+    expect(app.runtime.unmapped).toEqual([]);
   });
 
   it('keeps Firebase private plumbing out of App public coverage', async () => {
-    const app = census.find((surface) => surface.surface === 'app')!;
+    const app = census.find((surface) => surface.surface === 'app');
+    if (!app) throw new Error('expected app surface');
     expect(app.runtime.privateUpstream).toContain('_apps');
     expect(app.runtime.privateUpstream).toContain('_serverApps');
     expect(app.runtime.privateUpstream.every((name) => name.startsWith('_'))).toBe(true);
@@ -78,25 +80,30 @@ describe('Firebase public-surface census', () => {
   });
 
   it('fails closed on a new underscore export until its exact private classification is reviewed', async () => {
-    const pair = loadCensusPairs().find(({ surface }) => surface === 'app')!;
-    const result = await censusForPair(pair, async (specifier) =>
-      specifier === pair.upstream
-        ? [...pair.privateRuntimeExports, '_newInternalExport']
-        : ['_newInternalExport']);
+    const pair = loadCensusPairs().find(({ surface }) => surface === 'app');
+    if (!pair) throw new Error('expected app census pair');
+    const result = await censusForPair(pair, async (specifier) => {
+      if (specifier === pair.upstream) {
+        return [...pair.privateRuntimeExports, '_newInternalExport'];
+      }
+      return ['_newInternalExport'];
+    });
     expect(result.runtime.privateUpstream).toEqual(pair.privateRuntimeExports.slice().sort());
     expect(result.runtime.mapped).not.toContain('_newInternalExport');
     expect(result.runtime.unmapped).toContain('_newInternalExport');
   });
 
   it('tracks the public App type surface independently', async () => {
-    const app = census.find((surface) => surface.surface === 'app')!;
+    const app = census.find((surface) => surface.surface === 'app');
+    if (!app) throw new Error('expected app surface');
     expect(app.types.upstreamCount).toBe(6);
     expect(app.types.mapped).toHaveLength(6);
     expect(app.types.unmapped).toEqual([]);
   });
 
   it('never credits pyric-only exports toward Firebase coverage', async () => {
-    const firestore = census.find((surface) => surface.surface === 'firestore')!;
+    const firestore = census.find((surface) => surface.surface === 'firestore');
+    if (!firestore) throw new Error('expected firestore surface');
     expect(firestore.runtime.extra.length).toBeGreaterThan(0);
     expect(firestore.runtime.mapped.some((name) => firestore.runtime.extra.includes(name))).toBe(false);
     expect(firestore.types.mapped.some((name) => firestore.types.extra.includes(name))).toBe(false);

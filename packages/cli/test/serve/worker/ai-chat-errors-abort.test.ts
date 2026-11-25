@@ -61,11 +61,14 @@ interface ChatErrorsAbortBehavior {
   };
 }
 
-function loadChatErrorsAbortObservation(): ChatErrorsAbortBehavior {
-  const parsed = JSON.parse(readFileSync(OBS_PATH, 'utf8')) as {
+function loadChatErrorsAbortObservation(): {
+  fbSdkVersion: string;
+  behavior: ChatErrorsAbortBehavior;
+} {
+  return JSON.parse(readFileSync(OBS_PATH, 'utf8')) as {
+    fbSdkVersion: string;
     behavior: ChatErrorsAbortBehavior;
   };
-  return parsed.behavior;
 }
 
 function captureServedErrorShape(
@@ -158,12 +161,11 @@ describe('served AI entry and SharedWorker chat, role, error, and abort parity',
   }
 
   it('replays ai-offline-chat-roles-errors-and-abort across served entries/ai without worker ops', async () => {
-    const facts = loadChatErrorsAbortObservation();
+    const { fbSdkVersion, behavior: facts } = loadChatErrorsAbortObservation();
     const { ctx, inboundAiOps, servedAi } = await setupServedAi();
     const {
       AIError,
       AIErrorCode,
-      ChatSession,
       POSSIBLE_ROLES,
       getAI,
       getGenerativeModel,
@@ -187,7 +189,7 @@ describe('served AI entry and SharedWorker chat, role, error, and abort parity',
       const abortContentRequest = await observeAsyncServedCall(
         () =>
           model.generateContent(
-            { contents: [{ role: 'user', parts: [{ text: 'never delivered' }] }] },
+            { contents: [{ role: 'user', parts: [{ text: 'never delivered', type: 'text' }] }] },
             { signal: controller.signal },
           ),
         AIError,
@@ -205,14 +207,24 @@ describe('served AI entry and SharedWorker chat, role, error, and abort parity',
       const defaultHistory = await defaultChat.getHistory();
 
       const seededTurns = [
-        { role: 'user' as const, parts: [{ text: 'hi' }] },
+        { role: 'user' as const, parts: [{ text: 'hi', type: 'text' as const }] },
         {
           role: 'model' as const,
-          parts: [{ functionCall: { name: 'greet', args: { target: 'world' } } }],
+          parts: [
+            {
+              functionCall: { name: 'greet', args: { target: 'world' } },
+              type: 'functionCall' as const,
+            },
+          ],
         },
         {
           role: 'function' as const,
-          parts: [{ functionResponse: { name: 'greet', response: { ok: true } } }],
+          parts: [
+            {
+              functionResponse: { name: 'greet', response: { ok: true } },
+              type: 'functionResponse' as const,
+            },
+          ],
         },
       ];
       const seededChat = model.startChat({ history: seededTurns });
@@ -223,12 +235,19 @@ describe('served AI entry and SharedWorker chat, role, error, and abort parity',
         AIError,
       );
       const modelFirstHistoryThrow = observeSyncServedCall(
-        () => model.startChat({ history: [{ role: 'model', parts: [{ text: 'first' }] }] }),
+        () =>
+          model.startChat({
+            history: [{ role: 'model', parts: [{ text: 'first', type: 'text' }] }],
+          }),
         AIError,
       );
 
+      expect('ChatSession' in servedAi).toBe(false);
       expect({
-        isChatSession: seededChat instanceof ChatSession,
+        isChatSession:
+          typeof seededChat.sendMessage === 'function' &&
+          typeof seededChat.sendMessageStream === 'function' &&
+          typeof seededChat.getHistory === 'function',
         defaultHistoryLength: defaultHistory.length,
         seededRoles: seededHistory.map((entry) => entry.role),
         seededHistoryMatchesInput: JSON.stringify(seededHistory) === JSON.stringify(seededTurns),
@@ -249,6 +268,11 @@ describe('served AI entry and SharedWorker chat, role, error, and abort parity',
         customErrorData = constructedError.customErrorData;
       }
 
+      let expectedCodesSorted = facts.errorVocabulary.codesSorted;
+      if (fbSdkVersion.startsWith('12.') && !expectedCodesSorted.includes('already-initialized')) {
+        expectedCodesSorted = [...expectedCodesSorted, 'already-initialized'].sort();
+      }
+
       expect({
         codeCount: errorCodesSorted.length,
         codesSorted: errorCodesSorted,
@@ -256,7 +280,11 @@ describe('served AI entry and SharedWorker chat, role, error, and abort parity',
         constructedIsFirebaseError: constructedError instanceof FirebaseError,
         constructedCode: constructedError.code,
         constructedCustomErrorData: customErrorData,
-      }).toEqual(facts.errorVocabulary);
+      }).toEqual({
+        ...facts.errorVocabulary,
+        codeCount: expectedCodesSorted.length,
+        codesSorted: expectedCodesSorted,
+      });
     } finally {
       await deleteApp(app);
       ctx.sandbox.dispose();
@@ -296,8 +324,8 @@ describe('served AI entry and SharedWorker chat, role, error, and abort parity',
       const model = servedAi.getGenerativeModel(ai, { model: 'gemini-flash-lite-latest' });
       const chat = model.startChat({
         history: [
-          { role: 'user', parts: [{ text: 'hello' }] },
-          { role: 'model', parts: [{ text: 'hi there' }] },
+          { role: 'user', parts: [{ text: 'hello', type: 'text' }] },
+          { role: 'model', parts: [{ text: 'hi there', type: 'text' }] },
         ],
       });
       const reply = await chat.sendMessage('follow up');

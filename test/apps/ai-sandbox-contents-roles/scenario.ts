@@ -57,17 +57,17 @@ interface InitBackendsOutcome extends Outcome {
   isGoogleAIBackend?: boolean;
   backendType?: string;
   matchesEnumGoogleAi?: boolean;
-  location?: string;
+  hasHandleLocation?: boolean;
+  hasVertexAIBackend?: boolean;
+  hasVertexAiEnum?: boolean;
   sameAppDefaultSameHandle?: boolean;
   sameAppExplicitGoogleSameHandle?: boolean;
-  sameAppVertexSameHandle?: boolean;
-  googleAndVertexDistinctOnSameApp?: boolean;
-  vertexLocationsDistinctOnSameApp?: boolean;
-  vertexDefaultLocation?: string;
-  vertexEuropeLocation?: string;
+  sameAppRegionalSameHandle?: boolean;
+  googleAndRegionalDistinctOnSameApp?: boolean;
+  regionalLocationsDistinctOnSameApp?: boolean;
   googleShortNormalized?: string;
   googlePrefixedNormalized?: string;
-  vertexShortNormalized?: string;
+  regionalShortNormalized?: string;
   emptyModelGuard?: {
     isAIError: boolean;
     isFirebaseError: boolean;
@@ -212,7 +212,7 @@ function assertRoles(roles: Roles): void {
     emptyPartsIsFirebaseError: true,
     modelFirstCode: 'invalid-content',
     possibleRoles: ['user', 'model', 'function', 'system'],
-    errorCodeCount: 14,
+    errorCodeCount: 15,
     constructedError: {
       isAIError: true,
       isFirebaseError: true,
@@ -227,23 +227,23 @@ function assertRoles(roles: Roles): void {
     true,
     `initBackends: ${JSON.stringify(roles.initBackends)}`,
   );
-  assert.ok(roles.initBackends.text, 'the VertexAIBackend turn got an empty reply');
+  assert.ok(roles.initBackends.text, 'the regional backend turn got an empty reply');
   assert.equal(roles.initBackends.carriesApp, true);
   assert.equal(roles.initBackends.isGoogleAIBackend, true);
   assert.equal(roles.initBackends.backendType, 'GOOGLE_AI');
   assert.equal(roles.initBackends.matchesEnumGoogleAi, true);
-  assert.equal(roles.initBackends.location, '');
+  assert.equal(roles.initBackends.hasHandleLocation, false);
+  assert.equal(roles.initBackends.hasVertexAIBackend, false);
+  assert.equal(roles.initBackends.hasVertexAiEnum, false);
   assert.equal(roles.initBackends.sameAppDefaultSameHandle, true);
   assert.equal(roles.initBackends.sameAppExplicitGoogleSameHandle, true);
-  assert.equal(roles.initBackends.sameAppVertexSameHandle, true);
-  assert.equal(roles.initBackends.googleAndVertexDistinctOnSameApp, true);
-  assert.equal(roles.initBackends.vertexLocationsDistinctOnSameApp, true);
-  assert.equal(roles.initBackends.vertexDefaultLocation, 'us-central1');
-  assert.equal(roles.initBackends.vertexEuropeLocation, 'europe-west1');
+  assert.equal(roles.initBackends.sameAppRegionalSameHandle, true);
+  assert.equal(roles.initBackends.googleAndRegionalDistinctOnSameApp, true);
+  assert.equal(roles.initBackends.regionalLocationsDistinctOnSameApp, true);
   assert.equal(roles.initBackends.googleShortNormalized, 'models/gemini-flash-lite-latest');
   assert.equal(roles.initBackends.googlePrefixedNormalized, 'models/gemini-flash-lite-latest');
   assert.equal(
-    roles.initBackends.vertexShortNormalized,
+    roles.initBackends.regionalShortNormalized,
     'publishers/google/models/gemini-flash-lite-latest',
   );
   assert.deepEqual(roles.initBackends.emptyModelGuard, {

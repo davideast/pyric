@@ -20,7 +20,8 @@
     "_isFirebaseServerAppSettings",
     "_registerComponent",
     "_removeServiceInstance",
-    "_serverApps"
+    "_serverApps",
+    "_setTrustedScriptSrc"
   ],
   "observationPrefixes": [
     "app-registry-",
@@ -39,7 +40,7 @@
       "id": "app.server-app",
       "availability": "deferred",
       "reasonCode": "implementation-deferred",
-      "summary": "Server-app (SSR) initialization: a FirebaseServerApp carries per-request auth/heartbeat state with no decided sandbox mirror pattern yet. Deferred, not out of scope — tracked as an unsupported registry row (registry/app.ts app#15).",
+      "summary": "Server-app (SSR) initialization: a FirebaseServerApp carries per-request auth/heartbeat state with no decided sandbox mirror pattern yet. Deferred, not out of scope -- tracked as an unsupported registry row (registry/app.ts app#15).",
       "evidenceRefs": ["registry:app#15"],
       "symbols": [
         "initializeServerApp"

@@ -65,7 +65,10 @@ export const probe: Probe = {
           let responseBody: Record<string, unknown> = {};
           try {
             responseBody = (await response.clone().json()) as Record<string, unknown>;
-          } catch {
+          } catch (err) {
+            if (!(err instanceof Error)) {
+              throw err;
+            }
             responseBody = {};
           }
           wireCalls.push({
@@ -112,7 +115,7 @@ export const probe: Probe = {
       const sysInstructionText = 'Answer in lowercase.';
       const sysResult = await model.generateContent({
         systemInstruction: sysInstructionText,
-        contents: [{ role: 'user', parts: [{ text: 'Say pong.' }] }],
+        contents: [{ role: 'user', parts: [{ type: 'text', text: 'Say pong.' }] }],
       });
       const sysWire = wireCalls[0];
       if (!sysWire || sysWire.httpStatus !== 200) {
@@ -125,7 +128,7 @@ export const probe: Probe = {
         },
       });
       const schemaResult = await model.generateContent({
-        contents: [{ role: 'user', parts: [{ text: 'Give one English word for water.' }] }],
+        contents: [{ role: 'user', parts: [{ type: 'text', text: 'Give one English word for water.' }] }],
         generationConfig: {
           responseMimeType: 'application/json',
           responseSchema: wordSchema,
@@ -139,7 +142,10 @@ export const probe: Probe = {
       let parsedSchemaOutput: unknown = null;
       try {
         parsedSchemaOutput = JSON.parse(schemaResult.response.text());
-      } catch {
+      } catch (err) {
+        if (!(err instanceof SyntaxError)) {
+          throw err;
+        }
         parsedSchemaOutput = null;
       }
 
@@ -147,7 +153,7 @@ export const probe: Probe = {
         contents: [
           {
             role: 'user',
-            parts: [{ text: 'A basket has 9 apples. You take 2. How many remain?' }],
+            parts: [{ type: 'text', text: 'A basket has 9 apples. You take 2. How many remain?' }],
           },
         ],
         generationConfig: {

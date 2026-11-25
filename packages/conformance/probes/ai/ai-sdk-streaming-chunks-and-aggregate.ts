@@ -15,7 +15,7 @@ interface StreamChunkLike {
     finishReason?: string;
     content?: {
       role?: string;
-      parts?: Array<{ text?: string }>;
+      parts?: Array<{ type?: string; text?: string }>;
     };
   }>;
   usageMetadata?: {

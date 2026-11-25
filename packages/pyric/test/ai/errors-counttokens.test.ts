@@ -167,8 +167,9 @@ describe('ai: error envelopes', () => {
     expect(facts.errorKeySet).toContain('status');
   });
 
-  rowTest('ai#error-code-vocabulary AIErrorCode exposes the 14 documented codes', () => {
+  rowTest('ai#error-code-vocabulary AIErrorCode exposes the 15 documented codes', () => {
     const expected = [
+      'already-initialized',
       'error',
       'request-error',
       'response-error',

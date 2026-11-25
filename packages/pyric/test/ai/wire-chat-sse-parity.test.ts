@@ -164,8 +164,11 @@ describe('ai: OpenAI wire translation empty choices, mixed turns, and fileData',
         {
           role: 'user',
           parts: [
-            { text: 'summarize ' },
-            { fileData: { mimeType: 'text/plain', fileUri: 'gs://docs-bucket/notes.txt' } },
+            { text: 'summarize ', type: 'text' },
+            {
+              fileData: { mimeType: 'text/plain', fileUri: 'gs://docs-bucket/notes.txt' },
+              type: 'fileData',
+            },
           ],
         },
       ],
@@ -267,8 +270,8 @@ describe('ai: ChatSession history excludes blocked and contentless candidates', 
     const model = getGenerativeModel(ai, { model: MODEL });
     const chat = model.startChat({
       history: [
-        { role: 'user', parts: [{ text: 'seed question' }] },
-        { role: 'model', parts: [{ text: 'seed answer' }] },
+        { role: 'user', parts: [{ text: 'seed question', type: 'text' }] },
+        { role: 'model', parts: [{ text: 'seed answer', type: 'text' }] },
       ],
     });
 
@@ -280,8 +283,8 @@ describe('ai: ChatSession history excludes blocked and contentless candidates', 
 
     const history = await chat.getHistory();
     expect(history).toEqual([
-      { role: 'user', parts: [{ text: 'seed question' }] },
-      { role: 'model', parts: [{ text: 'seed answer' }] },
+      { role: 'user', parts: [{ text: 'seed question', type: 'text' }] },
+      { role: 'model', parts: [{ text: 'seed answer', type: 'text' }] },
     ]);
     expect(() => model.startChat({ history })).not.toThrow();
   });

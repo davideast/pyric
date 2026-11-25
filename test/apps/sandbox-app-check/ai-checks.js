@@ -5,7 +5,7 @@
 // can delay enforcement up to January 21, 2027.
 import { initializeApp } from "firebase/app";
 import { CustomProvider, ReCaptchaEnterpriseProvider, ReCaptchaV3Provider, initializeAppCheck } from "firebase/app-check";
-import { VertexAIBackend, getAI, getGenerativeModel } from "firebase/ai";
+import { BackendType, getAI, getGenerativeModel } from "firebase/ai";
 
 const options = {
   apiKey: "AIzaSyDemoKeyForReproOnly000000000000",
@@ -95,7 +95,9 @@ export async function runAiChecks(tag, tokenUrl, makeProvider = recaptchaProvide
   };
 
   // The SDK's error names the request URL, which differs by backend (#1640).
-  const vertex = getAI(initializeApp(options, `${tag}-vertex-no-app-check`), { backend: new VertexAIBackend("europe-west4") });
+  const vertex = getAI(initializeApp(options, `${tag}-vertex-no-app-check`), {
+    backend: { backendType: BackendType.AGENT_PLATFORM, location: "europe-west4" },
+  });
   const vertexNoAppCheck = {
     generateContent: await outcome(() => modelFor(vertex).generateContent("ping")),
     // Assert the call itself rejects without awaiting .response (#1553).

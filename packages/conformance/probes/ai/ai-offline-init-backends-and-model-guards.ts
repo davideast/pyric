@@ -1,9 +1,9 @@
 import { FirebaseError, deleteApp, initializeApp, type FirebaseApp } from 'firebase/app';
+import * as aiNamespace from 'firebase/ai';
 import {
   AIError,
   BackendType,
   GoogleAIBackend,
-  VertexAIBackend,
   getAI,
   getGenerativeModel,
 } from 'firebase/ai';
@@ -126,20 +126,11 @@ export const probe: Probe = {
       const explicitGoogleAi = getAI(primaryApp, { backend: new GoogleAIBackend() });
       const otherAppAi = getAI(secondaryApp);
 
-      const vertexDefault = new VertexAIBackend();
-      const vertexAiDefault = getAI(primaryApp, { backend: vertexDefault });
-      const repeatVertexAiDefault = getAI(primaryApp, { backend: new VertexAIBackend() });
-      const vertexEurope = new VertexAIBackend('europe-west1');
-      const vertexAiEurope = getAI(primaryApp, { backend: vertexEurope });
-
       const googleShortModel = getGenerativeModel(defaultAi, {
         model: 'gemini-flash-lite-latest',
       });
       const googlePrefixedModel = getGenerativeModel(defaultAi, {
         model: 'models/gemini-flash-lite-latest',
-      });
-      const vertexShortModel = getGenerativeModel(vertexAiDefault, {
-        model: 'gemini-flash-lite-latest',
       });
 
       const emptyModelThrow = observeSyncAiThrow(() =>
@@ -165,29 +156,20 @@ export const probe: Probe = {
           isGoogleAIBackend: defaultAi.backend instanceof GoogleAIBackend,
           backendType: defaultAi.backend.backendType,
           matchesEnumGoogleAi: defaultAi.backend.backendType === BackendType.GOOGLE_AI,
-          location: defaultAi.location,
         },
         idempotency: {
           sameAppDefaultSameHandle: defaultAi === repeatDefaultAi,
           sameAppExplicitGoogleSameHandle: defaultAi === explicitGoogleAi,
-          sameAppVertexSameHandle: vertexAiDefault === repeatVertexAiDefault,
-          googleAndVertexDistinctOnSameApp: defaultAi !== vertexAiDefault,
-          vertexLocationsDistinctOnSameApp: vertexAiDefault !== vertexAiEurope,
           distinctAppsDistinctHandles: defaultAi !== otherAppAi,
         },
-        vertexBackend: {
-          isVertexAIBackend: vertexDefault instanceof VertexAIBackend,
-          backendType: vertexDefault.backendType,
-          matchesEnumVertexAi: vertexDefault.backendType === BackendType.VERTEX_AI,
-          defaultBackendLocation: vertexDefault.location,
-          defaultHandleLocation: vertexAiDefault.location,
-          customBackendLocation: vertexEurope.location,
-          customHandleLocation: vertexAiEurope.location,
+        vertexRemoved: {
+          hasVertexAIBackend: 'VertexAIBackend' in aiNamespace,
+          hasVertexAiEnum: 'VERTEX_AI' in BackendType,
+          hasHandleLocation: 'location' in defaultAi,
         },
         modelNames: {
           googleShortNormalized: googleShortModel.model,
           googlePrefixedNormalized: googlePrefixedModel.model,
-          vertexShortNormalized: vertexShortModel.model,
         },
         guards: {
           emptyModelThrow,

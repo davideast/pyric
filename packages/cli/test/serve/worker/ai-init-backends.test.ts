@@ -40,29 +40,21 @@ interface InitBackendsBehavior {
     isGoogleAIBackend: boolean;
     backendType: string;
     matchesEnumGoogleAi: boolean;
-    location: string;
+    location?: string;
   };
   idempotency: {
     sameAppDefaultSameHandle: boolean;
     sameAppExplicitGoogleSameHandle: boolean;
-    sameAppVertexSameHandle: boolean;
-    googleAndVertexDistinctOnSameApp: boolean;
-    vertexLocationsDistinctOnSameApp: boolean;
     distinctAppsDistinctHandles: boolean;
   };
-  vertexBackend: {
-    isVertexAIBackend: boolean;
-    backendType: string;
-    matchesEnumVertexAi: boolean;
-    defaultBackendLocation: string;
-    defaultHandleLocation: string;
-    customBackendLocation: string;
-    customHandleLocation: string;
+  vertexRemoved?: {
+    hasVertexAIBackend: boolean;
+    hasVertexAiEnum: boolean;
+    hasHandleLocation: boolean;
   };
   modelNames: {
     googleShortNormalized: string;
     googlePrefixedNormalized: string;
-    vertexShortNormalized: string;
   };
   guards: {
     emptyModelThrow: SyncAiThrowShape;
@@ -123,7 +115,6 @@ describe('served AI entry and SharedWorker init/backend/model-guard parity', () 
       AIError,
       BackendType,
       GoogleAIBackend,
-      VertexAIBackend,
       getAI,
       getGenerativeModel,
     } = servedAi;
@@ -179,38 +170,39 @@ describe('served AI entry and SharedWorker init/backend/model-guard parity', () 
       const explicitGoogleAi = getAI(primaryApp, { backend: new GoogleAIBackend() });
       const otherAppAi = getAI(secondaryApp);
 
-      const vertexDefault = new VertexAIBackend();
-      const vertexAiDefault = getAI(primaryApp, { backend: vertexDefault });
-      const repeatVertexAiDefault = getAI(primaryApp, { backend: new VertexAIBackend() });
-      const vertexEurope = new VertexAIBackend('europe-west1');
-      const vertexAiEurope = getAI(primaryApp, { backend: vertexEurope });
-
       expect({
         carriesApp: defaultAi.app === primaryApp,
         isGoogleAIBackend: defaultAi.backend instanceof GoogleAIBackend,
         backendType: defaultAi.backend.backendType,
         matchesEnumGoogleAi: defaultAi.backend.backendType === BackendType.GOOGLE_AI,
-        location: defaultAi.location,
-      }).toEqual(facts.defaultBackend);
+      }).toEqual({
+        carriesApp: facts.defaultBackend.carriesApp,
+        isGoogleAIBackend: facts.defaultBackend.isGoogleAIBackend,
+        backendType: facts.defaultBackend.backendType,
+        matchesEnumGoogleAi: facts.defaultBackend.matchesEnumGoogleAi,
+      });
 
       expect({
         sameAppDefaultSameHandle: defaultAi === repeatDefaultAi,
         sameAppExplicitGoogleSameHandle: defaultAi === explicitGoogleAi,
-        sameAppVertexSameHandle: vertexAiDefault === repeatVertexAiDefault,
-        googleAndVertexDistinctOnSameApp: defaultAi !== vertexAiDefault,
-        vertexLocationsDistinctOnSameApp: vertexAiDefault !== vertexAiEurope,
         distinctAppsDistinctHandles: defaultAi !== otherAppAi,
-      }).toEqual(facts.idempotency);
+      }).toEqual({
+        sameAppDefaultSameHandle: facts.idempotency.sameAppDefaultSameHandle,
+        sameAppExplicitGoogleSameHandle: facts.idempotency.sameAppExplicitGoogleSameHandle,
+        distinctAppsDistinctHandles: facts.idempotency.distinctAppsDistinctHandles,
+      });
 
       expect({
-        isVertexAIBackend: vertexDefault instanceof VertexAIBackend,
-        backendType: vertexDefault.backendType,
-        matchesEnumVertexAi: vertexDefault.backendType === BackendType.VERTEX_AI,
-        defaultBackendLocation: vertexDefault.location,
-        defaultHandleLocation: vertexAiDefault.location,
-        customBackendLocation: vertexEurope.location,
-        customHandleLocation: vertexAiEurope.location,
-      }).toEqual(facts.vertexBackend);
+        hasVertexAIBackend: 'VertexAIBackend' in servedAi,
+        hasVertexAiEnum: 'VERTEX_AI' in BackendType,
+        hasHandleLocation: 'location' in defaultAi,
+      }).toEqual(
+        facts.vertexRemoved ?? {
+          hasVertexAIBackend: false,
+          hasVertexAiEnum: false,
+          hasHandleLocation: false,
+        },
+      );
 
       const googleShortModel = getGenerativeModel(defaultAi, {
         model: 'gemini-flash-lite-latest',
@@ -218,12 +210,8 @@ describe('served AI entry and SharedWorker init/backend/model-guard parity', () 
       const googlePrefixedModel = getGenerativeModel(defaultAi, {
         model: 'models/gemini-flash-lite-latest',
       });
-      const vertexShortModel = getGenerativeModel(vertexAiDefault, {
-        model: 'gemini-flash-lite-latest',
-      });
 
       expect(googleShortModel.model).toBe(facts.modelNames.googleShortNormalized);
-      expect(vertexShortModel.model).toBe(facts.modelNames.vertexShortNormalized);
       expect(facts.modelNames.googlePrefixedNormalized).toBe('models/models/gemini-flash-lite-latest');
       expect(googlePrefixedModel.model).toBe('models/gemini-flash-lite-latest');
 
@@ -277,8 +265,7 @@ describe('served AI entry and SharedWorker init/backend/model-guard parity', () 
     }
   });
 
-  it('transports VertexAIBackend publishers/google/models/<name> across worker host ai.generateContent', async () => {
-    const facts = loadInitBackendsObservation();
+  it('transports regional publishers/google/models/<name> across worker host ai.generateContent', async () => {
     const { ctx, servedAi } = await setupServedAi();
     const app = createAppForSandbox(
       ctx.sandbox,
@@ -295,11 +282,16 @@ describe('served AI entry and SharedWorker init/backend/model-guard parity', () 
         { appId: '1:123456789012:web:abcdef03', projectId: 'demo-ai-worker-vertex' },
         3600,
       );
-      const vertexAi = servedAi.getAI(app, { backend: new servedAi.VertexAIBackend('europe-west1') });
-      const vertexModel = servedAi.getGenerativeModel(vertexAi, {
+      const regionalAi = servedAi.getAI(app, {
+        backend: {
+          backendType: servedAi.BackendType.AGENT_PLATFORM,
+          location: 'europe-west1',
+        },
+      });
+      const regionalModel = servedAi.getGenerativeModel(regionalAi, {
         model: 'gemini-flash-lite-latest',
       });
-      expect(vertexModel.model).toBe(facts.modelNames.vertexShortNormalized);
+      expect(regionalModel.model).toBe('publishers/google/models/gemini-flash-lite-latest');
 
       let resId = '';
       let resOk = false;
@@ -321,7 +313,7 @@ describe('served AI entry and SharedWorker init/backend/model-guard parity', () 
         t: 'op',
         id: 'vertex-worker-op',
         method: 'ai.generateContent',
-        model: vertexModel.model,
+        model: regionalModel.model,
         request: {
           contents: [{ role: 'user', parts: [{ text: 'Hello Vertex worker.' }] }],
         },

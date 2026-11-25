@@ -44,10 +44,14 @@ afterEach(() => {
 });
 
 describe('the supported firebase range', () => {
-  test(`is ${SUPPORTED_FIREBASE_RANGE}: 12.12.0 up to, not including, 13`, () => {
-    expect(SUPPORTED_FIREBASE_RANGE).toBe('^12.12.0');
-    for (const version of ['12.12.0', '12.12.1', '12.19.0', '12.100.3']) expect(isSupportedFirebaseVersion(version), version).toBe(true);
-    for (const version of ['12.11.9', '11.10.0', '13.0.0', '12.12.0-beta.1', '12', 'latest', '']) expect(isSupportedFirebaseVersion(version), version).toBe(false);
+  test(`is ${SUPPORTED_FIREBASE_RANGE}: 12.12.0+ across major 12 and 13.0.0+ across major 13`, () => {
+    expect(SUPPORTED_FIREBASE_RANGE).toBe('^12.12.0 || ^13.0.0');
+    for (const version of ['12.12.0', '12.12.1', '12.19.0', '12.100.3', '13.0.0', '13.1.0', '13.4.0', '13.99.2']) {
+      expect(isSupportedFirebaseVersion(version), version).toBe(true);
+    }
+    for (const version of ['12.11.9', '11.10.0', '14.0.0', '12.12.0-beta.1', '13.0.0-beta.1', '12', '13', 'latest', '']) {
+      expect(isSupportedFirebaseVersion(version), version).toBe(false);
+    }
   });
 });
 
@@ -174,10 +178,14 @@ describe('the copies of @firebase/app in a workspace', () => {
 });
 
 describe('the start refusal', () => {
-  test('is null for a supported firebase with one @firebase/app', () => {
-    const root = project();
-    installFirebase(root, '12.19.0');
-    expect(liveStartRefusal(root)).toBeNull();
+  test('is null for a supported firebase (major 12 or major 13) with one @firebase/app', () => {
+    const v12 = project();
+    installFirebase(v12, '12.19.0');
+    expect(liveStartRefusal(v12)).toBeNull();
+
+    const v13 = project();
+    installFirebase(v13, '13.4.0');
+    expect(liveStartRefusal(v13)).toBeNull();
   });
 
   test('names the found version when firebase is outside the range', () => {
@@ -185,9 +193,9 @@ describe('the start refusal', () => {
     installFirebase(root, '11.10.0');
     const refusal = liveStartRefusal(root);
     expect(refusal).toContain('Live mode did not start.');
-    expect(refusal).toContain('needs firebase ^12.12.0');
+    expect(refusal).toContain('needs firebase ^12.12.0 || ^13.0.0');
     expect(refusal).toContain('This project has firebase 11.10.0 installed.');
-    expect(refusal).toContain('npm install firebase@^12.12.0');
+    expect(refusal).toContain('npm install "firebase@^12.12.0 || ^13.0.0"');
   });
 
   test('says firebase is not installed when the project has none', () => {

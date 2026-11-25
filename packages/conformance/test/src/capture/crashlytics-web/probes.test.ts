@@ -38,12 +38,12 @@ afterEach(async () => {
 
 describe('isolated firebase@13.4.0 (@firebase/crashlytics@0.2.0) offline SDK probe rig', () => {
   test(
-    'keeps root workspace pinned to firebase@12.19.0 while isolating firebase@13.4.0 in cache',
+    'keeps root workspace pinned to firebase@^13.4.0 alongside the isolated firebase@13.4.0 cache',
     () => {
       const rootPkg = JSON.parse(readFileSync(resolve(REPO_ROOT, 'package.json'), 'utf8')) as {
         devDependencies?: Record<string, string>;
       };
-      expect(rootPkg.devDependencies?.firebase).toBe('12.19.0');
+      expect(rootPkg.devDependencies?.firebase).toBe('^13.4.0');
 
       const fixture = ensureCrashlyticsWebFb13Fixture();
       expect(fixture.firebaseVersion).toBe(ISOLATED_CRASHLYTICS_FIREBASE_VERSION);

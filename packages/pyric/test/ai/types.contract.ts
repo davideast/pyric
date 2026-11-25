@@ -5,7 +5,6 @@ type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
 
 /** One admitted-name map: every entry must be mutually assignable. */
 type Parity = {
-  AILocation: Same<Mirror.AI['location'], Firebase.AI['location']>;
   Citation: Same<Mirror.Citation, Firebase.Citation>;
   CitationMetadata: Same<Mirror.CitationMetadata, Firebase.CitationMetadata>;
   CodeExecutionResult: Same<Mirror.CodeExecutionResult, Firebase.CodeExecutionResult>;
@@ -56,6 +55,7 @@ type Parity = {
   SchemaShared: Same<Mirror.SchemaShared<unknown>, Firebase.SchemaShared<unknown>>;
   SearchEntrypoint: Same<Mirror.SearchEntrypoint, Firebase.SearchEntrypoint>;
   Segment: Same<Mirror.Segment, Firebase.Segment>;
+  SpeechMetadata: Same<Mirror.SpeechMetadata, Firebase.SpeechMetadata>;
   TextPart: Same<Mirror.TextPart, Firebase.TextPart>;
   ThinkingConfig: Same<Mirror.ThinkingConfig, Firebase.ThinkingConfig>;
   Tool: Same<Mirror.Tool, Firebase.Tool>;

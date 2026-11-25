@@ -14,6 +14,7 @@ import {
   type TemplateFunctionDeclaration,
   type TemplateFunctionDeclarationsTool,
   type TemplateGenerativeModel,
+  type TemplateRequest,
   type TemplateTool,
   type TemplateToolConfig,
   type WebAttribution,
@@ -43,6 +44,7 @@ type Parity = {
     TemplateGenerativeModel,
     PublicShape<Firebase.TemplateGenerativeModel>
   >;
+  TemplateRequest: Same<TemplateRequest, Firebase.TemplateRequest>;
   TemplateTool: Same<TemplateTool, Firebase.TemplateTool>;
   TemplateToolConfig: Same<TemplateToolConfig, Firebase.TemplateToolConfig>;
   WebAttribution: Same<WebAttribution, Firebase.WebAttribution>;
@@ -56,6 +58,7 @@ const parityChecks: { [K in keyof Parity]: true } = {
   TemplateFunctionDeclaration: true,
   TemplateFunctionDeclarationsTool: true,
   TemplateGenerativeModel: true,
+  TemplateRequest: true,
   TemplateTool: true,
   TemplateToolConfig: true,
   WebAttribution: true,
