@@ -4,7 +4,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { manifest, versionNs } from '../../corpus.mjs';
 import { dbName } from '../control.mjs';
 import { createDocument, readDocument, sdk, SDK_VERSION } from './clients.mjs';
-import { now } from './archive.mjs';
+import { errorDetails, now } from './archive.mjs';
 
 export function floorRecipe(value) {
   assert.equal(value.collection, 'steps');
@@ -64,7 +64,33 @@ async function verdict(send) {
   }
 }
 
-const transport = { sdk, createDocument, readDocument };
+const transport = { sdk, createDocument, readDocument, wait: delay };
+const readbackAttempts = 6;
+const readbackIntervalMs = 5000;
+
+async function signedPostRead({ snapshot, verify, deploymentBefore, reader, journal, context, wait }) {
+  const attempts = [];
+  for (let number = 1; number <= readbackAttempts; number++) {
+    if (number > 1) await wait(readbackIntervalMs);
+    const proof = await verify();
+    for (const key of ['databaseUid', 'releaseName', 'rulesetName', 'rulesSha256', 'lockRunId', 'lockVersion', 'releaseUpdateTime', 'propagationReceiptSha256']) {
+      assert.equal(proof[key], deploymentBefore[key], 'release or lease changed during readback: ' + key);
+    }
+    assert.equal(reader.auth.currentUser.uid, reader.identity.uid);
+    const attemptedAt = now();
+    let observation, failure;
+    try { observation = await snapshot(); }
+    catch (error) { failure = error; observation = { decision: 'ERROR', ...errorDetails(error) }; }
+    const attempt = { number, attemptedAt, readAt: now(), proof, ...observation };
+    journal.event('candidate-signed-post-read', { ...context, ...attempt });
+    attempts.push(attempt);
+    if (observation.decision === 'ALLOW') return { stored: observation, attempts };
+    const retryable = ['permission-denied', 'unavailable', 'deadline-exceeded'].includes(observation.code);
+    if (!retryable || number === readbackAttempts) {
+      throw failure ?? Object.assign(new Error('scored document could not be read from the server'), { code: observation.code });
+    }
+  }
+}
 export async function runCase({ sample, writer, reader, journal, runId, tag, control = false, submitter = writer, verify }, io = transport) {
   const { sdk, createDocument, readDocument } = io;
   const { caseId, path, operation, data } = sample;
@@ -109,9 +135,21 @@ export async function runCase({ sample, writer, reader, journal, runId, tag, con
   const { decision, code } = await verdict(send);
   Object.assign(row, { decision, code });
   journal.event('candidate-verdict', { tag, runId, caseId, path, decision, code, at: now() });
-  row.stored = await snapshot();
+  if (control) {
+    row.stored = await snapshot();
+  } else {
+    const context = { tag, runId, caseId, path };
+    const document = await readDocument(path);
+    journal.event('candidate-rest-after-write', { ...context, document });
+    const { stored, attempts } = await signedPostRead({ snapshot, verify, deploymentBefore, reader, journal, context, wait: io.wait });
+    row.stored = stored;
+    row.readAttempts = attempts;
+    row.firstAfterDocument = document;
+  }
   row.readAt = now();
   row.afterDocument = await readDocument(path);
+  journal.event('candidate-readback-observed', { tag, runId, caseId, path, stored: row.stored, document: row.afterDocument });
+  if (!control) assert.deepEqual(row.afterDocument, row.firstAfterDocument, 'document changed during signed readback');
   assert.equal(row.afterDocument.name, seedDocument.name);
   assert.equal(row.afterDocument.createTime, seedDocument.createTime);
   const stored = decode({ mapValue: { fields: row.afterDocument.fields } });

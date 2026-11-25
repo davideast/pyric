@@ -31,3 +31,5 @@ node experiments/policy-oracle/arcade/live/controller/candidate.mjs floor "$arch
 ```
 
 Sokoban uses the frozen two score writes and two independent owners. Its propagation controls require the stock tic-tac-toe rules in the complete candidate bundle. Floor uses the supplied pinned `steps` fixture with the two timer proposals. Its controls send the known-valid update as the writer and as the reader on separate seeded documents. The scored observations use fresh documents and the named writer. Each invocation prints the receipt digest after cleanup.
+
+For a scored candidate write, the controller journals the first privileged post-write document, then reads it with the same signed reader. A temporary permission denial, unavailable response or deadline during this read allows up to six signed attempts, five seconds apart. Each attempt records its response and rechecks the database UID, active release and lease. An unreadable document leaves the capture incomplete. A successful read must match the privileged fields and version observed across the readback interval.
