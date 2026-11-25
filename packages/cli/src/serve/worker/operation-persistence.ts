@@ -120,6 +120,8 @@ export const operationPersistence = {
   'resetAll': true,
   'messaging.getToken': true,
   'messaging.deleteToken': true,
+  'messaging.register': true,
+  'messaging.unregister': true,
   'messaging.send': false,
   'messaging.subscribeToTopic': true,
   'messaging.unsubscribeFromTopic': true,

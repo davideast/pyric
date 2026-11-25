@@ -18,7 +18,7 @@ import { reserveSend, type SendReservation } from './send-order.js';
 type ClientVisibilityState = 'visible' | 'hidden';
 
 const DEFAULT_REGISTRATION_ID = 'swreg-port-default';
-function registrationScope(registration: object | undefined): string | undefined {
+export function registrationScope(registration: object | undefined): string | undefined {
   const hasScope = registration !== undefined && 'scope' in registration;
   if (!hasScope) return undefined;
   const scope = registration.scope;
@@ -35,6 +35,10 @@ export interface ClientMessaging {
   settledRegistrationId?: string;
   /** Ops issued before the registration id settled, in call order. */
   readonly waiting: WaitingOp[];
+  onRegisteredHandler?: NextFn<string> | Observer<string> | null;
+  onRegisteredUnsub?: Unsubscribe | null;
+  onUnregisteredHandler?: NextFn<string> | Observer<string> | null;
+  onUnregisteredUnsub?: Unsubscribe | null;
 }
 
 /**
@@ -95,7 +99,7 @@ function useRegistration(messaging: ClientMessaging, registrationId: string): vo
 }
 
 /** Sends a Messaging op at its call when the registration id is known, else in call order once it settles. */
-function messagingRpc(
+export function messagingRpc(
   messaging: ClientMessaging,
   issuer: Issuer,
   build: (registrationId: string) => OpMessage,
@@ -178,13 +182,14 @@ export async function messagingGetToken(
  * first, so it reserves its place at the call. Client ops still waiting for
  * the previous id ride in that place ahead of it.
  */
-async function getTokenForRegistration(
+export async function messagingRpcForScope(
   messaging: ClientMessaging,
   scope: string | undefined,
+  build: (registrationId: string) => OpMessage,
   existingReservation?: SendReservation,
-): Promise<string> {
+): Promise<unknown> {
   const reservation = existingReservation ?? reserveSend(messaging.port);
-  const noReply = (): void => { /* The token request's own reply reports a failure. */ };
+  const noReply = (): void => { /* The request's own reply reports a failure. */ };
   const isSettled = messaging.settledRegistrationId !== undefined;
   if (!isSettled) messaging.waiting.push({ reservation, send() {}, fail: noReply });
   try {
@@ -200,14 +205,22 @@ async function getTokenForRegistration(
     const visibilityReply = resendsVisibility
       ? rpc(messaging.port, visibilityMessage(messaging, registrationId, visibility), reservation)
       : undefined;
-    const tokenReply = rpc(messaging.port, tokenMessage(registrationId), reservation);
+    const opReply = rpc(messaging.port, build(registrationId), reservation);
     reservation.release();
     await visibilityReply;
-    const result = await tokenReply as { token: string };
-    return result.token;
+    return await opReply;
   } finally {
     reservation.release();
   }
+}
+
+async function getTokenForRegistration(
+  messaging: ClientMessaging,
+  scope: string | undefined,
+  existingReservation?: SendReservation,
+): Promise<string> {
+  const result = await messagingRpcForScope(messaging, scope, tokenMessage, existingReservation) as { token: string };
+  return result.token;
 }
 
 export async function messagingDeleteToken(messaging: ClientMessaging): Promise<boolean> {
@@ -216,6 +229,7 @@ export async function messagingDeleteToken(messaging: ClientMessaging): Promise<
     id: nextId(),
     method: 'messaging.deleteToken',
     registrationId,
+    recipientId: registrationId,
   })) as boolean;
 }
 
