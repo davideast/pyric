@@ -6,7 +6,7 @@ exports[`runtime classifications have a reviewable snapshot 1`] = `
     "AIError": "supported",
     "AIErrorCode": "supported",
     "AIModel": "supported",
-    "AgentPlatformBackend": "imports-only",
+    "AgentPlatformBackend": "supported",
     "AnyOfSchema": "supported",
     "ArraySchema": "supported",
     "Backend": "supported",
