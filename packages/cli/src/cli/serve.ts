@@ -113,7 +113,9 @@ import {
   type FunctionsDevelopmentEvent,
   type FunctionsDevelopmentRuntime,
 } from '../functions/development-runtime.js';
+import type { LocalSandbox } from 'pyric/sandbox';
 import { createFunctionsHttpGateway, type FunctionsHttpGateway } from '../functions/http/gateway.js';
+import { captureHostedSandbox } from '../functions/http/host-events.js';
 import {
   createPrivateInvokerWarnings,
   httpFunctionLines,
@@ -191,6 +193,8 @@ export interface ServeRuntime {
   /** The transport selection this host stamps into the HTML it serves; placed
    *  in every child's `PYRIC_WORKER_INIT` for pages it does not serve. */
   workerInit: WorkerInitPayload;
+  /** The Node-hosted sandbox when `hosted` is enabled; null otherwise or after stop. */
+  hostedSandbox?: LocalSandbox | null;
 }
 
 /** The `--json` stdout contract — one line, keep stable; agents parse this.
@@ -679,6 +683,10 @@ async function startServeRuntime(opts: {
   // The bridge attachment owns upgrades on every bound family plus discovery.
   // Its explicit close handle is also folded into stop() below, before the
   // sandbox session is released.
+  let hostedSandboxCapture: ReturnType<typeof captureHostedSandbox> | null = null;
+  if (usesHostedSandbox && !isLive) {
+    hostedSandboxCapture = captureHostedSandbox(session.hostedPersistence?.checkpoints);
+  }
   let bridgeAttachment;
   try {
     if (usesHostedSandbox) {
@@ -698,6 +706,7 @@ async function startServeRuntime(opts: {
       },
     });
   } catch (error) {
+    hostedSandboxCapture?.clear();
     removeOwnedSessionFile?.();
     await mount?.close();
     await session.close();
@@ -709,6 +718,7 @@ async function startServeRuntime(opts: {
   let closeResources: Promise<void> | null = null;
   const closeOwnedResources = (): Promise<void> => {
     closeResources ??= (async () => {
+      hostedSandboxCapture?.clear();
       removeOwnedSessionFile?.();
       await bridgeAttachment?.close();
       await mount?.close();
@@ -1029,6 +1039,9 @@ async function startServeRuntime(opts: {
   return {
     handle, publicDir, payload, uiUrl, mcpUrl, persist: persistSummary, beaconCount, beaconToken,
     sessionToken, instanceId: mount?.instanceId, workerInit,
+    get hostedSandbox() {
+      return hostedSandboxCapture?.get() ?? null;
+    },
   };
 }
 
@@ -1258,6 +1271,10 @@ async function runServeInner(parsed: ParsedArgs, runHost: ServeRunHost): Promise
     };
     if (functionsProjectId !== null) {
       const served = json ? process.stderr : process.stdout;
+      let gatewaySandbox: (() => LocalSandbox | null | undefined) | undefined;
+      if (usesHostedSandbox && runHost.liveHost === undefined) {
+        gatewaySandbox = () => runtime?.hostedSandbox;
+      }
       functionsGateway = createFunctionsHttpGateway({
         projectId: functionsProjectId,
         initial: { kind: 'starting' },
@@ -1267,6 +1284,7 @@ async function runServeInner(parsed: ParsedArgs, runHost: ServeRunHost): Promise
         ),
         staticFileExists: (pathname) => runtime !== undefined && runtime.publicDir !== null && resolveHostingFile(runtime.publicDir, pathname) !== null,
         trustProxy: gatewayTrustProxy,
+        sandbox: gatewaySandbox,
         onWarning: (warning) => writeStreamQuietly(process.stderr, `  \u26a0 ${warning}\n`),
         onServed: (record) => {
           const { failed, line } = servedLine(record);
