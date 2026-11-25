@@ -1,5 +1,5 @@
 /**
- * `pyric-admin/app` default-app registry — mirror conformance against
+ * `pyric-admin/app` default-app registry -- mirror conformance against
  * `firebase-admin/app`'s lifecycle (oracle:
  * `firebase-admin/lib/app/lifecycle.js`).
  *
@@ -39,7 +39,7 @@ import { getMessaging } from '../../src/messaging/index.js';
 import admin from '../../src/admin.js';
 
 // The registry is module-global (mirror of firebase-admin's
-// defaultAppStore) — start every test from an empty registry, and make
+// defaultAppStore) -- start every test from an empty registry, and make
 // sure no ambient-activation env leaks in from other suites.
 beforeEach(() => {
   delete process.env.PYRIC_SANDBOX;
@@ -61,7 +61,7 @@ function expectAppError(fn: () => unknown, code: string, message: RegExp): void 
   expect((err as Error).message).toMatch(message);
 }
 
-describe('app registry — register / get', () => {
+describe('app registry -- register / get', () => {
   it("unnamed initializeApp registers '[DEFAULT]'", () => {
     const app = initializeApp({ sandbox: initializeSandbox() });
     expect(app.name).toBe('[DEFAULT]');
@@ -76,20 +76,20 @@ describe('app registry — register / get', () => {
     expect(other.name).toBe('other');
     expect(getApp('other')).toBe(other);
     expect(getApps()).toEqual([def, other]);
-    // getApps returns a copy — mutating it must not touch the registry.
+    // getApps returns a copy -- mutating it must not touch the registry.
     getApps().pop();
     expect(getApps()).toHaveLength(2);
   });
 
-  it('the default export reads the registry: admin.app(name?) and a live admin.apps', () => {
-    expect(admin.apps).toEqual([]);
-    expectAppError(() => admin.app(), 'app/no-app', /^The default Firebase app does not exist\./);
-    if (!admin.apps.length) admin.initializeApp({ sandbox: initializeSandbox() });
+  it('the default export re-exports the firebase-admin/app registry helpers', () => {
+    expect(admin.getApps()).toEqual([]);
+    expectAppError(() => admin.getApp(), 'app/no-app', /^The default Firebase app does not exist\./);
+    if (admin.getApps().length === 0) admin.initializeApp({ sandbox: initializeSandbox() });
     const other = admin.initializeApp({ sandbox: initializeSandbox() }, 'other');
-    expect(admin.app()).toBe(getApp());
-    expect(admin.app('other')).toBe(other);
-    expect(admin.apps).toEqual(getApps());
-    expect(admin.apps).toHaveLength(2);
+    expect(admin.getApp()).toBe(getApp());
+    expect(admin.getApp('other')).toBe(other);
+    expect(admin.getApps()).toEqual(getApps());
+    expect(admin.getApps()).toHaveLength(2);
   });
 
   it('getApp throws app/no-app with the exact firebase-admin message (default)', () => {
@@ -124,7 +124,7 @@ describe('app registry — register / get', () => {
   });
 });
 
-describe('app registry — duplicate semantics (firebase-admin mirror)', () => {
+describe('app registry -- duplicate semantics (firebase-admin mirror)', () => {
   it('re-initializing a name with a DIFFERENT sandbox throws app/duplicate-app', () => {
     initializeApp({ sandbox: initializeSandbox() });
     expectAppError(
@@ -150,14 +150,14 @@ describe('app registry — duplicate semantics (firebase-admin mirror)', () => {
 
 });
 
-describe('app registry — deleteApp', () => {
+describe('app registry -- deleteApp', () => {
   it('removes the app so the name can be re-initialized', async () => {
     const sandbox = initializeSandbox();
     const app = initializeApp({ sandbox });
     await deleteApp(app);
     expect(getApps()).toHaveLength(0);
     expectAppError(() => getApp(), 'app/no-app', /does not exist/);
-    // Name is free again — a different sandbox no longer collides.
+    // Name is free again -- a different sandbox no longer collides.
     const again = initializeApp({ sandbox: initializeSandbox() });
     expect(again).not.toBe(app);
   });
@@ -204,23 +204,23 @@ describe('app registry — deleteApp', () => {
   });
 });
 
-describe('no-arg getDatabase() / getAuth() — default-app resolution', () => {
+describe('no-arg getDatabase() / getAuth() -- default-app resolution', () => {
   it('throws app/no-app when no default app exists', () => {
     expectAppError(() => getDatabase(), 'app/no-app', /The default Firebase app does not exist/);
     expectAppError(() => getAuth(), 'app/no-app', /The default Firebase app does not exist/);
   });
 
-  it('local sandbox arm: no-arg handles hit the default app’s in-memory backends', async () => {
+  it("local sandbox arm: no-arg handles hit the default app's in-memory backends", async () => {
     const app = initializeApp({ sandbox: initializeSandbox() });
     expect(isSandboxAdminApp(app)).toBe(true);
 
-    const db = getDatabase(); // no-arg — resolves '[DEFAULT]'
+    const db = getDatabase(); // no-arg -- resolves '[DEFAULT]'
     await db.ref('ambient/local').set({ ok: true });
     expect((await db.ref('ambient/local').get()).val()).toEqual({ ok: true });
     // Same backend as the explicit-app handle (singleton per sandbox).
     expect((await getDatabase(app).ref('ambient/local').get()).val()).toEqual({ ok: true });
 
-    const auth = getAuth(); // no-arg — resolves '[DEFAULT]'
+    const auth = getAuth(); // no-arg -- resolves '[DEFAULT]'
     await auth.createUser({ uid: 'ambient-user', email: 'ambient@example.com' });
     expect((await getAuth(app).getUser('ambient-user')).email).toBe('ambient@example.com');
   });

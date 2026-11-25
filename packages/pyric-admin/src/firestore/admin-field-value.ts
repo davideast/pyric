@@ -3,6 +3,7 @@
  * parity over `pyric/sandbox/admin-compat` sentinels).
  */
 
+import { defineDeferredMembers } from 'pyric/app/internal';
 import {
   FieldValue as CompatFieldValue,
   type FieldValueSentinel,
@@ -10,6 +11,9 @@ import {
 import { createAdminVector, type AdminVectorValue } from './admin-vector-and-errors.js';
 
 export class FieldValue {
+  declare static maximum: (...args: unknown[]) => never;
+  declare static minimum: (...args: unknown[]) => never;
+
   static serverTimestamp(): FieldValueSentinel {
     return CompatFieldValue.serverTimestamp();
   }
@@ -43,3 +47,7 @@ export class FieldValue {
     return createAdminVector(values);
   }
 }
+
+defineDeferredMembers(FieldValue, 'pyric-admin/firestore', 'FieldValue', {
+  sync: ['maximum', 'minimum'],
+});

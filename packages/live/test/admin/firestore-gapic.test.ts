@@ -264,6 +264,9 @@ describe('firestore-gapic', () => {
       runQuery(_req: { parent: string }): Readable {
         return Readable.from([{ document: 'd1' }], { objectMode: true });
       }
+      executePipeline(_req: { database: string }): Readable {
+        return Readable.from([{ results: [] }], { objectMode: true });
+      }
       async *listDocumentsAsync(_req: { parent: string }): AsyncGenerator<string> {
         yield 'items/1';
       }
@@ -309,6 +312,7 @@ describe('firestore-gapic', () => {
     expect(isAdminMethodGated(FakeFirestoreClient.prototype.close)).toBe(false);
     expect(isAdminMethodGated(FakeFirestoreClient.prototype.getDocument)).toBe(true);
     expect(isAdminMethodGated(FakeFirestoreClient.prototype.runQuery)).toBe(true);
+    expect(isAdminMethodGated(FakeFirestoreClient.prototype.executePipeline)).toBe(true);
     expect(isAdminMethodGated(FakeFirestoreClient.prototype.listDocumentsAsync)).toBe(true);
     expect(isAdminMethodGated(FakeFirestoreClient.prototype.write)).toBe(true);
     expect(isAdminMethodGated(FakeFirestoreAdminClient.prototype.exportDocuments)).toBe(true);
@@ -342,6 +346,13 @@ describe('firestore-gapic', () => {
       .getDocument(new CustomGapicRequest({ name: 'projects/org-beta/databases/(default)/documents/items/1' }) as { name: string })
       .catch((err: unknown) => (err as { code?: string }).code);
     expect(refusedNonPlain).toBe('PYRIC_LIVE_REFUSED');
+
+    const pipelineStream = otherClient.executePipeline({ database: 'projects/org-beta/databases/(default)' });
+    const pipelineStreamErr = await new Promise<unknown>((resolve) => {
+      pipelineStream.once('error', resolve);
+      pipelineStream.resume();
+    });
+    expect((pipelineStreamErr as { code?: string })?.code).toBe('PYRIC_LIVE_REFUSED');
 
     const duplex = hostClient.write();
     const duplexErr = await new Promise<unknown>((resolve) => {

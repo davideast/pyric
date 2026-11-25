@@ -72,4 +72,8 @@ export function getDataConnect(connectorConfig: ConnectorConfig, app?: PyricAdmi
   return created;
 }
 
-export const { validateAdminArgs } = deferredAdminEntry('data-connect');
+export const {
+  DataConnectErrorCode,
+  FirebaseDataConnectError,
+  validateAdminArgs,
+} = deferredAdminEntry('data-connect');

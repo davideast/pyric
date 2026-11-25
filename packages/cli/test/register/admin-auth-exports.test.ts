@@ -1,7 +1,7 @@
 /**
  * Verifies that `firebase-admin/auth` and `firebase-admin` under
  * `node --import @pyric/cli/register` expose `FirebaseAuthError`,
- * `AuthClientErrorCode`, `Auth`, `BaseAuth`, `UserRecord`, `UserMetadata`, and
+ * `AuthErrorCode`, `Auth`, `BaseAuth`, `UserRecord`, `UserMetadata`, and
  * `UserInfo` across both ESM `import` and CommonJS `require` (`auth-admin#14`).
  */
 import { describe, expect, it } from 'bun:test';
@@ -16,10 +16,10 @@ const registerUrl = pathToFileURL(join(cliRoot, 'dist/register/index.js')).href;
 const CHILD_SCRIPT = `
 import { createRequire } from 'node:module';
 import { initializeSandbox } from 'pyric/sandbox';
-import { deleteApp, initializeApp } from 'firebase-admin/app';
+import { FirebaseError, deleteApp, initializeApp } from 'firebase-admin/app';
 import {
   Auth,
-  AuthClientErrorCode,
+  AuthErrorCode,
   BaseAuth,
   FirebaseAuthError,
   UserInfo,
@@ -66,16 +66,19 @@ try {
     remoteInvalidUidErr = err;
   }
 
-  const constructed = new FirebaseAuthError(
-    AuthClientErrorCode.USER_NOT_FOUND,
-    'Explicit override.',
-  );
+  const constructed = new FirebaseAuthError({
+    code: AuthErrorCode.USER_NOT_FOUND,
+    message: 'Explicit override.',
+  });
 
   process.stdout.write(
     JSON.stringify({
-      cjsAuthClassIdentical: cjsAdmin.auth.Auth === Auth && cjsAuthMod.Auth === Auth,
+      cjsAuthClassIdentical:
+        cjsAuthMod.Auth === Auth &&
+        cjsAuthMod.BaseAuth === BaseAuth &&
+        cjsAdmin.FirebaseError === FirebaseError,
       cjsErrorIdentical: cjsAuthMod.FirebaseAuthError === FirebaseAuthError,
-      cjsCodesIdentical: cjsAuthMod.AuthClientErrorCode === AuthClientErrorCode,
+      cjsCodesIdentical: cjsAuthMod.AuthErrorCode === AuthErrorCode,
       localAuthIsAuth: localAuth instanceof Auth,
       localAuthIsBaseAuth: localAuth instanceof BaseAuth,
       ambientRemoteIsAuth: ambientRemoteAuth instanceof Auth,
@@ -101,7 +104,7 @@ try {
 `;
 
 describe('register swap: firebase-admin/auth runtime error and class exports', () => {
-  it('exposes FirebaseAuthError, AuthClientErrorCode, and modeled nominal classes across ESM and CJS', () => {
+  it('exposes FirebaseAuthError, AuthErrorCode, and modeled nominal classes across ESM and CJS', () => {
     const childEnv: NodeJS.ProcessEnv = {
       ...process.env,
       PYRIC_SANDBOX: '1',

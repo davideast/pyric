@@ -22,28 +22,58 @@ async function withStubbedIidTransport(
   run: (svc: ReturnType<typeof getMessaging>) => Promise<void>,
 ): Promise<void> {
   const tempApp: App = initializeApp(
-    { projectId: 'demo-project' },
+    {
+      projectId: 'demo-project',
+      credential: {
+        getAccessToken: async () => ({ access_token: 'stub-token', expires_in: 3600 }),
+      },
+    },
     `topic-probe-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
   try {
     const svc = getMessaging(tempApp);
+    svc.enableLegacyHttpTransport();
     const internal = svc as unknown as {
       messagingRequestHandler: {
-        invokeRequestHandler: (
-          host: string,
-          path: string,
-          requestData: { to: string; registration_tokens: string[] },
-        ) => Promise<{ results: Array<{ error?: string }> }>;
+        httpClient: {
+          send: (req: { url: string }) => Promise<{
+            status: number;
+            headers: Record<string, string>;
+            text: string;
+            data: unknown;
+            isJson: () => boolean;
+          }>;
+        };
       };
     };
-    internal.messagingRequestHandler.invokeRequestHandler = async (_host, _path, req) => ({
-      results: req.registration_tokens.map((tok) => {
-        if (!tok.includes(':')) {
-          return { error: 'INVALID_ARGUMENT' };
-        }
-        return { error: 'NOT_FOUND' };
-      }),
-    });
+    internal.messagingRequestHandler.httpClient.send = async (req) => {
+      const match = /\/v1\/projects\/[^/]+\/registrations\/([^/]+)\/topicSubscriptions/.exec(
+        req.url,
+      );
+      const tok = decodeURIComponent(match?.[1] ?? '');
+      if (!tok.includes(':')) {
+        const badBody = {
+          error: { status: 'INVALID_ARGUMENT', message: 'Invalid registration token.' },
+        };
+        return {
+          status: 400,
+          headers: { 'content-type': 'application/json' },
+          text: JSON.stringify(badBody),
+          data: badBody,
+          isJson: () => true,
+        };
+      }
+      const notFoundBody = {
+        error: { status: 'NOT_FOUND', message: 'Requested entity was not found.' },
+      };
+      return {
+        status: 404,
+        headers: { 'content-type': 'application/json' },
+        text: JSON.stringify(notFoundBody),
+        data: notFoundBody,
+        isJson: () => true,
+      };
+    };
     await run(svc);
   } finally {
     await deleteApp(tempApp);

@@ -15,11 +15,31 @@ import { parsePyricSandbox, processActivation } from 'pyric/sandbox/internal';
 import { readFileSync } from 'node:fs';
 
 import {
+  AppErrorCode,
+  FirebaseAppError,
+  FirebaseError,
+  type AppErrorCodeValue,
+  type ErrorInfo,
+  type HttpResponse,
+} from './firebase-error.js';
+import {
   IMPLICIT_DEFAULT_APPS,
   assertAdminAppActive,
   markAdminAppDeleted,
 } from './lifecycle.js';
 import { keepAppCredentialProjectId, keepCredentialProjectId } from './project-id.js';
+
+export {
+  AppErrorCode,
+  FirebaseAppError,
+  FirebaseError,
+  type AppErrorCodeValue,
+  type ErrorInfo,
+  type HttpResponse,
+};
+
+/** The firebase-admin version whose behavior pyric-admin currently mirrors. */
+export const SDK_VERSION = '14.5.1';
 
 /** Brand carried by every sandbox admin app. */
 export const ADMIN_APP_TARGET = Symbol.for('pyric.admin.app.target');
@@ -87,17 +107,6 @@ export function cert(serviceAccountPathOrObject: unknown): object {
  */
 export function refreshToken(_refreshTokenPathOrObject: unknown): object {
   return { [CREDENTIAL_BRAND]: 'refreshToken' };
-}
-
-/** Local error with the observable firebase-admin app-error shape. */
-class FirebaseAppError extends Error {
-  readonly code: string;
-
-  constructor(code: string, message: string) {
-    super(message);
-    this.name = 'FirebaseAppError';
-    this.code = `app/${code}`;
-  }
 }
 
 // Node may evaluate this ESM-only mirror through distinct require(esm) and

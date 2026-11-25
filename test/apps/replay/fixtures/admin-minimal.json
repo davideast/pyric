@@ -284,7 +284,11 @@
           "parent": "projects/pyric-replay-admin/databases/(default)/documents",
           "structuredQuery": {
             "from": [{ "collectionId": "notes" }],
-            "where": { "fieldFilter": { "field": { "fieldPath": "n" }, "op": "GREATER_THAN_OR_EQUAL", "value": { "integerValue": "5" } } }
+            "where": { "fieldFilter": { "field": { "fieldPath": "n" }, "op": "GREATER_THAN_OR_EQUAL", "value": { "integerValue": "5" } } },
+            "orderBy": [
+              { "field": { "fieldPath": "n" }, "direction": "ASCENDING" },
+              { "field": { "fieldPath": "__name__" }, "direction": "ASCENDING" }
+            ]
           }
         }
       },

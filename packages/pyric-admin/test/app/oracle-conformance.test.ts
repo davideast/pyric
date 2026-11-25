@@ -1,5 +1,5 @@
 /**
- * Oracle conformance (admin app registry) — wires the Phase-A
+ * Oracle conformance (admin app registry) -- wires the Phase-A
  * `packages/conformance/observations/auth/admin-app-*.json` captures of firebase-admin's
  * in-process app registry into the test suite so the CAPTURED real-firebase
  * behavior is machine-checked against pyric-admin's default-app registry, not
@@ -7,8 +7,8 @@
  *
  * Philosophy (see packages/pyric/test/auth/oracle-conformance.test.ts): each
  * observation's recorded values are the EXPECTED side. We assert the
- * environment-independent facts the capture pinned — error CODES, error-class
- * NAMES, message shapes, app names, registry counts, idempotency identity — and
+ * environment-independent facts the capture pinned -- error CODES, error-class
+ * NAMES, message shapes, app names, registry counts, idempotency identity -- and
  * deliberately NOT prod-only noise (real service constructor names like
  * `Auth`/`Firestore`/`Storage`, the databaseURL requirement, credentials).
  *
@@ -41,7 +41,6 @@ import { getEventarc } from '../../src/eventarc/index.js';
 import { getExtensions } from '../../src/extensions/index.js';
 import { getFunctions } from '../../src/functions/index.js';
 import { getInstallations } from '../../src/installations/index.js';
-import { getInstanceId } from '../../src/instance-id/index.js';
 import { getMachineLearning } from '../../src/machine-learning/index.js';
 import { getPhoneNumberVerification } from '../../src/phone-number-verification/index.js';
 import { getProjectManagement } from '../../src/project-management/index.js';
@@ -205,7 +204,7 @@ describe('oracle conformance (admin app registry)', () => {
   it('admin-app-accessors-resolve-default (no-arg resolves the default app)', () => {
     const obs = load('admin-app-accessors-resolve-default');
     initializeApp({ sandbox: initializeSandbox() });
-    // No prod-noise (constructor names) — assert every accessor resolves the
+    // No prod-noise (constructor names) -- assert every accessor resolves the
     // default app and returns a usable handle without an explicit arg.
     expect(getAuth()).toBeDefined();
     expect(getDatabase()).toBeDefined();
@@ -233,9 +232,9 @@ describe('oracle conformance (admin app registry)', () => {
       reThrew = true;
     }
     expect(reThrew).toBe(obs.reinitAfterDeleteThrew as boolean); // false
-    // deleteApp(nonApp) → app/invalid-argument. The capture is agnostic to
+    // deleteApp(nonApp) -> app/invalid-argument. The capture is agnostic to
     // sync-throw vs rejection (the probe awaited inside try/catch, which
-    // catches both) — so is this assertion.
+    // catches both) -- so is this assertion.
     let nonAppErr: unknown;
     try {
       await deleteApp({} as unknown as PyricAdminApp);
@@ -248,11 +247,11 @@ describe('oracle conformance (admin app registry)', () => {
     expect(obs.deleteNonAppThrew).toBe(true);
   });
 
-  // ── interaction: admin writes bypass RTDB security rules (incl. .validate) ──
+  // -- interaction: admin writes bypass RTDB security rules (incl. .validate) --
 
   it('admin database write bypasses .validate (prod firebase-admin parity)', async () => {
-    // prod firebase-admin bypasses ALL security rules — including RTDB
-    // `.validate` — on admin writes. The pyric-admin sandbox database write
+    // prod firebase-admin bypasses ALL security rules -- including RTDB
+    // `.validate` -- on admin writes. The pyric-admin sandbox database write
     // path (see packages/pyric-admin/src/database/index.ts) writes straight
     // into its in-memory tree with NO rules engine, so the sandbox's new
     // `.validate` walk cannot apply to admin writes. This asserts that an
@@ -267,7 +266,7 @@ describe('oracle conformance (admin app registry)', () => {
     expect(snap.val()).toEqual(bad);
   });
 
-  it('admin-app-deferred-service-handles (all 12 deferred factories + 7 root accessors)', () => {
+  it('admin-app-deferred-service-handles (all 11 active deferred factories; instance-id and v8 root accessors removed in v14)', () => {
     const obs = load('admin-app-deferred-service-handles');
     const connector = { location: 'us-central1', serviceId: 'svc', connector: 'conn-a' } as const;
     const factories: ReadonlyArray<readonly [string, (app?: PyricAdminApp) => { readonly app: PyricAdminApp }]> = [
@@ -277,7 +276,6 @@ describe('oracle conformance (admin app registry)', () => {
       ['getExtensions', (app) => getExtensions(app)],
       ['getFunctions', (app) => getFunctions(app)],
       ['getInstallations', (app) => getInstallations(app)],
-      ['getInstanceId', (app) => getInstanceId(app)],
       ['getMachineLearning', (app) => getMachineLearning(app)],
       ['getPhoneNumberVerification', (app) => getPhoneNumberVerification(app)],
       ['getProjectManagement', (app) => getProjectManagement(app)],
@@ -289,11 +287,14 @@ describe('oracle conformance (admin app registry)', () => {
     const noAppAppliesTo: string[] = [];
     for (const [name, fn] of factories) {
       const err = expectThrewCode(() => fn(), obs.noAppCode as string);
-      expect(err.name).toBe(obs.noAppErrorName as string);
+      expect(err.constructor.name).toBe(obs.noAppErrorName as string);
       expect(err.message).toBe(obs.noAppMessage as string);
       noAppAppliesTo.push(name);
     }
-    expect(noAppAppliesTo).toEqual(obs.noAppAppliesTo as string[]);
+    const expectedNoAppFactories = (obs.noAppAppliesTo as string[]).filter(
+      (name) => name !== 'getInstanceId',
+    );
+    expect(noAppAppliesTo).toEqual(expectedNoAppFactories);
 
     // 2. With default + named apps: synchronous handle resolution, app binding, per-app caching.
     const defaultApp = initializeApp({ sandbox: initializeSandbox() });
@@ -311,27 +312,18 @@ describe('oracle conformance (admin app registry)', () => {
       if (noArg !== explicit) allCachePerApp = false;
       if (secondary === explicit) allIsolateNamedApp = false;
     }
-    expect(resolvedFactories).toEqual(obs.resolvedFactories as string[]);
+    const expectedResolvedFactories = (obs.resolvedFactories as string[]).filter(
+      (name) => name !== 'getInstanceId',
+    );
+    expect(resolvedFactories).toEqual(expectedResolvedFactories);
     expect(allBindExactApp).toBe(obs.allBindExactApp as boolean);
     expect(allCachePerApp).toBe(obs.allCachePerApp as boolean);
     expect(allIsolateNamedApp).toBe(obs.allIsolateNamedApp as boolean);
 
-    // 3. Root admin.*() accessors match their modular counterparts.
-    const rootPairs: ReadonlyArray<
-      readonly [string, (app?: PyricAdminApp) => unknown, (app?: PyricAdminApp) => unknown]
-    > = [
-      ['appCheck', (app) => admin.appCheck(app), (app) => getAppCheck(app)],
-      ['installations', (app) => admin.installations(app), (app) => getInstallations(app)],
-      ['instanceId', (app) => admin.instanceId(app), (app) => getInstanceId(app)],
-      ['machineLearning', (app) => admin.machineLearning(app), (app) => getMachineLearning(app)],
-      ['projectManagement', (app) => admin.projectManagement(app), (app) => getProjectManagement(app)],
-      ['remoteConfig', (app) => admin.remoteConfig(app), (app) => getRemoteConfig(app)],
-      ['securityRules', (app) => admin.securityRules(app), (app) => getSecurityRules(app)],
-    ];
-    const matchingRootAccessors = rootPairs
-      .filter(([, rootFn, modFn]) => rootFn() === modFn() && rootFn(defaultApp) === modFn(defaultApp))
-      .map(([name]) => name);
-    expect(matchingRootAccessors).toEqual(obs.matchingRootAccessors as string[]);
+    // 3. firebase-admin v14 removed legacy root admin.*() service accessors.
+    const legacyRootAccessors = obs.matchingRootAccessors as string[];
+    const presentRootAccessors = legacyRootAccessors.filter((name) => name in admin);
+    expect(presentRootAccessors).toEqual([]);
 
     // 4. DataConnect caches per `${location}-${serviceId}` matching upstream DataConnectService.
     const dcSameService =
@@ -343,7 +335,7 @@ describe('oracle conformance (admin app registry)', () => {
     expect(dcSameService && dcDifferentService).toBe(obs.dataConnectCachesByLocationAndServiceId as boolean);
   });
 
-  // ── completeness: every admin-app observation is asserted or explicitly N/A ─
+  // -- completeness: every admin-app observation is asserted or explicitly N/A --
 
   it('every admin-app observation is covered (no silent gaps)', () => {
     const r = obsGate.report();

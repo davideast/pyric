@@ -34,4 +34,5 @@ export const getExtensions: (app?: PyricAdminApp) => Extensions = wireDeferredSe
   },
 );
 
-export const { Runtime } = deferredAdminEntry('extensions');
+export const { ExtensionsErrorCode, FirebaseExtensionsError, Runtime } =
+  deferredAdminEntry('extensions');

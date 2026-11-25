@@ -158,8 +158,12 @@ describe('RTDB admin database, priorities, and URL binding oracle captures (in-p
       { code: 'invalid-argument', message: 'Default info message.' },
       'Explicit override message.',
     );
-    expect(Object.keys(sampleErr)).toEqual(['errorInfo']);
-    expect(sampleErr.errorInfo).toEqual({
+    expect(Object.keys(sampleErr).sort()).toEqual(['code', 'codePrefix']);
+    expect(sampleErr.code).toBe('database/invalid-argument');
+    expect(sampleErr.codePrefix).toBe('database');
+    expect(sampleErr.hasCode('invalid-argument')).toBe(true);
+    expect(sampleErr.hasCode('database/invalid-argument')).toBe(true);
+    expect(sampleErr.toJSON()).toEqual({
       code: 'database/invalid-argument',
       message: 'Explicit override message.',
     });

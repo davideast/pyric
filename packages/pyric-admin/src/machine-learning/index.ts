@@ -48,4 +48,5 @@ export const getMachineLearning: (app?: PyricAdminApp) => MachineLearning = wire
   },
 );
 
-export const { Model } = deferredAdminEntry('machine-learning');
+export const { FirebaseMachineLearningError, MachineLearningErrorCode, Model } =
+  deferredAdminEntry('machine-learning');

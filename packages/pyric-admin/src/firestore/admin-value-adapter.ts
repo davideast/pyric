@@ -362,11 +362,20 @@ function wrapCollectionRef(
   return proxy;
 }
 
+const firestoreDeferredStubs: Record<string, unknown> = {};
+defineDeferredMembers(
+  firestoreDeferredStubs,
+  'pyric-admin/firestore',
+  'Firestore',
+  { sync: ['pipeline'] },
+);
+
 const SYNTHETIC_ROOT_FIRESTORE_PROPS = new Set<PropertyKey>([
   'bulkWriter',
   'bundle',
   'getAll',
   'listCollections',
+  'pipeline',
   'recursiveDelete',
   'settings',
   'terminate',
@@ -444,6 +453,8 @@ export function wrapAdminFirestoreHandle(
             );
         case 'bulkWriter':
           return (options?: BulkWriterOptions) => createAdminBulkWriter(proxy, options);
+        case 'pipeline':
+          return firestoreDeferredStubs.pipeline;
         case 'bundle':
           return (bundleId?: string) => {
             let projectId = 'pyric-sandbox';

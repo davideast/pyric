@@ -56,4 +56,9 @@ export const getSecurityRules: (app?: PyricAdminApp) => SecurityRules = wireDefe
   },
 );
 
-export const { Ruleset, RulesetMetadataList } = deferredAdminEntry('security-rules');
+export const {
+  FirebaseSecurityRulesError,
+  Ruleset,
+  RulesetMetadataList,
+  SecurityRulesErrorCode,
+} = deferredAdminEntry('security-rules');

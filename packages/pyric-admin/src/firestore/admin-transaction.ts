@@ -18,6 +18,7 @@ import {
   type SetOptions,
   type Transaction,
 } from 'pyric/sandbox/admin-compat';
+import { defineDeferredMembers } from 'pyric/app/internal';
 import { isRemoteSandbox, SandboxError, type Sandbox } from 'pyric/sandbox';
 import { RetryableTransactionConflictError } from 'pyric/sandbox/internal';
 import type { SandboxFirestore } from 'pyric/sandbox/admin-firestore';
@@ -331,6 +332,8 @@ function wrapTransaction(
               mutations.push({ path: unwrappedRef.path, kind: 'delete' });
               return proxy;
             });
+        case 'execute':
+          return transactionDeferredStubs.execute;
         default: {
           const value = Reflect.get(t, prop, t);
           if (typeof value === 'function') {
@@ -345,9 +348,9 @@ function wrapTransaction(
       if (own !== undefined) {
         return own;
       }
-      if (prop === 'getAll') {
+      if (prop === 'getAll' || prop === 'execute') {
         return {
-          value: Reflect.get(proxy, 'getAll', proxy),
+          value: Reflect.get(proxy, prop, proxy),
           writable: true,
           enumerable: false,
           configurable: true,
@@ -480,6 +483,11 @@ function isThenable(value: unknown): value is PromiseLike<unknown> {
   }
   return typeof (value as { then?: unknown }).then === 'function';
 }
+
+const transactionDeferredStubs: Record<string, unknown> = {};
+defineDeferredMembers(transactionDeferredStubs, 'pyric-admin/firestore', 'Transaction', {
+  async: ['execute'],
+});
 
 export function executeAdminRunTransaction<R>(
   rawDb: SandboxFirestore,

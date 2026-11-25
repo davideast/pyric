@@ -373,13 +373,14 @@ export function validateAndNormalizeWhereArgs(
   }
   const op = normalizedOp as WhereFilterOp;
 
-  if (typeof rawValue === 'number' && Number.isNaN(rawValue) && op !== '==' && op !== '!=') {
+  const allowsNullOrNaN = op === '==' || op === '!=' || op === 'array-contains';
+  if (typeof rawValue === 'number' && Number.isNaN(rawValue) && !allowsNullOrNaN) {
     throw new SandboxError(
       'invalid-argument',
       "Invalid query. You can only perform '==' and '!=' comparisons on NaN.",
     );
   }
-  if (rawValue === null && op !== '==' && op !== '!=') {
+  if (rawValue === null && !allowsNullOrNaN) {
     throw new SandboxError(
       'invalid-argument',
       "Invalid query. You can only perform '==' and '!=' comparisons on Null.",

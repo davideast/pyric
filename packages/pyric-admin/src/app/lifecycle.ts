@@ -1,3 +1,5 @@
+import { FirebaseAppError } from './firebase-error.js';
+
 const deletedApps = new WeakSet<object>();
 const deleteHooks = new WeakMap<object, Set<() => void | Promise<void>>>();
 
@@ -7,12 +9,10 @@ export const IMPLICIT_DEFAULT_APPS = Symbol.for('pyric.admin.app.implicitDefault
 /** Internal lifecycle guard shared by every pyric-admin service factory. */
 export function assertAdminAppActive(app: object & { readonly name: string }): void {
   if (!deletedApps.has(app)) return;
-  const error = new Error(
+  throw new FirebaseAppError(
+    'app-deleted',
     `Firebase app named "${app.name}" has already been deleted.`,
-  ) as Error & { code: string };
-  error.name = 'FirebaseAppError';
-  error.code = 'app/app-deleted';
-  throw error;
+  );
 }
 
 /** Register a teardown hook invoked once when `deleteApp(app)` tombstones `app`. */

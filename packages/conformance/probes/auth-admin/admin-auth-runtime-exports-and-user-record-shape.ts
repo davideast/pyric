@@ -11,22 +11,21 @@ export interface FirebaseAuthErrorConstructorLike {
   new (info: AuthErrorInfoLike, message?: string): Error & {
     readonly code: string;
     readonly codePrefix: string;
-    readonly errorInfo: AuthErrorInfoLike;
     hasCode(code: string): boolean;
-    toJSON(): AuthErrorInfoLike;
+    toJSON(): Record<string, unknown>;
   };
 }
 
 export interface AdminAuthRuntimeExportsSubject {
   readonly authModuleExports: Record<string, unknown>;
-  readonly rootAdminAuthNamespace: { readonly Auth?: unknown };
+  readonly rootAdminAuthNamespace?: { readonly Auth?: unknown };
   readonly Auth: abstract new (...args: never[]) => object;
   readonly BaseAuth: abstract new (...args: never[]) => object;
   readonly UserRecord: abstract new (...args: never[]) => object;
   readonly UserMetadata: abstract new (...args: never[]) => object;
   readonly UserInfo: abstract new (...args: never[]) => object;
   readonly FirebaseAuthError: FirebaseAuthErrorConstructorLike;
-  readonly AuthClientErrorCode: Record<string, unknown>;
+  readonly AuthErrorCode: Record<string, string>;
   readonly authHandle: {
     createCustomToken(uid: string, developerClaims?: object): Promise<string>;
     verifyIdToken(idToken: string, checkRevoked?: boolean): Promise<unknown>;
@@ -143,13 +142,19 @@ export async function observeAdminAuthRuntimeExportsAndUserRecordShape(
   const exportKeys = Object.keys(subject.authModuleExports)
     .filter((key) => key !== '__esModule' && key !== 'default')
     .sort();
-  const errorCodeKeys = Object.getOwnPropertyNames(subject.AuthClientErrorCode)
+  const errorCodeKeys = Object.getOwnPropertyNames(subject.AuthErrorCode)
     .filter((key) => !BUILTIN_STATIC_KEYS.has(key))
     .sort();
 
   const ErrCtor = subject.FirebaseAuthError;
-  const userNotFoundInfo = subject.AuthClientErrorCode.USER_NOT_FOUND as AuthErrorInfoLike;
-  const invalidArgInfo = subject.AuthClientErrorCode.INVALID_ARGUMENT as AuthErrorInfoLike;
+  const userNotFoundInfo: AuthErrorInfoLike = {
+    code: subject.AuthErrorCode.USER_NOT_FOUND ?? '',
+    message: 'There is no user record corresponding to the provided identifier.',
+  };
+  const invalidArgInfo: AuthErrorInfoLike = {
+    code: subject.AuthErrorCode.INVALID_ARGUMENT ?? '',
+    message: 'Invalid argument provided.',
+  };
   const defaultErr = new ErrCtor(userNotFoundInfo);
   const overrideErr = new ErrCtor(invalidArgInfo, 'Explicit message override.');
 
@@ -210,7 +215,7 @@ export async function observeAdminAuthRuntimeExportsAndUserRecordShape(
   return {
     moduleExports: {
       exportKeys,
-      rootAdminAuthHasAuthClass: subject.rootAdminAuthNamespace.Auth === subject.Auth,
+      rootAdminAuthHasAuthClass: subject.rootAdminAuthNamespace?.Auth === subject.Auth,
       authExtendsBaseAuth: Object.getPrototypeOf(subject.Auth) === subject.BaseAuth,
       authClientErrorCodeCount: errorCodeKeys.length,
     },
@@ -270,7 +275,7 @@ export const probe: Probe = {
         import('firebase-admin/auth'),
       ]);
       const rootDefault = (rootAdminMod.default ?? rootAdminMod) as {
-        readonly auth: { readonly Auth?: unknown };
+        readonly auth?: { readonly Auth?: unknown };
       };
       return observeAdminAuthRuntimeExportsAndUserRecordShape(
         {
@@ -283,7 +288,7 @@ export const probe: Probe = {
           UserInfo: authMod.UserInfo as unknown as abstract new (...args: never[]) => object,
           FirebaseAuthError:
             authMod.FirebaseAuthError as unknown as FirebaseAuthErrorConstructorLike,
-          AuthClientErrorCode: authMod.AuthClientErrorCode as unknown as Record<string, unknown>,
+          AuthErrorCode: authMod.AuthErrorCode as unknown as Record<string, string>,
           authHandle: Object.setPrototypeOf(
             {
               createCustomToken: (uid: string, claims?: object) =>

@@ -35,14 +35,23 @@ function fakeObservation(
 describe('checkObservationVersionProblems', () => {
   test('strict mode (default) flags pending-recapture observations as mismatches', () => {
     const installedFb = resolvedFirebaseVersion();
+    const installedAdmin = resolvedAdminVersion();
     expect(installedFb).toBe('13.4.0');
+    expect(installedAdmin).toBe('14.5.1');
     expect(PENDING_RECAPTURE_TRANSITIONS.fbSdkVersion).toEqual({
       from: '12.19.0',
       to: '13.4.0',
     });
+    expect(PENDING_RECAPTURE_TRANSITIONS.adminSdkVersion).toEqual({
+      from: '13.10.0',
+      to: '14.5.1',
+    });
 
-    const obs = fakeObservation('ai-sample', 'ai', { fbSdkVersion: '12.19.0' });
-    expect(checkObservationVersionProblems([obs])).toEqual({
+    const fbObs = fakeObservation('ai-sample', 'ai', { fbSdkVersion: '12.19.0' });
+    const adminObs = fakeObservation('admin-sample', 'auth-admin', {
+      adminSdkVersion: '13.10.0',
+    });
+    expect(checkObservationVersionProblems([fbObs, adminObs])).toEqual({
       missing: [],
       mismatched: [
         {
@@ -50,15 +59,19 @@ describe('checkObservationVersionProblems', () => {
           got: '12.19.0',
           want: '13.4.0',
         },
+        {
+          file: 'auth-admin/admin-sample.json [adminSdkVersion]',
+          got: '13.10.0',
+          want: '14.5.1',
+        },
       ],
     });
   });
 
-  test('allowPendingRecapture records exact 12.19.0 -> 13.4.0 transitions without flagging mismatches', () => {
-    const installedAdmin = resolvedAdminVersion();
+  test('allowPendingRecapture records exact 12.19.0 -> 13.4.0 and 13.10.0 -> 14.5.1 transitions without flagging mismatches', () => {
     const pendingClient = fakeObservation('ai-sample', 'ai', { fbSdkVersion: '12.19.0' });
-    const currentAdmin = fakeObservation('admin-sample', 'admin', {
-      adminSdkVersion: installedAdmin,
+    const pendingAdmin = fakeObservation('admin-sample', 'auth-admin', {
+      adminSdkVersion: '13.10.0',
     });
     const currentCrashlytics = fakeObservation('crashlytics-sample', 'crashlytics', {
       fbSdkVersion: ISOLATED_CRASHLYTICS_FIREBASE_VERSION,
@@ -66,7 +79,7 @@ describe('checkObservationVersionProblems', () => {
     });
 
     expect(
-      checkObservationVersionProblems([pendingClient, currentAdmin, currentCrashlytics], {
+      checkObservationVersionProblems([pendingClient, pendingAdmin, currentCrashlytics], {
         allowPendingRecapture: true,
       }),
     ).toEqual({
@@ -79,12 +92,21 @@ describe('checkObservationVersionProblems', () => {
           got: '12.19.0',
           want: '13.4.0',
         },
+        {
+          file: 'auth-admin/admin-sample.json',
+          field: 'adminSdkVersion',
+          got: '13.10.0',
+          want: '14.5.1',
+        },
       ],
     });
   });
 
   test('allowPendingRecapture still fails closed on arbitrary stale versions, missing fields, and crashlytics drift', () => {
-    const arbitraryStale = fakeObservation('auth-old', 'auth', { fbSdkVersion: '12.12.0' });
+    const arbitraryStaleFb = fakeObservation('auth-old', 'auth', { fbSdkVersion: '12.12.0' });
+    const arbitraryStaleAdmin = fakeObservation('admin-old', 'auth-admin', {
+      adminSdkVersion: '13.6.0',
+    });
     const missingField = fakeObservation('auth-missing', 'auth', {});
     const driftedCrashlytics = fakeObservation('crashlytics-bad', 'crashlytics', {
       fbSdkVersion: '12.19.0',
@@ -92,7 +114,7 @@ describe('checkObservationVersionProblems', () => {
     });
 
     const result = checkObservationVersionProblems(
-      [arbitraryStale, missingField, driftedCrashlytics],
+      [arbitraryStaleFb, arbitraryStaleAdmin, missingField, driftedCrashlytics],
       { allowPendingRecapture: true },
     );
     expect(result.missing).toEqual(['auth/auth-missing.json (missing SDK version field)']);
@@ -101,6 +123,11 @@ describe('checkObservationVersionProblems', () => {
         file: 'auth/auth-old.json [fbSdkVersion]',
         got: '12.12.0',
         want: '13.4.0',
+      },
+      {
+        file: 'auth-admin/admin-old.json [adminSdkVersion]',
+        got: '13.6.0',
+        want: '14.5.1',
       },
       {
         file: 'crashlytics/crashlytics-bad.json [fbSdkVersion]',
@@ -118,10 +145,13 @@ describe('checkObservationVersionProblems', () => {
     expect(defaultStdout).toContain(
       'Pending oracle-recapture.yml: 663 observation(s) [fbSdkVersion] at prior certified baseline 12.19.0 -> 13.4.0',
     );
+    expect(defaultStdout).toContain(
+      'Pending oracle-recapture.yml: 87 observation(s) [adminSdkVersion] at prior certified baseline 13.10.0 -> 14.5.1',
+    );
 
     const strictRun = Bun.spawnSync(['bun', 'run', SCRIPT_PATH, '--strict'], { cwd: REPO_ROOT });
     const strictStderr = strictRun.stderr.toString();
     expect(strictRun.exitCode).toBe(1);
-    expect(strictStderr).toContain('663 observation SDK version mismatch(es)');
+    expect(strictStderr).toContain('750 observation SDK version mismatch(es)');
   });
 });

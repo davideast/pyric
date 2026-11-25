@@ -50,6 +50,7 @@ const SERVER_STREAM_METHODS = [
   'batchGetDocuments',
   'runQuery',
   'runAggregationQuery',
+  'executePipeline',
   'listDocumentsStream',
   'partitionQueryStream',
   'listCollectionIdsStream',

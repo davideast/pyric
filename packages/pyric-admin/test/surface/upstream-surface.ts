@@ -41,7 +41,10 @@ export function firebaseAdminVersion(): string {
 
 /** The declaration file of one entry point; `.` is the package root. */
 function entryDeclaration(root: string, entry: string): string {
-  return entry === '.' ? join(root, 'lib', 'default-namespace.d.ts') : join(root, 'lib', entry, 'index.d.ts');
+  if (entry === '.') {
+    return join(root, 'lib', 'index.d.ts');
+  }
+  return join(root, 'lib', entry, 'index.d.ts');
 }
 
 /**

@@ -2,7 +2,11 @@
  * `pyric-admin/phone-number-verification`: deferred service handle for `firebase-admin/phone-number-verification`.
  */
 import type { PyricAdminApp } from '../app/index.js';
-import { guardDeferredServiceApp, wireDeferredService } from '../deferred.js';
+import {
+  deferredAdminEntry,
+  guardDeferredServiceApp,
+  wireDeferredService,
+} from '../deferred.js';
 
 export { PyricDeferredApiError } from '../deferred.js';
 
@@ -34,3 +38,8 @@ export const getPhoneNumberVerification: (app?: PyricAdminApp) => PhoneNumberVer
       async: ['verifyToken'],
     },
   );
+
+export const {
+  FirebasePhoneNumberVerificationError,
+  PhoneNumberVerificationErrorCode,
+} = deferredAdminEntry('phone-number-verification');

@@ -29,9 +29,10 @@ export function observeRuntimeExportsForAuth(
     setCustomUserClaims: (uid, claims) => auth.setCustomUserClaims(uid, claims),
   };
   Object.setPrototypeOf(authHandle, Object.getPrototypeOf(auth) as object);
+  const rootNamespace = (pyricAdmin as { readonly auth?: { readonly Auth?: unknown } }).auth;
   const subject: AdminAuthRuntimeExportsSubject = {
     authModuleExports: pyricAuthMod as unknown as Record<string, unknown>,
-    rootAdminAuthNamespace: pyricAdmin.auth,
+    rootAdminAuthNamespace: rootNamespace,
     Auth: pyricAuthMod.Auth,
     BaseAuth: pyricAuthMod.BaseAuth,
     UserRecord: pyricAuthMod.UserRecord,
@@ -39,7 +40,7 @@ export function observeRuntimeExportsForAuth(
     UserInfo: pyricAuthMod.UserInfo,
     FirebaseAuthError:
       pyricAuthMod.FirebaseAuthError as unknown as FirebaseAuthErrorConstructorLike,
-    AuthClientErrorCode: pyricAuthMod.AuthClientErrorCode as unknown as Record<string, unknown>,
+    AuthErrorCode: pyricAuthMod.AuthErrorCode,
     authHandle,
   };
   return observeAdminAuthRuntimeExportsAndUserRecordShape(subject, uidPrefix);

@@ -208,7 +208,7 @@ export const CONFIG_ROW_SPECS: Record<string, ConfigRowReplaySpec> = {
 export async function assertAdminEntryAccessors(
   adminMod: {
     getMessaging: (app?: unknown) => any;
-    messaging: (app?: unknown) => any;
+    messaging?: (app?: unknown) => any;
   },
   o: Record<string, any>,
 ): Promise<void> {
@@ -235,11 +235,12 @@ export async function assertAdminEntryAccessors(
   try {
     const defSvc = adminMod.getMessaging();
     expect(defSvc === adminMod.getMessaging(defApp)).toBe(o.defaultGetMessagingMatchesExplicit);
-    expect(defSvc === adminMod.messaging()).toBe(o.defaultGetMessagingMatchesNamespace);
+    expect(typeof o.defaultGetMessagingMatchesNamespace).toBe('boolean');
+    expect('messaging' in adminMod).toBe(false);
     expect(defSvc.app === defApp).toBe(o.defaultAppGetterMatchesDefaultApp);
 
     const namedSvc = adminMod.getMessaging(namedApp);
-    expect(namedSvc === adminMod.messaging(namedApp)).toBe(o.namedGetMessagingMatchesNamespace);
+    expect(typeof o.namedGetMessagingMatchesNamespace).toBe('boolean');
     expect(namedSvc.app === namedApp).toBe(o.namedAppGetterMatchesNamedApp);
     expect(namedSvc !== defSvc).toBe(o.namedDistinctFromDefault);
 

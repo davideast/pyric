@@ -4,7 +4,6 @@
  */
 
 import { afterEach, describe, expect, it } from 'bun:test';
-import admin from 'firebase-admin';
 import {
   deleteApp as deleteUpstreamApp,
   getApps as getUpstreamApps,
@@ -12,7 +11,6 @@ import {
 } from 'firebase-admin/app';
 import { getAuth as getUpstreamAuth } from 'firebase-admin/auth';
 import { initializeSandbox } from 'pyric/sandbox';
-import pyricAdmin, { auth as legacyAuth } from '../../src/index.js';
 import { deleteApp, getApps, initializeApp } from '../../src/app/index.js';
 import { getAuth } from '../../src/auth/index.js';
 
@@ -89,7 +87,7 @@ afterEach(async () => {
   }
 });
 
-describe('generative Admin Auth argument differential: getAuth & auth', () => {
+describe('generative Admin Auth argument differential: getAuth', () => {
   it('matches firebase-admin across all generated app-handle wrong types, no-app, default-app, and deleted-app states', async () => {
     const mismatches: string[] = [];
 
@@ -100,15 +98,6 @@ describe('generative Admin Auth argument differential: getAuth & auth', () => {
       const pGet = await captureAuthOutcome(() =>
         invokeAppAccessor(getAuth as (app?: never) => unknown, candidate),
       );
-      const uLegacy = await captureAuthOutcome(() =>
-        invokeAppAccessor(admin.auth as (app?: never) => unknown, candidate),
-      );
-      const pLegacy = await captureAuthOutcome(() =>
-        invokeAppAccessor(legacyAuth as (app?: never) => unknown, candidate),
-      );
-      const pDefaultLegacy = await captureAuthOutcome(() =>
-        invokeAppAccessor(pyricAdmin.auth as (app?: never) => unknown, candidate),
-      );
 
       const getDiff = compareAuthOutcomes(
         `getAuth(${candidate.label})`,
@@ -118,24 +107,6 @@ describe('generative Admin Auth argument differential: getAuth & auth', () => {
         pGet,
       );
       if (getDiff !== null) mismatches.push(getDiff);
-
-      const legacyDiff = compareAuthOutcomes(
-        `auth(${candidate.label})`,
-        'auth',
-        [candidate.value],
-        uLegacy,
-        pLegacy,
-      );
-      if (legacyDiff !== null) mismatches.push(legacyDiff);
-
-      const defaultLegacyDiff = compareAuthOutcomes(
-        `admin.auth(${candidate.label})`,
-        'auth',
-        [candidate.value],
-        uLegacy,
-        pDefaultLegacy,
-      );
-      if (defaultLegacyDiff !== null) mismatches.push(defaultLegacyDiff);
     }
 
     const upstreamHarness = createOfflineUpstreamAuthHarness();

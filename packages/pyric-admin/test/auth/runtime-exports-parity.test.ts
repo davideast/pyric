@@ -1,23 +1,23 @@
 /**
  * Runtime export, error-class, and nominal-constructor parity against the
- * installed `firebase-admin/auth` (`v13.10.0`) across local and worker-bridge
+ * installed `firebase-admin/auth` (`v14.5.1`) across local and worker-bridge
  * remote sandbox arms (`auth-admin#14`).
  */
 import { afterEach, describe, expect, it } from 'bun:test';
 import upstreamAdmin from 'firebase-admin';
 import {
   Auth as UpstreamAuth,
-  AuthClientErrorCode as UpstreamAuthClientErrorCode,
+  AuthErrorCode as UpstreamAuthErrorCode,
   BaseAuth as UpstreamBaseAuth,
   FirebaseAuthError as UpstreamFirebaseAuthError,
 } from 'firebase-admin/auth';
 import { initializeSandbox } from 'pyric/sandbox';
-import pyricAdmin, { auth as namedRootAuth } from '../../src/index.js';
+import pyricAdmin from '../../src/index.js';
 import { FirebaseError, PrefixedFirebaseError } from '../../src/app/firebase-error.js';
 import { deleteApp, getApps, initializeApp } from '../../src/app/index.js';
 import {
   Auth,
-  AuthClientErrorCode,
+  AuthErrorCode,
   BaseAuth,
   FirebaseAuthError,
   getAuth,
@@ -28,30 +28,23 @@ import {
 } from '../../src/auth/index.js';
 import { createWorkerBridgeRemoteAuth } from './worker-bridge-helper.js';
 
-const BUILTIN_FUNCTION_PROPS = new Set(['length', 'name', 'prototype']);
-
-function staticErrorCodeKeys(target: object): string[] {
-  return Object.getOwnPropertyNames(target)
-    .filter((key) => !BUILTIN_FUNCTION_PROPS.has(key))
-    .sort();
-}
-
 afterEach(async () => {
   await Promise.all(getApps().map((app) => deleteApp(app)));
 });
 
-describe('pyric-admin/auth runtime exports against firebase-admin/auth 13.10.0', () => {
-  it('matches every static AuthClientErrorCode key and { code, message } entry in firebase-admin/auth', () => {
-    expect(typeof AuthClientErrorCode).toBe('function');
-    const upstreamKeys = staticErrorCodeKeys(UpstreamAuthClientErrorCode);
-    const pyricKeys = staticErrorCodeKeys(AuthClientErrorCode);
+describe('pyric-admin/auth runtime exports against firebase-admin/auth 14.5.1', () => {
+  it('matches every AuthErrorCode key and string entry in firebase-admin/auth', () => {
+    expect(typeof AuthErrorCode).toBe('object');
+    expect(typeof UpstreamAuthErrorCode).toBe('object');
+    const upstreamKeys = Object.keys(UpstreamAuthErrorCode).sort();
+    const pyricKeys = Object.keys(AuthErrorCode).sort();
     expect(pyricKeys).toEqual(upstreamKeys);
-    expect(pyricKeys.length).toBe(95);
+    expect(pyricKeys.length).toBe(96);
 
-    const upstreamMap = UpstreamAuthClientErrorCode as unknown as Record<string, AuthErrorCodeInfo>;
-    const pyricMap = AuthClientErrorCode as unknown as Record<string, AuthErrorCodeInfo>;
+    const upstreamMap = UpstreamAuthErrorCode as Record<string, string>;
+    const pyricMap = AuthErrorCode as Record<string, string>;
     for (const key of upstreamKeys) {
-      expect(pyricMap[key]).toEqual(upstreamMap[key]);
+      expect(pyricMap[key]).toBe(upstreamMap[key]);
     }
   });
 
@@ -62,13 +55,25 @@ describe('pyric-admin/auth runtime exports against firebase-admin/auth 13.10.0',
     ) => Error & {
       readonly code: string;
       readonly codePrefix: string;
-      readonly errorInfo: AuthErrorCodeInfo;
       hasCode(code: string): boolean;
-      toJSON(): AuthErrorCodeInfo;
+      toJSON(): Record<string, unknown>;
     };
 
-    const uDefault = new UpstreamCtor(UpstreamAuthClientErrorCode.USER_NOT_FOUND);
-    const pDefault = new FirebaseAuthError(AuthClientErrorCode.USER_NOT_FOUND);
+    const userNotFoundInfo: AuthErrorCodeInfo = {
+      code: AuthErrorCode.USER_NOT_FOUND,
+      message: 'There is no user record corresponding to the provided identifier.',
+    };
+    const invalidArgumentInfo: AuthErrorCodeInfo = {
+      code: AuthErrorCode.INVALID_ARGUMENT,
+      message: 'Invalid argument provided.',
+    };
+    const userDisabledInfo: AuthErrorCodeInfo = {
+      code: AuthErrorCode.USER_DISABLED,
+      message: 'The user record is disabled.',
+    };
+
+    const uDefault = new UpstreamCtor(userNotFoundInfo);
+    const pDefault = new FirebaseAuthError(userNotFoundInfo);
 
     expect(pDefault).toBeInstanceOf(Error);
     expect(pDefault).toBeInstanceOf(FirebaseError);
@@ -78,38 +83,30 @@ describe('pyric-admin/auth runtime exports against firebase-admin/auth 13.10.0',
     expect(pDefault.code).toBe(uDefault.code);
     expect(pDefault.codePrefix).toBe(uDefault.codePrefix);
     expect(pDefault.message).toBe(uDefault.message);
-    expect(pDefault.errorInfo).toEqual(uDefault.errorInfo);
     expect(pDefault.hasCode('user-not-found')).toBe(uDefault.hasCode('user-not-found'));
+    expect(pDefault.hasCode('auth/user-not-found')).toBe(uDefault.hasCode('auth/user-not-found'));
     expect(pDefault.hasCode('argument-error')).toBe(uDefault.hasCode('argument-error'));
     expect(pDefault.toJSON()).toEqual(uDefault.toJSON());
     expect(Object.keys(pDefault).sort()).toEqual(Object.keys(uDefault).sort());
 
-    const uOverride = new UpstreamCtor(
-      UpstreamAuthClientErrorCode.INVALID_ARGUMENT,
-      'Custom validation message.',
-    );
-    const pOverride = new FirebaseAuthError(
-      AuthClientErrorCode.INVALID_ARGUMENT,
-      'Custom validation message.',
-    );
+    const uOverride = new UpstreamCtor(invalidArgumentInfo, 'Custom validation message.');
+    const pOverride = new FirebaseAuthError(invalidArgumentInfo, 'Custom validation message.');
     expect(pOverride.code).toBe(uOverride.code);
     expect(pOverride.message).toBe(uOverride.message);
     expect(pOverride.toJSON()).toEqual(uOverride.toJSON());
 
-    const pEmptyOverride = new FirebaseAuthError(AuthClientErrorCode.USER_DISABLED, '');
-    const uEmptyOverride = new UpstreamCtor(UpstreamAuthClientErrorCode.USER_DISABLED, '');
+    const pEmptyOverride = new FirebaseAuthError(userDisabledInfo, '');
+    const uEmptyOverride = new UpstreamCtor(userDisabledInfo, '');
     expect(pEmptyOverride.message).toBe(uEmptyOverride.message);
   });
 
-  it('aligns Auth extends BaseAuth prototype inheritance and admin.auth.Auth root attachment', () => {
+  it('aligns Auth extends BaseAuth prototype inheritance and removes v8 root admin.auth', () => {
     expect(Object.getPrototypeOf(UpstreamAuth)).toBe(UpstreamBaseAuth);
     expect(Object.getPrototypeOf(Auth)).toBe(BaseAuth);
     expect(Object.getPrototypeOf(Auth.prototype)).toBe(BaseAuth.prototype);
 
-    const upstreamAdminAuth = upstreamAdmin.auth as unknown as { Auth?: unknown };
-    expect(upstreamAdminAuth.Auth).toBe(UpstreamAuth);
-    expect(pyricAdmin.auth.Auth).toBe(Auth);
-    expect(namedRootAuth.Auth).toBe(Auth);
+    expect('auth' in upstreamAdmin).toBe(false);
+    expect('auth' in pyricAdmin).toBe(false);
   });
 
   it('returns Auth/BaseAuth handles, UserRecord/UserMetadata/UserInfo instances, and FirebaseAuthError throws across local and remote arms', async () => {

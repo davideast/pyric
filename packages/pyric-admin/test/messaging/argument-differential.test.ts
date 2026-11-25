@@ -11,7 +11,6 @@
  */
 
 import { afterEach, describe, expect, it } from 'bun:test';
-import admin from 'firebase-admin';
 import {
   deleteApp as deleteUpstreamApp,
   getApps as getUpstreamApps,
@@ -20,7 +19,7 @@ import {
 import { getMessaging as getUpstreamMessaging } from 'firebase-admin/messaging';
 import { initializeSandbox, type SandboxEvent } from 'pyric/sandbox';
 import { deleteApp, getApps, initializeApp } from 'pyric-admin/app';
-import { getMessaging, messaging } from 'pyric-admin/messaging';
+import { getMessaging } from 'pyric-admin/messaging';
 
 import {
   emitTypeWrongnessCandidates,
@@ -141,7 +140,7 @@ afterEach(async () => {
   for (const app of getUpstreamApps()) await deleteUpstreamApp(app).catch(() => {});
 });
 
-describe('generative Admin Messaging argument differential: getMessaging & messaging', () => {
+describe('generative Admin Messaging argument differential: getMessaging', () => {
   it('matches firebase-admin across all generated app-handle wrong types, no-app, default-app, and deleted-app states', async () => {
     const mismatches: string[] = [];
 
@@ -152,12 +151,6 @@ describe('generative Admin Messaging argument differential: getMessaging & messa
       const pGet = await captureOutcome(() =>
         invokeAppAccessor(getMessaging as (app?: never) => unknown, candidate),
       );
-      const uLegacy = await captureOutcome(() =>
-        invokeAppAccessor(admin.messaging as (app?: never) => unknown, candidate),
-      );
-      const pLegacy = await captureOutcome(() =>
-        invokeAppAccessor(messaging as (app?: never) => unknown, candidate),
-      );
 
       const getDiff = compareOutcomes(
         `getMessaging(${candidate.label})`,
@@ -166,14 +159,6 @@ describe('generative Admin Messaging argument differential: getMessaging & messa
         pGet,
       );
       if (getDiff !== null) mismatches.push(getDiff);
-
-      const legacyDiff = compareOutcomes(
-        `messaging(${candidate.label})`,
-        [candidate.value],
-        uLegacy,
-        pLegacy,
-      );
-      if (legacyDiff !== null) mismatches.push(legacyDiff);
     }
 
     const defaultUpstream = initializeUpstreamApp({ projectId: 'demo-project' });

@@ -40,8 +40,8 @@ const fsSdk = fsRequire(fsEntry) as {
     FirestoreClient: new (opts?: object) => AnyRecord;
     FirestoreAdminClient: new (opts?: object) => AnyRecord;
   };
-  v1beta1: {
-    FirestoreClient: new (opts?: object) => AnyRecord;
+  v1beta1?: {
+    FirestoreClient?: new (opts?: object) => AnyRecord;
   };
 };
 const stRequire = createRequire(requireHere.resolve('firebase-admin/storage'));
@@ -284,10 +284,15 @@ describe.skipIf(!IS_ISOLATED_WORKER)('AdminProjectGate behavioral refusal suite'
       expect(await streamOutcome(col.stream!() as unknown as Readable)).toEqual({ status: 'error', code: 'PYRIC_LIVE_REFUSED' });
       expect(await streamOutcome(col.explainStream!() as unknown as Readable)).toEqual({ status: 'error', code: 'PYRIC_LIVE_REFUSED' });
       expect(await asyncIterCode(group.getPartitions!(4) as unknown as AsyncIterable<unknown>)).toBe('PYRIC_LIVE_REFUSED');
+      if (typeof db.pipeline === 'function') {
+        const pipe = db.pipeline().collection('items');
+        expect(await rejectedCode(() => pipe.execute())).toBe('PYRIC_LIVE_REFUSED');
+        expect(await streamOutcome(pipe.stream() as unknown as Readable)).toEqual({ status: 'error', code: 'PYRIC_LIVE_REFUSED' });
+      }
     }
     await namedFs.terminate!();
 
-    // 3. Exported GAPIC v1.FirestoreAdminClient, v1.FirestoreClient, and v1beta1.FirestoreClient
+    // 3. Exported GAPIC v1.FirestoreAdminClient, v1.FirestoreClient, and (when present) v1beta1.FirestoreClient
     const stubGapicAuthClient = {
       getUniverseDomain: async () => 'googleapis.com',
       getRequestHeaders: async () => ({}),
@@ -309,7 +314,8 @@ describe.skipIf(!IS_ISOLATED_WORKER)('AdminProjectGate behavioral refusal suite'
     const hostGapicAdmin = new adminFsV1.FirestoreAdminClient(gapicOptsHost);
     const otherGapicClient = new adminFsV1.FirestoreClient(gapicOptsOther);
     const hostGapicClient = new adminFsV1.FirestoreClient(gapicOptsHost);
-    const otherBetaClient = new fsSdk.v1beta1.FirestoreClient(gapicOptsOther);
+    const BetaClientCtor = fsSdk.v1beta1?.FirestoreClient;
+    const otherBetaClient = BetaClientCtor === undefined ? undefined : new BetaClientCtor(gapicOptsOther);
 
     expect(
       await rejectedCode(() =>
@@ -346,6 +352,23 @@ describe.skipIf(!IS_ISOLATED_WORKER)('AdminProjectGate behavioral refusal suite'
         hostGapicClient.runQuery!({ parent: `projects/${OTHER_PROJECT}/databases/(default)/documents` }) as unknown as Readable,
       ),
     ).toEqual({ status: 'error', code: 'PYRIC_LIVE_REFUSED' });
+    if (typeof otherGapicClient.executePipeline === 'function') {
+      expect(
+        await streamOutcome(
+          otherGapicClient.executePipeline({ database: `projects/${OTHER_PROJECT}/databases/(default)` }) as unknown as Readable,
+        ),
+      ).toEqual({ status: 'error', code: 'PYRIC_LIVE_REFUSED' });
+      expect(
+        await streamOutcome(
+          hostGapicClient.executePipeline({ database: `projects/${OTHER_PROJECT}/databases/(default)` }) as unknown as Readable,
+        ),
+      ).toEqual({ status: 'error', code: 'PYRIC_LIVE_REFUSED' });
+      expect(
+        await streamOutcome(
+          hostGapicClient.executePipeline({ database: `projects/${HOST_PROJECT}/databases/secondary-db` }) as unknown as Readable,
+        ),
+      ).toEqual({ status: 'error', code: 'PYRIC_LIVE_REFUSED' });
+    }
     expect(
       await asyncIterCode(
         hostGapicClient.listDocumentsAsync!({
@@ -362,18 +385,20 @@ describe.skipIf(!IS_ISOLATED_WORKER)('AdminProjectGate behavioral refusal suite'
     duplex.write({ database: `projects/${OTHER_PROJECT}/databases/(default)` });
     expect(await duplexOutcome).toBe('PYRIC_LIVE_REFUSED');
 
-    expect(
-      await rejectedCode(() =>
-        otherBetaClient.listCollectionIds!({ parent: `projects/${OTHER_PROJECT}/databases/(default)/documents` }),
-      ),
-    ).toBe('PYRIC_LIVE_REFUSED');
+    if (otherBetaClient !== undefined) {
+      expect(
+        await rejectedCode(() =>
+          otherBetaClient.listCollectionIds({ parent: `projects/${OTHER_PROJECT}/databases/(default)/documents` }),
+        ),
+      ).toBe('PYRIC_LIVE_REFUSED');
+    }
 
     await Promise.all([
       otherGapicAdmin.close!(),
       hostGapicAdmin.close!(),
       otherGapicClient.close!(),
       hostGapicClient.close!(),
-      otherBetaClient.close!(),
+      otherBetaClient === undefined ? Promise.resolve() : otherBetaClient.close(),
     ]);
 
     // 4. Storage handles, HmacKey cross-project, setUserProject, and per-call option overrides
@@ -448,6 +473,34 @@ describe.skipIf(!IS_ISOLATED_WORKER)('AdminProjectGate behavioral refusal suite'
     expect(httpRequests).toEqual([]);
     expect(grpcConnections).toBe(0);
     expect(records.slice(beforeRecords)).toEqual([]);
+  });
+
+  it('refuses cross-project and named-database Pipelines inside host runTransaction with zero network traffic', async () => {
+    const hostFs = getFirestore(hostApp);
+    const otherFs = getFirestore(otherApp);
+    if (typeof otherFs.pipeline !== 'function') return;
+
+    httpRequests = [];
+    grpcConnections = 0;
+    const beforeTxRecords = records.length;
+    const namedTxFs = getFirestore(hostApp, 'analytics-tx-db');
+    try {
+      for (const db of [otherFs, namedTxFs]) {
+        expect(
+          await rejectedCode(() =>
+            hostFs.runTransaction((tx: AnyRecord) => tx.execute(db.pipeline().collection('items'))),
+          ),
+        ).toBe('PYRIC_LIVE_REFUSED');
+      }
+    } finally {
+      if (typeof namedTxFs.terminate === 'function') {
+        await namedTxFs.terminate();
+      }
+    }
+
+    expect(httpRequests).toEqual([]);
+    expect(grpcConnections).toBe(0);
+    expect(records.slice(beforeTxRecords).filter((r) => r.name.startsWith('Pipeline.'))).toEqual([]);
   });
 
   it('allows and observes host-project calls across TenantManager, ProjectConfigManager, Storage streams, Acl, and getDownloadURL', async () => {

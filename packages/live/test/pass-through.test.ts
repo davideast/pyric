@@ -24,7 +24,13 @@ import {
 } from '../src/refusal.js';
 import { passThroughLines } from '../src/start-line.js';
 import { pyricLive } from '../src/vite.js';
-import { SUPPORTED_ADMIN_MAJOR, adminStartRefusal, installedAdminVersion } from '../src/start-checks.js';
+import {
+  SUPPORTED_ADMIN_MAJORS,
+  SUPPORTED_ADMIN_RANGE,
+  adminStartRefusal,
+  installedAdminVersion,
+  isSupportedAdminVersion,
+} from '../src/start-checks.js';
 import { observeAdminRow, serveHostProject } from '../src/node-modules.js';
 import type { LiveCallRecord } from '../src/observe.js';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
@@ -188,27 +194,40 @@ describe('the Admin start check', () => {
     return root;
   }
 
-  test('passes firebase-admin 13, and an app with no firebase-admin', () => {
+  test('passes firebase-admin 13 and 14, and an app with no firebase-admin', () => {
     const admin13 = project('13.6.0');
+    const admin14 = project('14.5.1');
     const none = project(null);
     try {
-      expect(SUPPORTED_ADMIN_MAJOR).toBe(13);
+      expect(SUPPORTED_ADMIN_RANGE).toBe('^13.0.0 || ^14.0.0');
+      expect(SUPPORTED_ADMIN_MAJORS).toEqual([13, 14]);
+      expect(isSupportedAdminVersion('13.10.0')).toBe(true);
+      expect(isSupportedAdminVersion('14.5.1')).toBe(true);
       expect(installedAdminVersion(admin13, admin13)).toBe('13.6.0');
       expect(adminStartRefusal(admin13, admin13)).toBeNull();
+      expect(installedAdminVersion(admin14, admin14)).toBe('14.5.1');
+      expect(adminStartRefusal(admin14, admin14)).toBeNull();
       expect(installedAdminVersion(none, none)).toBeNull();
       expect(adminStartRefusal(none, none)).toBeNull();
     } finally {
       rmSync(admin13, { recursive: true, force: true });
+      rmSync(admin14, { recursive: true, force: true });
       rmSync(none, { recursive: true, force: true });
     }
   });
 
-  test('refuses another firebase-admin major at start', () => {
+  test('refuses another firebase-admin major or prerelease at start', () => {
     const admin12 = project('12.7.0');
+    const admin15 = project('15.0.0');
+    const prerelease = project('14.0.0-beta.1');
     try {
       expect(adminStartRefusal(admin12, admin12)).toContain('firebase-admin 12.7.0');
+      expect(adminStartRefusal(admin15, admin15)).toContain('firebase-admin 15.0.0');
+      expect(adminStartRefusal(prerelease, prerelease)).toContain('firebase-admin 14.0.0-beta.1');
     } finally {
       rmSync(admin12, { recursive: true, force: true });
+      rmSync(admin15, { recursive: true, force: true });
+      rmSync(prerelease, { recursive: true, force: true });
     }
   });
 

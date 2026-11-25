@@ -3,17 +3,16 @@
  *
  * Under `pyric sandbox`, every `firebase-admin/*` import resolves to the same
  * subpath of `pyric-admin`. Each unmodeled service exports an `App`-bound
- * handle from `get<Service>(app?)` (and matching `admin.<service>(app?)`) so
- * module-level initialization loads cleanly when a service is unused or
- * disabled, while calling any method on the handle or touching any non-service
- * export fails with `PyricDeferredApiError` naming the symbol and subpath.
+ * handle from `get<Service>(app?)` so module-level initialization loads cleanly
+ * when a service is unused or disabled, while calling any method on the handle
+ * or touching any non-service export fails with `PyricDeferredApiError` naming
+ * the symbol and subpath.
  */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { initializeSandbox } from 'pyric/sandbox';
-import admin from 'pyric-admin';
 import { deleteApp, getApps, initializeApp, type PyricAdminApp } from 'pyric-admin/app';
 import { PyricDeferredApiError } from 'pyric-admin/remote-config';
 
@@ -21,13 +20,6 @@ interface DeferredSubpathSpec {
   readonly subpath: string;
   readonly factory: string;
   readonly serviceClass: string;
-  readonly rootAccessor?:
-    | 'installations'
-    | 'instanceId'
-    | 'machineLearning'
-    | 'projectManagement'
-    | 'remoteConfig'
-    | 'securityRules';
   readonly extraExports?: readonly string[];
   readonly syncMethod?: string;
   readonly asyncMethod?: string;
@@ -39,7 +31,7 @@ const DEFERRED_SUBPATHS: readonly DeferredSubpathSpec[] = [
     subpath: 'data-connect',
     factory: 'getDataConnect',
     serviceClass: 'DataConnect',
-    extraExports: ['validateAdminArgs'],
+    extraExports: ['DataConnectErrorCode', 'FirebaseDataConnectError', 'validateAdminArgs'],
     asyncMethod: 'executeQuery',
     factoryArgs: [{ location: 'us-central1', serviceId: 'my-service', connector: 'my-connector' }],
   },
@@ -47,52 +39,49 @@ const DEFERRED_SUBPATHS: readonly DeferredSubpathSpec[] = [
     subpath: 'eventarc',
     factory: 'getEventarc',
     serviceClass: 'Eventarc',
-    extraExports: ['Channel'],
+    extraExports: ['Channel', 'EventarcErrorCode', 'FirebaseEventarcError'],
     syncMethod: 'channel',
   },
   {
     subpath: 'extensions',
     factory: 'getExtensions',
     serviceClass: 'Extensions',
-    extraExports: ['Runtime'],
+    extraExports: ['ExtensionsErrorCode', 'FirebaseExtensionsError', 'Runtime'],
     syncMethod: 'runtime',
   },
   {
     subpath: 'installations',
     factory: 'getInstallations',
     serviceClass: 'Installations',
-    rootAccessor: 'installations',
-    extraExports: ['FirebaseInstallationsError', 'InstallationsClientErrorCode'],
+    extraExports: ['FirebaseInstallationsError', 'InstallationsErrorCode'],
     asyncMethod: 'deleteInstallation',
-  },
-  {
-    subpath: 'instance-id',
-    factory: 'getInstanceId',
-    serviceClass: 'InstanceId',
-    rootAccessor: 'instanceId',
-    extraExports: ['FirebaseInstanceIdError', 'InstanceIdClientErrorCode'],
-    asyncMethod: 'deleteInstanceId',
   },
   {
     subpath: 'machine-learning',
     factory: 'getMachineLearning',
     serviceClass: 'MachineLearning',
-    rootAccessor: 'machineLearning',
-    extraExports: ['Model'],
+    extraExports: ['FirebaseMachineLearningError', 'MachineLearningErrorCode', 'Model'],
     asyncMethod: 'getModel',
   },
   {
     subpath: 'phone-number-verification',
     factory: 'getPhoneNumberVerification',
     serviceClass: 'PhoneNumberVerification',
+    extraExports: ['FirebasePhoneNumberVerificationError', 'PhoneNumberVerificationErrorCode'],
     asyncMethod: 'verifyToken',
   },
   {
     subpath: 'project-management',
     factory: 'getProjectManagement',
     serviceClass: 'ProjectManagement',
-    rootAccessor: 'projectManagement',
-    extraExports: ['AndroidApp', 'AppPlatform', 'FirebaseProjectManagementError', 'IosApp', 'ShaCertificate'],
+    extraExports: [
+      'AndroidApp',
+      'AppPlatform',
+      'FirebaseProjectManagementError',
+      'IosApp',
+      'ProjectManagementErrorCode',
+      'ShaCertificate',
+    ],
     syncMethod: 'androidApp',
     asyncMethod: 'listAppMetadata',
   },
@@ -100,8 +89,13 @@ const DEFERRED_SUBPATHS: readonly DeferredSubpathSpec[] = [
     subpath: 'remote-config',
     factory: 'getRemoteConfig',
     serviceClass: 'RemoteConfig',
-    rootAccessor: 'remoteConfig',
-    extraExports: ['CustomSignalOperator', 'PercentConditionOperator', 'RemoteConfigFetchResponse'],
+    extraExports: [
+      'CustomSignalOperator',
+      'FirebaseRemoteConfigError',
+      'PercentConditionOperator',
+      'RemoteConfigErrorCode',
+      'RemoteConfigFetchResponse',
+    ],
     syncMethod: 'createTemplateFromJSON',
     asyncMethod: 'getTemplate',
   },
@@ -109,8 +103,12 @@ const DEFERRED_SUBPATHS: readonly DeferredSubpathSpec[] = [
     subpath: 'security-rules',
     factory: 'getSecurityRules',
     serviceClass: 'SecurityRules',
-    rootAccessor: 'securityRules',
-    extraExports: ['Ruleset', 'RulesetMetadataList'],
+    extraExports: [
+      'FirebaseSecurityRulesError',
+      'Ruleset',
+      'RulesetMetadataList',
+      'SecurityRulesErrorCode',
+    ],
     syncMethod: 'createRulesFileFromSource',
     asyncMethod: 'getRuleset',
   },
@@ -129,7 +127,7 @@ function deferredMessage(subpath: string): string {
 function exportedSubpaths(packageJsonPath: string): string[] {
   const manifest = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as { exports: Record<string, unknown> };
   return Object.keys(manifest.exports)
-    .filter((key) => key !== '.')
+    .filter((key) => key !== '.' && key !== './package.json')
     .map((key) => key.slice(2))
     .sort();
 }
@@ -142,7 +140,9 @@ function firebaseAdminManifest(): string {
     try {
       const manifest = JSON.parse(readFileSync(candidate, 'utf8')) as { name?: string };
       if (manifest.name === 'firebase-admin') return candidate;
-    } catch { /* not a package root */ }
+    } catch {
+      // Not a package root; continue walking up.
+    }
     const parent = dirname(dir);
     if (parent === dir) throw new Error('firebase-admin package.json not found');
     dir = parent;
@@ -163,15 +163,19 @@ describe('every firebase-admin subpath resolves in pyric-admin', () => {
   test('pyric-admin exports each subpath firebase-admin exports', () => {
     const upstream = exportedSubpaths(firebaseAdminManifest());
     const mirrored = exportedSubpaths(PYRIC_ADMIN_MANIFEST);
-    expect(upstream.filter((subpath) => !mirrored.includes(subpath))).toEqual([]);
+    expect(mirrored).toEqual(upstream);
   });
 });
 
 describe('deferred pyric-admin subpaths', () => {
   for (const spec of DEFERRED_SUBPATHS) {
-    const { subpath, factory, serviceClass, rootAccessor, extraExports = [], syncMethod, asyncMethod, factoryArgs = [] } = spec;
-    const callWithApp = (fn: (...args: unknown[]) => unknown, app?: PyricAdminApp) =>
-      app !== undefined ? fn(...factoryArgs, app) : fn(...factoryArgs);
+    const { subpath, factory, serviceClass, extraExports = [], syncMethod, asyncMethod, factoryArgs = [] } = spec;
+    const callWithApp = (fn: (...args: unknown[]) => unknown, app?: PyricAdminApp): unknown => {
+      if (app !== undefined) {
+        return fn(...factoryArgs, app);
+      }
+      return fn(...factoryArgs);
+    };
 
     describe(`pyric-admin/${subpath}`, () => {
       test('exports the same values as firebase-admin', async () => {
@@ -183,15 +187,19 @@ describe('deferred pyric-admin subpaths', () => {
 
       test(`${factory}() throws FirebaseAppError app/no-app before initializeApp()`, async () => {
         const mod = (await import(`pyric-admin/${subpath}`)) as Record<string, (...args: unknown[]) => unknown>;
+        const factoryFn = mod[factory];
+        if (typeof factoryFn !== 'function') {
+          throw new Error(`Missing factory ${factory} on pyric-admin/${subpath}`);
+        }
         let thrown: unknown;
         try {
-          callWithApp(mod[factory]!);
+          callWithApp(factoryFn);
         } catch (error) {
           thrown = error;
         }
         expect(thrown).toBeInstanceOf(Error);
         const error = thrown as Error & { code?: string };
-        expect(error.name).toBe('FirebaseAppError');
+        expect(error.constructor.name).toBe('FirebaseAppError');
         expect(error.code).toBe('app/no-app');
       });
 
@@ -207,12 +215,6 @@ describe('deferred pyric-admin subpaths', () => {
         expect(handleNoArg.app).toBe(defaultApp);
         expect(handleNoArg).toBeInstanceOf(ServiceCtor);
 
-        if (rootAccessor) {
-          expect(admin[rootAccessor]()).toBe(handleNoArg);
-          expect(admin[rootAccessor](defaultApp)).toBe(handleExplicit);
-        }
-
-        // Direct construction with `new <Service>()` fails loudly with attribution.
         let ctorThrown: unknown;
         try {
           new ServiceCtor();
@@ -240,10 +242,14 @@ describe('deferred pyric-admin subpaths', () => {
         const app = initializeApp({ sandbox: initializeSandbox() });
         const handle = callWithApp(fn, app) as Record<string, () => unknown>;
 
-        if (syncMethod) {
+        if (syncMethod !== undefined) {
+          const syncFn = handle[syncMethod];
+          if (typeof syncFn !== 'function') {
+            throw new Error(`Missing sync method ${syncMethod}`);
+          }
           let syncThrown: unknown;
           try {
-            handle[syncMethod]!();
+            syncFn();
           } catch (error) {
             syncThrown = error;
           }
@@ -252,8 +258,12 @@ describe('deferred pyric-admin subpaths', () => {
           expect((syncThrown as PyricDeferredApiError).symbol).toBe(`${serviceClass}.${syncMethod}`);
         }
 
-        if (asyncMethod) {
-          const result = handle[asyncMethod]!();
+        if (asyncMethod !== undefined) {
+          const asyncFn = handle[asyncMethod];
+          if (typeof asyncFn !== 'function') {
+            throw new Error(`Missing async method ${asyncMethod}`);
+          }
+          const result = asyncFn();
           expect(result).toBeInstanceOf(Promise);
           const asyncThrown = await (result as Promise<unknown>).then(
             () => undefined,

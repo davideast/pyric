@@ -2,6 +2,7 @@
  * `pyric-admin/storage` public re-export barrel.
  */
 
+export { FirebaseStorageError, StorageErrorCode } from './error.js';
 export type { DeleteFilesOptions, GetFilesApiResponse, GetFilesOptions } from './file-query.js';
 export type { GetFilesResponse } from './get-files.js';
 export type { FileMetadata, FileMetadataUpdate } from './metadata-codec.js';

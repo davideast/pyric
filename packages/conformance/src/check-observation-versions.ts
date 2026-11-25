@@ -46,6 +46,7 @@ export const PENDING_RECAPTURE_TRANSITIONS: Readonly<
   Partial<Record<string, PendingRecaptureTransition>>
 > = {
   fbSdkVersion: { from: '12.19.0', to: '13.4.0' },
+  adminSdkVersion: { from: '13.10.0', to: '14.5.1' },
 };
 
 export interface ObservationVersionCheckOptions {

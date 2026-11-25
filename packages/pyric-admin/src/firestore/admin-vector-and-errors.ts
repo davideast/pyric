@@ -109,6 +109,13 @@ export function tryDecodeAdminVectorFromWire(value: unknown): AdminVectorValue |
   return new AdminVectorValue(nums);
 }
 
+export const FirestoreErrorCode = {
+  FAILED_PRECONDITION: 'failed-precondition',
+  INVALID_ARGUMENT: 'invalid-argument',
+  INVALID_CREDENTIAL: 'invalid-credential',
+  MISSING_DEPENDENCIES: 'missing-dependencies',
+} as const;
+
 export interface FirebaseFirestoreErrorInfo {
   readonly code: string;
   readonly message: string;

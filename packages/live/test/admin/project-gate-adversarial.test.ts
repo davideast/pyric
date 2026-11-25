@@ -158,6 +158,7 @@ describe('Admin live project-gate adversarial matrix', () => {
         '    getProjectId: async () => HOST,',
         "    getRequestHeaders: async () => ({ Authorization: 'Bearer test-token' }),",
         "    getUniverseDomain: async () => 'googleapis.com',",
+        '    fetch: (url, init) => fetch(url, init),',
         '  },',
         '});',
         'class GapicRequest {',
