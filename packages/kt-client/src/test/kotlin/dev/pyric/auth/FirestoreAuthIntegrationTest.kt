@@ -42,7 +42,9 @@ class FirestoreAuthIntegrationTest {
         transport.onServerReceive { message -> synchronized(lock) { handler(message) } }
     }
     private var serverUser: Map<String, Any?>? = null
+    @Volatile
     private var authStateSubId: String? = null
+    @Volatile
     private var idTokenSubId: String? = null
     @Volatile private var tokenClaims: Map<String, Any?> = emptyMap()
 
@@ -167,9 +169,9 @@ class FirestoreAuthIntegrationTest {
                     val targetName = (sub["target"] as? String)
                         ?: (sub["target"] as? Map<*, *>)?.get("target") as? String
                     if (targetName == "authState") {
-                        authStateSubId = subId
                         val currentUserJson = JsonCodec.encodeToString(serverUser)
                         transport.sendToClient("""{"type":"worker-snap","subId":"$subId","value":$currentUserJson}""")
+                        authStateSubId = subId
                         return@orderedServer
                     }
                     if (targetName == "idToken") {

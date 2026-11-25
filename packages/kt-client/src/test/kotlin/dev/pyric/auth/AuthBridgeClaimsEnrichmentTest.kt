@@ -23,6 +23,7 @@ import org.junit.jupiter.api.Test
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 /**
@@ -65,8 +66,8 @@ class AuthBridgeClaimsEnrichmentTest {
         val bridge = PyricBridgeClient(transport)
         val lock = Any()
 
-        var authStateSubId: String? = null
-        var idTokenSubId: String? = null
+        val authStateSubId = AtomicReference<String?>(null)
+        val idTokenSubId = AtomicReference<String?>(null)
         val activeItemSubId = AtomicReference<String?>(null)
         val itemSubActAs = CopyOnWriteArrayList<Map<String, Any?>>()
         val releaseSignInReply = CountDownLatch(1)
@@ -85,13 +86,13 @@ class AuthBridgeClaimsEnrichmentTest {
                     val sub = msg["sub"] as Map<String, Any?>
                     val target = sub["target"]
                     if (target == "authState") {
-                        authStateSubId = subId
                         transport.sendToClient("""{"type":"worker-snap","subId":"$subId","value":null}""")
+                        authStateSubId.set(subId)
                         return@synchronized
                     }
                     if (target == "idToken") {
-                        idTokenSubId = subId
                         transport.sendToClient("""{"type":"worker-snap","subId":"$subId","value":null}""")
+                        idTokenSubId.set(subId)
                         return@synchronized
                     }
                     @Suppress("UNCHECKED_CAST")
@@ -125,10 +126,10 @@ class AuthBridgeClaimsEnrichmentTest {
                             // Mirror real Node host ordering: authState + idToken snaps
                             // (without customClaims) go out before worker-res.
                             synchronized(lock) {
-                                authStateSubId?.let { sId ->
+                                authStateSubId.get()?.let { sId ->
                                     transport.sendToClient("""{"type":"worker-snap","subId":"$sId","value":$userJson}""")
                                 }
-                                idTokenSubId?.let { sId ->
+                                idTokenSubId.get()?.let { sId ->
                                     transport.sendToClient("""{"type":"worker-snap","subId":"$sId","value":$userJson}""")
                                 }
                             }
@@ -174,8 +175,8 @@ class AuthBridgeClaimsEnrichmentTest {
             awaitCondition {
                 observedLenses.contains(AuthLens.Anon) &&
                     snapshots.isNotEmpty() &&
-                    authStateSubId != null &&
-                    idTokenSubId != null
+                    authStateSubId.get() != null &&
+                    idTokenSubId.get() != null
             }
 
             auth.tenantId = "tenant-1"
@@ -225,7 +226,8 @@ class AuthBridgeClaimsEnrichmentTest {
     fun signOutDuringInFlightBridgeClaimsFetchDoesNotResurrectUser() {
         val transport = InMemoryBridgeTransport()
         val bridge = PyricBridgeClient(transport)
-        var authStateSubId: String? = null
+        val authStateSubId = AtomicReference<String?>(null)
+        val idTokenSubId = AtomicReference<String?>(null)
         val tokenFetchStarted = CountDownLatch(1)
         val releaseTokenFetch = CountDownLatch(1)
         val tokenFetchReplied = CountDownLatch(1)
@@ -241,10 +243,11 @@ class AuthBridgeClaimsEnrichmentTest {
                     @Suppress("UNCHECKED_CAST")
                     val sub = msg["sub"] as Map<String, Any?>
                     if (sub["target"] == "authState") {
-                        authStateSubId = subId
                         transport.sendToClient("""{"type":"worker-snap","subId":"$subId","value":null}""")
+                        authStateSubId.set(subId)
                     } else if (sub["target"] == "idToken") {
                         transport.sendToClient("""{"type":"worker-snap","subId":"$subId","value":null}""")
+                        idTokenSubId.set(subId)
                     }
                 }
                 "worker-op" -> {
@@ -273,8 +276,8 @@ class AuthBridgeClaimsEnrichmentTest {
         val app = newApp("signout-during-claims-fetch")
         val auth = FirebaseAuth.getInstance(app, bridge)
 
-        awaitCondition { authStateSubId != null }
-        transport.sendToClient("""{"type":"worker-snap","subId":"$authStateSubId","value":$userJson}""")
+        awaitCondition { bridge.isConnected && authStateSubId.get() != null && idTokenSubId.get() != null }
+        transport.sendToClient("""{"type":"worker-snap","subId":"${authStateSubId.get()}","value":$userJson}""")
         assertTrue(tokenFetchStarted.await(3, TimeUnit.SECONDS), "Expected auth.getIdTokenResult for claims enrichment")
 
         // Synchronous signOut while bridge claims enrichment is still in flight.
@@ -295,8 +298,9 @@ class AuthBridgeClaimsEnrichmentTest {
     fun mismatchedSubjectAndNoCurrentUserDropStaleBridgeAuthState() {
         val transport = InMemoryBridgeTransport()
         val bridge = PyricBridgeClient(transport)
-        var authStateSubId: String? = null
-        var tokenResponseMode = "mismatch"
+        val authStateSubId = AtomicReference<String?>(null)
+        val idTokenSubId = AtomicReference<String?>(null)
+        val tokenResponseMode = AtomicReference("mismatch")
         val firstFetchDone = CountDownLatch(1)
         val secondFetchDone = CountDownLatch(1)
 
@@ -312,10 +316,11 @@ class AuthBridgeClaimsEnrichmentTest {
                     @Suppress("UNCHECKED_CAST")
                     val sub = msg["sub"] as Map<String, Any?>
                     if (sub["target"] == "authState") {
-                        authStateSubId = subId
                         transport.sendToClient("""{"type":"worker-snap","subId":"$subId","value":null}""")
+                        authStateSubId.set(subId)
                     } else if (sub["target"] == "idToken") {
                         transport.sendToClient("""{"type":"worker-snap","subId":"$subId","value":null}""")
+                        idTokenSubId.set(subId)
                     }
                 }
                 "worker-op" -> {
@@ -323,7 +328,7 @@ class AuthBridgeClaimsEnrichmentTest {
                     @Suppress("UNCHECKED_CAST")
                     val op = msg["op"] as Map<String, Any?>
                     if (op["method"] == "auth.getIdTokenResult") {
-                        when (tokenResponseMode) {
+                        when (tokenResponseMode.get()) {
                             "mismatch" -> {
                                 transport.sendToClient(
                                     """{"type":"worker-res","id":"$id","ok":true,"value":{"token":"tok","claims":{"sub":"user-2","role":"admin"}}}"""
@@ -349,26 +354,27 @@ class AuthBridgeClaimsEnrichmentTest {
 
         val app = newApp("stale-subject-and-no-user")
         val auth = FirebaseAuth.getInstance(app, bridge)
-        awaitCondition { authStateSubId != null }
+        awaitCondition { bridge.isConnected && authStateSubId.get() != null && idTokenSubId.get() != null }
+        val subId = authStateSubId.get()!!
 
         // 1. Mismatched sub -> stale user-1 snapshot is dropped.
-        transport.sendToClient("""{"type":"worker-snap","subId":"$authStateSubId","value":$user1Json}""")
+        transport.sendToClient("""{"type":"worker-snap","subId":"$subId","value":$user1Json}""")
         assertTrue(firstFetchDone.await(3, TimeUnit.SECONDS))
         Thread.sleep(100)
         assertNull(auth.currentUser)
         assertEquals(AuthLens.Anon, auth.getEffectiveLens())
 
         // 2. auth/no-current-user -> stale user-1 snapshot is dropped.
-        tokenResponseMode = "no-user"
-        transport.sendToClient("""{"type":"worker-snap","subId":"$authStateSubId","value":$user1Json}""")
+        tokenResponseMode.set("no-user")
+        transport.sendToClient("""{"type":"worker-snap","subId":"$subId","value":$user1Json}""")
         assertTrue(secondFetchDone.await(3, TimeUnit.SECONDS))
         Thread.sleep(100)
         assertNull(auth.currentUser)
         assertEquals(AuthLens.Anon, auth.getEffectiveLens())
 
         // 3. Matching user-2 succeeds with full claims.
-        tokenResponseMode = "ok"
-        transport.sendToClient("""{"type":"worker-snap","subId":"$authStateSubId","value":$user2Json}""")
+        tokenResponseMode.set("ok")
+        transport.sendToClient("""{"type":"worker-snap","subId":"$subId","value":$user2Json}""")
         awaitCondition { auth.currentUser?.uid == "user-2" }
         val lens = auth.getEffectiveLens() as AuthLens.AsUser
         assertEquals("user-2", lens.uid)
@@ -379,11 +385,12 @@ class AuthBridgeClaimsEnrichmentTest {
     fun idTokenSnapshotDoesNotApplyClaimsAfterSignOutOrEmitSpuriousNullBeforeSignIn() {
         val transport = InMemoryBridgeTransport()
         val bridge = PyricBridgeClient(transport)
-        var idTokenSubId: String? = null
+        val authStateSubId = AtomicReference<String?>(null)
+        val idTokenSubId = AtomicReference<String?>(null)
         val idTokenFetchStarted = CountDownLatch(1)
         val releaseIdTokenFetch = CountDownLatch(1)
         val idTokenFetchReplied = CountDownLatch(1)
-        var allowTokenFetchHold = false
+        val allowTokenFetchHold = AtomicBoolean(false)
 
         val userJson = """{"uid":"user-1","email":"member@example.com","isAnonymous":false}"""
 
@@ -397,9 +404,10 @@ class AuthBridgeClaimsEnrichmentTest {
                     val sub = msg["sub"] as Map<String, Any?>
                     if (sub["target"] == "authState") {
                         transport.sendToClient("""{"type":"worker-snap","subId":"$subId","value":null}""")
+                        authStateSubId.set(subId)
                     } else if (sub["target"] == "idToken") {
-                        idTokenSubId = subId
                         transport.sendToClient("""{"type":"worker-snap","subId":"$subId","value":null}""")
+                        idTokenSubId.set(subId)
                     }
                 }
                 "worker-op" -> {
@@ -413,7 +421,7 @@ class AuthBridgeClaimsEnrichmentTest {
                             )
                         }
                         "auth.getIdTokenResult" -> {
-                            if (allowTokenFetchHold) {
+                            if (allowTokenFetchHold.get()) {
                                 idTokenFetchStarted.countDown()
                                 Thread {
                                     releaseIdTokenFetch.await(5, TimeUnit.SECONDS)
@@ -443,11 +451,12 @@ class AuthBridgeClaimsEnrichmentTest {
         auth.addIdTokenListener(listener)
 
         try {
-            awaitCondition { idTokenSubId != null }
+            awaitCondition { bridge.isConnected && authStateSubId.get() != null && idTokenSubId.get() != null }
+            val subId = idTokenSubId.get()!!
             assertEquals(listOf<String?>(null), observedIdTokenUids.toList())
 
             // A non-null idToken snapshot arriving before currentUser is set must not emit a spurious null.
-            transport.sendToClient("""{"type":"worker-snap","subId":"$idTokenSubId","value":$userJson}""")
+            transport.sendToClient("""{"type":"worker-snap","subId":"$subId","value":$userJson}""")
             Thread.sleep(80)
             assertEquals(listOf<String?>(null), observedIdTokenUids.toList())
 
@@ -455,8 +464,8 @@ class AuthBridgeClaimsEnrichmentTest {
             Tasks.await(auth.signInWithEmailAndPassword("member@example.com", "secret"), 5, TimeUnit.SECONDS)
             assertEquals("user-1", auth.currentUser?.uid)
 
-            allowTokenFetchHold = true
-            transport.sendToClient("""{"type":"worker-snap","subId":"$idTokenSubId","value":$userJson}""")
+            allowTokenFetchHold.set(true)
+            transport.sendToClient("""{"type":"worker-snap","subId":"$subId","value":$userJson}""")
             assertTrue(idTokenFetchStarted.await(3, TimeUnit.SECONDS))
 
             auth.signOut()

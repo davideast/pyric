@@ -43,7 +43,9 @@ class ChallengerAuthStateAndSnapshotTest {
     private val sentOps = CopyOnWriteArrayList<Map<String, Any?>>()
     private val sentSubs = CopyOnWriteArrayList<Map<String, Any?>>()
     private val sentUnsubs = CopyOnWriteArrayList<String>()
+    @Volatile
     private var authStateSubId: String? = null
+    @Volatile
     private var idTokenSubId: String? = null
 
     @BeforeEach
@@ -77,11 +79,11 @@ class ChallengerAuthStateAndSnapshotTest {
                     val targetName = targetMap?.get("target") as? String
 
                     if (targetName == "authState" || target == "authState") {
+                        transport.sendToClient("""{"type":"worker-snap","subId":"$subId","value":null}""")
                         authStateSubId = subId
-                        transport.sendToClient("""{"type":"worker-snap","subId":"$subId","value":null}""")
                     } else if (targetName == "idToken" || target == "idToken") {
-                        idTokenSubId = subId
                         transport.sendToClient("""{"type":"worker-snap","subId":"$subId","value":null}""")
+                        idTokenSubId = subId
                     } else if (targetMap != null) {
                         @Suppress("UNCHECKED_CAST")
                         val refType = targetMap["__ref"] as? String

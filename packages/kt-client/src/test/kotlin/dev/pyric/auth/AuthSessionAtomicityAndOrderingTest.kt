@@ -61,7 +61,8 @@ class AuthSessionAtomicityAndOrderingTest {
     fun currentUserAndAuthStateFlowNeverPublishAheadOfEffectiveLens() = runBlocking {
         val transport = InMemoryBridgeTransport()
         val bridge = PyricBridgeClient(transport)
-        var authStateSubId: String? = null
+        val authStateSubId = AtomicReference<String?>(null)
+        val idTokenSubId = AtomicReference<String?>(null)
         val activeTokenSub = AtomicReference("user-0")
         val sentDocActAs = CopyOnWriteArrayList<Map<String, Any?>>()
 
@@ -74,10 +75,11 @@ class AuthSessionAtomicityAndOrderingTest {
                     @Suppress("UNCHECKED_CAST")
                     val sub = msg["sub"] as Map<String, Any?>
                     if (sub["target"] == "authState") {
-                        authStateSubId = subId
                         transport.sendToClient("""{"type":"worker-snap","subId":"$subId","value":null}""")
+                        authStateSubId.set(subId)
                     } else if (sub["target"] == "idToken") {
                         transport.sendToClient("""{"type":"worker-snap","subId":"$subId","value":null}""")
+                        idTokenSubId.set(subId)
                     }
                 }
                 "worker-op" -> {
@@ -109,7 +111,7 @@ class AuthSessionAtomicityAndOrderingTest {
         val app = newApp("atomic-user-and-lens")
         val auth = FirebaseAuth.getInstance(app, bridge)
         val firestore = FirebaseFirestore(bridge, app, "(default)", credentialsProvider = auth)
-        awaitCondition { authStateSubId != null }
+        awaitCondition { bridge.isConnected && authStateSubId.get() != null && idTokenSubId.get() != null }
 
         val mismatchFailure = AtomicReference<Throwable?>(null)
         val stopPolling = AtomicBoolean(false)
@@ -163,12 +165,13 @@ class AuthSessionAtomicityAndOrderingTest {
         }
 
         try {
+            val subId = authStateSubId.get()!!
             repeat(40) { cycle ->
                 mismatchFailure.get()?.let { throw it }
                 val uid = "user-$cycle"
                 activeTokenSub.set(uid)
                 val userJson = """{"uid":"$uid","email":"$uid@example.com","isAnonymous":false}"""
-                transport.sendToClient("""{"type":"worker-snap","subId":"$authStateSubId","value":$userJson}""")
+                transport.sendToClient("""{"type":"worker-snap","subId":"$subId","value":$userJson}""")
                 awaitCondition { auth.currentUser?.uid == uid }
                 val lens = auth.getEffectiveLens() as AuthLens.AsUser
                 assertEquals(uid, lens.uid)
@@ -209,8 +212,8 @@ class AuthSessionAtomicityAndOrderingTest {
         val bridge = PyricBridgeClient(transport)
         val lock = Any()
 
-        var authStateSubId: String? = null
-        var idTokenSubId: String? = null
+        val authStateSubId = AtomicReference<String?>(null)
+        val idTokenSubId = AtomicReference<String?>(null)
         val holdCollectorFetches = AtomicBoolean(false)
         val bothCollectorsHeld = CountDownLatch(2)
         val releaseHeldCollectors = CountDownLatch(1)
@@ -229,11 +232,11 @@ class AuthSessionAtomicityAndOrderingTest {
                     @Suppress("UNCHECKED_CAST")
                     val sub = msg["sub"] as Map<String, Any?>
                     if (sub["target"] == "authState") {
-                        authStateSubId = subId
                         transport.sendToClient("""{"type":"worker-snap","subId":"$subId","value":null}""")
+                        authStateSubId.set(subId)
                     } else if (sub["target"] == "idToken") {
-                        idTokenSubId = subId
                         transport.sendToClient("""{"type":"worker-snap","subId":"$subId","value":null}""")
+                        idTokenSubId.set(subId)
                     }
                 }
                 "worker-op" -> {
@@ -265,19 +268,19 @@ class AuthSessionAtomicityAndOrderingTest {
                         "auth.signOut" -> synchronized(lock) {
                             // Mirror real Node host ordering: authState=null and idToken=null
                             // broadcast before auth.signOut worker-res.
-                            authStateSubId?.let { sId ->
+                            authStateSubId.get()?.let { sId ->
                                 transport.sendToClient("""{"type":"worker-snap","subId":"$sId","value":null}""")
                             }
-                            idTokenSubId?.let { sId ->
+                            idTokenSubId.get()?.let { sId ->
                                 transport.sendToClient("""{"type":"worker-snap","subId":"$sId","value":null}""")
                             }
                             transport.sendToClient("""{"type":"worker-res","id":"$id","ok":true,"value":null}""")
                         }
                         "auth.signInAnonymously" -> synchronized(lock) {
-                            authStateSubId?.let { sId ->
+                            authStateSubId.get()?.let { sId ->
                                 transport.sendToClient("""{"type":"worker-snap","subId":"$sId","value":$anonJson}""")
                             }
-                            idTokenSubId?.let { sId ->
+                            idTokenSubId.get()?.let { sId ->
                                 transport.sendToClient("""{"type":"worker-snap","subId":"$sId","value":$anonJson}""")
                             }
                             transport.sendToClient(
@@ -291,7 +294,7 @@ class AuthSessionAtomicityAndOrderingTest {
 
         val app = newApp("stale-signout-null-ordering")
         val auth = FirebaseAuth.getInstance(app, bridge)
-        awaitCondition { authStateSubId != null && idTokenSubId != null }
+        awaitCondition { bridge.isConnected && authStateSubId.get() != null && idTokenSubId.get() != null }
 
         // 1. Establish initial password session (owner-1).
         Tasks.await(auth.signInWithEmailAndPassword("owner@example.com", "OpsPassword!123"), 5, TimeUnit.SECONDS)
@@ -303,8 +306,8 @@ class AuthSessionAtomicityAndOrderingTest {
         try {
             holdCollectorFetches.set(true)
             synchronized(lock) {
-                transport.sendToClient("""{"type":"worker-snap","subId":"$authStateSubId","value":$staleProbeJson}""")
-                transport.sendToClient("""{"type":"worker-snap","subId":"$idTokenSubId","value":$ownerJson}""")
+                transport.sendToClient("""{"type":"worker-snap","subId":"${authStateSubId.get()}","value":$staleProbeJson}""")
+                transport.sendToClient("""{"type":"worker-snap","subId":"${idTokenSubId.get()}","value":$ownerJson}""")
             }
             assertTrue(bothCollectorsHeld.await(3, TimeUnit.SECONDS), "Expected both bridge collectors to park on enrichment")
 
@@ -338,7 +341,7 @@ class AuthSessionAtomicityAndOrderingTest {
         // 5. Verify a genuine server-pushed sign-out arriving AFTER signInAnonymously
         // (higher wireSeq) still clears currentUser and resets effectiveLens to Anon.
         synchronized(lock) {
-            transport.sendToClient("""{"type":"worker-snap","subId":"$authStateSubId","value":null}""")
+            transport.sendToClient("""{"type":"worker-snap","subId":"${authStateSubId.get()}","value":null}""")
         }
         awaitCondition { auth.currentUser == null }
         assertEquals(AuthLens.Anon, auth.getEffectiveLens())
@@ -350,7 +353,8 @@ class AuthSessionAtomicityAndOrderingTest {
         val bridge = PyricBridgeClient(transport)
         val lock = Any()
 
-        var authStateSubId: String? = null
+        val authStateSubId = AtomicReference<String?>(null)
+        val idTokenSubId = AtomicReference<String?>(null)
         val holdFirstFetch = AtomicBoolean(true)
         val firstFetchHeld = CountDownLatch(1)
         val releaseFirstFetch = CountDownLatch(1)
@@ -369,10 +373,11 @@ class AuthSessionAtomicityAndOrderingTest {
                     @Suppress("UNCHECKED_CAST")
                     val sub = msg["sub"] as Map<String, Any?>
                     if (sub["target"] == "authState") {
-                        authStateSubId = subId
                         transport.sendToClient("""{"type":"worker-snap","subId":"$subId","value":null}""")
+                        authStateSubId.set(subId)
                     } else if (sub["target"] == "idToken") {
                         transport.sendToClient("""{"type":"worker-snap","subId":"$subId","value":null}""")
+                        idTokenSubId.set(subId)
                     }
                 }
                 "worker-op" -> {
@@ -407,16 +412,17 @@ class AuthSessionAtomicityAndOrderingTest {
 
         val app = newApp("stale-pre-signout-boundary-wireseq")
         val auth = FirebaseAuth.getInstance(app, bridge)
-        awaitCondition { authStateSubId != null }
+        awaitCondition { bridge.isConnected && authStateSubId.get() != null && idTokenSubId.get() != null }
 
         try {
+            val subId = authStateSubId.get()!!
             // 1. Park subscribeAuthState inside fetchBridgeUserTokenEnrichment.
-            transport.sendToClient("""{"type":"worker-snap","subId":"$authStateSubId","value":$probeUserJson}""")
+            transport.sendToClient("""{"type":"worker-snap","subId":"$subId","value":$probeUserJson}""")
             assertTrue(firstFetchHeld.await(3, TimeUnit.SECONDS))
 
             // 2. Deliver a second non-null authState snapshot WITH embedded customClaims
             // (so fetchEpoch would be null). Its wireSeq == N == currentInboundWireSeq().
-            transport.sendToClient("""{"type":"worker-snap","subId":"$authStateSubId","value":$embeddedClaimsUserJson}""")
+            transport.sendToClient("""{"type":"worker-snap","subId":"$subId","value":$embeddedClaimsUserJson}""")
 
             // 3. Call signOut() locally: lastAuthoritativeWireSeq becomes N.
             auth.signOut()
@@ -434,5 +440,32 @@ class AuthSessionAtomicityAndOrderingTest {
 
         assertNull(auth.currentUser, "Queued pre-signOut snapshot at wireSeq == lastAuthoritativeWireSeq must not resurrect user")
         assertEquals(AuthLens.Anon, auth.getEffectiveLens())
+    }
+
+    @Test
+    fun inMemoryBridgeTransportDeliversEachPreAttachAndConcurrentSendExactlyOnce() {
+        repeat(100) {
+            val transport = InMemoryBridgeTransport()
+            val delivered = CopyOnWriteArrayList<String>()
+            val startLatch = CountDownLatch(1)
+            val senderDone = CountDownLatch(1)
+
+            val sender = Thread {
+                startLatch.await(3, TimeUnit.SECONDS)
+                for (idx in 0 until 20) {
+                    transport.send("""{"idx":$idx}""")
+                }
+                senderDone.countDown()
+            }
+            sender.start()
+            transport.send("""{"idx":-1}""")
+            startLatch.countDown()
+            transport.onServerReceive { raw ->
+                delivered.add(raw)
+            }
+            assertTrue(senderDone.await(3, TimeUnit.SECONDS))
+            assertEquals(21, delivered.size)
+            assertEquals((-1 until 20).map { """{"idx":$it}""" }.toSet(), delivered.toSet())
+        }
     }
 }
