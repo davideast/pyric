@@ -17,6 +17,10 @@ import {
 // one module instance `pyric-admin` reads.
 import { getClock, registerAuthAccounts } from 'pyric/sandbox/internal';
 import {
+  getProjectEmailEnumerationProtection,
+  setProjectEmailEnumerationProtection,
+} from './sandbox/email-enumeration-protection.js';
+import {
   accountHistory,
   accountStanding,
   createAuthProjectStore,
@@ -98,6 +102,8 @@ function projectStoreFor(sandbox: Sandbox): AuthProjectStore {
         // The account changed: persistence saves the revocation (#2018).
         notifyUserDb(created);
       },
+      emailEnumerationProtection: () => getProjectEmailEnumerationProtection(created),
+      setEmailEnumerationProtection: (enabled) => setProjectEmailEnumerationProtection(created, enabled),
       forgetHistory: () => forgetAccountHistory(created),
       history: () => accountHistory(created),
       replayHistory: (history) => replayAccountHistory(created, history),

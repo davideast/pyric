@@ -205,6 +205,11 @@ export function assertOperationArguments(message: Record<string, unknown>): void
       requireShape(hasEnabledFlag, 'enabled');
       return;
     }
+    case 'auth.setEmailEnumerationProtection': {
+      const hasEnabledFlag = typeof message.enabled === 'boolean';
+      requireShape(hasEnabledFlag, 'enabled');
+      return;
+    }
     case 'storage.setMetadata':
       assertMetadataPatch(message.patch);
       return;
@@ -536,6 +541,7 @@ export function assertOperationArguments(message: Record<string, unknown>): void
     case 'auth.listUsers':
     case 'auth.adminClearUsers':
     case 'auth.getProviderConfig':
+    case 'auth.getEmailEnumerationProtection':
     case 'storage.listAll':
     case 'storage.getMetadata':
     case 'storage.getDownloadURL':

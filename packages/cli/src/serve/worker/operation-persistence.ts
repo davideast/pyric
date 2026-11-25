@@ -85,6 +85,8 @@ export const operationPersistence = {
   'auth.adminClearUsers': true,
   'auth.getProviderConfig': false,
   'auth.setProviderConfig': true,
+  'auth.getEmailEnumerationProtection': false,
+  'auth.setEmailEnumerationProtection': true,
   'auth.blockingRespond': true,
   'storage.listAll': false,
   'storage.getMetadata': false,

@@ -259,6 +259,8 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'auth.adminClearUsers' }
   | { t: 'op'; id: string; method: 'auth.getProviderConfig' }
   | { t: 'op'; id: string; method: 'auth.setProviderConfig'; providerId: string; enabled: boolean }
+  | { t: 'op'; id: string; method: 'auth.getEmailEnumerationProtection' }
+  | { t: 'op'; id: string; method: 'auth.setEmailEnumerationProtection'; enabled: boolean }
   | AuthBlockingRespondOpMessage
   // Storage ops. An object op names its bucket with `bucket`, or the host's
   // default bucket without one (see StorageBucketWire).

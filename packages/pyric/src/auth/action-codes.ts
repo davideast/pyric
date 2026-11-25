@@ -43,6 +43,7 @@
 
 import { makeAuthError } from './auth-errors.js';
 import { ActionCodeOperation } from './enums.js';
+import { SandboxBackend } from './sandbox-backend.js';
 import { runBeforeSendEmailForBackend } from './sandbox/blocking-dispatch.js';
 import { targetOf } from './target.js';
 import type { SandboxTarget } from './target.js';
@@ -194,8 +195,12 @@ export async function sendTenantPasswordResetEmail(
   }
   const stored = target.backend.findByEmail(email, effectiveTenant);
   if (!stored) {
-    // Enumeration protection: resolve silently. No mail, no code, no tell.
-    return;
+    const store = SandboxBackend.projectStoreOf(target.backend);
+    if (store.emailEnumerationProtection) {
+      // Enumeration protection on (default): resolve silently with no mail or code.
+      return;
+    }
+    throw makeAuthError('auth/user-not-found', 'Error');
   }
   const targetEmail = stored.email ?? email;
   const resolvedTenant = stored.tenantId ?? effectiveTenant;
