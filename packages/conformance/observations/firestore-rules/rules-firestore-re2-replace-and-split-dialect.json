@@ -5,8 +5,8 @@
     "firestore-rules#232"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"re2-replace-and-split-dialect\" (Coverage: RE2 flags, classes, quoting, astral characters and anchors in replace() and split()). replace() and split() read RE2's scoped and inline flags, `(?U)`, `\\pL`, `[[:alpha:]]`, `\\Q..\\E`, an astral character as one code point, and `\\z` and `\\A` under `(?m)` as production does.",
-  "observedAt": "2026-11-04T02:25:11.633Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:46:46.745Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

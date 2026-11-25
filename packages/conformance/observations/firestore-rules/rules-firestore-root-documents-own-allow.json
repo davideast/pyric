@@ -5,8 +5,8 @@
     "firestore-rules#221"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"root-documents-own-allow\" (Coverage: root block own allow). The rules on a root that stops at documents grant no document.",
-  "observedAt": "2026-11-04T02:25:44.658Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:46:46.939Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

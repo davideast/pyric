@@ -5,8 +5,8 @@
     "firestore-rules#233"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"path-bind-forms\" (Path.bind placeholder syntax and value types). Pins how Firestore Rules evaluates Path.bind() on path() strings across {x} and $(x) placeholders plus integer and float map values.",
-  "observedAt": "2026-11-17T03:30:38.701Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:46:46.361Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

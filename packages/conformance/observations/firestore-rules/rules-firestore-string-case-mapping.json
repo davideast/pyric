@@ -5,8 +5,8 @@
     "firestore-rules#229"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"string-case-mapping\" (Coverage: lower() and upper() case mapping). lower() and upper() map the ASCII letters A-Z and a-z only; every other letter, including é, Ä, Σ, ж, ß, İ and fullwidth ａ, keeps its case.",
-  "observedAt": "2026-11-04T02:36:53.613Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:46:47.524Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

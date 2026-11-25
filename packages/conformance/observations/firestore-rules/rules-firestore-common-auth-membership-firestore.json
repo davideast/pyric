@@ -5,8 +5,8 @@
     "firestore-rules#189"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"common-auth-membership-firestore\" (FIRESTORE-COMMON-STDLIB). Exact auth/membership stdlib bodies under cloud.firestore: auth null/uid, custom claims, explicit membership maps, and role equality.",
-  "observedAt": "2026-10-30T09:17:39.058Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:46:44.996Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

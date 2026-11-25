@@ -5,8 +5,8 @@
     "firestore-rules#223"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"root-recursive-own-allow-write\" (Coverage: root block own allow). The write rules on a root recursive block apply, as on any other block.",
-  "observedAt": "2026-11-16T06:12:07.633Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:46:46.969Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

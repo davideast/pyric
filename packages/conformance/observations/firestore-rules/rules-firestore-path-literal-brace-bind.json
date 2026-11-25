@@ -5,8 +5,8 @@
     "firestore-rules#234"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"path-literal-brace-bind\" (Path literal brace placeholder with bind()). Pins whether Firestore Rules compiles or rejects (/a/{x}).bind({'x': '1'}) in an expression path literal, and records the runtime verdict if compiled.",
-  "observedAt": "2026-11-17T03:30:38.913Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:46:46.432Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

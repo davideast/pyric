@@ -5,8 +5,8 @@
     "firestore-rules#225"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"int64-conversions-and-mixed-equality\" (Coverage: int64 conversions and mixed int and float equality). int() of strings and floats saturates or fails as production does, math functions and int64 overflow keep production's results, and an int and a float past 2^53 are equal under == but distinct in a List, a Map, a Set and a map diff.",
-  "observedAt": "2026-11-16T06:12:03.393Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:46:45.986Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
