@@ -1,5 +1,5 @@
 import 'fake-indexeddb/auto';
-import { beforeEach, expect, test } from 'bun:test';
+import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { AIError, getAI, getGenerativeModel, type AI } from 'pyric/ai';
@@ -61,6 +61,11 @@ function stripStreamChunkCount(
 beforeEach(async () => {
   await resetAppRegistryForTests();
   await Promise.all(getApps().map((app) => deleteApp(app)));
+});
+
+afterEach(async () => {
+  await Promise.all(getApps().map((app) => deleteApp(app)));
+  await resetAppRegistryForTests();
 });
 
 test('replays production deleted-app getAI, getGenerativeModel, retained-model, and sibling lifecycle', async () => {
