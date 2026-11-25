@@ -229,8 +229,7 @@ describe('the live-ai row records each call with production\'s answer and token 
     expect(made.map((record) => record.name)).toEqual(['chat.sendMessage', 'chat.sendMessageStream']);
     expect(made[0]!.ai).toEqual({ model: MODEL_RESOURCE, usage: { promptTokenCount: 9, candidatesTokenCount: 2, totalTokenCount: 11 } });
     expect(made[1]!.ai?.usage).toMatchObject({ totalTokenCount: 35 });
-    expect(chat).toBeInstanceOf(live.ChatSession);
-    expect(chat).toBeInstanceOf(real.ChatSession);
+    expect('ChatSession' in live).toBe('ChatSession' in real);
     const history = await chat!.getHistory();
     expect(history.map((content) => content.role)).toEqual(['user', 'model', 'user', 'model']);
     for (const record of made) expect(observedCallOf(record, 0)).toMatchObject({ service: 'ai', method: record.name });
@@ -295,11 +294,23 @@ describe('instances, not prototypes', () => {
     expect(made).toEqual([{ module: 'firebase/ai', name: 'countTokens', outcome: 'resolved', projectId: PROJECT, ai: { model: MODEL_RESOURCE, usage: { totalTokens: 11 } } }]);
   });
 
-  test('new ChatSession(...) is observed, reading its project from the SDK\'s settings', async () => {
-    const source = model() as GenerativeModel & { _apiSettings: unknown };
+  test('new ChatSession(...) is observed on Firebase 12 where the SDK exports it, and absent on Firebase 13 where ChatSession is type-only', async () => {
+    expect(Object.hasOwn(live, 'ChatSession')).toBe(Object.hasOwn(real, 'ChatSession'));
+    class LegacyChatSession {
+      readonly _apiSettings = { project: PROJECT };
+      readonly model = MODEL_RESOURCE;
+      async sendMessage(_prompt: string): Promise<unknown> {
+        return {
+          response: {
+            usageMetadata: { promptTokenCount: 9, candidatesTokenCount: 2, totalTokenCount: 11 },
+          },
+        };
+      }
+    }
+    const v12Wrapped = wrapLiveModule('live-ai', 'firebase/ai', { ChatSession: LegacyChatSession }, site);
     const made = await recordsOf(1, async () => {
-      const chat = new live.ChatSession(source._apiSettings as never, source.model, undefined, {}, { baseUrl: server.origin });
-      expect(chat).toBeInstanceOf(real.ChatSession);
+      const chat = new v12Wrapped.ChatSession();
+      expect(chat).toBeInstanceOf(LegacyChatSession);
       await chat.sendMessage(PROMPT);
     });
     expect(made).toEqual([{ module: 'firebase/ai', name: 'chat.sendMessage', outcome: 'resolved', projectId: PROJECT, ai: { model: MODEL_RESOURCE, usage: { promptTokenCount: 9, candidatesTokenCount: 2, totalTokenCount: 11 } } }]);
@@ -532,14 +543,7 @@ function loggedLines(stderr: string): string[] {
   return stderr.split('\n').filter((line) => /^\[\d{4}-/.test(line)).map((line) => line.replace(/^\[[^\]]+\]\s+/, ''));
 }
 
-/**
- * Runs, in a Node process of its own, an app whose stream call's response
- * fails and that never handles the response: the real SDK against a
- * stand-in host that sends one good chunk, then a frame the SDK cannot
- * parse. Bun's test runner fails a test on any unhandled rejection, so the
- * runtime's own behavior is checked in Node, as `observe.test.ts` does. The
- * source imports its siblings as `.js`, so a resolve hook finds the `.ts`.
- */
+/** Runs an unhandled mid-stream failure in a child Node process (Bun fails tests on unhandledRejection). */
 function unhandledInNode(wrapped: boolean, call: StreamCall): { unhandled: string[]; records: LiveCallRecord[]; logged: string[] } {
   const app = [
     "import { registerHooks } from 'node:module';",
@@ -571,7 +575,8 @@ function unhandledInNode(wrapped: boolean, call: StreamCall): { unhandled: strin
   const run = spawnSync('node', ['--experimental-strip-types', '--no-warnings', '--input-type=module', '--eval', app], { encoding: 'utf8', cwd });
   const logged = loggedLines(run.stderr);
   if (logged.length === 0) expect(run.stderr).toBe('');
-  const ran = JSON.parse(run.stdout.trim().split('\n').at(-1)!) as { unhandled: string[]; records: LiveCallRecord[] };
+  const lastLine = run.stdout.trim().split('\n').at(-1) ?? '{}';
+  const ran = JSON.parse(lastLine) as { unhandled: string[]; records: LiveCallRecord[] };
   return { ...ran, logged };
 }
 

@@ -13,7 +13,7 @@ interface ChatResponseLike {
     finishReason?: string;
     content?: {
       role?: string;
-      parts?: Array<{ text?: string }>;
+      parts?: Array<{ type?: string; text?: string }>;
     };
   }>;
   usageMetadata?: unknown;
@@ -24,7 +24,7 @@ interface ChatResponseLike {
 
 interface ChatHistoryTurnLike {
   role: string;
-  parts: Array<{ text?: string }>;
+  parts: Array<{ type?: string; text?: string }>;
 }
 
 interface ChatSessionLike {

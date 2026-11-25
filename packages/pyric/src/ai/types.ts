@@ -43,7 +43,6 @@ export interface AIOptions {
 export interface AI {
   app?: FirebaseApp;
   backend: Backend;
-  location: string;
   options?: AIOptions;
 }
 
@@ -143,78 +142,51 @@ export interface VideoMetadata {
   endOffset: string;
 }
 
+export interface SpeechMetadata {
+  speaker?: string;
+  style?: string;
+}
+
 export interface TextPart {
+  type: 'text';
   text: string;
-  inlineData?: never;
-  functionCall?: never;
-  functionResponse?: never;
   thought?: boolean;
-  executableCode?: never;
-  codeExecutionResult?: never;
+  speechMetadata?: SpeechMetadata;
 }
 
 export interface InlineDataPart {
-  text?: never;
+  type: 'inlineData';
   inlineData: GenerativeContentBlob;
-  functionCall?: never;
-  functionResponse?: never;
   videoMetadata?: VideoMetadata;
   thought?: boolean;
-  executableCode?: never;
-  codeExecutionResult?: never;
 }
 
 export interface FunctionCallPart {
-  text?: never;
-  inlineData?: never;
+  type: 'functionCall';
   functionCall: FunctionCall;
-  functionResponse?: never;
   thought?: boolean;
-  executableCode?: never;
-  codeExecutionResult?: never;
 }
 
 export interface FunctionResponsePart {
-  text?: never;
-  inlineData?: never;
-  functionCall?: never;
+  type: 'functionResponse';
   functionResponse: FunctionResponse;
   thought?: boolean;
-  executableCode?: never;
-  codeExecutionResult?: never;
 }
 
 export interface FileDataPart {
-  text?: never;
-  inlineData?: never;
-  functionCall?: never;
-  functionResponse?: never;
+  type: 'fileData';
   fileData: FileData;
   thought?: boolean;
-  executableCode?: never;
-  codeExecutionResult?: never;
 }
 
 export interface ExecutableCodePart {
-  text?: never;
-  inlineData?: never;
-  functionCall?: never;
-  functionResponse?: never;
-  fileData: never;
-  thought?: never;
-  executableCode?: ExecutableCode;
-  codeExecutionResult?: never;
+  type: 'executableCode';
+  executableCode: ExecutableCode;
 }
 
 export interface CodeExecutionResultPart {
-  text?: never;
-  inlineData?: never;
-  functionCall?: never;
-  functionResponse?: never;
-  fileData: never;
-  thought?: never;
-  executableCode?: never;
-  codeExecutionResult?: CodeExecutionResult;
+  type: 'codeExecutionResult';
+  codeExecutionResult: CodeExecutionResult;
 }
 
 export type Part =
@@ -245,7 +217,6 @@ export interface CountTokensRequest {
 
 export interface CountTokensResponse {
   totalTokens: number;
-  totalBillableCharacters?: number;
   promptTokensDetails?: ModalityTokenCount[];
 }
 

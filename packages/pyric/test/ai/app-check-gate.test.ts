@@ -20,7 +20,13 @@ import { deleteApp } from '../../src/app/index.js';
 import { createAppForSandbox } from '../../src/app/internal.js';
 import type { FirebaseApp } from '../../src/app/types.js';
 import { CustomProvider, getLimitedUseToken, getToken, initializeAppCheck } from '../../src/app-check/index.js';
-import { AIError, VertexAIBackend, getAI, getGenerativeModel } from '../../src/ai/index.js';
+import {
+  AIError,
+  BackendType,
+  getAI,
+  getGenerativeModel,
+  type AgentPlatformBackend,
+} from '../../src/ai/index.js';
 import { AiBroker } from '../../src/ai/broker/broker.js';
 import { AiBrokerError, errorEnvelope } from '../../src/ai/broker/synthesizer.js';
 import type { AnswerEngine } from '../../src/ai/broker/types.js';
@@ -35,7 +41,7 @@ const obs = (name: string): Behavior =>
 
 const EARLIER_REFUSAL = join(import.meta.dir, '..', '..', '..', 'conformance', 'earlier-captures', 'ai-logic-refusal-unenforced.json');
 const earlier = (JSON.parse(readFileSync(EARLIER_REFUSAL, 'utf8')) as { captures: Record<string, Behavior> }).captures;
-const earlierGateWire = earlier['app-check-ai-gate-wire']!;
+const earlierGateWire = earlier['app-check-ai-gate-wire'] ?? {};
 const gateWire = obs('app-check-ai-gate-wire');
 const aiHeader = obs('app-check-client-ai-header');
 const beforeInitialize = obs('app-check-client-get-token-before-initialize');
@@ -324,17 +330,19 @@ describe('app-check#custom-provider-without-debug-token: AI Logic judges the pro
   });
 });
 
-// The SDK's `RequestURL` builds the Vertex AI path from
-// `VertexAIBackend._getModelPath`, `/v1beta/projects/<project>/locations/<location>/<model>`
-// with `<model>` = `publishers/google/models/<name>`, and adds `alt=sse` to a
-// stream (@firebase/ai 2.12.0). The sandbox's error URL keeps project `sandbox`.
+// Regional AGENT_PLATFORM handles format `/v1beta/projects/<project>/locations/<location>/<model>`
+// with `<model>` = `publishers/google/models/<name>` and `alt=sse` on streams.
 describe('ai#sandbox-app-check-required: the error URL follows the handle backend (#1640)', () => {
-  const vertexUrl = (location: string, op: string) =>
+  const regionalUrl = (location: string, op: string) =>
     `https://firebasevertexai.googleapis.com/v1beta/projects/sandbox/locations/${location}/publishers/google/models/${MODEL}:${taskAndQuery(op)}`;
+  const regionalBackend = (location: string): AgentPlatformBackend => ({
+    backendType: BackendType.AGENT_PLATFORM,
+    location,
+  });
   const gate = `[401 Unauthorized] ${aiHeader.noAppCheck.generation.message.split('[401 Unauthorized] ')[1]}`;
 
-  it('a Vertex AI sandbox handle names the Vertex AI path, and a stream adds alt=sse', async () => {
-    const model = getGenerativeModel(getAI(newApp(), { backend: new VertexAIBackend('europe-west4') }), { model: MODEL });
+  it('a regional sandbox handle names the regional publishers/google path, and a stream adds alt=sse', async () => {
+    const model = getGenerativeModel(getAI(newApp(), { backend: regionalBackend('europe-west4') }), { model: MODEL });
     const ops: Array<[string, Promise<unknown>]> = [
       ['generateContent', model.generateContent('ping')],
       ['streamGenerateContent', model.generateContentStream('ping')],
@@ -342,52 +350,34 @@ describe('ai#sandbox-app-check-required: the error URL follows the handle backen
     ];
     for (const [op, request] of ops) {
       const error = await rejection(request);
-      expect(error.message).toBe(`AI: Error fetching from ${vertexUrl('europe-west4', op)}: ${gate}`);
+      expect(error.message).toBe(`AI: Error fetching from ${regionalUrl('europe-west4', op)}: ${gate}`);
     }
   });
 
-  it('a Vertex AI handle with no location names us-central1, as the SDK defaults it', async () => {
-    const model = getGenerativeModel(getAI(newApp(), { backend: new VertexAIBackend() }), { model: MODEL });
-    const error = await rejection(model.generateContent('ping'));
-    expect(error.message).toBe(`AI: Error fetching from ${vertexUrl('us-central1', 'generateContent')}: ${gate}`);
-  });
-
-  it('a Vertex AI transport handle translates a broker envelope with the Vertex AI path', async () => {
+  it('a regional transport handle translates a broker envelope with the regional path', async () => {
     const refused = () => new AiBrokerError(errorEnvelope(503, 'overloaded', 'UNAVAILABLE'));
     const failing: AnswerEngine = {
-      async generateContent() {
-        throw refused();
-      },
-      streamGenerateContent() {
-        return (async function* fails() {
-          throw refused();
-        })();
-      },
-      async countTokens() {
-        throw refused();
-      },
+      async generateContent() { throw refused(); },
+      streamGenerateContent() { return (async function* fails() { throw refused(); })(); },
+      async countTokens() { throw refused(); },
     };
-    const ai = createTransportAI(newApp(), { backend: new VertexAIBackend('asia-northeast1') }, failing);
+    const ai = createTransportAI(newApp(), { backend: regionalBackend('asia-northeast1') }, failing);
     const model = getGenerativeModel(ai, { model: MODEL });
     const unary = await rejection(model.generateContent('ping'));
-    expect(unary.message).toBe(`AI: Error fetching from ${vertexUrl('asia-northeast1', 'generateContent')}: [503 Service Unavailable] overloaded (AI/fetch-error)`);
+    expect(unary.message).toBe(`AI: Error fetching from ${regionalUrl('asia-northeast1', 'generateContent')}: [503 Service Unavailable] overloaded (AI/fetch-error)`);
     const stream = await rejection(model.generateContentStream('ping').then((result) => result.response));
-    expect(stream.message).toBe(`AI: Error fetching from ${vertexUrl('asia-northeast1', 'streamGenerateContent')}: [503 Service Unavailable] overloaded (AI/fetch-error)`);
+    expect(stream.message).toBe(`AI: Error fetching from ${regionalUrl('asia-northeast1', 'streamGenerateContent')}: [503 Service Unavailable] overloaded (AI/fetch-error)`);
   });
 
-  it('with limited-use tokens on Vertex AI, a provider that rejects names the Vertex AI path', async () => {
+  it('with limited-use tokens on a regional handle, a rejecting provider names the regional path', async () => {
     const app = newApp();
     initializeAppCheck(app, {
-      provider: new CustomProvider({
-        getToken: async () => {
-          throw new Error('attestation failed');
-        },
-      }),
+      provider: new CustomProvider({ getToken: async () => { throw new Error('attestation failed'); } }),
       isTokenAutoRefreshEnabled: false,
     });
-    const ai = getAI(app, { backend: new VertexAIBackend('us-east4'), useLimitedUseAppCheckTokens: true });
+    const ai = getAI(app, { backend: regionalBackend('us-east4'), useLimitedUseAppCheckTokens: true });
     const error = await rejection(getGenerativeModel(ai, { model: MODEL }).generateContentStream('ping').then((result) => result.response));
-    expect(error.message).toBe(`AI: Error fetching from ${vertexUrl('us-east4', 'streamGenerateContent')}: attestation failed (AI/error)`);
+    expect(error.message).toBe(`AI: Error fetching from ${regionalUrl('us-east4', 'streamGenerateContent')}: attestation failed (AI/error)`);
   });
 });
 
@@ -413,7 +403,8 @@ describe('ai#sandbox-app-check-limited-use', () => {
     (globalThis as { FIREBASE_APPCHECK_DEBUG_TOKEN?: unknown }).FIREBASE_APPCHECK_DEBUG_TOKEN = true;
     const appCheck = withAppCheck(newApp());
     const ttl = (token: string): number => {
-      const claims = JSON.parse(Buffer.from(token.split('.')[1]!, 'base64url').toString('utf8')) as { exp: number; iat: number };
+      const payloadSegment = token.split('.')[1] ?? '';
+      const claims = JSON.parse(Buffer.from(payloadSegment, 'base64url').toString('utf8')) as { exp: number; iat: number };
       return claims.exp - claims.iat;
     };
     expect(ttl((await getLimitedUseToken(appCheck)).token)).toBe(aiHeader.limitedUseModel.appCheckHeaderShape.ttlSeconds);
@@ -448,7 +439,7 @@ describe('ai#sandbox-app-check-limited-use', () => {
     expect(claims).not.toContain(cached);
     expect(claims).not.toContain(null);
     // Sanity: limited-use tokens are what getLimitedUseToken returns, shape for shape.
-    expect(claims[0]!.split('.')).toHaveLength((await getLimitedUseToken(appCheck)).token.split('.').length);
+    expect((claims[0] ?? '').split('.')).toHaveLength((await getLimitedUseToken(appCheck)).token.split('.').length);
   });
 
   it('a limited-use sandbox handle answers', async () => {

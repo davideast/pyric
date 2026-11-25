@@ -2,12 +2,20 @@ import { FirebaseError, deleteApp, initializeApp } from 'firebase/app';
 import {
   AIError,
   AIErrorCode,
-  ChatSession,
   POSSIBLE_ROLES,
   getAI,
   getGenerativeModel,
+  type ChatSession,
 } from 'firebase/ai';
 import type { Probe } from '../../rigs/types.ts';
+
+function hasChatSessionShape(chat: ChatSession): boolean {
+  return (
+    typeof chat.sendMessage === 'function' &&
+    typeof chat.sendMessageStream === 'function' &&
+    typeof chat.getHistory === 'function'
+  );
+}
 
 interface ObservedThrow {
   threw: boolean;
@@ -96,7 +104,7 @@ export const probe: Probe = {
       controller.abort();
       const abortContentRequest = await observeAsyncCall(() =>
         model.generateContent(
-          { contents: [{ role: 'user', parts: [{ text: 'never delivered' }] }] },
+          { contents: [{ role: 'user', parts: [{ text: 'never delivered', type: 'text' }] }] },
           { signal: controller.signal },
         ),
       );
@@ -108,14 +116,24 @@ export const probe: Probe = {
       const defaultHistory = await defaultChat.getHistory();
 
       const seededTurns = [
-        { role: 'user' as const, parts: [{ text: 'hi' }] },
+        { role: 'user' as const, parts: [{ text: 'hi', type: 'text' as const }] },
         {
           role: 'model' as const,
-          parts: [{ functionCall: { name: 'greet', args: { target: 'world' } } }],
+          parts: [
+            {
+              functionCall: { name: 'greet', args: { target: 'world' } },
+              type: 'functionCall' as const,
+            },
+          ],
         },
         {
           role: 'function' as const,
-          parts: [{ functionResponse: { name: 'greet', response: { ok: true } } }],
+          parts: [
+            {
+              functionResponse: { name: 'greet', response: { ok: true } },
+              type: 'functionResponse' as const,
+            },
+          ],
         },
       ];
       const seededChat = model.startChat({ history: seededTurns });
@@ -125,7 +143,9 @@ export const probe: Probe = {
         model.startChat({ history: [{ role: 'user', parts: [] }] }),
       );
       const modelFirstHistoryThrow = observeSyncCall(() =>
-        model.startChat({ history: [{ role: 'model', parts: [{ text: 'first' }] }] }),
+        model.startChat({
+          history: [{ role: 'model', parts: [{ text: 'first', type: 'text' }] }],
+        }),
       );
 
       const errorCodesSorted = Object.values(AIErrorCode).slice().sort();
@@ -142,7 +162,7 @@ export const probe: Probe = {
           abortStringRequest,
         },
         startChat: {
-          isChatSession: seededChat instanceof ChatSession,
+          isChatSession: hasChatSessionShape(seededChat),
           defaultHistoryLength: defaultHistory.length,
           seededRoles: seededHistory.map((entry) => entry.role),
           seededHistoryMatchesInput: JSON.stringify(seededHistory) === JSON.stringify(seededTurns),

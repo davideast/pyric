@@ -1,5 +1,5 @@
 /**
- * `pyric/firestore` — public type surface.
+ * `pyric/firestore` -- public type surface.
  *
  * The cross-cutting handle, reference, query, snapshot, converter, and
  * batch/transaction types shared by every family module. Split out of the
@@ -55,7 +55,7 @@ export interface FirestoreDataConverter<
   ): AppModelType;
 }
 
-// ─── Public Firestore handle ──────────────────────────────────────────
+// --- Public Firestore handle ------------------------------------------
 
 /**
  * Opaque sandbox handle carrying its owner via {@link TARGET_SYMBOL}.
@@ -74,7 +74,7 @@ export interface TransactionOptions {
 /** Firestore handle returned by Firebase-shaped app overloads. */
 export type AppFirestore = Firestore & { readonly app: FirebaseApp };
 
-// ─── Reference / query types ──────────────────────────────────────────
+// --- Reference / query types ------------------------------------------
 //
 // Modular refs are underlying chainable refs tagged in `refToTarget` so
 // operations can recover their sandbox owner.
@@ -327,8 +327,24 @@ export type PartialWithFieldValue<T> =
         ? { [K in keyof T]?: PartialWithFieldValue<T[K]> | FieldValueSentinel }
         : never);
 export type AddPrefixToKeys<Prefix extends string, T extends Record<string, unknown>> = { [K in keyof T as `${Prefix}.${string & K}`]: T[K] };
+export type ChildTypes<T> = T extends Record<string, unknown>
+  ?
+      | {
+          [K in keyof T & string]: ChildTypes<T[K]>;
+        }[keyof T & string]
+      | T
+  : T;
 export type ChildUpdateFields<T> = Record<string, unknown>;
 export type NestedUpdateFields<T> = Record<string, unknown>;
+export type {
+  BsonObjectId,
+  BsonTimestamp,
+  Decimal128Value,
+  Int32Value,
+  MaxKey,
+  MinKey,
+  RegexValue,
+} from './bson-types.js';
 export type DocumentChangeType = 'added' | 'removed' | 'modified';
 export interface DocumentChange<T = DocumentData> { readonly type: DocumentChangeType; readonly doc: QueryDocumentSnapshot<T>; readonly oldIndex: number; readonly newIndex: number; }
 export type OrderByDirection = 'asc' | 'desc';

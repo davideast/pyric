@@ -383,3 +383,123 @@ describe('surface-scoped acceptance files: <surface>.surface.md', () => {
     ]);
   });
 });
+
+describe('breadth-scoped acceptance files: <surface>.breadth.<pr-or-issue>.md', () => {
+  function mirrorService(
+    surface: 'ai' | 'firestore' | 'auth',
+    runtimeMapped: number,
+    runtimeDenom: number,
+    typesMapped = 10,
+    typesDenom = 10,
+  ): CoverageReport['services'][number] {
+    const rtPct = Math.round((runtimeMapped / runtimeDenom) * 1000) / 10;
+    const tyPct = Math.round((typesMapped / typesDenom) * 1000) / 10;
+    return {
+      surface,
+      kind: 'mirror',
+      censusSurface: surface,
+      surfaceCoverage: {
+        runtime: { mapped: runtimeMapped, denominator: runtimeDenom, pct: rtPct },
+        types: { mapped: typesMapped, denominator: typesDenom, pct: tyPct },
+      },
+      behavior: FLAT_BEHAVIOR,
+    };
+  }
+
+  test('parseAcceptance validates <surface>.breadth.<issue>.md and refuses overall.breadth.md', () => {
+    const path = `${ACCEPTANCES_DIR}/ai.breadth.1602.md`;
+    expect(parseAcceptance(path, 'Upstream removed 3 exports in @firebase/ai 3.1.0 (#1602).\n')).toEqual({
+      breadthSurface: 'ai',
+      path,
+      text: 'Upstream removed 3 exports in @firebase/ai 3.1.0 (#1602).\n',
+    });
+    expect(() => parseAcceptance(`${ACCEPTANCES_DIR}/ai.breadth.1602.md`, '#1602\n')).toThrow(
+      'gives no reason',
+    );
+    expect(() =>
+      parseAcceptance(`${ACCEPTANCES_DIR}/overall.breadth.1602.md`, 'Overall shift (#1602).\n'),
+    ).toThrow('cannot target overall directly');
+  });
+
+  test('excuses denominator-only shifts across ai + firestore and derived overall when zero existing exports drop', () => {
+    const base = reportOf(
+      {},
+      {
+        services: [mirrorService('ai', 41, 48), mirrorService('firestore', 104, 106), mirrorService('auth', 71, 85)],
+        overall: {
+          surfaceCoverage: {
+            runtime: { mapped: 216, denominator: 239, pct: 90.4 },
+            types: { mapped: 30, denominator: 30, pct: 100 },
+          },
+          behavior: FLAT_BEHAVIOR,
+        },
+      },
+    );
+    const head = reportOf(
+      {},
+      {
+        services: [mirrorService('ai', 38, 45), mirrorService('firestore', 104, 113), mirrorService('auth', 71, 85)],
+        overall: {
+          surfaceCoverage: {
+            runtime: { mapped: 213, denominator: 243, pct: 87.7 },
+            types: { mapped: 30, denominator: 30, pct: 100 },
+          },
+          behavior: FLAT_BEHAVIOR,
+        },
+      },
+    );
+    const aiAcc = parseAcceptance(`${ACCEPTANCES_DIR}/ai.breadth.1602.md`, 'Upstream removals (#1602).\n');
+    const fsAcc = parseAcceptance(`${ACCEPTANCES_DIR}/firestore.breadth.1602.md`, 'Deferred BSON exports (#1602).\n');
+
+    expect(findRegressions(base, head, [aiAcc, fsAcc])).toEqual([]);
+    // Omitting firestore's breadth acceptance fails both firestore and overall.
+    expect(findRegressions(base, head, [aiAcc])).toEqual([
+      'firestore: public runtime surface dropped 98.1% -> 92%',
+      'overall: public runtime surface dropped 90.4% -> 87.7%',
+    ]);
+  });
+
+  test('never excuses deleting a still-existing Pyric mirror export', () => {
+    const base = reportOf(
+      {},
+      {
+        services: [mirrorService('firestore', 104, 106)],
+        overall: {
+          surfaceCoverage: {
+            runtime: { mapped: 104, denominator: 106, pct: 98.1 },
+            types: { mapped: 10, denominator: 10, pct: 100 },
+          },
+          behavior: FLAT_BEHAVIOR,
+        },
+      },
+    );
+    const head = reportOf(
+      {},
+      {
+        services: [mirrorService('firestore', 103, 106)],
+        overall: {
+          surfaceCoverage: {
+            runtime: { mapped: 103, denominator: 106, pct: 97.2 },
+            types: { mapped: 10, denominator: 10, pct: 100 },
+          },
+          behavior: FLAT_BEHAVIOR,
+        },
+      },
+    );
+    const fsAcc = parseAcceptance(`${ACCEPTANCES_DIR}/firestore.breadth.1602.md`, 'Bad excuse (#1602).\n');
+    expect(findRegressions(base, head, [fsAcc])).toEqual([
+      'firestore: public runtime surface dropped 98.1% -> 97.2%',
+      'overall: public runtime surface dropped 98.1% -> 97.2%',
+      `${ACCEPTANCES_DIR}/firestore.breadth.1602.md names surface 'firestore', which had no upstream-denominator breadth drop against the base report`,
+    ]);
+  });
+
+  test('fails closed when a breadth acceptance names a service whose pct did not drop', () => {
+    const base = reportOf({}, { services: [mirrorService('auth', 71, 85)] });
+    const head = reportOf({}, { services: [mirrorService('auth', 71, 85)] });
+    const authAcc = parseAcceptance(`${ACCEPTANCES_DIR}/auth.breadth.1602.md`, 'Unused (#1602).\n');
+    expect(findRegressions(base, head, [authAcc])).toEqual([
+      `${ACCEPTANCES_DIR}/auth.breadth.1602.md names surface 'auth', which had no upstream-denominator breadth drop against the base report`,
+    ]);
+  });
+});

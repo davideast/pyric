@@ -23,7 +23,7 @@ export default row({
       observation: 'ai-offline-init-backends-and-model-guards',
       expect: { fetchCalls: 0 },
       probe: PROBE,
-      guards: 'Short model names normalize to models/<name> on GoogleAIBackend and publishers/google/models/<name> on VertexAIBackend.',
+      guards: 'Short model names normalize to models/<name> on GoogleAIBackend.',
     },
   ],
 });

@@ -1,5 +1,5 @@
 /**
- * `pyric/ai` mirror mechanics — unit coverage for the SDK plumbing BETWEEN
+ * `pyric/ai` mirror mechanics -- unit coverage for the SDK plumbing BETWEEN
  * the conformance rows (messaging precedent): instance identity, input
  * validation, history cloning, error translation, app-target routing, and the
  * scripting subpath's authoring guards. The registry rows themselves are
@@ -15,11 +15,12 @@ import {
   AIError,
   AIErrorCode,
   AIModel,
+  BackendType,
   GoogleAIBackend,
   Schema,
-  VertexAIBackend,
   getAI,
   getGenerativeModel,
+  type AgentPlatformBackend,
 } from '../../src/ai/index.js';
 import { encodeSse, script } from '../../src/ai/scripting.js';
 import { CustomProvider, initializeAppCheck } from '../../src/app-check/index.js';
@@ -56,7 +57,7 @@ async function rejectionFrom(promise: Promise<unknown>): Promise<any> {
   throw new Error('expected rejection');
 }
 
-// ── Instance identity ────────────────────────────────────────────────────
+// -- Instance identity ----------------------------------------------------
 
 describe('getAI instance identity', () => {
   it('repeat calls for one sandbox return the same handle', () => {
@@ -101,11 +102,18 @@ describe('getAI instance identity', () => {
   it('distinct backends on one sandbox yield distinct handles', () => {
     const sandbox = initializeSandbox();
     const googleAi = getAI(sandbox);
-    const vertexAi = getAI(sandbox, { backend: new VertexAIBackend() });
-    expect(googleAi).not.toBe(vertexAi);
-    expect(vertexAi.backend).toBeInstanceOf(VertexAIBackend);
-    // And the vertex handle is itself stable.
-    expect(getAI(sandbox, { backend: new VertexAIBackend() })).toBe(vertexAi);
+    const agentBackend: AgentPlatformBackend = {
+      backendType: BackendType.AGENT_PLATFORM,
+      location: 'us-central1',
+    };
+    const agentAi = getAI(sandbox, { backend: agentBackend });
+    expect(googleAi).not.toBe(agentAi);
+    expect(agentAi.backend.backendType).toBe(BackendType.AGENT_PLATFORM);
+    expect(
+      getAI(sandbox, {
+        backend: { backendType: BackendType.AGENT_PLATFORM, location: 'us-central1' } as AgentPlatformBackend,
+      }),
+    ).toBe(agentAi);
   });
 
   it('the default backend is GoogleAIBackend', () => {
@@ -114,7 +122,7 @@ describe('getAI instance identity', () => {
   });
 });
 
-// ── getGenerativeModel binding and input validation ──────────────────────
+// -- getGenerativeModel binding and input validation ----------------------
 
 describe('getGenerativeModel binding', () => {
   it('binds and normalizes the model resource name', () => {
@@ -156,7 +164,7 @@ describe('getGenerativeModel binding', () => {
 });
 
 describe('request validation surfaces AIError with the wire envelope', () => {
-  it('empty contents → fetch-error with status 400', async () => {
+  it('empty contents -> fetch-error with status 400', async () => {
     const { model } = freshModel();
     const error = await rejectionFrom(model.generateContent({ contents: [] }));
     expect(error).toBeInstanceOf(AIError);
@@ -192,7 +200,7 @@ describe('request validation surfaces AIError with the wire envelope', () => {
   });
 });
 
-// ── History cloning ──────────────────────────────────────────────────────
+// -- History cloning ------------------------------------------------------
 
 describe('ChatSession history isolation', () => {
   it('mutating the array returned by getHistory never corrupts the session', async () => {
@@ -207,17 +215,19 @@ describe('ChatSession history isolation', () => {
     (stolen as any).push({ role: 'user', parts: [{ text: 'forged' }] });
     const history = await chat.getHistory();
     expect(history.map((c: any) => c.role)).toEqual(['user', 'model']);
-    expect(history[0]!.parts[0]!.text).toBe('first');
+    const firstTurn = history[0];
+    const firstPart = firstTurn?.parts[0];
+    expect(firstPart && 'text' in firstPart ? firstPart.text : undefined).toBe('first');
   });
 
   it('mutating the seeded history array after startChat does not leak in', async () => {
     const seeded = [
-      { role: 'user', parts: [{ text: 'hi' }] },
-      { role: 'model', parts: [{ text: 'hello' }] },
+      { role: 'user' as const, parts: [{ text: 'hi', type: 'text' as const }] },
+      { role: 'model' as const, parts: [{ text: 'hello', type: 'text' as const }] },
     ];
     const { model } = freshModel();
     const chat = model.startChat({ history: seeded });
-    seeded.push({ role: 'user', parts: [{ text: 'sneaky' }] });
+    seeded.push({ role: 'user', parts: [{ text: 'sneaky', type: 'text' }] });
     const history = await chat.getHistory();
     expect(history.length).toBe(2);
   });
@@ -225,7 +235,7 @@ describe('ChatSession history isolation', () => {
   it('startChat validates seeded history (first role must be user)', () => {
     const { model } = freshModel();
     expect(() =>
-      model.startChat({ history: [{ role: 'model', parts: [{ text: 'x' }] }] }),
+      model.startChat({ history: [{ role: 'model', parts: [{ text: 'x', type: 'text' }] }] }),
     ).toThrow(AIError);
   });
 
@@ -254,7 +264,7 @@ describe('ChatSession history isolation', () => {
   });
 });
 
-// ── Streaming plumbing ───────────────────────────────────────────────────
+// -- Streaming plumbing ---------------------------------------------------
 
 describe('generateContentStream plumbing', () => {
   it('the aggregate response resolves even if the stream is never drained', async () => {
@@ -294,7 +304,7 @@ describe('generateContentStream plumbing', () => {
   });
 });
 
-// ── Error translation ────────────────────────────────────────────────────
+// -- Error translation ----------------------------------------------------
 
 describe('sandbox error translation', () => {
   it('unknown models reject with the SDK fetch-error decoration', async () => {
@@ -321,14 +331,14 @@ describe('sandbox error translation', () => {
     const { ai } = freshModel();
     const model = getGenerativeModel(ai, { model: 'not-a-real-model' });
     const error = await rejectionFrom(
-      model.countTokens({ contents: [{ role: 'user', parts: [{ text: 'x' }] }] }),
+      model.countTokens({ contents: [{ role: 'user', parts: [{ text: 'x', type: 'text' }] }] }),
     );
     expect(error).toBeInstanceOf(AIError);
     expect(error.customErrorData?.status).toBe(404);
   });
 });
 
-// ── App target selected by package resolution ───────────────────────────
+// -- App target selected by package resolution ---------------------------
 
 describe('sandbox app target', () => {
   it('getAI(app) carries the app and is idempotent', async () => {
@@ -384,7 +394,7 @@ describe('sandbox app target', () => {
   });
 });
 
-// ── Scripting subpath guards and framing ─────────────────────────────────
+// -- Scripting subpath guards and framing ---------------------------------
 
 describe('pyric/ai/scripting', () => {
   it('script() accepts a sandbox app handle', async () => {
@@ -458,7 +468,7 @@ describe('pyric/ai/scripting', () => {
   it('a structured-output request honors the schema zero-config', async () => {
     const { model } = freshModel();
     const result = await model.generateContent({
-      contents: [{ role: 'user', parts: [{ text: 'shape it' }] }],
+      contents: [{ role: 'user', parts: [{ text: 'shape it', type: 'text' }] }],
       generationConfig: {
         responseMimeType: 'application/json',
         responseSchema: Schema.object({

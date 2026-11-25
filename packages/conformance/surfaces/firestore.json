@@ -52,6 +52,22 @@
         "maximum",
         "minimum"
       ]
+    },
+    {
+      "id": "firestore.enterprise-bson-values",
+      "availability": "deferred",
+      "reasonCode": "implementation-deferred",
+      "summary": "The seven Firestore Enterprise BSON value classes are new in firebase 13.4.0 (@firebase/firestore 4.20.0) and have no local sandbox codec or rules model yet.",
+      "evidenceRefs": ["upstream:firebase/firestore@4.20.0"],
+      "symbols": [
+        "BsonObjectId",
+        "BsonTimestamp",
+        "Decimal128Value",
+        "Int32Value",
+        "MaxKey",
+        "MinKey",
+        "RegexValue"
+      ]
     }
   ]
 }

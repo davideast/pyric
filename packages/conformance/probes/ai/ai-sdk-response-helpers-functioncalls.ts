@@ -59,7 +59,10 @@ export const probe: Probe = {
           let responseBody: Record<string, unknown> = {};
           try {
             responseBody = (await response.clone().json()) as Record<string, unknown>;
-          } catch {
+          } catch (err) {
+            if (!(err instanceof Error)) {
+              throw err;
+            }
             responseBody = {};
           }
           wireCalls.push({
@@ -103,7 +106,7 @@ export const probe: Probe = {
         model: 'gemini-flash-lite-latest',
       });
       const result = await model.generateContent({
-        contents: [{ role: 'user', parts: [{ text: 'What is the weather in Paris?' }] }],
+        contents: [{ role: 'user', parts: [{ type: 'text', text: 'What is the weather in Paris?' }] }],
         tools: [
           {
             functionDeclarations: [

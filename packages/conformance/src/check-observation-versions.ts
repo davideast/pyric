@@ -1,21 +1,22 @@
 #!/usr/bin/env bun
 /**
  * CI guard: every SDK version named by an oracle observation must match the
- * version the workspace currently resolves.
+ * version the workspace currently resolves (or an explicit pending-recapture
+ * baseline transition during a two-step SDK upgrade).
  *
  * The observations in observations/<surface>/*.json are the pinned
  * record of real prod behavior the COMPAT matrices cite. If the workspace
  * bumps `firebase` but the observations aren't re-captured, every "matches
- * prod" claim silently drifts to a stale version — exactly the rot behind
- * INF-3/INF-4 (an observation captured at one version vouching for behavior
- * at another).
+ * prod" claim silently drifts to a stale version -- the rot behind INF-3/INF-4
+ * (an observation captured at one version vouching for behavior at another).
  *
  * Source of truth for "resolved version": the installed
  * node_modules/firebase/package.json (what tests actually ran against),
  * not the `^`-range in package.json or a lockfile scrape.
  *
- * Usage: bun run packages/conformance/src/check-observation-versions.ts
- * Exit codes: 0 all match, 1 a mismatch / missing field / unresolvable package.
+ * Usage: bun run packages/conformance/src/check-observation-versions.ts [--strict]
+ * Exit codes: 0 all match (or match pending recapture when not --strict),
+ *             1 a mismatch / missing field / unresolvable package.
  */
 import {
   ISOLATED_CRASHLYTICS_FIREBASE_VERSION,
@@ -30,14 +31,47 @@ import {
   resolvedIosSdkVersion,
 } from './package-version.ts';
 
+export interface PendingRecaptureTransition {
+  readonly from: string;
+  readonly to: string;
+}
+
+/**
+ * Explicit two-step SDK upgrade transitions whose committed observations stay
+ * untouched at their prior certified baseline until `oracle-recapture.yml` runs
+ * on `main`. Strict mode (`--strict` / default library calls) still reports all
+ * pending-recapture observations as mismatches.
+ */
+export const PENDING_RECAPTURE_TRANSITIONS: Readonly<
+  Partial<Record<string, PendingRecaptureTransition>>
+> = {
+  fbSdkVersion: { from: '12.19.0', to: '13.4.0' },
+};
+
+export interface ObservationVersionCheckOptions {
+  allowPendingRecapture?: boolean;
+  transitions?: Readonly<Partial<Record<string, PendingRecaptureTransition>>>;
+}
+
+export interface PendingRecaptureEntry {
+  file: string;
+  field: string;
+  got: string;
+  want: string;
+}
+
 export interface ObservationVersionCheckResult {
   missing: string[];
   mismatched: Array<{ file: string; got: string; want: string }>;
+  pendingRecapture?: PendingRecaptureEntry[];
 }
 
 export function checkObservationVersionProblems(
   observations: readonly Observation[] = loadObservations(),
+  options?: ObservationVersionCheckOptions,
 ): ObservationVersionCheckResult {
+  const allowPending = options?.allowPendingRecapture === true;
+  const transitions = options?.transitions ?? PENDING_RECAPTURE_TRANSITIONS;
   const resolved = resolvedFirebaseVersion();
   // `admin-*` observations are captured against `firebase-admin` (the admin SDK),
   // not the firebase JS SDK, and are versioned by `adminSdkVersion`. They vouch
@@ -49,6 +83,7 @@ export function checkObservationVersionProblems(
 
   const missing: string[] = [];
   const mismatched: Array<{ file: string; got: string; want: string }> = [];
+  const pendingRecapture: PendingRecaptureEntry[] = [];
 
   const versionTargets = [
     { field: 'fbSdkVersion', resolved },
@@ -90,23 +125,41 @@ export function checkObservationVersionProblems(
     }
     for (const { field, resolved: want } of present) {
       const got = obs.raw[field] as string;
-      if (got !== want) mismatched.push({ file: `${file} [${field}]`, got, want });
+      if (got === want) continue;
+      const transition = transitions[field];
+      const matchesPending =
+        allowPending &&
+        transition !== undefined &&
+        got === transition.from &&
+        want === transition.to;
+      if (matchesPending) {
+        pendingRecapture.push({ file, field, got, want });
+      } else {
+        mismatched.push({ file: `${file} [${field}]`, got, want });
+      }
     }
   }
 
+  if (allowPending) {
+    return { missing, mismatched, pendingRecapture };
+  }
   return { missing, mismatched };
 }
 
 if (import.meta.main) {
+  const strict = process.argv.includes('--strict');
   const resolved = resolvedFirebaseVersion();
   const resolvedAdmin = resolvedAdminVersion();
   const resolvedFunctions = resolvedFunctionsVersion();
   const resolvedAndroidBom = resolvedAndroidBomVersion();
   const resolvedIos = resolvedIosSdkVersion();
   const observations = loadObservations();
-  const { missing, mismatched } = checkObservationVersionProblems(observations);
+  const { missing, mismatched, pendingRecapture = [] } = checkObservationVersionProblems(
+    observations,
+    { allowPendingRecapture: !strict },
+  );
 
-  console.log(`# Oracle observation version guard`);
+  console.log('# Oracle observation version guard');
   console.log(`Resolved firebase (node_modules/firebase/package.json): ${resolved}`);
   console.log(
     `Resolved isolated crashlytics web SDK: firebase@${ISOLATED_CRASHLYTICS_FIREBASE_VERSION} (@firebase/crashlytics@${ISOLATED_CRASHLYTICS_PACKAGE_VERSION})`,
@@ -117,17 +170,35 @@ if (import.meta.main) {
   console.log(`Resolved firebase-ios-sdk (rigs/native-ios-oracle/sdk-version.properties): ${resolvedIos}`);
   console.log(`Observations checked: ${observations.length}`);
 
+  if (pendingRecapture.length > 0) {
+    const countsByPair = new Map<string, number>();
+    for (const entry of pendingRecapture) {
+      const key = `${entry.field}|${entry.got}|${entry.want}`;
+      countsByPair.set(key, (countsByPair.get(key) ?? 0) + 1);
+    }
+    for (const [key, count] of countsByPair) {
+      const [field, from, to] = key.split('|');
+      console.log(
+        `Pending oracle-recapture.yml: ${count} observation(s) [${field}] at prior certified baseline ${from} -> ${to}`,
+      );
+    }
+  }
+
   if (missing.length === 0 && mismatched.length === 0) {
-    console.log('\n✓ Every observation matches its installed Firebase SDK version.');
+    if (pendingRecapture.length > 0) {
+      console.log('\n[OK] All non-pending observations match installed SDK versions (recapture pending on main).');
+    } else {
+      console.log('\n[OK] Every observation matches its installed Firebase SDK version.');
+    }
     process.exit(0);
   }
 
   if (missing.length > 0) {
-    console.error(`\n✗ ${missing.length} observation(s) missing an SDK version field:`);
+    console.error(`\n[FAIL] ${missing.length} observation(s) missing an SDK version field:`);
     for (const f of missing.slice(0, 20)) console.error(`  - ${f}`);
   }
   if (mismatched.length > 0) {
-    console.error(`\n✗ ${mismatched.length} observation SDK version mismatch(es):`);
+    console.error(`\n[FAIL] ${mismatched.length} observation SDK version mismatch(es):`);
     for (const { file, got, want } of mismatched.slice(0, 20)) {
       console.error(`  - ${file}: captured ${got}, installed ${want}`);
     }

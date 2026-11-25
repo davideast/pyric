@@ -4,10 +4,11 @@ const PROBE = 'packages/pyric/test/ai/init-backends-oracle.test.ts';
 
 export default row({
   order: 60,
-  featureKeys: ['VertexAIBackend'],
-  api: 'VertexAIBackend',
+  featureKeys: [],
+  queryable: false,
+  api: 'VertexAIBackend (removed in @firebase/ai 3.1.0)',
   behavior:
-    '`VertexAIBackend` carries `backendType` `VERTEX_AI`; its location and the resulting AI handle location default to `us-central1`',
+    'Historical record: `VertexAIBackend`, `BackendType.VERTEX_AI`, and `AI.location` were removed in `@firebase/ai` 3.1.0 (`firebase` 13.4.0); neither `firebase/ai` nor `pyric/ai` exports `VertexAIBackend` at runtime',
   automation: 'oracle-backed',
   evidence:
     'Capture `ai-offline-init-backends-and-model-guards` replayed across in-process (`init-backends-oracle.test.ts`), worker-host (`ai-init-backends.test.ts`), and served SharedWorker/Node-host (`test/apps/ai-sandbox-contents-roles`) planes.',
@@ -23,7 +24,7 @@ export default row({
       observation: 'ai-offline-init-backends-and-model-guards',
       expect: { fetchCalls: 0 },
       probe: PROBE,
-      guards: 'VertexAIBackend defaults location to us-central1 and propagates custom regions onto the AI handle.',
+      guards: 'VertexAIBackend, BackendType.VERTEX_AI, and AI.location remain absent after @firebase/ai 3.1.0 removal.',
     },
   ],
 });

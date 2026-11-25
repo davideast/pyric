@@ -1,6 +1,6 @@
 /** Internal adapter seam for transport-backed AI handles. */
 import type { FirebaseApp } from '../app/types.js';
-import { BackendType, GoogleAIBackend, VertexAIBackend } from './backend.js';
+import { BackendType, GoogleAIBackend } from './backend.js';
 import type { AnswerEngine } from './broker/types.js';
 import { TARGET_SYMBOL } from './target.js';
 import { appCheckAttachmentFor } from './app-check-gate.js';
@@ -48,13 +48,13 @@ export {
 
 const transportHandles = new WeakMap<FirebaseApp, Map<string, AI>>();
 
-function backendKey(options?: AIOptions): { key: string; location: string } {
+function backendKey(options?: AIOptions): { key: string } {
   const backend = options?.backend ?? new GoogleAIBackend();
-  if (backend.backendType === BackendType.VERTEX_AI) {
-    const location = (backend as VertexAIBackend).location;
-    return { key: `vertexai/${location}`, location };
+  if (backend.backendType === BackendType.AGENT_PLATFORM) {
+    const location = (backend as { readonly location?: string }).location ?? 'global';
+    return { key: `agentplatform/${location}` };
   }
-  return { key: 'googleai', location: '' };
+  return { key: 'googleai' };
 }
 
 /**
@@ -69,7 +69,7 @@ export function createTransportAI(
   transport: AnswerEngine,
   assertAlive?: () => void,
 ): AI {
-  const { key, location } = backendKey(options);
+  const { key } = backendKey(options);
   let handles = transportHandles.get(app);
   if (!handles) {
     handles = new Map();
@@ -88,7 +88,6 @@ export function createTransportAI(
   const handle: AI = {
     app,
     backend,
-    location,
     options: resolvedOptions,
   };
   const target: TransportTarget = {

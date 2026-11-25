@@ -23,6 +23,7 @@ import { BackendType } from './backend.js';
 import { isBlockingFinishReason } from './blocked.js';
 import { AIError, AIErrorCode } from './errors.js';
 import {
+  assignPartType,
   formatGenerateContentInput,
   formatNewContent,
   formatSystemInstruction,
@@ -97,7 +98,7 @@ export abstract class AIModel {
     modelName: string,
     backendType: BackendType = BackendType.GOOGLE_AI,
   ): string {
-    if (backendType === BackendType.VERTEX_AI) {
+    if (backendType === BackendType.AGENT_PLATFORM) {
       if (modelName.includes('/')) {
         if (modelName.startsWith('models/')) {
           return `publishers/google/${modelName}`;
@@ -236,7 +237,7 @@ export class GenerativeModel extends AIModel {
   }
 
   startChat(startChatParams?: StartChatParams): ChatSession {
-    return new ChatSession(
+    return new ChatSessionImpl(
       this.target,
       this.model,
       {
@@ -266,12 +267,28 @@ export class GenerativeModel extends AIModel {
   }
 }
 
+/** Public ChatSession contract (type-only in `@firebase/ai` 3.1.0). */
+export interface ChatSession {
+  model: string;
+  params?: StartChatParams;
+  requestOptions?: RequestOptions;
+  sendMessage(
+    request: RequestInput,
+    singleRequestOptions?: SingleRequestOptions,
+  ): Promise<GenerateContentResult>;
+  sendMessageStream(
+    request: RequestInput,
+    singleRequestOptions?: SingleRequestOptions,
+  ): Promise<GenerateContentStreamResult>;
+  getHistory(): Promise<Content[]>;
+}
+
 /**
  * Base class for chat sessions: history storage and the sequential-send
  * guarantee (`_sendPromise` chain, upstream pattern -- later sends and
  * `getHistory()` observe earlier turns in order).
  */
-export abstract class ChatSessionBase {
+abstract class ChatSessionBase {
   protected _history: ContentShape[] = [];
   protected _sendPromise: Promise<void> = Promise.resolve();
 
@@ -280,9 +297,12 @@ export abstract class ChatSessionBase {
    * candidates nor the prompts that generated them are recorded. Returns a
    * defensive clone -- mutations never corrupt the session.
    */
-  async getHistory(): Promise<ContentShape[]> {
+  async getHistory(): Promise<Content[]> {
     await this._sendPromise;
-    return structuredClone(this._history);
+    return structuredClone(this._history).map((content) => ({
+      ...content,
+      parts: Array.isArray(content.parts) ? content.parts.map(assignPartType) : [],
+    })) as unknown as Content[];
   }
 }
 
@@ -306,10 +326,10 @@ function recordableCandidateContent(
 }
 
 /** Chat session for multi-turn conversations on a sandbox target. */
-export class ChatSession extends ChatSessionBase {
-  readonly model: string;
-  readonly params: StartChatParams | undefined;
-  readonly requestOptions: RequestOptions | undefined;
+class ChatSessionImpl extends ChatSessionBase implements ChatSession {
+  model: string;
+  params?: StartChatParams;
+  requestOptions?: RequestOptions;
 
   private readonly target: AITarget;
 

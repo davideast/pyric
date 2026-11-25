@@ -2,16 +2,15 @@
 // the App Check docs require. Sends the contents and request-edge shapes the scenario checks.
 import { FirebaseError, initializeApp } from "firebase/app";
 import { ReCaptchaV3Provider, initializeAppCheck } from "firebase/app-check";
+import * as aiNamespace from "firebase/ai";
 import {
   AIError,
   AIErrorCode,
   AnyOfSchema,
   BackendType,
-  ChatSession,
   GoogleAIBackend,
   POSSIBLE_ROLES,
   Schema,
-  VertexAIBackend,
   getAI,
   getGenerativeModel,
 } from "firebase/ai";
@@ -196,7 +195,11 @@ export async function runRoles() {
       abortContentName,
       abortContentIsAIError,
       abortStringName,
-      isChatSession: seededChat instanceof ChatSession,
+      isChatSession:
+        typeof seededChat.sendMessage === "function" &&
+        typeof seededChat.sendMessageStream === "function" &&
+        typeof seededChat.getHistory === "function" &&
+        !("ChatSession" in aiNamespace),
       defaultHistoryLength: defaultHistory.length,
       seededRoles: seededHistory.map((entry) => entry.role),
       emptyPartsCode,
@@ -216,16 +219,18 @@ export async function runRoles() {
   const checkInitBackends = async () => {
     const repeatDefaultAi = getAI(app);
     const explicitGoogleAi = getAI(app, { backend: new GoogleAIBackend() });
-    const vertexDefault = new VertexAIBackend();
-    const vertexAiDefault = getAI(app, { backend: vertexDefault });
-    const repeatVertexAiDefault = getAI(app, { backend: new VertexAIBackend() });
-    const vertexEurope = new VertexAIBackend("europe-west1");
-    const vertexAiEurope = getAI(app, { backend: vertexEurope });
+    const regionalDefault = { backendType: BackendType.AGENT_PLATFORM, location: "us-central1" };
+    const regionalAiDefault = getAI(app, { backend: regionalDefault });
+    const repeatRegionalAiDefault = getAI(app, {
+      backend: { backendType: BackendType.AGENT_PLATFORM, location: "us-central1" },
+    });
+    const regionalEurope = { backendType: BackendType.AGENT_PLATFORM, location: "europe-west1" };
+    const regionalAiEurope = getAI(app, { backend: regionalEurope });
 
     const googlePrefixedModel = getGenerativeModel(ai, {
       model: "models/gemini-flash-lite-latest",
     });
-    const vertexShortModel = getGenerativeModel(vertexAiDefault, {
+    const regionalShortModel = getGenerativeModel(regionalAiDefault, {
       model: "gemini-flash-lite-latest",
     });
 
@@ -249,25 +254,25 @@ export async function runRoles() {
     }
 
     try {
-      const vertexReply = await vertexShortModel.generateContent("Say hi on Vertex.");
+      const regionalReply = await regionalShortModel.generateContent("Say hi on regional backend.");
       return {
         ok: true,
-        text: vertexReply.response.text(),
+        text: regionalReply.response.text(),
         carriesApp: ai.app === app,
         isGoogleAIBackend: ai.backend instanceof GoogleAIBackend,
         backendType: ai.backend.backendType,
         matchesEnumGoogleAi: ai.backend.backendType === BackendType.GOOGLE_AI,
-        location: ai.location,
+        hasHandleLocation: "location" in ai,
+        hasVertexAIBackend: "VertexAIBackend" in aiNamespace,
+        hasVertexAiEnum: "VERTEX_AI" in BackendType,
         sameAppDefaultSameHandle: ai === repeatDefaultAi,
         sameAppExplicitGoogleSameHandle: ai === explicitGoogleAi,
-        sameAppVertexSameHandle: vertexAiDefault === repeatVertexAiDefault,
-        googleAndVertexDistinctOnSameApp: ai !== vertexAiDefault,
-        vertexLocationsDistinctOnSameApp: vertexAiDefault !== vertexAiEurope,
-        vertexDefaultLocation: vertexAiDefault.location,
-        vertexEuropeLocation: vertexAiEurope.location,
+        sameAppRegionalSameHandle: regionalAiDefault === repeatRegionalAiDefault,
+        googleAndRegionalDistinctOnSameApp: ai !== regionalAiDefault,
+        regionalLocationsDistinctOnSameApp: regionalAiDefault !== regionalAiEurope,
         googleShortNormalized: model.model,
         googlePrefixedNormalized: googlePrefixedModel.model,
-        vertexShortNormalized: vertexShortModel.model,
+        regionalShortNormalized: regionalShortModel.model,
         emptyModelGuard: {
           isAIError: emptyModelIsAIError,
           isFirebaseError: emptyModelIsFirebaseError,

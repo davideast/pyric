@@ -47,7 +47,8 @@ export async function run() {
   }).generateContent('hello');
   return {
     sameHandle: explicit === bare,
-    location: explicit.location,
+    backendType: explicit.backend.backendType,
+    hasNoLocation: !('location' in explicit),
     candidates: result.response.candidates.length,
   };
 }
@@ -85,11 +86,17 @@ export async function run() {
         optimizeDeps: { noDiscovery: true },
       });
       const fixture = await server.ssrLoadModule('/ai-smoke.ts') as {
-        run(): Promise<{ sameHandle: boolean; location: string; candidates: number }>;
+        run(): Promise<{
+          sameHandle: boolean;
+          backendType: string;
+          hasNoLocation: boolean;
+          candidates: number;
+        }>;
       };
       await expect(fixture.run()).resolves.toEqual({
         sameHandle: true,
-        location: '',
+        backendType: 'GOOGLE_AI',
+        hasNoLocation: true,
         candidates: 1,
       });
     } finally {
@@ -121,7 +128,7 @@ export async function run() {
   debug.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
   initializeAppCheck(app, { provider: new CustomProvider({ getToken: async () => { throw new Error('not called'); } }) });
   delete debug.FIREBASE_APPCHECK_DEBUG_TOKEN;
-  // App code passes NO engine — the plugin-level engine must apply anyway.
+  // App code passes NO engine -- the plugin-level engine must apply anyway.
   const result = await getGenerativeModel(getAI(app), {
     model: 'gemini-flash-lite-latest',
   }).generateContent('hello');
@@ -164,7 +171,7 @@ export async function run() {
       const fixture = (await server.ssrLoadModule('/ai-engine.ts')) as {
         run(): Promise<string>;
       };
-      // The scripted plugin engine answered — not the zero-config default.
+      // The scripted plugin engine answered -- not the zero-config default.
       await expect(fixture.run()).resolves.toBe('plugin engine answer');
     } finally {
       await server?.close();

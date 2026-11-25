@@ -1,5 +1,5 @@
 /**
- * `pyric/ai` error surface — `AIError` / `AIErrorCode` mirroring the
+ * `pyric/ai` error surface -- `AIError` / `AIErrorCode` mirroring the
  * installed `@firebase/ai@2.12.0` shapes exactly, plus the ONE translation
  * point from the broker's captured wire error envelopes
  * ({@link AiBrokerError}) to the SDK-equivalent `AIError`.
@@ -13,11 +13,11 @@
 
 import { FirebaseError } from '../sandbox/internal/firebase-error.js';
 import { AiBrokerError, AiBrokerParseError, type WireErrorEnvelope } from './broker/index.js';
-import { BackendType, type Backend, type VertexAIBackend } from './backend.js';
+import { BackendType, type Backend } from './backend.js';
 
 const AI_TYPE = 'AI';
 
-/** Standardized error codes the SDK can throw — 14 codes in 2.12.0. */
+/** Standardized error codes the SDK can throw -- 15 codes in 3.1.0. */
 export const AIErrorCode = {
   ERROR: 'error',
   REQUEST_ERROR: 'request-error',
@@ -26,6 +26,7 @@ export const AIErrorCode = {
   SESSION_CLOSED: 'session-closed',
   INVALID_CONTENT: 'invalid-content',
   API_NOT_ENABLED: 'api-not-enabled',
+  ALREADY_INITIALIZED: 'already-initialized',
   INVALID_SCHEMA: 'invalid-schema',
   NO_API_KEY: 'no-api-key',
   NO_APP_ID: 'no-app-id',
@@ -45,7 +46,7 @@ export interface CustomErrorData {
 }
 
 /**
- * Error class for the AI mirror — constructor and message format copied
+ * Error class for the AI mirror -- constructor and message format copied
  * from the installed SDK: `AI: <message> (AI/<code>)`, `code` set to the
  * short code, `customErrorData` carried through.
  */
@@ -68,7 +69,7 @@ export class AIError extends FirebaseError {
 }
 
 /** Minimal HTTP status text table for the statuses the sandbox mints. */
-export function statusTextOf(status: number): string {
+function statusTextOf(status: number): string {
   switch (status) {
     case 400: return 'Bad Request';
     case 401: return 'Unauthorized';
@@ -94,17 +95,17 @@ const STREAM_TASK = 'streamGenerateContent';
  * stays `models/<name>` on either backend; only the URL changes.
  */
 function modelPath(modelResource: string, backend: Backend | undefined): string {
-  let isVertexAI = false;
+  let isAgentPlatform = false;
   if (backend !== undefined) {
-    isVertexAI = backend.backendType === BackendType.VERTEX_AI;
+    isAgentPlatform = backend.backendType === BackendType.AGENT_PLATFORM;
   }
-  if (!isVertexAI) return modelResource;
-  const vertexLocation = (backend as VertexAIBackend).location;
+  if (!isAgentPlatform) return modelResource;
+  const location = (backend as { readonly location?: string }).location ?? 'global';
   if (modelResource.startsWith('publishers/')) {
-    return `locations/${vertexLocation}/${modelResource}`;
+    return `locations/${location}/${modelResource}`;
   }
   const name = modelResource.replace(/^models\//, '');
-  return `locations/${vertexLocation}/${VERTEX_MODEL_PREFIX}${name}`;
+  return `locations/${location}/${VERTEX_MODEL_PREFIX}${name}`;
 }
 
 /**
@@ -115,14 +116,14 @@ function modelPath(modelResource: string, backend: Backend | undefined): string 
  * is given), and a stream carries `?alt=sse`, as the SDK's `queryParams` add
  * it (#1640).
  */
-export function sandboxRequestUrl(modelResource: string, op: string, backend?: Backend): string {
+function sandboxRequestUrl(modelResource: string, op: string, backend?: Backend): string {
   const query = op === STREAM_TASK ? '?alt=sse' : '';
   return `${SANDBOX_REQUEST_ORIGIN}/${modelPath(modelResource, backend)}:${op}${query}`;
 }
 
 /**
  * Translate a broker wire error envelope into the SDK-equivalent
- * `AIError('fetch-error', ...)` — the exact decoration `makeRequest` applies
+ * `AIError('fetch-error', ...)` -- the exact decoration `makeRequest` applies
  * to a non-ok response in the installed 2.12.0.
  */
 export function aiErrorFromEnvelope(

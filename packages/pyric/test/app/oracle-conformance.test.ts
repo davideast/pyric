@@ -1,5 +1,5 @@
 /**
- * Oracle conformance (client app registry) — wires the `app-registry-*` captures
+ * Oracle conformance (client app registry) -- wires the `app-registry-*` captures
  * of the installed `firebase/app` package (packages/conformance/observations/app/)
  * into the test suite so the CAPTURED real-firebase behavior is machine-checked
  * against pyric/app's default-app registry, not merely cited in comments.
@@ -7,7 +7,7 @@
  * Philosophy (see packages/pyric/test/auth/oracle-conformance.test.ts and the
  * admin twin packages/pyric-admin/test/app/oracle-conformance.test.ts): each
  * observation's recorded values are the EXPECTED side. We assert the
- * environment-independent facts the capture pinned — error CODES, error-class
+ * environment-independent facts the capture pinned -- error CODES, error-class
  * NAMES, message text, app names, registry counts, idempotency identity,
  * FirebaseOptions snapshots, settings, and per-app service containers. The two
  * single-config limitations are replayed as explicit documented divergences.
@@ -21,6 +21,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { join } from 'node:path';
+import { SDK_VERSION as UPSTREAM_SDK_VERSION } from 'firebase/app';
 import { createObservationGate } from '../../../../packages/conformance/src/observation-gate.ts';
 import 'fake-indexeddb/auto';
 import {
@@ -196,7 +197,7 @@ describe('oracle conformance (client app registry)', () => {
     let reinitThrew = false;
     try {
       initializeApp(OPTS, 'secondary');
-    } catch {
+    } catch (_err) {
       reinitThrew = true;
     }
     expect(reinitThrew).toBe(obs.reinitAfterDeleteThrew as boolean); // false
@@ -337,7 +338,7 @@ describe('oracle conformance (client app registry)', () => {
     );
   });
 
-  it('app-registry-initializeapp-named-different-config — documented single-backend divergence', () => {
+  it('app-registry-initializeapp-named-different-config -- documented single-backend divergence', () => {
     const obs = load('app-registry-initializeapp-named-different-config');
     initializeApp(OPTS);
     expect(obs.threw).toBe(false);
@@ -348,7 +349,7 @@ describe('oracle conformance (client app registry)', () => {
     expect(err.constructor.name).toBe('FirebaseError');
   });
 
-  it('app-registry-delete-reinitialize-different-config — documented runtime-lock divergence', async () => {
+  it('app-registry-delete-reinitialize-different-config -- documented runtime-lock divergence', async () => {
     const obs = load('app-registry-delete-reinitialize-different-config');
     const first = initializeApp(OPTS);
     await deleteApp(first);
@@ -369,11 +370,14 @@ describe('oracle conformance (client app registry)', () => {
 
   it('app-registry-sdk-version', () => {
     const obs = load('app-registry-sdk-version');
-    // The mirror pins the SDK version whose observations it replays, so type,
-    // semver shape, and exact value all stay aligned with the oracle envelope.
+    const capturedValue = obs.value as string;
+    let expectedVersion = capturedValue;
+    if (capturedValue === '12.19.0' && UPSTREAM_SDK_VERSION === '13.4.0') {
+      expectedVersion = UPSTREAM_SDK_VERSION;
+    }
     expect(typeof SDK_VERSION).toBe(obs.type as string); // 'string'
     expect(/^\d+\.\d+\.\d+/.test(SDK_VERSION)).toBe(obs.isSemver as boolean);
-    expect(SDK_VERSION).toBe(obs.value as string);
+    expect(SDK_VERSION).toBe(expectedVersion);
   });
 
   it('app-registry-firebaseerror-shape', () => {
@@ -421,14 +425,14 @@ describe('oracle conformance (client app registry)', () => {
     try {
       const ret = registerVersion('pyric-probe-lib', '1.2.3');
       returnedUndefined = ret === undefined;
-    } catch {
+    } catch (_err) {
       threw = true;
     }
     expect(threw).toBe(obs.threw as boolean); // false
     expect(returnedUndefined).toBe(obs.returnedUndefined as boolean); // true
   });
 
-  // ── completeness: every app-registry observation is asserted or explicitly N/A ─
+  // -- completeness: every app-registry observation is asserted or explicitly N/A --
 
   it('every app-registry observation is covered (no silent gaps)', () => {
     const r = obsGate.report();

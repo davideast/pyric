@@ -259,6 +259,9 @@ export function npmOfflineInstallArgs(npmCache: string, registry: string): strin
 /** npm's codes for a version range the cached package listing has no match for. */
 const STALE_METADATA = /\bcode (ETARGET|ENOVERSIONS)\b/;
 
+/** Arborist emits ERESOLVE with `Found: <pkg>@undefined` when `--prefer-offline` lacks a version matching a root range alongside a peerDependency. */
+const STALE_PEER_METADATA = /\bcode ERESOLVE\b[\s\S]*?\bFound: (?:@[^/\s]+\/)?[^/\s@]+@undefined\b/;
+
 /** An npm package slot in package-lock.json (`node_modules/pkg` or `.../node_modules/@scope/pkg`). */
 const INSTALLED_PACKAGE_PATH = /(?:^|\/)node_modules\/(?:@[^/]+\/)?[^/]+$/;
 
@@ -279,7 +282,8 @@ const DEFAULT_NETWORK_RETRY_DELAY_MS = 1_000;
  */
 export function shouldRetryOnline(result: CommandResult): boolean {
   const isFailure = result.code !== 0;
-  return isFailure && STALE_METADATA.test(result.output);
+  if (!isFailure) return false;
+  return STALE_METADATA.test(result.output) || STALE_PEER_METADATA.test(result.output);
 }
 
 function isResolvedOptionalMatch(raw: unknown, declaredSpec: unknown): boolean {
@@ -322,7 +326,7 @@ export function unresolvedOptionalPackages(lockfileText: string): string[] {
   let parsed: unknown;
   try {
     parsed = JSON.parse(lockfileText);
-  } catch {
+  } catch (_err) {
     return [];
   }
   if (typeof parsed !== 'object' || parsed === null) return [];
@@ -356,7 +360,7 @@ function readUnresolvedOptionalIn(cwd: string): string[] {
   if (!existsSync(lockPath)) return [];
   try {
     return unresolvedOptionalPackages(readFileSync(lockPath, 'utf8'));
-  } catch {
+  } catch (_err) {
     return [];
   }
 }
@@ -376,7 +380,7 @@ function stripUnresolvedOptionalLockEntries(cwd: string, unresolvedPaths: readon
       if (typeof parsed.packages !== 'object' || parsed.packages === null) continue;
       for (const pkgPath of unresolvedPaths) delete parsed.packages[pkgPath];
       writeFileSync(filePath, `${JSON.stringify(parsed, null, 2)}\n`);
-    } catch {
+    } catch (_err) {
       // Best-effort lockfile repair before the online retry.
     }
   }

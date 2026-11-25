@@ -10,9 +10,10 @@ import {
 import {
   AIError,
   AIErrorCode,
-  VertexAIBackend,
+  BackendType,
   getAI,
   getGenerativeModel,
+  type AgentPlatformBackend,
 } from '../../src/ai/index.js';
 import { createTransportAI } from '../../src/ai/internal.js';
 import type { AnswerEngine } from '../../src/ai/broker/types.js';
@@ -64,7 +65,7 @@ afterEach(async () => {
   while (app !== undefined) {
     try {
       await deleteApp(app);
-    } catch {
+    } catch (_err) {
       // Already deleted by test.
     }
     app = createdApps.pop();
@@ -171,14 +172,18 @@ describe('getAI latest useLimitedUseAppCheckTokens option (#1910)', () => {
     expect(aiLimited.options).toEqual({ useLimitedUseAppCheckTokens: true });
     const limitedModel = getGenerativeModel(aiLimited, { model: MODEL });
 
-    // Separate Vertex backend handle keeps its own options independently.
-    const vertexAi = createTransportAI(
+    // Separate AgentPlatform backend handle keeps its own options independently.
+    const agentBackend: AgentPlatformBackend = {
+      backendType: BackendType.AGENT_PLATFORM,
+      location: 'europe-west1',
+    };
+    const agentAi = createTransportAI(
       app,
-      { backend: new VertexAIBackend('europe-west1'), useLimitedUseAppCheckTokens: false },
+      { backend: agentBackend, useLimitedUseAppCheckTokens: false },
       transport,
     );
-    expect(vertexAi).not.toBe(aiLimited);
-    expect(vertexAi.options).toEqual({ useLimitedUseAppCheckTokens: false });
+    expect(agentAi).not.toBe(aiLimited);
+    expect(agentAi.options).toEqual({ useLimitedUseAppCheckTokens: false });
     expect(aiLimited.options).toEqual({ useLimitedUseAppCheckTokens: true });
 
     const aiReverted = createTransportAI(

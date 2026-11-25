@@ -4,7 +4,7 @@
  * Each subcommand handler accepts an injectable `deps` arg so the
  * tests assert dispatch happens with the right shape without going
  * near the real Google APIs, real disk reads, or real service-account
- * loading. The injection seam is the contract — these tests pin it.
+ * loading. The injection seam is the contract -- these tests pin it.
  *
  * Conventions:
  *   - `bufferIo()` returns `{ stdout, stderr, getOut, getErr }`
@@ -20,7 +20,7 @@ import { runRulesValidate } from './rules.js';
 import { runDatabaseRulesValidate, runDatabaseRulesGenerate } from './database-rules.js';
 import { runInit } from './init.js';
 
-// ── Test helpers ──────────────────────────────────────────────────────
+// -- Test helpers ------------------------------------------------------
 
 function bufferIo() {
   let outBuf = '';
@@ -38,7 +38,7 @@ function serviceArgs(argv: string[]) {
   return { ...parsed, positional: parsed.positional.slice(2) };
 }
 
-// ── parseArgs ─────────────────────────────────────────────────────────
+// -- parseArgs ---------------------------------------------------------
 
 describe('parseArgs', () => {
   it('captures subcommand + positionals + long flags', () => {
@@ -77,7 +77,7 @@ describe('parseArgs', () => {
   });
 });
 
-// ── rules ─────────────────────────────────────────────────────────────
+// -- rules -------------------------------------------------------------
 
 describe('runRulesValidate', () => {
   it('errors out when no path given', async () => {
@@ -161,7 +161,7 @@ service cloud.firestore {
   });
 });
 
-// ── database rules ───────────────────────────────────────────────────
+// -- database rules ---------------------------------------------------
 
 describe('runDatabaseRulesValidate', () => {
   it('reports RTDB expression parse errors and exits 2', async () => {
@@ -372,7 +372,7 @@ describe('runDatabaseRulesGenerate', () => {
   });
 });
 
-// ── init ──────────────────────────────────────────────────────────────
+// -- init --------------------------------------------------------------
 
 describe('runInit', () => {
   it('writes the full local-first Pyric scaffold when none exist', async () => {
@@ -445,7 +445,7 @@ describe('runInit', () => {
     expect(io.getOut()).toContain('skipped firebase.json');
   });
 
-  it('merges into an existing package.json — adds missing scripts + deps, never overwrites', async () => {
+  it('merges into an existing package.json -- adds missing scripts + deps, never overwrites', async () => {
     const io = bufferIo();
     const writeFn = mock(async () => undefined);
     const existingPkg = JSON.stringify(
@@ -482,7 +482,7 @@ describe('runInit', () => {
     expect(written.scripts.bridge).toBe('pyric bridge');
     expect(written.scripts.dev).toBe('pyric sandbox --hosted --no-open -- node --env-file-if-exists=.env --experimental-strip-types src/app.ts');
     expect(Object.keys(written.scripts).some((name) => name.startsWith('deploy'))).toBe(false);
-    expect(written.dependencies.firebase).toBe('~12.19.0');
+    expect(written.dependencies.firebase).toBe('~13.4.0');
     expect(written.dependencies.pyric).toBeUndefined();
     expect(written.devDependencies['@pyric/cli']).toBe('*');
     expect(written.devDependencies.typescript).toBe('^5.7.0');
@@ -508,7 +508,7 @@ describe('runInit', () => {
           dev: 'pyric sandbox --hosted --no-open -- node --env-file-if-exists=.env --experimental-strip-types src/app.ts',
           bridge: 'pyric bridge',
         },
-        dependencies: { firebase: '~12.19.0' },
+        dependencies: { firebase: '~13.4.0' },
         devDependencies: { '@pyric/cli': '*', '@types/node': '^22.0.0', typescript: '^5.7.0' },
       },
       null,
@@ -523,7 +523,7 @@ describe('runInit', () => {
       exists: async (p) => p.endsWith('package.json'),
     });
     expect(code).toBe(0);
-    // package.json should NOT have been rewritten — 6 other files written.
+    // package.json should NOT have been rewritten -- 6 other files written.
     const pkgCall = writeFn.mock.calls.find((c) => c[0] === '/tmp/complete/package.json');
     expect(pkgCall).toBeUndefined();
     expect(io.getOut()).toContain('skipped package.json'); // unchanged merge

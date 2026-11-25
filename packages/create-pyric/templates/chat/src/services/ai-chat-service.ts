@@ -32,7 +32,7 @@ const toContent = (role: 'user' | 'assistant' | 'system', text: string): Content
   }
   return {
     role: mappedRole,
-    parts: [{ text: text.slice(0, MAX_TEXT) }],
+    parts: [{ type: 'text', text: text.slice(0, MAX_TEXT) }],
   };
 };
 
@@ -141,8 +141,8 @@ export class AiChatService {
           if (hasParts) {
             const thoughtStrings: string[] = [];
             for (const part of parts) {
-              const isThoughtPart = part.thought === true;
-              if (isThoughtPart) {
+              const isThoughtPart = 'thought' in part && part.thought === true;
+              if (isThoughtPart && 'text' in part) {
                 const partText = part.text;
                 const hasPartText = typeof partText === 'string' && partText.length > 0;
                 if (hasPartText) {
@@ -174,8 +174,8 @@ export class AiChatService {
           if (hasParts) {
             const textStrings: string[] = [];
             for (const part of parts) {
-              const isThoughtPart = part.thought === true;
-              if (!isThoughtPart) {
+              const isThoughtPart = 'thought' in part && part.thought === true;
+              if (!isThoughtPart && 'text' in part) {
                 const partText = part.text;
                 const hasPartText = typeof partText === 'string' && partText.length > 0;
                 if (hasPartText) {

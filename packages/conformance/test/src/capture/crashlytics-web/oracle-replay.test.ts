@@ -346,11 +346,15 @@ describe('Crashlytics web oracle observation replay', () => {
       expect(writtenDocs).toHaveLength(3);
       expect(writtenFiles.size).toBe(3);
 
-      expect(checkObservationVersionProblems()).toEqual({
+      const crashlyticsObservations = loadObservations().filter(
+        (obs) => obs.surfaceDir === 'crashlytics',
+      );
+      expect(crashlyticsObservations).toHaveLength(3);
+      expect(checkObservationVersionProblems(crashlyticsObservations)).toEqual({
         missing: [],
         mismatched: [],
       });
-      const tampered = loadObservations().map((obs) => {
+      const tampered = crashlyticsObservations.map((obs) => {
         if (obs.name === 'crashlytics-web-instance-and-options') {
           return { ...obs, raw: { ...obs.raw, fbSdkVersion: '12.19.0' } };
         }

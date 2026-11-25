@@ -62,9 +62,15 @@ export interface TemplateToolConfig {
   retrievalConfig?: RetrievalConfig;
 }
 
+export interface TemplateRequest {
+  templateId: string;
+  templateVariables: Record<string, unknown>;
+  toolConfig?: TemplateToolConfig;
+}
+
 export interface StartTemplateChatParams extends Omit<StartChatParams, 'tools'> {
   templateId: string;
-  templateVariables?: Record<string, unknown>;
+  templateVariables: Record<string, unknown>;
   tools?: TemplateTool[];
 }
 
@@ -85,16 +91,12 @@ export interface TemplateChatSession {
 export interface TemplateGenerativeModel {
   requestOptions?: RequestOptions;
   generateContent(
-    templateId: string,
-    templateVariables: Record<string, unknown>,
+    request: TemplateRequest,
     singleRequestOptions?: SingleRequestOptions,
-    templateToolConfig?: TemplateToolConfig,
   ): Promise<TemplateGenerateContentResult>;
   generateContentStream(
-    templateId: string,
-    templateVariables: Record<string, unknown>,
+    request: TemplateRequest,
     singleRequestOptions?: SingleRequestOptions,
-    templateToolConfig?: TemplateToolConfig,
   ): Promise<TemplateGenerateContentStreamResult>;
   startChat(params: StartTemplateChatParams): TemplateChatSession;
 }

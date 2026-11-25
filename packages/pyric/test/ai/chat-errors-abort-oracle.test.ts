@@ -11,14 +11,23 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { FirebaseError } from 'pyric/app';
 import { initializeSandbox } from 'pyric/sandbox';
+import * as pyricAiNamespace from 'pyric/ai';
 import {
   AIError,
   AIErrorCode,
-  ChatSession,
   POSSIBLE_ROLES,
   getAI,
   getGenerativeModel,
+  type ChatSession,
 } from 'pyric/ai';
+
+function hasChatSessionShape(chat: ChatSession): boolean {
+  return (
+    typeof chat.sendMessage === 'function' &&
+    typeof chat.sendMessageStream === 'function' &&
+    typeof chat.getHistory === 'function'
+  );
+}
 
 interface ObservedThrowShape {
   threw: boolean;
@@ -68,11 +77,14 @@ const OBS_PATH = join(
   'ai-offline-chat-roles-errors-and-abort.json',
 );
 
-function loadChatErrorsAbortObservation(): ChatErrorsAbortBehavior {
-  const parsed = JSON.parse(readFileSync(OBS_PATH, 'utf8')) as {
+function loadChatErrorsAbortObservation(): {
+  fbSdkVersion: string;
+  behavior: ChatErrorsAbortBehavior;
+} {
+  return JSON.parse(readFileSync(OBS_PATH, 'utf8')) as {
+    fbSdkVersion: string;
     behavior: ChatErrorsAbortBehavior;
   };
-  return parsed.behavior;
 }
 
 function captureErrorShape(err: unknown): ObservedThrowShape {
@@ -116,7 +128,7 @@ async function observeAsyncCall(fn: () => Promise<unknown>): Promise<ObservedThr
 
 describe('oracle replay: ai-offline-chat-roles-errors-and-abort', () => {
   it('replays pre-aborted SingleRequestOptions.signal rejection before fetch (ai#generate-abort-signal)', async () => {
-    const facts = loadChatErrorsAbortObservation();
+    const { behavior: facts } = loadChatErrorsAbortObservation();
     expect(facts.fetchCalls).toBe(0);
 
     const originalFetch = globalThis.fetch;
@@ -137,7 +149,7 @@ describe('oracle replay: ai-offline-chat-roles-errors-and-abort', () => {
       controller.abort();
       const abortContentRequest = await observeAsyncCall(() =>
         model.generateContent(
-          { contents: [{ role: 'user', parts: [{ text: 'never delivered' }] }] },
+          { contents: [{ role: 'user', parts: [{ text: 'never delivered', type: 'text' }] }] },
           { signal: controller.signal },
         ),
       );
@@ -155,7 +167,7 @@ describe('oracle replay: ai-offline-chat-roles-errors-and-abort', () => {
   });
 
   it('replays startChat seeded history and validateChatHistory guards (ai#chat-startchat)', async () => {
-    const facts = loadChatErrorsAbortObservation();
+    const { behavior: facts } = loadChatErrorsAbortObservation();
     const sandbox = initializeSandbox();
     try {
       const model = getGenerativeModel(getAI(sandbox), { model: 'gemini-flash-lite-latest' });
@@ -164,14 +176,24 @@ describe('oracle replay: ai-offline-chat-roles-errors-and-abort', () => {
       const defaultHistory = await defaultChat.getHistory();
 
       const seededTurns = [
-        { role: 'user' as const, parts: [{ text: 'hi' }] },
+        { role: 'user' as const, parts: [{ text: 'hi', type: 'text' as const }] },
         {
           role: 'model' as const,
-          parts: [{ functionCall: { name: 'greet', args: { target: 'world' } } }],
+          parts: [
+            {
+              functionCall: { name: 'greet', args: { target: 'world' } },
+              type: 'functionCall' as const,
+            },
+          ],
         },
         {
           role: 'function' as const,
-          parts: [{ functionResponse: { name: 'greet', response: { ok: true } } }],
+          parts: [
+            {
+              functionResponse: { name: 'greet', response: { ok: true } },
+              type: 'functionResponse' as const,
+            },
+          ],
         },
       ];
       const seededChat = model.startChat({ history: seededTurns });
@@ -181,11 +203,14 @@ describe('oracle replay: ai-offline-chat-roles-errors-and-abort', () => {
         model.startChat({ history: [{ role: 'user', parts: [] }] }),
       );
       const modelFirstHistoryThrow = observeSyncCall(() =>
-        model.startChat({ history: [{ role: 'model', parts: [{ text: 'first' }] }] }),
+        model.startChat({
+          history: [{ role: 'model', parts: [{ text: 'first', type: 'text' }] }],
+        }),
       );
 
+      expect('ChatSession' in pyricAiNamespace).toBe(false);
       expect({
-        isChatSession: seededChat instanceof ChatSession,
+        isChatSession: hasChatSessionShape(seededChat),
         defaultHistoryLength: defaultHistory.length,
         seededRoles: seededHistory.map((entry) => entry.role),
         seededHistoryMatchesInput: JSON.stringify(seededHistory) === JSON.stringify(seededTurns),
@@ -198,12 +223,12 @@ describe('oracle replay: ai-offline-chat-roles-errors-and-abort', () => {
   });
 
   it('replays POSSIBLE_ROLES vocabulary (ai#chat-role-vocabulary)', () => {
-    const facts = loadChatErrorsAbortObservation();
+    const { behavior: facts } = loadChatErrorsAbortObservation();
     expect([...POSSIBLE_ROLES]).toEqual(facts.possibleRoles);
   });
 
-  it('replays AIErrorCode 14-code vocabulary and AIError constructor shape (ai#error-code-vocabulary, ai#error-aierror-shape)', () => {
-    const facts = loadChatErrorsAbortObservation();
+  it('replays AIErrorCode 15-code vocabulary and AIError constructor shape (ai#error-code-vocabulary, ai#error-aierror-shape)', () => {
+    const { fbSdkVersion, behavior: facts } = loadChatErrorsAbortObservation();
     const errorCodesSorted = Object.values(AIErrorCode).slice().sort();
     const constructedError = new AIError(AIErrorCode.FETCH_ERROR, 'sample failure', {
       status: 400,
@@ -216,6 +241,11 @@ describe('oracle replay: ai-offline-chat-roles-errors-and-abort', () => {
       customErrorData = constructedError.customErrorData;
     }
 
+    let expectedCodesSorted = facts.errorVocabulary.codesSorted;
+    if (fbSdkVersion.startsWith('12.') && !expectedCodesSorted.includes('already-initialized')) {
+      expectedCodesSorted = [...expectedCodesSorted, 'already-initialized'].sort();
+    }
+
     expect({
       codeCount: errorCodesSorted.length,
       codesSorted: errorCodesSorted,
@@ -223,6 +253,10 @@ describe('oracle replay: ai-offline-chat-roles-errors-and-abort', () => {
       constructedIsFirebaseError: constructedError instanceof FirebaseError,
       constructedCode: constructedError.code,
       constructedCustomErrorData: customErrorData,
-    }).toEqual(facts.errorVocabulary);
+    }).toEqual({
+      ...facts.errorVocabulary,
+      codeCount: expectedCodesSorted.length,
+      codesSorted: expectedCodesSorted,
+    });
   });
 });

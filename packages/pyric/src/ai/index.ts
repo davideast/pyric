@@ -20,9 +20,9 @@
 
 export { AIError, AIErrorCode } from './errors.js';
 export type { CustomErrorData } from './errors.js';
-export { Backend, BackendType, GoogleAIBackend, VertexAIBackend } from './backend.js';
-export { AIModel, ChatSession, ChatSessionBase, GenerativeModel, getGenerativeModel } from './models.js';
-export type { BaseParams, ModelParams, RequestOptions, StartChatParams } from './models.js';
+export { Backend, BackendType, GoogleAIBackend } from './backend.js';
+export { AIModel, GenerativeModel, getGenerativeModel } from './models.js';
+export type { BaseParams, ChatSession, ModelParams, RequestOptions, StartChatParams } from './models.js';
 export { getAI } from './instances.js';
 export {
   AnyOfSchema,
@@ -123,6 +123,7 @@ export type {
   SchemaShared,
   SearchEntrypoint,
   Segment,
+  SpeechMetadata,
   TextPart,
   ThinkingConfig,
   Tool,
@@ -189,6 +190,7 @@ export type {
   TemplateFunctionDeclaration,
   TemplateFunctionDeclarationsTool,
   TemplateGenerativeModel,
+  TemplateRequest,
   TemplateTool,
   TemplateToolConfig,
   WebAttribution,

@@ -5,7 +5,7 @@ import {
 } from '../sandbox/internal/client-app.js';
 import type { FirebaseApp } from '../app/types.js';
 import type { Sandbox } from '../sandbox/types/service.js';
-import { Backend, BackendType, GoogleAIBackend, VertexAIBackend } from './backend.js';
+import { Backend, BackendType, GoogleAIBackend } from './backend.js';
 import { AiBroker } from './broker/broker.js';
 import { appCheckAttachmentFor } from './app-check-gate.js';
 import type { AnswerEngine, EngineConfig } from './broker/types.js';
@@ -36,7 +36,7 @@ function engineOptionsDiffer(
   if (isCustomEngine(a) || isCustomEngine(b)) return true;
   try {
     return JSON.stringify(a) !== JSON.stringify(b);
-  } catch {
+  } catch (_err) {
     return true;
   }
 }
@@ -50,12 +50,12 @@ function warnIgnoredEngineOnce(sandbox: Sandbox): void {
   );
 }
 
-function describeBackend(backend: Backend): { key: string; location: string } {
-  if (backend.backendType === BackendType.VERTEX_AI) {
-    const location = (backend as VertexAIBackend).location;
-    return { key: `vertexai/${location}`, location };
+function describeBackend(backend: Backend): { key: string } {
+  if (backend.backendType === BackendType.AGENT_PLATFORM) {
+    const location = (backend as { readonly location?: string }).location ?? 'global';
+    return { key: `agentplatform/${location}` };
   }
-  return { key: 'googleai', location: '' };
+  return { key: 'googleai' };
 }
 
 function cachedHandles(owner: Sandbox | FirebaseApp): Map<string, AI> {
@@ -142,11 +142,9 @@ export function createConfiguredSandboxAI(sandbox: Sandbox, options: AIOptions):
 
 function sandboxHandle(sandbox: Sandbox, broker: AiBroker, options?: AIOptions, app?: FirebaseApp): AI {
   const backend = options?.backend ?? new GoogleAIBackend();
-  const { location } = describeBackend(backend);
   const resolvedOptions = resolveInstanceOptions(options);
   const handle: AI = {
     backend,
-    location,
     options: resolvedOptions,
   };
   if (app !== undefined) {

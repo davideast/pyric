@@ -1,10 +1,10 @@
 /**
- * `pyric/firestore/lite` — a DEFERRED mirror of `firebase/firestore/lite`.
+ * `pyric/firestore/lite` -- a DEFERRED mirror of `firebase/firestore/lite`.
  *
  * The Lite SDK is a separate build of Firestore with no local cache, no
  * listeners and no offline queue. pyric mirrors the full `firebase/firestore`
  * surface against the in-process sandbox; the Lite build needs its own
- * cache-free instance identity, so it is deferred rather than aliased — an
+ * cache-free instance identity, so it is deferred rather than aliased -- an
  * alias would silently give Lite consumers listener-backed semantics the real
  * Lite SDK does not have.
  *
@@ -13,7 +13,7 @@
  * subpath. See `../deferred/entry.ts` for the full rationale.
  *
  * The value list is the exact public runtime surface of `firebase/firestore/lite`
- * (Firebase Web SDK 12.19.0). Keep it in sync when this entry graduates to a
+ * (Firebase Web SDK 13.4.0). Keep it in sync when this entry graduates to a
  * real mirror.
  */
 import { deferredEntry, type DeferredApi } from '../deferred/entry.js';
@@ -21,23 +21,24 @@ import { deferredEntry, type DeferredApi } from '../deferred/entry.js';
 export { PyricDeferredApiError } from '../deferred/entry.js';
 
 export const {
-  AggregateField, AggregateQuerySnapshot, Bytes, CollectionReference, DocumentReference,
-  DocumentSnapshot, FieldPath, FieldValue, Firestore, FirestoreError, GeoPoint, Query,
-  QueryCompositeFilterConstraint, QueryConstraint, QueryDocumentSnapshot, QueryEndAtConstraint,
-  QueryFieldFilterConstraint, QueryLimitConstraint, QueryOrderByConstraint, QuerySnapshot,
-  QueryStartAtConstraint, Timestamp, Transaction, VectorValue, WriteBatch, addDoc,
-  aggregateFieldEqual, aggregateQuerySnapshotEqual, and, arrayRemove, arrayUnion, average,
-  collection, collectionGroup, connectFirestoreEmulator, count, deleteDoc, deleteField, doc,
-  documentId, endAt, endBefore, getAggregate, getCount, getDoc, getDocs, getFirestore,
-  increment, initializeFirestore, limit, limitToLast, maximum, minimum, or, orderBy, query, queryEqual, refEqual,
-  runTransaction, serverTimestamp, setDoc, setLogLevel, snapshotEqual, startAfter, startAt,
-  sum, terminate, updateDoc, vector, where, writeBatch,
+  AggregateField, AggregateQuerySnapshot, BsonObjectId, BsonTimestamp, Bytes, CollectionReference,
+  Decimal128Value, DocumentReference, DocumentSnapshot, FieldPath, FieldValue, Firestore,
+  FirestoreError, GeoPoint, Int32Value, MaxKey, MinKey, Query, QueryCompositeFilterConstraint,
+  QueryConstraint, QueryDocumentSnapshot, QueryEndAtConstraint, QueryFieldFilterConstraint,
+  QueryLimitConstraint, QueryOrderByConstraint, QuerySnapshot, QueryStartAtConstraint, RegexValue,
+  Timestamp, Transaction, VectorValue, WriteBatch, addDoc, aggregateFieldEqual,
+  aggregateQuerySnapshotEqual, and, arrayRemove, arrayUnion, average, collection, collectionGroup,
+  connectFirestoreEmulator, count, deleteDoc, deleteField, doc, documentId, endAt, endBefore,
+  getAggregate, getCount, getDoc, getDocs, getFirestore, increment, initializeFirestore, limit,
+  limitToLast, maximum, minimum, or, orderBy, query, queryEqual, refEqual, runTransaction,
+  serverTimestamp, setDoc, setLogLevel, snapshotEqual, startAfter, startAt, sum, terminate,
+  updateDoc, vector, where, writeBatch,
 } = deferredEntry('firestore/lite');
 
 // Type declarations. Aliased to the deferred placeholder so a consumer's own
 // annotations keep type-checking: every deferred call returns `never`, which is
 // assignable to any of these. Names that Firebase exports as a CLASS appear both
-// here and above — a class is a value and a type, and both meanings must survive
+// here and above -- a class is a value and a type, and both meanings must survive
 // the swap.
 export type AddPrefixToKeys = DeferredApi;
 export type AggregateField = DeferredApi;
@@ -46,9 +47,13 @@ export type AggregateQuerySnapshot = DeferredApi;
 export type AggregateSpec = DeferredApi;
 export type AggregateSpecData = DeferredApi;
 export type AggregateType = DeferredApi;
+export type BsonObjectId = DeferredApi;
+export type BsonTimestamp = DeferredApi;
 export type Bytes = DeferredApi;
+export type ChildTypes = DeferredApi;
 export type ChildUpdateFields = DeferredApi;
 export type CollectionReference = DeferredApi;
+export type Decimal128Value = DeferredApi;
 export type DocumentData = DeferredApi;
 export type DocumentReference = DeferredApi;
 export type DocumentSnapshot = DeferredApi;
@@ -60,7 +65,10 @@ export type FirestoreDataConverter = DeferredApi;
 export type FirestoreError = DeferredApi;
 export type FirestoreErrorCode = DeferredApi;
 export type GeoPoint = DeferredApi;
+export type Int32Value = DeferredApi;
 export type LogLevel = DeferredApi;
+export type MaxKey = DeferredApi;
+export type MinKey = DeferredApi;
 export type NestedUpdateFields = DeferredApi;
 export type OrderByDirection = DeferredApi;
 export type PartialWithFieldValue = DeferredApi;
@@ -78,6 +86,7 @@ export type QueryNonFilterConstraint = DeferredApi;
 export type QueryOrderByConstraint = DeferredApi;
 export type QuerySnapshot = DeferredApi;
 export type QueryStartAtConstraint = DeferredApi;
+export type RegexValue = DeferredApi;
 export type SetOptions = DeferredApi;
 export type Settings = DeferredApi;
 export type Timestamp = DeferredApi;

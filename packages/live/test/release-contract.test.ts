@@ -73,7 +73,7 @@ describe('@pyric/live publishes', () => {
   test('with firebase as a >=12 peer while start checks enforce the runtime range', () => {
     expect(manifest.peerDependencies?.firebase).toBe('>=12');
     expect(contract.peerDependencies.firebase).toBe('>=12');
-    expect(SUPPORTED_FIREBASE_RANGE).toBe('^12.12.0');
+    expect(SUPPORTED_FIREBASE_RANGE).toBe('^12.12.0 || ^13.0.0');
     expect(manifest.dependencies?.firebase).toBeUndefined();
   });
 

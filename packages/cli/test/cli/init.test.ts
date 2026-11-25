@@ -1,4 +1,4 @@
-/** `pyric init` v2 — agent-first scaffold engine (pyric-init plan 1.1–1.4).
+/** `pyric init` v2 -- agent-first scaffold engine (pyric-init plan 1.1-1.4).
  *  Real temp dirs; the engine is filesystem-in/filesystem-out, test it as
  *  one. The served-app behavior is the browser gate (step 1.5). */
 import { afterEach, describe, expect, it } from 'bun:test';
@@ -39,7 +39,7 @@ function capture() {
 
 const tmp = () => mkdtempSync(join(tmpdir(), 'pyric-init-'));
 
-describe('pyric init v2 — web template (default, Vite)', () => {
+describe('pyric init v2 -- web template (default, Vite)', () => {
   it('scaffolds a Vite app wired to @pyric/cli/vite, canonical firebase imports', async () => {
     const dir = tmp();
     const c = capture();
@@ -64,7 +64,7 @@ describe('pyric init v2 — web template (default, Vite)', () => {
     // the Vite template has no static `public/` tree
     expect(existsSync(join(dir, 'public'))).toBe(false);
 
-    // app code uses canonical firebase/* imports — pyric never leaks in
+    // app code uses canonical firebase/* imports -- pyric never leaks in
     const main = readFileSync(join(dir, 'src/main.ts'), 'utf8');
     expect(main).toContain("from 'firebase/app'");
     expect(main).toContain('initializeApp(');
@@ -150,12 +150,12 @@ describe('pyric init v2 — web template (default, Vite)', () => {
   });
 });
 
-describe('pyric init v2 — web template ↔ example dogfood stay in sync', () => {
+describe('pyric init v2 -- web template <-> example dogfood stay in sync', () => {
   // The in-repo example (examples/vite-sandbox-app) is the browser-verified
   // reference. These name-independent files must be byte-identical to what the
   // web template scaffolds, so the two can never drift apart.
   const EXAMPLE_DIR = fileURLToPath(new URL('../../../../examples/vite-sandbox-app', import.meta.url));
-  // NOTE: `.env.example` is intentionally excluded — the repo's root .gitignore
+  // NOTE: `.env.example` is intentionally excluded -- the repo's root .gitignore
   // ignores `.env.example`, so the in-repo example can't commit one (the scaffold
   // still generates it for end users). Everything else must match byte-for-byte.
   const SYNCED = [
@@ -178,13 +178,13 @@ describe('pyric init v2 — web template ↔ example dogfood stay in sync', () =
       // include the filename so a mismatch names the drifted file
       expect([f, scaffolded]).toEqual([f, example]);
     }
-    // the web template has no seed.json — seeding is a plugin (M2) feature, not
+    // the web template has no seed.json -- seeding is a plugin (M2) feature, not
     // a scaffolded file. The `static` template keeps seed.json for `pyric sandbox`.
     expect(existsSync(join(dir, 'seed.json'))).toBe(false);
   });
 });
 
-describe('pyric init v2 — nextjs template ↔ example dogfood stay in sync', () => {
+describe('pyric init v2 -- nextjs template <-> example dogfood stay in sync', () => {
   const EXAMPLE_DIR = fileURLToPath(new URL('../../../../examples/nextjs-sandbox-app', import.meta.url));
   const SYNCED = [
     'next.config.mjs',
@@ -209,7 +209,7 @@ describe('pyric init v2 — nextjs template ↔ example dogfood stay in sync', (
   });
 });
 
-describe('pyric init v2 — static template (serve-era, no bundler)', () => {
+describe('pyric init v2 -- static template (serve-era, no bundler)', () => {
   it('scaffolds the static public/ app served by pyric sandbox', async () => {
     const dir = tmp();
     const c = capture();
@@ -234,13 +234,13 @@ describe('pyric init v2 — static template (serve-era, no bundler)', () => {
     expect(pkg.scripts.dev).toContain('pyric sandbox');
     expect(pkg.scripts['dev:agent']).toContain('--bridge');
 
-    // seed shape matches the --seed contract (path → fields)
+    // seed shape matches the --seed contract (path -> fields)
     const seed = JSON.parse(readFileSync(join(dir, 'seed.json'), 'utf8'));
     expect(Object.keys(seed)[0]).toMatch(/^posts\//);
   });
 });
 
-describe('pyric init v2 — chat template', () => {
+describe('pyric init v2 -- chat template', () => {
   it('scaffolds the full app from the packaged source tree', async () => {
     const dir = tmp();
     const c = capture();
@@ -267,7 +267,7 @@ describe('pyric init v2 — chat template', () => {
   });
 });
 
-describe('pyric init v2 — CLI surface', () => {
+describe('pyric init v2 -- CLI surface', () => {
   it('[dir] positional creates the directory; --name overrides', async () => {
     const root = tmp();
     const c = capture();
@@ -285,7 +285,7 @@ describe('pyric init v2 — CLI surface', () => {
     expect(await runInit(args([], { json: true }), c.deps(dir))).toBe(0);
     const lines = c.out().trim().split('\n');
     expect(lines).toHaveLength(1);
-    const result = JSON.parse(lines[0]!) as InitResult;
+    const result = JSON.parse(lines[0] ?? '') as InitResult;
     expect(result.template).toBe('web');
     expect(result.nextSteps[0]).toBe('bun install');
     expect(result.created.length).toBeGreaterThan(0);
@@ -301,7 +301,7 @@ describe('pyric init v2 — CLI surface', () => {
     expect((JSON.parse(c.out()) as InitResult).dir).toBe(join(root, 'myapp'));
   });
 
-  it('unknown template → usage error 1, nothing written', async () => {
+  it('unknown template -> usage error 1, nothing written', async () => {
     const dir = tmp();
     const c = capture();
     expect(await runInit(args([], { template: 'angularjs' }), c.deps(dir))).toBe(1);
@@ -364,7 +364,7 @@ describe('pyric init v2 — CLI surface', () => {
   }, 30_000);
 });
 
-describe('pyric init v2 — production scripts', () => {
+describe('pyric init v2 -- production scripts', () => {
   for (const template of ['web', 'node', 'static', 'chat', 'nextjs'] as const) {
     it(`${template} delegates production deployment to firebase-tools`, async () => {
       const dir = tmp();
@@ -437,7 +437,7 @@ describe('pyric init output contract', () => {
         'firestore.indexes.json': '6742255415c36daf631b52f233039190af819205cc41fa58d07dd7d9e180c2b9',
         'firestore.rules': '622374ca45b9bc35f561b377dff02da4c6c583dc1ddcd67cd43b0c69276634bd',
         'index.html': '64ce9e46153f43efe51275f03c9dcd55185461b1c915b2201e641058fc598cf7',
-        'package.json': '6f14fa043ec298f599537eb9ad2e9a3a25dfa18fd4bbee33d4ef024e52b26e0e',
+        'package.json': 'c72618640a4164a3977ded15ca9cdd15daff3b78ffea937891b35b992a700125',
         'src/main.ts': '000fcb8cfaa702073db5cfe29609da6c2c7f3f952020dc81fd77cc87f3e8c5b5',
         'src/vite-env.d.ts': '65996936fbb042915f7b74a200fcdde7e410f32a669b1ab9597cfaa4b0faddb5',
         'tsconfig.json': '5bb892360953642d2644a442a81abbad91e62be2f7fcb646505cc7f33a6bcc08',
@@ -449,7 +449,7 @@ describe('pyric init output contract', () => {
         'firebase.json': 'e817f89d2f9776ba460ec062be7d40f827b8f910d740cff2522b72232f1cdf5a',
         'firestore.indexes.json': '6742255415c36daf631b52f233039190af819205cc41fa58d07dd7d9e180c2b9',
         'firestore.rules': '9028ecbf9580fee3a04afae28223bad887df81c814d14d2ebe983d30f3a49080',
-        'package.json': '97e7ecf7228d619e46cef9211c0a1f3480188ca35c57cb8395d7358cecc48361',
+        'package.json': '1070a5ae6a35f4e9555ab4aa3451ca18868e7ced138333f1119d706f6ab537cf',
         'src/app.ts': '7d8860eef765c446a777909bec7979a928309662d63acd22a229468ee3ee90f8',
         'src/seed.ts': '0bfab850c32b7e9dc92064c5d9b2f05a96b404071d2ff92b9f8f8788447c8314',
       },
@@ -459,7 +459,7 @@ describe('pyric init output contract', () => {
         'firebase.json': 'da40b786caed050b30a5bb108c6e369376477e89a8e08e09c105445ef01bd0fd',
         'firestore.indexes.json': '6742255415c36daf631b52f233039190af819205cc41fa58d07dd7d9e180c2b9',
         'firestore.rules': 'd47e64a0acc67a12f4f0c7170b99b4d30bd4011f396ec846f15c77b2bda49550',
-        'package.json': '75af990517e49d1ab835faf472a1ec3ecb22a907e55f45955db1d66aa2f4bc1a',
+        'package.json': '760345464d0e1cba66c28bd81c04b26e1cd9dec5f346b1e84349f59410ef459a',
         'public/app.js': 'ea1edd971749b04b02af487ca61f7a01a9cd0787ab1f66d1fa36090b8e74457e',
         'public/index.html': 'a878cd6b5508217014e966a8f18ffb8be7789118602acc1c8108df244d2bef4e',
         'seed.json': 'd7d4bed7b5b88e4c30720647f630a83769edbb7eb379e5bcec05403e15148935',

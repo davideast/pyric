@@ -48,7 +48,7 @@ describe('ai: initialization and dispatch', () => {
     const ai = seam.ai.getAI(sandbox);
     expect(ai.backend).toBeInstanceOf(seam.ai.GoogleAIBackend);
     expect(ai.backend.backendType).toBe(seam.ai.BackendType.GOOGLE_AI);
-    expect(ai.location).toBe('');
+    expect('location' in ai).toBe(false);
   });
 
   rowTest('ai#getai-idempotent repeat getAI calls with the same target return a stable handle', () => {
@@ -69,12 +69,11 @@ describe('ai: initialization and dispatch', () => {
     expect(fromExplicit.response.candidates).toEqual(fromDefault.response.candidates);
   });
 
-  rowTest('ai#backend-vertex VertexAIBackend carries VERTEX_AI and location defaults to us-central1', () => {
-    const backend = new seam.ai.VertexAIBackend();
-    expect(backend.backendType).toBe(seam.ai.BackendType.VERTEX_AI);
-    expect(backend.location).toBe('us-central1');
-    const ai = seam.ai.getAI(seam.sandboxMod.initializeSandbox(), { backend });
-    expect(ai.location).toBe('us-central1');
+  rowTest('ai#backend-vertex VertexAIBackend, BackendType.VERTEX_AI, and AI.location are absent after @firebase/ai 3.1.0 removal', () => {
+    expect('VertexAIBackend' in seam.ai).toBe(false);
+    expect('VERTEX_AI' in seam.ai.BackendType).toBe(false);
+    const ai = seam.ai.getAI(seam.sandboxMod.initializeSandbox());
+    expect('location' in ai).toBe(false);
   });
 
   rowTest('ai#model-name-short a short model name normalizes to the models/ resource name', () => {

@@ -16,13 +16,14 @@ import { createAppForSandbox } from 'pyric/app/internal';
 import { CustomProvider, initializeAppCheck } from 'pyric/app-check';
 import { initializeSandbox } from 'pyric/sandbox';
 import { mintAppCheckToken } from 'pyric/sandbox/internal';
+import * as pyricAiNamespace from 'pyric/ai';
 import {
   AIError,
   BackendType,
   GoogleAIBackend,
-  VertexAIBackend,
   getAI,
   getGenerativeModel,
+  type AgentPlatformBackend,
 } from 'pyric/ai';
 
 interface SyncAiThrowShape {
@@ -40,29 +41,21 @@ interface InitBackendsBehavior {
     isGoogleAIBackend: boolean;
     backendType: string;
     matchesEnumGoogleAi: boolean;
-    location: string;
+    location?: string;
   };
   idempotency: {
     sameAppDefaultSameHandle: boolean;
     sameAppExplicitGoogleSameHandle: boolean;
-    sameAppVertexSameHandle: boolean;
-    googleAndVertexDistinctOnSameApp: boolean;
-    vertexLocationsDistinctOnSameApp: boolean;
     distinctAppsDistinctHandles: boolean;
   };
-  vertexBackend: {
-    isVertexAIBackend: boolean;
-    backendType: string;
-    matchesEnumVertexAi: boolean;
-    defaultBackendLocation: string;
-    defaultHandleLocation: string;
-    customBackendLocation: string;
-    customHandleLocation: string;
+  vertexRemoved?: {
+    hasVertexAIBackend: boolean;
+    hasVertexAiEnum: boolean;
+    hasHandleLocation: boolean;
   };
   modelNames: {
     googleShortNormalized: string;
     googlePrefixedNormalized: string;
-    vertexShortNormalized: string;
   };
   guards: {
     emptyModelThrow: SyncAiThrowShape;
@@ -124,7 +117,7 @@ function observeSyncAiThrow(fn: () => unknown): SyncAiThrowShape {
 }
 
 describe('oracle replay: ai-offline-init-backends-and-model-guards', () => {
-  it('replays default GoogleAIBackend, VertexAIBackend locations, app dispatch, and handle idempotency with zero fetches', async () => {
+  it('replays default GoogleAIBackend, VertexAIBackend removal, app dispatch, and handle idempotency with zero fetches', async () => {
     const facts = loadInitBackendsObservation();
     expect(facts.fetchCalls).toBe(0);
 
@@ -164,38 +157,40 @@ describe('oracle replay: ai-offline-init-backends-and-model-guards', () => {
       const explicitGoogleAi = getAI(primaryApp, { backend: new GoogleAIBackend() });
       const otherAppAi = getAI(secondaryApp);
 
-      const vertexDefault = new VertexAIBackend();
-      const vertexAiDefault = getAI(primaryApp, { backend: vertexDefault });
-      const repeatVertexAiDefault = getAI(primaryApp, { backend: new VertexAIBackend() });
-      const vertexEurope = new VertexAIBackend('europe-west1');
-      const vertexAiEurope = getAI(primaryApp, { backend: vertexEurope });
-
       expect({
         carriesApp: defaultAi.app === primaryApp,
         isGoogleAIBackend: defaultAi.backend instanceof GoogleAIBackend,
         backendType: defaultAi.backend.backendType,
         matchesEnumGoogleAi: defaultAi.backend.backendType === BackendType.GOOGLE_AI,
-        location: defaultAi.location,
-      }).toEqual(facts.defaultBackend);
+      }).toEqual({
+        carriesApp: facts.defaultBackend.carriesApp,
+        isGoogleAIBackend: facts.defaultBackend.isGoogleAIBackend,
+        backendType: facts.defaultBackend.backendType,
+        matchesEnumGoogleAi: facts.defaultBackend.matchesEnumGoogleAi,
+      });
 
       expect({
         sameAppDefaultSameHandle: defaultAi === repeatDefaultAi,
         sameAppExplicitGoogleSameHandle: defaultAi === explicitGoogleAi,
-        sameAppVertexSameHandle: vertexAiDefault === repeatVertexAiDefault,
-        googleAndVertexDistinctOnSameApp: defaultAi !== vertexAiDefault,
-        vertexLocationsDistinctOnSameApp: vertexAiDefault !== vertexAiEurope,
         distinctAppsDistinctHandles: defaultAi !== otherAppAi,
-      }).toEqual(facts.idempotency);
+      }).toEqual({
+        sameAppDefaultSameHandle: facts.idempotency.sameAppDefaultSameHandle,
+        sameAppExplicitGoogleSameHandle: facts.idempotency.sameAppExplicitGoogleSameHandle,
+        distinctAppsDistinctHandles: facts.idempotency.distinctAppsDistinctHandles,
+      });
 
-      expect({
-        isVertexAIBackend: vertexDefault instanceof VertexAIBackend,
-        backendType: vertexDefault.backendType,
-        matchesEnumVertexAi: vertexDefault.backendType === BackendType.VERTEX_AI,
-        defaultBackendLocation: vertexDefault.location,
-        defaultHandleLocation: vertexAiDefault.location,
-        customBackendLocation: vertexEurope.location,
-        customHandleLocation: vertexAiEurope.location,
-      }).toEqual(facts.vertexBackend);
+      const vertexRemoved = {
+        hasVertexAIBackend: 'VertexAIBackend' in pyricAiNamespace,
+        hasVertexAiEnum: 'VERTEX_AI' in BackendType,
+        hasHandleLocation: 'location' in defaultAi,
+      };
+      expect(vertexRemoved).toEqual(
+        facts.vertexRemoved ?? {
+          hasVertexAIBackend: false,
+          hasVertexAiEnum: false,
+          hasHandleLocation: false,
+        },
+      );
 
       expect(fetchCalls).toBe(facts.fetchCalls);
     } finally {
@@ -206,7 +201,7 @@ describe('oracle replay: ai-offline-init-backends-and-model-guards', () => {
     }
   });
 
-  it('replays GoogleAIBackend and VertexAIBackend model resource normalization and pins single-prefix delta', async () => {
+  it('replays GoogleAIBackend and regional model resource normalization and pins single-prefix delta', async () => {
     const facts = loadInitBackendsObservation();
     const sandbox = initializeSandbox();
     const app = createAppForSandbox(
@@ -230,7 +225,11 @@ describe('oracle replay: ai-offline-init-backends-and-model-guards', () => {
 
     try {
       const googleAi = getAI(app);
-      const vertexAi = getAI(app, { backend: new VertexAIBackend() });
+      const regionalBackend: AgentPlatformBackend = {
+        backendType: BackendType.AGENT_PLATFORM,
+        location: 'us-central1',
+      };
+      const regionalAi = getAI(app, { backend: regionalBackend });
 
       const googleShortModel = getGenerativeModel(googleAi, {
         model: 'gemini-flash-lite-latest',
@@ -238,29 +237,29 @@ describe('oracle replay: ai-offline-init-backends-and-model-guards', () => {
       const googlePrefixedModel = getGenerativeModel(googleAi, {
         model: 'models/gemini-flash-lite-latest',
       });
-      const vertexShortModel = getGenerativeModel(vertexAi, {
+      const regionalShortModel = getGenerativeModel(regionalAi, {
         model: 'gemini-flash-lite-latest',
       });
-      const vertexPrefixedModel = getGenerativeModel(vertexAi, {
+      const regionalPrefixedModel = getGenerativeModel(regionalAi, {
         model: 'models/gemini-flash-lite-latest',
       });
 
       expect(googleShortModel.model).toBe(facts.modelNames.googleShortNormalized);
-      expect(vertexShortModel.model).toBe(facts.modelNames.vertexShortNormalized);
-      expect(vertexPrefixedModel.model).toBe(facts.modelNames.vertexShortNormalized);
+      expect(regionalShortModel.model).toBe('publishers/google/models/gemini-flash-lite-latest');
+      expect(regionalPrefixedModel.model).toBe('publishers/google/models/gemini-flash-lite-latest');
 
-      // Pinned ai#model-name-prefixed delta vs firebase 12.19.0 double-prefixing.
+      // Pinned ai#model-name-prefixed delta vs upstream double-prefixing.
       expect(facts.modelNames.googlePrefixedNormalized).toBe('models/models/gemini-flash-lite-latest');
       expect(googlePrefixedModel.model).toBe('models/gemini-flash-lite-latest');
 
-      // Full-lifecycle propagation: VertexAIBackend model resource executes cleanly against the sandbox broker.
-      const vertexReply = await vertexShortModel.generateContent('Ping Vertex sandbox.');
-      expect(vertexReply.response.text().length).toBeGreaterThan(0);
-      expect((vertexReply.response as { modelVersion?: string }).modelVersion).toBe(
+      // Full-lifecycle propagation: regional model resource executes cleanly against the sandbox broker.
+      const regionalReply = await regionalShortModel.generateContent('Ping regional sandbox.');
+      expect(regionalReply.response.text().length).toBeGreaterThan(0);
+      expect((regionalReply.response as { modelVersion?: string }).modelVersion).toBe(
         'gemini-flash-lite-latest',
       );
-      const vertexTokens = await vertexShortModel.countTokens('Ping Vertex sandbox.');
-      expect(vertexTokens.totalTokens).toBeGreaterThan(0);
+      const regionalTokens = await regionalShortModel.countTokens('Ping regional sandbox.');
+      expect(regionalTokens.totalTokens).toBeGreaterThan(0);
     } finally {
       await deleteApp(app);
       sandbox.dispose();
