@@ -25,7 +25,8 @@ describe('assembleGameRules', () => {
     const rules = assembleGameRules(connectFour);
     const ast = parseToAST(rules);
     expect(ast).not.toBeNull();
-    expect(ast!.version).toBe('2');
+    if (ast === null) return;
+    expect(ast.version).toBe('2');
   });
 
   test('Tic-Tac-Toe config (no gravity) omits gravity from validMove', () => {
@@ -41,7 +42,9 @@ describe('assembleGameRules', () => {
 
   test('rules have no critical validation findings', () => {
     const rules = assembleGameRules(connectFour);
-    const ast = parseToAST(rules)!;
+    const ast = parseToAST(rules);
+    expect(ast).not.toBeNull();
+    if (ast === null) return;
     const findings = validateFirestoreRules(ast);
     const critical = findings.filter(f => f.severity === 'critical');
     expect(critical).toHaveLength(0);
@@ -97,7 +100,7 @@ describe('assembleGameRules', () => {
     // Each win line for host: b.cXrY == 'host'
     const hostWins = (rules.match(/== 'host'/g) || []).length;
     const guestWins = (rules.match(/== 'guest'/g) || []).length;
-    // 8 lines × 3 cells = 24 per mark, plus turn references
+    // 8 lines x 3 cells = 24 per mark, plus turn references
     // Just check both functions exist and have content
     expect(rules).toContain("function hasWonHost(b)");
     expect(rules).toContain("function hasWonGuest(b)");

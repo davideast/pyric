@@ -20,26 +20,26 @@ export function indexToColRow(index: number, cols: number): [number, number] {
  * Generate all winning lines for N-in-a-row on a rectangular grid.
  * Returns arrays of flat indices (row * cols + col).
  *
- * Directions: horizontal (→), vertical (↑), diagonal (↗), diagonal (↘)
+ * Directions: horizontal (right), vertical (up), diagonal (up-right), diagonal (down-right)
  */
 export function generateWinLines(cols: number, rows: number, count: number): number[][] {
   const lines: number[][] = [];
 
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
-      // Horizontal (→)
+      // Horizontal (right)
       if (c + count <= cols) {
         lines.push(Array.from({ length: count }, (_, i) => r * cols + c + i));
       }
-      // Vertical (↑)
+      // Vertical (up)
       if (r + count <= rows) {
         lines.push(Array.from({ length: count }, (_, i) => (r + i) * cols + c));
       }
-      // Diagonal (↗)
+      // Diagonal (up-right)
       if (c + count <= cols && r + count <= rows) {
         lines.push(Array.from({ length: count }, (_, i) => (r + i) * cols + c + i));
       }
-      // Diagonal (↘)
+      // Diagonal (down-right)
       if (c + count <= cols && r - count + 1 >= 0) {
         lines.push(Array.from({ length: count }, (_, i) => (r - i) * cols + c + i));
       }
