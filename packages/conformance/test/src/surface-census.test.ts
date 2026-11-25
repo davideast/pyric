@@ -20,8 +20,8 @@ describe('Firebase public-surface census', () => {
     functions: { runtime: [5, 5, 0], types: [9, 9] },
     database: { runtime: [44, 44, 10], types: [15, 15] },
     storage: { runtime: [18, 16, 9], types: [17, 17] },
-    messaging: { runtime: [9, 5, 0], types: [9, 9] },
-    'messaging-sw': { runtime: [6, 4, 0], types: [9, 9] },
+    messaging: { runtime: [9, 9, 0], types: [9, 9] },
+    'messaging-sw': { runtime: [6, 6, 0], types: [9, 9] },
   } as const;
 
   it('pins public runtime and type denominators for every mirrored Firebase entry point', () => {

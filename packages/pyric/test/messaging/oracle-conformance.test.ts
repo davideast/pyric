@@ -45,6 +45,7 @@ import { initializeSandbox } from 'pyric/sandbox';
 import { BrokerSendError, DEFAULT_SENDER_ID, getMessagingBroker } from 'pyric/messaging/internal';
 import { resetAppRegistryForTests } from '../../dist/app/registry.js';
 import { withInPageMessagingTarget } from './in-page-replay-target.ts';
+import { registrationConformanceAssertions } from './registration-conformance-assertions.ts';
 
 beforeAll(async () => {
   await resetAppRegistryForTests();
@@ -528,6 +529,7 @@ const assertions: Record<string, () => Promise<void> | void> = {
       await resetAppRegistryForTests();
     }
   },
+  ...registrationConformanceAssertions(loadClient, loadSw),
 };
 
 /**

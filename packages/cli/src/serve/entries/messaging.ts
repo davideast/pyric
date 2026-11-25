@@ -6,6 +6,7 @@ import type {
   Messaging,
   NextFn,
   Observer,
+  RegisterOptions,
   Unsubscribe,
 } from 'pyric/messaging';
 import { FirebaseError, getApp, type FirebaseApp } from 'pyric/app';
@@ -20,6 +21,12 @@ import {
   messagingSubscribe,
   type ClientMessaging,
 } from '../worker/client/messaging.js';
+import {
+  messagingOnRegistered,
+  messagingOnUnregistered,
+  messagingRegister,
+  messagingUnregister,
+} from '../worker/client/messaging-registration.js';
 import { workerClientForApp } from './app-client.js';
 import { messagingRegistration } from './messaging-registration.js';
 import { useWorker } from './worker-runtime.js';
@@ -32,6 +39,7 @@ export type {
   NextFn,
   NotificationPayload,
   Observer,
+  RegisterOptions,
   Unsubscribe,
 } from 'pyric/messaging';
 
@@ -98,6 +106,40 @@ export function onMessage(
   return useWorker
     ? messagingSubscribe(messaging as WorkerMessaging, 'messaging.foreground', nextOrObserver)
     : inPage.onMessage(messaging, nextOrObserver);
+}
+
+export function register(messaging: Messaging, options?: RegisterOptions): Promise<void> {
+  if (useWorker) {
+    return messagingRegister(messaging as WorkerMessaging, options);
+  }
+  return inPage.register(messaging, options);
+}
+
+export function unregister(messaging: Messaging): Promise<void> {
+  if (useWorker) {
+    return messagingUnregister(messaging as WorkerMessaging);
+  }
+  return inPage.unregister(messaging);
+}
+
+export function onRegistered(
+  messaging: Messaging,
+  nextOrObserver: NextFn<string> | Observer<string>,
+): Unsubscribe {
+  if (useWorker) {
+    return messagingOnRegistered(messaging as WorkerMessaging, nextOrObserver);
+  }
+  return inPage.onRegistered(messaging, nextOrObserver);
+}
+
+export function onUnregistered(
+  messaging: Messaging,
+  nextOrObserver: NextFn<string> | Observer<string>,
+): Unsubscribe {
+  if (useWorker) {
+    return messagingOnUnregistered(messaging as WorkerMessaging, nextOrObserver);
+  }
+  return inPage.onUnregistered(messaging, nextOrObserver);
 }
 
 export const isSupported = inPage.isSupported;

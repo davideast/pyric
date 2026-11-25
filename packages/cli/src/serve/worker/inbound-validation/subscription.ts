@@ -23,7 +23,10 @@ export function assertSubscription(message: Record<string, unknown>): void {
       case 'authBlocking':
         assertAuthBlockingSubArguments(message);
         return;
-      case 'messaging.foreground': case 'messaging.background':
+      case 'messaging.foreground':
+      case 'messaging.background':
+      case 'messaging.registered':
+      case 'messaging.unregistered':
         requireOptionalString(message.recipientId, 'recipientId');
         return;
       default:

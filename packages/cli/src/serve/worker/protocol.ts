@@ -324,7 +324,9 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'resetAll' }
   // Messaging ops
   | { t: 'op'; id: string; method: 'messaging.getToken'; registrationId?: string; recipientId?: string }
-  | { t: 'op'; id: string; method: 'messaging.deleteToken'; registrationId?: string }
+  | { t: 'op'; id: string; method: 'messaging.deleteToken'; registrationId?: string; recipientId?: string }
+  | { t: 'op'; id: string; method: 'messaging.register'; registrationId?: string; recipientId?: string }
+  | { t: 'op'; id: string; method: 'messaging.unregister'; registrationId?: string; recipientId?: string }
   | { t: 'op'; id: string; method: 'messaging.send'; message: BrokerMessage; validateOnly?: boolean }
   | { t: 'op'; id: string; method: 'messaging.subscribeToTopic'; tokens: string[]; topic: string }
   | { t: 'op'; id: string; method: 'messaging.unsubscribeFromTopic'; tokens: string[]; topic: string }

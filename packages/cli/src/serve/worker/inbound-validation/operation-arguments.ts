@@ -473,6 +473,8 @@ export function assertOperationArguments(message: Record<string, unknown>): void
       return;
     case 'messaging.getToken':
     case 'messaging.deleteToken':
+    case 'messaging.register':
+    case 'messaging.unregister':
       requireOptionalString(message.recipientId, 'recipientId');
       requireOptionalString(message.registrationId, 'registrationId');
       return;
