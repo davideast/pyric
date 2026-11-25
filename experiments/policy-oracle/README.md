@@ -10,6 +10,8 @@ python3 experiments/policy-oracle/core/oracle.py --all
 python3 experiments/policy-oracle/core/test_oracle.py
 ```
 
+Score a separate packed rules engine with `--candidate-package RULES.tgz`. [Candidate scoring and report fields](CANDIDATES.md)
+
 The JSON report groups the registered obligations and probes by claim. Each probe names its cases. The stock and generated tic-tac-toe claim IDs are reserved for the frozen archive. An eligible receipt makes a probe `evidenced`; replaying the candidate against all its observed answers can make it `conforms`. A probe awaiting a receipt stays `pending`, even if a local evaluator allows one proposal and refuses another. Incompatible receipts for the same probe yield `disputed` and retain both answers. A mismatch under replay yields `diverged`. A dispute, candidate mismatch, malformed input, or a required evidenced probe whose mutation survives every case makes the command exit unsuccessfully. New observations with the same answers do not increase the number of claims.
 
 `--all` also rebuilds the pinned runtime with the original [offline Arcade replay](arcade/README.md) and checks its two claims, 21 decisions and mutation results. `--replay` uses a runtime already prepared by the archive. Use it in a private worktree with a stable install. The archived replay takes an exclusive lock during installation. The integrated runner holds the same lock in shared mode while its probe programs use that runtime. Local commands default to a 300-second timeout. Set `ORACLE_REPLAY_TIMEOUT_SECONDS` if a known workload needs more time. Timeouts are infrastructure failures.
