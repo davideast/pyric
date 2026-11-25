@@ -1,6 +1,6 @@
 {
   "authority": "rtdb-production",
-  "inputDigest": "7d51b6697236e8c10d7eb79b1231ac22a50d5af9289054977af216e2c5e063aa",
+  "inputDigest": "6f9290d94895298ab377f90a100b2a42fa5a351125a2062c7d01377f8d38fd9c",
   "results": {
     "owner-deep-write": "ALLOW",
     "nonowner-deep-write": "DENY",
@@ -21,6 +21,7 @@
       "owner-create": "/behavior/create with own speaker (data absent, newData merged)",
       "deep-create": "/behavior/create deep content only under a new id (newData at $m lacks speaker)",
       "multi-path-update": "/behavior/multi-path update touching m1~1content from ~1msgs"
-    }
+    },
+    "sourceBlob": "4fad1d28a16191d40b431521ab141cba9fdc3a7f"
   }
 }
