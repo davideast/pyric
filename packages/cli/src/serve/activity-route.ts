@@ -29,8 +29,42 @@ export interface ActivityGuardOptions {
 }
 
 const MAX_ACTIVITY_BODY_BYTES = 32 * 1024;
+const MAX_DEDUPED_INCIDENT_KEYS = 256;
+const deliveredBySink = new WeakMap<(incident: ActivityIncident) => void, Set<string>>();
 
 class ActivityBodyTooLargeError extends Error {}
+
+function incidentDeliveryKey(incident: ActivityIncident): string {
+  if (incident.evidenceEventIds.length > 0) {
+    return `${incident.pattern}|${incident.severity}|${incident.evidenceEventIds.join(',')}`;
+  }
+  return `${incident.pattern}|${incident.severity}|${incident.fingerprint}|${incident.count}`;
+}
+
+function recordIncidentOnce(
+  onIncident: (incident: ActivityIncident) => void,
+  incident: ActivityIncident,
+): boolean {
+  let seen = deliveredBySink.get(onIncident);
+  if (seen === undefined) {
+    seen = new Set<string>();
+    deliveredBySink.set(onIncident, seen);
+  }
+  const key = incidentDeliveryKey(incident);
+  if (seen.has(key)) {
+    seen.delete(key);
+    seen.add(key);
+    return false;
+  }
+  if (seen.size >= MAX_DEDUPED_INCIDENT_KEYS) {
+    const oldest = seen.values().next().value;
+    if (oldest !== undefined) {
+      seen.delete(oldest);
+    }
+  }
+  seen.add(key);
+  return true;
+}
 
 export async function handleActivity(
   onIncident: (incident: ActivityIncident) => void,
@@ -87,7 +121,9 @@ export async function handleActivity(
   try {
     const body = await collectActivityBody(req);
     if (!isActivityIncident(body)) throw new Error('invalid activity incident');
-    onIncident(body);
+    if (recordIncidentOnce(onIncident, body)) {
+      onIncident(body);
+    }
     res.writeHead(204).end();
   } catch (error) {
     const headers = { 'content-type': 'text/plain; charset=utf-8' };
@@ -173,11 +209,34 @@ function isActivityIncident(value: unknown): value is ActivityIncident {
   const actor = incident.actor as Record<string, unknown> | undefined;
   const authLens = incident.authLens as Record<string, unknown> | undefined;
   const listenerBalance = incident.listenerBalance as Record<string, unknown> | undefined;
+  if (!authLens || !usage) return false;
+
+  const hasValidAuthLens = authLens.mode === 'app-session'
+    || authLens.mode === 'anon'
+    || (authLens.mode === 'as' && typeof authLens.uid === 'string');
+  const hasValidSourceAttribution = incident.sourceAttribution === 'app'
+    || (typeof incident.sourceAttribution === 'string'
+      && /^app [\w.-]{1,64}$/.test(incident.sourceAttribution));
+  const hasValidListenerBalance = listenerBalance === undefined
+    || (isNonNegativeInteger(listenerBalance.attaches)
+      && isNonNegativeInteger(listenerBalance.detaches)
+      && isNonNegativeInteger(listenerBalance.active)
+      && (listenerBalance.isLowerBound === undefined
+        || typeof listenerBalance.isLowerBound === 'boolean'));
+
+  let matchesPatternShape = false;
+  if (incident.pattern === 'repeated-read') {
+    matchesPatternShape = (incident.method === 'get' || incident.method === 'list')
+      && usage.unit === 'document-reads'
+      && listenerBalance === undefined;
+  } else if (incident.pattern === 'duplicate-listener' || incident.pattern === 'listener-churn') {
+    matchesPatternShape = incident.method === 'listen'
+      && usage.unit === 'listener-attaches'
+      && listenerBalance !== undefined;
+  }
+
   return typeof incident.fingerprint === 'string'
     && incident.fingerprint.length <= 2_000
-    && (incident.pattern === 'repeated-read'
-      || incident.pattern === 'duplicate-listener'
-      || incident.pattern === 'listener-churn')
     && (incident.confidence === 'medium' || incident.confidence === 'high')
     && (incident.severity === 'warning' || incident.severity === 'critical')
     && incident.service === 'firestore'
@@ -185,10 +244,7 @@ function isActivityIncident(value: unknown): value is ActivityIncident {
     && typeof incident.targetFingerprint === 'string'
     && incident.targetFingerprint.length <= 2_000
     && actor?.kind === 'app'
-    && Boolean(authLens)
-    && (authLens!.mode === 'app-session'
-      || authLens!.mode === 'anon'
-      || (authLens!.mode === 'as' && typeof authLens!.uid === 'string'))
+    && hasValidAuthLens
     && (incident.authUid === null || typeof incident.authUid === 'string')
     && isNonNegativeInteger(incident.count)
     && incident.count > 0
@@ -196,31 +252,17 @@ function isActivityIncident(value: unknown): value is ActivityIncident {
     && Array.isArray(incident.evidenceEventIds)
     && incident.evidenceEventIds.length <= 8
     && incident.evidenceEventIds.every((id) => typeof id === 'string')
-    && Boolean(usage)
-    && (usage!.unit === 'document-reads' || usage!.unit === 'listener-attaches')
-    && isNonNegativeInteger(usage!.lowerBound)
-    && usage!.lowerBound === incident.count
-    && Array.isArray(usage!.limitations)
-    && usage!.limitations.length <= 8
-    && usage!.limitations.every(
+    && (usage.unit === 'document-reads' || usage.unit === 'listener-attaches')
+    && isNonNegativeInteger(usage.lowerBound)
+    && usage.lowerBound === incident.count
+    && Array.isArray(usage.limitations)
+    && usage.limitations.length <= 8
+    && usage.limitations.every(
       (limitation) => typeof limitation === 'string' && limitation.length <= 500,
     )
-    && (incident.sourceAttribution === 'app'
-      || (typeof incident.sourceAttribution === 'string'
-        && /^app [\w.-]{1,64}$/.test(incident.sourceAttribution)))
-    && (listenerBalance === undefined
-      || (isNonNegativeInteger(listenerBalance.attaches)
-        && isNonNegativeInteger(listenerBalance.detaches)
-        && isNonNegativeInteger(listenerBalance.active)
-        && (listenerBalance.isLowerBound === undefined
-          || typeof listenerBalance.isLowerBound === 'boolean')))
-    && (incident.pattern === 'repeated-read'
-      ? ((incident.method === 'get' || incident.method === 'list')
-        && usage!.unit === 'document-reads'
-        && listenerBalance === undefined)
-      : (incident.method === 'listen'
-        && usage!.unit === 'listener-attaches'
-        && listenerBalance !== undefined))
+    && hasValidSourceAttribution
+    && hasValidListenerBalance
+    && matchesPatternShape
     && hasGeneratedActivitySemantics(incident as unknown as ActivityIncident);
 }
 
