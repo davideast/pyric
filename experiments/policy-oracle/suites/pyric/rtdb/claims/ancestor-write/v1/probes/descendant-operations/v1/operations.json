@@ -1,0 +1,213 @@
+{
+  "owner-deep-write": {
+    "operation": "write",
+    "path": "/r63-ancestor-write-data-newdata/msgs/m1/content",
+    "auth": {
+      "uid": "replay-user",
+      "token": {
+        "firebase": {
+          "sign_in_provider": "anonymous"
+        },
+        "provider_id": "anonymous"
+      }
+    },
+    "data": {
+      "r63-ancestor-write-data-newdata": {
+        "msgs": {
+          "m1": {
+            "speaker": {
+              "uid": "replay-user"
+            },
+            "content": {
+              "text": "hi"
+            }
+          }
+        }
+      }
+    },
+    "newData": {
+      "text": "edit"
+    }
+  },
+  "nonowner-deep-write": {
+    "operation": "write",
+    "path": "/r63-ancestor-write-data-newdata/msgs/m1/content",
+    "auth": {
+      "uid": "replay-user",
+      "token": {
+        "firebase": {
+          "sign_in_provider": "anonymous"
+        },
+        "provider_id": "anonymous"
+      }
+    },
+    "data": {
+      "r63-ancestor-write-data-newdata": {
+        "msgs": {
+          "m1": {
+            "speaker": {
+              "uid": "alice"
+            },
+            "content": {
+              "text": "hi"
+            }
+          }
+        }
+      }
+    },
+    "newData": {
+      "text": "x"
+    }
+  },
+  "nonowner-speaker-change": {
+    "operation": "write",
+    "path": "/r63-ancestor-write-data-newdata/msgs/m1/speaker/uid",
+    "auth": {
+      "uid": "replay-user",
+      "token": {
+        "firebase": {
+          "sign_in_provider": "anonymous"
+        },
+        "provider_id": "anonymous"
+      }
+    },
+    "data": {
+      "r63-ancestor-write-data-newdata": {
+        "msgs": {
+          "m1": {
+            "speaker": {
+              "uid": "alice"
+            },
+            "content": {
+              "text": "hi"
+            }
+          }
+        }
+      }
+    },
+    "newData": "replay-user"
+  },
+  "owner-leaf-delete": {
+    "operation": "write",
+    "path": "/r63-ancestor-write-data-newdata/msgs/m1/content/text",
+    "auth": {
+      "uid": "replay-user",
+      "token": {
+        "firebase": {
+          "sign_in_provider": "anonymous"
+        },
+        "provider_id": "anonymous"
+      }
+    },
+    "data": {
+      "r63-ancestor-write-data-newdata": {
+        "msgs": {
+          "m1": {
+            "speaker": {
+              "uid": "replay-user"
+            },
+            "content": {
+              "text": "hi"
+            }
+          }
+        }
+      }
+    },
+    "newData": null
+  },
+  "owner-create": {
+    "operation": "write",
+    "path": "/r63-ancestor-write-data-newdata/msgs/m2",
+    "auth": {
+      "uid": "replay-user",
+      "token": {
+        "firebase": {
+          "sign_in_provider": "anonymous"
+        },
+        "provider_id": "anonymous"
+      }
+    },
+    "data": {
+      "r63-ancestor-write-data-newdata": {
+        "msgs": {
+          "m1": {
+            "speaker": {
+              "uid": "alice"
+            },
+            "content": {
+              "text": "hi"
+            }
+          }
+        }
+      }
+    },
+    "newData": {
+      "speaker": {
+        "uid": "replay-user"
+      },
+      "content": {
+        "text": "x"
+      }
+    }
+  },
+  "deep-create": {
+    "operation": "write",
+    "path": "/r63-ancestor-write-data-newdata/msgs/m3/content",
+    "auth": {
+      "uid": "replay-user",
+      "token": {
+        "firebase": {
+          "sign_in_provider": "anonymous"
+        },
+        "provider_id": "anonymous"
+      }
+    },
+    "data": {
+      "r63-ancestor-write-data-newdata": {
+        "msgs": {
+          "m1": {
+            "speaker": {
+              "uid": "alice"
+            },
+            "content": {
+              "text": "hi"
+            }
+          }
+        }
+      }
+    },
+    "newData": {
+      "text": "x"
+    }
+  },
+  "multi-path-update": {
+    "operation": "update",
+    "path": "/r63-ancestor-write-data-newdata/msgs",
+    "auth": {
+      "uid": "replay-user",
+      "token": {
+        "firebase": {
+          "sign_in_provider": "anonymous"
+        },
+        "provider_id": "anonymous"
+      }
+    },
+    "data": {
+      "r63-ancestor-write-data-newdata": {
+        "msgs": {
+          "m1": {
+            "speaker": {
+              "uid": "alice"
+            },
+            "content": {
+              "text": "hi"
+            }
+          }
+        }
+      }
+    },
+    "newData": {
+      "m1/content/text": "x"
+    }
+  }
+}
