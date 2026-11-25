@@ -1,0 +1,4 @@
+{
+  "description": "A Firestore batch update keeps the stored companion role when getAfter() reads it beside the updated modified flag. Compare the partial batch, solo create and full batch decisions. The SDK receipt records verdicts and the deployed rules digest. The replay uses the captured probe rules on an empty base and the seed from the probe plan. Production document readbacks and the complete deployed rules text are unavailable.",
+  "authority": "firestore-sdk"
+}
