@@ -45,7 +45,9 @@ import {
 import { formatDatabaseRulesRemoved, formatStorageRulesRemoved, storageBucketSuffix } from '../serve/rules.js';
 import { formatBeaconReceipt } from '../serve/beacon-route.js';
 import type { InitPayload } from '../serve/namespace.js';
+import { injectServeAiEngineTag } from '../serve/ai-engine-wire.js';
 import { formatAiStatusLine } from '../serve/ai-status.js';
+import { geminiProxyConfig } from '../serve/gemini-proxy.js';
 import { injectServeTags } from '../serve/html-injection.js';
 import { opaqueProjectKey } from '../serve/project-key.js';
 import { liveHostPageImportMap } from '../serve/live-host-pages.js';
@@ -56,7 +58,13 @@ import { refuseOwnWrite, type PyricWriteRefusal } from '../serve/hosted/own-writ
 import { workerInitPayload } from '../serve/runtime/hosted-target.js';
 import type { WorkerInitPayload } from '../serve/init-payload.js';
 import { resolveOwnersConfig } from '../serve/owners-config.js';
-import { resolveAiMode } from '../serve/firebase-module-swap.js';
+import {
+  browserAiEngineWire,
+  hasIgnoredBrowserGeminiKey,
+  loadViteAiEnv,
+  resolveViteAiConfig,
+  type PyricAiOptions,
+} from '../serve/vite-ai-config.js';
 import { formatActivityWarning } from '../serve/activity-warning.js';
 import {
   consoleServeLogger, getHeader, isAllowedOriginOnPorts, isForeignFetchSite,
@@ -285,6 +293,8 @@ async function startServeRuntime(opts: {
   ui?: boolean;
   /** Explicit opt-in to permissive mode (default-allow RTDB rules when unconfigured). */
   permissive?: boolean;
+  /** Optional AI Logic configuration (overrides `pyric.json` `ai`). */
+  ai?: PyricAiOptions;
   logger?: Parameters<typeof startStaticServer>[0]['logger'];
   /** Functions HTTP routes (`pyric sandbox` passes its gateway's handler). */
   functionsHandler?: FunctionsHttpGateway['handle'];
@@ -452,9 +462,17 @@ async function startServeRuntime(opts: {
   // stale, not auto-replaced; the user closes all tabs to load the new worker.
   let workerVersion: string;
   const usesEmbeddedAssets = isStandalone();
-  const aiMode = resolveAiMode(undefined, process.env);
+  const loadedAiEnv = loadViteAiEnv('development', opts.cwd, undefined);
+  const resolvedAi = resolveViteAiConfig(opts.ai ?? pyricConfig.ai, loadedAiEnv, 'pyric sandbox');
+  const ignoredGeminiKey = hasIgnoredBrowserGeminiKey(loadedAiEnv);
+  const aiMode = resolvedAi.mode;
+  const browserAiEngine = browserAiEngineWire(resolvedAi.engineWire);
+  let sessionAi: InitPayload['ai'] = null;
+  if (browserAiEngine !== undefined) {
+    sessionAi = { engine: browserAiEngine };
+  }
   if (usesEmbeddedAssets) {
-    assertStandaloneSupportsAiMode(aiMode, process.env);
+    assertStandaloneSupportsAiMode(aiMode, loadedAiEnv);
   }
   // Production AI mode serves the project's own Firebase SDK for firebase/ai,
   // firebase/app and firebase/app-check (#1290).
@@ -560,6 +578,9 @@ async function startServeRuntime(opts: {
       persistence: persistenceOptions,
       capture: opts.capture,
       studio: studioOptions,
+      ai: sessionAi,
+      aiProxyUpstream: resolvedAi.proxyUpstream,
+      aiGemini: geminiProxyConfig(resolvedAi.engineWire),
       // No CLI flag (design decision): `pyric sandbox` resolves avatars from
       // `PYRIC_AVATARS` only, same precedence as the Vite plugin minus the
       // explicit-option tier.
@@ -653,12 +674,13 @@ async function startServeRuntime(opts: {
         if (hosted !== undefined && ctx.remoteClient === true) {
           htmlHosted = { projectKey: opaqueProjectKey(hosted.projectKey) };
         }
-        return injectServeTags(html, {
+        const tagged = injectServeTags(html, {
           workerVersion, hosted: htmlHosted, aiMode, owners,
           importMap: pageImportMap,
           sessionToken: ctx.localPeer ? sessionToken : undefined,
           remotePeer: !ctx.localPeer,
         });
+        return injectServeAiEngineTag(tagged, browserAiEngine);
       },
       sessionToken,
       allowedHosts: effectiveAllowedHosts,
@@ -682,7 +704,12 @@ async function startServeRuntime(opts: {
   let bridgeAttachment;
   try {
     if (usesHostedSandbox) {
-      await mount?.startHostedSandbox(session.payload(), handle.url, {
+      let hostedPayload = session.payload();
+      if (resolvedAi.engineWire !== undefined) {
+        hostedPayload = { ...hostedPayload, ai: { engine: resolvedAi.engineWire } };
+      }
+      await mount?.startHostedSandbox(hostedPayload, handle.url, {
+        proxyUpstream: resolvedAi.proxyUpstream,
         logger,
         persistence: session.hostedPersistence,
         ownWriteRefusal: liveStart?.writeRefusal,
@@ -956,12 +983,17 @@ async function startServeRuntime(opts: {
     }
   }
   // AI is a mounted service like the bridge: `/__pyric/ai-proxy` answers from
-  // the first request on, whether or not anything is configured. `pyric
-  // sandbox` has no AI flag, so the ENGINE is always the page's own `getAI()`
-  // choice (resolved lazily in the browser, since nothing here instantiates a
-  // broker to find out); what this server does decide is where the proxy
-  // forwards, and that is what the line reports.
-  logger.info(formatAiStatusLine({ hosted: usesHostedSandbox, mode: aiMode }));
+  // the first request on, whether or not anything is configured. Report the
+  // engine and proxy upstream resolved from `pyric.json` (`ai`) and env.
+  logger.info(
+    formatAiStatusLine({
+      hosted: usesHostedSandbox,
+      mode: aiMode,
+      engine: resolvedAi.engineWire,
+      proxyUpstream: resolvedAi.proxyUpstream,
+      ignoredGeminiKey,
+    }),
+  );
   let persistSummary: ServeRuntime['persist'] = null;
   const persistence = session.summary.persistence;
   const hasPersistence = persistence !== null;
