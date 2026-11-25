@@ -5,7 +5,6 @@ import {
   assertNoReservedCustomClaims,
   mintCustomToken,
   parseClaimJson,
-  SANDBOX_PROJECT_ID,
   stringifyClaimJson,
 } from 'pyric/sandbox/internal';
 import type {
@@ -14,8 +13,8 @@ import type {
   UpdateUserRequest as SandboxUpdateUserRequest,
 } from 'pyric/auth';
 import type { PyricAdminApp } from '../app/index.js';
-import { explicitProjectId } from '../app/project-id.js';
 import { validateUpdateUserPreflight } from './preflight-validation.js';
+import { resolveIdTokenProjectId } from './project-id-fallback.js';
 import type { CreateRequest, ListUsersResult, UpdateRequest } from './types.js';
 import { UserInfo } from './user-info.js';
 import { UserMetadata } from './user-metadata.js';
@@ -252,10 +251,11 @@ export function paginateUserRecords(
 
 /**
  * The project an ID token must name for `app`: firebase-admin's explicit
- * project ID, or `pyric-sandbox` when `app` names none.
+ * project ID, else the in-process sandbox Auth project ID, else `PYRIC_PROJECT`
+ * / `pyric.json` `project`, else `pyric-sandbox`.
  */
 export function idTokenProjectId(app: PyricAdminApp): string {
-  return explicitProjectId(app) ?? SANDBOX_PROJECT_ID;
+  return resolveIdTokenProjectId(app);
 }
 
 /**

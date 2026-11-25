@@ -39,6 +39,36 @@ const projectStores = new WeakMap<Sandbox, AuthProjectStore>();
 const sandboxHandles = new WeakMap<Sandbox, Auth>();
 const initializedOptions = new WeakMap<object, unknown>();
 
+const SANDBOX_PROJECT_ID_READERS_KEY = Symbol.for('pyric.auth.sandboxProjectIdReaders');
+
+function sandboxProjectIdReaders(): WeakMap<object, () => string | undefined> {
+  const host = globalThis as Record<symbol, unknown>;
+  const existing = host[SANDBOX_PROJECT_ID_READERS_KEY];
+  if (existing instanceof WeakMap) {
+    return existing as WeakMap<object, () => string | undefined>;
+  }
+  const created = new WeakMap<object, () => string | undefined>();
+  host[SANDBOX_PROJECT_ID_READERS_KEY] = created;
+  return created;
+}
+
+/**
+ * Read the configured Auth project ID on `sandbox` (from a client
+ * `FirebaseApp` or `setProjectIdSource`) without creating a store or mutating
+ * sandbox state. Returns `undefined` when no project ID is configured.
+ */
+export function sandboxAuthProjectId(sandbox: Sandbox): string | undefined {
+  const reader = sandboxProjectIdReaders().get(sandbox);
+  if (reader === undefined) {
+    return undefined;
+  }
+  const resolved = reader();
+  if (typeof resolved === 'string' && resolved.length > 0) {
+    return resolved;
+  }
+  return undefined;
+}
+
 function deepEqualInitOptions(left: unknown, right: unknown): boolean {
   if (Object.is(left, right)) {
     return true;
@@ -94,6 +124,7 @@ function projectStoreFor(sandbox: Sandbox): AuthProjectStore {
     const created = createAuthProjectStore();
     store = created;
     projectStores.set(sandbox, created);
+    sandboxProjectIdReaders().set(sandbox, () => created.projectId());
     // Admin adapters answer about these accounts through the shared foundation.
     registerAuthAccounts(sandbox, {
       standing: (uid) => accountStanding(created, uid),
