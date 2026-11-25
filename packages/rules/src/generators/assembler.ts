@@ -2,17 +2,16 @@
  * Assembles a complete Firestore security rules file for a grid-based game.
  *
  * Optimization levels (applied automatically based on board size):
- * - Small boards (≤42 cells): nested board map, static enumeration, single win function
- * - Medium boards (43-121 cells): flat layout, dynamic access, MapDiff, directional win split
+ * - Small boards (<= 42 cells): nested board map, static enumeration, coordinate-bisected win check
+ * - Medium boards (43-121 cells): flat layout, dynamic access, MapDiff, cell-key-bisected win check
  *
  * Uses the stdlib convention: host/guest/currentTurn/status.
  */
 
 import type { GridConfig } from './grid.js';
-import { generateWinLines } from './grid.js';
 import {
-  winCheckExpr,
-  splitWinLinesByDirection,
+  classicWinAtCellExpr,
+  flatWinAtMoveExpr,
   gravityExpr,
   cellEmptyExpr,
   boardIntegrityExpr,
@@ -30,54 +29,45 @@ export interface GameConfig {
 
 const SMALL_BOARD_THRESHOLD = 42;
 
-/** Most win lines one part function ORs together when a ruleset has to
- *  split. Each line adds a nesting level to the `||` chain, and production
- *  rejects an expression nested past 99 levels ("Expression is too complex
- *  to evaluate safely."). 64 lines plus the deepest line (11 cells) stay
- *  well under it. */
-const WIN_LINES_PER_PART = 64;
-
-/** Win lines are ORed in one function per mark (or direction) unless that
- *  ruleset fails production's compile limits. Splitting changes how many
- *  expressions a request evaluates, so a ruleset that loads as one chain
- *  keeps its shape. */
-const UNSPLIT = Number.POSITIVE_INFINITY;
-
 /** A single Firestore path segment we are willing to interpolate into a
  *  `match /<collection>/{gameId}` block. Deliberately stricter than
  *  Firestore's own collection-id rules: alphanumerics, dash, underscore,
- *  1–64 chars. Anything else (slashes, braces, whitespace, newlines) could
+ *  1-64 chars. Anything else (slashes, braces, whitespace, newlines) could
  *  break out of the match block and inject arbitrary rules, so we reject it
  *  rather than escape it. */
 const COLLECTION_SEGMENT = /^[A-Za-z0-9_-]{1,64}$/;
 
 /** Validate a caller-supplied collection name before it is interpolated into
  *  generated rules source. Throws on anything that isn't a plain path
- *  segment — every caller of the public `pyric/rules` generator is safe by
+ *  segment -- every caller of the public `pyric/rules` generator is safe by
  *  default, no escaping required at the call site. */
 function assertSafeCollection(collection: string): void {
   if (typeof collection !== 'string' || !COLLECTION_SEGMENT.test(collection)) {
     throw new Error(
-      `assembleGameRules: invalid collection ${JSON.stringify(collection)} — ` +
+      `assembleGameRules: invalid collection ${JSON.stringify(collection)} -- ` +
         `must match ${COLLECTION_SEGMENT} (a single Firestore path segment: ` +
-        `letters, digits, "-" or "_", 1–64 chars). Rejected to prevent rules injection.`,
+        `letters, digits, "-" or "_", 1-64 chars). Rejected to prevent rules injection.`,
     );
   }
 }
 
-/** Generate the rules for `config`. When the rules with one win chain per
- *  function would not load in production, the win lines split into part
- *  functions. Throws, naming the limit, when even the split rules would not
- *  load, so no caller receives rules that fail to load. */
+/** Generate the rules for `config`. Checks only win lines passing through the
+ *  move cell (`lastCol`/`lastRow` on the classic nested board, `lastMove` on
+ *  the flat layout) via binary search so legitimate wins stay well under
+ *  production's 1,000-expression per-request budget. Throws, naming the limit,
+ *  if the generated rules would not load in production. */
 export function assembleGameRules(config: GameConfig): string {
   const { grid, winLineCount, collection } = config;
   assertSafeCollection(collection);
-  const lines = generateWinLines(grid.cols, grid.rows, winLineCount);
-  const unsplit = assembleWith(config, lines, UNSPLIT);
-  if (checkRulesSource(unsplit).ok) return unsplit;
-  const split = assembleWith(config, lines, WIN_LINES_PER_PART);
-  const checked = checkRulesSource(split);
-  if (checked.ok) return split;
+  const usesFlatLayout = grid.cols * grid.rows > SMALL_BOARD_THRESHOLD;
+  let rules: string;
+  if (usesFlatLayout) {
+    rules = assembleOptimized(config);
+  } else {
+    rules = assembleClassic(config);
+  }
+  const checked = checkRulesSource(rules);
+  if (checked.ok) return rules;
   const { cols, rows } = grid;
   throw new Error(
     `assembleGameRules: the rules generated for a ${cols}x${rows} board with ` +
@@ -85,40 +75,9 @@ export function assembleGameRules(config: GameConfig): string {
   );
 }
 
-function assembleWith(config: GameConfig, lines: number[][], linesPerFunction: number): string {
-  const usesFlatLayout = config.grid.cols * config.grid.rows > SMALL_BOARD_THRESHOLD;
-  return usesFlatLayout
-    ? assembleOptimized(config, lines, linesPerFunction)
-    : assembleClassic(config, lines, linesPerFunction);
-}
-
-/** One function `name(b)` that is true when `mark` holds a whole line.
- *  Past `linesPerFunction` lines, the lines go to part functions `name0`,
- *  `name1`, ... and `name` ORs their results. */
-function winCheckFunctions(name: string, mark: string, lines: number[][], grid: GridConfig, linesPerFunction: number): string {
-  if (lines.length === 0) return `    function ${name}(b) { return false; }`;
-  if (lines.length <= linesPerFunction) return winFunction(name, winCheckExpr(mark, lines, grid));
-  const parts = chunk(lines, linesPerFunction).map((part, i) => ({ name: `${name}${i}`, part }));
-  const partFunctions = parts.map(({ name: partName, part }) => winFunction(partName, winCheckExpr(mark, part, grid)));
-  const combined = winFunction(name, parts.map(({ name: partName }) => `${partName}(b)`).join(' || '));
-  return [...partFunctions, combined].join('\n\n');
-}
-
-function winFunction(name: string, body: string): string {
-  return `    function ${name}(b) {
-      return ${body};
-    }`;
-}
-
-function chunk<T>(items: readonly T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
-  return out;
-}
-
 // ---- Classic: nested board map, static enumeration ----
-function assembleClassic(config: GameConfig, lines: number[][], linesPerFunction: number): string {
-  const { grid, hasGravity, hasLobby, collection } = config;
+function assembleClassic(config: GameConfig): string {
+  const { grid, winLineCount, hasGravity, hasLobby, collection } = config;
   const totalCells = grid.cols * grid.rows;
 
   const placementChecks = [`(${placementExpr(grid)})`];
@@ -129,6 +88,7 @@ function assembleClassic(config: GameConfig, lines: number[][], linesPerFunction
   }
   const validMoveBody = placementChecks.join('\n          && ');
   const integrityBody = boardIntegrityExpr(grid);
+  const winAtCellBody = classicWinAtCellExpr(grid, winLineCount);
 
   const commonMove = `request.auth != null
         && resource.data.status == 'playing'
@@ -147,13 +107,32 @@ function assembleClassic(config: GameConfig, lines: number[][], linesPerFunction
   const locChecks = `&& request.resource.data.lastCol >= 0 && request.resource.data.lastCol <= ${grid.cols - 1}
         && request.resource.data.lastRow >= 0 && request.resource.data.lastRow <= ${grid.rows - 1}`;
 
+  let boardOkClause = '';
+  if (totalCells <= SMALL_BOARD_THRESHOLD) {
+    boardOkClause = `
+        && boardOk(
+            request.resource.data.lastCol,
+            request.resource.data.lastRow,
+            request.resource.data.board,
+            resource.data.board
+          )`;
+  }
+
   return `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-${winCheckFunctions('hasWonHost', 'host', lines, grid, linesPerFunction)}
+    function wonAtCell(b, mark, nc, nr) {
+      return ${winAtCellBody};
+    }
 
-${winCheckFunctions('hasWonGuest', 'guest', lines, grid, linesPerFunction)}
+    function hasWonHost(b) {
+      return wonAtCell(b, 'host', request.resource.data.lastCol, request.resource.data.lastRow);
+    }
+
+    function hasWonGuest(b) {
+      return wonAtCell(b, 'guest', request.resource.data.lastCol, request.resource.data.lastRow);
+    }
 
     function validMove(nc, nr, mark, b, ob) {
       return ${validMoveBody};
@@ -167,67 +146,48 @@ ${winCheckFunctions('hasWonGuest', 'guest', lines, grid, linesPerFunction)}
       allow read: if request.auth != null;
 ${lobbyRules(hasLobby)}
       // --- Normal move (game continues) ---
-      allow update: if ${commonMove}
-        ${locChecks}
-        && request.resource.data.status == 'playing'
+      allow update: if request.resource.data.status == 'playing'
         && request.resource.data.winner == ''
+        && ${commonMove}
+        ${locChecks}
         && validMove(
             request.resource.data.lastCol,
             request.resource.data.lastRow,
             resource.data.currentTurn,
             request.resource.data.board,
             resource.data.board
-          )${totalCells <= SMALL_BOARD_THRESHOLD ? `
-        && boardOk(
-            request.resource.data.lastCol,
-            request.resource.data.lastRow,
-            request.resource.data.board,
-            resource.data.board
-          )` : ''};
+          )${boardOkClause};
 
       // --- Winning move (host) ---
-      allow update: if ${commonMove}
-        ${locChecks}
-        && request.resource.data.status == 'won'
+      allow update: if request.resource.data.status == 'won'
         && request.resource.data.winner == 'host'
+        && ${commonMove}
+        ${locChecks}
         && hasWonHost(request.resource.data.board);
 
       // --- Winning move (guest) ---
-      allow update: if ${commonMove}
-        ${locChecks}
-        && request.resource.data.status == 'won'
+      allow update: if request.resource.data.status == 'won'
         && request.resource.data.winner == 'guest'
+        && ${commonMove}
+        ${locChecks}
         && hasWonGuest(request.resource.data.board);
 
       // --- Draw ---
-      allow update: if ${commonMove}
+      allow update: if request.resource.data.status == 'draw'
+        && request.resource.data.winner == ''
         && request.resource.data.moveCount == ${totalCells}
-        && request.resource.data.status == 'draw'
-        && request.resource.data.winner == '';
+        && ${commonMove};
     }
   }
 }
 `;
 }
 
-// ---- Optimized: flat layout, dynamic access, MapDiff, directional win split ----
-function assembleOptimized(config: GameConfig, lines: number[][], linesPerFunction: number): string {
-  const { grid, hasGravity, hasLobby, collection } = config;
+// ---- Optimized: flat layout, dynamic access, MapDiff, cell-key-bisected win check ----
+function assembleOptimized(config: GameConfig): string {
+  const { grid, winLineCount, hasLobby, collection } = config;
   const totalCells = grid.cols * grid.rows;
-  const dirs = splitWinLinesByDirection(lines, grid.cols);
-
-  const dirWinFn = (name: string, mark: string, dirLines: number[][]) => winCheckFunctions(name, mark, dirLines, grid, linesPerFunction);
-
-  const directionWinFunctions = [
-    dirWinFn('wonHH', 'host', dirs.horizontal),
-    dirWinFn('wonHV', 'host', dirs.vertical),
-    dirWinFn('wonHD1', 'host', dirs.diagUp),
-    dirWinFn('wonHD2', 'host', dirs.diagDown),
-    dirWinFn('wonGH', 'guest', dirs.horizontal),
-    dirWinFn('wonGV', 'guest', dirs.vertical),
-    dirWinFn('wonGD1', 'guest', dirs.diagUp),
-    dirWinFn('wonGD2', 'guest', dirs.diagDown),
-  ].join('\n\n');
+  const winAtMoveBody = flatWinAtMoveExpr(grid, winLineCount);
 
   const commonMove = `request.auth != null
         && resource.data.status == 'playing'
@@ -257,36 +217,46 @@ function assembleOptimized(config: GameConfig, lines: number[][], linesPerFuncti
 service cloud.firestore {
   match /databases/{database}/documents {
 
-${directionWinFunctions}
+    function wonAtMove(d, mark, lm) {
+      return ${winAtMoveBody};
+    }
+
+    function hasWonHost(d) {
+      return wonAtMove(d, 'host', d.lastMove);
+    }
+
+    function hasWonGuest(d) {
+      return wonAtMove(d, 'guest', d.lastMove);
+    }
 
     match /${collection}/{gameId} {
       allow read: if request.auth != null;
 ${lobbyRulesOptimized(hasLobby)}
       // --- Normal move (flat layout + MapDiff integrity) ---
-      allow update: if ${commonMove}
-        ${dynamicPlacement}
-        && request.resource.data.status == 'playing'
-        && request.resource.data.winner == '';
+      allow update: if request.resource.data.status == 'playing'
+        && request.resource.data.winner == ''
+        && ${commonMove}
+        ${dynamicPlacement};
 
       // --- Winning move (host) ---
-      allow update: if ${commonMove}
-        ${dynamicWinPlacement}
-        && request.resource.data.status == 'won'
+      allow update: if request.resource.data.status == 'won'
         && request.resource.data.winner == 'host'
-        && (wonHH(request.resource.data) || wonHV(request.resource.data) || wonHD1(request.resource.data) || wonHD2(request.resource.data));
+        && ${commonMove}
+        ${dynamicWinPlacement}
+        && hasWonHost(request.resource.data);
 
       // --- Winning move (guest) ---
-      allow update: if ${commonMove}
-        ${dynamicWinPlacement}
-        && request.resource.data.status == 'won'
+      allow update: if request.resource.data.status == 'won'
         && request.resource.data.winner == 'guest'
-        && (wonGH(request.resource.data) || wonGV(request.resource.data) || wonGD1(request.resource.data) || wonGD2(request.resource.data));
+        && ${commonMove}
+        ${dynamicWinPlacement}
+        && hasWonGuest(request.resource.data);
 
       // --- Draw ---
-      allow update: if ${commonMove}
+      allow update: if request.resource.data.status == 'draw'
+        && request.resource.data.winner == ''
         && request.resource.data.moveCount == ${totalCells}
-        && request.resource.data.status == 'draw'
-        && request.resource.data.winner == '';
+        && ${commonMove};
     }
   }
 }
@@ -314,9 +284,9 @@ function lobbyRules(hasLobby: boolean): string {
         && request.resource.data.lastCol == -1
         && request.resource.data.lastRow == -1;
 
-      allow update: if request.auth != null
-        && resource.data.status == 'waiting'
+      allow update: if resource.data.status == 'waiting'
         && request.resource.data.status == 'playing'
+        && request.auth != null
         && resource.data.guest == ''
         && request.resource.data.guest == request.auth.uid
         && request.auth.uid != resource.data.host
@@ -353,9 +323,9 @@ function lobbyRulesOptimized(hasLobby: boolean): string {
         && request.resource.data.moveCount == 0
         && request.resource.data.lastMove == '';
 
-      allow update: if request.auth != null
-        && resource.data.status == 'waiting'
+      allow update: if resource.data.status == 'waiting'
         && request.resource.data.status == 'playing'
+        && request.auth != null
         && resource.data.guest == ''
         && request.resource.data.guest == request.auth.uid
         && request.auth.uid != resource.data.host

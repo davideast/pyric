@@ -1,12 +1,16 @@
 import { describe, test, expect } from 'bun:test';
 import {
   winCheckExpr,
+  directionRunThroughCellExpr,
+  classicWinAtCellExpr,
+  flatWinAtMoveExpr,
   gravityExpr,
   boardIntegrityExpr,
   placementExpr,
 } from '../../src/generators/expressions.js';
-import { defaultCellName, generateWinLines } from '../../src/generators/grid.js';
+import { defaultCellName, emptyBoard, generateWinLines, indexToColRow } from '../../src/generators/grid.js';
 import type { GridConfig } from '../../src/generators/grid.js';
+import { firestoreRules } from '../../src/index.js';
 
 const c4Grid: GridConfig = { cols: 7, rows: 6, cellName: defaultCellName };
 const tttGrid: GridConfig = { cols: 3, rows: 3, cellName: defaultCellName };
@@ -15,7 +19,7 @@ describe('winCheckExpr', () => {
   test('contains all win lines', () => {
     const lines = generateWinLines(7, 6, 4);
     const expr = winCheckExpr('R', lines, c4Grid);
-    // 69 lines → 69 conjunctions joined by ||
+    // 69 lines -> 69 conjunctions joined by ||
     const branches = expr.split('||').length;
     expect(branches).toBe(69);
   });
@@ -42,6 +46,88 @@ describe('winCheckExpr', () => {
     for (const branch of branches) {
       const ands = branch.split('&&').length;
       expect(ands).toBe(3);
+    }
+  });
+});
+
+describe('last-move win expressions', () => {
+  test('directionRunThroughCellExpr returns null when no segment fits', () => {
+    const small: GridConfig = { cols: 2, rows: 3, cellName: defaultCellName };
+    // Horizontal 3-in-a-row cannot fit on a 2-column grid
+    expect(directionRunThroughCellExpr('b', 'mark', 0, 0, 1, 0, 3, small)).toBeNull();
+    // Vertical 3-in-a-row fits on a 3-row grid
+    expect(directionRunThroughCellExpr('b', 'mark', 0, 1, 0, 1, 3, small)).toBe(
+      '(b.c0r0 == mark && b.c0r2 == mark)',
+    );
+  });
+
+  test('classicWinAtCellExpr and flatWinAtMoveExpr match exact line-through-move semantics', () => {
+    const grid: GridConfig = { cols: 4, rows: 4, cellName: defaultCellName };
+    const winLineCount = 3;
+    const allLines = generateWinLines(grid.cols, grid.rows, winLineCount);
+
+    const classicRules = firestoreRules(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function wonAtCell(b, mark, nc, nr) {
+      return ${classicWinAtCellExpr(grid, winLineCount)};
+    }
+    match /games/{id} {
+      allow update: if wonAtCell(request.resource.data.board, request.resource.data.mark, request.resource.data.lastCol, request.resource.data.lastRow);
+    }
+  }
+}`);
+
+    const flatRules = firestoreRules(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function wonAtMove(d, mark, lm) {
+      return ${flatWinAtMoveExpr(grid, winLineCount)};
+    }
+    match /games/{id} {
+      allow update: if wonAtMove(request.resource.data, request.resource.data.mark, request.resource.data.lastMove);
+    }
+  }
+}`);
+
+    // Every generated line, completed at each of its cells, must ALLOW;
+    // the same board with a different lastMove cell not on that line must DENY.
+    for (const line of allLines) {
+      const board = emptyBoard(grid);
+      for (const idx of line) {
+        const [c, r] = indexToColRow(idx, grid.cols);
+        board[grid.cellName(c, r)] = 'host';
+      }
+      for (let col = 0; col < grid.cols; col++) {
+        for (let row = 0; row < grid.rows; row++) {
+          const cellIdx = row * grid.cols + col;
+          const expectedWin = line.includes(cellIdx);
+          const expectation = expectedWin ? 'ALLOW' : 'DENY';
+          const classicRes = classicRules.simulate([
+            {
+              description: `classic (${col},${row})`,
+              expectation,
+              method: 'update',
+              path: 'games/g1',
+              resource: { ok: true },
+              data: { board, mark: 'host', lastCol: col, lastRow: row },
+            },
+          ]);
+          expect(classicRes.passed).toBe(1);
+
+          const flatRes = flatRules.simulate([
+            {
+              description: `flat (${col},${row})`,
+              expectation,
+              method: 'update',
+              path: 'games/g1',
+              resource: { ok: true },
+              data: { ...board, mark: 'host', lastMove: grid.cellName(col, row) },
+            },
+          ]);
+          expect(flatRes.passed).toBe(1);
+        }
+      }
     }
   });
 });
@@ -76,7 +162,7 @@ describe('gravityExpr', () => {
 describe('boardIntegrityExpr', () => {
   test('generates one check per cell', () => {
     const expr = boardIntegrityExpr(tttGrid);
-    // 9 cells → 9 checks with nc/nr guards
+    // 9 cells -> 9 checks with nc/nr guards
     for (let c = 0; c < 3; c++) {
       for (let r = 0; r < 3; r++) {
         expect(expr).toContain(`nc == ${c} && nr == ${r}`);
@@ -100,7 +186,7 @@ describe('boardIntegrityExpr', () => {
 describe('placementExpr', () => {
   test('generates one branch per cell with mark comparison', () => {
     const expr = placementExpr(tttGrid);
-    // 9 cells → 9 branches
+    // 9 cells -> 9 branches
     const branches = expr.split('||').length;
     expect(branches).toBe(9);
     expect(expr).toContain('nc == 0 && nr == 0 && b.c0r0 == mark');
