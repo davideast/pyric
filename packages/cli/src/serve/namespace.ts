@@ -372,7 +372,7 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
       }
       const authenticated = isAllowedSessionToken(req, url, sessionToken);
       const isHead = req.method === 'HEAD';
-      const raw = sanitizeInitPayloadForClient(opts.initPayload(), isRemoteRequest);
+      const raw = sanitizeInitPayloadForClient(opts.initPayload(), decision.isRemoteRequest);
       if (!authenticated) {
         res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
         if (requiresSessionToken) {
