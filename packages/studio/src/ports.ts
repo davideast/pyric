@@ -3,7 +3,7 @@
  *
  * Studio depends ONLY on these interfaces; `createStudioEnvironment(mode)` (see
  * `./env.ts`) wires concrete impls + transport per mode. Ship `local` (disk via
- * the pyric devr); `browser` (= today's playground over IDB) and `hosted`
+ * the pyric dev server); `browser` (= today's playground over IDB) and `hosted`
  * (remote) are future factory branches. The interfaces are shaped from the
  * UNION of disk + playground so playground can be re-expressed as the `browser`
  * impl. See the design rationale.
@@ -11,7 +11,7 @@
 
 import type { PersistenceBackend } from 'pyric/sandbox';
 
-// ─── WorkspaceStore, file-tree-general ────────────────────────────────────
+// --- WorkspaceStore, file-tree-general ------------------------------------
 //
 // A real project file tree. Playground's `{ rules, code, appSource }` is a
 // LENS over well-known paths (`firestore.rules`, the app source, `firebase.json`
@@ -31,12 +31,34 @@ export interface WorkspaceChange {
 }
 
 /**
+ * A Storage object carried on a branch summary strictly by SHA-256 byte
+ * reference (ADR 0018), never inline base64 bytes.
+ */
+export interface WorkspaceBranchStorageReference {
+  /** Non-default bucket holding the object; omitted for the default bucket. */
+  bucket?: string;
+  /** Full path within the bucket. */
+  path: string;
+  /** Lowercase 64-character hex SHA-256 digest of the object's bytes. */
+  sha256: string;
+  /** Byte length of the object. */
+  size: number;
+  /** Content type reported by object metadata, when set. */
+  contentType?: string;
+  /** User-defined custom metadata key/value pairs. */
+  customMetadata: Record<string, string>;
+  /** Stored Blob MIME type when present. */
+  blobType?: string;
+}
+
+/**
  * One branch the project holds on disk, as the branch store reports it.
  *
  * The branch store's on-disk format, the manifest and the record bundle and
  * the event log, is read by the store alone, on the server side of this port. What
  * crosses the port is the branch already rebuilt: what the manifest recorded,
- * plus the Firestore documents the branch holds after its events were applied.
+ * the Firestore documents the branch holds after its events were applied, and
+ * any Storage objects represented as SHA-256 byte references.
  */
 export interface WorkspaceBranch {
   name: string;
@@ -47,6 +69,8 @@ export interface WorkspaceBranch {
   eventCount: number;
   /** The branch's Firestore documents, by document path. */
   documents: Record<string, Record<string, unknown>>;
+  /** The branch's Storage objects by SHA-256 reference; omitted when empty. */
+  storage?: WorkspaceBranchStorageReference[];
 }
 
 export interface WorkspaceStore {
@@ -62,7 +86,7 @@ export interface WorkspaceStore {
   watch(cb: (change: WorkspaceChange) => void): () => void;
 }
 
-// ─── ProjectStore, sessions/projects ──────────────────────────────────────
+// --- ProjectStore, sessions/projects --------------------------------------
 //
 // One entry in `pyric dev` single-project mode; N in a multi-project/hosted
 // mode. `ProjectMeta` is shaped to absorb playground's `SessionMeta` (title,
@@ -88,7 +112,7 @@ export interface ProjectStore {
   remove(id: string): Promise<void>;
 }
 
-// ─── RemoteLifecycle, github / promote / export ───────────────────────────
+// --- RemoteLifecycle, github / promote / export ---------------------------
 //
 // Orthogonal to where storage lives. Optional; modes implement what they
 // support (local: git/creds; hosted: a remote API). Method shapes firm up with
@@ -100,7 +124,7 @@ export interface RemoteLifecycle {
   export?(projectId: string): Promise<{ exportId: string }>;
 }
 
-// ─── PersistenceBackend, reuse (already polymorphic in pyric) ─────────────
+// --- PersistenceBackend, reuse (already polymorphic in pyric) -------------
 //
 // Sandbox durable state. pyric already ships IDB / memory / `--persist`
 // HTTP-to-disk impls; Studio reuses the type as-is.
