@@ -456,7 +456,7 @@ export class DependencyStore {
   /** One online `npm install`, with its debug log; the log's end joins the output of an attempt that timed out. */
   private async installFromRegistry(dir: string, timeoutMs: number): Promise<TimedResult> {
     const logsDir = join(dir, '.npm-logs');
-    const installOptions = { networkRetryDelayMs: this.options.networkRetryDelayMs };
+    const installOptions = { cwd: dir, networkRetryDelayMs: this.options.networkRetryDelayMs, report: this.options.report };
     const result = await npmInstall(this.options.npmCache, (args) => this.options.runNpm(args, { cwd: dir, timeoutMs }), logsDir, installOptions);
     const tail = result.timedOut ? debugLogTail(logsDir, NPM_LOG_TAIL_LINES) : '';
     rmSync(logsDir, { recursive: true, force: true });
