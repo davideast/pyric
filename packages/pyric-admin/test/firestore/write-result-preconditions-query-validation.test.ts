@@ -405,10 +405,24 @@ service cloud.firestore {
         expect((await db.doc('write_only/wb1').get()).data()).toEqual({ batchOk: true });
       });
 
-      it('#1974 & #1977: matches firebase-admin@13.10.0 synchronously on query construction and precondition argument validation', () => {
+      it('#1974 & #1977: matches firebase-admin@14.5.1 synchronously on query construction and precondition argument validation', async () => {
         const { db } = openArm(armKind);
         const uCol = () => upstreamDb.collection('items');
         const pCol = () => db.collection('items');
+
+        await db.doc('arr_edge/null_doc').set({ tags: [null, 'x'] });
+        await db.doc('arr_edge/nan_doc').set({ tags: [Number.NaN, 1] });
+        await db.doc('arr_edge/plain_doc').set({ tags: ['x', 1] });
+        const nullMatches = await db
+          .collection('arr_edge')
+          .where('tags', 'array-contains', null)
+          .get();
+        expect(nullMatches.docs.map((d) => d.id)).toEqual(['null_doc']);
+        const nanMatches = await db
+          .collection('arr_edge')
+          .where('tags', 'array-contains', Number.NaN)
+          .get();
+        expect(nanMatches.docs.map((d) => d.id)).toEqual(['nan_doc']);
 
         const queryCases: ReadonlyArray<readonly [string, () => unknown, () => unknown]> = [
           ['where(a, >, null)', () => uCol().where('a', '>', null), () => pCol().where('a', '>', null)],

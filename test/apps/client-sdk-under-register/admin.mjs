@@ -5,7 +5,7 @@ import { getDatabase } from "firebase-admin/database";
 import { getFirestore } from "firebase-admin/firestore";
 import {
   Auth,
-  AuthClientErrorCode,
+  AuthErrorCode,
   BaseAuth,
   FirebaseAuthError,
   UserInfo,
@@ -101,7 +101,7 @@ if (process.argv[2] === "seed") {
       user.providerData[0] instanceof UserInfo,
     errorInstance:
       missingErr instanceof FirebaseAuthError &&
-      missingErr.hasCode(AuthClientErrorCode.USER_NOT_FOUND.code),
+      missingErr.hasCode(AuthErrorCode.USER_NOT_FOUND),
   }));
   await outcome("admin.ownPath", async () => (await db.ref(`users/${user?.uid}`).get()).val());
   await outcome("admin.otherPath", async () => (await db.ref("users/someone-else").get()).val());

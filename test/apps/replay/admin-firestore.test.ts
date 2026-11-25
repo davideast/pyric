@@ -266,3 +266,46 @@ test('an autoId placeholder whose parent is outside the project is refused', () 
   };
   expect(() => assertShapesOnly(recording)).toThrow('outside project pyric-replay-admin');
 });
+
+test('Admin Listen matches unordered structuredQuery across v13 (no orderBy) and v14 (implicit __name__ ASCENDING) while refusing unrecorded orders', () => {
+  const parent = `${DATABASE}/documents`;
+  const v13Query: JsonObject = { parent, structuredQuery: { from: [{ collectionId: 'notes' }] } };
+  const v14Query: JsonObject = {
+    parent,
+    structuredQuery: {
+      from: [{ collectionId: 'notes' }],
+      orderBy: [{ field: { fieldPath: '__name__' }, direction: 'ASCENDING' }],
+    },
+  };
+  const descNameQuery: JsonObject = {
+    parent,
+    structuredQuery: {
+      from: [{ collectionId: 'notes' }],
+      orderBy: [{ field: { fieldPath: '__name__' }, direction: 'DESCENDING' }],
+    },
+  };
+  const recording: Recording = {
+    format: 'pyric-replay/1',
+    project: 'pyric-replay-admin',
+    source: 'hand-written',
+    exchanges: [
+      {
+        kind: 'admin-firestore',
+        id: 'listen-notes',
+        rpc: 'Listen',
+        request: { query: v13Query },
+        batches: [{ messages: [{ targetChange: { targetChangeType: 'ADD', targetIds: [{ $: 'targetId' }] } }] }],
+      },
+    ],
+  };
+  const state = new ReplayState([recording]);
+  const admin = new AdminFirestore(state);
+  const sent: JsonObject[] = [];
+  const stream = admin.listen({ send: (msg) => sent.push(msg), fail: () => {} });
+  stream.onMessage({ addTarget: { targetId: 1, query: v13Query } });
+  stream.onMessage({ addTarget: { targetId: 2, query: v14Query } });
+  expect(state.unmatched).toEqual([]);
+  stream.onMessage({ addTarget: { targetId: 3, query: descNameQuery } });
+  expect(state.unmatched).toEqual([{ rpc: 'grpc', as: null, request: { method: 'Listen' } }]);
+  stream.onClose();
+});

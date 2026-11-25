@@ -9,17 +9,17 @@ export default row({
     'UserInfo',
     'UserMetadata',
     'FirebaseAuthError',
-    'AuthClientErrorCode',
+    'AuthErrorCode',
     'UserRecord.multiFactor',
     'UserRecord.passwordHash',
     'UserRecord.passwordSalt',
   ],
-  api: 'FirebaseAuthError / AuthClientErrorCode / nominal class exports and UserRecord.{multiFactor, passwordHash, passwordSalt}',
+  api: 'FirebaseAuthError / AuthErrorCode / nominal class exports and UserRecord.{multiFactor, passwordHash, passwordSalt}',
   behavior:
-    'Exports `FirebaseAuthError` (`PrefixedFirebaseError` with `auth/` prefix, `hasCode`, `toJSON`, and `(info, message?)` constructor), `AuthClientErrorCode` (all 95 upstream entries), and the modeled nominal classes (`Auth`, `BaseAuth`, `UserRecord`, `UserMetadata`, `UserInfo`, plus `admin.auth.Auth`) across local and remote arms so thrown/rejected auth errors and returned handles/records satisfy `instanceof`. Constructors for unmodeled MFA and Identity Platform surfaces (`MultiFactorInfo`, `MultiFactorSettings`, `PhoneMultiFactorInfo`, `ProjectConfig`, `ProjectConfigManager`, `Tenant`, `TenantAwareAuth`, `TenantManager`) are not exported at runtime, returned `UserRecord` instances omit `multiFactor`, `passwordHash`, and `passwordSalt` (while storing `customClaims` as an own field), and `UserMetadata.toJSON()` omits unset `lastRefreshTime`.',
+    'Exports `FirebaseAuthError` (`PrefixedFirebaseError` with `auth/` prefix, `hasCode`, `toJSON`, and `(info, message?)` constructor), `AuthErrorCode` (all 96 upstream entries), and the modeled nominal classes (`Auth`, `BaseAuth`, `UserRecord`, `UserMetadata`, `UserInfo`) across local and remote arms so thrown/rejected auth errors and returned handles/records satisfy `instanceof` (matching `firebase-admin` v14 removal of legacy root `admin.auth`). Constructors for unmodeled MFA and Identity Platform surfaces (`MultiFactorInfo`, `MultiFactorSettings`, `PhoneMultiFactorInfo`, `ProjectConfig`, `ProjectConfigManager`, `Tenant`, `TenantAwareAuth`, `TenantManager`) are not exported at runtime, returned `UserRecord` instances omit `multiFactor`, `passwordHash`, and `passwordSalt` (while storing `customClaims` as an own field), and `UserMetadata.toJSON()` omits unset `lastRefreshTime`.',
   status: 'diverged-documented',
   statusNote:
-    'exports FirebaseAuthError, AuthClientErrorCode, Auth, BaseAuth, UserRecord, UserMetadata, and UserInfo; unmodeled MFA/Tenant/ProjectConfig classes are not exported and UserRecord/UserMetadata omit unmodeled passwordHash, passwordSalt, multiFactor, and unset lastRefreshTime keys',
+    'exports FirebaseAuthError, AuthErrorCode, Auth, BaseAuth, UserRecord, UserMetadata, and UserInfo; unmodeled MFA/Tenant/ProjectConfig classes are not exported and UserRecord/UserMetadata omit unmodeled passwordHash, passwordSalt, multiFactor, and unset lastRefreshTime keys',
   automation: 'oracle-backed',
   oracleObservations: ['admin-auth-runtime-exports-and-user-record-shape'],
   conformanceTests: [

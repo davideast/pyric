@@ -93,6 +93,51 @@ export class Timestamp {
       validated.nanoseconds as number,
     );
   }
+  static fromInstant(instant: { readonly epochNanoseconds: bigint }): Timestamp {
+    if (
+      instant === null ||
+      instant === undefined ||
+      typeof instant.epochNanoseconds !== 'bigint'
+    ) {
+      throw new Error('Invalid Temporal.Instant object provided.');
+    }
+    const nanos = instant.epochNanoseconds;
+    const billion = 1_000_000_000n;
+    if (nanos >= 0n) {
+      return new Timestamp(Number(nanos / billion), Number(nanos % billion));
+    }
+    const rem = nanos % billion;
+    if (rem === 0n) {
+      return new Timestamp(Number(nanos / billion), 0);
+    }
+    return new Timestamp(Number(nanos / billion - 1n), Number(rem + billion));
+  }
+  toInstant(): {
+    readonly [Symbol.toStringTag]?: string;
+    readonly epochMilliseconds: number;
+    readonly epochNanoseconds: bigint;
+    toString(): string;
+  } {
+    const temporal = (
+      globalThis as {
+        readonly Temporal?: {
+          readonly Instant?: {
+            fromEpochNanoseconds(epochNanoseconds: bigint): {
+              readonly [Symbol.toStringTag]?: string;
+              readonly epochMilliseconds: number;
+              readonly epochNanoseconds: bigint;
+              toString(): string;
+            };
+          };
+        };
+      }
+    ).Temporal;
+    if (temporal === undefined || temporal.Instant === undefined) {
+      throw new Error('The Temporal object is not available in the current environment.');
+    }
+    const nanos = BigInt(this.seconds) * 1_000_000_000n + BigInt(this.nanoseconds);
+    return temporal.Instant.fromEpochNanoseconds(nanos);
+  }
   toDate(): Date {
     return new Date(this.toMillis());
   }

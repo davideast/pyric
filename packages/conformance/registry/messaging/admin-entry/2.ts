@@ -2,11 +2,12 @@ import { row } from './section.ts';
 
 export default row({
   order: 20,
-  featureKeys: ["getMessaging","messaging"],
+  featureKeys: ['getMessaging', 'messaging'],
   flipped: 'oracle-backed',
-  api: 'messaging(app?): messaging.Messaging',
+  api: 'messaging(app?): removed in firebase-admin v14',
   behavior:
-    'Namespaced / legacy accessor equivalent of `getMessaging`, exposed by the compat entry alongside the `namespace messaging` type aliases.',
-  evidence: 'oracle: `messaging-send-admin-entry-accessors.json` (`admin.messaging(app?)` returns the same cached per-app `Messaging` instance as `getMessaging(app?)`). Replayed by the conformance suite.',
+    'Legacy v8 `admin.messaging(app?)` / `messaging(app?)` entry was removed upstream in `firebase-admin` v14; `pyric-admin/messaging` and root `pyric-admin` omit it and expose modular `getMessaging(app?)` exclusively.',
+  evidence:
+    'oracle: `messaging-send-admin-entry-accessors.json` + `admin-surface.test.ts` (`firebase-admin` 14.5.1 exports only `getMessaging`, `Messaging`, `FirebaseMessagingError`, and `MessagingErrorCode`). Replayed by the conformance suite.',
   observations: ['messaging-send-admin-entry-accessors'],
 });

@@ -1,63 +1,23 @@
 /**
  * Offline differential oracle for installed `firebase-admin/messaging`
- * (`v13.10.0`).
+ * (`v14.5.1`).
  *
- * -- Exact Two-Layer Oracle Boundary ------------------------------------------
- * 1. Client-side preflight (`acceptedPreflight: false`):
- *    Runs the real installed `firebase-admin/messaging` with a synthetic dummy
- *    credential (`projectId: 'demo-project'`) and `enableLegacyHttpTransport()`,
- *    intercepting `messagingRequestHandler.httpClient.send` and
- *    `http2Client.send` BEFORE any network socket opens. Any synchronous throw
- *    or pre-HTTP rejection (or per-entry `BatchResponse` rejection prior to
- *    HTTP) comes directly from `firebase-admin` itself:
- *      - `getMessaging(app)` / `admin.messaging(app)` app handle brand & no-app
- *      - `dryRun` boolean type check (`messaging/invalid-argument`)
- *      - `sendEach` non-empty array & `<= 500` batch limit (`messaging/invalid-argument`)
- *      - `sendEachForMulticast` object, `tokens` non-empty array & `<= 500` limit
- *      - `subscribeToTopic` / `unsubscribeFromTopic` token string/array type,
- *        non-empty string elements, `<= 1000` batch limit, and normalized
- *        `/topics/[a-zA-Z0-9-_.~%]+` topic format (`messaging/invalid-argument`)
- *      - `Message` non-null object container, single `/topics/` prefix strip +
- *        topic charset, target presence, `data` / `webpush.headers` /
- *        `webpush.data` / `android.data` / `apns.headers` string-only maps, and
- *        `notification` / `webpush` / `android` / `apns` / `fcmOptions` shapes
- *        (`messaging/invalid-payload`)
- *
- * 2. Server-side FCM HTTP v1 / IID wire rules (`acceptedPreflight: true`):
- *    `firebase-admin@13.10.0` does NOT validate the following client-side; they
- *    pass preflight (`acceptedPreflight: true`) and are enforced by FCM HTTP v1
- *    or IID on the wire (captured in `packages/conformance/observations/messaging-admin/*.json`):
- *      - `condition` boolean expression grammar: `'name' in topics` clauses
- *        with mandatory whitespace around `in` and `topics`, bare topic charset
- *        `[a-zA-Z0-9-_.~%]+`, operators `!` / `&&` / `||` / `(...)`, and at most
- *        5 topic clauses (`messaging-send-condition-accepted.json`,
- *        `messaging-send-invalid-condition-error-envelope.json`)
- *      - registration `token` URL-safe `segment:segment` syntax and active
- *        registration status (`messaging-send-invalid-token-error-envelope.json`,
- *        `messaging-web-deletetoken-unregistered.json`)
- *      - `webpush.headers.TTL` non-negative integer digits
- *        (`messaging-send-webpush-invalid-ttl-error-envelope.json`)
- *      - empirical `data` payload byte cap (`4915` UTF-8 key+value bytes,
- *        `messaging-send-oversized-payload-error-envelope.json`)
- *
+ * 1. Client-side preflight (`acceptedPreflight: false`): runs `firebase-admin/messaging`
+ *    with a synthetic credential (`projectId: 'demo-project'`) and
+ *    `enableLegacyHttpTransport()`, intercepting `httpClient.send` and
+ *    `http2Client.send` before any network socket opens (`getMessaging`,
+ *    `dryRun`, `sendEach`, `sendEachForMulticast`, `subscribeToTopic`,
+ *    `unsubscribeFromTopic`, and `Message` validation).
+ * 2. Server-side FCM HTTP v1 / topicSubscriptions wire rules (`acceptedPreflight: true`):
+ *    enforces `condition` expression grammar, registration `token` syntax and
+ *    active status, `webpush.headers.TTL` integer digits, and the `4915`-byte
+ *    `data` payload cap captured in `observations/messaging-admin/*.json`.
  * 3. Documented CDD wire-observation vs client-SDK code notes:
- *    Both sides REJECT (`accepted: false`) in every case below, differing only
- *    in error code because `oracle-conformance.test.ts` replays raw FCM REST v1
- *    captures (`messaging-send-probes.ts` `rawSend`) or avoids an unguarded
- *    upstream `startsWith` crash:
- *      - plain object with zero present target keys (`{}`):
- *        `firebase-admin` throws `messaging/invalid-payload` client-side;
- *        `pyric-admin` throws `messaging/invalid-argument` per
- *        `messaging-send-no-target-error-envelope.json`
- *      - bare non-slash invalid-character topic (`"bad topic!"`):
- *        `firebase-admin` throws `messaging/invalid-payload` client-side;
- *        `pyric-admin` throws `messaging/invalid-argument` per
- *        `messaging-send-invalid-topic-name-error-envelope.json`
- *      - truthy non-string `message.topic` (`{ topic: 1 | true | [] | {} }`):
- *        `firebase-admin@13.10.0` crashes with unguarded `TypeError`
- *        (`anyMessage.topic.startsWith is not a function`,
- *        `messaging-internal.js:44`); `pyric-admin` rejects cleanly with
- *        `FirebaseMessagingError` (`messaging/invalid-payload`)
+ *    - `{}` (no target keys) and bare invalid-char topics (`"bad topic!"`):
+ *      `firebase-admin` throws `messaging/invalid-payload` client-side while
+ *      `pyric-admin` throws `messaging/invalid-argument` per raw REST v1 captures.
+ *    - truthy non-string `message.topic`: `firebase-admin` throws `TypeError`
+ *      (`startsWith`), while `pyric-admin` throws `messaging/invalid-payload`.
  */
 
 import {
@@ -459,11 +419,56 @@ export function createOfflineUpstreamMessagingHarness(
 
   const interceptSend = async (req: {
     url: string;
-    data: Record<string, unknown>;
+    data?: Record<string, unknown>;
   }): Promise<HttpStubResponse> => {
     reachedHttp = true;
+    const v1TopicMatch = /\/v1\/projects\/[^/]+\/registrations\/([^/]+)\/topicSubscriptions(?:\/|\?|$)/.exec(
+      req.url,
+    );
+    if (v1TopicMatch !== null) {
+      const rawToken = decodeURIComponent(v1TopicMatch[1] ?? '');
+      if (!WIRE_TOKEN_SHAPE_RE.test(rawToken)) {
+        const badBody = {
+          error: {
+            code: 400,
+            status: 'INVALID_ARGUMENT',
+            message: 'Invalid registration token.',
+          },
+        };
+        return {
+          status: 400,
+          headers: { 'content-type': 'application/json' },
+          text: JSON.stringify(badBody),
+          data: badBody,
+          isJson: () => true,
+        };
+      }
+      if (unregisteredTokens.has(rawToken)) {
+        const missingBody = {
+          error: {
+            code: 404,
+            status: 'NOT_FOUND',
+            message: 'Requested entity was not found.',
+          },
+        };
+        return {
+          status: 404,
+          headers: { 'content-type': 'application/json' },
+          text: JSON.stringify(missingBody),
+          data: missingBody,
+          isJson: () => true,
+        };
+      }
+      return {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+        text: '{}',
+        data: {},
+        isJson: () => true,
+      };
+    }
     if (req.url.includes('iid.googleapis.com')) {
-      const tokens = req.data.registration_tokens as string[];
+      const tokens = (req.data?.registration_tokens ?? []) as string[];
       const results = tokens.map((tok) => {
         if (!WIRE_TOKEN_SHAPE_RE.test(tok)) return { error: 'INVALID_ARGUMENT' };
         if (unregisteredTokens.has(tok)) return { error: 'NOT_FOUND' };
@@ -478,7 +483,7 @@ export function createOfflineUpstreamMessagingHarness(
         isJson: () => true,
       };
     }
-    const wireMessage = (req.data.message ?? {}) as Record<string, unknown>;
+    const wireMessage = (req.data?.message ?? {}) as Record<string, unknown>;
     return evaluateFcmSendWireRequest(wireMessage, activeTokens);
   };
 

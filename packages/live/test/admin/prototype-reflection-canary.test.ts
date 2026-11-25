@@ -33,7 +33,8 @@ const PURE_LOCAL_ALLOWLIST: Readonly<Record<string, readonly string[]>> = {
   'auth:ProjectConfigManager': [],
   'app-check:AppCheck': ['validateVerifyAppCheckTokenOptions'],
   'messaging:Messaging': [
-    'enableLegacyHttpTransport', 'parseSendResponses', 'getUrlPath',
+    'enableLegacyHttpTransport', 'parseSendResponses', 'createSessionError',
+    'parseTopicManagementResponses', 'getProjectId', 'getUrlPath',
     'validateRegistrationTokensType', 'validateRegistrationTokens',
     'validateTopicType', 'validateTopic', 'normalizeTopic',
   ],
@@ -48,7 +49,7 @@ const PURE_LOCAL_ALLOWLIST: Readonly<Record<string, readonly string[]>> = {
   'database:ModularOnDisconnect': [],
   'firestore:Firestore': [
     'getBulkWriter', 'settings', 'validateAndApplySettings', 'newTraceUtilInstance',
-    'doc', 'collection', 'collectionGroup', 'batch', 'bulkWriter', 'snapshot_',
+    'doc', 'collection', 'collectionGroup', 'pipeline', 'batch', 'bulkWriter', 'snapshot_',
     'bundle', 'registerListener', 'unregisterListener', '_incrementBulkWritersCount',
     '_decrementBulkWritersCount', 'terminate', 'toJSON', 'initializeIfNeeded', 'createCallOptions',
   ],
@@ -66,6 +67,16 @@ const PURE_LOCAL_ALLOWLIST: Readonly<Record<string, readonly string[]>> = {
   'firestore:CollectionGroup': ['withConverter'],
   'firestore:AggregateQuery': ['decodeResult', 'toProto', 'isEqual'],
   'firestore:VectorQuery': ['toProto', '_createSnapshot', 'startAfter', 'isEqual'],
+  'firestore:Pipeline': [
+    '_addStage', 'addFields', 'removeFields', 'define', 'toArrayExpression', 'toScalarExpression',
+    'select', 'where', 'offset', 'limit', 'distinct', 'aggregate', 'findNearest', 'replaceWith',
+    'sample', 'union', 'unnest', 'search', 'sort', 'delete', 'update', 'insert', 'upsert',
+    'rawStage', '_toStructuredPipeline', '_toProto', '_validateUserData',
+  ],
+  'firestore:PipelineSource': [
+    'literals', 'collection', 'collectionGroup', 'database',
+    'documents', 'createFrom', '_validateReference',
+  ],
   'firestore:WriteBatch': ['verifyNotCommitted', 'create', 'delete', 'set', 'update', '_reset'],
   'firestore:Transaction': ['create', 'set', 'update', 'delete'],
   'firestore:BulkWriter': [
@@ -112,12 +123,18 @@ const PURE_VALUE_CONSTRUCTOR_NAMES: ReadonlySet<string> = new Set([
   'Tenant', 'ProjectConfig', 'MultiFactorInfo', 'MultiFactorSettings',
   'PhoneMultiFactorInfo', 'UserInfo', 'UserMetadata', 'UserRecord',
   'FirebaseAuthError', 'AuthClientErrorCode',
+  'FirebaseAppCheckError',
   'Aggregate', 'AggregateField', 'AggregateQuerySnapshot', 'BundleBuilder',
   'DocumentChange', 'DocumentSnapshot', 'FieldPath', 'FieldValue', 'Filter',
   'FirebaseFirestoreError', 'GeoPoint', 'QueryDocumentSnapshot', 'QueryPartition',
   'QuerySnapshot', 'Timestamp', 'VectorValue', 'WriteResult',
-  'ApiError', 'CRC32C', 'CRC32C_DEFAULT_VALIDATOR_GENERATOR', 'HashStreamValidator',
-  'MultiPartUploadError', 'RETRYABLE_ERR_FN_DEFAULT',
+  'MinKey', 'MaxKey', 'BsonObjectId', 'BsonTimestamp', 'Bytes',
+  'Decimal128Value', 'RegexValue', 'Int32Value',
+  'PipelineResult', 'PipelineSnapshot', 'AggregateFunction', 'BooleanExpression',
+  'Expression', 'FunctionExpression', 'Field', 'Constant', 'Ordering',
+  'AliasedAggregate', 'AliasedExpression',
+  'ApiError', 'ComposeCleanupError', 'CRC32C', 'CRC32C_DEFAULT_VALIDATOR_GENERATOR', 'HashStreamValidator',
+  'MultiPartUploadError', 'RETRYABLE_ERR_FN_DEFAULT', 'FirebaseStorageError',
   'INVALID_INIT_BASE64_RANGE', 'INVALID_INIT_BUFFER_LENGTH', 'INVALID_INIT_INTEGER',
   'DataSnapshot', 'FirebaseDatabaseError',
   'FirebaseMessagingError', 'MessagingClientErrorCode',
@@ -167,7 +184,8 @@ const fsRequire = createRequire(requireHere.resolve('firebase-admin/firestore'))
 const fsEntry = fsRequire.resolve('@google-cloud/firestore');
 const fsSdk = fsRequire(fsEntry) as Record<string, { prototype: object }> & {
   v1: { FirestoreClient: { prototype: object }; FirestoreAdminClient: { prototype: object } };
-  v1beta1: { FirestoreClient: { prototype: object } };
+  v1beta1?: { FirestoreClient?: { prototype: object } };
+  Pipelines?: { Pipeline?: { prototype: object }; PipelineSource?: { prototype: object } };
 };
 const fsInternalRequire = createRequire(fsEntry);
 const { AggregateQuery } = fsInternalRequire('./reference/aggregate-query.js') as {
@@ -213,7 +231,8 @@ function collectExportedConstructors(
     if (
       prop === 'default' || prop === 'prototype' || prop === 'length' || prop === 'name' ||
       prop === 'caller' || prop === 'arguments' || prop === 'servicePath' ||
-      prop === 'apiEndpoint' || prop === 'port' || prop === 'scopes' || prop === 'dnsPath'
+      prop === 'apiEndpoint' || prop === 'port' || prop === 'scopes' || prop === 'dnsPath' ||
+      prop === 'protos'
     ) {
       continue;
     }
@@ -301,7 +320,7 @@ describe.skipIf(!IS_ISOLATED_WORKER)('AdminProjectGate structural prototype-refl
     const compatOnDisconnect = (hostDb.ref!('items/1') as AnyRecord).onDisconnect!() as object;
     const compatOnDisconnectProto = Object.getPrototypeOf(compatOnDisconnect) as object;
 
-    const prototypes: readonly [string, object][] = [
+    const prototypes: [string, object][] = [
       ['auth:BaseAuth', baseAuthMod.BaseAuth.prototype],
       ['auth:Auth', authMod.Auth.prototype],
       ['auth:TenantAwareAuth', tenantManagerMod.TenantAwareAuth.prototype],
@@ -326,7 +345,6 @@ describe.skipIf(!IS_ISOLATED_WORKER)('AdminProjectGate structural prototype-refl
       ['firestore:BulkWriter', fsSdk.BulkWriter!.prototype],
       ['firestore:v1.FirestoreClient', fsSdk.v1.FirestoreClient.prototype],
       ['firestore:v1.FirestoreAdminClient', fsSdk.v1.FirestoreAdminClient.prototype],
-      ['firestore:v1beta1.FirestoreClient', fsSdk.v1beta1.FirestoreClient.prototype],
       ['storage:AdminStorageWrapper', stPkg.Storage.prototype],
       ['storage:Service', ServiceProto],
       ['storage:ServiceObject', ServiceObjectProto],
@@ -341,6 +359,15 @@ describe.skipIf(!IS_ISOLATED_WORKER)('AdminProjectGate structural prototype-refl
       ['storage:Notification', stSdk.Notification!.prototype],
       ['storage:TransferManager', stSdk.TransferManager!.prototype],
     ];
+    if (fsSdk.v1beta1?.FirestoreClient !== undefined) {
+      prototypes.push(['firestore:v1beta1.FirestoreClient', fsSdk.v1beta1.FirestoreClient.prototype]);
+    }
+    if (fsSdk.Pipelines?.Pipeline !== undefined && fsSdk.Pipelines.PipelineSource !== undefined) {
+      prototypes.push(
+        ['firestore:Pipeline', fsSdk.Pipelines.Pipeline.prototype],
+        ['firestore:PipelineSource', fsSdk.Pipelines.PipelineSource.prototype],
+      );
+    }
 
     const knownPrototypes = new Set<object>([
       Object.prototype,

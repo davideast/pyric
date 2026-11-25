@@ -113,9 +113,10 @@ describe('pyric sandbox command execution', () => {
     try {
       writeFileSync(
         join(tmp, 'script.mjs'),
-        `import admin from 'firebase-admin';
+        `import * as admin from 'firebase-admin';
+         import { getFirestore } from 'firebase-admin/firestore';
          console.log('ADMIN_INITIALIZE_FN:', typeof admin.initializeApp);
-         console.log('ADMIN_FIRESTORE_FN:', typeof admin.firestore);`,
+         console.log('ADMIN_FIRESTORE_FN:', typeof getFirestore);`,
       );
       writeFileSync(join(tmp, 'package.json'), JSON.stringify({ type: 'module' }));
       const { code, stdout } = runCli(['sandbox', '--no-open', 'node', 'script.mjs'], tmp);

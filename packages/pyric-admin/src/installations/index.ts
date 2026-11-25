@@ -34,5 +34,5 @@ export const getInstallations: (app?: PyricAdminApp) => Installations = wireDefe
   },
 );
 
-export const { FirebaseInstallationsError, InstallationsClientErrorCode } =
+export const { FirebaseInstallationsError, InstallationsErrorCode } =
   deferredAdminEntry('installations');

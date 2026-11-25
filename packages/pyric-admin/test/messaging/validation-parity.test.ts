@@ -9,7 +9,7 @@
  *   3. Single `/topics/` prefix stripping on send and topic management
  *   4. Registration token type, element, and 1,000-token batch enforcement on
  *      `subscribeToTopic` and `unsubscribeFromTopic`
- *   5. `getMessaging(app)` and `messaging(app)` app handle validation (`TypeError`)
+ *   5. `getMessaging(app)` app handle validation (`TypeError`)
  *   6. Condition grammar whitespace separation and 5-topic limit
  */
 import { afterEach, describe, expect, it } from 'bun:test';
@@ -38,7 +38,6 @@ import { deleteApp, getApps, initializeApp } from '../../src/app/index.js';
 import {
   FirebaseMessagingError,
   getMessaging,
-  messaging,
   type Messaging,
 } from '../../src/messaging/index.js';
 
@@ -194,7 +193,6 @@ describe('getMessaging app handle validation parity', () => {
     for (const invalidApp of [{}, null, 'not-an-app', 42]) {
       expect(() => getUpstreamMessaging(invalidApp as never)).toThrow(TypeError);
       expect(() => getMessaging(invalidApp as never)).toThrow(TypeError);
-      expect(() => messaging(invalidApp as never)).toThrow(TypeError);
     }
   });
 });

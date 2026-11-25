@@ -4,7 +4,12 @@
 export { Auth } from './auth.js';
 export { getAuth } from './auth-service.js';
 export { BaseAuth } from './base-auth.js';
-export { AuthClientErrorCode, type AuthErrorCodeInfo } from './error-codes.js';
+export {
+  AuthErrorCode,
+  type AuthErrorCodeInfo,
+  type AuthErrorCodeKey,
+  type AuthErrorCodeValue,
+} from './error-codes.js';
 export type {
   CreateRequest,
   DecodedIdToken,

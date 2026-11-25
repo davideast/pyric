@@ -39,56 +39,8 @@ const EVENT_EMITTER = [
 
 const CLASS_EXPORT =
   'class exported for typing and instanceof checks; sandbox handles are not instances of it, so no constructor is exported';
-const ERROR_CLASS =
-  'error class; sandbox errors carry the upstream code and message but are not instances of it, so it is not exported';
 
 export const ALLOWLIST: readonly AllowlistGroup[] = [
-  // --- firebase-admin (root namespace) -----------------------------------
-  {
-    entry: '.',
-    owner: '(exports)',
-    members: ['apps'],
-    reason: 'a static module export cannot be the live list upstream `apps` is (the default export and CJS module.exports carry an `apps` getter, and getApps() lists apps)',
-  },
-  {
-    entry: '.',
-    owner: 'admin.firestore',
-    members: [
-      'AggregateQuery',
-      'AggregateQuerySnapshot',
-      'BulkWriter',
-      'BundleBuilder',
-      'CollectionGroup',
-      'CollectionReference',
-      'DocumentReference',
-      'DocumentSnapshot',
-      'Firestore',
-      'Query',
-      'QueryDocumentSnapshot',
-      'QueryPartition',
-      'QuerySnapshot',
-      'Transaction',
-      'WriteBatch',
-      'WriteResult',
-    ],
-    reason: CLASS_EXPORT,
-  },
-  {
-    entry: '.',
-    owner: 'admin.firestore',
-    members: ['v1', 'v1beta1'],
-    reason: 'generated Firestore RPC clients for direct API calls; the sandbox has no RPC endpoint',
-  },
-
-  // --- firebase-admin/app ------------------------------------------------
-  { entry: 'app', owner: '(exports)', members: ['AppErrorCodes', 'FirebaseAppError'], reason: ERROR_CLASS },
-  {
-    entry: 'app',
-    owner: '(exports)',
-    members: ['SDK_VERSION'],
-    reason: 'version string; the sandbox does not claim a firebase-admin version',
-  },
-
   // --- firebase-admin/auth -----------------------------------------------
   {
     entry: 'auth',
@@ -144,8 +96,8 @@ export const ALLOWLIST: readonly AllowlistGroup[] = [
   {
     entry: 'firestore',
     owner: 'Firestore',
-    members: ['databaseId'],
-    reason: 'property; the sandbox handle does not carry a database id',
+    members: ['alwaysUseImplicitOrderBy', 'databaseId'],
+    reason: 'properties; the sandbox handle does not carry a database id or implicit-orderBy flag',
   },
 
   // --- firebase-admin/storage --------------------------------------------

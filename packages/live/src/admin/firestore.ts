@@ -43,7 +43,7 @@ const GRPC_CODES: readonly string[] = [
 const LOCAL_METHODS: Readonly<Record<string, ReadonlySet<string>>> = {
   Firestore: new Set([
     'getBulkWriter', 'settings', 'validateAndApplySettings', 'newTraceUtilInstance',
-    'doc', 'collection', 'collectionGroup', 'batch', 'bulkWriter', 'snapshot_',
+    'doc', 'collection', 'collectionGroup', 'pipeline', 'batch', 'bulkWriter', 'snapshot_',
     'bundle', 'registerListener', 'unregisterListener', '_incrementBulkWritersCount',
     '_decrementBulkWritersCount', 'terminate', 'toJSON', 'initializeIfNeeded', 'createCallOptions',
   ]),
@@ -61,6 +61,16 @@ const LOCAL_METHODS: Readonly<Record<string, ReadonlySet<string>>> = {
   CollectionGroup: new Set(['withConverter']),
   AggregateQuery: new Set(['decodeResult', 'toProto', 'isEqual']),
   VectorQuery: new Set(['toProto', '_createSnapshot', 'startAfter', 'isEqual']),
+  Pipeline: new Set([
+    '_addStage', 'addFields', 'removeFields', 'define', 'toArrayExpression', 'toScalarExpression',
+    'select', 'where', 'offset', 'limit', 'distinct', 'aggregate', 'findNearest', 'replaceWith',
+    'sample', 'union', 'unnest', 'search', 'sort', 'delete', 'update', 'insert', 'upsert',
+    'rawStage', '_toStructuredPipeline', '_toProto', '_validateUserData',
+  ]),
+  PipelineSource: new Set([
+    'literals', 'collection', 'collectionGroup', 'database',
+    'documents', 'createFrom', '_validateReference',
+  ]),
   WriteBatch: new Set(['verifyNotCommitted', 'create', 'delete', 'set', 'update', '_reset']),
   Transaction: new Set(['create', 'set', 'update', 'delete']),
   BulkWriter: new Set([
@@ -82,8 +92,8 @@ function stringAt(subject: unknown, field: string): string | undefined {
 /** A failure's code: a gRPC status in the client SDK's spelling, else its string `code`, else its name. */
 function adminCodeOf(error: unknown): string {
   const code: unknown = isObject(error) ? Reflect.get(error, 'code') : undefined;
-  const isGrpcCode = typeof code === 'number' && GRPC_CODES[code] !== undefined;
-  if (isGrpcCode) return GRPC_CODES[code]!;
+  const grpcCode = typeof code === 'number' ? GRPC_CODES[code] : undefined;
+  if (grpcCode !== undefined) return grpcCode;
   if (typeof code === 'string') return code;
   return stringAt(error, 'name') ?? 'unknown';
 }
@@ -98,12 +108,13 @@ function isFirestoreClient(value: unknown): value is object {
 }
 
 /**
- * The Firestore a reference, query, vector/aggregate query, batch, transaction,
- * BulkWriter, or the Firestore itself belongs to.
+ * The Firestore a reference, query, vector/aggregate query, pipeline, batch,
+ * transaction, BulkWriter, or the Firestore itself belongs to.
  */
 export function firestoreOf(self: unknown): object | undefined {
   if (!isObject(self)) return undefined;
-  const owner: unknown = Reflect.get(self, '_firestore') ?? Reflect.get(self, 'firestore');
+  const owner: unknown =
+    Reflect.get(self, '_firestore') ?? Reflect.get(self, 'firestore') ?? Reflect.get(self, 'db');
   if (isFirestoreClient(owner)) return owner;
   const wrappedQuery: unknown = Reflect.get(self, '_query');
   if (isObject(wrappedQuery)) return firestoreOf(wrappedQuery);
@@ -199,6 +210,7 @@ const CLASSES: readonly { readonly className: string; readonly methods: readonly
   { className: 'Query', methods: [...calls('get', 'explain'), LISTENER] },
   { className: 'AggregateQuery', methods: calls('get', 'explain') },
   { className: 'VectorQuery', methods: calls('get', 'explain') },
+  { className: 'Pipeline', methods: calls('execute') },
   { className: 'WriteBatch', methods: calls('commit') },
   { className: 'BulkWriter', methods: calls('create', 'set', 'update', 'delete', 'flush', 'close') },
   { className: 'Firestore', methods: calls('getAll', 'runTransaction', 'listCollections', 'recursiveDelete') },
@@ -258,6 +270,9 @@ function prototypeOf(sdk: unknown, className: string, entryFile: string): object
     defined = internalClass(entryFile, './reference/aggregate-query.js', 'AggregateQuery');
   } else if (defined === undefined && className === 'VectorQuery') {
     defined = internalClass(entryFile, './reference/vector-query.js', 'VectorQuery');
+  } else if (defined === undefined && (className === 'Pipeline' || className === 'PipelineSource')) {
+    const pipelines = exportedClass(sdk, 'Pipelines');
+    defined = isObject(pipelines) ? Reflect.get(pipelines, className) : undefined;
   }
   const prototype: unknown = typeof defined === 'function' ? Reflect.get(defined, 'prototype') : undefined;
   return isObject(prototype) ? prototype : undefined;
@@ -298,6 +313,7 @@ export function observeAdminFirestore(sdk: unknown, entryFile: string, row: Admi
   patchObjectStreamMethod(queryProto, '_stream', adminRow, 'Query');
   patchObjectStreamMethod(prototypeOf(sdk, 'AggregateQuery', entryFile), '_stream', adminRow, 'AggregateQuery');
   patchObjectStreamMethod(prototypeOf(sdk, 'VectorQuery', entryFile), '_stream', adminRow, 'VectorQuery');
+  patchObjectStreamMethod(prototypeOf(sdk, 'Pipeline', entryFile), 'stream', adminRow, 'Pipeline', streamOpts);
   patchAsyncGeneratorMethod(
     prototypeOf(sdk, 'CollectionGroup', entryFile),
     'getPartitions',
@@ -312,7 +328,7 @@ export function observeAdminFirestore(sdk: unknown, entryFile: string, row: Admi
       gate,
       appOf,
       allowlist,
-      skipWhenObserving: true,
+      skipWhenObserving: className !== 'Pipeline',
       runInAdminScope: true,
     });
   }

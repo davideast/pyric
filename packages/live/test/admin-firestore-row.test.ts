@@ -251,13 +251,19 @@ test('a refused listener with no error callback logs the refusal with console.er
   await (other.terminate as AnyFunction).call(other);
 });
 
-test('admin.firestore() and getFirestore() reach the same patched classes and make the same records', async () => {
-  const admin = createRequire(import.meta.url)('firebase-admin') as { initializeApp(options: object, name: string): object; firestore(app: object): Instance };
-  const { getFirestore } = createRequire(import.meta.url)('firebase-admin/firestore') as { getFirestore(app: object): Instance };
-  const app = admin.initializeApp({ projectId: PROJECT }, 'admin-firestore-row');
+test('initializeFirestore() and getFirestore() reach the same patched classes and make the same records', async () => {
+  const { initializeApp } = createRequire(import.meta.url)('firebase-admin/app') as { initializeApp(options: object, name: string): object };
+  const { getFirestore, initializeFirestore } = createRequire(import.meta.url)('firebase-admin/firestore') as {
+    getFirestore(app: object): Instance;
+    initializeFirestore(app: object): Instance;
+  };
+  const app = initializeApp({ projectId: PROJECT }, 'admin-firestore-row');
   const from = records.length;
-  await doc('notes/a', admin.firestore(app)).get!();
-  await doc('notes/a', getFirestore(app)).get!();
+  const initDb = initializeFirestore(app);
+  const initDoc = doc('notes/a', initDb) as { get(): Promise<unknown> };
+  const getDbDoc = doc('notes/a', getFirestore(app)) as { get(): Promise<unknown> };
+  await initDoc.get();
+  await getDbDoc.get();
   const made = await recordsSince(from);
   expect(made.map(({ name, sdk: madeBy, path }) => ({ name, sdk: madeBy, path }))).toEqual([
     { name: 'DocumentReference.get', sdk: 'admin', path: 'notes/a' },

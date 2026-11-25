@@ -51,5 +51,6 @@ export const {
   AppPlatform,
   FirebaseProjectManagementError,
   IosApp,
+  ProjectManagementErrorCode,
   ShaCertificate,
 } = deferredAdminEntry('project-management');

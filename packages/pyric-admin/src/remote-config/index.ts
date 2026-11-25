@@ -53,6 +53,8 @@ export const getRemoteConfig: (app?: PyricAdminApp) => RemoteConfig = wireDeferr
 
 export const {
   CustomSignalOperator,
+  FirebaseRemoteConfigError,
   PercentConditionOperator,
+  RemoteConfigErrorCode,
   RemoteConfigFetchResponse,
 } = deferredAdminEntry('remote-config');

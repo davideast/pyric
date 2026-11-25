@@ -1,5 +1,5 @@
 /**
- * `pyric-admin/database` — sandbox mirror for the admin-shape RTDB surface.
+ * `pyric-admin/database` -- sandbox mirror for the admin-shape RTDB surface.
  *
  * Routes `getDatabase` / `getDatabaseWithUrl` to either the in-process tree
  * (`local-database.ts`) or the SharedWorker remote relay (`remote-database.ts`)
@@ -28,12 +28,12 @@ import {
   type DatabaseUrlMetadata,
 } from './database-shell.js';
 import { databaseAuthLensOf } from './auth-override.js';
-import { FirebaseDatabaseError } from './error.js';
+import { DatabaseErrorCode, FirebaseDatabaseError } from './error.js';
 import { getLocalDatabase } from './local-database.js';
 import { getRemoteDatabase } from './remote-database.js';
 import type { Database } from './types.js';
 
-export { FirebaseDatabaseError } from './error.js';
+export { DatabaseErrorCode, FirebaseDatabaseError };
 export { enableLogging } from './logging.js';
 export type {
   Database,

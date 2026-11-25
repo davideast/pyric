@@ -20,6 +20,9 @@ export const ADMIN_MESSAGING_MODULE = 'firebase-admin/messaging';
 const LOCAL_METHODS: ReadonlySet<string> = new Set([
   'enableLegacyHttpTransport',
   'parseSendResponses',
+  'createSessionError',
+  'parseTopicManagementResponses',
+  'getProjectId',
   'getUrlPath',
   'validateRegistrationTokensType',
   'validateRegistrationTokens',
@@ -43,9 +46,15 @@ function contextOf(_name: string, _args: readonly unknown[], self: unknown): Cal
   return projectId === undefined || projectId === '' ? {} : { projectId };
 }
 
-const METHODS: readonly AdminMethod[] = ['send', 'sendEach', 'sendEachForMulticast', 'subscribeToTopic', 'unsubscribeFromTopic'].map(
-  (name) => ({ name, context: contextOf, messageOf: noMessage, throwsLocally: true }),
-);
+const METHODS: readonly AdminMethod[] = [
+  'send',
+  'sendEach',
+  'sendEachForMulticast',
+  'subscribeToTopic',
+  'subscribeToTopicLegacy',
+  'unsubscribeFromTopic',
+  'unsubscribeFromTopicLegacy',
+].map((name) => ({ name, context: contextOf, messageOf: noMessage, throwsLocally: true }));
 
 /** Where the records go, and which gate the calls pass. */
 export interface AdminMessagingRow {

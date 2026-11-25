@@ -115,16 +115,26 @@ test('the patched method keeps its name and length, and patching twice changes n
 test('each send and topic call makes one record, with the project and production answer', async () => {
   const from = records.length;
   const outcomes = [
-    await codeOf(messaging.send!({ token: TOKEN_A, notification: { title: 'Order shipped' } })),
-    await codeOf(messaging.sendEach!([{ token: TOKEN_A, data: { order: '1' } }, { token: TOKEN_B, data: { order: '2' } }])),
-    await codeOf(messaging.sendEachForMulticast!({ tokens: [TOKEN_A, TOKEN_B], data: { order: '3' } })),
-    await codeOf(messaging.subscribeToTopic!([TOKEN_A, TOKEN_B], TOPIC)),
-    await codeOf(messaging.unsubscribeFromTopic!(TOKEN_A, TOPIC)),
+    await codeOf(messaging.send({ token: TOKEN_A, notification: { title: 'Order shipped' } })),
+    await codeOf(messaging.sendEach([{ token: TOKEN_A, data: { order: '1' } }, { token: TOKEN_B, data: { order: '2' } }])),
+    await codeOf(messaging.sendEachForMulticast({ tokens: [TOKEN_A, TOKEN_B], data: { order: '3' } })),
+    await codeOf(messaging.subscribeToTopic([TOKEN_A, TOKEN_B], TOPIC)),
+    await codeOf(messaging.subscribeToTopicLegacy([TOKEN_A, TOKEN_B], TOPIC)),
+    await codeOf(messaging.unsubscribeFromTopic(TOKEN_A, TOPIC)),
+    await codeOf(messaging.unsubscribeFromTopicLegacy(TOKEN_A, TOPIC)),
   ];
-  expect(outcomes).toEqual(['ok', 'ok', 'ok', 'ok', 'ok']);
+  expect(outcomes).toEqual(['ok', 'ok', 'ok', 'ok', 'ok', 'ok', 'ok']);
   const made = await recordsSince(from);
   expect(made.map(({ module, name, outcome, sdk, projectId }) => ({ module, name, outcome, sdk, projectId }))).toEqual(
-    ['send', 'sendEach', 'sendEachForMulticast', 'subscribeToTopic', 'unsubscribeFromTopic'].map((method) => ({
+    [
+      'send',
+      'sendEach',
+      'sendEachForMulticast',
+      'subscribeToTopic',
+      'subscribeToTopicLegacy',
+      'unsubscribeFromTopic',
+      'unsubscribeFromTopicLegacy',
+    ].map((method) => ({
       module: ADMIN_MESSAGING_MODULE,
       name: `Messaging.${method}`,
       outcome: 'resolved',
@@ -159,11 +169,19 @@ test('an app on another project is refused by the gate before any request, with 
   const sent = received.length;
   const other = appFor('other-project', 'admin-messaging-other');
   const outcomes = [
-    await codeOf(other.send!({ token: TOKEN_A })),
-    await codeOf(other.sendEachForMulticast!({ tokens: [TOKEN_A] })),
-    await codeOf(other.subscribeToTopic!(TOKEN_A, TOPIC)),
+    await codeOf(other.send({ token: TOKEN_A })),
+    await codeOf(other.sendEachForMulticast({ tokens: [TOKEN_A] })),
+    await codeOf(other.subscribeToTopic(TOKEN_A, TOPIC)),
+    await codeOf(other.subscribeToTopicLegacy(TOKEN_A, TOPIC)),
+    await codeOf(other.unsubscribeFromTopicLegacy(TOKEN_A, TOPIC)),
   ];
-  expect(outcomes).toEqual(['PYRIC_LIVE_REFUSED', 'PYRIC_LIVE_REFUSED', 'PYRIC_LIVE_REFUSED']);
+  expect(outcomes).toEqual([
+    'PYRIC_LIVE_REFUSED',
+    'PYRIC_LIVE_REFUSED',
+    'PYRIC_LIVE_REFUSED',
+    'PYRIC_LIVE_REFUSED',
+    'PYRIC_LIVE_REFUSED',
+  ]);
   expect(await recordsSince(from)).toEqual([]);
   expect(received.length).toBe(sent);
   expect(lines).toHaveLength(1);

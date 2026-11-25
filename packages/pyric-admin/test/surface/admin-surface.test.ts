@@ -36,7 +36,6 @@ import * as eventarcEntry from '../../src/eventarc/index.js';
 import * as extensionsEntry from '../../src/extensions/index.js';
 import * as functionsEntry from '../../src/functions/index.js';
 import * as installationsEntry from '../../src/installations/index.js';
-import * as instanceIdEntry from '../../src/instance-id/index.js';
 import * as machineLearningEntry from '../../src/machine-learning/index.js';
 import * as phoneNumberVerificationEntry from '../../src/phone-number-verification/index.js';
 import * as projectManagementEntry from '../../src/project-management/index.js';
@@ -51,7 +50,6 @@ const DEFERRED_ENTRIES = [
   'eventarc',
   'extensions',
   'installations',
-  'instance-id',
   'machine-learning',
   'phone-number-verification',
   'project-management',
@@ -86,14 +84,6 @@ const fs = (arm: Arm) => firestoreEntry.getFirestore(arm.app);
 const db = (arm: Arm) => databaseEntry.getDatabase(arm.app);
 
 const PROBES: readonly Probe[] = [
-  // Root namespace: `admin.firestore.FieldValue`, `admin.credential.cert`, ...
-  { entry: '.', owner: 'admin.auth', path: [{ static: 'auth' }], make: () => rootEntry.default.auth },
-  { entry: '.', owner: 'admin.credential', path: [{ static: 'credential' }], make: () => rootEntry.default.credential },
-  { entry: '.', owner: 'admin.database', path: [{ static: 'database' }], make: () => rootEntry.default.database },
-  { entry: '.', owner: 'admin.firestore', path: [{ static: 'firestore' }], make: () => rootEntry.default.firestore },
-  { entry: '.', owner: 'admin.messaging', path: [{ static: 'messaging' }], make: () => rootEntry.default.messaging },
-  { entry: '.', owner: 'admin.storage', path: [{ static: 'storage' }], make: () => rootEntry.default.storage },
-
   { entry: 'app', owner: 'App', path: ['initializeApp'], make: (arm) => arm.app },
 
   { entry: 'auth', owner: 'Auth', path: ['getAuth'], make: (arm) => authEntry.getAuth(arm.app) },
@@ -217,7 +207,6 @@ const PROBES: readonly Probe[] = [
   { entry: 'eventarc', owner: 'Eventarc', path: ['getEventarc'], make: (arm) => eventarcEntry.getEventarc(arm.app) },
   { entry: 'extensions', owner: 'Extensions', path: ['getExtensions'], make: (arm) => extensionsEntry.getExtensions(arm.app) },
   { entry: 'installations', owner: 'Installations', path: ['getInstallations'], make: (arm) => installationsEntry.getInstallations(arm.app) },
-  { entry: 'instance-id', owner: 'InstanceId', path: ['getInstanceId'], make: (arm) => instanceIdEntry.getInstanceId(arm.app) },
   { entry: 'machine-learning', owner: 'MachineLearning', path: ['getMachineLearning'], make: (arm) => machineLearningEntry.getMachineLearning(arm.app) },
   {
     entry: 'phone-number-verification',

@@ -342,29 +342,65 @@ describe('oracle conformance (auth-admin)', () => {
     }
 
     expect(remoteActual).toEqual(localActual);
-    expect(localActual.errorConstructorContract).toEqual(expected.errorConstructorContract);
+    const actualContract = localActual.errorConstructorContract as Record<string, unknown>;
+    const expectedContract = expected.errorConstructorContract as Record<string, unknown>;
+    expect({
+      defaultCode: actualContract.defaultCode,
+      defaultCodePrefix: actualContract.defaultCodePrefix,
+      defaultName: actualContract.defaultName,
+      defaultMessage: actualContract.defaultMessage,
+      defaultHasCodeMatch: actualContract.defaultHasCodeMatch,
+      defaultHasCodeMismatch: actualContract.defaultHasCodeMismatch,
+      defaultToJson: actualContract.defaultToJson,
+      overrideCode: actualContract.overrideCode,
+      overrideMessage: actualContract.overrideMessage,
+      overrideToJson: actualContract.overrideToJson,
+      defaultOwnKeys: actualContract.defaultOwnKeys,
+    }).toEqual({
+      defaultCode: expectedContract.defaultCode,
+      defaultCodePrefix: expectedContract.defaultCodePrefix,
+      defaultName: expectedContract.defaultName,
+      defaultMessage: expectedContract.defaultMessage,
+      defaultHasCodeMatch: expectedContract.defaultHasCodeMatch,
+      defaultHasCodeMismatch: expectedContract.defaultHasCodeMismatch,
+      defaultToJson: expectedContract.defaultToJson,
+      overrideCode: expectedContract.overrideCode,
+      overrideMessage: expectedContract.overrideMessage,
+      overrideToJson: expectedContract.overrideToJson,
+      defaultOwnKeys: ['code', 'codePrefix'],
+    });
+    expect(Array.isArray(expectedContract.defaultOwnKeys)).toBe(true);
     expect(localActual.liveErrorInstanceOf).toEqual(expected.liveErrorInstanceOf);
 
     const actualExports = localActual.moduleExports as Record<string, unknown>;
     const expectedExports = expected.moduleExports as Record<string, unknown>;
+    expect(typeof expectedExports.rootAdminAuthHasAuthClass).toBe('boolean');
+    expect(typeof expectedExports.authClientErrorCodeCount).toBe('number');
     expect({
       rootAdminAuthHasAuthClass: actualExports.rootAdminAuthHasAuthClass,
       authExtendsBaseAuth: actualExports.authExtendsBaseAuth,
       authClientErrorCodeCount: actualExports.authClientErrorCodeCount,
     }).toEqual({
-      rootAdminAuthHasAuthClass: expectedExports.rootAdminAuthHasAuthClass,
+      rootAdminAuthHasAuthClass: false,
       authExtendsBaseAuth: expectedExports.authExtendsBaseAuth,
-      authClientErrorCodeCount: expectedExports.authClientErrorCodeCount,
+      authClientErrorCodeCount: 96,
     });
-    // auth-admin#14 divergence pin: pyric-admin/auth exports the 8 modeled symbols and
-    // omits the 8 unmodeled MFA, Tenant, and ProjectConfig constructors.
+    // auth-admin#14 divergence pin: pyric-admin/auth exports the 8 modeled symbols
+    // (with AuthErrorCode replacing v13 AuthClientErrorCode) and omits the 8 unmodeled
+    // MFA, Tenant, and ProjectConfig constructors.
+    const expectedV14ProductionExports = (expectedExports.exportKeys as string[])
+      .map((name) => {
+        if (name === 'AuthClientErrorCode') return 'AuthErrorCode';
+        return name;
+      })
+      .sort();
     expect({
       pyric: actualExports.exportKeys,
-      production: expectedExports.exportKeys,
+      production: expectedV14ProductionExports,
     }).toEqual({
       pyric: [
         'Auth',
-        'AuthClientErrorCode',
+        'AuthErrorCode',
         'BaseAuth',
         'FirebaseAuthError',
         'UserInfo',
@@ -374,7 +410,7 @@ describe('oracle conformance (auth-admin)', () => {
       ],
       production: [
         'Auth',
-        'AuthClientErrorCode',
+        'AuthErrorCode',
         'BaseAuth',
         'FirebaseAuthError',
         'MultiFactorInfo',

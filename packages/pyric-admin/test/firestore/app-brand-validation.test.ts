@@ -3,7 +3,6 @@
  */
 import { afterEach, describe, expect, it } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
-import admin from '../../src/index.js';
 import { ADMIN_APP_TARGET, deleteApp, getApps, initializeApp } from '../../src/app/index.js';
 import { getFirestore } from '../../src/firestore/index.js';
 
@@ -17,7 +16,6 @@ describe('pyric-admin/firestore getFirestore app-brand validation', () => {
     expect(() => getFirestore({} as never)).toThrow(TypeError);
     expect(() => getFirestore(null as never)).toThrow(TypeError);
     expect(() => getFirestore('reports')).toThrow(/default Firebase app does not exist/);
-    expect(() => admin.firestore('not-an-app' as never)).toThrow(TypeError);
     expect(() => getFirestore(42 as never)).toThrow(TypeError);
     expect(() => getFirestore([] as never)).toThrow(TypeError);
     expect(() => getFirestore(sandbox as never)).toThrow(TypeError);

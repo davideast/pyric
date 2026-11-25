@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { initializeSandbox, type RemoteSandbox, type Sandbox } from 'pyric/sandbox';
-import admin from '../../src/index.js';
 import { deleteApp, getApps, initializeApp } from '../../src/app/index.js';
 import { enableLogging, getDatabase, ServerValue } from '../../src/database/index.js';
 import {
@@ -161,7 +160,6 @@ describe.each(ARMS)(
         finalVal: 11,
       });
       expect(actual).toEqual(withContentionFinalVal(observed, 11));
-      expect(admin.database.enableLogging).toBe(enableLogging);
     });
   },
 );

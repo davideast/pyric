@@ -5,7 +5,6 @@
  */
 
 import { afterEach, describe, expect, it } from 'bun:test';
-import adminUpstream from 'firebase-admin';
 import {
   applicationDefault,
   deleteApp as deleteUpstreamApp,
@@ -14,7 +13,6 @@ import {
 } from 'firebase-admin/app';
 import { getFirestore as getUpstreamFirestore } from 'firebase-admin/firestore';
 import { initializeSandbox } from 'pyric/sandbox';
-import adminPyric from 'pyric-admin';
 import { ADMIN_APP_TARGET, deleteApp, getApps, initializeApp } from 'pyric-admin/app';
 import { getFirestore } from 'pyric-admin/firestore';
 
@@ -73,7 +71,7 @@ afterEach(async () => {
   for (const app of getUpstreamApps()) await deleteUpstreamApp(app).catch(() => {});
 });
 
-describe('generative Admin Firestore argument differential: getFirestore & admin.firestore', () => {
+describe('generative Admin Firestore argument differential: getFirestore', () => {
   it('matches firebase-admin across app-handle wrong types, spoofed/bare handles, default-app, deleted-app, and databaseId types', async () => {
     const mismatches: string[] = [];
 
@@ -94,19 +92,6 @@ describe('generative Admin Firestore argument differential: getFirestore & admin
       );
       const getDiff = compareFirestoreOutcomes(`no-app:getFirestore(${candidate.label})`, uGet, pGet);
       if (getDiff !== null) mismatches.push(getDiff);
-
-      const uLegacy = await captureFirestoreOutcome(() =>
-        invokeSingleAppAccessor(adminUpstream.firestore as (app?: never) => unknown, candidate),
-      );
-      const pLegacy = await captureFirestoreOutcome(() =>
-        invokeSingleAppAccessor(adminPyric.firestore as (app?: never) => unknown, candidate),
-      );
-      const legacyDiff = compareFirestoreOutcomes(
-        `no-app:admin.firestore(${candidate.label})`,
-        uLegacy,
-        pLegacy,
-      );
-      if (legacyDiff !== null) mismatches.push(legacyDiff);
     }
 
     // 2. Default app initialized: test default resolution, 1-arg candidates, and 2-arg databaseId candidates.
@@ -139,19 +124,6 @@ describe('generative Admin Firestore argument differential: getFirestore & admin
           );
           if (diff !== null) mismatches.push(diff);
         }
-
-        const uLegacy = await captureFirestoreOutcome(() =>
-          invokeSingleAppAccessor(adminUpstream.firestore as (app?: never) => unknown, candidate),
-        );
-        const pLegacy = await captureFirestoreOutcome(() =>
-          invokeSingleAppAccessor(adminPyric.firestore as (app?: never) => unknown, candidate),
-        );
-        const legacyDiff = compareFirestoreOutcomes(
-          `with-default:admin.firestore(${candidate.label})`,
-          uLegacy,
-          pLegacy,
-        );
-        if (legacyDiff !== null) mismatches.push(legacyDiff);
       }
 
       // 3. 2-arg `getFirestore(app, databaseId)` across all databaseId candidates.

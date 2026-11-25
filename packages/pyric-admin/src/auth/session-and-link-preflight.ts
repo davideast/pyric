@@ -191,7 +191,7 @@ function assertActionCodeSettingsPreflight(actionCodeSettings: unknown): void {
     }
     if (actionCodeSettings.android.packageName === undefined) {
       throw new FirebaseAuthError(
-        'missing-android-pkg-name',
+        'missing-android-package-name',
         'An Android Package Name must be provided if the Android App is required to be installed.',
       );
     }

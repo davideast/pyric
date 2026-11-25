@@ -209,7 +209,7 @@ describe('verifyToken expiry', () => {
 });
 
 describe('App Check error shape', () => {
-  it('carries errorInfo, codePrefix, hasCode and toJSON like PrefixedFirebaseError', async () => {
+  it('carries code, codePrefix, hasCode and toJSON like firebase-admin v14 FirebaseAppCheckError', async () => {
     let caught: unknown;
     try {
       await appCheck().verifyToken('not-a-jwt');
@@ -218,7 +218,6 @@ describe('App Check error shape', () => {
     }
     const error = caught as Error & {
       code: string;
-      errorInfo: { code: string; message: string };
       codePrefix: string;
       hasCode(code: string): boolean;
       toJSON(): unknown;
@@ -228,12 +227,12 @@ describe('App Check error shape', () => {
     expect(error).toBeInstanceOf(Error);
     expect(error.code).toBe('app-check/invalid-argument');
     expect(error.message).toBe(message);
-    expect(error.errorInfo).toEqual({ code: 'app-check/invalid-argument', message });
     expect(error.codePrefix).toBe('app-check');
     expect(error.hasCode('invalid-argument')).toBe(true);
-    expect(error.hasCode('app-check/invalid-argument')).toBe(false);
+    expect(error.hasCode('app-check/invalid-argument')).toBe(true);
+    expect(error.hasCode('unknown-error')).toBe(false);
     expect(error.toJSON()).toEqual({ code: 'app-check/invalid-argument', message });
-    expect(Object.keys(error).sort()).toEqual(['codePrefix', 'errorInfo']);
+    expect(Object.keys(error).sort()).toEqual(['code', 'codePrefix']);
     expect(error.name).toBe('Error');
   });
 });

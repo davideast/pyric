@@ -207,9 +207,10 @@ describe('modular messaging-send probes (Slice 2 family)', () => {
       threw: true,
       code: 'app/no-app',
     });
-    expect(result.defaultGetMessagingMatchesNamespace).toBe(true);
+    expect(result.defaultGetMessagingMatchesExplicit).toBe(true);
+    expect(result.defaultGetMessagingMatchesNamespace).toBe(false);
     expect(result.defaultAppGetterMatchesDefaultApp).toBe(true);
-    expect(result.namedGetMessagingMatchesNamespace).toBe(true);
+    expect(result.namedGetMessagingMatchesNamespace).toBe(false);
     expect(result.namedAppGetterMatchesNamedApp).toBe(true);
     expect(result.namedDistinctFromDefault).toBe(true);
     expect(result.invalidAppArgument).toEqual({

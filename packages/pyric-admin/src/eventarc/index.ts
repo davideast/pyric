@@ -34,4 +34,5 @@ export const getEventarc: (app?: PyricAdminApp) => Eventarc = wireDeferredServic
   },
 );
 
-export const { Channel } = deferredAdminEntry('eventarc');
+export const { Channel, EventarcErrorCode, FirebaseEventarcError } =
+  deferredAdminEntry('eventarc');

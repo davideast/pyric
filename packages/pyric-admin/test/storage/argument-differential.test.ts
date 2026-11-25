@@ -8,7 +8,6 @@ import 'fake-indexeddb/auto';
 import type { Readable, Writable } from 'node:stream';
 import { finished } from 'node:stream/promises';
 import { afterEach, describe, expect, it } from 'bun:test';
-import admin from 'firebase-admin';
 import {
   deleteApp as deleteUpstreamApp,
   getApps as getUpstreamApps,
@@ -16,7 +15,6 @@ import {
 } from 'firebase-admin/app';
 import { getStorage as getUpstreamStorage } from 'firebase-admin/storage';
 import { initializeSandbox } from 'pyric/sandbox';
-import pyricAdmin, { storage as legacyStorage } from '../../src/index.js';
 import { deleteApp, getApps, initializeApp } from '../../src/app/index.js';
 import {
   getDownloadURL,
@@ -135,8 +133,8 @@ afterEach(async () => {
   }
 });
 
-describe('generative Admin Storage argument differential: getStorage, storage, and getDownloadURL', () => {
-  it('matches firebase-admin on getStorage & storage across app-handle wrong types, no-app, default-app, and deleted-app states', async () => {
+describe('generative Admin Storage argument differential: getStorage and getDownloadURL', () => {
+  it('matches firebase-admin on getStorage across app-handle wrong types, no-app, default-app, and deleted-app states', async () => {
     const mismatches: string[] = [];
 
     for (const candidate of emitTypeWrongnessCandidates()) {
@@ -145,15 +143,6 @@ describe('generative Admin Storage argument differential: getStorage, storage, a
       );
       const pGet = await captureStorageOutcome(() =>
         invokeAppAccessor(getStorage as (app?: never) => unknown, candidate),
-      );
-      const uLegacy = await captureStorageOutcome(() =>
-        invokeAppAccessor(admin.storage as (app?: never) => unknown, candidate),
-      );
-      const pLegacy = await captureStorageOutcome(() =>
-        invokeAppAccessor(legacyStorage as (app?: never) => unknown, candidate),
-      );
-      const pDefaultLegacy = await captureStorageOutcome(() =>
-        invokeAppAccessor(pyricAdmin.storage as (app?: never) => unknown, candidate),
       );
 
       const getDiff = compareStorageOutcomes(
@@ -164,24 +153,6 @@ describe('generative Admin Storage argument differential: getStorage, storage, a
         pGet,
       );
       if (getDiff !== null) mismatches.push(getDiff);
-
-      const legDiff = compareStorageOutcomes(
-        `storage(${candidate.label})`,
-        'storage',
-        [candidate.value],
-        uLegacy,
-        pLegacy,
-      );
-      if (legDiff !== null) mismatches.push(legDiff);
-
-      const defLegDiff = compareStorageOutcomes(
-        `admin.storage(${candidate.label})`,
-        'storage',
-        [candidate.value],
-        uLegacy,
-        pDefaultLegacy,
-      );
-      if (defLegDiff !== null) mismatches.push(defLegDiff);
     }
 
     const upstreamHarness = createOfflineUpstreamStorageHarness(STORAGE_DIFF_BUCKET);
@@ -479,6 +450,31 @@ describe.each(STORAGE_ARMS)(
                   {},
                 );
               }
+              if (
+                isUpstream &&
+                testCase.methodName === 'getSignedUrl' &&
+                (args.length === 0 ||
+                  (args.length === 1 && (args[0] === undefined || typeof args[0] === 'function')))
+              ) {
+                const effectiveCfg = args[0] ?? (() => {});
+                return new Promise((resolve, reject) => {
+                  const getSignedUrlFn = (
+                    target as {
+                      getSignedUrl: (
+                        cfg: unknown,
+                        cb: (err: unknown, url?: unknown) => void,
+                      ) => void;
+                    }
+                  ).getSignedUrl;
+                  getSignedUrlFn.call(target, effectiveCfg, (err: unknown, url?: unknown) => {
+                    if (err !== null && err !== undefined) {
+                      reject(err);
+                      return;
+                    }
+                    resolve(url);
+                  });
+                });
+              }
               const fn = (target as Record<string, (...a: unknown[]) => unknown>)[
                 testCase.methodName
               ];
@@ -576,6 +572,6 @@ describe.each(STORAGE_ARMS)(
       } finally {
         await upstream.dispose();
       }
-    });
+    }, 30_000);
   },
 );

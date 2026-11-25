@@ -107,7 +107,10 @@ import {
   applyAdminFirestoreSettings,
   type AdminFirestoreSettings,
 } from './admin-settings-lifecycle.js';
-import { FirebaseFirestoreError } from './admin-vector-and-errors.js';
+import {
+  FirebaseFirestoreError,
+  FirestoreErrorCode,
+} from './admin-vector-and-errors.js';
 import {
   computeDocDataFingerprint,
   registerBypassSnapshotReader,
@@ -149,6 +152,7 @@ export {
   FieldValue,
   Filter,
   FirebaseFirestoreError,
+  FirestoreErrorCode,
   GeoPoint,
   GrpcStatus,
   setLogFunction,

@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 import { initializeSandbox, type Sandbox } from 'pyric/sandbox';
-import admin from 'pyric-admin';
 import { deleteApp, getApps, initializeApp } from 'pyric-admin/app';
 import {
   AggregateField,
@@ -33,9 +32,9 @@ afterEach(async () => {
 });
 
 describe('pyric-admin/firestore WriteResult, Precondition, Filter, AggregateField, cursors, and Transaction.getAll', () => {
-  it('exposes AggregateField and Filter on both pyric-admin/firestore and admin.firestore', () => {
-    expect(admin.firestore.AggregateField).toBe(AggregateField);
-    expect(admin.firestore.Filter).toBe(Filter);
+  it('exposes AggregateField and Filter on pyric-admin/firestore', () => {
+    expect(typeof AggregateField.count).toBe('function');
+    expect(typeof Filter.where).toBe('function');
 
     const countField = AggregateField.count();
     const sumDot = AggregateField.sum('metrics.score');

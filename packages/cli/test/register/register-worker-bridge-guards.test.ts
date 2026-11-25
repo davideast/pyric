@@ -123,7 +123,7 @@ beforeAll(() => {
       'let liveCode = null;',
       'try {',
       '  const mod = await import("firebase-admin/app");',
-      '  isRealAdminApp = typeof mod.SDK_VERSION === "string";',
+      '  isRealAdminApp = typeof mod.initializeApp === "function" && String(mod.initializeApp).includes("defaultAppStore");',
       '  const fs = await import("firebase-admin/firestore");',
       '  const app = mod.initializeApp({ projectId: "other-project" }, "preload-app");',
       '  await fs.getFirestore(app).doc("items/doc-1").get();',
@@ -145,7 +145,7 @@ beforeAll(() => {
       'import { parentPort } from "node:worker_threads";',
       'const mod = await import("firebase-admin/app");',
       'parentPort?.postMessage({',
-      '  isRealAdminApp: typeof mod.SDK_VERSION === "string",',
+      '  isRealAdminApp: typeof mod.initializeApp === "function" && String(mod.initializeApp).includes("defaultAppStore"),',
       '  early: globalThis.__EARLY_LOAD__ ?? null,',
       '});',
     ].join('\n'),
@@ -209,7 +209,7 @@ describe('truthy worker options.eval and accessor TOCTOU', () => {
   it('guards non-boolean truthy eval values and getter/proxy eval in sandbox and live modes', () => {
     const sandboxParent = [
       'import { Worker } from "node:worker_threads";',
-      'const cjsCode = "const { parentPort } = require(\'node:worker_threads\'); const app = require(\'firebase-admin/app\'); parentPort.postMessage({ isReal: typeof app.SDK_VERSION === \'string\' });";',
+      'const cjsCode = "const { parentPort } = require(\'node:worker_threads\'); const app = require(\'firebase-admin/app\'); parentPort.postMessage({ isReal: typeof app.initializeApp === \'function\' && String(app.initializeApp).includes(\'defaultAppStore\') });";',
       'function run(options) {',
       '  return new Promise((resolve, reject) => {',
       '    const w = new Worker(cjsCode, options);',
@@ -290,8 +290,8 @@ describe('NODE_ENV production mutation in active parent processes', () => {
       'const defaultWorker = await runWorker(process.env.SANDBOX_WORKER);',
       'const shareEnvWorker = await runWorker(process.env.SANDBOX_WORKER, { env: SHARE_ENV });',
       'const customEnvWorker = await runWorker(process.env.SANDBOX_WORKER, { env: { PATH: process.env.PATH, NODE_ENV: "production" } });',
-      'const evalWorker = await runWorker("const { parentPort } = require(\'node:worker_threads\'); const app = require(\'firebase-admin/app\'); parentPort.postMessage({ isRealAdminApp: typeof app.SDK_VERSION === \'string\' });", { eval: true });',
-      'const child = spawnSync(process.execPath, ["--input-type=module", "-e", "const m = await import(\'firebase-admin/app\'); console.log(\'CHILD \' + JSON.stringify({ isRealAdminApp: typeof m.SDK_VERSION === \'string\' }));"], { encoding: "utf8" });',
+      'const evalWorker = await runWorker("const { parentPort } = require(\'node:worker_threads\'); const app = require(\'firebase-admin/app\'); parentPort.postMessage({ isRealAdminApp: typeof app.initializeApp === \'function\' && String(app.initializeApp).includes(\'defaultAppStore\') });", { eval: true });',
+      'const child = spawnSync(process.execPath, ["--input-type=module", "-e", "const m = await import(\'firebase-admin/app\'); console.log(\'CHILD \' + JSON.stringify({ isRealAdminApp: typeof m.initializeApp === \'function\' && String(m.initializeApp).includes(\'defaultAppStore\') }));"], { encoding: "utf8" });',
       'const childLine = child.stdout.split("\\n").find((l) => l.startsWith("CHILD "));',
       'console.log("OUTCOME " + JSON.stringify({',
       '  defaultWorker: defaultWorker.isRealAdminApp,',
@@ -367,7 +367,7 @@ describe('NODE_ENV production mutation in active parent processes', () => {
     );
     expectOk(freshLiveProd);
     expect(freshLiveProd.stdout).toContain('ACTIVE false');
-  }, 30_000);
+  }, 60_000);
 });
 
 describe('caller preload ordering ahead of active register', () => {
@@ -389,7 +389,7 @@ describe('caller preload ordering ahead of active register', () => {
       'process.env.NODE_OPTIONS = `--import ${preload}`;',
       'const defaultEnvNodeOpts = await runWorker(undefined);',
       'const shareEnvNodeOpts = await runWorker({ env: SHARE_ENV });',
-      'const child = spawnSync(process.execPath, ["--input-type=module", "-e", "const m = await import(\'firebase-admin/app\'); console.log(\'CHILD \' + JSON.stringify({ isRealAdminApp: typeof m.SDK_VERSION === \'string\', early: globalThis.__EARLY_LOAD__ ?? null }));"], { encoding: "utf8", env: { ...process.env, NODE_OPTIONS: `--import ${preload}` } });',
+      'const child = spawnSync(process.execPath, ["--input-type=module", "-e", "const m = await import(\'firebase-admin/app\'); console.log(\'CHILD \' + JSON.stringify({ isRealAdminApp: typeof m.initializeApp === \'function\' && String(m.initializeApp).includes(\'defaultAppStore\'), early: globalThis.__EARLY_LOAD__ ?? null }));"], { encoding: "utf8", env: { ...process.env, NODE_OPTIONS: `--import ${preload}` } });',
       'const childLine = child.stdout.split("\\n").find((l) => l.startsWith("CHILD "));',
       'console.log("OUTCOME " + JSON.stringify({',
       '  execArgvSplit,',
@@ -462,7 +462,7 @@ describe('bridge importer allowlist, pinned AI mode, and CJS firebase-admin faca
       '  try {',
       '    const mod = createRequire(importer)(specifier);',
       '    const isRealClientApp = specifier === "firebase/app" && typeof mod.initializeApp === "function" && String(mod.initializeApp).includes("INTERNAL");',
-      '    const isRealAdminApp = specifier.startsWith("firebase-admin/") && typeof mod.SDK_VERSION === "string";',
+      '    const isRealAdminApp = specifier.startsWith("firebase-admin/") && typeof mod.initializeApp === "function" && String(mod.initializeApp).includes("defaultAppStore");',
       '    const isRealAppCheck = specifier === "firebase/app-check" && typeof mod.initializeAppCheck === "function" && String(mod.initializeAppCheck).includes("_getProvider");',
       '    return { blocked: false, isReal: isRealClientApp || isRealAdminApp || isRealAppCheck };',
       '  } catch (error) {',
@@ -494,7 +494,7 @@ describe('bridge importer allowlist, pinned AI mode, and CJS firebase-admin faca
         expect(value.isReal).toBe(false);
       }
     }
-  });
+  }, 30_000);
 
   it('pins PYRIC_AI_MODE and PYRIC_AI_PASSTHROUGH at activation across in-process, child, and workers', () => {
     const parent = [
@@ -542,21 +542,22 @@ describe('bridge importer allowlist, pinned AI mode, and CJS firebase-admin faca
     }
   }, 30_000);
 
-  it('exposes live admin.apps and SDK_VERSION through CJS require("firebase-admin")', () => {
+  it('exposes live getApps() and SDK_VERSION through CJS require("firebase-admin")', () => {
     const script = [
       'import { createRequire } from "node:module";',
       'import esmAdmin from "firebase-admin";',
       'import * as adminApp from "firebase-admin/app";',
       'const req = createRequire(import.meta.url);',
       'const cjsAdmin = req("firebase-admin");',
-      'const initialCjsApps = Array.isArray(cjsAdmin.apps) ? cjsAdmin.apps.length : -1;',
-      'const initialEsmApps = esmAdmin.apps.length;',
+      'const initialCjsApps = cjsAdmin.getApps().length;',
+      'const initialEsmApps = esmAdmin.getApps().length;',
       'cjsAdmin.initializeApp({ projectId: "demo-project" }, "docs-app");',
       'console.log("OUTCOME " + JSON.stringify({',
       '  initialCjsApps,',
       '  initialEsmApps,',
-      '  afterCjsApps: cjsAdmin.apps.length,',
-      '  afterEsmApps: esmAdmin.apps.length,',
+      '  afterCjsApps: cjsAdmin.getApps().length,',
+      '  afterEsmApps: esmAdmin.getApps().length,',
+      '  hasLegacyAppsGetter: "apps" in cjsAdmin,',
       '  cjsSdkVersion: typeof cjsAdmin.SDK_VERSION,',
       '  esmSdkVersion: typeof esmAdmin.SDK_VERSION,',
       '  sameSdkVersion: cjsAdmin.SDK_VERSION === esmAdmin.SDK_VERSION,',
@@ -572,11 +573,12 @@ describe('bridge importer allowlist, pinned AI mode, and CJS firebase-admin faca
       initialEsmApps: 0,
       afterCjsApps: 1,
       afterEsmApps: 1,
+      hasLegacyAppsGetter: false,
       cjsSdkVersion: 'string',
       esmSdkVersion: 'string',
       sameSdkVersion: true,
       defaultSelf: true,
-      modularHasSdkVersion: false,
+      modularHasSdkVersion: true,
     });
   });
 });

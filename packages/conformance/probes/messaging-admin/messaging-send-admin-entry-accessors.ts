@@ -1,5 +1,12 @@
 import admin from 'firebase-admin';
-import { deleteApp, getApps, initializeApp, type App, type AppOptions } from 'firebase-admin/app';
+import {
+  deleteApp,
+  getApp,
+  getApps,
+  initializeApp,
+  type App,
+  type AppOptions,
+} from 'firebase-admin/app';
 import { getMessaging } from 'firebase-admin/messaging';
 import type { Probe } from '../../rigs/types.ts';
 import {
@@ -44,16 +51,27 @@ export async function observeAdminEntryAccessors(
     const namedApp = initializeApp(options, namedAppName);
     createdApps.push(namedApp);
 
-    const compatDefaultApp = admin.app();
-    const compatNamedApp = admin.app(namedAppName);
+    const resolvedDefaultApp = getApp();
+    const resolvedNamedApp = getApp(namedAppName);
 
     const defaultViaGetMessaging = getMessaging();
     const defaultViaExplicit = getMessaging(defaultApp);
-    const defaultViaNamespace = admin.messaging();
-    const defaultViaNamespaceExplicit = admin.messaging(compatDefaultApp);
-
+    const defaultViaResolvedApp = getMessaging(resolvedDefaultApp);
     const namedViaGetMessaging = getMessaging(namedApp);
-    const namedViaNamespace = admin.messaging(compatNamedApp);
+    const namedViaResolvedApp = getMessaging(resolvedNamedApp);
+
+    const legacyNamespaceMessaging = (
+      admin as unknown as { readonly messaging?: (targetApp?: App) => unknown }
+    ).messaging;
+    let defaultMatchesLegacyNamespace = false;
+    let namedMatchesLegacyNamespace = false;
+    if (typeof legacyNamespaceMessaging === 'function') {
+      defaultMatchesLegacyNamespace =
+        defaultViaGetMessaging === legacyNamespaceMessaging() &&
+        defaultViaGetMessaging === legacyNamespaceMessaging(resolvedDefaultApp);
+      namedMatchesLegacyNamespace =
+        namedViaGetMessaging === legacyNamespaceMessaging(resolvedNamedApp);
+    }
 
     let invalidAppThrew = false;
     let invalidAppErrorName: string | null = null;
@@ -71,13 +89,14 @@ export async function observeAdminEntryAccessors(
         threw: noDefaultThrew,
         code: noDefaultCode,
       },
-      defaultGetMessagingMatchesExplicit: defaultViaGetMessaging === defaultViaExplicit,
-      defaultGetMessagingMatchesNamespace:
-        defaultViaGetMessaging === defaultViaNamespace &&
-        defaultViaGetMessaging === defaultViaNamespaceExplicit,
+      defaultGetMessagingMatchesExplicit:
+        defaultViaGetMessaging === defaultViaExplicit &&
+        defaultViaGetMessaging === defaultViaResolvedApp,
+      defaultGetMessagingMatchesNamespace: defaultMatchesLegacyNamespace,
       defaultAppGetterMatchesDefaultApp: defaultViaGetMessaging.app === defaultApp,
-      namedGetMessagingMatchesNamespace: namedViaGetMessaging === namedViaNamespace,
-      namedAppGetterMatchesNamedApp: namedViaGetMessaging.app === namedApp,
+      namedGetMessagingMatchesNamespace: namedMatchesLegacyNamespace,
+      namedAppGetterMatchesNamedApp:
+        namedViaGetMessaging.app === namedApp && namedViaResolvedApp === namedViaGetMessaging,
       namedDistinctFromDefault: namedViaGetMessaging !== defaultViaGetMessaging,
       invalidAppArgument: {
         threw: invalidAppThrew,

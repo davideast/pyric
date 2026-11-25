@@ -2,9 +2,12 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import upstreamAdmin from 'firebase-admin';
+import * as upstreamApp from 'firebase-admin/app';
 import { initializeSandbox } from 'pyric/sandbox';
 
 import admin, { SDK_VERSION } from '../../src/index.js';
+import * as pyricRoot from '../../src/index.js';
 import * as modularApp from '../../src/app/index.js';
 
 const packageRoot = resolve(import.meta.dir, '../..');
@@ -17,14 +20,19 @@ afterEach(async () => {
 });
 
 describe('pyric-admin root facade', () => {
-  it('exposes SDK_VERSION, live apps array, and non-enumerable default self-reference', async () => {
-    expect(typeof SDK_VERSION).toBe('string');
-    expect(SDK_VERSION.length).toBeGreaterThan(0);
+  it('exposes the 11 firebase-admin/app symbols, SDK_VERSION, and non-enumerable default self-reference', async () => {
+    expect(SDK_VERSION).toBe('14.5.1');
     expect(admin.SDK_VERSION).toBe(SDK_VERSION);
-    expect('SDK_VERSION' in modularApp).toBe(false);
+    expect(modularApp.SDK_VERSION).toBe(SDK_VERSION);
 
-    expect(Array.isArray(admin.apps)).toBe(true);
-    expect(admin.apps).toHaveLength(0);
+    const upstreamDefaultKeys = Object.keys(upstreamAdmin).sort();
+    expect(Object.keys(admin).sort()).toEqual(upstreamDefaultKeys);
+    expect(Object.keys(upstreamApp).sort()).toEqual(upstreamDefaultKeys);
+
+    const pyricNamedKeys = Object.keys(pyricRoot)
+      .filter((key) => key !== 'default' && key !== 'module.exports')
+      .sort();
+    expect(pyricNamedKeys).toEqual(upstreamDefaultKeys);
 
     const descriptor = Object.getOwnPropertyDescriptor(admin, 'default');
     expect(descriptor?.enumerable).toBe(false);
@@ -32,14 +40,15 @@ describe('pyric-admin root facade', () => {
 
     const sandbox = initializeSandbox();
     const app = admin.initializeApp({ sandbox, projectId: 'demo-project' }, 'items-app');
-    expect(admin.apps).toHaveLength(1);
-    expect(admin.apps[0]?.name).toBe('items-app');
+    expect(admin.getApps()).toHaveLength(1);
+    expect(admin.getApps()[0]?.name).toBe('items-app');
+    expect(admin.getApp('items-app')).toBe(app);
 
-    await modularApp.deleteApp(app);
-    expect(admin.apps).toHaveLength(0);
+    await admin.deleteApp(app);
+    expect(admin.getApps()).toHaveLength(0);
   });
 
-  it('returns the live admin facade directly through Node require(esm)', () => {
+  it('returns the admin facade directly through Node require(esm)', () => {
     if (!existsSync(builtRootEntry) || !existsSync(builtSandboxEntry)) {
       throw new Error('Built pyric/pyric-admin dist missing. Run scripts/build.sh --packages-only first.');
     }
@@ -49,11 +58,11 @@ describe('pyric-admin root facade', () => {
       'const { initializeSandbox } = await import(pathToFileURL(process.env.PYRIC_SANDBOX_DIST).href);',
       'const req = createRequire(import.meta.url);',
       'const admin = req(process.env.PYRIC_ADMIN_DIST);',
-      'const initialCount = Array.isArray(admin.apps) ? admin.apps.length : -1;',
+      'const initialCount = admin.getApps().length;',
       'const app = admin.initializeApp({ sandbox: initializeSandbox(), projectId: "demo-project" }, "items-app");',
-      'const afterCount = Array.isArray(admin.apps) ? admin.apps.length : -1;',
+      'const afterCount = admin.getApps().length;',
       'const defaultMatches = admin.default === admin;',
-      'const defaultAppsCount = Array.isArray(admin.default?.apps) ? admin.default.apps.length : -1;',
+      'const defaultAppsCount = admin.default.getApps().length;',
       'console.log(JSON.stringify({',
       '  sdkVersion: admin.SDK_VERSION,',
       '  initialCount,',

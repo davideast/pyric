@@ -39,7 +39,7 @@ export type AccountFailureCode =
   | 'invalid-dynamic-link-domain'
   | 'invalid-hosting-link-domain'
   | 'missing-ios-bundle-id'
-  | 'missing-android-pkg-name'
+  | 'missing-android-package-name'
   | 'invalid-page-token'
   | 'claims-too-large'
   | 'reserved-claim';

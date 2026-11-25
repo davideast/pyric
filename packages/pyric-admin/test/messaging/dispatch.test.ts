@@ -1,5 +1,5 @@
 /**
- * `pyric-admin/messaging` — service resolution + backend dispatch.
+ * `pyric-admin/messaging` -- service resolution + backend dispatch.
  *
  * Covers both arms of the registry: an explicit sandbox app yields the
  * broker-backed {@link Messaging}; an explicit prod app delegates to
@@ -7,18 +7,19 @@
  * `getMessaging()` resolves the registered `'[DEFAULT]'` app (sandbox and prod),
  * throws firebase-admin's exact `app/no-app` when none exists, and mints the
  * implicit climb app only under `PYRIC_CLIMB=1`. Also: per-app instance
- * caching, the `messaging()` legacy accessor, and the `enableLegacyHttpTransport`
- * no-op.
+ * caching, removal of the v13 `messaging()` legacy accessor, and the
+ * `enableLegacyHttpTransport` no-op.
  *
  * Blocking unit suite (no PYRIC_CLIMB flag by default): the one climb-arm test
  * sets and restores the env itself. Prod-arm apps are created with a fake
- * projectId — firebase-admin's `getMessaging(app)` constructs offline, no
+ * projectId -- firebase-admin's `getMessaging(app)` constructs offline, no
  * network until an op runs, mirroring the prod-target house pattern.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import { deleteApp, getApps, initializeApp } from '../../src/app/index.js';
-import { getMessaging, Messaging, messaging } from '../../src/messaging/index.js';
+import * as messagingMod from '../../src/messaging/index.js';
+import { getMessaging, Messaging } from '../../src/messaging/index.js';
 
 // Module-global registry; clear it before and after so default-app resolution
 // is deterministic regardless of sibling suites in the same process.
@@ -40,9 +41,8 @@ describe('explicit-app resolution', () => {
     expect(getMessaging(app)).toBe(getMessaging(app));
   });
 
-  it('the messaging() legacy accessor is equivalent to getMessaging()', () => {
-    const app = initializeApp({ sandbox: initializeSandbox() });
-    expect(messaging(app)).toBe(getMessaging(app));
+  it('does not export the removed v13 messaging() legacy accessor', () => {
+    expect('messaging' in messagingMod).toBe(false);
   });
 });
 

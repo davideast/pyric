@@ -68,10 +68,6 @@
       "types": "./dist/installations/index.d.ts",
       "import": "./dist/installations/index.js"
     },
-    "./instance-id": {
-      "types": "./dist/instance-id/index.d.ts",
-      "import": "./dist/instance-id/index.js"
-    },
     "./machine-learning": {
       "types": "./dist/machine-learning/index.d.ts",
       "import": "./dist/machine-learning/index.js"
@@ -110,7 +106,7 @@
   },
   "devDependencies": {
     "@types/bun": "1.3.14",
-    "firebase-admin": "^13.0.0",
+    "firebase-admin": "^14.5.1",
     "typescript": "^5.7.0",
     "fake-indexeddb": "^6.0.0"
   },

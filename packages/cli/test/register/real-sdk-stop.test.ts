@@ -139,10 +139,10 @@ outcome.escaped = globalThis[Symbol.for('stop.escaped')];
 console.log('OUTCOME ' + JSON.stringify(outcome));
 `;
 
-/** Records every module the process loads, so a probe can tell whether the real firebase-admin ran. */
+/** Records every module URL the process resolves, so a probe can tell whether the real firebase-admin was allowed. */
 const LOAD_OBSERVER = `import Module from 'node:module';
 const loaded = [];
-Module.registerHooks({ load(url, context, nextLoad) { loaded.push(url); return nextLoad(url, context); } });
+Module.registerHooks({ resolve(specifier, context, nextResolve) { const resolved = nextResolve(specifier, context); loaded.push(resolved.url); return resolved; } });
 const realAdminLoaded = () => loaded.some((url) => url.startsWith(process.env.REAL_ADMIN_DIR_URL + '/'));
 `;
 

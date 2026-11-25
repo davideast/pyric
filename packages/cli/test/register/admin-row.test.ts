@@ -60,9 +60,7 @@ await attempt('getFirestore', async () => { const { getFirestore } = await impor
 await attempt('getStorage', async () => { const { getStorage } = await import('firebase-admin/storage'); getStorage(app).bucket(); });
 await attempt('getDatabase', async () => { const { getDatabase } = await import('firebase-admin/database'); getDatabase(app); });
 await attempt('getAuth', async () => { const { getAuth } = await import('firebase-admin/auth'); getAuth(app); });
-const admin = (await import('firebase-admin')).default;
-await attempt('admin.firestore', () => admin.firestore());
-await attempt('admin.securityRules', () => admin.securityRules());
+await attempt('getSecurityRules', async () => { const { getSecurityRules } = await import('firebase-admin/security-rules'); getSecurityRules(app); });
 await attempt('getMessaging', async () => { const { getMessaging } = await import('firebase-admin/messaging'); getMessaging(app); });
 await attempt('getAppCheck', async () => { const { getAppCheck } = await import('firebase-admin/app-check'); getAppCheck(app); });
 writeSync(1, 'OUTCOME ' + JSON.stringify({ node: process.versions.node, outcome, resolved }) + '\\n');
@@ -177,7 +175,7 @@ describe('Admin rows on the live register', () => {
     ]);
   });
 
-  it('serve the row module at each of the six loads, through the modular entries and the namespace, and load other services unobserved', () => {
+  it('serve the row module at each of the six loads through the modular entries, and load other services unobserved', () => {
     const res = run(true);
     if (isNode22(res)) {
       // Node 22 runs firebase-admin's own require() outside the hooks: no row is reached.
@@ -185,17 +183,16 @@ describe('Admin rows on the live register', () => {
       return;
     }
     for (const [row, specifier] of Object.entries(ROW_SPECIFIERS)) {
-      expect(urlsOf(res, specifier), specifier).toEqual([ADMIN_ROW_URLS.get(row as keyof typeof ROW_SPECIFIERS)!]);
+      const rowKey = row as keyof typeof ROW_SPECIFIERS;
+      const expectedUrl = ADMIN_ROW_URLS.get(rowKey);
+      expect(urlsOf(res, specifier), specifier).toEqual(expectedUrl === undefined ? [] : [expectedUrl]);
     }
-    const fromNamespace = res.resolved.find((entry) => entry.specifier === '@google-cloud/firestore' && entry.from?.endsWith('/lib/app/firebase-namespace.js'));
-    expect(fromNamespace?.url).toBe(ADMIN_ROW_URLS.get('firestore'));
     expect(res.outcome).toEqual({
       getFirestore: 'ok',
       getStorage: 'ok',
       getDatabase: 'ok',
       getAuth: 'ok',
-      'admin.firestore': 'ok',
-      'admin.securityRules': 'ok',
+      getSecurityRules: 'ok',
       getMessaging: 'ok',
       getAppCheck: 'ok',
     });
@@ -205,7 +202,7 @@ describe('Admin rows on the live register', () => {
     const res = run(false);
     const rowUrls = [...ADMIN_ROW_URLS.values()];
     expect(res.resolved.some((entry) => rowUrls.includes(entry.url))).toBe(false);
-    expect(res.outcome['admin.securityRules']).toBe('ok');
+    expect(res.outcome.getSecurityRules).toBe('ok');
     expect(res.outcome.getFirestore).toBe('ok');
     if (isNode22(res)) return;
     expect(urlsOf(res, '@google-cloud/firestore')[0]).toContain('/node_modules/@google-cloud/firestore/');

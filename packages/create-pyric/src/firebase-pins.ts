@@ -12,4 +12,4 @@
  * static assets and cannot import this module.
  */
 export const FIREBASE_PIN = '~13.4.0';
-export const FIREBASE_ADMIN_PIN = '~13.10.0';
+export const FIREBASE_ADMIN_PIN = '~14.5.1';

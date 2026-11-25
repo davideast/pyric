@@ -52,9 +52,10 @@ describe('linked auth-admin runtime exports and UserRecord shape probe', () => {
     const app = initializeApp({ sandbox }, 'staged-probe-unit');
     try {
       const auth = pyricAuthMod.getAuth(app);
+      const rootNamespace = (pyricAdmin as { readonly auth?: { readonly Auth?: unknown } }).auth;
       const subject: AdminAuthRuntimeExportsSubject = {
         authModuleExports: pyricAuthMod as unknown as Record<string, unknown>,
-        rootAdminAuthNamespace: pyricAdmin.auth,
+        rootAdminAuthNamespace: rootNamespace,
         Auth: pyricAuthMod.Auth,
         BaseAuth: pyricAuthMod.BaseAuth,
         UserRecord: pyricAuthMod.UserRecord,
@@ -62,7 +63,7 @@ describe('linked auth-admin runtime exports and UserRecord shape probe', () => {
         UserInfo: pyricAuthMod.UserInfo,
         FirebaseAuthError:
           pyricAuthMod.FirebaseAuthError as unknown as FirebaseAuthErrorConstructorLike,
-        AuthClientErrorCode: pyricAuthMod.AuthClientErrorCode as unknown as Record<string, unknown>,
+        AuthErrorCode: pyricAuthMod.AuthErrorCode,
         authHandle: {
           createCustomToken: (uid, claims) => auth.createCustomToken(uid, claims),
           verifyIdToken: (idToken, checkRevoked) => auth.verifyIdToken(idToken, checkRevoked),
@@ -88,9 +89,9 @@ describe('linked auth-admin runtime exports and UserRecord shape probe', () => {
         'unit-exports-probe',
       );
       expect(observed.moduleExports).toMatchObject({
-        rootAdminAuthHasAuthClass: true,
+        rootAdminAuthHasAuthClass: false,
         authExtendsBaseAuth: true,
-        authClientErrorCodeCount: 95,
+        authClientErrorCodeCount: 96,
       });
       expect(observed.errorConstructorContract).toEqual({
         defaultCode: 'auth/user-not-found',
@@ -103,7 +104,7 @@ describe('linked auth-admin runtime exports and UserRecord shape probe', () => {
           code: 'auth/user-not-found',
           message: 'There is no user record corresponding to the provided identifier.',
         },
-        defaultOwnKeys: ['codePrefix', 'errorInfo'],
+        defaultOwnKeys: ['code', 'codePrefix'],
         overrideCode: 'auth/argument-error',
         overrideMessage: 'Explicit message override.',
         overrideToJson: {
