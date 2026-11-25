@@ -1,0 +1,112 @@
+{
+  "before": {
+    "shield": false,
+    "combo": 6,
+    "recovery": 0
+  },
+  "input": {
+    "x": 4253.43604144801,
+    "y": 106.5993055555558,
+    "prevX": 4252.351668250097,
+    "prevY": 108.58333333333357,
+    "h": 0.004166666666666667,
+    "vy": -476.166666666666,
+    "held": false,
+    "descending": true,
+    "diving": false,
+    "landed": false,
+    "impact": 0,
+    "gems": [
+      {
+        "id": 19,
+        "x": 4275,
+        "y": 111.08437062668143,
+        "taken": false
+      },
+      {
+        "id": 20,
+        "x": 4524,
+        "y": 107.50015793172506,
+        "taken": false
+      }
+    ],
+    "foes": [
+      {
+        "id": 11,
+        "x": 4149.5,
+        "y": -14,
+        "vx": 0,
+        "hopper": true,
+        "active": true
+      },
+      {
+        "id": 12,
+        "x": 4253.955666666593,
+        "y": 88,
+        "vx": -57.04,
+        "hopper": false,
+        "active": true
+      },
+      {
+        "id": 13,
+        "x": 4271.010626666632,
+        "y": 88,
+        "vx": -60.4624,
+        "hopper": false,
+        "active": true
+      },
+      {
+        "id": 14,
+        "x": 5356.5,
+        "y": -14,
+        "vx": 0,
+        "hopper": true,
+        "active": true
+      },
+      {
+        "id": 15,
+        "x": 5486.4133333332975,
+        "y": 80,
+        "vx": -62.559999999999995,
+        "hopper": false,
+        "active": true
+      }
+    ]
+  },
+  "after": {
+    "y": 104,
+    "vy": 486,
+    "shield": true,
+    "immune": false,
+    "combo": 8,
+    "alive": true,
+    "recovery": 0,
+    "bounces": 1,
+    "events": [
+      {
+        "type": "gem-pickup",
+        "span": 19
+      },
+      {
+        "type": "foe-contact",
+        "foe": 12,
+        "stomp": true,
+        "immune": false
+      },
+      {
+        "type": "stomp",
+        "combo": 7
+      },
+      {
+        "type": "foe-contact",
+        "foe": 13,
+        "stomp": true,
+        "immune": false
+      },
+      {
+        "type": "stomp",
+        "combo": 8
+      }
+    ]
+  }
+}

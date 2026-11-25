@@ -1,0 +1,12 @@
+{
+  "tape": "pickup-stomps",
+  "seed": 3408597311,
+  "step": 4440,
+  "stockCase": "both-stomps",
+  "alteredCase": "second-stomp-omitted",
+  "eventIndices": [0, 1, 2, 3],
+  "replace": {
+    "from": "let extra = stomp ? [contact,{'type':'stomp','combo':combo}] :",
+    "to": "let extra = stomp && s.bounces == 0 ? [contact,{'type':'stomp','combo':combo}] : stomp ? [contact] :"
+  }
+}

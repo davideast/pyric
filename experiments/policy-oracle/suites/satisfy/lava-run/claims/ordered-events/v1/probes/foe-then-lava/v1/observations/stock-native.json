@@ -1,0 +1,16 @@
+{
+  "authority": "native-model",
+  "inputDigest": "70c4ae229a140352eebbfec86ac6b023c671c3976d41b8f2c3fa19827dd3b0ce",
+  "results": {
+    "foe-before-lava": true,
+    "lava-before-foe": false
+  },
+  "evidence": {
+    "path": "evidence/fresh-native.json",
+    "sha256": "40a702b62d9cfd5a4bf4c47b4d94492205f1fdf2ec4e7eab9c303bc85212c76f",
+    "pointers": {
+      "foe-before-lava": "/results/foe-before-lava",
+      "lava-before-foe": "/results/lava-before-foe"
+    }
+  }
+}

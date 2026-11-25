@@ -1,0 +1,56 @@
+use extension derive;
+use extension bounded;
+transition encounters {
+  derive {
+    let pickup = bounded.fold(input.gems, {'shield':before.shield, 'events':[]}, (s,g) => {
+      let hit = !g.taken && g.x-input.x > -22.25 && g.x-input.x < 22.25 &&
+        g.y-(input.y+15) > -24.75 && g.y-(input.y+15) < 24.75;
+      let events = bounded.append(s.events, hit ? [{'type':'gem-pickup','span':g.id}] : [], 32);
+      return {'shield':s.shield || hit, 'events':events};
+    },128);
+    let initial = {'y':input.y,'vy':input.vy,'shield':pickup.shield,'combo':before.combo,
+      'recovery':before.recovery > input.h ? before.recovery-input.h : 0,'alive':true,'bounces':0,'events':pickup.events};
+    let foes = bounded.fold(input.foes, initial, (s,f) => {
+      let top = f.y + (f.hopper ? 18 : 16);
+      let active = s.alive && f.active && top >= 2;
+      let start = input.prevY-top;
+      let end = s.y-top;
+      let descending = input.descending || (input.diving && s.bounces == 0) || (input.landed && input.impact > 80);
+      let crosses = descending && start >= -6 && end <= 4 && end < start;
+      let raw = !crosses || start <= 0 ? 1.0 : 1.0*start/(start-end);
+      let t = raw > 1 ? 1.0 : raw;
+      let oldX = f.x-f.vx*input.h;
+      let dx = input.prevX+(input.x-input.prevX)*t - (oldX+(f.x-oldX)*t);
+      let stomp = active && crosses && dx >= -26.5 && dx <= 26.5;
+      let side = active && f.x-input.x > -18.5 && f.x-input.x < 18.5 && f.y < s.y+27 && top > s.y+2;
+      let immune = s.recovery > 0;
+      let harm = side && !stomp && !immune;
+      let spend = harm && s.shield;
+      let dies = harm && !s.shield;
+      let bounce = stomp && s.bounces == 0;
+      let combo = stomp ? s.combo+1 : s.combo;
+      let contact = {'type':'foe-contact','foe':f.id,'stomp':stomp,'immune':immune};
+      let extra = stomp ? [contact,{'type':'stomp','combo':combo}] :
+        spend ? [contact,{'type':'shield-break'}] : dies ? [contact,{'type':'defeat','cause':'foe'}] :
+        side ? [contact] : [];
+      let events = bounded.append(s.events, extra, 32);
+      return {'y':bounce ? top : s.y,'vy':bounce ? (input.held ? 486*1.18 : 486) : spend && s.vy < 285 ? 285 : s.vy,
+        'combo':combo,'bounces':bounce ? 1 : s.bounces,'shield':spend ? false : s.shield,
+        'recovery':spend ? 0.85 : s.recovery,'alive':s.alive && !dies,'events':events};
+    },128);
+    let lava = foes.alive && foes.y <= 2;
+    let skim = lava && foes.shield;
+    let lavaEvents = !lava ? [] : skim ? [{'type':'lava-contact'},{'type':'skim'}] :
+      [{'type':'lava-contact'},{'type':'defeat','cause':'lava'}];
+    let events = bounded.append(foes.events,lavaEvents,32);
+    let recovery = skim ? 0.85 : foes.recovery;
+    return {'alive':foes.alive && (!lava || skim),'shield':!lava && foes.shield,'immune':recovery > 0,
+      'recovery':recovery,'combo':foes.combo,'bounces':foes.bounces,
+      'y':skim ? 4 : foes.y,'vy':skim ? 590 : foes.vy,'events':events};
+  }
+  require shieldType { return after.shield is bool; }
+  require encounterState { return after.alive == derived.alive && after.shield == derived.shield &&
+    after.immune == derived.immune && after.recovery == derived.recovery && after.combo == derived.combo && after.bounces == derived.bounces &&
+    after.y == derived.y && after.vy == derived.vy; }
+  require stompSequence { return after.events == derived.events; }
+}

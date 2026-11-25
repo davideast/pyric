@@ -1,0 +1,4 @@
+{
+  "description": "Lava Run's encounter events preserve native pickup, foe contact and lava order, including the second stomp when both contacts share one bounce.",
+  "authority": "native-model"
+}

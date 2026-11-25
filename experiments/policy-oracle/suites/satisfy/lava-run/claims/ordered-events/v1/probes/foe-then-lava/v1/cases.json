@@ -1,0 +1,12 @@
+{
+  "tape": "side-lava",
+  "seed": 2926411498,
+  "step": 4979,
+  "stockCase": "foe-before-lava",
+  "alteredCase": "lava-before-foe",
+  "eventIndices": [2, 3, 0, 1],
+  "replace": {
+    "from": "let events = bounded.append(foes.events,lavaEvents,32);",
+    "to": "let events = bounded.append(lavaEvents,foes.events,32);"
+  }
+}

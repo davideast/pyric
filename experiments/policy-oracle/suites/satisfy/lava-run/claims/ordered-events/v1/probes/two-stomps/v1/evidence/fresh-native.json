@@ -1,0 +1,421 @@
+{
+  "provenance": {
+    "repo": "https://github.com/davideast/satisfy.md",
+    "revision": "1924736bd425fa2447ea6449ecf44ef4fcaf9e36",
+    "model": "registry/satisfy/lava-run-model.ts",
+    "archivedNativeTape": "experiments/policy-transitions/ordered-events/pickup-stomps.json",
+    "commandTape": "experiments/policy-transitions/ordered-events/verified.json",
+    "runtime": "Bun 1.4.5"
+  },
+  "recording": {
+    "seed": 3408597311,
+    "steps": 4440,
+    "h": 0.004166666666666667,
+    "controls": [
+      {
+        "tick": 1,
+        "method": "jumpPress",
+        "args": [
+          {
+            "played": true,
+            "holdMs": 120
+          }
+        ]
+      },
+      {
+        "tick": 109,
+        "method": "jumpPress",
+        "args": [
+          {
+            "played": true,
+            "holdMs": 300
+          }
+        ]
+      },
+      {
+        "tick": 377,
+        "method": "jumpPress",
+        "args": [
+          {
+            "played": true,
+            "holdMs": 360
+          }
+        ]
+      },
+      {
+        "tick": 605,
+        "method": "jumpPress",
+        "args": [
+          {
+            "played": true,
+            "holdMs": 300
+          }
+        ]
+      },
+      {
+        "tick": 789,
+        "method": "jumpPress",
+        "args": [
+          {
+            "played": true,
+            "holdMs": 300
+          }
+        ]
+      },
+      {
+        "tick": 1237,
+        "method": "jumpPress",
+        "args": [
+          {
+            "played": true,
+            "holdMs": 140
+          }
+        ]
+      },
+      {
+        "tick": 1293,
+        "method": "dive",
+        "args": [
+          {
+            "played": true
+          }
+        ]
+      },
+      {
+        "tick": 1493,
+        "method": "jumpPress",
+        "args": [
+          {
+            "played": true,
+            "holdMs": 200
+          }
+        ]
+      },
+      {
+        "tick": 1573,
+        "method": "dive",
+        "args": [
+          {
+            "played": true
+          }
+        ]
+      },
+      {
+        "tick": 1773,
+        "method": "jumpPress",
+        "args": [
+          {
+            "played": true,
+            "holdMs": 360
+          }
+        ]
+      },
+      {
+        "tick": 2045,
+        "method": "jumpPress",
+        "args": [
+          {
+            "played": true,
+            "holdMs": 360
+          }
+        ]
+      },
+      {
+        "tick": 2333,
+        "method": "jumpPress",
+        "args": [
+          {
+            "played": true,
+            "holdMs": 360
+          }
+        ]
+      },
+      {
+        "tick": 2493,
+        "method": "jumpPress",
+        "args": [
+          {
+            "played": true,
+            "holdMs": 200
+          }
+        ]
+      },
+      {
+        "tick": 2553,
+        "method": "dive",
+        "args": [
+          {
+            "played": true
+          }
+        ]
+      },
+      {
+        "tick": 2741,
+        "method": "jumpPress",
+        "args": [
+          {
+            "played": true,
+            "holdMs": 200
+          }
+        ]
+      },
+      {
+        "tick": 2801,
+        "method": "dive",
+        "args": [
+          {
+            "played": true
+          }
+        ]
+      },
+      {
+        "tick": 3109,
+        "method": "dive",
+        "args": [
+          {
+            "played": true
+          }
+        ]
+      },
+      {
+        "tick": 3141,
+        "method": "jumpPress",
+        "args": [
+          {
+            "played": true,
+            "holdMs": 360
+          }
+        ]
+      },
+      {
+        "tick": 3321,
+        "method": "jumpPress",
+        "args": [
+          {
+            "played": true,
+            "holdMs": 360
+          }
+        ]
+      },
+      {
+        "tick": 3565,
+        "method": "jumpPress",
+        "args": [
+          {
+            "played": true,
+            "holdMs": 360
+          }
+        ]
+      },
+      {
+        "tick": 4065,
+        "method": "jumpPress",
+        "args": [
+          {
+            "played": true,
+            "holdMs": 360
+          }
+        ]
+      },
+      {
+        "tick": 4285,
+        "method": "jumpPress",
+        "args": [
+          {
+            "played": true,
+            "holdMs": 360
+          }
+        ]
+      }
+    ]
+  },
+  "rawEvents": [
+    {
+      "type": "gem-pickup",
+      "span": 19,
+      "x": 111.56395855199025,
+      "quiet": false,
+      "played": true
+    },
+    {
+      "type": "foe-contact",
+      "foe": 12,
+      "stomp": true,
+      "immune": false,
+      "quiet": false,
+      "played": true
+    },
+    {
+      "type": "stomp",
+      "combo": 7,
+      "kind": "walker",
+      "rhythmStreak": 2,
+      "x": 90.51962521858331,
+      "quiet": false,
+      "played": true
+    },
+    {
+      "type": "foe-contact",
+      "foe": 13,
+      "stomp": true,
+      "immune": false,
+      "quiet": false,
+      "played": true
+    },
+    {
+      "type": "stomp",
+      "combo": 8,
+      "kind": "walker",
+      "rhythmStreak": 2,
+      "x": 107.5745852186219,
+      "quiet": false,
+      "played": true
+    }
+  ],
+  "nativeState": {
+    "y": 104,
+    "vy": 486,
+    "shield": true,
+    "immune": false,
+    "combo": 8,
+    "phase": "active"
+  },
+  "transition": {
+    "before": {
+      "shield": false,
+      "combo": 6,
+      "recovery": 0
+    },
+    "input": {
+      "x": 4253.43604144801,
+      "y": 106.5993055555558,
+      "prevX": 4252.351668250097,
+      "prevY": 108.58333333333357,
+      "h": 0.004166666666666667,
+      "vy": -476.166666666666,
+      "held": false,
+      "descending": true,
+      "diving": false,
+      "landed": false,
+      "impact": 0,
+      "gems": [
+        {
+          "id": 19,
+          "x": 4275,
+          "y": 111.08437062668143,
+          "taken": false
+        },
+        {
+          "id": 20,
+          "x": 4524,
+          "y": 107.50015793172506,
+          "taken": false
+        }
+      ],
+      "foes": [
+        {
+          "id": 11,
+          "x": 4149.5,
+          "y": -14,
+          "vx": 0,
+          "hopper": true,
+          "active": true
+        },
+        {
+          "id": 12,
+          "x": 4253.955666666593,
+          "y": 88,
+          "vx": -57.04,
+          "hopper": false,
+          "active": true
+        },
+        {
+          "id": 13,
+          "x": 4271.010626666632,
+          "y": 88,
+          "vx": -60.4624,
+          "hopper": false,
+          "active": true
+        },
+        {
+          "id": 14,
+          "x": 5356.5,
+          "y": -14,
+          "vx": 0,
+          "hopper": true,
+          "active": true
+        },
+        {
+          "id": 15,
+          "x": 5486.4133333332975,
+          "y": 80,
+          "vx": -62.559999999999995,
+          "hopper": false,
+          "active": true
+        }
+      ]
+    },
+    "after": {
+      "y": 104,
+      "vy": 486,
+      "shield": true,
+      "immune": false,
+      "combo": 8,
+      "alive": true,
+      "recovery": 0,
+      "bounces": 1,
+      "events": [
+        {
+          "type": "gem-pickup",
+          "span": 19
+        },
+        {
+          "type": "foe-contact",
+          "foe": 12,
+          "stomp": true,
+          "immune": false
+        },
+        {
+          "type": "stomp",
+          "combo": 7
+        },
+        {
+          "type": "foe-contact",
+          "foe": 13,
+          "stomp": true,
+          "immune": false
+        },
+        {
+          "type": "stomp",
+          "combo": 8
+        }
+      ]
+    }
+  },
+  "alteredEvents": [
+    {
+      "type": "gem-pickup",
+      "span": 19
+    },
+    {
+      "type": "foe-contact",
+      "foe": 12,
+      "stomp": true,
+      "immune": false
+    },
+    {
+      "type": "stomp",
+      "combo": 7
+    },
+    {
+      "type": "foe-contact",
+      "foe": 13,
+      "stomp": true,
+      "immune": false
+    }
+  ],
+  "results": {
+    "both-stomps": true,
+    "second-stomp-omitted": false
+  }
+}

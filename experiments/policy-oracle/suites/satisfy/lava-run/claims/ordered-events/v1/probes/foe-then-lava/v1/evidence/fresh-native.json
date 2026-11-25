@@ -1,0 +1,404 @@
+{
+  "provenance": {
+    "repo": "https://github.com/davideast/satisfy.md",
+    "revision": "1924736bd425fa2447ea6449ecf44ef4fcaf9e36",
+    "model": "registry/satisfy/lava-run-model.ts",
+    "archivedNativeTape": "experiments/policy-transitions/ordered-events/side-lava.json",
+    "commandTape": "experiments/policy-transitions/ordered-events/verified.json",
+    "runtime": "Bun 1.4.5"
+  },
+  "recording": {
+    "seed": 2926411498,
+    "steps": 4979,
+    "h": 0.004166666666666667,
+    "controls": [
+      {
+        "tick": 1,
+        "method": "jumpPress",
+        "args": [
+          {
+            "played": true,
+            "holdMs": 120
+          }
+        ]
+      },
+      {
+        "tick": 109,
+        "method": "jumpPress",
+        "args": [
+          {
+            "played": true,
+            "holdMs": 300
+          }
+        ]
+      },
+      {
+        "tick": 377,
+        "method": "jumpPress",
+        "args": [
+          {
+            "played": true,
+            "holdMs": 360
+          }
+        ]
+      },
+      {
+        "tick": 605,
+        "method": "jumpPress",
+        "args": [
+          {
+            "played": true,
+            "holdMs": 300
+          }
+        ]
+      },
+      {
+        "tick": 789,
+        "method": "jumpPress",
+        "args": [
+          {
+            "played": true,
+            "holdMs": 300
+          }
+        ]
+      },
+      {
+        "tick": 1237,
+        "method": "jumpPress",
+        "args": [
+          {
+            "played": true,
+            "holdMs": 140
+          }
+        ]
+      },
+      {
+        "tick": 1293,
+        "method": "dive",
+        "args": [
+          {
+            "played": true
+          }
+        ]
+      },
+      {
+        "tick": 1493,
+        "method": "jumpPress",
+        "args": [
+          {
+            "played": true,
+            "holdMs": 200
+          }
+        ]
+      },
+      {
+        "tick": 1573,
+        "method": "dive",
+        "args": [
+          {
+            "played": true
+          }
+        ]
+      },
+      {
+        "tick": 1773,
+        "method": "jumpPress",
+        "args": [
+          {
+            "played": true,
+            "holdMs": 360
+          }
+        ]
+      },
+      {
+        "tick": 2041,
+        "method": "jumpPress",
+        "args": [
+          {
+            "played": true,
+            "holdMs": 360
+          }
+        ]
+      },
+      {
+        "tick": 2201,
+        "method": "jumpPress",
+        "args": [
+          {
+            "played": true,
+            "holdMs": 200
+          }
+        ]
+      },
+      {
+        "tick": 2297,
+        "method": "jumpPress",
+        "args": [
+          {
+            "played": true,
+            "holdMs": 360
+          }
+        ]
+      },
+      {
+        "tick": 2513,
+        "method": "jumpPress",
+        "args": [
+          {
+            "played": true,
+            "holdMs": 360
+          }
+        ]
+      },
+      {
+        "tick": 2685,
+        "method": "jumpPress",
+        "args": [
+          {
+            "played": true,
+            "holdMs": 200
+          }
+        ]
+      },
+      {
+        "tick": 2745,
+        "method": "dive",
+        "args": [
+          {
+            "played": true
+          }
+        ]
+      },
+      {
+        "tick": 2777,
+        "method": "jumpPress",
+        "args": [
+          {
+            "played": true,
+            "holdMs": 360
+          }
+        ]
+      },
+      {
+        "tick": 2997,
+        "method": "dive",
+        "args": [
+          {
+            "played": true
+          }
+        ]
+      },
+      {
+        "tick": 3045,
+        "method": "jumpPress",
+        "args": [
+          {
+            "played": true,
+            "holdMs": 360
+          }
+        ]
+      },
+      {
+        "tick": 3341,
+        "method": "jumpPress",
+        "args": [
+          {
+            "played": true,
+            "holdMs": 360
+          }
+        ]
+      },
+      {
+        "tick": 3585,
+        "method": "jumpPress",
+        "args": [
+          {
+            "played": true,
+            "holdMs": 360
+          }
+        ]
+      },
+      {
+        "tick": 4041,
+        "method": "jumpPress",
+        "args": [
+          {
+            "played": true,
+            "holdMs": 360
+          }
+        ]
+      },
+      {
+        "tick": 4301,
+        "method": "jumpPress",
+        "args": [
+          {
+            "played": true,
+            "holdMs": 360
+          }
+        ]
+      },
+      {
+        "tick": 4513,
+        "method": "dive",
+        "args": [
+          {
+            "played": true
+          }
+        ]
+      },
+      {
+        "tick": 4541,
+        "method": "jumpPress",
+        "args": [
+          {
+            "played": true,
+            "holdMs": 360
+          }
+        ]
+      }
+    ]
+  },
+  "rawEvents": [
+    {
+      "type": "foe-contact",
+      "foe": 15,
+      "stomp": false,
+      "immune": false,
+      "quiet": false,
+      "played": true
+    },
+    {
+      "type": "shield-break",
+      "x": 90,
+      "quiet": false,
+      "played": true
+    },
+    {
+      "type": "lava-contact",
+      "quiet": false,
+      "played": true
+    },
+    {
+      "type": "defeat",
+      "cause": "lava",
+      "spansCleared": 20,
+      "x": 90,
+      "quiet": false,
+      "played": true
+    }
+  ],
+  "nativeState": {
+    "y": 1.030532240846732,
+    "vy": 285,
+    "shield": false,
+    "immune": true,
+    "combo": 7,
+    "phase": "defeat"
+  },
+  "transition": {
+    "before": {
+      "shield": true,
+      "combo": 7,
+      "recovery": 0
+    },
+    "input": {
+      "x": 4856.511829243603,
+      "y": 1.030532240846732,
+      "prevX": 4855.374682326657,
+      "prevY": 4.280532240846732,
+      "h": 0.004166666666666667,
+      "vy": -780,
+      "held": false,
+      "descending": true,
+      "diving": false,
+      "landed": false,
+      "impact": 0,
+      "gems": [],
+      "foes": [
+        {
+          "id": 13,
+          "x": 4441.5,
+          "y": 97.48108907856128,
+          "vx": 0,
+          "hopper": true,
+          "active": true
+        },
+        {
+          "id": 15,
+          "x": 4875,
+          "y": 3.685152789979817,
+          "vx": 0,
+          "hopper": true,
+          "active": true
+        },
+        {
+          "id": 16,
+          "x": 5054.288666666618,
+          "y": 88,
+          "vx": -62.559999999999995,
+          "hopper": false,
+          "active": true
+        },
+        {
+          "id": 17,
+          "x": 5674,
+          "y": -14,
+          "vx": 0,
+          "hopper": true,
+          "active": true
+        }
+      ]
+    },
+    "after": {
+      "y": 1.030532240846732,
+      "vy": 285,
+      "shield": false,
+      "immune": true,
+      "combo": 7,
+      "alive": false,
+      "recovery": 0.85,
+      "bounces": 0,
+      "events": [
+        {
+          "type": "foe-contact",
+          "foe": 15,
+          "stomp": false,
+          "immune": false
+        },
+        {
+          "type": "shield-break"
+        },
+        {
+          "type": "lava-contact"
+        },
+        {
+          "type": "defeat",
+          "cause": "lava"
+        }
+      ]
+    }
+  },
+  "alteredEvents": [
+    {
+      "type": "lava-contact"
+    },
+    {
+      "type": "defeat",
+      "cause": "lava"
+    },
+    {
+      "type": "foe-contact",
+      "foe": 15,
+      "stomp": false,
+      "immune": false
+    },
+    {
+      "type": "shield-break"
+    }
+  ],
+  "results": {
+    "foe-before-lava": true,
+    "lava-before-foe": false
+  }
+}
