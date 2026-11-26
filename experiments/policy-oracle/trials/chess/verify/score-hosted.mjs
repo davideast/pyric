@@ -4,7 +4,7 @@ import {join,resolve,dirname} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {gunzipSync} from 'node:zlib';
 import {sha} from '../../../arcade/corpus.mjs';
-import {compareAdmission} from './admission.mjs';
+import {compareAdmission,replayReferee} from './admission.mjs';
 
 const here=dirname(fileURLToPath(import.meta.url));
 
@@ -39,12 +39,20 @@ export async function scoreHosted({rulesDirectory, registry=join(here,'releases'
       reads++;
     };
     checkRead('signed-out',signedOut.data.path,null,null,signedOut.data.observed);
-    let engine,metadata,gateway=0;
-    if(receipt.cohort==='boundary') {
+    let engine,metadata,refereeReplay,gateway=0,unchangedRefusals=0;
+    if(receipt.cohort==='boundary' || receipt.browser) {
       engine=await import(pathToFileURL(resolve(policiesDirectory,'chess.mjs')));
       metadata=await import(pathToFileURL(resolve(policiesDirectory,'chess-match.mjs')));
     }
+    if(receipt.browser){
+      refereeReplay=replayReferee(receipt,engine,metadata);
+      missed.push(...refereeReplay.failures);
+    }
     const rows=receipt.rows.map(row=>{
+      if(row.observed==='DENY') {
+        assert.deepEqual(row.after,row.before,row.id+' refused, complete readbacks and versions unchanged');
+        unchangedRefusals++;
+      }
       const before=new Map(row.before.map(s=>[s.path,s.data]));
       const signedReader=row.reader || receipt.rows[0].reader;
       assert.ok(signedReader,'missing signed reader');
@@ -93,7 +101,7 @@ export async function scoreHosted({rulesDirectory, registry=join(here,'releases'
       if(row.observed!==simulated) missed.push({id:row.id,expected:row.observed,actual:simulated,operations:verdicts});
       return {id:row.id,hosted:row.observed,candidate:simulated};
     });
-    reports.push({profile:receipt.mode,...(receipt.cohort && {cohort:receipt.cohort}),receipt:pin.receipt,deployedRules:receipt.rulesSha256,candidateRules:sha(rules),rows,reads,sdkWrites:rows.length-gateway,gatewayRequests:gateway,
+    reports.push({profile:receipt.mode,...(receipt.cohort && {cohort:receipt.cohort}),receipt:pin.receipt,deployedRules:receipt.rulesSha256,candidateRules:sha(rules),rows,reads,unchangedRefusals,...(refereeReplay && {refereeReplay}),sdkWrites:rows.length-gateway,gatewayRequests:gateway,
       falseAllows:missed.filter(m=>m.expected==='DENY' && m.actual==='ALLOW').length,
       falseDenials:missed.filter(m=>m.expected==='ALLOW' && m.actual==='DENY').length,
       unresolved:missed.filter(m=>m.actual==='UNRESOLVED').length,mismatches:missed});
@@ -103,9 +111,9 @@ export async function scoreHosted({rulesDirectory, registry=join(here,'releases'
 }
 
 if(import.meta.main) {
-  const [rulesDirectory,simulator,registry]=process.argv.slice(2);
-  if(!rulesDirectory || !simulator) throw Error('Usage: bun score-hosted.mjs RULES_DIR REFERENCE_RULES_INSTALL [REGISTRY]');
-  const report=await scoreHosted({rulesDirectory,simulator,registry});
+  const [rulesDirectory,simulator,registry,policiesDirectory]=process.argv.slice(2);
+  if(!rulesDirectory || !simulator) throw Error('Usage: bun score-hosted.mjs RULES_DIR REFERENCE_RULES_INSTALL [REGISTRY [POLICIES_DIR]]');
+  const report=await scoreHosted({rulesDirectory,simulator,registry,policiesDirectory});
   console.log(JSON.stringify(report,null,2));
   if(report.some(p=>p.mismatches.length)) process.exitCode=1;
 }

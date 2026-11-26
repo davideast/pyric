@@ -1,0 +1,40 @@
+{
+  "id": "stronger-supplement",
+  "receipt": "db1e93ff14cfa944f4f0b8258c03f6140e8ae8e4469a1fd709377d83215c0ae6",
+  "bundle": "../bundle/artifacts/stronger.rules",
+  "report": {
+    "mode": "stronger",
+    "runId": "e7c6c1c2-ab68-4f1c-9688-730ff3e0ec6c",
+    "receipt": "db1e93ff14cfa944f4f0b8258c03f6140e8ae8e4469a1fd709377d83215c0ae6",
+    "rulesSha256": "523c4c137aa00c2c764264aa6c2cefeda7c692561544da45d4fcccf3a2056fda",
+    "activeRuleset": "projects/digame-mas/rulesets/899c7938-2c5e-4c2f-b7b1-4d7702203aca",
+    "restoredRuleset": "projects/digame-mas/rulesets/9df02e6e-6f71-4dcf-9786-aec7eb444982",
+    "journalSha256": "f8762fbc7882a990c9230719b81845efe53eec4a58eec1030cf119e8610f6385",
+    "signedReadersExplicit": true,
+    "exactProtocolIntents": 19,
+    "decisions": {
+      "supplement-knight": "ALLOW",
+      "supplement-bishop": "ALLOW",
+      "supplement-king": "ALLOW",
+      "supplement-rook": "ALLOW",
+      "supplement-knight-shape": "DENY",
+      "supplement-bishop-shape": "DENY",
+      "supplement-king-shape": "DENY",
+      "supplement-rook-shape": "DENY",
+      "supplement-retain-turn": "DENY",
+      "supplement-previous-board": "DENY",
+      "supplement-previous-rights": "DENY",
+      "supplement-previous-ep": "DENY",
+      "supplement-retained-source": "DENY",
+      "supplement-wrong-destination": "DENY",
+      "supplement-unrelated-square": "DENY",
+      "supplement-protected-guest": "DENY",
+      "supplement-last-move-extra": "DENY",
+      "supplement-ongoing-winner": "DENY",
+      "supplement-wrong-color": "DENY"
+    },
+    "special": {},
+    "sensitivity": null,
+    "cohort": "supplement"
+  }
+}
