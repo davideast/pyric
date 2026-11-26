@@ -176,7 +176,138 @@ describe('npm audit --json advisories', () => {
     ]);
   });
 
-  test('no advisory fails the run', () => {
-    expect(crashFindings(run([template({ audit: { code: 1, output: AUDIT_V2 } })]), []).failing).toEqual([]);
+  test('GHSA-mrhx-c7xc-m3w5 is not allowlisted as an upstream advisory', () => {
+    expect(Object.hasOwn(UPSTREAM_ADVISORIES, 'GHSA-mrhx-c7xc-m3w5')).toBe(false);
+  });
+
+  test('fails on unallowlisted high and critical advisories while allowing listed upstream advisories', () => {
+    const verdict = crashFindings(run([template({ audit: { code: 1, output: AUDIT_V2 } })]), []);
+    expect(verdict.failing).toEqual([
+      'web: npm audit --json: critical form-data GHSA-fjxv-7rqg-78g4 at node_modules/form-data',
+      'web: npm audit --json: high cross-spawn GHSA-3xgq-45jj-v275 at node_modules/cross-spawn',
+      'web: npm audit --json: high tar-fs GHSA-8cj5-5rvv-wf4v at node_modules/tar-fs',
+      'web: npm audit --json: high tar-fs GHSA-vj76-c3g6-qr5v at node_modules/tar-fs',
+      'web: npm audit --json: high undici GHSA-2m5v-pch6-74hx at node_modules/shadcn/node_modules/undici, '
+      + 'node_modules/@ai-sdk/mcp/node_modules/undici, node_modules/jsdom/node_modules/undici and 2 more',
+    ]);
+    expect(verdict.allowed).toEqual([
+      'web: allowed (GHSA-m9gg-hp2v-232j): npm audit --json: high @grpc/grpc-js GHSA-m9gg-hp2v-232j '
+      + `at node_modules/@grpc/grpc-js; ${UPSTREAM_ADVISORIES['GHSA-m9gg-hp2v-232j']}`,
+    ]);
+  });
+
+  test('fails deterministically when zod GHSA-mrhx-c7xc-m3w5 appears in npm audit --json', () => {
+    const report = JSON.parse(AUDIT_V2) as { vulnerabilities: Record<string, unknown> };
+    const grpcOnly = {
+      auditReportVersion: 2,
+      vulnerabilities: {
+        '@firebase/firestore': report.vulnerabilities['@firebase/firestore'],
+        '@grpc/grpc-js': report.vulnerabilities['@grpc/grpc-js'],
+        zod: {
+          name: 'zod',
+          severity: 'high',
+          isDirect: false,
+          via: [
+            {
+              source: 1110000,
+              name: 'zod',
+              dependency: 'zod',
+              title: 'Zod high severity advisory',
+              url: 'https://github.com/advisories/GHSA-mrhx-c7xc-m3w5',
+              severity: 'high',
+              range: '<4.6.6',
+            },
+          ],
+          effects: ['pyric'],
+          range: '<4.6.6',
+          nodes: ['node_modules/zod'],
+          fixAvailable: true,
+        },
+      },
+    };
+    const verdict = crashFindings(run([template({ audit: { code: 1, output: JSON.stringify(grpcOnly) } })]), []);
+    expect(verdict.failing).toEqual([
+      'web: npm audit --json: high zod GHSA-mrhx-c7xc-m3w5 at node_modules/zod',
+    ]);
+    expect(verdict.allowed).toHaveLength(1);
+    expect(verdict.allowed[0]).toContain('allowed (GHSA-m9gg-hp2v-232j)');
+  });
+
+  test('passes when audit has no advisories, only moderate advisories, or only allowlisted upstream advisories', () => {
+    const clean = JSON.stringify({ auditReportVersion: 2, vulnerabilities: {}, metadata: { vulnerabilities: { total: 0 } } });
+    expect(crashFindings(run([template({ audit: { code: 0, output: clean } })]), [])).toEqual({
+      failing: [],
+      allowed: [],
+    });
+
+    const report = JSON.parse(AUDIT_V2) as { vulnerabilities: Record<string, unknown> };
+    const moderateAndUpstream = JSON.stringify({
+      auditReportVersion: 2,
+      vulnerabilities: {
+        esbuild: report.vulnerabilities.esbuild,
+        '@firebase/firestore': report.vulnerabilities['@firebase/firestore'],
+        '@grpc/grpc-js': report.vulnerabilities['@grpc/grpc-js'],
+      },
+    });
+    const verdict = crashFindings(run([template({ audit: { code: 1, output: moderateAndUpstream } })]), []);
+    expect(verdict.failing).toEqual([]);
+    expect(verdict.allowed).toEqual([
+      'web: allowed (GHSA-m9gg-hp2v-232j): npm audit --json: high @grpc/grpc-js GHSA-m9gg-hp2v-232j '
+      + `at node_modules/@grpc/grpc-js; ${UPSTREAM_ADVISORIES['GHSA-m9gg-hp2v-232j']}`,
+    ]);
+  });
+
+  test('normalizes GHSA id casing for allowlisting and unallowlisted failure reporting', () => {
+    const lowercaseReport = JSON.stringify({
+      auditReportVersion: 2,
+      vulnerabilities: {
+        '@grpc/grpc-js': {
+          via: [{ name: '@grpc/grpc-js', severity: 'HIGH', url: 'https://github.com/advisories/ghsa-M9GG-hp2v-232j' }],
+          nodes: ['node_modules/@grpc/grpc-js'],
+        },
+        zod: {
+          via: [{ name: 'zod', severity: 'High', url: 'https://github.com/advisories/ghsa-MRHX-c7xc-m3w5' }],
+          nodes: ['node_modules/zod'],
+        },
+      },
+    });
+    const verdict = crashFindings(run([template({ audit: { code: 1, output: lowercaseReport } })]), []);
+    expect(verdict.failing).toEqual([
+      'web: npm audit --json: high zod GHSA-mrhx-c7xc-m3w5 at node_modules/zod',
+    ]);
+    expect(verdict.allowed).toHaveLength(1);
+    expect(verdict.allowed[0]).toContain('allowed (GHSA-m9gg-hp2v-232j)');
+  });
+
+  test('fails closed when npm audit --json errors, times out, returns invalid JSON, or has an empty allowlist reason', () => {
+    const offline = crashFindings(run([template({ audit: { code: 1, output: AUDIT_OFFLINE } })]), []);
+    expect(offline.failing).toEqual([
+      'web: npm audit --json: no report (exit 1): request to https://registry.npmjs.org/-/npm/v1/security/advisories/bulk failed, reason: getaddrinfo EAI_AGAIN registry.npmjs.org',
+    ]);
+
+    const timedOut = crashFindings(run([template({ audit: { code: null, output: '', error: 'npm audit --json did not exit within 300s:\npartial' } })]), []);
+    expect(timedOut.failing).toEqual([
+      'web: npm audit --json: did not finish: npm audit --json did not exit within 300s',
+    ]);
+
+    const odd = JSON.stringify({ vulnerabilities: { b: { via: [{ severity: 'high' }] } } });
+    expect(crashFindings(run([template({ audit: { code: 1, output: odd } })]), []).failing).toEqual([
+      'web: npm audit --json: high b (no advisory id)',
+    ]);
+
+    const report = JSON.parse(AUDIT_V2) as { vulnerabilities: Record<string, unknown> };
+    const grpcOnly = JSON.stringify({
+      auditReportVersion: 2,
+      vulnerabilities: { '@grpc/grpc-js': report.vulnerabilities['@grpc/grpc-js'] },
+    });
+    const blankReason = crashFindings(
+      run([template({ audit: { code: 1, output: grpcOnly } })]),
+      [],
+      { 'GHSA-m9gg-hp2v-232j': '   ' },
+    );
+    expect(blankReason.failing).toEqual([
+      'web: npm audit --json: high @grpc/grpc-js GHSA-m9gg-hp2v-232j at node_modules/@grpc/grpc-js',
+    ]);
+    expect(blankReason.allowed).toEqual([]);
   });
 });

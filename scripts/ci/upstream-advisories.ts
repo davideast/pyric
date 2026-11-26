@@ -1,10 +1,11 @@
 /**
  * Advisories `npm audit --json` reports in a fresh install that are known
  * upstream and unreachable from the app, keyed by GitHub advisory id. The
- * Fresh install findings name the reason after the advisory line instead of
- * leaving it unexplained. Each reason says where the package comes from and
- * why the vulnerable code does not run; an entry leaves this table when the
- * advisory stops appearing or a fixed release becomes installable.
+ * fresh-install audit gate allows only advisories listed here (reporting them
+ * as allowed with their reason); any other high or critical advisory fails the
+ * run. Each reason says where the package comes from and why the vulnerable
+ * code does not run; an entry leaves this table when the advisory stops
+ * appearing or a fixed release becomes installable.
  */
 export const UPSTREAM_ADVISORIES: Readonly<Record<string, string>> = {
   // @firebase/firestore declares @grpc/grpc-js ~1.9.0, and the 1.9 line has no fixed release (#2120).
