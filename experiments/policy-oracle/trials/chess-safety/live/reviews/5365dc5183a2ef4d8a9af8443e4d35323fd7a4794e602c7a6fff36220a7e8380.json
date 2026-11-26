@@ -1,0 +1,5 @@
+{
+  "rulesSha256": "5365dc5183a2ef4d8a9af8443e4d35323fd7a4794e602c7a6fff36220a7e8380",
+  "file": "../artefacts/knight-endgame-paired-pawn-combined-bare-fixed-comma-packed-v5.rules",
+  "basis": "118,285-byte revision of officially compiled 28a17830. Changes only two color-specific fixed-width encoders and the eight corresponding allRefused patterns to use a comma for empty squares. Complete signed-actor checks, move and field guard functions, match paths and allow clauses compare identical."
+}

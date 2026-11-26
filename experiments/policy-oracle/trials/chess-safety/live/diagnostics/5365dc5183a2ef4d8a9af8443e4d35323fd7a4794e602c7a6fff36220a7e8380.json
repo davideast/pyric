@@ -1,0 +1,30 @@
+{
+  "authority": "Google Rules Test API",
+  "subject": "comma-chess-safety-full",
+  "rulesSha256": "5365dc5183a2ef4d8a9af8443e4d35323fd7a4794e602c7a6fff36220a7e8380",
+  "requestSha256": "ba83a59b70e6b332568367d98ff41e804d63847e961195abae903df9bdbe416b",
+  "httpStatus": 200,
+  "state": "compiled",
+  "issues": [
+    {
+      "severity": "WARNING",
+      "line": 112,
+      "column": 12,
+      "message": "Unused function: knightWitness."
+    },
+    {
+      "severity": "WARNING",
+      "line": 438,
+      "column": 38,
+      "message": "Unused variable: kind."
+    },
+    {
+      "severity": "WARNING",
+      "line": 450,
+      "column": 12,
+      "message": "Unused function: nextEp."
+    }
+  ],
+  "caseWrites": 0,
+  "receipt": "64c5e92b46bd415b3f24b9ac2905c67da7f8b81a624120caf28d06edb992624b"
+}
