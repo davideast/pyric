@@ -1,0 +1,9 @@
+{
+  "sources": {
+    "replies-v1": "55076ee1dcd7ef64356574110aaea65f77d8a9c8548b30cfa46393dd8cd4226b",
+    "interior-v1": "3ae826772af378f5234a6f7d7911b78839e4e9c406d8882033c355e94bd2b5fc"
+  },
+  "moves": 381,
+  "writes": 762,
+  "sha256": "3fb5540d87ca87a4b18e99624a1265b09bd58722b0bae586294c721f38de7566"
+}
