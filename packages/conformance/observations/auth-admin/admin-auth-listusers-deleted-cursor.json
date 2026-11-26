@@ -5,8 +5,8 @@
     "auth-admin#9"
   ],
   "description": "firebase-admin/auth listUsers(1, pageToken) cursor progression when either the last-returned user or the next boundary user at pageToken is deleted between pages.",
-  "observedAt": "2026-11-17T11:18:24.579Z",
-  "adminSdkVersion": "13.10.0",
+  "observedAt": "2026-11-25T16:48:05.582Z",
+  "adminSdkVersion": "14.5.1",
   "projectId": "digame-mas",
   "behavior": {
     "deleteLastReturnedUser": {

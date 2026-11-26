@@ -6,8 +6,8 @@
     "auth-admin#4"
   ],
   "description": "firebase-admin/auth revokeRefreshTokens(uid) advances UserRecord.tokensValidAfterTime so prior ID tokens still pass verifyIdToken(token) and verifyIdToken(token, false) while rejecting verifyIdToken(token, true) with auth/id-token-revoked, forced client getIdToken(true) rejects with auth/user-token-expired, newly minted sessions pass verifyIdToken(token, true), and unknown UIDs reject with auth/user-not-found.",
-  "observedAt": "2026-11-18T07:58:19.151Z",
-  "adminSdkVersion": "13.10.0",
+  "observedAt": "2026-11-25T16:48:09.126Z",
+  "adminSdkVersion": "14.5.1",
   "projectId": "digame-mas",
   "behavior": {
     "returnsUndefined": true,

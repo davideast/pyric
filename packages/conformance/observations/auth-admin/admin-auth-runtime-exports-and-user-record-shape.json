@@ -5,14 +5,14 @@
     "auth-admin#14"
   ],
   "description": "firebase-admin/auth runtime value exports, FirebaseAuthError and AuthClientErrorCode constructor/throw instanceof behavior, Auth/BaseAuth/UserRecord/UserMetadata/UserInfo prototype checks, and UserRecord.{passwordHash, passwordSalt, multiFactor} presence across createUser, getUser, and listUsers.",
-  "observedAt": "2026-11-19T00:21:22.170Z",
-  "adminSdkVersion": "13.10.0",
+  "observedAt": "2026-11-25T16:48:10.546Z",
+  "adminSdkVersion": "14.5.1",
   "projectId": "digame-mas",
   "behavior": {
     "moduleExports": {
       "exportKeys": [
         "Auth",
-        "AuthClientErrorCode",
+        "AuthErrorCode",
         "BaseAuth",
         "FirebaseAuthError",
         "MultiFactorInfo",
@@ -28,9 +28,9 @@
         "UserRecord",
         "getAuth"
       ],
-      "rootAdminAuthHasAuthClass": true,
+      "rootAdminAuthHasAuthClass": false,
       "authExtendsBaseAuth": true,
-      "authClientErrorCodeCount": 95
+      "authClientErrorCodeCount": 96
     },
     "errorConstructorContract": {
       "defaultCode": "auth/user-not-found",
@@ -44,8 +44,8 @@
         "message": "There is no user record corresponding to the provided identifier."
       },
       "defaultOwnKeys": [
-        "codePrefix",
-        "errorInfo"
+        "code",
+        "codePrefix"
       ],
       "overrideCode": "auth/argument-error",
       "overrideMessage": "Explicit message override.",

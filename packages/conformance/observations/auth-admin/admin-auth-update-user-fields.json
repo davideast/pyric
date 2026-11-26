@@ -5,8 +5,8 @@
     "auth-admin#8"
   ],
   "description": "firebase-admin/auth updateUser(uid, properties) mutates email, password, emailVerified, displayName, photoURL, phoneNumber, and disabled, clears nullable profile and phone fields with null, updates providerData accordingly, and rejects unknown UIDs with auth/user-not-found.",
-  "observedAt": "2026-11-18T07:58:21.493Z",
-  "adminSdkVersion": "13.10.0",
+  "observedAt": "2026-11-25T16:48:12.050Z",
+  "adminSdkVersion": "14.5.1",
   "projectId": "digame-mas",
   "behavior": {
     "updatedReturned": {
