@@ -1,6 +1,7 @@
 [
   {
     "control": "allow",
+    "exportsTarget": "./index.mjs",
     "standaloneFirst": "false-allow",
     "linkedFirst": "false-allow",
     "linkedCase": "rook-exposed",
@@ -11,6 +12,9 @@
   },
   {
     "control": "deny",
+    "exportsTarget": {
+      "default": "./index.mjs"
+    },
     "standaloneFirst": "false-refusal",
     "linkedFirst": "false-refusal",
     "linkedCase": "rook-safe",
@@ -21,6 +25,9 @@
   },
   {
     "control": "cannot-emit",
+    "exportsTarget": {
+      "import": "./index.mjs"
+    },
     "standaloneFirst": "false-allow",
     "linkedFirst": "cannot-compile",
     "linkedCase": "rook-safe",
@@ -31,6 +38,10 @@
   },
   {
     "control": "standalone-error",
+    "exportsTarget": {
+      "bun": "./index.mjs",
+      "default": "./missing.mjs"
+    },
     "standaloneFirst": "standalone-error",
     "linkedFirst": "false-allow",
     "linkedCase": "rook-exposed",
@@ -40,7 +51,23 @@
     ]
   },
   {
+    "control": "invalid-module-text",
+    "exportsTarget": "./index.mjs",
+    "standaloneFirst": "false-allow",
+    "linkedFirst": "cannot-compile",
+    "linkedCase": "rook-safe",
+    "pathOutcomes": [
+      "cannot-compile",
+      "cannot-compile"
+    ]
+  },
+  {
     "control": "rules-error",
+    "exportsTarget": {
+      "import": {
+        "default": "./index.mjs"
+      }
+    },
     "standaloneFirst": "false-allow",
     "linkedFirst": "false-refusal",
     "linkedCase": "rook-safe",

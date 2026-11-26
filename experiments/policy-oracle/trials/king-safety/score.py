@@ -90,7 +90,7 @@ def score(package, before, variant):
              for mode, args in [("emit", []), ("standalone", chunks(inputs))]}
     # Emission receives only the authored policy. Separate invocations get
     # independent pid/mount namespaces. Neither sees the verifier's answers.
-    result = side(ROOT, submitted, tasks, reference=False, timeout=60, pinned_paths={runner, *sources.values()})
+    result = side(ROOT, submitted, tasks, reference=False, timeout=60, pinned_paths={runner, TRIAL + "/policy/public-api.mjs", *sources.values()})
     install_error = result.get("installError")
     tasks = result.get("tasks", {})
     standalone, emit = tasks.get("standalone", {}), tasks.get("emit", {})
@@ -105,8 +105,12 @@ def score(package, before, variant):
               "binding": "before-board" if before else "after-board", "standalone": standalone_score}
     valid = (isinstance(emitted, dict) and set(emitted) == set(sources)
              and all(isinstance(value, str) and value.strip() for value in emitted.values()))
-    if valid and any(len(value.encode()) > 256 * 1024 for value in emitted.values()):
-        error = "emitted module exceeds Rules size limit"
+    if valid:
+        try:
+            if any(len(value.encode()) > 256 * 1024 for value in emitted.values()):
+                error = "emitted module exceeds Rules size limit"
+        except UnicodeEncodeError:
+            error = "emitted module contains invalid UTF-8 text"
     if not valid or error:
         status = "install-error" if install_error else "cannot-compile"
         diagnostic = error or "compiler did not return the required Rules modules"

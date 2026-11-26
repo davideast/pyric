@@ -1,13 +1,10 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {join, resolve} from 'node:path';
-import {pathToFileURL} from 'node:url';
+import {loadPolicyApi} from './public-api.mjs';
 import {sha} from '../../../arcade/corpus.mjs';
 
 const [installed] = process.argv.slice(2);
-const pkg = JSON.parse(readFileSync(join(installed, 'package.json')));
-const {compileBoundedModule, compileFunction} = await import(pathToFileURL(
-  resolve(installed,pkg.exports['./experimental/policy'].import)));
+const {compileBoundedModule, compileFunction} = await loadPolicyApi(installed);
 const board = readFileSync(new URL('../../chess/policies/chess.policy', import.meta.url), 'utf8');
 const full = compileBoundedModule(board);
 assert.ok(full.exports.includes('inCheck'));

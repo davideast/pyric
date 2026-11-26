@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {mkdirSync, readFileSync, writeFileSync} from 'node:fs';
 import {join, resolve} from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
+import {loadPolicyApi} from './public-api.mjs';
 import {json, sha, verifyInputs} from '../../../arcade/corpus.mjs';
 
 const read = file => readFileSync(new URL(file, import.meta.url), 'utf8');
@@ -11,8 +12,7 @@ const source = read('./file-safe.policy');
 const pathSource = read('./horizontal-path.policy');
 
 export async function emit(pkgDir, {variant = 'v2'} = {}) {
-  const pkg = JSON.parse(readFileSync(join(pkgDir, 'package.json')));
-  const api = await import(pathToFileURL(resolve(pkgDir, pkg.exports['./experimental/policy'].import)));
+  const api = await loadPolicyApi(pkgDir);
   const fileSafety = api.compileFunction(source).firestoreModule();
   if (variant === 'v1') return {fileSafety};
   assert.equal(variant, 'v2');

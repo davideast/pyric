@@ -10,9 +10,9 @@ import tempfile
 HERE = Path(__file__).resolve().parent
 
 
-def compiler_tar(output, *, runtime, emitted):
+def compiler_tar(output, *, runtime, emitted, export_target):
     manifest = {"name": "@pyric/rules", "type":"module", "version":"0.0.0",
-                "exports":{"./experimental/policy":{"import":"./index.mjs"}}}
+                "exports":{"./experimental/policy":export_target}}
     source = f"""export function compileFunction(source) {{
   const invoke = () => {{ {runtime} }};
   invoke.firestoreModule = () => {{
@@ -36,20 +36,22 @@ def emit(boolean):
 
 def main():
     controls = [
-        ("allow", "return true", emit("true"), "false-allow", "false-allow", "rook-exposed"),
-        ("deny", "return false", emit("false"), "false-refusal", "false-refusal", "rook-safe"),
-        ("cannot-emit", "return true", "throw Error('unsupported target')",
+        ("allow", "./index.mjs", "return true", emit("true"), "false-allow", "false-allow", "rook-exposed"),
+        ("deny", {"default":"./index.mjs"}, "return false", emit("false"), "false-refusal", "false-refusal", "rook-safe"),
+        ("cannot-emit", {"import":"./index.mjs"}, "return true", "throw Error('unsupported target')",
          "false-allow", "cannot-compile", "rook-safe"),
-        ("standalone-error", "throw Error('unsupported policy input')", emit("true"),
+        ("standalone-error", {"bun":"./index.mjs", "default":"./missing.mjs"}, "throw Error('unsupported policy input')", emit("true"),
          "standalone-error", "false-allow", "rook-exposed"),
-        ("rules-error", "return true", emit("board['absent'] == 'wk'"),
+        ("invalid-module-text", "./index.mjs", "return true", emit(chr(0xD800)),
+         "false-allow", "cannot-compile", "rook-safe"),
+        ("rules-error", {"import":{"default":"./index.mjs"}}, "return true", emit("board['absent'] == 'wk'"),
          "false-allow", "false-refusal", "rook-safe"),
     ]
     rows = []
     with tempfile.TemporaryDirectory(prefix="king-score-controls-") as temp:
-        for name, runtime, code, standalone, expected, first in controls:
+        for name, export_target, runtime, code, standalone, expected, first in controls:
             archive = Path(temp) / (name + ".tgz")
-            compiler_tar(archive, runtime=runtime, emitted=code)
+            compiler_tar(archive, runtime=runtime, emitted=code, export_target=export_target)
             result = subprocess.run([sys.executable, HERE/"score.py", "--candidate-package", archive], capture_output=True)
             assert result.returncode == 1, (name, result)
             score = json.loads(result.stdout)
@@ -61,10 +63,12 @@ def main():
             path_outcomes = [r["status"] for r in score["linkedRules"]["cases"] if r["id"] in path_ids]
             if name == "allow":
                 assert path_outcomes == ["false-allow", "false-allow"], score
+            if name == "invalid-module-text":
+                assert "invalid UTF-8" in score["compilation"]["diagnostic"], score
             if name == "rules-error":
                 exposed = next(r for r in score["linkedRules"]["cases"] if r["id"] == "rook-exposed")
                 assert exposed["status"] == "evaluation-error" and exposed["cause"] == "rule-error", exposed
-            rows.append({"control":name, "standaloneFirst":standalone, "linkedFirst":expected,
+            rows.append({"control":name, "exportsTarget":export_target, "standaloneFirst":standalone, "linkedFirst":expected,
                          "linkedCase":first,"pathOutcomes":path_outcomes})
     print(json.dumps(rows, indent=2))
 

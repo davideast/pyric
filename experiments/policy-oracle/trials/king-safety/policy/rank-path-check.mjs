@@ -1,11 +1,9 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {join,resolve} from 'node:path';
-import {pathToFileURL} from 'node:url';
+import {loadPolicyApi} from './public-api.mjs';
 
 const [candidate] = process.argv.slice(2);
-const pkg = JSON.parse(readFileSync(join(candidate,'package.json')));
-const {compileFunction} = await import(pathToFileURL(resolve(candidate,pkg.exports['./experimental/policy'].import)));
+const {compileFunction} = await loadPolicyApi(candidate);
 const clear = compileFunction(readFileSync(new URL('horizontal-path.policy',import.meta.url),'utf8'));
 const files = 'abcdefgh';
 let cases=0, clearPaths=0;

@@ -1,11 +1,8 @@
 import {readFileSync} from 'node:fs';
-import {join,resolve} from 'node:path';
-import {pathToFileURL} from 'node:url';
+import {loadPolicyApi} from './policy/public-api.mjs';
 
 const [mode, pkgDir, variant, ...encoded] = process.argv.slice(2);
-const pkg = JSON.parse(readFileSync(join(pkgDir,'package.json'),'utf8'));
-const entry = pkg.exports['./experimental/policy'].import;
-const {compileFunction} = await import(pathToFileURL(resolve(pkgDir,entry)));
+const {compileFunction} = await loadPolicyApi(pkgDir);
 const source = readFileSync(new URL('policy/file-safe.policy',import.meta.url),'utf8');
 const invoke = compileFunction(source);
 if (mode === 'emit') {
