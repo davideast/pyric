@@ -3,7 +3,6 @@ package com.google.firebase.firestore
 import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.TaskCompletionSource
 import com.google.android.gms.tasks.Tasks
-import dev.pyric.bridge.BridgeSubscriptionGap
 import dev.pyric.codecs.DocumentDataEnvelope
 import dev.pyric.codecs.PojoCodec
 import dev.pyric.codecs.SentinelValidator
@@ -11,17 +10,7 @@ import dev.pyric.codecs.ValueCodec
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.mapNotNull
-import kotlinx.coroutines.flow.merge
-import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.launch
 
 class DocumentReference internal constructor(
@@ -244,111 +233,12 @@ class DocumentReference internal constructor(
         }
     }
 
-    private sealed interface SnapshotStreamEvent {
-        data class RemoteWire(val rawMsg: Any?) : SnapshotStreamEvent
-        data object LocalCacheTick : SnapshotStreamEvent
-    }
-
-    @OptIn(ExperimentalCoroutinesApi::class)
     fun snapshots(metadataChanges: MetadataChanges = MetadataChanges.EXCLUDE): Flow<DocumentSnapshot> {
         firestore.ensureClientActive()
-        val target = mapOf("__ref" to "doc", "path" to path)
-        val includeMetadata = (metadataChanges == MetadataChanges.INCLUDE)
-        return flow {
-            val listenerId = firestore.offlineCoordinator.registerActiveListener()
-            var lastDelivered: DocumentSnapshot? = null
-
-            suspend fun maybeEmit(candidate: DocumentSnapshot) {
-                val prev = lastDelivered
-                val shouldEmit = if (prev == null) {
-                    true
-                } else {
-                    val dataChanged = prev.exists() != candidate.exists() ||
-                        !FirestoreOfflineProjection.valuesEqual(prev.getData(), candidate.getData())
-                    val metaChanged = includeMetadata && prev.metadata != candidate.metadata
-                    dataChanged || metaChanged
-                }
-                if (shouldEmit) {
-                    lastDelivered = candidate
-                    emit(candidate)
-                }
-                if (!candidate.metadata.isFromCache && !candidate.metadata.hasPendingWrites) {
-                    firestore.offlineCoordinator.markListenerSyncedAndNotify(listenerId, forceNotify = shouldEmit)
-                } else {
-                    firestore.offlineCoordinator.markListenerOutOfSync(listenerId)
-                }
-            }
-
-            try {
-                combine(
-                    firestore.authLensFlow,
-                    firestore.terminatedStateFlow,
-                    firestore.offlineCoordinator.listenerNetworkEnabledFlow
-                ) { lens, terminated, networkEnabled ->
-                    Triple(lens, terminated, networkEnabled)
-                }.flatMapLatest { (lens, terminated, networkEnabled) ->
-                    if (terminated) {
-                        flowOf<DocumentSnapshot?>(null)
-                    } else if (!networkEnabled) {
-                        firestore.offlineCoordinator.cacheVersionFlow.map {
-                            val updatedProj = firestore.offlineCoordinator.projectDocument(path)
-                            snapshotFromProjection(updatedProj, isFromCache = true)
-                        }
-                    } else {
-                        flow {
-                            firestore.offlineCoordinator.markListenerOutOfSync(listenerId)
-                            var lastRaw: Any? = null
-                            var hasRaw = false
-                            val remoteEvents: Flow<SnapshotStreamEvent> = firestore.bridgeClient.subscribe(
-                                target = target,
-                                actAs = lens.toMap(),
-                                includeMetadataChanges = includeMetadata
-                            ).map { rawMsg -> SnapshotStreamEvent.RemoteWire(rawMsg) }
-                            val localEvents: Flow<SnapshotStreamEvent> = firestore.offlineCoordinator.cacheVersionFlow
-                                .map { SnapshotStreamEvent.LocalCacheTick }
-
-                            // Project local cache state sequentially inside collect rather than
-                            // inside a concurrent merge mapper so a preempted cache tick cannot
-                            // emit a stale snapshot after a newer remote frame has already landed.
-                            merge(remoteEvents, localEvents).collect { event ->
-                                val snapshot = when (event) {
-                                    is SnapshotStreamEvent.RemoteWire -> {
-                                        val rawMsg = event.rawMsg
-                                        if (rawMsg === BridgeSubscriptionGap) {
-                                            if (hasRaw) snapshotFromWire(lastRaw, isFromCache = true) else null
-                                        } else {
-                                            lastRaw = rawMsg
-                                            hasRaw = true
-                                            snapshotFromWireAndCache(rawMsg)
-                                        }
-                                    }
-                                    SnapshotStreamEvent.LocalCacheTick -> {
-                                        if (hasRaw) {
-                                            val proj = firestore.offlineCoordinator.projectDocument(path)
-                                            if (proj.known) snapshotFromProjection(proj, isFromCache = false) else null
-                                        } else {
-                                            null
-                                        }
-                                    }
-                                }
-                                if (snapshot != null) {
-                                    emit(snapshot)
-                                }
-                            }
-                        }
-                    }
-                }.takeWhile { it != null }
-                    .mapNotNull { it }
-                    .collect { candidate ->
-                        maybeEmit(candidate)
-                    }
-            } finally {
-                firestore.offlineCoordinator.unregisterActiveListener(listenerId)
-            }
-        }
+        return DocumentSnapshotRegistration.snapshotsFlow(this, metadataChanges == MetadataChanges.INCLUDE)
     }
 
-    private fun snapshotFromProjection(projected: ProjectedDocState, isFromCache: Boolean): DocumentSnapshot {
+    internal fun snapshotFromProjection(projected: ProjectedDocState, isFromCache: Boolean): DocumentSnapshot {
         return DocumentSnapshot(
             id = id,
             reference = this,
@@ -362,7 +252,7 @@ class DocumentReference internal constructor(
         )
     }
 
-    private fun snapshotFromWireAndCache(rawMsg: Any?): DocumentSnapshot {
+    internal fun snapshotFromWireAndCache(rawMsg: Any?): DocumentSnapshot {
         @Suppress("UNCHECKED_CAST")
         val resMap = rawMsg as? Map<String, Any?> ?: emptyMap()
         val docId = (resMap["id"] as? String) ?: id
@@ -389,7 +279,7 @@ class DocumentReference internal constructor(
         )
     }
 
-    private fun snapshotFromWire(rawMsg: Any?, isFromCache: Boolean): DocumentSnapshot {
+    internal fun snapshotFromWire(rawMsg: Any?, isFromCache: Boolean): DocumentSnapshot {
         @Suppress("UNCHECKED_CAST")
         val resMap = rawMsg as? Map<String, Any?> ?: emptyMap()
         val docId = (resMap["id"] as? String) ?: id
@@ -417,16 +307,12 @@ class DocumentReference internal constructor(
         listener: EventListener<DocumentSnapshot>
     ): ListenerRegistration {
         firestore.ensureClientActive()
-        val job = firestore.listenerScope.launch {
-            snapshots(metadataChanges).catch { e ->
-                val fse = (e as? FirebaseFirestoreException)
-                    ?: FirebaseFirestoreException(e.message ?: "Snapshot error", FirebaseFirestoreException.Code.UNKNOWN, e)
-                listener.onEvent(null, fse)
-            }.collect { snapshot ->
-                listener.onEvent(snapshot, null)
-            }
-        }
-        return ListenerRegistration { job.cancel() }
+        return DocumentSnapshotRegistration(
+            docRef = this,
+            includeMetadata = (metadataChanges == MetadataChanges.INCLUDE),
+            onSnapshot = { snapshot -> listener.onEvent(snapshot, null) },
+            onError = { error -> listener.onEvent(null, error) }
+        )
     }
 
     override fun equals(other: Any?): Boolean {

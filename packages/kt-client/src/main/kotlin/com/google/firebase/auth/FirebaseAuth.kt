@@ -14,10 +14,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
@@ -232,12 +232,20 @@ class FirebaseAuth internal constructor(
 
     fun authStateFlow(): StateFlow<FirebaseUser?> = sync.currentUserFlow
 
-    fun idTokenFlow(): Flow<FirebaseUser?> = callbackFlow {
+    fun idTokenFlow(): Flow<FirebaseUser?> = flow {
+        val channel = Channel<FirebaseUser?>(Channel.UNLIMITED)
         val listener = IdTokenListener { auth ->
-            trySend(auth.currentUser)
+            channel.trySend(auth.currentUser)
         }
         addIdTokenListener(listener)
-        awaitClose { removeIdTokenListener(listener) }
+        try {
+            for (user in channel) {
+                emit(user)
+            }
+        } finally {
+            removeIdTokenListener(listener)
+            channel.close()
+        }
     }
 
     fun addAuthStateListener(listener: AuthStateListener) {

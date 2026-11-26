@@ -76,8 +76,10 @@ class InfoConnectedReconnectTest {
 
         bridge.refuseConnections = false
         until { seen == listOf(false, true, false, true) }
-        delay(50)
-        assertEquals(listOf(false, true, false, true), seen)
+        // A round-trip toggle acts as a deterministic sentinel that no duplicate `true` preceded it.
+        database.goOffline()
+        until { seen == listOf(false, true, false, true, false) }
+        assertEquals(listOf(false, true, false, true, false), seen)
         assertNoInfoFrames()
     }
 
@@ -93,12 +95,21 @@ class InfoConnectedReconnectTest {
         bridge.current.drop()
         until { client.connectionState == BridgeConnectionState.INTERRUPTED }
         database.getReference("rooms/b").setValue("held")
-        delay(30)
 
-        // Holds the replay between its two frames, so a re-arm that skipped the
-        // held queue would reach the socket ahead of the second one.
-        bridge.onFrame = { frame -> if (isReplayOf("rooms/a", frame)) Thread.sleep(100) }
+        // Gate the replay between its two frames so we verify deterministically that no
+        // re-arm fires before the replay and held operation have been sent.
+        val replayStarted = java.util.concurrent.CountDownLatch(1)
+        val releaseReplay = java.util.concurrent.CountDownLatch(1)
+        bridge.onFrame = { frame ->
+            if (isReplayOf("rooms/a", frame)) {
+                replayStarted.countDown()
+                releaseReplay.await(10, java.util.concurrent.TimeUnit.SECONDS)
+            }
+        }
         bridge.refuseConnections = false
+        assertTrue(replayStarted.await(10, java.util.concurrent.TimeUnit.SECONDS))
+        assertEquals(1, bridge.opsNamed("rtdb.onDisconnectSet").size, "no re-arm while replay is paused")
+        releaseReplay.countDown()
         until {
             bridge.subsFor("rooms/c").size == 2 &&
                 bridge.opsNamed("rtdb.onDisconnectSet").size == 2 &&
@@ -126,7 +137,6 @@ class InfoConnectedReconnectTest {
         bridge.hostInstanceId = "host-b"
         bridge.current.drop()
         until { bridge.opsNamed("auth.restorePortSession").size == 1 }
-        delay(30)
         assertEquals(1, bridge.opsNamed("rtdb.onDisconnectSet").size, "no re-arm before the Auth restore answers")
 
         val restore = bridge.opsNamed("auth.restorePortSession").single()
