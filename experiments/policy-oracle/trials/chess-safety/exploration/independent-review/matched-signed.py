@@ -9,8 +9,16 @@ from pathlib import Path
 import runpy
 import tempfile
 
-STOCK = '523c4c137aa00c2c764264aa6c2cefeda7c692561544da45d4fcccf3a2056fda'
+BASELINE = '523c4c137aa00c2c764264aa6c2cefeda7c692561544da45d4fcccf3a2056fda'
 SELECTED = '5365dc5183a2ef4d8a9af8443e4d35323fd7a4794e602c7a6fff36220a7e8380'
+
+# This v1 comparison covers the exact eight closed captures, even when another
+# release of the same bytes later adds fresh cases.
+MATCHED_PLANS = {
+    BASELINE: ('baseline-evasions-through-terminal', 'baseline-followups', 'baseline-named-four',
+               'baseline-pins-and-destinations', 'baseline-sole-pawn', 'baseline-terminal-holdout'),
+    SELECTED: ('comma-chess-safety-full', 'comma-held-rook-promotion'),
+}
 
 def digest(data):
     return sha256(data).hexdigest()
@@ -26,7 +34,8 @@ def stamp(text):
 
 def read_release(trial, archive, rules):
     rows, journals = {}, []
-    for path in sorted((trial/'live/receipts'/rules).glob('*.json.gz')):
+    for plan in MATCHED_PLANS[rules]:
+        path = trial/'live/receipts'/rules/(plan+'.json.gz')
         evidence=json.loads(gzip.decompress(path.read_bytes()))
         pin=json_file(path.with_name(path.name.removesuffix('.json.gz')+'.pin.json'))
         assert digest(path.read_bytes())==pin['receiptGzipSha256']
@@ -90,23 +99,23 @@ def chess_fen(chess,doc):
     return ' '.join(board.fen(en_passant='fen').split()[:4])
 
 def audit(trial,archive,referee):
-    stock,stock_journals=read_release(trial,archive,STOCK)
+    baseline,baseline_journals=read_release(trial,archive,BASELINE)
     selected,selected_journals=read_release(trial,archive,SELECTED)
-    assert len(stock)==190 and stock.keys()==selected.keys()
-    for k in stock:
-        assert stock[k]['before']==selected[k]['before'] and stock[k]['update']==selected[k]['update'],k
+    assert len(baseline)==190 and baseline.keys()==selected.keys()
+    for k in baseline:
+        assert baseline[k]['before']==selected[k]['before'] and baseline[k]['update']==selected[k]['update'],k
     external=runpy.run_path(str(trial.parent/'chess/reference/generate.py'))
     result={'source':'private controller receipts and journals; public native answers verified with independently pinned python-chess',
-            'signedInputsInCommon':len(stock),'payloadsSha256':hash_object({k:[v['before'],v['update']] for k,v in stock.items()}),
+            'signedInputsInCommon':len(baseline),'payloadsSha256':hash_object({k:[v['before'],v['update']] for k,v in baseline.items()}),
             'snapshots':{},'native':{},'signed':{}}
-    for name,rules,rows,journals in [('stock',STOCK,stock,stock_journals),('selected',SELECTED,selected,selected_journals)]:
+    for name,rules,rows,journals in [('priorStrongerBaseline',BASELINE,baseline,baseline_journals),('selected',SELECTED,selected,selected_journals)]:
         result['snapshots'][name]={'rulesSha256':rules,'journals':journals,'decisions':dict(Counter(r['decision'] for r in rows.values()))}
     with tempfile.TemporaryDirectory() as temp:
         chess=external['load_chess'](referee,Path(temp))
         result['nativeRefereeSha256']=external['PIN']
         for cohort in ('held-rook-promotion-v1','rook-interposition-v1'):
             for native in json_file(trial/'exploration'/cohort/'controls/native.json')['cases']:
-                name=native['id']; source=stock[name]; before=source['before']; update=source['update']
+                name=native['id']; source=baseline[name]; before=source['before']; update=source['update']
                 assert chess_fen(chess,before)==native['fen']
                 game=chess.Board(native['fen']); move=chess.Move.from_uci(native['uci'])
                 assert game.is_valid() and move in game.legal_moves
@@ -121,7 +130,7 @@ def audit(trial,archive,referee):
                 assert native['nativeAdmission']==((status,winner)==(update['status'],update['winner']))
                 result['native'][name]={'fen':native['fen'],'move':native['uci'],'replyMoves':replies,
                     'correctStatus':status,'submittedStatus':update['status'],'admit':native['nativeAdmission']}
-                for label,rows in [('stock',stock),('selected',selected)]:
+                for label,rows in [('priorStrongerBaseline',baseline),('selected',selected)]:
                     value=rows[name]; old=value['rawBefore']; new=value['rawAfter']
                     result['signed'].setdefault(label,{})[name]={'decision':value['decision'],'versionBefore':old['version'],
                         'versionAfter':new['version'],'beforeFullMatchSha256':hash_object(old['data']),

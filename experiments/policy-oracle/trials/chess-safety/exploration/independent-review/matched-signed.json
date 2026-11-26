@@ -3,7 +3,7 @@
   "signedInputsInCommon": 190,
   "payloadsSha256": "95a81ddc4132f6b8b3c0d681f9c7ab28f19ea7e11aaeb7ae2cd04286b28fe954",
   "snapshots": {
-    "stock": {
+    "priorStrongerBaseline": {
       "rulesSha256": "523c4c137aa00c2c764264aa6c2cefeda7c692561544da45d4fcccf3a2056fda",
       "journals": [
         {
@@ -135,7 +135,7 @@
     }
   },
   "signed": {
-    "stock": {
+    "priorStrongerBaseline": {
       "promote-capturing-rook-right-held": {
         "decision": "ALLOW",
         "versionBefore": "2026-11-26T17:27:48.260645Z",

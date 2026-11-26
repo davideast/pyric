@@ -235,6 +235,13 @@ def replay(args, temp):
         digests = sorted({digest,'523c4c137aa00c2c764264aa6c2cefeda7c692561544da45d4fcccf3a2056fda'})
         result['independentSignedInputs'] = observed(sys.executable,'reference/signed-inputs.py',
             args.sealed_referee/'chess-1.11.2.tar.gz',*digests)
+    if args.archive and args.sealed_referee:
+        audit = HERE/'exploration/independent-review'
+        matched = observed(sys.executable,audit/'matched-signed.py',HERE,args.archive,
+            args.sealed_referee/'chess-1.11.2.tar.gz')
+        equal(matched,read(audit/'matched-signed.json'),'independent raw 190-case comparison')
+        result['matchedSignedAudit'] = {'inputs':matched['signedInputsInCommon'],
+            'payloadsSha256':matched['payloadsSha256']}
     target = result['hosted']
     local_pass = (sealed_pass and run['matchedAll'] and core['passed'] and discovery['allMatch']
                   and all(r['status']=='match' for r in result['namedSnapshots'])
