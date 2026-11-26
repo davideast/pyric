@@ -1,0 +1,247 @@
+{
+  "authority": "pinned local complete Rules evaluator",
+  "moves": [
+    "f2f3",
+    "e7e5",
+    "g2g4",
+    "d8h4"
+  ],
+  "composedSeedFen": "3qk2r/4p3/8/8/8/8/3PPPP1/3QKB2 w k -",
+  "candidates": {
+    "geometry": {
+      "rulesSha256": "8cb950ccbd1f33b2d68ebb317a45391ac9ffd7416c27bb5e7b801b8493b98f2d",
+      "standardMate": {
+        "decision": "ALLOW",
+        "expressions": 941,
+        "status": "match",
+        "cause": null,
+        "kind": "match"
+      },
+      "composedMate": {
+        "decision": "ALLOW",
+        "expressions": 941,
+        "status": "match",
+        "cause": null,
+        "kind": "match"
+      },
+      "composedClaims": {
+        "won": {
+          "decision": "ALLOW",
+          "expressions": 941,
+          "status": "match",
+          "cause": null,
+          "kind": "match"
+        },
+        "playing": {
+          "decision": "ALLOW",
+          "expressions": 878,
+          "status": "false-allow",
+          "cause": null,
+          "kind": "false-allow"
+        },
+        "draw": {
+          "decision": "DENY",
+          "expressions": 732,
+          "status": "match",
+          "cause": null,
+          "kind": "match"
+        },
+        "wrongWinner": {
+          "decision": "DENY",
+          "expressions": 931,
+          "status": "match",
+          "cause": null,
+          "kind": "match"
+        }
+      }
+    },
+    "guarded-pawn": {
+      "rulesSha256": "d582f74aa912fcc158a052712d54927bd1df68fdfb5ef1331cfe4254e2ef6fd4",
+      "standardMate": {
+        "decision": "ALLOW",
+        "expressions": 987,
+        "status": "match",
+        "cause": null,
+        "kind": "match"
+      },
+      "composedMate": {
+        "decision": "ALLOW",
+        "expressions": 987,
+        "status": "match",
+        "cause": null,
+        "kind": "match"
+      },
+      "composedClaims": {
+        "won": {
+          "decision": "ALLOW",
+          "expressions": 987,
+          "status": "match",
+          "cause": null,
+          "kind": "match"
+        },
+        "playing": {
+          "decision": "ALLOW",
+          "expressions": 878,
+          "status": "false-allow",
+          "cause": null,
+          "kind": "false-allow"
+        },
+        "draw": {
+          "decision": "DENY",
+          "expressions": 733,
+          "status": "match",
+          "cause": null,
+          "kind": "match"
+        },
+        "wrongWinner": {
+          "decision": "DENY",
+          "expressions": 977,
+          "status": "match",
+          "cause": null,
+          "kind": "match"
+        }
+      }
+    },
+    "ordinal-knight": {
+      "rulesSha256": "f2ceefa52435cf386e5f3391d19118315137d541686897034173143f688ba73e",
+      "standardMate": {
+        "decision": "DENY",
+        "expressions": 1000,
+        "status": "false-refusal",
+        "cause": "resource-limit",
+        "kind": "false-refusal/resource-limit"
+      },
+      "composedMate": {
+        "decision": "ALLOW",
+        "expressions": 958,
+        "status": "match",
+        "cause": null,
+        "kind": "match"
+      },
+      "composedClaims": {
+        "won": {
+          "decision": "ALLOW",
+          "expressions": 958,
+          "status": "match",
+          "cause": null,
+          "kind": "match"
+        },
+        "playing": {
+          "decision": "ALLOW",
+          "expressions": 878,
+          "status": "false-allow",
+          "cause": null,
+          "kind": "false-allow"
+        },
+        "draw": {
+          "decision": "DENY",
+          "expressions": 733,
+          "status": "match",
+          "cause": null,
+          "kind": "match"
+        },
+        "wrongWinner": {
+          "decision": "DENY",
+          "expressions": 948,
+          "status": "match",
+          "cause": null,
+          "kind": "match"
+        }
+      }
+    },
+    "joint": {
+      "rulesSha256": "862d81b4c65b7f7bb6f6a642804e4e0c356840e70c264126849e7f1cf12871b5",
+      "standardMate": {
+        "decision": "DENY",
+        "expressions": 1000,
+        "status": "false-refusal",
+        "cause": "resource-limit",
+        "kind": "false-refusal/resource-limit"
+      },
+      "composedMate": {
+        "decision": "DENY",
+        "expressions": 1000,
+        "status": "false-refusal",
+        "cause": "resource-limit",
+        "kind": "false-refusal/resource-limit"
+      },
+      "composedClaims": {
+        "won": {
+          "decision": "DENY",
+          "expressions": 1000,
+          "status": "false-refusal",
+          "cause": "resource-limit",
+          "kind": "false-refusal/resource-limit"
+        },
+        "playing": {
+          "decision": "ALLOW",
+          "expressions": 878,
+          "status": "false-allow",
+          "cause": null,
+          "kind": "false-allow"
+        },
+        "draw": {
+          "decision": "DENY",
+          "expressions": 734,
+          "status": "match",
+          "cause": null,
+          "kind": "match"
+        },
+        "wrongWinner": {
+          "decision": "DENY",
+          "expressions": 994,
+          "status": "match",
+          "cause": null,
+          "kind": "match"
+        }
+      }
+    },
+    "joint-cost-aware": {
+      "rulesSha256": "63b617590826cf6f850b5eb338efc052066bbe4168ab558368c43d3bbba86fc0",
+      "standardMate": {
+        "decision": "DENY",
+        "expressions": 1000,
+        "status": "false-refusal",
+        "cause": "resource-limit",
+        "kind": "false-refusal/resource-limit"
+      },
+      "composedMate": {
+        "decision": "ALLOW",
+        "expressions": 960,
+        "status": "match",
+        "cause": null,
+        "kind": "match"
+      },
+      "composedClaims": {
+        "won": {
+          "decision": "ALLOW",
+          "expressions": 960,
+          "status": "match",
+          "cause": null,
+          "kind": "match"
+        },
+        "playing": {
+          "decision": "ALLOW",
+          "expressions": 839,
+          "status": "false-allow",
+          "cause": null,
+          "kind": "false-allow"
+        },
+        "draw": {
+          "decision": "DENY",
+          "expressions": 714,
+          "status": "match",
+          "cause": null,
+          "kind": "match"
+        },
+        "wrongWinner": {
+          "decision": "DENY",
+          "expressions": 110,
+          "status": "match",
+          "cause": null,
+          "kind": "match"
+        }
+      }
+    }
+  }
+}

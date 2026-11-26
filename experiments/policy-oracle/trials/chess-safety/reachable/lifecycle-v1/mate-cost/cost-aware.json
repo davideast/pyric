@@ -1,0 +1,352 @@
+{
+  "authority": "pinned local complete Rules evaluator",
+  "rulesSha256": "63b617590826cf6f850b5eb338efc052066bbe4168ab558368c43d3bbba86fc0",
+  "original": {
+    "seedFen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -",
+    "pieces": 32,
+    "remainingSquares": [
+      "a1",
+      "a2",
+      "a7",
+      "a8",
+      "b1",
+      "b2",
+      "b7",
+      "b8",
+      "c1",
+      "c2",
+      "c7",
+      "c8",
+      "d1",
+      "d2",
+      "d7",
+      "d8",
+      "e1",
+      "e2",
+      "e7",
+      "e8",
+      "f1",
+      "f2",
+      "f7",
+      "f8",
+      "g1",
+      "g2",
+      "g7",
+      "g8",
+      "h1",
+      "h2",
+      "h7",
+      "h8"
+    ],
+    "path": [
+      {
+        "uci": "f2f3",
+        "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -",
+        "afterFen": "rnbqkbnr/pppppppp/8/8/8/5P2/PPPPP1PP/RNBQKBNR b KQkq -",
+        "honest": {
+          "decision": "ALLOW",
+          "expressions": 755,
+          "status": "match",
+          "cause": null,
+          "kind": "match"
+        }
+      },
+      {
+        "uci": "e7e5",
+        "fen": "rnbqkbnr/pppppppp/8/8/8/5P2/PPPPP1PP/RNBQKBNR b KQkq -",
+        "afterFen": "rnbqkbnr/pppp1ppp/8/4p3/8/5P2/PPPPP1PP/RNBQKBNR w KQkq e6",
+        "honest": {
+          "decision": "ALLOW",
+          "expressions": 825,
+          "status": "match",
+          "cause": null,
+          "kind": "match"
+        }
+      },
+      {
+        "uci": "g2g4",
+        "fen": "rnbqkbnr/pppp1ppp/8/4p3/8/5P2/PPPPP1PP/RNBQKBNR w KQkq e6",
+        "afterFen": "rnbqkbnr/pppp1ppp/8/4p3/6P1/5P2/PPPPP2P/RNBQKBNR b KQkq g3",
+        "honest": {
+          "decision": "ALLOW",
+          "expressions": 801,
+          "status": "match",
+          "cause": null,
+          "kind": "match"
+        }
+      },
+      {
+        "uci": "d8h4",
+        "fen": "rnbqkbnr/pppp1ppp/8/4p3/6P1/5P2/PPPPP2P/RNBQKBNR b KQkq g3",
+        "afterFen": "rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq -",
+        "honest": {
+          "decision": "DENY",
+          "expressions": 1000,
+          "status": "false-refusal",
+          "cause": "resource-limit",
+          "kind": "false-refusal/resource-limit"
+        },
+        "claims": {
+          "won": {
+            "decision": "DENY",
+            "expressions": 1000,
+            "status": "false-refusal",
+            "cause": "resource-limit",
+            "kind": "false-refusal/resource-limit"
+          },
+          "playing": {
+            "decision": "ALLOW",
+            "expressions": 839,
+            "status": "false-allow",
+            "cause": null,
+            "kind": "false-allow"
+          },
+          "draw": {
+            "decision": "DENY",
+            "expressions": 714,
+            "status": "match",
+            "cause": null,
+            "kind": "match"
+          },
+          "wrongWinner": {
+            "decision": "DENY",
+            "expressions": 110,
+            "status": "match",
+            "cause": null,
+            "kind": "match"
+          }
+        },
+        "atPly16": {
+          "decision": "DENY",
+          "expressions": 1000,
+          "status": "false-refusal",
+          "cause": "resource-limit",
+          "kind": "false-refusal/resource-limit"
+        }
+      }
+    ]
+  },
+  "minimizations": [
+    {
+      "fullInitialCastlingRights": true,
+      "attempts": 288,
+      "criterion": "no single removable initial piece preserves the four legal plies, nonterminal prefixes accepted, mate refusal by budget and false-playing acceptance",
+      "seedFen": "r2qk2r/4p3/8/8/8/8/3PPPPP/R2QKBNR w KQkq -",
+      "pieces": 16,
+      "remainingSquares": [
+        "a1",
+        "a8",
+        "d1",
+        "d2",
+        "d8",
+        "e1",
+        "e2",
+        "e7",
+        "e8",
+        "f1",
+        "f2",
+        "g1",
+        "g2",
+        "h1",
+        "h2",
+        "h8"
+      ],
+      "path": [
+        {
+          "uci": "f2f3",
+          "fen": "r2qk2r/4p3/8/8/8/8/3PPPPP/R2QKBNR w KQkq -",
+          "afterFen": "r2qk2r/4p3/8/8/8/5P2/3PP1PP/R2QKBNR b KQkq -",
+          "honest": {
+            "decision": "ALLOW",
+            "expressions": 755,
+            "status": "match",
+            "cause": null,
+            "kind": "match"
+          }
+        },
+        {
+          "uci": "e7e5",
+          "fen": "r2qk2r/4p3/8/8/8/5P2/3PP1PP/R2QKBNR b KQkq -",
+          "afterFen": "r2qk2r/8/8/4p3/8/5P2/3PP1PP/R2QKBNR w KQkq e6",
+          "honest": {
+            "decision": "ALLOW",
+            "expressions": 825,
+            "status": "match",
+            "cause": null,
+            "kind": "match"
+          }
+        },
+        {
+          "uci": "g2g4",
+          "fen": "r2qk2r/8/8/4p3/8/5P2/3PP1PP/R2QKBNR w KQkq e6",
+          "afterFen": "r2qk2r/8/8/4p3/6P1/5P2/3PP2P/R2QKBNR b KQkq g3",
+          "honest": {
+            "decision": "ALLOW",
+            "expressions": 801,
+            "status": "match",
+            "cause": null,
+            "kind": "match"
+          }
+        },
+        {
+          "uci": "d8h4",
+          "fen": "r2qk2r/8/8/4p3/6P1/5P2/3PP2P/R2QKBNR b KQkq g3",
+          "afterFen": "r3k2r/8/8/4p3/6Pq/5P2/3PP2P/R2QKBNR w KQkq -",
+          "honest": {
+            "decision": "DENY",
+            "expressions": 1000,
+            "status": "false-refusal",
+            "cause": "resource-limit",
+            "kind": "false-refusal/resource-limit"
+          },
+          "claims": {
+            "won": {
+              "decision": "DENY",
+              "expressions": 1000,
+              "status": "false-refusal",
+              "cause": "resource-limit",
+              "kind": "false-refusal/resource-limit"
+            },
+            "playing": {
+              "decision": "ALLOW",
+              "expressions": 839,
+              "status": "false-allow",
+              "cause": null,
+              "kind": "false-allow"
+            },
+            "draw": {
+              "decision": "DENY",
+              "expressions": 714,
+              "status": "match",
+              "cause": null,
+              "kind": "match"
+            },
+            "wrongWinner": {
+              "decision": "DENY",
+              "expressions": 110,
+              "status": "match",
+              "cause": null,
+              "kind": "match"
+            }
+          },
+          "atPly16": {
+            "decision": "DENY",
+            "expressions": 1000,
+            "status": "false-refusal",
+            "cause": "resource-limit",
+            "kind": "false-refusal/resource-limit"
+          }
+        }
+      ]
+    },
+    {
+      "fullInitialCastlingRights": false,
+      "attempts": 273,
+      "criterion": "no single removable initial piece preserves the four legal plies, nonterminal prefixes accepted, mate refusal by budget and false-playing acceptance",
+      "seedFen": "3qk2r/4p3/8/8/8/8/3PPPP1/1N1QKB2 w k -",
+      "pieces": 12,
+      "remainingSquares": [
+        "b1",
+        "d1",
+        "d2",
+        "d8",
+        "e1",
+        "e2",
+        "e7",
+        "e8",
+        "f1",
+        "f2",
+        "g2",
+        "h8"
+      ],
+      "path": [
+        {
+          "uci": "f2f3",
+          "fen": "3qk2r/4p3/8/8/8/8/3PPPP1/1N1QKB2 w k -",
+          "afterFen": "3qk2r/4p3/8/8/8/5P2/3PP1P1/1N1QKB2 b k -",
+          "honest": {
+            "decision": "ALLOW",
+            "expressions": 755,
+            "status": "match",
+            "cause": null,
+            "kind": "match"
+          }
+        },
+        {
+          "uci": "e7e5",
+          "fen": "3qk2r/4p3/8/8/8/5P2/3PP1P1/1N1QKB2 b k -",
+          "afterFen": "3qk2r/8/8/4p3/8/5P2/3PP1P1/1N1QKB2 w k e6",
+          "honest": {
+            "decision": "ALLOW",
+            "expressions": 825,
+            "status": "match",
+            "cause": null,
+            "kind": "match"
+          }
+        },
+        {
+          "uci": "g2g4",
+          "fen": "3qk2r/8/8/4p3/8/5P2/3PP1P1/1N1QKB2 w k e6",
+          "afterFen": "3qk2r/8/8/4p3/6P1/5P2/3PP3/1N1QKB2 b k g3",
+          "honest": {
+            "decision": "ALLOW",
+            "expressions": 801,
+            "status": "match",
+            "cause": null,
+            "kind": "match"
+          }
+        },
+        {
+          "uci": "d8h4",
+          "fen": "3qk2r/8/8/4p3/6P1/5P2/3PP3/1N1QKB2 b k g3",
+          "afterFen": "4k2r/8/8/4p3/6Pq/5P2/3PP3/1N1QKB2 w k -",
+          "honest": {
+            "decision": "DENY",
+            "expressions": 1000,
+            "status": "false-refusal",
+            "cause": "resource-limit",
+            "kind": "false-refusal/resource-limit"
+          },
+          "claims": {
+            "won": {
+              "decision": "DENY",
+              "expressions": 1000,
+              "status": "false-refusal",
+              "cause": "resource-limit",
+              "kind": "false-refusal/resource-limit"
+            },
+            "playing": {
+              "decision": "ALLOW",
+              "expressions": 839,
+              "status": "false-allow",
+              "cause": null,
+              "kind": "false-allow"
+            },
+            "draw": {
+              "decision": "DENY",
+              "expressions": 714,
+              "status": "match",
+              "cause": null,
+              "kind": "match"
+            },
+            "wrongWinner": {
+              "decision": "DENY",
+              "expressions": 110,
+              "status": "match",
+              "cause": null,
+              "kind": "match"
+            }
+          },
+          "atPly16": {
+            "decision": "DENY",
+            "expressions": 1000,
+            "status": "false-refusal",
+            "cause": "resource-limit",
+            "kind": "false-refusal/resource-limit"
+          }
+        }
+      ]
+    }
+  ],
+  "seedReduction": "each reduced board is a composed initial seed; only the original starts from a standard signed game"
+}

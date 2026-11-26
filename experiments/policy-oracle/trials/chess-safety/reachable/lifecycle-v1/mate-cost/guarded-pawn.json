@@ -1,0 +1,131 @@
+{
+  "authority": "pinned local complete Rules evaluator",
+  "rulesSha256": "d582f74aa912fcc158a052712d54927bd1df68fdfb5ef1331cfe4254e2ef6fd4",
+  "original": {
+    "seedFen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -",
+    "pieces": 32,
+    "remainingSquares": [
+      "a1",
+      "a2",
+      "a7",
+      "a8",
+      "b1",
+      "b2",
+      "b7",
+      "b8",
+      "c1",
+      "c2",
+      "c7",
+      "c8",
+      "d1",
+      "d2",
+      "d7",
+      "d8",
+      "e1",
+      "e2",
+      "e7",
+      "e8",
+      "f1",
+      "f2",
+      "f7",
+      "f8",
+      "g1",
+      "g2",
+      "g7",
+      "g8",
+      "h1",
+      "h2",
+      "h7",
+      "h8"
+    ],
+    "path": [
+      {
+        "uci": "f2f3",
+        "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -",
+        "afterFen": "rnbqkbnr/pppppppp/8/8/8/5P2/PPPPP1PP/RNBQKBNR b KQkq -",
+        "honest": {
+          "decision": "ALLOW",
+          "expressions": 774,
+          "status": "match",
+          "cause": null,
+          "kind": "match"
+        }
+      },
+      {
+        "uci": "e7e5",
+        "fen": "rnbqkbnr/pppppppp/8/8/8/5P2/PPPPP1PP/RNBQKBNR b KQkq -",
+        "afterFen": "rnbqkbnr/pppp1ppp/8/4p3/8/5P2/PPPPP1PP/RNBQKBNR w KQkq e6",
+        "honest": {
+          "decision": "ALLOW",
+          "expressions": 839,
+          "status": "match",
+          "cause": null,
+          "kind": "match"
+        }
+      },
+      {
+        "uci": "g2g4",
+        "fen": "rnbqkbnr/pppp1ppp/8/4p3/8/5P2/PPPPP1PP/RNBQKBNR w KQkq e6",
+        "afterFen": "rnbqkbnr/pppp1ppp/8/4p3/6P1/5P2/PPPPP2P/RNBQKBNR b KQkq g3",
+        "honest": {
+          "decision": "ALLOW",
+          "expressions": 815,
+          "status": "match",
+          "cause": null,
+          "kind": "match"
+        }
+      },
+      {
+        "uci": "d8h4",
+        "fen": "rnbqkbnr/pppp1ppp/8/4p3/6P1/5P2/PPPPP2P/RNBQKBNR b KQkq g3",
+        "afterFen": "rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq -",
+        "honest": {
+          "decision": "ALLOW",
+          "expressions": 987,
+          "status": "match",
+          "cause": null,
+          "kind": "match"
+        },
+        "claims": {
+          "won": {
+            "decision": "ALLOW",
+            "expressions": 987,
+            "status": "match",
+            "cause": null,
+            "kind": "match"
+          },
+          "playing": {
+            "decision": "ALLOW",
+            "expressions": 878,
+            "status": "false-allow",
+            "cause": null,
+            "kind": "false-allow"
+          },
+          "draw": {
+            "decision": "DENY",
+            "expressions": 733,
+            "status": "match",
+            "cause": null,
+            "kind": "match"
+          },
+          "wrongWinner": {
+            "decision": "DENY",
+            "expressions": 977,
+            "status": "match",
+            "cause": null,
+            "kind": "match"
+          }
+        },
+        "atPly16": {
+          "decision": "ALLOW",
+          "expressions": 987,
+          "status": "match",
+          "cause": null,
+          "kind": "match"
+        }
+      }
+    ]
+  },
+  "minimizations": [],
+  "seedReduction": "each reduced board is a composed initial seed; only the original starts from a standard signed game"
+}
