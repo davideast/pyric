@@ -1,3 +1,10 @@
 {
-  "handwritten": "523c4c137aa00c2c764264aa6c2cefeda7c692561544da45d4fcccf3a2056fda"
+  "handwritten": "523c4c137aa00c2c764264aa6c2cefeda7c692561544da45d4fcccf3a2056fda",
+  "generated": "415c6f0029b3a0eb2b793f882f99dd98a7d4510723e832a814325444438bcf4b",
+  "ordered-errors": "5fdf61e8fb38efd76922bf3733df967d326ca501c0909dd90184523b120f4515",
+  "supplement": {
+    "helper": "  function firstHit(cells) {\n    return cells.stop ? true : cells['missing'] ? false : true;\n  }\n",
+    "binding": "    match /loopEvidence/{id} {\n      allow read: if request.auth != null;\n      allow update: if request.auth != null && request.auth.uid == resource.data.owner && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['checked']) && request.resource.data.checked == true && firstHit(resource.data.cells);\n    }\n",
+    "generatedExecutable": "9e9c88cc8d83c946cd3fcbc4ff92fa2f3fe720615c4e37431d57e3093ebdf44a"
+  }
 }
