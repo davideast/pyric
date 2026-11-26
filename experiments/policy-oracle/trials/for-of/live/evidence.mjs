@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {retained,journal} from '../../chess/verify/journal.mjs';
 import {transition} from '../../chess/verify/document.mjs';
-import {profile,checkBundle} from './fixtures.mjs';
+import * as defaults from './fixtures.mjs';
 
-export function checkRows(rows,ids,pathFor,mode) {
+export function checkRows(rows,ids,pathFor,mode,{profile} = defaults) {
   const spec = profile(mode), cases=spec.cases;
   assert.deepEqual(rows.map(r=>r.id),cases.map(c=>c.id));
   for(const [i,c] of cases.entries()) {
@@ -25,12 +25,13 @@ export function checkRows(rows,ids,pathFor,mode) {
 // Retain complete documents, proposed SDK data, server creation and update times.
 // Replace run-scoped document paths and anonymous identity values in the public
 // replay; the private controller archive is the authority for admitting a run.
-export function qualify(archive,digest,bundle) {
+export function qualify(archive,digest,bundle,fixtures = defaults) {
+  const {profile,checkBundle} = fixtures;
   const raw=retained(archive,digest);
   checkBundle(raw.mode,readFileSync(bundle,'utf8'),raw.rulesSha256);
   const j=journal(archive,raw,digest);
   const ids=j.actors, prefix=profile(raw.mode).collection+'/', match=prefix+raw.runId;
-  checkRows(raw.rows,ids,id=>match+'-'+id,raw.mode);
+  checkRows(raw.rows,ids,id=>match+'-'+id,raw.mode,fixtures);
   const map = new Map(Object.entries(ids).map(([role,uid])=>[uid,role]));
   const redact = x => {
     if(typeof x === 'string') return map.get(x) ?? x.replace(match,prefix+'match');

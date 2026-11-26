@@ -6,10 +6,11 @@ import {fileURLToPath,pathToFileURL} from 'node:url';
 import {manifest,sha} from '../../../arcade/corpus.mjs';
 import {privateArchive} from '../../../arcade/live/controller/archive.mjs';
 import {qualify,checkRows,comparable} from './evidence.mjs';
-import {checkBundle,profile} from './fixtures.mjs';
+import * as defaults from './fixtures.mjs';
 
 const roles={host:'host',guest:'guest',observer:'observer'};
-export async function replay({generated,simulator,archive,ordered}) {
+export async function replay({generated,simulator,archive,ordered}, fixtures = defaults, receipts = new URL('receipts/',import.meta.url)) {
+  const {checkBundle,profile} = fixtures;
   const dist = resolve(simulator,'dist/index.js');
   const {firestoreRules} = await import(pathToFileURL(dist));
   const handwritten = fileURLToPath(new URL('../../chess/bundle/artifacts/stronger.rules',import.meta.url));
@@ -17,7 +18,7 @@ export async function replay({generated,simulator,archive,ordered}) {
   const bundles=[['handwritten',handwritten],['generated',generated]];
   if(ordered) bundles.push(['ordered-errors',ordered]);
   for(const [mode,bundle] of bundles) {
-    const ev = JSON.parse(gunzipSync(readFileSync(new URL('receipts/'+mode+'.json.gz',import.meta.url))));
+    const ev = JSON.parse(gunzipSync(readFileSync(new URL(mode+'.json.gz',receipts))));
     const source = readFileSync(bundle,'utf8');
     checkBundle(mode,source,ev.rulesSha256);
     assert.equal(ev.mode,mode);
@@ -28,8 +29,8 @@ export async function replay({generated,simulator,archive,ordered}) {
       ['restored-closed',manifest.files['v1/rules/closed.rules']],
     ]);
     assert.deepEqual([ev.closure.leaseReleased,ev.closure.signedRead,ev.closure.signedWrite],[true,'DENY','DENY']);
-    if(archive) assert.deepEqual(ev,qualify(privateArchive(archive),ev.privateReceipt,bundle));
-    checkRows(ev.rows,roles,id=>profile(mode).collection+'/match-'+id,mode);
+    if(archive) assert.deepEqual(ev,qualify(privateArchive(archive),ev.privateReceipt,bundle,fixtures));
+    checkRows(ev.rows,roles,id=>profile(mode).collection+'/match-'+id,mode,fixtures);
     if(mode!=='ordered-errors') operands.push(comparable(ev));
     const handle=firestoreRules(source), decisions=[];
     function check(description,method,path,auth,resource,data,expectation) {
