@@ -1,0 +1,101 @@
+{
+  "id": "referee",
+  "receipt": "4dd266ebce15bfeca187bdf59962a9f23dbb63d84fe419334d38e42c064e8a6d",
+  "bundle": "../bundle/artifacts/referee.rules",
+  "report": {
+    "mode": "referee",
+    "runId": "e2d6d3b4-5ee2-41d8-a199-12969352e414",
+    "receipt": "4dd266ebce15bfeca187bdf59962a9f23dbb63d84fe419334d38e42c064e8a6d",
+    "rulesSha256": "0f9aaf7b5c43f7fa4997150903b66495dbe47f3c1a979f6b6555af561f90213e",
+    "activeRuleset": "projects/digame-mas/rulesets/28d0b050-b29a-422e-a16b-32b064c2f6df",
+    "restoredRuleset": "projects/digame-mas/rulesets/9df02e6e-6f71-4dcf-9786-aec7eb444982",
+    "journalSha256": "908d4526b046faf9b084f26a7afb974614e19d60ff06a2599949b431ddb159be",
+    "signedReadersExplicit": false,
+    "exactProtocolIntents": 9,
+    "decisions": {
+      "opening-counter": "DENY",
+      "create": "ALLOW",
+      "cancel-by-guest": "DENY",
+      "cancel-by-host": "ALLOW",
+      "open-match": "ALLOW",
+      "join": "ALLOW",
+      "wrong-turn": "DENY",
+      "wrong-counter": "DENY",
+      "direct-player-move": "DENY"
+    },
+    "special": {
+      "special-castle-black-queenside": "DENY",
+      "special-castle-rook-arrival": "DENY",
+      "special-castle-attacked-transit": "DENY",
+      "special-capture-corner-rights": "DENY",
+      "special-capture-retains-rights": "DENY",
+      "special-en-passant": "DENY",
+      "special-en-passant-captured-pawn": "DENY",
+      "special-en-passant-expires": "DENY",
+      "special-underpromotion-capture": "DENY",
+      "special-promotion-required": "DENY",
+      "special-long-clear-ray": "DENY",
+      "special-long-blocked-ray": "DENY",
+      "special-stalemate": "DENY",
+      "special-ongoing-vs-terminal": "DENY"
+    },
+    "sensitivity": null,
+    "browser": {
+      "chromium": "151.0.7922.34",
+      "clientReplay": {
+        "checks": 16,
+        "originalRefusals": 16,
+        "correctedRefusals": 0,
+        "visibleWarnings": 0
+      },
+      "build": {
+        "arcade": "66e14d4f4b0aeab22c05db8d748704dde053d2e5",
+        "engine": "97dda7add77cb18d132ba1c730bbef24a48870404198d6677cdf0f961a30d212",
+        "native": "053b659b8c4afff692c6607406c0f7100d31392fa65ab4ac00b67a683fc68670",
+        "files": {
+          "assets/BattleshipSpriteSheet-BBWfs0BR.png": "5e017bbd559d3561af5bd13ddda17e03822e6d352b8204c84caa4663635e2a0a",
+          "assets/SpriteSheet-BUIP7ojw.png": "34d12ee3004f77b2dc7d25bb42914c9de0513b75d852b072f6d46dd5bb4b4f63",
+          "assets/Uno-CHvEw0Vh.png": "e111dfe0fed592e6e5183a8a38407f89206d8467ab46c1fd7e6817251f559c41",
+          "assets/index-BdTt9c8x.js": "b864cd6a960b32f1edac960d820a09a2b0bea69bb66b38f9f4786e49556ddbd9",
+          "assets/index-Bn_h1pnp.css": "f4f7ac151176cca5f4e7c602dbf90a763579bf023cc01dfcc7645825f04b6cd6",
+          "assets/index.esm-CTqBRUon.js": "4f0a2a42aa6bddb08ad59ecd493257dd626083e1ed4dd09bd0ae62b490c712b2",
+          "assets/silkscreen-latin-400-normal-CtPo2yA5.woff2": "e6c72ea4702249202bcdd79d3343057e4e25ef1f04e3fcffd8602ab53b40b4cc",
+          "assets/silkscreen-latin-400-normal-D0DfPJut.woff": "45ba6922f8e99d559d77229f7d93d17314e0d582bfd4ce36c4b6858d421bbdde",
+          "index.html": "b4a273efb426fd6c17d95605d4802ada2b7c818b6c247b0e0b539dbd565b53a4"
+        }
+      },
+      "engineSha256": "97dda7add77cb18d132ba1c730bbef24a48870404198d6677cdf0f961a30d212",
+      "matchPolicySha256": "e55d5da74410f0424062d9ce92d00b4c3304e8e30c2d7ed84017850ce5067ed9",
+      "screenshots": [
+        {
+          "file": "opening.png",
+          "sha256": "39d96bb6d7b675a2fc96a10c6063bcb27a834e12e81ebc75299ab523d3fe1aa5"
+        },
+        {
+          "file": "checkmate.png",
+          "sha256": "06285da84eec9f67b0286dfa4deacccc55ba0b18330588a72f246c07dd004123"
+        },
+        {
+          "file": "rematch-resignation.png",
+          "sha256": "9ddadcafa190acc537a09f2b1249beb671d8555afe20163f69da435522ebdebd"
+        },
+        {
+          "file": "stalemate.png",
+          "sha256": "ffceb47d4fc1095fffc3676ffbd0f63f542235a60577ab84a1065be569a829d1"
+        }
+      ],
+      "moveCount": 7,
+      "race": [
+        "committed",
+        "matchVersion"
+      ],
+      "checkmateWinner": "guest",
+      "rematchWinner": "host",
+      "kingSafety": "legalMove",
+      "underpromotion": "wn",
+      "stalemate": "draw",
+      "states": 12
+    }
+  },
+  "engine": "../policies/chess.mjs"
+}
