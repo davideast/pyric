@@ -1,0 +1,5 @@
+{
+  "rulesSha256": "9b31d40d5a1847c7ea8cfa9bb070b1b619919709c9bf4608c2ac977d4906f63f",
+  "file": "../artefacts/combined-bare-packed-v5.rules",
+  "basis": "Exact 81,411-byte linked successor to the fast combined ruleset. Unchanged match/allow clauses and non-chess functions. Replaces per-square sparse table functions with admittedStatus, castleFinish and otherDefenders. Changes safeTransition and boardTransition to consume the computed king reply and status."
+}
