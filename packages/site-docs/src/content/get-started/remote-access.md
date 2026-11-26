@@ -93,12 +93,11 @@ On startup, Pyric prints the pairing path containing the token in the URL fragme
   unlock   open /__pyric/unlock#code=<per-boot-token> on the allowed remote host to pair a browser
 ```
 
-1. Open `https://box.tailnet.ts.net/__pyric/unlock#code=<token>` in your browser (or visit `/__pyric/unlock` and paste the token manually into the Pyric unlock panel).
+1. Open `https://box.tailnet.ts.net/__pyric/unlock#code=<token>` in your browser (or visit `/__pyric/unlock` and paste the token manually).
 2. The page immediately scrubs `#code=` via `history.replaceState` before sending a same-origin `POST /__pyric/unlock`.
-3. Pyric sets a port-scoped `HttpOnly; SameSite=Strict; Path=/__pyric` session cookie (`__pyric_session_<port>`), appending `; Secure` whenever the request arrived over HTTPS or a trusted proxy sending `X-Forwarded-Proto: https`. Two-hop reverse proxies (such as an outer HTTPS tunnel forwarding through a local proxy or Next.js dev server rewrite) are supported when the proxy peer is trusted (`trustProxy`) and the forwarded host is allowlisted.
-4. Subsequent browser loads on `/__pyric/init.json`, `WS /__pyric/sandbox`, `EventSource('/__pyric/events')`, Studio UI (`/__pyric/ui/studio/`), Functions HTTP/Callable routes, activity and state-capture endpoints, avatars, flow modules, and Storage byte routes carry the cookie automatically.
-5. After a dev server restart, a browser holding the previous boot's stale `__pyric_session_<port>` cookie receives `401 invalid-session-token`. Click the runtime chip's Unlock button (or open `/__pyric/unlock`) to re-pair; `POST /__pyric/unlock` overwrites the stale cookie without needing manual DevTools cleanup.
-6. Call `POST /__pyric/logout` from the same origin to revoke the browser cookie (`Max-Age=0`).
+3. Pyric sets a port-scoped `HttpOnly; SameSite=Strict; Path=/__pyric` session cookie (`__pyric_session_<port>`), appending `; Secure` whenever the request arrived over HTTPS or a trusted proxy sending `X-Forwarded-Proto: https`.
+4. Subsequent browser loads on `/__pyric/init.json`, `WS /__pyric/sandbox`, `EventSource('/__pyric/events')`, Studio UI (`/__pyric/ui/studio/`), avatars, flow modules, and Storage byte routes carry the cookie automatically.
+5. Call `POST /__pyric/logout` from the same origin to revoke the browser cookie (`Max-Age=0`).
 
 ## Option 3: Direct LAN or VPN CIDR (`allowPeers`)
 
@@ -140,6 +139,4 @@ Browsers treat `http://localhost` as a Secure Context (`window.isSecureContext =
 - Redirect targets (`?next=`) only accept single-leading-slash relative paths, blocking open redirects (`//evil.example`, `https://evil.example`, `javascript:`, backslashes, and `..` segments).
 - `POST /__pyric/unlock` caps bodies at `1024` bytes (`413`), requires `application/json` and strict same-origin headers (`403`), verifies tokens in constant time, and throttles brute-force guesses (`429` with `Retry-After`).
 - Session cookies stay scoped per listening port (`__pyric_session_<port>`) so a cookie issued on `:5173` never authenticates a second dev server on `:5174`.
-- Functions HTTP/Callable routes, Studio routes, `/__pyric/activity`, and state-capture endpoints enforce the same unified request guard and bounded request body limits (`413 Payload Too Large` on oversized bodies).
-- Storage byte routes and avatar routes serve `Content-Security-Policy: sandbox; default-src 'none'` and `X-Content-Type-Options: nosniff` (with `Content-Disposition: attachment` for active MIME types such as HTML and SVG), and Studio disk routes refuse `.git`, `.npmrc`, credential files, and symlinks escaping the workspace root.
 - See [Vite development setup](./vite.md) and [Node host mode](./node-host.md) for server lifecycle details.

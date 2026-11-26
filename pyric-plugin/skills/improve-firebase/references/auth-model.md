@@ -41,12 +41,10 @@ profile data, and rule behavior — not just SDK call names.
 
 7. **Verify auth-dependent rules.** Exercise signed-out, owner, other-user,
    member, claim-holder, invalid-claim, missing-profile, and disabled cases
-   with `rules` `{ method: 'simulate', args: { service: 'firestore', ... } }`
-   (or `firestore_simulate_rules` on the browser-bridge surface; set the auth context per case) and the
+   with `firestore_simulate_rules` (set the auth context per case) and the
    hosted Rules Test API (`pyric verify --engine rules-test-api|both`),
    with `pyric verify cases` generating the case list from a captured fixture; use
-   `rules` `{ method: 'simulate', args: { service: 'database', ... } }` (or
-   `rtdb_simulate_access` on the browser-bridge surface) for RTDB paths. Complete when the answer names
+   `rtdb_simulate_access` for RTDB paths. Complete when the answer names
    verified behavior and remaining unverified assumptions.
 
 ## Reference — auth design rules

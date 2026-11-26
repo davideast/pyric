@@ -1,12 +1,10 @@
 # Pyric codebase context
 
-Last checked: 2026-11-26. Workspace version `0.1.0-alpha.36` (`@pyric/rules` `0.1.0`), conformance-tested
-against Firebase `13.4.0` (`packages/cli/src/version/compat-target.ts`) and `firebase-admin` `^14.5.1`.
+Last checked: 2026-10-14. Workspace version `0.1.0-alpha.25`, conformance-tested
+against Firebase `12.19.0` (`packages/cli/src/version/compat-target.ts`).
 
 Pyric is a Firebase-shaped development sandbox for people and coding agents.
-It runs Firestore (including named databases), Auth (including Admin session
-cookies), App Check, Realtime Database, Storage (including per-bucket deployed
-rules), Cloud Messaging, Crashlytics, local Cloud Functions triggers, Firebase
+It runs Firestore, Auth, Realtime Database, Storage, Cloud Messaging, Firebase
 AI Logic, Security Rules, and related tooling locally, in TypeScript, without a
 Firebase project or Emulator Suite.
 
@@ -17,12 +15,13 @@ The product boundary is deliberate:
 - `firebase-tools` and the Firebase Console own production deployment.
 
 `PRIORITIES.md` is law for proposed work, and `AGENTS.md` says so plainly:
-judge every proposal against the priority tests before starting it. Since the
-2026-10-14 baseline, the Node host (`pyric sandbox --hosted`), `@pyric/rules`,
-`@pyric/live`, App Check AI Logic enforcement, per-bucket Storage rules,
-Firestore named databases (`getFirestore(app, databaseId)` and `db.databaseId`),
-remote-access `/__pyric/unlock` two-hop proxy pairing, and Wave 2 security
-hardening have landed on `main`. See `PRIORITIES.md` for current status.
+judge every proposal against the priority tests before starting it. As of
+2026-10-14 the priorities, in order, are Ship the Node host (promote
+`pyric sandbox --hosted` to the npm `latest` tag), Ship multi-resource support
+across services (Firestore named databases and per-bucket Storage rules
+reaching the shape RTDB instances already have), Trust, Top of Funnel, and
+Build Velocity and Tech Debt. Multi-tenancy and Impersonation and
+Simplification are done.
 
 ## Workspace map
 
@@ -30,7 +29,6 @@ The repository is a Bun workspace with these principal packages:
 
 | Directory | Package | Role |
 |---|---|---|
-| `packages/rules` | `@pyric/rules` | Standalone Security Rules parser, linter, evaluator, and standard library (zero dependency on `pyric`) |
 | `packages/pyric` | `pyric` | Firebase Web SDK mirrors, sandbox runtime, rules tooling |
 | `packages/pyric-admin` | `pyric-admin` | Firebase Admin-shaped sandbox mirrors |
 | `packages/cli` | `@pyric/cli` | `pyric` binary, Vite/Next/Node resolution seams, Node host, bridge, verify, assurance |

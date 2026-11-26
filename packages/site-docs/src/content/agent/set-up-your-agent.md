@@ -38,19 +38,17 @@ Then invoke the skill:
 | Antigravity CLI | `/pyric` |
 | OpenCode | `/pyric` |
 
-The leading `$` or `/` is part of the command. The skill scaffolds a project if needed, selects the correct launcher, starts the sandbox (Node-hosted or browser bridge), pairs remote browsers when configured, and checks that the sandbox is connected. To expose the backend as tools, configure the client below.
+The leading `$` or `/` is part of the command. The skill scaffolds a project if needed, selects the correct launcher, starts the bridge, opens the app, and checks that the sandbox is connected. To expose the backend as tools, configure the client below.
 
-When using the default browser SharedWorker bridge (`pyric sandbox --bridge` or `pyric({ bridge: true })`), keep the app open in a browser tab while the agent works; if data tools report `sandbox not connected`, open the page and try again. In Node-hosted mode (`pyric sandbox --hosted` or `pyric({ hosted: true })`), or when `pyric mcp` runs its in-process fallback (`.pyric/state/in-process.json`), no browser tab is required.
+One requirement remains: the sandbox lives inside the served page, so keep the app open in a browser tab while the agent works. If data tools return nothing, open the page and try again.
 
 ## Configure a client manually
 
-`pyric mcp` serves the ten-tool product surface (`firestore`, `database`, `storage`, `auth`, `messaging`, `functions`, `rules`, `sandbox`, `assurance`, `ai_logic`, called with `{ method, args }`), routing calls to the running Node host named in `.pyric/serve.json` or to its persisted in-process sandbox when no host is running. Against a browser SharedWorker host (`pyric sandbox --bridge`), `pyric mcp` relays to `/__pyric/mcp` (the flat 47-tool browser-bridge transport surface).
+The seam is one endpoint. `pyric sandbox --bridge` mounts an MCP server on the sandbox server at `/__pyric/mcp`. A client can connect directly or through the stdio proxy, which finds the running server.
 
-Start a host (either Node-hosted or browser bridge):
+Start the bridge:
 
 ```bash
-pyric sandbox --hosted
-# or for the in-page SharedWorker sandbox:
 pyric sandbox --bridge
 ```
 

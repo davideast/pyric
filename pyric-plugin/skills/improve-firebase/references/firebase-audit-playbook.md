@@ -16,9 +16,9 @@ user asks.
    `firebase-tools`. Complete when every service in scope has a ruleset in
    hand (or a finding that none exists, which is itself critical).
 
-2. **Collect data shape.** Map real paths by discovering collections with
-   `firestore` `{ method: 'discoverPaths' }` / `getDocs` (or `firestore_list_documents` on the browser-bridge surface), drilling into what you find; for RTDB use
-   `database` `{ method: 'crawl' }` (or `rtdb_crawl_structure` on the browser-bridge surface). Complete when each top-level collection/path has a
+2. **Collect data shape.** Map real paths by listing collections with
+   `firestore_list_documents`, drilling into what you find; for RTDB use
+   `rtdb_crawl_structure`. Complete when each top-level collection/path has a
    known shape and sample.
 
 3. **Collect auth posture.** Read provider configuration from the Firebase
@@ -39,10 +39,9 @@ user asks.
    dead-rule.
 
 5. **Verify the sharp findings.** Prove each critical/high finding with
-   `rules` `{ method: 'lint' }` and `rules` `{ method: 'simulate' }` (or browser-bridge aliases
-   `firestore_lint_rules`, `firestore_simulate_rules`, and `rtdb_simulate_access`; vary the auth context:
+   `firestore_lint_rules`, `firestore_simulate_rules` (vary the auth context:
    signed-out, owner, other user, claim-holder), the hosted Rules Test API
-   (`pyric verify --engine rules-test-api|both`), or `pyric verify --engine staging` for RTDB.
+   (`pyric verify --engine rules-test-api|both`), or `rtdb_simulate_access`.
    Complete when every critical/high finding cites a simulation, test, or
    lint result, not just a reading of the rules.
 

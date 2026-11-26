@@ -97,8 +97,7 @@ bun -e "const m = await import('pyric/rules'); console.log(typeof m.rtdbRules, t
 ```
 
 Expected output is `function function`. If `rtdbRules` is `undefined`, the
-installed `pyric` predates it. Say so, use `rules` `{ method: 'simulate', args: { service: 'database', ... } }`
-(or `rtdb_simulate_access` on the browser-bridge surface)
+installed `pyric` predates it. Say so, use the `rtdb_simulate_access` tool
 against the sandbox instead, and name the version requirement in the report.
 
 ### Run an allowed case and its denied neighbors
@@ -199,7 +198,7 @@ written value.
 
 | Question | Layer | Needs | Evidence it gives |
 |---|---|---|---|
-| Does this rule allow or deny this request? | Rules-only simulation (`rtdbRules(...).simulate`, `assertCase`, `rules` `simulate`, or `rtdb_simulate_access`) | Rules JSON and case data | Behavior for the modeled cases, and coverage of the rules |
+| Does this rule allow or deny this request? | Rules-only simulation (`rtdbRules(...).simulate`, `assertCase`, `rtdb_simulate_access`) | Rules JSON and case data | Behavior for the modeled cases, and coverage of the rules |
 | Does the app's SDK code, identity, listeners and transactions hit the rules correctly? | Local SDK integration (sandbox with `withAuth` contexts) | `initializeSandbox`, `pyric/database`, signed-in contexts | The local implementation handling real calls |
 | Would a captured session change verdicts under new rules? | `pyric verify --service rtdb --rules rtdb=database.rules.json` | A captured session | Divergences between old and new rules on the sandbox engine |
 | Does Firebase itself agree for this ruleset? | `pyric verify --engine sandbox --engine staging` (or Live verification) | A captured session and a real RTDB instance (enrolled with `verify staging init`) | Production verdicts vs local sandbox replays for your exact traffic |

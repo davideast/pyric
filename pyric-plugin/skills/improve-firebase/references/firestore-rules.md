@@ -19,8 +19,7 @@ Answer three questions about a ruleset, with evidence:
    signatures for the selected modules. Never copy module bodies.
 
 3. **Resolve and lint.** Resolve `firestore.modules.rules` to a temporary file,
-   compare it with `firestore.rules`, then run `rules` `{ method: 'lint', args: { service: 'firestore', ... } }`
-   (`pyric rules lint --service firestore`, or `firestore_lint_rules` on the browser-bridge surface) on the
+   compare it with `firestore.rules`, then run `firestore_lint_rules` on the
    generated output. Carry source/artifact drift and lint findings into the
    report.
 
@@ -48,8 +47,7 @@ Answer three questions about a ruleset, with evidence:
    every wildcard's reach is stated.
 
 7. **Prove the findings.** Back each critical/high finding with
-   `rules` `{ method: 'simulate', args: { service: 'firestore', ... } }` / `pyric rules simulate --service firestore`
-   (or `firestore_simulate_rules` on the browser-bridge surface; vary
+   `firestore_simulate_rules` / `pyric rules simulate --service firestore` (vary
    auth context, operation, and for `list` pass `query.where` to check the
    separate `queryProof.verdict` alongside `decision`) or the hosted
    Rules Test API, reached with `pyric verify --engine rules-test-api|both`;

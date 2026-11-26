@@ -22,7 +22,7 @@ Three rules govern it:
 
 The same tested-against version appears everywhere a user forms an impression: the README badge, the npm description, `pyric --version`, and the docs header.
 
-Today: pyric's pinned conformance version is 13.4.0 (`firebase-admin` `^14.5.1`, workspace `0.1.0-alpha.36`; run `npm view @pyric/cli dist-tags` for the live npm tags). An `exp` publish moves no `fb` tag, so `fb13.4` appears only when a `latest` or `next` publish passes `compat:check` against that pin. Until then, `npm install pyric@exp` gets the prerelease tested against 13.4.0. An `fb` tag can point at an alpha release -- compatibility and stability are separate claims, and `alpha`, `latest`, and `fb13.4` can all resolve to the same publish, each making its own.
+Today: pyric's pinned conformance version is 12.19.0, and the newest `fb` tag is `fb12.13`, which points at alpha.24. An `exp` publish moves no `fb` tag, so `fb12.19` appears only when a `latest` or `next` publish passes `compat:check` against that pin. Until then, `npm install pyric@fb12.19` fails, and `npm install pyric@exp` gets the release tested against 12.19. A `fb` tag can point at an alpha release — compatibility and stability are separate claims, and `alpha`, `latest`, and `fb12.19` can all resolve to the same publish, each making its own.
 
 Bumping the pinned Firebase version re-snapshots the upstream surface; the diff is the worklist, and the new line's tag appears only when `compat:check` passes against the new pin.
 

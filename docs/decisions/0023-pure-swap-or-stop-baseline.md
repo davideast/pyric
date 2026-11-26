@@ -52,7 +52,3 @@ Where Pyric cannot guarantee synchronous module swap-or-stop on a baseline surfa
 - **Simpler, deterministic safety boundary:** Safety rests entirely on module resolution (`swap-or-stop`), worker/child preload propagation, static bundle scanning, and `@pyric/live` SDK-level project gates -- with zero monkey-patching of Node's networking stack.
 - **No silent unswapped execution on baseline surfaces:** Invoking `pyric sandbox` with `bun`/`deno`, running `@pyric/cli/register` or Vite on Node `< 22.15`, or running `withPyric` with Next.js Edge routes fails fast before application code can contact a live project such as `users/$uid` or `items/{id}`.
 - **Outbound non-Firebase HTTP is unimpeded:** Application code calling third-party APIs, local model servers, or custom telemetry endpoints never contends with socket or Undici hooks. Direct REST/`fetch` calls to Google endpoints that bypass the Firebase SDK are outside Pyric's module boundary by design.
-
-## Amendments
-
-- **2026-11-25 (#1609, PR #3386):** Sandbox-mode module swap-or-stop (`@pyric/cli/register` and Vite SSR `installViteProcessStop`) also stops direct application imports of `@google-cloud/firestore` and `@google-cloud/storage` with `PYRIC_REAL_SDK_STOPPED` before any socket or DNS call, aligning sandbox mode with `@pyric/live`.

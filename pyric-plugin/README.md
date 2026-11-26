@@ -2,34 +2,21 @@
 
 Drive a local Firebase sandbox from a coding agent with zero manual MCP wiring.
 
-The plugin declares a stdio MCP server that runs `pyric mcp` (`@pyric/cli@latest`).
-`pyric mcp` serves the ten-tool product surface (`firestore`, `database`,
-`storage`, `auth`, `messaging`, `functions`, `rules`, `sandbox`, `assurance`,
-`ai_logic`), where each call takes `{ method, args }`. It discovers a running
-host from the project's `.pyric/serve.json` pointer (never auto-attaching via a
-port scan that could belong to another project) and falls back to an in-process
-sandbox persisted in `.pyric/state/in-process.json` when no host is running. If
-the running host is a browser SharedWorker host (`pyric sandbox --bridge` or
-Vite `pyric({ bridge: true })`), `pyric mcp` relays to `http://<addr>:<port>/__pyric/mcp`
-(the 47-tool browser-bridge transport surface). There is no fixed port to
-configure.
+`pyric sandbox --bridge` exposes an MCP endpoint at a runtime port
+(`http://localhost:<PORT>/__pyric/mcp`) that a static `.mcp.json` can't name.
+The agent plugin bridges that with a **stdio MCP proxy**: it declares a stdio
+server that runs `pyric mcp`, which discovers the live serve (from the
+`.pyric/serve.json` pointer serve writes, else a port scan) and relays the
+protocol. There is no fixed port to configure.
 
 ## What it provides
 
-- **`pyric` MCP server** (`.mcp.json`) serves the ten service tools (`sandbox`
-  `inspect`, `rules` `lint`/`simulate`/`set`, `firestore`, `database`,
-  `storage`, `auth`, `messaging`, `functions`, `assurance`, `ai_logic`), routing
-  to the project's Node host, browser bridge, or local in-process sandbox.
-- **`pyric` skill** installs `@pyric/cli@latest`, configures the current `pyric`
-  Vite plugin, Next.js `withPyric`, or `pyric sandbox` launcher (in-page or
-  Node-hosted), handles remote workstation `/__pyric/unlock` pairing when
-  configured, and checks `/__pyric/health`.
-- **`improve-firebase` skill** audits a Firebase application using Pyric's
-  analyzers, sandbox, captured journeys, and `pyric verify`, writes
-  self-contained plans, verifies before/after builds, and records evidence
-  videos when requested.
-- **`pyric-inpage-sandbox` skill** embeds `pyric/*` mirrors directly into
-  standalone HTML pages or browser artifacts with no CLI or dev server.
+- **`pyric` MCP server** (`.mcp.json`) auto-connects to the running sandbox
+  via the stdio proxy. Gives the agent the sandbox tools (data plane, rules
+  lint/simulate, `sandbox_inspect`).
+- **`pyric` skill** installs `@pyric/cli@latest`, configures the
+  current `pyric` Vite plugin, starts one bridge, and opens the app so the
+  in-page sandbox connects.
 - **`pyric` agent** provides sandbox operating knowledge for common Pyric workflows.
 
 ## Install
@@ -62,19 +49,16 @@ Antigravity CLI and OpenCode install `pyric` as a standalone skill and use
 
 ## How it connects (no manual steps)
 
-1. Start one launcher: `pyric({ hosted: true })` / `pyric sandbox --hosted` for
-   the Node host (recommended when you want zero browser-tab requirement and
-   SQLite persistence), `pyric({ bridge: true })` / `pyric sandbox --bridge` for
-   the browser SharedWorker sandbox, or no host at all to let `pyric mcp` use
-   its persisted in-process sandbox in `.pyric/state/in-process.json`.
-2. Running hosts write `.pyric/serve.json` with the bound port and session
-   metadata. `pyric mcp` reads that pointer and routes calls automatically.
+1. `pyric` configures the current `@pyric/cli` Vite plugin or runs the
+   project-local `pyric sandbox --bridge`. The sandbox server writes
+   `.pyric/serve.json` with the bound port.
+2. The plugin's stdio server (`pyric mcp`) reads that pointer and relays
+   stdio to `http://<addr>:<port>/__pyric/mcp`.
 3. Claude Code auto-reconnects if `pyric sandbox` restarts.
 
-Only the browser SharedWorker mode (`bridge: true` / `--bridge`) requires an
-open app tab so the in-page sandbox stays connected; Node-hosted mode
-(`hosted: true` / `--hosted`) and `pyric mcp`'s in-process fallback work with no
-browser page open.
+Requirement the plugin can't remove: the served **page must be open** (the
+sandbox lives in it). The start skill opens it; if data tools do nothing,
+re-open the page.
 
 ## Status
 

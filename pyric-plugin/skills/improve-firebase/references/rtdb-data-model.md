@@ -10,8 +10,7 @@ pagination, and query shape — so design paths around the reads.
    order, what filters, how many items. Complete when every read is listed
    with its expected payload size.
 
-2. **Survey existing data** (when a database exists). `database` `{ method: 'crawl' }`
-   (`pyric database crawl`, or `rtdb_crawl_structure` on the browser-bridge surface)
+2. **Survey existing data** (when a database exists). `rtdb_crawl_structure`
    maps the tree; the Realtime Database SDK's `get` samples nodes. Complete
    when current shape and sizes are known.
 

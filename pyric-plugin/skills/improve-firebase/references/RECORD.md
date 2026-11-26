@@ -53,8 +53,7 @@ Key fields:
 
 ### From an assurance export
 
-Record straight from a Pyric assurance export (the `assurance` `{ method: 'export' }`
-or `firebase_assurance_export`
+Record straight from a Pyric assurance export (the `firebase_assurance_export`
 bundle) with `--campaign <export.json> --probe <id>`, plus a scenario override
 for what the export can't know:
 

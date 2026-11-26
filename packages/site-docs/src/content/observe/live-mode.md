@@ -291,7 +291,7 @@ Pyric sees a call only when it goes through your app's `firebase/app`, `firebase
 
 Live mode still refuses these:
 
-- **`@google-cloud/firestore` and `@google-cloud/storage`** imported directly by your own code in a Node process under `@pyric/live/register`. Both imports fail with `PYRIC_REAL_SDK_STOPPED`. Use `firebase/firestore` / `firebase-admin/firestore` and `firebase/storage` / `firebase-admin/storage` instead.
+- **`@google-cloud/firestore`** imported by your own code in a Node process under `@pyric/live/register`. The import fails with `PYRIC_REAL_SDK_STOPPED`. Use `firebase/firestore` or `firebase-admin/firestore` instead.
 - **An Admin call to another project**, and a Realtime Database instance live mode can't tell is your project's. See [Which project it reaches](#which-project-it-reaches).
 - **A second copy of the SDK on a page.** Importing an SDK file the page already loaded under another URL that reaches the dev server, such as the same URL with an extra query, fails with `PYRIC_LIVE_REFUSED`.
 

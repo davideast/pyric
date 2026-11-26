@@ -10,23 +10,20 @@ Run a fully functional, in-memory Firestore, Storage, and Auth sandbox directly 
 
 ## Core API & Package Imports
 
-In-page browser scripts interact with Pyric's public modular subpaths:
+In-page browser scripts interact with four primary Pyric modules:
 
 | Subpath | Key Exports | Role |
 | :--- | :--- | :--- |
 | `pyric/sandbox` | `initializeSandbox`, `SandboxContext` | Root sandbox lifecycle and identity handles |
-| `pyric/firestore` | `getFirestore`, `collection`, `doc`, `addDoc`, `updateDoc`, `deleteDoc`, `onSnapshot`, `query`, `orderBy`, `where` | Modular Web-SDK Firestore mirrors (also `pyric/firestore/lite`) |
+| `pyric/firestore` | `getFirestore`, `collection`, `doc`, `addDoc`, `updateDoc`, `deleteDoc`, `onSnapshot`, `query`, `orderBy`, `where` | Modular Web-SDK Firestore mirrors (routes to local sandbox) |
 | `pyric/sandbox/firestore` | `setRules`, `seedDocuments`, `inspect`, `snapshotDocuments` | Service-specific sandbox controls for Firestore |
-| `pyric/storage` | `getStorageSandbox`, `getStorage`, `ref`, `uploadBytes`, `getDownloadURL`, `deleteObject`, `uploadString`, `getMetadata`, `updateMetadata`, `listAll` | Modular Web-SDK Storage mirror & local IDB storage engine |
+| `pyric/storage` | `getStorageSandbox`, `getStorage`, `ref`, `uploadBytes`, `getDownloadURL`, `deleteObject`, `uploadString`, `getMetadata`, `updateMetadata` | Modular Web-SDK Storage mirror & local IDB storage engine |
 | `pyric/auth` | `getAuth`, `signInAnonymously`, `signOut`, `onAuthStateChanged`, `signInWithEmailAndPassword`, `createUserWithEmailAndPassword`, `updateProfile`, `signInWithPopup`, `GoogleAuthProvider`, `sandbox as authSandbox` | Modular Web-SDK Auth mirror & sandbox driver for Auth |
-| `pyric/app-check` | `initializeAppCheck`, `getToken`, `getLimitedUseToken`, `CustomProvider`, `ReCaptchaV3Provider` | Modular Web-SDK App Check mirror with local token minting |
 | `pyric/messaging` | `getMessaging`, `getToken`, `deleteToken`, `onMessage`, `isSupported`, `sandbox as messagingSandbox` | Modular Web-SDK Cloud Messaging (FCM) client mirror & test delivery driver |
 | `pyric/ai` | `getAI`, `getGenerativeModel`, `Schema`, `ObjectSchema`, `StringSchema`, `ArraySchema` | Modular Web-SDK Firebase AI Logic mirror over local answer engine |
 | `pyric/ai/scripting` | `script` | Sandbox-only deterministic response scripting for local prototypes & tests |
 | `pyric/database` | `getDatabase`, `ref`, `child`, `get`, `set`, `update`, `remove`, `push`, `onValue`, `serverTimestamp` | Modular Web-SDK Realtime Database mirror (routes to local RtdbBackend tree) |
 | `pyric/sandbox/database` | `setRules`, `setData`, `getActiveRules`, `snapshotState` | Service-specific rules and fixture controls for Realtime Database |
-| `pyric/functions` | `getFunctions`, `httpsCallable`, `httpsCallableFromURL`, `connectFunctionsEmulator` | Modular Web-SDK Callable Functions client mirror |
-| `pyric/crashlytics` | `getCrashlytics`, `log`, `recordError`, `setCustomKey`, `setUserId` | Local Crashlytics telemetry broker (plus React/Next/Router/Angular adapters) |
 
 > [!IMPORTANT]
 > Always import from public modular paths (`pyric/sandbox`, `pyric/firestore`, `pyric/sandbox/firestore`, `pyric/storage`, `pyric/auth`, `pyric/messaging`, `pyric/ai`, `pyric/ai/scripting`, `pyric/database`, and `pyric/sandbox/database`). Do not import from internal paths in application code. Note that both `pyric/storage` and `pyric/database` export `ref`, so alias your imports (`import { ref as rtdbRef } from 'pyric/database'`) to prevent symbol collisions.

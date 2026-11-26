@@ -64,15 +64,14 @@ const { pyric } = await import(pathToFileURL(createRequire(new URL("../tools/pac
 | Flag | Meaning |
 |---|---|
 | `--port <number>` | Set the first port to try. The default is `3473`. Pyric scans forward if it is taken. |
-| `--host <host>` | Set the bind host. The default is `localhost`. Sandbox, Studio, MCP, activity, state-capture, and Functions HTTP/Callable routes all enforce the unified request guard and require loopback by default (or explicit `allowedHosts`, `allowPeers`/`trustProxy`, and per-boot session pairing via `/__pyric/unlock`). |
-| `--hosted` | Run the sandbox in the Node host process (persisted in `.pyric/state/hosted/state.sqlite`) so data-plane tools work without an open browser tab. Mounts the bridge automatically; drop `--bridge` and `--persist`. |
-| `--bridge` | Mount MCP at `/__pyric/mcp` for a browser SharedWorker sandbox. |
+| `--host <host>` | Set the bind host. The default is `localhost`. A client on another machine still reaches hosted files and Functions HTTP routes, and those functions can write through `firebase-admin`, so the backend is not private on your network. Sandbox, Studio, and MCP routes answer clients on this machine only. |
+| `--bridge` | Mount MCP at `/__pyric/mcp`. |
 | `--ui` | Open Studio instead of the served application. Studio is served by default. |
 | `--no-ui` | Do not serve Studio, docs, workspace, or project routes. |
 | `--no-open` | Do not open a browser. Browser opening is also disabled for `--json`, CI, and non-interactive output. |
 | `--seed <file>` | Load a JSON document map or a Pyric state file. |
 | `--persist` | Save documents and auth users to `.pyric/state/state.json`. |
-| `--fresh` | With `--hosted` or `--persist`, discard or archive existing saved state before startup. |
+| `--fresh` | With `--persist`, discard existing saved state before startup. |
 | `--no-watch` | Disable Firestore, Realtime Database, and Storage rules hot reload. |
 | `--no-capture` | Do not write `.pyric/last-session.json`. |
 | `--no-cache` | Rebuild browser SDK bundles. |
@@ -80,9 +79,7 @@ const { pyric } = await import(pathToFileURL(createRequire(new URL("../tools/pac
 | `--json` | Print one machine-readable readiness line. A configured command is skipped unless it is also supplied explicitly. |
 | `--project <id>` | Set the Firebase project, a project id or a `.firebaserc` alias. It names the default Realtime Database instance, selects `.firebaserc` deploy targets, and labels the bridge. |
 | `--permissive` | Allow unauthenticated RTDB access when no RTDB rules file exists. Use only for local prototypes. |
-| `--allowed-host <host>` | Add allowed Host headers (exact hostnames or leading-dot suffixes with at least two DNS labels). Use commas for multiple hosts. |
-| `--allow-remote-peers <spec>` | Remote TCP peer policy: `loopback` (default), comma-separated IP/CIDR list, or `any`. Still requires explicit `--allowed-host` and `/__pyric/unlock` session pairing. |
-| `--trust-proxy <spec>` | Proxy peers whose forwarded headers (`X-Forwarded-Host`, `X-Forwarded-Proto`) are trusted: `false` (default), `loopback`, or comma-separated IP/CIDR list. |
+| `--allowed-host <host>` | Add allowed Host headers. Use commas for multiple hosts. |
 | `--only hosting` | Accepted for Firebase CLI compatibility. Hosting is the only supported value. |
 
 ## Auth identity
