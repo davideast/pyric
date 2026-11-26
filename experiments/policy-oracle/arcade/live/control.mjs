@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { setTimeout as delay } from 'node:timers/promises';
 import { manifest, sha } from '../corpus.mjs';
 
 const { project, database, uid, closedRuleset } = manifest.target;
@@ -8,18 +9,33 @@ export const dbName = projectPath + '/databases/' + database;
 export const dbUrl = 'https://firestore.googleapis.com/v1/' + dbName;
 const rulesApi = 'https://firebaserules.googleapis.com/v1/';
 export const releaseName = projectPath + '/releases/cloud.firestore/' + database;
-let accessToken;
+let accessToken, nextManagementRead = 0;
 
 export async function api(url, method = 'GET', body) {
   assert.ok(['firestore.googleapis.com', 'firebaserules.googleapis.com', 'firebase.googleapis.com'].includes(new URL(url).hostname));
   accessToken ??= execFileSync('gcloud', ['auth', 'print-access-token'], { encoding: 'utf8' }).trim();
-  const response = await fetch(url, {
-    method, headers: { Authorization: 'Bearer ' + accessToken, 'x-goog-user-project': project, 'Content-Type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body), redirect: 'error', signal: AbortSignal.timeout(30000),
-  });
-  const data = await response.json();
-  if (!response.ok) throw new Error(method + ' ' + new URL(url).pathname + ' ' + response.status + ' ' + data.error?.status);
-  return data;
+  const readRules = method === 'GET' && new URL(url).hostname === 'firebaserules.googleapis.com';
+  for (let attempt = 0; ; attempt++) {
+    if (readRules) {
+      const time = Math.max(Date.now(), nextManagementRead);
+      nextManagementRead = time + 1700;
+      await delay(Math.max(0,time-Date.now()));
+    }
+    const response = await fetch(url, {
+      method, headers: { Authorization: 'Bearer ' + accessToken, 'x-goog-user-project': project, 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body), redirect: 'error', signal: AbortSignal.timeout(30000),
+    });
+    const data = await response.json();
+    if (readRules && [429, 503].includes(response.status) && attempt < 8) {
+      const quota = data.error?.details?.find(d => d.metadata?.quota_limit)?.metadata?.quota_limit;
+      const retry = Number(response.headers.get('retry-after')) || Math.min(90, 15*(attempt+1));
+      console.log('Pacing rules management reads',response.status,quota || '',retry,'s');
+      await delay(retry*1000);
+      continue;
+    }
+    if (!response.ok) throw new Error(method + ' ' + new URL(url).pathname + ' ' + response.status + ' ' + data.error?.status);
+    return data;
+  }
 }
 export async function currentRelease() {
   const value = await api(rulesApi + releaseName);

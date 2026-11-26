@@ -1,0 +1,139 @@
+use extension bounded;
+
+// Positions use a8..h1 (0..63). UCI moves name both squares and an optional promotion.
+function rank(sq) { return sq / 8; }
+function file(sq) { return sq % 8; }
+function squareName(sq) { return 'abcdefgh'[file(sq)] + '87654321'[rank(sq)]; }
+function squareAt(s, i) {
+  let x = locate('abcdefgh', s[i]);
+  let y = locate('87654321', s[i+1]);
+  return x < 0 || y < 0 ? -1 : y*8+x;
+}
+function other(turn) { return turn == 'w' ? 'b' : 'w'; }
+function pawnDir(turn) { return turn == 'w' ? -1 : 1; }
+function home(turn) { return turn == 'w' ? 60 : 4; }
+function kingRight(turn) { return turn == 'w' ? 'K' : 'k'; }
+function queenRight(turn) { return turn == 'w' ? 'Q' : 'q'; }
+function belongs(piece,turn) { return piece != '' && piece[0] == turn; }
+function knownPiece(piece) {
+  return kind(piece) == 'string' && (piece == '' || (size(piece) == 2 && locate('wb',piece[0]) >= 0 && locate('pnbrqk',piece[1]) >= 0));
+}
+function validPosition(p) {
+  return kind(p) == 'object' && kind(p.board) == 'list' && size(p.board) == 64
+    && (p.turn == 'w' || p.turn == 'b') && kind(p.castling) == 'string' && size(p.castling) <= 4
+    && !bounded.any(range(size(p.castling)), i => locate('KQkq', p.castling[i]) < 0 || locate(p.castling,p.castling[i]) != i, 4)
+    && kind(p.enPassant) == 'number'
+    && (p.enPassant == -1 || (p.enPassant >= 0 && p.enPassant < 64 && rank(p.enPassant) == (p.turn == 'w' ? 2 : 5)))
+    && !bounded.any(p.board, piece => !knownPiece(piece), 64)
+    && size(bounded.select(p.board, piece => piece == 'wk', 64)) == 1
+    && size(bounded.select(p.board, piece => piece == 'bk', 64)) == 1;
+}
+
+// A ray excludes both endpoints. Blockers may have either color.
+function clearRay(board, from, to, dx, dy) {
+  let distance = abs(dx) > abs(dy) ? abs(dx) : abs(dy);
+  let stride = sign(dy)*8+sign(dx);
+  return !bounded.any(range(distance-1), i => board[from+(i+1)*stride] != '', 7);
+}
+function attacks(board, from, to) {
+  let piece = board[from];
+  let k = piece[1];
+  let dx = file(to)-file(from);
+  let dy = rank(to)-rank(from);
+  let ax = abs(dx);
+  let ay = abs(dy);
+  let diagonal = ax == ay;
+  let straight = ax == 0 || ay == 0;
+  return from == to ? false
+    : k == 'p' ? ax == 1 && dy == pawnDir(piece[0])
+    : k == 'n' ? ax*ay == 2
+    : k == 'k' ? ax <= 1 && ay <= 1
+    : ((diagonal && (k == 'q' || k == 'b')) || (straight && (k == 'q' || k == 'r'))) && clearRay(board,from,to,dx,dy);
+}
+function underAttack(board, target, by) {
+  return bounded.any(range(64), sq => belongs(board[sq],by) && attacks(board,sq,target), 64);
+}
+function checked(board, side) { return underAttack(board,locate(board,side+'k'),other(side)); }
+export function inCheck(p) { return validPosition(p) ? checked(p.board,p.turn) : fail('invalidPosition'); }
+
+function canCastle(p, from, to) {
+  let kingSide = to > from;
+  let step = kingSide ? 1 : -1;
+  let flag = kingSide ? kingRight(p.turn) : queenRight(p.turn);
+  let rook = from + (kingSide ? 3 : -4);
+  return from == home(p.turn) && to == from+2*step && locate(p.castling,flag) >= 0
+    && p.board[rook] == p.turn+'r' && p.board[from+step] == '' && p.board[to] == ''
+    && (kingSide || p.board[from-3] == '')
+    && !underAttack(p.board,from,other(p.turn)) && !underAttack(p.board,from+step,other(p.turn));
+}
+function pawnStep(p, from, to) {
+  let dx = abs(file(to)-file(from));
+  let dy = rank(to)-rank(from);
+  let dir = pawnDir(p.turn);
+  let target = p.board[to];
+  return dx == 1 && dy == dir
+    ? target != '' || (to == p.enPassant && p.board[to-dir*8] == other(p.turn)+'p')
+    : dx == 0 && target == '' && (dy == dir || (dy == 2*dir && rank(from) == (p.turn == 'w' ? 6 : 1) && p.board[from+8*dir] == ''));
+}
+function shape(p, from, to) {
+  let piece = p.board[from];
+  let target = p.board[to];
+  return from != to && belongs(piece,p.turn) && !belongs(target,p.turn) && target != other(p.turn)+'k'
+    && (piece[1] == 'p' ? pawnStep(p,from,to)
+      : piece[1] == 'k' && abs(to-from) == 2 ? canCastle(p,from,to)
+      : attacks(p.board,from,to));
+}
+function moveRook(board, from, to) {
+  let kingSide = from < to;
+  let rook = from+(kingSide ? 3 : -4);
+  let next = from+(kingSide ? 1 : -1);
+  return replaceAt(replaceAt(board,next,board[rook]),rook,'');
+}
+function nextBoard(p, from, to, promotion) {
+  let piece = p.board[from];
+  let moved = replaceAt(replaceAt(p.board,from,''),to,promotion == '' ? piece : p.turn+promotion);
+  return piece[1] == 'p' && to == p.enPassant && p.board[to] == '' ? replaceAt(moved,to-pawnDir(p.turn)*8,'')
+    : piece[1] == 'k' && abs(to-from) == 2 ? moveRook(moved,from,to) : moved;
+}
+function needsPromotion(p, from, to) {
+  return p.board[from][1] == 'p' && rank(to) == (p.turn == 'w' ? 0 : 7);
+}
+function legalPair(p, from, to) {
+  // Replacing a pawn by any promotion piece preserves own-king attack occupancy.
+  return shape(p,from,to) && !checked(nextBoard(p,from,to,''),p.turn);
+}
+function movesAt(p, from) {
+  let destinations = bounded.select(range(64), to => legalPair(p,from,to), 64);
+  return bounded.flatMap(destinations, to => needsPromotion(p,from,to)
+    ? bounded.map(['b','n','q','r'], promotion => squareName(from)+squareName(to)+promotion, 4)
+    : [squareName(from)+squareName(to)], 64);
+}
+function moves(p) {
+  let owned = bounded.select(range(64), sq => belongs(p.board[sq],p.turn), 64);
+  return sorted(bounded.flatMap(owned, sq => movesAt(p,sq), 64));
+}
+export function legalMoves(p) { return validPosition(p) ? moves(p) : fail('invalidPosition'); }
+function flagForCorner(sq) { return sq == 0 ? 'q' : sq == 7 ? 'k' : sq == 56 ? 'Q' : sq == 63 ? 'K' : ''; }
+function nextRights(p,from,to) {
+  let flags = p.board[from][1] == 'k' ? omit(omit(p.castling,kingRight(p.turn)),queenRight(p.turn)) : p.castling;
+  return omit(omit(flags,flagForCorner(from)),flagForCorner(to));
+}
+function applyParsed(p,from,to,promotion) {
+  let valid = from >= 0 && to >= 0 && legalPair(p,from,to)
+    && (needsPromotion(p,from,to) ? size(promotion) == 1 && locate('bnqr',promotion) >= 0 : promotion == '');
+  return !valid ? fail('illegalMove') : {
+    'board':nextBoard(p,from,to,promotion), 'turn':other(p.turn), 'castling':nextRights(p,from,to),
+    'enPassant':p.board[from][1] == 'p' && abs(to-from) == 16 ? (from+to) / 2 : -1
+  };
+}
+export function apply(p,uci) {
+  return !validPosition(p) ? fail('invalidPosition')
+    : kind(uci) != 'string' || (size(uci) != 4 && size(uci) != 5) ? fail('illegalMove')
+    : applyParsed(p,squareAt(uci,0),squareAt(uci,2),size(uci) == 5 ? uci[4] : '');
+}
+function hasMove(p) {
+  return bounded.any(range(64), from => belongs(p.board[from],p.turn) && bounded.any(range(64), to => legalPair(p,from,to), 64), 64);
+}
+export function outcome(p) {
+  return !validPosition(p) ? fail('invalidPosition') : hasMove(p) ? 'playing' : checked(p.board,p.turn) ? 'checkmate' : 'stalemate';
+}

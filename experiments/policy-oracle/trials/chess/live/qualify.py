@@ -1,0 +1,42 @@
+"""Qualify complete bundles serially against the named database pinned by the live controller."""
+import argparse
+import hashlib
+import subprocess
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+PROFILES = ("stock", "compatibility", "stronger", "referee")
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("archive", type=Path)
+    parser.add_argument("client_build", type=Path)
+    parser.add_argument("engine", type=Path)
+    parser.add_argument("profiles", nargs="+", choices=PROFILES)
+    args = parser.parse_args()
+    embedded = args.client_build / "games/chess/src/policy.mjs"
+    if embedded.read_bytes() != args.engine.read_bytes():
+        parser.error("the client build and referee must use the same engine")
+    results = {}
+    for profile in args.profiles:
+        bundle = HERE.parent / "bundle/artifacts" / (profile + ".rules")
+        check = HERE.parent / "bundle/placement/check.py"
+        gate = ["python3", check, profile, bundle]
+        if profile == "referee":
+            gate.extend([args.engine, args.engine.with_name("chess-match.mjs"),
+                         HERE.parent / "policies/lock.json", "--require-complete"])
+        else:
+            gate.extend(["-", "-", "-"])
+        subprocess.run(gate, check=True, stdout=subprocess.DEVNULL)
+        digest = hashlib.sha256(bundle.read_bytes()).hexdigest()
+        result = subprocess.run(["node", HERE / "capture.mjs", profile, args.archive, bundle,
+                                 digest, args.client_build, args.engine])
+        results[profile] = result.returncode
+        # Each next profile independently checks the closed release and lease.
+    print(results, flush=True)
+    return int(any(results.values()))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

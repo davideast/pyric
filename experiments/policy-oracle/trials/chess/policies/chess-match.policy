@@ -1,0 +1,32 @@
+use extension bounded;
+
+// The caller obtains these fields from the current version of the stored match.
+export function admit(match, uid, priorPly) {
+  return match.status != 'playing' ? 'playing'
+    : kind(priorPly) != 'number' || priorPly != match.moveCount ? 'matchVersion'
+    : kind(uid) != 'string' || uid == '' || (match.currentTurn != 'host' && match.currentTurn != 'guest')
+      || uid != match[match.currentTurn] ? 'currentTurn' : 'ok';
+}
+function squareName(sq) { return 'abcdefgh'[sq % 8] + '87654321'[sq / 8]; }
+function targetName(sq) { return sq == -1 ? '' : squareName(sq); }
+
+// Both positions come from authoritative evaluation of the submitted move.
+export function metadata(match, uci, beforePosition, afterPosition, computedOutcome) {
+  let from = uci[0] + uci[1];
+  let to = uci[2] + uci[3];
+  let extras = bounded.select(range(64), sq =>
+    beforePosition.board[sq] != afterPosition.board[sq] && squareName(sq) != from && squareName(sq) != to, 64);
+  let extraNames = sorted(bounded.map(extras, sq => squareName(sq), 64));
+  return computedOutcome != 'playing' && computedOutcome != 'checkmate' && computedOutcome != 'stalemate'
+    ? fail('invalidOutcome') : {
+      'currentTurn': match.currentTurn == 'host' ? 'guest' : 'host',
+      'moveCount': match.moveCount + 1,
+      'status': computedOutcome == 'checkmate' ? 'won' : computedOutcome == 'stalemate' ? 'draw' : 'playing',
+      'winner': computedOutcome == 'checkmate' ? match.currentTurn : '',
+      'lastMove': {'from':from, 'to':to, 'promotion':size(uci) == 5 ? uci[4] : '', 'extra':extraNames},
+      'castling': afterPosition.castling,
+      'enPassant': targetName(afterPosition.enPassant),
+      'prevCastling': beforePosition.castling,
+      'prevEnPassant': targetName(beforePosition.enPassant)
+    };
+}

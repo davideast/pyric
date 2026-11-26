@@ -1,0 +1,236 @@
+[
+  {
+    "source": "chess.policy",
+    "sourceSha256": "d3fda575ff3463b083a79798b94b2a78b1e033a4bbb11d45a909483ec3538a8e",
+    "functions": [
+      {
+        "name": "rank",
+        "exported": false,
+        "status": "emitted",
+        "emittedSha256": "6d5f35937e2b3db8f765bf0695c8bcead6a1371f0098e9cd18b7d906933ac8c9"
+      },
+      {
+        "name": "file",
+        "exported": false,
+        "status": "emitted",
+        "emittedSha256": "401fd8cc6642b468128860d4de972529dee8508aa15ecfd96b9c5ff317e7e4e8"
+      },
+      {
+        "name": "squareName",
+        "exported": false,
+        "status": "standalone",
+        "diagnostic": "functionCall is outside the experimental pure expression subset"
+      },
+      {
+        "name": "squareAt",
+        "exported": false,
+        "status": "standalone",
+        "diagnostic": "functionCall is outside the experimental pure expression subset"
+      },
+      {
+        "name": "other",
+        "exported": false,
+        "status": "emitted",
+        "emittedSha256": "31a95ac0870602dc26adf9784e1f7e5dd03410848a9b23d7ba4db62e5ab0f830"
+      },
+      {
+        "name": "pawnDir",
+        "exported": false,
+        "status": "emitted",
+        "emittedSha256": "7db8ac7f4e2eb1d42ef9f6696ea0a8e1ea872fcaaae9388dc860b941fd106c49"
+      },
+      {
+        "name": "home",
+        "exported": false,
+        "status": "emitted",
+        "emittedSha256": "bcd4830c5f60dc34d5ce603732f1c0ccefdbde80c044518482fde6e0f3d69da8"
+      },
+      {
+        "name": "kingRight",
+        "exported": false,
+        "status": "emitted",
+        "emittedSha256": "3fa50fbb063c457ad29f382cb1564421c97ab418011e8969b0583f70f766a320"
+      },
+      {
+        "name": "queenRight",
+        "exported": false,
+        "status": "emitted",
+        "emittedSha256": "7959f47039c60be217167769edf26b5918677d436ac30e1aedb41990c6e7f657"
+      },
+      {
+        "name": "belongs",
+        "exported": false,
+        "status": "emitted",
+        "emittedSha256": "615b104321fa84e2d7271040ac4cdd06c51787dd4dca6d3bef67e7f649c12aa2"
+      },
+      {
+        "name": "knownPiece",
+        "exported": false,
+        "status": "standalone",
+        "diagnostic": "functionCall is outside the experimental pure expression subset"
+      },
+      {
+        "name": "validPosition",
+        "exported": false,
+        "status": "standalone",
+        "diagnostic": "Line 4, col 48:\n  3 |     && (p.turn == 'w' || p.turn == 'b') && kind(p.castling) == 'string' && size(p.castling) <= 4\n> 4 |     && !bounded.any(range(size(p.castling)), i => locate('KQkq', p.castling[i]) < 0 || locate(p.castling,p.castling[i]) != i, 4)\n                                                     ^\n  5 |     && kind(p.enPassant) == 'number'\nExpected \")\", \",\", \"(\", \"[\", \".\", \"-\", \"+\", \"%\", \"/\", \"*\", \"!=\", \"==\", \"is\", \"<\", \">\", \"<=\", \">=\", \"&&\", \"in\", \"?\", or \"||\""
+      },
+      {
+        "name": "clearRay",
+        "exported": false,
+        "status": "standalone",
+        "diagnostic": "Line 4, col 44:\n  3 |   let stride = sign(dy)*8+sign(dx);\n> 4 |   return !bounded.any(range(distance-1), i => board[from+(i+1)*stride] != '', 7);\n                                                 ^\n  5 | }\nExpected \")\", \",\", \"(\", \"[\", \".\", \"-\", \"+\", \"%\", \"/\", \"*\", \"!=\", \"==\", \"is\", \"<\", \">\", \"<=\", \">=\", \"&&\", \"in\", \"?\", or \"||\""
+      },
+      {
+        "name": "attacks",
+        "exported": false,
+        "status": "standalone",
+        "diagnostic": "functionCall is outside the experimental pure expression subset"
+      },
+      {
+        "name": "underAttack",
+        "exported": false,
+        "status": "standalone",
+        "diagnostic": "Line 2, col 36:\n  1 | function underAttack(board, target, by) {\n> 2 |   return bounded.any(range(64), sq => belongs(board[sq],by) && attacks(board,sq,target), 64);\n                                         ^\n  3 | }\nExpected \")\", \",\", \"(\", \"[\", \".\", \"-\", \"+\", \"%\", \"/\", \"*\", \"!=\", \"==\", \"is\", \"<\", \">\", \"<=\", \">=\", \"&&\", \"in\", \"?\", or \"||\""
+      },
+      {
+        "name": "checked",
+        "exported": false,
+        "status": "standalone",
+        "diagnostic": "functionCall is outside the experimental pure expression subset"
+      },
+      {
+        "name": "inCheck",
+        "exported": true,
+        "status": "standalone",
+        "diagnostic": "functionCall is outside the experimental pure expression subset"
+      },
+      {
+        "name": "canCastle",
+        "exported": false,
+        "status": "standalone",
+        "diagnostic": "functionCall is outside the experimental pure expression subset"
+      },
+      {
+        "name": "pawnStep",
+        "exported": false,
+        "status": "standalone",
+        "diagnostic": "functionCall is outside the experimental pure expression subset"
+      },
+      {
+        "name": "shape",
+        "exported": false,
+        "status": "standalone",
+        "diagnostic": "functionCall is outside the experimental pure expression subset"
+      },
+      {
+        "name": "moveRook",
+        "exported": false,
+        "status": "standalone",
+        "diagnostic": "functionCall is outside the experimental pure expression subset"
+      },
+      {
+        "name": "nextBoard",
+        "exported": false,
+        "status": "standalone",
+        "diagnostic": "functionCall is outside the experimental pure expression subset"
+      },
+      {
+        "name": "needsPromotion",
+        "exported": false,
+        "status": "standalone",
+        "diagnostic": "functionCall is outside the experimental pure expression subset"
+      },
+      {
+        "name": "legalPair",
+        "exported": false,
+        "status": "standalone",
+        "diagnostic": "functionCall is outside the experimental pure expression subset"
+      },
+      {
+        "name": "movesAt",
+        "exported": false,
+        "status": "standalone",
+        "diagnostic": "Line 2, col 51:\n  1 | function movesAt(p, from) {\n> 2 |   let destinations = bounded.select(range(64), to => legalPair(p,from,to), 64);\n                                                        ^\n  3 |   return bounded.flatMap(destinations, to => needsPromotion(p,from,to)\nExpected \")\", \",\", \"(\", \"[\", \".\", \"-\", \"+\", \"%\", \"/\", \"*\", \"!=\", \"==\", \"is\", \"<\", \">\", \"<=\", \">=\", \"&&\", \"in\", \"?\", or \"||\""
+      },
+      {
+        "name": "moves",
+        "exported": false,
+        "status": "standalone",
+        "diagnostic": "Line 2, col 44:\n  1 | function moves(p) {\n> 2 |   let owned = bounded.select(range(64), sq => belongs(p.board[sq],p.turn), 64);\n                                                 ^\n  3 |   return sorted(bounded.flatMap(owned, sq => movesAt(p,sq), 64));\nExpected \")\", \",\", \"(\", \"[\", \".\", \"-\", \"+\", \"%\", \"/\", \"*\", \"!=\", \"==\", \"is\", \"<\", \">\", \"<=\", \">=\", \"&&\", \"in\", \"?\", or \"||\""
+      },
+      {
+        "name": "legalMoves",
+        "exported": true,
+        "status": "standalone",
+        "diagnostic": "functionCall is outside the experimental pure expression subset"
+      },
+      {
+        "name": "flagForCorner",
+        "exported": false,
+        "status": "emitted",
+        "emittedSha256": "579e2ffbfcfef83d4a58eb0ade4e68ff8c02218b787cdb43bda820438f0b4f91"
+      },
+      {
+        "name": "nextRights",
+        "exported": false,
+        "status": "standalone",
+        "diagnostic": "functionCall is outside the experimental pure expression subset"
+      },
+      {
+        "name": "applyParsed",
+        "exported": false,
+        "status": "standalone",
+        "diagnostic": "functionCall is outside the experimental pure expression subset"
+      },
+      {
+        "name": "apply",
+        "exported": true,
+        "status": "standalone",
+        "diagnostic": "functionCall is outside the experimental pure expression subset"
+      },
+      {
+        "name": "hasMove",
+        "exported": false,
+        "status": "standalone",
+        "diagnostic": "Line 2, col 38:\n  1 | function hasMove(p) {\n> 2 |   return bounded.any(range(64), from => belongs(p.board[from],p.turn) && bounded.any(range(64), to => legalPair(p,from,to), 64), 64);\n                                           ^\n  3 | }\nExpected \")\", \",\", \"(\", \"[\", \".\", \"-\", \"+\", \"%\", \"/\", \"*\", \"!=\", \"==\", \"is\", \"<\", \">\", \"<=\", \">=\", \"&&\", \"in\", \"?\", or \"||\""
+      },
+      {
+        "name": "outcome",
+        "exported": true,
+        "status": "standalone",
+        "diagnostic": "functionCall is outside the experimental pure expression subset"
+      }
+    ]
+  },
+  {
+    "source": "chess-match.policy",
+    "sourceSha256": "286b7682cb43e33eccb1e67c02c791459828f593033c565566b9d7509b75e54b",
+    "functions": [
+      {
+        "name": "admit",
+        "exported": true,
+        "status": "standalone",
+        "diagnostic": "functionCall is outside the experimental pure expression subset"
+      },
+      {
+        "name": "squareName",
+        "exported": false,
+        "status": "emitted",
+        "emittedSha256": "42341ff42c6015e3fa8399e5b012569e538b3b18dc446586808e1a19e835340d"
+      },
+      {
+        "name": "targetName",
+        "exported": false,
+        "status": "standalone",
+        "diagnostic": "functionCall is outside the experimental pure expression subset"
+      },
+      {
+        "name": "metadata",
+        "exported": true,
+        "status": "standalone",
+        "diagnostic": "Line 4, col 45:\n  3 |   let to = uci[2] + uci[3];\n> 4 |   let extras = bounded.select(range(64), sq =>\n                                                  ^\n  5 |     beforePosition.board[sq] != afterPosition.board[sq] && squareName(sq) != from && squareName(sq) != to, 64);\nExpected \")\", \",\", \"(\", \"[\", \".\", \"-\", \"+\", \"%\", \"/\", \"*\", \"!=\", \"==\", \"is\", \"<\", \">\", \"<=\", \">=\", \"&&\", \"in\", \"?\", or \"||\""
+      }
+    ]
+  }
+]
