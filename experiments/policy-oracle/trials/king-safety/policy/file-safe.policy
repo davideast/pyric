@@ -1,0 +1,14 @@
+use extension loops;
+function fileSafe(board, file, color) {
+  let pieces = [board[file + '1'], board[file + '2'], board[file + '3'], board[file + '4'],
+                board[file + '5'], board[file + '6'], board[file + '7'], board[file + '8']].removeAll(['']);
+  let length = pieces.size();
+  let king = color + 'k';
+  let attackers = color == 'w' ? ['br', 'bq'] : ['wr', 'wq'];
+  for (const i of [0, 1, 2, 3, 4, 5, 6, 7]) {
+    if (i >= length) return true;
+    if (pieces[i] == king) return (i == 0 ? true : !(pieces[i - 1] in attackers))
+      && (i + 1 == length ? true : !(pieces[i + 1] in attackers));
+  }
+  return true;
+}

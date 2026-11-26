@@ -1,0 +1,14 @@
+{
+  "sourceSha256": "d3fda575ff3463b083a79798b94b2a78b1e033a4bbb11d45a909483ec3538a8e",
+  "standaloneTarget": "standalone",
+  "inCheckExported": true,
+  "boundedModuleProvidesFirestoreEmitter": false,
+  "completeSourceThroughFunctionEmitter": {
+    "emitted": false,
+    "diagnostic": "Line 4, col 21:\n  3 | // Positions use a8..h1 (0..63). UCI moves name both squares and an optional promotion.\n> 4 | function rank(sq) { return sq / 8; }\n                          ^\n  5 | function file(sq) { return sq % 8; }\nExpected \"for\" or \"let\""
+  },
+  "individualAttackSearch": {
+    "emitted": false,
+    "diagnostic": "Line 2, col 36:\n  1 | function underAttack(board, target, by) {\n> 2 |   return bounded.any(range(64), sq => belongs(board[sq],by) && attacks(board,sq,target), 64);\n                                         ^\n  3 | }\nExpected \")\", \",\", \"(\", \"[\", \".\", \"-\", \"+\", \"%\", \"/\", \"*\", \"!=\", \"==\", \"is\", \"<\", \">\", \"<=\", \">=\", \"&&\", \"in\", \"?\", or \"||\""
+  }
+}
