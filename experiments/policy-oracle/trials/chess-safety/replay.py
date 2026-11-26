@@ -14,7 +14,7 @@ sys.dont_write_bytecode = True
 from corpus import BATCHES, HERE, OLD, load
 from score import score, score_rows, summarize
 from receipt_comparison import compare
-from scorecard import render
+from scorecard import ROOK_MOVES, render
 from qualification import check as verify_qualification, verify_thresholds
 
 REFERENCE = runpy.run_path(str(HERE.parent / 'for-of/replay.py'))
@@ -143,6 +143,7 @@ def replay(args, temp):
               'originalFilePins':len(batches['00-legacy-file'])}
     result['primaryNative'] = {name:{'allow':sum(native[key] for key in ids),'deny':sum(not native[key] for key in ids)}
                              for name,ids in batches.items()}
+    result['rookMoves'] = [row for row in core['linkedWrites'] if row['id'] in ROOK_MOVES]
     result['coreDiagnostics'] = {}
     for plane in ('kingSafety','standaloneBoard','linkedWrites'):
         rows = core[plane]

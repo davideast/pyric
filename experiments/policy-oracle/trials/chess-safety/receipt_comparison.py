@@ -9,6 +9,7 @@ import sys
 
 sys.dont_write_bytecode = True
 from corpus import HERE
+from scorecard import ROOK_MOVES
 
 
 def compare(native, sdk, captures):
@@ -60,6 +61,6 @@ def compare(native, sdk, captures):
         releases.append({'rules':str(source.relative_to(HERE)) if source.is_relative_to(HERE) else spec['file'],
                          'sha256':digest,'receipts':[c['receipt'] for c in hosted['captures']],
                          'status':hosted['status'],'productionCases':len(distinct),'batches':batches,
-                         'examples':{k:v for k,v in distinct.items() if k.startswith(('holdout-black-queen-corner-','sole-pawn-w-','actual-fourth-ply-','knight-reply-477','knight-reply-483','rook-safe','rook-exposed','rook-c5-after-queen-','rook-h5-after-queen-','promote-capturing-rook-right-'))},
+                         'examples':{k:v for k,v in distinct.items() if k in ROOK_MOVES or k.startswith(('holdout-black-queen-corner-','sole-pawn-w-','actual-fourth-ply-','knight-reply-477','knight-reply-483','rook-safe','rook-exposed','rook-c5-after-queen-','rook-h5-after-queen-','promote-capturing-rook-right-'))},
                          'disagreements':disagreements})
     return releases

@@ -15,6 +15,20 @@ Selected program `knight-endgame-paired-pawn-combined-bare-fixed-comma-packed-v5
 | Composition and cost | 9 / 1 | 10/10 | 10/10 | 10/10 |
 | Terminal claims | 5 / 5 | 10/10 | 10/10 | 10/10 |
 
+## The same rook move on two boards
+
+The white king is on e1 for the first pair and a4 for the rank cases. Each live column belongs to the exact source digest for that release. A dash means there is no completed signed observation. [File positions](../king-safety/reference/positions.json) · [Rank positions](batches/01-rank-diagonal/v1/positions.json)
+
+| Move and board | Native | Local candidate | Prior stronger baseline, live | Candidate, live |
+| --- | --- | --- | --- | --- |
+| Re2–d2, black rook on f8 | ALLOW | ALLOW | ALLOW | ALLOW |
+| Re2–d2, black rook on e8 | DENY | DENY | ALLOW | DENY |
+| Rc4–c5, black rook on h5 | ALLOW | ALLOW | ALLOW | ALLOW |
+| Rc4–c5, black rook on h4 | DENY | DENY | ALLOW | DENY |
+| Rc4–c5, second blocker on e4 | ALLOW | ALLOW | ALLOW | ALLOW |
+| Rc4–e4, staying on the pin line | ALLOW | ALLOW | ALLOW | ALLOW |
+| Rc4xh4, capturing the attacker | ALLOW | ALLOW | ALLOW | ALLOW |
+
 ## Live observations by batch
 
 Each cell gives native matches divided by distinct authenticated writes. A dash means that the release has no completed observation for that batch.
@@ -42,16 +56,18 @@ Each cell gives native matches divided by distinct authenticated writes. A dash 
 
 | Batch | Packed v3 | Packed v4 | Pawn witness | Quick status |
 | --- | ---: | ---: | ---: | ---: |
-| Existing file pins | 10/10 | — | — | — |
-| Rank and diagonal pins | 19/19 | — | — | — |
-| King destinations | 12/12 | — | — | — |
-| Escapes from check | 8/8 | — | — | — |
-| En passant | 5/5 | — | — | — |
-| Castling | 20/20 | — | — | — |
-| Composition and cost | 10/10 | — | — | — |
-| Terminal claims | 5/10 | — | — | — |
-| Minimized cases | 4/5 | — | — | — |
-| Corner rights | — | 2/4 | — | — |
+| Existing file pins | 10/10 | — | — | 10/10 |
+| Rank and diagonal pins | 19/19 | — | — | 19/19 |
+| King destinations | 12/12 | — | — | 12/12 |
+| Escapes from check | 8/8 | — | — | 8/8 |
+| En passant | 5/5 | — | — | 5/5 |
+| Castling | 20/20 | — | — | 20/20 |
+| Composition and cost | 10/10 | — | — | 10/10 |
+| Terminal claims | 5/10 | — | — | 10/10 |
+| Minimized cases | 4/5 | — | — | 5/5 |
+| Corner rights | — | 2/4 | — | 2/4 |
+| Promotion claims | — | — | — | 4/8 |
+| Submitted rights | — | — | — | 4/4 |
 | Ten moves × three result claims | — | — | — | 13/30 |
 | Sole pawn reply or stalemate | — | — | 12/12 | — |
 
@@ -66,7 +82,7 @@ Each cell gives native matches divided by distinct authenticated writes. A dash 
 | [Packed v3 `d0a6af913d73`](live/reviews/d0a6af913d73c2d4a870d0349135288c1ec719bdb129f8e8b7219712402e3da1.json) | 99 | 6 | 0 | 99/99 | [Receipts](live/receipts/d0a6af913d73c2d4a870d0349135288c1ec719bdb129f8e8b7219712402e3da1/) |
 | [Packed v4 `911e4b24d6f7`](live/reviews/911e4b24d6f744f7995aab7bbb40ace8ce26b145a7f6fb1a51530faebe38636b.json) | 4 | 0 | 2 | 4/4 | [Receipts](live/receipts/911e4b24d6f744f7995aab7bbb40ace8ce26b145a7f6fb1a51530faebe38636b/) |
 | [Pawn witness `fa5ed3178ac5`](live/reviews/fa5ed3178ac50a45f38f8a929bfd1908a0d4e617b7c1791cbd639fdf13aada34.json) | 12 | 0 | 0 | 12/12 | [Receipts](live/receipts/fa5ed3178ac50a45f38f8a929bfd1908a0d4e617b7c1791cbd639fdf13aada34/) |
-| [Quick status `2d793f903e7d`](live/reviews/2d793f903e7d1b517ca34d92887a30a233e5246452228e35a136a730b4a10bf0.json) | 30 | 16 | 1 | 30/30 | [Receipts](live/receipts/2d793f903e7d1b517ca34d92887a30a233e5246452228e35a136a730b4a10bf0/) |
+| [Quick status `2d793f903e7d`](live/reviews/2d793f903e7d1b517ca34d92887a30a233e5246452228e35a136a730b4a10bf0.json) | 145 | 17 | 6 | 145/145 | [Receipts](live/receipts/2d793f903e7d1b517ca34d92887a30a233e5246452228e35a136a730b4a10bf0/) |
 
 ## Target compiler check
 
@@ -194,6 +210,7 @@ Each static test submitted source to Google’s Rules service. A successful stat
 | [literal-4096](live/diagnostics/4b4eaf4564fdac2a6348bb5e61fa8f7c213129c6a4f9febec19b8d74f2e7bbbd.json) | compiled | — |
 | [literal-4097](live/diagnostics/1e232698bc7837ac3599d222a8abb59d9c380d4b722908398b27cc42912af80a.json) | compile-error | Regular expression too long. Maximum allowed length: 4096 |
 | [pawn-sole-pawn](live/diagnostics/fa5ed3178ac50a45f38f8a929bfd1908a0d4e617b7c1791cbd639fdf13aada34.json) | compiled | — |
+| [preliminary-pins](live/diagnostics/3d8c9d8dc097accaaedada29421787c7b15aee4f55965fcb1aa269512cf06696.json) | compiled | — |
 | [projection-chess-safety-full](live/diagnostics/ef1a9a20902c228227567277e8acc8cb38936a8c64789ca16d993da2de1e5343.json) | compiled | — |
 | [split-chess-safety-full](live/diagnostics/ac1cbff2f3a8db47adf2869dcd7569e4e7d15dd46565d988569c122e199b1b75.json) | compile-error | Regular expression too many groupings. Maximum allowed groupings: 100 |
 

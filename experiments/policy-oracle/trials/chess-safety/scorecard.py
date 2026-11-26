@@ -12,6 +12,41 @@ LABELS = {'00-legacy-file':'Existing file pins','01-rank-diagonal':'Rank and dia
           '12-terminal-holdout':'Ten moves × three result claims','13-sole-pawn':'Sole pawn reply or stalemate','14-bare-king':'Bare king and sole knight reply','15-fourth-ply-and-knight':'Actual fourth ply and knight interposition','16-held-rook-promotion':'Mating promotion with or without a castling right','17-rook-interposition':'Sole rook interposition or mate'}
 
 
+ROOK_MOVES = {
+    'rook-safe': 'Re2–d2, black rook on f8',
+    'rook-exposed': 'Re2–d2, black rook on e8',
+    'rank-rook-safe': 'Rc4–c5, black rook on h5',
+    'rank-rook-exposed': 'Rc4–c5, black rook on h4',
+    'rank-surviving-blocker': 'Rc4–c5, second blocker on e4',
+    'rank-pinned-slide': 'Rc4–e4, staying on the pin line',
+    'rank-pinned-capture': 'Rc4xh4, capturing the attacker',
+}
+
+
+def rook_table(report):
+    if not report.get('rookMoves'):
+        return []
+    indexed = {r['sha256']:r['examples'] for r in report.get('releaseComparisons',[])}
+    baseline = indexed.get('523c4c137aa00c2c764264aa6c2cefeda7c692561544da45d4fcccf3a2056fda',{})
+    candidate = indexed.get(report['hosted'].get('rulesSha256'),{})
+    lines = ['', '## The same rook move on two boards', '',
+        'The white king is on e1 for the first pair and a4 for the rank cases. Each live column belongs to the exact source digest for that release. A dash means there is no completed signed observation. [File positions](../king-safety/reference/positions.json) · [Rank positions](batches/01-rank-diagonal/v1/positions.json)', '',
+    ]
+    columns=['Move and board','Native','Local candidate']
+    if baseline:
+        columns.append('Prior stronger baseline, live')
+    columns.append('Candidate, live')
+    lines.extend(['| '+' | '.join(columns)+' |','| '+' | '.join('---' for _ in columns)+' |'])
+    for row in report['rookMoves']:
+        key=row['id']
+        values=[ROOK_MOVES[key],row['expected'],row.get('decision') or row['status']]
+        if baseline:
+            values.append(baseline.get(key,{}).get('production','—'))
+        values.append(candidate.get(key,{}).get('production','—'))
+        lines.append('| '+' | '.join(values)+' |')
+    return lines
+
+
 def render(report):
     if not report['hosted'].get('rulesSha256'):
         lines = ['# Chess compiler scorecard', '',
@@ -21,6 +56,7 @@ def render(report):
             for name, result in planes.items():
                 counts = ', '.join(f'{count} {kind}' for kind, count in result['counts'].items())
                 lines.append(f'| {LABELS.get(batch,batch)} | {name} | {counts} |')
+        lines.extend(rook_table(report))
         lines.extend(['', '## Diagnostics', '','```json',json.dumps(report['diagnostics'],indent=2),'```',
                       '', 'Live Firestore status for this submission is unmeasured.'])
         return '\n'.join(lines)+'\n'
@@ -41,6 +77,7 @@ def render(report):
             plane=planes[field]
             row.append(f"{plane['counts'].get('match',0)}/{plane['cases']}")
         output.append('| '+' | '.join(row)+' |')
+    output.extend(rook_table(report))
     output+=['','## Live observations by batch','',
              'Each cell gives native matches divided by distinct authenticated writes. A dash means that the release has no completed observation for that batch.']
     # Limit the width of each table as additional releases accumulate.
