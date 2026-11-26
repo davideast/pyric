@@ -170,6 +170,7 @@ export {
   // Storage (Pyric Studio data browse): worker-backed FirebaseStorage mirror
   getStorage,
   ref,
+  list,
   listAll,
   getMetadata,
   getBlob,

@@ -26,6 +26,7 @@ import {
   getBytes as workerGetBytes,
   getDownloadURL as workerGetDownloadURL,
   getMetadata as workerGetMetadata,
+  list as workerList,
   listAll as workerListAll,
   ref as workerRef,
   uploadBytes as workerUploadBytes,
@@ -110,6 +111,7 @@ export function getStorage(app?: FirebaseApp, bucketUrl?: string): FirebaseStora
 }
 
 export const ref = (useWorker ? workerRef : ip.ref) as typeof ip.ref;
+export const list = (useWorker ? observeStorageOperation('list', workerList) : ip.list) as typeof ip.list;
 export const listAll = (useWorker ? observeStorageOperation('listAll', workerListAll) : ip.listAll) as typeof ip.listAll;
 export const getMetadata = (
   useWorker ? observeStorageOperation('getMetadata', workerGetMetadata) : ip.getMetadata

@@ -110,6 +110,7 @@ export {
   type UploadObjectOptions,
 } from './upload.js';
 export { arrayBufferToBase64, base64ToBytes } from './base64.js';
+export { validateListOptionsShape, type ValidatedListOptionsShape } from './list.js';
 export { generationIssuer, higherGeneration, raisedMark, type GenerationIssuer } from './generation.js';
 export {
   isStorageUrl,

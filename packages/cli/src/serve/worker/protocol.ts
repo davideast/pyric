@@ -264,6 +264,7 @@ export type OpMessage = (
   | AuthBlockingRespondOpMessage
   // Storage ops. An object op names its bucket with `bucket`, or the host's
   // default bucket without one (see StorageBucketWire).
+  | ({ t: 'op'; id: string; method: 'storage.list'; path: string; maxResults?: number | null; pageToken?: string | null } & StorageBucketWire)
   | ({ t: 'op'; id: string; method: 'storage.listAll'; path: string } & StorageBucketWire)
   | ({ t: 'op'; id: string; method: 'storage.getMetadata'; path: string } & StorageBucketWire)
   /** The object's download path on the byte route, carrying its persistent download token. */

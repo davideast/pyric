@@ -6,7 +6,7 @@
 
 import type { StorageBucketWire } from '../protocol.js';
 import { FirebaseError } from 'pyric/app';
-import type { FullMetadata, StringFormat } from 'pyric/storage';
+import type { FullMetadata, ListOptions, StringFormat } from 'pyric/storage';
 import {
   arrayBufferToBase64,
   cloneSettableMetadata,
@@ -17,6 +17,7 @@ import {
   refPathOf,
   rulesBucketName,
   storageLastComponent,
+  validateListOptionsShape,
 } from 'pyric/storage/internal';
 import { dataRpc, nextId, wirePort } from './core.js';
 import type { ClientDb, ClientPort } from './handles.js';
@@ -265,6 +266,72 @@ export function ref(
     parent.storage,
     namedBucket,
   );
+}
+
+/** List one page of immediate child items + sub-prefixes under a ref. */
+export async function list(
+  reference: ClientStorageReference,
+  options?: ListOptions,
+): Promise<{ items: ClientStorageReference[]; prefixes: ClientStorageReference[]; nextPageToken?: string }> {
+  let validated: { readonly maxResults: number; readonly rawPageToken: string | undefined };
+  try {
+    validated = validateListOptionsShape(options);
+  } catch (err) {
+    const code = (err as { code?: unknown }).code;
+    const message = (err as { message?: unknown }).message;
+    if (typeof code === 'string' && typeof message === 'string') {
+      throw new FirebaseError(code, message);
+    }
+    throw err;
+  }
+  const bucketFields = bucketWire(reference);
+  const payload: {
+    t: 'op';
+    id: string;
+    method: 'storage.list';
+    path: string;
+    bucket?: string;
+    maxResults?: number;
+    pageToken?: string;
+  } = {
+    t: 'op',
+    id: nextId(),
+    method: 'storage.list',
+    path: reference.fullPath,
+    maxResults: validated.maxResults,
+  };
+  if (bucketFields.bucket !== undefined) {
+    payload.bucket = bucketFields.bucket;
+  }
+  if (validated.rawPageToken !== undefined) {
+    payload.pageToken = validated.rawPageToken;
+  }
+  const r = (await dataRpc(reference.port, payload)) as {
+    items: Array<{ fullPath: string; name: string }>;
+    prefixes: Array<{ fullPath: string; name: string }>;
+    nextPageToken?: string;
+  };
+  const namedBucket = usesNamedBucket(reference);
+  const mk = (e: { fullPath: string; name: string }): ClientStorageReference =>
+    new ClientStorageReferenceImpl(
+      reference.port,
+      reference.bucket,
+      e.fullPath,
+      reference.storage,
+      namedBucket,
+    );
+  const result: {
+    items: ClientStorageReference[];
+    prefixes: ClientStorageReference[];
+    nextPageToken?: string;
+  } = {
+    items: r.items.map(mk),
+    prefixes: r.prefixes.map(mk),
+  };
+  if (typeof r.nextPageToken === 'string') {
+    result.nextPageToken = r.nextPageToken;
+  }
+  return result;
 }
 
 /** Enumerate immediate child items + sub-prefixes under a ref (Pyric Studio

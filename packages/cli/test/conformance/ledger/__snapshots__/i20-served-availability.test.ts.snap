@@ -335,7 +335,7 @@ exports[`runtime classifications have a reviewable snapshot 1`] = `
     "getMetadata": "supported",
     "getStorage": "supported",
     "getStream": "imports-only",
-    "list": "imports-only",
+    "list": "supported",
     "listAll": "supported",
     "ref": "supported",
     "updateMetadata": "imports-only",

@@ -18,6 +18,7 @@
 import {
   getStorageSandbox,
   ref as storageRef,
+  list as storageList,
   listAll as storageListAll,
   getMetadata as storageGetMetadata,
   getBlob as storageGetBlob,
@@ -25,6 +26,7 @@ import {
   deleteObject as storageDeleteObject,
   type FirebaseStorage,
   type FullMetadata,
+  type ListOptions,
   type SettableMetadata,
 } from 'pyric/storage';
 // Host-only rules-bypass admin plane — the storage mirror of
@@ -464,6 +466,7 @@ function uploadDownloadTokens(msg: { downloadTokens?: string; actAs?: AuthLens }
 
 /** The storage op methods routed to {@link handleStorageOp}. */
 const STORAGE_METHODS = new Set<string>([
+  'storage.list',
   'storage.listAll',
   'storage.getMetadata',
   'storage.getDownloadURL',
@@ -508,6 +511,36 @@ export async function handleStorageOp(
     return;
   }
   switch (msg.method) {
+    case 'storage.list': {
+      try {
+        const storage = bindStorageOperationContext(
+          opStorage(ctx, msg, port),
+          opProvenance(msg),
+        );
+        const listOptions: ListOptions = {};
+        if (msg.maxResults !== undefined) {
+          listOptions.maxResults = msg.maxResults;
+        }
+        if (msg.pageToken !== undefined) {
+          listOptions.pageToken = msg.pageToken;
+        }
+        const result = await storageList(storageRef(storage, msg.path), listOptions);
+        const reply: {
+          items: Array<{ fullPath: string; name: string }>;
+          prefixes: Array<{ fullPath: string; name: string }>;
+          nextPageToken?: string;
+        } = {
+          items: result.items.map((r) => ({ fullPath: r.fullPath, name: r.name })),
+          prefixes: result.prefixes.map((r) => ({ fullPath: r.fullPath, name: r.name })),
+        };
+        if (result.nextPageToken !== undefined) {
+          reply.nextPageToken = result.nextPageToken;
+        }
+        ok(port, msg.id, reply);
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
     case 'storage.listAll': {
       // Object browse. `listAll` enforces `read` rules on the scanned prefix
       // under the op's lens (admin lens bypasses — see lensStorage).
