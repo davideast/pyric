@@ -15,13 +15,20 @@
  * Runs under the `node` on PATH. Requires the CLI and `@pyric/live` to be
  * built (`dist/`).
  */
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { readLiveHostStatus } from 'pyric/sandbox/internal';
+import { resolveFirebaseProject } from '../../src/cli/firebase-project.js';
+import { startServe, type ServeRuntime } from '../../src/cli/serve.js';
+import { reachLiveHost } from '../../src/register/live-host-reach.js';
+import { livePassThroughLine, runLiveHost } from '../../src/serve/live-host.js';
+import { INSTALLED_SDK_SPECIFIERS } from '../../src/serve/vite-supplied-rows.js';
 import { closedPort } from '../closed-port.js';
+import { trackTempDirs } from '../use-temp-dirs.js';
 import { resolveNodeExecutable } from './require-node-on-path.js';
 
 const cliDir = resolve(import.meta.dir, '../..');
@@ -183,4 +190,156 @@ describe('a live dev server process with pyricLive()', () => {
     });
     expect(result.stderr).not.toContain('unobserved call to');
   }, 70_000);
+});
+
+describe('live-host passThrough validation and /__pyric/health wiring (#2135)', () => {
+  const startCwd = process.cwd();
+  const tempDirs = trackTempDirs('pyric-live-host-pt-');
+  const runtimes: ServeRuntime[] = [];
+
+  afterEach(async () => {
+    process.chdir(startCwd);
+    while (runtimes.length > 0) {
+      const runtime = runtimes.pop();
+      if (runtime !== undefined) {
+        await runtime.handle.stop();
+      }
+    }
+    tempDirs.cleanupTempDirs();
+  });
+
+  function createLiveProjectDir(projectId = 'acme-live'): string {
+    const dir = realpathSync(tempDirs.makeTempDir('pyric-live-host-pt-'));
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'live-host-pt', private: true }));
+    writeFileSync(join(dir, '.firebaserc'), JSON.stringify({ projects: { default: projectId } }));
+    writeFileSync(join(dir, 'firebase.json'), JSON.stringify({ hosting: { public: 'public' } }));
+    mkdirSync(join(dir, 'public'), { recursive: true });
+    writeFileSync(join(dir, 'public/index.html'), '<!doctype html><title>acme</title>');
+    return dir;
+  }
+
+  it('re-exports livePassThroughLine from the live-host seam', () => {
+    expect(livePassThroughLine('firebase/functions')).toBe(
+      'firebase/functions passes through to production: its calls are not observed and still bill.',
+    );
+  });
+
+  it('rejects served rows, Firestore Lite, firebase-admin, @firebase/*, and unknown specifiers in runLiveHost before changing cwd', async () => {
+    const dir = createLiveProjectDir();
+    const subdir = join(dir, 'nested');
+    mkdirSync(subdir, { recursive: true });
+    process.chdir(subdir);
+    const invalidByPassThroughSet: readonly string[] = [
+      ...INSTALLED_SDK_SPECIFIERS,
+      'firebase/firestore/lite',
+      'firebase-admin/app',
+      '@firebase/functions',
+      'firebase/not-a-service',
+    ];
+
+    for (const entry of invalidByPassThroughSet) {
+      await expect(
+        runLiveHost(['--no-open'], { liveRoot: liveDir, passThrough: [entry] }),
+      ).rejects.toThrow(`pyric: ${entry} cannot pass through`);
+      expect(process.cwd()).toBe(subdir);
+    }
+
+    await expect(
+      runLiveHost(['--no-open'], { liveRoot: liveDir, passThrough: ['firebase-admin'] }),
+    ).rejects.toThrow('pyric: firebase-admin cannot pass through on the live host');
+    expect(process.cwd()).toBe(subdir);
+  });
+
+  it('threads passThrough through startServe liveHost into /__pyric/health and reachLiveHost', async () => {
+    const dir = createLiveProjectDir('acme-live');
+    const quietLogger = { info: () => undefined, note: () => undefined };
+    const project = resolveFirebaseProject({ projectDir: dir, option: 'acme-live' });
+    const passed = ['firebase/functions', 'firebase/remote-config'];
+
+    const withPassThrough = await startServe({
+      cwd: dir,
+      port: 0,
+      host: '127.0.0.1',
+      hosted: false,
+      bridge: true,
+      ui: false,
+      watch: false,
+      capture: false,
+      disableAuditLog: true,
+      logger: quietLogger,
+      project: 'acme-live',
+      firebaseProject: project,
+      liveHost: {
+        project,
+        writeRefusal: () => new Error('refused'),
+        passThrough: passed,
+      },
+    });
+    runtimes.push(withPassThrough);
+
+    const healthRes = await fetch(`${withPassThrough.handle.url}/__pyric/health`, {
+      headers: { 'x-pyric-session-token': withPassThrough.sessionToken },
+    });
+    expect(healthRes.status).toBe(200);
+    const healthBody = (await healthRes.json()) as { live?: Record<string, unknown> };
+    const liveStatus = readLiveHostStatus(healthBody);
+    expect(liveStatus).not.toBeNull();
+    expect(liveStatus?.configProjectId).toBe('acme-live');
+    expect(liveStatus?.passThrough).toEqual(passed);
+
+    const reach = await reachLiveHost(dir, {
+      PYRIC_SANDBOX: `remote:${withPassThrough.handle.url}`,
+      PYRIC_SANDBOX_INSTANCE: withPassThrough.instanceId,
+      PYRIC_SESSION_TOKEN: withPassThrough.sessionToken,
+    });
+    expect(reach).toMatchObject({
+      kind: 'live',
+      url: withPassThrough.handle.url,
+      projectId: 'acme-live',
+      passThrough: passed,
+    });
+
+    await withPassThrough.handle.stop();
+    runtimes.pop();
+
+    const withoutPassThrough = await startServe({
+      cwd: dir,
+      port: 0,
+      host: '127.0.0.1',
+      hosted: false,
+      bridge: true,
+      ui: false,
+      watch: false,
+      capture: false,
+      disableAuditLog: true,
+      logger: quietLogger,
+      project: 'acme-live',
+      firebaseProject: project,
+      liveHost: {
+        project,
+        writeRefusal: () => new Error('refused'),
+        passThrough: [],
+      },
+    });
+    runtimes.push(withoutPassThrough);
+
+    const defaultHealthRes = await fetch(`${withoutPassThrough.handle.url}/__pyric/health`, {
+      headers: { 'x-pyric-session-token': withoutPassThrough.sessionToken },
+    });
+    expect(defaultHealthRes.status).toBe(200);
+    const defaultBody = (await defaultHealthRes.json()) as { live?: Record<string, unknown> };
+    expect(defaultBody.live).toBeDefined();
+    expect('passThrough' in (defaultBody.live ?? {})).toBe(false);
+
+    const defaultReach = await reachLiveHost(dir, {
+      PYRIC_SANDBOX: `remote:${withoutPassThrough.handle.url}`,
+      PYRIC_SANDBOX_INSTANCE: withoutPassThrough.instanceId,
+      PYRIC_SESSION_TOKEN: withoutPassThrough.sessionToken,
+    });
+    expect(defaultReach).toMatchObject({
+      kind: 'live',
+      projectId: 'acme-live',
+      passThrough: [],
+    });
+  }, 30_000);
 });

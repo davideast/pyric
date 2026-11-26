@@ -320,14 +320,16 @@ async function startServeRuntime(opts: {
     });
   const liveStart = opts.liveHost;
   const isLive = liveStart !== undefined;
-  const liveHost = isLive
-    ? createLiveHostState({
+  let liveHost: ReturnType<typeof createLiveHostState> | undefined;
+  if (liveStart !== undefined) {
+    liveHost = createLiveHostState({
       configProjectId: requireLiveProject(liveStart.project, opts.cwd),
       configSource: liveStart.project.source,
       optionName: '--project',
       warn: (line) => logger.note(line),
-    })
-    : undefined;
+      passThrough: liveStart.passThrough,
+    });
+  }
   // A live host makes none of pyric's own writes, the seed file's among them (`hosted/own-writes.ts`).
   const seedsLiveHost = isLive && opts.seed !== undefined;
   if (seedsLiveHost) refuseOwnWrite(liveStart.writeRefusal, { action: `seed ${opts.seed}`, writer: 'seed' });
@@ -1134,6 +1136,8 @@ interface LiveServeStart {
   writeRefusal: PyricWriteRefusal;
   /** Explicit second opt-in set only by `pyric-live --allow-remote-live` to admit non-loopback peers in live mode. */
   allowRemotePeers?: boolean;
+  /** Validated `firebase/*` imports the live host passes through (`pyric-live --pass-through`). */
+  passThrough?: readonly string[];
 }
 
 export interface ServeRunHost {

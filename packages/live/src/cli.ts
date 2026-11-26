@@ -4,7 +4,7 @@
  * root: the nearest folder from the working directory up that holds
  * `.firebaserc` or `firebase.json`, as the Vite plugin and the register find it.
  *
- *   npx pyric-live [--port 3473] [--host localhost] [--no-open] [--project <id>]
+ *   npx pyric-live [--port 3473] [--host localhost] [--no-open] [--project <id>] [--pass-through <specifier>]
  *
  * The host is the one `pyric sandbox --hosted` runs, reached through
  * `@pyric/cli`'s internal seam (`@pyric/cli/serve/internal/live-host`), with
@@ -19,11 +19,11 @@
  */
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { liveHostProject, liveHostProjectRoot, runLiveHost } from '@pyric/cli/serve/internal/live-host';
-import { liveStartLine } from './start-line.js';
+import { LIVE_HOST_ENTRY, parseLiveHostArgs } from './host-args.js';
+import { liveStartLine, passThroughLines } from './start-line.js';
 import { liveStartRefusal } from './start-checks.js';
 
-const ENTRY = 'pyric-live';
+const ENTRY = LIVE_HOST_ENTRY;
 
 /** This package's folder, so a command installed beside the app opens with its own package. */
 const LIVE_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -41,12 +41,14 @@ Subcommands:
                     running live host (see \`pyric-live run --help\`).
 
 Options:
-  --port <port>       Port to serve on. Default 3473.
-  --host <host>       Host to bind. Default localhost.
-  --project <id>      Firebase project. Default: the one .firebaserc or firebase use names.
-  --allow-remote-live Second explicit gate to allow non-loopback peers in live mode.
-  --no-open           Do not open a browser.
-  --help              Show this help.
+  --port <port>              Port to serve on. Default 3473.
+  --host <host>              Host to bind. Default localhost.
+  --project <id>             Firebase project. Default: the one .firebaserc or firebase use names.
+  --pass-through <specifier> Firebase import to pass through unwrapped and unobserved
+                             (repeatable or comma-separated, e.g. firebase/functions).
+  --allow-remote-live        Second explicit gate to allow non-loopback peers in live mode.
+  --no-open                  Do not open a browser.
+  --help                     Show this help.
 `;
 
 async function main(argv: readonly string[]): Promise<number> {
@@ -54,29 +56,46 @@ async function main(argv: readonly string[]): Promise<number> {
     const { runLiveRun } = await import('./run.js');
     return runLiveRun(argv.slice(1));
   }
-  const asksForHelp = argv.includes('--help') || argv.includes('-h');
-  if (asksForHelp) {
+  const parsed = parseLiveHostArgs(argv);
+  if (parsed.kind === 'help') {
     process.stdout.write(USAGE);
     return 0;
   }
+  if (parsed.kind === 'error') {
+    process.stderr.write(`${parsed.message}\n`);
+    return 1;
+  }
+  const {
+    liveHostProject,
+    liveHostProjectRoot,
+    livePassThroughLine,
+    runLiveHost,
+  } = await import('@pyric/cli/serve/internal/live-host');
   const projectRoot = liveHostProjectRoot(process.cwd());
   const refusal = liveStartRefusal(projectRoot, process.cwd());
   if (refusal !== null) {
     process.stderr.write(`${ENTRY}: ${refusal}\n`);
     return 1;
   }
-  const allowRemotePeers = argv.includes('--allow-remote-live');
-  const hostArgv = argv.filter((arg) => arg !== '--allow-remote-live');
-  const projectId = liveHostProject(hostArgv, projectRoot);
-  process.stdout.write(`${liveStartLine(ENTRY, projectId)}\n`);
-  return runLiveHost(hostArgv, { liveRoot: LIVE_ROOT, allowRemotePeers });
+  const projectId = liveHostProject(parsed.hostArgv, projectRoot);
+  const startLines = [
+    liveStartLine(ENTRY, projectId),
+    ...passThroughLines(ENTRY, parsed.passThrough, livePassThroughLine),
+  ];
+  process.stdout.write(`${startLines.join('\n')}\n`);
+  return runLiveHost(parsed.hostArgv, {
+    liveRoot: LIVE_ROOT,
+    allowRemotePeers: parsed.allowRemotePeers,
+    passThrough: parsed.passThrough,
+  });
 }
 
 main(process.argv.slice(2)).then(
   (code) => process.exit(code),
   (error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
-    process.stderr.write(`${ENTRY}: ${message}\n`);
+    const prefixed = message.startsWith(`${ENTRY}: `) ? message : `${ENTRY}: ${message}`;
+    process.stderr.write(`${prefixed}\n`);
     process.exit(1);
   },
 );
