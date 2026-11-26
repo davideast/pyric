@@ -34,13 +34,13 @@ describe('builderSettingsProblems', () => {
 
   test('refuses a file with no permissions, or empty or non-string rule lists', () => {
     const empty = settingsFile('{}');
-    expect(builderSettingsProblems(empty)).toEqual([`the builder settings file ${empty}: permissions: Required`]);
+    expect(builderSettingsProblems(empty)).toEqual([`the builder settings file ${empty}: permissions: Invalid input: expected object, received undefined`]);
     const noRules = settingsFile(JSON.stringify({ permissions: { allow: [], deny: ['WebFetch', 3] } }));
     expect(builderSettingsProblems(noRules)).toEqual([
-      `the builder settings file ${noRules}: permissions.allow: Array must contain at least 1 element(s)`,
-      `the builder settings file ${noRules}: permissions.deny.1: Expected string, received number`,
+      `the builder settings file ${noRules}: permissions.allow: Too small: expected array to have >=1 items`,
+      `the builder settings file ${noRules}: permissions.deny.1: Invalid input: expected string, received number`,
     ]);
     const noDeny = settingsFile(JSON.stringify({ permissions: { allow: ['Read'] } }));
-    expect(builderSettingsProblems(noDeny)).toEqual([`the builder settings file ${noDeny}: permissions.deny: Required`]);
+    expect(builderSettingsProblems(noDeny)).toEqual([`the builder settings file ${noDeny}: permissions.deny: Invalid input: expected array, received undefined`]);
   });
 });

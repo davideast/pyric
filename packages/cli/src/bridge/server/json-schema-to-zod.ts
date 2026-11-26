@@ -38,7 +38,7 @@ type JsonSchemaObject = {
 export function jsonSchemaToZodShape(schema: JsonSchemaObject): ZodRawShape {
   const properties = schema.properties ?? {};
   const required = new Set(schema.required ?? []);
-  const shape: ZodRawShape = {};
+  const shape: Record<string, ZodTypeAny> = {};
   for (const [key, value] of Object.entries(properties)) {
     let zodSchema = jsonSchemaToZod(value);
     if (value.description) {
@@ -97,7 +97,7 @@ function jsonSchemaToZod(schema: JsonSchemaObject): ZodTypeAny {
         return z.record(z.string(), z.any());
       }
       const inner = jsonSchemaToZodShape(schema);
-      return z.object(inner).passthrough();
+      return z.looseObject(inner);
     }
     default:
       // Untyped (e.g. the `auth` field that pyric tools accept as

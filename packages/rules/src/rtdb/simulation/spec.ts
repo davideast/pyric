@@ -47,7 +47,7 @@ function boundsOf(q: SimulationQuery): Bound[] {
  * refuse is not evaluated as if it were a read.
  */
 export function simulationQueryProblem(query: unknown): string | null {
-  const parsed = SimulationQuerySchema.strict().safeParse(query);
+  const parsed = z.strictObject(SimulationQuerySchema.shape).safeParse(query);
   if (!parsed.success) {
     return `query is not a Realtime Database query: ${parsed.error.issues.map((i) => i.message).join('; ')}`;
   }
@@ -96,12 +96,11 @@ export const SimulationInputSchema = z.object({
   path: z.string().min(1).startsWith('/'),
   auth: z.union([
     z
-      .object({
+      .looseObject({
         uid: z.string(),
         tenant: z.string().optional(),
         token: z.record(z.string(), z.unknown()).optional(),
-      })
-      .passthrough(),
+      }),
     z.null(),
   ]),
   mockData: SimulationMockDataSchema,

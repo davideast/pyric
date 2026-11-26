@@ -146,7 +146,7 @@ describe('measurements.jsonl', () => {
     writeFileSync(path, `${first}\n{"kind":"builder"}\n\nnot json\n`);
     const { lines, errors } = readMeasurements(path);
     expect(lines).toHaveLength(1);
-    expect(errors[0]).toStartWith('line 2: run: Required');
+    expect(errors[0]).toStartWith('line 2: run: Invalid input: expected string, received undefined');
     expect(errors.at(-1)).toStartWith('line 4: not JSON');
   });
 });

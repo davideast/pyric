@@ -50,7 +50,7 @@ export const constraint = z
     type: z.string().describe('where, orderBy, or limit.'),
     field: z.string().optional().describe('Field for where and orderBy.'),
     op: z.string().optional().describe('Comparison operator for where.'),
-    value: z.unknown().describe('Comparison value for where, or the count for limit.'),
+    value: z.unknown().optional().describe('Comparison value for where, or the count for limit.'),
     direction: z.enum(['asc', 'desc']).optional().describe('Sort direction for orderBy.'),
   })
   .describe('One query constraint, spelled as the SDK names it.');

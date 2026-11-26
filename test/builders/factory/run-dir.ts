@@ -69,7 +69,7 @@ export function runPaths(root: string): RunPaths {
 
 const isoTime = z.string().datetime();
 
-const runSchema = z.object({
+const runSchema = z.strictObject({
   startedAt: isoTime,
   deadline: isoTime,
   hours: z.number().positive(),
@@ -77,11 +77,11 @@ const runSchema = z.object({
   agent: z.string().min(1),
   /** The brief directory every session reads. */
   briefDir: z.string().min(1),
-}).strict();
+});
 
 export type RunInfo = z.infer<typeof runSchema>;
 
-const heartbeatSchema = z.object({ at: isoTime, pid: z.number().int() }).strict();
+const heartbeatSchema = z.strictObject({ at: isoTime, pid: z.number().int() });
 
 export type Heartbeat = z.infer<typeof heartbeatSchema>;
 
@@ -92,7 +92,7 @@ export function writeJsonFile(path: string, value: unknown): void {
   replaceFile(path, `${JSON.stringify(value, null, 2)}\n`);
 }
 
-function readJsonFile<T>(path: string, schema: z.ZodType<T, z.ZodTypeDef, unknown>): T {
+function readJsonFile<T>(path: string, schema: z.ZodType<T>): T {
   const text = parseJsonText(readFileSync(path, 'utf8'));
   const parsed = text.ok ? parseWith(schema, text.value) : text;
   if (!parsed.ok) throw new RunDirError(`${path}: ${parsed.errors.join('; ')}`);
@@ -141,7 +141,7 @@ export function readHeartbeat(paths: RunPaths): Heartbeat | undefined {
   return readJsonFile(paths.heartbeat, heartbeatSchema);
 }
 
-export const supervisorStateSchema = z.object({
+export const supervisorStateSchema = z.strictObject({
   /** Lead sessions finished so far. Builders wait for the first. */
   leadSessions: z.number().int().nonnegative(),
   /** The lead is owed a session: at the start, and after each round of reviews. */
@@ -156,7 +156,7 @@ export const supervisorStateSchema = z.object({
   pausedUntil: isoTime.optional(),
   /** Rate limits in a row, for the backoff when one gives no reset time. */
   rateLimitStreak: z.number().int().nonnegative(),
-}).strict();
+});
 
 export type SupervisorState = z.infer<typeof supervisorStateSchema>;
 

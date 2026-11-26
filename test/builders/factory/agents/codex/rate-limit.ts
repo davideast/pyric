@@ -17,9 +17,9 @@ const WINDOWS = ['primary', 'secondary'] as const;
 /** Error types the upstream gives a request over its rate limit. */
 const LIMIT_ERROR_TYPES = new Set(['usage_limit_reached', 'rate_limit_exceeded', 'usage_not_included']);
 
-const errorSchema = z.object({
-  error: z.object({ type: z.string().optional(), resets_at: z.number().optional(), resets_in_seconds: z.number().optional() }).passthrough(),
-}).passthrough();
+const errorSchema = z.looseObject({
+  error: z.looseObject({ type: z.string().optional(), resets_at: z.number().optional(), resets_in_seconds: z.number().optional() }),
+});
 
 function header(headers: Headers, name: string): string | undefined {
   const value = headers[name];

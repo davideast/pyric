@@ -37,7 +37,7 @@ export function argumentNames(method: Method): string[] {
 }
 
 /** The name a Zod issue points at, as the caller wrote it. */
-function fieldPath(path: readonly (string | number)[]): string {
+function fieldPath(path: readonly PropertyKey[]): string {
   return path.map((segment) => String(segment)).join('.');
 }
 
@@ -78,30 +78,43 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-/** Peel optional, nullable, default, readonly, catch, branded, and refinement wrappers off a schema. */
+interface ZodDefLike {
+  type?: string;
+  innerType?: z.ZodTypeAny;
+  in?: z.ZodTypeAny;
+  catchall?: z.ZodTypeAny;
+  element?: z.ZodTypeAny;
+  valueType?: z.ZodTypeAny;
+  options?: z.ZodTypeAny[];
+}
+
+function definitionOf(schema: z.ZodTypeAny): ZodDefLike {
+  return schema._zod.def as unknown as ZodDefLike;
+}
+
+function isPassthroughObject(def: ZodDefLike): boolean {
+  if (def.catchall === undefined) return false;
+  const catchallType = definitionOf(def.catchall).type;
+  return catchallType === 'unknown' || catchallType === 'any';
+}
+
+/** Peel optional, nullable, default, readonly, catch, and pipe wrappers off a schema. */
 function unwrapSchema(schema: z.ZodTypeAny): z.ZodTypeAny {
   let current: z.ZodTypeAny = schema;
   for (;;) {
-    const def = current._def as {
-      typeName?: string;
-      innerType?: z.ZodTypeAny;
-      schema?: z.ZodTypeAny;
-    };
+    const def = definitionOf(current);
     const hasInnerType =
-      def.typeName === z.ZodFirstPartyTypeKind.ZodOptional
-      || def.typeName === z.ZodFirstPartyTypeKind.ZodNullable
-      || def.typeName === z.ZodFirstPartyTypeKind.ZodDefault
-      || def.typeName === z.ZodFirstPartyTypeKind.ZodReadonly
-      || def.typeName === z.ZodFirstPartyTypeKind.ZodCatch;
+      def.type === 'optional'
+      || def.type === 'nullable'
+      || def.type === 'default'
+      || def.type === 'readonly'
+      || def.type === 'catch';
     if (hasInnerType && def.innerType !== undefined) {
       current = def.innerType;
       continue;
     }
-    const hasWrappedSchema =
-      def.typeName === z.ZodFirstPartyTypeKind.ZodEffects
-      || def.typeName === z.ZodFirstPartyTypeKind.ZodBranded;
-    if (hasWrappedSchema && def.schema !== undefined) {
-      current = def.schema;
+    if (def.type === 'pipe' && def.in !== undefined) {
+      current = def.in;
       continue;
     }
     return current;
@@ -154,18 +167,12 @@ function checkSchemaArgumentNames(
 ): InvalidArguments | null {
   if (value === undefined || value === null) return null;
   const unwrapped = unwrapSchema(schema);
-  const def = unwrapped._def as {
-    typeName?: string;
-    unknownKeys?: string;
-    type?: z.ZodTypeAny;
-    valueType?: z.ZodTypeAny;
-    options?: z.ZodTypeAny[];
-  };
+  const def = definitionOf(unwrapped);
 
-  if (def.typeName === z.ZodFirstPartyTypeKind.ZodObject) {
+  if (def.type === 'object') {
     if (!isPlainRecord(value)) return null;
-    if (def.unknownKeys === 'passthrough') return null;
-    const shape = (unwrapped as z.ZodObject<z.ZodRawShape>).shape;
+    if (isPassthroughObject(def)) return null;
+    const shape = (unwrapped as z.ZodObject<z.ZodRawShape, z.core.$ZodObjectConfig>).shape;
     const known = Object.keys(shape);
     for (const name of Object.keys(value)) {
       if (known.includes(name)) continue;
@@ -207,16 +214,16 @@ function checkSchemaArgumentNames(
     return null;
   }
 
-  if (def.typeName === z.ZodFirstPartyTypeKind.ZodArray) {
-    if (!Array.isArray(value) || def.type === undefined) return null;
+  if (def.type === 'array') {
+    if (!Array.isArray(value) || def.element === undefined) return null;
     for (const [index, item] of value.entries()) {
-      const nested = checkSchemaArgumentNames(method, rootArgs, def.type, item, [...path, index], fail);
+      const nested = checkSchemaArgumentNames(method, rootArgs, def.element, item, [...path, index], fail);
       if (nested !== null) return nested;
     }
     return null;
   }
 
-  if (def.typeName === z.ZodFirstPartyTypeKind.ZodRecord) {
+  if (def.type === 'record') {
     if (!isPlainRecord(value) || def.valueType === undefined) return null;
     for (const [key, item] of Object.entries(value)) {
       const nested = checkSchemaArgumentNames(method, rootArgs, def.valueType, item, [...path, key], fail);
@@ -225,31 +232,22 @@ function checkSchemaArgumentNames(
     return null;
   }
 
-  const isUnion =
-    def.typeName === z.ZodFirstPartyTypeKind.ZodUnion
-    || def.typeName === z.ZodFirstPartyTypeKind.ZodDiscriminatedUnion;
-  if (isUnion && Array.isArray(def.options)) {
+  if (def.type === 'union' && Array.isArray(def.options)) {
     const unwrappedOptions = def.options.map((option) => unwrapSchema(option));
     if (Array.isArray(value)) {
-      const arrayOption = unwrappedOptions.find(
-        (option) => (option._def as { typeName?: string }).typeName === z.ZodFirstPartyTypeKind.ZodArray,
-      );
+      const arrayOption = unwrappedOptions.find((option) => definitionOf(option).type === 'array');
       if (arrayOption === undefined) return null;
       return checkSchemaArgumentNames(method, rootArgs, arrayOption, value, path, fail);
     }
     if (!isPlainRecord(value)) return null;
     const allowsArbitraryKeys = unwrappedOptions.some((option) => {
-      const kind = (option._def as { typeName?: string }).typeName;
-      return (
-        kind === z.ZodFirstPartyTypeKind.ZodRecord
-        || kind === z.ZodFirstPartyTypeKind.ZodUnknown
-        || kind === z.ZodFirstPartyTypeKind.ZodAny
-      );
+      const kind = definitionOf(option).type;
+      return kind === 'record' || kind === 'unknown' || kind === 'any';
     });
     if (allowsArbitraryKeys) return null;
     const objectOptions = unwrappedOptions.filter(
-      (option): option is z.ZodObject<z.ZodRawShape> =>
-        (option._def as { typeName?: string }).typeName === z.ZodFirstPartyTypeKind.ZodObject,
+      (option): option is z.ZodObject<z.ZodRawShape, z.core.$ZodObjectConfig> =>
+        definitionOf(option).type === 'object',
     );
     if (objectOptions.length === 0) return null;
     if (objectOptions.length === 1) {
@@ -280,17 +278,42 @@ function checkArgumentNames(method: Method, args: Args, fail: Fail): InvalidArgu
   return checkSchemaArgumentNames(method, args, method.args, args, [], fail);
 }
 
+/** The runtime type name matching Zod's `invalid_type` vocabulary. */
+function receivedTypeName(value: unknown): string {
+  if (value === undefined) return 'undefined';
+  if (value === null) return 'null';
+  if (Array.isArray(value)) return 'array';
+  if (typeof value === 'number') {
+    if (Number.isNaN(value)) return 'nan';
+    return 'number';
+  }
+  if (typeof value === 'string') return 'string';
+  if (typeof value === 'boolean') return 'boolean';
+  if (typeof value === 'bigint') return 'bigint';
+  if (typeof value === 'symbol') return 'symbol';
+  if (typeof value === 'function') return 'function';
+  if (value instanceof Date) return 'date';
+  if (value instanceof Map) return 'map';
+  if (value instanceof Set) return 'set';
+  return 'object';
+}
+
 /** Turn the first Zod issue into a message that states the signature and the edit. */
 function fromZodIssue(
   method: Method,
-  issue: z.ZodIssue,
+  issue: z.core.$ZodIssue,
   fail: Fail,
   args: Args,
 ): InvalidArguments {
   const field = fieldPath(issue.path);
   const root = String(issue.path[0] ?? '');
   const detail = argumentSummary(method, root);
-  if (issue.code === 'invalid_type' && issue.received === 'undefined') {
+  const receivedValue = valueAt(args, issue.path);
+  if (
+    field !== ''
+    && receivedValue === undefined
+    && (issue.code === 'invalid_type' || issue.code === 'invalid_value')
+  ) {
     return fail(
       `argument '${field}' is missing. The SDK signature is ${method.signature}.`,
       `Pass '${field}'.${detail}`,
@@ -298,8 +321,9 @@ function fromZodIssue(
     );
   }
   if (issue.code === 'invalid_type') {
+    const received = receivedTypeName(receivedValue);
     return fail(
-      `argument '${field}' is ${issue.received}, not ${issue.expected}. The SDK signature is ${method.signature}.`,
+      `argument '${field}' is ${received}, not ${issue.expected}. The SDK signature is ${method.signature}.`,
       `Pass '${field}' as ${issue.expected}.${detail}`,
       field,
     );
@@ -307,18 +331,30 @@ function fromZodIssue(
   // A closed set is spelled in the signature, so a value outside it is
   // answered with the whole set and, when one is close, the value that was
   // probably meant.
-  if (issue.code === 'invalid_enum_value') {
-    const values = issue.options.map((option) => String(option));
-    const suggestion = closest(String(issue.received), values);
+  if (issue.code === 'invalid_value' && issue.values.length > 1) {
+    if (
+      typeof receivedValue !== 'string'
+      && issue.values.every((option) => typeof option === 'string')
+    ) {
+      const expected = issue.values.map((option) => `'${option}'`).join(' | ');
+      const received = receivedTypeName(receivedValue);
+      return fail(
+        `argument '${field}' is ${received}, not ${expected}. The SDK signature is ${method.signature}.`,
+        `Pass '${field}' as ${expected}.${detail}`,
+        field,
+      );
+    }
+    const values = issue.values.map((option) => String(option));
+    const suggestion = typeof receivedValue === 'string' ? closest(receivedValue, values) : null;
     if (suggestion === null) {
       return fail(
-        `argument '${field}' is ${quoted(issue.received)}, which is not one of ${values.join(', ')}. The SDK signature is ${method.signature}.`,
+        `argument '${field}' is ${quoted(receivedValue)}, which is not one of ${values.join(', ')}. The SDK signature is ${method.signature}.`,
         `Pass '${field}' as one of ${values.join(', ')}.`,
         field,
       );
     }
     return fail(
-      `argument '${field}' is ${quoted(issue.received)}, which is not one of ${values.join(', ')}. The SDK signature is ${method.signature}.`,
+      `argument '${field}' is ${quoted(receivedValue)}, which is not one of ${values.join(', ')}. The SDK signature is ${method.signature}.`,
       `Pass '${field}' as '${suggestion}'.`,
       field,
     );
@@ -342,11 +378,11 @@ function fromZodIssue(
 }
 
 /** The value a Zod issue's path points at, as the caller sent it. */
-function valueAt(args: Args, path: readonly (string | number)[]): unknown {
+function valueAt(args: Args, path: readonly PropertyKey[]): unknown {
   let value: unknown = args;
   for (const segment of path) {
     if (value === null || typeof value !== 'object') return undefined;
-    value = (value as Record<string | number, unknown>)[segment];
+    value = (value as Record<PropertyKey, unknown>)[segment];
   }
   return value;
 }

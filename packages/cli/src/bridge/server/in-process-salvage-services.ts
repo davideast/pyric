@@ -13,88 +13,77 @@ const CLOCK_STATE_SERVICE_KEY = '__pyric_cli_clock_state';
 const AI_LOGIC_SCRIPTS_SERVICE_KEY = '__pyric_cli_ai_logic_scripts';
 
 const cliAppSessionShape = z
-  .object({
+  .strictObject({
     uid: z.string().min(1),
     tenantId: z.string().nullable(),
-  })
-  .strict();
+  });
 
 const persistedRulesEntryShape = z
-  .object({
+  .strictObject({
     active: z.string(),
     diskAtSave: z.string().nullable(),
-  })
-  .strict();
+  });
 
 const cliRulesStateShape = z
-  .object({
+  .strictObject({
     firestore: persistedRulesEntryShape.optional(),
     storage: z
-      .object({
+      .strictObject({
         default: persistedRulesEntryShape.optional(),
         buckets: z.record(z.string(), persistedRulesEntryShape).optional(),
       })
-      .strict()
       .optional(),
-  })
-  .strict();
+  });
 
 const cliNonUidIdentityShape = z
-  .object({
+  .strictObject({
     mode: z.enum(['admin', 'anonymous', 'default']),
-  })
-  .strict();
+  });
 
 const cliUidIdentityShape = z
-  .object({
+  .strictObject({
     mode: z.literal('uid'),
     uid: z.string().min(1),
     tenant: z.string().min(1).optional(),
     claims: z.record(z.string(), z.unknown()).optional(),
-  })
-  .strict();
+  });
 
 const cliAgentIdentityShape = z.union([cliNonUidIdentityShape, cliUidIdentityShape]);
 
 const cliClockStateShape = z
-  .object({
+  .strictObject({
     mode: z.enum(['wall', 'fixed', 'offset']),
     fixedAt: z.number().finite(),
     offsetMs: z.number().finite(),
-  })
-  .strict();
+  });
 
 const cliScriptMatchShape = z
-  .object({
+  .strictObject({
     substring: z.string().optional(),
     model: z.string().optional(),
-  })
-  .strict();
+  });
 
 const cliScriptResponseShape = z.union([
-  z.object({ type: z.literal('text'), payload: z.string() }).strict(),
-  z.object({ type: z.literal('json'), payload: z.record(z.string(), z.unknown()) }).strict(),
+  z.strictObject({ type: z.literal('text'), payload: z.string() }),
+  z.strictObject({ type: z.literal('json'), payload: z.record(z.string(), z.unknown()) }),
   z
-    .object({
+    .strictObject({
       type: z.literal('error'),
-      payload: z.object({ code: z.number().finite(), message: z.string() }).strict(),
-    })
-    .strict(),
+      payload: z.strictObject({ code: z.number().finite(), message: z.string() }),
+    }),
 ]);
 
 const cliAiLogicStateShape = z
-  .object({
+  .strictObject({
     scripts: z.array(
       z
-        .object({
+        .strictObject({
           match: cliScriptMatchShape.nullable(),
           response: cliScriptResponseShape,
           consumed: z.boolean(),
-        })
-        .strict(),
+        }),
     ),
-  })
-  .strict();
+  });
 
 export function validateCliService(
   name: string,

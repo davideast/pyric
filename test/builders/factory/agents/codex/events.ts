@@ -11,11 +11,11 @@
  */
 import { z } from 'zod';
 
-const eventSchema = z.object({
+const eventSchema = z.looseObject({
   type: z.string(),
   message: z.string().optional(),
-  error: z.object({ message: z.string().optional() }).passthrough().optional(),
-}).passthrough();
+  error: z.looseObject({ message: z.string().optional() }).optional(),
+});
 
 export type CodexEvent = z.infer<typeof eventSchema>;
 

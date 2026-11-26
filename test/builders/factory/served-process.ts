@@ -50,7 +50,7 @@ export const DEFAULT_SERVED_PORT = 4120;
 
 const USAGE = 'bun served-process.ts --run-dir <dir> --commit <sha> --root <tree> --owner-pid <pid> --owner-start <time> [--deadline <iso>] [--port <n>] [--host <address>] [--provider-socket <path>]';
 
-export const servedStateSchema = z.object({
+export const servedStateSchema = z.strictObject({
   pid: z.number().int().positive(),
   /** The process's start time from /proc, so a reused pid never matches. */
   startTime: z.string(),
@@ -60,7 +60,7 @@ export const servedStateSchema = z.object({
   status: z.enum(['starting', 'ready', 'failed']),
   startedAt: z.string(),
   error: z.string().optional(),
-}).strict();
+});
 
 export type ServedState = z.infer<typeof servedStateSchema>;
 

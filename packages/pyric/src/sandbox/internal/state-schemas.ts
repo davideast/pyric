@@ -75,7 +75,7 @@ const storageMetadataFields = {
 } satisfies Record<keyof StoredMetadata, z.ZodType<unknown>>;
 
 /** Shared account file shape used by checkpoints and host state. */
-export const seedUserSchema = z.object(userFields).passthrough();
+export const seedUserSchema = z.looseObject(userFields);
 
 /** Complete stored object metadata shared by state readers. */
-export const storedMetadataSchema = z.object(storageMetadataFields).passthrough();
+export const storedMetadataSchema = z.looseObject(storageMetadataFields);

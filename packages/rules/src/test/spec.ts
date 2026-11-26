@@ -164,7 +164,7 @@ export interface RulesTestApiResultDetails {
   expressionReports?: unknown[];
 }
 
-export const TestCaseSchema = z.object({
+export const TestCaseSchema = z.strictObject({
   description: z.string().describe('Human-readable description of what this test verifies'),
   expectation: z.enum(['ALLOW', 'DENY']).describe('Expected outcome'),
   method: z.enum(FIRESTORE_METHODS).describe('Firestore method to test'),
@@ -202,7 +202,7 @@ export const TestCaseSchema = z.object({
   writeMode: WriteModeSchema.optional().describe('Optional write-mode override; controls update merge semantics and getAfter() projection.'),
   // A misspelled field would otherwise be dropped, and the case would ask a
   // different question than its author wrote (FS2-CON-2).
-}).strict();
+});
 
 export type TestCase = z.infer<typeof TestCaseSchema>;
 

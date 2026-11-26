@@ -21,8 +21,8 @@ export const fakeCredential: Credential = {
   problemAt: () => undefined,
 };
 
-const bodySchema = z.object({ model: z.string() }).passthrough();
-const limitSchema = z.object({ resets_at: z.number() }).passthrough();
+const bodySchema = z.looseObject({ model: z.string() });
+const limitSchema = z.looseObject({ resets_at: z.number() });
 
 function rateLimitOf(status: number, _headers: unknown, body: string): RateLimit {
   const limitReached = status === 429;

@@ -119,7 +119,7 @@ interface MethodRecordFields {
   /** One sentence an agent reads to choose this method. */
   description: string;
   /** The arguments, under the SDK's own names. */
-  args: z.ZodObject<z.ZodRawShape>;
+  args: z.ZodObject<Record<string, z.ZodTypeAny>>;
   /** The canonical operation, or the choice among operations, this call reaches. */
   operation: CanonicalOperation;
   /** Argument names from a neighbouring API, mapped to this SDK's name. */

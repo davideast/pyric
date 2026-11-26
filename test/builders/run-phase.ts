@@ -26,7 +26,7 @@ import { builderRunDirsAt, type BuilderRunDirs } from './round-paths.ts';
 import { assertInsideSandbox, inventoryLine } from './sandbox-check.ts';
 import { recorderEnvironment } from './scratch.ts';
 
-export const phaseSchema = z.object({
+export const phaseSchema = z.strictObject({
   command: z.string().min(1),
   args: z.array(z.string()),
   env: z.record(z.string(), z.string()),
@@ -35,11 +35,11 @@ export const phaseSchema = z.object({
   modelChannel: z.boolean(),
   /** The file in `logs/` the command's output goes to. */
   log: z.string().regex(/^[a-z0-9][a-z0-9.-]*\.log$/),
-}).strict();
+});
 
 export type Phase = z.infer<typeof phaseSchema>;
 
-export const phaseResultSchema = z.object({
+export const phaseResultSchema = z.strictObject({
   /** The builder's exit code; null when it was stopped or never started. */
   code: z.number().int().nullable(),
   /** Stopped at its wall-clock cap. */
@@ -47,7 +47,7 @@ export const phaseResultSchema = z.object({
   /** Why the builder could not be run at all, when it could not. */
   error: z.string().nullable(),
   wallMs: z.number().int().nonnegative(),
-}).strict();
+});
 
 export type PhaseResult = z.infer<typeof phaseResultSchema>;
 

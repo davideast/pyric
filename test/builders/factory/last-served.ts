@@ -17,16 +17,16 @@ import { readJson, writeJson } from './state-files.ts';
 export const MAX_CHANGES = 50;
 const MAX_SUBJECT = 200;
 
-const lastServedSchema = z.object({
+const lastServedSchema = z.strictObject({
   commit: z.string(),
   hour: z.number().int(),
   at: z.string().datetime(),
   failing: z.array(z.enum(GATES)),
   /** The commit the changes are counted from. */
-  since: z.object({ commit: z.string(), what: z.enum(['previous', 'start']) }).strict(),
+  since: z.strictObject({ commit: z.string(), what: z.enum(['previous', 'start']) }),
   /** Commit subjects since then, newest first; absent when git could not list them. */
   changes: z.array(z.string()).optional(),
-}).strict();
+});
 
 export type LastServed = z.infer<typeof lastServedSchema>;
 

@@ -5,13 +5,13 @@ export const HOSTED_METHOD_PATH = '/__pyric/hosted/method';
 export const HOSTED_METHOD_BODY_LIMIT = 12 * 1024 * 1024;
 /** Active command owners include closed connections whose accepted work is draining. */
 export const MAX_HOSTED_METHOD_OWNERS = 64;
-export const hostedMethodRequest = z.object({
+export const hostedMethodRequest = z.strictObject({
   instanceId: z.string(),
   projectDir: z.string(),
   key: z.string(),
   args: z.record(z.string(), z.unknown()),
   allowProduction: z.boolean().default(false),
-}).strict();
+});
 
 export type HostedMethodRequest = z.infer<typeof hostedMethodRequest>;
 
@@ -23,7 +23,7 @@ export const hostedMethodResult = z.object({
 
 /** `pyric serve repro capture` reads the Node host's repro file here. */
 export const HOSTED_REPRO_PATH = '/__pyric/hosted/repro';
-export const hostedReproRequest = z.object({
+export const hostedReproRequest = z.strictObject({
   instanceId: z.string(),
   projectDir: z.string(),
-}).strict();
+});

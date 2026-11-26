@@ -17,7 +17,7 @@ import { z } from 'zod';
 import { parseJsonText, parseWith } from '../parse.ts';
 import { readRunFile } from './host-files.ts';
 
-const itemSchema = z.object({
+const itemSchema = z.looseObject({
   id: z.string().min(1),
   title: z.string(),
   status: z.enum(['todo', 'in-progress', 'ready', 'done']),
@@ -25,9 +25,9 @@ const itemSchema = z.object({
   owner: z.string().optional(),
   /** Why no builder can go on with it: the issue draft that blocks it. Any value but `false` or `""` blocks. */
   blocked: z.unknown().optional(),
-}).passthrough();
+});
 
-const workListSchema = z.object({ items: z.array(itemSchema) }).passthrough();
+const workListSchema = z.looseObject({ items: z.array(itemSchema) });
 
 export type WorkItem = z.infer<typeof itemSchema>;
 

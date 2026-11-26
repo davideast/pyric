@@ -23,19 +23,19 @@ export type ReproTarget =
   | { kind: 'refusal-allowed'; selector: string; slug: string; action: string; productionAnswer: string; pyricAnswer: string }
   | { kind: 'google-host'; selector: string; slug: string; host: string };
 
-const refusalAllowed = z.object({ kind: z.literal('refusal-allowed'), action: z.string(), productionAnswer: z.string(), pyricAnswer: z.string() }).passthrough();
-const googleHost = z.object({ kind: z.literal('google-host'), host: z.string() }).passthrough();
+const refusalAllowed = z.looseObject({ kind: z.literal('refusal-allowed'), action: z.string(), productionAnswer: z.string(), pyricAnswer: z.string() });
+const googleHost = z.looseObject({ kind: z.literal('google-host'), host: z.string() });
 
 /** The parts of a kept `report.json` that `reproduce` reads. */
-const keptRunSchema = z.object({
+const keptRunSchema = z.looseObject({
   builder: builderReportSchema.nullable(),
-  harness: z.object({
+  harness: z.looseObject({
     run: z.string().min(1),
     round: z.string().min(1),
-    provenance: z.object({ commit: z.string(), tarballs: z.record(z.string(), z.string()) }).passthrough(),
+    provenance: z.looseObject({ commit: z.string(), tarballs: z.record(z.string(), z.string()) }),
     automaticProblems: z.array(z.discriminatedUnion('kind', [refusalAllowed, googleHost])),
-  }).passthrough(),
-}).passthrough();
+  }),
+});
 
 export type KeptRun = z.infer<typeof keptRunSchema>;
 

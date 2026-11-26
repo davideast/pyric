@@ -323,7 +323,7 @@
     "pyric-admin": "workspace:*",
     "typescript": "^5.7.0",
     "ws": "^8.18.0",
-    "zod": "^3.23.0"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",

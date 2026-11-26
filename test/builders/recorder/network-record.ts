@@ -106,7 +106,7 @@ export function browserRecordIncomplete(events: readonly NetworkEvent[]): boolea
  * can write the record, so a line is checked before anything reads it;
  * the fields a layer adds beyond these pass through.
  */
-const networkLineSchema = z.object({
+const networkLineSchema = z.looseObject({
   time: z.string(),
   layer: z.string(),
   kind: z.string(),
@@ -116,7 +116,7 @@ const networkLineSchema = z.object({
   catalogGap: z.boolean().optional(),
   metadata: z.boolean().optional(),
   protocol: z.string().optional(),
-}).passthrough();
+});
 
 /** Whether `value` has the fields a reader relies on, with their types. */
 const isNetworkEvent = (value: unknown): value is NetworkEvent => networkLineSchema.safeParse(value).success;

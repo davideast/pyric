@@ -33,10 +33,10 @@ export function tailscaleFrom(env: NodeJS.ProcessEnv = process.env): Tailscale |
   };
 }
 
-const statusSchema = z.object({
+const statusSchema = z.looseObject({
   BackendState: z.string(),
-  Self: z.object({ DNSName: z.string() }).passthrough().optional(),
-}).passthrough();
+  Self: z.looseObject({ DNSName: z.string() }).optional(),
+});
 
 /** The machine's name on the private network, without the trailing dot; undefined unless Tailscale is running and says. */
 export function tailnetHost(env: NodeJS.ProcessEnv = process.env, tailscale: Tailscale | undefined = tailscaleFrom(env)): string | undefined {

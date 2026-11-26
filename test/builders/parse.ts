@@ -1,5 +1,5 @@
 /** Validation results for the harness's file shapes: the value, or one line per problem naming its field. */
-import type { ZodError, ZodType, ZodTypeDef } from 'zod';
+import type { ZodError, ZodType } from 'zod';
 
 export type Parsed<T> = { ok: true; value: T } | { ok: false; errors: string[] };
 
@@ -10,7 +10,7 @@ export function schemaErrors(error: ZodError): string[] {
   });
 }
 
-export function parseWith<T>(schema: ZodType<T, ZodTypeDef, unknown>, value: unknown): Parsed<T> {
+export function parseWith<T>(schema: ZodType<T>, value: unknown): Parsed<T> {
   const result = schema.safeParse(value);
   return result.success ? { ok: true, value: result.data } : { ok: false, errors: schemaErrors(result.error) };
 }

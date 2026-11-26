@@ -15,6 +15,41 @@ export interface SchemaRulesResult {
   children: Record<string, SchemaFieldRule>;
 }
 
+interface Zod4CheckDef {
+  check?: string;
+  format?: string;
+  minimum?: number;
+  maximum?: number;
+  length?: number;
+  pattern?: RegExp;
+  prefix?: string;
+  suffix?: string;
+  includes?: string;
+  position?: number;
+  value?: number;
+  inclusive?: boolean;
+}
+
+interface Zod4Check {
+  _zod?: { def?: Zod4CheckDef };
+}
+
+interface Zod4TypeDef {
+  type?: string;
+  format?: string;
+  catchall?: Zod4Schema;
+  innerType?: Zod4Schema;
+  checks?: readonly Zod4Check[];
+  entries?: Record<string, string | number>;
+  values?: readonly unknown[];
+  options?: readonly Zod4Schema[];
+}
+
+interface Zod4Schema {
+  constructor?: { name?: string };
+  _zod?: { def?: Zod4TypeDef };
+}
+
 const EMAIL_PATTERN = '/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/';
 
 /** Escaped letters that mean the same class in JavaScript and in RTDB's dialect. */
@@ -43,7 +78,7 @@ function rtdbRegexProblem(source: string): string | null {
   let inClass = false;
   let depth = 0;
   for (let i = 0; i < source.length; i++) {
-    const ch = source[i]!;
+    const ch = source[i] ?? '';
     const nextCh = source[i + 1];
     if (ch === '\\' && nextCh !== undefined) {
       const escapeProblem = escapedLetterProblem(nextCh);
@@ -92,8 +127,23 @@ function escapedLetterProblem(letter: string): string | null {
   return `RTDB reads the escape \\${letter} as the letter ${letter}`;
 }
 
+function zodDefOf(value: unknown): Zod4TypeDef | undefined {
+  return (value as Zod4Schema | null | undefined)?._zod?.def;
+}
+
+/** Rejects Zod 4 `.refine()` / `.superRefine()` / attached checks on types whose rules cannot encode them. */
+function assertNoChecks(def: Zod4TypeDef | undefined, kind: string, fieldName?: string): void {
+  const checks = def?.checks;
+  if (checks === undefined || checks.length === 0) {
+    return;
+  }
+  const first = checks[0]?._zod?.def?.check;
+  const target = fieldName === undefined ? '' : ` on field "${fieldName}"`;
+  throw new Error(`Unsupported Zod ${kind} check "${String(first)}" for RTDB rules${target}`);
+}
+
 /**
- * Generate RTDB validate rules from a Zod object schema.
+ * Generate RTDB validate rules from a Zod 4 object schema.
  * Optional fieldConstraints are AND-composed with the schema type check.
  */
 export function schemaRules(
@@ -101,15 +151,19 @@ export function schemaRules(
   fieldConstraints?: Record<string, Expr[]>,
 ): SchemaRulesResult {
   if (!(schema instanceof z.ZodObject)) {
-    const actualName = (schema as unknown as { constructor?: { name?: string } })?.constructor?.name ?? typeof schema;
+    const actualName = (schema as unknown as Zod4Schema)?.constructor?.name ?? typeof schema;
     throw new Error(
       `Unsupported Zod schema for RTDB rules: expected ZodObject, got ${actualName}`,
     );
   }
-  const def = schema._def;
-  if (def.catchall && !(def.catchall instanceof z.ZodNever)) {
+  const def = zodDefOf(schema);
+  assertNoChecks(def, 'object');
+  const catchallDef = def?.catchall?._zod?.def;
+  const catchallType = catchallDef?.type;
+  if (catchallType !== undefined && catchallType !== 'never' && catchallType !== 'unknown') {
     throw new Error('Unsupported Zod object catchall for RTDB rules');
   }
+  assertNoChecks(catchallDef, 'object catchall');
 
   const shape = schema.shape;
   if (fieldConstraints) {
@@ -125,11 +179,19 @@ export function schemaRules(
 
   for (const [key, rawType] of Object.entries(shape)) {
     assertFieldName('schemaRules', key);
-    const zodType = rawType as z.ZodTypeAny;
-    const isOptional = zodType instanceof z.ZodOptional;
-    const innerType = isOptional ? (zodType as z.ZodOptional<any>).unwrap() : zodType;
+    const rawDef = zodDefOf(rawType);
+    const isOptional = rawDef?.type === 'optional';
+    let innerType: unknown = rawType;
+    if (isOptional) {
+      assertNoChecks(rawDef, 'optional', key);
+      if (rawDef?.innerType !== undefined) {
+        innerType = rawDef.innerType;
+      }
+    }
 
-    if (!isOptional) requiredFields.push(key);
+    if (!isOptional) {
+      requiredFields.push(key);
+    }
 
     const constraints = fieldConstraints?.[key];
 
@@ -153,7 +215,7 @@ export function schemaRules(
     }
   }
 
-  if (def?.unknownKeys === 'strict') {
+  if (catchallType === 'never') {
     children.$other = { validate: expr('false') };
   }
 
@@ -167,91 +229,143 @@ export function schemaRules(
   return { validate, children };
 }
 
-function zodStringToExpr(zodType: z.ZodString, fieldName: string): Expr {
+function zodStringFormatToExpr(
+  format: string,
+  cdef: Zod4CheckDef,
+  fieldName: string,
+): Expr {
+  if (format === 'regex' && cdef.pattern instanceof RegExp) {
+    const re = cdef.pattern;
+    if (!isSupportedRegexFlags(re.flags)) {
+      throw new Error(
+        `Unsupported Zod regex flags "${re.flags}" on field "${fieldName}"; RTDB rules only support the "i" flag`,
+      );
+    }
+    if (/[\r\n]/.test(re.source)) {
+      throw new Error(`Unsupported Zod regex with newline on field "${fieldName}"`);
+    }
+    const problem = rtdbRegexProblem(re.source);
+    if (problem !== null) {
+      throw new Error(`Unsupported Zod regex on field "${fieldName}": ${problem}`);
+    }
+    return expr(`newData.val().matches(/${re.source}/${re.flags})`);
+  }
+  if (format === 'email') {
+    return expr(`newData.val().matches(${EMAIL_PATTERN})`);
+  }
+  if (format === 'starts_with' && typeof cdef.prefix === 'string') {
+    return expr(`newData.val().beginsWith(${lit(cdef.prefix)})`);
+  }
+  if (format === 'ends_with' && typeof cdef.suffix === 'string') {
+    return expr(`newData.val().endsWith(${lit(cdef.suffix)})`);
+  }
+  if (format === 'includes' && typeof cdef.includes === 'string') {
+    if (cdef.position !== undefined) {
+      throw new Error(
+        `Unsupported Zod string check "includes" with position for RTDB rules on field "${fieldName}"`,
+      );
+    }
+    return expr(`newData.val().contains(${lit(cdef.includes)})`);
+  }
+  throw new Error(
+    `Unsupported Zod string check "${format}" for RTDB rules on field "${fieldName}"`,
+  );
+}
+
+function zodStringToExpr(def: Zod4TypeDef, fieldName: string): Expr {
   const parts: Expr[] = [expr('newData.isString()')];
-  for (const check of zodType._def.checks) {
-    if (check.kind === 'min') {
-      parts.push(expr(`newData.val().length >= ${lit(check.value)}`));
-    } else if (check.kind === 'max') {
-      parts.push(expr(`newData.val().length <= ${lit(check.value)}`));
-    } else if (check.kind === 'length') {
-      parts.push(expr(`newData.val().length == ${lit(check.value)}`));
-    } else if (check.kind === 'regex') {
-      const re = check.regex;
-      if (!isSupportedRegexFlags(re.flags)) {
-        throw new Error(
-          `Unsupported Zod regex flags "${re.flags}" on field "${fieldName}"; RTDB rules only support the "i" flag`,
-        );
-      }
-      if (/[\r\n]/.test(re.source)) {
-        throw new Error(`Unsupported Zod regex with newline on field "${fieldName}"`);
-      }
-      const problem = rtdbRegexProblem(re.source);
-      if (problem !== null) {
-        throw new Error(`Unsupported Zod regex on field "${fieldName}": ${problem}`);
-      }
-      parts.push(expr(`newData.val().matches(/${re.source}/${re.flags})`));
-    } else if (check.kind === 'email') {
-      parts.push(expr(`newData.val().matches(${EMAIL_PATTERN})`));
-    } else if (check.kind === 'startsWith') {
-      parts.push(expr(`newData.val().beginsWith(${lit(check.value)})`));
-    } else if (check.kind === 'endsWith') {
-      parts.push(expr(`newData.val().endsWith(${lit(check.value)})`));
-    } else if (check.kind === 'includes') {
-      parts.push(expr(`newData.val().contains(${lit(check.value)})`));
+  if (typeof def.format === 'string') {
+    parts.push(zodStringFormatToExpr(def.format, def as Zod4CheckDef, fieldName));
+  }
+  for (const check of def.checks ?? []) {
+    const cdef = check._zod?.def;
+    if (cdef?.check === 'min_length' && typeof cdef.minimum === 'number') {
+      parts.push(expr(`newData.val().length >= ${lit(cdef.minimum)}`));
+    } else if (cdef?.check === 'max_length' && typeof cdef.maximum === 'number') {
+      parts.push(expr(`newData.val().length <= ${lit(cdef.maximum)}`));
+    } else if (cdef?.check === 'length_equals' && typeof cdef.length === 'number') {
+      parts.push(expr(`newData.val().length == ${lit(cdef.length)}`));
+    } else if (cdef?.check === 'string_format' && typeof cdef.format === 'string') {
+      parts.push(zodStringFormatToExpr(cdef.format, cdef, fieldName));
     } else {
       throw new Error(
-        `Unsupported Zod string check "${String(check.kind)}" for RTDB rules on field "${fieldName}"`,
+        `Unsupported Zod string check "${String(cdef?.check)}" for RTDB rules on field "${fieldName}"`,
       );
     }
   }
   return all(...parts);
 }
 
-function zodNumberToExpr(zodType: z.ZodNumber, fieldName: string): Expr {
+function zodNumberToExpr(def: Zod4TypeDef, fieldName: string): Expr {
   const parts: Expr[] = [expr('newData.isNumber()')];
-  for (const check of zodType._def.checks) {
-    if (check.kind === 'min') {
-      const op = check.inclusive === false ? '>' : '>=';
-      parts.push(expr(`newData.val() ${op} ${lit(check.value)}`));
-    } else if (check.kind === 'max') {
-      const op = check.inclusive === false ? '<' : '<=';
-      parts.push(expr(`newData.val() ${op} ${lit(check.value)}`));
-    } else if (check.kind === 'int') {
+  if (def.format === 'safeint') {
+    parts.push(expr('newData.val() % 1 == 0'));
+  } else if (def.format !== undefined) {
+    throw new Error(
+      `Unsupported Zod number check "${def.format}" for RTDB rules on field "${fieldName}"`,
+    );
+  }
+  for (const check of def.checks ?? []) {
+    const cdef = check._zod?.def;
+    if (cdef?.check === 'greater_than' && typeof cdef.value === 'number') {
+      const op = cdef.inclusive === false ? '>' : '>=';
+      parts.push(expr(`newData.val() ${op} ${lit(cdef.value)}`));
+    } else if (cdef?.check === 'less_than' && typeof cdef.value === 'number') {
+      const op = cdef.inclusive === false ? '<' : '<=';
+      parts.push(expr(`newData.val() ${op} ${lit(cdef.value)}`));
+    } else if (cdef?.check === 'number_format' && cdef.format === 'safeint') {
       parts.push(expr('newData.val() % 1 == 0'));
-    } else if (check.kind === 'multipleOf') {
-      parts.push(expr(`newData.val() % ${lit(check.value)} == 0`));
+    } else if (cdef?.check === 'number_format') {
+      throw new Error(
+        `Unsupported Zod number check "${String(cdef.format)}" for RTDB rules on field "${fieldName}"`,
+      );
+    } else if (cdef?.check === 'multiple_of' && typeof cdef.value === 'number') {
+      parts.push(expr(`newData.val() % ${lit(cdef.value)} == 0`));
     } else {
       throw new Error(
-        `Unsupported Zod number check "${String(check.kind)}" for RTDB rules on field "${fieldName}"`,
+        `Unsupported Zod number check "${String(cdef?.check)}" for RTDB rules on field "${fieldName}"`,
       );
     }
   }
   return all(...parts);
 }
 
-function zodTypeToExpr(zodType: z.ZodTypeAny, fieldName: string): Expr {
-  if (zodType instanceof z.ZodString) {
-    return zodStringToExpr(zodType, fieldName);
+function zodTypeToExpr(zodType: unknown, fieldName: string): Expr {
+  const schema = zodType as Zod4Schema | null | undefined;
+  const def = schema?._zod?.def;
+  if (def?.type === 'string') {
+    return zodStringToExpr(def, fieldName);
   }
-  if (zodType instanceof z.ZodNumber) {
-    return zodNumberToExpr(zodType, fieldName);
+  if (def?.type === 'number') {
+    return zodNumberToExpr(def, fieldName);
   }
-  if (zodType instanceof z.ZodBoolean) {
+  if (def?.type === 'boolean') {
+    assertNoChecks(def, 'boolean', fieldName);
     return expr('newData.isBoolean()');
   }
-  if (zodType instanceof z.ZodEnum) {
-    const values = (zodType as z.ZodEnum<any>).options as string[];
-    return any(...values.map(v => expr(`newData.val() == ${lit(v)}`)));
+  if (def?.type === 'enum' && def.entries !== undefined) {
+    assertNoChecks(def, 'enum', fieldName);
+    const values = Array.from(new Set(Object.values(def.entries)));
+    if (values.length === 0) {
+      throw new Error(`Unsupported empty Zod enum for RTDB rules on field "${fieldName}"`);
+    }
+    return any(...values.map((v) => expr(`newData.val() == ${lit(v)}`)));
   }
-  if (zodType instanceof z.ZodLiteral) {
-    const v = (zodType as z.ZodLiteral<any>).value;
-    return expr(`newData.val() == ${lit(v)}`);
+  if (def?.type === 'literal' && Array.isArray(def.values)) {
+    assertNoChecks(def, 'literal', fieldName);
+    if (def.values.length === 0) {
+      throw new Error(`Unsupported empty Zod literal for RTDB rules on field "${fieldName}"`);
+    }
+    return any(...def.values.map((v) => expr(`newData.val() == ${lit(v)}`)));
   }
-  if (zodType instanceof z.ZodUnion) {
-    const options = (zodType as z.ZodUnion<any>)._def.options as z.ZodTypeAny[];
-    return any(...options.map(opt => zodTypeToExpr(opt, fieldName)));
+  if (def?.type === 'union' && Array.isArray(def.options)) {
+    assertNoChecks(def, 'union', fieldName);
+    if (def.options.length === 0) {
+      throw new Error(`Unsupported empty Zod union for RTDB rules on field "${fieldName}"`);
+    }
+    return any(...def.options.map((opt) => zodTypeToExpr(opt, fieldName)));
   }
 
-  throw new Error(`Unsupported Zod type for RTDB rules: ${zodType.constructor.name} on field "${fieldName}"`);
+  const typeName = schema?.constructor?.name ?? String(def?.type ?? typeof zodType);
+  throw new Error(`Unsupported Zod type for RTDB rules: ${typeName} on field "${fieldName}"`);
 }

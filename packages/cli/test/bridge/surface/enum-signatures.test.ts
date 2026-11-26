@@ -29,25 +29,31 @@ import { validateArguments } from '../../../src/bridge/surface/method-validation
 import { TOOLS } from '../../../src/bridge/surface/methods/registry.js';
 import type { Args, Method } from '../../../src/bridge/surface/method-types.js';
 
+function definitionOf(schema: z.ZodTypeAny): { type: string } & Record<string, unknown> {
+  return schema._zod.def as unknown as { type: string } & Record<string, unknown>;
+}
+
 /** Every enum's values reachable from a Zod schema, walking objects, arrays, and wrappers. */
 function enumValues(schema: z.ZodTypeAny, seen = new Set<z.ZodTypeAny>()): string[][] {
   if (seen.has(schema)) return [];
   seen.add(schema);
-  const def = schema._def as { typeName: string } & Record<string, unknown>;
-  switch (def.typeName) {
-    case 'ZodEnum':
-      return [[...(def.values as string[])]];
-    case 'ZodObject': {
-      const shape = (schema as z.ZodObject<z.ZodRawShape>).shape;
-      return Object.values(shape).flatMap((field) => enumValues(field, seen));
+  const def = definitionOf(schema);
+  switch (def.type) {
+    case 'enum': {
+      const entries = def.entries as Record<string, string>;
+      return [Array.from(new Set(Object.values(entries)))];
     }
-    case 'ZodArray':
-      return enumValues(def.type as z.ZodTypeAny, seen);
-    case 'ZodRecord':
+    case 'object': {
+      const shape = (schema as z.ZodObject<z.ZodRawShape, z.core.$ZodObjectConfig>).shape;
+      return Object.values(shape).flatMap((field) => enumValues(field as z.ZodTypeAny, seen));
+    }
+    case 'array':
+      return enumValues(def.element as z.ZodTypeAny, seen);
+    case 'record':
       return enumValues(def.valueType as z.ZodTypeAny, seen);
-    case 'ZodOptional':
-    case 'ZodNullable':
-    case 'ZodDefault':
+    case 'optional':
+    case 'nullable':
+    case 'default':
       return enumValues(def.innerType as z.ZodTypeAny, seen);
     default:
       return [];
@@ -64,7 +70,9 @@ const ENUMERATION = /(?:one of|evaluates|exist for) ([a-z][a-z0-9_-]*(?:, [a-z][
 function enumeratedValues(summary: string): string[] {
   const found = new Set<string>();
   for (const match of summary.matchAll(ENUMERATION)) {
-    for (const value of match[1]!.split(', ')) found.add(value);
+    const group = match[1];
+    if (group === undefined) continue;
+    for (const value of group.split(', ')) found.add(value);
   }
   return [...found];
 }
@@ -97,16 +105,18 @@ function hasEnum(method: Method, name: string): boolean {
 function stringArguments(method: Method): string[] {
   const shape = method.args.shape as Record<string, z.ZodTypeAny>;
   return Object.keys(shape).filter((name) => {
-    const def = unwrapped(shape[name]!)._def as { typeName: string };
-    return def.typeName === 'ZodString' || def.typeName === 'ZodEnum';
+    const field = shape[name];
+    if (field === undefined) return false;
+    const type = definitionOf(unwrapped(field)).type;
+    return type === 'string' || type === 'enum';
   });
 }
 
 /** The innermost schema of a wrapper chain, past optional, nullable, and default. */
 function unwrapped(schema: z.ZodTypeAny): z.ZodTypeAny {
-  const def = schema._def as { typeName: string; innerType?: z.ZodTypeAny };
+  const def = definitionOf(schema) as { type: string; innerType?: z.ZodTypeAny };
   if (def.innerType === undefined) return schema;
-  if (['ZodOptional', 'ZodNullable', 'ZodDefault'].includes(def.typeName)) {
+  if (def.type === 'optional' || def.type === 'nullable' || def.type === 'default') {
     return unwrapped(def.innerType);
   }
   return schema;
@@ -145,9 +155,9 @@ describe('enums appear in the signature line', () => {
 
 /** Whether a schema field is optional, past the wrapper chain. */
 function isOptional(schema: z.ZodTypeAny): boolean {
-  const def = schema._def as { typeName: string; innerType?: z.ZodTypeAny };
-  if (def.typeName === 'ZodOptional' || def.typeName === 'ZodDefault') return true;
-  if (def.typeName === 'ZodNullable' && def.innerType !== undefined) {
+  const def = definitionOf(schema) as { type: string; innerType?: z.ZodTypeAny };
+  if (def.type === 'optional' || def.type === 'default') return true;
+  if (def.type === 'nullable' && def.innerType !== undefined) {
     return isOptional(def.innerType);
   }
   return false;
@@ -185,7 +195,10 @@ describe('the signature line states which arguments are optional', () => {
         it(`${tool.name}.${method.method} marks '${name}' the way its schema declares it`, () => {
           const marked = markedOptional(method.signature, name);
           expect(marked).not.toBeNull();
-          const required = isEnforcedConfirm(method, name) || !isOptional(shape[name]!);
+          const field = shape[name];
+          expect(field).toBeDefined();
+          if (field === undefined) return;
+          const required = isEnforcedConfirm(method, name) || !isOptional(field);
           expect(marked).toBe(!required);
         });
       }

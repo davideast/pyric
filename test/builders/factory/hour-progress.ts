@@ -22,10 +22,10 @@ import { readJson } from './state-files.ts';
 import { readWorkList } from './work-list.ts';
 
 /** What this hour's progress needs from the previous hour's `result.json`. */
-const previousSchema = z.object({
+const previousSchema = z.looseObject({
   commit: z.string().optional(),
-  progress: z.object({ readyOrDone: z.array(z.string()) }).passthrough().optional(),
-}).passthrough();
+  progress: z.looseObject({ readyOrDone: z.array(z.string()) }).optional(),
+});
 
 type Previous = z.infer<typeof previousSchema>;
 
