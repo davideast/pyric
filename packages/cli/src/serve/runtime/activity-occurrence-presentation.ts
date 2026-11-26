@@ -4,7 +4,7 @@ interface OccurrencePresentation { readonly label: string; readonly outcome: str
 const readLabels: Readonly<Record<string, string>> = {
   generateContent: 'Generate response', generateContentStream: 'Stream response', countTokens: 'Count tokens',
   getBytes: 'Download bytes', getBlob: 'Download file', getDownloadURL: 'Get download URL',
-  getMetadata: 'Read metadata', listAll: 'List files', uploadBytes: 'Upload file',
+  getMetadata: 'Read metadata', list: 'List files', listAll: 'List files', uploadBytes: 'Upload file',
   uploadString: 'Upload file', uploadBytesResumable: 'Upload file',
   updateMetadata: 'Update metadata', deleteObject: 'Delete file',
   getDoc: 'Read document', getDocs: 'Read collection', get: 'Read database',

@@ -57,7 +57,7 @@ export { getBytes, getBlob, getDownloadURL, deleteObject } from './observed.js';
 export { getMetadata, updateMetadata } from './observed.js';
 export type { SettableMetadata, UploadMetadata, FullMetadata, UploadResult } from './metadata.js';
 
-export { listAll } from './observed.js';
+export { list, listAll } from './observed.js';
 export type { ListResult } from './list.js';
 
 export { parseStorageRules, evaluateStorageRules } from './rules.js';

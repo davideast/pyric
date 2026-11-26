@@ -37,7 +37,7 @@ function assertRequiredPath(message: Record<string, unknown>): void {
     case 'rtdb.get': case 'rtdb.set': case 'rtdb.setPriority': case 'rtdb.setWithPriority':
     case 'rtdb.update': case 'rtdb.remove': case 'rtdb.push': case 'rtdb.transactionCommit':
     case 'rtdb.onDisconnectSet': case 'rtdb.onDisconnectUpdate': case 'rtdb.onDisconnectRemove': case 'rtdb.onDisconnectCancel':
-    case 'storage.listAll': case 'storage.getMetadata': case 'storage.getBlob': case 'storage.getDownloadURL': case 'storage.setMetadata':
+    case 'storage.list': case 'storage.listAll': case 'storage.getMetadata': case 'storage.getBlob': case 'storage.getDownloadURL': case 'storage.setMetadata':
     case 'storage.getBytes': case 'storage.deleteObject': case 'storage.putBytes':
     case 'storage.beginUpload': case 'storage.copyObject': case 'storage.createUploadSession':
       requireString(message.path, 'path');
@@ -544,6 +544,13 @@ export function assertOperationArguments(message: Record<string, unknown>): void
     case 'auth.adminClearUsers':
     case 'auth.getProviderConfig':
     case 'auth.getEmailEnumerationProtection':
+    case 'storage.list': {
+      const hasValidMax = message.maxResults === undefined || message.maxResults === null || (typeof message.maxResults === 'number' && Number.isFinite(message.maxResults));
+      const hasValidToken = message.pageToken === undefined || message.pageToken === null || typeof message.pageToken === 'string';
+      requireShape(hasValidMax, 'maxResults');
+      requireShape(hasValidToken, 'pageToken');
+      return;
+    }
     case 'storage.listAll':
     case 'storage.getMetadata':
     case 'storage.getDownloadURL':

@@ -39,16 +39,6 @@
       "symbols": [
         "getStream"
       ]
-    },
-    {
-      "id": "storage.paginated-listing",
-      "availability": "deferred",
-      "reasonCode": "implementation-deferred",
-      "summary": "Paginated listing is deferred — listAll covers the v1 scope; pagination needs a stable pageToken shape, which is unbuilt design work rather than a sandbox limitation.",
-      "evidenceRefs": ["registry:storage#78"],
-      "symbols": [
-        "list"
-      ]
     }
   ]
 }

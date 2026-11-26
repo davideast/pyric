@@ -6,7 +6,7 @@ import { uploadBytes as rawuploadBytes, uploadString as rawuploadString } from '
 import { uploadBytesResumable as rawuploadBytesResumable } from './resumable.js';
 import { getBytes as rawgetBytes, getBlob as rawgetBlob, getDownloadURL as rawgetDownloadURL, deleteObject as rawdeleteObject } from './download.js';
 import { getMetadata as rawgetMetadata, updateMetadata as rawupdateMetadata } from './metadata.js';
-import { listAll as rawlistAll } from './list.js';
+import { list as rawlist, listAll as rawlistAll } from './list.js';
 
 /**
  * The bucket a sandbox reference's call names in its events: the name the app
@@ -29,4 +29,5 @@ export const getDownloadURL: typeof rawgetDownloadURL = observeStorageOperation(
 export const deleteObject: typeof rawdeleteObject = observeStorageOperation('deleteObject', rawdeleteObject, bucketName);
 export const getMetadata: typeof rawgetMetadata = observeStorageOperation('getMetadata', rawgetMetadata, bucketName);
 export const updateMetadata: typeof rawupdateMetadata = observeStorageOperation('updateMetadata', rawupdateMetadata, bucketName);
+export const list: typeof rawlist = observeStorageOperation('list', rawlist, bucketName);
 export const listAll: typeof rawlistAll = observeStorageOperation('listAll', rawlistAll, bucketName);

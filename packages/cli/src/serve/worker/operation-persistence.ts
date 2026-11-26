@@ -88,6 +88,7 @@ export const operationPersistence = {
   'auth.getEmailEnumerationProtection': false,
   'auth.setEmailEnumerationProtection': true,
   'auth.blockingRespond': true,
+  'storage.list': false,
   'storage.listAll': false,
   'storage.getMetadata': false,
   // Mints the object's download token the first time.
