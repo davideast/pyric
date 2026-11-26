@@ -1,0 +1,20 @@
+{
+  "rook": [
+    {"id":"capture-at-destination","fen":"7k/8/8/8/8/p7/8/R6K w - -","uci":"a1a3","expected":"ALLOW"},
+    {"id":"blocked-before-destination","fen":"7k/8/8/8/8/8/p7/R6K w - -","uci":"a1a3","expected":"DENY"},
+    {"id":"adjacent","fen":"7k/8/8/8/8/8/8/R6K w - -","uci":"a1a2","expected":"ALLOW"},
+    {"id":"six-clear","fen":"7k/8/8/8/8/8/8/R6K w - -","uci":"a1a8","expected":"ALLOW"},
+    {"id":"sixth-blocked","fen":"7k/p7/8/8/8/8/8/R6K w - -","uci":"a1a8","expected":"DENY"}
+  ],
+  "language": [
+    {"id":"skip-missing","cells":{"stop":true},"expected":"ALLOW","standalone":true},
+    {"id":"reach-missing","cells":{"stop":false},"expected":"DENY","error":"missing"},
+    {"id":"overlap-first-wins","cells":{"stop":true,"missing":true},"expected":"ALLOW","standalone":true},
+    {"id":"second-guard-returns","cells":{"stop":false,"missing":true},"expected":"DENY","standalone":false},
+    {"id":"fall-through","cells":{"stop":false,"missing":false},"expected":"ALLOW","standalone":true}
+  ],
+  "mutationWitnesses": {
+    "reverseGuards":{"id":"capture-at-destination","was":true,"becomes":false},
+    "eagerSecond":{"id":"skip-missing","was":true,"becomes":"missing"}
+  }
+}

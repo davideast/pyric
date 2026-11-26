@@ -1,0 +1,8 @@
+use extension loops;
+function firstHit(cells) {
+  for (const key of ['missing']) {
+    if (cells.stop) return true;
+    if (cells[key]) return false;
+  }
+  return true;
+}

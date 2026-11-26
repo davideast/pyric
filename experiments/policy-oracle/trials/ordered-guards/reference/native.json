@@ -1,0 +1,35 @@
+{
+  "arcade": "66e14d4f4b0aeab22c05db8d748704dde053d2e5",
+  "sources": {
+    "../../chess/reference/arcade-reference.ts": "1f321bbb70128936c00283d22cfe03ad84b8907a00f0dacf3363b694d6534d5e",
+    "../../chess/bundle/source/rayEmpty.rules": "c6bf6ac25aa4f43eec46d8fa2b7da50b71f2d752b1700ed45ec717de10098851",
+    "../../chess/bundle/source/path.rules": "b22afc47ab63477c04ec3083a6748e32f1a5eede693cb745383b19d07f159cf7"
+  },
+  "results": [
+    {
+      "id": "capture-at-destination",
+      "nativeLegal": true,
+      "handwrittenPathClear": true
+    },
+    {
+      "id": "blocked-before-destination",
+      "nativeLegal": false,
+      "handwrittenPathClear": false
+    },
+    {
+      "id": "adjacent",
+      "nativeLegal": true,
+      "handwrittenPathClear": true
+    },
+    {
+      "id": "six-clear",
+      "nativeLegal": true,
+      "handwrittenPathClear": true
+    },
+    {
+      "id": "sixth-blocked",
+      "nativeLegal": false,
+      "handwrittenPathClear": false
+    }
+  ]
+}
