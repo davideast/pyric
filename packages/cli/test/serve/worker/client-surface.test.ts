@@ -33,7 +33,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'getDoc', 'getDocs', 'getDownloadURL', 'getFirestore', 'getHostedFirestore', 'getIdToken', 'getIdTokenResult', 'getLens',
   'getMetadata', 'getProviderConfig', 'getRulesStatus', 'getSnapshot',
   'getStorage', 'getWorkerInstanceId', 'getWorkerVersion', 'hydrateLensFromStorage', 'importWorkerState',
-  'increment', 'inMemoryPersistence', 'limit', 'limitToLast', 'listAll',
+  'increment', 'inMemoryPersistence', 'limit', 'limitToLast', 'list', 'listAll',
   'listRootCollections', 'listSubcollections', 'listUsers', 'listWorkerCheckpoints',
   'maximum', 'minimum', 'mintPresenceClientId',
   'onAuthStateChanged', 'onIdTokenChanged', 'onSnapshot', 'onWorkerRuntimeReload',

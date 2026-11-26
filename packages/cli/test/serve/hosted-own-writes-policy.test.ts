@@ -268,6 +268,7 @@ describe('live host non-persisted write and byte-route upload refusal', () => {
       'auth.adminGetAccountStanding',
       'auth.getProviderConfig',
       'auth.getEmailEnumerationProtection',
+      'storage.list',
       'storage.listAll',
       'storage.getMetadata',
       'storage.getBlob',
