@@ -322,9 +322,9 @@ describe('ai-proxy upstream path-suffix validation and allowlist', () => {
     });
 
     // Positive: Connect/Vite strips '/__pyric' from req.url while keeping full path in req.originalUrl.
-    const okRes = await rawTcpPost({
+    const okRes = await rawPost({
       port: mounted.port,
-      rawPath: '/__pyric/ai-proxy/chat/completions',
+      path: '/__pyric/ai-proxy/chat/completions',
     });
     expect(okRes.status).toBe(200);
     expect(upstreamHits).toEqual(['/v1/chat/completions']);
