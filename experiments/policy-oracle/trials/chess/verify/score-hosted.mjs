@@ -24,8 +24,27 @@ export async function scoreHosted({rulesDirectory, registry=join(here,'releases'
     const receipt=JSON.parse(bytes);
     assert.deepEqual([receipt.mode,receipt.rulesSha256,receipt.runId],[pin.report.mode,pin.report.rulesSha256,pin.report.runId]);
     const missed=[];
+    const signedOut=JSON.parse(readFileSync(join(registry,'../reads',pin.receipt+'.json')));
+    assert.equal(signedOut.kind,'unauthenticated-read');
+    assert.deepEqual(signedOut.data,{path:'chess/'+receipt.runId,observed:'DENY'});
+    let reads=0;
+    const checkRead=(id,path,resource,uid,observed)=>{
+      const c={description:id,path,method:'get',expectation:observed,auth:uid?{uid}:null,...(resource && {resource})};
+      const run=handler.simulateParsed(checked.ast,rules,[c]);
+      assert.ok(run.success);
+      const result=run.data.results[0];
+      const actual=result.state==='UNSUPPORTED'||result.resourceLimit?'UNRESOLVED':result.decision;
+      if(actual!==observed) missed.push({id,expected:observed,actual});
+      reads++;
+    };
+    checkRead('signed-out',signedOut.data.path,null,null,signedOut.data.observed);
     const rows=receipt.rows.map(row=>{
       const before=new Map(row.before.map(s=>[s.path,s.data]));
+      const signedReader=row.reader || receipt.rows[0].reader;
+      assert.ok(signedReader,'missing signed reader');
+      for(const phase of ['before','after']) {
+        for(const snap of row[phase]) checkRead(row.id+' '+phase+' '+snap.path,snap.path,snap.data,signedReader,'ALLOW');
+      }
       const ops=row.submitted ?? (row.proposal?[{path:row.before[0].path,op:'update',data:row.proposal}]:null);
       assert.ok(ops,row.id+' missing submitted operation');
       const after=new Map(),cases=[];
@@ -59,7 +78,7 @@ export async function scoreHosted({rulesDirectory, registry=join(here,'releases'
       if(row.observed!==simulated) missed.push({id:row.id,expected:row.observed,actual:simulated,operations:verdicts});
       return {id:row.id,hosted:row.observed,candidate:simulated};
     });
-    reports.push({profile:receipt.mode,receipt:pin.receipt,deployedRules:receipt.rulesSha256,candidateRules:sha(rules),rows,mismatches:missed});
+    reports.push({profile:receipt.mode,receipt:pin.receipt,deployedRules:receipt.rulesSha256,candidateRules:sha(rules),rows,reads,mismatches:missed});
   }
   assert.ok(reports.length,'registered complete cloud releases required');
   return reports;

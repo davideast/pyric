@@ -34,9 +34,8 @@ export async function browserProof(receipt,j,history,engine,matchPolicy) {
     assert.equal(record.verdict,b.race[i]);
     assert.equal(record.ply,0); assert.deepEqual(record.after,race.current.data);
     assert.equal(record.afterVersion,race.current.version);
-    const prior=record.beforeVersion===race.initial.version ? race.initial : race.current;
-    assert.deepEqual([record.beforeVersion,record.before],[prior.version,prior.data]);
-    if(record.verdict==='committed') assert.equal(record.beforeVersion,race.initial.version);
+    assert.equal(record.comparedVersion,race.initial.version,'actual commit comparison version for '+uci);
+    assert.deepEqual([record.beforeVersion,record.before],[race.initial.version,race.initial.data]);
   }
   const path='chess/'+b.match,next='chess/'+b.rematch,pointer='rematches/chess/matches/'+b.match,draw='chess/'+receipt.runId+'-endgame',promotion='chess/'+receipt.runId+'-promotion';
   const prev=new Map();const moves=['f2f3','e7e5','g2g4','d8h4'];

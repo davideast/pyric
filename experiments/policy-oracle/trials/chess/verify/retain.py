@@ -23,7 +23,13 @@ def retain(archive, name, digest, bundle, engine=None, inputs=None):
     if engine:
         spec["engine"] = engine
     output = HERE / "releases"
-    for file, data in [(output / (digest + ".json.gz"), gzip.compress(raw, mtime=0)),
+    reads = output.parent / "reads"
+    reads.mkdir(exist_ok=True)
+    unsigned = list((archive / report["runId"]).glob("*-unauthenticated-read.json"))
+    if len(unsigned) != 1:
+        raise ValueError("Expected one signed-out read from the qualified archive")
+    for file, data in [(reads / (digest + ".json"), unsigned[0].read_bytes()),
+                       (output / (digest + ".json.gz"), gzip.compress(raw, mtime=0)),
                        (output / (name + ".json"), (json.dumps(spec, indent=2) + "\n").encode())]:
         if file.exists():
             if file.read_bytes() != data:

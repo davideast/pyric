@@ -1,0 +1,8 @@
+{
+  "at": "2026-11-26T03:08:50.571Z",
+  "kind": "unauthenticated-read",
+  "data": {
+    "path": "chess/0aa64254-3edc-40a6-864e-58b718e65103",
+    "observed": "DENY"
+  }
+}
