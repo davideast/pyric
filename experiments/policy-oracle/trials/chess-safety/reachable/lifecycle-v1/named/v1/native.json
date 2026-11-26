@@ -1,0 +1,56 @@
+{
+  "authority": "pinned native Arcade chess, complete successor, next legal replies and result claim",
+  "cases": [
+    {
+      "id": "actual-fourth-ply-win",
+      "fen": "rnbqkbnr/pppp1ppp/8/4p3/6P1/5P2/PPPPP2P/RNBQKBNR b KQkq g3",
+      "uci": "d8h4",
+      "nativeLegal": true,
+      "successor": "rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq -",
+      "status": "won",
+      "winner": "guest",
+      "replies": [],
+      "nativeAdmission": true
+    },
+    {
+      "id": "actual-fourth-ply-playing",
+      "fen": "rnbqkbnr/pppp1ppp/8/4p3/6P1/5P2/PPPPP2P/RNBQKBNR b KQkq g3",
+      "uci": "d8h4",
+      "nativeLegal": true,
+      "successor": "rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq -",
+      "status": "won",
+      "winner": "guest",
+      "replies": [],
+      "nativeAdmission": false
+    },
+    {
+      "id": "knight-reply-477",
+      "fen": "R7/7Q/8/B2R3n/1Q4nk/5Q2/K7/8 w - -",
+      "uci": "a8h8",
+      "nativeLegal": true,
+      "successor": "7R/7Q/8/B2R3n/1Q4nk/5Q2/K7/8 b - -",
+      "status": "draw",
+      "winner": "",
+      "replies": [],
+      "nativeAdmission": true
+    },
+    {
+      "id": "knight-reply-483",
+      "fen": "R7/7Q/8/B2R3n/6nk/5Q2/K7/8 w - -",
+      "uci": "a8h8",
+      "nativeLegal": true,
+      "successor": "7R/7Q/8/B2R3n/6nk/5Q2/K7/8 b - -",
+      "status": "playing",
+      "winner": "",
+      "replies": [
+        "g4e3",
+        "g4e5",
+        "g4f2",
+        "g4f6",
+        "g4h2",
+        "g4h6"
+      ],
+      "nativeAdmission": false
+    }
+  ]
+}
