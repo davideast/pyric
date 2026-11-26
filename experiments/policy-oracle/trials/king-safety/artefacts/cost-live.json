@@ -1,0 +1,43 @@
+{
+  "paired": 1,
+  "releases": [
+    {
+      "mode": "handwritten",
+      "bundleSha256": "523c4c137aa00c2c764264aa6c2cefeda7c692561544da45d4fcccf3a2056fda",
+      "privateReceipt": "3c4fd05f0d28cf21fff98e318ac132fcc70932b9a7cfd2e78394353d374c4276",
+      "decisions": [
+        {
+          "id": "long-safe-slide",
+          "decision": "ALLOW",
+          "versionChanged": true,
+          "localExpressions": 898,
+          "localVerdict": "ALLOW"
+        }
+      ],
+      "reads": 3
+    },
+    {
+      "mode": "generated",
+      "bundleSha256": "d16ec3f40dc8df4120cfc9aaa56a1def251da8f64cd9de7e43b6869620669004",
+      "privateReceipt": "ecd5bfe4a041bb105b48eab9ac2290d198b9a133960d8d4bbf4fc2da8c3fd2c9",
+      "decisions": [
+        {
+          "id": "long-safe-slide",
+          "decision": "DENY",
+          "versionChanged": false,
+          "localExpressions": 1000,
+          "localVerdict": "DENY",
+          "localResourceLimit": {
+            "kind": "expressions",
+            "limit": 1000,
+            "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+            "line": 20,
+            "column": 12
+          }
+        }
+      ],
+      "reads": 3
+    }
+  ],
+  "privateJournalChecked": true
+}

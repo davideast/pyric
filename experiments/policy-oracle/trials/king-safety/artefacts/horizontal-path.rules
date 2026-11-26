@@ -1,0 +1,7 @@
+rules_version = '2+modules';
+
+export function horizontalPathClear(board, rank, x, toX) {
+  let left = x < toX ? x : toX;
+  let right = x < toX ? toX : x;
+  return (left >= 1 || right <= 1 || board['b' + rank] == '') && (left >= 2 || right <= 2 || board['c' + rank] == '') && (left >= 3 || right <= 3 || board['d' + rank] == '') && (left >= 4 || right <= 4 || board['e' + rank] == '') && (left >= 5 || right <= 5 || board['f' + rank] == '') && (left >= 6 || right <= 6 || board['g' + rank] == '');
+}

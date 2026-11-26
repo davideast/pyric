@@ -1,0 +1,120 @@
+{
+  "paired": 7,
+  "releases": [
+    {
+      "mode": "handwritten",
+      "bundleSha256": "523c4c137aa00c2c764264aa6c2cefeda7c692561544da45d4fcccf3a2056fda",
+      "privateReceipt": "7bdbb38a1763991c4084ad11216d5c5ebb9e855a887b9c97eddadc58d0fd6cc5",
+      "decisions": [
+        {
+          "id": "rook-safe",
+          "decision": "ALLOW",
+          "versionChanged": true,
+          "localExpressions": 740,
+          "localVerdict": "ALLOW"
+        },
+        {
+          "id": "rook-exposed",
+          "decision": "ALLOW",
+          "versionChanged": true,
+          "localExpressions": 740,
+          "localVerdict": "ALLOW"
+        },
+        {
+          "id": "mirrored-file",
+          "decision": "ALLOW",
+          "versionChanged": true,
+          "localExpressions": 746,
+          "localVerdict": "ALLOW"
+        },
+        {
+          "id": "surviving-blocker",
+          "decision": "ALLOW",
+          "versionChanged": true,
+          "localExpressions": 740,
+          "localVerdict": "ALLOW"
+        },
+        {
+          "id": "black-exposed",
+          "decision": "ALLOW",
+          "versionChanged": true,
+          "localExpressions": 761,
+          "localVerdict": "ALLOW"
+        },
+        {
+          "id": "black-safe",
+          "decision": "ALLOW",
+          "versionChanged": true,
+          "localExpressions": 761,
+          "localVerdict": "ALLOW"
+        },
+        {
+          "id": "queen-exposed",
+          "decision": "ALLOW",
+          "versionChanged": true,
+          "localExpressions": 740,
+          "localVerdict": "ALLOW"
+        }
+      ],
+      "reads": 15
+    },
+    {
+      "mode": "generated",
+      "bundleSha256": "d16ec3f40dc8df4120cfc9aaa56a1def251da8f64cd9de7e43b6869620669004",
+      "privateReceipt": "f0b1978eaa2ec6d39d9b656788749577c09ebc902f49ce28fd518c476dc88dcc",
+      "decisions": [
+        {
+          "id": "rook-safe",
+          "decision": "ALLOW",
+          "versionChanged": true,
+          "localExpressions": 852,
+          "localVerdict": "ALLOW"
+        },
+        {
+          "id": "rook-exposed",
+          "decision": "DENY",
+          "versionChanged": false,
+          "localExpressions": 653,
+          "localVerdict": "DENY"
+        },
+        {
+          "id": "mirrored-file",
+          "decision": "DENY",
+          "versionChanged": false,
+          "localExpressions": 659,
+          "localVerdict": "DENY"
+        },
+        {
+          "id": "surviving-blocker",
+          "decision": "ALLOW",
+          "versionChanged": true,
+          "localExpressions": 861,
+          "localVerdict": "ALLOW"
+        },
+        {
+          "id": "black-exposed",
+          "decision": "DENY",
+          "versionChanged": false,
+          "localExpressions": 669,
+          "localVerdict": "DENY"
+        },
+        {
+          "id": "black-safe",
+          "decision": "ALLOW",
+          "versionChanged": true,
+          "localExpressions": 875,
+          "localVerdict": "ALLOW"
+        },
+        {
+          "id": "queen-exposed",
+          "decision": "DENY",
+          "versionChanged": false,
+          "localExpressions": 653,
+          "localVerdict": "DENY"
+        }
+      ],
+      "reads": 15
+    }
+  ],
+  "privateJournalChecked": true
+}

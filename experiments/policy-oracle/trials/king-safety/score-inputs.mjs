@@ -3,8 +3,8 @@ import {cases, sample} from './reference/fixtures.mjs';
 
 // Executed by the verifier; neither the candidate package nor its emitted
 // code participates in constructing proposed writes or native answers.
-const cost = JSON.parse(readFileSync(new URL('reference/cost-native.json',import.meta.url))).cases;
-const path = JSON.parse(readFileSync(new URL('reference/path-native.json',import.meta.url))).cases;
+const cost = JSON.parse(readFileSync(new URL('reference/cost-position.json',import.meta.url)));
+const path = JSON.parse(readFileSync(new URL('reference/path-cost-controls.json',import.meta.url)));
 const rows = [...cases,...cost,...path].map(c => {
   const {before,proposal} = sample(c,'writer','other');
   const data = {...before,...proposal};

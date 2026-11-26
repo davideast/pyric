@@ -38,3 +38,11 @@ The acceptance test packed a second distribution that reverses the public Firest
 | Altered `8451ab44306404c5a8825ad3e7501b0091369e5f06793959286e4ab8ce963c34` | 29 / 50 | 14 | 7 | 21 |
 
 The first regression was a false denial on `arcade/tictactoe/relative-plus-one/v1`, case `zero/stock/normal`. The first false allow was `zero/stock/skipped`. Both emitted modules and both resolved rules files still matched their original bytes. Every archived write reached the altered simulator.
+
+## Scoring a compiler on king safety
+
+The [vacated-file trial](trials/king-safety/README.md) accepts a packed compiler. The standalone and generated checks use separate consumers. An independent evaluator runs the emitted module inside the complete Arcade ruleset. The expected answers come from the native chess engine. Real Firestore verdicts are retained separately for the exact deployed releases.
+
+```sh
+python3 experiments/policy-oracle/trials/king-safety/score.py --candidate-package /path/to/candidate.tgz --with-live
+```

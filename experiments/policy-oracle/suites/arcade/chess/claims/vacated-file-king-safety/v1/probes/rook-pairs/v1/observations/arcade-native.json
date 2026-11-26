@@ -1,0 +1,26 @@
+{
+  "authority": "native-model",
+  "inputDigest": "00ac11525fccc7cd8530df93032cfeaf60711e9183db51c12c4f6aab37cbb8b1",
+  "results": {
+    "rook-safe": true,
+    "rook-exposed": false,
+    "mirrored-file": false,
+    "surviving-blocker": true,
+    "black-exposed": false,
+    "black-safe": true,
+    "queen-exposed": false
+  },
+  "evidence": {
+    "path": "raw/arcade-native.json",
+    "sha256": "ebf93cbebf1c8a2d05ae37e04de4fde06e4422924a2263c17afe3b7efe0938d2",
+    "pointers": {
+      "rook-safe": "/cases/0/nativeLegal",
+      "rook-exposed": "/cases/1/nativeLegal",
+      "mirrored-file": "/cases/2/nativeLegal",
+      "surviving-blocker": "/cases/3/nativeLegal",
+      "black-exposed": "/cases/4/nativeLegal",
+      "black-safe": "/cases/5/nativeLegal",
+      "queen-exposed": "/cases/6/nativeLegal"
+    }
+  }
+}

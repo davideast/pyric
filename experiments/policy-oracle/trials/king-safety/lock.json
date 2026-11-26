@@ -1,0 +1,142 @@
+{
+  "compilerSource": "dcffab60f01ef9d6508735a14c2b6d1436f5e7d2",
+  "package": "c96a1f08a6808901f14e810bf31564d7f7a0c893126f99d9b8d18747e486a932",
+  "freeze": {
+    "primary": "7efc90c49",
+    "longSlide": "c00f8acac",
+    "pathBlockers": "ae5e65863"
+  },
+  "scores": [
+    {
+      "name": "revised",
+      "args": [],
+      "file": "score-evidence/qualified.json",
+      "bundle": "artefacts/generated.rules",
+      "exit": 0
+    },
+    {
+      "name": "initial",
+      "args": [
+        "--variant",
+        "v1"
+      ],
+      "file": "score-evidence/v1.json",
+      "bundle": "artefacts/v1.rules",
+      "exit": 1
+    },
+    {
+      "name": "before-board",
+      "args": [
+        "--before-board"
+      ],
+      "file": "score-evidence/before-board.json",
+      "bundle": "artefacts/before-board.rules",
+      "exit": 1
+    }
+  ],
+  "releases": [
+    {
+      "name": "primary",
+      "args": [],
+      "file": "artefacts/primary-live.json",
+      "bundle": "artefacts/v1.rules"
+    },
+    {
+      "name": "long-slide",
+      "args": [
+        "cost"
+      ],
+      "file": "artefacts/cost-live.json",
+      "bundle": "artefacts/v1.rules"
+    },
+    {
+      "name": "revised",
+      "args": [
+        "optimized"
+      ],
+      "file": "artefacts/optimized-live.json",
+      "bundle": "artefacts/generated.rules"
+    }
+  ],
+  "localPeaks": {
+    "stock": {
+      "id": "black-queenside",
+      "evaluatedExpressions": 384
+    },
+    "compatibility": {
+      "id": "black-queenside",
+      "evaluatedExpressions": 381
+    },
+    "stronger": {
+      "id": "native-2-a8a1",
+      "evaluatedExpressions": 988
+    },
+    "referee": {
+      "id": "resign-modifies-board",
+      "evaluatedExpressions": 93
+    }
+  },
+  "files": {
+    "../../suites/arcade/chess/claims/vacated-file-king-safety/v1/claim.json": "419c33680d58a1cf9c1348666ac2840ed14666b27b6bf046a41e294b1846d274",
+    "../../suites/arcade/chess/claims/vacated-file-king-safety/v1/obligations/successor-file.json": "48b27f64833e53f09b12b1e9b254ecc80dbd349ef87f29a8a5cf0bd2773e0c67",
+    "../../suites/arcade/chess/claims/vacated-file-king-safety/v1/probes/rook-pairs/v1/observations/arcade-native.json": "717e2440bc0ebf2cf669e1e8e312c57601d6343d22b4e51671e0e01727d33707",
+    "../../suites/arcade/chess/claims/vacated-file-king-safety/v1/probes/rook-pairs/v1/raw/arcade-native.json": "ebf93cbebf1c8a2d05ae37e04de4fde06e4422924a2263c17afe3b7efe0938d2",
+    "../../suites/arcade/chess/claims/vacated-file-king-safety/v1/probes/rook-pairs/v1/recipe.json": "ca06d9e63d415023099806b3e32cdf8d1a684a819754403790ee87f95e79b827",
+    "../../suites/arcade/chess/claims/vacated-file-king-safety/v1/probes/rook-pairs/v1/replay.mjs": "e4509d892c141f133c03f27bace11a47503441eea134c04e06fff6654a31ce96",
+    "../../suites/arcade/chess/claims/vacated-file-king-safety/v1/probes/rook-pairs/v1/writes.json": "efb9ab53ad968beb36e4c092157e32318f23076415f98772fa394e29a80426be",
+    "../chess/bundle/artifacts/stronger.rules": "523c4c137aa00c2c764264aa6c2cefeda7c692561544da45d4fcccf3a2056fda",
+    "../for-of/live/capture.mjs": "ac6f2501dc6f3da8952903970c2a43095243c6b99d9664113fea3d246a24b274",
+    "../for-of/live/evidence.mjs": "90297d54f84be774a50413bf4469f94c03f8ef125db6f9dc0589fe18ef66a68a",
+    "../for-of/live/replay.mjs": "bc0616fbbb019861b0e5dd8016a544583801508949b60f2b77506867a31c48a1",
+    "../for-of/live/retain.mjs": "6696bd7ff19675d54ef2d89f1b7a051be33f7e5f5a64d79c93a46197dc3f2b93",
+    "artefacts/before-board.rules": "4fc5d3585937004466ea34f229d44482803ad5cb4f16850459f1f2726519ac96",
+    "artefacts/cost-live.json": "071cacfd927ac3ed0891ebf47aabc1ac9adad264fc2f560918233a24dc48e3fc",
+    "artefacts/file-safe.rules": "3f8b7d6d9f3ec63ccca916837b87556d13960b7bb91af6594d943b8a7304fcd6",
+    "artefacts/generated.rules": "1d3e7e79f0f1301e5f8170c8e8a52cf4c8dc35904b5d155f24bcce3df56176c5",
+    "artefacts/horizontal-path.rules": "c22e5b90325cb1d7a245bf81fc3007c7eb12c6c038d62b5879c0127b53d75fd5",
+    "artefacts/optimized-live.json": "e698cdc9bea99643f651febf3623d994f75ad41c8726aca3aa220c9907fa578e",
+    "artefacts/primary-live.json": "b73bf3d558b90266d710f3e30ebbff7ae72bb97c6bd405a38930e0da51fe09bb",
+    "artefacts/regressions.json": "34bc5874e19e0f1e69fb50f480a764e7a6fffb7361c88caa5749642172435ab4",
+    "artefacts/v1.rules": "d16ec3f40dc8df4120cfc9aaa56a1def251da8f64cd9de7e43b6869620669004",
+    "hosted.py": "33dce60ee4187fa5176ee441ffa234cd78897831cfd7b7954fead7873a99ab21",
+    "live/cost/fixtures.mjs": "64f9203e19eb1eed4029d25100c8a6bed0f75a5bdbdea12849c5a16d9c285e80",
+    "live/cost/receipts/generated.json.gz": "2b3d4c1446a5d662a4af8776995151ef9341cc2cc24e8295dda4c3cc08211faa",
+    "live/cost/receipts/handwritten.json.gz": "e21e758df240d999b05d40083cd41f8740d96760d51721c7b76d1dbf664038be",
+    "live/fixtures.mjs": "6636b2f603a15ed6b1cfa74b57ea77ea9d4b4c7fd467e143114dd6cd61e392a8",
+    "live/optimized/fixtures.mjs": "dcf087d364330cfba71d8deae5013cc78da432fde92d7db3aa6988731dc9dbe0",
+    "live/optimized/receipts/optimized.json.gz": "1dbb6101fa5caea8ad4801ec72f62dbd62020bbeb6336ce38b53857d6eb22a97",
+    "live/receipts/generated.json.gz": "14e13f0ba2742dbceef457c461b98db958fbce6e30beeea8725b254e61968595",
+    "live/receipts/handwritten.json.gz": "fa1b21feb36411ff4eef6baadbb65b6cf2be0c3776893212a62fd278df097c99",
+    "live/releases.json": "d2b4cd785810811c568d0027f2189bb588df86f0efd5a2b95690ba68f41ce117",
+    "live/run.mjs": "170746513498cd52c03ee628a3fab4bb6ef3533ffc267698b8cc3463d886f9a3",
+    "policy/build.mjs": "d1e1e19d8acf81cb581876bf17dc9b4f0fa9233f71dc51e1285a46fdd277d5f9",
+    "policy/file-safe.policy": "4fa7f4eccb1fb5a2130c6af728f3901458962b4f2909834e3223f3010c81a888",
+    "policy/full-search.json": "2408a86d351127e79191d0165eedb8963ce9b6d0f1f2b62db706ecdb2fdbf4a1",
+    "policy/horizontal-path.policy": "1b77e4fa3ce0597544dafae77d759b9bf4a22921b26bbd9da52172343becabda",
+    "policy/long-ranks.json": "6996615b23460e37a722d6b44d546dfdedbbe6119b57e3bf7c52553c1686ec3b",
+    "policy/long-ranks.mjs": "119b6a3f34603c19c25718a7c6044852ebe5ef859ade63c0b6104aa617fb37e1",
+    "policy/probe-full.mjs": "05477f54a871b6e81158f438a1ea7f6fb2455490fbda51b00cb06e5a8a600ff1",
+    "policy/public-api.mjs": "18a5ed4c26a0d94547e08a89ffd663e1e816167a3131e64a2227ebfdfe6f1bb5",
+    "policy/rank-path-check.mjs": "d76346cebbf2b0e2ee780bfdcaed5dcff08ff929153bc0f2c5a1bf6e75d0f451",
+    "policy/rank-path-score.json": "f80fec8f1896c827a49bdd31f7eb015b11ff0dd717e4b6aaf85e795d02b01b64",
+    "reference/cost-native.json": "dd44a06c4dbc04679d29a9746ed978252d39875c869d292ff093c3d3ab6bb369",
+    "reference/cost-position.json": "05000731394a8baa188a865025e8e4d454fa797e3d962ffba77ccd5e842c1226",
+    "reference/fixtures.mjs": "2e17d10e0815522a985ada25eaf63fdf2dc1684418d837ce42019c0692e24cbe",
+    "reference/native.json": "ebf93cbebf1c8a2d05ae37e04de4fde06e4422924a2263c17afe3b7efe0938d2",
+    "reference/native.mjs": "15226203de2fa75431f685dfab035d3e840b6e31a3cac6dd521fdd0dc0820348",
+    "reference/path-cost-controls.json": "66c9099711d70a87d78bece84c550b55566976ddd78045d7bd438ecfb8156eb1",
+    "reference/path-native.json": "1c660f6e5be7de0c5ec344acd403f8a709b8a3793f6beec5a0d88eca413ae7ce",
+    "reference/positions.json": "e094b8218691bf7efe0070db356ab88bace68680fa23dc06e58cf4607e0f2588",
+    "reference/writes.mjs": "70226282961e7fffa37387d37f482a58d621e9608b104f906f91567ca84ea58f",
+    "replay.py": "d13c38027171a96c22b1c7e85cf419570e0a0f71d62392665c0838671eeb7f41",
+    "score-consumer.mjs": "7a13a77780cd219382c520d85277027d99f5d03c0722632be6d29722ffbb9d26",
+    "score-controls.py": "615d290260264bd3ee42fdb17fc1b0bec026c6209dfd21f7222bee819ef0ec74",
+    "score-evidence/before-board.json": "33543b23da949349be04812760068d202a74a23c3c9972d4371797f4772b599e",
+    "score-evidence/controls.json": "bd1ae2b4962c833d77b0b3abfb6cff4afd1efe67dec11d9d03a6c686153c6a35",
+    "score-evidence/qualified.json": "77bbc566629b1aa7c7085351847c2345bd775cf4d6d41c6fcc915b08592db376",
+    "score-evidence/v1.json": "1449bf24335e8055f1ff28757387dd16b6ce8b666f0f84cb4f8b39dc437eb0b3",
+    "score-inputs.mjs": "bb12707d99e55f281f7e8c876e2840ec24ac68ad35fa439847a3c0ce413e8214",
+    "score-referee.mjs": "494249404419a8420a918fd51d202f5cf3808b26fee6976cfb19f725e9ebb787",
+    "score.py": "51fcc2503288364bed924277038b20cbc567fb4bbb15b6a835d7448531599f3c"
+  }
+}

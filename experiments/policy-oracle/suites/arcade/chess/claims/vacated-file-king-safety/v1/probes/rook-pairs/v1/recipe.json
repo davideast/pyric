@@ -1,0 +1,23 @@
+{
+  "source": {
+    "repo": "https://github.com/davideast/arcade",
+    "revision": "66e14d4f4b0aeab22c05db8d748704dde053d2e5",
+    "path": "games/chess/src/chess.ts"
+  },
+  "cases": [
+    "rook-safe",
+    "rook-exposed",
+    "mirrored-file",
+    "surviving-blocker",
+    "black-exposed",
+    "black-safe",
+    "queen-exposed"
+  ],
+  "pins": {
+    "replay.mjs": "e4509d892c141f133c03f27bace11a47503441eea134c04e06fff6654a31ce96",
+    "writes.json": "efb9ab53ad968beb36e4c092157e32318f23076415f98772fa394e29a80426be",
+    "@oracle/trials/king-safety/artefacts/generated.rules": "1d3e7e79f0f1301e5f8170c8e8a52cf4c8dc35904b5d155f24bcce3df56176c5",
+    "@oracle/trials/king-safety/artefacts/before-board.rules": "4fc5d3585937004466ea34f229d44482803ad5cb4f16850459f1f2726519ac96"
+  },
+  "replay": "replay.mjs"
+}

@@ -43,7 +43,7 @@ for (const color of ['w','b']) for (const rank of [2,7]) for (const from of [0,7
       positions.add(id);
       if (!legalMoves(position(candidate.fen)).includes(candidate.uci)) continue;
       scored.push(id);
-      const {before,proposal} = sample({...candidate,id,nativeLegal:true},'writer','other');
+      const {before,proposal} = sample(candidate,'writer','other');
       const write = {method:'update',description:id,path:'chess/example',resource:before,
         data:{...before,...proposal},auth:{uid:'writer'},expectation:'ALLOW'};
       for (const {handle,score} of Object.values(profiles)) {

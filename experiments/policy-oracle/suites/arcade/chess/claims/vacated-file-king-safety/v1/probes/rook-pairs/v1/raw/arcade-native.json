@@ -1,0 +1,97 @@
+{
+  "engine": "1f321bbb70128936c00283d22cfe03ad84b8907a00f0dacf3363b694d6534d5e",
+  "policy": "97dda7add77cb18d132ba1c730bbef24a48870404198d6677cdf0f961a30d212",
+  "cases": [
+    {
+      "id": "rook-safe",
+      "fen": "5r1k/8/8/8/8/8/4R3/4K3 w - -",
+      "uci": "e2d2",
+      "nativeLegal": true,
+      "beforeCheck": false,
+      "afterCheck": false,
+      "standalone": {
+        "beforeCheck": false,
+        "afterCheck": false,
+        "legal": true
+      }
+    },
+    {
+      "id": "rook-exposed",
+      "fen": "4r2k/8/8/8/8/8/4R3/4K3 w - -",
+      "uci": "e2d2",
+      "nativeLegal": false,
+      "beforeCheck": false,
+      "afterCheck": true,
+      "standalone": {
+        "beforeCheck": false,
+        "afterCheck": true,
+        "legal": false
+      }
+    },
+    {
+      "id": "mirrored-file",
+      "fen": "k2r4/8/8/8/8/8/3R4/3K4 w - -",
+      "uci": "d2e2",
+      "nativeLegal": false,
+      "beforeCheck": false,
+      "afterCheck": true,
+      "standalone": {
+        "beforeCheck": false,
+        "afterCheck": true,
+        "legal": false
+      }
+    },
+    {
+      "id": "surviving-blocker",
+      "fen": "4r2k/8/8/8/4P3/8/4R3/4K3 w - -",
+      "uci": "e2d2",
+      "nativeLegal": true,
+      "beforeCheck": false,
+      "afterCheck": false,
+      "standalone": {
+        "beforeCheck": false,
+        "afterCheck": false,
+        "legal": true
+      }
+    },
+    {
+      "id": "black-exposed",
+      "fen": "4k3/4r3/8/8/8/8/8/4R2K b - -",
+      "uci": "e7d7",
+      "nativeLegal": false,
+      "beforeCheck": false,
+      "afterCheck": true,
+      "standalone": {
+        "beforeCheck": false,
+        "afterCheck": true,
+        "legal": false
+      }
+    },
+    {
+      "id": "black-safe",
+      "fen": "4k3/4r3/8/8/8/8/8/5R1K b - -",
+      "uci": "e7d7",
+      "nativeLegal": true,
+      "beforeCheck": false,
+      "afterCheck": false,
+      "standalone": {
+        "beforeCheck": false,
+        "afterCheck": false,
+        "legal": true
+      }
+    },
+    {
+      "id": "queen-exposed",
+      "fen": "4q2k/8/8/8/8/8/4R3/4K3 w - -",
+      "uci": "e2d2",
+      "nativeLegal": false,
+      "beforeCheck": false,
+      "afterCheck": true,
+      "standalone": {
+        "beforeCheck": false,
+        "afterCheck": true,
+        "legal": false
+      }
+    }
+  ]
+}

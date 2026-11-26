@@ -1,0 +1,4 @@
+{
+  "description": "On the registered ordinary sideways rook moves, the resulting position must keep the moving side's king safe from opposing rooks and queens along the vacated file.",
+  "authority": "native-model"
+}

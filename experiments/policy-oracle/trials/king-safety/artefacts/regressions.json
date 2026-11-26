@@ -1,0 +1,40 @@
+{
+  "v1": {
+    "cases": 150,
+    "profiles": [
+      "stock",
+      "compatibility",
+      "stronger",
+      "referee"
+    ],
+    "changedCases": [
+      "pinned-slider"
+    ],
+    "localPeak": {
+      "id": "native-2-a8a1",
+      "evaluatedExpressions": 976
+    }
+  },
+  "v2": {
+    "cases": 150,
+    "profiles": [
+      "stock",
+      "compatibility",
+      "stronger",
+      "referee"
+    ],
+    "changedCases": [
+      "pinned-slider"
+    ],
+    "localPeak": {
+      "id": "native-2-a8a1",
+      "evaluatedExpressions": 988
+    }
+  },
+  "priorCampaign": {
+    "boardPositions": 3184,
+    "completeSuccessors": 3473,
+    "publicAndSealedMatchedLockedScore": true,
+    "priorFirestoreCasesReplayed": 160
+  }
+}

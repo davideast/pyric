@@ -1,0 +1,9 @@
+rules_version = '2+modules';
+
+export function fileSafe(board, file, color) {
+  let pieces = [board[file + '1'], board[file + '2'], board[file + '3'], board[file + '4'], board[file + '5'], board[file + '6'], board[file + '7'], board[file + '8']].removeAll(['']);
+  let length = pieces.size();
+  let king = color + 'k';
+  let attackers = color == 'w' ? ['br', 'bq'] : ['wr', 'wq'];
+  return 0 >= length ? true : pieces[0] == king ? (0 == 0 ? true : !(pieces[0 - 1] in attackers)) && (0 + 1 == length ? true : !(pieces[0 + 1] in attackers)) : 1 >= length ? true : pieces[1] == king ? (1 == 0 ? true : !(pieces[1 - 1] in attackers)) && (1 + 1 == length ? true : !(pieces[1 + 1] in attackers)) : 2 >= length ? true : pieces[2] == king ? (2 == 0 ? true : !(pieces[2 - 1] in attackers)) && (2 + 1 == length ? true : !(pieces[2 + 1] in attackers)) : 3 >= length ? true : pieces[3] == king ? (3 == 0 ? true : !(pieces[3 - 1] in attackers)) && (3 + 1 == length ? true : !(pieces[3 + 1] in attackers)) : 4 >= length ? true : pieces[4] == king ? (4 == 0 ? true : !(pieces[4 - 1] in attackers)) && (4 + 1 == length ? true : !(pieces[4 + 1] in attackers)) : 5 >= length ? true : pieces[5] == king ? (5 == 0 ? true : !(pieces[5 - 1] in attackers)) && (5 + 1 == length ? true : !(pieces[5 + 1] in attackers)) : 6 >= length ? true : pieces[6] == king ? (6 == 0 ? true : !(pieces[6 - 1] in attackers)) && (6 + 1 == length ? true : !(pieces[6 + 1] in attackers)) : 7 >= length ? true : pieces[7] == king ? (7 == 0 ? true : !(pieces[7 - 1] in attackers)) && (7 + 1 == length ? true : !(pieces[7 + 1] in attackers)) : true;
+}

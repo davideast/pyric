@@ -1,0 +1,84 @@
+{
+  "paired": 8,
+  "releases": [
+    {
+      "mode": "optimized",
+      "bundleSha256": "1d3e7e79f0f1301e5f8170c8e8a52cf4c8dc35904b5d155f24bcce3df56176c5",
+      "privateReceipt": "537470e71826d9311ae68951115b7d7f09fc0cf2e4998b6998c7e7d3179ada26",
+      "decisions": [
+        {
+          "id": "rook-safe",
+          "decision": "ALLOW",
+          "versionChanged": true,
+          "localExpressions": 844,
+          "localVerdict": "ALLOW"
+        },
+        {
+          "id": "rook-exposed",
+          "decision": "DENY",
+          "versionChanged": false,
+          "localExpressions": 645,
+          "localVerdict": "DENY"
+        },
+        {
+          "id": "mirrored-file",
+          "decision": "DENY",
+          "versionChanged": false,
+          "localExpressions": 641,
+          "localVerdict": "DENY"
+        },
+        {
+          "id": "surviving-blocker",
+          "decision": "ALLOW",
+          "versionChanged": true,
+          "localExpressions": 853,
+          "localVerdict": "ALLOW"
+        },
+        {
+          "id": "black-exposed",
+          "decision": "DENY",
+          "versionChanged": false,
+          "localExpressions": 661,
+          "localVerdict": "DENY"
+        },
+        {
+          "id": "black-safe",
+          "decision": "ALLOW",
+          "versionChanged": true,
+          "localExpressions": 867,
+          "localVerdict": "ALLOW"
+        },
+        {
+          "id": "queen-exposed",
+          "decision": "DENY",
+          "versionChanged": false,
+          "localExpressions": 645,
+          "localVerdict": "DENY"
+        },
+        {
+          "id": "long-safe-slide",
+          "decision": "ALLOW",
+          "versionChanged": true,
+          "localExpressions": 900,
+          "localVerdict": "ALLOW"
+        },
+        {
+          "id": "long-slide-blocked-sixth",
+          "decision": "DENY",
+          "versionChanged": false,
+          "localExpressions": 457,
+          "localVerdict": "DENY"
+        },
+        {
+          "id": "long-slide-left-blocked",
+          "decision": "DENY",
+          "versionChanged": false,
+          "localExpressions": 371,
+          "localVerdict": "DENY"
+        }
+      ],
+      "reads": 21
+    }
+  ],
+  "privateJournalChecked": true
+}
