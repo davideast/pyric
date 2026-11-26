@@ -1,0 +1,17 @@
+{
+  "plan": "quick-packed-v5-full",
+  "intendedRulesSha256": "2d793f903e7d1b517ca34d92887a30a233e5246452228e35a136a730b4a10bf0",
+  "journalBoundRulesSha256": "2d793f903e7d1b517ca34d92887a30a233e5246452228e35a136a730b4a10bf0",
+  "journalSha256": "86f29347d7d54f209c786bd2f07165dcf7f288ebc2782a8bf7b7c3aa855bebd0",
+  "failureTime": "2026-11-26T15:47:00.220Z",
+  "operation": "activate-release",
+  "httpStatus": 503,
+  "serviceCode": "UNAVAILABLE",
+  "caseWrites": 0,
+  "originalClosed": true,
+  "leaseReleased": true,
+  "signedPhases": [
+    "initially-closed",
+    "restored-closed"
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "plan": "quick-packed-v5-full",
+  "intendedRulesSha256": "2d793f903e7d1b517ca34d92887a30a233e5246452228e35a136a730b4a10bf0",
+  "journalBoundRulesSha256": null,
+  "journalSha256": "946462da5a0095a43592f0a5c51dbb8ae4c2e33c9586fa01d98a9832a007a80e",
+  "failureTime": "2026-11-26T15:48:10.217Z",
+  "operation": "create-ruleset",
+  "httpStatus": 503,
+  "serviceCode": "UNAVAILABLE",
+  "caseWrites": 0,
+  "originalClosed": true,
+  "leaseReleased": true,
+  "signedPhases": [
+    "initially-closed"
+  ]
+}
