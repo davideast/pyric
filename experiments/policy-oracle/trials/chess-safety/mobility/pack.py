@@ -12,10 +12,12 @@ HERE = Path(__file__).resolve().parent
 PRECURSOR = '78c88ce6210ca1c83e1b9b5f0d60de7e3d5d8088203cb10f3efac7b451b64ce1'
 
 
-def build(output):
+def build(output, split=False):
     upstream = runpy.run_path(str(HERE / '../policy/pack-candidate.py'))
     old = upstream['NEW']
     new = b"(" + old + b" || (name === 'replace' && arity === 2))"
+    if split:
+        new = new.replace(b"name === 'matches'", b"name === 'matches' || name === 'split'")
     with tempfile.TemporaryDirectory(prefix='pyric-mobility-') as root:
         source = Path(root)/'packed.tgz'
         upstream['build'](source)
@@ -38,6 +40,7 @@ def build(output):
 if __name__ == '__main__':
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('output', type=Path)
+    p.add_argument('--split', action='store_true', help='admit string splitting for the combined terminal classifier')
     args = p.parse_args()
-    build(args.output)
+    build(args.output, args.split)
     print(hashlib.sha256(args.output.read_bytes()).hexdigest())

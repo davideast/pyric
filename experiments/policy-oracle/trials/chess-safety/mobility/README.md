@@ -23,3 +23,17 @@ The grouped predicate matched all 1,583 unique public and named positions, cover
 `compileMobility(compileFunction, {specialized:true, grouped:true, mode})` exposes `directions(board,color)` and `hasReply(board,color)`. The former evaluates the explicit projections. The latter evaluates the grouped predicate. `linkOnto` accepts a reviewed packed release, emitted module text, the pinned module resolver and the same `grouped:true` option. The optional link-time `covered` expression marks a material class already adjudicated by the caller. The linked policy reuses the validated successor text and repacks the real successor after castling.
 
 For the standalone v5-plus-king-reply candidate, use variant `king-reply-v4`. Its complete rules digest is `4d1f3ba3f1be096457a12a8e25f9b38b754293b0af13f4c829dfd18a1ec830f7`. Local checks do not supply a hosted observation for those bytes.
+
+## Terminal reports in the complete application
+
+A reported win must put the defending king in check. A reported stalemate must leave it safe. `king-reply-v5` checks that condition and tests whether the king can move. It agreed with 275/378 edge declarations and 352/384 interior declarations. Every remaining disagreement was a false win in which another piece had a legal reply. All correct declarations remained admissible in those two local corpora. The complete Rules digest is `fa2cff41e46a901f826eb53c859d03486797f0687dbe1b89b16183a1510b5814`.
+
+[The combined linker](combined.mjs) also uses the existing exact classifier for the three-piece material it covers and the defensive capture certificate outside that class. Its standalone `predict` represents moving-king safety. Whole-write admission includes the terminal and Arcade checks. A real castling successor is packed separately because the move-safety projection uses virtual kings on the transit squares.
+
+| Variant | Complete Rules SHA-256 | Named cases | Agreement on 12,371 independent local writes | Legal moves refused at the expression limit |
+| --- | --- | ---: | ---: | ---: |
+| combined-quick-packed-v5 | fc20db62e7d08d1ca6984a2c3bf2a878c2a3f3af7ff47835674172575a65a349 | 94/94 | 12,150 | 94 |
+| combined-pattern-packed-v5 | 60cf348c7dd8a184e81abc55b95922091cdda387856e19c021cd0658ebacf031 | 93/94 | 12,083 | 161 |
+| combined-pattern-fast-packed-v5 | a53c2fedb742710fc3aa3db055741b82842382fed457c5ab781cbf7259cb851b | 94/94 | 12,182 | 62 |
+
+All three permitted 127 incorrect terminal declarations in the independent corpus. The fast variant preserved each correct declaration tested and exceeded the local expression budget on 38 right-changing captures and 24 promotions. It skips the table for distant kings in rook, bishop and knight three-piece positions, and uses two regex substitutions to prepare the remaining search key. These figures describe local whole-write admission. `python3 pack.py --split output.tgz` reproduces the combined compiler package, SHA-256 `98995632ebf810afa49c3e03ee7fc0bac31e3c8ff841327ffa8a3eddda2a9356`.

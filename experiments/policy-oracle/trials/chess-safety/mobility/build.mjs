@@ -3,8 +3,9 @@ import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {loadPolicyApi} from '../../king-safety/policy/public-api.mjs';
 import {sha} from '../../../arcade/corpus.mjs';
-import {compile,link} from './adapter.mjs';
+
 const [pkg,bundler,out,variant='king-reply']=process.argv.slice(2);
+const {compile,link}=await import(variant.startsWith('combined-') ? './combined.mjs' : './adapter.mjs');
 const {compileFunction}=await loadPolicyApi(pkg);
 const api=compile(compileFunction,variant,{mode:'emit'});
 const {resolveModules}=await import(pathToFileURL(resolve(bundler)));
