@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {dbName} from '../../../arcade/live/control.mjs';
 import {randomUUID} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import {setTimeout as wait} from 'node:timers/promises';
@@ -6,16 +7,26 @@ import {manifest} from '../../../arcade/corpus.mjs';
 import {wireFields} from '../../../adapters/arcade-sdk/v1/evidence.mjs';
 import {startJournal,errorDetails} from '../../../arcade/live/controller/archive.mjs';
 import {initializeApp,deleteApp} from '../../../arcade/live/controller/chess-sdk.mjs';
-import {clientsFor,createDocument,lite} from '../../../arcade/live/controller/clients.mjs';
+import {clientsFor,createDocument,readDocument,lite} from '../../../arcade/live/controller/clients.mjs';
 import {counterPropagation} from '../../../arcade/live/controller/counter-controls.mjs';
 import {withRelease} from '../../../arcade/live/controller/release.mjs';
 import {decision,snapshot} from '../../chess/live/snapshots.mjs';
 import {transition} from '../../chess/verify/document.mjs';
-import {cases,checkBundle,sample} from './fixtures.mjs';
+import {checkBundle,profile} from './fixtures.mjs';
 
 const [mode,archive,bundle,rulesSha256] = process.argv.slice(2);
 const source = readFileSync(bundle,'utf8');
 checkBundle(mode,source,rulesSha256);
+const spec = profile(mode);
+async function takeSnapshot(reader,path) {
+  if(mode!=='ordered-errors') return snapshot(reader,path);
+  const snap=await lite.getDoc(lite.doc(reader.lite,path));
+  const wire=await readDocument(path);
+  assert.equal(wire.name,dbName+'/documents/'+path);
+  assert.ok(snap.exists());
+  assert.deepEqual(wire.fields,wireFields(snap.data()));
+  return {path,data:snap.data(),version:wire.updateTime,created:wire.createTime};
+}
 const runId = randomUUID(), journal = startJournal(archive,runId);
 console.log('Private run',runId,mode,rulesSha256);
 const clients = clientsFor(runId,journal);
@@ -42,19 +53,21 @@ try {
       const control = await decision(() => lite.getDoc(lite.doc(signedOut,controlPath)));
       assert.equal(control,'DENY');
       journal.event('unauthenticated-read',{path:controlPath,observed:control});
-      for (const c of cases) {
+      for (const c of spec.cases) {
         checkStop();
-        const path = controlPath+'-'+c.id, proof = await verify();
+        const path = spec.collection+'/'+runId+'-'+c.id, proof = await verify();
         const actor = writer.identity.uid, readerUid = reader.identity.uid;
         assert.equal(writer.auth.currentUser.uid,actor);
         assert.equal(reader.auth.currentUser.uid,readerUid);
-        const s = sample(c,actor,guest.identity.uid);
-        await createDocument(path,{...wireFields(s.before),createdAt:{timestampValue:'2026-01-01T00:00:00Z'}});
-        const before = await snapshot(reader,path);
+        const s = spec.sample(c,actor,guest.identity.uid);
+        const fields=wireFields(s.before);
+        if (mode!=='ordered-errors') fields.createdAt={timestampValue:'2026-01-01T00:00:00Z'};
+        await createDocument(path,fields);
+        const before = await takeSnapshot(reader,path);
         assert.deepEqual(before.data,s.before);
         const observed = await decision(() => lite.updateDoc(lite.doc(writer.lite,path),s.proposal));
-        const after = await snapshot(reader,path);
-        const row = {id:c.id,actor,reader:readerUid,probe:{fen:c.fen,uci:c.uci},
+        const after = await takeSnapshot(reader,path);
+        const row = {id:c.id,actor,reader:readerUid,probe:spec.probe(c),
           expected:c.expected,observed,before:[before],after:[after],
           submitted:[{op:'update',path,data:s.proposal}],proof,end:await verify()};
         journal.event('chess-attempt',row);

@@ -6,15 +6,17 @@ import {fileURLToPath,pathToFileURL} from 'node:url';
 import {manifest,sha} from '../../../arcade/corpus.mjs';
 import {privateArchive} from '../../../arcade/live/controller/archive.mjs';
 import {qualify,checkRows,comparable} from './evidence.mjs';
-import {checkBundle} from './fixtures.mjs';
+import {checkBundle,profile} from './fixtures.mjs';
 
 const roles={host:'host',guest:'guest',observer:'observer'};
-export async function replay({generated,simulator,archive}) {
+export async function replay({generated,simulator,archive,ordered}) {
   const dist = resolve(simulator,'dist/index.js');
   const {firestoreRules} = await import(pathToFileURL(dist));
   const handwritten = fileURLToPath(new URL('../../chess/bundle/artifacts/stronger.rules',import.meta.url));
   const reports=[], operands=[];
-  for(const [mode,bundle] of [['handwritten',handwritten],['generated',generated]]) {
+  const bundles=[['handwritten',handwritten],['generated',generated]];
+  if(ordered) bundles.push(['ordered-errors',ordered]);
+  for(const [mode,bundle] of bundles) {
     const ev = JSON.parse(gunzipSync(readFileSync(new URL('receipts/'+mode+'.json.gz',import.meta.url))));
     const source = readFileSync(bundle,'utf8');
     checkBundle(mode,source,ev.rulesSha256);
@@ -27,8 +29,8 @@ export async function replay({generated,simulator,archive}) {
     ]);
     assert.deepEqual([ev.closure.leaseReleased,ev.closure.signedRead,ev.closure.signedWrite],[true,'DENY','DENY']);
     if(archive) assert.deepEqual(ev,qualify(privateArchive(archive),ev.privateReceipt,bundle));
-    checkRows(ev.rows,roles,id=>'chess/match-'+id);
-    operands.push(comparable(ev));
+    checkRows(ev.rows,roles,id=>profile(mode).collection+'/match-'+id,mode);
+    if(mode!=='ordered-errors') operands.push(comparable(ev));
     const handle=firestoreRules(source), decisions=[];
     function check(description,method,path,auth,resource,data,expectation) {
       const [r]=handle.simulate([{description,path,method,auth,resource,data,expectation}]).cases;
@@ -52,7 +54,8 @@ export async function replay({generated,simulator,archive}) {
 }
 
 if(import.meta.main) {
-  const [generated,simulator,archive]=process.argv.slice(2);
-  if(!generated || !simulator) throw Error('Usage: bun live/replay.mjs GENERATED_COMPLETE_RULES INSTALLED_PINNED_RULES [ARCHIVE]');
-  console.log(JSON.stringify(await replay({generated,simulator,archive}),null,2));
+  const [generated,simulator,archiveArg,ordered]=process.argv.slice(2);
+  const archive=archiveArg==='-'?undefined:archiveArg;
+  if(!generated || !simulator) throw Error('Usage: bun live/replay.mjs GENERATED_COMPLETE_RULES INSTALLED_PINNED_RULES [ARCHIVE [ORDERED_ERRORS_COMPLETE_RULES]]');
+  console.log(JSON.stringify(await replay({generated,simulator,archive,ordered}),null,2));
 }

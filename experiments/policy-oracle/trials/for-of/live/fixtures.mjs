@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {ordered,checkOrderedBundle} from './ordered.mjs';
 import {readFileSync} from 'node:fs';
 import {sha} from '../../../arcade/corpus.mjs';
 import {position} from '../../chess/reference/score.mjs';
@@ -37,7 +38,9 @@ function linkedParts(source) {
 
 export function checkBundle(mode,source,expectedDigest) {
   assert.equal(sha(source),expectedDigest,'supplied bundle digest');
-  if (mode === 'handwritten') {
+  if (mode === 'ordered-errors') {
+    checkOrderedBundle(linkedParts(source).code);
+  } else if (mode === 'handwritten') {
     assert.equal(source,handwritten,'must use previously qualified full Arcade release');
   } else {
     assert.equal(mode,'generated');
@@ -62,4 +65,10 @@ export function sample(c,host,guest) {
   // Construct the same plausible successor even for the two blocked paths.
   const proposal = movePatch(afterMove(before,c.uci,native,false));
   return {before,proposal,after:c.expected === 'ALLOW' ? {...before,...proposal} : before};
+}
+
+export function profile(mode) {
+  if (mode === 'ordered-errors') return ordered;
+  assert.ok(mode==='handwritten' || mode==='generated');
+  return {cases,collection:'chess',probe:c=>({fen:c.fen,uci:c.uci}),sample};
 }

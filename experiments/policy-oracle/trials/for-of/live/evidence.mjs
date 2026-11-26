@@ -2,17 +2,18 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {retained,journal} from '../../chess/verify/journal.mjs';
 import {transition} from '../../chess/verify/document.mjs';
-import {cases,checkBundle,sample} from './fixtures.mjs';
+import {profile,checkBundle} from './fixtures.mjs';
 
-export function checkRows(rows,ids,pathFor) {
+export function checkRows(rows,ids,pathFor,mode) {
+  const spec = profile(mode), cases=spec.cases;
   assert.deepEqual(rows.map(r=>r.id),cases.map(c=>c.id));
   for(const [i,c] of cases.entries()) {
     const row = rows[i], path = pathFor(c.id);
-    const fixture = sample(c,ids.host,ids.guest);
+    const fixture = spec.sample(c,ids.host,ids.guest);
     assert.equal(row.observed,c.expected,c.id);
     assert.equal(row.actor,ids.host);
     assert.equal(row.reader,ids.observer);
-    assert.deepEqual(row.probe,{fen:c.fen,uci:c.uci});
+    assert.deepEqual(row.probe,spec.probe(c));
     assert.deepEqual(row.before.map(s=>s.path),[path],c.id);
     assert.deepEqual(row.after.map(s=>s.path),[path],c.id);
     assert.deepEqual(row.before[0].data,fixture.before,c.id+' full before');
@@ -28,11 +29,11 @@ export function qualify(archive,digest,bundle) {
   const raw=retained(archive,digest);
   checkBundle(raw.mode,readFileSync(bundle,'utf8'),raw.rulesSha256);
   const j=journal(archive,raw,digest);
-  const ids=j.actors, match='chess/'+raw.runId;
-  checkRows(raw.rows,ids,id=>match+'-'+id);
+  const ids=j.actors, prefix=profile(raw.mode).collection+'/', match=prefix+raw.runId;
+  checkRows(raw.rows,ids,id=>match+'-'+id,raw.mode);
   const map = new Map(Object.entries(ids).map(([role,uid])=>[uid,role]));
   const redact = x => {
-    if(typeof x === 'string') return map.get(x) ?? x.replace(match,'chess/match');
+    if(typeof x === 'string') return map.get(x) ?? x.replace(match,prefix+'match');
     if(Array.isArray(x)) return x.map(redact);
     if(x && typeof x === 'object') return Object.fromEntries(Object.entries(x).map(([k,v])=>[k,redact(v)]));
     return x;
