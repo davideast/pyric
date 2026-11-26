@@ -1,0 +1,9 @@
+{
+  "nativeCases": 895776,
+  "tally": {
+    "playing": 892736,
+    "checkmate": 1160,
+    "stalemate": 1880
+  },
+  "digest": "663240da1ab771f5e7761886246ae5e2db3d7fe8df7de0ba583cb3931ad2e69e"
+}
