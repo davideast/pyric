@@ -1,0 +1,59 @@
+{
+  "engine": "1f321bbb70128936c00283d22cfe03ad84b8907a00f0dacf3363b694d6534d5e",
+  "policy": "97dda7add77cb18d132ba1c730bbef24a48870404198d6677cdf0f961a30d212",
+  "standaloneAgrees": true,
+  "cases": [
+    {
+      "id": "promote-capturing-rook-right-held",
+      "fen": "8/8/8/8/8/4k3/6p1/4K2R b K -",
+      "uci": "g2h1q",
+      "claim": {
+        "status": "won",
+        "winner": "guest"
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "8/8/8/8/8/4k3/8/4K2q w - -",
+      "outcome": "checkmate",
+      "expected": {
+        "status": "won",
+        "winner": "guest"
+      },
+      "submitted": {
+        "status": "won",
+        "winner": "guest"
+      },
+      "replies": []
+    },
+    {
+      "id": "promote-capturing-rook-right-expired",
+      "fen": "8/8/8/8/8/4k3/6p1/4K2R b - -",
+      "uci": "g2h1q",
+      "claim": {
+        "status": "won",
+        "winner": "guest"
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "8/8/8/8/8/4k3/8/4K2q w - -",
+      "outcome": "checkmate",
+      "expected": {
+        "status": "won",
+        "winner": "guest"
+      },
+      "submitted": {
+        "status": "won",
+        "winner": "guest"
+      },
+      "replies": []
+    }
+  ]
+}

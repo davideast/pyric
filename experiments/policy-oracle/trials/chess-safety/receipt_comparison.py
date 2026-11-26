@@ -60,6 +60,6 @@ def compare(native, sdk, captures):
         releases.append({'rules':str(source.relative_to(HERE)) if source.is_relative_to(HERE) else spec['file'],
                          'sha256':digest,'receipts':[c['receipt'] for c in hosted['captures']],
                          'status':hosted['status'],'productionCases':len(distinct),'batches':batches,
-                         'examples':{k:v for k,v in distinct.items() if k.startswith(('holdout-black-queen-corner-','sole-pawn-w-'))},
+                         'examples':{k:v for k,v in distinct.items() if k.startswith(('holdout-black-queen-corner-','sole-pawn-w-','actual-fourth-ply-','knight-reply-477','knight-reply-483','rook-safe','rook-exposed'))},
                          'disagreements':disagreements})
     return releases

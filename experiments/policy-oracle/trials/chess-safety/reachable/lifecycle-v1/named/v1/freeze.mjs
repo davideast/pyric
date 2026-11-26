@@ -35,6 +35,12 @@ for(const id of ['knight-reply-477','knight-reply-483']){
   add(id,'fixed-ply-composed',uci,before,{...before,...proposal});
   assert.equal(answers.at(-1).nativeAdmission,nativeAdmission);
 }
-const output=(name,data)=>writeFileSync(new URL(name,import.meta.url),JSON.stringify(data,null,2)+'\n');
+const output=(name,data)=>{
+  const file=new URL(name,import.meta.url),bytes=JSON.stringify(data,null,2)+'\n';
+  if(process.argv.includes('--write'))writeFileSync(file,bytes,{flag:'wx'});
+  else assert.equal(readFileSync(file,'utf8'),bytes,'frozen named snapshot changed: '+name);
+};
 output('inputs.json',{standardOpeningPrefix:prefix,cases:inputs});
 output('native.json',{authority:'pinned native Arcade chess, complete successor, next legal replies and result claim',cases:answers});
+
+console.log(JSON.stringify({cases:answers.length,admitted:answers.filter(r=>r.nativeAdmission).length}));

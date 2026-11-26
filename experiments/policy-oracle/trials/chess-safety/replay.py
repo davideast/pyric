@@ -18,7 +18,7 @@ from scorecard import render
 
 REFERENCE = runpy.run_path(str(HERE.parent / 'for-of/replay.py'))
 DISCOVERY = runpy.run_path(str(HERE / 'exploration/replay.py'))
-DEFAULT = 'knight-endgame-paired-pawn-combined-bare-simple-packed-v5'
+DEFAULT = 'knight-endgame-paired-pawn-combined-bare-fixed-comma-packed-v5'
 
 
 def read(path):
@@ -59,6 +59,10 @@ def native_replay(control_files=None):
         if c['id'] in wanted:
             native[c['id']] = c['nativeAdmission']
     equal(wanted - native.keys(), set(), 'successor rights controls')
+    named = HERE/'reachable/lifecycle-v1/named/v1'
+    equal(observed('bun',named/'freeze.mjs'),{'cases':4,'admitted':2},'genuine fourth ply and matched knight moves')
+    for case in read(named/'native.json')['cases']:
+        native[case['id']] = case['nativeAdmission']
     return native, batches
 
 
@@ -158,6 +162,14 @@ def replay(args, temp):
     result['absolutePinRays'] = observed('bun','exploration/self-check-v1/measure.mjs',sdk,bundle,'absolute-rays-v1')
     equal(result['absolutePinRays']['rulesSha256'],digest,'absolute pin ray release')
     result['supplementalControls'] = score_controls(native,sdk,bundle,digest,control_files)
+    named = read(HERE/'reachable/lifecycle-v1/named/v1/inputs.json')['cases']
+    requests = [{'description':case['id'],'method':'update','path':'chess/oracle','auth':{'uid':case['before'][case['before']['currentTurn']]},
+                 'resource':case['before'],'data':case['pending'],'expectation':'ALLOW'} for case in named]
+    named_run = json.loads(subprocess.check_output(['bun',HERE/'baseline.mjs',sdk,bundle],input=json.dumps(requests).encode()))
+    equal(named_run['sha256'],digest,'genuine fourth-ply release')
+    equal([r['id'] for r in named_run['rows']],[c['id'] for c in named],'genuine snapshot identity')
+    truths = [{'id':case['id'],'nativeAdmission':native[case['id']]} for case in named]
+    result['namedSnapshots'] = score_rows(truths,named_run['rows'],'nativeAdmission')
     ep = HERE/'exploration/en-passant-evasions-v1'
     equal(observed('bun',ep/'freeze.mjs'),read(ep/'freeze.json'),'en passant double-push predecessors')
     pair_count = observed('bun',ep/'pairs.mjs')['pairedBoards']
@@ -211,6 +223,7 @@ def replay(args, temp):
         result['releaseComparisons'] = compare(native,sdk,captures)
     target = result['hosted']
     local_pass = (sealed_pass and run['matchedAll'] and core['passed'] and discovery['allMatch']
+                  and all(r['status']=='match' for r in result['namedSnapshots'])
                   and result['absolutePinRays']['stats']=={'match':read(rays/'freeze.json')['writes']} and not result['enPassantContinuations']['first']
                   and all(r['counts']=={'match':r['cases']} for r in result['supplementalControls'].values())
                   and all(x['allow']==x['writes'] for x in history.values()))

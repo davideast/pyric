@@ -171,7 +171,7 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument("--candidate-package",type=Path,required=True)
     p.add_argument("--through",type=int,choices=range(8),default=7)
-    p.add_argument("--variant",default="knight-endgame-paired-pawn-combined-bare-simple-packed-v5")
+    p.add_argument("--variant",default="knight-endgame-paired-pawn-combined-bare-fixed-comma-packed-v5")
     p.add_argument("--save-rules",type=Path,help="save independently linked source for review")
     p.add_argument("--board-policy",action="store_true",help="also derive full move legality, successor and terminal outcome via the public bounded-module API")
     p.add_argument("--with-live",action="store_true",help="append hosted receipts for these exact bytes; passed grades the selected local planes")
