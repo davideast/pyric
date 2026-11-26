@@ -40,3 +40,20 @@ export function compactValidation(source) {
 }
 
 export const compactPath="(dy == 0 ? horizontalPathClear(old.board, mv.from[1:2], x, x + dx) : dx == 0 ? filePathClear(old.board, mv.from[0:1], y, y + dy) : diagonalPathClear(old.board, x, y, x + dx, y + dy))";
+
+/** Coalesce repeated seat and board reads inside the single Arcade move admission. */
+export function compactAdmission(module) {
+  let out=module;
+  out=once(out,"  let color = old.currentTurn == 'host' ? 'w' : 'b';",
+    "  let seat = old.currentTurn;\n  let color = seat == 'host' ? 'w' : 'b';");
+  out=once(out,'isPlaying() && isMyTurn() && turnFlipped() && moveIncremented()',
+    "old.status == 'playing' && seat in ['host','guest'] && request.auth.uid == old[seat] && next.currentTurn == (seat == 'host' ? 'guest' : 'host') && next.moveCount == old.moveCount + 1");
+  out=once(out,'next.lastMove.keys().hasOnly(', 'mv.keys().hasOnly(');
+  out=once(out,"(target == '' || target[0:1] != color)\n    && (target == '' || target[1:2] != 'k')",
+    "(target == '' || (target[0:1] != color && target[1:2] != 'k'))");
+  out=once(out,'next.board.keys().hasOnly(old.board.keys())', 'next.board.keys().toSet() == old.board.keys().toSet()');
+  out=once(out,'next.lastMove.extra))','mv.extra))');
+  out=once(out,'&& priorPosition(old, next)', '&& next.prevBoard == old.board && next.prevCastling == old.castling && next.prevEnPassant == old.enPassant');
+  out=once(out,"&& onlyFieldsChanged(['board',", "&& next.diff(old).affectedKeys().hasOnly(['board',");
+  return out;
+}

@@ -1,16 +1,16 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {compactPathSources,compactValidation,compactPath} from './compact.mjs';
+import {compactPathSources,compactValidation,compactPath,compactAdmission} from './compact.mjs';
 import {packedSources,packedGuard,packedPredict} from './packed.mjs';
 import {optimizeValidation,optimizeApplication} from './optimized.mjs';
 import {squares, geometricSources, selectSquare} from './geometry.mjs';
 
 const read = path => readFileSync(new URL(path,import.meta.url),'utf8');
 const horizontalSource = () => read('../../king-safety/policy/horizontal-path.policy');
-export const variants = ['pins','attacks','castle','optimized','packed','packed-v2'];
+export const variants = ['pins','attacks','castle','optimized','packed','packed-v2','packed-v3'];
 
 function sourcesFor(variant) {
-  if (variant==='packed-v2') return {...packedSources(true),...compactPathSources()};
+  if (['packed-v2','packed-v3'].includes(variant)) return {...packedSources(true),...compactPathSources()};
   return variant === 'packed' ? packedSources() : geometricSources(variant);
 }
 
@@ -61,13 +61,17 @@ export async function link(modules,resolveModules,{variant='castle'}={}) {
   });
   const header="rules_version = '2+modules';";
   const packed=variant.startsWith('packed');
-  const compact=variant==='packed-v2';
+  const compact=['packed-v2','packed-v3'].includes(variant);
   const optimized=variant==='optimized'||packed;
   if (optimized) {
     app.modules[key] = optimizeValidation(app.modules[key]);
     if (compact) app.modules[key]=compactValidation(app.modules[key]);
     const chess='../games/chess/chess';
     app.modules[chess] = optimizeApplication(app.modules[chess]);
+    if (variant==='packed-v3') {
+      app.modules[chess]=compactAdmission(app.modules[chess]);
+      app.modules[key]=app.modules[key].replace('next.board.keys().hasAll(old.board.keys())\n    && pieceShape','pieceShape');
+    }
   }
   const call=selectSquare(0,63,s=>'safe'+s+'(board, enemy'+(optimized?', material':'')+')');
   const dispatch='function kingSafeAt(board, enemy, index) { '+(optimized?'let material = board.values(); ':'')+'return index >= 0 && index < 64 && '+call+'; }';
