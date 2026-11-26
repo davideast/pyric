@@ -1,0 +1,5 @@
+{
+  "rulesSha256": "a53c2fedb742710fc3aa3db055741b82842382fed457c5ab781cbf7259cb851b",
+  "file": "../artefacts/combined-pattern-fast-packed-v5.rules",
+  "basis": "Versus quick-packed-v5 all public match/allow clauses and existing move validation functions are identical except safeTransition, where the terminal judge now uses generated sparse board-state patterns and positive king mobility. New pure helpers replace the old two-piece table comparison. The actual moving king safety predicate remains in the conjunction."
+}
