@@ -6,6 +6,11 @@
       "file": "../reachable/lifecycle-v1/named/v1/inputs.json",
       "sha256": "3b63a93abaaa76fcde449072c2921e4691a21d1386f918c1feb84b74fe444213",
       "adapter": "named-snapshot"
+    },
+    {
+      "batch": "16-held-rook-promotion",
+      "file": "../exploration/held-rook-promotion-v1/controls/positions.json",
+      "sha256": "209d9830fe4848c2fcabdaf1869db4c77f9a957d67c34f3ef513aa92667094e0"
     }
   ]
 }
