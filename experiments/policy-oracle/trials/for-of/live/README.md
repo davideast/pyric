@@ -2,7 +2,7 @@
 
 The controller submits the four [frozen rook moves](../reference/cases.json) through an authenticated Firebase SDK client. Each starts from its own seeded, complete Arcade match. The same move-update builder supplies both allowed proposals and the plausible successor for a move through a blocker. A separately authenticated observer reads the full match before and after the write. The controller checks both SDK reads against Firestore REST documents and server versions. Only a completed run on the named campaign database, including restoration of its original deny-all release, qualifies as hosted evidence.
 
-The handwritten bundle is the previously qualified complete stronger Arcade ruleset. The generated bundle may replace its linked path helper. The controller checks the rest of the bundle against the handwritten bytes before any deployment. The original release, the open release, and the restored release each have independent signed propagation controls.
+The handwritten bundle is the previously qualified complete stronger Arcade ruleset. The generated bundle may replace its linked path helper. The controller compares every other executable byte before deployment, allowing the linker to remove the original unused ray helper. It checks the final source-map comment and verifies every other module's mappings still identify the same generated code. The original release, the open release, and the restored release each have independent signed propagation controls.
 
 With the loop trial as the working directory, replay both captures offline:
 

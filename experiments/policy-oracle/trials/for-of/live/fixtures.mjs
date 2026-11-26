@@ -14,17 +14,41 @@ export const handwritten = readFileSync(new URL('../../chess/bundle/artifacts/st
 const qualified = JSON.parse(readFileSync(new URL('../../chess/verify/releases/stronger.json',import.meta.url)));
 assert.equal(sha(handwritten),qualified.report.rulesSha256);
 
+const mapPrefix = '// @pyric-source-map: ';
+const rayHelper = "  function rayEmpty(board, files, ranks, x, y) {\n    return board[files[x] + ranks[y]] == '';\n  }\n";
+const pathHelper = /^  function _games_chess_chess_helpers__pathClear\(board, x, y, dx, dy\) \{[^{}]*?^  \}/gm;
+
+function linkedParts(source) {
+  const lines = source.trimEnd().split('\n');
+  const comment = lines.pop();
+  assert.ok(comment.startsWith(mapPrefix),'expected the Arcade linker source map on the last line');
+  const entries=JSON.parse(comment.slice(mapPrefix.length));
+  assert.ok(Array.isArray(entries) && entries.length);
+  const mappings=[];
+  for(const e of entries) {
+    assert.ok(Number.isInteger(e.generatedLine) && e.generatedLine>0 && e.generatedLine<=lines.length);
+    assert.ok(Number.isInteger(e.authoredLine) && e.authoredLine>0);
+    assert.ok(Number.isInteger(e.authoredCol) && e.authoredCol>0);
+    assert.equal(typeof e.authoredFile,'string');
+    if(e.authoredFile!=='../games/chess/chess-helpers') mappings.push({...e,generatedLine:lines[e.generatedLine-1]});
+  }
+  return {code:lines.join('\n'),mappings};
+}
+
 export function checkBundle(mode,source,expectedDigest) {
   assert.equal(sha(source),expectedDigest,'supplied bundle digest');
   if (mode === 'handwritten') {
     assert.equal(source,handwritten,'must use previously qualified full Arcade release');
   } else {
     assert.equal(mode,'generated');
-    const helper = /^  function _games_chess_chess_helpers__pathClear\(board, x, y, dx, dy\) \{[^{}]*?^  \}/gm;
-    assert.equal([...source.matchAll(helper)].length,1,'expected a single generated pathClear function');
-    assert.equal([...handwritten.matchAll(helper)].length,1);
-    assert.equal(source.replace(helper,'<pathClear>'),handwritten.replace(helper,'<pathClear>'),
-      'only pathClear may change in the complete Arcade ruleset');
+    const prior=linkedParts(handwritten), next=linkedParts(source);
+    assert.deepEqual(next.mappings,prior.mappings,'source mapping for unrelated modules must still point to the same code');
+    assert.equal(prior.code.split(rayHelper).length,2,'exact known linked helper definition');
+    assert.equal([...next.code.matchAll(pathHelper)].length,1,'expected a single generated pathClear function');
+    assert.equal([...prior.code.matchAll(pathHelper)].length,1);
+    const treeShaken = next.code.includes(rayHelper) ? prior.code : prior.code.replace(rayHelper,'');
+    assert.equal(next.code.replace(pathHelper,'<pathClear>'),treeShaken.replace(pathHelper,'<pathClear>'),
+      'only pathClear and removal of its former rayEmpty dependency may affect executable Arcade rules');
   }
 }
 
