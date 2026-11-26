@@ -1,0 +1,895 @@
+[
+  {
+    "priorFen": "8/2R5/8/8/p1p5/8/1P6/2k4K w - -",
+    "push": "b2b4",
+    "fen": "8/2R5/8/8/pPp5/8/8/2k4K b - b3",
+    "cases": [
+      {
+        "id": "ep-pair-0-0",
+        "uci": "a4b3",
+        "nativeAdmission": true,
+        "successor": "8/2R5/8/8/2p5/1p6/8/2k4K w - -"
+      },
+      {
+        "id": "ep-pair-0-1",
+        "uci": "c4b3",
+        "nativeAdmission": false,
+        "successor": "8/2R5/8/8/p7/1p6/8/2k4K w - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "8/8/8/3k4/2p1p3/8/B2P4/7K w - -",
+    "push": "d2d4",
+    "fen": "8/8/8/3k4/2pPp3/8/B7/7K b - d3",
+    "cases": [
+      {
+        "id": "ep-pair-1-0",
+        "uci": "c4d3",
+        "nativeAdmission": false,
+        "successor": "8/8/8/3k4/4p3/3p4/B7/7K w - -"
+      },
+      {
+        "id": "ep-pair-1-1",
+        "uci": "e4d3",
+        "nativeAdmission": true,
+        "successor": "8/8/8/3k4/2p5/3p4/B7/7K w - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "R7/8/8/8/p1p5/8/1P6/k6K w - -",
+    "push": "b2b4",
+    "fen": "R7/8/8/8/pPp5/8/8/k6K b - b3",
+    "cases": [
+      {
+        "id": "ep-pair-2-0",
+        "uci": "a4b3",
+        "nativeAdmission": false,
+        "successor": "R7/8/8/8/2p5/1p6/8/k6K w - -"
+      },
+      {
+        "id": "ep-pair-2-1",
+        "uci": "c4b3",
+        "nativeAdmission": true,
+        "successor": "R7/8/8/8/p7/1p6/8/k6K w - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "8/8/2R5/8/p1p5/8/1P6/2k4K w - -",
+    "push": "b2b4",
+    "fen": "8/8/2R5/8/pPp5/8/8/2k4K b - b3",
+    "cases": [
+      {
+        "id": "ep-pair-3-0",
+        "uci": "a4b3",
+        "nativeAdmission": true,
+        "successor": "8/8/2R5/8/2p5/1p6/8/2k4K w - -"
+      },
+      {
+        "id": "ep-pair-3-1",
+        "uci": "c4b3",
+        "nativeAdmission": false,
+        "successor": "8/8/2R5/8/p7/1p6/8/2k4K w - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "8/k7/8/8/p1p5/R7/1P6/K7 w - -",
+    "push": "b2b4",
+    "fen": "8/k7/8/8/pPp5/R7/8/K7 b - b3",
+    "cases": [
+      {
+        "id": "ep-pair-4-0",
+        "uci": "a4b3",
+        "nativeAdmission": false,
+        "successor": "8/k7/8/8/2p5/Rp6/8/K7 w - -"
+      },
+      {
+        "id": "ep-pair-4-1",
+        "uci": "c4b3",
+        "nativeAdmission": true,
+        "successor": "8/k7/8/8/p7/Rp6/8/K7 w - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "2R5/8/8/8/2p1p3/8/2kP4/K7 w - -",
+    "push": "d2d4",
+    "fen": "2R5/8/8/8/2pPp3/8/2k5/K7 b - d3",
+    "cases": [
+      {
+        "id": "ep-pair-5-0",
+        "uci": "c4d3",
+        "nativeAdmission": false,
+        "successor": "2R5/8/8/8/4p3/3p4/2k5/K7 w - -"
+      },
+      {
+        "id": "ep-pair-5-1",
+        "uci": "e4d3",
+        "nativeAdmission": true,
+        "successor": "2R5/8/8/8/2p5/3p4/2k5/K7 w - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "8/5k2/8/8/5p1p/8/6P1/K4R2 w - -",
+    "push": "g2g4",
+    "fen": "8/5k2/8/8/5pPp/8/8/K4R2 b - g3",
+    "cases": [
+      {
+        "id": "ep-pair-6-0",
+        "uci": "f4g3",
+        "nativeAdmission": false,
+        "successor": "8/5k2/8/8/7p/6p1/8/K4R2 w - -"
+      },
+      {
+        "id": "ep-pair-6-1",
+        "uci": "h4g3",
+        "nativeAdmission": true,
+        "successor": "8/5k2/8/8/5p2/6p1/8/K4R2 w - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "k7/8/8/8/p1p5/8/RP6/K7 w - -",
+    "push": "b2b4",
+    "fen": "k7/8/8/8/pPp5/8/R7/K7 b - b3",
+    "cases": [
+      {
+        "id": "ep-pair-7-0",
+        "uci": "a4b3",
+        "nativeAdmission": false,
+        "successor": "k7/8/8/8/2p5/1p6/R7/K7 w - -"
+      },
+      {
+        "id": "ep-pair-7-1",
+        "uci": "c4b3",
+        "nativeAdmission": true,
+        "successor": "k7/8/8/8/p7/1p6/R7/K7 w - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "8/8/8/3B4/2p1p3/1k6/3P4/7K w - -",
+    "push": "d2d4",
+    "fen": "8/8/8/3B4/2pPp3/1k6/8/7K b - d3",
+    "cases": [
+      {
+        "id": "ep-pair-8-0",
+        "uci": "c4d3",
+        "nativeAdmission": false,
+        "successor": "8/8/8/3B4/4p3/1k1p4/8/7K w - -"
+      },
+      {
+        "id": "ep-pair-8-1",
+        "uci": "e4d3",
+        "nativeAdmission": true,
+        "successor": "8/8/8/3B4/2p5/1k1p4/8/7K w - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "8/8/8/6k1/5p1p/8/6P1/2B4K w - -",
+    "push": "g2g4",
+    "fen": "8/8/8/6k1/5pPp/8/8/2B4K b - g3",
+    "cases": [
+      {
+        "id": "ep-pair-9-0",
+        "uci": "f4g3",
+        "nativeAdmission": false,
+        "successor": "8/8/8/6k1/7p/6p1/8/2B4K w - -"
+      },
+      {
+        "id": "ep-pair-9-1",
+        "uci": "h4g3",
+        "nativeAdmission": true,
+        "successor": "8/8/8/6k1/5p2/6p1/8/2B4K w - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "B7/8/8/8/2p1p3/5k2/3P4/7K w - -",
+    "push": "d2d4",
+    "fen": "B7/8/8/8/2pPp3/5k2/8/7K b - d3",
+    "cases": [
+      {
+        "id": "ep-pair-10-0",
+        "uci": "c4d3",
+        "nativeAdmission": true,
+        "successor": "B7/8/8/8/4p3/3p1k2/8/7K w - -"
+      },
+      {
+        "id": "ep-pair-10-1",
+        "uci": "e4d3",
+        "nativeAdmission": false,
+        "successor": "B7/8/8/8/2p5/3p1k2/8/7K w - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "8/8/2k5/8/2p1p3/5B2/3P4/7K w - -",
+    "push": "d2d4",
+    "fen": "8/8/2k5/8/2pPp3/5B2/8/7K b - d3",
+    "cases": [
+      {
+        "id": "ep-pair-11-0",
+        "uci": "c4d3",
+        "nativeAdmission": true,
+        "successor": "8/8/2k5/8/4p3/3p1B2/8/7K w - -"
+      },
+      {
+        "id": "ep-pair-11-1",
+        "uci": "e4d3",
+        "nativeAdmission": false,
+        "successor": "8/8/2k5/8/2p5/3p1B2/8/7K w - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "2R5/8/8/8/p1p5/8/1Pk5/K7 w - -",
+    "push": "b2b4",
+    "fen": "2R5/8/8/8/pPp5/8/2k5/K7 b - b3",
+    "cases": [
+      {
+        "id": "ep-pair-12-0",
+        "uci": "a4b3",
+        "nativeAdmission": true,
+        "successor": "2R5/8/8/8/2p5/1p6/2k5/K7 w - -"
+      },
+      {
+        "id": "ep-pair-12-1",
+        "uci": "c4b3",
+        "nativeAdmission": false,
+        "successor": "2R5/8/8/8/p7/1p6/2k5/K7 w - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "4k3/8/8/8/2p1p3/8/3P4/4R2K w - -",
+    "push": "d2d4",
+    "fen": "4k3/8/8/8/2pPp3/8/8/4R2K b - d3",
+    "cases": [
+      {
+        "id": "ep-pair-13-0",
+        "uci": "c4d3",
+        "nativeAdmission": true,
+        "successor": "4k3/8/8/8/4p3/3p4/8/4R2K w - -"
+      },
+      {
+        "id": "ep-pair-13-1",
+        "uci": "e4d3",
+        "nativeAdmission": false,
+        "successor": "4k3/8/8/8/2p5/3p4/8/4R2K w - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "8/8/8/2R5/p1p5/8/1P6/2k4K w - -",
+    "push": "b2b4",
+    "fen": "8/8/8/2R5/pPp5/8/8/2k4K b - b3",
+    "cases": [
+      {
+        "id": "ep-pair-14-0",
+        "uci": "a4b3",
+        "nativeAdmission": true,
+        "successor": "8/8/8/2R5/2p5/1p6/8/2k4K w - -"
+      },
+      {
+        "id": "ep-pair-14-1",
+        "uci": "c4b3",
+        "nativeAdmission": false,
+        "successor": "8/8/8/2R5/p7/1p6/8/2k4K w - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "8/8/4R3/8/2p1p3/8/3Pk3/K7 w - -",
+    "push": "d2d4",
+    "fen": "8/8/4R3/8/2pPp3/8/4k3/K7 b - d3",
+    "cases": [
+      {
+        "id": "ep-pair-15-0",
+        "uci": "c4d3",
+        "nativeAdmission": true,
+        "successor": "8/8/4R3/8/4p3/3p4/4k3/K7 w - -"
+      },
+      {
+        "id": "ep-pair-15-1",
+        "uci": "e4d3",
+        "nativeAdmission": false,
+        "successor": "8/8/4R3/8/2p5/3p4/4k3/K7 w - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "R7/8/8/8/p1p5/8/kP6/7K w - -",
+    "push": "b2b4",
+    "fen": "R7/8/8/8/pPp5/8/k7/7K b - b3",
+    "cases": [
+      {
+        "id": "ep-pair-16-0",
+        "uci": "a4b3",
+        "nativeAdmission": false,
+        "successor": "R7/8/8/8/2p5/1p6/k7/7K w - -"
+      },
+      {
+        "id": "ep-pair-16-1",
+        "uci": "c4b3",
+        "nativeAdmission": true,
+        "successor": "R7/8/8/8/p7/1p6/k7/7K w - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "5R2/8/8/8/5p1p/8/6P1/5k1K w - -",
+    "push": "g2g4",
+    "fen": "5R2/8/8/8/5pPp/8/8/5k1K b - g3",
+    "cases": [
+      {
+        "id": "ep-pair-17-0",
+        "uci": "f4g3",
+        "nativeAdmission": false,
+        "successor": "5R2/8/8/8/7p/6p1/8/5k1K w - -"
+      },
+      {
+        "id": "ep-pair-17-1",
+        "uci": "h4g3",
+        "nativeAdmission": true,
+        "successor": "5R2/8/8/8/5p2/6p1/8/5k1K w - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "8/1B6/8/8/2p1p3/8/3P2k1/K7 w - -",
+    "push": "d2d4",
+    "fen": "8/1B6/8/8/2pPp3/8/6k1/K7 b - d3",
+    "cases": [
+      {
+        "id": "ep-pair-18-0",
+        "uci": "c4d3",
+        "nativeAdmission": true,
+        "successor": "8/1B6/8/8/4p3/3p4/6k1/K7 w - -"
+      },
+      {
+        "id": "ep-pair-18-1",
+        "uci": "e4d3",
+        "nativeAdmission": false,
+        "successor": "8/1B6/8/8/2p5/3p4/6k1/K7 w - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "8/8/k7/8/p1p5/8/RP6/K7 w - -",
+    "push": "b2b4",
+    "fen": "8/8/k7/8/pPp5/8/R7/K7 b - b3",
+    "cases": [
+      {
+        "id": "ep-pair-19-0",
+        "uci": "a4b3",
+        "nativeAdmission": false,
+        "successor": "8/8/k7/8/2p5/1p6/R7/K7 w - -"
+      },
+      {
+        "id": "ep-pair-19-1",
+        "uci": "c4b3",
+        "nativeAdmission": true,
+        "successor": "8/8/k7/8/p7/1p6/R7/K7 w - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "8/4k3/8/8/2p1p3/4R3/3P4/K7 w - -",
+    "push": "d2d4",
+    "fen": "8/4k3/8/8/2pPp3/4R3/8/K7 b - d3",
+    "cases": [
+      {
+        "id": "ep-pair-20-0",
+        "uci": "c4d3",
+        "nativeAdmission": true,
+        "successor": "8/4k3/8/8/4p3/3pR3/8/K7 w - -"
+      },
+      {
+        "id": "ep-pair-20-1",
+        "uci": "e4d3",
+        "nativeAdmission": false,
+        "successor": "8/4k3/8/8/2p5/3pR3/8/K7 w - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "8/8/2B5/8/2p1p3/5k2/3P4/7K w - -",
+    "push": "d2d4",
+    "fen": "8/8/2B5/8/2pPp3/5k2/8/7K b - d3",
+    "cases": [
+      {
+        "id": "ep-pair-21-0",
+        "uci": "c4d3",
+        "nativeAdmission": true,
+        "successor": "8/8/2B5/8/4p3/3p1k2/8/7K w - -"
+      },
+      {
+        "id": "ep-pair-21-1",
+        "uci": "e4d3",
+        "nativeAdmission": false,
+        "successor": "8/8/2B5/8/2p5/3p1k2/8/7K w - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "2k5/8/8/8/2p1p3/8/3P4/K1R5 w - -",
+    "push": "d2d4",
+    "fen": "2k5/8/8/8/2pPp3/8/8/K1R5 b - d3",
+    "cases": [
+      {
+        "id": "ep-pair-22-0",
+        "uci": "c4d3",
+        "nativeAdmission": false,
+        "successor": "2k5/8/8/8/4p3/3p4/8/K1R5 w - -"
+      },
+      {
+        "id": "ep-pair-22-1",
+        "uci": "e4d3",
+        "nativeAdmission": true,
+        "successor": "2k5/8/8/8/2p5/3p4/8/K1R5 w - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "k3K3/3p4/8/2P1P3/8/8/4r3/8 b - -",
+    "push": "d7d5",
+    "fen": "k3K3/8/8/2PpP3/8/8/4r3/8 w - d6",
+    "cases": [
+      {
+        "id": "ep-pair-23-0",
+        "uci": "c5d6",
+        "nativeAdmission": true,
+        "successor": "k3K3/8/3P4/4P3/8/8/4r3/8 b - -"
+      },
+      {
+        "id": "ep-pair-23-1",
+        "uci": "e5d6",
+        "nativeAdmission": false,
+        "successor": "k3K3/8/3P4/2P5/8/8/4r3/8 b - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "k7/3p2b1/8/2P1P3/8/8/8/K7 b - -",
+    "push": "d7d5",
+    "fen": "k7/6b1/8/2PpP3/8/8/8/K7 w - d6",
+    "cases": [
+      {
+        "id": "ep-pair-24-0",
+        "uci": "c5d6",
+        "nativeAdmission": true,
+        "successor": "k7/6b1/3P4/4P3/8/8/8/K7 b - -"
+      },
+      {
+        "id": "ep-pair-24-1",
+        "uci": "e5d6",
+        "nativeAdmission": false,
+        "successor": "k7/6b1/3P4/2P5/8/8/8/K7 b - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "7k/1p6/r7/P1P5/8/8/K7/8 b - -",
+    "push": "b7b5",
+    "fen": "7k/8/r7/PpP5/8/8/K7/8 w - b6",
+    "cases": [
+      {
+        "id": "ep-pair-25-0",
+        "uci": "a5b6",
+        "nativeAdmission": false,
+        "successor": "7k/8/rP6/2P5/8/8/K7/8 b - -"
+      },
+      {
+        "id": "ep-pair-25-1",
+        "uci": "c5b6",
+        "nativeAdmission": true,
+        "successor": "7k/8/rP6/P7/8/8/K7/8 b - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "k7/2Kp4/8/2P1P3/8/8/2r5/8 b - -",
+    "push": "d7d5",
+    "fen": "k7/2K5/8/2PpP3/8/8/2r5/8 w - d6",
+    "cases": [
+      {
+        "id": "ep-pair-26-0",
+        "uci": "c5d6",
+        "nativeAdmission": false,
+        "successor": "k7/2K5/3P4/4P3/8/8/2r5/8 b - -"
+      },
+      {
+        "id": "ep-pair-26-1",
+        "uci": "e5d6",
+        "nativeAdmission": true,
+        "successor": "k7/2K5/3P4/2P5/8/8/2r5/8 b - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "k7/1p6/3K4/P1P5/1b6/8/8/8 b - -",
+    "push": "b7b5",
+    "fen": "k7/8/3K4/PpP5/1b6/8/8/8 w - b6",
+    "cases": [
+      {
+        "id": "ep-pair-27-0",
+        "uci": "a5b6",
+        "nativeAdmission": true,
+        "successor": "k7/8/1P1K4/2P5/1b6/8/8/8 b - -"
+      },
+      {
+        "id": "ep-pair-27-1",
+        "uci": "c5b6",
+        "nativeAdmission": false,
+        "successor": "k7/8/1P1K4/P7/1b6/8/8/8 b - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "k7/2Kp4/8/2P1P3/8/2r5/8/8 b - -",
+    "push": "d7d5",
+    "fen": "k7/2K5/8/2PpP3/8/2r5/8/8 w - d6",
+    "cases": [
+      {
+        "id": "ep-pair-28-0",
+        "uci": "c5d6",
+        "nativeAdmission": false,
+        "successor": "k7/2K5/3P4/4P3/8/2r5/8/8 b - -"
+      },
+      {
+        "id": "ep-pair-28-1",
+        "uci": "e5d6",
+        "nativeAdmission": true,
+        "successor": "k7/2K5/3P4/2P5/8/2r5/8/8 b - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "k7/5rp1/8/5P1P/8/5K2/8/8 b - -",
+    "push": "g7g5",
+    "fen": "k7/5r2/8/5PpP/8/5K2/8/8 w - g6",
+    "cases": [
+      {
+        "id": "ep-pair-29-0",
+        "uci": "f5g6",
+        "nativeAdmission": false,
+        "successor": "k7/5r2/6P1/7P/8/5K2/8/8 b - -"
+      },
+      {
+        "id": "ep-pair-29-1",
+        "uci": "h5g6",
+        "nativeAdmission": true,
+        "successor": "k7/5r2/6P1/5P2/8/5K2/8/8 b - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "7k/5Kp1/8/5P1P/8/8/5r2/8 b - -",
+    "push": "g7g5",
+    "fen": "7k/5K2/8/5PpP/8/8/5r2/8 w - g6",
+    "cases": [
+      {
+        "id": "ep-pair-30-0",
+        "uci": "f5g6",
+        "nativeAdmission": false,
+        "successor": "7k/5K2/6P1/7P/8/8/5r2/8 b - -"
+      },
+      {
+        "id": "ep-pair-30-1",
+        "uci": "h5g6",
+        "nativeAdmission": true,
+        "successor": "7k/5K2/6P1/5P2/8/8/5r2/8 b - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "k7/3p4/4r3/2P1P3/8/8/8/4K3 b - -",
+    "push": "d7d5",
+    "fen": "k7/8/4r3/2PpP3/8/8/8/4K3 w - d6",
+    "cases": [
+      {
+        "id": "ep-pair-31-0",
+        "uci": "c5d6",
+        "nativeAdmission": true,
+        "successor": "k7/8/3Pr3/4P3/8/8/8/4K3 b - -"
+      },
+      {
+        "id": "ep-pair-31-1",
+        "uci": "e5d6",
+        "nativeAdmission": false,
+        "successor": "k7/8/3Pr3/2P5/8/8/8/4K3 b - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "k7/3p2b1/8/2P1P3/8/8/1K6/8 b - -",
+    "push": "d7d5",
+    "fen": "k7/6b1/8/2PpP3/8/8/1K6/8 w - d6",
+    "cases": [
+      {
+        "id": "ep-pair-32-0",
+        "uci": "c5d6",
+        "nativeAdmission": true,
+        "successor": "k7/6b1/3P4/4P3/8/8/1K6/8 b - -"
+      },
+      {
+        "id": "ep-pair-32-1",
+        "uci": "e5d6",
+        "nativeAdmission": false,
+        "successor": "k7/6b1/3P4/2P5/8/8/1K6/8 b - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "k7/1p6/2r5/P1P5/8/8/8/2K5 b - -",
+    "push": "b7b5",
+    "fen": "k7/8/2r5/PpP5/8/8/8/2K5 w - b6",
+    "cases": [
+      {
+        "id": "ep-pair-33-0",
+        "uci": "a5b6",
+        "nativeAdmission": true,
+        "successor": "k7/8/1Pr5/2P5/8/8/8/2K5 b - -"
+      },
+      {
+        "id": "ep-pair-33-1",
+        "uci": "c5b6",
+        "nativeAdmission": false,
+        "successor": "k7/8/1Pr5/P7/8/8/8/2K5 b - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "K6k/1p6/8/P1P5/8/8/8/r7 b - -",
+    "push": "b7b5",
+    "fen": "K6k/8/8/PpP5/8/8/8/r7 w - b6",
+    "cases": [
+      {
+        "id": "ep-pair-34-0",
+        "uci": "a5b6",
+        "nativeAdmission": false,
+        "successor": "K6k/8/1P6/2P5/8/8/8/r7 b - -"
+      },
+      {
+        "id": "ep-pair-34-1",
+        "uci": "c5b6",
+        "nativeAdmission": true,
+        "successor": "K6k/8/1P6/P7/8/8/8/r7 b - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "7k/6p1/4K3/5P1P/8/7b/8/8 b - -",
+    "push": "g7g5",
+    "fen": "7k/8/4K3/5PpP/8/7b/8/8 w - g6",
+    "cases": [
+      {
+        "id": "ep-pair-35-0",
+        "uci": "f5g6",
+        "nativeAdmission": false,
+        "successor": "7k/8/4K1P1/7P/8/7b/8/8 b - -"
+      },
+      {
+        "id": "ep-pair-35-1",
+        "uci": "h5g6",
+        "nativeAdmission": true,
+        "successor": "7k/8/4K1P1/5P2/8/7b/8/8 b - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "7k/Kp6/8/P1P5/8/r7/8/8 b - -",
+    "push": "b7b5",
+    "fen": "7k/K7/8/PpP5/8/r7/8/8 w - b6",
+    "cases": [
+      {
+        "id": "ep-pair-36-0",
+        "uci": "a5b6",
+        "nativeAdmission": false,
+        "successor": "7k/K7/1P6/2P5/8/r7/8/8 b - -"
+      },
+      {
+        "id": "ep-pair-36-1",
+        "uci": "c5b6",
+        "nativeAdmission": true,
+        "successor": "7k/K7/1P6/P7/8/r7/8/8 b - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "7k/b2p4/8/2P1P3/8/8/8/6K1 b - -",
+    "push": "d7d5",
+    "fen": "7k/b7/8/2PpP3/8/8/8/6K1 w - d6",
+    "cases": [
+      {
+        "id": "ep-pair-37-0",
+        "uci": "c5d6",
+        "nativeAdmission": false,
+        "successor": "7k/b7/3P4/4P3/8/8/8/6K1 b - -"
+      },
+      {
+        "id": "ep-pair-37-1",
+        "uci": "e5d6",
+        "nativeAdmission": true,
+        "successor": "7k/b7/3P4/2P5/8/8/8/6K1 b - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "7k/3p2b1/8/2P1P3/8/2K5/8/8 b - -",
+    "push": "d7d5",
+    "fen": "7k/6b1/8/2PpP3/8/2K5/8/8 w - d6",
+    "cases": [
+      {
+        "id": "ep-pair-38-0",
+        "uci": "c5d6",
+        "nativeAdmission": true,
+        "successor": "7k/6b1/3P4/4P3/8/2K5/8/8 b - -"
+      },
+      {
+        "id": "ep-pair-38-1",
+        "uci": "e5d6",
+        "nativeAdmission": false,
+        "successor": "7k/6b1/3P4/2P5/8/2K5/8/8 b - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "k7/3pK3/8/2P1P3/8/8/8/4r3 b - -",
+    "push": "d7d5",
+    "fen": "k7/4K3/8/2PpP3/8/8/8/4r3 w - d6",
+    "cases": [
+      {
+        "id": "ep-pair-39-0",
+        "uci": "c5d6",
+        "nativeAdmission": true,
+        "successor": "k7/4K3/3P4/4P3/8/8/8/4r3 b - -"
+      },
+      {
+        "id": "ep-pair-39-1",
+        "uci": "e5d6",
+        "nativeAdmission": false,
+        "successor": "k7/4K3/3P4/2P5/8/8/8/4r3 b - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "k7/3p4/5b2/2P1P3/8/2K5/8/8 b - -",
+    "push": "d7d5",
+    "fen": "k7/8/5b2/2PpP3/8/2K5/8/8 w - d6",
+    "cases": [
+      {
+        "id": "ep-pair-40-0",
+        "uci": "c5d6",
+        "nativeAdmission": true,
+        "successor": "k7/8/3P1b2/4P3/8/2K5/8/8 b - -"
+      },
+      {
+        "id": "ep-pair-40-1",
+        "uci": "e5d6",
+        "nativeAdmission": false,
+        "successor": "k7/8/3P1b2/2P5/8/2K5/8/8 b - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "2K4k/3p4/8/2P1P3/2r5/8/8/8 b - -",
+    "push": "d7d5",
+    "fen": "2K4k/8/8/2PpP3/2r5/8/8/8 w - d6",
+    "cases": [
+      {
+        "id": "ep-pair-41-0",
+        "uci": "c5d6",
+        "nativeAdmission": false,
+        "successor": "2K4k/8/3P4/4P3/2r5/8/8/8 b - -"
+      },
+      {
+        "id": "ep-pair-41-1",
+        "uci": "e5d6",
+        "nativeAdmission": true,
+        "successor": "2K4k/8/3P4/2P5/2r5/8/8/8 b - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "7k/3p2b1/8/2P1P3/3K4/8/8/8 b - -",
+    "push": "d7d5",
+    "fen": "7k/6b1/8/2PpP3/3K4/8/8/8 w - d6",
+    "cases": [
+      {
+        "id": "ep-pair-42-0",
+        "uci": "c5d6",
+        "nativeAdmission": true,
+        "successor": "7k/6b1/3P4/4P3/3K4/8/8/8 b - -"
+      },
+      {
+        "id": "ep-pair-42-1",
+        "uci": "e5d6",
+        "nativeAdmission": false,
+        "successor": "7k/6b1/3P4/2P5/3K4/8/8/8 b - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "2b4k/6p1/8/5P1P/8/7K/8/8 b - -",
+    "push": "g7g5",
+    "fen": "2b4k/8/8/5PpP/8/7K/8/8 w - g6",
+    "cases": [
+      {
+        "id": "ep-pair-43-0",
+        "uci": "f5g6",
+        "nativeAdmission": false,
+        "successor": "2b4k/8/6P1/7P/8/7K/8/8 b - -"
+      },
+      {
+        "id": "ep-pair-43-1",
+        "uci": "h5g6",
+        "nativeAdmission": true,
+        "successor": "2b4k/8/6P1/5P2/8/7K/8/8 b - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "k6K/3p4/8/2P1P3/8/2b5/8/8 b - -",
+    "push": "d7d5",
+    "fen": "k6K/8/8/2PpP3/8/2b5/8/8 w - d6",
+    "cases": [
+      {
+        "id": "ep-pair-44-0",
+        "uci": "c5d6",
+        "nativeAdmission": true,
+        "successor": "k6K/8/3P4/4P3/8/2b5/8/8 b - -"
+      },
+      {
+        "id": "ep-pair-44-1",
+        "uci": "e5d6",
+        "nativeAdmission": false,
+        "successor": "k6K/8/3P4/2P5/8/2b5/8/8 b - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "k3K3/3p4/8/2P1P3/4r3/8/8/8 b - -",
+    "push": "d7d5",
+    "fen": "k3K3/8/8/2PpP3/4r3/8/8/8 w - d6",
+    "cases": [
+      {
+        "id": "ep-pair-45-0",
+        "uci": "c5d6",
+        "nativeAdmission": true,
+        "successor": "k3K3/8/3P4/4P3/4r3/8/8/8 b - -"
+      },
+      {
+        "id": "ep-pair-45-1",
+        "uci": "e5d6",
+        "nativeAdmission": false,
+        "successor": "k3K3/8/3P4/2P5/4r3/8/8/8 b - -"
+      }
+    ]
+  },
+  {
+    "priorFen": "7k/3p4/5b2/2P1P3/3K4/8/8/8 b - -",
+    "push": "d7d5",
+    "fen": "7k/8/5b2/2PpP3/3K4/8/8/8 w - d6",
+    "cases": [
+      {
+        "id": "ep-pair-46-0",
+        "uci": "c5d6",
+        "nativeAdmission": true,
+        "successor": "7k/8/3P1b2/4P3/3K4/8/8/8 b - -"
+      },
+      {
+        "id": "ep-pair-46-1",
+        "uci": "e5d6",
+        "nativeAdmission": false,
+        "successor": "7k/8/3P1b2/2P5/3K4/8/8/8 b - -"
+      }
+    ]
+  }
+]

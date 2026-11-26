@@ -1,0 +1,21 @@
+{
+  "authority": "native Arcade and separately run standalone Pyric on previous push and proposed en passant",
+  "cases": 168,
+  "groups": {
+    "w/ordinary-safe": 117508,
+    "w/opens-r-attack": 290,
+    "w/two-capturers-exposes": 294,
+    "w/two-capturers-safe": 294,
+    "w/fails-to-escape": 532,
+    "w/opens-b-attack": 112,
+    "w/captures-checking-pawn": 4498,
+    "b/ordinary-safe": 117508,
+    "b/opens-r-attack": 290,
+    "b/two-capturers-exposes": 294,
+    "b/two-capturers-safe": 294,
+    "b/fails-to-escape": 532,
+    "b/opens-b-attack": 112,
+    "b/captures-checking-pawn": 4498
+  },
+  "sha256": "a2b59ce6861dda188f725641198144f6480836289e924a98a073100e4d094625"
+}
