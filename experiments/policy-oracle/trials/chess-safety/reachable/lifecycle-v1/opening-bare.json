@@ -1,0 +1,120 @@
+{
+  "authority": "pinned local evaluator, in-memory match head",
+  "rulesSha256": "8cb950ccbd1f33b2d68ebb317a45391ac9ffd7416c27bb5e7b801b8493b98f2d",
+  "inputPlanSha256": "3a65008cefb14bd78f6fbce12ca7cf16e2fabe28b585d0c9509bc5ec0afd0e42",
+  "log": [
+    {
+      "id": "create",
+      "actor": "white-player",
+      "verdict": "ALLOW",
+      "localError": null,
+      "cost": 422,
+      "before": null,
+      "after": {
+        "sha256": "517c573f8bd557cd46f80f1359e8b2c433f2f60a25754ec7b07775f880f8840f",
+        "moveCount": 0,
+        "currentTurn": "host",
+        "status": "waiting",
+        "lastMove": {
+          "from": "",
+          "to": "",
+          "promotion": "",
+          "extra": []
+        }
+      }
+    },
+    {
+      "id": "join",
+      "actor": "black-player",
+      "verdict": "ALLOW",
+      "localError": null,
+      "cost": 80,
+      "before": {
+        "sha256": "517c573f8bd557cd46f80f1359e8b2c433f2f60a25754ec7b07775f880f8840f",
+        "moveCount": 0,
+        "currentTurn": "host",
+        "status": "waiting",
+        "lastMove": {
+          "from": "",
+          "to": "",
+          "promotion": "",
+          "extra": []
+        }
+      },
+      "after": {
+        "sha256": "4eb3fd0c0f82b764c4dc483317f6b22866aefb7f85437e52eb9e5ef06a2d13e9",
+        "moveCount": 0,
+        "currentTurn": "host",
+        "status": "playing",
+        "lastMove": {
+          "from": "",
+          "to": "",
+          "promotion": "",
+          "extra": []
+        }
+      }
+    },
+    {
+      "id": "white-reports-draw",
+      "actor": "white-player",
+      "verdict": "ALLOW",
+      "localError": null,
+      "cost": 883,
+      "before": {
+        "sha256": "4eb3fd0c0f82b764c4dc483317f6b22866aefb7f85437e52eb9e5ef06a2d13e9",
+        "moveCount": 0,
+        "currentTurn": "host",
+        "status": "playing",
+        "lastMove": {
+          "from": "",
+          "to": "",
+          "promotion": "",
+          "extra": []
+        }
+      },
+      "after": {
+        "sha256": "7da2cb0a2e02df03a0fdc656f105e9ecae592fff9dca6a84bb1ef1cbc0159602",
+        "moveCount": 1,
+        "currentTurn": "guest",
+        "status": "draw",
+        "lastMove": {
+          "from": "g2",
+          "to": "g4",
+          "promotion": "",
+          "extra": []
+        }
+      }
+    },
+    {
+      "id": "black-plays-on",
+      "actor": "black-player",
+      "verdict": "DENY",
+      "localError": null,
+      "cost": 21,
+      "before": {
+        "sha256": "7da2cb0a2e02df03a0fdc656f105e9ecae592fff9dca6a84bb1ef1cbc0159602",
+        "moveCount": 1,
+        "currentTurn": "guest",
+        "status": "draw",
+        "lastMove": {
+          "from": "g2",
+          "to": "g4",
+          "promotion": "",
+          "extra": []
+        }
+      },
+      "after": {
+        "sha256": "7da2cb0a2e02df03a0fdc656f105e9ecae592fff9dca6a84bb1ef1cbc0159602",
+        "moveCount": 1,
+        "currentTurn": "guest",
+        "status": "draw",
+        "lastMove": {
+          "from": "g2",
+          "to": "g4",
+          "promotion": "",
+          "extra": []
+        }
+      }
+    }
+  ]
+}

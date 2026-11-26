@@ -1,0 +1,8 @@
+{
+  "referee": "python-chess 1.11.2",
+  "refereeArchiveSha256": "a8b43e5678fdb3000695bdaa573117ad683761e5ca38e591c4826eba6d25bb39",
+  "traces": 37,
+  "completeHeadsAndRequestsSha256": "cbdc6ab1d37ac33078426e29e6f6e21a2b8440f5bb9ab115003327232bb7a7c0",
+  "positiveWrites": 1621,
+  "invalidProposals": 7966
+}

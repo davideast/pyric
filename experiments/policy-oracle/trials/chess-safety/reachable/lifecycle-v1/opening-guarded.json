@@ -1,0 +1,151 @@
+{
+  "authority": "pinned local evaluator, in-memory match head",
+  "rulesSha256": "d582f74aa912fcc158a052712d54927bd1df68fdfb5ef1331cfe4254e2ef6fd4",
+  "inputPlanSha256": "3a65008cefb14bd78f6fbce12ca7cf16e2fabe28b585d0c9509bc5ec0afd0e42",
+  "log": [
+    {
+      "id": "create",
+      "actor": "white-player",
+      "verdict": "ALLOW",
+      "localError": null,
+      "cost": 422,
+      "before": null,
+      "after": {
+        "sha256": "517c573f8bd557cd46f80f1359e8b2c433f2f60a25754ec7b07775f880f8840f",
+        "moveCount": 0,
+        "currentTurn": "host",
+        "status": "waiting",
+        "lastMove": {
+          "from": "",
+          "to": "",
+          "promotion": "",
+          "extra": []
+        }
+      }
+    },
+    {
+      "id": "join",
+      "actor": "black-player",
+      "verdict": "ALLOW",
+      "localError": null,
+      "cost": 80,
+      "before": {
+        "sha256": "517c573f8bd557cd46f80f1359e8b2c433f2f60a25754ec7b07775f880f8840f",
+        "moveCount": 0,
+        "currentTurn": "host",
+        "status": "waiting",
+        "lastMove": {
+          "from": "",
+          "to": "",
+          "promotion": "",
+          "extra": []
+        }
+      },
+      "after": {
+        "sha256": "4eb3fd0c0f82b764c4dc483317f6b22866aefb7f85437e52eb9e5ef06a2d13e9",
+        "moveCount": 0,
+        "currentTurn": "host",
+        "status": "playing",
+        "lastMove": {
+          "from": "",
+          "to": "",
+          "promotion": "",
+          "extra": []
+        }
+      }
+    },
+    {
+      "id": "white-reports-draw",
+      "actor": "white-player",
+      "verdict": "DENY",
+      "localError": null,
+      "cost": 774,
+      "before": {
+        "sha256": "4eb3fd0c0f82b764c4dc483317f6b22866aefb7f85437e52eb9e5ef06a2d13e9",
+        "moveCount": 0,
+        "currentTurn": "host",
+        "status": "playing",
+        "lastMove": {
+          "from": "",
+          "to": "",
+          "promotion": "",
+          "extra": []
+        }
+      },
+      "after": {
+        "sha256": "4eb3fd0c0f82b764c4dc483317f6b22866aefb7f85437e52eb9e5ef06a2d13e9",
+        "moveCount": 0,
+        "currentTurn": "host",
+        "status": "playing",
+        "lastMove": {
+          "from": "",
+          "to": "",
+          "promotion": "",
+          "extra": []
+        }
+      }
+    },
+    {
+      "id": "white-reports-playing",
+      "actor": "white-player",
+      "verdict": "ALLOW",
+      "localError": null,
+      "cost": 815,
+      "before": {
+        "sha256": "4eb3fd0c0f82b764c4dc483317f6b22866aefb7f85437e52eb9e5ef06a2d13e9",
+        "moveCount": 0,
+        "currentTurn": "host",
+        "status": "playing",
+        "lastMove": {
+          "from": "",
+          "to": "",
+          "promotion": "",
+          "extra": []
+        }
+      },
+      "after": {
+        "sha256": "0969aa52154497ab9b545253b201e710327e206833e1e83abc7f69c82d36311d",
+        "moveCount": 1,
+        "currentTurn": "guest",
+        "status": "playing",
+        "lastMove": {
+          "from": "g2",
+          "to": "g4",
+          "promotion": "",
+          "extra": []
+        }
+      }
+    },
+    {
+      "id": "black-plays-on",
+      "actor": "black-player",
+      "verdict": "ALLOW",
+      "localError": null,
+      "cost": 794,
+      "before": {
+        "sha256": "0969aa52154497ab9b545253b201e710327e206833e1e83abc7f69c82d36311d",
+        "moveCount": 1,
+        "currentTurn": "guest",
+        "status": "playing",
+        "lastMove": {
+          "from": "g2",
+          "to": "g4",
+          "promotion": "",
+          "extra": []
+        }
+      },
+      "after": {
+        "sha256": "5053a2da71294cb4c5af61a57f1e18005ae5254d73b257c97b4a761883275f2b",
+        "moveCount": 2,
+        "currentTurn": "host",
+        "status": "playing",
+        "lastMove": {
+          "from": "a7",
+          "to": "a6",
+          "promotion": "",
+          "extra": []
+        }
+      }
+    }
+  ]
+}

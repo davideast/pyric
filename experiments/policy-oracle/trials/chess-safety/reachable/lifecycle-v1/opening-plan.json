@@ -1,0 +1,7 @@
+{
+  "id": "seed-193-opening",
+  "setup": [{"operation": "create", "seat": "host"}, {"operation": "join", "seat": "guest"}],
+  "trial": {"seat": "host", "uci": "g2g4", "claim": {"status": "draw", "winner": ""}},
+  "ifRefused": {"seat": "host", "uci": "g2g4", "claim": {"status": "playing", "winner": ""}},
+  "next": {"seat": "guest", "uci": "a7a6", "claim": {"status": "playing", "winner": ""}}
+}
