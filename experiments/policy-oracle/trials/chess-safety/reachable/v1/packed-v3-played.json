@@ -1,0 +1,208 @@
+{
+  "authority": "pinned local evaluator",
+  "rulesSha256": "d0a6af913d73c2d4a870d0349135288c1ec719bdb129f8e8b7219712402e3da1",
+  "corpus": "de6ea33e52d1b047791aa58e94b7896fecb66de5698e142fafe722a0471ae6ef",
+  "mode": "played",
+  "shard": 0,
+  "shards": 1,
+  "writes": 1553,
+  "allow": 1553,
+  "falseRefusals": 0,
+  "reasons": {},
+  "firstRefusal": null,
+  "highestAllowed": {
+    "trace": "seed-1033",
+    "ply": 33,
+    "fen": "rnnqk2r/1p2b1pp/2Q5/p3p3/P2P1BP1/2P4P/1P2PP1R/R3KBNb b Qkq -",
+    "uci": "h1c6",
+    "cost": 995
+  },
+  "byTrace": {
+    "seed-193": {
+      "attempted": 48,
+      "allow": 48,
+      "firstRefusal": null
+    },
+    "seed-997": {
+      "attempted": 48,
+      "allow": 48,
+      "firstRefusal": null
+    },
+    "seed-503": {
+      "attempted": 48,
+      "allow": 48,
+      "firstRefusal": null
+    },
+    "seed-97": {
+      "attempted": 48,
+      "allow": 48,
+      "firstRefusal": null
+    },
+    "seed-67": {
+      "attempted": 48,
+      "allow": 48,
+      "firstRefusal": null
+    },
+    "seed-43": {
+      "attempted": 48,
+      "allow": 48,
+      "firstRefusal": null
+    },
+    "seed-211": {
+      "attempted": 48,
+      "allow": 48,
+      "firstRefusal": null
+    },
+    "seed-257": {
+      "attempted": 48,
+      "allow": 48,
+      "firstRefusal": null
+    },
+    "seed-263": {
+      "attempted": 48,
+      "allow": 48,
+      "firstRefusal": null
+    },
+    "seed-331": {
+      "attempted": 48,
+      "allow": 48,
+      "firstRefusal": null
+    },
+    "seed-433": {
+      "attempted": 48,
+      "allow": 48,
+      "firstRefusal": null
+    },
+    "seed-443": {
+      "attempted": 48,
+      "allow": 48,
+      "firstRefusal": null
+    },
+    "seed-449": {
+      "attempted": 48,
+      "allow": 48,
+      "firstRefusal": null
+    },
+    "seed-467": {
+      "attempted": 48,
+      "allow": 48,
+      "firstRefusal": null
+    },
+    "seed-491": {
+      "attempted": 48,
+      "allow": 48,
+      "firstRefusal": null
+    },
+    "seed-599": {
+      "attempted": 48,
+      "allow": 48,
+      "firstRefusal": null
+    },
+    "seed-607": {
+      "attempted": 48,
+      "allow": 48,
+      "firstRefusal": null
+    },
+    "seed-613": {
+      "attempted": 48,
+      "allow": 48,
+      "firstRefusal": null
+    },
+    "seed-673": {
+      "attempted": 48,
+      "allow": 48,
+      "firstRefusal": null
+    },
+    "seed-701": {
+      "attempted": 48,
+      "allow": 48,
+      "firstRefusal": null
+    },
+    "seed-743": {
+      "attempted": 48,
+      "allow": 48,
+      "firstRefusal": null
+    },
+    "seed-757": {
+      "attempted": 48,
+      "allow": 48,
+      "firstRefusal": null
+    },
+    "seed-863": {
+      "attempted": 48,
+      "allow": 48,
+      "firstRefusal": null
+    },
+    "seed-887": {
+      "attempted": 48,
+      "allow": 48,
+      "firstRefusal": null
+    },
+    "seed-907": {
+      "attempted": 48,
+      "allow": 48,
+      "firstRefusal": null
+    },
+    "seed-983": {
+      "attempted": 48,
+      "allow": 48,
+      "firstRefusal": null
+    },
+    "seed-1021": {
+      "attempted": 48,
+      "allow": 48,
+      "firstRefusal": null
+    },
+    "seed-1033": {
+      "attempted": 48,
+      "allow": 48,
+      "firstRefusal": null
+    },
+    "seed-1061": {
+      "attempted": 48,
+      "allow": 48,
+      "firstRefusal": null
+    },
+    "seed-1087": {
+      "attempted": 48,
+      "allow": 48,
+      "firstRefusal": null
+    },
+    "seed-1097": {
+      "attempted": 48,
+      "allow": 48,
+      "firstRefusal": null
+    },
+    "seed-1151": {
+      "attempted": 48,
+      "allow": 48,
+      "firstRefusal": null
+    },
+    "rooks-return-rights-expire": {
+      "attempted": 4,
+      "allow": 4,
+      "firstRefusal": null
+    },
+    "home-rook-captured": {
+      "attempted": 2,
+      "allow": 2,
+      "firstRefusal": null
+    },
+    "en-passant-expires": {
+      "attempted": 6,
+      "allow": 6,
+      "firstRefusal": null
+    },
+    "fools-mate": {
+      "attempted": 4,
+      "allow": 4,
+      "firstRefusal": null
+    },
+    "deliver-stalemate": {
+      "attempted": 1,
+      "allow": 1,
+      "firstRefusal": null
+    }
+  },
+  "decisionDigest": "626c627d134126f278a23defec96edb47b9b2ef588c515d1ddb295fbab2e9a01"
+}

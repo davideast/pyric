@@ -92,6 +92,8 @@ def score(package, through, variant, save_artifact=None, board_policy=False):
     inputs = [{k:r[k] for k in ("resource","data")} for r in requests]
     files = {REL+"/consumer.mjs", REL+"/policy","trials/king-safety/policy/public-api.mjs",
              "trials/king-safety/policy/horizontal-path.policy"}
+    terminal_files = {REL+"/terminal/v1/"+f for f in ("policy.mjs","geometry.mjs","compact.mjs")}
+    files.update(terminal_files)
     tasks = {"emit":task("consumer.mjs", ["emit",variant,PKG]),
              "standalone":task("consumer.mjs", ["standalone",variant,PKG,*chunks(inputs)])}
     if board_policy:
@@ -121,7 +123,7 @@ def score(package, through, variant, save_artifact=None, board_policy=False):
                      "returnSource":save_artifact is not None and i==0})]) for i,g in enumerate(groups)}
         vf={REL+"/"+evaluator, REL+"/policy", "trials/king-safety/policy", "trials/chess/bundle/artifacts",
             "trials/sokoban-repair/v1/tictactoe.stock.rules"}
-        judged=side(ROOT,ref,stages,reference=False,timeout=240,pinned_paths=vf)
+        judged=side(ROOT,ref,stages,reference=False,timeout=240,pinned_paths=vf|terminal_files)
         rows=[]
         for i,group in enumerate(groups):
             out,err=task_output(judged,str(i))

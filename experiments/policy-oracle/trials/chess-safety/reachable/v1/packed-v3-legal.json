@@ -1,0 +1,262 @@
+{
+  "authority": "pinned local evaluator",
+  "rulesSha256": "d0a6af913d73c2d4a870d0349135288c1ec719bdb129f8e8b7219712402e3da1",
+  "corpus": "de6ea33e52d1b047791aa58e94b7896fecb66de5698e142fafe722a0471ae6ef",
+  "mode": "legal",
+  "shard": 0,
+  "shards": 1,
+  "writes": 47087,
+  "allow": 47062,
+  "falseRefusals": 25,
+  "reasons": {
+    "resource-limit": 25
+  },
+  "firstRefusal": {
+    "trace": "seed-503",
+    "ply": 19,
+    "fen": "r3kbnr/pb2p1pp/nppp1q2/5p2/P1P5/1P1P2PN/3NPP1P/R1BQKBR1 b Qkq -",
+    "uci": "f6a1",
+    "reason": "resource-limit",
+    "cost": 1000
+  },
+  "highestAllowed": {
+    "trace": "seed-263",
+    "ply": 47,
+    "fen": "1n1q1kr1/rb1p3p/p1Qb2pn/1P1BpP2/1P4PN/PRN4P/3P1P2/2B1K2R b K -",
+    "uci": "d8h4",
+    "cost": 999
+  },
+  "byTrace": {
+    "seed-193": {
+      "attempted": 1188,
+      "allow": 1188,
+      "firstRefusal": null
+    },
+    "seed-997": {
+      "attempted": 1270,
+      "allow": 1270,
+      "firstRefusal": null
+    },
+    "seed-503": {
+      "attempted": 1420,
+      "allow": 1417,
+      "firstRefusal": {
+        "ply": 19,
+        "uci": "f6a1",
+        "reason": "resource-limit",
+        "cost": 1000
+      }
+    },
+    "seed-97": {
+      "attempted": 1565,
+      "allow": 1562,
+      "firstRefusal": {
+        "ply": 5,
+        "uci": "c7h2",
+        "reason": "resource-limit",
+        "cost": 1000
+      }
+    },
+    "seed-67": {
+      "attempted": 1644,
+      "allow": 1643,
+      "firstRefusal": {
+        "ply": 13,
+        "uci": "a6e2",
+        "reason": "resource-limit",
+        "cost": 1000
+      }
+    },
+    "seed-43": {
+      "attempted": 1348,
+      "allow": 1348,
+      "firstRefusal": null
+    },
+    "seed-211": {
+      "attempted": 1408,
+      "allow": 1408,
+      "firstRefusal": null
+    },
+    "seed-257": {
+      "attempted": 1364,
+      "allow": 1364,
+      "firstRefusal": null
+    },
+    "seed-263": {
+      "attempted": 1468,
+      "allow": 1468,
+      "firstRefusal": null
+    },
+    "seed-331": {
+      "attempted": 1608,
+      "allow": 1608,
+      "firstRefusal": null
+    },
+    "seed-433": {
+      "attempted": 1439,
+      "allow": 1439,
+      "firstRefusal": null
+    },
+    "seed-443": {
+      "attempted": 1314,
+      "allow": 1314,
+      "firstRefusal": null
+    },
+    "seed-449": {
+      "attempted": 1435,
+      "allow": 1435,
+      "firstRefusal": null
+    },
+    "seed-467": {
+      "attempted": 1512,
+      "allow": 1511,
+      "firstRefusal": {
+        "ply": 19,
+        "uci": "c8h3",
+        "reason": "resource-limit",
+        "cost": 1000
+      }
+    },
+    "seed-491": {
+      "attempted": 1464,
+      "allow": 1464,
+      "firstRefusal": null
+    },
+    "seed-599": {
+      "attempted": 1517,
+      "allow": 1516,
+      "firstRefusal": {
+        "ply": 33,
+        "uci": "c8h3",
+        "reason": "resource-limit",
+        "cost": 1000
+      }
+    },
+    "seed-607": {
+      "attempted": 1574,
+      "allow": 1574,
+      "firstRefusal": null
+    },
+    "seed-613": {
+      "attempted": 1467,
+      "allow": 1467,
+      "firstRefusal": null
+    },
+    "seed-673": {
+      "attempted": 1367,
+      "allow": 1367,
+      "firstRefusal": null
+    },
+    "seed-701": {
+      "attempted": 1510,
+      "allow": 1510,
+      "firstRefusal": null
+    },
+    "seed-743": {
+      "attempted": 1632,
+      "allow": 1627,
+      "firstRefusal": {
+        "ply": 39,
+        "uci": "c8h3",
+        "reason": "resource-limit",
+        "cost": 1000
+      }
+    },
+    "seed-757": {
+      "attempted": 1491,
+      "allow": 1491,
+      "firstRefusal": null
+    },
+    "seed-863": {
+      "attempted": 1371,
+      "allow": 1371,
+      "firstRefusal": null
+    },
+    "seed-887": {
+      "attempted": 1509,
+      "allow": 1508,
+      "firstRefusal": {
+        "ply": 23,
+        "uci": "c5g1",
+        "reason": "resource-limit",
+        "cost": 1000
+      }
+    },
+    "seed-907": {
+      "attempted": 1358,
+      "allow": 1358,
+      "firstRefusal": null
+    },
+    "seed-983": {
+      "attempted": 1444,
+      "allow": 1444,
+      "firstRefusal": null
+    },
+    "seed-1021": {
+      "attempted": 1546,
+      "allow": 1537,
+      "firstRefusal": {
+        "ply": 25,
+        "uci": "c7g3",
+        "reason": "resource-limit",
+        "cost": 1000
+      }
+    },
+    "seed-1033": {
+      "attempted": 1462,
+      "allow": 1461,
+      "firstRefusal": {
+        "ply": 45,
+        "uci": "c6h1",
+        "reason": "resource-limit",
+        "cost": 1000
+      }
+    },
+    "seed-1061": {
+      "attempted": 1399,
+      "allow": 1399,
+      "firstRefusal": null
+    },
+    "seed-1087": {
+      "attempted": 1486,
+      "allow": 1486,
+      "firstRefusal": null
+    },
+    "seed-1097": {
+      "attempted": 1608,
+      "allow": 1608,
+      "firstRefusal": null
+    },
+    "seed-1151": {
+      "attempted": 1523,
+      "allow": 1523,
+      "firstRefusal": null
+    },
+    "rooks-return-rights-expire": {
+      "attempted": 134,
+      "allow": 134,
+      "firstRefusal": null
+    },
+    "home-rook-captured": {
+      "attempted": 32,
+      "allow": 32,
+      "firstRefusal": null
+    },
+    "en-passant-expires": {
+      "attempted": 132,
+      "allow": 132,
+      "firstRefusal": null
+    },
+    "fools-mate": {
+      "attempted": 49,
+      "allow": 49,
+      "firstRefusal": null
+    },
+    "deliver-stalemate": {
+      "attempted": 29,
+      "allow": 29,
+      "firstRefusal": null
+    }
+  },
+  "decisionDigest": "bd4475f5463e58b5680b7d46e06c38fcb26872f0089c190f9fb712392ec0f8bc"
+}
