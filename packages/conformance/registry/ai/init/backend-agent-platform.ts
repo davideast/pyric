@@ -9,7 +9,7 @@ export default row({
   behavior:
     '`new AgentPlatformBackend(location?)` constructs a `Backend` with `backendType === BackendType.AGENT_PLATFORM` and `location` defaulting to `\"global\"` when omitted or empty; `getAI` keys distinct handles per `(owner, location)`, normalizes model resources to `publishers/google/models/<name>`, and formats sandbox error URLs under `locations/<location>/...`',
   evidence:
-    '`unit:agent-platform-backend.test.ts`, `unit:init-backends-oracle.test.ts`, `unit:mirror.test.ts`, `unit:ai-init-backends.test.ts` -- verified differentially against `@firebase/ai@3.1.0` across in-process, SharedWorker, and registered Node planes; awaiting live production capture (`ai-logic` / `ai-request-edge`) to flip to `conforms`',
+    '`unit:agent-platform-backend.test.ts`, `unit:init-backends-oracle.test.ts`, `unit:mirror.test.ts`, `unit:ai-init-backends.test.ts` -- verified differentially against `@firebase/ai@3.1.0` across in-process, SharedWorker, and registered Node planes; staged live `sdk-probes` probe `ai-sdk-agent-platform-backend` awaiting production capture to flip to `conforms`',
   risk: ['specific-value', 'error-code'],
   riskScore: 4,
   riskReasons: [
