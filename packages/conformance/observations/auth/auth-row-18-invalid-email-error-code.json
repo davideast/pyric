@@ -5,8 +5,8 @@
     "auth#18"
   ],
   "description": "createUserWithEmailAndPassword with a malformed email (no `@`, no domain) — locks the FirebaseError code prod actually emits for the format-validation path. Matrix language says `auth/invalid-email`; this probe verifies that empirically.",
-  "observedAt": "2026-10-30T10:46:09.216Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:49:27.049Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "threw": true,

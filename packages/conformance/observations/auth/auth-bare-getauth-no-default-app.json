@@ -5,8 +5,8 @@
     "auth#4"
   ],
   "description": "getAuth() with no argument and no default Firebase App initialized — locks the FirebaseError code prod throws. The harness uses a NAMED app (not the default), so a bare getAuth() call has no app to fall back to.",
-  "observedAt": "2026-10-30T10:46:11.381Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:49:28.465Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "threw": true,

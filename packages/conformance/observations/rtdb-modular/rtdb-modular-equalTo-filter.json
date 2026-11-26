@@ -6,8 +6,8 @@
     "rtdb-modular#M52"
   ],
   "description": "query(ref, orderByChild(\"group\"), equalTo(\"b\")) — seed children with group \"a\"|\"b\"|\"c\"; verify only \"b\" children come back.",
-  "observedAt": "2026-10-30T16:55:37.096Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:50:52.886Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "threw": false,

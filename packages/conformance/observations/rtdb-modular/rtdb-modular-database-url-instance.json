@@ -9,8 +9,8 @@
     "rtdb-modular#MI7"
   ],
   "description": "getDatabase(app, url) for each database URL form: the instance name (namespace) and root URL the SDK derives, or the Error message it throws; plus the default instance for an app with only a project id.",
-  "observedAt": "2026-10-30T10:43:41.099Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:47:12.431Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "urls": {

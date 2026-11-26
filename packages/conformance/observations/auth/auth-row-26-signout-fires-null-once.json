@@ -5,8 +5,8 @@
     "auth#26"
   ],
   "description": "signOut fires onAuthStateChanged with null exactly once. Subscribe, signInAnonymously, then signOut; count fires for the signOut transition and verify the fire delivers null.",
-  "observedAt": "2026-11-18T07:20:32.668Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:50:12.454Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "initialFires": 1,

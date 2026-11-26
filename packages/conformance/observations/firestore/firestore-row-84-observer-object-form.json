@@ -5,8 +5,8 @@
     "firestore#84"
   ],
   "description": "Observer object form `{next, error, complete}` works alongside the function form. Probes: register one listener as a function and another as `{next}` on the same doc, do a write, verify both fire with the same snapshot data.",
-  "observedAt": "2026-10-30T10:46:32.914Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:49:45.091Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "initialFn": 1,

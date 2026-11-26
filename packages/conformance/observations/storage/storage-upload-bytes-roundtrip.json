@@ -6,8 +6,8 @@
     "storage#51"
   ],
   "description": "uploadBytes a small ArrayBuffer, getDownloadURL + fetch, verify byte-for-byte equality with what was uploaded.",
-  "observedAt": "2026-10-30T13:36:12.321Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:50:22.799Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "uploadOk": true,

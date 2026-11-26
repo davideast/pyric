@@ -6,8 +6,8 @@
     "rtdb#32"
   ],
   "description": "remove(ref) on an absent path — confirm it resolves successfully without throwing (idempotent).",
-  "observedAt": "2026-10-30T16:55:07.147Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:50:35.956Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "threw": false,

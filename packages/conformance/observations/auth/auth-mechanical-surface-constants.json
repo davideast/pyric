@@ -5,8 +5,8 @@
     "auth#172"
   ],
   "description": "The constant maps and inert tokens of the mechanical family, snapshotted straight from the shipped SDK: ProviderId / SignInMethod / OperationType, the `type` discriminant of every persistence token, and a sample of AuthErrorCodes. Pure static values — the mirror must reproduce them exactly or consumer code comparing against them silently mismatches.",
-  "observedAt": "2026-10-30T12:08:47.586Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:51:37.364Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "ProviderId": {

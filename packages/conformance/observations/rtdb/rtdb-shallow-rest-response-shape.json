@@ -5,8 +5,8 @@
     "rtdb#58"
   ],
   "description": "`?shallow=true` REST response shape — write a tree with objects, leaf primitives, and a missing path, then GET each with `?shallow=true`. Locks the response shape the crawl handler depends on: object children → `{key: true, ...}`, leaf primitive → the primitive itself, missing path → `null`.",
-  "observedAt": "2026-10-30T16:55:58.560Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:51:06.002Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "seedThrew": false,

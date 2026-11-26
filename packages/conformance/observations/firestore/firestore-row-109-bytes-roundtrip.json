@@ -5,8 +5,8 @@
     "firestore#109"
   ],
   "description": "Bytes round-trip through setDoc / getDoc. Probe: write { payload: Bytes.fromUint8Array([1,2,3,4]) }, then read back — verify the field is an instance of Bytes with the same toBase64() and the same byte sequence (no destructuring to a plain object).",
-  "observedAt": "2026-10-30T10:46:45.671Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:49:51.634Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "exists": true,

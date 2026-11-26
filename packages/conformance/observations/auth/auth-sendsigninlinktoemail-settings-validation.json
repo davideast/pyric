@@ -6,8 +6,8 @@
     "auth#163"
   ],
   "description": "sendSignInLinkToEmail ActionCodeSettings validation — the accept/reject shape for the continue-URL contract, capturable WITHOUT any mailbox. Locks auth/missing-continue-uri (no url), auth/invalid-continue-uri (malformed url), auth/argument-error (handleCodeInApp false), and auth/unauthorized-continue-uri (a continue domain not on the project allowlist).",
-  "observedAt": "2026-11-18T07:21:38.720Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:51:26.282Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "missingUrl": "auth/invalid-continue-uri",

@@ -5,8 +5,8 @@
     "auth#30"
   ],
   "description": "onAuthStateChanged fires on every subsequent identity change. Subscribe, then run signIn → signOut → signIn → signOut; verify the listener receives a fire for each of the 4 transitions.",
-  "observedAt": "2026-11-18T07:20:35.384Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:50:15.281Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "initialFires": 1,

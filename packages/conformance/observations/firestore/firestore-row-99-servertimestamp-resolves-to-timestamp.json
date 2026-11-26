@@ -5,8 +5,8 @@
     "firestore#99"
   ],
   "description": "serverTimestamp() resolves to a Timestamp after the write commits. Probes setDoc({at: serverTimestamp()}) then getDoc — verifies `at` is a Timestamp instance (constructor.name === 'Timestamp', .seconds + .nanoseconds present, instanceof Timestamp).",
-  "observedAt": "2026-11-18T07:20:11.182Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:49:49.250Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "exists": true,

@@ -5,8 +5,8 @@
     "rtdb#39"
   ],
   "description": "Rules-JSON round-trip — PUT a rules JSON containing path-variable segments (`$userId`), `.indexOn` arrays, and `.read`/`.write`/`.validate` keys, GET it back, verify the structure is preserved. Locks the REST `/.settings/rules.json` accept/return contract.",
-  "observedAt": "2026-11-18T07:21:18.351Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:51:04.799Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "putStatus": 200,

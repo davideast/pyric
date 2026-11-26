@@ -5,8 +5,8 @@
     "auth#161"
   ],
   "description": "The two linking CONFLICT codes, both probeable without external infra: linking a provider the user already has (auth/provider-already-linked), and linking a credential another account already owns (locks whether prod says credential-already-in-use or email-already-in-use for an email credential).",
-  "observedAt": "2026-10-30T16:10:20.188Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:51:33.174Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "setupACode": null,

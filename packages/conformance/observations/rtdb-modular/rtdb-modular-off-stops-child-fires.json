@@ -7,8 +7,8 @@
     "rtdb-modular#M47"
   ],
   "description": "off(ref) (no eventType) removes ALL listeners at the ref — register onChildAdded, call off(ref), then write a NEW child; verify zero additional fires.",
-  "observedAt": "2026-10-30T16:55:31.110Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:50:51.181Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "threw": false,

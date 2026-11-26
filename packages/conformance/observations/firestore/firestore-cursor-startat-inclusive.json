@@ -5,8 +5,8 @@
     "firestore#67"
   ],
   "description": "startAt(...values) — inclusive value cursor. Seeds 5 docs with field pos=[1,2,3,4,5], queries orderBy(pos), startAt(3); the doc at pos=3 should be INCLUDED. Pins the one-off-by-one boundary.",
-  "observedAt": "2026-10-30T10:46:52.482Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:49:54.604Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "seeded": 5,

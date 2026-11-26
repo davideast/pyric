@@ -5,8 +5,8 @@
     "auth#38"
   ],
   "description": "onIdTokenChanged fires on user change. Probe: signInAnonymously → signOut → signInAnonymously, count + shape the fires.",
-  "observedAt": "2026-11-18T07:20:24.540Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:50:04.320Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "initialFires": 1,

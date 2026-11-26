@@ -5,8 +5,8 @@
     "auth#55"
   ],
   "description": "getIdToken(forceRefresh=true) — observes whether prod actually returns a different token string.",
-  "observedAt": "2026-10-30T10:46:03.254Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:49:20.207Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "token0Length": 834,

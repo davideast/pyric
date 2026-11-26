@@ -7,8 +7,8 @@
     "rtdb-modular#154"
   ],
   "description": "Write a value containing serverTimestamp() as a field, read back, observe that the field resolved to a numeric millisecond timestamp (not the {\".sv\":\"timestamp\"} sentinel placeholder).",
-  "observedAt": "2026-11-18T07:20:52.190Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:50:33.612Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "threw": false,

@@ -5,8 +5,8 @@
     "firestore#70"
   ],
   "description": "endBefore(...values) — exclusive end cursor. Seeds 5 docs with field pos=[1,2,3,4,5], queries orderBy(pos), endBefore(3); the doc at pos=3 should be EXCLUDED.",
-  "observedAt": "2026-10-30T10:46:57.278Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:49:56.604Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "seeded": 5,

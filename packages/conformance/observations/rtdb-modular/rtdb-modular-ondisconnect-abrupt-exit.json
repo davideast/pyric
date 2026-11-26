@@ -6,8 +6,8 @@
     "rtdb-modular#RS1"
   ],
   "description": "Acknowledged onDisconnect registration followed by forced writer-process termination, observed independently.",
-  "observedAt": "2026-10-30T10:45:39.144Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:49:03.364Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "repeatCount": 3,

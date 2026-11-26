@@ -5,8 +5,8 @@
     "storage#46"
   ],
   "description": "uploadString with format: base64 — payload \"hello\" base64-encoded as \"aGVsbG8=\" — fetch and verify decoded bytes match.",
-  "observedAt": "2026-10-30T13:36:15.299Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:50:24.606Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "uploadOk": true,

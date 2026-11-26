@@ -6,8 +6,8 @@
     "rtdb-modular#108"
   ],
   "description": "get() on a nonexistent path — RTDB returns a snapshot with val()===null and exists()===false (NOT a thrown error, diverging from intuition that maps `getDoc` errors onto RTDB).",
-  "observedAt": "2026-10-30T16:55:00.622Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:50:34.106Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "threw": false,

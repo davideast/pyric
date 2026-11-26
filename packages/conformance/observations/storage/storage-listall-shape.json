@@ -5,8 +5,8 @@
     "storage#77"
   ],
   "description": "Upload 3 objects under a directory ref + one in a sub-folder; listAll returns items + prefixes in the documented shape.",
-  "observedAt": "2026-11-18T07:20:47.065Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:50:27.594Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "uploadedAll": true,

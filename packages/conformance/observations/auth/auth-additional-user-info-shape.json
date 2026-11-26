@@ -5,8 +5,8 @@
     "auth#171"
   ],
   "description": "getAdditionalUserInfo across the three credential-producing flows — anonymous sign-in, a fresh createUserWithEmailAndPassword, and a returning signInWithEmailAndPassword. Locks isNewUser + providerId + profile per flow.",
-  "observedAt": "2026-10-30T16:10:19.684Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:51:37.229Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "anonCode": null,

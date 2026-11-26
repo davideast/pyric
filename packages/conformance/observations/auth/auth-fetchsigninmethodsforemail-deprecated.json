@@ -5,8 +5,8 @@
     "auth#175"
   ],
   "description": "fetchSignInMethodsForEmail — DEPRECATED upstream. Firebase documents that it returns an EMPTY list whenever Email Enumeration Protection is on (the default for new projects), irrespective of how many methods the account really has. This capture is the evidence for the disposition decision: what does prod actually return for an account we KNOW has a password method?",
-  "observedAt": "2026-10-30T16:10:21.956Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:51:38.653Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "code": null,

@@ -5,8 +5,8 @@
     "firestore#89"
   ],
   "description": "Snapshot `.ref` (docRef listener) and `.docs[i].ref` (query listener) are usable in follow-up ops. Probes: register both kinds of listeners; capture refs from the first fire; use them in getDoc + setDoc; verify the ref points back at the same data.",
-  "observedAt": "2026-11-18T07:20:08.663Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:49:46.019Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "docRefPath": "pyric_oracle/<runId>/row-89-snapshot-ref-usable/tracked",

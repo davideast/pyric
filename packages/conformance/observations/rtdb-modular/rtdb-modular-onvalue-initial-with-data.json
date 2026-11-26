@@ -5,8 +5,8 @@
     "rtdb-modular#128"
   ],
   "description": "onValue on a path with existing data — observe the initial fire snapshot value.",
-  "observedAt": "2026-11-18T07:20:54.829Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:50:37.417Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "threw": false,

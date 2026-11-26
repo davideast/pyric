@@ -5,8 +5,8 @@
     "auth#14"
   ],
   "description": "signInWithEmailAndPassword with an email that was never registered — locks the FirebaseError code prod actually emits (older \"auth/user-not-found\" vs newer \"auth/invalid-credential\").",
-  "observedAt": "2026-11-18T07:19:48.915Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:49:25.243Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "threw": true,

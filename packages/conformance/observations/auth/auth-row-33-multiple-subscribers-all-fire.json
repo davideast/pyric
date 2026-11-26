@@ -5,8 +5,8 @@
     "auth#33"
   ],
   "description": "Multiple subscribers all fire on each state change. Register two onAuthStateChanged subscribers, do a signIn transition, verify both fire.",
-  "observedAt": "2026-11-18T07:20:39.645Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:50:19.610Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "behavior": {
     "initialA": 1,
