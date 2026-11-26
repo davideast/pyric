@@ -90,6 +90,10 @@
     "f5a8a148c6cafb8ebfc5cdd236804e7da3129660b89e1413bfff44f1995826d7"
   ],
   "excluded-attempts": [
-    "ba8e74f07381f21bf4d12a063837a0c8e579ea8b52c7ecf94b0df01370d8fe16"
+    "ba8e74f07381f21bf4d12a063837a0c8e579ea8b52c7ecf94b0df01370d8fe16",
+    "bc9246e0b05df6f9439d4e428ac85bd549f237a38caf39d5671d617f602d68f1"
+  ],
+  "recovery-journals": [
+    "ba78e48ba1720ca063498c90e3bdc8ae204aed89e02fa4affdfe613d606d3cdf"
   ]
 }

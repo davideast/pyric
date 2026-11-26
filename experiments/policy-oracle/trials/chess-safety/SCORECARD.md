@@ -218,4 +218,6 @@ Google returned HTTP 400 on publication of the intended `final-chess-safety-full
 
 ## Unscored live attempts
 
-12 management failures produced no qualifying case observations. 1 completed attempts failed the evidence checks. [Management journal summaries](live/failures/) · [Excluded receipts](live/unqualified/)
+12 management failures produced no qualifying case observations. 2 capture attempts failed the evidence checks. [Management journal summaries](live/failures/) · [Excluded receipts](live/unqualified/)
+
+The interrupted `combined-fast-full` capture has 85 fully journaled transitions and 0 scored cases. Whether another in-flight write reached Firestore is unknown. The original closed release was restored at 2026-11-26T17:58:22.307898Z. Both signed read/write/read control rounds returned DENY. [Recovery and released lease](live/unqualified/bd46c53fe0db4a0718fa512463a6d0ad438c079901a6bce317c6a3f3890cff3a.json)

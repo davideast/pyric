@@ -188,7 +188,12 @@ def render(report):
                       f"[Management journal summary](live/failures/{item['journalSha256']}.json)"]
     if evidence.get('managementFailures') or evidence.get('unqualified'):
         output += ['', '## Unscored live attempts','',
-                   f"{len(evidence.get('managementFailures',[]))} management failures produced no qualifying case observations. {len(evidence.get('unqualified',[]))} completed attempts failed the evidence checks. [Management journal summaries](live/failures/) · [Excluded receipts](live/unqualified/)"]
+                   f"{len(evidence.get('managementFailures',[]))} management failures produced no qualifying case observations. {len(evidence.get('unqualified',[]))} capture attempts failed the evidence checks. [Management journal summaries](live/failures/) · [Excluded receipts](live/unqualified/)"]
+    for item in evidence.get('unqualified',[]):
+        if item.get('closedRounds'):
+            output += ['', f"The interrupted `{item['plan']}` capture has {item['attempted']} fully journaled transitions and {item['scored']} scored cases. "
+                       f"Whether another in-flight write reached Firestore is unknown. The original closed release was restored at {item['restoredReleaseVersion']}. "
+                       f"Both signed read/write/read control rounds returned DENY. [Recovery and released lease](live/unqualified/{item['controllerSha256']}.json)"]
     return '\n'.join(output)+'\n'
 
 if __name__=='__main__':
