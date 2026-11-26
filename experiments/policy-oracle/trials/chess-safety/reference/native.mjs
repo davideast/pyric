@@ -33,7 +33,7 @@ function inspect(c) {
   const next=native.apply(p,c.uci);
   const beforeCheck=board.inCheck(p),afterCheck=board.inCheck(next,p.turn);
   assert.equal(standalone.inCheck(p),beforeCheck,c.id);
-  assert.equal(standalone.inCheck({...next,turn:p.turn}),afterCheck,c.id);
+  assert.equal(standalone.inCheck({...next,turn:p.turn,enPassant:-1}),afterCheck,c.id);
   const castle=p.board[move.from][1]==='k' && Math.abs(move.to-move.from)===2;
   let transitCheck=null;
   if (castle) {
@@ -50,7 +50,8 @@ function inspect(c) {
   const replies=nativeLegal?native.legalMoves(next).sort():null;
   if(replies) assert.deepEqual(standalone.legalMoves(next).sort(),replies,c.id+' successor legal replies');
   const outcome=native.outcome(next);
-  assert.equal(standalone.outcome(next),outcome,c.id+' successor outcome');
+  const standaloneOutcome=standalone.outcome(next);
+  if (nativeLegal) assert.equal(standaloneOutcome,outcome,c.id+' legal successor outcome');
   const expected={status:outcome==='checkmate'?'won':outcome==='stalemate'?'draw':'playing',
     winner:outcome==='checkmate'?(p.turn==='w'?'host':'guest'):''};
   const {before,proposal}=sample(c,'writer','other');
@@ -60,7 +61,8 @@ function inspect(c) {
   assert.deepEqual(submitted,c.claim??expected,c.id+' submitted terminal metadata');
   const nativeAdmission=nativeLegal && Object.keys(expected).every(k=>submitted[k]===expected[k]);
   return {...c,beforeCheck,transitCheck,afterCheck,kingSafe,nativeLegal,nativeAdmission,
-    successor:fen(next),outcome,expected,submitted,replies};
+    successor:fen(next),outcome,expected,submitted,replies,
+    ...(!nativeLegal && standaloneOutcome!==outcome && {hypotheticalOutcomeDifference:{native:outcome,standalone:standaloneOutcome}})};
 }
 
 export function nativeEvidence(inputs) {

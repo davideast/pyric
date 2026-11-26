@@ -1,0 +1,39 @@
+{
+  "sourceSeed": "0x246ece17",
+  "sha256": "285a5dda9dcdd99570a68ae68c9499b2a31700fa94806b09609f4f6d4bc2e7f0",
+  "total": 2481,
+  "groups": {
+    "01-rank-diagonal": {
+      "allow": 221,
+      "deny": 188
+    },
+    "02-king-destinations": {
+      "allow": 93,
+      "deny": 156
+    },
+    "03-check-evasions": {
+      "allow": 75,
+      "deny": 118
+    },
+    "04-en-passant": {
+      "allow": 46,
+      "deny": 28
+    },
+    "05-castling": {
+      "allow": 45,
+      "deny": 151
+    },
+    "06-composition": {
+      "allow": 99,
+      "deny": 81
+    },
+    "07-terminal": {
+      "allow": 68,
+      "deny": 171
+    },
+    "reachable-traces": {
+      "allow": 941,
+      "deny": 0
+    }
+  }
+}
