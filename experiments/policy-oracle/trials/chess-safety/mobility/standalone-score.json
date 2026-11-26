@@ -1,0 +1,372 @@
+{
+  "cases": 30,
+  "directionChecks": 240,
+  "observations": [
+    {
+      "id": "w-only-c5",
+      "directions": [
+        "NW"
+      ],
+      "destinations": [
+        "c5"
+      ],
+      "hasKingReply": true
+    },
+    {
+      "id": "w-only-d5",
+      "directions": [
+        "N"
+      ],
+      "destinations": [
+        "d5"
+      ],
+      "hasKingReply": true
+    },
+    {
+      "id": "w-only-e5",
+      "directions": [
+        "NE"
+      ],
+      "destinations": [
+        "e5"
+      ],
+      "hasKingReply": true
+    },
+    {
+      "id": "w-only-c4",
+      "directions": [
+        "W"
+      ],
+      "destinations": [
+        "c4"
+      ],
+      "hasKingReply": true
+    },
+    {
+      "id": "w-only-e4",
+      "directions": [
+        "E"
+      ],
+      "destinations": [
+        "e4"
+      ],
+      "hasKingReply": true
+    },
+    {
+      "id": "w-only-c3",
+      "directions": [
+        "SW"
+      ],
+      "destinations": [
+        "c3"
+      ],
+      "hasKingReply": true
+    },
+    {
+      "id": "w-only-d3",
+      "directions": [
+        "S"
+      ],
+      "destinations": [
+        "d3"
+      ],
+      "hasKingReply": true
+    },
+    {
+      "id": "w-only-e3",
+      "directions": [
+        "SE"
+      ],
+      "destinations": [
+        "e3"
+      ],
+      "hasKingReply": true
+    },
+    {
+      "id": "b-only-c6",
+      "directions": [
+        "NW"
+      ],
+      "destinations": [
+        "c6"
+      ],
+      "hasKingReply": true
+    },
+    {
+      "id": "b-only-d6",
+      "directions": [
+        "N"
+      ],
+      "destinations": [
+        "d6"
+      ],
+      "hasKingReply": true
+    },
+    {
+      "id": "b-only-e6",
+      "directions": [
+        "NE"
+      ],
+      "destinations": [
+        "e6"
+      ],
+      "hasKingReply": true
+    },
+    {
+      "id": "b-only-c5",
+      "directions": [
+        "W"
+      ],
+      "destinations": [
+        "c5"
+      ],
+      "hasKingReply": true
+    },
+    {
+      "id": "b-only-e5",
+      "directions": [
+        "E"
+      ],
+      "destinations": [
+        "e5"
+      ],
+      "hasKingReply": true
+    },
+    {
+      "id": "b-only-c4",
+      "directions": [
+        "SW"
+      ],
+      "destinations": [
+        "c4"
+      ],
+      "hasKingReply": true
+    },
+    {
+      "id": "b-only-d4",
+      "directions": [
+        "S"
+      ],
+      "destinations": [
+        "d4"
+      ],
+      "hasKingReply": true
+    },
+    {
+      "id": "b-only-e4",
+      "directions": [
+        "SE"
+      ],
+      "destinations": [
+        "e4"
+      ],
+      "hasKingReply": true
+    },
+    {
+      "id": "edge-a1",
+      "directions": [
+        "N",
+        "NE",
+        "E"
+      ],
+      "destinations": [
+        "a2",
+        "b1",
+        "b2"
+      ],
+      "hasKingReply": true
+    },
+    {
+      "id": "center",
+      "directions": [
+        "N",
+        "NE",
+        "E",
+        "SE",
+        "S",
+        "SW",
+        "W",
+        "NW"
+      ],
+      "destinations": [
+        "c3",
+        "c4",
+        "c5",
+        "d3",
+        "d5",
+        "e3",
+        "e4",
+        "e5"
+      ],
+      "hasKingReply": true
+    },
+    {
+      "id": "undefended-capture",
+      "directions": [
+        "N",
+        "E",
+        "S",
+        "SW",
+        "NW"
+      ],
+      "destinations": [
+        "b2",
+        "b4",
+        "c2",
+        "c4",
+        "d3"
+      ],
+      "hasKingReply": true
+    },
+    {
+      "id": "defended-capture",
+      "directions": [
+        "N",
+        "S",
+        "SW",
+        "NW"
+      ],
+      "destinations": [
+        "b2",
+        "b4",
+        "c2",
+        "c4"
+      ],
+      "hasKingReply": true
+    },
+    {
+      "id": "vacated-origin-ray",
+      "directions": [
+        "N",
+        "NE",
+        "SE",
+        "S",
+        "SW",
+        "NW"
+      ],
+      "destinations": [
+        "c3",
+        "c5",
+        "d3",
+        "d5",
+        "e3",
+        "e5"
+      ],
+      "hasKingReply": true
+    },
+    {
+      "id": "friendly-neighbor",
+      "directions": [
+        "N",
+        "NE",
+        "SE",
+        "S",
+        "SW",
+        "W",
+        "NW"
+      ],
+      "destinations": [
+        "c3",
+        "c4",
+        "c5",
+        "d3",
+        "d5",
+        "e3",
+        "e5"
+      ],
+      "hasKingReply": true
+    },
+    {
+      "id": "enemy-king-attack",
+      "directions": [
+        "N",
+        "S",
+        "SW",
+        "W",
+        "NW"
+      ],
+      "destinations": [
+        "c3",
+        "c4",
+        "c5",
+        "d3",
+        "d5"
+      ],
+      "hasKingReply": true
+    },
+    {
+      "id": "blocked-capture-with-pinned-knight",
+      "directions": [
+        "N",
+        "E",
+        "SE",
+        "S",
+        "SW",
+        "W",
+        "NW"
+      ],
+      "destinations": [
+        "b3",
+        "b4",
+        "b5",
+        "c3",
+        "c5",
+        "d3",
+        "d4"
+      ],
+      "hasKingReply": true
+    },
+    {
+      "id": "mate-correct",
+      "directions": [],
+      "destinations": [],
+      "hasKingReply": false
+    },
+    {
+      "id": "stalemate-correct",
+      "directions": [],
+      "destinations": [],
+      "hasKingReply": false
+    },
+    {
+      "id": "one-king-reply-correct",
+      "directions": [
+        "W"
+      ],
+      "destinations": [
+        "g8"
+      ],
+      "hasKingReply": true
+    },
+    {
+      "id": "one-rook-reply-correct",
+      "directions": [],
+      "destinations": [],
+      "hasKingReply": false
+    },
+    {
+      "id": "black-mate-correct",
+      "directions": [],
+      "destinations": [],
+      "hasKingReply": false
+    },
+    {
+      "id": "castle-and-ordinary-reply",
+      "directions": [
+        "N",
+        "NE",
+        "E",
+        "W",
+        "NW"
+      ],
+      "destinations": [
+        "d1",
+        "d2",
+        "e2",
+        "f1",
+        "f2"
+      ],
+      "hasKingReply": true
+    }
+  ]
+}

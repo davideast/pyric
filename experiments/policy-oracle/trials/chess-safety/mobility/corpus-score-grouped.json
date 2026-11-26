@@ -1,0 +1,10 @@
+{
+  "rulesSha256": "4d1f3ba3f1be096457a12a8e25f9b38b754293b0af13f4c829dfd18a1ec830f7",
+  "frozenNative": "7eef423dbdfa5ed04b89104ddbe636226a94cf4b51ac054fd3784ad0cca1bd98",
+  "positions": 1583,
+  "directionChecks": 12664,
+  "positive": 1384,
+  "negative": 199,
+  "kingCaptures": 80,
+  "castlingAvailable": 57
+}

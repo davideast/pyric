@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {compile as baseCompile,link as baseLink} from '../policy/adapter.mjs';
+import {groupedSources} from './grouped.mjs';
 import {packedSources,attackPattern} from '../policy/packed.mjs';
 
 const dirs=[['N',0,1],['NE',1,1],['E',1,0],['SE',1,-1],['S',0,-1],['SW',-1,-1],['W',-1,0],['NW',-1,1]];
@@ -24,10 +25,11 @@ export function moveSources(specialized=false) {
   }));
 }
 
-export function compileMobility(compileFunction,{mode='both',specialized=false}={}) {
+export function compileMobility(compileFunction,{mode='both',specialized=false,grouped=false}={}) {
   const sources=moveSources(specialized);
   const fns=Object.fromEntries(Object.entries(sources).map(([n,s])=>[n,compileFunction(s)]));
-  const modules=mode==='standalone'?{}:Object.fromEntries(Object.entries(fns).map(([n,f])=>[n,f.firestoreModule()]));
+  const pooled=grouped ? Object.fromEntries(Object.entries(groupedSources()).map(([name,src])=>[name,compileFunction(src)])) : null;
+  const modules=mode==='standalone'?{}:Object.fromEntries(Object.entries(pooled??fns).map(([n,f])=>[n,f.firestoreModule()]));
   const {packNormal,packedSafe}=packedSources(true);
   const pack=compileFunction(packNormal),safe=compileFunction(packedSafe);
   function directions(board,color) {
@@ -38,37 +40,39 @@ export function compileMobility(compileFunction,{mode='both',specialized=false}=
       return next!==text && safe(next,color);
     }).map(([n])=>n);
   }
-  return {directions,modules};
+  function hasReply(board,color) { return pooled ? pooled['anyKingReply'+color](pack(board)) : !!directions(board,color).length; }
+  return {directions,hasReply,modules};
 }
 
 export function compile(compileFunction,variant='king-reply',{mode='both'}={}) {
-  assert.ok(['king-reply','king-reply-v2','king-reply-v3'].includes(variant));
+  assert.ok(['king-reply','king-reply-v2','king-reply-v3','king-reply-v4'].includes(variant));
   const primary=baseCompile(compileFunction,'packed-v5',{mode});
-  const witness=compileMobility(compileFunction,{mode,specialized:variant!=='king-reply'});
+  const witness=compileMobility(compileFunction,{mode,specialized:variant!=='king-reply',grouped:variant==='king-reply-v4'});
   function predict(input) {
     const {resource:old,data:next}=input;
     if(!primary.predict(input)) return false;
     const color=old.currentTurn==='host'?'b':'w';
-    return !['won','draw'].includes(next.status) || !witness.directions(next.board,color).length;
+    return !['won','draw'].includes(next.status) || !witness.hasReply(next.board,color);
   }
-  return {modules:{...primary.modules,...witness.modules},predict,directions:witness.directions};
+  return {modules:{...primary.modules,...witness.modules},predict,directions:witness.directions,hasReply:witness.hasReply};
 }
 
 export async function link(modules,resolveModules,{variant='king-reply'}={}) {
-  assert.ok(['king-reply','king-reply-v2','king-reply-v3'].includes(variant));
+  assert.ok(['king-reply','king-reply-v2','king-reply-v3','king-reply-v4'].includes(variant));
   const specialized=variant!=='king-reply';
-  const names=Object.keys(moveSources(specialized));
+  const grouped=variant==='king-reply-v4';
+  const names=Object.keys(grouped?groupedSources():moveSources(specialized));
   const moves=Object.fromEntries(names.map(n=>[n,modules[n]]));
   const primary=Object.fromEntries(Object.entries(modules).filter(([n])=>!names.includes(n)));
   const base=await baseLink(primary,resolveModules,{variant:'packed-v5'});
-  return linkOnto(base,moves,resolveModules,{specialized,byRank:variant==='king-reply-v3'});
+  return linkOnto(base,moves,resolveModules,{specialized,byRank:variant==='king-reply-v3',grouped});
 }
 
 /** Append the positive witness after the caller's existing terminal conjunct.
  * A caller that already decided an exact material class may pass its reviewed
  * Rules guard as covered; this value is supplied at link time only. */
-export function linkOnto(base,moves,resolveModules,{specialized=true,byRank=false,covered}={}) {
-  const names=Object.keys(moveSources(specialized));
+export function linkOnto(base,moves,resolveModules,{specialized=true,byRank=false,grouped=false,covered}={}) {
+  const names=Object.keys(grouped?groupedSources():moveSources(specialized));
   assert.deepEqual(Object.keys(moves).sort(),[...names].sort());
   const imports=names.map(n=>"import { "+n+" } from './"+n+"';").join('\n');
   const libraries=Object.fromEntries(names.map(n=>['./'+n,moves[n]]));
@@ -79,7 +83,7 @@ export function linkOnto(base,moves,resolveModules,{specialized=true,byRank=fals
     const bottom="[^#]*"+color+"k,[^#]*#,#,.*";
     return attempts(['E','W'])+" || (!text.matches('"+top+"') && ("+attempts(['N','NE','NW'])+")) || (!text.matches('"+bottom+"') && ("+attempts(['S','SE','SW'])+"))";
   };
-  const wrapper=specialized ? "function hasKingReply(text,color) { return color == 'w' ? ("+byColor('w')+") : ("+byColor('b')+"); }" : "function validKingStep(text, nextText, color) { return text != nextText && packedSafe(nextText, color); }\n"+
+  const wrapper=grouped ? "function hasKingReply(text,color) {return color == 'w' ? anyKingReplyw(text) : anyKingReplyb(text);}" : specialized ? "function hasKingReply(text,color) { return color == 'w' ? ("+byColor('w')+") : ("+byColor('b')+"); }" : "function validKingStep(text, nextText, color) { return text != nextText && packedSafe(nextText, color); }\n"+
     'function hasKingReply(text, color) { return '+names.map(n=>'validKingStep(text,'+n+'(text, color),color)').join(' || ')+'; }';
   const statements=base.match(/return packedSafe\(text, color\)[^;]*;/g)??[];
   assert.equal(statements.length,1,'expected one complete move king-safety return');
