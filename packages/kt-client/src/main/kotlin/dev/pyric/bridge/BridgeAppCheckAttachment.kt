@@ -32,12 +32,15 @@ internal object BridgeAppCheckAttachment {
         return copy
     }
 
+    fun isInternalSubscriptionTarget(target: Any): Boolean =
+        target is String && target in INTERNAL_SUB_TARGETS
+
     suspend fun resolveForSubscription(
         target: Any,
         tokenProvider: (suspend () -> String?)?
     ): String? {
         if (tokenProvider == null) return null
-        if (target is String && target in INTERNAL_SUB_TARGETS) return null
+        if (isInternalSubscriptionTarget(target)) return null
         val token = try {
             tokenProvider.invoke()
         } catch (_: Throwable) {

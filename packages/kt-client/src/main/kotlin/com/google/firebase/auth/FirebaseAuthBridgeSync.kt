@@ -5,6 +5,7 @@ import dev.pyric.auth.AuthLens
 import dev.pyric.auth.BridgeAuthOperations
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -71,30 +72,48 @@ internal class FirebaseAuthBridgeSync(
     }
 
     fun startSubscriptions() {
-        scope.launch {
-            try {
-                BridgeAuthOperations.subscribeAuthStateSequenced(auth.bridgeClient).collect { snap ->
-                    updateUserFromBridge(snap.data, snap.wireSeq)
-                }
-            } catch (_: Throwable) {}
+        // Register authState, idToken, and remoteLens synchronously before FirebaseAuth()
+        // returns (D7). authState and idToken keep independent unlimited channels because
+        // both suspend on auth.getIdTokenResult enrichment and order updates via wireSeq.
+        val authSub = runCatching { auth.bridgeClient.openSequencedSubscription("authState") }.getOrNull()
+        val idTokenSub = runCatching { auth.bridgeClient.openSequencedSubscription("idToken") }.getOrNull()
+        val unregisterRemoteLens = auth.bridgeClient.addRemoteLensObserver { remoteLens ->
+            if (remoteLens is AuthLens.AppSession) {
+                setAuthLens(null)
+            } else {
+                setAuthLens(remoteLens)
+            }
         }
-        scope.launch {
-            try {
-                BridgeAuthOperations.subscribeIdTokenSequenced(auth.bridgeClient).collect { snap ->
-                    handleIdTokenSnapshot(snap.data, snap.wireSeq)
-                }
-            } catch (_: Throwable) {}
+        scope.coroutineContext[Job]?.invokeOnCompletion {
+            unregisterRemoteLens()
+            authSub?.cancel()
+            idTokenSub?.cancel()
         }
-        scope.launch {
-            try {
-                auth.bridgeClient.remoteLensEvents.collect { remoteLens ->
-                    if (remoteLens is AuthLens.AppSession) {
-                        setAuthLens(null)
-                    } else {
-                        setAuthLens(remoteLens)
+        if (authSub != null) {
+            scope.launch {
+                try {
+                    for (snap in authSub.channel) {
+                        @Suppress("UNCHECKED_CAST")
+                        updateUserFromBridge(snap.value as? Map<String, Any?>, snap.wireSeq)
                     }
+                } catch (_: Throwable) {
+                } finally {
+                    authSub.cancel()
                 }
-            } catch (_: Throwable) {}
+            }
+        }
+        if (idTokenSub != null) {
+            scope.launch {
+                try {
+                    for (snap in idTokenSub.channel) {
+                        @Suppress("UNCHECKED_CAST")
+                        handleIdTokenSnapshot(snap.value as? Map<String, Any?>, snap.wireSeq)
+                    }
+                } catch (_: Throwable) {
+                } finally {
+                    idTokenSub.cancel()
+                }
+            }
         }
     }
 

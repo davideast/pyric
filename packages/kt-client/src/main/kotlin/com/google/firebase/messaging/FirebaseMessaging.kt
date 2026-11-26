@@ -4,6 +4,7 @@ import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.TaskCompletionSource
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.FirebaseApp
+import dev.pyric.bridge.BridgeSubscriptionHandle
 import dev.pyric.bridge.PyricBridgeClient
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
@@ -22,6 +23,7 @@ import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicBoolean
 
 class FirebaseMessaging internal constructor(
     val app: FirebaseApp,
@@ -34,8 +36,8 @@ class FirebaseMessaging internal constructor(
     private var cachedToken: String? = null
     private var lastAnnouncedToken: String? = null
     private var inFlightToken: CompletableDeferred<String>? = null
-    private var serviceForegroundJob: Job? = null
-    private var serviceBackgroundJob: Job? = null
+    private var serviceForegroundHandle: BridgeSubscriptionHandle? = null
+    private var serviceBackgroundHandle: BridgeSubscriptionHandle? = null
 
     @Volatile
     private var autoInitEnabledFlag: Boolean = app.isDataCollectionDefaultEnabled
@@ -47,7 +49,7 @@ class FirebaseMessaging internal constructor(
     private var notificationDelegationFlag: Boolean = false
 
     private val registeredServices = CopyOnWriteArrayList<FirebaseMessagingService>()
-    private val _newTokenFlow = MutableSharedFlow<String>(extraBufferCapacity = 16)
+    private val _newTokenFlow = MutableSharedFlow<String>(extraBufferCapacity = 1 shl 20)
     val newTokenFlow: SharedFlow<String> = _newTokenFlow.asSharedFlow()
 
     val bridgeClient: PyricBridgeClient
@@ -268,39 +270,75 @@ class FirebaseMessaging internal constructor(
     }
 
     private fun ensureServiceSubscriptionsRunning() {
+        val openForeground: Boolean
+        val openBackground: Boolean
         synchronized(stateLock) {
-            if (serviceForegroundJob == null || serviceForegroundJob?.isActive != true) {
-                serviceForegroundJob = scope.launch {
-                    runCatching {
-                        foregroundMessages.collect { msg ->
-                            for (svc in registeredServices) {
-                                runCatching { svc.onMessageReceived(msg) }
-                            }
-                        }
-                    }
+            openForeground = serviceForegroundHandle == null
+            openBackground = serviceBackgroundHandle == null
+        }
+        val fgClosed = AtomicBoolean(false)
+        val bgClosed = AtomicBoolean(false)
+        val fgHandle = if (openForeground) openServiceSubscription(TARGET_FOREGROUND, fgClosed) else null
+        val bgHandle = if (openBackground) openServiceSubscription(TARGET_BACKGROUND, bgClosed) else null
+        var cancelFg: BridgeSubscriptionHandle? = null
+        var cancelBg: BridgeSubscriptionHandle? = null
+        synchronized(stateLock) {
+            if (fgHandle != null) {
+                if (!fgClosed.get() && serviceForegroundHandle == null && registeredServices.isNotEmpty()) {
+                    serviceForegroundHandle = fgHandle
+                } else {
+                    cancelFg = fgHandle
                 }
             }
-            if (serviceBackgroundJob == null || serviceBackgroundJob?.isActive != true) {
-                serviceBackgroundJob = scope.launch {
-                    runCatching {
-                        backgroundMessages.collect { msg ->
-                            for (svc in registeredServices) {
-                                runCatching { svc.onMessageReceived(msg) }
-                            }
-                        }
-                    }
+            if (bgHandle != null) {
+                if (!bgClosed.get() && serviceBackgroundHandle == null && registeredServices.isNotEmpty()) {
+                    serviceBackgroundHandle = bgHandle
+                } else {
+                    cancelBg = bgHandle
                 }
             }
+        }
+        cancelFg?.cancel()
+        cancelBg?.cancel()
+    }
+
+    private fun openServiceSubscription(target: String, closed: AtomicBoolean): BridgeSubscriptionHandle? =
+        runCatching {
+            bridgeClient.openSubscription(
+                target = target,
+                onValue = { raw ->
+                    val msg = (raw as? Map<*, *>)?.let { RemoteMessage.fromDeliveredPayload(it) } ?: return@openSubscription
+                    for (svc in registeredServices) {
+                        runCatching { svc.onMessageReceived(msg) }
+                    }
+                },
+                onWireError = {
+                    closed.set(true)
+                    clearServiceHandle(target)
+                },
+                onCloseError = {
+                    closed.set(true)
+                    clearServiceHandle(target)
+                }
+            )
+        }.getOrNull()
+
+    private fun clearServiceHandle(target: String) {
+        synchronized(stateLock) {
+            if (target == TARGET_FOREGROUND) serviceForegroundHandle = null
+            if (target == TARGET_BACKGROUND) serviceBackgroundHandle = null
         }
     }
 
     private fun stopServiceSubscriptions() {
+        val fg: BridgeSubscriptionHandle?
+        val bg: BridgeSubscriptionHandle?
         synchronized(stateLock) {
-            serviceForegroundJob?.cancel()
-            serviceForegroundJob = null
-            serviceBackgroundJob?.cancel()
-            serviceBackgroundJob = null
+            fg = serviceForegroundHandle; serviceForegroundHandle = null
+            bg = serviceBackgroundHandle; serviceBackgroundHandle = null
         }
+        fg?.cancel()
+        bg?.cancel()
     }
 
     private suspend fun fetchOrMintToken(): String {

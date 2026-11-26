@@ -73,13 +73,15 @@ class PyricBridgeClient(
     @Volatile var clientSessionId: String? = null
         private set
 
+    internal val deliveryQueue = BridgeDeliveryQueue()
+    private val eventHub = BridgeEventHub(deliveryQueue)
+
     private val _connectionStateFlow = MutableStateFlow(false)
     val connectionStateFlow: StateFlow<Boolean> = _connectionStateFlow.asStateFlow()
 
-    private val _connectionStates = MutableStateFlow(BridgeConnectionState.CONNECTING)
-    val connectionStates: StateFlow<BridgeConnectionState> = _connectionStates.asStateFlow()
+    val connectionStates: StateFlow<BridgeConnectionState> get() = eventHub.connectionStates
 
-    val connectionState: BridgeConnectionState get() = _connectionStates.value
+    val connectionState: BridgeConnectionState get() = eventHub.connectionState
 
     @Volatile
     var isConnected: Boolean = false
@@ -92,20 +94,17 @@ class PyricBridgeClient(
     var isDisposed: Boolean = false
         private set
 
-    private val _remoteLensEvents = MutableSharedFlow<AuthLens>(replay = 1, extraBufferCapacity = 16)
-    val remoteLensEvents: SharedFlow<AuthLens> = _remoteLensEvents.asSharedFlow()
+    val remoteLensEvents: SharedFlow<AuthLens> get() = eventHub.remoteLensEvents
 
-    private val _denialEvents = MutableSharedFlow<FirebaseFirestoreException>(extraBufferCapacity = 64)
-    val denialEvents: SharedFlow<FirebaseFirestoreException> = _denialEvents.asSharedFlow()
+    val denialEvents: SharedFlow<FirebaseFirestoreException> get() = eventHub.denialEvents
 
-    internal fun dispatchDenial(exception: FirebaseFirestoreException) {
-        if (exception.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
-            _denialEvents.tryEmit(exception)
-        }
-    }
+    internal fun dispatchDenial(exception: FirebaseFirestoreException) = eventHub.dispatchDenial(exception)
+    internal fun addConnectionStateObserver(observer: BridgeConnectionObserver): () -> Unit = eventHub.addConnectionStateObserver(observer)
+    internal fun addRemoteLensObserver(observer: (AuthLens) -> Unit): () -> Unit = eventHub.addRemoteLensObserver(observer)
+    internal fun addDenialObserver(observer: (FirebaseFirestoreException) -> Unit): () -> Unit = eventHub.addDenialObserver(observer)
 
     private val operationDispatcher = BridgeOperationDispatcher(clientScope, defaultOpTimeoutMs, onDenial = ::dispatchDenial)
-    private val subscriptionManager = BridgeSubscriptionManager(onDenial = ::dispatchDenial)
+    private val subscriptionManager = BridgeSubscriptionManager(onDenial = ::dispatchDenial, deliveryQueue = deliveryQueue)
     private val heldOperations = BridgeHeldOperations(clientScope)
     private val heartbeat = BridgeHeartbeat(clientScope)
     private val pingCounter = AtomicLong(0)
@@ -267,8 +266,8 @@ class PyricBridgeClient(
         val holdEpoch: Long
         synchronized(lock) {
             if (attemptGeneration != generation || isDisposed) return false
-            // Taken before isConnected is set: a subscription that sees the attach
-            // claims its send on this epoch, and the re-send below skips it.
+            // Taken before isConnected is set: subscriptions opened mid-restore wait
+            // in the restore set so restored listeners always go first (D5).
             epoch = subscriptionManager.beginAttach()
             holdEpoch = heldOperations.epoch()
             attempt = null
@@ -280,7 +279,6 @@ class PyricBridgeClient(
             attachDeadlineJob = null
             reconnectAttempt = 0
             isConnected = true
-            setState(BridgeConnectionState.ATTACHED)
             startHeartbeatLocked(attemptGeneration)
         }
         subscriptionManager.restoreAll(epoch, ::sendRawJson, JsonCodec::encodeToString)
@@ -290,7 +288,15 @@ class PyricBridgeClient(
             BRIDGE_AUTH_NOT_RESTORED_MESSAGE,
             FirebaseFirestoreException.Code.UNAVAILABLE
         )
-        heldOperations.release(holdEpoch, identityLost)
+        // Publish ATTACHED only once the hold gate opens (D9), so an operation
+        // issued upon observing ATTACHED sends directly on the caller's thread.
+        heldOperations.release(holdEpoch, identityLost) {
+            synchronized(lock) {
+                if (attemptGeneration == generation && !isDisposed) {
+                    setState(BridgeConnectionState.ATTACHED)
+                }
+            }
+        }
         return true
     }
 
@@ -322,8 +328,8 @@ class PyricBridgeClient(
         return socket.send(JsonCodec.encodeToString(frame))
     }
 
-    private fun setState(next: BridgeConnectionState) {
-        _connectionStates.value = next
+    private fun setState(next: BridgeConnectionState, closeError: FirebaseFirestoreException? = null) {
+        eventHub.publishConnectionState(next, closeError)
     }
 
     private fun handleConnectionLoss(
@@ -345,8 +351,9 @@ class PyricBridgeClient(
             heartbeat.stop()
             attachDeadlineJob?.cancel()
             attachDeadlineJob = null
-            wasAttached = connectionState == BridgeConnectionState.ATTACHED
+            wasAttached = isConnected
             isConnected = false
+            subscriptionManager.endRestore()
             heldOperations.interrupt()
             pendingHandshake = handshake
             pendingAttempt = attempt
@@ -354,7 +361,10 @@ class PyricBridgeClient(
             attempt = null
             closing = transport
             if (canReopen) transport = null
-            setState(if (permitsRetry) BridgeConnectionState.INTERRUPTED else BridgeConnectionState.CLOSED)
+            setState(
+                if (permitsRetry) BridgeConnectionState.INTERRUPTED else BridgeConnectionState.CLOSED,
+                if (permitsRetry) null else error
+            )
             if (permitsRetry) scheduleReconnectLocked()
         }
         pendingHandshake?.completeExceptionally(error)
@@ -434,53 +444,62 @@ class PyricBridgeClient(
         }
     }
 
-    /**
-     * Opens a subscription. It survives a dropped connection: the client re-sends
-     * it on every re-attach until the flow is cancelled.
-     */
-    fun subscribe(
+    private val subscriptionWiring = BridgeSubscriptionWiring(
+        isAttached = { isConnected },
+        ensureConnected = ::ensureConnectedForSubscription,
+        keepsOnConnectFailure = { !isDisposed && canReopen && (hasEverAttached || retryInitialConnection) },
+        sendJson = ::sendRawJson,
+        jsonSerializer = JsonCodec::encodeToString
+    )
+
+    private fun checkNotDisposedForSubscribe() {
+        if (isDisposed) throw FirebaseFirestoreException("PyricBridgeClient has been disposed.", FirebaseFirestoreException.Code.UNAVAILABLE)
+    }
+
+    /** Opens a subscription that survives drops until the flow is cancelled. */
+    fun subscribe(target: Any, actAs: Map<String, Any?>? = null, includeMetadataChanges: Boolean = false, listenSource: String? = null): Flow<Any?> {
+        checkNotDisposedForSubscribe()
+        return subscriptionManager.subscribe(
+            target, actAs, includeMetadataChanges, listenSource, appCheckTokenProvider, clientScope,
+            subscriptionWiring.isAttached, subscriptionWiring.ensureConnected, subscriptionWiring.keepsOnConnectFailure,
+            subscriptionWiring.sendJson, subscriptionWiring.jsonSerializer
+        )
+    }
+
+    internal fun openSubscription(
         target: Any,
         actAs: Map<String, Any?>? = null,
         includeMetadataChanges: Boolean = false,
-        listenSource: String? = null
-    ): Flow<Any?> {
-        if (isDisposed) {
-            throw FirebaseFirestoreException(
-                "PyricBridgeClient has been disposed.",
-                FirebaseFirestoreException.Code.UNAVAILABLE
-            )
-        }
+        listenSource: String? = null,
+        onValue: (Any?) -> Unit,
+        onWireError: (FirebaseFirestoreException) -> Unit,
+        onCloseError: (FirebaseFirestoreException) -> Unit
+    ): BridgeSubscriptionHandle {
+        checkNotDisposedForSubscribe()
+        return subscriptionWiring.open(
+            subscriptionManager, clientScope, appCheckTokenProvider, target, actAs,
+            includeMetadataChanges, listenSource, onValue, onWireError, onCloseError
+        )
+    }
 
-        return subscriptionManager.subscribe(
-            target = target,
-            actAs = actAs,
-            includeMetadataChanges = includeMetadataChanges,
-            listenSource = listenSource,
-            appCheckTokenProvider = appCheckTokenProvider,
-            isAttached = { isConnected },
-            ensureConnected = ::ensureConnectedForSubscription,
-            keepsSubscriptionOnConnectFailure = { !isDisposed && canReopen && (hasEverAttached || retryInitialConnection) },
-            sendJson = ::sendRawJson,
-            jsonSerializer = JsonCodec::encodeToString
+    internal fun openSequencedSubscription(target: Any): SequencedSubscriptionHandle {
+        if (isDisposed) throw disposedError()
+        return subscriptionManager.openSequencedSubscription(
+            target, clientScope, subscriptionWiring.isAttached, subscriptionWiring.ensureConnected,
+            subscriptionWiring.keepsOnConnectFailure, subscriptionWiring.sendJson, subscriptionWiring.jsonSerializer
         )
     }
 
     internal fun subscribeSequenced(target: Any): Flow<BridgeSequencedSnapshot> {
         if (isDisposed) throw disposedError()
         return subscriptionManager.subscribeSequenced(
-            target = target,
-            isAttached = { isConnected },
-            ensureConnected = ::ensureConnectedForSubscription,
-            keepsSubscriptionOnConnectFailure = { !isDisposed && canReopen && (hasEverAttached || retryInitialConnection) },
-            sendJson = ::sendRawJson,
-            jsonSerializer = JsonCodec::encodeToString
+            target, subscriptionWiring.isAttached, subscriptionWiring.ensureConnected,
+            subscriptionWiring.keepsOnConnectFailure, subscriptionWiring.sendJson, subscriptionWiring.jsonSerializer
         )
     }
 
     private suspend fun ensureConnectedForSubscription() {
-        val interrupted = synchronized(lock) { hasEverAttached && canReopen }
-        // An interrupted client re-sends this subscription on its next attach.
-        if (interrupted) return
+        if (synchronized(lock) { hasEverAttached && canReopen }) return
         connect()
     }
 
@@ -489,10 +508,12 @@ class PyricBridgeClient(
     fun terminate(): Task<Void?> {
         disconnectInternal()
         clientScope.cancel()
+        deliveryQueue.shutdown()
         return Tasks.forResult(null)
     }
 
     private fun disconnectInternal() {
+        val disconnectError = FirebaseFirestoreException(BRIDGE_DISCONNECTED_MESSAGE, FirebaseFirestoreException.Code.UNAVAILABLE)
         val closing: BridgeTransport?
         val pendingHandshake: CompletableDeferred<Boolean>?
         val pendingAttempt: CompletableDeferred<Unit>?
@@ -501,37 +522,26 @@ class PyricBridgeClient(
             isConnected = false
             generation += 1
             heartbeat.stop()
-            reconnectJob?.cancel()
-            reconnectJob = null
-            attachDeadlineJob?.cancel()
-            attachDeadlineJob = null
-            nextAttempt?.completeExceptionally(disposedError())
-            nextAttempt = null
-            pendingHandshake = handshake
-            pendingAttempt = attempt
-            handshake = null
-            attempt = null
-            closing = transport
-            transport = null
-            setState(BridgeConnectionState.CLOSED)
+            reconnectJob?.cancel(); reconnectJob = null
+            attachDeadlineJob?.cancel(); attachDeadlineJob = null
+            nextAttempt?.completeExceptionally(disposedError()); nextAttempt = null
+            pendingHandshake = handshake; handshake = null
+            pendingAttempt = attempt; attempt = null
+            closing = transport; transport = null
+            setState(BridgeConnectionState.CLOSED, disconnectError)
         }
         restoreAuth = {}
         appCheckTokenProvider = null
-
-        heldOperations.dispose(FirebaseFirestoreException(BRIDGE_DISCONNECTED_MESSAGE, FirebaseFirestoreException.Code.UNAVAILABLE))
+        heldOperations.dispose(disconnectError)
         operationDispatcher.failAll(FirebaseFirestoreException.Code.UNAVAILABLE, BRIDGE_DISCONNECTED_MESSAGE)
         subscriptionManager.failAll(FirebaseFirestoreException.Code.UNAVAILABLE, BRIDGE_DISCONNECTED_MESSAGE)
-
         val closedBeforeHandshake = FirebaseFirestoreException(
             "Connection closed before handshake completion.",
             FirebaseFirestoreException.Code.UNAVAILABLE
         )
         pendingHandshake?.completeExceptionally(closedBeforeHandshake)
         pendingAttempt?.completeExceptionally(closedBeforeHandshake)
-
-        try {
-            closing?.close(1000, "Client closed")
-        } catch (_: Throwable) {}
+        try { closing?.close(1000, "Client closed") } catch (_: Throwable) {}
     }
 
     /** Throws [TransportRefused] when the frame cannot have left the device. */
@@ -540,8 +550,7 @@ class PyricBridgeClient(
         if (currentTransport == null || isDisposed) {
             throw TransportRefused("Cannot send message: transport is not connected.")
         }
-        val enqueued = currentTransport.send(json)
-        if (!enqueued) {
+        if (!currentTransport.send(json)) {
             throw TransportRefused("Failed to enqueue message to bridge transport.")
         }
     }
@@ -558,10 +567,8 @@ class PyricBridgeClient(
             sendRawJson = ::sendRawJson,
             onAttachAck = ::acceptAttachAck,
             onWorkerRes = operationDispatcher::handleWorkerRes,
-            onWorkerSnap = { msg, seq ->
-                subscriptionManager.handleWorkerSnap(msg, ::sendRawJson, JsonCodec::encodeToString, seq)
-            },
-            onRemoteLens = { lens -> _remoteLensEvents.tryEmit(lens) },
+            onWorkerSnap = { msg, seq -> subscriptionManager.handleWorkerSnap(msg, ::sendRawJson, JsonCodec::encodeToString, seq) },
+            onRemoteLens = eventHub::publishRemoteLens,
             onConnectionLoss = ::handleConnectionLoss
         )
 

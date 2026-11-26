@@ -8,6 +8,7 @@ import dev.pyric.auth.ServiceAuthLens
 import dev.pyric.bridge.BridgeProtocol
 import dev.pyric.bridge.PyricBridgeClient
 import dev.pyric.database.internal.DatabaseInstanceResolver
+import dev.pyric.database.internal.InfoConnectionHub
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -39,6 +40,7 @@ class FirebaseDatabase(
     /** Off between goOffline() and goOnline(); `.info/connected` is false while it is off. */
     private val _networkEnabled = MutableStateFlow(true)
     internal val networkEnabled: StateFlow<Boolean> = _networkEnabled.asStateFlow()
+    internal val infoHub = InfoConnectionHub(bridgeClient)
 
     fun setAuthLens(lens: AuthLens?) {
         serviceAuthLens.setExplicitLens(lens)
@@ -82,7 +84,6 @@ class FirebaseDatabase(
         dev.pyric.database.attachWireInstance(params, wireInstance)
 
     fun goOffline() {
-        _networkEnabled.value = false
         databaseScope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 bridgeClient.op(
@@ -92,10 +93,11 @@ class FirebaseDatabase(
                 )
             } catch (_: Exception) {}
         }
+        _networkEnabled.value = false
+        infoHub.setNetworkEnabled(false)
     }
 
     fun goOnline() {
-        _networkEnabled.value = true
         databaseScope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 bridgeClient.op(
@@ -105,6 +107,8 @@ class FirebaseDatabase(
                 )
             } catch (_: Exception) {}
         }
+        _networkEnabled.value = true
+        infoHub.setNetworkEnabled(true)
     }
 
     companion object {
@@ -203,6 +207,7 @@ class FirebaseDatabase(
         @JvmStatic
         fun clearInstancesForTest() {
             for (db in instances.values) {
+                db.infoHub.dispose()
                 db.databaseScope.cancel()
             }
             instances.clear()

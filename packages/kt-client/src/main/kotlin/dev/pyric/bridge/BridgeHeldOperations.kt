@@ -33,11 +33,16 @@ internal class HeldOperation(
 internal class Admission(val entry: HeldOperation, val direct: Boolean)
 
 /** A release that waits for the sends started before it to return. */
-private class ParkedRelease(val epoch: Long, val failure: FirebaseFirestoreException?)
+private class ParkedRelease(
+    val epoch: Long,
+    val failure: FirebaseFirestoreException?,
+    val onGateOpened: (() -> Unit)?
+)
 
 private sealed interface ReleaseStep {
     class Send(val entry: HeldOperation) : ReleaseStep
     class FailAll(val entries: List<HeldOperation>, val failure: FirebaseFirestoreException) : ReleaseStep
+    data object Opened : ReleaseStep
 }
 
 /**
@@ -125,12 +130,20 @@ internal class BridgeHeldOperations(private val scope: CoroutineScope) {
      * held. While a send started earlier has not returned, the release waits and
      * that send's return resumes it.
      */
-    fun release(releaseEpoch: Long, failure: FirebaseFirestoreException?) {
+    fun release(
+        releaseEpoch: Long,
+        failure: FirebaseFirestoreException?,
+        onGateOpened: (() -> Unit)? = null
+    ) {
         while (true) {
-            val step = synchronized(lock) { nextReleaseStepLocked(releaseEpoch, failure) } ?: return
+            val step = synchronized(lock) { nextReleaseStepLocked(releaseEpoch, failure, onGateOpened) } ?: return
             when (step) {
                 is ReleaseStep.FailAll -> step.entries.forEach { it.sent.completeExceptionally(step.failure) }
                 is ReleaseStep.Send -> if (sendAndSettle(step.entry)) return
+                ReleaseStep.Opened -> {
+                    onGateOpened?.invoke()
+                    return
+                }
             }
         }
     }
@@ -156,16 +169,20 @@ internal class BridgeHeldOperations(private val scope: CoroutineScope) {
         failed.forEach { it.sent.completeExceptionally(error) }
     }
 
-    private fun nextReleaseStepLocked(releaseEpoch: Long, failure: FirebaseFirestoreException?): ReleaseStep? {
+    private fun nextReleaseStepLocked(
+        releaseEpoch: Long,
+        failure: FirebaseFirestoreException?,
+        onGateOpened: (() -> Unit)?
+    ): ReleaseStep? {
         if (releaseEpoch != epoch) return null
         if (unsettled > 0) {
-            parked = ParkedRelease(releaseEpoch, failure)
+            parked = ParkedRelease(releaseEpoch, failure, onGateOpened)
             return null
         }
         if (held.isEmpty()) {
             open = true
             closeFailure = null
-            return null
+            return ReleaseStep.Opened
         }
         if (failure != null) return ReleaseStep.FailAll(takeAllLocked(), failure)
         unsettled += 1
@@ -194,7 +211,7 @@ internal class BridgeHeldOperations(private val scope: CoroutineScope) {
         }
         if (outcome is BridgeDispatch.Started) entry.sent.complete(outcome.result)
         if (failure != null) entry.sent.completeExceptionally(failure)
-        resume?.let { release(it.epoch, it.failure) }
+        resume?.let { release(it.epoch, it.failure, it.onGateOpened) }
         return refused
     }
 

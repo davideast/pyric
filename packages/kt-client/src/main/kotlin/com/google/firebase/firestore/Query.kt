@@ -2,7 +2,6 @@ package com.google.firebase.firestore
 
 import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.TaskCompletionSource
-import dev.pyric.bridge.BridgeSubscriptionGap
 import dev.pyric.codecs.Cursor
 import dev.pyric.codecs.DocumentDataEnvelope
 import dev.pyric.codecs.OrderBy
@@ -10,16 +9,7 @@ import dev.pyric.codecs.QueryCompiler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.emitAll
-import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.mapNotNull
-import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.launch
 
 open class Query internal constructor(
@@ -269,65 +259,12 @@ open class Query internal constructor(
     fun aggregate(field: AggregateField, vararg moreFields: AggregateField): AggregateQuery =
         AggregateQuery(this, listOf(field) + moreFields.toList())
 
-    @OptIn(ExperimentalCoroutinesApi::class)
     fun snapshots(metadataChanges: MetadataChanges = MetadataChanges.EXCLUDE): Flow<QuerySnapshot> {
         firestore.ensureClientActive()
-        val target = toTargetDescriptor()
-        val includeMetadata = (metadataChanges == MetadataChanges.INCLUDE)
-        return flow {
-            var previousDocs: List<QueryDocumentSnapshot>? = null
-            val upstream = combine(firestore.authLensFlow, firestore.terminatedStateFlow) { lens, terminated ->
-                lens to terminated
-            }.flatMapLatest { (lens, terminated) ->
-                if (terminated) {
-                    flowOf<QuerySnapshot?>(null)
-                } else {
-                    var lastRaw: Any? = null
-                    var hasRaw = false
-                    firestore.bridgeClient.subscribe(
-                        target = target,
-                        actAs = lens.toMap(),
-                        includeMetadataChanges = includeMetadata
-                    ).mapNotNull { rawMsg ->
-                        val snapshot = if (rawMsg === BridgeSubscriptionGap) {
-                            // The documents last delivered, now served from cache.
-                            if (hasRaw) {
-                                snapshotFromWire(
-                                    rawMsg = lastRaw,
-                                    isFromCache = true,
-                                    previousDocs = previousDocs,
-                                    includeMetadata = includeMetadata
-                                )
-                            } else {
-                                null
-                            }
-                        } else {
-                            lastRaw = rawMsg
-                            hasRaw = true
-                            @Suppress("UNCHECKED_CAST")
-                            val wireDocs = ((rawMsg as? Map<String, Any?>)?.get("docs") as? List<Map<String, Any?>>)
-                            if (wireDocs != null) {
-                                QueryCacheStore.put(firestore, target, wireDocs)
-                            }
-                            snapshotFromWire(
-                                rawMsg = rawMsg,
-                                isFromCache = false,
-                                previousDocs = previousDocs,
-                                includeMetadata = includeMetadata
-                            )
-                        }
-                        if (snapshot != null) {
-                            previousDocs = snapshot.documents.filterIsInstance<QueryDocumentSnapshot>()
-                        }
-                        snapshot
-                    }
-                }
-            }.takeWhile { it != null }.mapNotNull { it }
-            emitAll(upstream)
-        }
+        return QuerySnapshotRegistration.snapshotsFlow(this, toTargetDescriptor(), metadataChanges == MetadataChanges.INCLUDE)
     }
 
-    private fun snapshotFromWire(
+    internal fun snapshotFromWire(
         rawMsg: Any?,
         isFromCache: Boolean,
         previousDocs: List<QueryDocumentSnapshot>?,
@@ -394,17 +331,13 @@ open class Query internal constructor(
         listener: EventListener<QuerySnapshot>
     ): ListenerRegistration {
         firestore.ensureClientActive()
-        val job = firestore.listenerScope.launch {
-            snapshots(metadataChanges).catch { e ->
-                val fse = (e as? FirebaseFirestoreException)
-                    ?: FirebaseFirestoreException(e.message ?: "Query snapshot error", FirebaseFirestoreException.Code.UNKNOWN, e)
-                listener.onEvent(null, fse)
-            }.collect { snapshot ->
-                listener.onEvent(snapshot, null)
-            }
-        }
-
-        return ListenerRegistration { job.cancel() }
+        return QuerySnapshotRegistration(
+            query = this,
+            target = toTargetDescriptor(),
+            includeMetadata = (metadataChanges == MetadataChanges.INCLUDE),
+            onSnapshot = { snapshot -> listener.onEvent(snapshot, null) },
+            onError = { error -> listener.onEvent(null, error) }
+        )
     }
 
     private fun copy(

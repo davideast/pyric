@@ -4,6 +4,7 @@ import com.google.firebase.auth.FirebaseAuth
 import dev.pyric.bridge.PyricBridgeClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.FlowCollector
@@ -12,7 +13,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.launch
 
 /**
  * Resolves a service's effective [AuthLens] synchronously from an explicit
@@ -39,14 +39,13 @@ internal class ServiceAuthLens(
 
     init {
         if (!delegatesRemoteLensToAuth) {
-            scope.launch {
-                bridgeClient.remoteLensEvents.collect { lens ->
-                    synchronized(lock) {
-                        remoteAuthLens = if (lens is AuthLens.AppSession) null else lens
-                        overrideLensFlow.value = explicitAuthLens ?: remoteAuthLens
-                    }
+            val unregister = bridgeClient.addRemoteLensObserver { lens ->
+                synchronized(lock) {
+                    remoteAuthLens = if (lens is AuthLens.AppSession) null else lens
+                    overrideLensFlow.value = explicitAuthLens ?: remoteAuthLens
                 }
             }
+            scope.coroutineContext[Job]?.invokeOnCompletion { unregister() }
         }
     }
 
