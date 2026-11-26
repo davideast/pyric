@@ -22,6 +22,8 @@ def receipt_projection(result):
     for entry in result['management']['compileDiagnostics']:
         groups['compile/'+entry['rulesSha256']]=[entry['receipt']]
     groups['publication-rejections']=sorted(row['journalSha256'] for row in result['management']['compilerRejections'])
+    groups['management-failures']=sorted(row['journalSha256'] for row in result['management']['managementFailures'])
+    groups['excluded-attempts']=sorted(row['journalSha256'] for row in result['management']['unqualified'])
     return groups
 
 
