@@ -1,0 +1,22 @@
+{
+  "original": {
+    "stock": true,
+    "qualifiedClient": true
+  },
+  "reversed": {
+    "stock": false,
+    "qualifiedClient": true
+  },
+  "piece": {
+    "stock": false,
+    "qualifiedClient": false
+  },
+  "missing": {
+    "stock": false,
+    "qualifiedClient": false
+  },
+  "extra": {
+    "stock": false,
+    "qualifiedClient": false
+  }
+}

@@ -27,7 +27,7 @@ export function journal(archive,receipt,digest) {
   });
   const all=k=>events.filter(x=>x.kind===k).map(x=>x.data);
   const only=k=>{const group=all(k);assert.equal(group.length,1,k);return group[0];};
-  assert.deepEqual(read(join(dir,'completed.json')),{mode,runId,rulesSha256,receipt:digest});
+  assert.deepEqual(read(join(dir,'completed.json')),{mode,runId,rulesSha256,...(receipt.cohort && {cohort:receipt.cohort}),receipt:digest});
   assert.deepEqual(receipt.target,manifest.target);
   const ids=all('identity'); assert.deepEqual(ids.map(x=>x.role),['host','guest','observer']);
   for (const i of ids) {

@@ -16,6 +16,9 @@ def retain(archive, name, digest, bundle, engine=None, inputs=None):
     if engine:
         command.append(str(inputs / engine))
     report = json.loads(subprocess.check_output(command))
+    expected = report["mode"] + ("-supplement" if report.get("cohort") == "supplement" else "")
+    if name != expected and not (name == "stock-discovery" and expected == "stock" and report["exactProtocolIntents"] == 0):
+        raise ValueError("Registry key and release mode differ")
     raw = (archive / (digest + ".json")).read_bytes()
     if hashlib.sha256(raw).hexdigest() != digest:
         raise ValueError("Controller archive changed")
@@ -51,7 +54,7 @@ def retain(archive, name, digest, bundle, engine=None, inputs=None):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("archive", type=Path)
-    parser.add_argument("name", choices=["stock-discovery", "stock", "compatibility", "stronger", "referee"])
+    parser.add_argument("name", choices=["stock-discovery", "stock", "compatibility", "stronger", "referee", "stock-supplement", "compatibility-supplement", "stronger-supplement", "referee-supplement"])
     parser.add_argument("digest")
     parser.add_argument("bundle")
     parser.add_argument("engine", nargs="?")

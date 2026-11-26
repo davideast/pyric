@@ -78,7 +78,7 @@ export async function scoreHosted({rulesDirectory, registry=join(here,'releases'
       if(row.observed!==simulated) missed.push({id:row.id,expected:row.observed,actual:simulated,operations:verdicts});
       return {id:row.id,hosted:row.observed,candidate:simulated};
     });
-    reports.push({profile:receipt.mode,receipt:pin.receipt,deployedRules:receipt.rulesSha256,candidateRules:sha(rules),rows,reads,
+    reports.push({profile:receipt.mode,...(receipt.cohort && {cohort:receipt.cohort}),receipt:pin.receipt,deployedRules:receipt.rulesSha256,candidateRules:sha(rules),rows,reads,
       falseAllows:missed.filter(m=>m.expected==='DENY' && m.actual==='ALLOW').length,
       falseDenials:missed.filter(m=>m.expected==='ALLOW' && m.actual==='DENY').length,
       unresolved:missed.filter(m=>m.actual==='UNRESOLVED').length,mismatches:missed});

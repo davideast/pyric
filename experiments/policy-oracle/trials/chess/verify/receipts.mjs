@@ -8,6 +8,7 @@ import {sha,manifest} from '../../../arcade/corpus.mjs';
 import {journal,retained,file} from './journal.mjs';
 import {protocol} from './document.mjs';
 import {specials} from './special.mjs';
+import {supplement} from './supplement.mjs';
 import {browserProof} from './browser-proof.mjs';
 
 const dir=dirname(fileURLToPath(import.meta.url));
@@ -47,10 +48,12 @@ export async function verify(archive,digest,bundle,enginePath) {
   assert.equal(sha(readFileSync(bundle)),rulesSha256,'linked release bytes');
   if(mode==='stock') assert.equal(rulesSha256,manifest.files['v1/rules/stock.rules']);
   const j=journal(archive,receipt,digest);
-  const {decisions,history}=protocol(receipt,j.actors,j.proof);
-  const special=specials(receipt,j.actors,j.proof);
+  assert.ok(receipt.cohort===undefined || receipt.cohort==='supplement');
+  const extra=receipt.cohort==='supplement';
+  const {decisions,history}=extra ? {decisions:supplement(receipt,j.actors,j.proof)} : protocol(receipt,j.actors,j.proof);
+  const special=extra ? {} : specials(receipt,j.actors,j.proof);
   let browser;
-  if(mode==='referee') {
+  if(mode==='referee' && !extra) {
     assert.equal(sha(readFileSync(enginePath)),receipt.browser.engineSha256,'deployed referee code bytes');
     const metadataPath=join(dirname(realpathSync(enginePath)),'chess-match.mjs');
     assert.equal(sha(readFileSync(metadataPath)),receipt.browser.matchPolicySha256,'deployed metadata policy bytes');
@@ -61,7 +64,7 @@ export async function verify(archive,digest,bundle,enginePath) {
   const report={mode,runId,receipt:digest,rulesSha256,activeRuleset:j.release,restoredRuleset:j.restored,
     journalSha256:j.journalSha256,signedReadersExplicit:receipt.rows.every(r=>r.reader===j.actors.observer),
     exactProtocolIntents:receipt.rows.filter(r=>r.submitted).length,decisions,special,
-    sensitivity:sensitivity(receipt,j),...(browser && {browser})};
+    sensitivity:extra?null:sensitivity(receipt,j),...(extra && {cohort:receipt.cohort}),...(browser && {browser})};
   return {report,comparable:Object.fromEntries(receipt.rows.map(r=>[r.id,canonical(r,runId,j.actors)]))};
 }
 
@@ -96,6 +99,12 @@ if (import.meta.main) {
       assert.deepEqual(compat.comparable,stock.comparable,'stock vs compatibility normalized writes, verdicts, full readbacks');
       comparableCases=Object.keys(stock.comparable).length;
     }
-    console.log(JSON.stringify({releases:[...releases.values()].map(r=>r.report),comparableCases},null,2));
+    const stockMore=releases.get('stock-supplement'),compatMore=releases.get('compatibility-supplement');
+    let supplementComparableCases=0;
+    if(stockMore && compatMore) {
+      assert.deepEqual(compatMore.comparable,stockMore.comparable,'supplemental stock vs compatibility');
+      supplementComparableCases=Object.keys(stockMore.comparable).length;
+    }
+    console.log(JSON.stringify({releases:[...releases.values()].map(r=>r.report),comparableCases,supplementComparableCases},null,2));
   }
 }
