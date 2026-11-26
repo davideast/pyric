@@ -1,6 +1,7 @@
 /** Internal adapter seam for transport-backed AI handles. */
 import type { FirebaseApp } from '../app/types.js';
 import { BackendType, GoogleAIBackend } from './backend.js';
+import { AIError, AIErrorCode } from './errors.js';
 import type { AnswerEngine } from './broker/types.js';
 import { TARGET_SYMBOL } from './target.js';
 import { appCheckAttachmentFor } from './app-check-gate.js';
@@ -50,11 +51,15 @@ const transportHandles = new WeakMap<FirebaseApp, Map<string, AI>>();
 
 function backendKey(options?: AIOptions): { key: string } {
   const backend = options?.backend ?? new GoogleAIBackend();
+  if (backend.backendType === BackendType.GOOGLE_AI) {
+    return { key: 'googleai' };
+  }
   if (backend.backendType === BackendType.AGENT_PLATFORM) {
-    const location = (backend as { readonly location?: string }).location ?? 'global';
+    const rawLocation = (backend as { readonly location?: string }).location;
+    const location = rawLocation ? rawLocation : 'global';
     return { key: `agentplatform/${location}` };
   }
-  return { key: 'googleai' };
+  throw new AIError(AIErrorCode.ERROR, `Invalid backend: ${JSON.stringify(backend.backendType)}`);
 }
 
 /**

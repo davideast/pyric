@@ -15,6 +15,7 @@ import {
   resolveBlockedOidcJwtIdentity,
 } from './sandbox/blocking-federated-creation.js';
 import { resolveOidcJwtIdentity } from './sandbox/oidc-jwt-credential.js';
+import { isTrustedGmailGoogleSignIn } from './sandbox/gmail-account-overwrite.js';
 import { isFederatedProviderId, type AuthProvider } from './providers.js';
 import type { FirebaseError } from '../sandbox/internal/firebase-error.js';
 import { SandboxBackend, makeAuthError } from './sandbox-backend.js';
@@ -163,6 +164,29 @@ async function resolveFlow(
   );
 }
 
+function applyTrustedGmailOverwriteIfNeeded(
+  backend: SandboxTarget['backend'],
+  user: User,
+  providerId: string,
+): boolean {
+  if (user.emailVerified === false) {
+    return false;
+  }
+  const stored = backend.findByUid(user.uid);
+  if (stored === undefined || stored.emailVerified) {
+    return false;
+  }
+  if (!isTrustedGmailGoogleSignIn(providerId, stored.email)) {
+    return false;
+  }
+  backend.createSignInCredential({
+    providerId,
+    uid: stored.uid,
+    verifyEmail: true,
+  });
+  return true;
+}
+
 /**
  * After a resolver/mock hands back a User, ensure `providerData` reflects the
  * linked provider recorded by {@link SandboxBackend.recordProviderSignIn}.
@@ -174,10 +198,11 @@ function ensureProviderUser(
   backend: SandboxTarget['backend'],
   user: User,
   providerId: string,
+  forceRefresh = false,
 ): User {
   const internal = (user as { [USER_INTERNAL]?: { target?: SandboxTarget } })[USER_INTERNAL];
   const mintedByOtherBackend = internal !== undefined && internal.target?.backend !== backend;
-  if (!mintedByOtherBackend && user.providerData?.some((entry) => entry.providerId === providerId)) {
+  if (!forceRefresh && !mintedByOtherBackend && user.providerData?.some((entry) => entry.providerId === providerId)) {
     return user;
   }
   const stored = backend.findByUid(user.uid);
@@ -227,9 +252,13 @@ async function commitProviderSignIn(
   }
   backend.assertSignInAllowed(credential.user.uid);
   backend.recordProviderSignIn(credential.user, providerId);
-  const user = ensureProviderUser(backend, credential.user, providerId);
+  const overwritten = applyTrustedGmailOverwriteIfNeeded(backend, credential.user, providerId);
+  const user = ensureProviderUser(backend, credential.user, providerId, overwritten);
   await backend.transitionCurrentUser(user, providerId);
-  return user === credential.user ? credential : { ...credential, user };
+  if (user === credential.user) {
+    return credential;
+  }
+  return { ...credential, user };
 }
 
 export async function signInWithPopup(
@@ -389,7 +418,8 @@ export async function signInWithCredential(
   }
   backend.assertSignInAllowed(mock.user.uid);
   backend.recordProviderSignIn(mock.user, credentialProviderId);
-  const user = ensureProviderUser(backend, mock.user, credentialProviderId);
+  const overwritten = applyTrustedGmailOverwriteIfNeeded(backend, mock.user, credentialProviderId);
+  const user = ensureProviderUser(backend, mock.user, credentialProviderId, overwritten);
   await backend.transitionCurrentUser(user, credentialProviderId);
   if (user === mock.user) {
     return mock;

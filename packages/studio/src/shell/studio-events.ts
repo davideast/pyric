@@ -27,6 +27,12 @@ import {
   retainTrafficEvents,
   type TrafficFeedSnapshot,
 } from './traffic-retention.js';
+import {
+  EMPTY_STUDIO_SUBSCRIPTION_SNAPSHOT,
+  foldStudioSubscriptionSnapshot,
+  retainStudioSubscriptions,
+} from './subscription-retention.js';
+import type { SubscriptionGaugeSnapshot } from '@pyric/ui/traffic';
 import { useDevSeed } from '../dev/DevSeedProvider.js';
 import { useEnvironment } from './environment.js';
 import {
@@ -35,7 +41,6 @@ import {
   type EventFeed,
 } from '../features/action-center/feed.js';
 import {
-  selectDenials,
   selectRuleEvaluations,
   type Denial,
 } from '../features/rules-debug/model.js';
@@ -330,24 +335,9 @@ export function useStudioTrafficFeed(): StudioTrafficFeed {
   );
 }
 
-/**
- * The traffic feed. Firestore still emits legacy `request` events; RTDB and
- * other services can emit canonical `operation` events. Adapt both into the
- * headless `@pyric/ui/traffic` shape.
- */
-export function useStudioTraffic(): StudioTrafficEvent[] {
-  return useStudioTrafficFeed().events;
-}
-
-/** The traffic rows {@link useStudioTraffic} reads, from any event array. */
+/** The traffic rows {@link useStudioTrafficFeed} projects, from any event array. */
 export function studioTrafficEvents(events: readonly SandboxEvent[]): StudioTrafficEvent[] {
   return events.filter(isTrafficEvent).map(toTrafficEvent);
-}
-
-/** The denied ops (rules-failure debugging), derived from the live stream. */
-export function useStudioDenials(): Denial[] {
-  const snapshot = useRetainedTrafficSnapshot();
-  return useMemo<Denial[]>(() => selectDenials(snapshot.events), [snapshot.events]);
 }
 
 /** ALL rules-evaluated ops (allow AND deny/unsupported), derived from the live
@@ -355,4 +345,28 @@ export function useStudioDenials(): Denial[] {
 export function useStudioRuleEvaluations(): Denial[] {
   const snapshot = useRetainedTrafficSnapshot();
   return useMemo<Denial[]>(() => selectRuleEvaluations(snapshot.events), [snapshot.events]);
+}
+
+function retainDefaultSubscriptions(events: readonly SandboxEvent[]): SubscriptionGaugeSnapshot {
+  return retainStudioSubscriptions(events);
+}
+
+function foldDefaultSubscriptions(
+  prev: SubscriptionGaugeSnapshot,
+  event: SandboxEvent,
+): SubscriptionGaugeSnapshot {
+  return foldStudioSubscriptionSnapshot(prev, event);
+}
+
+/**
+ * Pre-cap stateful subscription gauge feed (#284). Folds listener, connection,
+ * `session_boundary`, and `observation_gap` events directly from the raw feed
+ * before `STUDIO_EVENT_CAP` without fabricating `TrafficEvent` fields.
+ */
+export function useStudioSubscriptionFeed(): SubscriptionGaugeSnapshot {
+  return useAccumulatedFeed(
+    EMPTY_STUDIO_SUBSCRIPTION_SNAPSHOT,
+    retainDefaultSubscriptions,
+    foldDefaultSubscriptions,
+  );
 }

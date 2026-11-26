@@ -282,12 +282,15 @@ describe('served AI entry and SharedWorker init/backend/model-guard parity', () 
         { appId: '1:123456789012:web:abcdef03', projectId: 'demo-ai-worker-vertex' },
         3600,
       );
-      const regionalAi = servedAi.getAI(app, {
-        backend: {
-          backendType: servedAi.BackendType.AGENT_PLATFORM,
-          location: 'europe-west1',
-        },
+      const defaultAgentAi = servedAi.getAI(app, {
+        backend: new servedAi.AgentPlatformBackend(),
       });
+      expect(defaultAgentAi.backend).toBeInstanceOf(servedAi.AgentPlatformBackend);
+      expect((defaultAgentAi.backend as { location: string }).location).toBe('global');
+      const regionalAi = servedAi.getAI(app, {
+        backend: new servedAi.AgentPlatformBackend('europe-west1'),
+      });
+      expect(regionalAi).not.toBe(defaultAgentAi);
       const regionalModel = servedAi.getGenerativeModel(regionalAi, {
         model: 'gemini-flash-lite-latest',
       });

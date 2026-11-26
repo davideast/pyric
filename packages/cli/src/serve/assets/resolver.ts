@@ -109,7 +109,7 @@ function readManifestImage(
   image: AssetManifestImage,
 ): { data: Uint8Array; contentType: string } | null {
   const contentType = image.contentType ?? contentTypeFor(image.file);
-  if (!contentType) return null;
+  if (!contentType || extensionFor(contentType) === null) return null;
   try {
     const data = new Uint8Array(readFileSync(join(dir, image.file)));
     return { data, contentType };

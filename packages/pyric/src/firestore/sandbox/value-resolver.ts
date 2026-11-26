@@ -40,6 +40,8 @@ import { dateConverter, serverTimestampConverter } from './converters/timestamp.
 import { userTimestampConverter } from './converters/user-timestamp.js';
 import {
   incrementConverter,
+  maximumConverter,
+  minimumConverter,
   arrayUnionConverter,
   arrayRemoveConverter,
   deleteFieldConverter,
@@ -163,7 +165,14 @@ function utf8ByteLength(value: string): number {
 
 function isFieldTransformSentinel(v: Record<string, unknown>): boolean {
   const t = v.__type;
-  return t === 'serverTimestamp' || t === 'increment' || t === 'arrayUnion' || t === 'arrayRemove';
+  return (
+    t === 'serverTimestamp' ||
+    t === 'increment' ||
+    t === 'maximum' ||
+    t === 'minimum' ||
+    t === 'arrayUnion' ||
+    t === 'arrayRemove'
+  );
 }
 
 export function assertServerWriteLimits(
@@ -378,8 +387,10 @@ export function registerDefaultConverters(): void {
   // Timestamp, so it passes `is timestamp` and shares storage shape with
   // serverTimestamp()/Date-resolved timestamps (unified comparability).
   registerConverter(userTimestampConverter);
-  // Item 2: FieldValue sentinels (increment, arrayUnion/Remove, deleteField).
+  // Item 2: FieldValue sentinels (increment, maximum/minimum, arrayUnion/Remove, deleteField).
   registerConverter(incrementConverter);
+  registerConverter(maximumConverter);
+  registerConverter(minimumConverter);
   registerConverter(arrayUnionConverter);
   registerConverter(arrayRemoveConverter);
   registerConverter(deleteFieldConverter);

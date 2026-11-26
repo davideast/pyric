@@ -92,7 +92,7 @@ function compareBigIntToNumber(intVal: bigint, numVal: number): number {
   return 1;
 }
 
-function compareNumericValues(a: number | bigint, b: number | bigint): number {
+export function compareNumericValues(a: number | bigint, b: number | bigint): number {
   if (typeof a === 'bigint' && typeof b === 'bigint') {
     return compareOrder(a, b);
   }

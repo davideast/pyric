@@ -374,6 +374,8 @@ describe('registerDefaultConverters', () => {
       'server-timestamp-sentinel',
       'user-timestamp-to-rules-timestamp',
       'increment-sentinel',
+      'maximum-sentinel',
+      'minimum-sentinel',
       'array-union-sentinel',
       'array-remove-sentinel',
       'delete-field-sentinel',

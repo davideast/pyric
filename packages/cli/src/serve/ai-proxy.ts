@@ -22,6 +22,15 @@ import {
 } from 'pyric/ai/internal';
 import { sanitizeForTerminal } from './ai-terminal-text.js';
 import { watchAiProxyClientDisconnect } from './ai-proxy-disconnect.js';
+import {
+  isRedirectStatus,
+  isTextLikeAiContentType,
+  maskSseExactCredentials,
+  requestCredentials,
+  stripFetchUserinfo,
+  validateAiProxyPathSuffix,
+  verifyJoinedUpstreamTarget,
+} from './ai-proxy-upstream-policy.js';
 import { HOSTED_METHOD_BODY_LIMIT } from './hosted/method-protocol.js';
 import { answerAndClose, collectRawBody, isBodyTooLarge } from '../bridge/server/peer.js';
 
@@ -179,7 +188,7 @@ export function formatAiProxyWarning(failure: AiProxyFailure, source = 'ai-proxy
     headline = `upstream stream aborted mid-response: ${safeUpstreamText(failure.cause, credentials)}`;
   }
   const lines = [
-    `  ⚠ [pyric] ${source}: ${headline}`,
+    `  \u26a0 [pyric] ${source}: ${headline}`,
     `      POST ${target} (${failure.latencyMs}ms)`,
   ];
   if (failure.kind === 'unreachable') {
@@ -219,110 +228,6 @@ export function resolveAiProxyUpstream(
   return { target: normalizeUpstreamBaseUrl(raw), source };
 }
 
-/**
- * A request's headers as name and value pairs, names lowercased. The pairs
- * are read as given, not through `Headers`, which refuses a value fetch
- * refused too: that refusal is the error whose text needs the masking.
- */
-function headerEntries(headers: HeadersInit | undefined): Array<[string, string]> {
-  if (headers === undefined) return [];
-  const isHeaders = headers instanceof Headers;
-  const isPairs = Array.isArray(headers);
-  let entries: Array<[string, string]>;
-  if (isHeaders) entries = [...headers.entries()];
-  else if (isPairs) entries = headers.map(([name, value]) => [String(name), String(value)]);
-  else entries = Object.entries(headers).map(([name, value]) => [name, String(value)]);
-  return entries.map(([name, value]) => [name.toLowerCase(), value]);
-}
-
-/** The value of header `name` among `entries`, or null. */
-function headerValue(entries: Array<[string, string]>, name: string): string | null {
-  return entries.find(([entryName]) => entryName === name)?.[1] ?? null;
-}
-
-/**
- * The credentials an upstream request carries: the `key` URL parameter, the
- * `x-goog-api-key` header, the `Authorization` value without its scheme, and
- * the URL's username and password (#1766).
- */
-function requestCredentials(input: Parameters<typeof fetch>[0], init: RequestInit | undefined): string[] {
-  const isRequest = input instanceof Request;
-  const entries = headerEntries(isRequest ? input.headers : init?.headers);
-  const url = isRequest ? input.url : String(input);
-  const authorization = headerValue(entries, 'authorization')?.replace(/^\S+\s+/, '') ?? null;
-  const found = [
-    headerValue(entries, 'x-goog-api-key'),
-    headerValue(entries, 'x-api-key'),
-    headerValue(entries, 'api-key'),
-    authorization,
-    ...urlCredentials(url),
-  ];
-  return found.filter((value): value is string => value !== null && value !== '');
-}
-
-function safeDecodeURIComponent(value: string): string {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
-  }
-}
-
-function stripFetchUserinfo(
-  input: Parameters<typeof fetch>[0],
-  init: RequestInit | undefined,
-): {
-  fetchInput: Parameters<typeof fetch>[0];
-  fetchInit: RequestInit | undefined;
-  extraCredentials: string[];
-} {
-  if (input instanceof Request) {
-    return { fetchInput: input, fetchInit: init, extraCredentials: [] };
-  }
-  let parsed: URL;
-  try {
-    parsed = new URL(String(input));
-  } catch {
-    return { fetchInput: input, fetchInit: init, extraCredentials: [] };
-  }
-  if (
-    (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') ||
-    (parsed.username === '' && parsed.password === '')
-  ) {
-    return { fetchInput: input, fetchInit: init, extraCredentials: [] };
-  }
-  const decodedUser = safeDecodeURIComponent(parsed.username);
-  const decodedPass = safeDecodeURIComponent(parsed.password);
-  const basicToken = Buffer.from(`${decodedUser}:${decodedPass}`, 'utf8').toString('base64');
-  parsed.username = '';
-  parsed.password = '';
-  const entries = headerEntries(init?.headers);
-  const hasAuthorization = headerValue(entries, 'authorization') !== null;
-  let nextHeaders: HeadersInit | undefined = init?.headers;
-  if (!hasAuthorization) {
-    if (init?.headers instanceof Headers) {
-      const clone = new Headers(init.headers);
-      clone.set('authorization', `Basic ${basicToken}`);
-      nextHeaders = clone;
-    } else if (Array.isArray(init?.headers)) {
-      nextHeaders = [...init.headers, ['authorization', `Basic ${basicToken}`]];
-    } else {
-      nextHeaders = {
-        ...((init?.headers as Record<string, string> | undefined) ?? {}),
-        authorization: `Basic ${basicToken}`,
-      };
-    }
-  }
-  const nextInit: RequestInit = {};
-  if (init !== undefined) Object.assign(nextInit, init);
-  if (nextHeaders !== undefined) nextInit.headers = nextHeaders;
-  return {
-    fetchInput: parsed.toString(),
-    fetchInit: nextInit,
-    extraCredentials: [basicToken],
-  };
-}
-
 /** Shared upstream I/O for the browser proxy and the direct Node engine.
  * Responses remain incremental; cancellation stops reading without a warning.
  */
@@ -340,9 +245,14 @@ export async function fetchAiUpstream(
   const credentials = [...requestCredentials(input, init), ...extraCredentials];
   const startedAt = Date.now();
   const note = (failure: AiProxyFailure): void => noteAiProxyFailure(failure, throttle, logger, source);
+  const requestInit: RequestInit = {};
+  if (fetchInit !== undefined) {
+    Object.assign(requestInit, fetchInit);
+  }
+  requestInit.redirect = 'manual';
   let upstream: Response;
   try {
-    upstream = await fetch(fetchInput, fetchInit);
+    upstream = await fetch(fetchInput, requestInit);
   } catch (error) {
     if (callerSignal?.aborted === true) {
       throw error;
@@ -441,6 +351,20 @@ export async function readAiProxyBody(
  *     only: nothing here changes what the caller receives. No logger wired
  *     means dropped silently (same opt-out contract as the denial relay).
  */
+function sendAiProxyRefusal(
+  req: IncomingMessage,
+  res: ServerResponse,
+  status: number,
+  message: string,
+): void {
+  const headers = { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' };
+  if (typeof req.once === 'function' && typeof req.resume === 'function') {
+    answerAndClose(req, res, status, headers, message);
+    return;
+  }
+  res.writeHead(status, { ...headers, connection: 'close' }).end(message);
+}
+
 export async function handleAiProxy(
   configuredUpstream: string | undefined,
   throttle: AiDiagnosticThrottle,
@@ -453,9 +377,24 @@ export async function handleAiProxy(
     res.writeHead(405, { allow: 'POST' }).end('method not allowed');
     return;
   }
+  const rawRequestUrl =
+    (req as IncomingMessage & { originalUrl?: string }).originalUrl ?? req.url;
+  const validatedPath = validateAiProxyPathSuffix(rawRequestUrl, url.pathname, AI_PROXY_ROUTE);
+  if (!validatedPath.ok) {
+    sendAiProxyRefusal(req, res, validatedPath.status, validatedPath.message);
+    return;
+  }
   const upstreamBase = resolveAiProxyUpstream(configuredUpstream).target;
-  const suffix = url.pathname.slice(AI_PROXY_ROUTE.length);
-  const target = joinUpstreamUrl(upstreamBase, suffix, url.search);
+  const target = joinUpstreamUrl(upstreamBase, validatedPath.suffix, url.search);
+  if (!verifyJoinedUpstreamTarget(upstreamBase, target, validatedPath.suffix)) {
+    sendAiProxyRefusal(
+      req,
+      res,
+      400,
+      'pyric dev ai-proxy: upstream target escaped configured base URL.',
+    );
+    return;
+  }
   const disconnect = watchAiProxyClientDisconnect(req, res);
 
   try {
@@ -471,8 +410,10 @@ export async function handleAiProxy(
     }
 
     const credentials = [
-      ...urlCredentials(upstreamBase),
-      ...requestCredentials(target, { headers }),
+      ...new Set([
+        ...urlCredentials(upstreamBase),
+        ...requestCredentials(target, { headers }),
+      ]),
     ];
     let upstream: Response;
     try {
@@ -504,6 +445,19 @@ export async function handleAiProxy(
       return;
     }
 
+    if (isRedirectStatus(upstream.status)) {
+      await upstream.body?.cancel().catch(() => {});
+      if (disconnect.isDisconnected()) return;
+      res.writeHead(502, {
+        'content-type': 'text/plain; charset=utf-8',
+        'cache-control': 'no-store',
+      });
+      res.end(
+        `pyric dev ai-proxy: upstream redirect (${upstream.status}) refused to protect credentials.`,
+      );
+      return;
+    }
+
     if (!upstream.ok) {
       const rawError = await upstream.text().catch(() => '');
       if (disconnect.isDisconnected()) return;
@@ -518,7 +472,9 @@ export async function handleAiProxy(
 
     const contentType = upstream.headers.get('content-type')?.toLowerCase() ?? '';
     if (contentType.includes('text/event-stream') && upstream.body !== null) {
-      const maskedUpstream = new Response(maskStreamErrors(upstream.body, credentials), {
+      const errorMasked = maskStreamErrors(upstream.body, credentials);
+      const credentialMasked = maskSseExactCredentials(errorMasked, credentials);
+      const maskedUpstream = new Response(credentialMasked, {
         status: upstream.status,
         statusText: upstream.statusText,
         headers: upstream.headers,
@@ -526,10 +482,15 @@ export async function handleAiProxy(
       await relayAiUpstream(maskedUpstream, res);
       return;
     }
-    if (contentType.includes('application/json') && upstream.body !== null && credentials.length > 0) {
+    if (
+      (isTextLikeAiContentType(contentType) || credentials.length > 0) &&
+      upstream.body !== null
+    ) {
       const rawBody = await upstream.text().catch(() => '');
       if (disconnect.isDisconnected()) return;
-      const maskedBody = redactUpstreamSuccessBody(rawBody, credentials, { maskExactCredentials: false });
+      const maskedBody = redactUpstreamSuccessBody(rawBody, credentials, {
+        maskExactCredentials: true,
+      });
       const maskedUpstream = new Response(maskedBody, {
         status: upstream.status,
         statusText: upstream.statusText,

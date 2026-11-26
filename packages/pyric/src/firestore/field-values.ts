@@ -16,6 +16,8 @@ import {
   createArrayUnionSentinel,
   createDeleteFieldSentinel,
   createIncrementSentinel,
+  createMaximumSentinel,
+  createMinimumSentinel,
   createServerTimestampSentinel,
 } from './field-value-sentinels.js';
 import { canonicalFieldPath } from './sandbox/update-fields.js';
@@ -76,6 +78,12 @@ export function serverTimestamp(): FieldValue & FieldValueSentinel {
 }
 export function increment(n: number): FieldValue & FieldValueSentinel {
   return createIncrementSentinel(n);
+}
+export function maximum(n: number): FieldValue & FieldValueSentinel {
+  return createMaximumSentinel(n);
+}
+export function minimum(n: number): FieldValue & FieldValueSentinel {
+  return createMinimumSentinel(n);
 }
 export function arrayUnion(...values: unknown[]): FieldValue & FieldValueSentinel {
   return createArrayUnionSentinel(values);

@@ -105,6 +105,8 @@ export type TargetDescriptor = (DocRef | CollRef | GroupRef | QueryDescriptor) &
 export type SentinelMarker =
   | { readonly __sentinel: 'serverTimestamp' }
   | { readonly __sentinel: 'increment'; readonly n: number }
+  | { readonly __sentinel: 'maximum'; readonly n: number }
+  | { readonly __sentinel: 'minimum'; readonly n: number }
   | { readonly __sentinel: 'arrayUnion'; readonly values: unknown[] }
   | { readonly __sentinel: 'arrayRemove'; readonly values: unknown[] }
   | { readonly __sentinel: 'deleteField' }

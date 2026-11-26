@@ -20,6 +20,7 @@ import {
   currentSessionToken,
   forgetSessionToken,
   initPayload,
+  initPayloadRequest,
   logInitPayloadFailure,
 } from './init-payload.js';
 import type { WorkerInitPayload } from '../init-payload.js';
@@ -31,6 +32,7 @@ import {
   PYRIC_WORKER_URL,
 } from '../runtime/manifest.js';
 import { getPyricRuntimeStatus } from '../runtime/status.js';
+import { extractUnlockUrl } from '../runtime/chip-unlock.js';
 import { pageBootHostInstanceId } from '../runtime/host-restart.js';
 import { pageLiveIdentity } from '../runtime/live-identity.js';
 import { connectRuntimeWorker } from '../runtime/worker-connection.js';
@@ -44,6 +46,11 @@ import {
   onWorkerRuntimeReload,
   retireWorkerRuntime,
 } from '../worker/client/runtime-control.js';
+import {
+  classifySharedWorkerFallback,
+  formatMissingWorkerTransportError,
+  warnSharedWorkerFallbackOnce,
+} from '../runtime/shared-worker-fallback.js';
 
 const hasSharedWorker = typeof SharedWorker !== 'undefined';
 const runtimeStatus = getPyricRuntimeStatus();
@@ -61,6 +68,7 @@ function hostedTarget(node?: { host: string; origin: NodeRuntimeOrigin }): Param
   const projectKey = payload?.projectKey;
   const isProjectMissing = typeof projectKey !== 'string' || projectKey.length === 0;
   if (isProjectMissing) throw new Error('The hosted sandbox has no project identity.');
+  const initialHostInstanceId = node === undefined ? pageBootHostInstanceId(globalThis) : payload?.instanceId;
   return {
     url: toPageOriginWsUrl(bridgeUrl, hostLocation(node?.host), 'page-origin'),
     projectKey,
@@ -84,9 +92,7 @@ function hostedTarget(node?: { host: string; origin: NodeRuntimeOrigin }): Param
     // A page presents the boot its HTML was served by; a stale cached bundle has none (#1153).
     // A Node process presents the boot whose init.json it just read, so the host
     // holds its config as verified and a page with another config cannot evict it.
-    initialHostInstanceId: node === undefined
-      ? pageBootHostInstanceId(globalThis)
-      : payload?.instanceId,
+    initialHostInstanceId,
     // After a host restart, a Node process reads the new boot's id before it reattaches.
     currentHostInstanceId: node === undefined ? undefined : currentHostInstanceId,
     // A Node process redials the host where it runs now, which `.pyric/serve.json` names.
@@ -180,7 +186,7 @@ function openNodeHostedDb(origin: NodeRuntimeOrigin): ClientDb {
 export function openWorkerDb(appName: string): ClientDb {
   const nodeOrigin = nodeRuntimeOrigin();
   if (nodeOrigin !== undefined) return openNodeHostedDb(nodeOrigin);
-  if (!useWorker) throw new Error('No Pyric worker transport is initialized in this browser context.');
+  if (!useWorker) throw new Error(formatMissingWorkerTransportError({ hasSharedWorker }));
   if (isServiceWorker) return getDeferredFirestore(initPayload.then(configuration => {
     payload = configuration;
     useHosted = configuration?.hosted === true;
@@ -191,7 +197,7 @@ export function openWorkerDb(appName: string): ClientDb {
   }));
   if (useHosted) return openHostedClient();
   if (hasSharedWorker) return getFirestore(WORKER_URL, WORKER_NAME);
-  throw new Error('No Pyric worker transport is available in this browser context.');
+  throw new Error(formatMissingWorkerTransportError({ hasSharedWorker }));
 }
 
 function reportPersistenceHealth(configuration: WorkerInitPayload | null): void {
@@ -200,8 +206,11 @@ function reportPersistenceHealth(configuration: WorkerInitPayload | null): void 
 }
 
 /** A hosted page (the only kind a live host serves) sends its signed-in user's email with its presence. */
-function presenceIdentity(hosted: boolean): { identity?: ReturnType<typeof pageLiveIdentity> } {
-  return hosted ? { identity: pageLiveIdentity() } : {};
+function startAppPresence(db: ClientDb, hosted: boolean): ReturnType<typeof startPresence> {
+  if (hosted) {
+    return startPresence({ db, kind: 'app', identity: pageLiveIdentity() });
+  }
+  return startPresence({ db, kind: 'app' });
 }
 
 function initialize(configuration: WorkerInitPayload | null): void {
@@ -213,7 +222,8 @@ function initialize(configuration: WorkerInitPayload | null): void {
   useHosted = payload?.hosted === true;
   reportPersistenceHealth(payload);
 
-  const hasServiceWorkerRelay = isServiceWorkerRealm() && typeof BroadcastChannel !== 'undefined';
+  const hasBroadcastChannel = typeof BroadcastChannel !== 'undefined';
+  const hasServiceWorkerRelay = isServiceWorkerRealm() && hasBroadcastChannel;
   const hasLocalWorker = hasSharedWorker || hasServiceWorkerRelay;
   const forceInPage = (globalThis as { __PYRIC_FORCE_INPAGE__?: boolean }).__PYRIC_FORCE_INPAGE__ === true;
   const workerRequested = !useHosted && hasLocalWorker && !forceInPage;
@@ -226,17 +236,31 @@ function initialize(configuration: WorkerInitPayload | null): void {
   const hostedSession = useHosted ? workerDb : null;
   if (hostedSession !== null) ownClientUntilPagehide(hostedSession);
 
-  presenceSession = useWorker && workerDb
-    ? startPresence({ db: workerDb, kind: 'app', ...presenceIdentity(useHosted) })
-    : null;
+  presenceSession = null;
+  if (useWorker && workerDb !== null) {
+    presenceSession = startAppPresence(workerDb, useHosted);
+  }
 
   let runtimeMode: 'hosted' | 'shared-worker' | 'in-page' = 'in-page';
   if (useWorker) runtimeMode = 'shared-worker';
   if (useHosted) runtimeMode = 'hosted';
+  let inPageFallback = null;
+  if (runtimeMode === 'in-page') {
+    inPageFallback = classifySharedWorkerFallback({
+      hasSharedWorker,
+      forceInPage,
+      workerConnected: workerDb !== null,
+      hasBroadcastChannel,
+    });
+  }
   runtimeStatus.setWorker({
     mode: runtimeMode,
     runningEpoch: null,
+    inPageFallback,
   });
+  if (!isServiceWorker && typeof window !== 'undefined' && inPageFallback !== null) {
+    warnSharedWorkerFallbackOnce(inPageFallback);
+  }
 
   const controlDb = workerDb;
   const hasLocalControlPort = !useHosted && useWorker && controlDb !== null;
@@ -341,7 +365,13 @@ if (isNodeRealm) {
     );
   }
   initialize(pagePayload ?? null);
+  void initPayloadRequest.catch((error) => {
+    const unlockUrl = extractUnlockUrl(error);
+    if (unlockUrl !== null) runtimeStatus.reportUnlockRequired(unlockUrl);
+  });
   void initPayload.then(reportPersistenceHealth, (error) => {
+    const unlockUrl = extractUnlockUrl(error);
+    if (unlockUrl !== null) runtimeStatus.reportUnlockRequired(unlockUrl);
     runtimeStatus.reportError(error, 'runtime');
     logInitPayloadFailure(error);
   });

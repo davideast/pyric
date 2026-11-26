@@ -4,16 +4,31 @@ import {
   resetTrafficSubrouteQuery,
   TRAFFIC_TABS,
   trafficTabForView,
+  trafficTabsFor,
 } from './traffic-tabs.js';
 
 describe('Traffic metric tabs', () => {
-  it('offers only metrics backed by observed events', () => {
+  it('offers only metrics backed by observed events by default', () => {
     expect(TRAFFIC_TABS).toEqual([
       { id: 'timeline', label: 'Timeline' },
       { id: 'billable', label: 'Billable metrics' },
       { id: 'rules', label: 'Rules' },
       { id: 'listeners', label: 'Listeners' },
     ]);
+    expect(trafficTabsFor({ subscriptionsObserved: false })).toEqual(TRAFFIC_TABS);
+  });
+
+  it('restores the Subscriptions tab only when both subscription series are observed (#284)', () => {
+    expect(trafficTabsFor({ subscriptionsObserved: true })).toEqual([
+      { id: 'timeline', label: 'Timeline' },
+      { id: 'billable', label: 'Billable metrics' },
+      { id: 'subscriptions', label: 'Subscriptions' },
+      { id: 'rules', label: 'Rules' },
+      { id: 'listeners', label: 'Listeners' },
+    ]);
+    expect(trafficTabForView('subscriptions', { subscriptionsObserved: true })).toBe(
+      'subscriptions',
+    );
   });
 
   it('routes the observed metric views', () => {
@@ -22,8 +37,9 @@ describe('Traffic metric tabs', () => {
     expect(trafficTabForView('listeners')).toBe('listeners');
   });
 
-  it('redirects legacy subscription links to the remaining Rules view', () => {
+  it('redirects gated subscription links to the remaining Rules view', () => {
     expect(trafficTabForView('subscriptions')).toBe('rules');
+    expect(trafficTabForView('subscriptions', { subscriptionsObserved: false })).toBe('rules');
   });
 
   it('defaults unknown views to the timeline', () => {
@@ -44,9 +60,20 @@ describe('Traffic metric tabs', () => {
       hide: 'studio',
       from: 'user:u-1',
     });
+    expect(queryForTrafficTab(initial, 'subscriptions')).toEqual({
+      view: 'subscriptions',
+      hide: 'studio',
+      from: 'user:u-1',
+    });
     expect(
       queryForTrafficTab(
-        { view: 'billable', inspect: 'ev-42', listener: 'l-1', target: '/rooms/r1', hide: 'studio' },
+        {
+          view: 'billable',
+          inspect: 'ev-42',
+          listener: 'l-1',
+          target: '/rooms/r1',
+          hide: 'studio',
+        },
         'timeline',
       ),
     ).toEqual({
@@ -57,7 +84,9 @@ describe('Traffic metric tabs', () => {
 
   it('resets active Traffic subroutes back to the root timeline and returns null elsewhere', () => {
     expect(resetTrafficSubrouteQuery({ tab: 'firestore', rest: ['items'], query: {} })).toBeNull();
-    expect(resetTrafficSubrouteQuery({ tab: 'traffic', rest: [], query: { hide: 'studio' } })).toBeNull();
+    expect(
+      resetTrafficSubrouteQuery({ tab: 'traffic', rest: [], query: { hide: 'studio' } }),
+    ).toBeNull();
     expect(
       resetTrafficSubrouteQuery({
         tab: 'traffic',

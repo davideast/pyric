@@ -238,14 +238,9 @@ async function replayOfflineBundleSsrAndClearPersistence(): Promise<Behavior> {
     { preconnect: originalFetch.preconnect },
   );
 
-  if (getApps().length === 0) {
-    await resetAppRegistryForTests();
-  }
-  const existingApp = getApps()[0];
-  let appOptions = { apiKey: 'fake-api-key', projectId: bundleProjectId };
-  if (existingApp !== undefined) {
-    appOptions = existingApp.options as typeof appOptions;
-  }
+  await Promise.all(getApps().map((app) => deleteApp(app)));
+  await resetAppRegistryForTests();
+  const appOptions = { apiKey: 'fake-api-key', projectId: bundleProjectId };
 
   const apps: FirebaseApp[] = [];
   const activeHandles = new Set<Firestore>();

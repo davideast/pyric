@@ -6,13 +6,18 @@
  * it holds the value. What it reports names files, never the value.
  */
 import { copyFileSync, lstatSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { firstLine } from './parse.ts';
 
 export const REDACTED = '[redacted: the harness token]';
 
-/** Directories a scan does not enter: installed packages, which the harness does not keep. */
+/** Directories a scan does not enter: installed packages and local state stores, which `app.tgz` excludes. */
 const SKIPPED = new Set(['node_modules']);
+
+function isSkippedChild(parentPath: string, childName: string): boolean {
+  if (SKIPPED.has(childName)) return true;
+  return basename(parentPath) === '.pyric' && childName === 'state';
+}
 
 /** Paths a scan or a copy leaves alone, such as the planted ones (`planted-links.ts`). */
 export type Skipped = ReadonlySet<string>;
@@ -52,7 +57,7 @@ export function filesContaining(path: string, secret: Secrets, skip: Skipped = N
   if (stat.isFile()) return readOrName(path, false, onUnreadable, () => holdsSecret(readFileSync(path))) ? [path] : [];
   if (!stat.isDirectory()) return [];
   const names = readOrName<string[]>(path, [], onUnreadable, () => readdirSync(path));
-  return names.filter((name) => !SKIPPED.has(name)).flatMap((name) => filesContaining(join(path, name), secret, skip, onUnreadable));
+  return names.filter((name) => !isSkippedChild(path, name)).flatMap((name) => filesContaining(join(path, name), secret, skip, onUnreadable));
 }
 
 function redactedOne(content: Buffer, secret: string): Buffer {
@@ -74,7 +79,10 @@ export function copyRedacted(from: string, to: string, secret: Secrets, skip: Sk
   if (stat === undefined || stat.isSymbolicLink()) return;
   if (stat.isDirectory()) {
     mkdirSync(to, { recursive: true });
-    for (const name of readdirSync(from)) copyRedacted(join(from, name), join(to, name), secret, skip);
+    for (const name of readdirSync(from)) {
+      if (isSkippedChild(from, name)) continue;
+      copyRedacted(join(from, name), join(to, name), secret, skip);
+    }
     return;
   }
   if (!stat.isFile()) return;

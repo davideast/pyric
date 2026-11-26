@@ -259,6 +259,8 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'auth.adminClearUsers' }
   | { t: 'op'; id: string; method: 'auth.getProviderConfig' }
   | { t: 'op'; id: string; method: 'auth.setProviderConfig'; providerId: string; enabled: boolean }
+  | { t: 'op'; id: string; method: 'auth.getEmailEnumerationProtection' }
+  | { t: 'op'; id: string; method: 'auth.setEmailEnumerationProtection'; enabled: boolean }
   | AuthBlockingRespondOpMessage
   // Storage ops. An object op names its bucket with `bucket`, or the host's
   // default bucket without one (see StorageBucketWire).
@@ -324,7 +326,9 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'resetAll' }
   // Messaging ops
   | { t: 'op'; id: string; method: 'messaging.getToken'; registrationId?: string; recipientId?: string }
-  | { t: 'op'; id: string; method: 'messaging.deleteToken'; registrationId?: string }
+  | { t: 'op'; id: string; method: 'messaging.deleteToken'; registrationId?: string; recipientId?: string }
+  | { t: 'op'; id: string; method: 'messaging.register'; registrationId?: string; recipientId?: string }
+  | { t: 'op'; id: string; method: 'messaging.unregister'; registrationId?: string; recipientId?: string }
   | { t: 'op'; id: string; method: 'messaging.send'; message: BrokerMessage; validateOnly?: boolean }
   | { t: 'op'; id: string; method: 'messaging.subscribeToTopic'; tokens: string[]; topic: string }
   | { t: 'op'; id: string; method: 'messaging.unsubscribeFromTopic'; tokens: string[]; topic: string }

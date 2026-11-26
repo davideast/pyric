@@ -17,6 +17,10 @@ import {
   messagingSetVisibility,
   type ClientMessaging,
 } from '../worker/client/messaging.js';
+import {
+  messagingOnRegistered,
+  messagingOnUnregistered,
+} from '../worker/client/messaging-registration.js';
 import { messagingSwClient, holdMessagingWorkerStartup } from './messaging-sw-client.js';
 import { messagingRegistration } from './messaging-registration.js';
 
@@ -28,12 +32,21 @@ export type {
   NextFn,
   NotificationPayload,
   Observer,
+  RegisterOptions,
   Unsubscribe,
 } from 'pyric/messaging/sw';
+
+interface SwFidListenerSlot {
+  handler: NextFn<string> | Observer<string> | null;
+  unsub?: Unsubscribe;
+  generation: number;
+}
 
 const workerMessagingByApp = new WeakMap<FirebaseApp, Messaging>();
 const clients = new WeakMap<Messaging, Promise<ClientMessaging | null>>();
 const bigQueryExport = new WeakMap<Messaging, boolean>();
+const swRegisteredSlots = new WeakMap<Messaging, SwFidListenerSlot>();
+const swUnregisteredSlots = new WeakMap<Messaging, SwFidListenerSlot>();
 
 export function getMessaging(app?: FirebaseApp): Messaging {
   const resolved = app ?? getApp();
@@ -90,6 +103,74 @@ export function onBackgroundMessage(
   return () => { stopped = true; unsubscribe?.(); };
 }
 
+function attachSwFidListener(
+  messaging: Messaging,
+  slots: WeakMap<Messaging, SwFidListenerSlot>,
+  kind: 'registered' | 'unregistered',
+  nextOrObserver: NextFn<string> | Observer<string>,
+): Unsubscribe {
+  const client = clients.get(messaging);
+  if (!client) throw new Error('firebase/messaging/sw: unrecognized Messaging instance');
+  let slot = slots.get(messaging);
+  if (!slot) {
+    slot = { handler: null, generation: 0 };
+    slots.set(messaging, slot);
+  }
+  slot.unsub?.();
+  slot.unsub = undefined;
+  slot.handler = nextOrObserver;
+  const generation = ++slot.generation;
+  const ready = client.then(async worker => {
+    if (slot.generation !== generation || slot.handler !== nextOrObserver) return;
+    if (worker) {
+      if (kind === 'registered') {
+        slot.unsub = messagingOnRegistered(worker, nextOrObserver);
+      } else {
+        slot.unsub = messagingOnUnregistered(worker, nextOrObserver);
+      }
+      await worker.registrationId;
+      return;
+    }
+    const inPageSw = inPage.getMessaging(messaging.app);
+    if (kind === 'registered') {
+      slot.unsub = inPage.onRegistered(inPageSw, nextOrObserver);
+    } else {
+      slot.unsub = inPage.onUnregistered(inPageSw, nextOrObserver);
+    }
+  });
+  holdMessagingWorkerStartup(ready);
+  void ready.catch(error => {
+    if (slot.generation !== generation || slot.handler !== nextOrObserver) return;
+    if (typeof nextOrObserver !== 'function') {
+      nextOrObserver.error(error instanceof Error ? error : new Error(String(error)));
+    } else {
+      console.error('Messaging service-worker registration subscription failed:', error);
+    }
+  });
+  return () => {
+    if (slot.handler === nextOrObserver) {
+      slot.handler = null;
+      slot.generation++;
+      slot.unsub?.();
+      slot.unsub = undefined;
+    }
+  };
+}
+
+export function onRegistered(
+  messaging: Messaging,
+  nextOrObserver: NextFn<string> | Observer<string>,
+): Unsubscribe {
+  return attachSwFidListener(messaging, swRegisteredSlots, 'registered', nextOrObserver);
+}
+
+export function onUnregistered(
+  messaging: Messaging,
+  nextOrObserver: NextFn<string> | Observer<string>,
+): Unsubscribe {
+  return attachSwFidListener(messaging, swUnregisteredSlots, 'unregistered', nextOrObserver);
+}
+
 export function experimentalSetDeliveryMetricsExportedToBigQueryEnabled(
   messaging: Messaging,
   enable: boolean,
@@ -101,5 +182,3 @@ export function experimentalSetDeliveryMetricsExportedToBigQueryEnabled(
 }
 
 export const isSupported = inPage.isSupported;
-
-export { onRegistered, onUnregistered } from './unsupported/messaging.js';
