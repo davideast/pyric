@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { json, read, sha, verifyInputs } from '../../../arcade/corpus.mjs';
 
-const [consumer, resolver] = process.argv.slice(2);
+const [consumer, resolver, output = fileURLToPath(new URL('artifacts/', import.meta.url))] = process.argv.slice(2);
 if (!consumer || !resolver) throw Error('Usage: bun build.mjs <installed rules package> <installed Arcade resolver>');
 const pkg = JSON.parse(readFileSync(join(consumer, 'package.json')));
 const { compileFunction } = await import(pathToFileURL(resolve(consumer, pkg.exports['./experimental/policy'].import)));
@@ -14,7 +14,7 @@ verifyInputs();
 const file = name => readFileSync(new URL(name, import.meta.url), 'utf8');
 const artifacts = {};
 function save(name, data) {
-  writeFileSync(new URL('artifacts/' + name, import.meta.url), data);
+  writeFileSync(join(output, name), data);
   artifacts[name] = { sha256: sha(data), bytes: Buffer.byteLength(data) };
 }
 function replaceOnce(source, text, replacement) {
@@ -84,4 +84,4 @@ src.root = replaceOnce(src.root, moveGrant, '');
 src.root = replaceOnce(src.root, 'chessCreate, chessJoin, chessCancel, chessMove, chessResign',
   'chessCreate, chessJoin, chessCancel, chessResign');
 save('referee.rules', link(src));
-writeFileSync(new URL('artifacts/manifest.json', import.meta.url), JSON.stringify({ artifacts, compiled: [...compatNames, ...strongerNames] }, null, 2) + '\n');
+writeFileSync(join(output, 'manifest.json'), JSON.stringify({ artifacts, compiled: [...compatNames, ...strongerNames] }, null, 2) + '\n');

@@ -1,0 +1,932 @@
+{
+  "authority": "local-pinned-reference-evaluator",
+  "arcade": "66e14d4f4b0aeab22c05db8d748704dde053d2e5",
+  "sourceSha256": "1f321bbb70128936c00283d22cfe03ad84b8907a00f0dacf3363b694d6534d5e",
+  "profiles": [
+    "stock",
+    "compatibility",
+    "stronger",
+    "referee"
+  ],
+  "cases": 150,
+  "peak": {
+    "stock": {
+      "id": "black-queenside",
+      "evaluatedExpressions": 384
+    },
+    "compatibility": {
+      "id": "black-queenside",
+      "evaluatedExpressions": 381
+    },
+    "stronger": {
+      "id": "native-2-a8a1",
+      "evaluatedExpressions": 965
+    },
+    "referee": {
+      "id": "resign-modifies-board",
+      "evaluatedExpressions": 93
+    }
+  },
+  "verdicts": {
+    "opening-pawn": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "knight": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "white-kingside": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "white-queenside": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "black-kingside": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "black-queenside": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "castle-right-rook-moves": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "capture-corner-rook": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "en-passant": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "long-line": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "long-diagonal": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "promote-q": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "capture-promote-q": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "promote-r": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "capture-promote-r": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "promote-b": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "capture-promote-b": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "promote-n": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "capture-promote-n": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "pawn-distance": [
+      "ALLOW",
+      "ALLOW",
+      "DENY",
+      "DENY"
+    ],
+    "slider-blocked": [
+      "ALLOW",
+      "ALLOW",
+      "DENY",
+      "DENY"
+    ],
+    "knight-shape": [
+      "ALLOW",
+      "ALLOW",
+      "DENY",
+      "DENY"
+    ],
+    "empty-castle-rights": [
+      "ALLOW",
+      "ALLOW",
+      "DENY",
+      "DENY"
+    ],
+    "missing-promotion": [
+      "ALLOW",
+      "ALLOW",
+      "DENY",
+      "DENY"
+    ],
+    "backward-pawn": [
+      "ALLOW",
+      "ALLOW",
+      "DENY",
+      "DENY"
+    ],
+    "pinned-slider": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "castle-attacked-transit": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "ep-successor": [
+      "ALLOW",
+      "ALLOW",
+      "DENY",
+      "DENY"
+    ],
+    "castle-rights-successor": [
+      "ALLOW",
+      "ALLOW",
+      "DENY",
+      "DENY"
+    ],
+    "castle-rook-successor": [
+      "ALLOW",
+      "ALLOW",
+      "DENY",
+      "DENY"
+    ],
+    "ep-captured-pawn-successor": [
+      "ALLOW",
+      "ALLOW",
+      "DENY",
+      "DENY"
+    ],
+    "false-terminal-claim": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "move-count": [
+      "DENY",
+      "DENY",
+      "DENY",
+      "DENY"
+    ],
+    "previous-board": [
+      "DENY",
+      "DENY",
+      "DENY",
+      "DENY"
+    ],
+    "turn-owner": [
+      "DENY",
+      "DENY",
+      "DENY",
+      "DENY"
+    ],
+    "join": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "ALLOW"
+    ],
+    "resign": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "ALLOW"
+    ],
+    "join-modifies-board": [
+      "DENY",
+      "DENY",
+      "DENY",
+      "DENY"
+    ],
+    "resign-modifies-board": [
+      "DENY",
+      "DENY",
+      "DENY",
+      "DENY"
+    ],
+    "native-0-a2a3": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-0-a2a4": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-0-b2b3": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-0-b2b4": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-0-c2c3": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-0-c2c4": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-0-d2d3": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-0-d2d4": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-0-e2e3": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-0-e2e4": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-0-f2f3": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-0-f2f4": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-0-g2g3": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-0-g2g4": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-0-h2h3": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-0-h2h4": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-0-b1a3": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-0-b1c3": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-0-g1f3": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-0-g1h3": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-1-a1a2": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-1-a1a3": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-1-a1a4": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-1-a1a5": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-1-a1a6": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-1-a1a7": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-1-a1a8": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-1-a1b1": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-1-a1c1": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-1-a1d1": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-1-e1d2": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-1-e1e2": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-1-e1f2": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-1-e1d1": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-1-e1f1": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-1-h1h2": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-1-h1h3": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-1-h1h4": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-1-h1h5": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-1-h1h6": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-1-h1h7": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-1-h1h8": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-1-h1g1": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-1-h1f1": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-1-e1g1": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-1-e1c1": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-2-a8a7": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-2-a8a6": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-2-a8a5": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-2-a8a4": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-2-a8a3": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-2-a8a2": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-2-a8a1": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-2-a8b8": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-2-a8c8": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-2-a8d8": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-2-e8d8": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-2-e8f8": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-2-e8d7": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-2-e8e7": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-2-e8f7": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-2-h8h7": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-2-h8h6": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-2-h8h5": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-2-h8h4": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-2-h8h3": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-2-h8h2": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-2-h8h1": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-2-h8g8": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-2-h8f8": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-2-e8g8": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-2-e8c8": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-3-e5e6": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-3-e5d6": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-3-e1d2": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-3-e1e2": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-3-e1f2": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-3-e1d1": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-3-e1f1": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-4-a7a8q": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-4-a7a8r": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-4-a7a8b": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-4-a7a8n": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-4-a7b8q": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-4-a7b8r": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-4-a7b8b": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-4-a7b8n": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-4-a1a2": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-5-a1a2": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-5-a1a3": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-5-a1a4": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-5-a1a5": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-5-a1a6": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-5-a1a7": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-5-a1a8": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-5-a1b1": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-5-a1c1": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-5-a1d1": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-5-a1e1": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-5-a1b2": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-5-a1c3": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-5-a1d4": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-5-a1e5": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-5-a1f6": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-5-a1g7": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-5-a1h8": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-5-f1e2": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-5-f1f2": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-5-f1g2": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-5-f1e1": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ],
+    "native-5-f1g1": [
+      "ALLOW",
+      "ALLOW",
+      "ALLOW",
+      "DENY"
+    ]
+  }
+}
