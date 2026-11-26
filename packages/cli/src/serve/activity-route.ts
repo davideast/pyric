@@ -1,19 +1,13 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { answerAndClose } from '../bridge/server/peer.js';
+import { isBodyTooLarge } from '../bridge/server/peer.js';
+import { readBoundedUtf8Body, sendPayloadTooLarge, sendTextRefusal } from './bounded-body.js';
 import {
-  effectiveRequestScheme,
-  isAdmittedPeer,
-  isLoopbackHostHeader,
-  parseAllowPeersSetting,
-  parseTrustProxySetting,
+  createGuardPolicy,
+  evaluateGuard,
   type RemoteAccessOptions,
-  type TrustProxyPolicy,
 } from './guard-policy.js';
 import {
   getHeader,
-  isAllowedHost,
-  isAllowedSessionToken,
-  isLocalPeer,
   timingSafeTokenMatch,
 } from './loopback-guard.js';
 import {
@@ -28,11 +22,10 @@ export interface ActivityGuardOptions {
   remoteAccess?: RemoteAccessOptions;
 }
 
-const MAX_ACTIVITY_BODY_BYTES = 32 * 1024;
+/** Maximum UTF-8 byte length accepted by `POST /__pyric/activity`. */
+export const ACTIVITY_BODY_LIMIT_BYTES = 32 * 1024;
 const MAX_DEDUPED_INCIDENT_KEYS = 256;
 const deliveredBySink = new WeakMap<(incident: ActivityIncident) => void, Set<string>>();
-
-class ActivityBodyTooLargeError extends Error {}
 
 function incidentDeliveryKey(incident: ActivityIncident): string {
   if (incident.evidenceEventIds.length > 0) {
@@ -74,64 +67,76 @@ export async function handleActivity(
   guard?: ActivityGuardOptions,
 ): Promise<void> {
   if (req.method !== 'POST') {
-    res.writeHead(405, { allow: 'POST' }).end('method not allowed');
+    sendTextRefusal(req, res, 405, { allow: 'POST' }, 'method not allowed');
     return;
   }
   const mediaType = req.headers['content-type']?.split(';', 1)[0]?.trim().toLowerCase();
   if (mediaType !== 'application/json') {
-    res.writeHead(415, { 'content-type': 'text/plain; charset=utf-8' })
-      .end('content-type must be application/json');
+    sendTextRefusal(
+      req,
+      res,
+      415,
+      { 'content-type': 'text/plain; charset=utf-8' },
+      'content-type must be application/json',
+    );
     return;
   }
-  const allowPeers = parseAllowPeersSetting(guard?.remoteAccess?.allowPeers);
-  const trustProxy = parseTrustProxySetting(guard?.remoteAccess?.trustProxy);
-  const localPeer = isLocalPeer(req);
-  if (!localPeer && !isAdmittedPeer(req, { allowPeers })) {
-    res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' })
-      .end('cross-origin activity reports are not allowed');
+  const policy = createGuardPolicy({
+    boundHost: guard?.boundHost ?? 'localhost',
+    allowedHosts: resolveActivityAllowedHosts(guard),
+    allowPeers: guard?.remoteAccess?.allowPeers,
+    trustProxy: guard?.remoteAccess?.trustProxy,
+    browserUnlock: guard?.remoteAccess?.browserUnlock,
+    remoteAccessEnabled: guard?.remoteAccess !== undefined,
+    sessionToken: guard?.sessionToken,
+    requireSessionToken: false,
+  });
+  const decision = evaluateGuard(req, policy, 'activity');
+  if (!decision.ok) {
+    sendTextRefusal(
+      req,
+      res,
+      decision.status,
+      { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' },
+      decision.message,
+    );
     return;
   }
-  const hostHeader = req.headers.host;
-  const boundHost = guard?.boundHost ?? 'localhost';
-  const extraHosts = resolveActivityAllowedHosts(guard);
-  const isRemoteHost = !isLoopbackHostHeader(hostHeader);
-  const isRemoteRequest = !localPeer || isRemoteHost;
-  if (guard !== undefined && !isAllowedHost(hostHeader, boundHost, extraHosts)) {
-    res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' })
-      .end('cross-origin activity reports are not allowed');
+  if (getHeader(req, 'origin') === undefined) {
+    sendTextRefusal(
+      req,
+      res,
+      403,
+      { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' },
+      'cross-origin activity reports are not allowed',
+    );
     return;
-  }
-  if (!hasTrustedOrigin(req, trustProxy)) {
-    res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' })
-      .end('cross-origin activity reports are not allowed');
-    return;
-  }
-  if (isRemoteRequest && guard?.sessionToken !== undefined) {
-    if (!isAllowedSessionToken(req, undefined, guard.sessionToken)) {
-      res.writeHead(401, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' })
-        .end('session unlock required for remote activity reports');
-      return;
-    }
   }
   if (!timingSafeTokenMatch(getHeader(req, 'x-pyric-activity-token'), activityToken)) {
-    res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' })
-      .end('invalid activity capability');
+    sendTextRefusal(
+      req,
+      res,
+      403,
+      { 'content-type': 'text/plain; charset=utf-8' },
+      'invalid activity capability',
+    );
     return;
   }
   try {
-    const body = await collectActivityBody(req);
+    const rawBody = await readBoundedUtf8Body(req, ACTIVITY_BODY_LIMIT_BYTES);
+    const body: unknown = JSON.parse(rawBody);
     if (!isActivityIncident(body)) throw new Error('invalid activity incident');
     if (recordIncidentOnce(onIncident, body)) {
       onIncident(body);
     }
     res.writeHead(204).end();
   } catch (error) {
-    const headers = { 'content-type': 'text/plain; charset=utf-8' };
-    const message = error instanceof Error ? error.message : String(error);
-    if (error instanceof ActivityBodyTooLargeError) {
-      answerAndClose(req, res, 413, headers, message);
+    if (isBodyTooLarge(error)) {
+      sendPayloadTooLarge(req, res, 'Payload Too Large: activity incident exceeds 32 KiB');
       return;
     }
+    const headers = { 'content-type': 'text/plain; charset=utf-8' };
+    const message = error instanceof Error ? error.message : String(error);
     res.writeHead(400, headers).end(message);
   }
 }
@@ -146,60 +151,6 @@ function resolveActivityAllowedHosts(guard: ActivityGuardOptions | undefined): r
     if (!merged.includes(host)) merged.push(host);
   }
   return merged;
-}
-
-function hasTrustedOrigin(req: IncomingMessage, trustProxy: TrustProxyPolicy): boolean {
-  const origin = req.headers.origin;
-  if (origin === undefined) return false;
-  const host = req.headers.host;
-  if (!host) return false;
-  try {
-    const parsed = new URL(origin);
-    const protocol = effectiveRequestScheme(req, trustProxy) ?? 'http:';
-    return parsed.protocol === protocol && parsed.host.toLowerCase() === host.trim().toLowerCase();
-  } catch {
-    return false;
-  }
-}
-
-async function collectActivityBody(req: IncomingMessage): Promise<unknown> {
-  const declaredLength = Number(req.headers['content-length']);
-  if (Number.isFinite(declaredLength) && declaredLength > MAX_ACTIVITY_BODY_BYTES) {
-    req.resume();
-    throw new ActivityBodyTooLargeError('activity incident exceeds 32 KiB');
-  }
-
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    let size = 0;
-    let settled = false;
-    req.on('data', (chunk: Buffer | string) => {
-      if (settled) return;
-      const bytes = typeof chunk === 'string' ? Buffer.from(chunk) : chunk;
-      size += bytes.byteLength;
-      if (size > MAX_ACTIVITY_BODY_BYTES) {
-        settled = true;
-        chunks.length = 0;
-        reject(new ActivityBodyTooLargeError('activity incident exceeds 32 KiB'));
-        return;
-      }
-      chunks.push(bytes);
-    });
-    req.on('end', () => {
-      if (settled) return;
-      settled = true;
-      try {
-        resolve(JSON.parse(Buffer.concat(chunks, size).toString('utf8')));
-      } catch (error) {
-        reject(error);
-      }
-    });
-    req.on('error', (error) => {
-      if (settled) return;
-      settled = true;
-      reject(error);
-    });
-  });
 }
 
 function isActivityIncident(value: unknown): value is ActivityIncident {
