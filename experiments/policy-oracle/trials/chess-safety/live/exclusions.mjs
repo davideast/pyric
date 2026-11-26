@@ -4,6 +4,7 @@ import {manifest} from '../../../arcade/corpus.mjs';
 import {journal,retained} from '../../chess/verify/journal.mjs';
 import {checkRows} from '../../for-of/live/evidence.mjs';
 import {reviewedPlan} from './fixtures.mjs';
+import {inspectRecovered} from './recovery-exclusion.mjs';
 
 const directory=new URL('unqualified/',import.meta.url);
 
@@ -40,7 +41,10 @@ export function unqualified(archive) {
     const value=JSON.parse(readFileSync(new URL(file,directory)));
     assert.equal(value.controllerSha256+'.json',file);assert.equal(value.scored,0);
     assert.equal(value.restored,manifest.target.closedRuleset);assert.equal(value.leaseReleased,true);
-    if(archive)assert.deepEqual(value,inspect(archive,value.plan,value.controllerSha256));
+    if(archive) {
+      const checked=value.reason==='management-401-during-restore' ? inspectRecovered(archive,value.controllerSha256) : inspect(archive,value.plan,value.controllerSha256);
+      assert.deepEqual(value,checked);
+    }
     return value;
   });
 }
