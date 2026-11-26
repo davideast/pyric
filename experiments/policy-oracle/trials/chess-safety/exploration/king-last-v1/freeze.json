@@ -1,0 +1,44 @@
+{
+  "moves": 96,
+  "writes": 288,
+  "selectedWhiteConfigurations": {
+    "q/playing": 4,
+    "q/stalemate": 4,
+    "q/playing-checked": 4,
+    "r/playing": 4,
+    "r/stalemate": 4,
+    "r/playing-checked": 4,
+    "b/stalemate": 4,
+    "b/playing": 4,
+    "b/playing-checked": 4,
+    "n/playing": 4,
+    "n/stalemate": 4
+  },
+  "terminalRepresentativePositions": {
+    "q/checkmate": {
+      "terminalSuccessors": 62,
+      "withLegalKingPredecessor": 0
+    },
+    "q/stalemate": {
+      "terminalSuccessors": 183,
+      "withLegalKingPredecessor": 183
+    },
+    "r/stalemate": {
+      "terminalSuccessors": 17,
+      "withLegalKingPredecessor": 17
+    },
+    "r/checkmate": {
+      "terminalSuccessors": 39,
+      "withLegalKingPredecessor": 0
+    },
+    "b/stalemate": {
+      "terminalSuccessors": 31,
+      "withLegalKingPredecessor": 31
+    },
+    "n/stalemate": {
+      "terminalSuccessors": 10,
+      "withLegalKingPredecessor": 10
+    }
+  },
+  "sha256": "822a6e32aa04626cfd1c0bd6a280803fd9add01064ea7d3212c328504aa0d58a"
+}
