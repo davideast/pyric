@@ -1,0 +1,62 @@
+import assert from 'node:assert/strict';
+import {spawnSync,execFileSync} from 'node:child_process';
+import {readdirSync} from 'node:fs';
+import {join} from 'node:path';
+import {setTimeout as delay} from 'node:timers/promises';
+import {fileURLToPath} from 'node:url';
+import {manifest} from '../../../arcade/corpus.mjs';
+import {privateArchive} from '../../../arcade/live/controller/archive.mjs';
+import {read as immutableJson} from '../../chess/verify/journal.mjs';
+
+const cli=fileURLToPath(new URL('run.mjs',import.meta.url));
+
+// A lost response can follow a successful release activation. Only retry a
+// signed-write-free run whose journal proves the exclusive lease was restored.
+export function retryable(archive,runId) {
+  assert.match(runId,/^[0-9a-f-]{36}$/);
+  const directory=join(privateArchive(archive),runId);
+  const events=readdirSync(directory).filter(f=>/^\d+-.*\.json$/.test(f)).sort()
+    .map(f=>immutableJson(join(directory,f)));
+  const one=kind=>events.filter(e=>e.kind===kind);
+  const failures=one('failure'), closed=one('closed'), released=one('released'), locks=one('acquired');
+  if(failures.length!==1 || closed.length!==1 || released.length!==1 || locks.length!==1 || one('chess-attempt').length) return false;
+  const failure=failures[0].data;
+  if(![429,503].includes(failure.status) || !['POST','PATCH'].includes(failure.method)
+      || !/^\/v1\/projects\/[^/]+\/(rulesets$|releases\/cloud\.firestore\/)/.test(failure.path)) return false;
+  const lock=locks[0].data, final=closed[0].data;
+  assert.equal(final.databaseUid,manifest.target.uid);
+  assert.equal(final.rulesetName,manifest.target.closedRuleset);
+  assert.equal(final.rulesSha256,manifest.files['v1/rules/closed.rules']);
+  assert.equal(final.lockVersion,lock.lockVersion);
+  assert.equal(final.lockRunId,runId);
+  assert.deepEqual(released[0].data,{runId,version:lock.lockVersion});
+  const phases=one('propagation-confirmed').map(p=>p.data.phase);
+  assert.ok(phases.includes('initially-closed'));
+  if(one('activate').length) assert.ok(phases.includes('restored-closed'));
+  return true;
+}
+
+export async function measure(name,archive) {
+  for(let attempt=1;attempt<=3;attempt++) {
+    const child=spawnSync(process.execPath,[cli,'capture',name,archive],{
+      encoding:'utf8',stdio:['ignore','pipe','inherit'],maxBuffer:2*1024*1024,
+    });
+    if(child.error) throw child.error;
+    process.stdout.write(child.stdout);
+    const lines=child.stdout.split('\n');
+    if(child.status!==0) {
+      const started=lines.find(l=>l.startsWith('Private run '));
+      const id=started?.split(' ')[2];
+      if(!id || attempt===3 || !retryable(archive,id)) throw Error('Capture incomplete; no observations admitted');
+      console.log('Retrying temporary management failure after verified closure and zero scored writes',attempt);
+      await delay(30000*attempt);
+      continue;
+    }
+    const qualified=lines.filter(line=>line.startsWith('Qualified '));
+    assert.equal(qualified.length,1,'a complete capture must produce one receipt');
+    const [,mode,digest]=qualified[0].split(' ');
+    assert.equal(mode,name);assert.match(digest,/^[0-9a-f]{64}$/);
+    execFileSync(process.execPath,[cli,'retain',name,archive,digest],{stdio:'inherit'});
+    return;
+  }
+}
