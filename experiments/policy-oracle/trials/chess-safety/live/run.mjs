@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import {existsSync,readFileSync,readdirSync,writeFileSync} from 'node:fs';
 import {gunzipSync} from 'node:zlib';
+import {execFileSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
 import {manifest,sha} from '../../../arcade/corpus.mjs';
 import {privateArchive} from '../../../arcade/live/controller/archive.mjs';
 import {checkRows,comparable,qualify} from '../../for-of/live/evidence.mjs';
@@ -72,7 +74,23 @@ function report(archive, allowUnmeasured) {
 }
 
 const [operation,...args]=process.argv.slice(2);
-if(operation==='capture' || operation==='retain') {
+if(operation==='measure') {
+  const [name,archive]=args;
+  assert.equal(args.length,2);
+  const cli=fileURLToPath(import.meta.url);
+  const output=execFileSync(process.execPath,[cli,'capture',name,archive],{
+    encoding:'utf8',stdio:['ignore','pipe','inherit'],maxBuffer:2*1024*1024,
+  });
+  process.stdout.write(output);
+  const qualified=output.split('\n').filter(line=>line.startsWith('Qualified '));
+  assert.equal(qualified.length,1,'a complete capture must produce one receipt');
+  const [_,mode,digest]=qualified[0].split(' ');
+  assert.equal(mode,name);
+  assert.match(digest,/^[0-9a-f]{64}$/);
+  execFileSync(process.execPath,[cli,'retain',name,archive,digest],{stdio:'inherit'});
+  const {measurements}=verify(name,reviewedPlan(name),archive);
+  console.log('Replayed',measurements.decisions.length,'signed writes and closure',measurements.receipt);
+} else if(operation==='capture' || operation==='retain') {
   const [name,archive,receipt]=args;
   const {plan,bundle,fixtures,receipts}=reviewedPlan(name);
   if(operation==='capture') {
