@@ -30,7 +30,7 @@ export function attackPattern(color) {
   return '.*'+either(attacks)+'.*';
 }
 
-export function packedSources() {
+export function packedSources(compact=false) {
   const cells=[];
   for(const rank of '12345678') {
     for(const f of files) {
@@ -47,8 +47,20 @@ export function packedSources() {
     }
     cells.push("'#,#'");
   }
-  return {
-    packBoard:`function packBoard(board, route) { return [${cells.join(', ')}].join(',') + ','; }`,
+  const fixed = {};
+  if (compact) {
+    for (const route of ['', 'wshort','wlong','bshort','blong']) {
+      const name='pack'+(route||'Normal');
+      const values=cells.map(v=>{
+        if (!v.startsWith('route ==')) return v;
+        const [,required,king,square]=v.match(/^route == '([^']+)' \? '([^']+)' : (board\.[a-h][1-8])$/);
+        return required===route ? "'"+king+"'" : square;
+      });
+      fixed[name]='function '+name+'(board) { return ['+values.join(', ')+"].join(',') + ','; }";
+    }
+  }
+  const normal = {packBoard:`function packBoard(board, route) { return [${cells.join(', ')}].join(',') + ','; }`};
+  return {...(compact?fixed:normal),
     packedSafe:`function packedSafe(text, color) {
     return color == 'w' ? text.matches('.*wk,.*') && !text.matches('${attackPattern('w')}')
       : text.matches('.*bk,.*') && !text.matches('${attackPattern('b')}');
@@ -56,7 +68,11 @@ export function packedSources() {
   };
 }
 
-export function packedGuard() {
+export function packedGuard(compact=false) {
+  if (compact) return `function safeTransition(old, next, color, kingMove, castle, xTo, yTo) {
+    let text = castle ? (color == 'w' ? (xTo > 4 ? packwshort(old.board) : packwlong(old.board)) : (xTo > 4 ? packbshort(old.board) : packblong(old.board))) : packNormal(next.board);
+    return packedSafe(text, color);
+  }`;
   return `function safeTransition(old, next, color, kingMove, castle, xTo, yTo) {
     let route = castle ? color + (xTo > 4 ? 'short' : 'long') : '';
     return packedSafe(packBoard(castle ? old.board : next.board, route), color);
@@ -68,5 +84,7 @@ export function packedPredict(compiled, {resource:old,data:next}) {
   const {from,to}=next.lastMove;
   const castle=old.board[from]===color+'k' && from[1]===to[1] && Math.abs(files.indexOf(from[0])-files.indexOf(to[0]))===2;
   const route=castle?color+(to[0]==='g'?'short':'long'):'';
-  return compiled.packedSafe(compiled.packBoard(castle?old.board:next.board,route),color);
+  const board=castle ? old.board : next.board;
+  const encoded=compiled.packBoard ? compiled.packBoard(board,route) : compiled['pack'+(route||'Normal')](board);
+  return compiled.packedSafe(encoded,color);
 }

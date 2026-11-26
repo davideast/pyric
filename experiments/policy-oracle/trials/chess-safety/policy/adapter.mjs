@@ -1,14 +1,16 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
+import {compactPathSources,compactValidation,compactPath} from './compact.mjs';
 import {packedSources,packedGuard,packedPredict} from './packed.mjs';
 import {optimizeValidation,optimizeApplication} from './optimized.mjs';
 import {squares, geometricSources, selectSquare} from './geometry.mjs';
 
 const read = path => readFileSync(new URL(path,import.meta.url),'utf8');
 const horizontalSource = () => read('../../king-safety/policy/horizontal-path.policy');
-export const variants = ['pins','attacks','castle','optimized','packed'];
+export const variants = ['pins','attacks','castle','optimized','packed','packed-v2'];
 
 function sourcesFor(variant) {
+  if (variant==='packed-v2') return {...packedSources(true),...compactPathSources()};
   return variant === 'packed' ? packedSources() : geometricSources(variant);
 }
 
@@ -17,7 +19,7 @@ export function compile(compileFunction, variant = 'castle', {mode='both'} = {})
   const compiled = Object.fromEntries(Object.entries(sources).map(([name,source])=>[name,compileFunction(source)]));
   const modules = mode==='standalone' ? {} : Object.fromEntries(Object.entries(compiled).map(([k,fn])=>[k,fn.firestoreModule()]));
   function predict({resource:old, data:next}) {
-    if (variant==='packed') return packedPredict(compiled,{resource:old,data:next});
+    if (variant.startsWith('packed')) return packedPredict(compiled,{resource:old,data:next});
     const color = old.currentTurn === 'host' ? 'w' : 'b';
     const enemy = color === 'w' ? 'b' : 'w';
     const {from,to} = next.lastMove;
@@ -58,10 +60,12 @@ export async function link(modules,resolveModules,{variant='castle'}={}) {
     return "import { "+name+" } from './safety-"+name+"';";
   });
   const header="rules_version = '2+modules';";
-  const packed=variant==='packed';
+  const packed=variant.startsWith('packed');
+  const compact=variant==='packed-v2';
   const optimized=variant==='optimized'||packed;
   if (optimized) {
     app.modules[key] = optimizeValidation(app.modules[key]);
+    if (compact) app.modules[key]=compactValidation(app.modules[key]);
     const chess='../games/chess/chess';
     app.modules[chess] = optimizeApplication(app.modules[chess]);
   }
@@ -79,9 +83,9 @@ export async function link(modules,resolveModules,{variant='castle'}={}) {
     assert.equal(rules.split(a).length,2,a);
     return rules.replace(a,b);
   }
-  let helpers=once(app.modules[key],header,[header,...imports,...(packed?[packedGuard()]:[dispatch,guard])].join('\n'));
+  let helpers=once(app.modules[key],header,[header,...imports,...(packed?[packedGuard(compact)]:[dispatch,guard])].join('\n'));
   helpers=once(helpers,end,end.slice(0,-1)+" && safeTransition(old, next, color, kind == 'k', castle, x + dx, y + dy);");
-  helpers=once(helpers,path,"(kind == 'r' && dx != 0 ? horizontalPathClear(old.board, mv.from[1:2], x, x + dx) : "+path+")");
+  helpers=once(helpers,path,compact?compactPath:"(kind == 'r' && dx != 0 ? horizontalPathClear(old.board, mv.from[1:2], x, x + dx) : "+path+")");
   app.modules[key]=helpers;
   // Source maps are tool metadata. Keep only the full executable Rules when measuring target size.
   const source=bundle();
