@@ -1,0 +1,101 @@
+{
+  "authority": "offline-rules-simulator",
+  "local": {
+    "stock": {
+      "knight": "ALLOW",
+      "bishop": "ALLOW",
+      "king": "ALLOW",
+      "rook": "ALLOW",
+      "retain-turn": "DENY",
+      "previous-board": "DENY",
+      "previous-rights": "DENY",
+      "previous-ep": "DENY",
+      "retained-source": "DENY",
+      "wrong-destination": "DENY",
+      "unrelated-square": "DENY",
+      "protected-guest": "DENY",
+      "last-move-extra": "DENY",
+      "ongoing-winner": "DENY",
+      "wrong-color": "DENY"
+    },
+    "compatibility": {
+      "knight": "ALLOW",
+      "bishop": "ALLOW",
+      "king": "ALLOW",
+      "rook": "ALLOW",
+      "retain-turn": "DENY",
+      "previous-board": "DENY",
+      "previous-rights": "DENY",
+      "previous-ep": "DENY",
+      "retained-source": "DENY",
+      "wrong-destination": "DENY",
+      "unrelated-square": "DENY",
+      "protected-guest": "DENY",
+      "last-move-extra": "DENY",
+      "ongoing-winner": "DENY",
+      "wrong-color": "DENY"
+    },
+    "stronger": {
+      "knight": "ALLOW",
+      "bishop": "ALLOW",
+      "king": "ALLOW",
+      "rook": "ALLOW",
+      "knight-shape": "DENY",
+      "bishop-shape": "DENY",
+      "king-shape": "DENY",
+      "rook-shape": "DENY",
+      "retain-turn": "DENY",
+      "previous-board": "DENY",
+      "previous-rights": "DENY",
+      "previous-ep": "DENY",
+      "retained-source": "DENY",
+      "wrong-destination": "DENY",
+      "unrelated-square": "DENY",
+      "protected-guest": "DENY",
+      "last-move-extra": "DENY",
+      "ongoing-winner": "DENY",
+      "wrong-color": "DENY"
+    }
+  },
+  "sensitivity": {
+    "piece-shape": [
+      {
+        "id": "knight-shape",
+        "recorded": "DENY",
+        "mutant": "ALLOW"
+      },
+      {
+        "id": "bishop-shape",
+        "recorded": "DENY",
+        "mutant": "ALLOW"
+      },
+      {
+        "id": "king-shape",
+        "recorded": "DENY",
+        "mutant": "ALLOW"
+      },
+      {
+        "id": "rook-shape",
+        "recorded": "DENY",
+        "mutant": "ALLOW"
+      }
+    ],
+    "history": [
+      {
+        "id": "previous-board",
+        "recorded": "DENY",
+        "mutant": "ALLOW"
+      },
+      {
+        "id": "previous-rights",
+        "recorded": "DENY",
+        "mutant": "ALLOW"
+      },
+      {
+        "id": "previous-ep",
+        "recorded": "DENY",
+        "mutant": "ALLOW"
+      }
+    ]
+  }
+}
