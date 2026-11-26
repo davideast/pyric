@@ -1,0 +1,18 @@
+{
+  "referee": "python-chess 1.11.2",
+  "archiveSha256": "a8b43e5678fdb3000695bdaa573117ad683761e5ca38e591c4826eba6d25bb39",
+  "singlesSha256": "a2b59ce6861dda188f725641198144f6480836289e924a98a073100e4d094625",
+  "pairsSha256": "4cd6167bde1c0923617d4281401b690c84f06e116ceaf6c369fe6e0c06a5d241",
+  "twoPlyRowsVerified": 262,
+  "uniqueBeforeAndCapture": 214,
+  "pairedBoards": 47,
+  "uniqueLegalPreviousPushes": 166,
+  "individuals": {
+    "allow": 72,
+    "deny": 96
+  },
+  "paired": {
+    "allow": 47,
+    "deny": 47
+  }
+}

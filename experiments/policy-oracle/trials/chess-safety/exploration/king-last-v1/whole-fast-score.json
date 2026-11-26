@@ -1,0 +1,221 @@
+{
+  "authority": "pinned local full Firestore Rules simulator",
+  "rulesSha256": "1c54afb25341a008e08b831e0cfd1b8a489dab8681e7d917d384fd77b8018b36",
+  "corpusSha256": "822a6e32aa04626cfd1c0bd6a280803fd9add01064ea7d3212c328504aa0d58a",
+  "caseCount": 288,
+  "scoreSha256": "5830293343811e39b132cde722ee0f30878393eafb78babd43cbe4e2404100d3",
+  "groups": {
+    "w/q/playing": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      },
+      "peakExpressions": 824
+    },
+    "b/q/playing": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      },
+      "peakExpressions": 839
+    },
+    "w/q/stalemate": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      },
+      "peakExpressions": 813
+    },
+    "b/q/stalemate": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      },
+      "peakExpressions": 816
+    },
+    "w/q/playing-checked": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      },
+      "peakExpressions": 824
+    },
+    "b/q/playing-checked": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      },
+      "peakExpressions": 839
+    },
+    "w/r/playing": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      },
+      "peakExpressions": 824
+    },
+    "b/r/playing": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      },
+      "peakExpressions": 839
+    },
+    "w/r/stalemate": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      },
+      "peakExpressions": 813
+    },
+    "b/r/stalemate": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      },
+      "peakExpressions": 816
+    },
+    "w/r/playing-checked": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      },
+      "peakExpressions": 824
+    },
+    "b/r/playing-checked": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      },
+      "peakExpressions": 839
+    },
+    "w/b/stalemate": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      },
+      "peakExpressions": 813
+    },
+    "b/b/stalemate": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      },
+      "peakExpressions": 816
+    },
+    "w/b/playing": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      },
+      "peakExpressions": 824
+    },
+    "b/b/playing": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      },
+      "peakExpressions": 839
+    },
+    "w/b/playing-checked": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      },
+      "peakExpressions": 824
+    },
+    "b/b/playing-checked": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      },
+      "peakExpressions": 839
+    },
+    "w/n/playing": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      },
+      "peakExpressions": 824
+    },
+    "b/n/playing": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      },
+      "peakExpressions": 839
+    },
+    "w/n/stalemate": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      },
+      "peakExpressions": 813
+    },
+    "b/n/stalemate": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      },
+      "peakExpressions": 816
+    },
+    "w/castle/kingside/held": {
+      "cases": 3,
+      "outcomes": {
+        "match": 3
+      },
+      "peakExpressions": 904
+    },
+    "b/castle/kingside/held": {
+      "cases": 3,
+      "outcomes": {
+        "match": 3
+      },
+      "peakExpressions": 930
+    },
+    "w/castle/kingside/expired": {
+      "cases": 3,
+      "outcomes": {
+        "match": 3
+      },
+      "peakExpressions": 376
+    },
+    "b/castle/kingside/expired": {
+      "cases": 3,
+      "outcomes": {
+        "match": 3
+      },
+      "peakExpressions": 387
+    },
+    "w/castle/queenside/held": {
+      "cases": 3,
+      "outcomes": {
+        "match": 3
+      },
+      "peakExpressions": 927
+    },
+    "b/castle/queenside/held": {
+      "cases": 3,
+      "outcomes": {
+        "match": 3
+      },
+      "peakExpressions": 953
+    },
+    "w/castle/queenside/expired": {
+      "cases": 3,
+      "outcomes": {
+        "match": 3
+      },
+      "peakExpressions": 384
+    },
+    "b/castle/queenside/expired": {
+      "cases": 3,
+      "outcomes": {
+        "match": 3
+      },
+      "peakExpressions": 395
+    }
+  },
+  "reachableByMove": {},
+  "divergences": {}
+}
