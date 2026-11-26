@@ -40,6 +40,8 @@ def main():
         ("always-allow", "return locate?0:true", EMIT.replace("PREDICATE","'true'"), "false-allow", "false-allow"),
         ("always-deny", "return locate?0:false", EMIT.replace("PREDICATE","'false'"), "false-refusal", "false-refusal"),
         ("standalone-throws", "throw Error('runtime control')", EMIT.replace("PREDICATE","'true'"), "standalone-error","false-allow"),
+        ("nonboolean-square", "return locate?0:'false'", EMIT.replace("PREDICATE","'true'"), "standalone-error","false-allow"),
+        ("invalid-king-index", "return locate?99:true", EMIT.replace("PREDICATE","'true'"), "standalone-error","false-allow"),
         ("cannot-compile", "return locate?0:true", "throw Error('unsupported emission')", "false-allow", "cannot-compile"),
         ("malformed-rules", "return locate?0:true", "return 'not a Rules module'", "false-allow","link-error"),
         ("wrong-package", "return true", "return ''", "install-error","install-error"),

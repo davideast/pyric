@@ -1,0 +1,162 @@
+{
+  "engine": "1f321bbb70128936c00283d22cfe03ad84b8907a00f0dacf3363b694d6534d5e",
+  "policy": "97dda7add77cb18d132ba1c730bbef24a48870404198d6677cdf0f961a30d212",
+  "standaloneAgrees": true,
+  "cases": [
+    {
+      "id": "ep-surviving-rank-blocker",
+      "fen": "4k3/8/8/r1N2pPK/8/8/8/8 w - f6",
+      "uci": "g5f6",
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "4k3/8/5P2/r1N4K/8/8/8/8 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "a5a1",
+        "a5a2",
+        "a5a3",
+        "a5a4",
+        "a5a6",
+        "a5a7",
+        "a5a8",
+        "a5b5",
+        "a5c5",
+        "e8d8",
+        "e8f7",
+        "e8f8"
+      ]
+    },
+    {
+      "id": "ep-two-pawns-leave-rank",
+      "fen": "4k3/8/8/r4pPK/8/8/8/8 w - f6",
+      "uci": "g5f6",
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": true,
+      "kingSafe": false,
+      "nativeLegal": false,
+      "nativeAdmission": false,
+      "successor": "4k3/8/5P2/r6K/8/8/8/8 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": null
+    },
+    {
+      "id": "ep-rook-on-neighboring-rank",
+      "fen": "4k3/8/8/5pPK/r7/8/8/8 w - f6",
+      "uci": "g5f6",
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "4k3/8/5P2/7K/r7/8/8/8 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "a4a1",
+        "a4a2",
+        "a4a3",
+        "a4a5",
+        "a4a6",
+        "a4a7",
+        "a4a8",
+        "a4b4",
+        "a4c4",
+        "a4d4",
+        "a4e4",
+        "a4f4",
+        "a4g4",
+        "a4h4",
+        "e8d7",
+        "e8d8",
+        "e8f7",
+        "e8f8"
+      ]
+    },
+    {
+      "id": "black-ep-surviving-blocker",
+      "fen": "8/8/8/8/R1n2Ppk/8/8/4K3 b - f3",
+      "uci": "g4f3",
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "8/8/8/8/R1n4k/5p2/8/4K3 w - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "a4a1",
+        "a4a2",
+        "a4a3",
+        "a4a5",
+        "a4a6",
+        "a4a7",
+        "a4a8",
+        "a4b4",
+        "a4c4",
+        "e1d1",
+        "e1f1",
+        "e1f2"
+      ]
+    },
+    {
+      "id": "black-ep-opens-rank",
+      "fen": "8/8/8/8/R4Ppk/8/8/4K3 b - f3",
+      "uci": "g4f3",
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": true,
+      "kingSafe": false,
+      "nativeLegal": false,
+      "nativeAdmission": false,
+      "successor": "8/8/8/8/R6k/5p2/8/4K3 w - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": null
+    }
+  ]
+}

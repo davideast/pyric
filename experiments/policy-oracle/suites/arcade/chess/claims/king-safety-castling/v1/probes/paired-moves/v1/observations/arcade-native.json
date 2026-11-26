@@ -1,0 +1,52 @@
+{
+  "authority": "native-model",
+  "inputDigest": "04b7f4283a0524e8c8e8d538f0ae63d333c083799096c6f9646ac9ab8b2ffe7f",
+  "results": {
+    "white-short-clear": true,
+    "white-short-start-attacked": false,
+    "white-short-transit-attacked": false,
+    "white-short-destination-attacked": false,
+    "white-short-rook-attacked": true,
+    "white-long-clear": true,
+    "white-long-start-attacked": false,
+    "white-long-transit-attacked": false,
+    "white-long-destination-attacked": false,
+    "white-long-rook-attacked": true,
+    "black-short-clear": true,
+    "black-short-start-attacked": false,
+    "black-short-transit-attacked": false,
+    "black-short-destination-attacked": false,
+    "black-short-rook-attacked": true,
+    "black-long-clear": true,
+    "black-long-start-attacked": false,
+    "black-long-transit-attacked": false,
+    "black-long-destination-attacked": false,
+    "black-long-rook-attacked": true
+  },
+  "evidence": {
+    "path": "raw/arcade-native.json",
+    "sha256": "f9ae80946b7459ec41bf9f670de8a3ffc9ef142520d8e56c5caa5278fd036c6b",
+    "pointers": {
+      "white-short-clear": "/cases/0/nativeAdmission",
+      "white-short-start-attacked": "/cases/1/nativeAdmission",
+      "white-short-transit-attacked": "/cases/2/nativeAdmission",
+      "white-short-destination-attacked": "/cases/3/nativeAdmission",
+      "white-short-rook-attacked": "/cases/4/nativeAdmission",
+      "white-long-clear": "/cases/5/nativeAdmission",
+      "white-long-start-attacked": "/cases/6/nativeAdmission",
+      "white-long-transit-attacked": "/cases/7/nativeAdmission",
+      "white-long-destination-attacked": "/cases/8/nativeAdmission",
+      "white-long-rook-attacked": "/cases/9/nativeAdmission",
+      "black-short-clear": "/cases/10/nativeAdmission",
+      "black-short-start-attacked": "/cases/11/nativeAdmission",
+      "black-short-transit-attacked": "/cases/12/nativeAdmission",
+      "black-short-destination-attacked": "/cases/13/nativeAdmission",
+      "black-short-rook-attacked": "/cases/14/nativeAdmission",
+      "black-long-clear": "/cases/15/nativeAdmission",
+      "black-long-start-attacked": "/cases/16/nativeAdmission",
+      "black-long-transit-attacked": "/cases/17/nativeAdmission",
+      "black-long-destination-attacked": "/cases/18/nativeAdmission",
+      "black-long-rook-attacked": "/cases/19/nativeAdmission"
+    }
+  }
+}

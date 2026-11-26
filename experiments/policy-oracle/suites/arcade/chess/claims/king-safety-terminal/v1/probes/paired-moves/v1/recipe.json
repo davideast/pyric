@@ -1,0 +1,27 @@
+{
+  "source": {
+    "repo": "https://github.com/davideast/arcade",
+    "revision": "66e14d4f4b0aeab22c05db8d748704dde053d2e5",
+    "path": "games/chess/src/chess.ts"
+  },
+  "cases": [
+    "mate-correct",
+    "mate-wrong-result",
+    "stalemate-correct",
+    "stalemate-wrong-result",
+    "one-king-reply-correct",
+    "one-king-reply-wrong-result",
+    "one-rook-reply-correct",
+    "one-rook-reply-wrong-result",
+    "black-mate-correct",
+    "black-mate-reported-playing"
+  ],
+  "pins": {
+    "replay.mjs": "451ac51d9e2518d0fd6c3aa55682168f111564ecf4eb5f9c0997842668d535d4",
+    "writes.json.gz": "c99816eca678dd3ed95ed8963d41da1b7f8dbd52111327ffe95d71d9425f1ab2",
+    "@oracle/trials/chess-safety/registry/evaluate.mjs": "dd6aab726c6e2dbc465a3b7a299f9dba538c362fcde20002f7d24bb5e722c451",
+    "@oracle/trials/chess-safety/artefacts/quick-packed-v5.rules": "2d793f903e7d1b517ca34d92887a30a233e5246452228e35a136a730b4a10bf0",
+    "@oracle/trials/chess/bundle/artifacts/stronger.rules": "523c4c137aa00c2c764264aa6c2cefeda7c692561544da45d4fcccf3a2056fda"
+  },
+  "replay": "replay.mjs"
+}

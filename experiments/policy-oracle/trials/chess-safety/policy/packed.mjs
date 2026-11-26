@@ -86,5 +86,8 @@ export function packedPredict(compiled, {resource:old,data:next}) {
   const route=castle?color+(to[0]==='g'?'short':'long'):'';
   const board=castle ? old.board : next.board;
   const encoded=compiled.packBoard ? compiled.packBoard(board,route) : compiled['pack'+(route||'Normal')](board);
-  return compiled.packedSafe(encoded,color);
+  if (typeof encoded !== 'string') throw Error('board packer must return a string');
+  const value = compiled.packedSafe(encoded,color);
+  if (typeof value !== 'boolean') throw Error('packed safety must return a boolean');
+  return value;
 }

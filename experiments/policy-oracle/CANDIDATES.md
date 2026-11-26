@@ -46,3 +46,5 @@ The [vacated-file trial](trials/king-safety/README.md) accepts a packed compiler
 ```sh
 python3 experiments/policy-oracle/trials/king-safety/score.py --candidate-package /path/to/candidate.tgz --with-live
 ```
+
+The [cumulative chess trial](trials/chess-safety/README.md) replays the ten file-pin inputs and adds ranks, diagonals, king destinations, evasions, en passant, both castling wings, composition and terminal claims. From its directory, `python3 replay.py` reproduces the reference run. Add `--candidate-package /path/to/candidate.tgz` to evaluate another compiler on the same frozen evidence.

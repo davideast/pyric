@@ -32,7 +32,7 @@ def task(script, args):
     return {"engine": "bun", "runner": "/oracle/" + REL + "/" + script, "args": args}
 
 
-def score_rows(cases, predictions, field, failure=None):
+def score_rows(cases, predictions, field, failure=None, *, standalone=False):
     result = []
     for index, c in enumerate(cases):
         p = predictions[index] if predictions else {}
@@ -42,7 +42,7 @@ def score_rows(cases, predictions, field, failure=None):
         if failure:
             status = failure
         elif error:
-            status = "evaluation-error" if field == "nativeAdmission" else "standalone-error"
+            status = "standalone-error" if standalone or field == "kingSafe" else "evaluation-error"
             if error in ("resource-limit", "rule-error") and p.get("decision") == "DENY" and c[field]:
                 status = "false-refusal"
         else:
@@ -90,10 +90,12 @@ def score(package, through, variant, save_artifact=None, board_policy=False):
     ref = (ROOT / "arcade/vendor/pyric-rules-0.1.0.tgz").read_bytes()
     oracle.require(oracle.sha(ref)==REFERENCE,"independent evaluator changed")
     inputs = [{k:r[k] for k in ("resource","data")} for r in requests]
-    files = {REL+"/consumer.mjs", REL+"/policy","trials/king-safety/policy/public-api.mjs",
+    policy_files = {REL+"/policy/"+name+".mjs" for name in ("adapter", "line-search", "compact", "packed", "optimized", "geometry")}
+    files = {REL+"/consumer.mjs", *policy_files,"trials/king-safety/policy/public-api.mjs",
              "trials/king-safety/policy/horizontal-path.policy"}
     terminal_files = {REL+"/terminal/v1/"+f for f in ("policy.mjs","geometry.mjs","compact.mjs","reply.mjs")}
-    terminal_files.update({REL+"/terminal/table-v2/"+f for f in ("policy.mjs","endings.mjs")})
+    terminal_files.update({REL+"/terminal/table-v2/"+f for f in ("policy.mjs","endings.mjs","patterns.mjs")})
+    terminal_files.update({REL+"/mobility/"+f for f in ("combined.mjs","adapter.mjs","grouped.mjs")})
     files.update(terminal_files)
     tasks = {"emit":task("consumer.mjs", ["emit",variant,PKG]),
              "standalone":task("consumer.mjs", ["standalone",variant,PKG,*chunks(inputs)])}
@@ -159,7 +161,7 @@ def score(package, through, variant, save_artifact=None, board_policy=False):
             error = "incomplete standalone board response"
         if error:
             diagnostics["boardPolicy"] = error
-        verdicts = score_rows(cases, None if error else board, "nativeAdmission", "standalone-error" if error else None)
+        verdicts = score_rows(cases, None if error else board, "nativeAdmission", "standalone-error" if error else None, standalone=True)
         for name, ids in cohorts.items():
             batches[name]["standaloneBoard"] = summarize([r for r in verdicts if r["id"] in ids])
         additional["standaloneBoard"] = verdicts
@@ -173,7 +175,7 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument("--candidate-package",type=Path,required=True)
     p.add_argument("--through",type=int,choices=range(8),default=7)
-    p.add_argument("--variant",default="optimized")
+    p.add_argument("--variant",default="quick-packed-v5")
     p.add_argument("--save-rules",type=Path,help="save independently linked source for review")
     p.add_argument("--board-policy",action="store_true",help="also derive full move legality, successor and terminal outcome via the public bounded-module API")
     p.add_argument("--with-live",action="store_true",help="look up retained measurements of these exact Rules bytes")

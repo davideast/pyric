@@ -1,0 +1,608 @@
+{
+  "engine": "1f321bbb70128936c00283d22cfe03ad84b8907a00f0dacf3363b694d6534d5e",
+  "policy": "97dda7add77cb18d132ba1c730bbef24a48870404198d6677cdf0f961a30d212",
+  "standaloneAgrees": true,
+  "cases": [
+    {
+      "id": "rank-rook-safe",
+      "fen": "6k1/8/8/7r/K1R5/8/8/8 w - -",
+      "uci": "c4c5",
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "6k1/8/8/2R4r/K7/8/8/8 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "g8f7",
+        "g8f8",
+        "g8g7",
+        "g8h7",
+        "g8h8",
+        "h5c5",
+        "h5d5",
+        "h5e5",
+        "h5f5",
+        "h5g5",
+        "h5h1",
+        "h5h2",
+        "h5h3",
+        "h5h4",
+        "h5h6",
+        "h5h7",
+        "h5h8"
+      ]
+    },
+    {
+      "id": "rank-rook-exposed",
+      "fen": "6k1/8/8/8/K1R4r/8/8/8 w - -",
+      "uci": "c4c5",
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": true,
+      "kingSafe": false,
+      "nativeLegal": false,
+      "nativeAdmission": false,
+      "successor": "6k1/8/8/2R5/K6r/8/8/8 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": null
+    },
+    {
+      "id": "rank-queen-safe",
+      "fen": "6k1/8/8/7q/K1R5/8/8/8 w - -",
+      "uci": "c4c5",
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "6k1/8/8/2R4q/K7/8/8/8 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "g8f7",
+        "g8f8",
+        "g8g7",
+        "g8h7",
+        "g8h8",
+        "h5c5",
+        "h5d1",
+        "h5d5",
+        "h5e2",
+        "h5e5",
+        "h5e8",
+        "h5f3",
+        "h5f5",
+        "h5f7",
+        "h5g4",
+        "h5g5",
+        "h5g6",
+        "h5h1",
+        "h5h2",
+        "h5h3",
+        "h5h4",
+        "h5h6",
+        "h5h7",
+        "h5h8"
+      ]
+    },
+    {
+      "id": "rank-queen-exposed",
+      "fen": "6k1/8/8/8/K1R4q/8/8/8 w - -",
+      "uci": "c4c5",
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": true,
+      "kingSafe": false,
+      "nativeLegal": false,
+      "nativeAdmission": false,
+      "successor": "6k1/8/8/2R5/K6q/8/8/8 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": null
+    },
+    {
+      "id": "rank-surviving-blocker",
+      "fen": "6k1/8/8/8/K1R1P2r/8/8/8 w - -",
+      "uci": "c4c5",
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "6k1/8/8/2R5/K3P2r/8/8/8 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "g8f7",
+        "g8f8",
+        "g8g7",
+        "g8h7",
+        "g8h8",
+        "h4e4",
+        "h4f4",
+        "h4g4",
+        "h4h1",
+        "h4h2",
+        "h4h3",
+        "h4h5",
+        "h4h6",
+        "h4h7",
+        "h4h8"
+      ]
+    },
+    {
+      "id": "rank-pinned-slide",
+      "fen": "6k1/8/8/8/K1R4r/8/8/8 w - -",
+      "uci": "c4e4",
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "6k1/8/8/8/K3R2r/8/8/8 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "g8f7",
+        "g8f8",
+        "g8g7",
+        "g8h7",
+        "g8h8",
+        "h4e4",
+        "h4f4",
+        "h4g4",
+        "h4h1",
+        "h4h2",
+        "h4h3",
+        "h4h5",
+        "h4h6",
+        "h4h7",
+        "h4h8"
+      ]
+    },
+    {
+      "id": "rank-pinned-capture",
+      "fen": "6k1/8/8/8/K1R4r/8/8/8 w - -",
+      "uci": "c4h4",
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "6k1/8/8/8/K6R/8/8/8 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "g8f7",
+        "g8f8",
+        "g8g7"
+      ]
+    },
+    {
+      "id": "rising-bishop-safe",
+      "fen": "6b1/k7/8/8/8/2B5/8/K7 w - -",
+      "uci": "c3b4",
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "6b1/k7/8/8/1B6/8/8/K7 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "a7a6",
+        "a7a8",
+        "a7b6",
+        "a7b7",
+        "a7b8",
+        "g8a2",
+        "g8b3",
+        "g8c4",
+        "g8d5",
+        "g8e6",
+        "g8f7",
+        "g8h7"
+      ]
+    },
+    {
+      "id": "rising-bishop-exposed",
+      "fen": "8/k5b1/8/8/8/2B5/8/K7 w - -",
+      "uci": "c3b4",
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": true,
+      "kingSafe": false,
+      "nativeLegal": false,
+      "nativeAdmission": false,
+      "successor": "8/k5b1/8/8/1B6/8/8/K7 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": null
+    },
+    {
+      "id": "rising-queen-safe",
+      "fen": "6q1/k7/8/8/8/2B5/8/K7 w - -",
+      "uci": "c3b4",
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "6q1/k7/8/8/1B6/8/8/K7 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "a7a6",
+        "a7a8",
+        "a7b6",
+        "a7b7",
+        "a7b8",
+        "g8a2",
+        "g8a8",
+        "g8b3",
+        "g8b8",
+        "g8c4",
+        "g8c8",
+        "g8d5",
+        "g8d8",
+        "g8e6",
+        "g8e8",
+        "g8f7",
+        "g8f8",
+        "g8g1",
+        "g8g2",
+        "g8g3",
+        "g8g4",
+        "g8g5",
+        "g8g6",
+        "g8g7",
+        "g8h7",
+        "g8h8"
+      ]
+    },
+    {
+      "id": "rising-queen-exposed",
+      "fen": "8/k5q1/8/8/8/2B5/8/K7 w - -",
+      "uci": "c3b4",
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": true,
+      "kingSafe": false,
+      "nativeLegal": false,
+      "nativeAdmission": false,
+      "successor": "8/k5q1/8/8/1B6/8/8/K7 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": null
+    },
+    {
+      "id": "rising-pinned-slide",
+      "fen": "8/k5b1/8/8/8/2B5/8/K7 w - -",
+      "uci": "c3d4",
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "8/k5b1/8/8/3B4/8/8/K7 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "a7a6",
+        "a7a8",
+        "a7b7",
+        "a7b8",
+        "g7d4"
+      ]
+    },
+    {
+      "id": "rising-pinned-capture",
+      "fen": "8/k5b1/8/8/8/2B5/8/K7 w - -",
+      "uci": "c3g7",
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "8/k5B1/8/8/8/8/8/K7 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "a7a6",
+        "a7a8",
+        "a7b6",
+        "a7b7",
+        "a7b8"
+      ]
+    },
+    {
+      "id": "falling-bishop-safe",
+      "fen": "1b6/7k/8/8/8/5B2/8/7K w - -",
+      "uci": "f3g4",
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "1b6/7k/8/8/6B1/8/8/7K b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "b8a7",
+        "b8c7",
+        "b8d6",
+        "b8e5",
+        "b8f4",
+        "b8g3",
+        "b8h2",
+        "h7g6",
+        "h7g7",
+        "h7g8",
+        "h7h6",
+        "h7h8"
+      ]
+    },
+    {
+      "id": "falling-bishop-exposed",
+      "fen": "8/1b5k/8/8/8/5B2/8/7K w - -",
+      "uci": "f3g4",
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": true,
+      "kingSafe": false,
+      "nativeLegal": false,
+      "nativeAdmission": false,
+      "successor": "8/1b5k/8/8/6B1/8/8/7K b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": null
+    },
+    {
+      "id": "falling-queen-safe",
+      "fen": "1q6/7k/8/8/8/5B2/8/7K w - -",
+      "uci": "f3g4",
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "1q6/7k/8/8/6B1/8/8/7K b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "b8a7",
+        "b8a8",
+        "b8b1",
+        "b8b2",
+        "b8b3",
+        "b8b4",
+        "b8b5",
+        "b8b6",
+        "b8b7",
+        "b8c7",
+        "b8c8",
+        "b8d6",
+        "b8d8",
+        "b8e5",
+        "b8e8",
+        "b8f4",
+        "b8f8",
+        "b8g3",
+        "b8g8",
+        "b8h2",
+        "b8h8",
+        "h7g6",
+        "h7g7",
+        "h7g8",
+        "h7h6",
+        "h7h8"
+      ]
+    },
+    {
+      "id": "falling-queen-exposed",
+      "fen": "8/1q5k/8/8/8/5B2/8/7K w - -",
+      "uci": "f3g4",
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": true,
+      "kingSafe": false,
+      "nativeLegal": false,
+      "nativeAdmission": false,
+      "successor": "8/1q5k/8/8/6B1/8/8/7K b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": null
+    },
+    {
+      "id": "falling-pinned-slide",
+      "fen": "8/1b5k/8/8/8/5B2/8/7K w - -",
+      "uci": "f3e4",
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "8/1b5k/8/8/4B3/8/8/7K b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "b7e4",
+        "h7g7",
+        "h7g8",
+        "h7h6",
+        "h7h8"
+      ]
+    },
+    {
+      "id": "falling-pinned-capture",
+      "fen": "8/1b5k/8/8/8/5B2/8/7K w - -",
+      "uci": "f3b7",
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "8/1B5k/8/8/8/8/8/7K b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "h7g6",
+        "h7g7",
+        "h7g8",
+        "h7h6",
+        "h7h8"
+      ]
+    }
+  ]
+}

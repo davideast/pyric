@@ -1,0 +1,37 @@
+{
+  "source": {
+    "repo": "https://github.com/davideast/arcade",
+    "revision": "66e14d4f4b0aeab22c05db8d748704dde053d2e5",
+    "path": "games/chess/src/chess.ts"
+  },
+  "cases": [
+    "white-short-clear",
+    "white-short-start-attacked",
+    "white-short-transit-attacked",
+    "white-short-destination-attacked",
+    "white-short-rook-attacked",
+    "white-long-clear",
+    "white-long-start-attacked",
+    "white-long-transit-attacked",
+    "white-long-destination-attacked",
+    "white-long-rook-attacked",
+    "black-short-clear",
+    "black-short-start-attacked",
+    "black-short-transit-attacked",
+    "black-short-destination-attacked",
+    "black-short-rook-attacked",
+    "black-long-clear",
+    "black-long-start-attacked",
+    "black-long-transit-attacked",
+    "black-long-destination-attacked",
+    "black-long-rook-attacked"
+  ],
+  "pins": {
+    "replay.mjs": "451ac51d9e2518d0fd6c3aa55682168f111564ecf4eb5f9c0997842668d535d4",
+    "writes.json.gz": "ecdec57445b89df8207712e676ab0769fd539029b5130d77b8894d8c88b3dc5d",
+    "@oracle/trials/chess-safety/registry/evaluate.mjs": "dd6aab726c6e2dbc465a3b7a299f9dba538c362fcde20002f7d24bb5e722c451",
+    "@oracle/trials/chess-safety/artefacts/quick-packed-v5.rules": "2d793f903e7d1b517ca34d92887a30a233e5246452228e35a136a730b4a10bf0",
+    "@oracle/trials/chess/bundle/artifacts/stronger.rules": "523c4c137aa00c2c764264aa6c2cefeda7c692561544da45d4fcccf3a2056fda"
+  },
+  "replay": "replay.mjs"
+}

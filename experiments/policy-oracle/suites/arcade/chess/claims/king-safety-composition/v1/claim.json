@@ -1,0 +1,4 @@
+{
+  "description": "For the registered positions covering composed move and king-safety checks, admit the submitted move exactly when native Arcade admits the move and its claimed result.",
+  "authority": "native-model"
+}

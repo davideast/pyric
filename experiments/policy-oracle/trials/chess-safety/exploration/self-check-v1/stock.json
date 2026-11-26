@@ -1,0 +1,40 @@
+{
+  "authority": "pinned local evaluator",
+  "rulesSha256": "523c4c137aa00c2c764264aa6c2cefeda7c692561544da45d4fcccf3a2056fda",
+  "inputsSha256": "0f5c9fdfaf6ff7201922bf77190cd0098268e1c5af8b5b8bbedd101da1a34750",
+  "groups": {
+    "king-destination": {
+      "false-allow": 1124
+    },
+    "legal-control": {
+      "match": 1042
+    },
+    "unanswered-check": {
+      "false-allow": 1726
+    },
+    "newly-exposed": {
+      "false-allow": 369
+    },
+    "castle-safety": {
+      "false-allow": 179
+    }
+  },
+  "stats": {
+    "false-allow": 3398,
+    "match": 1042
+  },
+  "first": {
+    "false-allow": {
+      "id": "safety-0",
+      "fen": "rnb1kbn1/1p1pp3/pq3p1r/P5pp/1BP1P1P1/NP3P1B/3PK2P/R2Q2NR w - -",
+      "uci": "e2e3",
+      "nativeAdmission": false,
+      "group": "king-destination",
+      "origin": "previous-traces",
+      "actual": "ALLOW",
+      "error": null,
+      "localExpressions": 794
+    }
+  },
+  "decisionsSha256": "8e48f4a78fcfbba2790990f1eac7fe4c6d3393f5a5e7fde1ab6adfef9d9a2a90"
+}

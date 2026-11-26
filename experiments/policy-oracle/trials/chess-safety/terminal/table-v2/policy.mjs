@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {patternSources,patternGuard} from './patterns.mjs';
 import {pieces,tile} from './endings.mjs';
 import {replySource} from '../v1/reply.mjs';
 import * as base from '../v1/policy.mjs';
@@ -34,9 +35,10 @@ function tableGuard(){
   }`;
 }
 export function compile(api,variant,options){
-  if(!variant.startsWith('indexed-'))return base.compile(api,variant,options);
+  if(!/^(indexed|pattern)-/.test(variant))return base.compile(api,variant,options);
   const out=base.compile(api,variant.slice(8),options);
-  for(const [name,source] of Object.entries(tableSources())){
+  const authored=variant.startsWith('indexed-')?tableSources():{...patternSources(),replyCapture:replySource()};
+  for(const [name,source] of Object.entries(authored)){
     const invoke=api(source);
     if(options.mode!=='standalone')out.modules[name]=invoke.firestoreModule();
   }
@@ -44,8 +46,9 @@ export function compile(api,variant,options){
 }
 
 export async function link(modules,resolveModules,{variant}){
-  if(!variant.startsWith('indexed-'))return base.link(modules,resolveModules,{variant});
-  const sources=tableSources();
+  if(!/^(indexed|pattern)-/.test(variant))return base.link(modules,resolveModules,{variant});
+  const indexed=variant.startsWith('indexed-');
+  const sources=indexed?tableSources():{...patternSources(),replyCapture:replySource()};
   const original=Object.fromEntries(Object.entries(modules).filter(([k])=>!(k in sources)));
   let rules=await base.link(original,resolveModules,{variant:variant.slice(8)});
   const anchor='return packedSafe(text, color);';
@@ -54,7 +57,7 @@ export async function link(modules,resolveModules,{variant}){
   const mine="next.board[next.lastMove.to]";
   const guard="(castle || !text.matches("+regex+") || !("+mine+" in [color+'r',color+'q',color+'b',color+'n']) || endingTable(text,color,xTo+yTo*8,"+mine+",next.status))";
   const reply="(next.status == 'playing' || !replyCapture(text,color))";
-  rules=rules.replace(anchor,'return packedSafe(text,color) && '+guard+' && '+reply+';').replace('  function chessMove() {',tableGuard()+'\n  function chessMove() {');
+  rules=rules.replace(anchor,'return packedSafe(text,color) && '+guard+' && '+reply+';').replace('  function chessMove() {',(indexed?tableGuard():patternGuard())+'\n  function chessMove() {');
   rules=rules.replace("rules_version = '2';","rules_version = '2+modules';\n"+
     Object.keys(sources).map(n=>"import { "+n+" } from './"+n+"';").join('\n'));
   const linked=resolveModules(rules,{modules:Object.fromEntries(Object.keys(sources).map(n=>['./'+n,modules[n]])),

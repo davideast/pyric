@@ -1,0 +1,22 @@
+{
+  "authority": "native-model",
+  "inputDigest": "b805bb22ec5f08e93b3a8d6c9b6ed97bd866063c647f89999b0badc474d1fca8",
+  "results": {
+    "ep-surviving-rank-blocker": true,
+    "ep-two-pawns-leave-rank": false,
+    "ep-rook-on-neighboring-rank": true,
+    "black-ep-surviving-blocker": true,
+    "black-ep-opens-rank": false
+  },
+  "evidence": {
+    "path": "raw/arcade-native.json",
+    "sha256": "d5b9b283e420b62c868cca8f70cef0306668151f7d293e14551323d3fa1eb8f9",
+    "pointers": {
+      "ep-surviving-rank-blocker": "/cases/0/nativeAdmission",
+      "ep-two-pawns-leave-rank": "/cases/1/nativeAdmission",
+      "ep-rook-on-neighboring-rank": "/cases/2/nativeAdmission",
+      "black-ep-surviving-blocker": "/cases/3/nativeAdmission",
+      "black-ep-opens-rank": "/cases/4/nativeAdmission"
+    }
+  }
+}

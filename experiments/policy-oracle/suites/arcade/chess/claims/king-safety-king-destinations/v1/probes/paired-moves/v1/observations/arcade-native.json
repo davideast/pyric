@@ -1,0 +1,36 @@
+{
+  "authority": "native-model",
+  "inputDigest": "2773e5a6e4f55b7107cf2b2e67e5610fc263f97f69f8abace43921690487a8f7",
+  "results": {
+    "king-capture-undefended": true,
+    "king-capture-defended": false,
+    "knight-screen-safe": true,
+    "knight-jumps-screen": false,
+    "black-pawn-away": true,
+    "black-pawn-attacks": false,
+    "white-pawn-away": true,
+    "white-pawn-attacks": false,
+    "opposing-king-safe": true,
+    "opposing-king-adjacent": false,
+    "pinned-knight-away": true,
+    "pinned-knight-defends": false
+  },
+  "evidence": {
+    "path": "raw/arcade-native.json",
+    "sha256": "2a3804d9c625fb52ccf846b9445925fb0a871ddc6a5f4be16932f28b52313cb6",
+    "pointers": {
+      "king-capture-undefended": "/cases/0/nativeAdmission",
+      "king-capture-defended": "/cases/1/nativeAdmission",
+      "knight-screen-safe": "/cases/2/nativeAdmission",
+      "knight-jumps-screen": "/cases/3/nativeAdmission",
+      "black-pawn-away": "/cases/4/nativeAdmission",
+      "black-pawn-attacks": "/cases/5/nativeAdmission",
+      "white-pawn-away": "/cases/6/nativeAdmission",
+      "white-pawn-attacks": "/cases/7/nativeAdmission",
+      "opposing-king-safe": "/cases/8/nativeAdmission",
+      "opposing-king-adjacent": "/cases/9/nativeAdmission",
+      "pinned-knight-away": "/cases/10/nativeAdmission",
+      "pinned-knight-defends": "/cases/11/nativeAdmission"
+    }
+  }
+}

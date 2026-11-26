@@ -21,6 +21,20 @@
     "firstWrite": "rook-exposed"
   },
   {
+    "control": "nonboolean-square",
+    "kingSafety": "standalone-error",
+    "firstKingCase": "rook-safe",
+    "linkedWrites": "false-allow",
+    "firstWrite": "rook-exposed"
+  },
+  {
+    "control": "invalid-king-index",
+    "kingSafety": "standalone-error",
+    "firstKingCase": "rook-safe",
+    "linkedWrites": "false-allow",
+    "firstWrite": "rook-exposed"
+  },
+  {
     "control": "cannot-compile",
     "kingSafety": "false-allow",
     "firstKingCase": "rook-exposed",

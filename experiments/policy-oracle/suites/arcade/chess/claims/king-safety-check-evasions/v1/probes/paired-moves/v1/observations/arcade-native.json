@@ -1,0 +1,28 @@
+{
+  "authority": "native-model",
+  "inputDigest": "27e0347680508e511d0682caad59049852d45e4ca32fdf3302b2b6addeb04ffe",
+  "results": {
+    "king-escapes-check": true,
+    "king-escape-into-attack": false,
+    "capture-single-checker": true,
+    "capture-one-of-two-checkers": false,
+    "interpose-on-file": true,
+    "interpose-exposes-diagonal": false,
+    "double-check-king-escape": true,
+    "double-check-king-still-attacked": false
+  },
+  "evidence": {
+    "path": "raw/arcade-native.json",
+    "sha256": "3c803baf06ed3302dabcd08d4ff75c3c30d2daf6f286db7dd4d89e2780f85af3",
+    "pointers": {
+      "king-escapes-check": "/cases/0/nativeAdmission",
+      "king-escape-into-attack": "/cases/1/nativeAdmission",
+      "capture-single-checker": "/cases/2/nativeAdmission",
+      "capture-one-of-two-checkers": "/cases/3/nativeAdmission",
+      "interpose-on-file": "/cases/4/nativeAdmission",
+      "interpose-exposes-diagonal": "/cases/5/nativeAdmission",
+      "double-check-king-escape": "/cases/6/nativeAdmission",
+      "double-check-king-still-attacked": "/cases/7/nativeAdmission"
+    }
+  }
+}

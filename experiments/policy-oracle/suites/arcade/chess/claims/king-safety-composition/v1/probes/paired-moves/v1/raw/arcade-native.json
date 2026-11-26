@@ -1,0 +1,353 @@
+{
+  "engine": "1f321bbb70128936c00283d22cfe03ad84b8907a00f0dacf3363b694d6534d5e",
+  "policy": "97dda7add77cb18d132ba1c730bbef24a48870404198d6677cdf0f961a30d212",
+  "standaloneAgrees": true,
+  "cases": [
+    {
+      "id": "edge-ray-clear",
+      "fen": "5k2/7b/8/8/8/8/1B6/K7 w - -",
+      "uci": "b2a3",
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "5k2/7b/8/8/8/B7/8/K7 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "f8e8",
+        "f8f7",
+        "f8g7",
+        "f8g8"
+      ]
+    },
+    {
+      "id": "edge-ray-seventh-square",
+      "fen": "5k1b/8/8/8/8/8/1B6/K7 w - -",
+      "uci": "b2a3",
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": true,
+      "kingSafe": false,
+      "nativeLegal": false,
+      "nativeAdmission": false,
+      "successor": "5k1b/8/8/8/8/B7/8/K7 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": null
+    },
+    {
+      "id": "edge-ray-residual-blocker",
+      "fen": "5k1b/8/8/4P3/8/8/1B6/K7 w - -",
+      "uci": "b2a3",
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "5k1b/8/8/4P3/8/B7/8/K7 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "f8e8",
+        "f8f7",
+        "f8g7",
+        "f8g8"
+      ]
+    },
+    {
+      "id": "long-diagonal-edge-capture",
+      "fen": "7r/7k/8/8/8/8/8/BK6 w - -",
+      "uci": "a1h8",
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "7B/7k/8/8/8/8/8/1K6 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "h7g6",
+        "h7g8",
+        "h7h6",
+        "h7h8"
+      ]
+    },
+    {
+      "id": "long-rank-edge-capture",
+      "fen": "8/8/8/4k3/8/8/R6r/K7 w - -",
+      "uci": "a2h2",
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "8/8/8/4k3/8/8/7R/K7 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "e5d4",
+        "e5d5",
+        "e5d6",
+        "e5e4",
+        "e5e6",
+        "e5f4",
+        "e5f5",
+        "e5f6"
+      ]
+    },
+    {
+      "id": "long-file-edge-capture-black",
+      "fen": "r3k3/8/8/8/8/8/8/R3K3 b - -",
+      "uci": "a8a1",
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "4k3/8/8/8/8/8/8/r3K3 w - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "e1d2",
+        "e1e2",
+        "e1f2"
+      ]
+    },
+    {
+      "id": "dense-source-file-capture",
+      "fen": "7k/8/P7/P7/K7/P7/R6r/8 w - -",
+      "uci": "a2h2",
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "7k/8/P7/P7/K7/P7/7R/8 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "h8g7",
+        "h8g8"
+      ]
+    },
+    {
+      "id": "far-rank-pinned-edge-capture",
+      "fen": "2nn4/6k1/8/8/8/8/K1R4r/8 w - -",
+      "uci": "c2h2",
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "2nn4/6k1/8/8/8/8/K6R/8 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "c8a7",
+        "c8b6",
+        "c8d6",
+        "c8e7",
+        "d8b7",
+        "d8c6",
+        "d8e6",
+        "d8f7",
+        "g7f6",
+        "g7f7",
+        "g7f8",
+        "g7g6",
+        "g7g8"
+      ]
+    },
+    {
+      "id": "crowded-kiwipete-castle",
+      "fen": "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq -",
+      "uci": "e1g1",
+      "beforeCheck": false,
+      "transitCheck": false,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R4RK1 b kq -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "a6b5",
+        "a6b7",
+        "a6c4",
+        "a6c8",
+        "a6d3",
+        "a6e2",
+        "a8b8",
+        "a8c8",
+        "a8d8",
+        "b4b3",
+        "b4c3",
+        "b6a4",
+        "b6c4",
+        "b6c8",
+        "b6d5",
+        "c7c5",
+        "c7c6",
+        "d7d6",
+        "e6d5",
+        "e7c5",
+        "e7d6",
+        "e7d8",
+        "e7f8",
+        "e8c8",
+        "e8d8",
+        "e8f8",
+        "e8g8",
+        "f6d5",
+        "f6e4",
+        "f6g4",
+        "f6g8",
+        "f6h5",
+        "f6h7",
+        "g6g5",
+        "g7f8",
+        "g7h6",
+        "h3g2",
+        "h8f8",
+        "h8g8",
+        "h8h4",
+        "h8h5",
+        "h8h6",
+        "h8h7"
+      ]
+    },
+    {
+      "id": "crowded-kiwipete-edge-capture",
+      "fen": "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq -",
+      "uci": "e2a6",
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "r3k2r/p1ppqpb1/Bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPB1PPP/R3K2R b KQkq -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "a8b8",
+        "a8c8",
+        "a8d8",
+        "b4b3",
+        "b4c3",
+        "b6a4",
+        "b6c4",
+        "b6c8",
+        "b6d5",
+        "c7c5",
+        "c7c6",
+        "d7d6",
+        "e6d5",
+        "e7c5",
+        "e7d6",
+        "e7d8",
+        "e7f8",
+        "e8d8",
+        "e8f8",
+        "e8g8",
+        "f6d5",
+        "f6e4",
+        "f6g4",
+        "f6g8",
+        "f6h5",
+        "f6h7",
+        "g6g5",
+        "g7f8",
+        "g7h6",
+        "h3g2",
+        "h8f8",
+        "h8g8",
+        "h8h4",
+        "h8h5",
+        "h8h6",
+        "h8h7"
+      ]
+    }
+  ]
+}

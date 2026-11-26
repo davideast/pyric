@@ -1,7 +1,7 @@
 import {createHash} from 'node:crypto';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {link} from './terminal/table-v2/policy.mjs';
+import {link} from './mobility/combined.mjs';
 const [dir,...encoded]=process.argv.slice(2);
 const {modules,variant,requests,returnSource}=JSON.parse(Buffer.from(encoded.join(''),'base64').toString());
 const {resolveModules}=await import(pathToFileURL(join(dir,'arcade-bundler/dist/rules/modules/resolver.js')));

@@ -1,0 +1,266 @@
+{
+  "engine": "1f321bbb70128936c00283d22cfe03ad84b8907a00f0dacf3363b694d6534d5e",
+  "policy": "97dda7add77cb18d132ba1c730bbef24a48870404198d6677cdf0f961a30d212",
+  "standaloneAgrees": true,
+  "cases": [
+    {
+      "id": "king-escapes-check",
+      "fen": "4r2k/8/8/2b5/8/8/8/4K3 w - -",
+      "uci": "e1f1",
+      "beforeCheck": true,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "4r2k/8/8/2b5/8/8/8/5K2 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "c5a3",
+        "c5a7",
+        "c5b4",
+        "c5b6",
+        "c5d4",
+        "c5d6",
+        "c5e3",
+        "c5e7",
+        "c5f2",
+        "c5f8",
+        "c5g1",
+        "e8a8",
+        "e8b8",
+        "e8c8",
+        "e8d8",
+        "e8e1",
+        "e8e2",
+        "e8e3",
+        "e8e4",
+        "e8e5",
+        "e8e6",
+        "e8e7",
+        "e8f8",
+        "e8g8",
+        "h8g7",
+        "h8g8",
+        "h8h7"
+      ]
+    },
+    {
+      "id": "king-escape-into-attack",
+      "fen": "4r2k/8/8/1b6/8/8/8/4K3 w - -",
+      "uci": "e1f1",
+      "beforeCheck": true,
+      "transitCheck": null,
+      "afterCheck": true,
+      "kingSafe": false,
+      "nativeLegal": false,
+      "nativeAdmission": false,
+      "successor": "4r2k/8/8/1b6/8/8/8/5K2 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": null
+    },
+    {
+      "id": "capture-single-checker",
+      "fen": "k3r3/8/8/1B6/b7/8/8/4K3 w - -",
+      "uci": "b5e8",
+      "beforeCheck": true,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "k3B3/8/8/8/b7/8/8/4K3 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "a4b3",
+        "a4b5",
+        "a4c2",
+        "a4c6",
+        "a4d1",
+        "a4d7",
+        "a4e8",
+        "a8a7",
+        "a8b7",
+        "a8b8"
+      ]
+    },
+    {
+      "id": "capture-one-of-two-checkers",
+      "fen": "k3r3/8/8/1B6/1b6/8/8/4K3 w - -",
+      "uci": "b5e8",
+      "beforeCheck": true,
+      "transitCheck": null,
+      "afterCheck": true,
+      "kingSafe": false,
+      "nativeLegal": false,
+      "nativeAdmission": false,
+      "successor": "k3B3/8/8/8/1b6/8/8/4K3 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": null
+    },
+    {
+      "id": "interpose-on-file",
+      "fen": "4r1k1/8/8/8/b7/2B5/8/4K3 w - -",
+      "uci": "c3e5",
+      "beforeCheck": true,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "4r1k1/8/8/4B3/b7/8/8/4K3 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "a4b3",
+        "a4b5",
+        "a4c2",
+        "a4c6",
+        "a4d1",
+        "a4d7",
+        "e8a8",
+        "e8b8",
+        "e8c8",
+        "e8d8",
+        "e8e5",
+        "e8e6",
+        "e8e7",
+        "e8f8",
+        "g8f7",
+        "g8f8",
+        "g8h7"
+      ]
+    },
+    {
+      "id": "interpose-exposes-diagonal",
+      "fen": "4r1k1/8/8/8/1b6/2B5/8/4K3 w - -",
+      "uci": "c3e5",
+      "beforeCheck": true,
+      "transitCheck": null,
+      "afterCheck": true,
+      "kingSafe": false,
+      "nativeLegal": false,
+      "nativeAdmission": false,
+      "successor": "4r1k1/8/8/4B3/1b6/8/8/4K3 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": null
+    },
+    {
+      "id": "double-check-king-escape",
+      "fen": "k3r3/8/8/1B6/1b6/8/8/4K3 w - -",
+      "uci": "e1f1",
+      "beforeCheck": true,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "k3r3/8/8/1B6/1b6/8/8/5K2 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "a8a7",
+        "a8b7",
+        "a8b8",
+        "b4a3",
+        "b4a5",
+        "b4c3",
+        "b4c5",
+        "b4d2",
+        "b4d6",
+        "b4e1",
+        "b4e7",
+        "b4f8",
+        "e8b8",
+        "e8c8",
+        "e8d8",
+        "e8e1",
+        "e8e2",
+        "e8e3",
+        "e8e4",
+        "e8e5",
+        "e8e6",
+        "e8e7",
+        "e8f8",
+        "e8g8",
+        "e8h8"
+      ]
+    },
+    {
+      "id": "double-check-king-still-attacked",
+      "fen": "k3r3/8/8/1B6/1b6/8/8/4K3 w - -",
+      "uci": "e1d2",
+      "beforeCheck": true,
+      "transitCheck": null,
+      "afterCheck": true,
+      "kingSafe": false,
+      "nativeLegal": false,
+      "nativeAdmission": false,
+      "successor": "k3r3/8/8/1B6/1b6/8/3K4/8 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": null
+    }
+  ]
+}

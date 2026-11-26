@@ -1,0 +1,32 @@
+{
+  "authority": "native-model",
+  "inputDigest": "8d70ad86418913d6be49641f46a36e7fb8a1fee38d1beeb47e8aa6af674bb612",
+  "results": {
+    "edge-ray-clear": true,
+    "edge-ray-seventh-square": false,
+    "edge-ray-residual-blocker": true,
+    "long-diagonal-edge-capture": true,
+    "long-rank-edge-capture": true,
+    "long-file-edge-capture-black": true,
+    "dense-source-file-capture": true,
+    "far-rank-pinned-edge-capture": true,
+    "crowded-kiwipete-castle": true,
+    "crowded-kiwipete-edge-capture": true
+  },
+  "evidence": {
+    "path": "raw/arcade-native.json",
+    "sha256": "6dce914c16bc482bf35c084584e3dc8c0f5c981570fec3403acdf74a19e7e3e0",
+    "pointers": {
+      "edge-ray-clear": "/cases/0/nativeAdmission",
+      "edge-ray-seventh-square": "/cases/1/nativeAdmission",
+      "edge-ray-residual-blocker": "/cases/2/nativeAdmission",
+      "long-diagonal-edge-capture": "/cases/3/nativeAdmission",
+      "long-rank-edge-capture": "/cases/4/nativeAdmission",
+      "long-file-edge-capture-black": "/cases/5/nativeAdmission",
+      "dense-source-file-capture": "/cases/6/nativeAdmission",
+      "far-rank-pinned-edge-capture": "/cases/7/nativeAdmission",
+      "crowded-kiwipete-castle": "/cases/8/nativeAdmission",
+      "crowded-kiwipete-edge-capture": "/cases/9/nativeAdmission"
+    }
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "authority": "pinned local evaluator",
+  "rulesSha256": "2d793f903e7d1b517ca34d92887a30a233e5246452228e35a136a730b4a10bf0",
+  "inputsSha256": "0f5c9fdfaf6ff7201922bf77190cd0098268e1c5af8b5b8bbedd101da1a34750",
+  "groups": {
+    "king-destination": {
+      "match": 1124
+    },
+    "legal-control": {
+      "match": 1042
+    },
+    "unanswered-check": {
+      "match": 1726
+    },
+    "newly-exposed": {
+      "match": 369
+    },
+    "castle-safety": {
+      "match": 179
+    }
+  },
+  "stats": {
+    "match": 4440
+  },
+  "first": {},
+  "decisionsSha256": "e3c0c10b2948586b50437793c202b280d224ef31dd5b4a590ddd12def6d68e9a"
+}

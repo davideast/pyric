@@ -1,0 +1,50 @@
+{
+  "authority": "native-model",
+  "inputDigest": "05d741a2524bd7bea9aaaeceef47af1fb66d289382cc83f092a6029c5c203ea3",
+  "results": {
+    "rank-rook-safe": true,
+    "rank-rook-exposed": false,
+    "rank-queen-safe": true,
+    "rank-queen-exposed": false,
+    "rank-surviving-blocker": true,
+    "rank-pinned-slide": true,
+    "rank-pinned-capture": true,
+    "rising-bishop-safe": true,
+    "rising-bishop-exposed": false,
+    "rising-queen-safe": true,
+    "rising-queen-exposed": false,
+    "rising-pinned-slide": true,
+    "rising-pinned-capture": true,
+    "falling-bishop-safe": true,
+    "falling-bishop-exposed": false,
+    "falling-queen-safe": true,
+    "falling-queen-exposed": false,
+    "falling-pinned-slide": true,
+    "falling-pinned-capture": true
+  },
+  "evidence": {
+    "path": "raw/arcade-native.json",
+    "sha256": "f453a605e59e7c993016a590fc839fbbda16540fe6ef5288c3eaac17c4a18c4f",
+    "pointers": {
+      "rank-rook-safe": "/cases/0/nativeAdmission",
+      "rank-rook-exposed": "/cases/1/nativeAdmission",
+      "rank-queen-safe": "/cases/2/nativeAdmission",
+      "rank-queen-exposed": "/cases/3/nativeAdmission",
+      "rank-surviving-blocker": "/cases/4/nativeAdmission",
+      "rank-pinned-slide": "/cases/5/nativeAdmission",
+      "rank-pinned-capture": "/cases/6/nativeAdmission",
+      "rising-bishop-safe": "/cases/7/nativeAdmission",
+      "rising-bishop-exposed": "/cases/8/nativeAdmission",
+      "rising-queen-safe": "/cases/9/nativeAdmission",
+      "rising-queen-exposed": "/cases/10/nativeAdmission",
+      "rising-pinned-slide": "/cases/11/nativeAdmission",
+      "rising-pinned-capture": "/cases/12/nativeAdmission",
+      "falling-bishop-safe": "/cases/13/nativeAdmission",
+      "falling-bishop-exposed": "/cases/14/nativeAdmission",
+      "falling-queen-safe": "/cases/15/nativeAdmission",
+      "falling-queen-exposed": "/cases/16/nativeAdmission",
+      "falling-pinned-slide": "/cases/17/nativeAdmission",
+      "falling-pinned-capture": "/cases/18/nativeAdmission"
+    }
+  }
+}

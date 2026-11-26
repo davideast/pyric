@@ -1,0 +1,32 @@
+{
+  "authority": "native-model",
+  "inputDigest": "13eb7716e31dfc3267e8ac5a7758b2f5b5f250c369ac600466e05c1b190860a3",
+  "results": {
+    "mate-correct": true,
+    "mate-wrong-result": false,
+    "stalemate-correct": true,
+    "stalemate-wrong-result": false,
+    "one-king-reply-correct": true,
+    "one-king-reply-wrong-result": false,
+    "one-rook-reply-correct": true,
+    "one-rook-reply-wrong-result": false,
+    "black-mate-correct": true,
+    "black-mate-reported-playing": false
+  },
+  "evidence": {
+    "path": "raw/arcade-native.json",
+    "sha256": "c35eea17a824b5df25ac76323358fa2b6b1f2a4cdb3d557a8b4f3c2f55e0130a",
+    "pointers": {
+      "mate-correct": "/cases/0/nativeAdmission",
+      "mate-wrong-result": "/cases/1/nativeAdmission",
+      "stalemate-correct": "/cases/2/nativeAdmission",
+      "stalemate-wrong-result": "/cases/3/nativeAdmission",
+      "one-king-reply-correct": "/cases/4/nativeAdmission",
+      "one-king-reply-wrong-result": "/cases/5/nativeAdmission",
+      "one-rook-reply-correct": "/cases/6/nativeAdmission",
+      "one-rook-reply-wrong-result": "/cases/7/nativeAdmission",
+      "black-mate-correct": "/cases/8/nativeAdmission",
+      "black-mate-reported-playing": "/cases/9/nativeAdmission"
+    }
+  }
+}

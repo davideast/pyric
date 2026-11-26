@@ -26,9 +26,12 @@ export function compile(compileFunction, variant = 'castle', {mode='both'} = {})
     const {from,to} = next.lastMove;
     const kingMove = old.board[from] === color+'k';
     const index = kingMove ? squares.indexOf(to) : compiled.locateKing(next.board,color+'k');
-    if (index<0 || index>63) return false;
+    if (!Number.isInteger(index) || index < -1 || index > 63) throw Error('locateKing must return a square index or -1');
+    if (index === -1) return false;
     function safe(square, board) {
-      return variant==='optimized' ? compiled['safe'+square](board,enemy,Object.values(board)) : compiled['safe'+square](board,enemy);
+      const value = variant === 'optimized' ? compiled['safe'+square](board,enemy,Object.values(board)) : compiled['safe'+square](board,enemy);
+      if (typeof value !== 'boolean') throw Error('square safety must return a boolean');
+      return value;
     }
     if (!safe(squares[index],next.board)) return false;
     const castle = kingMove && Math.abs(squares.indexOf(from) - index) === 2;

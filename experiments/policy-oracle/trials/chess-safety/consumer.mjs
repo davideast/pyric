@@ -1,4 +1,4 @@
-import {compile} from './terminal/table-v2/policy.mjs';
+import {compile} from './mobility/combined.mjs';
 import {loadPolicyApi} from '../king-safety/policy/public-api.mjs';
 const [mode,variant,dir,...args]=process.argv.slice(2);
 const {compileFunction}=await loadPolicyApi(dir);
