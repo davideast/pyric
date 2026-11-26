@@ -1,0 +1,135 @@
+{
+  "seed": "0x289c2141",
+  "sourceMoves": 164,
+  "writes": 492,
+  "counts": {
+    "2/unchecked-quiet-pinned": 4,
+    "1/unchecked-quiet-free": 4,
+    "1/mate-free": 4,
+    "2/mate-free": 4,
+    "1/stalemate-pinned": 4,
+    "1/mate-pinned": 4,
+    "2/check-capture-free": 4,
+    "2/unchecked-quiet-free": 4,
+    "2/unchecked-capture-free": 4,
+    "2/check-interpose-free": 4,
+    "2/unchecked-capture-pinned": 4,
+    "1/check-interpose-free": 4,
+    "2/check-interpose-pinned": 4,
+    "2/mate-pinned": 4,
+    "1/unchecked-capture-free": 4,
+    "2/check-capture-pinned": 4,
+    "1/check-capture-free": 4,
+    "2/stalemate-pinned": 4
+  },
+  "twins": [
+    {
+      "pinned": "7k/4K2n/8/8/4B2Q/4Q3/8/3B4 w - -",
+      "unblocked": "7k/4K2n/8/8/4B3/4Q3/8/3B4 w - -",
+      "uci": "e7f7",
+      "pinner": "h4",
+      "legalKnightReplies": [
+        "h7f6",
+        "h7f8",
+        "h7g5"
+      ]
+    },
+    {
+      "pinned": "5n2/Q7/8/2NK4/8/n7/k1NQ4/6R1 w - -",
+      "unblocked": "5n2/8/8/2NK4/8/n7/k1NQ4/6R1 w - -",
+      "uci": "c2e3",
+      "pinner": "a7",
+      "legalKnightReplies": [
+        "a3c2"
+      ]
+    },
+    {
+      "pinned": "8/7Q/8/4Q3/2Q4K/2Q5/2n5/1k5n w - -",
+      "unblocked": "8/8/8/4Q3/2Q4K/2Q5/2n5/1k5n w - -",
+      "uci": "c3e1",
+      "pinner": "h7",
+      "legalKnightReplies": [
+        "c2e1"
+      ]
+    },
+    {
+      "pinned": "6B1/8/3KN3/8/7B/3Q4/5n2/R2nk3 w - -",
+      "unblocked": "6B1/8/3KN3/8/7B/3Q4/5n2/3nk3 w - -",
+      "uci": "g8h7",
+      "pinner": "a1",
+      "legalKnightReplies": [
+        "d1b2",
+        "d1c3",
+        "d1e3"
+      ]
+    },
+    {
+      "pinned": "6B1/8/3KN3/8/7B/3Q4/5n2/R2nk3 w - -",
+      "unblocked": "6B1/8/3KN3/8/8/3Q4/5n2/R2nk3 w - -",
+      "uci": "g8h7",
+      "pinner": "h4",
+      "legalKnightReplies": [
+        "f2d3",
+        "f2e4",
+        "f2g4",
+        "f2h1",
+        "f2h3"
+      ]
+    },
+    {
+      "pinned": "6nk/1RRQ4/5n2/8/2K5/R7/8/Q7 w - -",
+      "unblocked": "6nk/1RRQ4/5n2/8/2K5/R7/8/8 w - -",
+      "uci": "d7d8",
+      "pinner": "a1",
+      "legalKnightReplies": [
+        "f6d5",
+        "f6d7",
+        "f6e4",
+        "f6e8",
+        "f6g4",
+        "f6h5",
+        "f6h7"
+      ]
+    },
+    {
+      "pinned": "8/K7/4N3/1R6/7R/k1n3R1/n7/Q7 w - -",
+      "unblocked": "8/K7/4N3/1R6/7R/k1n3R1/n7/8 w - -",
+      "uci": "a7b8",
+      "pinner": "a1",
+      "legalKnightReplies": [
+        "a2b4",
+        "a2c1"
+      ]
+    },
+    {
+      "pinned": "8/K7/4N3/1R6/7R/k1n3R1/n7/Q7 w - -",
+      "unblocked": "8/K7/4N3/1R6/7R/k1n5/n7/Q7 w - -",
+      "uci": "a7b8",
+      "pinner": "g3",
+      "legalKnightReplies": [
+        "c3a4",
+        "c3b1",
+        "c3b5",
+        "c3d1",
+        "c3d5",
+        "c3e2",
+        "c3e4"
+      ]
+    },
+    {
+      "pinned": "R7/7Q/8/B2R3n/1Q4nk/5Q2/K7/8 w - -",
+      "unblocked": "R7/7Q/8/B2R3n/6nk/5Q2/K7/8 w - -",
+      "uci": "a8h8",
+      "pinner": "b4",
+      "legalKnightReplies": [
+        "g4e3",
+        "g4e5",
+        "g4f2",
+        "g4f6",
+        "g4h2",
+        "g4h6"
+      ]
+    }
+  ],
+  "sha256": "d86a76e978fda19b225777cef344d937ecb7d9edaa21920ed160fe4c4ecb90fc"
+}
