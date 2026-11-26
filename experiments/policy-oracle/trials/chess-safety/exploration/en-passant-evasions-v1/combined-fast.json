@@ -1,0 +1,60 @@
+{
+  "authority": "pinned independent Rules evaluator, two consecutive match transitions",
+  "rulesSha256": "a53c2fedb742710fc3aa3db055741b82842382fed457c5ab781cbf7259cb851b",
+  "corpusSha256": "a2b59ce6861dda188f725641198144f6480836289e924a98a073100e4d094625",
+  "scoreSha256": "04e6d7369ea853f282eeff25a5239690a43d62966b8ec18901feb09a69a669e7",
+  "groups": {
+    "previous-double-push": {
+      "match": 262
+    },
+    "b/captures-checking-pawn": {
+      "match": 12
+    },
+    "b/fails-to-escape": {
+      "match": 12
+    },
+    "b/opens-b-attack": {
+      "match": 12
+    },
+    "b/opens-r-attack": {
+      "match": 12
+    },
+    "b/ordinary-safe": {
+      "match": 12
+    },
+    "b/two-capturers-exposes": {
+      "match": 12
+    },
+    "b/two-capturers-safe": {
+      "match": 12
+    },
+    "w/captures-checking-pawn": {
+      "match": 12
+    },
+    "w/fails-to-escape": {
+      "match": 12
+    },
+    "w/opens-b-attack": {
+      "match": 12
+    },
+    "w/opens-r-attack": {
+      "match": 12
+    },
+    "w/ordinary-safe": {
+      "match": 12
+    },
+    "w/two-capturers-exposes": {
+      "match": 12
+    },
+    "w/two-capturers-safe": {
+      "match": 12
+    },
+    "two-capturers-matched-board": {
+      "match": 94
+    }
+  },
+  "writes": 524,
+  "pairs": 47,
+  "pairMatches": 47,
+  "first": {}
+}

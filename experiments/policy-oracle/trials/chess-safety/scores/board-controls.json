@@ -1,0 +1,17 @@
+[
+  {
+    "control": "string-move-list",
+    "cases": 10,
+    "classified": "standalone-error"
+  },
+  {
+    "control": "missing-apply",
+    "cases": 10,
+    "classified": "standalone-error"
+  },
+  {
+    "control": "duplicate-move",
+    "cases": 10,
+    "classified": "standalone-error"
+  }
+]

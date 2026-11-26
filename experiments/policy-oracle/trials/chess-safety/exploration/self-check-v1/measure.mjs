@@ -5,6 +5,7 @@ import {createHash} from 'node:crypto';
 import {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {sample} from '../../reference/fixtures.mjs';
+import {classify} from '../classify.mjs';
 const [sim,bundle]=process.argv.slice(2);
 const sha=s=>createHash('sha256').update(s).digest('hex');
 const bytes=gunzipSync(readFileSync(new URL('corpus.json.gz',import.meta.url)));
@@ -17,10 +18,7 @@ for(const c of JSON.parse(bytes)){
   const {before,proposal}=sample(c,'writer','other');
   const [r]=handle.simulate([{path:'chess/oracle',method:'update',auth:{uid:'writer'},description:c.id,
     resource:before,data:{...before,...proposal},expectation:'ALLOW'}]).cases;
-  assert.ok(!r.unsupported);
-  const error=r.resourceLimit?'resource-limit':r.decision==='DENY'&&r.trace.some(t=>t.verdict==='ERROR')?'rule-error':null;
-  const actual=r.decision==='ALLOW';
-  const status=error&&!c.nativeAdmission?'evaluation-error':actual===c.nativeAdmission?'match':actual?'false-allow':'false-refusal';
+  const {kind:status,cause:error}=classify(r,c.nativeAdmission);
   const counts=groups[c.group]??={};
   counts[status]=(counts[status]??0)+1;
   stats[status]=(stats[status]??0)+1;

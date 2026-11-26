@@ -1,0 +1,71 @@
+{
+  "authority": "pinned independent Rules evaluator, two consecutive match transitions",
+  "rulesSha256": "523c4c137aa00c2c764264aa6c2cefeda7c692561544da45d4fcccf3a2056fda",
+  "corpusSha256": "a2b59ce6861dda188f725641198144f6480836289e924a98a073100e4d094625",
+  "scoreSha256": "9dd391a9c6067a46b169b4a9d2ef5c0ef2087c05889306766ee30bb7ffd9894c",
+  "groups": {
+    "previous-double-push": {
+      "match": 262
+    },
+    "b/captures-checking-pawn": {
+      "match": 12
+    },
+    "b/fails-to-escape": {
+      "false-allow": 12
+    },
+    "b/opens-b-attack": {
+      "false-allow": 12
+    },
+    "b/opens-r-attack": {
+      "false-allow": 12
+    },
+    "b/ordinary-safe": {
+      "match": 12
+    },
+    "b/two-capturers-exposes": {
+      "false-allow": 12
+    },
+    "b/two-capturers-safe": {
+      "match": 12
+    },
+    "w/captures-checking-pawn": {
+      "match": 12
+    },
+    "w/fails-to-escape": {
+      "false-allow": 12
+    },
+    "w/opens-b-attack": {
+      "false-allow": 12
+    },
+    "w/opens-r-attack": {
+      "false-allow": 12
+    },
+    "w/ordinary-safe": {
+      "match": 12
+    },
+    "w/two-capturers-exposes": {
+      "false-allow": 12
+    },
+    "w/two-capturers-safe": {
+      "match": 12
+    },
+    "two-capturers-matched-board": {
+      "match": 47,
+      "false-allow": 47
+    }
+  },
+  "writes": 524,
+  "pairs": 47,
+  "pairMatches": 0,
+  "first": {
+    "b/fails-to-escape/false-allow": "ep-window-b-fails-to-escape-0/capture",
+    "b/opens-b-attack/false-allow": "ep-window-b-opens-b-attack-0/capture",
+    "b/opens-r-attack/false-allow": "ep-window-b-opens-r-attack-0/capture",
+    "b/two-capturers-exposes/false-allow": "ep-window-b-two-capturers-exposes-0/capture",
+    "w/fails-to-escape/false-allow": "ep-window-w-fails-to-escape-0/capture",
+    "w/opens-b-attack/false-allow": "ep-window-w-opens-b-attack-0/capture",
+    "w/opens-r-attack/false-allow": "ep-window-w-opens-r-attack-0/capture",
+    "w/two-capturers-exposes/false-allow": "ep-window-w-two-capturers-exposes-0/capture",
+    "two-capturers-matched-board/false-allow": "ep-pair-0-1/capture"
+  }
+}

@@ -95,7 +95,8 @@ def score(package, through, variant, save_artifact=None, board_policy=False):
              "trials/king-safety/policy/horizontal-path.policy"}
     terminal_files = {REL+"/terminal/v1/"+f for f in ("policy.mjs","geometry.mjs","compact.mjs","reply.mjs")}
     terminal_files.update({REL+"/terminal/table-v2/"+f for f in ("policy.mjs","endings.mjs","patterns.mjs")})
-    terminal_files.update({REL+"/mobility/"+f for f in ("combined.mjs","adapter.mjs","grouped.mjs")})
+    terminal_files.update({REL+"/mobility/"+f for f in ("combined.mjs","adapter.mjs","grouped.mjs","three-piece.mjs","bare.mjs")})
+    terminal_files.update({REL+"/pawns/v1/"+f for f in ("adapter.mjs","policy.mjs")})
     files.update(terminal_files)
     tasks = {"emit":task("consumer.mjs", ["emit",variant,PKG]),
              "standalone":task("consumer.mjs", ["standalone",variant,PKG,*chunks(inputs)])}
@@ -175,7 +176,7 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument("--candidate-package",type=Path,required=True)
     p.add_argument("--through",type=int,choices=range(8),default=7)
-    p.add_argument("--variant",default="quick-packed-v5")
+    p.add_argument("--variant",default="combined-pattern-fast-packed-v5")
     p.add_argument("--save-rules",type=Path,help="save independently linked source for review")
     p.add_argument("--board-policy",action="store_true",help="also derive full move legality, successor and terminal outcome via the public bounded-module API")
     p.add_argument("--with-live",action="store_true",help="look up retained measurements of these exact Rules bytes")

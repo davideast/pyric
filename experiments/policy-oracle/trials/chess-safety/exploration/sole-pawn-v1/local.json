@@ -1,0 +1,266 @@
+[
+  {
+    "rules": "../chess/bundle/artifacts/stronger.rules",
+    "sha256": "523c4c137aa00c2c764264aa6c2cefeda7c692561544da45d4fcccf3a2056fda",
+    "rows": [
+      {
+        "id": "sole-pawn-w-absent-playing",
+        "decision": "ALLOW",
+        "cost": 829
+      },
+      {
+        "id": "sole-pawn-w-absent-won",
+        "decision": "ALLOW",
+        "cost": 829
+      },
+      {
+        "id": "sole-pawn-w-absent-draw",
+        "decision": "ALLOW",
+        "cost": 829
+      },
+      {
+        "id": "sole-pawn-b-absent-playing",
+        "decision": "ALLOW",
+        "cost": 850
+      },
+      {
+        "id": "sole-pawn-b-absent-won",
+        "decision": "ALLOW",
+        "cost": 850
+      },
+      {
+        "id": "sole-pawn-b-absent-draw",
+        "decision": "ALLOW",
+        "cost": 850
+      },
+      {
+        "id": "sole-pawn-w-mobile-playing",
+        "decision": "ALLOW",
+        "cost": 829
+      },
+      {
+        "id": "sole-pawn-w-mobile-won",
+        "decision": "ALLOW",
+        "cost": 829
+      },
+      {
+        "id": "sole-pawn-w-mobile-draw",
+        "decision": "ALLOW",
+        "cost": 829
+      },
+      {
+        "id": "sole-pawn-b-mobile-playing",
+        "decision": "ALLOW",
+        "cost": 850
+      },
+      {
+        "id": "sole-pawn-b-mobile-won",
+        "decision": "ALLOW",
+        "cost": 850
+      },
+      {
+        "id": "sole-pawn-b-mobile-draw",
+        "decision": "ALLOW",
+        "cost": 850
+      }
+    ]
+  },
+  {
+    "rules": "artefacts/combined-pattern-fast-packed-v5.rules",
+    "sha256": "a53c2fedb742710fc3aa3db055741b82842382fed457c5ab781cbf7259cb851b",
+    "rows": [
+      {
+        "id": "sole-pawn-w-absent-playing",
+        "decision": "DENY",
+        "cost": 794
+      },
+      {
+        "id": "sole-pawn-w-absent-won",
+        "decision": "DENY",
+        "cost": 794
+      },
+      {
+        "id": "sole-pawn-w-absent-draw",
+        "decision": "ALLOW",
+        "cost": 951
+      },
+      {
+        "id": "sole-pawn-b-absent-playing",
+        "decision": "DENY",
+        "cost": 806
+      },
+      {
+        "id": "sole-pawn-b-absent-won",
+        "decision": "DENY",
+        "cost": 806
+      },
+      {
+        "id": "sole-pawn-b-absent-draw",
+        "decision": "ALLOW",
+        "cost": 965
+      },
+      {
+        "id": "sole-pawn-w-mobile-playing",
+        "decision": "ALLOW",
+        "cost": 829
+      },
+      {
+        "id": "sole-pawn-w-mobile-won",
+        "decision": "DENY",
+        "cost": 715
+      },
+      {
+        "id": "sole-pawn-w-mobile-draw",
+        "decision": "ALLOW",
+        "cost": 950
+      },
+      {
+        "id": "sole-pawn-b-mobile-playing",
+        "decision": "ALLOW",
+        "cost": 840
+      },
+      {
+        "id": "sole-pawn-b-mobile-won",
+        "decision": "DENY",
+        "cost": 724
+      },
+      {
+        "id": "sole-pawn-b-mobile-draw",
+        "decision": "ALLOW",
+        "cost": 961
+      }
+    ]
+  },
+  {
+    "rules": "artefacts/combined-bare-packed-v5.rules",
+    "sha256": "9b31d40d5a1847c7ea8cfa9bb070b1b619919709c9bf4608c2ac977d4906f63f",
+    "rows": [
+      {
+        "id": "sole-pawn-w-absent-playing",
+        "decision": "DENY",
+        "cost": 730
+      },
+      {
+        "id": "sole-pawn-w-absent-won",
+        "decision": "DENY",
+        "cost": 681
+      },
+      {
+        "id": "sole-pawn-w-absent-draw",
+        "decision": "ALLOW",
+        "cost": 916
+      },
+      {
+        "id": "sole-pawn-b-absent-playing",
+        "decision": "DENY",
+        "cost": 741
+      },
+      {
+        "id": "sole-pawn-b-absent-won",
+        "decision": "DENY",
+        "cost": 690
+      },
+      {
+        "id": "sole-pawn-b-absent-draw",
+        "decision": "ALLOW",
+        "cost": 927
+      },
+      {
+        "id": "sole-pawn-w-mobile-playing",
+        "decision": "ALLOW",
+        "cost": 822
+      },
+      {
+        "id": "sole-pawn-w-mobile-won",
+        "decision": "DENY",
+        "cost": 681
+      },
+      {
+        "id": "sole-pawn-w-mobile-draw",
+        "decision": "ALLOW",
+        "cost": 916
+      },
+      {
+        "id": "sole-pawn-b-mobile-playing",
+        "decision": "ALLOW",
+        "cost": 837
+      },
+      {
+        "id": "sole-pawn-b-mobile-won",
+        "decision": "DENY",
+        "cost": 690
+      },
+      {
+        "id": "sole-pawn-b-mobile-draw",
+        "decision": "ALLOW",
+        "cost": 927
+      }
+    ]
+  },
+  {
+    "rules": "artefacts/pawn-combined-bare-packed-v5.rules",
+    "sha256": "fa5ed3178ac50a45f38f8a929bfd1908a0d4e617b7c1791cbd639fdf13aada34",
+    "rows": [
+      {
+        "id": "sole-pawn-w-absent-playing",
+        "decision": "DENY",
+        "cost": 730
+      },
+      {
+        "id": "sole-pawn-w-absent-won",
+        "decision": "DENY",
+        "cost": 682
+      },
+      {
+        "id": "sole-pawn-w-absent-draw",
+        "decision": "ALLOW",
+        "cost": 954
+      },
+      {
+        "id": "sole-pawn-b-absent-playing",
+        "decision": "DENY",
+        "cost": 741
+      },
+      {
+        "id": "sole-pawn-b-absent-won",
+        "decision": "DENY",
+        "cost": 691
+      },
+      {
+        "id": "sole-pawn-b-absent-draw",
+        "decision": "ALLOW",
+        "cost": 963
+      },
+      {
+        "id": "sole-pawn-w-mobile-playing",
+        "decision": "ALLOW",
+        "cost": 822
+      },
+      {
+        "id": "sole-pawn-w-mobile-won",
+        "decision": "DENY",
+        "cost": 682
+      },
+      {
+        "id": "sole-pawn-w-mobile-draw",
+        "decision": "DENY",
+        "cost": 797
+      },
+      {
+        "id": "sole-pawn-b-mobile-playing",
+        "decision": "ALLOW",
+        "cost": 837
+      },
+      {
+        "id": "sole-pawn-b-mobile-won",
+        "decision": "DENY",
+        "cost": 691
+      },
+      {
+        "id": "sole-pawn-b-mobile-draw",
+        "decision": "DENY",
+        "cost": 804
+      }
+    ]
+  }
+]

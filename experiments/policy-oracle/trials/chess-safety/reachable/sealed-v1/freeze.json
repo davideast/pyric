@@ -1,0 +1,18 @@
+{
+  "archiveSha256": "26a9eb7b807c0b18774008af09aa413e92336b43a38a852685e4b8079103dd4e",
+  "source": "python-chess 1.11.2",
+  "traces": 32,
+  "uniquePositions": 1521,
+  "legalSuccessors": 46385,
+  "recordedMoves": 1536,
+  "endings": {
+    "playing": 32
+  },
+  "successorDigest": "228dc23018aff06bac3414959a57a0f74231901bbfc46008fa864259be275518",
+  "overlapsPublicFens": 16,
+  "newSourceFens": 1505,
+  "firstMoveClaimTriplets": 1521,
+  "sourceOutcomes": {
+    "playing": 1521
+  }
+}

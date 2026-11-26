@@ -13,9 +13,9 @@ assert.equal(corpusSha,'c2a0ee05ec81ce32998cb58281363a3a96cdee07b950fb697df20428
 const archive=JSON.parse(gunzipSync(source));
 assert.equal(archive.engine,'python-chess 1.11.2');
 
-export function* positions() {
+export function* positions(traces=archive.traces) {
   const seen=new Set();
-  for(const trace of archive.traces) for(const [ply,row] of trace.rows.entries()) {
+  for(const trace of traces) for(const [ply,row] of trace.rows.entries()) {
     const key=row.fen;
     const first=!seen.has(key);
     seen.add(key);
@@ -23,11 +23,11 @@ export function* positions() {
   }
 }
 
-export function freeze() {
+export function freeze(catalog=archive, archiveSha=corpusSha) {
   const hash=createHash('sha256');
   let uniquePositions=0, legalSuccessors=0, recordedMoves=0;
   const endings={};
-  for(const {trace,ply,row,next,first} of positions()) {
+  for(const {trace,ply,row,next,first} of positions(catalog.traces)) {
     const pos=position(row.fen);
     if(row.move) {
       assert.ok(row.legal.includes(row.move));
@@ -50,7 +50,7 @@ export function freeze() {
       legalSuccessors++;
     }
   }
-  return {archiveSha256:corpusSha,source:archive.engine,traces:archive.traces.length,
+  return {archiveSha256:archiveSha,source:catalog.engine,traces:catalog.traces.length,
     uniquePositions,legalSuccessors,recordedMoves,endings,successorDigest:hash.digest('hex')};
 }
 
