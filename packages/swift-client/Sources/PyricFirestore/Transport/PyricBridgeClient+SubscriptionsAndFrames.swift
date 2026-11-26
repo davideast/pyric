@@ -385,10 +385,34 @@ extension PyricBridgeClient {
                 denialContext: denialContext,
                 envelope: envelope
             )
-            if denialContext != nil || error.code == .permissionDenied {
-                localStreams.yieldDenial(error)
-            }
+            emitDenialIfApplicable(wireCode: code, error: error, denialContext: denialContext)
             pending.continuation.resume(throwing: error)
+        }
+    }
+
+    static func shouldYieldDenial(
+        wireCode: String,
+        normalizedCode: FirestoreErrorCode,
+        denialContext: AnySendable?
+    ) -> Bool {
+        if denialContext != nil || normalizedCode == .permissionDenied {
+            return true
+        }
+        let lower = wireCode.lowercased()
+        return lower == "storage/unauthorized" || lower == "unauthorized"
+    }
+
+    private func emitDenialIfApplicable(
+        wireCode: String,
+        error: PyricBridgeError,
+        denialContext: AnySendable?
+    ) {
+        if Self.shouldYieldDenial(
+            wireCode: wireCode,
+            normalizedCode: error.code,
+            denialContext: denialContext
+        ) {
+            localStreams.yieldDenial(error)
         }
     }
 
@@ -417,9 +441,7 @@ extension PyricBridgeClient {
                 message: message,
                 denialContext: denialContext
             )
-            if denialContext != nil || error.code == .permissionDenied {
-                localStreams.yieldDenial(error)
-            }
+            emitDenialIfApplicable(wireCode: code, error: error, denialContext: denialContext)
             sub.finish(throwing: error)
             return
         }

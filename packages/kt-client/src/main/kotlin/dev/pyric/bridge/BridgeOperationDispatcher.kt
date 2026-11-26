@@ -228,7 +228,13 @@ class BridgeOperationDispatcher(
                 denialContext = denialContext,
                 wireCode = codeStr
             )
-            if (firestoreCode == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
+            val isStorageDenial =
+                codeStr.equals("storage/unauthorized", ignoreCase = true) ||
+                    codeStr.equals("unauthorized", ignoreCase = true)
+            if (denialContext != null ||
+                firestoreCode == FirebaseFirestoreException.Code.PERMISSION_DENIED ||
+                isStorageDenial
+            ) {
                 onDenial?.invoke(exception)
             }
             pending.deferred.completeExceptionally(exception)

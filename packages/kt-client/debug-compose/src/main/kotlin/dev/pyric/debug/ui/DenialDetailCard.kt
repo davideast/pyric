@@ -54,9 +54,9 @@ fun DenialDetailCard(
     val expression = ctx.rule?.expression
 
     val potentialOwnerUid = ctx.resource?.data?.let {
-        (it["ownerId"] ?: it["userId"] ?: it["authorId"] ?: it["uid"]) as? String
+        (it["ownerId"] ?: it["ownerUid"] ?: it["userId"] ?: it["authorId"] ?: it["uid"]) as? String
     } ?: ctx.request?.resourceData?.let {
-        (it["ownerId"] ?: it["userId"] ?: it["authorId"] ?: it["uid"]) as? String
+        (it["ownerId"] ?: it["ownerUid"] ?: it["userId"] ?: it["authorId"] ?: it["uid"]) as? String
     }
 
     Card(
