@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { sha } from '../../../arcade/corpus.mjs';
 
-const [arcade, reference] = process.argv.slice(2);
+const [arcade, reference, strongerCandidate] = process.argv.slice(2);
 if (!arcade || !reference) throw Error('Usage: bun verify.mjs <pinned Arcade checkout> <installed reference rules package>');
 const pinned = '66e14d4f4b0aeab22c05db8d748704dde053d2e5';
 const native = 'games/chess/src/chess.ts';
@@ -13,7 +13,10 @@ assert.deepEqual(readFileSync(join(arcade, native)), execFileSync('git', ['-C', 
 const { initialPosition, squareOf, squareName, applyMove, outcome, legalMoves, isLegal } = await import(pathToFileURL(resolve(arcade, native)));
 const { firestoreRules } = await import(pathToFileURL(resolve(reference, 'dist/index.js')));
 const names = ['stock', 'compatibility', 'stronger', 'referee'];
-const handles = names.map(name => firestoreRules(readFileSync(new URL('artifacts/' + name + '.rules', import.meta.url), 'utf8')));
+const handles = names.map(name => {
+  const file = name === 'stronger' && strongerCandidate ? strongerCandidate : new URL('artifacts/' + name + '.rules', import.meta.url);
+  return firestoreRules(readFileSync(file, 'utf8'));
+});
 function position(fen) {
   const [squares, turn, flags, ep] = fen.split(' ');
   const board = [...squares.replaceAll('/', '')].flatMap(p => /\d/.test(p)

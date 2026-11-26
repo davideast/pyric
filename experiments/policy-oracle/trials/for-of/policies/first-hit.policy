@@ -1,0 +1,7 @@
+use extension loops;
+function firstHit(cells) {
+  for (const key of ['a','b']) {
+    if (cells[key]) return true;
+  }
+  return false;
+}

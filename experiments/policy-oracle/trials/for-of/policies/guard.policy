@@ -1,0 +1,7 @@
+use extension loops;
+function clearCells(board, keys) {
+  for (const key of bounded(keys, 2)) {
+    if (board[key]) return false;
+  }
+  return true;
+}
