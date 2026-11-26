@@ -174,16 +174,25 @@ describe('rest-auth-rtdb account standing and revocation enforcement', () => {
     const revokedRefresh = await exchangeRefreshToken(direct.server.url, initialLogin.refreshToken);
     expect(revokedRefresh.status).toBe(400);
 
+    const standing = accounts.standing('uid-revoked');
+    expect(standing.kind).toBe('active');
+    if (standing.kind !== 'active') return;
+    expect(standing.tokensValidAfterMs).not.toBeNull();
+    if (standing.tokensValidAfterMs === null) return;
+    const revokedAtSec = Math.floor(standing.tokensValidAfterMs / 1000);
+    // Advance past a whole-second boundary to prove boundary checks stay anchored to tokensValidAfterMs.
+    getClock(direct.sandbox).advance(1500);
+    const tokenExpSec = Math.floor(getClock(direct.sandbox).now() / 1000) + 3600;
+
     // A token issued in the exact same whole second as revocation stays valid, matching production.
-    const nowSec = Math.floor(getClock(direct.sandbox).now() / 1000);
     const sameSecondToken = await signIdToken({
       sub: 'uid-revoked',
       user_id: 'uid-revoked',
       aud: PROJECT_ID,
       iss: `https://securetoken.google.com/${PROJECT_ID}`,
-      auth_time: nowSec,
-      iat: nowSec,
-      exp: nowSec + 3600,
+      auth_time: revokedAtSec,
+      iat: revokedAtSec,
+      exp: tokenExpSec,
     });
     expect(
       (await fetch(`${direct.server.url}/probe.json?auth=${encodeURIComponent(sameSecondToken)}`)).status,
@@ -195,9 +204,9 @@ describe('rest-auth-rtdb account standing and revocation enforcement', () => {
       user_id: 'uid-revoked',
       aud: PROJECT_ID,
       iss: `https://securetoken.google.com/${PROJECT_ID}`,
-      auth_time: nowSec - 1,
-      iat: nowSec + 5,
-      exp: nowSec + 3600,
+      auth_time: revokedAtSec - 1,
+      iat: revokedAtSec + 5,
+      exp: tokenExpSec,
     });
     expect(
       (await fetch(`${direct.server.url}/probe.json?auth=${encodeURIComponent(staleAuthTimeToken)}`))
@@ -210,7 +219,7 @@ describe('rest-auth-rtdb account standing and revocation enforcement', () => {
       user_id: 'uid-revoked',
       aud: PROJECT_ID,
       iss: `https://securetoken.google.com/${PROJECT_ID}`,
-      exp: nowSec + 3600,
+      exp: tokenExpSec,
     });
     expect(
       (await fetch(`${direct.server.url}/probe.json?auth=${encodeURIComponent(missingTimestampsToken)}`))
@@ -223,15 +232,15 @@ describe('rest-auth-rtdb account standing and revocation enforcement', () => {
       aud: PROJECT_ID,
       iss: `https://securetoken.google.com/${PROJECT_ID}`,
       auth_time: 'not-a-number',
-      iat: nowSec + 10,
-      exp: nowSec + 3600,
+      iat: revokedAtSec + 10,
+      exp: tokenExpSec,
     });
     expect(
       (await fetch(`${direct.server.url}/probe.json?auth=${encodeURIComponent(badAuthTimeToken)}`)).status,
     ).toBe(401);
 
     // Re-signing in after revocation issues a fresh accepted ID token.
-    getClock(direct.sandbox).advance(1000);
+    getClock(direct.sandbox).advance(2000);
     const freshLogin = await signInViaIdp(direct.server.url, 'uid-revoked', 'revoked@example.com');
     expect(
       (await fetch(`${direct.server.url}/probe.json?auth=${encodeURIComponent(freshLogin.idToken)}`))
