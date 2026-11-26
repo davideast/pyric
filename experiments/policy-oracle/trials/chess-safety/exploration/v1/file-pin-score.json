@@ -70,6 +70,194 @@
       "peakExpressions": 958
     }
   },
+  "reachableByMove": {
+    "p-2-quiet": {
+      "cases": 68,
+      "outcomes": {
+        "match": 68
+      }
+    },
+    "r-1-quiet": {
+      "cases": 82,
+      "outcomes": {
+        "match": 82
+      }
+    },
+    "p-1-quiet": {
+      "cases": 157,
+      "outcomes": {
+        "match": 157
+      }
+    },
+    "b-1-quiet": {
+      "cases": 93,
+      "outcomes": {
+        "match": 93
+      }
+    },
+    "b-2-quiet": {
+      "cases": 38,
+      "outcomes": {
+        "match": 38
+      }
+    },
+    "n-2-quiet": {
+      "cases": 148,
+      "outcomes": {
+        "match": 148
+      }
+    },
+    "b-long-quiet": {
+      "cases": 7,
+      "outcomes": {
+        "match": 7
+      }
+    },
+    "r-2-quiet": {
+      "cases": 32,
+      "outcomes": {
+        "match": 32
+      }
+    },
+    "b-1-capture": {
+      "cases": 13,
+      "outcomes": {
+        "match": 13
+      }
+    },
+    "b-3-quiet": {
+      "cases": 11,
+      "outcomes": {
+        "match": 11
+      }
+    },
+    "p-1-capture": {
+      "cases": 34,
+      "outcomes": {
+        "match": 34
+      }
+    },
+    "k-1-quiet": {
+      "cases": 57,
+      "outcomes": {
+        "match": 57
+      }
+    },
+    "r-2-capture": {
+      "cases": 5,
+      "outcomes": {
+        "match": 5
+      }
+    },
+    "q-1-quiet": {
+      "cases": 65,
+      "outcomes": {
+        "match": 65
+      }
+    },
+    "b-long-capture": {
+      "cases": 2,
+      "outcomes": {
+        "match": 2
+      }
+    },
+    "q-3-capture": {
+      "cases": 4,
+      "outcomes": {
+        "match": 4
+      }
+    },
+    "r-3-quiet": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      }
+    },
+    "r-long-quiet": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      }
+    },
+    "n-2-capture": {
+      "cases": 17,
+      "outcomes": {
+        "match": 17
+      }
+    },
+    "r-3-capture": {
+      "cases": 2,
+      "outcomes": {
+        "match": 2
+      }
+    },
+    "b-3-capture": {
+      "cases": 2,
+      "outcomes": {
+        "match": 2
+      }
+    },
+    "q-3-quiet": {
+      "cases": 7,
+      "outcomes": {
+        "match": 7
+      }
+    },
+    "q-long-quiet": {
+      "cases": 10,
+      "outcomes": {
+        "match": 10
+      }
+    },
+    "q-2-quiet": {
+      "cases": 30,
+      "outcomes": {
+        "match": 30
+      }
+    },
+    "r-1-capture": {
+      "cases": 3,
+      "outcomes": {
+        "match": 3
+      }
+    },
+    "k-1-capture": {
+      "cases": 4,
+      "outcomes": {
+        "match": 4
+      }
+    },
+    "b-2-capture": {
+      "cases": 7,
+      "outcomes": {
+        "match": 7
+      }
+    },
+    "q-1-capture": {
+      "cases": 8,
+      "outcomes": {
+        "match": 8
+      }
+    },
+    "q-long-capture": {
+      "cases": 2,
+      "outcomes": {
+        "match": 2
+      }
+    },
+    "q-2-capture": {
+      "cases": 6,
+      "outcomes": {
+        "match": 6
+      }
+    },
+    "r-long-capture": {
+      "cases": 3,
+      "outcomes": {
+        "match": 3
+      }
+    }
+  },
   "divergences": {
     "01-rank-diagonal/false-allow": {
       "first": {
@@ -94,7 +282,7 @@
       "minimized": {
         "beforePieces": 4,
         "afterPieces": 4,
-        "criterion": "no single unprotected piece removable preserving side, move, victim, rights, source check, native safety, admissibility, legal outcome, lone reply count and local failure class",
+        "criterion": "no single unprotected piece removable preserving side, move, victim, rights, source check, native safety, admissibility, legal outcome, lone reply identity and local failure class",
         "removedSquares": [],
         "positionsTried": 2,
         "case": {
@@ -139,7 +327,7 @@
       "minimized": {
         "beforePieces": 2,
         "afterPieces": 2,
-        "criterion": "no single unprotected piece removable preserving side, move, victim, rights, source check, native safety, admissibility, legal outcome, lone reply count and local failure class",
+        "criterion": "no single unprotected piece removable preserving side, move, victim, rights, source check, native safety, admissibility, legal outcome, lone reply identity and local failure class",
         "removedSquares": [],
         "positionsTried": 0,
         "case": {
@@ -184,7 +372,7 @@
       "minimized": {
         "beforePieces": 4,
         "afterPieces": 4,
-        "criterion": "no single unprotected piece removable preserving side, move, victim, rights, source check, native safety, admissibility, legal outcome, lone reply count and local failure class",
+        "criterion": "no single unprotected piece removable preserving side, move, victim, rights, source check, native safety, admissibility, legal outcome, lone reply identity and local failure class",
         "removedSquares": [],
         "positionsTried": 4,
         "case": {
@@ -229,7 +417,7 @@
       "minimized": {
         "beforePieces": 5,
         "afterPieces": 5,
-        "criterion": "no single unprotected piece removable preserving side, move, victim, rights, source check, native safety, admissibility, legal outcome, lone reply count and local failure class",
+        "criterion": "no single unprotected piece removable preserving side, move, victim, rights, source check, native safety, admissibility, legal outcome, lone reply identity and local failure class",
         "removedSquares": [],
         "positionsTried": 2,
         "case": {
@@ -274,7 +462,7 @@
       "minimized": {
         "beforePieces": 5,
         "afterPieces": 4,
-        "criterion": "no single unprotected piece removable preserving side, move, victim, rights, source check, native safety, admissibility, legal outcome, lone reply count and local failure class",
+        "criterion": "no single unprotected piece removable preserving side, move, victim, rights, source check, native safety, admissibility, legal outcome, lone reply identity and local failure class",
         "removedSquares": [
           "f6"
         ],
@@ -321,7 +509,7 @@
       "minimized": {
         "beforePieces": 4,
         "afterPieces": 4,
-        "criterion": "no single unprotected piece removable preserving side, move, victim, rights, source check, native safety, admissibility, legal outcome, lone reply count and local failure class",
+        "criterion": "no single unprotected piece removable preserving side, move, victim, rights, source check, native safety, admissibility, legal outcome, lone reply identity and local failure class",
         "removedSquares": [],
         "positionsTried": 2,
         "case": {
@@ -366,7 +554,7 @@
       "minimized": {
         "beforePieces": 9,
         "afterPieces": 8,
-        "criterion": "no single unprotected piece removable preserving side, move, victim, rights, source check, native safety, admissibility, legal outcome, lone reply count and local failure class",
+        "criterion": "no single unprotected piece removable preserving side, move, victim, rights, source check, native safety, admissibility, legal outcome, lone reply identity and local failure class",
         "removedSquares": [
           "g5"
         ],
@@ -417,7 +605,7 @@
       "minimized": {
         "beforePieces": 3,
         "afterPieces": 3,
-        "criterion": "no single unprotected piece removable preserving side, move, victim, rights, source check, native safety, admissibility, legal outcome, lone reply count and local failure class",
+        "criterion": "no single unprotected piece removable preserving side, move, victim, rights, source check, native safety, admissibility, legal outcome, lone reply identity and local failure class",
         "removedSquares": [],
         "positionsTried": 0,
         "case": {

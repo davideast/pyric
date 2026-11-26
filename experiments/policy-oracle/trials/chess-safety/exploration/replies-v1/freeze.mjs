@@ -5,9 +5,10 @@ import {sha} from '../../../../arcade/corpus.mjs';
 import * as arcade from '../../../chess/reference/arcade-reference.ts';
 import * as native from '../../../chess/reference/native.mjs';
 import {encode,plausible} from '../v1/corpus.mjs';
+import {bucket} from './family.mjs';
 import {nativeEvidence} from '../../reference/native.mjs';
 
-const files='abcdefgh', name=arcade.squareName, idx=arcade.squareOf;
+const name=arcade.squareName, idx=arcade.squareOf;
 function random(seed) {
   let state=seed;
   return n=>{state=(Math.imul(1664525,state)+1013904223)>>>0;return Math.floor(state/0x100000000*n);};
@@ -30,23 +31,6 @@ function reverseMove(next,at) {
     if(arcade.isLegal(p,m) && native.apply(p,name(from)+name(at)).board.join('|')===next.board.join('|'))
       return {fen:encode(p),uci:name(from)+name(at)};
   }
-}
-// An opposing defender that could capture or interpose but would uncover a
-// slider attack on its king is a distinct terminal-evidence family.
-function pinnedDefender(p) {
-  return p.board.some((piece,i)=>{
-    if(!piece || piece[0]!==p.turn || piece[1]==='k') return false;
-    const b=[...p.board];b[i]='';
-    return !arcade.inCheck(p) && arcade.inCheck({...p,board:b});
-  });
-}
-function bucket(next,replies) {
-  const check=arcade.inCheck(next);
-  if(replies.length===0) return (check?'mate':'stalemate')+(pinnedDefender(next)?'-pinned-defender':'');
-  if(replies.length!==1) return null;
-  const uci=replies[0], kind=next.board[idx(uci.slice(0,2))][1];
-  const action=next.board[idx(uci.slice(2,4))]?'capture':'move';
-  return ['only',kind,action,check?'in-check':'unchecked'].join('-');
 }
 for(let attempt=0;attempt<150000;attempt++) {
   const bk=choose(['a8','b8','g8','h8','a7','h7'].map(idx),rng);
