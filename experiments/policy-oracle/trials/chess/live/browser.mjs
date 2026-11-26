@@ -37,7 +37,17 @@ export async function play(ctx) {
   const srv = await refereeServer({config,gameBuild,engine,matchPolicy,verify,journal,allowed,beforeCommit});
   const {chromium} = await import(process.env.CHESS_PLAYWRIGHT || 'playwright');
   let browser;
-  const pages = [], pictures = [], observations = [];
+  const pages = [], pictures = [], observations = [], replayChecks = [];
+  async function checkScreens(id) {
+    for (const [i,page] of pages.entries()) {
+      const check = {id,role:i === 0 ? 'white' : 'black',...await page.evaluate(() => window.chessReplay)};
+      journal.event('browser-replay',check);
+      assert.deepEqual(check.displayedIllegal,[],id+' displayed illegal move');
+      assert.equal(check.corrected,true,id+' corrected replay');
+      assert.equal(check.normalized,true,id+' original replay on canonical board order');
+      replayChecks.push(check);
+    }
+  }
   async function photo(page,name) {
     const file = name + '.png';
     const bytes = await page.screenshot({path:join(journal.directory,file)});
@@ -106,6 +116,7 @@ export async function play(ctx) {
       const expected = {...previous,...update};
       previous = await record('browser-'+uci,[path],([s]) => assert.deepEqual(s.data,expected));
       for (const p of pages) assert.deepEqual(await p.evaluate(() => JSON.parse(JSON.stringify(window.chessView))),expected);
+      await checkScreens(uci);
     }
     await photo(black,'checkmate');
     await click(white,126,111);
@@ -123,11 +134,13 @@ export async function play(ctx) {
     await Promise.all(pages.map(p => state(p,'playing',1)));
     const update = native.moveUpdate(rematchState,move('e2e4'));
     rematchState = await record('browser-rematch-e2e4',[next],([s]) => assert.deepEqual(s.data,{...rematchState,...update}));
+    await checkScreens('rematch-e2e4');
     await click(black,195,173);
     await Promise.all(pages.map(p => state(p,'resigned',1)));
     await record('browser-rematch-resignation',[next,link,path],([s,l,old]) => {
       assert.deepEqual(s.data,{...rematchState,status:'resigned',winner:'host'});assert.equal(l.data.match,rematch);assert.deepEqual(old.data,previous);
     });
+    await checkScreens('rematch-resignation');
     await photo(white,'rematch-resignation');
     // A legal one-move stalemate from a synthetic endgame, using the same board and move transport.
     const drawId = runId+'-endgame', drawPath = 'chess/'+drawId;
@@ -144,6 +157,7 @@ export async function play(ctx) {
     await turn(white,'b5b6',false);
     await Promise.all(pages.map(p => state(p,'draw',1)));
     await record('browser-stalemate',[drawPath],([s]) => assert.deepEqual(s.data,{...drawBefore.data,...native.moveUpdate(drawBefore.data,move('b5b6'))}));
+    await checkScreens('stalemate');
     await photo(white,'stalemate');
     const promotionId = runId+'-promotion', promotionPath = 'chess/'+promotionId;
     const promotionBoard = Object.fromEntries(Object.keys(board).map(s => [s,'']));
@@ -158,9 +172,10 @@ export async function play(ctx) {
     await Promise.all(pages.map(p => state(p,'playing',1)));
     await record('browser-underpromotion',[promotionPath],([s]) => assert.deepEqual(s.data,
       {...promotionBefore.data,...native.moveUpdate(promotionBefore.data,move('a7a8n'))}));
+    await checkScreens('underpromotion');
     return {match:id,rematch,engineSha256:sha(readFileSync(enginePath)),matchPolicySha256:sha(readFileSync(metadataUrl)),
       build:JSON.parse(readFileSync(join(gameBuild,'chess-build.json'))),
-      browser:browser.version(),pictures,observations,race,referee:srv.records};
+      browser:browser.version(),pictures,observations,replayChecks,race,referee:srv.records};
   } finally {
     let cleanupError;
     for (const [i,page] of pages.entries()) {

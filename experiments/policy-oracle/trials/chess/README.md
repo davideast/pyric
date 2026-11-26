@@ -4,6 +4,8 @@ This experiment makes a move from the last stored position. The player selects t
 
 The [board policy](policies/chess.policy) derives legal moves, board changes, rights, check, checkmate and stalemate. The [match policy](policies/chess-match.policy) derives admission, next seat, count, stored last move and result. The adapter translates squares between Arcade's Firestore map and the policy's 64-entry array. The native Arcade engine supplies the independent expected update during the browser replay.
 
+The source of the qualified compiler is on `experiment/chess-policy-engine` at `7edfec782d7d7a9b4a4bb40eb3a879118dda1cae`. Both policies opt into the bounded standalone language explicitly. The packed release also emits importable Rules helpers through its existing compiler entry point. The [release lock](policies/lock.json) pins the compiler tarball and both portable modules.
+
 ## Enforcement
 
 | Complete linked release | Contract |
@@ -30,6 +32,8 @@ For the full public hill-climbing loop, run `bun verify/replay.mjs` after prepar
 Run `python3 bundle/reproduce.py --arcade /path/to/pinned/arcade` to regenerate all nine Firestore artifacts from the same packed compiler and check all 600 local decisions. An offline score can run repeatedly between live captures.
 
 To build the browser, run `python3 playable/prepare.py /path/to/pinned/arcade /new/build/directory --engine policies/chess.mjs`. It installs the frozen Arcade dependencies and builds the actual Phaser client with the policy adapter. The referee serves that build on loopback during a live qualification. The original Arcade checkout is untouched.
+
+An earlier browser capture displayed an illegal-move warning for correct boards. The original Arcade client compared serialized maps, so identical squares in different key orders produced different replay verdicts. The playable client compares complete square sets and values, and the browser driver reads the actual warning list on both seats. Run `bun playable/verify-map-order.mjs /new/build/directory` to exercise the original and corrected replay on a reordered board and three altered boards. The matching upstream-ready Arcade fix is on the local branch `fix/chess-replay-board-map-order` at `a546c20f6c922d84f8f63ef78dbdd33ca3b87e4a`.
 
 The [authenticated capture driver](live/qualify.py) uses a private operator archive and the single lease on the isolated named live Firestore database. Supply the archive, browser build directory, board module and desired profiles. Chromium runs in two independent browser contexts. Set `CHESS_PLAYWRIGHT` to the Playwright ES module when it is installed outside this checkout. Full receipts are admissible after the original journal verifies the deployed release, complete state readbacks and final deny-all restoration. [Hosted evidence verification](verify/README.md)
 

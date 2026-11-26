@@ -27,6 +27,9 @@ def build(repo, directory, engine):
         with tarfile.open(fileobj=archive) as tar:
             tar.extractall(directory, filter="data")
     subprocess.run(["bun", "install", "--frozen-lockfile", "--offline"], cwd=directory, check=True)
+    # Keep the original Arcade transition control, including its original replay diagnostic.
+    subprocess.run(["bun", "build", "games/chess/src/logic.ts", "--target=node", "--outfile=native.mjs"],
+                   cwd=directory, check=True)
     app = directory / "app"
     # The controller supplies the isolated project's public browser configuration at runtime.
     (app / "src/firebase-config.ts").write_text(
@@ -48,6 +51,23 @@ window.chessSignOut = async () => { const {deleteUser} = await import('firebase/
 """)
     if engine:
         chess = directory / "games/chess/src"
+        logic = chess / "logic.ts"
+        shutil.copyfile(logic, chess / "logic-stock.ts")
+        replace(logic, "if (JSON.stringify(expected.board) !== JSON.stringify(doc.board)) return false;",
+                """const squares = Object.keys(expected.board);
+  if (Object.keys(doc.board).length !== squares.length ||
+      !squares.every(sq => Object.hasOwn(doc.board, sq) && doc.board[sq] === expected.board[sq])) return false;""")
+        main.write_text("""import {verifyMove as originalReplay, fromMap, toMap} from '../../games/chess/src/logic-stock.ts';
+import {verifyMove as correctedReplay} from '../../games/chess/src/logic.ts';
+""" + main.read_text() + """
+Object.defineProperty(window,'chessReplay',{get() {
+  const scene = game.scene.getScenes(true).find(s => s.scene.key === 'chess');
+  const doc = scene?.view?.doc;
+  if (!doc) return null;
+  return {ply:doc.moveCount, displayedIllegal:Array.from(scene.forged.keys()),
+    original:originalReplay(doc), normalized:originalReplay({...doc,board:toMap(fromMap(doc.board))}), corrected:correctedReplay(doc)};
+}});
+""")
         shutil.copyfile(engine, chess / "policy.mjs")
         shutil.copyfile(HERE / "policy-adapter.ts", chess / "policy-adapter.ts")
         replace(chess / "scene.ts",
@@ -59,8 +79,6 @@ import { inCheck, legalMoves } from './policy-adapter.ts';""")
         net = chess / "net.ts"
         net.write_text(net.read_text().split("/** Play `move`")[0] + (HERE / "move.ts.inc").read_text())
     subprocess.run([str(directory / "node_modules/.bin/vite"), "build"], cwd=app, check=True)
-    subprocess.run(["bun", "build", "games/chess/src/logic.ts", "--target=node", "--outfile=native.mjs"],
-                   cwd=directory, check=True)
     dist = app / "dist"
     files = {str(path.relative_to(dist)): hashlib.sha256(path.read_bytes()).hexdigest()
              for path in sorted(dist.rglob("*")) if path.is_file()}

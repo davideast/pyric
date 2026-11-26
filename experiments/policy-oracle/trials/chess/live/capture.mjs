@@ -11,10 +11,12 @@ import * as firebaseApp from '../../../arcade/live/controller/chess-sdk.mjs';
 import { counterPropagation } from '../../../arcade/live/controller/counter-controls.mjs';
 import { withRelease } from '../../../arcade/live/controller/release.mjs';
 import { protocol } from './cases.mjs';
+import { decision } from './snapshots.mjs';
 import { specialCases } from '../bundle/special-cases.mjs';
 
-const [mode, archive, bundle, digest, gameBuild, enginePath] = process.argv.slice(2);
+const [mode, archive, bundle, digest, gameBuild, enginePath, cohort] = process.argv.slice(2);
 assert.ok(['stock','compatibility','stronger','referee'].includes(mode));
+assert.ok(!cohort || (cohort === 'supplement' && mode !== 'referee'));
 const source = readFileSync(bundle,'utf8');
 assert.equal(sha(source), digest);
 assert.equal(mode === 'stock',digest === manifest.files['v1/rules/stock.rules']);
@@ -45,6 +47,14 @@ try {
       async capture(verify) {
         const unauth = lite.getFirestore(unauthedApp,manifest.target.database);
         const args = {runId,writer,guest,reader,verify,journal,native,mode,unauth};
+        if (cohort === 'supplement') {
+          const {supplementalCases} = await import('../bundle/supplement/cases.mjs');
+          const path = 'chess/' + runId;
+          const observed = await decision(() => lite.getDoc(lite.doc(unauth,path)));
+          assert.equal(observed,'DENY'); journal.event('unauthenticated-read',{path,observed});
+          const rows = await supplementalCases(args);
+          return journal.retain({runId,mode,cohort,rulesSha256:digest,target:manifest.target,rows});
+        }
         const rows = [...await protocol(args), ...await specialCases(args)];
         let browser;
         if (mode === 'referee') {
@@ -54,7 +64,7 @@ try {
         return journal.retain({runId,mode,rulesSha256:digest,target:manifest.target,rows,browser});
       }});
   } finally { if (unauthedApp) await firebaseApp.deleteApp(unauthedApp); await clients.close(); }
-  journal.complete({mode,runId,rulesSha256:digest,receipt});
+  journal.complete({mode,runId,rulesSha256:digest,...(cohort && {cohort}),receipt});
   console.log('Completed',mode,receipt);
 } catch(e) {
   journal.event('failure',errorDetails(e));

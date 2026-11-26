@@ -15,6 +15,7 @@ def main():
     parser.add_argument("client_build", type=Path)
     parser.add_argument("engine", type=Path)
     parser.add_argument("profiles", nargs="+", choices=PROFILES)
+    parser.add_argument("--supplement", action="store_true")
     args = parser.parse_args()
     embedded = args.client_build / "games/chess/src/policy.mjs"
     if embedded.read_bytes() != args.engine.read_bytes():
@@ -39,8 +40,11 @@ def main():
             gate.extend(["-", "-", "-"])
         subprocess.run(gate, check=True, stdout=subprocess.DEVNULL)
         digest = hashlib.sha256(bundle.read_bytes()).hexdigest()
-        result = subprocess.run(["node", HERE / "capture.mjs", profile, args.archive, bundle,
-                                 digest, args.client_build, args.engine])
+        command = ["node", HERE / "capture.mjs", profile, args.archive, bundle,
+                   digest, args.client_build, args.engine]
+        if args.supplement:
+            command.append("supplement")
+        result = subprocess.run(command)
         results[profile] = result.returncode
         # Each next profile independently checks the closed release and lease.
     print(results, flush=True)
