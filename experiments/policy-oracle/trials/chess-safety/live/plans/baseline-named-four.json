@@ -11,6 +11,11 @@
       "batch": "16-held-rook-promotion",
       "file": "../exploration/held-rook-promotion-v1/controls/positions.json",
       "sha256": "209d9830fe4848c2fcabdaf1869db4c77f9a957d67c34f3ef513aa92667094e0"
+    },
+    {
+      "batch": "17-rook-interposition",
+      "file": "../exploration/rook-interposition-v1/controls/positions.json",
+      "sha256": "ff44b41454b77caac6a4a9e698cd15e6d5a4d7c566e0ffb95a695af6ee56c42f"
     }
   ]
 }
