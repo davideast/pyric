@@ -1,0 +1,62 @@
+[
+  {
+    "id": "king-capture-undefended",
+    "fen": "7k/8/8/8/r7/4b3/4K3/8 w - -",
+    "uci": "e2e3"
+  },
+  {
+    "id": "king-capture-defended",
+    "fen": "7k/8/8/8/8/r3b3/4K3/8 w - -",
+    "uci": "e2e3"
+  },
+  {
+    "id": "knight-screen-safe",
+    "fen": "7k/8/8/6n1/4PP2/8/4K3/8 w - -",
+    "uci": "e2e3"
+  },
+  {
+    "id": "knight-jumps-screen",
+    "fen": "7k/8/8/5n2/4PP2/8/4K3/8 w - -",
+    "uci": "e2e3"
+  },
+  {
+    "id": "black-pawn-away",
+    "fen": "7k/8/8/8/8/8/3pK3/8 w - -",
+    "uci": "e2e3"
+  },
+  {
+    "id": "black-pawn-attacks",
+    "fen": "7k/8/8/8/3p4/8/4K3/8 w - -",
+    "uci": "e2e3"
+  },
+  {
+    "id": "white-pawn-away",
+    "fen": "8/3Pk3/8/8/8/8/8/7K b - -",
+    "uci": "e7e6"
+  },
+  {
+    "id": "white-pawn-attacks",
+    "fen": "8/4k3/8/3P4/8/8/8/7K b - -",
+    "uci": "e7e6"
+  },
+  {
+    "id": "opposing-king-safe",
+    "fen": "8/8/4k3/8/8/4K3/8/8 w - -",
+    "uci": "e3e4"
+  },
+  {
+    "id": "opposing-king-adjacent",
+    "fen": "8/8/8/4k3/8/4K3/8/8 w - -",
+    "uci": "e3e4"
+  },
+  {
+    "id": "pinned-knight-away",
+    "fen": "4k3/8/8/3pn3/3K4/8/8/4R3 w - -",
+    "uci": "d4d5"
+  },
+  {
+    "id": "pinned-knight-defends",
+    "fen": "4k3/4n3/8/3p4/3K4/8/8/4R3 w - -",
+    "uci": "d4d5"
+  }
+]
