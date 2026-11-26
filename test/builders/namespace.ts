@@ -31,7 +31,8 @@
  * running without the sandbox.
  */
 import { spawn, spawnSync, type ChildProcess, type SpawnOptions } from 'node:child_process';
-import { accessSync, constants, existsSync, lstatSync, readFileSync, readlinkSync, realpathSync } from 'node:fs';
+import { accessSync, constants, existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { unreapedExit } from '../apps/unreaped-exit.ts';
@@ -45,6 +46,15 @@ const READY_TIMEOUT_MS = 15_000;
 
 /** The top-level entries of a merged-/usr system, linked or bound into the sandbox as the host has them. */
 const USR_LINKS = ['bin', 'lib', 'lib64', 'sbin'];
+
+/**
+ * Subtrees of `/usr` masked with fresh tmpfs inside the sandbox (#1826):
+ * `/usr/local` holds ~65k pre-installed CI SDK directories on ubuntu-24.04 (and
+ * user home trees on hosts with `/usr/local/...` homes), and `/usr/src` holds
+ * ~25k kernel-header directories. Neither is used by builder sandboxes; any
+ * toolchain installed under `/usr/local/...` is bound explicitly by `toolchainDirs`.
+ */
+export const MASKED_USR_DIRS: readonly string[] = ['/usr/local', '/usr/src'];
 
 /**
  * The /etc entries the sandbox gets read-only: the loader, certificates,
@@ -134,14 +144,126 @@ function whichTool(tool: string): string | undefined {
   return dirs.map((dir) => join(dir, tool)).find(isExecutable);
 }
 
-/** The install prefixes of `node` and `bun` on PATH, when they live outside /usr. */
-export function toolchainDirs(): string[] {
+const isSameOrUnder = (path: string, dir: string): boolean => path === dir || path.startsWith(`${dir}/`);
+
+function isPlainDirectory(path: string): boolean {
+  try {
+    const stat = lstatSync(path, { throwIfNoEntry: false });
+    return stat !== undefined && !stat.isSymbolicLink() && stat.isDirectory();
+  } catch (err) {
+    if (err instanceof Error && 'code' in err) {
+      return false;
+    }
+    throw err;
+  }
+}
+
+function isAlreadyInSystemUsr(dir: string): boolean {
+  if (dir === '/usr') return true;
+  if (!dir.startsWith('/usr/')) return false;
+  return !MASKED_USR_DIRS.some((masked) => isSameOrUnder(dir, masked));
+}
+
+function expandMaskedRootPrefix(prefix: string, isDir: (path: string) => boolean): string[] {
+  if (!MASKED_USR_DIRS.includes(prefix)) return [prefix];
+  const subdirs = [join(prefix, 'bin'), join(prefix, 'lib', 'node_modules')];
+  return subdirs.filter(isDir);
+}
+
+/** Deduplicates directories, dropping any path already covered by an ancestor directory in the list. */
+export function deduplicateDirs(dirs: readonly string[]): string[] {
+  const unique = [...new Set(dirs)].sort((a, b) => a.length - b.length);
+  const kept: string[] = [];
+  for (const dir of unique) {
+    const coveredByAncestor = kept.some((ancestor) => isSameOrUnder(dir, ancestor));
+    if (!coveredByAncestor) kept.push(dir);
+  }
+  return kept;
+}
+
+export interface ToolchainDeps {
+  which?: (tool: string) => string | undefined;
+  realpath?: (path: string) => string;
+  isDirectory?: (path: string) => boolean;
+  home?: string;
+}
+
+/** The install prefixes and PATH bin directories of `node` and `bun`, when not already in unmasked `/usr`. */
+export function toolchainDirs(deps: ToolchainDeps = {}): string[] {
+  const which = deps.which ?? whichTool;
+  const realpath = deps.realpath ?? realpathSync;
+  const isDir = deps.isDirectory ?? isPlainDirectory;
+  const rawHome = deps.home ?? homedir();
+  let realHome = rawHome;
+  if (isDir(rawHome)) {
+    realHome = realpath(rawHome);
+  }
+
   const dirs: string[] = [];
-  const node = whichTool('node');
-  if (node !== undefined) dirs.push(dirname(dirname(realpathSync(node))));
-  const bun = whichTool('bun');
-  if (bun !== undefined) dirs.push(dirname(realpathSync(bun)));
-  return dirs.filter((dir) => dir !== '/usr' && !dir.startsWith('/usr/'));
+  const node = which('node');
+  if (node !== undefined) {
+    dirs.push(...expandMaskedRootPrefix(dirname(node), isDir));
+    const realNode = realpath(node);
+    const nodePrefix = dirname(dirname(realNode));
+    let safePrefix = nodePrefix;
+    if (nodePrefix === '/' || nodePrefix === realHome) {
+      safePrefix = dirname(realNode);
+    }
+    dirs.push(...expandMaskedRootPrefix(safePrefix, isDir));
+  }
+  const bun = which('bun');
+  if (bun !== undefined) {
+    dirs.push(...expandMaskedRootPrefix(dirname(bun), isDir));
+    const realBun = realpath(bun);
+    dirs.push(...expandMaskedRootPrefix(dirname(realBun), isDir));
+  }
+  const needed = dirs.filter(
+    (dir) => dir !== '/' && dir !== realHome && dir !== rawHome && !isAlreadyInSystemUsr(dir) && !MASKED_USR_DIRS.includes(dir),
+  );
+  return deduplicateDirs(needed);
+}
+
+function canListDirectory(path: string): boolean {
+  try {
+    accessSync(path, constants.R_OK | constants.X_OK);
+    return true;
+  } catch (err) {
+    if (err instanceof Error && 'code' in err) {
+      return false;
+    }
+    throw err;
+  }
+}
+
+/**
+ * Direct subdirectories of `/usr/lib` and `/usr/libexec` that are root-only on
+ * the host (like `/etc/ssl/private`): the unprivileged user cannot list them,
+ * so masking them with tmpfs keeps `sandbox-inventory.ts` able to verify every
+ * directory inside the sandbox.
+ */
+function unlistableUsrLibDirs(): string[] {
+  const masked: string[] = [];
+  for (const parent of ['/usr/lib', '/usr/libexec']) {
+    if (!isPlainDirectory(parent)) continue;
+    for (const entry of readdirSync(parent, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const candidate = join(parent, entry.name);
+      if (!canListDirectory(candidate)) masked.push(candidate);
+    }
+  }
+  return masked.sort();
+}
+
+export interface SystemBindDeps {
+  isPlainDir?: (path: string) => boolean;
+  unlistableLibDirs?: () => readonly string[];
+}
+
+/** Every `/usr` subtree masked with fresh tmpfs inside the sandbox. */
+export function maskedUsrDirs(deps: SystemBindDeps = {}): string[] {
+  const isPlainDir = deps.isPlainDir ?? isPlainDirectory;
+  const unlistable = deps.unlistableLibDirs ?? unlistableUsrLibDirs;
+  return [...MASKED_USR_DIRS.filter(isPlainDir), ...unlistable()];
 }
 
 /** `--symlink` for an entry the host links into /usr, `--ro-bind` for one it keeps as a directory. */
@@ -152,9 +274,10 @@ function usrEntryArgs(entry: string): string[] {
   return isLink ? ['--symlink', readlinkSync(path), path] : ['--ro-bind', path, path];
 }
 
-/** bwrap's binds for the host's /usr and its top-level links into it, read-only. */
-export function systemBinds(): string[] {
-  return ['--ro-bind', '/usr', '/usr', ...USR_LINKS.flatMap(usrEntryArgs)];
+/** bwrap's binds for the host's /usr (masking `/usr/local`, `/usr/src`, and root-only lib dirs with tmpfs) and top-level links into it, read-only. */
+export function systemBinds(deps: SystemBindDeps = {}): string[] {
+  const masked = maskedUsrDirs(deps).flatMap((dir) => ['--tmpfs', dir]);
+  return ['--ro-bind', '/usr', '/usr', ...masked, ...USR_LINKS.flatMap(usrEntryArgs)];
 }
 
 export interface SandboxLayout {
@@ -175,7 +298,7 @@ export interface SandboxLayout {
 
 /** bwrap's arguments for a run, before the command. Parents bind before children. */
 export function sandboxArgs(layout: SandboxLayout): string[] {
-  const inPlace = [...new Set(layout.readOnly)].map((dir): View => ({ source: dir, dest: dir }));
+  const inPlace = deduplicateDirs(layout.readOnly).map((dir): View => ({ source: dir, dest: dir }));
   const readOnly = [...inPlace, ...(layout.views ?? [])].sort((a, b) => a.dest.length - b.dest.length);
   return [
     '--unshare-all',

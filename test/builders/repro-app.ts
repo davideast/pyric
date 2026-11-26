@@ -60,7 +60,11 @@ export interface ReproAppInput {
 /** Lays out the try's app. Resolves the script's name inside it. */
 export async function layOutReproApp(input: ReproAppInput): Promise<string> {
   const { dirs } = input;
-  const tar = await runCommand('tar', ['-xzf', input.appArchive, '--no-same-owner', '--no-same-permissions', '-C', dirs.root, 'app'], { cwd: dirs.root });
+  const tar = await runCommand(
+    'tar',
+    ['-xzf', input.appArchive, '--exclude=.pyric/state', '--no-same-owner', '--no-same-permissions', '-C', dirs.root, 'app'],
+    { cwd: dirs.root },
+  );
   if (tar.code !== 0) throw new Error(`extracting ${input.appArchive} failed (exit ${tar.code}):\n${tar.output}`);
   const scriptName = reproScriptName(input.script);
   assertWritable(dirs.app, [...WRITTEN, scriptName, SET_ASIDE_NPMRC]);

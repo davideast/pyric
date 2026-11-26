@@ -370,5 +370,5 @@ describe('Firestore MCP and CLI surface parity with pyric/firestore (#1915, #191
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 });

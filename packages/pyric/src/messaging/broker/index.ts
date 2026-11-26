@@ -43,7 +43,7 @@ export {
   TOKEN_SHAPE_RE,
   EMPIRICAL_DATA_CAP_BYTES,
 } from './validate.js';
-export { mintToken, TOKEN_LENGTH, TOKEN_SUFFIX_PREFIX } from './tokens.js';
+export { mintToken, mintFid, FID_LENGTH, FID_SHAPE_RE, TOKEN_LENGTH, TOKEN_SUFFIX_PREFIX } from './tokens.js';
 export { DELIVERY_STAGES } from './types.js';
 export type {
   DeliveryStage,

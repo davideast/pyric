@@ -20,7 +20,7 @@
 
 export { AIError, AIErrorCode } from './errors.js';
 export type { CustomErrorData } from './errors.js';
-export { Backend, BackendType, GoogleAIBackend } from './backend.js';
+export { AgentPlatformBackend, Backend, BackendType, GoogleAIBackend } from './backend.js';
 export { AIModel, GenerativeModel, getGenerativeModel } from './models.js';
 export type { BaseParams, ChatSession, ModelParams, RequestOptions, StartChatParams } from './models.js';
 export { getAI } from './instances.js';
@@ -167,7 +167,6 @@ export type {
 } from './types-live.js';
 
 export type {
-  AgentPlatformBackend,
   ChromeAdapter,
   HybridParams,
   LanguageModelCreateCoreOptions,

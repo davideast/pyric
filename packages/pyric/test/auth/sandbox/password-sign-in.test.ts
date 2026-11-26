@@ -91,4 +91,46 @@ describe('verifyPasswordSignIn', () => {
     expect(err.message).toBe('Firebase: Error (auth/invalid-credential).');
     expect(err.message.includes('wrong-password')).toBe(false);
   });
+
+  it('rejects an unknown email with auth/user-not-found when emailEnumerationProtection is false', () => {
+    const err = captureError(() =>
+      verifyPasswordSignIn('unknown@example.com', 'any-password', () => undefined, false),
+    );
+    expect(err.code).toBe('auth/user-not-found');
+    expect(err.message).toBe('Firebase: Error (auth/user-not-found).');
+    expect(err.message.includes('user-not-found')).toBe(true);
+    expect(err.message.includes('invalid-credential')).toBe(false);
+  });
+
+  it('rejects a wrong password with auth/wrong-password when emailEnumerationProtection is false', () => {
+    const record = makeStoredUser();
+    const err = captureError(() =>
+      verifyPasswordSignIn('owner@example.com', 'wrong-password', () => record, false),
+    );
+    expect(err.code).toBe('auth/wrong-password');
+    expect(err.message).toBe('Firebase: Error (auth/wrong-password).');
+    expect(err.message.includes('wrong-password')).toBe(true);
+    expect(err.message.includes('invalid-credential')).toBe(false);
+  });
+
+  it('rejects a passwordless account properly under both emailEnumerationProtection settings', () => {
+    const passwordless = makeStoredUser({ password: null, providerUserInfo: [{ providerId: 'google.com' }] });
+    const protectedErr = captureError(() =>
+      verifyPasswordSignIn('owner@example.com', 'any-password', () => passwordless, true),
+    );
+    expect(protectedErr.code).toBe('auth/invalid-credential');
+
+    const unprotectedErr = captureError(() =>
+      verifyPasswordSignIn('owner@example.com', 'any-password', () => passwordless, false),
+    );
+    expect(unprotectedErr.code).toBe('auth/wrong-password');
+  });
+
+  it('still rejects disabled accounts with auth/user-disabled when emailEnumerationProtection is false', () => {
+    const disabledRecord = makeStoredUser({ disabled: true });
+    const err = captureError(() =>
+      verifyPasswordSignIn('owner@example.com', 'wrong-password', () => disabledRecord, false),
+    );
+    expect(err.code).toBe('auth/user-disabled');
+  });
 });

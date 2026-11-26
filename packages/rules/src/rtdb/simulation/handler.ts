@@ -146,6 +146,23 @@ function createTracedEvaluator(
   return { evaluateTracedRule, observerFor };
 }
 
+function createNullPrototypeBindings(
+  source?: Record<string, string>,
+  extraKey?: string,
+  extraValue?: string,
+): Record<string, string> {
+  const copy: Record<string, string> = Object.create(null);
+  if (source !== undefined) {
+    for (const [key, value] of Object.entries(source)) {
+      copy[key] = value;
+    }
+  }
+  if (extraKey !== undefined && extraValue !== undefined) {
+    copy[extraKey] = extraValue;
+  }
+  return copy;
+}
+
 /**
  * Walk from root toward the target path, collecting every ancestor node
  * along the way (including the deepest match). Firebase RTDB evaluates
@@ -155,18 +172,17 @@ function createTracedEvaluator(
 export function collectAncestors(
   node: RtdbNode,
   pathSegments: readonly string[],
-  bindings: Record<string, string> = {},
+  bindings: Record<string, string> = createNullPrototypeBindings(),
   depth = 0,
 ): AncestorMatch[] {
-  const ancestors: AncestorMatch[] = [{ node, pathVariableBindings: { ...bindings }, depth }];
+  const ancestors: AncestorMatch[] = [{ node, pathVariableBindings: createNullPrototypeBindings(bindings), depth }];
 
-  if (pathSegments.length === 0) return ancestors;
+  const firstSegment = pathSegments[0];
+  if (firstSegment === undefined) return ancestors;
 
-  const matched = childFor(node, pathSegments[0]!);
+  const matched = childFor(node, firstSegment);
   if (matched === undefined) return ancestors;
-  const newBindings = matched.variable === undefined
-    ? { ...bindings }
-    : { ...bindings, [matched.variable]: pathSegments[0]! };
+  const newBindings = createNullPrototypeBindings(bindings, matched.variable, firstSegment);
   ancestors.push(...collectAncestors(matched.child, pathSegments.slice(1), newBindings, depth + 1));
   return ancestors;
 }
@@ -226,7 +242,7 @@ export class SimulateHandler {
         : rawPathSegments;
       const rootNode = compiled;
 
-      const ancestors = collectAncestors(rootNode, pathSegments, {});
+      const ancestors = collectAncestors(rootNode, pathSegments, createNullPrototypeBindings());
 
       // Walk from root down. First ancestor whose rule evaluates to true wins.
       //
@@ -257,7 +273,7 @@ export class SimulateHandler {
       const contextQuery = buildSimulatedQueryContext(operation, query);
 
       const buildContext: ContextBuilder = (data, newDataArg, bindings) => {
-        const pvBindings: Record<string, string> = { ...bindings };
+        const pvBindings = createNullPrototypeBindings(bindings);
         return {
           auth: contextAuth,
           data,

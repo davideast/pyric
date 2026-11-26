@@ -22,7 +22,7 @@ import {
   ISOLATED_CRASHLYTICS_FIREBASE_VERSION,
   ISOLATED_CRASHLYTICS_PACKAGE_VERSION,
 } from './capture/crashlytics-web/fixture.ts';
-import { loadObservations, type Observation } from './ledger.ts';
+import { loadObservations, type Observation } from '../observations/load.ts';
 import {
   resolvedAdminVersion,
   resolvedAndroidBomVersion,
@@ -54,7 +54,7 @@ export interface ObservationVersionCheckOptions {
   transitions?: Readonly<Partial<Record<string, PendingRecaptureTransition>>>;
 }
 
-export interface PendingRecaptureEntry {
+interface PendingRecaptureEntry {
   file: string;
   field: string;
   got: string;
@@ -65,6 +65,13 @@ export interface ObservationVersionCheckResult {
   missing: string[];
   mismatched: Array<{ file: string; got: string; want: string }>;
   pendingRecapture?: PendingRecaptureEntry[];
+}
+
+export interface ObservationVersionReport {
+  exitCode: 0 | 1;
+  stdout: string[];
+  stderr: string[];
+  result: ObservationVersionCheckResult;
 }
 
 export function checkObservationVersionProblems(
@@ -147,64 +154,83 @@ export function checkObservationVersionProblems(
   return { missing, mismatched };
 }
 
-if (import.meta.main) {
-  const strict = process.argv.includes('--strict');
+export function buildObservationVersionReport(
+  observations: readonly Observation[] = loadObservations(),
+  options?: ObservationVersionCheckOptions,
+): ObservationVersionReport {
   const resolved = resolvedFirebaseVersion();
   const resolvedAdmin = resolvedAdminVersion();
   const resolvedFunctions = resolvedFunctionsVersion();
   const resolvedAndroidBom = resolvedAndroidBomVersion();
   const resolvedIos = resolvedIosSdkVersion();
-  const observations = loadObservations();
-  const { missing, mismatched, pendingRecapture = [] } = checkObservationVersionProblems(
-    observations,
-    { allowPendingRecapture: !strict },
-  );
+  const result = checkObservationVersionProblems(observations, options);
+  const pendingRecapture = result.pendingRecapture ?? [];
 
-  console.log('# Oracle observation version guard');
-  console.log(`Resolved firebase (node_modules/firebase/package.json): ${resolved}`);
-  console.log(
+  const stdout: string[] = [
+    '# Oracle observation version guard',
+    `Resolved firebase (node_modules/firebase/package.json): ${resolved}`,
     `Resolved isolated crashlytics web SDK: firebase@${ISOLATED_CRASHLYTICS_FIREBASE_VERSION} (@firebase/crashlytics@${ISOLATED_CRASHLYTICS_PACKAGE_VERSION})`,
-  );
-  console.log(`Resolved firebase-admin (node_modules/firebase-admin/package.json): ${resolvedAdmin}`);
-  console.log(`Resolved firebase-functions (node_modules/firebase-functions/package.json): ${resolvedFunctions}`);
-  console.log(`Resolved firebase-bom (rigs/native-android-oracle/gradle.properties): ${resolvedAndroidBom}`);
-  console.log(`Resolved firebase-ios-sdk (rigs/native-ios-oracle/sdk-version.properties): ${resolvedIos}`);
-  console.log(`Observations checked: ${observations.length}`);
+    `Resolved firebase-admin (node_modules/firebase-admin/package.json): ${resolvedAdmin}`,
+    `Resolved firebase-functions (node_modules/firebase-functions/package.json): ${resolvedFunctions}`,
+    `Resolved firebase-bom (rigs/native-android-oracle/gradle.properties): ${resolvedAndroidBom}`,
+    `Resolved firebase-ios-sdk (rigs/native-ios-oracle/sdk-version.properties): ${resolvedIos}`,
+    `Observations checked: ${observations.length}`,
+  ];
+  const stderr: string[] = [];
 
   if (pendingRecapture.length > 0) {
     const countsByPair = new Map<string, number>();
     for (const entry of pendingRecapture) {
       const key = `${entry.field}|${entry.got}|${entry.want}`;
-      countsByPair.set(key, (countsByPair.get(key) ?? 0) + 1);
+      const previous = countsByPair.get(key) ?? 0;
+      countsByPair.set(key, previous + 1);
     }
     for (const [key, count] of countsByPair) {
       const [field, from, to] = key.split('|');
-      console.log(
+      stdout.push(
         `Pending oracle-recapture.yml: ${count} observation(s) [${field}] at prior certified baseline ${from} -> ${to}`,
       );
     }
   }
 
-  if (missing.length === 0 && mismatched.length === 0) {
+  if (result.missing.length === 0 && result.mismatched.length === 0) {
     if (pendingRecapture.length > 0) {
-      console.log('\n[OK] All non-pending observations match installed SDK versions (recapture pending on main).');
+      stdout.push(
+        '\n[OK] All non-pending observations match installed SDK versions (recapture pending on main).',
+      );
     } else {
-      console.log('\n[OK] Every observation matches its installed Firebase SDK version.');
+      stdout.push('\n[OK] Every observation matches its installed Firebase SDK version.');
     }
-    process.exit(0);
+    return { exitCode: 0, stdout, stderr, result };
   }
 
-  if (missing.length > 0) {
-    console.error(`\n[FAIL] ${missing.length} observation(s) missing an SDK version field:`);
-    for (const f of missing.slice(0, 20)) console.error(`  - ${f}`);
-  }
-  if (mismatched.length > 0) {
-    console.error(`\n[FAIL] ${mismatched.length} observation SDK version mismatch(es):`);
-    for (const { file, got, want } of mismatched.slice(0, 20)) {
-      console.error(`  - ${file}: captured ${got}, installed ${want}`);
+  if (result.missing.length > 0) {
+    stderr.push(`\n[FAIL] ${result.missing.length} observation(s) missing an SDK version field:`);
+    for (const file of result.missing.slice(0, 20)) {
+      stderr.push(`  - ${file}`);
     }
-    console.error('\nRe-run the owning oracle capture against the installed SDK versions.');
-    console.error('Do not edit observation version fields by hand.');
   }
-  process.exit(1);
+  if (result.mismatched.length > 0) {
+    stderr.push(`\n[FAIL] ${result.mismatched.length} observation SDK version mismatch(es):`);
+    for (const { file, got, want } of result.mismatched.slice(0, 20)) {
+      stderr.push(`  - ${file}: captured ${got}, installed ${want}`);
+    }
+    stderr.push('\nRe-run the owning oracle capture against the installed SDK versions.');
+    stderr.push('Do not edit observation version fields by hand.');
+  }
+  return { exitCode: 1, stdout, stderr, result };
+}
+
+if (import.meta.main) {
+  const strict = process.argv.includes('--strict');
+  const report = buildObservationVersionReport(loadObservations(), {
+    allowPendingRecapture: !strict,
+  });
+  for (const line of report.stdout) {
+    console.log(line);
+  }
+  for (const line of report.stderr) {
+    console.error(line);
+  }
+  process.exit(report.exitCode);
 }

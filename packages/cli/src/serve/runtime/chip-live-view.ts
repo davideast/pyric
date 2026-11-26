@@ -16,6 +16,7 @@
  */
 import type { LiveHostStatus } from 'pyric/sandbox/internal';
 import { barHtml, buttonHtml, escapeAttribute, iconHtml, pluralize, rowHtml, sectionHtml, type ChipView } from './chip-markup.js';
+import { unlockSessionSectionHtml } from './chip-unlock.js';
 
 type LiveClient = NonNullable<LiveHostStatus['clients']>[number];
 
@@ -29,6 +30,8 @@ export interface LiveViewContext {
   readonly supportsListeners: boolean;
   /** True when the host restarted since this page loaded and the tab should reload. */
   readonly hostBundleStale?: boolean;
+  /** Validated `/__pyric/unlock` URL when the browser must pair before calls succeed. */
+  readonly unlockUrl?: string | null;
 }
 
 /** The tab strip's label for the sandbox tab on a live host. */
@@ -234,6 +237,10 @@ export function liveViewHtml(live: LiveHostStatus, context: LiveViewContext): Ch
     overlaysSectionHtml(context.supportsListeners),
   ];
   if (context.hostBundleStale) sections.unshift(staleBundleSectionHtml());
+  if (context.unlockUrl) {
+    const unlockSection = unlockSessionSectionHtml(context.unlockUrl);
+    if (unlockSection !== '') sections.unshift(keyed(unlockSection, 'unlock'));
+  }
   return {
     body: `<div class="live-view" data-live-view>${sections.join('')}</div>`,
     bar: barHtml([buttonHtml('data-dismiss-chip', 'Hide', 'Hide pyric on this page')], 'Hide until reload'),

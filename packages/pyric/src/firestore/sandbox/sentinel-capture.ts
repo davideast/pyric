@@ -51,6 +51,9 @@ export function walkForSentinels(value: unknown, prefix = ''): SentinelHit[] {
     }
     const obj = v as Record<string, unknown>;
     if (!isUnescapedUserMap(v)) {
+      if (obj.__type === 'maximum' || obj.__type === 'minimum') {
+        return;
+      }
       const kind = detect(obj);
       if (kind) {
         hits.push({ field: p, kind });

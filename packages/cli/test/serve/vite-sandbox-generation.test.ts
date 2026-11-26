@@ -429,6 +429,63 @@ describe('Vite sandbox generation project', () => {
     expect((await sessionProject({ functions: false })).session?.projectId).toBe('rc-default');
   });
 
+  it('passes resolved projectId to the bridge when functions is false or no functions dir exists', async () => {
+    async function bridgeProject(opts: {
+      functionsOption: false | Record<string, never>;
+      hasFunctionsDir?: boolean;
+      hosted?: boolean;
+      project?: string;
+      bridgeOption?: { project?: string } | null;
+      rcValue?: { projects: Record<string, string> } | null;
+      env?: NodeJS.ProcessEnv;
+      liveHost?: boolean;
+    }): Promise<string | undefined> {
+      let hostedDir: string | undefined;
+      if (opts.hosted === true) {
+        hostedDir = mkdtempSync(join(tmpdir(), 'pyric-vite-hosted-proj-'));
+      }
+      try {
+        const h = harness({ functions: opts.hasFunctionsDir === true });
+        if (hostedDir !== undefined) {
+          h.input.projectDir = hostedDir;
+          h.input.options.hosted = true;
+          h.input.server.resolvedUrls = { local: ['http://127.0.0.1:5173/'], network: [] };
+        }
+        h.input.options.functions = opts.functionsOption;
+        h.input.options.project = opts.project;
+        h.input.options.liveHost = opts.liveHost;
+        h.input.options.bridge = opts.bridgeOption === undefined ? {} : opts.bridgeOption;
+        h.dependencies.readFirebaseRc = async () => (opts.rcValue === undefined ? rc : opts.rcValue);
+        h.dependencies.env = { HOME: home, ...opts.env };
+        let capturedProject: string | undefined;
+        const baseCreateBridge = h.dependencies.createBridge;
+        h.dependencies.createBridge = (bridgeOptions) => {
+          capturedProject = bridgeOptions.project;
+          if (!baseCreateBridge) throw new Error('missing createBridge stub');
+          const created = baseCreateBridge(bridgeOptions);
+          return { ...created, startHostedSandbox: async () => {} };
+        };
+        const generation = await createViteSandboxGeneration(h.input, h.dependencies);
+        await generation.close();
+        return capturedProject;
+      } finally {
+        if (hostedDir !== undefined) {
+          rmSync(hostedDir, { recursive: true, force: true });
+        }
+      }
+    }
+
+    expect(await bridgeProject({ functionsOption: false })).toBe('rc-default');
+    expect(await bridgeProject({ functionsOption: false, project: 'staging' })).toBe('staging-id');
+    expect(await bridgeProject({ functionsOption: false, env: { PYRIC_PROJECT: 'env-proj' } })).toBe('env-proj');
+    expect(await bridgeProject({ functionsOption: {}, hasFunctionsDir: false, project: 'staging' })).toBe('staging-id');
+    expect(await bridgeProject({ functionsOption: false, hosted: true, bridgeOption: null, project: 'staging' })).toBe('staging-id');
+    expect(await bridgeProject({ functionsOption: false, liveHost: true, project: 'staging' })).toBe('staging-id');
+    expect(await bridgeProject({ functionsOption: false, project: 'staging', bridgeOption: { project: 'bridge-override' } })).toBe('bridge-override');
+    expect(await bridgeProject({ functionsOption: false, rcValue: null })).toBeUndefined();
+    expect(await bridgeProject({ functionsOption: {}, hasFunctionsDir: true, rcValue: null })).toBe('demo-project');
+  });
+
   it('normalizes wildcard server.host to localhost in bridgeUrl while keeping raw boundHost for security guards', async () => {
     for (const wildcardHost of ['0.0.0.0', '::', '[::]']) {
       const h = harness();

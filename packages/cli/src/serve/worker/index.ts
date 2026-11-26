@@ -103,6 +103,8 @@ export {
   // Sentinels
   serverTimestamp,
   increment,
+  maximum,
+  minimum,
   arrayUnion,
   arrayRemove,
   deleteField,

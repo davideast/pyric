@@ -1,13 +1,14 @@
 /**
- * Track T3 — disk-backed Studio storage + serve routes.
+ * Track T3 -- disk-backed Studio storage + serve routes.
  *
  * Round-trips `diskWorkspace` / `diskProjectStore` in a temp dir (read/write/
  * list/remove, path-traversal refusal, project CRUD) and smoke-tests the route
  * handler by importing it directly and driving it with mock req/res (no live
  * server).
  */
+import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { mkdtempSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -24,20 +25,26 @@ import {
   ProjectIdError,
 } from './disk-project-store.js';
 import { createStudioRoutes } from './routes.js';
-import { captureFullState, fork, initializeSandbox } from 'pyric/sandbox';
-import { saveBranch } from 'pyric/sandbox/branches/store';
-import { getInternalEnv } from 'pyric/sandbox/internal';
+import type { WorkspaceBranch } from './store-types.js';
+import { captureFullState, discard, fork, initializeSandbox } from 'pyric/sandbox';
+import { branchDirectory, saveBranch } from 'pyric/sandbox/branches/store';
+import { getInternalEnv, setInlineStorageLimitForTesting } from 'pyric/sandbox/internal';
+import { ref as storageRef, uploadBytes } from 'pyric/storage';
+import { getAdminStorageSandbox } from 'pyric/storage/internal';
 
 let dir: string;
+let restoreLimit: (() => void) | undefined;
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'pyric-studio-'));
 });
 afterEach(() => {
+  restoreLimit?.();
+  restoreLimit = undefined;
   rmSync(dir, { recursive: true, force: true });
 });
 
 describe('diskWorkspace', () => {
-  it('write → read round-trips, creating parent dirs', async () => {
+  it('write -> read round-trips, creating parent dirs', async () => {
     const ws = diskWorkspace(dir);
     await ws.write('src/app.tsx', 'export const x = 1;');
     expect(await ws.read('src/app.tsx')).toBe('export const x = 1;');
@@ -104,7 +111,7 @@ describe('diskWorkspace', () => {
 });
 
 describe('diskProjectStore', () => {
-  it('create → list → open → update → remove round-trips', async () => {
+  it('create -> list -> open -> update -> remove round-trips', async () => {
     const store = diskProjectStore(dir);
     expect(await store.list()).toEqual([]);
 
@@ -152,7 +159,7 @@ describe('diskProjectStore', () => {
   });
 });
 
-// ── Route smoke tests (handler imported directly) ─────────────────────────
+// -- Route smoke tests (handler imported directly) -------------------------
 
 interface MockRes {
   res: ServerResponse;
@@ -182,8 +189,10 @@ function mockRes(): MockRes {
     headers: {},
     done: undefined as unknown as Promise<void>,
   };
-  let resolveDone!: () => void;
-  state.done = new Promise<void>((r) => (resolveDone = r));
+  let resolveDone: (() => void) | undefined;
+  state.done = new Promise<void>((r) => {
+    resolveDone = r;
+  });
   const res = {
     headersSent: false,
     writeHead(code: number, headers?: Record<string, unknown>) {
@@ -198,7 +207,7 @@ function mockRes(): MockRes {
     },
     end(chunk?: string) {
       if (chunk) state.body += chunk;
-      resolveDone();
+      resolveDone?.();
       return res;
     },
   } as unknown as ServerResponse;
@@ -289,8 +298,12 @@ describe('createStudioRoutes', () => {
   it('GET /__pyric/workspace/branches returns the branches the store holds', async () => {
     const ws = diskWorkspace(dir);
     const sandbox = initializeSandbox();
+    getAdminStorageSandbox(sandbox, { dbName: 'pyric-studio-draft-storage' });
     getInternalEnv(sandbox).seed({ rules: '', documents: { 'notes/n1': { body: 'live' } } });
-    await saveBranch(dir, 'draft', await fork(await captureFullState(sandbox)), { base: 'live' });
+    const branch = await fork(await captureFullState(sandbox));
+    await saveBranch(dir, 'draft', branch, { base: 'live' });
+    discard(branch);
+    sandbox.dispose();
 
     const routes = createStudioRoutes({
       workspace: ws,
@@ -301,17 +314,98 @@ describe('createStudioRoutes', () => {
     await routes(mockReq('GET'), res.res, new URL('http://localhost/__pyric/workspace/branches'));
     await res.done;
 
-    const listed = JSON.parse(res.body) as Array<{
-      name: string;
-      base: string;
-      eventCount: number;
-      documents: Record<string, unknown>;
-    }>;
+    const listed = JSON.parse(res.body) as WorkspaceBranch[];
     expect(listed).toHaveLength(1);
-    expect(listed[0]!.name).toBe('draft');
-    expect(listed[0]!.base).toBe('live');
-    expect(listed[0]!.eventCount).toBe(0);
-    expect(listed[0]!.documents['notes/n1']).toEqual({ body: 'live' });
+    const first = listed[0];
+    if (first === undefined) throw new Error('expected branch entry');
+    expect(first.name).toBe('draft');
+    expect(first.base).toBe('live');
+    expect(first.eventCount).toBe(0);
+    expect(first.documents['notes/n1']).toEqual({ body: 'live' });
+    expect(first.storage).toBeUndefined();
+  });
+
+  it('GET /__pyric/workspace/branches surfaces 500 MiB SHA-256 Storage references and hashes legacy inline entries without sending base64', async () => {
+    const ws = diskWorkspace(dir);
+    const sandbox = initializeSandbox();
+    getInternalEnv(sandbox).seed({ rules: '', documents: { 'notes/n1': { body: 'ref' } } });
+    const storage = getAdminStorageSandbox(sandbox, { dbName: 'pyric-studio-branch-storage' });
+    await uploadBytes(storageRef(storage, 'small/inline.txt'), new Uint8Array([1, 2, 3, 4]));
+    const baseState = await captureFullState(sandbox);
+    sandbox.dispose();
+
+    const largeSha = 'c'.repeat(64);
+    baseState.storage.push({
+      path: 'videos/large.mp4',
+      sha256: largeSha,
+      size: 524_288_000,
+      contentType: 'video/mp4',
+      customMetadata: { resolution: '4k' },
+      blobType: 'video/mp4',
+      metadata: {
+        bucket: 'pyric-default',
+        name: 'large.mp4',
+        size: 524_288_000,
+        timeCreated: '2026-10-07T00:00:00.000Z',
+        updated: '2026-10-07T00:00:00.000Z',
+        generation: '1',
+        metageneration: '1',
+      },
+    });
+
+    const refBranch = await fork(baseState);
+    restoreLimit = setInlineStorageLimitForTesting(16);
+    await saveBranch(dir, 'media', refBranch, { base: 'live' });
+    discard(refBranch);
+
+    // Also create a second branch whose storage.json is corrupted so we verify isolation.
+    const brokenSandbox = initializeSandbox();
+    const brokenBranch = await fork(await captureFullState(brokenSandbox));
+    brokenSandbox.dispose();
+    await saveBranch(dir, 'corrupt', brokenBranch, { base: 'live' });
+    discard(brokenBranch);
+    writeFileSync(join(branchDirectory(dir, 'corrupt'), 'state', 'storage.json'), '{not-json');
+
+    const routes = createStudioRoutes({
+      workspace: ws,
+      sessionToken: testSessionToken,
+      boundHost: 'localhost',
+    });
+    const res = mockRes();
+    await routes(mockReq('GET'), res.res, new URL('http://localhost/__pyric/workspace/branches'));
+    await res.done;
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).not.toContain('contentBase64');
+    const listed = JSON.parse(res.body) as WorkspaceBranch[];
+    expect(listed.map((entry) => entry.name)).toEqual(['corrupt', 'media']);
+
+    const corrupt = listed[0];
+    const media = listed[1];
+    if (corrupt === undefined || media === undefined) {
+      throw new Error('expected two branch entries');
+    }
+    expect(corrupt.documents).toEqual({});
+    expect(corrupt.storage).toBeUndefined();
+    expect(media.documents['notes/n1']).toEqual({ body: 'ref' });
+    expect(media.storage).toEqual([
+      {
+        path: 'small/inline.txt',
+        sha256: '9f64a747e1b97f131fabb6b447296c9b6f0201e79fb3c5356e6c77e89b6a806a',
+        size: 4,
+        contentType: 'application/octet-stream',
+        customMetadata: {},
+        blobType: '',
+      },
+      {
+        path: 'videos/large.mp4',
+        sha256: largeSha,
+        size: 524_288_000,
+        contentType: 'video/mp4',
+        customMetadata: { resolution: '4k' },
+        blobType: 'video/mp4',
+      },
+    ]);
   });
 
   it('returns 400 on path traversal', async () => {

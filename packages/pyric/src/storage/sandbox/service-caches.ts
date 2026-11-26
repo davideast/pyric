@@ -16,7 +16,13 @@ import type {
 } from '@pyric/rules/internal/storage';
 import type { FirebaseApp } from '../../app/types.js';
 import type { StorageBackend } from '../persistence.js';
-import type { CrossServiceIam, StorageService } from './running-service.js';
+import type {
+  CrossServiceIam,
+  StorageDefaultPolicy,
+  StorageService,
+} from './running-service.js';
+
+export type { StorageDefaultPolicy } from './running-service.js';
 
 /** Default sandbox bucket key when no explicit bucket store is selected. */
 export const DEFAULT_STORAGE_BUCKET = 'pyric-default';
@@ -73,10 +79,9 @@ export interface StorageOptions {
   rules?: string;
   /** Production Storage-to-Firestore IAM posture, defaults to `'granted'`. */
   crossServiceIam?: CrossServiceIam;
+  /** Default policy when no rules are configured: `'deny'` by default, `'allow'` in permissive mode. */
+  defaultPolicy?: StorageDefaultPolicy;
 }
-
-/** What a bucket with no rules deployed answers: `deny` by default, `allow` in permissive mode. */
-export type StorageDefaultPolicy = 'allow' | 'deny';
 
 /** Everything one `Sandbox` opened its storage service with. */
 interface OpenStorageService {
@@ -85,8 +90,10 @@ interface OpenStorageService {
   readonly compiledRules: StorageRules | null;
   readonly rulesResolution: StorageRulesResolution | null;
   readonly crossServiceIam: CrossServiceIam;
+  readonly defaultPolicy: StorageDefaultPolicy;
   readonly rulesLocked: boolean;
   readonly crossServiceIamLocked: boolean;
+  readonly defaultPolicyLocked: boolean;
 }
 
 /** The rules deployed to one bucket, by name. */
@@ -108,6 +115,7 @@ export interface StorageServiceCaches {
   defaultStoreNames?: WeakMap<Sandbox, string>;
   claimedDefaultNames?: WeakMap<Sandbox, Set<string>>;
   undeployedPolicies?: WeakMap<Sandbox, StorageDefaultPolicy>;
+  noticedUndeployedBuckets?: WeakMap<Sandbox, Set<string>>;
 }
 
 const SERVICE_CACHES_KEY = Symbol.for('pyric.storage.service-caches');
@@ -139,11 +147,15 @@ if (serviceCaches.claimedDefaultNames === undefined) {
 if (serviceCaches.undeployedPolicies === undefined) {
   serviceCaches.undeployedPolicies = new WeakMap();
 }
+if (serviceCaches.noticedUndeployedBuckets === undefined) {
+  serviceCaches.noticedUndeployedBuckets = new WeakMap();
+}
 
 export const BUCKET_RULES = serviceCaches.bucketRules as WeakMap<Sandbox, Map<string, BucketRules>>;
 export const DEFAULT_STORE_NAMES = serviceCaches.defaultStoreNames as WeakMap<Sandbox, string>;
 export const CLAIMED_DEFAULT_NAMES = serviceCaches.claimedDefaultNames as WeakMap<Sandbox, Set<string>>;
 export const UNDEPLOYED_POLICIES = serviceCaches.undeployedPolicies as WeakMap<Sandbox, StorageDefaultPolicy>;
+export const NOTICED_UNDEPLOYED_BUCKETS = serviceCaches.noticedUndeployedBuckets as WeakMap<Sandbox, Set<string>>;
 
 /** Whether a handle addresses the app's default bucket store. */
 export function addressesDefaultBucket(target: SandboxTarget): boolean {

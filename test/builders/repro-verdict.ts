@@ -61,11 +61,11 @@ export function judgeTry(target: ReproTarget, evidence: TryEvidence, expected?: 
 export type ReproResult = 'reproduced' | 'unconfirmed' | 'inconclusive' | 'invalid';
 
 /**
- * A reproduction's result: invalid when any try planted a link, whatever
- * the others found; otherwise reproduced when any try did; unconfirmed when a
- * try found pyric behaving as production does; inconclusive when no try could
- * tell either way (each crashed, timed out, or failed to install), which says
- * nothing about pyric.
+ * A reproduction's result: invalid when any try planted a link or left its
+ * sandbox running after SIGKILL, whatever the others found; otherwise
+ * reproduced when any try did; unconfirmed when a try found pyric behaving as
+ * production does; inconclusive when no try could tell either way (each
+ * crashed, timed out, or failed to install), which says nothing about pyric.
  */
 export function reproResult(outcomes: readonly TryOutcome[]): ReproResult {
   if (outcomes.includes('invalid')) return 'invalid';

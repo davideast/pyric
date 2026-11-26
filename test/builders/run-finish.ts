@@ -21,7 +21,7 @@
  * planted paths, and the phase's output, under a name nothing in the run
  * root is copied to.
  */
-import { accessSync, appendFileSync, constants, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { accessSync, appendFileSync, constants, existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { runCommand } from '../apps/install.ts';
 import type { Brief } from './brief.ts';
@@ -60,7 +60,7 @@ export function readPhaseResult(dirs: BuilderRunDirs): PhaseResult | null {
 const readIfExists = (path: string) => (existsSync(path) ? readFileSync(path, 'utf8') : '');
 
 /** What `keep` copies of the scratch directory. */
-const keptPaths = (dirs: BuilderRunDirs) => [dirs.report, dirs.briefJson, dirs.networkLog, dirs.logs, dirs.app];
+const keptPaths = (dirs: BuilderRunDirs) => [dirs.report, dirs.briefJson, dirs.networkLog, dirs.logs, dirs.transcripts, dirs.app];
 
 /**
  * The kept files, relative to the run root, that hold any of `secrets`. Names
@@ -76,8 +76,8 @@ const isInApp = (path: string) => path === 'app' || path.startsWith('app/');
 /**
  * Copies what the harness keeps of the run into the data root, with the
  * token's value replaced wherever it turns up. The app is packed without
- * node_modules, and withheld when any file of it held the token or is in
- * `skip`. Nothing else in `skip` is copied.
+ * `node_modules` or `.pyric/state`, and withheld when any file of it held the
+ * token or is in `skip`. Nothing else in `skip` is copied.
  */
 export async function keep(record: RunRecord, dirs: BuilderRunDirs, dataDir: string, token: Secrets, skip?: Skipped): Promise<void> {
   mkdirSync(dataDir, { recursive: true });
@@ -85,10 +85,15 @@ export async function keep(record: RunRecord, dirs: BuilderRunDirs, dataDir: str
   copyRedacted(dirs.briefJson, join(dataDir, 'brief.json'), token, skip);
   copyRedacted(dirs.networkLog, join(dataDir, 'network.jsonl'), token, skip);
   copyRedacted(dirs.logs, join(dataDir, 'logs'), token, skip);
+  copyRedacted(dirs.transcripts, join(dataDir, 'transcripts'), token, skip);
   // tar reads the app whole: a file of it the scan skipped would be packed unscanned.
   const skipsInApp = [...(skip ?? [])].some((path) => isInApp(relative(dirs.root, path)));
   if (record.harness.tokenFoundIn.some(isInApp) || skipsInApp) return;
-  const tar = await runCommand('tar', ['-czf', join(dataDir, 'app.tgz'), '--exclude=node_modules', '-C', dirs.root, 'app'], { cwd: dirs.root });
+  const tar = await runCommand(
+    'tar',
+    ['-czf', join(dataDir, 'app.tgz'), '--exclude=node_modules', '--exclude=.pyric/state', '-C', dirs.root, 'app'],
+    { cwd: dirs.root },
+  );
   if (tar.code !== 0) throw new Error(`packing the app failed (exit ${tar.code}):\n${tar.output}`);
 }
 
@@ -249,12 +254,37 @@ function tokenFound(input: FinishInput, end: RunEnd, skip: Skipped, isKeptApart:
   return isKeptApart && outputHoldsToken ? [...found, KEPT_PHASE_OUTPUT].sort() : found;
 }
 
+/** Checks every directory component from `dirs.home` down to `dirs.transcripts` so no planted link is traversed. */
+function transcriptAncestorLinks(dirs: BuilderRunDirs): Array<[string, string]> {
+  const chain = [dirs.home, join(dirs.home, '.claude'), dirs.transcripts];
+  for (const entry of chain) {
+    const rel = relative(dirs.root, entry);
+    let stat: ReturnType<typeof lstatSync>;
+    try {
+      stat = lstatSync(entry, { throwIfNoEntry: false });
+    } catch (error) {
+      if (error instanceof Error && 'code' in error) {
+        return [[dirs.transcripts, `${rel} could not be checked (${String(error.code)})`]];
+      }
+      throw error;
+    }
+    if (stat === undefined) return [];
+    if (stat.isSymbolicLink()) return [[dirs.transcripts, `${rel} is a link`]];
+    if (!stat.isDirectory()) return [[dirs.transcripts, `${rel} is not a directory`]];
+  }
+  return [];
+}
+
 /** Ends a run whose sandbox has stopped: measures, merges, scans and keeps it. Resolves its record. */
 export async function finishRun(input: FinishInput, end: RunEnd): Promise<RunRecord> {
   const { dirs, channel } = end;
   appendMeasurement(end.measurements, measurementLine(input.identity, channel, end.wallMs));
   restoreOwnerAccess(dirs.root, new Set([join(dirs.app, 'node_modules')]));
-  const findings: RunRootFindings = { skipped: new Map(plantedLinks(dirs.root, harnessTouchedPaths(dirs)).map((link) => [link.path, link.problem])), leftOut: new Map() };
+  const initialSkipped: Array<[string, string]> = [
+    ...plantedLinks(dirs.root, harnessTouchedPaths(dirs)).map((link): [string, string] => [link.path, link.problem]),
+    ...transcriptAncestorLinks(dirs),
+  ];
+  const findings: RunRootFindings = { skipped: new Map(initialSkipped), leftOut: new Map() };
   const planted: Skipped = new Set(findings.skipped.keys());
   const hasPlantedLinks = planted.size > 0;
   if (!hasPlantedLinks) settleRunRoot(end, findings.skipped);
