@@ -1,0 +1,116 @@
+{
+  "candidateSha256": "c96a1f08a6808901f14e810bf31564d7f7a0c893126f99d9b8d18747e486a932",
+  "referenceSha256": "67087040f9e1206c54660563a27329d4b5db22102229af8f11b8ccb68ea87743",
+  "nativeSha256": "ebf93cbebf1c8a2d05ae37e04de4fde06e4422924a2263c17afe3b7efe0938d2",
+  "policySha256": "4fa7f4eccb1fb5a2130c6af728f3901458962b4f2909834e3223f3010c81a888",
+  "binding": "after-board",
+  "standalone": {
+    "matches": 7,
+    "firstDivergence": null,
+    "cases": [
+      {
+        "id": "rook-safe",
+        "native": "ALLOW",
+        "observed": "ALLOW",
+        "status": "match"
+      },
+      {
+        "id": "rook-exposed",
+        "native": "DENY",
+        "observed": "DENY",
+        "status": "match"
+      },
+      {
+        "id": "mirrored-file",
+        "native": "DENY",
+        "observed": "DENY",
+        "status": "match"
+      },
+      {
+        "id": "surviving-blocker",
+        "native": "ALLOW",
+        "observed": "ALLOW",
+        "status": "match"
+      },
+      {
+        "id": "black-exposed",
+        "native": "DENY",
+        "observed": "DENY",
+        "status": "match"
+      },
+      {
+        "id": "black-safe",
+        "native": "ALLOW",
+        "observed": "ALLOW",
+        "status": "match"
+      },
+      {
+        "id": "queen-exposed",
+        "native": "DENY",
+        "observed": "DENY",
+        "status": "match"
+      }
+    ]
+  },
+  "compilation": {
+    "status": "emitted",
+    "moduleSha256": "3f8b7d6d9f3ec63ccca916837b87556d13960b7bb91af6594d943b8a7304fcd6"
+  },
+  "linkedRulesSha256": "d16ec3f40dc8df4120cfc9aaa56a1def251da8f64cd9de7e43b6869620669004",
+  "linkedRules": {
+    "matches": 7,
+    "firstDivergence": null,
+    "cases": [
+      {
+        "id": "rook-safe",
+        "native": "ALLOW",
+        "observed": "ALLOW",
+        "status": "match",
+        "localExpressions": 852
+      },
+      {
+        "id": "rook-exposed",
+        "native": "DENY",
+        "observed": "DENY",
+        "status": "match",
+        "localExpressions": 653
+      },
+      {
+        "id": "mirrored-file",
+        "native": "DENY",
+        "observed": "DENY",
+        "status": "match",
+        "localExpressions": 659
+      },
+      {
+        "id": "surviving-blocker",
+        "native": "ALLOW",
+        "observed": "ALLOW",
+        "status": "match",
+        "localExpressions": 861
+      },
+      {
+        "id": "black-exposed",
+        "native": "DENY",
+        "observed": "DENY",
+        "status": "match",
+        "localExpressions": 669
+      },
+      {
+        "id": "black-safe",
+        "native": "ALLOW",
+        "observed": "ALLOW",
+        "status": "match",
+        "localExpressions": 875
+      },
+      {
+        "id": "queen-exposed",
+        "native": "DENY",
+        "observed": "DENY",
+        "status": "match",
+        "localExpressions": 653
+      }
+    ]
+  },
+  "passed": true
+}

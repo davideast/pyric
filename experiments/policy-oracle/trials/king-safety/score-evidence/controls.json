@@ -1,0 +1,26 @@
+[
+  {
+    "control": "allow",
+    "standaloneFirst": "false-allow",
+    "linkedFirst": "false-allow",
+    "linkedCase": "rook-exposed"
+  },
+  {
+    "control": "deny",
+    "standaloneFirst": "false-refusal",
+    "linkedFirst": "false-refusal",
+    "linkedCase": "rook-safe"
+  },
+  {
+    "control": "cannot-emit",
+    "standaloneFirst": "false-allow",
+    "linkedFirst": "cannot-compile",
+    "linkedCase": "rook-safe"
+  },
+  {
+    "control": "standalone-error",
+    "standaloneFirst": "standalone-error",
+    "linkedFirst": "false-allow",
+    "linkedCase": "rook-exposed"
+  }
+]
