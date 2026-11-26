@@ -68,17 +68,26 @@ function extractSessionCookie(setCookie: string | null): string | undefined {
   return setCookie.split(';', 1)[0];
 }
 
-afterEach(() => {
-  for (const srv of mockServers.splice(0)) srv.close();
-});
+async function closeServer(srv: Server): Promise<void> {
+  srv.closeAllConnections?.();
+  await new Promise<void>((resolveClose) => {
+    srv.close(() => resolveClose());
+  });
+}
 
-afterAll(async () => {
+afterEach(async () => {
   while (started.length > 0) {
     const rt = started.pop();
     if (rt !== undefined) {
       await rt.handle.stop();
     }
   }
+  for (const srv of mockServers.splice(0)) {
+    await closeServer(srv);
+  }
+});
+
+afterAll(() => {
   cleanupTempDirs();
 });
 

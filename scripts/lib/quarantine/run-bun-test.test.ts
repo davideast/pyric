@@ -8,7 +8,7 @@ import { homedir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { createPrivateJobTmpDir, removePrivateJobTmpDir } from '../private-job-tmpdir.ts';
 import { REPO_ROOT, addDays, entryFileName, type LoadedEntry } from './entries.ts';
-import { runBunTest, runBunTestVerdict } from './run-bun-test.ts';
+import { runBunTest, runBunTestVerdict, splitBatchArgs } from './run-bun-test.ts';
 
 const TODAY = '2026-10-29';
 const dirs: string[] = [];
@@ -359,5 +359,119 @@ describe('the quarantine runner on real bun test runs', () => {
       }),
     ).toBe(0);
     expect(await exitCode(run.cwd, [])).toBe(0);
+  });
+
+  test('splits large explicit file lists into bounded child processes and combines verdicts (#3392)', async () => {
+    expect(
+      splitBatchArgs(['--timeout', '15000', './a.test.ts', './b.test.ts', './c.test.ts', './d.test.ts', './e.test.ts'], 2),
+    ).toEqual([
+      ['--timeout', '15000', './a.test.ts', './b.test.ts'],
+      ['--timeout', '15000', './c.test.ts', './d.test.ts'],
+      ['--timeout', '15000', './e.test.ts'],
+    ]);
+    expect(splitBatchArgs(['./'], 2)).toEqual([['./']]);
+    expect(splitBatchArgs(['--bail', './a.test.ts', './b.test.ts', './c.test.ts'], 2)).toEqual([
+      ['--bail', './a.test.ts', './b.test.ts', './c.test.ts'],
+    ]);
+
+    const pidRecordDir = createPrivateJobTmpDir('quarantine-batch-pids');
+    dirs.push(pidRecordDir);
+    const makePidTest = (slot: string) => [
+      "import { writeFileSync } from 'node:fs';",
+      "import { join } from 'node:path';",
+      "import { expect, test } from 'bun:test';",
+      `test(${JSON.stringify(slot)}, () => {`,
+      `  writeFileSync(join(${JSON.stringify(pidRecordDir)}, ${JSON.stringify(`${slot}.pid`)}), String(process.pid));`,
+      '  expect(1).toBe(1);',
+      '});',
+      '',
+    ].join('\n');
+
+    const batchedPassing = suite({
+      'f1.test.ts': makePidTest('f1'),
+      'f2.test.ts': makePidTest('f2'),
+      'f3.test.ts': makePidTest('f3'),
+      'f4.test.ts': makePidTest('f4'),
+      'f5.test.ts': makePidTest('f5'),
+    });
+    const explicitArgs = ['./f1.test.ts', './f2.test.ts', './f3.test.ts', './f4.test.ts', './f5.test.ts'];
+    expect(
+      await runBunTest({
+        cwd: batchedPassing.cwd,
+        args: explicitArgs,
+        suite: 'batched-plain',
+        entries: [],
+        today: TODAY,
+        forward: () => {},
+        env: {},
+        quarantine: false,
+        maxFilesPerBatch: 2,
+      }),
+    ).toBe(0);
+    const pids = ['f1', 'f2', 'f3', 'f4', 'f5'].map((slot) =>
+      readFileSync(join(pidRecordDir, `${slot}.pid`), 'utf8'),
+    );
+    expect(pids[0]).toBe(pids[1]);
+    expect(pids[2]).toBe(pids[3]);
+    expect(new Set([pids[0], pids[2], pids[4]]).size).toBe(3);
+
+    const batchedQuarantined = suite({
+      'a.test.ts': "import { test } from 'bun:test';\ntest('ok-a', () => {});\n",
+      'b.test.ts': FLAKY,
+      'c.test.ts': "import { test } from 'bun:test';\ntest('ok-c', () => {});\n",
+    });
+    const qEntry = entry(batchedQuarantined.id('b.test.ts', 'flaky > fails'));
+    const forgivenVerdict = await runBunTestVerdict({
+      cwd: batchedQuarantined.cwd,
+      args: ['./a.test.ts', './b.test.ts', './c.test.ts'],
+      suite: 'batched-forgiven',
+      entries: [qEntry],
+      today: TODAY,
+      forward: () => {},
+      env: {},
+      quarantine: true,
+      maxFilesPerBatch: 1,
+    });
+    expect(forgivenVerdict.exitCode).toBe(0);
+    expect(forgivenVerdict.forgiven).toBe(true);
+    expect(forgivenVerdict.outcomes.map((o) => o.outcome)).toEqual(['failed']);
+
+    const batchedMixed = suite({
+      'a.test.ts': FLAKY,
+      'b.test.ts': OTHER_FAILURE,
+      'c.test.ts': "import { test } from 'bun:test';\ntest('ok-c', () => {});\n",
+    });
+    const blockedVerdict = await runBunTestVerdict({
+      cwd: batchedMixed.cwd,
+      args: ['./a.test.ts', './b.test.ts', './c.test.ts'],
+      suite: 'batched-blocked',
+      entries: [entry(batchedMixed.id('a.test.ts', 'flaky > fails'))],
+      today: TODAY,
+      forward: () => {},
+      env: {},
+      quarantine: true,
+      maxFilesPerBatch: 1,
+    });
+    expect(blockedVerdict.exitCode).toBe(1);
+    expect(blockedVerdict.forgiven).toBe(false);
+
+    const batchedEarlyExit = suite({
+      'a.test.ts': FLAKY,
+      'b.test.ts': 'process.exit(0);\n',
+      'c.test.ts': "import { test } from 'bun:test';\ntest('never', () => {});\n",
+    });
+    const earlyExitVerdict = await runBunTestVerdict({
+      cwd: batchedEarlyExit.cwd,
+      args: ['./a.test.ts', './b.test.ts', './c.test.ts'],
+      suite: 'batched-early-exit',
+      entries: [entry(batchedEarlyExit.id('a.test.ts', 'flaky > fails'))],
+      today: TODAY,
+      forward: () => {},
+      env: {},
+      quarantine: true,
+      maxFilesPerBatch: 2,
+    });
+    expect(earlyExitVerdict.exitCode).toBe(1);
+    expect(earlyExitVerdict.forgiven).toBe(false);
   });
 });
