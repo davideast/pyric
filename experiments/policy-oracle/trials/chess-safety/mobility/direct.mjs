@@ -6,9 +6,9 @@ export const directions=[['N',10],['NE',11],['E',1],['SE',-9],['S',-10],['SW',-1
 const prefix='(?:[^,]*,)*',any='(?:[^,]*,)';
 const gap=n=>!n?'':n===1?any:any+'{'+n+'}';
 const choice=list=>list.length===1?list[0]:'(?:'+list.join('|')+')';
-function ordered(cells) {
+function ordered(cells,skip=gap) {
   const items=[...cells.entries()].sort((a,b)=>a[0]-b[0]);
-  return items.flatMap(([i,v],p)=>[gap(p?i-items[p-1][0]-1:0),v]).filter(Boolean);
+  return items.flatMap(([i,v],p)=>[skip(p?i-items[p-1][0]-1:0),v]).filter(Boolean);
 }
 function alternation(rows) {
   const branches=new Map();
@@ -26,20 +26,22 @@ function alternation(rows) {
   return choice([...suffixes].map(([suffix,items])=>choice(items)+suffix));
 }
 
-export function directTests(color,offset) {
-  const enemy=color==='w'?'b':'w',king=color+'k,';
-  const target='(?:'+enemy+'[prnbq])?,';
-  const valid=prefix+ordered(new Map([[0,king],[offset,target]])).join('')+'.*';
+export function directTests(color,offset,compact=false) {
+  const enemy=color==='w'?'b':'w',king=compact?'K':color+'k,';
+  const skip=compact?(n=>!n?'':n===1?'[^;]':'[^;]{'+n+'}'):gap;
+  const head=compact?'[^;]*':prefix, tail=compact?'[^;]*':'.*';
+  const target=compact?'[_prnbq]':'(?:'+enemy+'[prnbq])?,';
+  const valid=head+ordered(new Map([[0,king],[offset,target]]),skip).join('')+tail;
   const threats=[];
   function add(delta,piece,ray=0,distance=1) {
     const relative=offset+delta;
     if(relative===0)return;
-    const cells=new Map([[0,king],[relative,enemy+piece+',']]);
+    const cells=new Map([[0,king],[relative,compact?piece:enemy+piece+',']]);
     for(let t=1;t<distance;t++) {
       const intermediate=offset+t*ray;
-      if(intermediate!==0)cells.set(intermediate,',');
+      if(intermediate!==0)cells.set(intermediate,compact?'_':',');
     }
-    threats.push(ordered(cells));
+    threats.push(ordered(cells,skip));
   }
   for(const stride of [-11,-10,-9,-1,1,9,10,11]) {
     add(stride,'k');
@@ -51,13 +53,14 @@ export function directTests(color,offset) {
   // A missing target can lie beyond either end of the padded string, on a
   // wall, on a friendly piece, or on the enemy king. Any other token is a
   // legal geometric destination. Missing kings also decline every direction.
-  const bad='(?:#|'+color+'[prnbqk]|'+enemy+'k),';
-  const tooShort='(?:[^,]*,){0,'+(Math.abs(offset)-1)+'}';
-  const beyond=offset>0?'.*'+king+tooShort:tooShort+king+'.*';
-  const absent='(?:[,#]|[wb][prnbq],|'+enemy+'k,)*';
-  const blocked=ordered(new Map([[0,king],[offset,bad]]));
-  const rejected=choice([beyond,absent,prefix+alternation([...threats,blocked])+'.*']);
-  return {valid,attacked:prefix+alternation(threats)+'.*',rejected};
+  const bad=compact?'[#XKk]':'(?:#|'+color+'[prnbqk]|'+enemy+'k),';
+  const tooShort=(compact?'[^;]':'(?:[^,]*,)')+'{0,'+(Math.abs(offset)-1)+'}';
+  const beyond=offset>0?tail+king+tooShort:tooShort+king+tail;
+  const absent=compact?'[^;K]*':'(?:[,#]|[wb][prnbq],|'+enemy+'k,)*';
+  const blocked=ordered(new Map([[0,king],[offset,bad]]),skip);
+  const failure=compact?choice([...threats,blocked].map(parts=>parts.join(''))):alternation([...threats,blocked]);
+  const rejected=choice([beyond,absent,head+failure+tail]);
+  return {valid,attacked:head+alternation(threats)+tail,rejected};
 }
 export function directSources() {
   const out={};
@@ -73,10 +76,10 @@ export function directWrapper() {
   const any=color=>directions.map(([name])=>'direct'+color+name+'(text)').join(' || ');
   return "function hasKingReply(text,color) { return color == 'w' ? ("+any('w')+") : ("+any('b')+"); }";
 }
-export function compileDirect(compileFunction,{mode},packSource,safeSource,grouped=false,width=4) {
+export function compileDirect(compileFunction,{mode},packSource,safeSource,grouped=false,width=4,compact=false) {
   const pack=compileFunction(packSource),safe=compileFunction(safeSource);
   const functions=Object.fromEntries(Object.entries(directSources()).map(([name,s])=>[name,compileFunction(s)]));
-  const groupedFns=grouped?Object.fromEntries(Object.entries(directGroupedSources(width)).map(([n,s])=>[n,compileFunction(s)])):null;
+  const groupedFns=grouped?Object.fromEntries(Object.entries(directGroupedSources(width,compact)).map(([n,s])=>[n,compileFunction(s)])):null;
   const modules=mode==='standalone'?{}:Object.fromEntries(Object.entries(groupedFns??functions).map(([name,f])=>[name,f.firestoreModule()]));
   return {
     modules,
@@ -84,7 +87,8 @@ export function compileDirect(compileFunction,{mode},packSource,safeSource,group
     hasReply(board,color){
       const text=pack(board);
       if(!groupedFns)return directions.some(([name])=>functions['direct'+color+name](text));
-      const records=(text+';').repeat(width);
+      const normalized=compact?groupedFns['encode'+color](text):text;
+      const records=(normalized+';').repeat(width);
       return Array.from({length:directions.length/width},(_,i)=>groupedFns['allRefused'+color+i])
         .some(f=>!f(records));
     },
@@ -95,19 +99,34 @@ export function compileDirect(compileFunction,{mode},packSource,safeSource,group
 // Each semicolon-delimited copy of the same unchanged board supplies one
 // directional predicate. Four failed directions fit in one authorable module;
 // their conjunction across both groups rules out every adjacent king step.
-export function directGroupedSources(width=4) {
+export function directGroupedSources(width=4,compact=false) {
   const out={};
+  if(compact)for(const color of ['w','b']) {
+    const enemy=color==='w'?'b':'w';
+    // Every original token (including its delimiter) becomes one square.
+    // Friendly nonkings are equivalent as blockers; enemy kinds retain their attacks.
+    out['encode'+color]=`function encode${color}(text) { return text.replace('${color}k,','K').replace('${color}[prnbq],','X').replace('${enemy}([prnbqk]),','$1').replace('#,','#').replace(',','_'); }`;
+  }
   for(const color of ['w','b']) for(let batch=0;batch<directions.length/width;batch++) {
     const name='allRefused'+color+batch;
     const test=directions.slice(width*batch,width*(batch+1)).map(([,offset])=>{
-      const r=directTests(color,offset).rejected.replaceAll('.*','[^;]*').replaceAll('[^,]','[^,;]');
+      const r=directTests(color,offset,compact).rejected.replaceAll('.*','[^;]*').replaceAll('[^,]','[^,;]');
       return r+';';
     }).join('');
     out[name]="function "+name+"(records) { return records.matches('"+test+"'); }";
   }
   return out;
 }
-export function directGroupedWrapper(width=4) {
+export function directGroupedWrapper(width=4,compact=false) {
+  if(compact) {
+    const invalid=color=>Array.from({length:directions.length/width},(_,i)=>'allRefused'+color+i+'(records)').join(' && ');
+    const repeat=Array.from({length:width},()=>"fixed+';'").join('+');
+    return `function hasKingReply(text,color) {
+      let fixed=color=='w'?encodew(text):encodeb(text);
+      let records=${repeat};
+      return color=='w' ? !(${invalid('w')}) : !(${invalid('b')});
+    }`;
+  }
   if(width===2) {
     const invalid=color=>Array.from({length:4},(_,i)=>'allRefused'+color+i+'(records)').join(' && ');
     return `function hasKingReply(text,color) {
