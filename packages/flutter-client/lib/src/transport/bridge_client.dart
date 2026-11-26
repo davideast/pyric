@@ -94,6 +94,17 @@ class PyricBridgeClient {
 
   static void Function(PyricBridgeException)? onDenial;
 
+  static Map<String, String> defaultHeadersForUri(Uri target) {
+    final rawHost = target.host.isEmpty ? 'localhost' : target.host;
+    final formattedHost = rawHost.contains(':') && !rawHost.startsWith('[')
+        ? '[$rawHost]'
+        : rawHost;
+    final hostHeader = target.hasPort
+        ? '$formattedHost:${target.port}'
+        : formattedHost;
+    return <String, String>{'Host': hostHeader};
+  }
+
   PyricBridgeClient({
     Uri? uri,
     Map<String, dynamic>? headers,
@@ -103,7 +114,10 @@ class PyricBridgeClient {
     Duration Function(int attempt)? reconnectDelay,
     this.attachTimeout = const Duration(seconds: 5),
   })  : uri = uri ?? Uri.parse('ws://localhost:5174/__pyric/sandbox'),
-        headers = headers ?? const {'Host': 'localhost:5174'},
+        headers = headers ??
+            defaultHeadersForUri(
+              uri ?? Uri.parse('ws://localhost:5174/__pyric/sandbox'),
+            ),
         reconnectDelay = reconnectDelay ?? bridgeReconnectDelay {
     _heartbeat = BridgeHeartbeat(
       interval: () => heartbeatInterval,

@@ -94,9 +94,20 @@ public actor PyricBridgeClient {
     var turnWaiters: [Int: CheckedContinuation<Void, Never>] = [:]
     var activeSubs: [String: ActiveSub] = [:]
 
+    public static func defaultHeaders(for url: URL) -> [String: String] {
+        let rawHost = url.host ?? "127.0.0.1"
+        let formattedHost = (rawHost.contains(":") && !rawHost.hasPrefix("["))
+            ? "[\(rawHost)]"
+            : rawHost
+        let hostHeader = (url.port != nil)
+            ? "\(formattedHost):\(url.port!)"
+            : (url.host != nil ? formattedHost : "127.0.0.1:5174")
+        return ["Host": hostHeader]
+    }
+
     public init(
         endpoint: URL = URL(string: "ws://127.0.0.1:5174/__pyric/sandbox")!,
-        headers: [String: String] = ["Host": "127.0.0.1:5174"],
+        headers: [String: String]? = nil,
         defaultOpTimeout: TimeInterval = 35.0,
         retryInitialConnection: Bool = false,
         reconnectDelay: (@Sendable (Int) -> TimeInterval)? = nil,
@@ -104,7 +115,7 @@ public actor PyricBridgeClient {
         transportFactory: (@Sendable (URLRequest) async throws -> any WebSocketTransport)? = nil
     ) {
         self.endpoint = endpoint
-        self.headers = headers
+        self.headers = headers ?? Self.defaultHeaders(for: endpoint)
         self.defaultOpTimeout = defaultOpTimeout
         self.retryInitialConnection = retryInitialConnection
         self.reconnectDelay = reconnectDelay ?? { bridgeReconnectDelay(attempt: $0) }
@@ -120,11 +131,11 @@ public actor PyricBridgeClient {
     public init(
         channel: any WebSocketTransport,
         endpoint: URL = URL(string: "ws://127.0.0.1:5174/__pyric/sandbox")!,
-        headers: [String: String] = ["Host": "127.0.0.1:5174"],
+        headers: [String: String]? = nil,
         defaultOpTimeout: TimeInterval = 35.0
     ) {
         self.endpoint = endpoint
-        self.headers = headers
+        self.headers = headers ?? Self.defaultHeaders(for: endpoint)
         self.defaultOpTimeout = defaultOpTimeout
         self.retryInitialConnection = false
         self.reconnectDelay = { bridgeReconnectDelay(attempt: $0) }
@@ -143,10 +154,9 @@ public actor PyricBridgeClient {
         var request = URLRequest(url: url)
         for (key, value) in headers { request.setValue(value, forHTTPHeaderField: key) }
         if request.value(forHTTPHeaderField: "Host") == nil {
-            let hostStr = (url.port != nil)
-                ? "\(url.host ?? "127.0.0.1"):\(url.port!)"
-                : (url.host ?? "127.0.0.1:5174")
-            request.setValue(hostStr, forHTTPHeaderField: "Host")
+            if let hostStr = Self.defaultHeaders(for: url)["Host"] {
+                request.setValue(hostStr, forHTTPHeaderField: "Host")
+            }
         }
         return request
     }
