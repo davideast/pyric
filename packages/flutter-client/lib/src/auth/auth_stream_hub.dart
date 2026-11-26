@@ -4,12 +4,98 @@ import 'package:firebase_auth_platform_interface/firebase_auth_platform_interfac
 
 import 'auth_lens.dart';
 
-/// Owns the synchronous broadcast controllers for `authStateChanges`,
+class _ChannelListener<T> {
+  final void Function(T) onData;
+  final void Function(Object, StackTrace)? onError;
+  final void Function() onDone;
+
+  _ChannelListener({
+    required this.onData,
+    required this.onDone,
+    this.onError,
+  });
+}
+
+/// Synchronous broadcast channel with FIFO re-entrancy draining so callbacks
+/// that trigger nested `switchAuthLens`, `tenantId =`, or auth change events
+/// never throw `StateError: Controller is already firing an event`.
+class _SyncBroadcastChannel<T> {
+  final List<_ChannelListener<T>> _listeners = [];
+  final List<void Function()> _queue = [];
+  bool _draining = false;
+  bool _closed = false;
+
+  bool get isClosed => _closed;
+
+  void Function() addListener(_ChannelListener<T> listener) {
+    if (_closed) {
+      listener.onDone();
+      return () {};
+    }
+    _listeners.add(listener);
+    return () => _listeners.remove(listener);
+  }
+
+  void add(T value) {
+    if (_closed) return;
+    _enqueue(() {
+      if (_closed) return;
+      final snapshot = List<_ChannelListener<T>>.of(_listeners);
+      for (final listener in snapshot) {
+        if (_listeners.contains(listener)) {
+          listener.onData(value);
+        }
+      }
+    });
+  }
+
+  void addError(Object error, [StackTrace? stackTrace]) {
+    if (_closed) return;
+    final trace = stackTrace ?? StackTrace.current;
+    _enqueue(() {
+      if (_closed) return;
+      final snapshot = List<_ChannelListener<T>>.of(_listeners);
+      for (final listener in snapshot) {
+        if (_listeners.contains(listener)) {
+          listener.onError?.call(error, trace);
+        }
+      }
+    });
+  }
+
+  void close() {
+    if (_closed) return;
+    _closed = true;
+    _enqueue(() {
+      final snapshot = List<_ChannelListener<T>>.of(_listeners);
+      _listeners.clear();
+      for (final listener in snapshot) {
+        listener.onDone();
+      }
+    });
+  }
+
+  void _enqueue(void Function() action) {
+    _queue.add(action);
+    if (_draining) return;
+    _draining = true;
+    try {
+      while (_queue.isNotEmpty) {
+        final next = _queue.removeAt(0);
+        next();
+      }
+    } finally {
+      _draining = false;
+    }
+  }
+}
+
+/// Owns the synchronous broadcast channels for `authStateChanges`,
 /// `idTokenChanges`, `userChanges`, and `authLensChanges`.
 ///
-/// Forwarding synchronously guarantees:
+/// Forwarding synchronously with FIFO re-entrancy draining guarantees:
 /// - D8: Auth observer events have the same single async bridge hop as
-///   Firestore and RTDB listeners.
+///   Firestore and RTDB listeners, without throwing on re-entrant emissions.
 /// - D6 (F3-F5): Bridge shutdown closes every stream synchronously inside
 ///   `disconnect()` with zero uncaught errors on `authLensChanges`.
 /// - D9 (F6): `authLensChanges` replays `currentAuthLens` (respecting active
@@ -21,14 +107,14 @@ class AuthStreamHub {
   String? _lastAuthStateUid;
   AuthLens _lastEmittedLens = AuthLens.anon;
 
-  final StreamController<UserPlatform?> _authStateController =
-      StreamController<UserPlatform?>.broadcast(sync: true);
-  final StreamController<UserPlatform?> _idTokenController =
-      StreamController<UserPlatform?>.broadcast(sync: true);
-  final StreamController<UserPlatform?> _userChangesController =
-      StreamController<UserPlatform?>.broadcast(sync: true);
-  final StreamController<AuthLens> _lensController =
-      StreamController<AuthLens>.broadcast(sync: true);
+  final _SyncBroadcastChannel<UserPlatform?> _authStateChannel =
+      _SyncBroadcastChannel<UserPlatform?>();
+  final _SyncBroadcastChannel<UserPlatform?> _idTokenChannel =
+      _SyncBroadcastChannel<UserPlatform?>();
+  final _SyncBroadcastChannel<UserPlatform?> _userChangesChannel =
+      _SyncBroadcastChannel<UserPlatform?>();
+  final _SyncBroadcastChannel<AuthLens> _lensChannel =
+      _SyncBroadcastChannel<AuthLens>();
 
   AuthStreamHub({
     required this.readCurrentUser,
@@ -50,90 +136,57 @@ class AuthStreamHub {
     final nextUid = user?.uid;
     if (nextUid != _lastAuthStateUid) {
       _lastAuthStateUid = nextUid;
-      if (!_authStateController.isClosed) {
-        _authStateController.add(user);
-      }
+      _authStateChannel.add(user);
     }
   }
 
   void emitAuthStateForced(UserPlatform? user) {
     _lastAuthStateUid = user?.uid;
-    if (!_authStateController.isClosed) {
-      _authStateController.add(user);
-    }
+    _authStateChannel.add(user);
   }
 
-  void emitIdToken(UserPlatform? user) {
-    if (!_idTokenController.isClosed) {
-      _idTokenController.add(user);
-    }
-  }
+  void emitIdToken(UserPlatform? user) => _idTokenChannel.add(user);
 
-  void emitUserChanges(UserPlatform? user) {
-    if (!_userChangesController.isClosed) {
-      _userChangesController.add(user);
-    }
-  }
+  void emitUserChanges(UserPlatform? user) => _userChangesChannel.add(user);
 
   void emitLensIfChanged() {
     final next = readCurrentLens();
     if (next == _lastEmittedLens) return;
     _lastEmittedLens = next;
-    if (!_lensController.isClosed) {
-      _lensController.add(next);
-    }
+    _lensChannel.add(next);
   }
 
-  void addAuthStateError(Object err) {
-    if (!_authStateController.isClosed) {
-      _authStateController.addError(err);
-    }
-  }
+  void addAuthStateError(Object err) => _authStateChannel.addError(err);
 
-  void addIdTokenError(Object err) {
-    if (!_idTokenController.isClosed) {
-      _idTokenController.addError(err);
-    }
-  }
+  void addIdTokenError(Object err) => _idTokenChannel.addError(err);
 
-  void closeAuthState() {
-    if (!_authStateController.isClosed) {
-      _authStateController.close();
-    }
-  }
+  void closeAuthState() => _authStateChannel.close();
 
-  void closeIdToken() {
-    if (!_idTokenController.isClosed) {
-      _idTokenController.close();
-    }
-  }
+  void closeIdToken() => _idTokenChannel.close();
 
   void closeAllSync() {
-    closeAuthState();
-    closeIdToken();
-    if (!_userChangesController.isClosed) _userChangesController.close();
-    if (!_lensController.isClosed) _lensController.close();
+    _authStateChannel.close();
+    _idTokenChannel.close();
+    _userChangesChannel.close();
+    _lensChannel.close();
   }
 
   Future<void> dispose() async {
-    if (!_lensController.isClosed) await _lensController.close();
-    if (!_authStateController.isClosed) await _authStateController.close();
-    if (!_idTokenController.isClosed) await _idTokenController.close();
-    if (!_userChangesController.isClosed) await _userChangesController.close();
+    closeAllSync();
   }
 
   Stream<UserPlatform?> authStateChanges() =>
-      _replayingUserStream(_authStateController);
+      _replayingUserStream(_authStateChannel);
 
   Stream<UserPlatform?> idTokenChanges() =>
-      _replayingUserStream(_idTokenController);
+      _replayingUserStream(_idTokenChannel);
 
   Stream<UserPlatform?> userChanges() =>
-      _replayingUserStream(_userChangesController);
+      _replayingUserStream(_userChangesChannel);
 
   Stream<AuthLens> get authLensChanges {
     return Stream<AuthLens>.multi((controller) {
-      if (_lensController.isClosed) {
+      if (_lensChannel.isClosed) {
         controller.close();
         return;
       }
@@ -148,18 +201,17 @@ class AuthStreamHub {
         controller.addSync(next);
       }
 
-      final sub = _lensController.stream.listen(
-        deliverSync,
-        onError: (Object _, StackTrace __) {},
-        onDone: () {
-          if (!controller.isClosed) controller.closeSync();
-        },
+      final detach = _lensChannel.addListener(
+        _ChannelListener<AuthLens>(
+          onData: deliverSync,
+          onDone: () {
+            if (!controller.isClosed) controller.closeSync();
+          },
+        ),
       );
-      controller.onCancel = () {
-        unawaited(sub.cancel());
-      };
+      controller.onCancel = detach;
       scheduleMicrotask(() {
-        if (controller.isClosed || _lensController.isClosed || hasDelivered) {
+        if (controller.isClosed || _lensChannel.isClosed || hasDelivered) {
           return;
         }
         deliverSync(readCurrentLens());
@@ -168,7 +220,7 @@ class AuthStreamHub {
   }
 
   Stream<UserPlatform?> _replayingUserStream(
-    StreamController<UserPlatform?> source,
+    _SyncBroadcastChannel<UserPlatform?> source,
   ) {
     return Stream<UserPlatform?>.multi((controller) {
       if (source.isClosed) {
@@ -176,21 +228,21 @@ class AuthStreamHub {
         return;
       }
       var hasDelivered = false;
-      final sub = source.stream.listen(
-        (user) {
-          hasDelivered = true;
-          if (!controller.isClosed) controller.addSync(user);
-        },
-        onError: (Object err, StackTrace st) {
-          if (!controller.isClosed) controller.addErrorSync(err, st);
-        },
-        onDone: () {
-          if (!controller.isClosed) controller.closeSync();
-        },
+      final detach = source.addListener(
+        _ChannelListener<UserPlatform?>(
+          onData: (user) {
+            hasDelivered = true;
+            if (!controller.isClosed) controller.addSync(user);
+          },
+          onError: (Object err, StackTrace st) {
+            if (!controller.isClosed) controller.addErrorSync(err, st);
+          },
+          onDone: () {
+            if (!controller.isClosed) controller.closeSync();
+          },
+        ),
       );
-      controller.onCancel = () {
-        unawaited(sub.cancel());
-      };
+      controller.onCancel = detach;
       scheduleMicrotask(() {
         if (controller.isClosed || source.isClosed || hasDelivered) return;
         hasDelivered = true;

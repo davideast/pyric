@@ -1,3 +1,18 @@
+/// Normalized observer frame buffered while a local Auth mutation is in flight.
+class BufferedAuthSnap {
+  final int order;
+  final bool isAuthState;
+  final String? uid;
+  final Map<String, dynamic>? normalized;
+
+  const BufferedAuthSnap({
+    required this.order,
+    required this.isAuthState,
+    required this.uid,
+    required this.normalized,
+  });
+}
+
 /// Coordinates local Auth op results against inbound `authState` / `idToken`
 /// observer frames so neither a stale observer frame nor an out-of-order op
 /// result (such as `reload()` completing after `signOut()`) can regress
@@ -6,25 +21,43 @@ class AuthObserverReconciler {
   int _nextMutationSeq = 0;
   int _appliedMutationSeq = 0;
   int _pendingLocalMutations = 0;
+  int _nextSnapOrder = 0;
 
-  final List<String?> _inFlightAuthStateUids = [];
-  final List<String?> _inFlightIdTokenUids = [];
+  final List<BufferedAuthSnap> _inFlightAuthState = [];
+  final List<BufferedAuthSnap> _inFlightIdToken = [];
   final List<String?> _expectedAuthStateEchoes = [];
   final List<String?> _expectedIdTokenEchoes = [];
+
+  /// Allocates a monotonic sequence number without deferring inbound observer
+  /// frames (used by read-only operations such as `getIdToken(false)`).
+  int allocateMutationSeq() => ++_nextMutationSeq;
 
   int beginLocalMutation() {
     _pendingLocalMutations += 1;
     return ++_nextMutationSeq;
   }
 
-  void endLocalMutation() {
+  /// Ends one in-flight mutating Auth operation. When the last in-flight
+  /// mutation finishes, returns any buffered observer snapshots not consumed
+  /// by `recordLocalTransition` in arrival order so external changes arriving
+  /// during failed mutations are never dropped.
+  List<BufferedAuthSnap> endLocalMutation() {
     if (_pendingLocalMutations > 0) {
       _pendingLocalMutations -= 1;
     }
-    if (_pendingLocalMutations == 0) {
-      _inFlightAuthStateUids.clear();
-      _inFlightIdTokenUids.clear();
+    if (_pendingLocalMutations > 0) {
+      return const [];
     }
+    if (_inFlightAuthState.isEmpty && _inFlightIdToken.isEmpty) {
+      return const [];
+    }
+    final remaining = <BufferedAuthSnap>[
+      ..._inFlightAuthState,
+      ..._inFlightIdToken,
+    ]..sort((a, b) => a.order.compareTo(b.order));
+    _inFlightAuthState.clear();
+    _inFlightIdToken.clear();
+    return remaining;
   }
 
   /// Claims ordering for [seq]. Returns `false` if a newer local mutation has
@@ -45,14 +78,14 @@ class AuthObserverReconciler {
   }) {
     if (authStateChanged || nextUid != prevUid) {
       _recordExpectedEcho(
-        inFlight: _inFlightAuthStateUids,
+        inFlight: _inFlightAuthState,
         expected: _expectedAuthStateEchoes,
         nextUid: nextUid,
       );
     }
     if (tokenChanged || nextUid != prevUid) {
       _recordExpectedEcho(
-        inFlight: _inFlightIdTokenUids,
+        inFlight: _inFlightIdToken,
         expected: _expectedIdTokenEchoes,
         nextUid: nextUid,
       );
@@ -65,28 +98,30 @@ class AuthObserverReconciler {
     _expectedIdTokenEchoes.clear();
   }
 
-  bool shouldApplyAuthStateSnap(String? uid) {
+  bool shouldApplyAuthStateSnap(Map<String, dynamic>? normalized) {
     return _evaluateSnap(
-      uid: uid,
-      inFlight: _inFlightAuthStateUids,
+      isAuthState: true,
+      normalized: normalized,
+      inFlight: _inFlightAuthState,
       expected: _expectedAuthStateEchoes,
     );
   }
 
-  bool shouldApplyIdTokenSnap(String? uid) {
+  bool shouldApplyIdTokenSnap(Map<String, dynamic>? normalized) {
     return _evaluateSnap(
-      uid: uid,
-      inFlight: _inFlightIdTokenUids,
+      isAuthState: false,
+      normalized: normalized,
+      inFlight: _inFlightIdToken,
       expected: _expectedIdTokenEchoes,
     );
   }
 
   void _recordExpectedEcho({
-    required List<String?> inFlight,
+    required List<BufferedAuthSnap> inFlight,
     required List<String?> expected,
     required String? nextUid,
   }) {
-    final idx = inFlight.indexOf(nextUid);
+    final idx = inFlight.indexWhere((entry) => entry.uid == nextUid);
     if (idx >= 0) {
       inFlight.removeRange(0, idx + 1);
       expected.clear();
@@ -96,15 +131,24 @@ class AuthObserverReconciler {
   }
 
   bool _evaluateSnap({
-    required String? uid,
-    required List<String?> inFlight,
+    required bool isAuthState,
+    required Map<String, dynamic>? normalized,
+    required List<BufferedAuthSnap> inFlight,
     required List<String?> expected,
   }) {
+    final uid = normalized?['uid'] as String?;
     if (_pendingLocalMutations > 0) {
       if (expected.isNotEmpty && expected.first == uid) {
         expected.removeAt(0);
       } else {
-        inFlight.add(uid);
+        inFlight.add(
+          BufferedAuthSnap(
+            order: ++_nextSnapOrder,
+            isAuthState: isAuthState,
+            uid: uid,
+            normalized: normalized,
+          ),
+        );
       }
       return false;
     }

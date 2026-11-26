@@ -124,12 +124,14 @@ class BridgeOperationQueue {
     if (holdOnRefusal && !isDisposed()) {
       return _hold(_HeldOp(method, params, actAs, timeout));
     }
-    completer.completeError(
-      const PyricBridgeException(
-        code: 'unavailable',
-        message: 'Cannot send message: WebSocket is closed.',
-      ),
-    );
+    if (!completer.isCompleted) {
+      completer.completeError(
+        const PyricBridgeException(
+          code: 'unavailable',
+          message: 'Cannot send message: WebSocket is closed.',
+        ),
+      );
+    }
     return completer.future;
   }
 
@@ -178,6 +180,20 @@ class BridgeOperationQueue {
           if (!isDisposed() && !held.completer.isCompleted) {
             // Keep the refused operation at the front with its original deadline.
             _heldOps.insert(0, held);
+          } else {
+            held.deadline.cancel();
+            if (!held.completer.isCompleted) {
+              if (completer.isCompleted) {
+                held.completer.complete(completer.future);
+              } else {
+                held.completer.completeError(
+                  const PyricBridgeException(
+                    code: 'unavailable',
+                    message: 'PyricBridgeClient disconnected.',
+                  ),
+                );
+              }
+            }
           }
           break;
         }

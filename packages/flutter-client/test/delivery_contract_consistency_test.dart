@@ -326,5 +326,179 @@ void main() {
       await sub3.cancel();
       await replaying.dispose();
     });
+
+    test('D8: re-entrant goOnline inside .info/connected false callback throws no StateError', () async {
+      final uncaught = <Object>[];
+      final seen = <bool>[];
+      final gate = CountGate();
+      var reentered = false;
+
+      await runZonedGuarded(() async {
+        final sub = db.ref('.info/connected').onValue.listen((event) {
+          final connected = event.snapshot.value == true;
+          seen.add(connected);
+          gate.tick();
+          if (!connected && seen.length == 2 && !reentered) {
+            reentered = true;
+            unawaited(db.goOnline());
+          }
+        });
+        await gate.atLeast(1);
+        expect(seen, [true]);
+
+        final offlineFuture = db.goOffline();
+        await gate.atLeast(3);
+        expect(seen, [true, false, true]);
+        final offlineOp = (await bridge.waitForOpsNamed('rtdb.goOffline')).single;
+        final onlineOp = (await bridge.waitForOpsNamed('rtdb.goOnline')).single;
+        bridge.current.deliver({
+          'type': 'worker-res',
+          'id': offlineOp['id'],
+          'ok': true,
+          'value': null,
+        });
+        bridge.current.deliver({
+          'type': 'worker-res',
+          'id': onlineOp['id'],
+          'ok': true,
+          'value': null,
+        });
+        await offlineFuture;
+        await sub.cancel();
+      }, (error, _) {
+        uncaught.add(error);
+      });
+
+      expect(uncaught, isEmpty);
+    });
+
+    test('D8: re-entrant switchAuthLens inside authLensChanges throws no StateError', () async {
+      final uncaught = <Object>[];
+      final seen = <AuthLens>[];
+      final gate = CountGate();
+      var reentered = false;
+
+      await runZonedGuarded(() async {
+        final sub = auth.authLensChanges.listen((lens) {
+          seen.add(lens);
+          gate.tick();
+          if (lens == AuthLens.admin && !reentered) {
+            reentered = true;
+            auth.switchAuthLens(AuthLens.asUser(uid: 'reentrant-u'));
+          }
+        });
+        await gate.atLeast(1);
+        expect(seen, [AuthLens.anon]);
+
+        auth.switchAuthLens(AuthLens.admin);
+        await gate.atLeast(3);
+        expect(seen, [
+          AuthLens.anon,
+          AuthLens.admin,
+          AuthLens.asUser(uid: 'reentrant-u'),
+        ]);
+        await sub.cancel();
+      }, (error, _) {
+        uncaught.add(error);
+      });
+
+      expect(uncaught, isEmpty);
+    });
+
+    test('D9: external authState snap during read-only getIdToken(false) is delivered', () async {
+      final signIn = auth.signInAnonymously();
+      final signInOp =
+          (await bridge.waitForOpsNamed('auth.signInAnonymously')).single;
+      bridge.current.deliver({
+        'type': 'worker-res',
+        'id': signInOp['id'],
+        'ok': true,
+        'value': {'user': {'uid': 'u1'}},
+      });
+      await signIn;
+
+      final authSubId = bridge
+          .ofType('worker-sub')
+          .firstWhere((f) => (f['sub'] as Map)['target'] == 'authState')['subId'];
+      // Drain expected echo for u1 so only external updates remain.
+      bridge.current.deliver({
+        'type': 'worker-snap',
+        'subId': authSubId,
+        'value': {'uid': 'u1'},
+      });
+
+      final seen = <String?>[];
+      final gate = CountGate();
+      final sub = auth.authStateChanges().listen((u) {
+        seen.add(u?.uid);
+        gate.tick();
+      });
+      await gate.atLeast(1);
+
+      final user = auth.currentUser!;
+      final tokenFuture = user.getIdToken(false);
+      final tokenOp = (await bridge.waitForOpsNamed('auth.getIdToken')).single;
+
+      // Deliver an external sign-out while getIdToken(false) is in flight.
+      bridge.current.deliver({
+        'type': 'worker-snap',
+        'subId': authSubId,
+        'value': null,
+      });
+      await gate.atLeast(2);
+      expect(auth.currentUser, isNull);
+      expect(seen.last, isNull);
+
+      bridge.current.deliver({
+        'type': 'worker-res',
+        'id': tokenOp['id'],
+        'ok': true,
+        'value': 'tok-1',
+      });
+      expect(await tokenFuture, 'tok-1');
+      await sub.cancel();
+    });
+
+    test('D9: external authState snap during failed signInWithEmailAndPassword is replayed', () async {
+      final authSubId = bridge
+          .ofType('worker-sub')
+          .firstWhere((f) => (f['sub'] as Map)['target'] == 'authState')['subId'];
+
+      final seen = <String?>[];
+      final gate = CountGate();
+      final sub = auth.authStateChanges().listen((u) {
+        seen.add(u?.uid);
+        gate.tick();
+      });
+      await gate.atLeast(1);
+      expect(seen, [null]);
+
+      final failedSignIn = auth.signInWithEmailAndPassword(
+        'a@example.com',
+        'wrong',
+      );
+      final op = (await bridge.waitForOpsNamed('auth.signInEmail')).single;
+
+      // Deliver external sign-in while the failing mutation is in flight.
+      bridge.current.deliver({
+        'type': 'worker-snap',
+        'subId': authSubId,
+        'value': {'uid': 'external-u2'},
+      });
+      await flushMicrotasks();
+
+      bridge.current.deliver({
+        'type': 'worker-res',
+        'id': op['id'],
+        'ok': false,
+        'error': {'code': 'wrong-password', 'message': 'invalid password'},
+      });
+
+      await expectLater(failedSignIn, throwsA(isA<FirebaseAuthException>()));
+      await gate.atLeast(2);
+      expect(auth.currentUser?.uid, 'external-u2');
+      expect(seen.last, 'external-u2');
+      await sub.cancel();
+    });
   });
 }

@@ -126,9 +126,14 @@ class PyricUserPlatform extends UserPlatform {
     );
   }
 
-  Future<T> _runGuardedUserOp<T>(Future<T> Function(int? mutationSeq) action) async {
+  Future<T> _runGuardedUserOp<T>(
+    Future<T> Function(int? mutationSeq) action, {
+    bool mutatesState = true,
+  }) async {
     final owner = _pyricAuth;
-    final seq = owner?.beginLocalAuthMutation();
+    final seq = mutatesState
+        ? owner?.beginLocalAuthMutation()
+        : owner?.allocateLocalAuthMutationSeq();
     try {
       return await action(seq);
     } catch (error) {
@@ -139,7 +144,9 @@ class PyricUserPlatform extends UserPlatform {
       }
       throw mapped;
     } finally {
-      owner?.endLocalAuthMutation();
+      if (mutatesState) {
+        owner?.endLocalAuthMutation();
+      }
     }
   }
 
@@ -170,7 +177,7 @@ class PyricUserPlatform extends UserPlatform {
         );
       }
       return token;
-    });
+    }, mutatesState: forceRefresh);
   }
 
   @override
@@ -207,7 +214,7 @@ class PyricUserPlatform extends UserPlatform {
         signInProvider: res['signInProvider'] as String?,
         claims: (res['claims'] as Map?)?.cast<String?, Object?>(),
       ));
-    });
+    }, mutatesState: forceRefresh);
   }
 
   Future<void> _applyUpdatedUser(

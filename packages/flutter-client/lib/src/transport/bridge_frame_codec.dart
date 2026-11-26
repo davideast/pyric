@@ -29,13 +29,15 @@ AuthLens? parseRemoteLensEvent(Map<String, dynamic> msg) {
   final event = msg['event'] as String?;
   if (event != 'remote-lens') return null;
 
-  final lensMap = msg['lens'] is Map
-      ? Map<String, dynamic>.from(msg['lens'] as Map)
-      : msg['payload'] is Map
-          ? (msg['payload']['lens'] is Map
-              ? Map<String, dynamic>.from(msg['payload']['lens'] as Map)
-              : Map<String, dynamic>.from(msg['payload'] as Map))
-          : null;
+  Map<String, dynamic>? lensMap;
+  if (msg['lens'] is Map) {
+    lensMap = Map<String, dynamic>.from(msg['lens'] as Map);
+  } else if (msg['payload'] is Map) {
+    final payload = msg['payload'] as Map;
+    lensMap = payload['lens'] is Map
+        ? Map<String, dynamic>.from(payload['lens'] as Map)
+        : Map<String, dynamic>.from(payload);
+  }
   if (lensMap == null) return null;
 
   final mode = lensMap['mode'] as String?;

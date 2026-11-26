@@ -417,6 +417,51 @@ void main() {
       );
     });
 
+    test('F10: re-entrant disconnect inside throwing sink settles dispatch and sendHeld cleanly', () async {
+      bridge.onFrame = (frame) {
+        if (frame['type'] == 'worker-op') {
+          unawaited(client.disconnect());
+          throw StateError('sink closed during dispatch');
+        }
+      };
+      await expectLater(
+        client.op('setDoc', {'path': 'rooms/reentrant-dispatch'}),
+        throwsA(isA<PyricBridgeException>().having((e) => e.code, 'code', 'unavailable')),
+      );
+
+      final bridge2 = FakeBridge();
+      final client2 = PyricBridgeClient(
+        channelFactory: bridge2.connect,
+        reconnectDelay: (_) => Duration.zero,
+      );
+      await client2.connect();
+      bridge2.refuseConnections = true;
+      final interrupted = Completer<void>();
+      final stateSub = client2.connectionStates.listen((s) {
+        if (s == BridgeConnectionState.interrupted && !interrupted.isCompleted) {
+          interrupted.complete();
+        }
+      });
+      bridge2.current.drop();
+      await interrupted.future;
+      await stateSub.cancel();
+
+      final heldFuture = client2.op('setDoc', {'path': 'rooms/reentrant-held'});
+      bridge2.onFrame = (frame) {
+        if (frame['type'] == 'worker-op') {
+          unawaited(client2.disconnect());
+          throw StateError('sink closed during sendHeld');
+        }
+      };
+      bridge2.refuseConnections = false;
+
+      await expectLater(
+        heldFuture,
+        throwsA(isA<PyricBridgeException>().having((e) => e.code, 'code', 'unavailable')),
+      );
+      await client2.disconnect();
+    });
+
     test('D8: Auth, RTDB child, and Firestore doc keep frame arrival order across subscriptions', () async {
       auth.switchAuthLens(AuthLens.admin);
       final order = <String>[];

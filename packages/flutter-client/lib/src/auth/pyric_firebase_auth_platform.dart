@@ -82,9 +82,19 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
     return this;
   }
 
+  int allocateLocalAuthMutationSeq() => _reconciler.allocateMutationSeq();
+
   int beginLocalAuthMutation() => _reconciler.beginLocalMutation();
 
-  void endLocalAuthMutation() => _reconciler.endLocalMutation();
+  void endLocalAuthMutation() {
+    final buffered = _reconciler.endLocalMutation();
+    for (final snap in buffered) {
+      _applyNormalizedObserverSnap(
+        snap.normalized,
+        isAuthState: snap.isAuthState,
+      );
+    }
+  }
 
   void notifyUserMutation(
     PyricUserPlatform user, {
@@ -150,10 +160,16 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
     if (data != null && data is! Map) return;
     final normalized =
         data is Map ? normalizeBridgeSnapUserMap(data) : null;
-    final snapUid = normalized?['uid'] as String?;
+    _applyNormalizedObserverSnap(normalized, isAuthState: isAuthState);
+  }
+
+  void _applyNormalizedObserverSnap(
+    Map<String, dynamic>? normalized, {
+    required bool isAuthState,
+  }) {
     final shouldApply = isAuthState
-        ? _reconciler.shouldApplyAuthStateSnap(snapUid)
-        : _reconciler.shouldApplyIdTokenSnap(snapUid);
+        ? _reconciler.shouldApplyAuthStateSnap(normalized)
+        : _reconciler.shouldApplyIdTokenSnap(normalized);
     if (!shouldApply) return;
 
     if (normalized == null) {
