@@ -25,10 +25,9 @@ import { sanitizeForTerminal } from './ai-terminal-text.js';
 export interface AiStartupStatus {
   /** The AI broker runs in the server and reaches its upstream directly. */
   hosted?: boolean;
-  /** Engine resolved by the dev server (the Vite plugin's `ai.engine` /
-   *  `ai.model`). Absent means nothing server-side: the served page's own
-   *  `getAI(...)` chooses the engine at runtime, and the server cannot know
-   *  which (there is no CLI surface for it under `pyric dev`). */
+  /** Engine resolved by the dev server (`pyric.json` `ai` or the Vite plugin's
+   *  `ai.engine` / `ai.model`). Absent means nothing server-side: the served
+   *  page's own `getAI(...)` chooses the engine at runtime. */
   engine?: AiEngineConfigWire;
   /** `ai.mode` or `PYRIC_AI_MODE`: `production` leaves `firebase/ai` to the
    *  Firebase SDK, so no engine runs on this server. */

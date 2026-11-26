@@ -20,11 +20,11 @@ import {
 } from './host-pattern.js';
 import {
   getHeader,
-  hasPresentedSessionToken,
   isAllowedHost,
   isAllowedOriginOnPorts,
   isAllowedSessionToken,
   isForeignFetchSite,
+  presentedSessionTokenKind,
   requestSocketScheme,
 } from './loopback-guard.js';
 import {
@@ -35,6 +35,11 @@ import {
   REMOTE_PEER_HEADER,
   type ParsedCidr,
 } from './peer.js';
+import {
+  isTrustedForwardingHop,
+  resolveForwardedHost,
+  resolveRequestHostContext,
+} from './forwarded-proxy.js';
 
 export { parseAllowedHostEntry, parseAllowedHostsStrict };
 
@@ -379,8 +384,8 @@ function collectEffectiveAppPorts(
   if (extraAppPorts !== undefined) {
     for (const port of extraAppPorts) pushUnique(port);
   }
-  if (isTrustedProxyPeer(req, policy.trustProxy)) {
-    const candidates = [getHeader(req, 'host'), effectiveForwardedHost(req, policy.trustProxy)];
+  if (isTrustedForwardingHop(req, policy)) {
+    const candidates = [getHeader(req, 'host'), resolveForwardedHost(req, policy)];
     for (const candidate of candidates) {
       if (candidate === undefined) continue;
       if (!isAllowedHost(candidate, policy.boundHost, extraHosts)) continue;
@@ -469,16 +474,16 @@ export function evaluateGuard(
     }
   }
 
-  const hostHeader = getHeader(req, 'host');
-  const isLocalHost = isAllowedHost(hostHeader, policy.boundHost, []);
-  const isExtraHost = !isLocalHost && isAllowedHost(hostHeader, policy.boundHost, policy.allowedHosts);
-  if (!isLocalHost && !isExtraHost) {
-    return reject(403, 'disallowed-host', disallowedHostMessage(hostHeader, displayPort));
+  const hostCtx = resolveRequestHostContext(req, policy);
+  if (!hostCtx.ok) {
+    return reject(403, 'disallowed-host', disallowedHostMessage(hostCtx.rejectedHost, displayPort));
   }
 
-  const isRemoteHost = !isLoopbackHostHeader(hostHeader);
+  const hostHeader = hostCtx.effectiveHost;
+  const isExtraHost = hostCtx.isExtraHost;
+  const isRemoteHost = hostCtx.isRemoteHost;
   const isRemoteRequest = isRemotePeer || isRemoteHost;
-  const effectiveScheme = effectiveRequestScheme(req, policy.trustProxy);
+  const effectiveScheme = hostCtx.effectiveScheme;
   const authenticated =
     policy.sessionToken !== undefined &&
     policy.sessionToken.length > 0 &&
@@ -549,10 +554,9 @@ export function evaluateGuard(
       surface !== 'unlock');
 
   if (surface !== 'sdk' && surface !== 'unlock' && requiresTokenForSurface && !authenticated) {
-    const presented = hasPresentedSessionToken(req, options?.url);
-    const unlockRequired =
-      isRemoteRequest && policy.remoteAccessEnabled && policy.browserUnlock && !presented;
-    if (presented) {
+    const presentedKind = presentedSessionTokenKind(req, options?.url);
+    const canBrowserUnlock = isRemoteRequest && policy.remoteAccessEnabled && policy.browserUnlock;
+    if (presentedKind === 'header') {
       return reject(
         401,
         'invalid-session-token',
@@ -560,11 +564,18 @@ export function evaluateGuard(
         false,
       );
     }
+    if (presentedKind === 'cookie') {
+      let message = 'pyric: invalid session capability token or cookie.';
+      if (canBrowserUnlock) {
+        message = 'pyric: session cookie is no longer valid. Open /__pyric/unlock to pair this browser.';
+      }
+      return reject(401, 'invalid-session-token', message, canBrowserUnlock);
+    }
     let message = 'pyric: session token required (x-pyric-session-token header or __pyric_session cookie).';
-    if (unlockRequired) {
+    if (canBrowserUnlock) {
       message = 'pyric: session unlock required. Open /__pyric/unlock to pair this browser.';
     }
-    return reject(401, 'missing-session-token', message, unlockRequired);
+    return reject(401, 'missing-session-token', message, canBrowserUnlock);
   }
 
   return {

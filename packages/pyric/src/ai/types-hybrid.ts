@@ -1,19 +1,10 @@
 /**
  * Public TypeScript contracts for Firebase AI Hybrid, On-Device Prompt API,
- * `ChromeAdapter`, and `AgentPlatformBackend` capabilities owned by `pyric/ai`.
- *
- * `AgentPlatformBackend` is exported only in the TypeScript type namespace so
- * the deferred runtime disposition in `packages/conformance/surfaces/ai.json`
- * remains accurate.
+ * and `ChromeAdapter` capabilities owned by `pyric/ai`.
  */
-import type { Backend } from './backend.js';
 import type { InferenceMode } from './generation-enums.js';
 import type { ModelParams } from './models.js';
 import type { GenerateContentRequest } from './types.js';
-
-export interface AgentPlatformBackend extends Backend {
-  readonly location: string;
-}
 
 export interface ChromeAdapter {
   isAvailable(request: GenerateContentRequest): Promise<boolean>;

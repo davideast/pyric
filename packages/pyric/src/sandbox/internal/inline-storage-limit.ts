@@ -1,20 +1,29 @@
 /**
  * The ceiling on Storage bytes one document carries inline.
  *
- * Some state documents hold every Storage object's bytes as base64 inside one
- * JSON string: the in-process `storage.json`, a browser `--persist` state
- * file, an inline state capture with the checkpoint and branch files written
- * from it. A JavaScript engine caps the length of a string, and base64 writes
- * every three bytes as four characters, so the Storage such a document can
- * hold is bounded. Past the bound, `JSON.stringify` or the base64 encoder
+ * Some state documents hold Storage object bytes as base64 inside one JSON
+ * string: the in-process `storage.json`, a browser `--persist` state file, and
+ * inline captures or branch files carrying unreferenced inline uploads. Entries
+ * carried by SHA-256 byte reference (`{ sha256, size }`) contribute zero inline
+ * bytes. A JavaScript engine caps the length of a string, and base64 writes
+ * every three bytes as four characters, so the inline Storage such a document
+ * can hold is bounded. Past the bound, `JSON.stringify` or the base64 encoder
  * throws a `RangeError` that names no limit. Every inline writer checks its
- * total against {@link inlineStorageLimit} before it encodes a byte, and
+ * inline total against {@link inlineStorageLimit} before it encodes a byte, and
  * refuses with {@link InlineStorageLimitError}.
  *
  * Pure arithmetic over sizes and base64 lengths, with no host buffer type, so
  * the same values hold in Node, Bun, a browser, and a worker.
  */
 import { FirebaseError } from './firebase-error.js';
+
+/** Lowercase 64-character hexadecimal SHA-256 content hash pattern (ADR 0018). */
+export const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/;
+
+/** Whether `value` is a canonical lowercase 64-character hex SHA-256 digest. */
+export function isSha256Hex(value: unknown): value is string {
+  return typeof value === 'string' && SHA256_HEX_PATTERN.test(value);
+}
 
 const MiB = 1024 * 1024;
 

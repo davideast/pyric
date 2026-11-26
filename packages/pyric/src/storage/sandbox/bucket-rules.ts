@@ -9,6 +9,7 @@ import {
   type StorageRules,
   type StorageRulesResolution,
 } from '@pyric/rules/internal/storage';
+import { undeployedBucketNotice } from '../../sandbox/internal/instances.js';
 import type { StorageService } from './running-service.js';
 import {
   addressesDefaultBucket,
@@ -16,6 +17,7 @@ import {
   CLAIMED_DEFAULT_NAMES,
   DEFAULT_STORAGE_BUCKET,
   DEFAULT_STORE_NAMES,
+  NOTICED_UNDEPLOYED_BUCKETS,
   serviceCaches,
   targetOf,
   UNDEPLOYED_POLICIES,
@@ -30,7 +32,7 @@ export type StorageRulesInForce =
   | { readonly kind: 'rules'; readonly rules: StorageRules }
   | { readonly kind: 'none' }
   | { readonly kind: 'locked'; readonly bucket: string }
-  | { readonly kind: 'open'; readonly bucket: string }
+  | { readonly kind: 'open'; readonly bucket: string; readonly undeployed?: boolean }
   | { readonly kind: 'second-default'; readonly bucket: string; readonly defaultBucket: string };
 
 /** Start deploying rules per bucket, keeping any policy already set. */
@@ -81,6 +83,62 @@ export function deployStorageBucketRules(
     rules: compiled.rules,
     resolution: compiled.resolution,
   });
+  NOTICED_UNDEPLOYED_BUCKETS.get(sandbox)?.delete(name);
+}
+
+function isServicePermissive(sandbox: Sandbox, service?: StorageService): boolean {
+  const openPolicy = serviceCaches.openServices.get(sandbox)?.defaultPolicy;
+  if (openPolicy !== undefined) {
+    return openPolicy === 'allow';
+  }
+  return service?.defaultPolicy === 'allow';
+}
+
+function undeployedBucketPolicy(
+  sandbox: Sandbox,
+  service?: StorageService,
+  servicePolicy?: StorageDefaultPolicy,
+): StorageDefaultPolicy {
+  const explicit = UNDEPLOYED_POLICIES.get(sandbox);
+  if (explicit !== undefined) {
+    return explicit;
+  }
+  const openPolicy = serviceCaches.openServices.get(sandbox)?.defaultPolicy;
+  if (openPolicy !== undefined) {
+    return openPolicy;
+  }
+  if (servicePolicy !== undefined) {
+    return servicePolicy;
+  }
+  if (service?.defaultPolicy === 'allow') {
+    return 'allow';
+  }
+  return 'deny';
+}
+
+/**
+ * Log once per non-default bucket when `firebase.json` deploys no rules to it,
+ * matching RTDB's `undeployedInstanceNotice`.
+ */
+export function noticeUndeployedStorageBucket(
+  sandbox: Sandbox,
+  bucket: string,
+  servicePolicy?: StorageDefaultPolicy,
+): void {
+  const byBucket = BUCKET_RULES.get(sandbox);
+  if (byBucket === undefined) return;
+  const normalized = rulesBucketName(bucket, bucket);
+  if (normalized === '' || normalized === DEFAULT_STORAGE_BUCKET) return;
+  if (byBucket.has(normalized)) return;
+  let noticed = NOTICED_UNDEPLOYED_BUCKETS.get(sandbox);
+  if (noticed === undefined) {
+    noticed = new Set();
+    NOTICED_UNDEPLOYED_BUCKETS.set(sandbox, noticed);
+  }
+  if (noticed.has(normalized)) return;
+  noticed.add(normalized);
+  const policy = undeployedBucketPolicy(sandbox, undefined, servicePolicy);
+  console.warn(undeployedBucketNotice(normalized, policy));
 }
 
 /**
@@ -110,11 +168,11 @@ function hasUsableDefaultBucketRules(
 ): boolean {
   const byBucket = BUCKET_RULES.get(sandbox);
   if (byBucket === undefined) {
-    return service.rules !== null;
+    return service.rules !== null || isServicePermissive(sandbox, service);
   }
   if (byBucket.has(name)) return true;
   if (service.rules !== null) return true;
-  return UNDEPLOYED_POLICIES.get(sandbox) === 'allow';
+  return undeployedBucketPolicy(sandbox, service) === 'allow';
 }
 
 function pinnedDefaultName(
@@ -157,6 +215,13 @@ export function storageRulesInForce(
     if (service.rules) {
       return { kind: 'rules', rules: service.rules };
     }
+    if (isServicePermissive(target.sandbox, service)) {
+      return {
+        kind: 'open',
+        bucket: rulesBucketName(target.bucket, target.bucketName),
+        undeployed: false,
+      };
+    }
     return { kind: 'none' };
   }
   const name = rulesBucketName(target.bucket, target.bucketName);
@@ -175,9 +240,9 @@ export function storageRulesInForce(
   if (defaultRules) {
     return { kind: 'rules', rules: defaultRules };
   }
-  const isPermissive = UNDEPLOYED_POLICIES.get(target.sandbox) === 'allow';
+  const isPermissive = undeployedBucketPolicy(target.sandbox, service) === 'allow';
   if (isPermissive) {
-    return { kind: 'open', bucket: name };
+    return { kind: 'open', bucket: name, undeployed: true };
   }
   return { kind: 'locked', bucket: name };
 }

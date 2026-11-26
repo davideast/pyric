@@ -35,7 +35,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'getStorage', 'getWorkerInstanceId', 'getWorkerVersion', 'hydrateLensFromStorage', 'importWorkerState',
   'increment', 'inMemoryPersistence', 'limit', 'limitToLast', 'listAll',
   'listRootCollections', 'listSubcollections', 'listUsers', 'listWorkerCheckpoints',
-  'mintPresenceClientId',
+  'maximum', 'minimum', 'mintPresenceClientId',
   'onAuthStateChanged', 'onIdTokenChanged', 'onSnapshot', 'onWorkerRuntimeReload',
   'or', 'orderBy', 'ownClientUntilPagehide', 'preflightWorkerEpochStorage', 'query',
   'readHostedTarget', 'readPyricRuntimeManifest', 'ref', 'relayWorkerOp', 'relayWorkerSub',

@@ -128,15 +128,13 @@ export interface NetworkLines {
 }
 
 /**
- * Every whole line of a network record that has an event's shape. A line
- * cut short by a process killed mid-write is no JSON and is passed over; a
- * line of JSON without an event's shape is counted as rejected. A missing
- * file is an empty record.
+ * Every whole line of `text` that has a network event's shape. A line cut
+ * short by a process killed mid-write is no JSON and is passed over; a line
+ * of JSON without an event's shape is counted as rejected.
  */
-export function readNetworkLines(path: string): NetworkLines {
-  if (!existsSync(path)) return { events: [], rejected: 0 };
+export function parseNetworkLines(text: string): NetworkLines {
   const lines: NetworkLines = { events: [], rejected: 0 };
-  for (const line of readFileSync(path, 'utf8').split('\n')) {
+  for (const line of text.split('\n')) {
     if (line.trim() === '') continue;
     const json = parseJsonText(line);
     if (!json.ok) continue;
@@ -144,6 +142,15 @@ export function readNetworkLines(path: string): NetworkLines {
     else lines.rejected += 1;
   }
   return lines;
+}
+
+/**
+ * Every whole line of a network record that has an event's shape. A missing
+ * file is an empty record.
+ */
+export function readNetworkLines(path: string): NetworkLines {
+  if (!existsSync(path)) return { events: [], rejected: 0 };
+  return parseNetworkLines(readFileSync(path, 'utf8'));
 }
 
 /** Every event of a network record, without the count of rejected lines. */

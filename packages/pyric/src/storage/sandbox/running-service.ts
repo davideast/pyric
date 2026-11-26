@@ -26,6 +26,9 @@ import type { StorageRules } from '@pyric/rules/internal/storage';
  */
 export type CrossServiceIam = 'granted' | 'denied';
 
+/** What a Storage service or bucket with no rules deployed answers: `deny` by default, `allow` in permissive mode. */
+export type StorageDefaultPolicy = 'allow' | 'deny';
+
 /**
  * Internal sandbox service: owns the IDB connection and the parsed rules.
  * Only constructed inside the sandbox `getStorageSandbox` path.
@@ -48,5 +51,11 @@ export class StorageService {
      * and denied project states.
      */
     public crossServiceIam: CrossServiceIam = 'granted',
+    /**
+     * What client operations on this service do when no rules are configured:
+     * `'deny'` by default (matching production Firebase), or `'allow'` in
+     * permissive mode. Reassigned at runtime by `setStorageDefaultPolicy`.
+     */
+    public defaultPolicy: StorageDefaultPolicy = 'deny',
   ) {}
 }

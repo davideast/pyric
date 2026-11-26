@@ -8,7 +8,7 @@ import { homedir, tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative } from 'node:path';
 import { npmCacheDir } from '../app-install.ts';
 import { chromiumExecutable, playwrightBrowsersPath, PLAYWRIGHT_CLIENT_ENV } from '../browser-server.ts';
-import { INVENTORY_TIMEOUT_MS, toolchainDirs } from '../namespace.ts';
+import { INVENTORY_TIMEOUT_MS, MASKED_USR_DIRS, maskedUsrDirs, systemBinds, toolchainDirs } from '../namespace.ts';
 import { appPaths } from './app-paths.ts';
 import { FAKE_MEDIA } from './app-start.ts';
 import { fakeAgent } from './fixtures/fake-agent.ts';
@@ -47,10 +47,16 @@ describe('childDirectoryUnder', () => {
     expect(childDirectoryUnder('/h/me', '/tmp/fr-abc')).toBeUndefined();
   });
 
-  test('keeps >= 2x inventory timeout margin over cold-disk CI walks (#1826)', () => {
+  test('keeps >= 2x inventory timeout margin over cold-disk CI walks and masks /usr/local and /usr/src (#1826)', () => {
     const observedColdDiskMaxMs = 233_304;
     expect(INVENTORY_TIMEOUT_MS).toBeGreaterThanOrEqual(observedColdDiskMaxMs * 2);
     expect(SANDBOX_TEST_TIMEOUT_MS).toBe(INVENTORY_TIMEOUT_MS + 60_000);
+    const sys = systemBinds();
+    for (const dir of MASKED_USR_DIRS.filter((candidate) => maskedUsrDirs().includes(candidate))) {
+      const idx = sys.indexOf(dir);
+      expect(idx).toBeGreaterThan(sys.indexOf('/usr'));
+      expect(sys[idx - 1]).toBe('--tmpfs');
+    }
   });
 });
 

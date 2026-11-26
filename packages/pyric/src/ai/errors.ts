@@ -100,8 +100,9 @@ function modelPath(modelResource: string, backend: Backend | undefined): string 
     isAgentPlatform = backend.backendType === BackendType.AGENT_PLATFORM;
   }
   if (!isAgentPlatform) return modelResource;
-  const location = (backend as { readonly location?: string }).location ?? 'global';
-  if (modelResource.startsWith('publishers/')) {
+  const rawLocation = (backend as { readonly location?: string }).location;
+  const location = rawLocation ? rawLocation : 'global';
+  if (modelResource.includes('/') && !modelResource.startsWith('models/')) {
     return `locations/${location}/${modelResource}`;
   }
   const name = modelResource.replace(/^models\//, '');

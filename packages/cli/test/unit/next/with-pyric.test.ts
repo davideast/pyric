@@ -388,13 +388,26 @@ describe('withPyric Next.js configuration wrapper', () => {
     expect(resUrl.env?.NEXT_PUBLIC_PYRIC_STUDIO_URL).toBe('http://localhost:3473/__pyric/ui/studio');
   });
 
-  it("inlines the launcher's page transport selection for client bundles", async () => {
-    const selection = JSON.stringify({ hosted: true, projectKey: '/app', bridgeUrl: '/__pyric/sandbox' });
+  it("inlines a sanitized launcher page transport selection without sessionToken or raw hosted projectKey", async () => {
+    const selection = JSON.stringify({
+      hosted: true,
+      projectKey: '/app',
+      bridgeUrl: '/__pyric/sandbox',
+      instanceId: 'inst-1',
+      sessionToken: 'secret-per-boot-token',
+    });
     process.env.PYRIC_WORKER_INIT = selection;
     process.env.PYRIC_WORKER_INIT_HOST = 'http://127.0.0.1:4000';
     try {
       const res = await resolveWith({ env: { KEEP: '1' } });
-      expect(res.env?.NEXT_PUBLIC_PYRIC_WORKER_INIT).toBe(selection);
+      expect(JSON.parse(res.env?.NEXT_PUBLIC_PYRIC_WORKER_INIT ?? '{}')).toEqual({
+        hosted: true,
+        projectKey: null,
+        bridgeUrl: null,
+        instanceId: 'inst-1',
+      });
+      expect(res.env?.NEXT_PUBLIC_PYRIC_WORKER_INIT).not.toContain('secret-per-boot-token');
+      expect(res.env?.NEXT_PUBLIC_PYRIC_WORKER_INIT).not.toContain('/app');
       expect(res.env?.KEEP).toBe('1');
     } finally {
       delete process.env.PYRIC_WORKER_INIT;

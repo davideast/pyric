@@ -196,17 +196,34 @@ describe('pyric dev end-to-end (HTTP)', () => {
     expect((await fetch(on.handle.url + '/firebase.json')).status).toBe(404);
   }, 30_000);
 
-  it('serves `public` for a hosting block that names no directory, as production does', async () => {
-    const cwd = makeTempDir('pyric-serve-hosting-default-');
+  it('refuses an empty hosting block without public or source, and accepts a rewrite-only block without serving public/ (#1825)', async () => {
+    const cwd = makeTempDir('pyric-serve-hosting-rewrite-only-');
     writeFileSync(join(cwd, 'index.html'), '<!doctype html><html><head></head><body>project root</body></html>');
     mkdirSync(join(cwd, 'public'));
     writeFileSync(join(cwd, 'public', 'index.html'), '<!doctype html><html><head></head><body>public page</body></html>');
     writeFileSync(join(cwd, 'firebase.json'), JSON.stringify({ hosting: {} }));
-    const runtime = await startServe({ cwd, port: 0, cacheRoot: join(cwd, '.cache'), logger: silentServeLogger() });
+    await expect(
+      startServe({ cwd, port: 0, cacheRoot: join(cwd, '.cache'), logger: silentServeLogger() }),
+    ).rejects.toThrow(/Must supply a "public" or "source" directory/);
+
+    writeFileSync(
+      join(cwd, 'firebase.json'),
+      JSON.stringify({ hosting: { rewrites: [{ source: '**', destination: '/index.html' }] } }),
+    );
+    await expect(
+      startServe({ cwd, port: 0, cacheRoot: join(cwd, '.cache'), logger: silentServeLogger() }),
+    ).rejects.toThrow(/Must supply a "public" or "source" directory when using "destination" rewrites/);
+
+    writeFileSync(
+      join(cwd, 'firebase.json'),
+      JSON.stringify({ hosting: { rewrites: [{ source: '/api/**', function: 'api' }] } }),
+    );
+    const cap = capturingLogger();
+    const runtime = await startServe({ cwd, port: 0, cacheRoot: join(cwd, '.cache'), logger: cap.logger });
     stops.push(runtime);
-    const html = await (await fetch(runtime.handle.url + '/')).text();
-    expect(html).toContain('public page');
-    expect(html).not.toContain('project root');
+    expect(runtime.publicDir).toBeNull();
+    expect(cap.info.join('\n')).toContain('hosting  No static files: hosting.public is not set.');
+    expect((await fetch(runtime.handle.url + '/index.html')).status).toBe(404);
   }, 30_000);
 
   it('always warns that the sandbox is browser-resident (keep the tab open)', async () => {

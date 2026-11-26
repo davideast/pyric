@@ -17,8 +17,10 @@ import type { FirebaseApp } from '../app/types.js';
 import { FirebaseError } from '../sandbox/internal/firebase-error.js';
 import type { Sandbox, SandboxContext } from '../sandbox/index.js';
 import {
+  bindFidRegistrationListener,
   defaultRegistration,
   deliverToMessaging,
+  hasOnRegisteredHandler,
   registrationIdOf,
   resolveMessaging,
   ownMessagingSubscription,
@@ -28,8 +30,9 @@ import {
   type SimulatedServiceWorkerRegistration,
 } from './instance.js';
 import type { DeliveredPayload, DeliveryResult } from './broker/index.js';
+import type { RegisterOptions } from './types.js';
 
-export type { Messaging };
+export type { Messaging, RegisterOptions };
 
 // ── Shared receive-plane types (upstream `@firebase/messaging` public-types) ─
 
@@ -178,6 +181,75 @@ export function assertGetTokenPreconditions(options?: GetTokenOptions): void | P
   return verifyNativeNotificationPermission(permissions, queryPermissions, options);
 }
 
+export function throwInvalidOnRegisteredHandler(): never {
+  throw new FirebaseError(
+    'messaging/invalid-on-registered-handler',
+    'Messaging: No onRegistered callback handler was provided or registered. Implement onRegistered() before register(). (messaging/invalid-on-registered-handler).',
+  );
+}
+
+async function verifyNativeNotificationPermissionForRegister(
+  permissions: object,
+  queryPermissions: (permDesc: { name: string }) => Promise<{ state?: unknown }>,
+  hasRegisteredHandler: () => boolean,
+  options?: RegisterOptions,
+): Promise<void> {
+  let blocked = true;
+  try {
+    const status = await queryPermissions.call(permissions, { name: 'notifications' });
+    blocked = status?.state === 'denied';
+  } catch (err) {
+    void err;
+    blocked = true;
+  }
+  if (blocked) {
+    throwPermissionBlocked();
+  }
+  if (!hasRegisteredHandler()) {
+    throwInvalidOnRegisteredHandler();
+  }
+  assertValidSwRegistrationOption(options);
+}
+
+export function assertRegisterPreconditions(
+  hasRegisteredHandler: () => boolean,
+  options?: RegisterOptions,
+): void | Promise<void> {
+  const globalNotification = (globalThis as { Notification?: { permission?: unknown } })
+    .Notification;
+  if (globalNotification?.permission !== 'denied') {
+    if (!hasRegisteredHandler()) {
+      throwInvalidOnRegisteredHandler();
+    }
+    assertValidSwRegistrationOption(options);
+    return undefined;
+  }
+  const descriptor = Object.getOwnPropertyDescriptor(globalNotification, 'permission');
+  if (typeof globalNotification !== 'function' || typeof descriptor?.get !== 'function') {
+    throwPermissionBlocked();
+  }
+  const globalNavigator = (
+    globalThis as {
+      navigator?: {
+        permissions?: {
+          query?: (permDesc: { name: string }) => Promise<{ state?: unknown }>;
+        };
+      };
+    }
+  ).navigator;
+  const permissions = globalNavigator?.permissions;
+  const queryPermissions = permissions?.query;
+  if (permissions === undefined || typeof queryPermissions !== 'function') {
+    throwPermissionBlocked();
+  }
+  return verifyNativeNotificationPermissionForRegister(
+    permissions,
+    queryPermissions,
+    hasRegisteredHandler,
+    options,
+  );
+}
+
 export async function getToken(messaging: Messaging, options?: GetTokenOptions): Promise<string> {
   const state = stateOf(messaging);
   await assertGetTokenPreconditions(options);
@@ -188,14 +260,61 @@ export async function getToken(messaging: Messaging, options?: GetTokenOptions):
 }
 
 /**
- * Delete the active registration token. Resolves truthy; afterwards no
- * message reaches the client on either route and a send to the dead token
- * surfaces the captured UNREGISTERED envelope on the send plane
- * (oracle: `messaging-web-deletetoken-unregistered`).
+ * Delete the active registration token (or FID registration when no legacy
+ * token is stored, notifying `onUnregistered` with the removed FID).
  */
 export async function deleteToken(messaging: Messaging): Promise<boolean> {
   const state = stateOf(messaging);
   return state.broker.deleteTokenFor(state.activeRegistrationId);
+}
+
+/**
+ * Register the app instance with FCM using its Firebase Installation ID (FID).
+ * Delivers the FID via `onRegistered` on each call and resolves `undefined`.
+ * Rejects with `messaging/invalid-on-registered-handler` if `onRegistered` was
+ * not registered beforehand (`@firebase/messaging` 0.13.3).
+ */
+export async function register(messaging: Messaging, options?: RegisterOptions): Promise<void> {
+  const state = stateOf(messaging);
+  await assertRegisterPreconditions(() => hasOnRegisteredHandler(messaging), options);
+  const registration = options?.serviceWorkerRegistration ?? defaultRegistration();
+  const registrationId = registrationIdOf(registration);
+  state.activeRegistrationId = registrationId;
+  if (!hasOnRegisteredHandler(messaging)) {
+    throwInvalidOnRegisteredHandler();
+  }
+  state.broker.registerFor(registrationId);
+}
+
+/**
+ * Unregister the app instance's FID-based FCM registration and notify
+ * `onUnregistered` (if set) with the unregistered FID.
+ */
+export async function unregister(messaging: Messaging): Promise<void> {
+  const state = stateOf(messaging);
+  state.broker.unregisterFor(state.activeRegistrationId);
+}
+
+/**
+ * Subscribe to Firebase Installation ID registration events (`register()`).
+ * Single-slot per `Messaging` instance, matching `@firebase/messaging` 0.13.3.
+ */
+export function onRegistered(
+  messaging: Messaging,
+  nextOrObserver: NextFn<string> | Observer<string>,
+): Unsubscribe {
+  return bindFidRegistrationListener(messaging, 'registered', nextOrObserver);
+}
+
+/**
+ * Subscribe to Firebase Installation ID unregistration events (`unregister()`
+ * or `deleteToken()` when an FID registration is stored).
+ */
+export function onUnregistered(
+  messaging: Messaging,
+  nextOrObserver: NextFn<string> | Observer<string>,
+): Unsubscribe {
+  return bindFidRegistrationListener(messaging, 'unregistered', nextOrObserver);
 }
 
 /**

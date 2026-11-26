@@ -44,11 +44,13 @@ import type { OpMessage, MessagingSubMessage } from './protocol.js';
 
 /** Registration id used when a `messaging.getToken`/`deleteToken` op names
  *  none — the transport twin of the mirrors' module-default registration. */
-export const DEFAULT_WIRE_REGISTRATION_ID = 'swreg-port-default';
+const DEFAULT_WIRE_REGISTRATION_ID = 'swreg-port-default';
 
 const MESSAGING_METHODS = new Set([
   'messaging.getToken',
   'messaging.deleteToken',
+  'messaging.register',
+  'messaging.unregister',
   'messaging.send',
   'messaging.subscribeToTopic',
   'messaging.unsubscribeFromTopic',
@@ -138,9 +140,30 @@ export async function handleMessagingOp(
     case 'messaging.deleteToken': {
       // Resolves truthy either way (oracle: `messaging-web-deletetoken-unregistered`).
       try {
-        const deleted = broker(ctx).deleteTokenFor(msg.registrationId ?? DEFAULT_WIRE_REGISTRATION_ID);
+        const regId = msg.registrationId ?? DEFAULT_WIRE_REGISTRATION_ID;
+        const deleted = broker(ctx).deleteTokenFor(regId, msg.recipientId ?? regId);
         await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, deleted);
+      } catch (e) { failMessaging(port, msg.id, e); }
+      break;
+    }
+
+    case 'messaging.register': {
+      try {
+        const regId = msg.registrationId ?? DEFAULT_WIRE_REGISTRATION_ID;
+        const fid = broker(ctx).registerFor(regId, msg.recipientId ?? regId);
+        await bestEffortFlush(ctx, msg.method);
+        ok(port, msg.id, { fid });
+      } catch (e) { failMessaging(port, msg.id, e); }
+      break;
+    }
+
+    case 'messaging.unregister': {
+      try {
+        const regId = msg.registrationId ?? DEFAULT_WIRE_REGISTRATION_ID;
+        const fid = broker(ctx).unregisterFor(regId, msg.recipientId ?? regId);
+        await bestEffortFlush(ctx, msg.method);
+        ok(port, msg.id, { fid });
       } catch (e) { failMessaging(port, msg.id, e); }
       break;
     }
@@ -230,10 +253,23 @@ export function handleMessagingSub(ctx: HostCtx, port: PortLike, msg: MessagingS
   }
 
   if (!ctx.subs.has(port)) ctx.subs.set(port, new Map());
-  const portSubs = ctx.subs.get(port)!;
-  if (portSubs.has(msg.subId)) return; // idempotent
+  const portSubs = ctx.subs.get(port);
+  if (portSubs === undefined || portSubs.has(msg.subId)) return; // idempotent
 
   const b = broker(ctx);
+  if (msg.target === 'messaging.registered' || msg.target === 'messaging.unregistered') {
+    const forwardFid = (fid: string): void => {
+      post(port, { t: 'snap', subId: msg.subId, value: fid });
+    };
+    let unsubFid: () => void;
+    if (msg.target === 'messaging.registered') {
+      unsubFid = b.onFidRegistered(forwardFid, msg.recipientId);
+    } else {
+      unsubFid = b.onFidUnregistered(forwardFid, msg.recipientId);
+    }
+    portSubs.set(msg.subId, unsubFid);
+    return;
+  }
   const reports: NonNullable<HostCtx['messagingAcknowledgments']> = ctx.messagingAcknowledgments ??= new Map();
   const portReports = reports.get(port) ?? new Map<string, (messageId: string, stage: DeliveryStage) => boolean>();
   reports.set(port, portReports);

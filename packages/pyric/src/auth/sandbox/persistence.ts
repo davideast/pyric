@@ -4,6 +4,10 @@ import { authAccountsFor, getClock } from 'pyric/sandbox/internal';
 import { isAuthAccountHistory } from '../../sandbox/internal/auth-accounts.js';
 import type { SandboxBackend, SeedUser } from '../sandbox-backend.js';
 import {
+  notifyEmailEnumerationProtectionSubscribers,
+  subscribeProjectEmailEnumerationProtection,
+} from './email-enumeration-protection.js';
+import {
   persistedSessions,
   persistedTimeShift,
   restorePersistedSessions,
@@ -63,6 +67,7 @@ function registerAccountStore(sandbox: Sandbox, backend: SandboxBackend, store: 
         sessions?: unknown;
         clockMs?: unknown;
       };
+      const priorProtection = store.emailEnumerationProtection;
       backend.clearUsers();
       const accounts = authAccountsFor(sandbox);
       accounts?.forgetHistory();
@@ -73,22 +78,31 @@ function registerAccountStore(sandbox: Sandbox, backend: SandboxBackend, store: 
       // Persisted state written before the history restores as before.
       const shiftMs = persistedTimeShift(restored?.clockMs, getClock(sandbox).now());
       if (isAuthAccountHistory(restored?.history)) accounts?.replayHistory(shiftedHistory(restored.history, shiftMs));
+      if (store.emailEnumerationProtection !== priorProtection) {
+        notifyEmailEnumerationProtectionSubscribers(store);
+      }
       restorePersistedSessions(store, restored?.sessions, shiftMs);
     },
     // Sandbox.resetAll: wipe the user DB + provider config back to defaults —
     // identical to restoring an empty snapshot. The signed-in session is the
     // sandbox core's job (reset() clears currentUser before services run).
     reset: () => {
+      const priorProtection = store.emailEnumerationProtection;
       backend.clearUsers();
       authAccountsFor(sandbox)?.forgetHistory();
       backend.restoreProviderConfig(undefined);
+      if (store.emailEnumerationProtection !== priorProtection) {
+        notifyEmailEnumerationProtectionSubscribers(store);
+      }
     },
     subscribe: (onChange) => {
       const unsubscribeUsers = backend.subscribeUsers(onChange);
       const unsubscribeProviders = backend.subscribeProviderConfig(onChange);
+      const unsubscribeProtection = subscribeProjectEmailEnumerationProtection(store, onChange);
       return () => {
         unsubscribeUsers();
         unsubscribeProviders();
+        unsubscribeProtection();
       };
     },
   });

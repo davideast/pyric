@@ -119,7 +119,7 @@ function setOwn(target: DocumentData, key: string, value: unknown): void {
  * `{ board: { c1r1: 'x' } }` and a literal-dot segment stays one key.
  * Values, including transform sentinels, are kept as given.
  */
-export function updatePayloadTree(data: DocumentData): DocumentData {
+function updatePayloadTree(data: DocumentData): DocumentData {
   const tree: DocumentData = {};
   for (const [key, value] of Object.entries(data)) {
     const segments = fieldPathKeySegments(key);
@@ -142,12 +142,12 @@ export function updatePayloadTree(data: DocumentData): DocumentData {
 }
 
 /** The field paths of an engine update payload, as segment vectors. */
-export function updatePayloadMask(data: DocumentData): string[][] {
+function updatePayloadMask(data: DocumentData): string[][] {
   return Object.keys(data).map(fieldPathKeySegments);
 }
 
 /** Rebuild an engine update payload from its decoded tree and field paths. */
-export function updatePayloadFromTree(tree: DocumentData, mask: readonly (readonly string[])[]): DocumentData {
+function updatePayloadFromTree(tree: DocumentData, mask: readonly (readonly string[])[]): DocumentData {
   const data: DocumentData = {};
   for (const path of mask) {
     let value: unknown = tree;
@@ -380,6 +380,16 @@ function walkWriteValue(
   seen.add(value);
   if (Array.isArray(value)) {
     for (const entry of value) {
+      if (isRegisteredFieldValueSentinel(entry)) {
+        const arraySentinel = entry as { __type?: unknown };
+        if (arraySentinel.__type === 'maximum' || arraySentinel.__type === 'minimum') {
+          throw invalidData(
+            methodName,
+            `${arraySentinel.__type}() is not currently supported inside arrays`,
+            targetDoc,
+          );
+        }
+      }
       walkWriteValue(methodName, targetDoc, entry, undefined, rejectUndefined, allowInt64, seen);
     }
     return;
@@ -388,8 +398,23 @@ function walkWriteValue(
     const sentinel = value as { __type?: unknown; value?: unknown; values?: unknown };
     if (sentinel.__type === 'increment') {
       walkWriteValue(methodName, targetDoc, sentinel.value, path, rejectUndefined, allowInt64, seen);
+    } else if (sentinel.__type === 'maximum' || sentinel.__type === 'minimum') {
+      walkWriteValue(methodName, targetDoc, sentinel.value, path, true, allowInt64, seen);
+      if (typeof sentinel.value !== 'number') {
+        throw invalidData(methodName, `${sentinel.__type}() requires a numeric argument`, targetDoc);
+      }
     } else if (Array.isArray(sentinel.values)) {
       for (const entry of sentinel.values) {
+        if (isRegisteredFieldValueSentinel(entry)) {
+          const nested = entry as { __type?: unknown };
+          if (nested.__type === 'maximum' || nested.__type === 'minimum') {
+            throw invalidData(
+              `${String(sentinel.__type)}`,
+              `${nested.__type}() can only be used with update() and set()`,
+              targetDoc,
+            );
+          }
+        }
         walkWriteValue(methodName, targetDoc, entry, undefined, rejectUndefined, allowInt64, seen);
       }
     }

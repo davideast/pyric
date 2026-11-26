@@ -8,8 +8,10 @@ import {
 import type { Sandbox } from '../sandbox/types/service.js';
 import { FirebaseError } from '../sandbox/internal/firebase-error.js';
 
-function createAppSession(): ClientAppSession {
-  let currentUser: ClientAppSession['currentUser'] = null;
+export function createAppSession(
+  initialUser: ClientAppSession['currentUser'] = null,
+): ClientAppSession {
+  let currentUser: ClientAppSession['currentUser'] = initialUser;
   const subscribers = new Set<(user: ClientAppSession['currentUser']) => void>();
   return {
     get currentUser() {
@@ -41,13 +43,14 @@ export function attachSandboxApp(
   app: FirebaseApp,
   sandbox: Sandbox,
   session: ClientAppSession = createAppSession(),
+  deletedError?: () => Error,
 ): OwnedAppRuntime {
   const appName = app.name;
   const appOptions = { ...app.options };
   const authScope = session === sandbox ? undefined : {};
   const services = new Map<string, unknown>();
   const cleanups = new Set<() => void | Promise<void>>();
-  const runtime: OwnedAppRuntime = {
+  const baseRuntime = {
     app,
     sandbox,
     session,
@@ -56,12 +59,14 @@ export function attachSandboxApp(
     cleanups,
     assertAlive() {
       if (!runtime.deleted) return;
+      if (deletedError !== undefined) {
+        throw deletedError();
+      }
       throw new FirebaseError(
         'app/app-deleted',
         `Firebase: Firebase App named '${appName}' already deleted (app/app-deleted).`,
       );
     },
-    ...(authScope ? { authScope } : {}),
     service<T>(key: string, create: () => T): T {
       const existing = services.get(key);
       if (existing !== undefined) return existing as T;
@@ -70,7 +75,7 @@ export function attachSandboxApp(
       services.set(key, service);
       return service;
     },
-    onDelete(cleanup) {
+    onDelete(cleanup: () => void | Promise<void>) {
       if (runtime.deleted) {
         void cleanup();
         return () => {};
@@ -80,6 +85,12 @@ export function attachSandboxApp(
     },
     deleted: false,
   };
+  let runtime: OwnedAppRuntime;
+  if (authScope !== undefined) {
+    runtime = Object.assign(baseRuntime, { authScope });
+  } else {
+    runtime = baseRuntime;
+  }
   runtimes.set(app, runtime);
   return runtime;
 }
@@ -88,8 +99,12 @@ export function attachSandboxApp(
  * Attach an app whose sandbox and session refuse every read with `refusal()`,
  * so the first service call on it fails instead of opening a private store.
  */
-export function attachRefusedSandboxApp(app: FirebaseApp, refusal: () => Error): void {
-  const runtime = attachSandboxApp(app, null as unknown as Sandbox, createAppSession());
+export function attachRefusedSandboxApp(
+  app: FirebaseApp,
+  refusal: () => Error,
+  deletedError?: () => Error,
+): void {
+  const runtime = attachSandboxApp(app, null as unknown as Sandbox, createAppSession(), deletedError);
   const refuse = (): never => {
     throw refusal();
   };

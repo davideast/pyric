@@ -266,6 +266,10 @@ export async function createViteSandboxGeneration(
         observed: options.liveObserved,
       })
       : undefined;
+    let bridgeProjectId: string | null = functions.projectId;
+    if (projectId !== undefined) {
+      bridgeProjectId = projectId;
+    }
     const bridgeInput = {
       server,
       projectDir: cwd,
@@ -273,7 +277,7 @@ export async function createViteSandboxGeneration(
       liveHost,
       options: options.bridge,
       functionsProject: functions.project,
-      functionsProjectId: functions.projectId,
+      functionsProjectId: bridgeProjectId,
       sessionToken,
       requireSessionToken,
       allowedHosts: options.allowedHosts,

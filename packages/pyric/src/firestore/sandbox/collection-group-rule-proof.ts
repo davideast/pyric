@@ -47,6 +47,7 @@ export function proveCollectionGroupRules(
   collectionId: string,
 ): FirestoreRules | null {
   if (!ast) return null;
+  if (ast.version !== '2' && ast.version !== '2+modules') return null;
   if (!rootGovernsEveryDocument(ast)) return null;
   indexRulesetScopes(ast);
 
