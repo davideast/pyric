@@ -11,3 +11,5 @@ python3 summarize.py shard-0.json shard-1.json
 ```
 
 The summary checks population coverage, the three claims, release identity and extracted source identity across shards. Its scores concern the helper in isolation. Linked source, authorization, per-request cost and authenticated Firestore outcomes have separate checks in the [campaign replay](../../README.md).
+
+The [guarded-pawn source](../../artefacts/guarded-pawn-combined-bare-simple-packed-v5.rules) agreed with all 5,374,656 native status claims across 1,791,552 three-piece positions. Its two shard decision streams, native position hash and extracted source hash are retained in the [measured result](d582f74a/summary.json).

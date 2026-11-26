@@ -1,0 +1,26 @@
+{
+  "authority": "isolated compiled Rules helper under pinned independent local evaluator",
+  "bundleSha256": "d582f74aa912fcc158a052712d54927bd1df68fdfb5ef1331cfe4254e2ef6fd4",
+  "helperScopeSha256": "685cd932bae8f58e3d2556c817842c9cb17b0650de9cc6c61f4c3e72874be32d",
+  "nativeSha256": "a10246386d4565af1cf3ee10af7ffcf659ffc60df1832071150a6672e7cb14dc",
+  "positions": 1791552,
+  "claims": 5374656,
+  "counts": {
+    "draw-ALLOW": 2232,
+    "draw-DENY": 1789320,
+    "playing-ALLOW": 1788160,
+    "playing-DENY": 3392,
+    "won-ALLOW": 1160,
+    "won-DENY": 1790392
+  },
+  "runtimeErrors": 0,
+  "mismatches": 0,
+  "firstByShard": [
+    null,
+    null
+  ],
+  "shardDecisionHashes": [
+    "8a675edc339b97b85053a287fe7b3183f8d747dad79e2ff7778b6d9aad7f1089",
+    "61f6e1ecaa3471eb8ba96049e8214e434c3e98bbd0d166efb48f9ce1f30df03c"
+  ]
+}

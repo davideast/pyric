@@ -1,0 +1,36 @@
+{
+  "authority": "isolated compiled Rules helper under pinned independent local evaluator",
+  "bundleSha256": "d582f74aa912fcc158a052712d54927bd1df68fdfb5ef1331cfe4254e2ef6fd4",
+  "helperScopeSha256": "685cd932bae8f58e3d2556c817842c9cb17b0650de9cc6c61f4c3e72874be32d",
+  "functions": [
+    "admittedStatus",
+    "otherDefenders",
+    "hasKingReply",
+    "allRefusedw0",
+    "allRefusedw1",
+    "allRefusedb0",
+    "allRefusedb1",
+    "packedSafe",
+    "replyCapture",
+    "pawnReplyw",
+    "pawnReplyb"
+  ],
+  "nativeSha256": "a10246386d4565af1cf3ee10af7ffcf659ffc60df1832071150a6672e7cb14dc",
+  "shard": 1,
+  "shards": 2,
+  "available": 1791552,
+  "checked": 895776,
+  "writes": 2687328,
+  "runtimeErrors": 0,
+  "mismatches": 0,
+  "first": null,
+  "counts": {
+    "playing-ALLOW": 894080,
+    "draw-DENY": 894660,
+    "won-DENY": 895196,
+    "playing-DENY": 1696,
+    "won-ALLOW": 580,
+    "draw-ALLOW": 1116
+  },
+  "scoreSha256": "61f6e1ecaa3471eb8ba96049e8214e434c3e98bbd0d166efb48f9ce1f30df03c"
+}
