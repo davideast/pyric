@@ -68,6 +68,13 @@ export type PyricLiveOptions = Omit<PyricOptions, 'hosted' | 'swapInBuild' | 'se
    * server at start.
    */
   passThrough?: readonly string[];
+  /**
+   * Explicit opt-in to read active deployed Security Rules read-only via the
+   * developer's own Firebase CLI or ADC login, explaining production denials
+   * against deployed rules and flagging drift from local rules files. Strictly
+   * off (`false`) by default; zero credentials are stored.
+   */
+  deployedRules?: boolean;
 };
 
 /** Writes one line to the dev server's terminal. */
@@ -91,10 +98,16 @@ function pageRefusal(log: () => LogLine | undefined): (specifier: string, plane:
   };
 }
 
-/** The start line, then one line for each import that passes through, and the Admin line when the list names firebase-admin. */
-function startLines(projectId: string, passThrough: readonly string[]): string {
+/** The start line, then one line for each import that passes through, and the deployed-rules note when opted in. */
+function startLines(projectId: string, passThrough: readonly string[], deployedRules: boolean): string {
   const passing = passThroughLines(ENTRY, passThrough, livePassThroughLine);
-  return [liveStartLine(ENTRY, projectId), ...passing].join('\n');
+  const lines = [liveStartLine(ENTRY, projectId), ...passing];
+  if (deployedRules) {
+    lines.push(
+      `${ENTRY}: deployed Security Rules inspection enabled (read-only via local CLI/ADC login; no credentials stored).`,
+    );
+  }
+  return lines.join('\n');
 }
 
 const ENTRY = '@pyric/live/vite';
@@ -111,10 +124,15 @@ function isDevServer(_config: unknown, env: { command: string; isPreview?: boole
 export function pyricLive(options: PyricLiveOptions = {}): PyricPlugin {
   const {
     passThrough: listed,
+    deployedRules: rawDeployedRules,
     serviceWorker: _ignoredServiceWorker,
     ...pyricOptions
   } = options as PyricLiveOptions & { serviceWorker?: unknown };
   void _ignoredServiceWorker;
+  if (rawDeployedRules !== undefined && typeof rawDeployedRules !== 'boolean') {
+    throw new Error(`${ENTRY}: deployedRules must be a boolean.`);
+  }
+  const deployedRules = rawDeployedRules === true;
   const passThrough = passThroughOption(ENTRY, listed);
   let logError: LogLine | undefined;
   const refusal = pageRefusal(() => logError);
@@ -146,8 +164,13 @@ export function pyricLive(options: PyricLiveOptions = {}): PyricPlugin {
       return source;
     },
     async configureServer(this: unknown, server: DevServer) {
-      await configureServer?.call(this as never, server);
-      server.config.logger.info(startLines(projectId, passThrough));
+      if (deployedRules) {
+        const { withDeployedRulesOptIn } = await import('@pyric/cli/serve/internal/live-host');
+        await withDeployedRulesOptIn(true, () => Promise.resolve(configureServer?.call(this as never, server)));
+      } else {
+        await configureServer?.call(this as never, server);
+      }
+      server.config.logger.info(startLines(projectId, passThrough, deployedRules));
     },
   } as PyricPlugin;
 }

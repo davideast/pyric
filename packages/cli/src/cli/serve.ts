@@ -328,6 +328,7 @@ async function startServeRuntime(opts: {
       optionName: '--project',
       warn: (line) => logger.note(line),
       passThrough: liveStart.passThrough,
+      deployedRules: liveStart.deployedRules === true,
     });
   }
   // A live host makes none of pyric's own writes, the seed file's among them (`hosted/own-writes.ts`).
@@ -1138,6 +1139,8 @@ interface LiveServeStart {
   allowRemotePeers?: boolean;
   /** Validated `firebase/*` imports the live host passes through (`pyric-live --pass-through`). */
   passThrough?: readonly string[];
+  /** Explicit opt-in to read deployed Security Rules read-only via CLI/ADC login (`pyric-live --deployed-rules`). */
+  deployedRules?: boolean;
 }
 
 export interface ServeRunHost {

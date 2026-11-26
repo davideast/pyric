@@ -197,18 +197,36 @@ function formatGapList(needs: readonly (keyof typeof GAP_LABELS)[]): string {
   return `${labels.slice(0, -1).join(', ')}, and ${labels[labels.length - 1]}`;
 }
 
-/** The "Local rules" line of a live row with no Firestore trace: the local verdict, or the data it needed. */
+/** The "Local rules" line of a live row with no Firestore trace: the deployed or local verdict, or the data it needed. */
 export function localRulesSummary(request: ChipRequest): string {
+  const deployed = request.deployedRules;
+  if (deployed !== undefined && deployed.source === 'deployed') {
+    const driftSuffix = deployed.drift?.drifted === true ? ' (drifted from local rules)' : '';
+    if (deployed.verdict === 'unevaluated') {
+      const knownNeeds = (deployed.needs ?? []).filter(
+        (need): need is keyof typeof GAP_LABELS => Object.hasOwn(GAP_LABELS, need),
+      );
+      return `Needs ${formatGapList(knownNeeds)} to evaluate against deployed rules.${driftSuffix}`;
+    }
+    if (deployed.verdict === 'allow') {
+      return `Deployed rules allowed this request.${driftSuffix}`;
+    }
+    return `Deployed rules did not allow this request.${driftSuffix}`;
+  }
+  let fallbackSuffix = '';
+  if (deployed !== undefined && deployed.source === 'local') {
+    fallbackSuffix = ' (local fallback; deployed rules unavailable)';
+  }
   const local = request.local;
-  if (!local) return rulesSummary(request);
+  if (!local) return `${rulesSummary(request)}${fallbackSuffix}`;
   if (local.result === 'unevaluated') {
-    return `Needs ${formatGapList(local.needs)} to evaluate against local rules.`;
+    return `Needs ${formatGapList(local.needs)} to evaluate against local rules.${fallbackSuffix}`;
   }
-  if (local.result === 'allow') return 'Local rules allowed this request.';
+  if (local.result === 'allow') return `Local rules allowed this request.${fallbackSuffix}`;
   if (local.rtdb?.errorCode === 'NO_MATCHING_RULE') {
-    return 'Local rules denied this request (no matching rule allowed it).';
+    return `Local rules denied this request (no matching rule allowed it).${fallbackSuffix}`;
   }
-  return 'Local rules did not allow this request.';
+  return `Local rules did not allow this request.${fallbackSuffix}`;
 }
 
 type LocalVerdict = NonNullable<ChipRequest['local']>;
@@ -284,18 +302,51 @@ function ruleDetailBody(rule: LocalVerdict['rule'], escape: Escape): string {
   return factsCard(facts);
 }
 
-/** The "Rule details" of a live row's local verdict that carries no Firestore trace: its RTDB or Storage detail, else its rule. */
+function deployedRulesDetailBody(
+  deployed: NonNullable<ChipRequest['deployedRules']>,
+  escape: Escape,
+): string {
+  let facts = '';
+  if (deployed.source === 'deployed') {
+    let sourceLabel = 'Deployed rules';
+    if (deployed.target !== undefined) sourceLabel = `Deployed rules (${deployed.target})`;
+    if (deployed.rulesetId !== undefined) sourceLabel = `${sourceLabel}, ruleset ${deployed.rulesetId}`;
+    facts += fact('Rules source', escape(sourceLabel));
+    if (deployed.rule?.path !== undefined) facts += fact('Match', `<code>${escape(deployed.rule.path)}</code>`);
+    if (deployed.rule?.line !== undefined) facts += fact('Location', `Line ${deployed.rule.line}`);
+    if (deployed.rule?.expression !== undefined) facts += condition(deployed.rule.expression, escape);
+    if (deployed.productionDisagrees === true && deployed.verdict !== undefined) {
+      facts += fact('Note', escape(`Deployed rules evaluation (${deployed.verdict}) disagrees with production denial.`));
+    }
+    if (deployed.drift !== undefined) facts += fact('Drift', escape(deployed.drift.summary));
+  } else {
+    let detail = 'Local fallback (deployed rules unavailable)';
+    if (deployed.fallbackMessage !== undefined) detail = `Local fallback (${deployed.fallbackMessage})`;
+    facts += fact('Rules source', escape(detail));
+  }
+  return factsCard(facts);
+}
+
+/** The "Rule details" of a live row's verdict that carries no Firestore trace: deployed/local context, RTDB or Storage detail, else its rule. */
 export function localRulesEvidenceHtml(request: ChipRequest, escape: Escape, chevron = ''): string {
   const local = request.local;
-  if (!local) return '';
-  let body = ruleDetailBody(local.rule, escape);
+  const deployed = request.deployedRules;
+  if (!local && !deployed) return '';
+  let body = '';
+  if (deployed !== undefined) {
+    body += deployedRulesDetailBody(deployed, escape);
+  }
   let privacy: string | undefined;
-  if (local.rtdb) {
-    body = rtdbDetailBody(local.rtdb, escape);
-    privacy = RTDB_PRIVACY;
-  } else if (local.storage) {
-    body = storageDetailBody(local.storage, escape);
-    privacy = STORAGE_PRIVACY;
+  if (local) {
+    if (local.rtdb) {
+      body += rtdbDetailBody(local.rtdb, escape);
+      privacy = RTDB_PRIVACY;
+    } else if (local.storage) {
+      body += storageDetailBody(local.storage, escape);
+      privacy = STORAGE_PRIVACY;
+    } else {
+      body += ruleDetailBody(local.rule, escape);
+    }
   }
   if (body === '') return '';
   return ruleDetailsDisclosure({ id: request.id, body, privacy }, escape, chevron);
