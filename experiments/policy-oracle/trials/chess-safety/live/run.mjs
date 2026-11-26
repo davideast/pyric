@@ -58,8 +58,16 @@ function report(archive, allowUnmeasured) {
     }
     reports.push(measurements);
   }
+  // The previous file study qualified these ten exact request payloads on
+  // production. Compare the newly normalized requests to those originals.
+  const legacyUrl=new URL('../../king-safety/live/optimized/receipts/optimized.json.gz',import.meta.url);
+  const legacy=JSON.parse(gunzipSync(readFileSync(legacyUrl)));
+  const oldInputs=comparable(legacy).map(({after,observed,...input})=>input);
+  assert.equal(oldInputs.length,10);
+  const replayed=oldInputs.filter(row=>answers.has(row.id));
+  for(const row of replayed) assert.deepEqual(answers.get(row.id),row,'legacy signed inputs '+row.id);
   return {authority:'live Firestore',privateJournalChecked:Boolean(archive),
-    repeatedInputs:repeat.size, releases:[...captures].map(([rulesSha256,rows])=>({
+    legacyInputsReplayed:replayed.length,repeatedInputs:repeat.size, releases:[...captures].map(([rulesSha256,rows])=>({
       rulesSha256,status:'measured',distinctCases:rows.outcomes.size,captures:rows.reports}))};
 }
 
