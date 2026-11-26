@@ -1,0 +1,631 @@
+{
+  "authority": "pinned local full Firestore Rules simulator",
+  "rulesSha256": "fa2cff41e46a901f826eb53c859d03486797f0687dbe1b89b16183a1510b5814",
+  "corpusSha256": "55076ee1dcd7ef64356574110aaea65f77d8a9c8548b30cfa46393dd8cd4226b",
+  "caseCount": 378,
+  "scoreSha256": "55747e9de9bb1ce81100cc14f0754c468742fd40536301d63844eeb23acf2422",
+  "groups": {
+    "only-k-move-in-check": {
+      "cases": 24,
+      "outcomes": {
+        "match": 24
+      },
+      "peakExpressions": 853
+    },
+    "mate": {
+      "cases": 24,
+      "outcomes": {
+        "match": 24
+      },
+      "peakExpressions": 952
+    },
+    "only-k-capture-in-check": {
+      "cases": 24,
+      "outcomes": {
+        "match": 24
+      },
+      "peakExpressions": 861
+    },
+    "only-k-move-unchecked": {
+      "cases": 24,
+      "outcomes": {
+        "match": 24
+      },
+      "peakExpressions": 848
+    },
+    "only-r-move-in-check": {
+      "cases": 24,
+      "outcomes": {
+        "match": 12,
+        "false-allow": 12
+      },
+      "peakExpressions": 947
+    },
+    "only-p-move-unchecked": {
+      "cases": 24,
+      "outcomes": {
+        "match": 24
+      },
+      "peakExpressions": 844
+    },
+    "only-b-move-in-check": {
+      "cases": 24,
+      "outcomes": {
+        "match": 12,
+        "false-allow": 12
+      },
+      "peakExpressions": 960
+    },
+    "only-n-move-in-check": {
+      "cases": 24,
+      "outcomes": {
+        "match": 12,
+        "false-allow": 12
+      },
+      "peakExpressions": 960
+    },
+    "only-q-move-in-check": {
+      "cases": 24,
+      "outcomes": {
+        "match": 12,
+        "false-allow": 12
+      },
+      "peakExpressions": 960
+    },
+    "only-q-capture-in-check": {
+      "cases": 24,
+      "outcomes": {
+        "match": 12,
+        "false-allow": 12
+      },
+      "peakExpressions": 948
+    },
+    "only-r-capture-in-check": {
+      "cases": 24,
+      "outcomes": {
+        "match": 12,
+        "false-allow": 12
+      },
+      "peakExpressions": 941
+    },
+    "stalemate": {
+      "cases": 24,
+      "outcomes": {
+        "match": 24
+      },
+      "peakExpressions": 944
+    },
+    "only-b-capture-in-check": {
+      "cases": 24,
+      "outcomes": {
+        "match": 12,
+        "false-allow": 12
+      },
+      "peakExpressions": 960
+    },
+    "stalemate-pinned-defender": {
+      "cases": 18,
+      "outcomes": {
+        "match": 18
+      },
+      "peakExpressions": 948
+    },
+    "only-p-capture-in-check": {
+      "cases": 14,
+      "outcomes": {
+        "match": 7,
+        "false-allow": 7
+      },
+      "peakExpressions": 949
+    },
+    "only-q-capture-unchecked": {
+      "cases": 4,
+      "outcomes": {
+        "match": 4
+      },
+      "peakExpressions": 845
+    },
+    "only-n-capture-in-check": {
+      "cases": 24,
+      "outcomes": {
+        "match": 12,
+        "false-allow": 12
+      },
+      "peakExpressions": 952
+    },
+    "only-p-capture-unchecked": {
+      "cases": 2,
+      "outcomes": {
+        "match": 2
+      },
+      "peakExpressions": 717
+    },
+    "only-b-capture-unchecked": {
+      "cases": 4,
+      "outcomes": {
+        "match": 4
+      },
+      "peakExpressions": 841
+    }
+  },
+  "reachableByMove": {},
+  "divergences": {
+    "only-r-move-in-check/false-allow": {
+      "first": {
+        "case": {
+          "id": "only-r-move-in-check-0-false",
+          "fen": "k7/8/K7/2r5/6Q1/8/8/8 w - -",
+          "uci": "g4g8",
+          "claim": {
+            "status": "won",
+            "winner": "host"
+          },
+          "nativeLegal": true,
+          "kingSafe": true,
+          "nativeAdmission": false,
+          "successor": "k5Q1/8/K7/2r5/8/8/8/8 b - -",
+          "outcome": "playing",
+          "replyCount": 1
+        },
+        "result": {
+          "actual": "ALLOW",
+          "status": "false-allow",
+          "cause": null,
+          "expressions": 924
+        }
+      },
+      "minimized": {
+        "beforePieces": 4,
+        "afterPieces": 4,
+        "criterion": "no single unprotected piece removable preserving side, move, victim, rights, source check, native safety, admissibility, legal outcome, lone reply identity and local failure class",
+        "removedSquares": [],
+        "positionsTried": 2,
+        "case": {
+          "id": "only-r-move-in-check-0-false",
+          "fen": "k7/8/K7/2r5/6Q1/8/8/8 w - -",
+          "uci": "g4g8",
+          "claim": {
+            "status": "won",
+            "winner": "host"
+          },
+          "nativeLegal": true,
+          "kingSafe": true,
+          "nativeAdmission": false,
+          "successor": "k5Q1/8/K7/2r5/8/8/8/8 b - -",
+          "outcome": "playing",
+          "replyCount": 1
+        },
+        "result": {
+          "actual": "ALLOW",
+          "status": "false-allow",
+          "cause": null,
+          "expressions": 924
+        }
+      }
+    },
+    "only-b-move-in-check/false-allow": {
+      "first": {
+        "case": {
+          "id": "only-b-move-in-check-0-false",
+          "fen": "k7/1b6/1K4p1/1Q6/8/8/8/8 w - -",
+          "uci": "b5e8",
+          "claim": {
+            "status": "won",
+            "winner": "host"
+          },
+          "nativeLegal": true,
+          "kingSafe": true,
+          "nativeAdmission": false,
+          "successor": "k3Q3/1b6/1K4p1/8/8/8/8/8 b - -",
+          "outcome": "playing",
+          "replyCount": 1
+        },
+        "result": {
+          "actual": "ALLOW",
+          "status": "false-allow",
+          "cause": null,
+          "expressions": 931
+        }
+      },
+      "minimized": {
+        "beforePieces": 4,
+        "afterPieces": 4,
+        "criterion": "no single unprotected piece removable preserving side, move, victim, rights, source check, native safety, admissibility, legal outcome, lone reply identity and local failure class",
+        "removedSquares": [],
+        "positionsTried": 2,
+        "case": {
+          "id": "only-b-move-in-check-1-false",
+          "fen": "k7/2K5/8/8/8/1R6/8/6b1 w - -",
+          "uci": "b3a3",
+          "claim": {
+            "status": "won",
+            "winner": "host"
+          },
+          "nativeLegal": true,
+          "kingSafe": true,
+          "nativeAdmission": false,
+          "successor": "k7/2K5/8/8/8/R7/8/6b1 b - -",
+          "outcome": "playing",
+          "replyCount": 1
+        },
+        "result": {
+          "actual": "ALLOW",
+          "status": "false-allow",
+          "cause": null,
+          "expressions": 790
+        }
+      }
+    },
+    "only-n-move-in-check/false-allow": {
+      "first": {
+        "case": {
+          "id": "only-n-move-in-check-0-false",
+          "fen": "k7/n7/1K6/8/8/8/8/5Q2 w - -",
+          "uci": "f1f8",
+          "claim": {
+            "status": "won",
+            "winner": "host"
+          },
+          "nativeLegal": true,
+          "kingSafe": true,
+          "nativeAdmission": false,
+          "successor": "k4Q2/n7/1K6/8/8/8/8/8 b - -",
+          "outcome": "playing",
+          "replyCount": 1
+        },
+        "result": {
+          "actual": "ALLOW",
+          "status": "false-allow",
+          "cause": null,
+          "expressions": 960
+        }
+      },
+      "minimized": {
+        "beforePieces": 4,
+        "afterPieces": 4,
+        "criterion": "no single unprotected piece removable preserving side, move, victim, rights, source check, native safety, admissibility, legal outcome, lone reply identity and local failure class",
+        "removedSquares": [],
+        "positionsTried": 2,
+        "case": {
+          "id": "only-n-move-in-check-0-false",
+          "fen": "k7/n7/1K6/8/8/8/8/5Q2 w - -",
+          "uci": "f1f8",
+          "claim": {
+            "status": "won",
+            "winner": "host"
+          },
+          "nativeLegal": true,
+          "kingSafe": true,
+          "nativeAdmission": false,
+          "successor": "k4Q2/n7/1K6/8/8/8/8/8 b - -",
+          "outcome": "playing",
+          "replyCount": 1
+        },
+        "result": {
+          "actual": "ALLOW",
+          "status": "false-allow",
+          "cause": null,
+          "expressions": 960
+        }
+      }
+    },
+    "only-q-move-in-check/false-allow": {
+      "first": {
+        "case": {
+          "id": "only-q-move-in-check-0-false",
+          "fen": "7k/5K2/4Q3/6p1/1q6/8/8/8 w - -",
+          "uci": "e6h3",
+          "claim": {
+            "status": "won",
+            "winner": "host"
+          },
+          "nativeLegal": true,
+          "kingSafe": true,
+          "nativeAdmission": false,
+          "successor": "7k/5K2/8/6p1/1q6/7Q/8/8 b - -",
+          "outcome": "playing",
+          "replyCount": 1
+        },
+        "result": {
+          "actual": "ALLOW",
+          "status": "false-allow",
+          "cause": null,
+          "expressions": 943
+        }
+      },
+      "minimized": {
+        "beforePieces": 4,
+        "afterPieces": 4,
+        "criterion": "no single unprotected piece removable preserving side, move, victim, rights, source check, native safety, admissibility, legal outcome, lone reply identity and local failure class",
+        "removedSquares": [],
+        "positionsTried": 2,
+        "case": {
+          "id": "only-q-move-in-check-2-false",
+          "fen": "7k/5K2/8/8/3q4/5Q2/8/8 w - -",
+          "uci": "f3h1",
+          "claim": {
+            "status": "won",
+            "winner": "host"
+          },
+          "nativeLegal": true,
+          "kingSafe": true,
+          "nativeAdmission": false,
+          "successor": "7k/5K2/8/8/3q4/8/8/7Q b - -",
+          "outcome": "playing",
+          "replyCount": 1
+        },
+        "result": {
+          "actual": "ALLOW",
+          "status": "false-allow",
+          "cause": null,
+          "expressions": 947
+        }
+      }
+    },
+    "only-q-capture-in-check/false-allow": {
+      "first": {
+        "case": {
+          "id": "only-q-capture-in-check-0-false",
+          "fen": "k7/8/K7/8/2Q5/7q/8/8 w - -",
+          "uci": "c4c8",
+          "claim": {
+            "status": "won",
+            "winner": "host"
+          },
+          "nativeLegal": true,
+          "kingSafe": true,
+          "nativeAdmission": false,
+          "successor": "k1Q5/8/K7/8/8/7q/8/8 b - -",
+          "outcome": "playing",
+          "replyCount": 1
+        },
+        "result": {
+          "actual": "ALLOW",
+          "status": "false-allow",
+          "cause": null,
+          "expressions": 924
+        }
+      },
+      "minimized": {
+        "beforePieces": 4,
+        "afterPieces": 4,
+        "criterion": "no single unprotected piece removable preserving side, move, victim, rights, source check, native safety, admissibility, legal outcome, lone reply identity and local failure class",
+        "removedSquares": [],
+        "positionsTried": 2,
+        "case": {
+          "id": "only-q-capture-in-check-0-false",
+          "fen": "k7/8/K7/8/2Q5/7q/8/8 w - -",
+          "uci": "c4c8",
+          "claim": {
+            "status": "won",
+            "winner": "host"
+          },
+          "nativeLegal": true,
+          "kingSafe": true,
+          "nativeAdmission": false,
+          "successor": "k1Q5/8/K7/8/8/7q/8/8 b - -",
+          "outcome": "playing",
+          "replyCount": 1
+        },
+        "result": {
+          "actual": "ALLOW",
+          "status": "false-allow",
+          "cause": null,
+          "expressions": 924
+        }
+      }
+    },
+    "only-r-capture-in-check/false-allow": {
+      "first": {
+        "case": {
+          "id": "only-r-capture-in-check-0-false",
+          "fen": "1k6/5Q2/1K6/8/6r1/8/5p2/8 w - -",
+          "uci": "f7g8",
+          "claim": {
+            "status": "won",
+            "winner": "host"
+          },
+          "nativeLegal": true,
+          "kingSafe": true,
+          "nativeAdmission": false,
+          "successor": "1k4Q1/8/1K6/8/6r1/8/5p2/8 b - -",
+          "outcome": "playing",
+          "replyCount": 1
+        },
+        "result": {
+          "actual": "ALLOW",
+          "status": "false-allow",
+          "cause": null,
+          "expressions": 810
+        }
+      },
+      "minimized": {
+        "beforePieces": 4,
+        "afterPieces": 4,
+        "criterion": "no single unprotected piece removable preserving side, move, victim, rights, source check, native safety, admissibility, legal outcome, lone reply identity and local failure class",
+        "removedSquares": [],
+        "positionsTried": 2,
+        "case": {
+          "id": "only-r-capture-in-check-1-false",
+          "fen": "7k/2Qr4/6K1/8/8/8/8/8 w - -",
+          "uci": "c7d8",
+          "claim": {
+            "status": "won",
+            "winner": "host"
+          },
+          "nativeLegal": true,
+          "kingSafe": true,
+          "nativeAdmission": false,
+          "successor": "3Q3k/3r4/6K1/8/8/8/8/8 b - -",
+          "outcome": "playing",
+          "replyCount": 1
+        },
+        "result": {
+          "actual": "ALLOW",
+          "status": "false-allow",
+          "cause": null,
+          "expressions": 810
+        }
+      }
+    },
+    "only-b-capture-in-check/false-allow": {
+      "first": {
+        "case": {
+          "id": "only-b-capture-in-check-0-false",
+          "fen": "1k6/3Q4/1K6/8/4b3/8/8/8 w - -",
+          "uci": "d7b7",
+          "claim": {
+            "status": "won",
+            "winner": "host"
+          },
+          "nativeLegal": true,
+          "kingSafe": true,
+          "nativeAdmission": false,
+          "successor": "1k6/1Q6/1K6/8/4b3/8/8/8 b - -",
+          "outcome": "playing",
+          "replyCount": 1
+        },
+        "result": {
+          "actual": "ALLOW",
+          "status": "false-allow",
+          "cause": null,
+          "expressions": 909
+        }
+      },
+      "minimized": {
+        "beforePieces": 4,
+        "afterPieces": 4,
+        "criterion": "no single unprotected piece removable preserving side, move, victim, rights, source check, native safety, admissibility, legal outcome, lone reply identity and local failure class",
+        "removedSquares": [],
+        "positionsTried": 2,
+        "case": {
+          "id": "only-b-capture-in-check-0-false",
+          "fen": "1k6/3Q4/1K6/8/4b3/8/8/8 w - -",
+          "uci": "d7b7",
+          "claim": {
+            "status": "won",
+            "winner": "host"
+          },
+          "nativeLegal": true,
+          "kingSafe": true,
+          "nativeAdmission": false,
+          "successor": "1k6/1Q6/1K6/8/4b3/8/8/8 b - -",
+          "outcome": "playing",
+          "replyCount": 1
+        },
+        "result": {
+          "actual": "ALLOW",
+          "status": "false-allow",
+          "cause": null,
+          "expressions": 909
+        }
+      }
+    },
+    "only-p-capture-in-check/false-allow": {
+      "first": {
+        "case": {
+          "id": "only-p-capture-in-check-0-false",
+          "fen": "5K1k/8/8/8/8/6p1/1nQ5/8 w - -",
+          "uci": "c2h2",
+          "claim": {
+            "status": "won",
+            "winner": "host"
+          },
+          "nativeLegal": true,
+          "kingSafe": true,
+          "nativeAdmission": false,
+          "successor": "5K1k/8/8/8/8/6p1/1n5Q/8 b - -",
+          "outcome": "playing",
+          "replyCount": 1
+        },
+        "result": {
+          "actual": "ALLOW",
+          "status": "false-allow",
+          "cause": null,
+          "expressions": 925
+        }
+      },
+      "minimized": {
+        "beforePieces": 4,
+        "afterPieces": 4,
+        "criterion": "no single unprotected piece removable preserving side, move, victim, rights, source check, native safety, admissibility, legal outcome, lone reply identity and local failure class",
+        "removedSquares": [],
+        "positionsTried": 2,
+        "case": {
+          "id": "only-p-capture-in-check-1-false",
+          "fen": "5K1k/8/8/8/6p1/Q7/8/8 w - -",
+          "uci": "a3h3",
+          "claim": {
+            "status": "won",
+            "winner": "host"
+          },
+          "nativeLegal": true,
+          "kingSafe": true,
+          "nativeAdmission": false,
+          "successor": "5K1k/8/8/8/6p1/7Q/8/8 b - -",
+          "outcome": "playing",
+          "replyCount": 1
+        },
+        "result": {
+          "actual": "ALLOW",
+          "status": "false-allow",
+          "cause": null,
+          "expressions": 949
+        }
+      }
+    },
+    "only-n-capture-in-check/false-allow": {
+      "first": {
+        "case": {
+          "id": "only-n-capture-in-check-0-false",
+          "fen": "k7/2K5/8/1Q6/1n6/8/8/8 w - -",
+          "uci": "b5a6",
+          "claim": {
+            "status": "won",
+            "winner": "host"
+          },
+          "nativeLegal": true,
+          "kingSafe": true,
+          "nativeAdmission": false,
+          "successor": "k7/2K5/Q7/8/1n6/8/8/8 b - -",
+          "outcome": "playing",
+          "replyCount": 1
+        },
+        "result": {
+          "actual": "ALLOW",
+          "status": "false-allow",
+          "cause": null,
+          "expressions": 816
+        }
+      },
+      "minimized": {
+        "beforePieces": 4,
+        "afterPieces": 4,
+        "criterion": "no single unprotected piece removable preserving side, move, victim, rights, source check, native safety, admissibility, legal outcome, lone reply identity and local failure class",
+        "removedSquares": [],
+        "positionsTried": 2,
+        "case": {
+          "id": "only-n-capture-in-check-0-false",
+          "fen": "k7/2K5/8/1Q6/1n6/8/8/8 w - -",
+          "uci": "b5a6",
+          "claim": {
+            "status": "won",
+            "winner": "host"
+          },
+          "nativeLegal": true,
+          "kingSafe": true,
+          "nativeAdmission": false,
+          "successor": "k7/2K5/Q7/8/1n6/8/8/8 b - -",
+          "outcome": "playing",
+          "replyCount": 1
+        },
+        "result": {
+          "actual": "ALLOW",
+          "status": "false-allow",
+          "cause": null,
+          "expressions": 816
+        }
+      }
+    }
+  }
+}

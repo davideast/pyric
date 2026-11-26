@@ -1,0 +1,206 @@
+{
+  "authority": "pinned local full Firestore Rules simulator",
+  "rulesSha256": "fa2cff41e46a901f826eb53c859d03486797f0687dbe1b89b16183a1510b5814",
+  "corpusSha256": "3ae826772af378f5234a6f7d7911b78839e4e9c406d8882033c355e94bd2b5fc",
+  "caseCount": 384,
+  "scoreSha256": "a07c4ef0ff8e8b64e65239806926fd162705d20f47112418ed671878bf1a2238",
+  "groups": {
+    "b/stalemate": {
+      "cases": 32,
+      "outcomes": {
+        "match": 32
+      },
+      "peakExpressions": 949
+    },
+    "w/king-checked": {
+      "cases": 32,
+      "outcomes": {
+        "match": 32
+      },
+      "peakExpressions": 855
+    },
+    "b/king-unchecked": {
+      "cases": 32,
+      "outcomes": {
+        "match": 32
+      },
+      "peakExpressions": 865
+    },
+    "b/mate": {
+      "cases": 32,
+      "outcomes": {
+        "match": 32
+      },
+      "peakExpressions": 942
+    },
+    "b/king-checked": {
+      "cases": 32,
+      "outcomes": {
+        "match": 32
+      },
+      "peakExpressions": 853
+    },
+    "w/king-unchecked": {
+      "cases": 32,
+      "outcomes": {
+        "match": 32
+      },
+      "peakExpressions": 865
+    },
+    "w/mate": {
+      "cases": 32,
+      "outcomes": {
+        "match": 32
+      },
+      "peakExpressions": 949
+    },
+    "b/nonking-unchecked": {
+      "cases": 32,
+      "outcomes": {
+        "match": 32
+      },
+      "peakExpressions": 845
+    },
+    "w/nonking-unchecked": {
+      "cases": 32,
+      "outcomes": {
+        "match": 32
+      },
+      "peakExpressions": 844
+    },
+    "w/nonking-checked": {
+      "cases": 32,
+      "outcomes": {
+        "match": 16,
+        "false-allow": 16
+      },
+      "peakExpressions": 961
+    },
+    "w/stalemate": {
+      "cases": 32,
+      "outcomes": {
+        "match": 32
+      },
+      "peakExpressions": 954
+    },
+    "b/nonking-checked": {
+      "cases": 32,
+      "outcomes": {
+        "match": 16,
+        "false-allow": 16
+      },
+      "peakExpressions": 940
+    }
+  },
+  "reachableByMove": {},
+  "divergences": {
+    "w/nonking-checked/false-allow": {
+      "first": {
+        "case": {
+          "id": "interior-110",
+          "fen": "2kB4/8/1K6/8/8/8/r1qN2r1/5q2 b - -",
+          "uci": "g2g6",
+          "claim": {
+            "status": "won",
+            "winner": "guest"
+          },
+          "nativeLegal": true,
+          "kingSafe": true,
+          "nativeAdmission": false,
+          "successor": "2kB4/8/1K4r1/8/8/8/r1qN4/5q2 w - -",
+          "outcome": "playing",
+          "replyCount": 1
+        },
+        "result": {
+          "actual": "ALLOW",
+          "status": "false-allow",
+          "cause": null,
+          "expressions": 925
+        }
+      },
+      "minimized": {
+        "beforePieces": 6,
+        "afterPieces": 6,
+        "criterion": "no single unprotected piece removable preserving side, move, victim, rights, source check, native safety, admissibility, legal outcome, lone reply identity and local failure class",
+        "removedSquares": [],
+        "positionsTried": 6,
+        "case": {
+          "id": "interior-232",
+          "fen": "2b5/3B4/3k4/8/4K3/2q5/5r2/8 b - -",
+          "uci": "c8b7",
+          "claim": {
+            "status": "won",
+            "winner": "guest"
+          },
+          "nativeLegal": true,
+          "kingSafe": true,
+          "nativeAdmission": false,
+          "successor": "8/1b1B4/3k4/8/4K3/2q5/5r2/8 w - -",
+          "outcome": "playing",
+          "replyCount": 1
+        },
+        "result": {
+          "actual": "ALLOW",
+          "status": "false-allow",
+          "cause": null,
+          "expressions": 802
+        }
+      }
+    },
+    "b/nonking-checked/false-allow": {
+      "first": {
+        "case": {
+          "id": "interior-226",
+          "fen": "7b/8/8/3Q4/5k2/1R1K3Q/1R6/8 w - -",
+          "uci": "b3b4",
+          "claim": {
+            "status": "won",
+            "winner": "host"
+          },
+          "nativeLegal": true,
+          "kingSafe": true,
+          "nativeAdmission": false,
+          "successor": "7b/8/8/3Q4/1R3k2/3K3Q/1R6/8 b - -",
+          "outcome": "playing",
+          "replyCount": 1
+        },
+        "result": {
+          "actual": "ALLOW",
+          "status": "false-allow",
+          "cause": null,
+          "expressions": 786
+        }
+      },
+      "minimized": {
+        "beforePieces": 6,
+        "afterPieces": 5,
+        "criterion": "no single unprotected piece removable preserving side, move, victim, rights, source check, native safety, admissibility, legal outcome, lone reply identity and local failure class",
+        "removedSquares": [
+          "h7"
+        ],
+        "positionsTried": 7,
+        "case": {
+          "id": "interior-234",
+          "fen": "3K4/8/4k3/Q6Q/4b3/8/8/8 w - -",
+          "uci": "a5a6",
+          "claim": {
+            "status": "won",
+            "winner": "host"
+          },
+          "nativeLegal": true,
+          "kingSafe": true,
+          "nativeAdmission": false,
+          "successor": "3K4/8/Q3k3/7Q/4b3/8/8/8 b - -",
+          "outcome": "playing",
+          "replyCount": 1
+        },
+        "result": {
+          "actual": "ALLOW",
+          "status": "false-allow",
+          "cause": null,
+          "expressions": 802
+        }
+      }
+    }
+  }
+}

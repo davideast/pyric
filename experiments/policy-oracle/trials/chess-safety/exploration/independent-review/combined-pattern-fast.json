@@ -1,0 +1,67 @@
+{
+  "authority": "independent pinned local full Rules evaluator",
+  "rulesSha256": "a53c2fedb742710fc3aa3db055741b82842382fed457c5ab781cbf7259cb851b",
+  "cases": 12371,
+  "allMatch": false,
+  "outcomes": {
+    "match": 12182,
+    "false-allow": 127,
+    "false-refusal/resource-limit": 62
+  },
+  "cohorts": {
+    "v1": {
+      "cases": 2481,
+      "outcomes": {
+        "match": 2451,
+        "false-allow": 30
+      },
+      "decisionsSha256": "da5d84b673a400cb71bf9c01f401d8a3c5be2f8bc40573dbc0e39a4859c5acfd"
+    },
+    "replies-v1": {
+      "cases": 378,
+      "outcomes": {
+        "match": 313,
+        "false-allow": 65
+      },
+      "decisionsSha256": "9a9d79f344d1e42dba441654a5be21d78ff16359083641e7126d17980f9abbdb"
+    },
+    "rights-v1": {
+      "cases": 1736,
+      "outcomes": {
+        "match": 1698,
+        "false-refusal/resource-limit": 38
+      },
+      "decisionsSha256": "4c1c67cd4ab7e01c42ce86ef6f7f96254d917a230dcaf07fbbcae806a4e5fb83"
+    },
+    "promotions-v1": {
+      "cases": 904,
+      "outcomes": {
+        "match": 880,
+        "false-refusal/resource-limit": 24
+      },
+      "decisionsSha256": "e37e699066466378c9388f849cc936d6e47a9b12af2384382f1bd65745842d11"
+    },
+    "interior-v1": {
+      "cases": 384,
+      "outcomes": {
+        "match": 352,
+        "false-allow": 32
+      },
+      "decisionsSha256": "77c133d58f8a9a3020d73f1c5281916dbab0561d1563c354b340f1bd2e513253"
+    },
+    "rights-claims-v1": {
+      "cases": 2048,
+      "outcomes": {
+        "match": 2048
+      },
+      "decisionsSha256": "21ae58d027988a3fc4cb9f824c5b3d3b85a16f3231e86ec1b2502a46a2762e40"
+    },
+    "self-check-v1": {
+      "cases": 4440,
+      "outcomes": {
+        "match": 4440
+      },
+      "decisionsSha256": "50a2c1877e2e14f0e486a8e0e50dc84121fa4f52710c374495ba9ae0c44b424d"
+    }
+  }
+}
