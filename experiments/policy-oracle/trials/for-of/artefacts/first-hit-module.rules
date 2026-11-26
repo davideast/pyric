@@ -1,0 +1,5 @@
+rules_version = '2+modules';
+
+export function firstHit(cells) {
+  return cells['a'] ? true : cells['b'] ? true : false;
+}

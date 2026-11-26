@@ -1,0 +1,161 @@
+{
+  "rook": [
+    {
+      "id": "rook-empty-path",
+      "value": true
+    },
+    {
+      "id": "rook-six-clear",
+      "value": true
+    },
+    {
+      "id": "rook-first-blocked",
+      "value": false
+    },
+    {
+      "id": "rook-sixth-blocked",
+      "value": false
+    }
+  ],
+  "tally": [
+    {
+      "id": "empty-turn",
+      "value": 73
+    },
+    {
+      "id": "strike-then-erase-at-cap",
+      "value": 89
+    },
+    {
+      "id": "erase-then-strike-at-cap",
+      "value": 90
+    },
+    {
+      "id": "erase-all-then-strike",
+      "value": 1
+    },
+    {
+      "id": "strike-then-erase-all",
+      "value": 0
+    },
+    {
+      "id": "400-strikes",
+      "value": 90
+    },
+    {
+      "id": "401-strikes",
+      "error": "bound",
+      "diagnostic": "tally: for...of input length 401 exceeds declared bound 400"
+    }
+  ],
+  "proposed": [
+    {
+      "id": "skip-later-error",
+      "value": false
+    },
+    {
+      "id": "reach-later-error",
+      "error": "expression",
+      "diagnostic": "Property missing is undefined on object."
+    },
+    {
+      "id": "error-before-blocker",
+      "error": "expression",
+      "diagnostic": "Property missing is undefined on object."
+    },
+    {
+      "id": "over-bound-before-return",
+      "error": "bound",
+      "diagnostic": "clearCells: for...of input length 3 exceeds declared bound 2"
+    },
+    {
+      "id": "over-bound-never-truncate",
+      "error": "bound",
+      "diagnostic": "clearCells: for...of input length 3 exceeds declared bound 2"
+    },
+    {
+      "id": "unproved-source",
+      "error": "unproved",
+      "diagnostic": "clearCells: cannot prove for...of bound; use a list literal or bounded(input, limit)"
+    }
+  ],
+  "mutants": {
+    "ignore-sixth-square": [
+      {
+        "id": "rook-empty-path",
+        "value": true
+      },
+      {
+        "id": "rook-six-clear",
+        "value": true
+      },
+      {
+        "id": "rook-first-blocked",
+        "value": false
+      },
+      {
+        "id": "rook-sixth-blocked",
+        "value": true
+      }
+    ],
+    "reverse-actions": [
+      {
+        "id": "empty-turn",
+        "value": 73
+      },
+      {
+        "id": "strike-then-erase-at-cap",
+        "value": 90
+      },
+      {
+        "id": "erase-then-strike-at-cap",
+        "value": 89
+      },
+      {
+        "id": "erase-all-then-strike",
+        "value": 0
+      },
+      {
+        "id": "strike-then-erase-all",
+        "value": 1
+      },
+      {
+        "id": "400-strikes",
+        "value": 90
+      },
+      {
+        "id": "401-strikes",
+        "error": "bound",
+        "diagnostic": "tally: for...of input length 401 exceeds declared bound 400"
+      }
+    ]
+  },
+  "targets": {
+    "tally": {
+      "emitted": false,
+      "diagnostic": "tally: standalone only: ordered accumulator over up to 400 items requires carrying each prior value; no Firestore accumulator lowering"
+    },
+    "guard": {
+      "emitted": false,
+      "diagnostic": "clearCells: standalone only: checked input requires type and length enforcement before early return"
+    }
+  },
+  "unsupported": {
+    "withoutOptIn": "for...of requires use extension loops;",
+    "computedElementsOnFirestore": "clearCells: standalone only: computed list elements must all evaluate before iteration",
+    "configuredSourceBudget": "firstHit: standalone only: cannot prove source expression budget 1 (upper bound 12)",
+    "nonListInput": "clearCells: for...of requires a list"
+  },
+  "standaloneBudget": {
+    "case": "400-strikes",
+    "exhausted": 8802,
+    "firstPassing": 8803
+  },
+  "linked": {
+    "policy": "0558932d5d949ceecb56f1b2eae33c2540adfbfc11764360a8aa089064b04c5f",
+    "module": "9302c955465c14373731bc4222deb974a505025191997e7d663a599a95de4ec6",
+    "handwritten": "523c4c137aa00c2c764264aa6c2cefeda7c692561544da45d4fcccf3a2056fda",
+    "generated": "21122b80a0b9994009eebe2def7c9e99a1560783cf96c4eb2d6266887f6ecbca",
+    "orderedErrors": "c94ec434ebf167fd4c341d69e64f3aa2b1bebc97baa12b5a4487a896590b6ef9"
+  }
+}

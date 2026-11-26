@@ -1,0 +1,25 @@
+{
+  "campaignBase": "6bdb79478e05350f16c6ac9d3842df6f836c9ba6",
+  "compilerBase": "7edfec782d7d7a9b4a4bb40eb3a879118dda1cae",
+  "compilerBranch": "experiment/loop-policy-compiler",
+  "compilerSource": "0f8f42cf03d7b6bda108fe73bc5b671fc65b6590",
+  "package": "f2f6b977917ece78962b9e1af9d1d3d15d5a7a98d17743f122f159f479e7950f",
+  "generated": {
+    "generated.rules": "21122b80a0b9994009eebe2def7c9e99a1560783cf96c4eb2d6266887f6ecbca",
+    "ordered-errors.rules": "c94ec434ebf167fd4c341d69e64f3aa2b1bebc97baa12b5a4487a896590b6ef9",
+    "path-module.rules": "9302c955465c14373731bc4222deb974a505025191997e7d663a599a95de4ec6",
+    "first-hit-module.rules": "ea61e17bc2f8b81e35d0324a006db1d3df21ff25dfbe2293299d6de23c69267e",
+    "results.json": "87056b0ddd147090db5f68fc90a42206d271ca0aa41227ea0f09762b1a28a54c"
+  },
+  "evidence": {
+    "reference/cases.json": "974298a2eff27c6274142dc1c7c63d284d5cb554907eaae8f7221d98658aa0b5",
+    "reference/native.json": "4b316d4c9281994119d451e0aa6c819d0d4a860641f5853f59fbdd54592c826c",
+    "reference/holdout-lock.json": "72675ab28aa50e6ef61532d86ae4d440b93fa8ac1ab006a0ab623eb90c092e26",
+    "reference/author-trial/scores.json": "b55ef440d0976a849df1fc400587348b234ca3a343dde3bc9e5a5176ce29043d",
+    "artefacts/hosted-score.json": "ef6a540d687dd19d6be458782242666e6ebed2aebfdbc7a5cde402afdba46fab",
+    "regressions.json": "53dbedf60d805ebd5ff60a75f119a5c916d6b3c2ccada00efaf8e353fa0c1d23",
+    "live/receipts/generated.json.gz": "1eb374231ce8bc9ade0bcc3353dd5964c3bb2bc634e1f79424935616058db2bd",
+    "live/receipts/handwritten.json.gz": "13fc0384af6f32dc442af3573ba4f648f2aef2504aa5195a3be7d0d7d96cf977",
+    "live/receipts/ordered-errors.json.gz": "08f30a1b7ebf57fa31b2bdf4e9cc2b287ac98245f93eeadf671e90adae3674c8"
+  }
+}

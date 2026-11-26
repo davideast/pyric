@@ -1,0 +1,37 @@
+{
+  "package": "f2f6b977917ece78962b9e1af9d1d3d15d5a7a98d17743f122f159f479e7950f",
+  "coreClaims": 9,
+  "broadCases": 77,
+  "sokobanCases": 21,
+  "yachtStandalone": 93312,
+  "yachtLocalWrites": 186624,
+  "chessPublic": {
+    "namedPositions": 21,
+    "traces": 37,
+    "tracesReplayedFromInitial": 37,
+    "positions": 1611,
+    "successorChecks": 1883,
+    "dividedRoots": 416,
+    "deepestLeafNodes": 369801,
+    "falseAccepts": 0,
+    "falseRefusals": 0,
+    "duplicateMoves": 0,
+    "successorMismatches": 0,
+    "outcomeMismatches": 0,
+    "divideMismatches": 0,
+    "mutatedInputs": 0
+  },
+  "priorFirestoreWriteAndAdmissionCases": 160,
+  "priorFirestoreReads": 368,
+  "priorStrongerFirestoreWrites": 49,
+  "chessLocalCases": 150,
+  "chessLocalProfiles": 4,
+  "originalPeak": {
+    "id": "native-2-a8a1",
+    "evaluatedExpressions": 965
+  },
+  "candidatePeak": {
+    "id": "native-2-a8a1",
+    "evaluatedExpressions": 946
+  }
+}

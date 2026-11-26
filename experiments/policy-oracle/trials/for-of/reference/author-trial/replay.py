@@ -10,7 +10,7 @@ HERE = Path(__file__).resolve().parent
 PINS = {
     "current": "6509672646c48bf7ee6206b9648ed8cd40520dece055cae12724e9b94fff8d5b",
     "loop": "d1b3fb579687faba1ce2841551432916955bb7376f9825f61bf5214825a7e095",
-    "reviewed": "819b3e7a12cf852be6933484b72ce235ac23f7d5e8f09a7e0230b3aa4b20c190",
+    "reviewed": "f2f6b977917ece78962b9e1af9d1d3d15d5a7a98d17743f122f159f479e7950f",
 }
 SOURCES = {
     "current/first": "8b7ba70a2af1cf2dba8e53eb0ffb1882fd645a86e77b7b79479d68255882cff9",

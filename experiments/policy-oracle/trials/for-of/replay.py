@@ -4,7 +4,10 @@ import hashlib
 import json
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
+
+sys.dont_write_bytecode = True
 
 HERE = Path(__file__).resolve().parent
 VENDOR = HERE.parents[1] / "arcade/vendor"
@@ -58,6 +61,8 @@ def main():
     args = parser.parse_args()
     if bool(args.build) != bool(args.output):
         parser.error("--build and --output are used together")
+    if args.build and (args.controller or args.baselines):
+        parser.error("--build --output scores the standalone candidate; journal and baseline qualification use the locked package")
     if args.baselines and not args.controller:
         parser.error("--baselines requires the independent controller archive via --controller")
     package = args.build or HERE / "vendor/pyric-rules-loops.tgz"
@@ -85,8 +90,13 @@ def main():
         subprocess.run(["bun", HERE / "reference/score.mjs", output / "results.json"], check=True)
         reference = install_rules(VENDOR / "pyric-rules-0.1.0.tgz", scratch / "reference") / "@pyric/rules"
         archive = args.controller.resolve() if args.controller else "-"
-        subprocess.run(["bun", HERE / "live/replay.mjs", output / "generated.rules", reference,
-                        archive, output / "ordered-errors.rules"], check=True)
+        hosted = json.loads(subprocess.check_output(["bun", HERE / "live/replay.mjs", output / "generated.rules",
+                           reference, archive, output / "ordered-errors.rules"]))
+        expected = json.loads((HERE / "artefacts/hosted-score.json").read_text())
+        expected["privateJournalChecked"] = bool(args.controller)
+        if hosted != expected:
+            raise ValueError("Replayed production outcomes differ from qualification")
+        print(json.dumps(hosted, indent=2))
         if args.baselines:
             import baselines
             result = baselines.verify(package, archive, args.baselines.resolve(), reference, output)

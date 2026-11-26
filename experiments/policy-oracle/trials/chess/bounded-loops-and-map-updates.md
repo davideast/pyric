@@ -63,6 +63,8 @@ Keep extension syntax in explicitly opted-in policy source. Emit a Firestore che
 
 ## How to decide whether to adopt it
 
+The [bounded-loop trial](../for-of/README.md) tested the rook search and ordered Tally accumulation with the experimental compiler, live Firestore and fresh authors. Immutable map updates remain a separate proposal.
+
 - Run the library call and a user-written copy of its loop against identical cases. Include empty edits, repeated keys, a write of the existing value, and a sequence that restores the original value. Check both the resulting map and the original input.
 - Exercise ordinary moves, castling and en passant. For compiled checks, submit the correct board and a board with one unrelated square altered to an isolated **live Firestore** database. Read back the full board after each attempt. Exercise the rook path with zero intermediate squares and a blocker on its sixth square. Use the existing chess oracle to check legal moves and complete successors. [Campaign oracle](verify/qualified-score.json)
 - Test author familiarity directly. Give fresh model authors the same rook-path and en passant tasks, equivalent documentation and the same hidden cases. Compare first-edit correctness and regressions. Use the result to decide whether a dedicated quantifier spelling earns its place.

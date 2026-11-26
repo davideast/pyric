@@ -1,0 +1,102 @@
+{
+  "paired": 4,
+  "releases": [
+    {
+      "mode": "handwritten",
+      "bundleSha256": "523c4c137aa00c2c764264aa6c2cefeda7c692561544da45d4fcccf3a2056fda",
+      "privateReceipt": "0783bb64b2a6b7448cfa66dd126e5b482a12b0f680b916bc466a61d22dfbb338",
+      "decisions": [
+        {
+          "id": "rook-empty-path",
+          "decision": "ALLOW",
+          "versionChanged": true,
+          "localExpressions": 744
+        },
+        {
+          "id": "rook-six-clear",
+          "decision": "ALLOW",
+          "versionChanged": true,
+          "localExpressions": 896
+        },
+        {
+          "id": "rook-first-blocked",
+          "decision": "DENY",
+          "versionChanged": false,
+          "localExpressions": 409
+        },
+        {
+          "id": "rook-sixth-blocked",
+          "decision": "DENY",
+          "versionChanged": false,
+          "localExpressions": 564
+        }
+      ],
+      "reads": 9
+    },
+    {
+      "mode": "generated",
+      "bundleSha256": "21122b80a0b9994009eebe2def7c9e99a1560783cf96c4eb2d6266887f6ecbca",
+      "privateReceipt": "c62b26b66fdd3871559ff6966fedcc59c578012aa128df05acd1927de3fa8d43",
+      "decisions": [
+        {
+          "id": "rook-empty-path",
+          "decision": "ALLOW",
+          "versionChanged": true,
+          "localExpressions": 781
+        },
+        {
+          "id": "rook-six-clear",
+          "decision": "ALLOW",
+          "versionChanged": true,
+          "localExpressions": 877
+        },
+        {
+          "id": "rook-first-blocked",
+          "decision": "DENY",
+          "versionChanged": false,
+          "localExpressions": 403
+        },
+        {
+          "id": "rook-sixth-blocked",
+          "decision": "DENY",
+          "versionChanged": false,
+          "localExpressions": 543
+        }
+      ],
+      "reads": 9
+    },
+    {
+      "mode": "ordered-errors",
+      "bundleSha256": "c94ec434ebf167fd4c341d69e64f3aa2b1bebc97baa12b5a4487a896590b6ef9",
+      "privateReceipt": "e1853c8a89e91b65b4f04e18e03e24201b9a1df1153f354702270ee0f1145270",
+      "decisions": [
+        {
+          "id": "return-before-missing",
+          "decision": "ALLOW",
+          "versionChanged": true,
+          "localExpressions": 45
+        },
+        {
+          "id": "reach-missing",
+          "decision": "DENY",
+          "versionChanged": false,
+          "localExpressions": 52
+        },
+        {
+          "id": "missing-before-return",
+          "decision": "DENY",
+          "versionChanged": false,
+          "localExpressions": 45
+        },
+        {
+          "id": "return-at-second",
+          "decision": "ALLOW",
+          "versionChanged": true,
+          "localExpressions": 52
+        }
+      ],
+      "reads": 9
+    }
+  ],
+  "privateJournalChecked": true
+}

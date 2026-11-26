@@ -50,13 +50,19 @@ function scoreRooks(candidate) {
     const board = Object.fromEntries([...files].flatMap(f => [...'12345678'].map(r => [f+r, ''])));
     Object.assign(board, occupied);
     const x = files.indexOf(from[0]), y = Number(from[1]) - 1;
-    return result(id, () => candidate(board, x, y, files.indexOf(to[0]) - x, Number(to[1]) - 1 - y));
+    const before = structuredClone(board);
+    const observed = result(id, () => candidate(board, x, y, files.indexOf(to[0]) - x, Number(to[1]) - 1 - y));
+    assert.deepEqual(board, before, id + ': policy changed the supplied board');
+    return observed;
   });
 }
 function scoreTurns(candidate) {
   return fixtures.tally.map(({id, start, repeat = 1, moves}) => {
     const turn = Array.from({length: repeat}, () => moves).flat();
-    return result(id, () => Number(candidate(start, turn)));
+    const before = structuredClone(turn);
+    const observed = result(id, () => candidate(start, turn));
+    assert.deepEqual(turn, before, id + ': policy changed the supplied actions');
+    return observed;
   });
 }
 function target(name, candidate) {
@@ -73,12 +79,18 @@ const unbounded = guardSource.replace('bounded(keys, 2)', 'keys');
 const shortened = rookSource.replace('[1,2,3,4,5,6]', '[1,2,3,4,5]');
 assert.notEqual(guardSource, unbounded);
 assert.notEqual(rookSource, shortened);
+function diagnostic(expression) {
+  try { expression(); }
+  catch (e) { return e.message; }
+  throw Error('Expected this sample to have a diagnostic');
+}
 function measureTallyBudget() {
   const strikes = Array.from({length: 400}, () => ({kind: 'strike'}));
   function passes(limit) {
     try {
       const compute = compileFunction(tallySource, {expressionLimit: limit});
-      assert.equal(Number(compute(0, strikes)), 90);
+      const actual = compute(0, strikes);
+      assert.ok(actual === 90 || actual === 90n, 'expected the numeric tally 90');
       return true;
     } catch (e) {
       if (!/expression units/.test(e.message)) throw e;
@@ -104,6 +116,14 @@ const report = {
     'reverse-actions': scoreTurns((start, actions) => tally(start, actions.toReversed())),
   },
   targets: {tally: target('tally', tally), guard: target('guard', guard)},
+  unsupported: {
+    withoutOptIn: diagnostic(() => compileFunction(rookSource.replace('use extension loops;', ''))),
+    computedElementsOnFirestore: diagnostic(() => compileFunction(
+      guardSource.replace('bounded(keys, 2)', "['a', keys[0]]")).firestoreModule()),
+    configuredSourceBudget: diagnostic(() => compileFunction(
+      source('first-hit'), {expressionLimit: 1}).firestoreModule()),
+    nonListInput: diagnostic(() => guard({a: true}, 'ab')),
+  },
   standaloneBudget: measureTallyBudget(),
   linked: linkCandidate(compileFunction, resolveModules, output),
 };
