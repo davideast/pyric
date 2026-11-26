@@ -23,6 +23,7 @@ import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicBoolean
 
 class FirebaseMessaging internal constructor(
     val app: FirebaseApp,
@@ -275,20 +276,22 @@ class FirebaseMessaging internal constructor(
             openForeground = serviceForegroundHandle == null
             openBackground = serviceBackgroundHandle == null
         }
-        val fgHandle = if (openForeground) openServiceSubscription(TARGET_FOREGROUND) else null
-        val bgHandle = if (openBackground) openServiceSubscription(TARGET_BACKGROUND) else null
+        val fgClosed = AtomicBoolean(false)
+        val bgClosed = AtomicBoolean(false)
+        val fgHandle = if (openForeground) openServiceSubscription(TARGET_FOREGROUND, fgClosed) else null
+        val bgHandle = if (openBackground) openServiceSubscription(TARGET_BACKGROUND, bgClosed) else null
         var cancelFg: BridgeSubscriptionHandle? = null
         var cancelBg: BridgeSubscriptionHandle? = null
         synchronized(stateLock) {
             if (fgHandle != null) {
-                if (serviceForegroundHandle == null && registeredServices.isNotEmpty()) {
+                if (!fgClosed.get() && serviceForegroundHandle == null && registeredServices.isNotEmpty()) {
                     serviceForegroundHandle = fgHandle
                 } else {
                     cancelFg = fgHandle
                 }
             }
             if (bgHandle != null) {
-                if (serviceBackgroundHandle == null && registeredServices.isNotEmpty()) {
+                if (!bgClosed.get() && serviceBackgroundHandle == null && registeredServices.isNotEmpty()) {
                     serviceBackgroundHandle = bgHandle
                 } else {
                     cancelBg = bgHandle
@@ -299,7 +302,7 @@ class FirebaseMessaging internal constructor(
         cancelBg?.cancel()
     }
 
-    private fun openServiceSubscription(target: String): BridgeSubscriptionHandle? =
+    private fun openServiceSubscription(target: String, closed: AtomicBoolean): BridgeSubscriptionHandle? =
         runCatching {
             bridgeClient.openSubscription(
                 target = target,
@@ -309,8 +312,14 @@ class FirebaseMessaging internal constructor(
                         runCatching { svc.onMessageReceived(msg) }
                     }
                 },
-                onWireError = { clearServiceHandle(target) },
-                onCloseError = { clearServiceHandle(target) }
+                onWireError = {
+                    closed.set(true)
+                    clearServiceHandle(target)
+                },
+                onCloseError = {
+                    closed.set(true)
+                    clearServiceHandle(target)
+                }
             )
         }.getOrNull()
 

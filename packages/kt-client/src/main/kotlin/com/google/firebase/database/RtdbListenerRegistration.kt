@@ -7,6 +7,7 @@ import dev.pyric.bridge.BridgeSubscriptionGap
 import dev.pyric.bridge.BridgeSubscriptionHandle
 import dev.pyric.database.internal.InfoListenerHandle
 import dev.pyric.database.internal.isInfoPath
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
@@ -68,15 +69,26 @@ internal class RtdbSnapshotRegistration(
             val target = buildHostTarget(query)
             val initialLens = query.database.getEffectiveAuthLens()
             openHostSubscription(target, initialLens)
-            lensMonitorJob = scope.launch {
+            val job = scope.launch {
                 var lastLens = initialLens
                 query.database.authLensFlow.collect { newLens ->
-                    if (!active) return@collect
+                    if (!active) throw CancellationException("RTDB registration cancelled")
                     if (newLens != lastLens) {
                         lastLens = newLens
                         openHostSubscription(target, newLens)
                     }
                 }
+            }
+            val cancelJob = synchronized(lock) {
+                if (!active) {
+                    true
+                } else {
+                    lensMonitorJob = job
+                    false
+                }
+            }
+            if (cancelJob) {
+                job.cancel()
             }
         }
     }
@@ -108,12 +120,12 @@ internal class RtdbSnapshotRegistration(
                 },
                 onWireError = { err ->
                     if (generation.get() != gen) return@openSubscription
-                    active = false
+                    cancel()
                     deliverErrorOnce(err)
                 },
                 onCloseError = { err ->
                     if (generation.get() != gen) return@openSubscription
-                    active = false
+                    cancel()
                     onImmediateClose?.invoke(err)
                     query.database.bridgeClient.deliveryQueue.enqueue {
                         deliverErrorOnce(err)
@@ -121,7 +133,7 @@ internal class RtdbSnapshotRegistration(
                 }
             )
         } catch (e: FirebaseFirestoreException) {
-            active = false
+            cancel()
             onImmediateClose?.invoke(e)
             query.database.bridgeClient.deliveryQueue.enqueue {
                 deliverErrorOnce(e)
@@ -143,6 +155,7 @@ internal class RtdbSnapshotRegistration(
     }
 
     private fun deliverErrorOnce(error: Throwable) {
+        cancel()
         if (ended.compareAndSet(false, true)) {
             onError(error)
         }

@@ -84,8 +84,6 @@ class FirebaseDatabase(
         dev.pyric.database.attachWireInstance(params, wireInstance)
 
     fun goOffline() {
-        _networkEnabled.value = false
-        infoHub.setNetworkEnabled(false)
         databaseScope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 bridgeClient.op(
@@ -95,11 +93,11 @@ class FirebaseDatabase(
                 )
             } catch (_: Exception) {}
         }
+        _networkEnabled.value = false
+        infoHub.setNetworkEnabled(false)
     }
 
     fun goOnline() {
-        _networkEnabled.value = true
-        infoHub.setNetworkEnabled(true)
         databaseScope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 bridgeClient.op(
@@ -109,6 +107,8 @@ class FirebaseDatabase(
                 )
             } catch (_: Exception) {}
         }
+        _networkEnabled.value = true
+        infoHub.setNetworkEnabled(true)
     }
 
     companion object {

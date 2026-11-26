@@ -38,6 +38,8 @@ class BridgeSubscriptionManager internal constructor(
     ) {
         @Volatile var active: Boolean = true
         @Volatile var everSent: Boolean = false
+        var sentOnEpoch: Long = -1L
+        var unsubSent: Boolean = false
         @Volatile var hasValue: Boolean = false
         @Volatile var lastValue: Any? = null
         @Volatile var awaitsRestoredValue: Boolean = false
@@ -357,7 +359,7 @@ class BridgeSubscriptionManager internal constructor(
         }
         try {
             if (claimSend(record, currentEpoch)) {
-                sendSubFrame(record, sendJson, jsonSerializer)
+                sendSubFrame(record, currentEpoch, sendJson, jsonSerializer)
             }
         } catch (e: Throwable) {
             val keepsRefused = e is TransportRefused && keepsSubscriptionOnConnectFailure()
@@ -397,16 +399,22 @@ class BridgeSubscriptionManager internal constructor(
 
     private fun sendSubFrame(
         record: ActiveSubscription,
+        epoch: Long,
         sendJson: (String) -> Unit,
         jsonSerializer: (Any?) -> String
     ) {
         if (!record.active) return
         sendJson(jsonSerializer(BridgeProtocol.createWorkerSubFrame(record.subId, record.payload)))
-        val cancelledDuringSend = synchronized(lock) {
+        val sendUnsub = synchronized(lock) {
             record.everSent = true
-            !record.active
+            record.sentOnEpoch = epoch
+            val needsUnsub = !record.active && !record.unsubSent && attachEpoch.get() == epoch
+            if (needsUnsub) {
+                record.unsubSent = true
+            }
+            needsUnsub
         }
-        if (cancelledDuringSend) {
+        if (sendUnsub) {
             try {
                 sendJson(jsonSerializer(BridgeProtocol.createWorkerUnsubFrame(record.subId)))
             } catch (_: Throwable) {}
@@ -430,7 +438,12 @@ class BridgeSubscriptionManager internal constructor(
             record.active = false
             record.sentEpoch.set(Long.MAX_VALUE)
             activeSubs.remove(record.subId, record)
-            wasActive && record.everSent
+            val sentOnCurrent = record.sentOnEpoch == attachEpoch.get()
+            val needsUnsub = wasActive && !record.unsubSent && sentOnCurrent
+            if (needsUnsub) {
+                record.unsubSent = true
+            }
+            needsUnsub
         }
         if (shouldUnsub && isAttached()) {
             try {
@@ -520,7 +533,7 @@ class BridgeSubscriptionManager internal constructor(
                     if (!sub.active || !claimSend(sub, epoch)) continue
                     sub.awaitsRestoredValue = sub.hasValue
                     try {
-                        sendSubFrame(sub, sendJson, jsonSerializer)
+                        sendSubFrame(sub, epoch, sendJson, jsonSerializer)
                     } catch (_: Throwable) {
                         // A failed send means the socket is closing; its close re-sends this.
                         return
