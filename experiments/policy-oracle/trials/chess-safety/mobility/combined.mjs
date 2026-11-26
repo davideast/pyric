@@ -32,6 +32,7 @@ const variants=new Map(Object.entries({
   'combined-bare-simple-packed-v5':{...slim,simple:true},
   'combined-bare-pairs-packed-v5':{...slim,simple:true,width:2},
   'combined-bare-fixed-packed-v5':{...slim,simple:true,width:2,compact:true},
+  'combined-bare-fixed-comma-packed-v5':{...slim,simple:true,width:2,compact:'comma'},
   'combined-bare-projections-packed-v5':{...bare,simple:true,specialize:true},
   'combined-bare-line-packed-v5':{...slim,lines:true},
 }));

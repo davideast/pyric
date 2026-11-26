@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import {attacked} from '../../chess/reference/arcade-reference.ts';
-import {directions,directTests} from './direct.mjs';
+import {directions,directTests,directGroupedSources} from './direct.mjs';
 
+import {loadPolicyApi} from '../../king-safety/policy/public-api.mjs';
+
+const pkg=process.argv[2];
+const compile=pkg?(await loadPolicyApi(pkg)).compileFunction:null;
+const fixedDirectionCases={underscore:0,comma:0};
 const components={N:[0,1],NE:[1,1],E:[1,0],SE:[1,-1],S:[0,-1],SW:[-1,-1],W:[-1,0],NW:[-1,1]};
 const board=Array(64).fill(''),stats={singleAttackerDirections:0,captureAndOccupancy:0,interveningBlockers:0};
 function packed() {
@@ -11,15 +16,29 @@ function packed() {
 }
 for(const color of ['w','b']) {
   const enemy=color==='w'?'b':'w';
+  const fixedEncoders=pkg?[true,'comma'].map(form=>{
+    const encode=compile(directGroupedSources(2,form)['encode'+color]);
+    const empty=form===true?'_':',';
+    // Exhaust the token alphabet in both orders and check the real public
+    // evaluator's replacement/capture handling, including consecutive empties.
+    const alphabet=['','','#',...['w','b'].flatMap(side=>[...'prnbqk'].map(kind=>side+kind))];
+    for(const test of [alphabet,[...alphabet].reverse()]){
+      const expected=test.map(token=>token===''?empty:token==='#'?'#':
+        token[0]===enemy?token[1]:token[1]==='k'?'K':'X').join('');
+      assert.equal(encode(test.join(',')+','),expected);
+    }
+    return {form,key:form===true?'underscore':'comma',encode};
+  }):[];
   const patterns=directions.map(([name,offset])=>{
     const {valid,attacked,rejected}=directTests(color,offset);
-    return [name,new RegExp('^(?:'+valid+')$'),new RegExp('^(?:'+attacked+')$'),new RegExp('^(?:'+rejected+')$')];
+    return [name,new RegExp('^(?:'+valid+')$'),new RegExp('^(?:'+attacked+')$'),new RegExp('^(?:'+rejected+')$'),
+      fixedEncoders.map(e=>({...e,pattern:new RegExp('^(?:'+directTests(color,offset,e.form).rejected+')$')}))];
   });
   for(let source=0;source<64;source++)for(let foe=0;foe<64;foe++) {
     if(source===foe)continue;
     for(const kind of 'prnbqk') {
       board[source]=color+'k';board[foe]=enemy+kind;
-      for(const [name,valid,threat,rejected] of patterns) {
+      for(const [name,valid,threat,rejected,fixed] of patterns) {
         const [dx,dy]=components[name],x=(source%8)+dx,y=(source>>3)+dy;
         const to=x+8*y,on=x>=0&&x<8&&y>=0&&y<8;
         function check(key) {
@@ -32,6 +51,10 @@ for(const color of ['w','b']) {
           const text=packed();
           assert.equal(valid.test(text)&&!threat.test(text),expected,`${color} ${source}→${to} ${name} foe ${foe} ${kind} ${key} ${text}`);
           assert.equal(!rejected.test(text),expected,'complement '+text);
+          for(const {key:encoding,encode,pattern} of fixed) {
+            assert.equal(!pattern.test(encode(text)),expected,'fixed '+encoding+' '+text);
+            fixedDirectionCases[encoding]++;
+          }
           stats[key]++;
         }
         check('singleAttackerDirections');
@@ -53,4 +76,4 @@ for(const color of ['w','b']) {
     }
   }
 }
-console.log(JSON.stringify({authority:'pinned native attacked on each hypothetical successor',...stats},null,2));
+console.log(JSON.stringify({authority:'pinned native attacked on each hypothetical successor',...stats,...(pkg?{fixedDirectionCases}:{})},null,2));

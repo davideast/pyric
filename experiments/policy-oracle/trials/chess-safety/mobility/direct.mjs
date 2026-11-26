@@ -30,7 +30,8 @@ export function directTests(color,offset,compact=false) {
   const enemy=color==='w'?'b':'w',king=compact?'K':color+'k,';
   const skip=compact?(n=>!n?'':n===1?'[^;]':'[^;]{'+n+'}'):gap;
   const head=compact?'[^;]*':prefix, tail=compact?'[^;]*':'.*';
-  const target=compact?'[_prnbq]':'(?:'+enemy+'[prnbq])?,';
+  const empty=compact===true?'_':',';
+  const target=compact?'['+empty+'prnbq]':'(?:'+enemy+'[prnbq])?,';
   const valid=head+ordered(new Map([[0,king],[offset,target]]),skip).join('')+tail;
   const threats=[];
   function add(delta,piece,ray=0,distance=1) {
@@ -39,7 +40,7 @@ export function directTests(color,offset,compact=false) {
     const cells=new Map([[0,king],[relative,compact?piece:enemy+piece+',']]);
     for(let t=1;t<distance;t++) {
       const intermediate=offset+t*ray;
-      if(intermediate!==0)cells.set(intermediate,compact?'_':',');
+      if(intermediate!==0)cells.set(intermediate,empty);
     }
     threats.push(ordered(cells,skip));
   }
@@ -105,7 +106,10 @@ export function directGroupedSources(width=4,compact=false) {
     const enemy=color==='w'?'b':'w';
     // Every original token (including its delimiter) becomes one square.
     // Friendly nonkings are equivalent as blockers; enemy kinds retain their attacks.
-    out['encode'+color]=`function encode${color}(text) { return text.replace('${color}k,','K').replace('${color}[prnbq],','X').replace('${enemy}([prnbqk]),','$1').replace('#,','#').replace(',','_'); }`;
+    const normalizeEnemy=compact==='comma'
+      ? `.replace('${enemy}?([prnbqk#]),','$1')`
+      : `.replace('${enemy}([prnbqk]),','$1').replace('#,','#').replace(',','_')`;
+    out['encode'+color]=`function encode${color}(text) { return text.replace('${color}k,','K').replace('${color}[prnbq],','X')${normalizeEnemy}; }`;
   }
   for(const color of ['w','b']) for(let batch=0;batch<directions.length/width;batch++) {
     const name='allRefused'+color+batch;
@@ -113,6 +117,9 @@ export function directGroupedSources(width=4,compact=false) {
       const r=directTests(color,offset,compact).rejected.replaceAll('.*','[^;]*').replaceAll('[^,]','[^,;]');
       return r+';';
     }).join('');
+    if(compact && (test.length>4096 || test.split('(').length-1>100)) {
+      throw new Error('Directional regex exceeds the hosted compiler limits: '+name);
+    }
     out[name]="function "+name+"(records) { return records.matches('"+test+"'); }";
   }
   return out;

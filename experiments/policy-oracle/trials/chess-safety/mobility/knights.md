@@ -27,3 +27,17 @@ The unrestricted combination applied both families. Even after the cheaper metad
 | 9,587 simulated history writes and alternate proposals | 9,584 | 3 | 0 |
 
 All 48 residual knight-panel mismatches declare continued play when the native position has ended. The scope choice repaired one previously refused legal move on the 15,905-input panel and admitted four false claims that the unrestricted combination had caught. Compared with the paired-pawn-only control, the selected joint candidate had 138 more matching verdicts on that panel. The native and complete local scores are recorded separately from hosted observations. [Digests and exact test results](knight-score.json)
+
+## Hosted compiler limits on king replies
+
+The first cumulative source above failed Google's Rules compiler before any game write. Google reported that its four `allRefused` patterns measured 7,093–7,477 characters against a maximum of 4,096. Splitting each pattern into two preserves every regular-expression token and every other linked function. That second source, `ac1cbff2`, still failed. Its eight expressions had 243–289 groupings against Google's maximum of 100. Both failures occurred despite matching all 94 primary cases locally. The untouched Arcade Reversi module has a 5,615-byte ray lookup string consumed by `split(' ')`. This literal holds data. The diagnostic applied to regex patterns. [Source comparison](verify-regex-width.mjs)
+
+The fixed-width variants derive a temporary character for each cell of the submitted, independently checked board. A friendly king becomes `K`, other friendly pieces become `X`, enemy pieces keep their lowercase kind, and walls retain `#`. Each alternative tests a particular attacking piece at its displacement and the empty squares required for its ray. The two adjacent-direction tests each consume their own copy of the same record. Their eight paired patterns contain four groupings each and measure 3,813–3,902 characters. The resulting source preserves the earlier signed-write contract. [Generator](direct.mjs)
+
+| Complete variant suffix after `knight-endgame-paired-pawn-` | Whole Rules SHA-256 | Honest fourth-ply Fool’s Mate, local expression count |
+| --- | --- | ---: |
+| `combined-bare-projections-packed-v5` | `ef1a9a20902c228227567277e8acc8cb38936a8c64789ca16d993da2de1e5343` | 982 |
+| `combined-bare-fixed-packed-v5` | `28a1783008b1d212be7a386e3db2aced79adb0a4f4b185a0b47d61a9afc673fa` | 993 |
+| `combined-bare-fixed-comma-packed-v5` | `5365dc5183a2ef4d8a9af8443e4d35323fd7a4794e602c7a6fff36220a7e8380` | 987 |
+
+The projection control uses the previous successor-board king algorithm. The fixed-width version encodes empty squares as underscores. The comma version keeps the original empty cell's comma and consumes an enemy token or a wall in one substitution. Google’s read-only compiler accepted the projection and fixed-underscore sources. Actual signed-write outcomes belong in the release-specific hosted results.
