@@ -4,7 +4,7 @@ import {existsSync,mkdirSync,readFileSync,writeFileSync} from 'node:fs';
 import {setTimeout as wait} from 'node:timers/promises';
 import {gzipSync,gunzipSync} from 'node:zlib';
 import {manifest,sha} from '../../../arcade/corpus.mjs';
-import {startJournal,errorDetails,privateArchive} from '../../../arcade/live/controller/archive.mjs';
+import {startJournal,errorDetails,privateArchive,withMonotonicEvidenceClock} from '../../../arcade/live/controller/archive.mjs';
 import {clientsFor,lite} from '../../../arcade/live/controller/clients.mjs';
 import {counterPropagation} from '../../../arcade/live/controller/counter-controls.mjs';
 import {initializeApp,deleteApp} from '../../../arcade/live/controller/chess-sdk.mjs';
@@ -154,7 +154,7 @@ const {plan}=reviewedPlan(name), location=new URL('openings/'+plan.rulesSha256+'
 const archive=archivePath&&privateArchive(archivePath);
 if(operation==='measure') {
   assert.ok(archive&&prior);
-  const receipt=await capture(name,archive,prior);
+  const receipt=await withMonotonicEvidenceClock(()=>capture(name,archive,prior));
   const evidence=qualify(name,archive,receipt), zipped=gzipSync(JSON.stringify(evidence)+'\n');
   mkdirSync(location,{recursive:true});
   keep(new URL(name+'.json.gz',location),zipped);

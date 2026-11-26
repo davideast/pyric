@@ -1,11 +1,23 @@
 import assert from 'node:assert/strict';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { performance } from 'node:perf_hooks';
 import { spawnSync } from 'node:child_process';
 import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { sha } from '../../corpus.mjs';
 
 export const jsonBytes = value => Buffer.from(JSON.stringify(value, null, 2) + '\n');
-export const now = () => new Date().toISOString();
+const captureClock = new AsyncLocalStorage();
+
+// An operating-system clock correction must not reorder proofs made by the
+// same process. Firestore's own release and document timestamps stay verbatim.
+export function withMonotonicEvidenceClock(run) {
+  const startedAt = Date.now();
+  const elapsedAtStart = performance.now();
+  return captureClock.run(() => startedAt + (performance.now() - elapsedAtStart), run);
+}
+
+export const now = () => new Date(captureClock.getStore()?.() ?? Date.now()).toISOString();
 
 export function privateArchive(path) {
   assert.ok(isAbsolute(path), 'supply an absolute archive directory');

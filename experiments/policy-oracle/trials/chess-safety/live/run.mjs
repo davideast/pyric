@@ -2,11 +2,12 @@ import assert from 'node:assert/strict';
 import {existsSync,readFileSync,readdirSync,writeFileSync} from 'node:fs';
 import {gunzipSync} from 'node:zlib';
 import {manifest,sha} from '../../../arcade/corpus.mjs';
-import {privateArchive} from '../../../arcade/live/controller/archive.mjs';
+import {privateArchive,withMonotonicEvidenceClock} from '../../../arcade/live/controller/archive.mjs';
 import {checkRows,comparable,qualify} from '../../for-of/live/evidence.mjs';
 import {retain} from '../../for-of/live/retain.mjs';
 import {reviewedPlan} from './fixtures.mjs';
 import {failureObservations} from './failures.mjs';
+import {unqualified} from './exclusions.mjs';
 
 const roles={host:'host',guest:'guest',observer:'observer'};
 
@@ -73,7 +74,7 @@ function report(archive, allowUnmeasured) {
   const replayed=oldInputs.filter(row=>answers.has(row.id));
   for(const row of replayed) assert.deepEqual(answers.get(row.id),row,'legacy signed inputs '+row.id);
   return {authority:'live Firestore',privateJournalChecked:Boolean(archive),
-    managementFailures:failureObservations(archive),
+    managementFailures:failureObservations(archive),unqualified:unqualified(archive),
     legacyInputsReplayed:replayed.length,repeatedInputs:repeat.size, releases:[...captures].map(([rulesSha256,rows])=>({
       rulesSha256,status:'measured',distinctCases:rows.outcomes.size,captures:rows.reports}))};
 }
@@ -92,7 +93,7 @@ if(operation==='measure') {
   if(operation==='capture') {
     assert.ok(args.length===2 || (args.length===4 && args[2]==='--reuse-run'));
     const {capture}=await import('../../for-of/live/capture.mjs');
-    const run=()=>capture([name,archive,bundle,plan.rulesSha256],fixtures);
+    const run=()=>withMonotonicEvidenceClock(()=>capture([name,archive,bundle,plan.rulesSha256],fixtures));
     if(args.length===2) await run();
     else {
       const {previouslyUploaded}=await import('./measure.mjs');
@@ -116,6 +117,7 @@ if(operation==='measure') {
   const result=report(args[1],operation==='lookup');
   const measured=digest && result.releases.find(r=>r.rulesSha256===digest);
   const data=digest ? {...(measured ?? {rulesSha256:digest,status:'unmeasured',distinctCases:0,captures:[]}),
-    managementFailures:result.managementFailures.filter(f=>f.intendedRulesSha256===digest)} : result;
+    managementFailures:result.managementFailures.filter(f=>f.intendedRulesSha256===digest),
+    unqualified:result.unqualified.filter(f=>f.rulesSha256===digest)} : result;
   console.log(JSON.stringify(data,null,2));
 }

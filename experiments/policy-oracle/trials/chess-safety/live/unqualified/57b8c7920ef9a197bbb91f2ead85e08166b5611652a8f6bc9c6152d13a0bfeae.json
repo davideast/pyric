@@ -1,0 +1,30 @@
+{
+  "plan": "quick-packed-v5-full",
+  "rulesSha256": "2d793f903e7d1b517ca34d92887a30a233e5246452228e35a136a730b4a10bf0",
+  "controllerSha256": "57b8c7920ef9a197bbb91f2ead85e08166b5611652a8f6bc9c6152d13a0bfeae",
+  "journalSha256": "ba8e74f07381f21bf4d12a063837a0c8e579ea8b52c7ecf94b0df01370d8fe16",
+  "disposition": "unqualified",
+  "reason": "local-end-precedes-start",
+  "attempted": 115,
+  "scored": 0,
+  "reversed": [
+    {
+      "id": "white-pawn-attacks",
+      "localStart": "2026-11-26T16:15:13.476Z",
+      "localEnd": "2026-11-26T16:14:59.992Z"
+    },
+    {
+      "id": "ep-two-pawns-leave-rank",
+      "localStart": "2026-11-26T16:16:48.624Z",
+      "localEnd": "2026-11-26T16:16:35.192Z"
+    },
+    {
+      "id": "one-king-reply-wrong-result",
+      "localStart": "2026-11-26T16:21:59.167Z",
+      "localEnd": "2026-11-26T16:21:46.094Z"
+    }
+  ],
+  "targetDatabaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+  "restored": "projects/digame-mas/rulesets/9df02e6e-6f71-4dcf-9786-aec7eb444982",
+  "leaseReleased": true
+}
