@@ -1,0 +1,14 @@
+function pieceShape(kind, color, dx, dy, target, home, enPassant) {
+  let ax = dx < 0 ? 0 - dx : dx;
+  let ay = dy < 0 ? 0 - dy : dy;
+  let forward = color == 'w' ? 1 : -1;
+  let rook = (ax == 0 || ay == 0) && ax + ay > 0;
+  let bishop = ax == ay && ax != 0;
+  return kind == 'p' ? (dx == 0 && target == '' && (dy == forward || (home && dy == 2 * forward)))
+      || (ax == 1 && dy == forward && (target != '' || enPassant))
+    : kind == 'r' ? rook
+    : kind == 'b' ? bishop
+    : kind == 'q' ? rook || bishop
+    : kind == 'n' ? ax * ay == 2
+    : kind == 'k' && ((ax <= 1 && ay <= 1 && ax + ay > 0) || (dy == 0 && ax == 2));
+}

@@ -1,0 +1,5 @@
+function priorPosition(before, after) {
+  return after.prevBoard == before.board
+    && after.prevCastling == before.castling
+    && after.prevEnPassant == before.enPassant;
+}

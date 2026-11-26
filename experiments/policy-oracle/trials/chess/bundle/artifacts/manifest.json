@@ -1,0 +1,47 @@
+{
+  "artifacts": {
+    "stock.rules": {
+      "sha256": "59b6e23b4727912311ffd45dcba50d4bcb69fe9ed79c6627584e385c338e422b",
+      "bytes": 101634
+    },
+    "compatibility-helpers.rules": {
+      "sha256": "114e6beda1f7de71d2b9e555479fa7839032c0fe6c90712f5af6504a30018ac4",
+      "bytes": 484
+    },
+    "compatibility-module.rules": {
+      "sha256": "bd827ad56881330c9f4321edd9b4ac9ba41fa3f652cecc0d0e93f640a8f947ad",
+      "bytes": 5021
+    },
+    "compatibility.rules": {
+      "sha256": "49ecbc125efe816605b153369b3751d332366cb2a2906ad5ff1d3637979b7d95",
+      "bytes": 101741
+    },
+    "stronger-helpers.rules": {
+      "sha256": "9c1c309856f7e4807ad3961f5f3720a9a11a17e22659c013bb3636f26f73ce1d",
+      "bytes": 4603
+    },
+    "stronger-module.rules": {
+      "sha256": "36e2b6926e57a60737caeb7fd2c68495cad93c136c3af6ad33c41f4b28a3adfc",
+      "bytes": 4808
+    },
+    "stronger.rules": {
+      "sha256": "523c4c137aa00c2c764264aa6c2cefeda7c692561544da45d4fcccf3a2056fda",
+      "bytes": 108802
+    },
+    "referee.rules": {
+      "sha256": "0f9aaf7b5c43f7fa4997150903b66495dbe47f3c1a979f6b6555af561f90213e",
+      "bytes": 98437
+    }
+  },
+  "compiled": [
+    "castleMetadata",
+    "priorPosition",
+    "pieceShape",
+    "coordinate",
+    "keptRights",
+    "nextEp",
+    "rayEmpty",
+    "castleBoard",
+    "specialSquares"
+  ]
+}

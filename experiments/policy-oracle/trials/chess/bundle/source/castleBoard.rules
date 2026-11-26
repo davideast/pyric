@@ -1,0 +1,10 @@
+function castleBoard(old, next, color, kingSide, flags) {
+  let rank = color == 'w' ? '1' : '8';
+  let rookFrom = (kingSide ? 'h' : 'a') + rank;
+  let rookTo = (kingSide ? 'f' : 'd') + rank;
+  let mv = next.lastMove;
+  return mv.from == 'e' + rank && mv.to == (kingSide ? 'g' : 'c') + rank && flags[(color == 'w' ? 0 : 2) + (kingSide ? 0 : 1)]
+    && mv.extra == (kingSide ? [rookTo, rookFrom] : [rookFrom, rookTo])
+    && old.board[rookFrom] == color + 'r' && next.board[rookFrom] == '' && next.board[rookTo] == color + 'r'
+    && old.board[rookTo] == '' && old.board[mv.to] == '' && (kingSide || old.board['b' + rank] == '');
+}

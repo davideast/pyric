@@ -1,0 +1,84 @@
+rules_version = '2+modules';
+
+export function castleMetadata(piece, color, from, to, extra) {
+  let rank = color == 'w' ? '1' : '8';
+  return piece == color + 'k' && from == 'e' + rank && ((to == 'g' + rank && extra == ['f' + rank, 'h' + rank]) || (to == 'c' + rank && extra == ['a' + rank, 'd' + rank]));
+}
+
+export function priorPosition(before, after) {
+  return after.prevBoard == before.board && after.prevCastling == before.castling && after.prevEnPassant == before.enPassant;
+}
+
+export function pieceShape(kind, color, dx, dy, target, home, enPassant) {
+  let ax = dx < 0 ? 0 - dx : dx;
+  let ay = dy < 0 ? 0 - dy : dy;
+  let forward = color == 'w' ? 1 : -1;
+  let rook = (ax == 0 || ay == 0) && ax + ay > 0;
+  let bishop = ax == ay && ax != 0;
+  return kind == 'p' ? (dx == 0 && target == '' && (dy == forward || (home && dy == 2 * forward))) || (ax == 1 && dy == forward && (target != '' || enPassant)) : kind == 'r' ? rook : kind == 'b' ? bishop : kind == 'q' ? rook || bishop : kind == 'n' ? ax * ay == 2 : kind == 'k' && ((ax <= 1 && ay <= 1 && ax + ay > 0) || (dy == 0 && ax == 2));
+}
+
+export function coordinate(file) {
+  return {'a': 0, 'b': 1, 'c': 2, 'd': 3, 'e': 4, 'f': 5, 'g': 6, 'h': 7}[file];
+}
+
+export function keptRights(flags, piece, from, to) {
+  return (flags[0] && piece != 'wk' && from != 'h1' && to != 'h1' ? 'K' : '') + (flags[1] && piece != 'wk' && from != 'a1' && to != 'a1' ? 'Q' : '') + (flags[2] && piece != 'bk' && from != 'h8' && to != 'h8' ? 'k' : '') + (flags[3] && piece != 'bk' && from != 'a8' && to != 'a8' ? 'q' : '');
+}
+
+export function nextEp(kind, white, deltaRank, file) {
+  return kind == 'p' && deltaRank == (white ? 2 : -2) ? file + (white ? '3' : '6') : '';
+}
+
+export function rayEmpty(board, files, ranks, x, y) {
+  return board[files[x] + ranks[y]] == '';
+}
+
+export function castleBoard(old, next, color, kingSide, flags) {
+  let rank = color == 'w' ? '1' : '8';
+  let rookFrom = (kingSide ? 'h' : 'a') + rank;
+  let rookTo = (kingSide ? 'f' : 'd') + rank;
+  let mv = next.lastMove;
+  return mv.from == 'e' + rank && mv.to == (kingSide ? 'g' : 'c') + rank && flags[(color == 'w' ? 0 : 2) + (kingSide ? 0 : 1)] && mv.extra == (kingSide ? [rookTo, rookFrom] : [rookFrom, rookTo]) && old.board[rookFrom] == color + 'r' && next.board[rookFrom] == '' && next.board[rookTo] == color + 'r' && old.board[rookTo] == '' && old.board[mv.to] == '' && (kingSide || old.board['b' + rank] == '');
+}
+
+export function specialSquares(old, next, kind, color, fileTo, rankFrom, isEp) {
+  let captured = fileTo + rankFrom;
+  return isEp ? next.lastMove.extra == [captured] && old.board[captured] == (color == 'w' ? 'bp' : 'wp') && next.board[captured] == '' : next.lastMove.extra == [];
+}
+
+function pathClear(board, x, y, dx, dy) {
+  let sx = dx < 0 ? -1 : (dx > 0 ? 1 : 0);
+  let sy = dy < 0 ? -1 : (dy > 0 ? 1 : 0);
+  let ax = dx * sx;
+  let ay = dy * sy;
+  let distance = ax > ay ? ax : ay;
+  let files = ['a','b','c','d','e','f','g','h'];
+  let ranks = ['1','2','3','4','5','6','7','8'];
+  return (distance <= 1 || rayEmpty(board, files, ranks, x + sx, y + sy))
+    && (distance <= 2 || rayEmpty(board, files, ranks, x + sx * 2, y + sy * 2))
+    && (distance <= 3 || rayEmpty(board, files, ranks, x + sx * 3, y + sy * 3))
+    && (distance <= 4 || rayEmpty(board, files, ranks, x + sx * 4, y + sy * 4))
+    && (distance <= 5 || rayEmpty(board, files, ranks, x + sx * 5, y + sy * 5))
+    && (distance <= 6 || rayEmpty(board, files, ranks, x + sx * 6, y + sy * 6));
+}
+
+export function boardTransition(old, next, mv, piece, color) {
+  let x = coordinate(mv.from[0:1]);
+  let y = int(mv.from[1:2]) - 1;
+  let dx = coordinate(mv.to[0:1]) - x;
+  let dy = int(mv.to[1:2]) - 1 - y;
+  let kind = piece[1:2];
+  let home = y == (color == 'w' ? 1 : 6);
+  let ep = kind == 'p' && mv.to == old.enPassant && old.board[mv.to] == '' && dx != 0;
+  let castle = kind == 'k' && dx in [-2, 2];
+  let flags = [old.castling.matches('.*K.*'), old.castling.matches('.*Q.*'), old.castling.matches('.*k.*'), old.castling.matches('.*q.*')];
+  return next.board.keys().hasAll(old.board.keys())
+    && pieceShape(kind, color, dx, dy, old.board[mv.to], home, ep)
+    && (castle || kind == 'n' || pathClear(old.board, x, y, dx, dy))
+    && (kind != 'p' || mv.to[1:2] != (color == 'w' ? '8' : '1') || mv.promotion != '')
+    && (castle ? castleBoard(old, next, color, dx > 0, flags)
+        : specialSquares(old, next, kind, color, mv.to[0:1], mv.from[1:2], ep))
+    && next.castling == keptRights(flags, piece, mv.from, mv.to)
+    && next.enPassant == nextEp(kind, color == 'w', dy, mv.from[0:1]);
+}

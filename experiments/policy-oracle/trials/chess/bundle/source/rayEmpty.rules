@@ -1,0 +1,3 @@
+function rayEmpty(board, files, ranks, x, y) {
+  return board[files[x] + ranks[y]] == '';
+}

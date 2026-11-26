@@ -1,0 +1,5 @@
+function specialSquares(old, next, kind, color, fileTo, rankFrom, isEp) {
+  let captured = fileTo + rankFrom;
+  return isEp ? next.lastMove.extra == [captured] && old.board[captured] == (color == 'w' ? 'bp' : 'wp')
+    && next.board[captured] == '' : next.lastMove.extra == [];
+}

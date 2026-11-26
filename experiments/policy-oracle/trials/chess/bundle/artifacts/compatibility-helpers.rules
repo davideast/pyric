@@ -1,0 +1,10 @@
+rules_version = '2+modules';
+
+export function castleMetadata(piece, color, from, to, extra) {
+  let rank = color == 'w' ? '1' : '8';
+  return piece == color + 'k' && from == 'e' + rank && ((to == 'g' + rank && extra == ['f' + rank, 'h' + rank]) || (to == 'c' + rank && extra == ['a' + rank, 'd' + rank]));
+}
+
+export function priorPosition(before, after) {
+  return after.prevBoard == before.board && after.prevCastling == before.castling && after.prevEnPassant == before.enPassant;
+}

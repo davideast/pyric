@@ -1,0 +1,19 @@
+function boardTransition(old, next, mv, piece, color) {
+  let x = coordinate(mv.from[0:1]);
+  let y = int(mv.from[1:2]) - 1;
+  let dx = coordinate(mv.to[0:1]) - x;
+  let dy = int(mv.to[1:2]) - 1 - y;
+  let kind = piece[1:2];
+  let home = y == (color == 'w' ? 1 : 6);
+  let ep = kind == 'p' && mv.to == old.enPassant && old.board[mv.to] == '' && dx != 0;
+  let castle = kind == 'k' && dx in [-2, 2];
+  let flags = [old.castling.matches('.*K.*'), old.castling.matches('.*Q.*'), old.castling.matches('.*k.*'), old.castling.matches('.*q.*')];
+  return next.board.keys().hasAll(old.board.keys())
+    && pieceShape(kind, color, dx, dy, old.board[mv.to], home, ep)
+    && (castle || kind == 'n' || pathClear(old.board, x, y, dx, dy))
+    && (kind != 'p' || mv.to[1:2] != (color == 'w' ? '8' : '1') || mv.promotion != '')
+    && (castle ? castleBoard(old, next, color, dx > 0, flags)
+        : specialSquares(old, next, kind, color, mv.to[0:1], mv.from[1:2], ep))
+    && next.castling == keptRights(flags, piece, mv.from, mv.to)
+    && next.enPassant == nextEp(kind, color == 'w', dy, mv.from[0:1]);
+}

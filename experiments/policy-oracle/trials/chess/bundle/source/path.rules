@@ -1,0 +1,15 @@
+function pathClear(board, x, y, dx, dy) {
+  let sx = dx < 0 ? -1 : (dx > 0 ? 1 : 0);
+  let sy = dy < 0 ? -1 : (dy > 0 ? 1 : 0);
+  let ax = dx * sx;
+  let ay = dy * sy;
+  let distance = ax > ay ? ax : ay;
+  let files = ['a','b','c','d','e','f','g','h'];
+  let ranks = ['1','2','3','4','5','6','7','8'];
+  return (distance <= 1 || rayEmpty(board, files, ranks, x + sx, y + sy))
+    && (distance <= 2 || rayEmpty(board, files, ranks, x + sx * 2, y + sy * 2))
+    && (distance <= 3 || rayEmpty(board, files, ranks, x + sx * 3, y + sy * 3))
+    && (distance <= 4 || rayEmpty(board, files, ranks, x + sx * 4, y + sy * 4))
+    && (distance <= 5 || rayEmpty(board, files, ranks, x + sx * 5, y + sy * 5))
+    && (distance <= 6 || rayEmpty(board, files, ranks, x + sx * 6, y + sy * 6));
+}

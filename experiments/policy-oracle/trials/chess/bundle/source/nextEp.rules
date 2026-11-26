@@ -1,0 +1,3 @@
+function nextEp(kind, white, deltaRank, file) {
+  return kind == 'p' && deltaRank == (white ? 2 : -2) ? file + (white ? '3' : '6') : '';
+}
