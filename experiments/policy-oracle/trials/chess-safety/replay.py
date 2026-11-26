@@ -141,6 +141,9 @@ def replay(args, temp):
     result = {'packageSha256':core['candidateSha256'],'variant':args.variant,'coreBatches':core['batches'],
               'corePass':core['passed'],'diagnostics':core['diagnostics'],'nativeEndgames':geometry,
               'originalFilePins':len(batches['00-legacy-file'])}
+    emitted_dir = HERE/'terminal/emitted-bare-v1'
+    verify_shards = runpy.run_path(str(emitted_dir/'summarize.py'))['checked_archive']
+    result['archivedBareHelpers'] = [verify_shards(leaf.parent) for leaf in sorted(emitted_dir.glob('*/summary.json'))]
     result['primaryNative'] = {name:{'allow':sum(native[key] for key in ids),'deny':sum(not native[key] for key in ids)}
                              for name,ids in batches.items()}
     result['rookMoves'] = [row for row in core['linkedWrites'] if row['id'] in ROOK_MOVES]

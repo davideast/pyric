@@ -1,4 +1,5 @@
 """Verify every disjoint shard of the emitted three-piece result helper probe."""
+from hashlib import sha256
 import json
 from collections import Counter
 from pathlib import Path
@@ -39,6 +40,20 @@ def summarize(paths):
         'firstByShard': [row['first'] for row in rows],
         'shardDecisionHashes': [row['scoreSha256'] for row in rows],
     }
+
+
+def checked_archive(directory):
+    root = directory.parent.parent.parent
+    summary = summarize(sorted(directory.glob('shard-*.json')))
+    if summary != json.loads((directory/'summary.json').read_bytes()):
+        raise ValueError(f'Shard evidence differs for {directory.name}')
+    release = summary['bundleSha256']
+    if not release.startswith(directory.name):
+        raise ValueError('Archive directory and measured Rules differ')
+    sources = [file for file in (root/'artefacts').glob('*.rules') if sha256(file.read_bytes()).hexdigest()==release]
+    if not sources:
+        raise ValueError('Missing the measured complete Rules source')
+    return {**summary, 'rules':sources[0].relative_to(root).as_posix()}
 
 
 if __name__ == '__main__':
