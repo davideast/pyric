@@ -1,0 +1,112 @@
+{
+  "first": {
+    "error": "Error",
+    "message": "Line 9, col 5:\n   8 |     if (i * sx == dx && i * sy == dy) return true;\n>  9 |     if (board[files[x + i * sx] + ranks[y + i * sy]] != '') return false;\n           ^\n  10 |   }\nExpected \"}\""
+  },
+  "rewrite": [
+    {
+      "id": "capture-at-destination",
+      "expected": {
+        "value": true
+      },
+      "observed": {
+        "value": true
+      }
+    },
+    {
+      "id": "blocked-before-destination",
+      "expected": {
+        "value": false
+      },
+      "observed": {
+        "value": false
+      }
+    },
+    {
+      "id": "adjacent",
+      "expected": {
+        "value": true
+      },
+      "observed": {
+        "value": true
+      }
+    },
+    {
+      "id": "six-clear",
+      "expected": {
+        "value": true
+      },
+      "observed": {
+        "value": true
+      }
+    },
+    {
+      "id": "sixth-blocked",
+      "expected": {
+        "value": false
+      },
+      "observed": {
+        "value": false
+      }
+    }
+  ],
+  "tally": [
+    {
+      "id": "empty-turn",
+      "nativeModel": 73,
+      "turnParserAccepted": false,
+      "observed": {
+        "value": 73
+      }
+    },
+    {
+      "id": "strike-then-erase-at-cap",
+      "nativeModel": 89,
+      "turnParserAccepted": true,
+      "observed": {
+        "value": 89
+      }
+    },
+    {
+      "id": "erase-then-strike-at-cap",
+      "nativeModel": 90,
+      "turnParserAccepted": true,
+      "observed": {
+        "value": 90
+      }
+    },
+    {
+      "id": "erase-all-then-strike",
+      "nativeModel": 1,
+      "turnParserAccepted": true,
+      "observed": {
+        "value": 1
+      }
+    },
+    {
+      "id": "strike-then-erase-all",
+      "nativeModel": 0,
+      "turnParserAccepted": true,
+      "observed": {
+        "value": 0
+      }
+    },
+    {
+      "id": "400-strikes",
+      "nativeModel": 90,
+      "turnParserAccepted": true,
+      "observed": {
+        "value": 90
+      }
+    },
+    {
+      "id": "401-strikes",
+      "nativeModel": 90,
+      "turnParserAccepted": false,
+      "observed": {
+        "error": "ResourceLimitError",
+        "message": "tally: for...of input length 401 exceeds declared bound 400"
+      }
+    }
+  ]
+}

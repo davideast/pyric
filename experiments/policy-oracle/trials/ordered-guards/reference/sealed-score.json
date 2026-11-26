@@ -1,0 +1,34 @@
+{
+  "commitment": {
+    "sha256": "cf1bda50091f5e2a3f5c6f42159117ca4340e7d7962b4afc0b879540aaa79766",
+    "cases": 256,
+    "allowed": 112,
+    "refused": 144
+  },
+  "results": {
+    "first": {
+      "sourceSha256": "be308877884422ea30634a2ec02187ab541ddf88ef7259bdfb0e7b5faae6c114",
+      "corpusSha256": "cf1bda50091f5e2a3f5c6f42159117ca4340e7d7962b4afc0b879540aaa79766",
+      "compilerKind": "function",
+      "compileError": null,
+      "cases": 256,
+      "matches": 256,
+      "firstDivergence": null,
+      "falseAllows": 0,
+      "falseRefusals": 0,
+      "unsupported": 0
+    },
+    "locked": {
+      "sourceSha256": "29f7d63a5da3a497b305511656868d80fd99af9f65c1b2c5d33028671ffa5a1f",
+      "corpusSha256": "cf1bda50091f5e2a3f5c6f42159117ca4340e7d7962b4afc0b879540aaa79766",
+      "compilerKind": "function",
+      "compileError": null,
+      "cases": 256,
+      "matches": 256,
+      "firstDivergence": null,
+      "falseAllows": 0,
+      "falseRefusals": 0,
+      "unsupported": 0
+    }
+  }
+}

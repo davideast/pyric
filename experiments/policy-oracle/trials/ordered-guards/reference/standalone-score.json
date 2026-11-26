@@ -1,0 +1,254 @@
+{
+  "original": [
+    {
+      "id": "capture-at-destination",
+      "expected": {
+        "value": true
+      },
+      "observed": {
+        "value": true
+      }
+    },
+    {
+      "id": "blocked-before-destination",
+      "expected": {
+        "value": false
+      },
+      "observed": {
+        "value": false
+      }
+    },
+    {
+      "id": "adjacent",
+      "expected": {
+        "value": true
+      },
+      "observed": {
+        "value": true
+      }
+    },
+    {
+      "id": "six-clear",
+      "expected": {
+        "value": true
+      },
+      "observed": {
+        "value": true
+      }
+    },
+    {
+      "id": "sixth-blocked",
+      "expected": {
+        "value": false
+      },
+      "observed": {
+        "value": false
+      }
+    }
+  ],
+  "rewrite": [
+    {
+      "id": "capture-at-destination",
+      "expected": {
+        "value": true
+      },
+      "observed": {
+        "value": true
+      }
+    },
+    {
+      "id": "blocked-before-destination",
+      "expected": {
+        "value": false
+      },
+      "observed": {
+        "value": false
+      }
+    },
+    {
+      "id": "adjacent",
+      "expected": {
+        "value": true
+      },
+      "observed": {
+        "value": true
+      }
+    },
+    {
+      "id": "six-clear",
+      "expected": {
+        "value": true
+      },
+      "observed": {
+        "value": true
+      }
+    },
+    {
+      "id": "sixth-blocked",
+      "expected": {
+        "value": false
+      },
+      "observed": {
+        "value": false
+      }
+    }
+  ],
+  "language": [
+    {
+      "id": "skip-missing",
+      "expected": {
+        "value": true
+      },
+      "observed": {
+        "value": true
+      }
+    },
+    {
+      "id": "reach-missing",
+      "expected": {
+        "error": "EvalError",
+        "message": "Property missing is undefined on object."
+      },
+      "observed": {
+        "error": "EvalError",
+        "message": "Property missing is undefined on object."
+      }
+    },
+    {
+      "id": "overlap-first-wins",
+      "expected": {
+        "value": true
+      },
+      "observed": {
+        "value": true
+      }
+    },
+    {
+      "id": "second-guard-returns",
+      "expected": {
+        "value": false
+      },
+      "observed": {
+        "value": false
+      }
+    },
+    {
+      "id": "fall-through",
+      "expected": {
+        "value": true
+      },
+      "observed": {
+        "value": true
+      }
+    }
+  ],
+  "tally": [
+    {
+      "id": "empty-turn",
+      "nativeModel": 73,
+      "turnParserAccepted": false,
+      "observed": {
+        "value": 73
+      }
+    },
+    {
+      "id": "strike-then-erase-at-cap",
+      "nativeModel": 89,
+      "turnParserAccepted": true,
+      "observed": {
+        "value": 89
+      }
+    },
+    {
+      "id": "erase-then-strike-at-cap",
+      "nativeModel": 90,
+      "turnParserAccepted": true,
+      "observed": {
+        "value": 90
+      }
+    },
+    {
+      "id": "erase-all-then-strike",
+      "nativeModel": 1,
+      "turnParserAccepted": true,
+      "observed": {
+        "value": 1
+      }
+    },
+    {
+      "id": "strike-then-erase-all",
+      "nativeModel": 0,
+      "turnParserAccepted": true,
+      "observed": {
+        "value": 0
+      }
+    },
+    {
+      "id": "400-strikes",
+      "nativeModel": 90,
+      "turnParserAccepted": true,
+      "observed": {
+        "value": 90
+      }
+    },
+    {
+      "id": "401-strikes",
+      "nativeModel": 90,
+      "turnParserAccepted": false,
+      "observed": {
+        "error": "ResourceLimitError",
+        "message": "tally: for...of input length 401 exceeds declared bound 400"
+      }
+    }
+  ],
+  "checkedBound": {
+    "tooLong": {
+      "reads": [],
+      "observed": {
+        "error": "ResourceLimitError",
+        "message": "firstHit: for...of input length 2 exceeds declared bound 1"
+      }
+    },
+    "allowed": {
+      "reads": [
+        0
+      ],
+      "observed": {
+        "value": true
+      }
+    }
+  },
+  "mutations": {
+    "reverseGuards": {
+      "firstDivergence": {
+        "id": "capture-at-destination",
+        "expected": {
+          "value": true
+        },
+        "observed": {
+          "value": false
+        }
+      },
+      "changedCases": [
+        "capture-at-destination"
+      ],
+      "cases": 5
+    },
+    "eagerSecond": {
+      "firstDivergence": {
+        "id": "skip-missing",
+        "expected": {
+          "value": true
+        },
+        "observed": {
+          "error": "EvalError",
+          "message": "Property missing is undefined on object."
+        }
+      },
+      "changedCases": [
+        "skip-missing"
+      ],
+      "cases": 5
+    }
+  }
+}
