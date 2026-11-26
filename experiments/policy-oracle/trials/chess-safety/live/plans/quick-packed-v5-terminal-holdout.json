@@ -1,0 +1,10 @@
+{
+  "rulesSha256": "2d793f903e7d1b517ca34d92887a30a233e5246452228e35a136a730b4a10bf0",
+  "inputs": [
+    {
+      "batch": "12-terminal-holdout",
+      "file": "../exploration/hosted-holdout-v1/controls/positions.json",
+      "sha256": "bbf08319af2b12919b3446a04f21987bb40934552eae013fb642ab942b576945"
+    }
+  ]
+}
