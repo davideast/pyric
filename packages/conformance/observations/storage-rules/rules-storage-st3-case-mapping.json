@@ -5,8 +5,8 @@
     "storage-rules#220"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"st3-case-mapping\" (ST3-CASE-MAPPING). lower() and upper() where full and simple Unicode case mapping differ.",
-  "observedAt": "2026-11-16T06:12:09.184Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:46:51.440Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

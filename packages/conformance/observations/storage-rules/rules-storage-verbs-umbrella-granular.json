@@ -6,8 +6,8 @@
     "storage-rules#118"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"verbs-umbrella-granular\" (STORAGE-VERBS). Umbrella read/write expansion, granular verb grants, comma-separated verbs, per-verb default-deny, and create-vs-update on resource existence.",
-  "observedAt": "2026-10-30T09:18:58.543Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:46:52.813Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

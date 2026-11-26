@@ -3,8 +3,8 @@
   "matrixRow": "",
   "rowIds": [],
   "description": "Storage Rules Test API verdicts for corpus scenario \"h1-lookup-float-edge-forms\" (STORAGE-H1-LOOKUP-FLOAT-EDGE-FORMS). Whether Storage lookup-path $(expr) interpolation accepts or refuses integral floats, scientific-notation magnitudes, 2^53, negative zero, NaN, infinities, negative floats, float literals/casts, and helper-built path literals (#1815).",
-  "observedAt": "2026-11-24T18:09:35.947Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:46:50.184Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

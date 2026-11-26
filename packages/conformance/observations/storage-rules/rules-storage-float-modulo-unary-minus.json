@@ -5,8 +5,8 @@
     "storage-rules#123"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"float-modulo-unary-minus\" (Coverage: float literals, %, unary minus, negative modulo). Float multiplication/division, modulo, and unary minus must evaluate with production numeric semantics, including truncating int division and dividend-signed negative modulo.",
-  "observedAt": "2026-10-30T09:18:53.427Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:46:49.725Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

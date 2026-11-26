@@ -5,8 +5,8 @@
     "storage-rules#115"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"firestore-lookup\" (STORAGE-XSVC). firestore.get()/exists() cross-service lookups with $(expr) interpolation, qualified function-mock names, and bool exists() results.",
-  "observedAt": "2026-10-30T09:18:53.106Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:46:49.620Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

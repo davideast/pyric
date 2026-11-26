@@ -5,8 +5,8 @@
     "storage-rules#226"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"storage-path-literal-dollar-unbound-bind\" (Path literal unbound $(x) interpolation with bind()). Pins whether Storage Rules rejects unbound $(x) inside (/a/$(x)).bind({'x': '1'}) at compile time or evaluates bind() at runtime.",
-  "observedAt": "2026-11-17T03:33:06.845Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:46:52.165Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

@@ -5,8 +5,8 @@
     "storage-rules#94"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"parse-compound-storage-ruleset\" (STORAGE-PARSE-COMPOUND-RULESET). Pins that projects.test compiles a compound service firebase.storage ruleset combining nested match blocks, allow read/write guards, request.method short-circuiting, arithmetic size bounds, and contentType equality, and evaluates read/create/delete requests as expected.",
-  "observedAt": "2026-11-18T11:37:51.728Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:46:51.070Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

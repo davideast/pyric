@@ -5,8 +5,8 @@
     "storage-rules#117"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"metadata-verbs-and-arithmetic\" (Coverage: metadata, granular verbs, arithmetic operators). Production must accept request.resource.size arithmetic (+/-/*/÷, >=, <=), request/resource content-type + metadata, request.method/path, request.auth.token OR-branch, allow list, and a recursive {allPaths=**} read tree.",
-  "observedAt": "2026-10-30T09:18:56.142Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:46:50.932Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

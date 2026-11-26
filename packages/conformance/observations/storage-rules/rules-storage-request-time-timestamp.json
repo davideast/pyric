@@ -5,8 +5,8 @@
     "storage-rules#112"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"request-time-timestamp\" (STORAGE-TIME). request.time compared against timestamp.date(y,m,d) and timestamp.value(ms) — the time surface #96/#104 wrongly call unsupported.",
-  "observedAt": "2026-10-30T09:18:56.408Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:46:51.250Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
