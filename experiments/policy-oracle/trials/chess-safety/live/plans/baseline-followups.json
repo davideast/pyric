@@ -5,6 +5,11 @@
       "batch": "09-corner-rights",
       "file": "../exploration/rights-v1/controls/positions.json",
       "sha256": "6faa986f588aa8058f66249595018e21be9304d93d3361a8364393dfc59c7546"
+    },
+    {
+      "batch": "10-promotion-claims",
+      "file": "../exploration/promotions-v1/controls/positions.json",
+      "sha256": "a1fb0984fb735d0d1409a2a9863301421fd9f833a62f2256757515a5f12c4461"
     }
   ]
 }

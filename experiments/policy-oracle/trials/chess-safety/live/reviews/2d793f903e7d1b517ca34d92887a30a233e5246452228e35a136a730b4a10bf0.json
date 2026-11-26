@@ -1,0 +1,5 @@
+{
+  "rulesSha256": "2d793f903e7d1b517ca34d92887a30a233e5246452228e35a136a730b4a10bf0",
+  "file": "../artefacts/quick-packed-v5.rules",
+  "basis": "Compared to the packed-v3 full release, unchanged match/allow clauses and all non-chess functions. Changed boardTransition for bounded diagonal clearance, pawn double clearance and castling rights, and safeTransition for terminal comparisons. Adds the pure ending table and small reply predicate. Uses stored board values and validated submitted move; enables no new path or authorization clause."
+}
