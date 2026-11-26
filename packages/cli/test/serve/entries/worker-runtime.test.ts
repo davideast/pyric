@@ -31,11 +31,11 @@ test('a Service Worker can evaluate the entry before init resolves and lazily se
 });
 
 for (const scenario of [
-  { name: 'SharedWorker page', options: { sharedWorker: true }, mode: 'shared-worker', useWorker: true, connections: ['shared-worker', 'shared-worker'] },
-  { name: 'unsupported page', options: {}, mode: 'in-page', useWorker: false, connections: [] },
-  { name: 'forced in-page', options: { sharedWorker: true, forceInPage: true }, mode: 'in-page', useWorker: false, connections: [] },
-  { name: 'blocked SharedWorker', options: { sharedWorker: true, blockedWorker: true }, mode: 'in-page', useWorker: false, connections: [] },
-  { name: 'Service Worker relay', options: { serviceWorker: true }, mode: 'shared-worker', useWorker: true, connections: ['service-worker-relay'] },
+  { name: 'SharedWorker page', options: { sharedWorker: true, captureConsoleWarnings: true }, mode: 'shared-worker', useWorker: true, connections: ['shared-worker', 'shared-worker'] },
+  { name: 'unsupported page', options: { captureConsoleWarnings: true }, mode: 'in-page', useWorker: false, connections: [] },
+  { name: 'forced in-page', options: { sharedWorker: true, forceInPage: true, captureConsoleWarnings: true }, mode: 'in-page', useWorker: false, connections: [] },
+  { name: 'blocked SharedWorker', options: { sharedWorker: true, blockedWorker: true, captureConsoleWarnings: true }, mode: 'in-page', useWorker: false, connections: [] },
+  { name: 'Service Worker relay', options: { serviceWorker: true, captureConsoleWarnings: true }, mode: 'shared-worker', useWorker: true, connections: ['service-worker-relay'] },
 ]) {
   test(`runtime selects ${scenario.name}`, async () => {
     const realm = await runtimeRealm(scenario.options);
@@ -52,6 +52,80 @@ for (const scenario of [
     } finally { realm.dispose(); }
   });
 }
+
+test('browsers lacking SharedWorker emit one older-Safari signpost and expose fallback status', async () => {
+  const withTabSync = await runtimeRealm({ captureConsoleWarnings: true });
+  try {
+    expect(withTabSync.status().mode).toBe('in-page');
+    expect(withTabSync.status().inPageFallback).toEqual({
+      reason: 'shared-worker-unsupported',
+      tabSyncAvailable: true,
+    });
+    expect(withTabSync.consoleWarnings).toHaveLength(1);
+    expect(withTabSync.consoleWarnings[0]).toContain('SharedWorker is unavailable in this browser');
+    expect(withTabSync.consoleWarnings[0]).toContain('Safari < 16.4');
+    expect(withTabSync.consoleWarnings[0]).toContain('BroadcastChannel cross-tab sync');
+    expect(withTabSync.consoleWarnings[0]).toContain('pyric sandbox --hosted');
+    expect(() => withTabSync.runtime.openWorkerDb('app')).toThrow('pyric sandbox --hosted');
+  } finally {
+    withTabSync.respond({ hosted: false });
+    withTabSync.dispose();
+  }
+
+  const withoutTabSync = await runtimeRealm({
+    broadcastChannel: false,
+    captureConsoleWarnings: true,
+  });
+  try {
+    expect(withoutTabSync.status().inPageFallback).toEqual({
+      reason: 'shared-worker-unsupported',
+      tabSyncAvailable: false,
+    });
+    expect(withoutTabSync.consoleWarnings).toHaveLength(1);
+    expect(withoutTabSync.consoleWarnings[0]).toContain(
+      'BroadcastChannel is also unavailable, so tabs do not sync',
+    );
+  } finally {
+    withoutTabSync.respond({ hosted: false });
+    withoutTabSync.dispose();
+  }
+});
+
+test('policy-blocked SharedWorker warns once while forced in-page stays silent', async () => {
+  const blocked = await runtimeRealm({
+    sharedWorker: true,
+    blockedWorker: true,
+    captureConsoleWarnings: true,
+  });
+  try {
+    expect(blocked.status().inPageFallback).toEqual({
+      reason: 'shared-worker-blocked',
+      tabSyncAvailable: true,
+    });
+    expect(blocked.consoleWarnings).toHaveLength(1);
+    expect(blocked.consoleWarnings[0]).toContain('SharedWorker failed to start');
+    expect(blocked.consoleWarnings[0]).toContain('pyric sandbox --hosted');
+  } finally {
+    blocked.respond({ hosted: false });
+    blocked.dispose();
+  }
+
+  const forced = await runtimeRealm({
+    sharedWorker: true,
+    forceInPage: true,
+    captureConsoleWarnings: true,
+  });
+  try {
+    expect(forced.status().inPageFallback).toEqual({
+      reason: 'forced-in-page',
+      tabSyncAvailable: true,
+    });
+    expect(forced.consoleWarnings).toEqual([]);
+  } finally {
+    forced.respond({ hosted: false });
+    forced.dispose();
+  }
+});
 
 test('auth observers use the selected worker backend', async () => {
   const realm = await runtimeRealm({ sharedWorker: true });

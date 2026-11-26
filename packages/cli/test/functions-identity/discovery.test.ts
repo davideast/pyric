@@ -44,7 +44,7 @@ describe('firebase-functions/v2/identity trigger discovery', () => {
     const { onValueCreated } = databaseFunctions;
 
     const onCreate = beforeUserCreated(
-      { idToken: true, accessToken: true, refreshToken: false, region: 'europe-west1', timeoutSeconds: 30 },
+      { idToken: true, accessToken: true, refreshToken: false, region: 'europe-west1', timeoutSeconds: 7 },
       () => undefined,
     );
     const onSignIn = beforeUserSignedIn({ refreshToken: true }, () => undefined);
@@ -105,7 +105,7 @@ describe('firebase-functions/v2/identity trigger discovery', () => {
         shortEventType: 'beforeCreate',
         options: { idToken: true, accessToken: true, refreshToken: false },
         location: 'europe-west1',
-        timeoutSeconds: 30,
+        timeoutSeconds: 7,
       },
       {
         exportName: 'onSignIn',

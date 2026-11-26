@@ -312,6 +312,43 @@ echo "━━━ Phase 3: install in consumer ━━━"
 mkdir -p "$WORK/consumer"
 cd "$WORK/consumer"
 
+# Read the certified Firebase SDK versions dynamically from the repository
+# sources of truth (#1225): FIREBASE_TESTED_AGAINST for `firebase`,
+# `resolvedAdminVersion()` for `firebase-admin`, and the chat Functions
+# manifest for `firebase-functions` (so its peer range accepts the certified
+# `firebase-admin` major).
+CERTIFIED_PINS_JSON=$(bun - "$ROOT" <<'BUN'
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+
+const root = process.argv[2];
+if (!root) throw new Error('missing repo root argument');
+const { FIREBASE_TESTED_AGAINST } = await import(
+  pathToFileURL(join(root, 'packages/cli/src/version/compat-target.ts')).href
+);
+const { resolvedAdminVersion } = await import(
+  pathToFileURL(join(root, 'packages/conformance/src/package-version.ts')).href
+);
+const chatFunctions = JSON.parse(
+  readFileSync(join(root, 'packages/create-pyric/templates/chat/functions/package.json'), 'utf8'),
+) as { dependencies?: Record<string, string> };
+const firebaseAdmin = resolvedAdminVersion();
+const firebaseFunctions = chatFunctions.dependencies?.['firebase-functions'];
+if (!FIREBASE_TESTED_AGAINST || !firebaseAdmin || !firebaseFunctions) {
+  throw new Error('failed to resolve certified Firebase pins for packaging-test consumer');
+}
+process.stdout.write(JSON.stringify({
+  firebase: FIREBASE_TESTED_AGAINST,
+  firebaseAdmin,
+  firebaseFunctions,
+}));
+BUN
+)
+CERTIFIED_FIREBASE_VERSION=$(jq -r '.firebase' <<<"$CERTIFIED_PINS_JSON")
+CERTIFIED_FIREBASE_ADMIN_VERSION=$(jq -r '.firebaseAdmin' <<<"$CERTIFIED_PINS_JSON")
+CERTIFIED_FIREBASE_FUNCTIONS_SPEC=$(jq -r '.firebaseFunctions' <<<"$CERTIFIED_PINS_JSON")
+
 cat > package.json <<JSON
 {
   "name": "pyric-packaging-test-consumer",
@@ -325,9 +362,9 @@ cat > package.json <<JSON
     "create-pyric": "file:${TARBALL_CREATE_PYRIC}",
     "@pyric/cli": "file:${TARBALL_PYRIC_CLI}",
     "@pyric/ui": "file:${TARBALL_UI}",
-    "firebase": "^12.12.0",
-    "firebase-admin": "^13.0.0",
-    "firebase-functions": "^6.0.0",
+    "firebase": "${CERTIFIED_FIREBASE_VERSION}",
+    "firebase-admin": "${CERTIFIED_FIREBASE_ADMIN_VERSION}",
+    "firebase-functions": "${CERTIFIED_FIREBASE_FUNCTIONS_SPEC}",
     "vite": "^5.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
@@ -340,6 +377,18 @@ echo "▸ npm install (resolving from local tarballs)"
 # --prefer-offline can otherwise return ETARGET immediately after an exact new
 # transitive version is published because its cached packument predates it.
 npm install --cache "$NPM_CACHE" --prefer-online --no-audit --no-fund --loglevel=error
+
+INSTALLED_FIREBASE_VERSION=$(jq -r '.version' "$WORK/consumer/node_modules/firebase/package.json")
+INSTALLED_FIREBASE_ADMIN_VERSION=$(jq -r '.version' "$WORK/consumer/node_modules/firebase-admin/package.json")
+if [ "$INSTALLED_FIREBASE_VERSION" != "$CERTIFIED_FIREBASE_VERSION" ]; then
+  echo "  x consumer installed firebase@$INSTALLED_FIREBASE_VERSION, expected certified $CERTIFIED_FIREBASE_VERSION" >&2
+  exit 1
+fi
+if [ "$INSTALLED_FIREBASE_ADMIN_VERSION" != "$CERTIFIED_FIREBASE_ADMIN_VERSION" ]; then
+  echo "  x consumer installed firebase-admin@$INSTALLED_FIREBASE_ADMIN_VERSION, expected certified $CERTIFIED_FIREBASE_ADMIN_VERSION" >&2
+  exit 1
+fi
+echo "  ok consumer installed certified firebase@$INSTALLED_FIREBASE_VERSION and firebase-admin@$INSTALLED_FIREBASE_ADMIN_VERSION"
 
 # Pyric's agent integrations use cloud-backed ModelClients. A plain consumer
 # install must not acquire the optional local-inference stack (roughly 1 GB of

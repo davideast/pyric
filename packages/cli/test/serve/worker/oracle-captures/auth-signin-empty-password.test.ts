@@ -90,6 +90,9 @@ async function servedWorkerEmptyPasswordSession(): Promise<AuthEmptyPasswordRepl
     { uid: existingUid, email: existingEmail, password: validPassword },
   ]);
 
+  let initialAuthStateObserved = false;
+  let initialIdTokenObserved = false;
+
   return {
     context: {
       auth: auth as never,
@@ -100,9 +103,23 @@ async function servedWorkerEmptyPasswordSession(): Promise<AuthEmptyPasswordRepl
       validPassword,
       signInWithEmailAndPassword: (inst, email, password) =>
         servedAuth.signInWithEmailAndPassword(inst as never, email, password) as never,
-      onAuthStateChanged: (inst, cb) => servedAuth.onAuthStateChanged(inst as never, cb as never),
-      onIdTokenChanged: (inst, cb) => servedAuth.onIdTokenChanged(inst as never, cb as never),
-      settleListeners: () => sleep(25),
+      onAuthStateChanged: (inst, cb) =>
+        servedAuth.onAuthStateChanged(inst as never, ((user: unknown) => {
+          initialAuthStateObserved = true;
+          cb(user as never);
+        }) as never),
+      onIdTokenChanged: (inst, cb) =>
+        servedAuth.onIdTokenChanged(inst as never, ((user: unknown) => {
+          initialIdTokenObserved = true;
+          cb(user as never);
+        }) as never),
+      settleListeners: async () => {
+        await until(
+          () => initialAuthStateObserved && initialIdTokenObserved,
+          'initial served Auth/IdToken listener sync',
+        );
+        await sleep(25);
+      },
     },
     cleanup: async () => {
       try {
@@ -257,6 +274,9 @@ async function nodeHostedEmptyPasswordSession(): Promise<AuthEmptyPasswordReplay
 
   const subject = await openClientAuth('subject');
 
+  let initialAuthStateObserved = false;
+  let initialIdTokenObserved = false;
+
   return {
     context: {
       auth: subject.auth as never,
@@ -267,9 +287,23 @@ async function nodeHostedEmptyPasswordSession(): Promise<AuthEmptyPasswordReplay
       validPassword,
       signInWithEmailAndPassword: (inst, email, password) =>
         clientAuth.signInWithEmailAndPassword(inst as never, email, password) as never,
-      onAuthStateChanged: (inst, cb) => clientAuth.onAuthStateChanged(inst as never, cb as never),
-      onIdTokenChanged: (inst, cb) => clientAuth.onIdTokenChanged(inst as never, cb as never),
-      settleListeners: () => sleep(30),
+      onAuthStateChanged: (inst, cb) =>
+        clientAuth.onAuthStateChanged(inst as never, ((user: unknown) => {
+          initialAuthStateObserved = true;
+          cb(user as never);
+        }) as never),
+      onIdTokenChanged: (inst, cb) =>
+        clientAuth.onIdTokenChanged(inst as never, ((user: unknown) => {
+          initialIdTokenObserved = true;
+          cb(user as never);
+        }) as never),
+      settleListeners: async () => {
+        await until(
+          () => initialAuthStateObserved && initialIdTokenObserved,
+          'initial hosted Auth/IdToken listener sync',
+        );
+        await sleep(30);
+      },
     },
     cleanup: async () => {
       try {

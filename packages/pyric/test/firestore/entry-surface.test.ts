@@ -13,7 +13,7 @@
 import { describe, expect, test } from 'bun:test';
 import * as firestore from '../../src/firestore/index.js';
 
-/** The 111 value (runtime) exports of `pyric/firestore`, sorted. Frozen. */
+/** The 113 value (runtime) exports of `pyric/firestore`, sorted. Frozen. */
 const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   "AbstractUserDataWriter", "AggregateField", "AggregateQuerySnapshot", "Bytes",
   "CACHE_SIZE_UNLIMITED", "CollectionReference", "DocumentReference", "DocumentSnapshot",
@@ -33,8 +33,9 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   "executeWrite", "getAdminFirestore", "getAggregateFromServer", "getCountFromServer",
   "getDoc", "getDocFromCache", "getDocFromServer", "getDocs", "getDocsFromCache",
   "getDocsFromServer", "getFirestore", "getPersistentCacheIndexManager", "increment",
-  "initializeFirestore", "limit", "limitToLast", "loadBundle", "memoryEagerGarbageCollector",
-  "memoryLocalCache", "memoryLruGarbageCollector", "namedQuery", "onSnapshot",
+  "initializeFirestore", "limit", "limitToLast", "loadBundle", "maximum",
+  "memoryEagerGarbageCollector", "memoryLocalCache", "memoryLruGarbageCollector", "minimum",
+  "namedQuery", "onSnapshot",
   "onSnapshotResume", "onSnapshotsInSync", "or", "orderBy", "persistentLocalCache",
   "persistentMultipleTabManager", "persistentSingleTabManager", "query", "queryEqual",
   "querySnapshotFromJSON", "refEqual", "runTransaction", "serverTimestamp", "setDoc",

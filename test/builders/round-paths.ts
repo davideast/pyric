@@ -44,6 +44,8 @@ export interface BuilderRunDirs extends RunDirs {
   /** What the run phase is told to start, and what it saw. */
   phase: string;
   phaseResult: string;
+  /** Claude Code's session transcripts inside the run's scratch HOME. */
+  transcripts: string;
 }
 
 export function builderRunDirsAt(root: string): BuilderRunDirs {
@@ -57,6 +59,7 @@ export function builderRunDirsAt(root: string): BuilderRunDirs {
     started: join(root, 'sandbox-started'),
     phase: join(root, 'phase.json'),
     phaseResult: join(root, 'phase-result.json'),
+    transcripts: join(root, 'home', '.claude', 'projects'),
   };
 }
 
@@ -65,9 +68,20 @@ export const builderRunRoot = (round: string, run: string) => join(buildersRoot(
 /** The forwarder's record of a run, outside the run root, so nothing in the sandbox can write it. */
 export const channelRecordFile = (round: string, run: string) => join(buildersRoot(), round, `${run}.model-channel.jsonl`);
 
-/** Where one try of a reproduction runs: a fresh scratch directory beside the run's. */
+/**
+ * Where one try of a reproduction runs: under `~/.cache/pyric-builders-repros`
+ * by default (or `PYRIC_BUILDERS_DIR` when set) so finished tries can be
+ * cleaned up safely without filling `~/pyric-builders` (#1767).
+ */
+export function reproScratchRoot(env: NodeJS.ProcessEnv = process.env): string {
+  if (env.PYRIC_BUILDERS_DIR !== undefined && env.PYRIC_BUILDERS_DIR !== '') {
+    return env.PYRIC_BUILDERS_DIR;
+  }
+  return join(homedir(), '.cache', 'pyric-builders-repros');
+}
+
 export const reproTryRoot = (round: string, run: string, problem: string, stamp: string, attempt: number) =>
-  join(buildersRoot(), round, `${run}.repros`, problem, `${stamp}-try-${attempt}`);
+  join(reproScratchRoot(), round, `${run}.repros`, problem, `${stamp}-try-${attempt}`);
 
 /** Where a reproduction keeps what it found, inside the run's data. */
 export const reproDataDir = (round: string, run: string, problem: string, stamp: string) => join(runDataDir(round, run), 'repros', problem, stamp);

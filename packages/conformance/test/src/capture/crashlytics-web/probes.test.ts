@@ -43,7 +43,9 @@ describe('isolated firebase@13.4.0 (@firebase/crashlytics@0.2.0) offline SDK pro
       const rootPkg = JSON.parse(readFileSync(resolve(REPO_ROOT, 'package.json'), 'utf8')) as {
         devDependencies?: Record<string, string>;
       };
-      expect(rootPkg.devDependencies?.firebase).toBe('^13.4.0');
+      const rootFirebaseSpec = rootPkg.devDependencies?.firebase ?? '';
+      const strippedFirebaseVersion = rootFirebaseSpec.replace(/^[\^~]/, '');
+      expect(Bun.semver.satisfies(strippedFirebaseVersion, '^13.4.0')).toBe(true);
 
       const fixture = ensureCrashlyticsWebFb13Fixture();
       expect(fixture.firebaseVersion).toBe(ISOLATED_CRASHLYTICS_FIREBASE_VERSION);

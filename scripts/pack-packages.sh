@@ -138,6 +138,146 @@ uses_root_readme() {
   return 1
 }
 
+# Repack an extracted `package/` directory into a byte-deterministic `.tgz`:
+# lexicographically sorted paths, fixed mtime (1985-10-26T08:15:00Z, matching
+# npm pack), uid/gid 0 with empty uname/gname, normalized 0644/0755 modes
+# independent of caller umask, and normalized gzip header (mtime=0, OS=0xff).
+# Implemented in Node so Linux GNU tar and macOS bsdtar produce identical bytes.
+repack_deterministic() {
+  local package_dir="$1"
+  local out_tgz="$2"
+  node - "$package_dir" "$out_tgz" <<'NODE'
+const { lstatSync, readdirSync, readFileSync, writeFileSync } = require('node:fs');
+const { join } = require('node:path');
+const { gzipSync } = require('node:zlib');
+
+const FIXED_MTIME = 499162500;
+
+function collectFiles(dir, relPrefix, out) {
+  const entries = readdirSync(dir, { withFileTypes: true }).sort((a, b) => {
+    if (a.name < b.name) return -1;
+    if (a.name > b.name) return 1;
+    return 0;
+  });
+  for (const entry of entries) {
+    const abs = join(dir, entry.name);
+    const rel = `${relPrefix}/${entry.name}`;
+    const st = lstatSync(abs);
+    if (st.isSymbolicLink()) {
+      throw new Error(`refusing symbolic link in packed tarball: ${rel}`);
+    }
+    if (st.isDirectory()) {
+      collectFiles(abs, rel, out);
+    } else if (st.isFile()) {
+      const mode = (st.mode & 0o100) !== 0 ? 0o755 : 0o644;
+      out.push({ abs, rel, mode });
+    } else {
+      throw new Error(`unsupported entry type in packed tarball: ${rel}`);
+    }
+  }
+}
+
+function writeOctal(header, offset, width, value) {
+  const digits = value.toString(8).padStart(width - 1, '0');
+  if (digits.length > width - 1) {
+    throw new Error(`tar field overflow for value ${value} at offset ${offset}`);
+  }
+  header.write(`${digits}\0`, offset, width, 'ascii');
+}
+
+function splitUstarPath(relPath) {
+  if (Buffer.byteLength(relPath, 'utf8') <= 100) {
+    return { name: relPath, prefix: '' };
+  }
+  for (let idx = relPath.indexOf('/'); idx !== -1; idx = relPath.indexOf('/', idx + 1)) {
+    const prefix = relPath.slice(0, idx);
+    const name = relPath.slice(idx + 1);
+    if (
+      prefix.length > 0 &&
+      name.length > 0 &&
+      Buffer.byteLength(prefix, 'utf8') <= 155 &&
+      Buffer.byteLength(name, 'utf8') <= 100
+    ) {
+      return { name, prefix };
+    }
+  }
+  return null;
+}
+
+function buildPaxRecord(key, value) {
+  const suffix = ` ${key}=${value}\n`;
+  const suffixBytes = Buffer.byteLength(suffix, 'utf8');
+  let length = String(suffixBytes).length + suffixBytes;
+  while (String(length).length + suffixBytes !== length) {
+    length = String(length).length + suffixBytes;
+  }
+  return Buffer.from(`${length}${suffix}`, 'utf8');
+}
+
+function buildHeader(name, prefix, mode, size, typeflag) {
+  const header = Buffer.alloc(512, 0);
+  header.write(name, 0, Math.min(100, Buffer.byteLength(name, 'utf8')), 'utf8');
+  writeOctal(header, 100, 8, mode);
+  writeOctal(header, 108, 8, 0);
+  writeOctal(header, 116, 8, 0);
+  writeOctal(header, 124, 12, size);
+  writeOctal(header, 136, 12, FIXED_MTIME);
+  header.fill(0x20, 148, 156);
+  header.write(typeflag, 156, 1, 'ascii');
+  header.write('ustar\0', 257, 6, 'ascii');
+  header.write('00', 263, 2, 'ascii');
+  writeOctal(header, 329, 8, 0);
+  writeOctal(header, 337, 8, 0);
+  if (prefix.length > 0) {
+    header.write(prefix, 345, Math.min(155, Buffer.byteLength(prefix, 'utf8')), 'utf8');
+  }
+  let sum = 0;
+  for (let i = 0; i < 512; i += 1) sum += header[i];
+  header.write(`${sum.toString(8).padStart(6, '0')}\0 `, 148, 8, 'ascii');
+  return header;
+}
+
+function appendBlock(chunks, header, body) {
+  chunks.push(header);
+  if (body.length > 0) {
+    chunks.push(body);
+    const pad = (512 - (body.length % 512)) % 512;
+    if (pad > 0) chunks.push(Buffer.alloc(pad, 0));
+  }
+}
+
+const [packageDir, outTgz] = process.argv.slice(2);
+const files = [];
+collectFiles(packageDir, 'package', files);
+files.sort((a, b) => {
+  if (a.rel < b.rel) return -1;
+  if (a.rel > b.rel) return 1;
+  return 0;
+});
+const chunks = [];
+for (const file of files) {
+  const body = readFileSync(file.abs);
+  const split = splitUstarPath(file.rel);
+  if (split !== null) {
+    appendBlock(chunks, buildHeader(split.name, split.prefix, file.mode, body.length, '0'), body);
+  } else {
+    const paxBody = buildPaxRecord('path', file.rel);
+    const fallbackName = file.rel.slice(-99).replace(/^\/+/, '');
+    appendBlock(chunks, buildHeader(`PaxHeader/${fallbackName}`.slice(0, 100), '', 0o644, paxBody.length, 'x'), paxBody);
+    appendBlock(chunks, buildHeader(fallbackName, '', file.mode, body.length, '0'), body);
+  }
+}
+chunks.push(Buffer.alloc(1024, 0));
+const gz = gzipSync(Buffer.concat(chunks), { level: 9 });
+gz[4] = 0;
+gz[5] = 0;
+gz[6] = 0;
+gz[7] = 0;
+gz[9] = 0xff;
+writeFileSync(outTgz, gz);
+NODE
+}
+
 pack_one() {
   local pkg_dir="$1"
   local name
@@ -165,19 +305,17 @@ pack_one() {
   local tmp
   tmp=$(mktemp -d)
   tar -xzf "$full" -C "$tmp"
-  if uses_root_readme "$name" || [ "$has_workspace_deps" -eq 1 ]; then
-    if uses_root_readme "$name"; then
-      cp "$ROOT/README.md" "$tmp/package/README.md"
-      echo "    (README: root README added to npm tarball)"
-    fi
-    if [ "$has_workspace_deps" -eq 1 ]; then
-      node "$ROOT/scripts/lib/rewrite-workspace-deps.mjs" \
-        "$tmp/package/package.json" "$ROOT"
-    fi
-    (cd "$tmp" && tar -czf "$full" package)
+  if uses_root_readme "$name"; then
+    cp "$ROOT/README.md" "$tmp/package/README.md"
+    echo "    (README: root README added to npm tarball)"
+  fi
+  if [ "$has_workspace_deps" -eq 1 ]; then
+    node "$ROOT/scripts/lib/rewrite-workspace-deps.mjs" \
+      "$tmp/package/package.json" "$ROOT"
   fi
   # Every source map the tarball ships must resolve to sources it also ships.
   node "$ROOT/scripts/lib/verify-published-sourcemaps.mjs" "$tmp/package"
+  repack_deterministic "$tmp/package" "$full"
   rm -rf "$tmp"
 
   # Verification: no `workspace:` may survive into the shipped tarball.

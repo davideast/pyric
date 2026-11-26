@@ -6,20 +6,34 @@
  * template's package.json files are static assets, so this test holds them to
  * the same pins.
  */
-import { describe, expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
+import { afterEach, describe, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
+import { cpSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import {
+  createPrivateJobTmpDir,
+  removePrivateJobTmpDir,
+} from '../../../scripts/lib/private-job-tmpdir.ts';
 import { FIREBASE_TESTED_AGAINST } from '../../cli/src/version/compat-target.ts';
+import { resolvedAdminVersion } from '../../conformance/src/package-version.ts';
 import { FIREBASE_ADMIN_PIN, FIREBASE_PIN } from '../src/firebase-pins.ts';
 import { TEMPLATES, TEMPLATE_NAMES } from '../src/templates.ts';
 
-const require = createRequire(import.meta.url);
-const TEMPLATES_DIR = join(import.meta.dir, '..', 'templates');
+const REPO_ROOT = resolve(import.meta.dir, '..', '..', '..');
+const CREATE_PYRIC_DIR = resolve(import.meta.dir, '..');
+const TEMPLATES_DIR = join(CREATE_PYRIC_DIR, 'templates');
+const tempRoots: string[] = [];
+
+afterEach(() => {
+  for (const dir of tempRoots.splice(0)) {
+    removePrivateJobTmpDir(dir);
+  }
+});
 
 function installedAdminVersion(): string {
-  const manifest = require('firebase-admin/package.json') as { version: string };
-  return manifest.version;
+  return resolvedAdminVersion();
 }
 
 function readTemplate(path: string): string {
@@ -102,4 +116,51 @@ describe('scaffold Firebase pins', () => {
       supported: true,
     });
   });
+
+  test('resolves the certified firebase-admin version without relying on root hoisting (#1225)', () => {
+    const tmpRoot = createPrivateJobTmpDir('pin-iso');
+    tempRoots.push(tmpRoot);
+    const isoCreate = join(tmpRoot, 'packages', 'create-pyric');
+    const isoCliVersion = join(tmpRoot, 'packages', 'cli', 'src', 'version');
+    const isoConformance = join(tmpRoot, 'packages', 'conformance');
+    const isoScriptsLib = join(tmpRoot, 'scripts', 'lib');
+
+    mkdirSync(join(isoCreate, 'test'), { recursive: true });
+    mkdirSync(isoCliVersion, { recursive: true });
+    mkdirSync(join(isoConformance, 'src'), { recursive: true });
+    mkdirSync(isoScriptsLib, { recursive: true });
+
+    cpSync(join(CREATE_PYRIC_DIR, 'package.json'), join(isoCreate, 'package.json'));
+    cpSync(join(CREATE_PYRIC_DIR, 'src'), join(isoCreate, 'src'), { recursive: true });
+    cpSync(TEMPLATES_DIR, join(isoCreate, 'templates'), { recursive: true });
+    cpSync(join(CREATE_PYRIC_DIR, 'test', 'firebase-pins.test.ts'), join(isoCreate, 'test', 'firebase-pins.test.ts'));
+    writeFileSync(join(isoCreate, 'bunfig.toml'), '');
+
+    cpSync(join(REPO_ROOT, 'packages', 'cli', 'src', 'version', 'compat-target.ts'), join(isoCliVersion, 'compat-target.ts'));
+    cpSync(join(REPO_ROOT, 'packages', 'conformance', 'src', 'package-version.ts'), join(isoConformance, 'src', 'package-version.ts'));
+    cpSync(join(REPO_ROOT, 'scripts', 'lib', 'private-job-tmpdir.ts'), join(isoScriptsLib, 'private-job-tmpdir.ts'));
+
+    // Link node_modules only under packages/conformance (never at tmpRoot or create-pyric),
+    // matching an isolated linker where create-pyric cannot resolve undeclared firebase-admin.
+    const conformanceAdminSource = fileURLToPath(
+      import.meta.resolve('firebase-admin', new URL('../../conformance/src/package-version.ts', import.meta.url).href),
+    );
+    const adminNodeModulesIdx = conformanceAdminSource.lastIndexOf('/node_modules/');
+    expect(adminNodeModulesIdx).toBeGreaterThanOrEqual(0);
+    const sourceNodeModules = conformanceAdminSource.slice(0, adminNodeModulesIdx + '/node_modules'.length);
+    symlinkSync(sourceNodeModules, join(isoConformance, 'node_modules'));
+
+    const unhoistedRequire = createRequire(join(isoCreate, 'test', 'firebase-pins.test.ts'));
+    expect(() => unhoistedRequire.resolve('firebase-admin/package.json')).toThrow();
+
+    const child = spawnSync(
+      process.execPath,
+      ['test', 'test/firebase-pins.test.ts', '-t', 'firebase-admin is a patch range'],
+      { cwd: isoCreate, encoding: 'utf8' },
+    );
+    expect({ status: child.status, stderr: child.stderr }).toEqual({
+      status: 0,
+      stderr: expect.stringContaining('1 pass'),
+    });
+  }, 15_000);
 });

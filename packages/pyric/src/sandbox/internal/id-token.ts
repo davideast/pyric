@@ -21,20 +21,28 @@ export const ID_TOKEN_LIFETIME_MS = 60 * 60 * 1000;
 
 /**
  * How long before `exp` a token counts as expired and is minted again on
- * read: `TOKEN_REFRESH_BUFFER_MS` in `@firebase/auth` 1.13.6
- * (`StsTokenManager.isExpired`: `Date.now() > expirationTime - 30000`).
+ * read. Currently pinned to `30_000` ms to match the committed
+ * `auth-getidtoken-expiry-buffer-refresh` oracle capture (`fbSdkVersion`
+ * `12.19.0` / `@firebase/auth` `1.13.6`, replayed by
+ * `auth-anon-cred-expiry.test.ts` across in-page, SharedWorker, and Node
+ * planes). Note: `@firebase/auth` `1.13.11` (`firebase@13.4.0`) defines
+ * `Buffer.TOKEN_REFRESH = 300000`; bumping this constant requires re-capturing
+ * `auth-getidtoken-expiry-buffer-refresh.json` and updating its probe/replay.
  */
 export const TOKEN_REFRESH_BUFFER_MS = 30_000;
 
 /**
  * Whether ID token claims are past their refresh point at `nowMs` on the
- * sandbox clock. Claims with no numeric `exp` are past it.
+ * sandbox clock. Claims with no finite numeric `exp`, or a non-finite
+ * `nowMs`, are treated as past it so malformed inputs fail closed and refresh.
  */
 export function isPastIdTokenRefreshPoint(claims: Record<string, unknown> | undefined, nowMs: number): boolean {
+  if (typeof nowMs !== 'number' || !Number.isFinite(nowMs)) return true;
   const exp = claims?.exp;
-  const hasExp = typeof exp === 'number';
-  if (!hasExp) return true;
-  return nowMs > exp * 1000 - TOKEN_REFRESH_BUFFER_MS;
+  if (typeof exp !== 'number' || !Number.isFinite(exp)) return true;
+  const expirationMs = exp * 1000;
+  if (!Number.isFinite(expirationMs)) return true;
+  return nowMs > expirationMs - TOKEN_REFRESH_BUFFER_MS;
 }
 
 /**

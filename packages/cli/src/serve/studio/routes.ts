@@ -1,30 +1,32 @@
 /**
- * Studio storage routes — the HTTP surface for `@pyric/studio` in `local` mode.
+ * Studio storage routes -- the HTTP surface for `@pyric/studio` in `local` mode.
  * Mounted inside the `/__pyric/` namespace; the browser-side `httpWorkspace`
  * / `httpProjectStore` clients in `packages/studio/src/clients` speak exactly
  * these endpoints.
  *
  *   WORKSPACE (a single project's file tree)
- *     GET    /__pyric/workspace?path=src/app.tsx  → file body (200) | 404
- *     PUT    /__pyric/workspace?path=...          → write body (204)
- *     DELETE /__pyric/workspace?path=...          → remove (204)
- *     GET    /__pyric/workspace/list?dir=src      → WorkspaceEntry[] (200)
- *     GET    /__pyric/workspace/watch             → SSE stream of WorkspaceChange
+ *     GET    /__pyric/workspace?path=src/app.tsx  -> file body (200) | 404
+ *     PUT    /__pyric/workspace?path=...          -> write body (204)
+ *     DELETE /__pyric/workspace?path=...          -> remove (204)
+ *     GET    /__pyric/workspace/list?dir=src      -> WorkspaceEntry[] (200)
+ *     GET    /__pyric/workspace/watch             -> SSE stream of WorkspaceChange
  *
  *   PROJECTS (sessions/projects)
- *     GET    /__pyric/projects                     → ProjectMeta[] (200)
- *     POST   /__pyric/projects   {title?}          → ProjectMeta (created) (200)
- *     GET    /__pyric/projects/<id>                → ProjectMeta (200) | 404
- *     PATCH  /__pyric/projects/<id>  {title?,...}  → (204)
- *     DELETE /__pyric/projects/<id>                → (204)
+ *     GET    /__pyric/projects                     -> ProjectMeta[] (200)
+ *     POST   /__pyric/projects   {title?}          -> ProjectMeta (created) (200)
+ *     GET    /__pyric/projects/<id>                -> ProjectMeta (200) | 404
+ *     PATCH  /__pyric/projects/<id>  {title?,...}  -> (204)
+ *     DELETE /__pyric/projects/<id>                -> (204)
  *
  * The `watch` stream reuses the SSE pattern already used for `/__pyric/events`
  * (the hot-reload hub): one `text/event-stream` response per subscriber, frames
  * are `event: change\ndata: <json>\n\n`, and the subscription is torn down on
  * `req.close`.
  */
-import type { IncomingMessage, ServerResponse } from 'node:http';
+import { IncomingMessage, type ServerResponse } from 'node:http';
 
+import { isBodyTooLarge } from '../../bridge/server/peer.js';
+import { readBoundedUtf8Body, sendPayloadTooLarge, sendTextRefusal } from '../bounded-body.js';
 import { WorkspaceDeniedPathError, WorkspacePathError } from './disk-workspace.js';
 import { ProjectIdError } from './disk-project-store.js';
 import type {
@@ -34,24 +36,22 @@ import type {
   WorkspaceStore,
 } from './store-types.js';
 import {
-  effectiveRequestScheme,
-  isAdmittedPeer,
-  isTrustedProxyPeer,
-  parseAllowPeersSetting,
-  parseTrustProxySetting,
+  createGuardPolicy,
+  evaluateGuard,
+  type GuardDecision,
+  type GuardRequest,
   type RemoteAccessOptions,
 } from '../guard-policy.js';
-import {
-  getHeader,
-  isAllowedHost,
-  isAllowedOriginOnPorts,
-  isAllowedSessionToken,
-  isForeignFetchSite,
-} from '../loopback-guard.js';
+import { getHeader } from '../loopback-guard.js';
 import { REMOTE_PEER_HEADER } from '../peer.js';
-import { parseHostHeader } from '../host-pattern.js';
 import type { AppPorts } from '../app-ports.js';
 import type { WriterLock } from '../writer-lock.js';
+
+/** Maximum UTF-8 byte length accepted by `PUT /__pyric/workspace`. */
+export const STUDIO_WORKSPACE_BODY_LIMIT_BYTES = 16 * 1024 * 1024;
+
+/** Maximum UTF-8 byte length accepted by `POST` / `PATCH /__pyric/projects`. */
+export const STUDIO_PROJECT_BODY_LIMIT_BYTES = 64 * 1024;
 
 export interface StudioRouteOptions {
   /** The single-project file tree served at `/__pyric/workspace`. */
@@ -72,20 +72,9 @@ export interface StudioRouteOptions {
   remoteAccess?: RemoteAccessOptions;
 }
 
-/** Collect the raw request body as a UTF-8 string. */
-function readBody(req: IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
-    let raw = '';
-    req.setEncoding('utf8');
-    req.on('data', (c: string) => (raw += c));
-    req.on('end', () => resolve(raw));
-    req.on('error', reject);
-  });
-}
-
 /** Collect + parse the request body as JSON (null on empty/invalid). */
-async function readJson<T>(req: IncomingMessage): Promise<T | null> {
-  const raw = await readBody(req);
+async function readJson<T>(req: IncomingMessage, limitBytes: number): Promise<T | null> {
+  const raw = await readBoundedUtf8Body(req, limitBytes);
   if (raw.trim() === '') return null;
   try {
     return JSON.parse(raw) as T;
@@ -114,13 +103,75 @@ function sendError(res: ServerResponse, e: unknown): void {
   res.end(e instanceof Error ? e.message : String(e));
 }
 
+function mergeStudioAllowedHosts(opts: StudioRouteOptions): string[] {
+  const merged: string[] = [];
+  for (const host of opts.allowedHosts ?? []) {
+    if (!merged.includes(host)) merged.push(host);
+  }
+  for (const host of opts.remoteAccess?.allowedHosts ?? []) {
+    if (!merged.includes(host)) merged.push(host);
+  }
+  return merged;
+}
+
+function studioExtraAppPorts(req: IncomingMessage, opts: StudioRouteOptions): readonly number[] | undefined {
+  const learned = opts.appPorts?.forRequest(req);
+  if (learned !== undefined && learned.length > 0) return learned;
+  const localPort = req.socket?.localPort;
+  if (localPort !== undefined && localPort > 0) return [localPort];
+  return undefined;
+}
+
+/**
+ * Adapt a request for `evaluateGuard`. Real `IncomingMessage` requests (and any
+ * mock carrying socket peer state, `destroyed`, `socket: null`, or
+ * `x-pyric-remote-peer`) pass through unmodified so missing/destroyed sockets
+ * always fail closed. Only synthetic in-process test stubs without socket peer
+ * metadata default `remoteAddress` to loopback.
+ */
+function toStudioGuardRequest(req: GuardRequest): GuardRequest {
+  if (req instanceof IncomingMessage) return req;
+  if (req.socket === null) return req;
+  if (req.socket?.remoteAddress !== undefined) return req;
+  const socketLike = req.socket as { destroyed?: unknown; localPort?: number; encrypted?: boolean } | undefined;
+  if (typeof socketLike?.destroyed === 'boolean') return req;
+  if (getHeader(req, REMOTE_PEER_HEADER) !== undefined) return req;
+  return {
+    method: req.method,
+    headers: req.headers,
+    socket: {
+      remoteAddress: '127.0.0.1',
+      localPort: socketLike?.localPort,
+      encrypted: socketLike?.encrypted,
+    },
+  };
+}
+
+function formatStudioGuardRejection(decision: Extract<GuardDecision, { ok: false }>): string {
+  switch (decision.reason) {
+    case 'remote-peer':
+    case 'live-remote-peer-refused':
+      return `Forbidden: this route answers admitted peers only (${decision.message})`;
+    case 'disallowed-host':
+      return `Forbidden: host not allowed (${decision.message})`;
+    case 'origin-mismatch':
+    case 'scheme-mismatch':
+      return `Forbidden: origin mismatch (${decision.message})`;
+    case 'cross-site-fetch':
+      return `Forbidden: cross-site request rejected (${decision.message})`;
+    case 'missing-session-token':
+    case 'invalid-session-token':
+      return `Unauthorized: invalid session capability token (${decision.message})`;
+  }
+}
+
 async function handleWorkspace(
   ws: WorkspaceStore,
   req: IncomingMessage,
   res: ServerResponse,
   url: URL,
 ): Promise<void> {
-  // ── SSE watch ────────────────────────────────────────────────────────
+  // -- SSE watch --------------------------------------------------------
   if (url.pathname === '/__pyric/workspace/watch') {
     res.writeHead(200, {
       'content-type': 'text/event-stream',
@@ -130,7 +181,7 @@ async function handleWorkspace(
     res.write(': connected\n\n');
     const unsub = ws.watch((change: WorkspaceChange) => {
       // The write can race the socket teardown (page reload while a
-      // workspace change fires) — a throw here would escape into the
+      // workspace change fires) -- a throw here would escape into the
       // fs.watch callback and kill the serve process.
       try {
         res.write(`event: change\ndata: ${JSON.stringify(change)}\n\n`);
@@ -143,10 +194,10 @@ async function handleWorkspace(
     return;
   }
 
-  // ── list ─────────────────────────────────────────────────────────────
+  // -- list -------------------------------------------------------------
   if (url.pathname === '/__pyric/workspace/list') {
     if (req.method !== 'GET') {
-      res.writeHead(405, { allow: 'GET' }).end('method not allowed');
+      sendTextRefusal(req, res, 405, { allow: 'GET' }, 'method not allowed');
       return;
     }
     const dir = url.searchParams.get('dir') ?? undefined;
@@ -154,20 +205,20 @@ async function handleWorkspace(
     return;
   }
 
-  // ── branches ─────────────────────────────────────────────────────────
+  // -- branches ---------------------------------------------------------
   if (url.pathname === '/__pyric/workspace/branches') {
     if (req.method !== 'GET') {
-      res.writeHead(405, { allow: 'GET' }).end('method not allowed');
+      sendTextRefusal(req, res, 405, { allow: 'GET' }, 'method not allowed');
       return;
     }
     sendJson(res, 200, await ws.branches());
     return;
   }
 
-  // ── read / write / remove a single path ──────────────────────────────
+  // -- read / write / remove a single path ------------------------------
   const path = url.searchParams.get('path');
   if (path === null) {
-    res.writeHead(400).end('missing ?path');
+    sendTextRefusal(req, res, 400, { 'content-type': 'text/plain; charset=utf-8' }, 'missing ?path');
     return;
   }
   if (req.method === 'GET') {
@@ -184,7 +235,7 @@ async function handleWorkspace(
     return;
   }
   if (req.method === 'PUT') {
-    const body = await readBody(req);
+    const body = await readBoundedUtf8Body(req, STUDIO_WORKSPACE_BODY_LIMIT_BYTES);
     await ws.write(path, body);
     res.writeHead(204).end();
     return;
@@ -194,7 +245,7 @@ async function handleWorkspace(
     res.writeHead(204).end();
     return;
   }
-  res.writeHead(405, { allow: 'GET, PUT, DELETE' }).end('method not allowed');
+  sendTextRefusal(req, res, 405, { allow: 'GET, PUT, DELETE' }, 'method not allowed');
 }
 
 async function handleProjects(
@@ -213,12 +264,12 @@ async function handleProjects(
       return;
     }
     if (req.method === 'POST') {
-      const body = await readJson<{ title?: string }>(req);
+      const body = await readJson<{ title?: string }>(req, STUDIO_PROJECT_BODY_LIMIT_BYTES);
       const meta = await store.create({ title: body?.title });
       sendJson(res, 200, meta);
       return;
     }
-    res.writeHead(405, { allow: 'GET, POST' }).end('method not allowed');
+    sendTextRefusal(req, res, 405, { allow: 'GET, POST' }, 'method not allowed');
     return;
   }
 
@@ -233,8 +284,8 @@ async function handleProjects(
     return;
   }
   if (req.method === 'PATCH') {
-    const body = await readJson<Record<string, unknown>>(req);
-    // Only forward known, mutable ProjectMeta fields — never `id`.
+    const body = await readJson<Record<string, unknown>>(req, STUDIO_PROJECT_BODY_LIMIT_BYTES);
+    // Only forward known, mutable ProjectMeta fields -- never `id`.
     const patch: Partial<Omit<ProjectMeta, 'id'>> = {};
     if (body && typeof body.title === 'string') patch.title = body.title;
     if (body && typeof body.createdAt === 'number') patch.createdAt = body.createdAt;
@@ -248,9 +299,7 @@ async function handleProjects(
     res.writeHead(204).end();
     return;
   }
-  res
-    .writeHead(405, { allow: 'GET, PATCH, DELETE' })
-    .end('method not allowed');
+  sendTextRefusal(req, res, 405, { allow: 'GET, PATCH, DELETE' }, 'method not allowed');
 }
 
 function isWorkspaceMutation(method?: string): boolean {
@@ -269,89 +318,76 @@ export function createStudioRoutes(opts: StudioRouteOptions) {
     url: URL,
   ): Promise<boolean> => {
     try {
-      const isWorkspaceRoute = opts.workspace && url.pathname.startsWith('/__pyric/workspace');
-      const isProjectsRoute = opts.projects && url.pathname.startsWith('/__pyric/projects');
+      const workspace = opts.workspace;
+      const projects = opts.projects;
+      const isWorkspaceRoute = workspace !== undefined && url.pathname.startsWith('/__pyric/workspace');
+      const isProjectsRoute = projects !== undefined && url.pathname.startsWith('/__pyric/projects');
 
       if (isWorkspaceRoute || isProjectsRoute) {
-        const boundHost = opts.boundHost ?? 'localhost';
-        const extraHosts: string[] = [];
-        for (const host of opts.allowedHosts ?? []) {
-          if (!extraHosts.includes(host)) extraHosts.push(host);
-        }
-        for (const host of opts.remoteAccess?.allowedHosts ?? []) {
-          if (!extraHosts.includes(host)) extraHosts.push(host);
-        }
-        const allowPeers = parseAllowPeersSetting(opts.remoteAccess?.allowPeers);
-        const trustProxy = parseTrustProxySetting(opts.remoteAccess?.trustProxy);
-        const hasRemotePeerInfo =
-          req.socket?.remoteAddress !== undefined ||
-          getHeader(req, REMOTE_PEER_HEADER) !== undefined;
-        if (hasRemotePeerInfo && !isAdmittedPeer(req, { allowPeers })) {
-          res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' }).end(
-            'Forbidden: this route answers admitted peers only',
+        const policy = createGuardPolicy({
+          boundHost: opts.boundHost ?? 'localhost',
+          allowedHosts: mergeStudioAllowedHosts(opts),
+          allowPeers: opts.remoteAccess?.allowPeers,
+          trustProxy: opts.remoteAccess?.trustProxy,
+          browserUnlock: opts.remoteAccess?.browserUnlock,
+          remoteAccessEnabled: opts.remoteAccess !== undefined,
+          sessionToken: opts.sessionToken,
+          requireSessionToken: true,
+        });
+        const decision = evaluateGuard(toStudioGuardRequest(req), policy, 'studio-api', {
+          url,
+          extraAppPorts: studioExtraAppPorts(req, opts),
+        });
+        if (!decision.ok) {
+          sendTextRefusal(
+            req,
+            res,
+            decision.status,
+            { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' },
+            formatStudioGuardRejection(decision),
           );
           return true;
         }
-        const hostHeader = getHeader(req, 'host');
-        const originHeader = getHeader(req, 'origin');
-        if (!isAllowedHost(hostHeader, boundHost, extraHosts)) {
-          res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: host not allowed');
-          return true;
-        }
-        const scheme = effectiveRequestScheme(req, trustProxy);
-        const ports: number[] = [];
-        const basePorts = opts.appPorts?.forRequest(req);
-        if (basePorts !== undefined) {
-          for (const port of basePorts) ports.push(port);
-        } else if (req.socket?.localPort !== undefined) {
-          ports.push(req.socket.localPort);
-        }
-        if (isTrustedProxyPeer(req, trustProxy) && hostHeader !== undefined) {
-          const parsedHost = parseHostHeader(hostHeader);
-          if (parsedHost?.port !== undefined && !ports.includes(parsedHost.port)) {
-            ports.push(parsedHost.port);
-          }
-        }
-        const effectivePorts = ports.length > 0 ? ports : undefined;
-        if (
-          originHeader !== undefined &&
-          !isAllowedOriginOnPorts(originHeader, boundHost, extraHosts, effectivePorts, scheme)
-        ) {
-          res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: origin mismatch');
-          return true;
-        }
-        if (isForeignFetchSite(req, boundHost, effectivePorts, scheme, extraHosts)) {
-          res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: cross-site request rejected');
-          return true;
-        }
-        if (!isAllowedSessionToken(req, url, opts.sessionToken)) {
-          res.writeHead(401, { 'content-type': 'text/plain' }).end('Unauthorized: invalid session capability token');
-          return true;
-        }
 
-        // 3. Single-writer lock guard for mutation endpoints (Requirement 4)
+        // Single-writer lock guard for mutation endpoints
         if (opts.writerLock && isWorkspaceMutation(req.method)) {
           const writerId = getHeader(req, 'x-pyric-writer');
           if (!writerId) {
-            res.writeHead(423, { 'content-type': 'text/plain' }).end('Locked: missing active writer lock header');
+            sendTextRefusal(
+              req,
+              res,
+              423,
+              { 'content-type': 'text/plain; charset=utf-8' },
+              'Locked: missing active writer lock header',
+            );
             return true;
           }
           if (!opts.writerLock.claim(writerId, Date.now())) {
-            res.writeHead(423, { 'content-type': 'text/plain' }).end('Locked: another tab holds the writer lock');
+            sendTextRefusal(
+              req,
+              res,
+              423,
+              { 'content-type': 'text/plain; charset=utf-8' },
+              'Locked: another tab holds the writer lock',
+            );
             return true;
           }
         }
 
         if (isWorkspaceRoute) {
-          await handleWorkspace(opts.workspace!, req, res, url);
+          await handleWorkspace(workspace, req, res, url);
           return true;
         }
         if (isProjectsRoute) {
-          await handleProjects(opts.projects!, req, res, url);
+          await handleProjects(projects, req, res, url);
           return true;
         }
       }
     } catch (e) {
+      if (isBodyTooLarge(e)) {
+        sendPayloadTooLarge(req, res, 'Payload Too Large');
+        return true;
+      }
       if (!res.headersSent) sendError(res, e);
       else res.end();
       return true;

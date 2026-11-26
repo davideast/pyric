@@ -15,7 +15,7 @@ import { defaultClientApp, resolveClientApp } from '../sandbox/internal/client-a
 import type { Sandbox, SandboxContext } from '../sandbox/index.js';
 import { SandboxContextImpl } from '../sandbox/index.js';
 import { DEFAULT_CLIENT_ID, getMessagingBroker, MessagingBroker } from './broker/index.js';
-import type { DeliveredPayload, DeliveryResult } from './broker/index.js';
+import type { DeliveryResult } from './broker/index.js';
 
 /**
  * The FCM `Messaging` instance mirror — exposes the bound app as `app`
@@ -27,12 +27,24 @@ export interface Messaging {
 
 export type MessagingPlane = 'window' | 'sw';
 
+export type FidObserverLike =
+  | ((fid: string) => void)
+  | {
+      next: (fid: string) => void;
+      error?: (error: Error) => void;
+      complete?: () => void;
+    };
+
 interface InstanceState {
   broker: MessagingBroker;
   sandbox: Sandbox;
   plane: MessagingPlane;
-  /** The registration the last `getToken` bound to (deleteToken's target). */
+  /** The registration the last `getToken` or `register` bound to (`deleteToken` / `unregister` target). */
   activeRegistrationId: string;
+  onRegisteredHandler: FidObserverLike | null;
+  onRegisteredBrokerUnsub: (() => void) | null;
+  onUnregisteredHandler: FidObserverLike | null;
+  onUnregisteredBrokerUnsub: (() => void) | null;
   own: (cleanup: () => void) => () => void;
 }
 
@@ -114,6 +126,10 @@ export function resolveMessaging(plane: MessagingPlane, target?: FirebaseApp | S
       sandbox,
       plane,
       activeRegistrationId: registrationIdOf(DEFAULT_REGISTRATION),
+      onRegisteredHandler: null,
+      onRegisteredBrokerUnsub: null,
+      onUnregisteredHandler: null,
+      onUnregisteredBrokerUnsub: null,
       own: (cleanup) => () => { cleanup(); },
     });
     bySandbox[plane] = instance;
@@ -136,6 +152,10 @@ export function resolveMessaging(plane: MessagingPlane, target?: FirebaseApp | S
     sandbox,
     plane,
     activeRegistrationId: registrationIdOf(DEFAULT_REGISTRATION),
+    onRegisteredHandler: null,
+    onRegisteredBrokerUnsub: null,
+    onUnregisteredHandler: null,
+    onUnregisteredBrokerUnsub: null,
     own: (cleanup) => runtime.onDelete(cleanup),
   });
   byApp[plane] = instance;
@@ -171,6 +191,77 @@ export function stateOf(messaging: Messaging): InstanceState {
     );
   }
   return state;
+}
+
+function invokeFidObserver(observer: FidObserverLike | null, fid: string): void {
+  if (observer === null) {
+    return;
+  }
+  if (typeof observer === 'function') {
+    observer(fid);
+    return;
+  }
+  observer.next(fid);
+}
+
+/** Whether `onRegistered(messaging, ...)` currently holds an active handler on this instance. */
+export function hasOnRegisteredHandler(messaging: Messaging): boolean {
+  return stateOf(messaging).onRegisteredHandler !== null;
+}
+
+/**
+ * Bind a single-slot FID registration/unregistration listener on `messaging`,
+ * matching `@firebase/messaging` 0.13.3 (`messaging.onRegisteredHandler = nextOrObserver`,
+ * unsub clears only when the current handler still matches `nextOrObserver`).
+ */
+export function bindFidRegistrationListener(
+  messaging: Messaging,
+  kind: 'registered' | 'unregistered',
+  nextOrObserver: FidObserverLike,
+): () => void {
+  const state = stateOf(messaging);
+  if (kind === 'registered') {
+    state.onRegisteredHandler = nextOrObserver;
+    if (state.onRegisteredBrokerUnsub === null) {
+      state.onRegisteredBrokerUnsub = ownMessagingSubscription(messaging, (s) => {
+        const unsub = s.broker.onFidRegistered((fid) => {
+          invokeFidObserver(s.onRegisteredHandler, fid);
+        });
+        return () => {
+          unsub();
+          s.onRegisteredHandler = null;
+          s.onRegisteredBrokerUnsub = null;
+        };
+      });
+    }
+    return () => {
+      if (state.onRegisteredHandler === nextOrObserver) {
+        state.onRegisteredHandler = null;
+        state.onRegisteredBrokerUnsub?.();
+        state.onRegisteredBrokerUnsub = null;
+      }
+    };
+  }
+  state.onUnregisteredHandler = nextOrObserver;
+  if (state.onUnregisteredBrokerUnsub === null) {
+    state.onUnregisteredBrokerUnsub = ownMessagingSubscription(messaging, (s) => {
+      const unsub = s.broker.onFidUnregistered((fid) => {
+        invokeFidObserver(s.onUnregisteredHandler, fid);
+      });
+      return () => {
+        unsub();
+        s.onUnregisteredHandler = null;
+        s.onUnregisteredBrokerUnsub = null;
+      };
+    });
+  }
+  return () => {
+    if (state.onUnregisteredHandler === nextOrObserver) {
+      state.onUnregisteredHandler = null;
+      state.onUnregisteredBrokerUnsub?.();
+      state.onUnregisteredBrokerUnsub = null;
+    }
+  };
 }
 
 // ── Transport-delivery hook (the `@pyric/cli` worker seam) ──────────────────
@@ -232,5 +323,3 @@ export async function deliverToMessaging(
   const { visibilityState: _visibility, ...payload } = spec;
   return state.broker.deliver(payload);
 }
-
-export type { DeliveredPayload, DeliveryResult };

@@ -26,7 +26,16 @@ const HOSTED_INIT_TIMEOUT_MS = 5_000;
 const HOSTED_INIT_MAX_BACKOFF_MS = 5_000;
 
 /** A host that answered with another host or project identity; retrying cannot change the answer. */
-class InitIdentityError extends Error {}
+class InitIdentityError extends Error {
+  readonly unlockUrl?: string;
+
+  constructor(message: string, options?: { unlockUrl?: string }) {
+    super(message);
+    if (options?.unlockUrl !== undefined) {
+      this.unlockUrl = options.unlockUrl;
+    }
+  }
+}
 
 const MAX_REFUSAL_DETAIL_LENGTH = 240;
 const ANSI_ESCAPE_RE = /\u001b(?:\[[0-?]*[ -/]*[@-~]|\][^\u0007\u001b]*(?:\u0007|\u001b\\))/g;
@@ -65,8 +74,14 @@ async function readRefusalDetail(response: Response): Promise<{ detail: string; 
         const errCode = typeof record.error === 'string' ? sanitizeRefusalText(record.error) : '';
         const rawUnlock = typeof record.unlockPath === 'string' ? record.unlockPath : '';
         if (errCode === 'unlock_required') {
-          const safeUnlock = rawUnlock.startsWith('/__pyric/unlock') ? rawUnlock : '/__pyric/unlock';
-          return { detail: errCode, unlockPath: sanitizeRefusalText(safeUnlock) };
+          const cleanedUnlock = sanitizeRefusalText(rawUnlock);
+          const isExactUnlock = cleanedUnlock === '/__pyric/unlock';
+          const isQueryUnlock = cleanedUnlock.startsWith('/__pyric/unlock?') && !cleanedUnlock.includes('#') && !/\s/.test(cleanedUnlock);
+          let safeUnlock = '/__pyric/unlock';
+          if (isExactUnlock || isQueryUnlock) {
+            safeUnlock = cleanedUnlock;
+          }
+          return { detail: errCode, unlockPath: safeUnlock };
         }
         if (errCode.length > 0) return { detail: errCode };
       }
@@ -149,6 +164,7 @@ async function requestInitPayload(resolvedUrl?: string): Promise<InitPayload> {
         }
         throw new InitIdentityError(
           `Pyric session unlock required (401). Open ${unlockUrl} and enter the per-boot token printed in the server terminal.`,
+          { unlockUrl },
         );
       }
       const suffix = refusal.detail.length > 0 ? `: ${refusal.detail}` : '';

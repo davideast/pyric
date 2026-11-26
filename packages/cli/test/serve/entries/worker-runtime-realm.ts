@@ -1,45 +1,121 @@
 import { build } from 'esbuild';
 import { dirname } from 'node:path';
+import { createContext, runInNewContext, SourceTextModule } from 'node:vm';
+import { JSDOM } from 'jsdom';
 import type { ServiceWorkerChannelMessage } from '../../../src/serve/worker/service-worker-channel.js';
 import type { BridgeMessage } from '../../../src/bridge/protocol.js';
 import type { InboundMessage } from '../../../src/serve/worker/protocol.js';
 const entry = new URL('../../../src/serve/entries/worker-runtime.ts', import.meta.url).pathname;
 
+function formatConsoleArg(arg: unknown): string {
+  if (arg instanceof Error) return arg.message;
+  return String(arg);
+}
+
+const bundledCodeCache = new Map<string, Promise<string>>();
+
+function bundleWorkerRuntimeRealm(
+  pageSdk: boolean,
+  define: Record<string, string>,
+): Promise<string> {
+  const key = JSON.stringify({ pageSdk, define });
+  const cached = bundledCodeCache.get(key);
+  if (cached !== undefined) {
+    return cached;
+  }
+  let pageSdkExports = '';
+  if (pageSdk) {
+    pageSdkExports = `export * as firestore from './firestore.js';
+      export * as auth from './auth.js';
+      export * as database from './database.js';
+      export * as app from './app.js';`;
+  }
+  const pending = build({
+    stdin: {
+      contents: `${pageSdkExports}export * from './worker-runtime.js';
+      export { registerActiveAuth } from './active-auth.js';
+      export { getAuth } from '../worker/client.js';
+      export { callerFrameFromStack } from 'pyric/sandbox/internal';`,
+      resolveDir: dirname(entry),
+    },
+    bundle: true,
+    platform: 'browser',
+    format: pageSdk ? 'esm' : 'iife',
+    globalName: 'entry',
+    target: pageSdk ? 'es2022' : 'es2020',
+    write: false,
+    logLevel: 'silent',
+    define,
+  }).then(
+    (result) => {
+      const code = result.outputFiles?.[0]?.text;
+      if (typeof code !== 'string') {
+        throw new Error('esbuild produced no bundled output for worker-runtime.');
+      }
+      return code;
+    },
+    (error: unknown) => {
+      bundledCodeCache.delete(key);
+      throw error;
+    },
+  );
+  bundledCodeCache.set(key, pending);
+  return pending;
+}
+
 // Browser transports are the I/O boundary. The bundled entry and its clients
 // run unchanged in a fresh realm for each case.
-export async function runtimeRealm(options: { sharedWorker?: boolean; blockedWorker?: boolean; serviceWorker?: boolean; forceInPage?: boolean; pageSdk?: boolean; hosted?: boolean; hostedWithoutIdentity?: boolean; unstamped?: boolean; inlinedSelection?: object; stamped?: boolean; failedSockets?: number; owners?: { skip?: string[]; frames?: number }; captureConsoleErrors?: boolean } = {}) {
-  const { runInNewContext, createContext, SourceTextModule } = await import('node:vm');
-  const { JSDOM } = await import('jsdom');
-  const needsPage = Boolean(options.pageSdk || options.inlinedSelection || options.unstamped || options.hostedWithoutIdentity) && !options.serviceWorker;
+export async function runtimeRealm(options: {
+  sharedWorker?: boolean;
+  blockedWorker?: boolean;
+  broadcastChannel?: boolean;
+  serviceWorker?: boolean;
+  forceInPage?: boolean;
+  pageSdk?: boolean;
+  hosted?: boolean;
+  hostedWithoutIdentity?: boolean;
+  unstamped?: boolean;
+  inlinedSelection?: object;
+  stamped?: boolean;
+  failedSockets?: number;
+  owners?: { skip?: string[]; frames?: number };
+  captureConsoleErrors?: boolean;
+  captureConsoleWarnings?: boolean;
+} = {}) {
+  const needsPage = Boolean(
+    options.pageSdk || options.inlinedSelection || options.unstamped || options.hostedWithoutIdentity,
+  ) && !options.serviceWorker;
   let hostMeta = '';
   if (options.hostedWithoutIdentity) {
     hostMeta = '<meta name="pyric-sandbox-host" content="node" data-pyric-serve>';
   }
-  let page: InstanceType<typeof JSDOM> | undefined;
+  let page: JSDOM | undefined;
   if (needsPage) {
-    page = new JSDOM(`<html><head>${hostMeta}<meta name="pyric-runtime-chip" content="off"></head><body></body></html>`, { url: 'https://app.example/' });
+    page = new JSDOM(
+      `<html><head>${hostMeta}<meta name="pyric-runtime-chip" content="off"></head><body></body></html>`,
+      { url: 'https://app.example/' },
+    );
   }
-  const result = await build({
-    stdin: { contents: (options.pageSdk ? `export * as firestore from './firestore.js';
-      export * as auth from './auth.js';
-      export * as database from './database.js';
-      export * as app from './app.js';` : '') + `export * from './worker-runtime.js';
-      export { registerActiveAuth } from './active-auth.js';
-      export { getAuth } from '../worker/client.js';
-      export { callerFrameFromStack } from 'pyric/sandbox/internal';`, resolveDir: dirname(entry) },
-    bundle: true, platform: 'browser', format: options.pageSdk ? 'esm' : 'iife',
-    globalName: 'entry', target: options.pageSdk ? 'es2022' : 'es2020', write: false, logLevel: 'silent',
+  const define: Record<string, string> = {};
+  if (options.inlinedSelection) {
     // As `withPyric` has Next inline it (next/runtime-env.ts).
-    define: options.inlinedSelection ? { 'process.env.NEXT_PUBLIC_PYRIC_WORKER_INIT': JSON.stringify(JSON.stringify(options.inlinedSelection)) } : {},
-  });
+    define['process.env.NEXT_PUBLIC_PYRIC_WORKER_INIT'] = JSON.stringify(
+      JSON.stringify(options.inlinedSelection),
+    );
+  }
+  const bundledCode = await bundleWorkerRuntimeRealm(Boolean(options.pageSdk), define);
+
   const connections: string[] = [];
   let socketsToFail = options.failedSockets ?? 0;
   const messages: InboundMessage[] = [];
   const consoleErrors: string[] = [];
+  const consoleWarnings: string[] = [];
   let initFetchCount = 0;
   const timers = new Set<ReturnType<typeof setTimeout>>();
-  let respond!: (response: Response) => void;
-  const response = new Promise<Response>(resolve => { respond = resolve; });
+  let resolveInitResponse: ((res: Response) => void) | null = null;
+  const response = new Promise<Response>((resolve) => {
+    resolveInitResponse = resolve;
+  });
   class Port {
     onmessage: ((event: MessageEvent) => void) | null = null;
     postMessage(message: InboundMessage) {
@@ -68,20 +144,24 @@ export async function runtimeRealm(options: { sharedWorker?: boolean; blockedWor
       if (options.owners) workerInitGlobal.owners = options.owners;
     }
   }
-  let realmConsole: Console = console;
-  if (options.captureConsoleErrors) {
-    realmConsole = {
-      ...console,
-      error: (...args: unknown[]) => {
-        const formatArg = (arg: unknown): string => {
-          if (arg instanceof Error) return arg.message;
-          return String(arg);
-        };
-        consoleErrors.push(args.map(formatArg).join(' '));
-      },
-    };
-  }
-  const globals = {
+  const realmConsole: Console = {
+    ...console,
+    error: (...args: unknown[]) => {
+      if (options.captureConsoleErrors) {
+        consoleErrors.push(args.map(formatConsoleArg).join(' '));
+        return;
+      }
+      console.error(...args);
+    },
+    warn: (...args: unknown[]) => {
+      if (options.captureConsoleWarnings) {
+        consoleWarnings.push(args.map(formatConsoleArg).join(' '));
+        return;
+      }
+      console.warn(...args);
+    },
+  };
+  const globals: Record<string, unknown> = {
     console: realmConsole, TextEncoder, TextDecoder, URL, AbortController, MessageEvent,
     crypto, performance, queueMicrotask,
     location: new URL('https://app.example/'),
@@ -101,16 +181,6 @@ export async function runtimeRealm(options: { sharedWorker?: boolean; blockedWor
     clearTimeout, clearInterval,
     __PYRIC_WORKER_INIT__: workerInitGlobal,
     __PYRIC_FORCE_INPAGE__: options.forceInPage,
-    ...(options.serviceWorker ? { ServiceWorkerGlobalScope: class {}, registration: { scope: '/' }, clients: {} } : { window: page?.window ?? {} }),
-    ...(page ? { document: page.window.document, HTMLElement: page.window.HTMLElement, CustomEvent: page.window.CustomEvent, MutationObserver: page.window.MutationObserver, localStorage: page.window.localStorage } : {}),
-    ...(options.sharedWorker ? { SharedWorker: class {
-      port = new Port();
-      constructor() {
-        if (options.blockedWorker) throw new Error('Blocked by browser policy');
-        connections.push('shared-worker');
-      }
-      addEventListener() {}
-    } } : {}),
     WebSocket: class {
       static OPEN = 1;
       readyState = 0;
@@ -141,7 +211,34 @@ export async function runtimeRealm(options: { sharedWorker?: boolean; blockedWor
       }
       close() { this.listeners.clear(); }
     },
-    BroadcastChannel: class {
+  };
+  if (options.serviceWorker) {
+    globals.ServiceWorkerGlobalScope = class {};
+    globals.registration = { scope: '/' };
+    globals.clients = {};
+  } else {
+    globals.window = page?.window ?? {};
+  }
+  if (page) {
+    globals.document = page.window.document;
+    globals.HTMLElement = page.window.HTMLElement;
+    globals.CustomEvent = page.window.CustomEvent;
+    globals.MutationObserver = page.window.MutationObserver;
+    globals.localStorage = page.window.localStorage;
+  }
+  if (options.sharedWorker) {
+    globals.SharedWorker = class {
+      port = new Port();
+      constructor() {
+        if (options.blockedWorker) throw new Error('Blocked by browser policy');
+        connections.push('shared-worker');
+      }
+      addEventListener() {}
+    };
+  }
+  const includeBroadcastChannel = options.broadcastChannel !== false;
+  if (includeBroadcastChannel) {
+    globals.BroadcastChannel = class {
       onmessage: ((event: MessageEvent<ServiceWorkerChannelMessage>) => void) | null = null;
       backend = new Port();
       constructor() { connections.push('service-worker-relay'); }
@@ -151,18 +248,18 @@ export async function runtimeRealm(options: { sharedWorker?: boolean; blockedWor
         this.backend.postMessage(envelope.message);
       }
       close() {}
-    },
-  };
+    };
+  }
   const context = createContext(globals);
   let evaluation: Promise<void> = Promise.resolve();
   let exports: unknown;
   if (options.pageSdk) {
-    const module = new SourceTextModule(result.outputFiles[0]!.text, { context });
+    const module = new SourceTextModule(bundledCode, { context });
     await module.link(() => { throw new Error('The SDK realm must be bundled.'); });
     evaluation = module.evaluate();
     exports = module.namespace;
   } else {
-    runInNewContext(result.outputFiles[0]!.text, context);
+    runInNewContext(bundledCode, context);
     exports = runInNewContext('entry', context);
   }
   const runtime = exports as typeof import('../../../src/serve/entries/worker-runtime.js') & Pick<typeof import('pyric/sandbox/internal'), 'callerFrameFromStack'>;
@@ -172,12 +269,12 @@ export async function runtimeRealm(options: { sharedWorker?: boolean; blockedWor
     workerDb: unknown;
   };
   return {
-    runtime, connections, messages, evaluation, consoleErrors,
+    runtime, connections, messages, evaluation, consoleErrors, consoleWarnings,
     sdk: exports as { firestore: typeof import('../../../src/serve/entries/firestore.js'); auth: typeof import('../../../src/serve/entries/auth.js'); database: typeof import('../../../src/serve/entries/database.js'); app: typeof import('../../../src/serve/entries/app.js') },
     registerAuth: (): (() => void) => authExports.registerActiveAuth(authExports.getAuth(authExports.workerDb)),
     status: () => runInNewContext('__pyricRuntime.getSnapshot()', globals),
-    respond: (payload: object) => respond(Response.json(payload)),
-    respondRaw: (res: Response) => respond(res),
+    respond: (payload: object) => resolveInitResponse?.(Response.json(payload)),
+    respondRaw: (res: Response) => resolveInitResponse?.(res),
     initFetches: () => initFetchCount,
     document: page?.window.document,
     workerInit: () => (context as { __PYRIC_WORKER_INIT__?: unknown }).__PYRIC_WORKER_INIT__,
@@ -189,4 +286,3 @@ export async function runtimeRealm(options: { sharedWorker?: boolean; blockedWor
     },
   };
 }
-
