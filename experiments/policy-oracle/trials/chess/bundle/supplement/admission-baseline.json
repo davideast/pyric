@@ -1,0 +1,59 @@
+{
+  "fixtures": "cdfb19172edd477754f1c6e329c9d55e9eb9d0d3aaf12146b66421a088e13d7c",
+  "refereeRules": "0f9aaf7b5c43f7fa4997150903b66495dbe47f3c1a979f6b6555af561f90213e",
+  "board": "97dda7add77cb18d132ba1c730bbef24a48870404198d6677cdf0f961a30d212",
+  "match": "e55d5da74410f0424062d9ce92d00b4c3304e8e30c2d7ed84017850ce5067ed9",
+  "observations": {
+    "signed-out": {
+      "authority": "local-http",
+      "status": 401,
+      "verdict": "identity"
+    },
+    "wrong-seat": {
+      "authority": "standalone-policy",
+      "verdict": "currentTurn"
+    },
+    "stale-ply": {
+      "authority": "standalone-policy",
+      "verdict": "matchVersion"
+    },
+    "castle-through-check": {
+      "authority": "standalone-policy",
+      "verdict": "legalMove"
+    },
+    "castle-clear": {
+      "authority": "standalone-policy",
+      "verdict": "committed"
+    },
+    "ep-exposes-king": {
+      "authority": "standalone-policy",
+      "verdict": "legalMove"
+    },
+    "ep-clear": {
+      "authority": "standalone-policy",
+      "verdict": "committed"
+    },
+    "occupied-seat-join": {
+      "authority": "local-rules",
+      "operations": [
+        "DENY"
+      ],
+      "verdict": "DENY"
+    },
+    "wrong-resign-winner": {
+      "authority": "local-rules",
+      "operations": [
+        "DENY"
+      ],
+      "verdict": "DENY"
+    },
+    "unfinished-parent-rematch": {
+      "authority": "local-rules",
+      "operations": [
+        "DENY",
+        "DENY"
+      ],
+      "verdict": "DENY"
+    }
+  }
+}
