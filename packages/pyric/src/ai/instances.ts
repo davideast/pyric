@@ -6,6 +6,7 @@ import {
 import type { FirebaseApp } from '../app/types.js';
 import type { Sandbox } from '../sandbox/types/service.js';
 import { Backend, BackendType, GoogleAIBackend } from './backend.js';
+import { AIError, AIErrorCode } from './errors.js';
 import { AiBroker } from './broker/broker.js';
 import { appCheckAttachmentFor } from './app-check-gate.js';
 import type { AnswerEngine, EngineConfig } from './broker/types.js';
@@ -51,11 +52,15 @@ function warnIgnoredEngineOnce(sandbox: Sandbox): void {
 }
 
 function describeBackend(backend: Backend): { key: string } {
+  if (backend.backendType === BackendType.GOOGLE_AI) {
+    return { key: 'googleai' };
+  }
   if (backend.backendType === BackendType.AGENT_PLATFORM) {
-    const location = (backend as { readonly location?: string }).location ?? 'global';
+    const rawLocation = (backend as { readonly location?: string }).location;
+    const location = rawLocation ? rawLocation : 'global';
     return { key: `agentplatform/${location}` };
   }
-  return { key: 'googleai' };
+  throw new AIError(AIErrorCode.ERROR, `Invalid backend: ${JSON.stringify(backend.backendType)}`);
 }
 
 function cachedHandles(owner: Sandbox | FirebaseApp): Map<string, AI> {

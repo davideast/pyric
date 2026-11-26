@@ -4,8 +4,9 @@
  * The plugin swaps `firebase/*` for the browser and routes the served
  * subpaths and `firebase-admin/*` in the server-rendered modules Vite
  * processes (`vite-ssr-routing.ts`). Vite leaves some loads to Node itself:
- * an installed package it externalizes that imports `firebase-admin` or
- * `firebase`, or an unserved `firebase/*` subpath in a server module. Under
+ * an installed package it externalizes that imports `firebase-admin`,
+ * `firebase`, `@google-cloud/firestore`, or `@google-cloud/storage`, or an
+ * unserved `firebase/*` subpath in a server module. Under
  * `pyric sandbox -- vite dev` the register's resolve hook stops those. Under
  * plain `vite dev` there is no register, so the plugin acquires a scoped
  * lease on a single sync resolve hook in its process: while a server is open,
@@ -24,8 +25,10 @@ import { requireRegisterHooks } from '../register/node-version-stop.js';
 import {
   createStopReporter,
   isImportCondition,
+  isStoppedServerSdkSpecifier,
   isUnservedFirebaseImport,
   stopFor,
+  stoppedServerSdkSpecifierStop,
   suppliedRowsStopFor,
   unservedFirebaseSubpathStop,
 } from '../register/swap-or-stop.js';
@@ -153,10 +156,17 @@ function resolveAndEvaluateSandboxLease(
   try {
     result = resolveSandboxNodeLoad(lease, specifier, context, nextResolve);
   } catch (err) {
-    if (isMissingResolutionCode(errorCodeOf(err)) && isUnservedFirebaseImport(effectiveSpecifier)) {
-      const unservedStop = unservedFirebaseSubpathStop(specifier, importer, effectiveSpecifier);
-      lease.report(unservedStop);
-      throw unservedStop;
+    if (isMissingResolutionCode(errorCodeOf(err))) {
+      if (isUnservedFirebaseImport(effectiveSpecifier)) {
+        const unservedStop = unservedFirebaseSubpathStop(specifier, importer, effectiveSpecifier);
+        lease.report(unservedStop);
+        throw unservedStop;
+      }
+      if (isStoppedServerSdkSpecifier(effectiveSpecifier)) {
+        const serverStop = stoppedServerSdkSpecifierStop(specifier, importer);
+        lease.report(serverStop);
+        throw serverStop;
+      }
     }
     throw err;
   }

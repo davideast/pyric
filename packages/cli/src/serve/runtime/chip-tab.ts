@@ -52,6 +52,8 @@ export interface ChipTabSignals {
   rateThreshold?: boolean;
   /** The host restarted since this page loaded, leaving a stale tab bundle. */
   hostBundleStale?: boolean;
+  /** The browser must pair at `/__pyric/unlock` before hosted requests succeed. */
+  unlockRequired?: boolean;
 }
 
 /** `true` when this string names a view. */
@@ -61,9 +63,9 @@ export function isChipTab(value: unknown): value is ChipTab {
 
 /**
  * The view an open should land on. A fresh failure outranks a duplicate
- * listener, which outranks a missing index or a crossed threshold. A tab left
- * stale by a host restart comes next and opens the Sandbox (or Live) view
- * that holds its Reload page action. A pending update is only an offer, so it
+ * listener, which outranks a missing index or a crossed threshold. A browser
+ * waiting to pair or a tab left stale by a host restart opens the Sandbox (or
+ * Live) view that holds its action. A pending update is only an offer, so it
  * comes last. With no signal, the remembered view wins, and Identity is the
  * first-time default.
  */
@@ -74,6 +76,7 @@ export function openingChipTab(
   if (signals.failedRecently) return 'traffic';
   if (signals.duplicateListener) return 'listeners';
   if (signals.missingIndex || signals.rateThreshold) return 'traffic';
+  if (signals.unlockRequired) return 'sandbox';
   if (signals.hostBundleStale) return 'sandbox';
   if (signals.updatePending) return 'identity';
   return remembered ?? DEFAULT_CHIP_TAB;
@@ -84,6 +87,7 @@ export function problemTab(signals: ChipTabSignals): ChipTab | null {
   if (signals.failedRecently) return 'traffic';
   if (signals.duplicateListener) return 'listeners';
   if (signals.missingIndex || signals.rateThreshold) return 'traffic';
+  if (signals.unlockRequired) return 'sandbox';
   if (signals.hostBundleStale) return 'sandbox';
   if (signals.updatePending) return 'identity';
   return null;
@@ -94,6 +98,7 @@ export function problemTab(signals: ChipTabSignals): ChipTab | null {
  * `problemTab` ranks them, or `''` on a clean page.
  */
 export function chipTitleFor(signals: ChipTabSignals): string {
+  if (signals.unlockRequired) return 'Session unlock required - open Pyric to pair this browser';
   if (signals.failedRecently) return 'A request failed in the last minute';
   if (signals.duplicateListener) return 'A listener is attached twice';
   if (signals.missingIndex) return 'A query is missing an index in local configuration';
@@ -108,7 +113,7 @@ export function chipTitleFor(signals: ChipTabSignals): string {
  * colour because a failure is about the page as it is running.
  */
 export function chipToneFor(signals: ChipTabSignals): '' | ' error' | ' warning' {
-  if (signals.failedRecently || signals.duplicateListener) return ' error';
+  if (signals.unlockRequired || signals.failedRecently || signals.duplicateListener) return ' error';
   if (signals.missingIndex || signals.rateThreshold) return ' warning';
   if (signals.hostBundleStale || signals.updatePending) return ' warning';
   return '';

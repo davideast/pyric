@@ -61,6 +61,9 @@ export interface AuthProjectStore {
   hostFlowResolver: AuthFlowResolver | null;
   /** Host-level avatar mint shared with app-scoped backends when no per-app mint override was installed. */
   defaultAvatarMint: AvatarMint | null;
+  /** Project-level Email Enumeration Protection (`true` by default for new projects). */
+  emailEnumerationProtection: boolean;
+  readonly emailEnumerationProtectionSubscribers: Set<() => void>;
 }
 
 export function createAuthProjectStore(): AuthProjectStore {
@@ -87,6 +90,8 @@ export function createAuthProjectStore(): AuthProjectStore {
     fallbackPhotoOrigin: null,
     hostFlowResolver: null,
     defaultAvatarMint: null,
+    emailEnumerationProtection: true,
+    emailEnumerationProtectionSubscribers: new Set(),
   };
 }
 
@@ -121,15 +126,27 @@ export function forgetAccountHistory(store: AuthProjectStore): void {
   store.tokensValidAfterMs.clear();
   store.photoOriginByUid.clear();
   store.smsOutbox.length = 0;
+  store.emailEnumerationProtection = true;
 }
 
 /** Each account's revocation time and the deleted uids, as plain JSON. */
 export function accountHistory(store: AuthProjectStore): AuthAccountHistory {
   const uids = [...store.tokensValidAfterMs.keys()].sort();
-  return {
-    tokensValidAfterMs: Object.fromEntries(uids.map((uid) => [uid, store.tokensValidAfterMs.get(uid)!])),
+  const tokensValidAfterMs: Record<string, number> = {};
+  for (const uid of uids) {
+    const validAfterMs = store.tokensValidAfterMs.get(uid);
+    if (validAfterMs !== undefined) {
+      tokensValidAfterMs[uid] = validAfterMs;
+    }
+  }
+  const out: AuthAccountHistory = {
+    tokensValidAfterMs,
     deletedUids: [...store.deletedUids].sort(),
   };
+  if (!store.emailEnumerationProtection) {
+    out.emailEnumerationProtection = false;
+  }
+  return out;
 }
 
 /** Replace the store's deletions and revocations with `history`'s. */
@@ -139,6 +156,7 @@ export function replayAccountHistory(store: AuthProjectStore, history: AuthAccou
     store.tokensValidAfterMs.set(uid, validAfterMs);
   }
   for (const uid of history.deletedUids) store.deletedUids.add(uid);
+  store.emailEnumerationProtection = history.emailEnumerationProtection !== false;
 }
 
 /** A session as persistence saves it. */
@@ -203,5 +221,12 @@ export function shiftedHistory(history: AuthAccountHistory, shiftMs: number): Au
   const tokensValidAfterMs = Object.fromEntries(
     Object.entries(history.tokensValidAfterMs).map(([uid, validAfterMs]) => [uid, validAfterMs + shiftMs]),
   );
-  return { tokensValidAfterMs, deletedUids: [...history.deletedUids] };
+  const out: AuthAccountHistory = {
+    tokensValidAfterMs,
+    deletedUids: [...history.deletedUids],
+  };
+  if (history.emailEnumerationProtection === false) {
+    out.emailEnumerationProtection = false;
+  }
+  return out;
 }

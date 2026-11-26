@@ -5,21 +5,21 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { extname, join } from 'node:path';
 import type { AppPorts } from './app-ports.js';
 import {
-  effectiveRequestScheme,
   isAdmittedPeer,
-  isLoopbackHostHeader,
-  isTrustedProxyPeer,
   parseAllowPeersSetting,
   parseTrustProxySetting,
   type RemoteAccessOptions,
 } from './guard-policy.js';
+import {
+  isRewrittenForwarderRequest,
+  resolveRequestHostContext,
+} from './forwarded-proxy.js';
 import { parseHostHeader } from './host-pattern.js';
 import {
   appendSetCookieHeader,
   canBootstrapHtmlSession,
   formatSessionCookie,
   getHeader,
-  isAllowedHost,
   isAllowedOriginOnPorts,
   isAllowedSessionToken,
   isLocalPeer,
@@ -158,18 +158,22 @@ export function createSiteTreeHandler(
     }
     const authenticated = isAllowedSessionToken(req, url, sessionToken);
     const requiresToken = requireSessionToken === true;
-    const hostHeader = getHeader(req, 'host');
     const originHeader = getHeader(req, 'origin');
-    const effectiveScheme = effectiveRequestScheme(req, trustProxy);
-    const isLocalHost = isAllowedHost(hostHeader, effectiveBoundHost, []);
-    const isExtraHost =
-      !isLocalHost && isAllowedHost(hostHeader, effectiveBoundHost, mergedAllowedHosts);
-    if (!isLocalHost && !isExtraHost) {
+    const hostCtx = resolveRequestHostContext(req, {
+      boundHost: effectiveBoundHost,
+      allowedHosts: mergedAllowedHosts,
+      allowPeers,
+      trustProxy,
+      remoteAccessEnabled,
+    });
+    if (!hostCtx.ok) {
       res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' }).end(
         'Forbidden: invalid host or origin',
       );
       return true;
     }
+    const effectiveScheme = hostCtx.effectiveScheme;
+    const isExtraHost = hostCtx.isExtraHost;
     if (isExtraHost && !remoteAccessEnabled && !(requiresToken && authenticated)) {
       res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' }).end(
         'Forbidden: invalid host or origin',
@@ -183,10 +187,13 @@ export function createSiteTreeHandler(
     } else if (req.socket?.localPort !== undefined) {
       ports.push(req.socket.localPort);
     }
-    if (isTrustedProxyPeer(req, trustProxy) && hostHeader !== undefined) {
-      const parsedHost = parseHostHeader(hostHeader);
-      if (parsedHost?.port !== undefined && !ports.includes(parsedHost.port)) {
-        ports.push(parsedHost.port);
+    if (hostCtx.trustedProxy) {
+      for (const candidate of [hostCtx.hostHeader, hostCtx.forwardedHost]) {
+        if (candidate === undefined) continue;
+        const parsedHost = parseHostHeader(candidate);
+        if (parsedHost?.port !== undefined && !ports.includes(parsedHost.port)) {
+          ports.push(parsedHost.port);
+        }
       }
     }
     const originPorts = ports.length > 0 ? ports : undefined;
@@ -216,7 +223,7 @@ export function createSiteTreeHandler(
       );
       return true;
     }
-    const isRemoteRequest = peerRemote || !isLoopbackHostHeader(hostHeader);
+    const isRemoteRequest = peerRemote || hostCtx.isRemoteHost;
     if (isRemoteRequest && !authenticated) {
       if (remoteAccessEnabled && remoteAccess?.browserUnlock !== false) {
         const nextParam = encodeURIComponent(`${rawPathname}${rawRequestSearch(req, url)}`);
@@ -260,18 +267,19 @@ export function createSiteTreeHandler(
       res.writeHead(404).end('not found');
       return true;
     }
+    const first = decodedSegments[0];
+    const studioRequest = first === undefined || studioRoutes.has(first);
     const mayBeDirectory = !relativePath.endsWith('/') && extname(relativePath) === '';
     if (mayBeDirectory) {
       const dir = resolveStaticPath(root, relativePath);
       const isDirectory = dir !== null && existsSync(dir) && statSync(dir).isDirectory();
-      if (isDirectory) {
+      const proxiedStudioRoute = studioRequest && isRewrittenForwarderRequest(req);
+      if (isDirectory && !proxiedStudioRoute) {
         res.writeHead(301, { location: `${rawPathname}/${rawSearch}` }).end();
         return true;
       }
     }
 
-    const first = decodedSegments[0];
-    const studioRequest = first === undefined || studioRoutes.has(first);
     let file = resolveStaticFile(root, relativePath);
     // Storage object names commonly contain extensions (logo.png), while the
     // other Studio routes reserve extension-bearing misses for static assets.

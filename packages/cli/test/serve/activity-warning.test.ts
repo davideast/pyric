@@ -124,6 +124,43 @@ describe('formatActivityWarning', () => {
     expect(churn).toContain('(listener churn)');
   });
 
+  it('decodes structured listener target fingerprints into readable paths and query labels', () => {
+    const feed = new TestActivityFeed();
+    const warnings: string[] = [];
+    monitorFirebaseActivity(feed, (generated) => warnings.push(formatActivityWarning(generated)));
+
+    for (let index = 0; index < 3; index += 1) {
+      feed.emit({
+        kind: 'listener_attach',
+        id: `dup-${index}`,
+        at: 200 + index,
+        listenerId: `listener-${index}`,
+        target: { kind: 'doc', path: 'todos/t1' },
+        auth: { uid: 'alice' },
+        operationContext: {
+          source: { kind: 'app', journeyId: 'page-1' },
+          authLens: { mode: 'app-session' },
+        },
+      } as SandboxEvent);
+    }
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('3 duplicate active Firestore listeners on todos/t1');
+    expect(warnings[0]).not.toContain('{"kind":"doc"');
+    expect(warnings[0]).toContain('sharing a subscription');
+
+    const queryWarning = formatActivityWarning(incident({
+      pattern: 'listener-churn',
+      method: 'listen',
+      targetFingerprint: JSON.stringify({ collection: 'todos', kind: 'query', query: '#1' }),
+      count: 4,
+      usage: { unit: 'listener-attaches', lowerBound: 4, limitations: [] },
+      listenerBalance: { attaches: 4, detaches: 3, active: 1 },
+    }));
+    expect(queryWarning).toContain('on todos (query #1) in 400ms.');
+    expect(queryWarning).toContain('re-subscribing onSnapshot');
+  });
+
   it('prints the attributed source for a monitor-generated incident', () => {
     const feed = new TestActivityFeed();
     const warnings: string[] = [];

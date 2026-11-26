@@ -18,7 +18,7 @@ const GOOGLE_PROVIDER_ID = 'google.com';
 const GMAIL_DOMAIN_SUFFIX = '@gmail.com';
 
 /** True when `providerId` is `'google.com'` and `email` is a canonical `@gmail.com` address. */
-function isTrustedGmailGoogleSignIn(
+export function isTrustedGmailGoogleSignIn(
   providerId: string,
   email: string | null | undefined,
 ): boolean {

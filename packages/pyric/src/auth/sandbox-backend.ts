@@ -3103,7 +3103,7 @@ export class SandboxBackend {
     password: string,
     tenantId: string | null = this.tenantId,
   ): StoredUser {
-    return verifyPasswordSignIn(email, password, (targetEmail) => this.findByEmail(targetEmail, tenantId));
+    return verifyPasswordSignIn(email, password, (targetEmail) => this.findByEmail(targetEmail, tenantId), this.projectStore.emailEnumerationProtection);
   }
 }
 

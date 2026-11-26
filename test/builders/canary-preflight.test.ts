@@ -18,9 +18,27 @@ function checkout(options: { playwright?: boolean; dist?: boolean } = {}): strin
 }
 
 describe('packedPackageDirs', () => {
-  test('reads the list the repo’s pack script packs', () => {
+  test("reads the list the repo's pack script packs", () => {
     const repo = fileURLToPath(new URL('../..', import.meta.url));
-    expect(packedPackageDirs(repo)).toEqual(['packages/pyric', 'packages/pyric-admin', 'packages/create-pyric', 'packages/cli', 'packages/ui']);
+    expect(packedPackageDirs(repo)).toEqual([
+      'packages/rules',
+      'packages/pyric',
+      'packages/pyric-admin',
+      'packages/create-pyric',
+      'packages/cli',
+      'packages/ui',
+      'packages/live',
+    ]);
+  });
+
+  test('collects the deduplicated union across indented PACKAGES=(...) branches', () => {
+    const root = mkdtempSync(join(tmpdir(), 'builders-packed-'));
+    mkdirSync(join(root, 'scripts'));
+    writeFileSync(
+      join(root, 'scripts/pack-packages.sh'),
+      '#!/usr/bin/env bash\nif [ "$TARGET" = "rules" ]; then\n  PACKAGES=(\n    "packages/rules"\n  )\nelse\n  PACKAGES=(\n    "packages/rules"\n    "packages/pyric"\n    "packages/cli"\n  )\nfi\n',
+    );
+    expect(packedPackageDirs(root)).toEqual(['packages/rules', 'packages/pyric', 'packages/cli']);
   });
 });
 

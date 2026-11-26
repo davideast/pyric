@@ -11,7 +11,7 @@
  * - cost per builder run: the mean builder cost of every run.
  * - cost per verifier report: the mean verification cost of judged runs.
  * - confirmed new findings per app: confirmed problems (pyric differs,
- *   misleading docs, unclear error; not duplicates) per judged run.
+ *   misleading docs, unclear error, tooling bug; not duplicates) per judged run.
  * - throw-out share: of the problems judged runs reported, the share the
  *   verifier threw out (unconfirmed, builder's own bug, invalid run).
  *   Duplicates and needs-capture are kept, not thrown out. The verifier
@@ -66,8 +66,8 @@ export function percentile(values: readonly number[], p: number): number | null 
 }
 
 export function confirmedNew(verdicts: VerdictCounts): number {
-  const { pyricDiffers, misleadingDocs, unclearError } = verdicts.confirmed;
-  return pyricDiffers + misleadingDocs + unclearError;
+  const { pyricDiffers, misleadingDocs, unclearError, toolingBug } = verdicts.confirmed;
+  return pyricDiffers + misleadingDocs + unclearError + toolingBug;
 }
 
 export function thrownOut(verdicts: VerdictCounts): number {

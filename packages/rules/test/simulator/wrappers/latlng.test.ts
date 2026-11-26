@@ -187,15 +187,16 @@ describe('LatLng — through evaluator', () => {
     expect(r.success && r.data.passed).toBe(1);
   });
 
-  test('unknown method on latlng → UNSUPPORTED state (not silent DENY)', () => {
-    // Item 0.A: gaps in wrapper coverage surface as UNSUPPORTED so the
-    // benchmark divergence accountant can distinguish "sim hasn't
-    // implemented this" from "rule is wrong."
+  test('unknown method on latlng throws absorbable EvalError (DENY)', () => {
     const r = sim.simulate(
       rules('latlng.value(0, 0).elevation() == 0'),
-      [tc('unknown latlng method', 'ALLOW')],
+      [tc('unknown latlng method', 'DENY')],
     );
-    expect(r.success && r.data.unsupported).toBe(1);
+    expect(r.success && r.data.passed).toBe(1);
+    if (r.success) {
+      expect(r.data.results[0]?.trace[0]?.verdict).toBe('ERROR');
+      expect(r.data.results[0]?.trace[0]?.message).toBe('Function not found error: Name: [elevation].');
+    }
   });
 
   test('latlng.value enforces latitude [-90, 90] and longitude [-180, 180] bounds (FS-SIM-3 / FS-COV-2)', () => {

@@ -1,4 +1,5 @@
 import { redactUpstreamUrl } from 'pyric/ai/internal';
+import { SANDBOX_BUILD_MARKER } from './sandbox-marker.js';
 import type { AiEngineConfigWire } from './worker/protocol.js';
 
 /**
@@ -29,4 +30,34 @@ export function browserAiEngineWire(
     sanitized.modelMap = wire.modelMap;
   }
   return sanitized;
+}
+
+const SERVE_AI_ENGINE_MARKER = 'data-pyric-ai-engine';
+
+/**
+ * Stamp `globalThis.__PYRIC_AI_ENGINE__` into HTML served by `pyric sandbox`
+ * ahead of the import map and `/__pyric/sdk/init.js` so the synchronous
+ * in-page fallback and runtime chip see the same sanitized engine wire shape
+ * as Vite's `transformIndexHtml`.
+ */
+export function injectServeAiEngineTag(
+  html: string,
+  browserEngine: AiEngineConfigWire | undefined,
+): string {
+  if (browserEngine === undefined) return html;
+  if (html.includes(SERVE_AI_ENGINE_MARKER) || html.includes(SANDBOX_BUILD_MARKER)) {
+    return html;
+  }
+  const serialized = JSON.stringify(browserEngine).replace(/</g, '\\u003c');
+  const tag = `<script ${SERVE_AI_ENGINE_MARKER}>globalThis.__PYRIC_AI_ENGINE__=${serialized};</script>`;
+  const importMapIndex = html.indexOf('<script type="importmap"');
+  if (importMapIndex >= 0) {
+    return html.slice(0, importMapIndex) + tag + html.slice(importMapIndex);
+  }
+  const headMatch = /<head[^>]*>/i.exec(html);
+  if (headMatch !== null) {
+    const at = headMatch.index + headMatch[0].length;
+    return html.slice(0, at) + tag + html.slice(at);
+  }
+  return tag + html;
 }

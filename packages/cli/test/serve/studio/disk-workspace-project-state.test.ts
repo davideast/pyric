@@ -19,6 +19,19 @@ beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'pyric-workspace-state-'));
   mkdirSync(join(root, '.pyric', 'state', 'hosted'), { recursive: true });
   writeFileSync(join(root, '.pyric', 'state', 'hosted', 'state.sqlite'), 'users and data');
+  mkdirSync(join(root, '.git', 'hooks'), { recursive: true });
+  writeFileSync(join(root, '.git', 'config'), '[core]\n\trepositoryformatversion = 0\n');
+  writeFileSync(join(root, '.git', 'hooks', 'post-checkout'), '#!/bin/sh\necho hook\n');
+  mkdirSync(join(root, '.ssh'), { recursive: true });
+  writeFileSync(join(root, '.ssh', 'id_rsa'), 'PRIVATE_SSH_KEY');
+  mkdirSync(join(root, '.aws'), { recursive: true });
+  writeFileSync(join(root, '.aws', 'credentials'), '[default]\naws_secret_access_key=secret\n');
+  writeFileSync(join(root, '.npmrc'), '//registry.example.test/:_authToken=npm-secret\n');
+  writeFileSync(join(root, '.yarnrc.yml'), 'npmAuthToken: yarn-secret\n');
+  mkdirSync(join(root, 'keys'), { recursive: true });
+  writeFileSync(join(root, 'keys', 'tls.pem'), 'PEM_SECRET');
+  writeFileSync(join(root, 'keys', 'tls.key'), 'KEY_SECRET');
+  writeFileSync(join(root, 'keys', 'prod-service-account.json'), '{"private_key":"secret"}');
   writeFileSync(join(root, '.env'), 'API_KEY=secret');
   writeFileSync(join(root, '.env.local'), 'API_KEY=local');
   writeFileSync(join(root, '.envrc'), 'export API_KEY=rc');
@@ -29,6 +42,8 @@ beforeEach(() => {
   writeFileSync(join(root, 'firestore.rules'), 'rules');
   symlinkSync(join(root, '.pyric', 'state'), join(root, 'src', 'state-link'));
   symlinkSync(join(root, '.env'), join(root, 'src', 'env-link'));
+  symlinkSync(join(root, '.git', 'hooks'), join(root, 'src', 'hooks-link'));
+  symlinkSync(join(root, '.npmrc'), join(root, 'src', 'npmrc-link'));
   // The name is denied, the file behind it is not.
   symlinkSync(join(root, 'src', 'app.js'), join(root, '.env.link'));
 });
@@ -38,12 +53,24 @@ const deniedPaths = [
   '/.pyric/state/hosted/state.sqlite',
   '.PYRIC/state/hosted/state.sqlite',
   'src/../.pyric/state/hosted/state.sqlite',
+  '.git/config',
+  '.git/hooks/post-checkout',
+  '.GIT/hooks/post-checkout',
+  '.npmrc',
+  '.yarnrc.yml',
+  '.ssh/id_rsa',
+  '.aws/credentials',
+  'keys/tls.pem',
+  'keys/tls.key',
+  'keys/prod-service-account.json',
   '.env',
   '.env.local',
   '.envrc',
   'node_modules/pkg/index.js',
   'src/state-link/hosted/state.sqlite',
   'src/env-link',
+  'src/hooks-link/post-checkout',
+  'src/npmrc-link',
   '.env.link',
 ];
 
@@ -55,13 +82,20 @@ describe('diskWorkspace refuses project state', () => {
     });
   }
 
-  it('refuses to write or remove into .pyric, .env and node_modules', async () => {
+  it('refuses to write or remove into .pyric, .git, .npmrc, .env and node_modules', async () => {
     const ws = diskWorkspace(root);
     await expect(ws.write('.pyric/state/hosted/state.sqlite', 'x')).rejects.toBeInstanceOf(WorkspaceDeniedPathError);
     await expect(ws.write('src/state-link/hosted/state.sqlite', 'x')).rejects.toBeInstanceOf(WorkspaceDeniedPathError);
+    await expect(ws.write('.git/hooks/post-checkout', 'x')).rejects.toBeInstanceOf(WorkspaceDeniedPathError);
+    await expect(ws.write('src/hooks-link/post-checkout', 'x')).rejects.toBeInstanceOf(WorkspaceDeniedPathError);
+    await expect(ws.write('.npmrc', 'x')).rejects.toBeInstanceOf(WorkspaceDeniedPathError);
+    await expect(ws.write('src/npmrc-link', 'x')).rejects.toBeInstanceOf(WorkspaceDeniedPathError);
     await expect(ws.write('.env', 'x')).rejects.toBeInstanceOf(WorkspaceDeniedPathError);
+    await expect(ws.remove('.git')).rejects.toBeInstanceOf(WorkspaceDeniedPathError);
     await expect(ws.remove('node_modules')).rejects.toBeInstanceOf(WorkspaceDeniedPathError);
     expect(readFileSync(join(root, '.pyric', 'state', 'hosted', 'state.sqlite'), 'utf8')).toBe('users and data');
+    expect(readFileSync(join(root, '.git', 'hooks', 'post-checkout'), 'utf8')).toBe('#!/bin/sh\necho hook\n');
+    expect(readFileSync(join(root, '.npmrc'), 'utf8')).toBe('//registry.example.test/:_authToken=npm-secret\n');
     expect(readFileSync(join(root, '.env'), 'utf8')).toBe('API_KEY=secret');
   });
 
@@ -74,7 +108,8 @@ describe('diskWorkspace refuses project state', () => {
 
   it('leaves denied entries out of a listing', async () => {
     const ws = diskWorkspace(root);
-    expect((await ws.list()).map((entry) => entry.path)).toEqual(['firestore.rules', 'src']);
+    expect((await ws.list()).map((entry) => entry.path)).toEqual(['firestore.rules', 'keys', 'src']);
+    expect((await ws.list('keys')).map((entry) => entry.path)).toEqual([]);
     expect((await ws.list('src')).map((entry) => entry.path)).toEqual(['src/app.js']);
   });
 
@@ -121,11 +156,12 @@ describe('workspace routes refuse project state', () => {
     expect(res.body).not.toContain('users and data');
   });
 
-  it('lists the root without .pyric, .env or node_modules', async () => {
+  it('lists the root without .pyric, .git, .ssh, .aws, .env, .npmrc, .yarnrc or node_modules', async () => {
     const res = await get('/__pyric/workspace/list');
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual([
       { path: 'firestore.rules', kind: 'file' },
+      { path: 'keys', kind: 'dir' },
       { path: 'src', kind: 'dir' },
     ]);
   });

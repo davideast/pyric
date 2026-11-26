@@ -31,7 +31,29 @@ describe('listenerIncidents', () => {
     const incidents = listenerIncidents(events);
     const matched = incidentsForTarget(incidents, 'notes/dup');
     expect(matched).toHaveLength(1);
-    expect(matched[0]!.pattern).toBe('duplicate-listener');
+    expect(matched[0]?.pattern).toBe('duplicate-listener');
+  });
+
+  it('surfaces listener-churn incidents matching the churned document target', () => {
+    const events: SandboxEvent[] = [];
+    for (let index = 0; index < 4; index += 1) {
+      const id = `l-${index}`;
+      events.push(attach(`a-${index}`, id, index * 10));
+      if (index < 3) {
+        events.push({
+          kind: 'listener_detach',
+          id: `d-${index}`,
+          at: index * 10 + 5,
+          listenerId: id,
+          target: { kind: 'doc', path: 'notes/dup' },
+          auth: null,
+          operationContext: CONTEXT,
+        } as unknown as SandboxEvent);
+      }
+    }
+    const incidents = listenerIncidents(events);
+    const matched = incidentsForTarget(incidents, 'notes/dup');
+    expect(matched.map((incident) => incident.pattern)).toContain('listener-churn');
   });
 
   it('does not match a target the incident does not name', () => {

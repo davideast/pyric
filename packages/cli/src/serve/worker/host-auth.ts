@@ -58,7 +58,8 @@ import {
   handleAuthBlockingSub,
   handleAuthBlockingUnsub,
 } from './host/auth-blocking.js';
-import { authAccountsFor, getClock, isPastIdTokenRefreshPoint, rulesTokenFromIdToken } from 'pyric/sandbox/internal';
+import { authStateFromServerIdToken } from 'pyric/app/internal';
+import { getClock, isPastIdTokenRefreshPoint, rulesTokenFromIdToken } from 'pyric/sandbox/internal';
 import {
   createBlockedAnonymousUser,
   createBlockedEmailPasswordUser,
@@ -73,6 +74,7 @@ import { isPlainRecord, STANDARD_TOKEN_CLAIMS } from '../repro/token-claims.js';
 import { linkSessionProvider } from './host/auth-linking.js';
 import { reauthenticateSession } from './host/auth-reauthentication.js';
 import { alignSessionTenant, updatePortSessionEmail } from './host/auth-session-tenant.js';
+import { handleAuthAdminOp, isAuthAdminOp } from './host/auth-admin.js';
 import { createStagedSignInResults, type StagedSignInResults } from './host/staged-sign-in-results.js';
 
 // ─── Auth: per-port sessions + port-scoped fan-out ────────────────────────
@@ -332,10 +334,77 @@ export function cleanupPortSession(ctx: HostCtx, port: PortLike): void {
   cleanupPortAuthBlocking(ctx, ctx.auth, port);
 }
 
+function resolveServerTokenProjectId(
+  ctx: HostCtx,
+  rawExpectedProjectId: unknown,
+): { ok: true; projectId: string | undefined } | { ok: false } {
+  const hostProject = hostProjectId(ctx);
+  let clientProject: string | undefined;
+  if (rawExpectedProjectId !== undefined) {
+    if (typeof rawExpectedProjectId !== 'string' || rawExpectedProjectId.length === 0) {
+      return { ok: false };
+    }
+    clientProject = rawExpectedProjectId;
+  }
+  if (hostProject !== undefined && clientProject !== undefined && hostProject !== clientProject) {
+    return { ok: false };
+  }
+  if (hostProject !== undefined) {
+    return { ok: true, projectId: hostProject };
+  }
+  return { ok: true, projectId: clientProject };
+}
+
+function restoreServerIdTokenSession(
+  ctx: HostCtx,
+  port: PortLike,
+  auth: Auth,
+  rawRestore: Record<string, unknown>,
+): MintedSession | null {
+  const rawToken = rawRestore.authIdToken;
+  if (typeof rawToken !== 'string' || rawToken.length === 0) {
+    return null;
+  }
+  const projectResolution = resolveServerTokenProjectId(ctx, rawRestore.expectedProjectId);
+  if (!projectResolution.ok) {
+    return null;
+  }
+  const verifiedState = authStateFromServerIdToken(
+    rawToken,
+    projectResolution.projectId,
+    ctx.sandbox,
+  );
+  if (verifiedState === null) {
+    return null;
+  }
+  const tokenTenantId = verifiedState.tenant ?? null;
+  let verifiedSession: MintedSession | null = null;
+  try {
+    verifiedSession = authSandboxOps.mintSession(auth, {
+      kind: 'uid',
+      uid: verifiedState.uid,
+      tenantId: tokenTenantId,
+      restore: {},
+      ...portOriginScope(port),
+    });
+  } catch (err) {
+    // Unknown, disabled, deleted, or cross-tenant accounts fail closed.
+    void err;
+    return null;
+  }
+  verifiedSession.state.token = verifiedState.token;
+  verifiedSession.state.tenant = verifiedState.tenant;
+  return verifiedSession;
+}
+
 // ─── Auth op handlers ─────────────────────────────────────────────────────
 
 export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<void> {
   const auth = ensureAuth(ctx);
+  if (isAuthAdminOp(msg)) {
+    await handleAuthAdminOp(ctx, port, auth, msg);
+    return;
+  }
 
   switch (msg.method) {
     case 'auth.createUser': {
@@ -445,8 +514,18 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
 
     case 'auth.restorePortSession': {
       try {
-        const tenantId = resolveSignInTenant(ctx, port, msg.tenantId);
         const rawRestore = msg as unknown as Record<string, unknown>;
+        if (Object.hasOwn(rawRestore, 'authIdToken') && rawRestore.authIdToken !== undefined) {
+          const verifiedSession = restoreServerIdTokenSession(ctx, port, auth, rawRestore);
+          setPortSession(ctx, port, verifiedSession);
+          let restoredUser = null;
+          if (verifiedSession !== null) {
+            restoredUser = serializeUser(verifiedSession.user);
+          }
+          ok(port, msg.id, restoredUser);
+          break;
+        }
+        const tenantId = resolveSignInTenant(ctx, port, msg.tenantId);
         const hasRecordedClaims =
           (Object.hasOwn(rawRestore, 'customClaims') && rawRestore.customClaims !== undefined)
           || rawRestore.hasCustomClaims === true;
@@ -804,97 +883,6 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
     case 'auth.mockSignInResult': {
       try {
         stagedSignInResultsFor(ctx).stage(port, msg.identity);
-        ok(port, msg.id, null);
-      } catch (e) { fail(port, msg.id, e); }
-      break;
-    }
-
-    case 'auth.listUsers': {
-      try {
-        ok(port, msg.id, authSandboxOps.listUsers(auth));
-      } catch (e) { fail(port, msg.id, e); }
-      break;
-    }
-
-    case 'auth.adminCreateUser': {
-      try {
-        const created = authSandboxOps.createUser(
-          auth,
-          msg.request as Parameters<typeof authSandboxOps.createUser>[1],
-        );
-        await bestEffortFlush(ctx, msg.method);
-        ok(port, msg.id, created);
-      } catch (e) { fail(port, msg.id, e); }
-      break;
-    }
-
-    case 'auth.adminUpdateUser': {
-      try {
-        const updated = authSandboxOps.updateUser(
-          auth,
-          msg.uid,
-          msg.request as Parameters<typeof authSandboxOps.updateUser>[2],
-        );
-        await bestEffortFlush(ctx, msg.method);
-        ok(port, msg.id, updated);
-      } catch (e) { fail(port, msg.id, e); }
-      break;
-    }
-
-    case 'auth.adminDeleteUser': {
-      try {
-        authSandboxOps.deleteUser(auth, msg.uid);
-        await bestEffortFlush(ctx, msg.method);
-        ok(port, msg.id, null);
-      } catch (e) { fail(port, msg.id, e); }
-      break;
-    }
-
-    case 'auth.adminGetAccountStanding': {
-      try {
-        ok(port, msg.id, authAccountsFor(ctx.sandbox)?.standing(msg.uid) ?? { kind: 'unrecorded' });
-      } catch (e) { fail(port, msg.id, e); }
-      break;
-    }
-
-    case 'auth.adminRevokeRefreshTokens': {
-      try {
-        const accounts = authAccountsFor(ctx.sandbox);
-        const standing = accounts?.standing(msg.uid) ?? { kind: 'unrecorded' };
-        const hasRecord = standing.kind === 'active' || standing.kind === 'disabled';
-        if (!hasRecord) {
-          throw Object.assign(
-            new Error('There is no user record corresponding to the provided identifier.'),
-            { code: 'auth/user-not-found' },
-          );
-        }
-        accounts!.revokeRefreshTokens(msg.uid);
-        await bestEffortFlush(ctx, msg.method);
-        ok(port, msg.id, null);
-      } catch (e) { fail(port, msg.id, e); }
-      break;
-    }
-
-    case 'auth.adminClearUsers': {
-      try {
-        authSandboxOps.clearUsers(auth);
-        await bestEffortFlush(ctx, msg.method);
-        ok(port, msg.id, null);
-      } catch (e) { fail(port, msg.id, e); }
-      break;
-    }
-
-    case 'auth.getProviderConfig': {
-      try {
-        ok(port, msg.id, authSandboxOps.getAuthProviderConfig(auth));
-      } catch (e) { fail(port, msg.id, e); }
-      break;
-    }
-
-    case 'auth.setProviderConfig': {
-      try {
-        authSandboxOps.setAuthProviderConfig(auth, msg.providerId, msg.enabled);
-        await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
       break;

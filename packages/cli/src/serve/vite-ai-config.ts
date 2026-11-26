@@ -1,7 +1,8 @@
 import type { AIOptions } from 'pyric/ai';
 import { GEMINI_SERVER_KEYS } from 'pyric/ai/internal';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { loadEnv } from 'vite';
+import { parseEnv } from 'node:util';
 import type { AiEngineConfigWire } from './worker/protocol.js';
 import { resolveAiMode } from './firebase-module-swap.js';
 
@@ -48,6 +49,36 @@ function copyProcessEnvStrings(): Record<string, string> {
   return out;
 }
 
+function dotEnvFilenames(mode: string): string[] {
+  const names = ['.env'];
+  if (mode !== 'test') {
+    names.push('.env.local');
+  }
+  if (mode.length > 0) {
+    names.push(`.env.${mode}`);
+    names.push(`.env.${mode}.local`);
+  }
+  return names;
+}
+
+function loadDotEnvFiles(mode: string, envDir: string): Record<string, string> {
+  const loaded: Record<string, string> = {};
+  for (const filename of dotEnvFilenames(mode)) {
+    const filePath = path.join(envDir, filename);
+    if (!existsSync(filePath)) continue;
+    const parsed = parseEnv(readFileSync(filePath, 'utf8'));
+    for (const [key, val] of Object.entries(parsed)) {
+      if (val !== undefined) {
+        loaded[key] = val;
+      }
+    }
+  }
+  for (const [key, val] of Object.entries(copyProcessEnvStrings())) {
+    loaded[key] = val;
+  }
+  return loaded;
+}
+
 /** Load env using Vite's `envDir`-relative-to-root convention (`false` disables `.env` files). */
 export function loadViteAiEnv(
   mode: string,
@@ -61,7 +92,7 @@ export function loadViteAiEnv(
   const resolvedEnvDir = envDir === undefined
     ? resolvedRoot
     : path.resolve(resolvedRoot, envDir);
-  const loaded = loadEnv(mode, resolvedEnvDir, '');
+  const loaded = loadDotEnvFiles(mode, resolvedEnvDir);
   for (const [key, val] of Object.entries(loaded)) {
     const isServerGeminiKey = (GEMINI_SERVER_KEYS as readonly string[]).includes(key);
     const isAuthKey = isServerGeminiKey || key === 'PYRIC_API_KEY';
@@ -179,10 +210,11 @@ export function engineConfigToWire(engine: PyricAiEngineConfig): AiEngineConfigW
   return result as AiEngineConfigWire;
 }
 
-/** Resolve the plugin's explicit-options-over-Vite-env AI convention. */
+/** Resolve explicit AI options (`pyric.json` or Vite plugin) over environment variables. */
 export function resolveViteAiConfig(
   options: PyricAiOptions | undefined,
   env: Record<string, string | undefined>,
+  sourceLabel = '@pyric/cli/vite',
 ): ResolvedViteAiConfig {
   const explicitModel = options?.model;
   const explicitEngine = options?.engine;
@@ -190,7 +222,7 @@ export function resolveViteAiConfig(
   const hasEngineOption = explicitEngine !== undefined;
   const hasBothModelAndEngine = hasModelOption && hasEngineOption;
   if (hasBothModelAndEngine) {
-    throw new Error('@pyric/cli/vite: Choose either ai.model or ai.engine, not both.');
+    throw new Error(`${sourceLabel}: Choose either ai.model or ai.engine, not both.`);
   }
 
   const mode = resolveAiMode(options?.mode, env);
@@ -198,7 +230,7 @@ export function resolveViteAiConfig(
   const hasAnyEngineConfig = hasModelOption || hasEngineOption;
   const isInvalidProductionConfig = isProductionMode && hasAnyEngineConfig;
   if (isInvalidProductionConfig) {
-    throw new Error('@pyric/cli/vite: Cannot configure ai.model or ai.engine when ai.mode is set to "production".');
+    throw new Error(`${sourceLabel}: Cannot configure ai.model or ai.engine when ai.mode is set to "production".`);
   }
 
   let model: string | undefined = undefined;

@@ -12,10 +12,19 @@
  */
 import { randomBytes } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { join, relative, resolve } from 'node:path';
+import { relative } from 'node:path';
 import { existsSync } from 'node:fs';
 import type { ParsedArgs } from './parse-args.js';
-import { readFirebaseJson, readFirebaseRc, withDefaultFirestoreRules, type FirebaseJson } from './firebase-json.js';
+import {
+  extractHosting,
+  hostingNoStaticSiteLine,
+  readFirebaseJson,
+  readFirebaseRc,
+  resolveHostingSite,
+  wantsSpaRewrite,
+  withDefaultFirestoreRules,
+  type FirebaseJson,
+} from './firebase-json.js';
 import { resolveFirebaseProject, type FirebaseProjectResolution } from './firebase-project.js';
 import { bundleSdk, bundleWorker, defaultSdkEntries, planProjectFirebase, resolveSiteUiDir } from '../serve/bundler.js';
 import {
@@ -36,7 +45,9 @@ import {
 import { formatDatabaseRulesRemoved, formatStorageRulesRemoved, storageBucketSuffix } from '../serve/rules.js';
 import { formatBeaconReceipt } from '../serve/beacon-route.js';
 import type { InitPayload } from '../serve/namespace.js';
+import { injectServeAiEngineTag } from '../serve/ai-engine-wire.js';
 import { formatAiStatusLine } from '../serve/ai-status.js';
+import { geminiProxyConfig } from '../serve/gemini-proxy.js';
 import { injectServeTags } from '../serve/html-injection.js';
 import { opaqueProjectKey } from '../serve/project-key.js';
 import { liveHostPageImportMap } from '../serve/live-host-pages.js';
@@ -47,7 +58,13 @@ import { refuseOwnWrite, type PyricWriteRefusal } from '../serve/hosted/own-writ
 import { workerInitPayload } from '../serve/runtime/hosted-target.js';
 import type { WorkerInitPayload } from '../serve/init-payload.js';
 import { resolveOwnersConfig } from '../serve/owners-config.js';
-import { resolveAiMode } from '../serve/firebase-module-swap.js';
+import {
+  browserAiEngineWire,
+  hasIgnoredBrowserGeminiKey,
+  loadViteAiEnv,
+  resolveViteAiConfig,
+  type PyricAiOptions,
+} from '../serve/vite-ai-config.js';
 import { formatActivityWarning } from '../serve/activity-warning.js';
 import {
   consoleServeLogger, getHeader, isAllowedOriginOnPorts, isForeignFetchSite,
@@ -104,7 +121,9 @@ import {
   type FunctionsDevelopmentEvent,
   type FunctionsDevelopmentRuntime,
 } from '../functions/development-runtime.js';
+import type { LocalSandbox } from 'pyric/sandbox';
 import { createFunctionsHttpGateway, type FunctionsHttpGateway } from '../functions/http/gateway.js';
+import { captureHostedSandbox } from '../functions/http/host-events.js';
 import {
   createPrivateInvokerWarnings,
   httpFunctionLines,
@@ -133,37 +152,8 @@ import {
   resolvePlannedChildAppOrigin,
 } from './child-app-origin.js';
 import { formatPyricCommand } from './command-hint.js';
-import { missingPublicDirHint } from './public-dir-hint.js';
 
-interface HostingConfig {
-  public?: string;
-  rewrites?: Array<{ source?: string; destination?: string }>;
-}
-
-/** Extract the single hosting config `pyric sandbox` supports. Arrays
- *  (multi-site) take the first entry with a warning — multi-site is out of
- *  scope (plan section 6). */
-export function extractHosting(config: FirebaseJson | null): HostingConfig | null {
-  const h = config?.hosting;
-  if (!h || typeof h !== 'object') return null;
-  if (Array.isArray(h)) return (h[0] as HostingConfig) ?? null;
-  return h as HostingConfig;
-}
-
-/** The directory `hosting.public` names, or `null` when there is no `hosting`
- *  block: production has no Hosting site then, so pyric serves no static
- *  files (#1779). A block without `public` uses production's default,
- *  `public`. */
-function hostingPublicDir(cwd: string, hosting: HostingConfig | null): string | null {
-  if (hosting === null) return null;
-  return resolve(cwd, hosting.public ?? 'public');
-}
-
-/** The startup line for a project that serves no static site. */
-function hostingOffLine(hasFirebaseJson: boolean): string {
-  if (!hasFirebaseJson) return '• hosting  Off: no firebase.json. Add one with hosting.public to serve a site.';
-  return '• hosting  Off: firebase.json has no hosting block. Add hosting.public to serve a site.';
-}
+export { extractHosting, wantsSpaRewrite };
 
 /**
  * The startup line for Storage buckets firebase.json deploys no rules to. A
@@ -182,17 +172,10 @@ export function undeployedStorageLine(hasNoStorageRules: boolean, policy: 'allow
     : '• rules    any other Storage bucket denies every client operation until firebase.json deploys rules to it';
 }
 
-/** firebase.json's SPA idiom: a `**` rewrite to /index.html. */
-export function wantsSpaRewrite(hosting: HostingConfig | null): boolean {
-  return (hosting?.rewrites ?? []).some(
-    (r) => r.source === '**' && r.destination === '/index.html',
-  );
-}
-
 
 export interface ServeRuntime {
   handle: ServeHandle;
-  /** `hosting.public`, resolved; `null` when firebase.json has no `hosting` block. */
+  /** `hosting.public`, resolved; `null` when no `hosting.public` directory is configured. */
   publicDir: string | null;
   payload: () => InitPayload;
   /** HTTP MCP endpoint when `--bridge` is on; null otherwise. */
@@ -218,6 +201,8 @@ export interface ServeRuntime {
   /** The transport selection this host stamps into the HTML it serves; placed
    *  in every child's `PYRIC_WORKER_INIT` for pages it does not serve. */
   workerInit: WorkerInitPayload;
+  /** The Node-hosted sandbox when `hosted` is enabled; null otherwise or after stop. */
+  hostedSandbox?: LocalSandbox | null;
 }
 
 /** The `--json` stdout contract — one line, keep stable; agents parse this.
@@ -312,6 +297,8 @@ async function startServeRuntime(opts: {
   ui?: boolean;
   /** Explicit opt-in to permissive mode (default-allow RTDB rules when unconfigured). */
   permissive?: boolean;
+  /** Optional AI Logic configuration (overrides `pyric.json` `ai`). */
+  ai?: PyricAiOptions;
   logger?: Parameters<typeof startStaticServer>[0]['logger'];
   /** Functions HTTP routes (`pyric sandbox` passes its gateway's handler). */
   functionsHandler?: FunctionsHttpGateway['handle'];
@@ -422,14 +409,11 @@ async function startServeRuntime(opts: {
   const hostingConfig = config?.hosting;
   const hasMultipleHostingSites = Array.isArray(hostingConfig) && hostingConfig.length > 1;
   if (hasMultipleHostingSites) {
-    logger.note('  ⚠ multiple hosting sites configured. pyric sandbox serves the first entry only');
+    logger.note('  \u26a0 multiple hosting sites configured. pyric sandbox serves the first entry only');
   }
-  const publicDir = hostingPublicDir(opts.cwd, hosting);
-  const isPublicDirectoryMissing = publicDir !== null && !existsSync(publicDir);
-  if (isPublicDirectoryMissing) {
-    const hint = missingPublicDirHint(publicDir, { cwd: opts.cwd, hosted: opts.hosted === true });
-    throw new Error(`pyric sandbox: hosting.public directory does not exist: ${publicDir}${hint}`);
-  }
+  const hostingSite = resolveHostingSite(opts.cwd, hosting, { hosted: opts.hosted === true });
+  const publicDir = hostingSite.publicDir;
+  const publicDirLabel = hostingSite.publicLabel ?? 'hosting.public';
 
   // The import map can only remap BARE `firebase/*` specifiers. A plain bundler
   // build (`vite build`) inlines the real SDK into the app chunk, leaving
@@ -443,7 +427,7 @@ async function startServeRuntime(opts: {
   if (needsSdkScan) {
     const scanWarnings: string[] = [];
     const inlined = scanForInlinedFirebase(publicDir, {
-      publicDirLabel: hosting?.public ?? 'public',
+      publicDirLabel,
       onWarning: (line) => {
         scanWarnings.push(line);
       },
@@ -482,9 +466,17 @@ async function startServeRuntime(opts: {
   // stale, not auto-replaced; the user closes all tabs to load the new worker.
   let workerVersion: string;
   const usesEmbeddedAssets = isStandalone();
-  const aiMode = resolveAiMode(undefined, process.env);
+  const loadedAiEnv = loadViteAiEnv('development', opts.cwd, undefined);
+  const resolvedAi = resolveViteAiConfig(opts.ai ?? pyricConfig.ai, loadedAiEnv, 'pyric sandbox');
+  const ignoredGeminiKey = hasIgnoredBrowserGeminiKey(loadedAiEnv);
+  const aiMode = resolvedAi.mode;
+  const browserAiEngine = browserAiEngineWire(resolvedAi.engineWire);
+  let sessionAi: InitPayload['ai'] = null;
+  if (browserAiEngine !== undefined) {
+    sessionAi = { engine: browserAiEngine };
+  }
   if (usesEmbeddedAssets) {
-    assertStandaloneSupportsAiMode(aiMode, process.env);
+    assertStandaloneSupportsAiMode(aiMode, loadedAiEnv);
   }
   // Production AI mode serves the project's own Firebase SDK for firebase/ai,
   // firebase/app and firebase/app-check (#1290).
@@ -590,6 +582,9 @@ async function startServeRuntime(opts: {
       persistence: persistenceOptions,
       capture: opts.capture,
       studio: studioOptions,
+      ai: sessionAi,
+      aiProxyUpstream: resolvedAi.proxyUpstream,
+      aiGemini: geminiProxyConfig(resolvedAi.engineWire),
       // No CLI flag (design decision): `pyric sandbox` resolves avatars from
       // `PYRIC_AVATARS` only, same precedence as the Vite plugin minus the
       // explicit-option tier.
@@ -683,12 +678,13 @@ async function startServeRuntime(opts: {
         if (hosted !== undefined && ctx.remoteClient === true) {
           htmlHosted = { projectKey: opaqueProjectKey(hosted.projectKey) };
         }
-        return injectServeTags(html, {
+        const tagged = injectServeTags(html, {
           workerVersion, hosted: htmlHosted, aiMode, owners,
           importMap: pageImportMap,
           sessionToken: ctx.localPeer ? sessionToken : undefined,
           remotePeer: !ctx.localPeer,
         });
+        return injectServeAiEngineTag(tagged, browserAiEngine);
       },
       sessionToken,
       allowedHosts: effectiveAllowedHosts,
@@ -709,10 +705,19 @@ async function startServeRuntime(opts: {
   // The bridge attachment owns upgrades on every bound family plus discovery.
   // Its explicit close handle is also folded into stop() below, before the
   // sandbox session is released.
+  let hostedSandboxCapture: ReturnType<typeof captureHostedSandbox> | null = null;
+  if (usesHostedSandbox && !isLive) {
+    hostedSandboxCapture = captureHostedSandbox(session.hostedPersistence?.checkpoints);
+  }
   let bridgeAttachment;
   try {
     if (usesHostedSandbox) {
-      await mount?.startHostedSandbox(session.payload(), handle.url, {
+      let hostedPayload = session.payload();
+      if (resolvedAi.engineWire !== undefined) {
+        hostedPayload = { ...hostedPayload, ai: { engine: resolvedAi.engineWire } };
+      }
+      await mount?.startHostedSandbox(hostedPayload, handle.url, {
+        proxyUpstream: resolvedAi.proxyUpstream,
         logger,
         persistence: session.hostedPersistence,
         ownWriteRefusal: liveStart?.writeRefusal,
@@ -728,6 +733,7 @@ async function startServeRuntime(opts: {
       },
     });
   } catch (error) {
+    hostedSandboxCapture?.clear();
     removeOwnedSessionFile?.();
     await mount?.close();
     await session.close();
@@ -739,6 +745,7 @@ async function startServeRuntime(opts: {
   let closeResources: Promise<void> | null = null;
   const closeOwnedResources = (): Promise<void> => {
     closeResources ??= (async () => {
+      hostedSandboxCapture?.clear();
       removeOwnedSessionFile?.();
       await bridgeAttachment?.close();
       await mount?.close();
@@ -920,9 +927,9 @@ async function startServeRuntime(opts: {
   logger.info(`=== Serving from '${opts.cwd}'...`);
   logger.info('');
   if (publicDir === null) {
-    logger.info(hostingOffLine(hasFirebaseJson));
+    logger.info(hostingNoStaticSiteLine(hasFirebaseJson, hosting !== null));
   } else {
-    logger.info(`✔ hosting  Serving files from: ${hosting?.public ?? 'public'}`);
+    logger.info(`\u2714 hosting  Serving files from: ${publicDirLabel}`);
   }
   logger.info(`✔ hosting  Local server: ${handle.url}`);
   const usedCachedBundle = bundle.cached;
@@ -986,12 +993,17 @@ async function startServeRuntime(opts: {
     }
   }
   // AI is a mounted service like the bridge: `/__pyric/ai-proxy` answers from
-  // the first request on, whether or not anything is configured. `pyric
-  // sandbox` has no AI flag, so the ENGINE is always the page's own `getAI()`
-  // choice (resolved lazily in the browser, since nothing here instantiates a
-  // broker to find out); what this server does decide is where the proxy
-  // forwards, and that is what the line reports.
-  logger.info(formatAiStatusLine({ hosted: usesHostedSandbox, mode: aiMode }));
+  // the first request on, whether or not anything is configured. Report the
+  // engine and proxy upstream resolved from `pyric.json` (`ai`) and env.
+  logger.info(
+    formatAiStatusLine({
+      hosted: usesHostedSandbox,
+      mode: aiMode,
+      engine: resolvedAi.engineWire,
+      proxyUpstream: resolvedAi.proxyUpstream,
+      ignoredGeminiKey,
+    }),
+  );
   let persistSummary: ServeRuntime['persist'] = null;
   const persistence = session.summary.persistence;
   const hasPersistence = persistence !== null;
@@ -1059,6 +1071,9 @@ async function startServeRuntime(opts: {
   return {
     handle, publicDir, payload, uiUrl, mcpUrl, persist: persistSummary, beaconCount, beaconToken,
     sessionToken, instanceId: mount?.instanceId, workerInit,
+    get hostedSandbox() {
+      return hostedSandboxCapture?.get() ?? null;
+    },
   };
 }
 
@@ -1288,6 +1303,10 @@ async function runServeInner(parsed: ParsedArgs, runHost: ServeRunHost): Promise
     };
     if (functionsProjectId !== null) {
       const served = json ? process.stderr : process.stdout;
+      let gatewaySandbox: (() => LocalSandbox | null | undefined) | undefined;
+      if (usesHostedSandbox && runHost.liveHost === undefined) {
+        gatewaySandbox = () => runtime?.hostedSandbox;
+      }
       functionsGateway = createFunctionsHttpGateway({
         projectId: functionsProjectId,
         initial: { kind: 'starting' },
@@ -1297,6 +1316,7 @@ async function runServeInner(parsed: ParsedArgs, runHost: ServeRunHost): Promise
         ),
         staticFileExists: (pathname) => runtime !== undefined && runtime.publicDir !== null && resolveHostingFile(runtime.publicDir, pathname) !== null,
         trustProxy: gatewayTrustProxy,
+        sandbox: gatewaySandbox,
         onWarning: (warning) => writeStreamQuietly(process.stderr, `  \u26a0 ${warning}\n`),
         onServed: (record) => {
           const { failed, line } = servedLine(record);

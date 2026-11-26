@@ -162,6 +162,24 @@ describe('diskWorkspace symlink boundary traversal protection (Finding 5)', () =
       );
     });
 
+    it('list omits symlinks escaping root and symlink cycles without stat-ing outside targets', async () => {
+      const insideFile = join(workspaceRoot, 'visible.txt');
+      writeFileSync(insideFile, 'OK', 'utf8');
+      symlinkSync(insideFile, join(workspaceRoot, 'inside-alias.txt'));
+      symlinkSync(outsideFile, join(workspaceRoot, 'escape-file.txt'));
+      symlinkSync(outsideDir, join(workspaceRoot, 'escape-dir'));
+      symlinkSync(join(outsideDir, 'missing.txt'), join(workspaceRoot, 'escape-dangling.txt'));
+      symlinkSync('cycle-b', join(workspaceRoot, 'cycle-a'));
+      symlinkSync('cycle-a', join(workspaceRoot, 'cycle-b'));
+
+      const ws = diskWorkspace(workspaceRoot);
+      const entries = await ws.list();
+      expect(entries).toEqual([
+        { path: 'inside-alias.txt', kind: 'file' },
+        { path: 'visible.txt', kind: 'file' },
+      ]);
+    });
+
     it('allows read and write through internal symlinks within workspace root', async () => {
       const internalFile = join(workspaceRoot, 'target.txt');
       writeFileSync(internalFile, 'ORIGINAL', 'utf8');

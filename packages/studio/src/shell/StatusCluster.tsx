@@ -3,26 +3,26 @@
  *
  * Chips, all global truths:
  *
- *  - WORKER UPDATE — rendered when Studio's running SharedWorker is older
+ *  - WORKER UPDATE -- rendered when Studio's running SharedWorker is older
  *    than the version served with this page. Replaces the worker only after
  *    the user confirms by pressing the chip.
- *  - SANDBOX HEALTH — rendered ONLY when degraded (status by exception;
+ *  - SANDBOX HEALTH -- rendered ONLY when degraded (status by exception;
  *    a healthy sandbox earns no pixels). Degraded means: the environment
  *    factory failed, or Studio is SERVED (`/__pyric/init.json` answers) but
- *    the live SharedWorker plane is unreachable — the surfaces are then
+ *    the live SharedWorker plane is unreachable -- the surfaces are then
  *    mirrors, not the live sandbox. Links to Settings (diagnostics), the
  *    surface that resolves it.
- *  - CONNECTED PAGES (#227) — how many logical pages share this sandbox
+ *  - CONNECTED PAGES (#227) -- how many logical pages share this sandbox
  *    worker. Quiet for one page; prominent when multiple. An accessible
  *    popover lists each client (app/Studio, route, visibility, freshness)
  *    and states the visibility boundary honestly.
- *  - MCP PRESENCE — rendered while the bridge is AVAILABLE: the bridge
+ *  - MCP PRESENCE -- rendered while the bridge is AVAILABLE: the bridge
  *    endpoint answers `/__pyric/health` and a sandbox peer (ANY tab) is
- *    connected. Deliberately NOT Studio's own peer registration — the peer
+ *    connected. Deliberately NOT Studio's own peer registration -- the peer
  *    slot is last-connection-wins, so another tab holding it must not hide
  *    the chip while MCP remains fully reachable (see bridge-availability.ts).
  *    (The bridge does not surface the remote client's name to browser peers,
- *    so the chip names the bridge, not the agent — deviation from
+ *    so the chip names the bridge, not the agent -- deviation from
  *    specs/shell.md noted there.)
  *
  * Container-agnostic (L4): a flex row of chips, gap-spaced, no external
@@ -93,16 +93,22 @@ export function StatusCluster() {
 
   const served = serve.status === 'ready';
   const workerDown = served && env.status === 'ready' && !env.env.live;
+  const lacksSharedWorker = typeof SharedWorker === 'undefined';
   const envDown = env.status === 'error';
   const isHostedRuntime = 'mode' in workerRuntimeSnapshot && workerRuntimeSnapshot.mode === 'hosted';
   const runtimeFailureLabel = isHostedRuntime ? workerRuntimeSnapshot.error : 'worker update failed';
   const hasRuntimeError = workerRuntimeSnapshot.error !== null;
   let degraded: string | null = null;
-  if (workerDown) degraded = 'worker unreachable';
+  if (workerDown) {
+    degraded = lacksSharedWorker ? 'no SharedWorker' : 'worker unreachable';
+  }
   if (envDown) degraded = 'backend error';
   if (hasRuntimeError) degraded = runtimeFailureLabel;
-  if (persistenceFailed) degraded = 'persistence failed — writes blocked';
+  if (persistenceFailed) degraded = 'persistence failed \u2014 writes blocked';
   let degradedTitle = 'Served, but the shared sandbox worker is not reachable; data views may be stale. Open Settings diagnostics.';
+  if (workerDown && lacksSharedWorker) {
+    degradedTitle = 'SharedWorker is unavailable in this browser (for example, Safari < 16.4); run pyric sandbox --hosted to share a live backend. Open Settings diagnostics.';
+  }
   if (envDown) degradedTitle = env.error.message;
   if (hasRuntimeError) degradedTitle = workerRuntimeSnapshot.error ?? degradedTitle;
   if (persistenceFailed) degradedTitle = 'Reads may include unsaved changes. Repair the hosted store and restart the host.';
@@ -125,7 +131,7 @@ export function StatusCluster() {
 
   const hasWorkerUpdate = workerRuntimeSnapshot.updateAvailable;
   const isUpdating = workerRuntimeSnapshot.updating;
-  const updateLabel = isUpdating ? 'updating worker…' : 'update worker';
+  const updateLabel = isUpdating ? 'updating worker\u2026' : 'update worker';
   const isDegraded = degraded !== null;
   const hasPresence = showsConnectionCounts && presence !== null && presence.count > 0;
   const prominentPresence = presence?.prominent === true;
@@ -138,15 +144,15 @@ export function StatusCluster() {
   if (isHostedRuntime) presenceTitle = `${presence?.chipLabel}. These pages share the Node host.`;
   const presenceBoundary = isHostedRuntime ? 'Data is shared by every client connected to this host.' : presence?.boundaryCopy;
   const isOnlyPage = presence?.count === 1;
-  let presenceLead = isOnlyPage
-    ? 'This page is the only connection to the shared sandbox worker.'
-    : `${presence?.count} pages share this sandbox worker. Closing this page alone will not restart it.`;
+  let presenceLead = `${presence?.count} pages share this sandbox worker. Closing this page alone will not restart it.`;
+  if (isOnlyPage) {
+    presenceLead = 'This page is the only connection to the shared sandbox worker.';
+  }
   if (isHostedRuntime) presenceLead = 'These pages share the Node-hosted sandbox. Closing a page does not stop the host.';
   const hasRemoteClients = showsConnectionCounts && remoteConsumers.length > 0;
   const hasOneRemoteClient = remoteConsumers.length === 1;
   const remoteSuffix = hasOneRemoteClient ? '' : 's';
   const remoteLabel = hasOneRemoteClient ? '1 remote client' : `${remoteConsumers.length} remote clients`;
-
 
   return (
     <div className="studio__status" aria-label="Studio status">
@@ -217,15 +223,15 @@ export function StatusCluster() {
                     <li key={c.clientId} className="studio-presence__item">
                       <div className="studio-presence__item-head">
                         <span className="studio-presence__kind">{c.kindLabel}</span>
-                        {c.isThisPage ? (
+                        {c.isThisPage && (
                           <span className="studio-presence__this">This page</span>
-                        ) : null}
+                        )}
                       </div>
                       <div className="studio-presence__route" title={c.route}>
                         {c.route}
                       </div>
                       <div className="studio-presence__meta">
-                        {c.visibilityLabel} · {c.freshnessLabel}
+                        {c.visibilityLabel} {'\u00b7'} {c.freshnessLabel}
                       </div>
                     </li>
                   ))}
@@ -279,7 +285,7 @@ export function StatusCluster() {
       {connected && (
         <span
           className="studio-chip studio-chip--live"
-          title="MCP bridge available — a sandbox peer is connected; external agents can reach this sandbox."
+          title={'MCP bridge available \u2014 a sandbox peer is connected; external agents can reach this sandbox.'}
         >
           <span className="studio-chip__dot" aria-hidden="true" />
           MCP bridge

@@ -36,8 +36,10 @@ import { NESTED_PROJECTS_FILE, nestedProject } from './nested-projects.ts';
 import { freePort, isAddressInUseOutput, runPorts, type PortIssuer } from './ports.ts';
 import { CrashWatch, type CrashVerdict, type WatchedProcess } from './crash-watch.ts';
 import { firstLine, HostErrors, responseTimes, STOPPING_HOST_NOTE } from './host-errors.ts';
+import { childOutputSockets, describeOutputSockets } from './output-sockets.ts';
 import { sessionHeaders, sessionToken } from './session-token.ts';
 import { StepFailure } from './step-failure.ts';
+import { describeGroupProcesses } from './unreaped-exit.ts';
 
 export {
   AppProcess,
@@ -89,6 +91,31 @@ function settlesWithin(promise: Promise<unknown>, ms: number): Promise<void> {
   return Promise.race([promise.then(() => undefined), timeout]).finally(() => {
     clearTimeout(timer);
   });
+}
+
+/**
+ * Snapshots live group members and output sockets before `stop()` signals the
+ * hung group, waits an I/O turn after teardown so `SIGTERM`-flushed chunks land
+ * in `child.output`, and appends group/socket timeout diagnostics (#2140).
+ */
+async function stopTimedOutChild(child: AppProcess, timeoutMs: number): Promise<string> {
+  const pid = child.pid;
+  let groupProcesses = '(unknown)';
+  let sockets: ReturnType<typeof childOutputSockets> = [];
+  if (pid !== undefined) {
+    groupProcesses = describeGroupProcesses(pid);
+    sockets = childOutputSockets(pid);
+  }
+  await child.stop();
+  await new Promise<void>((resolve) => {
+    setImmediate(resolve);
+  });
+  let output = child.output;
+  if (pid !== undefined && output.includes('did not close within')) {
+    output += describeOutputSockets(child.name, sockets);
+  }
+  output += `\n[driver] ${child.name} timed out after ${timeoutMs / 1000}s; processes in its group:\n${groupProcesses}\n`;
+  return output;
 }
 
 function numberedServerName(prefix: string, count: number, customName?: string): string {
@@ -285,8 +312,8 @@ export class AppRun implements App {
     const timeoutMs = options.timeoutMs ?? 60_000;
     const finished = await exitsWithin(child, timeoutMs);
     if (!finished) {
-      await child.stop();
-      throw new Error(`pyric ${args.join(' ')} did not exit within ${timeoutMs / 1000}s:\n${child.output}`);
+      const output = await stopTimedOutChild(child, timeoutMs);
+      throw new Error(`pyric ${args.join(' ')} did not exit within ${timeoutMs / 1000}s:\n${output}`);
     }
     return { code: await child.exited, output: child.output };
   }
@@ -331,15 +358,15 @@ export class AppRun implements App {
       args,
       join(this.dir, options.cwd ?? '.'),
       appEnvironment(this.home, options.env),
-      spawn,
+      this.spawnChild,
       this.timing,
     );
     this.processes.push(child);
     const timeoutMs = options.timeoutMs ?? 60_000;
     const finished = await exitsWithin(child, timeoutMs);
     if (!finished) {
-      await child.stop();
-      return { code: null, output: child.output, timedOut: true, timeoutMs };
+      const output = await stopTimedOutChild(child, timeoutMs);
+      return { code: null, output, timedOut: true, timeoutMs };
     }
     return { code: await child.exited, output: child.output, timedOut: false, timeoutMs };
   }
@@ -406,15 +433,15 @@ export class AppRun implements App {
       ['--import', '@pyric/cli/register', script, ...args],
       this.dir,
       appEnvironment(this.home, options.env),
-      spawn,
+      this.spawnChild,
       this.timing,
     );
     this.processes.push(child);
     const timeoutMs = options.timeoutMs ?? 60_000;
     const finished = await exitsWithin(child, timeoutMs);
     if (!finished) {
-      await child.stop();
-      throw new Error(`${script} did not exit within ${timeoutMs / 1000}s:\n${child.output}`);
+      const output = await stopTimedOutChild(child, timeoutMs);
+      throw new Error(`${script} did not exit within ${timeoutMs / 1000}s:\n${output}`);
     }
     const code = await child.exited;
     if (code !== 0) throw new Error(`${script} exited with code ${code}:\n${child.output}`);
