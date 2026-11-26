@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {join,resolve} from 'node:path';
-import {pathToFileURL} from 'node:url';
+import {execFileSync} from 'node:child_process';
+import {fileURLToPath,pathToFileURL} from 'node:url';
 import {gunzipSync} from 'node:zlib';
 import {sha} from '../../../../arcade/corpus.mjs';
 import {position} from '../../../chess/reference/score.mjs';
@@ -12,14 +13,16 @@ import {bucket} from '../replies-v1/family.mjs';
 import {encode,plausible} from './corpus.mjs';
 
 const [simulator,bundle,cohort]=process.argv.slice(2);
-assert.ok(!cohort || cohort==='--terminal-replies','unknown discovery cohort');
-const base=new URL(cohort?'../replies-v1/':'./',import.meta.url);
+const locations=new Map([[undefined,'./'],['--terminal-replies','../replies-v1/'],['--rights','../rights-v1/']]);
+assert.ok(locations.has(cohort),'unknown discovery cohort');
+const base=new URL(locations.get(cohort),import.meta.url);
 const read=path=>readFileSync(new URL(path,base));
 const manifest=JSON.parse(read('freeze.json'));
 const corpus=gunzipSync(read('corpus.json.gz')).toString();
 assert.equal(sha(corpus),manifest.sha256);
 const rows=JSON.parse(corpus);
-assert.ok(simulator && bundle,'usage: bun score.mjs INSTALLED_PINNED_REFERENCE_PACKAGE COMPLETE_RULES [--terminal-replies]');
+assert.ok(simulator && bundle,'usage: bun score.mjs INSTALLED_PINNED_REFERENCE_PACKAGE COMPLETE_RULES [--terminal-replies | --rights]');
+execFileSync('python3',[fileURLToPath(new URL('verify-simulator.py',import.meta.url)),simulator]);
 const {firestoreRules}=await import(pathToFileURL(join(resolve(simulator),'dist/index.js')));
 const code=readFileSync(bundle,'utf8'),sim=firestoreRules(code);
 const order=[];
@@ -81,7 +84,7 @@ function minimize({c:input,result}) {
     if(pinnedOutcome && pinnedOutcome!==a.outcome) return null;
     if(input.replyCount===1 && (a.replies?.length!==1 ||
       (input.replySha256 && sha(JSON.stringify(a.replies))!==input.replySha256))) return null;
-    if(cohort) {
+    if(cohort==='--terminal-replies') {
       const next=position(a.successor);
       if(!next.board.some(v=>v[0]===next.turn && v[1]!=='k') ||
          bucket(next,a.replies)!==input.group || JSON.stringify(a.replies)!==JSON.stringify(input.replies)) return null;

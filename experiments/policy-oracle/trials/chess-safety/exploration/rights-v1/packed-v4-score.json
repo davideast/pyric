@@ -1,0 +1,153 @@
+{
+  "authority": "pinned local full Firestore Rules simulator",
+  "rulesSha256": "911e4b24d6f744f7995aab7bbb40ace8ce26b145a7f6fb1a51530faebe38636b",
+  "corpusSha256": "f9575a83cda9bdb89d17d2245b213b966801416ac72867f259a227c952773feb",
+  "caseCount": 1736,
+  "scoreSha256": "4a38b1625f91cfd82cfce094ce68cfc646cb77a1810d1de541af899cd19a9768",
+  "groups": {
+    "departure-straight-sparse": {
+      "cases": 288,
+      "outcomes": {
+        "match": 288
+      },
+      "peakExpressions": 958
+    },
+    "departure-straight-dense": {
+      "cases": 232,
+      "outcomes": {
+        "match": 232
+      },
+      "peakExpressions": 958
+    },
+    "capture-diagonal-sparse": {
+      "cases": 352,
+      "outcomes": {
+        "false-refusal/resource-limit": 211,
+        "match": 141
+      },
+      "peakExpressions": 1000
+    },
+    "capture-straight-sparse": {
+      "cases": 384,
+      "outcomes": {
+        "match": 384
+      },
+      "peakExpressions": 999
+    },
+    "capture-straight-dense": {
+      "cases": 312,
+      "outcomes": {
+        "match": 312
+      },
+      "peakExpressions": 999
+    },
+    "capture-diagonal-dense": {
+      "cases": 168,
+      "outcomes": {
+        "match": 112,
+        "false-refusal/resource-limit": 56
+      },
+      "peakExpressions": 1000
+    }
+  },
+  "reachableByMove": {},
+  "divergences": {
+    "capture-diagonal-sparse/false-refusal/resource-limit": {
+      "first": {
+        "case": {
+          "id": "rights-00019",
+          "fen": "b3k3/8/8/8/8/8/8/4K2R b K -",
+          "uci": "a8h1",
+          "nativeLegal": true,
+          "kingSafe": true,
+          "nativeAdmission": true,
+          "successor": "4k3/8/8/8/8/8/8/4K2b w - -",
+          "outcome": "playing",
+          "replyCount": 5
+        },
+        "result": {
+          "actual": "DENY",
+          "status": "false-refusal",
+          "cause": "resource-limit",
+          "expressions": 1000
+        }
+      },
+      "minimized": {
+        "beforePieces": 4,
+        "afterPieces": 4,
+        "criterion": "no single unprotected piece removable preserving side, move, victim, rights, source check, native safety, admissibility, legal outcome, lone reply identity and local failure class",
+        "removedSquares": [],
+        "positionsTried": 0,
+        "case": {
+          "id": "rights-00019",
+          "fen": "b3k3/8/8/8/8/8/8/4K2R b K -",
+          "uci": "a8h1",
+          "nativeLegal": true,
+          "kingSafe": true,
+          "nativeAdmission": true,
+          "successor": "4k3/8/8/8/8/8/8/4K2b w - -",
+          "outcome": "playing",
+          "replyCount": 5
+        },
+        "result": {
+          "actual": "DENY",
+          "status": "false-refusal",
+          "cause": "resource-limit",
+          "expressions": 1000
+        }
+      }
+    },
+    "capture-diagonal-dense/false-refusal/resource-limit": {
+      "first": {
+        "case": {
+          "id": "rights-00049",
+          "fen": "4k3/2p3n1/8/3p4/8/5q2/P2P4/2B1K2R b K -",
+          "uci": "f3h1",
+          "nativeLegal": true,
+          "kingSafe": true,
+          "nativeAdmission": true,
+          "successor": "4k3/2p3n1/8/3p4/8/8/P2P4/2B1K2q w - -",
+          "outcome": "playing",
+          "replyCount": 2
+        },
+        "result": {
+          "actual": "DENY",
+          "status": "false-refusal",
+          "cause": "resource-limit",
+          "expressions": 1000
+        }
+      },
+      "minimized": {
+        "beforePieces": 10,
+        "afterPieces": 4,
+        "criterion": "no single unprotected piece removable preserving side, move, victim, rights, source check, native safety, admissibility, legal outcome, lone reply identity and local failure class",
+        "removedSquares": [
+          "c7",
+          "g7",
+          "d5",
+          "a2",
+          "d2",
+          "c1"
+        ],
+        "positionsTried": 6,
+        "case": {
+          "id": "rights-00049",
+          "fen": "4k3/8/8/8/8/5q2/8/4K2R b K -",
+          "uci": "f3h1",
+          "nativeLegal": true,
+          "kingSafe": true,
+          "nativeAdmission": true,
+          "successor": "4k3/8/8/8/8/8/8/4K2q w - -",
+          "outcome": "playing",
+          "replyCount": 3
+        },
+        "result": {
+          "actual": "DENY",
+          "status": "false-refusal",
+          "cause": "resource-limit",
+          "expressions": 1000
+        }
+      }
+    }
+  }
+}

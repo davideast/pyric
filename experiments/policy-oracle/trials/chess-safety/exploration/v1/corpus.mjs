@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {readFileSync,readdirSync} from 'node:fs';
+import {readFileSync} from 'node:fs';
 import {position} from '../../../chess/reference/score.mjs';
 import * as arcade from '../../../chess/reference/arcade-reference.ts';
 import * as native from '../../../chess/reference/native.mjs';
@@ -85,7 +85,9 @@ const roots=new URL('../../batches/',import.meta.url);
 export function discoveryInputs() {
   const rng=random(0x246ece17), rows=[],seen=new Set();
   const key=c=>JSON.stringify([c.fen,c.uci,c.claim??null]);
-  const selected=readdirSync(roots).filter(d=>/^[0-9]{2}-/.test(d)).sort().flatMap(group=>
+  const groups=['01-rank-diagonal','02-king-destinations','03-check-evasions','04-en-passant',
+    '05-castling','06-composition','07-terminal'];
+  const selected=groups.flatMap(group=>
     JSON.parse(readFileSync(new URL(group+'/v1/positions.json',roots))).map(base=>({group,base})));
   // All original primary positions stay in their own scored cohorts.
   for(const {base} of selected) seen.add(key(base));
