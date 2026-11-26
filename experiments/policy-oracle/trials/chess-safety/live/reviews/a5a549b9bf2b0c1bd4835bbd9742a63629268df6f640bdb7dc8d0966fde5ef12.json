@@ -1,0 +1,5 @@
+{
+  "rulesSha256": "a5a549b9bf2b0c1bd4835bbd9742a63629268df6f640bdb7dc8d0966fde5ef12",
+  "file": "../artefacts/knight-endgame-paired-pawn-combined-bare-simple-packed-v5.rules",
+  "basis": "115,831-byte complete ruleset. Compared to the reviewed pawn release, all match and allow clauses and non-chess functions are unchanged. Inspected the changed chessMove admission: still requires the signed on-turn seat, change allowlist, counter, board and move consistency, and checks winner against the claimed status. Shape checks are inlined. Four bounded king-reply helpers, paired pawn directions and endgame knight candidates implement terminal movement tests on packed board values."
+}
