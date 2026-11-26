@@ -53,13 +53,32 @@ extension Auth {
 
     // -- Internal State Fan-Out --
 
-    internal func applyUserTransition(_ newUser: User?) {
+    private func isStateListenerActive(_ handle: AuthStateDidChangeListenerHandle) -> Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return stateListeners[handle] != nil
+    }
+
+    private func isIDTokenListenerActive(_ handle: AuthStateDidChangeListenerHandle) -> Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return idTokenListeners[handle] != nil
+    }
+
+    internal func applyUserTransition(_ newUser: User?, expectedVersion: UInt64? = nil) {
         transitionLock.lock()
         defer { transitionLock.unlock() }
 
         stateLock.lock()
+        if let expectedVersion, userTransitionVersion != expectedVersion {
+            stateLock.unlock()
+            return
+        }
+        userTransitionVersion &+= 1
+        let version = userTransitionVersion
         let previousUid = _currentUser?.uid
         let newUid = newUser?.uid
+        let uidChanged = (previousUid != newUid)
         _currentUser = newUser
 
         let currentLens = computeCurrentLensLocked()
@@ -69,7 +88,7 @@ extension Auth {
             yieldLensLocked(currentLens)
         }
 
-        if previousUid != newUid {
+        if uidChanged {
             for cont in authStateContinuations.values {
                 cont.yield(newUser)
             }
@@ -78,25 +97,52 @@ extension Auth {
             cont.yield(newUser)
         }
 
-        let stateCallbacks = Array(stateListeners.values)
-        let tokenCallbacks = Array(idTokenListeners.values)
+        pendingUserTransitions.append(
+            PendingUserTransition(version: version, uidChanged: uidChanged, user: newUser)
+        )
+        if isDrainingUserTransitions {
+            stateLock.unlock()
+            return
+        }
+        isDrainingUserTransitions = true
         stateLock.unlock()
 
-        #if canImport(Combine)
-        if previousUid != newUid {
-            authStateSubject.send(newUser)
-        }
-        idTokenSubject.send(newUser)
-        #endif
-
-        if previousUid != newUid {
-            for callback in stateCallbacks {
-                callback(self, newUser)
+        while true {
+            stateLock.lock()
+            if pendingUserTransitions.isEmpty {
+                isDrainingUserTransitions = false
+                stateLock.unlock()
+                return
             }
-        }
+            let item = pendingUserTransitions.removeFirst()
+            let stateEntries = Array(stateListeners)
+            let tokenEntries = Array(idTokenListeners)
+            stateLock.unlock()
 
-        for callback in tokenCallbacks {
-            callback(self, newUser)
+            #if canImport(Combine)
+            if item.uidChanged {
+                authStateSubject.send(item.user)
+            }
+            idTokenSubject.send(item.user)
+            #endif
+
+            if item.uidChanged {
+                for (handle, entry) in stateEntries {
+                    guard entry.registeredVersion < item.version,
+                          isStateListenerActive(handle) else {
+                        continue
+                    }
+                    entry.callback(self, item.user)
+                }
+            }
+
+            for (handle, entry) in tokenEntries {
+                guard entry.registeredVersion < item.version,
+                      isIDTokenListenerActive(handle) else {
+                    continue
+                }
+                entry.callback(self, item.user)
+            }
         }
     }
 

@@ -169,7 +169,10 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
             lock.unlock()
         }
 
-        func handleError(_ error: Error) -> [UInt] {
+        func handleError(
+            _ error: Error,
+            onEntryReleased: (@Sendable (UInt) -> Void)? = nil
+        ) -> [UInt] {
             lock.lock()
             if closed {
                 lock.unlock()
@@ -184,6 +187,7 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
                 deliveryQueue.async {
                     for entry in entries {
                         entry.deliverCancel(error)
+                        onEntryReleased?(entry.handle)
                     }
                 }
             }
@@ -253,6 +257,7 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
     private var nextHandle: UInt = 1
     private var viewsByKey: [ViewKey: ActiveView] = [:]
     private var keyByHandle: [UInt: ViewKey] = [:]
+    private var entriesByHandle: [UInt: ObserverEntry] = [:]
 
     internal func registerObserver(
         database: Database,
@@ -275,12 +280,14 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
             let entry = ObserverEntry(handle: handle, onEvent: onEvent, onCancel: onCancel)
             if let existing = viewsByKey[key] {
                 keyByHandle[handle] = key
+                entriesByHandle[handle] = entry
                 lock.unlock()
                 if existing.addRegistration(entry: entry, eventTypes: eventTypes, orderBySpec: orderBySpec) {
                     return handle
                 }
                 lock.lock()
                 keyByHandle.removeValue(forKey: handle)
+                entriesByHandle.removeValue(forKey: handle)
                 lock.unlock()
                 continue
             }
@@ -299,6 +306,7 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
             }
             viewsByKey[key] = created
             keyByHandle[handle] = key
+            entriesByHandle[handle] = entry
             lock.unlock()
             return handle
         }
@@ -317,8 +325,12 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
     internal func removeObservers(handles: Set<UInt>) {
         guard !handles.isEmpty else { return }
         var affectedViews: [ViewKey: Set<UInt>] = [:]
+        var removedEntriesByHandle: [UInt: ObserverEntry] = [:]
         lock.lock()
         for handle in handles {
+            if let entry = entriesByHandle.removeValue(forKey: handle) {
+                removedEntriesByHandle[handle] = entry
+            }
             if let key = keyByHandle.removeValue(forKey: handle) {
                 affectedViews[key, default: []].insert(handle)
             }
@@ -329,10 +341,11 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
         }
         lock.unlock()
 
-        var removedEntries: [ObserverEntry] = []
         for (key, view, hSet) in targetViews {
             let result = view.removeHandles(hSet)
-            removedEntries.append(contentsOf: result.removed)
+            for entry in result.removed {
+                removedEntriesByHandle[entry.handle] = entry
+            }
             if result.becameEmpty {
                 lock.lock()
                 if let current = viewsByKey[key], current === view {
@@ -341,8 +354,8 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
                 lock.unlock()
             }
         }
-        // Synchronize with any in-flight callback outside coordinator and view locks (D9, S27).
-        for entry in removedEntries {
+        // Synchronize with any in-flight event or cancel callback outside all locks (D9, S27).
+        for entry in removedEntriesByHandle.values {
             entry.cancel()
         }
     }
@@ -362,16 +375,29 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
     internal func shutdown() {
         lock.lock()
         let views = Array(viewsByKey.values)
+        let entries = Array(entriesByHandle.values)
         viewsByKey.removeAll()
         keyByHandle.removeAll()
+        entriesByHandle.removeAll()
         lock.unlock()
         for view in views {
             view.shutdown()
         }
+        for entry in entries {
+            entry.cancel()
+        }
+    }
+
+    private func releaseEntry(handle: UInt) {
+        lock.lock()
+        entriesByHandle.removeValue(forKey: handle)
+        lock.unlock()
     }
 
     private func evictErroredView(_ view: ActiveView, error: Error) {
-        let removedHandles = view.handleError(error)
+        let removedHandles = view.handleError(error) { [weak self] handle in
+            self?.releaseEntry(handle: handle)
+        }
         lock.lock()
         if let current = viewsByKey[view.key], current === view {
             viewsByKey.removeValue(forKey: view.key)
@@ -482,6 +508,7 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
             let handle = database.bridgeClient.openOrderedSubscription(
                 target: subscriptionTarget,
                 actAs: lens.toAnySendable(),
+                dispatchOnDeliveryQueue: false,
                 onEvent: { [weak capturedCoordinator] event in
                     guard handleBox.isActive(token: token) else { return }
                     guard case .value(let wireSnap) = event else { return }

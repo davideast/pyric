@@ -83,12 +83,15 @@ extension PyricBridgeClient {
     }
 
     /// Synchronously opens a subscription whose events and terminal completion
-    /// execute on `deliveryQueue` in exact socket frame arrival order (D7, D8, D10).
+    /// execute in exact socket frame arrival order (D7, D8, D10). Set
+    /// `dispatchOnDeliveryQueue` to `false` only when the caller's callbacks
+    /// enqueue directly onto `deliveryQueue` without blocking or running user code.
     package nonisolated func openOrderedSubscription(
         target: AnySendable,
         actAs: AnySendable? = nil,
         includeMetadataChanges: Bool = false,
         listenSource: String? = nil,
+        dispatchOnDeliveryQueue: Bool = true,
         onEvent: @escaping @Sendable (BridgeSubscriptionEvent) -> Void,
         onFinish: @escaping @Sendable (Error?) -> Void
     ) -> OrderedSubscriptionHandle {
@@ -99,17 +102,22 @@ extension PyricBridgeClient {
             return OrderedSubscriptionHandle(subId: "", onCancel: nil)
         }
         let turn = turnCounter.take()
+        let deliveredEvent: @Sendable (BridgeSubscriptionEvent) -> Void
+        let deliveredFinish: @Sendable (Error?) -> Void
+        if dispatchOnDeliveryQueue {
+            deliveredEvent = { event in queue.async { onEvent(event) } }
+            deliveredFinish = { error in queue.async { onFinish(error) } }
+        } else {
+            deliveredEvent = onEvent
+            deliveredFinish = onFinish
+        }
         let subId = pendingSubs.reserve(
             target: target,
             actAs: actAs,
             includeMetadataChanges: includeMetadataChanges,
             listenSource: listenSource,
-            onEvent: { event in
-                queue.async { onEvent(event) }
-            },
-            onFinish: { error in
-                queue.async { onFinish(error) }
-            }
+            onEvent: deliveredEvent,
+            onFinish: deliveredFinish
         )
         Task { [weak self] in
             await self?.admitSubscription(id: subId, turn: turn)

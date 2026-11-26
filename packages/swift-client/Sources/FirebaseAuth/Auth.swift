@@ -92,8 +92,23 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
     }
 
     // Listeners & Streams
-    var stateListeners: [AuthStateDidChangeListenerHandle: @Sendable (Auth, User?) -> Void] = [:]
-    var idTokenListeners: [AuthStateDidChangeListenerHandle: @Sendable (Auth, User?) -> Void] = [:]
+    struct ListenerRegistrationEntry: Sendable {
+        let callback: @Sendable (Auth, User?) -> Void
+        let registeredVersion: UInt64
+    }
+
+    struct PendingUserTransition: Sendable {
+        let version: UInt64
+        let uidChanged: Bool
+        let user: User?
+    }
+
+    var stateListeners: [AuthStateDidChangeListenerHandle: ListenerRegistrationEntry] = [:]
+    var idTokenListeners: [AuthStateDidChangeListenerHandle: ListenerRegistrationEntry] = [:]
+    var userTransitionVersion: UInt64 = 0
+    var pendingUserTransitions: [PendingUserTransition] = []
+    var isDrainingUserTransitions = false
+    var enrichClaimsForTesting: (@Sendable (User) async -> Void)?
 
     var authStateContinuations: [UUID: AsyncStream<User?>.Continuation] = [:]
     var idTokenContinuations: [UUID: AsyncStream<User?>.Continuation] = [:]
@@ -203,7 +218,10 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
         transitionLock.lock()
         defer { transitionLock.unlock() }
         stateLock.lock()
-        stateListeners[handle] = listener
+        stateListeners[handle] = ListenerRegistrationEntry(
+            callback: listener,
+            registeredVersion: userTransitionVersion
+        )
         let current = _currentUser
         stateLock.unlock()
 
@@ -212,9 +230,11 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
     }
 
     public func removeStateDidChangeListener(_ handle: AuthStateDidChangeListenerHandle) {
+        transitionLock.lock()
+        defer { transitionLock.unlock() }
         stateLock.lock()
-        defer { stateLock.unlock() }
         stateListeners.removeValue(forKey: handle)
+        stateLock.unlock()
     }
 
     public func addIDTokenDidChangeListener(
@@ -224,7 +244,10 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
         transitionLock.lock()
         defer { transitionLock.unlock() }
         stateLock.lock()
-        idTokenListeners[handle] = listener
+        idTokenListeners[handle] = ListenerRegistrationEntry(
+            callback: listener,
+            registeredVersion: userTransitionVersion
+        )
         let current = _currentUser
         stateLock.unlock()
 
@@ -233,9 +256,11 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
     }
 
     public func removeIDTokenDidChangeListener(_ handle: AuthStateDidChangeListenerHandle) {
+        transitionLock.lock()
+        defer { transitionLock.unlock() }
         stateLock.lock()
-        defer { stateLock.unlock() }
         idTokenListeners.removeValue(forKey: handle)
+        stateLock.unlock()
     }
 
     public var authStateChanges: AuthStateChangesSequence {
@@ -491,7 +516,22 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
         return result
     }
 
+    func currentUserTransitionVersion() -> UInt64 {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return userTransitionVersion
+    }
+
     func enrichUserClaimsIfLive(_ user: User) async {
+        let testHook: (@Sendable (User) async -> Void)? = {
+            stateLock.lock()
+            defer { stateLock.unlock() }
+            return enrichClaimsForTesting
+        }()
+        if let testHook {
+            await testHook(user)
+            return
+        }
         let client = bridgeClient
         guard !client.hasInjectedChannel, user.claims["firebase"] == nil else {
             return

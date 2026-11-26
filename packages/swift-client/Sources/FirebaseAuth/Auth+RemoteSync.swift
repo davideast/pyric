@@ -117,7 +117,8 @@ extension Auth {
     }
 
     private func applyRemoteUserWire(_ userWire: AnySendable) async {
-        guard let wireDict = userWire.dictionaryValue,
+        guard !Task.isCancelled,
+              let wireDict = userWire.dictionaryValue,
               let incomingUid = wireDict["uid"]?.stringValue else {
             return
         }
@@ -126,9 +127,11 @@ extension Auth {
             applyUserTransition(existing)
             return
         }
+        let versionBeforeEnrich = currentUserTransitionVersion()
         if let user = User.fromWire(auth: self, wire: userWire) {
             await enrichUserClaimsIfLive(user)
-            applyUserTransition(user)
+            guard !Task.isCancelled else { return }
+            applyUserTransition(user, expectedVersion: versionBeforeEnrich)
         }
     }
 
