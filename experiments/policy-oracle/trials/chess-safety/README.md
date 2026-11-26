@@ -5,10 +5,10 @@ Submit the same rook move on two boards. When the rook is the last blocker betwe
 From this directory, run the archived experiment offline with one command.
 
 ```sh
-python3 replay.py --summary --scorecard /tmp/chess-oracle.md
+python3 replay.py --summary --historical-revisions --scorecard /tmp/chess-oracle.md
 ```
 
-The command rebuilds the reference compiler from pinned local archives, checks the native answers and mutation controls, invokes the compiler in isolation, evaluates the complete linked Arcade ruleset, scores the discovery and historical corpora, and replays the completed Firestore receipts. Use `--archive /absolute/private/captures` to authenticate those receipts against the original private journals. Each release has independent results. A digest with no completed signed capture appears as `unmeasured`. [Hosted measurement protocol](live/README.md)
+The command rebuilds each saved revision and checks its historical classifications. It also rebuilds the reference compiler from pinned local archives, checks the native answers and mutation controls, invokes the compiler in isolation, evaluates the complete linked Arcade ruleset, scores the discovery and historical corpora, and replays the completed Firestore receipts. Use `--archive /absolute/private/captures` to authenticate those receipts against the original private journals. Each release has independent results. A digest with no completed signed capture appears as `unmeasured`. [Hosted measurement protocol](live/README.md)
 
 To score another compiler through its public `@pyric/rules/experimental/policy` API, supply `--candidate-package /absolute/candidate.tgz`. The default source is `knight-endgame-paired-pawn-combined-bare-fixed-comma-packed-v5`. It considers ordinary pawn witnesses when the defending side has a pawn, and knight witnesses in pawn-free material. Use `--variant` to replay a different source program. `quick-packed-v5` requires pure `split`, `join` and `matches`. `combined-pattern-fast-packed-v5` adds `replace`. A compiler that supports neither representation can still be scored on the simpler `pins` source. The separate `standaloneBoard` column requires `compileBoundedModule`. The linked evaluator uses a different package from the candidate, and only its emitted text crosses that boundary. [Compiler policies](policy/README.md) · [General king-reply programs](mobility/README.md)
 

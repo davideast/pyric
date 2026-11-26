@@ -251,6 +251,7 @@ def main():
     p.add_argument('--variant',default=DEFAULT)
     p.add_argument('--sealed-referee',type=Path,help='also score the prior private chess reference archive')
     p.add_argument('--archive',type=Path,help='optionally authenticate each private Firestore journal')
+    p.add_argument('--historical-revisions', action='store_true', help='also rebuild and rescore each saved compiler revision')
     p.add_argument('--report',type=Path,help='also retain the JSON report at this path')
     p.add_argument('--summary',action='store_true',help='print a compact human-readable result instead of the full JSON')
     p.add_argument('--scorecard',type=Path,help='also render the recorded release comparison in Markdown')
@@ -261,6 +262,13 @@ def main():
     if args.candidate_package is None and args.variant == DEFAULT:
         directory = HERE/'qualification/v1'/result['hosted']['rulesSha256']
         result['qualification'] = verify_qualification(result, directory)
+    if args.historical_revisions:
+        matrix = observed(sys.executable, 'revisions/verify.py')
+        result['historicalRevisions'] = {
+            'scored': len(matrix),
+            'emitted': sum(bool(record.get('linkedRulesSha256')) for record in matrix),
+            'archives': [record['archive'] for record in matrix],
+        }
     output = json.dumps(result,indent=2)+'\n'
     if args.report:
         args.report.write_text(output)
@@ -278,6 +286,9 @@ def main():
         print(f"  Official compilation: {result.get('targetCompilation',{}).get('status','unmeasured')}")
         print(f"  Authenticated Firestore writes: {result['hosted'].get('distinctCases',0)} distinct "
               f"({result['hosted']['status']})")
+        if 'historicalRevisions' in result:
+            review = result['historicalRevisions']
+            print(f"  Historical revisions reproduced: {review['scored']} ({review['emitted']} emitted Rules)")
         if args.scorecard:
             print(f"  Scorecard: {args.scorecard.resolve()}")
     else:
