@@ -3,46 +3,34 @@
  * fetched deployed Security Rules across Firestore, Realtime Database, and
  * Cloud Storage (`#2363`).
  *
- * Reuses the existing rules simulators (`evaluateFirestoreCall`,
- * `compileRtdbRules`/`simulateRtdbRules`, `parseStorageRules`/`evaluateStorageRules`)
- * while tagging every explanation unambiguously with `source: 'deployed'`,
- * `version: 'deployed-rules'` on Firestore traces, and the deployed-vs-local
- * drift report.
+ * Reuses the existing canonical evaluators (`evaluateFirestoreCall`,
+ * `rtdbVerdict`, and `storageVerdict`) while tagging every explanation
+ * unambiguously with `source: 'deployed'`, `version: 'deployed-rules'` on
+ * Firestore traces, and the deployed-vs-local drift report.
  */
+import { sandbox as rtdbSandbox } from 'pyric/database';
+import { getFirestore } from 'pyric/firestore';
 import { SimulateFirestoreRulesHandler } from 'pyric/rules/internal';
-import {
-  compileRtdbRules,
-  simulateRtdbRules,
-  type CompiledRtdbRules,
-  type RtdbRuleEvaluation,
-} from 'pyric/rules/internal/rtdb';
+import { compileRtdbRules } from 'pyric/rules/internal/rtdb';
 import type { ObservedCall } from 'pyric/sandbox';
 import {
+  createSandboxRoot,
   observedMethod,
   productionVerdict,
   rtdbRulesMethod,
   UNREAD_BUCKET,
   type LocalRtdbEvaluation,
   type LocalStorageEvaluation,
-  type ObservedMethod,
 } from 'pyric/sandbox/internal';
-import {
-  authOf,
-  definedOnly,
-  givenBy,
-  unionOf,
-  unionPaths,
-  type Gap,
-  type Rule,
-  type Trace,
+import type { HostCtx } from '../worker/host-context.js';
+import type {
+  Gap,
+  Rule,
+  Trace,
 } from '../worker/host/observe-local-evaluation.js';
 import { evaluateFirestoreCall } from '../worker/host/observe-local-firestore.js';
-import {
-  analyzeRtdbExpression,
-  rtdbExpressionGaps,
-  unwrittenValidates,
-} from '../worker/host/observe-local-rtdb-expressions.js';
-import { joinRtdbPath, toRtdbMockData } from './rtdb-tree.js';
+import { rtdbVerdict } from '../worker/host/observe-local-rtdb.js';
+import { rtdbInstance } from '../worker/host/rtdb-instances.js';
 import type { ObservedSessionDataStore } from './store.js';
 import type {
   DeployedFirestoreRulesSnapshot,
@@ -57,7 +45,6 @@ import type { DeployedRulesStore } from './deployed-rules-store.js';
 export const DEPLOYED_TRACE_VERSION = 'deployed-rules';
 
 const MAX_TRACE_BYTES = 16 * 1024;
-const RTDB_PUSH_PLACEHOLDER = '-O_pyric_push_000000';
 const firestoreSimulator = new SimulateFirestoreRulesHandler();
 
 export interface DeployedRulesExplanation {
@@ -229,13 +216,6 @@ export function evaluateCallAgainstDeployedFirestore(
   return { ok: true, explanation };
 }
 
-function rtdbOperationFor(method: ObservedMethod): 'read' | 'write' {
-  if (method === 'get' || method === 'list') {
-    return 'read';
-  }
-  return 'write';
-}
-
 function boundedRtdbRecord(record: LocalRtdbEvaluation): LocalRtdbEvaluation | undefined {
   if (withinByteCap(record)) return record;
   if (record.rtdbTrace === undefined) return undefined;
@@ -247,8 +227,8 @@ function boundedRtdbRecord(record: LocalRtdbEvaluation): LocalRtdbEvaluation | u
 
 /**
  * Evaluates a single observed Realtime Database call against a deployed rules
- * snapshot, abstaining as `unevaluated` when a rule reads an uncaptured
- * stored `data`/`root` path.
+ * snapshot by delegating to `rtdbVerdict` on an ephemeral sandbox instance,
+ * abstaining as `unevaluated` when a rule inspects uncaptured stored state.
  */
 export function evaluateCallAgainstDeployedRtdb(
   call: ObservedCall,
@@ -273,9 +253,8 @@ export function evaluateCallAgainstDeployedRtdb(
     };
   }
 
-  let compiled: CompiledRtdbRules;
   try {
-    compiled = compileRtdbRules(snapshot.parsed);
+    compileRtdbRules(snapshot.parsed);
   } catch (error: unknown) {
     const reason = error instanceof Error ? error.message : String(error);
     return {
@@ -286,42 +265,43 @@ export function evaluateCallAgainstDeployedRtdb(
     };
   }
 
-  const operation = rtdbOperationFor(method);
-  let targetPath = joinRtdbPath('/', call.path);
-  if (call.method === 'push') {
-    targetPath = joinRtdbPath(targetPath, RTDB_PUSH_PLACEHOLDER);
-  }
-  const lookup = sessionData?.getRtdbInstance(call.instance ?? snapshot.instance);
-  const mockData = toRtdbMockData(lookup?.mockData ?? {});
-  const isPathKnown = (readPath: string): boolean => {
-    if (lookup === undefined) return false;
-    return lookup.isPathKnown(readPath);
-  };
-
-  const isRemove = method === 'delete';
-  const hasWriteData = isRemove || call.writeData !== undefined;
-  const simInput: Parameters<typeof simulateRtdbRules>[1] = {
-    operation,
-    path: targetPath,
-    auth: authOf(call),
-    mockData,
-    now: call.at,
-  };
-  if (isRemove) {
-    simInput.newData = null;
-  } else if (operation === 'write' && call.writeData !== undefined) {
-    simInput.newData = call.writeData;
+  let observedSession = sessionData;
+  if (sessionData !== undefined && call.instance === undefined) {
+    observedSession = {
+      ...sessionData,
+      getRtdbInstance(instance) {
+        return sessionData.getRtdbInstance(instance ?? snapshot.instance);
+      },
+    };
   }
 
-  let missingPaths: string[] = [];
-  const simulated = simulateRtdbRules(compiled, simInput, {
-    onRuleRead(_traceIndex, source, readPath) {
-      if (source === 'stored' && !isPathKnown(readPath)) {
-        missingPaths = unionPaths(missingPaths, [readPath]);
-      }
-    },
-  });
-  if (!simulated.success || simulated.data.unsupported) {
+  const sandbox = createSandboxRoot();
+  let evaluated: ReturnType<typeof rtdbVerdict>;
+  try {
+    const ctx: HostCtx = {
+      sandbox,
+      db: getFirestore(sandbox),
+      instanceId: 'deployed-rules-rtdb-eval',
+      subs: new Map(),
+      defaultRtdbInstance: snapshot.instance,
+      observedSession,
+    };
+    const entry = rtdbInstance(ctx, call.instance);
+    const rulesCopy = structuredClone(snapshot.parsed);
+    rtdbSandbox.setRules(entry.live, rulesCopy);
+    entry.rules = {
+      source: rulesCopy,
+      lastKnownGood: structuredClone(snapshot.parsed),
+      updatedAt: call.at,
+      status: 'active',
+      messages: [],
+    };
+    evaluated = rtdbVerdict(ctx, call, method);
+  } finally {
+    sandbox.dispose();
+  }
+
+  if (evaluated === undefined) {
     return {
       ok: false,
       source: 'local',
@@ -330,79 +310,42 @@ export function evaluateCallAgainstDeployedRtdb(
     };
   }
 
-  const data = simulated.data;
-  const expressions = data.trace.map((entry) => entry.conditionText);
-  const baseGaps: Gap[] = [];
-  if (missingPaths.length > 0) {
-    baseGaps.push('stored-document');
-  }
-  if (operation === 'write' && !hasWriteData) {
-    const validates = unwrittenValidates(compiled, targetPath, data.allowed);
-    expressions.push(...validates);
-    const readsNewData = validates.length > 0 || expressions.some((expr) => analyzeRtdbExpression(expr).readsNewData);
-    if (readsNewData) {
-      baseGaps.push('write-data');
-    }
-  }
-  const given = { ...givenBy(call, method), writeData: hasWriteData };
-  const needs = unionOf(rtdbExpressionGaps(expressions, given), baseGaps);
-
-  let rule: Rule | undefined;
-  if (data.matchedRule !== '') {
-    rule = definedOnly({ path: data.matchedPath, expression: data.matchedRule });
-  }
-
-  if (needs.length > 0) {
-    const context: LocalRtdbEvaluation = {};
-    if (data.matchedPath !== '') context.matchedPath = data.matchedPath;
-    if (data.matchedRule !== '') context.matchedRule = data.matchedRule;
-    if (Object.keys(data.pathVariableBindings).length > 0) {
-      context.pathVariableBindings = { ...data.pathVariableBindings };
-    }
+  if (evaluated.result === 'unevaluated') {
     const explanation: MutableDeployedRulesExplanation = {
       source: 'deployed',
       service: 'rtdb',
       target: snapshot.instance,
       verdict: 'unevaluated',
       productionDisagrees: false,
-      needs,
+      needs: evaluated.needs,
       drift: snapshot.drift,
       deployedHash: snapshot.hash,
     };
-    if (missingPaths.length > 0) explanation.missingPaths = missingPaths;
-    if (rule !== undefined) explanation.rule = rule;
-    if (Object.keys(context).length > 0) explanation.rtdb = context;
+    if (evaluated.missingPaths !== undefined && evaluated.missingPaths.length > 0) {
+      explanation.missingPaths = [...evaluated.missingPaths];
+    }
+    if (evaluated.rule !== undefined) explanation.rule = evaluated.rule;
+    if (evaluated.rtdb !== undefined) {
+      const kept = boundedRtdbRecord(evaluated.rtdb);
+      if (kept !== undefined) explanation.rtdb = kept;
+    }
     return { ok: true, explanation };
   }
 
-  const rtdbRecord: LocalRtdbEvaluation = {
-    matchedPath: data.matchedPath,
-    matchedRule: data.matchedRule,
-    rtdbTrace: data.trace as RtdbRuleEvaluation[],
-  };
-  if (Object.keys(data.pathVariableBindings).length > 0) {
-    rtdbRecord.pathVariableBindings = { ...data.pathVariableBindings };
-  }
-  if (data.reason !== '') {
-    rtdbRecord.reason = data.reason;
-  }
-  if (!data.allowed && data.matchedPath === '') {
-    rtdbRecord.errorCode = 'NO_MATCHING_RULE';
-  }
-
-  const keptRtdb = boundedRtdbRecord(rtdbRecord);
-  const verdict = data.allowed ? 'allow' : 'deny';
   const explanation: MutableDeployedRulesExplanation = {
     source: 'deployed',
     service: 'rtdb',
     target: snapshot.instance,
-    verdict,
-    productionDisagrees: productionDisagreesWith(call, data.allowed),
+    verdict: evaluated.result,
+    productionDisagrees: evaluated.drift === true,
     drift: snapshot.drift,
     deployedHash: snapshot.hash,
   };
-  if (rule !== undefined) explanation.rule = rule;
-  if (keptRtdb !== undefined) explanation.rtdb = keptRtdb;
+  if (evaluated.rule !== undefined) explanation.rule = evaluated.rule;
+  if (evaluated.rtdb !== undefined) {
+    const kept = boundedRtdbRecord(evaluated.rtdb);
+    if (kept !== undefined) explanation.rtdb = kept;
+  }
   return { ok: true, explanation };
 }
 
