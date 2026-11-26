@@ -30,8 +30,7 @@ The following run installs the pinned experimental compiler, separately installs
 
 ```sh
 trial=experiments/policy-oracle/trials/chess/bundle
-compiler="$HOME/.local/state/pyric/oracle/2026-11-25-89219c79/packages/yacht-3a79e94878d551a292757774f3e39cd2f3d57b15ffec93200807922ae3120fa6.tgz"
-python3 "$trial/reproduce.py" --compiler "$compiler" --arcade "$HOME/repos/davideast/arcade"
+python3 "$trial/reproduce.py" --arcade "$HOME/repos/davideast/arcade"
 ```
 
 The run reproduces all nine archived artifact files byte for byte and all 600 local decisions across 150 public cases. Each case evaluates the complete linked ruleset in all four profiles. The highest locally measured expression count was 965 for the stronger profile, on Black's rook capture from a8 to a1. The first layout exceeded the evaluator's 1,000-expression limit on legal castling. Hoisting the path-coordinate lists, removing redundant metadata checks and sharing decoded rights reduced the measured cost. These are simulator counts for the named inputs. [Exact per-profile results and maxima](local-results.json)

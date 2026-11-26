@@ -12,7 +12,26 @@ Two independently authenticated Chromium players played **1. f3 e5 2. g4 Qh4#** 
 
 In a separate contention fixture, the two submissions read the same stored document version, then each attempted a real conditional commit. The winner stored one move. The losing request returned `matchVersion`. A pinned rook that would expose its king returned `legalMove` before the commit, with every field and the server version unchanged. [Referee verification](verify/releases/referee.json)
 
-The four primary releases produced 101 authenticated SDK write-attempt fixtures and 242 signed or signed-out read comparisons. Stock and compatibility matched on all 24 paired writes, including complete before/after state. The stronger release passed 30 hosted writes. The referee release passed 23 direct-client writes plus its separate browser and admission checks. Each qualified capture restored the pinned deny-all release and verified its behavior before releasing the controller lease. During development, a management-API rate limit interrupted one capture. The controller reverified ownership of its lease, restored the original rules and confirmed signed read and write denial. The four primary receipts cover completed captures only. [Stock](verify/releases/stock.json) · [Compatibility](verify/releases/compatibility.json) · [Stronger](verify/releases/stronger.json) · [Referee](verify/releases/referee.json)
+The [two-game PGN](verify/matches.pgn) replays to the stored terminal positions. It records checkmate on the board in game one and Black's resignation after White's opening move in game two.
+
+Across the public and sealed positions, the locked board policy agreed with the independent chess reference on all 3,184 position checks and 3,473 complete successors. The match policy also passed 13,892 admission checks on those successors. The public oracle records the first differing position and move when a candidate changes the answer. [Board score](reference/scores/97dda7add77cb18d132ba1c730bbef24a48870404198d6677cdf0f961a30d212.json) · [Match score](reference/scores/97dda7add77cb18d132ba1c730bbef24a48870404198d6677cdf0f961a30d212-metadata.json)
+
+## Live Firestore results
+
+Eight completed captures exercised four releases on the same isolated live Firestore database. Each row below combines the primary capture with its supplement.
+
+| Deployed release | Allowed | Refused | What was exercised |
+|---|---:|---:|---|
+| Stock Arcade | 21 | 18 | Original match, move and rematch rules |
+| Generated compatibility | 21 | 18 | Same 39 inputs as stock, same verdicts and complete stored documents |
+| Stronger Firestore rules | 21 | 28 | Ordinary and special moves, geometry, clearance, rights and match protocol |
+| Authoritative Pyric referee | 6 | 27 | 26 direct SDK writes and 7 HTTP move submissions |
+
+The 160 cases include 153 direct SDK write attempts. The other seven went through the referee. It accepted a legal castle and en passant, refused both when they exposed the king, and distinguished a signed-out request, the wrong seat and a stale ply. Firestore also refused an occupied-seat join, a resignation naming the wrong winner, and a rematch offer on an unfinished game. The browser games and same-version race have separate records. [Enforcement and evidence for each requirement](bundle/placement/coverage.md) · [Final boundary receipt](verify/releases/referee-boundary.json)
+
+All 91 refused cases preserved the complete observed documents and their server versions. Offline replay reproduced the 160 decisions, 368 read checks and 11 additional gameplay and race records. [Complete qualification score](verify/qualified-score.json) · [Release receipts](verify/releases) · [Hosted verification and replay](verify/README.md)
+
+After each qualified capture, the controller restored the pinned deny-all release and verified signed read and write refusals before releasing its lease. A management API rate limit and a later interrupted capture required separate recoveries during development. Both recoveries verified the original lease and confirmed closure. The scored set consists of completed and independently verified captures.
 
 ## Enforcement
 
