@@ -24,9 +24,16 @@ import type { MessagingEventOperation } from '../events.js';
 import { deliveryHistory } from './delivery-history.js';
 import { getClock } from '../../sandbox/clock.js';
 import { BrokerSendError, unregisteredTokenEnvelope, invalidTopicNameEnvelope } from './envelopes.js';
+import { evaluateCondition } from './condition.js';
+import { FidRegistrationStore, type FidHandler, type FidMutationCallbacks } from './fid-registration.js';
 import { isMessagingSnapshot, type MessagingSnapshot, type TokenRecord } from './persistence.js';
 import { mintToken } from './tokens.js';
-import { validateMessage, isValidTopicName, canonicalTopicName, TOKEN_SHAPE_RE } from './validate.js';
+import {
+  validateMessage,
+  isValidTopicName,
+  canonicalTopicName,
+  isValidMessagingTargetId,
+} from './validate.js';
 import type {
   AcceptedSend,
   BrokerMessage,
@@ -75,6 +82,7 @@ export class MessagingBroker {
   private readonly clients = new Map<string, { state: ClientVisibilityState; recipientId: string }>();
   private readonly foregroundHandlers = new Map<PayloadHandler, string>();
   private readonly backgroundHandlers = new Map<PayloadHandler, string>();
+  private readonly fidRegistrations = new FidRegistrationStore();
   private numericIdCounter = 0;
   private readonly changeListeners = new Set<() => void>();
 
@@ -82,6 +90,17 @@ export class MessagingBroker {
     this.projectId = options.projectId ?? DEFAULT_PROJECT_ID;
     this.senderId = options.senderId ?? DEFAULT_SENDER_ID;
     this.sandbox = options.sandbox;
+  }
+
+  private fidMutationHooks(): FidMutationCallbacks {
+    return {
+      tokenRecords: this.tokenRecords,
+      legacyRegistrations: this.registrations,
+      onChanged: () => this.changed(),
+      onEmit: (op, path, registrationId) => {
+        this.emit(op, { path, detail: { registrationId, kind: 'fid' } });
+      },
+    };
   }
 
   /** Durable token state only; live browser connections are restored by their clients. */
@@ -96,18 +115,21 @@ export class MessagingBroker {
   restore(data: unknown): void {
     if (!isMessagingSnapshot(data)) throw new Error('Invalid Messaging persistence snapshot.');
     this.registrations.clear();
+    this.fidRegistrations.clear();
     this.tokenRecords.clear();
     this.subscriptions.clear();
     for (const [token, record] of data.tokens) {
       this.tokenRecords.set(token, { ...record });
-      const isActive = record.state === 'active';
-      if (isActive) this.registrations.set(record.registrationId, token);
+      const restoredAsFid = this.fidRegistrations.restoreToken(token, record);
+      const isActiveLegacy = !restoredAsFid && record.state === 'active';
+      if (isActiveLegacy) this.registrations.set(record.registrationId, token);
     }
     for (const [topic, tokens] of data.topics) this.subscriptions.set(topic, new Set(tokens));
   }
 
   reset(): void {
     this.registrations.clear();
+    this.fidRegistrations.clear();
     this.tokenRecords.clear();
     this.subscriptions.clear();
     this.changed();
@@ -132,6 +154,8 @@ export class MessagingBroker {
   getTokenFor(registrationId: string, recipientId = DEFAULT_RECIPIENT): string {
     const existing = this.registrations.get(registrationId);
     if (existing !== undefined) return existing;
+    // Upstream dbSet deletes FID registration metadata when storing a legacy token.
+    this.fidRegistrations.clearStoredFidMetadata(registrationId);
     const token = mintToken();
     this.registrations.set(registrationId, token);
     this.tokenRecords.set(token, { registrationId, recipientId, state: 'active' });
@@ -143,23 +167,43 @@ export class MessagingBroker {
   /**
    * Invalidate the registration's token. Resolves truthy whether or not a
    * token existed (oracle: `messaging-web-deletetoken-unregistered`
-   * `deleteTokenResolvedTruthy`). After deletion the token routes NO client
-   * delivery and the send plane answers with the captured UNREGISTERED
-   * envelope. Deliberate divergence from production's TIMING nuance: prod
-   * propagates unregistration asynchronously (a first send after delete was
-   * observed accepted once); the broker is deterministic — dead is dead
-   * immediately. The observation pins that nuance as environment-dependent
-   * and NOT contractual.
+   * `deleteTokenResolvedTruthy`). When no legacy token exists on this
+   * registration, revokes any FID-based registration from `register()` and
+   * notifies `onUnregistered` with that FID (`@firebase/messaging` 0.13.3).
    */
-  deleteTokenFor(registrationId: string): boolean {
+  deleteTokenFor(registrationId: string, recipientId = DEFAULT_RECIPIENT): boolean {
     const token = this.registrations.get(registrationId);
-    if (token === undefined) return true;
+    if (token === undefined) {
+      this.fidRegistrations.revokeIfStored(registrationId, recipientId, this.fidMutationHooks());
+      return true;
+    }
     this.registrations.delete(registrationId);
+    this.fidRegistrations.clearStoredFidMetadata(registrationId);
     const record = this.tokenRecords.get(token);
     if (record !== undefined) record.state = 'unregistered';
     this.changed();
     this.emit('token_deleted', { path: token, detail: { registrationId } });
     return true;
+  }
+
+  /** Register `registrationId` by Firebase Installation ID and notify `onRegistered` listeners. */
+  registerFor(registrationId: string, recipientId = DEFAULT_RECIPIENT): string {
+    return this.fidRegistrations.registerFor(registrationId, recipientId, this.fidMutationHooks());
+  }
+
+  /** Unregister `registrationId`'s Firebase Installation ID and notify `onUnregistered` listeners. */
+  unregisterFor(registrationId: string, recipientId = DEFAULT_RECIPIENT): string {
+    return this.fidRegistrations.unregisterFor(registrationId, recipientId, this.fidMutationHooks());
+  }
+
+  /** Subscribe to FID registration notifications for `recipientId`. */
+  onFidRegistered(handler: FidHandler, recipientId = DEFAULT_RECIPIENT): () => void {
+    return this.fidRegistrations.onRegistered(handler, recipientId);
+  }
+
+  /** Subscribe to FID unregistration notifications for `recipientId`. */
+  onFidUnregistered(handler: FidHandler, recipientId = DEFAULT_RECIPIENT): () => void {
+    return this.fidRegistrations.onUnregistered(handler, recipientId);
   }
 
   /** `active` | `unregistered` (minted then deleted) | `unknown` (never minted here). */
@@ -203,7 +247,7 @@ export class MessagingBroker {
 
     const outcome: TopicManagementOutcome = { successCount: 0, failureCount: 0, errors: [] };
     tokens.forEach((token, index) => {
-      if (!TOKEN_SHAPE_RE.test(token)) {
+      if (!isValidMessagingTargetId(token)) {
         outcome.failureCount++;
         outcome.errors.push({ index, reason: 'invalid-token' });
         return;
@@ -522,67 +566,4 @@ function targetPath(target: ResolvedTarget): string {
   return target.condition;
 }
 
-/**
- * Evaluate a (pre-validated) condition against a token's topic set. Re-uses
- * the same grammar as `parseCondition`; kept here because evaluation is a
- * routing concern, not a validation concern.
- */
-export function evaluateCondition(condition: string, topics: ReadonlySet<string>): boolean {
-  const src = condition;
-  let pos = 0;
-
-  function ws(): void {
-    while (pos < src.length && /\s/.test(src[pos]!)) pos++;
-  }
-  function lit(s: string): boolean {
-    ws();
-    if (src.startsWith(s, pos)) {
-      pos += s.length;
-      return true;
-    }
-    return false;
-  }
-  function primary(): boolean {
-    ws();
-    if (lit('!')) return !primary();
-    if (lit('(')) {
-      const v = orExpr();
-      lit(')');
-      return v;
-    }
-    ws();
-    pos++; // opening quote (validated upstream)
-    const start = pos;
-    while (pos < src.length && src[pos] !== "'") pos++;
-    const name = src.slice(start, pos);
-    pos++; // closing quote
-    lit('in');
-    lit('topics');
-    return topics.has(name);
-  }
-  function andExpr(): boolean {
-    let value = primary();
-    for (;;) {
-      ws();
-      if (lit('&&')) {
-        const rhs = primary();
-        value = value && rhs;
-        continue;
-      }
-      return value;
-    }
-  }
-  function orExpr(): boolean {
-    let value = andExpr();
-    for (;;) {
-      ws();
-      if (lit('||')) {
-        const rhs = andExpr();
-        value = value || rhs;
-        continue;
-      }
-      return value;
-    }
-  }
-  return orExpr();
-}
+export { evaluateCondition };

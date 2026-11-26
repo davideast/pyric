@@ -33,6 +33,11 @@ export type AuthAccountStanding =
 export interface AuthAccountHistory {
   tokensValidAfterMs: Record<string, number>;
   deletedUids: string[];
+  /**
+   * Present and `false` when the project disabled Email Enumeration Protection.
+   * Omitted when enabled (production's default for new projects).
+   */
+  emailEnumerationProtection?: boolean;
 }
 
 /** Whether `value` is an {@link AuthAccountHistory}. */
@@ -44,7 +49,9 @@ export function isAuthAccountHistory(value: unknown): value is AuthAccountHistor
   const timesValid = typeof times === 'object' && times !== null && !Array.isArray(times)
     && Object.values(times).every((ms) => typeof ms === 'number' && Number.isFinite(ms));
   const uidsValid = Array.isArray(history.deletedUids) && history.deletedUids.every((uid) => typeof uid === 'string');
-  return timesValid && uidsValid;
+  const protection = history.emailEnumerationProtection;
+  const protectionValid = protection === undefined || typeof protection === 'boolean';
+  return timesValid && uidsValid && protectionValid;
 }
 
 /** One sandbox's Auth account table, as `pyric/auth` exposes it. */
@@ -53,6 +60,10 @@ export interface AuthAccounts {
   standing(uid: string): AuthAccountStanding;
   /** Revoke the account's refresh tokens at the sandbox clock's now. */
   revokeRefreshTokens(uid: string): void;
+  /** Whether project-level Email Enumeration Protection is enabled (default `true`). */
+  emailEnumerationProtection(): boolean;
+  /** Toggle project-level Email Enumeration Protection (`true` by default). */
+  setEmailEnumerationProtection(enabled: boolean): void;
   /** Forget every deletion and revocation: a reset starts over. */
   forgetHistory(): void;
   /** Each account's revocation time and the deleted uids. */

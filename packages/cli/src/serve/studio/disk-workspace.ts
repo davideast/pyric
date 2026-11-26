@@ -134,8 +134,16 @@ function isServedChild(root: string, childAbs: string): boolean {
   try {
     resolveWorkspacePath(root, toPosixRel(root, childAbs));
     return true;
-  } catch (error) {
-    return !(error instanceof WorkspaceDeniedPathError);
+  } catch (error: unknown) {
+    if (error instanceof WorkspacePathError) {
+      return false;
+    }
+    // Fail closed on OS path-resolution errors (for example EACCES/ELOOP) so
+    // list() never stats or exposes an entry that could not be verified.
+    if (error instanceof Error) {
+      return false;
+    }
+    return false;
   }
 }
 

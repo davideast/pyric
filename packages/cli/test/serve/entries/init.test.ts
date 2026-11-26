@@ -194,6 +194,14 @@ describe('init entry payload refusal (#2052)', () => {
         }),
         expected: 'Open /__pyric/unlock?next=',
       },
+      {
+        respond: () => new Response(JSON.stringify({ error: 'unlock_required', unlockPath: '/__pyric/unlock.evil' }), {
+          status: 401,
+          headers: { 'content-type': 'application/json' },
+        }),
+        expected: 'Open /__pyric/unlock?next=',
+        forbidden: 'unlock.evil',
+      },
     ];
     for (const testCase of cases) {
       const unhandled: unknown[] = [];

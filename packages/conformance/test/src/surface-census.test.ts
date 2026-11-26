@@ -10,18 +10,18 @@ beforeAll(async () => {
 
 describe('Firebase public-surface census', () => {
   const expectedCounts = {
-    ai: { runtime: [45, 38, 0], types: [159, 159] },
-    app: { runtime: [10, 9, 14], types: [6, 6] },
+    ai: { runtime: [45, 39, 0], types: [159, 159] },
+    app: { runtime: [10, 10, 14], types: [6, 6] },
     // pyric/app-check is a deferred stub: every name resolves and throws, so the
     // census credits all 8 runtime names. Coverage is off in surfaces/app-check.json.
     'app-check': { runtime: [8, 8, 0], types: [11, 11] },
     auth: { runtime: [85, 71, 0], types: [64, 64] },
-    firestore: { runtime: [113, 104, 15], types: [86, 86] },
+    firestore: { runtime: [113, 106, 15], types: [86, 86] },
     functions: { runtime: [5, 5, 0], types: [9, 9] },
     database: { runtime: [44, 44, 10], types: [15, 15] },
     storage: { runtime: [18, 16, 9], types: [17, 17] },
-    messaging: { runtime: [9, 5, 0], types: [9, 9] },
-    'messaging-sw': { runtime: [6, 4, 0], types: [9, 9] },
+    messaging: { runtime: [9, 9, 0], types: [9, 9] },
+    'messaging-sw': { runtime: [6, 6, 0], types: [9, 9] },
   } as const;
 
   it('pins public runtime and type denominators for every mirrored Firebase entry point', () => {
@@ -60,13 +60,13 @@ describe('Firebase public-surface census', () => {
     }
   });
 
-  it('measures firebase/app as 9 of 10 public runtime exports', async () => {
+  it('measures firebase/app as 10 of 10 public runtime exports', async () => {
     const app = census.find((surface) => surface.surface === 'app');
     expect(app).toBeDefined();
     if (!app) throw new Error('expected app surface');
     expect(app.runtime.upstreamCount).toBe(10);
-    expect(app.runtime.mapped).toHaveLength(9);
-    expect(app.runtime.dispositioned.map(({ symbol }) => symbol)).toEqual(['initializeServerApp']);
+    expect(app.runtime.mapped).toHaveLength(10);
+    expect(app.runtime.dispositioned.map(({ symbol }) => symbol)).toEqual([]);
     expect(app.runtime.unmapped).toEqual([]);
   });
 

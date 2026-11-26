@@ -12,12 +12,26 @@ import { getDoc } from '../../../../src/serve/worker/client/firestore-reads.js';
 import {
   arrayRemove,
   arrayUnion,
+  collection,
   deleteField,
   doc,
   increment,
+  maximum,
+  minimum,
+  query,
   serverTimestamp,
+  where,
 } from '../../../../src/serve/worker/client/firestore-refs.js';
-import { setDoc, updateDoc } from '../../../../src/serve/worker/client/firestore-writes.js';
+import {
+  disableNetwork,
+  enableNetwork,
+} from '../../../../src/serve/worker/client/firestore-network.js';
+import {
+  runTransaction,
+  setDoc,
+  updateDoc,
+  writeBatch,
+} from '../../../../src/serve/worker/client/firestore-writes.js';
 import { connectClientToHost, makeHostCtx } from '../integration-support.js';
 import { restoreSharedWorker } from '../oracle-captures/support.ts';
 
@@ -100,6 +114,84 @@ describe('worker client FieldValue sentinels and ensureFirestoreConfigured/execu
         syncThrew = err instanceof FirebaseError && err.code === 'failed-precondition';
       }
       expect(syncThrew).toBe(true);
+    } finally {
+      host.sandbox.dispose();
+    }
+  });
+
+  it('supports maximum(n) and minimum(n) sentinels across worker writes, offline staging, and placement validation', async () => {
+    expect(maximum(7) instanceof FieldValue).toBe(true);
+    expect(minimum(7) instanceof FieldValue).toBe(true);
+    expect(maximum(7).isEqual(maximum(7))).toBe(true);
+    expect(maximum(-0).isEqual(maximum(0))).toBe(true);
+    expect(maximum(Number.NaN).isEqual(maximum(Number.NaN))).toBe(true);
+    expect(maximum(7).isEqual(minimum(7))).toBe(false);
+    expect(minimum(Number.NaN).isEqual(minimum(Number.NaN))).toBe(true);
+
+    const host = await makeHostCtx();
+    setRules(host.sandbox, OPEN_RULES);
+    try {
+      const { db } = connectClientToHost(host, 'worker://fv-minmax');
+      const ref = doc(db, 'items/minmax-1');
+
+      await setDoc(ref, {
+        high: maximum(10),
+        low: minimum(10),
+        nonNum: 'hello',
+        negZero: -0,
+        posZero: 0,
+      });
+      await updateDoc(ref, {
+        high: maximum(22),
+        low: minimum(4),
+        nonNum: minimum(-3),
+        negZero: maximum(0),
+        posZero: minimum(-0),
+      });
+      await updateDoc(ref, {
+        high: maximum(15),
+        low: minimum(9),
+      });
+
+      const snap1 = await getDoc(ref);
+      const data1 = snap1.data() as Record<string, unknown>;
+      expect(data1.high).toBe(22);
+      expect(data1.low).toBe(4);
+      expect(data1.nonNum).toBe(-3);
+      expect(Object.is(data1.negZero, -0)).toBe(true);
+      expect(Object.is(data1.posZero, 0)).toBe(true);
+
+      // Offline projection + replay on reconnect.
+      await disableNetwork(db);
+      const offlinePending = updateDoc(ref, { high: maximum(50), low: minimum(1) });
+      const offlineSnap = await getDoc(ref);
+      expect(offlineSnap.data()).toMatchObject({ high: 50, low: 1 });
+      await enableNetwork(db);
+      await offlinePending;
+      expect((await getDoc(ref)).data()).toMatchObject({ high: 50, low: 1 });
+
+      // writeBatch + runTransaction over worker port.
+      const batch = writeBatch(db);
+      batch.update(ref, { high: maximum(60), low: minimum(2) });
+      await batch.commit();
+      await runTransaction(db, async (txn) => {
+        const cur = await txn.get(ref);
+        expect(cur.data()).toMatchObject({ high: 60, low: 1 });
+        txn.update(ref, { high: maximum(55), low: minimum(-10), nanField: maximum(Number.NaN) });
+      });
+      const finalData = (await getDoc(ref)).data() as Record<string, unknown>;
+      expect(finalData.high).toBe(60);
+      expect(finalData.low).toBe(-10);
+      expect(Number.isNaN(finalData.nanField)).toBe(true);
+
+      // Synchronous placement and operand rejections on worker client.
+      expect(() => writeBatch(db).set(ref, { arr: [maximum(5)] })).toThrow(FirebaseError);
+      expect(() => writeBatch(db).update(ref, { arr: [minimum(5)] })).toThrow(FirebaseError);
+      expect(() => writeBatch(db).set(ref, { arr: arrayUnion(maximum(5)) })).toThrow(FirebaseError);
+      expect(() => writeBatch(db).set(ref, { arr: arrayRemove(minimum(5)) })).toThrow(FirebaseError);
+      expect(() => updateDoc(ref, { high: maximum(undefined as unknown as number) })).toThrow(FirebaseError);
+      expect(() => updateDoc(ref, { low: minimum('bad' as unknown as number) })).toThrow(FirebaseError);
+      expect(() => query(collection(db, 'items'), where('high', '==', maximum(5)))).toThrow(FirebaseError);
     } finally {
       host.sandbox.dispose();
     }

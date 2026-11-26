@@ -22,16 +22,6 @@
   "registry": "ai",
   "dispositions": [
     {
-      "id": "ai.agent-platform-backend",
-      "availability": "deferred",
-      "reasonCode": "implementation-deferred",
-      "summary": "The Agent Platform backend is new in firebase 12.19.0 and has no production capture yet, so the sandbox does not route it; implementing it is tracked in #1674.",
-      "evidenceRefs": ["upstream:firebase/ai@2.16.0"],
-      "symbols": [
-        "AgentPlatformBackend"
-      ]
-    },
-    {
       "id": "ai.live-api",
       "availability": "deferred",
       "reasonCode": "implementation-deferred",

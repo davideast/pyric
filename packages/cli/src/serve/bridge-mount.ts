@@ -41,11 +41,11 @@ import {
   evaluateGuard,
   isAdmittedPeer,
   isLoopbackHostHeader,
-  isTrustedProxyPeer,
   parseAllowPeersSetting,
   parseTrustProxySetting,
   type RemoteAccessOptions,
 } from './guard-policy.js';
+import { resolveRequestHostContext } from './forwarded-proxy.js';
 import { parseHostHeader } from './host-pattern.js';
 import {
   getHeader,
@@ -607,25 +607,33 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
         // its creator named. `allowedHosts: true` never bypasses this guard, and
         // `--allowed-host` / `?token=` never reaches unauthenticated remote byte routes.
         const authenticatedSession = isAllowedSessionToken(req, url, sessionToken);
-        const hostHeader = getHeader(req, 'host');
         const originHeader = getHeader(req, 'origin');
-        const effectiveScheme = effectiveRequestScheme(req, trustProxy);
-        const isLocalHost = isAllowedHost(hostHeader, boundHost, []);
-        const isExtraHost = !isLocalHost && isAllowedHost(hostHeader, boundHost, extraAllowedHosts);
-        if (!isLocalHost && !isExtraHost) {
+        const hostCtx = resolveRequestHostContext(req, {
+          boundHost,
+          allowedHosts: extraAllowedHosts,
+          allowPeers,
+          trustProxy,
+          remoteAccessEnabled,
+        });
+        if (!hostCtx.ok) {
           res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: invalid host or origin');
           return true;
         }
-        const isRemoteRequest = isRemotePeer || !isLoopbackHostHeader(hostHeader);
+        const effectiveScheme = hostCtx.effectiveScheme;
+        const isExtraHost = hostCtx.isExtraHost;
+        const isRemoteRequest = isRemotePeer || hostCtx.isRemoteHost;
         if (isExtraHost && !remoteAccessEnabled && !(requiresSessionToken && authenticatedSession)) {
           res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: invalid host or origin');
           return true;
         }
         const ports = [...requestPorts];
-        if (isTrustedProxyPeer(req, trustProxy) && hostHeader !== undefined) {
-          const parsedHost = parseHostHeader(hostHeader);
-          if (parsedHost?.port !== undefined && !ports.includes(parsedHost.port)) {
-            ports.push(parsedHost.port);
+        if (hostCtx.trustedProxy) {
+          for (const candidate of [hostCtx.hostHeader, hostCtx.forwardedHost]) {
+            if (candidate === undefined) continue;
+            const parsedHost = parseHostHeader(candidate);
+            if (parsedHost?.port !== undefined && !ports.includes(parsedHost.port)) {
+              ports.push(parsedHost.port);
+            }
           }
         }
         const byteAllowedHosts = isExtraHost ? extraAllowedHosts : [];

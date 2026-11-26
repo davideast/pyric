@@ -3,19 +3,32 @@
  * holds.
  *
  * The contract under test: a branch forked from a saved state reads what that
- * state held, writes on the branch never reach the state it came from, a
- * candidate ruleset governs the branch, and the comparison Studio draws is over
- * documents alone.
+ * state held, Storage entries carried on a saved state fork by SHA-256 byte
+ * reference rather than copying inline base64 payloads, writes on the branch
+ * never reach the state it came from, a candidate ruleset governs the branch,
+ * and `documentDivergences` compares Firestore documents alone.
  */
-import { describe, it, expect } from 'bun:test';
+import 'fake-indexeddb/auto';
+import { afterEach, describe, it, expect } from 'bun:test';
 
 import {
   documentDivergences,
   forkFromSavedState,
+  hasSavedStorage,
   savedStateOf,
+  type SavedNamedFirestoreSnapshot,
 } from '../../src/shell/saved-state-branches.js';
-import { discard, initializeSandbox, type SandboxSnapshot } from 'pyric/sandbox';
-import { getInternalEnv } from 'pyric/sandbox/internal';
+import {
+  captureFullState,
+  discard,
+  holdsBytesInline,
+  initializeSandbox,
+  type SandboxSnapshot,
+  type StorageObjectState,
+} from 'pyric/sandbox';
+import { getInternalEnv, setInlineStorageLimitForTesting } from 'pyric/sandbox/internal';
+import { getMetadata, ref as storageRef } from 'pyric/storage';
+import { getAdminStorageSandbox } from 'pyric/storage/internal';
 
 const PERMISSIVE = `rules_version = '2';
 service cloud.firestore {
@@ -31,6 +44,12 @@ service cloud.firestore {
   }
 }`;
 
+let restoreLimit: (() => void) | undefined;
+afterEach(() => {
+  restoreLimit?.();
+  restoreLimit = undefined;
+});
+
 /** A saved state holding the given documents under permissive rules. */
 function savedState(documents: Record<string, Record<string, unknown>>): SandboxSnapshot {
   const sandbox = initializeSandbox();
@@ -41,13 +60,44 @@ function savedState(documents: Record<string, Record<string, unknown>>): Sandbox
 }
 
 describe('savedStateOf', () => {
-  it('carries the documents and leaves every other service empty', () => {
-    const lifted = savedStateOf(savedState({ 'things/a': { v: 1 } }));
+  it('carries the documents and leaves every other service empty when omitted', () => {
+    const saved = savedState({ 'things/a': { v: 1 } });
+    expect(hasSavedStorage(saved)).toBe(false);
+    const lifted = savedStateOf(saved);
     expect(lifted.firestore).toEqual({ 'things/a': { v: 1 } });
     expect(lifted.database).toBeNull();
     expect(lifted.storage).toEqual([]);
     expect(lifted.auth).toEqual({ users: [], providers: {} });
     expect(lifted.rules).toEqual({ firestore: '', database: null, storage: null });
+  });
+
+  it('lifts SHA-256 Storage object references when present on the saved state', () => {
+    const sha256 = 'd'.repeat(64);
+    const withStorage: SavedNamedFirestoreSnapshot = {
+      ...savedState({ 'things/a': { v: 1 } }),
+      storage: [
+        {
+          path: 'videos/demo.mp4',
+          sha256,
+          size: 524_288_000,
+          contentType: 'video/mp4',
+          customMetadata: { tag: 'hero' },
+          blobType: 'video/mp4',
+        },
+      ],
+    };
+    expect(hasSavedStorage(withStorage)).toBe(true);
+    const lifted = savedStateOf(withStorage);
+    expect(lifted.storage).toEqual([
+      {
+        path: 'videos/demo.mp4',
+        sha256,
+        size: 524_288_000,
+        contentType: 'video/mp4',
+        customMetadata: { tag: 'hero' },
+        blobType: 'video/mp4',
+      },
+    ]);
   });
 });
 
@@ -93,6 +143,55 @@ describe('forkFromSavedState', () => {
     } finally {
       discard(branch);
       loaded.dispose();
+    }
+  });
+
+  it('forks saved Storage entries by SHA-256 reference with zero inline bytes past inlineStorageLimit', async () => {
+    restoreLimit = setInlineStorageLimitForTesting(8);
+    const largeSha = 'e'.repeat(64);
+    const inlineSmall: StorageObjectState = {
+      path: 'docs/guide.txt',
+      contentBase64: btoa('0123456789abcdef'), // 16 bytes (> 8 byte inline limit)
+      contentType: 'text/plain',
+      customMetadata: { section: 'intro' },
+      blobType: 'text/plain',
+    };
+    const largeRef: StorageObjectState = {
+      path: 'videos/archive.mp4',
+      sha256: largeSha,
+      size: 524_288_000,
+      contentType: 'video/mp4',
+      customMetadata: { codec: 'av1' },
+      blobType: 'video/mp4',
+    };
+    const saved: SavedNamedFirestoreSnapshot = {
+      ...savedState({ 'things/a': { v: 1 } }),
+      storage: [inlineSmall, largeRef],
+    };
+
+    const branch = await forkFromSavedState(saved);
+    try {
+      expect(branch.base.storage).toHaveLength(2);
+      for (const entry of branch.base.storage) {
+        expect(holdsBytesInline(entry)).toBe(false);
+      }
+
+      const storage = getAdminStorageSandbox(branch.sandbox);
+      const archiveMeta = await getMetadata(storageRef(storage, 'videos/archive.mp4'));
+      expect(archiveMeta.size).toBe(524_288_000);
+      expect(archiveMeta.customMetadata).toEqual({ codec: 'av1' });
+
+      const guideMeta = await getMetadata(storageRef(storage, 'docs/guide.txt'));
+      expect(guideMeta.size).toBe(16);
+
+      const captured = await captureFullState(branch.sandbox);
+      expect(captured.storage).toHaveLength(2);
+      for (const entry of captured.storage) {
+        expect(holdsBytesInline(entry)).toBe(false);
+      }
+      expect(documentDivergences(branch, saved)).toEqual([]);
+    } finally {
+      discard(branch);
     }
   });
 });

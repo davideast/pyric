@@ -209,6 +209,51 @@ function applyOfflineIncrement(prior: unknown, encodedDelta: unknown): unknown {
   return encodeNumericResult(prev + deltaNum);
 }
 
+const TWO_POW_63 = 9223372036854775808;
+
+function compareOfflineOperandToPrior(operand: number, prev: number | bigint): number {
+  if (typeof prev === 'number') {
+    if (operand < prev) return -1;
+    if (operand > prev) return 1;
+    return 0;
+  }
+  if (operand === Number.NEGATIVE_INFINITY || operand < -TWO_POW_63) return -1;
+  if (operand === Number.POSITIVE_INFINITY || operand >= TWO_POW_63) return 1;
+  const truncated = Math.trunc(operand);
+  const truncBig = BigInt(truncated);
+  if (truncBig < prev) return -1;
+  if (truncBig > prev) return 1;
+  if (operand < truncated) return -1;
+  if (operand > truncated) return 1;
+  return 0;
+}
+
+function applyOfflineMaximum(prior: unknown, encodedOperand: unknown): unknown {
+  const decoded = decodeEncodedNumeric(encodedOperand);
+  const operand = typeof decoded === 'bigint' ? Number(decoded) : (decoded ?? 0);
+  const prev = decodeEncodedNumeric(prior);
+  if (prev === undefined) return encodeNumericResult(operand);
+  if (Number.isNaN(operand)) return encodeNumericResult(Number.NaN);
+  if (typeof prev === 'number' && Number.isNaN(prev)) return encodeNumericResult(Number.NaN);
+  if (compareOfflineOperandToPrior(operand, prev) > 0) {
+    return encodeNumericResult(operand);
+  }
+  return prior;
+}
+
+function applyOfflineMinimum(prior: unknown, encodedOperand: unknown): unknown {
+  const decoded = decodeEncodedNumeric(encodedOperand);
+  const operand = typeof decoded === 'bigint' ? Number(decoded) : (decoded ?? 0);
+  const prev = decodeEncodedNumeric(prior);
+  if (prev === undefined) return encodeNumericResult(operand);
+  if (Number.isNaN(operand)) return encodeNumericResult(Number.NaN);
+  if (typeof prev === 'number' && Number.isNaN(prev)) return encodeNumericResult(Number.NaN);
+  if (compareOfflineOperandToPrior(operand, prev) < 0) {
+    return encodeNumericResult(operand);
+  }
+  return prior;
+}
+
 function lastSegment(path: string): string {
   const idx = path.lastIndexOf('/');
   if (idx === -1) return path;
@@ -332,6 +377,14 @@ function resolveEncodedSentinels(
   if (isSentinel(node, 'increment')) {
     const prevVal = readEncodedAt(priorRoot, prefix).value;
     return applyOfflineIncrement(prevVal, node.n);
+  }
+  if (isSentinel(node, 'maximum')) {
+    const prevVal = readEncodedAt(priorRoot, prefix).value;
+    return applyOfflineMaximum(prevVal, node.n);
+  }
+  if (isSentinel(node, 'minimum')) {
+    const prevVal = readEncodedAt(priorRoot, prefix).value;
+    return applyOfflineMinimum(prevVal, node.n);
   }
   if (isSentinel(node, 'arrayUnion')) {
     const prevVal = readEncodedAt(priorRoot, prefix).value;

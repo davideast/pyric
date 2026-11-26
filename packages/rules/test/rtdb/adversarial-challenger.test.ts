@@ -331,7 +331,12 @@ describe('Adversarial Verification — Challenger 1', () => {
       pathVariableBindings: {},
     };
 
-    describe('Direct primitive and literal non-boolean values evaluate to false (fail-closed)', () => {
+    const expectNotBooleanError = (expr: string, ctx: EvalContext) => {
+      expect(() => evaluateRtdbExpression(expr, ctx)).toThrow(RtdbRuleRuntimeError);
+      expect(() => evaluateRtdbExpression(expr, ctx)).toThrow('! only operates on booleans.');
+    };
+
+    describe('Direct primitive and literal non-boolean values throw RtdbRuleRuntimeError (fail-closed)', () => {
       const nonBooleanLiterals = [
         { label: '!0 (number zero)', expr: '!0' },
         { label: '!1 (positive number)', expr: '!1' },
@@ -349,14 +354,13 @@ describe('Adversarial Verification — Challenger 1', () => {
       ];
 
       for (const { label, expr } of nonBooleanLiterals) {
-        test(`${label} evaluates to false`, () => {
-          const result = evaluateRtdbExpression(expr, mockCtx);
-          expect(result).toBe(false);
+        test(`${label} throws RtdbRuleRuntimeError`, () => {
+          expectNotBooleanError(expr, mockCtx);
         });
       }
     });
 
-    describe('Snapshot nodes and properties with non-boolean values evaluate to false', () => {
+    describe('Snapshot nodes and properties with non-boolean values throw RtdbRuleRuntimeError', () => {
       const nonBooleanDataCases = [
         { label: '!data.child("numZero").val() (0 value)', expr: "!data.child('numZero').val()" },
         { label: '!data.child("numPos").val() (42 value)', expr: "!data.child('numPos').val()" },
@@ -375,9 +379,8 @@ describe('Adversarial Verification — Challenger 1', () => {
       ];
 
       for (const { label, expr } of nonBooleanDataCases) {
-        test(`${label} evaluates to false`, () => {
-          const result = evaluateRtdbExpression(expr, mockCtx);
-          expect(result).toBe(false);
+        test(`${label} throws RtdbRuleRuntimeError`, () => {
+          expectNotBooleanError(expr, mockCtx);
         });
       }
 
@@ -386,55 +389,55 @@ describe('Adversarial Verification — Challenger 1', () => {
       });
     });
 
-    describe('Auth context non-boolean evaluation evaluates to false', () => {
-      test('!auth evaluates to false when authenticated (SimulatedAuth object)', () => {
-        expect(evaluateRtdbExpression('!auth', mockCtx)).toBe(false);
+    describe('Auth context non-boolean evaluation throws RtdbRuleRuntimeError', () => {
+      test('!auth throws when authenticated (SimulatedAuth object)', () => {
+        expectNotBooleanError('!auth', mockCtx);
       });
 
-      test('!auth evaluates to false when unauthenticated (null auth)', () => {
-        expect(evaluateRtdbExpression('!auth', unauthedCtx)).toBe(false);
+      test('!auth throws when unauthenticated (null auth)', () => {
+        expectNotBooleanError('!auth', unauthedCtx);
       });
 
-      test('!auth.uid evaluates to false when authenticated (string uid)', () => {
-        expect(evaluateRtdbExpression('!auth.uid', mockCtx)).toBe(false);
+      test('!auth.uid throws when authenticated (string uid)', () => {
+        expectNotBooleanError('!auth.uid', mockCtx);
       });
 
-      test('!auth.uid evaluates to false when unauthenticated (null safeMemberRead)', () => {
-        expect(evaluateRtdbExpression('!auth.uid', unauthedCtx)).toBe(false);
+      test('!auth.uid throws when unauthenticated (null safeMemberRead)', () => {
+        expectNotBooleanError('!auth.uid', unauthedCtx);
       });
 
-      test('!auth.token evaluates to false (token object)', () => {
-        expect(evaluateRtdbExpression('!auth.token', mockCtx)).toBe(false);
+      test('!auth.token throws (token object)', () => {
+        expectNotBooleanError('!auth.token', mockCtx);
       });
 
-      test('!auth.token.role evaluates to false when string role ("admin")', () => {
-        expect(evaluateRtdbExpression('!auth.token.role', mockCtx)).toBe(false);
+      test('!auth.token.role throws when string role ("admin")', () => {
+        expectNotBooleanError('!auth.token.role', mockCtx);
       });
 
-      test('!auth.token.unassigned evaluates to false when undefined claim', () => {
-        expect(evaluateRtdbExpression('!auth.token.unassigned', mockCtx)).toBe(false);
+      test('!auth.token.unassigned throws when undefined claim', () => {
+        expectNotBooleanError('!auth.token.unassigned', mockCtx);
       });
 
-      test('!auth.token.nullField evaluates to false when null claim', () => {
-        expect(evaluateRtdbExpression('!auth.token.nullField', mockCtx)).toBe(false);
+      test('!auth.token.nullField throws when null claim', () => {
+        expectNotBooleanError('!auth.token.nullField', mockCtx);
       });
 
-      test('!auth.token.missingProperty evaluates to false when completely absent', () => {
-        expect(evaluateRtdbExpression('!auth.token.missingProperty', mockCtx)).toBe(false);
+      test('!auth.token.missingProperty throws when completely absent', () => {
+        expectNotBooleanError('!auth.token.missingProperty', mockCtx);
       });
     });
 
-    describe('Snapshot string methods returning non-boolean evaluated under negation evaluate to false', () => {
-      test('!data.child("str").val().toLowerCase() evaluates to false', () => {
-        expect(evaluateRtdbExpression("!data.child('str').val().toLowerCase()", mockCtx)).toBe(false);
+    describe('Snapshot string methods returning non-boolean evaluated under negation throw RtdbRuleRuntimeError', () => {
+      test('!data.child("str").val().toLowerCase() throws', () => {
+        expectNotBooleanError("!data.child('str').val().toLowerCase()", mockCtx);
       });
 
-      test('!data.child("str").val().replace(...) evaluates to false', () => {
-        expect(evaluateRtdbExpression("!data.child('str').val().replace('h', 'j')", mockCtx)).toBe(false);
+      test('!data.child("str").val().replace(...) throws', () => {
+        expectNotBooleanError("!data.child('str').val().replace('h', 'j')", mockCtx);
       });
 
-      test('!data.child("str").val().length evaluates to false', () => {
-        expect(evaluateRtdbExpression("!data.child('str').val().length", mockCtx)).toBe(false);
+      test('!data.child("str").val().length throws', () => {
+        expectNotBooleanError("!data.child('str').val().length", mockCtx);
       });
     });
 
@@ -483,24 +486,28 @@ describe('Adversarial Verification — Challenger 1', () => {
     });
 
     describe('Compound expressions with non-boolean negation cannot grant false access', () => {
-      test('!data.child("missing").val() && true evaluates to false', () => {
-        expect(evaluateRtdbExpression("!data.child('missing').val() && true", mockCtx)).toBe(false);
+      test('!data.child("missing").val() && true throws RtdbRuleRuntimeError', () => {
+        expectNotBooleanError("!data.child('missing').val() && true", mockCtx);
       });
 
-      test('true && !data.child("missing").val() evaluates to false', () => {
-        expect(evaluateRtdbExpression("true && !data.child('missing').val()", mockCtx)).toBe(false);
+      test('true && !data.child("missing").val() throws RtdbRuleRuntimeError', () => {
+        expectNotBooleanError("true && !data.child('missing').val()", mockCtx);
       });
 
-      test('!data.child("missing").val() || false evaluates to false', () => {
-        expect(evaluateRtdbExpression("!data.child('missing').val() || false", mockCtx)).toBe(false);
+      test('!data.child("missing").val() || false throws RtdbRuleRuntimeError', () => {
+        expectNotBooleanError("!data.child('missing').val() || false", mockCtx);
       });
 
-      test('!data.child("missing").val() ? true : false evaluates to false', () => {
-        expect(evaluateRtdbExpression("!data.child('missing').val() ? true : false", mockCtx)).toBe(false);
+      test('!data.child("missing").val() || true throws RtdbRuleRuntimeError (does not fail open)', () => {
+        expectNotBooleanError("!data.child('missing').val() || true", mockCtx);
       });
 
-      test('!auth && true in unauthenticated context evaluates to false (cannot bypass auth check)', () => {
-        expect(evaluateRtdbExpression('!auth && true', unauthedCtx)).toBe(false);
+      test('!data.child("missing").val() ? true : false throws RtdbRuleRuntimeError', () => {
+        expectNotBooleanError("!data.child('missing').val() ? true : false", mockCtx);
+      });
+
+      test('!auth && true in unauthenticated context throws RtdbRuleRuntimeError (cannot bypass auth check)', () => {
+        expectNotBooleanError('!auth && true', unauthedCtx);
       });
     });
   });

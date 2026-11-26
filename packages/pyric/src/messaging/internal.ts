@@ -17,5 +17,9 @@ export * from './broker/index.js';
  * part of the public API.
  */
 export { registerSandboxDelivery, type SandboxDeliveryTransport } from './instance.js';
-export { assertGetTokenPreconditions } from './client.js';
+export {
+  assertGetTokenPreconditions,
+  assertRegisterPreconditions,
+  throwInvalidOnRegisteredHandler,
+} from './client.js';
 export type { DeliverSpec } from './instance.js';

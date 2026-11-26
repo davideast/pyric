@@ -1,6 +1,5 @@
 import { unsupportedServedApi } from './call.js';
 
-export const AgentPlatformBackend = unsupportedServedApi('ai', 'AgentPlatformBackend');
 export const LiveGenerativeModel = unsupportedServedApi('ai', 'LiveGenerativeModel');
 export const LiveSession = unsupportedServedApi('ai', 'LiveSession');
 export const TemplateGenerativeModel = unsupportedServedApi('ai', 'TemplateGenerativeModel');

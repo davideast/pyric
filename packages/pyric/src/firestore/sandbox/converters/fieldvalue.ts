@@ -49,6 +49,7 @@ import {
   type ResolveContext,
 } from '../value-resolver.js';
 import { isPlainObject } from '../../plain-object.js';
+import { compareNumericValues } from '../query-value-order.js';
 import { registeredReferenceQueryValue } from '../query-value-registry.js';
 import { isUnescapedUserMap, markFieldValueSentinel } from '../unescaped-map.js';
 import { firestoreValuesEqual } from '../value-equality.js';
@@ -56,6 +57,8 @@ import { firestoreValuesEqual } from '../value-equality.js';
 // ═══ Sentinel shapes ═══
 
 interface IncrementSentinel { __type: 'increment'; value: number }
+interface MaximumSentinel { __type: 'maximum'; value: number }
+interface MinimumSentinel { __type: 'minimum'; value: number }
 interface ArrayUnionSentinel { __type: 'arrayUnion'; values: unknown[] }
 interface ArrayRemoveSentinel { __type: 'arrayRemove'; values: unknown[] }
 interface DeleteFieldSentinel { __type: 'deleteField' }
@@ -64,6 +67,18 @@ function isIncrement(v: unknown): v is IncrementSentinel {
   return typeof v === 'object' && v !== null
     && !isUnescapedUserMap(v)
     && (v as Record<string, unknown>).__type === 'increment'
+    && typeof (v as Record<string, unknown>).value === 'number';
+}
+function isMaximum(v: unknown): v is MaximumSentinel {
+  return typeof v === 'object' && v !== null
+    && !isUnescapedUserMap(v)
+    && (v as Record<string, unknown>).__type === 'maximum'
+    && typeof (v as Record<string, unknown>).value === 'number';
+}
+function isMinimum(v: unknown): v is MinimumSentinel {
+  return typeof v === 'object' && v !== null
+    && !isUnescapedUserMap(v)
+    && (v as Record<string, unknown>).__type === 'minimum'
     && typeof (v as Record<string, unknown>).value === 'number';
 }
 function isArrayUnion(v: unknown): v is ArrayUnionSentinel {
@@ -88,6 +103,12 @@ function isDeleteField(v: unknown): v is DeleteFieldSentinel {
 
 export function INCREMENT(value: number): IncrementSentinel {
   return markFieldValueSentinel({ __type: 'increment', value });
+}
+export function MAXIMUM(value: number): MaximumSentinel {
+  return markFieldValueSentinel({ __type: 'maximum', value });
+}
+export function MINIMUM(value: number): MinimumSentinel {
+  return markFieldValueSentinel({ __type: 'minimum', value });
 }
 export function ARRAY_UNION(...values: unknown[]): ArrayUnionSentinel {
   return markFieldValueSentinel({ __type: 'arrayUnion', values });
@@ -168,9 +189,67 @@ export const incrementConverter: ValueConverter = {
   },
 };
 
+function applyNumericMaximum(prior: unknown, operand: number): number | bigint {
+  if (typeof prior !== 'number' && typeof prior !== 'bigint') {
+    return operand;
+  }
+  if (Number.isNaN(operand)) {
+    return Number.NaN;
+  }
+  if (typeof prior === 'number' && Number.isNaN(prior)) {
+    return Number.NaN;
+  }
+  if (compareNumericValues(operand, prior) > 0) {
+    return operand;
+  }
+  return prior;
+}
+
+function applyNumericMinimum(prior: unknown, operand: number): number | bigint {
+  if (typeof prior !== 'number' && typeof prior !== 'bigint') {
+    return operand;
+  }
+  if (Number.isNaN(operand)) {
+    return Number.NaN;
+  }
+  if (typeof prior === 'number' && Number.isNaN(prior)) {
+    return Number.NaN;
+  }
+  if (compareNumericValues(operand, prior) < 0) {
+    return operand;
+  }
+  return prior;
+}
+
+export const maximumConverter: ValueConverter = {
+  name: 'maximum-sentinel',
+  convert(value, ctx) {
+    if (!isMaximum(value)) return KEEP;
+    if (ctx.fieldSegments.some((segment) => typeof segment === 'number')) {
+      throw new Error('maximum() is not currently supported inside arrays');
+    }
+    const prior = readPrior(ctx);
+    return applyNumericMaximum(prior, value.value);
+  },
+};
+
+export const minimumConverter: ValueConverter = {
+  name: 'minimum-sentinel',
+  convert(value, ctx) {
+    if (!isMinimum(value)) return KEEP;
+    if (ctx.fieldSegments.some((segment) => typeof segment === 'number')) {
+      throw new Error('minimum() is not currently supported inside arrays');
+    }
+    const prior = readPrior(ctx);
+    return applyNumericMinimum(prior, value.value);
+  },
+};
+
 function nestedFieldValueName(v: unknown): string | null {
   if (typeof v !== 'object' || v === null || isUnescapedUserMap(v)) return null;
   if (isIncrement(v)) return 'increment()';
+  if (isMaximum(v)) return 'maximum()';
+  if (isMinimum(v)) return 'minimum()';
   if (isArrayUnion(v)) return 'arrayUnion()';
   if (isArrayRemove(v)) return 'arrayRemove()';
   if (isDeleteField(v)) return 'deleteField()';

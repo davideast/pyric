@@ -67,3 +67,42 @@ export {
   type RtdbTransferSeriesKey,
   type RulesSeriesKey,
 } from './useTrafficMetrics.js';
+export {
+  normalizeSubscriptionLifecycleEvent,
+  subscriptionConnectionKey,
+  subscriptionListenerKey,
+  type NormalizedConnectionLifecycleEvent,
+  type NormalizedListenerLifecycleEvent,
+  type NormalizedObservationGapLifecycleEvent,
+  type NormalizedSessionBoundaryLifecycleEvent,
+  type NormalizedSubscriptionLifecycleEvent,
+  type SubscriptionClientKind,
+  type SubscriptionConnectionEvent,
+  type SubscriptionConnectionPhase,
+  type SubscriptionLifecycleInput,
+  type SubscriptionListenerPhase,
+  type SubscriptionService,
+} from './subscription-lifecycle.js';
+export {
+  DEFAULT_SUBSCRIPTION_TRANSITION_CAP,
+  EMPTY_SUBSCRIPTION_GAUGE_SNAPSHOT,
+  createSubscriptionGaugeSnapshot,
+  foldSubscriptionGauge,
+  retainSubscriptionGauge,
+  type SubscriptionBaselineInit,
+  type SubscriptionConnectionRecord,
+  type SubscriptionGaugeSnapshot,
+  type SubscriptionGaugeTransition,
+  type SubscriptionListenerRecord,
+} from './subscription-gauge.js';
+export {
+  SUBSCRIPTION_SERIES_DEFS,
+  bucketSubscriptionMetrics,
+  type BucketSubscriptionMetricsOptions,
+  type SubscriptionMetricsResult,
+  type SubscriptionSeriesKey,
+} from './subscription-buckets.js';
+export {
+  useSubscriptionMetrics,
+  type UseSubscriptionMetricsOptions,
+} from './useSubscriptionMetrics.js';

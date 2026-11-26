@@ -170,8 +170,12 @@ function rehydrateToolWriteData(value: unknown): unknown {
     if (rec.__type === 'deleteField' && keys.length === 1) {
       return markFieldValueSentinel({ __type: 'deleteField' });
     }
-    if (rec.__type === 'increment' && keys.length === 2 && typeof rec.value === 'number') {
-      return markFieldValueSentinel({ __type: 'increment', value: rec.value });
+    if (
+      (rec.__type === 'increment' || rec.__type === 'maximum' || rec.__type === 'minimum') &&
+      keys.length === 2 &&
+      typeof rec.value === 'number'
+    ) {
+      return markFieldValueSentinel({ __type: rec.__type, value: rec.value });
     }
     if (
       (rec.__type === 'arrayUnion' || rec.__type === 'arrayRemove') &&

@@ -13,6 +13,7 @@ import {
   type AuthBlockingClientContext,
 } from './blocking-hooks.js';
 import { runBeforeSignInHook } from './blocking-sign-in.js';
+import { isTrustedGmailGoogleSignIn } from './gmail-account-overwrite.js';
 import {
   decodeOidcIdTokenClaims,
   type ResolveOidcJwtInput,
@@ -264,10 +265,14 @@ export async function resolveBlockedFederatedIdentity(
       tenantId: effectiveTenant,
       client,
       onApproved: () => {
+        const shouldVerifyEmail =
+          !callerDecidesVerification ||
+          (credential.emailVerified === true &&
+            isTrustedGmailGoogleSignIn(credential.providerId, existing.email));
         backend.createSignInCredential({
           providerId: credential.providerId,
           uid: resolvedTargetUid,
-          verifyEmail: !callerDecidesVerification,
+          verifyEmail: shouldVerifyEmail,
         });
         if (credential.preserveExistingProfile === true) {
           return;
